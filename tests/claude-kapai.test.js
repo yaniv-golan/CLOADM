@@ -178,6 +178,13 @@ const outputsOf = (req) => (Array.isArray(req.input) ? req.input.filter((i) => i
       [err('unsupported_option'), 'bad-response', /does not work with this AI model/],
     ];
     for (const [e, code, re] of cases) { const c = kapaiError(e); check(`${e.code} -> ${code}`, c.code === code && re.test(c.message), J({ code: c.code, message: c.message })); }
+    // the SDK words an own-AI failure itself (kapai-sdk :2344, "Your own AI failed: <the AI's error>"); measured live
+    // with a refused key, the chat showed that prefix twice. It must appear exactly once, with the AI's own words.
+    {
+      const own = kapaiError(err('own_ai_failed', { message: 'Your own AI failed: The API key was refused: check it and try again.' }));
+      check('own_ai_failed: "Your own AI failed:" appears exactly once, and the AI\'s own error follows it',
+        own.code === 'bad-response' && (own.message.match(/Your own AI failed:/g) || []).length === 1 && /The API key was refused/.test(own.message), J({ code: own.code, message: own.message }));
+    }
     const t = session([{ error: err('capability_off', { status: 403 }) }]);
     const res = await t.chat.sendLine('hi');
     check('a refused first round: the turn fails with the app\'s text, the line is not kept', res === null && t.chat.error.code === 'forbidden' && t.chat.messages.length === 0);

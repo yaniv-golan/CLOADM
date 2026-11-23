@@ -115,7 +115,8 @@ export function kapaiError(e, signal) {
     case 'unsupported_option': return out('bad-response', 'This feature does not work with this AI model now.');
     case 'input_too_large': return out('too-large', `This conversation is too long for the included AI${e.details && e.details.maxInputTokens ? ` (${e.details.maxInputTokens} tokens at most)` : ''}. Start a new chat.`);
     case 'own_ai_no_tools': return out('bad-response', 'Your AI cannot use this feature. Switch to the included AI.');
-    case 'own_ai_failed': return out('bad-response', `Your own AI failed: ${e.message}`);
+    // the SDK's OwnAIError message is already the person's sentence ("Your own AI failed: ..."): shown as it is
+    case 'own_ai_failed': return out('bad-response', e.message);
     case 'network_error': return out('network', 'Could not reach the AI service. Check your connection.');
     default: break;
   }
