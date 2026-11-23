@@ -15,6 +15,21 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   at least one of them), and `node tools/prepush.js` runs the author's checklist before a push (the affected suites
   and groups, the full gate, `sw.js`'s file list, CHANGELOG edits only under `[Unreleased]`, the skill copies, a
   noreply email, the release tags, and a report skeleton).
+- **Tape: Eject, the tape commands in Ctrl+K, and recordings kept in the Library.** The cassette slot has **Eject**
+  beside **Rewind** (on touch, the slot's buttons are at least 44 px tall) (`Session.ejectTape`, which emits `'tape'` and clears the tape watch as a rewind does): the deck
+  goes with the tape, the focus goes to the slot's deck button, and the page says "Tape ejected."; a program waiting
+  on the tape (BASIC's CLOAD) keeps waiting, as on a real machine. Ctrl+K has **Insert a tape…** (the tape picker:
+  .cas and .wav), **Rewind the tape** and **Eject the tape**. Every command is always listed: one that doesn't apply
+  now (Rewind, Eject or Save the tape as .WAV with no tape in) is a muted row whose second line says why not ("No tape
+  in"), aria-disabled but still selectable, listed after the rows that apply; choosing it keeps the box open, runs
+  nothing, and its row and the box's live region say why, once ("No tape in the deck."). On a tape of more than one file
+  the deck says which is loading: "LOADING · FILE 2 OF 3 · BLOCK 4 OF 31". **Stop and save .CAS** no longer
+  downloads "recording.cas": the recording goes into the Library named after the first file in its header, trimmed,
+  with the characters a file name can't take as "_" (`CSAVE "HELLO"` saves HELLO.CAS, "A/B" saves A_B.CAS), or
+  "Recording HH-MM.cas" with no name; a name already there gets " (2)" (`MediaLibrary.uniqueName`); several CSAVEs
+  make one file, named after the first. The toast says "Saved HELLO.CAS to your Library (2 files)." with **Download**;
+  with "Download and open files" chosen it is downloaded under that name instead. A recording kept at a machine
+  switch is offered and saved the same way (`Session.recordingName`).
 - **Minesweeper plays with a joystick.** Either joystick moves the cursor: one step as the stick leaves the centre,
   then again after 300 ms and every 120 ms while it is held (counted in fields, at the machine's own 50 or 60 Hz;
   centring the stick and pushing the same way again is a new press). Either fire button opens the square under the

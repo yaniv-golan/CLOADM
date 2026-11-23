@@ -831,6 +831,29 @@ snapshot. The page (browser check, group `tapeHud`, desktop and phone): on by de
 Sound switched off nothing at all is sent to the output while the tape plays (`tests/tape-sound.test.js` checks the
 same gate in Node). How it sounds is a matter of ear, not checked automatically.
 
+### The tape's extras: Eject, the Ctrl+K tape commands, several files, recordings named
+
+No MAME oracle (AGENTS.md 4.6): page behaviour. `tests/tape-extras.test.js` records real CSAVEs, the project's writer
+firmware (`tools/mame-diff/tape/csave.asm`) running as the Dragon 32's ROM with the name in its namefile block changed
+per case: "HELLO" names HELLO.CAS, a blank name and an empty recording "Recording HH-MM.cas", "A/B" A_B.CAS (and
+every other forbidden character "_"), two runs in one recording one file named after the first with 2 files;
+`MediaLibrary.uniqueName` gives "HELLO (2).CAS" and "(3)" once the names are taken. A 2-file tape reports file 2 of 2
+past its second namefile block. `Session.ejectTape` empties the deck, emits `'tape'`, clears the tape watch, and
+with the motor on resets nothing: the machine runs on and the motor stays on. Browser check, group `tapePanel`
+(1440x900 and 390x844): Ctrl+K without a tape lists **Insert a tape…** (which opens the tape picker, .cas and .wav),
+then Rewind, Eject and Save the tape as .WAV muted ("No tape in", aria-disabled, no disabled attribute, after every row
+that applies); choosing each of them keeps the box open, changes nothing, puts its reason on its row and says it once
+in the live region; with a tape, "rewind" and "eject" find them, not muted; a 3-file tape reads "LOADING · FILE 2 OF 3 ·
+BLOCK 4 OF 9"; **Rewind the tape** rewinds; **Eject the tape**, with the motor on, hides the deck, says "Tape
+ejected." and leaves the focus on the slot's deck button with the motor still on; the commands are then muted
+again; the slot's **Eject** sits beside **Rewind**, is disabled with no tape, and ejects the same way. Group `tape`:
+the writer firmware's recording is saved to the Library as CLOADM.CAS, byte for byte, and the toast's **Download**
+saves the same bytes under that name; the recording kept at a machine switch is offered as CLOADM.CAS and saved as
+"CLOADM (2).CAS"; both are on the Library's shelf after a reload. Two runs of the writer in one recording save one
+CLOADM.CAS, and the toast says "(2 files)"; with `?storage=fallback` ("Download and open files") the recording is
+downloaded as CLOADM.CAS and nothing is kept. On the touch phone the slot's Rewind, Eject, Record and Save .WAV are at
+least 44 px tall.
+
 ### The tape HUD and the cassette panel
 
 Browser check, groups `tapeHud` and `tapePanel`. At 1440x900, 820x1180, 390x844 and 844x390 (touch at the last three),

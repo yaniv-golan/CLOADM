@@ -10,7 +10,11 @@
  */
 import { $, ESC, safeArea } from './page.js';
 
-// [label, what it does, more words it answers to, the button it presses (or what it does, for one with no button), group]
+// [label, what it does, more words it answers to, the button it presses (or what it does, for one with no button), group,
+//  and, for a command that only works some of the time, notNow(page): null when it applies now, else { state: the muted
+//  line its row shows ("No tape in"), why: what choosing it says instead of running ("No tape in the deck.") }]
+// Every command is always listed: one that doesn't apply now is a muted row (aria-disabled, still focusable), and
+// choosing it says why, in the box, which stays open; nothing runs.
 // In the order the empty box lists them (the groups in GROUPS' order). A command with a keyboard shortcut would
 // show it in its row's .hint; none has one yet.
 export const GROUPS = ['Claude', 'Files', 'Views', 'Settings', 'Machine'];
@@ -22,7 +26,12 @@ export const COMMANDS = [
   ['Insert a disk…', 'a disk image into the first free drive', 'disk drive mount vdk dsk floppy', (page) => page.drives.pick(), 'Files'],
   ['New blank disk', 'an empty disk in the first free drive', 'disk drive new blank empty format floppy', (page) => page.drives.blank(), 'Files'],
   ['Eject disk', 'takes the disk out of its drive', 'disk drive eject remove floppy', (page) => page.drives.eject(), 'Files'],
-  ['Save the tape as .WAV', 'the tape in the deck, or the last recording', 'save tape wav cassette record', 'btnTapeWav', 'Files'],
+  ['Insert a tape…', 'a .cas or .wav tape into the deck', 'tape cassette insert cas wav load', 'btnTape', 'Files'],
+  ['Rewind the tape', 'back to the start of the tape', 'tape cassette rewind start', 'btnRewind', 'Files',
+    noTape('No tape in. Insert one with "Insert a tape…".')],
+  ['Eject the tape', 'takes the tape out of the deck', 'tape cassette eject remove', 'btnEjectTape', 'Files', noTape('No tape in the deck.')],
+  ['Save the tape as .WAV', 'the tape in the deck, or the last recording', 'save tape wav cassette record', 'btnTapeWav', 'Files',
+    (page) => (hasTape(page) || (page.tape && page.tape.recorded()) ? null : { state: 'No tape in', why: 'No tape in and nothing recorded yet.' })],
   ['Record to tape', 'CSAVE becomes a .CAS file', 'record tape cas csave save', 'btnRecord', 'Files'],
   ['Share', 'a share link, a clip, a screenshot', 'share link clip screenshot capture embed', 'btnShare', 'Files'],
   ['Open the Library', 'your tapes, disks and programs', 'library tapes disks programs files', 'navLibrary', 'Views'],
@@ -38,6 +47,8 @@ export const COMMANDS = [
   ['Reset', 'like the reset button', 'reset restart', 'btnReset', 'Machine'],
   ['Switch off and on', 'clears memory; the tape and cartridge stay in', 'switch off on power cycle hard reset clear', 'btnHardReset', 'Machine'],
 ];
+function hasTape(page) { return !!page.session.personMachine.deck.tape; }
+function noTape(why) { return (page) => (hasTape(page) ? null : { state: 'No tape in', why }); }
 const CLAUDE_NOTE = "Claude reads this emulated machine's screen text and memory, and acts on it only with your permission.";
 
 const FILLER = new Set(['a', 'an', 'the', 'my', 'me', 'to', 'of', 'it', 'this', 'please', 'for', 'in', 'on']);
@@ -56,6 +67,7 @@ export function setupCommandBox(page, claude) {
   const { session } = page;
   const box = $('cmdBox'), input = $('cmdInput'), list = $('cmdList');
   let options = [], selected = -1, back = null;
+  let refused = null;   // the command just chosen while it doesn't apply: its row says why until the query changes
   const mac = /Mac|iPhone|iPad/.test(navigator.platform || '');
   $('askKbd').textContent = mac ? '⌘K' : 'Ctrl K';
   $('navCmdKbd').textContent = mac ? '⌘K' : 'Ctrl K';
@@ -63,18 +75,22 @@ export function setupCommandBox(page, claude) {
 
   // the commands matching the text: every word (but the little ones: "save my prog") starts a word of the label or
   // of its other words
+  // (a command whose button the page lacks is left out; one that doesn't apply now is listed, muted: notNow)
   const available = ([, , , id]) => !(typeof id === 'string' && !$(id));
+  const withState = (c) => ({ c, off: c[5] ? c[5](page) : null });
   function matches(q) {
     // split as the labels are, so a label typed with its punctuation ("Chat with Claude, full screen") finds it
     const words = q.toLowerCase().split(/[^a-z0-9.]+/).filter((w) => w && !FILLER.has(w));
-    if (!q) return COMMANDS.filter(available);   // the empty box lists every command there is
+    if (!q) return COMMANDS.filter(available).map(withState);   // the empty box lists every command there is, in place
     if (!words.length) return [];
-    return COMMANDS.filter((c) => {
+    const found = COMMANDS.filter((c) => {
       if (!available(c)) return false;
       const [label, , more] = c;
       const hay = `${label} ${more}`.toLowerCase().split(/[^a-z0-9.]+/);
       return words.every((w) => hay.some((h) => h.startsWith(w)));
-    }).slice(0, 6);
+    }).map(withState);
+    // the ones that apply now first, each part in the list's order
+    return found.filter((m) => !m.off).concat(found.filter((m) => m.off)).slice(0, 6);
   }
   const div = (cls, text, id) => Object.assign(document.createElement('div'), { className: cls, textContent: text, ...(id ? { id } : {}) });
   function optionRow(o, i) {
@@ -88,7 +104,13 @@ export function setupCommandBox(page, claude) {
       row.className = 'ask';
       a.textContent = `Ask Claude: "${o.q}"`;
       h.textContent = 'opens the side panel';
-    } else { a.textContent = o.c[0]; h.textContent = o.c[1]; }
+    } else {
+      a.textContent = o.c[0];
+      // a command that doesn't apply now: muted, its state as the second line (after it was chosen: why), and
+      // aria-disabled but still focusable and selectable
+      h.textContent = o.off ? (o.refused ? o.off.why : o.off.state) : o.c[1];
+      if (o.off) { row.setAttribute('aria-disabled', 'true'); row.classList.add('off'); if (o.refused) h.classList.add('why'); }
+    }
     row.append(a, h);
     row.onmousemove = () => { if (selected !== i) { selected = i; draw(); } };
     row.onclick = () => { selected = i; run(); };
@@ -102,7 +124,7 @@ export function setupCommandBox(page, claude) {
     // "?" ("What is this code doing?") still runs the command.
     const label = q.toLowerCase();
     const question = /\?\s*$/.test(q) && !COMMANDS.some(([l]) => l.toLowerCase() === label);
-    const cmdRows = cmds.map((c) => ({ kind: 'cmd', c })), askRow = q ? [{ kind: 'ask', q }] : [];
+    const cmdRows = cmds.map((m) => ({ kind: 'cmd', c: m.c, off: m.off, refused: refused === m.c })), askRow = q ? [{ kind: 'ask', q }] : [];
     options = question ? [...askRow, ...cmdRows] : [...cmdRows, ...askRow];
     selected = Math.min(selected, options.length - 1);   // -1: nothing chosen yet (the empty box)
     const out = [];
@@ -156,7 +178,7 @@ export function setupCommandBox(page, claude) {
     place();
     box.hidden = false;
     input.value = '';
-    selected = -1;
+    selected = -1; refused = null;
     list.scrollTop = 0;
     draw();
     input.focus();
@@ -177,6 +199,15 @@ export function setupCommandBox(page, claude) {
   function run() {
     const o = options[selected];
     if (!o) return;
+    // a command that doesn't apply now: the box stays open and nothing runs; its row says why, and the live region
+    // says it once
+    if (o.kind === 'cmd' && o.off) {
+      refused = o.c;
+      draw();
+      clearTimeout(liveTimer);
+      live.textContent = o.off.why;
+      return;
+    }
     closeBox({ refocus: o.kind !== 'ask' });
     if (o.kind === 'ask') {
       // the side panel, beside the person's machine whatever is on it (only "Chat with Claude, full screen" and the
@@ -195,7 +226,7 @@ export function setupCommandBox(page, claude) {
     $('btnMenu').setAttribute('aria-expanded', 'false');
     openBox();
   };
-  input.addEventListener('input', () => { selected = input.value.trim() ? 0 : -1; draw(); announce(); });
+  input.addEventListener('input', () => { refused = null; selected = input.value.trim() ? 0 : -1; draw(); announce(); });
   input.addEventListener('keydown', (e) => {
     if (e.key === 'ArrowDown') { e.preventDefault(); selected = Math.min(options.length - 1, selected + 1); draw(); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); selected = Math.max(options.length ? 0 : -1, selected - 1); draw(); }
