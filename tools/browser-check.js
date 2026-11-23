@@ -13132,6 +13132,24 @@ async function semanticsChecks(browser, base, site, check) {
     const text = (n) => (n.role && n.role.value === 'StaticText' ? n.name.value : '') + (n.childIds || []).map((c) => text(byId.get(c))).join('');
     return { count: app.length, name: app[0] && app[0].name && app[0].name.value, text: app[0] ? text(app[0]) : '' };
   };
+  // The screen's text in the accessibility tree and the screen's own text, read at ONE moment. A running machine can
+  // change the screen between two reads (LIZA's cursor blinks after its prompt), and the page copies the screen's text
+  // into #screenAlt only about once a second, so a tree read and a later read of the screen can honestly differ (a CI
+  // failure: the tree held the greeting ending in ">", the second read did not). So the machine is paused (the page's own
+  // Pause: its once-a-second copy goes on while it is paused), the copy is waited for, the tree, the screen and the copy
+  // are read, and the machine is let go again. The comparison stays exact: nothing moves between the reads.
+  const frozenScreen = async (page) => {
+    const toggle = () => page.evaluate(() => document.getElementById('btnPause').click());   // (hidden on a phone held sideways: a click on it still works)
+    await toggle();
+    try {
+      await waitFor(page, () => document.getElementById('screenAlt').textContent === window.emu.session.screenAlternative());
+      const ax = await screenAx(page);
+      const live = await page.evaluate(() => window.emu.session.screenAlternative());
+      const copy = await page.evaluate(() => document.getElementById('screenAlt').textContent);
+      const paused = await page.evaluate(() => window.emu.session.paused || document.getElementById('btnPause').classList.contains('active'));
+      return { ax, live, copy, paused };
+    } finally { await toggle(); }
+  };
   // what a reading mode extracts: Readability on a copy of the document, as the page is now
   const extract = async (page) => {
     if (!await page.evaluate(() => typeof window.Readability === 'function')) await page.addScriptTag({ path: READER });
@@ -13174,10 +13192,10 @@ async function semanticsChecks(browser, base, site, check) {
     check(`${L}: the headings: one h1 naming the machine, none skipped`, inOrder(o.headings) && o.headings[0][1] === 'Dragon 64', JSON.stringify(o.headings));
 
     // the screen: an application named as before, its text alternative the screen's text
-    const ax = await screenAx(page);
-    const alt = await page.evaluate(() => window.emu.session.screenAlternative());
+    const { ax, live: alt, copy, paused } = await frozenScreen(page);
     check(`${L}: the screen is one application, named, its text alternative the screen's text in the accessibility tree`,
-      ax.count === 1 && ax.name === 'The emulated screen. Click it, then type. Tab leaves it.' && norm(ax.text) === norm(alt) && /1 TALK TO LIZA/.test(ax.text), JSON.stringify(ax));
+      ax.count === 1 && ax.name === 'The emulated screen. Click it, then type. Tab leaves it.' && paused && norm(ax.text) === norm(alt) && norm(copy) === norm(alt) && /1 TALK TO LIZA/.test(ax.text),
+      JSON.stringify({ ax, live: alt, copy, paused }));
 
     // closed surfaces, as the page starts and after each has been opened and closed again
     await closedOk(page, `${L}, as it starts`);
@@ -13245,8 +13263,11 @@ async function semanticsChecks(browser, base, site, check) {
       await page.keyboard.press('1');
       const follows = await waitFor(page, () => /LIZA/.test(window.emu.session.screenAlternative()) && !/TALK TO LIZA/.test(window.emu.session.screenAlternative())
         && document.getElementById('screenAlt').textContent === window.emu.session.screenAlternative());
-      const ax2 = await screenAx(page);
-      check(`${L}: the text alternative follows the screen (LIZA started from the menu)`, follows && norm(ax2.text) === norm(await page.evaluate(() => window.emu.session.screenAlternative())), JSON.stringify(ax2.text.slice(0, 120)));
+      // (the tree and the screen are read at one moment, the machine paused: LIZA's cursor must not move between them)
+      const fr = await frozenScreen(page);
+      check(`${L}: the text alternative follows the screen (LIZA started from the menu)`,
+        follows && fr.paused && /LIZA/.test(fr.live) && !/TALK TO LIZA/.test(fr.live) && norm(fr.ax.text) === norm(fr.live) && norm(fr.copy) === norm(fr.live),
+        JSON.stringify({ follows, paused: fr.paused, ax: fr.ax.text.slice(0, 160), live: fr.live.slice(0, 160), copy: fr.copy.slice(0, 160) }));
       // Ask Claude's side panel (off the welcome menu it opens beside the machine): a complementary landmark while open,
       // hidden for real once closed
       await page.click('#btnAsk'); await waitFor(page, () => !document.getElementById('ask').hidden);
