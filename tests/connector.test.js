@@ -234,6 +234,17 @@ const J = JSON.stringify;
     && panel.LEFT_OUT.every((k) => local[k]) && J(offered.find((t) => t.name === 'boot').inputSchema) === J(local.boot.inputSchema), offered.map((t) => t.name).join(','));
   const want = ['boot', 'switch_machine', 'type_text', 'press_keys', 'screen_text', 'screenshot', 'peek', 'find_bytes', 'disassemble', 'registers', 'step', 'run', 'run_frames', 'load', 'reset', 'power_cycle'];
   check('panel tools: everything the panel runs is offered', want.every((w) => offered.some((t) => t.name === w)) && offered.length <= 64, want.filter((w) => !offered.some((t) => t.name === w)).join(','));
+  // The host drops a tool listing whose input schemas together run past 8 KB (claude.ai said so of this panel's: it was
+  // 11.1 KB). The budget is under that with a margin; a longer description or one more parameter spends it, and the fix
+  // is shorter wording, not a bigger number (docs/mcp.md says how the schemas are kept short).
+  {
+    const bytes = (x) => Buffer.byteLength(JSON.stringify(x));
+    const SCHEMA_BUDGET = 7600, LIST_BUDGET = 28000, WORKER_BUDGET = 2000;
+    const schemas = offered.reduce((n, t) => n + bytes(t.inputSchema), 0), whole = bytes(offered);
+    check(`panel tools: the input schemas together are ${schemas} bytes, within the ${SCHEMA_BUDGET} budget (the host's limit is 8 KB)`, schemas <= SCHEMA_BUDGET, `${schemas} of ${SCHEMA_BUDGET}; the five largest: ${offered.map((t) => [t.name, bytes(t.inputSchema)]).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([n, b]) => `${n} ${b}`).join(', ')}`);
+    check(`panel tools: the whole tools/list the bridge answers from is ${whole} bytes, within ${LIST_BUDGET}`, whole <= LIST_BUDGET && J(views.tools) === J(offered), `${whole} of ${LIST_BUDGET}`);
+    check('the Worker\'s own tools/list stays small', bytes(list.body.result.tools) <= WORKER_BUDGET, `${bytes(list.body.result.tools)} of ${WORKER_BUDGET}`);
+  }
   const s = new Session({ welcomeMenu: false });
   s.switchMachine('dragon64', undefined, { menu: false });
   const ptb = panel.panelToolbox(s, Object.assign({}, host, { program: (f) => new Uint8Array(fs.readFileSync(path.join(ROOT, 'examples', f))) }));

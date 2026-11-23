@@ -66,7 +66,7 @@ const ACTING = {
   poke: {
     description: `Write bytes of memory through the machine's map: RAM takes them; ROM, I/O and absent RAM do not and are listed in not_taken. Returns {address,length,written,skipped,not_taken:[{from,to,why}]}: written is how many bytes landed, skipped how many did not. Errors: bad-address, not-a-number, empty, bad-byte, too-large, past-end (the bytes must end at or before ${ADDRESS_MAX}), not-ram (no byte landed).` + CONSENT,
     input_schema: schema({
-      address: int(`Decimal integer ${ADDR} of the first byte.`, ADDRESS_MIN, ADDRESS_MAX),
+      address: int(`Decimal ${ADDR} of the first byte.`, ADDRESS_MIN, ADDRESS_MAX),
       bytes: { type: 'array', items: { type: 'integer', minimum: BYTE_MIN, maximum: BYTE_MAX }, minItems: POKE_MIN, maxItems: POKE_MAX, description: `Decimal byte values ${BYTE_MIN}-${BYTE_MAX}, ${POKE_MIN} to ${POKE_MAX} of them.` },
     }, ['address', 'bytes']),
     check(chat, t, input) {
@@ -100,7 +100,7 @@ const ACTING = {
   },
   load_basic: {
     description: `Load a BASIC program straight into the program memory of the machine's BASIC, as loading it from tape or disk would: no typing. The text is tokenized for this machine's BASIC (Dragon, Color/Extended BASIC on a CoCo, Micro Color BASIC on an MC-10) and replaces the program in memory (like NEW, then the lines). One line per program line, each starting with its line number (0-${BASIC_LINE_MAX}), 1 to ${BASIC_PROGRAM_TEXT_MAX} characters in all. Needs the BASIC prompt (not the no-ROM stub, not a running program). Returns {lines,bytes,start,end}: the lines stored, the program's size in bytes, and its first and last byte addresses (decimal). Only characters $20-$7E. Errors: empty, too-large, bad-line-number, line-too-long, not-typable, no-basic, not-at-prompt, program-too-large, unknown-machine, each refused with nothing changed; not-ram if the program did not read back once written. ${TYPING_POLICY}` + LOAD_CONSENT,
-    input_schema: schema({ program: { type: 'string', minLength: 1, maxLength: BASIC_PROGRAM_TEXT_MAX, description: `The program listing: numbered lines separated by \\n, 1 to ${BASIC_PROGRAM_TEXT_MAX} characters.` } }, ['program']),
+    input_schema: schema({ program: { type: 'string', minLength: 1, maxLength: BASIC_PROGRAM_TEXT_MAX, description: `Numbered lines separated by \\n, 1 to ${BASIC_PROGRAM_TEXT_MAX} characters.` } }, ['program']),
     // the same implementation as Session.loadBasic (js/claude/basicload.js)
     check: (chat, t, input) => planBasic(t, input.program),
     act(chat, t, plan) { t.show(); return writeBasic(t, plan); },
@@ -115,8 +115,8 @@ const ACTING = {
   assemble_and_load: {
     description: `Assemble source for the machine's own CPU and write it into memory; does not start it (use run). Returns {bytes,written,skipped,ranges:[{from,to}],start,symbols:{NAME:address},not_taken:[{from,to,why}]} with every address a decimal integer: bytes assembled, how many landed (written) and did not (skipped); not_taken lists bytes that did not land (why: rom, io, latch, undecoded, absent-ram, lost). Errors: empty, too-large, bad-address, not-a-number, assembly-failed (with the line numbers of your source), include-unreadable (an INCLUDE file could not be read), org-conflict, past-end, not-ram (no byte landed), each refused with nothing written.` + CONSENT,
     input_schema: schema({
-      source: { type: 'string', minLength: 1, maxLength: SOURCE_MAX, description: `Assembler source text, 1 to ${SOURCE_MAX} characters. A comment starts with ; (a line with * or ;); after an instruction that takes no operand, text is a comment unless it starts like an operand (#, $, a digit, a comma).` },
-      org: int(`Load address, decimal ${ADDR}. Omit it if the source has its own ORG; with neither, the code is assembled at ${ASSEMBLE_DEFAULT_ORG}.`, ADDRESS_MIN, ADDRESS_MAX),
+      source: { type: 'string', minLength: 1, maxLength: SOURCE_MAX, description: `Assembler source, 1 to ${SOURCE_MAX} characters. A comment starts with ; (or * at line start); after an instruction with no operand, text is a comment unless it starts like an operand (#, $, a digit, a comma).` },
+      org: int(`Load address, decimal ${ADDR}. Omit it if the source has ORG; with neither, the code is assembled at ${ASSEMBLE_DEFAULT_ORG}.`, ADDRESS_MIN, ADDRESS_MAX),
     }, ['source']),
     check: (chat, t, input) => chat.assemble(t, input),
     act(chat, t, res) {
@@ -139,7 +139,7 @@ const ACTING = {
   },
   run: {
     description: `Start the code in memory. \`target\` is an address to jump to: a decimal integer ${ADDR}, or text in hex ("$3000", "0x3000", "3000"); or the text "RUN" to type RUN and Enter at the keyboard, as type_text types, so BASIC runs its program (needs the BASIC ROMs, and BASIC at its prompt). Returns {how:"jump", target} with the address the CPU was sent to, or {how:"typed", target:"RUN", requested, consumed, lines_requested, lines_delivered}; for "RUN", ${CONSUMED_MEANS} Errors: bad-target, no-basic, machine-stopped if the Debugger has the machine stopped (nothing run); for "RUN" also not-consumed (the machine did not read the keys), stopped (the person pressed Stop while it typed) and machine-restarted if the machine restarts while the keys go in (detail says how many went in); this is not a Stop: read the screen before typing again.` + CONSENT,
-    input_schema: schema({ target: { anyOf: [{ type: 'integer', minimum: ADDRESS_MIN, maximum: ADDRESS_MAX }, { type: 'string' }], description: `Address (decimal integer ${ADDR}, or hex text) or "RUN"; omit for "${RUN_DEFAULT_TARGET}".` } }, []),
+    input_schema: schema({ target: { anyOf: [{ type: 'integer', minimum: ADDRESS_MIN, maximum: ADDRESS_MAX }, { type: 'string' }], description: `Address (decimal ${ADDR}, or hex text) or "RUN"; omit for "${RUN_DEFAULT_TARGET}".` } }, []),
     check(chat, t, input) {
       const raw = input.target == null ? RUN_DEFAULT_TARGET : input.target;
       return { raw, parsed: t.checkRun(raw) };
