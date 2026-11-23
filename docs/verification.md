@@ -384,10 +384,18 @@ firmware never writes the 6551's `$FF04-$FF07`. Those parts are covered by keys 
 dragon64` (the SAM diagnostic's phase 4 reads BANKID at `$BF00` with PB2 both ways, and fails on the PB2 mutation)
 and `acia dragon64`. The comparable earlier statement for the CoCos' SSC keys is the same: they cover the Pak, and
 the models' own differences are covered by their own keys.
-The board is named plainly, **Speech/Sound Pak**. Its PIC (TMS7040) ROM is the user's, added through the ROM panel
-and required; the SP0256 allophone ROM is the user's too and optional: with it the Pak speaks, and without it the
-ROM panel and the insert message say it plays music only. The browser check's `sscBoard` group adds our own images
-through the page and hears the speech reach the machine's sound path. Offering the Pak on these four models rests on the instruction lockstep above; the interrupt case
+Its PIC (TMS7040) ROM is the user's, added through the ROM panel and required; the SP0256-AL2 speech ROM is the
+user's too and optional (CLOADM never includes it). The words for it are one table, `SSC_TEXT` in `js/session.js`:
+without the speech ROM the board menu says **Speech/Sound Pak (music; speech needs your SP0256-AL2 ROM)** and with it
+**Speech/Sound Pak**; the ROM panel's speech socket says it is optional, what it does and that CLOADM never includes
+it, or, loaded, that the Pak speaks; and when a program first asks the Pak to speak with no speech ROM (an address
+load, noted by the Pak and checked by the Session after every frame, however the frames were run: the page,
+Claude's tools, MCP, a script) the Session emits `speech-rom` once in its life, which the page shows as one toast
+with an "Add ROMs" button (the stdio MCP server, `cli/mcp.js`, has no page, and nothing there listens for it). `tests/ssc-board.test.js` holds the words, the label switch and the once-a-session rule
+(more speech, and the Pak out and in again, say nothing more; with the ROM in, or a program that never speaks, nothing
+at all); the browser check's `sscBoard` group checks the menu label both ways, both panel lines and the toast exactly
+once through the page, all with our own stand-in speech program, and hears the speech reach the machine's sound
+path once the stand-in speech image is added. Offering the Pak on these four models rests on the instruction lockstep above; the interrupt case
 (`compare.js`) additionally passes on the CoCo 1/2, the CoCo 2B and the Dragon 64, and on the CoCo 3 it does not.
 That pass is weaker than it sounds: those three models' work RAM matches because the firmware's fixed read lands
 outside a sound-activity window this emulator does not model (above), so it is not evidence about bit 5 either

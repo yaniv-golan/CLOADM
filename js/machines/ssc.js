@@ -147,6 +147,9 @@ class SpeechSoundPak extends SlotDevice {
     this.spLevel = 0;
     this.spQueue = [];
     this.spQueued = 0;      // the level of the queue's last entry (or spLevel when it is empty)
+    // A program has loaded an allophone address while the Pak has no allophone ROM (so it is silent where it would
+    // speak). For the host to tell the person (Session.checkSpeechRom); not machine state, so not in a snapshot.
+    this.spokeWithoutRom = false;
     // the card's timer must exist before loadState, because the clock restores into registered timers
     this.picTimer = this.clock.timer('ssc.pic', () => this.tickCard());
     this.lines.set('cart', 'clear');   // the Pak does not autostart (MAME leaves CART alone)
@@ -303,7 +306,11 @@ class SpeechSoundPak extends SlotDevice {
       else if ((data & C_BDR) === C_BDR && (data & C_BC1) === 0) this.atEnd(this.ay, this.ay.dataW, this.portD);  // BDIR=1 BC1=0: write data
     }
     // SP0256: a falling edge of ALD, with the allophone number below 64
-    if ((prev & C_ALD) === C_ALD && (data & C_ALD) === 0 && this.portD < 64) this.atEnd(this.sp0256, this.sp0256.loadAddress, this.portD);
+    if ((prev & C_ALD) === C_ALD && (data & C_ALD) === 0 && this.portD < 64) {
+      // a program asking for speech with no allophone ROM to speak from: the Session tells the person, once
+      if (!this.sp0256Data) this.spokeWithoutRom = true;
+      this.atEnd(this.sp0256, this.sp0256.loadAddress, this.portD);
+    }
     // the busy line back to the CoCo: a 0 -> 1 edge clears it
     if ((prev & C_BSY) === 0 && (data & C_BSY) === C_BSY) this.busy = false;
     this.portC = data;

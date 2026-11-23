@@ -56,6 +56,16 @@ import { screenRows, screenTextTool } from './claude/readtools.js';
 // its next action waits; "Esc stops Claude" is never dropped)
 export const CLAUDE_PAUSED_TEXT = 'Paused: you pressed a key · Claude\'s next action waits · Esc stops Claude';
 // the same where it must fit one line (the browser Fullscreen's pill)
+// The Speech/Sound Pak's words for its speech ROM (the SP0256-AL2's allophone data, the user's own and optional):
+// the board menu's label without it and with it, the ROM panel's line for its socket, and the one notice a session
+// gives when a program speaks with no speech ROM (checkSpeechRom; the page adds an "Add ROMs" button).
+export const SSC_TEXT = Object.freeze({
+  boardNoSpeech: 'Speech/Sound Pak (music; speech needs your SP0256-AL2 ROM)',
+  board: 'Speech/Sound Pak',
+  romMissing: 'Optional: the SP0256-AL2 speech ROM. Without it the Pak plays music, and speech stays silent. CLOADM never includes it; add your own dump.',
+  romLoaded: 'SP0256-AL2 speech ROM ✓ · the Pak speaks.',
+  speechNoRom: 'This program is speaking, but there\'s no speech ROM: add your SP0256-AL2 dump in Your ROMs.',
+});
 export const CLAUDE_PAUSED_SHORT = 'Paused: you pressed a key · Esc stops Claude';
 // a message's text: a string, or the text blocks of a content array
 import { RomLibrary, identifyRoms, isBootable, isRomPack, looksLikeRom, makeRomPack, restoreRomPack, socketStatus } from './roms.js';
@@ -641,6 +651,7 @@ export class Session {
     this.tapeWatch = null;          // the current or last run of the cassette motor: { done, error } (tapeStatus)
     this.tapeStarted = null;        // a machine-code tape fast-loaded and started: { tape, exec } (tapeStatus started)
     this.lastPrinted = 0;           // printout length at the last 'printer' event
+    this.speechRomNoted = false;    // 'speech-rom' has been emitted (once a session: checkSpeechRom)
     // DriveWire: one server for the session, on its media store (images under DW_PREFIX); attached to the
     // machine's Becker port when it has one. Channels: WebSockets (DriveWireSocket) by channel number.
     this.drivewire = new DriveWireServer({ store: media, namePrefix: DW_PREFIX, sameName: (a, b) => this.sameName(a, b) });
@@ -1011,6 +1022,18 @@ export class Session {
   checkPrinter() {
     const n = this.shownMachine.printed.length;
     if (n !== this.lastPrinted) { this.lastPrinted = n; this.emit('printer'); }
+  }
+  // A program on the shown machine has asked the Speech/Sound Pak to speak, and the Pak has no allophone ROM: emit
+  // 'speech-rom' once in this Session's life (SPEECH_ROM_NOTE is what the page says). Checked after every frame,
+  // however the frames were run (the page's clock, Claude's tools, MCP, scripts), so it is raised once whoever ran
+  // the program. The Pak may be in the port or in a Multi-Pak slot.
+  checkSpeechRom() {
+    if (this.speechRomNoted) return;
+    const port = this.shownMachine.cartPort;
+    const paks = port instanceof SpeechSoundPak ? [port] : port && Array.isArray(port.slots) ? port.slots.filter((c) => c instanceof SpeechSoundPak) : [];
+    if (!paks.some((p) => p.spokeWithoutRom)) return;
+    this.speechRomNoted = true;
+    this.emit('speech-rom');
   }
 
   // ---------------- serial port (the CoCo's and the MC-10's bit-banger, the Dragon 64's 6551) ----------------
@@ -2445,6 +2468,8 @@ export class Session {
   get offersSsc() { return !!(this.personMachine && this.personMachine.profile.options && this.personMachine.profile.options.ssc); }
   // is the Pak in the cartridge port? (also when it arrived through a restored snapshot)
   get sscInserted() { return !!this.personMachine && this.personMachine.cartPort instanceof SpeechSoundPak; }
+  // the board menu's name for the Pak: whether its speech ROM is stored (SSC_TEXT)
+  get sscBoardLabel() { return this.roms.get('ssc').sp0256 ? SSC_TEXT.board : SSC_TEXT.boardNoSpeech; }
   // what is needed to put the Pak in: [{ id, label, size, files, status }] from the stored ROMs
   sscRoms() {
     const stored = this.roms.get('ssc');
@@ -2473,7 +2498,7 @@ export class Session {
     this.poweredOn();
     this.emit('loaded');
     return stored.sp0256 ? 'Speech/Sound Pak inserted (music and speech)'
-      : 'Speech/Sound Pak inserted (music only: add the SP0256-AL2 allophone ROM in the ROM panel for speech)';
+      : 'Speech/Sound Pak inserted (music only: add your SP0256-AL2 dump in Your ROMs for speech)';
   }
   // take it out and leave the machine on its own ROMs
   ejectSsc() {
@@ -4121,6 +4146,7 @@ export class Session {
       this.acc = 0;
       this.checkRate();
       this.checkPrinter();
+      this.checkSpeechRom();
       this.flushWelcome();
       this.checkMenuReturn();
       return n;
@@ -4134,7 +4160,7 @@ export class Session {
       this.acc -= frameMs; n++;
     }
     if (this.acc > frameMs * 4) this.acc = 0;
-    if (n) { this.checkRate(); this.checkPrinter(); }
+    if (n) { this.checkRate(); this.checkPrinter(); this.checkSpeechRom(); }
     this.flushWelcome();
     this.checkMenuReturn();
     return n;
@@ -4169,6 +4195,7 @@ export class Session {
       n++;
       this.checkRate();
       this.checkPrinter();
+      this.checkSpeechRom();
       this.flushWelcome();
       this.checkMenuReturn();
     }
