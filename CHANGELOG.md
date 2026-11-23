@@ -15,6 +15,18 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   at least one of them), and `node tools/prepush.js` runs the author's checklist before a push (the affected suites
   and groups, the full gate, `sw.js`'s file list, CHANGELOG edits only under `[Unreleased]`, the skill copies, a
   noreply email, the release tags, and a report skeleton).
+- **Ctrl+K finds more, forgives typos and switches machines.** New commands: **Help** (the Help page in a new tab),
+  **Switch machine…** (the machine menu; also "computer" and "model"), and **Switch to <model>** for every model,
+  found by its name ("coco 3"), which asks first through the machine menu's confirmation; a query
+  that says "switch" or "machine" without naming a model gets the one **Switch machine…** row. **Your ROMs** also
+  answers to "delete", "remove" and "forget", and **Help** to "guide" and "how". A word of 4 letters or more may be one
+  letter off a word's start, its first letter kept ("rset" finds Reset, "setings" and "setin" the settings). Matches at
+  the start of a word of the name come first, then those in a command's other words, then the near misses, each in
+  the list's order; up to 8 commands (was 6), Ask Claude last; the matched part is highlighted (`<mark>`), and each
+  option's accessible name is its plain label. `↓` on the last row goes to the first, `↑` with none chosen to the
+  last. Every command stays listed, as the tape's do: **Eject disk** with no disk in is muted ("No disk in"; choosing it
+  says "No disk in any drive."), and **Switch to** the model you are using is muted ("Running now"; choosing it says
+  "You're using the Dragon 64 now."), after the rows that apply. (`rankCommands`, `listCommands`, `switchCommands`.)
 - **Tape: Eject, the tape commands in Ctrl+K, and recordings kept in the Library.** The cassette slot has **Eject**
   beside **Rewind** (on touch, the slot's buttons are at least 44 px tall) (`Session.ejectTape`, which emits `'tape'` and clears the tape watch as a rewind does): the deck
   goes with the tape, the focus goes to the slot's deck button, and the page says "Tape ejected."; a program waiting

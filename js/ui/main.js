@@ -143,7 +143,7 @@ const showRoms = () => romSockets.reveal();
 const claude = chatHere ? setupClaude(page) : null;
 // set up only when there is a controller: both modules drive the chat and would throw on null
 if (claude) setupAsk(page, claude);
-if (claude) setupCommandBox(page, claude);
+if (claude) setupCommandBox(page, claude, machinePanel);
 // the controls that hand Claude a key or a say over the machine take no press for their card's first moments on screen
 if (claude) {
   const card = (label, id, ...controls) => ({ label, card: $(id), controls: controls.map((c) => $(c)) });
