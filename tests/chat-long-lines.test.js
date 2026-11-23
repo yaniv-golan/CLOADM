@@ -8,7 +8,9 @@
 //  * lines of 256, 269 and 1000 characters arrive whole, as typed;
 //  * a line of 1025: the first 1024 are sent and the 1025th is refused with a notice on the chat screen, "[Full: 1024
 //    characters. ENTER sends it.]", then the screen goes on as before (ENTER takes the notice away);
-//  * the API key reaches neither machine's memory.
+//  * the API key reaches neither machine's memory;
+//  * on a CoCo with 4K or 16K the chat is refused, saying it needs 32K (its firmware uses $0400-$7FFF), and nothing
+//    changes; with 32K it starts.
 const fs = require('fs'), path = require('path');
 const Emu = require('./load')();
 const FONT = require('../tools/chat-font.js');
@@ -94,6 +96,28 @@ const CASES = [['dragon64', false], ['coco', false], ['coco', true], ['coco2b', 
     check(`${label}: the API key is in neither machine's memory`, !keyIn(cm.ram) && !keyIn(basic.ram));
     s.endChat();
   }
+  // ---- memory: the firmware needs 32K ($0400-$7FFF). With 4K or 16K it would load into memory that is not there
+  // and leave a dead screen; startChat refuses, saying so, and changes nothing ----
+  for (const id of ['coco', 'coco2b']) {
+    for (const ram of [4, 16, 32]) {
+      const s = new Emu.Session({ store: Emu.memoryStore() });
+      s.switchMachine(id, { ram });
+      const basic = s.shownMachine;
+      const backend = new Emu.ClaudeBackend({ fetch: async () => { throw new Error('no network'); }, apiKey: KEY });
+      let err = '';
+      try { s.startChat({ backend, firmware: FIRMWARE, channel: new Emu.MemoryChannel() }); } catch (e) { err = e.message; }
+      if (ram < 32) {
+        check(`${id} ${ram}K: the chat is refused, saying it needs 32K, and nothing changes`,
+          /needs 32K of memory or more; this .* has \d+K/.test(err) && s.shownMachine === basic && !s.chatMachines && !s.chat, err);
+      } else {
+        await frames(s, 30);
+        check(`${id} ${ram}K: the chat starts and its firmware draws the prompt`, !err && !!s.chatMachines && chatScreen(s)[0].startsWith('>'),
+          err || JSON.stringify(chatScreen(s)[0]));
+        s.endChat();
+      }
+    }
+  }
+
   console.log(`\n${n - fail}/${n} chat long-line checks passed`);
   process.exitCode = fail ? 1 : 0;
 })().catch((e) => { console.error('test crashed:', e); process.exitCode = 1; });

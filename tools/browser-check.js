@@ -8261,6 +8261,28 @@ async function chatLongLineChecks(browser, base, check) {
   await page.goto(`${base}?machine=dragon64&app=claude`);
   await started(page);
   const idle = () => waitFor(page, () => { const c = window.emu.session.chat; return c && !c.busy && c.channel.queued === 0 && window.emu.session.chatView === 'chat'; }, null, 30000);
+  // the chat screen as text, read only once it has settled: a scroll copies the screen over several frames, and a frame
+  // caught part way shows the row at the copy's edge twice (a "Thinking..." seen twice in a screenshot was one of those)
+  const FONT = require('./chat-font.js'), GLYPHS = [];
+  for (let c = FONT.FIRST; c <= FONT.LAST; c++) GLYPHS.push({ ch: String.fromCharCode(c), g: Array.from(FONT.table().slice((c - FONT.FIRST) * 8, (c - FONT.FIRST) * 8 + 8)) });
+  const rowsNow = () => page.evaluate((G) => {
+    const ram = window.emu.machine.ram.subarray(0x400, 0x400 + 192 * 32), rows = [];
+    for (let r = 0; r < 24; r++) {
+      let line = '';
+      for (let c = 0; c < 42; c++) {
+        const cell = [];
+        for (let y = 0; y < 8; y++) { let b = 0; for (let x = 0; x < 6; x++) { const px = c * 6 + x; b = (b << 1) | ((ram[(r * 8 + y) * 32 + (px >> 3)] >> (7 - (px & 7))) & 1); } cell.push(b); }
+        const hit = G.find((g) => g.g.every((v, i) => v === cell[i]));
+        line += hit ? hit.ch : (cell.every((v) => !v) ? ' ' : '?');
+      }
+      rows.push(line.trimEnd());
+    }
+    return rows;
+  }, GLYPHS);
+  // settled: the turn over, and the screen the same over 20 frames (longer than a scroll)
+  const settled = async () => { await idle(); let a = await rowsNow(); for (let i = 0; i < 10; i++) { await emuFrames(page, 20); const b = await rowsNow(); if (b.join('\n') === a.join('\n')) return b; a = b; } return a; };
+  // one "Thinking..." for the turn whose line ends on row `end`, then the reply's first row
+  const oneThinking = (rows, end, reply) => rows[end + 1] === 'Thinking...' && rows[end + 2] === reply && rows.filter((r) => r === 'Thinking...').length === rows.filter((r, i) => i > 0 && r !== 'Thinking...' && rows[i - 1] === 'Thinking...').length;
   await idle();
   await emuFrames(page, 3);
   await page.focus('#screen');
@@ -8270,8 +8292,13 @@ async function chatLongLineChecks(browser, base, check) {
   await page.keyboard.type(one, { delay: 5 });
   await page.keyboard.press('Enter');
   await waitFor(page, () => window.emu.session.chat.busy || window.emu.session.chat.messages.length > 0, null, 20000);
-  await idle();
+  const after1 = await settled();
   check(`${L}: a 300-character line typed on the screen reaches the API byte for byte`, requests.length >= 1 && lastLine(0) === one, JSON.stringify(lastLine(0)));
+  {
+    const end = after1.findIndex((r) => r.endsWith('Tell me ?'));
+    check(`${L}: the turn shows one "Thinking..." under the line, then the reply`, end > 0 && oneThinking(after1, end, 'Short answer.')
+      && after1.filter((r) => r === 'Thinking...').length === 1, JSON.stringify(after1.filter(Boolean)));
+  }
   // 2. typed while a reply is still coming down: the firmware waits (WAIT) and the keys are kept
   await page.keyboard.type('next', { delay: 5 });
   await page.keyboard.press('Enter');
@@ -8283,7 +8310,15 @@ async function chatLongLineChecks(browser, base, check) {
   const sent = await waitFor(page, (want) => { const c = window.emu.session.chat; return c.messages.some((m) => m.role === 'user' && m.content === want); }, two, 60000);
   check(`${L}: a 200-character line typed while the previous reply still comes reaches the API whole once it has ended (not just its tail)`,
     waiting && stillComing && sent && lastLine(2) === two, JSON.stringify({ waiting, stillComing, got: lastLine(2) }));
-  if (shotDir) await page.screenshot({ path: path.join(shotDir, 'chat-screen-long-lines.png') });
+  const after3 = await settled();
+  {
+    const end = after3.findIndex((r) => r.endsWith('Type ah!'));
+    const thinking = after3.filter((r) => r === 'Thinking...').length;
+    check(`${L}: every turn on the screen shows one "Thinking...", the type-ahead line's too (then its reply)`,
+      end > 0 && oneThinking(after3, end, 'ok') && thinking >= 2 && !after3.some((r, i) => r === 'Thinking...' && after3[i + 1] === 'Thinking...'),
+      JSON.stringify(after3.filter(Boolean)));
+  }
+  if (shotDir) await page.screenshot({ path: path.join(shotDir, 'chat-screen-long-lines.png') });   // (settled: no scroll part way)
   check(`${L}: no page errors`, !errors.length, errors.join('; '));
   await ctx.close();
 }

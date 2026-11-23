@@ -795,6 +795,26 @@ fs.writeFileSync(tmp('media', 'plain.bas'), '10 PRINT "HI"\n');
     own.runFrames(200);
     check('... and nothing more goes in after it returns', m.stubKeysTaken - before === typed && m.stubKeys.length === 0 && !m.typist.busy, `${m.stubKeysTaken - before} vs ${typed}`);
   }
+  // the call that does not finish even once it is stopped (here the machine stops in the debugger part way, so no frame
+  // runs to end the typing): time-limit still says how many of the keys went in
+  {
+    const T = await import(require('url').pathToFileURL(path.join(ROOT, 'js/mcp/tools.js')).href);
+    const programs = (f) => new Uint8Array(fs.readFileSync(path.join(ROOT, 'examples', path.basename(f))));
+    let t = 0, own = null;
+    const host = { roms: () => [], png: () => new Uint8Array(0), program: programs, date: () => new Date(0), yield: () => new Promise(setImmediate),
+      now: () => { t += 20; if (t === 1500) own.debug._stop('pause', {}); return t; },
+      readMedia() { throw new T.McpToolError('no-media-root'); }, writeMedia() { throw new T.McpToolError('no-media-root'); } };
+    own = new Emu.Session({ welcomeMenu: false });
+    own.switchMachine('dragon64', {}, { menu: false });
+    own.startWelcome(programs(own.welcomeFile));
+    own.runFrames(40);
+    const tb = T.createToolbox(host, { session: own, wallMs: 2000 });
+    const m = own.shownMachine, before = m.stubKeysTaken;
+    const r = await tb.call('type_text', { machine_id: 'm1', text: 'L'.repeat(150) });
+    const got = /^(\d+) of 150 keys typed before the time limit; the call did not finish$/.exec((r.error && r.error.detail) || '');
+    check('type_text that does not finish even when stopped: time-limit, still saying how many of the keys went in',
+      !r.ok && r.error.code === 'time-limit' && !!got && Number(got[1]) > 0 && Number(got[1]) < 150, J(r).slice(0, 300));
+  }
 
   // ---------------- a host that has its own machine (Claude's side panel, connector/view/) ----------------
   {

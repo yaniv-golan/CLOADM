@@ -858,19 +858,19 @@ NEXTROW INC     CURROW
         DEC     CURROW
 NRD     RTS
 
-; SCROLL: move rows 1..23 up one row and clear the last row. The copy loop compares X against the end of
-; the screen: a 16-bit counter in D would be destroyed by LDA ,X+, which loads the high half of D.
+; SCROLL: move rows 1..23 up one row and clear the last row, two bytes a move (LDD/STD: the copy takes about
+; 40% fewer cycles than a byte at a time, so a frame drawn while it is part way, which shows the row at the copy's
+; edge twice, is seen for fewer frames). The loop compares X against the end of the screen (D carries the data).
 SCROLL  LDX     #SCREEN+256
         LDY     #SCREEN
-SC1     LDA     ,X+
-        STA     ,Y+
+SC1     LDD     ,X++
+        STD     ,Y++
         CMPX    #SCREEN+(ROWS)*256
         BNE     SC1
         LDX     #SCREEN+(ROWS-1)*256
-        LDB     #0
-        LDA     #0
-SC2     STA     ,X+
-        DECB
+        LDD     #0
+SC2     STD     ,X++
+        CMPX    #SCREEN+(ROWS)*256
         BNE     SC2
         RTS
 
@@ -878,13 +878,13 @@ SC2     STA     ,X+
 ; scrolled off the top)
 SCROLLDN LDX    #SCREEN+(ROWS-1)*256
         LDY     #SCREEN+(ROWS)*256
-SD1     LDA     ,-X
-        STA     ,-Y
+SD1     LDD     ,--X            ; (two bytes a move, as SCROLL)
+        STD     ,--Y
         CMPX    #SCREEN
         BNE     SD1
-        LDB     #0              ; X = SCREEN: clear row 0 (256 bytes)
-SD2     CLR     ,X+
-        DECB
+        LDD     #0              ; X = SCREEN: clear row 0 (256 bytes)
+SD2     STD     ,X++
+        CMPX    #SCREEN+256
         BNE     SD2
         RTS
 ; DRAWROW: draw row TROW of the typed line on screen row CURROW, from its start to the character before TBACK

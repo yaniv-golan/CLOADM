@@ -443,6 +443,12 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   scrolled off. A key past the 1024th is refused with a notice on the row under the line, "[Full: 1024 characters.
   ENTER sends it.]", and the flash. `tests/chat-long-lines.test.js` sends lines of 256, 269, 1000 and 1025 characters
   through the Session on the Dragon 64, the CoCo and the CoCo 3, over the mailbox and DriveWire.
+- **The chat on a CoCo with 4K or 16K is refused, saying why.** Its firmware uses $0400-$7FFF, so on less memory it
+  loaded into memory that was not there and the chat screen stayed dead. `startChat` now refuses below 32K: "The chat
+  needs 32K of memory or more; this CoCo 1/2 has 16K. Give it 32K or more in its settings, or use a 32K model such as
+  the Dragon 64." The page shows it in its status line.
+- **The chat screen scrolls in fewer frames.** It copies two bytes a move (about 40% fewer cycles), so the frames
+  drawn while a scroll is part way, which show the row at the copy's edge twice, last less long.
 - **A line typed on the chat screen while a reply is still coming is kept whole.** The chat firmware used to ignore
   every key from ENTER until the reply had ended, so a line typed ahead (by a person or a script, while Claude
   answered, used its tools or waited at a consent card) lost its start and only its tail was sent. The keys now wait
@@ -452,7 +458,8 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 - **A call stopped by the MCP server's 25 s time limit says so.** A long `type_text` on a host too slow to finish it
   was stopped part way and reported `stopped`, "the person stopped Claude", which nobody had. It now fails
   `time-limit`, with how many of the keys went in ("40 of 150 keys typed before the time limit; the rest was not
-  typed"), and nothing more goes in afterwards (docs/mcp.md, the skill).
+  typed", or "...; the call did not finish" when even stopping it does not end the call), and nothing more goes in
+  afterwards (docs/mcp.md, the skill).
 - **A disk in a drive counts toward the install offer.** The page's "program in use" test (the one the
   offer to install CLOADM as an app waits a minute of) asked the machine for a disk controller it never has, so a disk
   waiting in a drive at the bare prompt never counted; it now asks the drives (`session.drives.controllerOf`). The

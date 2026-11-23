@@ -2527,6 +2527,11 @@ export class Session {
     if (!firmware) throw new SessionError('The chat needs its firmware (examples/chat.bin).');
     if (cpuFamily(basic.config.cpu) !== '6809') throw new SessionError(`The chat firmware needs a 6809; the ${basic.profile.name} has a ${basic.config.cpu}.`);
     if (drivewire && !basic.profile.options.becker) throw new SessionError(`The ${basic.profile.name} has no Becker port, so the chat cannot use DriveWire there.`);
+    // the firmware lives at $6000-$7FFF and draws at $0400: with 4K or 16K it would load into memory that is not there
+    // (a dead screen), so it is refused, saying how to get the memory
+    if (basic.config.ram < 32) {
+      throw new SessionError(`The chat needs 32K of memory or more; this ${basic.profile.name} has ${basic.config.ram}K. Give it 32K or more in its settings, or use a 32K model such as the Dragon 64.`);
+    }
     const kept = this.chat && !this.chatMachines ? this.chat : null;   // the side panel's conversation moves here
     if (!kept) this.dropChat();
     // the welcome program, if it runs, stays on the BASIC session: closing the chat comes back to its menu

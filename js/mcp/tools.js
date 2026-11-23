@@ -294,9 +294,15 @@ export function createToolbox(host, { readOnly = false, maxMachines = MAX_MACHIN
     if (!settled) {
       // past the wall-time limit: the page's own pacing ends a key nobody reads after PACE.timeoutFrames frames,
       // so this is a machine too slow to get there; stop the typing so nothing more goes in later
+      // the typing job under way, if any, for the count the detail gives (docs/mcp.md: "N of M keys typed")
+      const typist = m.chat.target && m.chat.target.machine && m.chat.target.machine.typist;
+      const job = typist && ((typist.state && typist.state.job) || (typist.queue[0] && typist.queue[0].job));
       m.chat.controller.abort();
       await runWhile(m, { frames: 2, done: () => settled });
-      if (!settled) throw fail('time-limit', 'the call did not finish');
+      if (!settled) {
+        throw fail('time-limit', job ? `${job.consumed} of ${job.requested} keys typed before the time limit; the call did not finish`
+          : 'the call did not finish');
+      }
       // stopped by the limit, not by the person: say so, and how much went in (never a silent cut, never "the
       // person stopped Claude")
       if (error && error.code === 'stopped') {
