@@ -4822,8 +4822,8 @@ async function tapePanelChecks(browser, base, check) {
     await page.click('#btnHardReset');
     await emuFrames(page, 5);   // the power cycle has happened and the machine runs again
     check('tape panel: a power cycle keeps the tape, and the panel', await page.isVisible('#tapePanel') && await page.evaluate(() => !!window.emu.machine.deck.tape));
-    // recording, with no tape in the deck (taken out through the deck: the page has no Eject control yet)
-    await page.evaluate(() => window.emu.machine.deck.eject());
+    // recording, with no tape in the deck (taken out with the slot's Eject)
+    await page.click('#btnEjectTape');
     const gone = await waitFor(page, () => document.getElementById('tapePanel').hidden);
     await page.click('#btnRecord');
     await waitFor(page, () => !document.getElementById('tapePanel').hidden && /^RECORDING/.test(document.getElementById('tapeEyebrow').textContent));
@@ -4834,6 +4834,92 @@ async function tapePanelChecks(browser, base, check) {
     await ctx.close();
   }
   fs.rmSync(tmp, { recursive: true, force: true });
+  await tapeExtrasChecks(browser, base, check);
+}
+
+// The tape's extras, at the desktop and phone sizes: the Ctrl+K commands "Insert a tape…" (the tape picker),
+// "Rewind the tape" and "Eject the tape" (the last two only while a tape is in); Eject (the palette's, the slot's)
+// hides the deck, says "Tape ejected." and leaves the focus on the slot's deck button; a tape of three files says
+// which one is loading.
+async function tapeExtrasChecks(browser, base, check) {
+  const block = (type, data) => { let sum = (type + data.length) & 0xFF; for (const v of data) sum = (sum + v) & 0xFF; return [0x55, 0x3C, type, data.length, ...data, sum]; };
+  const file = (name) => [...Array(128).fill(0x55), ...block(0, [...Buffer.from(name.padEnd(8)), 2, 0, 0, 0x30, 0x00, 0x30, 0x00]),
+    ...Array(128).fill(0x55), ...block(1, Array.from({ length: 200 }, (_, i) => i & 0xFF)), ...block(0xFF, [])];
+  const three = Buffer.from([...file('ONE'), ...file('TWO'), ...file('THREE')]);
+  for (const [label, viewport] of [['desktop', { width: 1440, height: 900 }], ['phone', { width: 390, height: 844 }]]) {
+    const errors = [];
+    const ctx = await browser.newContext({ viewport });
+    const page = await ctx.newPage();
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto(`${base}?machine=dragon64`);
+    await ready(page);
+    await stubPrompt(page);
+    const palette = async (q) => {
+      if (await page.isHidden('#cmdBox')) await page.keyboard.press('Control+k');
+      await waitFor(page, () => !document.getElementById('cmdBox').hidden);
+      await page.fill('#cmdInput', q);
+      return page.evaluate(() => [...document.querySelectorAll('#cmdList [role="option"]')].map((o) => o.querySelector('.label, strong, span') ? o.firstChild.textContent : o.textContent));
+    };
+    const close = async () => { await page.keyboard.press('Escape'); await waitFor(page, () => document.getElementById('cmdBox').hidden); };
+    // run the palette's row with this label (↓ to it from the first row, then Enter)
+    const runRow = async (q, want) => {
+      const rows = await palette(q), at = rows.indexOf(want);
+      for (let i = 0; i < at; i++) await page.keyboard.press('ArrowDown');
+      await page.keyboard.press('Enter');
+      return at;
+    };
+    await page.click('#screen');
+    const empty = await palette('tape');
+    await close();
+    check(`tape extras (${label}): with no tape, Ctrl+K "tape" finds "Insert a tape…" and neither Rewind nor Eject`,
+      empty.includes('Insert a tape…') && !empty.includes('Rewind the tape') && !empty.includes('Eject the tape'), JSON.stringify(empty));
+    // "Insert a tape…" opens the tape picker (seen in the page: a headless browser does not always open a chooser)
+    await page.evaluate(() => { const i = document.getElementById('fileTape'); window.__tapePicks = 0; i.click = () => { window.__tapePicks++; }; });
+    await runRow('insert a tape', 'Insert a tape…');
+    check(`tape extras (${label}): "Insert a tape…" opens the tape picker (.cas and .wav)`, await waitFor(page, () => window.__tapePicks === 1)
+      && /\.cas/.test(await page.getAttribute('#fileTape', 'accept')) && /\.wav/.test(await page.getAttribute('#fileTape', 'accept')));
+    await page.evaluate(() => { delete document.getElementById('fileTape').click; });
+    await page.setInputFiles('#fileTape', { name: 'three.cas', mimeType: 'application/octet-stream', buffer: three });
+    await waitFor(page, () => !document.getElementById('tapePanel').hidden);
+    const withTape = [await palette('rewind'), await palette('eject')];
+    await close();
+    check(`tape extras (${label}): with a tape in, "rewind" and "eject" find "Rewind the tape" and "Eject the tape"`,
+      withTape[0][0] === 'Rewind the tape' && withTape[1].includes('Eject the tape'), JSON.stringify(withTape));
+    // the second file loading: the machine paused so the tape stays there
+    await page.click('#btnPause');
+    await page.evaluate(() => { const d = window.emu.machine.deck; d.tape.seekByte(d.tape.bytes.length / 2); d.setMotor(true); });
+    const eyebrow = await waitFor(page, () => /^LOADING · FILE 2 OF 3 · BLOCK \d+ OF 9$/.test(document.getElementById('tapeEyebrow').textContent))
+      && await page.textContent('#tapeEyebrow');
+    check(`tape extras (${label}): a 3-file tape says "LOADING · FILE 2 OF 3 · BLOCK n OF 9"`, !!eyebrow, eyebrow || await page.textContent('#tapeEyebrow'));
+    if (shotDir) await page.locator('#tapePanel').screenshot({ path: path.join(shotDir, `tape-extras-file2-${label}.png`) });
+    await page.click('#btnPause');
+    // Rewind through the palette
+    await runRow('rewind the tape', 'Rewind the tape');
+    check(`tape extras (${label}): "Rewind the tape" rewinds it`, await waitFor(page, () => window.emu.machine.deck.tape.progress() < 0.05));
+    // Eject through the palette, while the motor runs (a CLOAD waiting): the deck goes, the motor stays on
+    await page.evaluate(() => window.emu.machine.deck.setMotor(true));
+    await runRow('eject the tape', 'Eject the tape');
+    check(`tape extras (${label}): "Eject the tape": the deck hides, "Tape ejected.", the focus on the slot's deck button, the motor still on`,
+      await waitFor(page, () => !window.emu.machine.deck.tape && document.getElementById('tapePanel').hidden && /^Tape ejected\.$/.test(document.getElementById('toastText').textContent)
+        && document.activeElement === document.getElementById('btnTape') && window.emu.machine.deck.motor),
+      JSON.stringify(await page.evaluate(() => ({ active: document.activeElement.id, toast: document.getElementById('toastText').textContent }))));
+    const gone = await palette('tape');
+    await close();
+    check(`tape extras (${label}): with the tape out, Rewind and Eject leave the palette`, !gone.includes('Eject the tape') && !gone.includes('Rewind the tape'), JSON.stringify(gone));
+    // the slot's Eject button: disabled without a tape; with one, it ejects as the palette does
+    const disabled = await page.isDisabled('#btnEjectTape');
+    await page.setInputFiles('#fileTape', { name: 'three.cas', mimeType: 'application/octet-stream', buffer: three });
+    await waitFor(page, () => !document.getElementById('tapePanel').hidden && !document.getElementById('btnEjectTape').disabled);
+    const box = await page.evaluate(() => { const b = document.getElementById('btnEjectTape').getBoundingClientRect(), r = document.getElementById('btnRewind').getBoundingClientRect(); return { b: b.toJSON(), r: r.toJSON() }; });
+    if (shotDir) await page.locator('.slot.tape').screenshot({ path: path.join(shotDir, `tape-extras-slot-${label}.png`) });
+    await page.click('#btnEjectTape');
+    check(`tape extras (${label}): the slot's Eject (next to Rewind, disabled with no tape) ejects: deck hidden, toast, focus on the deck button`,
+      disabled && Math.abs(box.b.top - box.r.top) < 4 && box.b.left > box.r.left
+      && await waitFor(page, () => !window.emu.machine.deck.tape && document.getElementById('tapePanel').hidden && /^Tape ejected\.$/.test(document.getElementById('toastText').textContent)
+        && document.activeElement === document.getElementById('btnTape') && document.getElementById('tapeName').textContent === 'No tape · Insert tape…'), JSON.stringify(box));
+    check(`tape extras (${label}): no page errors`, !errors.length, errors.join('; '));
+    await ctx.close();
+  }
 }
 
 // The tape HUD, the one moving deck and Tape sound (js/ui/tape-panel.js, js/host/tape-sound.js). At the desktop,
@@ -5503,12 +5589,14 @@ async function commandsChecks(browser, site, check) {
   // written out here rather than read from COMMANDS (the page's own list is checked against them)
   const WANT = [
     ['Claude', ['Chat with Claude, full screen', 'What is this code doing?']],
-    ['Files', ['Take snapshot', 'Open a program, tape, disk or cartridge…', 'Insert a disk…', 'New blank disk', 'Eject disk', 'Save the tape as .WAV', 'Record to tape', 'Share']],
+    ['Files', ['Take snapshot', 'Open a program, tape, disk or cartridge…', 'Insert a disk…', 'New blank disk', 'Eject disk', 'Insert a tape…', 'Save the tape as .WAV', 'Record to tape', 'Share']],
     ['Views', ['Open the Library', 'Open the Debugger']],
     ['Settings', ['Your ROMs', 'Display settings', 'Input settings', 'POKEs', 'Machine settings']],   // (Your ROMs: R28b)
     ['Machine', ['Pause or resume', 'Turbo', 'Fullscreen', 'Reset', 'Switch off and on']],
   ];
   const LABELS = WANT.flatMap(([, l]) => l);
+  // listed only while a tape is in the deck (the box above has none)
+  const WITH_TAPE = ['Rewind the tape', 'Eject the tape'];
   const CLAUDE_NOTE = "Claude reads this emulated machine's screen text and memory, and acts on it only with your permission.";
   const FOOT = 'Type to filter, or type a question for Claude. Commands run here and are never sent to Claude.';
   const errors = [];
@@ -5654,7 +5742,7 @@ async function commandsChecks(browser, site, check) {
     await page.goto(`${site}help/`);
     const help = await page.evaluate(() => ({ text: document.body.innerText.replace(/\s+/g, ' '), h2: [...document.querySelectorAll('h2')].map((h) => h.textContent) }));
     const missing = labels.filter((l) => !help.text.includes(l));
-    check('commands: every COMMANDS label appears verbatim in Help, and COMMANDS is the R14 set', !missing.length && JSON.stringify(labels.slice().sort()) === JSON.stringify(LABELS.slice().sort()), JSON.stringify({ missing, labels }));
+    check('commands: every COMMANDS label appears verbatim in Help, and COMMANDS is the R14 set', !missing.length && JSON.stringify(labels.slice().sort()) === JSON.stringify(LABELS.concat(WITH_TAPE).sort()), JSON.stringify({ missing, labels }));
     check('commands: Help has "Commands and shortcuts" and "What Claude can do" with the shortcuts and the permission wording',
       help.h2.includes('Commands and shortcuts') && help.h2.includes('What Claude can do')
       && ['Ctrl B', '= BREAK', '= CLEAR', 'Fn', 'Esc in the full-screen chat:', 'Esc while Claude is paused:', 'Reads (always):', 'Acts (only with your permission):',
@@ -6551,10 +6639,13 @@ async function tapeChecks(browser, base, check) {
   check('tape: Record arms the deck', await page.getAttribute('#btnRecord', 'aria-pressed') === 'true' && await page.evaluate(() => window.emu.session.tapeRecording));
   await page.click('#btnPause');      // resume: the firmware runs from its reset with the deck already recording
   check('tape: the firmware writes its tape', await waitFor(page, (h) => window.emu.machine.cpu.pc === h, halt, 15000));
-  const [cas] = await Promise.all([page.waitForEvent('download'), page.click('#btnRecord')]);
-  const casBytes = fs.readFileSync(await cas.path());
-  check('tape: stopping saves recording.cas, exactly the bytes written', cas.suggestedFilename() === 'recording.cas' && Buffer.from(casBytes).equals(Buffer.from(stream))
-    && /Recorded 3 block\(s\)/.test(await page.textContent('#toast')), await page.textContent('#toast'));
+  await page.click('#btnRecord');
+  const saved = await waitFor(page, () => document.getElementById('toastText').textContent === 'Saved CLOADM.CAS to your Library.' && document.getElementById('toastAction').textContent === 'Download');
+  const stored = await page.evaluate(async () => Array.from(await window.emu.session.library.openMedia('CLOADM.CAS')));
+  check('tape: Stop and save puts the recording in the Library as CLOADM.CAS (its CSAVE name), exactly the bytes written',
+    saved && Buffer.from(stored).equals(Buffer.from(stream)), await page.textContent('#toast'));
+  const [cas] = await Promise.all([page.waitForEvent('download'), page.click('#toastAction')]);
+  check('tape: the toast\'s Download saves CLOADM.CAS, the same bytes', cas.suggestedFilename() === 'CLOADM.CAS' && Buffer.from(fs.readFileSync(await cas.path())).equals(Buffer.from(stream)));
   const [wav] = await Promise.all([page.waitForEvent('download'), page.click('#btnTapeWav')]);
   const fromWav = Emu.wavToCas(new Uint8Array(fs.readFileSync(await wav.path())));
   check('tape: Save .WAV saves the recording as it was written, which decodes to the same bytes', wav.suggestedFilename() === 'recording.wav' && Buffer.from(fromWav.bytes).equals(Buffer.from(stream)));
@@ -6574,10 +6665,21 @@ async function tapeChecks(browser, base, check) {
   check('tape: the firmware writes its tape again', await waitFor(page, (h) => window.emu.machine.cpu.pc === h, halt, 15000));
   let asked = '';
   page.once('dialog', (d) => { asked = d.message(); d.accept(); });
-  const [kept] = await Promise.all([page.waitForEvent('download'), pickMachine(page, 'coco')]);
-  check('tape: switching machine while recording asks to save it first, and saves it', /recording on the Dragon 32/.test(asked) && /3 blocks/.test(asked)
-    && kept.suggestedFilename() === 'recording.cas' && Buffer.from(fs.readFileSync(await kept.path())).equals(Buffer.from(stream))
+  await pickMachine(page, 'coco');
+  const kept = await waitFor(page, async () => { try { return Array.from(await window.emu.session.library.openMedia('CLOADM (2).CAS')); } catch (e) { return false; } });
+  const keptBytes = await page.evaluate(async () => Array.from(await window.emu.session.library.openMedia('CLOADM (2).CAS')));
+  check('tape: switching machine while recording asks to save it first, under its name, and saves it in the Library as "CLOADM (2).CAS" (the name is taken)',
+    /recording on the Dragon 32/.test(asked) && /3 blocks/.test(asked) && /Save CLOADM\.CAS before/.test(asked)
+    && kept && Buffer.from(keptBytes).equals(Buffer.from(stream))
     && await page.evaluate(() => window.emu.machine.id === 'coco' && !window.emu.session.tapeRecording), asked);
+  // both are Library items after a reload (another page of the same browser profile)
+  await page.evaluate(() => window.emu.session.index.flush && window.emu.session.index.flush());
+  const p2 = await ctx.newPage();
+  await p2.goto(`${base}?machine=dragon32#library`); await ready(p2);
+  check('tape: the recordings are in the Library after a reload', await waitFor(p2, () => {
+    const names = [...document.querySelectorAll('#libTapes [data-name]')].map((b) => b.dataset.name.split('/').pop());
+    return names.includes('CLOADM.CAS') && names.includes('CLOADM (2).CAS'); }), await p2.evaluate(() => [...document.querySelectorAll('#libTapes [data-name]')].map((b) => b.dataset.name).join()));
+  await p2.close();
   // A machine-code tape dropped on the page with ROMs in: the machine is restarted, CLOADM is typed, and EXEC on a
   // line of its own once BASIC is back at its prompt. BASIC is our stand-in (tape/standin.asm: a line per ENTER,
   // CLOADM, then a jump to the exec address), installed in the CoCo's BASIC sockets in the page; the tape's

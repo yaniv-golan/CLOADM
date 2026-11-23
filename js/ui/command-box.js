@@ -10,7 +10,8 @@
  */
 import { $, ESC, safeArea } from './page.js';
 
-// [label, what it does, more words it answers to, the button it presses (or what it does, for one with no button), group]
+// [label, what it does, more words it answers to, the button it presses (or what it does, for one with no button), group,
+//  and, for a command that only works some of the time, when(page): whether it is listed now]
 // In the order the empty box lists them (the groups in GROUPS' order). A command with a keyboard shortcut would
 // show it in its row's .hint; none has one yet.
 export const GROUPS = ['Claude', 'Files', 'Views', 'Settings', 'Machine'];
@@ -22,6 +23,9 @@ export const COMMANDS = [
   ['Insert a disk…', 'a disk image into the first free drive', 'disk drive mount vdk dsk floppy', (page) => page.drives.pick(), 'Files'],
   ['New blank disk', 'an empty disk in the first free drive', 'disk drive new blank empty format floppy', (page) => page.drives.blank(), 'Files'],
   ['Eject disk', 'takes the disk out of its drive', 'disk drive eject remove floppy', (page) => page.drives.eject(), 'Files'],
+  ['Insert a tape…', 'a .cas or .wav tape into the deck', 'tape cassette insert cas wav load', 'btnTape', 'Files'],
+  ['Rewind the tape', 'back to the start of the tape', 'tape cassette rewind start', 'btnRewind', 'Files', hasTape],
+  ['Eject the tape', 'takes the tape out of the deck', 'tape cassette eject remove', 'btnEjectTape', 'Files', hasTape],
   ['Save the tape as .WAV', 'the tape in the deck, or the last recording', 'save tape wav cassette record', 'btnTapeWav', 'Files'],
   ['Record to tape', 'CSAVE becomes a .CAS file', 'record tape cas csave save', 'btnRecord', 'Files'],
   ['Share', 'a share link, a clip, a screenshot', 'share link clip screenshot capture embed', 'btnShare', 'Files'],
@@ -38,6 +42,7 @@ export const COMMANDS = [
   ['Reset', 'like the reset button', 'reset restart', 'btnReset', 'Machine'],
   ['Switch off and on', 'clears memory; the tape and cartridge stay in', 'switch off on power cycle hard reset clear', 'btnHardReset', 'Machine'],
 ];
+function hasTape(page) { return !!page.session.personMachine.deck.tape; }
 const CLAUDE_NOTE = "Claude reads this emulated machine's screen text and memory, and acts on it only with your permission.";
 
 const FILLER = new Set(['a', 'an', 'the', 'my', 'me', 'to', 'of', 'it', 'this', 'please', 'for', 'in', 'on']);
@@ -63,7 +68,7 @@ export function setupCommandBox(page, claude) {
 
   // the commands matching the text: every word (but the little ones: "save my prog") starts a word of the label or
   // of its other words
-  const available = ([, , , id]) => !(typeof id === 'string' && !$(id));
+  const available = ([, , , id, , when]) => !(typeof id === 'string' && !$(id)) && (!when || when(page));
   function matches(q) {
     // split as the labels are, so a label typed with its punctuation ("Chat with Claude, full screen") finds it
     const words = q.toLowerCase().split(/[^a-z0-9.]+/).filter((w) => w && !FILLER.has(w));

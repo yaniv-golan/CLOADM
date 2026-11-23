@@ -119,6 +119,7 @@ const ROWS = [
   // the deck
   ['insert a tape', () => {}, (s) => s.insertTape('x.cas', casTape())],
   ['rewind the tape', withTape, (s) => s.rewindTape()],
+  ['eject the tape', withTape, (s) => s.ejectTape()],
   ['skip the tape (load it instantly)', withTape, (s) => s.skipTape()],
   ['tape to WAV', withTape, (s) => s.tapeWav()],
   ['start recording', () => {}, (s) => s.startTapeRecording()],
@@ -579,6 +580,8 @@ const REQUIRED = require.main !== module;
     'readSlot', 'readSnapshot', 'readSnapshotLink', 'recentMedia', 'sameName', 'savedConfig', 'screenText',
     'shareFile', 'shareUrl', 'slotBytes', 'snapshotLink', 'snapshotRoms', 'snapshotSwitch', 'sscRoms', 'statusLine',
     'takenOut', 'tapeStatus', 'welcomeFile', 'welcomeRunning', 'drives.preferredDos', 'storedRoms',
+    // uniqueName lists the library to find a free name (it writes nothing); recordingName names .CAS bytes (pure)
+    'uniqueName', 'recordingName',
     // (main 1dd66fa: all four are reads/pure. indexWriteError formats a stored-write error; tapeRunning reads the
     // PERSON's deck motor flag; screenAlternative describes the SHOWN screen's text; welcomeGenNow reads the ticket)
     'indexWriteError', 'tapeRunning', 'screenAlternative', 'welcomeGenNow',
