@@ -154,9 +154,9 @@ const REFUSAL = `There is already a disk named ${NAME} in your library: choose a
   {
     const media = holdWrite(new UnmeasuredStore(), FULL), s = await session(media);
     media.unmeasure();
-    const p1 = q(s.importDisk(NAME, A(), 0));
+    const p1 = q(s.drives.importImage(NAME, A(), 0));
     check('importDiskStored: the first import is at its store write before the second is asked', await media.armed());
-    const p2 = q(s.importDisk(NAME, B(), 1));
+    const p2 = q(s.drives.importImage(NAME, B(), 1));
     media.release();
     const r1 = await p1, r2 = await p2;
     // The creation reports its errors the way importMedia does: mediaError's fallback, "<name>: <reason>". The name
@@ -172,9 +172,9 @@ const REFUSAL = `There is already a disk named ${NAME} in your library: choose a
   // ---------------- 5. importDiskStored control ----------------
   {
     const media = holdWrite(new UnmeasuredStore(), FULL), s = await session(media);
-    const p1 = q(s.importDisk(NAME, A(), 0));
+    const p1 = q(s.drives.importImage(NAME, A(), 0));
     check('importDiskStored control: the first import is at its store write', await media.armed());
-    const p2 = q(s.importDisk(NAME, B(), 1));
+    const p2 = q(s.drives.importImage(NAME, B(), 1));
     media.release();
     const r1 = await p1, r2 = await p2;
     check('importDiskStored control: the first import succeeds and mounts', r1.ok && r1.m === `${NAME} in drive 0`, r1.m);
@@ -212,11 +212,11 @@ const REFUSAL = `There is already a disk named ${NAME} in your library: choose a
     media.unmeasure(false);
     const gate = gateList(media);
     const before = s.library.landing;
-    const p1 = q(s.importDisk(NAME, A(), 0));
+    const p1 = q(s.drives.importImage(NAME, A(), 0));
     check('importDiskStored at the end: the first import is inside its case probe, past its write', await gate.armed());
     check('importDiskStored at the end: the first creation has NOT landed while its probe is pending',
       s.library.landing === before, `landing ${s.library.landing}, was ${before}`);
-    const p2 = q(s.importDisk(NAME, B(), 1));
+    const p2 = q(s.drives.importImage(NAME, B(), 1));
     gate.release();
     const r1 = await p1, r2 = await p2;
     check('importDiskStored at the end: the first import succeeds and mounts', r1.ok && r1.m === `${NAME} in drive 0`, r1.m);
@@ -241,7 +241,7 @@ const REFUSAL = `There is already a disk named ${NAME} in your library: choose a
     const realExclusive = s.library.createExclusive.bind(s.library);
     s.library.createExclusive = (op) => { exclusive++; return realExclusive(op); };
     // mount the name first: the first import's bytes land and the mount succeeds while refreshCase still works
-    await q(s.importDisk(NAME, A(), 0));
+    await q(s.drives.importImage(NAME, A(), 0));
     media.unmeasure();   // from here refreshCase would throw, if it were ever reached
     const before = await readOr(media, FULL);
     exclusive = 0;
@@ -264,7 +264,7 @@ const REFUSAL = `There is already a disk named ${NAME} in your library: choose a
   // case 4 did before.
   {
     const media = holdWrite(new UnmeasuredStore(), FULL), s = await session(media);
-    const p1 = q(s.newDisk(0, { format: 'vdk', tracks: 40, heads: 1 }, { name: NAME }));
+    const p1 = q(s.drives.newDisk(0, { format: 'vdk', tracks: 40, heads: 1 }, { name: NAME }));
     check('newDisk: the creation is at its store write before the probe can throw', await media.armed());
     media.unmeasure();   // from here the case probe throws; the held write is released below
     media.release();
@@ -284,7 +284,7 @@ const REFUSAL = `There is already a disk named ${NAME} in your library: choose a
     const media = new UnmeasuredStore(), s = await session(media);
     const realStat = media.stat.bind(media);
     media.stat = async (n) => (n === FULL ? null : realStat(n));
-    const r1 = await q(s.newDisk(0, { format: 'vdk', tracks: 40, heads: 1 }, { name: NAME }));
+    const r1 = await q(s.drives.newDisk(0, { format: 'vdk', tracks: 40, heads: 1 }, { name: NAME }));
     check('newDisk: a mount that fails keeps the creation\'s exact "saved but not put in drive" wording, with no second name',
       !r1.ok && r1.m === `${NAME} was saved to your Library but not put in drive 0: ${NAME} is no longer stored in this browser; load it again.`, r1.m);
     check('newDisk: ... and the blank it saved is still in the store', same(await readOr(media, FULL), Emu.blankDisk('vdk', 40, 1)));
@@ -297,7 +297,7 @@ const REFUSAL = `There is already a disk named ${NAME} in your library: choose a
   {
     const media = new UnmeasuredStore(), s = await session(media);
     media.unmeasure();   // the creation's listDisks() throws: "test: the store cannot list"
-    const r1 = await q(s.newDisk(0, { format: 'vdk', tracks: 40, heads: 1 }, { name: NAME }));
+    const r1 = await q(s.drives.newDisk(0, { format: 'vdk', tracks: 40, heads: 1 }, { name: NAME }));
     check('newDisk: a failing listing at its own name check is reported by name and reason',
       !r1.ok && r1.m === `${NAME}: test: the store cannot list`, r1.m);
     check('newDisk: ... and nothing was stored (the failure is before the write)', media.listSync('disks').length === 0);
@@ -320,7 +320,7 @@ const REFUSAL = `There is already a disk named ${NAME} in your library: choose a
   //     importMedia -- the same failure through either door reads the same -- rather than a form invented here.
   {
     const media = new UnmeasuredStore(), s = await session(media);
-    const r = await q(s.newDisk(0, { format: 'vdk', tracks: 40, heads: 1 }));
+    const r = await q(s.drives.newDisk(0, { format: 'vdk', tracks: 40, heads: 1 }));
     check('newDisk: with no name asked it still makes one (the naming code did not break the unnamed path)',
       r.ok && r.m === 'New blank disk: disk-1.vdk in drive 0', r.m);
     check('newDisk: ... and the store holds it under the chosen name', same(await readOr(media, 'disks/disk-1.vdk'), Emu.blankDisk('vdk', 40, 1)));
@@ -329,7 +329,7 @@ const REFUSAL = `There is already a disk named ${NAME} in your library: choose a
     // a store whose listing fails outright, with no name asked: the failure comes before a name is chosen
     const media = new UnmeasuredStore(), s = await session(media);
     media.unmeasure();   // listDisks() throws "test: the store cannot list"
-    const r = await q(s.newDisk(0, { format: 'vdk', tracks: 40, heads: 1 }));
+    const r = await q(s.drives.newDisk(0, { format: 'vdk', tracks: 40, heads: 1 }));
     check('newDisk: with no name asked, a failing listing is still reported with a label, not bare',
       !r.ok && r.m === 'A new disk: test: the store cannot list', r.m);
   }
@@ -337,7 +337,7 @@ const REFUSAL = `There is already a disk named ${NAME} in your library: choose a
     // a name with nothing after the prefix is refused before any store work: the listing is never asked
     const media = new UnmeasuredStore(), s = await session(media);
     media.unmeasure();
-    const r = await q(s.newDisk(0, { format: 'vdk', tracks: 40, heads: 1 }, { name: 'disks/' }));
+    const r = await q(s.drives.newDisk(0, { format: 'vdk', tracks: 40, heads: 1 }, { name: 'disks/' }));
     check('newDisk: a name that leaves an empty label is refused as a name, whatever the store is doing',
       !r.ok && r.m === 'A disk image needs a name.', r.m);
   }
@@ -351,7 +351,7 @@ const REFUSAL = `There is already a disk named ${NAME} in your library: choose a
     }
     const media = new ListFails(), s = await session(media);
     media.unmeasure(false);   // unmeasured, so refreshCase lists; the listing then fails with a path-bearing message
-    const viaDisk = await q(s.importDisk(NAME, A(), 0));
+    const viaDisk = await q(s.drives.importImage(NAME, A(), 0));
     // importMedia on the same store, fresh, so the two are the same failure by the same code path
     const media2 = new ListFails(), s2 = await session(media2);
     media2.unmeasure(false);

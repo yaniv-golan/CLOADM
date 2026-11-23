@@ -646,7 +646,7 @@ export function createToolbox(host, { readOnly = false, maxMachines = MAX_MACHIN
       if ((args.path == null) === (args.program == null)) throw fail('bad-argument', 'give path or program, one of them');
       if (args.program != null) {
         const name = args.program;
-        if (name === 'welcome') { s.startWelcome(host.program(s.welcomeFile)); return { loaded: 'welcome', message: 'welcome program running' }; }
+        if (name === 'welcome') { s.startWelcome(host.program(s.welcomeFile), { reason: 'shelf' }); return { loaded: 'welcome', message: 'welcome program running' }; }
         if (name === 'liza') return { loaded: 'liza', message: await s.startLiza((f) => host.program(f)) };
         if (name === 'demo') {
           if (cpuFamily(s.shownMachine.config.cpu) !== '6809') throw fail('rejected', `the demo is 6809 code; the ${s.shownMachine.profile.name} has a ${s.shownMachine.config.cpu}`);
@@ -658,7 +658,7 @@ export function createToolbox(host, { readOnly = false, maxMachines = MAX_MACHIN
       const { name, bytes } = host.readMedia(str(args.path, 'path'));
       const listing = formats.identify(name, bytes);
       if (args.run != null && (typeof args.run !== 'boolean' || listing.kind !== 'basictext')) throw fail('bad-argument', `run (true or false) goes with a BASIC listing (.bas); ${name} is not one`);
-      if (detectMedia(name, bytes).kind === 'disk') return { loaded: name, message: await s.importDisk(name, bytes, 0) };
+      if (detectMedia(name, bytes).kind === 'disk') return { loaded: name, message: await s.drives.importImage(name, bytes, 0) };
       const run = args.run !== false, message = s.load(name, bytes, { remember: false, run });
       if (listing.kind !== 'basictext') return { loaded: name, message };
       // what the keyboard makes of the listing: BASIC's keyboard types letters as capitals, and has no key for some
@@ -690,7 +690,7 @@ export function createToolbox(host, { readOnly = false, maxMachines = MAX_MACHIN
     handler: async (args) => {
       const m = get(args), drive = args.drive == null ? 0 : intIn(args.drive, 0, 3, 'drive');
       const { name, bytes } = host.readMedia(str(args.path, 'path'));
-      return { inserted: name, drive, message: await m.session.importDisk(name, bytes, drive) };
+      return { inserted: name, drive, message: await m.session.drives.importImage(name, bytes, drive) };
     },
   });
   add('save_snapshot', {

@@ -187,11 +187,11 @@ async function bareDiskChecks(page, check, { dos }) {
   check('disks: its Enter opens the drives\' file input for the first free drive', await waitFor(page, () => window.__diskPicks.join() === '1'), await page.evaluate(() => window.__diskPicks.join()));
   await page.evaluate(() => { delete document.getElementById('fileDisk').click; });
   await page.setInputFiles('#fileDisk', { name: 'second.vdk', mimeType: 'application/octet-stream', buffer: Buffer.from(images.vdk(40, 2)) });
-  check('disks: its "Insert a disk…" puts the file in the first free drive', await waitFor(page, () => window.emu.session.diskStatus().drives.some((d) => d.drive === 1 && d.file === 'second.vdk')));
+  check('disks: its "Insert a disk…" puts the file in the first free drive', await waitFor(page, () => window.emu.session.drives.status().drives.some((d) => d.drive === 1 && d.file === 'second.vdk')));
   await page.keyboard.press('Control+k');
   await page.keyboard.type('eject disk');
   await page.keyboard.press('Enter');
-  check('disks: Ctrl+K "Eject disk" takes a disk out', await waitFor(page, () => !window.emu.session.diskStatus().drives.some((d) => d.drive === 1)));
+  check('disks: Ctrl+K "Eject disk" takes a disk out', await waitFor(page, () => !window.emu.session.drives.status().drives.some((d) => d.drive === 1)));
   await page.click('#drives [data-drive="0"]');
   // its Add disk ROM… opens Your ROMs on the disk ROM's card
   await page.click('#driveRoms');
@@ -206,15 +206,15 @@ async function bareDiskChecks(page, check, { dos }) {
   check('disks: a disk ROM added while the controller has none: the page says it goes in at the next reset or power cycle',
     await waitFor(page, () => /^ROM added · your DragonDOS disk ROM goes in at the next reset or power cycle/.test(document.getElementById('toastText').textContent)
       && document.querySelector('#driveSlot .title').textContent === 'Drives · DragonDOS at the next reset · disks work for programs that read them directly until then')
-      && await page.evaluate(() => !window.emu.session.diskController.romBytes), await text('driveSlot'));
+      && await page.evaluate(() => !window.emu.session.drives.controller.romBytes), await text('driveSlot'));
   await page.click('#btnHardReset');
-  check('disks: the power cycle puts the disk ROM in: the card says DragonDOS, the disk is still in drive 0', await waitFor(page, () => !!window.emu.session.diskController.romBytes
+  check('disks: the power cycle puts the disk ROM in: the card says DragonDOS, the disk is still in drive 0', await waitFor(page, () => !!window.emu.session.drives.controller.romBytes
     && document.querySelector('#driveSlot .title').textContent === 'Drives · DragonDOS · click a drive to insert'
     && /0 · level\.vdk/.test(document.querySelector('#drives [data-drive="0"]').textContent) && document.getElementById('btnCart').textContent !== 'Dragon disk controller · no disk ROM'),
     await text('driveSlot'));
   // the board can be taken out like any other (then the run below starts from an empty port, as before)
   await page.click('#btnCartOut');
-  check('disks: Take out empties the cartridge port and the drives', await waitFor(page, () => !window.emu.machine.cartPort && window.emu.session.diskStatus().drives.length === 0
+  check('disks: Take out empties the cartridge port and the drives', await waitFor(page, () => !window.emu.machine.cartPort && window.emu.session.drives.status().drives.length === 0
     && document.getElementById('btnCart').textContent === 'Insert cartridge…' && !document.getElementById('btnCartOut').checkVisibility()));
 }
 // ---------------- floppy disks (on the media store): mount, write from firmware, download ----------------
@@ -248,7 +248,7 @@ async function diskChecks(browser, base, check) {
     const [chooser] = await Promise.all([page.waitForEvent('filechooser'), page.click('#driveFile')]);
     await chooser.setFiles({ name, mimeType: 'application/octet-stream', buffer });
     // done when the drive holds it or the status line says why not
-    await waitFor(page, ([n, name]) => window.emu.session.diskStatus().drives.some((d) => d.drive === n && d.file === name) || document.getElementById('toast').classList.contains('error'), [n, name]);
+    await waitFor(page, ([n, name]) => window.emu.session.drives.status().drives.some((d) => d.drive === n && d.file === name) || document.getElementById('toast').classList.contains('error'), [n, name]);
   };
   await page.goto(`${base}?machine=dragon64`); await ready(page);
   await bareDiskChecks(page, check, { dos, errors });
@@ -261,9 +261,9 @@ async function diskChecks(browser, base, check) {
   if (shotDir) await page.locator('#driveSlot').screenshot({ path: path.join(shotDir, 'drives-empty.png') });
   await insertFile(0, 'work.vdk', d0);
   check('disks: a file into drive 0 through its menu, with the DragonDOS cartridge', await waitFor(page, () => /work\.vdk in drive 0/.test(document.getElementById('toast').textContent)
-    && window.emu.session.diskStatus().dos.id === 'dragondos' && /0 · work\.vdk/.test(document.querySelector('#drives [data-drive="0"]').textContent)), await msg());
+    && window.emu.session.drives.status().dos.id === 'dragondos' && /0 · work\.vdk/.test(document.querySelector('#drives [data-drive="0"]').textContent)), await msg());
   await insertFile(1, 'locked.vdk', d1, true);
-  check('disks: drive 1 write-protected from its menu (WP on the drive)', await waitFor(page, () => { const d = window.emu.session.diskStatus().drives[1]; return d && d.file === 'locked.vdk' && d.writeProtected; })
+  check('disks: drive 1 write-protected from its menu (WP on the drive)', await waitFor(page, () => { const d = window.emu.session.drives.status().drives[1]; return d && d.file === 'locked.vdk' && d.writeProtected; })
     && /write-protected/.test(await page.textContent('#drives [data-drive="1"]')));
   // the activity light: watch the LEDs while the firmware runs (Reset: the power-up with the cartridge started it
   // before drive 1 had its disk)
@@ -292,7 +292,7 @@ async function diskChecks(browser, base, check) {
     const dir = await (await navigator.storage.getDirectory()).getDirectoryHandle('disks');
     return Array.from(new Uint8Array(await (await (await dir.getFileHandle(file)).getFile()).arrayBuffer()));
   }, file);
-  await page.evaluate(() => window.emu.session.diskWritesDone());
+  await page.evaluate(() => window.emu.session.drives.writesDone());
   check('disks: the stored image in OPFS has the written sector, the rest unchanged', Buffer.from(await opfs('work.vdk')).equals(want0));
   check('disks: the write-protected image in OPFS is unchanged', Buffer.from(await opfs('locked.vdk')).equals(d1));
   await openDrive(0);
@@ -304,14 +304,14 @@ async function diskChecks(browser, base, check) {
   check('disks: Download gives the written image, byte for byte', download.suggestedFilename() === 'work.vdk' && fs.readFileSync(saved).equals(want0));
   fs.unlinkSync(saved);
   await page.check('#driveWp');
-  check('disks: write-protect from a loaded drive\'s menu', await waitFor(page, () => window.emu.session.diskStatus().drives[0].writeProtected));
+  check('disks: write-protect from a loaded drive\'s menu', await waitFor(page, () => window.emu.session.drives.status().drives[0].writeProtected));
   // a reload: the image is still in the library (disks/); insert it again from the menu, download it again
   await page.reload(); await ready(page);
   await openDrive(2);
   check('disks: after a reload an empty drive offers the stored disks', await waitFor(page, () => !document.getElementById('driveStoredRow').hidden && /work\.vdk/.test(document.getElementById('driveStored').textContent)));
   await page.selectOption('#driveStored', 'disks/work.vdk');
   await page.click('#driveMount');
-  check('disks: a disk from the library goes into drive 2', await waitFor(page, () => { const d = window.emu.session.diskStatus().drives.find((x) => x.drive === 2); return d && d.file === 'work.vdk'; }));
+  check('disks: a disk from the library goes into drive 2', await waitFor(page, () => { const d = window.emu.session.drives.status().drives.find((x) => x.drive === 2); return d && d.file === 'work.vdk'; }));
   await openDrive(2);
   const [again] = await Promise.all([page.waitForEvent('download'), page.click('#driveDownload')]);
   await again.saveAs(saved);
@@ -319,7 +319,7 @@ async function diskChecks(browser, base, check) {
   fs.unlinkSync(saved);
   await openDrive(2);
   await page.click('#driveEject');
-  check('disks: Eject empties the drive ("2 · Insert disk…" again)', await waitFor(page, () => !window.emu.session.diskStatus().drives.some((x) => x.drive === 2)
+  check('disks: Eject empties the drive ("2 · Insert disk…" again)', await waitFor(page, () => !window.emu.session.drives.status().drives.some((x) => x.drive === 2)
     && document.querySelector('#drives [data-drive="2"]').textContent === '2 · Insert disk…'));
   // a file that is no disk image: refused on the status line, nothing stored
   await insertFile(3, 'notes.dsk', Buffer.alloc(1000, 7));
@@ -338,7 +338,7 @@ async function diskChecks(browser, base, check) {
     && await page.evaluate(() => document.querySelector('#driveNewFormat option[value="dmk"]').disabled && document.getElementById('driveNewFormat').value === 'vdk'));
   if (shotDir) await page.locator('#driveSlot').screenshot({ path: path.join(shotDir, 'drives-new-blank.png') });
   await page.click('#driveNew');
-  check('disks: New blank disk stores disk-1.vdk and puts it in the drive', await waitFor(page, () => { const d = window.emu.session.diskStatus().drives.find((x) => x.drive === 1); return d && d.file === 'disk-1.vdk'; })
+  check('disks: New blank disk stores disk-1.vdk and puts it in the drive', await waitFor(page, () => { const d = window.emu.session.drives.status().drives.find((x) => x.drive === 1); return d && d.file === 'disk-1.vdk'; })
     && /1 · disk-1\.vdk/.test(await page.textContent('#drives [data-drive="1"]')), await msg());
   await openDrive(1);
   const [nd] = await Promise.all([page.waitForEvent('download'), page.click('#driveDownload')]);
@@ -355,11 +355,11 @@ async function diskChecks(browser, base, check) {
   if (await page.evaluate(() => !!document.getElementById('driveEject'))) { await page.click('#driveEject'); await openDrive(1); }
   const race = await page.evaluate(async () => {
     const s = window.emu.session, name = 'race.vdk';
-    const p1 = s.newDisk(1, { format: 'vdk', tracks: 40, heads: 1 }, { name }).then((m) => ({ ok: true, m }), (e) => ({ ok: false, m: e.message }));
-    const p2 = s.importDisk(name, window.emu.Emu.blankDisk('vdk', 40, 2), 2).then((m) => ({ ok: true, m }), (e) => ({ ok: false, m: e.message }));
+    const p1 = s.drives.newDisk(1, { format: 'vdk', tracks: 40, heads: 1 }, { name }).then((m) => ({ ok: true, m }), (e) => ({ ok: false, m: e.message }));
+    const p2 = s.drives.importImage(name, window.emu.Emu.blankDisk('vdk', 40, 2), 2).then((m) => ({ ok: true, m }), (e) => ({ ok: false, m: e.message }));
     const [a, b] = await Promise.all([p1, p2]);
-    const after = (await s.listDisks()).filter((d) => d.name === 'disks/race.vdk');
-    return { a, b, added: after.length, size: after[0] && after[0].size, drives: s.diskStatus().drives.map((d) => `${d.drive}:${d.file}`) };
+    const after = (await s.drives.list()).filter((d) => d.name === 'disks/race.vdk');
+    return { a, b, added: after.length, size: after[0] && after[0].size, drives: s.drives.status().drives.map((d) => `${d.drive}:${d.file}`) };
   }).catch((e) => ({ error: e.message }));
   check('disks (Session on the real OPFS store): a new blank disk and an import of its name started together: one stored (the blank), one refused',
     !race.error && race.a.ok && !race.b.ok && race.b.m === 'There is already a disk named race.vdk in your library: choose another name.'
@@ -376,7 +376,7 @@ async function diskChecks(browser, base, check) {
   await page.click('#btnMpInsert');
   check('disks: Multi-Pak inserted with the controller in slot 4; the drives card uses it, its drives empty', await waitFor(page, () => {
     const c = window.emu.machine.cartPort;
-    return c && c.type === 'multi' && c.cart(4) && c.cart(4).type === 'dragonfdc' && window.emu.session.diskController === c.cart(4)
+    return c && c.type === 'multi' && c.cart(4) && c.cart(4).type === 'dragonfdc' && window.emu.session.drives.controller === c.cart(4)
       && /Drives · DragonDOS/.test(document.getElementById('driveSlot').textContent) && document.querySelectorAll('#drives .drive.loaded').length === 0;
   }), await msg());
   await insertFile(0, 'mpak.vdk', d0);
@@ -398,12 +398,12 @@ async function diskChecks(browser, base, check) {
     && document.querySelectorAll('#drives [data-drive]').length === 2), await page.textContent('#driveSlot'));
   await insertFile(0, 'alpha.vdk', d0);
   await insertFile(1, 'alpha1.vdk', d1);
-  check('disks: Alpha: disks go into the built-in drives, no cartridge plugged in', await waitFor(page, () => window.emu.session.diskStatus().drives.length === 2 && window.emu.machine.cartPort === null));
+  check('disks: Alpha: disks go into the built-in drives, no cartridge plugged in', await waitFor(page, () => window.emu.session.drives.status().drives.length === 2 && window.emu.machine.cartPort === null));
   // the store refuses the writes: the drive is marked "not saved" and its menu says why; Download still has them
   await page.evaluate(() => { const st = window.emu.session.media; st.__writeRange = st.writeRange; st.writeRange = () => Promise.reject(Object.assign(new Error('the disk is full'), { code: 'quota' })); });
   await page.click('#btnReset');
   check('disks: Alpha: the firmware reaches HALT', await waitFor(page, (h) => window.emu.machine.cpu.pc === h, aw.symbols.get('HALT'), 20000));
-  await page.evaluate(() => window.emu.session.flushDisks());
+  await page.evaluate(() => window.emu.session.drives.flush());
   check('disks: a refused write marks the drive "not saved" in orange', await waitFor(page, () => { const b = document.querySelector('#drives [data-drive="0"]'); return b.classList.contains('unsaved') && /not saved/.test(b.textContent); }));
   await openDrive(0);
   check('disks: ... and its menu says why and that Download keeps the changes', /No space left .*Download keeps them/.test(await page.textContent('#driveMenu')), await page.textContent('#driveMenu'));
@@ -1769,7 +1769,7 @@ async function nitros9Checks(browser, base, check) {
     /from myfloppy\.dsk in floppy drive 0/.test(await msg()), await msg());
   await ev(() => window.emu.nitros9Shown());
   check('nitros9 floppy: the CoCo disk controller (no ROM) is in the port, the disk in drive 0, listed as a floppy in the slot',
-    await ev(() => { const s = window.emu.session, c = s.shownMachine.cartPort; return !!c && c.type === 'cocofdc' && !c.romBytes && s.diskStatus().drives.some((d) => d.drive === 0 && d.name === 'disks/myfloppy.dsk'); }) &&
+    await ev(() => { const s = window.emu.session, c = s.shownMachine.cartPort; return !!c && c.type === 'cocofdc' && !c.romBytes && s.drives.status().drives.some((d) => d.drive === 0 && d.name === 'disks/myfloppy.dsk'); }) &&
     /myfloppy\.dsk \(6809, floppy\)/.test(await page.textContent('#n9Image')) && /running from myfloppy\.dsk/.test(await page.textContent('#n9State')), `${await page.textContent('#n9Image')} | ${await page.textContent('#n9State')}`);
   await page.click('#btnN9Leave');
   check('nitros9 floppy: Back to BASIC takes the ROM-less controller out', await waitFor(page, () => !window.emu.session.nitros9Running && !window.emu.machine.cartPort));
@@ -1807,7 +1807,7 @@ async function nitros9Checks(browser, base, check) {
     await p2.goto(`${base}?machine=coco3&cpu=6809&ram=128`);
     await waitFor(p2, () => window.emu && window.emu.linkDone, null, 15000);
     await p2.setInputFiles('#n9File', file(LONG, makeOs9Disk(Emu, { cpu: '6309', driver: 'rb1773', port: 'floppy', sides: 2, sectors: 1440 })));
-    const up = await waitForFrames(p2, () => window.emu.session.nitros9Loader() === 'floppy' && window.emu.session.diskStatus().drives.some((d) => d.drive === 0 && d.file === 'nos96309l2v030300coco3_40d_1.dsk'), null, 900);
+    const up = await waitForFrames(p2, () => window.emu.session.nitros9Loader() === 'floppy' && window.emu.session.drives.status().drives.some((d) => d.drive === 0 && d.file === 'nos96309l2v030300coco3_40d_1.dsk'), null, 900);
     await p2.evaluate(() => window.emu.nitros9Shown());
     const m = await p2.evaluate(() => {
       const r = (e) => e.getBoundingClientRect(), sel = document.getElementById('n9Image'), card = document.getElementById('nitros9Slot'), t = document.querySelector('#drives .drive.loaded');
@@ -2103,6 +2103,20 @@ async function romUiChecks(browser, base, check) {
   await ctx.close();
 }
 
+// R46: the tune's DAC edges, counted on the page: the welcome tune drives the DAC to its high level ($FC), which no
+// other part of the menu does, so any high-level event in a machine frame's audio events while this runs is the tune.
+// (A frame loop of its own over the machine's own per-frame buffer: nothing here depends on the sound being unlocked.)
+const countTune = (page) => page.evaluate(() => {
+  window.__tune = 0;
+  if (window.__tuneLoop) return;
+  window.__tuneLoop = true;
+  const loop = () => {
+    const ev = window.emu.session.shownMachine.audioEvents;
+    for (let k = 2; k < ev.length; k += 2) if (ev[k + 1] > 0.9) window.__tune++;
+    requestAnimationFrame(loop);
+  };
+  requestAnimationFrame(loop);
+});
 async function visitChecks(browser, base, check) {
   const ctx = await browser.newContext();
   const page = await ctx.newPage();
@@ -2118,6 +2132,13 @@ async function visitChecks(browser, base, check) {
   check('first visit: "Runs without ROMs" is the welcome menu (on screen now), our programs and the Claude chat', (await page.$$eval('#shelf :is(a, button)', (b) => b.map((x) => x.textContent).join())) === 'Welcome menu on screen now,LIZA,Colour demo,2048,Minesweeper,Chat with Claude',
     await page.$$eval('#shelf :is(a, button)', (b) => b.map((x) => x.textContent).join()));
   check('first visit: "No BASIC · Add ROMs" in the header and the machine question', await page.isVisible('#romPill') && await page.isVisible('#askMachine'));
+  // R46: the tune plays only when the person asked for the menu. The visit's own menu leaves the firmware's PLAYED flag
+  // ($6005, the 6809 build) at 0 (a few frames in, once START has cleared it), so its tune is still to play once the
+  // sound is unlocked
+  check('first visit: the visit\'s own welcome menu leaves PLAYED at 0 (its tune plays once the sound is unlocked)',
+    await waitFor(page, () => window.emu.session.welcomeRunning && window.emu.session.shownMachine.frameCount > 10)
+      && await page.evaluate(() => window.emu.session.shownMachine.ram[0x6005] === 0),
+    String(await page.evaluate(() => window.emu.session.shownMachine.ram[0x6005])));
   check('first visit: "click for sound" until a click or key, no tune yet', await page.isVisible('#soundHint') && !(await page.evaluate(() => window.emu.audioRunning()))
     && await page.evaluate(() => window.emu.machine.ram[0x6004]) === 0);
   await shot('first', '.layout > main');
@@ -2141,8 +2162,14 @@ async function visitChecks(browser, base, check) {
   await key('2');
   check('welcome: 2 runs the colour demo', await waitFor(page, () => /Colour demo: press a key/.test(document.getElementById('toast').textContent) && window.emu.machine.cpu.pc >= 0x4000 && window.emu.machine.cpu.pc < 0x4200 && !window.emu.session.welcomeRunning));
   check('welcome: "Back to the menu" shows while the demo runs', await page.isVisible('#btnWelcomeBack'));
+  await countTune(page);
   await page.click('#btnWelcomeBack');
   check('welcome: "Back to the menu" returns to the menu, and hides', await menu() && await page.isHidden('#btnWelcomeBack'));
+  // R46: back from the demo the menu is silent (the page's button passes the reason 'return'): PLAYED is set a few frames in
+  check('welcome: the menu back from the demo is silent (PLAYED is 1 within a few frames: R46)',
+    await waitFor(page, () => window.emu.session.welcomeRunning && window.emu.session.shownMachine.ram[0x6005] === 1));
+  await page.waitForTimeout(3500);
+  check('welcome: ... and it plays no tune (no high-level DAC event in 3.5 s)', await page.evaluate(() => window.__tune) === 0, String(await page.evaluate(() => window.__tune)));
   // the games: 5 opens the games menu, 1 and 2 start 2048 and Minesweeper (the 128x192 four-colour screen), their
   // keys change the screen, and BREAK (Esc) comes back to the menu. The frame is summed in the page: a key that
   // the game took redraws it.
@@ -2208,9 +2235,18 @@ async function visitChecks(browser, base, check) {
       s.__counted = true;
     }
   });
+  await countTune(page);
   await page.click('#askMachine button[data-machine="coco"]');
   check('machine question: switches machine and the welcome program runs there', await waitFor(page, () => window.emu.machine.id === 'coco' && window.emu.session.welcomeRunning && window.emu.session.screenText()[14].includes('PRESS 1 TO 5'))
     && !(await page.$('#askMachine')));
+  // ... and a menu the page starts after a machine switch is silent: PLAYED is 1 a few frames after it (the firmware clears
+  // it at START, the Session sets it after the first frame), whether or not the click unlocked the sound
+  check('machine question: the menu after the switch is silent (PLAYED is 1 at $6005 within a few frames: R46)',
+    await waitFor(page, () => window.emu.session.welcomeRunning && window.emu.session.shownMachine.ram[0x6005] === 1),
+    String(await page.evaluate(() => window.emu.session.shownMachine.ram[0x6005])));
+  await page.waitForTimeout(3500);
+  check('machine question: ... and it plays no tune, the click that unlocked the sound included (no high-level DAC event in 3.5 s)',
+    await page.evaluate(() => window.__tune) === 0, String(await page.evaluate(() => window.__tune)));
   check('machine question: the menu is started exactly once (no second start from the page)',
     await page.evaluate(() => window.__starts) === 1, String(await page.evaluate(() => window.__starts)));
   // ... and the START it makes carries no machine ticket: a machine question is the person's own act, so the menu
@@ -2884,10 +2920,10 @@ async function mediaBackendChecks(browser, base, check) {
         s.roms.put('rsdos', 'rom', new Uint8Array(0x2000).fill(0x39), 'disk11.rom');
         // a blank 40-track single-sided VDK, from the format's layout (no ROM and no sector read needed)
         const vdk = () => { const b = new Uint8Array(12 + 40 * 18 * 256); b[0] = 0x64; b[1] = 0x6B; b[2] = 12; b[8] = 40; b[9] = 1; return b; };
-        await s.importDisk('GAME.DSK', vdk(), 0);
+        await s.drives.importImage('GAME.DSK', vdk(), 0);
         // what the FOLDER says, asked of the store itself: is GAME.DSK and game.dsk one entry?
         const alias = !!(await media.stat('disks/game.dsk'));
-        const mounted = await s.mountDisk(1, 'game.dsk').then(() => null, (e) => e.message);
+        const mounted = await s.drives.mount(1, 'game.dsk').then(() => null, (e) => e.message);
         const del = await s.library.deleteMedia('disks/game.dsk').then(() => null, (e) => e.message);
         const renamed = await s.library.renameMedia('disks/game.dsk', 'other.dsk').then((x) => 'ok', (e) => e.message);
         // and the guard's answer must be the folder's, both ways round
@@ -2940,13 +2976,13 @@ async function mediaBackendChecks(browser, base, check) {
         // The drive holds the OTHER spelling: on a folding store mountDisk's stat finds the one stored file, so the
         // drive says game.dsk while the library lists GAME.DSK. A card that compares names with === would then
         // offer a disk that is already in a drive. On a plain store the other spelling is a separate file.
-        await s.mountDisk(0, fold ? 'disks/game.dsk' : 'disks/GAME.DSK');
+        await s.drives.mount(0, fold ? 'disks/game.dsk' : 'disks/GAME.DSK');
         s.emit('disks');
         // open drive 1's menu through the card and read what it offers
         document.querySelector('#drives [data-drive="1"]').click();
         await new Promise((r) => setTimeout(r, 50));
         const offered = [...document.querySelectorAll('#driveStored option')].map((o) => o.value);
-        return { fold, offered, held: s.diskStatus().drives.map((d) => d.name), listed: (await s.listDisks()).map((d) => d.name), measured: s.library.caseInsensitive };
+        return { fold, offered, held: s.drives.status().drives.map((d) => d.name), listed: (await s.drives.list()).map((d) => d.name), measured: s.library.caseInsensitive };
       }, fold);
       // folding: GAME.DSK and game.DSK are one stored file and that file is in drive 0, so only OTHER.DSK is on
       // offer; plain: they are two files, the drive holds one of them, so the other and OTHER.DSK are
@@ -4506,8 +4542,8 @@ async function libraryChecks(browser, base, check) {
     await page.evaluate(() => { location.hash = '#library'; });
     await waitFor(page, () => !!document.querySelector('#libTiles .tile[data-name="disks/UTILS.DSK"]'));
     await page.click('#libTiles .tile[data-name="disks/UTILS.DSK"]');
-    await waitFor(page, () => window.emu.session.diskStatus().drives.length === 1);
-    const mounted = await page.evaluate(() => ({ drives: window.emu.session.diskStatus().drives.map((d) => `${d.drive}:${d.name}`).join(), lib: document.getElementById('library').hidden,
+    await waitFor(page, () => window.emu.session.drives.status().drives.length === 1);
+    const mounted = await page.evaluate(() => ({ drives: window.emu.session.drives.status().drives.map((d) => `${d.drive}:${d.name}`).join(), lib: document.getElementById('library').hidden,
       msg: document.getElementById('toast').textContent }));
     check('library: clicking a disk mounts it in a drive and returns to the emulator', mounted.drives === '0:disks/UTILS.DSK' && mounted.lib && mounted.msg === 'UTILS.DSK in drive 0',
       JSON.stringify(mounted));
@@ -4528,7 +4564,7 @@ async function libraryChecks(browser, base, check) {
     check('library: a disk in a drive can be neither renamed nor deleted, and the status says which drive holds it',
       /^UTILS\.DSK is in drive 0; eject it before you rename it/.test(renameMsg) && /^UTILS\.DSK is in drive 0; eject it before you delete it/.test(deleteMsg) && still && stillSelected,
       `${renameMsg} | ${deleteMsg}`);
-    await page.evaluate(() => window.emu.session.ejectDisk(0));
+    await page.evaluate(() => window.emu.session.drives.eject(0));
     await page.click('#btnLibDelete');
     await waitFor(page, () => !document.querySelector('#libTiles .tile[data-name="disks/UTILS.DSK"]'));
     // leaving the Library ends the Undo toast: the delete is done then
@@ -5102,7 +5138,7 @@ async function libraryStorageChecks(base, check) {
   await page.evaluate(() => { const s = window.emu.session; s.roms.put('rsdos', 'rom', new Uint8Array(0x2000).fill(0x39), 'disk11.rom'); s.switchMachine('coco'); });
   await openLib();
   await drag('#libTiles .tile[data-name="disks/UTILS.DSK"]', '#typeinDrop');
-  check('drag: a disk tile dropped on the screen goes into a drive', await waitFor(page, () => window.emu.session.diskStatus().drives.map((d) => `${d.drive}:${d.name}`).join() === '0:disks/UTILS.DSK')
+  check('drag: a disk tile dropped on the screen goes into a drive', await waitFor(page, () => window.emu.session.drives.status().drives.map((d) => `${d.drive}:${d.name}`).join() === '0:disks/UTILS.DSK')
     && await page.isHidden('#library'), await msg());
 
   // ---- where it is kept ----
@@ -5110,7 +5146,7 @@ async function libraryStorageChecks(base, check) {
   await page.click('#libStorageChoices .choice[data-storage="fallback"]');
   await waitFor(page, () => /^Eject the disks first/.test(document.getElementById('toast').textContent));
   check('storage: refused while a stored disk is in a drive, saying which', await kind() === 'opfs' && /^Eject the disks first \(drive 0: UTILS\.DSK\)/.test(await msg()), await msg());
-  await page.evaluate(() => window.emu.session.ejectDisk(0));
+  await page.evaluate(() => window.emu.session.drives.eject(0));
   await page.click('#libStorageChoices .choice[data-storage="fsa"]');
   await settled(/^Your library is now kept in the folder/);
   const moved = await page.evaluate(async () => {
@@ -7838,7 +7874,7 @@ async function urlChecks(browser, base, check) {
   for (const q of ['load=https://files.example/reader.bin&disk=https://files.example/level.vdk', 'disk=https://files.example/level.vdk&load=https://files.example/reader.bin']) {
     await open(`?machine=dragon64&${q}`);
     check(`link: ${q.replace(/https:\/\/files\.example\//g, '')}: the disk is in drive 0 and the game's first read finds it`,
-      await waitFor(page, (h) => window.emu.session.diskStatus().drives.some((d) => d.drive === 0 && d.file === 'level.vdk') && window.emu.session.screenText()[0].startsWith(`READ OK ${h}`), T0S1_HEX)
+      await waitFor(page, (h) => window.emu.session.drives.status().drives.some((d) => d.drive === 0 && d.file === 'level.vdk') && window.emu.session.screenText()[0].startsWith(`READ OK ${h}`), T0S1_HEX)
       && !await ev(() => document.getElementById('toast').classList.contains('error')), `${await ev(() => window.emu.session.screenText()[0])} / ${await msg()}`);
   }
   if (shotDir) await page.screenshot({ path: path.join(shotDir, 'link-load-disk.png') });
@@ -10967,14 +11003,14 @@ async function askChecks(browser, base, check) {
       return t.classList.contains('error') && document.getElementById('toastText').textContent === "Can't restore that point (snapshot was taken with a different basic ROM): nothing was changed, and your restore points are kept."
         && window.emu.Emu.state.toJSON(m.snapshot()) === before && s.chat.undo.length === n && n > 0;
     }) && !(await ev(() => document.querySelector('#askMessages .restoreline').hidden)), await page.textContent('#toast'));
-    // (mocked: Session.restorePoint, the one restore path, reports a disk the Library has changed since the point, as
+    // (mocked: DiskDrives.restorePoint, the one restore path, reports a disk the Library has changed since the point, as
     // tests/restore-points.test.js shows it does; no disk system here, since that needs a DOS ROM)
     const NOTICE = "Drive 0 was changed since this point; the restored disk isn't saved to the Library. Download it to keep it.";
     check(`${L}: Restore puts the machine back exactly to the restore point, and the panel shows the disk notice with it`, await ev((notice) => {
       const s = window.emu.session, want = window.emu.Emu.state.toJSON(s.chat.undo[s.chat.undo.length - 1]);
-      const real = s.restorePoint.bind(s);
-      s.restorePoint = (m, snap) => [...real(m, snap), notice];
-      try { document.querySelector('#askMessages .restoreline .rl-go').click(); } finally { delete s.restorePoint; }
+      const real = s.drives.restorePoint.bind(s.drives);
+      s.drives.restorePoint = (m, snap) => [...real(m, snap), notice];
+      try { document.querySelector('#askMessages .restoreline .rl-go').click(); } finally { delete s.drives.restorePoint; }
       const t = document.getElementById('toast');
       return window.emu.Emu.state.toJSON(s.personMachine.snapshot()) === want && s.chat.undo.length === 0
         && !t.classList.contains('error') && document.getElementById('toastText').textContent === `Restored: the machine is as it was before Claude's changes. ${notice}`;
@@ -13440,6 +13476,26 @@ async function installChecks(browser, base, check) {
       && (await page.evaluate(() => window.emu.install.clock.seconds())) === 0, String(await page.evaluate(() => window.emu.install.clock.seconds())));
     await ctx.close();
   }
+  // a disk in a drive is something to come back to, even at the bare prompt with nothing running (programRunning:
+  // asked through the drives; a Machine has no disk controller of its own, and asking it for one never found a disk)
+  {
+    const { ctx, page, errors } = await open(browser, `${base}?machine=dragon64`);
+    await stubPrompt(page);
+    await waitFor(page, () => window.emu.machine.atStubPrompt());
+    await emuFrames(page, 2);
+    const bare = await page.evaluate(() => window.emu.install.state().programRunning);
+    await page.evaluate(() => window.emu.session.drives.importImage('stay.vdk', window.emu.Emu.blankDisk('vdk', 40, 1), 0));
+    await emuFrames(page, 2);
+    const withDisk = await page.evaluate(() => ({ running: window.emu.install.state().programRunning, prompt: window.emu.machine.atStubPrompt(), drives: window.emu.session.drives.status().drives.length }));
+    await page.evaluate(() => window.emu.session.drives.eject(0));
+    await emuFrames(page, 2);
+    const ejected = await page.evaluate(() => window.emu.install.state().programRunning);
+    check('install: at the bare prompt nothing counts as a program; a disk in a drive does; ejected, it no longer does',
+      bare === false && withDisk.running === true && withDisk.prompt === true && withDisk.drives === 1 && ejected === false,
+      JSON.stringify({ bare, withDisk, ejected }));
+    check('install: no page errors', !errors.length, errors.join('; '));
+    await ctx.close();
+  }
   // ---- 2a. a background tab runs no program: the clock settles when the page is hidden ----
   {
     const { ctx, page, errors } = await open(browser, `${base}?machine=dragon64&start=liza`);
@@ -14978,7 +15034,7 @@ async function uiModelChecks(browser, base, check) {
     await waitFor(page, () => !!window.emu.session.roms.get('dragondos').rom);
     await page.evaluate(() => window.emu.session.switchMachine('dragon64'));
     await dropFiles(page, [['WORK.VDK', Buffer.from(images.vdk(40, 1))]]);
-    await waitFor(page, () => window.emu.session.diskStatus().drives.some((d) => d.file === 'WORK.VDK' && d.stored));
+    await waitFor(page, () => window.emu.session.drives.status().drives.some((d) => d.file === 'WORK.VDK' && d.stored));
     await page.setInputFiles('#fileTape', { name: 'GAME.CAS', mimeType: 'application/octet-stream', buffer: Buffer.alloc(300, 0x55) });
     await waitFor(page, async () => (await window.emu.session.library.listMedia()).some((x) => /GAME\.CAS$/.test(x.name)));
     await page.click('#machineBtn');
@@ -14989,7 +15045,7 @@ async function uiModelChecks(browser, base, check) {
       asked === 'Switching to CoCo 1/2 resets the Dragon 64 and takes out the tape GAME.CAS and the disk WORK.VDK in drive 0. They stay in your Library.', asked);
     // Cancel: nothing changes
     await page.click('#btnSwitchCancel');
-    check('R25: Cancel keeps the machine and its media', await page.evaluate(() => window.emu.machine.id === 'dragon64' && window.emu.session.diskStatus().drives.length === 1 && !!window.emu.machine.deck.tape));
+    check('R25: Cancel keeps the machine and its media', await page.evaluate(() => window.emu.machine.id === 'dragon64' && window.emu.session.drives.status().drives.length === 1 && !!window.emu.machine.deck.tape));
 
     // a RAM change asks the same way (it asked nothing), and Cancel puts the select back
     await page.evaluate(() => window.emu.session.switchMachine('coco'));
@@ -15013,10 +15069,10 @@ async function uiModelChecks(browser, base, check) {
     // a snapshot's own disk: not kept by a switch; the confirm offers to save it to the Library first
     await page.evaluate(() => window.emu.session.switchMachine('dragon64'));
     await dropFiles(page, [['SNAP.VDK', Buffer.from(images.vdk(40, 1))]]);
-    await waitFor(page, () => window.emu.session.diskStatus().drives.some((d) => d.file === 'SNAP.VDK'));
-    const snap = await page.evaluate(async () => { const s = window.emu.session, f = await s.snapshotFile(); await s.ejectDisk(0); await s.library.deleteMedia('disks/SNAP.VDK'); return [...f.bytes]; });
+    await waitFor(page, () => window.emu.session.drives.status().drives.some((d) => d.file === 'SNAP.VDK'));
+    const snap = await page.evaluate(async () => { const s = window.emu.session, f = await s.snapshotFile(); await s.drives.eject(0); await s.library.deleteMedia('disks/SNAP.VDK'); return [...f.bytes]; });
     await dropFiles(page, [['moment.cloadm', Buffer.from(snap)]]);
-    await waitFor(page, () => window.emu.session.diskStatus().drives.some((d) => d.file === 'SNAP.VDK' && !d.stored));
+    await waitFor(page, () => window.emu.session.drives.status().drives.some((d) => d.file === 'SNAP.VDK' && !d.stored));
     await page.click('#machineBtn');
     await page.click('#machineMenu button[data-machine="dragon32"]');
     await waitFor(page, () => !document.getElementById('switchConfirm').hidden);
@@ -15027,32 +15083,32 @@ async function uiModelChecks(browser, base, check) {
     if (shotDir) await page.screenshot({ path: path.join(shotDir, 'r25-snapshot-disk.png') });
     await page.click('#btnSwitchSaveDisk');
     check('R25: Save to Library stores the snapshot\'s disk and links the drive to it; the confirm stays up, its button saying "Saved to Library"', await waitFor(page, async () => (await window.emu.session.library.listMedia()).some((x) => x.name === 'disks/SNAP.VDK')
-        && window.emu.session.diskStatus().drives[0].stored) && await page.isVisible('#switchConfirm') && await page.evaluate(() => window.emu.machine.id === 'dragon64')
+        && window.emu.session.drives.status().drives[0].stored) && await page.isVisible('#switchConfirm') && await page.evaluate(() => window.emu.machine.id === 'dragon64')
       && await waitFor(page, () => { const b = document.getElementById('btnSwitchSaveDisk'); return b.textContent === 'Saved to Library' && b.disabled; }), JSON.stringify(await page.evaluate(async () => ({ toast: document.getElementById('toastText').textContent,
-        lib: (await window.emu.session.library.listMedia()).map((x) => x.name), drives: window.emu.session.diskStatus().drives, confirm: !document.getElementById('switchConfirm').hidden, id: window.emu.machine.id }))));
+        lib: (await window.emu.session.library.listMedia()).map((x) => x.name), drives: window.emu.session.drives.status().drives, confirm: !document.getElementById('switchConfirm').hidden, id: window.emu.machine.id }))));
     await page.click('#btnSwitchCancel');
 
     // Save to Library with two snapshot disks, the second refused once: the retry saves only the one still unsaved
     // (it used to stop on the first, already in the Library)
     await page.evaluate(() => window.emu.session.switchMachine('dragon64'));
     await dropFiles(page, [['A.VDK', Buffer.from(images.vdk(40, 1))]]);
-    await waitFor(page, () => window.emu.session.diskStatus().drives.some((d) => d.file === 'A.VDK'));
-    await page.evaluate(async (b) => { await window.emu.session.importDisk('B.VDK', new Uint8Array(b), 1); }, [...images.vdk(40, 1)]);
-    const snap2 = await page.evaluate(async () => { const s = window.emu.session, f = await s.snapshotFile(); await s.ejectDisk(0); await s.ejectDisk(1);
+    await waitFor(page, () => window.emu.session.drives.status().drives.some((d) => d.file === 'A.VDK'));
+    await page.evaluate(async (b) => { await window.emu.session.drives.importImage('B.VDK', new Uint8Array(b), 1); }, [...images.vdk(40, 1)]);
+    const snap2 = await page.evaluate(async () => { const s = window.emu.session, f = await s.snapshotFile(); await s.drives.eject(0); await s.drives.eject(1);
       await s.library.deleteMedia('disks/A.VDK'); await s.library.deleteMedia('disks/B.VDK'); return [...f.bytes]; });
     await dropFiles(page, [['two.cloadm', Buffer.from(snap2)]]);
-    await waitFor(page, () => window.emu.session.diskStatus().drives.filter((d) => !d.stored).length === 2);
-    await page.evaluate(() => { const s = window.emu.session, keep = s.keepSnapshotDisk.bind(s); let once = true;
-      s.keepSnapshotDisk = (d) => { if (d === 1 && once) { once = false; return Promise.reject(new Error('No space left (test)')); } return keep(d); }; });
+    await waitFor(page, () => window.emu.session.drives.status().drives.filter((d) => !d.stored).length === 2);
+    await page.evaluate(() => { const s = window.emu.session, keep = s.drives.keepSnapshot.bind(s.drives); let once = true;
+      s.drives.keepSnapshot = (d) => { if (d === 1 && once) { once = false; return Promise.reject(new Error('No space left (test)')); } return keep(d); }; });
     await page.click('#machineBtn');
     await page.click('#machineMenu button[data-machine="dragon32"]');
     await waitFor(page, () => !document.getElementById('switchConfirm').hidden && !document.getElementById('btnSwitchSaveDisk').hidden);
     await page.click('#btnSwitchSaveDisk');
-    await waitFor(page, () => !document.getElementById('btnSwitchSaveDisk').disabled && window.emu.session.diskStatus().drives.find((d) => d.drive === 0).stored);
+    await waitFor(page, () => !document.getElementById('btnSwitchSaveDisk').disabled && window.emu.session.drives.status().drives.find((d) => d.drive === 0).stored);
     await page.click('#btnSwitchSaveDisk');
     check('R25: Save to Library retried after a failure on the second disk saves it, skipping the first (already saved)',
-      await waitFor(page, () => window.emu.session.diskStatus().drives.every((d) => d.stored) && document.getElementById('btnSwitchSaveDisk').textContent === 'Saved to Library'),
-      JSON.stringify(await page.evaluate(() => ({ drives: window.emu.session.diskStatus().drives, btn: document.getElementById('btnSwitchSaveDisk').textContent, toast: document.getElementById('toastText').textContent }))));
+      await waitFor(page, () => window.emu.session.drives.status().drives.every((d) => d.stored) && document.getElementById('btnSwitchSaveDisk').textContent === 'Saved to Library'),
+      JSON.stringify(await page.evaluate(() => ({ drives: window.emu.session.drives.status().drives, btn: document.getElementById('btnSwitchSaveDisk').textContent, toast: document.getElementById('toastText').textContent }))));
     await page.click('#btnSwitchCancel');
     // a switch started by opening a snapshot of another machine says what it took out too
     const d32snap = await page.evaluate(async () => { const s = window.emu.session; s.switchMachine('dragon32'); for (let i = 0; i < 3; i++) s.shownMachine.runFrame();
@@ -15061,7 +15117,7 @@ async function uiModelChecks(browser, base, check) {
     await waitFor(page, () => !document.getElementById('switchConfirm').hidden);
     await page.click('#btnSwitch');
     check('R25: a switch made by opening a snapshot says what it took out', await toastSeen(page, /^Snapshot opened: Dragon 32, without ROMs\. Took out: GAME\.CAS\.$/),
-      JSON.stringify(await page.evaluate(() => ({ toast: document.getElementById('toastText').textContent, id: window.emu.machine.id, drives: window.emu.session.diskStatus().drives.length }))));
+      JSON.stringify(await page.evaluate(() => ({ toast: document.getElementById('toastText').textContent, id: window.emu.machine.id, drives: window.emu.session.drives.status().drives.length }))));
 
     // DriveWire: its disks are the Session's, not listed, and still mounted after the switch
     await page.evaluate(() => window.emu.session.switchMachine('coco3', Object.assign(window.emu.session.savedConfig('coco3'), { becker: true })));

@@ -11,15 +11,12 @@
  *   s.runFrames(n)                              // n frames of emulated time, no clock (scripts, tests, cli/cloadm.js)
  *   s.startWelcome(bytes)                       // examples/welcome.bin; then events 'welcome:liza' and so on
  *   await s.snapshotFile() / s.readSnapshot(bytes) / s.openSnapshot(snap)   // snapshots; see 'snapshots' below
- *   await s.importDisk(name, bytes, drive) / s.mountDisk(drive, name) / s.downloadDisk(drive)   // floppy disks
+ *   await s.drives.importImage(name, bytes, drive) / s.drives.mount(drive, name) / s.drives.download(drive)   // floppy disks
  *   s.serial.attach('terminal', { baud }) / s.serial.send(bytes) / s.serial.subscribe({ tx, rx })   // the serial port
  */
 import { cartridgeFor, MultiPak, CART_BOARDS } from './machines/carts.js';
 import { devices } from './machines/bus.js';
-import { DiskController, FDC_BOARDS } from './machines/fdc.js';
-import { DRIVE_TYPES } from './chips/floppy.js';
-import { detectDiskFormat, diskGeometry, blankDisk, DiskFormatError } from './media/disk.js';
-import { MediaStoreError } from './host/media-store.js';
+import { DiskController } from './machines/fdc.js';
 import { KeyQueue } from './machines/keyqueue.js';
 import { charToKeys } from './machines/keyboards.js';
 import { cartridgeRoms, createMachine, profiles, resolveConfig, restoreSnapshot } from './machines/profiles.js';
@@ -35,7 +32,8 @@ import { Tape } from './media/tape.js';
 import { casBlocks, casToWav, recordingToSamples, samplesToCas, writeWav } from './media/cassette.js';
 import { FAMILY_NAMES, detectMedia } from './media/detect.js';
 import { MediaIndex, LIBRARY_PREFIX, migrateLocalStorage } from './media/library.js';
-import { MediaLibrary, DISK_PREFIX, DW_PREFIX, MEDIA_MOVE_WAIT_MS, isDiskFileName } from './library.js';
+import { MediaLibrary, DISK_PREFIX, DW_PREFIX, MEDIA_MOVE_WAIT_MS } from './library.js';
+import { DiskDrives } from './drives.js';
 import { DriveWireServer, CHANNELS as DW_CHANNELS, WINDOW_BASE as DW_WINDOW_BASE, WINDOW_COUNT as DW_WINDOW_COUNT } from './drivewire/server.js';
 import { DriveWireSocket } from './host/drivewire-ws.js';
 import { SerialDriveWireLink, webSerialAvailable } from './host/web-serial.js';
@@ -86,11 +84,18 @@ export const romOwners = () => Object.assign({}, profiles, cartridgeRoms, { ssc:
 // build sits at $6000 and covers eleven models (the HD6309 included: it runs the 6809 build in emulation
 // mode, like any 6809 program); the 6803 build (the MC-10 and the Matra Alice) sits at
 // $5000 and is built once per machine, so its subtitle names the one it runs on.
+// Why a welcome menu starts (R46: its tune plays only when the person asked for the menu). 'visit': the visit's own
+// start; 'shelf': chosen from Programs (the Welcome menu item, a link, Claude's load); both play it once the sound is
+// unlocked. The rest are silent: 'switch' (a machine switch, a RAM or CPU change, an opened snapshot), 'reset' (Reset,
+// a power cycle, ROMs removed) and 'return' (back from LIZA, a game or the demo). A silent start sets the firmware's
+// PLAYED flag itself (`played`, below), so the tune is spent before anything can unlock it.
+export const WELCOME_REASONS = Object.freeze(['visit', 'shelf', 'switch', 'reset', 'return']);
+const WELCOME_QUIET = Object.freeze(new Set(['switch', 'reset', 'return']));
 export const WELCOME = Object.freeze({
   // carryMax: the carry-on line's text, 0-terminated (none when the first byte is 0), this long at most (the 6809
   // build's line has the room for "CARRY ON WITH MINESWEEPER")
-  '6809': Object.freeze({ file: 'welcome.bin', start: 0x6000, event: 0x6003, soundOk: 0x6004, greet: 0x6006, carry: 0x6007, carryMax: 26 }),
-  '6803': Object.freeze({ file: null, start: 0x5000, event: 0x5003, soundOk: 0x5004, greet: 0x5006, carry: 0x5007, carryMax: 24 }),
+  '6809': Object.freeze({ file: 'welcome.bin', start: 0x6000, event: 0x6003, soundOk: 0x6004, played: 0x6005, greet: 0x6006, carry: 0x6007, carryMax: 26 }),
+  '6803': Object.freeze({ file: null, start: 0x5000, event: 0x5003, soundOk: 0x5004, played: 0x5005, greet: 0x5006, carry: 0x5007, carryMax: 24 }),
   // the choices 1-7: keys 1-4 of the menu, its carry-on line (key 5 on the 6803 build, 6 on the 6809 one), and the
   // 6809 build's games menu (key 5, then 1 or 2)
   events: Object.freeze(['liza', 'demo', 'roms', 'claude', 'carryon', '2048', 'minesweeper']),
@@ -136,18 +141,10 @@ export const SERIAL_BAUDS = [300, 600, 1200, 2400, 4800, 9600];
 export class SnapshotRomsError extends SessionError {
   constructor(message, machine) { super(message); this.machine = machine; this.machineName = profiles[machine].name; }
 }
-// how many times mountDisk reads an image again when the image moved under its read (its own stored name, or
-// another spelling of the same file on a store that folds case): the image is read four times at most before the
-// mount gives up. A write to a DIFFERENT stored file never spends this.
-const MOUNT_READ_RETRIES = 3;
 // The key bootNitros9 sets on a mount's options when the mount runs inside its own Library operation (see
-// mountDriveWire). Module-private, so only this module can pass it: an embedder calling mountDisk or
+// mountDriveWire). Module-private, handed only to the Session's own DiskDrives: an embedder calling drives.mount or
 // mountDriveWire cannot skip their move checks.
 const HELD = Symbol('held');
-// the disk cartridges each family can take (js/machines/profiles.js cartridgeRoms), the usual one first
-const DISK_DOS = { dragon: ['dragondos', 'deltados'], coco: ['rsdos'] };
-// what a disk mounted without a disk ROM is good for (the end of the mount's message: "level.vdk is in drive 0, ...")
-export const BARE_NOTE = 'on the disk controller only (no disk ROM). Programs that read the disk directly can use it; DIR and other disk commands need your disk ROM.';
 // quick-save slots: how many, and where they live in the media store (in the library, so the Library lists them
 // with the other snapshots)
 export const SNAPSHOT_SLOTS = 3;
@@ -472,7 +469,7 @@ export class DiskApi {
   // decoded as the command type in force gives it; null without a disk controller. status is the chip's own value
   // (the WD2791's bus shows its complement).
   status() {
-    const fdc = this.session.diskController;
+    const fdc = this.session.drives.controller;
     if (!fdc) return null;
     const wd = fdc.wd, inv = wd.v.busInvert, v = wd.peek(0) ^ inv;
     const drive = wd.floppy ? fdc.drives.indexOf(wd.floppy) : null;
@@ -570,7 +567,7 @@ export class Session {
     this.claudeActing = null;       // the acting tool call in progress or last made this turn (cleared when it ends): { name, input }
     this.claudeTool = null;         // the tool running now (claudeStatus)
     this.claudeCall = null;         // the acting tool call between its gate and its act (a card or a check may wait): { name }
-    // restore point -> { at (ms), disks: the drives linked to the store then (storedDisks), turn: the turn it was
+    // restore point -> { at (ms), disks: the drives linked to the store then (drives.stored), turn: the turn it was
     // taken in (its line's number, ChatSession.line.turn), fromAction: the first action record it covers }
     this.claudePointInfo = new WeakMap();
     this.machineDriven = null;      // asMachine: the ticket of what the program on the machine asked for, while it starts
@@ -609,6 +606,8 @@ export class Session {
     this.stubRun = null;            // the record for the machine in use, set by `install`; '' until there is one
     this.welcomeBuild = null;       // its build's fixed addresses (WELCOME[profile cpu])
     this.welcomeSoundOn = false;    // audio unlocked: the welcome program may play its tune
+    this.menuReason = null;         // why the menu was last offered (offerMenu): the next startWelcome without a reason of its own takes it
+    this.welcomeQuiet = null;       // { m, at }: a silent start waiting for its first frame, then PLAYED is set (flushWelcome)
     this.tapeInfo = null;           // the tape in the deck: its block starts and length (tapeStatus)
     this.tapeWatch = null;          // the current or last run of the cassette motor: { done, error } (tapeStatus)
     this.tapeStarted = null;        // a machine-code tape fast-loaded and started: { tape, exec } (tapeStatus started)
@@ -630,14 +629,9 @@ export class Session {
     this.drivewire.onChannelData = (ch, bytes) => { const s = this.dwSockets.get(ch); if (s) s.send(bytes); };
     this.drivewire.onChannelOpen = (ch) => { const s = this.dwSockets.get(ch); if (s) s.deliver(); };
     this.drivewire.onChannelRead = (ch) => { const s = this.dwSockets.get(ch); if (s) s.deliver(); };
-    this.diskWriting = Promise.resolve();   // the chain of disk image writes to the media store
-    this.diskMounts = 0;            // mounts made so far: each mount's link carries the next number (diskLink)
-    this.diskChecks = new Set();    // background round-trip checks not yet run (checkDiskLater)
-    this.diskQueued = 0;            // changes to stored disk images queued so far (queueDiskWrite, diskStoreChange)
-    this.diskLanded = 0;            // of those, the ones finished (done or refused)
-    this.diskChanges = new Map();   // stored image name (exact spelling) -> how many of those changes were to it
-    this.diskError = null;          // a disk write the store refused, reported by diskWritesDone()
-    this.diskUnsaved = new Map();   // stored image name -> why its last write was refused (until one succeeds)
+    // the floppy drives (js/drives.js): the disk controller, the disk cartridge, mounts from the media store and the
+    // writes back to it, and the links restore points keep
+    this.drives = new DiskDrives(this, { held: HELD });
     this.pendingStop = null;        // a watchWrites 'stop' on the BASIC session beside a full-screen chat: { machine, reason } (writeStopped)
     // the Session's own probes and bus taps (js/hooks.js), put on the person's machine (install, followPerson): the
     // machine in use, or the BASIC session beside a full-screen chat. Host state, never in a snapshot. The developer
@@ -741,7 +735,7 @@ export class Session {
     m.reset(true);
     this.lastRate = this.cpuRate() && this.cpuRate().rate;
     this.emit('machine');
-    if (menu) this.offerMenu(offer);   // switched on without ROMs: the welcome menu
+    if (menu) this.offerMenu(offer, 'switch');   // switched on without ROMs: the welcome menu
     return m;
   }
   // What a switch to model `id` with `config` (a RAM change: the same id) takes out of the machine in use, for the
@@ -757,7 +751,7 @@ export class Session {
     const sscBack = c instanceof SpeechSoundPak && profiles[id] && profiles[id].options.ssc && config && config.ssc === 'music' && !!this.roms.get('ssc').tms7040;
     // a disk controller on its own is not named: its disks are, and a mount plugs one in again
     if (c && !(c instanceof DiskController) && !sscBack) out.push({ kind: 'cartridge', name: this.cartFiles.get(c) || null });
-    for (const d of this.diskStatus().drives) out.push({ kind: 'disk', name: d.file, drive: d.drive, stored: d.stored });
+    for (const d of this.drives.status().drives) out.push({ kind: 'disk', name: d.file, drive: d.drive, stored: d.stored });
     return out;
   }
   // Set (or clear) the stub-restart record of machine m (default: the machine in use). Kept per machine: the
@@ -775,7 +769,7 @@ export class Session {
   // Session's, with the Session's symbols.
   adopt(m) {
     this.writeWatch.guard('A machine change');
-    if (this.shownMachine) { this.flushDisks(); this.keepRecording(); }   // its disks and a recording still running are kept
+    if (this.shownMachine) { this.drives.flush(); this.keepRecording(); }   // its disks and a recording still running are kept
     this.endWelcome();
     const chat = this.chatMachines;
     this.dropChat();                      // a chat belongs to the machine it was opened on
@@ -893,7 +887,7 @@ export class Session {
     // the server was given at construction (DriveWireServer.sameStoredName).
     try { await this.drivewire.mount(drive, DW_PREFIX + name, { writeProtected }); } catch (e) { throw new SessionError(e.message.replace(DW_PREFIX, '')); }
     // The mount awaits a stat of the image, and a move can begin in that gap: its busy check found no mounts yet, so
-    // it is not refused there. Checked again with nothing left to await, as mountDisk does: a drive must not come
+    // it is not refused there. Checked again with nothing left to await, as drives.mount does: a drive must not come
     // out of the mount onto a store the move has just left.
     if (this.library.movingMedia && !held) { this.drivewire.eject(drive); throw new SessionError('The library is being moved: try again once it is done.'); }
     this.emit('drivewire');
@@ -960,7 +954,7 @@ export class Session {
   async pickNitros9Image(cpu = null) {
     const ok = (await this.nitros9Images()).filter((x) => !x.reason);
     const dw0 = this.driveWireMounts.find((d) => d.drive === 0);
-    const fd0 = this.diskMachine && this.diskController ? this.diskStatus().drives.find((d) => d.drive === 0 && d.name) : null;
+    const fd0 = this.drives.targetMachine && this.drives.controller ? this.drives.status().drives.find((d) => d.drive === 0 && d.name) : null;
     return (dw0 && ok.find((x) => x.store === 'drivewire' && x.name === dw0.name)) ||
       (fd0 && ok.find((x) => x.store === 'disk' && DISK_PREFIX + x.name === fd0.name)) ||
       ok.find((x) => cpu && x.cpu === cpu) || ok[0] || null;
@@ -970,18 +964,18 @@ export class Session {
     const r = inspectOs9Disk(bytes);
     if (r.reason) throw new SessionError(`${name}: ${r.reason}`);
     if (r.boot === 'floppy') {
-      const full = this.diskStoreName(name);
+      const full = this.drives.storeName(name);
       // through the disk queue, like every other write to a stored image: a mount reading this name meanwhile
       // re-reads for it, and the drives' writes are ordered against it
       this.library.checkNotMoving();
       const base = full.slice(DISK_PREFIX.length);
-      try { await this.library.libraryOp(() => this.diskStoreChange(() => this.media.write(full, bytes), full)); } catch (e) { throw this.library.mediaError(e, base, full); }
+      try { await this.library.libraryOp(() => this.drives.storeChange(() => this.media.write(full, bytes), full)); } catch (e) { throw this.library.mediaError(e, base, full); }
       return this.bootSaved(base, 'disk');
     }
     return this.bootSaved(await this.importDriveWireImage(name, bytes), 'drivewire');
   }
   // the boot of an image addAndBootNitros9 has just stored: a refusal from here on (a move begun since the save,
-  // a drive in use) leaves the image in the Library, and says so, as importDisk does for its mount
+  // a drive in use) leaves the image in the Library, and says so, as drives.importImage does for its mount
   async bootSaved(name, store) {
     try { return await this.bootNitros9(name, store); } catch (e) { throw new SessionError(`${name} was saved to your Library but not booted: ${e.message}`); }
   }
@@ -1028,11 +1022,11 @@ export class Session {
       if (m.config.cpu !== cpu || (!floppy && !m.config.becker)) mm = this.switchMachine(m.id, Object.assign({}, m.config, { cpu }, floppy ? {} : { becker: true }), { menu: false });
       if (floppy) {
         // the CoCo disk controller: the one in the port, else one without a ROM (our loader drives it)
-        const fdc = this.diskController;
+        const fdc = this.drives.controller;
         if (mm.cartPort instanceof MultiPak) throw new SessionError('NitrOS-9 boots from a floppy with the disk controller in the cartridge port: take the Multi-Pak out first.');
         if (!fdc) mm.insertCartridge(new devices.cocofdc({}));
         else if (fdc.type !== 'cocofdc') throw new SessionError(`NitrOS-9 boots from the CoCo disk controller, not the ${fdc.name}.`);
-        await this.mountDisk(0, DISK_PREFIX + name, { [HELD]: true });
+        await this.drives.mount(0, DISK_PREFIX + name, { [HELD]: true });
       } else await this.mountDriveWire(0, name, { [HELD]: true });
       this.endWelcome();
       this.setStubRun(mm);          // the NitrOS-9 load starts on mm (its own record, not another machine's)
@@ -1057,7 +1051,7 @@ export class Session {
     // The question is about m, so it is asked of m.
     const m = this.personMachine;
     if (!this.nitros9On(m)) return;
-    if (m.cartPort instanceof DiskController && !m.cartPort.romBytes) { this.flushDisks(); m.ejectCartridge(); this.emit('disks'); }
+    if (m.cartPort instanceof DiskController && !m.cartPort.romBytes) { this.drives.flush(); m.ejectCartridge(); this.emit('disks'); }
     if (this.stubChosen.has(m.id)) m.setRoms(Object.fromEntries(m.profile.roms.map((x) => [x.id, null])));
     else this.loadSavedRoms(m);
     this.powerCycle({ on: m });
@@ -1201,12 +1195,12 @@ export class Session {
     const m = this.shownMachine, again = this.stubRun && this.stubRun.m === m && m.useStub ? this.stubRun : null;
     this.endWelcome();
     this.keys.clear();
-    this.fitDiskRom(m);
+    this.drives.fitRom(m);
     if (again) this.restart(again);
     else { this.setStubRun(m); m.reset(false); this.warmReset = { m, resetAt: m.frameCount }; }
     this.acc = 0;
     this.emit('reset');
-    if (!again) this.offerMenu();
+    if (!again) this.offerMenu(null, 'reset');
   }
   // A power cycle keeps what is inserted, as on real hardware: the cartridge (and so a disk controller's disks)
   // and the tape where it was; only RAM, the chips and the CPU start over. menu: false when the caller starts a
@@ -1227,24 +1221,26 @@ export class Session {
     this.endWelcome();
     this.setStubRun(m);
     this.keys.clear();
-    this.flushDisks();
+    this.drives.flush();
     // a power cycle keeps what is inserted, as on real hardware, so the Pak's option decides it again from the
     // ROMs that are stored (it is already in the port when nothing has changed)
     this.applySscOption(m);
-    this.fitDiskRom(m);
+    this.drives.fitRom(m);
     m.reset(true);
     this.acc = 0;
     this.poweredOn();
-    if (menu) this.offerMenu();
+    if (menu) this.offerMenu(null, 'reset');
   }
   // no ROMs, nothing running: the welcome menu, greeting the visitor back (the page has its bytes)
   // The event's argument is how the menu is offered: 'back' (a returning visit) or 'bye' (back from a program) as
   // before, or 'none' from the machine question's switch, which starts the menu without a carry-on line.
-  offerMenu(offer = null) {
+  // reason: why (WELCOME_REASONS): the start that follows takes it unless it names its own, and the tune is silent
+  // for a switch, a reset and a return (R46)
+  offerMenu(offer = null, reason = 'switch') {
     // the person's machine (personMachine): a Reset after a load on the chat screen used to offer the welcome menu
     // to the CHAT machine, which never runs it, and the page acted on that (review probe B)
     const m = this.personMachine;
-    if (this.welcomeMenu && m.useStub && WELCOME[cpuFamily(m.config.cpu)]) this.emit('menu', offer || 'back');
+    if (this.welcomeMenu && m.useStub && WELCOME[cpuFamily(m.config.cpu)]) { this.menuReason = reason; this.emit('menu', offer || 'back'); }
   }
   // run segments at exec (Machine.injectAndRun), remembering them as the stub's program to restart on Reset.
   // on: the machine to run them on (loadMedia's target: the BASIC session while the chat is full screen), else the
@@ -1261,7 +1257,7 @@ export class Session {
   }
   // start a stub program again from its entry point: the welcome menu as it was, or the bytes and exec address
   restart(r) {
-    if (r.welcome) { this.startWelcome(r.welcome.bytes, r.welcome); return; }
+    if (r.welcome) { this.startWelcome(r.welcome.bytes, Object.assign({}, r.welcome, { reason: 'reset' })); return; }
     this.shownMachine.injectAndRun(r.segments, r.exec);
     this.setStubRun(this.shownMachine, r);
     if (r.watch) this.watchForMenu(r.watch);
@@ -1349,7 +1345,7 @@ export class Session {
     m.reset(true);
     this.emit('roms');
     this.poweredOn();
-    this.offerMenu();
+    this.offerMenu(null, 'reset');
   }
   // Run the built-in stub firmware on the machine the person is working on (personMachine: the BASIC session while
   // the chat is full screen), also when ROMs are loaded. The load's fall-back for stored ROMs that do not start
@@ -1617,7 +1613,7 @@ export class Session {
     this.emit('roms');
     this.emit('loaded');
     // a moment taken on the stub's bare prompt has nothing running to come back to: the welcome menu, as a power-on
-    if (m.atStubPrompt()) this.offerMenu();
+    if (m.atStubPrompt()) this.offerMenu(null, 'switch');
     this.emit('disks');
     this.emit('nitros9');
     // an opened moment is a restore, not a power-on: announced as 'restored' (never 'reset'), the same event an
@@ -1717,207 +1713,7 @@ export class Session {
   static greetingFor(offer) { return offer === 'none' ? 'first' : 'back'; }
   get hasAnyRoms() { return this.roms.sockets().some((s) => profiles[s.owner]); }
 
-  checkNotInDrive(name, what) {
-    const held = this.diskHolder(name);
-    if (held) throw new SessionError(`${name.slice(DISK_PREFIX.length)}${held.name !== name ? ` (stored as ${held.name.slice(DISK_PREFIX.length)})` : ''} is in drive ${held.drive}${held.where}; eject it before you ${what} it.`);
-  }
-  // The machines whose drives can hold a stored disk now: the one in use and, in a full-screen chat, the BASIC
-  // session beside the chat machine (it keeps its drives, and the Library's guards must see them while the chat is
-  // on screen) -> [{ machine, where }], where: '' for the machine on screen, else how a message names it
-  diskMachines() {
-    const out = this.shownMachine ? [{ machine: this.shownMachine, where: '' }] : [];
-    const c = this.chatMachines;
-    if (c) for (const m of [c.basic, c.chat]) if (m && m !== this.shownMachine) out.push({ machine: m, where: m === c.basic ? ' of your BASIC session' : ' of the chat machine' });
-    return out;
-  }
-  // the drive that holds the disk image `name`, on any of those machines -> { drive, where, machine, name } | null;
-  // skip: { machine, drive } not to count (the drive a mount is about to replace). On a store that does not tell
-  // upper from lower case, `name` and what a drive holds are compared that way (see CASE, js/host/media-store.js).
-  diskHolder(name, skip = null) {
-    for (const { machine, where } of this.diskMachines()) {
-      const fdc = this.diskControllerOf(machine);
-      if (!fdc) continue;
-      const drive = fdc.drives.findIndex((d, i) => d.loaded && this.library.sameName(d.media.name, name) && !(skip && skip.machine === machine && skip.drive === i));
-      if (drive >= 0) return { drive, where, machine, name: fdc.drives[drive].media.name };
-    }
-    return null;
-  }
-
   // ---------------- programs and media ----------------
-  // ---------------- floppy disks ----------------
-  // Disk images live in the media store under DISK_PREFIX and are used through its random access: a mount
-  // reads the image with readRange, and what the machine writes goes back with writeRange, only the bytes
-  // that changed (the drive commits them when its motor stops, on eject and before the machine goes away).
-  // They never go through the media index, which keeps everything it owns in memory. Writes to the store are
-  // chained, so they land in order; diskWritesDone() waits for them.
-  // The disk cartridge (DragonDOS, Delta DOS or Disk BASIC) runs the user's ROM, like every other. Without one a disk
-  // still mounts: the disk controller goes in with no ROM (its cartridge space reads 00, and it raises no line, so
-  // the program running keeps going), for programs that drive the controller themselves. A disk ROM added later
-  // takes its place at the next reset or power cycle (fitDiskRom).
-
-  // where a file the person loads goes: the BASIC session while the Claude chat is full screen (Session.loadTarget)
-  // the person's disks go in the same machine, so a disk dropped on the chat screen lands in the drives the person
-  // sees, and the drives card shows those drives, not the chat machine's empty ones (it is a fresh machine: only a
-  // model with its own disk interface, the Dragon Alpha, has a controller there at all)
-  get diskMachine() { return this.loadTarget().m; }
-  // the disk cartridges this machine can take: [{ id, name, controller, ready (ROM stored), inserted }]
-  // A machine with its own disk interface (the Dragon Alpha) offers only that: { id: 'builtin', builtin: true }.
-  diskDosChoices() {
-    const m = this.diskMachine;
-    if (m && m.fdc instanceof DiskController) return [{ id: 'builtin', name: m.fdc.name, controller: m.fdc.type, ready: true, inserted: true, builtin: true }];
-    if (!m || !m.hasCartridgePort) return [];
-    const ids = DISK_DOS[m.profile.lineage] || [];
-    const fdc = this.diskController;
-    return ids.map((id) => ({ id, name: cartridgeRoms[id].name, controller: cartridgeRoms[id].controller, rom: cartridgeRoms[id].roms[0].files[0], ready: !!this.roms.get(id).rom, inserted: !!fdc && fdc.type === cartridgeRoms[id].controller }));
-  }
-  // the disk controller: the machine's own (the Dragon Alpha's), else the one in the cartridge port or in one of
-  // its Multi-Pak's slots, or null
-  get diskController() { return this.diskControllerOf(this.diskMachine); }
-  diskControllerOf(m) {
-    if (m.fdc instanceof DiskController) return m.fdc;
-    if (m.cartPort instanceof MultiPak) return m.cartPort.slots.find((c) => c instanceof DiskController) || null;
-    return m.cartPort instanceof DiskController ? m.cartPort : null;
-  }
-  // the disk controller in use when it holds no ROM (plugged in for a disk mounted without a disk ROM), or null
-  get bareDiskController() {
-    const fdc = this.diskMachine && this.diskController;
-    return fdc && fdc !== this.diskMachine.fdc && !fdc.romBytes ? fdc : null;
-  }
-  // the disk system a disk mounted without a disk ROM uses: the one last chosen for this family, else the first
-  bareDiskChoice() {
-    const choices = this.diskDosChoices().filter((c) => !c.builtin), saved = this.store.get(`diskDos.${this.diskMachine.profile.lineage}`);
-    return choices.find((c) => c.id === saved) || choices[0] || null;
-  }
-  // The disk controller with no ROM, into an empty cartridge port: no reset, so the program running keeps going (the
-  // board raises no line of its own). A cartridge in the port comes out, and the machine is powered up afresh, as
-  // insertDiskDos does: the program was running from that cartridge.
-  plugBareDiskController(choice) {
-    const m = this.diskMachine;
-    this.flushDisks();
-    const had = !!m.cartPort;
-    m.insertCartridge(new devices[choice.controller]({}));
-    if (had) {
-      this.endWelcome();
-      this.keys.clear();
-      m.reset(true);
-      this.acc = 0;
-      this.poweredOn();
-    }
-    this.emit('disks');
-  }
-  // A disk controller plugged in without a ROM takes the disk ROM the user has added since: called by a reset and a
-  // power cycle, before the machine restarts. The ROM goes into the board's socket when it is the same board; another
-  // board (the Delta DOS cartridge for a Dragon controller) replaces it, with the disks moved across. Not while
-  // NitrOS-9 runs: its floppy boot uses the controller without a ROM on purpose. -> the disk system put in, or null
-  fitDiskRom(m = this.diskMachine) {
-    if (m !== this.diskMachine || this.nitros9Running) return null;
-    const fdc = this.bareDiskController, dos = fdc && this.preferredDiskDos();
-    if (!dos) return null;
-    const rom = this.roms.get(dos.id).rom;
-    if (dos.controller === fdc.type) {
-      fdc.fitRom(rom);
-      m.cartridgeChanged();
-    } else {
-      fdc.flush();
-      const next = new devices[dos.controller]({ rom });
-      const media = fdc.drives.slice(0, Math.min(fdc.fitted, next.fitted)).map((d) => (d.loaded ? d.media : null));
-      m.insertCartridge(next);
-      media.forEach((md, i) => { if (md) next.mount(i, md); });
-    }
-    this.store.set(`diskDos.${m.profile.lineage}`, dos.id);
-    this.emit('disks');
-    return dos;
-  }
-  // a disk ROM stored for the board in use, waiting for the next reset or power cycle to go in (the page says so)
-  get diskRomWaiting() { return !!this.bareDiskController && !this.nitros9Running && !!this.preferredDiskDos(); }
-  // plug a disk cartridge in (whatever was in the port comes out) and power the machine up with it
-  // ---------------- blank disks (Session.newDisk) ----------------
-  // The sizes offered for a new disk: the usual ones of the disk system in use (or the one a mount would plug in),
-  // in the format its images usually come in. [{ format, tracks, heads, size, label }]
-  blankDiskChoices() {
-    const type = this.blankDiskController();
-    if (!type) return [];
-    const kb = (t, h) => `${Math.round(t * h * 18 * 256 / 1024)}K`;
-    const list = { dragonfdc: [['vdk', 40, 1], ['vdk', 40, 2], ['vdk', 80, 2]], premierfdc: [['vdk', 40, 1], ['vdk', 40, 2], ['vdk', 80, 2]],
-      cocofdc: [['jvc', 35, 1], ['jvc', 40, 1], ['jvc', 40, 2]], alphafdc: [['vdk', 80, 2], ['vdk', 40, 2]] }[type] || [];
-    return list.map(([format, tracks, heads]) => ({ format, tracks, heads, size: kb(tracks, heads),
-      label: `${tracks} tracks, ${heads === 1 ? 'single' : 'double'}-sided (${kb(tracks, heads)})${type === 'cocofdc' && tracks === 35 ? ', as Disk BASIC formats' : ''}` }));
-  }
-  // the controller type a new disk is for: the one in use, else the preferred disk system's (null: no drives)
-  blankDiskController() {
-    const fdc = this.diskMachine && this.diskController;
-    if (fdc) return fdc.type;
-    const dos = this.diskDosChoices().find((c) => c.id === (this.preferredDiskDos() || {}).id) || this.diskDosChoices()[0];
-    return dos ? dos.controller : null;
-  }
-  // A new, empty disk (js/media/disk.js blankDisk) stored in the library and put in `drive`: `format` 'vdk', 'jvc'
-  // or 'dmk'; tracks and sides the drive must take. name: the image's name (default disk-<n>.<format>, the first
-  // free); a name already in the library is refused (a new disk never replaces one). -> the mount's message
-  async newDisk(drive, { format, tracks, heads }, { name = null, writeProtected = false } = {}) {
-    this.checkDrive(drive);
-    const type = this.blankDiskController();
-    if (!type) throw new SessionError(`The ${this.diskMachine.profile.name} has no disk drives in CLOADM. Disks go in on the Dragons and the CoCos.`);
-    if (!['vdk', 'jvc', 'dmk'].includes(format)) throw new SessionError(`A new disk is a VDK, JVC or DMK image, not "${format}".`);
-    const kind = DRIVE_TYPES[FDC_BOARDS[type].drive];
-    if (!Number.isInteger(tracks) || tracks < 1 || tracks > Math.min(kind.tracks, 82)) throw new SessionError(`Drive ${drive} takes disks of 1 to ${Math.min(kind.tracks, 82)} tracks, not ${tracks}.`);
-    if (heads !== 1 && heads !== 2) throw new SessionError(`A disk has 1 or 2 sides, not ${heads}.`);
-    let bytes;
-    try { bytes = blankDisk(format, tracks, heads); } catch (e) { throw new SessionError(e instanceof DiskFormatError ? e.message : String(e)); }
-    // one creation at a time (createExclusive): the name is chosen and checked, written and mounted before another
-    // creation looks, so a second one sees this disk and is refused rather than replacing its bytes
-    return this.library.createExclusive(async (askedAt) => {
-      // What this creation's errors are reported under. The listing below is the only throw here that is not
-      // already a SessionError naming the disk (the name checks here and importDiskStored itself throw
-      // SessionErrors, which mediaError hands on unchanged), so it is the one that needs a name. That name is the
-      // one asked for, but it cannot always be one: with no name asked the name is CHOSEN FROM THIS LISTING
-      // (disk-1.vdk and on), so a failing listing fails before a name exists, and a name that leaves nothing after
-      // the prefix ("disks/") would make the message start with ": ". Both report as the creation itself: "A new
-      // disk". The derivation happens before the listing so that a name mediaError refuses ("A disk image needs a
-      // name.") is still raised first, as it was when the derivation moved inside the turn.
-      const label = (name ? this.diskStoreName(name).slice(DISK_PREFIX.length) : '') || 'A new disk';
-      let listed;
-      try { listed = await this.listDisks(); } catch (e) { throw this.library.mediaError(e, label, DISK_PREFIX); }
-      const stored = new Set(listed.map((d) => d.name));
-      // on a store that does not tell cases apart, a name already there in another case is that same disk
-      const taken = (n) => stored.has(n) || [...stored].some((s) => this.library.sameName(s, n));
-      let full;
-      if (name) {
-        full = this.diskStoreName(name);
-        const base = full.slice(DISK_PREFIX.length);
-        if (detectDiskFormat(bytes, base) !== format) throw new SessionError(`${base}: a ${format.toUpperCase()} image needs a name ending .${format === 'jvc' ? 'dsk' : format}.`);
-        if (taken(full)) {
-          const same = [...stored].find((s) => this.library.sameName(s, full));
-          throw new SessionError(`There is already a disk named ${same.slice(DISK_PREFIX.length)} in your library: choose another name.`);
-        }
-      } else {
-        const ext = format === 'jvc' ? 'dsk' : format;
-        for (let n = 1; !full || taken(full); n++) full = `${DISK_PREFIX}disk-${n}.${ext}`;
-      }
-      // the name is decided: claim it before the next await (importDiskStored's), so a rename cannot take it while
-      // the blank is being written. (A name picked from the listing is claimed in the same step as the pick.)
-      this.library.claimDiskName(full);
-      try {
-        const msg = await this.importDiskStored(full, full.slice(DISK_PREFIX.length), bytes, drive, writeProtected, askedAt);
-        return `New blank disk: ${msg}`;
-      } finally { this.library.releaseDiskName(full); }
-    });
-  }
-  insertDiskDos(id) {
-    const m = this.diskMachine, choice = this.diskDosChoices().find((c) => c.id === id);
-    if (choice && choice.builtin) throw new SessionError(`The ${m.profile.name}'s disk interface is built in: no cartridge needed.`);
-    if (!choice) throw new SessionError(`The ${m.profile.name} can't take ${cartridgeRoms[id] ? `the ${cartridgeRoms[id].name}` : `"${id}"`}.`);
-    if (!choice.ready) throw new SessionError(`The ${choice.name} needs its ROM (${cartridgeRoms[id].roms[0].files.join(', ')}). Load the ROM file first.`);
-    this.flushDisks();
-    this.endWelcome();
-    this.keys.clear();
-    m.insertCartridge(new devices[choice.controller]({ rom: this.roms.get(id).rom }));
-    m.reset(true);
-    this.acc = 0;
-    this.store.set(`diskDos.${m.profile.lineage}`, id);
-    this.poweredOn();
-    this.emit('disks');
-    return `${choice.name} inserted`;
-  }
   // ---------------- the Speech/Sound Pak ----------------
   // The Pak is a cartridge-port board, offered where the machine's profile has the `ssc` option: the CoCo 1/2,
   // CoCo 2B, CoCo 3 and the Dragon 64 (each with its own `--ssc` lockstep against MAME). The PIC (TMS7040) ROM is
@@ -1944,7 +1740,7 @@ export class Session {
       throw new SessionError(`The Speech/Sound Pak needs its PIC ROM: ${missing.map((s) => `${s.label} (${s.files[0]}, ${Math.round(s.size / 1024)}K)`).join(' and ')}. Load the ROM file first.`);
     }
     const stored = this.roms.get('ssc');
-    this.flushDisks();
+    this.drives.flush();
     this.endWelcome();
     this.keys.clear();
     m.insertCartridge(new SpeechSoundPak({ tms7040Rom: stored.tms7040, sp0256Rom: stored.sp0256 || null }));
@@ -1974,8 +1770,8 @@ export class Session {
     const m = this.personMachine, c = m && m.cartPort;
     if (!c) throw new SessionError('The cartridge port is empty.');
     if (c instanceof SpeechSoundPak) return this.ejectSsc();
-    const bare = c === this.bareDiskController, name = bare ? c.plainName : c.name || 'The cartridge';
-    this.flushDisks();
+    const bare = c === this.drives.bareController, name = bare ? c.plainName : c.name || 'The cartridge';
+    this.drives.flush();
     m.ejectCartridge();
     if (!bare) {
       this.endWelcome();
@@ -2010,413 +1806,8 @@ export class Session {
       m.insertCartridge(new SpeechSoundPak({ tms7040Rom: stored.tms7040, sp0256Rom: stored.sp0256 || null }));
     } else if (!want && have) m.ejectCartridge();
   }
-  // the cartridge a mount plugs in when none is: the last one chosen for this family, else the first with its ROM
-  preferredDiskDos() {
-    const choices = this.diskDosChoices(), saved = this.store.get(`diskDos.${this.shownMachine.profile.lineage}`);
-    return choices.find((c) => c.id === saved && c.ready) || choices.find((c) => c.ready) || null;
-  }
-  // The stored name for a disk the user asked for. What follows the prefix is the file's own name -- in the drives,
-  // in the Library, and in every message -- so anything that is not one is refused: nothing after the prefix
-  // ('disks/'), a trailing separator ('disks/a/'), whitespace only (' ', 'disks/ '), or the segment '.' or '..'
-  // ('disks/.', 'disks/..', 'x/..' -- a folder store and OPFS can hold neither, and '..' must not reach the store;
-  // libName refuses it for library names and this is the same rule). A leading dot in a real name ('.vdk') is a
-  // file's name and stays allowed. Refused here because every door (importDisk, newDisk, mountDisk, importMedia)
-  // goes through this, and a store that let one through would hold a blob named 'disks/' and say " in drive 0".
-  diskStoreName(name) {
-    if (typeof name !== 'string' || !name) throw new SessionError('A disk image needs a name.');
-    const full = this.storedDiskName(name);
-    if (!isDiskFileName(full.slice(DISK_PREFIX.length))) throw new SessionError('A disk image needs a name.');
-    return full;
-  }
-  // The stored name of a disk that is ALREADY there, for reading it back. The rule above decides what CLOADM may
-  // CREATE; it must not decide what it can READ. A store from an earlier build holds 'disks/ ' and
-  // 'disks/sub/x.vdk' (main let both be renamed into place), and refusing to name them would strand them -- the same
-  // fault as refusing a stored " a.vdk". So only the derivation is shared, not the check: nothing after the prefix
-  // is still not a name at all, and '..' is still refused (it must never become a store path).
-  storedDiskName(name) {
-    if (typeof name !== 'string' || !name) throw new SessionError('A disk image needs a name.');
-    const full = name.startsWith(DISK_PREFIX) ? name : DISK_PREFIX + String(name).split(/[\\/]/).pop();
-    const base = full.slice(DISK_PREFIX.length);
-    if (!base || /(^|\/)\.\.(\/|$)/.test(base)) throw new SessionError('A disk image needs a name.');
-    return full;
-  }
-  // drives this machine's controller has (the Alpha fits 2; a disk cartridge 4)
-  get driveCount() { const fdc = this.diskMachine && this.diskController; return fdc ? fdc.fitted : 4; }
-  checkDrive(drive) {
-    const n = this.driveCount;
-    if (!Number.isInteger(drive) || drive < 0 || drive >= n) throw new SessionError(`There is no drive ${drive} (drives 0 to ${n - 1}).`);
-  }
-  // disk images in the store: [{ name, size, mtime }] (names with DISK_PREFIX)
-  async listDisks() { return this.media.list(DISK_PREFIX); }
-  // a disk image from the user: checked, stored (replacing a stored image of that name that no drive holds)
-  // and mounted -> message
-  // The whole check-and-mount is one creation, so an import of a name a new disk is making waits for that disk and
-  // then meets it in its drive instead of replacing its bytes.
-  async importDisk(name, bytes, drive = 0, { writeProtected = false } = {}) {
-    this.checkDrive(drive);
-    this.library.checkNotMoving();
-    const full = this.diskStoreName(name), base = full.slice(DISK_PREFIX.length);
-    const format = detectDiskFormat(bytes, base);
-    if (!format) throw new SessionError(`${base}: not a disk image CLOADM can read (VDK, JVC/DSK or DMK).`);
-    try { diskGeometry(bytes, format); } catch (e) { throw new SessionError(`${base}: ${e.message}`); }
-    return this.library.claimingDiskName(full, () => this.library.createExclusive((askedAt) => this.importDiskStored(full, base, bytes, drive, writeProtected, askedAt)));
-  }
-  // the stored part of importDisk, run as one creation. askedAt: the landing count when this creation was asked
-  // for (see createExclusive), which tells a second creation of one name from a deliberate replace.
-  async importDiskStored(full, base, bytes, drive, writeProtected, askedAt = 0) {
-    this.library.checkNotMoving();
-    // a creation of this name landed after this one was asked for: it is a second creation of one name, and must
-    // refuse rather than replace. This is also the same-drive case the diskHolder checks below cannot see -- they
-    // look for the image in a drive, and a creation's image may have been put in this very drive (the eject below
-    // would remove it) or be about to be mounted after this operation read the drive as empty.
-    // a creation of this name landed after this one was asked for -- a new disk, an import or a RENAME (all three
-    // are creations: one at a time, in ask order) -- so this one is a second creation and refuses
-    const raced = this.library.landedRace(full, askedAt);
-    if (raced) throw new SessionError(`There is already a disk named ${raced.slice(DISK_PREFIX.length)} in your library: choose another name.`);
-    const holder = this.diskHolder(full, { machine: this.diskMachine, drive });
-    if (holder) throw new SessionError(`${holder.name} is in drive ${holder.drive}${holder.where}; eject it there first.`);
-    if (this.diskStatus().drives.some((d) => this.library.sameName(d.name, full))) await this.ejectDisk(drive);
-    await this.diskWritesDone();
-    // checked again with nothing left to wait for: a mount of this name that went in meanwhile keeps its file
-    const again = this.diskHolder(full);
-    if (again) throw new SessionError(`${again.name} is in drive ${again.drive}${again.where}; eject it there first.`);
-    this.library.checkNotMoving();
-    try { await this.diskStoreChange(() => this.media.write(full, bytes), full); } catch (e) { throw this.library.mediaError(e, base, full); }
-    // The name is stored, so from here on this creation lands it however it ends -- mounted, a mount that fails, or a
-    // case probe that throws -- and it lands it only at the end: a creation asked at any point while this one runs
-    // (askedAt below this landing) is waiting behind it and refuses, while one asked after it finished is a
-    // deliberate replace. Landing straight after the write would let an import asked between the write and the end
-    // count as a replace and take the name.
-    try {
-      await this.library.refreshCase();   // the store has a name now: it can put its case rule to the test
-      // stored by now: a mount that fails says so, rather than that the import did not happen
-      try { return await this.mountDisk(drive, full, { writeProtected }); }
-      catch (e) { throw new SessionError(`${base} was saved to your Library but not put in drive ${drive}: ${e.message}`); }
-    } catch (e) {
-      // What is left here (the case probe, above all) is reported as this creation's own error, named the way
-      // importMedia names it (`base`, the stored name without its prefix), so both callers of this creation --
-      // importDisk and newDisk -- get the same form. A SessionError is handed on unchanged, which keeps the
-      // creation's own messages exact: the "in drive N" refusals, and the mount failure just above, which already
-      // names the disk. (A backend message that itself embeds the path therefore repeats it, exactly as
-      // importMedia's has always done: mediaError adds the name to whatever the store said.)
-      throw this.library.mediaError(e, base, full);
-    } finally { this.library.creationLanded(full); }
-  }
-  // a stored disk image into a drive (plugging in the disk cartridge if none is) -> message
-  // opts[HELD]: as for mountDriveWire (the caller's Library operation is what the move waits for)
-  async mountDisk(drive, name, opts = {}) {
-    const { writeProtected = false } = opts, held = opts[HELD] === true;
-    this.checkDrive(drive);
-    if (!held) this.library.checkNotMoving();
-    const full = this.storedDiskName(name), base = full.slice(DISK_PREFIX.length);
-    const holder = this.diskHolder(full, { machine: this.diskMachine, drive });
-    if (holder) throw new SessionError(`${holder.name} is already in drive ${holder.drive}${holder.where}.`);
-    let fdc = this.diskController;
-    if (!fdc && this.diskMachine.cartPort instanceof MultiPak) throw new SessionError('The Multi-Pak has no disk controller: put one in one of its slots first (Multi-Pak…).');
-    // the disk cartridge a mount plugs in: the user's disk ROM's, else the controller alone (bare)
-    const dos = fdc ? null : this.preferredDiskDos(), bare = fdc || dos ? null : this.bareDiskChoice();
-    if (!fdc && !dos && !bare) throw new SessionError(`The ${this.diskMachine.profile.name} has no disk drives in CLOADM. Disks go in on the Dragons and the CoCos.`);
-    // The image is read once every write is in the store: the drive's own (a disk mounted again in the drive it is
-    // in must be the image that drive wrote) and every one queued, a restore's put-back included. The machine runs
-    // while the store is read, so the read is taken only if nothing has been queued for THIS image since before the
-    // wait (a write, an import, a rename or a delete of it, with the drive flushed again); otherwise it is read
-    // again. "This image" follows the store's own case rule (sameName): on a store that holds 'disks/A.vdk' and
-    // 'disks/a.vdk' as one file a change under either spelling is a change to it, and on one that keeps them apart
-    // only its exact name is. A store whose rule is not measured yet is taken as case-insensitive, so the mount
-    // reads again rather than keep bytes that may be stale. Nothing here waits between the count and the check, so
-    // a change queued while the store is read cannot slip past it. Every change to this image, under any spelling
-    // it shares, spends the four-read budget; another file's changes never do. The rule is taken once per pass, so
-    // the count before and after a read are summed over the same names even if the store is measured meanwhile.
-    const changesTo = (ci) => { let c = 0; for (const [n, k] of this.diskChanges) if (this.library.sameName(n, full, ci)) c += k; return c; };
-    let bytes, reads = 0;
-    for (;;) {
-      const flush = () => { const f = this.diskController; if (f && f.drives[drive].loaded) f.drives[drive].flush(); };
-      flush();
-      // counted before the wait: a change to this image queued from here on (even in the step after the wait)
-      // means read again
-      const ci = this.library.caseInsensitive, before = changesTo(ci);
-      await this.diskWritesDone();
-      try {
-        const st = await this.media.stat(full);
-        if (!st) throw new MediaStoreError('not-found', full);
-        bytes = await this.media.readRange(full, 0, st.size);
-      } catch (e) { throw this.library.mediaError(e, base, full); }
-      flush();
-      const moved = changesTo(ci) !== before;
-      if (!moved) break;
-      if (++reads > MOUNT_READ_RETRIES) throw new SessionError(`${base}: the drives kept writing while it was read; try again.`);
-    }
-    // from here on nothing waits, so what is checked is what the mount finds: another mount that went in meanwhile
-    // (into another drive, or into this one) is seen
-    const again = this.diskHolder(full, { machine: this.diskMachine, drive });
-    if (again) throw new SessionError(`${base} is already in drive ${again.drive}${again.where}.`);
-    if (!held) this.library.checkNotMoving();
-    const format = detectDiskFormat(bytes, base);
-    if (!format) throw new SessionError(`${base}: not a disk image CLOADM can read (VDK, JVC/DSK or DMK).`);
-    fdc = this.diskController;
-    if (!fdc) {
-      if (this.diskMachine.cartPort instanceof MultiPak) throw new SessionError(`${base}: the disk cartridge was taken out; mount it again.`);
-      if (dos) this.insertDiskDos(dos.id); else this.plugBareDiskController(bare);
-      fdc = this.diskController;
-    }
-    if (fdc.drives[drive].loaded) fdc.eject(drive);   // flushed above: nothing more to write
-    try {
-      this.diskUnsaved.delete(full);        // read afresh from the store: nothing is outstanding
-      fdc.mount(drive, { bytes, format, name: full, writeProtected, onWrite: this.diskLink(full) });
-    } catch (e) { throw new SessionError(`${base}: ${e.message}`); }
-    this.checkDiskLater(fdc.drives[drive]);
-    this.emit('disks');
-    const wp = writeProtected ? ' (write-protected)' : '';
-    if (fdc === this.bareDiskController) return `${base} is in drive ${drive}${wp}, ${BARE_NOTE}`;
-    return `${base} in drive ${drive}${wp}`;
-  }
-  // A mounted drive works out whether a snapshot must carry its image as mounted (js/chips/floppy.js, get
-  // mountBytes: a round trip through the disk format, about three times the cost of the mount) only when first
-  // asked. Ask it here, in a task of its own once the mount has returned (setTimeout, so the Session stays
-  // DOM-free), so that neither the mount nor the first snapshot after it (a restore point at the start of a Claude
-  // turn, a share) pays for it. Outside emulation: it changes no machine state and no emulated time, and a
-  // snapshot taken before it runs gets the same answer through the getter. A drive whose disk was changed or taken
-  // out by then is left alone: its new mount has its own check. disksChecked() resolves once every check asked for
-  // so far has run.
-  checkDiskLater(drive) {
-    const media = drive.media;
-    const p = new Promise((resolve) => setTimeout(() => {
-      try { if (drive.media === media) void drive.mountBytes; } finally { resolve(); }
-    }, 0));
-    this.diskChecks.add(p);
-    p.then(() => this.diskChecks.delete(p));
-  }
-  disksChecked() { return Promise.all([...this.diskChecks]); }
-  // A mounted disk's link to its stored image (media.onWrite). Each mount gets a link of its own, and the link is
-  // the identity of that continuous mount of that stored image: link.mount = { id, name, writes (how many changes
-  // the drive has handed to the store through it), failed (a write through it was refused and no whole image has
-  // been written since: the stored image may lack it), readOnly (the store refused a write as not allowed), broken (the
-  // stored image could not be put back after a restore: nothing more is written through it) }. A link is not part
-  // of a snapshot: a restore point records the links (storedDisks) and the restore relinks only the same mount.
-  diskLink(name) {
-    const mount = { id: ++this.diskMounts, name, writes: 0, failed: false, readOnly: false, broken: false };
-    const link = (offset, data, size) => { mount.writes++; this.queueDiskWrite(name, offset, data, size, mount); };
-    link.mount = mount;
-    return link;
-  }
-  // the drives of machine m linked to the media store: [{ drive, name, link, writes (link.mount.writes now), wpt }]
-  storedDisks(m) {
-    const fdc = this.diskControllerOf(m);
-    return fdc ? fdc.drives.flatMap((d, i) => (d.loaded && d.media.onWrite && d.media.onWrite.mount
-      ? [{ drive: i, name: d.media.name, link: d.media.onWrite, writes: d.media.onWrite.mount.writes, wpt: !!d.wpt }] : [])) : [];
-  }
-  // A restore point put back on machine m (Session.restoreClaude and the chat's undoLast both come here) -> the
-  // notices for the person: [string], one per drive whose restored disk is not linked to the Library.
-  // The point is checked first (a SessionError, nothing changed); the drives' changes go to the store first (the
-  // restore replaces the drives, dirty tracks and all); a load that fails part way is rolled back to the machine as
-  // it was, with its links. Then each drive the point holds linked to the store (pointDisks) is linked again ONLY if
-  // the same mount (the same link) is still in that drive, i.e. the same continuous mount since the point: anything
-  // else (ejected, replaced or changed in the Library, mounted again, in another drive) leaves the store alone and the
-  // drive unlinked, with a notice. The same mount keeps the write protection the person has set now. A linked disk the machine wrote to since the point has the store image put back to
-  // the image the drive holds now (whole, so the undone writes are not left mixed in), unless it is write-protected
-  // or its stored file refused writes: then it is not written and comes back unlinked, with a notice. A disk not
-  // written to since the point is not written at all.
-  restorePoint(m, snap) {
-    try { m.checkSnapshot(snap); } catch (e) { throw new SessionError(`Can't restore that point (${e.message}): nothing was changed, and your restore points are kept.`); }
-    const fdc = this.diskControllerOf(m);
-    if (fdc) fdc.flush();
-    const before = m.snapshot(), linked = this.storedDisks(m);
-    try { m.loadSnapshotState(snap); } catch (e) {
-      m.loadSnapshotState(before);
-      const back = this.diskControllerOf(m);
-      for (const x of linked) back.drives[x.drive].media.onWrite = x.link;
-      throw new SessionError(`Can't restore that point (${e.message}): the machine was put back as it was, and your restore points are kept.`);
-    }
-    this.cancelLoadTyping(m);          // a load's EXEC still waiting was for the machine as it was
-    const notices = this.relinkPoint(m, (this.claudePointInfo.get(snap) || {}).disks || [], linked);
-    // A restore point is a loaded moment too, and goes back onto the same machine (no new Machine, no Reset): the
-    // boot watchdog must not count 5 s from it either, or a point taken on a game would answer 'failed' with the
-    // socket cause after Claude's undo. Machine.loadSnapshotState deliberately does not mark it (a boot-failure
-    // moment carries its diagnosis in the snapshot), so the Session does, here, where the point's state is put
-    // back. The latch is re-armed by the same frame rule every reset uses: the point's own frame is a new run.
-    m.restored = true;
-    // Announced as its own event, not 'reset': an undo is not a Reset, and the listeners that hear 'reset' (a
-    // sound discontinuity, the drives card, the welcome shelf, the slots) must not act on a Reset that never
-    // happened. boot-help listens for 'restored' and re-checks, so the "No OK" box raised by the run the undo took
-    // away goes with it (restorePoint answers 'restored' for the machine now, so one check closes it).
-    this.emit('restored');
-    this.emit('disks');
-    return notices;
-  }
-  relinkPoint(m, pointDisks, linked) {
-    const fdc = this.diskControllerOf(m), notices = [];
-    const unsaved = (drive, why) => notices.push(`Drive ${drive} ${why}; the restored disk isn't saved to the Library. Download it to keep it.`);
-    for (const was of pointDisks) {
-      const d = fdc && fdc.drives[was.drive];
-      if (!(d && d.loaded && d.media.name === was.name)) continue;
-      const now = linked.find((x) => x.drive === was.drive), mount = was.link.mount;
-      if (!now || now.link !== was.link || mount.broken) { unsaved(was.drive, 'was changed since this point'); continue; }
-      // the same mount: write protection is the person's setting for it, not the machine's, so it stays as it is now
-      d.setWriteProtect(now.wpt);
-      if (mount.writes === was.writes && !mount.failed) { d.media.onWrite = was.link; continue; }
-      if (now.wpt) { unsaved(was.drive, 'is write-protected'); continue; }
-      if (mount.readOnly) { unsaved(was.drive, 'is a read-only file'); continue; }
-      d.media.onWrite = was.link;
-      this.queueDiskWrite(was.name, 0, d.media.bytes.slice(), d.media.bytes.length, mount, { drive: was.drive, machine: m });
-    }
-    return notices;
-  }
-  // The drive's changes, in order, to the stored image: in place, or the whole file when its size changed. mount: the
-  // link's mount (a refused write marks it failed until a whole image is written; writes through a broken one are dropped: the stored image is no longer the drive's). rollback:
-  // { drive, machine } for the whole image a restore puts back; if the store refuses it, the stored image is a mix
-  // of two versions, so the mount is broken and the drive unlinked, and the error says the disk isn't saved.
-  queueDiskWrite(name, offset, data, size, mount = null, rollback = null) {
-    this.noteDiskChange(name);
-    // the write's own outcome only: a listener's error is not the write's, and every write is counted as landed
-    this.diskWriting = this.diskWriting.then(async () => {
-      let cleared = false;
-      try {
-        if (!(mount && mount.broken)) {
-          if (offset === 0 && data.length === size) await this.media.write(name, data);
-          else await this.media.writeRange(name, offset, data);
-          if (mount && offset === 0 && data.length === size) mount.failed = false;
-          cleared = this.diskUnsaved.delete(name);
-        }
-      } catch (e) { this.diskWriteFailed(e, name, mount, rollback); } finally { this.diskLanded++; }
-      if (cleared) this.emitApart('disks');
-    }).catch(() => {});
-  }
   // a listener that throws is reported on its own (as an uncaught error), apart from the disk write chain
   emitApart(event) { try { this.emit(event); } catch (e) { queueMicrotask(() => { throw e; }); } }
-  // what a refused disk write leaves: the mount marked, the error to report, the drive unlinked for a put-back
-  diskWriteFailed(e, name, mount, rollback) {
-    if (mount) mount.failed = true;
-    if (mount && e && e.code === 'unsupported') mount.readOnly = true;
-    const base = name.slice(DISK_PREFIX.length);
-    if (rollback) {
-      mount.broken = true;
-      const fdc = this.diskControllerOf(rollback.machine), d = fdc && fdc.drives[rollback.drive];
-      if (d && d.loaded && d.media.onWrite && d.media.onWrite.mount === mount) d.media.onWrite = null;
-      this.diskUnsaved.delete(name);
-      const why = this.library.mediaError(e, base, name).message.replace(/[.\s]+$/, '');
-      this.addDiskError(new SessionError(`Drive ${rollback.drive}: the Library's ${base} couldn't be put back to the restored disk (${why}); the restored disk isn't saved to the Library. Download it to keep it.`));
-    } else {
-      const err = this.library.mediaError(e, base, name);
-      this.addDiskError(err);
-      this.diskUnsaved.set(name, err.message);
-    }
-    this.emitApart('diskerror');
-    this.emitApart('disks');
-  }
-  // A change the Library makes to the stored disk images (op: an import's write, a rename, a delete), run in the
-  // same chain as the drives' writes, so a mount waiting for the chain reads after it lands, and one reading
-  // meanwhile reads again (diskChanges, for the names the change is to). Its failure goes to the caller only.
-  // name: the stored name the change is to (for a rename, both the old and the new one). -> what op returns
-  diskStoreChange(op, name = null) {
-    this.noteDiskChange(name);
-    const p = this.diskWriting.then(op);
-    this.diskWriting = p.then(() => {}, () => {}).then(() => { this.diskLanded++; });
-    return p;
-  }
-  // A change to a stored disk image is queued: count it everywhere (diskWritesSettled waits on that), and under
-  // the exact names it is to, which a mount sums by the store's case rule to see whether its own image moved under
-  // its read. (The map grows by distinct spelling, not by change; a session writes to finitely many names.)
-  noteDiskChange(name) {
-    this.diskQueued++;
-    for (const n of [].concat(name || [])) if (n) this.diskChanges.set(n, (this.diskChanges.get(n) || 0) + 1);
-  }
-  // the disk changes queued now have landed (written or refused), without reporting a refusal
-  async diskWritesSettled() {
-    const upTo = this.diskQueued;
-    while (this.diskLanded < upTo) await this.diskWriting;
-  }
-  // a refused disk write, reported once by diskWritesDone: several pending are reported together, none dropped
-  addDiskError(err) { this.diskError = this.diskError ? new SessionError(`${this.diskError.message} ${err.message}`) : err; }
-  // every drive's changes handed to the store now (they are written in the background)
-  // (every machine with drives: in a full-screen chat the BASIC session beside the chat machine too)
-  flushDisks() { for (const { machine } of this.diskMachines()) { const fdc = this.diskControllerOf(machine); if (fdc) fdc.flush(); } }
-  // wait until the store has every change handed to it; a failed write is reported once, here
-  // (the writes queued when it is called: one queued later is not waited for, so it always ends)
-  async diskWritesDone() {
-    await this.diskWritesSettled();
-    const e = this.diskError;
-    this.diskError = null;
-    if (e) throw e;
-  }
-  async ejectDisk(drive) {
-    this.checkDrive(drive);
-    const fdc = this.diskController;
-    if (fdc) fdc.eject(drive);
-    this.emit('disks');
-    await this.diskWritesDone();
-  }
-  setDiskWriteProtect(drive, on) {
-    this.checkDrive(drive);
-    const fdc = this.diskController;
-    if (!fdc || !fdc.drives[drive].loaded) throw new SessionError(`Drive ${drive} is empty.`);
-    fdc.setWriteProtect(drive, on);
-    this.emit('disks');
-  }
-  // { dos: { id, name } | null, drives: [{ drive, name, file, writeProtected, size, stored, unsaved }] } for the
-  // drives with a disk; stored: false for a disk that came with a snapshot (not linked to the store); unsaved:
-  // why the store refused this image's last write (its changes are only in the drive until a write succeeds)
-  // count: the drives there are (or will be once a cartridge goes in)
-  diskStatus() {
-    const fdc = this.diskMachine && this.diskController;
-    if (!fdc) return { dos: null, count: 4, drives: [] };
-    const id = this.diskMachine.fdc === fdc ? 'builtin' : Object.keys(cartridgeRoms).find((k) => cartridgeRoms[k].controller === fdc.type);
-    // bare: the controller holds no ROM (a disk mounted without a disk ROM)
-    const bare = fdc === this.bareDiskController;
-    return {
-      dos: { id, name: id === 'builtin' ? fdc.name : bare ? fdc.plainName : cartridgeRoms[id].name, bare },
-      count: fdc.fitted,
-      drives: fdc.drives.map((d, i) => (d.loaded ? { drive: i, name: d.media.name, file: d.media.name.split('/').pop(), writeProtected: !!d.wpt, size: d.media.bytes.length, stored: !!d.media.onWrite, unsaved: (d.media.onWrite && this.diskUnsaved.get(d.media.name)) || null } : null)).filter(Boolean),
-    };
-  }
-  // the drive lights: [lit, ...] per drive. A drive's light is on while it is selected, its motor runs and the
-  // controller is busy with a command (it is reading, writing or stepping)
-  diskActivity() {
-    const fdc = this.diskMachine && this.diskController;
-    if (!fdc) return [false, false, false, false];
-    const busy = !!(fdc.wd.status & 1);
-    return fdc.drives.slice(0, fdc.fitted).map((d) => busy && fdc.wd.floppy === d && d.mon === 0);
-  }
-  // The disk that came with a snapshot (not linked to the Library: diskStatus stored: false) saved to the Library under
-  // its name, and the drive linked to it from then on, so what the machine writes goes there (R25: a switch takes it
-  // out, and only the Library keeps it) -> message. A name the Library already has is refused: that is another disk.
-  async keepSnapshotDisk(drive) {
-    this.checkDrive(drive);
-    const fdc = this.diskController, d = fdc && fdc.drives[drive];
-    if (!d || !d.loaded) throw new SessionError(`Drive ${drive} is empty.`);
-    const full = this.diskStoreName(d.media.name), base = full.slice(DISK_PREFIX.length);
-    if (d.media.onWrite) throw new SessionError(`${base} is already in your Library.`);
-    const media = d.media;
-    // A Library operation (libraryOp): a move that starts meanwhile waits for it, so it looks in and writes to the one
-    // store, which the move then copies. The look and the write are one queued disk change (diskStoreChange): when it
-    // runs, the image is copied and the drive linked in one synchronous step, so a write the machine makes after it
-    // goes to the store behind this one, never into the gap between them. It is queued under no name: no mount of this
-    // image can be reading it meanwhile (one that waits for the queue finds the drive linked under the name and is
-    // refused; one that read before finds no file), so a per-name count would change nothing.
-    // (diskStoreChange counts it in diskQueued all the same, so diskWritesSettled waits for it.)
-    try {
-      await this.library.libraryOp(() => this.diskStoreChange(async () => {
-        if (await this.media.stat(full)) throw new SessionError(`Your Library already has a disk named ${base}; download this one instead.`);
-        if (fdc.drives[drive].media !== media || media.onWrite) throw new SessionError(`Drive ${drive} no longer holds that disk.`);
-        d.flush();
-        const bytes = media.bytes.slice(), oldName = media.name;
-        media.name = full; media.onWrite = this.diskLink(full);
-        try { await this.media.write(full, bytes); } catch (e) { if (media.onWrite) { media.onWrite = null; media.name = oldName; } throw e; }
-      }));
-    } catch (e) { throw this.library.mediaError(e, base, full); }
-    await this.library.refreshCase();
-    this.emit('disks');
-    return `Saved ${base} to your Library`;
-  }
-  // the image in a drive as it is now, written changes included -> { name, bytes }
-  async downloadDisk(drive) {
-    this.checkDrive(drive);
-    const fdc = this.diskController;
-    if (!fdc || !fdc.drives[drive].loaded) throw new SessionError(`Drive ${drive} is empty.`);
-    fdc.drives[drive].flush();
-    await this.diskWritesDone();
-    const m = fdc.drives[drive].media;
-    return { name: m.name.split('/').pop(), bytes: m.bytes.slice() };
-  }
 
   // The machine EVERY person-facing media, tape, cartridge, poke and welcome action acts on. The machine in use,
   // except while the Claude chat is full screen: then the chat machine is on screen (the chat firmware), and the
@@ -2620,7 +2011,7 @@ export class Session {
 
       case 'cart': {
         if (!m.hasCartridgePort) throw new SessionError(`${name}: the ${m.profile.name} has no cartridge port`);
-        this.flushDisks();
+        this.drives.flush();
         let dev;
         try { dev = cartridgeFor(bytes, this.cartBoard); } catch (e) { throw new SessionError(`${name}: ${e.message}`); }
         this.cartFiles.set(dev, name);
@@ -2660,7 +2051,7 @@ export class Session {
     return `${what} inserted, running at $C000`;
   }
   // A Multi-Pak with up to four cartridges: items[i] = { name, bytes, board }, { dos } (a disk controller: an id
-  // from diskDosChoices(), with the user's ROM; one per Multi-Pak) or null for an empty slot (slot 1 first);
+  // from drives.dosChoices(), with the user's ROM; one per Multi-Pak) or null for an empty slot (slot 1 first);
   // switchSlot is the front-panel switch (1-4), the slot whose ROM shows at reset. MAME fits a disk controller in
   // slot 4 only (the one compared with it); the Multi-Pak routes every slot alike, so any slot takes one here.
   insertMultiPak(items, { switchSlot = 4 } = {}) {
@@ -2671,7 +2062,7 @@ export class Session {
     if (!Array.isArray(items) || items.length > 4) throw new SessionError('A Multi-Pak has four slots');
     const dos = items.filter((it) => it && it.dos);
     if (dos.length > 1) throw new SessionError('A Multi-Pak takes one disk controller (their registers would clash).');
-    const choices = this.diskDosChoices();
+    const choices = this.drives.dosChoices();
     const names = items.map((it) => (it && it.dos ? (choices.find((c) => c.id === it.dos) || { name: it.dos }).name : it ? it.name : 'empty'));
     let mp;
     try {
@@ -2684,7 +2075,7 @@ export class Session {
         return new devices[c.controller]({ rom: this.roms.get(c.id).rom });
       }), { switchSlot });
     } catch (e) { throw new SessionError(`Multi-Pak: ${e.message}`); }
-    this.flushDisks();
+    this.drives.flush();
     const msg = this.startCartridge(mp, `Multi-Pak (${names.map((n, i) => `${i + 1}: ${n}`).join(', ')})`, m);
     if (dos.length) this.store.set(`diskDos.${m.profile.lineage}`, dos[0].dos);
     this.emit('loaded');
@@ -3091,7 +2482,7 @@ export class Session {
     try { m.checkSnapshot(snap); } catch (e) { throw new SessionError(`Can't restore that point (${e.message}): nothing was changed, and your restore points are kept.`); }
     // Claude stops first, so what it was typing is let go on the machine as it is now, not on the restored one
     this.stopClaude();
-    const notices = this.restorePoint(m, snap);
+    const notices = this.drives.restorePoint(m, snap);
     chat.undo.length = index;
     // the actions the point took back are marked undone, with the restore's time (R13)
     const info = this.claudePointInfo.get(snap);
@@ -3208,9 +2599,9 @@ export class Session {
       checkRun: (t) => this.checkRunTarget(t, basic()),
       run: (t) => this.runAt(t, basic()),
       // a restore point: when it was taken and the drives linked to the media store at that moment (their links)
-      snapshot: () => { const snap = basic().snapshot(); this.claudePointInfo.set(snap, { at: Date.now(), disks: this.storedDisks(basic()) }); return snap; },
+      snapshot: () => { const snap = basic().snapshot(); this.claudePointInfo.set(snap, { at: Date.now(), disks: this.drives.stored(basic()) }); return snap; },
       // the same guarded path as restoreClaude -> restorePoint's notices
-      restore: (snap) => this.restorePoint(basic(), snap),
+      restore: (snap) => this.drives.restorePoint(basic(), snap),
     };
   }
   // 'chat' or 'basic' on screen; 'chat' event
@@ -3371,6 +2762,7 @@ export class Session {
     this.menuWatch = null;
     // the page starts the menu in asMachine with this ticket (machineTicket): the keys that asked for it
     this.menuTicket = w.ticket || this.machineTicket();
+    this.menuReason = 'return';
     this.emit('menu');
   }
   // the one-step switch: fit the RAM option LIZA needs, keeping the other options
@@ -3484,7 +2876,13 @@ export class Session {
   // gen: the welcomeGen a page took (welcomeGenNow) before fetching these bytes. When it is given and something
   // took the machine since, the start does nothing and this returns null: the menu must not take the screen back
   // from what the person started while its bytes were on the way.
-  startWelcome(bytes, { greeting = 'first', carryOn = null, gen = null } = {}) {
+  // reason: why it starts (WELCOME_REASONS); without one, the reason the menu was offered with (offerMenu), else 'visit'.
+  // A silent reason ('switch', 'reset', 'return') keeps the tune from playing: PLAYED is set once the firmware has
+  // cleared it in its first frame (flushWelcome), whether or not the audio is unlocked, now or later.
+  startWelcome(bytes, { greeting = 'first', carryOn = null, gen = null, reason = null } = {}) {
+    const why = reason || this.menuReason || 'visit';
+    this.menuReason = null;
+    if (!WELCOME_REASONS.includes(why)) throw new SessionError(`unknown welcome reason "${why}"`);
     // The ticket catches "the machine was taken by something else while the bytes were in flight" -- a program
     // loaded, a snapshot opened, a Reset, a switch the person did not ask for. It is compared BEFORE the start's own
     // machine work (which bumps it through endWelcome), and there is only ever ONE start per turn now
@@ -3518,6 +2916,7 @@ export class Session {
     this.welcomeBuild = w;
 
     this.emit('welcome');   // (the page's parts that depend on whether the welcome program runs: the quick-save slots)
+    this.welcomeQuiet = WELCOME_QUIET.has(why) ? { m, at: m.frameCount } : null;
     if (this.welcomeSoundOn) this.welcomeSound();
     const last = (carry ? 1 : 0) + (w === WELCOME['6809'] ? 5 : 4);   // the 6809 build has the games too
     return `Welcome: press 1 to ${last}`;
@@ -3555,10 +2954,11 @@ export class Session {
     // the PERSON's machine, the same machine welcomeRunning now means: it poked this.shownMachine, so with the chat open
     // the 1 went into the CHAT firmware's $6004 (inside chat.bin's $6000 load range) and the person's menu never got
     // its sound (review 0.1.9 round 3). The welcome build is the person's machine's build, as startWelcome sets it.
-    if (this.welcomeRunning) this.welcome.poke(this.welcomeBuild.soundOk, 1);
+    // (a silent start sets it after its first frame instead, once PLAYED is set: flushWelcome)
+    if (this.welcomeRunning && !this.welcomeQuiet) this.welcome.poke(this.welcomeBuild.soundOk, 1);
   }
   endWelcome() {
-    this.welcome = null; this.welcomeBuild = null; this.menuWatch = null;
+    this.welcome = null; this.welcomeBuild = null; this.menuWatch = null; this.welcomeQuiet = null; this.menuReason = null;
     this.welcomeGen++;   // anything that takes the machine cancels a welcome start still waiting on its bytes
   }
   // The generation a page takes before it fetches the welcome bytes and hands it back to startWelcome. Every way
@@ -3569,6 +2969,14 @@ export class Session {
   // after the frames just run: emit the key posted in the mailbox, if any, and clear it
   flushWelcome() {
     if (!this.welcomeRunning) return;
+    // a silent start: its first frame has run, so the firmware has cleared PLAYED (its START) and has not yet
+    // reached the tune (SOUNDOK is held back until now): set PLAYED, then let SOUNDOK through
+    const q = this.welcomeQuiet;
+    if (q && q.m === this.welcome && this.welcome.frameCount > q.at) {
+      this.welcomeQuiet = null;
+      this.welcome.poke(this.welcomeBuild.played, 1);
+      if (this.welcomeSoundOn) this.welcome.poke(this.welcomeBuild.soundOk, 1);
+    }
     // the same pair as welcomeSound: the gate is the person's machine (welcomeRunning) and this is what it reads and
     // clears - this.shownMachine's $6003 is chat firmware code with the chat open (review 0.1.9 round 3)
     const m = this.welcome, at = this.welcomeBuild.event, key = m.peek ? m.peek(at) : m.ram[at];

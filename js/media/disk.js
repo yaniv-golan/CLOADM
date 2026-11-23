@@ -589,7 +589,7 @@ function buildDmkTrack(td, tsize, isSd) {
 }
 
 // ---------------------------------------------------------------- blank disks
-// A new, empty disk of `tracks` tracks and `heads` sides (Session.newDisk), for the DOS to initialise (DSKINIT,
+// A new, empty disk of `tracks` tracks and `heads` sides (DiskDrives.newDisk), for the DOS to initialise (DSKINIT,
 // DSKINI0). VDK and JVC hold sectors, so their blank is a low-level formatted disk: 18 sectors of 256 bytes per
 // track, numbered from 1, every data byte BLANK_FILL (E5, the byte formatters conventionally fill with). A DMK
 // holds the raw track, so its blank is unformatted: no ID marks (an empty IDAM table) over a track of 4E gap

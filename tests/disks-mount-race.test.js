@@ -23,8 +23,8 @@ const { check, failures } = checker();
     };
     const setup = async () => {
       const { s, media } = session('dragon64', 'dragondos', 'dragon');
-      await s.importDisk('x.vdk', images.vdk(40, 2), 0);
-      await s.ejectDisk(0);                        // drive 0 free for the mount
+      await s.drives.importImage('x.vdk', images.vdk(40, 2), 0);
+      await s.drives.eject(0);                        // drive 0 free for the mount
       return { s, media };
     };
     // a rename onto the mounted name. The name has to be free for the rename to happen at all, so inside the race
@@ -35,15 +35,15 @@ const { check, failures } = checker();
     {
       const { s, media } = await setup();
       const y = images.vdk(40, 1);
-      await s.importDisk('y.vdk', y, 1); await s.ejectDisk(1);
+      await s.drives.importImage('y.vdk', y, 1); await s.drives.eject(1);
       let renamed = null;
       const reads = raceFirstRead(media, 'disks/x.vdk', async () => {
         await media.remove('disks/x.vdk');
         renamed = await s.library.renameMedia('disks/y.vdk', 'disks/x.vdk').then(() => 'ok', (e) => e.message);
       });
-      const out = await s.mountDisk(0, 'x.vdk').then((m) => m, (e) => e);
-      await s.diskWritesDone().catch(() => {});
-      const d = s.diskController.drives[0];
+      const out = await s.drives.mount(0, 'x.vdk').then((m) => m, (e) => e);
+      await s.drives.writesDone().catch(() => {});
+      const d = s.drives.controller.drives[0];
       check('a rename onto the image being mounted: the mount reads again and holds the renamed image (not the stale one)',
         renamed === 'ok' && reads() === 2 && d.loaded && same(d.media.bytes, y) && same(d.media.bytes, await media.read('disks/x.vdk')),
         `${out instanceof Error ? out.message : out}; reads=${reads()}; rename=${renamed}`);
@@ -54,9 +54,9 @@ const { check, failures } = checker();
       const fresh = images.vdk(40, 1); fresh.fill(0x77, 0x2000, 0x2100);
       let imported = null;
       const reads = raceFirstRead(media, 'disks/x.vdk', async () => { imported = await s.library.importMedia('disks/x.vdk', fresh).then(() => 'ok', (e) => e.message); });
-      const out = await s.mountDisk(0, 'x.vdk').then((m) => m, (e) => e);
-      await s.diskWritesDone().catch(() => {});
-      const d = s.diskController.drives[0];
+      const out = await s.drives.mount(0, 'x.vdk').then((m) => m, (e) => e);
+      await s.drives.writesDone().catch(() => {});
+      const d = s.drives.controller.drives[0];
       check('an import over the image being mounted: the mount reads again and holds the imported bytes',
         reads() === 2 && d.loaded && same(d.media.bytes, fresh), `${out instanceof Error ? out.message : out}; reads=${reads()}; import=${imported}`);
     }
@@ -72,18 +72,18 @@ const { check, failures } = checker();
       media.write = (name, ...a) => { if (name === 'disks/x.vdk') started(); return realWrite(name, ...a); };
       let imported = null;
       const reads = raceFirstRead(media, 'disks/x.vdk', async () => {
-        imported = s.importDisk('x.vdk', fresh, 1).then(() => 'ok', (e) => e.message);
+        imported = s.drives.importImage('x.vdk', fresh, 1).then(() => 'ok', (e) => e.message);
         await writeStarted;
       });
-      const out = await s.mountDisk(0, 'x.vdk').then((m) => m, (e) => e);
+      const out = await s.drives.mount(0, 'x.vdk').then((m) => m, (e) => e);
       const importResult = await imported;
       media.write = realWrite;
-      const d = s.diskController.drives[0];
+      const d = s.drives.controller.drives[0];
       check('importDisk over the image being mounted: the mount reads again and holds the imported bytes',
         out === 'x.vdk in drive 0' && d.loaded && same(d.media.bytes, fresh) && same(fresh, await media.read('disks/x.vdk')),
         `${out instanceof Error ? out.message : out}; reads=${reads()} (the import's own mount reads it too)`);
       check('... and the import says it was saved but is in drive 0, not put in drive 1',
-        /x\.vdk was saved to your Library but not put in drive 1: .*already in drive 0/.test(String(importResult)) && !s.diskController.drives[1].loaded,
+        /x\.vdk was saved to your Library but not put in drive 1: .*already in drive 0/.test(String(importResult)) && !s.drives.controller.drives[1].loaded,
         String(importResult));
     }
     // The count is taken BEFORE the mount waits for the queued writes. Another file's write (W1) is held in the
@@ -93,7 +93,7 @@ const { check, failures } = checker();
     {
       const { s, media } = await setup();
       const x = await media.read('disks/x.vdk');
-      await s.importDisk('y.vdk', images.vdk(40, 1), 1); await s.ejectDisk(1);
+      await s.drives.importImage('y.vdk', images.vdk(40, 1), 1); await s.drives.eject(1);
       const realRange = media.writeRange.bind(media);
       const gate = () => { let open; const p = new Promise((res) => { open = res; }); return { p, open }; };
       const g1 = gate(), g2 = gate();
@@ -103,16 +103,16 @@ const { check, failures } = checker();
         if (name === 'disks/x.vdk') await g2.p;
         return realRange(name, ...a);
       };
-      s.diskLink('disks/y.vdk')(0x100, new Uint8Array([0x11]), 12 + 40 * 1 * 18 * 256);   // W1, held
+      s.drives.link('disks/y.vdk')(0x100, new Uint8Array([0x11]), 12 + 40 * 1 * 18 * 256);   // W1, held
       await w1;
       const reads = raceFirstRead(media, 'disks/x.vdk', async () => { g2.open(); });
-      const pending = s.mountDisk(0, 'x.vdk').then((m) => m, (e) => e);   // counts, then waits on W1
-      s.diskLink('disks/x.vdk')(0x800, new Uint8Array([0x99]), x.length);  // W2, queued during that wait
+      const pending = s.drives.mount(0, 'x.vdk').then((m) => m, (e) => e);   // counts, then waits on W1
+      s.drives.link('disks/x.vdk')(0x800, new Uint8Array([0x99]), x.length);  // W2, queued during that wait
       g1.open();
       const out = await pending;
       media.writeRange = realRange;
-      await s.diskWritesDone().catch(() => {});
-      const d = s.diskController.drives[0], stored = await media.read('disks/x.vdk');
+      await s.drives.writesDone().catch(() => {});
+      const d = s.drives.controller.drives[0], stored = await media.read('disks/x.vdk');
       check('a write to the image queued while the mount waits for earlier writes: the mount reads again and holds it',
         out === 'x.vdk in drive 0' && reads() === 2 && d.loaded && d.media.bytes[0x800] === 0x99 && same(d.media.bytes, stored),
         `${out instanceof Error ? out.message : out}; reads=${reads()}`);
@@ -126,17 +126,17 @@ const { check, failures } = checker();
     {
       const { s, media } = session('dragon64', 'dragondos', 'dragon');
       const d0 = images.vdk(40, 2), d1 = images.vdk(40, 1);
-      await s.importDisk('p0.vdk', d0, 0);
-      await s.importDisk('p1.vdk', d1, 1);
-      const drive0 = s.diskController.drives[0];
+      await s.drives.importImage('p0.vdk', d0, 0);
+      await s.drives.importImage('p1.vdk', d1, 1);
+      const drive0 = s.drives.controller.drives[0];
       let dirty = false;
       const reads = raceFirstRead(media, 'disks/p0.vdk', async () => {
         for (let f = 0; f < 600 && !drive0.imageDirty; f++) s.shownMachine.runFrame();
         dirty = drive0.imageDirty;
       });
-      const out = await s.mountDisk(0, 'p0.vdk').then((m) => m, (e) => e);
-      await s.diskWritesDone().catch(() => {});
-      const d = s.diskController.drives[0], stored = await media.read('disks/p0.vdk');
+      const out = await s.drives.mount(0, 'p0.vdk').then((m) => m, (e) => e);
+      await s.drives.writesDone().catch(() => {});
+      const d = s.drives.controller.drives[0], stored = await media.read('disks/p0.vdk');
       check('the machine writes the drive (not yet committed) while it is mounted again: the flush after the read makes the mount read again and hold those writes',
         dirty && out === 'p0.vdk in drive 0' && reads() === 2 && d.loaded && same(d.media.bytes, stored) && !same(stored, d0),
         `${out instanceof Error ? out.message : out}; dirty=${dirty}; reads=${reads()}`);
@@ -144,12 +144,12 @@ const { check, failures } = checker();
     // a delete of the very image being mounted: the re-read finds it gone, so the mount fails clearly
     {
       const { s, media } = await setup();
-      await s.importDisk('w.vdk', images.vdk(40, 1), 1); await s.ejectDisk(1);
+      await s.drives.importImage('w.vdk', images.vdk(40, 1), 1); await s.drives.eject(1);
       let deleted = null;
       raceFirstRead(media, 'disks/x.vdk', async () => { deleted = await s.library.deleteMedia('disks/x.vdk').then(() => 'ok', (e) => e.message); });
-      const out = await s.mountDisk(0, 'x.vdk').then((m) => m, (e) => e);
+      const out = await s.drives.mount(0, 'x.vdk').then((m) => m, (e) => e);
       check('a delete of the very image being mounted: the mount fails clearly rather than holding a deleted image',
-        out instanceof Emu.SessionError && /x\.vdk is no longer stored/.test(out.message) && !s.diskController.drives[0].loaded,
+        out instanceof Emu.SessionError && /x\.vdk is no longer stored/.test(out.message) && !s.drives.controller.drives[0].loaded,
         `${out instanceof Error ? out.message : out}; delete=${deleted}`);
     }
     // a rename AWAY from the mounted name (the source name): the mount must notice that too, and the re-read then
@@ -158,9 +158,9 @@ const { check, failures } = checker();
       const { s, media } = await setup();
       let away = null;
       raceFirstRead(media, 'disks/x.vdk', async () => { away = await s.library.renameMedia('disks/x.vdk', 'disks/moved.vdk').then(() => 'ok', (e) => e.message); });
-      const out = await s.mountDisk(0, 'x.vdk').then((m) => m, (e) => e);
+      const out = await s.drives.mount(0, 'x.vdk').then((m) => m, (e) => e);
       check('a rename AWAY from the image being mounted: the mount re-reads, finds it gone and fails clearly',
-        away === 'ok' && out instanceof Emu.SessionError && /x\.vdk is no longer stored/.test(out.message) && !s.diskController.drives[0].loaded,
+        away === 'ok' && out instanceof Emu.SessionError && /x\.vdk is no longer stored/.test(out.message) && !s.drives.controller.drives[0].loaded,
         `${out instanceof Error ? out.message : out}; rename=${away}`);
     }
     // a distinct file whose name differs only in case must NOT be able to fail the mount, nor keep it re-reading:
@@ -169,10 +169,10 @@ const { check, failures } = checker();
     // stop on the store's rule, not on the writer going quiet.
     {
       const { s, media } = session('dragon64', 'dragondos', 'dragon');
-      await s.importDisk('work.DSK', images.vdk(40, 2), 0);
-      await s.importDisk('WORK.DSK', images.vdk(40, 1), 1);
-      await s.ejectDisk(0);
-      const other = s.diskController.drives[1];
+      await s.drives.importImage('work.DSK', images.vdk(40, 2), 0);
+      await s.drives.importImage('WORK.DSK', images.vdk(40, 1), 1);
+      await s.drives.eject(0);
+      const other = s.drives.controller.drives[1];
       let reads = 0;
       const realRange = media.readRange.bind(media);
       // while the mount reads its own file, drive 1 keeps writing the OTHER file (which folds to the same key)
@@ -181,13 +181,13 @@ const { check, failures } = checker();
         if (name === 'disks/work.DSK') {
           reads++;
           other.media.onWrite(0x100 + 0x10 * reads, new Uint8Array([0x5A]), other.media.bytes.length);
-          await s.diskWritesDone().catch(() => {});
+          await s.drives.writesDone().catch(() => {});
         }
         return out;
       };
-      const out = await s.mountDisk(0, 'work.DSK').then((m) => m, (e) => e);
+      const out = await s.drives.mount(0, 'work.DSK').then((m) => m, (e) => e);
       media.readRange = realRange;
-      const d = s.diskController.drives[0];
+      const d = s.drives.controller.drives[0];
       check('another file whose name folds to the same key writes throughout: the mount still mounts (its budget is its own name\'s)',
         out === 'work.DSK in drive 0' && d.loaded,
         `${out instanceof Error ? out.message : out}; reads=${reads}`);

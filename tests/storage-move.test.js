@@ -196,11 +196,11 @@ const rom = (seed) => Uint8Array.from({ length: 0x4000 }, (_, i) => (i * seed + 
     s.switchMachine('coco');
     s.roms.put('rsdos', 'rom', new Uint8Array(0x2000).fill(0x39), 'disk11.rom');
     await s.library.importMedia('WORK.DSK', dsk);
-    await s.mountDisk(1, 'disks/WORK.DSK');
+    await s.drives.mount(1, 'disks/WORK.DSK');
     const e = await refuse(s.library.moveMedia(to));
     check('in a drive: the move is refused and says which drive holds what', e instanceof Emu.SessionError && /Eject the disks first \(drive 1: WORK\.DSK\)/.test(e.message), e && e.message);
     check('in a drive: nothing moved', s.media === from && (await to.list('')).length === 0);
-    await s.ejectDisk(1);
+    await s.drives.eject(1);
     const r = await s.library.moveMedia(to);
     check('in a drive: once ejected it moves', s.media === to && r.copied > 0);
   }

@@ -182,7 +182,7 @@ const PLAIN = [{
       JSON.stringify({ atPrompt: info2.atPrompt, boot: d.bootStatus().state }));
   }
 
-  // ---- 8. Claude's restore point (undoLast -> Session.restorePoint -> loadSnapshotState, which deliberately does
+  // ---- 8. Claude's restore point (undoLast -> DiskDrives.restorePoint -> loadSnapshotState, which deliberately does
   // not mark `restored` itself): a point taken on a game, put back, must not answer 'failed' with the socket cause. ----
   {
     const s = dragon64(roms);
@@ -194,7 +194,7 @@ const PLAIN = [{
     const point = s.shownMachine.snapshot();           // the restore point, taken on the game
     s.powerCycle();                               // a real power-on after the point (framesSinceReset resets)
     frames(s.shownMachine, 50);
-    s.restorePoint(s.shownMachine, point);
+    s.drives.restorePoint(s.shownMachine, point);
     frames(s.shownMachine, past(s.shownMachine));
     const st = s.bootStatus(5);
     check('a restore point put back on a game: restored, never a boot failure', st.state === 'restored',

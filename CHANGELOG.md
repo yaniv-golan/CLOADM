@@ -170,6 +170,7 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 
 ### Changed
 
+- **The welcome menu's tune plays only when you asked for the menu.** It plays once the sound is unlocked for the visit's own menu and for the Welcome menu chosen from Programs; it is silent after a machine switch (a RAM or CPU change, the machine question, an opened snapshot), Reset, a power cycle, and when the menu comes back from LIZA, a game or the demo. The Session decides, so Claude's and MCP's switches are silent too.
 - **The page's screen text reads every screen Claude's screen_text reads.** `Session.screenText`, which the embed
   API's `screenText`, the Ask panel, the tape panel and the boot watchdog read, decoded only the VDG's 32x16 page at a
   fixed address: on the Dragon 64 Plus's 80-column screen it returned the VDG page behind it, on a CoCo 3 GIME text
@@ -197,6 +198,17 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   comparisons on the CoCo 3 (`run.js coco3`, `--fdc cocofdc` with `--halt`, `--halt --empty` and `--nitros9` on both
   CPUs, `--video`) are identical, and snapshots taken while an instruction is held are byte-identical to before
   (`tests/halt-replay-split.test.js`, with fixtures).
+- **The floppy drives have their own module.** The disk controller and disk cartridge, new blank disks, mounting,
+  ejecting and write-protecting, the writes back to the media store, the drives' status and the links a restore point
+  keeps move from the Session into `session.drives` (`js/drives.js`, `Emu.DiskDrives`), with shorter names:
+  `importDisk` is now `drives.importImage`, `mountDisk` `drives.mount`, `ejectDisk` `drives.eject`, `setDiskWriteProtect`
+  `drives.setWriteProtect`, `diskStatus` `drives.status`, `diskActivity` `drives.activity`, `listDisks` `drives.list`,
+  `downloadDisk` `drives.download`, `diskWritesDone` `drives.writesDone`, `flushDisks` `drives.flush`, `insertDiskDos`
+  `drives.insertDos`, `diskDosChoices` `drives.dosChoices`, `blankDiskChoices` `drives.blankChoices`,
+  `keepSnapshotDisk` `drives.keepSnapshot`, `diskController` `drives.controller`, `driveCount` `drives.count`;
+  `newDisk`, `checkDrive` and `checkNotInDrive` keep theirs. `BARE_NOTE` is exported from the new module. No
+  behaviour change; the disks a machine writes, a restore point's relinking, the status, the settings export and
+  snapshots are byte-identical to before (`tests/session-drives.test.js`, with fixtures).
 - **The media library has its own module.** Listing, opening, downloading, renaming, deleting and importing what
   the person keeps, the recent list, the creations of disk names (one at a time, with the names they claim), the
   store's rule for upper and lower case, and moving the library to another store move from the Session into
@@ -423,6 +435,10 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 
 ### Fixed
 
+- **A disk in a drive counts toward the install offer.** The page's "program in use" test (the one the
+  offer to install CLOADM as an app waits a minute of) asked the machine for a disk controller it never has, so a disk
+  waiting in a drive at the bare prompt never counted; it now asks the drives (`session.drives.controllerOf`). The
+  browser check's `install` group puts a disk in at the bare prompt and takes it out again.
 - **The Dragon 64 Plus had the 6551 but no RS-232 port.** Like the Dragon 64 (MAME's `d64plus()` starts from `dragon64()`), it now has the port: PIA1 PB0 reads its RXD, idle high.
 - **Two debuggers could end up on one machine.** A `Debugger` made directly on a machine that already had one left both attached, so a watched write counted twice and the snapshot carried a different debugger from the one the Session drove. A machine now has one debugger: a new one takes the old one's place, `session.debug` returns the one the machine already carries, and adopting the machine already shown keeps its debugger.
 - **Run after a long debugger Over or Out no longer leaves the machine frozen for seconds.** Over, Out, Run to and

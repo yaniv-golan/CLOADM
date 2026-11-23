@@ -72,7 +72,7 @@ class DiskController extends SlotDevice {
     this.reset(true);
   }
   // The DOS ROM in the board's socket (null: none, and the cartridge space reads 00). A board plugged in without one
-  // can be given one later (Session.fitDiskRom, at a reset or power cycle); the machine remaps its cartridge space.
+  // can be given one later (DiskDrives.fitRom, at a reset or power cycle); the machine remaps its cartridge space.
   fitRom(rom) {
     this.romBytes = rom ? Uint8Array.from(rom) : null;
     this.cart = null;

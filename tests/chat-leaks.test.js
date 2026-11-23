@@ -139,13 +139,13 @@ const ROWS = [
   ['switch machine', () => {}, (s) => s.switchMachine('coco3'), 'closes-chat'],
   ['switch LIZA\'s RAM', () => {}, (s) => s.switchLiza(), 'closes-chat'],
   // disks
-  ['insert a disk', withDos, (s) => s.importDisk('d.vdk', Emu.blankDisk('vdk', 40, 1), 0)],
-  ['eject a disk', withDos, async (s) => { await s.importDisk('e.vdk', Emu.blankDisk('vdk', 40, 1), 0); return s.ejectDisk(0); }],
-  ['insert a disk with no disk ROM (the disk controller goes in alone)', () => {}, (s) => s.importDisk('b.vdk', Emu.blankDisk('vdk', 40, 1), 0)],
-  ['take out the cartridge (the disk controller with no ROM)', async (s) => { await s.importDisk('t.vdk', Emu.blankDisk('vdk', 40, 1), 0); }, (s) => s.takeOutCartridge()],
-  ['new disk', withDos, (s) => s.newDisk(0, { format: 'vdk', tracks: 40, heads: 1 })],
-  ['insert a disk controller', withDos, (s) => s.insertDiskDos('dragondos')],
-  ['set write protect', withDos, async (s) => { await s.importDisk('w.vdk', Emu.blankDisk('vdk', 40, 1), 0); return s.setDiskWriteProtect(0, true); }],
+  ['insert a disk', withDos, (s) => s.drives.importImage('d.vdk', Emu.blankDisk('vdk', 40, 1), 0)],
+  ['eject a disk', withDos, async (s) => { await s.drives.importImage('e.vdk', Emu.blankDisk('vdk', 40, 1), 0); return s.drives.eject(0); }],
+  ['insert a disk with no disk ROM (the disk controller goes in alone)', () => {}, (s) => s.drives.importImage('b.vdk', Emu.blankDisk('vdk', 40, 1), 0)],
+  ['take out the cartridge (the disk controller with no ROM)', async (s) => { await s.drives.importImage('t.vdk', Emu.blankDisk('vdk', 40, 1), 0); }, (s) => s.takeOutCartridge()],
+  ['new disk', withDos, (s) => s.drives.newDisk(0, { format: 'vdk', tracks: 40, heads: 1 })],
+  ['insert a disk controller', withDos, (s) => s.drives.insertDos('dragondos')],
+  ['set write protect', withDos, async (s) => { await s.drives.importImage('w.vdk', Emu.blankDisk('vdk', 40, 1), 0); return s.drives.setWriteProtect(0, true); }],
   // cartridges and packs
   ['insert a Multi-Pak', () => {}, (s) => s.insertMultiPak([{ name: 'c.rom', bytes: new Uint8Array(0x2000).fill(0x39) }])],
   // (the Pak needs the user's PIC ROM, which may not be committed: this row is its refusal path, kept because a
@@ -203,19 +203,19 @@ const ROWS = [
   // a ROM through the Library's import goes on to addRoms (session.js:1730), which reaches the machine: the row uses
   // a ROM for exactly that reason
   ['import media into the library (a ROM: it goes on to addRoms)', () => {}, (s) => s.library.importMedia('d64_1.rom', basic)],
-  ['import a disk image into the library', withDos, (s) => s.importDisk('d.vdk', Emu.blankDisk('vdk', 40, 1), 0)],
-  ['mount a disk by name', withDos, async (s) => { await s.media.write('disks/m.vdk', Emu.blankDisk('vdk', 40, 1)); return s.mountDisk(0, 'disks/m.vdk'); }],
+  ['import a disk image into the library', withDos, (s) => s.drives.importImage('d.vdk', Emu.blankDisk('vdk', 40, 1), 0)],
+  ['mount a disk by name', withDos, async (s) => { await s.media.write('disks/m.vdk', Emu.blankDisk('vdk', 40, 1)); return s.drives.mount(0, 'disks/m.vdk'); }],
   ['open a snapshot', () => {}, async (s) => { const snap = await s.readSnapshot((await s.snapshotFile()).bytes); return s.openSnapshot(snap); }, 'closes-chat'],
   // keepSnapshotDisk is for a disk that came WITH a snapshot (not linked to the Library): unlink the imported one so
   // the row reaches the save, then assert the drive is linked to the Library afterwards.
   // a disk that came WITH a snapshot is not in the Library at all (no stored image, no link): remove the import from
   // the store first, so the row reaches the save body instead of the "already in your Library" guard.
   ['keep a snapshot\'s disk in the library', withDos, async (s) => {
-    await s.importDisk('kept.vdk', Emu.blankDisk('vdk', 40, 1), 0);
-    const fdc = s.diskControllerOf(s.chatMachines.basic), d = fdc.drives[0];
+    await s.drives.importImage('kept.vdk', Emu.blankDisk('vdk', 40, 1), 0);
+    const fdc = s.drives.controllerOf(s.chatMachines.basic), d = fdc.drives[0];
     d.media.onWrite = null;
     await s.media.remove('disks/kept.vdk');
-    const msg = await s.keepSnapshotDisk(0);
+    const msg = await s.drives.keepSnapshot(0);
     if (!d.media.onWrite) throw new Error('the disk was not saved and linked');
     return msg;
   }],
@@ -249,7 +249,7 @@ const ROWS = [
   ['show the BASIC session', () => {}, (s) => s.showChat('basic'), 'keeps-chat'],
   ['return to the side panel', () => {}, (s) => s.toSidePanel(), 'closes-chat'],
   // settings and the library (no machine at all, but they are in the UI's list)
-  ['flush the disks (the page does this on a hide)', () => {}, (s) => s.flushDisks()],
+  ['flush the disks (the page does this on a hide)', () => {}, (s) => s.drives.flush()],
   ['read the POKE book (and type one)', () => {}, (s) => { const b = s.pokeBook(); if (!b.length) throw new Error('no POKE book'); return s.typePoke(0); }],
   ['restore a quick-save slot', () => {}, async (s) => { await s.saveSlot(1); return s.restoreSlot(1); }],
   // after a floppy boot on the person's machine, with the chat on screen, the NitrOS-9 state that the PANEL reads
@@ -512,8 +512,8 @@ function uiCalledMethods() {
       // `session.x` is how a panel uses one. The shapes the reviewer named must not slip past silently:
       // session?.x(), session['x'], and a destructured `{ x } = session`: each is an ERROR below, not a silent miss.
       // the media library's members (session.library.x, js/library.js) are classified by their own names, as before
-      // they moved off the Session
-      for (const m of line.matchAll(/\bsession\??\.(?:library\.)?([a-zA-Z_][a-zA-Z0-9_]*)/g)) if (!out.has(m[1])) out.set(m[1], `${f}:${i + 1}`);
+      // they moved off the Session; the drives' (session.drives.x, js/drives.js) as drives.x
+      for (const m of line.matchAll(/\bsession\??\.(?:library\.)?((?:drives\.)?[a-zA-Z_][a-zA-Z0-9_]*)/g)) if (!out.has(m[1])) out.set(m[1], `${f}:${i + 1}`);
       for (const m of line.matchAll(/\bsession\s*\[\s*['"]([a-zA-Z_][a-zA-Z0-9_]*)['"]\s*\]/g)) out.set(`[${m[1]}]`, `${f}:${i + 1}`);
       for (const m of line.matchAll(/\b(?:const|let|var)\s*\{([^}]*)\}\s*=\s*session\b/g)) out.set(`{${m[1].trim()}}`, `${f}:${i + 1}`);
     });
@@ -527,7 +527,7 @@ function rowMethods() {
   // do - a setup that calls a method is also coverage of it
   for (const row of ROWS) {
     for (const fn of row.filter((x) => typeof x === 'function')) {
-      for (const m of String(fn).matchAll(/\bs\.(?:library\.)?([a-zA-Z_][a-zA-Z0-9_]*)\s*\(/g)) out.add(m[1]);
+      for (const m of String(fn).matchAll(/\bs\.(?:library\.)?((?:drives\.)?[a-zA-Z_][a-zA-Z0-9_]*)\s*\(/g)) out.add(m[1]);
     }
   }
   return out;
@@ -572,17 +572,17 @@ const REQUIRED = require.main !== module;
   }
   // ---- coverage: every Session method the UI calls is a row, or classified ----
   // (names verified to be reads/pure by reading their bodies; a name that is wrong here shows as an unknown method)
-  const READ = new Set(['advance', 'besideMachine', 'blankDiskChoices', 'bootStatus', 'checkGame', 'checkLiza',
-    'checkNotInDrive', 'codeAt', 'cpuRate', 'diskActivity', 'diskDosChoices', 'diskStatus', 'driveWireFile',
-    'driveWireImages', 'gameFile', 'inspect', 'listDisks', 'listMedia', 'listSlots', 'lizaNeeds', 'machineRoms',
+  const READ = new Set(['advance', 'besideMachine', 'drives.blankChoices', 'bootStatus', 'checkGame', 'checkLiza',
+    'drives.checkNotInDrive', 'codeAt', 'cpuRate', 'drives.activity', 'drives.dosChoices', 'drives.status', 'driveWireFile',
+    'driveWireImages', 'gameFile', 'inspect', 'drives.list', 'listMedia', 'listSlots', 'lizaNeeds', 'machineRoms',
     'machineTicket', 'machinesWithRoms', 'nitros9Images', 'nitros9Loader', 'nitros9On', 'printoutFile', 'printoutText',
     'readSlot', 'readSnapshot', 'readSnapshotLink', 'recentMedia', 'sameName', 'savedConfig', 'screenText',
     'shareFile', 'shareUrl', 'slotBytes', 'snapshotLink', 'snapshotRoms', 'snapshotSwitch', 'sscRoms', 'statusLine',
-    'takenOut', 'tapeStatus', 'welcomeFile', 'welcomeRunning', 'preferredDiskDos', 'storedRoms',
+    'takenOut', 'tapeStatus', 'welcomeFile', 'welcomeRunning', 'drives.preferredDos', 'storedRoms',
     // (main 1dd66fa: all four are reads/pure. indexWriteError formats a stored-write error; tapeRunning reads the
     // PERSON's deck motor flag; screenAlternative describes the SHOWN screen's text; welcomeGenNow reads the ticket)
     'indexWriteError', 'tapeRunning', 'screenAlternative', 'welcomeGenNow',
-    'pickNitros9Image', 'openMedia', 'downloadMedia', 'downloadDisk', 'diskWritesDone', 'printoutFile',
+    'pickNitros9Image', 'openMedia', 'downloadMedia', 'drives.download', 'drives.writesDone', 'printoutFile',
     // programControls reads the menu watch of the SHOWN machine: the touch panel it answers drives what is on screen
     'programControls',
     // claudeLink builds the "Ask Claude ↗" link from shareFile and shareUrl (both reads of the shown machine)
@@ -590,7 +590,7 @@ const REQUIRED = require.main !== module;
     // menuTicketFor returns the ticket a menu starts with (the Session's menuTicket or the one passed); changes nothing
     'menuTicketFor',
     // bareDiskController and diskRomWaiting read the disk controller of the PERSON's machine (diskMachine); no change
-    'bareDiskController', 'diskRomWaiting']);
+    'drives.bareController', 'drives.romWaiting']);
   // writes the library or settings only
   const LIBRARY = new Set(['addRoms', 'clearRoms', 'deleteMedia', 'importDriveWireImage', 'importMedia',
     'importSettings', 'listMedia', 'moveMedia', 'newDriveWireImage', 'renameMedia', 'exportRomPack', 'exportSettings',
