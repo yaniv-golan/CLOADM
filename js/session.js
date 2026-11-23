@@ -623,7 +623,6 @@ export class Session {
     // the floppy drives (js/drives.js): the disk controller, the disk cartridge, mounts from the media store and the
     // writes back to it, and the links restore points keep
     this.drives = new DiskDrives(this, { held: HELD });
-    this.debugger = null;           // created on first use by `debug` (js/debugger.js)
     this.pendingStop = null;        // a watchWrites 'stop' on the BASIC session beside a full-screen chat: { machine, reason } (writeStopped)
     // the Session's own probes and bus taps (js/hooks.js), put on the person's machine (install, followPerson): the
     // machine in use, or the BASIC session beside a full-screen chat. Host state, never in a snapshot. The developer
@@ -669,9 +668,16 @@ export class Session {
   // lives. Its methods throw SessionError with a message for the user. It shows the symbols of the last assembled
   // program by itself; `setLabels` replaces them.
   get debug() {
-    if (!this.debugger) this.debugger = new Debugger(this.shownMachine, { symbols: () => this.labels });
-    return this.debugger;
+    const m = this.shownMachine;
+    if (!m.debugger) new Debugger(m, { symbols: () => this.labels });
+    // (one a restored snapshot made, or one made on the machine directly, shows the Session's symbols too, unless it has its own)
+    if (m.debugger._symbols === null) m.debugger.setSymbols(() => this.labels);
+    return m.debugger;
   }
+  // The debugger of the machine in use, or null. A machine has one debugger (js/debugger.js: a new one takes the
+  // place of the one it has), and it is the machine's, so this reads it from there: one made on the machine
+  // directly is the Session's from then on, and none is ever the Session's but not the machine's.
+  get debugger() { const m = this.shownMachine; return (m && m.debugger) || null; }
   // a Map name -> address, or a function returning one, for the disassembly; null for plain addresses
   setLabels(symbols) {
     this.labels = symbols;
@@ -760,8 +766,8 @@ export class Session {
     this.dropChat();                      // a chat belongs to the machine it was opened on
     if (chat) this.clearStubRuns([chat.chat, chat.basic]);
     this.warmReset = null;                // a new machine is a power-on: the boot watchdog arms
-    if (this.debugger) { this.debugger.detach(); this.debugger = null; }
-    if (m.debugger) { this.debugger = m.debugger; this.debugger.setSymbols(() => this.labels); }
+    if (this.debugger && this.debugger.machine !== m) this.debugger.detach();   // (adopting the machine already shown keeps its debugger)
+    if (m.debugger) m.debugger.setSymbols(() => this.labels);
     // the machines left behind keep no state in the Session: their ROM-failure sets go (a switch back is a fresh
     // try) and their stub-restart records with them (the record of a Machine that is gone cannot come back)
     for (const [mm] of this.bootFailed) if (mm !== this.shownMachine && mm !== m) this.bootFailed.delete(mm);
@@ -779,7 +785,7 @@ export class Session {
     // the machine that starts over, and its next action does not run there
     m.onReset = () => this.stopClaudeFor('the machine restarted', m);
     this.keys.clear();
-    if (this.debugger && this.debugger.machine !== m) { this.debugger.detach(); this.debugger = null; }
+    if (this.debugger && this.debugger.machine !== m) this.debugger.detach();
     let undelivered = null;
     try { this.serial.deliver(); } catch (e) { undelivered = e; }   // what the old machine sent goes out first
     this.followPerson(this.personFor(m)); // the Session's hooks move to the person's machine (adopt: a switch, a snapshot)

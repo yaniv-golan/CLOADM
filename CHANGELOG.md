@@ -430,6 +430,7 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   waiting in a drive at the bare prompt never counted; it now asks the drives (`session.drives.controllerOf`). The
   browser check's `install` group puts a disk in at the bare prompt and takes it out again.
 - **The Dragon 64 Plus had the 6551 but no RS-232 port.** Like the Dragon 64 (MAME's `d64plus()` starts from `dragon64()`), it now has the port: PIA1 PB0 reads its RXD, idle high.
+- **Two debuggers could end up on one machine.** A `Debugger` made directly on a machine that already had one left both attached, so a watched write counted twice and the snapshot carried a different debugger from the one the Session drove. A machine now has one debugger: a new one takes the old one's place, `session.debug` returns the one the machine already carries, and adopting the machine already shown keeps its debugger.
 - **Run after a long debugger Over or Out no longer leaves the machine frozen for seconds.** Over, Out, Run to and
   Step run outside the frame loop, and their frames were not closed as machine time passed them: after an Over of a
   million instructions the machine was some 170 frames past its open frame, and Run then closed one empty frame per
@@ -480,6 +481,13 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 - **A steadier tape-panel browser check.** The "motor on: LOADING" check no longer depends on how far a slow runner
   got into block 1 before the panel repainted: it moves the tape a quarter of the way in once the panel is playing,
   then still requires one frame with LOADING, a speed above x1, the reels turning and the left reel unwound.
+- **A steadier no-pop sound check.** The browser check's `audio` group switched machines with the welcome menu on, so
+  the page started the menu a moment later, and on a slow runner its tune (square waves on the DAC, steps of 0.49)
+  reached the stream the check measures and read as a pop "after busy page". The switches now leave the menu off, the
+  check reads a second more of sound after the last step on every run, and it fails if a welcome program ran.
+- **A steadier disk-mount browser check.** "The program ran on through the mount" required the test program's
+  16-bit idle count to be higher after the mount than before, but the count wraps every 1.9 s, so a slow mount read
+  as a stopped program. The check now requires that the count moved.
 - **`pushTape` is tested from a deep queue** (`tests/audio.test.js`): DRAINING back to NONE, a push dropped past
   `MAX_MS`, and the queue settling near `TARGET_MS`.
 - **A file dropped while the Claude chat is full screen goes to your BASIC session, not the chat.** The chat runs
