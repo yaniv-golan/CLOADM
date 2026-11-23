@@ -745,11 +745,11 @@ function host() {
   const pak = m.cartPort;
   let pending = null, pairs = 0, wrong = 0, firstWrong = '';
   // T is taken from the PIC, independently of when the card applies the write: the instruction that decodes an AY
-  // data write (toAy is called inside it) ends at its start plus its cycles. The latest such end is kept; a write
+  // data write (atEnd is called inside it) ends at its start plus its cycles. The latest such end is kept; a write
   // that changed nothing is replaced by the next.
   let wrote = false;
-  const toAy = pak.toAy.bind(pak);
-  pak.toAy = (fn, v) => { if (fn === pak.ay.dataW) wrote = true; return toAy(fn, v); };
+  const atEnd = pak.atEnd.bind(pak);
+  pak.atEnd = (chip, fn, v) => { if (fn === pak.ay.dataW) wrote = true; return atEnd(chip, fn, v); };
   const step = pak.tms7040.step.bind(pak.tms7040);
   pak.tms7040.step = () => {
     const start = Number(pak.cardPos);
