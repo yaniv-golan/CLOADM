@@ -600,6 +600,7 @@ export class Session {
     this.fastCas = false;       // load .cas files straight into memory instead of through BASIC
     this.cartFiles = new WeakMap();   // a cartridge image's device -> the file it came from (takenOut names it)
     this._cartBoard = 'auto';   // the board a loaded cartridge image goes on (js/machines/carts.js CART_BOARDS)
+    this.loadStarted = true;        // the load in progress started a program (load() reads it for the last run)
     this.lastRunOn = null;          // the machine the last-run program started on, until something takes it over (lastRunOnScreen)
     this.listeners = new Set(); // (event) => void: 'machine' after a switch, 'loaded' after a program, tape or
                                 // cartridge is loaded or assembled, 'roms' when stored ROMs or the stub choice change,
@@ -1922,7 +1923,9 @@ export class Session {
   }
   // emits 'lastrun': a program records itself AFTER its load has emitted 'loaded', so a view of lastRun (the Media
   // tab's "Last time") follows this event, not 'loaded', and names what Run again runs
-  setLastRun(kind, name) { this.store.set('lastRun', JSON.stringify({ kind, name })); this.lastRunOn = this.personMachine; this.emit('lastrun'); }
+  // running: false for a load that started nothing (data with no execution address): it is what ran last, but nothing
+  // on screen runs it, so it is not "on screen now" (lastRunOnScreen)
+  setLastRun(kind, name, { running = true } = {}) { this.store.set('lastRun', JSON.stringify({ kind, name })); this.lastRunOn = running ? this.personMachine : null; this.emit('lastrun'); }
   // Is what lastRun names the program on screen now: recorded as it started on the machine in use, and nothing since
   // took the machine from it (a load, a launch, a reset, a switch, the welcome menu, a snapshot), not stopped by the
   // Debugger. The page adds its own Pause. Its panels then show it as running, not as something to Run again.
@@ -2107,8 +2110,9 @@ export class Session {
   // data; remember: false keeps it off the recent list.
   // run: false types a BASIC listing without the RUN after it (the MCP server's load; the page always runs it)
   load(name, bytes, { askAddresses = null, remember = true, run = true } = {}) {
+    this.loadStarted = true;
     const msg = this.loadMedia(name, bytes, askAddresses, { run });
-    if (remember) { this.library.rememberMedia(name, bytes); this.setLastRun('recent', name); }
+    if (remember) { this.library.rememberMedia(name, bytes); this.setLastRun('recent', name, { running: this.loadStarted }); }
     this.emit('loaded');
     return msg;
   }
@@ -2193,6 +2197,7 @@ export class Session {
         }
         go();
         this.inject(d.segments, d.exec, m);
+        if (d.exec == null) this.loadStarted = false;   // (data only: nothing runs)
         // what happened first, the format and the addresses after it (the page shows the rest under Details)
         return where(`${name} loaded${d.exec != null ? ' and started' : ''}. ${d.format} ${describeSegments(d.segments, d.exec)}`);
 
@@ -2253,6 +2258,7 @@ export class Session {
           const seg = { addr: first.load, data: first.data };
           go();
           this.inject([seg], first.exec, m);
+          if (first.exec == null) this.loadStarted = false;
           const range = `${hex(first.load)}–${hex((first.load + first.data.length - 1) & 0xFFFF)}`;
           msg = first.exec != null ? `${name} loaded (${range}) and started at ${hex(first.exec)}.` : `${name} loaded (${range}).`;
         }
@@ -2287,6 +2293,7 @@ export class Session {
         go();
         const seg = { addr: a.load, data: bytes };
         this.inject([seg], a.exec, m);
+        if (a.exec == null) this.loadStarted = false;
         return where(`${name}: raw ${describeSegments([seg], a.exec)}`);
       }
     }

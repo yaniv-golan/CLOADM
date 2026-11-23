@@ -92,6 +92,16 @@ const draws = (s) => { for (let i = 0; i < 50 && !s.welcomeOnScreen; i++) run(s)
   check('last run: after Minesweeper the card names Minesweeper', card === s.lastRun.name && /mine/i.test(card), String(card));
 }
 
+// 1c. the menu restarted on the same machine (a reset) is not on screen until its prompt is drawn again
+{
+  const s = session();
+  s.startWelcome(bin('welcome.bin'), { greeting: 'first', gen: s.welcomeGenNow() });
+  check('restart: the menu is on screen once drawn', draws(s));
+  s.startWelcome(bin('welcome.bin'), { greeting: 'back', gen: s.welcomeGenNow() });
+  check('restart: restarted on the same machine, it is not on screen until its prompt is drawn again', !s.welcomeOnScreen && run(s) > 0 && !s.screenText().some((r) => r.includes('PRESS 1 TO')) && !s.welcomeOnScreen);
+  check('restart: ...and then it is', draws(s));
+}
+
 // 3. the program last run is "on screen now" until something takes the machine from it
 (async () => {
   const s = session();
@@ -110,6 +120,9 @@ const draws = (s) => { for (let i = 0; i < 50 && !s.welcomeOnScreen; i++) run(s)
   s.load('mine.bin', bin('minesweeper.bin'));
   s.load('demo.bin', bin('demo.bin'), { remember: false });
   check('running: a file loaded without being remembered (the colour demo) is not the last run: not on screen as it', !s.lastRunOnScreen);
+  // data loaded with no execution address starts nothing: recorded as what ran last, but not on screen now
+  s.load('data.raw', new Uint8Array(64), { askAddresses: () => ({ load: 0x4000, exec: null }) });
+  check('running: a file loaded with no execution address is recorded but nothing runs: not on screen now', s.lastRun.name === 'data.raw' && !s.lastRunOnScreen);
   s.runLiza(bin('liza.bin'));
   check('running: LIZA, recorded after its load, is on screen now', s.lastRun.kind === 'liza' && s.lastRunOnScreen);
   // a snapshot opened over it
