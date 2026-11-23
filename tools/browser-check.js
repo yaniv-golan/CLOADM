@@ -11056,6 +11056,11 @@ async function askFollowupChecks(browser, base, check) {
     await waitFor(page, () => !document.getElementById('askConsent').hidden);
     await page.click('#btnAskAllow');
     await waitFor(page, () => !document.getElementById('askActing').hidden && window.emu.machine.typist.queue.length > 100, null, 8000);
+    // "part-way" needs keys already typed: the queue fills a moment before the machine reads its first key (1 or 2 keys
+    // were in by the stop on one machine, and none on another, where the panel then rightly says "didn't type ...: the
+    // Debugger has the machine stopped"). So wait until the queue has started to drain, with most of it still there.
+    const q0 = await page.evaluate(() => window.emu.machine.typist.queue.length);
+    await waitFor(page, (start) => { const n = window.emu.machine.typist.queue.length; return n < start - 40 && n > 100; }, q0, 20000);
     // queued before the stop, and right after it (the same task: the drop is synchronous with the stop)
     const atStop = await page.evaluate(() => { const m = window.emu.machine, before = m.typist.queue.length; window.emu.session.debug.halt();
       return { before, queued: m.typist.queue.length, paused: window.emu.session.paused }; });
@@ -11067,6 +11072,7 @@ async function askFollowupChecks(browser, base, check) {
     check('ask (Debugger stop): stopped while Claude types, the rest of the keys is dropped and the model is told machine-stopped, with how far it got',
       atStop.before > 100 && atStop.queued === 0 && atStop.paused && result && result.is_error === true && err && err.code === 'machine-stopped' && /keys typed, the rest dropped/.test(err.detail)
       && after.queued === 0, JSON.stringify({ atStop, after, err }).slice(0, 400));
+    check('ask (Debugger stop): (premise) some keys were typed before the stop, so it is part-way', !!err && /: [1-9]\d* of \d+ keys typed, the rest dropped/.test(err.detail || ''), err && err.detail);
     check('ask (Debugger stop): the panel\'s line says the Debugger stopped the machine part-way',
       await waitFor(page, () => /then the Debugger stopped the machine/.test(document.getElementById('ask').textContent), null, 5000));
     await page.click('#btnStripResume');
