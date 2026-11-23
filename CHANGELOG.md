@@ -325,6 +325,18 @@ Next version: 0.1.9-pre (the plugin and extension manifests carry it; `tests/plu
 
 ### Fixed
 
+- **A real CoCo's and the chat's DriveWire writes wait for a Library move.** A guest's named-object create over
+  Web Serial (Serve a real CoCo) or the full-screen chat's DriveWire wrote the store outside the Library's guard:
+  a move started meanwhile did not wait for it, and the new object was left in the place the move had left; a create
+  or a mount asked while the move copied went ahead. Every DriveWire server now has the Becker port's guard: a create
+  is a Library operation the move waits for, and both are answered "no such object" while the move copies.
+- **Adding a NitrOS-9 floppy image and Save to Library store their disk as a creation, like an import.** A rename
+  onto the name while the save was under way is refused, and a save asked behind a rename of that name refuses
+  instead of writing over the renamed image.
+- **Clearer rename refusals.** A blank new name (or "disks/" alone) and a ".." name say "<name> was not renamed:"
+  and why, rather than a bare folder or a path; a case-only rename on a store that does not tell cases apart names
+  the new name without the folder typed; Save to Library of a disk with no file name, or with a name that is not a
+  disk image's file name, says which and what to do.
 - **Two tabs no longer lose each other's ROMs, Library items or recent programs.** Every change to the media index
   (which ROM is in which socket, the ROMs' file names, the recent list) wrote this tab's whole list over the stored
   one, so with two tabs open the last writer won and silently dropped what the other had added, Undo included. Now each

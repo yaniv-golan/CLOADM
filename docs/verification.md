@@ -1167,6 +1167,31 @@ browser check's group `uiModel` drives them with real events at 1280x720 and at 
 Not verified automatically: how the fixed top slot reads to a person on a real phone (screenshots
 `r24-disk-toast-*.png` were looked at).
 
+### Library writes from every door: guest creates, saves and renames
+
+No MAME oracle (AGENTS.md 4.6): these are the Library's own ordering rules, and the oracle is each race played out
+with the loser held inside the await where its check had already passed. `tests/store-races.test.js`:
+* A guest's DriveWire named-object call over each server the Session builds besides the Becker port's (a real CoCo on
+  Web Serial, through a mocked `navigator.serial`; the full-screen chat's): a CREATE whose write is in flight when a
+  move starts is a Library operation the move waits for, after which the move is refused naming the guest's drive and
+  the object is in the store the session still uses; a CREATE or a MOUNT asked while the move copies is answered 0,
+  hands out no drive and writes neither place. Every server comes from one constructor
+  (`Session.newDriveWireServer`), which wires both guards.
+* addAndBootNitros9's floppy save and Save to Library (`drives.keepSnapshot`) store their disks/ name as one creation
+  (`library.createDisk`, the same path as a dropped disk image): a rename onto the name while the save is held is
+  refused ("a disk is being made under that name") and both images keep their bytes; a save asked behind a rename of
+  that name in flight refuses ("There is already a disk named n9.dsk in your library"), leaving the renamed image as
+  it was; an import asked during Save to Library refuses, and so does one asked while either save is still in its
+  case probe after the write (the landing comes at the creation's end, not before its write).
+* The words: a case-only rename on a store that does not tell cases apart names the new name without the folder
+  typed ("so work.vdk and WORK.VDK are the same name"); a blank new name, "disks/" alone and a ".." segment are
+  refused naming the item ("work.vdk was not renamed: the new name is blank (empty or only spaces).", "... ".." is
+  not a name a file can have."), each word for word, with the store unchanged; Save to Library of a disk with no
+  file name says so and what to do, and of one whose name is not a disk image's file name ("sub/x.vdk") says why.
+On the stage branch 30 of its first 45 checks fail. Each guard bypassed on its own (the real CoCo's server or the chat's
+built without the guards, either guard dropped, either save back to a plain Library operation, the creation's claim
+or its landing check dropped, the landing moved before the write, each message reverted) turns it red.
+
 ### A disk without a disk ROM
 
 With no disk ROM a mount plugs the disk controller in with nothing in its ROM socket (`DiskDrives.plugBareController`),
