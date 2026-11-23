@@ -108,7 +108,7 @@ const storeSscRoms = (s, { pic = PIC, sp = SP_ROM } = {}) => {
   const e = throws(() => { msg = s.insertSsc(); });
   check('no speech ROM: the Pak inserts anyway', !e && s.sscInserted, e ? e.message : '');
   check('...and the message says plainly that it plays music only, and how to add speech',
-    msg === 'Speech/Sound Pak inserted (music only: add your SP0256-AL2 dump in Your ROMs for speech)', msg);
+    msg === 'Speech/Sound Pak inserted (music only: add your own SP0256-AL2 ROM in Your ROMs for speech)', msg);
   const pak = s.shownMachine.cartPort;
   check('...its SP0256 carries no allophone data (the documented empty case, not a zero-filled image)',
     pak.sp0256Data === null, String(pak.sp0256Data));
@@ -152,9 +152,9 @@ const storeSscRoms = (s, { pic = PIC, sp = SP_ROM } = {}) => {
   const T = Emu.SSC_TEXT;
   check('the speech ROM\'s words are the agreed ones',
     T.boardNoSpeech === 'Speech/Sound Pak (music; speech needs your SP0256-AL2 ROM)' && T.board === 'Speech/Sound Pak' &&
-    T.romMissing === 'Optional: the SP0256-AL2 speech ROM. Without it the Pak plays music, and speech stays silent. CLOADM never includes it; add your own dump.' &&
+    T.romMissing === 'Optional: the SP0256-AL2 speech ROM. Without it the Pak plays music and stays silent for speech. CLOADM never includes it; add your own copy.' &&
     T.romLoaded === 'SP0256-AL2 speech ROM ✓ · the Pak speaks.' &&
-    T.speechNoRom === 'This program is speaking, but there\'s no speech ROM: add your SP0256-AL2 dump in Your ROMs.', JSON.stringify(T));
+    T.speechNoRom === 'This program is speaking, but there\'s no speech ROM: add your own SP0256-AL2 ROM in Your ROMs.', JSON.stringify(T));
   const s = await session();
   check('the board menu\'s label without a speech ROM says music, and that speech needs the ROM', s.sscBoardLabel === T.boardNoSpeech, s.sscBoardLabel);
   storeSscRoms(s, { pic: voicePic, sp: null });

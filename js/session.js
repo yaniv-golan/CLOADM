@@ -61,9 +61,9 @@ export const CLAUDE_PAUSED_TEXT = 'Paused: you pressed a key · Claude\'s next a
 export const SSC_TEXT = Object.freeze({
   boardNoSpeech: 'Speech/Sound Pak (music; speech needs your SP0256-AL2 ROM)',
   board: 'Speech/Sound Pak',
-  romMissing: 'Optional: the SP0256-AL2 speech ROM. Without it the Pak plays music, and speech stays silent. CLOADM never includes it; add your own dump.',
+  romMissing: 'Optional: the SP0256-AL2 speech ROM. Without it the Pak plays music and stays silent for speech. CLOADM never includes it; add your own copy.',
   romLoaded: 'SP0256-AL2 speech ROM ✓ · the Pak speaks.',
-  speechNoRom: 'This program is speaking, but there\'s no speech ROM: add your SP0256-AL2 dump in Your ROMs.',
+  speechNoRom: 'This program is speaking, but there\'s no speech ROM: add your own SP0256-AL2 ROM in Your ROMs.',
 });
 export const CLAUDE_PAUSED_SHORT = 'Paused: you pressed a key · Esc stops Claude';
 // a message's text: a string, or the text blocks of a content array
@@ -1775,7 +1775,7 @@ export class Session {
     this.poweredOn();
     this.emit('loaded');
     return stored.sp0256 ? 'Speech/Sound Pak inserted (music and speech)'
-      : 'Speech/Sound Pak inserted (music only: add your SP0256-AL2 dump in Your ROMs for speech)';
+      : 'Speech/Sound Pak inserted (music only: add your own SP0256-AL2 ROM in Your ROMs for speech)';
   }
   // take it out and leave the machine on its own ROMs
   ejectSsc() {

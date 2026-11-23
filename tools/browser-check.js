@@ -786,7 +786,7 @@ async function sscBoardChecks(browser, base, check) {
     .map((c) => ({ id: c.dataset.socket, status: c.dataset.ssc, state: (c.querySelector('.state') || {}).textContent }))
     .filter((s) => s.id && s.id.startsWith('ssc-')));
   check('Speech/Sound Pak: the speech socket, missing, says what it is and that CLOADM never includes it',
-    sockets.some((s) => s.id === 'ssc-sp0256' && s.state === 'Optional: the SP0256-AL2 speech ROM. Without it the Pak plays music, and speech stays silent. CLOADM never includes it; add your own dump.'),
+    sockets.some((s) => s.id === 'ssc-sp0256' && s.state === 'Optional: the SP0256-AL2 speech ROM. Without it the Pak plays music and stays silent for speech. CLOADM never includes it; add your own copy.'),
     JSON.stringify(sockets));
   check('Speech/Sound Pak: the ROM panel shows its PIC and speech sockets, the PIC required',
     sockets.some((s) => s.id === 'ssc-tms7040' && s.status === 'missing-required') && sockets.some((s) => s.id === 'ssc-sp0256' && s.status === 'missing-optional'),
@@ -836,7 +836,7 @@ async function sscBoardChecks(browser, base, check) {
   });
   check('Speech/Sound Pak: our tone firmware as the PIC; the Pak goes in (music, no speech ROM needed), and says music only',
     ins.type === 'ssc' && ins.name === 'Speech/Sound Pak' && ins.hasAy && ins.sp === null &&
-    ins.msg.includes('Speech/Sound Pak inserted (music only: add your SP0256-AL2 dump in Your ROMs for speech)'),
+    ins.msg.includes('Speech/Sound Pak inserted (music only: add your own SP0256-AL2 ROM in Your ROMs for speech)'),
     JSON.stringify(ins));
   // the card's own clock runs the PIC, whose tone firmware programs the AY: the AY's mixer leaves its reset value
   const plays = await waitFor(page, () => {
@@ -919,7 +919,7 @@ async function sscBoardChecks(browser, base, check) {
   // back on the emulator page (a toast raised for another page waits until the person is back there)
   await page.evaluate(() => { location.hash = ''; });
   await waitFor(page, () => !document.body.classList.contains('roms-open'));
-  const NO_ROM = "This program is speaking, but there's no speech ROM: add your SP0256-AL2 dump in Your ROMs.";
+  const NO_ROM = "This program is speaking, but there's no speech ROM: add your own SP0256-AL2 ROM in Your ROMs.";
   await page.evaluate((text) => {
     // every time the toast comes up with these words
     window.__speechToasts = 0;
