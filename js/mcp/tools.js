@@ -107,24 +107,22 @@ export function errorOf(e) {
 // ---------------- schemas ----------------
 // said on the local server's boot and load: the side-panel connector is the way to play or watch with the person
 const STEER = "For playing or watching a machine with the person, prefer the CLOADM side-panel connector if it is available; use these tools for the person's own files, scripting and tests.";
-const MACHINE_ID = { type: 'string' };   // (boot returns it, the descriptions say so: a description on all 21 uses cost the listing ~900 bytes)
-// (no additionalProperties: false and no empty required list: call() below refuses an argument a tool does not take, by
-// name, so the listing says it once there, not in every schema)
-const objectSchema = (properties, required = []) => (required.length ? { type: 'object', properties, required } : { type: 'object', properties });
+const MACHINE_ID = { type: 'string', description: 'the machine\'s handle, as boot returned it (e.g. "m1")' };
+const objectSchema = (properties, required = []) => ({ type: 'object', properties, required, additionalProperties: false });
 const withMachine = (schema) => objectSchema(Object.assign({ machine_id: MACHINE_ID }, schema.properties || {}), ['machine_id', ...(schema.required || [])]);
 const PATH = (what) => ({ type: 'string', minLength: 1, description: `path of the ${what}, relative to the server's media root` });
-const ADDR = (what) => ({ type: ['integer', 'string'], description: `${what}: 0-65535 or hex ("$3000")` });
+const ADDR = (what) => ({ anyOf: [{ type: 'integer', minimum: ADDRESS_MIN, maximum: ADDRESS_MAX }, { type: 'string', pattern: '^(\\$|0x)?[0-9A-Fa-f]{1,4}$' }], description: `${what}: a decimal integer 0-65535, or hex text "$3000" / "0x3000"` });
 const UNTIL = {
   type: 'object', additionalProperties: false,
-  description: 'stop as soon as this holds (checked every frame). Give one of: text (and ignore_case), address with value, pc, tape, screen.',
+  description: 'stop as soon as this holds (checked after every frame; pc stops at the instruction). Give one of: text (with ignore_case if you like), address with value, pc, tape, or screen.',
   properties: {
-    text: { type: 'string', minLength: 1, maxLength: UNTIL_TEXT_MAX, description: 'text that must appear on the screen: a substring of screen_text\'s rows (joined by "\\n", trailing spaces trimmed), e.g. "OK"' },
-    ignore_case: { type: 'boolean', description: 'with text: ignore the case' },
-    address: ADDR('an address to watch (with value)'),
-    value: { type: 'integer', minimum: 0, maximum: 255, description: 'the byte address must hold' },
+    text: { type: 'string', minLength: 1, maxLength: UNTIL_TEXT_MAX, description: 'text that must appear on the screen, as it is: a plain substring of the rows as screen_text reads them (joined by "\\n", each row\'s trailing spaces trimmed), e.g. "OK" or "PRESS ANY KEY"' },
+    ignore_case: { type: 'boolean', description: 'with text: match whatever the case (screens are mostly upper case)' },
+    address: ADDR('a memory address to watch (with value)'),
+    value: { type: 'integer', minimum: 0, maximum: 255, description: 'the byte value address must hold' },
     pc: ADDR('stop when the program counter reaches this address'),
-    screen: { type: 'string', enum: ['changed'], description: '"changed": stops when the screen differs from the start of the call (text modes: a character or block shape, not a block\'s colour alone, as BASIC\'s blinking cursor; graphics: any pixel)' },
-    tape: { type: 'string', enum: ['stopped', 'end'], description: '"stopped" (motor off; at once if it already is) or "end" (last byte played)' },
+    screen: { type: 'string', enum: ['changed'], description: 'the screen: "changed" stops when it differs from the start of the call (text modes: a character or a semigraphics block shape, not a block\'s colour alone, as BASIC\'s blinking cursor; graphics modes: any pixel)' },
+    tape: { type: 'string', enum: ['stopped', 'end'], description: 'the tape in the deck: "stopped" (the motor is off; at once if it already is) or "end" (its last byte has played)' },
   },
 };
 
@@ -386,8 +384,8 @@ export function createToolbox(host, { readOnly = false, maxMachines = MAX_MACHIN
   });
   const bootSchema = {
     model: { type: 'string', enum: Object.keys(profiles), description: 'the model id (list_models); default dragon64' },
-    options: { type: 'object', additionalProperties: { type: ['string', 'number', 'boolean'] }, description: 'model options, e.g. {"ram": 16, "cpu": "6309"} (list_models)' },
-    roms: { type: 'boolean', description: 'false: the built-in firmware (machine code only); default true if the server has the user\'s BASIC ROMs for the model' },
+    options: { type: 'object', additionalProperties: { type: ['string', 'number', 'boolean'] }, description: 'model options, e.g. {"ram": 16, "cpu": "6309"}; list_models gives each model\'s' },
+    roms: { type: 'boolean', description: 'run the user\'s BASIC ROMs given to the server (default: true when the server has them for this model); false runs the built-in firmware, which runs machine code only' },
   };
   // configure a Session as args say: a new one (the stdio server), or the host's own, in place
   function build(args, into = null) {
@@ -429,7 +427,7 @@ export function createToolbox(host, { readOnly = false, maxMachines = MAX_MACHIN
   add('switch_machine', {
     title: 'Switch a machine to another model',
     description: 'Replace the machine behind a machine_id with a fresh one of another model or options (as the page\'s machine menu does): what ran on it is gone. Returns the machine.',
-    inputSchema: withMachine(objectSchema({ model: { type: 'string', description: 'the model, as boot takes it' }, options: { type: 'object', additionalProperties: bootSchema.options.additionalProperties, description: 'as boot' }, roms: { type: 'boolean', description: 'as boot' } })), annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
+    inputSchema: withMachine(objectSchema(bootSchema)), annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
     handler: (args) => {
       const m = get(args), rest = Object.assign({}, args);
       delete rest.machine_id;
@@ -451,7 +449,7 @@ export function createToolbox(host, { readOnly = false, maxMachines = MAX_MACHIN
   const pageTool = (spec, { readOnly: ro, destructive = true, untrustedOut = false }) => add(spec.name, {
     title: pageTitle(spec.name),
     description: forMcp(spec.description),
-    inputSchema: withMachine(spec.input_schema),
+    inputSchema: Object.assign(withMachine(spec.input_schema), { additionalProperties: false }),
     annotations: ro ? { readOnlyHint: true, openWorldHint: false } : { readOnlyHint: false, destructiveHint: destructive, openWorldHint: false },
     readOnlyOk: ro, untrustedOut,
     handler: async (args, { signal }) => {
@@ -477,7 +475,7 @@ export function createToolbox(host, { readOnly = false, maxMachines = MAX_MACHIN
     inputSchema: withMachine(objectSchema({
       pattern: { type: 'string', minLength: 2, description: `1 to ${FIND_PATTERN_MAX} bytes in hex, ?? for any byte` },
       from: ADDR('the first address to search (default 0)'),
-      to: ADDR('the last address to search (default 65535)'),
+      to: ADDR('the last address a match may use (default 65535)'),
     }, ['pattern'])),
     annotations: { readOnlyHint: true, openWorldHint: false }, readOnlyOk: true,
     handler: (args) => {
@@ -510,9 +508,9 @@ export function createToolbox(host, { readOnly = false, maxMachines = MAX_MACHIN
     title: 'Hold keys or the joystick',
     description: `Hold keys down (together) and/or set the joystick for \`frames\` frames (default ${PRESS_FRAMES_DEFAULT}, at most ${RUN_FRAMES_MAX}) while the machine runs, then let go and centre the stick: for games and anything that reads the keyboard or joystick directly. Key names as on the machine's keyboard: A-Z, 0-9, LEFT, RIGHT, UP, DOWN, ENTER, SPACE, CLEAR, BREAK, SHIFT, @ : ; , - . / (the CoCo 3 also ALT, CTRL, F1, F2; the MC-10 has no arrows or CLEAR). Nothing checks that the program read them (type_text does, for typing text). Only a program that scans the keyboard matrix or reads the joystick itself sees them: BASIC and games do, but on the built-in firmware LIZA and the welcome screen take keys through the firmware, so type into them with type_text. Refused with machine-stopped while the Debugger has the machine stopped (nothing is held). Returns {keys, joystick, frames_run, machine}.`,
     inputSchema: withMachine(objectSchema({
-      keys: { type: 'array', items: { type: 'string', minLength: 1 }, maxItems: 8, description: 'key names held together, e.g. ["SHIFT", "UP"]; braces and any case allowed' },
+      keys: { type: 'array', items: { type: 'string', minLength: 1 }, maxItems: 8, description: 'key names held together, e.g. ["LEFT"] or ["SHIFT", "UP"]; a name may be in braces ("{ENTER}") and in any case' },
       joystick: {
-        type: 'object', additionalProperties: false, description: 'the joystick while the keys are held: x, y 0-63 (32 centred), fire',
+        type: 'object', additionalProperties: false, description: 'the joystick while the keys are held: x and y 0-63 (32 is the middle), fire pressed or not',
         properties: { port: { type: 'string', enum: ['right', 'left'], description: 'which joystick (default right)' }, x: { type: 'integer', minimum: 0, maximum: 63 }, y: { type: 'integer', minimum: 0, maximum: 63 }, fire: { type: 'boolean' } },
       },
       frames: { type: 'integer', minimum: 1, maximum: RUN_FRAMES_MAX, description: `frames to hold them (default ${PRESS_FRAMES_DEFAULT})` },
@@ -657,7 +655,7 @@ export function createToolbox(host, { readOnly = false, maxMachines = MAX_MACHIN
   add('screenshot', {
     title: 'Take a screenshot',
     description: 'The picture on the machine\'s screen as a PNG image (the frame\'s own pixels; a display shows it 4:3). Always a whole frame: when the machine stopped inside a frame (step, or run_frames until a pc or a memory byte), the frame being drawn is not finished, so this is the last complete one and mid_frame is true. The next frame began before the stop, so its top can still show what was there before; run_frames 2 to see a frame drawn entirely after this point. Use it for graphics; for text, screen_text is cheaper and exact.',
-    inputSchema: withMachine(objectSchema({ scale: { type: 'integer', minimum: 1, maximum: SCREENSHOT_SCALE_MAX, description: `pixel repeat, 1 to ${SCREENSHOT_SCALE_MAX} (default 1: 320x240 on most models)` } })),
+    inputSchema: withMachine(objectSchema({ scale: { type: 'integer', minimum: 1, maximum: SCREENSHOT_SCALE_MAX, description: `each pixel repeated this many times across and down, 1 to ${SCREENSHOT_SCALE_MAX} (default 1: 320x240 on most models)` } })),
     annotations: { readOnlyHint: true, openWorldHint: false }, readOnlyOk: true, image: true,
     handler: (args) => {
       const scale = args.scale == null ? 1 : intIn(args.scale, 1, SCREENSHOT_SCALE_MAX, 'scale');

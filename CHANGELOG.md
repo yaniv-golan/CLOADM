@@ -211,12 +211,13 @@ Next version: 0.1.9-pre (the plugin and extension manifests carry it; `tests/plu
 ### Changed
 
 - **The side panel's tool list fits the host's limit.** claude.ai drops a tool list whose input schemas together pass
-  8 KB, and the panel's were 11.1 KB. They are 7.5 KB now: the parameter that names the machine (`machine_id`) carries no
-  description (boot's description and the connector's instructions say it comes from boot), an address is written as
-  "0-65535 or hex" in one short type instead of a number-or-pattern choice, `switch_machine`'s model, options and ROM
-  flag say "as boot", and the empty `required` lists and the root `additionalProperties: false` of every schema are
-  gone (the toolbox refuses an argument a tool does not take, by name, and a test holds every tool to that). The same
-  schemas serve the local MCP server. `tests/connector.test.js` fails when the schemas pass a budget of 7,600 bytes.
+  8 KB, and the panel's were 11.1 KB. The panel now lists its tools through one compaction of the toolbox's own schemas
+  (`compactTool`, `connector/view/tools.js`): 7.5 KB. The parameter that names the machine (`machine_id`) carries no
+  description (boot's and the connector's instructions say it comes from boot), an address is "0-65535 or hex" in one
+  short type, `switch_machine`'s model, options and ROM flag say "as boot", some descriptions are shorter, and the
+  `additionalProperties: false` and empty `required` lists are left out. The local MCP server's schemas are unchanged:
+  full and closed. `tests/connector.test.js` compares the compact and full schema of every tool structurally (names,
+  types, bounds, enums, required names) and fails when the panel's schemas pass a budget of 7,600 bytes.
 - **The CI workflows' cache and artifact actions are on their current major versions**: `actions/cache` from 4.3.0 to
   6.1.0 and `actions/download-artifact` from 7.0.0 to 8.0.2, both pinned to a commit SHA with the tag beside it as
   the repository pins every action. `actions/cache` now runs on Node 24 (a runner 2.327.1 or newer, which

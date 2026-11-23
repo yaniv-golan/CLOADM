@@ -229,9 +229,9 @@ const J = JSON.stringify;
   check('panel tools: no ROM store in the panel, so add_roms and remove_roms are not offered (the toolbox would only refuse them)',
     !offered.some((t) => t.name === 'add_roms' || t.name === 'remove_roms') && !!local.add_roms && !!local.remove_roms, offered.map((t) => t.name).join(','));
   check('panel tools: the local server\'s names, schemas and annotations; the file tools and close_machine left out',
-    offered.every((t) => t.name === 'boot' || J(t) === J(t.name === 'load' ? { ...local.load, description: local.load.description.replace(/ For playing or watching a machine with the person, prefer the CLOADM side-panel connector.*$/, '') } : local[t.name])) && J(offered.map((t) => t.name)) === J(Object.keys(local).filter((k) => !panel.LEFT_OUT.includes(k)))
+    offered.every((t) => t.name === 'boot' || J(t) === J(panel.compactTool(t.name === 'load' ? { ...local.load, description: local.load.description.replace(/ For playing or watching a machine with the person, prefer the CLOADM side-panel connector.*$/, '') } : local[t.name]))) && J(offered.map((t) => t.name)) === J(Object.keys(local).filter((k) => !panel.LEFT_OUT.includes(k)))
     && !/side-panel connector/.test(offered.find((t) => t.name === 'load').description) && /side-panel connector/.test(local.load.description)
-    && panel.LEFT_OUT.every((k) => local[k]) && J(offered.find((t) => t.name === 'boot').inputSchema) === J(local.boot.inputSchema), offered.map((t) => t.name).join(','));
+    && panel.LEFT_OUT.every((k) => local[k]) && J(offered.find((t) => t.name === 'boot').inputSchema) === J(panel.compactTool(local.boot).inputSchema), offered.map((t) => t.name).join(','));
   const want = ['boot', 'switch_machine', 'type_text', 'press_keys', 'screen_text', 'screenshot', 'peek', 'find_bytes', 'disassemble', 'registers', 'step', 'run', 'run_frames', 'load', 'reset', 'power_cycle'];
   check('panel tools: everything the panel runs is offered', want.every((w) => offered.some((t) => t.name === w)) && offered.length <= 64, want.filter((w) => !offered.some((t) => t.name === w)).join(','));
   // The host drops a tool listing whose input schemas together run past 8 KB (claude.ai said so of this panel's: it was
@@ -244,6 +244,47 @@ const J = JSON.stringify;
     check(`panel tools: the input schemas together are ${schemas} bytes, within the ${SCHEMA_BUDGET} budget (the host's limit is 8 KB)`, schemas <= SCHEMA_BUDGET, `${schemas} of ${SCHEMA_BUDGET}; the five largest: ${offered.map((t) => [t.name, bytes(t.inputSchema)]).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([n, b]) => `${n} ${b}`).join(', ')}`);
     check(`panel tools: the whole tools/list the bridge answers from is ${whole} bytes, within ${LIST_BUDGET}`, whole <= LIST_BUDGET && J(views.tools) === J(offered), `${whole} of ${LIST_BUDGET}`);
     check('the Worker\'s own tools/list stays small', bytes(list.body.result.tools) <= WORKER_BUDGET, `${bytes(list.body.result.tools)} of ${WORKER_BUDGET}`);
+    check('the local server\'s schemas are NOT the compact ones: full, over the host\'s 8 KB panel limit', Object.values(local).reduce((n, t) => n + bytes(t.inputSchema), 0) > 10000
+      && Object.values(local).every((t) => t.inputSchema.additionalProperties === false && Array.isArray(t.inputSchema.required)), String(Object.values(local).reduce((n, t) => n + bytes(t.inputSchema), 0)));
+  }
+  // The compaction changes words and a few shapes, nothing a call depends on. Full and compact are compared STRUCTURALLY, for
+  // every tool: the same property names and types, the same bounds, enums, defaults and required names, ignoring only
+  // descriptions, additionalProperties: false and an empty required list; the two declared exceptions are an address
+  // ({anyOf: [{integer, minimum, maximum}, {string, pattern}]} is {type: [integer, string]}, its range kept in the
+  // description) and switch_machine's model, which names no enum (boot has it).
+  {
+    const NO_ENUM = ['switch_machine.model'];
+    const skel = (n, path) => {
+      if (Array.isArray(n)) return n.map((x) => skel(x, path));
+      if (!n || typeof n !== 'object') return n;
+      if ((Array.isArray(n.anyOf) && n.anyOf.length === 2 && n.anyOf[0].type === 'integer' && n.anyOf[1].type === 'string' && n.anyOf[1].pattern)
+        || (J(n.type) === J(['integer', 'string']) && n.minimum === undefined)) return { address: true };
+      const o = {};
+      for (const [k, v] of Object.entries(n)) {
+        if (k === 'description' || (k === 'additionalProperties' && v === false) || (k === 'required' && Array.isArray(v) && !v.length) || (k === 'enum' && NO_ENUM.includes(path))) continue;
+        o[k] = k === 'properties' ? Object.fromEntries(Object.entries(v).map(([pn, pv]) => [pn, skel(pv, `${path}.${pn}`)])) : (k === 'items' || k === 'anyOf') ? skel(v, path) : v;
+      }
+      return o;
+    };
+    const differ = [], longer = [], noRange = [];
+    for (const t of offered) {
+      const f = local[t.name];
+      if (J(skel(t.inputSchema, t.name)) !== J(skel(f.inputSchema, t.name))) differ.push(t.name);
+      const walk = (a, b, at) => { if (!a || typeof a !== 'object') return; for (const [pn, pv] of Object.entries(a.properties || {})) {
+        const fb = b.properties[pn]; if (typeof pv.description === 'string' && typeof fb.description === 'string' && pv.description.length > fb.description.length) longer.push(`${at}.${pn}`);
+        if (Array.isArray(fb.anyOf) && fb.anyOf[1] && fb.anyOf[1].pattern && !pv.description.includes(`${fb.anyOf[0].minimum}-${fb.anyOf[0].maximum}`)) noRange.push(`${at}.${pn}`);
+        walk(pv, fb, `${at}.${pn}`); } };
+      walk(t.inputSchema, f.inputSchema, t.name);
+    }
+    check('compaction: every tool\'s compact schema has the full one\'s property names, types, bounds, enums and required names (descriptions and closing aside)', !differ.length, differ.join());
+    check('compaction: no description gets longer, and an address\'s range stays in its description', !longer.length && !noRange.length, `${longer.join()} | ${noRange.join()}`);
+    const rules = panel.compactionRules();
+    check('compaction: every rewording rule found its text in the toolbox\'s schemas (none is stale)', rules.words.every((w) => rules.used.includes(w)) && rules.noEnum.every((w) => rules.used.includes(w)),
+      `${rules.words.filter((w) => !rules.used.includes(w)).map((w) => w.replace('\u0000', ' <- ').slice(0, 60)).join(' | ')}`);
+    check('compaction: it is deterministic and leaves the toolbox\'s own schemas as they were', J(offered) === J(build.panelTools()) && J(panel.compactTool(panel.compactTool(local.boot))) === J(panel.compactTool(local.boot)));
+    const fresh = T.createToolbox(host).tools(), before = J(fresh);
+    fresh.forEach((t) => panel.compactTool(t));
+    check('compaction: it works on a copy: the toolbox\'s own schemas (shared between tools) are as they were after it', J(fresh) === before && fresh.some((t) => t.inputSchema.additionalProperties === false));
   }
   const s = new Session({ welcomeMenu: false });
   s.switchMachine('dragon64', undefined, { menu: false });
