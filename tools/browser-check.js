@@ -9794,9 +9794,17 @@ async function chatLongLineChecks(browser, base, check) {
   const requests = [];
   // the second reply is long enough (about 300 bytes, a byte a frame) to still be coming while the next line is typed
   const replies = [text('Short answer.'), text(Array.from({ length: 10 }, (_, i) => `Reply line ${i + 1} still coming.`).join('\n')), text('ok')];
-  await ctx.route('https://api.anthropic.com/**', (route) => {
+  // The second reply is HELD until the check has typed its line (release2): "the reply is still coming" is then true by
+  // construction (the turn is in flight, nothing has come down yet) at the moment of typing, however fast the page runs or
+  // slowly the keys are typed. Before, the reply was given at once and the firmware's byte a frame had to outlast the
+  // typing: on a fast frame clock it did not (CI run 45208557707: stillComing false). `holdSecond` is what the mutant
+  // flips (a reply that is not held ends before the line is typed).
+  let release2 = null; const gate2 = new Promise((go) => { release2 = go; });
+  const holdSecond = true;
+  await ctx.route('https://api.anthropic.com/**', async (route) => {
     if (route.request().method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors });
     requests.push(JSON.parse(route.request().postData()));
+    if (requests.length === 2 && holdSecond) await gate2;
     return route.fulfill({ status: 200, headers: { ...cors, 'content-type': 'text/event-stream' }, body: replies.shift() || text('ok') });
   });
   const page = await ctx.newPage();
@@ -9847,14 +9855,17 @@ async function chatLongLineChecks(browser, base, check) {
   // 2. typed while a reply is still coming down: the firmware waits (WAIT) and the keys are kept
   await page.keyboard.type('next', { delay: 5 });
   await page.keyboard.press('Enter');
-  const waiting = await waitFor(page, () => window.emu.session.readByte(window.emu.Emu.CHAT_STATE.wait, window.emu.session.chatMachines.chat) === 1 && window.emu.session.chat.channel.queued > 0, null, 20000);
+  const waiting = await waitFor(page, () => window.emu.session.readByte(window.emu.Emu.CHAT_STATE.wait, window.emu.session.chatMachines.chat) === 1 && (window.emu.session.chat.busy || window.emu.session.chat.channel.queued > 0), null, 20000);
   const two = ('Type ahead: this line is typed while the reply before it still comes, and it must arrive whole. ').repeat(3).slice(0, 199) + '!';
   await page.keyboard.type(two, { delay: 5 });
   const stillComing = await page.evaluate(() => window.emu.session.chat.channel.queued > 0 || window.emu.session.chat.busy);
+  // the premise, asserted on its own: a line typed after the reply had ended would pass the check below for nothing
+  check(`${L}: (premise) the previous reply is still coming when the 200-character line has been typed`, stillComing === true, JSON.stringify({ waiting, stillComing }));
+  release2();
   await page.keyboard.press('Enter');
   const sent = await waitFor(page, (want) => { const c = window.emu.session.chat; return c.messages.some((m) => m.role === 'user' && m.content === want); }, two, 60000);
   check(`${L}: a 200-character line typed while the previous reply still comes reaches the API whole once it has ended (not just its tail)`,
-    waiting && stillComing && sent && lastLine(2) === two, JSON.stringify({ waiting, stillComing, got: lastLine(2) }));
+    waiting && sent && lastLine(2) === two, JSON.stringify({ waiting, got: lastLine(2) }));
   const after3 = await settled();
   {
     const end = after3.findIndex((r) => r.endsWith('Type ah!'));
