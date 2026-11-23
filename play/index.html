@@ -1494,9 +1494,10 @@
   .sheethead button { height: 44px; min-height: 44px; }
   .sheetbody { display: flex; flex-direction: column; gap: 12px; padding: 12px 16px 16px; }
   .sheetbody > .slot { margin: 0; padding: 0; border: 0; background: none; }
-  #sheetCart #cartSlot > .inner > .title { display: none; }   /* (the sheet's own heading says it) */
-  #sheetTape #tapePanel .deckhead { display: none; }   /* (its heading is the sheet's, and the sheet is the way to show or hide it) */
-  #sheetTape #tapePanel { margin: 0; }
+  /* (the sheet's own heading, or the ports sheet's tab, says it; and the sheet is the way to show or hide the deck) */
+  :is(#sheetCart, #sheetPorts) #cartSlot > .inner > .title { display: none; }
+  :is(#sheetTape, #sheetPorts) #tapePanel .deckhead { display: none; }
+  :is(#sheetTape, #sheetPorts) #tapePanel { margin: 0; }
   #sheetPower .sheetbody { flex-direction: row; flex-wrap: wrap; }
   /* Settings: from the screen's foot to the window's (js/ui/phone-sheets.js sets --sheet-h, at least half the window),
      so the screen shows what a Display setting does; Expand takes the whole height */

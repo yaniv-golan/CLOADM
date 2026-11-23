@@ -4394,6 +4394,29 @@ async function phoneChecks(browser, base, check) {
     if (shotDir) await p.screenshot({ path: path.join(shotDir, 'phone-sideways-settings.png') });
     await p.keyboard.press('Escape');
     check('phone sideways: Power… (Reset, Switch off and on, Pause, Turbo, Hide keys) and Settings… (the tabs) are in reach from the keys\' Menu', power && settings);
+    // a tape in: the ports' sheet shows the deck without the cassette panel's own heading and Hide button, and the
+    // Cartridge tab without the card's "Cartridge port" title (the tabs say it); the arrow keys move between the tabs
+    await p.setInputFiles('#fileTape', { name: 'HI.CAS', mimeType: 'application/octet-stream', buffer: Buffer.alloc(256, 0x55) });
+    await waitFor(p, () => !document.getElementById('tapePanel').hidden);
+    await p.evaluate(() => window.emu.feedback.clear());
+    await p.tap('#tkMenu'); await p.tap('#tkMenuSheet [data-item="ports"]');
+    await waitFor(p, () => document.getElementById('sheetPorts').open && document.getElementById('portTabTape').getAttribute('aria-selected') === 'true');
+    const deck = await p.evaluate(() => ({ panel: document.getElementById('tapePanel').checkVisibility(), head: document.querySelector('#tapePanel .deckhead').checkVisibility(),
+      fold: document.getElementById('btnDeckFold').checkVisibility() }));
+    await p.keyboard.press('ArrowRight');
+    const right = await p.evaluate(() => ({ sel: document.getElementById('portTabDisks').getAttribute('aria-selected'), focus: document.activeElement.id, drives: document.getElementById('driveSlot').checkVisibility() }));
+    await p.keyboard.press('ArrowRight');
+    const cartTitle = await p.evaluate(() => ({ sel: document.getElementById('portTabCart').getAttribute('aria-selected'), title: document.querySelector('#cartSlot > .inner > .title').checkVisibility(), cart: document.getElementById('btnCart').checkVisibility() }));
+    await p.keyboard.press('ArrowRight');
+    const wrap = await p.evaluate(() => document.getElementById('portTabTape').getAttribute('aria-selected') === 'true' && document.activeElement.id === 'portTabTape');
+    await p.keyboard.press('ArrowLeft');
+    const left = await p.evaluate(() => document.getElementById('portTabCart').getAttribute('aria-selected') === 'true' && document.activeElement.id === 'portTabCart');
+    await p.keyboard.press('Escape');
+    check('phone sideways: with a tape in, the ports\' sheet shows the deck without its own heading or Hide button, and the Cartridge tab without the "Cartridge port" title',
+      deck.panel && !deck.head && !deck.fold && cartTitle.sel === 'true' && cartTitle.cart && !cartTitle.title, JSON.stringify({ deck, cartTitle }));
+    check('phone sideways: ArrowRight and ArrowLeft move between the ports\' tabs (selecting and focusing them, wrapping round)',
+      right.sel === 'true' && right.focus === 'portTabDisks' && right.drives && wrap && left, JSON.stringify({ right, wrap, left }));
+    await p.evaluate(() => document.getElementById('btnEjectTape').click());
     // a disk in: the side sheet opens on Disks, the tab that holds media
     await p.evaluate((b) => window.emu.session.drives.importImage('one.vdk', new Uint8Array(b), 0), [...fs.readFileSync(path.join(ROOT, 'tests/fixtures/disks/dragondos.vdk'))]);
     await waitFor(p, () => document.getElementById('chipDisks').classList.contains('has-media'));
