@@ -4458,11 +4458,13 @@ async function libraryChecks(browser, base, check) {
     await waitFor(page, () => !document.getElementById('library').hidden && !document.getElementById('libEmpty').hidden);
     const empty = await page.evaluate(() => ({
       lib: !document.getElementById('library').hidden, emu: getComputedStyle(document.querySelector('.layout')).display === 'none',
-      empty: !document.getElementById('libEmpty').hidden, filters: document.getElementById('libFilters').hidden,
+      empty: !document.getElementById('libEmpty').hidden, filters: !document.getElementById('libFilters').hidden,
+      romsChip: !!document.querySelector('[data-kind-filter="roms"]') && document.querySelector('[data-kind-filter="roms"]').checkVisibility(),
+      romsCard: document.getElementById('libRomsCard').checkVisibility() && document.getElementById('libRomsCard').textContent,
       head: document.querySelector('#libEmpty h2').textContent, where: document.getElementById('libWhere').textContent,
       fits: document.documentElement.scrollWidth <= innerWidth }));
-    check(`library (${label}): #library shows the Library instead of the emulator, empty state, where it is kept, no sideways scroll`,
-      empty.lib && empty.emu && empty.empty && empty.filters && empty.head === 'Your tapes, disks and cartridges will appear here'
+    check(`library (${label}): #library shows the Library instead of the emulator, empty state (with the filters, the ROMs chip and the ROMs card), where it is kept, no sideways scroll`,
+      empty.lib && empty.emu && empty.empty && empty.filters && empty.romsChip && empty.romsCard === 'No ROMs yet. CLOADM never includes ROMs; add your own dumps in Your ROMs →' && empty.head === 'Your tapes, disks and cartridges will appear here'
       && /^Stored in this browser \(OPFS\)/.test(empty.where) && empty.fits, JSON.stringify(empty));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, `library-empty-${label}.png`), fullPage: true });
     if (label === 'phone') {
