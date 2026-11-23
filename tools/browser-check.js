@@ -200,7 +200,7 @@ async function bareDiskChecks(page, check, { dos }) {
   // its Add disk ROM… opens Your ROMs on the disk ROM's card
   await page.click('#driveRoms');
   check('disks: the menu\'s Add disk ROM… opens Your ROMs on the disk ROM card, which says disks still go in without it', await waitFor(page, () => location.hash === '#add-roms'
-    && /Without it, disks still go in, for programs that read them directly\./.test(document.getElementById('romDiskCard').textContent)), await page.evaluate(() => location.hash));
+    && /Without it, disks still go in, for programs that read them directly\. CLOADM doesn't include one; add your own copy\./.test(document.getElementById('romDiskCard').textContent)), await page.evaluate(() => location.hash));
   await page.evaluate(() => { location.hash = ''; });
   // (back on the emulator: the ports are no longer inert behind the view, so a file input there can open)
   await waitFor(page, () => document.getElementById('driveSlot').checkVisibility() && !document.getElementById('fileDisk').closest('[inert]'));
