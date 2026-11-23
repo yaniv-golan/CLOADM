@@ -16,6 +16,8 @@
 "coco rate 01: restored machine runs identically",
 "snapshot taken while the CPU has the VDG slot",
 "dragon64 fast-rate video: restored machine runs identically",
+"mc10: a snapshot before port 2 is written restores with it unwritten, and prints what the original prints",
+"mc10: a snapshot with no p2Written (an older file) restores with port 2 already written, its old behaviour",
 "coco: snapshot with a DriveWire sector part way to the machine",
 "coco: the restored machine finishes dw.asm identically (trace, log, disks)",
 "ssc: the busy flag is set with a command part way through",

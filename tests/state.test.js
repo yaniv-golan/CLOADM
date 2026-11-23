@@ -46,6 +46,26 @@ for (const [name, t, at] of cases) {
   }
 }
 
+// The 6803's port 2 drives nothing until its data register has been written (p2Written, saved in the 6803's state; a
+// 6809/6309/7000 snapshot is unchanged, so this needs no SNAPSHOT_VERSION bump). Snapshot at power-on of the glitch
+// firmware (tools/mame-diff/mc10/printer-glitch.asm), which sets port 2's DDR before its data: the field is false,
+// and the restored machine, from that same point, prints exactly what the original prints (one $FF from the firmware's
+// later glitch, then the print). A file saved before this field existed (none) restores as written, its old behaviour.
+{
+  const t = require('../tools/mame-diff/mc10/spec.js').printer('mc10', { glitch: true });
+  const a = t.machine();
+  const snap = a.snapshot();
+  const text = Emu.state.toJSON(snap);
+  const printAll = (m) => { for (let f = 0; f < 600 && m.read(t.doneAddr) !== 0xFF; f++) m.runFrame(); for (let f = 0; f < 30; f++) m.runFrame(); return Array.from(m.printed).join(); };
+  const b = Emu.restoreSnapshot(Emu.state.fromJSON(text), a.roms);
+  const orig = printAll(a), rest = printAll(b);
+  check('mc10: a snapshot before port 2 is written restores with it unwritten, and prints what the original prints',
+    snap.state.cpu.p2Written === false && orig === rest && orig.split(',').length === 307, `${orig.split(',').length} / ${rest.split(',').length} bytes`);
+  const old = JSON.parse(text); delete old.state.cpu.p2Written;
+  const c = Emu.restoreSnapshot(Emu.state.fromJSON(JSON.stringify(old)), a.roms);
+  check('mc10: a snapshot with no p2Written (an older file) restores with port 2 already written, its old behaviour', c.cpu.p2Written === true);
+}
+
 (async () => {
   const dw = require('../tools/mame-diff/drivewire/spec.js');
   const { MemoryMediaStore } = require('../js/host/media-store-memory.js');

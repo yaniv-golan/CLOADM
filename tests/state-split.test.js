@@ -2,7 +2,7 @@
 //
 // The state suite was split into state / state-fdc / state-carts / state-tape. This guard proves the split LOST
 // nothing, and it does so WITHOUT running any of them: each of the four asserts, at its own end, that the checks it
-// ran are exactly its slice of tests/state-check-names.json (the 224 names the unsplit suite ran), so this file only
+// ran are exactly its slice of tests/state-check-names.json (the 226 names the unsplit suite ran), so this file only
 // has to show that the four slices are a partition of that manifest.
 //
 // Why static: running the four here doubled the state work in every gate (about 49 s) on top of the four suites
@@ -17,7 +17,7 @@ let fail = 0, n = 0;
 const check = (name, cond, detail = '') => { n++; if (!cond) { fail++; console.log(`FAIL ${name} ${detail}`); } else console.log('ok   ', name, detail); };
 
 const PARTS = ['state', 'state-fdc', 'state-carts', 'state-tape'];
-const BEFORE = 224;   // the checks the unsplit tests/state.test.js ran (its ok lines), on this branch's base
+const BEFORE = 226;   // the checks the unsplit tests/state.test.js ran (its ok lines), on this branch's base
 
 const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, 'state-check-names.json'), 'utf8'));
 
@@ -30,7 +30,7 @@ check('the four slices add up to the unsplit suite exactly', all.length === BEFO
   `${PARTS.map((p) => `${p}=${counts[p]}`).join(' + ')} = ${all.length}, expected ${BEFORE}`);
 // ONE uniqueness invariant, checked once: every name distinct across the whole manifest. It covers both faults the
 // split could hide - the same check claimed by two suites (a name in two slices) and a duplicate inside one slice,
-// which is the cancellation this manifest exists to catch (drop one, duplicate another, the total still reads 224).
+// which is the cancellation this manifest exists to catch (drop one, duplicate another, the total still reads 226).
 // The detail names the slice, because that is what a reader needs to fix it.
 const seen = new Set(), dupInSlice = [];
 for (const p of PARTS) {

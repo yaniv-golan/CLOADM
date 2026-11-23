@@ -250,12 +250,13 @@ end)`,
   // printer firmware (lib/printer.js): the Dragons' parallel port, or the bit-banger's serial printer on the others
   // stubInit: printer-stubinit.asm instead of printer-serial.asm (the bit-banger set up as CLOADM's no-ROM stub sets it
   // up: the printer must receive nothing from that start; CoCo 1/2)
-  printer(profileId, { config = {}, work = `/tmp/mame-diff/${profileId}-printer`, stubInit = false } = {}) {
+  // glitch: printer-glitch.asm, a PA1 glitch once the line idles at mark (one $FF before the print; CoCo 1/2)
+  printer(profileId, { config = {}, work = `/tmp/mame-diff/${profileId}-printer`, stubInit = false, glitch = false } = {}) {
     const Emu = loadEmu(), profile = Emu.profiles[profileId];
     const resolved = Emu.resolveConfig(profileId, Object.assign({ mameCompat: true }, config));
     const parallel = profile.lineage === 'dragon';
-    if (stubInit && parallel) throw new Error(`${profileId}: --stub-init is the bit-banger's serial printer (a CoCo 1/2)`);
-    const { asm, bank0 } = images(parallel ? 'printer-parallel.asm' : stubInit ? 'printer-stubinit.asm' : 'printer-serial.asm');
+    if ((stubInit || glitch) && parallel) throw new Error(`${profileId}: --stub-init and --glitch are the bit-banger's serial printer (a CoCo 1/2)`);
+    const { asm, bank0 } = images(parallel ? 'printer-parallel.asm' : glitch ? 'printer-glitch.asm' : stubInit ? 'printer-stubinit.asm' : 'printer-serial.asm');
     const slots = withChip(profile, slotData(profile, bank0, bank0));
     const files = {};
     for (const sl of profile.roms) for (const f of sl.files) files[f] = slots[sl.id];
@@ -268,6 +269,7 @@ end)`,
       // reset makes PIA1's port A all inputs, pulled high: the strobe is high and the printer takes PIA0 port B,
       // also all inputs, $FF (MAME 6821pia.cpp device_reset; dragon.cpp pia1_pa_changed)
       atReset: parallel ? [0xFF] : [],
+      glitched: glitch ? [0xFF] : [],
       text: parallel ? 'CLOADM PRINTER TEST, DRAGON PARALLEL PORT\r\n' : 'CLOADM PRINTER TEST, COCO SERIAL PORT, 600 BAUD\r\n',
     };
   },

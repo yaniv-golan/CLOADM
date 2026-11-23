@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Compare one machine against MAME. Needs MAME (e.g. `apt install mame`); uses only our own firmware.
 //
-//   node tools/mame-diff/run.js <profile> [--ram <K>] [--video [--artifact N] [--attr] [--composite] [--text]] [--raster [--no-trace] [--keep]] [--vsc [--no-trace] [--keep]] [--printer [--stub-init] [--no-trace]] [--serial] [--reset] [--rate|--ops] [--plus] [--plustext [--video]] [--paging [--video]] [--keep-firmware]
+//   node tools/mame-diff/run.js <profile> [--ram <K>] [--video [--artifact N] [--attr] [--composite] [--text]] [--raster [--no-trace] [--keep]] [--vsc [--no-trace] [--keep]] [--printer [--stub-init|--glitch] [--no-trace]] [--serial] [--reset] [--rate|--ops] [--plus] [--plustext [--video]] [--paging [--video]] [--keep-firmware]
 //   node tools/mame-diff/run.js <dragon64|dragon200e|coco|coco3|dgnalpha> --fdc [dragonfdc|premierfdc|cocofdc|multifdc|alphafdc] [--images|--write|--nmi|--multi|--blank <fmt>:<T>x<H>|--halt [--empty]|--nitros9|--bare] [--keep-firmware]
 //   node tools/mame-diff/run.js <coco|coco3|dragon64|dragon32> --cart <setup> [--audio]
 //
@@ -18,6 +18,8 @@
 // (coco3/spec.js vsc); --no-trace and --keep as for --raster.
 // --printer: the printer firmware's output, byte for byte against MAME's -prin file (lib/printer.js), after
 // a lockstep run to HALT (--no-trace skips it).
+// --printer --glitch (CoCo 1/2, MC-10, Alice): sam/ or mc10/printer-glitch.asm, a glitch on the printer line before the
+//   print (and on the MC-10 port 2 set up DDR first): both must print the one $FF MAME prints for it, then the rest.
 // --printer --stub-init (CoCo, MC-10, Alice): sam/ or mc10/printer-stubinit.asm, the printer port set up as CLOADM's no-ROM
 //   stub sets it up, then the same print.
 // --serial: the bit-banger serial port (or the 6551) in loopback, in lockstep with MAME's -rs232 loopback; then
@@ -228,7 +230,7 @@ async function main() {
   }
   if (args.includes('--printer')) {
     if (!need('printer', spec.printer)) return undefined;
-    return await runPrinter(spec.printer(profileId, { config, stubInit: args.includes('--stub-init') }), { trace: !args.includes('--no-trace') });
+    return await runPrinter(spec.printer(profileId, { config, stubInit: args.includes('--stub-init'), glitch: args.includes('--glitch') }), { trace: !args.includes('--no-trace') });
   }
   if (args.includes('--serial')) {
     if (!need('serial', spec.serial)) return undefined;

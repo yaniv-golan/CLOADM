@@ -132,5 +132,34 @@ for (const id of ['mc10', 'alice']) {
     done && Array.from(p.printed).join() === '79,75', `done ${done}, printed ${JSON.stringify(Array.from(p.printed))}`);
 }
 
+// ---- glitches on the printer line, against what MAME 0.264 recorded ----
+// The glitch firmware (tools/mame-diff/{mc10,sam}/printer-glitch.asm, run.js <profile> --printer --glitch) drops the
+// line for a few cycles once it idles at mark, then prints every byte value and its text; on the MC-10 and the Alice
+// it first sets port 2 up DDR first. MAME's printer files from it, recorded: one $FF (its receiver takes any drop for
+// a start bit and samples mark after it), then the print; and nothing from the DDR-first order (MAME's m6801 drives
+// port 2 only once its data register has been written: js/cpu/cpu6803.js resetPeripherals).
+const MAME_RECORDED = {
+  mc10: { bytes: 307, text: 'CLOADM PRINTER TEST, MC-10 SERIAL PORT, 600 BAUD\r\n' },
+  alice: { bytes: 307, text: 'CLOADM PRINTER TEST, MC-10 SERIAL PORT, 600 BAUD\r\n' },
+  coco: { bytes: 306, text: 'CLOADM PRINTER TEST, COCO SERIAL PORT, 600 BAUD\r\n' },
+};
+for (const [id, rec] of Object.entries(MAME_RECORDED)) {
+  const spec = require(`../tools/mame-diff/${id === 'coco' ? 'sam' : 'mc10'}/spec.js`);
+  const t = spec.printer(id, { glitch: true });
+  const m = t.machine();
+  // the rule lib/printer.js runs both emulators by: until the done flag, then 30 more frames
+  let after = -1;
+  for (let f = 0; f < 60 * 60 && after !== 0; f++) {
+    m.runFrame();
+    if (after < 0 && m.read(t.doneAddr) === 0xFF) after = 30;
+    else if (after > 0) after--;
+  }
+  const want = [0xFF, ...Array(256).keys(), ...Buffer.from(rec.text, 'latin1')];
+  const got = Array.from(m.printed);
+  check(`${id}: the glitch firmware prints the ${rec.bytes} bytes MAME recorded: the glitch's $FF, then every byte value and the text`,
+    want.length === rec.bytes && got.length === want.length && got.every((v, i) => v === want[i]),
+    `${got.length} bytes, first ${JSON.stringify(got.slice(0, 3))}`);
+}
+
 console.log(`\n${n - fail}/${n} stub printer checks passed`);
 process.exitCode = fail ? 1 : 0;

@@ -444,8 +444,10 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   MAME byte for byte; `tests/stub-printer.test.js` checks the printed bytes.
 - **A printout on an MC-10 or Alice no longer starts with a stray byte.** Their no-ROM stub wrote port 2's DDR before
   its data register, so P20 (the serial printer's line) dropped to space for a moment and the printer printed a $FF
-  at power-on, or garbled a program's first byte. The stub now writes the data register first, as the printer firmware
-  does; `run.js mc10 --printer --stub-init` (and `alice`) gives the 306 bytes MAME 0.264 prints, identical.
+  at power-on, or garbled a program's first byte. The stub now writes the data register first; and the 6803 itself
+  now drives port 2 only once its data register has been written, as MAME's m6801 does, so a program that sets the DDR
+  first prints no stray byte either (the flag lives in the 6803's state; a file saved before it restores as driven).
+  `run.js mc10 --printer --stub-init` and `--glitch` (and `alice`, `coco`) give the bytes MAME 0.264 prints, identical.
 - **A disk in a drive counts toward the install offer.** The page's "program in use" test (the one the
   offer to install CLOADM as an app waits a minute of) asked the machine for a disk controller it never has, so a disk
   waiting in a drive at the bare prompt never counted; it now asks the drives (`session.drives.controllerOf`). The
