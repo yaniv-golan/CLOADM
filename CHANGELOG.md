@@ -349,10 +349,10 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   Worker refuses to start without it. `tests/connector.test.js` and `tests/skill.test.js` fail when the skill's section and
   the built instructions differ, and the skill's two copies stay byte for byte. The Worker must be deployed again
   when that section changes (`docs/deploy-connector.md`).
-- **A phone held upright: the panel decides, the screen takes the rest (UX R30).** The screen is the largest 4:3 one
+- **A phone held upright: the panel decides, the screen takes the rest.** The screen is the largest 4:3 one
   for which the app bar, the screen, the strip and the panel fit in the visible height, at most the page's width, and
   the picture fills it (no bezel). The panel has three modes, **Keys | Pad | Stick**: Pad is a D-pad with SPACE,
-  ENTER, the program's own keys and ABC (the keyboard for one key), on two rows of 48 px keys (BREAK is the strip's, R35); Stick is the touch
+  ENTER, the program's own keys and ABC (the keyboard for one key), on two rows of 48 px keys (BREAK is the strip's); Stick is the touch
   joystick, where the machine has a port. A bundled program opens in the mode it is played with (a new per-program
   `controls` field in the Session: 2048 and Minesweeper on the Pad, Minesweeper's with F and Stick offered; LIZA on
   Keys; anything else on Keys), and the choice is remembered per program and machine. With Pad, Stick or the keys
