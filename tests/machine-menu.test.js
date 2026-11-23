@@ -52,7 +52,7 @@ const check = (n, c, d = '') => { if (!c) { fail++; console.log('FAIL', n, d); }
   const sections = groupProfiles(avail).map(([g]) => g);
   check('every section the menu shows has a subtitle, and there is none for a section it does not', sections.every((g) => SUBTITLES[g])
     && Object.keys(SUBTITLES).every((g) => sections.includes(g)), JSON.stringify({ sections, subtitles: Object.keys(SUBTITLES) }));
-  check('the subtitles as the ruling words them (DRAGON, COCO, MC-10, CLONES)', SUBTITLES.DRAGON === "Dragon Data's machines and their Spanish and US versions"
+  check('the subtitles as agreed (DRAGON, COCO, MC-10, CLONES)', SUBTITLES.DRAGON === "Dragon Data's machines and their Spanish and US versions"
     && SUBTITLES.COCO === "Tandy's Color Computers" && SUBTITLES['MC-10'] === "Tandy's MC-10 and the French Matra Alice" && SUBTITLES.CLONES === 'Brazilian copies of the CoCo');
   const kits = groupProfiles(avail).find(([g]) => g === 'KITS');
   check('KITS\'s subtitle names every model the catch-all holds (today the CP-400)', !!kits && kits[1].every((p) => SUBTITLES.KITS.includes(p.name)), kits && kits[1].map((p) => p.name).join());

@@ -906,7 +906,7 @@ Each description in `js/machines/menu.js` states only what the MAME 0.264 driver
 (`src/mame/trs/dragon.cpp`, `dgnalpha.cpp`, `coco12.cpp`, `coco3.cpp`, `mc10.cpp`: the COMP() entry's year, maker, name
 and parent, a machine config or ROM_START, or the driver's own notes, such as the Alpha's "a prototype in development
 when Dragon Data went bust"), and a maker the model's name already gives is not repeated. Where a driver states no
-country (the clones' and the Alice's), the descriptions say none; the section subtitles are the UX ruling's words,
+country (the clones' and the Alice's), the descriptions say none; the section subtitles are the design's agreed words,
 and KITS's, which names what the catch-all holds, says only what MAME's cp400 entry does (a CoCo child with its own
 BASIC ROM). This is checked by reading, against the cited lines, not by a test. `tests/machine-menu.test.js`: every profile has a description
 with its source, no description names a model that does not exist, and none repeats the maker its model's name gives; `describe()`'s form; every section the menu
