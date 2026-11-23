@@ -19,7 +19,7 @@ by `cli/mcp.js`.
 
 ## The fast loop
 
-The full gates are slow (`node tests/all.js` about 5-6 minutes, the browser check 15-20), so while you work run the
+The full gates are slow (`node tests/all.js` about 5-6 minutes, the whole browser check 15-20), so while you work run the
 suites and groups for what you changed: `node tests/all.js --only <part of a name>[,...]` runs the suites whose file
 names contain one of the parts, and `node tools/browser-check.js --only <group>[,...]` the browser-check groups
 (`--list-groups` lists them).
@@ -51,10 +51,15 @@ names contain one of the parts, and `node tools/browser-check.js --only <group>[
 A subset run says `SUBSET RUN (--only ...), not the full gate` on its summary line: it is never the proof. The full
 gates are still required:
 
-* **before every push:** `node tests/all.js` in full (the regression hashes included);
-* **before pushing anything the page runs** (`js/`, `play/`, `css/`, `index.html`, `sw.js`, `tools/browser-check*.js`):
-  the whole browser check, in one process, with nothing else running on the machine;
+* **before every push (the local gate):** `git fetch --tags` and `node tests/all.js` in full (the regression hashes
+  included), plus `node tools/browser-check.js --only <groups>` for the groups in the table's row(s) for what you
+  changed, with nothing else running on the machine. Look at their screenshots (`--screenshots DIR`);
+* **a change touching NitrOS-9, disks or CoCo 3 boot:** also `node tools/nitros9/fetch.js`, then `--only nitros9` with
+  the images present (CI has none and only SKIPs it); say in the report that it ran;
 * **before you call the change done:** a green CI run, attempt 1, on the exact commit you report (AGENTS.md section 4).
+  Attempt 1 runs every browser-check group: it is the full browser gate, and it is never re-run;
+* **the whole check in one process** runs daily in CI (`browser-daily.yml`, on `claude/v0.2-stage` and `main`; not a
+  gate). Run it locally when you want that coverage before CI, e.g. after a change to shared page code.
 
 When a full run fails, its last line names the failing suites (`FAILED: a.test.js, b.test.js`); rerun just those with
 `--only` while you fix them, then the full gate again.
@@ -67,13 +72,23 @@ counts as done.
 CI (`.github/workflows/tests.yml`) runs the gates on every push to `main` and to contributor branches (`claude/**`,
 `ds/**`) on the pushed commit, and on every pull request into `main` on the merge result GitHub builds for it
 (`refs/pull/N/merge`, so that run's SHA is a merge commit, not the branch head). Other branches: Actions → tests →
-Run workflow. The gates are `node tests/all.js` and the browser check split into parallel shards
-(`--only <groups>`, listed in `.github/browser-check-shards.json`). The run's jobs are `browser-check shards are
-complete` (and the matrix it plans), `node tests/all.js`, one `browser check <shard>` per shard, and `gates`, which
-is green only if every other job passed. `node .github/scripts/browser-check-shards.js` fails if a browser-check
-group is in no shard, in two, or isn't a group (it reads the groups from `node tools/browser-check.js --list-groups`,
-the `GROUPS` table itself); run it after adding a group, and add the group to a shard. A green run's
-`gates` summary (commit SHA, tree hash, each job's counts) is the definition of done; see AGENTS.md section 4.
+Run workflow. The gates are `node tests/all.js`, run as three parts on three runners (`--shard i/n`, planned from
+`tests/suite-times.json`), and the browser check split into parallel shards (`--only <groups>`, listed in
+`.github/browser-check-shards.json`). The run's jobs are `browser-check shards are complete` (and the matrix it plans),
+one `node tests/all.js <part>` per part, one `browser check <shard>` per shard, and `gates`, which is green only if
+every other job passed. `gates` also runs `node .github/scripts/suite-shards.js` on the parts' logs: every part
+reported, the parts' suite lines are every suite `node tests/all.js --list` names, each once, the counts sum to the
+total, and the regression gate's completeness was checked once. Its summary lists every FAIL line of every job.
+
+The browser shards are generated: `node .github/scripts/browser-check-shards.js --write` plans them from the group
+times in `.github/browser-check-timings.json` (longest group first onto the least-loaded shard; `"shards"` there sets
+how many). Without arguments the script fails if a group is in no shard, in two, isn't a group, has no time, or if the
+shard file is not the plan (stale or edited by hand); it reads the groups from `node tools/browser-check.js
+--list-groups`, the `GROUPS` table itself. After adding a group: `node tools/browser-check.js --only <group> --timings
+t.json`, then `node .github/scripts/browser-check-shards.js --merge t.json`. Every CI run publishes its own times as
+the `browser-check-timings` artifact (merge it to rebalance), and `node tests/all.js --timings FILE` writes the suite
+times `tests/suite-times.json` holds. A green run's `gates` summary (commit SHA, tree hash, each job's counts) is the
+definition of done; see AGENTS.md section 4.
 Every action in the workflows is pinned to a commit SHA with its release tag beside it, and `pull_request_target` is
 never used; `node tests/workflows.test.js` holds both, and `.github/dependabot.yml` proposes the bumps weekly.
 `node tests/workflows-release.test.js` holds `release.yml`'s shape: it runs the gates (`release.yml` calls

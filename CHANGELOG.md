@@ -170,6 +170,17 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 
 ### Changed
 
+- **Faster CI gates, and shards that cannot go stale.** `node tests/all.js` runs in CI as three parts on three runners
+  (`--shard i/n`, planned from `tests/suite-times.json`), and the `gates` job checks from their logs that together
+  they ran every suite exactly once, the regression gate's completeness included (`.github/scripts/suite-shards.js`).
+  The browser-check shards are now generated from measured group times (`.github/browser-check-timings.json`,
+  `node .github/scripts/browser-check-shards.js --write`), and the shard check fails when the shard file is not that
+  plan. `node tools/browser-check.js --timings FILE` and `node tests/all.js --timings FILE` write the times; every CI
+  run publishes its group times, and `gates` lists every job's FAIL lines in its summary. A new daily workflow
+  (`browser-daily.yml`, not a gate) runs the whole browser check in one process on `claude/v0.2-stage` and `main`.
+  AGENTS.md 4.7: the local gate is `tests/all.js` plus the browser-check groups a change touches; CI attempt 1 is the
+  full browser gate and is never re-run.
+
 - **The page's screen text reads every screen Claude's screen_text reads.** `Session.screenText`, which the embed
   API's `screenText`, the Ask panel, the tape panel and the boot watchdog read, decoded only the VDG's 32x16 page at a
   fixed address: on the Dragon 64 Plus's 80-column screen it returned the VDG page behind it, on a CoCo 3 GIME text

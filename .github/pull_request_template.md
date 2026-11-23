@@ -12,7 +12,7 @@ Files touched and a one-paragraph design summary. Related issue, if any: #
 AGENTS.md section 4 makes a green CI run on the exact commit the proof, not a description of one. Give the run, the
 commit and the tree it verified, so a reviewer can match this description to the code they read.
 
-- CI run on the branch head: <URL>, attempt <n> (attempt 1 unless the STATUS says why not)
+- CI run on the branch head: <URL>, attempt <n> (must be 1: a re-run is not the gate)
 - Commit: `<git rev-parse HEAD>`
 - Tree: `<git rev-parse 'HEAD^{tree}'>`
 
@@ -28,7 +28,7 @@ Short excerpts of the output, not just "passed".
 - `node tests/regress.test.js`:
 - `node tools/mame-diff/run.js <profile> [...]` for each affected profile (instruction count, "identical", HALT reached):
 - `--video`, byte or audio comparisons (frames or bytes compared, tolerance):
-- `node tools/browser-check.js`:
+- `node tools/browser-check.js --only <groups the change touches>` (and `--only nitros9` with the images, for a NitrOS-9, disk or CoCo 3 boot change):
 
 ## New tests and firmware
 

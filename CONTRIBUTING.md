@@ -20,11 +20,13 @@ Every push to `main`, `claude/**` or `ds/**` runs the gates on the pushed commit
 them too, on the merge result GitHub builds for it (`refs/pull/N/merge`), not on the branch head: the push run is
 the proof for the branch, and the PR run is the proof that merging it keeps `main` green. Either way the gates are
 `node tests/all.js` (every suite, the regression hashes included) and `node tools/browser-check.js` (the real pages in
-headless Chromium), with the browser check split over four parallel shards, all on a pinned `ubuntu-24.04` image.
+headless Chromium), each split over parallel runners (`tests/all.js --shard i/n`, and browser-check shards generated
+from measured group times), all on a pinned `ubuntu-24.04` image.
 
-The run's jobs are `browser-check shards are complete` (every browser-check group is in exactly one shard),
-`node tests/all.js`, `browser check <shard>` (one per shard), and `gates`, which is green only if every other job
-passed; its summary is where the commit, its tree hash and each job's counts are read.
+The run's jobs are `browser-check shards are complete` (every browser-check group is in exactly one shard, and the
+shard file is the plan the timings give), `node tests/all.js <part>` (one per part), `browser check <shard>` (one per
+shard), and `gates`, which is green only if every other job passed and the parts together ran every suite once; its
+summary is where the commit, its tree hash, each job's counts and every FAIL line are read.
 
 Other branches run on demand (Actions → tests → Run workflow). The workflows are read like any other code, and every
 action in them is pinned to a commit SHA: `tests/workflows.test.js` checks that, and that `pull_request_target` is
