@@ -129,6 +129,7 @@ node tests/profiler.test.js  # hot-spot profiler: cycles per routine against han
 node tests/debugger-catchup.test.js  # frames after a long Over, Out or Step: Run goes on at once, identical to a free run
 node tests/halt-held.test.js # CoCo 3 instruction held by HALT: CPU redirected while held; debugger steps, stops, counts
 node tests/halt-replay.test.js # CoCo 3 held instruction run again: exact reads (6309 TFM, all forms), malformed snapshot state
+node tests/halt-replay-split.test.js # machine.halt (js/machines/halt-replay.js): held snapshots, traces, frames and restored runs identical to before the move (fixtures)
 node tests/coco3-buslog.test.js # CoCo 3 bus log: carried only with a HALT-capable device (logBus), hot-plug, snapshots, the guards
 node tests/held-writeio.test.js # a write from outside during a held access: queued, made between instructions, same machine either way
 node tests/coco3.test.js     # CoCo 3: MMU, GIME interrupts, timer, speed, video

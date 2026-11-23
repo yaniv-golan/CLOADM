@@ -188,6 +188,15 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   them, with a `note`, as the VDG's semigraphics blocks are counted. `docs/mcp.md`, `docs/claude.md`, the skill and a
   new eval (`coco3-hidden-screen`) say so; `tests/screen-text-readers.test.js` checks both readers on firmware of our
   own against the rendered frame.
+- **The CoCo 3's HALT inside an instruction has its own module.** Where HALT arrived and was released in the last
+  step, an I/O access waiting for its release, an instruction held past the end of a run and run again with its bus
+  accesses replayed, and the outside writes queued while one is held move from `js/machines/coco3.js` into
+  `js/machines/halt-replay.js` (`machine.halt`, a `HaltReplay`), under the same names (`machine.haltDefer` is now
+  `machine.halt.haltDefer`). The machine keeps the bus decode and the run loop, and the Machine interface
+  (`replaying`, `cpuHeld`, `cpuCheck`, `stepN`). No behaviour change: the regression hashes are unchanged, the MAME
+  comparisons on the CoCo 3 (`run.js coco3`, `--fdc cocofdc` with `--halt`, `--halt --empty` and `--nitros9` on both
+  CPUs, `--video`) are identical, and snapshots taken while an instruction is held are byte-identical to before
+  (`tests/halt-replay-split.test.js`, with fixtures).
 - **The media library has its own module.** Listing, opening, downloading, renaming, deleting and importing what
   the person keeps, the recent list, the creations of disk names (one at a time, with the names they claim), the
   store's rule for upper and lower case, and moving the library to another store move from the Session into

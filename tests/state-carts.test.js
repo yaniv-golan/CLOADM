@@ -101,7 +101,7 @@ for (const [name, t, at] of cases) {
   check(`coco cocofdc with the CPU halted (frame ${f}): restored in place, runs identically`, f < 2000 && run(a, t.regs, 40) === continued);
 }
 
-// CoCo 3: a snapshot taken while HALT holds an instruction past the end of the frame (Coco3Machine.haltSuspend: a read
+// CoCo 3: a snapshot taken while HALT holds an instruction past the end of the frame (HaltReplay.haltSuspend: a read
 // sector with HALT on DRQ, drive 1's sector 4 coming round 11 frames later). Two held accesses: the LDA of the data
 // register (nothing before it in the instruction), and the write of an INC of it (its read made before, kept in the
 // snapshot and replayed). Restored into a fresh machine, the trace and frames go on as on the machine that ran on.
@@ -125,7 +125,7 @@ function cocoHaltSuspended(config, prog, label) {
   start(0xAA, 4, prog.loop, prog.pre);
   if (prog.pre) a.cpu.y = 0;
   for (let i = 0; i < 3; i++) a.runFrame();
-  const d = a.haltDefer;
+  const d = a.halt.haltDefer;
   check(`coco3 (${label}) ${prog.name}: suspended by HALT at the end of a frame, the held access's earlier I/O kept`,
     !!d && d.rel < 0 && a.cpu.pc === prog.pc && d.log.filter((v, i) => i % 2 === 0 && v >= 0xFF00).length === prog.log,
     d ? `pc ${a.cpu.pc.toString(16)} log ${d.log}` : 'not suspended');
@@ -136,14 +136,14 @@ function cocoHaltSuspended(config, prog, label) {
   b.restore(Emu.state.fromJSON(text));
   const restored = run(b, regs, 20);
   check(`coco3 (${label}) ${prog.name}: restored into a fresh machine while suspended, runs on identically (trace, frames)`,
-    restored === continued && a.haltDefer === null && b.haltDefer === null, `${restored} vs ${continued}`);
+    restored === continued && a.halt.haltDefer === null && b.halt.haltDefer === null, `${restored} vs ${continued}`);
   // a version 1 file has no haltDefer: it restores, with nothing suspended (no version 1 build suspended an
   // instruction); the same file at the current version is refused as damaged
   const old = Emu.state.fromJSON(Emu.state.toJSON(b.snapshot()));
   delete old.state.haltDefer;
   let err = null;
   try { b.restore(Object.assign({}, old, { version: 1 })); } catch (e) { err = e; }
-  check(`coco3 (${label}) ${prog.name}: a version 1 snapshot (no haltDefer) restores`, !err && b.haltDefer === null, err ? err.message : '');
+  check(`coco3 (${label}) ${prog.name}: a version 1 snapshot (no haltDefer) restores`, !err && b.halt.haltDefer === null, err ? err.message : '');
   err = null;
   try { b.restore(old); } catch (e) { err = e; }
   check(`coco3 (${label}) ${prog.name}: a version ${Emu.SNAPSHOT_VERSION} snapshot without haltDefer is refused`, !!err && /missing "haltDefer"/.test(err.message), err ? err.message : 'restored');
@@ -154,7 +154,7 @@ function cocoHaltSuspended(config, prog, label) {
   err = null;
   try { b.restore(optional); } catch (e) { err = e; }
   check(`coco3 (${label}) ${prog.name}: a snapshot without outsideWrites (the optional key) restores owing no outside write`,
-    !err && Array.isArray(b.outsideWrites) && b.outsideWrites.length === 0, err ? err.message : `${b.outsideWrites.length} owed`);
+    !err && Array.isArray(b.halt.outsideWrites) && b.halt.outsideWrites.length === 0, err ? err.message : `${b.halt.outsideWrites.length} owed`);
 }
 for (const [label, config] of [['hardware timing', undefined], ['MAME timing', { mameCompat: true }]]) {
   cocoHaltSuspended(config, { name: 'LDA $FF4B', loop: [0x12, 0xB6, 0xFF, 0x4B, 0xA7, 0x80, 0x20, 0xF9], pc: 0x3010, log: 0 }, label);

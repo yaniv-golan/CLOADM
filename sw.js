@@ -135,6 +135,7 @@ const FILES = [
   'js/machines/d64plus.js',
   'js/machines/device.js',
   'js/machines/fdc.js',
+  'js/machines/halt-replay.js',
   'js/machines/keyboards.js',
   'js/machines/keyqueue.js',
   'js/machines/machine.js',

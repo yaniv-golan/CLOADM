@@ -1,5 +1,5 @@
 // The CoCo 3's instruction held by the disk controller's HALT and run again once HALT is released
-// (js/machines/coco3.js haltSuspend / haltResume): the run again must make exactly the reads the first run made. A 6309
+// (js/machines/halt-replay.js haltSuspend / haltResume): the run again must make exactly the reads the first run made. A 6309
 // TFM whose source overlaps its destination reads bytes it has itself written; run again from memory, it would read
 // those new bytes instead of the ones it read the first time.
 //
@@ -41,11 +41,11 @@ function run({ op, x, y, w, fill, select, frames = 3, watch }) {
   const BRA = 0x3000 + code.length - 2;
   m.cpu.x = x; m.cpu.y = y; m.cpu.w = w; m.cpu.pc = 0x3000; m.cpu.cc |= 0x50;
   let held = 0;
-  for (let i = 0; i < frames; i++) { m.runFrame(); if (m.haltDefer) held++; }
+  for (let i = 0; i < frames; i++) { m.runFrame(); if (m.halt.haltDefer) held++; }
   FORCE_INTERRUPT(m);
   for (let i = 0; i < 3 && m.cpu.pc !== BRA; i++) m.runFrame();
   const mem = watch.map((a) => m.peek(a));
-  return { held, done: m.cpu.pc === BRA && !m.haltDefer, mem, regs: [m.cpu.x, m.cpu.y, m.cpu.w, m.cpu.a, m.cpu.cc & 0xF1] };   // (B and N, Z, V: LDB of the select byte)
+  return { held, done: m.cpu.pc === BRA && !m.halt.haltDefer, mem, regs: [m.cpu.x, m.cpu.y, m.cpu.w, m.cpu.a, m.cpu.cc & 0xF1] };   // (B and N, Z, V: LDB of the select byte)
 }
 const range = (a, n) => Array.from({ length: n }, (_, i) => (a + i) & 0xFFFF);
 
@@ -111,13 +111,13 @@ for (const [where, addr, dropped] of [['a byte it read late ($FEF0)', 0xFEF0, tr
   const { m } = machine();
   const BRA = setupLong(m);
   for (let i = 0; i < 2; i++) m.runFrame();
-  const d = m.haltDefer;
+  const d = m.halt.haltDefer;
   const memAddrs = d ? d.mem.filter((v, i) => i % 2 === 0) : [];
   const all = range(0xFEC0, 64).every((a) => memAddrs.includes(a)) && range(0x5000, 64).every((a) => memAddrs.includes(a));
   const dbg = new Emu.Debugger(m);
   dbg.write(addr, [0xAB]);
   m.cpuCheck();
-  const kept = !!m.haltDefer;
+  const kept = !!m.halt.haltDefer;
   FORCE_INTERRUPT(m);
   for (let i = 0; i < 3 && m.cpu.pc !== BRA; i++) dbg.runFrame();
   dbg.detach();
@@ -189,7 +189,7 @@ for (const [where, addr, dropped] of [['a byte it read late ($FEF0)', 0xFEF0, tr
     const m = fresh();
     let err = null;
     try { m.loadState(variant(fn)); } catch (e) { err = e; }
-    const loaded = !err && !!m.haltDefer;
+    const loaded = !err && !!m.halt.haltDefer;
     const r0 = m.redirects;
     let crash = null;
     try {
@@ -202,7 +202,7 @@ for (const [where, addr, dropped] of [['a byte it read late ($FEF0)', 0xFEF0, tr
     if (lags.length && lag !== lags[0]) check(`malformed state, ${name}: the CPU's cycle count keeps up with the time as in the other drops`, false, `${lag} vs ${lags[0]}`);
     lags.push(lag);
     check(`malformed state, ${name}: loads, dropped when run again (no crash), then runs afresh to the right bytes`,
-      loaded && !crash && m.redirects === r0 + 1 && !m.haltDefer && m.cpu.pc === BRA && ok && m.cpu.x === 0xFF01 && m.cpu.y === 0x5011,
+      loaded && !crash && m.redirects === r0 + 1 && !m.halt.haltDefer && m.cpu.pc === BRA && ok && m.cpu.x === 0xFF01 && m.cpu.y === 0x5011,
       `err ${err && err.message} crash ${crash && crash.message} loaded ${loaded} redirects +${m.redirects - r0} pc ${hex(m.cpu.pc)} ok ${ok}`);
   }
   // and the well-formed file, for comparison: kept, completes with the bytes it read
@@ -233,17 +233,17 @@ for (const [where, addr, dropped] of [['a byte it read late ($FEF0)', 0xFEF0, tr
   let held = 0, saved = 0, refused = null;
   for (let i = 0; i < 40000 && m.cpu.pc !== 0x3012; i++) {
     m.runCycles(m.cycle + 211);
-    if (!m.haltDefer) continue;
+    if (!m.halt.haltDefer) continue;
     held++;
     dbg.write(0xFF02, [0xFF]);
-    if (held % 1000 === 1 || m.haltDefer.rel >= 0) {
+    if (held % 1000 === 1 || m.halt.haltDefer.rel >= 0) {
       saved++;
       try { mk().loadState(Emu.state.fromJSON(Emu.state.toJSON(m.saveState()))); } catch (e) { refused = e.message; }
     }
   }
   dbg.detach();
   check('a held TFM, the debugger writing I/O after every slice: every snapshot taken while held loads, and it completes',
-    held > 1000 && saved > 1 && !refused && m.cpu.pc === 0x3012 && !m.haltDefer, `held ${held} saved ${saved} refused ${refused} pc ${hex(m.cpu.pc)}`);
+    held > 1000 && saved > 1 && !refused && m.cpu.pc === 0x3012 && !m.halt.haltDefer, `held ${held} saved ${saved} refused ${refused} pc ${hex(m.cpu.pc)}`);
 }
 // a 6309 PSHU A,B with U=$FFDA: its first write ($FFD9) speeds the CPU up, the second ($FFD8) is held. Saved while held,
 // restored (once, and through three round trips) and released by the debugger's Force Interrupt: each restored machine
@@ -255,7 +255,7 @@ for (const [where, addr, dropped] of [['a byte it read late ($FEF0)', 0xFEF0, tr
     .forEach((b, i) => m.poke(0x3000 + i, b));
   Object.assign(m.cpu, { pc: 0x3000, d: 0x1234, u: 0xFFDA }); m.cpu.cc |= 0x50;
   m.runFrame();
-  const d = m.haltDefer;
+  const d = m.halt.haltDefer;
   let js = Emu.state.toJSON(m.saveState());
   const once = mk(); once.loadState(Emu.state.fromJSON(js));
   let thrice = null;

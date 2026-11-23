@@ -1,0 +1,127 @@
+{
+ "empty": {
+  "held": true,
+  "snapshot": "b294a1c1dab92836",
+  "log": 6,
+  "after": {
+   "trace": "811c9dc5",
+   "frames": "a27f6e55",
+   "instructions": 0,
+   "cycles": 189281,
+   "at": 1493400
+  },
+  "restored": {
+   "trace": "811c9dc5",
+   "frames": "a27f6e55",
+   "instructions": 0,
+   "cycles": 189281,
+   "at": 1493400
+  }
+ },
+ "queued": {
+  "owed": 1,
+  "snapshot": "bd3e6d533d5f1a08",
+  "after": {
+   "trace": "811c9dc5",
+   "frames": "f81815b6",
+   "instructions": 0,
+   "cycles": 189281,
+   "at": 1134984
+  },
+  "palette0": 5,
+  "restored": {
+   "trace": "811c9dc5",
+   "frames": "f81815b6",
+   "instructions": 0,
+   "cycles": 189281,
+   "at": 1134984
+  }
+ },
+ "tfm": {
+  "held": 3,
+  "snapshot": "2e742a92cc35bd4f",
+  "log": 262,
+  "after": {
+   "trace": "ee9c6d34",
+   "frames": "d0b642f5",
+   "instructions": 19841,
+   "cycles": 597357,
+   "at": 2389448
+  },
+  "mem": "af947f98b61de0a7",
+  "restored": {
+   "trace": "ee9c6d34",
+   "frames": "d0b642f5",
+   "instructions": 19841,
+   "cycles": 597357,
+   "at": 2389448
+  }
+ },
+ "halted": {
+  "snaps": [
+   {
+    "frame": 7,
+    "held": true,
+    "tail": 0,
+    "snapshot": "6495980ca8689601"
+   },
+   {
+    "frame": 14,
+    "held": true,
+    "tail": 0,
+    "snapshot": "1064159bae62d192"
+   },
+   {
+    "frame": 21,
+    "held": false,
+    "tail": 0,
+    "snapshot": "607994d2942ad156"
+   },
+   {
+    "frame": 28,
+    "held": false,
+    "tail": 0,
+    "snapshot": "1bfdd77bdcb374fb"
+   },
+   {
+    "frame": 35,
+    "held": false,
+    "tail": 0,
+    "snapshot": "0991be902e62d179"
+   },
+   {
+    "frame": 42,
+    "held": false,
+    "tail": 0,
+    "snapshot": "d01882e53e8b8752"
+   },
+   {
+    "frame": 49,
+    "held": false,
+    "tail": 0,
+    "snapshot": "f54928d58009067e"
+   },
+   {
+    "frame": 56,
+    "held": true,
+    "tail": 0,
+    "snapshot": "46dad8801391360a"
+   },
+   {
+    "frame": 63,
+    "held": true,
+    "tail": 0,
+    "snapshot": "e255c95f3b78f16c"
+   },
+   {
+    "frame": 70,
+    "held": false,
+    "tail": 0,
+    "snapshot": "5a9d3455039c45f0"
+   }
+  ],
+  "trace": "fb1398b2",
+  "instructions": 71105,
+  "cycles": 1354771
+ }
+}
