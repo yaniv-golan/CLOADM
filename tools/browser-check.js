@@ -4848,7 +4848,8 @@ async function tapeExtrasChecks(browser, base, check) {
   const three = Buffer.from([...file('ONE'), ...file('TWO'), ...file('THREE')]);
   for (const [label, viewport] of [['desktop', { width: 1440, height: 900 }], ['phone', { width: 390, height: 844 }]]) {
     const errors = [];
-    const ctx = await browser.newContext({ viewport });
+    // (the phone with touch: the slot's buttons are then at least 44 px tall)
+    const ctx = await browser.newContext(label === 'phone' ? { viewport, hasTouch: true, isMobile: true } : { viewport });
     const page = await ctx.newPage();
     page.on('pageerror', (e) => errors.push(e.message));
     await page.goto(`${base}?machine=dragon64`);
@@ -4953,6 +4954,10 @@ async function tapeExtrasChecks(browser, base, check) {
     await waitFor(page, () => !document.getElementById('tapePanel').hidden && !document.getElementById('btnEjectTape').disabled);
     const box = await page.evaluate(() => { const b = document.getElementById('btnEjectTape').getBoundingClientRect(), r = document.getElementById('btnRewind').getBoundingClientRect(); return { b: b.toJSON(), r: r.toJSON() }; });
     if (shotDir) await page.locator('.slot.tape').screenshot({ path: path.join(shotDir, `tape-extras-slot-${label}.png`) });
+    if (label === 'phone') {
+      const heights = await page.evaluate(() => [...document.querySelectorAll('.slot.tape .bar button')].map((b) => [b.id, b.getBoundingClientRect().height]));
+      check(`tape extras (${label}, touch): the slot's Rewind, Eject, Record and Save .WAV are at least 44 px tall`, heights.length === 4 && heights.every(([, h]) => h >= 44), JSON.stringify(heights));
+    }
     await page.click('#btnEjectTape');
     check(`tape extras (${label}): the slot's Eject (next to Rewind, disabled with no tape) ejects: deck hidden, toast, focus on the deck button`,
       disabled && Math.abs(box.b.top - box.r.top) < 4 && box.b.left > box.r.left
@@ -6762,6 +6767,61 @@ async function tapeChecks(browser, base, check) {
   check('tape: ...and it loads through BASIC and runs', ranAgain,
     await page.evaluate(() => `rom ${window.emu.machine.hasRom}, stage ${String.fromCharCode(window.emu.machine.ram[0x80])}, pc ${window.emu.machine.cpu.pc.toString(16)}`));
   check('tape: no page errors', !errors.length, errors.join('; '));
+  await ctx.close();
+  await tapeRecordingNameChecks(browser, base, check);
+}
+
+// Two CSAVEs in one recording make one file, and the toast counts them; with "Download and open files" the recording
+// is downloaded under its CSAVE name instead of kept. The writer firmware (tools/mame-diff/tape/csave.asm) runs twice
+// in one recording, a reset between, as the Dragon 32's ROM.
+async function tapeRecordingNameChecks(browser, base, check) {
+  const ctx = await browser.newContext({ acceptDownloads: true });
+  const errors = [];
+  let page, halt;
+  // a page on the Dragon 32 with the writer firmware in, paused (query: the link's settings)
+  const open = async (query) => {
+    page = await ctx.newPage();
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto(`${base}?machine=dragon32${query}`);
+    await ready(page);
+    await page.click('#btnPause');
+    halt = await page.evaluate(async () => {
+      const { assemble } = await import(new URL('js/asm/assembler.js', document.baseURI).href);
+      const res = assemble(await (await fetch('tools/mame-diff/tape/csave.asm')).text(), '6809');
+      const img = new Uint8Array(0x4000).fill(0x12);
+      for (const sgm of res.segments) img.set(sgm.data, sgm.addr - 0x8000);
+      const m = window.emu.machine;
+      m.setRoms({ basic: img }); m.reset(true);
+      return res.symbols.get('HALT');
+    });
+  };
+  await open('');
+  // record `times` runs of the writer, then Stop and save
+  const record = async (times) => {
+    await page.evaluate(() => window.emu.machine.reset(true));
+    await page.click('#btnRecord');
+    await page.click('#btnPause');
+    for (let n = 0; n < times; n++) {
+      if (n) await page.evaluate(() => window.emu.machine.reset(true));
+      await waitFor(page, (h) => window.emu.machine.cpu.pc === h, halt, 15000);
+    }
+    await page.click('#btnPause');
+  };
+  await record(2);
+  await page.click('#btnRecord');
+  check('tape: two CSAVEs in one recording: one file, named after the first, and the toast says "(2 files)"',
+    await waitFor(page, () => document.getElementById('toastText').textContent === 'Saved CLOADM.CAS to your Library (2 files).'),
+    await page.textContent('#toastText'));
+  // "Download and open files": the recording is downloaded under its CSAVE name, not kept
+  await page.close();
+  await open('&storage=fallback');
+  const kind = await page.evaluate(() => window.emu.session.media.kind);
+  await record(1);
+  const [dl] = await Promise.all([page.waitForEvent('download'), page.click('#btnRecord')]);
+  check('tape: with "Download and open files" the recording is downloaded as CLOADM.CAS, not kept in the Library',
+    kind === 'fallback' && dl.suggestedFilename() === 'CLOADM.CAS' && await page.evaluate(async () => !(await window.emu.session.library.listMedia()).some((x) => /CLOADM/.test(x.name))),
+    JSON.stringify({ kind, name: dl.suggestedFilename() }));
+  check('tape: recording names, no page errors', !errors.length, errors.join('; '));
   await ctx.close();
 }
 

@@ -200,6 +200,8 @@
   .slot .inner { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
   .slot .title { font-size: 14px; color: var(--muted); }
   .slot .name { font-weight: 700; overflow-wrap: anywhere; }
+  /* on touch the slots' buttons (Rewind, Eject, Record, Save .WAV) are at least 44 px tall */
+  @media (pointer: coarse) { .slot .bar button { min-height: 44px; } }
   /* The NitrOS-9 image list: one full-width row in the card, never wider than it (a long release file name would
      push it out past the card's edge); the closed list clips the end with an ellipsis, the open list and the
      title (set with the choice) show the whole name. */

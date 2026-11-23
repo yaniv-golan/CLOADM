@@ -772,7 +772,10 @@ ejected." and leaves the focus on the slot's deck button with the motor still on
 again; the slot's **Eject** sits beside **Rewind**, is disabled with no tape, and ejects the same way. Group `tape`:
 the writer firmware's recording is saved to the Library as CLOADM.CAS, byte for byte, and the toast's **Download**
 saves the same bytes under that name; the recording kept at a machine switch is offered as CLOADM.CAS and saved as
-"CLOADM (2).CAS"; both are on the Library's shelf after a reload.
+"CLOADM (2).CAS"; both are on the Library's shelf after a reload. Two runs of the writer in one recording save one
+CLOADM.CAS, and the toast says "(2 files)"; with `?storage=fallback` ("Download and open files") the recording is
+downloaded as CLOADM.CAS and nothing is kept. On the touch phone the slot's Rewind, Eject, Record and Save .WAV are at
+least 44 px tall.
 
 ### The tape HUD and the cassette panel
 
