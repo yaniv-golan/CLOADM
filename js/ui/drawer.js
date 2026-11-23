@@ -132,6 +132,7 @@ export function setupDrawer(page, { showRoms }) {
     if (ev === 'machine' || ev === 'loaded') { if (ev === 'machine') cartName = null; recent(); roms(); slots(); }
     if (ev === 'disks') slots();   // a disk mounted without a disk ROM plugs the controller in, and a reset gives it its ROM
     if (ev === 'roms') { roms(); recent(); slots(); }   // (slots: the Pak's board label follows its speech ROM)
+    if (ev === 'recent') recent();   // another tab loaded a program (Session.mediaElsewhere)
     // a tape mounted or ejected starts or stops the per-frame refresh of this row. A power cycle ejects the
     // deck and reports 'firmware' (Session.powerCycle -> poweredOn), not 'reset', so it has to be in this list:
     // without it the watcher outlived the tape and redrew the row every frame for the life of the page.

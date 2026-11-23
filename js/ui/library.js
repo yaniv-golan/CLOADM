@@ -122,12 +122,18 @@ export function setupLibrary(page, { loadProgram, runShelf, changed, showRoms, r
     meta.set(st.name, out);
     return out;
   }
+  // Two can run at once (another tab's changes arrive as they are made: Session.mediaElsewhere), so each builds its own
+  // list and only the latest one started is shown: filling the shared list from both doubled every item.
+  let listing = 0;
   async function refresh() {
+    const mine = ++listing;
     let list;
     try { list = await session.library.listMedia(); } catch (e) { page.status(session.library.mediaError(e, 'the library').message, true); list = []; }
+    const got = [];
+    for (const st of list) got.push(Object.assign({ name: st.name }, await describe(st)));
+    if (mine !== listing) return;   // a later listing has started: it is the one to show
     changed();
-    items = [];
-    for (const st of list) items.push(Object.assign({ name: st.name }, await describe(st)));
+    items = got;
     for (const n of [...selected]) if (!items.some((i) => i.name === n)) selected.delete(n);
     render();
   }
@@ -226,6 +232,8 @@ export function setupLibrary(page, { loadProgram, runShelf, changed, showRoms, r
   }
   $('libRomsLink').onclick = (e) => { e.preventDefault(); showRoms(); };
   session.on((ev) => { if (ev === 'roms' && isOpen()) render(); });
+  // another tab added, renamed or removed Library items: list them again (an item this tab is deleting stays hidden)
+  session.on((ev) => { if (ev === 'library' && isOpen()) refresh(); });
   // an item on the shelf: its button (a click loads it, or in select mode selects it), the tick box, and the name
   // field while it is being renamed
   function item(t, b) {
