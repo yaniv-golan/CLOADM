@@ -609,6 +609,7 @@ export class Session {
       m = createMachine(id, config || this.savedConfig(id));
       if (config) this.store.set(`config.${id}`, JSON.stringify(config));
     } catch (e) { m = createMachine(id); }
+    this.emit('launch');   // (R44: a machine switch is a launch: the page's Pause ends, and adopt releases a stop)
     this.adopt(m);
     if (!this.stubChosen.has(id)) this.loadSavedRoms();
     // the Pak a machine starts with, from its `ssc` option (the ROMs are in place by now)
@@ -655,10 +656,10 @@ export class Session {
     this.dropChat();                      // a chat belongs to the machine it was opened on
     if (chat) this.clearStubRuns([chat.chat, chat.basic]);
     this.warmReset = null;                // a new machine is a power-on: the boot watchdog arms
-    // (R44: a machine switch is a launch too; a Debugger stop goes with the machine it was on)
+    // (a Debugger stop goes with the machine it was on, R44: said so as a release. A switch is a launch, and says so
+    // itself (switchMachine); an opened snapshot is a restore, not a launch, and keeps the page's Pause)
     const stoppedAt = this.debugger && this.debugger.stopped ? this.debugger.pc : null;
     if (this.debugger) { this.debugger.detach(); this.debugger = null; }
-    this.emit('launch');
     if (stoppedAt != null) this.emit('released', stoppedAt);
     if (m.debugger) { this.debugger = m.debugger; this.debugger.setSymbols(() => this.labels); }
     // the machines left behind keep no state in the Session: their ROM-failure sets go (a switch back is a fresh

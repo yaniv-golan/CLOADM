@@ -2212,9 +2212,13 @@ async function onScreenChecks(browser, base, check) {
   await page.click('#btnDbgBack');
   await waitFor(page, () => document.getElementById('debugView').hidden);
   await invariant('stopped in the Debugger, back on the emulator', false);
+  // the shelf's Welcome menu is a launch (UX ruling R44, b4): it releases the stop, and the menu runs and is drawn
   await shelfClick('welcome');
   await waitFor(page, () => window.emu.session.welcomeRunning);
-  await invariant('the shelf\'s Welcome menu, started on the stopped machine', false);
+  await invariant('the shelf\'s Welcome menu, started on the stopped machine (R44: released)', true);
+  // stopped again on the menu, then Resume
+  await page.evaluate(() => window.emu.session.debug.halt());
+  await invariant('stopped on the menu', false);
   await page.evaluate(() => window.emu.session.resume());
   await invariant('resumed', true);
   // the page's Pause holds the frame loop: the menu is not running
@@ -3473,15 +3477,20 @@ async function snapshotChecks(browser, base, check) {
       && await page.waitForSelector('#screen', { state: 'visible', timeout: 5000 }).then(() => true, () => false) && await screenBox() === screenBefore);
     if (label === 'phone') { await ctx.close(); check(`snapshot (${label}): no page errors`, !errors.length, errors.join('; ')); continue; }
 
-    // the same machine, after a power cycle: dropping the file brings the moment back
+    // the same machine, after a power cycle: dropping the file brings the moment back. Switch off and on is a launch
+    // (UX ruling R44, b4): it ends the page's Pause, so the machine is paused again before the moment is compared
     await page.click('#btnHardReset');
+    check('snapshot: Switch off and on while paused runs the machine (R44: a launch ends the Pause)', await page.evaluate(() => document.getElementById('btnPause').textContent) === 'Pause');
+    await page.click('#btnPause');
     const wiped = await memHash();
     await dropFiles(page, [[snapName, snapBytes]]);
     await waitFor(page, () => /Snapshot opened/.test(document.getElementById('toast').textContent));
     check('snapshot: dropped on the same machine, the moment is back (memory identical, still paused)', wiped !== held && (await memHash()) === held
       && /Snapshot opened: Dragon 64, without ROMs/.test(await page.textContent('#toast')), await page.textContent('#toast'));
-    // another machine: the switch confirmation first
+    // another machine: the switch confirmation first (the switch to it is a launch, R44: paused again after it; the
+    // snapshot's own switch is a restore, which keeps the Pause)
     await pickMachine(page, 'coco');
+    await page.click('#btnPause');
     await dropFiles(page, [[snapName, snapBytes]]);
     await waitFor(page, () => !document.getElementById('switchConfirm').hidden);
     const asked = await page.isVisible('#switchConfirm') && (await page.textContent('#switchName')) === 'Dragon 64'
