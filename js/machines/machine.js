@@ -565,7 +565,7 @@ class Machine {
     this.interrupts.loadState(s.interrupts);
     this.cpu.loadState(s.cpu);
     // restore the picture (see saveState): the frame the snapshot was taken in the middle of. A share link leaves it
-    // out (null: js/media/snapshot.js encodeSnapshotLink): the picture is cleared and the beam draws it again, all of
+    // out (null: js/media/snapshot.js encodeLongLink): the picture is cleared and the beam draws it again, all of
     // it by the end of the next frame. Only the picture: what runs is the same either way.
     const pic = this.snapshotPicture().data;
     if (s.frame === null) pic.fill(0);

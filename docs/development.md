@@ -170,7 +170,7 @@ node tests/state-fdc.test.js # the same for floppy controllers mid-transfer, one
 node tests/state-carts.test.js  # the same for cartridges, a Multi-Pak and the Speech/Sound Pak mid-activity
 node tests/state-tape.test.js   # the same for the cassette deck: a recording in progress, a tape being played
 node tests/snapshot.test.js  # snapshot files: format and version, defective files, every model opened elsewhere, ROMs by CRC, switching, slots
-node tests/snapshot-link.test.js # share links' #z= form: hand-built vectors, every model opened from a link, old #s= links, refusals
+node tests/long-link.test.js # share links' #z= form: hand-built vectors, every model opened from a link, old #s= links, refusals
 node tests/program-pages.test.js # the program pages and cards are what tools/program-cards.js makes; PNG and card vectors
 node tests/press-break.test.js # BREAK delivery: our own firmware scans the matrix on dragon64, coco3 and mc10
 node tests/video.test.js     # scanline video: beam position, SAM display counter, mid-line mode splits

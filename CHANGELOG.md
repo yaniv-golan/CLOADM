@@ -10,13 +10,14 @@ Next version: 0.1.9-pre (the plugin and extension manifests carry it; `tests/plu
 
 ### Added
 
-- **Shorter share links.** The Share screen's link (and "Ask Claude ↗") now carries the moment after `#z=`: a version
+- **Shorter long links.** The Share screen's long link (and "Ask Claude ↗") now carries the moment after `#z=`: a version
   byte, then deflate-raw of the snapshot as a JSON skeleton plus its raw byte arrays, without the rendered picture
   (drawn again on the first frame after opening). LIZA's link goes from about 8,400 to 4,900 characters, 2048's from
   11,900 to 7,900. Links with `#s=` from earlier versions still open; `.cloadm` files are unchanged.
 - **Program pages.** cloadm.dev/2048/, /liza/ and /minesweeper/ each have their own link preview (title, description
-  and a 1200x630 picture of the program on the built-in firmware, made by `tools/program-cards.js`) and go straight to
-  `/play/?start=<program>`. They work offline like the rest of the site.
+  and a 1200x630 picture of the program on the built-in firmware, made by `tools/program-cards.js`), a Play button, and
+  go straight to the start link `/play/?start=<program>`. They work offline like the rest of the site. One entry in
+  `js/program-pages.js` makes a page; `Session.programPageUrl(id, base)` gives its address.
 
 - **Open CLOADM, and the offline copy only when needed.** The side panel's two tools are now **Open CLOADM**
   (`open_emulator`, "Opens the CLOADM emulator in a panel beside the chat. Use this first.") and **Open CLOADM

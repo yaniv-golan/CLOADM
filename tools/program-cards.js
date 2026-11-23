@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-// The program pages: cloadm.dev/2048/, /liza/ and /minesweeper/, each a small page with its own link preview (og:title,
-// og:description, og:image) that sends the visitor on to /play/?start=<program>. Their pictures, img/card-<program>.png,
-// are 1200 x 630 cards (js/video/card.js) of the program running on the built-in firmware: no ROM is loaded, so no
-// ROM pixel is in them. Everything here is made by this script, the same every time (fixed keys, fixed frames, the
+// The program pages (js/program-pages.js lists them: one entry is one page): cloadm.dev/<id>/, a small page with its
+// own link preview (og:title, og:description, og:image), a Play button for its start link /play/?start=<id>, where it
+// also sends the visitor at once. Their pictures, img/card-<id>.png, are 1200 x 630 cards (js/video/card.js) of the
+// program running on the built-in firmware: no ROM is loaded, so no ROM pixel is in them. Everything here is made by this script, the same every time (fixed keys, fixed frames, the
 // games' random numbers seeded); tests/program-pages.test.js checks the committed files are what it makes.
 //   node tools/program-cards.js            write the pages and the cards, and bring sw.js's file list up to date
 const fs = require('fs'), path = require('path');
@@ -10,42 +10,27 @@ const ROOT = path.join(__dirname, '..');
 const SITE = 'https://cloadm.dev/';
 const KEY = { up: 94, down: 10, left: 8, right: 9, space: 32, enter: 13 };
 
-const PROGRAMS = {
-  2048: {
-    title: '2048 on a Dragon 64, CLOADM',
-    description: 'Slide the tiles and join the numbers to make 2048, on an emulated Dragon 64 in your browser. Nothing to install.',
-    keys: ['space', 'left', 'up', 'left', 'down', 'right', 'up', 'left', 'up'],
-  },
-  liza: {
-    title: 'LIZA, a 1980s chatbot on a Dragon 64, CLOADM',
-    description: 'Talk to LIZA, a small chatbot in 6809 code, on an emulated Dragon 64 in your browser. Nothing to install.',
-    lines: ['I MISS MY DRAGON', 'BECAUSE IT WAS MAGIC'],
-  },
-  minesweeper: {
-    title: 'Minesweeper on a Dragon 64, CLOADM',
-    description: 'Clear the minefield without stepping on a mine, on an emulated Dragon 64 in your browser. Nothing to install.',
-    keys: ['space', 'right', 'right', 'down', 'down', 'space', 'right', 'right', 'right', 'down', 'space', 'left', 'down', 'down', 'space'],
-  },
-};
-const NAMES = Object.keys(PROGRAMS);
+const { PROGRAM_PAGES } = require('../js/program-pages.js');
+const NAMES = PROGRAM_PAGES.map((p) => p.id);
+const PROGRAMS = Object.fromEntries(PROGRAM_PAGES.map((p) => [p.id, p]));
 
-// the program running on a Dragon 64 with the built-in firmware, after its keys or lines -> its frame
+// the program running on its card's machine with the built-in firmware, after its keys or lines -> its frame
 function frameOf(Emu, name) {
-  const p = PROGRAMS[name];
+  const p = PROGRAMS[name].card;
   const s = new Emu.Session({ welcomeMenu: false });
-  s.switchMachine('dragon64', {}, { menu: false });
+  s.switchMachine(p.machine, {}, { menu: false });
   const m = s.shownMachine;
   if (Object.keys(m.romCrcs()).length || m.cartPort) throw new Error('ROMs or a cartridge loaded: refusing to make a card');
   const bin = (file) => fs.readFileSync(path.join(ROOT, 'examples', file));
   if (name === 'liza') {
     s.runLiza(bin(s.lizaFile));
     s.runFrames(120);
-    for (const line of p.lines) { s.typeText(line + '\n'); s.runFrames(240); }
+    for (const line of p.lines) { s.typeText(line + '\n'); s.runFrames(p.frames); }
   } else {
     s.runGame(name, bin(s.gameFile(name)));
     s.runFrames(40);
-    m.poke(Emu.GAMES.seed, 0x12); m.poke(Emu.GAMES.seed + 1, 0x34);
-    for (const k of p.keys) { m.stubKeys.push(KEY[k]); s.runFrames(45); }
+    m.poke(Emu.GAMES.seed, p.seed >> 8); m.poke(Emu.GAMES.seed + 1, p.seed & 0xFF);
+    for (const k of p.keys) { m.stubKeys.push(KEY[k]); s.runFrames(p.frames); }
   }
   s.runFrames(5);
   if (s.romCodeIn(m) !== null) throw new Error('ROM code in the machine: refusing to make a card');
@@ -75,13 +60,17 @@ function page(name) {
 <meta property="og:image" content="${SITE}img/card-${name}.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="${esc(p.title.replace(/, CLOADM$/, ''))}: the emulated screen">
+<meta property="og:image:alt" content="${esc(p.name)} running in CLOADM: the emulated screen">
 <meta name="twitter:card" content="summary_large_image">
 <meta http-equiv="refresh" content="0; url=${to}">
 <script>location.replace('${to}' + location.hash);</script>
 </head>
 <body>
-<p><a href="${to}">${esc(p.title.replace(/, CLOADM$/, ''))}: open it in CLOADM</a></p>
+<main>
+<h1>${esc(p.title.replace(/, CLOADM$/, ''))}</h1>
+<p>${esc(p.description)}</p>
+<p><a href="${to}">Play ${esc(p.name)}</a></p>
+</main>
 </body>
 </html>
 `;

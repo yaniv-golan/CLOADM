@@ -5,8 +5,9 @@
 // a new example file is in the list without a separate step.
 const fs = require('fs'), path = require('path');
 const ROOT = path.join(__dirname, '..');
-// (2048, liza, minesweeper: the program pages, tools/program-cards.js)
-const DIRS = ['css', 'fonts', 'img', 'icons', 'js', 'examples', 'embed', 'play', 'roms', 'help', 'credits', '2048', 'liza', 'minesweeper'];
+// and every program page's folder (js/program-pages.js; tools/program-cards.js writes them)
+const DIRS = ['css', 'fonts', 'img', 'icons', 'js', 'examples', 'embed', 'play', 'roms', 'help', 'credits',
+  ...require('../js/program-pages.js').PROGRAM_PAGES.map((p) => p.id)];
 const ROOT_FILES = ['index.html', 'favicon.svg', 'favicon.ico', 'manifest.webmanifest'];
 const SKIP = (rel) => /^img\/readme-/.test(rel) || /\.md$/.test(rel) || /(^|\/)\./.test(rel);
 

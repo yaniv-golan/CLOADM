@@ -175,6 +175,7 @@ const FILES = [
   'js/media/zip.js',
   'js/package.json',
   'js/profiler.js',
+  'js/program-pages.js',
   'js/roms.js',
   'js/selftest.js',
   'js/session.js',

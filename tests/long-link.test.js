@@ -1,5 +1,5 @@
-// The compact share-link form of a snapshot, '#z=' (js/media/snapshot.js encodeSnapshotLink / decodeSnapshotLink,
-// Session.snapshotLink / readSnapshotLink):
+// The compact share-link form of a snapshot, '#z=' (js/media/snapshot.js encodeLongLink / decodeLongLink,
+// Session.longLink / readLongLink):
 //  * hand-built vectors whose bytes are written out here, not made by the code under test: a container in a deflate
 //    "stored" block assembled byte by byte (RFC 1951 3.2.4), and the exact container the encoder must write
 //  * round trips: the same snapshot back, every typed array and non-finite number, with the picture left out
@@ -37,7 +37,7 @@ const link = (box, version = 1) => new Uint8Array(Buffer.concat([Buffer.from([ve
       + '"level":{"$num":"-Infinity"},"frame":null,"cpu":{"pc":49152}}}';
     // memory 01 02 03; words 0x1234 0x5678, little-endian: 34 12 78 56
     const bytes = link(container(json, [0x01, 0x02, 0x03, 0x34, 0x12, 0x78, 0x56]));
-    const snap = await Emu.decodeSnapshotLink(bytes);
+    const snap = await Emu.decodeLongLink(bytes);
     check('hand-built: the skeleton comes back as written', snap.machine === 'dragon64' && snap.config.ram === 64 && snap.taken === '2026-11-23T10:00:00.000Z' && snap.state.cpu.pc === 0xC000);
     check('hand-built: a Uint8Array from its offset and length', snap.state.memory instanceof Uint8Array && Array.from(snap.state.memory).join() === '1,2,3');
     check('hand-built: a Uint16Array at an odd offset, little-endian', snap.state.words instanceof Uint16Array && Array.from(snap.state.words).join() === [0x1234, 0x5678].join());
@@ -45,7 +45,7 @@ const link = (box, version = 1) => new Uint8Array(Buffer.concat([Buffer.from([ve
     check('hand-built: the arrays are copies, not views of the container', snap.state.words.byteOffset === 0 && snap.state.words.buffer.byteLength === 4);
     // the same container through Node's own deflate decodes the same: the format is plain RFC 1951
     const viaZlib = new Uint8Array(Buffer.concat([Buffer.from([1]), zlib.deflateRawSync(container(json, [1, 2, 3, 0x34, 0x12, 0x78, 0x56]), { level: 9 })]));
-    const z = await Emu.decodeSnapshotLink(viaZlib);
+    const z = await Emu.decodeLongLink(viaZlib);
     check('hand-built: compressed by zlib (another compressor) reads the same', Array.from(z.state.words).join() === Array.from(snap.state.words).join() && z.state.level === -Infinity);
   }
 
@@ -53,15 +53,15 @@ const link = (box, version = 1) => new Uint8Array(Buffer.concat([Buffer.from([ve
   {
     const snap = { format: 'cloadm-state', version: 4, machine: 'coco', config: { ram: 16 }, roms: { basic: 0x12345678 },
       state: { memory: Uint8Array.from([9, 8]), frame: Uint8Array.from([7, 7, 7]), q: Int16Array.from([-2]), t: NaN } };
-    const bytes = await Emu.encodeSnapshotLink(snap, { name: 'Color Computer', taken: 'T' });
-    check('encoder: the first byte is the link version, 1', bytes[0] === 1 && Emu.LINK_VERSION === 1);
+    const bytes = await Emu.encodeLongLink(snap, { name: 'Color Computer', taken: 'T' });
+    check('encoder: the first byte is the link version, 1', bytes[0] === 1 && Emu.LONG_LINK_VERSION === 1);
     const box = zlib.inflateRawSync(Buffer.from(bytes.subarray(1)));
     const json = '{"format":"cloadm-state","version":4,"machine":"coco","name":"Color Computer","taken":"T","config":{"ram":16},"roms":{"basic":305419896},'
       + '"state":{"memory":{"$bin":"Uint8Array","o":0,"n":2},"frame":null,"q":{"$bin":"Int16Array","o":2,"n":2},"t":{"$num":"NaN"}}}';
     const want = container(json, [9, 8, 0xFE, 0xFF]);   // -2 as a little-endian int16: FE FF
     check('encoder: deflate-raw of u32 length, the skeleton, then the arrays\' bytes (the picture left out)', box.equals(want), `${box.length} vs ${want.length}`);
     check('encoder: the snapshot given is not changed (its picture stays)', snap.state.frame.length === 3);
-    const back = await Emu.decodeSnapshotLink(bytes);
+    const back = await Emu.decodeLongLink(bytes);
     check('round trip: NaN, an Int16Array and a missing share', Number.isNaN(back.state.t) && back.state.q[0] === -2 && !('share' in back));
   }
 
@@ -74,7 +74,7 @@ const link = (box, version = 1) => new Uint8Array(Buffer.concat([Buffer.from([ve
     m.runCycles(m.frameBase + (m.frameCycles >> 2));
     m.poke(0x4000 & (m.memoryArray().length - 1), 0xA5);
     const file = await s.shareFile(new Date('2026-11-23T10:00:00Z'));
-    const url = await s.snapshotLink('https://cloadm.dev/play/', file);
+    const url = await s.longLink('https://cloadm.dev/play/', file);
     const u = new URL(url);
     check(`${id}: the link is /play/ with the machine, the moment after #z=`, u.pathname === '/play/' && new URLSearchParams(u.search).get('machine') === id && /^#z=[A-Za-z0-9_-]+$/.test(u.hash), url.slice(0, 80));
     const old = `${url.split('#')[0]}#s=${Emu.toBase64Url(file.bytes)}`;
@@ -82,12 +82,12 @@ const link = (box, version = 1) => new Uint8Array(Buffer.concat([Buffer.from([ve
     const want = run(m, 12, 1);
     const b = new Emu.Session();
     b.switchMachine('dragon64');
-    b.openSnapshot(await b.readSnapshotLink(u.hash));
+    b.openSnapshot(await b.readLongLink(u.hash));
     check(`${id}: opened from #z= in another Session, it runs on identically (instructions, cycles, frames after the first, memory)`, b.shownMachine.id === id && run(b.shownMachine, 12, 1) === want);
     // a link from an earlier version: the .cloadm file in base64url, picture and all
     const c = new Emu.Session();
     c.switchMachine('dragon64');
-    c.openSnapshot(await c.readSnapshotLink(new URL(old).hash));
+    c.openSnapshot(await c.readLongLink(new URL(old).hash));
     check(`${id}: an older #s= link still opens, and runs on identically (its picture included)`, c.shownMachine.id === id && run(c.shownMachine, 12, 0) === run(Emu.restoreSnapshot(await Emu.decodeSnapshot(file.bytes), {}), 12, 0));
   }
 
@@ -102,7 +102,7 @@ const link = (box, version = 1) => new Uint8Array(Buffer.concat([Buffer.from([ve
       else s.runGame(what, fs.readFileSync(path.join(__dirname, '../examples', s.gameFile(what))));
       for (let i = 0; i < 120; i++) s.shownMachine.runFrame();
       const f = await s.shareFile();
-      const z = await s.snapshotLink('https://cloadm.dev/play/', f);
+      const z = await s.longLink('https://cloadm.dev/play/', f);
       const old = `${s.shareUrl('https://cloadm.dev/play/').split('#')[0]}#s=${Emu.toBase64Url(f.bytes)}`;
       // the design measured 50% (LIZA) and 64% (2048, whose memory compresses less): hold the line at 70% so a regression
       // in the form shows
@@ -114,7 +114,7 @@ const link = (box, version = 1) => new Uint8Array(Buffer.concat([Buffer.from([ve
   {
     const s = new Emu.Session();
     s.switchMachine('dragon64');
-    const good = new URL(await s.snapshotLink('https://cloadm.dev/play/')).hash;
+    const good = new URL(await s.longLink('https://cloadm.dev/play/')).hash;
     const damaged = (e) => e instanceof Emu.SessionError && /This link's snapshot is damaged/.test(e.message);
     const cases = {
       'cut short': good.slice(0, good.length - 200),
@@ -133,20 +133,20 @@ const link = (box, version = 1) => new Uint8Array(Buffer.concat([Buffer.from([ve
       'bad JSON': '#z=' + Buffer.from(link(container('{"format":', []))).toString('base64url'),
     };
     for (const [what, hash] of Object.entries(cases)) {
-      const e = await rejects(s.readSnapshotLink(hash));
+      const e = await rejects(s.readLongLink(hash));
       check(`refused, as damaged: ${what}`, damaged(e), e ? e.message : 'accepted');
     }
-    const newer = await rejects(s.readSnapshotLink('#z=' + Buffer.from(link(Buffer.from('x'), 2)).toString('base64url')));
+    const newer = await rejects(s.readLongLink('#z=' + Buffer.from(link(Buffer.from('x'), 2)).toString('base64url')));
     check('a link from a newer CLOADM says so, as a SessionError', newer instanceof Emu.SessionError && /newer CLOADM \(link format 2; this page reads 1\)/.test(newer.message), newer && newer.message);
-    const future = await rejects(s.readSnapshotLink('#z=' + Buffer.from(link(container('{"format":"cloadm-state","version":99,"machine":"dragon64","config":{},"roms":{},"state":{}}', []))).toString('base64url')));
+    const future = await rejects(s.readLongLink('#z=' + Buffer.from(link(container('{"format":"cloadm-state","version":99,"machine":"dragon64","config":{},"roms":{},"state":{}}', []))).toString('base64url')));
     check('a snapshot version from a newer CLOADM says so', future instanceof Emu.SessionError && /newer CLOADM \(format version 99/.test(future.message), future && future.message);
-    const machine = await rejects(Emu.decodeSnapshotLink(link(container('{"format":"cloadm-state","version":4,"machine":"zx81","config":{},"roms":{},"state":{}}', []))));
+    const machine = await rejects(Emu.decodeLongLink(link(container('{"format":"cloadm-state","version":4,"machine":"zx81","config":{},"roms":{},"state":{}}', []))));
     check('a machine this CLOADM lacks: named', machine instanceof Emu.SnapshotError && /\(zx81\)/.test(machine.message), machine && machine.message);
     // a small link that unpacks to far more than any snapshot: stopped while it is unpacked
     const bomb = new Uint8Array(Buffer.concat([Buffer.from([1]), zlib.deflateRawSync(Buffer.alloc(4 << 20))]));
-    const big = await rejects(Emu.decodeSnapshotLink(bomb, { maxBytes: 1 << 20 }));
+    const big = await rejects(Emu.decodeLongLink(bomb, { maxBytes: 1 << 20 }));
     check('a link that unpacks past the limit is refused', big instanceof Emu.SnapshotError && /far more than any CLOADM snapshot/.test(big.message), `${bomb.length} bytes; ${big && big.message}`);
-    check('no #z= or #s= is no snapshot', (await s.readSnapshotLink('#zz=1')) === null && (await s.readSnapshotLink('#share')) === null && (await s.readSnapshotLink('')) === null);
+    check('no #z= or #s= is no snapshot', (await s.readLongLink('#zz=1')) === null && (await s.readLongLink('#share')) === null && (await s.readLongLink('')) === null);
   }
 
   console.log(fail ? `${fail} FAILED` : 'all passed');

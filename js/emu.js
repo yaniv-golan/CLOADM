@@ -28,6 +28,7 @@ export { AudioOutput } from './host/audio.js';
 export { CocoMax } from './machines/cocomax.js';
 export * from './machines/keyqueue.js';
 export * from './config.js';
+export * from './program-pages.js';
 export * from './embed-api.js';
 export * from './machines/bus.js';
 export * from './machines/fdc.js';

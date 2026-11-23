@@ -10306,6 +10306,16 @@ async function pwaChecks(browser, site, check) {
     const res = await page.goto(site + p);
     check(`PWA offline: /${p} opens`, res.ok() && /CLOADM/.test(await page.title()), String(res.status()));
   }
+  // the program pages (js/program-pages.js), never visited before but kept since the first visit: offline, each
+  // opens, its card is there, and it starts its program on /play/
+  for (const { id, name } of require('../js/program-pages.js').PROGRAM_PAGES) {
+    const res = await page.goto(`${site}${id}/`);
+    await page.waitForURL(/\/play\/\?start=/, { timeout: 15000 }).catch(() => {});
+    const ran = await waitFor(page, (n) => { const r = window.emu && window.emu.session.lastRun; return !!r && (n === 'liza' ? r.kind === 'liza' : r.kind === 'game' && r.name.toLowerCase() === n); }, id, 15000);
+    const card = await page.evaluate(async (u) => { const r = await fetch(u); return r.ok ? (await r.arrayBuffer()).byteLength : 0; }, `${site}img/card-${id}.png`);
+    check(`PWA offline: the ${name} page opens, its card is kept, and Play's start link runs it`, res.ok() && ran && card > 1000
+      && await page.evaluate(() => location.pathname + location.search) === `/play/?start=${id}`, `${card} bytes`);
+  }
   await ctx.setOffline(false);
   check('PWA: no page errors', !errors.length, errors.join('; '));
   await ctx.close();
@@ -15208,7 +15218,7 @@ async function shareChecks(browser, base, site, check) {
       else if (who === 'another version') check('share link, recipient with another version: refused with a clear message, nothing opens', /another version of 32K-mode BASIC/.test(r.needs || r.msg) && r.mem !== held, r.needs || r.msg);
       else {
         // the page opened it; and opened again through the Session, compared before a frame runs, it is the moment
-        const exact = await rp.evaluate(async (link) => { const s = window.emu.session; s.openSnapshot(await s.readSnapshotLink(new URL(link).hash));
+        const exact = await rp.evaluate(async (link) => { const s = window.emu.session; s.openSnapshot(await s.readLongLink(new URL(link).hash));
           return window.emu.Emu.state.toJSON(s.shownMachine.snapshot().state.memory); }, shared.link);
         check('share link, recipient with the same ROMs: it opens, exactly the moment (memory rebuilt from their ROMs)', /Snapshot opened: Dragon 64/.test(r.msg) && exact === held, r.msg);
       }
@@ -18711,7 +18721,7 @@ async function askPopoutChecks(browser, site, check) {
     const a = document.getElementById(id), r = a.getBoundingClientRect(), bar = document.getElementById('appbar').getBoundingClientRect();
     const u = a.href ? new URL(a.href) : null;
     let snap = null;
-    try { snap = u && u.hash ? await window.emu.session.readSnapshotLink(u.hash) : null; } catch (e) { snap = { error: e.message }; }
+    try { snap = u && u.hash ? await window.emu.session.readLongLink(u.hash) : null; } catch (e) { snap = { error: e.message }; }
     return { text: a.textContent.trim(), shown: a.checkVisibility() && r.width > 0 && r.height > 0, inBar: r.top >= bar.top - 1 && r.bottom <= bar.bottom + 1,
       query: u && u.search, target: a.target, rel: a.rel, title: a.title, desc: a.getAttribute('aria-description'), carried: a.dataset.carried,
       app: u && u.searchParams.get('app'), embed: u ? [...u.searchParams.keys()].filter((k) => /embed/.test(k)) : null, machine: u && u.searchParams.get('machine'),

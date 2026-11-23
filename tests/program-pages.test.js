@@ -69,11 +69,18 @@ const colours = (d) => Array.from(d.pixels, (i) => d.palette[i].join(','));
       && meta('og:url') === `https://cloadm.dev/${name}/` && meta('og:image') === `https://cloadm.dev/img/card-${name}.png`
       && meta('og:image:width') === '1200' && meta('og:image:height') === '630' && meta('twitter:card') === 'summary_large_image', title);
     const to = `../play/?start=${name}`;
-    check(`${name}: it sends the visitor to /play/?start=${name} (a script that keeps a fragment, and a refresh without one)`,
-      html.includes(`<meta http-equiv="refresh" content="0; url=${to}">`) && html.includes(`location.replace('${to}' + location.hash)`) && html.includes(`<a href="${to}">`));
+    check(`${name}: it sends the visitor to /play/?start=${name} (a script that keeps a fragment, and a refresh without one), with a Play button there too`,
+      html.includes(`<meta http-equiv="refresh" content="0; url=${to}">`) && html.includes(`location.replace('${to}' + location.hash)`)
+      && html.includes(`<a href="${to}">Play ${tool.PROGRAMS[name].name}</a>`));
+    check(`${name}: Session.programPageUrl links to the page, from the site's root and from /play/`,
+      new Emu.Session().programPageUrl(name, 'https://cloadm.dev/play/?machine=coco#z=AA') === `https://cloadm.dev/${name}/`
+      && new Emu.Session().programPageUrl(name, 'https://cloadm.dev/') === `https://cloadm.dev/${name}/`);
     const cfg = Emu.parseUrlConfig(`?start=${name}`);
     check(`${name}: start=${name} is a start the page has`, cfg.start === name && !cfg.errors.length, JSON.stringify(cfg.errors));
   }
+  check('Session.programPageUrl: a program without a page has none', new Emu.Session().programPageUrl('demo', 'https://cloadm.dev/') === null);
+  check('the pages are the list in js/program-pages.js, and the service worker\'s folders follow it',
+    tool.NAMES.join() === Emu.PROGRAM_PAGES.map((p) => p.id).join() && Emu.PROGRAM_PAGES.every((p) => require('../tools/pwa-files.js').DIRS.includes(p.id)));
   const titles = tool.NAMES.map((n) => tool.PROGRAMS[n].title), images = new Set(tool.NAMES.map((n) => fs.readFileSync(path.join(ROOT, 'img', `card-${n}.png`)).toString('base64')));
   check('every page has a title and a picture of its own', new Set(titles).size === titles.length && images.size === titles.length);
   const sw = fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8');

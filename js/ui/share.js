@@ -4,7 +4,7 @@
  *
  * Top: the picture as a link preview, one line saying what the link does, a ROM line (what the person opening it must add,
  * or that it runs without ROMs: the snapshot holds no byte of a ROM or cartridge, Session.shareFile names them), the link
- * (Session.snapshotLink: the snapshot rides in the URL's fragment, which never reaches a server; js/ui/snapshot-panel.js
+ * (Session.longLink: the snapshot rides in the URL's fragment, which never reaches a server; js/ui/snapshot-panel.js
  * opens it), Share... (navigator.share, the URL only, where canShare allows it) and Copy link.
  * "More ways to share" (collapsed): a 6-second clip of the screen (MediaRecorder: MP4 where the browser records it, WebM
  * otherwise, and the button says which), the screenshot at true pixels, the snapshot file.
@@ -71,7 +71,7 @@ export function setupShare(page) {
     // link for it, so with the chat full screen this must ask about the chat, as shareUrl does.
     const n9 = session.nitros9OnScreen;
     const file = n9 ? null : await session.shareFile();
-    const link = n9 ? session.shareUrl(location.href) : await session.snapshotLink(location.href, file);
+    const link = n9 ? session.shareUrl(location.href) : await session.longLink(location.href, file);
     const png = await new Promise((ok) => c.toBlob(ok, 'image/png'));
     captured = { file, png, link, base: file ? file.name.replace(/\.cloadm$/, '') : `${m.profile.name.replace(/[^A-Za-z0-9]+/g, '')}-NitrOS-9` };
     const dl = $('btnShareDownload');

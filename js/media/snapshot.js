@@ -102,9 +102,9 @@ function checked(snap) {
   return snap;
 }
 
-// ---------------- the compact link form (#z=) ----------------
-// A share link's moment (Session.snapshotLink writes '#z=' + base64url of these bytes):
-//   byte 0      the link format's version, LINK_VERSION (1); 2 to 31 are kept for later versions, which a page says are newer
+// ---------------- the long link (#z=) ----------------
+// The moment a long link carries (Session.longLink writes '#z=' + base64url of these bytes):
+//   byte 0      the link format's version, LONG_LINK_VERSION (1); 2 to 31 are kept for later versions, which a page says are newer
 //   bytes 1...  deflate-raw (RFC 1951, no header or checksum) of the container:
 //     u32 little-endian J, the length of the skeleton
 //     J bytes     the skeleton: UTF-8 JSON of the snapshot { format, version, machine, name, taken, config, roms, state,
@@ -114,12 +114,12 @@ function checked(snap) {
 //                 platform (little-endian, as files' base64 is)
 // The rendered picture (state.frame) is left out (null): it is about half of what is left after compression, and the
 // machine draws it again on the next frame (Machine.loadState clears it). Saved files keep it. A link is about half
-// the length of the older '#s=' form (base64url of the gzip file), which pages still read (Session.readSnapshotLink).
-export const LINK_VERSION = 1;
+// the length of the older '#s=' form (base64url of the gzip file), which pages still read (Session.readLongLink).
+export const LONG_LINK_VERSION = 1;
 const TYPED_NAMES = new Set(['Uint8Array', 'Int8Array', 'Uint16Array', 'Int16Array', 'Uint32Array', 'Int32Array', 'Float32Array', 'Float64Array']);
 
 // snapshot (as for encodeSnapshot) -> the link's bytes
-export async function encodeSnapshotLink(snap, { name, taken }) {
+export async function encodeLongLink(snap, { name, taken }) {
   const { format, version, machine, config, roms, state: s, share } = snap;
   const value = Object.assign({ format, version, machine, name, taken, config, roms, state: Object.assign({}, s, { frame: null }) }, share ? { share } : {});
   const parts = [];
@@ -143,19 +143,19 @@ export async function encodeSnapshotLink(snap, { name, taken }) {
   for (const p of parts) { box.set(p, o); o += p.length; }
   const packed = await pipe(box, new CompressionStream('deflate-raw'));
   const out = new Uint8Array(1 + packed.length);
-  out[0] = LINK_VERSION;
+  out[0] = LONG_LINK_VERSION;
   out.set(packed, 1);
   return out;
 }
 
 // the link's bytes -> snapshot (its state.frame null: Machine.loadState clears the picture), SnapshotError when they
 // are not one this page reads; maxBytes: the most the container may unpack to
-export async function decodeSnapshotLink(bytes, { maxBytes = SNAPSHOT_MAX_BYTES } = {}) {
+export async function decodeLongLink(bytes, { maxBytes = SNAPSHOT_MAX_BYTES } = {}) {
   const damaged = () => new SnapshotError('This link\'s snapshot is damaged: it was cut short or changed on the way.');
   if (!bytes || bytes.length < 2) throw damaged();
   // a version byte a little past ours is a newer CLOADM's; anything else is not a link this page wrote
-  if (bytes[0] > LINK_VERSION && bytes[0] < 32) throw new SnapshotError(`This link was made by a newer CLOADM (link format ${bytes[0]}; this page reads ${LINK_VERSION}). Reload the page to update it.`);
-  if (bytes[0] !== LINK_VERSION) throw damaged();
+  if (bytes[0] > LONG_LINK_VERSION && bytes[0] < 32) throw new SnapshotError(`This link was made by a newer CLOADM (link format ${bytes[0]}; this page reads ${LONG_LINK_VERSION}). Reload the page to update it.`);
+  if (bytes[0] !== LONG_LINK_VERSION) throw damaged();
   let box;
   try { box = await gunzipAtMost(bytes.subarray(1), maxBytes, 'deflate-raw'); } catch (e) { throw damaged(); }
   if (!box) throw new SnapshotError('This link\'s snapshot unpacks to far more than any CLOADM snapshot: it is not one.');

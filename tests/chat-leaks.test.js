@@ -577,8 +577,8 @@ const REQUIRED = require.main !== module;
     'drives.checkNotInDrive', 'codeAt', 'cpuRate', 'drives.activity', 'drives.dosChoices', 'drives.status', 'driveWireFile',
     'driveWireImages', 'gameFile', 'inspect', 'drives.list', 'listMedia', 'listSlots', 'lizaNeeds', 'machineRoms',
     'machineTicket', 'machinesWithRoms', 'nitros9Images', 'nitros9Loader', 'nitros9On', 'printoutFile', 'printoutText',
-    'readSlot', 'readSnapshot', 'readSnapshotLink', 'recentMedia', 'sameName', 'savedConfig', 'screenText',
-    'shareFile', 'shareUrl', 'slotBytes', 'snapshotLink', 'snapshotRoms', 'snapshotSwitch', 'sscRoms', 'statusLine',
+    'readSlot', 'readSnapshot', 'readLongLink', 'recentMedia', 'sameName', 'savedConfig', 'screenText',
+    'shareFile', 'shareUrl', 'slotBytes', 'longLink', 'snapshotRoms', 'snapshotSwitch', 'sscRoms', 'statusLine',
     'takenOut', 'tapeStatus', 'welcomeFile', 'welcomeRunning', 'drives.preferredDos', 'storedRoms',
     // uniqueName lists the library to find a free name (it writes nothing); recordingName names .CAS bytes (pure)
     'uniqueName', 'recordingName',
@@ -592,6 +592,8 @@ const REQUIRED = require.main !== module;
     'programControls',
     // claudeLink builds the "Ask Claude ↗" link from shareFile and shareUrl (both reads of the shown machine)
     'claudeLink',
+    // programPageUrl makes a program page's address from the page's own (pure)
+    'programPageUrl',
     // menuTicketFor returns the ticket a menu starts with (the Session's menuTicket or the one passed); changes nothing
     'menuTicketFor',
     // bareDiskController and diskRomWaiting read the disk controller of the PERSON's machine (diskMachine); no change

@@ -1733,9 +1733,9 @@ MAME artefacts reproduced only under `config.mameCompat` (the comparisons turn i
   accesses at the instruction's start, the HS start is truncated one clock early, and a write before that start
   freezes the rest of the line (`js/machines/mc10.js`).
 
-## Share links (`#z=`) and the program pages
+## Long links (`#z=`) and the program pages
 
-No MAME oracle: a link is a container, not hardware. `tests/snapshot-link.test.js` decodes a link built byte by byte
+No MAME oracle: a link is a container, not hardware. `tests/long-link.test.js` decodes a link built byte by byte
 here (a deflate stored block, RFC 1951 3.2.4, around a hand-written skeleton and arrays) and checks the encoder's
 unpacked container against bytes written out by hand; it opens a `#z=` link made on every model in a fresh Session and
 runs it on identically to the original (instructions, cycles, memory, frames after the first), opens the `#s=` form

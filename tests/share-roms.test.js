@@ -61,7 +61,7 @@ function linkContents(link) {
   return { text, arrays };
 }
 const snapText = (m) => Emu.state.toJSON(m.snapshot());
-// the snapshot but its picture, which a link leaves out (the machine draws it again: tests/snapshot-link.test.js)
+// the snapshot but its picture, which a link leaves out (the machine draws it again: tests/long-link.test.js)
 const momentText = (m) => { const s = m.snapshot(); s.state = Object.assign({}, s.state, { frame: null }); return Emu.state.toJSON(s); };
 const run = (m, frames) => { for (let i = 0; i < frames; i++) m.runFrame(); return snapText(m); };
 // a Session with these ROMs stored for the machine, on that machine
@@ -87,7 +87,7 @@ function withRoms(id, roms, config) {
     place(m, roms);
     m.ram.set(roms[profile.roms[0].id].subarray(0x400, 0xC00), 0x3000);   // and a program that copied part of it
     const full = (await s.snapshotFile()).bytes.length;
-    const link = await s.snapshotLink('https://cloadm.dev/play/');
+    const link = await s.longLink('https://cloadm.dev/play/');
     sizes.push(`${id}: snapshot file ${full} bytes, share link ${link.length} characters`);
     const set = windows(Object.values(roms));
     const { text, arrays } = linkContents(link);
@@ -95,7 +95,7 @@ function withRoms(id, roms, config) {
     check(`${id}: the link holds no 16-byte window of any ROM, in any byte array or the JSON text`, inArrays.length === 0 && firstWindow(text, set) < 0,
       `${arrays.length} byte arrays, ${text.length} bytes of JSON`);
     check(`${id}: before sharing, memory did hold the ROM code (the test sees what it looks for)`, firstWindow(m.memoryArray(), set) >= 0);
-    const snap = await s.readSnapshotLink(new URL(link).hash);
+    const snap = await s.readLongLink(new URL(link).hash);
     check(`${id}: the link names the ROMs by CRC and refers to their code in memory`, snap.share.images.length === profile.roms.length
       && snap.share.images.every((x) => x.kind === 'rom' && x.crc === Emu.crc32(roms[profile.roms.find((r) => r.label === x.label).id]))
       && snap.share.refs.some((r) => r.path === 'memory' && r.len >= 0x800), JSON.stringify(snap.share.refs.map((r) => [r.path, r.at, r.len])));
@@ -131,11 +131,11 @@ function withRoms(id, roms, config) {
     s.load('game.ccc', pak);
     for (let i = 0; i < 10; i++) s.shownMachine.runFrame();
     s.shownMachine.ram.set(pak.subarray(0x100, 0x500), 0x2000);   // a copy of part of it in RAM
-    const link = await s.snapshotLink('https://cloadm.dev/play/');
+    const link = await s.longLink('https://cloadm.dev/play/');
     const { text, arrays } = linkContents(link);
     const set = windows([pak]);
     check('cartridge: the link holds no 16-byte window of its image', arrays.every((a) => firstWindow(a, set) < 0) && firstWindow(text, set) < 0);
-    const snap = await s.readSnapshotLink(new URL(link).hash);
+    const snap = await s.readLongLink(new URL(link).hash);
     {
       // the Share screen's ROM line is built from the needs' labels (a fixed "BASIC ROMs" would be wrong for a cartridge)
       const { needsLine } = await import('../js/media/romrefs.js');
@@ -179,13 +179,13 @@ function withRoms(id, roms, config) {
     check('printout: the moment holds ROM bytes in the printout, the DriveWire print buffer, a channel queue and a recording', before.includes('"printed"')
       && new Set(queued).size > 32 && s.drivewire.channels[0].queue.length === 0x100
       && m.printed.length >= 0x400 && s.drivewire.printBuffer.length >= 0x200 && !!m.deck.recording);
-    const link = await s.snapshotLink('https://cloadm.dev/play/');
+    const link = await s.longLink('https://cloadm.dev/play/');
     const { text, arrays } = linkContents(link);
     const set = windows(Object.values(roms));
     const left = arrays.map((a) => firstWindow(a, set)).filter((i) => i >= 0);
     check('printout: no 16-byte window of either ROM in the link, in any byte array or plain byte list or the JSON text', !left.length && firstWindow(text, set) < 0,
       `${arrays.length} arrays scanned`);
-    const snap = await s.readSnapshotLink(new URL(link).hash);
+    const snap = await s.readLongLink(new URL(link).hash);
     check('printout: the printout, the print buffer and the channel queue travel as references', snap.share.refs.some((r) => r.path === 'printed' && r.len === 0x400)
       && snap.share.refs.some((r) => r.path === 'becker.printBuffer' && r.len === 0x200)
       && snap.share.refs.some((r) => r.path === 'becker.channels.0.queue' && r.len === 0x100), JSON.stringify(snap.share.refs.map((r) => [r.path, r.len])));
@@ -203,7 +203,7 @@ function withRoms(id, roms, config) {
   {
     const s = new Emu.Session({ store: Emu.memoryStore() });
     s.switchMachine('dragon64');
-    const snap = await s.readSnapshotLink(new URL(await s.snapshotLink('https://cloadm.dev/play/')).hash);
+    const snap = await s.readLongLink(new URL(await s.longLink('https://cloadm.dev/play/')).hash);
     check('stub: a moment without ROMs names nothing and needs nothing', snap.share.images.length === 0 && snap.share.refs.length === 0);
   }
   console.log(sizes.join('\n'));

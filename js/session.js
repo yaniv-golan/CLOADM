@@ -69,7 +69,8 @@ export const CLAUDE_PAUSED_SHORT = 'Paused: you pressed a key · Esc stops Claud
 // a message's text: a string, or the text blocks of a content array
 import { RomLibrary, identifyRoms, isBootable, isRomPack, looksLikeRom, makeRomPack, restoreRomPack, socketStatus } from './roms.js';
 import { writeZip } from './media/zip.js';
-import { SNAPSHOT_EXT, SnapshotError, decodeSnapshot, decodeSnapshotLink, encodeSnapshot, encodeSnapshotLink } from './media/snapshot.js';
+import { programPage } from './program-pages.js';
+import { SNAPSHOT_EXT, SnapshotError, decodeSnapshot, decodeLongLink, encodeSnapshot, encodeLongLink } from './media/snapshot.js';
 import { missingImages, restoreRoms, stripRoms } from './media/romrefs.js';
 import { crc32, hex, registry, toBase64Url, fromBase64Url } from './util.js';
 import { buildUrl, NITROS9_MACHINES } from './config.js';
@@ -1686,8 +1687,16 @@ export class Session {
     // NitrOS-9 running: the link boots it from the recipient's own image (never ours, never its name)
     return buildUrl(base, { machine: m.id, config, nitros9: this.nitros9On(m), ...extra });
   }
+  // A program's page (js/program-pages.js: cloadm.dev/<id>/, with its own link preview and a Play button for its start
+  // link) -> its address, from `base` (the page's own address: the site's root, or /play/ under it); null when the
+  // program has no page
+  programPageUrl(id, base) {
+    if (!programPage(id)) return null;
+    const here = new URL('./', base);
+    return new URL(`${/\/play\/$/.test(here.pathname) ? '../' : ''}${id}/`, here).href;
+  }
   // The link a page shown inside another site offers in place of the chat ("Ask Claude ↗", js/ui/ask-popout.js): this
-  // moment, as the Share screen's link carries it (snapshotLink), with app=claude, so it opens top-level in a new tab
+  // moment, as the Share screen's link carries it (longLink), with app=claude, so it opens top-level in a new tab
   // with the chat. Never embed=1 (buildUrl writes only what it is given). A moment that cannot be carried (NitrOS-9
   // runs: its memory is the person's own NitrOS-9; or a snapshot that can't be shared) gives a fresh CLOADM on the same
   // machine with app=claude instead. -> { href, carried }
@@ -1697,7 +1706,7 @@ export class Session {
       try { file = await this.shareFile(); } catch (e) { if (!(e instanceof SessionError)) throw e; }
     }
     if (!file) return { href: this.shareUrl(base, { app: 'claude', nitros9: null }), carried: false };
-    return { href: `${this.shareUrl(base, { app: 'claude' }).split('#')[0]}#z=${toBase64Url(await encodeSnapshotLink(file.moment.snap, file.moment.meta))}`, carried: true };
+    return { href: `${this.shareUrl(base, { app: 'claude' }).split('#')[0]}#z=${toBase64Url(await encodeLongLink(file.moment.snap, file.moment.meta))}`, carried: true };
   }
 
   // ---------------- snapshots ----------------
@@ -1705,13 +1714,13 @@ export class Session {
   // Opening one: readSnapshot (the file), snapshotSwitch (does the machine in use have to change? ask first),
   // openSnapshot (switches if needed, sets the same ROMs from this browser's or the stub, restores).
 
-  // the moment as a link (Share): this machine's link with the snapshot in the fragment (#z=, base64url of the compact
-  // link form, js/media/snapshot.js encodeSnapshotLink, so it never reaches a server). Opening it: readSnapshotLink,
+  // the long link (Share): this machine's link with the moment in the fragment (#z=, base64url of
+  // js/media/snapshot.js encodeLongLink, so it never reaches a server). Opening it: readLongLink,
   // then the usual snapshot flow. The snapshot is the shared one (shareFile): no byte of a ROM or cartridge image, only
   // references to them. file: a shareFile already made for this moment (the Share screen offers both), or made here
-  async snapshotLink(base, file = null) {
+  async longLink(base, file = null) {
     const f = file || await this.shareFile();
-    return `${this.shareUrl(base).split('#')[0]}#z=${toBase64Url(await encodeSnapshotLink(f.moment.snap, f.moment.meta))}`;
+    return `${this.shareUrl(base).split('#')[0]}#z=${toBase64Url(await encodeLongLink(f.moment.snap, f.moment.meta))}`;
   }
   // The moment as a file to give to someone (the Share screen's link and snapshot file): the snapshot with its ROM
   // code taken out (js/media/romrefs.js). The machine's ROMs, a cartridge's image and a disk controller's DOS ROM
@@ -1728,7 +1737,7 @@ export class Session {
     catch (e) { throw new SessionError(`This snapshot can't be shared: ${e.message}. Share the picture or a clip instead.`); }
     const meta = { name: m.profile.name, taken: now.toISOString() };
     const bytes = await encodeSnapshot(snap, meta);
-    // moment: what the file holds, for snapshotLink to write the same moment in the link's form
+    // moment: what the file holds, for longLink to write the same moment in the link's form
     return { name: `${m.profile.name.replace(/[^A-Za-z0-9]+/g, '')}-${stamp(now)}${SNAPSHOT_EXT}`, bytes, needs: snap.share.images, dropped: snap.share.dropped, moment: { snap, meta } };
   }
   // Can ROM code be in the machine's memory? 'roms' (the user's own ROMs are loaded), 'cartridge' (a cartridge is
@@ -1747,16 +1756,16 @@ export class Session {
     return null;
   }
   // a URL's fragment -> the snapshot, null when it has none; SessionError when it is damaged. '#z=' is the link form
-  // snapshotLink writes (js/media/snapshot.js decodeSnapshotLink; its picture is drawn again on the next frame);
+  // longLink writes (js/media/snapshot.js decodeLongLink; its picture is drawn again on the next frame);
   // '#s=' (base64url of a .cloadm file) is what earlier versions wrote, and is read for good.
-  async readSnapshotLink(hash) {
+  async readLongLink(hash) {
     const m = /^#?([sz])=(.*)$/.exec(hash || '');
     if (!m) return null;
     const damaged = new SessionError('This link\'s snapshot is damaged: it was cut short or changed on the way.');
     let bytes;
     try { bytes = fromBase64Url(m[2]); } catch (e) { throw damaged; }
     if (m[1] === 'z') {
-      try { return await decodeSnapshotLink(bytes); }
+      try { return await decodeLongLink(bytes); }
       catch (e) { throw e instanceof SnapshotError && /newer CLOADM/.test(e.message) ? new SessionError(e.message) : damaged; }
     }
     try { return await this.readSnapshot(bytes); } catch (e) { throw e instanceof SessionError && /newer CLOADM/.test(e.message) ? e : damaged; }

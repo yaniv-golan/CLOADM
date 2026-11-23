@@ -720,7 +720,7 @@ STB     FCB     $FE,$FD,$FB,$F7,$EF,$DF,$BF,$7F
     const decode = async (file) => require('zlib').gunzipSync(Buffer.from(file.bytes)).toString('latin1');
     const snapFile = await s.snapshotFile();
     const shared = await s.shareFile();
-    const link = await s.snapshotLink('https://example.invalid/play/');
+    const link = await s.longLink('https://example.invalid/play/');
     const exp = JSON.stringify(s.exportSettings());
     const stored = JSON.stringify([...store.keys()].map((k) => [k, store.get(k)]));
     check('the key is set in the key store (the test would be vacuous otherwise)', s.hasClaudeKey && s.keyStore.get() === KEY);
@@ -728,7 +728,7 @@ STB     FCB     $FE,$FD,$FB,$F7,$EF,$DF,$BF,$7F
     check('Session.shareFile(): the whole file text has no trace of the key', !bad(await decode(shared)));
     // (the link's moment is compressed: its unpacked container is searched too)
     const linkBox = require('zlib').inflateRawSync(Buffer.from(Emu.fromBase64Url(new URL(link).hash.slice(3)).subarray(1))).toString('latin1');
-    check('Session.snapshotLink(): the link has no trace of the key (plain, as base64url, or in its unpacked moment)', /^#z=/.test(new URL(link).hash)
+    check('Session.longLink(): the link has no trace of the key (plain, as base64url, or in its unpacked moment)', /^#z=/.test(new URL(link).hash)
       && !bad(link) && !link.includes(Buffer.from(KEY).toString('base64url')) && !bad(linkBox));
     check('Session.exportSettings(): no trace of the key', !bad(exp), exp.slice(0, 120));
     check('the stored settings hold no trace of the key', !bad(stored));
