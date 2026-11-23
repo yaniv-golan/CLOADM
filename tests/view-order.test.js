@@ -49,11 +49,11 @@ globalThis.addEventListener = (t, f) => { (listeners[t] = listeners[t] || []).pu
   // is what closes the full-screen chat on the browser's Back, Esc and "← Emulator", none of which changes a hash.
   // The failing shape: the page loaded on ?app=claude (the chat full screen, NO view), then Back - the hash is ''
   // before and after, so a beforeView handler placed inside the "the view changed" branch never runs, and the chat
-  // stays open over the emulator with Esc and Back dead (adversarial review of 4018753, finding 1).
+  // stays open over the emulator with Esc and Back dead.
   // A route where the hash does NOT change must still run the beforeView handlers. The chat's close is one, and it
   // is what closes the full-screen chat on the browser's Back, on Esc off the screen, and on "← Emulator": none of
   // them changes a view hash (the chat is not a view), so a handler placed inside the "the view changed" branch
-  // never runs and the chat stays open with Esc and Back dead (adversarial review of 4018753, finding 1).
+  // never runs and the chat stays open with Esc and Back dead.
   // Driving the page's own listeners is the honest reproduction: the browser fires them whether or not a hash moved.
   let chatOpen = true;
   const order3 = [];

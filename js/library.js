@@ -26,7 +26,7 @@ export const DISK_PREFIX = 'disks/';
 export const isDiskFileName = (base) => diskFileNameProblem(base) === null;
 // Why `base` is not a disk image's file name -> the reason, or null when it is one. A rename's destination gets the
 // reason (what is wrong with the name), the other doors the short "A disk image needs a name."
-const diskFileNameProblem = (base) => {
+export const diskFileNameProblem = (base) => {
   if (typeof base !== 'string' || base.length === 0) return 'it is empty';
   if (/^\s+$/.test(base)) return 'it is empty or only spaces';
   if (/[\\/]/.test(base)) return 'it has a folder separator; a disk image is one file';
@@ -67,14 +67,15 @@ export class MediaLibrary {
     this.diskClaims = new Map();    // stored name -> how many creations are making it (claimDiskName: a rename may not take one)
   }
   // Keep media in another store from now on, starting with an empty library there (the page does this with an
-  // in-memory store when browser storage can't be opened or read). The media index's write-error listener stays.
+  // in-memory store when browser storage can't be opened or read). The media index's write-error and other-tab listeners stay.
   useMediaStore(media) {
-    const writeError = this.session.index.writeError;
+    const { writeError, foreign } = this.session.index;
     this.session.media = media;
     this._caseInsensitive = startingCase(media);
     this.mediaSince = Date.now();   // when this visit started using the store: reconnecting copies what it wrote since
-    this.session.index = new MediaIndex(media);
+    this.session.index = new MediaIndex(media, this.session.indexShare(media));
     this.session.index.writeError = writeError;
+    this.session.index.foreign = foreign;
     this.session.roms.index = this.session.index;
   }
   // Keep the library somewhere else from now on: the Library's "Where your library is kept". Every file CLOADM
@@ -165,7 +166,9 @@ export class MediaLibrary {
     try {
       const p = (async () => run())();
       p.then(() => {}, () => {});   // its failure is the caller's (below), not a rejection nothing listens to
-      return await p;
+      const r = await p;
+      this.session.mediaPost('library');   // the other pages on this store list their Library again
+      return r;
     } finally { this.movingOps.delete(settled); settle(); }
   }
   async copyMedia(store, reconnecting) {
@@ -241,7 +244,11 @@ export class MediaLibrary {
     //  - a RE-NAMED copy of the same bytes keeps its own entry too: a hash-only key would swallow it.
     // A stored CRC may be in either case (an older build wrote it lower case); the index normalises the
     // entries it reads, and compared here case-insensitively they are the same blob.
-    const list = this.session.index.recentMedia().filter((r) => !(this.sameName(r.name, name) && String(r.crc).toUpperCase() === crc));
+    const before = this.session.index.recentMedia();   // what the list was: setRecent stores only what this load changed
+    const same = (r) => this.sameName(r.name, name) && String(r.crc).toUpperCase() === crc;
+    const list = before.filter((r) => !same(r)), replaced = before.filter(same);
+    // (the oldest pushed off the end: on the stored list, the merge's own end decides, since another tab may have
+    // moved one of them up)
     const dropped = list.splice(RECENT_LENGTH - 1);
     list.unshift({ name, crc, size: bytes.length, machine: this.session.shownMachine.id, stored: bytes.length <= 1 << 20 });
     const entry = list[0];
@@ -253,11 +260,13 @@ export class MediaLibrary {
       // entry with the same CRC. So an evicted entry's file may still be the only copy for a survivor, and dropping
       // it would leave that row stored:true with nothing behind it (measured: the row then fails to load, even
       // after a reload). Only a CRC no surviving entry references is deleted.
+      // (dropped after the list is stored: the index keeps a file the stored list still names, and another page's
+      // list may name it too)
       const kept = new Set(list.map((r) => String(r.crc).toUpperCase()));
-      for (const old of dropped) if (!kept.has(String(old.crc).toUpperCase())) this.session.index.dropRecent(old.crc);
       try { if (entry.stored) this.session.index.putRecent(crc, bytes); }
       catch (e) { if (!(e && e.code === 'quota')) throw e; entry.stored = false; this.session.index.recentBytes.delete(crc); }
-      this.session.index.setRecent(list);
+      this.session.index.setRecent(list, { previous: before, removed: replaced });
+      for (const old of dropped) if (!kept.has(String(old.crc).toUpperCase())) this.session.index.dropRecent(old.crc);
     };
     if (this.movingMedia) {
       this.session.index.recentBytes.set(crc, bytes); this.session.index.recent = list;   // this visit's list at once
@@ -370,6 +379,28 @@ export class MediaLibrary {
     return p.finally(() => this.releaseDiskName(full));
   }
   claimedDiskName(full) { for (const n of this.diskClaims.keys()) if (this.sameName(n, full)) return true; return false; }
+  // Store the disk image `full` as one creation, the way every door that makes a disks/ name does (importMedia,
+  // addAndBootNitros9's floppy save, drives.keepSnapshot): its name claimed before the first await (a rename onto it
+  // is refused), its turn among the creations (in the order asked), refused at its turn if a creation it was waiting
+  // behind landed the name (a second creation of one name, not a replace), run as a Library operation (a move waits
+  // for it, and it cannot begin mid-copy), and landed once stored. `store()` does the write (through the disk queue,
+  // with any check of its own) -> its value. Without this, a save took no turn and landed nothing: a rename onto
+  // its name went through and replaced the saved image, and an import or a save asked behind a rename wrote over the
+  // renamed one.
+  createDisk(full, store) {
+    this.claimDiskName(full);
+    const write = (askedAt) => this.libraryOp(async () => {
+      const raced = this.landedRace(full, askedAt);
+      if (raced) throw new SessionError(`There is already a disk named ${raced.slice(DISK_PREFIX.length)} in your library: choose another name.`);
+      const r = await store();
+      // stored: landed however the rest ends, and only at the end (as drives.importStored). The store has a name
+      // now: on an empty store that is the first chance to put its case rule to the test (a read of the store it was
+      // written to, so inside the same Library operation)
+      try { await this.refreshCase(); } finally { this.creationLanded(full); }
+      return r;
+    });
+    return this.createExclusive(write).finally(() => this.releaseDiskName(full));
+  }
   createExclusive(op) {
     const askedAt = this.landing;
     this.creationsAsked.push(askedAt);
@@ -441,6 +472,13 @@ export class MediaLibrary {
     const src = this.libName(from), prefix = src.startsWith(DISK_PREFIX) ? DISK_PREFIX : LIBRARY_PREFIX;
     this.checkNotMoving();
     this.session.drives.checkNotInDrive(src, 'rename');
+    // The new name as the person gave it, without a folder they typed: nothing there (blank, or only "disks/") and a
+    // ".." segment are refused naming the item they meant to rename, rather than echoing back a bare folder or a path
+    // ("disks/: a disk image stays where it is", "disks/..: not a media library name")
+    const was = src.slice(prefix.length), typed = typeof to === 'string' ? to : '';
+    const given = typed.startsWith(DISK_PREFIX) ? typed.slice(DISK_PREFIX.length) : typed.startsWith(LIBRARY_PREFIX) ? typed.slice(LIBRARY_PREFIX.length) : typed;
+    if (!given.trim()) throw new SessionError(`${was} was not renamed: the new name is blank (empty or only spaces).`);
+    if (/(^|[\\/])\.\.([\\/]|$)/.test(given)) throw new SessionError(`${was} was not renamed: ".." is not a name a file can have.`);
     const dst = this.libName(to.startsWith(DISK_PREFIX) || to.startsWith(LIBRARY_PREFIX) ? to : prefix + to);
     if (!dst.startsWith(prefix)) throw new SessionError(`${to}: a ${prefix === DISK_PREFIX ? 'disk image' : 'library item'} stays where it is`);
     // The destination is a name this operation MAKES, so a disk image's must be a file's own name, as every other
@@ -462,7 +500,7 @@ export class MediaLibrary {
     // A case-only rename on a store that does not tell cases apart cannot be done: it is one file, and the
     // store's write-then-remove would replace it and then delete it. (The name is the name it already has.)
     if (this.caseInsensitive && dst !== src && dst.toLowerCase() === src.toLowerCase()) {
-      throw new SessionError(`${to}: this ${this.session.media.kind === 'fsa' ? 'folder' : 'storage'} does not tell upper from lower case, so ${src.slice(prefix.length)} and ${to} are the same name.`);
+      throw new SessionError(`${to}: this ${this.session.media.kind === 'fsa' ? 'folder' : 'storage'} does not tell upper from lower case, so ${was} and ${dst.slice(prefix.length)} are the same name.`);
     }
     const op = () => this.session.media.rename(src, dst);
     const run = async () => {
@@ -519,26 +557,23 @@ export class MediaLibrary {
     // this runs when the creation's turn comes, which may be long after the caller was let in: a library move may
     // have started meanwhile, and writing now would put the image in the folder it is moving away from. It runs as a
     // Library operation, whose own check refuses it then (and which the move waits for once it has started).
-    if (disk) this.claimDiskName(target);   // before the creation's first await: a rename may not take the name it is making
-    const write = (askedAt) => this.libraryOp(async () => {
-      // a creation of this name landed after this one was asked for: a second creation of one name, refused rather
-      // than replacing it
-      const raced = this.landedRace(target, askedAt);
-      if (raced) throw new SessionError(`There is already a disk named ${raced.slice(DISK_PREFIX.length)} in your library: choose another name.`);
-      this.session.drives.checkNotInDrive(target, 'replace');   // again, now no creation of the name is in flight
-      const r = await (disk ? this.session.drives.storeChange(() => this.session.media.write(target, bytes), target) : this.session.media.write(target, bytes));
-      // stored: landed however the rest ends, and only at the end (as drives.importStored)
-      // the store has a name now: on an empty store that is the first chance to put its case rule to the test (a
-      // read of the store it was written to, so inside the same Library operation)
-      try { await this.refreshCase(); } finally { if (disk) this.creationLanded(target); }
-      return { stored: r };
-    });
     // What a failure is reported under. A disk image is stored under its own file name, so that is what the drives and
     // the Library show; any other file is stored under the path the person dropped (library/dir/prog.bin), so its
     // name is the stored one without the library prefix -- what the Library lists, not just the leaf.
     const shown = disk ? base : target.slice(LIBRARY_PREFIX.length);
-    try { return disk ? await this.createExclusive(write) : await write(0); } catch (e) { throw this.mediaError(e, shown, target); }
-    finally { if (disk) this.releaseDiskName(target); }
+    try {
+      if (disk) {
+        return { stored: await this.createDisk(target, () => {
+          this.session.drives.checkNotInDrive(target, 'replace');   // again, now no creation of the name is in flight
+          return this.session.drives.storeChange(() => this.session.media.write(target, bytes), target);
+        }) };
+      }
+      return await this.libraryOp(async () => {
+        const r = await this.session.media.write(target, bytes);
+        await this.refreshCase();
+        return { stored: r };
+      });
+    } catch (e) { throw this.mediaError(e, shown, target); }
   }
   // A store failure as the user should read it, named once. `name` is what the person sees (their file's own name);
   // `stored` is the store's name for the file this operation works on, when the caller knows it -- and the caller

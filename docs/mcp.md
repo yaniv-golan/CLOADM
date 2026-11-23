@@ -37,7 +37,7 @@ computer, `node cli/cloadm.js --mcp`); each Claude app uses the one it can.
 
 ### Without the plugin
 
-Add `https://mcp.cloadm.dev/mcp` as a custom connector (no sign-in). You get the side panel but not the skill that teaches Claude to play it well. Already added https://mcp.cloadm.dev/mcp as a custom connector? The plugin's cloadm-panel uses that same connector, so you won't have two; you can keep it. To add the skill on its own, download `cloadm-skill.zip` from the [Releases](https://github.com/yaniv-golan/CLOADM/releases) page and add it in claude.ai under Settings → Capabilities → Skills (steps not yet verified by the owner).
+Add `https://mcp.cloadm.dev/mcp` as a custom connector (no sign-in). You get the side panel but not the skill that teaches Claude to play it well. Already added https://mcp.cloadm.dev/mcp as a custom connector? The plugin's cloadm-panel uses that same connector, so you won't have two; you can keep it. To add the skill on its own, download `cloadm-skill.zip` from the [Releases](https://github.com/yaniv-golan/CLOADM/releases) page and add it in claude.ai under Settings → Capabilities → Skills (steps not yet verified by the maintainers).
 
 ## Which way should I install CLOADM for Claude?
 
@@ -47,8 +47,8 @@ own marketplace.
 
 | Way | Install | Where the emulator runs | Tested |
 |---|---|---|---|
-| **1. The CLOADM plugin** (most people) | Customize → Plugins → Add marketplace → `yaniv-golan/CLOADM` → Add **CLOADM**; on the web and in desktop chat, then **Connect** next to *cloadm-panel* on the plugin's Connectors tab; in Claude Code `/plugin marketplace add yaniv-golan/CLOADM`, then `/plugin install cloadm@cloadm-marketplace` | web and desktop chat: in Claude's side panel (*cloadm-panel*); Cowork and Claude Code: on your computer (*cloadm*) | by the owner: web and desktop chat show *cloadm-panel* with a Connect button and use the side panel; Cowork uses the local server |
-| 2. The connector alone (no skill) | Plugins → Add → "Add custom connector" → name `CLOADM` and URL `https://mcp.cloadm.dev/mcp` → **No sign-in** → Add | in Claude's side panel, in your browser | claude.ai on the web and the desktop app, by the owner |
+| **1. The CLOADM plugin** (most people) | Customize → Plugins → Add marketplace → `yaniv-golan/CLOADM` → Add **CLOADM**; on the web and in desktop chat, then **Connect** next to *cloadm-panel* on the plugin's Connectors tab; in Claude Code `/plugin marketplace add yaniv-golan/CLOADM`, then `/plugin install cloadm@cloadm-marketplace` | web and desktop chat: in Claude's side panel (*cloadm-panel*); Cowork and Claude Code: on your computer (*cloadm*) | by the maintainers: web and desktop chat show *cloadm-panel* with a Connect button and use the side panel; Cowork uses the local server |
+| 2. The connector alone (no skill) | Plugins → Add → "Add custom connector" → name `CLOADM` and URL `https://mcp.cloadm.dev/mcp` → **No sign-in** → Add | in Claude's side panel, in your browser | claude.ai on the web and the desktop app, by the maintainers |
 | 3. `.mcpb` extension (niche) | download `cloadm.mcpb` from the [Releases](https://github.com/yaniv-golan/CLOADM/releases) page and open it | on your computer, Claude Desktop only | |
 | 4. Other agents (Cursor, Codex, Gemini CLI, …) | an MCP entry for `node cli/cloadm.js --mcp`, plus `.agents/skills/` | on your computer | see [below](#cursor-gemini-cli-codex-and-other-mcp-clients) |
 
@@ -157,7 +157,7 @@ The app reads plugins from your Claude account, not from Claude Code: a plugin i
 3. For chat: open the plugin's Connectors tab and click **Connect** next to *cloadm-panel*, then **Continue**. The
    emulator then opens in Claude's side panel.
 
-(Steps checked by the owner in the desktop app.) Cowork uses the plugin's local server, *cloadm* (the app starts
+(Steps checked by the maintainers in the desktop app.) Cowork uses the plugin's local server, *cloadm* (the app starts
 `node` on your computer), so it runs while the app is open on that computer, which needs Node 22.12 or later on its
 `PATH`.
 
@@ -349,7 +349,9 @@ switch and cards are replaced by your MCP client's approval of each call.
 
 **Time.** `run_frames` and anything that types run in emulated time and stop after a frame limit or about 25 seconds
 of real time, whichever comes first; `run_frames` then answers `"status": "not-yet"` with the screen, and the agent
-calls again. A call never blocks for longer. Cancelling a call (`notifications/cancelled`) stops the machine where it
+calls again. Typing that reaches the 25 seconds (a long `type_text` on a host too slow to finish it) is stopped there and
+fails `time-limit`, whose detail says how many of the keys went in ("40 of 150 keys typed before the time limit"): nothing
+more goes in afterwards, and the rest is sent in shorter calls. A call never blocks for longer. Cancelling a call (`notifications/cancelled`) stops the machine where it
 is, and the call gets no reply, as the protocol asks. A `run_frames` call given a `progressToken` sends
 `notifications/progress` as frames pass. The same calls give the same results: nothing in the emulation reads the
 clock.
@@ -359,6 +361,22 @@ clock.
 row), and `"ignore_case": true` matches whatever the case. There are no pattern waits: a regular expression tested on
 every frame can backtrack for seconds on one screen, and limiting the patterns did not close that. A later version may
 offer them again, run in a worker with a timeout.
+
+**A stop the page's Debugger made.** While the Debugger has the machine stopped, nothing runs and no key is read, so
+the tools that must run it or press its keys refuse rather than queue behind the stop or seem to work: `type_text`,
+`press_break`, `run` (a jump too), `press_keys` and `run_frames` fail with `machine-stopped`, whose detail says where
+it stopped (`stopped in the Debugger at $C0F3 (breakpoint)`) and whose remedy says how it goes on: the person presses
+Resume, or Run in the Debugger. The person's own typing is refused the same way then. A stop made while one of those
+calls runs ends it the same way: `run_frames` and `press_keys` fail `machine-stopped` (the keys are let go, and
+`run_frames` with `until.pc` resumes only a stop its own breakpoint made, never the person's), and `type_text`,
+`press_break` and `run "RUN"` drop the keys not typed yet and fail `machine-stopped`, whose detail says how many went
+in (`12 of 45 keys typed, the rest dropped`); nothing more goes in after Resume. Reading works as usual and leaves the
+machine stopped: `machine_info`, `screen_text`, `peek`, `disassemble`, `find_bytes`, `registers` and
+`screenshot`; so do the tools that only write memory (`poke`, `assemble_and_load`, `load_basic`), and `step`, which
+steps as the Debugger's Step does and leaves the machine stopped where it ended (with the reason its steps gave, a
+watchpoint hit say, or as a pause). What a tool starts runs: `load`,
+`insert_disk`, `reset`, `power_cycle`, `boot` and a machine switch release the stop (the breakpoints stay set), as the
+page's own Run again, Reset and drops do. A file that is refused starts nothing, and the stop stays.
 
 ### Results and errors
 
@@ -388,6 +406,7 @@ which only the server has. The others use these:
 | `rejected` | the machine refused (a disk on a machine with no drives, a format it does not know, …); nothing changed |
 | `read-only` | the server runs with `--read-only` |
 | `cancelled` | the call was cancelled (on `--serve`; MCP sends no reply) |
+| `time-limit` | the call ran for its whole time limit (about 25 s of real time) and was stopped there: detail says how much went in (`type_text`: "N of M keys typed") |
 | `not-a-rom` | `add_roms`: nothing given is a ROM CLOADM recognises; nothing stored |
 | `too-large` | `add_roms`: a file over 1 MiB or a ZIP over 4 MiB |
 | `refused-url` | `add_roms`: not https, credentials in the URL, an address that is not public (also after a redirect), or more than 3 redirects |

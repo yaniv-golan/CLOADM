@@ -1,12 +1,12 @@
 // Run: node tests/claude-turn-scope.test.js
 //
 // What a turn with Claude leaves behind ends with the turn, and nothing it leaves can wedge the chat:
-//  * M1 - Stop while assemble_and_load reads an INCLUDE that never arrives ends the read and the turn; the page's
+//  * Stop while assemble_and_load reads an INCLUDE that never arrives ends the read and the turn; the page's
 //    reader (js/host/example-reader.js) passes the turn's signal to fetch and has its own timeout, after which the
 //    tool fails with include-unreadable and the turn goes on; a reader that ignores the signal still lets Stop stop;
-//  * M2 - a pause made by the person's key belongs to its turn: when the turn ends (finished, failed, stopped) the
+//  * a pause made by the person's key belongs to its turn: when the turn ends (finished, failed, stopped) the
 //    pause ends, what it held back is never typed, and the next turn does not start paused; no pause outside a turn;
-//  * E - an empty reply (a turn of tool calls only, a refusal, whitespace) is not recorded, and Stop before any
+//  * an empty reply (a turn of tool calls only, a refusal, whitespace) is not recorded, and Stop before any
 //    text, a stream that fails or stalls mid-reply leave a history the API accepts. The mocked API here refuses
 //    what the Messages API refuses (an empty assistant message, a blank text block, a tool_use without its
 //    tool_result, a tool_result without its tool_use, a first message that is not the user's) with a 400, so a
@@ -124,7 +124,7 @@ function askSession({ include = null, stallMs } = {}) {
 }
 
 (async () => {
-  // ================= M1: an INCLUDE that never arrives =================
+  // ================= an INCLUDE that never arrives =================
   {
     // the reader on its own: the fetch gets a signal, Stop and the timeout each end a read that never answers
     const seen = [];
@@ -135,14 +135,14 @@ function askSession({ include = null, stallMs } = {}) {
     await sleep(20);
     ctl.abort();
     const r = await p;
-    check('M1 reader: Stop ends a read whose fetch never answers (error code aborted), and the fetch\'s own signal is aborted',
+    check('INCLUDE reader: Stop ends a read whose fetch never answers (error code aborted), and the fetch\'s own signal is aborted',
       r !== 'timeout' && r.e && r.e.code === 'aborted' && seen[0].signal && seen[0].signal.aborted && seen[0].url === 'examples/hang.asm', JSON.stringify(r));
     const t = Date.now();
     // (timeoutMs 200 against >= 195: a timer can fire a millisecond early by Date.now(); the point is the code)
     const r2 = await within(Emu.exampleReader(never, 'examples/', { timeoutMs: 200 })('slow.asm'), 3000);
-    check('M1 reader: with no Stop, a read that never answers ends at the timeout (error code timeout)', r2 !== 'timeout' && r2.e && r2.e.code === 'timeout' && Date.now() - t >= 195
+    check('INCLUDE reader: with no Stop, a read that never answers ends at the timeout (error code timeout)', r2 !== 'timeout' && r2.e && r2.e.code === 'timeout' && Date.now() - t >= 195
       && seen[1].signal.aborted, JSON.stringify(r2));
-    check('M1 reader: the default timeout is 15 s', Emu.INCLUDE_TIMEOUT_MS === 15000);
+    check('INCLUDE reader: the default timeout is 15 s', Emu.INCLUDE_TIMEOUT_MS === 15000);
     // a fetch that follows the spec and rejects (AbortError) the moment its signal aborts: still timeout / aborted
     const spec = (url, init) => new Promise((resolve, reject) => init.signal.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' }))));
     const rt = await within(Emu.exampleReader(spec, 'examples/', { timeoutMs: 40 })('t.asm'), 3000);
@@ -150,18 +150,18 @@ function askSession({ include = null, stallMs } = {}) {
     const ra = within(Emu.exampleReader(spec, 'examples/', { timeoutMs: 60000 })('s.asm', { signal: sc.signal }), 3000);
     sc.abort();
     const rs = await ra;
-    check('M1 reader: with a fetch that rejects at once on abort, the timeout is still timeout and Stop still aborted (not a missing file)',
+    check('INCLUDE reader: with a fetch that rejects at once on abort, the timeout is still timeout and Stop still aborted (not a missing file)',
       rt.e && rt.e.code === 'timeout' && rs.e && rs.e.code === 'aborted', JSON.stringify([rt, rs]));
     // a body that never finishes is a hang too
     const slowBody = () => Promise.resolve({ ok: true, text: () => new Promise(() => {}) });
     const r3 = await within(Emu.exampleReader(slowBody, 'examples/', { timeoutMs: 60 })('body.asm'), 3000);
-    check('M1 reader: a body that never finishes ends at the timeout too', r3 !== 'timeout' && r3.e && r3.e.code === 'timeout', JSON.stringify(r3));
+    check('INCLUDE reader: a body that never finishes ends at the timeout too', r3 !== 'timeout' && r3.e && r3.e.code === 'timeout', JSON.stringify(r3));
     // what still works as before: a file, a missing one, a refused name (no request), a failed connection
     const files = { 'a.asm': ' FCB 1\n' };
     const fake = (url) => { seen.push({ url }); const name = url.slice('examples/'.length); return Promise.resolve(files[name] != null ? new Response(files[name]) : new Response('', { status: 404 })); };
     const rd = Emu.exampleReader(fake);
     const before = seen.length;
-    check('M1 reader: a file reads, a missing file and a failed connection are null, an unsafe name is null without a request',
+    check('INCLUDE reader: a file reads, a missing file and a failed connection are null, an unsafe name is null without a request',
       await rd('a.asm') === ' FCB 1\n' && await rd('b.asm') === null && await rd('../x') === null && seen.length === before + 2
       && await Emu.exampleReader(() => Promise.reject(new TypeError('fetch failed')))('c.asm') === null);
   }
@@ -174,18 +174,18 @@ function askSession({ include = null, stallMs } = {}) {
     const ram = s.shownMachine.ram[0x3000];
     replies.push({ body: toolReply([{ name: 'assemble_and_load', input: { source: ' INCLUDE "hang.asm"\n FCB 9\n', org: 0x3000 } }]) }, { body: textReply('should not be asked') });
     const turn = chat.sendLine('assemble it');
-    check('M1 turn: the read is under way, with the status Using assemble_and_load…', await until(() => fetched.length === 1)
+    check('INCLUDE turn: the read is under way, with the status Using assemble_and_load…', await until(() => fetched.length === 1)
       && s.claudeStatus && s.claudeStatus.text === 'Using assemble_and_load…', JSON.stringify(s.claudeStatus));
     s.stopClaude();
     const r = await within(turn);
-    check('M1 turn: Stop ends the turn (stopped), the fetch is aborted, the tool fails stopped, nothing is written, no further request',
+    check('INCLUDE turn: Stop ends the turn (stopped), the fetch is aborted, the tool fails stopped, nothing is written, no further request',
       r !== 'timeout' && r.v === null && chat.error && chat.error.code === 'aborted' && !chat.busy && s.claudeStatus === null && fetched[0].aborted
       && tools.length === 1 && tools[0].isError && tools[0].value.code === Emu.TOOL_CODES.STOPPED && s.shownMachine.ram[0x3000] === ram && api.calls.length === 1,
       `${r === 'timeout' ? 'the turn hung' : ''} ${chat.error && chat.error.code} calls ${api.calls.length} ${tools.map((x) => x.value && x.value.code)}`);
     replies.length = 0;
     replies.push({ body: textReply('Here again.') });
     await within(chat.sendLine('hello?'));
-    check('M1 turn: the next line is answered', chat.messages.slice(-1)[0].content === 'Here again.' && !api.refused.length, api.refused.join('; '));
+    check('INCLUDE turn: the next line is answered', chat.messages.slice(-1)[0].content === 'Here again.' && !api.refused.length, api.refused.join('; '));
     s.endChat();
   }
   {
@@ -196,7 +196,7 @@ function askSession({ include = null, stallMs } = {}) {
     replies.push({ body: toolReply([{ name: 'assemble_and_load', input: { source: ' INCLUDE "hang.asm"\n', org: 0x3000 } }]) }, { body: textReply('The include file could not be read.') });
     const r = await within(chat.sendLine('assemble it'), 3000);
     const result = api.calls[1] && api.calls[1].body.messages.slice(-1)[0].content[0];
-    check('M1 timeout: the tool fails include-unreadable naming the file, the model is told so, and the turn ends with its reply',
+    check('INCLUDE timeout: the tool fails include-unreadable naming the file, the model is told so, and the turn ends with its reply',
       r !== 'timeout' && r.v && tools[0].isError && tools[0].value.code === Emu.TOOL_CODES.INCLUDE_UNREADABLE && /hang\.asm/.test(tools[0].value.tool.detail)
       && result && result.is_error && JSON.parse(result.content).error.code === 'include-unreadable'
       && chat.messages.slice(-1)[0].content === 'The include file could not be read.' && !chat.busy && s.claudeStatus === null, JSON.stringify(result));
@@ -210,7 +210,7 @@ function askSession({ include = null, stallMs } = {}) {
     s.consent.setAllowed(true);
     replies.push({ body: toolReply([{ name: 'assemble_and_load', input: { source: ' INCLUDE "a.asm"\n INCLUDE "b.asm"\n INCLUDE "c.asm"\n', org: 0x3000 } }]) }, { body: textReply('No.') });
     await within(chat.sendLine('assemble it'), 3000);
-    check('M1 timeout with three INCLUDEs: one read is waited for, the call fails include-unreadable naming it', asked.join() === 'examples/a.asm'
+    check('INCLUDE timeout with three INCLUDEs: one read is waited for, the call fails include-unreadable naming it', asked.join() === 'examples/a.asm'
       && tools[0].value.code === Emu.TOOL_CODES.INCLUDE_UNREADABLE && /a\.asm/.test(tools[0].value.tool.detail), asked.join());
     s.endChat();
   }
@@ -224,11 +224,11 @@ function askSession({ include = null, stallMs } = {}) {
     await until(() => asked === 1);
     s.stopClaude();
     const r = await within(turn);
-    check('M1 deaf reader: Stop ends the turn even though the read never ends', r !== 'timeout' && chat.error && chat.error.code === 'aborted' && !chat.busy);
+    check('INCLUDE deaf reader: Stop ends the turn even though the read never ends', r !== 'timeout' && chat.error && chat.error.code === 'aborted' && !chat.busy);
     s.endChat();
   }
 
-  // ================= M2: the pause belongs to its turn =================
+  // ================= the pause belongs to its turn =================
   const pausedTurn = async (s, chat, replies, reply) => {
     const m = s.shownMachine;
     s.consent.setAllowed(true);
@@ -248,7 +248,7 @@ function askSession({ include = null, stallMs } = {}) {
   for (const [how, reply, code] of [['finishes', { body: textReply('Done.') }, null], ['fails', { status: 500, json: { type: 'error', error: { type: 'api_error', message: 'boom' } } }, 'server-error']]) {
     const { s, chat, replies, api } = askSession();
     const { paused, during, r, job, m } = await pausedTurn(s, chat, replies, reply);
-    check(`M2 a turn that ${how} while paused: the pause ends with it, nothing it held is typed, the held typing ends stopped`,
+    check(`pause per turn: a turn that ${how} while paused: the pause ends with it, nothing it held is typed, the held typing ends stopped`,
       paused && during && during.phase === 'paused' && r !== 'timeout' && s.consent.paused === null && job.status === 'stopped'
       && m.typist.queue.length === 0 && (code ? chat.error && chat.error.code === code : !chat.error), `${JSON.stringify(during)} ${chat.error && chat.error.code}`);
     // the next turn does not start paused: its status is Thinking…, and an acting tool runs without waiting for a Resume
@@ -261,7 +261,7 @@ function askSession({ include = null, stallMs } = {}) {
     const status = s.claudeStatus;
     next.open();
     const r2 = await within(turn);
-    check(`M2 after a turn that ${how} while paused, the next turn is not paused: Thinking…, and its poke runs without a Resume`,
+    check(`pause per turn: after a turn that ${how} while paused, the next turn is not paused: Thinking…, and its poke runs without a Resume`,
       status && status.phase === 'thinking' && r2 !== 'timeout' && m.ram[0x3000] === ((ram + 1) & 0xFF) && chat.messages.slice(-1)[0].content === 'Poked.' && !api.refused.length,
       `${JSON.stringify(status)} ${r2 === 'timeout' ? 'the turn hung' : ''}`);
     s.endChat();
@@ -279,15 +279,15 @@ function askSession({ include = null, stallMs } = {}) {
     s.pauseClaude();
     s.stopClaude();
     const r = await within(turn);
-    check('M2 Stop while paused: the turn ends stopped and the pause with it', r !== 'timeout' && s.consent.paused === null && job.status === 'stopped' && chat.error.code === 'aborted');
+    check('pause per turn: Stop while paused: the turn ends stopped and the pause with it', r !== 'timeout' && s.consent.paused === null && job.status === 'stopped' && chat.error.code === 'aborted');
     // after the turn: Claude's typing still going in, a key does not pause (there is no turn to resume)
     s.typeTextPaced('10 PRINT 1\n', s.shownMachine);
     s.claudeActing = { name: 'type_text', input: { text: '10 PRINT 1\n' } };
-    check('M2 no turn in progress: pauseClaude does nothing, so no pause can carry into the next turn', !chat.busy && s.claudeBusyActing && s.pauseClaude() === false && s.consent.paused === null);
+    check('pause per turn: no turn in progress: pauseClaude does nothing, so no pause can carry into the next turn', !chat.busy && s.claudeBusyActing && s.pauseClaude() === false && s.consent.paused === null);
     s.endChat();
   }
 
-  // ================= E: the history stays one the API accepts =================
+  // ================= the history stays one the API accepts =================
   const valid = (api, i) => api.calls[i] && apiProblem(api.calls[i].body.messages) === null;
   const noBlank = (chat) => chat.messages.every((m) => typeof m.content !== 'string' || m.content.trim());
   {
@@ -320,7 +320,7 @@ function askSession({ include = null, stallMs } = {}) {
           && sent[5].role === 'assistant' && sent[5].content === '(Note from the page, not a reply: in this turn Claude called machine_info and wrote no text.)'
           && chat.messages.filter((m) => m.note).length === 1 && !('note' in sent[5]) && sent[6].content === 'third'
         : sent.length === 3 && sent[2].content === 'third' && !JSON.stringify(sent).includes('second');
-      check(`E ${what}: no blank assistant message is kept, every request is valid, the question is not glued to the next, and the next line is answered`,
+      check(`history: ${what}: no blank assistant message is kept, every request is valid, the question is not glued to the next, and the next line is answered`,
         r !== 'timeout' && r3 !== 'timeout' && noBlank(chat) && !api.refused.length && valid(api, at) && shape && !chat.error && chat.messages.slice(-1)[0].content === 'Third answer.',
         `${api.refused.join('; ')} ${chat.error && chat.error.message} ${JSON.stringify(sent)}`);
       s.endChat();
@@ -348,7 +348,7 @@ function askSession({ include = null, stallMs } = {}) {
       replies.push({ body: textReply('Next answer.') });
       const at = api.calls.length;
       await within(chat.sendLine('next'));
-      check(`E ${what}: the turn ends (${failed}), the history has no blank message, and the next request is valid and answered`,
+      check(`history: ${what}: the turn ends (${failed}), the history has no blank message, and the next request is valid and answered`,
         r !== 'timeout' && failed && noBlank(chat) && valid(api, at) && !api.refused.length && chat.messages.slice(-1)[0].content === 'Next answer.'
         // the person's lines: a turn in which a tool result came back keeps its line (marked ended) and the result
         // with the page's note; a turn in which none did is dropped
@@ -366,7 +366,7 @@ function askSession({ include = null, stallMs } = {}) {
     const api = strictApi(replies);
     const b = new Emu.ClaudeBackend({ fetch: api.fetch, apiKey: KEY });
     const out = await b.send({ system: 'S', messages: [{ role: 'user', content: 'a' }, { role: 'assistant', content: '' }, { role: 'user', content: 'b' }] });
-    check('E backend: a history holding an empty assistant message is sent as a valid conversation (no 400)', out.text === 'Fine.' && !api.refused.length && valid(api, 0)
+    check('history: backend: a history holding an empty assistant message is sent as a valid conversation (no 400)', out.text === 'Fine.' && !api.refused.length && valid(api, 0)
       && JSON.stringify(api.calls[0].body.messages) === JSON.stringify([{ role: 'user', content: 'a\n\nb' }]), JSON.stringify(api.calls[0].body.messages));
   }
   {
@@ -377,18 +377,18 @@ function askSession({ include = null, stallMs } = {}) {
     const res = (id) => ({ type: 'tool_result', tool_use_id: id, content: '1' });
     const good = [{ role: 'user', content: 'q' }, { role: 'assistant', content: [think, { type: 'text', text: 'looking' }, use('u1')] }, { role: 'user', content: [res('u1')] }, { role: 'assistant', content: 'a' }, { role: 'user', content: 'q2' }];
     const same = (x, y) => JSON.stringify(x) === JSON.stringify(y);
-    check('E apiMessages: a valid conversation is unchanged (and the input is not modified)', same(A(good), good) && apiProblem(good) === null);
+    check('history: apiMessages: a valid conversation is unchanged (and the input is not modified)', same(A(good), good) && apiProblem(good) === null);
     const input = [{ role: 'assistant', content: 'stale' }, { role: 'user', content: 'q' }, { role: 'assistant', content: '' }, { role: 'user', content: 'q2' }, { role: 'assistant', content: '  \n' }, { role: 'user', content: 'q3' }];
     const copy = JSON.stringify(input);
-    check('E apiMessages: a leading assistant message and empty or blank assistant messages are dropped, and the user lines joined',
+    check('history: apiMessages: a leading assistant message and empty or blank assistant messages are dropped, and the user lines joined',
       same(A(input), [{ role: 'user', content: 'q\n\nq2\n\nq3' }]) && JSON.stringify(input) === copy, JSON.stringify(A(input)));
-    check('E apiMessages: a tool_use without its tool_result is dropped, and an assistant message left with only thinking goes too',
+    check('history: apiMessages: a tool_use without its tool_result is dropped, and an assistant message left with only thinking goes too',
       same(A([{ role: 'user', content: 'q' }, { role: 'assistant', content: [think, use('u2')] }, { role: 'user', content: 'q2' }]), [{ role: 'user', content: 'q\n\nq2' }]),
       JSON.stringify(A([{ role: 'user', content: 'q' }, { role: 'assistant', content: [think, use('u2')] }, { role: 'user', content: 'q2' }])));
-    check('E apiMessages: a tool_result without its tool_use is dropped; blank text blocks are dropped, others kept',
+    check('history: apiMessages: a tool_result without its tool_use is dropped; blank text blocks are dropped, others kept',
       same(A([{ role: 'user', content: 'q' }, { role: 'assistant', content: [{ type: 'text', text: '' }, { type: 'text', text: 'ok' }] }, { role: 'user', content: [res('zz'), { type: 'text', text: 'more' }] }]),
         [{ role: 'user', content: 'q' }, { role: 'assistant', content: [{ type: 'text', text: 'ok' }] }, { role: 'user', content: [{ type: 'text', text: 'more' }] }]));
-    check('E apiMessages: two tool_uses, one answered: the answered pair is kept, the other dropped',
+    check('history: apiMessages: two tool_uses, one answered: the answered pair is kept, the other dropped',
       same(A([{ role: 'user', content: 'q' }, { role: 'assistant', content: [use('a'), use('b')] }, { role: 'user', content: [res('a')] }]),
         [{ role: 'user', content: 'q' }, { role: 'assistant', content: [use('a')] }, { role: 'user', content: [res('a')] }]));
     // every output above, and random mixes of these pieces, are conversations the API accepts
@@ -411,24 +411,24 @@ function askSession({ include = null, stallMs } = {}) {
       if (why) bad = { h, out, why };
       else if (asks && !(typeof out[out.length - 1].content === 'string' ? out[out.length - 1].content : out[out.length - 1].content.filter((b) => b.type === 'text').map((b) => b.text).join('\n\n')).endsWith(h[h.length - 1].content)) bad = { h, out, why: 'the last line was lost' };
     }
-    check('E apiMessages: 4000 random histories of good and bad pieces all come out valid (ending on the person\'s line, never lost), or are refused with bad-history when nothing ends them',
+    check('history: apiMessages: 4000 random histories of good and bad pieces all come out valid (ending on the person\'s line, never lost), or are refused with bad-history when nothing ends them',
       !bad && threw > 0, bad ? JSON.stringify(bad) : `${threw} refused`);
     // the shapes a review found (each failed before): an orphan tool_result left first, text joined before a
     // tool_result, a blank last user message, nothing at all
     const orphanFirst = [{ role: 'assistant', content: [use('x')] }, { role: 'user', content: [res('x')] }, { role: 'assistant', content: 'ok' }, { role: 'user', content: 'q' }];
-    check('E apiMessages: a tool_result whose tool_use was the dropped leading message is dropped too (it never comes first)',
+    check('history: apiMessages: a tool_result whose tool_use was the dropped leading message is dropped too (it never comes first)',
       same(A(orphanFirst), [{ role: 'user', content: 'q' }]), JSON.stringify(A(orphanFirst)));
     const textBefore = [{ role: 'user', content: 'q' }, { role: 'assistant', content: [use('y')] }, { role: 'user', content: 'note' }, { role: 'user', content: [res('y')] }];
     const tb = A(textBefore);
-    check('E apiMessages: a user line joined with a tool_result comes after it (tool_results first), and the result is valid',
+    check('history: apiMessages: a user line joined with a tool_result comes after it (tool_results first), and the result is valid',
       same(tb, [{ role: 'user', content: 'q' }, { role: 'assistant', content: [use('y')] }, { role: 'user', content: [res('y'), { type: 'text', text: 'note' }] }]) && apiProblem(tb) === null, JSON.stringify(tb));
     const inOne = A([{ role: 'user', content: 'q' }, { role: 'assistant', content: [use('z')] }, { role: 'user', content: [{ type: 'text', text: 'n' }, res('z')] }]);
-    check('E apiMessages: text before a tool_result in one user message is put after it', same(inOne.slice(-1), [{ role: 'user', content: [res('z'), { type: 'text', text: 'n' }] }]) && apiProblem(inOne) === null, JSON.stringify(inOne));
+    check('history: apiMessages: text before a tool_result in one user message is put after it', same(inOne.slice(-1), [{ role: 'user', content: [res('z'), { type: 'text', text: 'n' }] }]) && apiProblem(inOne) === null, JSON.stringify(inOne));
     const refusedWith = (h) => { try { return { out: A(h) }; } catch (e) { return { code: e.code, message: e.message }; } };
     const blankLast = refusedWith([{ role: 'user', content: 'q' }, { role: 'assistant', content: 'a' }, { role: 'user', content: '  ' }]);
-    check('E apiMessages: a blank last user message is refused (bad-history), not sent as a conversation ending on the assistant', blankLast.code === 'bad-history' && /does not end with a question/.test(blankLast.message), JSON.stringify(blankLast));
+    check('history: apiMessages: a blank last user message is refused (bad-history), not sent as a conversation ending on the assistant', blankLast.code === 'bad-history' && /does not end with a question/.test(blankLast.message), JSON.stringify(blankLast));
     const nothing = [[], [{ role: 'user', content: ' ' }], [{ role: 'assistant', content: 'a' }]].map(refusedWith);
-    check('E apiMessages: nothing to send (no messages, only blank, only an assistant message) is refused (bad-history), never []', nothing.every((r) => r.code === 'bad-history'), JSON.stringify(nothing));
+    check('history: apiMessages: nothing to send (no messages, only blank, only an assistant message) is refused (bad-history), never []', nothing.every((r) => r.code === 'bad-history'), JSON.stringify(nothing));
     // what an adversarial review found getting through (each passed both apiMessages and the checker before)
     const q = { role: 'user', content: 'q' };
     const tu = (id) => ({ type: 'tool_use', name: 'peek', input: {}, ...(id === undefined ? {} : { id }) });
@@ -449,13 +449,13 @@ function askSession({ include = null, stallMs } = {}) {
     ];
     for (const [what, h, want] of odd) {
       const r = refusedWith(h);
-      check(`E apiMessages: ${what}: made valid (expected written by hand)`, r.out && same(r.out, want) && apiProblem(r.out) === null && Emu.apiShapeProblem(r.out) === null, JSON.stringify(r));
+      check(`history: apiMessages: ${what}: made valid (expected written by hand)`, r.out && same(r.out, want) && apiProblem(r.out) === null && Emu.apiShapeProblem(r.out) === null, JSON.stringify(r));
     }
-    check('E apiShapeProblem: repeated or missing ids, a block in the wrong role, an unknown block are each a problem',
+    check('history: apiShapeProblem: repeated or missing ids, a block in the wrong role, an unknown block are each a problem',
       [[q, { role: 'assistant', content: [tu('a'), tu('a')] }, { role: 'user', content: [tr('a')] }], [q, { role: 'assistant', content: [tu('a')] }, { role: 'user', content: [tr('a'), tr('a')] }],
         [q, { role: 'assistant', content: [tu()] }, { role: 'user', content: [tr()] }], [{ role: 'user', content: [think, { type: 'text', text: 'q' }] }], [{ role: 'user', content: [{ type: 'foo' }] }],
         [q, { role: 'assistant', content: [{ type: 'image', source: {} }] }, q]].every((h) => !!Emu.apiShapeProblem(h)));
-    check('E apiShapeProblem: the checker agrees with the mocked API on what is valid', Emu.apiShapeProblem(good) === null && Emu.apiShapeProblem(tb) === null
+    check('history: apiShapeProblem: the checker agrees with the mocked API on what is valid', Emu.apiShapeProblem(good) === null && Emu.apiShapeProblem(tb) === null
       && !!Emu.apiShapeProblem([{ role: 'user', content: [{ type: 'text', text: 'n' }, res('y')] }]) && !!Emu.apiShapeProblem([]) && !!Emu.apiShapeProblem([{ role: 'user', content: 'q' }, { role: 'assistant', content: 'a' }]));
   }
 
@@ -465,7 +465,7 @@ function askSession({ include = null, stallMs } = {}) {
     const b = new Emu.ClaudeBackend({ fetch: api.fetch, apiKey: KEY });
     let err = null;
     try { await b.send({ system: 'S', messages: [{ role: 'user', content: 'q' }, { role: 'assistant', content: 'a' }, { role: 'user', content: ' ' }] }); } catch (e) { err = e; }
-    check('E backend: a history with no question at the end fails the turn (bad-history, a ClaudeError) and nothing is sent', err && err.code === 'bad-history' && err instanceof Emu.ClaudeError && api.calls.length === 0, err && err.message);
+    check('history: backend: a history with no question at the end fails the turn (bad-history, a ClaudeError) and nothing is sent', err && err.code === 'bad-history' && err instanceof Emu.ClaudeError && api.calls.length === 0, err && err.message);
     // sendLine: a blank line is no turn (no request, nothing recorded, not busy), whatever reaches it
     const { chat, api: api2, s } = askSession();
     let ends = 0;
@@ -473,7 +473,7 @@ function askSession({ include = null, stallMs } = {}) {
     chat.onTurnEnd = () => { ends++; was(); };
     const outs = [];
     for (const line of ['', '   ', '\n\t', null, undefined, 42]) outs.push(await chat.sendLine(line));
-    check('E sendLine: a blank (or not a string) line starts no turn: no request, nothing recorded, no error', outs.every((o) => o === null) && api2.calls.length === 0
+    check('history: sendLine: a blank (or not a string) line starts no turn: no request, nothing recorded, no error', outs.every((o) => o === null) && api2.calls.length === 0
       && chat.messages.length === 0 && !chat.busy && !chat.error && ends === 0, JSON.stringify({ outs, calls: api2.calls.length, msgs: chat.messages }));
     s.endChat();
   }
@@ -499,7 +499,7 @@ function askSession({ include = null, stallMs } = {}) {
     const held = { poked: s.shownMachine.ram[0x3001], busy: chat.busy, paused: !!s.consent.paused };
     s.resumeClaude();
     const r = await within(turn);
-    check('M2 a key while a card waits pauses Claude (Claude acted this turn), the card stays up; Allow does not act while paused; Resume acts and the turn ends',
+    check('pause per turn: a key while a card waits pauses Claude (Claude acted this turn), the card stays up; Allow does not act while paused; Resume acts and the turn ends',
       during.acting && during.paused === true && during.state && during.card && held.poked === 0 && held.busy && held.paused
       && s.shownMachine.ram[0x3001] === 2 && r !== 'timeout' && chat.messages.slice(-1)[0].content === 'Done.', JSON.stringify({ during, held }));
     s.endChat();
@@ -523,14 +523,14 @@ function askSession({ include = null, stallMs } = {}) {
     const r = await within(turn);
     const resumed = s.resumeClaude();
     await sleep(20);
-    check('M2 an abort while paused (BREAK) ends the pause: the waiting poke is refused, nothing held is typed, the turn ends stopped, Resume after it does nothing',
+    check('pause per turn: an abort while paused (BREAK) ends the pause: the waiting poke is refused, nothing held is typed, the turn ends stopped, Resume after it does nothing',
       r !== 'timeout' && s.consent.paused === null && m.ram[0x3001] !== 8 && job && job.status === 'stopped' && m.typist.queue.length === 0 && chat.error && chat.error.code === 'aborted' && resumed === false,
       JSON.stringify({ waiting, r: r === 'timeout' ? r : 'ended', ram: m.ram[0x3001], job: job && job.status, err: chat.error && chat.error.code }));
     if (typeof off === 'function') off();
     s.endChat();
   }
 
-  // R10 and the page's own machine actions: a Reset, a power cycle, a machine switch or a snapshot load while Claude
+  // Esc while paused and the page's own machine actions: a Reset, a power cycle, a machine switch or a snapshot load while Claude
   // is paused stops Claude: the pause ends, the waiting action is refused, nothing held is ever typed (not into the
   // machine that starts over, not into a new one), the turn ends stopped, and a Resume afterwards does nothing.
   // Reset and power cycle keep the conversation and say why it stopped ('claude-stopped'); a switch or a snapshot
@@ -561,7 +561,7 @@ function askSession({ include = null, stallMs } = {}) {
     for (let i = 0; i < 30; i++) s.advance(1000 / s.shownMachine.fps + 0.01);
     const now = s.shownMachine;
     const keeps = how === 'reset' || how === 'powerCycle';
-    check(`R10 ${how} while Claude is paused stops Claude: pause ended, waiting poke refused, held keys dropped, turn ended stopped, Resume afterwards types nothing`,
+    check(`${how} while Claude is paused stops Claude: pause ended, waiting poke refused, held keys dropped, turn ended stopped, Resume afterwards types nothing`,
       held > 0 && r !== 'timeout' && s.consent.paused === null && m.ram[0x3001] !== 8 && now.ram[0x3001] !== 8 && job && job.status === 'stopped'
       && m.typist.queue.length === 0 && now.typist.queue.length === 0 && !(now.stubKeys && now.stubKeys.length) && chat.error && chat.error.code === 'aborted' && resumed === false
       && !s.claudeBusyActing && (keeps ? s.chat === chat && notes.length === 1 && (how === "reset" ? notes[0] === "you reset the machine" : notes[0] === "the machine restarted")
@@ -595,7 +595,7 @@ function askSession({ include = null, stallMs } = {}) {
       const r = await within(turn);
       const resumed = s.resumeClaude();
       const q = s.shownMachine.typist.queue.length;
-      check(`R10 a restart by ${how} while Claude is paused stops Claude: the waiting poke is refused, Resume afterwards types nothing`,
+      check(`a restart by ${how} while Claude is paused stops Claude: the waiting poke is refused, Resume afterwards types nothing`,
         r !== 'timeout' && s.consent.paused === null && resumed === false && q === 0 && s.shownMachine.ram[0x3001] !== 8 && chat.error && chat.error.code === 'aborted' && job.status === 'stopped',
         JSON.stringify({ r: r === 'timeout' ? r : 'ended', resumed, q, err: chat.error && chat.error.code, job: job && job.status }));
       off();
@@ -629,7 +629,7 @@ function askSession({ include = null, stallMs } = {}) {
         const r = await within(turn);
         const resumed = s.resumeClaude();
         const own = m.typist.queue.filter((c) => c && c.job === job).length;
-        check(`R10 with ROMs, ${how} while Claude is ${paused ? 'paused' : 'typing'} stops Claude: the turn ends stopped, ${paused ? 'the waiting poke is refused, ' : ''}none of Claude's keys are typed into the program`,
+        check(`with ROMs, ${how} while Claude is ${paused ? 'paused' : 'typing'} stops Claude: the turn ends stopped, ${paused ? 'the waiting poke is refused, ' : ''}none of Claude's keys are typed into the program`,
           r !== 'timeout' && s.consent.paused === null && resumed === false && own === 0 && chat.error && chat.error.code === 'aborted' && job.status === 'stopped' && !s.claudeBusyActing
           && (!paused || m.ram[0x3001] !== 8),
           JSON.stringify({ r: r === 'timeout' ? r : 'ended', resumed, own, fromBefore, err: chat.error && chat.error.code, job: job && job.status }));
@@ -660,7 +660,7 @@ function askSession({ include = null, stallMs } = {}) {
       const still = !!s.consent.paused && chat.busy;
       const resumed = s.resumeClaude();
       const r = await within(turn);
-      check(`R10 ${how} (refused) leaves Claude paused, no note; Resume then carries on`,
+      check(`${how} (refused) leaves Claude paused, no note; Resume then carries on`,
         threw && still && resumed === true && !notes.length && r !== 'timeout' && !chat.error && m.ram[0x3001] === 8,
         JSON.stringify({ threw, still, resumed, notes, err: chat.error && chat.error.code }));
       off();
@@ -690,7 +690,7 @@ function askSession({ include = null, stallMs } = {}) {
     const during = { liza: !!liza, busy: chat.busy, err: chat.error && chat.error.code, notes: notes.slice() };
     if (done.open) done.open();
     const r = await within(turn);
-    check('R10 Claude choosing LIZA on the welcome menu (its own key) starts LIZA and its turn goes on: not stopped, no note',
+    check('Claude choosing LIZA on the welcome menu (its own key) starts LIZA and its turn goes on: not stopped, no note',
       during.liza && during.busy && !during.err && !notes.length && r !== 'timeout' && chat.messages.slice(-1)[0].content === 'LIZA is up.', JSON.stringify(during));
     off();
     s.endChat();
@@ -707,13 +707,13 @@ function askSession({ include = null, stallMs } = {}) {
     await until(() => !!s.consent.paused && s.consent.paused.wake.length > 0);
     s.asMachine(() => s.runLiza(ex(s.lizaFile)), s.machineTicket());
     const r = await within(turn);
-    check('R10 a program start the machine asked for while Claude is paused (the person\'s key) stops Claude; Resume afterwards types nothing',
+    check('a program start the machine asked for while Claude is paused (the person\'s key) stops Claude; Resume afterwards types nothing',
       r !== 'timeout' && s.consent.paused === null && s.resumeClaude() === false && s.shownMachine.typist.queue.length === 0 && chat.error && chat.error.code === 'aborted',
       JSON.stringify({ err: chat.error && chat.error.code }));
     off();
     s.endChat();
   }
-  // F2: every way the person's input reaches the machine Claude acts on pauses Claude, as a key on the screen does,
+  // Every way the person's input reaches the machine Claude acts on pauses Claude, as a key on the screen does,
   // so the ticket counts only Claude's own typing: the person's text (Session.typeText: a paste, the type-in panel,
   // a tap on the welcome menu, a POKE from the book, the embed API) and the person's keys (Session.personInput: the
   // keyboard on the screen or the page's body, the on-screen keys). Claude's own typing (typeTextPaced, and RUN for
@@ -737,7 +737,7 @@ function askSession({ include = null, stallMs } = {}) {
     for (let i = 0; i < 600 && !liza; i++) { s.advance(1000 / s.shownMachine.fps + 0.01); await sleep(0); }
     if (next.open) next.open();
     const r = await within(turn);
-    check(`F2 the person's ${how} while Claude acts at the welcome menu pauses Claude, and LIZA it starts stops Claude's turn (not Claude's ticket)`,
+    check(`the person's input: the person's ${how} while Claude acts at the welcome menu pauses Claude, and LIZA it starts stops Claude's turn (not Claude's ticket)`,
       before === 'thinking' && paused && phase === 'paused' && !!liza && r !== 'timeout' && chat.error && chat.error.code === 'aborted' && !s.claudeBusyActing,
       JSON.stringify({ before, paused, phase, liza: !!liza, err: chat.error && chat.error.code }));
     off();
@@ -759,7 +759,7 @@ function askSession({ include = null, stallMs } = {}) {
     const again = s.personInput();
     next.open();
     await within(turn);
-    check('F2 a POKE typed from the book pauses Claude; Claude\'s own RUN (queueText) and input to another machine do not; once paused, more input makes no new pause',
+    check('the person\'s input: a POKE typed from the book pauses Claude; Claude\'s own RUN (queueText) and input to another machine do not; once paused, more input makes no new pause',
       !ownRun && other === false && poke && again === false && s.consent.pauses === pauses, JSON.stringify({ ownRun, other, poke, again }));
     s.endChat();
   }
@@ -779,7 +779,7 @@ function askSession({ include = null, stallMs } = {}) {
     const paused = !!s.consent.paused;
     next.open();
     await within(turn);
-    check('F2 a POKE from the book stored at once on the stub (a program running) pauses Claude', /^Done:/.test(msg) && paused, JSON.stringify({ msg, paused }));
+    check('the person\'s input: a POKE from the book stored at once on the stub (a program running) pauses Claude', /^Done:/.test(msg) && paused, JSON.stringify({ msg, paused }));
     s.endChat();
   }
   {
@@ -793,7 +793,7 @@ function askSession({ include = null, stallMs } = {}) {
     const thinking = s.personInput();
     think.open();
     await within(turn);
-    check('F2 with no turn, or a turn that only thinks, the person\'s input pauses nothing', !idle && thinking === false && !s.consent.paused, JSON.stringify({ idle, thinking }));
+    check('the person\'s input: with no turn, or a turn that only thinks, the person\'s input pauses nothing', !idle && thinking === false && !s.consent.paused, JSON.stringify({ idle, thinking }));
     s.endChat();
   }
   // the ticket is taken when the program asks (the page does it as the event comes): a start it asks for after
@@ -822,7 +822,7 @@ function askSession({ include = null, stallMs } = {}) {
     }
     s.asMachine(() => s.runLiza(ex(s.lizaFile)), ticket);
     const r = await within(turn);
-    check(`R10 a start the machine asked for stops Claude when ${how}`, ticket && r !== 'timeout' && chat.error && chat.error.code === 'aborted' && !s.claudeBusyActing,
+    check(`a start the machine asked for stops Claude when ${how}`, ticket && r !== 'timeout' && chat.error && chat.error.code === 'aborted' && !s.claudeBusyActing,
       JSON.stringify({ ticket: ticket && ticket.claude, err: chat.error && chat.error.code }));
     s.endChat();
   }
@@ -861,7 +861,7 @@ function askSession({ include = null, stallMs } = {}) {
     for (let i = 0; i < 400 && !menu; i++) s.advance(1000 / m.fps + 0.01);
     if (next.open) next.open();
     const r = await within(turn);
-    check(`R10 the menu after the person's BYE in LIZA stops Claude (${how})`, menu && r !== 'timeout' && chat.error && chat.error.code === 'aborted',
+    check(`the menu after the person's BYE in LIZA stops Claude (${how})`, menu && r !== 'timeout' && chat.error && chat.error.code === 'aborted',
       JSON.stringify({ menu, err: chat.error && chat.error.code, ticket: s.menuTicket && s.menuTicket.claude }));
     off();
     s.endChat();
@@ -881,7 +881,7 @@ function askSession({ include = null, stallMs } = {}) {
     const t = s.machineTicket();
     s.consent.answer(false);
     await within(turn);
-    check('R10 a ticket taken while a card waits is not Claude\'s (a key then is the person\'s)', s.claudeBusyActing === false && t.claude === false, JSON.stringify({ claude: t.claude }));
+    check('a ticket taken while a card waits is not Claude\'s (a key then is the person\'s)', s.claudeBusyActing === false && t.claude === false, JSON.stringify({ claude: t.claude }));
     s.endChat();
   }
   {
@@ -893,7 +893,7 @@ function askSession({ include = null, stallMs } = {}) {
     let inner = null;
     s.asMachine(() => { s.asMachine(() => { inner = s.machineDriven; }, { claude: true }); }, null);
     try { s.asMachine(() => { throw new Error('x'); }); } catch (e) { /* expected */ }
-    check('R10 asMachine refuses async work, and its ticket is set only inside it (nested, thrown)', refused && inner && inner.claude === true && s.machineDriven === null);
+    check('asMachine refuses async work, and its ticket is set only inside it (nested, thrown)', refused && inner && inner.claude === true && s.machineDriven === null);
     s.endChat();
   }
   {
@@ -915,7 +915,7 @@ function askSession({ include = null, stallMs } = {}) {
     // (the BASIC session restarting while the chat is on screen: its own onReset, not this.machine's)
     basic.reset(false);
     const r = await within(turn);
-    check('R10 full-screen chat: Reset of the chat machine leaves Claude typing in the BASIC session; a restart of the BASIC session (chat on screen) stops it',
+    check('full-screen chat: Reset of the chat machine leaves Claude typing in the BASIC session; a restart of the BASIC session (chat on screen) stops it',
       onChat && kept.busy && kept.q > 0 && !kept.err && r !== 'timeout' && chat.error && chat.error.code === 'aborted' && basic.typist.queue.length === 0,
       JSON.stringify({ onChat, kept: { busy: kept.busy, q: kept.q }, err: chat.error && chat.error.code }));
     off();
@@ -934,7 +934,7 @@ function askSession({ include = null, stallMs } = {}) {
     s.reset();
     const r = await within(turn);
     for (let i = 0; i < 30; i++) s.advance(1000 / s.shownMachine.fps + 0.01);
-    check('R10 Reset while Claude acts (not paused) stops Claude: the turn ends stopped and its typing is dropped',
+    check('Reset while Claude acts (not paused) stops Claude: the turn ends stopped and its typing is dropped',
       r !== 'timeout' && chat.error && chat.error.code === 'aborted' && m.typist.queue.length === 0 && !s.claudeBusyActing && job.status === 'stopped',
       JSON.stringify({ err: chat.error && chat.error.code, q: m.typist.queue.length, job: job && job.status }));
     off();
@@ -946,11 +946,11 @@ function askSession({ include = null, stallMs } = {}) {
     const notes = [];
     s.on((ev, arg) => { if (ev === 'claude-stopped') notes.push(arg); });
     s.reset(); s.powerCycle();
-    check('R10 Reset and power cycle with Claude idle stop nothing and add no note', s.chat === chat && !notes.length && !chat.error);
+    check('Reset and power cycle with Claude idle stop nothing and add no note', s.chat === chat && !notes.length && !chat.error);
     s.endChat();
   }
 
-  // ================= M2: what the turn did on the machine ends with it =================
+  // ================= what the turn did on the machine ends with it =================
   // A turn that acted (a real poke through the gate), then ends: finished, stopped, failed, stalled. Afterwards
   // claudeActing is clear, and a later turn that only answers in text is not acting: a key does not pause it.
   for (const [how, ending, stall] of [['finishes', { body: textReply('Poked.') }], ['is stopped', { gate: true, body: textReply('late') }],
@@ -973,7 +973,7 @@ function askSession({ include = null, stallMs } = {}) {
     const during = { busyActing: s.claudeBusyActing, paused: s.pauseClaude(), status: s.claudeStatus && s.claudeStatus.phase };
     text.open();
     const r2 = await within(next);
-    check(`M2 a turn that acted and ${how}: claudeActing ends with it, and a later text-only turn is not paused by a key (not acting, status Thinking…)`,
+    check(`pause per turn: a turn that acted and ${how}: claudeActing ends with it, and a later text-only turn is not paused by a key (not acting, status Thinking…)`,
       acted && r !== 'timeout' && cleared && !during.busyActing && during.paused === false && s.consent.paused === null && during.status === 'thinking'
       && r2 !== 'timeout' && chat.messages.slice(-1)[0].content === 'Just words.' && !api.refused.length,
       JSON.stringify({ acted, cleared, during, err: chat.error && chat.error.code }));

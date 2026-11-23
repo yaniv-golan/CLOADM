@@ -49,7 +49,7 @@ export function setupNitros9Panel(page) {
     $('btnN9Boot').textContent = running ? 'Boot again' : 'Boot NitrOS-9';
     $('btnN9Leave').hidden = !running;
     // the PERSON's machine's loader (the panel is about it): nitros9Loader() with no argument reads the chat when it is
-    // on screen, which has none, and the line then said "DriveWire" after a floppy boot (review 0.1.9 round 2)
+    // on screen, which has none, and the line then said "DriveWire" after a floppy boot
     $('n9State').textContent = running ? `running from ${now ? now.name : session.nitros9Loader(session.personMachine) === 'floppy' ? 'floppy drive 0' : 'DriveWire drive 0'}` : 'DriveWire or floppy, no ROM needed';
   }
   const boot = (p) => p.then((msg) => { page.status(msg); page.focus(); return true; }, fail);

@@ -14,6 +14,7 @@
 //  * the API key reaches none of it: not the library's own state, the stored files, the snapshot or the export.
 const fs = require('fs'), path = require('path');
 const { scenario, KEY, NOW, sha } = require('./session-library-scenario');
+const { sameGzipContents } = require('./gzip-contents');
 const { Emu, MemoryMediaStore } = require('./disks-common');
 
 let fail = 0, n = 0;
@@ -40,8 +41,10 @@ const firstDiff = (a, b) => { let i = 0; while (i < a.length && a[i] === b[i]) i
     check(`... ${k}`, JSON.stringify(run.report[k]) === JSON.stringify(expected.report[k]));
   }
   check('the machine\'s snapshot is byte-identical to the parent commit\'s', sha(run.machine) === expected.machine);
-  check('the snapshot file is byte-identical to the parent commit\'s', sha(run.snapshotFile) === expected.snapshotFile && sha(moment) === expected.snapshotFile
-    && Buffer.compare(Buffer.from(run.snapshotFile), Buffer.from(moment)) === 0);
+  // (the gzip header's operating system byte is the writing machine's: 3 on Linux, 19 on macOS, so the file is compared by
+  // what it holds, and the fixture itself by its hash: tests/gzip-contents.test.js)
+  const same = sameGzipContents(run.snapshotFile, moment);
+  check('the snapshot file holds exactly what the parent commit\'s did (the fixture is the file whose hash is recorded)', sha(moment) === expected.snapshotFile && same.same, same.why);
   // The fixture opens, and saves back identical but for one counter: restoring a machine with a disk controller
   // re-arms its scheduler, which advances the scheduler's generation (`gen`) by one. That is Machine.restore's own
   // behaviour, the same at the commit before the move (measured there with this fixture); every other byte of the

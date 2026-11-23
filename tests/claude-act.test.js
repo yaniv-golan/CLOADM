@@ -173,7 +173,7 @@ process.exitCode = 1;
     check('run starts it, and the program runs ($4000 written)', rr.ok && rr.out.how === 'jump' && rr.out.target === 0x3000 && m.ram[0x4000] === 0x41, rr.ok ? rr.out : rr.err.message);
   }
 
-  // ---- 3b. F1: a ROM-less machine is not reset, its RAM survives ----
+  // ---- 3b. a ROM-less machine is not reset, its RAM survives ----
   {
     const s = boot('coco');
     const m = s.shownMachine;
@@ -212,7 +212,7 @@ process.exitCode = 1;
     check('and 6803 source assembles there', y.ok && y.out.bytes === 2 && mc.shownMachine.ram[0x4100] === 0x86, y.ok ? '' : y.err.message);
   }
 
-  // ---- 5. F2/F6: the write is counted by the machine and read back; what did not take is named; nothing landed is not-ram ----
+  // ---- 5. the write is counted by the machine and read back; what did not take is named; nothing landed is not-ram ----
   {
     // our own ROM image, every byte $FF, in the BASIC socket (no one else's ROM): a byte written there that is
     // $FF is the byte it already holds, so only the map can say it did not take
@@ -277,7 +277,7 @@ process.exitCode = 1;
     check('CoCo 3: the I/O page is not-ram', notRam(p3));
   }
 
-  // ---- 5a. F7 (poke half): on the Dragon 64 Plus a poke goes where the CPU's write goes, through the selected RAM bank ----
+  // ---- 5a. the poke half: on the Dragon 64 Plus a poke goes where the CPU's write goes, through the selected RAM bank ----
   {
     const s = boot('d64plus'); s.consent.setAllowed(true);
     const chat = ask(s); const m = s.shownMachine;
@@ -558,7 +558,7 @@ STB     FCB     $FE,$FD,$FB,$F7,$EF,$DF,$BF,$7F
         && JSON.stringify(r.out) === '{"how":"typed","target":"RUN","requested":4,"consumed":4,"lines_requested":1,"lines_delivered":1}',
         `${r.ok ? '' : r.err.message} got [${got.map((g) => g.toString(16))}] want [${want.map((g) => g.toString(16))}]`);
       check(`${id}: RUN took one restore point and undo clears what was still queued`, chat.undo.length === 1);
-      // F6, the same class for type_text: it says it typed 2 characters, and the firmware sees exactly those two keys
+      // The same class for type_text: it says it typed 2 characters, and the firmware sees exactly those two keys
       turn(chat);
       const c0 = m.ram[base];
       const tt = await callFrames(s, chat, 'type_text', { text: 'UR' });

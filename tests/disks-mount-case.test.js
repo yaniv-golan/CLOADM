@@ -140,7 +140,7 @@ const { check, failures } = checker();
           `${out instanceof Error ? out.message : out}; reads=${reads()}`);
       }
     }
-    // Review finding 1: a write to the image's own name queued in the window after the read returns and before the
+    // An own-name write during the read: a write to the image's own name queued in the window after the read returns and before the
     // mount decides (nothing awaited: it is still landing) must be seen, so the drive gets the new bytes. Both stores.
     for (const caseInsensitive of [false, true]) {
       const { s, media } = session('dragon64', 'dragondos', 'dragon', { storeOpts: { caseInsensitive } });
@@ -155,7 +155,7 @@ const { check, failures } = checker();
         out === 'a.vdk in drive 0' && reads() === 2 && d.loaded && d.media.bytes[0x500] === 0x66 && same(d.media.bytes, stored),
         `${out instanceof Error ? out.message : out}; reads=${reads()}`);
     }
-    // The reviewer's finding 1 probe, as it was found: on a case-sensitive store another spelling changes during the
+    // The same race through the store listing: on a case-sensitive store another spelling changes during the
     // read, and an own-name write is queued the moment the store is listed (the mount used to list the store, after
     // its change check, to ask whether the two spellings were one file). Whatever the mount does in that window, the
     // drive must end up holding the image as stored once every write has landed, not the bytes from before.
@@ -178,11 +178,11 @@ const { check, failures } = checker();
       media.list = realList;
       await s.drives.writesDone().catch(() => {});
       const d = s.drives.controller.drives[0], stored = await media.read('disks/a.vdk');
-      check('finding 1 probe: an own-name write in the window after the change check does not leave the drive on stale bytes',
+      check('own-name write during the store listing: an own-name write in the window after the change check does not leave the drive on stale bytes',
         out === 'a.vdk in drive 0' && d.loaded && same(d.media.bytes, stored),
         `${out instanceof Error ? out.message : out}; injected=${injected}; drive[0x700]=${d.loaded ? d.media.bytes[0x700] : '-'}; stored[0x700]=${stored[0x700]}`);
     }
-    // Review finding 3: on a case-sensitive store the mount's own name AND a separate other spelling both change in
+    // Two spellings changed in one read: on a case-sensitive store the mount's own name AND a separate other spelling both change in
     // one read. The other file is not this image, but its own change is: it must re-read and hold the new bytes.
     {
       const { s, media } = session('dragon64', 'dragondos', 'dragon', { storeOpts: { caseInsensitive: false } });

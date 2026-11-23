@@ -84,7 +84,6 @@ floppy controller, a cartridge or the cassette).
 1. One feature or fix, or a clearly separable part of one, per branch. For anything large, open an issue first so
    the approach can be agreed.
    The scope comes from the brief or issue you are given (the task description), the oracle from section 5.
-   Contributors don't edit a roadmap; the maintainers track one privately.
 2. Before writing code, write down how you will prove it is correct (section 5 gives the oracle per area). If no
    oracle is listed for something you're adding, find one before building it.
 3. Write the verification firmware or test first, run it against MAME to get the expected behaviour, then implement.
@@ -262,7 +261,8 @@ container (no test suites, builds, MAME or a second browser check).
 `.github/browser-check-timings.json`, and the `shards` job fails if the file is not that plan or a group is in no
 shard, in two, or untimed. A new group is timed with `node tools/browser-check.js --only <group> --timings t.json`,
 then `node .github/scripts/browser-check-shards.js --merge t.json` (which also writes the shards). To rebalance from
-CI's own times, `--merge` the `browser-check-timings` artifact of a green run.
+CI's own times, `--merge` the `browser-check-timings` artifact of a green run (a smoothed average: one noisy run moves
+a group's time by only the file's `"smoothing"` weight).
 
 ## 5. Oracle per area
 

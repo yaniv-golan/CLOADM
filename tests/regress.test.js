@@ -387,6 +387,9 @@ cases.push(['video coco3', () => videoHash(spec('coco3').video('coco3'))]);
 // the GIME text attributes, every byte, 32/40/64/80 columns, lines per row 0-6, blink off and on, exact
 // (run.js coco3 --video --attr)
 cases.push(['video coco3 attributes', () => videoHash(spec('coco3').video('coco3', { file: 'vdg-attr.asm' }))]);
+// compatibility-mode text at $FF9C values other than BASIC's $0F: 8, 9, 4 and 1 lines a row on a 192-line body and 8
+// lines on a 200-line one, so the screen shows 24, 22, 48, 192 and 25 rows (run.js coco3 --video --compat)
+cases.push(['video coco3 compat $FF9C', () => videoHash(spec('coco3').video('coco3', { file: 'vdg-compat.asm' }))]);
 // the CoCo 3's artifact colours (run.js coco3 --video --artifact 1 / 2, exact against MAME)
 for (const a of [1, 2]) {
   cases.push([`video coco3 artifact ${a}`, () => { const v = spec('coco3').video('coco3'); return videoHash({ machine: () => { const m = v.machine(); m.setComposite(a); m.monitor = 'rgb'; return m; }, frames: v.frames }); }]);

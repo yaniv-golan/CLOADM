@@ -40,7 +40,7 @@ const crtc = (reg = {}) => {
   c.writeAddress(0x0C); c.writeRegister(0xFF);
   check('R12 (start address high) keeps six bits', c.reg[12] === 0x3F, c.reg[12].toString(16));
   c.writeAddress(0x1F); c.writeRegister(0xAA);
-  check('a latch above R17 writes no register (there are eighteen)', c.reg[17] === 0x00);
+  check('a latch above CRTC R17 writes no register (there are eighteen)', c.reg[17] === 0x00);
 }
 
 // ---- HD6845S read-back ----
@@ -133,7 +133,7 @@ const crtc = (reg = {}) => {
 }
 
 // ---- the cursor ----
-// The cursor output is only drawn in displayed lines, so these measure the second frame (see above). R10's
+// The cursor output is only drawn in displayed lines, so these measure the second frame (see above). CRTC R10's
 // blink bits: 00 always on, so the state the first frame boundary set (on) holds.
 const twoFrames = (c) => { for (let i = 0; i < c.frameLines; i++) c.clockLine(); };
 {

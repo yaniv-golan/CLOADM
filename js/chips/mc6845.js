@@ -48,7 +48,7 @@
  */
 
 const REGS = 18;
-// the data sheet's field widths: R4, R6 and R7 are seven bits, R5 and R9 five, R10 seven (the blink bits
+// the data sheet's CRTC field widths: R4, R6 and R7 are seven bits, R5 and R9 five, R10 seven (the blink bits
 // live in its top two), R11 five, and R12/R14 keep six bits on their high byte. R8 is a full byte.
 const MASK = [0xFF, 0xFF, 0xFF, 0xFF, 0x7F, 0x1F, 0x7F, 0x7F, 0xFF, 0x1F, 0xFF, 0x1F, 0x3F, 0xFF, 0x3F, 0xFF, 0xFF, 0xFF];
 // the power-on values MAME starts from: the chip's own are undefined, and a machine programs them all
@@ -89,7 +89,7 @@ class MC6845 {
     this.lineAddress = this.dispStart;
     // frame boundary and cursor blink state (mc6845.cpp handle_line_timer/update_cursor_state): counted
     // here so a machine that draws a whole screen per frame (the Dragon 64 Plus) knows when to draw, and so
-    // the blink bits in R10 behave as MAME's
+    // the blink bits in CRTC R10 behave as MAME's
     this.frameStarts = 0;
     this.cursorState = false;     // blink off until the first frame boundary sets it (MAME's m_cursor_state)
     this.cursorBlinkCount = 0;

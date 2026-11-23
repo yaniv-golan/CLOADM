@@ -25,6 +25,7 @@ import { setupMediaPanel } from './media-panel.js';
 import { setupDrives } from './drives.js';
 import { setupAssemblerPanel } from './assembler-panel.js';
 import { setupDebuggerPanel } from './debugger-panel.js';
+import { setupDebuggerStop } from './debugger-stop.js';
 import { setupSelfTestPanel } from './selftest-panel.js';
 import { setupPokePanel } from './poke-panel.js';
 import { setupDrawer } from './drawer.js';
@@ -83,14 +84,22 @@ if (!chatHere) document.body.classList.add('no-claude');
 const keyStore = chatHere ? (() => { try { return localStorage ? storageKeyStore(localStorage) : new MemoryKeyStore(); } catch (e) { return new MemoryKeyStore(); } })()
   : new MemoryKeyStore();
 // embedded (?embed=1): no welcome menu of its own; the embedding page drives a plain machine
-const session = new Session({ store: settings, media: mediaStore, keyStore, welcomeMenu: !link.embed });
+// other tabs of this origin on the same store: one lock for the media index's lists, and a channel to say what changed
+const mediaShare = {
+  locks: (typeof navigator !== 'undefined' && navigator.locks) || null,
+  channel: typeof BroadcastChannel === 'function' ? new BroadcastChannel('cloadm-media') : null,
+};
+const session = new Session({ store: settings, media: mediaStore, keyStore, welcomeMenu: !link.embed, mediaShare });
 const page = createPage(session, new Audio());
 // a background write that fails (full storage, permission refused) must reach the user, not vanish
 session.index.writeError = (name, e) => page.status(session.library.indexWriteError(name, e), true);
 // the handle exists before the awaited init, so anything watching the page sees it at once
 window.emu = { session, profiles, Emu, feedback: page.feedback, ready: false, started: false, audio: page.audio, audioRunning: () => page.audio.running, get machine() { return session.shownMachine; },
   // the input layer, for the browser check (keyboard modes, the keyboard joystick and the gamepads)
-  get input() { return screen.input; }, readPads: () => screen.readPads() };
+  get input() { return screen.input; }, readPads: () => screen.readPads(),
+  // what the screen presented last, as RGBA (both presenters keep it), for the browser check's "the canvas shows
+  // the machine's current frame" (onScreenChecks)
+  presented: () => screen.presented() };
 try {
   await session.ready();
 } catch (e) {
@@ -126,6 +135,7 @@ window.emu.nitros9Shown = () => nitros9.shown();   // (the browser check: the pa
 const media = setupMediaPanel(page, { snapshots, disks, nitros9, keep: (name, bytes) => library && library.keep(name, bytes) });
 setupAssemblerPanel(page);
 setupDebuggerPanel(page);
+setupDebuggerStop(page);
 const selfTest = setupSelfTestPanel(page);
 const screen = setupScreen(page, { loadPrograms: media.loadPrograms, roms: romPanel });
 // ?touch=joystick|keys (js/config.js): the on-screen panel's mode for this visit, taken up when the machine

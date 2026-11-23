@@ -6,10 +6,13 @@
 ; tools/chat-font.js): 42 columns, 24 rows, lowercase and uppercase.
 ;
 ; It replaces BASIC: boots to a prompt, echoes what you type (up to
-; 255 characters, wrapped as you type the way replies wrap: a word that
-; does not fit moves to the next line; BACKSPACE goes back across the
-; wraps; a key past the limit flashes the screen instead of being
-; taken), sends
+; 1024 characters, BMAX, with 16-bit lengths; wrapped as you type the
+; way replies wrap: a word that does not fit moves to the next line; a
+; line longer than the screen scrolls it; BACKSPACE goes back across the
+; wraps, bringing back rows scrolled off the top; a key past the limit
+; is refused with a notice under the line and a flash of the screen;
+; keys typed while a reply comes wait in a type-ahead ring, TABUF, and
+; are typed once the prompt is back), sends
 ; each line over the byte channel to the chat backend, shows
 ; "Thinking...", and displays the reply as bytes arrive. Replies wrap
 ; at a word boundary; a word longer than a whole line is broken at 42
@@ -49,6 +52,8 @@ FONT1ST EQU     32
 BSTAT   EQU     $FF41           ; Becker port: status (bit 1 = data waiting)
 BDATA   EQU     $FF42           ; Becker port: data
 DWCH    EQU     14              ; the DriveWire channel the chat uses (js/claude/channel.js CHAT_DW_CHANNEL)
+BMAX    EQU     1024            ; the longest line typed (IBUF; BLEN, SLEN and SPOS are 16-bit)
+RSMAX   EQU     128             ; rows a typed line may take (RSTART): a line of BMAX in words of any length fits
 DWWAITN EQU     64              ; main-loop passes between two SERREADs while nothing is buffered
 
         ORG     $6000
@@ -57,7 +62,6 @@ CHAT    JMP     START
 CURROW  FCB     0               ; row the next laid-out line goes to
 LLEN    FCB     0               ; characters in LBUF
 LASTSP  FCB     $FF             ; index of the last space in LBUF ($FF = none)
-BLEN    FCB     0               ; characters typed on the input line
 OLDLEN  FCB     0
 OLDEND  FCB     0               ; WRAP: the full length before the break
 OLDSP   FCB     0               ; WRAP: the break index, kept across FLUSHAT
@@ -68,8 +72,6 @@ FLO     FCB     0               ; DRAWCHAR: mask for the second byte's high bits
 FCHR    FCB     0               ; DRAWCHAR: glyph index (char - 32)
 FCOL    FCB     0               ; DRAWCHAR: column
 ECOL    FCB     0               ; ECHO: cursor column on the typing line
-SPOS    FCB     0               ; SENDNEXT: byte index in IBUF
-SLEN    FCB     0               ; SENDNEXT: the line length (0-255)
 SPEND   FCB     0               ; SENDNEXT: a line is queued (its bytes, then the CR); a flag, since 255 + CR is 256
 FLINE   FCB     0               ; DRAWCHAR: pixel line of this glyph row
 ; DRAWCHAR scratch, kept in the direct page so plain (direct-mode) LDA/STA reach it
@@ -84,9 +86,6 @@ TLINE   FCB     0               ; DRAWCHAR: first pixel line of the row
 GLYPH   RMB     8               ; DRAWCHAR: the 8 rows of the glyph being drawn
 TROW    FCB     0               ; the typed line: its screen row now (0 = the prompt's row)
 RCOL0   FCB     0               ; the typed line: the column its first character is on (after the prompt)
-TRS     FCB     0               ; TWRAP/BACK/COLOF: RSTART of the row
-TNEW    FCB     0               ; TWRAP: index of the character that did not fit
-TWS     FCB     0               ; TWRAP: index of the first character of the word moved down
 WAIT    FCB     0               ; a line was sent and its reply has not ended ($04): typing waits
 PREVCR  FCB     0               ; the last reply byte was CR (an LF after it ends no second line)
         ORG     $7000
@@ -99,22 +98,45 @@ RXHEAD  FCB     0               ; RXBUF: next byte to take
 RXTAIL  FCB     0               ; RXBUF: next free place
 DWWAIT  FCB     0               ; passes left before the next SERREAD
 DWCNT   FCB     0               ; SERREADM: bytes to read
+TAHEAD  FDB     0               ; TABUF: next key to take (0-2047)
+TATAIL  FDB     0               ; TABUF: next free place (TAHEAD = TATAIL: nothing typed ahead)
+BLEN    FDB     0               ; characters typed on the input line (0-BMAX)
+SPOS    FDB     0               ; SENDNEXT: index in IBUF of the next byte to send
+SLEN    FDB     0               ; SENDNEXT: the line's length (its CR follows it)
+TRS     FDB     0               ; TWRAP/BACK/COLOF: RSTART of the row
+TNEW    FDB     0               ; TWRAP: index of the character that did not fit
+TWS     FDB     0               ; TWRAP: index of the first character of the word moved down
+TLO     FDB     0               ; TWRAP: IBUF+TRS, where the look back for a space stops
+TIDX    FDB     0               ; COLOF: the index asked about
+TLOOP   FDB     0               ; TWRAP: the index being moved
+TBACK   FDB     0               ; BACK/DRAWROW: the index taken back
+TCHR    FCB     0               ; the key being typed
+NOTE    FCB     0               ; the "full" notice is on the screen, on row NOTER
+NOTER   FCB     0
         ORG     $7100
 RXBUF   RMB     256
+        ORG     $7200
+RSTART  RMB     2*RSMAX         ; the typed line: IBUF index of the first character on each of its screen rows
+        ORG     $7300
+IBUF    RMB     BMAX            ; the typed line
+        ORG     $7800
+TABUF   RMB     2048            ; keys typed, taken in order once the prompt is back (2047 at most: one place stays free)
         ORG     $6040
 LBUF    RMB     48
-IBUF    RMB     255             ; the typed line: up to 255 characters (BLEN, SLEN and SPOS are bytes)
-RSTART  RMB     16              ; the typed line: IBUF index of the first character on each of its screen rows
 
 START   ORCC    #$50
         LDS     #$6000
         CLR     RXSTAT
         CLR     RXDATA
+        LDD     #0
+        STD     TAHEAD          ; nothing typed ahead
+        STD     TATAIL
+        STD     BLEN
+        CLR     NOTE
         JSR     DWPROBE
         JSR     GM7
         LDX     #PROMPT
         JSR     PUTC
-        CLR     BLEN
         CLR     WAIT
         CLR     PREVCR
 
@@ -122,9 +144,40 @@ START   ORCC    #$50
 MAIN    JSR     SENDNEXT        ; a pending line goes out one byte per pass; never waits on the page
         JSR     [POLCAT]
         TSTA
-        BEQ     MAIN2
-        TST     WAIT            ; while a reply comes, keys are not taken (BREAK stops it on the page)
-        BNE     MAIN2
+        BEQ     MAINK
+        ; every key goes into the type-ahead ring, so one typed while a reply comes is kept, not dropped: it is
+        ; taken once the prompt is back, in the order typed. BREAK while a reply comes is the page's (it stops
+        ; the reply), so it is not kept for the next line.
+        TST     WAIT
+        BEQ     MAINQ
+        CMPA    #3
+        LBEQ   MAIN2
+MAINQ   STA     TCHR
+        LDD     TATAIL
+        ADDD    #1
+        ANDA    #$07            ; (2048 places)
+        CMPD    TAHEAD
+        LBEQ    FLASH           ; the ring is full: the key is refused visibly
+        LDX     #TABUF
+        LDD     TATAIL
+        LEAX    D,X
+        LDA     TCHR
+        STA     ,X
+        LDD     TATAIL
+        ADDD    #1
+        ANDA    #$07
+        STD     TATAIL
+MAINK   TST     WAIT            ; while a reply comes, typed keys wait in the ring
+        LBNE    MAIN2
+        LDD     TAHEAD
+        CMPD    TATAIL
+        LBEQ    MAIN2           ; nothing typed
+        LDX     #TABUF
+        LEAX    D,X
+        ADDD    #1
+        ANDA    #$07
+        STD     TAHEAD
+        LDA     ,X
         CMPA    #13
         LBEQ    ENTER
         CMPA    #8
@@ -132,21 +185,29 @@ MAIN    JSR     SENDNEXT        ; a pending line goes out one byte per pass; nev
         CMPA    #$03
         LBEQ    BREAK
         CMPA    #32
-        BLO     MAIN2
-        LDB     BLEN
-        CMPB    #255
+        LBLO    MAIN2
+        STA     TCHR
+        LDD     BLEN
+        CMPD    #BMAX
         LBHS    FULL            ; the line is full: say so, don't drop the key silently
-        TSTB
+        LDB     TROW
+        CMPB    #RSMAX-1
+        LBHS    FULL            ; (no row left to wrap to)
+        LDD     BLEN
         BNE     TYP1
         CLR     TROW            ; the line's first character: its first row starts here, after the prompt
-        CLR     RSTART
+        STD     RSTART
         LDB     ECOL
         STB     RCOL0
-        CLRB
+        LDD     #0
 TYP1    LDX     #IBUF
-        ABX
+        LEAX    D,X
+        LDA     TCHR
         STA     ,X
-        INC     BLEN
+        LDD     BLEN
+        ADDD    #1
+        STD     BLEN
+        LDA     TCHR
         LDB     ECOL
         CMPB    #COLS
         BLO     TYP2
@@ -154,7 +215,7 @@ TYP1    LDX     #IBUF
         BCS     MAIN2
 TYP2    JSR     ECHO            ; typed text shows at once
 MAIN2   JSR     POLLCH
-        BEQ     MAIN
+        LBEQ    MAIN
         CMPA    #4
         BEQ     MAINEOT
         CMPA    #13
@@ -192,54 +253,56 @@ MEOT1   CLR     ECOL
 TWRAP   CMPA    #32
         BNE     TW1
         JSR     TNEXT
-        LDB     BLEN            ; the next row starts after the space
+        LDD     BLEN            ; the next row starts after the space
         JSR     SETRS
         ORCC    #1
         RTS
 TW1     PSHS    A
         JSR     GETRS
-        STB     TRS
-        LDB     BLEN
-        DECB
-        STB     TNEW
-TW2     CMPB    TRS             ; look back for the row's last space
+        STD     TRS
+        ADDD    #IBUF
+        STD     TLO
+        LDD     BLEN
+        SUBD    #1
+        STD     TNEW
+        ADDD    #IBUF
+        TFR     D,X             ; X = IBUF+TNEW
+TW2     CMPX    TLO             ; look back for the row's last space
         BLS     TWCH
-        DECB
-        LDX     #IBUF
-        ABX
-        LDA     ,X
+        LDA     ,-X
         CMPA    #32
         BNE     TW2
-        INCB                    ; B = the first character after it
-        STB     TWS
-TW3     CMPB    TNEW            ; rub the word out on this row
+        TFR     X,D             ; the space; the word starts after it
+        SUBD    #IBUF-1
+        STD     TWS
+TW3     CMPD    TNEW            ; rub the word out on this row
         BHS     TW4
-        PSHS    B
+        STD     TLOOP
         JSR     COLOF
         STB     ECOL
         LDA     #32
         JSR     ECHO
-        PULS    B
-        INCB
+        LDD     TLOOP
+        ADDD    #1
         BRA     TW3
 TW4     JSR     TNEXT
-        LDB     TWS
+        LDD     TWS
         JSR     SETRS
-TW5     CMPB    TNEW            ; and draw it at the start of the next
+TW5     CMPD    TNEW            ; and draw it at the start of the next
         BHS     TW6
-        PSHS    B
+        STD     TLOOP
         LDX     #IBUF
-        ABX
+        LEAX    D,X
         LDA     ,X
         JSR     ECHO
-        PULS    B
-        INCB
+        LDD     TLOOP
+        ADDD    #1
         BRA     TW5
 TW6     PULS    A
         ANDCC   #$FE
         RTS
 TWCH    JSR     TNEXT           ; no space: break at the character
-        LDB     TNEW
+        LDD     TNEW
         JSR     SETRS
         PULS    A
         ANDCC   #$FE
@@ -249,33 +312,54 @@ TNEXT   CLR     ECOL
         JSR     NEXTROW
         INC     TROW
         RTS
-; SETRS: RSTART[TROW] = B (B kept); GETRS: B = RSTART[TROW]
-SETRS   PSHS    B
+; SETRS: RSTART[TROW] = D (D kept); GETRS: D = RSTART[TROW]
+SETRS   PSHS    D
         LDX     #RSTART
         LDB     TROW
         ABX
-        PULS    B
-        STB     ,X
+        ABX
+        PULS    D
+        STD     ,X
         RTS
 GETRS   LDX     #RSTART
         LDB     TROW
         ABX
-        LDB     ,X
+        ABX
+        LDD     ,X
         RTS
-; COLOF: B = the column of typed character B on row TROW
-COLOF   PSHS    B
+; COLOF: B = the column of typed character D on row TROW
+COLOF   STD     TIDX
         JSR     GETRS
-        STB     TRS
-        PULS    B
-        SUBB    TRS
+        STD     TRS
+        LDD     TIDX
+        SUBD    TRS
         TST     TROW
         BNE     COL1
         ADDB    RCOL0
 COL1    RTS
 
-; FULL: a key past the 255th character is refused visibly: the screen flashes (CSS set: green becomes buff) for
-; about a tenth of a second (12000 passes of an 8-cycle loop at 0.89 MHz), then comes back
-FULL    LDA     #$F8            ; A/G=1, GM=7, CSS=1
+; FULL: a key past the BMAX-th character is refused visibly: a notice on the row under the line says the message
+; is full (once, until BACKSPACE, ENTER or BREAK takes it away), and the screen flashes.
+FULL    TST     NOTE
+        BNE     FLASH
+        LDA     ECOL
+        PSHS    A
+        JSR     NEXTROW         ; the row under the line (the screen scrolls if the line is on the last row)
+        LDA     CURROW
+        STA     NOTER
+        CLR     ECOL
+        LDX     #FULLMSG
+        JSR     PUTC
+        LDA     NOTER           ; back to the line's last row, where it was
+        DECA
+        STA     CURROW
+        PULS    A
+        STA     ECOL
+        LDA     #1
+        STA     NOTE
+; FLASH: the screen flashes (CSS set: green becomes buff) for about a tenth of a second (12000 passes of an
+; 8-cycle loop at 0.89 MHz), then comes back
+FLASH   LDA     #$F8            ; A/G=1, GM=7, CSS=1
         STA     $FF22
         LDX     #12000
 FULL1   LEAX    -1,X
@@ -286,8 +370,9 @@ FULL1   LEAX    -1,X
 
 ; Enter: queue the typed line (it goes out a byte at a time from the main loop), then show the wait; the
 ; next prompt comes when the reply ends ($04 from the page). An empty line is not sent.
-ENTER   LDA     BLEN
+ENTER   LDD     BLEN
         LBEQ    MAIN
+        JSR     NOTECLR
         JSR     NEWLINE         ; the typed line is done
         LDA     #1
         STA     WAIT
@@ -296,12 +381,14 @@ ENTER   LDA     BLEN
         JSR     PUTC
         JSR     NEWLINE         ; and the reply starts below it
         ; queue the line's bytes and the CR: SPOS = next byte to send, SPEND = something is queued
-        CLR     SPOS
-        LDA     BLEN
-        STA     SLEN            ; the line's length (the CR follows it)
+        LDD     #0
+        STD     SPOS
+        LDD     BLEN
+        STD     SLEN            ; the line's length (the CR follows it)
         LDA     #1
         STA     SPEND
-        CLR     BLEN
+        LDD     #0
+        STD     BLEN
         LBRA    MAIN
 
 ; SENDNEXT: if a line is queued and the page has taken the last byte, hand over the next one
@@ -313,16 +400,17 @@ SENDNEXT
         LDA     TXSTAT
         ANDA    #$80
         BNE     SNX             ; the page has not taken the last byte yet
-SN0     LDB     SPOS
-        CMPB    SLEN
+SN0     LDD     SPOS
+        CMPD    SLEN
         BLO     SNC1
         LDA     #13             ; past the line: the CR, the last byte
         CLR     SPEND
         BRA     SNC2
 SNC1    LDX     #IBUF
-        ABX                     ; (unsigned: LEAX A,X would go backwards from the 128th character)
+        LEAX    D,X
+        ADDD    #1
+        STD     SPOS
         LDA     ,X
-        INC     SPOS
 SNC2    TST     DWMODE
         BNE     SNDW
         STA     TXDATA
@@ -334,20 +422,25 @@ SNDW    LDB     #$80+DWCH       ; FASTWRITE on channel DWCH, then the byte
         STA     BDATA
 SNX     RTS
 
-BACK    LDB     BLEN
+BACK    JSR     NOTECLR
+        LDD     BLEN
         LBEQ    MAIN
-        DECB
-        STB     BLEN            ; B = index of the character taken back
+        SUBD    #1
+        STD     BLEN
+        STD     TBACK           ; the index of the character taken back
         TST     TROW
         BEQ     BK1
-        PSHS    B
         JSR     GETRS
-        STB     TRS
-        PULS    B
-        CMPB    TRS
-        BHS     BK1             ; it is on this row: rub it out where it is
+        CMPD    TBACK
+        BLS     BK1             ; it is on this row: rub it out where it is
         DEC     TROW            ; it is on the row above (this row is empty): go back there
-        DEC     CURROW
+        TST     CURROW
+        BNE     BK0
+        JSR     SCROLLDN        ; that row has scrolled off the top: bring it back, drawn again from IBUF
+        JSR     DRAWROW
+        BRA     BK2
+BK0     DEC     CURROW
+BK2     LDD     TBACK
         JSR     COLOF
         STB     ECOL
         CMPB    #COLS
@@ -364,8 +457,10 @@ BK1     LDA     #8
         JSR     ECHO
         LBRA    MAIN
 
-BREAK   JSR     FLUSHLINE       ; what was typed is dropped, and a fresh prompt starts
-        CLR     BLEN
+BREAK   JSR     NOTECLR
+        JSR     FLUSHLINE       ; what was typed is dropped, and a fresh prompt starts
+        LDD     #0
+        STD     BLEN
         CLR     ECOL
         LDX     #PROMPT
         JSR     PUTC
@@ -763,21 +858,69 @@ NEXTROW INC     CURROW
         DEC     CURROW
 NRD     RTS
 
-; SCROLL: move rows 1..23 up one row and clear the last row. The copy loop compares X against the end of
-; the screen: a 16-bit counter in D would be destroyed by LDA ,X+, which loads the high half of D.
+; SCROLL: move rows 1..23 up one row and clear the last row, two bytes a move (LDD/STD: the copy takes about
+; 40% fewer cycles than a byte at a time, so a frame drawn while it is part way, which shows the row at the copy's
+; edge twice, is seen for fewer frames). The loop compares X against the end of the screen (D carries the data).
 SCROLL  LDX     #SCREEN+256
         LDY     #SCREEN
-SC1     LDA     ,X+
-        STA     ,Y+
+SC1     LDD     ,X++
+        STD     ,Y++
         CMPX    #SCREEN+(ROWS)*256
         BNE     SC1
         LDX     #SCREEN+(ROWS-1)*256
-        LDB     #0
-        LDA     #0
-SC2     STA     ,X+
-        DECB
+        LDD     #0
+SC2     STD     ,X++
+        CMPX    #SCREEN+(ROWS)*256
         BNE     SC2
         RTS
+
+; SCROLLDN: move rows 0..22 down one row and clear row 0 (BACKSPACE into a row of the typed line that has
+; scrolled off the top)
+SCROLLDN LDX    #SCREEN+(ROWS-1)*256
+        LDY     #SCREEN+(ROWS)*256
+SD1     LDD     ,--X            ; (two bytes a move, as SCROLL)
+        STD     ,--Y
+        CMPX    #SCREEN
+        BNE     SD1
+        LDD     #0              ; X = SCREEN: clear row 0 (256 bytes)
+SD2     STD     ,X++
+        CMPX    #SCREEN+256
+        BNE     SD2
+        RTS
+; DRAWROW: draw row TROW of the typed line on screen row CURROW, from its start to the character before TBACK
+; (the prompt first on the line's first row)
+DRAWROW CLR     ECOL
+        TST     TROW
+        BNE     DR1
+        LDX     #PROMPT
+        JSR     PUTC
+        LDA     RCOL0
+        STA     ECOL
+DR1     JSR     GETRS
+DR2     CMPD    TBACK
+        BHS     DR3
+        STD     TLOOP
+        LDX     #IBUF
+        LEAX    D,X
+        LDA     ,X
+        JSR     ECHO
+        LDD     TLOOP
+        ADDD    #1
+        BRA     DR2
+DR3     RTS
+; NOTECLR: the "full" notice, if it is on the screen, is cleared
+NOTECLR TST     NOTE
+        BEQ     NC2
+        CLR     NOTE
+        LDA     NOTER
+        CLRB
+        ADDD    #SCREEN
+        TFR     D,X
+        CLRB
+NC1     CLR     ,X+
+        DECB
+        BNE     NC1
+NC2     RTS
 
 CLS     LDX     #SCREEN
         LDD     #0
@@ -832,6 +975,8 @@ PUTCD   RTS
 
 TEMP0   FCB     0
 PROMPT  FCC     "> "
+        FCB     0
+FULLMSG FCC     "[Full: 1024 characters. ENTER sends it.]"
         FCB     0
 THINK   FCC     "Thinking..."
         FCB     13,0
