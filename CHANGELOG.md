@@ -523,6 +523,9 @@ Next version: 0.1.9-pre (the plugin and extension manifests carry it; `tests/plu
 - **A steadier disk-mount browser check.** "The program ran on through the mount" required the test program's
   16-bit idle count to be higher after the mount than before, but the count wraps every 1.9 s, so a slow mount read
   as a stopped program. The check now requires that the count moved.
+- The release workflow's publish job had no checkout, so `gh release create` failed with "not a git repository": its step
+  now sets `GH_REPO`, and `tests/workflows-release.test.js` checks that every job that runs `gh` checks out or names the
+  repository.
 
 ### 0.1.9-pre
 
