@@ -15,6 +15,8 @@ const groups = cp.execFileSync(process.execPath, [path.join(ROOT, 'tools', 'brow
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bcs-'));
 fs.mkdirSync(path.join(dir, 'tools'));
 fs.symlinkSync(path.join(ROOT, 'tools', 'browser-check-lib.js'), path.join(dir, 'tools', 'browser-check-lib.js'));
+// the check's short-block classifier (the catch-up check requires it beside its lib)
+if (fs.existsSync(path.join(ROOT, 'tools', 'browser-check-audio.js'))) fs.symlinkSync(path.join(ROOT, 'tools', 'browser-check-audio.js'), path.join(dir, 'tools', 'browser-check-audio.js'));
 fs.symlinkSync(path.join(ROOT, 'tests'), path.join(dir, 'tests'));
 // the check also reads js/host/audio.js for SETTLE_MS (the tone check's settle bound), so the copy needs js/ too
 fs.symlinkSync(path.join(ROOT, 'js'), path.join(dir, 'js'));
