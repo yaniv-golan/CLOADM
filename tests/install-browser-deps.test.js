@@ -26,6 +26,9 @@ const fs = require('fs'), os = require('os'), path = require('path'), cp = requi
 
 let fail = 0;
 const check = (name, cond, detail = '') => { if (!cond) { fail++; console.log(`FAIL ${name} ${detail}`); } else console.log(`ok   ${name} ${detail}`); };
+// the one place a summary is printed (a suite has exactly one summary-shaped output: tests/allsummary.test.js), for the run
+// that skips and the run that does not
+function done(what) { console.log(fail ? `${fail} FAILED` : `all ${what} passed`); process.exitCode = fail ? 1 : 0; }
 // The script runs only on Linux runners and the test drives it with setsid and /proc (the lock holders and the process
 // groups it checks are Linux's): on a machine without them (macOS) the test says SKIP with that reason instead of failing
 // with "setsid: command not found". On CI (CI set, on Linux) it never takes that path: a missing setsid there is a failure.
@@ -55,8 +58,7 @@ function skipReason({ platform, env, haveSetsid, haveProc }) {
   if (reason) {
     console.log(`SKIP ${reason}`);
     // (the suites' verdict wants a summary line last: the skip rule's own cases are what ran)
-    console.log(fail ? `${fail} FAILED` : 'all skip-rule checks passed');
-    process.exitCode = fail ? 1 : 0;
+    done('skip-rule checks');
     return;   // (module scope: nothing below runs)
   }
 }
@@ -271,5 +273,4 @@ for (const wf of ['tests.yml', 'browser-daily.yml']) {
     /timeout-minutes: \d+\n\s+run: \.github\/scripts\/install-browser-deps\.sh/.test(t) && /key: playwright-debs-[\d.]+-\$\{\{ steps\.image\.outputs\.image \}\}/.test(t));
 }
 
-console.log(fail ? `${fail} FAILED` : 'all passed');
-process.exitCode = fail ? 1 : 0;
+done('install-browser-deps checks');
