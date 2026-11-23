@@ -121,6 +121,8 @@ The [README](../README.md#what-works) has the short version of this table.
 
 2048 and Minesweeper, written for CLOADM: the welcome menu's **5 PLAY A GAME**, which shows NEW GAMES FOR AN OLD MACHINE (1 2048, 2 Minesweeper, 0 back), `?start=2048` or `?start=minesweeper`, the Media tab's "Runs without ROMs", or `--program` on the command line. They draw on the VDG's 128x192 four-colour screen, play their sounds on the DAC and read the keys through the firmware, so they run on every 6809 model with 32K or more (Dragon, CoCo 1/2/3, the clones, the 6309 option), with or without ROMs; not on a 4K or 16K CoCo (CLOADM says so) or the MC-10 or Alice (6803). 2048: the arrows or W A S D slide the tiles, R starts again. A move is animated: its tiles travel to where they land, the joined squares flash once, then the new tile pops in; a key pressed during the animation ends it at once and is played as the next move. Minesweeper (8x8, ten mines, the first square always safe): the arrows or either joystick (or the keyboard joystick) move the cursor, SPACE or ENTER opens, F flags, R starts again. On a joystick, fire opens on a tap and flags when held 0.4 s, and after a win or a loss fire starts again once you let it go. BREAK (Esc), on the title page too, leaves a game: without ROMs for the menu, which then offers it as its last option; with BASIC ROMs back to BASIC, started afresh (the game draws over the memory BASIC keeps its program and a disk system its workspace in, so a BASIC program in memory is not kept when a game runs; save it first).
 
+Each program has a page of its own for sharing, with its own preview picture: [cloadm.dev/2048/](https://cloadm.dev/2048/), [cloadm.dev/liza/](https://cloadm.dev/liza/) and [cloadm.dev/minesweeper/](https://cloadm.dev/minesweeper/). Opening one goes straight to `/play/?start=<program>`.
+
 Sources: `examples/2048.asm`, `examples/minesweeper.asm`, `examples/games.inc`
 
 
@@ -383,8 +385,10 @@ with a snapshot can pass 1000 characters and some share targets cut it short. Un
 a true-pixel screenshot and the snapshot file (its size is on the button); under **Embed in a web page**: the embed code. A
 line under the picture says what the link does, and a ROM line says whether the person opening it needs their own ROMs. While NitrOS-9 runs
 the link starts NitrOS-9 fresh instead (no snapshot file). The link there carries the moment itself (the snapshot rides in the
-fragment after `#s=`, which browsers never send to a server, so the link is long: about 4 to 10 KB), and the
-embed builder writes the iframe and script for the machine, program and options you pick.
+fragment after `#z=`, which browsers never send to a server: a version byte, then the snapshot packed with deflate,
+its byte arrays raw rather than in base64, and without the rendered picture, which the machine draws again on the first
+frame after it opens; about 2 to 8 KB, LIZA's about 5 KB). Links made by earlier versions, with `#s=` (the snapshot
+file itself in base64url), still open, and saved `.cloadm` files are unchanged. The embed builder writes the iframe and script for the machine, program and options you pick.
 
 A shared moment holds no byte of a ROM or a cartridge (`Session.shareFile`, `js/media/romrefs.js`), even when it ran
 on your own ROMs. It names them by CRC: the machine's ROMs, the cartridge's image, a disk controller's disk ROM. Every

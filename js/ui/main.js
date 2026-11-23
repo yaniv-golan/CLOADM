@@ -331,8 +331,9 @@ const starting = welcome.start(visit, { fromLink, withMedia: link.roms.length > 
     } catch (e) { page.status(`Could not load ${kind}=${url}: ${linkFetchError(e)}`, true); }
   }
   await starting;
-  // a share link's moment (#s=, Share screen): opened like a dropped snapshot, once the visit has started
-  if (location.hash.startsWith('#s=')) await snapshots.takeLink(location.hash);
+  // a share link's moment (#z=, Share screen; #s= from earlier versions): opened like a dropped snapshot, once the
+  // visit has started
+  if (/^#[sz]=/.test(location.hash)) await snapshots.takeLink(location.hash);
   // ?nitros9=: NitrOS-9 boots from the user's own DriveWire image (never one in the link)
   if (link.nitros9) await nitros9.fromLink(link.nitros9);
   // ?app=claude: the chat opens once the link's ROMs are in (the BASIC session kept beside it uses them). Not in an

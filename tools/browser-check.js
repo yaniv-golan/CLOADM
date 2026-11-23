@@ -2019,7 +2019,7 @@ async function nitros9Checks(browser, base, check) {
   await waitFor(page, () => !document.getElementById('share').hidden && !!document.getElementById('shareLink').value);
   const link = await page.inputValue('#shareLink');
   check('nitros9: Share gives a link with nitros9=1 and no snapshot or image name; the snapshot download is off',
-    /nitros9=1/.test(link) && /machine=coco3/.test(link) && !/#s=/.test(link) && !/myboot/.test(link) && await page.isDisabled('#btnShareDownload') &&
+    /nitros9=1/.test(link) && /machine=coco3/.test(link) && !/#[sz]=/.test(link) && !/myboot/.test(link) && await page.isDisabled('#btnShareDownload') &&
     /^The link starts NitrOS-9 fresh on the CoCo 3; it can't hold this exact moment\.$/.test(await page.textContent('#shareNote')) && !/\d KB/.test(await page.textContent('#btnShareDownload')) &&
     /their own NitrOS-9 DriveWire image/.test(await page.textContent('#shareExtra')), link);
   await page.click('#shareBack');
@@ -10878,7 +10878,7 @@ async function uiCopyChecks(browser, base, check) {
       check(`deep link: ${what}: no page errors`, !errors.length, errors.join('; '));
       await ctx.close();
     }
-    for (const hash of ['#share=junk', '#s=junk']) {
+    for (const hash of ['#share=junk', '#s=junk', '#z=junk']) {
       const { ctx, page, errors } = await open({ width: 1280, height: 720 }, `?machine=dragon64${hash}`);
       await started(page);
       await waitFor(page, () => window.emu.linkDone === true && /share link|snapshot/i.test(document.getElementById('toastText').textContent), null, 15000);
@@ -15067,7 +15067,7 @@ async function shareChecks(browser, base, site, check) {
     // emits every non-LOCAL profile option, so a list here would drift with the next option or default. The
     // machine is pinned; the rest is "whatever options this model has".
     const link = await page.inputValue('#shareLink');
-    check('share: the link points at /play/ with this machine, the snapshot in the fragment', /\/play\/\?machine=dragon64(&[a-z]+=[^&#]*)*#s=[A-Za-z0-9_-]{1000,}$/.test(link), link.slice(0, 80));
+    check('share: the link points at /play/ with this machine, the snapshot in the fragment (#z=)', /\/play\/\?machine=dragon64(&[a-z]+=[^&#]*)*#z=[A-Za-z0-9_-]{1000,}$/.test(link), link.slice(0, 80));
     const ctx2 = await browser.newContext({ serviceWorkers: 'block' });
     // every message the page says, recorded from its start: a 4 s toast can end before a loaded machine reads it
     await ctx2.addInitScript(() => { window.__said = []; document.addEventListener('DOMContentLoaded', () => { const t = document.getElementById('toastText');
@@ -15087,6 +15087,18 @@ async function shareChecks(browser, base, site, check) {
     await linkIn(p2b);
     check('share: a cut-short link says its snapshot is damaged', await waitFor(p2b, () => window.__said.some((m) => /damaged/.test(m)))
       && await p2b.evaluate(() => !window.__said.some((m) => /Snapshot opened/.test(m))), await said(p2b));
+    // a link in the form earlier versions wrote (#s=, base64url of the .cloadm file) still opens the moment
+    const oldLink = link.split('#')[0] + '#s=' + await page.evaluate(async () => {
+      const f = await window.emu.session.shareFile();
+      let t = ''; for (const b of f.bytes) t += String.fromCharCode(b);
+      return btoa(t).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    });
+    const p2c = await ctx2.newPage();
+    await p2c.goto(oldLink);
+    await linkIn(p2c);
+    check('share: a link in the earlier form (#s=) still opens that moment', await p2c.evaluate(() => window.emu.machine.ram[1030] === 42 && location.hash === '')
+      && await waitFor(p2c, () => window.__said.some((m) => /^Snapshot opened: Dragon 64/.test(m))) && await p2c.evaluate(() => !window.__said.some((m) => /^ERROR /.test(m))),
+      `${oldLink.length} characters (the #z= link: ${link.length}) · ${await said(p2c)}`);
     await ctx2.close();
 
     // the clip
@@ -15149,7 +15161,7 @@ async function shareChecks(browser, base, site, check) {
     const shared = await page.evaluate(async () => ({ link: document.getElementById('shareLink').value, recipient: document.getElementById('shareRom').textContent,
       labels: (await window.emu.session.shareFile()).needs.map((x) => x.label) }));
     // the line names what the snapshot itself names (its needs' labels), whatever they are
-    check('share: with your own ROMs the moment is shared, and the ROM line names the ROMs the snapshot needs', /#s=/.test(shared.link) && shared.labels.length > 0
+    check('share: with your own ROMs the moment is shared, and the ROM line names the ROMs the snapshot needs', /#z=/.test(shared.link) && shared.labels.length > 0
       && shared.recipient === `Needs ${shared.labels.join(' and ')}: the person opening it adds their own.` && /32K-mode BASIC and 64K-mode BASIC/.test(shared.recipient), JSON.stringify(shared));
     const W = 16, uni = (a, k) => a.slice(k, k + W).every((v) => v === a[k]);
     const romWindows = new Set();
@@ -18698,8 +18710,8 @@ async function askPopoutChecks(browser, site, check) {
   await frame.evaluate(() => { [0xA5, 0x5A, 0x13].forEach((v, i) => window.emu.session.personMachine.poke(0x3000 + i, v)); });
   const a = await linkOf(frame, 'btnAskPop');
   check(`${L}: framed: the app bar's button reads "Ask Claude ↗", in the bar, and the chat's own Ask button is gone`, a.text === 'Ask Claude ↗' && a.shown && a.inBar && a.ask === false, JSON.stringify(a));
-  check(`${L}: framed: the href has app=claude, no embed parameter, and the moment's snapshot (#s=) for this machine`,
-    a.app === 'claude' && a.embed && a.embed.length === 0 && a.hash === '#s=' && a.machine === 'dragon64' && a.snapMachine === 'dragon64', JSON.stringify(a));
+  check(`${L}: framed: the href has app=claude, no embed parameter, and the moment's snapshot (#z=) for this machine`,
+    a.app === 'claude' && a.embed && a.embed.length === 0 && a.hash === '#z=' && a.machine === 'dragon64' && a.snapMachine === 'dragon64', JSON.stringify(a));
   check(`${L}: framed: a new tab with no opener or referrer (target=_blank, rel="noopener noreferrer")`,
     a.target === '_blank' && a.rel.split(/\s+/).includes('noopener') && a.rel.split(/\s+/).includes('noreferrer'), JSON.stringify({ target: a.target, rel: a.rel }));
   check(`${L}: framed: its tooltip and description say it opens this machine as it is now, and why`, a.title === CARRIED && a.desc === CARRIED && a.carried === '1', JSON.stringify({ title: a.title, desc: a.desc }));
@@ -18761,7 +18773,7 @@ async function askPopoutChecks(browser, site, check) {
   const menu = pf ? await pf.evaluate(() => { const r = (id) => document.getElementById(id).getBoundingClientRect(), a = r('btnAskPop'), m = r('btnMenu');
     return { aRight: a.right, mLeft: m.left, h: a.height, menuShown: document.getElementById('btnMenu').checkVisibility() }; }) : null;
   check(`${L}: framed at phone width: "Ask Claude ↗" is in the bar beside Menu (44 px high), with the same link`,
-    pa && pa.shown && pa.inBar && pa.text === 'Ask Claude ↗' && pa.app === 'claude' && pa.hash === '#s=' && menu.menuShown && menu.aRight <= menu.mLeft + 1 && menu.h >= 44,
+    pa && pa.shown && pa.inBar && pa.text === 'Ask Claude ↗' && pa.app === 'claude' && pa.hash === '#z=' && menu.menuShown && menu.aRight <= menu.mLeft + 1 && menu.h >= 44,
     JSON.stringify({ pa, menu }));
   if (shotDir) await phone.screenshot({ path: path.join(shotDir, 'ask-popout-phone.png') });
   await phone.close();
@@ -18775,7 +18787,7 @@ async function askPopoutChecks(browser, site, check) {
   if (nf) await nf.setInputFiles('#n9File', { name: 'myboot.dsk', mimeType: 'application/octet-stream', buffer: Buffer.from(makeOs9Disk(Emu, { cpu: '6309' })) });
   const running = nf && await waitFor(nf, () => window.emu.session.nitros9Running, null, 30000);
   const na = running ? await linkOf(nf, 'btnAskPop') : null;
-  check(`${L}: NitrOS-9 framed: no snapshot in the link (no #s=), app=claude on the CoCo 3, no nitros9= and no embed`,
+  check(`${L}: NitrOS-9 framed: no snapshot in the link (no #z=), app=claude on the CoCo 3, no nitros9= and no embed`,
     na && na.hash === '' && na.app === 'claude' && na.machine === 'coco3' && !na.nitros9 && na.embed.length === 0, JSON.stringify(na));
   check(`${L}: NitrOS-9 framed: the "fresh" tooltip and description`, na && na.title === FRESH && na.desc === FRESH && na.carried === '0', JSON.stringify(na && { title: na.title, desc: na.desc }));
   await n9.close();
@@ -18795,7 +18807,7 @@ async function askPopoutChecks(browser, site, check) {
     return { right: s.right - c.right, bottom: s.bottom - c.bottom, w: c.width }; }) : null;
   check(`${L}: ?embed=1&askclaude=1: a chip "Ask Claude ↗" in the screen's bottom-right corner`, chip && chip.shown && chip.text === 'Ask Claude ↗' && corner.right >= 0 && corner.right < 40 && corner.bottom >= 0 && corner.bottom < 40, JSON.stringify({ chip, corner }));
   check(`${L}: the chip's link follows the same rules (app=claude, no embed, the snapshot, a new tab with noopener)`,
-    chip && chip.app === 'claude' && chip.embed.length === 0 && chip.hash === '#s=' && chip.snapMachine === 'dragon64' && chip.target === '_blank' && /\bnoopener\b/.test(chip.rel) && chip.title === CARRIED, JSON.stringify(chip));
+    chip && chip.app === 'claude' && chip.embed.length === 0 && chip.hash === '#z=' && chip.snapMachine === 'dragon64' && chip.target === '_blank' && /\bnoopener\b/.test(chip.rel) && chip.title === CARRIED, JSON.stringify(chip));
   if (shotDir) await opted.screenshot({ path: path.join(shotDir, 'ask-popout-embed-chip.png') });
   const [chipPop] = await Promise.all([ctx.waitForEvent('page', { timeout: 15000 }), of.click('#embedAsk')]);
   const okChip = await waitFor(chipPop, () => !!window.emu && window.emu.started === true, null, 60000);

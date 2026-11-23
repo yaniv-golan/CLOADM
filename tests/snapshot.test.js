@@ -463,8 +463,8 @@ const picture = (m) => { let h = 0x811C9DC5; for (const v of m.render().data) h 
     s.shownMachine.poke(0x2000, 0x5A);
     const link = await s.snapshotLink('https://cloadm.dev/play/?start=liza#share');
     const u = new URL(link);
-    check('share link: /play/ with the machine and its options, the snapshot after #s= in base64url',
-      u.pathname === '/play/' && u.search === '?machine=coco3&cpu=6809&ram=128&becker=0&ssc=none' && /^#s=[A-Za-z0-9_-]+$/.test(u.hash), link.slice(0, 90));
+    check('share link: /play/ with the machine and its options, the snapshot after #z= in base64url (tests/snapshot-link.test.js: the form)',
+      u.pathname === '/play/' && u.search === '?machine=coco3&cpu=6809&ram=128&becker=0&ssc=none' && /^#z=[A-Za-z0-9_-]+$/.test(u.hash), link.slice(0, 90));
     const ref = run(s.shownMachine, 0);
     const b = new Emu.Session();
     b.switchMachine('dragon64');
@@ -472,9 +472,9 @@ const picture = (m) => { let h = 0x811C9DC5; for (const v of m.render().data) h 
     b.openSnapshot(snap);
     check('share link: read back in a fresh Session, the same machine, config and memory', b.shownMachine.id === 'coco3' && b.shownMachine.config.ram === 128
       && run(b.shownMachine, 0) === ref && b.shownMachine.peek(0x2000) === 0x5A);
-    check('share link: no #s= is no snapshot', (await b.readSnapshotLink('#share')) === null && (await b.readSnapshotLink('')) === null);
+    check('share link: no #z= or #s= is no snapshot', (await b.readSnapshotLink('#share')) === null && (await b.readSnapshotLink('')) === null);
     const cut = await rejects(b.readSnapshotLink(u.hash.slice(0, u.hash.length - 300)));
-    const bad = await rejects(b.readSnapshotLink('#s=not*base64!'));
+    const bad = await rejects(b.readSnapshotLink('#z=not*base64!'));
     const junk = await rejects(b.readSnapshotLink('#s=' + Buffer.from('hello').toString('base64url')));
     check('share link: cut short, changed or not a snapshot: "damaged", as a SessionError', [cut, bad, junk].every((e) => e instanceof Emu.SessionError && /This link's snapshot is damaged/.test(e.message)),
       [cut, bad, junk].map((e) => e && e.message).join(' | '));

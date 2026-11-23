@@ -69,7 +69,7 @@ export const CLAUDE_PAUSED_SHORT = 'Paused: you pressed a key · Esc stops Claud
 // a message's text: a string, or the text blocks of a content array
 import { RomLibrary, identifyRoms, isBootable, isRomPack, looksLikeRom, makeRomPack, restoreRomPack, socketStatus } from './roms.js';
 import { writeZip } from './media/zip.js';
-import { SNAPSHOT_EXT, SnapshotError, decodeSnapshot, encodeSnapshot } from './media/snapshot.js';
+import { SNAPSHOT_EXT, SnapshotError, decodeSnapshot, decodeSnapshotLink, encodeSnapshot, encodeSnapshotLink } from './media/snapshot.js';
 import { missingImages, restoreRoms, stripRoms } from './media/romrefs.js';
 import { crc32, hex, registry, toBase64Url, fromBase64Url } from './util.js';
 import { buildUrl, NITROS9_MACHINES } from './config.js';
@@ -1697,7 +1697,7 @@ export class Session {
       try { file = await this.shareFile(); } catch (e) { if (!(e instanceof SessionError)) throw e; }
     }
     if (!file) return { href: this.shareUrl(base, { app: 'claude', nitros9: null }), carried: false };
-    return { href: `${this.shareUrl(base, { app: 'claude' }).split('#')[0]}#s=${toBase64Url(file.bytes)}`, carried: true };
+    return { href: `${this.shareUrl(base, { app: 'claude' }).split('#')[0]}#z=${toBase64Url(await encodeSnapshotLink(file.moment.snap, file.moment.meta))}`, carried: true };
   }
 
   // ---------------- snapshots ----------------
@@ -1705,13 +1705,13 @@ export class Session {
   // Opening one: readSnapshot (the file), snapshotSwitch (does the machine in use have to change? ask first),
   // openSnapshot (switches if needed, sets the same ROMs from this browser's or the stub, restores).
 
-  // the moment as a link (Share): this machine's link with the snapshot in the fragment (#s=, base64url of the
-  // .cloadm file, so it never reaches a server). Opening it: readSnapshotLink, then the usual snapshot flow.
-  // The snapshot is the shared one (shareFile): no byte of a ROM or cartridge image, only references to them.
-  // file: a shareFile already made for this moment (the Share screen offers both), or made here
+  // the moment as a link (Share): this machine's link with the snapshot in the fragment (#z=, base64url of the compact
+  // link form, js/media/snapshot.js encodeSnapshotLink, so it never reaches a server). Opening it: readSnapshotLink,
+  // then the usual snapshot flow. The snapshot is the shared one (shareFile): no byte of a ROM or cartridge image, only
+  // references to them. file: a shareFile already made for this moment (the Share screen offers both), or made here
   async snapshotLink(base, file = null) {
     const f = file || await this.shareFile();
-    return `${this.shareUrl(base).split('#')[0]}#s=${toBase64Url(f.bytes)}`;
+    return `${this.shareUrl(base).split('#')[0]}#z=${toBase64Url(await encodeSnapshotLink(f.moment.snap, f.moment.meta))}`;
   }
   // The moment as a file to give to someone (the Share screen's link and snapshot file): the snapshot with its ROM
   // code taken out (js/media/romrefs.js). The machine's ROMs, a cartridge's image and a disk controller's DOS ROM
@@ -1726,8 +1726,10 @@ export class Session {
     let snap;
     try { snap = stripRoms(m.snapshot(), own); }
     catch (e) { throw new SessionError(`This snapshot can't be shared: ${e.message}. Share the picture or a clip instead.`); }
-    const bytes = await encodeSnapshot(snap, { name: m.profile.name, taken: now.toISOString() });
-    return { name: `${m.profile.name.replace(/[^A-Za-z0-9]+/g, '')}-${stamp(now)}${SNAPSHOT_EXT}`, bytes, needs: snap.share.images, dropped: snap.share.dropped };
+    const meta = { name: m.profile.name, taken: now.toISOString() };
+    const bytes = await encodeSnapshot(snap, meta);
+    // moment: what the file holds, for snapshotLink to write the same moment in the link's form
+    return { name: `${m.profile.name.replace(/[^A-Za-z0-9]+/g, '')}-${stamp(now)}${SNAPSHOT_EXT}`, bytes, needs: snap.share.images, dropped: snap.share.dropped, moment: { snap, meta } };
   }
   // Can ROM code be in the machine's memory? 'roms' (the user's own ROMs are loaded), 'cartridge' (a cartridge is
   // plugged in), 'nitros9' (NitrOS-9 from the user's own image runs: bootNitros9) or null (the built-in stub, no
@@ -1744,13 +1746,19 @@ export class Session {
     if (m.cartPort) return 'cartridge';
     return null;
   }
-  // a URL's fragment ('#s=...') -> the snapshot, null when it has none; SessionError when it is damaged
+  // a URL's fragment -> the snapshot, null when it has none; SessionError when it is damaged. '#z=' is the link form
+  // snapshotLink writes (js/media/snapshot.js decodeSnapshotLink; its picture is drawn again on the next frame);
+  // '#s=' (base64url of a .cloadm file) is what earlier versions wrote, and is read for good.
   async readSnapshotLink(hash) {
-    const m = /^#?s=(.*)$/.exec(hash || '');
+    const m = /^#?([sz])=(.*)$/.exec(hash || '');
     if (!m) return null;
     const damaged = new SessionError('This link\'s snapshot is damaged: it was cut short or changed on the way.');
     let bytes;
-    try { bytes = fromBase64Url(m[1]); } catch (e) { throw damaged; }
+    try { bytes = fromBase64Url(m[2]); } catch (e) { throw damaged; }
+    if (m[1] === 'z') {
+      try { return await decodeSnapshotLink(bytes); }
+      catch (e) { throw e instanceof SnapshotError && /newer CLOADM/.test(e.message) ? new SessionError(e.message) : damaged; }
+    }
     try { return await this.readSnapshot(bytes); } catch (e) { throw e instanceof SessionError && /newer CLOADM/.test(e.message) ? e : damaged; }
   }
   // the moment as a file -> { name, bytes }

@@ -1733,6 +1733,22 @@ MAME artefacts reproduced only under `config.mameCompat` (the comparisons turn i
   accesses at the instruction's start, the HS start is truncated one clock early, and a write before that start
   freezes the rest of the line (`js/machines/mc10.js`).
 
+## Share links (`#z=`) and the program pages
+
+No MAME oracle: a link is a container, not hardware. `tests/snapshot-link.test.js` decodes a link built byte by byte
+here (a deflate stored block, RFC 1951 3.2.4, around a hand-written skeleton and arrays) and checks the encoder's
+unpacked container against bytes written out by hand; it opens a `#z=` link made on every model in a fresh Session and
+runs it on identically to the original (instructions, cycles, memory, frames after the first), opens the `#s=` form
+earlier versions wrote, and refuses damaged, cut, oversized and newer links with a message. `tests/state.test.js`
+(section 4.5) takes the moment mid-frame on the Dragon 64, CoCo 3 and MC-10: from the link the machine runs on with the
+same trace, sound and frames, and its first frame is the file's picture except the rows the beam had already drawn,
+still cleared. `tests/share-roms.test.js` decodes the link itself with Node's zlib and finds no 16-byte window of any
+ROM stand-in in it. The browser check (`share`) opens a `#z=` link and an `#s=` link in another profile.
+
+The program pages' cards are made on the built-in firmware (`tools/program-cards.js` refuses when a ROM or cartridge is
+loaded); `tests/program-pages.test.js` checks the committed pages and cards are what it makes, decoding the PNGs with
+Node's zlib, and checks the PNG writer against a file worked out by hand from the specification.
+
 ## NitrOS-9 boot test
 
 What the page's **Boot NitrOS-9** ([using.md](using.md#booting-nitros-9)) rests on. `tests/nitros9.test.js` boots the official NitrOS-9
