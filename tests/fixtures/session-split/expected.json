@@ -74,7 +74,7 @@
     "n": 2,
     "empty": false,
     "machine": "dragon64",
-    "size": 321295
+    "size": 1355126
    },
    {
     "n": 3,
@@ -108,7 +108,7 @@
    },
    {
     "name": "library/snapshots/slot-2.cloadm",
-    "size": 321295,
+    "size": 1355126,
     "sha": "c5da7df480cc66ed8403e17cd115c0af08e554ff2191c2ccb4d6d58fdce48255"
    },
    {
@@ -170,7 +170,7 @@
    },
    {
     "name": "library/snapshots/slot-2.cloadm",
-    "size": 321295,
+    "size": 1355126,
     "sha": "c5da7df480cc66ed8403e17cd115c0af08e554ff2191c2ccb4d6d58fdce48255"
    },
    {
@@ -223,7 +223,7 @@
    },
    {
     "name": "library/snapshots/slot-2.cloadm",
-    "size": 321295
+    "size": 1355126
    }
   ],
   "remount": "work.vdk in drive 0",

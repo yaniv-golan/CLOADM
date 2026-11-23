@@ -17,4 +17,9 @@ function sameGzipContents(a, b) {
   return i < 0 ? { same: true, why: '' } : { same: false, why: `the contents differ at byte ${i}` };
 }
 
-module.exports = { sameGzipContents };
+// The operating system byte (RFC 1952, byte 9) this machine's own gzip writes (3 on Linux, 19 on macOS), and one that
+// is not it: what a stand-in for another machine must write for its files to differ from this one's.
+const hostOsByte = () => zlib.gzipSync(Buffer.alloc(0))[9];
+const otherOsByte = () => (hostOsByte() === 19 ? 3 : 19);
+
+module.exports = { sameGzipContents, hostOsByte, otherOsByte };
