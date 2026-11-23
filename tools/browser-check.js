@@ -12350,6 +12350,29 @@ async function askEscChecks(browser, base, check) {
     // which depends on the fonts: either is right; feedbackModel checks the free place with a short toast)
     check(`${L}: the toast covers none of the sheet's controls (no Stop under a toast)`, where.up && !where.onSheetControl, JSON.stringify(where));
     check(`${L}: the pill does not come and go while the toast shows`, flips <= 1, `flips ${flips}`);
+    // ... and again and again. One run of that scenario passes or fails by the luck of when the pill's re-evaluation (every
+    // ten frames) lands against the toast's placement, so a loop that depends on its own last output showed in about one run
+    // in four. Twenty toasts in a row, each raised, kept up for 90 frames and cleared, on this one page: none may make the
+    // pill come and go (at most one change of the pill per toast, never two).
+    // (What turns it red: the two halves of the fix removed together. A toast kept in its natural bottom place covers the
+    // Stop (the placement checks above fail, the pill checks stay green), and the pill decided from the page as the class
+    // left it instead of the reference state (the `claude-float` line in js/ui/ask.js) is green too while the toast
+    // stays off the Stop; both together make the loop, 8 or 9 changes of the pill per toast.)
+    const reps = await page.evaluate(async () => {
+      const v = document.getElementById('viewClaude'), frames = (n) => new Promise((done) => { let k = 0; const f = () => (++k >= n ? done() : requestAnimationFrame(f)); f(); });
+      const words = 'A toast over the bottom of the window, long enough to wrap onto several lines on a phone, so that it lies over the sheet\'s Stop button at the bottom edge of the window for as long as it shows';
+      const flips = [];
+      for (let i = 0; i < 20; i++) {
+        window.emu.feedback.clear(); await frames(6);
+        let n = 0, was = v.hidden; const obs = new MutationObserver(() => { if (v.hidden !== was) { n++; was = v.hidden; } });
+        obs.observe(v, { attributes: true });
+        window.emu.feedback.toast(`${words} (${i})`); await frames(90);
+        obs.disconnect(); flips.push(n);
+      }
+      window.emu.feedback.clear();
+      return flips;
+    });
+    check(`${L}: 20 toasts in a row: the pill never comes and goes for any of them`, reps.length === 20 && reps.every((n) => n <= 1), JSON.stringify(reps));
     // THE INVARIANT THE PILL EXISTS FOR: while the turn runs, the person must be able to reach a Stop. A pill that has
     // gone while NOTHING can be clicked is worse than one that flashes. Assert it against the page.
     const reach = await page.evaluate(() => {
