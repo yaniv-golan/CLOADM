@@ -17,7 +17,6 @@
 import { cartridgeFor, MultiPak, CART_BOARDS } from './machines/carts.js';
 import { devices } from './machines/bus.js';
 import { DiskController } from './machines/fdc.js';
-import { flipCase } from './host/media-store.js';
 import { KeyQueue } from './machines/keyqueue.js';
 import { charToKeys } from './machines/keyboards.js';
 import { cartridgeRoms, createMachine, profiles, resolveConfig, restoreSnapshot } from './machines/profiles.js';
