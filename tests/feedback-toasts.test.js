@@ -17,9 +17,12 @@
 //    a toast does not bring any other forward: there is nothing behind it to advance to.
 //  * The user's next action (pointerdown outside the toast) clears a toast that has been seen (next(), line 217);
 //    leaving its page clears it (viewChanged()), and pagehide ends it ('closed').
-// Not asserted here: the timer of a toast that REPLACES a focused one while the focus is still inside the box. The
-// replacement is armed without a new focusin, so its 4 s run although the focus sits in the box: whether that meets
-// R24 (kept while focused) is a question for the maintainers, not something this file settles by asserting it.
+//  * UX R45: a new toast replaces a focused or hovered one, without hiding the box; it starts paused while the focus
+//    is inside the box (or the pointer over it), and its full time runs from the focusout or pointerleave. The focus
+//    stays on the action button only for the same action object, else it moves to the box (tabindex -1).
+//  * UX R45: a toast with no free place takes the top slot at once, provisionally: while a control is still in an
+//    animation of its own (300 ms at most) it moves to a free place as soon as one opens; then it is pinned for good.
+//    A hovered or focused provisional toast is not moved.
 const path = require('path');
 
 let fail = 0;
@@ -60,18 +63,38 @@ class El {
   matches() { return false; }
   contains(n) { return n === this || this.kids.includes(n); }
   setAttribute() {} removeAttribute() {}
+  focus() { document.activeElement = this; focusCalls.push(this.id); }
 }
+const focusCalls = [];
 const els = {};
 const get = (id) => (els[id] = els[id] || new El(id));
 const box = get('toast'); box.kids = []; box.matches = (sel) => sel === ':hover' && state.hover;
+let boxRect = null;   // (R47's phone case sets where the stylesheet puts the toast)
+box.getBoundingClientRect = () => boxRect || { left: 400, top: 600, width: 300, height: 40, right: 700, bottom: 640 };
 const region = new El('toastRegion'); box.parentNode = region;
+const body = { insertBefore(el) { el.parentNode = body; } };
+region.parentNode = body; region.nextSibling = null;
+const layer = { open: false, shows: 0, attr: false };
+Object.assign(region, { showPopover() { layer.open = true; layer.shows++; }, hidePopover() { layer.open = false; },
+  matches: (sel) => sel === ':popover-open' && layer.open, removeAttribute(a) { if (a === 'popover') layer.attr = false; } });
+Object.defineProperty(region, 'popover', { set: (v) => { layer.attr = !!v; }, get: () => (layer.attr ? 'manual' : null) });
 const inside = new El('toastButton'); box.kids.push(inside);   // something inside the toast that can hold the focus
 const outside = new El('somewhere else');
 const state = { hover: false };
+// the page's controls, for the placement tests: [{ rect, animations }] (none by default)
+let controls = [];
+// R47: opaque overlays ([data-occludes]) and a modal dialog, each with its own buttons
+let overlays = [], modal = null;
+const rectOf = (left, top, right, bottom) => ({ left, top, right, bottom, width: right - left, height: bottom - top });
+const overlay = (id, r, buttons = [], running = false) => ({ id, hidden: false, r, running, getBoundingClientRect() { return this.r; },
+  getAnimations() { return this.running ? [{ playState: 'running', pending: false, effect: { getComputedTiming: () => ({ endTime: 200 }) } }] : []; },
+  contains: () => false, querySelectorAll: () => buttons.map((b) => ({ getBoundingClientRect: () => b })) });
+const control = (rect, running = false) => ({ getBoundingClientRect: () => rect.r, getAnimations: () => (rect.running ? [{ playState: 'running', pending: false, effect: { getComputedTiming: () => ({ endTime: 200 }) } }] : []), rect });
 const docListeners = {};
 globalThis.document = {
   getElementById: get,
-  querySelectorAll: () => [], querySelector: () => null,
+  querySelectorAll: (sel) => (sel.includes('.controls') ? controls : sel === '[data-occludes]' ? overlays : sel === 'dialog:modal' && modal ? [modal] : []),
+  querySelector: () => null,
   body: { classList: new ClassList() },
   documentElement: {},
   activeElement: null,
@@ -210,6 +233,180 @@ globalThis.matchMedia = () => ({ matches: false });
     fb.toast('newer');
     check('focus: a newer toast is not held back by a focused one: it replaces it at once (the old is ended "replaced")', fb.current.text === 'newer' && log.join() === 'replaced', log.join());
     document.activeElement = null;
+  }
+
+  // ---- R45: a new toast replaces a focused or hovered one, and where the focus goes ----
+  const LONG_ACTION = (label) => ({ label, run() {} });
+  {
+    // focus on A's button, B with another action: B up and paused, focus on the box, the box never hidden
+    const fb = fresh(), a = LONG_ACTION('Undo'), b = LONG_ACTION('Undo');
+    fb.toast('A', { action: a });
+    // every write of box.hidden = true is recorded (a hide and show within one task would leave no trace otherwise)
+    let hides = 0, hiddenNow = box.hidden; const watch = () => {};
+    Object.defineProperty(box, 'hidden', { configurable: true, get: () => hiddenNow, set: (v) => { if (v && !hiddenNow) hides++; hiddenNow = v; } });
+    document.activeElement = get('toastAction'); box.kids.push(get('toastAction')); box.fire('focusin');
+    focusCalls.length = 0;
+    const log = [];
+    fb.toast('B', { action: b, onEnd: (r) => log.push(r) }); watch(); frame(); watch();
+    check('R45 focus: the focus moves to the box when B has another action (equal label, other object)', document.activeElement === box && focusCalls.join() === 'toast', focusCalls.join());
+    check('R45 focus: the box is never hidden by the replacement', hides === 0 && box.hidden === false, `${hides} hides`);
+    delete box.hidden; box.hidden = hiddenNow;
+    advance(10000);
+    check('R45 focus: B, focused, is still up 10 s later (it started paused)', fb.current && fb.current.text === 'B' && log.length === 0);
+    document.activeElement = outside; box.fire('focusout'); advance(0);
+    advance(LONG - 1);
+    check('R45 focus: after the focus leaves, B has its full 8 s (up 1 ms before)', fb.current !== null);
+    advance(1);
+    check('R45 focus: ... and goes at 8 s', fb.current === null && log.join() === 'timeout', log.join());
+  }
+  {
+    // the same action object: the focus stays on the button
+    const fb = fresh(), a = LONG_ACTION('Undo');
+    fb.toast('A', { action: a });
+    document.activeElement = get('toastAction'); box.fire('focusin');
+    focusCalls.length = 0;
+    fb.toast('B', { action: a }); frame();
+    check('R45 focus: with the same action object the focus stays on the button', document.activeElement === get('toastAction') && focusCalls.length === 0, focusCalls.join());
+    advance(20000);
+    check('R45 focus: ... and B stays (paused while focused)', fb.current && fb.current.text === 'B');
+    // no action: to the box
+    fb.toast('C'); frame();
+    check('R45 focus: a new toast with no action takes the focus to the box', document.activeElement === box);
+    advance(20000);
+    check('R45 focus: ... and stays while the box holds the focus', fb.current && fb.current.text === 'C');
+    document.activeElement = null; box.fire('focusout'); advance(0); advance(SHORT);
+    check('R45 focus: ... its 4 s run from the focusout', fb.current === null);
+  }
+  {
+    // the focus outside the box: nothing is focused, the new toast runs at once
+    const fb = fresh();
+    fb.toast('A'); document.activeElement = outside; focusCalls.length = 0;
+    fb.toast('B'); advance(SHORT);
+    check('R45 focus: with the focus elsewhere a replacement takes no focus and runs its 4 s', fb.current === null && focusCalls.length === 0 && document.activeElement === outside);
+  }
+  {
+    // hover: B, replacing a hovered A, stays until the pointer leaves, then its full time
+    const fb = fresh();
+    fb.toast('A'); state.hover = true; box.fire('pointerenter');
+    fb.toast('B', { action: LONG_ACTION('Show') });
+    advance(10000);
+    check('R45 hover: B, replacing a hovered toast, stays while hovered', fb.current && fb.current.text === 'B');
+    state.hover = false; box.fire('pointerleave');
+    advance(LONG - 1);
+    check('R45 hover: ... and has its full 8 s after the pointer leaves', fb.current !== null);
+    advance(1);
+    check('R45 hover: ... then goes', fb.current === null);
+  }
+
+  // ---- R45: a provisional pin ----
+  {
+    const all = { r: { left: 0, top: 0, right: 1280, bottom: 720, width: 1280, height: 720 }, running: true };
+    const shrink = () => { all.r = { left: 0, top: 0, right: 1280, bottom: 100, width: 1280, height: 100 }; };
+    const reset = (running) => { all.r = { left: 0, top: 0, right: 1280, bottom: 720, width: 1280, height: 720 }; all.running = running; controls = [control(all)]; };
+    const top = () => region.classList.contains('top');
+    // a control still moving: pinned in frame 1, moved to the free place when it opens
+    reset(true);
+    let fb = fresh();
+    fb.toast('During a sheet');
+    check('R45 pin: with no free place the toast is in the top slot at once, seen', top() && fb.pending[0].seen);
+    advance(100); frame();
+    check('R45 pin: ... still there while the control moves and nothing is free', top());
+    shrink(); all.running = false; frame();
+    check('R45 pin: ... and in the free place once the control has stopped (provisional pin)', !top() && fb.current !== null);
+    fb.clear();
+    // nothing moving: pinned for good at once
+    reset(false); fb = fresh();
+    fb.toast('Pinned');
+    shrink(); frame(); frame();
+    check('R45 pin: with no control in an animation the pin is final at once (kept when a place opens)', top());
+    fb.clear();
+    // still moving after 300 ms: pinned for good then
+    reset(true); fb = fresh();
+    fb.toast('Long sheet');
+    advance(299); frame();
+    check('R45 pin: provisional up to 300 ms', top() && fb.current.text === 'Long sheet');
+    advance(1); frame();
+    shrink(); frame(); frame();
+    check('R45 pin: pinned for good at 300 ms although the control still moves', top());
+    fb.clear();
+    // hovered or focused: not moved
+    for (const how of ['hovered', 'focused']) {
+      reset(true); fb = fresh();
+      fb.toast('Held');
+      if (how === 'hovered') state.hover = true; else document.activeElement = inside;
+      shrink(); all.running = false; frame(); frame();
+      check(`R45 pin: a ${how} provisional toast is not moved`, top());
+      state.hover = false; document.activeElement = null;
+      fb.clear();
+    }
+    // landed in the slot while already hovered or focused, nothing moving: it stays provisional past 300 ms, and takes
+    // a place that opened meanwhile once it is let go (the pin is made final only when it is not held)
+    for (const how of ['hovered', 'focused']) {
+      reset(false); fb = fresh();
+      if (how === 'hovered') state.hover = true; else { fb.toast('Before'); document.activeElement = inside; }
+      fb.toast('Landed held');
+      advance(400); frame(); frame();
+      shrink(); frame();
+      check(`R45 pin: a toast that lands in the slot ${how} stays there past 300 ms while ${how}`, top() && fb.current.text === 'Landed held');
+      state.hover = false; document.activeElement = null; frame();
+      check(`R45 pin: ... and, let go, takes the place that opened (it was still provisional)`, !top() && fb.current !== null);
+      fb.clear();
+    }
+    controls = [];
+  }
+
+  // ---- R47: what an opaque overlay covers, its own controls, the phone's sheet and a modal dialog ----
+  {
+    const top = () => region.classList.contains('top');
+    const placed = () => region.style.left || region.style.top || '';
+    // a control over the whole window, all of it under an opaque overlay: the toast may cover that part
+    const all = { r: rectOf(0, 0, 1280, 720), running: false };
+    controls = [control(all)];
+    overlays = [overlay('ask', rectOf(0, 0, 1280, 720), [rectOf(1200, 0, 1280, 40)])];
+    let fb = fresh();
+    fb.toast('Over the sheet');
+    check('R47: the part of a control under an opaque overlay is not avoided (the toast is in its own place, not pinned)', !top() && placed() === '' && fb.pending[0].seen, JSON.stringify(region.style));
+    fb.clear();
+    // not settled yet: an overlay still in its own animation hides nothing (the toast takes the slot, provisionally)
+    overlays[0].running = true; fb = fresh();
+    fb.toast('Sheet still moving');
+    check('R47: an overlay in its own animation occludes nothing yet (the toast is in the top slot)', top());
+    overlays[0].running = false; frame();
+    check('R47: ... and once it has settled the toast takes the place it frees (provisional pin)', !top());
+    fb.clear();
+    // the overlay's own buttons are avoided: one where the toast would go sends it elsewhere along the bottom edge
+    overlays = [overlay('ask', rectOf(0, 0, 1280, 720), [rectOf(380, 590, 720, 650)])]; fb = fresh();
+    fb.toast('Not over the Stop');
+    const x = parseFloat(region.style.left);
+    check('R47: the overlay\'s own controls are avoided in their own right (the toast moves along the bottom edge, clear of the button)',
+      !top() && region.style.top === '600px' && (x + 300 <= 380 || x >= 720), JSON.stringify(region.style));
+    fb.clear();
+    // a phone: never over the sheet, even where it hides a control and has no button
+    globalThis.innerWidth = 390; globalThis.innerHeight = 844; boxRect = rectOf(8, 700, 382, 740);
+    all.r = rectOf(16, 600, 374, 1100);
+    overlays = [overlay('sheet', rectOf(0, 680, 390, 844))]; fb = fresh();
+    fb.toast('Phone, sheet at peek');
+    check('R47: on a phone the toast does not go over the sheet: it goes to the top', region.style.top === '8px' && !top(), JSON.stringify(region.style));
+    fb.clear();
+    globalThis.innerWidth = 1280; globalThis.innerHeight = 720; boxRect = null;
+    // a modal dialog: only its controls count, and the region goes into the top layer after it, out when it closes
+    all.r = rectOf(0, 0, 1280, 720); overlays = [];
+    fb = fresh(); layer.shows = 0;
+    fb.toast('Before the dialog');
+    check('R47: with no dialog the region is not a popover', !layer.attr && !layer.open && top());
+    fb.clear();
+    fb.toast('Under a dialog?');
+    const closers = [];
+    modal = { querySelectorAll: () => [{ getBoundingClientRect: () => rectOf(0, 0, 100, 40) }], append(el) { el.parentNode = modal; }, addEventListener: (ev, fn) => closers.push(fn) };
+    frame();
+    check('R47: a modal dialog opened while a toast is up: the region moves into it and is shown as a popover after it (the top layer)',
+      layer.attr && layer.open && layer.shows === 1 && region.parentNode === modal);
+    fb.clear();
+    fb.toast('In the dialog');
+    check('R47: under a modal dialog only its controls count (the page\'s controls do not pin the toast)', !top() && placed() === '' && layer.open);
+    modal = null; closers.forEach((fn) => fn());
+    check('R47: the dialog closed: the region leaves the top layer and goes back where it was, at once (its close event)', !layer.attr && !layer.open && region.parentNode === body);
+    fb.clear(); controls = [];
   }
 
   // ---- dismissal ----

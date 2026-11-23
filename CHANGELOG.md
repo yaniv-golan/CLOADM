@@ -181,6 +181,21 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   (`browser-daily.yml`, not a gate) runs the whole browser check in one process on `claude/v0.2-stage` and `main`.
   AGENTS.md 4.7: the local gate is `tests/all.js` plus the browser-check groups a change touches; CI attempt 1 is the
   full browser gate and is never re-run.
+- **A new toast replaces a focused or hovered one without a flash (UX R45).** The box stays up (no frame without it,
+  no focus dropped, one announcement). With the focus inside it the new toast starts paused, its full 4 s (8 s with
+  an action) running from the moment the focus leaves; the focus stays on the action button only when the new toast
+  carries the same action, otherwise it moves to the toast itself, so an Enter meant for the old action fires nothing.
+  Under the pointer the new toast is paused until the pointer leaves.
+- **A toast in the top slot is pinned provisionally (UX R45).** It still shows there in its first frame when no place
+  is free, but while a control that decides its place is still in its own animation (a sheet opening), for 300 ms at
+  most, it moves to a free place as soon as one opens (its position only, with no animation); after that it never
+  moves. A hovered or focused toast is not moved.
+- **A toast may cover what an opaque sheet already hides, never the sheet's own buttons (UX R47).** The part of a
+  control under the Ask sheet or the attention card (marked `data-occludes`, each fully opaque) no longer keeps a
+  toast away; the sheet's Stop, Done and tabs always do, and a sheet still sliding hides nothing until it has settled.
+  On a phone a toast never goes over such a sheet: with no other place it takes the band under the header, as before.
+  While a modal dialog is open the toast moves into it, in the top layer above its contents, where it can be clicked,
+  and only the dialog's controls keep it away.
 - **The page's screen text reads every screen Claude's screen_text reads.** `Session.screenText`, which the embed
   API's `screenText`, the Ask panel, the tape panel and the boot watchdog read, decoded only the VDG's 32x16 page at a
   fixed address: on the Dragon 64 Plus's 80-column screen it returned the VDG page behind it, on a CoCo 3 GIME text
