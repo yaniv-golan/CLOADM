@@ -7054,7 +7054,7 @@ async function commandsChecks(browser, site, check) {
   const WANT = [
     ['Claude', ['Chat with Claude, full screen', 'What is this code doing?']],
     ['Files', ['Take snapshot', 'Open a program, tape, disk or cartridge…', 'Insert a disk…', 'New blank disk', 'Eject disk', 'Insert a tape…', 'Rewind the tape', 'Eject the tape', 'Save the tape as .WAV', 'Record to tape', 'Share']],
-    ['Views', ['Open the Library', 'Open the Debugger']],
+    ['Views', ['Programs', 'Open the Library', 'Open the Debugger']],
     ['Settings', ['Your ROMs', 'Display settings', 'Input settings', 'POKEs', 'Machine settings']],   // (Your ROMs first)
     ['Machine', ['Pause or resume', 'Turbo', 'Fullscreen', 'Reset', 'Switch off and on', 'Switch machine…', 'Help']],
   ];
