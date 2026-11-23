@@ -159,19 +159,39 @@ jobs:
         with:
           path: ~/.cache/ms-playwright
           key: playwright-1.63.0-ubuntu-24.04-chromium
+      # The OS packages chromium needs that the runner image lacks (measured 2026-11-23: 9 font packages, ~32 MB) come
+      # from an Ubuntu mirror, and a slow mirror made this step take 3-14 minutes on some shards. Their .deb files are
+      # cached on the Playwright version and the runner image, so a hit installs them from disk with no network.
+      - name: Cache the browser's OS packages
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
+        with:
+          path: ~/playwright-debs
+          key: playwright-debs-1.63.0-ubuntu-24.04-v1
       - name: Install the browser and its OS packages
         run: |
           npx playwright install chromium
-          # The OS packages chromium needs are Playwright's own list. `install-deps --dry-run` simulates installing
-          # exactly that list (apt-get install -s) and exits 1 naming what is missing; when nothing is, the runner
-          # image already has every package and the install (apt-get update, then apt-get install of the same list)
-          # would change nothing, so it is skipped. Anything missing, or a simulation that fails, installs as before.
+          # Playwright's own check (`install-deps --dry-run`) simulates installing its exact package list
+          # (apt-get install -s) and exits 1 naming what is missing. It decides every branch below, so the browser
+          # check always runs with every package Playwright asks for, however they arrived.
           if npx playwright install-deps --dry-run chromium; then
             echo "OS packages: all present, nothing to install"; exit 0
           fi
-          # apt on a fresh runner sometimes cannot find a package (a mirror mid-update): refresh and try again.
+          # From the cache: the same packages, from disk. Anything still missing afterwards falls through to apt.
+          if ls ~/playwright-debs/*.deb >/dev/null 2>&1 \
+            && sudo apt-get install -y --no-install-recommends ~/playwright-debs/*.deb \
+            && npx playwright install-deps --dry-run chromium; then
+            echo "OS packages: installed from the cache"; exit 0
+          fi
+          # From the mirror, keeping the downloaded .deb files for the cache. apt on a fresh runner sometimes cannot
+          # find a package (a mirror mid-update): refresh and try again.
+          echo 'APT::Keep-Downloaded-Packages "true"; Binary::apt::APT::Keep-Downloaded-Packages "true";' \
+            | sudo tee /etc/apt/apt.conf.d/99keep-debs >/dev/null
           for try in 1 2 3; do
-            sudo apt-get update && npx playwright install-deps chromium && exit 0
+            if sudo apt-get update && npx playwright install-deps chromium; then
+              mkdir -p ~/playwright-debs && cp /var/cache/apt/archives/*.deb ~/playwright-debs/ 2>/dev/null || true
+              echo "OS packages: installed from the mirror; $(ls ~/playwright-debs/*.deb 2>/dev/null | wc -l) .deb files kept for the cache"
+              exit 0
+            fi
             echo "OS packages: try $try failed"; sleep $((try * 10))
           done
           exit 1
