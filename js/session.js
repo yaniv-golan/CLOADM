@@ -581,6 +581,7 @@ export class Session {
     this.chatServer = null;         // the chat machine's own DriveWire server (startChat with drivewire)
     this.chatView = null;           // which of them is on screen: 'chat' | 'basic'
     this.index = new MediaIndex(media, this.indexShare(media));
+    this.index.foreign = (kind, detail) => this.mediaForeign(kind, detail);
     this._shown = null;
     this.turbo = false;
     this.fastTape = true;       // run flat out while the tape is playing
@@ -692,7 +693,23 @@ export class Session {
   async mediaElsewhere(msg) {
     if (!msg || msg.store !== this.media.kind || this.media.synchronous) return;
     if (msg.what === 'library') { this.emit('library'); return; }
-    for (const what of await this.index.refresh()) this.emit(what);
+    await this.index.refresh();   // what it brings in is reported through mediaForeign
+  }
+  // the index took in another page's change: the panels redraw. 'roms' carries { elsewhere: [{ machine, socket }] }
+  // for sockets, which the ROM screen marks.
+  mediaForeign(kind, detail) {
+    if (kind === 'recent') this.emit('recent');
+    else this.emit('roms', kind === 'sockets' ? { elsewhere: detail } : undefined);
+  }
+  // A socket of the person's machine another page changed while this machine runs the ROM it had: 'removed' (the
+  // store has none now) or 'replaced' (it holds another); null otherwise. The machine keeps what it runs until it is
+  // switched off and on (or switched), which reads the stored ROMs again.
+  romElsewhere(machine, socket) {
+    const m = this.personMachine;
+    if (!m || m.id !== machine || !this.index.changedElsewhere.has(`${machine}:${socket}`)) return null;
+    const running = m.romCrcs()[socket] || null, stored = this.index.socketCrc(machine, socket);
+    if (!running || running === stored) return null;
+    return stored ? 'replaced' : 'removed';
   }
   on(fn) { this.listeners.add(fn); return () => this.listeners.delete(fn); }
   emit(event, arg) { for (const fn of this.listeners) fn(event, arg); }
@@ -1250,6 +1267,9 @@ export class Session {
     this.drives.flush();
     // a power cycle keeps what is inserted, as on real hardware, so the Pak's option decides it again from the
     // ROMs that are stored (it is already in the port when nothing has changed)
+    // A socket another tab changed while this machine ran the old ROM (romElsewhere): switching off and on is when
+    // it takes what is stored now, as the ROM screen says. Only then: otherwise the ROMs in place are the stored ones.
+    if (!this.stubChosen.has(m.id) && m.profile.roms.some((x) => this.romElsewhere(m.id, x.id))) this.loadSavedRoms(m);
     this.applySscOption(m);
     this.drives.fitRom(m);
     m.reset(true);

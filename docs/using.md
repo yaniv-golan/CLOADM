@@ -80,7 +80,8 @@ to keeping them for the visit, with a download and an import button for the file
 CLOADM share the browser's storage (or one chosen folder): what one tab adds or removes (a ROM, a Library item, a
 recent program) appears in the others without a reload and nothing one tab stored is lost to another's write; when two
 tabs put different ROMs in the same socket, the one put last stays. A delete with Undo leaves the other tabs alone until
-its toast ends. (Download and open keeps each tab's files apart.) The Library's
+its toast ends. On the ROM screen a socket another tab changed while you look says **Changed in another tab**; a ROM
+another tab removed or replaced stays in this tab's running machine (the row says so) until you switch it off and on. (Download and open keeps each tab's files apart.) The Library's
 **Where your library is kept** changes this: inside this browser, a folder on your computer (File System Access,
 Chrome and Edge: ordinary files, and disk writes go straight back to the image file), or download and open. Choosing
 another place copies what CLOADM keeps there (the library, disk images, ROMs, recent programs; nothing else in your

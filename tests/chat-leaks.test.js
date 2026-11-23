@@ -590,7 +590,9 @@ const REQUIRED = require.main !== module;
     // menuTicketFor returns the ticket a menu starts with (the Session's menuTicket or the one passed); changes nothing
     'menuTicketFor',
     // bareDiskController and diskRomWaiting read the disk controller of the PERSON's machine (diskMachine); no change
-    'drives.bareController', 'drives.romWaiting']);
+    'drives.bareController', 'drives.romWaiting',
+    // romElsewhere reads the PERSON's machine's ROM CRCs against the stored socket another tab changed; no change
+    'romElsewhere']);
   // writes the library or settings only
   const LIBRARY = new Set(['addRoms', 'clearRoms', 'deleteMedia', 'importDriveWireImage', 'importMedia',
     'importSettings', 'listMedia', 'moveMedia', 'newDriveWireImage', 'renameMedia', 'exportRomPack', 'exportSettings',

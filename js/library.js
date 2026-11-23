@@ -67,14 +67,15 @@ export class MediaLibrary {
     this.diskClaims = new Map();    // stored name -> how many creations are making it (claimDiskName: a rename may not take one)
   }
   // Keep media in another store from now on, starting with an empty library there (the page does this with an
-  // in-memory store when browser storage can't be opened or read). The media index's write-error listener stays.
+  // in-memory store when browser storage can't be opened or read). The media index's write-error and other-tab listeners stay.
   useMediaStore(media) {
-    const writeError = this.session.index.writeError;
+    const { writeError, foreign } = this.session.index;
     this.session.media = media;
     this._caseInsensitive = startingCase(media);
     this.mediaSince = Date.now();   // when this visit started using the store: reconnecting copies what it wrote since
     this.session.index = new MediaIndex(media, this.session.indexShare(media));
     this.session.index.writeError = writeError;
+    this.session.index.foreign = foreign;
     this.session.roms.index = this.session.index;
   }
   // Keep the library somewhere else from now on: the Library's "Where your library is kept". Every file CLOADM

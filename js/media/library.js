@@ -32,6 +32,7 @@
  * Browser-free: js/emu.js still loads in Node.
  */
 import { MediaStoreError } from '../host/media-store.js';
+import { crc32 } from '../util.js';
 
 export const ROM_SOCKETS = 'roms/sockets.json';
 export const ROM_NAMES = 'roms/names.json';
@@ -56,6 +57,10 @@ const parse = (bytes, fallback) => { try { return JSON.parse(dec.decode(bytes));
 // what each list is when it is not stored yet (a fresh value each time: a merge changes it)
 const LIST_EMPTY = { [ROM_SOCKETS]: () => ({}), [ROM_NAMES]: () => ({}), [RECENT_LIST]: () => [] };
 const socketCrcs = (sockets) => { const out = new Set(); for (const m of Object.values(sockets || {})) for (const crc of Object.values(m || {})) out.add(crc); return out; };
+// Another page's blob is taken only once it is whole: a store can show a file before its bytes are in (OPFS creates an
+// empty file and fills it when the write closes), and a blob is named by its contents' CRC. One that does not match yet
+// is read again on that page's next message (it says so once the write has closed).
+const whole = (bytes, crc) => !!bytes && crc32(bytes) === String(crc).toUpperCase();
 const recentKey = (r) => `${r.name}\0${String(r.crc).toUpperCase()}`;
 // The lock every page on the origin takes to change the index's lists (navigator.locks), and, where there is no such
 // thing (Node, an embedder), one per store in this process: what two indexes on one store in one process share.
@@ -141,6 +146,9 @@ export class MediaIndex {
     this.locks = locks;
     this.post = post;
     this.queued = {};           // list name -> changes of it queued and not yet written (the merged list waits for the last)
+    this.foreign = null;        // (kind, detail) => void: another page changed a list ('sockets' with [{ machine, socket }],
+                                // 'names', 'recent', 'images'); the Session's (mediaForeign)
+    this.changedElsewhere = new Set();   // 'machine:socket' another page changed and this one has not set since
     this.synchronous = !!store.synchronous;
     this.ready = false;
     this.sockets = {};          // machine -> { socket: crc }
@@ -305,31 +313,57 @@ export class MediaIndex {
   _readSync(name) { try { return this.store.readSync(name); } catch (e) { if (e && e.code === 'not-found') return null; throw e; } }
   // a list as stored becomes this index's own; the blobs it names that this index lacks are read now
   async _adopt(name, list) {
+    const was = this._held(name);
+    let got = false;   // an image read now: a socket another page stored before its image (putSocket) can be used now
     if (name === ROM_SOCKETS) {
       this.sockets = list;
-      for (const crc of socketCrcs(list)) if (!this.images.has(crc)) { const b = await readOrNull(this.store, romImage(crc)); if (b) this.images.set(crc, b); }
+      for (const crc of socketCrcs(list)) if (!this.images.has(crc)) { const b = await readOrNull(this.store, romImage(crc)); if (whole(b, crc)) { this.images.set(crc, b); got = true; } }
     } else if (name === ROM_NAMES) this.names = list;
     else {
       this.recent = this._readRecent(list);
       for (const r of this.recent) if (r.stored && !this.recentBytes.has(r.crc)) {
         const b = await readOrNull(this.store, recentFile(r.crc));
-        if (b) { this.recentBytes.set(r.crc, b); this.recentFiles.set(r.crc, recentFile(r.crc)); }
+        if (whole(b, r.crc)) { this.recentBytes.set(r.crc, b); this.recentFiles.set(r.crc, recentFile(r.crc)); }
       }
     }
+    this._took(name, was, got);
   }
   _adoptSync(name, list) {
+    const was = this._held(name);
+    let got = false;   // an image read now: a socket another page stored before its image (putSocket) can be used now
     if (name === ROM_SOCKETS) {
       this.sockets = list;
-      for (const crc of socketCrcs(list)) if (!this.images.has(crc)) { const b = this._readSync(romImage(crc)); if (b) this.images.set(crc, b); }
+      for (const crc of socketCrcs(list)) if (!this.images.has(crc)) { const b = this._readSync(romImage(crc)); if (whole(b, crc)) { this.images.set(crc, b); got = true; } }
     } else if (name === ROM_NAMES) this.names = list;
     else {
       this.recent = this._readRecent(list);
       for (const r of this.recent) if (r.stored && !this.recentBytes.has(r.crc)) {
         const b = this._readSync(recentFile(r.crc));
-        if (b) { this.recentBytes.set(r.crc, b); this.recentFiles.set(r.crc, recentFile(r.crc)); }
+        if (whole(b, r.crc)) { this.recentBytes.set(r.crc, b); this.recentFiles.set(r.crc, recentFile(r.crc)); }
       }
     }
+    this._took(name, was, got);
   }
+  // What adopting a stored list brought in that this index did not have is another page's doing: this index's own
+  // changes are in memory already when it adopts (it adopts only once none of its own is queued). Each is reported to
+  // `foreign` (the Session: the panels redraw, and the ROM screen marks the socket rows another page changed), and the
+  // sockets go into changedElsewhere until this page sets them itself.
+  _held(name) { return name === ROM_SOCKETS ? this.sockets : name === ROM_NAMES ? this.names : this.recent; }
+  _took(name, was, got = false) {
+    const now = this._held(name);
+    if (JSON.stringify(was) === JSON.stringify(now)) { if (got) this._say('images', null); return; }
+    if (name === ROM_SOCKETS) {
+      const moved = [];
+      for (const m of new Set([...Object.keys(was || {}), ...Object.keys(now || {})])) {
+        const a = (was || {})[m] || {}, b = (now || {})[m] || {};
+        for (const sock of new Set([...Object.keys(a), ...Object.keys(b)])) {
+          if ((a[sock] || null) !== (b[sock] || null)) { moved.push({ machine: m, socket: sock }); this.changedElsewhere.add(`${m}:${sock}`); }
+        }
+      }
+      this._say('sockets', moved);
+    } else this._say(name === ROM_NAMES ? 'names' : 'recent', null);
+  }
+  _say(kind, detail) { if (this.foreign) { try { this.foreign(kind, detail); } catch (e) { /* a listener's bug is not the store's */ } } }
   // tell the other pages on this store that a list changed (the Session's channel; none in Node or the fallback)
   _post(what) { if (this.post) { try { this.post(what); } catch (e) { /* a closed channel: nothing to tell */ } } }
   // Another page changed the store: read the lists again (those with no change of ours still queued) and the blobs
@@ -347,7 +381,7 @@ export class MediaIndex {
       }
       // images another page's collect removed
       const used = socketCrcs(this.sockets);
-      for (const crc of [...this.images.keys()]) if (!used.has(crc) && !(await readOrNull(this.store, romImage(crc)))) { this.images.delete(crc); changed.add('roms'); }
+      for (const crc of [...this.images.keys()]) if (!used.has(crc) && !(await readOrNull(this.store, romImage(crc)))) { this.images.delete(crc); changed.add('roms'); this._say('images', null); }
     });
     return [...changed];
   }
@@ -357,6 +391,7 @@ export class MediaIndex {
   putSocket(machine, socket, crc) {
     (this.sockets[machine] = this.sockets[machine] || {})[socket] = crc;
     this.changed.sockets.add(machine);
+    this.changedElsewhere.delete(`${machine}:${socket}`);
     this._list(ROM_SOCKETS, (stored) => { (stored[machine] = Object.assign({}, stored[machine]))[socket] = crc; return stored; });
   }
   putImage(crc, bytes, name = null) {
@@ -366,6 +401,8 @@ export class MediaIndex {
       this._list(ROM_NAMES, (stored) => Object.assign(stored, { [crc]: name }));
     }
     this._write(romImage(crc), bytes);
+    // the socket that names it was stored (and told) first: tell the other pages again now the image is there to read
+    if (this.synchronous) this._post('roms'); else this._op(romImage(crc), () => this._post('roms'));
   }
   // The recent list: this change is what moved to the front (an entry new to the list, or one that moved up); the
   // stored list keeps every other entry in its own order, behind them, to RECENT_LENGTH, less the entries this change
@@ -465,6 +502,7 @@ export class MediaIndex {
   }
   clearMachine(machine) {
     this.sockets[machine] = {}; this.changed.sockets.add(machine);
+    for (const k of [...this.changedElsewhere]) if (k.startsWith(`${machine}:`)) this.changedElsewhere.delete(k);
     this._list(ROM_SOCKETS, (stored) => Object.assign(stored, { [machine]: {} }));
   }
 

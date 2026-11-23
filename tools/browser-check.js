@@ -4078,6 +4078,42 @@ async function librarySelectChecks(browser, base, check) {
     const dropped = ended && await waitFor(b, (sel) => !document.querySelector(sel), tile('DEMO.BIN'), 10000);
     check(`${L}: once the delete is final, the other tab drops the item too (no reload, no message)`, dropped && await shelf(b) === 'LIZA.BIN' && await b.isHidden('#toast'), `${await shelf(b)}`);
     if (shotDir) await b.screenshot({ path: path.join(shotDir, 'library-two-tabs.png') });
+    // The ROM screen in B while A changes a socket: the row says "Changed in another tab" until the screen closes, and
+    // while B's machine still runs the ROM A replaced or removed, the row says so; B's machine is not touched.
+    // (stand-in images: one byte value repeated, the socket's size; no ROM code)
+    await b.evaluate(() => { location.hash = '#add-roms'; });
+    await waitFor(b, () => !document.getElementById('romCard').hidden);
+    const put = (fill, file) => a.evaluate(([v, f]) => { const s = window.emu.session; s.roms.put('dragon64', 'basic', new Uint8Array(16384).fill(v), f); }, [fill, file]);
+    const row = () => b.evaluate(() => { const r = document.querySelector('#romSockets [data-socket="basic"]'); return r ? { state: r.querySelector('.state').textContent, note: r.querySelector('.elsewhere') ? r.querySelector('.elsewhere').textContent : '' } : null; });
+    const other = () => b.evaluate(() => { const r = document.querySelector('#romSockets [data-socket="basic64"]'); return r && !r.querySelector('.elsewhere'); });
+    await put(0x12, 'one.rom');
+    const marked = await waitFor(b, () => { const r = document.querySelector('#romSockets [data-socket="basic"] .elsewhere'); return !!r && /one\.rom/.test(document.querySelector('#romSockets [data-socket="basic"] .state').textContent); }, null, 10000);
+    let r = await row();
+    check(`${L}: the ROM screen marks the socket another tab changed, quietly ("Changed in another tab"), and only that row`, marked && r.note === 'Changed in another tab' && await other()
+      && await b.evaluate(() => getComputedStyle(document.querySelector('#romSockets .elsewhere')).fontStyle === 'italic') && await b.isHidden('#toast'), JSON.stringify(r));
+    // B starts its machine on that ROM; A then replaces it, then removes it
+    await b.evaluate(() => window.emu.session.switchMachine('dragon64'));
+    const runs = await b.evaluate(() => window.emu.session.personMachine.romCrcs().basic || null);
+    await put(0x34, 'two.rom');
+    const replaced = await waitFor(b, () => /^Replaced · the running machine keeps the old one until you switch off and on$/.test(document.querySelector('#romSockets [data-socket="basic"] .state').textContent), null, 10000);
+    r = await row();
+    check(`${L}: replaced in another tab while this machine runs it: "Replaced · the running machine keeps the old one until you switch off and on", and the machine keeps it`,
+      replaced && r.note === 'Changed in another tab' && !!runs && await b.evaluate(() => window.emu.session.personMachine.romCrcs().basic || null) === runs, JSON.stringify(r));
+    if (shotDir) await b.screenshot({ path: path.join(shotDir, 'roms-replaced-in-another-tab.png') });
+    await a.evaluate(() => window.emu.session.clearRoms());
+    const removed = await waitFor(b, () => document.querySelector('#romSockets [data-socket="basic"] .state').textContent === 'Removed · still in the running machine', null, 10000);
+    check(`${L}: removed in another tab: "Removed · still in the running machine", and the machine still has it`,
+      removed && await b.evaluate(() => window.emu.session.personMachine.romCrcs().basic || null) === runs, JSON.stringify(await row()));
+    // closing the screen ends the "Changed in another tab" lines; the running machine's state stays until it is switched off and on
+    await b.click('#btnRomBack');
+    await waitFor(b, () => document.getElementById('romCard').hidden);
+    await b.evaluate(() => { location.hash = '#add-roms'; });
+    await waitFor(b, () => !document.getElementById('romCard').hidden);
+    r = await row();
+    check(`${L}: reopened, the ROM screen no longer says "Changed in another tab", while the row still says what the machine runs`, r.note === '' && r.state === 'Removed · still in the running machine', JSON.stringify(r));
+    await b.evaluate(() => window.emu.session.powerCycle());
+    const fresh = await waitFor(b, () => /^Waiting for a file/.test(document.querySelector('#romSockets [data-socket="basic"] .state').textContent), null, 10000);
+    check(`${L}: switched off and on, the machine takes what is stored now and the row is an ordinary empty socket`, fresh && await b.evaluate(() => !window.emu.session.personMachine.romCrcs().basic), JSON.stringify(await row()));
     check(`${L}: no page errors and no dialog boxes`, !errors.length, errors.join('; '));
     await ctx.close();
   }
