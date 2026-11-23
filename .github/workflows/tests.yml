@@ -167,9 +167,14 @@ jobs:
         with:
           path: ~/playwright-debs
           key: playwright-debs-1.63.0-ubuntu-24.04-v1
+      # Its own time limit, well under the job's: a mirror that hangs fails this step loudly instead of running the
+      # job into its timeout (runs 45155949617 and 45156037157 were cancelled at 30 minutes here). Only the install
+      # is retried, inside the step; the browser check itself never is. Worst case by design: 2 tries of at most
+      # 90 s (update) + 330 s (install) + 10 s pause, about 14.5 minutes, under the 15 here.
       - name: Install the browser and its OS packages
+        timeout-minutes: 15
         run: |
-          npx playwright install chromium
+          timeout 300 npx playwright install chromium
           # Playwright's own check (`install-deps --dry-run`) simulates installing its exact package list
           # (apt-get install -s) and exits 1 naming what is missing. It decides every branch below, so the browser
           # check always runs with every package Playwright asks for, however they arrived.
@@ -187,16 +192,20 @@ jobs:
           sudo apt-get install -f -y || true
           # From the mirror, keeping the downloaded .deb files for the cache. apt on a fresh runner sometimes cannot
           # find a package (a mirror mid-update): refresh and try again.
-          echo 'APT::Keep-Downloaded-Packages "true"; Binary::apt::APT::Keep-Downloaded-Packages "true";' \
-            | sudo tee /etc/apt/apt.conf.d/99keep-debs >/dev/null
-          for try in 1 2 3; do
-            if sudo apt-get update && npx playwright install-deps chromium; then
+          # A connection that stalls is dropped after 30 s and retried by apt (a hung mirror, not a slow one); each
+          # command has its own limit (`timeout` signals its whole process group, so apt and dpkg under sudo stop too).
+          printf '%s\n' 'APT::Keep-Downloaded-Packages "true";' 'Binary::apt::APT::Keep-Downloaded-Packages "true";' \
+            'Acquire::http::Timeout "30";' 'Acquire::https::Timeout "30";' 'Acquire::Retries "3";' \
+            | sudo tee /etc/apt/apt.conf.d/99ci-apt >/dev/null
+          for try in 1 2; do
+            if timeout 90 sudo apt-get update && timeout 330 npx playwright install-deps chromium; then
               mkdir -p ~/playwright-debs && cp /var/cache/apt/archives/*.deb ~/playwright-debs/ 2>/dev/null || true
               echo "OS packages: installed from the mirror; $(ls ~/playwright-debs/*.deb 2>/dev/null | wc -l) .deb files kept for the cache"
               exit 0
             fi
-            echo "OS packages: try $try failed"; sleep $((try * 10))
+            echo "OS packages: try $try failed or timed out"; sudo dpkg --configure -a || true; sleep 10
           done
+          echo "OS packages: could not be installed in 2 tries (see above); the browser check did not run"
           exit 1
       - name: Run the browser check (${{ matrix.groups }})
         env:
