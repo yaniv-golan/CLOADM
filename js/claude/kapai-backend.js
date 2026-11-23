@@ -169,8 +169,14 @@ export class KapaiBackend {
       };
     }
     // one round: streamed, so text shows as it arrives; the result has the shape of the SDK's respond()
-    const respond = async (req) => {
-      history = req.input; ran = [];
+    // The signal goes to each round's request, not to the loop: the SDK's runTools races a handler against its
+    // request's signal, so on Stop it would return while a tool still runs (a card waiting, keys going in) and drop
+    // that call's result. Here the loop waits for the tool, as ClaudeBackend does, and Stop ends it before the next
+    // round, with what ran kept (e.partial).
+    const respond = async (req0) => {
+      history = req0.input; ran = [];
+      if (signal && signal.aborted) throw new ClaudeError('aborted', 'Stopped.');
+      const req = signal ? { ...req0, signal } : req0;
       let res;
       if (this.stream) {
         for await (const ev of this.kapai.ai.stream(req)) {
@@ -184,7 +190,7 @@ export class KapaiBackend {
       history = [...req.input, ...(res.output || []).map(inputOf)];
       return res;
     };
-    const request = { input: start, ...(system ? { instructions: typeof system === 'string' ? system : textOf(system) } : {}), ...(tools.length ? { tools: tools.map(toKapaiTool) } : {}), ...(signal ? { signal } : {}) };
+    const request = { input: start, ...(system ? { instructions: typeof system === 'string' ? system : textOf(system) } : {}), ...(tools.length ? { tools: tools.map(toKapaiTool) } : {}) };
     try {
       const run = await this.runToolsLoop(respond, request, { handlers, maxRounds: this.maxRounds });
       const msgs = [...convo, ...fromKapaiItems(run.input.slice(start.length), errored)];

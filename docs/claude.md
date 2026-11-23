@@ -649,7 +649,8 @@ own key. Without the parameter the chat is exactly as described above.
   the model makes is a handler that calls `ChatSession.serveTool`, the same gate as the default path: reads run, and
   every acting tool asks (or uses the switch) through `js/claude/consent.js`. Kapai never runs a tool. A tool error
   reaches the model as the same coded JSON. The turn ends after 9 requests at most, as in `ClaudeBackend`. Stop aborts
-  the request in flight.
+  the request in flight; a tool already running is let finish (the SDK's loop would drop its result) and the turn
+  ends before the next request, with that call kept, as in `ClaudeBackend`.
 * **The conversation** is kept in the Messages form (`js/claude/history.js`) and converted for each request; an
   assistant turn's thinking blocks travel on its first call as `providerData`, which Kapai's server never receives.
 * **Your own key.** A saved Anthropic key is Kapai's "own AI" (`KapaiOwnAI.appManaged`): CLOADM keeps the key and

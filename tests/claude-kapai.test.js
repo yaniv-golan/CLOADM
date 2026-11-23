@@ -162,6 +162,9 @@ const outputsOf = (req) => (Array.isArray(req.input) ? req.input.filter((i) => i
     const before = t.s.shownMachine.ram[0x3000];
     const res = await t.chat.sendLine('poke');
     check('Stop at the card: aborted, nothing written, no second request', res === null && t.chat.error && t.chat.error.code === 'aborted' && t.requests.length === 1 && t.s.shownMachine.ram[0x3000] === before, J({ err: t.chat.error && t.chat.error.code, req: t.requests.length }));
+    // as with ClaudeBackend, the call that ran (refused: stopped) is kept with the turn, so the next turn knows
+    const kept = t.chat.messages.flatMap((m) => (Array.isArray(m.content) ? m.content : [])).find((b) => b.type === 'tool_result');
+    check('Stop at the card: the stopped call is kept in the conversation (the loop waits for the tool, not the signal)', kept && /"code":"stopped"/.test(kept.content), J(t.chat.messages));
   }
   // ---- Kapai's errors become the chat's ----
   {
