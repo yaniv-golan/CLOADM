@@ -182,7 +182,7 @@ export function setupLibrary(page, { loadProgram, runShelf, changed, showRoms, r
   // that use it, and Remove.
   function romsCard(tiles) {
     const r = session.storedRoms(), and = (l) => (l.length < 2 ? l.join('') : `${l.slice(0, -1).join(', ')} and ${l[l.length - 1]}`);
-    $('libRomsText').textContent = r.count ? `Your ROMs: ${r.count} stored, used by ${and(r.users)}. Manage them in` : 'No ROMs yet. CLOADM never includes ROMs; add your own dumps in';
+    $('libRomsText').textContent = r.count ? `Your ROMs: ${r.count} stored, used by ${and(r.users)}. Manage them in` : 'No ROMs yet. CLOADM never includes ROMs; add your own in';
     $('libRomsLink').textContent = 'Your ROMs →';
     const had = document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.remove : null;
     $('libRomTiles').replaceChildren(...(tiles ? session.romFiles().map(romTile) : []));

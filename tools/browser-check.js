@@ -4464,7 +4464,7 @@ async function libraryChecks(browser, base, check) {
       head: document.querySelector('#libEmpty h2').textContent, where: document.getElementById('libWhere').textContent,
       fits: document.documentElement.scrollWidth <= innerWidth }));
     check(`library (${label}): #library shows the Library instead of the emulator, empty state (with the filters, the ROMs chip and the ROMs card), where it is kept, no sideways scroll`,
-      empty.lib && empty.emu && empty.empty && empty.filters && empty.romsChip && empty.romsCard === 'No ROMs yet. CLOADM never includes ROMs; add your own dumps in Your ROMs →' && empty.head === 'Your tapes, disks and cartridges will appear here'
+      empty.lib && empty.emu && empty.empty && empty.filters && empty.romsChip && empty.romsCard === 'No ROMs yet. CLOADM never includes ROMs; add your own in Your ROMs →' && empty.head === 'Your tapes, disks and cartridges will appear here'
       && /^Stored in this browser \(OPFS\)/.test(empty.where) && empty.fits, JSON.stringify(empty));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, `library-empty-${label}.png`), fullPage: true });
     if (label === 'phone') {
@@ -15288,8 +15288,8 @@ async function uiModelChecks(browser, base, check) {
     await page.click('[data-kind-filter="roms"]');
     const empty = await page.evaluate(() => ({ card: !document.getElementById('libRomsBox').hidden && document.getElementById('libRomsCard').textContent,
       tiles: !document.getElementById('libTapesBox').hidden || !document.getElementById('libTilesBox').hidden, none: !document.getElementById('libNone').hidden }));
-    check(`R19 A+ (${label}): a "ROMs" chip after Snapshots; with no ROMs one card: "No ROMs yet. CLOADM never includes ROMs; add your own dumps in Your ROMs →", no tiles`,
-      chips.slice(-2).join('|') === 'Snapshots|ROMs' && empty.card === 'No ROMs yet. CLOADM never includes ROMs; add your own dumps in Your ROMs →' && !empty.tiles && !empty.none,
+    check(`R19 A+ (${label}): a "ROMs" chip after Snapshots; with no ROMs one card: "No ROMs yet. CLOADM never includes ROMs; add your own in Your ROMs →", no tiles`,
+      chips.slice(-2).join('|') === 'Snapshots|ROMs' && empty.card === 'No ROMs yet. CLOADM never includes ROMs; add your own in Your ROMs →' && !empty.tiles && !empty.none,
       JSON.stringify({ chips, empty }));
     // a (synthetic) ROM dropped on the Library: "added to Your ROMs", with Open Your ROMs
     await dropFiles(page, [['d64_1.rom', fake(16384, 41)]], null, 'library');
@@ -15338,8 +15338,8 @@ async function uiModelChecks(browser, base, check) {
     // an empty Library: the filters with the ROMs chip, and the ROMs card under the empty state
     const before = await p2.evaluate(() => { const b = document.querySelector('[data-kind-filter="roms"]'), c = document.getElementById('libRomsCard');
       return !!b && b.checkVisibility() && c.checkVisibility() && c.textContent; });
-    check(`ROM tiles (${label}): an empty Library shows the ROMs chip and the card "No ROMs yet. CLOADM never includes ROMs; add your own dumps in Your ROMs →"`,
-      before === 'No ROMs yet. CLOADM never includes ROMs; add your own dumps in Your ROMs →', JSON.stringify(before));
+    check(`ROM tiles (${label}): an empty Library shows the ROMs chip and the card "No ROMs yet. CLOADM never includes ROMs; add your own in Your ROMs →"`,
+      before === 'No ROMs yet. CLOADM never includes ROMs; add your own in Your ROMs →', JSON.stringify(before));
     if (shotDir) await p2.screenshot({ path: path.join(shotDir, `rom-tiles-empty-library-${label}.png`) });
     await dropFiles(p2, [['d64_1.rom', fake(16384, 62)]], null, 'library');
     check(`R19 A+ (${label}): a ROM dropped on an empty Library: the card counts it`,

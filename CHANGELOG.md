@@ -20,7 +20,8 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   switched off and on, the toast's second line says so ("The Dragon 64 keeps it until you switch off and on.") with
   **Switch off and on**, and its socket in **Your ROMs** reads "Removed · still in the running machine". A disk
   cartridge's ROM comes out the same way. The ROMs chip and its card ("No ROMs yet. CLOADM never includes ROMs; add
-  your own dumps in Your ROMs →") now show in an empty Library too. New: `Session.romFiles`, `removeRom`,
+  your own in Your ROMs →") now show in an empty Library too (the card says "your own", not "your own dumps": the
+  page's glossary keeps "dump" as a verb only). New: `Session.romFiles`, `removeRom`,
   `restoreRom` and `romsStillRunning`, `RomLibrary.usedBy`, `remove` and `restore`, the index's `removeImage`, and a
   toast's optional second line with its own action (`also`).
 - **Minesweeper plays with a joystick.** Either joystick moves the cursor: one step as the stick leaves the centre,
