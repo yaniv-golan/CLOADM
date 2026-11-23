@@ -10,6 +10,8 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 
 ### Added
 
+- `node tools/affected.js [<base>]` prints the `--only` suites and browser-check groups for a diff (docs/development.md's
+  fast-loop table, as data; `tests/affected.test.js` holds every file under `js/` to at least one of them).
 - **Minesweeper plays with a joystick.** Either joystick moves the cursor: one step as the stick leaves the centre,
   then again after 300 ms and every 120 ms while it is held (counted in fields, at the machine's own 50 or 60 Hz;
   centring the stick and pushing the same way again is a new press). Either fire button opens the square under the
@@ -170,6 +172,10 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 
 ### Changed
 
+- `node tests/all.js` starts the suites longest first, from the times in `tests/suite-times.json` (rewritten by
+  `--record-times` after a passing full run), and counts each regress shard as a slot of the pool; it still prints in
+  file order. `tests/move-inflight.test.js` gives its one case that waited out the 30 s default move bound a 50 ms bound
+  of its own.
 - **The page's screen text reads every screen Claude's screen_text reads.** `Session.screenText`, which the embed
   API's `screenText`, the Ask panel, the tape panel and the boot watchdog read, decoded only the VDG's 32x16 page at a
   fixed address: on the Dragon 64 Plus's 80-column screen it returned the VDG page behind it, on a CoCo 3 GIME text

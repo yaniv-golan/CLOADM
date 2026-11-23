@@ -45,7 +45,7 @@ names contain one of the parts, and `node tools/browser-check.js --only <group>[
 | `js/ui/`, `play/`, `css/`, `index.html` | `session,readme,screen-alternative` | the panel's groups and `semantics`, then the whole check |
 | Docs (`README.md`, `docs/`) | `readme,romdocs,game-guide,dev-docs-headless,disk-read-example` | none |
 | `CHANGELOG.md` | `changelog` | none |
-| The test runner (`tests/all.js`, `suite-verdict.js`, `no-exit.js`) | `allsummary,allsignal,exitguard,exitcode` | none |
+| The test runner (`tests/all.js`, `suite-verdict.js`, `no-exit.js`) | `allsummary,allsignal,allsched,exitguard,exitcode` | none |
 | `tools/browser-check*.js`, `.github/` | `browser-check` | the groups it touches |
 
 A subset run says `SUBSET RUN (--only ...), not the full gate` on its summary line: it is never the proof. The full
@@ -112,7 +112,7 @@ write scope is used.
 Don't run anything else on the machine while the browser check runs: it is timing-sensitive under load.
 
 ```
-node tests/all.js            # every suite below in a worker pool (--jobs N to cap it), one line each, the regression gate included (exit 0 = all passed, and every suite must also have printed its summary line: one that exits 0 half done is a failure); a failing run ends with FAILED: <the suites>; --only <part>[,...] runs a subset, marked as not the gate
+node tests/all.js            # every suite below in a worker pool (--jobs N to cap it; each regress shard is a slot; started longest first from tests/suite-times.json, which --record-times rewrites after a passing full run), one line each, the regression gate included (exit 0 = all passed, and every suite must also have printed its summary line: one that exits 0 half done is a failure); a failing run ends with FAILED: <the suites>; --only <part>[,...] runs a subset, marked as not the gate
 node tools/browser-check.js  # the real pages in Chromium: the landing page (desktop and phone) and /play/: every model, LIZA end to end, the file:// notice, Share and opening snapshots, the favicon and no missing file requested by any page; the feedback model (toasts on the page the user is on, cleared by the next action, Undo, Details, desktop and phone). Every "← Emulator", Esc and Back return to the emulator, from `/play/` and `?app=claude`, after a reload and from a page loaded on a view (`--only emulatorBack`). `--only feedback,library` runs just those groups (an unknown group is an error); see "What the gates' results mean" below
 node tools/capture-images.js # recapture img/*.png (site and README pictures) from the emulator, with no ROMs
 node tools/capture-gif.js    # recapture img/readme-demo.gif (the README's looping picture), with no ROMs; tools/gif.js is its encoder

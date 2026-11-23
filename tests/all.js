@@ -6,7 +6,7 @@
 // passed", ...): a suite that stops halfway -- the usual cause is a promise that never settles, which does not
 // hang but lets Node drain the event loop and exit 0 -- prints no summary and is failed by name.
 //
-//   node tests/all.js [--jobs N] [--only <pattern>[,<pattern>...]]
+//   node tests/all.js [--jobs N] [--only <pattern>[,<pattern>...]] [--record-times]
 //
 // --only runs just the suites whose file name contains one of the patterns (a quick loop while developing; see
 // docs/development.md, "The fast loop"). Such a run is NOT the gate: its summary says so, and the regression gate's
@@ -48,6 +48,8 @@ if (onlyPats && !files.length) {
     : '--only needs a pattern: node tests/all.js --only <part of a suite name>[,<another>]');
   process.exitCode = 2;
 }
+const RECORD = process.argv.includes('--record-times');
+if (RECORD && onlyPats) { console.error('--record-times needs a full run: the times of a subset run are not the gate\'s'); process.exitCode = 2; files.length = 0; }
 const results = new Map();   // file -> { ok, seconds, output }
 
 // The summary rule itself (what a suite's last line must be, and whether a finished suite passed) lives in
@@ -89,43 +91,49 @@ function report(f) {
 // work. Below 4 cores it runs unsharded, as sharding there only competes for the same cores.
 const SHARDS = { 'regress.test.js': jobs >= 4 ? 4 : 1 };
 
-function runOne(f) {
+// The work, as pool slots: one per process. A sharded suite is n units, one per shard, so each regress shard takes a
+// slot of the pool like any other suite instead of four processes riding on one worker's slot (which ran up to
+// jobs + 3 processes at once on `jobs` cores). A suite's result is recorded when its last unit finishes.
+function unitsOf(f) {
   const n = SHARDS[f] || 1;
-  if (n > 1) return runSharded(f, n);
+  return n > 1 ? Array.from({ length: n }, (_, i) => ({ f, argv: ['--shard', `${i}/${n}`], i, n })) : [{ f, argv: [], i: 0, n: 1 }];
+}
+const pending = new Map();   // file -> { t0, parts }
+function runUnit(u) {
   return new Promise((resolve) => {
-    const t0 = Date.now();
-    // an unsharded suite records its own result, exactly as a sharded one does; forgetting this is how a
-    // suite line (and so a failure) can go missing from the run
-    spawnSuite(f, [], (ok, out) => {
-      results.set(f, { ok, seconds: (Date.now() - t0) / 1000, output: out });
-      if (!ok) failed++;
-      flush();
+    if (!pending.has(u.f)) pending.set(u.f, { t0: Date.now(), parts: new Array(u.n).fill(null) });
+    const st = pending.get(u.f);
+    // an unsharded suite records its own result, exactly as a sharded one does; forgetting this is how a suite line
+    // (and so a failure) can go missing from the run
+    spawnSuite(u.f, u.argv, (ok, out) => {
+      st.parts[u.i] = { ok, out };
+      if (st.parts.every(Boolean)) {
+        // the shards' exits decide the suite's result, and their combined output is what the failing-suite tail shows
+        const allOk = st.parts.every((p) => p.ok);
+        results.set(u.f, { ok: allOk, seconds: (Date.now() - st.t0) / 1000, output: st.parts.map((p) => p.out).join('\n') });
+        if (!allOk) failed++;
+        flush();
+      }
       resolve();
     });
   });
 }
 
-// Run a suite's shards at once. Each is a separate process; their exits decide the suite's result, and their
-// combined output is what the failing-suite tail shows.
-function runSharded(f, n) {
-  return new Promise((resolve) => {
-    const t0 = Date.now();
-    const parts = new Array(n).fill(null);
-    let done = 0;
-    for (let i = 0; i < n; i++) {
-      spawnSuite(f, ['--shard', `${i}/${n}`], (ok, out) => {
-        parts[i] = { ok, out };
-        if (++done < n) return;
-        const allOk = parts.every((p) => p && p.ok);
-        const output = parts.map((p) => p.out).join('\n');
-        results.set(f, { ok: allOk, seconds: (Date.now() - t0) / 1000, output });
-        if (!allOk) failed++;
-        flush();
-        resolve();
-      });
-    }
-  });
-}
+// Longest first: the units start in order of their recorded time (tests/suite-times.json, seconds per suite from a
+// full run; a shard is its suite's time over the shard count), so the long suites are not the last ones started and
+// the pool does not end with one core busy and the rest idle. The order only changes when each suite starts: the
+// output is still printed in file order (flush), and what each suite checks is the same. A suite the file does not
+// list (a new one) is taken as one of the long ones, so it starts early rather than late. A missing or unreadable
+// file leaves file order.
+// `node tests/all.js --record-times` rewrites the file from the run it just made (a full run only, and only if it
+// passed); the times are a scheduling hint, so a stale file costs wall time, never correctness.
+const TIMES_FILE = path.join(__dirname, 'suite-times.json');
+const times = (() => { try { return JSON.parse(fs.readFileSync(TIMES_FILE, 'utf8')); } catch (e) { return {}; } })();
+const known = Object.values(times).filter((t) => typeof t === 'number');
+const unknownTime = known.length ? Math.max(...known) : 0;
+const timeOf = (f) => (typeof times[f] === 'number' ? times[f] : unknownTime);
+const units = files.flatMap(unitsOf).map((u, k) => ({ ...u, k, cost: timeOf(u.f) / u.n }))
+  .sort((a, b) => b.cost - a.cost || a.k - b.k);
 
 // A suite that never exits must not hang the gate. Each process is killed after its timeout and the suite
 // reported as a failure that says so.
@@ -233,13 +241,13 @@ function spawnSuite(f, argv, done) {
   });
 }
 
-// A fixed set of workers, each taking the next unclaimed file: no more than `jobs` suites run at once, and no
-// file is started twice.
+// A fixed set of workers, each taking the next unclaimed unit: no more than `jobs` processes run at once, and no
+// unit is started twice.
 async function worker() {
   for (;;) {
     const i = next++;
-    if (i >= files.length) return;
-    await runOne(files[i]);
+    if (i >= units.length) return;
+    await runUnit(units[i]);
   }
 }
 
@@ -316,7 +324,7 @@ function failedLine(regOk) {
 
 (async () => {
   if (!files.length) return;           // --only selected nothing: reported above, exit 2
-  await Promise.all(Array.from({ length: Math.min(jobs, files.length) }, worker));
+  await Promise.all(Array.from({ length: Math.min(jobs, units.length) }, worker));
   if (onlyPats) {
     // A subset run: the regression gate's completeness is checked only when its suite was selected, and the summary
     // can never be mistaken for the full gate's ("all N suites passed").
@@ -338,4 +346,13 @@ function failedLine(regOk) {
   const fl = failedLine(reg.ok);
   if (fl) console.log(fl);
   process.exitCode = bad ? 1 : 0;
+  if (RECORD) {
+    if (bad) console.log(`--record-times: not written, the run failed (${path.basename(TIMES_FILE)} is unchanged)`);
+    else {
+      const rec = {};
+      for (const f of files) rec[f] = Math.round(results.get(f).seconds * 10) / 10;
+      fs.writeFileSync(TIMES_FILE, JSON.stringify(rec, null, 1) + '\n');
+      console.log(`--record-times: ${files.length} suite times written to tests/${path.basename(TIMES_FILE)}`);
+    }
+  }
 })();

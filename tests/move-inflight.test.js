@@ -263,7 +263,9 @@ async function rig(from = new Emu.MemoryMediaStore(), opts = {}) {
   // ---- a move that is refused (a disk in a drive) waits for nothing: the operation then runs as usual ----
   {
     const from = new Emu.MemoryMediaStore(), to = new Emu.MemoryMediaStore();
-    const s = await rig(from);
+    // a short bound of its own: the import below is held until after the move answers, so with the default bound
+    // (MEDIA_MOVE_WAIT_MS, 30 s) this one case spent 30 s of the suite's ~31 s waiting it out
+    const s = await rig(from, { mediaMoveWaitMs: 50 });
     const gate = deferred();
     const slow = slowWrite(from, gate.p);
     const imp = s.library.importMedia('ONE.BIN', bin);
