@@ -185,6 +185,31 @@ for (const [what, name, bytes] of [
     check('R44 b4: the NitrOS-9 boot mounts its floppy as a held mount, and that mount launches nothing',
       /in floppy drive 0/.test(said) && mounts.length === 1 && mounts[0].held && mounts[0].launches === 0, JSON.stringify({ said, mounts }));
   }
+  // b4: booting NitrOS-9 is a launch (the coordinator's ruling): accepted, it releases a Debugger stop, once, with the PC;
+  // refused (here: a Multi-Pak in the port, the boot's last refusal), it keeps the stop
+  {
+    const { makeOs9Disk } = require('../tools/nitros9/os9-image.js');
+    const f = new Emu.Session({ store: Emu.memoryStore(), media: new MemoryMediaStore() });
+    await f.ready();
+    f.switchMachine('coco3', { cpu: '6809', ram: 128, becker: false }, { menu: false });
+    await f.media.write('disks/floppy9.dsk', makeOs9Disk(Emu, { driver: 'rb1773', port: 'floppy', sides: 2, sectors: 1440, cpu: '6809' }));
+    run(f, 100);
+    const events = [];
+    f.on((ev, arg) => events.push([ev, arg]));
+    f.shownMachine.insertCartridge(new Emu.devices.multi([null, null, null, null]));
+    f.debug.halt();
+    const pc0 = f.debug.pc;
+    let refused = null;
+    try { await f.bootNitros9('floppy9.dsk', 'disk'); } catch (e) { refused = e; }
+    check('R44 b4: a refused NitrOS-9 boot (a Multi-Pak in the port) keeps the stop and releases nothing',
+      /take the Multi-Pak out/.test(String(refused)) && f.paused && f.debug.pc === pc0 && !events.some(([ev]) => ev === 'released'), String(refused));
+    f.shownMachine.ejectCartridge();
+    events.length = 0;
+    const said = await f.bootNitros9('floppy9.dsk', 'disk');
+    const r = events.filter(([ev]) => ev === 'released');
+    check('R44 b4: an accepted NitrOS-9 boot is a launch: the stop is released, once, with its PC, and the machine runs',
+      /in floppy drive 0/.test(said) && !f.paused && r.length === 1 && r[0][1] === pc0 && run(f) > 0, JSON.stringify({ said, r }));
+  }
 
   console.log(fail ? `${fail} FAILED` : 'all debugger-stop checks passed');
   process.exitCode = fail ? 1 : 0;

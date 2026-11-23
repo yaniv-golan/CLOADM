@@ -79,7 +79,7 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   breakpoint $C0F3.") with Resume and Open Debugger, and the status line reads "Stopped in the Debugger" (or "Paused"
   for the page's own Pause) instead of a speed it could no longer measure. Resume on the button, the strip or the
   Debugger's F5 ends both kinds of pause. Run again, a program from Runs without ROMs, Open or a drop (a program, tape
-  or disk), a disk put in from the Library, Reset, Switch off and on and a machine switch release the stop in the
+  or disk), a disk put in from the Library, booting NitrOS-9, Reset, Switch off and on and a machine switch release the stop in the
   Session (a refused file starts nothing and leaves it), so what Claude and the MCP
   server start runs too; the breakpoints stay set, and the toast adds "The Debugger's stop at $C0F3 was released."
   Typing while stopped (keys, a tap on the welcome menu, a paste, the Type-in panel) is refused with one toast per

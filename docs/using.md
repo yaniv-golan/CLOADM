@@ -482,7 +482,7 @@ Pause) instead of a speed. Resume, wherever you press it (the button, the strip,
 of pause.
 
 Starting something runs it: Run again, a program from Runs without ROMs, Open or a dropped program, tape or disk, a
-disk put in from the Library, Reset, Switch off and on and a machine switch each release the stop (the toast adds "The
+disk put in from the Library, booting NitrOS-9, Reset, Switch off and on and a machine switch each release the stop (the toast adds "The
 Debugger's stop at $C0F3 was released.") and end the page's Pause. A file that is refused (a .wav with no tape in it,
 BASIC on a machine without its ROM) starts nothing, so the stop stays. Your breakpoints stay set. The same holds for what Claude or the MCP server
 starts. While the machine is stopped, typing is refused rather than kept for later (keys, a tap on the welcome menu,
