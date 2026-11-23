@@ -31,6 +31,8 @@ export const loadRow = (session, row) => {
 };
 
 export function setupDrawer(page, { showRoms }) {
+  // the cassette slot's empty line, a button (taken out of the page while a tape's name stands there), and the pointer the hint is worded for
+  const insertTape = $('btnTapeName'), touch = matchMedia('(pointer: coarse)');
   const { session } = page;
   const tabs = [...document.querySelectorAll('.drawer [role="tab"]')];   // (the settings' own: not a sheet's)
   function select(tab, focus = false) {
@@ -51,9 +53,14 @@ export function setupDrawer(page, { showRoms }) {
   select(tabs[0]);
 
   // Media: what was loaded on this machine before
+  let runShown = null;   // the running file's name the list was drawn with (the frame loop redraws it when that changes)
   function recent() {
     const list = $('recentList');
     const items = recentRows(session.library.recentMedia(), session.personMachine.id);
+    // the file that runs now (the list's first, which is what was loaded last) says so; the Media tab's "Last time" card
+    // is for what is not running (js/ui/welcome.js)
+    const running = page.runningNow();
+    runShown = running && running.kind === 'recent' ? running.name : null;
     list.replaceChildren();
     // empty: hidden while "Last time" shows above it (the CSS), as the two would contradict each other
     for (const el of [list, $('recentHead')]) el.classList.toggle('recent-empty', !items.length);
@@ -70,6 +77,7 @@ export function setupDrawer(page, { showRoms }) {
       // two rows of one name with different bytes: say which is which, or the list shows the same line twice
       if (r.copy) { const c = document.createElement('span'); c.className = 'copy'; c.textContent = r.copy; b.append(n, c, k); }
       else b.append(n, k);
+      if (i === 0 && runShown !== null && session.library.sameName(r.name, runShown)) { n.after(Object.assign(document.createElement('span'), { className: 'tag now', textContent: 'on screen now' })); b.setAttribute('aria-current', 'true'); }
       b.disabled = !r.stored;
       b.onclick = () => { page.attempt(() => loadRow(session, { r, i })); page.focus(); };
       list.append(b);
@@ -93,13 +101,15 @@ export function setupDrawer(page, { showRoms }) {
   function slots() {
     const m = session.personMachine, t = m.deck.tape;
     // (refreshed every frame while a tape is in: each part is written only when it changes, put/putClass)
-    put($('tapeName'), 'textContent', t ? t.name : 'No tape · Insert tape…');
+    // (no tape: the line is a button that opens the file picker; a tape in: its name)
+    if (t) put($('tapeName'), 'textContent', t.name);
+    else if (!$('tapeName').contains(insertTape)) $('tapeName').replaceChildren(insertTape);
     // a button that can't work is disabled with the reason, not clicked and complained about
     put($('btnRewind'), 'disabled', !t);
     put($('btnRewind'), 'title', t ? 'Back to the start of the tape' : 'No tape inserted');
     put($('btnEjectTape'), 'disabled', !t);
     put($('btnEjectTape'), 'title', t ? 'Take the tape out of the deck' : 'No tape inserted');
-    put($('tapeState'), 'textContent', !t ? 'click the deck to insert' : m.deck.motor ? `motor on · ${(t.progress() * 100).toFixed(0)}%` : `stopped · ${(t.progress() * 100).toFixed(0)}%`);
+    put($('tapeState'), 'textContent', !t ? `${touch.matches ? 'tap' : 'click'} the deck to insert` : m.deck.motor ? `motor on · ${(t.progress() * 100).toFixed(0)}%` : `stopped · ${(t.progress() * 100).toFixed(0)}%`);
     put($('cartSlot'), 'hidden', !m.hasCartridgePort);
     const loaded = !!(m.hasCartridgePort && m.cartPort);
     putClass($('btnCart'), 'loaded', loaded);
@@ -132,14 +142,17 @@ export function setupDrawer(page, { showRoms }) {
   session.on((ev) => {
     if (ev === 'machine' || ev === 'loaded') { if (ev === 'machine') cartName = null; recent(); roms(); slots(); }
     if (ev === 'disks') slots();   // a disk mounted without a disk ROM plugs the controller in, and a reset gives it its ROM
-    if (ev === 'roms') { roms(); recent(); slots(); }
-    if (ev === 'arrival') roms();   // a shared moment left: the pill again, if the machine has no BASIC   // (slots: the Pak's board label follows its speech ROM)
-    if (ev === 'recent') recent();   // another tab loaded a program (Session.mediaElsewhere)
+    if (ev === 'roms') { roms(); recent(); slots(); }   // (slots: the Pak's board label follows its speech ROM)
+    if (ev === 'arrival') roms();   // a shared moment left: the pill again, if the machine has no BASIC
+    if (ev === 'recent' || ev === 'lastrun') recent();   // another tab loaded a program (Session.mediaElsewhere); a program started: marked
+
     // a tape mounted or ejected starts or stops the per-frame refresh of this row. A power cycle ejects the
     // deck and reports 'firmware' (Session.powerCycle -> poweredOn), not 'reset', so it has to be in this list:
     // without it the watcher outlived the tape and redrew the row every frame for the life of the page.
     if (ev === 'tape' || ev === 'machine' || ev === 'loaded' || ev === 'reset' || ev === 'firmware') { slots(); watchTape(); }
   });
+  // what is running now changes without an event too (Pause, a Debugger stop, a reset): the list follows
+  page.onFrame(() => { const r = page.runningNow(), k = r && r.kind === 'recent' ? r.name : null; if (k !== runShown) recent(); });
   // slots() shows the tape's motor state and progress, which change while a tape plays, and the cartridge
   // slot, which changes only on an event. So it is refreshed per frame while a tape is mounted (or the deck
   // is moving) and refreshed directly on the events that can change the rest; with no tape, nothing on this

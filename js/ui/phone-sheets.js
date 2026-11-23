@@ -271,5 +271,9 @@ export function setupPhoneSheets(page, { touchKeys, ask = null }) {
   // the full-screen chat takes the page: a sheet closes
   new MutationObserver(() => { if (document.body.classList.contains('claude-open')) close(false); }).observe(document.body, { attributes: true, attributeFilter: ['class'] });
   place();
-  return { open, close, openSettings, openPrograms, openPorts, get openSheet() { return openSheet; } };
+  // the Cassette deck sheet closed (on a short phone, the Tape tab's sheet), so the screen shows what the tape does
+  function closeTape() {
+    if (openSheet === $('sheetTape') || (openSheet === ports && portTab === 'sheetTape')) close();
+  }
+  return { open, close, closeTape, openSettings, openPrograms, openPorts, get openSheet() { return openSheet; } };
 }

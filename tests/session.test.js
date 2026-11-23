@@ -327,7 +327,7 @@ const userMedia = (async () => {
   const s3 = new Emu.Session({ store: Emu.memoryStore() });
   s3.switchMachine('mc10', { ram: 20 });
   const msg3 = await s3.startLiza(fetch);
-  check('Session loads LIZA for real on a 20K MC-10', /liza6803-mc10\.bin: DragonDOS binary/.test(msg3), msg3);
+  check('Session loads LIZA for real on a 20K MC-10', /liza6803-mc10\.bin loaded and started\. DragonDOS binary/.test(msg3), msg3);
   for (let i = 0; i < 20; i++) s3.shownMachine.runFrame();
   check('the MC-10 screen shows the LIZA title', s3.screenText().join(' ').includes('I AM LIZA'), s3.screenText()[2]);
   s3.typeText('I need a holiday\n');

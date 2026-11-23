@@ -586,7 +586,8 @@ const REQUIRED = require.main !== module;
     'romFiles', 'romsStillRunning',
     // (main 1dd66fa: all four are reads/pure. indexWriteError formats a stored-write error; tapeRunning reads the
     // PERSON's deck motor flag; screenAlternative describes the SHOWN screen's text; welcomeGenNow reads the ticket)
-    'indexWriteError', 'tapeRunning', 'screenAlternative', 'welcomeGenNow',
+    // greetingFor answers which greeting the menu takes from whether the visit began as the first (a flag, no machine)
+    'indexWriteError', 'tapeRunning', 'screenAlternative', 'welcomeGenNow', 'greetingFor',
     'pickNitros9Image', 'openMedia', 'downloadMedia', 'drives.download', 'drives.writesDone', 'printoutFile',
     // programControls reads the menu watch of the SHOWN machine: the touch panel it answers drives what is on screen
     'programControls',
@@ -634,7 +635,7 @@ const REQUIRED = require.main !== module;
     'lastRun', 'welcomeMenu', 'startMachine', 'caseInsensitive', 'webSerialAvailable', 'realCoco', 'driveWireMounts',
     'driveWireChannels', 'hasAnyRoms', 'hasMultiPak', 'claudeBusyActing', 'lizaFile', 'cartBoard', 'paused', 'display', 'debugger', 'stubRun',
     'stubChosen', 'offersSsc', 'tapeRecording', 'personMachine', 'shownMachine', 'nitros9Running', 'nitros9OnScreen',
-    'hasArtifactPhase', 'hasTwoScreens', 'welcomeRunning', 'welcomeRunningOn', 'welcomeOnScreen',
+    'hasArtifactPhase', 'hasTwoScreens', 'welcomeRunning', 'welcomeRunningOn', 'welcomeOnScreen', 'lastRunOnScreen',
     // sharedMoment: the person arrived on a shared moment and has not left it (a flag, no machine)
     'sharedMoment']) SESSION.add(n);
   // Puppets whose reachability is decided where they live (see the note above): debug (the Debugger view closes the

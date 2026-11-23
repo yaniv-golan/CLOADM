@@ -112,6 +112,8 @@ export const romOwners = () => Object.assign({}, profiles, cartridgeRoms, { ssc:
 // PLAYED flag itself (`played`, below), so the tune is spent before anything can unlock it.
 export const WELCOME_REASONS = Object.freeze(['visit', 'shelf', 'switch', 'reset', 'return']);
 const WELCOME_QUIET = Object.freeze(new Set(['switch', 'reset', 'return']));
+// the menu's prompt line, drawn once its program has set the screen up: the sign that the menu is on screen
+const WELCOME_PROMPT = 'PRESS 1 TO';
 export const WELCOME = Object.freeze({
   // carryMax: the carry-on line's text, 0-terminated (none when the first byte is 0), this long at most (the 6809
   // build's line has the room for "CARRY ON WITH MINESWEEPER")
@@ -609,6 +611,8 @@ export class Session {
     this.fastCas = false;       // load .cas files straight into memory instead of through BASIC
     this.cartFiles = new WeakMap();   // a cartridge image's device -> the file it came from (takenOut names it)
     this._cartBoard = 'auto';   // the board a loaded cartridge image goes on (js/machines/carts.js CART_BOARDS)
+    this.loadStarted = true;        // the load in progress started a program (load() reads it for the last run)
+    this.lastRunOn = null;          // the machine the last-run program started on, until something takes it over (lastRunOnScreen)
     this.listeners = new Set(); // (event) => void: 'machine' after a switch, 'loaded' after a program, tape or
                                 // cartridge is loaded or assembled, 'roms' when stored ROMs or the stub choice change,
                                 // 'firmware' after a power cycle, 'reset' after a reset, 'rate' (SAM rate), 'welcome:<choice>' (startWelcome),
@@ -628,6 +632,8 @@ export class Session {
     this.welcome = null;            // the machine running the welcome program
     this.typingRefusedFor = null;   // the Debugger stop the person was last told typing is refused for (refuseTyping)
     this.welcomeFrom = 0;           // its frameCount when the welcome program was loaded (welcomeOnScreen)
+    this.welcomeDrawn = false;      // its menu has been seen on the screen since (welcomeOnScreen)
+    this.firstVisit = false;        // this page visit began as the browser's first (visit())
     this.welcomeGen = 0;            // bumped by every start: the FIRST start to land wins (a later one is dropped)
     this.menuWatch = null;          // a program that goes back to the welcome menu when left (watchForMenu)
     // What runs on the stub firmware and how to restart it, per machine (Reset; see `reset`). Per machine because
@@ -752,7 +758,10 @@ export class Session {
     return stored ? 'replaced' : 'removed';
   }
   on(fn) { this.listeners.add(fn); return () => this.listeners.delete(fn); }
-  emit(event, arg) { for (const fn of this.listeners) fn(event, arg); }
+  emit(event, arg) {
+    if (event === 'launch') this.lastRunOn = null;   // (every load, reset, switch, menu start and snapshot is a launch: lastRunOnScreen)
+    for (const fn of this.listeners) fn(event, arg);
+  }
 
   // ---------------- the debugger ----------------
   // One debugger per machine, made on first use and thrown away with the machine. A front end talks to
@@ -1928,6 +1937,7 @@ export class Session {
   visit() {
     const first = this.store.get('visited') === null;
     this.store.set('visited', '1');
+    this.firstVisit = first;
     return { first, machineChosen: this.store.get('machineChosen') !== null, recent: this.library.recentMedia() };
   }
   // What ran last (the returning visit's "Last time" and the menu's "CARRY ON WITH"), kept across visits:
@@ -1940,7 +1950,16 @@ export class Session {
   }
   // emits 'lastrun': a program records itself AFTER its load has emitted 'loaded', so a view of lastRun (the Media
   // tab's "Last time") follows this event, not 'loaded', and names what Run again runs
-  setLastRun(kind, name) { this.store.set('lastRun', JSON.stringify({ kind, name })); this.emit('lastrun'); }
+  // running: false for a load that started nothing (data with no execution address): it is what ran last, but nothing
+  // on screen runs it, so it is not "on screen now" (lastRunOnScreen)
+  setLastRun(kind, name, { running = true } = {}) { this.store.set('lastRun', JSON.stringify({ kind, name })); this.lastRunOn = running ? this.personMachine : null; this.emit('lastrun'); }
+  // Is what lastRun names the program on screen now: recorded as it started on the machine in use, and nothing since
+  // took the machine from it (a load, a launch, a reset, a switch, the welcome menu, a snapshot), not stopped by the
+  // Debugger. The page adds its own Pause. Its panels then show it as running, not as something to Run again.
+  get lastRunOnScreen() {
+    const m = this.lastRunOn;
+    return !!m && m === this.personMachine && m === this.shownMachine && !this.paused;
+  }
   // What the welcome menu's carry-on line offers on the machine in use: what ran last, if it runs here. A file only
   // on the machine it was loaded on (and only while its bytes are kept), the colour demo and the games only on a
   // 6809-family CPU, LIZA on every machine (its 6809 or 6803 build). null: no carry-on line.
@@ -1960,7 +1979,9 @@ export class Session {
   // The greeting the menu takes when it is offered by a switch: a machine question ('none') is asked on a FIRST
   // visit only, so it greets a first-time visitor ('first', the title screen); every other offer is a returning
   // visitor's ('back') -- the page used to decide this itself, and once got it wrong. One place decides it now.
-  static greetingFor(offer) { return offer === 'none' ? 'first' : 'back'; }
+  // A visit that began as the browser's first stays "first" until something has run in it: with nothing to come back
+  // to, "WELCOME BACK" would greet a visitor who has only just arrived (a machine picked in the header menu).
+  greetingFor(offer) { return offer === 'none' || (this.firstVisit && !this.lastRun) ? 'first' : 'back'; }
   get hasAnyRoms() { return this.roms.sockets().some((s) => profiles[s.owner]); }
 
   // ---------------- programs and media ----------------
@@ -2116,8 +2137,9 @@ export class Session {
   // data; remember: false keeps it off the recent list.
   // run: false types a BASIC listing without the RUN after it (the MCP server's load; the page always runs it)
   load(name, bytes, { askAddresses = null, remember = true, run = true } = {}) {
+    this.loadStarted = true;
     const msg = this.loadMedia(name, bytes, askAddresses, { run });
-    if (remember) { this.library.rememberMedia(name, bytes); this.setLastRun('recent', name); }
+    if (remember) { this.library.rememberMedia(name, bytes); this.setLastRun('recent', name, { running: this.loadStarted }); }
     this.emit('loaded');
     return msg;
   }
@@ -2202,7 +2224,9 @@ export class Session {
         }
         go();
         this.inject(d.segments, d.exec, m);
-        return where(`${name}: ${d.format} ${describeSegments(d.segments, d.exec)}`);
+        if (d.exec == null) this.loadStarted = false;   // (data only: nothing runs)
+        // what happened first, the format and the addresses after it (the page shows the rest under Details)
+        return where(`${name} loaded${d.exec != null ? ' and started' : ''}. ${d.format} ${describeSegments(d.segments, d.exec)}`);
 
       case 'wav':
         throw new SessionError(d.error ? `${name}: ${d.error}` : `${name}: no tape blocks found in this recording${d.wav && d.wav.badBlocks ? ` (${d.wav.badBlocks} damaged)` : ''}`);
@@ -2261,6 +2285,7 @@ export class Session {
           const seg = { addr: first.load, data: first.data };
           go();
           this.inject([seg], first.exec, m);
+          if (first.exec == null) this.loadStarted = false;
           const range = `${hex(first.load)}–${hex((first.load + first.data.length - 1) & 0xFFFF)}`;
           msg = first.exec != null ? `${name} loaded (${range}) and started at ${hex(first.exec)}.` : `${name} loaded (${range}).`;
         }
@@ -2295,6 +2320,7 @@ export class Session {
         go();
         const seg = { addr: a.load, data: bytes };
         this.inject([seg], a.exec, m);
+        if (a.exec == null) this.loadStarted = false;
         return where(`${name}: raw ${describeSegments([seg], a.exec)}`);
       }
     }
@@ -3254,6 +3280,7 @@ export class Session {
     this.welcome = m;
     this.welcomeBuild = w;
     this.welcomeFrom = m.frameCount;   // (welcomeOnScreen: the menu is drawn once a frame has run after this one)
+    this.welcomeDrawn = false;
 
     this.emit('welcome');   // (the page's parts that depend on whether the welcome program runs: the quick-save slots)
     this.welcomeQuiet = WELCOME_QUIET.has(why) ? { m, at: m.frameCount } : null;
@@ -3276,7 +3303,11 @@ export class Session {
   // of its own (the page's Pause button) adds it. Cheap: three comparisons, read once per animation frame.
   get welcomeOnScreen() {
     const m = this.welcome;
-    return !!m && m === this.personMachine && m === this.shownMachine && !this.paused && m.frameCount > this.welcomeFrom;
+    if (!m || m !== this.personMachine || m !== this.shownMachine || this.paused || m.frameCount <= this.welcomeFrom) return false;
+    // a frame having run is not the menu being there: the program sets the screen up first (the CoCo 3 takes a few
+    // dozen frames, and until then the screen shows what was there before): "on screen" once its prompt is drawn;
+    // read until then, a latch after
+    return this.welcomeDrawn || (this.welcomeDrawn = this.screenText(m).some((row) => row.includes(WELCOME_PROMPT)));
   }
   // one of the bundled games (2048, Minesweeper) is what runs on this machine now: from runGame until it is left
   // (BREAK), or a load, a reset or a switch ends the watch.
