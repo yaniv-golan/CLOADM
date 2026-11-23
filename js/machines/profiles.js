@@ -43,8 +43,8 @@ const becker = { becker: { values: [false, true], default: false } };
 // the Pak's lockstep on offer it: CoCo 1/2 (`coco`), CoCo 2B (`coco2b`) and CoCo 3 (`coco3`), and the Dragon 64
 // (`dragon64`, whose MAME driver lists the `ssc` slot too), each compared with MAME 0.264 to HALT
 // (`tools/mame-diff/run.js <profile> --ssc`). A model without this option refuses `ssc` at resolveConfig with the
-// usual unknown-option message, and the page does not offer the board. 'music' inserts the Pak with its AY-8913
-// routed; its speech side needs the SP0256, which is not implemented yet (README).
+// usual unknown-option message, and the page does not offer the board. 'music' inserts the Pak: its AY-8913, and its
+// SP0256's speech when the user's allophone ROM is loaded (the value's name predates the speech).
 const ssc = { ssc: { values: ['none', 'music'], default: 'none' } };
 
 const slot = (id, label, size, at, files, crcs, opts = {}) => Object.assign({ id, label, size, at, files, crcs, aliases: [], bank: 0, required: false }, opts);

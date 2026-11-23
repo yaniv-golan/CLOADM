@@ -4,8 +4,8 @@
 // (tests/ssc.test.js). What this file pins:
 //   * which models offer the Pak and which refuse it, and the message a refusal gives;
 //   * the PIC ROM's three states - missing, wrong size, present - through the Session;
-//   * that the Pak inserts and PLAYS with no SP0256 allophone ROM, because speech is not implemented (its ROM
-//     socket is optional, and the card must not require it);
+//   * that the Pak inserts and PLAYS with no SP0256 allophone ROM (its ROM socket is optional: speech needs it,
+//     music does not), and the message says which of the two it plays;
 //   * that the Pak survives insert -> snapshot -> restore as the port's board;
 //   * that the cartridge board entry refuses a cartridge IMAGE (the Pak has no image socket).
 //
@@ -88,7 +88,7 @@ const storeSscRoms = (s, { pic = PIC, sp = SP_ROM } = {}) => {
   storeSscRoms(s, { pic: PIC, sp: SP_ROM });
   const msg = s.insertSsc();
   check('the PIC ROM present: the Pak inserts', s.sscInserted && s.shownMachine.cartPort.type === 'ssc', String(s.sscInserted));
-  check('...and the message says music only', /music only/.test(msg) && /speech is not implemented/.test(msg), msg);
+  check('...and the message says music and speech (the allophone ROM is loaded)', msg === 'Speech/Sound Pak inserted (music and speech)', msg);
   check('...and the option is remembered as music', s.shownMachine.config.ssc === 'music', s.shownMachine.config.ssc);
   check('...and the Pak is the port\'s board, with its label', s.shownMachine.cartPort.name === 'Speech/Sound Pak', s.shownMachine.cartPort.name);
   // eject: the port empties and the option goes back
@@ -104,8 +104,11 @@ const storeSscRoms = (s, { pic = PIC, sp = SP_ROM } = {}) => {
   // the PIC's firmware has written the mixer and volumes.
   const s = await session();
   storeSscRoms(s, { pic: PIC, sp: null });
-  const e = throws(() => s.insertSsc());
+  let msg = '';
+  const e = throws(() => { msg = s.insertSsc(); });
   check('no speech ROM: the Pak inserts anyway', !e && s.sscInserted, e ? e.message : '');
+  check('...and the message says plainly that it plays music only, and how to add speech',
+    msg === 'Speech/Sound Pak inserted (music only: add your own SP0256-AL2 ROM in Your ROMs for speech)', msg);
   const pak = s.shownMachine.cartPort;
   check('...its SP0256 carries no allophone data (the documented empty case, not a zero-filled image)',
     pak.sp0256Data === null, String(pak.sp0256Data));
@@ -139,12 +142,53 @@ const storeSscRoms = (s, { pic = PIC, sp = SP_ROM } = {}) => {
   check('snapshot: and the restored card still steps', m && !throws(() => { for (let f = 0; f < 2; f++) m.runFrame(); }));
 }
 
+// ---------------------------------------------------------------- the speech ROM's words, and the one notice
+// The board's name follows the speech ROM, and a program that speaks with none gets ONE notice a session
+// ('speech-rom'), however its frames are run. A stand-in speech program, never a real ROM: gen-voice.js's PIC program
+// loads allophones from its own reset, as recorded in tests/fixtures/ssc/voice-mame.json.
+{
+  const rec = require('./fixtures/ssc/voice-mame.json');
+  const voicePic = new Uint8Array(Buffer.from(rec.pic, 'base64')), voiceImage = new Uint8Array(Buffer.from(rec.image, 'base64'));
+  const T = Emu.SSC_TEXT;
+  check('the speech ROM\'s words are the agreed ones',
+    T.boardNoSpeech === 'Speech/Sound Pak (music; speech needs your SP0256-AL2 ROM)' && T.board === 'Speech/Sound Pak' &&
+    T.romMissing === 'Optional: the SP0256-AL2 speech ROM. Without it the Pak plays music and stays silent for speech. CLOADM never includes it; add your own copy.' &&
+    T.romLoaded === 'SP0256-AL2 speech ROM ✓ · the Pak speaks.' &&
+    T.speechNoRom === 'This program is speaking, but there\'s no speech ROM: add your own SP0256-AL2 ROM in Your ROMs.', JSON.stringify(T));
+  const s = await session();
+  check('the board menu\'s label without a speech ROM says music, and that speech needs the ROM', s.sscBoardLabel === T.boardNoSpeech, s.sscBoardLabel);
+  storeSscRoms(s, { pic: voicePic, sp: null });
+  let notes = 0;
+  s.on((ev) => { if (ev === 'speech-rom') notes++; });
+  s.insertSsc();
+  s.runFrames(20);
+  check('a program speaking with no speech ROM: the Session says so once', notes === 1 && s.shownMachine.cartPort.spokeWithoutRom === true, `${notes} notices`);
+  s.runFrames(60);
+  s.ejectSsc(); s.insertSsc(); s.runFrames(60);
+  check('...and only once in the session: more speech, and the Pak out and in again, say nothing more', notes === 1, `${notes} notices`);
+  s.roms.put('ssc', 'sp0256', voiceImage, 'sp0256-al2.bin');
+  check('with the speech ROM added, the board menu\'s label is the plain name', s.sscBoardLabel === T.board, s.sscBoardLabel);
+  // a session whose Pak has its speech ROM never gives the notice, nor one whose program does not speak
+  const t = await session();
+  storeSscRoms(t, { pic: voicePic, sp: voiceImage });
+  let tNotes = 0;
+  t.on((ev) => { if (ev === 'speech-rom') tNotes++; });
+  t.insertSsc(); t.runFrames(60);
+  const u = await session();
+  storeSscRoms(u, { pic: PIC, sp: null });
+  let uNotes = 0;
+  u.on((ev) => { if (ev === 'speech-rom') uNotes++; });
+  u.insertSsc(); u.runFrames(60);
+  check('no notice with the speech ROM in, nor from a program that never speaks', tNotes === 0 && uNotes === 0 && !t.shownMachine.cartPort.spokeWithoutRom,
+    `with ROM ${tNotes}, music only ${uNotes}`);
+}
+
 // ---------------------------------------------------------------- the board takes no cartridge image
 {
   const e = throws(() => Emu.cartridgeFor(new Uint8Array(0x100), 'ssc'));
   check('a cartridge image on the ssc board is refused, saying it takes none',
     e && /takes no cartridge image/.test(e.message) && /ROM panel/.test(e.message), e ? e.message : 'did not throw');
-  check('the board is named for the menu, music only', /music only/.test(Emu.CART_BOARDS.ssc.name) && /speech not yet/.test(Emu.CART_BOARDS.ssc.name), Emu.CART_BOARDS.ssc.name);
+  check('the board is named for the menu, plainly', Emu.CART_BOARDS.ssc.name === 'Speech/Sound Pak', Emu.CART_BOARDS.ssc.name);
   // and the Session refuses the board choice with the same reason
   const s = await session();
   s.cartBoard = 'ssc';

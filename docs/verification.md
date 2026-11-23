@@ -293,12 +293,56 @@ first load 11 card cycles early), if the mameCompat LRQ-ahead rule is removed (l
 one polling pass of 23 cycles late), or if a field width is wrong (DELTA_9's pitch read as 4 bits: from load 27 on),
 and if `gen-speak.js` stops building the recorded image.
 
-Its speech is still silent: the sequencer drives the sample clock, but there is no filter and no DAC yet, so
-nothing reaches the mixer from it (the next stage, compared with `-wavwrite` on our own images).
-**The sound-activity circuit belongs to this same gap.** `$FF7E` bit 5 reports whether the speech chip is making
-sound, and this emulator stubs it to a constant high (`soundActive` in `js/machines/ssc.js`), so the bit is wrong for as long as
-the SP0256's audio is; it is listed here rather than as a separate defect, and no work on it makes sense before
-speech audio exists.
+**The Speech/Sound Pak's SP0256 sound** (`node tools/mame-diff/ssc/speech-audio.js <coco|coco2b|coco3|dragon64>`).
+The chip's output (`js/chips/sp0256.js`, stage 3, MAME's model): the excitation (an impulse of the amplitude every
+pitch period, or plus or minus the amplitude from a 15-bit noise register), six second-order filter stages in 16-bit
+arithmetic that wraps, their B and F multipliers from the SP0250 Applications Manual's coefficient quantization (our
+table is built from its step breakpoints and equals MAME's 128 values), and the last stage held to 14 bits, times 4.
+The Pak (`js/machines/ssc.js`) adds it to its sound path at MAME's gain, `SP0256_GAIN` 1.75 of full scale 32,768,
+gated by the sound mux with the AY (`set_sound_enable`). Both sides run our own images: the speech program from
+`ssc/gen-voice.js` (24 tests: every load that sets coefficients in all four modes, voiced at several pitches and
+amplitudes, both coefficient signs and stage 5, interpolation, SETMSB and delta updates of a playing sound, noise,
+PAUSE, and the chip halting after a voiced and after an unvoiced sound), installed in MAME as `sp0256-al2.bin` but
+always our own image, never a real SP0256-AL2; its PIC program is `gen-speak.js`'s with two holds, and the 6809 only
+opens the mux (`gen-ay.js`). MAME records at the chip's stream rate (`-wavwrite`, `-samplerate 9285`,
+`-nocompressor`), so each recorded sample is one chip sample; ours is the machine's sound path read at each speech
+sample's stamp and written as MAME writes a WAV sample (clamped to plus or minus 1, times 32,767, truncated):
+
+| Model | Samples compared | Largest difference | Over 1 LSB |
+|---|---|---|---|
+| CoCo 1/2 | 18,380 (from sample 190) | 1 LSB | 0 |
+| CoCo 2B | 18,380 | 1 LSB | 0 |
+| CoCo 3 | 17,813 (from sample 757, where its 6809 opens the mux) | 1 LSB | 0 |
+| Dragon 64 | 18,380 | 1 LSB | 0 |
+
+All 24 address loads are made on each, MAME's recording holds about 2,170 distinct values and none clipped, and its
+two channels are the same. Our sample k is compared with MAME's sample k + 1: from its first sound update on, MAME's
+recording is one output sample later than its streams put it, the constant the cartridge and AY comparisons also
+see (`cart/audio.js`, `ssc/audio.js`; its source in MAME is not established). The first 1/50 s is left out, because
+in that update MAME's resampler holds one sample twice, and so is everything before the 6809 opens the mux (the
+machine's own sound, compared by `sam/dac-sound.js`; on the CoCo 3 it differs here, -8,191 against 0), plus 4 samples:
+MAME gates the sample the mux opens on when it mixes, we when the sample is made. The 1 LSB tolerance covers float
+rounding: MAME resamples the AY's idle level (heard, since the mux is open) from its 1.79 MHz stream with 32-bit
+float sums, which moves the sum by an ulp at some samples; measured, 1 sample in 18,564 differs, by 1. The test
+image's levels are chosen to stay inside what the recording can hold (`gen-voice.js` runs our chip to choose the
+INPUTS; the expected output is MAME's recording), so two parts of the model cannot be seen in it: the 14-bit hold and
+the 16-bit wrap. Both only act beyond full scale, where the recording clips; `tests/sp0256.test.js` pins them with
+values worked by hand from MAME's model.
+
+The CI has no MAME, so `tests/ssc.test.js` holds MAME's recording on the CoCo 1/2 and the Dragon 64
+(`tests/fixtures/ssc/voice-mame.json`, with the speech image and PIC program MAME ran) and requires the same, every
+sample within 1 LSB, plus that `gen-voice.js` still builds those images. Mutations, each turning it red: the B term
+shifted by 8 instead of 9; the coefficient table's first segment 8k instead of 8k + 1; no delay reset at an impulse;
+the halted chip forgetting its amplitude; noise taps 0x4000; no amplitude interpolation; the Pak's gain 1.5; the
+speech stamped 3 periods on; and speech not gated by the mux (a hardware-grid check: with gen-speak.js's 6809
+program, which never opens the mux, the sound path holds one level). `tests/state.test.js` snapshots the Pak in the
+middle of an allophone, part way through a frame, with speech levels not yet passed on, and the restored machine's
+sound is identical level for level.
+
+**The sound-activity circuit** is the one part of the Pak still missing. `$FF7E` bit 5 reports whether the Pak is
+making sound, and this emulator stubs it to a constant high (`soundActive` in `js/machines/ssc.js`). MAME's circuit
+follows the AY's level only (`coco_ssc.cpp`: the AY is routed through it, the SP0256 straight to the speaker); it is
+deferred, and the CoCo 3's `$0405` difference in `ssc/compare.js` comes from it.
 
 **Where the Pak is offered, and where it is not.** The cartridge port's board menu offers it on the four models
 whose Pak **instruction lockstep** (`run.js <profile> --ssc`, the masked case) has matched MAME 0.264 to HALT: CoCo
@@ -340,9 +384,18 @@ firmware never writes the 6551's `$FF04-$FF07`. Those parts are covered by keys 
 dragon64` (the SAM diagnostic's phase 4 reads BANKID at `$BF00` with PB2 both ways, and fails on the PB2 mutation)
 and `acia dragon64`. The comparable earlier statement for the CoCos' SSC keys is the same: they cover the Pak, and
 the models' own differences are covered by their own keys.
-The board is described as **music only** wherever it appears, because speech is the unimplemented half above. Its
-PIC (TMS7040) ROM is the user's, added through the ROM panel; the SP0256 allophone ROM is optional, since nothing
-plays it yet. Offering the Pak on these four models rests on the instruction lockstep above; the interrupt case
+Its PIC (TMS7040) ROM is the user's, added through the ROM panel and required; the SP0256-AL2 speech ROM is the
+user's too and optional (CLOADM never includes it). The words for it are one table, `SSC_TEXT` in `js/session.js`:
+without the speech ROM the board menu says **Speech/Sound Pak (music; speech needs your SP0256-AL2 ROM)** and with it
+**Speech/Sound Pak**; the ROM panel's speech socket says it is optional, what it does and that CLOADM never includes
+it, or, loaded, that the Pak speaks; and when a program first asks the Pak to speak with no speech ROM (an address
+load, noted by the Pak and checked by the Session after every frame, however the frames were run: the page,
+Claude's tools, MCP, a script) the Session emits `speech-rom` once in its life, which the page shows as one toast
+with an "Add ROMs" button (the stdio MCP server, `cli/mcp.js`, has no page, and nothing there listens for it). `tests/ssc-board.test.js` holds the words, the label switch and the once-a-session rule
+(more speech, and the Pak out and in again, say nothing more; with the ROM in, or a program that never speaks, nothing
+at all); the browser check's `sscBoard` group checks the menu label both ways, both panel lines and the toast exactly
+once through the page, all with our own stand-in speech program, and hears the speech reach the machine's sound
+path once the stand-in speech image is added. Offering the Pak on these four models rests on the instruction lockstep above; the interrupt case
 (`compare.js`) additionally passes on the CoCo 1/2, the CoCo 2B and the Dragon 64, and on the CoCo 3 it does not.
 That pass is weaker than it sounds: those three models' work RAM matches because the firmware's fixed read lands
 outside a sound-activity window this emulator does not model (above), so it is not evidence about bit 5 either
@@ -1464,6 +1517,14 @@ names it.
   tape; we play them as they are and only make up leaders that are too short for BASIC to find the block, with
   MAME's silences. What a program reads is the same (`tape/cloadm.asm`, above); the comparison of the signal
   checks the silences and shows the runs between them without comparing them.
+
+* The Speech/Sound Pak's speech on the sound path (`js/machines/ssc.js`, `SP_LAG`): each speech sample's level is
+  heard from two sample periods after its period starts, about 0.2 ms late. The chip makes a sample when its period
+  ends (or, for a status read or an address load, when it starts), up to a PIC instruction after the AY's samples
+  for the same moment have been passed on, and the machine's sound path takes levels in time order; two periods on
+  is after the card's position whenever a sample is made. MAME's stream holds sample k for its own period. The
+  comparison (`ssc/speech-audio.js`) reads our levels at those stamps, so the values are compared exactly; only
+  the 0.2 ms differs.
 
 MAME artefacts reproduced only under `config.mameCompat` (the comparisons turn it on; the product does not):
 

@@ -595,7 +595,9 @@ const REQUIRED = require.main !== module;
     // menuTicketFor returns the ticket a menu starts with (the Session's menuTicket or the one passed); changes nothing
     'menuTicketFor',
     // bareDiskController and diskRomWaiting read the disk controller of the PERSON's machine (diskMachine); no change
-    'drives.bareController', 'drives.romWaiting']);
+    'drives.bareController', 'drives.romWaiting',
+    // sscBoardLabel reads the stored ROMs (whether the Pak's speech ROM is in the library); no machine
+    'sscBoardLabel']);
   // writes the library or settings only
   // (removeRom and restoreRom act on the PERSON's machine, as addRoms does: never the chat machine)
   const LIBRARY = new Set(['addRoms', 'clearRoms', 'removeRom', 'restoreRom', 'deleteMedia', 'importDriveWireImage', 'importMedia',
