@@ -217,6 +217,12 @@ class Machine {
     if (this.onReset) this.onReset(hard);
   }
 
+  // The tick MAME's machine time starts from at the last power-on: the frame origin, resetOffset ticks before the
+  // CPU's first instruction (MAME resets its devices at time 0; the CPU starts later). A device that runs a clock
+  // of its own from power-on (a cartridge's processor) starts it here, not at the CPU's first instruction. It is
+  // read during reset(hard), after the frame origin is set; Coco3Machine adds MAME's one-cycle lag.
+  powerOnTick() { return this.frameBase; }
+
   // ---------------- events ----------------
   now() { return this.cycle; }
   // tick at which the current instruction touches the bus (loads read on their last cycle).
@@ -438,6 +444,9 @@ class Machine {
   // CPU cycles a slot holds its lines back (coco.cpp machine_start: set_line_delay), counted in the slot's clock
   get lineDelays() { return LINE_DELAYS; }
   get slotHz() { return this.tickHz; }
+  // The cartridge port's own clock: what a cartridge's processor is clocked from (MAME's slot device clock). It
+  // does not follow a CPU speed-up, unlike slotHz, which counts the slot's line delays in CPU cycles.
+  get cartClockHz() { return this.tickHz; }
 
   // ---------------- bus ----------------
   setLine(source, line, level) {

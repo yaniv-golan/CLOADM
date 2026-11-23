@@ -163,6 +163,7 @@ class MultiPak extends SlotDevice {
       get tickHz() { return m.tickHz; },
       get unitAttos() { return m.unitAttos; },
       get slotHz() { return m.slotHz; },
+      get cartClockHz() { return m.cartClockHz; },
       get config() { return m.config; },
       get attoNow() { return m.attoNow; },
       set attoNow(t) { m.attoNow = t; },
@@ -175,6 +176,7 @@ class MultiPak extends SlotDevice {
       off: (name) => m.off(name),
       clockUnits: () => m.clockUnits(),
       tickAt: (u) => m.tickAt(u),
+      powerOnTick: () => m.powerOnTick(),
       setLine: (src, line) => mp.updateLine(n, line),
       cartridgeChanged: () => { if (n === mp.ctsSlot) m.cartridgeChanged(); },
       // The machine's sound mux, passed through so a cartridge in a slot gates its audio the same way it would

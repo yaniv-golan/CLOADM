@@ -176,7 +176,11 @@ class SpeechSoundPak extends SlotDevice {
     // SlotDevice.reset(hard) disarms every timer, so the card's own clock has to be armed again here; without
     // this the card never ticks after a power-on reset and every command would time out.
     this.ayDiv = 0;
-    this.cardPos = this.host ? BigInt(Math.floor(this.host.ioTime())) : 0n;
+    // At power-on the card starts at the machine's power-on origin, as MAME resets its devices at time 0: not at
+    // the CPU's first instruction, which is resetOffset ticks later (4 on the SAM machines). Measured against MAME
+    // (gen-ay.js, a Lua tap on the PIC's port C): starting at the CPU's first instruction put every PIC write 4
+    // cycles late. A soft reset happens where the machine is.
+    this.cardPos = this.host ? BigInt(Math.floor(hard ? this.host.powerOnTick() : this.host.ioTime())) : 0n;
     this.scheduleTick();
   }
 
@@ -304,10 +308,12 @@ class SpeechSoundPak extends SlotDevice {
     this.scheduleTick();
   }
 
-  // The card counts one machine cycle per machine cycle. Its input clock is twice the CoCo's
-  // (DERIVED_CLOCK(2, 1)) but tms7000.cpp line 125 divides it by 2 before counting cycles, so its cycle rate
-  // is the 6809's exactly (see the TIMING note at the top).
-  cardTicksPerCycle() { return 1; }
+  // Machine ticks per card cycle. The card counts one cycle per cycle of the cartridge slot's clock: its input
+  // clock is twice the slot's (DERIVED_CLOCK(2, 1)) but tms7000.cpp line 125 divides it by 2 before counting cycles
+  // (see the TIMING note at the top). The slot's clock is the host's cartClockHz, fixed whatever the CPU's speed. On
+  // the SAM machines a tick is that cycle (1); on the CoCo 3 a tick is a GIME clock, a quarter of it (4). An earlier revision returned 1 everywhere, so on the CoCo 3 the card ran 4 times
+  // fast: measured with gen-ay.js, its AY program ended at 0.33 s where MAME's ends at 1.33 s.
+  cardTicksPerCycle() { return this.host ? Math.max(1, Math.round(this.host.tickHz / this.host.cartClockHz)) : 1; }
   scheduleTick() {
     if (!this.host || !this.picTimer) return;
     this.picTimer.adjust(BigInt(this.cardTicksPerCycle()) * this.host.unitAttos);
@@ -351,8 +357,8 @@ class SpeechSoundPak extends SlotDevice {
     const cycles = this.tms7040.step();
     const writes = this.ayWrites;
     this.ayWrites = null;
-    const start = this.cardPos;
-    this.cardPos += BigInt(Math.max(1, cycles));
+    const start = this.cardPos, k = this.cardTicksPerCycle();
+    this.cardPos += BigInt(Math.max(1, cycles) * k);
     // the AY's stream and the SP0256 are stepped for each cycle the PIC took. Each AY sample is stamped with the
     // START of its own period, the AY_DIV cycles that end at the cycle which completes it: the sample is the
     // level for that whole period, as a MAME stream sample is for its (a register written inside the period is
@@ -361,7 +367,7 @@ class SpeechSoundPak extends SlotDevice {
     // did, moved them by up to an instruction's length as well.
     for (let i = 0; i < Math.max(1, cycles); i++) {
       if (this.ay.step) {
-        if (++this.ayDiv >= AY_DIV) { this.ayDiv = 0; this.stepAy(start + BigInt(i + 1 - AY_DIV)); }
+        if (++this.ayDiv >= AY_DIV) { this.ayDiv = 0; this.stepAy(start + BigInt((i + 1 - AY_DIV) * k)); }
       }
       if (this.sp0256.step) this.sp0256.step();
     }
