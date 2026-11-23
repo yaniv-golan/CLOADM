@@ -129,6 +129,45 @@ function remember(idx, name, crc) {
     check(`same socket in both (${sync ? 'synchronous' : 'asynchronous'}): the losing index, refreshed, shows the winner`, a.socketCrc('dragon64', 'basic') === K.BBBB0001);
   }
 
+  // ---- removeImage in one index while another replaces the same socket: the replacement stays ----
+  // (the stage's ROM removal, RomLibrary.remove -> MediaIndex.removeImage, written as every socket write is: in the
+  // stored list it removes only the sockets this index took the image out of, and only where they still hold it.)
+  // A holds X in dragon64/basic and, through B, in tanodr64/basic (refreshed in, so A has that socket as another
+  // page's change). B then replaces dragon64/basic with Y; A, not refreshed, removes X from every socket it knows.
+  for (const sync of [false, true]) {
+    const how = sync ? 'synchronous' : 'asynchronous';
+    const st = sync ? new MemoryMediaStore() : new SlowStore();
+    const a = new MediaIndex(st), b = new MediaIndex(st);
+    if (!sync) { await a.load(); await b.load(); }
+    a.putSocket('dragon64', 'basic', K.EEEE0001); a.putImage(K.EEEE0001, B.EEEE0001, 'x.rom');
+    await a.flush();
+    await b.refresh();
+    b.putSocket('tanodr64', 'basic', K.EEEE0001);
+    await b.flush();
+    await a.refresh();
+    const marked = a.changedElsewhere.has('tanodr64:basic');
+    b.putSocket('dragon64', 'basic', K.EEEE0002); b.putImage(K.EEEE0002, B.EEEE0002, 'y.rom');
+    await b.flush();
+    const was = a.removeImage(K.EEEE0001);
+    await a.flush();
+    const s = await stored(st, ROM_SOCKETS, {});
+    check(`removeImage while another index replaces the socket (${how}): A took X out of both sockets it knew`,
+      was.length === 2 && marked, JSON.stringify({ was, marked }));
+    check(`removeImage while another index replaces the socket (${how}): the stored socket keeps the replacement Y`,
+      (s.dragon64 || {}).basic === K.EEEE0002, JSON.stringify(s));
+    check(`removeImage while another index replaces the socket (${how}): A's other socket holding X is gone from the store`,
+      !((s.tanodr64 || {}).basic), JSON.stringify(s));
+    check(`removeImage while another index replaces the socket (${how}): image Y stays, image X goes`,
+      await has(st, romImage(K.EEEE0002)) && !(await has(st, romImage(K.EEEE0001))));
+    check(`removeImage while another index replaces the socket (${how}): the socket A removed is no longer marked as another page's change`,
+      !a.changedElsewhere.has('tanodr64:basic'), JSON.stringify([...a.changedElsewhere]));
+    const f = new MediaIndex(st);
+    if (!sync) await f.load();
+    check(`removeImage while another index replaces the socket (${how}): a fresh index (a reload) agrees`,
+      f.socketCrc('dragon64', 'basic') === K.EEEE0002 && !f.socketCrc('tanodr64', 'basic') && !!f.image(K.EEEE0002) && !f.image(K.EEEE0001),
+      JSON.stringify(f.sockets));
+  }
+
   // ---- collect never removes an image another index's socket uses ----
   {
     const st = new SlowStore();
