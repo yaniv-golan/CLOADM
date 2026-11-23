@@ -49,8 +49,8 @@ const A = () => images.vdk(40, 1), B = () => images.vdk(26, 1);
     const keep = A();
     await media.writeSync('disks/keep.vdk', keep);
     let release = null;
-    s.diskStoreChange(() => new Promise((r) => { release = () => r({ name: 'disks/hold', size: 0, mtime: 0 }); }), 'disks/hold');
-    const nd = s.newDisk(0, { format: 'vdk', tracks: 40, heads: 1 });   // picks disk-1.vdk, parks on the chain
+    s.drives.storeChange(() => new Promise((r) => { release = () => r({ name: 'disks/hold', size: 0, mtime: 0 }); }), 'disks/hold');
+    const nd = s.drives.newDisk(0, { format: 'vdk', tracks: 40, heads: 1 });   // picks disk-1.vdk, parks on the chain
     for (let i = 0; i < 50; i++) await tick();
     const ren = q(s.library.renameMedia('disks/keep.vdk', 'disks/disk-1.vdk'));  // asked inside that wait
     for (let i = 0; i < 50; i++) await tick();
@@ -73,7 +73,7 @@ const A = () => images.vdk(40, 1), B = () => images.vdk(26, 1);
     const keep = B(), fresh = A();
     await media.writeSync('disks/keep.vdk', keep);
     let release = null;
-    s.diskStoreChange(() => new Promise((r) => { release = () => r({ name: 'disks/hold', size: 0, mtime: 0 }); }), 'disks/hold');
+    s.drives.storeChange(() => new Promise((r) => { release = () => r({ name: 'disks/hold', size: 0, mtime: 0 }); }), 'disks/hold');
     const im = s.library.importMedia('fresh.vdk', fresh);
     for (let i = 0; i < 50; i++) await tick();
     const ren = q(s.library.renameMedia('disks/keep.vdk', 'disks/fresh.vdk'));
@@ -92,8 +92,8 @@ const A = () => images.vdk(40, 1), B = () => images.vdk(26, 1);
     const media = new MemoryMediaStore();
     const s = await session(media);
     await media.writeSync('disks/keep.vdk', A());
-    const nd = await q(s.newDisk(0, { format: 'vdk', tracks: 40, heads: 1 }, { name: 'later.vdk' }));
-    await s.ejectDisk(0);
+    const nd = await q(s.drives.newDisk(0, { format: 'vdk', tracks: 40, heads: 1 }, { name: 'later.vdk' }));
+    await s.drives.eject(0);
     const rn = await q(s.library.renameMedia('disks/keep.vdk', 'disks/later.vdk'));
     check('3. ... but a rename onto a name that is no longer in flight is refused as taken, not as in use',
       nd.ok && !rn.ok && /already/i.test(rn.m), `${nd.m} | ${rn.m}`);
@@ -115,7 +115,7 @@ const A = () => images.vdk(40, 1), B = () => images.vdk(26, 1);
       !imr.ok && rnr.ok && same(await read(media, 'disks/moved.vdk'), A()), `${imr.ok ? 'import ok' : imr.m} | ${rnr.ok ? 'rename ok' : rnr.m}`);
     // and a rename of a disk a drive holds is refused at once, before any turn is taken (the drive writes it)
     media.write = realWrite;
-    const held = await q(s.importDisk('busy.vdk', B(), 0));
+    const held = await q(s.drives.importImage('busy.vdk', B(), 0));
     const rn2 = await q(s.library.renameMedia('disks/busy.vdk', 'disks/elsewhere.vdk'));
     check('3. ... and a rename of a disk a drive holds is refused, naming the drive, with no waiting',
       held.ok && /is in drive 0; eject it before you rename it/.test(rn2.m), rn2.m || 'allowed');
@@ -131,10 +131,10 @@ const A = () => images.vdk(40, 1), B = () => images.vdk(26, 1);
     const keep = A();
     await media.writeSync('disks/keep.vdk', keep);
     let release = null;
-    s.diskStoreChange(() => new Promise((r) => { release = () => r({ name: 'disks/hold', size: 0, mtime: 0 }); }), 'disks/hold');
+    s.drives.storeChange(() => new Promise((r) => { release = () => r({ name: 'disks/hold', size: 0, mtime: 0 }); }), 'disks/hold');
     const ren = q(s.library.renameMedia('disks/keep.vdk', 'disks/disk-1.vdk'));   // asked first; queues behind the hold
     for (let i = 0; i < 20; i++) await tick();
-    const nd = s.newDisk(0, { format: 'vdk', tracks: 40, heads: 1 });     // asked second; its listing cannot see the queued rename
+    const nd = s.drives.newDisk(0, { format: 'vdk', tracks: 40, heads: 1 });     // asked second; its listing cannot see the queued rename
     for (let i = 0; i < 20; i++) await tick();
     release();
     const [rn, ndr] = [await ren, await q(nd)];
@@ -167,9 +167,9 @@ const A = () => images.vdk(40, 1), B = () => images.vdk(26, 1);
     check('3. ... and the name it was going to make is free at once (its claim went with it)',
       rn.ok && same(await read(media, 'disks/never.vdk'), B()), rn.m);
     // the same for a new disk whose mount fails: it is created and stored, its claim released with the creation
-    await s.ejectDisk(0);
-    const nd = await q(s.newDisk(0, { format: 'vdk', tracks: 40, heads: 1 }, { name: 'gone.vdk' }));
-    await s.ejectDisk(0);
+    await s.drives.eject(0);
+    const nd = await q(s.drives.newDisk(0, { format: 'vdk', tracks: 40, heads: 1 }, { name: 'gone.vdk' }));
+    await s.drives.eject(0);
     const r1 = await q(s.library.renameMedia('disks/gone.vdk', 'disks/moved.vdk'));
     const r2 = await q(s.library.renameMedia('disks/never.vdk', 'disks/gone.vdk'));
     check('3. ... and a disk a creation made is an ordinary disk once it has finished (its name renamable)',
@@ -187,7 +187,7 @@ const A = () => images.vdk(40, 1), B = () => images.vdk(26, 1);
       const keep = A(), other = B();
       await media.writeSync('disks/keep.vdk', keep);
       const rn = q(s.library.renameMedia('disks/keep.vdk', 'disks/fresh.vdk'));   // asked first: takes the name
-      const im = how === 'importMedia' ? q(s.library.importMedia('fresh.vdk', other)) : q(s.importDisk('fresh.vdk', other, 1));
+      const im = how === 'importMedia' ? q(s.library.importMedia('fresh.vdk', other)) : q(s.drives.importImage('fresh.vdk', other, 1));
       const [rr, ir] = [await rn, await im];
       check(`3. rename first, then ${how}: the import is refused as a second creation of the name`,
         rr.ok && !ir.ok && /already a disk named fresh\.vdk/.test(ir.m), `${rr.m || 'rename failed'} | ${ir.m || 'import wrote'}`);
@@ -232,7 +232,7 @@ const A = () => images.vdk(40, 1), B = () => images.vdk(26, 1);
     await media.writeSync('disks/a.vdk', A());
     const r1 = q(s.library.renameMedia('disks/a.vdk', 'disks/x.vdk'));
     const r2 = q(s.library.renameMedia('disks/x.vdk', 'disks/y.vdk'));
-    const im = q(s.importDisk('x.vdk', B(), 1));
+    const im = q(s.drives.importImage('x.vdk', B(), 1));
     const [a, b, c] = [await r1, await r2, await im];
     check('3. a rename that vacated a name frees it for a creation queued behind',
       a.ok && b.ok && c.ok && same(await read(media, 'disks/x.vdk'), B()) && same(await read(media, 'disks/y.vdk'), A()),

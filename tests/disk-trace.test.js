@@ -154,7 +154,7 @@ for (const board of ['dragonfdc', 'premierfdc', 'cocofdc']) {
   check('limit must be a whole number above 0', refused(() => s.disk.trace({ limit: 0 }), /limit/) && refused(() => s.disk.trace({ limit: 1.5 }), /limit/));
   const t = s.disk.trace();
   t.stop();
-  check('a trace stopped takes the hook off the controller and the chip', s.diskController.trace === null && s.diskController.wd.onTrace === null);
+  check('a trace stopped takes the hook off the controller and the chip', s.drives.controller.trace === null && s.drives.controller.wd.onTrace === null);
   const quiet = new Emu.Session({ welcomeMenu: false });
   quiet.switchMachine('dragon64', {}, { menu: false });
   check('no disk controller: status() and diagnostics().disk are null', quiet.disk.status() === null && quiet.diagnostics().disk === null);

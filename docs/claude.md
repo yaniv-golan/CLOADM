@@ -261,7 +261,7 @@ Two ways to talk to Claude, one conversation:
   card beside the restore line, and are never printed on the chat screen itself (its frames are the chat firmware's).
   `node tests/claude-actions.test.js` covers the records and the copy; the browser check's `ask` and `claude` groups
   cover the lines in the three views. Saved files (the Library, DriveWire) are not rolled back, except a disk that has stayed in
-  the same drive since the point (`Session.restorePoint`, also behind the chat's undo): if the machine wrote to it
+  the same drive since the point (`DiskDrives.restorePoint`, also behind the chat's undo): if the machine wrote to it
   since, its stored image is put back to the image the drive holds after the restore, and it goes on saving its
   writes. A disk changed since the point (ejected, replaced or changed in the Library, mounted again or in another
   drive), or one written since and now write-protected or a file that can't be written, is not rolled back: the

@@ -134,7 +134,7 @@ What each column means, and the way in:
 
 * **Tape**: the cassette deck every model has (`--tape FILE`, `--load FILE.cas`; `insertTape` in Node).
 * **Disk controller**: a cartridge in the cartridge port. With your own disk ROM (`--roms`, then `--disk [N=]FILE`) the
-  DOS comes with it; without one, `--disk` (`importDisk` in Node) plugs in the bare controller, with an empty ROM
+  DOS comes with it; without one, `--disk` (`drives.importImage` in Node) plugs in the bare controller, with an empty ROM
   socket, for a program that drives the chip itself ([Reading a disk with no DOS ROM](#reading-a-disk-with-no-dos-rom));
   `DIR` and the other disk commands need the ROM. The Dragon Alpha's controller is built in. The MC-10 and Alice have no cartridge port, so no disk. The command line
   can trace it (`--disk-trace FILE`; [Tracing the disk controller](#tracing-the-disk-controller)).
@@ -954,7 +954,7 @@ node docs/examples/disk-read.mjs
    sector.
 2. **A controller with no ROM.** `new devices.dragonfdc()` is the Dragon controller cartridge without a ROM image;
    `machine.insertCartridge(fdc)` plugs it in and `fdc.mount(0, { bytes, format: 'vdk', name })` puts the disk in drive 0. (With no
-   DOS ROM the Session's own `importDisk` does the same, and keeps the image in the disk library; the example shows the parts.)
+   DOS ROM the Session's own `drives.importImage` does the same, and keeps the image in the disk library; the example shows the parts.)
 3. **A guest that drives the chip.** `docs/examples/diskread.asm` (6809, built-in firmware) sets the drive latch (`$FF48`: drive 0,
    motor on, double density, NMI off), restores, reads track 0 sector 1, seeks to track 2 and reads sector 5, each 256 bytes with the
    read-sector command `$88` and a DRQ polling loop on `$FF40`/`$FF43`, then writes `$A5` to a done byte. The read command's bit 3
@@ -1043,7 +1043,7 @@ as `CLOADM` loads it: a program in pieces more than 256 bytes apart is `bad-medi
 | `new Session({ welcomeMenu })` | `false` for scripts: nothing offers the welcome menu |
 | `switchMachine(id, config, { menu })`, `shownMachine`, `personMachine`, `profiles` | the models and their options. `shownMachine` is the machine on screen (and `machine` is gone: it did not say which of the two it meant); `personMachine` is the one the person works on, the same machine unless a full-screen chat is open |
 | `addRoms(files)`, `machineRoms()`, `runWithoutRoms()` | your ROMs, identified per model |
-| `load(name, bytes, { remember: false })`, `insertTape`, `await importDisk(name, bytes, drive)`, `startLiza`, `startWelcome`, `runAssembled(assemble(src, cpu))` | media and programs |
+| `load(name, bytes, { remember: false })`, `insertTape`, `await drives.importImage(name, bytes, drive)`, `startLiza`, `startWelcome`, `runAssembled(assemble(src, cpu))` | media and programs |
 | `buildCas(files, { family })`, `casToWav(cas, { family, gaps, wave, sampleRate, amplitude })`, `casToSamples(cas, opts)`, `tapeGaps(cas, { pad })`, `wavToCas(wav)` | a program as a `.CAS` tape and as the signal a player plays (see "A tape for a real Dragon or CoCo") |
 | `toBinary(result, { format })`, `writeDragonDos(segments, exec, { type, maxGap })`, `writeDecb(segments, exec)`, `parseSymbols(text)`, `formatSymbols(symbols)`, `setLabels(map)` | a program as a file (`format`: `'dragondos'` or `'decb'`, required) and its symbols |
 | `runFrames(n)` | emulated frames, no clock; `advance(ms)` is the page's real-time pacing |

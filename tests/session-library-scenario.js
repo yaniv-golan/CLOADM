@@ -41,12 +41,12 @@ async function scenario(lib) {
   s.store.set('tapeSound', '0');
   const report = {};
   // the drives: two stored disks, written by the machine
-  report.import0 = await s.importDisk('work.vdk', images.vdk(40, 2), 0);
-  report.import1 = await s.importDisk('other.vdk', images.vdk(40, 1), 1);
+  report.import0 = await s.drives.importImage('work.vdk', images.vdk(40, 2), 0);
+  report.import1 = await s.drives.importImage('other.vdk', images.vdk(40, 1), 1);
   report.halted = runToHalt(s, halt);
-  await s.diskWritesDone();
-  s.setDiskWriteProtect(1, true);
-  report.drives = s.diskStatus().drives;
+  await s.drives.writesDone();
+  s.drives.setWriteProtect(1, true);
+  report.drives = s.drives.status().drives;
   // the library
   await lib(s).importMedia('HELLO.BIN', PROGRAM);
   await lib(s).importMedia('notes/readme.txt', new TextEncoder().encode('kept by CLOADM'));
@@ -75,12 +75,12 @@ async function scenario(lib) {
   // the library moved: refused with disks in the drives, then done once they are out
   const there = new MemoryMediaStore({ caseInsensitive: true });
   report.moveRefused = await lib(s).moveMedia(there).then(() => null, (e) => e.message);
-  await s.ejectDisk(0);
-  await s.ejectDisk(1);
+  await s.drives.eject(0);
+  await s.drives.eject(1);
   report.moved = await lib(s).moveMedia(there);
   report.movedStore = await storeReport(there);
   report.after = (await lib(s).listMedia()).map((f) => ({ name: f.name, size: f.size }));
-  report.remount = await s.mountDisk(0, 'work.vdk');
+  report.remount = await s.drives.mount(0, 'work.vdk');
   report.movedDisk = sha(await there.read('disks/work.vdk'));
   return { snapshotFile: file.bytes, machine, report, s };
 }

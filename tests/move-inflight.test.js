@@ -208,7 +208,7 @@ async function rig(from = new Emu.MemoryMediaStore(), opts = {}) {
     const diskGate = deferred();
     from.__writeRange = from.writeRange.bind(from);
     from.writeRange = async (...a) => { await diskGate.p; return from.__writeRange(...a); };
-    s.queueDiskWrite('disks/W.DSK', 0, new Uint8Array([7]), 1024);
+    s.drives.queueWrite('disks/W.DSK', 0, new Uint8Array([7]), 1024);
     // and a Library operation that never ends, so the second wait is the one that fails
     const opGate = deferred();
     from.__write = from.write.bind(from);
@@ -237,7 +237,7 @@ async function rig(from = new Emu.MemoryMediaStore(), opts = {}) {
     // pending: it must not fail a move that was in time
     from.__writeRange = from.writeRange.bind(from);
     from.writeRange = async (...a) => { await new Promise((r) => setTimeout(r, 55)); return from.__writeRange(...a); };
-    s.queueDiskWrite('disks/W.DSK', 0, new Uint8Array([7]), 1024);
+    s.drives.queueWrite('disks/W.DSK', 0, new Uint8Array([7]), 1024);
     await settle();
     const t = Date.now();
     const e = await refuse(s.library.moveMedia(to));
@@ -348,8 +348,8 @@ async function rig(from = new Emu.MemoryMediaStore(), opts = {}) {
     check('during the move: clearRoms, a ROM-pack restore, a DriveWire mount, a NitrOS-9 boot and its floppy save are refused, saying the library is being moved',
       all.every((e) => e instanceof Emu.SessionError && /library is being moved/.test(e.message)), all.map((e) => (e ? e.message : 'accepted')).join(' | '));
     check('during the move: none of them changed the index or mounted anything',
-      JSON.stringify(s.index.sockets) === beforeSockets && s.driveWireMounts.length === 0 && s.diskStatus().drives.length === 0,
-      `sockets unchanged=${JSON.stringify(s.index.sockets) === beforeSockets} DriveWire mounts=${(s.drivewire.mounts || []).length} disks=${s.diskStatus().drives.length}`);
+      JSON.stringify(s.index.sockets) === beforeSockets && s.driveWireMounts.length === 0 && s.drives.status().drives.length === 0,
+      `sockets unchanged=${JSON.stringify(s.index.sockets) === beforeSockets} DriveWire mounts=${(s.drivewire.mounts || []).length} disks=${s.drives.status().drives.length}`);
     check('during the move: nothing of them is in the old place either', !(await from.stat('disks/floppy.dsk')) && !!(await from.stat('drivewire/boot.dsk')));
     gate.resolve();
     await mv;
@@ -613,7 +613,7 @@ async function rig(from = new Emu.MemoryMediaStore(), opts = {}) {
       const stub = s.stubRun;
       const was = { machine: s.shownMachine, profile: s.shownMachine.id, cpu: s.shownMachine.config.cpu, becker: s.shownMachine.config.becker, cart: s.shownMachine.cartPort };
       check('a floppy boot whose reads are in flight: the machine is not yet set up to boot it (the switch and the controller come after the reads)',
-        was.profile === 'coco3' && was.becker === false && s.diskController === null, `${was.profile} becker=${was.becker} controller=${!!s.diskController}`);
+        was.profile === 'coco3' && was.becker === false && s.drives.controller === null, `${was.profile} becker=${was.becker} controller=${!!s.drives.controller}`);
       // the boot's awaited read of the floppy image, held
       const gate = deferred();
       from.__read = from.read.bind(from);
@@ -639,8 +639,8 @@ async function rig(from = new Emu.MemoryMediaStore(), opts = {}) {
       check('a refused floppy boot: the machine is exactly as it was (not switched, no controller in the port)',
         s.shownMachine === was.machine && s.shownMachine.id === was.profile && s.shownMachine.config.cpu === was.cpu &&
           s.shownMachine.config.becker === was.becker && s.shownMachine.cartPort === was.cart &&
-          s.diskStatus().drives.length === 0,
-        `same machine=${s.shownMachine === was.machine} profile=${s.shownMachine.id}/${was.profile} cpu=${s.shownMachine.config.cpu}/${was.cpu} becker=${s.shownMachine.config.becker}/${was.becker} cart=${!!s.shownMachine.cartPort} drives=${s.diskStatus().drives.length} | ${mvRes && mvRes.message}`);
+          s.drives.status().drives.length === 0,
+        `same machine=${s.shownMachine === was.machine} profile=${s.shownMachine.id}/${was.profile} cpu=${s.shownMachine.config.cpu}/${was.cpu} becker=${s.shownMachine.config.becker}/${was.becker} cart=${!!s.shownMachine.cartPort} drives=${s.drives.status().drives.length} | ${mvRes && mvRes.message}`);
       check('a refused floppy boot: the debugger kept its breakpoint and stays paused, and the welcome menu\'s stub run is kept',
         s.debugger === dbg && dbg.breakpoints().join() === String(0x1234) && s.paused === true && stub !== null && s.stubRun === stub,
         `same debugger=${s.debugger === dbg} bps=${dbg.breakpoints()} paused=${s.paused} stub=${stub !== null}/${s.stubRun === stub}`);
@@ -670,7 +670,7 @@ async function rig(from = new Emu.MemoryMediaStore(), opts = {}) {
       const boot = s.bootNitros9(image.split('/')[1], kind === 'floppy' ? 'disk' : 'drivewire').then((m) => m, (e) => e);
       await settle();
       check(`[${kind}, inside the mount] the boot has rebuilt the machine and is inside its mount's stat`,
-        s.shownMachine !== was && heldStat && (kind === 'floppy' ? !!s.diskController : s.shownMachine.config.becker === true),
+        s.shownMachine !== was && heldStat && (kind === 'floppy' ? !!s.drives.controller : s.shownMachine.config.becker === true),
         `switched=${s.shownMachine !== was} held=${heldStat}`);
       const mv = refuse(s.library.moveMedia(to));
       await settle();
@@ -680,7 +680,7 @@ async function rig(from = new Emu.MemoryMediaStore(), opts = {}) {
       const mvRes = await mv;
       check(`[${kind}, inside the mount] the boot completed: NitrOS-9 is starting from drive 0`,
         typeof msg === 'string' && /^Booting NitrOS-9/.test(msg) && s.nitros9Running &&
-          (kind === 'floppy' ? s.diskStatus().drives.some((d) => d.drive === 0) : s.driveWireMounts.some((d) => d.drive === 0)),
+          (kind === 'floppy' ? s.drives.status().drives.some((d) => d.drive === 0) : s.driveWireMounts.some((d) => d.drive === 0)),
         msg instanceof Error ? msg.message : msg);
       check(`[${kind}, inside the mount] the move was then refused, naming drive 0`,
         mvRes instanceof Emu.SessionError && /Eject the disks first \((DriveWire )?drive 0: /.test(mvRes.message), mvRes ? mvRes.message : 'the move succeeded');
@@ -706,7 +706,7 @@ async function rig(from = new Emu.MemoryMediaStore(), opts = {}) {
     const mv = refuse(s.library.moveMedia(to));
     await settle();
     const dw = await refuse(s.mountDriveWire(0, 'pub.dsk', { held: true }));
-    const fd = await refuse(s.mountDisk(0, 'pub.dsk', { held: true }));
+    const fd = await refuse(s.drives.mount(0, 'pub.dsk', { held: true }));
     check('a public mountDriveWire with { held: true } during a move: still refused, nothing mounted',
       dw instanceof Emu.SessionError && /library is being moved/.test(dw.message) && s.driveWireMounts.length === 0, dw ? dw.message : 'mounted');
     check('a public mountDisk with { held: true } during a move: still refused',

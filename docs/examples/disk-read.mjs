@@ -49,7 +49,7 @@ fdc.mount(0, { bytes: vdk, format: 'vdk', name: 'known.vdk' });
 const res = assemble(readFileSync(new URL('docs/examples/diskread.asm', root), 'utf8'), '6809');
 if (!res.ok) fail(res.errors.map((e) => e.message).join('; '));
 session.runAssembled(res);
-if (session.diskController !== fdc || !fdc.drives[0].loaded) fail('running the program took the controller or the disk away');
+if (session.drives.controller !== fdc || !fdc.drives[0].loaded) fail('running the program took the controller or the disk away');
 
 // 4. wait on a memory byte, whole frames with a bound, then compare what landed in RAM with the sectors
 const frame0 = m.frameCount, cycles0 = m.now();

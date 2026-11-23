@@ -242,7 +242,7 @@ export function setupAsk(page, claude) {
     });
   }
   // a point that can't be restored says why as an error toast; nothing changes and every point is kept
-  // a disk that comes back unlinked from the Library says so after the restore's message (Session.restorePoint)
+  // a disk that comes back unlinked from the Library says so after the restore's message (DiskDrives.restorePoint)
   const restore = (index) => page.attempt(() => { const r = session.restoreClaude(index); return r ? ['Restored: the machine is as it was before Claude\'s changes.', ...r.notices].join(' ') : null; });
   // the turns whose folded action lines the person opened (by turn number)
   const openTurns = new Set();

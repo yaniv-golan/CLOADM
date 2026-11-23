@@ -183,7 +183,7 @@ const pending = (m) => m.typist.queue.some((it) => it && it.decide) || m.pcWatch
   const before = pending(m);
   const keys = [], set = m.setKey.bind(m);
   m.setKey = (k, down) => { if (down) keys.push(k); return set(k, down); };
-  s.restorePoint(m, point);
+  s.drives.restorePoint(m, point);
   for (let i = 0; i < 10 * m.fps; i++) m.runFrame();
   check('a restore point put back while the EXEC waits drops it: nothing is typed into the restored machine', before && !pending(m) && keys.length === 0, keys.join(' '));
 }
