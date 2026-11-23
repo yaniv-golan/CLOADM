@@ -4790,6 +4790,10 @@ async function phoneChecks(browser, base, check) {
   // heading and note), Open your library →
   const progOrder = await page.evaluate(() => ({ ids: [...document.querySelector('#sheetPrograms .sheetbody').children].map((e) => e.id),
     snap: [...document.querySelectorAll('#quickSave > :is(.eyebrow, #slotNote)')].map((e) => e.textContent) }));
+  // the no-ROM card in the sheet points at what is below it there, not at a Media tab
+  const card = await page.evaluate(() => { const w = document.getElementById('welcome'); return { inSheet: !!w.closest('#sheetPrograms'), shown: w.checkVisibility(), text: w.innerText.replace(/\s+/g, ' ').trim() }; });
+  check('phone: the "Running with no ROMs." card in the Programs sheet says "Programs that run without them are listed below."',
+    card.inSheet && card.shown && card.text.startsWith('Running with no ROMs. Programs that run without them are listed below.'), JSON.stringify(card));
   check('phone: the Programs sheet\'s order: Last time, the no-ROM card, Runs without ROMs, Recent on this machine, Snapshots (heading and note), Open your library →',
     progOrder.ids.join() === 'lastTime,welcome,shelfHead,shelf,recentHead,recentList,quickSave,linkLibrary'
       && progOrder.snap.join('|') === 'Snapshots|A snapshot reopens on the same machine, RAM and ROMs.', JSON.stringify(progOrder));
@@ -5029,7 +5033,7 @@ async function phoneChecks(browser, base, check) {
     // the file pickers: the extensions each takes, and application/octet-stream so a phone offers a file of a type it
     // does not know (a .cas, a .vdk); no image/* (iOS would offer the Photo Library and the camera)
     const MEDIA = '.bin,.cas,.c10,.k7,.wav,.rom,.ccc,.dgn,.vdk,.dsk,.jvc,.dmk,.os9,.img,.bas,.txt', OS = 'application/octet-stream';
-    const want = { fileProgram: `${MEDIA},.cloadm,${OS}`, fileLib: `${MEDIA},.zip,${OS}`, fileTape: `.cas,.c10,.k7,.wav,${OS}`, fileCart: `.rom,.ccc,.dgn,.bin,${OS}`,
+    const want = { fileProgram: `${MEDIA},.cloadm,${OS}`, fileLib: `${MEDIA},.cloadm,.zip,${OS}`, fileTape: `.cas,.c10,.k7,.wav,${OS}`, fileCart: `.rom,.ccc,.dgn,.bin,${OS}`,
       fileMpSlot: `.rom,.ccc,.dgn,.bin,${OS}`, fileDisk: `.vdk,.dsk,.jvc,.dmk,${OS}`, n9File: `.dsk,.os9,.img,${OS}`, dwImport: `.dsk,.os9,.img,${OS}` };
     const accepts = await p.evaluate((ids) => Object.fromEntries(ids.map((id) => [id, document.getElementById(id).getAttribute('accept')])), Object.keys(want));
     const images = await p.evaluate(() => [...document.querySelectorAll('input[type="file"]')].filter((i) => /image\//.test(i.accept || '')).map((i) => i.id));
