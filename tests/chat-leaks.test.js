@@ -573,7 +573,7 @@ const REQUIRED = require.main !== module;
   }
   // ---- coverage: every Session method the UI calls is a row, or classified ----
   // (names verified to be reads/pure by reading their bodies; a name that is wrong here shows as an unknown method)
-  const READ = new Set(['advance', 'besideMachine', 'drives.blankChoices', 'bootStatus', 'checkGame', 'checkLiza',
+  const READ = new Set(['advance', 'basicRunning', 'besideMachine', 'drives.blankChoices', 'bootStatus', 'checkGame', 'checkLiza',
     'drives.checkNotInDrive', 'codeAt', 'cpuRate', 'drives.activity', 'drives.dosChoices', 'drives.status', 'driveWireFile',
     'driveWireImages', 'gameFile', 'inspect', 'drives.list', 'listMedia', 'listSlots', 'lizaNeeds', 'machineRoms',
     'machineTicket', 'machinesWithRoms', 'nitros9Images', 'nitros9Loader', 'nitros9On', 'printoutFile', 'printoutText',

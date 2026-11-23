@@ -237,6 +237,10 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 
 ### Changed
 
+- **A tape put in with no BASIC running says so.** With no ROMs in use, or before BASIC has printed OK, the toast reads
+  "<name> is in the deck. There's no BASIC to type CLOAD into: Load it now", and Load it now loads the tape's program and
+  starts it (the same as Skip the tape). With BASIC running the toast is as before, and the deck's line about BASIC's
+  own S and F shows only then.
 - **The welcome menu's tune plays only when you asked for the menu.** It plays once the sound is unlocked for the visit's own menu and for the Welcome menu chosen from Programs; it is silent after a machine switch (a RAM or CPU change, the machine question, an opened snapshot), Reset, a power cycle, and when the menu comes back from LIZA, a game or the demo. The Session decides, so Claude's and MCP's switches are silent too.
 - **Faster CI gates, and shards that cannot go stale.** `node tests/all.js` runs in CI as three parts on three runners
   (`--shard i/n`, planned from `tests/suite-times.json`), and the `gates` job checks from their logs that together

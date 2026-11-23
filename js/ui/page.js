@@ -118,6 +118,15 @@ export function createPage(session, audio) {
       try { const msg = fn(); if (msg) page.status(msg); return true; }
       catch (e) { page.status(e.message, true); if (!(e instanceof SessionError)) console.error(e); return false; }
     },
+    // put a tape in the deck and say so. With no BASIC running the toast offers Load it now (Skip the tape: the tape's
+    // program loads and starts), then the usual start toast follows. -> whether the tape went in
+    insertTape(name, bytes) {
+      let msg;
+      try { msg = page.session.insertTape(name, bytes); } catch (e) { page.status(e.message, true); if (!(e instanceof SessionError)) console.error(e); return false; }
+      if (page.session.basicRunning) page.status(msg);
+      else page.toast(msg.replace(/\.$/, ': {action}'), { action: { label: 'Load it now', run: () => page.attempt(() => page.session.skipTape()) } });
+      return true;
+    },
     readFile: async (file) => new Uint8Array(await file.arrayBuffer()),
     // hand the user a file (bytes: Uint8Array or Blob)
     download(name, bytes, type = 'application/octet-stream') {

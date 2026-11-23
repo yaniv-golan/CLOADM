@@ -5122,6 +5122,33 @@ async function tapePanelChecks(browser, base, check) {
   bytes.push(...block(0xFF, []));
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cloadm-tape-'));
   fs.writeFileSync(path.join(tmp, 'deck.cas'), Buffer.from(bytes));
+  // No BASIC (the stub): the toast says so and offers Load it now, which loads the tape's program and starts it, and the
+  // deck's sentence about BASIC's own S and F is hidden. (Node: tests/tape-no-basic.test.js.)
+  {
+    const small = fs.mkdtempSync(path.join(os.tmpdir(), 'cloadm-tape-nobasic-'));
+    const prog = [0x86, 0x42, 0xB7, 0x31, 0x00, 0x20, 0xFE];   // LDA #$42, STA $3100, BRA *
+    fs.writeFileSync(path.join(small, 'nobasic.cas'), Buffer.from([...Array(128).fill(0x55), ...block(0, [...Buffer.from('NOBASIC '), 2, 0, 0, 0x30, 0x00, 0x30, 0x00]), ...Array(16).fill(0x55), ...block(1, prog), ...block(0xFF, [])]));
+    const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    const page = await ctx.newPage();
+    const errors = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto(`${base}?machine=dragon64`);
+    await ready(page);
+    await stubPrompt(page);
+    await page.setInputFiles('#fileTape', path.join(small, 'nobasic.cas'));
+    await waitFor(page, () => /is in the deck/.test(document.getElementById('toast').textContent));
+    const toast = await page.evaluate(() => { const a = document.querySelector('#toastText button.inline'); return { text: document.getElementById('toastText').textContent.replace(/\s+/g, ' ').trim(), action: a ? a.textContent : null, visible: !!a && a.checkVisibility(), error: document.getElementById('toast').classList.contains('error') }; });
+    check('tape, no BASIC: the toast says "nobasic.cas is in the deck. There\'s no BASIC to type CLOAD into: [Load it now]"',
+      toast.text === "nobasic.cas is in the deck. There's no BASIC to type CLOAD into: Load it now" && toast.action === 'Load it now' && toast.visible && !toast.error, JSON.stringify(toast));
+    await waitFor(page, () => !document.getElementById('tapePanel').hidden);
+    check('tape, no BASIC: the deck does not talk about BASIC\'s own S and F', await page.isHidden('#tapeBasicNote'), await page.evaluate(() => document.getElementById('tapeBasicNote').checkVisibility() + ''));
+    await page.click('#toastText button.inline');
+    const started = await waitFor(page, () => window.emu.machine.read(0x3100) === 0x42 && /started at/.test(document.getElementById('toast').textContent), null, 15000);
+    check('tape, no BASIC: Load it now loads the program and starts it, and the usual start toast follows', started, await page.textContent('#toast'));
+    check('tape, no BASIC: no page errors', !errors.length, errors.join('; '));
+    await ctx.close();
+    fs.rmSync(small, { recursive: true, force: true });
+  }
   for (const [label, viewport] of [['desktop', { width: 1440, height: 900 }], ['phone', { width: 390, height: 844 }]]) {
     const errors = [];
     const ctx = await browser.newContext({ viewport });
@@ -7220,7 +7247,7 @@ async function tapeChecks(browser, base, check) {
   check('tape: Save .WAV saves the recording as it was written, which decodes to the same bytes', wav.suggestedFilename() === 'recording.wav' && Buffer.from(fromWav.bytes).equals(Buffer.from(stream)));
   // a WAV recording inserted as a tape, then exported again
   await page.setInputFiles('#fileTape', { name: 'game.wav', mimeType: 'audio/wav', buffer: Buffer.from(Emu.casToWav(stream)) });
-  check('tape: a WAV recording goes in the deck, decoded', await waitFor(page, () => /game\.wav inserted \(decoded from the recording: 3 blocks\)/.test(document.getElementById('toast').textContent))
+  check('tape: a WAV recording goes in the deck, decoded', await waitFor(page, () => /^game\.wav is in the deck \(decoded from the recording: 3 blocks\)\. There's no BASIC to type CLOAD into/.test(document.getElementById('toast').textContent))   // (the stub: no BASIC; the WAV is decoded, its blocks counted in tests/session.test.js)
     && await waitFor(page, () => document.getElementById('tapeName').textContent === 'game.wav'), await page.textContent('#toast'));
   const [wav2] = await Promise.all([page.waitForEvent('download'), page.click('#btnTapeWav')]);
   check('tape: Save .WAV exports the tape in the deck', wav2.suggestedFilename() === 'game.wav' && Buffer.from(Emu.wavToCas(new Uint8Array(fs.readFileSync(await wav2.path()))).bytes).equals(Buffer.from(stream)));
@@ -8456,7 +8483,7 @@ async function urlChecks(browser, base, check) {
   check('link: load= fetches a program and runs it', await waitFor(page, () => /demo\.bin/.test(document.getElementById('toast').textContent) && window.emu.machine.cpu.pc >= 0x4000), await msg());
   await open('?machine=dragon64&tape=https://files.example/game.cas');
   check('link: tape= puts the tape in the deck, without running it', await waitFor(page, () => document.getElementById('tapeName').textContent === 'game.cas')
-    && /Tape game\.cas inserted/.test(await msg()), await msg());
+    && /^game\.cas is in the deck\. There's no BASIC to type CLOAD into/.test(await msg()), await msg());
   await open('?machine=dragon64&tape=https://files.example/game.cas&autorun');
   check('link: tape= with autorun loads and runs it', /^game\.cas loaded \(\$[0-9A-F]{4}–\$[0-9A-F]{4}\) and started at \$[0-9A-F]{4}\.$/.test(await msg()), await msg());
   await open('?machine=coco&cart=https://files.example/pak.ccc');

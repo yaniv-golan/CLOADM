@@ -295,7 +295,7 @@ const starting = welcome.start(visit, { fromLink, withMedia: link.roms.length > 
     const name = decodeURIComponent(new URL(url, location.href).pathname.split('/').pop()) || kind;
     try {
       const bytes = await page.fetchBytes(url);
-      if (kind === 'tape' && !link.autorun) page.attempt(() => session.insertTape(name, bytes));
+      if (kind === 'tape' && !link.autorun) page.insertTape(name, bytes);
       else if (kind === 'disk') await disks.insert(name, bytes);
       else { await media.loadProgram(name, bytes); if (kind === 'cart') drawer.cartridge(name); }
     } catch (e) { page.status(`Could not load ${kind}=${url}: ${linkFetchError(e)}`, true); }
