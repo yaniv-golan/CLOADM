@@ -1149,9 +1149,11 @@ browser check's group `uiModel` drives them with real events at 1280x720 and at 
   drawer where they were before (and back there after the touch keys on and off) and no duplicate ids. Screenshots of
   each sheet. `mobile` keeps its screen-size floors unchanged.
   Also in `phone`: Menu → Programs… (Menu's order with Programs… first; the "Programs" sheet's sections, the shelf with
-  "on screen now", the focus in it; the Media tab left with only the tape options), then 2048 from it: two taps, the
-  sheet closed and the game running; the palette's "Programs" found by programs, games, demos, liza and run; "Chat with
-  Claude" from the sheet closing it. No Menu label with its words run together, upright, sideways (the keys' Menu), at
+  "on screen now", the focus in it; the Media tab left with only the tape options; the sheet's order, Last time at the
+  top, then the no-ROM card, the shelf, Recent, Snapshots with its heading and note, the Library link), then 2048 from
+  it: two taps, the sheet closed and the game running; the palette's "Programs" found by programs, games, demos, liza
+  and run, with Last time (2048) the sheet's first item after; on a desktop the palette's "Programs" selecting the
+  Media tab from Display with the focus on the shelf's first item; "Chat with Claude" from the sheet closing it. No Menu label with its words run together, upright, sideways (the keys' Menu), at
   393 x 659 (`mobile`) and in the desktop app bar at 1440 and 900 px: every two drawn letters with a space between them
   in the text stand apart on the screen. The media file pickers' accept values, exactly: their extensions and
   application/octet-stream, and no picker asking for image/*.

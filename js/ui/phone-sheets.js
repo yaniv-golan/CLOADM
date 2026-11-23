@@ -17,10 +17,10 @@ const SHEETS = [
   { id: 'sheetDisks', chip: 'chipDisks', nodes: ['#driveSlot', '#nitros9Slot'] },
   { id: 'sheetCart', chip: 'chipCart', nodes: ['#cartSlot'] },
   { id: 'sheetPower', chip: 'chipPower', nodes: ['#btnReset', '#btnHardReset', '#btnPause', '#btnTurbo', '#btnFull'] },
-  // Programs (Menu → Programs…, first, and the palette's "Programs"): the Media tab's programs, the "Running with no
-  // ROMs" card, Last time, the no-ROM shelf ("on screen now" on the one running), Recent on this machine, the
-  // snapshots and the way to the Library; the Media tab keeps its tape options
-  { id: 'sheetPrograms', chip: null, nodes: ['#welcome', '#lastTime', '#shelfHead', '#shelf', '#recentHead', '#recentList', '#quickSave', '#linkLibrary'] },
+  // Programs (Menu → Programs…, first, and the palette's "Programs"): the Media tab's programs, in this order: Last
+  // time (Run again) at the top, the "Running with no ROMs" card, the no-ROM shelf ("on screen now" on the one
+  // running), Recent on this machine, Snapshots and the way to the Library; the Media tab keeps its tape options
+  { id: 'sheetPrograms', chip: null, nodes: ['#lastTime', '#welcome', '#shelfHead', '#shelf', '#recentHead', '#recentList', '#quickSave', '#linkLibrary'] },
   // Settings (Menu → Settings…, and openSettings(tab) from anywhere): the drawer's tabs and their panels
   { id: 'sheetSettings', chip: null, nodes: ['.drawer > [role="tablist"]', '#panel-media', '#panel-display', '#panel-input', '#panel-pokes', '#panel-machine'] },
 ];

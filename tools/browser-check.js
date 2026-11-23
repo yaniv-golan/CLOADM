@@ -4786,6 +4786,13 @@ async function phoneChecks(browser, base, check) {
     progOpen && prog.title === 'Programs' && prog.heads.join('|') === 'Runs without ROMs|Recent on this machine|Open your library →'
       && prog.shelf.join('|') === 'Welcome menu on screen now|LIZA|Colour demo|2048|Minesweeper|Chat with Claude' && prog.focus && prog.shelves === 1, JSON.stringify(prog));
   check('phone: the Media tab keeps only the tape options (Fast tape loading, Tape sound, Load .CAS straight into memory)', prog.media.join() === 'chkFastTape,chkTapeSound,chkFastCas', JSON.stringify(prog.media));
+  // the sheet's order: Last time (Run again) at the top, the no-ROM card, Runs without ROMs, Recent, Snapshots (its
+  // heading and note), Open your library →
+  const progOrder = await page.evaluate(() => ({ ids: [...document.querySelector('#sheetPrograms .sheetbody').children].map((e) => e.id),
+    snap: [...document.querySelectorAll('#quickSave > :is(.eyebrow, #slotNote)')].map((e) => e.textContent) }));
+  check('phone: the Programs sheet\'s order: Last time, the no-ROM card, Runs without ROMs, Recent on this machine, Snapshots (heading and note), Open your library →',
+    progOrder.ids.join() === 'lastTime,welcome,shelfHead,shelf,recentHead,recentList,quickSave,linkLibrary'
+      && progOrder.snap.join('|') === 'Snapshots|A snapshot reopens on the same machine, RAM and ROMs.', JSON.stringify(progOrder));
   if (shotDir) await page.screenshot({ path: path.join(shotDir, 'phone-sheetPrograms.png') });
   await page.tap('#shelf :is(a, button):text-is("2048")');
   const game = await waitFor(page, () => window.emu.session.gameRunning && window.emu.session.lastRun && window.emu.session.lastRun.name === '2048' && !document.querySelector('dialog[open]'), null, 15000);
@@ -4806,7 +4813,11 @@ async function phoneChecks(browser, base, check) {
   await page.keyboard.type('programs');
   await page.keyboard.press('Enter');
   const palProg = await waitFor(page, () => document.getElementById('sheetPrograms').open);
-  check('phone: the palette\'s "Programs" (found by programs, games, demos, liza, run) opens the Programs sheet', palProg && viaPalette.every((x) => x[1]), JSON.stringify(viaPalette));
+  // after 2048, Last time shows, the first thing in the sheet
+  const lastTop = await page.evaluate(() => { const d = document.getElementById('sheetPrograms'), first = [...d.querySelectorAll('.sheetbody > *')].find((e) => e.checkVisibility());
+    return { first: first && first.id, name: document.getElementById('lastName').textContent, top: Math.round(first.getBoundingClientRect().top - d.querySelector('.sheetbody').getBoundingClientRect().top) }; });
+  check('phone: the palette\'s "Programs" (found by programs, games, demos, liza, run) opens the Programs sheet, Last time (2048) at its top',
+    palProg && viaPalette.every((x) => x[1]) && lastTop.first === 'lastTime' && lastTop.name === '2048', JSON.stringify({ viaPalette, lastTop }));
   // the full-screen chat opened from a sheet (the Programs sheet's "Chat with Claude") closes the sheet (a key stored,
   // so the chat needs no key form and the keys stay up: the sheet closes because the chat opened)
   await page.evaluate(() => localStorage.setItem('cloadm.anthropicKey', 'sk-ant-PHONE-CHECK-0123456789'));
@@ -4995,6 +5006,16 @@ async function phoneChecks(browser, base, check) {
       JSON.stringify({ baseline, before, movedIn, after, works }));
     const dup = await p.evaluate(() => { const seen = new Set(), d = []; for (const e of document.querySelectorAll('[id]')) { if (seen.has(e.id)) d.push(e.id); seen.add(e.id); } return d; });
     check('desktop: no duplicate ids anywhere', dup.length === 0, dup.join());
+    // the palette's "Programs" on a desktop: the Media tab selected (from Display) and the focus on the shelf's first item
+    await p.click('#tab-display');
+    await p.keyboard.press('Control+k');
+    await waitFor(p, () => !document.getElementById('cmdBox').hidden);
+    await p.keyboard.type('programs');
+    await p.keyboard.press('Enter');
+    const deskProg = await waitFor(p, () => document.getElementById('cmdBox').hidden && document.getElementById('tab-media').getAttribute('aria-selected') === 'true'
+      && document.activeElement === document.querySelector('#shelf :is(a, button)'));
+    const deskState = await p.evaluate(() => ({ media: document.getElementById('tab-media').getAttribute('aria-selected'), focus: document.activeElement.textContent, sheet: !!document.querySelector('dialog[open]') }));
+    check('desktop: the palette\'s "Programs" selects the Media tab and puts the focus on the shelf\'s first item (no sheet)', deskProg && !deskState.sheet, JSON.stringify(deskState));
     // the app bar: no Programs… (the drawer's Media tab is in view), and no label with its words run together, at
     // 1440 (Install, the short label) and at 900 ("Install CLOADM…")
     const bar = [];

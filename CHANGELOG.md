@@ -195,12 +195,12 @@ Next version: 0.1.9-pre (the plugin and extension manifests carry it; `tests/plu
   and the chips fit the window. Menu's order on a phone: Programs…, Add ROMs, Settings…, Share…, Install…, Library,
   Debugger, Commands…, then Help and GitHub under a rule.
 - **A phone's programs are a sheet, Menu's first item: Programs….** The Media tab's programs move into a "Programs"
-  sheet: the "Running with no ROMs" card, Last time, "Runs without ROMs" (the Welcome menu, LIZA, the Colour demo,
-  2048, Minesweeper, Chat with Claude, the one running marked "on screen now"), "Recent on this machine", the
-  snapshots and "Open your library →"; the Media tab keeps the tape options. Starting a program closes the sheet, so
+  sheet: Last time (Run again) at the top, the "Running with no ROMs" card, "Runs without ROMs" (the Welcome menu,
+  LIZA, the Colour demo, 2048, Minesweeper, Chat with Claude, the one running marked "on screen now"), "Recent on this
+  machine", Snapshots and "Open your library →"; the Media tab keeps the tape options. Starting a program closes the sheet, so
   Menu → Programs… → 2048 runs it in two taps. Sideways the keys' Menu has Programs… first too, and the palette has a
-  "Programs" command (also found by games, demos, liza and run), which on a desktop brings the Media tab's programs into
-  view.
+  "Programs" command (also found by games, demos, liza and run), which on a desktop selects the Media tab and puts the
+  focus on its first program.
 - **Held sideways, and on a short phone upright, the ports are one tabbed sheet.** Sideways the keys' Menu lists
   Programs…, Machine…, Settings…, "Tape, disks and cartridge…", Power…, Commands…, Install and Hide keys; "Tape, disks and
   cartridge…" opens one side sheet of that name (360 px wide, the whole height), its tabs Tape, Disks and Cartridge
