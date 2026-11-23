@@ -278,7 +278,7 @@ export const PLUS_CHARS = Object.freeze(Array.from({ length: 256 }, (_, c) => (c
 
 // The 80-column screen as videoMode reports it, or the reason it cannot be read. The checks are on the CRTC's
 // registers as they stand (the machine's own state, never a CPU read of $FFE1, which on the HD6845S answers only
-// R12-R17), in this order:
+// CRTC R12-R17), in this order:
 //   * R8 bit 0 set selects an interlace mode (Hitachi HD6845S data sheet, Interlace and Skew Register (R8), Table 4,
 //     PDF p. 11: bits 1-0 = 00 and 10 non-interlace, 01 interlace sync, 11 interlace sync and video), which changes
 //     the rows' raster addressing; the emulator draws without interlace, so what the board shows is not known here.

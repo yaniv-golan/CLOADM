@@ -141,7 +141,7 @@ check('TFR S,X (S the source) does not arm NMI', !takes([0x1F, 0x41, NOP], 1));
   // charges two cycles, leaving PC at $1002 and memory untouched (js/cpu/cpu6809.js undefinedPrefixed).
   // The BOTH-increment form is used deliberately: it is the one TFM direction pair this core gets right on
   // every branch, so the assertion cannot be an artefact of the 3A/3B direction bug (fixed on
-  // cloadm-8-6309-tfm-exec, not merged here). $11 $3A and $11 $3B are avoided for that reason.
+  // a separate change, not merged here). $11 $3A and $11 $3B are avoided for that reason.
   const t9n = fdc.trace('tanodr64', { controller: 'tanodragonfdc', nmi: true, cpu: '6309', regenerate: false });
   check('tanodr64 nmi + 6309 builds and targets the 6309 MAME sibling', t9n.system === 'tanodr64h', t9n.system);
   const m9n = t9n.machine();

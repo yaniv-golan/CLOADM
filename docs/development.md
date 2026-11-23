@@ -118,7 +118,7 @@ repository variable that does not exist yet, so every run skips and legacy Pages
 Merging it therefore changes nothing, and merge order does not matter. (The `github-pages` environment allows `main`,
 so once a deploy does run, a `main` push's deploy is accepted.)
 
-**Publishing the site: the owner's procedure, in this order.**
+**Publishing the site: the procedure, in this order.**
 1. **Settings -> Pages -> Source = "GitHub Actions"**. The legacy build stops publishing `main` from this point.
 2. **Settings -> Secrets and variables -> Actions -> Variables -> New variable**: `PAGES_VIA_ACTIONS` = `true`. From
    here a successful `main` push deploys.
@@ -223,6 +223,9 @@ node tests/roms.test.js      # ROM identification across machines (synthetic ima
 node tools/gen-rom-docs.js   # regenerate docs/roms.md from the profiles (tests/romdocs.test.js checks it)
 node tools/gen-page-preload.js  # regenerate the <link rel="modulepreload"> list in play/index.html (tests/pagepreload.test.js checks it)
 node tools/page-load.js      # how long /play/ takes to start over a throttled link: modulepreload's effect (see below)
+node tools/flicker-measure.js # a .cas dropped on stored ROMs, first visit vs repeat: DOM mutations, layout shifts, canvas
+                              # replacements, service-worker events and reloads per second, and #toastRegion's inline-style
+                              # writes (the toast placement loop's cost: see "the page's per-frame work" below)
 node tests/readme.test.js    # README.md and docs/*.md: only what GitHub renders; links, anchors and pictures resolve; no private or ROM-folder links
 node tests/tape.test.js      # cassette: WAV files, decoding impaired recordings, capturing csave.asm's output on every SAM model and the MC-10, Session
 node tests/tape-sound.test.js  # Tape sound: the tape's signal per frame tick for tick, silence when it stops, the low-pass, not machine state; the mux's cassette bias
@@ -255,6 +258,8 @@ node tests/privacy-copy.test.js # the ROM privacy copy (README, docs, front, /ro
 node tests/cpu6309-offer.test.js   # the welcome menu is offered on every 6309 model ('menu', 'back'), and the file it fetches is the 6809 build (welcome.bin), as the 6809 gets
 node tests/cpu6309-session.test.js # the HD6309 runs the 6809 builds: welcome menu, LIZA, the demo and the chat firmware on every 6309 model, each ending in the same state as on the 6809
 node tests/returning.test.js # returning visits: greetings, carry-on (option 6; 5 on the 6803 build), what ran last, back to the menu from LIZA (BYE or BREAK) and the demo
+node tests/welcome-on-screen.test.js # "on screen now" (Session.welcomeOnScreen: the menu loaded on the machine shown, not stopped by the Debugger, and drawn) and 'lastrun', which "Last time" follows; the page side is the browser check's returning group (onScreenChecks)
+node tests/debugger-stop.test.js # a Debugger stop in the Session: Reset, a power cycle, a load and a switch release a Debugger stop (breakpoints kept, 'launch' and 'released' emitted), typing while stopped is refused once per stop, the status line says Stopped or Paused; the page side is the browser check's debugger group (debuggerStopChecks)
 node tests/power-on.test.js  # without ROMs: Reset restarts what runs; power-on, a machine switch and a snapshot of the stub's prompt bring the welcome menu (6809 and 6803)
 node tests/welcome6803.test.js # the 6803 welcome on mc10 and alice: raw screen cells, per-machine subtitle, keys, the two builds differ only at the HALT
 node tests/regress.test.js                # the trace and frame hashes of the diagnostic firmware, against their recorded values (no MAME needed; about a minute of work on one core, and tests/all.js runs it in parallel shards; --count prints the number of cases, --only <name or /regex/> runs some of them, e.g. --only dragon64 while changing one thing)
@@ -263,7 +268,9 @@ node tools/measure-regress-cost.js        # re-measure the regress shard constan
 node tests/allsummary.test.js             # the gate itself: the FAILED: line and --only subset runs; a suite that exits 0 without printing its summary (a pending promise, or one printed only from an exit handler) fails; a suite that prints a "FAIL " line and exits 0 fails; normal suites pass; summaries printed from every writer and quote style are read; fixtures stay out
 node tests/fastloop.test.js               # the fast-loop table above: every suite pattern selects a suite, every group exists; AGENTS.md's Start-here scripts exist
 node tests/allsignal.test.js              # a signal to the gate stops every suite and exits 128+n; nothing survives
-node tests/changelog.test.js              # a released CHANGELOG section equals the same section in its git tag (named corrections aside), and every release uses Keep a Changelog headings (Added/Changed/Fixed); needs the tags (CI fetches them, `git fetch --tags` locally: without them it prints a SKIP line per tag)
+node tests/changelog.test.js              # a released CHANGELOG section equals the same section in its git tag (named corrections aside, internal labels removed from both sides), and every release uses Keep a Changelog headings (Added/Changed/Fixed); needs the tags (CI fetches them, `git fetch --tags` locally: without them it prints a SKIP line per tag)
+node tests/internal-labels.test.js        # no tracked file carries the maintainers' internal process labels (review and ruling IDs, old branch names); each pattern on cases of its own
+node tests/private-paths.test.js          # no tracked file names a Claude session, the private repo, a local path, worktree or work folder, the local instructions file, a worker, a planning or inbox item, a personal email address, or a branch outside the CI globs; its patterns are built from parts, so it scans itself
 node tests/workflows-release.test.js      # release.yml packs in a read-only job, checks the notes before attesting, checks the artifact hand-off on every run, and its dry run cannot publish; pages.yml publishes main only after the gates, on a main push, once PAGES_VIA_ACTIONS is set
 node tests/exitcode.test.js               # no suite or tool forces process.exit() (the Node 25 deadlock), by static scan
 node tests/exitguard.test.js              # the same rule at run time, against every spelling a static scan cannot see
@@ -353,6 +360,42 @@ final `missing files` check) one at a time, each on its own (`tools/browser-chec
   count, if any) or `browser check FAILED`. Exit code: 0 only if every check, wait and group passed; 1 otherwise;
   2 for a usage error.
 
+**Measuring a check's failure rate.** A check that fails once in CI and passes locally is not diagnosed by reading
+it: measure it. `tools/flaky-n.sh` runs one `--only` group N times and writes one line per run - the exit code, the
+1-minute load average at the start, the group summary, and the target check's own detail line (so a failure names
+the bound that broke rather than just "red") - and keeps the log of any run that failed while deleting the passing
+ones.
+
+```
+# run one group 20 times, recording the line of the check being investigated
+./tools/flaky-n.sh semantics 20 /tmp/flaky-semantics.txt "text alternative follows the screen"
+./tools/flaky-n.sh audio     20 /tmp/flaky-audio.txt     "no pop across power cycle"
+```
+
+Use `node tools/browser-check.js --list-groups` for the group names. Run it **alone, on a quiet machine, from the
+checkout you mean to measure** - the browser check is CPU-bound and a concurrent run, or a run started from a
+different checkout, measures something other than what you are asking about. Load matters: a shared machine can be
+busier than a CI runner or quieter, so record the load average each line carries and compare like with like. A rate
+measured under one load does not establish another's - a check that passes 20/20 under load 19 on a 14-core laptop
+may still fail on a 4-core runner at full tilt, and a mechanism found in the code is what settles it.
+
+Two probes reproduce, outside the gate, the two conditions behind the flaky checks, and both carry their own
+controls so a null result means something:
+
+```
+# the no-pop check under a forced stall: control (must give ~0.0078/0.0165), a planted pop (must be caught),
+# then the real measurement - 20 stalls of 500 ms at 20 phases
+node tools/audio-stall-probe.js control 1
+node tools/audio-stall-probe.js plant   2 500
+node tools/audio-stall-probe.js stall  20 500
+# the text alternative's mirror under a starved CPU: samples screenAlternative() and #screenAlt every 20 ms
+node tools/semantics-race-probe.js /tmp/race.txt 4     # 4 = CDP CPU throttling, a slow runner
+```
+`audio-stall-probe.js`'s `plant` mode writes a chunk at the opposite level into the sink on resume: if that is not
+caught, the probe cannot see a pop and its stall numbers prove nothing. `semantics-race-probe.js` prints every
+transition and how many samples the live screen differed from the 1 Hz mirror, which is the race the check now
+retries.
+
 **How /play/ starts.** The page's module graph is 100 modules and about 815 KB of plain ES modules with no
 build step, and it is six imports deep (the page → the Session → the machine families → the chips → the CPUs).
 Left to itself the browser learns about a module only when the module that imports it has arrived, so the
@@ -388,6 +431,19 @@ access (`readRange` to mount, `writeRange` for what the machine writes, only the
 drive's motor stops, on eject, and before the machine or the page goes away), never through the media index.
 A disk that comes back with a snapshot is the snapshot's own copy: it is not linked to the stored image, and
 Download saves it.
+
+**The page's per-frame work.** A toast is placed once per animation frame while it is up, so it keeps clear of a
+control that grows under it (`js/ui/feedback.js`; `follow` → `place`). That is one chain for the page, cancelled when
+the toast goes, and `place` writes the region's inline style and its class only when the placement changes. The
+browser check measures that directly: a stationary toast writes `#toastRegion`'s style **0 times in 60 frames** on
+desktop and phone (a per-frame writer gives ~60, and main gave ~180), and after a pinned toast has come and gone a
+placed toast queues **0 class mutations** on the region (a `classList.remove` of an absent class queues one per frame
+in Chromium; `toggle(c, false)` does not). The same check still requires the toast to follow a layout change, and
+`tests/toast-follow.test.js` pins the chain count, the stationary cost, the class churn and the follow in Node.
+
+(`node tools/flicker-measure.js` measures a page load, not a toast's placement: its window waits on the machine
+booting and usually holds no toast, so its `#toastRegion` count does not isolate the placement loop. It is useful for
+the load's DOM mutations and layout shifts, which is what the figures it prints are for.)
 
 ## Pictures
 

@@ -376,7 +376,7 @@ const block = async (name, fn) => {
 
   // ---- 7e. a case-SENSITIVE store holding a DIFFERENT file at the flipped path ----
   {
-    // Round 2's blocker: asking "is there an entry at the flipped path" is not the question. A case-sensitive
+    // The trap: asking "is there an entry at the flipped path" is not the question. A case-sensitive
     // folder can hold a genuinely different file whose name is the flip of a name about to be written (the user's
     // own DISKS/GAME.dsk), and a probe of existence then calls the two one file. Both the listing measurement and
     // the after-a-write one must compare the name the store REPORTS, not whether something is there.

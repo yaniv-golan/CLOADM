@@ -37,7 +37,7 @@ export const SOURCE_MAX = 32768;         // characters of assembler source one a
 // with no org argument and no ORG line the assembler starts at this address (js/asm/assembler.js: pc = 0)
 export const ASSEMBLE_DEFAULT_ORG = 0;
 export const RUN_DEFAULT_TARGET = 'RUN';  // run with no target types RUN
-// How Claude puts a BASIC program in (the owner's policy): typing is for short programs, and a longer one is
+// How Claude puts a BASIC program in (the policy): typing is for short programs, and a longer one is
 // loaded with load_basic, whose card asks the person. Stated in the tool descriptions and in the brief (js/claude/brief.js), and
 // tests/claude-typing.test.js checks both say it.
 export const TYPE_LINES_MAX = 3;
@@ -207,7 +207,7 @@ export class ChatSession {
     this.onAbort = null;         // (reason) => void: abort() was called, before the request is aborted (the Session's gateTools)
     this.onToolStart = null;     // (name) => void: the backend calls a tool (serveTool), before it runs (the Session's gateTools)
     this.onToolEnd = null;       // (name) => void: that call has ended, however it ended
-    // Each turn's line carries what the views show besides the text (UX ruling R13): `turn` (a number that stays the
+    // Each turn's line carries what the views show besides the text: `turn` (a number that stays the
     // turn's when older turns are trimmed away), `actions` (one record per acting call, js/claude/actions.js) and
     // `reads` ({ tool: count } for the read-only calls). apiMessages sends none of them.
     this.turns = 0;              // the last turn's number
@@ -399,7 +399,7 @@ export class ChatSession {
       return out;
     } catch (e) { this.noteAction(name, input, { err: e }); throw e; }
   }
-  // A call's record on the turn in progress (R13): an acting call's outcome from what it returned or threw (never
+  // A call's record on the turn in progress: an acting call's outcome from what it returned or threw (never
   // guessed: js/claude/actions.js), a read-only call counted. Nothing for a call outside a turn or an unknown tool.
   noteAction(name, input, how) {
     const line = this.line;

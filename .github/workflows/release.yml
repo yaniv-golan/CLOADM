@@ -73,7 +73,7 @@ jobs:
 
       # THE VERSION THIS RUN IS ABOUT, decided once. On a tag it is the tag, and the manifests must agree with it. On a
       # hand-started dry run there is no tag, so it is CHANGELOG.md's "Next version" line -- the version the working
-      # tree is preparing -- which is why a dry run can be dispatched FROM MAIN, where the owner will actually do it.
+      # tree is preparing -- which is why a dry run can be dispatched FROM MAIN, where the release will actually be made.
       # The value reaches later steps through $GITHUB_ENV; it is never interpolated into a script.
       - name: The version (the tag, or the next version for a dry run)
         env:

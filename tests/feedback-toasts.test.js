@@ -34,7 +34,10 @@ let timers = [], nextTimer = 1, frames = [];
 globalThis.Date = class extends Date { static now() { return now; } };
 globalThis.setTimeout = (fn, ms = 0) => { const id = nextTimer++; timers.push({ id, at: now + ms, fn }); return id; };
 globalThis.clearTimeout = (id) => { timers = timers.filter((t) => t.id !== id); };
-globalThis.requestAnimationFrame = (fn) => { frames.push(fn); return frames.length; };
+let nextFrame = 1;
+globalThis.requestAnimationFrame = (fn) => { const id = nextFrame++; frames.push({ id, fn }); return id; };
+// (the placement runs one cancellable chain: a cancelled frame does not run)
+globalThis.cancelAnimationFrame = (id) => { frames = frames.filter((f) => f.id !== id); };
 // advance the clock, running the timers that fall due in order
 const advance = (ms) => {
   const end = now + ms;
@@ -47,7 +50,7 @@ const advance = (ms) => {
   }
   now = end;
 };
-const frame = () => { const f = frames; frames = []; for (const fn of f) fn(); };
+const frame = () => { const f = frames; frames = []; for (const { fn } of f) fn(); };
 
 class ClassList {
   constructor() { this.set = new Set(); }

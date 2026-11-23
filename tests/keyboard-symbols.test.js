@@ -161,7 +161,7 @@ for (const [id, config] of FAMILIES) {
   }
 }
 
-// the ways a person holds Shift, on a CoCo 3 (the owner's machine) and an MC-10 (another matrix and CPU)
+// the ways a person holds Shift, on a CoCo 3 and an MC-10 (another matrix and CPU)
 for (const id of ['coco3', 'mc10']) {
   {
     // Shift held across ":" "*" "+" ":" - each key pressed and released while it stays down

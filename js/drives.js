@@ -373,6 +373,10 @@ export class DiskDrives {
     } catch (e) { throw new SessionError(`${base}: ${e.message}`); }
     this.checkLater(fdc.drives[drive]);
     this.session.emit('disks');
+    // A disk the person puts in - from a drop, Open, the Library, a drive's menu - is a launch, once it is in
+    // (a mount that is refused leaves a Debugger stop and the page's Pause as they were). A held mount is the
+    // Session's own work (NitrOS-9's boot disk going in as part of its start), not one of the person's.
+    if (!held) this.session.launch(this.targetMachine);
     const wp = writeProtected ? ' (write-protected)' : '';
     if (fdc === this.bareController) return `${base} is in drive ${drive}${wp}, ${BARE_NOTE}`;
     return `${base} in drive ${drive}${wp}`;
@@ -582,7 +586,7 @@ export class DiskDrives {
     return fdc.drives.slice(0, fdc.fitted).map((d) => busy && fdc.wd.floppy === d && d.mon === 0);
   }
   // The disk that came with a snapshot (not linked to the Library: status stored: false) saved to the Library under
-  // its name, and the drive linked to it from then on, so what the machine writes goes there (R25: a switch takes it
+  // its name, and the drive linked to it from then on, so what the machine writes goes there (a switch names what comes out: a switch takes it
   // out, and only the Library keeps it) -> message. A name the Library already has is refused: that is another disk.
   async keepSnapshot(drive) {
     this.checkDrive(drive);

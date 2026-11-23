@@ -179,6 +179,7 @@ const FILES = [
   'js/ui/claude.js',
   'js/ui/command-box.js',
   'js/ui/debugger-panel.js',
+  'js/ui/debugger-stop.js',
   'js/ui/display-panel.js',
   'js/ui/drawer.js',
   'js/ui/drives.js',

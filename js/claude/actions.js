@@ -1,5 +1,5 @@
 /*
- * What Claude did in a turn, as the person sees it (UX ruling R13). Browser-free.
+ * What Claude did in a turn, as the person sees it. Browser-free.
  *
  * Every acting call leaves one record on its turn (ChatSession.noteAction, js/claude/chat.js), made from what the
  * call returned or threw, never guessed: { seq, tool, what, outcome, time, ... }. The views draw one small line per
