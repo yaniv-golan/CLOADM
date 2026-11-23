@@ -217,6 +217,7 @@ const FILES = [
   'js/ui/typein.js',
   'js/ui/welcome.js',
   'js/util.js',
+  'js/video/bezel.js',
   'js/video/canvas.js',
   'js/video/card.js',
   'js/video/chat-font.js',

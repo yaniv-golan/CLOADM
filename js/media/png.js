@@ -1,108 +1,98 @@
 /*
- * PNG writing for pictures with a small palette (the link preview card, js/video/card.js): no canvas, no browser, no
- * dependency, so it runs in Node and in a page alike.
- *   encodeIndexedPng(width, height, palette, pixels) -> PNG bytes
- *     palette: [[r, g, b], ...] (at most 256 colours); pixels: Uint8Array of palette indices, row by row.
- *     The bit depth is the smallest that holds the palette (1, 2, 4 or 8 bits a pixel); colour type 3 (indexed).
- *   deflate(bytes) -> raw DEFLATE data (RFC 1951): LZ77 over a 32K window, one block of fixed Huffman codes.
- *   zlib(bytes) -> the zlib stream PNG's IDAT holds (RFC 1950: header, deflate, Adler-32).
- * js/media/zip.js's inflate reads the deflate data back (tests/card.test.js round-trips both).
+ * Indexed-colour PNG files (ISO/IEC 15948, the PNG specification): the program pages' cards (tools/program-cards.js)
+ * and a share link's preview picture.
+ *
+ * encodeIndexedPng writes colour type 3 (a palette) at bit depth 4 when the palette has at most 16 colours, else 8;
+ * every row uses filter 2 (Up), so a picture scaled up with repeated rows packs to almost nothing. readPngHeader reads
+ * the signature, IHDR and PLTE back, checking every chunk's CRC, for whoever must check a picture before taking it.
+ *
+ * Browser-free: CompressionStream('deflate') (zlib, RFC 1950) exists in browsers and in Node 18+.
  */
-import { crc32 } from '../util.js';
+const SIGNATURE = [137, 80, 78, 71, 13, 10, 26, 10];
 
-// ---------------- deflate (RFC 1951), fixed Huffman codes ----------------
-// length codes 257..285: base lengths and extra bits (RFC 1951 3.2.5)
-const LEN_BASE = [3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 15, 17, 19, 23, 27, 31, 35, 43, 51, 59, 67, 83, 99, 115, 131, 163, 195, 227, 258];
-const LEN_EXTRA = [0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 0];
-const DIST_BASE = [1, 2, 3, 4, 5, 7, 9, 13, 17, 25, 33, 49, 65, 97, 129, 193, 257, 385, 513, 769, 1025, 1537, 2049, 3073, 4097, 6145, 8193, 12289, 16385, 24577];
-const DIST_EXTRA = [0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13, 13];
-const WINDOW = 32768, MIN_MATCH = 3, MAX_MATCH = 258, MAX_CHAIN = 64, HASH_BITS = 15;
+export class PngError extends Error {}
 
-class BitWriter {
-  constructor() { this.out = []; this.bits = 0; this.n = 0; }
-  // value's low `count` bits, least significant first (DEFLATE's order for everything but Huffman codes)
-  put(value, count) {
-    this.bits |= value << this.n; this.n += count;
-    while (this.n >= 8) { this.out.push(this.bits & 0xFF); this.bits >>>= 8; this.n -= 8; }
-  }
-  // a Huffman code, most significant bit first
-  code(value, count) { let r = 0; for (let i = 0; i < count; i++) r = (r << 1) | ((value >> i) & 1); this.put(r, count); }
-  bytes() { if (this.n) this.out.push(this.bits & 0xFF); return Uint8Array.from(this.out); }
+const CRC_TABLE = new Uint32Array(256).map((_, n) => { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; return c >>> 0; });
+function crc(bytes, start, end) {
+  let c = 0xFFFFFFFF;
+  for (let i = start; i < end; i++) c = CRC_TABLE[(c ^ bytes[i]) & 0xFF] ^ (c >>> 8);
+  return (c ^ 0xFFFFFFFF) >>> 0;
 }
-// the fixed literal/length code (RFC 1951 3.2.6)
-const literal = (w, v) => {
-  if (v < 144) w.code(0x30 + v, 8);
-  else if (v < 256) w.code(0x190 + v - 144, 9);
-  else if (v < 280) w.code(v - 256, 7);
-  else w.code(0xC0 + v - 280, 8);
-};
-const lengthCode = (len) => { let i = LEN_BASE.length - 1; while (LEN_BASE[i] > len) i--; return i; };
-const distCode = (d) => { let i = DIST_BASE.length - 1; while (DIST_BASE[i] > d) i--; return i; };
 
-export function deflate(src) {
-  const w = new BitWriter();
-  w.put(1, 1); w.put(1, 2);   // BFINAL, BTYPE 01: one block, fixed codes
-  const head = new Int32Array(1 << HASH_BITS).fill(-1), prev = new Int32Array(WINDOW);
-  const hash = (i) => ((src[i] << 10) ^ (src[i + 1] << 5) ^ src[i + 2]) & ((1 << HASH_BITS) - 1);
-  const insert = (i) => { if (i + MIN_MATCH > src.length) return; const h = hash(i); prev[i % WINDOW] = head[h]; head[h] = i; };
-  let i = 0;
-  while (i < src.length) {
-    let best = 0, bestDist = 0;
-    if (i + MIN_MATCH <= src.length) {
-      let p = head[hash(i)], chain = MAX_CHAIN;
-      const max = Math.min(MAX_MATCH, src.length - i);
-      while (p >= 0 && i - p <= WINDOW && chain-- > 0) {
-        let l = 0;
-        while (l < max && src[p + l] === src[i + l]) l++;
-        if (l > best) { best = l; bestDist = i - p; if (l === max) break; }
-        const q = prev[p % WINDOW];
-        if (q >= p) break;   // (a slot the window has since reused)
-        p = q;
-      }
+async function deflate(bytes) {
+  const out = new Response(new Blob([bytes]).stream().pipeThrough(new CompressionStream('deflate')));
+  return new Uint8Array(await out.arrayBuffer());
+}
+
+// { width, height, pixels: Uint8Array of palette indices, row by row, palette: [[r, g, b], ...] (1 to 256) } -> bytes
+export async function encodeIndexedPng({ width, height, pixels, palette }) {
+  if (!(width > 0 && height > 0) || pixels.length !== width * height) throw new PngError('picture size does not match its pixels');
+  if (!(palette.length >= 1 && palette.length <= 256)) throw new PngError('a palette has 1 to 256 colours');
+  const depth = palette.length <= 16 ? 4 : 8;
+  const stride = depth === 4 ? (width + 1) >> 1 : width;
+  const rows = new Uint8Array((stride + 1) * height);
+  let prev = new Uint8Array(stride), line = new Uint8Array(stride);
+  for (let y = 0; y < height; y++) {
+    line.fill(0);
+    for (let x = 0; x < width; x++) {
+      const v = pixels[y * width + x];
+      if (v >= palette.length) throw new PngError(`pixel ${x},${y} names colour ${v}; the palette has ${palette.length}`);
+      if (depth === 8) line[x] = v; else line[x >> 1] |= x & 1 ? v : v << 4;
     }
-    if (best >= MIN_MATCH) {
-      const lc = lengthCode(best), dc = distCode(bestDist);
-      literal(w, 257 + lc); w.put(best - LEN_BASE[lc], LEN_EXTRA[lc]);
-      w.code(dc, 5); w.put(bestDist - DIST_BASE[dc], DIST_EXTRA[dc]);
-      for (let k = 0; k < best; k++) insert(i + k);
-      i += best;
-    } else { literal(w, src[i]); insert(i); i++; }
+    const o = y * (stride + 1);
+    rows[o] = 2;   // Up: each byte less the byte above it
+    for (let i = 0; i < stride; i++) rows[o + 1 + i] = (line[i] - prev[i]) & 0xFF;
+    [prev, line] = [line, prev];
   }
-  literal(w, 256);   // end of block
-  return w.bytes();
-}
-
-const adler32 = (b) => { let a = 1, s = 0; for (let i = 0; i < b.length; i++) { a = (a + b[i]) % 65521; s = (s + a) % 65521; } return ((s << 16) | a) >>> 0; };
-export function zlib(src) {
-  const d = deflate(src), out = new Uint8Array(d.length + 6);
-  out[0] = 0x78; out[1] = 0x01;   // deflate, 32K window, no dictionary (0x7801 % 31 === 0)
-  out.set(d, 2);
-  const a = adler32(src);
-  out.set([a >>> 24, (a >>> 16) & 0xFF, (a >>> 8) & 0xFF, a & 0xFF], d.length + 2);
+  const ihdr = new Uint8Array(13);
+  const dv = new DataView(ihdr.buffer);
+  dv.setUint32(0, width); dv.setUint32(4, height);
+  ihdr[8] = depth; ihdr[9] = 3; // compression, filter method and interlace: 0
+  const plte = new Uint8Array(palette.length * 3);
+  palette.forEach(([r, g, b], i) => { plte[i * 3] = r; plte[i * 3 + 1] = g; plte[i * 3 + 2] = b; });
+  const chunks = [['IHDR', ihdr], ['PLTE', plte], ['IDAT', await deflate(rows)], ['IEND', new Uint8Array(0)]];
+  const size = 8 + chunks.reduce((n, [, d]) => n + 12 + d.length, 0);
+  const out = new Uint8Array(size), ov = new DataView(out.buffer);
+  out.set(SIGNATURE);
+  let o = 8;
+  for (const [type, data] of chunks) {
+    ov.setUint32(o, data.length);
+    for (let i = 0; i < 4; i++) out[o + 4 + i] = type.charCodeAt(i);
+    out.set(data, o + 8);
+    ov.setUint32(o + 8 + data.length, crc(out, o + 4, o + 8 + data.length));
+    o += 12 + data.length;
+  }
   return out;
 }
 
-// ---------------- PNG ----------------
-const u32 = (v) => [v >>> 24, (v >>> 16) & 0xFF, (v >>> 8) & 0xFF, v & 0xFF];
-const chunk = (type, data) => {
-  const body = Uint8Array.from([...type].map((c) => c.charCodeAt(0)).concat([...data]));
-  return [...u32(data.length), ...body, ...u32(parseInt(crc32(body), 16))];
-};
-export function encodeIndexedPng(width, height, palette, pixels) {
-  if (!palette.length || palette.length > 256) throw new Error(`png: a palette of 1 to 256 colours, not ${palette.length}`);
-  if (pixels.length !== width * height) throw new Error(`png: ${pixels.length} pixels for ${width}x${height}`);
-  const depth = palette.length <= 2 ? 1 : palette.length <= 4 ? 2 : palette.length <= 16 ? 4 : 8;
-  const per = 8 / depth, stride = Math.ceil(width / per);
-  const raw = new Uint8Array((stride + 1) * height);   // each row: filter 0 (none), then the packed pixels
-  for (let y = 0; y < height; y++) {
-    const o = y * (stride + 1) + 1;
-    for (let x = 0; x < width; x++) {
-      const v = pixels[y * width + x];
-      if (v >= palette.length) throw new Error(`png: pixel ${x},${y} is colour ${v}, past the palette`);
-      raw[o + Math.floor(x / per)] |= v << (8 - depth * (1 + (x % per)));
+// bytes -> { width, height, depth, colourType, interlace, palette: [[r, g, b], ...] or null, chunks: [type, ...] };
+// PngError when they are not a well-formed PNG (signature, chunk lengths and CRCs, IHDR first, IEND last)
+export function readPngHeader(bytes) {
+  if (!bytes || bytes.length < 8 || SIGNATURE.some((v, i) => bytes[i] !== v)) throw new PngError('not a PNG file');
+  const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const chunks = [];
+  let o = 8, head = null, palette = null;
+  while (o < bytes.length) {
+    if (o + 12 > bytes.length) throw new PngError('a chunk is cut short');
+    const len = dv.getUint32(o), end = o + 8 + len;
+    if (len > 0x7FFFFFFF || end + 4 > bytes.length) throw new PngError('a chunk is cut short');
+    const type = String.fromCharCode(bytes[o + 4], bytes[o + 5], bytes[o + 6], bytes[o + 7]);
+    if (!/^[A-Za-z]{4}$/.test(type)) throw new PngError('a chunk has no valid type');
+    if (dv.getUint32(end) !== crc(bytes, o + 4, end)) throw new PngError(`the ${type} chunk is damaged (its CRC)`);
+    if (!chunks.length && type !== 'IHDR') throw new PngError('the first chunk is not IHDR');
+    if (type === 'IHDR') {
+      if (len !== 13 || head) throw new PngError('a bad IHDR');
+      head = { width: dv.getUint32(o + 8), height: dv.getUint32(o + 12), depth: bytes[o + 16], colourType: bytes[o + 17], interlace: bytes[o + 20] };
     }
+    if (type === 'PLTE') {
+      if (len % 3 || len === 0 || palette) throw new PngError('a bad PLTE');
+      palette = [];
+      for (let i = 0; i < len; i += 3) palette.push([bytes[o + 8 + i], bytes[o + 9 + i], bytes[o + 10 + i]]);
+    }
+    chunks.push(type);
+    o = end + 4;
+    if (type === 'IEND') break;
   }
-  const ihdr = [...u32(width), ...u32(height), depth, 3, 0, 0, 0];
-  return Uint8Array.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
-    ...chunk('IHDR', ihdr), ...chunk('PLTE', palette.flat()), ...chunk('IDAT', zlib(raw)), ...chunk('IEND', [])]);
+  if (chunks[chunks.length - 1] !== 'IEND' || o !== bytes.length) throw new PngError('the file does not end with IEND');
+  return Object.assign(head, { palette, chunks });
 }

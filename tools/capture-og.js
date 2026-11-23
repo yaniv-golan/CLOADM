@@ -2,11 +2,13 @@
 // The link preview picture (og:image / twitter:image of index.html and play/index.html): img/og.png, 1200x630, at most
 // 16 colours. The welcome program's menu, captured from the real page in Chromium with NO ROMs loaded (the welcome
 // program runs on the built-in stub, so no pixel comes from a ROM: the capture refuses if the machine has one), made
-// into the card by js/video/card.js (renderCard: the CRT bezel, "cloadm.dev" on it, the name beside it).
+// into the card by js/video/bezel.js (renderBezelCard: the CRT bezel, "cloadm.dev" on it, the name beside it, over the
+// shared js/video/card.js and js/media/png.js).
 //   node tools/capture-og.js
 const http = require('http'), fs = require('fs'), path = require('path');
 const { chromium } = require('playwright');
-const { renderCard } = require('../js/video/card.js');
+const { renderBezelCard } = require('../js/video/bezel.js');
+const { Frame } = require('../js/video/frame.js');
 
 const ROOT = path.join(__dirname, '..');
 const OUT = path.join(ROOT, 'img', 'og.png');
@@ -30,8 +32,10 @@ const waitFor = async (page, fn) => { for (let i = 0; i < 200; i++) { if (await 
     await page.waitForTimeout(300);
     if (await page.evaluate(() => window.emu.machine.hasRom)) throw new Error('ROMs loaded: refusing to capture');
     // the emulated picture itself (colour codes and their table), drawn into the card here in Node
-    const f = await page.evaluate(() => { const f = window.emu.machine.render(); return { width: f.width, height: f.height, data: [...f.data], table: [...f.table] }; });
-    const png = renderCard({ width: f.width, height: f.height, data: Uint8Array.from(f.data), table: Uint32Array.from(f.table) });
+    const f = await page.evaluate(() => { const f = window.emu.machine.render(); return { width: f.width, height: f.height, aspect: f.aspect, active: f.active, data: [...f.data], table: [...f.table] }; });
+    const frame = new Frame(f.width, f.height, f.aspect, f.active);
+    frame.data.set(f.data); frame.table.set(f.table);
+    const png = await renderBezelCard(frame);
     fs.writeFileSync(OUT, png);
     console.log(path.relative(ROOT, OUT));
   } finally {
