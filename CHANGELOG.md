@@ -6,9 +6,11 @@ All notable changes to CLOADM are recorded here. The format follows
 
 ## [Unreleased]
 
-Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plugin.test.js` keeps them in step).
+Next version: 0.1.9-pre (the plugin and extension manifests carry it; `tests/plugin.test.js` keeps them in step).
 
-### Added
+### 0.1.9-pre
+
+#### Added
 
 - **Minesweeper plays with a joystick.** Either joystick moves the cursor: one step as the stick leaves the centre,
   then again after 300 ms and every 120 ms while it is held (counted in fields, at the machine's own 50 or 60 Hz;
@@ -72,7 +74,7 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 - **`node tools/mame-diff/run.js <dragon64|coco> --fdc --bare`:** the lockstep comparison with MAME of a program that
   drives the disk controller with an empty ROM socket (`tools/mame-diff/fdc/gen-bare.js`).
 
-### Changed
+#### Changed
 
 - **Comments, test names and docs describe behaviour, not internal process labels.** Review and ruling IDs,
   review-finding tags and old internal branch names are gone from the code, the tests, the docs and the released
@@ -256,7 +258,7 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   Claude reads your machine's screen and memory with "Let Claude use the emulator" off, as before (a new test,
   `tests/claude-read-ungated.test.js`, holds this in both views); only typing, POKEs, loading and running ask first.
 
-### Fixed
+#### Fixed
 
 - **What the page says is on screen is what is on screen.** The Media tab's "Welcome menu · on screen now" meant only
   that the menu had been loaded: started on a machine the Debugger had stopped, or while Pause held it, the tag showed
