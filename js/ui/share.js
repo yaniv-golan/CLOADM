@@ -8,6 +8,7 @@
  * opens it), Share... (navigator.share, the URL only, where canShare allows it) and Copy link.
  * "More ways to share" (collapsed): a 6-second clip of the screen (MediaRecorder: MP4 where the browser records it, WebM
  * otherwise, and the button says which), the screenshot at true pixels, the snapshot file.
+ * "Copy for a forum" (collapsed): the link with a one-line description as BBCode and as Markdown (js/share-text.js).
  * "Embed in a web page" (collapsed): the iframe and script for a blog post, written by js/config.js (buildUrl) from the
  * machine, program and options chosen here ("Offer 'Ask Claude ↗'" adds askclaude=1: the embed's corner chip).
  * (The settings export/import lives on the Machine tab: js/ui/settings-file.js.)
@@ -15,6 +16,7 @@
 import { profiles } from '../machines/profiles.js';
 import { buildUrl } from '../config.js';
 import { needsLine } from '../media/romrefs.js';
+import { romFreeLine, forumText } from '../share-text.js';
 import { CanvasPresenter } from '../video/canvas.js';
 import { $, showView } from './page.js';
 
@@ -84,10 +86,12 @@ export function setupShare(page) {
     $('shareTitle').textContent = `${name} · CLOADM`;
     $('shareWhen').textContent = `captured ${time(new Date())}`;
     $('shareLink').value = link;
+    syncForum(link, name);
     syncPrimary();
     // one line under the picture, what the link does; then, only as needed, what the person opening it needs
-    const rom = $('shareRom'), extra = $('shareExtra');
+    const rom = $('shareRom'), romFree = $('shareRomFree'), extra = $('shareExtra');
     rom.textContent = ''; rom.classList.remove('warn'); extra.textContent = '';
+    romFree.textContent = ''; romFree.hidden = true;
     const note = (text) => { const p = document.createElement('p'); p.textContent = text; extra.append(p); };
     if (!file) {
       $('shareNote').textContent = `The link starts NitrOS-9 fresh on the ${name}; it can't hold this exact moment.`;
@@ -96,7 +100,8 @@ export function setupShare(page) {
       return;
     }
     $('shareNote').textContent = `Opens on the ${name} exactly as it is now. A snapshot reopens on the same machine, RAM and ROMs.`;
-    if (file.needs.length) { rom.textContent = needsLine(file.needs); rom.classList.add('warn'); }
+    // with ROMs in use: first that the link holds none of them (Session.shareFile takes every byte out), then what to add
+    if (file.needs.length) { romFree.textContent = romFreeLine(file.needs); romFree.hidden = false; rom.textContent = needsLine(file.needs); rom.classList.add('warn'); }
     else rom.textContent = 'Runs without ROMs, so it opens for anyone.';
     // a tape being recorded is not in the link (its pulse timings could carry ROM code: js/media/romrefs.js)
     if (file.dropped.includes('deck.recording')) note('The tape being recorded is not in the link: it opens with the recorder stopped.');
@@ -160,6 +165,14 @@ export function setupShare(page) {
     setTimeout(() => rec.stop(), CLIP_SECONDS * 1000);
   };
 
+  // ---------------- copy for a forum ----------------
+  // the link with a one-line description, as BBCode and as Markdown (js/share-text.js); text only, no image tag
+  function syncForum(link, name) {
+    const f = forumText(link, name);
+    $('forumBbcode').textContent = f.bbcode;
+    $('forumMarkdown').textContent = f.markdown;
+  }
+
   // ---------------- embed ----------------
   const sel = $('embedMachine');
   for (const [id, p] of Object.entries(profiles)) {
@@ -191,6 +204,8 @@ export function setupShare(page) {
   };
   $('btnEmbedFrameCopy').onclick = copy('embedFrame', 'btnEmbedFrameCopy');
   $('btnEmbedScriptCopy').onclick = copy('embedScript', 'btnEmbedScriptCopy');
+  $('btnForumBbcodeCopy').onclick = copy('forumBbcode', 'btnForumBbcodeCopy');
+  $('btnForumMarkdownCopy').onclick = copy('forumMarkdown', 'btnForumMarkdownCopy');
   // the builder starts on the machine in use
   session.on((ev) => { if (ev === 'machine' && !isOpen()) syncEmbed(session.shownMachine.id); });
   if (session.shownMachine) syncEmbed(session.shownMachine.id); else renderEmbed();

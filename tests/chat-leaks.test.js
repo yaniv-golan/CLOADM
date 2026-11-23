@@ -592,6 +592,8 @@ const REQUIRED = require.main !== module;
     'programControls',
     // claudeLink builds the "Ask Claude ↗" link from shareFile and shareUrl (both reads of the shown machine)
     'claudeLink',
+    // bugReport reads the SHOWN machine (its options and ROM CRCs) and, when asked, builds snapshotLink; it changes nothing
+    'bugReport',
     // menuTicketFor returns the ticket a menu starts with (the Session's menuTicket or the one passed); changes nothing
     'menuTicketFor',
     // bareDiskController and diskRomWaiting read the disk controller of the PERSON's machine (diskMachine); no change

@@ -7335,7 +7335,7 @@ async function navChecks(browser, site, check) {
   check('nav: the Library and Add ROMs have one header each (their own "← Emulator" bar, no app bar); the app bar is back on the emulator',
     !lib.appbar && lib.lib && !roms.appbar && roms.roms && back.appbar, JSON.stringify({ lib, roms, back }));
   const ALL = [['Home', '/'], ['Help', '/help/'], ['ROMs', '/roms/'], ['Credits', '/credits/'], ['Report a problem', 'https://github.com/yaniv-golan/cloadm/issues']];
-  for (const [title, at] of [['HELP', 'help/'], ['ROMS', 'roms/'], ['CREDITS', 'credits/']]) {
+  for (const [title, at] of [['HELP', 'help/'], ['ROMS', 'roms/'], ['CREDITS', 'credits/'], ['FAQ', 'faq/'], ['ABOUT', 'about/']]) {
     await page.goto(site + at);
     const head = await page.evaluate(() => {
       const h = document.querySelector('header.page-head');
@@ -7363,7 +7363,7 @@ async function commandsChecks(browser, site, check) {
     ['Files', ['Take snapshot', 'Open a program, tape, disk or cartridge…', 'Insert a disk…', 'New blank disk', 'Eject disk', 'Insert a tape…', 'Rewind the tape', 'Eject the tape', 'Save the tape as .WAV', 'Record to tape', 'Share']],
     ['Views', ['Programs', 'Open the Library', 'Open the Debugger']],
     ['Settings', ['Your ROMs', 'Display settings', 'Input settings', 'POKEs', 'Machine settings']],   // (Your ROMs first)
-    ['Machine', ['Pause or resume', 'Turbo', 'Fullscreen', 'Reset', 'Switch off and on', 'Switch machine…', 'Help']],
+    ['Machine', ['Pause or resume', 'Turbo', 'Fullscreen', 'Reset', 'Switch off and on', 'Switch machine…', 'Copy bug report', 'Help']],
   ];
   const LABELS = WANT.flatMap(([, l]) => l);
   const CLAUDE_NOTE = "Claude reads this emulated machine's screen text and memory, and acts on it only with your permission.";
@@ -7601,6 +7601,33 @@ async function commandsChecks(browser, site, check) {
     await tab.waitForLoadState();
     check(`${L}: "Help" opens the guide in a new tab`, /\/help\/$/.test(new URL(tab.url()).pathname), tab.url());
     await tab.close();
+    // Copy bug report: the report is shown before anything is copied; the snapshot is off by default; Copy copies exactly
+    // what is shown; the Claude key this context saved (sk-ant-COMMANDS-CHECK-KEY-…) is never in it, nor a ROM name
+    await ctx.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: new URL(site).origin });
+    const bugText = () => page.evaluate(() => document.getElementById('bugText').textContent);
+    const bugReady = () => waitFor(page, () => /^CLOADM bug report/.test(document.getElementById('bugText').textContent));
+    await query('bug report');
+    await page.keyboard.press('Enter');
+    const bugOpen = await waitFor(page, () => document.getElementById('bugReport').open) && await bugReady();
+    const plain = await bugText();
+    check(`${L}: "Copy bug report" opens a preview: version stamp, machine, browser, file; no snapshot until asked for`, bugOpen
+      && /^Version: v\d+\.\d+\.\d+\S* · \S+$/m.test(plain) && /^Machine: Dragon 64 \(dragon64\)/m.test(plain) && /^Browser: Mozilla\//m.test(plain) && /^File: /m.test(plain)
+      && !/#s=/.test(plain) && await page.evaluate(() => !document.getElementById('bugSnap').checked), plain);
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, `bugreport-${label}.png`) });
+    await page.click('#bugSnap');
+    await waitFor(page, () => /#s=/.test(document.getElementById('bugText').textContent));
+    const withSnap = await bugText();
+    check(`${L}: ticking the snapshot adds the ROM-free share link`, /^Snapshot \(holds no ROM\): http\S+\/play\/\?machine=dragon64\S*#s=/m.test(withSnap), withSnap.slice(0, 400));
+    check(`${L}: the report never holds the Claude key`, !/COMMANDS-CHECK-KEY|sk-ant/.test(plain + withSnap));
+    await page.click('#btnBugCopy');
+    const copied = await page.evaluate(() => navigator.clipboard.readText());
+    check(`${L}: Copy puts exactly the preview on the clipboard`, copied === withSnap && await page.textContent('#btnBugCopy') === 'Copied', copied.slice(0, 80));
+    await page.keyboard.press('Escape');
+    check(`${L}: Esc closes the report`, await waitFor(page, () => !document.getElementById('bugReport').open && document.getElementById('bugReport').hidden));
+    await page.evaluate(() => { location.hash = '#bug-report'; });
+    check(`${L}: play/#bug-report (Help's link) opens it, unticked, and the address goes back to /play/`, await waitFor(page, () => document.getElementById('bugReport').open && location.hash === '')
+      && await page.evaluate(() => !document.getElementById('bugSnap').checked));
+    await page.keyboard.press('Escape');
     // "eject" with a tape in (no disk): Eject the tape first
     await page.setInputFiles('#fileTape', { name: 't.cas', mimeType: 'application/octet-stream', buffer: Buffer.from([...Array(128).fill(0x55), 0x3C, 0xFF, 0, 0xFF]) });
     await waitFor(page, () => !!window.emu.machine.deck.tape);
@@ -8318,7 +8345,7 @@ async function layoutChecks(browser, base, check) {
 
 // reading pages: /roms at desktop and phone width, and the rule that only /roms links the
 // archive's ROM folder, checked over every page of the site
-const READING = ['roms/', 'help/', 'credits/'];
+const READING = ['roms/', 'help/', 'credits/', 'faq/', 'about/'];
 // The Display tab: CRT · composite and Sharp · RGB, the NTSC artifact phase, curvature and glow
 // (the WebGL CRT look), integer scaling and the picture's shape, remembered. A 256x192 artifact-colour picture
 // ($AA, $55 and stripes of two widths above, black, buff and two more stripes below, in PMODE 4 CSS 1) is put on the
@@ -8641,6 +8668,22 @@ async function readingChecks(browser, site, check) {
       check('/help: keys, ROMs, quick fixes, and links to /roms, the emulator and GitHub', /Esc\s*BREAK/.test(help) && /Home\s*CLEAR/.test(help) && /Quick fixes/.test(help)
         && await page.$eval('#romsLink', (a) => new URL(a.href).pathname) === '/roms/' && !!(await page.$('a[href="https://github.com/yaniv-golan/cloadm"]'))
         && await page.$eval('a[href="play/"]', (a) => new URL(a.href).pathname) === '/play/');
+      // the version stamp (js/version.js) on Help and About; the affiliation line visible at the foot of every reading page
+      const stamps = {};
+      for (const [p, id] of [['help/', 'helpVersion'], ['about/', 'aboutVersion']]) { await page.goto(site + p); await waitFor(page, (i) => /^v/.test(document.getElementById(i).textContent) && document.getElementById(i).textContent !== 'v?', id); stamps[p] = await page.textContent(`#${id}`); }
+      const { versionStamp } = await import(path.join(ROOT, 'js/version.js'));
+      check('/help and /about show the version stamp "v<version> · <commit>"', Object.values(stamps).every((t) => t === versionStamp()), JSON.stringify(stamps));
+      const FOOT = 'Not affiliated with Tandy, Dragon Data, Microsoft, id Software or the Freedoom project.';
+      const feet = [];
+      for (const p of ['', ...READING]) { await page.goto(site + p); feet.push([p, await page.evaluate((f) => [...document.querySelectorAll('footer')].some((e) => e.checkVisibility() && e.innerText.includes(f)), FOOT)]); }
+      check('every reading page and the landing page show the affiliation line in their footer', feet.every(([, v]) => v), JSON.stringify(feet));
+      // the FAQ's accuracy answer links the known differences; Help links the FAQ, About and the bug report
+      await page.goto(site + 'faq/');
+      check('/faq: seven questions, the accuracy answer links the deviations from MAME', await page.$$eval('h2', (h) => h.length) === 7
+        && /verification\.md#deviations-from-mame$/.test(await page.getAttribute('#faqDeviations', 'href')));
+      await page.goto(site + 'help/');
+      await page.click('#helpBugReport');
+      check('/help: "Copy a bug report →" opens the report on the emulator', await waitFor(page, () => !!window.emu && document.getElementById('bugReport').open, null, 30000));
       // Credits: in step with CREDITS.md (every person and project below is on both)
       await page.goto(site + 'credits/');
       const credits = await page.textContent('body'), md = fs.readFileSync(path.join(ROOT, 'CREDITS.md'), 'utf8');
@@ -10311,7 +10354,7 @@ async function pwaChecks(browser, site, check) {
   check('PWA offline: sound plays through the AudioWorkletNode (its module kept for offline use)', offlineSound,
     await page.evaluate(() => JSON.stringify({ path: window.emu.audio.path, fallback: window.emu.audio.fallback, removed: window.emu.audio.out && window.emu.audio.out.sink.removed, state: window.emu.audio.ctx && window.emu.audio.ctx.state, ua: navigator.userAgent })));
   check('PWA offline: the fonts came from the kept copy', await page.evaluate(async () => { await document.fonts.ready; return [...document.fonts].some((f) => f.family.replace(/"/g, '') === 'Archivo' && f.status === 'loaded'); }));
-  for (const p of ['', 'help/', 'roms/']) {
+  for (const p of ['', 'help/', 'roms/', 'faq/', 'about/']) {
     const res = await page.goto(site + p);
     check(`PWA offline: /${p} opens`, res.ok() && /CLOADM/.test(await page.title()), String(res.status()));
   }
@@ -14932,6 +14975,19 @@ async function settingsChecks(browser, base, check) {
   await dropFiles(page, [['coco3.rom', fake(32768, 5)]]);
   await waitFor(page, () => window.emu.session.machineRoms('coco3').sockets.some((s) => s.crc));
   await openTab(page, 'Machine'); await page.waitForSelector('#btnSettingsExport', { state: 'visible' });   // Export… is on the Machine tab (it left the Share screen)
+  // the Machine tab's credits line: the version stamp, the FAQ and About, and the affiliation line, all inside the drawer and none over the screen
+  const credits = await page.evaluate(async () => {
+    const { versionStamp } = await import(new URL('js/version.js', document.baseURI));
+    const v = document.getElementById('drawerVersion'), a = document.getElementById('drawerAffiliation');
+    a.scrollIntoView();
+    const mon = document.getElementById('monitor').getBoundingClientRect();
+    const apart = (e) => { const r = e.getBoundingClientRect(); return r.right <= mon.left || r.left >= mon.right || r.bottom <= mon.top || r.top >= mon.bottom; };
+    return { stamp: v.textContent, want: versionStamp(), affiliation: a.textContent, shown: v.checkVisibility() && a.checkVisibility(), apart: apart(v) && apart(a),
+      inDrawer: !!v.closest('aside.drawer') && !!a.closest('aside.drawer'), links: [...v.parentElement.querySelectorAll('a')].map((x) => x.getAttribute('href')) };
+  });
+  check('settings: the credits line shows "v<version> · <commit>", links Credits, FAQ and About; the affiliation line is in the drawer, not over the screen',
+    credits.stamp === credits.want && credits.affiliation === 'Not affiliated with Tandy, Dragon Data, Microsoft, id Software or the Freedoom project.'
+    && credits.shown && credits.apart && credits.inDrawer && JSON.stringify(credits.links) === JSON.stringify(['credits/', 'faq/', 'about/']), JSON.stringify(credits));
   const [dl] = await Promise.all([page.waitForEvent('download'), page.click('#btnSettingsExport')]);
   const file = path.join(os.tmpdir(), `cloadm-settings-${process.pid}.json`);
   await dl.saveAs(file);
@@ -15078,7 +15134,7 @@ async function shareChecks(browser, base, site, check) {
       return { hash: location.hash, emulatorHidden: getComputedStyle(document.querySelector('.layout')).display === 'none', scrollX: document.documentElement.scrollWidth <= innerWidth,
         side: cols[1].left > cols[0].right - 1, stacked: cols[1].top >= cols[0].bottom - 1,
         heading: document.getElementById('shareHeading').textContent, embed: document.getElementById('embedHeading').textContent,
-        discsFull: discs.length === 2 && discs.every((r) => r.top >= cols[0].bottom - 1 && r.top >= cols[1].bottom - 1 && r.width > innerWidth * 0.6 * (innerWidth > 860 ? 1 : 0.9)) };
+        discsFull: discs.length === 3 && discs.every((r) => r.top >= cols[0].bottom - 1 && r.top >= cols[1].bottom - 1 && r.width > innerWidth * 0.6 * (innerWidth > 860 ? 1 : 0.9)) };
     });
     check(`share (${label}): the Share screen replaces the emulator view, ${label === 'desktop' ? 'two columns' : 'one column'}, no sideways scrolling`,
       lay.hash === '#share' && lay.emulatorHidden && lay.scrollX && (label === 'desktop' ? lay.side : lay.stacked)
@@ -15112,6 +15168,23 @@ async function shareChecks(browser, base, site, check) {
     check('share: a cut-short link says its snapshot is damaged', await waitFor(p2b, () => window.__said.some((m) => /damaged/.test(m)))
       && await p2b.evaluate(() => !window.__said.some((m) => /Snapshot opened/.test(m))), await said(p2b));
     await ctx2.close();
+
+    // no ROMs in use: no "holds no part of your ROMs" line (it appears exactly when ROMs are: below, with stand-ins)
+    check(`share (${label}): without ROMs there is no ROM-free line`, await page.evaluate(() => { const e = document.getElementById('shareRomFree'); return e.hidden && e.textContent === '' && !e.checkVisibility(); }));
+    // Copy for a forum: BBCode and Markdown, each the link with one line, text only; Copy puts exactly that on the clipboard
+    await ctx.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: new URL(base).origin });
+    await openDisc(page, 'shareForum');
+    const forum = await page.evaluate(() => ({ link: document.getElementById('shareLink').value, bb: document.getElementById('forumBbcode').textContent,
+      md: document.getElementById('forumMarkdown').textContent, after: !!(document.getElementById('shareEmbed').compareDocumentPosition(document.getElementById('shareForum')) & Node.DOCUMENT_POSITION_PRECEDING),
+      heading: document.getElementById('forumHeading').tagName }));
+    const LINE = 'The Dragon 64 in CLOADM, exactly as I left it. Opens in the browser.';
+    check(`share (${label}): "Copy for a forum" beside "Embed in a web page": BBCode and Markdown of the share link with one line, no image tag`,
+      forum.bb === `[url=${forum.link}]${LINE}[/url]` && forum.md === `[${LINE}](${forum.link})` && !/\[img|!\[/i.test(forum.bb + forum.md) && forum.after && forum.heading === 'H2' && /#s=/.test(forum.link),
+      JSON.stringify(Object.assign({}, forum, { link: forum.link.slice(0, 60) })));
+    const board = [];
+    for (const id of ['btnForumBbcodeCopy', 'btnForumMarkdownCopy']) { await page.click(`#${id}`); board.push(await page.evaluate(() => navigator.clipboard.readText())); }
+    check(`share (${label}): each forum Copy button copies its text exactly`, board[0] === forum.bb && board[1] === forum.md, board.map((c) => c.slice(0, 50)).join(' | '));
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, `share-forum-${label}.png`), fullPage: true });
 
     // the clip
     await openDisc(page, 'shareMore');
@@ -15171,7 +15244,11 @@ async function shareChecks(browser, base, site, check) {
     await page.click('#btnShare');
     await page.waitForSelector('#share', { state: 'visible' });
     const shared = await page.evaluate(async () => ({ link: document.getElementById('shareLink').value, recipient: document.getElementById('shareRom').textContent,
-      labels: (await window.emu.session.shareFile()).needs.map((x) => x.label) }));
+      labels: (await window.emu.session.shareFile()).needs.map((x) => x.label), free: document.getElementById('shareRomFree').textContent,
+      freeShown: document.getElementById('shareRomFree').checkVisibility(),
+      above: document.getElementById('shareRomFree').getBoundingClientRect().bottom <= document.getElementById('shareRom').getBoundingClientRect().top + 1 }));
+    check('share: with ROMs in use, "This link holds no part of your ROMs. Whoever opens it needs their own: <needs>." shows, above the needs line',
+      shared.freeShown && shared.above && shared.free === `This link holds no part of your ROMs. Whoever opens it needs their own: ${shared.labels.join(' and ')}.`, JSON.stringify([shared.free, shared.freeShown, shared.above]));
     // the line names what the snapshot itself names (its needs' labels), whatever they are
     check('share: with your own ROMs the moment is shared, and the ROM line names the ROMs the snapshot needs', /#s=/.test(shared.link) && shared.labels.length > 0
       && shared.recipient === `Needs ${shared.labels.join(' and ')}: the person opening it adds their own.` && /32K-mode BASIC and 64K-mode BASIC/.test(shared.recipient), JSON.stringify(shared));

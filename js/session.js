@@ -69,6 +69,7 @@ export const CLAUDE_PAUSED_SHORT = 'Paused: you pressed a key · Esc stops Claud
 // a message's text: a string, or the text blocks of a content array
 import { RomLibrary, identifyRoms, isBootable, isRomPack, looksLikeRom, makeRomPack, restoreRomPack, socketStatus } from './roms.js';
 import { writeZip } from './media/zip.js';
+import { bugReportText, isWad, sha256Hex } from './bugreport.js';
 import { SNAPSHOT_EXT, SnapshotError, decodeSnapshot, encodeSnapshot } from './media/snapshot.js';
 import { missingImages, restoreRoms, stripRoms } from './media/romrefs.js';
 import { crc32, hex, registry, toBase64Url, fromBase64Url } from './util.js';
@@ -568,6 +569,7 @@ export class Session {
     if (mediaShare && mediaShare.channel) mediaShare.channel.onmessage = (e) => { this.mediaElsewhere(e.data).catch(() => {}); };
     this.store = store;
     this.media = media;
+    this.lastLoaded = null;   // the file Session.load loaded last: { name, bytes } (bugReport names it and hashes it)
     // the media library on that store (js/library.js): listing, import, rename and delete, the recent list, the
     // names being made and the store's case rule, and moving it all to another store. Made before anything below
     // that compares names or asks whether the library is moving (the DriveWire server's hooks).
@@ -1700,6 +1702,22 @@ export class Session {
     return { href: `${this.shareUrl(base, { app: 'claude' }).split('#')[0]}#s=${toBase64Url(file.bytes)}`, carried: true };
   }
 
+  // "Copy bug report" (js/bugreport.js): the version, the machine on screen and its options, its ROMs by CRC only, the
+  // browser, the file loaded last (name and SHA-256; a WAD is not named) and, only with snapshot, the moment as the
+  // Share screen's ROM-free link. Never the Claude key, a ROM's bytes or file name. -> { text, parts }
+  async bugReport({ base = 'https://cloadm.dev/play/', browser = '', snapshot = false } = {}) {
+    const m = this.shownMachine, options = {};
+    for (const [k, v] of Object.entries(m.config)) if (m.profile.options[k]) options[k] = v;
+    const last = this.lastLoaded;
+    const file = !last ? null : isWad(last.name, last.bytes) ? { wad: true } : { name: last.name, sha256: await sha256Hex(last.bytes) };
+    let link = null, snapshotNote = '';
+    if (snapshot) {
+      try { link = await this.snapshotLink(base); } catch (e) { if (!(e instanceof SessionError)) throw e; snapshotNote = `not included (${e.message})`; }
+    }
+    const parts = { machine: { id: m.id, name: m.profile.name }, options, roms: m.romCrcs(), browser, file, snapshot: link, snapshotNote };
+    return { text: bugReportText(parts), parts };
+  }
+
   // ---------------- snapshots ----------------
   // A snapshot holds the machine, its config, its state and the CRCs of the ROMs it ran with (never the ROMs).
   // Opening one: readSnapshot (the file), snapshotSwitch (does the machine in use have to change? ask first),
@@ -2089,6 +2107,7 @@ export class Session {
   // data; remember: false keeps it off the recent list.
   // run: false types a BASIC listing without the RUN after it (the MCP server's load; the page always runs it)
   load(name, bytes, { askAddresses = null, remember = true, run = true } = {}) {
+    this.lastLoaded = { name, bytes };   // (bugReport: its name and SHA-256; set first, so a file that fails to load is named too)
     const msg = this.loadMedia(name, bytes, askAddresses, { run });
     if (remember) { this.library.rememberMedia(name, bytes); this.setLastRun('recent', name); }
     this.emit('loaded');
