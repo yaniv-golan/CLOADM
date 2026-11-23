@@ -1,7 +1,7 @@
 ---
 name: cloadm
 description: Use whenever the user wants to run, test or debug something on a Dragon 32/64/200, Tandy Color Computer (CoCo 1/2/3), TRS-80 MC-10 or a clone, mentions CLOADM, 6809 or 6803 code, Color BASIC or Dragon BASIC, or .cas/.bin/.vdk/.dsk/.cloadm-state files, or asks to "run this on a Dragon/CoCo", even without saying "emulator". It drives the CLOADM emulator's MCP tools - boot, load, type, wait for the screen, read the screen, memory and registers, hold keys for games, step, disassemble, screenshots and snapshots. Needs the cloadm MCP tools.
-compatibility: Needs CLOADM's MCP tools connected to this agent - the cloadm plugin (its side panel, cloadm-panel, or its local server, cloadm), the connector https://mcp.cloadm.dev/mcp, the Claude Desktop extension, or node cli/cloadm.js --mcp.
+compatibility: Needs CLOADM's MCP tools connected to this agent - the CLOADM plugin (its side panel, CLOADM side panel, or its local server, CLOADM on this computer), the connector https://mcp.cloadm.dev/mcp, the Claude Desktop extension, or node cli/cloadm.js --mcp.
 license: MIT
 ---
 
@@ -13,7 +13,7 @@ server gives you machines you can boot, type at, run, read and debug. This skill
 ## First: are the tools here?
 
 Look for the CLOADM tools among your tools. Hosts prefix them (`mcp__cloadm__boot`,
-`mcp__plugin_cloadm_cloadm__boot`, ...; the side panel's come from its view after `open_emulator`), so look for a group that has a tool to boot a machine, one to list models,
+`mcp__plugin_cloadm_cloadm__boot`, ...; the side panel's come from its view after Open CLOADM), so look for a group that has a tool to boot a machine, one to list models,
 and one that runs frames. If there is none, **stop**: tell the user that this needs the CLOADM MCP server, and
 point them at its install guide (https://github.com/yaniv-golan/CLOADM/blob/main/docs/mcp.md). Do not try to emulate
 the machine yourself, guess what a program would print, or run the emulator some other way unless the user asks for
@@ -42,7 +42,7 @@ You are driving CLOADM in the person's side panel.
 
 CLOADM emulates the Dragon 32/64/200, Tandy Color Computer 1/2/3 and MC-10 in the person's browser, in Claude's side panel.
 
-- Opening it: call open_emulator (or open_emulator_inline if its view stays at "loading", says error, or its tools answer out-of-step) and end your turn. The emulator's own tools are offered by the view in your next message, not in the same one.
+- Opening it: use Open CLOADM (open_emulator) first, and end your turn. Use the offline copy, Open CLOADM (offline copy) (open_emulator_inline), only after a blocked load: the panel says it can't reach cloadm.dev or stays blank, the view tells you so, or its tools answer blocked or out-of-step. Then open it without asking. The emulator's own tools are offered by the view in your next message, not in the same one.
 - The machine: one machine is on screen, machine_id "m1", already on (no boot needed). It runs LIZA, a small chatbot, and the bundled programs (load: welcome, liza, demo, 2048, minesweeper), or BASIC once the person has added their ROMs in the panel.
 - Waiting: never guess a number of frames. Use run_frames with an until condition (text on the screen, a memory byte, a screen change) and read the result; "not-yet" is not a failure, call again.
 - Typing: type_text for text (end a line with \n); it returns once the program has read the line, so read the screen with screen_text before waiting for more. press_keys is for games, which read the keyboard matrix.

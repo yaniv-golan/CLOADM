@@ -160,7 +160,7 @@ fs.writeFileSync(tmp('media', 'plain.bas'), '10 PRINT "HI"\n');
   const s = server(['--media-root', tmp('media'), '--roms', tmp('roms')]);
   const init = await s.init('2025-06-18');
   check('initialize: the client\'s version back, tools capability, serverInfo and instructions', init.result.protocolVersion === '2025-06-18' && init.result.capabilities.tools.listChanged === false
-    && init.result.serverInfo.name === 'cloadm' && /machine_id/.test(init.result.instructions) && init.result.resultType === 'complete', J(init));
+    && init.result.serverInfo.name === 'cloadm-files' && init.result.serverInfo.title === 'CLOADM on this computer' && /machine_id/.test(init.result.instructions) && init.result.resultType === 'complete', J(init));
   check('instructions: the first line names the route, "You are driving CLOADM on the person\'s computer."', init.result.instructions.split('\n')[0] === 'You are driving CLOADM on the person\'s computer.', J(init.result.instructions.split('\n')[0]));
   const unknownVersion = await s.request('initialize', { protocolVersion: '1999-01-01', capabilities: {}, clientInfo: { name: 'x', version: '1' } });
   check('initialize with a version the server does not speak: it answers with its newest handshake version', unknownVersion.result.protocolVersion === '2025-11-25', J(unknownVersion));
@@ -435,7 +435,7 @@ fs.writeFileSync(tmp('media', 'plain.bas'), '10 PRINT "HI"\n');
   const META = { 'io.modelcontextprotocol/protocolVersion': '2026-07-28', 'io.modelcontextprotocol/clientInfo': { name: 'mcp.test', version: '1' } };
   const disc = await st.request('server/discover', {}, META);
   check('server/discover: the versions it speaks (newest first), capabilities, instructions, serverInfo in _meta, resultType', disc.result.supportedVersions[0] === '2026-07-28' && disc.result.supportedVersions.includes('2025-11-25')
-    && disc.result.capabilities.tools && disc.result.resultType === 'complete' && disc.result._meta['io.modelcontextprotocol/serverInfo'].name === 'cloadm' && disc.result.instructions, J(disc));
+    && disc.result.capabilities.tools && disc.result.resultType === 'complete' && disc.result._meta['io.modelcontextprotocol/serverInfo'].name === 'cloadm-files' && disc.result.instructions, J(disc));
   const tl = await st.request('tools/list', {}, META);
   check('tools/list without a handshake: the tools, ttlMs and cacheScope, serverInfo in _meta', tl.result.tools.length === want.length && tl.result.ttlMs > 0 && tl.result.cacheScope === 'private' && tl.result._meta['io.modelcontextprotocol/serverInfo']);
   const b2 = await st.request('tools/call', { name: 'boot', arguments: { model: 'mc10' } }, META);

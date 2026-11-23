@@ -27,7 +27,7 @@ session.switchMachine('dragon64', undefined, { menu: false });
 await session.startLiza(program);
 if (process.argv.includes('--stopped')) { session.runFrames(150); session.debug.halt(); }
 const toolbox = panelToolbox(session, { png: framePng, program, now: () => Date.now(), date: () => new Date(), yield: () => new Promise((r) => setImmediate(r)) });
-const OPEN = { name: 'open_emulator', title: 'Open the CLOADM emulator', description: 'Opens CLOADM in the side panel. The machine on screen is machine_id "m1", already on (no boot needed), running LIZA.',
+const OPEN = { name: 'open_emulator', title: 'Open CLOADM', description: 'Opens the CLOADM emulator in a panel beside the chat. Use this first. (Here: the machine on screen is machine_id "m1", already on (no boot needed), running LIZA.)',
   inputSchema: { type: 'object', properties: {}, additionalProperties: false }, annotations: { readOnlyHint: true } };
 
 const send = (m) => process.stdout.write(JSON.stringify(Object.assign({ jsonrpc: '2.0' }, m)) + '\n');

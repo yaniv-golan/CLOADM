@@ -7,8 +7,9 @@
 // Server tools, minimal: each opens the emulator view (MCP Apps, _meta.ui.resourceUri); the emulator then runs in the
 // person's browser, and its own tools (type_text, screen_text, run_frames, ...) are app tools the view registers
 // (connector/view/). The two views (connector/build.js):
-//   open_emulator         ui://cloadm/panel.html   CLOADM's code from https://cloadm.dev (csp: that origin only)
-//   open_emulator_inline  ui://cloadm/inline.html  self-contained, nothing fetched (no csp declared)
+//   open_emulator         "Open CLOADM"                ui://cloadm/panel.html   CLOADM's code from https://cloadm.dev (csp:
+//                                                                               that origin only); it tells a blocked load
+//   open_emulator_inline  "Open CLOADM (offline copy)" ui://cloadm/inline.html  self-contained, nothing fetched (no csp)
 // createServer(views) -> { fetch(request) }; ./index.js gives it the generated views.
 export const MIME = 'text/html;profile=mcp-app';
 export const ORIGIN = 'https://cloadm.dev';
@@ -16,12 +17,13 @@ export const BODY_MAX = 64 * 1024;   // the largest request read; a tools/call h
 const VERSIONS = ['2025-11-25', '2025-06-18', '2025-03-26'];
 
 const NEXT = 'The machine on screen is machine_id "m1", already on (no boot needed): it boots LIZA, a small chatbot, or BASIC when the person has added their ROMs in the panel. Its tools (type_text, press_keys, screen_text, screenshot, run_frames, peek, find_bytes, disassemble, registers, step, run, assemble_and_load, load for the bundled programs welcome, liza, demo, 2048 and minesweeper, reset, power_cycle, boot and switch_machine) are offered by the view once it has loaded: use them in your next message, not in this one. The person approves each call. ROMs live in the panel; no tool reads or returns them, and the panel has no files or downloads.';
+const BLOCKED = 'If the panel stays blank, or says it can\'t reach cloadm.dev, or its tools answer blocked, open the offline copy (open_emulator_inline) without asking.';
 const TOOLS = [
-  { name: 'open_emulator', title: 'Open the CLOADM emulator',
-    description: `Opens CLOADM, an emulator of the Dragon 32/64/200, Tandy Color Computer 1/2/3 and MC-10, in a view the person can move to the side panel; its code is loaded from cloadm.dev. ${NEXT}`,
+  { name: 'open_emulator', title: 'Open CLOADM',
+    description: 'Opens the CLOADM emulator in a panel beside the chat. Use this first.',
     uri: 'ui://cloadm/panel.html' },
-  { name: 'open_emulator_inline', title: 'Open the CLOADM emulator (self-contained)',
-    description: `The same as open_emulator, with all of the emulator's code inside the view (about 1 MiB) and nothing loaded from anywhere: use it when open_emulator's view stays at "loading" or says error, or when its tools answer out-of-step. ${NEXT}`,
+  { name: 'open_emulator_inline', title: 'Open CLOADM (offline copy)',
+    description: 'Only if Open CLOADM showed a blank or blocked panel: opens a larger copy that doesn\'t need to reach cloadm.dev.',
     uri: 'ui://cloadm/inline.html' },
 ].map((t) => ({ name: t.name, title: t.title, description: t.description, inputSchema: { type: 'object', properties: {}, additionalProperties: false },
   annotations: { title: t.title, readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, _meta: { ui: { resourceUri: t.uri } } }));
@@ -29,10 +31,10 @@ const TOOLS = [
 // resourceDomains -> script-src, style-src, img-src, font-src, media-src; connectDomains -> connect-src (ext-apps
 // specification/2026-01-26/apps.mdx, McpUiResourceCsp). Only the site the emulator's code comes from.
 const resources = (views) => ({
-  'ui://cloadm/panel.html': { name: 'CLOADM (code from cloadm.dev)', text: views.site,
+  'ui://cloadm/panel.html': { name: 'CLOADM', text: views.site,
     meta: { ui: { csp: { resourceDomains: [ORIGIN], connectDomains: [ORIGIN] }, prefersBorder: false, preferredDisplayMode: 'fullscreen' } } },
   // no csp: the spec's restrictive default (script-src 'self' 'unsafe-inline') is all an inline module needs
-  'ui://cloadm/inline.html': { name: 'CLOADM (self-contained)', text: views.inline,
+  'ui://cloadm/inline.html': { name: 'CLOADM (offline copy)', text: views.inline,
     meta: { ui: { prefersBorder: false, preferredDisplayMode: 'fullscreen' } } },
 });
 
@@ -59,7 +61,7 @@ export function createServer(views) {
   // essentials section) into the generated views, so the skill is their one source
   if (typeof views.instructions !== 'string' || !views.instructions) throw new Error('the views carry no instructions: build them with connector/build.js');
   const RES = resources(views);
-  const info = { name: 'cloadm', title: 'CLOADM emulator', version: views.version };
+  const info = { name: 'cloadm-panel', title: 'CLOADM side panel', version: views.version };
   const ok = (id, result) => ({ jsonrpc: '2.0', id, result });
   const err = (id, code, message) => ({ jsonrpc: '2.0', id, error: { code, message } });
   function handle(msg) {
@@ -74,7 +76,7 @@ export function createServer(views) {
       case 'tools/call': {
         const t = TOOLS.find((x) => x.name === p.name);
         if (!t) return err(msg.id, -32602, `unknown tool: ${p.name}`);
-        return ok(msg.id, { content: [{ type: 'text', text: `CLOADM is opening in the view${t.name === 'open_emulator_inline' ? ' (self-contained)' : ''}. ${NEXT}` }] });
+        return ok(msg.id, { content: [{ type: 'text', text: `CLOADM is opening in the view${t.name === 'open_emulator_inline' ? ' (the offline copy)' : ''}. ${NEXT}${t.name === 'open_emulator' ? ` ${BLOCKED}` : ''}` }] });
       }
       case 'resources/list': return ok(msg.id, { resources: Object.entries(RES).map(([uri, r]) => ({ uri, name: r.name, mimeType: MIME })) });
       case 'resources/read': {
