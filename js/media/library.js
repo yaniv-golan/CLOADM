@@ -311,22 +311,31 @@ export class MediaIndex {
     });
   }
   _readSync(name) { try { return this.store.readSync(name); } catch (e) { if (e && e.code === 'not-found') return null; throw e; } }
-  // a list as stored becomes this index's own; the blobs it names that this index lacks are read now
+  // A list as stored becomes this index's own, with the blobs it names that this index lacks. The blobs are read
+  // FIRST and the list put in place after, in one step: a list put in place before its reads were done was seen by a
+  // panel redrawn meanwhile naming a program whose bytes were not there yet ("no longer stored"), and by nothing that
+  // said so afterwards until the reads were done.
   async _adopt(name, list) {
-    const was = this._held(name);
     let got = false;   // an image read now: a socket another page stored before its image (putSocket) can be used now
     if (name === ROM_SOCKETS) {
+      const images = new Map();
+      for (const crc of socketCrcs(list)) if (!this.images.has(crc)) { const b = await readOrNull(this.store, romImage(crc)); if (whole(b, crc)) images.set(crc, b); }
+      const was = this._held(name);
+      for (const [crc, b] of images) { this.images.set(crc, b); got = true; }
       this.sockets = list;
-      for (const crc of socketCrcs(list)) if (!this.images.has(crc)) { const b = await readOrNull(this.store, romImage(crc)); if (whole(b, crc)) { this.images.set(crc, b); got = true; } }
-    } else if (name === ROM_NAMES) this.names = list;
+      this._took(name, was, got);
+    } else if (name === ROM_NAMES) { const was = this._held(name); this.names = list; this._took(name, was); }
     else {
-      this.recent = this._readRecent(list);
-      for (const r of this.recent) if (r.stored && !this.recentBytes.has(r.crc)) {
+      const recent = this._readRecent(list), bytes = new Map();
+      for (const r of recent) if (r.stored && !this.recentBytes.has(r.crc)) {
         const b = await readOrNull(this.store, recentFile(r.crc));
-        if (whole(b, r.crc)) { this.recentBytes.set(r.crc, b); this.recentFiles.set(r.crc, recentFile(r.crc)); }
+        if (whole(b, r.crc)) bytes.set(r.crc, b);
       }
+      const was = this._held(name);
+      for (const [crc, b] of bytes) { this.recentBytes.set(crc, b); this.recentFiles.set(crc, recentFile(crc)); }
+      this.recent = recent;
+      this._took(name, was);
     }
-    this._took(name, was, got);
   }
   _adoptSync(name, list) {
     const was = this._held(name);

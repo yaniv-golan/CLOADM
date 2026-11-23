@@ -168,6 +168,28 @@ function remember(idx, name, crc) {
     check('half-written: once whole it is taken on the next message, and the panels hear of it', !!a.image(K.HALF0001) && said.includes('images'), said.join());
   }
 
+  // ---- a list another page stored is put in place only with its blobs: never a row whose bytes are not read yet ----
+  for (const kind of ['recent', 'roms']) {
+    class HeldRead extends SlowStore {
+      read(name) { if (this.hold && this.hold.test.test(name)) { const h = this.hold.p; return h.then(() => super.read(name)); } return super.read(name); }
+    }
+    const st = new HeldRead();
+    const a = new MediaIndex(st), b = new MediaIndex(st);
+    await a.load(); await b.load();
+    if (kind === 'recent') remember(a, 'HELD.BIN', K.HELD0001);
+    else { a.putSocket('dragon64', 'basic', K.HELD0002); a.putImage(K.HELD0002, B.HELD0002); }
+    await a.flush();
+    let release; st.hold = { test: kind === 'recent' ? /^recent\/.*\.bin$/ : /^roms\/.*\.rom$/, p: new Promise((r) => { release = r; }) };
+    const p = b.refresh();
+    for (let i = 0; i < 30; i++) await new Promise((r) => setImmediate(r));
+    const early = kind === 'recent' ? b.recentMedia().length : b.socketCrc('dragon64', 'basic');
+    release(); st.hold = null;
+    await p;
+    check(`adopt (${kind}): while its blobs are being read, the other page's list is not in place yet (no row without its bytes)`, kind === 'recent' ? early === 0 : early === null, String(early));
+    check(`adopt (${kind}): once read, the list and its blobs are in place together`,
+      kind === 'recent' ? b.recentMedia().length === 1 && !!b.recentData(K.HELD0001) : !!b.image(b.socketCrc('dragon64', 'basic') || ''));
+  }
+
   // ---- RomLibrary.put stores the socket before the image, so a collect elsewhere cannot catch the image alone ----
   // The other index's collect holds the lock and is stopped between reading the sockets and listing the images; the
   // ROM is put meanwhile. Stored socket-first, its socket step waits for the lock and its image is not written yet, so
