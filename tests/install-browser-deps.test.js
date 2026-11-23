@@ -54,9 +54,22 @@ function skipReason({ platform, env, haveSetsid, haveProc }) {
   } catch (e) { check('this machine can run the test (CI never skips it)', false, e.message); process.exitCode = 1; return; }
   if (reason) {
     console.log(`SKIP ${reason}`);
+    // (the suites' verdict wants a summary line last: the skip rule's own cases are what ran)
+    console.log(fail ? `${fail} FAILED` : 'all skip-rule checks passed');
     process.exitCode = fail ? 1 : 0;
     return;   // (module scope: nothing below runs)
   }
+}
+// the skip path end to end, as a machine without setsid takes it (an empty PATH here: no setsid, no sh to find it with): the
+// SKIP line, a summary last as the suites' verdict wants it (tests/suite-verdict.js), exit 0; and on CI (CI set, on Linux)
+// a failure, never that path
+if (process.platform === 'linux') {
+  const suiteVerdict = require('./suite-verdict');
+  const run = (env) => cp.spawnSync(process.execPath, [__filename], { encoding: 'utf8', env: Object.assign({ PATH: '/nonexistent' }, env) });
+  const noCi = run({}), ci = run({ CI: '1' });
+  check('a machine without setsid: the run prints SKIP with the reason, a summary last, and exits 0',
+    noCi.status === 0 && /^SKIP needs Linux: setsid and \/proc$/m.test(noCi.stdout) && suiteVerdict.hasSummary(noCi.stdout), `${noCi.status} ${noCi.stdout.split('\n').slice(-3).join(' | ')}`);
+  check('CI on Linux without setsid: the run fails (a FAIL line, exit 1) and never prints SKIP', ci.status === 1 && /^FAIL /m.test(ci.stdout) && !/^SKIP /m.test(ci.stdout), `${ci.status} ${ci.stdout.split('\n').slice(-2).join(' | ')}`);
 }
 const SCRIPT = path.join(__dirname, '..', '.github', 'scripts', 'install-browser-deps.sh');
 const REAL = fs.readFileSync(SCRIPT, 'utf8');

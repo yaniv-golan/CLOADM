@@ -7,7 +7,7 @@
 //  * the suites that read snapshot files pass under it, so a raw-bytes or file-size comparison put back in one of them
 //    turns it red here on Linux, as it did on a Mac.
 const cp = require('child_process'), fs = require('fs'), path = require('path'), zlib = require('zlib');
-const { sameGzipContents } = require('./gzip-contents');
+const { sameGzipContents, hostOsByte, otherOsByte } = require('./gzip-contents');
 const Emu = require('./load')();
 
 let fail = 0;
@@ -22,7 +22,9 @@ const snapshotBytes = (shim) => cp.execFileSync(process.execPath, [...(shim ? ['
   (async () => { const s = new Emu.Session({ store: Emu.memoryStore() }); s.switchMachine('dragon64'); for (let i = 0; i < 5; i++) s.shownMachine.runFrame();
     process.stdout.write(Buffer.from((await s.snapshotFile(new Date(1e12))).bytes).toString('base64')); })();`], { maxBuffer: 1 << 28, env: CLEAN }).toString();
 const native = Buffer.from(snapshotBytes(false), 'base64'), other = Buffer.from(snapshotBytes(true), 'base64');
-check('the stand-in writes a different file: other bytes, another length, the macOS operating system byte', Buffer.compare(native, other) !== 0 && native.length !== other.length && other[9] === 19 && native[9] !== 19,
+const IMPOSED = otherOsByte();
+check('the host\'s own gzip writes its operating system byte, and the stand-in imposes the other one (never the host\'s)', native[9] === hostOsByte() && other[9] === IMPOSED && IMPOSED !== hostOsByte(), `host ${native[9]}, stand-in ${other[9]}`);
+check('the stand-in writes a different file: other bytes and another length, the other operating system byte', Buffer.compare(native, other) !== 0 && native.length !== other.length && other[9] !== native[9],
   `native ${native.length} bytes (byte 9 = ${native[9]}), stand-in ${other.length} bytes (byte 9 = ${other[9]})`);
 check('... of the same contents: the comparison by contents calls them the same', sameGzipContents(native, other).same && Buffer.compare(zlib.gunzipSync(native), zlib.gunzipSync(other)) === 0);
 check('(set-up) the module under test is the real one', typeof Emu.decodeSnapshot === 'function');
@@ -31,7 +33,7 @@ check('(set-up) the module under test is the real one', typeof Emu.decodeSnapsho
 for (const suite of ['session-library', 'session-drives', 'snapshot', 'state-split']) {
   const r = cp.spawnSync(process.execPath, ['-r', SHIM, path.join(__dirname, `${suite}.test.js`)], { encoding: 'utf8', maxBuffer: 1 << 28, env: CLEAN });
   const fails = (r.stdout.match(/^FAIL .*/gm) || []).map((l) => l.slice(0, 160));
-  check(`${suite}.test.js passes under the stand-in (another deflate, the macOS header byte)`, r.status === 0 && !fails.length, fails.slice(0, 3).join(' | ') || (r.stderr || '').slice(0, 200));
+  check(`${suite}.test.js passes under the stand-in (another deflate, the other machine's header byte)`, r.status === 0 && !fails.length, fails.slice(0, 3).join(' | ') || (r.stderr || '').slice(0, 200));
 }
 
 console.log(fail ? `${fail} FAILED` : 'all passed');
