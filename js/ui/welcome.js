@@ -132,7 +132,7 @@ export function setupWelcome(page, { showRoms, openClaude }) {
       // first-time visitor: greeting 'first' (the title screen), as main's handler did with runWelcome's default.
       // 'back'/'bye' as before.
       // the greeting is the Session's decision (Session.greetingFor), so the page and the Node tests share it
-      const greeting = arg === 'none' || arg === 'back' ? session.constructor.greetingFor(arg) : 'bye';
+      const greeting = arg === 'none' || arg === 'back' ? session.greetingFor(arg) : 'bye';
       // the ticket, by what asked for the menu, in ONE place (Session.menuTicketFor): a machine question is always
       // the person's own act and never takes a ticket left over from an earlier LIZA BYE.
       await runWelcome({ greeting, carryOn: arg === 'back' ? session.carryOn : null },
@@ -152,7 +152,8 @@ export function setupWelcome(page, { showRoms, openClaude }) {
   function lastTime() {
     const last = session.lastRun, recent = session.library.recentMedia()[0];
     const file = last && last.kind === 'recent' ? recent : null;
-    const shown = !!last && (last.kind !== 'recent' || (!!file && file.stored));
+    // (no "Run again" for what is running now: it is marked in its list instead)
+    const shown = !!last && (last.kind !== 'recent' || (!!file && file.stored)) && !page.runningNow();
     $('lastTime').hidden = !shown;
     if (!shown) return;
     $('lastName').textContent = file ? `${file.name}${profiles[file.machine] ? ` · ${profiles[file.machine].name.replace(/^Tandy /, '')}` : ''}` : last.name;
@@ -215,13 +216,15 @@ export function setupWelcome(page, { showRoms, openClaude }) {
   function shelf() {
     const row = $('shelf');
     row.replaceChildren();
+    const running = page.runningNow();
     // every machine gets the welcome menu and LIZA (the 6809 or 6803 builds); the colour demo is a 6809 program
     // (the 6309 runs it too: it is in the 6809 instruction-set family)
     const cpu = session.personMachine.config.cpu, family = cpuFamily(cpu), need = session.lizaNeeds();
     {
-      const w = entry('Welcome menu', { start: 'welcome' }, () => runWelcome({ greeting: 'back', carryOn: session.carryOn }, { reason: 'shelf' })); w.dataset.shelf = 'welcome';
+      const w = entry('Welcome menu', { start: 'welcome' }, () => runWelcome({ greeting: session.greetingFor('back'), carryOn: session.carryOn }, { reason: 'shelf' })); w.dataset.shelf = 'welcome';
       w.title = 'The Welcome menu: LIZA, colour and sound, adding ROMs, Claude, games';
       tagged = onScreen();
+      shownRun = running ? `${running.kind}:${running.name}` : '';
       if (tagged) { w.append(' ', el('span', 'on screen now', 'tag now')); w.setAttribute('aria-current', 'true'); }
       row.append(w);
     }
@@ -230,20 +233,25 @@ export function setupWelcome(page, { showRoms, openClaude }) {
       // the LIZA title names the build the machine actually runs (the 6309 runs the 6809 build)
       b.title = item.liza ? `${item.title} (the ${family} build${need ? `; needs the ${need.ram}K RAM option` : ''})` : item.title;
       if (item.liza && need) { const t = el('span', `needs ${need.ram}K`, 'tag'); b.append(' ', t); b.dataset.needs = String(need.ram); }
+      if (running && running.kind !== 'recent' && running.name === item.name) { b.append(' ', el('span', 'on screen now', 'tag now')); b.setAttribute('aria-current', 'true'); }
       row.append(b);
     }
     const c = entry('Chat with Claude', { app: 'claude' }, () => openClaude()); c.dataset.shelf = 'claude';
     row.append(c);
+    lastTime();   // (the "Last time" card hides while its program runs: it follows what the shelf marks)
   }
   // the 20K offer belongs to the machine that was on; the welcome menu's "on screen now" follows what runs
-  session.on((ev) => { if (ev === 'machine') offer.hidden = true; if (['machine', 'loaded', 'reset', 'firmware'].includes(ev)) shelf(); });
+  session.on((ev) => { if (ev === 'machine') offer.hidden = true; if (['machine', 'loaded', 'reset', 'firmware', 'lastrun'].includes(ev)) shelf(); });
   // "on screen now" is what the screen shows, not what was loaded: the welcome program executing and drawn
   // (Session.welcomeOnScreen) while the page's Pause is off. That changes without an event (the menu's first frame,
   // a Debugger stop or step, Pause), so the frame loop compares it with the tag shown and redraws the shelf only
   // when they differ: one getter read per animation frame.
-  let tagged = false;
+  // The same for the program last run (Session.lastRunOnScreen): marked on the shelf and in the Recent list, and its
+  // "Last time" card is hidden while it runs; shownRun is what the shelf drew.
+  let tagged = false, shownRun = '';
   const onScreen = () => session.welcomeOnScreen && !page.paused;
-  page.onFrame(() => { if (onScreen() !== tagged) shelf(); });
+  const runKey = () => { const r = page.runningNow(); return r ? `${r.kind}:${r.name}` : ''; };
+  page.onFrame(() => { if (onScreen() !== tagged || runKey() !== shownRun) shelf(); });
   function firstVisit(askMachine) {
     box.replaceChildren();
     box.dataset.kind = 'first';
@@ -303,7 +311,7 @@ export function setupWelcome(page, { showRoms, openClaude }) {
     // a machine picked in the header menu (Session.chooseMachine) counts as the answer to the question
     session.on((ev) => { if (ev === 'machine' && session.store.get('machineChosen')) { const a = $('askMachine'); if (a) a.remove(); } });
     // the carry-on line only for what runs on the machine in use (Session.carryOn: another machine's file is not offered)
-    const menu = v.first ? {} : { greeting: 'back', carryOn: session.carryOn };
+    const menu = v.first ? {} : { greeting: session.greetingFor('back'), carryOn: session.carryOn };
     if (program) {
       if (v.first && !session.hasAnyRoms) firstVisit(!v.machineChosen);
       // LIZA and the welcome program run on every machine (the 20K question comes first on a 4K MC-10 or

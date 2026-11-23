@@ -24,6 +24,7 @@
 //             before each call (phoneScenario)
 const http = require('http'), fs = require('fs'), path = require('path');
 const { pathToFileURL } = require('url');
+const { bounded, reportClose } = require('./browser-check-lib');
 const ROOT = path.join(__dirname, '..');
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.bin': 'application/octet-stream', '.woff2': 'font/woff2', '.svg': 'image/svg+xml', '.png': 'image/png' };
 
@@ -132,6 +133,15 @@ async function start({ cors = true, panelApi = null, keep = null } = {}) {
 }
 
 const wait = (page, fn, arg, ms = 20000) => page.waitForFunction(fn, arg, { timeout: ms }).then(() => true, () => false);
+
+// The connector group's own closes, bounded with the browser check's one helper (passed nothing; it IS the shared
+// lib): a bare `await ctx.close()` on a wedged page would hang the run until the caller's outer timeout. A hung
+// close FAILs by name (the scenario's label names it) and the per-group cleanup of the run that includes this group
+// as `connector` catches the context again; the final browser.close() is the backstop.
+const CLOSE_MS = 10000, BROWSER_CLOSE_MS = 15000;
+const closeCtx = async (label, ctx, check, ms = CLOSE_MS) => {
+  reportClose(check, label, await bounded(ctx.close(), ms), ms);
+};
 
 const BLOCKED = 'This app can\'t reach cloadm.dev here. Ask Claude to open the offline copy.';
 // granted: true (the site's domains), false (none: {}), or a csp object as the host gives it; caps: more host capabilities
@@ -247,7 +257,7 @@ async function scenario(browser, check, name, { uri, cors = true, panelApi = nul
     }
     check(`connector ${name}: no page errors`, !errors.length, errors.join(' | '));
   } finally {
-    await ctx.close();
+    await closeCtx(`connector: a context it opened closes (the site scenario)`, ctx, check);
     srv.server.close();
     srv.server.closeAllConnections();
   }
@@ -301,7 +311,7 @@ async function uiScenario(browser, check, { shots = null } = {}) {
     await v.click('#more'); await v.click('#details-item');
     const after = await v.evaluate(() => ({ open: document.getElementById('details').open, st: document.getElementById('st').checkVisibility(), text: document.getElementById('st').textContent, msg: document.getElementById('msg').textContent }));
     check('connector ui: ⋯ → Details opens every diagnostic (variant, host, mode, csp, storage, audio, bridge) and the raw load line', after.open && after.st
-      && ['variant: site', 'host: host-stub', 'mode: inline', 'csp: resourceDomains', 'serverTools: null', 'serverResources: null', 'storage: localStorage ok', 'audio: off until a click', 'bridge: init', 'list_changed sent'].every((x) => after.text.includes(x)) && /liza\.bin: .*exec \$3000/.test(after.msg), JSON.stringify(after));
+      && ['variant: site', 'host: host-stub', 'mode: inline', 'csp: resourceDomains', 'serverTools: null', 'serverResources: null', 'storage: localStorage ok', 'audio: off until a click', 'bridge: init', 'list_changed sent'].every((x) => after.text.includes(x)) && /liza\.bin loaded and started\. .*exec \$3000/.test(after.msg), JSON.stringify(after));
     const hint = await v.evaluate(() => { const p = document.querySelector('#details p.approve'); return { shown: !!p && p.checkVisibility(), text: p ? p.textContent : null }; });
     check('connector ui: Details says that on the Claude iOS app the connector must be set to "Manually approve" (a call the app blocks never reaches the view)', hint.shown
       && hint.text === 'On the Claude iOS app, set the CLOADM connector\'s Permission to "Manually approve" so Claude can type into and run the machine; read-only tools work either way.', JSON.stringify(hint));
@@ -507,7 +517,7 @@ async function uiScenario(browser, check, { shots = null } = {}) {
     await page.evaluate(() => window.hostContextChanged({ theme: 'dark' }));
     check('connector ui: no page errors', !errors.length, errors.join(' | '));
   } finally {
-    await ctx.close();
+    await closeCtx(`connector: a context it opened closes (the ui scenario)`, ctx, check);
     srv.server.close();
     srv.server.closeAllConnections();
   }
@@ -556,7 +566,7 @@ async function phoneScenario(browser, check, { shots = null } = {}) {
         JSON.stringify(at));
       const details = await v.evaluate(() => document.getElementById('st').textContent);
       check('connector phone: Details shows the size sent (size W×H ×n)', /size 600×\d+ ×\d+/.test(details), details.slice(-200));
-      await ctx.close();
+      await closeCtx(`connector: a context it opened closes (the phone scenario (inline at 400/600/900))`, ctx, check);
     }
     // ---- a phone (coarse pointer, touch), inline at 390 wide: the keys show, the host is told the taller height
     {
@@ -567,7 +577,7 @@ async function phoneScenario(browser, check, { shots = null } = {}) {
       check('connector phone: on a touch screen the on-screen keys show under the screen (and "Click to type" goes); inline the height reported includes them',
         ready && r.keys && r.n >= 48 && !r.hint && r.item && last && last.height === r.body, JSON.stringify({ ready, r, last }));
       await shot(page, 'inline-390');
-      await ctx.close();
+      await closeCtx(`connector: a context it opened closes (the phone scenario (touch, 390x1400))`, ctx, check);
     }
     // ---- a phone in fullscreen, 390 x 844, the host reporting its insets: the toolbar and the screen below them
     for (const [name, extra, top] of [['insets', { safeAreaInsets: { top: 64, right: 0, bottom: 34, left: 0 }, platform: 'mobile' }, 64], ['reserve', {}, 56]]) {
@@ -668,7 +678,7 @@ async function phoneScenario(browser, check, { shots = null } = {}) {
         await pickProgram('liza');
         check('connector phone: on the MC-10 (no joystick port) the switch is Keys | Pad, no Stick, and BREAK still shows once', JSON.stringify(mc10.sw) === '["Keys","Pad"]' && mc10.breaks === 1, JSON.stringify(mc10));
       }
-      await ctx.close();
+      await closeCtx(`connector: a context it opened closes (the phone scenario (insets and fullscreen))`, ctx, check);
     }
     // ---- the choice is remembered per program: across a reload where the view's storage works; where it throws, for
     // the view's life only, and silently (no error), back to the program's own mode after a reload
@@ -697,7 +707,7 @@ async function phoneScenario(browser, check, { shots = null } = {}) {
         : 'connector phone: the choice is remembered per program: LIZA on the Pad, 2048 on its own Pad, LIZA still on the Pad, and after a reload of the view too (the view\'s storage)',
       ready && g === 'pad' && kept === 'pad' && (broken ? reloaded === 'keys' && /^throws SecurityError$/.test(stored) && errors.length === errs0 : reloaded === 'pad' && stored === 'pad'),
       JSON.stringify({ broken, g, kept, stored, reloaded, errors: errors.slice(errs0) }));
-      await ctx.close();
+      await closeCtx(`connector: a context it opened closes (the phone scenario (the mode choice))`, ctx, check);
     }
     // ---- the keys' mode follows what the Session says runs (Session.programControls), not only what the view started:
     // Claude loads Minesweeper (the Pad), and a reset made through the Session leaves the program (back to the Keys)
@@ -713,14 +723,14 @@ async function phoneScenario(browser, check, { shots = null } = {}) {
       const left = await mode();
       check('connector phone: the on-screen keys follow what the Session runs: LIZA on the Keys, Claude\'s load of Minesweeper on the Pad, and a reset made through the Session back on the Keys',
         ready && start === 'keys' && loaded === 'pad' && left === 'keys', JSON.stringify({ start, loaded, left }));
-      await ctx.close();
+      await closeCtx(`connector: a context it opened closes (the phone scenario (the mode choice))`, ctx, check);
     }
     // ---- a desktop: no keys
     {
       const { ctx, v, ready } = await opened({ viewport: { width: 800, height: 900 } }, { w: 600, h: 800, mode: 'fullscreen', ctx: JSON.stringify({ safeAreaInsets: { top: 0, right: 0, bottom: 0, left: 0 } }) });
       const r = await v.evaluate(() => ({ keys: document.getElementById('keys').hidden, item: document.getElementById('keys-item').hidden, bar: document.getElementById('bar').getBoundingClientRect().top }));
       check('connector phone: on a desktop (fine pointer, no touch) there are no on-screen keys and no ⋯ item for them; zero insets keep the toolbar at the top', ready && r.keys && r.item && r.bar === 0, JSON.stringify(r));
-      await ctx.close();
+      await closeCtx(`connector: a context it opened closes (the desktop)`, ctx, check);
     }
     check('connector phone: no page errors', !errors.length, errors.join(' | '));
   } catch (e) {
@@ -750,7 +760,7 @@ if (require.main === module) {
     const browser = await chromium.launch();
     let fails = 0, n = 0;
     const check = (what, ok, detail = '') => { n++; if (!ok) fails++; console.log(`${ok ? 'ok  ' : 'FAIL'} ${what}${ok || !detail ? '' : ` ${detail}`}`); };
-    try { await connectorChecks(browser, check, { shots }); } finally { await browser.close(); }
+    try { await connectorChecks(browser, check, { shots }); } finally { reportClose(check, 'connector: its own browser closes', await bounded(browser.close(), BROWSER_CLOSE_MS), BROWSER_CLOSE_MS, 'killed when this process exits'); }
     console.log(`${n - fails}/${n} connector checks passed`);
     process.exitCode = fails ? 1 : 0;
   })();

@@ -876,7 +876,14 @@ pause without the re-prime refilling slowly, and a 250 ms queue back inside the 
 AudioWorklet's queue and processor with hand-derived values (`tests/audio-worklet.test.js`: order, underrun to exact
 silence, the re-prime's wait and its bound, bounded drop-oldest, the MessagePort sink), and the real page in Chromium
 (browser check, group `audio`; samples captured through the processor's tap, its copy of every block it plays):
-after a pause it restarts at least `TARGET_MS` deep with no short block for the second after;
+after a pause it restarts at least `TARGET_MS` deep and the second after holds the re-prime's contract, classified
+by one shared function (`classifyShort`, `tools/browser-check-audio.js`, the same code its model tests assert
+against): a train of short blocks (2 or more - the shallow restart's hover), a short whose gap completed (a later
+block's `primes` count up: the fade reached 0, silence, a re-prime) and a restart shallower than `TARGET_MS` all
+FAIL, and a lone short block PASSES only when the samples played through it step within the no-pop bound - the
+worklet's specified dip ("a dip that refills before the fade reaches 0 is not a gap", `js/host/audio-worklet.js`),
+accepted only when provably click-free by the product's own measure (`tests/audio-short.test.js` drives a real
+`SampleQueue` through each verdict on the page's own clock-driven schedule);
 after the unlock an AudioWorkletNode plays and no ScriptProcessorNode is made (no deprecation warning); through
 loads, resets, pause, turbo, sound off, machine switches and a 200 ms busy page, every sample the worklet plays at
 full gain equals the one the output stage made (tolerance 0) and no step exceeds 0.01; after an underrun the fade out and
@@ -915,7 +922,7 @@ up to date with the data and lists exactly the 17 models `availableProfiles()` o
 every ROM socket's label and file names. Browser check, group `uiModel` (1280x720 and 390x844): with no ROMs, the top
 line and no tags or legend, and that line as the menu's aria-describedby (none once ROMs are stored); the band above
 the footer fading into the panel's colour, with no mask over the page; every section's subtitle as the data words it; every item's aria-description its
-description, and no live region; **Which one is mine? →** a menu item linking `help/#machines`; on the desktop arrow
+description, and no live region; **Which one is mine? ↗** a menu item linking `help/#machines` that closes the menu when used; the footer standing below the models' own scrolling box, the last model (the CP-400) whole and on top when scrolled to the end; on the desktop arrow
 focus changing the footer line to the focused item's description (aria-hidden), and hovering the CD-6809 showing its
 line in view at the menu's foot; on the phone no footer line but the subtitles and the link; with a synthetic Dragon
 32 BASIC stored, the tags on every row and ✓ exactly on the machines `machineRoms` calls bootable; the link opening
@@ -1110,14 +1117,63 @@ retries until they do, within a stated bound; and it separately measures the mir
 screen, which is what makes a mirror that simply stops updating fail rather than being waited out (a mirror
 refreshing every 2.2 s goes red by name).
 
-**Not verified: a group's own `await ctx.close()`, and the tone measurement's wait.** Every group closes its own
-browser context inside its own body, and those calls are unbounded: a close that hangs there ends only by the
-caller's timeout (the CI job's `timeout-minutes`, or whatever runs the check locally). The same is true of the tone
-measurement in the sound group, which waits for the played blocks to fill an interval and has no bound of its own. What IS bounded and reported is the dump's wait (5 s), the
-`audio` group's own close (10 s, with a named FAIL), the per-group cleanup of any context a group left open (10 s,
-named FAIL) and the final `browser.close()` (15 s, named FAIL). A page wedged in synchronous JavaScript cannot be
-bounded from the host at all - a `Promise.race` bounds the wait, not the work - so that case also ends by the
-caller's timeout. One bounded helper for every group's close is the follow-up work.
+**What a group's own closes and the tone measurement are bounded against, and what still is not.** Every close a
+group's own body performs - a context (299 sites), a page it opened itself (10), the library storage group's own
+browser and its persistent-context profile, the connector module's seven closes (it is a group of the check too,
+and shares the one helper from `tools/browser-check-lib.js`) - goes through `bounded()` (10 s; 15 s for a
+browser), reported by name: a hung close FAILs `"<group>: a context it opened closes"` (deliberately distinct
+from the per-group cleanup's `"<group>: its context closes"`, so the log shows which layer caught it), the run
+goes on with exit 1, and the cleanup catches the still-open context again. A planted close that never resolves
+fails by name twice (once per layer) and leaks no Chromium. The two browsers a group launches OUTSIDE the run's
+own (the library storage group's) are reached by neither the cleanup nor the final `browser.close()`, so their
+closes are raced and their Chromium is killed on a timeout, and the summary is followed by an actual exit with
+the chromium count back at baseline (measured: before the fix a planted hung close left the run idling with 5
+Chromium processes until killed from outside; after it, a named FAIL, exit 1, 19 s, no process left). The belts
+reach only their own processes: the group's own browser launches through `chromium.launchServer()` (whose
+BrowserServer exposes the process handle a directly-launched browser does not in this build) and a hung close is
+followed by exactly that server's `kill()`; a `connect()` that throws closes the server through the same bounded
+report before re-throwing, so the launch itself cannot leak; and the persistent context's belt finds its process
+by its own `mkdtemp` profile path, regex-escaped and passed to `pgrep` as a literal argv element - a bystander
+Chromium from another run survives the planted hung close while the run's own is killed (measured). A belt that
+did not or could not run says so in the FAIL's after-text (`killed` only when a process was found and signalled;
+`its process was already gone`, or `could not look for its process (pgrep not found)` otherwise). After a kill,
+the signalled pids are waited for, bounded (2 s), and the profile directory's removal is retried, bounded; a
+directory that still will not go is a named warning - a leaked temp dir, never a throw burying the group's real
+result. The sound group's tone measurement - a `page.evaluate` polling `window.blocks`
+for a full second of full blocks - is bounded from the Node side (10 s, ~10x the ~1.02 s of audio it needs):
+a starved source FAILs `sound: the tone measurement ran and produced its numbers` AND `sound: the tone
+measurement fills its second of full blocks`, the first naming that the measurement produced nothing at all (it
+holds even if every other line is deleted - a mutant that swallowed the starve branch is red through it, by
+name), the second carrying the probe's own state (blocks so far, full count against the count needed, resampler
+mode, queue depth, the audio clock and the context's own state - every read guarded, and the state read itself
+bounded at 5 s). A starved tone does not stop the group: the tone-dependent checks (frequency, dry) are skipped,
+the fallback contexts - which open their own - and the whole-session equality checks still run. The volume peak
+polls (200 full blocks each) are bounded the same way, with their own probe state, and each has its own named
+ran-check (`sound: the loud/soft volume peak poll ran and produced its number`) - the loud one sits outside the
+guard that skips the volume checks, so a swallowed starve outcome cannot skip its way to green (a mutant with
+both polls starved and the loud starve FAIL deleted is red through it, by name); the mute fade needs only a live
+source, not a peak value, and runs either way. What IS bounded and reported besides these: the dump's wait (5 s)
+and every wait through the lib (`waitFor` and friends, 30 s).
+
+`bounded()` itself is tested for what a caller can observe: its four outcomes, that the timer is unref'd (a child
+process holding only the race exits at once instead of idling out the bound - the property whose absence once
+held runs open 14.9 s after their summary; the unref-removed and the clear-and-unref-removed mutants are red by
+name through it), and that a settle arriving after the bound cannot change the outcome the caller saw. Two of its
+internals are deliberately not asserted because no caller can observe them: the cleared timer (an uncleared
+timer that is unref'd holds nothing open; Node 25.2.1 does not even list an unref'd pending timer in
+`getActiveResourcesInfo`) and the settled flag (a late settle's second outcome lands in a lost `Promise.race`
+branch; every caller awaits the race once). Both stay in the helper as defense-in-depth behind the observable
+property, and their mutants staying green is by design, not a hole.
+
+Still unbounded, honestly: a page wedged in **synchronous** JavaScript cannot be bounded from the host at all - a
+`Promise.race` bounds the wait, not the work - so that case still ends by the caller's timeout (the CI job's
+`timeout-minutes`, or whatever runs the check locally). The same is true of a hung close of the RUN's own browser
+after the finally's bound fires: that browser (the run's one `chromium.launch()`) has no process handle in this
+build, so nothing inside the run can kill it - the FAIL lines and the exit code are always produced first, and
+the caller's timeout is the exit backstop of last resort for it (the groups' own browsers, above, do have
+kill belts; the main browser does not). The `http.Server.close()` calls (the run's server, the groups' local
+servers) are not raced: they are paired with `closeAllConnections()` and unref'd, which is what keeps them from
+holding the process, and a server that ignored that would end by the same caller's timeout.
 
 ### The machine and its ROMs: toasts, switches, the disk ROM, the menu, the Library, the copy
 
@@ -1173,7 +1229,7 @@ browser check's group `uiModel` drives them with real events at 1280x720 and at 
   "on screen now", the focus in it; the Media tab left with only the tape options; the sheet's order, Last time at the
   top, then the no-ROM card, the shelf, Recent, Snapshots with its heading and note, the Library link), then 2048 from
   it: two taps, the sheet closed and the game running; the palette's "Programs" found by programs, games, demos, liza
-  and run, with Last time (2048) the sheet's first item after; on a desktop the palette's "Programs" selecting the
+  and run, with 2048 marked "on screen now" and no Last time while it runs, and Last time (2048) the sheet's first item after a reset; on a desktop the palette's "Programs" selecting the
   Media tab from Display with the focus on the shelf's first item; "Chat with Claude" from the sheet closing it. No Menu label with its words run together, upright, sideways (the keys' Menu), at
   393 x 659 (`mobile`) and in the desktop app bar at 1440 and 900 px: every two drawn letters with a space between them
   in the text stand apart on the screen. The media file pickers' accept values, exactly: their extensions and

@@ -55,11 +55,13 @@
 // resolve, "Try it now" opens the welcome program, the machine cards and "Talk to LIZA" open the emulator.
 //
 //   node tools/browser-check.js [--only g1,g2] [--screenshots DIR] [--timings FILE]
-const http = require('http'), fs = require('fs'), path = require('path'), os = require('os'), zlib = require('zlib');
+const http = require('http'), fs = require('fs'), path = require('path'), os = require('os'), zlib = require('zlib'), child_process = require('child_process');
 // the snapshot format this tree writes (the version checks build a newer file from it)
 const { SNAPSHOT_VERSION } = require('../tests/load')();
 // the settle bound is the audio module's own derivation, never a literal here (see SETTLE_MS in js/host/audio.js)
 const { SETTLE_MS, TARGET_MS } = require('../js/host/audio.js');
+// the bounded catch-up check's short-block contract, shared with tests/audio-short.test.js (see :1237's comment)
+const { classifyShort } = require('./browser-check-audio');
 // Playwright is loaded once the run starts (--list-groups needs no browser, so the CI shard planner runs without it)
 let chromium;
 
@@ -77,36 +79,108 @@ const shotDir = (() => { const i = process.argv.indexOf('--screenshots'); return
 // --write plans the CI shards
 const timingsFile = (() => { const i = process.argv.indexOf('--timings'); return i > 0 ? process.argv[i + 1] : null; })();
 
-// bounded(promise, ms): { outcome, value, error }, outcome being 'settled', 'rejected' or 'timeout'.
-//
-// The TIMER IS CLEARED when the promise settles and UNREF'd as a belt, because an uncleared setTimeout keeps Node's
-// event loop alive: a run would idle up to `ms` AFTER printing its summary (measured: 14.9 s on every --only run
-// before this helper existed). The settled flag makes the losing side a no-op, so an abandoned promise cannot report
-// into a check that belongs to a later group.
-//
-// IT DOES NOT RETURN A BOOLEAN, deliberately. An earlier version returned true for both "settled" and "rejected",
-// so a caller testing `!won` treated a failed evaluate as a success and went on to read a value that was never set.
-//
-// NODE SIDE ONLY: it uses unref(), which the browser page does not have. Code inside page.evaluate() must not call
-// it (a setTimeout there is the browser's event loop, which nothing here can hold open).
-// the close bounds, one place each: a context close may take a moment; the browser itself, longer
+// bounded() lives in the lib now (one implementation, shared with tools/connector-check.js); the close bounds stay
+// here: a context close may take a moment, the browser itself, longer.
 const CLOSE_MS = 10000;
 const BROWSER_CLOSE_MS = 15000;
+const bounded = lib.bounded;
 
-async function bounded(promise, ms) {
-  let settled = false;
-  let timer = null;
-  const timeout = new Promise((resolve) => {
-    timer = setTimeout(() => { if (!settled) { settled = true; resolve({ outcome: 'timeout' }); } }, ms);
-    timer.unref();          // belt: even a throw before clearTimeout cannot hold the loop open
-  });
-  return Promise.race([
-    // (a late settle cannot win the race - `timeout` has resolved by then - so there is no 'late' outcome to report;
-    // the settled flag's job here is only to stop the loser from touching a check)
-    promise.then((value) => { if (settled) return; settled = true; clearTimeout(timer); return { outcome: 'settled', value }; },
-      (error) => { if (settled) return; settled = true; clearTimeout(timer); return { outcome: 'rejected', error }; }),
-    timeout,
-  ]);
+// Every close a group's own body performs goes through these, never a bare `await x.close()`. A group can leave a
+// page wedged in an abandoned evaluate, and Playwright's close waits for its pages: a bare await can hang the run
+// there until the caller's outer timeout kills it, silently. Bounded, the wait costs at most its bound; the outcome
+// is reported through lib.reportClose so the FAIL names the group that owns the close ("<group>: a context it opened
+// closes" - deliberately distinct from the per-group cleanup's "<group>: its context closes", so the log shows WHICH
+// layer caught a stuck close) and the run goes on to the next group with exit code 1. The context a hung close left
+// open is caught a second time by the per-group cleanup. That covers every close INSIDE the run's browser: its
+// contexts and pages are all the run's, and browser.close() in the finally is the backstop that still kills its
+// process. A browser a GROUP launched itself is not inside it - see closeOwnBrowser below for how those are kept
+// from leaking Chromium.
+//
+// closePage() exists because a bare page.close() has the same hang (Playwright waits for the page) as a context
+// close; a context's OWN pages are closed by closeCtx() through Playwright, and a page a group closes directly is
+// the group's to bound the same way.
+const closeLabel = (what) => `${run.current && run.current.name ? run.current.name : 'the run'}: ${what}`;
+async function closeCtx(ctx, ms = CLOSE_MS) {
+  lib.reportClose(check, closeLabel('a context it opened closes'), await bounded(ctx.close(), ms), ms, 'left to the per-group cleanup and browser.close()');
+}
+async function closePage(page, ms = CLOSE_MS) {
+  lib.reportClose(check, closeLabel('a page it opened closes'), await bounded(page.close(), ms), ms, 'left to the per-group cleanup and browser.close()');
+}
+// A browser THIS GROUP launched itself (libraryStorage's second browser, the persistent-context profile) is
+// outside the run's browser: no per-group cleanup and no final browser.close() will ever reach it, so a hung close
+// there leaks a Chromium process that keeps Node's event loop open - the run would print its summary and then idle
+// until the caller's outer timeout, with the leak invisible. Chromium launched directly (chromium.launch()) and
+// a connected browser expose no process handle in this Playwright build (checked: browser.process === undefined on
+// both), but chromium.launchServer()'s BrowserServer does (server.process(), verified on 1.65.1): the group's own
+// browser goes through a server it owns, and a close that outlives its bound is followed by that server's kill()
+// - exactly that process, never another run's (several browser checks run on this machine at once). A persistent
+// context has no server path (launchPersistentContext is a direct launch; verified: no such method on a connected
+// browser), so its belt finds the process by the one thing unique to this run: the mkdtemp profile path, which is
+// in Chromium's own command line. Both belts make the FAIL (still named, exit still 1) be followed by an actual
+// exit with nothing left behind.
+async function launchOwnBrowser() {
+  // the server is launched first and the connect after it is the one step that can throw (a port refusing, a
+  // slow start): without the try/finally a throw there would leak the server's Chromium, the very leak this
+  // path exists to prevent. On a throw the server is closed through bounded() and the failure re-thrown as the
+  // group's own error - the group's catch reports it, the run goes on, nothing is left behind.
+  const ownedServer = await chromium.launchServer();
+  try {
+    const browser = await chromium.connect(ownedServer.wsEndpoint());
+    browser.ownedServer = ownedServer;
+    return browser;
+  } catch (e) {
+    lib.reportClose(check, closeLabel('its own browser connect fails, so its server closes'), await bounded(ownedServer.close(), BROWSER_CLOSE_MS), BROWSER_CLOSE_MS);
+    throw e;
+  }
+}
+async function closeOwnBrowser(browser, ms = BROWSER_CLOSE_MS) {
+  const b = await bounded(browser.close(), ms);
+  // the server this group launched goes down with its browser, either way: kill() on a hung close (the belt,
+  // below), close() on a clean one - an open launchServer holds this process open past the summary otherwise.
+  // The close is bounded and reported too: a server that will not close is a defect in the run like any other
+  // stuck close, not something to wait out (and its unref'd world means the report is all the run can do).
+  if (b.outcome !== 'settled' && browser.ownedServer) browser.ownedServer.kill();
+  else if (browser.ownedServer) lib.reportClose(check, closeLabel('its own server closes'), await bounded(browser.ownedServer.close(), ms), ms);
+  lib.reportClose(check, closeLabel('its own browser closes'), b, ms, b.outcome !== 'settled' ? 'killed' : '');
+}
+// a persistent context is its own browser process (the profile's), so it gets the same treatment: raced, and on
+// a timeout its Chromium - found by this run's profile path, unique by construction - is killed, not leaked.
+// The after-text says what actually happened: 'killed' only when the process was found and signalled, and the
+// exact reason otherwise (pgrep missing, no match, the signal failing) - a belt that claims a kill it did not
+// make would hide the one thing the FAIL exists to say.
+async function closeOwnPersistentContext(ctx, profile, ms = BROWSER_CLOSE_MS) {
+  const b = await bounded(ctx.close(), ms);
+  let after = 'left to the caller\'s outer timeout';   // no belt ran (or none could): the honest remainder
+  if (b.outcome !== 'settled') {
+    // the profile path is in Chromium's command line (its user-data-dir); mkdtemp made it unique to this run.
+    // execFileSync passes the path as one argv element (no shell), and pgrep -f takes a REGEX, so the path is
+    // regex-escaped first: without escaping, a path containing regex metacharacters could match OTHER command
+    // lines - the match must stay literal to stay this run's.
+    const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    let killed = 0, pids = [];
+    try {
+      const out = child_process.execFileSync('pgrep', ['-f', escapeRe(profile)], { stdio: ['ignore', 'pipe', 'ignore'] });
+      pids = String(out).split('\n').map(Number).filter(Boolean);
+      for (const pid of pids) { try { process.kill(pid, 'SIGKILL'); killed++; } catch (e) { /* already gone */ } }
+      after = killed ? 'killed' : 'its process was already gone';
+    } catch (e) {
+      // pgrep's own exit statuses: 1 is its documented "no process matched" (the belt's work is already done);
+      // anything else is the lookup itself failing, and says so - ENOENT is the binary missing from the PATH,
+      // any other status (a bad flag, a stub that exits 2, whatever a future pgrep objects to) is named, never
+      // dressed up as "already gone".
+      if (e.code === 'ENOENT') after = 'could not look for its process (pgrep not found)';
+      else if (e.status === 1) after = 'its process was already gone';
+      else after = `could not look for its process (pgrep ${e.code || 'exit ' + e.status})`;
+    }
+    if (killed) {
+      // Chromium needs a moment to die: wait for the signalled pids to be gone (bounded - 2 s - because a
+      // process that ignores SIGKILL is the caller's timeout's problem, not a reason to wait here) so the
+      // profile dir is not torn out from under a dying process's writes.
+      const until = Date.now() + 2000;
+      while (Date.now() < until && pids.some((pid) => { try { process.kill(pid, 0); return true; } catch (e) { return false; } })) await new Promise((r) => setTimeout(r, 50));
+    }
+  }
+  lib.reportClose(check, closeLabel('its own profile browser closes'), b, ms, after);
 }
 
 // a static server like the real host: a folder serves its index.html, and a folder named without its
@@ -454,7 +528,7 @@ async function diskChecks(browser, base, check) {
   await pickMachine(page, 'mc10');
   check('disks: no drives card on the MC-10', !(await page.isVisible('#driveSlot')));
   check('disks: no page errors', !errors.length, errors.join('; '));
-  await ctx.close();
+  await closeCtx(ctx);
 }
 
 // Service workers are blocked here: the routes below and the checks' own must see every request, and with the
@@ -673,7 +747,7 @@ async function romInputChecks(browser, base, check) {
   check('ROM pack: restored in a fresh browser profile, socket for socket', restored && sameCrcs);
   check('ROM pack: the machine in use boots its restored ROMs', await page2.evaluate(() => window.emu.machine.hasRom));
   fs.rmSync(packFile);
-  await ctx2.close();
+  await closeCtx(ctx2);
   // URL configuration as share links write it
   await page.goto(`${base}?machine=coco3&ram=128`); await started(page);
   check('URL configuration: machine and options', await page.evaluate(() => window.emu.machine.id === 'coco3' && window.emu.machine.config.ram === 128));
@@ -693,7 +767,7 @@ async function romInputChecks(browser, base, check) {
   check('?rom= that redirects: refused, saying so, the redirect not followed', movedAsked === 1 && /redirect/i.test(await page.textContent('#toast')) && archive.length === 0,
     `${movedAsked} ${await page.textContent('#toast')} ${archive.join(' ')}`);
   check('ROM input: no page errors', !errors.length, errors.join('; '));
-  await ctx.close();
+  await closeCtx(ctx);
 }
 
 // no pop from the speaker: with sound unlocked and a program holding the DAC high (raised in single DAC steps,
@@ -836,7 +910,7 @@ async function cartridgeChecks(browser, base, check) {
   const disk200e = await page.textContent('#romDiskCard strong');
   check('Dragon 200-E: the Add ROMs disk card offers DragonDOS or Delta DOS, as on the Dragon 64', disk200e === 'Disk drives: DragonDOS or Delta DOS', disk200e);
   check('cartridges: no page errors', errors.length === 0, errors.join('; '));
-  await ctx.close();
+  await closeCtx(ctx);
 }
 
 // The Speech/Sound Pak as a BOARD on the page (stage 3): the board menu offers it on the four models whose
@@ -1053,7 +1127,7 @@ async function sscBoardChecks(browser, base, check) {
     spoken.msg === 'Speech/Sound Pak inserted (music and speech)' && spoken.sp === 2048 && speaks,
     JSON.stringify({ ...spoken, levels: heard }));
   check('Speech/Sound Pak: no page errors', errors.length === 0, errors.join('; '));
-  await ctx.close();
+  await closeCtx(ctx);
 }
 
 // the same set-up as DAC_HIGH, then a square wave on the DAC (two levels, a delay loop each): a steady tone
@@ -1142,7 +1216,7 @@ async function audioChecks(browser, base, check) {
       return { blobRealtime: await tryIt(rt, blob), oursRealtime: await tryIt(rt, ours), blobOffline: await tryIt(off, blob), oursOffline: await tryIt(off, ours) };
     });
     check('sound: after the unlock an AudioWorkletNode plays it', false, JSON.stringify({ ...await audioState(), probe }));
-    await ctx.close();
+    await closeCtx(ctx);
     return;
   }
   const made = await page.evaluate(() => {
@@ -1230,20 +1304,42 @@ async function audioChecks(browser, base, check) {
   // The bounded catch-up after a pause (js/host/audio-worklet.js SampleQueue's re-prime): paused, the queue ran dry
   // and faded out; on resume the page's frames restart one at a time, as the clock makes them due. The worklet holds
   // them, silent, until TARGET_MS is queued, then plays: the first block that plays again starts at least TARGET_MS
-  // deep (less one block's rounding), the gap is counted as a re-prime, and over the second after it no block runs
-  // short. Without the re-prime the queue restarted on one frame and hovered between 0 and a frame for seconds while
-  // the 2% correction refilled it, short block after short block (tests/audio.test.js measures that on a model of
-  // this page; this is the real page).
+  // deep (less one block's rounding), the gap is counted as a re-prime, and the blocks of the second after it are
+  // held to the worklet's own contract. THE CONTRACT (audio-worklet.js, SampleQueue's header): "A dip that refills
+  // before the fade reaches 0 is not a gap: it fades back in as before, with no wait." So the second after the
+  // restart FAILS on: a train of short blocks (2 or more - without the re-prime the queue restarted on one frame
+  // and hovered between 0 and a frame for seconds while the 2% correction refilled it, short block after short
+  // block; tests/audio.test.js measures that on a model of this page, this is the real page), a short whose gap
+  // completed (a later block's `primes` count is up: the fade reached 0, silence, a re-prime - the click risk,
+  // whatever the short count), a restart shallower than TARGET_MS, and a single short is accepted only when the
+  // samples played through it step by at most the no-pop bound (0.01, the same bound the no-pop check holds the
+  // whole stream to): a dip is passed only when provably click-free by the product's own measure. The
+  // classification itself is tools/browser-check-audio.js's classifyShort, shared with tests/audio-short.test.js
+  // so the check and its tests can never drift; every verdict there is this function's, on a real SampleQueue.
+  // The records are the ONE shape both use ({ n, primes, step }, the last window record marked endOfWindow),
+  // and they run on to the NEXT MARK (turbo), past the window: the classifier reads `primes` to the end of
+  // the records, so a short at the window's edge whose fade completes a block later is still a gap.
   const resumed = await page.evaluate(({ from, to, target }) => {
     const bs = window.blocks.slice(from, to), rate = window.emu.audio.ctx.sampleRate;
     const r = bs.findIndex((b) => b.n > 0);
     if (r < 0) return { restart: -1, blocks: bs.length };
-    const second = bs.slice(r + 1).filter((b) => b.time < bs[r].time + 1);
-    return { restart: r, queued: bs[r].queued, need: Math.floor(target / 1000 * rate) - 128, primed: bs[r].primes > bs[0].primes || bs.some((b) => b.n === 0 && b.queued > 0),
-      second: second.length, short: second.filter((b) => b.n < 128).length, ms: +(1000 * (bs[bs.length - 1].time - bs[r].time)).toFixed(0) };
+    // the window: the second after the restart; the records: the window PLUS everything after it, to the mark
+    const windowEnd = bs.findIndex((b) => b.time >= bs[r].time + 1);
+    const end = windowEnd < 0 ? bs.length : windowEnd;
+    const records = bs.slice(r + 1);
+    const second = records.slice(0, end - r - 1);
+    // the tap's out samples are compacted to the largest step through each block (the classifier's measure),
+    // computed where the samples are - the page never ships them whole
+    const stepOf = (b) => { let s = 0; if (b.out) for (let i = 1; i < b.out.length; i++) s = Math.max(s, Math.abs(b.out[i] - b.out[i - 1])); return s; };
+    const shape = records.map((b, i) => ({ n: b.n, primes: b.primes, step: stepOf(b), endOfWindow: i === end - r - 2 || (windowEnd < 0 && i === records.length - 1) }));
+    return { restart: r, primes0: bs[r].primes, queued: bs[r].queued, need: Math.floor(target / 1000 * rate) - 128, primed: bs[r].primes > bs[0].primes || bs.some((b) => b.n === 0 && b.queued > 0),
+      second: second.length, short: second.filter((b) => b.n < 128).length, ms: +(1000 * (bs[bs.length - 1].time - bs[r].time)).toFixed(0),
+      records: shape };
   }, { from: marks.find((m) => m[0] === 'resume')[2], to: marks.find((m) => m[0] === 'turbo')[2], target: TARGET_MS });
-  check(`sound: after a pause the worklet restarts at least TARGET_MS (${TARGET_MS} ms) deep and no block runs short for the second after (the bounded catch-up)`,
-    resumed.restart >= 0 && resumed.queued >= resumed.need && resumed.second > 300 && resumed.short === 0, JSON.stringify(resumed));
+  const verdict = resumed.restart >= 0 ? classifyShort(resumed.records, { need: resumed.need, queued: resumed.queued, primes0: resumed.primes0 }) : null;
+  check(`sound: after a pause the worklet restarts at least TARGET_MS (${TARGET_MS} ms) deep, and the second after holds the re-prime's contract (no short train, no completed gap, a lone dip only when click-free)`,
+    resumed.restart >= 0 && resumed.second > 300 && !!verdict && verdict.ok,
+    JSON.stringify({ ...resumed, records: undefined, verdict: verdict && verdict.verdict, short: verdict && verdict.short, maxStep: verdict && verdict.maxStep }));
   const { jump, at, n, peak, welcome } = await page.evaluate(() => {
     const p = window.played; let jump = 0, at = 0, peak = 0;
     for (let i = 1; i < p.length; i++) { const d = Math.abs(p[i] - p[i - 1]); if (d > jump) { jump = d; at = i; } peak = Math.max(peak, Math.abs(p[i])); }
@@ -1471,11 +1567,22 @@ async function audioChecks(browser, base, check) {
   const settled = await waitFor(page, () => window.emu.audio && window.emu.audio.out && window.emu.audio.out.mode === 0, null, SETTLE_MS);
   check('sound: the resampler settles (ratio exactly 1) before the tone is measured', settled,
     await page.evaluate(() => JSON.stringify({ mode: window.emu.audio && window.emu.audio.out ? window.emu.audio.out.mode : null })));
-  const tone = await page.evaluate(() => {
+  // THE TONE MEASUREMENT IS BOUNDED, from the Node side (bounded() is Node-only - never inside a page.evaluate body).
+  // The probe waits for a full second of full blocks (~1.02 s of audio at 44.1/48 kHz); a starved source (a suspended
+  // context, a sink that stops pulling) makes its interval poll never fire and a bare await would hang the run. The
+  // bound is 10 s: the audio clock runs in real time once the machine is loaded and the resampler settled (checked
+  // above), so the wait needs ~1 s even on a loaded runner; 10 s is the same order as the close bound, ~10x the
+  // audio needed. On a non-settled outcome the FAIL carries the PROBE'S OWN STATE - read by a second bounded
+  // evaluate from the page (blocks so far, how many full, the resampler's mode, the queue's depth, the context
+  // clock): a starved wait must name what the probe saw, not just that it waited. Every read in that dump is
+  // guarded separately (a sink that throws on one getter costs that field, not the dump - the dump's own pattern).
+  const TONE_MS = 10000, TONE_STATE_MS = 5000;
+  const toneB = await bounded(page.evaluate(() => {
     const m = window.emu.machine, ev = m.audioEvents, ts = [];
     for (let i = 2; i < ev.length; i += 2) if (ev[i + 1] !== ev[i - 1]) ts.push(ev[i]);
     const period = 2 * (ts[ts.length - 1] - ts[0]) / (ts.length - 1), expected = m.frameCycles * m.fps / period;
     const rate = window.emu.audio.ctx.sampleRate, from = window.blocks.length;
+    window.__toneProbeFrom = from;   // the starve dump reads the blocks AFTER the probe started, or it proves nothing
     return new Promise((res) => {
       const done = () => {
         const bs = window.blocks.slice(from).filter((b) => b.full).slice(0, Math.ceil(rate / 128));
@@ -1487,7 +1594,44 @@ async function audioChecks(browser, base, check) {
       };
       const t = setInterval(() => { if (window.blocks.slice(from).filter((b) => b.full).length >= rate / 128) { clearInterval(t); done(); } }, 20);
     });
-  });
+  }), TONE_MS);
+  let tone = null, toneWhy = null;
+  if (toneB.outcome === 'settled') tone = toneB.value;
+  else if (toneB.outcome === 'timeout') toneWhy = `starved: no full second of blocks within ${TONE_MS} ms`;
+  else toneWhy = `the probe rejected: ${(toneB.error && toneB.error.message) || String(toneB.error)}`;
+  // NAMED, AND SEPARATE FROM THE POLL'S OWN RESULT: this check holds even if everything after the bound is
+  // swallowed, because it asserts the measurement PRODUCED its numbers - a deleted FAIL line or a dropped
+  // outcome cannot turn a starved run green (a mutant that only removed the FAIL above stays red HERE, by name).
+  check('sound: the tone measurement ran and produced its numbers', !!tone,
+    toneWhy || 'the probe settled with no value');
+  if (toneWhy) {
+    // the probe's state, every read guarded (see the dump above); the state read is bounded too - a page whose
+    // thread is gone cannot be read, and that must cost the detail line, not the run
+    let probe = null, probeErr = null;
+    try {
+      const st = await bounded(page.evaluate(() => {
+        const a = window.emu.audio, errs = [];
+        const safe = (what, fn) => { try { return fn(); } catch (e) { errs.push(`${what}: ${(e && e.message) || e}`); return null; } };
+        // since the probe started - the whole session's blocks would read as plenty on a source starved only now
+        const blocks = (window.blocks || []).slice(window.__toneProbeFrom || 0), rate = safe('rate', () => a.ctx.sampleRate);
+        const full = blocks.filter((b) => b.full).length;
+        return { needed: rate ? Math.ceil(rate / 128) : null, rate, full, blocks: blocks.length,
+          mode: safe('mode', () => a.out && a.out.mode), path: safe('path', () => a.path),
+          buffered: safe('buffered', () => (a.out && a.out.sink && typeof a.out.sink.buffered === 'function') ? a.out.sink.buffered() : null),
+          ctxTime: safe('ctxTime', () => (a.ctx ? +a.ctx.currentTime.toFixed(4) : null)),
+          ctxState: safe('ctxState', () => (a.ctx ? a.ctx.state : null)),
+          running: safe('running', () => window.emu.running), readErrors: errs };
+      }), TONE_STATE_MS);
+      if (st.outcome === 'settled') probe = st.value;
+      else probeErr = st.outcome === 'timeout' ? `its state read timed out after ${TONE_STATE_MS} ms` : String((st.error && st.error.message) || st.error);
+    } catch (e) { probeErr = (e && e.message) || String(e); }
+    check('sound: the tone measurement fills its second of full blocks', false,
+      `${toneWhy} | probe: ${probe ? JSON.stringify(probe) : `unreadable (${probeErr})`}`);
+    // the source is starved, so the checks that measure the tone (its frequency, the queue staying wet, the volume
+    // peaks, the mute fade) cannot run; each is skipped here and named by the ran-checks above and below. The rest
+    // of the group goes on - the fallback contexts at the end open their own and do not need this tone.
+  }
+  if (tone) {
   check('sound: the square wave plays at the frequency the machine makes it',
     tone.edges > 4 && tone.nS >= tone.rate * 0.99 && Math.abs(tone.heard - tone.expected) <= tone.expected * 0.006 + 2,
     `machine ${tone.expected.toFixed(2)} Hz, played ${tone.heard.toFixed(2)} Hz over ${tone.nS} samples`);
@@ -1498,26 +1642,70 @@ async function audioChecks(browser, base, check) {
     `${tone.dry} of ${tone.blocks} blocks short`);
   // volume: the output stage's volume scales what the worklet plays (the page has no volume control; Audio.volume
   // is 0.5): at 0.25, the tone's peak is half what it was
-  const peakNow = () => page.evaluate(() => new Promise((res) => {
-    const from = window.blocks.length;
-    const t = setInterval(() => {
-      const bs = window.blocks.slice(from + 40).filter((b) => b.full);   // (after what was queued at the old volume)
-      if (bs.length >= 200) { clearInterval(t); res(Math.max(...bs.map((b) => Math.max(...b.out.map(Math.abs))))); }
-    }, 20);
-  }));
-  const loud = await peakNow();
-  await page.evaluate(() => { window.emu.audio.out.volume = 0.25; });
-  const soft = await peakNow();
-  await page.evaluate(() => { window.emu.audio.out.volume = window.emu.audio.volume; });
-  check('sound: the volume scales the output (0.25 plays the tone at half the peak of 0.5)', loud > 0.1 && Math.abs(soft / loud - 0.5) < 0.02,
-    `peak ${loud.toFixed(4)} at 0.5, ${soft.toFixed(4)} at 0.25`);
-  // mute: the output fades to exact silence (no frames are sent), and the tone comes back when sound is on again
+  // the volume polls are the same shape as the tone probe (a page-side interval on window.blocks), so the same
+  // bound and the same rule: a source too starved to fill 200 full blocks is a FAIL with its own state, never a
+  // hang. The needed count (200 full blocks after the 40 queued at the old volume) is ~1.2 s of audio.
+  const PEAK_MS = 10000, PEAK_STATE_MS = 5000;
+  const peakState = () => {
+    const st = window.emu.audio, errs = [];
+    const safe = (what, fn) => { try { return fn(); } catch (e) { errs.push(`${what}: ${(e && e.message) || e}`); return null; } };
+    // since this poll started - the whole session's blocks would read as plenty on a source starved only now
+    const blocks = (window.blocks || []).slice(window.__peakFrom || 0);
+    return { full: blocks.filter((b) => b.full).length, blocks: blocks.length,
+      volume: safe('volume', () => st.out && st.out.volume), mode: safe('mode', () => st.out && st.out.mode),
+      ctxState: safe('ctxState', () => (st.ctx ? st.ctx.state : null)),
+      ctxTime: safe('ctxTime', () => (st.ctx ? +st.ctx.currentTime.toFixed(4) : null)), readErrors: errs };
+  };
+  const peakNow = async (which) => {
+    const b = await bounded(page.evaluate(() => new Promise((res) => {
+      const from = window.blocks.length;
+      window.__peakFrom = from;   // the starve dump reads the blocks after THIS poll started, not the session's
+      const t = setInterval(() => {
+        const bs = window.blocks.slice(from + 40).filter((b) => b.full);   // (after what was queued at the old volume)
+        if (bs.length >= 200) { clearInterval(t); res(Math.max(...bs.map((b) => Math.max(...b.out.map(Math.abs))))); }
+      }, 20);
+    })), PEAK_MS);
+    if (b.outcome === 'settled') return { value: b.value };
+    const why = b.outcome === 'timeout' ? `starved: fewer than 200 full blocks within ${PEAK_MS} ms` : `the poll rejected: ${(b.error && b.error.message) || String(b.error)}`;
+    let probe = null, probeErr = null;
+    try {
+      const st = await bounded(page.evaluate(peakState), PEAK_STATE_MS);
+      if (st.outcome === 'settled') probe = st.value;
+      else probeErr = st.outcome === 'timeout' ? `its state read timed out after ${PEAK_STATE_MS} ms` : String((st.error && st.error.message) || st.error);
+    } catch (e) { probeErr = (e && e.message) || String(e); }
+    return { fail: `${which}: ${why} | probe: ${probe ? JSON.stringify(probe) : `unreadable (${probeErr})`}` };
+  };
+  const loudP = await peakNow('the 0.5 volume peak');
+  const loudOk = !loudP.fail;
+  const loud = loudOk ? loudP.value : null;
+  // NAMED, AND OUTSIDE THE GUARD: this asserts the loud peak poll PRODUCED its number - a swallowed starve
+  // outcome here (the FAIL below deleted, or dropped) would otherwise leave the volume, mute and soft checks
+  // all silently skipped inside `if (loudOk)` and the group green. The mutant that deletes both stays red here.
+  check('sound: the loud volume peak poll ran and produced its number', loudOk,
+    loudP.fail || 'the poll settled with no value');
+  if (!loudOk) check('sound: the volume peak poll fills its 200 full blocks', false, loudP.fail);
+  if (loudOk) {
+    await page.evaluate(() => { window.emu.audio.out.volume = 0.25; });
+    const softP = await peakNow('the 0.25 volume peak');
+    const softOk = !softP.fail;
+    const soft = softOk ? softP.value : null;
+    await page.evaluate(() => { window.emu.audio.out.volume = window.emu.audio.volume; });
+    // NAMED, AND SEPARATE FROM THE POLL'S OWN RESULT: a swallowed soft-peak starve stays red here, by name
+    check('sound: the soft volume peak poll ran and produced its number', softOk,
+      softP.fail || 'the poll settled with no value');
+    if (!softOk) check('sound: the volume peak poll fills its 200 full blocks', false, softP.fail);
+    check('sound: the volume scales the output (0.25 plays the tone at half the peak of 0.5)', loud > 0.1 && soft !== null && Math.abs(soft / loud - 0.5) < 0.02,
+      soft !== null ? `peak ${loud.toFixed(4)} at 0.5, ${soft.toFixed(4)} at 0.25` : 'the soft peak never came');
+  }   // (the frequency, dry and both peak checks need a live tone; the mute check below needs only a live source)
+  // mute: the output fades to exact silence (no frames are sent), and the tone comes back when sound is on again.
+  // Not inside the loud-peak guard: a missing peak value skips the volume RATIO, not the mute behaviour.
   await page.$eval('#chkSound', (c) => c.click());
   const silent = await waitFor(page, () => window.played.length > 8192 && window.played.slice(-8192).every((v) => v === 0));
   const writesMuted = await page.evaluate(() => { const n = window.made.length; return new Promise((res) => setTimeout(() => res(window.made.length - n), 300)); });
   await page.$eval('#chkSound', (c) => c.click());
   const back = await waitFor(page, () => window.played.slice(-4096).some((v) => Math.abs(v) > 0.05));
   check('sound: sound off fades to exact silence with nothing sent, and sound on plays again', silent && writesMuted === 0 && back, `${writesMuted} chunks sent while off`);
+  }   // (the fallback contexts below open their own; the eq/kept checks compare the whole session and run either way)
 
   // what the worklet played equals what the emulator made, over everything above
   const eq = await page.evaluate(() => {
@@ -1566,7 +1754,17 @@ async function audioChecks(browser, base, check) {
     const t = performance.now(); while (performance.now() - t < 400);
     sink.write(new Float32Array(Math.round(rate * 0.1)).fill(L));      // 100 ms, queued before any frame can run
   }, LEVEL);
-  await page.evaluate((n0) => new Promise((res) => { const t = setInterval(() => { if (window.played.length >= n0 + 0.9 * window.emu.audio.ctx.sampleRate) { clearInterval(t); res(); } }, 20); }), n0);
+  // the poll below waits for ~0.9 s of played samples - the same shape as the tone and peak polls: a page-side
+  // interval on the played stream. Bounded like they are (10 s, ~10x the audio needed): a starved source (the
+  // context suspended, the queue never drained) FAILs by name instead of hanging the run, and the check that
+  // needed the samples is skipped with its own named ran-check.
+  const FADE_MS = 10000;
+  const fadeB = await bounded(page.evaluate((n0) => new Promise((res) => { const t = setInterval(() => { if (window.played.length >= n0 + 0.9 * window.emu.audio.ctx.sampleRate) { clearInterval(t); res(true); } }, 20); }), n0), FADE_MS);
+  const fadeOk = fadeB.outcome === 'settled';
+  check('sound: the fade measurement ran and produced its numbers', fadeOk,
+    fadeB.outcome === 'timeout' ? `starved: fewer than 0.9 s of played samples within ${FADE_MS} ms`
+      : `the poll rejected: ${(fadeB.error && fadeB.error.message) || String(fadeB.error)}`);
+  if (fadeOk) {
   const ramp = await page.evaluate(({ n0, L, ms }) => {
     const p = window.played, rate = window.emu.audio.ctx.sampleRate, len = Math.round(rate * ms / 1000);
     const at = (i) => Math.fround(p[i]);
@@ -1585,6 +1783,7 @@ async function audioChecks(browser, base, check) {
   check('sound: the fade after an underrun ramps: out from 0.5 to silence and back in, at most level/fadeLen (5 ms) a sample, no step',
     ramp.found && ramp.plateauLen >= 1000 && ramp.fadeOut >= ramp.fadeLen && ramp.down <= ramp.bound + slack && ramp.up <= ramp.bound + slack && ramp.mono && ramp.top === Math.fround(LEVEL),
     JSON.stringify(ramp));
+  }   // (fadeOk: the ramp check needed its 0.9 s of played samples; the console and error checks below run either way)
   check('sound: no ScriptProcessorNode deprecation warning in the console', warnings.length === 0, warnings.join(' | '));
   check('sound: no page errors', !errors.length, errors.join('; '));
   // the close is raced: a page still spinning in an abandoned dump evaluate must not hold the group open (see DUMP_MS
@@ -1593,9 +1792,7 @@ async function audioChecks(browser, base, check) {
   {
     // bounded(): its timer is cleared when the close wins (an uncleared one held the process open 15 s after the
     // summary), and a rejection arriving after the bound fired is swallowed rather than reported into a later group.
-    const b = await bounded(ctx.close(), CLOSE_MS);
-    if (b.outcome === 'rejected') run.check('sound: its audio context closes', false, (b.error && b.error.message) || String(b.error));
-    else if (b.outcome !== 'settled') run.check('sound: its audio context closes', false, `still open after ${CLOSE_MS} ms (left to the per-group cleanup and browser.close())`);
+    lib.reportClose(run.check, 'sound: its audio context closes', await bounded(ctx.close(), CLOSE_MS), CLOSE_MS, 'left to the per-group cleanup and browser.close()');
   }
 
   // Fallback: without AudioWorklet (or when its module fails to load) the ScriptProcessorNode plays the same
@@ -1633,7 +1830,7 @@ async function audioChecks(browser, base, check) {
       check('sound fallback: a worklet module that loads after the fallback took over is ignored (no worklet node, the fallback plays on)',
         late.nodes.worklet === 0 && late.nodes.script === 1 && late.path === 'script' && late.isScript, JSON.stringify(late));
     }
-    await fctx.close();
+    await closeCtx(fctx);
   }
 }
 
@@ -1685,7 +1882,7 @@ async function typingChecks(browser, base, check) {
       detail += ` LIZA ${JSON.stringify(line.trim())}`;
     }
     check(`${id}: a fast typed burst reaches the machine exactly${lizaMachine ? ' (matrix and LIZA)' : ' (matrix)'}`, ok && !errors.length, errors.length ? errors.join('; ') : detail);
-    await ctx.close();
+    await closeCtx(ctx);
   }
 }
 
@@ -1827,7 +2024,7 @@ async function printerChecks(browser, base, check) {
   await waitFor(page, () => document.getElementById('printout').textContent.includes('Z'), null, 3000);
   check('printer: the BASIC session\'s printout is there when it comes back on screen', (await page.textContent('#printout')).endsWith('Z'));
   check('printer: no page errors', !errors.length, errors.join('; '));
-  await page.close();
+  await closePage(page);
 }
 
 // DriveWire: the Becker port option from the URL, an image added through the page (into the page's
@@ -1953,7 +2150,7 @@ async function driveWireChecks(browser, base, check) {
   check('drivewire: Save drive 0 with no image says to add one first',
     await waitFor(page, () => /No DriveWire image to save: add one first\./.test(document.getElementById('toast').textContent), null, 3000), await page.textContent('#toast'));
   check('drivewire: no page errors', !errors.length, errors.join('; '));
-  await ctx.close();
+  await closeCtx(ctx);
 }
 
 // NitrOS-9 from the page, without a ROM (Session.bootNitros9; js/ui/nitros9-panel.js): the slot under the screen on
@@ -2098,7 +2295,7 @@ async function nitros9Checks(browser, base, check) {
     if (shotDir) await page.screenshot({ path: path.join(shotDir, `nitros9-${cpu}-floppy-dir.png`) });
   }
   check('nitros9: no page errors', !errors.length, errors.join('; '));
-  await ctx.close();
+  await closeCtx(ctx);
 
   // ---- a release file name is long (33 characters): the image list stays inside its card, the drive tile stays short,
   // at every width. Measured with getBoundingClientRect. The old CSS let the list stick out of the card (400 px wide) and
@@ -2126,7 +2323,7 @@ async function nitros9Checks(browser, base, check) {
       m.tailText === LONG.slice(-15) && m.tailRight <= m.tileRight && !m.tailClipped, JSON.stringify(m));
     check(`nitros9 layout ${w}x${h}: the closed list's title is the whole name`, m.selTitle === m.selText && m.selText.startsWith(LONG), JSON.stringify(m));
     check(`nitros9 layout ${w}x${h}: no page errors`, !errs.length, errs.join('; '));
-    await c2.close();
+    await closeCtx(c2);
   }
 }
 
@@ -2165,7 +2362,7 @@ async function webSerialChecks(browser, base, check) {
   await waitFor(page, () => window.mockPort.closed, null, 3000);
   check('web serial: Stop closes the port', await page.evaluate(() => window.mockPort.closed));
   check('web serial: no page errors', !errors.length, errors.join('; '));
-  await ctx.close();
+  await closeCtx(ctx);
 }
 
 // Reset (tests/reset.test.js in Node): our BASIC stand-in as the Dragon 64's ROMs (recognised, as a real dump is, so
@@ -2234,7 +2431,7 @@ async function resetChecks(browser, base, check) {
   check('reset: the offers are gone when Add ROMs is opened again', await page.isHidden('#romOffers'), await page.textContent('#romOffers'));
   await page.click('#btnRomBack');
   check('reset: no page errors', !errors.length, errors.join(' | '));
-  await ctx.close();
+  await closeCtx(ctx);
   // A moment opened from a snapshot is not a power-on: the same game, restored from its own snapshot, must show
   // no boot box at all after 5 s of emulated time. It is made inside the page (as the reset group makes the game)
   // and opened there, because a moment taken on a game holds the game's memory and is opened the same way by a
@@ -2272,7 +2469,7 @@ async function resetChecks(browser, base, check) {
     && !/No OK|problem in CLOADM|took over Reset/.test(restoredBox.text), JSON.stringify(restoredBox));
   if (shotDir) await p2.locator('#screenWrap').screenshot({ path: path.join(shotDir, 'snapshot-boot.png') });
   check('snapshot boot: no page errors', !errors2.length, errors2.join(' | '));
-  await ctx2.close();
+  await closeCtx(ctx2);
 }
 
 async function romUiChecks(browser, base, check) {
@@ -2405,7 +2602,7 @@ async function romUiChecks(browser, base, check) {
   check('reload: ROMs survive, statuses intact', await rows() === 'bas:verified extbas:verified' && await page.evaluate(() => window.emu.machine.hasRom && window.emu.session.machineRoms('dragon32').bootable));
   check('ROMs card: no request ever went to colorcomputerarchive.com', archive.length === 0, archive.join(' '));
   check('ROMs card: no page errors', !errors.length, errors.join('; '));
-  await ctx.close();
+  await closeCtx(ctx);
 }
 
 // The welcome tune's DAC edges, counted on the page: the welcome tune drives the DAC to its high level ($FC), which no
@@ -2754,7 +2951,7 @@ async function visitChecks(browser, base, check) {
   await page.click('#btnRunAgain');
   check('returning: "Run again" loads it', await waitFor(page, () => /mine\.bin/.test(document.getElementById('toast').textContent) && window.emu.machine.cpu.pc >= 0x4000));
   check('visits: no page errors', !errors.length, errors.join('; '));
-  await ctx.close();
+  await closeCtx(ctx);
 }
 
 // What the page says is on screen is what is on screen. Three ways it was not (all on the stub, no ROMs; the tape's
@@ -2787,19 +2984,23 @@ async function onScreenChecks(browser, base, check) {
       const tag = () => !!document.querySelector('#shelf [data-shelf="welcome"] .tag.now');
       const a = { tag: tag(), drawn: drawn(), frames: m.frameCount };
       await new Promise((r) => { let k = 0; const f = () => (++k >= 20 ? r() : requestAnimationFrame(f)); requestAnimationFrame(f); });
-      const executing = s.welcomeRunning && s.welcome === m && m.frameCount > a.frames;
+      // (executing: the menu program runs; it is "on screen" once its prompt is drawn, which takes it a good number of frames)
+      const executing = s.welcomeRunning && s.welcome === m && m.frameCount > a.frames && s.screenText(m).some((r) => r.includes('PRESS 1 TO'));
       const b = { tag: tag(), drawn: drawn() };
       return { ok: a.tag === b.tag && b.tag === (executing && a.drawn && b.drawn), tag: b.tag, executing, drawn: a.drawn && b.drawn, paused: s.paused };
     });
   };
   const invariant = async (step, want) => {
+    // (the menu draws itself some frames after it starts, and the tag waits for that: sample once it is drawn)
+    if (want) await waitFor(page, () => window.emu.session.welcomeOnScreen, null, 20000);
     const r = await atRest();
     check(`on screen (${step}): "on screen now" ${want ? 'shown' : 'not shown'}, exactly when the menu runs and the canvas shows the machine's frame`,
       r.ok && r.tag === want && r.drawn, JSON.stringify(r));
   };
   const shelfClick = (key) => page.evaluate((k) => document.querySelector(`#shelf :is(a, button)[data-shelf="${k}"], #shelf a[href*="start=${k}"]`).click(), key);
   const last = () => page.evaluate(() => ({ card: document.getElementById('lastTime').hidden ? null : document.getElementById('lastName').textContent,
-    lastRun: window.emu.session.lastRun && window.emu.session.lastRun.name }));
+    lastRun: window.emu.session.lastRun && window.emu.session.lastRun.name,
+    marked: [...document.querySelectorAll('#shelf [aria-current="true"], #recentList [aria-current="true"]')].map((e) => e.textContent.replace(/\s*on screen now$/, '').replace(/load again$/, '').trim()) }));
   await invariant('the menu at the visit', true);
 
   // (1) a Debugger stop, back to the emulator, the shelf's Welcome menu
@@ -2828,16 +3029,20 @@ async function onScreenChecks(browser, base, check) {
   await shelfClick('2048');
   await waitFor(page, () => window.emu.session.gameRunning);
   let l = await last();
-  check('on screen: 2048 from the shelf: "Last time" names 2048', l.card === '2048' && l.lastRun === '2048', JSON.stringify(l));
+  check('on screen: 2048 from the shelf: recorded as what ran last, marked "on screen now" on the shelf, and no "Last time" card while it runs',
+    l.card === null && l.lastRun === '2048' && l.marked.join() === '2048', JSON.stringify(l));
   await invariant('2048 from the shelf', false);
   await shelfClick('liza');
   await waitFor(page, () => window.emu.session.screenText().join('').includes('I AM LIZA'));
   l = await last();
-  check('on screen: LIZA from the shelf: "Last time" names LIZA', l.card === 'LIZA' && l.lastRun === 'LIZA', JSON.stringify(l));
+  check('on screen: LIZA from the shelf: recorded, marked "on screen now" on the shelf, and no "Last time" card while it runs',
+    l.card === null && l.lastRun === 'LIZA' && l.marked.join() === 'LIZA', JSON.stringify(l));
   await invariant('LIZA from the shelf', false);
   await shelfClick('welcome');
   await waitFor(page, () => window.emu.session.welcomeOnScreen);
   await invariant('the shelf\'s Welcome menu after LIZA', true);
+  l = await last();
+  check('on screen: back on the menu, "Last time" is back and names LIZA, and only the menu is marked', l.card === 'LIZA' && l.marked.join() === 'Welcome menu', JSON.stringify(l));
   // the menu's keys: 5 PLAY A GAME, then 1 (2048)
   await page.mouse.click(5, 5);
   await waitFor(page, () => window.emu.machine.ram[0x6005] === 1, null, 20000);   // the tune played: keys are read
@@ -2847,16 +3052,60 @@ async function onScreenChecks(browser, base, check) {
   await page.keyboard.press('1');
   await waitFor(page, () => window.emu.session.gameRunning);
   l = await last();
-  check('on screen: 2048 from the menu\'s keys: "Last time" names 2048', l.card === '2048' && l.lastRun === '2048', JSON.stringify(l));
+  check('on screen: 2048 from the menu\'s keys: recorded, marked on the shelf, no "Last time" card', l.card === null && l.lastRun === '2048' && l.marked.join() === '2048', JSON.stringify(l));
   await invariant('2048 from the menu\'s keys', false);
   // Run again runs what the card names
   await shelfClick('liza');
   await waitFor(page, () => window.emu.session.screenText().join('').includes('I AM LIZA'));
+  await shelfClick('welcome');
+  await waitFor(page, () => window.emu.session.welcomeOnScreen);
   const named = (await last()).card;
   await page.evaluate(() => document.getElementById('btnRunAgain').click());
   const again = await waitFor(page, () => window.emu.session.programControls && window.emu.session.programControls.id === 'liza' && window.emu.session.screenText().join('').includes('I AM LIZA'));
   check('on screen: Run again runs what "Last time" names (LIZA)', named === 'LIZA' && again, String(named));
   await invariant('Run again', false);
+
+  // (4) Open… a program file (minesweeper.bin): the toast leads with what happened, "Last time" hides while it runs, its
+  // row in "Recent on this machine" says "on screen now"; each way out brings "Last time" back and takes the mark off
+  const mines = path.join(ROOT, 'examples', 'minesweeper.bin');
+  const state = () => page.evaluate(() => ({ card: document.getElementById('lastTime').hidden ? null : document.getElementById('lastName').textContent,
+    rows: [...document.querySelectorAll('#recentList .row')].map((r) => [r.firstChild.textContent, !!r.querySelector('.tag.now'), r.getAttribute('aria-current')]),
+    shelf: [...document.querySelectorAll('#shelf [aria-current="true"]')].map((e) => e.textContent.replace(/\s*on screen now$/, '')) }));
+  await shelfClick('welcome');
+  await waitFor(page, () => window.emu.session.welcomeOnScreen);
+  await page.setInputFiles('#fileProgram', mines);
+  await waitFor(page, () => /minesweeper\.bin loaded/.test(document.getElementById('toastText').textContent));
+  const open = await page.evaluate(() => ({ text: document.getElementById('toastText').textContent, more: document.getElementById('toastDetails').textContent }));
+  check('open: the toast leads with "minesweeper.bin loaded and started.", the format and addresses second (under Details)',
+    open.text === 'minesweeper.bin loaded and started.' && open.more === 'DragonDOS binary $3000-$3FE6, exec $3000', JSON.stringify(open));
+  let st = await state();
+  check('open: while it runs there is no "Last time" card, and its recent row says "on screen now"',
+    st.card === null && st.rows.length === 1 && st.rows[0][0] === 'minesweeper.bin' && st.rows[0][1] && st.rows[0][2] === 'true', JSON.stringify(st));
+  await page.click('#btnReset');
+  await waitFor(page, () => !document.getElementById('lastTime').hidden);
+  st = await state();
+  check('open: a reset takes it off the screen: "Last time" is back (minesweeper.bin) and no row is marked', /^minesweeper\.bin/.test(st.card) && !st.rows[0][1], JSON.stringify(st));
+  await page.setInputFiles('#fileProgram', mines);
+  await waitFor(page, () => document.getElementById('lastTime').hidden);
+  await shelfClick('welcome');
+  await waitFor(page, () => window.emu.session.welcomeOnScreen && !document.getElementById('lastTime').hidden);
+  st = await state();
+  check('open: the welcome menu takes it off the screen: "Last time" is back and no row is marked', !st.rows[0][1] && /^minesweeper\.bin/.test(st.card), JSON.stringify(st));
+  await page.setInputFiles('#fileProgram', mines);
+  await waitFor(page, () => document.getElementById('lastTime').hidden);
+  await shelfClick('2048');
+  await waitFor(page, () => window.emu.session.gameRunning);
+  st = await state();
+  check('open: another program (2048) takes it over: its recent row is not marked, 2048 is marked on the shelf, no card', !st.rows[0][1] && st.shelf.join() === '2048' && st.card === null, JSON.stringify(st));
+  await page.setInputFiles('#fileProgram', mines);
+  await waitFor(page, () => document.getElementById('lastTime').hidden);
+  await page.click('#btnPause');
+  await waitFor(page, () => !document.getElementById('lastTime').hidden);
+  st = await state();
+  check('open: Pause: the program is not running, "Last time" is back and the row is not marked', !st.rows[0][1] && /^minesweeper\.bin/.test(st.card), JSON.stringify(st));
+  await page.click('#btnPause');
+  await waitFor(page, () => document.getElementById('lastTime').hidden);
+  check('open: resumed, it is on screen again: no card, row marked', (await state()).rows[0][1] && (await state()).card === null);
 
   // (2) a tape load's restart while the frame loop runs no frames (Pause): the canvas shows the machine's frame
   await page.evaluate(async () => {
@@ -2884,8 +3133,28 @@ async function onScreenChecks(browser, base, check) {
   await page.click('#btnPause');
   await invariant('resumed after the tape load', false);
   if (shotDir) await page.locator('#screenWrap').screenshot({ path: path.join(shotDir, 'on-screen-tape.png') });
+  // (5) a machine switch on a first visit: the new machine's menu is not "on screen now" while its screen has no menu
+  // on it, and the visit is never greeted "WELCOME BACK"
+  {
+    const c2 = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    const p2 = await c2.newPage();
+    p2.on('pageerror', (e) => errors.push(e.message));
+    await p2.goto(`${base}`); await started(p2);
+    await waitFor(p2, () => window.emu.session.welcomeOnScreen);
+    await p2.evaluate(() => { window.__viol = 0; window.__watch = true; const f = () => { const t = !!document.querySelector('#shelf [data-shelf="welcome"] .tag.now'); if (t && !window.emu.session.screenText().some((r) => r.includes('PRESS 1 TO'))) window.__viol++; if (window.__watch) requestAnimationFrame(f); }; f(); });
+    await p2.click('#machineBtn');
+    await p2.click('#machineMenu [data-machine="coco3"]');
+    await waitFor(p2, () => !document.getElementById('switchConfirm').hidden);
+    await p2.click('#btnSwitch');
+    await waitFor(p2, () => window.emu.machine.id === 'coco3' && window.emu.session.welcomeOnScreen, null, 20000);
+    const viol = await p2.evaluate(() => { window.__watch = false; return window.__viol; });
+    check('switch: "Welcome menu · on screen now" never showed while the new machine\'s screen had no menu on it', viol === 0, String(viol));
+    const rows = await p2.evaluate(() => window.emu.session.screenText().map((r) => r.trim()).filter(Boolean));
+    check('first visit: a machine picked in the header menu is greeted with the title, not "WELCOME BACK"', rows.includes('DRAGON AND COLOR COMPUTER') && !rows.includes('WELCOME BACK'), JSON.stringify(rows));
+    await closeCtx(c2);
+  }
   check('on screen: no page errors', !errors.length, errors.join('; '));
-  await ctx.close();
+  await closeCtx(ctx);
 }
 
 // Returning visits: leaving LIZA with BYE brings the menu back ("BYE FOR NOW.
@@ -2948,7 +3217,7 @@ async function returningChecks(browser, base, check) {
   await page.click('#shelf :is(a, button)[data-shelf="welcome"]');
   check('returning (with ROMs): "Welcome menu" runs it', await waitFor(page, () => window.emu.session.welcomeRunning && window.emu.session.screenText()[6].trim() === 'WELCOME BACK'));
   check('returning: no page errors', !errors.length, errors.join('; '));
-  await ctx.close();
+  await closeCtx(ctx);
 }
 
 // The HD6309 runs the 6809 programs. `?machine=dragon64&cpu=6309` (the Machine tab's choice, or a link)
@@ -3098,7 +3367,7 @@ async function cpu6309Checks(browser, base, check) {
   check('cpu=6309: "Colour demo" is still on the shelf (the new visit\'s Media tab keeps it)', /Colour demo/.test(await page.$$eval('#shelf :is(a, button)', (b) => b.map((x) => x.textContent).join('|'))),
     await page.$$eval('#shelf :is(a, button)', (b) => b.map((x) => x.textContent).join('|')));
   check('cpu=6309: no page errors in the whole case', !errors.length, errors.join('; '));
-  await ctx.close();
+  await closeCtx(ctx);
 
   // one more model, by keyboard on the Machine tab: the CoCo 1/2 switches to the 6309 and the menu starts
   const ctx2 = await browser.newContext({ viewport: { width: 1440, height: 1060 } });
@@ -3117,7 +3386,7 @@ async function cpu6309Checks(browser, base, check) {
   check('cpu=6309 (Machine tab, CoCo 1/2): the welcome menu starts', await waitFor(p2, () => window.emu.session.welcomeRunning && /PRESS 1 TO [56]/.test(window.emu.session.screenText()[14]), null, 15000),
     await p2.evaluate(() => window.emu.session.screenText().join('\n')));
   check('cpu=6309 (Machine tab, CoCo 1/2): no page errors', !errors2.length, errors2.join('; '));
-  await ctx2.close();
+  await closeCtx(ctx2);
 
   // the literal link `?machine=coco3&cpu=6309` (the link that once ended on "Welcome: examples/undefined: HTTP 404"): the
   // menu is offered and runs, nothing is missing, nothing throws, and the Debugger of that machine shows the 6309's
@@ -3154,7 +3423,7 @@ async function cpu6309Checks(browser, base, check) {
   check('?machine=coco3&cpu=6309: the Debugger shows the 6309 registers (E, F, W, Q, V, MD) of that machine',
     dbg3.cls === 'CPU6309' && ['e', 'f', 'w', 'q', 'v', 'md'].every((r) => dbg3.fields.includes(r)), `${dbg3.cls} ${dbg3.fields.join()}`);
   check('?machine=coco3&cpu=6309: no page errors', !errors3.length, errors3.join('; '));
-  await ctx3.close();
+  await closeCtx(ctx3);
 }
 
 // Reset and power without ROMs (like a real computer, never a dead end), through
@@ -3275,7 +3544,7 @@ async function powerOnChecks(browser, base, check) {
     JSON.stringify(poked));
   await page.click('#pokeBook button[data-poke="POKE 65494,0"]');
   check('reset and power without ROMs: no page errors', !errors.length, errors.join('; '));
-  await ctx.close();
+  await closeCtx(ctx);
 }
 
 async function mediaChecks(browser, base, check) {
@@ -3361,7 +3630,7 @@ async function mediaChecks(browser, base, check) {
     check('recent: before the second load there is one row of this name', rowsBefore.filter((t) => t.includes('recent-one.bin')).length === 1, rowsBefore.join(' | '));
   }
   check('media: no page errors', !errors.length, errors.join('; '));
-  await ctx.close();
+  await closeCtx(ctx);
 }
 
 async function mediaBackendChecks(browser, base, check) {
@@ -3447,7 +3716,7 @@ async function mediaBackendChecks(browser, base, check) {
     check('migration: small settings stay in localStorage', await mp.evaluate(() => localStorage.getItem('cloadm.machine') === 'coco' && localStorage.getItem('cloadm.visited') === '1'));
     await mp.reload(); await ready(mp);
     check('migration: a second load keeps the ROM (it does not run again)', await mp.evaluate(() => !!window.emu.session.machineRoms('coco').sockets.find((s) => s.id === 'bas').crc));
-    await mctx.close();
+    await closeCtx(mctx);
   }
 
   // ---- the import/download fallback, with OPFS disabled for the page ----
@@ -3489,7 +3758,7 @@ async function mediaBackendChecks(browser, base, check) {
       return Array.from(await window.emu.session.library.openMedia('picked/tiny.bin'));
     });
     check('fallback: a picked file is imported under its name', imported.join() === '1,2,3,4,5', imported.join());
-    await fctx.close();
+    await closeCtx(fctx);
   }
 
   // ---- the File System Access path, through a mocked directory handle ----
@@ -3528,7 +3797,7 @@ async function mediaBackendChecks(browser, base, check) {
       return { listed: (await s.library.listMedia()).map((f) => f.name), opened: Array.from(await s.library.openMedia('mine.bin')).slice(0, 2) };
     });
     check('File System Access (mocked handle): a Session lists and opens its media', sessionOk.listed.includes('library/mine.bin') && sessionOk.opened.join() === '66,66', JSON.stringify(sessionOk));
-    await fsaCtx.close();
+    await closeCtx(fsaCtx);
 
     // ---- disk names that differ only in case, through a folder that does not tell them apart ----
     // The mock is the folder here (stated as mocked: a real APFS folder is what it imitates), and it is the only
@@ -3581,7 +3850,7 @@ async function mediaBackendChecks(browser, base, check) {
       const want = 'disks/GAME.DSK';
       check(`disk names (${fold ? 'case-insensitive' : 'case-sensitive'} folder): list() of a prefix in another case shows the folder's name`,
         names.plain === want && names.flipped === (fold ? want : ''), JSON.stringify(names));
-      await c.close();
+      await closeCtx(c);
     }
 
     // ---- the drives card's own list ("Disks in your library"), through the page, on a store that folds names ----
@@ -3622,7 +3891,7 @@ async function mediaBackendChecks(browser, base, check) {
       check(`drives card (${fold ? 'case-insensitive' : 'case-sensitive'} store): the library never offers a disk a drive already holds`,
         r.measured === fold && r.offered.slice().sort().join() === want.slice().sort().join(),
         JSON.stringify(r));
-      await c.close();
+      await closeCtx(c);
     }
   }
 
@@ -3651,7 +3920,7 @@ async function mediaBackendChecks(browser, base, check) {
     const FB2 = fake(16384, 61);
     await dropFiles(broken, [['d64_1.rom', FB2]]);
     check('a store that will not open: media still loads for the visit', await waitFor(broken, () => window.emu.session.machineRoms('dragon64').sockets.some((s) => s.status !== 'missing-required')));
-    await brokenCtx.close();
+    await closeCtx(brokenCtx);
   }
 
   // ---- the Library's namespace: its methods never touch the index's own blobs ----
@@ -3672,7 +3941,7 @@ async function mediaBackendChecks(browser, base, check) {
     });
     check('library: importing an index-looking name leaves the socket map untouched', NS.same, JSON.stringify(NS));
     check('library: listMedia shows only the user\'s media (library/ and disks/), not the index\'s names', !NS.hasIndex && NS.listed.every((n) => n.startsWith('library/')), JSON.stringify(NS.listed));
-    await libCtx.close();
+    await closeCtx(libCtx);
   }
 
   // ---- ?storage= picks the backend for that page load (the testing switch docs/development.md documents) ----
@@ -3698,7 +3967,7 @@ async function mediaBackendChecks(browser, base, check) {
   }
 
   check('media backend: no page errors', !errors.length, errors.join('; '));
-  await ctx.close();
+  await closeCtx(ctx);
 }
 // a stand-in for a File System Access directory handle: enough of the API for FsaMediaStore, backed by a
 // Map. Installed into the page by addInitScript, because the mock has to live where the store runs.
@@ -3800,7 +4069,7 @@ async function hintChecks(browser, base, check) {
   const credits = await page.$eval('footer a[href="credits/"]', (a) => a.href);   // resolved against <base>
   const res = await page.request.get(credits);
   check('credits: linked from the page and served', res.ok() && /On the shoulders of giants/.test(await res.text()));
-  await ctx.close();
+  await closeCtx(ctx);
   // gone 30 s after the first key typed (time fast-forwarded)
   ctx = await browser.newContext();
   page = await ctx.newPage();
@@ -3812,7 +4081,7 @@ async function hintChecks(browser, base, check) {
   const at29 = await page.isVisible('#keyHint');
   await page.clock.fastForward(2000);
   check('key hint: gone 30 s after typing starts', at29 && await page.isHidden('#keyHint'));
-  await ctx.close();
+  await closeCtx(ctx);
 }
 
 // Input: the keyboard modes and the keyboard joystick through the Input tab, and two gamepads through a
@@ -3921,7 +4190,7 @@ async function inputChecks(browser, base, check) {
   await waitFor(page, () => { const m = window.emu.machine; return m.joy[0][0] === 32 && m.joy[1][0] === 32 && !m.fire[0] && !m.fire[1]; });
   check('input: a stick inside the dead zone centres again', (await joyOf(0))[0] === 32 && (await joyOf(1))[0] === 32 && !(await fireOf(0)) && !(await fireOf(1)));
   check('input: no page errors', errors.length === 0, errors.join('; '));
-  await ctx.close();
+  await closeCtx(ctx);
 
   // positional mode on the Dragon 200-E, through the Input tab and the real key events: its layout is the Dragon's with
   // the N-tilde key at the physical ; (MAME's dragon200e ports, tests/input.test.js). Without a layout every physical
@@ -3941,7 +4210,7 @@ async function inputChecks(browser, base, check) {
   const typed200 = await waitFor(p2, () => window.emu.session.screenText().some((l) => l.startsWith('> HI ;1')), null, 5000);
   const line200 = await p2.evaluate(() => window.emu.session.screenText().find((l) => l.startsWith('>')) || '');
   check('input: positional mode types on the Dragon 200-E (physical H I Space ; 1 -> "HI ;1" in LIZA)', typed200 && !errs2.length, `${JSON.stringify(line200.trim())} ${errs2.join('; ')}`);
-  await c2.close();
+  await closeCtx(c2);
 }
 
 async function pokeChecks(browser, base, check) {
@@ -4041,7 +4310,7 @@ async function pokeChecks(browser, base, check) {
   await openTab(page, 'POKEs');
   check('MC-10 POKEs tab: no SAM, says so', /no SAM/.test(await page.textContent('#pokeNone')) && !(await page.$$('#pokeBook button')).length);
   check('SAM rate: no page errors', !errors.length, errors.join('; '));
-  await ctx.close();
+  await closeCtx(ctx);
 }
 
 // snapshots: Capture & share (its share part), the snapshot file and screenshot it hands
@@ -4100,7 +4369,7 @@ async function snapshotChecks(browser, base, check) {
       // (the screen is waited for, not read once: the view closing and the page laying the screen out again are
       // separate steps, so one read straight after the click could land between them)
       && await page.waitForSelector('#screen', { state: 'visible', timeout: 5000 }).then(() => true, () => false) && await screenBox() === screenBefore);
-    if (label === 'phone') { await ctx.close(); check(`snapshot (${label}): no page errors`, !errors.length, errors.join('; ')); continue; }
+    if (label === 'phone') { await closeCtx(ctx); check(`snapshot (${label}): no page errors`, !errors.length, errors.join('; ')); continue; }
 
     // the same machine, after a power cycle: dropping the file brings the moment back. Switch off and on is a launch:
     // it ends the page's Pause, so the machine is paused again before the moment is compared
@@ -4172,7 +4441,7 @@ async function snapshotChecks(browser, base, check) {
     check('snapshot: "Look around without them" opens that machine without the moment', await waitFor(page, () => document.getElementById('snapNeeds').hidden
       && window.emu.machine.id === 'dragon32' && window.emu.machine.useStub));
     check('snapshot: no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // the Share screen opened by address (play/#share): the page is still starting when its view is shown, so the
   // capture waits for the visit to start; no error toast, no page error, a running screen and a filled-in view
@@ -4191,7 +4460,7 @@ async function snapshotChecks(browser, base, check) {
     await emuFrames(page, 5);
     check('share: opened by address, the screen is running', await page.evaluate((f) => window.emu.machine.frameCount > f, f0));
     check('share: opened by address, no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 }
 
@@ -4258,7 +4527,7 @@ async function liza6803Checks(browser, base, check) {
     const menu = await waitForFrames(page, () => window.emu.session.welcomeRunning && window.emu.session.screenText()[7].trim() === 'BYE FOR NOW. PICK ANOTHER?', null, 400);
     check(`${id}: BREAK (Esc) in LIZA says goodbye and brings the menu back, as BYE does`, bye && menu, (await screenOf(page)).split('\n').slice(6, 9).join(' | '));
     check(`${id}: no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // a 4K MC-10: the shelf's LIZA says it needs 20K; choosing it brings the one-click offer above the screen;
   // "Not now" leaves the machine alone; taking it fits 20K and LIZA runs
@@ -4282,7 +4551,7 @@ async function liza6803Checks(browser, base, check) {
       && !(await page.$('#shelf :is(a, button)[data-needs]')), `${await page.evaluate(() => window.emu.machine.config.ram)}K`);
     check('4K MC-10: no page errors', !errors.length, errors.join('; '));
     if (shotDir) await page.locator('#screenWrap').screenshot({ path: path.join(shotDir, 'liza6803-4k-switch.png') });
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // the landing page's "Talk to LIZA" link on a 4K Alice, at phone width: the same offer, then LIZA
   {
@@ -4298,7 +4567,7 @@ async function liza6803Checks(browser, base, check) {
     const ran = await waitFor(page, () => window.emu.machine.config.ram === 20 && window.emu.session.screenText().join('').includes('I AM LIZA'), null, 8000);
     check('?start=liza on a 4K Alice (phone): the 20K offer fits the screen, then LIZA runs', offered && fits && ran && (await page.textContent('#lizaOfferText')) === 'LIZA needs the 20K RAM option. This Matra Alice has 4K.'
       && !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // the on-screen keys on a phone (Dragon 64, the 6809 build): CLEAR mid-line clears to the title and a fresh
   // prompt, and BREAK leaves as BYE does, back to the welcome menu
@@ -4322,7 +4591,7 @@ async function liza6803Checks(browser, base, check) {
     const menu = await waitForFrames(page, () => window.emu.session.welcomeRunning && window.emu.session.screenText()[6].trim() === 'BYE FOR NOW. PICK ANOTHER?', null, 400);
     check('Dragon 64 (touch keys): BREAK leaves LIZA as BYE does, back to the welcome menu', bye && menu, (await screenOf(page)).split('\n').slice(6, 9).join(' | '));
     check('Dragon 64 (touch keys): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // a 6809 machine: LIZA comes from the welcome menu's key 1, and the status names it too
   {
@@ -4339,7 +4608,7 @@ async function liza6803Checks(browser, base, check) {
     check('Dragon 64: the status says LIZA loaded, not a Promise', await waitFor(page, () => document.getElementById('toast').textContent === 'LIZA loaded'),
       await page.textContent('#toast'));
     check('Dragon 64: no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 }
 
@@ -4359,7 +4628,7 @@ async function faviconChecks(browser, site, check) {
       return `${r.status} ${r.headers.get('content-type')} ${new URL(l.href).pathname}`;
     });
     check(`/${route}: favicon linked and served, no failed request`, icon === '200 image/svg+xml /favicon.svg' && !failed.length, `${icon}; ${failed.join(', ')}`);
-    await ctx.close();
+    await closeCtx(ctx);
   }
   const ico = await fetch(site + 'favicon.ico'), bytes = Buffer.from(await ico.arrayBuffer());
   check('/favicon.ico: an ICO holding a 32x32 PNG', ico.status === 200 && bytes.readUInt16LE(2) === 1 && bytes[6] === 32 && bytes[7] === 32
@@ -4407,7 +4676,7 @@ async function debuggerScreenChecks(browser, base, check) {
       layoutHidden && /exec {2}KLOOP/.test(listed) && hit && /^● Stopped at breakpoint · KLOOP · cycle [\d,]+$/.test(at.status)
       && at.pc === `$${kloop.toString(16).toUpperCase()}` && /KLOOP/.test(at.line) && /TST/.test(at.line) && at.run === 'Run F5' && at.trace > 0 && at.fits, JSON.stringify(at));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, `debugger-${label}.png`), fullPage: true });
-    if (label === 'phone') { check(`debugger screen (${label}): no page errors`, !errors.length, errors.join('; ')); await ctx.close(); continue; }
+    if (label === 'phone') { check(`debugger screen (${label}): no page errors`, !errors.length, errors.join('; ')); await closeCtx(ctx); continue; }
     // Step (button) and Step by F11: one instruction each, still stopped, the trace grows
     const pc = () => page.evaluate(() => window.emu.session.debug.pc);
     const p0 = await pc();
@@ -4514,7 +4783,7 @@ async function debuggerScreenChecks(browser, base, check) {
     const closed = await waitFor(page, () => document.getElementById('debugView').hidden && document.getElementById('screen').getClientRects().length > 0
       && getComputedStyle(document.getElementById('appbar')).display !== 'none');
     check('debugger screen: "← Emulator" closes it and the app bar is back; no page errors', closed && !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 }
 
@@ -4672,7 +4941,7 @@ async function librarySelectChecks(browser, base, check) {
     check(`${L}: after select mode a click loads again`, await page.isHidden('#library') && await page.evaluate(() => window.emu.machine.ram[0x3000] === 0x12));
     check(`${L}: no sideways scroll`, s.fits);
     check(`${L}: no page errors and no dialog boxes`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // Two tabs on one origin share the Library (real OPFS; Session.mediaShare: one lock, a BroadcastChannel). What one
@@ -4761,7 +5030,7 @@ async function librarySelectChecks(browser, base, check) {
     check(`${L}: a program loaded in one tab is in the other's recent programs, with its bytes, within about a second, with no toast`,
       recent && tookRecent < 2000 && await b.isHidden('#toast'), `${tookRecent} ms`);
     check(`${L}: no page errors and no dialog boxes`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   fs.rmSync(tmp, { recursive: true });
 }
@@ -5013,11 +5282,16 @@ async function phoneChecks(browser, base, check) {
   await page.keyboard.type('programs');
   await page.keyboard.press('Enter');
   const palProg = await waitFor(page, () => document.getElementById('sheetPrograms').open);
-  // after 2048, Last time shows, the first thing in the sheet
+  // while 2048 runs there is no Last time card (it is marked on the shelf instead), so the sheet starts at the shelf's
+  // heading or the no-ROM card; once the machine is reset, Last time (2048) is back as the sheet's first item
+  const runningTop = await page.evaluate(() => { const d = document.getElementById('sheetPrograms'), first = [...d.querySelectorAll('.sheetbody > *')].find((e) => e.checkVisibility());
+    return { first: first && first.id, card: !document.getElementById('lastTime').checkVisibility(), marked: [...d.querySelectorAll('#shelf [aria-current="true"]')].map((e) => e.textContent) }; });
+  await page.evaluate(() => window.emu.session.reset());
+  await waitFor(page, () => document.getElementById('lastTime').checkVisibility());
   const lastTop = await page.evaluate(() => { const d = document.getElementById('sheetPrograms'), first = [...d.querySelectorAll('.sheetbody > *')].find((e) => e.checkVisibility());
     return { first: first && first.id, name: document.getElementById('lastName').textContent, top: Math.round(first.getBoundingClientRect().top - d.querySelector('.sheetbody').getBoundingClientRect().top) }; });
-  check('phone: the palette\'s "Programs" (found by programs, games, demos, liza, run) opens the Programs sheet, Last time (2048) at its top',
-    palProg && viaPalette.every((x) => x[1]) && lastTop.first === 'lastTime' && lastTop.name === '2048', JSON.stringify({ viaPalette, lastTop }));
+  check('phone: the palette\'s "Programs" (found by programs, games, demos, liza, run) opens the Programs sheet: 2048 marked "on screen now" and no Last time while it runs, Last time (2048) at the top after a reset',
+    palProg && viaPalette.every((x) => x[1]) && runningTop.first !== 'lastTime' && runningTop.card && runningTop.marked.join() === '2048 on screen now' && lastTop.first === 'lastTime' && lastTop.name === '2048', JSON.stringify({ viaPalette, runningTop, lastTop }));
   // the full-screen chat opened from a sheet (the Programs sheet's "Chat with Claude") closes the sheet (a key stored,
   // so the chat needs no key form and the keys stay up: the sheet closes because the chat opened)
   await page.evaluate(() => localStorage.setItem('cloadm.anthropicKey', 'sk-ant-PHONE-CHECK-0123456789'));
@@ -5033,7 +5307,7 @@ async function phoneChecks(browser, base, check) {
   check('phone: a toast\'s action button is at least 44 px tall on a touch screen', act >= 44, `${act} px`);
   await page.evaluate(() => window.emu.feedback.clear());
   check('phone: no page errors', !errors.length, errors.join('; '));
-  await ctx.close();
+  await closeCtx(ctx);
 
   // sideways: the chips are not there (the keys stand around the screen), and nothing of the sheets is drawn
   {
@@ -5056,10 +5330,10 @@ async function phoneChecks(browser, base, check) {
     await waitFor(p, () => document.getElementById('sheetPorts').open);
     const ports = await p.evaluate(() => { const d = document.getElementById('sheetPorts'), r = d.getBoundingClientRect();
       return { title: d.querySelector('h2').textContent, r: [r.left, r.top, r.width, r.height].map(Math.round), vw: innerWidth, vh: innerHeight, focus: document.activeElement.id,
-        tabs: [...d.querySelectorAll('[role="tab"]')].map((t) => [t.textContent, Math.round(t.getBoundingClientRect().height)]), tape: document.getElementById('btnTape').checkVisibility() }; });
+        tabs: [...d.querySelectorAll('[role="tab"]')].map((t) => [t.textContent, Math.round(t.getBoundingClientRect().height)]), tape: document.getElementById('btnTapeName').checkVisibility() }; });
     if (shotDir) await p.screenshot({ path: path.join(shotDir, 'phone-sideways-ports.png') });
     await p.tap('#portTabDisks');
-    const disks = await p.evaluate(() => ({ drives: document.getElementById('driveSlot').checkVisibility(), tape: document.getElementById('btnTape').checkVisibility(), open: document.getElementById('sheetPorts').open }));
+    const disks = await p.evaluate(() => ({ drives: document.getElementById('driveSlot').checkVisibility(), tape: document.getElementById('btnTapeName').checkVisibility(), open: document.getElementById('sheetPorts').open }));
     await p.tap('#portTabCart');
     const cart = await p.evaluate(() => document.getElementById('cartSlot').checkVisibility() && document.getElementById('btnCart').checkVisibility());
     await p.keyboard.press('Escape');
@@ -5118,7 +5392,7 @@ async function phoneChecks(browser, base, check) {
     await p.keyboard.press('Escape');
     check('phone: the ports\' side sheet opens on the tab that holds media; turned with a sheet open it stays open on the same tab as the other shape (Disks upright and sideways, Settings on Display)',
       onMedia && upright && sideAgain && turned, JSON.stringify({ onMedia, upright, sideAgain, turned }));
-    await c.close();
+    await closeCtx(c);
   }
 
   // a short phone upright (under 600 px; 375 x 548 and 320 x 460): no chip row (the screen keeps its room, the page does
@@ -5170,7 +5444,7 @@ async function phoneChecks(browser, base, check) {
     check(`${L}: "Tape, disks and cartridge…" opens the tabbed sheet from the bottom, the whole width, on Tape (media in); Esc closes it, the focus on Menu`,
       sheet && box.bottom === box.vh && box.w === box.vw && back, JSON.stringify({ sheet, box, back }));
     check(`${L}: no page errors`, !errs.length, errs.join('; '));
-    await c.close();
+    await closeCtx(c);
   }
 
   // a desktop: the ports and the drawer exactly where they were before the phone layout (measured at 1440 x 900 on
@@ -5235,7 +5509,7 @@ async function phoneChecks(browser, base, check) {
     const images = await p.evaluate(() => [...document.querySelectorAll('input[type="file"]')].filter((i) => /image\//.test(i.accept || '')).map((i) => i.id));
     check('desktop: the media file pickers accept their extensions and application/octet-stream, and no picker asks for image/*',
       Object.entries(want).every(([id, v]) => accepts[id] === v) && !images.length, JSON.stringify({ accepts, images }));
-    await c.close();
+    await closeCtx(c);
   }
 }
 
@@ -5296,7 +5570,7 @@ async function feedbackModelChecks(browser, base, check) {
     check(`feedback model (${label} phone, keys showing): a toast is delivered: in view covering none of the keys, or kept (past its 4 s) and shown once the keys hide`,
       k.up && k.text === 'Delivered while the keys show' && k.keys === 0
       && (k.seen || (after.waiting.up && !after.waiting.seen && after.waiting.text === k.text && after.shown.seen && after.shown.text === k.text)), JSON.stringify({ k, after }));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- the phone chat's sticky bar: with the screen out of the way and a row of controls along the bottom edge (set
@@ -5320,7 +5594,7 @@ async function feedbackModelChecks(browser, base, check) {
     const c = await state(page);
     check('feedback model (phone chat): with no other place free the toast is not held back: it is in view, in the fixed top slot',
       c.up && c.seen && await page.evaluate(() => document.getElementById('toastRegion').classList.contains('top')), JSON.stringify(c));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- pointer gestures (on a desktop, where a toast has room) ----
@@ -5347,7 +5621,7 @@ async function feedbackModelChecks(browser, base, check) {
     check('feedback model: a pointer gesture is the next action from its pointer-down (the old toast is gone before its handler runs)', g.oldGoneAtDown === true, JSON.stringify(g));
     check('feedback model: the gesture\'s own click does not clear the toast it raised', g.up && g.text === 'Raised at pointer-down', JSON.stringify(g));
     await page.evaluate(() => { document.getElementById('fbProbe').remove(); window.emu.feedback.clear(); });
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // ---- a toast with no place free: the top of a phone's emulator page (no place covers neither a control nor the
   // screen's text) ----
@@ -5376,7 +5650,7 @@ async function feedbackModelChecks(browser, base, check) {
     await page.evaluate(() => window.emu.feedback.clear());
     check('feedback model: a newer toast replaces the one shown; the top slot goes with it',
       order.join('|') === 'Second, newer' && !await page.evaluate(() => document.getElementById('toastRegion').classList.contains('top')), JSON.stringify(order));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   await toastReplaceChecks(browser, base, check, state, frames);
   await provisionalPinChecks(browser, base, check, state, frames);
@@ -5460,7 +5734,7 @@ async function occlusionChecks(browser, base, check) {
     }));
     check('feedback, opaque sheets (phone): the toast never goes over an opaque sheet, even one that hides a control and has no button',
       ph.up && !ph.overOverlay, JSON.stringify(ph));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- 900 px: the side panel over part of the slots: a free place that may meet the covered part, never a control
@@ -5488,7 +5762,7 @@ async function occlusionChecks(browser, base, check) {
       o.length === 2 && o.every((x) => x.opacity === 1 && x.alpha === 1), JSON.stringify(o));
     await page.evaluate(() => window.emu.feedback.resolve());
     check('feedback, opaque sheets (900 px): one announcement', JSON.stringify(await page.evaluate(() => window.__ann)) === '["Saved to the Library."]');
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- no occlusion mid-transition; a modal dialog (a test page: the page's own sheets are not dialogs yet) ----
@@ -5561,7 +5835,7 @@ async function occlusionChecks(browser, base, check) {
     const ann = await page.evaluate(() => window.__ann);
     check('feedback, opaque sheets: one announcement per toast (sliding sheet, the probe left up, before the dialog, under it; the probe measured and cleared in one task is never shown)', ann.join('|') === 'Over a sliding sheet|Probe, again|Up before the dialog|Raised under the dialog', JSON.stringify(ann));
     await page.evaluate(() => { window.emu.feedback.clear(); document.getElementById('fbDialog').remove(); });
-    await ctx.close();
+    await closeCtx(ctx);
   }
 }
 
@@ -5654,7 +5928,7 @@ async function toastReplaceChecks(browser, base, check, state, frames) {
   const ann = await page.evaluate(() => window.__ann);
   check('feedback, toast replacement: one announcement per toast (the live region\'s text changes once for each)',
     ann.join('|') === 'Deleted a.bin|Deleted b.bin|Deleted c.bin|Deleted c.bin and d.bin|Deleted e.bin|Saved.|Hovered toast A|Hovered toast B', JSON.stringify(ann));
-  await ctx.close();
+  await closeCtx(ctx);
 }
 
 // The top slot is a provisional pin. A toast raised while a sheet (a control) is still opening, with no place
@@ -5726,7 +6000,7 @@ async function provisionalPinChecks(browser, base, check, state, frames) {
   check('feedback, provisional pin: a toast that lands in the top slot while focused stays there past 300 ms, and once let go takes the place that opened meanwhile',
     held.first && held.focus === 'toast' && held.heldAfter400 && !held.afterRelease && held.up, JSON.stringify(held));
   await page.evaluate(() => { window.emu.feedback.clear(); document.getElementById('fbSheet').remove(); });
-  await ctx.close();
+  await closeCtx(ctx);
 }
 
 async function feedbackChecks(browser, base, check) {
@@ -6061,7 +6335,7 @@ async function feedbackChecks(browser, base, check) {
         && (wasPinned ? (pinnedNow && atTopSlot) : (Math.abs(dy) > 20 || Math.abs(dx) > 20)),
       `moved by (${dx}, ${dy}), pinned before ${pinnedBefore}, now ${pinnedNow}, atTopSlot ${atTopSlot}: ${JSON.stringify(moved.box)} -> ${JSON.stringify(afterMove.box)}`);
     check(`feedback (${label}): no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 }
 
@@ -6101,7 +6375,7 @@ async function libraryChecks(browser, base, check) {
       await waitFor(page, () => document.getElementById('library').hidden && /liza/i.test(document.getElementById('toast').textContent));
       check('library (phone): the empty state\'s LIZA closes the Library and runs LIZA', await page.isHidden('#library') && /liza/i.test(await page.textContent('#toast')), await page.textContent('#toast'));
       check('library (phone): no page errors', !errors.length, errors.join('; '));
-      await ctx.close();
+      await closeCtx(ctx);
       continue;
     }
 
@@ -6235,7 +6509,7 @@ async function libraryChecks(browser, base, check) {
     await page.fill('#typeinSource', '20 A=1\n10 B=2\nPRINT');
     check('type-in: the line check names what is wrong', /Line check: 10 comes after 20; line 3 has no line number/.test(await page.textContent('#typeinCheck')), await page.textContent('#typeinCheck'));
     check('library: no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   fs.rmSync(tmp, { recursive: true, force: true });
 }
@@ -6301,7 +6575,7 @@ async function slotChecks(browser, base, check) {
     preRow.text === 'Snapshot 2 · unreadable' && /pre-release build of CLOADM, whose snapshots this version does not read/.test(preRow.title) && preRow.off,
     JSON.stringify(preRow));
   check('slots: no page errors', !errors.length, errors.join('; '));
-  await ctx.close();
+  await closeCtx(ctx);
 }
 
 // the cassette panel: hidden without a tape; a tape inserted through the deck shows
@@ -6356,7 +6630,46 @@ async function tapePanelChecks(browser, base, check) {
       const started = await waitFor(page, () => window.emu.machine.read(0x3100) === 0x42 && /started at/.test(document.getElementById('toast').textContent), null, 15000);
       check(`tape, no BASIC (${label}): Load it now loads the program and starts it, and the usual start toast follows`, started, await page.textContent('#toast'));
       check(`tape, no BASIC (${label}): no page errors`, !errors.length, errors.join('; '));
-      await ctx.close();
+      await closeCtx(ctx);
+    }
+    // phone portrait: the Cassette deck sheet has the big cassette only (no small reel icon), its empty line is a real
+    // button, the hint says "tap"; Load it now and Skip the tape close the sheet so the program's start is seen
+    {
+      const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+      const page = await ctx.newPage();
+      const errors = [];
+      page.on('pageerror', (e) => errors.push(e.message));
+      await page.goto(`${base}?machine=dragon64`);
+      await ready(page);
+      await stubPrompt(page);
+      await page.tap('#chipTape');
+      await waitFor(page, () => document.getElementById('sheetTape').open);
+      const empty = await page.evaluate(() => { const b = document.getElementById('btnTapeName'), r = b.getBoundingClientRect();
+        return { tag: b.tagName, text: b.textContent, h: Math.round(r.height), vis: b.checkVisibility(), reels: document.getElementById('btnTape').checkVisibility(),
+          hint: document.getElementById('tapeState').textContent, inSheet: document.getElementById('sheetTape').contains(b) }; });
+      check('tape sheet (phone): "No tape · Insert tape…" is a button in the sheet, at least 44 px tall, and the hint says "tap the deck"',
+        empty.tag === 'BUTTON' && empty.text === 'No tape · Insert tape…' && empty.vis && empty.inSheet && empty.h >= 44 && /^tap the deck to insert$/.test(empty.hint), JSON.stringify(empty));
+      check('tape sheet (phone): the slot\'s small deck picture (the reels) is not shown in the sheet', !empty.reels, JSON.stringify(empty));
+      const [chooser] = await Promise.all([page.waitForEvent('filechooser'), page.tap('#btnTapeName')]);
+      await chooser.setFiles(path.join(small, 'nobasic.cas'));
+      await waitFor(page, () => /is in the deck/.test(document.getElementById('toast').textContent));
+      const cassette = await page.evaluate(() => { const c = document.querySelector('#sheetTape #tapePanel .cassette'); return !!c && c.checkVisibility(); });
+      check('tape sheet (phone): the big cassette stays in the sheet; the line then names the tape', cassette && await page.evaluate(() => document.getElementById('tapeName').textContent === 'nobasic.cas'));
+      if (shotDir) await page.screenshot({ path: path.join(shotDir, 'tape-sheet-phone.png') });
+      await page.tap('#toastText button.inline');
+      check('tape sheet (phone): Load it now closes the sheet, and the program has started', await waitFor(page, () => !document.getElementById('sheetTape').open && window.emu.machine.read(0x3100) === 0x42, null, 15000), await page.textContent('#toast'));
+      // Skip the tape (a second tape, no BASIC still): from inside the sheet
+      await page.evaluate(() => window.emu.session.switchMachine('dragon64'));
+      await stubPrompt(page);
+      await page.tap('#chipTape');
+      await waitFor(page, () => document.getElementById('sheetTape').open);
+      await page.evaluate(async (b) => { window.emu.session.insertTape('again.cas', new Uint8Array(b)); }, [...fs.readFileSync(path.join(small, 'nobasic.cas'))]);
+      await waitFor(page, () => !document.getElementById('btnSkipTape').hidden && document.getElementById('btnSkipTape').checkVisibility());
+      await page.tap('#btnSkipTape');
+      check('tape sheet (phone): Skip the tape closes the sheet, and the program has started', await waitFor(page, () => !document.getElementById('sheetTape').open && window.emu.machine.read(0x3100) === 0x42, null, 15000));
+      // Rewind (and every other control) leaves the sheet open
+      check('tape sheet (phone): no page errors', !errors.length, errors.join('; '));
+      await closeCtx(ctx);
     }
     {
       const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
@@ -6379,7 +6692,7 @@ async function tapePanelChecks(browser, base, check) {
       await waitFor(page, () => !document.getElementById('tapePanel').hidden);
       check("tape, BASIC running: the deck's line about BASIC's own S and F is shown", await page.isVisible('#tapeBasicNote') && /BASIC's own S and F/.test(await page.textContent('#tapeBasicNote')));
       check('tape, BASIC running: no page errors', !errors.length, errors.join('; '));
-      await ctx.close();
+      await closeCtx(ctx);
     }
     fs.rmSync(small, { recursive: true, force: true });
   }
@@ -6402,7 +6715,7 @@ async function tapePanelChecks(browser, base, check) {
     if (label === 'phone') {
       if (shotDir) { await (await page.$('#tapePanel')).screenshot({ path: path.join(shotDir, 'tape-panel-phone.png') }); }
       check(`tape panel (${label}): no page errors`, !errors.length, errors.join('; '));
-      await ctx.close();
+      await closeCtx(ctx);
       continue;
     }
     // the motor on, fast tape (the default): loading, counting, fast-forward
@@ -6520,7 +6833,7 @@ async function tapePanelChecks(browser, base, check) {
       && /^RECORDING/.test(await text('tapeEyebrow')), await text('tapeEyebrow'));
     await page.click('#btnRecord');
     check('tape panel: no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   fs.rmSync(tmp, { recursive: true, force: true });
   await tapeExtrasChecks(browser, base, check);
@@ -6649,12 +6962,12 @@ async function tapeExtrasChecks(browser, base, check) {
       check(`tape extras (${label}, touch): the slot's Rewind, Eject, Record and Save .WAV are at least 44 px tall`, heights.length === 4 && heights.every(([, h]) => h >= 44), JSON.stringify(heights));
     }
     await page.click('#btnEjectTape');
-    check(`tape extras (${label}): the slot's Eject (next to Rewind, disabled with no tape) ejects: deck hidden, toast, focus on the deck button`,
+    check(`tape extras (${label}): the slot's Eject (next to Rewind, disabled with no tape) ejects: deck hidden, toast, focus on the deck button (in the phone's sheet, where the deck picture is left out, the "Insert tape…" button)`,
       disabled && Math.abs(box.b.top - box.r.top) < 4 && box.b.left > box.r.left
       && await waitFor(page, () => !window.emu.machine.deck.tape && document.getElementById('tapePanel').hidden && /^Tape ejected\.$/.test(document.getElementById('toastText').textContent)
-        && document.activeElement === document.getElementById('btnTape') && document.getElementById('tapeName').textContent === 'No tape · Insert tape…'), JSON.stringify(box));
+        && document.activeElement === document.getElementById(document.getElementById('btnTape').checkVisibility() ? 'btnTape' : 'btnTapeName') && document.getElementById('tapeName').textContent === 'No tape · Insert tape…'), JSON.stringify(box));
     check(`tape extras (${label}): no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 }
 
@@ -6825,7 +7138,7 @@ async function tapeHudChecks(browser, base, check) {
     const gone = await waitFor(page, () => document.getElementById('tapeHud').hidden, null, 15000);
     check(`tape HUD (${label}): it goes a few seconds after the end`, gone);
     check(`tape HUD (${label}): no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // The Claude chat view and the browser's Fullscreen, at the phone and desktop sizes: wherever the HUD shows it is in
   // view, on top and off the picture's text; where there is no such place (the phone chat shows its text edge to edge)
@@ -6873,7 +7186,7 @@ async function tapeHudChecks(browser, base, check) {
     if (shotDir) await page.screenshot({ path: path.join(shotDir, `tape-hud-${label}-fullscreen.png`) });
     await page.evaluate(() => { clearInterval(window.__motor); return document.exitFullscreen && document.fullscreenElement ? document.exitFullscreen() : null; });
     check(`tape HUD (${label}, chat and Fullscreen): no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 }
 
@@ -6897,7 +7210,14 @@ async function libraryStorageChecks(base, check) {
   const cas = Buffer.from([...Array(128).fill(0x55), ...block(0, [...Buffer.from('HELLO   '), 2, 0, 0, 0x30, 0x00, 0x30, 0x00]), ...Array(64).fill(0x55), ...block(1, [0x39, 1, 2, 3]), ...block(0xFF, [])]);
   const dsk = fs.readFileSync(path.join(ROOT, 'tests/fixtures/disks/rsdos.dsk'));
   const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'cloadm-profile-'));
-  const ctx = await chromium.launchPersistentContext(profile, { viewport: { width: 1440, height: 900 }, acceptDownloads: true });
+  // the whole persistent-context body runs under try/finally, like the launchServer browser below: any throw
+  // in the checks (a selector that never appears, a download that fails) must still close the context and
+  // remove the profile, or it leaks a Chromium process that holds this process open past the summary and a
+  // cloadm-profile dir under the OS temp - the close and the removal are the finally, not the happy path.
+  let ctx = null;
+  try {
+  const launched = await chromium.launchPersistentContext(profile, { viewport: { width: 1440, height: 900 }, acceptDownloads: true });
+  ctx = launched;
   // the folder picker returns a folder inside OPFS; a test flag makes the browser "forget" the folder's permission
   await ctx.addInitScript(() => {
     window.showDirectoryPicker = async () => (await navigator.storage.getDirectory()).getDirectoryHandle('my-folder', { create: true });
@@ -7033,19 +7353,29 @@ async function libraryStorageChecks(base, check) {
   await settled(/^Your library is now kept inside this browser/);
   check('storage: back to this browser, the library it kept is there', /library\/HELLO\.BIN/.test(await names()), await names());
   check('library storage: no page errors', !errors.length, errors.join('; '));
-  await ctx.close();
-  fs.rmSync(profile, { recursive: true, force: true });
+} finally {
+    // the close is bounded and belted (kill on a hung close, honest after-text), the dir removal retries and
+    // warns by name; a finally that threw would bury the group's real result under a cleanup error.
+    if (ctx) await closeOwnPersistentContext(ctx, profile);
+    const warn = (ok, detail) => check(`library storage: its profile directory is removed${ok ? '' : ' (WARN: a temp dir leaked)'}`, ok, detail);
+    let gone = false, last = null;
+    for (let i = 0; !gone && i < 20; i++) {
+      try { fs.rmSync(profile, { recursive: true, force: true }); gone = true; } catch (e) { last = e.code || e.message; await new Promise((r) => setTimeout(r, 100)); }
+    }
+    warn(gone, gone ? '' : `${profile} still there (${last}) - a temp dir leaked, not the browser`);
+  }
 
   // a browser without folder access (no showDirectoryPicker): that choice is offered greyed out with the reason; phone width
-  const browser = await chromium.launch();
-  const ctx2 = await browser.newContext({ viewport: { width: 390, height: 844 } });
-  await ctx2.addInitScript(() => { delete window.showDirectoryPicker; });
-  const p2 = await ctx2.newPage();
-  await p2.goto(`${base}?machine=dragon64#library`); await ready(p2);
-  const no = await p2.evaluate(() => { const b = document.querySelector('#libStorageChoices .choice[data-storage="fsa"]'); return { disabled: b.disabled, text: b.textContent, fits: document.documentElement.scrollWidth <= innerWidth }; });
-  check('storage: without folder access the folder choice is greyed out and says why; fits a phone', no.disabled && /can't open a folder for CLOADM \(Chrome and Edge can\)/.test(no.text) && no.fits, JSON.stringify(no));
-  if (shotDir) await p2.locator('#libStorage').screenshot({ path: path.join(shotDir, 'library-storage-phone.png') });
-  await browser.close();
+  const browser = await launchOwnBrowser();
+  try {
+    const ctx2 = await browser.newContext({ viewport: { width: 390, height: 844 } });
+    await ctx2.addInitScript(() => { delete window.showDirectoryPicker; });
+    const p2 = await ctx2.newPage();
+    await p2.goto(`${base}?machine=dragon64#library`); await ready(p2);
+    const no = await p2.evaluate(() => { const b = document.querySelector('#libStorageChoices .choice[data-storage="fsa"]'); return { disabled: b.disabled, text: b.textContent, fits: document.documentElement.scrollWidth <= innerWidth }; });
+    check('storage: without folder access the folder choice is greyed out and says why; fits a phone', no.disabled && /can't open a folder for CLOADM \(Chrome and Edge can\)/.test(no.text) && no.fits, JSON.stringify(no));
+    if (shotDir) await p2.locator('#libStorage').screenshot({ path: path.join(shotDir, 'library-storage-phone.png') });
+  } finally { await closeOwnBrowser(browser); }
 }
 
 // A quieter first visit: one call to add ROMs outside the emulated screen (the header's "No BASIC · Add ROMs"; the welcome
@@ -7089,7 +7419,7 @@ async function firstVisitChecks(browser, base, check) {
       await waitFor(lp, () => window.emu && window.emu.session.welcomeRunning && !document.getElementById('welcome').hidden);
       const qs = await lp.evaluate(() => { const el = document.getElementById('quickSave'); return el.getClientRects().length > 0 && getComputedStyle(el).display !== 'none'; });
       check('first visit, the welcome program arriving late: no quick-save slots yet', !qs, `quick-save shown: ${qs}`);
-      await late.close();
+      await closeCtx(late);
     }
     if (label === 'desktop') {
       // the card dismissed: the header pill takes over; Esc ends the one-time hint: the line under the slots shows
@@ -7105,7 +7435,7 @@ async function firstVisitChecks(browser, base, check) {
       }));
     }
     check(`first visit (${label}): no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 }
 
@@ -7142,7 +7472,7 @@ async function typeinScreenChecks(browser, base, check) {
       const after = await measure(page);
       check('type-in screen: re-sized to whole device pixels when the window narrows', ok(after, 'whole'), JSON.stringify(after));
     }
-    await ctx.close();
+    await closeCtx(ctx);
   }
 }
 
@@ -7258,7 +7588,7 @@ async function glossaryChecks(browser, site, check) {
   await waitFor(page, () => !document.getElementById('romCard').hidden);
   await scan('/play/ Add ROMs with ROMs');
   check('glossary: no retired word on any page or view', !found.length && !errors.length, `\n  ${[...new Set(found)].join('\n  ')}${errors.length ? `\n  errors: ${errors.join('; ')}` : ''}`);
-  await ctx.close();
+  await closeCtx(ctx);
 }
 
 
@@ -7285,7 +7615,7 @@ async function stateChecks(browser, site, check) {
   check('state: Help\'s install section says "as an app on this device" and links to Use with Claude', /Install CLOADM as an app on this device/.test(help)
     && await page.evaluate(() => [...document.querySelectorAll('a')].some((a) => /docs\/mcp\.md#use-with-claude$/.test(a.href))));
   check('state: no page errors', !errors.length, errors.join('; '));
-  await ctx.close();
+  await closeCtx(ctx);
 }
 
 // One header per screen, the same links on every reading page, and deep links that land: the Library and Add ROMs views replace the app bar
@@ -7327,7 +7657,7 @@ async function navChecks(browser, site, check) {
   check('nav: Help\'s "Add ROMs →" opens Add ROMs', await waitFor(page, () => !!window.emu && location.hash === '#add-roms' && !document.getElementById('romCard').hidden),
     page.url());
   check('nav: no page errors', !errors.length, errors.join('; '));
-  await ctx.close();
+  await closeCtx(ctx);
 }
 
 // the command box (Ctrl/Cmd+K) lists every command, grouped, when nothing is typed; its other doors; the Help page; the Ask hint
@@ -7399,7 +7729,7 @@ async function commandsChecks(browser, site, check) {
     await page.keyboard.type('turbo');
     const typed = await page.evaluate(() => [...document.querySelectorAll('#cmdList [role="option"]')].map((o) => [o.firstChild.textContent, o.getAttribute('aria-selected')]));
     check(`${L}: typing filters the list, selects the first match and puts "Ask Claude" last`, typed[0][0] === 'Turbo' && typed[0][1] === 'true' && /^Ask Claude: "turbo"/.test(typed[typed.length - 1][0]), JSON.stringify(typed));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // the app bar's "Commands…": desktop, a Mac, a phone behind Menu, and the touch keys' Menu
   {
@@ -7419,7 +7749,7 @@ async function commandsChecks(browser, site, check) {
     await waitFor(page, () => !document.getElementById('ask').hidden && document.getElementById('askEmpty').getClientRects().length > 0);
     const ask = await page.evaluate(() => { const e = document.getElementById('askEmptyCmd'); return { shown: e.getClientRects().length > 0 && getComputedStyle(e).display !== 'none', text: e.innerText.trim(), emptyShown: !document.getElementById('askEmpty').hidden }; });
     check('commands (desktop): the Ask panel\'s empty state says "Ctrl K: find a command or ask"', ask.emptyShown && ask.shown && ask.text === 'Ctrl K: find a command or ask', JSON.stringify(ask));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // tight mode hides the RAM size: the machine button's title and aria-label still name the machine and its RAM
   {
@@ -7434,13 +7764,13 @@ async function commandsChecks(browser, site, check) {
     check('commands (app bar): the machine button\'s title and aria-label are "<name> <ram>K" (e.g. "Dragon 64 64K"), also in tight mode where the RAM size is hidden',
       plain.title === plain.want && plain.aria === plain.want && /\d+K$/.test(plain.want)
       && tight.tight && !tight.specShown && tight.title === tight.want && tight.aria === tight.want, JSON.stringify({ plain, tight }));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   {
     const { ctx, page } = await open({ viewport: { width: 1280, height: 720 } }, () => Object.defineProperty(navigator, 'platform', { get: () => 'MacIntel' }));
     const mac = await page.evaluate(() => [document.getElementById('navCommands').textContent.replace(/\s+/g, ' ').trim(), document.getElementById('askKbd').textContent, document.getElementById('askEmptyKbd').textContent]);
     check('commands (Mac): ⌘K in the app bar, the Ask button and the empty state', JSON.stringify(mac) === JSON.stringify(['Commands… ⌘K', '⌘K', '⌘K']), JSON.stringify(mac));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // the platform -> hint mapping itself, each platform pinned before the page loads and asserted against the literal
   // hint: the page's own test (js/ui/command-box.js: /Mac|iPhone|iPad/) is exercised on every branch it has, iPhone and
@@ -7450,7 +7780,7 @@ async function commandsChecks(browser, site, check) {
     const got = await page.evaluate(() => [document.getElementById('navCmdKbd').textContent, document.getElementById('askKbd').textContent, document.getElementById('askEmptyKbd').textContent]);
     check(`commands: navigator.platform "${platform}" shows the ${K} hint in the app bar, the Ask button and the empty state`,
       JSON.stringify(got) === JSON.stringify([K, K, K]), JSON.stringify(got));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   {
     const { ctx, page } = await open({ viewport: { width: 390, height: 844 } });
@@ -7466,7 +7796,7 @@ async function commandsChecks(browser, site, check) {
     await waitFor(page, () => !document.getElementById('ask').hidden && document.getElementById('askEmpty').getClientRects().length > 0);
     const ask = await page.evaluate(() => { const e = document.getElementById('askEmptyCmd'); return { shown: e.getClientRects().length > 0, emptyShown: !document.getElementById('askEmpty').hidden }; });
     check('commands (phone): the Ask empty-state key hint is hidden on a narrow screen', ask.emptyShown && !ask.shown, JSON.stringify(ask));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   {
     // (held sideways, where the app bar gives way to the panel; upright Commands… is in the app bar's Menu: the
@@ -7478,7 +7808,7 @@ async function commandsChecks(browser, site, check) {
     await page.tap('#tkMenuSheet [data-item="commands"]', { timeout: 3000 }).catch(() => {});   // (a missing item is a FAIL below, not a throw)
     check('commands (touch keys, sideways): the keys\' Menu has "Commands…", which opens the box', item === 'Commands…'
       && await waitFor(page, () => !document.getElementById('cmdBox').hidden && document.activeElement === document.getElementById('cmdInput') && document.getElementById('tkMenuSheet').hidden), String(item));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // Help: every command's label, verbatim, and the two sections
   {
@@ -7494,7 +7824,7 @@ async function commandsChecks(browser, site, check) {
         'A restore point is made first.', 'What Claude reads goes to Anthropic with your key.'].every((t) => help.text.includes(t)) && !/Every action is listed in the chat/.test(help.text),
       help.h2.join('|'));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, 'help-commands.png'), fullPage: true });
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // typo tolerance, ranking, the models, Help, the synonyms, the wrap keys and the marks, at the desktop and phone sizes
   for (const [label, viewport] of [['1280x720', { width: 1280, height: 720 }], ['phone', { width: 390, height: 844 }]]) {
@@ -7576,7 +7906,7 @@ async function commandsChecks(browser, site, check) {
     const [tab] = await Promise.all([ctx.waitForEvent('page'), page.keyboard.press('Enter')]);
     await tab.waitForLoadState();
     check(`${L}: "Help" opens the guide in a new tab`, /\/help\/$/.test(new URL(tab.url()).pathname), tab.url());
-    await tab.close();
+    await closePage(tab);
     // "eject" with a tape in (no disk): Eject the tape first
     await page.setInputFiles('#fileTape', { name: 't.cas', mimeType: 'application/octet-stream', buffer: Buffer.from([...Array(128).fill(0x55), 0x3C, 0xFF, 0, 0xFF]) });
     await waitFor(page, () => !!window.emu.machine.deck.tape);
@@ -7591,7 +7921,7 @@ async function commandsChecks(browser, site, check) {
     for (let i = 0; i < total; i++) { await page.keyboard.press('ArrowDown'); if (offRows.includes(await page.evaluate(() => document.getElementById('cmdInput').getAttribute('aria-activedescendant')))) reached++; }
     check(`${L}: in the empty box the muted rows (Eject disk: no disk) are aria-disabled and each is reached by the arrows`, offRows.length >= 1 && reached === offRows.length, JSON.stringify({ offRows, reached }));
     await page.keyboard.press('Escape');
-    await ctx.close();
+    await closeCtx(ctx);
   }
   check('commands: no page errors', !errors.length, errors.join('; '));
 }
@@ -7667,7 +7997,7 @@ async function landingChecks(browser, site, check) {
       const r = await page.request.get(`${site}play`, { maxRedirects: 0 });
       check('/play redirects to /play/', r.status() === 301 && r.headers().location === '/play/');
     }
-    await ctx.close();
+    await closeCtx(ctx);
   }
 }
 
@@ -7866,8 +8196,7 @@ async function debuggerStopChecks(browser, base, check) {
     JSON.stringify({ ti, tT }));
   await page.evaluate(() => { location.hash = ''; window.emu.session.resume(); });
   check('debugger stop: no page errors', !errors.length, errors.join('; '));
-  await ctx.close();
-
+  await closeCtx(ctx);
   // a phone: the strip between the header and the screen, its buttons at least 44 px tall
   const pctx = await browser.newContext({ viewport: { width: 393, height: 659 }, hasTouch: true, isMobile: true, serviceWorkers: 'block' });
   const pp = await pctx.newPage();
@@ -7887,8 +8216,7 @@ async function debuggerStopChecks(browser, base, check) {
       && /^Stopped in the Debugger at \$[0-9A-F]{4}\.$/.test(geo.text), JSON.stringify(geo));
   if (shotDir) await pp.screenshot({ path: path.join(shotDir, 'debugger-stop-phone.png') });
   check('debugger stop: no page errors on the phone', !perr.length, perr.join('; '));
-  await pctx.close();
-}
+  await closeCtx(pctx);}
 
 
 // The debugger through the real page and the Session, with no new screen: assemble a
@@ -8019,7 +8347,7 @@ SUB     INCA
   check('debugger: switching back to a Dragon turns Save on and hides the note', !backSave.disabled && backSave.hidden && backSave.note === '', JSON.stringify(backSave));
   check('debugger: no page errors switching the MC-10, Alice and Dragon', !mcErrors.length, mcErrors.join('; '));
   check('debugger: no page errors', !errors.length, errors.join('; '));
-  await ctx.close();
+  await closeCtx(ctx);
 
   // the 6309 option: a machine switched to the 6309 shows 6309 mnemonics and its own registers through the
   // same page and Session, with no new screen
@@ -8047,7 +8375,7 @@ SUB     INCA
     JSON.stringify(r9.dis));
   check('debugger: the 6309 registers are in the page', r9.regs);
   check('debugger: no page errors on the 6309', !errors9.length, errors9.join('; '));
-  await ctx9.close();
+  await closeCtx(ctx9);
 
   // The Debugger SCREEN on a 6309: opening it must not throw (a screen used to have no register set for a 6309
   // and threw "ORDER[cpu] is not iterable"), it must show the full 6309 set, and an edit through a register field
@@ -8137,7 +8465,7 @@ SUB     INCA
   });
   check('debugger screen 6309: typing a label into a byte register (DP) sets it', dpLabel === 0x46, '$' + Number(dpLabel).toString(16));
   check('debugger screen 6309: no page errors', !errorsS.length, errorsS.join('; '));
-  await ctxS.close();
+  await closeCtx(ctxS);
 
   // The same label entry on a 6809, so the rule is not only exercised on the 6309 path.
   const ctx8 = await browser.newContext();
@@ -8161,7 +8489,7 @@ SUB     INCA
   check('debugger screen 6809: typing a label into PC sets it from the symbols too',
     label6809.cpu === '6809' && label6809.pc === 0x3000, JSON.stringify(label6809));
   check('debugger screen 6809: no page errors', !errors8.length, errors8.join('; '));
-  await ctx8.close();
+  await closeCtx(ctx8);
 }
 
 // the emulator layout at desktop and phone width: header, grouped
@@ -8205,7 +8533,7 @@ async function layoutChecks(browser, base, check) {
     // (the status: whole, or not shown where the bar has no room, never cut to a stub: the v0.1.8 review's m4)
     const m3 = await measure(), st3 = await page.evaluate(() => { const e = document.getElementById('status'); return { w: e.getBoundingClientRect().width, shown: e.checkVisibility(), whole: e.scrollWidth <= e.clientWidth + 0.5 }; });
     check('layout (1200 x 720, wide font): one row, and the status whole or not shown (no stub)', oneRow(m3) && (st3.shown ? st3.whole && st3.w >= 16 : true), `${JSON.stringify(m3)} status ${JSON.stringify(st3)}`);
-    await ctx.close();
+    await closeCtx(ctx);
   }
   for (const [label, viewport] of [['desktop', { width: 1440, height: 1000 }], ['phone', { width: 390, height: 844 }]]) {
     const ctx = await browser.newContext({ viewport });
@@ -8288,7 +8616,7 @@ async function layoutChecks(browser, base, check) {
     await page.setInputFiles('#fileTape', { name: 'game.cas', mimeType: 'application/octet-stream', buffer: Buffer.alloc(300, 0x55) });
     check(`layout (${label}): the cassette slot shows the tape`, await waitFor(page, () => document.getElementById('tapeName').textContent === 'game.cas'));
     check(`layout (${label}): no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 }
 
@@ -8412,7 +8740,7 @@ async function displayChecks(browser, base, check) {
   check('display: the screen choice is remembered', await page.evaluate(() => window.emu.session.display.screen) === 'main'
     && await page.inputValue('#selScreen') === 'main');
   check('display: no page errors', !errors.length, errors.join('; '));
-  await ctx.close();
+  await closeCtx(ctx);
 
   // Without WebGL (headless Chromium has it, so the page's canvas is denied it here): the 2D presenter draws the
   // pixels, the tab says the CRT look is off and disables its sliders, and composite colour still follows the view.
@@ -8445,7 +8773,7 @@ async function displayChecks(browser, base, check) {
   check('display, no WebGL: Sharp · RGB turns it off', await p2.evaluate(() => window.emu.machine.vdg.artifact) === 0);
   if (shotDir) await p2.locator('#monitor').screenshot({ path: path.join(shotDir, 'display-no-webgl.png') });
   check('display, no WebGL: no page errors', !errors2.length, errors2.join('; '));
-  await ctx2.close();
+  await closeCtx(ctx2);
 }
 
 // WebGL context loss (GPU reset, tab evicted on mobile, laptop sleep): forced through
@@ -8485,7 +8813,7 @@ async function glLossChecks(browser, base, check) {
   check('WebGL loss: restored, the screen shows the machine again', before > 1 && after > 1, `(${before} colours before, ${after} after)`);
   check('WebGL loss: no page errors', !errors.length, errors.join('; '));
   if (shotDir) await page.locator('#monitor').screenshot({ path: path.join(shotDir, 'webgl-restored.png') });
-  await ctx.close();
+  await closeCtx(ctx);
 }
 
 // The frame loop (4.5): it uploads a picture to the GPU only when one changed (a frame ran, or the
@@ -8559,7 +8887,7 @@ async function pageLoopChecks(browser, base, check) {
   await page.evaluate(() => window.emu.session.setDisplay({ view: 'crt' }));
   await page.click('#btnPause');
   check('page loop: no page errors', !errors.length, errors.join('; '));
-  await ctx.close();
+  await closeCtx(ctx);
   // no Fullscreen API (iPhone Safari): the button is hidden, nothing throws
   const ctx2 = await browser.newContext();
   await ctx2.addInitScript(() => { delete Element.prototype.requestFullscreen; delete Element.prototype.webkitRequestFullscreen; });
@@ -8569,7 +8897,7 @@ async function pageLoopChecks(browser, base, check) {
   await p2.goto(`${base}?machine=coco`);
   await started(p2);
   check('no Fullscreen API: the button is hidden, no page errors', await p2.isHidden('#btnFull') && !errors2.length, errors2.join('; '));
-  await ctx2.close();
+  await closeCtx(ctx2);
 }
 
 async function readingChecks(browser, site, check) {
@@ -8637,7 +8965,7 @@ async function readingChecks(browser, site, check) {
       check('landing: "Where do I get ROMs?" opens /roms', await waitFor(page, () => location.pathname === '/roms/'));
     }
     check(`reading pages (${label}): nothing requested from other hosts, no page errors`, !foreign.length && !archive.length && !errors.length, foreign.concat(errors, archive).join(' '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 }
 
@@ -8664,14 +8992,14 @@ async function lightChecks(browser, site, check) {
     await page.goto(site + 'play/');
     check(`light (${label}): the emulator stays dark`, await page.evaluate(() => getComputedStyle(document.body).backgroundColor) === 'rgb(11, 13, 12)');
     check(`light (${label}): no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // and dark stays dark when the system asks for dark
   const ctx = await browser.newContext({ colorScheme: 'dark' });
   const page = await ctx.newPage();
   await page.goto(site + 'help/');
   check('dark system setting: reading pages are dark', await page.evaluate(() => getComputedStyle(document.body).backgroundColor) === 'rgb(11, 13, 12)');
-  await ctx.close();
+  await closeCtx(ctx);
 }
 
 // cassette media: Record captures what our writer firmware (tools/mame-diff/tape/csave.asm, installed as
@@ -8744,7 +9072,7 @@ async function tapeChecks(browser, base, check) {
   check('tape: the recordings are in the Library after a reload', await waitFor(p2, () => {
     const names = [...document.querySelectorAll('#libTapes [data-name]')].map((b) => b.dataset.name.split('/').pop());
     return names.includes('CLOADM.CAS') && names.includes('CLOADM (2).CAS'); }), await p2.evaluate(() => [...document.querySelectorAll('#libTapes [data-name]')].map((b) => b.dataset.name).join()));
-  await p2.close();
+  await closePage(p2);
   // A machine-code tape dropped on the page with ROMs in: the machine is restarted, CLOADM is typed, and EXEC on a
   // line of its own once BASIC is back at its prompt. BASIC is our stand-in (tape/standin.asm: a line per ENTER,
   // CLOADM, then a jump to the exec address), installed in the CoCo's BASIC sockets in the page; the tape's
@@ -8788,7 +9116,7 @@ async function tapeChecks(browser, base, check) {
   check('tape: ...and it loads through BASIC and runs', ranAgain,
     await page.evaluate(() => `rom ${window.emu.machine.hasRom}, stage ${String.fromCharCode(window.emu.machine.ram[0x80])}, pc ${window.emu.machine.cpu.pc.toString(16)}`));
   check('tape: no page errors', !errors.length, errors.join('; '));
-  await ctx.close();
+  await closeCtx(ctx);
   await tapeRecordingNameChecks(browser, base, check);
 }
 
@@ -8834,7 +9162,7 @@ async function tapeRecordingNameChecks(browser, base, check) {
     await waitFor(page, () => document.getElementById('toastText').textContent === 'Saved CLOADM.CAS to your Library (2 files).'),
     await page.textContent('#toastText'));
   // "Download and open files": the recording is downloaded under its CSAVE name, not kept
-  await page.close();
+  await closePage(page);
   await open('&storage=fallback');
   const kind = await page.evaluate(() => window.emu.session.media.kind);
   await record(1);
@@ -8843,8 +9171,7 @@ async function tapeRecordingNameChecks(browser, base, check) {
     kind === 'fallback' && dl.suggestedFilename() === 'CLOADM.CAS' && await page.evaluate(async () => !(await window.emu.session.library.listMedia()).some((x) => /CLOADM/.test(x.name))),
     JSON.stringify({ kind, name: dl.suggestedFilename() }));
   check('tape: recording names, no page errors', !errors.length, errors.join('; '));
-  await ctx.close();
-}
+  await closeCtx(ctx);}
 
 // Touch joystick: the on-screen panel's Joystick mode (js/ui/touch-keys.js, js/host/input.js) on a phone held
 // sideways, upright and on a tablet. It drives the right joystick (the machine's joy[0]) and its FIRE the
@@ -8890,7 +9217,7 @@ async function keyboardSymbolsChecks(browser, base, check) {
       got.join() === [...want, 0x60].join(), `got ${show(got)}`);
     if (shotDir && id === 'coco3') await page.screenshot({ path: path.join(shotDir, 'keyboard-symbols-coco3.png') });
     check(`keyboard symbols (${tag}): no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 }
 
@@ -9108,7 +9435,7 @@ async function touchJoystickChecks(browser, base, check) {
     await endTouch(cdp, page);
     await page.evaluate(() => { document.getElementById('chkJoy').checked = false; document.getElementById('chkJoy').dispatchEvent(new Event('change')); });
     check('touch joystick (sideways): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- upright: the switch, then the strip, the stick and FIRE, then the buttons, all under the screen ----
@@ -9162,7 +9489,7 @@ async function touchJoystickChecks(browser, base, check) {
       await waitFor(page, () => window.pressed.includes('Q+') && window.pressed.includes('Q-')) && (await state(page)).stick,
       await page.evaluate(() => window.pressed.join()));
     check('touch joystick (upright): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- a tablet: the same arrangement, the switch offered, nothing over the screen ----
@@ -9213,7 +9540,7 @@ async function touchJoystickChecks(browser, base, check) {
     await page.locator('#btnShowKeys').click();
     check('touch joystick (tablet): nothing lies over #screen', s.clipped.length === 0, JSON.stringify({ clipped: s.clipped, screen: s.screen }));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, 'touch-joystick-tablet.png'), fullPage: true });
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- a mouse and ABC (MED): a mouse is ALWAYS pointer id 1, so an ABC guard that remembers the ABC press's
@@ -9244,7 +9571,7 @@ async function touchJoystickChecks(browser, base, check) {
       abcUp && mouse.pressed.includes('Q+') && mouse.pressed.includes('Q-') && mouse.keysOnce === false && mouse.stick === true,
       JSON.stringify({ abcUp, mouse }));
     check('touch joystick (mouse): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // ---- the machine-swap release (LOW): only a stick the panel was showing is let go of; a joystick the mouse or
   // the keyboard joystick drives is the host's and must not be recentred by a switch ----
@@ -9279,7 +9606,7 @@ async function touchJoystickChecks(browser, base, check) {
     });
     check('touch joystick: a machine event with the stick up lets go of it',
       releasedSwap.joy[0] === 32 && releasedSwap.joy[1] === 32 && releasedSwap.fire === false, JSON.stringify(releasedSwap));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // ---- FIRE's window fallback (LOW): if the capture is refused and the finger lifts outside the button, no
   // pointerup reaches FIRE; the window's own release is the way out, and only FIRE's pointer may use it ----
@@ -9303,7 +9630,7 @@ async function touchJoystickChecks(browser, base, check) {
     await page.waitForTimeout(120);
     const up = await page.evaluate(() => window.emu.machine.fire[0]);
     check('touch joystick: FIRE lets go when its capture is refused and the button is released away from it', down === true && up === false, JSON.stringify({ down, up }));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // ---- the MC-10: no Stick (no joystick port) ----
   {
@@ -9316,7 +9643,7 @@ async function touchJoystickChecks(browser, base, check) {
     const stickTab = await page.evaluate(() => document.querySelector('#tkModeSwitch [data-touchmode="joystick"]').checkVisibility());
     check('touch joystick: the MC-10\'s switch is Keys | Pad, no Stick, and no stick (no joystick port)', s.switchShown && !stickTab && !s.stick && s.at.touchStick[2] === 0,
       JSON.stringify({ switchShown: s.switchShown, stickTab, stick: s.stick }));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // and ?touch= is not for embeds (js/config.js): an embedded page has no panel to set
   {
@@ -9329,7 +9656,7 @@ async function touchJoystickChecks(browser, base, check) {
     const msg = await page.evaluate(() => window.emu.feedback.pending.map((m) => m.text).join('\n') + '\n' + document.getElementById('toastText').textContent);
     said.push(msg);
     check('touch joystick: an embed is told touch= does not apply', /touch=joystick: an embedded page has no on-screen panel/.test(said.join('\n')), said.join('|').slice(0, 300));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 }
 
@@ -9386,7 +9713,7 @@ async function inputScreenChecks(browser, base, check) {
     await page.tap('#btnShowKeys');
     check('touch keys: Keys brings them back', await page.isVisible('#touchKeys'));
     check('touch keys (sideways): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // ---- short landscape: the control row under the screen (BREAK, CLEAR, Keys|Joystick, Menu) whole and in view ----
   // An iPhone held sideways in Safari is about 1000x461 or less, with the notch's and home indicator's safe-area
@@ -9462,7 +9789,7 @@ async function inputScreenChecks(browser, base, check) {
           want.every((n) => lay.names.includes(n)) && (mode === 'keys' ? lay.keys >= 40 : lay.names.includes('Fire') && lay.names.includes('SPACE (SPC)')) && !lay.bad.length && lay.fits, JSON.stringify(lay));
         if (shotDir) await page.screenshot({ path: path.join(shotDir, `touch-landscape-${mode}-${label.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}.png`) });
         check(`${L}: no page errors`, !errors.length, errors.join('; '));
-        await ctx.close();
+        await closeCtx(ctx);
       }
     }
   }
@@ -9504,7 +9831,7 @@ async function inputScreenChecks(browser, base, check) {
         // 3c: and it is position:fixed, the thing that makes an inset a meaningful test (a flow box inside the
         // safe area scrolls away; the status is an overlay)
         check(`${L}: the chat's turn status beside the screen is fixed and lies inside the safe area`, s.shown && s.fixed && s.ok, JSON.stringify(s));
-        await ctx.close();
+        await closeCtx(ctx);
       }
       // a pointer and a keyboard: a toast, the install card, the command box, Ask Claude and the page view's status pill
       {
@@ -9575,7 +9902,7 @@ async function inputScreenChecks(browser, base, check) {
         const top = sideways ? await inside(page, '#viewClaude', ins, { ids: ['viewClaude'], classes: [['viewClaude', 'top']] }) : null;
         check(`${L}: the status pill is fixed and lies inside the safe area${sideways ? ', at the bottom and at the top' : ''}`,
           pill.shown && pill.fixed && pill.ok && (!sideways || (top.shown && top.fixed && top.ok)), JSON.stringify(sideways ? [pill, top] : [pill]));
-        await ctx.close();
+        await closeCtx(ctx);
       }
     }
     // the install card opened from the app bar's link (under the bar; the offer's gutter place is checked in the install group)
@@ -9596,7 +9923,7 @@ async function inputScreenChecks(browser, base, check) {
       // placement cannot add to that - at every width where it is placed, the screen stays centred and the gutter it
       // takes is far wider than the inset with or without safeArea() - and a check that cannot fail is worse than
       // none, so there is deliberately no separate card check here.
-      await ctx.close();
+      await closeCtx(ctx);
     }
   }
   // ---- portrait: ten columns; LIZA by taps ----
@@ -9626,7 +9953,7 @@ async function inputScreenChecks(browser, base, check) {
     await page.tap('#touchFull [data-key="ENTER"]');
     check('touch keys: LIZA answers what was tapped', await waitFor(page, () => /HOW LONG HAVE YOU BEEN SAD/.test(window.emu.session.screenText().join('\n'))), (await stubText(page)).split('\n').slice(4, 9).join('|'));
     check('touch keys (portrait): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // ---- portrait phones: the whole panel on screen at load, the row with ENTER included, no scrolling to type ----
   // A report from a phone (iPhone, Chrome for iOS, portrait): ENTER's row was under the browser's bottom toolbar. Each
@@ -9686,7 +10013,7 @@ async function inputScreenChecks(browser, base, check) {
           want && !lay.bad.length && lay.scrolled === 0 && !lay.sideways, JSON.stringify(lay));
         if (shotDir) await page.screenshot({ path: path.join(shotDir, `touch-portrait-${mode}-${label.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}.png`) });
         check(`${L}: no page errors`, !errors.length, errors.join('; '));
-        await ctx.close();
+        await closeCtx(ctx);
       }
     }
   }
@@ -9784,7 +10111,7 @@ async function inputScreenChecks(browser, base, check) {
     check('touch keys (portrait): a long hold holds (W down in the matrix for as long as the finger is, a wobble after the commit included, then let go)',
       held.pressed === 'W+' && await waitFor(page, () => window.pressed.join() === 'W+,W-'), JSON.stringify({ held, after: await typed() }));
     check('touch keys (portrait, drag and hold): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // ---- desktop: hidden unless asked; the setting is remembered ----
   {
@@ -9802,7 +10129,7 @@ async function inputScreenChecks(browser, base, check) {
     await openTab(page, 'Input');
     await page.selectOption('#selTouchKeys', 'off');
     check('touch keys: Never hides them', await page.isHidden('#touchKeys') && await page.isHidden('#btnShowKeys'));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // ---- the welcome menu by taps ----
   {
@@ -9818,7 +10145,7 @@ async function inputScreenChecks(browser, base, check) {
     // (said: shown, or on a phone waiting for room in the toast's queue: a toast never covers the screen's text)
     check('welcome: tapping a menu line chooses it (2: the colour demo)', await waitFor(page, () => window.emu.feedback.pending.some((m) => /Colour demo/.test(m.text)) && !window.emu.session.welcomeRunning),
       JSON.stringify(await page.evaluate(() => window.emu.feedback.pending)));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // ---- on a 390 px phone the welcome menu is answered by typing: the
   // keyboard is there on a first visit with nothing to press, no hint covers the screen, and a typed 2 takes effect ----
@@ -9854,7 +10181,7 @@ async function inputScreenChecks(browser, base, check) {
       || window.emu.feedback.pending.some((m) => /Colour demo/.test(m.text))) && !window.emu.session.welcomeRunning), JSON.stringify(await page.evaluate(() => [window.__said, window.emu.feedback.pending])));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, 'phone-welcome.png') });
     check('PHONE-1: no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // ---- the whole page is the drop target; the browser keeps the ROMs ----
   for (const granted of [true, false]) {
@@ -9891,7 +10218,7 @@ async function inputScreenChecks(browser, base, check) {
     check(`ROMs: the browser is asked to keep them, once, and the page says it ${granted ? 'will' : 'may not'}`, await waitFor(page, (s) => window.__said.concat(window.emu.feedback.pending.map((m) => m.text)).some((m) => new RegExp(s).test(m)), said.source)
       && await page.evaluate(() => window.persistAsked) === 1, JSON.stringify(await page.evaluate(() => [window.__said, window.emu.feedback.pending])));
     check('drop and ROMs: no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 }
 
@@ -10069,7 +10396,7 @@ async function urlChecks(browser, base, check) {
     check('direct link: the Minesweeper entry\'s link, opened, runs Minesweeper with no menu in between', await waitFor(dp, () => JSON.stringify(window.emu.session.lastRun) === '{"kind":"game","name":"Minesweeper"}')
       && await graphics() && await dp.evaluate(() => window.__welcomeStarts) === 0);
     check('direct links: no page errors', !derr.length, derr.join('; '));
-    await dctx.close();
+    await closeCtx(dctx);
   }
   // both app= and start=: the chat opens, the game does not start, and the link says start= was ignored
   await open('?machine=dragon64&app=claude&start=2048');
@@ -10125,7 +10452,7 @@ async function urlChecks(browser, base, check) {
   await open('?machine=dragon64&disk=');
   check('link: disk= without a link is reported as the other media are', /disk=: not a link to a file/.test(await msg()), await msg());
   check('links: no page errors', !errors.length, errors.join('; '));
-  await ctx.close();
+  await closeCtx(ctx);
 }
 
 // the embed API: a page on another origin puts /play/?embed=1 in an iframe and drives it with embed/cloadm.js
@@ -10266,7 +10593,7 @@ async function embedChecks(browser, site, check) {
   check('sandboxed frame (no allow-same-origin): the page cannot start there, so there is no chat',
     sbState && !sbState.evalFailed && sbState.started === false && sbState.chat === false, JSON.stringify(sbState));
   check('embed: no page errors', !errors.length, errors.join('; '));
-  await ctx.close();
+  await closeCtx(ctx);
   host.close();
 }
 
@@ -10318,7 +10645,7 @@ async function pwaChecks(browser, site, check) {
   }
   await ctx.setOffline(false);
   check('PWA: no page errors', !errors.length, errors.join('; '));
-  await ctx.close();
+  await closeCtx(ctx);
 }
 
 // Consent in the full screen chat (?app=claude): "Let Claude use the emulator"
@@ -10410,7 +10737,7 @@ async function welcomeScreenChecks(browser, base, check) {
       !w.hints.keys && w.hints.sound && w.lit > 0 && !w.over.length && wf.focused === 'screen' && wf.hints.focus === plate && wf.hints.keys && !wf.over.length, JSON.stringify({ plate, w, wf }));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, `welcome-screen-${label}.png`) });
     check(`welcome screen (${label}): no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 }
 
@@ -10481,7 +10808,7 @@ async function chatScreenChecks(browser, base, check) {
       pipUp && await page.isVisible('#claudePip') && !pip.over.length, JSON.stringify(pip));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, `chat-screen-pip-${label}.png`) });
     check(`chat screen (${label}): no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 }
 
@@ -10507,7 +10834,7 @@ async function chatRamChecks(browser, base, check) {
   check(`${L}: no chat screen opens and the machine is left as it was`, !state.full && !state.chat && state.id === 'coco' && state.ram === 16, JSON.stringify(state));
   if (shotDir) await page.screenshot({ path: path.join(shotDir, 'chat-ram-refused.png') });
   check(`${L}: no page errors`, !errors.length, errors.join('; '));
-  await ctx.close();
+  await closeCtx(ctx);
 }
 
 // Long lines typed on the chat screen through the keyboard reach the API byte for byte: a 300-character line typed at
@@ -10606,7 +10933,7 @@ async function chatLongLineChecks(browser, base, check) {
   }
   if (shotDir) await page.screenshot({ path: path.join(shotDir, 'chat-screen-long-lines.png') });   // (settled: no scroll part way)
   check(`${L}: no page errors`, !errors.length, errors.join('; '));
-  await ctx.close();
+  await closeCtx(ctx);
 }
 
 // The copy and small UX fixes made after v0.1.8 (LIZA's load toast, the chat key states, deep-link toasts, the
@@ -10667,7 +10994,7 @@ async function firstUseChecks(browser, base, check) {
     await page.click('#toastText button.inline');
     check(`${L}: the note's Add ROMs opens Add ROMs`, await waitFor(page, () => location.hash === '#add-roms', null, 5000));
     check(`${L} (welcome): no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- the API key: where to get one, what it costs, and Claude without one ----
@@ -10687,7 +11014,7 @@ async function firstUseChecks(browser, base, check) {
     check(`${L}: "No key? Use CLOADM inside Claude instead: Use with Claude ↗", linking to the install section`, k.none.shown && useWith(k.none) && useWith(k.askNone), JSON.stringify(k));
     await shot(page, 'key-card');
     check(`${L} (key): no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- a machine-code tape that loads and starts: where it went and where it started ----
@@ -10706,7 +11033,7 @@ async function firstUseChecks(browser, base, check) {
       said && st.toast === 'HI.CAS loaded ($3000–$30FF) and started at $3000.' && st.eyebrow === 'LOADED · STARTED $3000' && st.pc === 0x3000, JSON.stringify(st));
     await shot(page, 'tape-started');
     check(`${L} (tape): no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- the switch question, under the machine button (and directly under the bar on a phone); Esc cancels ----
@@ -10729,7 +11056,7 @@ async function firstUseChecks(browser, base, check) {
     const after = await page.evaluate(() => ({ hidden: document.getElementById('switchConfirm').hidden, machine: window.emu.machine.id }));
     check(`${L} (${label}): Esc cancels the switch`, after.hidden && after.machine === 'dragon64', JSON.stringify(after));
     check(`${L} (switch ${label}): no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- a gamepad: which joystick it drives, said once ----
@@ -10750,7 +11077,7 @@ async function firstUseChecks(browser, base, check) {
     check(`${L}: a gamepad connecting says "Gamepad connected: it drives the right joystick.", once`,
       said && first === 'Gamepad connected: it drives the right joystick.' && second === '', JSON.stringify({ first, second }));
     check(`${L} (gamepad): no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- a game's "how to play" toast goes at its first key; the colour demo's after 4 s, even hovered ----
@@ -10763,7 +11090,7 @@ async function firstUseChecks(browser, base, check) {
     const left = await toastText(page);
     check(`${L}: 2048's toast is gone after the first arrow key`, up && left === '', left);
     check(`${L} (2048): no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   {
     const { ctx, page, errors } = await open('?machine=dragon64');
@@ -10777,7 +11104,7 @@ async function firstUseChecks(browser, base, check) {
     const ms = Date.now() - t0;
     check(`${L}: the colour demo's toast goes after 4 s with no key, even while hovered`, up && gone && ms >= 2500, `${ms} ms`);
     check(`${L} (demo): no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- installing: Safari on a Mac has its own line, iOS its Share step ----
@@ -10794,7 +11121,7 @@ async function firstUseChecks(browser, base, check) {
     check(`${L}: the install card with ${label}'s user agent says ${want.source.replace(/\\/g, '')}`, ok, JSON.stringify(r));
     await shot(page, `install-${label.replace(/\W+/g, '-').toLowerCase()}`);
     check(`${L} (install ${label}): no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 }
 
@@ -10826,10 +11153,11 @@ async function uiCopyChecks(browser, base, check) {
     await page.setInputFiles('#fileProgram', { name: 'mine.bin', mimeType: 'application/octet-stream', buffer: Buffer.from([0x55, 0x02, 0x30, 0x00, 0x00, 0x02, 0x30, 0x00, 0xAA, 0x20, 0xFE]) });
     await waitFor(page, () => /mine\.bin/.test(document.getElementById('toastText').textContent), null, 15000);
     const mine = await toastText(page);
-    check('load toast: a file the visitor brings keeps its format and addresses in the toast', /mine\.bin: DragonDOS binary \$3000-\$3001, exec \$3000/.test(mine), mine);
+    const mineMore = await page.evaluate(() => document.getElementById('toastDetails').textContent);
+    check('load toast: a file the visitor brings leads with "mine.bin loaded and started.", its format and addresses second (under Details)',
+      mine === 'mine.bin loaded and started.' && mineMore === 'DragonDOS binary $3000-$3001, exec $3000', `${mine} | ${mineMore}`);
     check('load toast: no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
-  }
+    await closeCtx(ctx);  }
 
   // chat key: the Claude chat without a key says so ON the screen; after Save key, the key card reads "Key saved ✓ · Forget"
   {
@@ -10887,8 +11215,7 @@ async function uiCopyChecks(browser, base, check) {
     leak.screen = rowsNow.join('').includes(KEY) || rowsNow.join('').includes(KEY.slice(0, 12));
     check('chat key: the key is in no machine memory, no settings export and not drawn on the chat screen', !leak.ram && !leak.settings && !leak.screen, JSON.stringify(leak));
     check('chat key: no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
-  }
+    await closeCtx(ctx);  }
 
   // deep links: a short toast, naming what happened
   {
@@ -10901,8 +11228,7 @@ async function uiCopyChecks(browser, base, check) {
       check(`deep link: ${what}: one short toast (under 130 characters, no list of machines)`, re.test(t) && t.length < 130, `${t.length}: ${t}`);
       if (what === 'machine=nosuch') await shot(page, 'link-machine');
       check(`deep link: ${what}: no page errors`, !errors.length, errors.join('; '));
-      await ctx.close();
-    }
+      await closeCtx(ctx);    }
     for (const hash of ['#share=junk', '#s=junk', '#z=junk']) {
       const { ctx, page, errors } = await open({ width: 1280, height: 720 }, `?machine=dragon64${hash}`);
       await started(page);
@@ -10911,8 +11237,7 @@ async function uiCopyChecks(browser, base, check) {
       check(`deep link: ${hash}: says the share link couldn't be read (never silent), and the junk leaves the address`,
         /couldn't be read|is damaged/.test(t) && await page.evaluate(() => location.hash === ''), `${t} | ${await page.evaluate(() => location.hash)}`);
       check(`deep link: ${hash}: no page errors`, !errors.length, errors.join('; '));
-      await ctx.close();
-    }
+      await closeCtx(ctx);    }
   }
 
   // Add ROMs: the "optional" tag stays beside the title (no wrapping under it), and the Pak's title does not repeat it
@@ -10934,7 +11259,7 @@ async function uiCopyChecks(browser, base, check) {
       optional.every((c) => !/optional/i.test(c.title)) && cards.findIndex((c) => c.id.startsWith('ssc-')) > cards.findLastIndex((c) => c.req || c.id === 'disk' || !c.id.startsWith('ssc-')), JSON.stringify(cards.map((c) => [c.id, c.title])));
     await shot(page, `roms-${label.replace(/ /g, '-')}`);
     check(`Add ROMs (${label}): no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // Install CLOADM… is in the app bar beside Help (behind Menu on a phone), not at the foot of the machine menu, and
@@ -10954,7 +11279,7 @@ async function uiCopyChecks(browser, base, check) {
       near.visible && near.cardTop >= near.barBottom - 1 && near.cardTop - near.barBottom < 40, JSON.stringify(near));
     await shot(page, `install-${label}`);
     check(`install (${label}): no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // the Welcome Back menu: option 6 does not push "PRESS 1 TO 6" against the colour bar (a blank row between them)
@@ -10970,8 +11295,7 @@ async function uiCopyChecks(browser, base, check) {
       t[6] === 'WELCOME BACK' && t[7] === '1 TALK TO LIZA' && t[11] === '5 PLAY A GAME' && t[12] === '6 CARRY ON WITH LIZA' && t[13] === '' && t[14] === 'PRESS 1 TO 6', JSON.stringify(t.slice(5, 16)));
     await shot(page, 'welcome-back');
     check('Welcome Back menu: no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
-  }
+    await closeCtx(ctx);  }
 }
 
 async function consentFullscreenChecks(browser, base, check) {
@@ -11104,7 +11428,7 @@ async function consentFullscreenChecks(browser, base, check) {
   await waitFor(page, () => window.emu.session.claudeView === 'full', null, 15000);
   check(`${L}: after a reload the switch is off again`, !(await page.isChecked('#chkClaudeTools')) && await page.evaluate(() => !window.emu.session.consent.allowed));
   check(`${L}: no page errors`, !errors.length, errors.join('; '));
-  await ctx.close();
+  await closeCtx(ctx);
 }
 
 // Ask Claude follow-ups: a key pressed on the machine while Claude types
@@ -11179,7 +11503,7 @@ async function askFollowupChecks(browser, base, check) {
       && document.getElementById('askActing').hidden) && (await emuFrames(page, 30), await page.evaluate(() => window.emu.machine.stubKeys.length === 0 && window.emu.machine.typist.queue.length === 0)));
     if (replies.held) replies.held.release();
     check('ask (keys): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- (1a) the Debugger stops the machine while Claude's keys go in (its Pause makes this same call, Debugger.halt):
@@ -11219,7 +11543,7 @@ async function askFollowupChecks(browser, base, check) {
     check('ask (Debugger stop): after Resume nothing more of the listing is typed', !resumed.paused && resumed.queued === 0 && resumed.stub === 0, JSON.stringify(resumed));
     if (replies.held) replies.held.release();
     check('ask (Debugger stop): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- (1b) a pause belongs to its turn: a key pressed while Claude thinks after acting pauses it; the reply
@@ -11265,7 +11589,7 @@ async function askFollowupChecks(browser, base, check) {
     check('ask (pause scope): a later text-only turn is not paused by a key: Thinking…, no Resume, no pill, and the reply comes',
       !textOnly.paused && !textOnly.acting && textOnly.status === 'Thinking…' && !textOnly.resume && !textOnly.pill && replied, JSON.stringify(textOnly));
     check('ask (pause scope): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- (1d) a pause in the full-screen chat has its Resume beside Stop in the bar (the side panel's Resume is on
@@ -11343,7 +11667,7 @@ async function askFollowupChecks(browser, base, check) {
     const done = await waitFor(page, () => !window.emu.session.chat.busy, null, 8000);
     check(`${L}: a later text-only turn is not paused by a key (Thinking…, no Resume) and ends`, !textOnly.paused && textOnly.status === 'Thinking…' && !textOnly.resume && done, JSON.stringify(textOnly));
     check(`${L}: no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- (1f) where the open side panel lies over the screen (701-959 px wide) it covers the pill: the panel's own
@@ -11383,7 +11707,7 @@ async function askFollowupChecks(browser, base, check) {
     check(`${L}: Resume carries on, and Stop ends the turn`, resumed && stopped);
     if (replies.held) replies.held.release();
     check(`${L}: no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- (1e) a phone held sideways with its keyboard, full-screen chat: the keyboard covers the page, but the
@@ -11422,7 +11746,7 @@ async function askFollowupChecks(browser, base, check) {
     check(`${L}: Resume carries on, and Stop ends the turn`, resumed && stopped);
     if (replies.held) replies.held.release();
     check(`${L}: no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- (1c) Stop while assemble_and_load waits for an INCLUDE file that never arrives (side panel) ----
@@ -11461,7 +11785,7 @@ async function askFollowupChecks(browser, base, check) {
       declined && !JSON.stringify(last).includes('Something refused') && last[last.length - 1].content === 'Something else'
       && await page.evaluate(() => [...document.querySelectorAll('#askMessages .msg')].every((m) => m.textContent.trim())), JSON.stringify(last));
     check('ask (include): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- (2) the Debugger's opener in the Ctrl K box ----
@@ -11485,7 +11809,7 @@ async function askFollowupChecks(browser, base, check) {
     check('ask (debugger): none of the old wording is on the page', !(await oldCopy(page)).length, (await oldCopy(page)).join());
     if (shotDir) await page.screenshot({ path: path.join(shotDir, 'ask-debugger-desktop.png') });
     check('ask (debugger): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- (3) the phone's own keyboard never covers the sheet ----
@@ -11509,7 +11833,7 @@ async function askFollowupChecks(browser, base, check) {
     await page.evaluate(() => { window.__vv.height = 844; window.__vv.dispatchEvent(new Event('resize')); });
     check('ask (phone keyboard): when it goes, the sheet goes back to the bottom edge', await waitFor(page, () => Math.abs(document.getElementById('ask').getBoundingClientRect().bottom - innerHeight) <= 1));
     check('ask (phone keyboard): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- (5) full screen: the BASIC session's corner window starts hidden; Claude acting or
@@ -11573,7 +11897,7 @@ async function askFollowupChecks(browser, base, check) {
         !!asked && asked.basic && !asked.chat && asked.pcLine === q.match(/\(([0-9A-F]{4})–/)[1], JSON.stringify([asked, q.slice(0, 120)]));
     }
     check(`${L}: no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- (4) docking: from 960 px the panel docks beside the machine, which narrows but keeps at least 480 px;
@@ -11590,7 +11914,7 @@ async function askFollowupChecks(browser, base, check) {
     await page.fill('#askInput', 'hello');
     check('ask (1000 px): the message box is usable', await page.inputValue('#askInput') === 'hello');
     check('ask (1000 px): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   {
     const { ctx, page, errors } = await open({ width: 900, height: 800 });
@@ -11603,7 +11927,7 @@ async function askFollowupChecks(browser, base, check) {
       o.pos === 'fixed' && o.right <= o.w && o.left >= 0 && o.bottom <= o.h && o.width >= 320 && Math.abs(o.monitor - before) < 1 && o.fits, JSON.stringify(Object.assign(o, { before })));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, 'ask-overlay-900.png') });
     check('ask (900 px): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- (6) load_basic's own card: on every call, even with "Let Claude use the emulator" on, with "Don't ask again
@@ -11747,7 +12071,7 @@ async function askFollowupChecks(browser, base, check) {
     res = await t.settle();
     check('full screen: Don\'t load with the switch off: load-declined, nothing loaded', res.out.error && res.out.error.code === 'load-declined' && (await listing()) === '10 PRINT "NINE"', JSON.stringify(res));
     check('load card: no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 }
 
@@ -11867,7 +12191,7 @@ async function askEscChecks(browser, base, check) {
       going && paused && /Esc stops Claude/.test(status) && !breakSent && after.ok, JSON.stringify({ going, paused, status, breakSent, after }));
     if (replies.held) replies.held.release();
     check(`${L}: no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- (1a) the pausing key and the Esc in one task (a busy page: no timer has run between them): Esc still stops ----
@@ -11884,7 +12208,7 @@ async function askEscChecks(browser, base, check) {
     check(`askEsc (Esc right after the pausing key, ${tag}): Esc stops Claude, no BREAK, Resume afterwards types nothing`, r.paused && !r.breakSent && after.ok, JSON.stringify({ r, after }));
     if (replies.held) replies.held.release();
     check(`askEsc (Esc right after the pausing key, ${tag}): no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- (1b) Esc when not paused is unchanged: an Esc that pauses Claude is the person's BREAK (the pause goes on) ----
@@ -11900,7 +12224,7 @@ async function askEscChecks(browser, base, check) {
     check('askEsc (Esc not paused): Stop then ends it', (await stoppedForGood(page)).ok);
     if (replies.held) replies.held.release();
     check('askEsc (Esc not paused): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- (1b') Esc held down (autorepeat) while Claude types: the first press pauses and is BREAK; its repeats are the
@@ -11919,7 +12243,7 @@ async function askEscChecks(browser, base, check) {
     check('askEsc (Esc held): the next Esc press stops Claude', (await stoppedForGood(page)).ok);
     if (replies.held) replies.held.release();
     check('askEsc (Esc held): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // a modifier let go while Esc is held does not end the press: Shift down, Esc down, Shift up, Esc repeats
@@ -11938,7 +12262,7 @@ async function askEscChecks(browser, base, check) {
     check('askEsc (Esc held, Shift let go): the next Esc press stops Claude', (await stoppedForGood(page)).ok);
     if (replies.held) replies.held.release();
     check('askEsc (Esc held, Shift let go): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // and a modifier pressed while Esc is held: Esc down, Shift down, Esc repeats
@@ -11957,7 +12281,7 @@ async function askEscChecks(browser, base, check) {
     check('askEsc (Esc held, Shift pressed): the next Esc press stops Claude', (await stoppedForGood(page)).ok);
     if (replies.held) replies.held.release();
     check('askEsc (Esc held, Shift pressed): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // AltGr (AltGraph) and CapsLock pressed and let go while Esc is held: the same press
@@ -11975,7 +12299,7 @@ async function askEscChecks(browser, base, check) {
     await page.click('#btnAskStop');
     if (replies.held) replies.held.release();
     check(`askEsc (Esc held, ${key}): no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // an Esc that only closes a card above the screen while Claude types (not paused) is not a key on the machine:
   // no BREAK, and it does not pause Claude
@@ -11990,7 +12314,7 @@ async function askEscChecks(browser, base, check) {
     await page.click('#btnAskStop');
     if (replies.held) replies.held.release();
     check('askEsc (card, not paused): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- (1c) Esc order: a menu (the command box) or a card open during the pause takes the first Esc; the next stops ----
@@ -12008,7 +12332,7 @@ async function askEscChecks(browser, base, check) {
       boxOpen && first.closed && first.paused && after.ok, JSON.stringify({ boxOpen, first, after }));
     if (replies.held) replies.held.release();
     check('askEsc (order): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // a card above the screen (the media offer, page.onEscape rank card) with the focus on the screen: the same order
@@ -12027,7 +12351,7 @@ async function askEscChecks(browser, base, check) {
       first.closed && first.paused && !first.breakSent && after.ok, JSON.stringify({ first, after }));
     if (replies.held) replies.held.release();
     check('askEsc (order, card): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- (2) the browser's Fullscreen: Claude's status with Stop (and Resume while paused) inside it ----
@@ -12062,7 +12386,7 @@ async function askEscChecks(browser, base, check) {
     check(`${L}: Resume carries on; Stop ends the turn and nothing is typed later`, resumed && after.ok, JSON.stringify({ resumed, after }));
     if (replies.held) replies.held.release();
     check(`${L}: no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // leaving Fullscreen while paused (the browser's Esc there) stops Claude
   {
@@ -12076,7 +12400,7 @@ async function askEscChecks(browser, base, check) {
     check('askEsc (browser Fullscreen): leaving it while paused (Esc there) stops Claude; Resume afterwards types nothing', after.ok, JSON.stringify(after));
     if (replies.held) replies.held.release();
     check('askEsc (browser Fullscreen, leave): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- (2b) what the program on the machine asks for itself is not the person's doing: Claude typing 1 on the
@@ -12098,7 +12422,7 @@ async function askEscChecks(browser, base, check) {
       up && r.busy && !r.err && !/stopped/.test(r.note), JSON.stringify({ up, ...r, note: r.note.slice(-80) }));
     if (replies.held) replies.held.release();
     check('askEsc (welcome menu): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ... but only the start itself is the machine's: the person's Reset while the page fetches what the machine
@@ -12120,7 +12444,7 @@ async function askEscChecks(browser, base, check) {
       !!release && stopped && /\[stopped: you reset the machine\]/.test(note) && after && driven === null, JSON.stringify({ fetched: !!release, stopped, after, driven, note: note.slice(-60) }));
     if (replies.held) replies.held.release();
     check('askEsc (welcome menu, Reset meanwhile): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- (3) a Reset, a power cycle, a snapshot load or a machine switch during a pause stops Claude ----
@@ -12151,7 +12475,7 @@ async function askEscChecks(browser, base, check) {
     if (keeps && !full) check(`${L}: the conversation says why`, /\[stopped: you (reset|power cycled) the machine\]/.test(note[0]), note[0].slice(-120));
     if (replies.held) replies.held.release();
     check(`${L}: no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- (4) F1: the page views (Share, the Library, Add ROMs, the Debugger) hide the emulator and the panel: Claude's
@@ -12192,7 +12516,7 @@ async function askEscChecks(browser, base, check) {
         check(`${L}: Stop ends the turn (nothing typed afterwards) and the pill goes`, after.ok && gone, JSON.stringify(after));
         if (replies.held) replies.held.release();
         check(`${L}: no page errors`, !errors.length, errors.join('; '));
-        await ctx.close();
+        await closeCtx(ctx);
       }
     }
   }
@@ -12214,7 +12538,7 @@ async function askEscChecks(browser, base, check) {
       up && r.busy && !!r.text && stop === 'ok' && after, JSON.stringify({ up, ...r, stop, after }));
     if (replies.held) replies.held.release();
     check(`askEsc (F1 Claude's own 3, ${tag}): no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // a card raised while a view is up closes the view (back to the emulator, the panel open on the card), where it is
   // seen and answered; a card already waiting when the person opens a view: the pill says so, and Answer goes to it
@@ -12261,7 +12585,7 @@ async function askEscChecks(browser, base, check) {
         waiting && answer === 'ok' && shownCard && tell === 'ok' && answered, JSON.stringify({ waiting, answer, shownCard, tell, answered }));
       if (replies.held) replies.held.release();
       check(`${L}: no page errors`, !errors.length, errors.join('; '));
-      await ctx.close();
+      await closeCtx(ctx);
     }
   }
 
@@ -12305,7 +12629,7 @@ async function askEscChecks(browser, base, check) {
         after.ok && !res.pending && res.call === null && res.undo === 0 && gone, JSON.stringify({ after, ...res, gone }));
       if (replies.held) replies.held.release();
       check(`${L}: no page errors`, !errors.length, errors.join('; '));
-      await ctx.close();
+      await closeCtx(ctx);
     }
   }
 
@@ -12336,7 +12660,7 @@ async function askEscChecks(browser, base, check) {
     check(`${L}: Stop then ends it`, (await stoppedForGood(page)).ok);
     if (replies.held) replies.held.release();
     check(`${L}: no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // the repro: Claude acting at the welcome menu (it has poked, its next reply is on the way), the person types "1"
   // (on the page's body, an on-screen key, a tap on the menu line): LIZA starts and Claude's turn stops, not Claude's
@@ -12363,7 +12687,7 @@ async function askEscChecks(browser, base, check) {
     check(`askEsc (F2 the welcome-menu repro, ${tag}): the person's "1" while Claude acts pauses Claude, and LIZA it starts stops Claude's turn`, acting && up && stopped, JSON.stringify({ acting, up, stopped }));
     if (replies.held) replies.held.release();
     check(`askEsc (F2 the welcome-menu repro, ${tag}): no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- (5b) the Ask rail's open tab is a menu: Esc on the screen closes it and is neither BREAK nor a pause; Shift
@@ -12384,7 +12708,7 @@ async function askEscChecks(browser, base, check) {
     check('askEsc (rail): Stop then ends it', (await stoppedForGood(page)).ok);
     if (replies.held) replies.held.release();
     check('askEsc (rail): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   {
     const { ctx, page, errors, replies } = await open({ width: 1440, height: 900 });
@@ -12398,7 +12722,7 @@ async function askEscChecks(browser, base, check) {
     check('askEsc (Shift): Stop then ends it', (await stoppedForGood(page)).ok);
     if (replies.held) replies.held.release();
     check('askEsc (Shift): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- (5c) where no other Stop can be reached: a phone held sideways with its touch keyboard (the drawer's strip is
@@ -12418,7 +12742,7 @@ async function askEscChecks(browser, base, check) {
     check(`${L}: Claude's status with a clickable Stop shows, and Stop ends the turn`, keys && shown && stop === 'ok' && ended, JSON.stringify({ keys, shown, stop, ended }));
     if (replies.held) replies.held.release();
     check(`${L}: no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // ... and in the full-screen chat held sideways, a card is not left under the touch keyboard: it stands aside
   {
@@ -12437,7 +12761,7 @@ async function askEscChecks(browser, base, check) {
     check(`${L}: the touch keyboard stands aside while the card waits, Allow can be clicked, and the keyboard comes back`, pending && allow === 'ok' && back, JSON.stringify({ pending, allow, back }));
     if (replies.held) replies.held.release();
     check(`${L}: no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- (5d) from a second review: a toast raised while a turn runs and the sheet's Stop shows does not make the
@@ -12536,7 +12860,7 @@ async function askEscChecks(browser, base, check) {
     await page.evaluate(() => window.emu.session.stopClaude());
     if (replies.held) replies.held.release();
     check(`${L}: no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // the pill at the bottom of a portrait phone with the touch keyboard (no other Stop in the window): a toast goes above
   // it, so its Stop stays clickable
@@ -12559,7 +12883,7 @@ async function askEscChecks(browser, base, check) {
     await page.evaluate(() => window.emu.session.stopClaude());
     if (replies.held) replies.held.release();
     check(`${L}: no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   {
     const { ctx, page, errors, replies } = await open({ width: 1440, height: 900 });
@@ -12574,7 +12898,7 @@ async function askEscChecks(browser, base, check) {
     check('askEsc (a modifier let go in another window): the next Esc stops Claude', paused && after.ok, JSON.stringify({ paused, after }));
     if (replies.held) replies.held.release();
     check('askEsc (a modifier let go in another window): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   {
     const { ctx, page, errors } = await open({ width: 1440, height: 900 });
@@ -12585,7 +12909,7 @@ async function askEscChecks(browser, base, check) {
     const closed = await waitFor(page, () => location.hash === '#library' && !document.body.classList.contains('ask-rail-drawer'), null, 5000);
     check('askEsc (rail and a page view): the rail\'s tab closes when a page view opens', was && closed);
     check('askEsc (rail and a page view): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   {
     const { ctx, page, errors, replies } = await open({ width: 1200, height: 450 }, { hasTouch: true });
@@ -12612,7 +12936,7 @@ async function askEscChecks(browser, base, check) {
     await page.evaluate(() => window.emu.session.stopClaude());
     if (replies.held) replies.held.release();
     check(`${L}: no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- (6) M2: a "[stopped]" note is the stopped turn's: a turn the full-screen chat starts (its own line, through
@@ -12630,8 +12954,7 @@ async function askEscChecks(browser, base, check) {
     const note = await page.textContent('#askMessages');
     check('askEsc (turn note): a turn started outside the panel\'s box clears the last turn\'s "[stopped]" note', cleared && !/\[stopped/.test(note), note.slice(-80));
     check('askEsc (turn note): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
-  }
+    await closeCtx(ctx);  }
 
   // ---- (7) Allow and resume: while Claude is paused a card's accept button is "Allow and resume" (one click: consent and Resume);
   // a no never resumes; the switch off while a call waits paused refuses it; Esc while paused with a card up is Stop.
@@ -12686,7 +13009,7 @@ async function askEscChecks(browser, base, check) {
       check(`${L}: no longer paused: the button is plain "Allow" again`, label === 'Allow', label);
       if (replies.held) replies.held.release();
       check(`${L}: no page errors`, !errors.length, errors.join('; '));
-      await ctx.close();
+      await closeCtx(ctx);
     }
     // (c) decline while paused: nothing acts, the pause stays
     {
@@ -12702,7 +13025,7 @@ async function askEscChecks(browser, base, check) {
       await page.evaluate(() => window.emu.session.stopClaude());
       if (replies.held) replies.held.release();
       check(`${L}: no page errors`, !errors.length, errors.join('; '));
-      await ctx.close();
+      await closeCtx(ctx);
     }
     // (d) a key after the click and before the act (during the INCLUDE read): it waits at the re-check, Resume shown;
     // (e) the same with the switch turned off while paused: Resume then refuses the call
@@ -12752,7 +13075,7 @@ async function askEscChecks(browser, base, check) {
       }
       if (replies.held) replies.held.release();
       check(`${L}: no page errors`, !errors.length, errors.join('; '));
-      await ctx.close();
+      await closeCtx(ctx);
     }
     // (g) a card ends the browser's Fullscreen by itself; a key that pauses Claude before the browser reports the leave
     // must not turn the page's own leave into Stop (only a leave the person makes stops Claude). The leave is held
@@ -12791,7 +13114,7 @@ async function askEscChecks(browser, base, check) {
       check(`${L}: afterwards, a Fullscreen leave the person makes while Claude is paused stops Claude`, full2 && paused2 && after.ok, JSON.stringify({ full2, paused2, after }));
       if (replies.held) replies.held.release();
       check(`${L}: no page errors`, !errors.length, errors.join('; '));
-      await ctx.close();
+      await closeCtx(ctx);
     }
     // (f) Esc while paused with a card up: Stop (the card answered stopped, the turn ends), not a no
     {
@@ -12806,7 +13129,7 @@ async function askEscChecks(browser, base, check) {
         ended && r.err === 'aborted' && r.undo === 0 && !replies.held && await at(page, 0x3000, 1) === '0', JSON.stringify({ ended, ...r, held: !!replies.held }));
       if (replies.held) replies.held.release();
       check(`${L}: no page errors`, !errors.length, errors.join('; '));
-      await ctx.close();
+      await closeCtx(ctx);
     }
     // (h) F1: the click does what the button said when it was drawn: a stale plain "Allow" (data-resume empty) clicked
     // while paused answers yes only (no resume: nothing acts, still paused); a stale "Allow and resume" clicked after
@@ -12828,7 +13151,7 @@ async function askEscChecks(browser, base, check) {
       await page.evaluate(() => window.emu.session.stopClaude());
       if (replies.held) replies.held.release();
       check(`${L}: no page errors`, !errors.length, errors.join('; '));
-      await ctx.close();
+      await closeCtx(ctx);
     }
   }
 
@@ -12873,7 +13196,7 @@ async function askEscChecks(browser, base, check) {
     await page.evaluate(() => window.emu.session.stopClaude());
     if (replies.held) replies.held.release();
     check(`${L}: no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- (9) F5: the joystick hook per source, with hysteresis. The mouse as joystick pauses Claude once per deflection
@@ -12929,7 +13252,7 @@ async function askEscChecks(browser, base, check) {
     await page.evaluate(() => window.emu.session.stopClaude());
     if (replies.held) replies.held.release();
     check(`${L}: no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- (10) the touch stick and its FIRE (js/ui/touch-keys.js) go through the joystick hook as the source 'touch':
@@ -12977,7 +13300,7 @@ async function askEscChecks(browser, base, check) {
     await page.evaluate(() => window.emu.session.stopClaude());
     if (replies.held) replies.held.release();
     check(`${L}: no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 }
 
@@ -13299,7 +13622,7 @@ async function askStatusChecks(browser, base, check) {
     const shown = await page.evaluate(() => document.body.innerText);
     check(`ask status (${tag}): the API key is in no console log and nowhere on the page`, !logs.some((l) => l.includes(KEY)) && !shown.includes(KEY));
     check(`ask status (${tag}): no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 }
 
@@ -13735,7 +14058,7 @@ async function askChecks(browser, base, check) {
       && (await emuFrames(page, 30), await ev(() => { const m = window.emu.session.shownMachine; return m.typist.queue.length === 0 && m.stubKeys.length === 0 && !window.emu.session.chat.busy; })));
     check(`${L}: no sideways scroll`, await ev(() => document.documentElement.scrollWidth <= innerWidth));
     check(`${L}: no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   await askGimeTextChecks(browser, base, check);
   await askPlusTextChecks(browser, base, check);
@@ -13844,7 +14167,7 @@ async function askBesideChecks(browser, base, check) {
         check(`${L}: "Just tell me the fix" refuses the poke, which changes nothing`, declined && pokeRes[0] && pokeRes[0].is_error && /consent-declined/.test(pokeRes[0].content)
           && await page.evaluate(() => window.emu.session.consent.allowed === false), JSON.stringify(pokeRes).slice(0, 300));
         check(`${L}: no page errors`, !errors.length, errors.join('; '));
-        await ctx.close();
+        await closeCtx(ctx);
       }
     }
     // the full-screen chat entry still goes full screen, from the welcome menu too
@@ -13872,7 +14195,7 @@ async function askBesideChecks(browser, base, check) {
       check(`${L}: opens the full-screen chat on its own chat machine`, await waitFor(page, () => window.emu.session.claudeView === 'full' && !!window.emu.session.chatMachines
         && window.emu.session.chatView === 'chat' && document.body.classList.contains('claude-open'), null, 15000));
       check(`${L}: no page errors`, !errors.length, errors.join('; '));
-      await ctx.close();
+      await closeCtx(ctx);
     }
   }
   // Ctrl K: a question (ending in "?") goes to Claude even when it matches a command, which is listed beneath; a
@@ -13935,7 +14258,7 @@ async function askBesideChecks(browser, base, check) {
         && await page.evaluate(() => !window.__pressed.length));
     }
     check(`${L}: no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 }
 
@@ -14002,7 +14325,7 @@ async function askGimeTextChecks(browser, base, check) {
     JSON.stringify(res && res.attributes && res.attributes[2]));
   check(`${L}: Claude's answer shows in the panel`, /Your directory listing\./.test(await page.textContent('#askMessages')));
   check(`${L}: no page errors`, !errors.length, errors.join('; '));
-  await ctx.close();
+  await closeCtx(ctx);
 }
 
 // Ask Claude on a Dragon 64 Plus showing its 80-column board (the Display tab's Plus screen): Claude's screen_text (the
@@ -14068,7 +14391,7 @@ async function askPlusTextChecks(browser, base, check) {
     && res.startAddress === 0x50 && res.base === null && /no character generator/.test(res.note || ''), JSON.stringify(res && { mode: res.mode, base: res.base, startAddress: res.startAddress, note: res.note }));
   check(`${L}: Claude's answer shows in the panel`, /Your 80-column screen\./.test(await page.textContent('#askMessages')));
   check(`${L}: no page errors`, !errors.length, errors.join('; '));
-  await ctx.close();
+  await closeCtx(ctx);
 }
 
 // settings to a file and back into another browser profile; ROMs never go along
@@ -14184,7 +14507,7 @@ async function phoneChatChecks(browser, base, check) {
     check(`phone chat (${label}): and leaves the chat for the emulator`, await waitFor(page, () => !document.body.classList.contains('claude-open') && !/app=claude/.test(location.search)
       && (innerHeight > innerWidth ? !document.getElementById('tkMenu').checkVisibility() : document.getElementById('tkMenu').textContent === 'Menu')));
     check(`phone chat (${label}): no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // The phone's full-screen chat is not a BASIC machine's screen, so a remembered Joystick mode must not put
   // the stick, FIRE or the switch there. The path that shows it needs no machine event: the full-screen chat on a
@@ -14223,7 +14546,7 @@ async function phoneChatChecks(browser, base, check) {
     check('phone chat (joystick mode remembered): leaving the phone breakpoint gives the stick back',
       back.stick > 0 && back.fire > 0 && back.sw > 0 && back.mode === 'joystick', JSON.stringify(back));
     check('phone chat (joystick mode remembered): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // PC-M1: the browser's Back leaves the chat, and so does Esc from the chat bar (on the screen Esc is BREAK)
   {
@@ -14242,7 +14565,7 @@ async function phoneChatChecks(browser, base, check) {
     await page.focus('#btnFullSide');
     await page.keyboard.press('Escape');
     check('phone chat: Esc from the chat bar leaves the chat', await waitFor(page, () => !document.body.classList.contains('claude-open')));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // PC-M4: a tablet (820 x 1180) stacks the chat under the screen too: without a key the card comes first, on screen
   {
@@ -14256,7 +14579,7 @@ async function phoneChatChecks(browser, base, check) {
       return { input: i.top >= 0 && i.bottom <= innerHeight, above: i.bottom <= s.top, help: document.getElementById('claudeHelp').textContent };
     });
     check('tablet chat (820 x 1180): no key: the key field is on screen, above the screen, and the help line says "above"', tab.input && tab.above && /add one above/.test(tab.help), JSON.stringify(tab));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // A phone held sideways without the on-screen keyboard (or any window under 500 px high): the app bar is one
   // row, Capture & share and the links behind Menu, and the screen takes the height (it was 181 px under two rows)
@@ -14273,7 +14596,7 @@ async function phoneChatChecks(browser, base, check) {
     const open = await page.evaluate(() => ({ links: [...document.querySelectorAll('.appbar nav a')].every((a) => a.getBoundingClientRect().height > 0), share: getComputedStyle(document.getElementById('btnShare')).display !== 'none' }));
     check('sideways, 844 x 390: the app bar is one row and the screen takes the height; the links and Capture & share are behind Menu',
       bar.bar <= 64 && bar.screen >= 220 && bar.fits && bar.links === 'none' && !bar.scrollX && open.links && open.share, JSON.stringify({ ...bar, open }));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // on a phone the Ctrl K box opened over the app bar's Ask Claude and Menu. It opens under the bar,
   // on screen, and both buttons stay uncovered (the button itself is what is at its centre)
@@ -14293,7 +14616,7 @@ async function phoneChatChecks(browser, base, check) {
     });
     check(`Ctrl K box on a phone (${label}): it opens on screen, under the app bar: Ask Claude and Menu are not covered`,
       box.open && box.inView && box.ask !== 'covered' && box.menu !== 'covered' && box.focus === 'cmdInput', JSON.stringify(box));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // a wide page keeps its layout: the card on the right, the bezel and the whole picture
   {
@@ -14305,7 +14628,7 @@ async function phoneChatChecks(browser, base, check) {
     const wide = await page.evaluate(() => ({ phone: document.body.classList.contains('chat-phone'), help: document.getElementById('claudeHelp').textContent,
       crop: document.getElementById('screen').getBoundingClientRect().width > document.querySelector('.tube').getBoundingClientRect().width }));
     check('phone chat: on a wide page none of it applies: the help line says "on the right", the whole picture shows', !wide.phone && /add one on the right/.test(wide.help) && !wide.crop, JSON.stringify(wide));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 }
 
@@ -14458,7 +14781,7 @@ async function emulatorBackChecks(browser, base, check) {
     }
   }
   check('emulator back: no page errors', !errors.length, errors.join('; '));
-  await ctx.close();
+  await closeCtx(ctx);
 }
 
 // The controls under the screen stay put on a first visit. #screenNotes is one line of fixed height with one note
@@ -14522,7 +14845,7 @@ async function foldChecks(browser, base, check) {
     check(`${L}: a returning visit: the sound note appears, then the empty line; Reset does not move and stays inside the window`,
       r0.sound && r0.text.length === 1 && r0.text[0] === NOTE_TEXT.sound && r1.text.length === 0 && r1.notesShown && r0.resetY === r1.resetY && r0.resetBottom <= r0.vh, JSON.stringify({ r0, r1 }));
     check(`${L}: no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   };
   for (const [w, h] of [[1280, 720], [1366, 768], [1440, 900]]) await run(`${w}x${h}`, { width: w, height: h }, '');
   // any model: the same on each family at one size
@@ -14563,7 +14886,7 @@ async function noteFitChecks(browser, base, check) {
     if (shotDir) await page.screenshot({ path: path.join(shotDir, `note-fit-${w}x${h}.png`) });
     check(`${L}: Reset's y is the same for both notes`, a.resetY === b.resetY, `${a.resetY} vs ${b.resetY}`);
     check(`${L}: no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // the chat's focus pill fits on its line at the desktop sizes
   for (const [w, h] of [[1280, 720], [1366, 657], [1440, 900]]) {
@@ -14575,7 +14898,7 @@ async function noteFitChecks(browser, base, check) {
     await page.focus('#screen');
     const p = await page.evaluate(() => { const e = document.getElementById('focusHint'); return { shown: getComputedStyle(e).display !== 'none', sw: e.scrollWidth, cw: e.clientWidth, sh: e.scrollHeight, ch: e.clientHeight }; });
     check(`note fit (${w}x${h}): the chat focus pill fits whole`, p.shown && p.sw <= p.cw && p.sh <= p.ch && p.ch <= 28, JSON.stringify(p));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // a touch screen: no notes line
   const tctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, serviceWorkers: 'block' });
@@ -14584,7 +14907,7 @@ async function noteFitChecks(browser, base, check) {
   await emuFrames(tpage, 3);
   const th = await tpage.evaluate(() => ({ display: getComputedStyle(document.getElementById('screenNotes')).display, h: document.getElementById('screenNotes').getBoundingClientRect().height }));
   check('note fit (390x844 touch): #screenNotes is hidden', th.display === 'none' && th.h === 0, JSON.stringify(th));
-  await tctx.close();
+  await closeCtx(tctx);
 }
 
 // Esc in the full-screen chat escalates. On the chat screen it is BREAK while a reply streams (it stops the reply)
@@ -14673,7 +14996,7 @@ async function escChatChecks(browser, base, check) {
   await page.keyboard.press('Escape');
   check(`${L}: on the emulator, Esc on the screen is still the machine's BREAK`, await waitFor(page, () => window.__reached.length > 0));
   check(`${L}: no page errors`, !errors.length, errors.join('; '));
-  await ctx.close();
+  await closeCtx(ctx);
 }
 
 // The browser's Back from a view is the same as "← Emulator" and Esc: the focus lands on the screen (also when the Ask
@@ -14745,7 +15068,7 @@ async function backFocusChecks(browser, base, check) {
   check('back focus: …and closing the view still reopens the Ask panel on the conversation (the pending reopen was kept)', await onEmulator() && await waitFor(page, (mark) => { const a = document.getElementById('ask'); return !a.hidden
     && window.emu.session.claudeView === 'panel' && document.getElementById('askMessages').textContent.includes(mark); }, MARK), await focusId());
   check('back focus: no page errors', !errors.length, errors.join('; '));
-  await ctx.close();
+  await closeCtx(ctx);
 }
 
 async function claudeChecks(browser, base, check) {
@@ -14919,7 +15242,7 @@ async function claudeChecks(browser, base, check) {
   await page.click('#btnClaudeKeyForget');
   check('claude: Forget key removes it from this browser; the key form comes back', await page.evaluate(() => !localStorage.getItem('cloadm.anthropicKey') && !document.getElementById('claudeKeyCard').hidden));
   check('claude: no page errors', !errors.length, errors.join('; '));
-  await ctx.close();
+  await closeCtx(ctx);
 }
 
 async function settingsChecks(browser, base, check) {
@@ -14958,8 +15281,8 @@ async function settingsChecks(browser, base, check) {
   check('settings: a file that isn\'t CLOADM settings is refused', await waitFor(p2, () => /not a CLOADM settings file/.test(document.getElementById('toast').textContent)));
   fs.rmSync(file);
   check('settings: no page errors', !errors.length, errors.join('; '));
-  await ctx2.close();
-  await ctx.close();
+  await closeCtx(ctx2);
+  await closeCtx(ctx);
 }
 
 // The Share screen's job (send this exact moment): on a 375x548 phone the primary action and the link are on
@@ -15019,8 +15342,7 @@ async function shareScreenChecks(browser, base, check) {
   await page.click('#btnShareNative');
   await painted(page);
   check('share screen: cancelling the share sheet (AbortError) shows no error', (await page.evaluate(() => window.__shared.length)) === 2 && !(await page.textContent('#toastText')).trim() && !errors.length, errors.join('; '));
-  await ctx.close();
-  // Copy link, the primary action: the clipboard holds exactly the link in the field, and the page says so
+  await closeCtx(ctx);  // Copy link, the primary action: the clipboard holds exactly the link in the field, and the page says so
   const ctxc = await browser.newContext({ viewport: { width: 375, height: 548 }, serviceWorkers: 'block', permissions: ['clipboard-read', 'clipboard-write'] });
   const pc = await ctxc.newPage();
   const cerrors = [];
@@ -15033,8 +15355,7 @@ async function shareScreenChecks(browser, base, check) {
   check('share screen: Copy link puts exactly the link in the field on the clipboard, and says "Share link copied"',
     copied.length > 20 && copied === await pc.inputValue('#shareLink') && await waitFor(pc, () => /Share link copied/.test(document.getElementById('toastRegion').textContent)), `${copied.length} chars`);
   check('share screen: Copy link: no page errors', !cerrors.length, cerrors.join('; '));
-  await ctxc.close();
-  // without canShare: Copy link is the primary button, Share… is absent
+  await closeCtx(ctxc);  // without canShare: Copy link is the primary button, Share… is absent
   const ctx2 = await browser.newContext({ viewport: { width: 375, height: 548 }, serviceWorkers: 'block' });
   await ctx2.addInitScript(() => { navigator.canShare = () => false; });
   const p2 = await ctx2.newPage();
@@ -15050,8 +15371,7 @@ async function shareScreenChecks(browser, base, check) {
   check('share screen: Export… and Import… are on the Machine tab, in a "Settings file" row', await p2.isVisible('#btnSettingsExport') && await p2.isVisible('#btnSettingsImport')
     && /^Settings file/.test(await p2.textContent('#settingsFileRow')));
   check('share screen: no page errors', !errors.length && !p2errors.length, errors.concat(p2errors).join('; '));
-  await ctx2.close();
-}
+  await closeCtx(ctx2);}
 
 // the Share screen: layout at desktop and phone width; the link that carries the moment
 // opens it in a fresh browser profile (and a damaged one says so); the clip is a video of the screen; the embed
@@ -15085,7 +15405,7 @@ async function shareChecks(browser, base, site, check) {
       lay.hash === '#share' && lay.emulatorHidden && lay.scrollX && (label === 'desktop' ? lay.side : lay.stacked)
       && lay.heading === 'Share this moment' && lay.embed === 'Embed in a web page' && lay.discsFull, JSON.stringify(lay));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, `share-screen-${label}.png`), fullPage: true });
-    if (label === 'phone') { check('share (phone): no page errors', !errors.length, errors.join('; ')); await ctx.close(); continue; }
+    if (label === 'phone') { check('share (phone): no page errors', !errors.length, errors.join('; ')); await closeCtx(ctx); continue; }
 
     // the link carries the moment: a fresh profile opens it, POKE included, and the fragment is cleared. The
     // options are matched as a group rather than pinned one by one (`ssc=none` included): shareUrl (js/session.js)
@@ -15124,7 +15444,7 @@ async function shareChecks(browser, base, site, check) {
     check('share: a link in the earlier form (#s=) still opens that moment', await p2c.evaluate(() => window.emu.machine.ram[1030] === 42 && location.hash === '')
       && await waitFor(p2c, () => window.__said.some((m) => /^Snapshot opened: Dragon 64/.test(m))) && await p2c.evaluate(() => !window.__said.some((m) => /^ERROR /.test(m))),
       `${oldLink.length} characters (the #z= link: ${link.length}) · ${await said(p2c)}`);
-    await ctx2.close();
+    await closeCtx(ctx2);
 
     // the clip
     await openDisc(page, 'shareMore');
@@ -15168,7 +15488,7 @@ async function shareChecks(browser, base, site, check) {
     }, [tapeFile.load, want]);
     check('share: the written iframe, on another origin, runs that machine and loads the tape into memory', got.info.machine === 'coco' && tapeFile.load === 0x3000
       && JSON.stringify(got.mem) === JSON.stringify(want), JSON.stringify(got));
-    await ctx3.close(); host.close();
+    await closeCtx(ctx3); host.close();
 
     // with the user's own ROMs (stand-ins made from this project's firmware, never real ROMs): the link names them
     // and carries none of their bytes, not even BASIC's copy of itself in RAM (the Dragon 64 in its 64K mode)
@@ -15222,10 +15542,10 @@ async function shareChecks(browser, base, site, check) {
           return window.emu.Emu.state.toJSON(s.shownMachine.snapshot().state.memory); }, shared.link);
         check('share link, recipient with the same ROMs: it opens, exactly the moment (memory rebuilt from their ROMs)', /Snapshot opened: Dragon 64/.test(r.msg) && exact === held, r.msg);
       }
-      await rctx.close();
+      await closeCtx(rctx);
     }
     check('share: no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   await shareScreenChecks(browser, base, check);
 }
@@ -15319,7 +15639,7 @@ async function focusChecks(browser, base, check) {
   const first = await page.evaluate(() => document.activeElement && (document.activeElement.id || document.activeElement.tagName));
   check('keyboard: with nothing focused, Tab moves onto the page, the machine gets nothing', first !== 'BODY' && await reached() === 0, first);
   check('keyboard: no page errors', !errors.length, errors.join('; '));
-  await ctx.close();
+  await closeCtx(ctx);
 }
 
 // the phone's machine menu reaches the window's bottom and fades while more models are
@@ -15335,14 +15655,14 @@ async function uiQaChecks(browser, base, check) {
     await page.goto(`${base}?machine=dragon64`); await ready(page);
     await page.click('#machineBtn');
     await waitFor(page, () => !document.getElementById('machineMenu').hidden);
-    const m = await page.evaluate(() => { const el = document.getElementById('machineMenu'), r = el.getBoundingClientRect();
-      return { bottom: r.bottom, vh: innerHeight, scrolls: el.scrollHeight > el.clientHeight, fade: el.classList.contains('more-below') }; });
+    const m = await page.evaluate(() => { const el = document.getElementById('machineMenu'), r = el.getBoundingClientRect(), box = el.querySelector('.menulist');
+      return { bottom: r.bottom, vh: innerHeight, scrolls: box.scrollHeight > box.clientHeight, fade: el.classList.contains('more-below') }; });
     check('phone: the machine menu reaches the bottom of the window and fades while more models are below',
       m.scrolls && m.fade && m.bottom > m.vh - 24 && m.bottom <= m.vh, JSON.stringify(m));
-    const last = await page.evaluate(() => { const el = document.getElementById('machineMenu'); el.scrollTop = el.scrollHeight;
+    const last = await page.evaluate(() => { const el = document.getElementById('machineMenu'), box = el.querySelector('.menulist'); box.scrollTop = box.scrollHeight;
       const b = [...el.querySelectorAll('button[data-machine]')].pop(); return b.dataset.machine; });
     await waitFor(page, () => !document.getElementById('machineMenu').classList.contains('more-below'));
-    const end = await page.evaluate((id) => { const el = document.getElementById('machineMenu'), r = el.getBoundingClientRect(),
+    const end = await page.evaluate((id) => { const el = document.getElementById('machineMenu'), r = el.querySelector('.menulist').getBoundingClientRect(),
       b = el.querySelector(`button[data-machine="${id}"]`).getBoundingClientRect();
       return { inside: b.top >= r.top && b.bottom <= r.bottom + 1, fade: el.classList.contains('more-below') }; }, last);
     check('phone: scrolled to the end, the last model is in view and the fade is gone', end.inside && !end.fade, JSON.stringify(end));
@@ -15350,7 +15670,7 @@ async function uiQaChecks(browser, base, check) {
     if (await page.isVisible('#switchConfirm')) await page.click('#btnSwitch');
     check('phone: the last model can be picked', await waitFor(page, (id) => window.emu.machine.id === id, last), last);
     check('phone: no page errors', !errors.length, errors.join(' | '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   let page = await ctx.newPage();
@@ -15402,7 +15722,7 @@ async function uiQaChecks(browser, base, check) {
   // Every view adds one history entry: Back from it returns to the emulator, and so does "← Emulator" from a
   // view opened over another view (one entry above the emulator, not two)
   // (in a new tab: history.length stops counting at 50, and the surfaces' openers follow the variable \`page\`)
-  await page.close();
+  await closePage(page);
   page = await ctx.newPage();
   page.on('pageerror', (e) => errors.push(e.message));
   await page.goto(`${base}?machine=dragon64`); await ready(page);
@@ -15477,7 +15797,7 @@ async function uiQaChecks(browser, base, check) {
   check('Esc with the focus on the screen closes the LIZA RAM offer too, and is not BREAK', await waitFor(page, () => document.getElementById('lizaOffer').hidden)
     && await page.evaluate(() => window.emu.machine.config.ram === 4 && window.reached.length === 0), await page.evaluate(() => window.reached.join()));
   check('desktop: no page errors', !errors.length, errors.join(' | '));
-  await ctx.close();
+  await closeCtx(ctx);
 }
 
 async function designChecks(browser, base, check) {
@@ -15503,7 +15823,7 @@ async function designChecks(browser, base, check) {
   check('tokens: code in JetBrains Mono, primary buttons phosphor green', /^"?JetBrains Mono/.test(styles.mono) && styles.primary === 'rgb(61, 245, 90)');
   check('tokens: nothing is requested from another host', !foreign.length, foreign.join(' '));
   check('tokens: no page errors', !errors.length, errors.join('; '));
-  await ctx.close();
+  await closeCtx(ctx);
 }
 
 // every model runs (its welcome menu, a screenshot), LIZA assembled and run from the Debugger and answering typed
@@ -15848,7 +16168,7 @@ async function semanticsChecks(browser, base, site, check) {
       await closedOk(page, `${L}, Ask Claude opened and closed`);
     }
     check(`${L}: no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // the full-screen chat: its bar is a region with the one h1; one main
@@ -15864,7 +16184,7 @@ async function semanticsChecks(browser, base, site, check) {
       o.landmarks.filter((x) => x.startsWith('main')).length === 1 && o.landmarks.includes('region "CHAT WITH CLAUDE"') && inOrder(o.headings) && o.headings[0][1] === 'CHAT WITH CLAUDE',
       JSON.stringify({ landmarks: o.landmarks, headings: o.headings }));
     await closedOk(page, 'semantics (chat)');
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // a Color Computer: the Multi-Pak's slots are hidden while it is folded, and only then
@@ -15885,7 +16205,7 @@ async function semanticsChecks(browser, base, site, check) {
     check('semantics (coco): the Multi-Pak\'s slots are hidden while it is folded, shown while it is open',
       !folded.open && folded.hidden && opened.open && !opened.hidden && slot1 && !again.open && again.hidden, JSON.stringify({ folded, opened, slot1, again }));
     await closedOk(page, 'semantics (coco), the Multi-Pak folded again');
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // the landing page
@@ -15900,7 +16220,7 @@ async function semanticsChecks(browser, base, site, check) {
       JSON.stringify(o.landmarks.filter((x) => !x.startsWith('region'))) === JSON.stringify(['banner', 'navigation "Site"', 'main', 'contentinfo'])
       && regions.length >= 4 && o.landmarks.indexOf(regions[0]) === 3 && o.landmarks.indexOf('contentinfo') === 3 + regions.length
       && await page.evaluate(() => document.querySelectorAll('main').length) === 1 && inOrder(o.headings), JSON.stringify({ landmarks: o.landmarks, headings: o.headings }));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 }
 
@@ -16000,7 +16320,7 @@ async function installChecks(browser, base, check) {
     check('install: "Got it" closes it, and stores no answer', await waitFor(page, () => document.getElementById('installOffer').hidden)
       && await page.evaluate(() => localStorage.getItem('cloadm.installAsk')) === null);
     check('install: no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- 2. the offer with a held prompt: every condition, broken one at a time ----
@@ -16025,7 +16345,7 @@ async function installChecks(browser, base, check) {
     await skipTo(page, 200);
     check('install: at most once a visit (the stored answer wiped, still no second card in this visit)', !(await cardUp(page)));
     check('install: no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // Each condition, broken alone, on its own page: the card's turn comes after 90 s of LIZA, and the one thing
   // that is wrong is set just before. (A condition set after the card is up would prove nothing.)
@@ -16056,7 +16376,7 @@ async function installChecks(browser, base, check) {
     await emuFrames(page, 3);
     check(`install: with ${name} cleared, the card comes`, await waitFor(page, () => !document.getElementById('installOffer').hidden));
     check('install: no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // the welcome menu is never offered over: a visit that only opens it never gets the card, however long
   {
@@ -16069,7 +16389,7 @@ async function installChecks(browser, base, check) {
     await skipTo(page, 200);
     check('install: no card over the welcome menu (the program clock does not run on it)', !(await cardUp(page))
       && (await page.evaluate(() => window.emu.install.clock.seconds())) === 0, String(await page.evaluate(() => window.emu.install.clock.seconds())));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // a disk in a drive is something to come back to, even at the bare prompt with nothing running (programRunning:
   // asked through the drives; a Machine has no disk controller of its own, and asking it for one never found a disk)
@@ -16089,7 +16409,7 @@ async function installChecks(browser, base, check) {
       bare === false && withDisk.running === true && withDisk.prompt === true && withDisk.drives === 1 && ejected === false,
       JSON.stringify({ bare, withDisk, ejected }));
     check('install: no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // ---- 2a. a background tab runs no program: the clock settles when the page is hidden ----
   {
@@ -16123,7 +16443,7 @@ async function installChecks(browser, base, check) {
     await skipTo(page, 90);
     check('install: after the real minute, the card comes', await waitFor(page, () => !document.getElementById('installOffer').hidden));
     check('install: no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- 2b. Esc is "Not now" on the Chromium offer and on the iOS one, and the card is never a history entry ----
@@ -16148,7 +16468,7 @@ async function installChecks(browser, base, check) {
       await waitFor(page, () => document.getElementById('installOffer').hidden)
       && await page.evaluate(() => { const v = JSON.parse(localStorage.getItem('cloadm.installAsk') || 'null'); return !!v && v.until > Date.now(); }));
     check(`install (${label}): no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- 2b''. Esc with the focus on nothing (the page's body: a first visit before any click) is "Not now": the
@@ -16166,7 +16486,7 @@ async function installChecks(browser, base, check) {
       && await page.evaluate(() => { const v = JSON.parse(localStorage.getItem('cloadm.installAsk') || 'null'); return !!v && v.n === 1 && v.until > Date.now(); }),
       String(active));
     check('install (Esc on the body): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- 2b'. Esc with the focus on the screen is the machine's BREAK, even with the offer up: someone typing at the
@@ -16193,7 +16513,7 @@ async function installChecks(browser, base, check) {
     check('install (Esc on the screen): Esc is the machine\'s BREAK; the card stays up and nothing is stored',
       after.breakSent && after.card && after.stored === null, JSON.stringify(after));
     check('install (Esc on the screen): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- 2c. the automatic offer does not take the keyboard from the machine ----
@@ -16209,7 +16529,7 @@ async function installChecks(browser, base, check) {
       await page.evaluate(() => document.activeElement.id || document.activeElement.tagName));
     await page.evaluate(() => window.emu.feedback.clear());
     check('install: no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- 2c'. typing at the machine while the card appears loses no key: half a line typed, the minute passed, the
@@ -16233,7 +16553,7 @@ async function installChecks(browser, base, check) {
       JSON.stringify(await page.evaluate(() => window.emu.session.screenText().filter((l) => l.startsWith('>')))));
     check(`install (typing, ${label}): the screen kept the focus`, await page.evaluate(() => document.activeElement === document.getElementById('screen')));
     check(`install (typing, ${label}): no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- 2d. A view open under the card: the card closes and stores nothing; Esc there closes the view ----
@@ -16256,7 +16576,7 @@ async function installChecks(browser, base, check) {
       await waitFor(page, () => !document.getElementById('installOffer').hidden, null, 5000)
       && await page.evaluate(() => localStorage.getItem('cloadm.installAsk')) === null);
     check('install: no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   {
     // Case B: with the card up, a view is opened and Esc is pressed. Esc belongs to the view (the card closed with
@@ -16282,7 +16602,7 @@ async function installChecks(browser, base, check) {
     check('install: Esc in a view closes the view and writes no answer (it was the view\'s Esc, not the card\'s "Not now")',
       after.hash === '' && after.ask === null, JSON.stringify(after));
     check('install: no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- 2e. focus after the card: back to the screen with no view; left alone with one ----
@@ -16299,7 +16619,7 @@ async function installChecks(browser, base, check) {
       await page.evaluate(() => document.activeElement === document.getElementById('screen')),
       await page.evaluate(() => document.activeElement.id || document.activeElement.tagName));
     check('install: no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   {
     // "always refocus" must fail: with a view open, the card's close() must not run page.focus() at all. The view's
@@ -16324,7 +16644,7 @@ async function installChecks(browser, base, check) {
     check('install: closing the card for a view does not focus the screen (the view is what is shown)',
       after.calls === 0 && !after.card, JSON.stringify(after));
     check('install: no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- 3. "Not now" twice, the 14 days, and "Don't ask again" across reloads ----
@@ -16379,7 +16699,7 @@ async function installChecks(browser, base, check) {
     await chooseInstall(page);
     check('install: "Don\'t ask again" ends the offers, not the Menu item (which runs the browser\'s prompt)', await waitFor(page, () => window.__prompted === 1) && !(await cardUp(page)));
     check('install: no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- 4. Install accepted: the prompt runs once, appinstalled says so and ends the offers ----
@@ -16403,7 +16723,7 @@ async function installChecks(browser, base, check) {
     check('install: what appinstalled stored ends the offers after a reload (a tab cannot report itself standalone, so the answer carries it)',
       await page.evaluate(() => !!(window.emu.install.answer() && window.emu.install.answer().no === true)) && !(await cardUp(page)));
     check('install: no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- 5. a dismissed prompt waits 14 days but is not a Not now ----
@@ -16419,7 +16739,7 @@ async function installChecks(browser, base, check) {
         return !!v && v.until > Date.now() && v.no !== true && v.n === undefined; }),
       await page.evaluate(() => localStorage.getItem('cloadm.installAsk')));
     check('install: no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- 6. standalone (an installed app): no card and no Menu item ----
@@ -16441,7 +16761,7 @@ async function installChecks(browser, base, check) {
     check('install (standalone): read from the display mode: the Menu item is hidden and no card comes',
       await page.evaluate(() => window.emu.install.installed) && await itemHidden(page) && !(await cardUp(page)));
     check('install (standalone): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- 7. iOS (an iPad: a phone has no automatic offer): no event at all, and the card is the Share steps ----
@@ -16466,7 +16786,7 @@ async function installChecks(browser, base, check) {
       return /Install CLOADM as an app on this device/.test(html) && ['Chrome or Edge on a computer', 'Chrome on Android', 'Samsung Internet', 'Firefox on Android', 'iOS Safari', 'Chrome or Edge on iOS 16.4'].every((t) => html.includes(t));
     }));
     check('install (iOS): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- 8. embed=1: no card ----
@@ -16479,7 +16799,7 @@ async function installChecks(browser, base, check) {
     await skipTo(page, 120);
     check('install: no card in an embed (?embed=1), and no Menu item shown', !(await cardUp(page))
       && await page.evaluate(() => { const b = document.getElementById('navInstall'); return !b || !b.checkVisibility(); }));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // The Install CLOADM… link adds no row to the app bar. It is a link of the nav, and an earlier placement there
@@ -16505,7 +16825,7 @@ async function installChecks(browser, base, check) {
     check(`install (${label} ${viewport.width}x${viewport.height}): the item costs the app bar no row (${bar.withItem.h} px with it, ${bar.without.h} px without) and sits in the app bar's nav`,
       bar.withItem.where && bar.withItem.h === bar.without.h && Math.abs(bar.withItem.screen - bar.without.screen) < 0.5, JSON.stringify(bar));
     check(`install (${label}): no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- 9. the placement: the card does not move the page, and covers neither the screen nor Reset ----
@@ -16589,7 +16909,7 @@ async function installChecks(browser, base, check) {
       !after.card && Math.abs(after.reset - before.reset) < 0.5 && Math.abs(after.screen - before.screen) < 0.5 && after.pageH === before.pageH,
       JSON.stringify({ before, after }));
     check(`install (${label}): no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- 10. a phone with the on-screen keyboard, held sideways and then upright: no automatic offer there at all, and none
@@ -16622,7 +16942,7 @@ async function installChecks(browser, base, check) {
     check('install (tablet): the card is clear of the screen and of every key (real boxes and what is seen)', tab.shown && clearOrOwed(tab), JSON.stringify(tab));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, 'install-tablet.png') });
     check('install (phone): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- 10b. short landscape windows, with and without the on-screen keyboard: the card is clear of the screen,
@@ -16676,7 +16996,7 @@ async function installChecks(browser, base, check) {
       check(`install (${w}x${h}): the offer was deferred, not spent — a roomier window brings the card`, await waitFor(page, () => !document.getElementById('installOffer').hidden, null, 10000));
     }
     check(`install (${w}x${h}${touch ? ' touch' : ''}): no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- 10c. the sweep: at every size the card is fully clear of everything, or not shown and the offer still owed ----
@@ -16720,7 +17040,7 @@ async function installChecks(browser, base, check) {
       if (lay.shown) shownSomewhere.push(`${w}x${h}`);
       if (lay.shown && phone) shownPhone.push(`${w}x${h}`);
       if (lay.shown && touch && !phone) shownTablet.push(`${w}x${h}`);
-      await ctx.close();
+      await closeCtx(ctx);
     }
     // The "not shown" branch above is a legitimate answer at a size with no room, but by itself it would let a
     // regression that NEVER shows the card pass every size. Most of the grid has room, so most of it must show: 36 of
@@ -16750,7 +17070,7 @@ async function installChecks(browser, base, check) {
     await emuFrames(page, 3);
     check('install resize: back at 1440x900 the card returns', await waitFor(page, () => !document.getElementById('installOffer').hidden, null, 5000));
     check('install resize: no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- 10m. a live resize, measured once the layout has settled: the screen is re-sized after the resize event (its
@@ -16778,7 +17098,7 @@ async function installChecks(browser, base, check) {
     check(`install resize ${w0}x${h0} -> ${w1}x${h1}: on the settled layout the card is clear of the screen and everything else, or not up and still owed`,
       clearOrOwed(L), JSON.stringify(L));
     check(`install resize ${w0}x${h0} -> ${w1}x${h1}: no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- 10n. a deferred offer comes back on the resize itself, not on the once-a-second retry: the throttle's clock
@@ -16819,7 +17139,7 @@ async function installChecks(browser, base, check) {
     check('install (forced retry): and it is clear of everything', L.shown && clearOrOwed(L), JSON.stringify(L));
     await page.evaluate(() => window.emu.install.holdRetryClock(false));
     check('install (forced retry): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- 10p. a layout change with no resize: on a tablet with its touch keys (a phone has no offer); Hide keys (⌄)
@@ -16857,7 +17177,7 @@ async function installChecks(browser, base, check) {
       clearOrOwed(shown), JSON.stringify(shown));
     await page.evaluate(() => window.emu.install.holdRetryClock(false));
     check('install (keys toggled): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- 10o. the card that is up is re-checked from the frame loop, at most once a second: a change under it that
@@ -16892,7 +17212,7 @@ async function installChecks(browser, base, check) {
     const L = await clearReport(page);
     check('install (frame re-check): and it is clear of everything, nothing stored', clearOrOwed(L) && L.stored === null, JSON.stringify(L));
     check('install (frame re-check): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- 10e. a size where the gutter is the answer ----
@@ -16908,7 +17228,7 @@ async function installChecks(browser, base, check) {
     check('install (1000x420): the card is up, in the gutter, clear of everything',
       g.up && g.where === 'gutter' && g.covered.length === 0, JSON.stringify(g));
     check('install (1000x420): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- 10f. a pending offer is not re-tried on every frame ----
@@ -16931,7 +17251,7 @@ async function installChecks(browser, base, check) {
     const calls = await page.evaluate(() => window.emu.install.state().placements()) - before;
     check('install: a pending offer is not re-placed on every frame (30 frames, at most one retry)', calls <= 1, String(calls));
     check('install (pending): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- 10g. the Menu's own card at a size with no clear place: it stays up (the user asked for it) but must still
@@ -16966,7 +17286,7 @@ async function installChecks(browser, base, check) {
     await painted(page);
     check('install (900x480, Menu card): "Got it" closes it', await waitFor(page, () => document.getElementById('installOffer').hidden));
     check('install (900x480, Menu card): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // ---- 10l. a menu opening over the card: the card is an offer over the emulator, never over a menu the user is
   //      reading (the card sits above the menus, z-index 61 vs 20).
@@ -17008,7 +17328,7 @@ async function installChecks(browser, base, check) {
     const back = await clearReport(page);
     check('install (menu opens): back, it is clear of everything', clearOrOwed(back), JSON.stringify(back));
     check('install (menu opens): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // ---- 10h. a toast while the card is up: the two never overlap, and neither the card nor the page moves for it.
   //      (The toast does the moving: feedback.js keeps it off #installOffer — it is in its CONTROLS list.) ----
@@ -17043,7 +17363,7 @@ async function installChecks(browser, base, check) {
     const gone = await page.evaluate(() => document.getElementById('installOffer').getBoundingClientRect().bottom);
     check('install (toast gone): the card is where it always was', gone === before.card, String(gone));
     check('install (toast up): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // ---- 10i. the wide gutter rules belong to widths above the phone layout: at 700 px the .gutter class must not
   //      shrink the card into a 260 px column (an unguarded gutter rule outranks the phone's full-width strip). The
@@ -17077,7 +17397,7 @@ async function installChecks(browser, base, check) {
     check('install (700x800, no touch keys): the gutter classes do not apply at the phone width (neither shrinks the card)',
       strip.gutter === strip.width && strip.gutterLeft === strip.width, JSON.stringify(strip));
     check('install (700x800, no touch keys): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // ---- 10j. the card through state changes and input types: rotate, open/close a view, hide/show the tab and
   //      reload, with the card up or pending; then dismiss it with touch, mouse, pen and the keyboard (Enter/Space on
@@ -17136,7 +17456,7 @@ async function installChecks(browser, base, check) {
     });
     check('install (states): a pen pointer dismisses the card with "Not now" and stores the answer', pen.hidden && pen.stored, JSON.stringify(pen));
     check('install (states): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // ---- 10k. input types on the card's buttons: mouse, touch and keyboard each really reach it. The card is the
   //      Menu item's (the user asked), so no prompt is needed and it is not a once-a-visit offer. ----
@@ -17154,7 +17474,7 @@ async function installChecks(browser, base, check) {
     await fire(page);
     check(`install (${label}): the click closes the Menu card`, await waitFor(page, () => document.getElementById('installOffer').hidden));
     check(`install (${label}): no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   {
     // keyboard: the Menu card focuses its button; Enter and then (a fresh card) Space dismiss it. Esc is "not now" on
@@ -17173,7 +17493,7 @@ async function installChecks(browser, base, check) {
     await page.keyboard.press('Escape');
     check('install (keyboard): Esc closes the Menu card too', await waitFor(page, () => document.getElementById('installOffer').hidden));
     check('install (keyboard): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- 11. localStorage unavailable: no card, the Menu item still works ----
@@ -17194,7 +17514,7 @@ async function installChecks(browser, base, check) {
     check('install: with localStorage unavailable, the Menu item still runs the prompt',
       await waitFor(page, () => window.__prompted === 1) && !(await cardUp(page)));
     check('install: no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- 12. the link in the app bar, on a phone and on a desktop, and that opening its card moves nothing ----
@@ -17234,7 +17554,7 @@ async function installChecks(browser, base, check) {
       JSON.stringify({ withCard, without }));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, `install-menu-${label}.png`) });
     check(`install (${label}): no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- 13. the Menu item on Chromium runs the deferred prompt ----
@@ -17245,7 +17565,7 @@ async function installChecks(browser, base, check) {
     await pressInstall(page);
     check('install: the Menu item runs the browser\'s own prompt (no card in its way)', await waitFor(page, () => window.__prompted === 1) && !(await cardUp(page)));
     check('install: no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 }
 
@@ -17421,7 +17741,7 @@ async function menuFocusChecks(browser, base, check) {
     await page.keyboard.press('Escape');
     check(`${L}: Esc on the screen with nothing open is still BREAK`, await waitFor(page, () => window.reached.includes('BREAK')));
     check(`${L}: no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- phone, 390 x 844, touch ----
@@ -17507,7 +17827,7 @@ async function menuFocusChecks(browser, base, check) {
       await page.keyboard.press('Escape');
     }
     check(`${L}: no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- the Library's selection count, said politely and written only when it changes ----
@@ -17541,7 +17861,7 @@ async function menuFocusChecks(browser, base, check) {
     check(`${L}: select mode, two items toggled, then the shelf redrawn: the polite region (outside the selection bar) says "2 selected", written only twice`,
       region.polite === 'polite' && region.outside && region.text === '' && after.text === '2 selected' && after.writes === 2, `${JSON.stringify(region)} ${JSON.stringify(after)}`);
     check(`${L}: no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   fs.rmSync(tmp, { recursive: true, force: true });
 }
@@ -17626,7 +17946,7 @@ async function uiModelChecks(browser, base, check) {
     await page.click('#btnSwitch');
     check(`switch takes out (${label}): the CoCo 3 switch asks with nothing to take out, and its toast shows`, asked3 === 'Switching to CoCo 3 resets the Dragon 32. The running program will be lost.'
       && await toastSeen(page, /^Switched to CoCo 3\. It needs ROMs for BASIC\.$/), `${asked3} / ${await page.textContent('#toastText')}`);
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- switch takes out, on a desktop: a disk, a RAM change, a snapshot's own disk, DriveWire ----
@@ -17738,7 +18058,7 @@ async function uiModelChecks(browser, base, check) {
     check('switch takes out: a DriveWire disk is not listed, and stays mounted after the switch', asked === 'Switching to CoCo 1/2 resets the CoCo 3. The running program will be lost.'
       && await waitFor(page, () => window.emu.machine.id === 'coco') && await page.evaluate(() => window.emu.session.driveWireMounts.some((d) => d.drive === 0 && /dw\.dsk$/.test(d.name))),
       `${asked} / ${JSON.stringify(await page.evaluate(() => window.emu.session.driveWireMounts))}`);
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // ---- disk ROM card: the disk ROM is findable: a card in Your ROMs for a machine with a disk option, and a drive's Add ROMs…
   // lands on it; the machine's socket counts are unchanged ----
@@ -17781,7 +18101,7 @@ async function uiModelChecks(browser, base, check) {
       return !!at && c.contains(at);
     }), JSON.stringify(await page.evaluate(() => ({ hash: location.hash, active: document.activeElement && document.activeElement.id, box: document.getElementById('romDiskCard') && document.getElementById('romDiskCard').getBoundingClientRect().toJSON() }))));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, `r26-disk-card-${label}.png`) });
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // ---- the machine menu's footer, the palette's "Your ROMs", the ROMs row first in Machine settings ----
   for (const [label, opts] of SIZES) {
@@ -17883,7 +18203,7 @@ async function uiModelChecks(browser, base, check) {
           && document.activeElement === h && b.top >= 0 && b.bottom <= innerHeight; }),
       JSON.stringify(await page.evaluate(() => ({ active: document.activeElement.id, box: document.getElementById('machineHeading').getBoundingClientRect().toJSON() }))));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, `r28-ram-cpu-speed-${label}.png`) });
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // ---- the ROMs in the Library: a "ROMs" chip after Snapshots, one card; a ROM dropped on the Library says
   // so with "Open Your ROMs" ----
@@ -17921,7 +18241,7 @@ async function uiModelChecks(browser, base, check) {
     await page.click('#libRomsLink');
     check(`ROMs in the Library (${label}): the card's link opens Your ROMs (the same view), focus on its heading`, await waitFor(page, () => location.hash === '#add-roms' && !document.getElementById('romCard').hidden
       && document.activeElement === document.getElementById('romHeading')));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // ---- ROMs in the Library with an empty Library: the ROMs chip and its card are there when ROMs are stored ----
   for (const [label, opts] of SIZES) {
@@ -17939,7 +18259,7 @@ async function uiModelChecks(browser, base, check) {
     check(`ROMs in the Library (${label}): ROMs stored and an empty Library: the ROMs chip is there and its card counts them`, chip
       && await waitFor(page, () => /^Your ROMs: 1 stored, used by .*Dragon 64.*\. Manage them in Your ROMs →$/.test(document.getElementById('libRomsCard').textContent) && document.getElementById('libRomsCard').checkVisibility()),
       JSON.stringify(await page.evaluate(() => ({ filters: document.getElementById('libFilters').hidden, filled: document.getElementById('libFilled').hidden, card: document.getElementById('libRomsCard').textContent }))));
-    await ctx.close();
+    await closeCtx(ctx);
     // a ROM dropped on an empty Library: the chip appears with it
     const ctx2 = await browser.newContext(Object.assign({ serviceWorkers: 'block' }, opts));
     const p2 = await ctx2.newPage();
@@ -17955,8 +18275,7 @@ async function uiModelChecks(browser, base, check) {
     await dropFiles(p2, [['d64_1.rom', fake(16384, 62)]], null, 'library');
     check(`ROMs in the Library (${label}): a ROM dropped on an empty Library: the card counts it`,
       await waitFor(p2, () => /^Your ROMs: 1 stored, used by .*Dragon 64.*\. Manage them in Your ROMs →$/.test(document.getElementById('libRomsCard').textContent) && document.getElementById('libRomsCard').checkVisibility()));
-    await ctx2.close();
-  }
+    await closeCtx(ctx2);  }
   // ---- ROM tiles: under the ROMs chip a tile per stored image (name, size, used by, Remove); Remove at once with
   // Undo; a ROM the running machine uses stays in it until a switch off and on ----
   for (const [label, opts] of SIZES) {
@@ -18040,7 +18359,7 @@ async function uiModelChecks(browser, base, check) {
     await page.reload(); await started(page);
     check(`ROM tiles (${label}): after a reload the removed ROMs are gone`, await waitFor(page, () => window.emu.session.romFiles().length === 0),
       JSON.stringify(await page.evaluate(() => window.emu.session.romFiles().map((f) => f.name))));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- the copy: no "stub" on the page, one term ("disk ROM"), the .dgn warning said once, the snapshot sentence ----
@@ -18106,10 +18425,10 @@ async function uiModelChecks(browser, base, check) {
     await page.evaluate(() => { if (window.emu.machine.useStub) { window.emu.session.stubChosen.delete('coco'); window.emu.session.switchMachine('coco'); } location.hash = ''; });
     await openTab(page, 'Machine');
     check(`copy (${label}): with BASIC in use the ROMs row says "BASIC ready"`, await waitFor(page, () => document.getElementById('romState').textContent === 'BASIC ready'), await page.textContent('#romState'));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // ---- the machine menu: one "No ROMs yet" line instead of 17 tags, a subtitle per section, the footer's line for the
-  // model under the focus or the pointer (each item's aria-description), "Which one is mine? →" to Help's list ----
+  // model under the focus or the pointer (each item's aria-description), "Which one is mine? ↗" to Help's list ----
   for (const [label, opts] of SIZES) {
     const ctx = await browser.newContext(Object.assign({ serviceWorkers: 'block' }, opts));
     const page = await ctx.newPage();
@@ -18129,7 +18448,7 @@ async function uiModelChecks(browser, base, check) {
         about: (() => { const a = document.getElementById('menuAbout'); return { shown: a.checkVisibility(), text: a.textContent, hidden: a.getAttribute('aria-hidden') }; })(),
         describedBy: (() => { const id = m.getAttribute('aria-describedby'), d = id && document.getElementById(id); return d ? d.textContent : null; })(),
         // the fade above the footer: into the panel's colour (the footer's ::before), never a mask showing the page through
-        fade: (() => { const f = getComputedStyle(m.querySelector('.footer'), '::before'), panel = getComputedStyle(m).backgroundColor;
+        fade: (() => { const f = getComputedStyle(m.querySelector('.sep'), '::before'), panel = getComputedStyle(m).backgroundColor;
           return { mask: getComputedStyle(m).maskImage || getComputedStyle(m).webkitMaskImage || 'none', image: f.backgroundImage, panel }; })(),
         live: !!m.querySelector('[aria-live]') };
     });
@@ -18145,7 +18464,19 @@ async function uiModelChecks(browser, base, check) {
       none.describedBy === 'No ROMs yet: every machine needs its own ROMs for BASIC.', String(none.describedBy));
     check(`machine menu (${label}): the band above the footer fades into the panel's colour, with no mask over the page`,
       none.fade.mask === 'none' && none.fade.image.includes(none.fade.panel.replace(/\)$/, '')), JSON.stringify(none.fade));
-    check(`machine menu (${label}): the footer has "Which one is mine? →" to help/#machines, a menu item`, none.which === 'Which one is mine? →|help/#machines|menuitem', String(none.which));
+    check(`machine menu (${label}): the footer has "Which one is mine? ↗" to help/#machines, a menu item`, none.which === 'Which one is mine? ↗|help/#machines|menuitem', String(none.which));
+    // the footer never stands over a model: it sits below the models' own scrolling box, and scrolled to the end the
+    // last model (the CP-400, under KITS) is whole, and what is on top at its centre
+    const reach = await page.evaluate(() => {
+      const m = document.getElementById('machineMenu'), box = m.querySelector('.menulist'), f = m.querySelector('.footer');
+      box.scrollTop = box.scrollHeight;
+      const b = [...m.querySelectorAll('button[data-machine]')].pop(), r = b.getBoundingClientRect(), at = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      const out = { last: b.dataset.machine, boxBottom: box.getBoundingClientRect().bottom, footTop: f.getBoundingClientRect().top, bottom: r.bottom, top: r.top, boxTop: box.getBoundingClientRect().top, onTop: !!at && b.contains(at) };
+      box.scrollTop = 0;
+      return out;
+    });
+    check(`machine menu (${label}): the footer stands below the models, and scrolled to the end the last one (CP-400) is whole and not behind it`,
+      reach.last === 'cp400' && reach.boxBottom <= reach.footTop + 1 && reach.bottom <= reach.boxBottom + 1 && reach.top >= reach.boxTop && reach.onTop, JSON.stringify(reach));
     // arrow focus: the footer line follows (visual only), and it matches the focused item's description
     await page.keyboard.press('ArrowDown');
     const f1 = await page.evaluate(() => [document.activeElement.getAttribute('aria-description'), document.getElementById('menuAbout').textContent]);
@@ -18181,10 +18512,11 @@ async function uiModelChecks(browser, base, check) {
     // the link: Help's list of the machines, in a new tab
     const [help] = await Promise.all([ctx.waitForEvent('page'), page.click('#menuWhich')]);
     await help.waitForLoadState();
+    check(`machine menu (${label}): using "Which one is mine? ↗" closes the menu behind the new tab`, await page.evaluate(() => document.getElementById('machineMenu').hidden && document.getElementById('machineBtn').getAttribute('aria-expanded') === 'false'));
     const listed = await help.evaluate(() => ({ hash: location.hash, models: document.querySelectorAll('#machines ~ dl dt[id^="machine-"]').length, head: !!document.getElementById('machines') }));
-    check(`machine menu (${label}): "Which one is mine? →" opens Help at #machines, which lists all 17 models`, listed.hash === '#machines' && listed.head && listed.models === 17, JSON.stringify(listed));
+    check(`machine menu (${label}): "Which one is mine? ↗" opens Help at #machines, which lists all 17 models`, listed.hash === '#machines' && listed.head && listed.models === 17, JSON.stringify(listed));
     if (shotDir) await help.screenshot({ path: path.join(shotDir, `help-machines-${label}.png`) });
-    await ctx.close();
+    await closeCtx(ctx);
   }
   check('ui model: no page errors', !errors.length, errors.join('; '));
 }
@@ -18275,7 +18607,7 @@ async function mobileChecks(browser, base, check) {
       check(`${L}: ⌨ brings the keys back`, hid.mode === 'hidden' && await until(page, () => !document.getElementById('touchKeys').hidden));
       if (shotDir) await page.screenshot({ path: path.join(shotDir, `mobile-${w}x${h}-keys.png`) });
       check(`${L}: no page errors`, !errors.length, errors.join('; '));
-      await ctx.close();
+      await closeCtx(ctx);
     }
     // Pad (2048 opens on it): the screen takes the page's width
     {
@@ -18302,7 +18634,7 @@ async function mobileChecks(browser, base, check) {
       }
       if (shotDir) await page.screenshot({ path: path.join(shotDir, `mobile-${w}x${h}-2048-pad.png`) });
       check(`${L}, 2048: no page errors`, !errors.length, errors.join('; '));
-      await ctx.close();
+      await closeCtx(ctx);
     }
   }
 
@@ -18317,7 +18649,7 @@ async function mobileChecks(browser, base, check) {
     await page.waitForTimeout(2000);
     const r = await page.evaluate(() => ({ first: window.__bar0, touch0: window.__touch0, now: document.getElementById('appbar').getBoundingClientRect().height }));
     check('mobile (375x548): the app bar is 48 px at its first paint and 2 s later, the touch layout on from that paint', r.first === 48 && r.now === 48 && r.touch0 === true, JSON.stringify(r));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- Menu: one list, Add ROMs first (the machine has no BASIC) and a dot on Menu; Share and Commands… in it ----
@@ -18346,7 +18678,7 @@ async function mobileChecks(browser, base, check) {
     await tap(page, '#navRoms');
     check('mobile (393x659): Menu\'s Add ROMs opens Add ROMs', await until(page, () => location.hash === '#add-roms'));
     check('mobile (Menu): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // ---- Menu's Settings… at 390x844 with the touch keys: the Settings sheet on the tab last used (Media at first),
   // the focus on it, in view, Menu closed ----
@@ -18365,7 +18697,7 @@ async function mobileChecks(browser, base, check) {
       st.sheet && st.focus === 'tab-media' && st.selected === 'true' && st.panel && st.inView && !st.menu, JSON.stringify(st));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, 'mobile-settings-menu.png') });
     check('mobile (Settings…): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- what each program opens on; the pad's keys; the choice remembered per program and machine ----
@@ -18404,13 +18736,13 @@ async function mobileChecks(browser, base, check) {
     check('mobile: Keys chosen in Minesweeper is remembered for Minesweeper on this machine; 2048 still opens on Pad; LIZA opens on Keys',
       again === 'keys' && other === 'pad' && liza === 'keys', JSON.stringify({ again, other, liza }));
     check('mobile (programs): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   {
     const { ctx, page } = await open({ width: 375, height: 548 }, '?machine=mc10');
     const tabs = await page.evaluate(() => [...document.querySelectorAll('#tkModeSwitch button')].filter((e) => e.checkVisibility()).map((e) => e.textContent));
     check('mobile (MC-10): the switch is Keys | Pad, no Stick (no joystick port)', tabs.join() === 'Keys,Pad', tabs.join());
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- touch words: the games' toast says tap (no Esc, no press); Claude's paused text on touch ----
@@ -18428,7 +18760,7 @@ async function mobileChecks(browser, base, check) {
     check(`mobile (${w}x${h}, 2048): the toast says tap (no "Esc", no "press"), lies under the app bar and over no key`,
       /tap a key/.test(t.text) && /BREAK/.test(t.text) && !/Esc|press/.test(t.text) && t.underBar && !t.keys.length && t.inView, JSON.stringify(t));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, `mobile-${w}x${h}-toast.png`) });
-    await ctx.close();
+    await closeCtx(ctx);
   }
   {
     const { ctx, page } = await open({ width: 375, height: 548 }, '?machine=dragon64');
@@ -18444,7 +18776,7 @@ async function mobileChecks(browser, base, check) {
     });
     check('mobile: Claude\'s paused status on touch says "Paused: you tapped a key · Stop ends Claude\'s turn" (the keyboard\'s text, with Esc, elsewhere)',
       r.touch === 'Paused: you tapped a key · Stop ends Claude\'s turn' && /Esc stops Claude/.test(r.desk), JSON.stringify(r));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // a computer (no touch): the toast keeps the keyboard's words
   {
@@ -18452,7 +18784,7 @@ async function mobileChecks(browser, base, check) {
     await until(page, () => /2048/.test(document.getElementById('toastText').textContent));
     const text = await page.evaluate(() => document.getElementById('toastText').textContent);
     check('mobile (desktop, ?start=2048): the toast still says press a key and BREAK (Esc) (guards: as v0.1.8)', /press a key/.test(text) && /BREAK \(Esc\)/.test(text), text);
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- sideways (734x343): the screen as v0.1.8 had it; one Menu; Machine… opens the machine picker ----
@@ -18473,7 +18805,7 @@ async function mobileChecks(browser, base, check) {
     check('mobile (734x343): Esc closes the picker, and the app bar gives way to the panel again', picker.shown && await until(page, () => document.getElementById('machineMenu').hidden && !document.body.classList.contains('machine-pick')
       && !document.getElementById('appbar').checkVisibility()));
     check('mobile (734x343): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- no automatic install offer on a phone: its conditions met, on a second visit too; the
@@ -18501,7 +18833,7 @@ async function mobileChecks(browser, base, check) {
     // (upright a guard: v0.1.8's item, in the machine menu, worked too; sideways it had no way in)
     check(`mobile (${w}x${h}): the Install CLOADM… item still opens the browser's install dialog`, await until(page, () => window.__prompted >= 1));
     check(`mobile (${w}x${h}, install): no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- the desktop's status shows the speed only (the machine's name is on the button beside it), whole ----
@@ -18512,7 +18844,7 @@ async function mobileChecks(browser, base, check) {
     // (in the page font, shown and whole at every one of these widths; "whole or not shown" is only for 1200 px in a wide
     // fallback font: the layout group)
     check(`mobile (desktop ${width} px): the status shows fps and speed, shown and whole, without the machine's name`, r.shown && !r.clipped && !/Dragon/.test(r.text) && /^\d+ fps · \d+%/.test(r.text), JSON.stringify(r));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 }
 
@@ -18564,7 +18896,7 @@ async function closedViewsChecks(browser, base, check) {
     }
     const stray = stops.filter((x) => x.root);
     check(`closed views (${label}): Tab never lands inside a closed view or hidden panel`, stops.length > 5 && !stray.length, `${stops.length} stops; in a closed view: ${stray.map((x) => `${x.root} ${x.id}`).join(', ')}`);
-    await c2.close();
+    await closeCtx(c2);
   }
   const closed = await lap();
   const strays = closed.filter((x) => x.root);
@@ -18615,7 +18947,7 @@ async function closedViewsChecks(browser, base, check) {
     const inside = [];
     for (let i = 0; i < 80; i++) { await p3.keyboard.press('Tab'); const r = await p3.evaluate(() => { const e = document.activeElement; return e && e.closest('#share') ? e.id || e.tagName : ''; }); if (r) inside.push(r); }
     check('closed views: a page loaded on #share, then closed: Tab never lands inside Share', !inside.length, inside.join(', '));
-    await c3.close();
+    await closeCtx(c3);
   }
   // focus goes back to the screen when a view closes, by Esc or by Back, and a view opened and closed in quick succession ends closed
   for (const [sel, hash] of VIEWS.slice(0, 2).concat([VIEWS[3]])) {
@@ -18667,7 +18999,7 @@ async function closedViewsChecks(browser, base, check) {
   const again = await lap();
   check('closed views: closed again, Tab is back to the emulator\'s controls only', again.length > 10 && !again.some((x) => x.root), again.filter((x) => x.root).map((x) => `${x.root} ${x.id}`).join(', '));
   check('closed views: no page errors', !errors.length, errors.join('; '));
-  await ctx.close();
+  await closeCtx(ctx);
 }
 
 // "Ask Claude ↗" (js/ui/ask-popout.js): CLOADM inside another site's page has no chat, and offers a link that opens this
@@ -18705,7 +19037,7 @@ async function askPopoutChecks(browser, site, check) {
   await own.goto(`${site}play/?machine=dragon64`);
   await started(own);
   await own.evaluate((k) => localStorage.setItem('cloadm.anthropicKey', k), KEY);
-  await own.close();
+  await closePage(own);
 
   const frameOf = async (page) => {
     for (let i = 0; i < 400; i++) {
@@ -18735,7 +19067,7 @@ async function askPopoutChecks(browser, site, check) {
   await page.goto(hostAt('machine=dragon64'));
   const frame = await frameOf(page);
   check(`${L}: (the framed page started)`, !!frame);
-  if (!frame) { await ctx.close(); host.close(); return; }
+  if (!frame) { await closeCtx(ctx); host.close(); return; }
   // a moment of our own: bytes in RAM the new tab must have too
   await frame.evaluate(() => { [0xA5, 0x5A, 0x13].forEach((v, i) => window.emu.session.personMachine.poke(0x3000 + i, v)); });
   const a = await linkOf(frame, 'btnAskPop');
@@ -18775,7 +19107,7 @@ async function askPopoutChecks(browser, site, check) {
   const after = await framedKey();
   check(`${L}: the frame never writes the key to its storage, before or after the new tab, and its session (an in-memory store) sees none`,
     before.writes.length === 0 && before.seen === null && after.writes.length === 0 && after.seen === null && after.memory === 'MemoryKeyStore', JSON.stringify({ before, after }));
-  await popup.close();
+  await closePage(popup);
   // the context menu and a middle click take the moment as it is now: after the machine has moved on, either event makes a new link
   // (ctrl-click, middle-click and "Open in new tab" read the href after them, so a stale one would open an old moment)
   for (const ev of ['contextmenu', 'auxclick']) {
@@ -18793,7 +19125,6 @@ async function askPopoutChecks(browser, site, check) {
     }, ev);
     check(`${L}: framed: a ${ev} event on the link after the machine moved on makes a new link (not the old moment)`, moved.stale && moved.changed && moved.frames >= 5, JSON.stringify(moved));
   }
-
   // ---- the same at phone width: the link stands where Ask does, in the one-row bar beside Menu ----
   const phone = await ctx.newPage();
   await phone.setViewportSize({ width: 420, height: 900 });
@@ -18806,7 +19137,7 @@ async function askPopoutChecks(browser, site, check) {
     pa && pa.shown && pa.inBar && pa.text === 'Ask Claude ↗' && pa.app === 'claude' && pa.hash === '#z=' && menu.menuShown && menu.aRight <= menu.mLeft + 1 && menu.h >= 44,
     JSON.stringify({ pa, menu }));
   if (shotDir) await phone.screenshot({ path: path.join(shotDir, 'ask-popout-phone.png') });
-  await phone.close();
+  await closePage(phone);
 
   // ---- NitrOS-9 in the frame: nothing to carry, a fresh CLOADM ----
   const Emu = require('../tests/load')();
@@ -18820,7 +19151,7 @@ async function askPopoutChecks(browser, site, check) {
   check(`${L}: NitrOS-9 framed: no snapshot in the link (no #z=), app=claude on the CoCo 3, no nitros9= and no embed`,
     na && na.hash === '' && na.app === 'claude' && na.machine === 'coco3' && !na.nitros9 && na.embed.length === 0, JSON.stringify(na));
   check(`${L}: NitrOS-9 framed: the "fresh" tooltip and description`, na && na.title === FRESH && na.desc === FRESH && na.carried === '0', JSON.stringify(na && { title: na.title, desc: na.desc }));
-  await n9.close();
+  await closePage(n9);
 
   // ---- embeds: no chip unless the snippet asks (askclaude=1) ----
   const plain = await ctx.newPage();
@@ -18828,7 +19159,7 @@ async function askPopoutChecks(browser, site, check) {
   const ef = await frameOf(plain);
   const noChip = ef ? await ef.evaluate(() => { const c = document.getElementById('embedAsk'); return { shown: c.checkVisibility(), href: c.getAttribute('href'), cls: document.body.classList.contains('ask-chip'), handle: window.emu.askPopout }; }) : null;
   check(`${L}: ?embed=1 without askclaude: no chip (nothing drawn, no link)`, noChip && !noChip.shown && noChip.href === null && !noChip.cls && noChip.handle === null, JSON.stringify(noChip));
-  await plain.close();
+  await closePage(plain);
   const opted = await ctx.newPage();
   await opted.goto(hostAt('embed=1&askclaude=1&machine=dragon64', 640, 480));
   const of = await frameOf(opted);
@@ -18843,8 +19174,8 @@ async function askPopoutChecks(browser, site, check) {
   const okChip = await waitFor(chipPop, () => !!window.emu && window.emu.started === true, null, 60000);
   const cp = okChip ? await chipPop.evaluate(() => ({ top: window.self === window.top, opener: window.opener === null, embed: document.body.classList.contains('embed'), view: window.emu.session.claudeView })) : null;
   check(`${L}: the chip opens a top-level page with the chat, not an embed`, cp && cp.top && cp.opener && !cp.embed && cp.view === 'full', JSON.stringify(cp));
-  await chipPop.close();
-  await opted.close();
+  await closePage(chipPop);
+  await closePage(opted);
   check(`${L}: still no Claude request after both new tabs`, api.length === 0, api.join());
 
   // ---- the Share screen's embed builder: the checkbox puts askclaude=1 in the snippet ----
@@ -18859,9 +19190,9 @@ async function askPopoutChecks(browser, site, check) {
   const withIt = await sh.textContent('#embedFrame');
   check(`${L}: Share → Embed: "Offer 'Ask Claude ↗'" is off by default; checked, the snippet's iframe carries askclaude=1 (with embed=1)`,
     !/askclaude/.test(without) && /[?&]embed=1/.test(withIt) && /[?&;]askclaude=1/.test(withIt) && /Offer 'Ask Claude ↗'/.test(await sh.textContent('#shareEmbed')), `${without} | ${withIt}`);
-  await sh.close();
+  await closePage(sh);
   check(`${L}: no page errors`, !errors.length, errors.join('; '));
-  await ctx.close();
+  await closeCtx(ctx);
   host.close();
 }
 
@@ -19090,7 +19421,7 @@ async function armGuardChecks(browser, base, check) {
   const fsForget = await pressAt('claudeKeySaved', 'btnClaudeKeyForget', 600, 'click', () => !window.emu.session.keyStore.get());
   check(`${L}: full screen: Forget at 600 ms forgets it`, fsForget.done === true, JSON.stringify(fsForget));
   check(`${L}: no page errors`, !errors.length, errors.join('; '));
-  await ctx.close();
+  await closeCtx(ctx);
 }
 
 const GROUPS = (base, site) => [
@@ -19212,9 +19543,7 @@ const GROUPS = (base, site) => [
         // browser.close() in the finally is the backstop that still kills the browser process.
         for (const c of browser.contexts()) {
           if (before.has(c)) continue;
-          const b = await bounded(c.close(), CLOSE_MS);
-          if (b.outcome === 'rejected') run.check(`${name}: its context closes`, false, (b.error && b.error.message) || String(b.error));
-          else if (b.outcome !== 'settled') run.check(`${name}: its context closes`, false, `still open after ${CLOSE_MS} ms (left to browser.close())`);
+          lib.reportClose(run.check, `${name}: its context closes`, await bounded(c.close(), CLOSE_MS), CLOSE_MS, 'left to browser.close()');
         }
       });
     }
@@ -19225,8 +19554,7 @@ const GROUPS = (base, site) => [
     // race is reported as a FAIL rather than allowed to hold the run open - a run that cannot tear its own browser
     // down is a defect in the run, not something to wait out.
     const b = await bounded(browser.close(), BROWSER_CLOSE_MS);
-    if (b.outcome === 'rejected') run.check('the browser closes at the end of the run', false, (b.error && b.error.message) || String(b.error));
-    else if (b.outcome !== 'settled') run.check('the browser closes at the end of the run', false, `still open after ${BROWSER_CLOSE_MS} ms (killed when this process exits)`);
+    lib.reportClose(run.check, 'the browser closes at the end of the run', b, BROWSER_CLOSE_MS, 'killed when this process exits');
     server.close();
     server.closeAllConnections();   // (kept-alive connections would hold the run open after its summary)
     // WHAT THE IN-RUN BOUNDS CAN AND CANNOT DO, stated so nobody reads more into them. Each await above is raced,

@@ -219,6 +219,22 @@ Next version: 0.1.9-pre (the plugin and extension manifests carry it; `tests/plu
 
 ### Changed
 
+- **A phone's Cassette deck sheet closes when the program starts.** Load it now (the button in the toast after a tape goes
+  in with no BASIC to type CLOAD into) and Skip the tape close the sheet, so the screen shows the program starting. In the
+  sheet the slot's small deck picture is left out, since the big cassette is right there; the empty line "No tape · Insert
+  tape…" is a real button, and on a touch screen the hint says "tap the deck to insert", not "click".
+- **The machine menu's footer no longer stands over a model.** The models scroll in a box of their own above the footer
+  ("Add or see ROMs…", "RAM, CPU and speed…", "Which one is mine?"), so the last one, the CP-400 under KITS, is whole when
+  the list is scrolled to its end, and the fade above the footer says there is more. "Which one is mine?" ends in ↗
+  (it opens Help in a new tab) and closes the menu.
+- **Opening a program file says what happened first.** The toast reads "minesweeper.bin loaded and started." and keeps the
+  format and addresses ("DragonDOS binary $3000-$3FE6, exec $3000") under Details. The Session's message for the same load
+  has the same two parts.
+- **"On screen now" and "Last time" follow what the screen shows.** The program last run (a file from Open…, LIZA, the
+  colour demo, a game) is marked "on screen now" on its row (in "Recent on this machine" for a file, on the shelf for ours)
+  while it runs, and "Last time · Run again" is hidden then; a reset, the welcome menu, another program, a machine switch,
+  Pause or a Debugger stop bring the card back and take the mark off. The welcome menu's tag waits until the menu is drawn,
+  where it used to show a few tenths of a second early on a freshly switched machine (the CoCo 3's screen was still blank).
 - **The side panel's tool list fits the host's limit.** claude.ai drops a tool list whose input schemas together pass
   8 KB, and the panel's were 11.1 KB. The panel now lists its tools through one compaction of the toolbox's own schemas
   (`compactTool`, `connector/view/tools.js`): 7.5 KB. The parameter that names the machine (`machine_id`) carries no
@@ -425,8 +441,21 @@ Next version: 0.1.9-pre (the plugin and extension manifests carry it; `tests/plu
 
 ### Fixed
 
+- **A first visit is not greeted "WELCOME BACK" while nothing has run in it.** Picking a machine in the header menu, or
+  the shelf's Welcome menu, on the browser's first visit shows the title screen; once a program has run, or on a later
+  visit, the menu says it. (`Session.greetingFor` is now a method of the session, which knows whether the visit began
+  as the first.)
 - The side panel's view no longer tells the host its size before it has sent `ui/notifications/initialized`: the latest
   size waits, and one `ui/notifications/size-changed` follows it.
+- **The catch-up check after a pause holds the worklet's own contract.** The check failed CI on a
+  single short block: the worklet starting its underrun fade on a queue a slow runner had stalled for a moment
+  - its specified, inaudible dip ("a dip that refills before the fade reaches 0 is not a gap"), with the same
+  run's no-pop, tolerance-0 and fade checks all green through it. The check's "no short block at all" was a
+  proxy for the pathology it was written for (the shallow restart's train of shorts) and it over-fired. It now
+  classifies by the contract, in one function shared by the check and its tests so they cannot drift: a train
+  (2 or more shorts), a short whose gap completed (the worklet's re-prime count is up) and a shallow restart all
+  FAIL, and a lone short PASSES only when the samples played through it step within the no-pop bound - accepted
+  only when provably click-free by the product's own measure.
 - **The file pickers on a phone offer Files, not photos.** The pickers for programs, tapes, disks, cartridges, the
   Library and NitrOS-9 images name the extensions they take and application/octet-stream, so a phone still offers a
   file whose type it does not know (a .cas, a .vdk), and none asks for images: Open… no longer offers the Photo Library
@@ -446,6 +475,33 @@ Next version: 0.1.9-pre (the plugin and extension manifests carry it; `tests/plu
   program as they were: BYE in LIZA still brings the menu, a key while the colour demo draws still asks for it, and
   Reset still restarts what ran there. While the chat is on screen the watch waits, since the menu is a start on the
   machine in use, and starts when the BASIC session is back on screen.
+
+- **The browser check can no longer hang on its own teardown.** Every close a check group performs inside its own
+  body - a browser context (299 sites), a page it opened itself (10), the library storage group's own browser and
+  its persistent-context profile, and the connector module's seven - was a bare `await`, so a page left wedged in
+  an abandoned evaluate would hang the whole run until the caller's outer timeout killed it, with nothing
+  reported. All of them now go through the one `bounded()` helper: a hung close FAILs by name (`"<group>: a
+  context it opened closes"`, distinct from the per-group cleanup's own name, so the log shows which layer caught
+  it), the run goes on with exit 1, and the cleanup and the final `browser.close()` still tear the run's browser
+  down (verified by planted hangs: no leaked Chromium, bounded wall time). The two browsers the library storage
+  group launches OUTSIDE the run's own are reached by neither, so their closes are raced and their Chromium is
+  killed on a timeout: the group's own browser goes through chromium.launchServer() (whose BrowserServer
+  exposes the process handle a directly-launched browser does not in this build) and is killed through exactly
+  that server; the persistent context is found by its own mkdtemp profile path, unique to its run - the belts
+  touch no other run's Chromium, and a bystander browser from another run survives a planted hung close here
+  while the run's own is killed (before, the shared marker's kill swept other runs' browsers too). A planted
+  hung close there - which before the belts left the run idling with five Chromium processes until killed from
+  outside - now gives a named FAIL, exit 1, and an actual exit with the chromium count back at baseline. The
+  sound group's tone measurement - a page-side poll waiting for a full second of played blocks - and the two
+  volume peak polls are bounded the same way (10 s, ~10x the audio needed): a starved tone FAILs by name twice,
+  once saying the measurement produced its numbers at all (so a swallowed outcome cannot turn the run green)
+  and once carrying the probe's own state (blocks so far, full count against what it needed, resampler mode,
+  queue depth, the audio clock, the context's own state); each peak poll also has its own named ran-check (the
+  loud one outside the guard that would otherwise skip it) so a swallowed peak starve cannot pass green either;
+  and a starved tone no longer stops the group: the checks that need a live tone are skipped and the rest (the
+  mute fade, the fallback contexts, the whole-session comparisons) still run.
+  `bounded()` moved into `browser-check-lib.js`, tested there for what a caller can observe: its four outcomes,
+  the unref that keeps a process from idling out the bound, and a late settle's inability to change the outcome.
 
 - **A long line typed on the chat screen goes whole, up to 1024 characters.** The chat firmware's line held 255
   characters (its lengths were single bytes) and the keys after the 255th were not sent: a 269-character prompt
