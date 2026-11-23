@@ -239,6 +239,9 @@
   #toastText { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
   #toastAction { background: #0B0D0C; color: #E8EDE6; border: 0; border-radius: 8px; padding: 6px 10px; font-weight: 700; min-height: 0; }
   #toastText button.inline { background: #0B0D0C; color: #E8EDE6; border: 0; border-radius: 6px; padding: 0 8px; font: inherit; font-weight: 700; min-height: 0; }
+  /* a touch screen: the toast's buttons (Undo, Switch off and on…) are full-size tap targets */
+  body:is(.touch-keys, .touch-hidden) #toastAction, body:is(.touch-keys, .touch-hidden) #toastText button.inline { min-height: 44px; }
+  body:is(.touch-keys, .touch-hidden) #toastText button.inline { display: inline-flex; align-items: center; vertical-align: middle; }
   #toastDetails { flex-basis: 100%; font-size: 14px; color: #2A302C; overflow-wrap: anywhere; }
   @media (max-width: 700px) { #toastRegion { left: calc(8px + var(--safe-l)); right: calc(8px + var(--safe-r)); bottom: calc(8px + var(--safe-b));
     transform: none; width: auto; max-width: none; } }
@@ -1436,6 +1439,32 @@
   body.touch-hidden { padding-bottom: calc(68px + var(--safe-b)); }
   #btnShowKeys:not([hidden]) { position: fixed; z-index: 30; right: calc(12px + var(--safe-r)); bottom: calc(12px + var(--safe-b)); width: 44px; height: 44px;
     min-height: 44px; padding: 0; font-size: 22px; border-radius: 12px; display: inline-flex; align-items: center; justify-content: center; }
+  /* a phone (js/ui/phone-sheets.js): the chips under the on-screen panel, upright; the ports and the machine's
+     controls live in the sheets they open, so their places on the page are empty and not drawn */
+  #chipRow { display: none; }
+  body:is(.touch-keys, .touch-hidden):not(.chat-phone) #chipRow:not([hidden]) { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+  @media (orientation: landscape) and (max-height: 500px) { body #chipRow { display: none !important; } }
+  .chip { font-family: var(--font-sans, inherit); height: 48px; min-height: 48px; min-width: 0; padding: 0 8px; display: flex; flex-direction: column; align-items: flex-start; justify-content: center;
+    gap: 1px; text-align: left; line-height: 1.15; }
+  .chip .cn { font-size: 14px; font-weight: 700; }
+  .chip .cs { font-size: 12px; color: var(--muted); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .chip.has-media { outline: 2px solid var(--phosphor); outline-offset: -2px; }
+  body:is(.touch-keys, .touch-hidden) .slots, body:is(.touch-keys, .touch-hidden) .controls[aria-label="Machine controls"] > :not(#btnShowKeys) { display: none; }
+  /* the sheets: a modal dialog from the bottom upright (from the right side, held sideways) */
+  dialog.sheet { box-sizing: border-box; margin: 0; padding: 0; border: 1px solid var(--line-strong); color: var(--text); background: var(--panel);
+    width: 100%; max-width: none; max-height: 85dvh; inset: auto 0 0 0; border-radius: 16px 16px 0 0; overflow: auto; overscroll-behavior: contain;
+    padding-bottom: var(--safe-b); }
+  dialog.sheet::backdrop { background: rgba(0, 0, 0, .55); }
+  .sheethead { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; gap: 8px; padding: 8px 12px 8px 16px; background: var(--panel); border-bottom: 1px solid var(--line); }
+  .sheethead h2 { flex: 1; margin: 0; font-size: 17px; }
+  .sheethead button { height: 44px; min-height: 44px; }
+  .sheetbody { display: flex; flex-direction: column; gap: 12px; padding: 12px 16px 16px; }
+  .sheetbody > .slot { margin: 0; padding: 0; border: 0; background: none; }
+  #sheetCart #cartSlot > .inner > .title { display: none; }   /* (the sheet's own heading says it) */
+  #sheetTape #tapePanel .deckhead { display: none; }   /* (its heading is the sheet's, and the sheet is the way to show or hide it) */
+  #sheetTape #tapePanel { margin: 0; }
+  #sheetPower .sheetbody { flex-direction: row; flex-wrap: wrap; }
+  #sheetPower .sheetbody > button { min-height: 44px; flex: 1 1 40%; }
 </style>
 </head>
 <body>
@@ -1628,6 +1657,14 @@ npx serve -l 8000 .</pre>
           <button type="button" data-touchmode="joystick" aria-pressed="false">Stick</button></div>
         <div class="tkbtns"><button id="tkBreak"></button><button id="tkClear"></button><button id="tkMenu" type="button" aria-expanded="false" aria-controls="tkMenuSheet">Menu</button></div></div>
       <div id="tkMenuSheet" role="group" aria-label="Keys menu" hidden></div>
+    </div>
+    <!-- a phone (the on-screen panel on, upright): the machine's ports and power as one row of chips under the panel,
+         each opening its sheet (js/ui/phone-sheets.js); the order is fixed -->
+    <div id="chipRow" role="group" aria-label="Tape, disks, cartridge and power" hidden>
+      <button type="button" class="chip" id="chipTape" data-sheet="sheetTape"><span class="cn">Tape</span><span class="cs">Empty</span></button>
+      <button type="button" class="chip" id="chipDisks" data-sheet="sheetDisks"><span class="cn">Disks</span><span class="cs">Empty</span></button>
+      <button type="button" class="chip" id="chipCart" data-sheet="sheetCart"><span class="cn">Cartridge</span><span class="cs">Empty</span></button>
+      <button type="button" class="chip" id="chipPower" data-sheet="sheetPower"><span class="cn">Power</span><span class="cs">Running</span></button>
     </div>
 
     <div class="controls" id="claudeViewRow" hidden><button id="btnClaudeView">Show my BASIC session</button>
@@ -2283,6 +2320,7 @@ npx serve -l 8000 .</pre>
 <link rel="modulepreload" href="js/ui/selftest-panel.js">
 <link rel="modulepreload" href="js/ui/poke-panel.js">
 <link rel="modulepreload" href="js/ui/drawer.js">
+<link rel="modulepreload" href="js/ui/phone-sheets.js">
 <link rel="modulepreload" href="js/ui/library.js">
 <link rel="modulepreload" href="js/ui/typein.js">
 <link rel="modulepreload" href="js/ui/multipak-panel.js">
@@ -2306,6 +2344,12 @@ npx serve -l 8000 .</pre>
 <link rel="modulepreload" href="js/ui/nitros9-panel.js">
 <link rel="modulepreload" href="js/ui/install.js">
 <!-- modulepreload:end -->
+<!-- a phone's sheets (js/ui/phone-sheets.js): the page's own controls move into them while the on-screen panel is on,
+     and back when it is off; each is a modal dialog -->
+<dialog id="sheetTape" class="sheet" hidden aria-labelledby="sheetTapeTitle"><div class="sheethead"><h2 id="sheetTapeTitle">Cassette deck</h2><button type="button" class="sheetdone">Done</button></div><div class="sheetbody"></div></dialog>
+<dialog id="sheetDisks" class="sheet" hidden aria-labelledby="sheetDisksTitle"><div class="sheethead"><h2 id="sheetDisksTitle">Disk drives</h2><button type="button" class="sheetdone">Done</button></div><div class="sheetbody"><p class="muted sheetnote" hidden></p></div></dialog>
+<dialog id="sheetCart" class="sheet" hidden aria-labelledby="sheetCartTitle"><div class="sheethead"><h2 id="sheetCartTitle">Cartridge port</h2><button type="button" class="sheetdone">Done</button></div><div class="sheetbody"><p class="muted sheetnote" hidden></p></div></dialog>
+<dialog id="sheetPower" class="sheet" hidden aria-labelledby="sheetPowerTitle"><div class="sheethead"><h2 id="sheetPowerTitle">Power</h2><button type="button" class="sheetdone">Done</button></div><div class="sheetbody"><button type="button" id="btnHideKeys">Hide keys</button></div></dialog>
 <script type="module" src="js/ui/main.js" onerror="if (location.protocol !== 'file:') showStartError('The emulator\'s scripts could not be loaded from this server.')"></script>
 </body>
 </html>

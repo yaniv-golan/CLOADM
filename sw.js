@@ -194,6 +194,7 @@ const FILES = [
   'js/ui/multipak-panel.js',
   'js/ui/nitros9-panel.js',
   'js/ui/page.js',
+  'js/ui/phone-sheets.js',
   'js/ui/poke-panel.js',
   'js/ui/printer-panel.js',
   'js/ui/rom-panel.js',

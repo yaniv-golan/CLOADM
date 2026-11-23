@@ -28,6 +28,7 @@ import { setupDebuggerPanel } from './debugger-panel.js';
 import { setupSelfTestPanel } from './selftest-panel.js';
 import { setupPokePanel } from './poke-panel.js';
 import { setupDrawer } from './drawer.js';
+import { setupPhoneSheets } from './phone-sheets.js';
 import { setupLibrary } from './library.js';
 import { setupTypein } from './typein.js';
 import { setupMultiPakPanel } from './multipak-panel.js';
@@ -142,7 +143,7 @@ const showRoms = () => romSockets.reveal();
 // routes that open one (?app=claude, the Ask panel, the command box, a keypress) have nothing to reach.
 const claude = chatHere ? setupClaude(page) : null;
 // set up only when there is a controller: both modules drive the chat and would throw on null
-if (claude) setupAsk(page, claude);
+const ask = claude ? setupAsk(page, claude) : null;
 if (claude) setupCommandBox(page, claude);
 // the controls that hand Claude a key or a say over the machine take no press for their card's first moments on screen
 if (claude) {
@@ -161,6 +162,8 @@ if (claude) {
 window.emu.askPopout = claude ? null : setupAskPopout(page, { link, framed: framedInPage });
 const welcome = setupWelcome(page, { showRoms, openClaude: () => claude && claude.open() });
 const drawer = setupDrawer(page, { showRoms });
+// a phone: the ports and power in sheets, one row of chips under the on-screen panel
+page.sheets = setupPhoneSheets(page, { touchKeys: page.touchKeys, ask });
 const openRoms = () => { romSockets.reveal(); $('fileRom').click(); };
 library = setupLibrary(page, { loadProgram: media.loadProgram, runShelf: welcome.runShelf, changed: slots.refresh, showRoms, reconnect, diskSaid: disks.said });
 setupTypein(page, { openRoms, isVisible: () => !$('library').hidden });
@@ -249,11 +252,14 @@ $('btnMenu').onclick = () => {
 
 // Esc closes the topmost surface that is open (page.onEscape: confirmations, menus, cards, the views, the chat)
 //; on the screen only a confirmation or a card takes it, and otherwise it is the machine's BREAK; a control
-// that took it first (it prevents the default) and an open <dialog> (the browser closes it) keep it
+// that took it first (it prevents the default) and an open <dialog> (the browser closes it) keep it. A phone's
+// sheet is a dialog whose Esc is the page's own: what is open over it (a menu, a card) closes first, then the sheet
 page.onEscape(ESC.view, viewOpen, () => page.closeView());
 addEventListener('keydown', (e) => {
-  if (e.key !== 'Escape' || e.defaultPrevented || document.querySelector('dialog[open]')) return;
-  if (page.escape(e.target === $('screen'))) e.preventDefault();
+  if (e.key !== 'Escape' || e.defaultPrevented) return;
+  const dialog = document.querySelector('dialog[open]');
+  if (dialog && !dialog.classList.contains('sheet')) return;
+  if (page.escape(!dialog && e.target === $('screen'))) e.preventDefault();
 });
 
 const visit = session.visit();

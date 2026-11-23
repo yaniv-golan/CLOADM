@@ -4064,6 +4064,88 @@ async function librarySelectChecks(browser, base, check) {
 //    handler runs), and its click does not clear a toast the gesture itself raised;
 //  - a toast with no place free is not held back: it shows at once in the fixed slot at the top of the viewport, keeps
 //    that slot, and its time runs (R24); a newer one replaces it.
+// ---------------- a phone's layout (the touch keys on): the chips under the panel and their sheets ----------------
+// iPhone 15 upright: the four chips (Tape, Disks, Cartridge, Power) in their fixed order under the keyboard panel, each a
+// full-size target; each opens its sheet, a modal dialog with the focus inside, and Esc closes it with the focus back on
+// the chip; the hardware keyboard does not reach the machine while a sheet is open; a tape mounted from the sheet names
+// itself on its chip; opening a sheet lets go of a held stick; Hide keys, then the floating ⌨, with the chips up
+// throughout; a toast's action button is a full-size target.
+async function phoneChecks(browser, base, check) {
+  const { devices } = require('playwright');
+  const ctx = await browser.newContext({ ...devices['iPhone 15'], serviceWorkers: 'block' });
+  const page = await ctx.newPage();
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto(`${base}?machine=dragon64`);
+  await started(page);
+  const CHIPS = ['chipTape', 'chipDisks', 'chipCart', 'chipPower'], SHEETS = ['sheetTape', 'sheetDisks', 'sheetCart', 'sheetPower'];
+  const row = await page.evaluate((ids) => {
+    const keys = document.getElementById('touchKeys').getBoundingClientRect();
+    return ids.map((id) => { const c = document.getElementById(id), r = c.getBoundingClientRect();
+      return { id, w: Math.round(r.width), h: Math.round(r.height), left: r.left, top: r.top, under: r.top >= keys.bottom - 1, seen: c.checkVisibility() && r.bottom <= innerHeight,
+        name: c.querySelector('.cn').textContent }; });
+  }, CHIPS);
+  check('phone: the four chips Tape, Disks, Cartridge, Power, in that order under the keyboard panel, each in view and at least 44 x 44',
+    row.map((c) => c.name).join() === 'Tape,Disks,Cartridge,Power' && row.every((c, i) => c.seen && c.under && c.w >= 44 && c.h >= 44 && (!i || c.left > row[i - 1].left)), JSON.stringify(row));
+  for (let i = 0; i < 4; i++) {
+    await page.tap(`#${CHIPS[i]}`);
+    const opened = await waitFor(page, (id) => document.getElementById(id).open && document.getElementById(id).contains(document.activeElement), SHEETS[i]);
+    const title = await page.evaluate((id) => document.querySelector(`#${id} h2`).textContent, SHEETS[i]);
+    await page.keyboard.press('Escape');
+    const closed = await waitFor(page, (id) => !document.querySelector('dialog[open]') && document.activeElement && document.activeElement.id === id, CHIPS[i]);
+    check(`phone: ${CHIPS[i]} opens its sheet "${title}" (a modal dialog, the focus inside); Esc closes it and the focus is back on the chip`,
+      opened && closed && title === ['Cassette deck', 'Disk drives', 'Cartridge port', 'Power'][i], JSON.stringify({ opened, closed, title }));
+  }
+  // the hardware keyboard while a sheet is open: the welcome menu's "1" (LIZA) does not reach the machine
+  await page.tap('#chipPower');
+  await waitFor(page, () => document.getElementById('sheetPower').open);
+  const screenBefore = await page.evaluate(() => window.emu.session.screenText().join('\n'));
+  await page.keyboard.press('1');
+  await emuFrames(page, 60);
+  const screenAfter = await page.evaluate(() => window.emu.session.screenText().join('\n'));
+  check('phone: typing on the hardware keyboard while a sheet is open does not reach the machine (the welcome menu is still up after "1")',
+    screenBefore === screenAfter && /PRESS 1 TO 5/.test(screenAfter), screenAfter.slice(0, 120));
+  await page.keyboard.press('Escape');
+  // a tape mounted from the Tape sheet names itself on the chip
+  await page.tap('#chipTape');
+  await waitFor(page, () => document.getElementById('sheetTape').open);
+  await page.setInputFiles('#fileTape', { name: 'HI.CAS', mimeType: 'application/octet-stream', buffer: Buffer.alloc(256, 0x55) });   // (leader only: a tape the deck takes)
+  const named = await waitFor(page, () => document.querySelector('#chipTape .cs').textContent === 'HI.CAS');
+  const tapeChip = await page.evaluate(() => ({ text: document.querySelector('#chipTape .cs').textContent, label: document.getElementById('chipTape').getAttribute('aria-label'), media: document.getElementById('chipTape').classList.contains('has-media') }));
+  check('phone: a tape mounted from the Tape sheet: its chip says HI.CAS, is outlined, and is named "Tape: HI.CAS. Open the cassette deck."',
+    named && tapeChip.media && tapeChip.label === 'Tape: HI.CAS. Open the cassette deck.', JSON.stringify(tapeChip));
+  await page.evaluate(() => { if (document.querySelector('dialog[open]')) document.querySelector('dialog[open] .sheetdone').click(); window.emu.feedback.clear(); });
+  // a stick held when a sheet opens is let go of (the Stick mode, a finger on the stick, a sheet opened)
+  await page.evaluate(() => document.querySelector('[data-touchmode="joystick"]').click());
+  await waitFor(page, () => document.getElementById('touchStick').checkVisibility());
+  const held = await page.evaluate(() => {
+    const z = document.getElementById('touchStick'), r = z.getBoundingClientRect();
+    z.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 7, pointerType: 'touch', clientX: r.left + r.width / 2, clientY: r.top + r.height / 2, bubbles: true, isPrimary: true }));
+    z.dispatchEvent(new PointerEvent('pointermove', { pointerId: 7, pointerType: 'touch', clientX: r.left + r.width - 4, clientY: r.top + r.height / 2, bubbles: true, isPrimary: true }));
+    const live = document.getElementById('touchKnob').classList.contains('live');
+    document.getElementById('chipPower').click();
+    return { live, after: document.getElementById('touchKnob').classList.contains('live'), open: document.getElementById('sheetPower').open };
+  });
+  check('phone: opening a sheet with the stick held lets go of it', held.live && held.open && !held.after, JSON.stringify(held));
+  await page.evaluate(() => { document.querySelector('#sheetPower .sheetdone').click(); document.querySelector('[data-touchmode="keys"]').click(); });
+  // Hide keys (Power), then ⌨: the keys come back; the chips stay up throughout
+  await page.tap('#chipPower');
+  await page.tap('#btnHideKeys');
+  const hiddenNow = await waitFor(page, () => document.getElementById('touchKeys').hidden && document.body.classList.contains('touch-hidden'));
+  const chipsWhileHidden = await page.evaluate(() => document.getElementById('chipRow').checkVisibility() && !document.querySelector('dialog[open]'));
+  await page.tap('#btnShowKeys');
+  const back = await waitFor(page, () => !document.getElementById('touchKeys').hidden && document.body.classList.contains('touch-keys'));
+  check('phone: Hide keys (Power sheet), then ⌨: the keys come back, and the chip row is up throughout',
+    hiddenNow && chipsWhileHidden && back && await page.evaluate(() => document.getElementById('chipRow').checkVisibility()), JSON.stringify({ hiddenNow, chipsWhileHidden, back }));
+  // a toast's action button on a touch screen: at least 44 px tall
+  await page.evaluate(() => window.emu.feedback.toast('Deleted a.bin', { action: { label: 'Undo', run() {} } }));
+  const act = await page.evaluate(() => Math.round(document.getElementById('toastAction').getBoundingClientRect().height));
+  check('phone: a toast\'s action button is at least 44 px tall on a touch screen', act >= 44, `${act} px`);
+  await page.evaluate(() => window.emu.feedback.clear());
+  check('phone: no page errors', !errors.length, errors.join('; '));
+  await ctx.close();
+}
+
 async function feedbackModelChecks(browser, base, check) {
   const state = (page) => page.evaluate(() => {
     const t = document.getElementById('toast'), b = t.getBoundingClientRect(), reg = document.getElementById('toastRegion');
@@ -5240,14 +5322,17 @@ async function tapeHudChecks(browser, base, check) {
       const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
       return { r: { left: r.left, top: r.top, right: r.right, bottom: r.bottom }, text, vw: innerWidth, vh: innerHeight, scrollY,
         onTop: !!top && h.contains(top), name: document.getElementById('hudName').textContent, state: document.getElementById('hudState').textContent,
-        anims: document.getAnimations().filter((a) => a.playState === 'running').map((a) => (a.effect && a.effect.target ? `${a.effect.target.id || a.effect.target.className}` : '?')) };
+        anims: document.getAnimations().filter((a) => a.playState === 'running').map((a) => (a.effect && a.effect.target ? `${a.effect.target.id || a.effect.target.className}` : '?')),
+        inSheet: !!document.getElementById('tapePanel').closest('dialog.sheet:not([open])') };
     });
     check(`tape HUD (${label}): hidden before; a dropped tape shows it in the viewport without scrolling, on top, with the name and block`,
       hiddenFirst && playing && hud.r.left >= 0 && hud.r.top >= 0 && hud.r.right <= hud.vw && hud.r.bottom <= hud.vh && hud.scrollY === 0 && hud.onTop
       && hud.name === 'Space Game.cas' && /\d+\/14$/.test(hud.state), JSON.stringify(hud));
     check(`tape HUD (${label}): never over the picture's text`, !rectsMeet(hud.r, hud.text), JSON.stringify([hud.r, hud.text]));
     const sayPlay = await page.textContent('#hudSay');
-    check(`tape HUD (${label}): one animation runs while the tape plays: the cassette panel's reels`, hud.anims.length === 1 && hud.anims[0] === 'window', hud.anims.join());
+    // (with the touch keys the deck is in its sheet, closed: then nothing turns at all)
+    check(`tape HUD (${label}): ${hud.inSheet ? 'no animation runs while the tape plays: the reels are in the closed Tape sheet' : 'one animation runs while the tape plays: the cassette panel\'s reels'}`,
+      hud.inSheet ? hud.anims.length === 0 : hud.anims.length === 1 && hud.anims[0] === 'window', hud.anims.join());
     if (shotDir) await page.screenshot({ path: path.join(shotDir, `tape-hud-${label.replace(' ', '-')}.png`) });
     if (sound) {
       // unlocked by a click (browsers allow sound only after one); then the tape's voice while it plays
@@ -13568,9 +13653,11 @@ async function semanticsChecks(browser, base, site, check) {
     // ports, the drawer and the footer
     const touch = !await page.locator('#appbar').isVisible();
     const navShown = await page.locator('#appbar > nav').isVisible();
-    const want = touch ? ['main "Dragon 64"'] : ['banner', ...(navShown ? ['navigation "App"'] : []), 'main "Dragon 64"', 'complementary "Tape, disks and cartridges"',
+    // (with the touch keys upright the ports are chips in the emulator and their sheets: no ports landmark)
+    const chips = await page.locator('#chipRow').isVisible();
+    const want = touch ? ['main "Dragon 64"'] : ['banner', ...(navShown ? ['navigation "App"'] : []), 'main "Dragon 64"', ...(chips ? [] : ['complementary "Tape, disks and cartridges"']),
       'complementary "Settings drawer"', 'contentinfo'];
-    check(`${L}: the landmarks: ${touch ? 'the emulator alone (main), its touch keys in place of the rest' : `the app bar (banner${navShown ? ', its links a navigation' : '; its links folded behind Menu, so no navigation'}), the emulator (main) with the ports under its screen (complementary), the settings drawer (complementary), the footer (contentinfo)`}`,
+    check(`${L}: the landmarks: ${touch ? 'the emulator alone (main), its touch keys in place of the rest' : `the app bar (banner${navShown ? ', its links a navigation' : '; its links folded behind Menu, so no navigation'}), the emulator (main)${chips ? ' with the ports as chips' : ' with the ports under its screen (complementary)'}, the settings drawer (complementary), the footer (contentinfo)`}`,
       JSON.stringify(o.landmarks) === JSON.stringify(want), JSON.stringify(o.landmarks));
     check(`${L}: the headings: one h1 naming the machine, none skipped`, inOrder(o.headings) && o.headings[0][1] === 'Dragon 64', JSON.stringify(o.headings));
 
@@ -15377,17 +15464,26 @@ async function uiModelChecks(browser, base, check) {
     await ticks(page, 5);
     check(`R24 (${label}): the toast's time runs (seen) and it keeps its slot`, await page.evaluate(() => window.emu.feedback.pending[0] && window.emu.feedback.pending[0].seen)
       && box1 === await page.evaluate(() => JSON.stringify(document.getElementById('toast').getBoundingClientRect())));
-    // the mounted disk's drives card on a phone: above the empty cassette deck, the slots under the keyboard panel
-    // (play/index.html: a slot holding media comes first); on a desktop the slots keep their order
+    // a phone: the ports are chips in a fixed order under the keyboard panel, the Disks chip naming the disk and
+    // outlined (it holds media) while the empty Tape chip is not; on a desktop the slots keep their order
+    if (label === 'phone') {
+      const chips = await page.evaluate(() => {
+        const ids = ['chipTape', 'chipDisks', 'chipCart', 'chipPower'].map((id) => document.getElementById(id)), keys = document.getElementById('touchKeys');
+        const r = ids.map((c) => c.getBoundingClientRect());
+        return { order: r.every((x, i) => !i || x.left > r[i - 1].left), under: r.every((x) => x.top >= keys.getBoundingClientRect().bottom - 1),
+          disks: ids[1].querySelector('.cs').textContent, marked: ids[1].classList.contains('has-media') && !ids[0].classList.contains('has-media') };
+      });
+      check('slots (phone): with a disk in and no tape, the Disks chip names it and is outlined, the chips in their fixed order under the keyboard panel',
+        chips.order && chips.under && chips.disks === 'games.vdk' && chips.marked, JSON.stringify(chips));
+    } else {
     const order = await page.evaluate(() => {
       const top = (el) => el.getBoundingClientRect().top, tape = document.querySelector('.slots .slot.tape'), drives = document.getElementById('driveSlot');
       const keys = document.getElementById('touchKeys'), slots = document.querySelector('.slots');
       return { drivesFirst: top(drives) < top(tape), marked: drives.classList.contains('has-media') && !tape.classList.contains('has-media'),
         underKeys: !keys.checkVisibility() || keys.getBoundingClientRect().bottom <= slots.getBoundingClientRect().top + 1 };
     });
-    check(`slots (${label}): with a disk in and no tape, the drives card is ${label === 'phone' ? 'above' : 'after'} the cassette deck${label === 'phone' ? ', under the keyboard panel' : ''}`,
-      order.marked && order.underKeys && order.drivesFirst === (label === 'phone'), JSON.stringify(order));
-    if (shotDir && label === 'phone') await page.locator('.slots').screenshot({ path: path.join(shotDir, 'slots-phone-disk-first.png') });
+    check('slots (desktop): with a disk in and no tape, the drives card is after the cassette deck', order.marked && order.underKeys && !order.drivesFirst, JSON.stringify(order));
+    }
     await page.evaluate(() => window.emu.feedback.clear());
     // an error is red (R24 ruling): the toast's bar is --error (#C42B23), not the orange of a warning (a disk image
     // CLOADM can't read)
@@ -15563,7 +15659,9 @@ async function uiModelChecks(browser, base, check) {
       await page.evaluate(() => { location.hash = ''; window.emu.session.switchMachine('dragon64'); });
       await waitFor(page, () => !document.body.classList.contains('roms-open'));
     }
-    // a drive's Add ROMs…: the Add ROMs view, on the card, in view and focused, the drawer not left scrolled
+    // a drive's Add ROMs…: the Add ROMs view, on the card, in view and focused, the drawer not left scrolled (on a
+    // phone the drives are in the Disks sheet, which the view replaces)
+    if (label === 'phone') await page.click('#chipDisks');
     await page.click('#drives [data-drive="0"]');
     await waitFor(page, () => !!document.getElementById('driveRoms'));
     await page.click('#driveRoms');
@@ -15792,9 +15890,11 @@ async function uiModelChecks(browser, base, check) {
     await page.click('#btnMediaAnyway');
     // a disk without a disk ROM: the drive's menu and the toast both say "disk ROM"
     await page.evaluate(() => window.emu.feedback.clear());
+    if (label === 'phone') await page.click('#chipDisks');   // (the drives are in the Disks sheet there)
     await page.click('#drives [data-drive="0"]');
     const note = await page.evaluate(() => document.getElementById('driveNoRom').textContent.replace(/\s+/g, ' ').trim());
     await page.click('#driveClose');
+    if (label === 'phone') await page.click('#sheetDisks .sheetdone');
     await dropFiles(page, [['games.dsk', fs.readFileSync(path.join(ROOT, 'tests/fixtures/disks/rsdos.dsk'))]]);
     const toast = await toastSeen(page, /^games\.dsk is in drive 0, on the disk controller only \(no disk ROM\)\. Programs that read the disk directly can use it; DIR and other disk commands need your disk ROM\.$/);
     check(`R27 (${label}): without a disk ROM the CoCo's drive menu names Disk BASIC, and the toast says "disk ROM"`,
@@ -16728,6 +16828,7 @@ const GROUPS = (base, site) => [
   ['poke', (b) => pokeChecks(b, base, check)],
   ['feedback', (b) => feedbackChecks(b, base, check)],
   ['feedbackModel', (b) => feedbackModelChecks(b, base, check)],
+  ['phone', (b) => phoneChecks(b, base, check)],
   ['debuggerScreen', (b) => debuggerScreenChecks(b, base, check)],
   ['library', (b) => libraryChecks(b, base, check)],
   ['libraryStorage', (b) => libraryStorageChecks(base, check)],

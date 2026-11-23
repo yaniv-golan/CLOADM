@@ -435,5 +435,8 @@ export function setupTouchKeys(page, { input }) {
   addEventListener('gamepaddisconnected', () => { padHere = padCount() > 0; apply(); });
   apply();
   const standAside = (on) => { if (aside !== !!on) { aside = !!on; apply(); } };
-  return { apply, standAside, setMode, stickActive };
+  // (a phone's sheet opening: a stick or FIRE held is let go of; its Hide keys)
+  const release = () => { releaseStick(); input.touchFire(false); fireUp(); };
+  const hide = () => { hidden = true; apply(); $('btnShowKeys').focus(); };
+  return { apply, standAside, setMode, stickActive, release, hide };
 }

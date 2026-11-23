@@ -170,6 +170,16 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 
 ### Changed
 
+- **A phone's ports and power are four chips under the keyboard.** With the on-screen keys on (or hidden for now), one
+  row of chips sits under the keyboard panel, in a fixed order: Tape, Disks, Cartridge and Power, each saying what is
+  in it (Empty, the file name, "2 disks"; Running or Paused) and outlined while it holds media. Each opens its sheet,
+  a modal dialog holding the page's own controls: "Cassette deck" (the deck and, while a tape is in, the cassette
+  panel), "Disk drives" (the drives, and NitrOS-9 where it is offered), "Cartridge port" (the board and the Multi-Pak)
+  and "Power" (Reset, Switch off and on, Pause, Turbo, Fullscreen, Hide keys). The focus goes to the sheet's first
+  control and back to its chip when it closes; Esc closes it after anything open over it (the drive menu, an offer
+  after a load); the machine keeps running and the hardware keyboard does not type into it while a sheet is open; a
+  stick held when a sheet opens is let go of. A narrow desktop window keeps its layout, and so does a desktop. The
+  tape bar's Deck opens the Tape sheet there, and a toast's buttons are at least 44 px tall on a touch screen.
 - **The welcome menu's tune plays only when you asked for the menu.** It plays once the sound is unlocked for the visit's own menu and for the Welcome menu chosen from Programs; it is silent after a machine switch (a RAM or CPU change, the machine question, an opened snapshot), Reset, a power cycle, and when the menu comes back from LIZA, a game or the demo. The Session decides, so Claude's and MCP's switches are silent too.
 - **Faster CI gates, and shards that cannot go stale.** `node tests/all.js` runs in CI as three parts on three runners
   (`--shard i/n`, planned from `tests/suite-times.json`), and the `gates` job checks from their logs that together
