@@ -82,7 +82,8 @@ export function setupDrawer(page, { showRoms }) {
     const r = session.machineRoms(), m = session.personMachine;   // the person's machine (the BASIC session while the chat is on screen)
     $('romState').textContent = session.nitros9Running ? 'Not used · NitrOS-9 runs on CLOADM\'s own loader' : !m.useStub ? 'BASIC ready' : r.bootable ? 'Loaded · running without ROMs for now' : 'Not added · running without ROMs';
     $('btnManageRoms').textContent = r.bootable ? 'See or add ROMs →' : 'Add ROMs →';
-    $('romPill').hidden = r.bootable || session.nitros9Running;   // NitrOS-9 needs no ROM
+    // NitrOS-9 needs no ROM; a shared moment that runs without ROMs, just arrived on, doesn't ask for them until left
+    $('romPill').hidden = r.bootable || session.nitros9Running || session.sharedMoment;
   }
   $('romPill').onclick = showRoms;
   $('btnManageRoms').onclick = showRoms;
@@ -131,7 +132,8 @@ export function setupDrawer(page, { showRoms }) {
   session.on((ev) => {
     if (ev === 'machine' || ev === 'loaded') { if (ev === 'machine') cartName = null; recent(); roms(); slots(); }
     if (ev === 'disks') slots();   // a disk mounted without a disk ROM plugs the controller in, and a reset gives it its ROM
-    if (ev === 'roms') { roms(); recent(); slots(); }   // (slots: the Pak's board label follows its speech ROM)
+    if (ev === 'roms') { roms(); recent(); slots(); }
+    if (ev === 'arrival') roms();   // a shared moment left: the pill again, if the machine has no BASIC   // (slots: the Pak's board label follows its speech ROM)
     if (ev === 'recent') recent();   // another tab loaded a program (Session.mediaElsewhere)
     // a tape mounted or ejected starts or stops the per-frame refresh of this row. A power cycle ejects the
     // deck and reports 'firmware' (Session.powerCycle -> poweredOn), not 'reset', so it has to be in this list:

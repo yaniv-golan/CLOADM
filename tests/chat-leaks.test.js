@@ -575,7 +575,7 @@ const REQUIRED = require.main !== module;
   // (names verified to be reads/pure by reading their bodies; a name that is wrong here shows as an unknown method)
   const READ = new Set(['advance', 'basicRunning', 'besideMachine', 'drives.blankChoices', 'bootStatus', 'checkGame', 'checkLiza',
     'drives.checkNotInDrive', 'codeAt', 'cpuRate', 'drives.activity', 'drives.dosChoices', 'drives.status', 'driveWireFile',
-    'driveWireImages', 'gameFile', 'inspect', 'drives.list', 'listMedia', 'listSlots', 'lizaNeeds', 'machineRoms',
+    'driveWireImages', 'gameFile', 'inspect', 'unopenable', 'drives.list', 'listMedia', 'listSlots', 'lizaNeeds', 'machineRoms',
     'machineTicket', 'machinesWithRoms', 'nitros9Images', 'nitros9Loader', 'nitros9On', 'printoutFile', 'printoutText',
     'readSlot', 'readSnapshot', 'readSnapshotLink', 'recentMedia', 'sameName', 'savedConfig', 'screenText',
     'shareFile', 'shareUrl', 'slotBytes', 'snapshotLink', 'snapshotRoms', 'snapshotSwitch', 'sscRoms', 'statusLine',
@@ -634,7 +634,9 @@ const REQUIRED = require.main !== module;
     'lastRun', 'welcomeMenu', 'startMachine', 'caseInsensitive', 'webSerialAvailable', 'realCoco', 'driveWireMounts',
     'driveWireChannels', 'hasAnyRoms', 'hasMultiPak', 'claudeBusyActing', 'lizaFile', 'cartBoard', 'paused', 'display', 'debugger', 'stubRun',
     'stubChosen', 'offersSsc', 'tapeRecording', 'personMachine', 'shownMachine', 'nitros9Running', 'nitros9OnScreen',
-    'hasArtifactPhase', 'hasTwoScreens', 'welcomeRunning', 'welcomeRunningOn', 'welcomeOnScreen']) SESSION.add(n);
+    'hasArtifactPhase', 'hasTwoScreens', 'welcomeRunning', 'welcomeRunningOn', 'welcomeOnScreen',
+    // sharedMoment: the person arrived on a shared moment and has not left it (a flag, no machine)
+    'sharedMoment']) SESSION.add(n);
   // Puppets whose reachability is decided where they live (see the note above): debug (the Debugger view closes the
   // chat, claude.js:283-286), chat (the ChatSession, not a machine), store/roms/index/media/keys/machine (the
   // Session's own services).

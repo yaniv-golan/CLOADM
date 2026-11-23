@@ -55,6 +55,7 @@ const FILES = [
   'icons/icon-512.png',
   'icons/icon-maskable-512.png',
   'img/liza.png',
+  'img/og.png',
   'img/welcome.png',
   'index.html',
   'js/asm/assembler.js',

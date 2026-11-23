@@ -65,6 +65,17 @@ export const SSC_TEXT = Object.freeze({
   romLoaded: 'SP0256-AL2 speech ROM ✓ · the Pak speaks.',
   speechNoRom: 'This program is speaking, but there\'s no speech ROM: add your own SP0256-AL2 ROM in Your ROMs.',
 });
+// What CLOADM opens, said when a file is none of them (Session.unopenable): every kind the drop, Open… and the Library
+// take. Tapes: identify (js/media/formats.js) and detectMedia (.c10/.k7); disks: detectMedia's extensions; programs:
+// DragonDOS/DECB binaries and BASIC (tokenised in a binary, or a listing as text); cartridges: identify's .rom/.ccc/.dgn;
+// snapshots: js/ui/snapshot-panel.js; ROM images: js/roms.js; ZIPs: js/ui/files.js opens them.
+export const OPENS_TEXT = 'It opens tapes (.cas, .wav, .c10, .k7), disks (.vdk, .dsk, .jvc, .dmk, .os9), programs (.bin, .bas, .txt), cartridges (.rom, .ccc, .dgn), snapshots (.cloadm), ROM images and ZIPs of these.';
+// the extensions OPENS_TEXT names: a file with one of them that isn't what it says (a damaged tape) is not called a
+// file CLOADM doesn't open
+const OPENS_EXTENSIONS = [...OPENS_TEXT.matchAll(/\.([a-z0-9]+)/g)].map((x) => x[1]).concat('zip');
+// a raw file of unknown format still loads at an address the person gives, when it may be a memory dump: a .bin, or a
+// file with no extension
+const RAW_EXTENSIONS = ['bin', ''];
 export const CLAUDE_PAUSED_SHORT = 'Paused: you pressed a key · Esc stops Claude';
 // a message's text: a string, or the text blocks of a content array
 import { RomLibrary, identifyRoms, isBootable, isRomPack, looksLikeRom, makeRomPack, restoreRomPack, socketStatus } from './roms.js';
@@ -607,6 +618,7 @@ export class Session {
     this.roms = new RomLibrary(this.index, romOwners);
     this.romsLeft = new WeakMap();   // machine -> CRCs removed from storage that it still runs (removeRom)
     this.stubChosen = new Set();    // machines the user chose to run without ROMs this session
+    this.sharedMoment = false;      // arrived on a shared moment that runs without ROMs, not left yet (openSnapshot)
     // The stored-ROM CRCs that did not start BASIC, per machine (Map<Machine, Set<crcs>>): a fresh try is a power-on
     // or a switch, which forgets them (poweredOn clears every machine's; adopt forgets the machine left behind), and
     // another set of ROMs is another key (storedRomsWaiting).
@@ -831,6 +843,7 @@ export class Session {
   // won was an accident).
   switchMachine(id, config, { menu = true, offer = null } = {}) {
     this.writeWatch.guard('switchMachine');
+    this.leaveSharedMoment();
     if (!Object.hasOwn(profiles, id)) id = 'dragon64';
     let m;
     try {
@@ -1337,6 +1350,7 @@ export class Session {
   // the physical switch is the person's machine's (powerCycle defaults to personMachine), because switching off would
   // wipe the chat firmware rather than restart it.
   reset() {
+    this.leaveSharedMoment();
     this.stopClaudeFor('you reset the machine');
     this.launch();
     const m = this.shownMachine, again = this.stubRun && this.stubRun.m === m && m.useStub ? this.stubRun : null;
@@ -1360,6 +1374,7 @@ export class Session {
   // (it always passes the chat machine), never from this default.
   powerCycle({ menu = true, reason = 'the machine restarted', on = null } = {}) {
     const m = on || this.personMachine;
+    if (m === this.personMachine) this.leaveSharedMoment();
     // A load on the BASIC session while the chat is open passes that session, and this stops Claude only when it is
     // the machine Claude acts on (stopClaudeFor's own rule: chatTarget()). In the full-screen chat that IS the BASIC
     // session, so a load there stops Claude (as before); in the side panel the conversation acts on the machine it
@@ -1423,6 +1438,13 @@ export class Session {
     this.shownMachine.injectAndRun(r.segments, r.exec);
     this.setStubRun(this.shownMachine, r);
     if (r.watch) this.watchForMenu(r.watch, r.m);
+  }
+  // The person leaves a shared moment they arrived on (openSnapshot's sharedMoment): a Reset, a power cycle (Start
+  // over) or a machine switch. 'arrival' tells the page to show its no-ROM card and pill again.
+  leaveSharedMoment() {
+    if (!this.sharedMoment) return;
+    this.sharedMoment = false;
+    this.emit('arrival');
   }
   // after a hard reset: the firmware may have changed (ROMs or the stub) and the SAM rate is back to slow
   poweredOn() {
@@ -1816,7 +1838,10 @@ export class Session {
   // Machine.restore sets), so a program that took the screen -- a game, anything that never printed OK -- is not
   // reported as a boot failure 5 s after it comes back. A later Reset or power-on clears the flag, so the
   // watchdog is armed again for it.
-  openSnapshot(snap) {
+  // shared: the moment came from a share link (#s=, js/ui/snapshot-panel.js). One that runs without ROMs is the
+  // person's arrival on someone else's moment (sharedMoment): the page holds back its no-ROM card and "No BASIC" pill
+  // until they leave it (leaveSharedMoment).
+  openSnapshot(snap, { shared = false } = {}) {
     this.writeWatch.guard('openSnapshot');
     const roms = this.snapshotRoms(snap), p = profiles[snap.machine];
     // a shared one: its ROM code rebuilt from this browser's own images (snapshotRoms checked they are all here)
@@ -1826,6 +1851,8 @@ export class Session {
     try { m = restoreSnapshot(snap, Object.fromEntries(p.roms.map((x) => [x.id, roms[x.id] || null]))); }
     catch (e) { throw new SessionError(`This snapshot can't be opened: ${e.message}.`); }
     this.adopt(m);
+    // (set before the events below, so the page's first look at this machine already knows)
+    this.sharedMoment = shared && !Object.keys(roms).length;
     for (const p of this.profiles) p.clear();      // a profile counts what ran from the moment opened
     if (switching) this.store.set(`config.${m.id}`, JSON.stringify(snap.config));
     if (Object.keys(roms).length) { if (!this.nitros9On(m)) this.stubChosen.delete(m.id); } else this.stubChosen.add(m.id);
@@ -2323,6 +2350,14 @@ export class Session {
   // What is this media, and is it for the machine in use? -> detectMedia's result plus `mismatch`:
   // { family, suggest: machine id to open it on, suggestName } when it is for another family (or needs a
   // cartridge port this machine doesn't have).
+  // A file that is none of the kinds CLOADM opens (OPENS_TEXT): { text, details } for the page to say, or null when it
+  // opens (or may be a raw memory dump: loadMedia asks where it goes)
+  unopenable(name, bytes) {
+    if (detectMedia(name, bytes).kind !== 'raw') return null;
+    const ext = (name.match(/\.([^./]+)$/) || [])[1]?.toLowerCase() || '';
+    if (RAW_EXTENSIONS.includes(ext) || OPENS_EXTENSIONS.includes(ext)) return null;
+    return { text: `${name} isn't a file CLOADM opens.`, details: OPENS_TEXT };
+  }
   inspect(name, bytes) {
     const media = detectMedia(name, bytes), m = this.shownMachine;
     let family = media.family;

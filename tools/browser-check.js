@@ -3813,6 +3813,26 @@ async function hintChecks(browser, base, check) {
   await page.clock.fastForward(2000);
   check('key hint: gone 30 s after typing starts', at29 && await page.isHidden('#keyHint'));
   await ctx.close();
+  // a touch-only device (no hover, a coarse pointer) has no keys to name and nothing to drop: the desktop hints never
+  // show there, even with the on-screen keyboard off (the drop hint's layout). A desktop shows them (the control).
+  for (const [label, opts, want] of [['desktop', {}, true], ['touch-only', { hasTouch: true, isMobile: true }, false]]) {
+    ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, ...opts });
+    await ctx.addInitScript(() => { try { localStorage.setItem('cloadm.touchKeys', 'off'); } catch (e) { /* none */ } });
+    page = await ctx.newPage();
+    await page.goto(`${base}?machine=dragon64`); await started(page);
+    const h = await page.evaluate(() => {
+      const kh = document.getElementById('keyHint');
+      document.getElementById('soundHint').hidden = true; kh.hidden = false;   // as once sound has started: the key hint's turn
+      const drop = document.querySelector('.layout .hint');
+      const keys = kh.checkVisibility();
+      kh.hidden = true;     // the drop hint's turn (it steps aside while the key hint shows)
+      return { media: matchMedia('(hover: none) and (pointer: coarse)').matches, drop: drop.checkVisibility(), keys, text: drop.textContent };
+    });
+    check(`hints (${label}): "Or drop any file on the screen. Esc is BREAK…" and the key hint ${want ? 'show' : 'never show on a touch-only device'}`,
+      h.media === !want && h.drop === want && h.keys === want && /^Or drop any file on the screen\. Esc is BREAK/.test(h.text), JSON.stringify(h));
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, `hints-${label}.png`) });
+    await ctx.close();
+  }
 }
 
 // Input: the keyboard modes and the keyboard joystick through the Input tab, and two gamepads through a
@@ -6061,6 +6081,33 @@ async function feedbackChecks(browser, base, check) {
         && (wasPinned ? (pinnedNow && atTopSlot) : (Math.abs(dy) > 20 || Math.abs(dx) > 20)),
       `moved by (${dx}, ${dy}), pinned before ${pinnedBefore}, now ${pinnedNow}, atTopSlot ${atTopSlot}: ${JSON.stringify(moved.box)} -> ${JSON.stringify(afterMove.box)}`);
     check(`feedback (${label}): no page errors`, !errors.length, errors.join('; '));
+    await ctx.close();
+  }
+
+  // a file CLOADM doesn't open (a photo): said in one sentence, the kinds it opens in its Details, and no raw-load
+  // address prompt; a .bin of unknown format still asks where it goes (it may be a memory dump)
+  {
+    const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    const page = await ctx.newPage();
+    const errors = [], dialogs = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    page.on('dialog', (d) => { dialogs.push(d.message()); d.dismiss(); });
+    await page.goto(`${base}?machine=dragon64`);
+    await started(page);
+    await page.setInputFiles('#fileProgram', { name: 'photo.jpg', mimeType: 'image/jpeg', buffer: Buffer.from([0xFF, 0xD8, 0xFF, 0xE0, 1, 2, 3, 4, 5, 6]) });
+    const said = await waitFor(page, () => document.getElementById('toastText').textContent === 'photo.jpg isn\'t a file CLOADM opens.', null, 10000);
+    const t = await page.evaluate(() => ({ error: document.getElementById('toast').classList.contains('error'), action: document.getElementById('toastAction').textContent }));
+    await page.click('#toastAction');
+    const details = await page.evaluate(() => { const d = document.getElementById('toastDetails'); return d.checkVisibility() ? d.textContent : `(hidden) ${d.textContent}`; });
+    check('feedback: a photo dropped or opened: "photo.jpg isn\'t a file CLOADM opens.", its Details list what it opens, and no address prompt',
+      said && t.error && t.action === 'Details' && !dialogs.length
+      && details === 'It opens tapes (.cas, .wav, .c10, .k7), disks (.vdk, .dsk, .jvc, .dmk, .os9), programs (.bin, .bas, .txt), cartridges (.rom, .ccc, .dgn), snapshots (.cloadm), ROM images and ZIPs of these.',
+      `${await page.textContent('#toastText')} ${JSON.stringify(t)} details: ${details} dialogs: ${dialogs}`);
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, 'feedback-unopenable.png') });
+    await page.setInputFiles('#fileProgram', { name: 'dump.bin', mimeType: 'application/octet-stream', buffer: Buffer.from([1, 2, 3, 4, 5, 6, 7]) });
+    for (let i = 0; i < 200 && !dialogs.length; i++) await page.waitForTimeout(50);   // (a condition wait: the prompt)
+    check('feedback: a .bin of unknown format still asks for its load address', /^dump\.bin: unknown format \(7 bytes\)/.test(dialogs[0] || ''), dialogs.join(' | '));
+    check('feedback (unopenable): no page errors', !errors.length, errors.join('; '));
     await ctx.close();
   }
 }
@@ -10660,6 +10707,16 @@ async function firstUseChecks(browser, base, check) {
       k.card.shown && k.under && k.card.text === getText && consoleLink(k.card.links) && k.ask.text === getText && consoleLink(k.ask.links), JSON.stringify(k));
     const useWith = (e) => e.text === 'No key? Use CLOADM inside Claude instead: Use with Claude ↗' && e.links.length === 1 && /docs\/mcp\.md#use-with-claude$/.test(e.links[0][1]);
     check(`${L}: "No key? Use CLOADM inside Claude instead: Use with Claude ↗", linking to the install section`, k.none.shown && useWith(k.none) && useWith(k.askNone), JSON.stringify(k));
+    // with no key, "Use with Claude ↗" is a full-size button, as weighty as the key field: as wide, at least as tall
+    const w = await page.evaluate(() => {
+      const r = (e) => e.getBoundingClientRect(), a = document.querySelector('#claudeNoKey a.usewith'), input = document.getElementById('claudeKeyInput');
+      const cs = getComputedStyle(a);
+      return { a: [Math.round(r(a).width), Math.round(r(a).height)], input: [Math.round(r(input).width), Math.round(r(input).height)],
+        border: cs.borderTopStyle !== 'none' && parseFloat(cs.borderTopWidth) >= 1, underline: /underline/.test(cs.textDecorationLine), size: parseFloat(cs.fontSize),
+        askButton: !!document.querySelector('#askNoKey a.usewith') };
+    });
+    check(`${L}: "Use with Claude ↗" is a full-size button, equal in weight to the key field (as wide, as tall or taller, bordered, not an underlined link)`,
+      Math.abs(w.a[0] - w.input[0]) <= 2 && w.a[1] >= Math.max(40, w.input[1]) && w.border && !w.underline && w.size >= 15 && w.askButton, JSON.stringify(w));
     await shot(page, 'key-card');
     check(`${L} (key): no page errors`, !errors.length, errors.join('; '));
     await ctx.close();
@@ -15066,6 +15123,24 @@ async function shareChecks(browser, base, site, check) {
     // options are matched as a group rather than pinned one by one (`ssc=none` included): shareUrl (js/session.js)
     // emits every non-LOCAL profile option, so a list here would drift with the next option or default. The
     // machine is pinned; the rest is "whatever options this model has".
+    // the long link is labelled for what it is, and the card says when, relative to now (never a clock time)
+    const card = await page.evaluate(() => ({ label: document.getElementById('shareLinkLabel').textContent, labelShown: document.getElementById('shareLinkLabel').checkVisibility(),
+      forLink: document.getElementById('shareLinkLabel').control === document.getElementById('shareLink'), when: document.getElementById('shareWhen').textContent }));
+    check('share: the link is labelled "Exact moment (long link)", and the card says "captured just now"',
+      card.label === 'Exact moment (long link)' && card.labelShown && card.forLink && card.when === 'captured just now', JSON.stringify(card));
+    // three minutes on (the page's clock moved forward), the screen opened again says so
+    await page.click('#shareBack');
+    await waitFor(page, () => location.hash !== '#share');
+    const later = await page.evaluate(async () => {
+      const now = Date.now;
+      Date.now = () => now() + 3 * 60000 + 5000;
+      try {
+        location.hash = '#share';
+        for (let i = 0; i < 100 && document.getElementById('shareWhen').textContent === 'captured just now'; i++) await new Promise((r) => setTimeout(r, 50));
+        return document.getElementById('shareWhen').textContent;
+      } finally { Date.now = now; }
+    });
+    check('share: three minutes later the card says "captured 3 minutes ago"', later === 'captured 3 minutes ago', later);
     const link = await page.inputValue('#shareLink');
     check('share: the link points at /play/ with this machine, the snapshot in the fragment', /\/play\/\?machine=dragon64(&[a-z]+=[^&#]*)*#s=[A-Za-z0-9_-]{1000,}$/.test(link), link.slice(0, 80));
     const ctx2 = await browser.newContext({ serviceWorkers: 'block' });
@@ -15082,6 +15157,16 @@ async function shareChecks(browser, base, site, check) {
     check('share: the link opens exactly that moment in another browser profile', await p2.evaluate(() => window.emu.machine.ram[1030] === 42 && location.hash === '')
       && await waitFor(p2, () => window.__said.some((m) => /^Snapshot opened: Dragon 64/.test(m))) && await p2.evaluate(() => !window.__said.some((m) => /^ERROR /.test(m))),
       `${await said(p2)} · ram[1030] ${await p2.evaluate(() => window.emu.machine.ram[1030])}`);
+    // arriving on that moment without ROMs (a first visit): no "Running with no ROMs" card and no "No BASIC" pill. They
+    // come back once the person leaves the moment: here by Reset (the menu again)
+    const quiet = () => p2.evaluate(() => ({ pill: document.getElementById('romPill').checkVisibility(), card: document.getElementById('welcome').checkVisibility(),
+      cardThere: !document.getElementById('welcome').hidden, menuItem: !document.getElementById('navRoms').hidden, shared: window.emu.session.sharedMoment }));
+    const arrived = await quiet();
+    check('share: arriving on a shared no-ROM moment shows no no-ROM card and no "No BASIC" pill', !arrived.pill && !arrived.card && arrived.cardThere && !arrived.menuItem && arrived.shared, JSON.stringify(arrived));
+    if (shotDir) await p2.screenshot({ path: path.join(shotDir, 'share-arrival.png') });
+    await p2.evaluate(() => document.getElementById('btnReset').click());
+    const left = await waitFor(p2, () => document.getElementById('romPill').checkVisibility() && document.getElementById('welcome').checkVisibility(), null, 10000);
+    check('share: leaving the moment (Reset) brings back the card and the pill', left, JSON.stringify(await quiet()));
     const p2b = await ctx2.newPage();   // a link that differs only after # wouldn't reload the same page
     await p2b.goto(link.slice(0, link.length - 400));
     await linkIn(p2b);
