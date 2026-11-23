@@ -176,6 +176,9 @@ Next version: 0.1.9-pre (the plugin and extension manifests carry it; `tests/plu
 
 ### Changed
 
+- **Booting NitrOS-9 releases a Debugger stop**, as the other launches do: an accepted boot releases it once and
+  the machine runs; a refused boot (a Multi-Pak in the port, say) keeps it. The boot's own held mount of its disk
+  launches nothing by itself.
 - **Claude and the MCP tools refuse what a Debugger stop would swallow.** While the Debugger has the machine stopped,
   the tools that must run it or press its keys (`type_text`, `press_break`, `run`, and the MCP server's `press_keys`
   and `run_frames`) fail with a new code, `machine-stopped`. Its detail says where it stopped, and its remedy says how

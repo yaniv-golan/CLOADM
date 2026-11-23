@@ -1160,6 +1160,9 @@ export class Session {
         else if (fdc.type !== 'cocofdc') throw new SessionError(`NitrOS-9 boots from the CoCo disk controller, not the ${fdc.name}.`);
         await this.drives.mount(0, DISK_PREFIX + name, { [HELD]: true });
       } else await this.mountDriveWire(0, name, { [HELD]: true });
+      // accepted (the last refusal is above): booting NitrOS-9 is a launch, so a Debugger stop on the machine is
+      // released and NitrOS-9 runs. The mount itself is held and launches nothing; a refused boot keeps the stop.
+      this.launch(mm);
       this.endWelcome();
       this.setStubRun(mm);          // the NitrOS-9 load starts on mm (its own record, not another machine's)
       this.keys.clear();

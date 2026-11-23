@@ -100,6 +100,26 @@ for (const [what, name, bytes] of [
   check(`debugger stop: ...and keeps the stop where it was: no 'released', no 'launch'`, s.paused && s.debug.pc === pc
     && !events.some(([ev]) => ev === 'released' || ev === 'launch'), JSON.stringify(events.map(([ev]) => ev)));
 }
+// Two refusals that come late in a load (a launch moved ahead of them would release the stop): a BASIC tape on a machine
+// with no BASIC ROM (the .cas fast-load branch's own refusal), and a raw file whose load and exec addresses the
+// person does not give (askAddresses -> null). Each is refused and keeps the stop.
+{
+  // a .cas holding a tokenised BASIC program (file type 0, not ASCII): a header block, one data block, the end block
+  const blk = (type, data) => { let sum = (type + data.length) & 0xFF; for (const v of data) sum = (sum + v) & 0xFF; return [0x3C, type, data.length, ...data, sum, 0x55]; };
+  const header = [...new TextEncoder().encode('PROG    '), 0, 0, 0, 0, 0, 0, 0];   // name, type 0 (BASIC), binary, gap, exec, load
+  const cas = new Uint8Array([...Array(128).fill(0x55), ...blk(0, header), ...Array(128).fill(0x55), ...blk(1, [0x1E, 0x0A, 0, 10, 0x87, 0]), ...blk(0xFF, [])]);
+  for (const [what, name, bytes, opts] of [
+    ['a BASIC tape (.cas, type 0) on a machine with no BASIC ROM', 'prog.cas', cas, {}],
+    ['a raw file whose addresses are not given (askAddresses -> null)', 'data.raw', new Uint8Array(48).fill(0x01), { askAddresses: () => null }],
+  ]) {
+    const { s, events, pc } = stopped();
+    let threw = null;
+    try { s.load(name, bytes, Object.assign({ remember: false }, opts)); } catch (e) { threw = e; }
+    check(`debugger stop: ${what} is refused`, threw instanceof Emu.SessionError, String(threw));
+    check('debugger stop: ...and keeps the stop where it was: no \'released\', no \'launch\'', s.paused && s.debug.pc === pc
+      && !events.some(([ev]) => ev === 'released' || ev === 'launch'), JSON.stringify(events.map(([ev]) => ev)));
+  }
+}
 // A launch on ANOTHER machine leaves this machine's stop in place (a power cycle of another machine: the chat's
 // own power, or a load's target that is not the machine on screen)
 {
@@ -156,6 +176,55 @@ for (const [what, name, bytes] of [
   await s.drives.importImage('dropped.vdk', Emu.blankDisk('vdk', 40, 1), 1);
   r = events.filter(([ev]) => ev === 'released');
   check('debugger stop: a disk dropped or opened (importDisk) is a launch too, released once', !s.paused && r.length === 1, JSON.stringify(r));
+
+  // The held mount - NitrOS-9's own boot disk going in as part of its start (bootNitros9's drives.mount with HELD) -
+  // is the Session's work, not one of the person's disks: the mount itself launches nothing. (Asked of the mount
+  // alone, by wrapping it: whether the boot as a whole should be a launch is not this test's question.)
+  {
+    const { makeOs9Disk } = require('../tools/nitros9/os9-image.js');
+    const f = new Emu.Session({ store: Emu.memoryStore(), media: new MemoryMediaStore() });
+    await f.ready();
+    f.switchMachine('coco3', { cpu: '6809', ram: 128, becker: false }, { menu: false });
+    await f.media.write('disks/floppy9.dsk', makeOs9Disk(Emu, { driver: 'rb1773', port: 'floppy', sides: 2, sectors: 1440, cpu: '6809' }));
+    run(f, 100);
+    f.debug.halt();
+    const mounts = [];
+    let inMount = null;
+    const mount = f.drives.mount.bind(f.drives);
+    f.drives.mount = async (drive, name, opts = {}) => {
+      inMount = { held: Object.getOwnPropertySymbols(opts).length > 0, launches: 0 };
+      try { return await mount(drive, name, opts); } finally { mounts.push(inMount); inMount = null; }
+    };
+    f.on((ev) => { if (ev === 'launch' && inMount) inMount.launches++; });
+    const said = await f.bootNitros9('floppy9.dsk', 'disk');
+    check('debugger stop: the NitrOS-9 boot mounts its floppy as a held mount, and that mount launches nothing',
+      /in floppy drive 0/.test(said) && mounts.length === 1 && mounts[0].held && mounts[0].launches === 0, JSON.stringify({ said, mounts }));
+  }
+  // Booting NitrOS-9 is a launch: accepted, it releases a Debugger stop, once, with the PC;
+  // refused (here: a Multi-Pak in the port, the boot's last refusal), it keeps the stop
+  {
+    const { makeOs9Disk } = require('../tools/nitros9/os9-image.js');
+    const f = new Emu.Session({ store: Emu.memoryStore(), media: new MemoryMediaStore() });
+    await f.ready();
+    f.switchMachine('coco3', { cpu: '6809', ram: 128, becker: false }, { menu: false });
+    await f.media.write('disks/floppy9.dsk', makeOs9Disk(Emu, { driver: 'rb1773', port: 'floppy', sides: 2, sectors: 1440, cpu: '6809' }));
+    run(f, 100);
+    const events = [];
+    f.on((ev, arg) => events.push([ev, arg]));
+    f.shownMachine.insertCartridge(new Emu.devices.multi([null, null, null, null]));
+    f.debug.halt();
+    const pc0 = f.debug.pc;
+    let refused = null;
+    try { await f.bootNitros9('floppy9.dsk', 'disk'); } catch (e) { refused = e; }
+    check('debugger stop: a refused NitrOS-9 boot (a Multi-Pak in the port) keeps the stop and releases nothing',
+      /take the Multi-Pak out/.test(String(refused)) && f.paused && f.debug.pc === pc0 && !events.some(([ev]) => ev === 'released'), String(refused));
+    f.shownMachine.ejectCartridge();
+    events.length = 0;
+    const said = await f.bootNitros9('floppy9.dsk', 'disk');
+    const r = events.filter(([ev]) => ev === 'released');
+    check('debugger stop: an accepted NitrOS-9 boot is a launch: the stop is released, once, with its PC, and the machine runs',
+      /in floppy drive 0/.test(said) && !f.paused && r.length === 1 && r[0][1] === pc0 && run(f) > 0, JSON.stringify({ said, r }));
+  }
 
   console.log(fail ? `${fail} FAILED` : 'all debugger-stop checks passed');
   process.exitCode = fail ? 1 : 0;
