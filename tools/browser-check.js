@@ -6101,7 +6101,10 @@ async function layoutChecks(browser, base, check) {
     // under at least one section, with no empty section
     check(`layout (${label}): machine menu lists every model exactly once under a section`,
       groups.length > 0 && new Set(listed).size === all.length && all.every((id) => listed.includes(id)), `${groups.join()} | ${listed.join(' ')}`);
-    check(`layout (${label}): no ROMs: every model says it needs them`, (await page.$$eval('#machineMenu .tag', (t) => t.map((x) => x.textContent))).filter((t) => t === 'needs ROMs').length === all.length);
+    // no ROMs: one line at the top says every machine needs them, instead of a tag on each row (uiModel checks the tags
+    // once ROMs are stored)
+    check(`layout (${label}): no ROMs: one line says every machine needs its own ROMs, and no row has a tag`,
+      await page.textContent('#menuNoRoms') === 'No ROMs yet: every machine needs its own ROMs for BASIC.' && (await page.$$eval('#machineMenu [data-machine] .tag', (t) => t.length)) === 0);
     check(`layout (${label}): the CP 400 is in the menu (it matched no section before)`, listed.includes('cp400'), listed.join(' '));
     await shot('machine-menu');
     // a switch asks first; Cancel keeps the machine; Escape closes the menu
