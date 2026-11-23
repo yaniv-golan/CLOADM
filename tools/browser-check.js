@@ -17221,6 +17221,9 @@ async function menuFocusChecks(browser, base, check) {
       const inDebugger = await debuggerByKeys();
       const under = await page.evaluate((id) => { const m = document.getElementById(id); return { open: !m.hidden, shows: m.checkVisibility() }; }, id);
       await page.keyboard.press('Escape');
+      // (Esc goes back through the history when the view was pushed above the emulator: the hash is settled on popstate,
+      // after the key, so wait for it, bounded, before reading; an Esc that does not close the Debugger times out here)
+      await waitFor(page, () => location.hash === '' && document.getElementById('debugView').hidden, null, 5000);
       const after = { inDebugger, under, hash: await page.evaluate(() => location.hash), debug: await shown(page, 'debugView') };
       check(`${L}: the ${name} open, the Debugger opened by keyboard over it: one Esc closes the Debugger`, inDebugger && under.open && !under.shows && after.hash === '' && !after.debug,
         JSON.stringify(after));
