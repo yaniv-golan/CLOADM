@@ -5951,7 +5951,15 @@ async function glossaryChecks(browser, site, check) {
   await scan('/play/ Add ROMs');
   await page.evaluate(() => { location.hash = '#library'; });
   await waitFor(page, () => !document.getElementById('library').hidden);
+  // the empty Library's ROMs card is filled in when the Library has rendered: scan it only once it is there and shown
+  // (it is what says "add your own copy"), then again under the ROMs filter, where the same card sits above the tiles
+  const romsCardShown = () => { const b = document.getElementById('libRomsBox'), t = document.getElementById('libRomsText'); return !b.hidden && b.getClientRects().length > 0 && /ROMs/.test(t.textContent); };
+  await waitFor(page, romsCardShown);
+  check('glossary: the empty Library shows its ROMs card, and it is among the words scanned', /No ROMs yet\. CLOADM never includes ROMs; add your own in/.test(await words()), (await words()).slice(0, 300));
   await scan('/play/ Library');
+  await page.click('#libKinds [data-kind-filter="roms"]');
+  await waitFor(page, romsCardShown);
+  await scan('/play/ Library, ROMs filter');
   await page.evaluate(() => { location.hash = ''; });
   await page.click('#btnShare');
   await waitFor(page, () => location.hash === '#share' && !document.getElementById('share').hidden);
