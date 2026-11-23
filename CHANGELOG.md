@@ -11,20 +11,25 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 ### Added
 
 - **Ctrl+K finds more, forgives typos and switches machines.** New commands: **Help** (the Help page in a new tab),
-  **Switch machine…** (the machine menu; also "computer" and "model"), and **Switch to <model>** for every model but
-  the one running, found by its name ("coco 3"), which asks first through the machine menu's confirmation; a query
+  **Switch machine…** (the machine menu; also "computer" and "model"), and **Switch to <model>** for every model,
+  found by its name ("coco 3"), which asks first through the machine menu's confirmation; a query
   that says "switch" or "machine" without naming a model gets the one **Switch machine…** row. **Your ROMs** also
   answers to "delete", "remove" and "forget", and **Help** to "guide" and "how". A word of 4 letters or more may be one
   letter off a word's start, its first letter kept ("rset" finds Reset, "setings" and "setin" the settings). Matches at
   the start of a word of the name come first, then those in a command's other words, then the near misses, each in
   the list's order; up to 8 commands (was 6), Ask Claude last; the matched part is highlighted (`<mark>`), and each
   option's accessible name is its plain label. `↓` on the last row goes to the first, `↑` with none chosen to the
-  last. **Eject disk** is listed only while a disk is in, as the tape's Eject. (`rankCommands`, `switchCommands`.)
+  last. Every command stays listed, as the tape's do: **Eject disk** with no disk in is muted ("No disk in"; choosing it
+  says "No disk in any drive."), and **Switch to** the model you are using is muted ("Running now"; choosing it says
+  "You're using the Dragon 64 now."), after the rows that apply. (`rankCommands`, `listCommands`, `switchCommands`.)
 - **Tape: Eject, the tape commands in Ctrl+K, and recordings kept in the Library.** The cassette slot has **Eject**
   beside **Rewind** (`Session.ejectTape`, which emits `'tape'` and clears the tape watch as a rewind does): the deck
   goes with the tape, the focus goes to the slot's deck button, and the page says "Tape ejected."; a program waiting
   on the tape (BASIC's CLOAD) keeps waiting, as on a real machine. Ctrl+K has **Insert a tape…** (the tape picker:
-  .cas and .wav), and while a tape is in, **Rewind the tape** and **Eject the tape**. On a tape of more than one file
+  .cas and .wav), **Rewind the tape** and **Eject the tape**. Every command is always listed: one that doesn't apply
+  now (Rewind, Eject or Save the tape as .WAV with no tape in) is a muted row whose second line says why not ("No tape
+  in"), aria-disabled but still selectable, listed after the rows that apply; choosing it keeps the box open, runs
+  nothing, and its row and the box's live region say why, once ("No tape in the deck."). On a tape of more than one file
   the deck says which is loading: "LOADING · FILE 2 OF 3 · BLOCK 4 OF 31". **Stop and save .CAS** no longer
   downloads "recording.cas": the recording goes into the Library named after the first file in its header, trimmed,
   with the characters a file name can't take as "_" (`CSAVE "HELLO"` saves HELLO.CAS, "A/B" saves A_B.CAS), or

@@ -90,6 +90,8 @@ export function setupMediaPanel(page, { snapshots, disks, nitros9, keep }) {
   // recording what the machine writes (CSAVE, CSAVEM): Record arms the deck, a second click saves the .CAS
   const download = (name, bytes, type) => page.download(name, bytes, type);
   let lastRecording = null;
+  // (the command box asks whether there is a recording to save as WAV when no tape is in)
+  page.tape = { recorded: () => !!lastRecording };
   const showRecording = () => {
     const on = session.tapeRecording;
     $('btnRecord').setAttribute('aria-pressed', String(on));

@@ -4858,8 +4858,27 @@ async function tapeExtrasChecks(browser, base, check) {
       if (await page.isHidden('#cmdBox')) await page.keyboard.press('Control+k');
       await waitFor(page, () => !document.getElementById('cmdBox').hidden);
       await page.fill('#cmdInput', q);
-      return page.evaluate(() => [...document.querySelectorAll('#cmdList [role="option"]')].map((o) => o.querySelector('.label, strong, span') ? o.firstChild.textContent : o.textContent));
+      return page.evaluate(() => [...document.querySelectorAll('#cmdList [role="option"]')].map((o) => o.firstChild.textContent));
     };
+    // the rows as they show: label, second line, aria-disabled, chosen
+    const rowsNow = () => page.evaluate(() => [...document.querySelectorAll('#cmdList [role="option"]')].map((o) => ({ label: o.firstChild.textContent,
+      line: o.querySelector('.hint').textContent, off: o.getAttribute('aria-disabled') === 'true', sel: o.getAttribute('aria-selected') === 'true', disabledAttr: o.hasAttribute('disabled') })));
+    // choose a command that doesn't apply: the box stays open, nothing runs, the row says why, said once in the live region
+    const refuse = async (q, want, why, unchanged) => {
+      const rows = await palette(q), at = rows.indexOf(want);
+      const before = await page.evaluate(unchanged);
+      for (let i = 0; i < at; i++) await page.keyboard.press('ArrowDown');
+      const chosen = (await rowsNow()).find((r) => r.label === want);
+      await page.evaluate(() => { window.__said = []; window.__liveMo = new MutationObserver(() => window.__said.push(document.getElementById('cmdLive').textContent));
+        window.__liveMo.observe(document.getElementById('cmdLive'), { childList: true, characterData: true, subtree: true }); });
+      await page.keyboard.press('Enter');
+      await page.waitForTimeout(500);   // (past the 300 ms after which a typed query's count would be said)
+      const after = await rowsNow(), row = after.find((r) => r.label === want);
+      const said = await page.evaluate(() => { window.__liveMo.disconnect(); return window.__said.filter((t) => t); });
+      return { at, chosen, row, said, open: !(await page.isHidden('#cmdBox')), same: JSON.stringify(before) === JSON.stringify(await page.evaluate(unchanged)), why };
+    };
+    const refusedOk = (r) => r.at >= 0 && r.chosen && r.chosen.sel && r.chosen.off && !r.chosen.disabledAttr && r.open && r.same && r.row.line === r.why
+      && r.said.length === 1 && r.said[0] === r.why;
     const close = async () => { await page.keyboard.press('Escape'); await waitFor(page, () => document.getElementById('cmdBox').hidden); };
     // run the palette's row with this label (↓ to it from the first row, then Enter)
     const runRow = async (q, want) => {
@@ -4869,10 +4888,27 @@ async function tapeExtrasChecks(browser, base, check) {
       return at;
     };
     await page.click('#screen');
-    const empty = await palette('tape');
+    await palette('tape');
+    const empty = await rowsNow();
+    const row = (l) => empty.find((r) => r.label === l);
     await close();
-    check(`tape extras (${label}): with no tape, Ctrl+K "tape" finds "Insert a tape…" and neither Rewind nor Eject`,
-      empty.includes('Insert a tape…') && !empty.includes('Rewind the tape') && !empty.includes('Eject the tape'), JSON.stringify(empty));
+    // (the box shows at most 6 commands: "tape" matches more, so the muted ones that fit are shown, after the others)
+    check(`tape extras (${label}): with no tape, Ctrl+K "tape" lists "Insert a tape…" and, muted after the rows that apply ("No tape in", aria-disabled, no disabled attribute), Rewind`,
+      row('Insert a tape…') && !row('Insert a tape…').off && ['Rewind the tape'].every((l) => row(l) && row(l).off && row(l).line === 'No tape in' && !row(l).disabledAttr)
+      && empty.filter((r) => r.off).every((r) => r.line === 'No tape in' && !r.disabledAttr)
+      && empty.findIndex((r) => r.off) > empty.findIndex((r) => r.label === 'Insert a tape…') && empty.filter((r) => !/^Ask Claude/.test(r.label)).every((r, i, a) => !r.off || a.slice(i).every((x) => x.off)),
+      JSON.stringify(empty));
+    // choosing them says why, in the box, and does nothing
+    const deck = () => JSON.stringify([!!window.emu.machine.deck.tape, window.emu.session.tapeRecording]);
+    const r1 = await refuse('rewind', 'Rewind the tape', 'No tape in. Insert one with "Insert a tape…".', deck);
+    await close();
+    const r2 = await refuse('eject the tape', 'Eject the tape', 'No tape in the deck.', deck);
+    await close();
+    const r3 = await refuse('wav', 'Save the tape as .WAV', 'No tape in and nothing recorded yet.', deck);
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, `tape-extras-refused-${label}.png`) });
+    await close();
+    check(`tape extras (${label}): with no tape, choosing Rewind, Eject or Save as .WAV keeps the box open, does nothing, shows why on the row and says it once`,
+      [r1, r2, r3].every(refusedOk), JSON.stringify([r1, r2, r3]));
     // "Insert a tape…" opens the tape picker (seen in the page: a headless browser does not always open a chooser)
     await page.evaluate(() => { const i = document.getElementById('fileTape'); window.__tapePicks = 0; i.click = () => { window.__tapePicks++; }; });
     await runRow('insert a tape', 'Insert a tape…');
@@ -4881,10 +4917,13 @@ async function tapeExtrasChecks(browser, base, check) {
     await page.evaluate(() => { delete document.getElementById('fileTape').click; });
     await page.setInputFiles('#fileTape', { name: 'three.cas', mimeType: 'application/octet-stream', buffer: three });
     await waitFor(page, () => !document.getElementById('tapePanel').hidden);
-    const withTape = [await palette('rewind'), await palette('eject')];
+    await palette('rewind');
+    const w1 = await rowsNow();
+    await palette('eject');
+    const w2 = await rowsNow();
     await close();
-    check(`tape extras (${label}): with a tape in, "rewind" and "eject" find "Rewind the tape" and "Eject the tape"`,
-      withTape[0][0] === 'Rewind the tape' && withTape[1].includes('Eject the tape'), JSON.stringify(withTape));
+    check(`tape extras (${label}): with a tape in, "rewind" and "eject" find "Rewind the tape" and "Eject the tape", not muted`,
+      w1[0].label === 'Rewind the tape' && !w1[0].off && w1[0].line === 'back to the start of the tape' && w2.some((r) => r.label === 'Eject the tape' && !r.off), JSON.stringify([w1, w2]));
     // the second file loading: the machine paused so the tape stays there
     await page.click('#btnPause');
     await page.evaluate(() => { const d = window.emu.machine.deck; d.tape.seekByte(d.tape.bytes.length / 2); d.setMotor(true); });
@@ -4903,9 +4942,11 @@ async function tapeExtrasChecks(browser, base, check) {
         && document.activeElement === document.getElementById('btnTape') && window.emu.machine.deck.motor),
       JSON.stringify(await page.evaluate(() => ({ active: document.activeElement.id, toast: document.getElementById('toastText').textContent }))));
     await page.click('#btnPause');   // running again
-    const gone = await palette('tape');
+    await palette('tape');
+    const gone = await rowsNow();
     await close();
-    check(`tape extras (${label}): with the tape out, Rewind and Eject leave the palette`, !gone.includes('Eject the tape') && !gone.includes('Rewind the tape'), JSON.stringify(gone));
+    check(`tape extras (${label}): with the tape out, Rewind and Eject are muted again ("No tape in")`,
+      ['Rewind the tape', 'Eject the tape'].every((l) => { const r = gone.find((x) => x.label === l); return r && r.off && r.line === 'No tape in'; }), JSON.stringify(gone));
     // the slot's Eject button: disabled without a tape; with one, it ejects as the palette does
     const disabled = await page.isDisabled('#btnEjectTape');
     await page.setInputFiles('#fileTape', { name: 'three.cas', mimeType: 'application/octet-stream', buffer: three });
@@ -5589,14 +5630,12 @@ async function commandsChecks(browser, site, check) {
   // written out here rather than read from COMMANDS (the page's own list is checked against them)
   const WANT = [
     ['Claude', ['Chat with Claude, full screen', 'What is this code doing?']],
-    ['Files', ['Take snapshot', 'Open a program, tape, disk or cartridge…', 'Insert a disk…', 'New blank disk', 'Insert a tape…', 'Save the tape as .WAV', 'Record to tape', 'Share']],
+    ['Files', ['Take snapshot', 'Open a program, tape, disk or cartridge…', 'Insert a disk…', 'New blank disk', 'Eject disk', 'Insert a tape…', 'Rewind the tape', 'Eject the tape', 'Save the tape as .WAV', 'Record to tape', 'Share']],
     ['Views', ['Open the Library', 'Open the Debugger']],
     ['Settings', ['Your ROMs', 'Display settings', 'Input settings', 'POKEs', 'Machine settings']],   // (Your ROMs: R28b)
     ['Machine', ['Pause or resume', 'Turbo', 'Fullscreen', 'Reset', 'Switch off and on', 'Switch machine…', 'Help']],
   ];
   const LABELS = WANT.flatMap(([, l]) => l);
-  // listed only while a tape is in the deck, or a disk in a drive (the box above has neither)
-  const WITH_TAPE = ['Eject disk', 'Rewind the tape', 'Eject the tape'];
   const CLAUDE_NOTE = "Claude reads this emulated machine's screen text and memory, and acts on it only with your permission.";
   const FOOT = 'Type to filter, or type a question for Claude. Commands run here and are never sent to Claude.';
   const errors = [];
@@ -5742,7 +5781,7 @@ async function commandsChecks(browser, site, check) {
     await page.goto(`${site}help/`);
     const help = await page.evaluate(() => ({ text: document.body.innerText.replace(/\s+/g, ' '), h2: [...document.querySelectorAll('h2')].map((h) => h.textContent) }));
     const missing = labels.filter((l) => !help.text.includes(l));
-    check('commands: every COMMANDS label appears verbatim in Help, and COMMANDS is the R14 set', !missing.length && JSON.stringify(labels.slice().sort()) === JSON.stringify(LABELS.concat(WITH_TAPE).sort()), JSON.stringify({ missing, labels }));
+    check('commands: every COMMANDS label appears verbatim in Help, and COMMANDS is the R14 set', !missing.length && JSON.stringify(labels.slice().sort()) === JSON.stringify(LABELS.slice().sort()), JSON.stringify({ missing, labels }));
     check('commands: Help has "Commands and shortcuts" and "What Claude can do" with the shortcuts and the permission wording',
       help.h2.includes('Commands and shortcuts') && help.h2.includes('What Claude can do')
       && ['Ctrl B', '= BREAK', '= CLEAR', 'Fn', 'Esc in the full-screen chat:', 'Esc while Claude is paused:', 'Reads (always):', 'Acts (only with your permission):',
@@ -5759,7 +5798,8 @@ async function commandsChecks(browser, site, check) {
       if (await page.isHidden('#cmdBox')) { await page.click('#screen'); await page.keyboard.press('Control+k'); await waitFor(page, () => !document.getElementById('cmdBox').hidden); }
       await page.fill('#cmdInput', q);
       return page.evaluate(() => [...document.querySelectorAll('#cmdList [role="option"]')].map((o) => ({ text: o.firstChild.textContent, name: o.getAttribute('aria-label'),
-        marks: [...o.querySelectorAll('mark')].map((m) => m.textContent), sel: o.getAttribute('aria-selected') === 'true' })));
+        marks: [...o.querySelectorAll('mark')].map((m) => m.textContent), sel: o.getAttribute('aria-selected') === 'true',
+        off: o.getAttribute('aria-disabled') === 'true', line: o.querySelector('.hint').textContent, disabledAttr: o.hasAttribute('disabled') })));
     };
     const firsts = {};
     for (const q of ['rset', 'setings', 'setin', 'coco 3', 'help', 'delete rom', 'switch']) firsts[q] = (await query(q))[0];
@@ -5768,8 +5808,26 @@ async function commandsChecks(browser, site, check) {
       && firsts.help.text === 'Help' && firsts['delete rom'].text === 'Your ROMs' && Object.values(firsts).every((f) => f.sel), JSON.stringify(firsts));
     const sw = await query('switch');
     check(`${L}: "switch" names no model: one "Switch machine…" row and no "Switch to" rows`, sw.some((r) => r.text === 'Switch machine…') && !sw.some((r) => /^Switch to/.test(r.text)), JSON.stringify(sw.map((r) => r.text)));
+    // the running Dragon 64: listed after the ones that apply, muted "Running now"; choosing it says why, the box stays
+    // open, the machine stays, and the live region says it once
     const own = await query('dragon 64');
-    check(`${L}: the running Dragon 64 is never a "Switch to" row; the other Dragon 64s are`, !own.some((r) => r.text === 'Switch to Dragon 64') && own.some((r) => r.text === 'Switch to Tano Dragon 64'), JSON.stringify(own.map((r) => r.text)));
+    const ownAt = own.findIndex((r) => r.text === 'Switch to Dragon 64'), ownRow = own[ownAt];
+    check(`${L}: the running Dragon 64 has a "Switch to" row, muted "Running now" (aria-disabled, no disabled attribute), after the other Dragon 64s`,
+      ownRow && ownRow.off && ownRow.line === 'Running now' && !ownRow.disabledAttr && own.some((r) => r.text === 'Switch to Tano Dragon 64' && !r.off)
+      && own.slice(0, ownAt).every((r) => !r.off), JSON.stringify(own.map((r) => [r.text, r.off, r.line])));
+    for (let i = 0; i < ownAt; i++) await page.keyboard.press('ArrowDown');
+    const chosen = (await page.evaluate(() => { const o = document.querySelector('#cmdList [aria-selected="true"]'); return o && o.firstChild.textContent; }));
+    await page.evaluate(() => { window.__said = []; window.__liveMo = new MutationObserver(() => window.__said.push(document.getElementById('cmdLive').textContent));
+      window.__liveMo.observe(document.getElementById('cmdLive'), { childList: true, characterData: true, subtree: true }); });
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(500);
+    const after = (await page.evaluate(() => [...document.querySelectorAll('#cmdList [role="option"]')].map((o) => [o.firstChild.textContent, o.querySelector('.hint').textContent])))
+      .find(([t]) => t === 'Switch to Dragon 64');
+    const said = await page.evaluate(() => { window.__liveMo.disconnect(); return window.__said.filter((t) => t); });
+    check(`${L}: choosing it (selectable with the arrows) keeps the box open, shows "You're using the Dragon 64 now." on the row, says it once, switches nothing`,
+      chosen === 'Switch to Dragon 64' && !(await page.isHidden('#cmdBox')) && await page.isHidden('#switchConfirm') && after && after[1] === "You're using the Dragon 64 now."
+      && said.length === 1 && said[0] === "You're using the Dragon 64 now." && await page.evaluate(() => window.emu.machine.id === 'dragon64'), JSON.stringify({ chosen, after, said }));
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, `commands-running-now-${label}.png`) });
     const none = await query('xyzzy');
     check(`${L}: "xyzzy": only Ask Claude`, none.length === 1 && /^Ask Claude: "xyzzy"/.test(none[0].text), JSON.stringify(none));
     // at most 8 commands, Ask Claude last
@@ -5817,7 +5875,15 @@ async function commandsChecks(browser, site, check) {
     await page.setInputFiles('#fileTape', { name: 't.cas', mimeType: 'application/octet-stream', buffer: Buffer.from([...Array(128).fill(0x55), 0x3C, 0xFF, 0, 0xFF]) });
     await waitFor(page, () => !!window.emu.machine.deck.tape);
     const ej = await query('eject');
-    check(`${L}: "eject" with a tape in and no disk -> Eject the tape first, no Eject disk`, ej[0].text === 'Eject the tape' && !ej.some((r) => r.text === 'Eject disk'), JSON.stringify(ej.map((r) => r.text)));
+    check(`${L}: "eject" with a tape in and no disk -> Eject the tape first, then Eject disk, muted "No disk in"`, ej[0].text === 'Eject the tape' && !ej[0].off
+      && ej[1].text === 'Eject disk' && ej[1].off && ej[1].line === 'No disk in', JSON.stringify(ej.map((r) => [r.text, r.off, r.line])));
+    // every muted row the box shows is aria-disabled and selectable with the arrows
+    await query('');
+    const offRows = await page.evaluate(() => [...document.querySelectorAll('#cmdList [role="option"][aria-disabled="true"]')].map((o) => o.id));
+    let reached = 0;
+    const total = await page.evaluate(() => document.querySelectorAll('#cmdList [role="option"]').length);
+    for (let i = 0; i < total; i++) { await page.keyboard.press('ArrowDown'); if (offRows.includes(await page.evaluate(() => document.getElementById('cmdInput').getAttribute('aria-activedescendant')))) reached++; }
+    check(`${L}: in the empty box the muted rows (Eject disk: no disk) are aria-disabled and each is reached by the arrows`, offRows.length >= 1 && reached === offRows.length, JSON.stringify({ offRows, reached }));
     await page.keyboard.press('Escape');
     await ctx.close();
   }

@@ -187,8 +187,9 @@ const CASES = [
     check('Ctrl+K: "disk", "drive", "vdk" and "dsk" find it too', ['disk', 'drive', 'vdk', 'dsk'].every((w) => words(w).includes('Insert a disk…')));
     check('Ctrl+K: "New blank disk" and "Eject disk" are there', words('blank').includes('New blank disk') && words('eject').includes('Eject disk'));
     const eject = (COMMANDS || []).find((c) => c[0] === 'Eject disk');
-    check('Ctrl+K: "Eject disk" is listed only while a disk is in, as the tape\'s Eject', !!eject && typeof eject[5] === 'function'
-      && eject[5]({ session: { drives: { status: () => ({ drives: [] }) } } }) === false && eject[5]({ session: { drives: { status: () => ({ drives: [{ drive: 0 }] }) } } }) === true);
+    const off = eject && typeof eject[5] === 'function' && eject[5]({ session: { drives: { status: () => ({ drives: [] }) } } });
+    check('Ctrl+K: "Eject disk" is always listed; with no disk in it is muted, "No disk in", and says "No disk in any drive."', !!off
+      && off.state === 'No disk in' && off.why === 'No disk in any drive.' && eject[5]({ session: { drives: { status: () => ({ drives: [{ drive: 0 }] }) } } }) === null, JSON.stringify(off));
   }
 
   // ---- the command line: --disk with no disk ROM

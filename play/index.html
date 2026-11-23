@@ -1116,6 +1116,9 @@
   #cmdList [role="option"] { display: flex; justify-content: space-between; gap: 12px; padding: 11px 16px; font-size: 15px; cursor: pointer; }
   #cmdList [role="option"] .hint { color: var(--muted); font-size: 14px; text-align: right; }
   #cmdList [role="option"][aria-selected="true"] { background: var(--line); }
+  /* a command that doesn't apply now: its state in italics; once chosen, why, readable */
+  #cmdList [role="option"].off .hint { font-style: italic; }
+  #cmdList [role="option"].off .hint.why { font-style: normal; color: var(--text-2); }
   #cmdList [role="option"].ask { color: var(--green); }
   #cmdList .cmdgroup + .cmdgroup { border-top: 1px solid var(--line); }
   .cmdfoot { padding: 10px 16px; border-top: 1px solid var(--line); font-size: 13px; color: var(--muted); }
