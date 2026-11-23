@@ -382,6 +382,20 @@ const J = JSON.stringify;
       && /size 600×760 ×2/.test(b.B.describe()), J(sizes));
   }
   {
+    // sizes asked for before the host's initialized has arrived are held: none goes out first, and one goes after it, the latest
+    const b = bridge();
+    const early1 = b.B.sizeChanged(390, 500), early2 = b.B.sizeChanged(390, 600);
+    const beforeInit = b.sent.filter((m) => m.method === 'ui/notifications/size-changed');
+    check('bridge: no size-changed goes out before the host\'s initialized has arrived', !early1 && !early2 && !beforeInit.length, J(b.sent.map((m) => m.method)));
+    b.reply('ui/initialize', {});
+    await tick();
+    const sentSizes = b.sent.filter((m) => m.method === 'ui/notifications/size-changed');
+    const order = b.sent.map((m) => m.method).filter((x) => x === 'ui/notifications/initialized' || x === 'ui/notifications/size-changed');
+    check('bridge: once initialized is sent, exactly one size-changed follows, with the latest size, after it',
+      sentSizes.length === 1 && J(sentSizes[0].params) === J({ width: 390, height: 600 }) && J(order) === J(['ui/notifications/initialized', 'ui/notifications/size-changed']) && /size 390×600 ×1/.test(b.B.describe()), J([order, sentSizes]));
+    check('bridge: the same size asked for again after that is not sent twice', !b.B.sizeChanged(390, 600) && b.sent.filter((m) => m.method === 'ui/notifications/size-changed').length === 1);
+  }
+  {
     const b = bridge();
     b.reply('ui/initialize', {});
     b.B.attach({ api: panel.PANEL_API, tools: [{ name: 'screen_text' }], call: async () => ({ content: [], isError: true, structuredContent: { error: { code: 'bad-argument' } } }) });
