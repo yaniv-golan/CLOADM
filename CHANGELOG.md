@@ -410,7 +410,8 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   sample on its own 3.12 MHz clock (10 kHz), holding each set of parameters for its pitch periods; its ready line now
   reaches the Pak's microcontroller. Compared with MAME 0.264 on our own speech image (`node
   tools/mame-diff/ssc/speech.js`): every address load and every status change lands at MAME's time on the CoCo 1/2,
-  CoCo 2B, CoCo 3 and Dragon 64. Speech is still silent: the filter that turns the parameters into sound is next.
+  CoCo 2B, CoCo 3 and Dragon 64, and the test suite checks MAME's recorded times on the CoCo 1/2 and Dragon 64 without
+  MAME. Speech is still silent: the filter that turns the parameters into sound is next.
 - **The Speech/Sound Pak's music now sounds as MAME's does.** Its AY-3-8913 had three faults, each found by a new
   comparison with MAME 0.264's `-wavwrite` (`node tools/mame-diff/ssc/audio.js`): it played every tone an octave low
   (its stream ran at half its clock's rate), its levels were three channel levels added where the chip has one

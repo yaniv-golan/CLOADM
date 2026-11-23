@@ -772,5 +772,42 @@ function host() {
     pairs > 50 && wrong === 0, `${pairs} writes, ${wrong} wrong${firstWrong ? `; ${firstWrong}` : ''}`);
 }
 
+// ---------------------------------------------------------------------------------------------------
+// The SP0256's timing against MAME's own recording. tests/fixtures/ssc/speech-mame.json holds what MAME 0.264 did
+// with gen-speak.js's programs and speech image (tools/mame-diff/ssc/speech.js's Lua taps): the time of every
+// address load (ALD falling edge) and every change in the $FF7E value the 6809 read, on coco and dragon64. Those
+// values come from MAME, not from this code. The CI has no MAME, so this is what keeps there: the address load
+// applied at the end of the PIC's instruction, the mameCompat LRQ-ahead rule (an LRQ change due less than a card
+// cycle before a PIC instruction reaches INT1 first), the 9,285 Hz grid and the field widths, each of which moves
+// loads by a polling pass or more when broken. Same limits as speech.js: each load within half a card cycle, each
+// status change on the same 6809 read. To re-record: run speech.js's mame() for each profile and store its loads
+// and status with the image it ran.
+{
+  const mameRec = require('./fixtures/ssc/speech-mame.json');
+  const { ours, SECONDS } = require('../tools/mame-diff/ssc/speech.js');
+  const { speechImage } = require('../tools/mame-diff/ssc/gen-speak.js');
+  // the image MAME ran is stored with its recording and run as it is, so a wrong field width in the decoder misframes
+  // it here (gen-speak.js would re-encode with the same wrong width); and the generator must still make that image,
+  // or speech.js would compare MAME against something this recording never saw
+  const image = new Uint8Array(Buffer.from(mameRec.image, 'base64'));
+  check('SP0256 timing: gen-speak.js still builds the speech image MAME\'s recording was made with',
+    Buffer.from(speechImage()).equals(Buffer.from(image)),
+    Buffer.from(speechImage()).equals(Buffer.from(image)) ? `${image.length} bytes identical` : 'the image differs: re-record tests/fixtures/ssc/speech-mame.json with MAME');
+  for (const profileId of ['coco', 'dragon64']) {
+    const M = mameRec[profileId], O = ours(profileId, SECONDS, image);
+    let worst = 0, bad = -1;
+    for (let i = 0; i < Math.min(O.loads.length, M.loads.length); i++) {
+      const dt = Math.abs(O.loads[i].t - M.loads[i].t) * O.cartClockHz;
+      worst = Math.max(worst, dt);
+      if ((O.loads[i].n !== M.loads[i].n || dt >= 0.5) && bad < 0) bad = i;
+    }
+    check(`SP0256 timing (${profileId}): all ${M.loads.length} address loads at MAME's recorded times, within half a card cycle`,
+      O.loads.length === M.loads.length && bad < 0,
+      `${O.loads.length} loads, worst ${worst.toFixed(3)} card cycles${bad >= 0 ? `; first off: load ${bad}, ours ${JSON.stringify(O.loads[bad])}, MAME's ${JSON.stringify(M.loads[bad])}` : ''}`);
+    check(`SP0256 timing (${profileId}): every $FF7E change on MAME's 6809 read`,
+      JSON.stringify(O.status) === JSON.stringify(M.status), `ours ${JSON.stringify(O.status)}, MAME's ${JSON.stringify(M.status)}`);
+  }
+}
+
 console.log(`${n - fail}/${n} SSC checks passed`);
 process.exitCode = fail ? 1 : 0;

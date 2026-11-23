@@ -26,19 +26,20 @@ function machineRoms(profile) {
   return Object.fromEntries(profile.roms.map((r) => [r.id, romImage(host, r.at, r.size, 0x12)]));
 }
 
-function ourMachine(profileId = 'coco') {
+// `image`: the speech image to run, gen-speak.js's by default (tests/ssc.test.js passes the one MAME recorded with)
+function ourMachine(profileId = 'coco', image = speechImage()) {
   const Emu = loadEmu();
   const profile = Emu.profiles[profileId];
   const m = Emu.createMachine(profileId, { mameCompat: true });
   m.setRoms(machineRoms(profile));
-  m.insertCartridge(new Emu.SpeechSoundPak({ tms7040Rom: speakPic(), sp0256Rom: speechImage() }));
+  m.insertCartridge(new Emu.SpeechSoundPak({ tms7040Rom: speakPic(), sp0256Rom: image }));
   m.reset(true);
   return m;
 }
 
 // our side: ALD times and $FF7E value changes, in seconds from the power-on origin (MAME's time 0)
-function ours(profileId, seconds = SECONDS) {
-  const m = ourMachine(profileId);
+function ours(profileId, seconds = SECONDS, image = speechImage()) {
+  const m = ourMachine(profileId, image);
   const pak = m.cartPort, origin = BigInt(Math.round(m.powerOnTick()));
   const secs = (tick) => Number(BigInt(Math.floor(Number(tick))) - origin) / m.tickHz;
   const loads = [], status = [];

@@ -285,6 +285,14 @@ models, and `ssc/compare.js` identical on the CoCo 1/2, 2B and Dragon 64, with t
 interrupt-case keys `trace <profile> ssc int3` changed (the 6809's status reads see SBY at the new times; the
 instruction counts are unchanged) and were recorded after those runs passed.
 
+The CI has no MAME, so `tests/ssc.test.js` holds MAME's own recording of this run on the CoCo 1/2 and the Dragon 64
+(`tests/fixtures/ssc/speech-mame.json`: the 50 address-load times and the `$FF7E` changes, with the speech image MAME
+ran) and runs that image under `config.mameCompat`: every load within half a card cycle of MAME's, every status change
+on MAME's read. It fails if the address load is applied at once instead of at the end of the PIC's instruction (the
+first load 11 card cycles early), if the mameCompat LRQ-ahead rule is removed (load 28 on the CoCo, 39 on the Dragon,
+one polling pass of 23 cycles late), or if a field width is wrong (DELTA_9's pitch read as 4 bits: from load 27 on),
+and if `gen-speak.js` stops building the recorded image.
+
 Its speech is still silent: the sequencer drives the sample clock, but there is no filter and no DAC yet, so
 nothing reaches the mixer from it (the next stage, compared with `-wavwrite` on our own images).
 **The sound-activity circuit belongs to this same gap.** `$FF7E` bit 5 reports whether the speech chip is making
