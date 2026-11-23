@@ -45,7 +45,8 @@
  * allocates its stream at `master_clock / 8` with master_clock = clock(), the full 1,789,772.5 Hz, so it makes
  * one sample per FOUR card cycles (223,721.6 a second). (An earlier revision stepped it every 8 card cycles;
  * measured against MAME's -wavwrite with ssc-tone.asm, that played every tone at half MAME's frequency.) The
- * SP0256 runs on the same cycle base. The card's timer is on the machine's
+ * SP0256 does not: it has its own 3.12 MHz crystal and makes its samples on its own grid (spGrid). The card's
+ * timer is on the machine's
  * scheduler through SlotDevice's AttoClock, and catchUp() runs it to the machine's current time before any
  * access (AGENTS section 2), so it advances whether or not the 6809 is touching the card. The PIC's position
  * in time is part of saveState.
@@ -53,7 +54,7 @@
 import { SlotDevice, devices } from './bus.js';
 import { CPU7000 } from '../cpu/cpu7000.js';
 import { AY8910 } from '../chips/ay8910.js';
-import { SP0256 } from '../chips/sp0256.js';
+import { SP0256, XTAL as SP0256_XTAL, SAMPLE_CLOCKS as SP0256_CLOCKS } from '../chips/sp0256.js';
 import { registry, state } from '../util.js';
 
 // Port C control bits, from coco_ssc.cpp lines 62-70.
@@ -86,9 +87,10 @@ const SSC_ROM_PROFILE = { id: 'ssc', kind: 'cartridge', name: 'Speech/Sound Pak'
 
 class SpeechSoundPak extends SlotDevice {
   // { tms7040Rom, sp0256Rom }: the user's dumps. The PIC's ROM is required (the card cannot run without it); the
-  // SP0256's allophone data is OPTIONAL, because speech is not implemented yet (README, "Not verified for the
-  // Speech/Sound Pak: its audio"). With no allophone ROM the SP0256 is present on the card's control bus - its SBY
-  // line still reads - but fetches nothing, so the music side works and the speech side stays silent. That is the
+  // SP0256's allophone data is OPTIONAL, because speech makes no sound yet (docs/verification.md, "The Speech/Sound
+  // Pak's SP0256 timing": the sequencer runs, the filter is not there). With no allophone ROM the SP0256 is present
+  // on the card's control bus - its LRQ and SBY lines still work - but every fetch reads 0, an RTS, so an allophone
+  // ends at once; the music side works and the speech side stays silent. That is the
   // documented empty case, and it is explicit: the card and its snapshot record which of the two it is.
   constructor({ tms7040Rom = null, sp0256Rom = null, firmware = null, sp0256Data = null } = {}) {
     super('ssc');
@@ -120,7 +122,9 @@ class SpeechSoundPak extends SlotDevice {
     this.sacEnvelope = 0;
     this.cardPos = 0n;      // where the card's clock has run to, in machine ticks
     this.ayDiv = 0;         // card cycles into the AY's current sample period (0: the next cycle starts a sample)
-    this.ayWrites = null;   // the AY bus writes of the PIC instruction being run (toAy), applied at its end
+    this.busWrites = null;  // the AY and SP0256 bus writes of the PIC instruction being run (atEnd), applied at its end
+    this.spNext = 0n;       // the SP0256's next sample, by index on its own grid (spRun)
+    this.spLrq = true;      // the SP0256's LRQ as the PIC's INT1 last saw it (ready: asserted)
     this.ayOut = new Float32Array(1);   // the AY's one output (single-output mode), one sample
     // The Pak's level as the machine's sound path last heard it: the AY's single output times AY_GAIN, or 0
     // while the sound mux does not select the Pak. It is reported to the host the way the Games Master and the
@@ -181,6 +185,11 @@ class SpeechSoundPak extends SlotDevice {
     // (gen-ay.js, a Lua tap on the PIC's port C): starting at the CPU's first instruction put every PIC write 4
     // cycles late. A soft reset happens where the machine is.
     this.cardPos = this.host ? BigInt(Math.floor(hard ? this.host.powerOnTick() : this.host.ioTime())) : 0n;
+    // the speech chip's samples continue on its own grid from where the card starts, and its reset leaves LRQ high,
+    // which MAME puts on the PIC's INT1 at once (sp0256 device_reset: m_drq_cb(1))
+    this.spNext = this.host ? this.spFirstAt(this.attosAt(this.cardPos)) : 0n;
+    this.spLrq = !this.sp0256.lrq;
+    this.spLines();
     this.scheduleTick();
   }
 
@@ -189,6 +198,7 @@ class SpeechSoundPak extends SlotDevice {
     if (a === 0xFF7D) return 0xFF;
     if (a === 0xFF7E) {
       this.catchUp();   // the status depends on time: run the card to this moment first (AGENTS section 2)
+      if (this.host) this.spRun(this.host.ioTime(), true);   // and the speech chip (sby_r updates its stream)
       let data = 0x1F;
       if (!this.busy) data |= 0x80;
       if (this.sp0256.sby) data |= 0x40;
@@ -203,7 +213,13 @@ class SpeechSoundPak extends SlotDevice {
 
   writeIO(a, v) {
     if (a === 0xFF7D) {
-      if (v & 1) this.sp0256.reset();
+      if (v & 1) {
+        // MAME's device_reset brings the speech chip's stream up to now before it resets the chip
+        this.catchUp();
+        if (this.host) this.spRun(this.host.ioTime(), true);
+        this.sp0256.reset();
+        this.spLines();
+      }
       if ((this.resetLine & 1) && !(v & 1)) {
         // A falling edge on the reset line at machine time X restarts the PIC at X. Catch the card up to X
         // first (never past it), so the PIC restarts from the same machine time however the 6809 is driven -
@@ -266,11 +282,11 @@ class SpeechSoundPak extends SlotDevice {
     }
     // AY-3-8913, gated by its chip select (bit 6 clear)
     if ((data & C_ACS) === 0) {
-      if ((data & (C_BDR | C_BC1)) === (C_BDR | C_BC1)) this.toAy(this.ay.addressW, this.portD);         // BDIR=1 BC1=1: latch address
-      else if ((data & C_BDR) === C_BDR && (data & C_BC1) === 0) this.toAy(this.ay.dataW, this.portD);  // BDIR=1 BC1=0: write data
+      if ((data & (C_BDR | C_BC1)) === (C_BDR | C_BC1)) this.atEnd(this.ay, this.ay.addressW, this.portD);         // BDIR=1 BC1=1: latch address
+      else if ((data & C_BDR) === C_BDR && (data & C_BC1) === 0) this.atEnd(this.ay, this.ay.dataW, this.portD);  // BDIR=1 BC1=0: write data
     }
     // SP0256: a falling edge of ALD, with the allophone number below 64
-    if ((prev & C_ALD) === C_ALD && (data & C_ALD) === 0 && this.portD < 64) this.sp0256.loadAddress(this.portD);
+    if ((prev & C_ALD) === C_ALD && (data & C_ALD) === 0 && this.portD < 64) this.atEnd(this.sp0256, this.sp0256.loadAddress, this.portD);
     // the busy line back to the CoCo: a 0 -> 1 edge clears it
     if ((prev & C_BSY) === 0 && (data & C_BSY) === C_BSY) this.busy = false;
     this.portC = data;
@@ -338,25 +354,36 @@ class SpeechSoundPak extends SlotDevice {
     let guard = 0;
     while (this.cardPos < now && guard++ < 200000) this.stepCard();
   }
-  // An AY bus write made by the PIC's current instruction reaches the chip at the END of that instruction:
-  // stepCard collects it and applies it once the AY has run through the instruction's cycles. MAME's TMS7000
-  // core charges an instruction's cycles before it executes it (tms7000op.cpp, e.g. am_i2p: `m_icount -= 11`
-  // and then the port write), so the write's time is the instruction's end, and the AY's stream is brought up
-  // to that time, on the old registers, before the write lands. Applying it at the instruction's start put
-  // every AY change several card cycles early against MAME's -wavwrite (gen-ay.js). Outside stepCard (a test
-  // driving the decode directly) there is no instruction, and the write lands at once.
-  toAy(fn, v) {
-    if (this.ayWrites) this.ayWrites.push([fn, v]);
-    else fn.call(this.ay, v);
+  // A bus write the PIC's current instruction makes to the AY or the SP0256 reaches the chip at the END of that
+  // instruction: stepCard collects it and applies it once both chips have run up to that time. MAME's TMS7000 core
+  // charges an instruction's cycles before it executes it (tms7000op.cpp, e.g. am_i2p: `m_icount -= 11` and then
+  // the port write), so the write's time is the instruction's end, and each chip's stream is brought up to that
+  // time, on its old state, before the write lands (ay8910 data_w and sp0256 ald_w call their stream's update()
+  // first). Applying an AY write at the instruction's start put every AY change several card cycles early against
+  // MAME's -wavwrite (gen-ay.js). Outside stepCard (a test driving the decode directly) there is no instruction,
+  // and the write lands at once.
+  atEnd(chip, fn, v) {
+    if (this.busWrites) this.busWrites.push([chip, fn, v]);
+    else fn.call(chip, v);
   }
   stepCard() {
     // one PIC instruction takes the cycles it takes: the card's position advances by the instruction's own
     // cycle count, not by one per instruction, or the card would run far ahead of the 6809 (an ISR of ~30
     // instructions would appear to complete in 30 cycles when it needs a few hundred).
-    this.ayWrites = [];
+    // config.mameCompat: a speech-chip sample that ends less than one card cycle after this instruction would start
+    // is made first, so its LRQ change reaches INT1 before the instruction runs. MAME's scheduler gives a CPU the
+    // time to its next timer (here the SP0256's per-sample timer) as a whole number of its cycles, rounded down, and
+    // does not run it for none, so a timer due less than a cycle ahead fires before the instruction starts.
+    // Measured with gen-speak.js: instructions starting 0.06 and 0.88 card cycles before a sample boundary read the
+    // INT1 flag set on MAME and clear here, each moving one address load by a pass of the PIC's polling loop. A MAME
+    // artefact (docs/verification.md); the hardware model takes the change after the instruction.
+    if (this.host && this.host.config && this.host.config.mameCompat) {
+      this.spRunTo(this.attosAt(this.cardPos) + this.host.unitAttos * BigInt(this.cardTicksPerCycle()), 'before');
+    }
+    this.busWrites = [];
     const cycles = this.tms7040.step();
-    const writes = this.ayWrites;
-    this.ayWrites = null;
+    const writes = this.busWrites;
+    this.busWrites = null;
     const start = this.cardPos, k = this.cardTicksPerCycle();
     this.cardPos += BigInt(Math.max(1, cycles) * k);
     // the AY's stream and the SP0256 are stepped for each cycle the PIC took. An AY sample is made at the START of
@@ -378,10 +405,62 @@ class SpeechSoundPak extends SlotDevice {
         if (this.ayDiv === 0) this.stepAy(start + BigInt(i * k));
         this.ayDiv = (this.ayDiv + 1) % AY_DIV;
       }
-      if (this.sp0256.step) this.sp0256.step();
     }
-    for (const [fn, v] of writes) fn.call(this.ay, v);
+    // the SP0256's samples whose periods ended by now (its per-sample timer), then this instruction's writes, an
+    // address load first bringing the speech chip up to the write's time
+    this.spRun(this.cardPos, false);
+    for (const [chip, fn, v] of writes) {
+      if (chip === this.sp0256) this.spRun(this.cardPos, true);
+      fn.call(chip, v);
+      if (chip === this.sp0256) this.spLines();
+    }
   }
+  // ---------------- the SP0256's own clock ----------------
+  // The speech chip runs from its own 3.12 MHz crystal (coco_ssc.cpp: SP0256(config, m_spo, XTAL(3'120'000))), one
+  // sample every 312 of its clocks: 10 kHz (js/chips/sp0256.js, SOURCES). Under config.mameCompat, MAME's 0.264
+  // divider, 336, as a whole-hertz stream: 3,120,000 / 336 = 9,285 samples a second, counted from each second's
+  // start (docs/verification.md, "Deviations from MAME"). Sample i's period starts at spStart(i) attoseconds after
+  // power-on.
+  spGrid() {
+    const compat = !!(this.host && this.host.config && this.host.config.mameCompat);
+    const rate = BigInt(Math.floor(SP0256_XTAL / (compat ? SP0256_CLOCKS.mame : SP0256_CLOCKS.hardware)));
+    return { rate, period: 10n ** 18n / rate };
+  }
+  spStart(i, g = this.spGrid()) { return (i / g.rate) * 10n ** 18n + (i % g.rate) * g.period; }
+  spFirstAt(t, g = this.spGrid()) {
+    const sec = 10n ** 18n;
+    return (t / sec) * g.rate + ((t % sec) + g.period - 1n) / g.period;
+  }
+  attosAt(tick) {
+    return (BigInt(Math.floor(Number(tick))) - BigInt(Math.round(this.host.powerOnTick()))) * this.host.unitAttos;
+  }
+  // Make the speech chip's samples up to machine tick `tick`, as MAME's stream does: on its per-sample timer every
+  // sample whose period has ENDED (access false); for an access at `tick` (an address load, a status read, a reset)
+  // every sample that has STARTED before it, the one in progress included (a stream update's end rounds up,
+  // sound.h). LRQ changes reach the PIC's INT1 as each sample is made.
+  spRun(tick, access) {
+    if (!this.host) return;
+    this.spRunTo(this.attosAt(tick), access ? 'access' : 'timer');
+  }
+  // the same at an exact time; 'before' makes the samples whose period ends strictly before `t`
+  spRunTo(t, mode) {
+    const g = this.spGrid();
+    for (;;) {
+      const edge = mode === 'access' ? this.spStart(this.spNext, g) : this.spStart(this.spNext + 1n, g);
+      if (mode === 'timer' ? edge > t : edge >= t) break;
+      this.sp0256.sample();
+      this.spNext++;
+      this.spLines();
+    }
+  }
+  // the SP0256's LRQ drives the PIC's INT1 (coco_ssc.cpp: data_request_callback().set_inputline(INT1)): asserted
+  // while the chip is ready for an address
+  spLines() {
+    if (this.sp0256.lrq === this.spLrq) return;
+    this.spLrq = this.sp0256.lrq;
+    this.tms7040.interrupt(1, this.spLrq);
+  }
+
   // MAME's AY sample grid (config.mameCompat; a deviation documented in docs/verification.md). On the hardware the
   // AY makes one sample per AY_DIV card cycles. MAME keeps device clocks as whole hertz: the Pak is 894,886 Hz
   // (the slot's 894,886.25 truncated; 888,625 on the Dragon), the AY DERIVED_CLOCK(2, 1) of that, 1,789,772 Hz, and
@@ -461,6 +540,7 @@ class SpeechSoundPak extends SlotDevice {
       portA: this.portA, portB: this.portB, portC: this.portC, portD: this.portD,
       cardPos: this.cardPos.toString(),   // the card's position in time, so a restored card resumes in step
       ayLevel: this.ayLevel, ayDiv: this.ayDiv, ay: this.ay.saveState(),
+      spNext: this.spNext.toString(), spLrq: this.spLrq,
       pic: this.tms7040.saveState(), sp: this.sp0256.saveState(),
     });
   }
@@ -473,7 +553,9 @@ class SpeechSoundPak extends SlotDevice {
     // The AY's state is checked before any chip's state is applied, so a damaged snapshot is refused with
     // state.load's message (`snapshot: missing "ay"`) instead of restoring part of the card. `ay` is a whole
     // object the AY loads itself, so its check has the same message shape.
-    state.load(this, s, ['ayLevel', 'ayDiv']);
+    state.load(this, s, ['ayLevel', 'ayDiv', 'spLrq']);
+    if (!('spNext' in s)) throw new Error('snapshot: missing "spNext"');
+    this.spNext = BigInt(s.spNext);
     if (!('ay' in s)) throw new Error('snapshot: missing "ay"');
     this.ay.loadState(s.ay);
     this.tms7040.loadState(s.pic);

@@ -285,13 +285,13 @@ async function sscMidCommand() {
     let n = 0;
     while (p.busy && n < 200000) { m.runCycles(m.cycle + 2); n++; }
     p.readIO(0xFF7E);
-    return { n, busy: p.busy, pc: p.tms7040.pc, ib: p.sp0256.ib };
+    return { n, busy: p.busy, pc: p.tms7040.pc, sp: JSON.stringify(p.sp0256.saveState()) };
   };
   const fa = finish(a), fb = finish(b);
   check('ssc: the busy flag is set with a command part way through', busyMid, `(busy at snapshot: ${busyMid})`);
   check('ssc: the restored card finishes the command in the same time and state',
-    !fa.busy && !fb.busy && fb.pc === fa.pc && fb.ib === fa.ib && Math.abs(fb.n - fa.n) <= 4,
-    `(${fa.n} vs ${fb.n} cycles, pc ${fa.pc.toString(16)} vs ${fb.pc.toString(16)}, allophone ${fa.ib}/${fb.ib})`);
+    !fa.busy && !fb.busy && fb.pc === fa.pc && fb.sp === fa.sp && Math.abs(fb.n - fa.n) <= 4,
+    `(${fa.n} vs ${fb.n} cycles, pc ${fa.pc.toString(16)} vs ${fb.pc.toString(16)}, SP0256 ${fa.sp === fb.sp ? 'same' : `${fa.sp} / ${fb.sp}`})`);
   await sscMidTone();
 }
 

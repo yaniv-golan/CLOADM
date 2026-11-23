@@ -1,17 +1,19 @@
 // Builds the Speech/Sound Pak's two ROM images for verification (stage 2):
 //
 //   build/pic-7040-510.bin   4 KB  our own TMS7040 firmware (ssc-pic.asm), assembled by our assembler
-//   build/sp0256-al2.bin     2 KB  hand-built SP0256 data exercising each parameter mode
+//   build/sp0256-al2.bin     2 KB  our own SP0256 program (sp0256-asm.js), eight short allophone entries
 //
-// Neither is a real dump. At run time a user supplies their own copies of both under these names; these exist
-// so MAME and the tests can run the same bytes without one, through MAME's checksum-mismatch path (AGENTS.md
-// hard rule 1 and tools/mame-diff/lib/).
+// Neither is a real dump. "sp0256-al2.bin" here is ALWAYS our own generated image, installed under the file name
+// MAME's coco_ssc romset expects: never a real SP0256-AL2 (its program is copyrighted; AGENTS.md hard rule 1), and
+// nothing in this project fetches, recreates or reads one. At run time a user supplies their own copies of both
+// under these names; these exist so MAME and the tests can run the same bytes without one, through MAME's
+// checksum-mismatch path (tools/mame-diff/lib/).
 //
-// The SP0256 data is generated rather than assembled: the chip's program is a bit stream, not machine code,
-// so each allophone entry below is a bit pattern written out by hand from GI's instruction framing (see
-// js/chips/sp0256.js for the encoding) and then packed MSB-first, which is the order the chip reads.
+// The SP0256 program is built by sp0256-asm.js, in the chip's own encoding (js/chips/sp0256.js: bits LSB first,
+// entry n at $1000 + 2n).
 const fs = require('fs'), path = require('path');
 const { assembleFile, romImage, loadEmu } = require('../lib/firmware.js');
+const { assemble } = require('./sp0256-asm.js');
 
 const HERE = __dirname;
 
@@ -97,46 +99,32 @@ function buildAsm({ unbounded = false, mux = false } = {}) {
 }
 
 // ---- the SP0256 data ----
-// The chip reads a bit stream: the PC counts bits and an instruction may start on any bit. Entry points are
-// 16 bits apart (GI sheet 29), and the host loads an allophone number that selects entry n*16. Every entry
-// below is 16 bits: one instruction word, so each allophone number is a single, self-contained instruction
-// that the -wavwrite comparison can tell apart.
-//
-// The bits are GI's instruction framing (see js/chips/sp0256.js). This generator writes them as strings so the
-// pattern for each entry is readable against the source rather than buried in hex.
-const ENTRIES = {
-  1: { name: 'RCU: M=0 P=0, repeat 0 (precise + voiced)', bits: '0001' + '00' + '00' },
-  2: { name: 'RCU: M=0 P=1, repeat 0 (precise + unvoiced)', bits: '0001' + '01' + '00' },
-  3: { name: 'RCU: M=1 P=0, repeat 0 (filter order change)', bits: '0001' + '10' + '00' },
-  4: { name: 'RCU: M=1 P=1, repeat 3', bits: '0001' + '11' + '11' },
-  5: { name: 'PAG: page 2', bits: '0000' + '0010' },
-  6: { name: 'RET with no address: stops the sequencer (SBY)', bits: '0111' },
-  7: { name: 'JMP to entry 0', bits: '1110' + '0000' },
-  8: { name: 'JSR to entry 0', bits: '1101' + '0000' },
-};
+// The commands ssc.asm sends load allophones 1-8 (and numbers the Pak must ignore). Each entry is a short program of
+// its own, so the speech chip runs, raises SBY and waits again within a command: what the Pak's outcome and the
+// SBY bit of its status reads show.
+const ENTRIES = [
+  { name: 'SETMODE mode 0, then RTS: back to standby at once', body: [{ op: 'SETMODE', mode: 0 }, { op: 'RTS' }] },
+  { name: 'a voiced load: LOAD_E, repeat 1, pitch 30', body: [{ op: 'SETMODE', mode: 0 }, { op: 'LOAD_E', repeat: 1, fields: [10, 30] }, { op: 'RTS' }] },
+  { name: 'an unvoiced load: LOAD_E, repeat 1, pitch 0', body: [{ op: 'SETMODE', mode: 0 }, { op: 'LOAD_E', repeat: 1, fields: [10, 0] }, { op: 'RTS' }] },
+  { name: 'SETMODE mode 3 with the repeat\'s high bits, a PAUSE of 49', body: [{ op: 'SETMODE', mode: 3, msb: 3 }, { op: 'PAUSE', repeat: 1 }, { op: 'RTS' }] },
+  { name: 'PAGE 1, then RTS', body: [{ op: 'PAGE', page: 1 }, { op: 'RTS' }] },
+  { name: 'RTS with no return address: stops at once (SBY)', body: [{ op: 'RTS' }] },
+  { name: 'JMP to entry 6\'s code', body: [{ op: 'JMP', to: 'e6' }] },
+  { name: 'JSR to a subroutine that returns, then RTS', body: [{ op: 'JSR', to: 'sub' }, { op: 'RTS' }] },
+];
 
-// pack a bit string MSB-first into bytes, the order the chip reads (bit b is bit (7 - b % 8) of byte b >> 3)
-function packBits(entries, size) {
-  const bytes = new Uint8Array(size);
-  for (const [n, e] of Object.entries(entries)) {
-    const base = Number(n) * 16;                     // entry n lives at bit n*16
-    for (let i = 0; i < e.bits.length; i++) {
-      if (e.bits[i] !== '1') continue;
-      const bit = base + i;
-      bytes[bit >> 3] |= 0x80 >> (bit % 8);
-    }
-  }
-  return bytes;
+function buildSp0256() {
+  const prog = [];
+  ENTRIES.forEach((e, i) => prog.push({ entry: i + 1, to: `e${i + 1}` }));
+  ENTRIES.forEach((e, i) => prog.push({ align: true }, { label: `e${i + 1}` }, ...e.body));
+  prog.push({ align: true }, { label: 'sub' }, { op: 'SETMODE', mode: 0 }, { op: 'LOAD_E', repeat: 1, fields: [5, 20] }, { op: 'RTS' });
+  return assemble(prog).image;
 }
 
 // ssc-tone.asm, our PIC program that plays three tone pairs per command: the tests' and the browser check's
 // sound source (it waits on the CoCo's commands, so it is not the MAME audio case: gen-ay.js is).
 function toneFirmware() {
   return romImage(assembleFile(path.join(HERE, 'ssc-tone.asm'), '7000'), 0xF000, 0x1000, 0xFF);
-}
-
-function buildSp0256() {
-  return packBits(ENTRIES, 0x800);
 }
 
 if (require.main === module) {

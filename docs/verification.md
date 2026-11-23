@@ -194,13 +194,12 @@ case now that both sides compare equal. The earlier "35 of 37" and "0" figures a
 *One measured timing difference in that case, and how the firmware handles it.* The SP0256 runs its own
 sequencer at its sample rate (MAME steps it once per sample, `clock/336`, about 9.3 kHz), not at the card's cycle
 rate, so after an allophone load it can take several sample periods to reach the `RET` that raises the `SBY`
-pin (status bit 6). This emulator's stage-1 model steps that sequencer once per card cycle, so it reaches `RET`
-sooner. Measured on the same firmware built with and without the wait the firmware now has: MAME leaves `$BF` at
-`$0405` (SBY low, sampled before the sequencer got there) when it reads the pin immediately, and `$FF` with the
-wait; this emulator leaves `$FF` either way. The firmware therefore waits before it samples the pin, as real code
-would. It is the emulator whose model is too fast, so the wait belongs in the firmware. That is a pacing difference in the
-speech chip's stage-1 model, not a hardware deviation, and it is why the wait is in the firmware rather than a
-`mameCompat` branch.
+pin (status bit 6). When this was measured, this emulator's stage-1 model stepped that sequencer once per card
+cycle, so it reached `RET` sooner: on the same firmware built with and without the wait it now has, MAME left `$BF`
+at `$0405` (SBY low, sampled before the sequencer got there) when it read the pin immediately, and `$FF` with the
+wait, while this emulator left `$FF` either way. The firmware therefore waits before it samples the pin, as real
+code would. The stage-2 sequencer (below, "The Speech/Sound Pak's SP0256 timing") runs once per sample on the chip's
+own clock, as MAME does, so that pacing difference is gone; the wait stays, since real firmware needs it too.
 
 The "0 `SERVE`" run of the earlier revision and the comparison that now passes
 (`tools/mame-diff/ssc/compare.js`) were both run with the same harness. Between them the firmware gained the
@@ -253,10 +252,49 @@ What made it match, each found by this comparison and fixed in `js/chips/ay8910.
   times fast (above). Both are pinned by `tests/ssc.test.js` against MAME's write times, 129 and 216 card cycles.
 * **MAME's whole-hertz sample grid** (`config.mameCompat` only; "Deviations from MAME").
 
-Its speech (SP0256 synthesis) isn't implemented yet: the SP0256's model is the microsequencer
-and host interface, with no filter and no DAC, so nothing reaches the mixer from it. That part is verifiable
-without a copyrighted ROM: an SP0256 image built by our own tools can be installed in MAME and compared with
-`-wavwrite`, as AGENTS.md section 5 (Cartridges) describes — so it is a real remaining task.
+**The Speech/Sound Pak's SP0256 timing** (`node tools/mame-diff/ssc/speech.js <coco|coco2b|coco3|dragon64>`). The
+speech chip's sequencer (`js/chips/sp0256.js`, stage 2) runs one step per sample on its own 3.12 MHz clock: the
+instruction set, the parameter decode for every load in all four modes, repeat counts with SETMODE's high bits,
+interpolation, deltas, PAUSE, JSR/RTS and PAGE, the LRQ/SBY handshake, and LRQ on the PIC's INT1. Its bit order is
+the one an unreversed AL2 dump speaks in (LSB first, branch addresses most significant bit first; GI's binary
+notation agrees). Both sides run our own images: the speech program from `ssc/sp0256-asm.js`, installed in MAME
+under the AL2's file name, `sp0256-al2.bin`, but always our own generated image, never a real SP0256-AL2, which is
+copyrighted and never fetched, recreated or used here (AGENTS.md hard rule 1) (`ssc/gen-speak.js`:
+50 allophones, one test each, each ending in a marker load whose timing a misframed field would change), a PIC
+program that loads allophones 1-50 as the chip's LRQ asks for them, and a 6809 program that reads `$FF7E` once the
+last load is made. Two checks, both passing on MAME 0.264:
+
+| Model | Address loads (MAME's time, Lua tap on the PIC's port C) | `$FF7E` changes (Lua read tap) |
+|---|---|---|
+| CoCo 1/2 | 50 of 50, each within 0.309 card cycles | 2 of 2, each on the same 6809 read; SBY's rise seen |
+| CoCo 2B | 50 of 50, within 0.309 | 2 of 2, same read |
+| CoCo 3 | 50 of 50, within 0.426 | 2 of 2, same read |
+| Dragon 64 | 50 of 50, within 0.000 | 2 of 2, same read |
+
+Each load's time is the moment the chip took the allophone before it, so the 50 times pin every test's length to
+the card cycle: a field width wrong by one bit, a repeat count or a pitch period off by one sample, moves every load
+after it. The parameter table (GI's bit-precision maps, which the stage-1 work could not read from GI's scan) is
+restated in our own form from MAME's, and was checked against it entry by entry, 64 of 64. The 6809 does not read
+the status while the PIC is loading: a status read brings the chip up to that moment (MAME's `sby_r` updates its
+stream), so an LRQ change could come from a 6809 read, and MAME hands that to the PIC across two CPUs it interleaves
+on its scheduler, which moved single loads by one pass of the PIC's polling loop when the 6809 read throughout. Under
+`config.mameCompat` the chip runs on MAME's grid, and an LRQ change less than a card cycle ahead of a PIC instruction
+reaches it first (both under "Deviations from MAME"). The Pak's existing comparisons were re-run with the new
+sequencer (its image rebuilt by the assembler: `gen-roms.js`): `run.js <profile> --ssc` identical to HALT on all four
+models, and `ssc/compare.js` identical on the CoCo 1/2, 2B and Dragon 64, with the CoCo 3's `$0405` as before. The
+interrupt-case keys `trace <profile> ssc int3` changed (the 6809's status reads see SBY at the new times; the
+instruction counts are unchanged) and were recorded after those runs passed.
+
+The CI has no MAME, so `tests/ssc.test.js` holds MAME's own recording of this run on the CoCo 1/2 and the Dragon 64
+(`tests/fixtures/ssc/speech-mame.json`: the 50 address-load times and the `$FF7E` changes, with the speech image MAME
+ran) and runs that image under `config.mameCompat`: every load within half a card cycle of MAME's, every status change
+on MAME's read. It fails if the address load is applied at once instead of at the end of the PIC's instruction (the
+first load 11 card cycles early), if the mameCompat LRQ-ahead rule is removed (load 28 on the CoCo, 39 on the Dragon,
+one polling pass of 23 cycles late), or if a field width is wrong (DELTA_9's pitch read as 4 bits: from load 27 on),
+and if `gen-speak.js` stops building the recorded image.
+
+Its speech is still silent: the sequencer drives the sample clock, but there is no filter and no DAC yet, so
+nothing reaches the mixer from it (the next stage, compared with `-wavwrite` on our own images).
 **The sound-activity circuit belongs to this same gap.** `$FF7E` bit 5 reports whether the speech chip is making
 sound, and this emulator stubs it to a constant high (`soundActive` in `js/machines/ssc.js`), so the bit is wrong for as long as
 the SP0256's audio is; it is listed here rather than as a separate defect, and no work on it makes sense before
@@ -1325,6 +1363,22 @@ names it.
   checks the silences and shows the runs between them without comparing them.
 
 MAME artefacts reproduced only under `config.mameCompat` (the comparisons turn it on; the product does not):
+
+* SP0256 sample rate (`js/chips/sp0256.js`, `SAMPLE_CLOCKS`; `js/machines/ssc.js`, `spGrid`): the hardware makes one
+  sample every 312 clocks of its 3.12 MHz crystal, 10 kHz (GI's "SP0250 Applications Manual", June 1982, pin 20
+  SYNC: "640ns positive pulse with a duty cycle of 312 clocks"; the 3.12 MHz crystal from the Radio Shack SP0256
+  datasheet, catalog 276-1784; CPCWiki's "SP0256 Measured Timings" gives 3.12 MHz / 2 / 156 = 10 kHz, a secondary
+  source not read here, its host being network-blocked). MAME 0.264's `sp0256.cpp` divides by `CLOCK_DIVIDER
+  (7*6*8)`, 336, with no citation, while its own comment says it generates "~10kHz samples"; as a whole-hertz
+  stream that is 9,285 samples a second, counted from each second's start. Under `config.mameCompat` the chip runs
+  on MAME's grid; otherwise at 10 kHz.
+
+* SP0256 LRQ and the PIC's scheduler (`js/machines/ssc.js`, `stepCard`): MAME gives a CPU the time to its next timer
+  as a whole number of its cycles, rounded down, and does not run it for none, so the speech chip's per-sample timer
+  fires before a PIC instruction that would start less than one card cycle earlier. Under `config.mameCompat` an LRQ
+  change that close reaches INT1 before the instruction; otherwise after it, at the instruction's end. Measured with
+  `ssc/gen-speak.js`: instructions starting 0.06 and 0.88 card cycles before a sample boundary read the INT1 flag set
+  on MAME, each moving one address load by a pass of the PIC's polling loop (23 card cycles) until this was modelled.
 
 * Speech/Sound Pak AY sample grid (`js/machines/ssc.js`, `mameAySamples`): on the hardware the AY makes one sample
   per 4 card cycles (its clock is twice the card's, and a sample is 8 of its clocks). MAME keeps device clocks as

@@ -468,7 +468,7 @@
     "halted": true
   },
   "trace coco ssc int3": {
-    "hash": "df189e5b",
+    "hash": "7c52d8db",
     "instructions": 7506,
     "halted": true
   },
@@ -685,7 +685,7 @@
     "halted": true
   },
   "trace coco2b ssc int3": {
-    "hash": "df189e5b",
+    "hash": "7c52d8db",
     "instructions": 7506,
     "halted": true
   },
@@ -700,7 +700,7 @@
     "halted": true
   },
   "trace coco3 ssc int3 (our side; MAME differs at $0405)": {
-    "hash": "ae1af651",
+    "hash": "8cca3ad1",
     "instructions": 25078,
     "halted": true
   },
@@ -725,7 +725,7 @@
     "held": true
   },
   "trace dragon64 ssc int3": {
-    "hash": "df189e5b",
+    "hash": "de1f455b",
     "instructions": 7506,
     "halted": true
   },

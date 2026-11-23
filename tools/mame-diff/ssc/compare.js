@@ -64,11 +64,11 @@ local s9 = cpu9.spaces["program"]
 local HALT = ${t.haltPc}
 local halts, lastPc = 0, -1
 -- the HALT loop's own opcode fetch: every pass through the loop reads this address
-s9:install_read_tap(HALT, HALT, "halt", function() halts = halts + 1 end)
+TAPS[10] = s9:install_read_tap(HALT, HALT, "halt", function() halts = halts + 1 end)
 -- a fetch of the byte after the loop's BRA (SSCRESET's first byte) after the loop has started would mean the
 -- CPU ran on past the loop's BRA; counted so a run that fell through cannot pass as a HALT
 local left = 0
-s9:install_read_tap(HALT + 2, HALT + 2, "left", function() if halts > 0 then left = left + 1 end end)
+TAPS[11] = s9:install_read_tap(HALT + 2, HALT + 2, "left", function() if halts > 0 then left = left + 1 end end)
 emu.register_frame_done(function() lastPc = cpu9.state["PC"].value end)
 emu.register_stop(function()
   print(string.format("HALTED %s lastPc=%04X halts=%d leftAfterHalt=%d",
