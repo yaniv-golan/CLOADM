@@ -29,7 +29,7 @@ import { SerialPort } from './rs232.js';
 import { TextConsole, banner, stubRom } from './stub.js';
 import { state } from '../util.js';
 import { hzToAttos } from '../chips/attotime.js';
-import { HaltReplay, SUSPEND, REPLAY_MISMATCH, justUnder, haltDeferState, haltDeferTimes } from './halt-replay.js';
+import { HaltReplay, SUSPEND, justUnder, haltDeferState, haltDeferTimes } from './halt-replay.js';
 
 const LINE = 228, HS_FALL = 212;
 const MAME_TIME_LAG = 4;   // GIME clocks: MAME's machine time starts one CPU cycle after ours (see the constructor)
@@ -69,6 +69,7 @@ class Coco3Machine extends Machine {
     this.speedChange = -1;
     // HALT inside an instruction (js/machines/halt-replay.js): where it arrived and was released in the last step, an
     // instruction it suspended and its bus log, and the writes from outside queued while one is held
+    this.halting = false;    // the HaltReplay sees the CPU's bus accesses (its logBus, kept in step by it)
     this.halt = new HaltReplay(this);
     this.sliceStart = 0;
     this.holdUntil = -Infinity;
@@ -103,9 +104,10 @@ class Coco3Machine extends Machine {
   get cpuHeld() { return this.halt.haltDefer !== null && !this.inStep; }
   cpuCheck() { this.halt.cpuCheck(); }
   get stepN() { return this.halt.stepN; }
-  // (read and write test the two fields logBus is made of, not the getter: the call on every access cost 5-6% with
-  // the controller attached, where the log runs and every access pays it. An attach or a hold shows on the next
-  // access: a step never spans an attach.)
+  // (read and write test one machine field, halting, that the HaltReplay keeps equal to its logBus whenever either of
+  // the two fields it is made of changes, not the getter: the call on every access cost 5-6% with the controller
+  // attached, where the log runs and every access pays it. An attach or a hold shows on the next access: a step never
+  // spans an attach.)
   // A device asserting HALT without declaring Device.canHalt would suspend an instruction against a log that is not
   // carried: replay would have nothing to replay and the instruction would be dropped instead of run again. Checked
   // here so a device added later that drives the line and forgets its declaration fails at the first HALT rather
@@ -211,11 +213,12 @@ class Coco3Machine extends Machine {
   // saw, and the bytes read are the ones read then, not memory as the instruction itself has changed it since (a 6309
   // TFM whose source overlaps its destination).
   read(a) {
-    if (this.inStep) {
+    // (halting: the HaltReplay's logBus, kept on the machine so that this test is one field)
+    if (this.inStep && this.halting) {
       const h = this.halt;
       if (h.replayN >= 0) return h.replayRead(a);
       const v = this.busRead(a);
-      if (h.busHalt || h.haltDefer !== null) h.busLogged(a, v);
+      h.busLogged(a, v);
       return v;
     }
     return this.busRead(a);
@@ -227,7 +230,7 @@ class Coco3Machine extends Machine {
     return this.ioRead(a);
   }
   ioRead(a) {
-    this.halt.ioSync();
+    this.ioSync();
     if (a < 0xFF10) return this.syncIo(() => this.pia0.read(a & 3));
     if (a < 0xFF20) return 0x00;
     if (a < 0xFF30) return this.syncIo(() => this.pia1.read(a & 3));
@@ -247,10 +250,12 @@ class Coco3Machine extends Machine {
   }
   write(a, v) {
     if (this.inStep) {
-      const h = this.halt;
-      if (h.replayN >= 0 && h.replayWrite(a, v)) return;   // made before the step was suspended (read())
-      this.busWrite(a, v);
-      if (h.busHalt || h.haltDefer !== null) h.busLogged(a, v & 0xFF);
+      if (this.halting) {
+        const h = this.halt;
+        if (h.replayN >= 0 && h.replayWrite(a, v)) return;   // made before the step was suspended (read())
+        this.busWrite(a, v);
+        h.busLogged(a, v & 0xFF);
+      } else this.busWrite(a, v);
       return;
     }
     // (while an access waits, a later one waits behind it: in order, never landing ahead of it and then being
@@ -264,7 +269,7 @@ class Coco3Machine extends Machine {
     this.ioWrite(a, v);
   }
   ioWrite(a, v) {
-    this.halt.ioSync();
+    this.ioSync();
     const t = this.ioTime();
     if (a < 0xFF10) { this.syncIo(() => this.pia0.write(a & 3, v), true); return; }
     if (a < 0xFF20) return;
@@ -307,7 +312,7 @@ class Coco3Machine extends Machine {
   // the in-step form: a suspended instruction's events run with the held access's time (haltResume). A parked
   // instruction has cycleCount 0 and is not held, so it takes now() - note that the in-step form would NOT give
   // now() there, since Math.max(1, 0) * div - 1 is div - 1 clocks, not 0.
-  ioTime() { return this.inStep || this.halt.heldIo ? this.cycle + this.halt.ioShift + Math.max(1, this.cpu.cycleCount) * this.div - 1 : this.cycle; }
+  ioTime() { const h = this.halt; return this.inStep || h.heldIo ? this.cycle + h.ioShift + Math.max(1, this.cpu.cycleCount) * this.div - 1 : this.cycle; }
   // exact time (Machine.clockUnits) with config.mameCompat: MAME's clocks. The CPU (DERIVED_CLOCK of
   // XTAL/32, 894886 Hz) spends 1e18/894886 as per cycle, 1e18/1789772 at the GIME's fast rate; a unit is a quarter
   // of the first, rounded down to 279365449 as (also exactly half of the second, rounded down), which runs 0.75 as
@@ -317,7 +322,7 @@ class Coco3Machine extends Machine {
   // Start of the current access cycle (the CPU counts the cycles of the instruction so far). Between instructions
   // there is no cycle in progress, and cycleCount holds the last step's, so it is now (see Machine.ioTime): an
   // outside write through syncIoMame would otherwise end a slice a whole instruction past its access.
-  accessStart() { return this.inStep || this.halt.heldIo ? this.cycle + this.halt.ioShift + Math.max(0, this.cpu.cycleCount - 1) * this.div : this.cycle; }
+  accessStart() { const h = this.halt; return this.inStep || h.heldIo ? this.cycle + h.ioShift + Math.max(0, this.cpu.cycleCount - 1) * this.div : this.cycle; }
 
   // MAME runs the CPU in scheduler slices; where a slice starts matters when the CPU clock rate
   // changes (see runCycles). A slice starts at every timer event (on the CPU's cycle grid) and
@@ -392,20 +397,22 @@ class Coco3Machine extends Machine {
     if (fs !== null) this.pia0.setC1('b', fs);
   }
   runCycles(end, steps = Infinity) {
-    const cpu = this.cpu, hooks = this.pcHooks, g = this.gime;
+    const cpu = this.cpu, hooks = this.pcHooks, g = this.gime, h = this.halt;
     const stub = this.useStub;
     while (this.cycle < end && !this.stall && steps-- > 0) {
       // a write from outside made while an instruction was held (outsideWrite): between instructions, at the
-      // machine's own time, where an outside access lands
-      this.halt.flushOutsideWrites();
+      // machine's own time, where an outside access lands (the call only when one is queued: it returns at once
+      // otherwise, and this is every instruction)
+      if (h.outsideWrites.length) h.flushOutsideWrites();
       if (this.stall) break;                      // a flushed write stalled the machine: nothing runs under it
       // the wait of an instruction HALT suspended (haltSuspend): no further than this run goes, or else a frame
-      this.halt.waitLimit = Number.isFinite(end) ? end : Math.max(this.frameBase + this.frameCycles, this.cycle + this.div);
-      // (the CPU's registers changed from outside since the instruction was suspended: it is dropped, haltCancel)
-      this.halt.cpuCheck();
-      const resumed = this.halt.haltDefer;
+      h.waitLimit = Number.isFinite(end) ? end : Math.max(this.frameBase + this.frameCycles, this.cycle + this.div);
+      // (the CPU's registers changed from outside since the instruction was suspended: it is dropped, haltCancel;
+      // asked only while one is suspended, which is all cpuCheck looks at)
+      if (h.haltDefer !== null) h.cpuCheck();
+      const resumed = h.haltDefer;
       if (resumed) {
-        if (!this.halt.haltResume()) continue;         // still halted: the time moved on to the limit
+        if (!h.haltResume()) continue;         // still halted: the time moved on to the limit
       } else {
         // the rest of a suspended instruction's wait (haltReleased: cpu.haltTail, one halted cycle a step) can be
         // seconds long; up to the next event and the end of the run nothing happens in it, so it goes at once (in a
@@ -430,37 +437,34 @@ class Coco3Machine extends Machine {
       let n;
       this.inStep = true;
       if (resumed) {
-        // the suspended instruction again from its start (cpu.rerun): its bus accesses before the held one are
-        // replayed (read), not made again
-        try { n = cpu.rerun(); } catch (e) {
-          if (e !== REPLAY_MISMATCH) throw e;
-          n = -1;
-        } finally { this.inStep = false; }
-        if (n < 0 || this.halt.replayN >= 0) { this.halt.replayDropped(resumed, Math.max(0, n)); continue; }
+        // the suspended instruction again from its start, its bus accesses before the held one replayed (HaltReplay.rerun;
+        // -1: dropped, as a replay that doesn't match its log is)
+        n = h.rerun(resumed);
+        if (n < 0) continue;
       } else {
-        this.halt.busN = 0;
+        h.busN = 0;
         cpu.mark();
         try { n = cpu.step(); } catch (e) {
           this.inStep = false;
           if (e !== SUSPEND) throw e;
           cpu.rewind();
-          this.halt.haltKeep(this.halt.haltDefer);              // the registers and memory it waits with (cpuCheck)
+          h.haltKeep(h.haltDefer);              // the registers and memory it waits with (cpuCheck)
           continue;
         }
         this.inStep = false;
       }
-      this.halt.stepS = start; this.halt.stepN = n;
-      if (this.halt.haltAt >= 0) this.halt.haltArrived();     // HALT came during this step's I/O
-      const defer = this.halt.haltDefer;
-      this.halt.haltDefer = null;
-      this.halt.ioShift = 0;
+      h.stepS = start; h.stepN = n;
+      if (h.haltAt >= 0) h.haltArrived();     // HALT came during this step's I/O
+      const defer = h.haltDefer;
+      if (defer !== null) h.haltDefer = null;   // (a setter: it keeps the machine's halting flag; most steps have none)
+      h.ioShift = 0;
       if (this.speedChange < 0) this.cycle += n * div; else this.clockChanged(start, n, div);
       // an access in this step waited for HALT's release (haltWait): the rest of the instruction runs from there
-      if (defer) { this.halt.haltS = defer.s; this.halt.haltK = defer.k; this.halt.haltN = n; this.halt.haltReleased(defer.rel); }
+      if (defer) { h.haltS = defer.s; h.haltK = defer.k; h.haltN = n; h.haltReleased(defer.rel); }
     }
     // a queued outside write is owed even to a run that ends here: the CPU is parked (no instruction to wait for),
     // and the next runCycles may be a long way off, or never
-    this.halt.flushOutsideWrites();
+    h.flushOutsideWrites();
   }
   // The CPU clock rate changed during the instruction that started at `start` (n cycles; the
   // write was in cycle speedChange). On real hardware the remaining cycles simply run at the
@@ -512,6 +516,16 @@ class Coco3Machine extends Machine {
     if (this.cpu.haltLine && !this.halt.logBus) { this.halt.haltAt = -1; return; }
     if (this.cpu.haltLine) { this.halt.haltAt = e.at; this.halt.haltS = -1; if (!this.inStep) this.halt.haltArrived(); }
     else { this.halt.haltAt = -1; if (this.halt.haltDefer) this.halt.haltDefer.rel = e.at; else if (this.halt.haltS >= 0) this.halt.haltReleased(e.at); }
+  }
+  // Before an I/O access: the machine's events up to its time, and HALT's part (js/machines/halt-replay.js): the held
+  // access of a suspended step run again lands at its release (haltFinish), and an access in a step HALT has stopped
+  // waits for the release (haltWait, which describes the wait). On the machine, not the HaltReplay: it is on every I/O
+  // access, and the machine's own events (processEvents, replaced under config.mameCompat) are called from here.
+  ioSync() {
+    const h = this.halt, d = h.haltDefer;
+    if (d && d.resume) { d.resume = false; h.haltFinish(d); return; }   // the held access of a resumed step
+    this.processEvents(justUnder(this.ioTime() + 1));
+    h.haltWait();
   }
   // an outside redirect (Machine.jump, the debugger) drops an instruction HALT suspended (HaltReplay.haltCancel)
   cpuRedirected() { super.cpuRedirected(); this.halt.haltCancel(); }

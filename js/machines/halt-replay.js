@@ -28,6 +28,7 @@ export class HaltReplay {
     // HALT arriving inside an instruction (config.mameCompat; see fireEvent): the step that ran last, the HALT
     this.stepS = 0; this.stepN = 0; this.haltAt = -1;
     this.haltS = -1; this.haltK = 0; this.haltN = 0;
+    this._busHalt = false;
     this.haltDefer = null;   // an I/O access waiting for HALT to be released (haltWait); between steps, the suspended
                              // instruction (haltSuspend)
     this.ioShift = 0;        // ticks the rest of a step runs later than its start says (the wait in haltWait)
@@ -62,6 +63,14 @@ export class HaltReplay {
   // A snapshot's haltDefer was logged while its device was attached, and Machine.loadState attaches the cartridge
   // before the rest of the state comes back, so a restored suspended instruction keeps its log.
   get logBus() { return this.busHalt || this.haltDefer !== null; }
+  // haltDefer and busHalt are what logBus is made of, and the machine's bus reads and writes test it on every access.
+  // So they keep the machine's one flag for it (machine.halting) in step whatever sets them, and the machine's read
+  // and write stay small enough to be inlined: with the two fields read through this object on every access instead,
+  // a CoCo 3 ran 4-6% slower (the paired measurement in the D14 report).
+  get haltDefer() { return this._haltDefer; }
+  set haltDefer(d) { this._haltDefer = d; this.machine.halting = this._busHalt || d !== null; }
+  get busHalt() { return this._busHalt; }
+  set busHalt(on) { this._busHalt = on; this.machine.halting = on || this._haltDefer !== null; }
   // the access the CPU is making is a replayed one (replayRead / replayWrite): made before the step was suspended,
   // so the bus taps reported it then (js/machines/bustaps.js)
   replaying() { return this.machine.inStep && this.replayN >= 0 && this.busAt < this.replayN; }
@@ -155,12 +164,6 @@ export class HaltReplay {
   // given). If HALT is still asserted there - a read sector on an empty drive never brings its DRQ - the
   // instruction is suspended (haltSuspend) and the frame ends; the machine's time, video and events run on,
   // frame after frame, while the CPU waits (haltResume).
-  ioSync() {
-    const d = this.haltDefer;
-    if (d && d.resume) { d.resume = false; this.haltFinish(d); return; }   // the held access of a resumed step
-    this.machine.processEvents(justUnder(this.machine.ioTime() + 1));
-    this.haltWait();
-  }
   haltWait() {
     // (only in an instruction: an interrupt's entry, which reaches I/O only with S in the I/O page, isn't held)
     if (this.haltAt < 0 || !this.machine.inStep || this.haltDefer || !this.machine.cpu.executing) return;
@@ -266,6 +269,21 @@ export class HaltReplay {
     if (d.speedChange >= 0) { n = d.speedChange; t = d.s + n * this.machine.div; this.machine.div = fast ? 2 : 4; }
     this.machine.cpu.totalCycles += n + Math.max(0, Math.round((this.machine.cycle - t) / this.machine.div));
     this.machine.redirects++;
+  }
+  // The suspended instruction run again from its start (Coco3Machine.runCycles, which has set inStep and the step's
+  // time): cpu.rerun, its bus accesses before the held one replayed (replayRead, replayWrite), not made again.
+  // -> the cycles it ran, or -1 when it was dropped (replayDropped: it did not make the accesses it logged, or did not
+  // reach its held one), and the run goes on to the next instruction. Out of runCycles' own body: it is rare, and the
+  // loop runs every instruction.
+  rerun(d) {
+    const m = this.machine;
+    let n;
+    try { n = m.cpu.rerun(); } catch (e) {
+      if (e !== REPLAY_MISMATCH) throw e;
+      n = -1;
+    } finally { m.inStep = false; }
+    if (n < 0 || this.replayN >= 0) { this.replayDropped(d, Math.max(0, n)); return -1; }
+    return n;
   }
   // A suspended instruction run again that did not make the accesses it logged, or did not reach its held one (a
   // snapshot whose log doesn't belong to its instruction: replayRead). None of its accesses reached the bus, so it is

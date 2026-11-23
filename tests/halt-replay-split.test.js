@@ -20,7 +20,7 @@ let fail = 0, n = 0;
 const check = (name, cond, detail = '') => { n++; if (!cond) { fail++; console.log(`FAIL ${name} ${detail}`); } else console.log(`ok   ${name} ${detail}`); };
 const expected = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures/halt-replay/expected.json'), 'utf8'));
 const MOVED = ['stepS', 'haltAt', 'haltS', 'haltK', 'haltN', 'haltDefer', 'ioShift', 'heldIo', 'outsideWrites', 'busA', 'busV', 'busN', 'busAt',
-  'replayN', 'busHalt', 'waitLimit', 'logBus', 'busLogged', 'replayRead', 'replayWrite', 'replayEnd', 'outsideWrite', 'flushOutsideWrites', 'ioSync',
+  'replayN', 'busHalt', 'waitLimit', 'logBus', 'busLogged', 'replayRead', 'replayWrite', 'replayEnd', 'outsideWrite', 'flushOutsideWrites',
   'haltWait', 'haltRun', 'haltFinish', 'haltSuspend', 'haltPark', 'haltResume', 'haltCancel', 'replayDropped', 'haltKeep', 'haltArrived', 'haltReleased'];
 const INTERFACE = ['replaying', 'cpuHeld', 'cpuCheck', 'stepN'];
 
@@ -47,7 +47,21 @@ check('the cases hold what they are for: held for good, a queued write, a held T
   // the interface follows the HaltReplay: an instruction held there is held for the machine
   m.halt.haltDefer = { s: 0, k: 1, rel: -1, n: 2, speedChange: -1, log: [], resume: false, regs: null, mem: [] };
   check('cpuHeld answers from the HaltReplay', m.cpuHeld === true);
-  m.halt.haltDefer = null;
+  // the machine's halting flag (what read and write test) follows logBus whoever sets its two fields
+  const flags = [m.halting];
+  m.halt.haltDefer = null; flags.push(m.halting);
+  m.halt.busHalt = true; flags.push(m.halting);
+  m.halt.haltDefer = { s: 0, k: 1, rel: -1, n: 2, speedChange: -1, log: [], resume: false, regs: null, mem: [] }; flags.push(m.halting);
+  m.halt.busHalt = false; flags.push(m.halting);
+  m.halt.haltDefer = null; flags.push(m.halting);
+  check('the machine\'s halting flag follows logBus (an instruction held, or a HALT-capable device attached)',
+    flags.join() === 'true,false,true,true,true,false' && flags.every((f, i) => i === 0 || typeof f === 'boolean'), flags.join());
+  // and attaching the CoCo FDC, which can assert HALT, raises it through the machine's own devicesAttached
+  const f = new Emu.devices.cocofdc({ rom: new Uint8Array(0x2000) });
+  m.insertCartridge(f);
+  const attached = m.halting && m.halt.logBus;
+  m.ejectCartridge();
+  check('a HALT-capable cartridge raises the flag, and taking it out lowers it', attached && m.halting === false && m.halt.logBus === false);
 }
 
 console.log(`\n${n - fail}/${n} HALT replay split checks passed`);
