@@ -19,7 +19,10 @@
 //    leaving its page clears it (viewChanged()), and pagehide ends it ('closed').
 //  * UX R45: a new toast replaces a focused or hovered one, without hiding the box; it starts paused while the focus
 //    is inside the box (or the pointer over it), and its full time runs from the focusout or pointerleave. The focus
-//    stays on the action button only for the same action object, else it moves to the box (tabindex -1).
+//    stays on the action button only for the same action object, else it moves to the box (tabindex -1). A focus on
+//    the second line's button (`also`) is not on the action: it moves to the box.
+//  * A toast's `also` is a second line with its own button. It gives the toast the 8 s, a toast without one clears
+//    it, its button does nothing once its toast is gone, and ending the toast (timeout or action) clears the line.
 //  * UX R45: a toast with no free place takes the top slot at once, provisionally: while a control is still in an
 //    animation of its own (300 ms at most) it moves to a free place as soon as one opens; then it is pinned for good.
 //    A hovered or focused provisional toast is not moved.
@@ -61,7 +64,7 @@ class El {
   replaceChildren(...c) { this.children = c; this.textContent = c.map((x) => (typeof x === 'string' ? x : x.textContent || '')).join(''); }
   getBoundingClientRect() { return { left: 400, top: 600, width: 300, height: 40, right: 700, bottom: 640 }; }
   matches() { return false; }
-  contains(n) { return n === this || this.kids.includes(n); }
+  contains(n) { return n === this || (this.kids || []).concat(this.children).some((c) => c === n || (c instanceof El && c.contains(n))); }
   setAttribute() {} removeAttribute() {}
   focus() { document.activeElement = this; focusCalls.push(this.id); }
 }
@@ -431,6 +434,46 @@ globalThis.matchMedia = () => ({ matches: false });
     globalThis.location.hash = '#library'; fb.viewChanged();
     check('dismiss: ... it waits for its own page', fb.current && fb.current.text === 'for the Library');
     advance(SHORT); globalThis.location.hash = '';
+  }
+
+  // ---- the second line (`also`): its time, its button, and replacing it ----
+  {
+    const alsoEl = get('toastAlso'), btnOf = () => alsoEl.children.find((c) => c instanceof El && c.id === 'button');
+    const fb = fresh(), runs = [], ended = [];
+    fb.toast('ROM removed.', { also: { text: 'The Dragon 64 keeps it until you switch off and on.', action: { label: 'Switch off and on', run: () => runs.push('a') } } });
+    check('also: the line shows, with its text and button', alsoEl.hidden === false && alsoEl.textContent.includes('keeps it') && btnOf() && btnOf().textContent === 'Switch off and on');
+    const old = btnOf();
+    fb.toast('Something else.', { onEnd: (r) => ended.push(r) });
+    check('also: a toast without one hides and empties the line', alsoEl.hidden === true && alsoEl.children.length === 0 && alsoEl.textContent === '');
+    old.onclick({ stopPropagation() {} });
+    check('also: the replaced toast\'s button does nothing (no run, the new toast stays)', runs.length === 0 && fb.current && fb.current.text === 'Something else.' && ended.length === 0);
+    advance(SHORT);
+    // LONG with `also` and no action, then cleared on timeout
+    fb.toast('Two lines.', { also: { text: 'More.', action: { label: 'Go', run: () => runs.push('b') } } });
+    advance(SHORT + 1);
+    check('also: with an also line and no action it stays past 4 s', fb.current !== null && alsoEl.hidden === false);
+    advance(LONG - SHORT - 2);
+    check('also: ... and is still up 1 ms before 8 s', fb.current !== null);
+    advance(1);
+    check('also: ... it goes at 8 s, and the line is hidden and emptied', fb.current === null && alsoEl.hidden === true && alsoEl.children.length === 0);
+    // cleared on its action
+    const log = [];
+    fb.toast('Three.', { onEnd: (r) => log.push(r), also: { text: 'Again.', action: { label: 'Go', run: () => runs.push('c') } } });
+    btnOf().onclick({ stopPropagation() {} });
+    check('also: its button runs once, ends the toast ("action") and clears the line', runs.join() === 'c' && log.join() === 'action' && fb.current === null && alsoEl.hidden === true && alsoEl.children.length === 0, `${runs.join()} ${log.join()}`);
+  }
+  {
+    // the focus on the also button, a replacement with the same action object: the focus goes to the box, not the action
+    const alsoEl = get('toastAlso'), fb = fresh(), a = LONG_ACTION('Undo');
+    box.kids.push(alsoEl);
+    fb.toast('A', { action: a, also: { text: 'More.', action: LONG_ACTION('Switch off and on') } });
+    const ab = alsoEl.children.find((c) => c instanceof El && c.id === 'button');
+    document.activeElement = ab; box.fire('focusin');
+    focusCalls.length = 0;
+    fb.toast('B', { action: a }); frame();
+    check('also focus: from the also button, a replacement with the same action moves the focus to the box', document.activeElement === box && focusCalls.join() === 'toast', focusCalls.join());
+    document.activeElement = null; box.fire('focusout'); advance(0); advance(LONG);
+    box.kids.splice(box.kids.indexOf(alsoEl), 1);
   }
 
   // ---- the user's next action and leaving ----
