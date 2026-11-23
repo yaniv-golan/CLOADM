@@ -54,7 +54,7 @@
 // The emulator is served at /play/; the landing page at / is checked at desktop and phone width: its links
 // resolve, "Try it now" opens the welcome program, the machine cards and "Talk to LIZA" open the emulator.
 //
-//   node tools/browser-check.js [--screenshots DIR]
+//   node tools/browser-check.js [--only g1,g2] [--screenshots DIR] [--timings FILE]
 const http = require('http'), fs = require('fs'), path = require('path'), os = require('os'), zlib = require('zlib');
 // the snapshot format this tree writes (the version checks build a newer file from it)
 const { SNAPSHOT_VERSION } = require('../tests/load')();
@@ -72,6 +72,10 @@ const lib = require('./browser-check-lib');
 const run = lib.makeRun();
 const { check, skip } = run;
 const shotDir = (() => { const i = process.argv.indexOf('--screenshots'); return i > 0 ? process.argv[i + 1] : null; })();
+// --timings FILE: after the run, write each group's wall seconds there as JSON ({ "groups": { name: seconds } }); node
+// .github/scripts/browser-check-shards.js --merge FILE takes them into .github/browser-check-timings.json, from which
+// --write plans the CI shards
+const timingsFile = (() => { const i = process.argv.indexOf('--timings'); return i > 0 ? process.argv[i + 1] : null; })();
 
 // a static server like the real host: a folder serves its index.html, and a folder named without its
 // trailing slash redirects to it (/play -> /play/). Every path it can't serve is recorded: no page may ask for a
@@ -16420,4 +16424,9 @@ const GROUPS = (base, site) => [
     server.closeAllConnections();   // (kept-alive connections would hold the run open after its summary)
   }
   process.exitCode = run.summary();
+  if (timingsFile) {
+    const groups = {};
+    for (const g of run.groups) if (g.name !== 'missing files') groups[g.name] = Math.round(g.seconds * 10) / 10;
+    fs.writeFileSync(timingsFile, JSON.stringify({ groups }, null, 2) + '\n');
+  }
 })();

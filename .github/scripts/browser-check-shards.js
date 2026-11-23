@@ -2,10 +2,21 @@
 // each exactly once, and name no group it doesn't know. Otherwise a new group would silently go unrun in CI, or
 // a misspelt one would make a shard run nothing and pass.
 //
-//   node .github/scripts/browser-check-shards.js            # check; exit 1 with the difference if incomplete
+// The shard file is generated, not edited: it is the plan this script makes from the measured group times in
+// .github/browser-check-timings.json (longest group first, each onto the shard with the least time so far, the
+// groups of a shard then kept in the check's own run order). The check fails when the file is not that plan, so a
+// timings change that is not written out, or a hand edit, cannot reach CI.
+//
+//   node .github/scripts/browser-check-shards.js            # check; exit 1 with the difference if incomplete or stale
 //   node .github/scripts/browser-check-shards.js --matrix   # check, then print the GitHub Actions matrix JSON
 //   node .github/scripts/browser-check-shards.js --shard N 'a,b'   # check, and that 'a,b' is exactly shard N's groups
 //                                                                   (what a CI shard passes to --only, as it arrives)
+//   node .github/scripts/browser-check-shards.js --write    # rewrite the shard file from the timings
+//   node .github/scripts/browser-check-shards.js --merge t1.json [t2.json ...]
+//        # take the group times from `node tools/browser-check.js --timings tN.json` runs into the timings file
+//        # (those groups only), drop groups the check no longer has, then --write
+//   node .github/scripts/browser-check-shards.js --merge-out OUT t1.json ...   # the same merge into OUT, nothing else
+//        # written (the CI `gates` job uses it to publish the run's own times)
 //
 // The group list is the browser check's own: `node tools/browser-check.js --list-groups` prints the names in its
 // GROUPS table, the same list `--only` is validated against and the run iterates. Nothing is maintained by hand on
@@ -13,17 +24,82 @@
 const fs = require('fs'), path = require('path'), cp = require('child_process');
 
 const ROOT = path.join(__dirname, '..', '..');
-// For the self-test (tests/browser-check-shards.test.js): BROWSER_CHECK runs another copy of the browser check, and
-// BROWSER_CHECK_SHARDS reads another shard file.
+// For the self-test (tests/browser-check-shards.test.js): BROWSER_CHECK runs another copy of the browser check,
+// BROWSER_CHECK_SHARDS reads another shard file and BROWSER_CHECK_TIMINGS another timings file.
 const CHECK = process.env.BROWSER_CHECK || path.join(ROOT, 'tools', 'browser-check.js');
 const SHARDS = process.env.BROWSER_CHECK_SHARDS || path.join(__dirname, '..', 'browser-check-shards.json');
+const TIMINGS = process.env.BROWSER_CHECK_TIMINGS || path.join(__dirname, '..', 'browser-check-timings.json');
+const rel = (f) => path.relative(ROOT, f);
+
+// The plan: { shards: [[group, ...], ...], seconds: [total, ...] }. Deterministic: ties go to the lower shard and,
+// among groups, to the earlier one in run order.
+function plan(known, timings) {
+  const n = timings.shards;
+  const order = new Map(known.map((g, i) => [g, i]));
+  const byCost = [...known].sort((a, b) => timings.groups[b] - timings.groups[a] || order.get(a) - order.get(b));
+  const shards = Array.from({ length: n }, () => []), seconds = new Array(n).fill(0);
+  for (const g of byCost) {
+    let k = 0;
+    for (let i = 1; i < n; i++) if (seconds[i] < seconds[k] - 1e-9) k = i;
+    shards[k].push(g);
+    seconds[k] += timings.groups[g];
+  }
+  for (const s of shards) s.sort((a, b) => order.get(a) - order.get(b));
+  return { shards, seconds: seconds.map((s) => Math.round(s)) };
+}
 
 const errors = [];
 const listed = cp.spawnSync(process.execPath, [CHECK, '--list-groups'], { encoding: 'utf8' });
 const known = listed.status === 0 ? listed.stdout.split('\n').map((l) => l.trim()).filter(Boolean) : [];
-if (listed.status !== 0) errors.push(`node ${path.relative(ROOT, CHECK)} --list-groups failed (exit ${listed.status}): ${(listed.stderr || '').trim().split('\n').slice(-3).join(' | ')}`);
-else if (!known.length) errors.push(`node ${path.relative(ROOT, CHECK)} --list-groups printed no groups`);
+if (listed.status !== 0) errors.push(`node ${rel(CHECK)} --list-groups failed (exit ${listed.status}): ${(listed.stderr || '').trim().split('\n').slice(-3).join(' | ')}`);
+else if (!known.length) errors.push(`node ${rel(CHECK)} --list-groups printed no groups`);
 else if (known.some((g) => !/^[A-Za-z][A-Za-z0-9]*$/.test(g)) || new Set(known).size !== known.length) errors.push(`--list-groups printed something that is not a list of distinct group names: ${JSON.stringify(known)}`);
+
+const timings = JSON.parse(fs.readFileSync(TIMINGS, 'utf8'));
+
+// --merge / --merge-out: measured times in, the timings file (or OUT) out
+const mi = process.argv.indexOf('--merge'), mo = process.argv.indexOf('--merge-out');
+if ((mi > 0 || mo > 0) && !errors.length) {
+  const out = mo > 0 ? process.argv[mo + 1] : TIMINGS;
+  const inputs = process.argv.slice((mo > 0 ? mo : mi) + (mo > 0 ? 2 : 1)).filter((a) => !a.startsWith('--'));
+  if (!inputs.length) { console.error('--merge needs one or more files written by node tools/browser-check.js --timings FILE'); process.exitCode = 2; return; }
+  const groups = {};
+  for (const g of known) if (g in timings.groups) groups[g] = timings.groups[g];
+  for (const f of inputs) {
+    for (const [g, s] of Object.entries(JSON.parse(fs.readFileSync(f, 'utf8')).groups || {})) {
+      if (known.includes(g) && Number.isFinite(s) && s >= 0) groups[g] = s;
+    }
+  }
+  const sorted = Object.fromEntries(known.filter((g) => g in groups).map((g) => [g, groups[g]]));
+  fs.writeFileSync(out, JSON.stringify({ ...timings, groups: sorted }, null, 2) + '\n');
+  console.log(`${rel(path.resolve(out))}: ${Object.keys(sorted).length} groups timed, from ${inputs.length} file(s)`);
+  if (mo > 0) return;
+  timings.groups = sorted;
+  process.argv.push('--write');
+}
+
+// The timings must time every group the check has, and only those, with a whole number of shards to spread them over.
+if (!errors.length) {
+  if (!Number.isInteger(timings.shards) || timings.shards < 1) errors.push(`${rel(TIMINGS)}: "shards" must be a whole number of CI shards, not ${JSON.stringify(timings.shards)}`);
+  const g = timings.groups || {};
+  const untimed = known.filter((n) => !Number.isFinite(g[n]) || g[n] < 0);
+  const extra = Object.keys(g).filter((n) => !known.includes(n));
+  if (untimed.length) errors.push(`no time in ${rel(TIMINGS)} for: ${untimed.join(', ')} (time it: node tools/browser-check.js --only ${untimed.join(',')} --timings t.json, then node .github/scripts/browser-check-shards.js --merge t.json)`);
+  if (extra.length) errors.push(`${rel(TIMINGS)} times groups the check does not have: ${extra.join(', ')} (node .github/scripts/browser-check-shards.js --merge drops them)`);
+}
+
+if (process.argv.includes('--write') && !errors.length) {
+  const p = plan(known, timings);
+  const total = p.seconds.reduce((a, b) => a + b, 0);
+  fs.writeFileSync(SHARDS, JSON.stringify({
+    '//': `GENERATED by node .github/scripts/browser-check-shards.js --write from ${path.basename(TIMINGS)} (serial total ${total} s: `
+      + `shards ${p.seconds.join('/')} s). Do not edit; change the timings and write it again.`,
+    shards: p.shards,
+  }, null, 2) + '\n');
+  console.log(`${rel(SHARDS)}: ${known.length} groups in ${p.shards.length} shards of ${p.seconds.join('/')} s`);
+  return;
+}
+
 const { shards } = JSON.parse(fs.readFileSync(SHARDS, 'utf8'));
 
 if (!known.length) { /* reported above; every shard name would be "unknown" */ }
@@ -37,6 +113,10 @@ else {
   if (missing.length) errors.push(`in no shard (would never run in CI): ${missing.join(', ')}`);
   if (unknown.length) errors.push(`not a browser-check group: ${unknown.join(', ')}`);
   if (twice.length) errors.push(`in more than one shard: ${twice.join(', ')}`);
+  // ...and the shards are the plan the timings give (only when the timings themselves are sound, reported above)
+  if (!errors.length && JSON.stringify(plan(known, timings).shards) !== JSON.stringify(shards)) {
+    errors.push(`${rel(SHARDS)} is not the plan ${rel(TIMINGS)} gives (stale or edited by hand): run node .github/scripts/browser-check-shards.js --write`);
+  }
 }
 
 // The argument a shard job is about to pass to --only must be exactly that shard's list: an --only naming no
@@ -58,5 +138,6 @@ if (errors.length) {
 } else if (si > 0) {
   console.log(`shard ${process.argv[si + 1]}: --only ${process.argv[si + 2]}`);
 } else {
-  console.log(`browser-check shards complete: ${known.length} groups in ${shards.length} shards, each exactly once`);
+  const secs = plan(known, timings).seconds;
+  console.log(`browser-check shards complete: ${known.length} groups in ${shards.length} shards, each exactly once (planned ${secs.join('/')} s)`);
 }
