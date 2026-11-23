@@ -187,7 +187,8 @@ export function setupCommandBox(page, claude) {
     const id = o.c[3];
     if (!id) { claude.openFull(); return; }
     if (typeof id === 'function') { id(page, claude); return; }
-    $(id).click();
+    // (a settings tab: shown through openSettings, which opens the Settings sheet on a phone)
+    if (id.startsWith('tab-')) page.openSettings(id); else $(id).click();
   }
   // the app bar's "Commands…" (on a phone it sits behind Menu, which closes again)
   $('navCommands').onclick = () => {

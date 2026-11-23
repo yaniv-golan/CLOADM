@@ -23,7 +23,7 @@
  * and Minesweeper on the pad, LIZA on the keys; anything else on the keys).
  *
  * Shown by itself on touch screens (a coarse pointer, touch points without hover, or a first touch); the Input
- * tab's "On-screen keyboard" setting says Automatic, Always or Never, and Hide keys (⌄ in the strip, or Menu sideways)
+ * tab's "On-screen keyboard" setting says Automatic, Always or Never, and Hide keys (in the Power sheet, js/ui/phone-sheets.js, or Menu sideways)
  * hides it for the visit (⌨, Show keys, bottom right, brings it back). The mode is remembered per program and machine
  * (touchMode.<id>.<program>, or touchMode.<id>), and ?touch= sets it for the visit (js/config.js; never for an
  * embed, which has no panel of its own).
@@ -292,9 +292,9 @@ export function setupTouchKeys(page, { input }) {
   addEventListener('pointerdown', (e) => { if (e.pointerType === 'touch' && !touchSeen) { touchSeen = true; apply(); } }, { capture: true });
   let hidden = false;
   const sheet = $('tkMenuSheet');
-  // a phone held sideways: the app bar gives way to the panel (play/index.html), so the panel's button is "Menu",
-  // with the machine picker, Commands… and Hide keys; elsewhere the app bar has its own Menu and the panel's button
-  // is ⌄, Hide keys (never two controls named Menu, UX R30)
+  // a phone held sideways: the app bar gives way to the panel (play/index.html), so the panel has a button "Menu", with
+  // the machine picker, Settings…, the ports, Commands… and Hide keys; elsewhere the app bar's Menu is the only Menu
+  // and the panel has no such button (never two controls named Menu, UX R30)
   const sideways = matchMedia('(orientation: landscape) and (max-height: 500px)');
   // standing aside: the page has a text field the person types in with the phone's own keyboard (the chat's API
   // key form), so the machine keyboard steps out of its way until the field is gone
@@ -327,8 +327,9 @@ export function setupTouchKeys(page, { input }) {
     document.body.classList.toggle('touch-hidden', wantOn && hidden);
     // the menu button (see `sideways`; a phone's full-screen chat: the way back, js/ui/claude.js)
     const side = sideways.matches, chat = document.body.classList.contains('chat-phone'), tkMenu = $('tkMenu');
-    tkMenu.textContent = chat ? '← Emulator' : side ? 'Menu' : '⌄';
-    if (!chat && !side) tkMenu.setAttribute('aria-label', 'Hide keys'); else tkMenu.removeAttribute('aria-label');
+    // (upright there is no panel button: the app bar's Menu is the one Menu, and Hide keys is in the Power sheet)
+    tkMenu.textContent = chat ? '← Emulator' : 'Menu';
+    tkMenu.hidden = !chat && !side;
     if (side && !chat) { tkMenu.setAttribute('aria-controls', 'tkMenuSheet'); tkMenu.setAttribute('aria-expanded', String(!sheet.hidden)); }
     else { tkMenu.removeAttribute('aria-controls'); tkMenu.removeAttribute('aria-expanded'); sheet.hidden = true; }
     const install = sheet.querySelector('[data-item="install"]');
@@ -357,12 +358,15 @@ export function setupTouchKeys(page, { input }) {
     const m = monitor.getBoundingClientRect();
     root.setProperty('--tk-above', `${Math.round(m.top + scrollY)}px`);
     // (keys hidden: room for ⌨, Show keys, under the screen's corner)
-    root.setProperty('--tk-below', `${box.hidden ? 56 : Math.round(box.getBoundingClientRect().bottom - m.bottom)}px`);
+    // (the chips under the panel, on a phone: js/ui/phone-sheets.js; with the keys hidden, ⌨ stands beside them)
+    const chips = $('chipRow'), last = chips.checkVisibility() ? chips : box.hidden ? null : box;
+    root.setProperty('--tk-below', `${last ? Math.round(last.getBoundingClientRect().bottom - m.bottom) : 56}px`);
   }
   // (the monitor's own size changes with the result, but neither length depends on it: no loop)
   new ResizeObserver(fit).observe(document.querySelector('.layout > main'));
   new ResizeObserver(fit).observe($('appbar'));
   new ResizeObserver(fit).observe(box);
+  new ResizeObserver(fit).observe($('chipRow'));
   // Safari 26 and later on an iPhone draws its bottom toolbar (the floating address bar) OVER the page, and neither
   // the viewport units nor env(safe-area-inset-bottom) take it out: the panel stops above it (--tk-bar in
   // play/index.html). Not an installed app (no toolbar) and not another browser on iOS (theirs is not over the page).
@@ -374,11 +378,14 @@ export function setupTouchKeys(page, { input }) {
   noHover.addEventListener('change', apply);
   $('selTouchKeys').onchange = (e) => { session.store.set('touchKeys', e.target.value); hidden = false; apply(); };
   $('btnShowKeys').onclick = () => { hidden = false; apply(); };
-  // The panel's menu button (UX R30). Where the app bar shows (upright, a tablet) it is ⌄, Hide keys: the app bar's Menu
-  // is the only Menu. Held sideways the app bar gives way to the panel, so it is "Menu": Machine… (the machine picker),
-  // Commands…, Install CLOADM… (the app bar's link, out of sight there) and Hide keys. In a phone's chat (body.chat-phone, js/ui/claude.js) the app bar gives way to the chat bar, so
-  // it is "← Emulator" and leaves the chat in one tap, as it always has: the way out must not need a second tap.
-  sheet.innerHTML = '<button type="button" data-item="machine">Machine…</button><button type="button" data-item="commands">Commands…</button>'
+  // The panel's menu button (UX R30), held sideways only (the app bar's Menu is the only Menu elsewhere): Machine… (the
+  // machine picker), Settings…, Tape, disks and cartridge… (no chips sideways: js/ui/phone-sheets.js), Commands…,
+  // Power… (the machine's controls), Install CLOADM… (the app bar's link, out of sight there) and Hide keys. In a phone's chat (body.chat-phone,
+  // js/ui/claude.js) the app bar gives way to the chat bar, so it is "← Emulator" and leaves the chat in one tap, as it
+  // always has: the way out must not need a second tap.
+  sheet.innerHTML = '<button type="button" data-item="machine">Machine…</button><button type="button" data-item="settings">Settings…</button>'
+    + '<button type="button" data-item="ports">Tape, disks and cartridge…</button><button type="button" data-item="power">Power…</button>'
+    + '<button type="button" data-item="commands">Commands…</button>'
     + '<button type="button" data-item="install">Install CLOADM…</button><button type="button" data-item="hide">Hide keys</button>';
   // (Install CLOADM… is the app bar's link, which held sideways is out of sight: here too, while it is offered)
   new MutationObserver(apply).observe($('navInstall'), { attributes: true, attributeFilter: ['hidden'] });
@@ -386,7 +393,6 @@ export function setupTouchKeys(page, { input }) {
   // a disclosure: it opens with the focus on its first button, and Esc gives the focus back to Menu
   $('tkMenu').onclick = () => {
     if (document.body.classList.contains('chat-phone')) { $('btnClaudeBack').click(); return; }
-    if (!sideways.matches) { hidden = true; apply(); $('btnShowKeys').focus(); return; }   // ⌄: Hide keys
     sheet.hidden = !sheet.hidden;
     $('tkMenu').setAttribute('aria-expanded', String(!sheet.hidden));
     if (!sheet.hidden) sheet.querySelector('button:not([hidden])').focus();
@@ -396,6 +402,9 @@ export function setupTouchKeys(page, { input }) {
     if (!b) return;
     closeSheet();
     if (b.dataset.item === 'machine') openMachines();
+    else if (b.dataset.item === 'settings') page.openSettings(null, $('tkMenu'));
+    else if (b.dataset.item === 'ports') page.sheets.openPorts(null, $('tkMenu'));
+    else if (b.dataset.item === 'power') page.sheets.open('sheetPower', $('tkMenu'));
     else if (b.dataset.item === 'commands') $('navCommands').click();
     else if (b.dataset.item === 'install') $('navInstall').click();
     else if (b.dataset.item === 'hide') { hidden = true; apply(); }

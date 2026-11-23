@@ -229,18 +229,26 @@ $('btnMenu').onclick = () => {
 {
   const pill = $('romPill'), item = $('navRoms');
   // (the dot is drawn only: while it is on, Menu's name says what it means)
+  // (and an accent dot while media is in, on a short phone where Menu has the ports: js/ui/phone-sheets.js)
   const sync = () => {
     item.hidden = pill.hidden;
-    $('btnMenu').classList.toggle('dot', !pill.hidden);
-    if (pill.hidden) $('btnMenu').removeAttribute('aria-label'); else $('btnMenu').setAttribute('aria-label', 'Menu (ROMs needed)');
+    const menu = $('btnMenu'), media = menu.classList.contains('media');
+    menu.classList.toggle('dot', !pill.hidden);
+    // (both: its one dot is the ROMs', its name says both)
+    if (!pill.hidden) menu.setAttribute('aria-label', media ? 'Menu (ROMs needed, media inserted)' : 'Menu (ROMs needed)');
+    else if (media) menu.setAttribute('aria-label', 'Menu (media inserted)');
+    else menu.removeAttribute('aria-label');
   };
+  page.syncMenu = sync;
   const close = () => { $('appbar').classList.remove('menu-open'); $('btnMenu').setAttribute('aria-expanded', 'false'); };
   item.onclick = () => { close(); pill.click(); };
   $('navShare').onclick = () => { close(); $('btnShare').click(); };
-  // Settings…: the drawer's tabs are far below the screen on a phone; brought into view, on Display (a person looking
-  // for "settings" is most often after the picture: its look, its size, the colours)
+  // Settings…: with the touch keys, the Settings sheet on the tab last used (js/ui/phone-sheets.js); elsewhere the
+  // drawer's tabs, far below the screen in a narrow window, brought into view on Display (a person looking for
+  // "settings" is most often after the picture: its look, its size, the colours)
   $('navSettings').onclick = () => {
     close();
+    if (page.openSettings(null, $('btnMenu'))) return;   // (the focus back on Menu when it closes)
     const tab = $('tab-display');
     tab.click();
     tab.closest('[role="tablist"]').scrollIntoView({ block: 'start' });
@@ -248,6 +256,12 @@ $('btnMenu').onclick = () => {
   };
   new MutationObserver(sync).observe(pill, { attributes: true, attributeFilter: ['hidden'] });
   sync();
+  // Menu's order on a phone: Install… after Share…, before the links; on a wider page it is the app bar's last link
+  // (moved, not reordered by the stylesheet, so the focus goes down the list in the order it is drawn)
+  const narrow = matchMedia('(max-width: 700px)');
+  const installPlace = () => { if (narrow.matches) $('navShare').after($('navInstall')); else $('navInstall').closest('nav').append($('navInstall')); };
+  narrow.addEventListener('change', installPlace);
+  installPlace();
 }
 
 // Esc closes the topmost surface that is open (page.onEscape: confirmations, menus, cards, the views, the chat)

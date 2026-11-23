@@ -180,6 +180,23 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   after a load); the machine keeps running and the hardware keyboard does not type into it while a sheet is open; a
   stick held when a sheet opens is let go of. A narrow desktop window keeps its layout, and so does a desktop. The
   tape bar's Deck opens the Tape sheet there, and a toast's buttons are at least 44 px tall on a touch screen.
+- **A phone's settings are a sheet, from Menu → Settings….** With the on-screen keys on, the drawer's tabs (Media,
+  Display, Input, POKEs, Machine) are in a "Settings" sheet that reaches from the screen's foot to the window's (at
+  least half the window, so the screen shows what a Display setting does), opening on the tab last used with the focus
+  on it; Expand makes it the whole height and Collapse gives that back; each tab is 44 px tall and the tab bar scrolls
+  sideways. The "Running with no ROMs" card is at the top of the Media tab, and the credits are behind Menu → Help. The
+  palette's settings commands, the machine menu's "RAM, CPU and speed…" and Ask's rail open the sheet (openSettings).
+  The page no longer scrolls: the header, the screen, the panel and the chips fit the window. Menu's order on a phone:
+  Add ROMs, Settings…, Share…, Install…, Library, Debugger, Commands…, then Help and GitHub under a rule.
+- **Held sideways, and on a short phone upright, the ports are one tabbed sheet.** Sideways the keys' Menu lists
+  Machine…, Settings…, "Tape, disks and cartridge…", Power…, Commands…, Install and Hide keys; "Tape, disks and
+  cartridge…" opens one side sheet of that name (360 px wide, the whole height), its tabs Tape, Disks and Cartridge
+  switching in place, opening on the tab that holds media (else the one last used). Every sheet comes from the right
+  side there. On a phone upright under 600 px tall there is no chip row (the screen keeps its size); Menu has "Tape,
+  disks and cartridge…" (the same sheet from the bottom) and "Power…", each with its state on a second line ("HI.CAS ·
+  1 disk", "Paused"), and wears a dot while media is in ("Menu (media inserted)"). Turning the phone with a sheet open
+  keeps it open on the same tab. Upright the keys' strip has no Menu of its own any more (the app bar's is the one
+  Menu): Hide keys is in the Power sheet.
 - **The welcome menu's tune plays only when you asked for the menu.** It plays once the sound is unlocked for the visit's own menu and for the Welcome menu chosen from Programs; it is silent after a machine switch (a RAM or CPU change, the machine question, an opened snapshot), Reset, a power cycle, and when the menu comes back from LIZA, a game or the demo. The Session decides, so Claude's and MCP's switches are silent too.
 - **Faster CI gates, and shards that cannot go stale.** `node tests/all.js` runs in CI as three parts on three runners
   (`--shard i/n`, planned from `tests/suite-times.json`), and the `gates` job checks from their logs that together

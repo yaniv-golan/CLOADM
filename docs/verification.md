@@ -929,6 +929,15 @@ browser check's group `uiModel` drives them with real events at 1280x720 and at 
   modal, and its Esc ranks over Claude paused by a key; Hide keys from the Power sheet, then ⌨, with the chips up throughout; a toast's
   action button at least 44 px tall. `uiModel` checks the Disks chip after a dropped disk; `semantics` the landmarks with
   the ports as chips and every closed sheet hidden for real; `tapeHud` that the reels turn only in an open Tape sheet.
+  Also in `phone`: Menu → Settings… (its order, the sheet's tabs at least 44 px, its top edge at or below the screen's
+  foot, Expand and Collapse, the palette's "Display settings" on Display, the tab last used); the focus back on a chip
+  opened with the focus elsewhere; one sheet at a time and Ask's sheet closed; NitrOS-9 under the drives, the Disks
+  chip's file name and "2 disks"; Paused; the full-screen chat closing a sheet; sideways (iPhone 15 landscape) the keys'
+  Menu, the ports' side sheet (its size, tabs, each port in reach, Esc back to Menu), Power… and Settings…, the tab that
+  holds media, and turning with a sheet open; a short phone (375 x 548, 320 x 460) with no chip row, Menu's two items
+  and their states, its dot and name, and the ports' sheet from the bottom; a desktop at 1440 x 900 with the ports and
+  drawer where they were before (and back there after the touch keys on and off) and no duplicate ids. Screenshots of
+  each sheet. `mobile` keeps its screen-size floors unchanged.
 * R25: the switch confirmation's text for a tape and a cartridge (both in the Library), a tape and a disk, a RAM
   change (and Cancel putting the select back), a snapshot's own disk with **Save to Library** (stored and linked),
   DriveWire (not listed, still mounted after the switch); the toasts after the switch. `tests/switch-losses.test.js`

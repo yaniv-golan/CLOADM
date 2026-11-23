@@ -160,7 +160,7 @@ export function setupAsk(page, claude) {
     document.body.classList.toggle('ask-rail-drawer', !!tab);
     markUndrawn();   // (now: the drawer the rail shows must take the focus its tab gives below)
     for (const b of $('askRail').children) b.setAttribute('aria-pressed', String(b.dataset.tab === tab));
-    if (tab) $(tab).click();
+    if (tab) page.openSettings(tab);
   }
   // (a menu over the panel: Esc closes it first, on the screen too, and is then neither BREAK nor a pause)
   page.onEscape(ESC.menu, () => !!railTab, () => setRail(null));
