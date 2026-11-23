@@ -470,7 +470,7 @@ account or organization has yet.
    Claude can use them from the next turn, not in the one that opened it. Claude asks you to approve each call.
    **On the Claude iOS app**, set the CLOADM connector's **Permission** to **Manually approve** so Claude can type into
    and run the machine: with the default setting the app blocks every tool that is not read-only without showing a
-   prompt (Claude reports that the call needed your approval and none came). Read-only tools work either way. The
+   prompt (Claude may report that the call needed your approval and none came). Read-only tools work either way. The
    view never sees a call the app blocked, so it cannot warn you itself; the same note is under **Details**.
 
 **The tools in the panel** are the ones in [The tools](#the-tools), with the same names, arguments and results
