@@ -42,7 +42,13 @@ const check = (n, c, d = '') => { if (!c) { fail++; console.log('FAIL', n, d); }
   check('every profile has a description, with the MAME driver line it was checked against', profiles.every((p) => DESCRIPTIONS[p.id] && DESCRIPTIONS[p.id].text
     && /^src\/mame\/trs\/\w+\.cpp/.test(DESCRIPTIONS[p.id].source)), profiles.filter((p) => !DESCRIPTIONS[p.id]).map((p) => p.id).join(', '));
   check('no description for a model that does not exist', Object.keys(DESCRIPTIONS).every((id) => Emu.profiles[id]), Object.keys(DESCRIPTIONS).filter((id) => !Emu.profiles[id]).join(', '));
-  check('describe(): "<name>: <what it is>."', describe(Emu.profiles.cd6809) === 'Codimex CD-6809: a CoCo clone by Codimex, 1983.', describe(Emu.profiles.cd6809));
+  // a maker the model's name already gives is not said again ("Codimex CD-6809: a CoCo clone, 1983.", not "... by
+  // Codimex"): the name's first word, unless it is the family's own (Dragon, CoCo, MC-10)
+  check('no description repeats the maker its model\'s name gives', profiles.every((p) => {
+    const first = p.name.split(' ')[0];
+    return ['Dragon', 'CoCo', 'MC-10'].includes(first) || !DESCRIPTIONS[p.id].text.includes(first);
+  }), profiles.filter((p) => !['Dragon', 'CoCo', 'MC-10'].includes(p.name.split(' ')[0]) && DESCRIPTIONS[p.id].text.includes(p.name.split(' ')[0])).map((p) => p.id).join());
+  check('describe(): "<name>: <what it is>."', describe(Emu.profiles.cd6809) === 'Codimex CD-6809: a CoCo clone, 1983.', describe(Emu.profiles.cd6809));
   const sections = groupProfiles(avail).map(([g]) => g);
   check('every section the menu shows has a subtitle, and there is none for a section it does not', sections.every((g) => SUBTITLES[g])
     && Object.keys(SUBTITLES).every((g) => sections.includes(g)), JSON.stringify({ sections, subtitles: Object.keys(SUBTITLES) }));

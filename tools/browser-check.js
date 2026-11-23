@@ -15428,6 +15428,10 @@ async function uiModelChecks(browser, base, check) {
         described: items.every((b) => b.getAttribute('aria-description') === describe(window.emu.profiles[b.dataset.machine])),
         which: (() => { const a = document.getElementById('menuWhich'); return a && a.checkVisibility() && [a.textContent, a.getAttribute('href'), a.getAttribute('role')].join('|'); })(),
         about: (() => { const a = document.getElementById('menuAbout'); return { shown: a.checkVisibility(), text: a.textContent, hidden: a.getAttribute('aria-hidden') }; })(),
+        describedBy: (() => { const id = m.getAttribute('aria-describedby'), d = id && document.getElementById(id); return d ? d.textContent : null; })(),
+        // the fade above the footer: into the panel's colour (the footer's ::before), never a mask showing the page through
+        fade: (() => { const f = getComputedStyle(m.querySelector('.footer'), '::before'), panel = getComputedStyle(m).backgroundColor;
+          return { mask: getComputedStyle(m).maskImage || getComputedStyle(m).webkitMaskImage || 'none', image: f.backgroundImage, panel }; })(),
         live: !!m.querySelector('[aria-live]') };
     });
     await page.click('#machineBtn');
@@ -15438,6 +15442,10 @@ async function uiModelChecks(browser, base, check) {
     check(`machine menu (${label}): every section shows its subtitle, as the data words it`,
       none.subs.length === 5 && none.subs.every(([g, sub]) => sub === none.want[g]), JSON.stringify(none.subs));
     check(`machine menu (${label}): every item carries its description as aria-description; no live region`, none.described && !none.live);
+    check(`machine menu (${label}): with no ROMs a screen reader hears the "No ROMs yet" line as the menu's description (aria-describedby)`,
+      none.describedBy === 'No ROMs yet: every machine needs its own ROMs for BASIC.', String(none.describedBy));
+    check(`machine menu (${label}): the band above the footer fades into the panel's colour, with no mask over the page`,
+      none.fade.mask === 'none' && none.fade.image.includes(none.fade.panel.replace(/\)$/, '')), JSON.stringify(none.fade));
     check(`machine menu (${label}): the footer has "Which one is mine? →" to help/#machines, a menu item`, none.which === 'Which one is mine? →|help/#machines|menuitem', String(none.which));
     // arrow focus: the footer line follows (visual only), and it matches the focused item's description
     await page.keyboard.press('ArrowDown');
@@ -15452,9 +15460,9 @@ async function uiModelChecks(browser, base, check) {
       check(`machine menu (${label}): arrow focus changes the footer line, which is the focused item's description, hidden from screen readers`,
         f1[0] && f1[0] === f1[1] && f2[0] === f2[1] && f1[1] !== f2[1] && ab.about.shown && ab.about.hidden === 'true', JSON.stringify({ f1, f2, about: ab.about }));
       await page.hover('[data-machine="cd6809"]');
-      check(`machine menu (${label}): hovering a model shows its line, in view at the menu's foot (on top at its centre): "Codimex CD-6809: a CoCo clone by Codimex, 1983."`,
+      check(`machine menu (${label}): hovering a model shows its line, in view at the menu's foot (on top at its centre): "Codimex CD-6809: a CoCo clone, 1983."`,
         await waitFor(page, () => { const a = document.getElementById('menuAbout'), r = a.getBoundingClientRect(), e = document.elementFromPoint(r.left + 20, r.top + r.height / 2);
-          return a.textContent === 'Codimex CD-6809: a CoCo clone by Codimex, 1983.' && r.bottom <= innerHeight && r.top >= 0 && !!e && a.contains(e); }),
+          return a.textContent === 'Codimex CD-6809: a CoCo clone, 1983.' && r.bottom <= innerHeight && r.top >= 0 && !!e && a.contains(e); }),
         JSON.stringify(await page.evaluate(() => document.getElementById('menuAbout').getBoundingClientRect().toJSON())));
       if (shotDir) await page.screenshot({ path: path.join(shotDir, `machine-menu-noroms-${label}.png`) });
     }
@@ -15468,7 +15476,7 @@ async function uiModelChecks(browser, base, check) {
     const one = await menuState();
     const boots = await page.evaluate(() => Object.keys(window.emu.profiles).filter((id) => window.emu.session.machineRoms(id).bootable));
     check(`machine menu (${label}): with one ROM set stored, no top line, the tags on every row and ✓ only on the machines it boots (${boots.join(', ')})`,
-      one.top === null && one.legend && one.tags.every((t) => t === '✓' || t === 'needs ROMs')
+      one.top === null && one.describedBy === null && one.legend && one.tags.every((t) => t === '✓' || t === 'needs ROMs')
       && one.ids.every((id, i) => (one.tags[i] === '✓') === boots.includes(id)) && boots.length >= 1, JSON.stringify({ tags: one.tags, boots }));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, `machine-menu-roms-${label}.png`) });
     // the link: Help's list of the machines, in a new tab

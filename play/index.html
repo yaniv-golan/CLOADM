@@ -88,11 +88,12 @@
   /* an empty recent list says "Nothing loaded yet": not under a "Last time" (drawer.js marks it) */
   #lastTime:not([hidden]) ~ .recent-empty { display: none; }
   /* more models below the fold (machine-panel.js sets it while the list can scroll further): the bottom fades */
-  /* (the footer stays at the bottom, so the models fade out above it: --foot-h is its height, set when the menu opens) */
-  #machineMenu.more-below { --fade: linear-gradient(#000 calc(100% - var(--foot-h, 0px) - 48px), transparent calc(100% - var(--foot-h, 0px)), #000 calc(100% - var(--foot-h, 0px)));
-    -webkit-mask-image: var(--fade); mask-image: var(--fade); }
+  /* (the footer stays at the bottom, so the models fade into the panel's colour above it, never into the page) */
+  #machineMenu .footer::before { content: ''; position: absolute; left: 0; right: 0; bottom: 100%; height: 48px; pointer-events: none;
+    background: linear-gradient(transparent, var(--panel)); opacity: 0; }
+  #machineMenu.more-below .footer::before { opacity: 1; }
   /* the footer stays in view while the models scroll: its line for the model under the pointer or the focus too */
-  #machineMenu .footer { position: sticky; bottom: -14px; background: var(--panel); padding-bottom: 14px; margin-bottom: -14px; z-index: 1; }
+  #machineMenu .footer { position: sticky; isolation: isolate; bottom: -14px; background: var(--panel); padding-bottom: 14px; margin-bottom: -14px; z-index: 1; }
   #machineMenu .group-name { font-size: 14px; letter-spacing: .06em; color: var(--muted); padding: 2px 8px 0; }
   #machineMenu .group-sub { font-size: 13px; color: var(--text-3); padding: 0 8px 6px; }
   #menuNoRoms { grid-column: 1 / -1; margin: 0; padding: 4px 8px 8px; font-size: 15px; color: var(--text-2); }

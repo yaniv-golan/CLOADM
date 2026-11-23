@@ -42,6 +42,8 @@ export function setupMachinePanel(page, { showRoms }) {
     // With no ROMs stored at all, one line at the top instead of a "needs ROMs" tag on every row; the tags (and the
     // ✓ legend) once any are stored
     const none = session.storedRoms().count === 0;
+    // (a screen reader hears that line as the menu's description: the line itself is no menu item)
+    if (none) menu.setAttribute('aria-describedby', 'menuNoRoms'); else menu.removeAttribute('aria-describedby');
     if (none) {
       const top = document.createElement('p'); top.id = 'menuNoRoms'; top.setAttribute('role', 'none');
       top.textContent = 'No ROMs yet: every machine needs its own ROMs for BASIC.';
@@ -101,8 +103,6 @@ export function setupMachinePanel(page, { showRoms }) {
       // as tall as the window allows below the button (a phone showed it cut short at the MC-10), and
       // a faded bottom edge while more models are below
       menu.style.maxHeight = `${Math.max(200, innerHeight - menu.getBoundingClientRect().top - 12)}px`;
-      const foot = menu.querySelector('.footer');
-      menu.style.setProperty('--foot-h', `${foot ? foot.offsetHeight : 0}px`);
       moreBelow();
       const cur = menu.querySelector('[aria-current="true"]') || menu.querySelector('button'); cur.focus();
     }
