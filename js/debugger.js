@@ -133,6 +133,8 @@ export class Debugger {
     this.checkedAt = 0;            // ...and the machine's redirect count then (an outside change makes it a new one)
     // the family's read, for the debugger's own view (never through the bus taps)
     this._peekMap = this._peekMapFor(machine, machine.read.bind(machine));
+    // a machine has one debugger: a new one takes the place of the one it has (detach unhooks that one's taps)
+    if (machine.debugger && machine.debugger !== this) machine.debugger.detach();
     this._attach();
     machine.debugger = this;       // the machine's snapshot carries its breakpoints and watchpoints
   }
