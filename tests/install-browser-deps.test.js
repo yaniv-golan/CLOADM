@@ -14,9 +14,13 @@
 //   - a lock held by a process in a session of its own (as sudo starts apt-get: CI 45181201761), for a while: try 2
 //     waits for it and succeeds;
 //   - ...and for good: after the wait the holder is stopped (named in the output), and try 2 succeeds;
-//   - apt is told to wait for a lock at most LOCK_WAIT s (DPkg::Lock::Timeout).
+//   - apt is told to wait for a lock at most LOCK_WAIT s (DPkg::Lock::Timeout);
+//   - a killed holder leaves dpkg "interrupted" (the stub install-deps then fails, as apt does): the repair after the
+//     kill, and the lock wait before every `dpkg --configure -a` (dpkg fails on a held lock), let the next try work;
+//   - run as a user, the script re-runs itself under sudo once, with INSTALL_DEPS_AS_ROOT=1.
 // Removing the check after dpkg (the review's mutant) turns case 4 red; running commands without setsid turns case 6
-// red; dropping the lock wait turns case 7 red.
+// red; dropping the lock wait turns case 7 red; no lock wait before the repair turns case 8 red; no repair after a kill
+// turns case 9 red; no re-run under sudo turns case 10 red.
 // Run: node tests/install-browser-deps.test.js
 const fs = require('fs'), os = require('os'), path = require('path'), cp = require('child_process');
 
@@ -38,6 +42,7 @@ if [ "$*" = "playwright install-deps --dry-run chromium" ]; then
 fi
 if [ "$*" = "playwright install-deps chromium" ]; then
   [ -e "$STATE/mirror-fails" ] && { echo "E: mirror unreachable"; exit 100; }
+  [ -e "$STATE/interrupted" ] && { echo "E: dpkg was interrupted, you must manually run 'dpkg --configure -a'"; echo "install-deps: interrupted" >> "$STATE/calls"; exit 100; }
   mkdir -p "$APT_ARCHIVES"
   for p in $NEEDED libgbm1; do echo "$p" >> "$STATE/installed"; : > "$APT_ARCHIVES/\${p}_1.0_amd64.deb"; done
   exit 0
@@ -45,7 +50,9 @@ fi
 exit 99
 `,
   // sudo: its options dropped, the command run as it is (the script re-runs itself under sudo when not root)
-  sudo: '#!/usr/bin/env bash\nwhile [ "${1#-}" != "$1" ]; do shift; done\nexec "$@"\n',
+  sudo: '#!/usr/bin/env bash\necho "sudo $*" >> "$STATE/calls"\nwhile [ "${1#-}" != "$1" ]; do shift; done\nexec "$@"\n',
+  // id -u: the uid the run pretends to have ($STATE/uid); anything else is the real id
+  id: '#!/usr/bin/env bash\n[ "$1" = -u ] && { cat "$STATE/uid"; exit 0; }\nexec /usr/bin/id "$@"\n',
   // apt-get: fails as apt does when another process holds the lock; on its FIRST update, $STATE/hang makes it hang
   // with the lock held by a child in its group ("group") or by a process outside it ("escape", for $HOLD s)
   'apt-get': `#!/usr/bin/env bash
@@ -57,15 +64,21 @@ if [ "$1" = update ] && [ -e "$STATE/hang" ] && [ ! -e "$STATE/hung" ]; then
   : > "$STATE/hung"
   case "$(cat "$STATE/hang")" in
     group) ( exec 9>"$LOCKS"; exec sleep "$TOK" ) & ;;
-    escape) setsid bash -c 'exec 9>"$LOCKS"; exec sleep "$HOLD"' & ;;
+    escape) : > "$STATE/interrupted"; setsid bash -c 'exec 9>"$LOCKS"; sleep "$HOLD"; rm -f "$STATE/interrupted"' & ;;
   esac
   sleep 0.3; exec sleep "$TOK"
 fi
 [ "$1" = update ] && [ -e "$STATE/mirror-fails" ] && exit 100
 exit 0
 `,
+  // dpkg: like the real one, ignores apt's lock timeout and fails at once on a held lock; --configure -a repairs an
+  // interrupted dpkg
   dpkg: `#!/usr/bin/env bash
 echo "dpkg $*" >> "$STATE/calls"
+for fd in /proc/[0-9]*/fd/*; do
+  if [ "$(readlink "$fd" 2>/dev/null)" = "$LOCKS" ]; then echo "dpkg: error: dpkg frontend lock was locked by another process"; echo "dpkg: lock held" >> "$STATE/calls"; exit 2; fi
+done
+[ "$1 $2" = "--configure -a" ] && { rm -f "$STATE/interrupted"; exit 0; }
 [ "$1" = -i ] || exit 0
 shift
 [ -e "$STATE/dpkg-noop" ] && exit 0      # "succeeds" without installing anything the check sees
@@ -74,7 +87,7 @@ exit 0
 `,
 };
 
-function run({ installed = [], cached = [], mirrorFails = false, dpkgNoop = false, hang = null, hold = 2, script = REAL } = {}) {
+function run({ installed = [], cached = [], mirrorFails = false, dpkgNoop = false, hang = null, hold = 2, preHold = false, uid = 0, script = REAL } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ibd-'));
   const bin = path.join(dir, 'bin'), state = path.join(dir, 'state'), debs = path.join(dir, 'debs'), arch = path.join(dir, 'archives');
   for (const d of [bin, state, debs]) fs.mkdirSync(d);
@@ -86,6 +99,14 @@ function run({ installed = [], cached = [], mirrorFails = false, dpkgNoop = fals
   if (hang) fs.writeFileSync(path.join(state, 'hang'), hang);
   // a sleep length no other process has, so the survivors of this run can be found (and cleaned up) by it
   const tok = `1777.${process.pid}${Math.floor(Math.random() * 1e6)}`, holdTok = `${hold}.${process.pid}${Math.floor(Math.random() * 1e6)}`;
+  fs.writeFileSync(path.join(state, 'uid'), `${uid}\n`);
+  // a holder already there when the script starts (a killed apt from before), in a session of its own, with dpkg
+  // left interrupted
+  if (preHold) {
+    fs.writeFileSync(path.join(state, 'interrupted'), '');
+    cp.spawn('setsid', ['bash', '-c', `exec 9>"${path.join(state, 'lock')}"; exec sleep ${holdTok}`], { detached: true, stdio: 'ignore' }).unref();
+    for (let i = 0; i < 50 && !cp.spawnSync('pgrep', ['-f', `sleep ${holdTok}`]).stdout.length; i++) cp.spawnSync('sleep', ['0.1']);
+  }
   for (const p of cached) fs.writeFileSync(path.join(debs, `${p}_0.9_amd64.deb`), '');
   const sh = path.join(dir, 'install.sh');
   fs.writeFileSync(sh, script, { mode: 0o755 });
@@ -161,7 +182,7 @@ const says = (r, re) => re.test(r.out);
 // 8. ...and for good: after the wait the holder is stopped, by name, and try 2 succeeds; apt never meets the held lock
 {
   const r = run({ hang: 'escape', hold: 1000 });
-  check('a lock held for good by a process in its own session: stopped after the wait, named', says(r, /locks are still held after 5 s, by: \d+ \(sleep [\d.]+ \); - stopping them/),
+  check('a lock held for good by a process in its own session: stopped after the wait, named', says(r, /locks are still held after 5 s, by: .*\d+ \(sleep [\d.]+ \);.*- stopping them/),
     r.out.split('\n').filter((l) => /locks/.test(l)).join(' | '));
   check('...then try 2 succeeds, without running apt against the held lock', r.status === 0 && says(r, /installed from the mirror/) && !has(r, /lock held/), r.calls.join(' | '));
   check('...and the holder is gone', r.survivors === '', `survivors: ${r.survivors}`);
@@ -170,6 +191,32 @@ const says = (r, re) => re.test(r.out);
 {
   const conf = REAL.match(/printf '%s\\n' [\s\S]*?> "\$APT_CONF"/);
   check('apt waits for a dpkg lock at most LOCK_WAIT s (DPkg::Lock::Timeout in its config)', !!conf && /DPkg::Lock::Timeout \\"\$LOCK_WAIT\\"/.test(conf[0]), conf ? '' : 'no APT_CONF write found');
+}
+
+// 8b. in case 8 the stopped holder left dpkg interrupted, and the repair ran with the lock free
+{
+  const r = run({ hang: 'escape', hold: 1000 });
+  check('a stopped holder leaves dpkg interrupted: the repair runs with the lock free, and try 2 installs', r.status === 0 && !has(r, /dpkg: lock held/) && !has(r, /install-deps: interrupted/),
+    r.calls.filter((c) => /dpkg|install-deps|lock/.test(c)).join(' | '));
+}
+// 9. a holder already there at the start (dpkg interrupted): stopped before try 1, repaired, and try 1 installs
+{
+  const r = run({ preHold: true, hold: 1000 });
+  check('a lock held from before: stopped, dpkg repaired, try 1 installs', r.status === 0 && says(r, /repairing after the stopped holders/) && !says(r, /try 1 failed/) && !has(r, /install-deps: interrupted/),
+    r.out.split('\n').filter((l) => /OS packages/.test(l)).join(' | '));
+  check('...and the holder is gone', r.survivors === '', `survivors: ${r.survivors}`);
+}
+// 10. run as a user: the part after the download re-runs itself under sudo, once, as root
+{
+  const r = run({ uid: 1000, installed: NEEDED });
+  const sudos = r.calls.filter((c) => /^sudo /.test(c));
+  check('as a user: one re-run under sudo with INSTALL_DEPS_AS_ROOT=1', sudos.length === 1 && /INSTALL_DEPS_AS_ROOT=1 bash /.test(sudos[0]), sudos.join(' | '));
+  check('...the download ran once (as the user) and the root part once', r.status === 0 && r.calls.filter((c) => /^npx playwright install chromium$/.test(c)).length === 1
+    && r.calls.filter((c) => /--dry-run/.test(c)).length === 1 && says(r, /all present/), r.calls.join(' | '));
+}
+{
+  const r = run({ uid: 0, installed: NEEDED });
+  check('as root: no sudo at all', r.status === 0 && !has(r, /^sudo /), r.calls.join(' | '));
 }
 
 // Both workflows run this one script, under a step time limit.

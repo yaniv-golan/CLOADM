@@ -20,14 +20,22 @@
 # a plain `sh`, inside that group. Run as a user, it starts apt through sudo, and sudo (use_pty, the Ubuntu default)
 # puts the command in a session of its own that no signal to our group reaches: on CI 45180359317 a timed-out
 # apt-get survived the old `timeout` holding /var/lib/dpkg/lock-frontend, and the second try failed on the lock.
-# Before each mirror try, and before dpkg, the dpkg and apt locks must be free: wait_locks waits, then stops a holder
-# that no group kill reached (a process in a session of its own, as sudo starts one, the case of CI 45181201761), and
-# apt itself waits at most LOCK_WAIT s for a lock (DPkg::Lock::Timeout) rather than failing at once or forever.
+# Before dpkg, before each mirror try and before each `dpkg --configure -a`, the dpkg and apt locks must be free:
+# wait_locks waits LOCK_WAIT (20) s, then KILLS any process still holding one (TERM, then KILL) - a holder that no
+# group kill reached, in a session of its own as sudo starts one (CI 45181201761) - and waits again; still held, the
+# step fails naming the holders. Killing a lock holder is acceptable only because the runner is ephemeral (nothing
+# else on it uses apt, and it is discarded after the job) AND because the kill is followed at once by a bounded
+# `dpkg --configure -a`: a dpkg or apt killed mid-run leaves dpkg "interrupted", and apt refuses to install until
+# that repair has run. dpkg itself does not honour DPkg::Lock::Timeout, which is why the repair waits for the locks
+# too; apt is told to wait at most LOCK_WAIT s for a lock rather than failing at once or waiting forever.
 #
-# Worst case by design, every limit reached (each bounded command can add KILL_AFTER):
-# 300+10 (chromium) + 2 x (60+10) (check before and after the cache) + 50 (locks: 20 wait, 10 stop, 20 wait)
-# + 60+10 (dpkg) + 30+10 (apt-get -f) + 2 tries x (50 locks + 60+10 update + 300+10 install-deps + 60+10 check
-# + 30+10 dpkg --configure + PAUSE 10) = 1710 s, 28.5 minutes: under the step's 30-minute limit and the job's 40.
+# Worst case by design, every limit reached (each bounded command can add KILL_AFTER; a lock scan is a few `find`s
+# over /proc, well under a second, and the waits are deadlines, so a scan adds at most its own length to a wait):
+#   wait_locks at most 20 + 10 + 20 + (30+10 repair) = 90 s, called at most 5 times (cache, and per try before the
+#   try and before its repair) = 450
+#   + 300+10 (chromium) + 2 x (60+10) (check before and after the cache) + 60+10 (dpkg -i) + 30+10 (apt-get -f)
+#   + 2 tries x (60+10 update + 300+10 install-deps + 60+10 check + 30+10 dpkg --configure + PAUSE 10) = 1560
+#   = 2010 s, 33.5 minutes: under the step's 35-minute limit and the job's 45.
 set -u
 DEBS_DIR="${DEBS_DIR:-$HOME/playwright-debs}"
 APT_CONF="${APT_CONF:-/etc/apt/apt.conf.d/99ci-apt}"
@@ -63,12 +71,12 @@ bounded() {
 
 # the processes holding any of $LOCKS open, as "pid (command)"
 lock_holders() {
-  local fd target lock pid
-  for fd in /proc/[0-9]*/fd/*; do
-    target=$(readlink "$fd" 2>/dev/null) || continue
-    for lock in $LOCKS; do
-      if [ "$target" = "$lock" ]; then pid=${fd#/proc/}; pid=${pid%%/*}; echo "$pid ($(tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null | cut -c1-60))"; fi
-    done
+  local lock fd pid
+  for lock in $LOCKS; do
+    find /proc/[0-9]*/fd -lname "$lock" 2>/dev/null
+  done | while read -r fd; do
+    pid=${fd#/proc/}; pid=${pid%%/*}
+    echo "$pid ($(tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null | cut -c1-60))"
   done | sort -u
 }
 # The dpkg/apt locks must be free before dpkg or apt runs. Wait for them (LOCK_WAIT s); a holder still there is one
@@ -79,7 +87,12 @@ wait_locks() {
   for round in wait stop; do
     deadline=$(( $(now_ms) + LOCK_WAIT * 1000 ))
     while :; do
-      h=$(lock_holders); [ -z "$h" ] && return 0
+      h=$(lock_holders)
+      if [ -z "$h" ]; then
+        # after a kill, the repair a killed dpkg or apt needs, before anything else uses dpkg
+        if [ "$round" = stop ]; then echo "OS packages: repairing after the stopped holders: dpkg --configure -a"; bounded "$T_CONFIGURE" dpkg --configure -a || true; fi
+        return 0
+      fi
       [ "$(now_ms)" -ge "$deadline" ] && break
       sleep 0.2
     done
@@ -138,7 +151,9 @@ for try in 1 2; do
     echo "OS packages: installed from the mirror; $kept .deb files kept for the cache"
     exit 0
   fi
-  echo "OS packages: try $try failed or timed out"; bounded "$T_CONFIGURE" dpkg --configure -a || true; sleep "$PAUSE"
+  echo "OS packages: try $try failed or timed out"
+  wait_locks   # dpkg ignores DPkg::Lock::Timeout: run against a held lock, the repair would fail and try 2 with it
+  bounded "$T_CONFIGURE" dpkg --configure -a || true; sleep "$PAUSE"
 done
 echo "OS packages: could not be installed in 2 tries (see above); the browser check did not run"
 exit 1
