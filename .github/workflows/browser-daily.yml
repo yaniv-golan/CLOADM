@@ -72,12 +72,15 @@ jobs:
           if npx playwright install-deps --dry-run chromium; then
             echo "OS packages: all present, nothing to install"; exit 0
           fi
-          # From the cache: the same packages, from disk. Anything still missing afterwards falls through to apt.
+          # From the cache: the same packages, from disk, with dpkg (apt-get install of the .deb files fetched the
+          # same versions from the mirror again, measured on run 45159586764). Anything still missing, or a dpkg
+          # that fails, falls through to apt, which first repairs whatever dpkg left half-installed.
           if ls ~/playwright-debs/*.deb >/dev/null 2>&1 \
-            && sudo apt-get install -y --no-install-recommends ~/playwright-debs/*.deb \
+            && sudo dpkg -i ~/playwright-debs/*.deb \
             && npx playwright install-deps --dry-run chromium; then
             echo "OS packages: installed from the cache"; exit 0
           fi
+          sudo apt-get install -f -y || true
           # From the mirror, keeping the downloaded .deb files for the cache. apt on a fresh runner sometimes cannot
           # find a package (a mirror mid-update): refresh and try again.
           echo 'APT::Keep-Downloaded-Packages "true"; Binary::apt::APT::Keep-Downloaded-Packages "true";' \
