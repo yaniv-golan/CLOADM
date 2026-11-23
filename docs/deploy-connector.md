@@ -121,7 +121,9 @@ In the Claude app on an iPhone or Android phone, with the same connector:
    is beside the switch in every mode; **⋯ → Hide on-screen keys** hides them. Close the view and open it again: LIZA
    comes back in the mode you last chose for it.
 4. In the next message ask Claude to read the screen. If the call fails, open **Details**: `calls ×0` means the app
-   never passed the call to the view (the app's side: say whether it asked you to approve it); `last call screen_text
+   never passed the call to the view (the app's side: say whether it asked you to approve it; on iOS, a call that is not
+   read-only is blocked without a prompt unless the connector's Permission is **Manually approve**, which Details also
+   says); `last call screen_text
    error <code>` means the view answered it with that error, which names the cause.
 
 ## Roll back or remove
