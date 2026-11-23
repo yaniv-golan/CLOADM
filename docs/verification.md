@@ -909,6 +909,17 @@ browser check's group `uiModel` drives them with real events at 1280x720 and at 
   its action, ↓ from the last machine to both footer items, Esc, and each footer item's focus.
 * R19 A+: the ROMs chip's card with and without ROMs (the count and the machines worked out from `session.roms`),
   the drop's **Open Your ROMs**, and the card's link. `tests/stored-roms.test.js` checks `Session.storedRoms`.
+* ROM tiles: an empty Library shows the ROMs chip and the "No ROMs yet" card; under the ROMs chip (none under All) a
+  tile per stored image with its name, size, "Used by" (a shared image names every machine) and a Remove button of at
+  least 44 px (one column on the phone); Remove takes the tile away, the toast reads "Removed d64_1.rom." with Undo and
+  the second line about the running Dragon 64, both machines' sockets are empty and the machine still runs it; the
+  toast stays past its 8 s while focused; Undo brings the tile and both sockets back byte for byte; Your ROMs reads
+  "Removed · still in the running machine"; the toast's Switch off and on leaves the machine without ROMs; a ROM the
+  machine doesn't use gets no second line; after a reload the removed ROMs are gone. `tests/rom-remove.test.js`
+  checks it in Node with NOP stand-in ROMs: each image once in `romFiles` with its users, removal from every socket
+  written to the store (a library loaded again from it lacks the image), Undo byte for byte, a running machine's
+  registers, cycles and screen identical to a twin's for 30 frames after the removal, still running it after a
+  reset, without ROMs after a switch off and on, and a disk cartridge's ROM taken out at the switch off and on.
 * R27: every text node and title, label and placeholder of the page (emulator, machine menu, Your ROMs, Share,
   Library) holds no "stub" and no "Machine tab", and "disk ROM" is the one term; the ROMs row's states, the .dgn
   warning and the snapshot sentence word for word.

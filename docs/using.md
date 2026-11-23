@@ -202,9 +202,15 @@ every tape, disk, cartridge and program you load (disk images under `disks/` in 
 clicking one mounts it; one in a drive can't be renamed or deleted until it is ejected), so next time it's one click:
 click a spine or a tile, or drag it onto the machine's screen in the type-in card. A library kept in a folder on macOS
 or Windows treats `GAME.DSK` and `game.dsk` as one file, so CLOADM does too: the two cannot be in two drives at once,
-and a name that differs from a stored one only in case is the same name to every guard here. Its **ROMs** chip shows
-one card instead of tiles: how many ROMs are stored and which machines use them, with a link to **Your ROMs**, where
-they are added and removed (a ROM dropped on the Library goes there too, and its message offers **Open Your ROMs**).
+and a name that differs from a stored one only in case is the same name to every guard here. Its **ROMs** chip is there
+even in an empty Library, whose ROMs card says so when none are stored. Under the chip (never under **All**) the card
+says how many ROMs are stored and which machines use them, with a link to **Your ROMs**, where they are added (a ROM
+dropped on the Library goes there too, and its message offers **Open Your ROMs**); below it each stored ROM image has
+a tile with its file name, its size, what uses it ("Used by Dragon 64, Tano Dragon 64", or a disk cartridge) and
+**Remove**. Remove takes it out of every socket at once, so a reload can't bring it back, and its message ("Removed
+d64_1.rom.") offers **Undo** for 8 s, which puts it back in every socket it was in. A machine running that ROM is not
+reset: it keeps it until you switch it off and on (the message's second line offers that), and its socket in **Your
+ROMs** reads "Removed · still in the running machine".
 Its magazine rack links the
 archives below. **Select** (beside "Add files…") turns clicks into a selection: load or rename one item (the name is
 edited on the item: Enter saves, Esc cancels), download several, or delete them. Delete asks nothing; the items

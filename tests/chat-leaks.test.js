@@ -579,6 +579,8 @@ const REQUIRED = require.main !== module;
     'readSlot', 'readSnapshot', 'readSnapshotLink', 'recentMedia', 'sameName', 'savedConfig', 'screenText',
     'shareFile', 'shareUrl', 'slotBytes', 'snapshotLink', 'snapshotRoms', 'snapshotSwitch', 'sscRoms', 'statusLine',
     'takenOut', 'tapeStatus', 'welcomeFile', 'welcomeRunning', 'drives.preferredDos', 'storedRoms',
+    // romFiles lists the stored ROM images; romsStillRunning reads which removed ones the PERSON's machine still runs
+    'romFiles', 'romsStillRunning',
     // (main 1dd66fa: all four are reads/pure. indexWriteError formats a stored-write error; tapeRunning reads the
     // PERSON's deck motor flag; screenAlternative describes the SHOWN screen's text; welcomeGenNow reads the ticket)
     'indexWriteError', 'tapeRunning', 'screenAlternative', 'welcomeGenNow',
@@ -592,7 +594,8 @@ const REQUIRED = require.main !== module;
     // bareDiskController and diskRomWaiting read the disk controller of the PERSON's machine (diskMachine); no change
     'drives.bareController', 'drives.romWaiting']);
   // writes the library or settings only
-  const LIBRARY = new Set(['addRoms', 'clearRoms', 'deleteMedia', 'importDriveWireImage', 'importMedia',
+  // (removeRom and restoreRom act on the PERSON's machine, as addRoms does: never the chat machine)
+  const LIBRARY = new Set(['addRoms', 'clearRoms', 'removeRom', 'restoreRom', 'deleteMedia', 'importDriveWireImage', 'importMedia',
     'importSettings', 'listMedia', 'moveMedia', 'newDriveWireImage', 'renameMedia', 'exportRomPack', 'exportSettings',
     'setClaudeKey', 'clearClaudeKey', 'setLastRun', 'useMediaStore']);
   // Session state that belongs to no machine

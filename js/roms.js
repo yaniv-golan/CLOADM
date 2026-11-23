@@ -189,6 +189,18 @@ export class RomLibrary {
     this.index.clearMachine(machine);
     this.collect();
   }
+  // the owners (machines and cartridges, in profile order) whose sockets hold this image
+  usedBy(crc) { return [...new Set(this.sockets().filter((s) => s.crc === crc).map((s) => s.owner))]; }
+  // take one image out of every socket that holds it -> { crc, name, bytes, sockets: [{ owner, socket }] }, all that
+  // restore() needs to put it back (null when no socket holds it)
+  remove(crc) {
+    const bytes = this.index.image(crc);
+    if (!bytes) return null;
+    const name = this.index.fileName(crc);
+    const sockets = this.index.removeImage(crc).map((s) => ({ owner: s.machine, socket: s.socket }));
+    return { crc, name, bytes, sockets };
+  }
+  restore(removed) { for (const s of removed.sockets) this.put(s.owner, s.socket, removed.bytes, removed.name); }
   // every stored socket: [{ owner, socket, crc }]
   sockets() {
     const out = [];

@@ -15333,11 +15333,96 @@ async function uiModelChecks(browser, base, check) {
     p2.on('pageerror', (e) => errors.push(`${label}: ${e.message}`));
     await p2.goto(`${base}?machine=dragon64#library`); await started(p2);
     await waitFor(p2, () => !document.getElementById('library').hidden && !document.getElementById('libEmpty').hidden);
-    const before = await p2.evaluate(() => document.getElementById('libFilters').hidden);
+    // an empty Library: the filters with the ROMs chip, and the ROMs card under the empty state
+    const before = await p2.evaluate(() => { const b = document.querySelector('[data-kind-filter="roms"]'), c = document.getElementById('libRomsCard');
+      return !!b && b.checkVisibility() && c.checkVisibility() && c.textContent; });
+    check(`ROM tiles (${label}): an empty Library shows the ROMs chip and the card "No ROMs yet. CLOADM never includes ROMs; add your own dumps in Your ROMs →"`,
+      before === 'No ROMs yet. CLOADM never includes ROMs; add your own dumps in Your ROMs →', JSON.stringify(before));
+    if (shotDir) await p2.screenshot({ path: path.join(shotDir, `rom-tiles-empty-library-${label}.png`) });
     await dropFiles(p2, [['d64_1.rom', fake(16384, 62)]], null, 'library');
-    check(`R19 A+ (${label}): a ROM dropped on an empty Library: the filters (with ROMs) appear`, before
-      && await waitFor(p2, () => { const b = document.querySelector('[data-kind-filter="roms"]'); return !document.getElementById('libFilters').hidden && !!b && b.checkVisibility(); }));
+    check(`R19 A+ (${label}): a ROM dropped on an empty Library: the card counts it`,
+      await waitFor(p2, () => /^Your ROMs: 1 stored, used by .*Dragon 64.*\. Manage them in Your ROMs →$/.test(document.getElementById('libRomsCard').textContent) && document.getElementById('libRomsCard').checkVisibility()));
     await ctx2.close();
+  }
+  // ---- ROM tiles: under the ROMs chip a tile per stored image (name, size, used by, Remove); Remove at once with
+  // Undo; a ROM the running machine uses stays in it until a switch off and on ----
+  for (const [label, opts] of SIZES) {
+    const ctx = await browser.newContext(Object.assign({ serviceWorkers: 'block' }, opts));
+    const page = await ctx.newPage();
+    page.on('pageerror', (e) => errors.push(`${label}: ${e.message}`));
+    await page.goto(`${base}?machine=dragon64`); await started(page);
+    const d64 = fake(16384, 71), d32 = fake(16384, 72);
+    await page.evaluate(() => window.emu.session.library.importMedia('GAME.CAS', new Uint8Array(300).fill(0x55)));
+    // (synthetic images, matched by their usual file names: d64_1.rom goes into the Dragon 64 and the Tano Dragon 64)
+    await dropFiles(page, [['d64_1.rom', d64], ['d32.rom', d32]]);
+    await waitFor(page, () => window.emu.session.storedRoms().count === 2);
+    const crcOf = () => page.evaluate(() => { const r = window.emu.session.roms.get('dragon64').basic, t = window.emu.session.roms.get('tanodr64').basic;
+      return [r ? Array.from(r).join() : null, t ? Array.from(t).join() : null]; });
+    const original = await crcOf();
+    await page.evaluate(() => { location.hash = '#library'; });
+    await waitFor(page, () => !document.getElementById('library').hidden && !document.getElementById('libFilled').hidden);
+    const inAll = await page.evaluate(() => document.querySelectorAll('#libRomTiles li').length);
+    await page.click('[data-kind-filter="roms"]');
+    const tiles = () => page.evaluate(() => [...document.querySelectorAll('#libRomTiles li')].filter((t) => t.checkVisibility())
+      .map((t) => [...t.children].map((c) => c.textContent).join('|')));
+    const got = await tiles();
+    check(`ROM tiles (${label}): none under All; under ROMs a tile per image: name, size, "Used by" (both machines for a shared one) and Remove`,
+      inAll === 0 && JSON.stringify(got) === JSON.stringify(['d32.rom|16 KB|Used by Dragon 32|Remove', 'd64_1.rom|16 KB|Used by Dragon 64, Tano Dragon 64, Dragon 64 Plus|Remove']), JSON.stringify({ inAll, got }));
+    const geo = await page.evaluate(() => [...document.querySelectorAll('#libRomTiles li')].map((t) => { const b = t.querySelector('button').getBoundingClientRect(); return { left: Math.round(t.getBoundingClientRect().left), h: b.height, w: b.width }; }));
+    check(`ROM tiles (${label}): Remove buttons are at least 44 px${label === 'phone' ? '; one column on a phone' : ''}`,
+      geo.every((g) => g.h >= 44 && g.w >= 44) && (label !== 'phone' || new Set(geo.map((g) => g.left)).size === 1), JSON.stringify(geo));
+    check(`ROM tiles (${label}): each Remove names its ROM for a screen reader`,
+      await page.evaluate(() => [...document.querySelectorAll('#libRomTiles button')].map((b) => b.getAttribute('aria-label')).join('|')) === 'Remove d32.rom|Remove d64_1.rom');
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, `rom-tiles-${label}.png`) });
+    // Remove the ROM the running Dragon 64 uses: the tile goes, the toast offers Undo and a switch off and on; it is
+    // gone from both machines' storage, and the machine still runs it
+    await page.click('[data-remove] >> nth=1');
+    const toast = () => page.evaluate(() => ({ text: document.getElementById('toastText').textContent, action: document.getElementById('toastAction').textContent,
+      also: document.getElementById('toastAlso').hidden ? null : document.getElementById('toastAlso').textContent, shown: document.getElementById('toast').checkVisibility() }));
+    const t1 = await waitFor(page, () => /^Removed d64_1\.rom\.$/.test(document.getElementById('toastText').textContent)) && await toast();
+    const after = await tiles(), stored = await crcOf(), runs = await page.evaluate(() => window.emu.machine.hasRom);
+    check(`ROM tiles (${label}): Remove: the tile goes; "Removed d64_1.rom. [Undo]" with "The Dragon 64 keeps it until you switch off and on. [Switch off and on]"; gone from both machines, still in the running one`,
+      t1 && t1.shown && t1.action === 'Undo' && t1.also === 'The Dragon 64 keeps it until you switch off and on.Switch off and on'
+      && JSON.stringify(after) === JSON.stringify(['d32.rom|16 KB|Used by Dragon 32|Remove']) && stored[0] === null && stored[1] === null && runs,
+      JSON.stringify({ t1, after, runs }));
+    check(`ROM tiles (${label}): the focus moves to the remaining tile's Remove`, await page.evaluate(() => document.activeElement && document.activeElement.dataset.remove !== undefined));
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, `rom-tiles-removed-${label}.png`) });
+    // the toast stays while it has the focus (more than its 8 s)
+    await page.focus('#toastAction');
+    await page.waitForTimeout(9000);
+    check(`ROM tiles (${label}): the toast stays while focused`, (await toast()).shown);
+    await page.click('#toastAction');
+    check(`ROM tiles (${label}): Undo puts the tile and both sockets back, byte-identical`,
+      await waitFor(page, () => document.querySelectorAll('#libRomTiles li').length === 2) && JSON.stringify(await crcOf()) === JSON.stringify(original), JSON.stringify(await tiles()));
+    // removed again, then Your ROMs: the socket row says the running machine still has it
+    await page.click('[data-remove] >> nth=1');
+    await waitFor(page, () => document.querySelectorAll('#libRomTiles li').length === 1);
+    await page.evaluate(() => { location.hash = '#add-roms'; });
+    const row = await waitFor(page, () => /^Removed · still in the running machine$/.test((document.querySelector('#romSockets [data-socket="basic"] .state') || {}).textContent))
+      && await page.evaluate(() => document.querySelector('#romSockets [data-socket="basic"]').dataset.left);
+    check(`ROM tiles (${label}): Your ROMs reads "Removed · still in the running machine" on the socket`, row === 'running',
+      await page.evaluate(() => (document.querySelector('#romSockets [data-socket="basic"] .state') || {}).textContent));
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, `rom-tiles-your-roms-${label}.png`) });
+    // put back through a drop, the running machine starts with it; removed once more, the toast's Switch off and on
+    // leaves the machine in its no-ROM state
+    await page.evaluate(() => { location.hash = '#library'; });
+    await dropFiles(page, [['d64_1.rom', d64]], null, 'library');
+    await waitFor(page, () => document.querySelectorAll('#libRomTiles li').length === 2);
+    await page.click('[data-remove] >> nth=1');
+    await waitFor(page, () => !document.getElementById('toastAlso').hidden);
+    await page.click('#toastAlso button');
+    check(`ROM tiles (${label}): the toast's Switch off and on: the machine runs without ROMs`,
+      await waitFor(page, () => !window.emu.machine.hasRom && !window.emu.session.romsStillRunning().size));
+    // a ROM the running machine does not use: no second line
+    await page.click('[data-remove] >> nth=0');
+    const t2 = await waitFor(page, () => /^Removed d32\.rom\.$/.test(document.getElementById('toastText').textContent)) && await toast();
+    check(`ROM tiles (${label}): a ROM the running machine doesn't use: no second line`, t2 && t2.also === null && t2.action === 'Undo', JSON.stringify(t2));
+    // a reload: removed is removed (once the store has the write: it is queued at the click)
+    await page.evaluate(() => window.emu.session.index.flush());
+    await page.reload(); await started(page);
+    check(`ROM tiles (${label}): after a reload the removed ROMs are gone`, await waitFor(page, () => window.emu.session.romFiles().length === 0),
+      JSON.stringify(await page.evaluate(() => window.emu.session.romFiles().map((f) => f.name))));
+    await ctx.close();
   }
 
   // ---- R27: the copy: no "stub" on the page, one term ("disk ROM"), the .dgn warning said once, the snapshot sentence ----
