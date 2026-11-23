@@ -468,6 +468,10 @@ account or organization has yet.
 3. In your **next** message, ask for what you want ("type I AM HAPPY and tell me what LIZA says", "play 2048",
    "write a 6809 program that fills the screen and run it"). The view registers its tools after it has loaded, so
    Claude can use them from the next turn, not in the one that opened it. Claude asks you to approve each call.
+   **On the Claude iOS app**, set the CLOADM connector's **Permission** to **Manually approve** so Claude can type into
+   and run the machine: with the default setting the app blocks every tool that is not read-only without showing a
+   prompt (Claude reports that the call needed your approval and none came). Read-only tools work either way. The
+   view never sees a call the app blocked, so it cannot warn you itself; the same note is under **Details**.
 
 **The tools in the panel** are the ones in [The tools](#the-tools), with the same names, arguments and results
 (`machine_output` with its `untrusted` note included), run by the view on the machine on screen:

@@ -121,7 +121,7 @@ button:focus-visible,summary:focus-visible{outline:2px solid var(--focus);outlin
 #status{margin:0;flex:1 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #status.error{white-space:normal;color:#FFB4A8}
 #details{color:var(--dim);flex:none}#details summary{cursor:pointer;font-size:12px;border-radius:4px;width:max-content;margin-left:auto}
-#details[open]{flex-basis:100%}
+#details[open]{flex-basis:100%}#details .approve{margin:4px 0 0}
 #st,#msg{padding:2px 0;font:11px ui-monospace,monospace;color:var(--dim);word-break:break-word}
 #keys{padding:2px 6px 6px;display:flex;flex-direction:column;gap:4px;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent}
 #keys[hidden],#keys [hidden]{display:none!important}
@@ -159,7 +159,7 @@ function shell(cfg, module) {
 <div id="chip" aria-hidden="true" hidden><span id="chip-text"></span><span id="chip-keys"></span><span class="cursor"></span><span id="chip-left"></span></div></div></div>
 <div id="keys" aria-label="On-screen keys" hidden></div>
 <div id="foot"><p id="status">Starting CLOADM…</p>
-<details id="details"><summary>Details</summary><div id="msg"></div><div id="st">loading (${cfg.variant})…</div></details></div>
+<details id="details"><summary>Details</summary><div id="msg"></div><div id="st">loading (${cfg.variant})…</div><p class="approve">On the Claude iOS app, set the CLOADM connector's Permission to "Manually approve" so Claude can type into and run the machine; read-only tools work either way.</p></details></div>
 <div id="announce" class="sr" aria-live="polite"></div>
 <script>globalThis.CLOADM_VIEW = ${scriptJson(cfg)};</script>
 <script>

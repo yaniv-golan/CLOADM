@@ -166,6 +166,13 @@ const J = JSON.stringify;
   const none = await build.checkSite(site('// not the panel'));
   check('build: the site check passes only when cloadm.dev serves the same PANEL_API (a release not yet on the site is refused)', same.ok && !otherApi.ok && /serves PANEL_API/.test(otherApi.why)
     && !missing.ok && /404/.test(missing.why) && !none.ok, J([otherApi, missing, none]));
+  // the iOS app blocks a call that is not read-only, with no prompt, unless the connector is set to "Manually approve";
+  // a blocked call never reaches the view (no tools/call; tool-input/tool-result are open_emulator's), so Details says it
+  for (const [n, h] of [['A', views.site], ['B', views.inline]]) {
+    const det = (/<details id="details">([\s\S]*?)<\/details>/.exec(h) || [])[1] || '';
+    check(`${n}: Details says that on the Claude iOS app the connector's Permission must be "Manually approve" for Claude to type and run; read-only tools work either way`,
+      /<p class="approve">On the Claude iOS app, set the CLOADM connector's Permission to "Manually approve" so Claude can type into and run the machine; read-only tools work either way\.<\/p>/.test(det), det.slice(0, 300));
+  }
   check('B is about 1 MiB (claude.ai has accepted a 909 KiB view)', views.inline.length < 1.25 * 1024 * 1024, `${views.inline.length}`);
 
   // ---------------- the folded core ----------------
