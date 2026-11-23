@@ -1,6 +1,7 @@
 /*
  * Opening snapshots: a .cloadm file dropped on the screen or picked with Insert…, or the
- * snapshot a share link carries (#s=, js/ui/share.js writes such links). If it needs ROMs this browser doesn't
+ * snapshot a long link carries (#z=, or #s= from earlier versions; js/ui/share.js writes them) or a short link's moment
+ * (#l=<id>.<key>, fetched from s.cloadm.dev and opened with its key here). If it needs ROMs this browser doesn't
  * have, a card ("This moment needs Dragon 64 BASIC") offers Add ROMs
  * (and the moment opens as soon as they are added) or a look around that machine without them; if it is of
  * another model or config, the usual switch confirmation asks first.
@@ -70,5 +71,17 @@ export function setupSnapshotPanel(page, { confirmSwitch, openRoms }) {
     return true;
   }
 
-  return { take, open, takeLink };
+  // a short link's moment (#l=<id>.<key>): fetched from the store and opened with the key, which never leaves the page;
+  // the fragment is removed either way
+  async function takeShortLink(hash, store) {
+    let got;
+    try { got = await session.readShortLink(hash, store); }
+    catch (e) { if (!(e instanceof SessionError)) throw e; page.status(e.message, true); history.replaceState(null, '', location.pathname + location.search); return true; }
+    if (!got) return false;
+    history.replaceState(null, '', location.pathname + location.search);
+    open(got.snap);
+    return true;
+  }
+
+  return { take, open, takeLink, takeShortLink };
 }

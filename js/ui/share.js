@@ -3,9 +3,16 @@
  * snapshot and the picture at that instant) and opens it. Its one job: send this exact moment to someone.
  *
  * Top: the picture as a link preview, one line saying what the link does, a ROM line (what the person opening it must add,
- * or that it runs without ROMs: the snapshot holds no byte of a ROM or cartridge, Session.shareFile names them), the link
- * (Session.longLink: the snapshot rides in the URL's fragment, which never reaches a server; js/ui/snapshot-panel.js
- * opens it), Share... (navigator.share, the URL only, where canShare allows it) and Copy link.
+ * or that it runs without ROMs: the snapshot holds no byte of a ROM or cartridge, Session.shareFile names them), then
+ * the two links:
+ *  - the short link (Session.shortLink): made only when asked ("Make a short link"), the moment sealed in this browser
+ *    and stored on s.cloadm.dev (js/host/link-store.js), its key only in the link's fragment; with its QR code
+ *    (js/media/qr.js), the "Show a preview picture" switch (on by default; the picture is public) and "Delete this link"
+ *    (its delete token kept in this browser, localStorage cloadm.shortLinks). Where it can't be made (offline, a moment
+ *    on ROMs, a cartridge, NitrOS-9: Session.shortLinkRefusal) the button is switched off and the reason is beside it.
+ *  - the long link, "Exact moment · works offline, never expires" (Session.longLink: the snapshot rides in the URL's
+ *    fragment, which never reaches a server; js/ui/snapshot-panel.js opens it), with Share... (navigator.share, the URL
+ *    only, where canShare allows it) and Copy link.
  * "More ways to share" (collapsed): a 6-second clip of the screen (MediaRecorder: MP4 where the browser records it, WebM
  * otherwise, and the button says which), the screenshot at true pixels, the snapshot file.
  * "Embed in a web page" (collapsed): the iframe and script for a blog post, written by js/config.js (buildUrl) from the
@@ -16,6 +23,7 @@ import { profiles } from '../machines/profiles.js';
 import { buildUrl } from '../config.js';
 import { needsLine } from '../media/romrefs.js';
 import { CanvasPresenter } from '../video/canvas.js';
+import { qrEncode } from '../media/qr.js';
 import { $, showView } from './page.js';
 
 const time = (d) => d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -29,7 +37,12 @@ const clipType = () => {
   return null;
 };
 
-export function setupShare(page) {
+// the delete tokens of the short links made in this browser: { id: token }
+const TOKENS = 'cloadm.shortLinks';
+const tokens = () => { try { return JSON.parse(localStorage.getItem(TOKENS) || '{}') || {}; } catch (e) { return {}; } };
+const keepToken = (id, token) => { try { const t = tokens(); if (token) t[id] = token; else delete t[id]; localStorage.setItem(TOKENS, JSON.stringify(t)); } catch (e) { /* no storage: no Delete later */ } };
+
+export function setupShare(page, { linkStore }) {
   const { session } = page;
   const view = $('share');
   let started = false;   // the visit has started (ready()): until then there is no machine to capture
@@ -84,7 +97,10 @@ export function setupShare(page) {
     $('shareTitle').textContent = `${name} · CLOADM`;
     $('shareWhen').textContent = `captured ${time(new Date())}`;
     $('shareLink').value = link;
-    syncPrimary();
+    $('longWhy').textContent = session.longLinkRefusal(m) || '';
+    short = null; refused = null;
+    $('shortMade').hidden = true; $('shareShort').value = ''; $('sharePreview').disabled = false;
+    syncShort();
     // one line under the picture, what the link does; then, only as needed, what the person opening it needs
     const rom = $('shareRom'), extra = $('shareExtra');
     rom.textContent = ''; rom.classList.remove('warn'); extra.textContent = '';
@@ -102,20 +118,83 @@ export function setupShare(page) {
     if (file.dropped.includes('deck.recording')) note('The tape being recorded is not in the link: it opens with the recorder stopped.');
     syncEmbed(m.id);
   }
+  // ---------------- the short link ----------------
+  let short = null;   // { url, id, deleteToken } once made for this capture
+  let refused = null;  // what the server or the Session said the last time a short link couldn't be made
+  // why the short link can't be made now, or null
+  const shortWhy = () => {
+    if (!captured || !captured.file) return session.shortLinkRefusal() || 'Not for this moment.';
+    if (!navigator.onLine) return 'You are offline: a short link needs the internet. The long link below works offline.';
+    return session.shortLinkRefusal();
+  };
+  function syncShort() {
+    const why = short ? null : shortWhy();
+    $('btnShortMake').disabled = !!why;
+    $('btnShortMake').hidden = !!short;
+    $('shortWhy').textContent = why || refused || '';
+    syncPrimary();
+  }
+  function drawQr(url) {
+    const q = qrEncode(url, { ecl: 'M' }), quiet = 4, scale = 4, n = q.size + quiet * 2, c = $('shareQr');
+    c.width = n * scale; c.height = n * scale;
+    const g = c.getContext('2d');
+    g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.fillStyle = '#000';
+    for (let r = 0; r < q.size; r++) for (let k = 0; k < q.size; k++) if (q.modules[r * q.size + k]) g.fillRect((k + quiet) * scale, (r + quiet) * scale, scale, scale);
+    c.dataset.text = url;
+  }
+  $('btnShortMake').onclick = async () => {
+    const btn = $('btnShortMake');
+    btn.disabled = true; btn.textContent = 'Making the short link…';
+    try {
+      short = await session.shortLink(linkStore, { preview: $('sharePreview').checked, file: captured.file });
+      keepToken(short.id, short.deleteToken);
+      $('shareShort').value = short.url;
+      drawQr(short.url);
+      $('shortPicNote').textContent = short.picture ? 'With its preview picture.' : (short.pictureNote || 'Without a preview picture.');
+      $('sharePreview').disabled = true;
+      $('shortMade').hidden = false;
+      refused = null;
+    } catch (e) { refused = e.message; }
+    btn.textContent = 'Make a short link';
+    syncShort();
+    if (short) $('btnShortCopy').focus();
+  };
+  $('btnShortCopy').onclick = async () => {
+    try { await navigator.clipboard.writeText($('shareShort').value); page.toast('Short link copied'); }
+    catch (e) { $('shareShort').select(); page.toast('Press Ctrl+C to copy the link'); }
+  };
+  $('btnShortDelete').onclick = async () => {
+    if (!short) return;
+    const token = tokens()[short.id] || short.deleteToken;
+    try { await linkStore.remove(short.id, token); }
+    catch (e) { page.status(e.message, true); return; }
+    keepToken(short.id, null);
+    short = null;
+    $('shortMade').hidden = true; $('shareShort').value = ''; $('sharePreview').disabled = false;
+    syncShort();
+    page.toast('Short link deleted', { details: 'Copies already cached on the way may still open for up to a day.' });
+  };
+  window.addEventListener('online', syncShort);
+  window.addEventListener('offline', syncShort);
+
   // Share… (the system sheet, the URL only) where the browser can share it; in an embed only if the frame allows web-share
+  // (the short link once it is made, else the long link)
+  const sharedUrl = () => $('shareShort').value || $('shareLink').value;
   const canNative = () => {
-    const url = $('shareLink').value;
+    const url = sharedUrl();
     if (typeof navigator.share !== 'function' || !navigator.canShare?.({ url })) return false;
     return !document.body.classList.contains('embed') || document.featurePolicy?.allowsFeature?.('web-share') === true;
   };
+  // one primary button: Make a short link where it can be made (the default) or its Copy once made, else Share… or Copy link
   const syncPrimary = () => {
-    const native = canNative();
+    // (the short link once made: its Copy is the primary)
+    const native = canNative(), shortFirst = !!short || !$('btnShortMake').disabled;
     $('btnShareNative').hidden = !native;
-    $('btnShareNative').classList.toggle('primary', native);
-    $('btnShareCopy').classList.toggle('primary', !native);
+    $('btnShareNative').classList.toggle('primary', native && !shortFirst);
+    $('btnShareCopy').classList.toggle('primary', !native && !shortFirst);
   };
   $('btnShareNative').onclick = async () => {
-    try { await navigator.share({ url: $('shareLink').value }); }
+    try { await navigator.share({ url: sharedUrl() }); }
     catch (e) { if (e && e.name === 'AbortError') return; page.toast('Could not open the share sheet: copy the link instead'); }
   };
   $('btnShareCopy').onclick = async () => {

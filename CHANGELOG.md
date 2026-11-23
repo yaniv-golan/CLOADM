@@ -14,6 +14,15 @@ Next version: 0.1.9-pre (the plugin and extension manifests carry it; `tests/plu
   byte, then deflate-raw of the snapshot as a JSON skeleton plus its raw byte arrays, without the rendered picture
   (drawn again on the first frame after opening). LIZA's link goes from about 8,400 to 4,900 characters, 2048's from
   11,900 to 7,900. Links with `#s=` from earlier versions still open; `.cloadm` files are unchanged.
+- **Short links.** The Share screen's first choice, **Make a short link**, gives `https://s.cloadm.dev/<id>#<key>`
+  (about 50 characters) with a QR code. The moment is sealed with AES-GCM in the browser and only the sealed bytes are
+  stored; the key is the part after `#`, which never reaches the server. "Show a preview picture" (on; the picture is
+  public) adds a 1200x630 card. "Delete this link" removes it. Only for moments without ROMs, cartridges or NitrOS-9,
+  and only online; otherwise the button is switched off with the reason beside it. The long link is labelled "Exact
+  moment · works offline, never expires". The server is a Cloudflare Worker in `shortlink/` (not deployed from here:
+  `docs/shortlink-deploy.md`): links don't expire; size caps, per-address, per-minute and daily limits, a kill switch,
+  removal by id, "Report this link", and totals only at `s.cloadm.dev/stats/` (no addresses kept; the only pings are
+  the arrival page's open count, which carries no id, and a program page's start count where its entry asks for one).
 - **Program pages.** cloadm.dev/2048/, /liza/ and /minesweeper/ each have their own link preview (title, description
   and a 1200x630 picture of the program on the built-in firmware, made by `tools/program-cards.js`), a Play button, and
   go straight to the start link `/play/?start=<program>`. They work offline like the rest of the site. One entry in

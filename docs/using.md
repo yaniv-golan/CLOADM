@@ -115,7 +115,7 @@ The [README](../README.md#what-works) has the short version of this table.
 | **Games** | 2048 and Minesweeper, written for CLOADM, on every 6809 model with 32K or more, with or without ROMs ([details](#games)) | |
 | **Input** | Keyboard in two modes (translated: the character typed; positional: the physical key), keyboard joystick, gamepads (two joysticks, dead zone), the Tandy and CoCo Max 3 Hi-Res interfaces, the CoCo 3 "The Rat" mouse, the CoCo Max Hi-Res module, mouse as the right joystick; an on-screen keyboard on phones and tablets (split for the thumbs when held sideways) and a touch joystick with FIRE, a tappable welcome menu | |
 | **Tools** | Assembler, Debugger, snapshots, POKE book; a command line, MCP server and Node API for CI and agents ([Automation](automation.md), [MCP](mcp.md)) | Step back (rewind) |
-| **Links, embedding, offline** | Every setting as a URL parameter (machine, RAM, CPU, a program, tape, cartridge or disk to load, display, input); the Share screen: Share… or Copy link for a link that opens this machine exactly as it is, and under "More ways to share" a 6-second clip, a true-pixel screenshot and the snapshot file, plus the embed code for a blog post; embed mode with a JavaScript API; works offline once visited; **Install CLOADM…** in the app bar, beside Help (behind **Menu** on a phone), runs the browser's own prompt where there is one and shows the steps elsewhere, with a one-time offer once a program has run a minute; settings export and import (never ROMs) | A touch keyboard in embeds |
+| **Links, embedding, offline** | Every setting as a URL parameter (machine, RAM, CPU, a program, tape, cartridge or disk to load, display, input); the Share screen: **Make a short link** (`s.cloadm.dev/<id>#<key>`, about 50 characters, sealed in your browser, with a QR code and an optional public preview picture; online and without ROMs) and the long link, "Exact moment · works offline, never expires", with Share… or Copy link, both opening this machine exactly as it is, and under "More ways to share" a 6-second clip, a true-pixel screenshot and the snapshot file, plus the embed code for a blog post; embed mode with a JavaScript API; works offline once visited; **Install CLOADM…** in the app bar, beside Help (behind **Menu** on a phone), runs the browser's own prompt where there is one and shows the steps elsewhere, with a one-time offer once a program has run a minute; settings export and import (never ROMs) | A touch keyboard in embeds |
 
 ### Games
 
@@ -389,6 +389,18 @@ fragment after `#z=`, which browsers never send to a server: a version byte, the
 its byte arrays raw rather than in base64, and without the rendered picture, which the machine draws again on the first
 frame after it opens; about 2 to 8 KB, LIZA's about 5 KB). Links made by earlier versions, with `#s=` (the snapshot
 file itself in base64url), still open, and saved `.cloadm` files are unchanged. The embed builder writes the iframe and script for the machine, program and options you pick.
+
+**Short links.** "Make a short link" (the Share screen's first choice whenever it can be made) gives
+`https://s.cloadm.dev/<id>#<key>`, about 50 characters, with a QR code of it. Privacy: the moment is sealed in your browser
+with AES-GCM before it is sent, and the key exists only in the part of the link after `#`, which browsers never send to a
+server, so the server stores bytes it cannot read. Links don't expire. A link reported for abuse can be removed ("Report
+this link" on the page the link opens first). Only people with the link can open it; the server can't read it. The
+preview picture ("Show a preview picture", on by default) is public: anyone with the address can see it, even without
+the key, and turning the switch off leaves it out. The server keeps no addresses and nothing about who made or opened a
+link: it counts totals only (links made, opened and removed), shown at s.cloadm.dev/stats/. "Delete this link" removes it
+(the browser that made it keeps its delete token); copies cached on the way may still open for up to a day. A short link
+is offered only for moments without ROMs, cartridges or NitrOS-9, and only online; otherwise the button is switched off
+with the reason beside it, and the long link is there as always.
 
 A shared moment holds no byte of a ROM or a cartridge (`Session.shareFile`, `js/media/romrefs.js`), even when it ran
 on your own ROMs. It names them by CRC: the machine's ROMs, the cartridge's image, a disk controller's disk ROM. Every

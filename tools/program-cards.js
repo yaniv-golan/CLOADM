@@ -14,13 +14,16 @@ const { PROGRAM_PAGES } = require('../js/program-pages.js');
 const NAMES = PROGRAM_PAGES.map((p) => p.id);
 const PROGRAMS = Object.fromEntries(PROGRAM_PAGES.map((p) => [p.id, p]));
 
-// the program running on its card's machine with the built-in firmware, after its keys or lines -> its frame
-function frameOf(Emu, name) {
+// the program running on its card's machine with the built-in firmware, after its keys or lines -> its frame.
+// `session`: the Session to run it in (a fresh one, whose store holds no ROM; tests pass one with a stand-in ROM or a
+// cartridge to see the refusal). Refuses whenever ROM code could be in the machine (Session.romCodeIn), before running.
+function frameOf(Emu, name, session = null) {
   const p = PROGRAMS[name].card;
-  const s = new Emu.Session({ welcomeMenu: false });
-  s.switchMachine(p.machine, {}, { menu: false });
+  const s = session || new Emu.Session({ welcomeMenu: false });
+  if (!session) s.switchMachine(p.machine, {}, { menu: false });
   const m = s.shownMachine;
-  if (Object.keys(m.romCrcs()).length || m.cartPort) throw new Error('ROMs or a cartridge loaded: refusing to make a card');
+  const rom = s.romCodeIn(m);
+  if (rom !== null) throw new Error(`refusing to make a card: ${rom === 'roms' ? 'ROMs are loaded' : rom === 'cartridge' ? 'a cartridge is plugged in' : 'NitrOS-9 runs'}`);
   const bin = (file) => fs.readFileSync(path.join(ROOT, 'examples', file));
   if (name === 'liza') {
     s.runLiza(bin(s.lizaFile));
@@ -33,7 +36,6 @@ function frameOf(Emu, name) {
     for (const k of p.keys) { m.stubKeys.push(KEY[k]); s.runFrames(p.frames); }
   }
   s.runFrames(5);
-  if (s.romCodeIn(m) !== null) throw new Error('ROM code in the machine: refusing to make a card');
   return m.render();
 }
 
@@ -63,7 +65,7 @@ function page(name) {
 <meta property="og:image:alt" content="${esc(p.name)} running in CLOADM: the emulated screen">
 <meta name="twitter:card" content="summary_large_image">
 <meta http-equiv="refresh" content="0; url=${to}">
-<script>location.replace('${to}' + location.hash);</script>
+<script>${p.countStarts ? `fetch('https://s.cloadm.dev/api/started', { method: 'POST', body: '${name}', mode: 'no-cors', keepalive: true }).catch(function () {});\n` : ''}location.replace('${to}' + location.hash);</script>
 </head>
 <body>
 <main>
@@ -86,7 +88,7 @@ async function build() {
   }
   return out;
 }
-module.exports = { PROGRAMS, NAMES, build, page };
+module.exports = { PROGRAMS, NAMES, build, page, frameOf };
 
 if (require.main === module) {
   build().then((files) => {

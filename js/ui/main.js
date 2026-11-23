@@ -48,6 +48,7 @@ import { setupAsk } from './ask.js';
 import { setupCommandBox } from './command-box.js';
 import { MemoryKeyStore, storageKeyStore } from '../host/key-store.js';
 import { setupShare } from './share.js';
+import { ShortLinkStore } from '../host/link-store.js';
 import { setupSlotsPanel } from './slots-panel.js';
 import { setupTapePanel } from './tape-panel.js';
 import { setupNitros9Panel } from './nitros9-panel.js';
@@ -146,7 +147,9 @@ page.touchKeys = setupTouchKeys(page, { input: screen.input });
 setupDisplayPanel(page);
 setupKeyHint(page);
 setupSettingsFile(page);
-const share = setupShare(page);
+// the short links' store: s.cloadm.dev (js/host/link-store.js); the browser check points it at a stand-in server
+const linkStore = new ShortLinkStore();
+const share = setupShare(page, { linkStore });
 const showRoms = () => romSockets.reveal();
 // No Claude chat on a page shown inside someone else's page, whether by the embed flag or by being framed: the chat
 // would put its API key card there. With no controller there is no chat machine, no panel and no key card, and the
@@ -334,6 +337,9 @@ const starting = welcome.start(visit, { fromLink, withMedia: link.roms.length > 
   // a share link's moment (#z=, Share screen; #s= from earlier versions): opened like a dropped snapshot, once the
   // visit has started
   if (/^#[sz]=/.test(location.hash)) await snapshots.takeLink(location.hash);
+  // a short link's moment (#l=<id>.<key>: its arrival page on s.cloadm.dev sends the visitor here): fetched, opened
+  // with its key in this browser, then opened like the rest
+  else if (/^#l=/.test(location.hash)) await snapshots.takeShortLink(location.hash, linkStore);
   // ?nitros9=: NitrOS-9 boots from the user's own DriveWire image (never one in the link)
   if (link.nitros9) await nitros9.fromLink(link.nitros9);
   // ?app=claude: the chat opens once the link's ROMs are in (the BASIC session kept beside it uses them). Not in an

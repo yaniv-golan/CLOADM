@@ -70,6 +70,9 @@ export const CLAUDE_PAUSED_SHORT = 'Paused: you pressed a key · Esc stops Claud
 import { RomLibrary, identifyRoms, isBootable, isRomPack, looksLikeRom, makeRomPack, restoreRomPack, socketStatus } from './roms.js';
 import { writeZip } from './media/zip.js';
 import { programPage } from './program-pages.js';
+import { sealMoment, openMoment } from './media/link-crypto.js';
+import { encodeIndexedPng } from './media/png.js';
+import { cardPicture } from './video/card.js';
 import { SNAPSHOT_EXT, SnapshotError, decodeSnapshot, decodeLongLink, encodeSnapshot, encodeLongLink } from './media/snapshot.js';
 import { missingImages, restoreRoms, stripRoms } from './media/romrefs.js';
 import { crc32, hex, registry, toBase64Url, fromBase64Url } from './util.js';
@@ -1073,6 +1076,9 @@ export class Session {
   // (store 'drivewire' or 'disk').
   // the machines it boots on (the NTSC CoCo 3: the release's images are 60 Hz builds, but for the _50hz floppies)
   static NITROS9_MACHINES = NITROS9_MACHINES;
+  // what the short-link server takes (shortlink/worker.js MAX_SEALED, PNG_COLOURS and MAX_PNG; a test keeps them equal)
+  static SHORT_SEALED_MAX = 64 * 1024;
+  static SHORT_PNG = Object.freeze({ colours: 16, bytes: 32 * 1024 });
   // which of our loaders is the ROM of machine m: 'drivewire', 'floppy' or null
   nitros9Loader(m = this.shownMachine) { return m && m.roms ? nitros9LoaderKind(m.roms.basic) : null; }
   nitros9On(m = this.shownMachine) { return !!this.nitros9Loader(m); }
@@ -1731,6 +1737,62 @@ export class Session {
     const f = file || await this.shareFile();
     return `${this.shareUrl(base).split('#')[0]}#z=${toBase64Url(await encodeLongLink(f.moment.snap, f.moment.meta))}`;
   }
+  // ---------------- short links ----------------
+  // Why the moment on screen can't be put in a long link, or null when it can (the Share screen shows the reason beside
+  // the switched-off choice): NitrOS-9's memory is the person's own NitrOS-9 (shareFile).
+  longLinkRefusal(m = this.shownMachine) {
+    return this.nitros9On(m) ? 'Not for a NitrOS-9 moment: its memory holds your own NitrOS-9. The link below boots NitrOS-9 from their image instead.' : null;
+  }
+  // Why the moment on screen can't have a short link, or null when it can. A short link is stored on a server, so it is
+  // only for moments with no code from anyone's ROM or cartridge in them at all (romCodeIn null): a long link of such a
+  // moment carries references, not the code, but a short link is offered only where there is nothing to refer to.
+  shortLinkRefusal(m = this.shownMachine) {
+    const n9 = this.longLinkRefusal(m);
+    if (n9) return n9;
+    const why = this.romCodeIn(m);
+    if (why === 'roms') return 'Not for a moment on your own ROMs: short links are only for moments without ROMs. The long link works (whoever opens it adds their own ROMs).';
+    if (why === 'cartridge') return 'Not with a cartridge plugged in: short links are only for moments without ROMs or cartridges. The long link works.';
+    return null;
+  }
+  // the preview picture a short link may carry: the screen as a 1200 x 630 card (js/video/card.js), an indexed PNG
+  // -> bytes, or null when this picture can't be one (more than SHORT_PNG.colours colours, or larger than SHORT_PNG.bytes)
+  async previewPicture(m = this.shownMachine) {
+    const card = cardPicture(m.render());
+    if (card.palette.length > Session.SHORT_PNG.colours) return null;
+    const png = await encodeIndexedPng(card);
+    return png.length <= Session.SHORT_PNG.bytes ? png : null;
+  }
+  // The moment on screen as a short link (Share): sealed in this browser (js/media/link-crypto.js), stored by `store`
+  // (js/host/link-store.js), its key only in the link's fragment -> { url, id, deleteToken, picture: whether the
+  // preview went with it, pictureNote: why not when it was asked for and couldn't }. SessionError when this moment
+  // can't have one (shortLinkRefusal), is too large, or the store refused (its message).
+  async shortLink(store, { preview = true, now = new Date(), file = null } = {}) {
+    const m = this.shownMachine, why = this.shortLinkRefusal(m);
+    if (why) throw new SessionError(why);
+    const f = file || await this.shareFile(now);
+    const { key, sealed } = await sealMoment(f.bytes);
+    if (sealed.length > Session.SHORT_SEALED_MAX) throw new SessionError(`This moment is too large for a short link (${Math.ceil(sealed.length / 1024)} KB; the most is ${Session.SHORT_SEALED_MAX / 1024} KB). The long link works.`);
+    const png = preview ? await this.previewPicture(m) : null;
+    let r;
+    try { r = await store.create({ machine: m.id, sealed, png }); }
+    catch (e) { throw new SessionError(e.message); }
+    return { url: store.url(r.id, key), id: r.id, deleteToken: r.deleteToken, picture: !!png,
+      pictureNote: preview && !png ? 'This screen has too many colours for a preview picture, so the link has none.' : null };
+  }
+  // a URL's fragment ('#l=<id>.<key>', where a short link's arrival page sends it) -> { snap, id }, null when it has
+  // none; SessionError saying why it can't open (removed, damaged, not reachable)
+  async readShortLink(hash, store) {
+    const m = /^#?l=([A-Za-z0-9_-]{8})\.([A-Za-z0-9_-]+)$/.exec(hash || '');
+    if (!m) {
+      if (/^#?l=/.test(hash || '')) throw new SessionError('This short link is damaged: copy the whole link, with the part after #.');
+      return null;
+    }
+    let sealed, bytes;
+    try { sealed = await store.load(m[1]); } catch (e) { throw new SessionError(e.message); }
+    try { bytes = await openMoment(sealed, m[2]); } catch (e) { throw new SessionError(`This short link can't be opened: ${e.message}`); }
+    return { snap: await this.readSnapshot(bytes), id: m[1] };
+  }
+
   // The moment as a file to give to someone (the Share screen's link and snapshot file): the snapshot with its ROM
   // code taken out (js/media/romrefs.js). The machine's ROMs, a cartridge's image and a disk controller's DOS ROM
   // are named by CRC, and every copy of their code in memory becomes a reference; whoever opens it needs the same

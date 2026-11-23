@@ -10253,6 +10253,21 @@ async function urlChecks(browser, base, check) {
 
   // the program pages (tools/program-cards.js): each sends the visitor to /play/?start=<program>, and its preview
   // picture is served
+  // a long link's moment after a program page's address (/2048/#z=…): the fragment survives the redirect and the moment
+  // opens (made here in Node: a Dragon 64 on the built-in firmware with a marker in memory)
+  {
+    const Emu = require('../tests/load')();
+    const s = new Emu.Session();
+    s.switchMachine('dragon64');
+    for (let i = 0; i < 30; i++) s.shownMachine.runFrame();
+    s.shownMachine.poke(0x3000, 0xA7);
+    const hash = new URL(await s.longLink('https://cloadm.dev/play/')).hash;
+    await page.goto(`${new URL('../', base).href}2048/${hash}`);
+    await page.waitForURL(/\/play\/\?start=2048/, { timeout: 15000 }).catch(() => {});
+    const opened = await waitFor(page, () => !!window.emu && window.emu.linkDone === true && window.emu.machine.read(0x3000) === 0xA7, null, 20000);
+    check('link: /2048/#z=… keeps the fragment through the redirect, and the moment opens on /play/', opened && await ev(() => location.pathname === '/play/' && location.hash === ''),
+      `${hash.length} characters after #`);
+  }
   for (const name of ['2048', 'liza', 'minesweeper']) {
     const root = new URL('../', base).href;
     await page.goto(`${root}${name}/`);
@@ -15304,11 +15319,13 @@ async function shareScreenChecks(browser, base, check) {
   await waitFor(page, () => !document.getElementById('share').hidden && !!document.getElementById('shareLink').value);
   const first = await page.evaluate(() => {
     const r = (id) => document.getElementById(id).getBoundingClientRect(), vis = (b) => b.top >= 0 && b.bottom <= innerHeight && b.left >= 0 && b.right <= innerWidth && b.width > 0;
-    return { tops: ['shareHeading', 'sharePicture', 'shareTitle', 'shareNote', 'shareRom', 'shareLink', 'btnShareCopy'].map((i) => `${i}:${Math.round(r(i).top)}-${Math.round(r(i).bottom)}`).join(' '), bottom: Math.round(r('btnShareCopy').bottom), native: vis(r('btnShareNative')), copy: vis(r('btnShareCopy')), url: vis(r('shareLink')), h: document.documentElement.scrollHeight, vh: innerHeight,
+    return { tops: ['shareHeading', 'sharePicture', 'shareTitle', 'shareNote', 'shareRom', 'btnShortMake', 'sharePreview', 'shareLink', 'btnShareCopy'].map((i) => `${i}:${Math.round(r(i).top)}-${Math.round(r(i).bottom)}`).join(' '), bottom: Math.round(r('btnShareCopy').bottom), native: vis(r('btnShareNative')), copy: vis(r('btnShareCopy')), url: vis(r('shareLink')),
+      make: vis(r('btnShortMake')), sw: vis(r('sharePreview')), h: document.documentElement.scrollHeight, vh: innerHeight,
       pic: r('sharePicture').height, closed: ['shareMore', 'shareEmbed'].every((id) => !document.getElementById(id).open) };
   });
   if (shotDir) await page.screenshot({ path: path.join(shotDir, 'share-r33-375x548.png') });
-  check('share screen (375x548): on open the Share… button, Copy link and the URL are inside the viewport', first.native && first.copy && first.url, JSON.stringify(first));
+  check('share screen (375x548): on open "Make a short link", its preview switch, and the long link\'s Share…, Copy link and URL are inside the viewport',
+    first.make && first.sw && first.native && first.copy && first.url, JSON.stringify(first));
   check('share screen (375x548): with the disclosures closed the page is at most 1.5 screens tall, the preview at most 30vh', first.closed && first.h <= first.vh * 1.5 && first.pic <= first.vh * 0.3 + 1, JSON.stringify(first));
   // the disclosures
   const open = (id) => page.evaluate((i) => document.getElementById(i).open, id);
@@ -15364,7 +15381,12 @@ async function shareScreenChecks(browser, base, check) {
   await p2.goto(`${base}?machine=dragon64#share`);
   await started(p2);
   await waitFor(p2, () => !!document.getElementById('shareLink').value);
-  check('share screen: where canShare is false, Copy link is the primary button and Share… is not shown', await p2.isHidden('#btnShareNative') && await p2.evaluate(() => document.getElementById('btnShareCopy').classList.contains('primary')));
+  // the short link is the primary choice while it can be made; offline (no short link) Copy link is
+  const shortPrimary = await p2.evaluate(() => document.getElementById('btnShortMake').classList.contains('primary') && !document.getElementById('btnShareCopy').classList.contains('primary'));
+  await ctx2.setOffline(true);
+  const copyPrimary = await waitFor(p2, () => document.getElementById('btnShortMake').disabled && document.getElementById('btnShareCopy').classList.contains('primary'));
+  await ctx2.setOffline(false);
+  check('share screen: where canShare is false, Share… is not shown; "Make a short link" is the primary button, and offline Copy link is', await p2.isHidden('#btnShareNative') && shortPrimary && copyPrimary);
   // the settings file lives on the Machine tab now
   await p2.click('#shareBack');
   await openTab(p2, 'Machine');
@@ -19424,6 +19446,138 @@ async function armGuardChecks(browser, base, check) {
   await closeCtx(ctx);
 }
 
+
+// Short links end to end (js/ui/share.js, Session.shortLink, shortlink/worker.js): the real Worker, run here in Node
+// with an in-memory bucket (shortlink/memory-bucket.js), stands in for s.cloadm.dev; Playwright routes the browser's
+// requests to it (/api/* to the Worker, everything else read from the bucket, as R2's custom domain serves it), and
+// routes https://cloadm.dev/ to this run's own site, so the arrival page's redirect lands on this build. Nothing reaches
+// Cloudflare. Made on the Share screen (QR, preview switch, the public-copy lines), opened from the arrival page in
+// another profile (the moment, the open counted), deleted, made without a picture, refused by the kill switch, and
+// switched off with its reason for a cartridge moment and offline.
+async function shortLinkChecks(browser, base, site, check) {
+  const { pathToFileURL } = require('url');
+  const W = await import(pathToFileURL(path.join(__dirname, '../shortlink/worker.js')).href);
+  const { MemoryBucket, memoryLimiter } = await import(pathToFileURL(path.join(__dirname, '../shortlink/memory-bucket.js')).href);
+  const local = site.replace(/\/$/, '');
+  const env = { BUCKET: new MemoryBucket(), RATE_IP: memoryLimiter(100), RATE_ALL: memoryLimiter(1000), DAILY_CAP: '100',
+    ALLOWED_ORIGINS: `${local},https://cloadm.dev`, REPORT_EMAIL: 'abuse@cloadm.dev' };
+  const serve = async (ctx) => {
+    await ctx.route('https://s.cloadm.dev/**', async (route) => {
+      const r = route.request(), u = new URL(r.url()), origin = r.headers().origin;
+      if (u.pathname.startsWith('/api/')) {
+        const res = await W.default.fetch(new Request(r.url(), { method: r.method(), headers: r.headers(), body: ['GET', 'HEAD'].includes(r.method()) ? null : r.postDataBuffer() }), env, {});
+        return route.fulfill({ status: res.status, headers: Object.fromEntries(res.headers), body: Buffer.from(await res.arrayBuffer()) });
+      }
+      // the bucket on its custom domain, with the CORS rule docs/shortlink-deploy.md sets (GET from CLOADM's origin)
+      const cors = origin && env.ALLOWED_ORIGINS.split(',').includes(origin) ? { 'access-control-allow-origin': origin } : {};
+      const o = env.BUCKET.objects.get(decodeURIComponent(u.pathname.slice(1)));
+      if (!o) return route.fulfill({ status: 404, headers: cors, body: 'Not Found' });
+      return route.fulfill({ status: 200, headers: Object.assign({ 'content-type': o.httpMetadata.contentType || 'application/octet-stream' }, cors), body: Buffer.from(o.bytes) });
+    });
+    await ctx.route('https://cloadm.dev/**', async (route) => {
+      const u = new URL(route.request().url());
+      return route.fulfill({ response: await route.fetch({ url: `${local}${u.pathname}${u.search}` }) });
+    });
+  };
+  const said = async (ctx) => ctx.addInitScript(() => { window.__said = []; document.addEventListener('DOMContentLoaded', () => { const t = document.getElementById('toastText');
+    if (t) new MutationObserver(() => { if (t.textContent) window.__said.push(`${document.getElementById('toast').classList.contains('error') ? 'ERROR ' : ''}${t.textContent}`); }).observe(t, { childList: true, characterData: true, subtree: true }); }); });
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, serviceWorkers: 'block' });
+  await serve(ctx);
+  const page = await ctx.newPage();
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  const openShare = async (p) => {
+    if (await p.evaluate(() => location.hash === '#share')) { await p.click('#shareBack'); await p.waitForSelector('#share', { state: 'hidden' }); }
+    await p.click('#btnShare'); await p.waitForSelector('#share', { state: 'visible' });
+    await waitFor(p, () => !!document.getElementById('shareLink').value);
+  };
+  await page.goto(`${base}?machine=dragon64`);
+  await linkIn(page);
+  await waitFor(page, () => window.emu.session.welcomeRunning && window.emu.session.screenText()[14].includes('PRESS'), null, 60000);
+  await page.evaluate(() => window.emu.machine.poke(1030, 42));
+  await openShare(page);
+  const before = await page.evaluate(() => ({ make: !document.getElementById('btnShortMake').disabled && document.getElementById('btnShortMake').classList.contains('primary'),
+    copyNotPrimary: !document.getElementById('btnShareCopy').classList.contains('primary'), preview: document.getElementById('sharePreview').checked,
+    terms: document.getElementById('shortTerms').textContent, long: document.getElementById('longHeading').textContent, why: document.getElementById('shortWhy').textContent }));
+  check('shortLink: online and allowed, "Make a short link" is the primary choice, the preview switch is on', before.make && before.copyNotPrimary && before.preview && before.why === '', JSON.stringify(before));
+  check('shortLink: the public copy, word for word, and the long link\'s label', before.terms === 'The preview picture is public. Links don\'t expire. A link reported for abuse can be removed. Only people with the link can open it; the server can\'t read it.'
+    && before.long === 'Exact moment · works offline, never expires', JSON.stringify(before));
+  await page.click('#btnShortMake');
+  const made = await waitFor(page, () => !document.getElementById('shortMade').hidden, null, 15000);
+  const r = await page.evaluate(() => ({ url: document.getElementById('shareShort').value, qr: document.getElementById('shareQr').dataset.text, qrw: document.getElementById('shareQr').width,
+    note: document.getElementById('shortPicNote').textContent, tokens: JSON.parse(localStorage.getItem('cloadm.shortLinks') || '{}'), copyPrimary: document.getElementById('btnShortCopy').classList.contains('primary') }));
+  const m = /^https:\/\/s\.cloadm\.dev\/([A-Za-z0-9_-]{8})#([A-Za-z0-9_-]{22})$/.exec(r.url || '');
+  const id = m && m[1], key = m && m[2];
+  check('shortLink: made: https://s.cloadm.dev/<id>#<key>, its QR code drawn from it, its delete token kept in this browser', made && !!m && r.qr === r.url && r.qrw > 100 && !!r.tokens[id] && r.copyPrimary && /preview picture/.test(r.note), JSON.stringify(r));
+  check('shortLink: stored: the sealed moment, the picture and the arrival page; the key nowhere on the server', !!id && env.BUCKET.objects.has(`${id}.bin`) && env.BUCKET.objects.has(`${id}.png`) && env.BUCKET.objects.has(id)
+    && ![...env.BUCKET.objects.values()].some((o) => Buffer.from(o.bytes).toString('latin1').includes(key) || JSON.stringify(o.customMetadata).includes(key)));
+  if (shotDir) await page.screenshot({ path: path.join(shotDir, 'short-link-made.png'), fullPage: true });
+
+  // opened from the arrival page in another profile: the page counts the open and goes on to cloadm.dev/play/#l=
+  const ctx2 = await browser.newContext({ serviceWorkers: 'block' });
+  await serve(ctx2); await said(ctx2);
+  const p2 = await ctx2.newPage();
+  p2.on('pageerror', (e) => errors.push(e.message));
+  // (what the custom domain serves for https://s.cloadm.dev/<id>: the route above reads it from the bucket)
+  const arrival = id ? env.BUCKET.text(id) || '' : '';
+  check('shortLink: the arrival page\'s preview: "A moment on a Dragon 64, CLOADM" and its picture', /<meta property="og:title" content="A moment on a Dragon 64, CLOADM">/.test(arrival)
+    && arrival.includes(`<meta property="og:image" content="https://s.cloadm.dev/${id}.png">`));
+  if (id) await p2.goto(r.url);
+  await p2.waitForURL(/^https:\/\/cloadm\.dev\/play\//, { timeout: 15000 }).catch(() => {});
+  await linkIn(p2);
+  const opened = await waitFor(p2, () => window.__said.some((x) => /^Snapshot opened: Dragon 64/.test(x)), null, 15000);
+  check('shortLink: opened in another profile: that exact moment, the fragment cleared, the open counted (no id kept)', opened && await p2.evaluate(() => window.emu.machine.ram[1030] === 42 && location.hash === '')
+    && JSON.parse(env.BUCKET.text('stats/counts.json')).opened === 1 && !env.BUCKET.text('stats/counts.json').includes(id), await p2.evaluate(() => window.__said.join(' | ')));
+
+  // delete: all three objects gone; opening it again says so
+  await page.click('#btnShortDelete');
+  const deleted = await waitFor(page, () => document.getElementById('shortMade').hidden && !JSON.parse(localStorage.getItem('cloadm.shortLinks') || '{}')[Object.keys(JSON.parse(localStorage.getItem('cloadm.shortLinks') || '{}'))[0]], null, 10000);
+  check('shortLink: "Delete this link": the objects gone, the token forgotten, the page says cached copies may live a day', deleted && !env.BUCKET.objects.has(`${id}.bin`) && !env.BUCKET.objects.has(id)
+    && await waitFor(page, () => /Short link deleted/.test(document.getElementById('toastRegion').textContent)));
+  const p3 = await ctx2.newPage();
+  if (id) await p3.goto(`https://cloadm.dev/play/#l=${id}.${key}`);
+  await linkIn(p3);
+  check('shortLink: a deleted link, opened: "removed, or never existed", and the page runs', await waitFor(p3, () => window.__said.some((x) => /removed, or never existed/.test(x)), null, 15000)
+    && await p3.evaluate(() => location.hash === '' && !!window.emu.machine));
+
+  // without a picture
+  await page.uncheck('#sharePreview');
+  await page.click('#btnShortMake');
+  await waitFor(page, () => !document.getElementById('shortMade').hidden, null, 15000);
+  const id2 = (/s\.cloadm\.dev\/([A-Za-z0-9_-]{8})#/.exec(await page.inputValue('#shareShort')) || [])[1];
+  check('shortLink: the switch off: no picture stored, and the page says so', !!id2 && env.BUCKET.objects.has(`${id2}.bin`) && !env.BUCKET.objects.has(`${id2}.png`)
+    && /Without a preview picture/.test(await page.textContent('#shortPicNote')) && /content="summary"/.test(env.BUCKET.text(id2)));
+
+  // the kill switch: the server's reason, beside the button
+  env.NEW_LINKS = 'off';
+  await openShare(page);
+  await page.click('#btnShortMake');
+  check('shortLink: the kill switch: no link, the server\'s reason shown beside the button, which stays', await waitFor(page, () => /switched off/.test(document.getElementById('shortWhy').textContent), null, 10000)
+    && await page.isVisible('#shortWhy') && await page.isEnabled('#btnShortMake') && await page.isHidden('#shortMade'));
+  env.NEW_LINKS = 'on';
+
+  // offline: switched off with its reason, back on when the connection is
+  await openShare(page);
+  await ctx.setOffline(true);
+  const off = await waitFor(page, () => document.getElementById('btnShortMake').disabled && /offline/.test(document.getElementById('shortWhy').textContent));
+  await ctx.setOffline(false);
+  const on = await waitFor(page, () => !document.getElementById('btnShortMake').disabled && document.getElementById('shortWhy').textContent === '');
+  check('shortLink: offline the short link is switched off with its reason in view (the long link stays), and back once online', off && on);
+
+  // a cartridge moment: switched off, its reason shown, never hidden; its long link is offered
+  await page.click('#shareBack');
+  await page.evaluate(() => window.emu.session.load('stand-in.ccc', new Uint8Array(0x2000).fill(0x39)));
+  await openShare(page);
+  const cart = await page.evaluate(() => ({ disabled: document.getElementById('btnShortMake').disabled, why: document.getElementById('shortWhy').textContent,
+    shown: document.getElementById('shortWhy').checkVisibility(), set: document.getElementById('shortSet').checkVisibility(), long: /#z=/.test(document.getElementById('shareLink').value),
+    copyPrimary: document.getElementById('btnShareCopy').classList.contains('primary') || document.getElementById('btnShareNative').classList.contains('primary') }));
+  check('shortLink: a cartridge moment: no short link, the reason beside the switched-off button, the long link primary', cart.disabled && /Not with a cartridge plugged in/.test(cart.why) && cart.shown && cart.set && cart.long && cart.copyPrimary, JSON.stringify(cart));
+  if (shotDir) await page.screenshot({ path: path.join(shotDir, 'short-link-cartridge.png'), fullPage: true });
+  check('shortLink: no page errors', !errors.length, errors.join('; '));
+  await closeCtx(ctx2);
+  await closeCtx(ctx);
+}
+
 const GROUPS = (base, site) => [
   ['models', (b) => modelsChecks(b, base, check)],
   ['reset', (b) => resetChecks(b, base, check)],
@@ -19507,6 +19661,7 @@ const GROUPS = (base, site) => [
   ['chatScreen', async (b) => { await chatScreenChecks(b, base, check); await chatLongLineChecks(b, base, check); await chatRamChecks(b, base, check); }],
   ['phoneChat', (b) => phoneChatChecks(b, base, check)],
   ['share', (b) => shareChecks(b, base, site, check)],
+  ['shortLink', (b) => shortLinkChecks(b, base, site, check)],
   ['favicon', (b) => faviconChecks(b, site, check)],
   ['closedViews', (b) => closedViewsChecks(b, base, check)],
   ['uiModel', (b) => uiModelChecks(b, base, check)],

@@ -1,0 +1,39 @@
+# The short-link Worker's configuration (docs/shortlink-deploy.md). Copy to wrangler.toml OUTSIDE the repository, or
+# beside this file without committing it, and fill in the placeholders. Nothing here is a secret.
+name = "cloadm-shortlink"
+main = "worker.js"
+compatibility_date = "2026-11-01"
+
+# only /api/* runs the Worker; every other address on s.cloadm.dev is the R2 bucket on its custom domain (no Worker)
+routes = [{ pattern = "s.cloadm.dev/api/*", zone_name = "<YOUR_ZONE, e.g. cloadm.dev>" }]
+
+[[r2_buckets]]
+binding = "BUCKET"
+bucket_name = "<BUCKET_NAME, e.g. cloadm-shortlinks>"
+
+# per address: at most 10 new links a minute from one address (the address is the key, never stored)
+[[ratelimits]]
+name = "RATE_IP"
+namespace_id = "<UNIQUE_INTEGER, e.g. 1101>"
+  [ratelimits.simple]
+  limit = 10
+  period = 60
+
+# everyone together: at most 120 new links a minute (bindings take 10- or 60-second periods only; DAILY_CAP below is the
+# day's ceiling)
+[[ratelimits]]
+name = "RATE_ALL"
+namespace_id = "<ANOTHER_UNIQUE_INTEGER, e.g. 1102>"
+  [ratelimits.simple]
+  limit = 120
+  period = 60
+
+[vars]
+# the kill switch: "off" refuses new links (503); existing links stay readable, as reads never reach the Worker
+NEW_LINKS = "on"
+# the most new links in one UTC day, counted in stats/counts.json
+DAILY_CAP = "5000"
+# who may make and delete links (comma-separated origins)
+ALLOWED_ORIGINS = "https://cloadm.dev"
+# where "Report this link" on a link's arrival page writes to (leave empty for no Report link)
+REPORT_EMAIL = "<ABUSE_ADDRESS, e.g. abuse@cloadm.dev>"

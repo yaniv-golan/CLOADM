@@ -172,6 +172,9 @@ node tests/state-tape.test.js   # the same for the cassette deck: a recording in
 node tests/snapshot.test.js  # snapshot files: format and version, defective files, every model opened elsewhere, ROMs by CRC, switching, slots
 node tests/long-link.test.js # share links' #z= form: hand-built vectors, every model opened from a link, old #s= links, refusals
 node tests/program-pages.test.js # the program pages and cards are what tools/program-cards.js makes; PNG and card vectors
+node tests/short-link.test.js # short links on the page's side: sealing, the store over a mocked fetch, the key never sent, guardrails
+node tests/shortlink-worker.test.js # the short-link Worker in Node against an in-memory bucket: every check, limit, kill switch and count
+node tests/qr.test.js         # the QR encoder against ISO 18004's worked example and tables, every symbol read back
 node tests/press-break.test.js # BREAK delivery: our own firmware scans the matrix on dragon64, coco3 and mc10
 node tests/video.test.js     # scanline video: beam position, SAM display counter, mid-line mode splits
 node tests/serial.test.js    # serial line receiver and port devices, PIA output callback, printer paths, the Session's terminal

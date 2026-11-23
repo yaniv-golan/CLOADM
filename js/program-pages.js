@@ -5,6 +5,10 @@
  * from it, tools/pwa-files.js keeps them for offline use, and Session.programPageUrl links to it. `id` must be a start
  * the page has (js/config.js STARTS).
  *
+ * `countStarts: true` makes the page tell the short-link server that the program was started (POST /api/started with
+ * the program's id and nothing else; shortlink/worker.js COUNTED_STARTS must list it): a total on its public stats page,
+ * nothing about who. No page has it yet (WYRMFIRE's will).
+ *
  * `card` says how the card's picture is made, on the built-in firmware (no ROM, so no ROM pixel): the machine, then
  * either `lines` typed into the program (LIZA) or `keys` pressed in a game (its random numbers seeded with `seed`),
  * `frames` apart.

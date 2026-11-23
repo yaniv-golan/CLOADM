@@ -78,9 +78,30 @@ const colours = (d) => Array.from(d.pixels, (i) => d.palette[i].join(','));
     const cfg = Emu.parseUrlConfig(`?start=${name}`);
     check(`${name}: start=${name} is a start the page has`, cfg.start === name && !cfg.errors.length, JSON.stringify(cfg.errors));
   }
+  check('no program page sends anything anywhere unless its entry asks to count starts (none does yet)',
+    tool.NAMES.every((n) => !/fetch\(|sendBeacon|XMLHttpRequest/.test(fs.readFileSync(path.join(ROOT, n, 'index.html'), 'utf8'))));
+  {
+    const counted = tool.page('2048');   // the real page, then one whose entry sets countStarts
+    tool.PROGRAMS.__probe = Object.assign({}, tool.PROGRAMS['2048'], { id: 'wyrmfire', countStarts: true });
+    const html = tool.page('__probe');
+    delete tool.PROGRAMS.__probe;
+    check('a page whose entry counts starts: one POST of its id to s.cloadm.dev/api/started, then the redirect', !/fetch\(/.test(counted)
+      && html.includes("fetch('https://s.cloadm.dev/api/started', { method: 'POST', body: '__probe', mode: 'no-cors', keepalive: true })"));
+  }
   check('Session.programPageUrl: a program without a page has none', new Emu.Session().programPageUrl('demo', 'https://cloadm.dev/') === null);
   check('the pages are the list in js/program-pages.js, and the service worker\'s folders follow it',
     tool.NAMES.join() === Emu.PROGRAM_PAGES.map((p) => p.id).join() && Emu.PROGRAM_PAGES.every((p) => require('../tools/pwa-files.js').DIRS.includes(p.id)));
+  // the card tool refuses any machine that could hold ROM code (its own Session never has a ROM: this is the guard)
+  {
+    const fake = (size, seed) => { const x = new Uint8Array(size); let v = seed; for (let i = 0; i < size; i++) { v = (v * 1103515245 + 12345) >>> 0; x[i] = v >>> 24; } return x; };
+    const roms = new Emu.Session({ welcomeMenu: false }); roms.switchMachine('dragon64', {}, { menu: false }); roms.shownMachine.setRoms({ basic: fake(0x4000, 3) });
+    const cart = new Emu.Session({ welcomeMenu: false }); cart.switchMachine('dragon64', {}, { menu: false }); cart.load('stand-in.ccc', fake(0x2000, 5));
+    const err = (s) => { try { tool.frameOf(Emu, 'liza', s); return null; } catch (e) { return e.message; } };
+    check('the card tool refuses a machine with ROMs loaded (a stand-in ROM)', /refusing to make a card: ROMs are loaded/.test(err(roms) || ''), err(roms));
+    check('the card tool refuses a machine with a cartridge plugged in', /refusing to make a card: a cartridge is plugged in/.test(err(cart) || ''), err(cart));
+    const fresh = new Emu.Session({ welcomeMenu: false }); fresh.switchMachine('dragon64', {}, { menu: false });
+    check('...and makes the card on the built-in firmware', err(fresh) === null);
+  }
   const titles = tool.NAMES.map((n) => tool.PROGRAMS[n].title), images = new Set(tool.NAMES.map((n) => fs.readFileSync(path.join(ROOT, 'img', `card-${n}.png`)).toString('base64')));
   check('every page has a title and a picture of its own', new Set(titles).size === titles.length && images.size === titles.length);
   const sw = fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8');

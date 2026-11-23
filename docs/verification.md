@@ -1789,6 +1789,24 @@ MAME artefacts reproduced only under `config.mameCompat` (the comparisons turn i
   accesses at the instruction's start, the HS start is truncated one clock early, and a write before that start
   freezes the rest of the line (`js/machines/mc10.js`).
 
+## Short links
+
+No MAME oracle (section 4.6): the oracles are the standards and the Worker's own contract. `tests/qr.test.js`: the QR
+encoder against ISO/IEC 18004:2015 Annex I's worked example ("01234567", version 1-M: data and error correction
+codewords), Table C.1's format information and Table D.1's version information, and every symbol at every mask read
+back by a reader in the test (Reed-Solomon checked by syndromes). During development every symbol was also decoded by
+OpenCV 5.1's QR detectors (162 symbols: levels L to H, versions 1 to 10, all masks; two that its default detector
+missed decode with its Aruco detector); that is a manual cross-check, not part of the suite. `tests/short-link.test.js`:
+AES-GCM sealing round trip and tampering, the store's requests over a mocked fetch, every request searched for the key
+(as text, hex, base64, bytes) and for the moment's bytes, a moment opened from `#l=` running on identically, and each
+guardrail (ROMs, cartridge, NitrOS-9, too large) refusing before any request. `tests/shortlink-worker.test.js`: the Worker
+in Node against an in-memory R2 bucket: the three objects, the arrival page's CSP hashes worked out in the test, every
+PNG rule, every limit, the kill switch, delete tokens, concurrent counts, no address stored. The browser check's
+`shortLink` group runs the same Worker behind Playwright routes for s.cloadm.dev and cloadm.dev: made on the Share
+screen, opened from its arrival page in another profile, deleted, the kill switch, offline, a cartridge moment.
+Not verified here: the deployed Worker on Cloudflare (its bindings, the R2 custom domain, the cache rule and CORS rule);
+docs/shortlink-deploy.md ends with the check to run once it is deployed.
+
 ## Long links (`#z=`) and the program pages
 
 No MAME oracle: a link is a container, not hardware. `tests/long-link.test.js` decodes a link built byte by byte
