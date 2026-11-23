@@ -172,7 +172,7 @@ export function createFeedback() {
       out.push(...parts);
     }
     for (const o of over) out.push(...own(o));
-    if (phone) out.push(...holes.filter((h, i) => over[i].id === 'ask'));
+    if (phone) out.push(...holes);   // (on a phone, never over a sheet: R42's header band)
     return out;
   };
   // over a modal dialog: in the dialog (the rest of the page is inert there: a toast outside it could be seen but not

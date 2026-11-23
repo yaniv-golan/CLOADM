@@ -384,7 +384,7 @@ globalThis.matchMedia = () => ({ matches: false });
     // a phone: never over the sheet, even where it hides a control and has no button
     globalThis.innerWidth = 390; globalThis.innerHeight = 844; boxRect = rectOf(8, 700, 382, 740);
     all.r = rectOf(16, 600, 374, 1100);
-    overlays = [overlay('ask', rectOf(0, 680, 390, 844))]; fb = fresh();
+    overlays = [overlay('sheet', rectOf(0, 680, 390, 844))]; fb = fresh();
     fb.toast('Phone, sheet at peek');
     check('R47: on a phone the toast does not go over the sheet: it goes to the top', region.style.top === '8px' && !top(), JSON.stringify(region.style));
     fb.clear();

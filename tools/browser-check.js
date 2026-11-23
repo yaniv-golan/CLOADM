@@ -4174,6 +4174,19 @@ async function occlusionChecks(browser, base, check) {
     const o = await opaque(page);
     check('feedback R47: the guard: every opaque overlay shown (the sheet at peek) has opacity 1 and an opaque background', o.length >= 1 && o.every((x) => x.opacity === 1 && x.alpha === 1), JSON.stringify(o));
     check('feedback R47 (phone): one announcement', JSON.stringify(await page.evaluate(() => window.__ann)) === JSON.stringify([long]), JSON.stringify(await page.evaluate(() => window.__ann)));
+    // the phone rule on its own: the sheet closed, an opaque overlay with no button along the bottom over a control
+    // there: the toast does not go over it (it would, on the covered control, anywhere but on a phone)
+    const ph = await page.evaluate(() => new Promise((res) => {
+      window.emu.feedback.clear(); document.getElementById('btnAskClose').click();
+      const c = document.createElement('div'); c.className = 'controls'; c.id = 'fbCtl'; c.style.cssText = 'position:fixed;left:0;right:0;bottom:0;height:300px;z-index:1';
+      const o = document.createElement('div'); o.id = 'fbOver'; o.dataset.occludes = ''; o.style.cssText = 'position:fixed;left:0;right:0;bottom:0;height:300px;z-index:2;background:#111';
+      document.body.append(c, o);
+      window.emu.feedback.toast('Short');
+      requestAnimationFrame(() => { const t = document.getElementById('toast').getBoundingClientRect(), r = o.getBoundingClientRect();
+        res({ up: !document.getElementById('toast').hidden, toast: [t.left, t.top, t.right, t.bottom].map(Math.round), overOverlay: t.bottom > r.top }); });
+    }));
+    check('feedback R47 (phone): the toast never goes over an opaque sheet, even one that hides a control and has no button',
+      ph.up && !ph.overOverlay, JSON.stringify(ph));
     await ctx.close();
   }
 
@@ -4230,6 +4243,28 @@ async function occlusionChecks(browser, base, check) {
       m[0].top && m[0].moving > 0 && !m[1].top && m[1].moving === 0, JSON.stringify(m));
     await page.evaluate(() => { window.emu.feedback.clear(); document.getElementById('fbCtl').remove(); document.getElementById('fbOver').remove(); });
 
+    // each rule on its own, on a page where it alone decides: a control over the whole window under a settled opaque
+    // overlay, with a button of the overlay's own where the toast would go (desktop: the toast goes clear of the
+    // button, not to the top slot); then a phone, the overlay along the bottom with no button: the toast is not over it
+    const own = await page.evaluate(() => new Promise((res) => {
+      scrollTo(0, 0); window.emu.feedback.clear();
+      const c = document.createElement('div'); c.className = 'controls'; c.id = 'fbCtl'; c.style.cssText = 'position:fixed;inset:0;z-index:1';
+      const o = document.createElement('div'); o.id = 'fbOver'; o.dataset.occludes = ''; o.style.cssText = 'position:fixed;inset:0;z-index:2;background:#111';
+      document.body.append(c, o);
+      window.emu.feedback.toast('Probe');
+      const b0 = document.getElementById('toast').getBoundingClientRect();
+      window.emu.feedback.clear();
+      const btn = document.createElement('button'); btn.textContent = 'Stop';
+      btn.style.cssText = `position:fixed;left:${b0.left}px;top:${b0.top}px;width:${b0.width}px;height:${b0.height}px`;
+      o.append(btn);
+      window.emu.feedback.toast('Probe, again');
+      requestAnimationFrame(() => { const t = document.getElementById('toast').getBoundingClientRect(), r = btn.getBoundingClientRect();
+        res({ top: document.getElementById('toastRegion').classList.contains('top'), onButton: !(t.bottom <= r.top || t.top >= r.bottom || t.right <= r.left || t.left >= r.right) }); });
+    }));
+    check('feedback R47: an opaque overlay\'s own button where the toast would go: the toast is clear of it, in a free place over the covered control',
+      !own.top && !own.onButton, JSON.stringify(own));
+    await page.evaluate(() => { window.emu.feedback.clear(); document.getElementById('fbCtl').remove(); document.getElementById('fbOver').remove(); });
+
     const centre = () => page.evaluate(() => { const b = document.getElementById('toast').getBoundingClientRect(), at = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
       return { up: !document.getElementById('toast').hidden, onTop: !!at && !!at.closest('#toast'), popover: document.getElementById('toastRegion').matches(':popover-open'), at: at && (at.id || at.tagName) }; });
     const frames2 = () => page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(true)))));
@@ -4251,7 +4286,7 @@ async function occlusionChecks(browser, base, check) {
     const after = await page.evaluate(() => ({ popover: document.getElementById('toastRegion').hasAttribute('popover'), up: !document.getElementById('toast').hidden }));
     check('feedback R47: the dialog closed: the toast leaves the top layer and stays up', !after.popover && after.up, JSON.stringify(after));
     const ann = await page.evaluate(() => window.__ann);
-    check('feedback R47: one announcement per toast (sliding sheet, before the dialog, under it)', ann.join('|') === 'Over a sliding sheet|Up before the dialog|Raised under the dialog', JSON.stringify(ann));
+    check('feedback R47: one announcement per toast (sliding sheet, the probe left up, before the dialog, under it; the probe measured and cleared in one task is never shown)', ann.join('|') === 'Over a sliding sheet|Probe, again|Up before the dialog|Raised under the dialog', JSON.stringify(ann));
     await page.evaluate(() => { window.emu.feedback.clear(); document.getElementById('fbDialog').remove(); });
     await ctx.close();
   }

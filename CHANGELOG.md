@@ -182,7 +182,7 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 - **A toast may cover what an opaque sheet already hides, never the sheet's own buttons (UX R47).** The part of a
   control under the Ask sheet or the attention card (marked `data-occludes`, each fully opaque) no longer keeps a
   toast away; the sheet's Stop, Done and tabs always do, and a sheet still sliding hides nothing until it has settled.
-  On a phone a toast never goes over the sheet: with no other place it takes the band under the header, as before.
+  On a phone a toast never goes over such a sheet: with no other place it takes the band under the header, as before.
   While a modal dialog is open the toast moves into it, in the top layer above its contents, where it can be clicked,
   and only the dialog's controls keep it away.
 - **The page's screen text reads every screen Claude's screen_text reads.** `Session.screenText`, which the embed
