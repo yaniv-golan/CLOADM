@@ -1949,8 +1949,9 @@ export class Session {
   // The greeting the menu takes when it is offered by a switch: a machine question ('none') is asked on a FIRST
   // visit only, so it greets a first-time visitor ('first', the title screen); every other offer is a returning
   // visitor's ('back') -- the page used to decide this itself, and once got it wrong. One place decides it now.
-  // A visit that began as the first stays "first" until the page is left: nobody comes back within it.
-  greetingFor(offer) { return offer === 'none' || this.firstVisit ? 'first' : 'back'; }
+  // A visit that began as the browser's first stays "first" until something has run in it: with nothing to come back
+  // to, "WELCOME BACK" would greet a visitor who has only just arrived (a machine picked in the header menu).
+  greetingFor(offer) { return offer === 'none' || (this.firstVisit && !this.lastRun) ? 'first' : 'back'; }
   get hasAnyRoms() { return this.roms.sockets().some((s) => profiles[s.owner]); }
 
   // ---------------- programs and media ----------------

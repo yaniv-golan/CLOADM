@@ -424,9 +424,10 @@ Next version: 0.1.9-pre (the plugin and extension manifests carry it; `tests/plu
 
 ### Fixed
 
-- **A first visit is never greeted "WELCOME BACK".** Picking a machine in the header menu, or the shelf's Welcome menu,
-  on the browser's first visit shows the title screen; only a later visit says it. (`Session.greetingFor` is now a method
-  of the session, which knows whether the visit began as the first.)
+- **A first visit is not greeted "WELCOME BACK" while nothing has run in it.** Picking a machine in the header menu, or
+  the shelf's Welcome menu, on the browser's first visit shows the title screen; once a program has run, or on a later
+  visit, the menu says it. (`Session.greetingFor` is now a method of the session, which knows whether the visit began
+  as the first.)
 - **The file pickers on a phone offer Files, not photos.** The pickers for programs, tapes, disks, cartridges, the
   Library and NitrOS-9 images name the extensions they take and application/octet-stream, so a phone still offers a
   file whose type it does not know (a .cas, a .vdk), and none asks for images: Open… no longer offers the Photo Library

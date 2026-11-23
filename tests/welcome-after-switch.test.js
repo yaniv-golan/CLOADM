@@ -57,6 +57,8 @@ const prompt = (sess = s, frames = 60, row = 14) => { sess.runFrames(frames); re
   const store = Emu.memoryStore();
   const visit1 = new Emu.Session({ store, media: new MemoryMediaStore() });
   check('welcome: the first visit is recognised', visit1.visit().first && visit1.greetingFor('back') === 'first' && visit1.greetingFor(null) === 'first');
+  visit1.setLastRun('liza', 'LIZA');
+  check('welcome: ...until something has run in it: then the menu greets "back"', visit1.greetingFor('back') === 'back' && visit1.greetingFor('none') === 'first');
   const visit2 = new Emu.Session({ store, media: new MemoryMediaStore() });
   check('welcome: the next visit in that browser is a returning one: "back"', !visit2.visit().first && visit2.greetingFor('back') === 'back' && visit2.greetingFor('none') === 'first');
   s2.startWelcome(welcome, { greeting: s2.greetingFor('none'), carryOn: null });
