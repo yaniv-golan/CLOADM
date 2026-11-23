@@ -52,6 +52,42 @@ check('every relative form encodes a backward label as the offset (target - next
 check('every relative form encodes a forward label as the offset', wrongFwd === 0, `${wrongFwd} wrong of ${FORMS.length}`);
 check('every relative form refuses an @ before its target, naming it, on the line it is on (none encodes offset 0)', rejected === FORMS.length, accepted.join(', '));
 
+// ---- an undefined target is an error (it used to be offset 0), and a forward reference still resolves ----
+{
+  let bad = 0; const shown = [];
+  for (const f of FORMS) {
+    const [pre] = OPERANDS[f.form];
+    const r = asm(`         ${f.mn} ${pre}NOWHERE`);
+    if (!(!r.ok && r.errors.length === 1 && r.errors[0].line === 2 && /undefined symbol NOWHERE/.test(r.errors[0].message))) { bad++; shown.push(`${f.mn} ${f.form}: ${r.ok} ${JSON.stringify(r.errors)}`); }
+  }
+  check('every relative form refuses an undefined target, naming the symbol, on its line (it used to encode offset 0)', bad === 0, shown.slice(0, 3).join(' | '));
+}
+
+// ---- the offset is one signed byte: -128..127 reach, anything further is an error that gives the distance ----
+{
+  let bad = 0; const shown = [];
+  for (const f of FORMS) {
+    const [pre, mid] = OPERANDS[f.form];
+    const at = (d) => `$${(0x4000 + f.bytes + d).toString(16).toUpperCase()}`;   // the target d bytes from the next instruction
+    for (const d of [127, -128, 0, 1, -1]) {
+      const r = asm(`         ${f.mn} ${pre}${at(d)}`);
+      const want = hex([f.code, ...mid, d & 0xFF]);
+      if (!r.ok || hex(bytesAt(r, 0x4000, f.bytes)) !== want) { bad++; shown.push(`${f.mn} ${f.form} ${d}: ${r.ok} ${hex(bytesAt(r, 0x4000, f.bytes))} want ${want}`); }
+    }
+    for (const d of [128, -129, 300, -1000]) {
+      const r = asm(`         ${f.mn} ${pre}${at(d)}`);
+      const m = r.ok ? null : /is (-?[0-9]+) bytes from the next instruction/.exec(r.errors[0].message);
+      if (!(!r.ok && r.errors.length === 1 && r.errors[0].line === 2 && /jump out of range/.test(r.errors[0].message) && m && +m[1] === d)) { bad++; shown.push(`${f.mn} ${f.form} ${d}: ${r.ok} ${r.ok ? '' : r.errors[0].message}`); }
+    }
+  }
+  check('every relative form takes -128, 0, 1, -1 and 127 and refuses 128, -129 and further, giving the distance in the message', bad === 0, `${bad} wrong: ${shown.slice(0, 3).join(' | ')}`);
+  // a label too far, forward: the first pass cannot know, the second says how far
+  const far = asm('         JMP     FAR\n         RMB     200\nFAR     NOP');
+  check('a forward label too far is refused in the second pass with its distance (JMP over 200 bytes: 200)', !far.ok && far.errors.length === 1 && /is 200 bytes/.test(far.errors[0].message), JSON.stringify(far.errors));
+  const near = asm('         JMP     FAR\n         RMB     127\nFAR     NOP');
+  check('... and the same label at exactly 127 is taken (E0 7F)', near.ok && hex(bytesAt(near, 0x4000, 2)) === 'e0 7f', hex(bytesAt(near, 0x4000, 2)));
+}
+
 // ---- the cases the bug report named, with the bytes written out by hand ----
 {
   const g = asm('PLOOP   DJNZ    R0,PLOOP');
