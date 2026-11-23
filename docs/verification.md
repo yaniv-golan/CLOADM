@@ -222,8 +222,8 @@ deselected chip. Two checks, on each of the four models the Pak is offered on, b
 | CoCo 3 | 187 of 187, within 0.456 | 533,726 compared, 0 LSB |
 | Dragon 64 | 187 of 187, within 0.000 | 539,400 compared, 0 LSB |
 
-The write limit is half a card cycle: MAME's Pak clock is 894,886 Hz, ours 894,886.25, under 0.4 cycle apart over
-the run. The levels are compared at every sample where both recordings hold one value for three samples running,
+The write limit is half a card cycle: MAME's Pak clock is 894,886 Hz, ours 894,886.25, which drifts a third of a
+cycle over the 1.33 s program (measured worst 0.456 cycle, on the CoCo 3, in the table above). The levels are compared at every sample where both recordings hold one value for three samples running,
 from the later of 20 ms (MAME's first sound update period, as for the cartridges) and the 6809's opening of the mux:
 before it, the recording is the machine's own DAC and single-bit sound (compared by `sam/dac-sound.js`). The 2 LSB
 tolerance covers float rounding in the order MAME sums its streams; one AY level step here is at least 58 LSB.

@@ -698,5 +698,79 @@ function host() {
   }
 }
 
+// ---------------------------------------------------------------------------------------------------
+// The Pak's AY output as the machine hears it: MAME's single-output network at the Pak's gain of 2
+// ---------------------------------------------------------------------------------------------------
+// ssc-tone.asm plays channel A at volume 12 and B at 6 (C silent) with the mux open, so the Pak's level moves among
+// the four combinations of the two square waves. MAME 0.264's -wavwrite of the same firmware holds exactly four
+// levels (docs/verification.md, "The Speech/Sound Pak's AY sound"): 10,371, 11,110, 16,407 and 16,994 LSB of 32,767.
+// Those are the expected values, from MAME's recording, not from this code. The CI has no MAME, so this is what
+// keeps the Pak on its single output at gain 2 there: three legacy channel levels added, or the gain left out, give
+// other numbers.
+{
+  const Emu = require('../tests/load.js')();
+  const { buildAsm, toneFirmware } = require('../tools/mame-diff/ssc/gen-roms.js');
+  const { romImage } = require('../tools/mame-diff/lib/firmware.js');
+  const m = Emu.createMachine('coco', { mameCompat: true });
+  m.setRoms({ bas: romImage(buildAsm({ mux: true }), 0xA000, 0x2000, 0x12), extbas: new Uint8Array(0x2000).fill(0x12) });
+  m.insertCartridge(new Emu.SpeechSoundPak({ tms7040Rom: toneFirmware(), sp0256Rom: new Uint8Array(0x800) }));
+  m.reset(true);
+  const levels = new Set();
+  const cartSound = m.cartSound.bind(m);
+  m.cartSound = (tick, level) => { if (level !== 0) levels.add(Math.trunc(Math.fround(level) * 32767)); return cartSound(tick, level); };
+  for (let f = 0; f < 120; f++) m.runFrame();
+  const got = [...levels].sort((a, b) => a - b);
+  check('the Pak\'s AY levels are MAME\'s four: 10371, 11110, 16407, 16994 LSB (single output, gain 2)',
+    JSON.stringify(got) === JSON.stringify([10371, 11110, 16407, 16994]), got.join(','));
+}
+
+// ---------------------------------------------------------------------------------------------------
+// An AY write lands after the samples that started before it
+// ---------------------------------------------------------------------------------------------------
+// On the hardware grid (no mameCompat) the AY makes a sample every 4 card cycles from power-on, at 0, 4, 8, ...
+// A register write takes effect at the end of the PIC instruction that makes it (T, in card cycles), so the first
+// sample to play the new value is the first to START at or after T: its stamp is T rounded up to a multiple of 4.
+// In gen-ay.js's fixed-level steps every level change comes from the AY write just before it (a write that leaves
+// the level as it was is followed by none), so each change must carry the stamp its latest write gives. A write applied before the instruction's samples are made
+// would put the change on a sample that started before T (MAME's order: docs/verification.md, "When a write lands").
+{
+  const Emu = require('../tests/load.js')();
+  const { romImage } = require('../tools/mame-diff/lib/firmware.js');
+  const { ayPic, ayHost } = require('../tools/mame-diff/ssc/gen-ay.js');
+  const { buildSp0256 } = require('../tools/mame-diff/ssc/gen-roms.js');
+  const m = Emu.createMachine('coco', {});
+  m.setRoms(Object.fromEntries(Emu.profiles.coco.roms.map((r) => [r.id, romImage(ayHost(), r.at, r.size, 0x12)])));
+  m.insertCartridge(new Emu.SpeechSoundPak({ tms7040Rom: ayPic(), sp0256Rom: buildSp0256() }));
+  m.reset(true);
+  const pak = m.cartPort;
+  let pending = null, pairs = 0, wrong = 0, firstWrong = '';
+  // T is taken from the PIC, independently of when the card applies the write: the instruction that decodes an AY
+  // data write (toAy is called inside it) ends at its start plus its cycles. The latest such end is kept; a write
+  // that changed nothing is replaced by the next.
+  let wrote = false;
+  const toAy = pak.toAy.bind(pak);
+  pak.toAy = (fn, v) => { if (fn === pak.ay.dataW) wrote = true; return toAy(fn, v); };
+  const step = pak.tms7040.step.bind(pak.tms7040);
+  pak.tms7040.step = () => {
+    const start = Number(pak.cardPos);
+    const cycles = step();
+    if (wrote) { pending = start + cycles; wrote = false; }
+    return cycles;
+  };
+  const cartSound = m.cartSound.bind(m);
+  m.cartSound = (tick, level) => {
+    if (pending !== null) {
+      const want = Math.ceil(pending / 4) * 4;
+      pairs++;
+      if (tick !== want) { wrong++; if (!firstWrong) firstWrong = `write at ${pending}: change stamped ${tick}, want ${want}`; }
+      pending = null;
+    }
+    return cartSound(tick, level);
+  };
+  for (let f = 0; f < 30; f++) m.runFrame();      // the fixed-level steps: about the first 0.4 s
+  check('each AY write first sounds on the first sample to start at or after its instruction\'s end',
+    pairs > 50 && wrong === 0, `${pairs} writes, ${wrong} wrong${firstWrong ? `; ${firstWrong}` : ''}`);
+}
+
 console.log(`${n - fail}/${n} SSC checks passed`);
 process.exitCode = fail ? 1 : 0;
