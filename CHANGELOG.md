@@ -376,7 +376,6 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   and Enter asked Claude instead. It now splits at punctuation as the labels are. A question, ending in "?", still goes
   to Claude even when its words match a command: "reset?" asks, with Reset listed beneath, and runs nothing. Only a
   command's whole label typed with its own "?" runs it.
-
 - **Toast placement no longer leaks a per-frame loop per toast or rewrites unchanged styles.** Every toast shown
   started its own animation-frame chain and none was cancelled, so a session's toasts added permanent per-frame loops
   (three chains placing the same frame were measured), and each frame cleared and rewrote eleven inline properties on
@@ -390,6 +389,18 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   re-applied from the cache. The chat's Stop pill still flashes while a toast covers it; that is a separate, known
   issue, recorded in `docs/verification.md`.
   `tests/toast-follow.test.js`, `tools/browser-check.js`, `tools/flicker-measure.js`.
+- **DriveWire printing goes to the machine that printed.** A print over the Becker port landed in the
+  printout of whichever machine was on screen — the BASIC session's printout could end up on the chat machine
+  after switching, or vanish when a chat was closed — and the chat machine's own DriveWire server had no
+  handler at all, so anything it printed was dropped. Each server's prints now go to the machine its Becker
+  port belongs to, on screen or off, survive ending a chat, and the Session's server holds no machine the
+  Session has let go of. A chat opened without DriveWire on a machine with the Becker port no longer runs
+  on a machine that carries the port: the port would take the Session's server and the BASIC session's
+  prints with it. `tests/drivewire-print.test.js` covers it.
+- **An off-screen print no longer disturbs the Machine tab's printout.** A DriveWire print from the
+  machine you are not looking at (the BASIC session while a full-screen chat is up) fires the printer
+  event, but the panel re-renders only when the printout it shows changed, so it no longer scrolls to the
+  end of an unchanged printout while you are scrolled up reading it.
 
 ### 0.1.8-pre
 

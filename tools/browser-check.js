@@ -1529,6 +1529,9 @@ async function printerChecks(browser, base, check) {
   await page.evaluate(() => {
     const m = window.emu.machine, p = m.bitBanger, bit = m.tickHz / 9600;
     let t = m.now();
+    // the line to mark first (the stub's PIA initialisation can leave TXD held at space): a character's
+    // start bit is a falling EDGE, so the characters must begin from the idle level, whatever ran before
+    p.txd(t, 1); t += 2 * bit;
     for (const b of [0x48, 0x49, 0x0D]) {
       for (let k = 0; k < 10; k++) { p.txd(t, k === 0 ? 0 : k === 9 ? 1 : (b >> (k - 1)) & 1); t += bit; }
       t += 2 * bit;
@@ -1557,6 +1560,58 @@ async function printerChecks(browser, base, check) {
   await pickMachine(page, 'dragon32');
   await openTab(page, 'Machine');
   check('serial: no serial section on the Dragon 32', await page.isHidden('#serialSection'));
+  // a full-screen chat on a CoCo with the Becker port: the BASIC session prints over DriveWire while the
+  // chat machine is on screen. The panel (open on the CHAT machine, whose printout is empty) must not move:
+  // the person scrolled up, an off-screen print is not theirs to see, and neither the text nor the scroll
+  // changes (the 'printer' event reports the off-screen print; the panel renders nothing for it).
+  await pickMachine(page, 'coco');
+  await waitFor(page, () => window.emu.session.welcomeRunning);
+  // the Becker port on for this section (a fresh page load would take it from the URL)
+  await page.evaluate(() => window.emu.session.switchMachine('coco', { becker: true }));
+  await waitFor(page, () => window.emu.machine.id === 'coco' && !!window.emu.machine.becker);
+  await openTab(page, 'Machine');
+  const chatFirmware = new Uint8Array(fs.readFileSync(path.join(ROOT, 'examples', 'chat.bin')));
+  await page.evaluate(([bytes]) => {
+    const KEY = 'sk-ant-PRINTER-SCROLL-CHECK-0123456789';
+    window.emu.session.setClaudeKey(KEY);
+    window.emu.session.startChat({ backend: new window.emu.Emu.ClaudeBackend({ fetch: async () => new Response('', { status: 200, headers: { 'content-type': 'text/event-stream' } }), apiKey: KEY }), firmware: new Uint8Array(bytes), drivewire: true });
+  }, [chatFirmware]);
+  await waitFor(page, () => window.emu.session.chatMachines && window.emu.machine === window.emu.session.chatMachines.chat, null, 8000);
+  check('printer: the chat machine shown has an empty printout', await page.textContent('#printout') === '');
+  // the chat firmware finds the server and opens its channel at startup (DWINIT, SERINIT): wait for it to
+  // finish before driving prints through the same port, or the firmware's transactions and the prints
+  // interleave and both come out wrong
+  await page.evaluate(() => { window.__dwCount = 0; const s = window.emu.session.chatServer; s.onTransaction = () => window.__dwCount++; });
+  await waitFor(page, () => window.emu.session.chatServer.channels[14].open, null, 8000);
+  await page.evaluate(() => new Promise((res) => { const c = window.__dwCount; setTimeout(() => res(window.__dwCount === c), 400); }));
+  await page.evaluate(() => { window.emu.session.chatServer.onTransaction = null; });
+  // a long printout on the SHOWN machine, so the panel can scroll; then scroll it up
+  await page.evaluate(() => {   // a long printout on the shown machine, so the panel can scroll
+    const m = window.emu.session.chatMachines.chat;
+    for (let i = 0; i < 30; i++) for (const c of 'ABC DEF GHI JKL\r') m.printed.push(c.charCodeAt(0));
+  });
+  await emuFrames(page, 2);   // a frame runs checkPrinter and the panel renders it
+  await page.evaluate(() => { const el = document.getElementById('printout'); el.scrollTop = 0; });
+  const before = await page.evaluate(() => ({ top: document.getElementById('printout').scrollTop, text: document.getElementById('printout').textContent }));
+  await page.evaluate(() => {   // the BASIC session prints, off screen, over the Session's DriveWire server
+    const m = window.emu.session.chatMachines.basic;
+    for (const b of [0x50, 0x5A, 0x46]) m.write(0xFF42, b);   // PRINT 'Z', flush
+  });
+  await emuFrames(page, 2);
+  const after = await page.evaluate(() => ({ top: document.getElementById('printout').scrollTop, text: document.getElementById('printout').textContent }));
+  check('printer: an off-screen print leaves the panel\'s text unchanged',
+    after.text === before.text && !after.text.includes('Z'), JSON.stringify(after.text.slice(-20)));
+  check('printer: ...and the scroll stays where the person put it', after.top === before.top && before.top === 0,
+    `scrollTop ${before.top} -> ${after.top}`);
+  const offscreen = await page.evaluate(() => [...window.emu.session.chatMachines.basic.printed]);
+  check('printer: the off-screen print went to the printing machine\'s own printout', offscreen.includes(0x5A), JSON.stringify(offscreen));
+  await page.evaluate(() => window.emu.session.endChat());
+  await waitFor(page, () => window.emu.machine === window.emu.session.chatMachines?.basic || !window.emu.session.chat, null, 8000);
+  await emuFrames(page, 2);
+  // back on the BASIC session: its printout is there, and the panel shows it (and scrolls to it, being new)
+  await openTab(page, 'Machine');
+  await waitFor(page, () => document.getElementById('printout').textContent.includes('Z'), null, 3000);
+  check('printer: the BASIC session\'s printout is there when it comes back on screen', (await page.textContent('#printout')).endsWith('Z'));
   check('printer: no page errors', !errors.length, errors.join('; '));
   await page.close();
 }

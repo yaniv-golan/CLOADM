@@ -353,7 +353,9 @@ export class Session {
     this.tapeInfo = null;           // the tape in the deck: its block starts and length (tapeStatus)
     this.tapeWatch = null;          // the current or last run of the cassette motor: { done, error } (tapeStatus)
     this.tapeStarted = null;        // a machine-code tape fast-loaded and started: { tape, exec } (tapeStatus started)
-    this.lastPrinted = 0;           // printout length at the last 'printer' event
+    // each machine's printout length when it was last reported by a 'printer' event (checkPrinter): the printout
+    // belongs to the machine, so the change is tracked per machine, not per session
+    this.printedSeen = new WeakMap();
     this.terminalBytes = [];        // what the machine has sent to the serial terminal
     // DriveWire: one server for the session, on its media store (images under DW_PREFIX); attached to the
     // machine's Becker port when it has one. Channels: WebSockets (DriveWireSocket) by channel number.
@@ -368,7 +370,12 @@ export class Session {
     this.WebSocket = globalThis.WebSocket;
     this.serial = globalThis.navigator && globalThis.navigator.serial;   // Web Serial (a mock in tests)
     this.serialLink = null;
-    this.drivewire.onPrint = (bytes) => { if (this.shownMachine) { for (const b of bytes) this.shownMachine.printed.push(b); this.checkPrinter(); } };
+    // a machine's DriveWire prints go to ITS printout, whichever machine is on screen (the shown machine is
+    // swapped by install and showChat while both machines run); the chat machine's server (startChat) gets its
+    // own handler, so its prints are kept too instead of being dropped. install sets the Session server's
+    // handler to the machine that takes it, and clears it when that machine leaves.
+    this.drivewire.onPrint = null;
+    this.dwPrint = (m) => (bytes) => { for (const b of bytes) m.printed.push(b); this.checkPrinter(); };
     this.drivewire.onChannelData = (ch, bytes) => { const s = this.dwSockets.get(ch); if (s) s.send(bytes); };
     this.drivewire.onChannelOpen = (ch) => { const s = this.dwSockets.get(ch); if (s) s.deliver(); };
     this.drivewire.onChannelRead = (ch) => { const s = this.dwSockets.get(ch); if (s) s.deliver(); };
@@ -685,10 +692,17 @@ export class Session {
     this.applyDisplay();
     this.acc = 0;
     this.lastRate = this.cpuRate() && this.cpuRate().rate;
-    this.lastPrinted = m.printed.length;
+    this.printedSeen.set(m, m.printed.length);   // its printout is its own: report only what changes from here
     this.terminalBytes = [];
     this.wireTerminal();
     if (m.becker && !m.becker.server) { this.drivewire.resetLink(); m.becker.attach(this.drivewire); }
+    // the Session's server prints to the machine that holds it, or to no machine: a machine the Session has
+    // let go of (a switch ended the chat and its machines) must not be kept alive by the handler. The chat's
+    // two machines are the exception: dropChat is what lets them go, and between a showChat swap they both
+    // stay with the Session - the one going off screen keeps the server and its prints.
+    const holder = m.becker && m.becker.server === this.drivewire ? m
+      : this.chatMachines ? [this.chatMachines.basic, this.chatMachines.chat].find((c) => c.becker && c.becker.server === this.drivewire) : null;
+    this.drivewire.onPrint = holder ? this.dwPrint(holder) : null;
   }
 
   // ---------------- printer ----------------
@@ -715,10 +729,14 @@ export class Session {
     if (!this.shownMachine.printed.length) throw new SessionError('Nothing has been printed yet.');
     return { name: `${this.shownMachine.id}-printout.prn`, bytes: this.printout };
   }
-  // after frames run: a 'printer' event when the printout changed
+  // after frames run: a 'printer' event when any running machine's printout changed - the shown machine, and the
+  // chat's BASIC session and chat machine (startChat), which run beside each other whichever is on screen. The
+  // printout belongs to the machine that printed, so the length is tracked per machine (printedSeen): a machine
+  // that is not running now (switched away from) keeps what it printed for when it comes back.
   checkPrinter() {
-    const n = this.shownMachine.printed.length;
-    if (n !== this.lastPrinted) { this.lastPrinted = n; this.emit('printer'); }
+    const seen = (m) => { const n = m.printed.length; if (n !== (this.printedSeen.get(m) ?? n)) { this.printedSeen.set(m, n); this.emit('printer'); } };
+    if (this.shownMachine) seen(this.shownMachine);
+    if (this.chatMachines) { seen(this.chatMachines.basic); seen(this.chatMachines.chat); }
   }
 
   // ---------------- serial port (the CoCo's and the MC-10's bit-banger, the Dragon 64's 6551) ----------------
@@ -3472,10 +3490,16 @@ export class Session {
     const kept = this.chat && !this.chatMachines ? this.chat : null;   // the side panel's conversation moves here
     if (!kept) this.dropChat();
     // the welcome program, if it runs, stays on the BASIC session: closing the chat comes back to its menu
-    const chatMachine = createMachine(basic.id, drivewire ? Object.assign({}, basic.config, { becker: true }) : basic.config);
+    // the chat machine carries the Becker port only when the chat talks on it: with the mailbox there is
+    // nothing for the port to do, and a becker on it would take the Session's server and the BASIC
+    // session's prints with it (a machine without the option keeps a config without the key)
+    const chatConfig = Object.assign({}, basic.config);
+    if (drivewire) chatConfig.becker = true; else delete chatConfig.becker;
+    const chatMachine = createMachine(basic.id, chatConfig);
     if (drivewire) {
       this.chatServer = new DriveWireServer({ store: this.media, namePrefix: DW_PREFIX, clock: this.drivewire.clock, sameName: (a, b) => this.sameName(a, b) });
       this.chatServer.drives = this.drivewire.drives;
+      this.chatServer.onPrint = this.dwPrint(chatMachine);   // the chat machine's prints are its own, too
       chatMachine.becker.attach(this.chatServer);
       if (!channel) channel = new DriveWireChatChannel(this.chatServer, CHAT_DW_CHANNEL);
     }

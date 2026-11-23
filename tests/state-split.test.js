@@ -17,7 +17,7 @@ let fail = 0, n = 0;
 const check = (name, cond, detail = '') => { n++; if (!cond) { fail++; console.log(`FAIL ${name} ${detail}`); } else console.log('ok   ', name, detail); };
 
 const PARTS = ['state', 'state-fdc', 'state-carts', 'state-tape'];
-const BEFORE = 224;   // the checks the unsplit tests/state.test.js ran (its ok lines), on this branch's base
+const BEFORE = 229;   // the checks the unsplit tests/state.test.js ran (its ok lines), 224 at the split, plus the 5 printout checks added to state since
 
 const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, 'state-check-names.json'), 'utf8'));
 
