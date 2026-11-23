@@ -10,6 +10,17 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 
 ### Added
 
+- **The machine menu says what each machine is.** With no ROMs stored at all, one line at the top, "No ROMs yet:
+  every machine needs its own ROMs for BASIC.", replaces the 17 "needs ROMs" tags; the ✓ / needs ROMs tags come back
+  once any ROMs are stored. Each section has a subtitle (DRAGON "Dragon Data's machines and their Spanish and US
+  versions", COCO "Tandy's Color Computers", MC-10 "Tandy's MC-10 and the French Matra Alice", CLONES "Brazilian
+  copies of the CoCo", KITS naming what it holds, today the Prológica CP-400). The footer, kept in view while the
+  models scroll, shows one line for the model under the pointer or the focus ("Codimex CD-6809: a CoCo clone by
+  Codimex, 1983."), visual only: each item carries the same words as its aria-description (none on a phone). The
+  footer's new **Which one is mine? →** opens Help's new **Which machine is mine?** section (`help/#machines`), every
+  model with what it is and the ROMs it takes by the names Your ROMs uses, generated from the data by
+  `node tools/gen-machine-help.js`. The descriptions are data in `js/machines/menu.js` (`SUBTITLES`, `DESCRIPTIONS`,
+  `describe`), each with the MAME 0.264 driver line it was checked against.
 - **Minesweeper plays with a joystick.** Either joystick moves the cursor: one step as the stick leaves the centre,
   then again after 300 ms and every 120 ms while it is held (counted in fields, at the machine's own 50 or 60 Hz;
   centring the stick and pushing the same way again is a new press). Either fire button opens the square under the
