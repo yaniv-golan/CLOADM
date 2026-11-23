@@ -42,11 +42,15 @@ const PATTERNS = [
   { id: 'session-link', what: 'a link to a Claude session', re: new RegExp(J('claude\\.ai', '\\/code\\/session')) },
   { id: 'private-repo', what: 'the private planning repository', re: new RegExp(J('cloadm', '-private'), 'i') },
   { id: 'local-path', what: 'a path on a developer machine or a cloud container', re: new RegExp(J('\\/home', '\\/user\\b|\\/tmp', '\\/claude-|\\/root', '\\/\\.ccr\\b')) },
+  // a home directory on macOS or Windows: the Users folder at the root, or under a drive letter (either slash)
+  { id: 'home-path', what: 'a home directory on a Mac or a Windows machine', re: new RegExp(J('(?<![\\w.-])\\/Users', '\\/[A-Za-z][\\w.-]*|\\b[A-Za-z]:[\\\\\\/]Users', '[\\\\\\/]'), 'i') },
   { id: 'worktree', what: 'a worktree path', re: new RegExp(J('\\.claude', '\\/worktrees\\b')) },
   { id: 'worker', what: 'a runner or worker named for a machine', re: new RegExp(J('\\bCLOADM', '-local\\b|\\blocal[- ]runner\\b|\\bworker[- ]session\\b|\\bw[1-9]', "'s\\b"), 'i') },
-  // a branch: a CI glob ("ds/**", "claude/**") is public and fine, and a path segment ("js/claude/brief.js",
-  // "@anthropic-ai/claude-code") is not a branch
-  { id: 'branch', what: 'a branch name outside the CI globs', re: new RegExp(J('(?<![\\w\\/.@-])(?:ds|claude)', '\\/(?!\\*\\*)[a-z0-9][\\w.-]*')) },
+  // a branch, bare or as a ref ("origin/…", "refs/heads/…", "refs/remotes/origin/…"): a CI glob ("ds/**",
+  // "claude/**") is public and fine, and any other path segment ("js/claude/brief.js", "@anthropic-ai/claude-code")
+  // is not a branch
+  { id: 'branch', what: 'a branch name outside the CI globs',
+    re: new RegExp(J('(?:(?<![\\w\\/.@-])|(?<=\\b(?:origin|refs\\/heads|refs\\/remotes\\/origin)\\/))(?:ds|claude)', '\\/(?!\\*\\*)[a-z0-9][\\w.-]*')) },
   { id: 'planning', what: 'a planning item number', re: new RegExp(J('\\bP', 'M(', SEP, ')(\\d+)\\b'), 'gi'), spared: planningSpared },
   { id: 'inbox', what: 'an inbox item number', re: new RegExp(J('\\b(?:in', 'box|mail', 'box)(', SEP, ')(\\d{1,6})\\b'), 'gi'), spared: inboxSpared },
   { id: 'inbox-path', what: 'an inbox path', re: new RegExp(J('\\/to', '-local\\/\\d+')) },
@@ -82,7 +86,8 @@ const POSITIVE = {
   'local-path': [J('/home', '/user/CLOADM/tests'), J('written to /tmp', '/claude-0/scratchpad'), J('/root', '/.ccr/README.md')],
   worktree: [J('.claude', '/worktrees holds every other worktree'), J('cd .claude', '/worktrees/x')],
   worker: [J('run on CLOADM', '-local'), J('the local', ' runner'), J('a local', '-runner job'), J('w1', "'s branch"), J('the worker', ' session')],
-  branch: [J('(ds', '/cpu6309-welcome fixed it)'), J('merged into claude', '/v0.1.9-stage'), J('ds', '/load-flicker-w2 brings'), J('claude', '/label-cleanup')],
+  'home-path': [J('/Users', '/jane/src/CLOADM'), J('C:', '\\Users\\jane\\CLOADM'), J('c:', '/use', 'rs/jane/x'), J('see /Users', '/sam')],
+  branch: [J('git push origin', '/ds/cpu-fix'), J('refs/heads', '/claude/label-cleanup'), J('refs/remotes/origin', '/ds/x-y'), J('(ds', '/cpu6309-welcome fixed it)'), J('merged into claude', '/v0.1.9-stage'), J('ds', '/load-flicker-w2 brings'), J('claude', '/label-cleanup')],
   planning: [J('as P', 'M 143 says'), J('see P', 'M143'), J('p', 'm 12 asks'), J('P', 'M  7'), J('P', 'M\t7'), J('P', 'M 7'),
     [J('BEQ     P', 'M1'), 'tests/x.js'], [J('; P', 'M 12 asked for this'), 'examples/x.asm'], [J('P', 'M 12345 decided'), 'docs/x.md']],
   inbox: [J('in', 'box 12'), J('Mail', 'box 3 says'), J('in', 'box 123456'), J('in', 'box\t9')],
@@ -98,7 +103,8 @@ const NEGATIVE = {
   'local-path': ['/home/runner/work/CLOADM', 'the user home', '/tmp/cloadm-nitros9', 'os.tmpdir()'],
   worktree: ['a worktree', 'git worktree add', 'worktrees'],
   worker: ['const w1 = 3', 'W2 is held', 'a Web Worker', 'the runner', 'service-worker events'],
-  branch: ['branches: [main, "claude/**", "ds/**"]', 'js/claude/brief.js', '@anthropic-ai/claude-code', 'skills/claude', 'the ds/** glob'],
+  'home-path': ['/home/runner/work', 'the Users list', 'api/Users', 'https://site.com/x/Users', 'D:\\games\\x', 'fooUsers/x'],
+  branch: ['refs/heads/main', 'origin/main', 'refs/heads/ds/**', 'origin/claude/**', 'branches: [main, "claude/**", "ds/**"]', 'js/claude/brief.js', '@anthropic-ai/claude-code', 'skills/claude', 'the ds/** glob'],
   planning: [J('at 10 P', 'M 2026 we met'), J('P', 'M 1999'), 'PMODE 4', '3 PM', 'npm 12', '2pm 3',
     [J('P', 'M1     BITA    #KRIGHT'), 'examples/starter-game/catch.asm'], [J('        BEQ     P', 'M1'), 'examples/starter-game/catch.asm'],
     [J('        BHS     P', 'M2'), 'examples/x.asm']],

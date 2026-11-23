@@ -96,8 +96,9 @@ const PATTERNS = [
   // a process role or a reviewer's words as the reason for code
   { id: 16, re: /\b(?:UX|PM|design|product) lead\b|\bthe reviewers? (?:said|asked|wanted|found|noted|flagged)\b/i },
   // a ruling's sub-labels: "R44 b5", "(R44 b1)", "R44 (b4)", "R44, b4", and one opening a comment ("// b3: ",
-  // "//  (b4) "). A variable named so ("catch (e2)", "mixCodes(c0, c1)") is not one
-  { id: 17, re: /\bR\d+,? \(?[a-e]\d\)?(?![\w(])|(?:\/\/|\/\*)\s*(?:\([a-e]\d\)\s|[a-e]\d:\s)/ },
+  // "//  (b4) "), and a bare one in prose ("the launch (b4) releases", "(b1, b3)"). A variable named so is not one:
+  // a call's or a keyword's parentheses ("mixCodes(c0, c1)", "catch (e2)", "if (c0)", "return (d1)")
+  { id: 17, re: /\bR\d+,? \(?[a-e]\d\)?(?![\w(])|(?:\/\/|\/\*)\s*(?:\([a-e]\d\)\s|[a-e]\d:\s)|(?<![\w$)\],(])(?<![,(] )(?<!\b(?:catch|if|while|for|switch|return|typeof|await|yield|new) )\([a-e]\d(?:,\s*[a-e]\d)*\)/ },
   // a ticket or pull request named as the source ("PR-4", "PR #12", "issue #3", "see #40", "(#123)"); a number
   // inside a quoted title of another project's change ('"raster timing (#16698)"' in MAME's log) is that project's
   { id: 18, re: /\bPR(?:-| ?#)\d+\b|\b(?:issue|ticket|bug) #\d+\b|\bsee #\d+\b|\(#\d+\)(?!["'])/i },
@@ -188,7 +189,7 @@ const POSITIVE = {
     "check('A2 the person", "check(`B the person's input", "check('C the turn goes on", "check('D a machine without BASIC", "check('E backend",
     "const MARK = 'D2-MARK-conversation';", 'window.__d2chat = s.chat', '  // D3: a reload while a view'],
   16: ['as the UX lead asked', 'the PM lead decided', 'the reviewer said so', 'what the reviewers found', 'The reviewer flagged it'],
-  17: ['// R44 (b4): a launch', '(R44 b1): the button', "check('R44 b5: typing", '(UX ruling R44, b4)', '//  (b4) Reset, a power cycle', '// b3: the status line'],
+  17: ['// R44 (b4): a launch', '(R44 b1): the button', "check('R44 b5: typing", '(UX ruling R44, b4)', '//  (b4) Reset, a power cycle', '// b3: the status line', 'the launch (b4) releases the stop', '(b4) Reset', 'see (b1, b3) above', '* (c2) the strip'],
   18: ['fixed in PR-4', 'see PR #12', 'as issue #3 says', 'see #40 for why', 'a race (#123) in the mount', 'ticket #7'],
 };
 const NEGATIVE = {
@@ -211,7 +212,8 @@ const NEGATIVE = {
     "check('A: the only thing it fetches is panel.js'", "check('B is about 1 MiB'", '//   B (open_emulator_inline): this file', '// D and W are both 16-bit',
     "// A disk the person puts in", "check('a refused drop'", 'const w2 = lib()', '__proto__'],
   16: ['the lead line', 'a UX question', 'the reviewer: a person', 'reviewers read the diff'],
-  17: ['catch (e2) { }', 'mixCodes(c0, c1)', 'twoFrames(c2);', 'const b1 = 3', '(a5)', 'R44 rows'],
+  17: ['catch (e2) { }', 'mixCodes(c0, c1)', 'twoFrames(c2);', 'const b1 = 3', 'f(a5)', 'R44 rows', 'if (c0) x();', 'while (d1 > 0)', 'return (d1)',
+    'x = typeof (a1)', 'mix(c0)(c1)', 'arr[0](b2)', 'await (d3)', 'new (b4)', 'f(x, (c1))'],
   18: ['"trs/coco: raster timing (#16698)" (Oct 2026)', 'color: #000;', 'PR1     STA', '#C42B23', 'the issue is', 'press #'],
 };
 for (const p of PATTERNS) {
