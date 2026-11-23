@@ -209,6 +209,15 @@ check('the skill\'s tool table names no tool the server does not have', extra.le
     check('the eval\'s side-panel stand-in opens its instructions with the side-panel line and says route "panel"',
       init.result.instructions.split('\n')[0] === 'You are driving CLOADM in the person\'s side panel.' && info.result.structuredContent.route === 'panel', out.slice(0, 200));
   }
+// the Debugger's stop (machine-stopped): an eval on the side panel's stand-in started stopped, and the skill says what to do
+{
+  const dir = path.join(__dirname, 'skill-evals/panel-debugger-stopped');
+  check('an eval covers a machine stopped in the Debugger (panel-debugger-stopped: server panel, panel_state stopped, graders)',
+    /^server: panel$/m.test(fs.readFileSync(path.join(dir, 'prompt.md'), 'utf8')) && /^panel_state: stopped$/m.test(fs.readFileSync(path.join(dir, 'prompt.md'), 'utf8'))
+    && fs.readdirSync(path.join(dir, 'graders')).length >= 3);
+  const skill = fs.readFileSync(path.join(__dirname, '..', 'skills/cloadm/SKILL.md'), 'utf8');
+  check('the skill names machine-stopped, in its gotchas and in the side panel\'s essentials', (skill.match(/machine-stopped/g) || []).length >= 2);
+}
 check('an eval covers the steering (prefer-side-panel)', fs.existsSync(path.join(__dirname, 'skill-evals/prefer-side-panel/case.yaml')) && fs.readdirSync(path.join(__dirname, 'skill-evals/prefer-side-panel/graders')).length >= 2);
 console.log(fail ? `${fail} FAILED` : `${n}/${n} skill checks passed`);
   process.exitCode = fail ? 1 : 0;

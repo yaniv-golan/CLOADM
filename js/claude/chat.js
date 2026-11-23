@@ -85,7 +85,7 @@ const ACTING = {
     },
   },
   type_text: {
-    description: `Type text at the machine's keyboard as if typed (\\n presses Enter), 1 to ${TYPE_TEXT_MAX} characters, into whatever program is reading it. Each key is held until the machine has read it, and the next line waits until the machine is reading the keyboard again, so a busy program drops nothing. Returns {requested,consumed,lines_requested,lines_delivered}: keys and Enters the machine read; ${CONSUMED_MEANS} Errors: empty, too-large, not-typable (nothing typed); not-consumed if the machine stops reading the keyboard (the rest is not typed; detail says how far it got); stopped if the person presses Stop while it types (the keys before it were typed; detail says how many); machine-restarted if the machine restarts while the keys go in (detail says how many went in); this is not a Stop: read the screen before typing again. ${TYPING_POLICY}` + CONSENT,
+    description: `Type text at the machine's keyboard as if typed (\\n presses Enter), 1 to ${TYPE_TEXT_MAX} characters, into whatever program is reading it. Each key is held until the machine has read it, and the next line waits until the machine is reading the keyboard again, so a busy program drops nothing. Returns {requested,consumed,lines_requested,lines_delivered}: keys and Enters the machine read; ${CONSUMED_MEANS} Errors: empty, too-large, not-typable (nothing typed); not-consumed if the machine stops reading the keyboard (the rest is not typed; detail says how far it got); machine-stopped if the Debugger has the machine stopped (nothing typed); stopped if the person presses Stop while it types (the keys before it were typed; detail says how many); machine-restarted if the machine restarts while the keys go in (detail says how many went in); this is not a Stop: read the screen before typing again. ${TYPING_POLICY}` + CONSENT,
     input_schema: schema({ text: { type: 'string', minLength: 1, maxLength: TYPE_TEXT_MAX, description: `The keys to type, 1 to ${TYPE_TEXT_MAX} characters; \\n is Enter.` } }, ['text']),
     check(chat, t, input) {
       const text = input.text;
@@ -96,6 +96,7 @@ const ACTING = {
       return text;
     },
     act(chat, t, text) { t.show(); return chat.keys(t, t.typeText(text)); },
+    needsRunning: true,
   },
   load_basic: {
     description: `Load a BASIC program straight into the program memory of the machine's BASIC, as loading it from tape or disk would: no typing. The text is tokenized for this machine's BASIC (Dragon, Color/Extended BASIC on a CoCo, Micro Color BASIC on an MC-10) and replaces the program in memory (like NEW, then the lines). One line per program line, each starting with its line number (0-${BASIC_LINE_MAX}), 1 to ${BASIC_PROGRAM_TEXT_MAX} characters in all. Needs the BASIC prompt (not the no-ROM stub, not a running program). Returns {lines,bytes,start,end}: the lines stored, the program's size in bytes, and its first and last byte addresses (decimal). Only characters $20-$7E. Errors: empty, too-large, bad-line-number, line-too-long, not-typable, no-basic, not-at-prompt, program-too-large, unknown-machine, each refused with nothing changed; not-ram if the program did not read back once written. ${TYPING_POLICY}` + LOAD_CONSENT,
@@ -105,10 +106,11 @@ const ACTING = {
     act(chat, t, plan) { t.show(); return writeBasic(t, plan); },
   },
   press_break: {
-    description: `Press BREAK on the machine's keyboard, held until the machine has read it down, as type_text holds a key. Takes no parameters. Returns {requested:1,consumed:1}; ${CONSUMED_MEANS} Errors: not-consumed if the machine does not read the keyboard while BREAK is held (a program that never scans it; a machine without ROMs, whose stub reads no BREAK); stopped if the person presses Stop while it is held; machine-restarted if the machine restarts while the keys go in (detail says how many went in); this is not a Stop: read the screen before typing again.` + CONSENT,
+    description: `Press BREAK on the machine's keyboard, held until the machine has read it down, as type_text holds a key. Takes no parameters. Returns {requested:1,consumed:1}; ${CONSUMED_MEANS} Errors: not-consumed if the machine does not read the keyboard while BREAK is held (a program that never scans it; a machine without ROMs, whose stub reads no BREAK); machine-stopped if the Debugger has the machine stopped (nothing pressed); stopped if the person presses Stop while it is held; machine-restarted if the machine restarts while the keys go in (detail says how many went in); this is not a Stop: read the screen before typing again.` + CONSENT,
     input_schema: schema({}, []),
     check: () => null,
     act(chat, t) { t.show(); return chat.keys(t, t.pressBreak(), { read: true }); },
+    needsRunning: true,
   },
   assemble_and_load: {
     description: `Assemble source for the machine's own CPU and write it into memory; does not start it (use run). Returns {bytes,written,skipped,ranges:[{from,to}],start,symbols:{NAME:address},not_taken:[{from,to,why}]} with every address a decimal integer: bytes assembled, how many landed (written) and did not (skipped); not_taken lists bytes that did not land (why: rom, io, latch, undecoded, absent-ram, lost). Errors: empty, too-large, bad-address, not-a-number, assembly-failed (with the line numbers of your source), include-unreadable (an INCLUDE file could not be read), org-conflict, past-end, not-ram (no byte landed), each refused with nothing written.` + CONSENT,
@@ -136,7 +138,7 @@ const ACTING = {
     },
   },
   run: {
-    description: `Start the code in memory. \`target\` is an address to jump to: a decimal integer ${ADDR}, or text in hex ("$3000", "0x3000", "3000"); or the text "RUN" to type RUN and Enter at the keyboard, as type_text types, so BASIC runs its program (needs the BASIC ROMs, and BASIC at its prompt). Returns {how:"jump", target} with the address the CPU was sent to, or {how:"typed", target:"RUN", requested, consumed, lines_requested, lines_delivered}; for "RUN", ${CONSUMED_MEANS} Errors: bad-target, no-basic; for "RUN" also not-consumed (the machine did not read the keys), stopped (the person pressed Stop while it typed) and machine-restarted if the machine restarts while the keys go in (detail says how many went in); this is not a Stop: read the screen before typing again.` + CONSENT,
+    description: `Start the code in memory. \`target\` is an address to jump to: a decimal integer ${ADDR}, or text in hex ("$3000", "0x3000", "3000"); or the text "RUN" to type RUN and Enter at the keyboard, as type_text types, so BASIC runs its program (needs the BASIC ROMs, and BASIC at its prompt). Returns {how:"jump", target} with the address the CPU was sent to, or {how:"typed", target:"RUN", requested, consumed, lines_requested, lines_delivered}; for "RUN", ${CONSUMED_MEANS} Errors: bad-target, no-basic, machine-stopped if the Debugger has the machine stopped (nothing run); for "RUN" also not-consumed (the machine did not read the keys), stopped (the person pressed Stop while it typed) and machine-restarted if the machine restarts while the keys go in (detail says how many went in); this is not a Stop: read the screen before typing again.` + CONSENT,
     input_schema: schema({ target: { anyOf: [{ type: 'integer', minimum: ADDRESS_MIN, maximum: ADDRESS_MAX }, { type: 'string' }], description: `Address (decimal integer ${ADDR}, or hex text) or "RUN"; omit for "${RUN_DEFAULT_TARGET}".` } }, []),
     check(chat, t, input) {
       const raw = input.target == null ? RUN_DEFAULT_TARGET : input.target;
@@ -148,8 +150,20 @@ const ACTING = {
       if (parsed != null) return { how: 'jump', target: parsed };
       return chat.keys(t, job, { read: true }).then((report) => ({ how: 'typed', target: RUN_DEFAULT_TARGET, ...report }));
     },
+    // (a jump too: on a stopped machine it would set the PC and run nothing, which reads as success)
+    needsRunning: true,
   },
 };
+
+// The tools that need the machine to run or read keys (needsRunning: type_text, press_break, run) refuse while the
+// Debugger has it stopped (R44's stop): machine-stopped, with where it stopped. Nothing is queued behind the stop, as
+// the person's own typing is refused then (Session.refuseTyping; both ask Session.stoppedOn). The tools that only
+// write memory (poke, assemble_and_load, load_basic) and every read work on a stopped machine, as the Debugger does.
+export function stoppedRefusal(t, name) {
+  const tool = Object.hasOwn(ACTING, name) ? ACTING[name] : null;
+  const at = tool && tool.needsRunning && t && t.stopped ? t.stopped() : null;
+  return at ? new ToolError(TOOL_CODES.MACHINE_STOPPED, `stopped in the Debugger at ${hex(at.pc)} (${at.kind})`) : null;
+}
 
 export function actingTools() {
   return Object.entries(ACTING).map(([name, { description, input_schema }]) => ({ name, description, input_schema }));
@@ -422,6 +436,9 @@ export class ChatSession {
     try {
       // a turn already stopped (an earlier call in this response was stopped) asks nobody and changes nothing
       if (this.controller && this.controller.signal.aborted) throw new ToolError(TOOL_CODES.STOPPED);
+      // a machine the Debugger has stopped: refused before anyone is asked (no card for what cannot happen)
+      const stopped = stoppedRefusal(t, name);
+      if (stopped) throw stopped;
       // awaited only when they return a promise: with nothing to ask or read, the restore point below is the
       // machine at the call itself, with no frame run in between
       // `call` is this call's own record between the gate and the re-check (which consent it relied on)
@@ -434,6 +451,9 @@ export class ChatSession {
       // ran: the last test before the change is synchronous with it, and a pause waits here (then tests again)
       for (;;) {
         if (this.controller && this.controller.signal.aborted) throw new ToolError(TOOL_CODES.STOPPED);
+        // (and again here, synchronous with the change: the Debugger may have stopped it while the card waited)
+        const now = stoppedRefusal(t, name);
+        if (now) throw now;
         const wait = this.recheck(name, input, call);
         if (!wait || typeof wait.then !== 'function') break;
         await wait;

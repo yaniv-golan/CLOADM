@@ -35,13 +35,13 @@ import { SessionError } from '../errors.js';
 import { profiles } from '../machines/profiles.js';
 import { ChatSession, actingTools } from '../claude/chat.js';
 import { readOnlyTools, runReadOnlyTool, ADDRESS_MIN, ADDRESS_MAX } from '../claude/readtools.js';
-import { ToolError, asToolError } from '../claude/toolerrors.js';
+import { TOOL_CODES, ToolError, asToolError } from '../claude/toolerrors.js';
 import { detectMedia } from '../media/detect.js';
 import { formats } from '../media/formats.js';
 import { cpuFamily } from '../cpu/cpus.js';
 import { identifyRoms, isBootable, isRomPack, restoreRomPack } from '../roms.js';
 import { isZip, readZip } from '../media/zip.js';
-import { crc32 } from '../util.js';
+import { crc32, hex as hexAddr } from '../util.js';
 
 export const MAX_MACHINES = 8;
 export const WALL_MS = 25000;            // the longest one call may run the machine, in wall time
@@ -254,6 +254,14 @@ export function createToolbox(host, { readOnly = false, maxMachines = MAX_MACHIN
     const mm = m.session.shownMachine, f = mm.render();
     m.whole = { machine: mm, frameCount: mm.frameCount, cycle: mm.cycle, frame: { width: f.width, height: f.height, data: f.data.slice(), table: f.table.slice() } };
   };
+  // The tools that must run the machine or press its keys (press_keys, run_frames; and the page's type_text,
+  // press_break and run, which ChatSession.callTool refuses itself) refuse while the Debugger has it stopped (R44's
+  // stop): machine-stopped, the code the page's tools give, with where it stopped. Reads work; launches (load, reset,
+  // power_cycle, insert_disk, boot) release the stop.
+  const notStopped = (m) => {
+    const at = m.session.stoppedOn(m.session.shownMachine);
+    if (at) throw new ToolError(TOOL_CODES.MACHINE_STOPPED, `stopped in the Debugger at ${hexAddr(at.pc)} (${at.kind})`);
+  };
   // the screen, as the page's screen_text reads it (one reader)
   const screen = (t) => runReadOnlyTool(t, 'screen_text', {});
   // the page's tool path for one machine: the chat's callTool on the page's target. The consent gate is the MCP
@@ -461,7 +469,7 @@ export function createToolbox(host, { readOnly = false, maxMachines = MAX_MACHIN
   // the CLI's --hold. Unlike type_text nothing checks that the program read them; a game reads them when it likes.
   add('press_keys', {
     title: 'Hold keys or the joystick',
-    description: `Hold keys down (together) and/or set the joystick for \`frames\` frames (default ${PRESS_FRAMES_DEFAULT}, at most ${RUN_FRAMES_MAX}) while the machine runs, then let go and centre the stick: for games and anything that reads the keyboard or joystick directly. Key names as on the machine's keyboard: A-Z, 0-9, LEFT, RIGHT, UP, DOWN, ENTER, SPACE, CLEAR, BREAK, SHIFT, @ : ; , - . / (the CoCo 3 also ALT, CTRL, F1, F2; the MC-10 has no arrows or CLEAR). Nothing checks that the program read them (type_text does, for typing text). Only a program that scans the keyboard matrix or reads the joystick itself sees them: BASIC and games do, but on the built-in firmware LIZA and the welcome screen take keys through the firmware, so type into them with type_text. Returns {keys, joystick, frames_run, machine}.`,
+    description: `Hold keys down (together) and/or set the joystick for \`frames\` frames (default ${PRESS_FRAMES_DEFAULT}, at most ${RUN_FRAMES_MAX}) while the machine runs, then let go and centre the stick: for games and anything that reads the keyboard or joystick directly. Key names as on the machine's keyboard: A-Z, 0-9, LEFT, RIGHT, UP, DOWN, ENTER, SPACE, CLEAR, BREAK, SHIFT, @ : ; , - . / (the CoCo 3 also ALT, CTRL, F1, F2; the MC-10 has no arrows or CLEAR). Nothing checks that the program read them (type_text does, for typing text). Only a program that scans the keyboard matrix or reads the joystick itself sees them: BASIC and games do, but on the built-in firmware LIZA and the welcome screen take keys through the firmware, so type into them with type_text. Refused with machine-stopped while the Debugger has the machine stopped (nothing is held). Returns {keys, joystick, frames_run, machine}.`,
     inputSchema: withMachine(objectSchema({
       keys: { type: 'array', items: { type: 'string', minLength: 1 }, maxItems: 8, description: 'key names held together, e.g. ["LEFT"] or ["SHIFT", "UP"]; a name may be in braces ("{ENTER}") and in any case' },
       joystick: {
@@ -473,6 +481,7 @@ export function createToolbox(host, { readOnly = false, maxMachines = MAX_MACHIN
     annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
     handler: async (args, { signal, progress }) => {
       const m = get(args), mm = m.session.shownMachine;
+      notStopped(m);
       const frames = args.frames == null ? PRESS_FRAMES_DEFAULT : intIn(args.frames, 1, RUN_FRAMES_MAX, 'frames');
       if (args.keys != null && !Array.isArray(args.keys)) throw fail('bad-argument', 'keys is a list of key names, e.g. ["LEFT"]');
       const keys = (args.keys || []).map((k) => String(k).replace(/^\{(.+)\}$/, '$1').toUpperCase());
@@ -511,11 +520,12 @@ export function createToolbox(host, { readOnly = false, maxMachines = MAX_MACHIN
   // ---- running ----
   add('run_frames', {
     title: 'Run the machine',
-    description: `Let the machine run for up to \`frames\` video frames of emulated time (50 or 60 a second; default ${RUN_FRAMES_DEFAULT}, at most ${RUN_FRAMES_MAX}), stopping early as soon as \`until\` holds: text on the screen (a plain substring), a byte in memory, the program counter at an address, the tape stopped or at its end, or the screen changed. Use it to wait for something rather than guessing a delay. A call also stops after about ${Math.round(wallMs / 1000)} s of real time. Returns {status, frames_run, ...}: status "met" (until held: the screen is returned too; for a condition on the screen one more frame is run, so the picture shows what it saw; not for pc or memory, which stop at the instruction), "not-yet" (until has not held yet: call again to wait longer; the screen is returned so you can see why), or "done" (no until, all frames run). Time is emulated, so the same calls give the same results.`,
+    description: `Let the machine run for up to \`frames\` video frames of emulated time (50 or 60 a second; default ${RUN_FRAMES_DEFAULT}, at most ${RUN_FRAMES_MAX}), stopping early as soon as \`until\` holds: text on the screen (a plain substring), a byte in memory, the program counter at an address, the tape stopped or at its end, or the screen changed. Use it to wait for something rather than guessing a delay. A call also stops after about ${Math.round(wallMs / 1000)} s of real time. Returns {status, frames_run, ...}: status "met" (until held: the screen is returned too; for a condition on the screen one more frame is run, so the picture shows what it saw; not for pc or memory, which stop at the instruction), "not-yet" (until has not held yet: call again to wait longer; the screen is returned so you can see why), or "done" (no until, all frames run). Time is emulated, so the same calls give the same results. Refused with machine-stopped while the Debugger has the machine stopped (nothing runs until the person resumes it).`,
     inputSchema: withMachine(objectSchema({ frames: { type: 'integer', minimum: 1, maximum: RUN_FRAMES_MAX, description: `frames to run at most (default ${RUN_FRAMES_DEFAULT})` }, until: UNTIL })),
     annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false }, readOnlyOk: true, untrustedOut: true,
     handler: async (args, { signal, progress }) => {
       const m = get(args), s = m.session;
+      notStopped(m);
       const frames = args.frames == null ? RUN_FRAMES_DEFAULT : intIn(args.frames, 1, RUN_FRAMES_MAX, 'frames');
       const u = args.until;
       let cond = null;
@@ -569,19 +579,23 @@ export function createToolbox(host, { readOnly = false, maxMachines = MAX_MACHIN
   });
   add('step', {
     title: 'Step instructions',
-    description: `Run exactly \`count\` CPU instructions (default 1, at most ${STEP_MAX}) and return the registers after them, with the cycles they took.`,
+    description: `Run exactly \`count\` CPU instructions (default 1, at most ${STEP_MAX}) and return the registers after them, with the cycles they took. Works on a machine the Debugger has stopped, and leaves it stopped where the steps ended.`,
     inputSchema: withMachine(objectSchema({ count: { type: 'integer', minimum: 1, maximum: STEP_MAX, description: 'instructions (default 1)' } })),
     annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
     handler: (args) => {
       const m = get(args), d = m.session.debug, n = args.count == null ? 1 : intIn(args.count, 1, STEP_MAX, 'count');
       let ran = 0, cycles = 0, halted = false;
+      // stepping is reading the machine an instruction at a time, as the Debugger's Step: it works on a machine the
+      // Debugger has stopped, and leaves it stopped (where the steps ended) rather than resuming what the person
+      // stopped; a machine that was running runs on, as before
+      const wasStopped = d.stopped;
       keepWhole(m);
       for (; ran < n; ran++) {
         const c = d.step();
         if (d.stopped && d.stopReason && d.stopReason.kind === 'halted') { halted = true; break; }
         cycles += c;
       }
-      d.resume();
+      if (wasStopped) d.halt(); else d.resume();
       return { instructions: ran, cycles, registers: d.registers(), ...(halted ? { halted: true } : {}) };
     },
   });

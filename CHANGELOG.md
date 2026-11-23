@@ -74,6 +74,16 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 
 ### Changed
 
+- **Claude and the MCP tools refuse what a Debugger stop would swallow.** While the Debugger has the machine stopped,
+  the tools that must run it or press its keys (`type_text`, `press_break`, `run`, and the MCP server's `press_keys`
+  and `run_frames`) fail with a new code, `machine-stopped`. Its detail says where it stopped, and its remedy says how
+  to go on: the person presses Resume, or Run in the Debugger. Before, the chat's keys waited behind the stop, and
+  `run_frames` ended as if done, having run nothing. The person's own typing was already refused the same way. Reads
+  (`screen_text`, `peek`, `disassemble`, `registers`, `screenshot`, `machine_info`, `find_bytes`) and the tools that
+  only write memory (`poke`, `assemble_and_load`, `load_basic`) work on the stopped machine and leave it stopped, and
+  so does `step`, which before resumed it. Launches (`load`, `insert_disk`, `reset`, `power_cycle`) still release
+  the stop. The skill (and the side panel's instructions, which the connector's Worker serves once it is deployed
+  again) says what to do with `machine-stopped`, and a new eval covers it.
 - **A Debugger stop stays a stop on the emulator, and says so** (UX ruling R44). Going back from the Debugger keeps
   the machine stopped. The Pause button reads Resume, a strip above the screen says why and where ("Stopped at
   breakpoint $C0F3.") with Resume and Open Debugger, and the status line reads "Stopped in the Debugger" (or "Paused"

@@ -766,6 +766,47 @@ fs.writeFileSync(tmp('media', 'plain.bas'), '10 PRINT "HI"\n');
       && /already on/.test(tb.tools().find((t) => t.name === 'boot').description), J(booted).slice(0, 200));
     const sw = await tb.call('switch_machine', { machine_id: 'm1', model: 'coco', options: { ram: 64 } });
     check('own session: switch_machine changes the same Session', sw.ok && own.shownMachine.id === 'coco' && own.shownMachine.config.ram === 64, J(sw).slice(0, 200));
+    // ---- a machine the Debugger has stopped (R44's stop; the v0.2 ruling): the tools that must run it or press its
+    // keys refuse with machine-stopped and change nothing; every read works and leaves it stopped; step steps and
+    // leaves it stopped; after Resume everything works again; a launch (reset) releases it
+    {
+      const st = new Emu.Session({ welcomeMenu: false });
+      st.switchMachine('dragon64', {}, { menu: false });
+      st.startWelcome(programs(st.welcomeFile));
+      st.runFrames(40);
+      const tbs = T.createToolbox(host, { session: st });
+      const id = { machine_id: 'm1' };
+      st.debug.halt();
+      const m0 = st.shownMachine, f0 = m0.frameCount, keys0 = m0.stubKeys.length, pc0 = st.debug.pc;
+      const remedy = Emu.TOOL_ERRORS['machine-stopped'];
+      for (const [tool, args] of [['type_text', { text: '1' }], ['press_break', {}], ['run', { target: 0x3000 }], ['run', { target: 'RUN' }],
+        ['press_keys', { keys: ['1'] }], ['run_frames', { frames: 5 }], ['run_frames', { frames: 5, until: { pc: 0x3000 } }]]) {
+        const r = await tbs.call(tool, Object.assign({}, id, args));
+        check(`stopped: ${tool} ${J(args)} refuses with machine-stopped, where it stopped and the remedy; nothing ran or was queued`,
+          !r.ok && r.error.code === 'machine-stopped' && r.error.remedy === remedy && r.error.detail === `stopped in the Debugger at ${Emu.hex(pc0)} (halt)`
+          && st.paused && m0.frameCount === f0 && m0.stubKeys.length === keys0 && st.debug.pc === pc0, J(r).slice(0, 300));
+      }
+      for (const [tool, args] of [['screen_text', {}], ['peek', { address: 0x400, length: 4 }], ['registers', {}], ['screenshot', {}], ['disassemble', { address: pc0, count: 2 }],
+        ['machine_info', {}], ['find_bytes', { pattern: '00' }], ['poke', { address: 0x3F00, bytes: [5] }], ['assemble_and_load', { source: ' NOP\n', org: 0x3E00 }]]) {
+        const r = await tbs.call(tool, Object.assign({}, id, args));
+        check(`stopped: ${tool} works on the stopped machine and leaves it stopped`, r.ok && st.paused && m0.frameCount === f0, J(r).slice(0, 200));
+      }
+      check('stopped: poke and assemble_and_load wrote', st.readByte(0x3F00) === 5 && st.readByte(0x3E00) === 0x12);
+      const stepped = await tbs.call('step', Object.assign({}, id, { count: 3 }));
+      check('stopped: step steps (3 instructions) and leaves the machine stopped, where the steps ended', stepped.ok && stepped.data.instructions === 3 && st.paused
+        && st.debug.pc !== pc0 && stepped.data.registers.pc === st.debug.pc, J(stepped).slice(0, 200));
+      st.resume();
+      const typed = await tbs.call('type_text', Object.assign({}, id, { text: '1' }));
+      const ranOn = await tbs.call('run_frames', Object.assign({}, id, { frames: 5 }));
+      const pressed = await tbs.call('press_keys', Object.assign({}, id, { keys: ['SPACE'] }));
+      check('stopped: after Resume, type_text, run_frames and press_keys work again', typed.ok && ranOn.ok && ranOn.data.frames_run === 5 && pressed.ok,
+        J([typed, ranOn, pressed]).slice(0, 300));
+      const runningStep = await tbs.call('step', Object.assign({}, id, { count: 1 }));
+      check('stopped: step on a running machine leaves it running, as before', runningStep.ok && !st.paused, J(runningStep).slice(0, 200));
+      st.debug.halt();
+      const reset = await tbs.call('reset', id);
+      check('stopped: a launch (reset) releases the stop, and the machine runs', reset.ok && !st.paused && (await tbs.call('run_frames', Object.assign({}, id, { frames: 3 }))).ok);
+    }
     let notSession = null;
     try { T.createToolbox(host, { session: { machine: {} } }); } catch (e) { notSession = e.message; }
     check('own session: only a Session', /session must be a Session/.test(notSession), notSession);

@@ -581,13 +581,21 @@ export class Session {
     this.emit('released', pc);
     return pc;
   }
+  // Is machine m stopped by the Debugger (R44's stop)? -> { pc, kind } (where, and Debugger.stopReason's kind), or
+  // null. The one test both sides use: the person's typing (refuseTyping) and Claude's and the MCP tools that need the
+  // machine to run or read keys (the chat target's stopped(): ChatSession.callTool, and js/mcp/tools.js).
+  stoppedOn(m = this.shownMachine) {
+    const d = this.debugger;
+    if (!d || !d.stopped || d.machine !== m) return null;
+    return { pc: d.pc, kind: (d.stopReason && d.stopReason.kind) || 'halt' };
+  }
   // R44 (b5): the person's typing while the Debugger has the machine stopped is refused, not queued (keys, a tap on
   // the welcome menu, its carry-on line, a paste, typed text): the machine reads nothing while stopped, so typing
   // would only pile up behind the stop. -> true when refused; emits 'typing-refused' once per stop (the stop's reason
   // object is new for every stop) for the page's one toast.
   refuseTyping(m = this.shownMachine) {
     const d = this.debugger;
-    if (!d || !d.stopped || d.machine !== m) return false;
+    if (!this.stoppedOn(m)) return false;
     if (this.typingRefusedFor !== d.stopReason) { this.typingRefusedFor = d.stopReason; this.emit('typing-refused'); }
     return true;
   }
@@ -3540,6 +3548,8 @@ export class Session {
       writeSegments: (res) => this.injectAssembled(res, basic()),
       checkRun: (t) => this.checkRunTarget(t, basic()),
       run: (t) => this.runAt(t, basic()),
+      // stopped by the Debugger -> { pc, kind }, else null (Session.stoppedOn): the tools that must run it refuse
+      stopped: () => this.stoppedOn(basic()),
       // a restore point: when it was taken and the drives linked to the media store at that moment (their links)
       snapshot: () => { const snap = basic().snapshot(); this.claudePointInfo.set(snap, { at: Date.now(), disks: this.storedDisks(basic()) }); return snap; },
       // the same guarded path as restoreClaude -> restorePoint's notices
