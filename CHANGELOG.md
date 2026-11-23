@@ -66,13 +66,24 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   50/60 Hz video field); and a note on snapshotting a machine whose serial peer lives outside it (the freeze order, saving the peer's
   in-flight bytes and resuming at the same byte). `tests/dev-docs-headless.test.js` rebuilds the table from the machines, runs the
   example from a temporary directory and from a copy, fails mutants of its guest, and checks the numbers the text quotes.
+- **`?disk=URL` puts a disk in a drive from a link,** before the link's other media: `?load=game.bin&disk=level.vdk`
+  mounts the disk, then loads and runs the game. Ctrl+K gains **Insert a disk…**, **New blank disk** and **Eject
+  disk**; the cartridge port gains **Take out**.
+- **`node tools/mame-diff/run.js <dragon64|coco> --fdc --bare`:** the lockstep comparison with MAME of a program that
+  drives the disk controller with an empty ROM socket (`tools/mame-diff/fdc/gen-bare.js`).
 
 ### Changed
 
-- **Comments, test names and docs describe behaviour, not internal process labels.** Review and ruling IDs and
-  old internal branch names are gone from the code, the tests, the docs and the released sections of this file, and
-  `tests/internal-labels.test.js` keeps them out. The CHANGELOG check compares a released section with its tag after
-  removing those labels from both sides; any other difference still fails.
+- **A Debugger stop stays a stop on the emulator, and says so**. Going back from the Debugger keeps
+  the machine stopped. The Pause button reads Resume, a strip above the screen says why and where ("Stopped at
+  breakpoint $C0F3.") with Resume and Open Debugger, and the status line reads "Stopped in the Debugger" (or "Paused"
+  for the page's own Pause) instead of a speed it could no longer measure. Resume on the button, the strip or the
+  Debugger's F5 ends both kinds of pause. Run again, a program from Runs without ROMs, Open or a drop (a program, tape
+  or disk), a disk put in from the Library, Reset, Switch off and on and a machine switch release the stop in the
+  Session (a refused file starts nothing and leaves it), so what Claude and the MCP
+  server start runs too; the breakpoints stay set, and the toast adds "The Debugger's stop at $C0F3 was released."
+  Typing while stopped (keys, a tap on the welcome menu, a paste, the Type-in panel) is refused with one toast per
+  stop, rather than queued behind the stop.
 - **`add_roms` keeps a URL as origin + path.** The store's `index.json` recorded the full URL a ROM came from, query
   string and fragment included, which can hold a token. It now keeps the origin and the path only.
 - **Test and tool tidy-ups, no emulation change.** `tools/mame-diff/tape/spec.js` takes its register lists from
@@ -203,9 +214,53 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   controls are marked unavailable to assistive technology until then and announced once they take presses, and they
   look the same throughout. Window focus doesn't restart the wait, and nothing but the time ends it: a tap works with
   no pointer movement. The browser check's new group `armGuard` covers it.
+- **First use, from a cold usability test.** A key on the welcome menu that isn't one of its numbers says, once a
+  visit, "This is CLOADM's welcome menu: press a number to choose. Typing BASIC needs your BASIC ROM: [Add ROMs]. Or
+  press 1 for LIZA, a program you can type to." The "No BASIC · Add ROMs" pill's title says "No BASIC: this machine
+  needs its BASIC ROM to type programs".
+- **The Claude API key says where it comes from.** Under the key field (the chat's card and the Ask panel): "Get a key
+  at console.anthropic.com (API keys). Use is billed to your Anthropic account: see pricing ↗", and "No key? Use CLOADM
+  inside Claude instead: Use with Claude ↗". The chat screen's no-key line adds "Get one at console.anthropic.com.".
+  Help has a section, "Claude: getting an API key".
+- **A machine-code tape that loads and starts says so:** "HI.CAS loaded ($3000–$30FF) and started at $3000." (its own
+  name, range and start address), and the deck reads "LOADED · STARTED $3000" until the tape moves on.
+- **On a phone, Menu has Settings…**: it brings the settings tabs into view with the focus on Display. Its first item
+  reads "Add ROMs (BASIC needs them)" with the same dot as Menu, whose name is then "Menu (ROMs needed)".
+- **The machine switch's question stands under the machine button** (directly under the bar on a phone), with the
+  focus in it; Esc cancels it.
+- A gamepad connecting says, once a visit, "Gamepad connected: it drives the right joystick."
+- The install steps give Safari on a Mac a line of its own, "In Safari: File → Add to Dock." (the card and Help).
+- **A disk mounts without the disk ROM.** Until now every way in (a drop, **Open…**, the Library, a drive's menu, the
+  command line's `--disk`, the MCP server) ended in "Disks need a disk ROM… Load the ROM file first." Without your
+  disk ROM the disk controller now goes in on its own, with nothing in its ROM socket, and the disk goes in: a game
+  that drives the controller through its registers reads its level disk on the built-in firmware. It works while a
+  program runs: the controller raises no line by itself, so the program keeps going and its next read finds the
+  disk. `DIR` and the other disk commands still need the disk ROM, and the page says so: the drives card ("Drives ·
+  no disk ROM · disks work for programs that read them directly"), a drive's menu (**Insert disk…**, **New blank
+  disk**, **From Library…**, **Eject**, and a note with **Add disk ROM…**), the mount's toast, the cartridge port
+  ("Dragon disk controller · no disk ROM") and the disk ROM's card in **Your ROMs**. A disk ROM added afterwards goes
+  in at the next reset or power cycle. The command line prints the same note to stderr (`note` in its JSON). On the
+  Dragons and the CoCos; the MC-10 has no drives, and the Dragon Alpha's own interface is unchanged.
+- **On a phone, a slot holding media comes first** under the keyboard panel (then the cassette, the drives, the
+  cartridge), so a mounted disk is never below an empty cassette deck.
+- **Asking Claude opens the side panel beside your machine, whatever is on it.** The header's **Ask Claude**, Ctrl+K's
+  **Ask Claude: "…"** and the panel's openers now open the side panel with the welcome menu on screen too, where they
+  used to open the full-screen chat and put a separate chat machine in place of yours. Your machine stays on screen and
+  keeps running. Only **Chat with Claude, full screen** and the welcome menu's chat item open the full-screen chat.
+  Claude reads your machine's screen and memory with "Let Claude use the emulator" off, as before (a new test,
+  `tests/claude-read-ungated.test.js`, holds this in both views); only typing, POKEs, loading and running ask first.
 
 ### Fixed
 
+- **What the page says is on screen is what is on screen.** The Media tab's "Welcome menu · on screen now" meant only
+  that the menu had been loaded: started on a machine the Debugger had stopped, or while Pause held it, the tag showed
+  while the screen showed something else. It now shows exactly while the welcome program runs on the machine on
+  screen, is not stopped by the Debugger or Pause, and has drawn at least one frame (`Session.welcomeOnScreen`). The
+  screen itself could also lag: frames a load ran by itself (a tape's restart through BASIC) reached the canvas only
+  once the machine ran on, so while it was paused or stopped the canvas kept the picture from before; any frame or
+  instruction run now reaches it. And "Last time" could name the program before: after 2048 or LIZA started it
+  still named the previous one, while Run again ran the new one. It now always names what Run again runs (the
+  Session emits `lastrun` when it records what ran).
 - **An embedded CLOADM could open the Claude chat; the chat is no longer available in an embed.**
 - **Two server processes adding ROMs at once could lose index entries.** Every change to the ROM store's index now
   reads it again and writes it while holding a lock file (`index.lock`, broken after ten seconds if its holder died),
@@ -314,6 +369,38 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   channels and bits, but only the PCM hash and length were compared, so a recording that came back at another rate,
   in stereo, or 8-bit would still have matched a hash taken from its own bytes. The header's fields are now read and
   compared, along with the header's own shape (RIFF/WAVE, the `data` chunk and its size).
+- 2048's, Minesweeper's and the colour demo's "how to play" toast went only after its full time, held while hovered;
+  it now goes at the first key, or after 4 s, whichever is first.
+- **Ctrl+K finds a command typed with its punctuation.** Typing a command's label as it reads, such as "Chat with
+  Claude, full screen", found no command: the box split what you typed only at spaces, so "claude," matched nothing,
+  and Enter asked Claude instead. It now splits at punctuation as the labels are. A question, ending in "?", still goes
+  to Claude even when its words match a command: "reset?" asks, with Reset listed beneath, and runs nothing. Only a
+  command's whole label typed with its own "?" runs it.
+- **Toast placement no longer leaks a per-frame loop per toast or rewrites unchanged styles.** Every toast shown
+  started its own animation-frame chain and none was cancelled, so a session's toasts added permanent per-frame loops
+  (three chains placing the same frame were measured), and each frame cleared and rewrote eleven inline properties on
+  `#toastRegion`, 2,714 of 2,715 of them byte-identical. One cancellable chain now places a toast, and the style and
+  the class are written only when the placement changes (and cleared when the stylesheet's own place is right): the
+  browser check measures a stationary toast at 0 style writes in 60 frames on desktop and phone, and 0 class mutations
+  on the region once a pinned toast has gone (a `classList.remove` of an absent class queues one per frame in Chromium).
+  The toast still follows a resize, a scroll or a control that grows under it. The identity a placement is cached
+  under includes everything the decision reads (the safe-area insets, the screen's geometry and its visible text area
+  included), and a test changes each of those inputs in turn to show the placement is decided again rather than
+  re-applied from the cache. The chat's Stop pill still flashes while a toast covers it; that is a separate, known
+  issue, recorded in `docs/verification.md`.
+  `tests/toast-follow.test.js`, `tools/browser-check.js`, `tools/flicker-measure.js`.
+- **DriveWire printing goes to the machine that printed.** A print over the Becker port landed in the
+  printout of whichever machine was on screen — the BASIC session's printout could end up on the chat machine
+  after switching, or vanish when a chat was closed — and the chat machine's own DriveWire server had no
+  handler at all, so anything it printed was dropped. Each server's prints now go to the machine its Becker
+  port belongs to, on screen or off, survive ending a chat, and the Session's server holds no machine the
+  Session has let go of. A chat opened without DriveWire on a machine with the Becker port no longer runs
+  on a machine that carries the port: the port would take the Session's server and the BASIC session's
+  prints with it. `tests/drivewire-print.test.js` covers it.
+- **An off-screen print no longer disturbs the Machine tab's printout.** A DriveWire print from the
+  machine you are not looking at (the BASIC session while a full-screen chat is up) fires the printer
+  event, but the panel re-renders only when the printout it shows changed, so it no longer scrolls to the
+  end of an unchanged printout while you are scrolled up reading it.
 
 ### 0.1.8-pre
 

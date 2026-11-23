@@ -25,6 +25,7 @@ import { setupMediaPanel } from './media-panel.js';
 import { setupDrives } from './drives.js';
 import { setupAssemblerPanel } from './assembler-panel.js';
 import { setupDebuggerPanel } from './debugger-panel.js';
+import { setupDebuggerStop } from './debugger-stop.js';
 import { setupSelfTestPanel } from './selftest-panel.js';
 import { setupPokePanel } from './poke-panel.js';
 import { setupDrawer } from './drawer.js';
@@ -90,7 +91,10 @@ session.index.writeError = (name, e) => page.status(session.indexWriteError(name
 // the handle exists before the awaited init, so anything watching the page sees it at once
 window.emu = { session, profiles, Emu, feedback: page.feedback, ready: false, started: false, audio: page.audio, audioRunning: () => page.audio.running, get machine() { return session.shownMachine; },
   // the input layer, for the browser check (keyboard modes, the keyboard joystick and the gamepads)
-  get input() { return screen.input; }, readPads: () => screen.readPads() };
+  get input() { return screen.input; }, readPads: () => screen.readPads(),
+  // what the screen presented last, as RGBA (both presenters keep it), for the browser check's "the canvas shows
+  // the machine's current frame" (onScreenChecks)
+  presented: () => screen.presented() };
 try {
   await session.ready();
 } catch (e) {
@@ -126,6 +130,7 @@ window.emu.nitros9Shown = () => nitros9.shown();   // (the browser check: the pa
 const media = setupMediaPanel(page, { snapshots, disks, nitros9, keep: (name, bytes) => library && library.keep(name, bytes) });
 setupAssemblerPanel(page);
 setupDebuggerPanel(page);
+setupDebuggerStop(page);
 const selfTest = setupSelfTestPanel(page);
 const screen = setupScreen(page, { loadPrograms: media.loadPrograms, roms: romPanel });
 // ?touch=joystick|keys (js/config.js): the on-screen panel's mode for this visit, taken up when the machine
@@ -162,7 +167,7 @@ window.emu.askPopout = claude ? null : setupAskPopout(page, { link, framed: fram
 const welcome = setupWelcome(page, { showRoms, openClaude: () => claude && claude.open() });
 const drawer = setupDrawer(page, { showRoms });
 const openRoms = () => { romSockets.reveal(); $('fileRom').click(); };
-library = setupLibrary(page, { loadProgram: media.loadProgram, runShelf: welcome.runShelf, changed: slots.refresh, showRoms, reconnect });
+library = setupLibrary(page, { loadProgram: media.loadProgram, runShelf: welcome.runShelf, changed: slots.refresh, showRoms, reconnect, diskSaid: disks.said });
 setupTypein(page, { openRoms, isVisible: () => !$('library').hidden });
 setupTapePanel(page);
 setupMultiPakPanel(page, { cartridge: (name) => drawer.cartridge(name) });
@@ -221,18 +226,28 @@ $('btnMenu').onclick = () => {
   fit();
 }
 // the phone's app bar (700 px and less, play/index.html): Add ROMs is Menu's first item while the app bar's pill is
-// up (the machine has no BASIC), and Menu wears a dot then; Share is its item too (the bar has no room)
+// up (the machine has no BASIC), and Menu wears a dot then, as the item does; Settings… and Share are its items too
+// (the bar has no room)
 {
   const pill = $('romPill'), item = $('navRoms');
   // (the dot is drawn only: while it is on, Menu's name says what it means)
   const sync = () => {
     item.hidden = pill.hidden;
     $('btnMenu').classList.toggle('dot', !pill.hidden);
-    if (pill.hidden) $('btnMenu').removeAttribute('aria-label'); else $('btnMenu').setAttribute('aria-label', 'Menu, Add ROMs needed');
+    if (pill.hidden) $('btnMenu').removeAttribute('aria-label'); else $('btnMenu').setAttribute('aria-label', 'Menu (ROMs needed)');
   };
   const close = () => { $('appbar').classList.remove('menu-open'); $('btnMenu').setAttribute('aria-expanded', 'false'); };
   item.onclick = () => { close(); pill.click(); };
   $('navShare').onclick = () => { close(); $('btnShare').click(); };
+  // Settings…: the drawer's tabs are far below the screen on a phone; brought into view, on Display (a person looking
+  // for "settings" is most often after the picture: its look, its size, the colours)
+  $('navSettings').onclick = () => {
+    close();
+    const tab = $('tab-display');
+    tab.click();
+    tab.closest('[role="tablist"]').scrollIntoView({ block: 'start' });
+    tab.focus({ preventScroll: true });
+  };
   new MutationObserver(sync).observe(pill, { attributes: true, attributeFilter: ['hidden'] });
   sync();
 }
@@ -277,12 +292,14 @@ const starting = welcome.start(visit, { fromLink, withMedia: link.roms.length > 
     try { await romPanel.loadRomUrls(link.roms); if (link.selftest) selfTest.run(); }
     catch (e) { page.status(`Could not load ROM from URL: ${e.message}`, true); }
   }
-  // media: fetched (the server must allow CORS), then as if dropped; a tape without autorun just goes in the deck
+  // media: fetched (the server must allow CORS), then as if dropped; a tape without autorun just goes in the deck, a
+  // disk into the first free drive (parseUrlConfig puts disks first, so a program the link loads finds its disk in)
   for (const { kind, url } of link.media) {
     const name = decodeURIComponent(new URL(url, location.href).pathname.split('/').pop()) || kind;
     try {
       const bytes = await page.fetchBytes(url);
       if (kind === 'tape' && !link.autorun) page.attempt(() => session.insertTape(name, bytes));
+      else if (kind === 'disk') await disks.insert(name, bytes);
       else { await media.loadProgram(name, bytes); if (kind === 'cart') drawer.cartridge(name); }
     } catch (e) { page.status(`Could not load ${kind}=${url}: ${linkFetchError(e)}`, true); }
   }

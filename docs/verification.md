@@ -55,6 +55,7 @@ What each machine's comparison with MAME 0.264 showed when it was verified (the 
 | Tano Dragon 64 on the HD6309 | NMI arming (`--fdc tanodragonfdc --nmi --cpu 6309`): identical, 1,204,410 instructions, HALT reached at 793; also 1,204,410 on MAME 0.264 | – | – |
 | Dragon 64 + Premier FDC (WD2791, `--fdc premierfdc`) | 5,890,277 instructions identical, HALT reached; disk images written byte-identical (`--images`) | – | – |
 | Color Computer + CoCo FDC (WD1773, `--fdc`) | 5,851,757 instructions identical, HALT reached; disk images written byte-identical (`--images`) | – | – |
+| Dragon 64 and Color Computer, the controller with an empty ROM socket (`--fdc --bare`) | identical, HALT reached: dragon64 1,200,945 instructions (HALT at 66,473), coco 1,208,171 (HALT at 66,937) | – | – |
 | Blank disks (`--fdc <controller> --blank <format>:<T>x<H>`) | a blank disk formatted by our firmware: dragonfdc VDK 40 × 1, cocofdc JVC 35 × 1, premierfdc VDK 40 × 1 and dragonfdc DMK 40 × 2 identical in lockstep to HALT (8,750,860, 7,717,543, 8,750,920 and 17,534,051 instructions); formatted images byte-identical for the VDK and JVC ones and for dragonfdc VDK 40 × 2, VDK 80 × 2 and JVC 40 × 2 and cocofdc JVC 40 × 2 (`--images`; MAME cannot save DMK, so the DMK one is checked sector by sector in ours) | – | – |
 | Color Computer 3 + CoCo FDC (WD1773, `coco3 --fdc`) | 5,851,680 instructions identical, HALT reached; disk images written byte-identical (`--images`) | – | – |
 | Color Computer + Multi-Pak with the CoCo FDC in slot 4 (`--fdc multifdc`) | 5,851,742 instructions identical, HALT reached; disk images written byte-identical (`--images`) | – | – |
@@ -737,6 +738,23 @@ line, per element over 2 s (desktop and phone): none with a tape stopped in the 
 (at most 8 a second, the position readouts); the rewrite every frame it replaced was 40-60 a second per element. The panel's
 own checks (`tapePanel`) also find no reel turning at the end of the tape.
 
+### First use (the cold usability test's findings)
+
+What a first-time visitor without the docs meets has no MAME oracle (AGENTS.md 4.6): it is page copy and page
+behaviour, checked against the approved design's own words. `tests/first-use.test.js` (Node) pins the welcome menu's
+prompt against the options it lists ("PRESS 1 TO N", N the highest number on screen) on every build, greeting and
+carry-on, and after the games menu and back; the message of a machine-code tape that loads and starts ("HI.CAS
+loaded ($3000–$30FF) and started at $3000.") and `tapeStatus().started`, which the deck reads ("LOADED · STARTED
+$3000") until the motor runs, the tape is rewound or another goes in, with no other memory above $0800 changed; the
+install steps for Safari on a Mac; and the Help page's "Claude: getting an API key". In Chromium, the browser check's
+first-use checks (run with the `uiCopy` group) drive the real page: a non-number key on the welcome menu shows its
+note, with Add ROMs inside the sentence, exactly once a visit (a number key does not); the API key field's console,
+pricing and Use with Claude links in the chat's card and the Ask panel; a dropped HI.CAS's toast and deck; the switch
+question within 80 px of the machine button with the focus on Switch, directly under the bar at 390x844, and Esc
+cancelling it; a mocked gamepad's toast, once; 2048's toast gone at the first arrow key and the colour demo's gone at
+4 s while hovered; and the install card with macOS and iOS Safari user agents. Menu's Settings… is checked in the
+`mobile` group.
+
 ### Install as an app (the PWA offer)
 
 The **Install CLOADM…** item and the one-time offer card (`js/ui/install.js`) have no MAME oracle (AGENTS.md
@@ -774,9 +792,10 @@ exactly one visible control is named Menu; ⌄ hides the keys, the screen then t
 rounding allowed: the picture is whole pixels) and ⌨ (Show keys) is 44x44 inside the window and brings them back;
 scrolled to the page's foot, ⌨ covers nothing of it; 2048 opens on Pad with the screen at the page's width, exactly one visible BREAK (the strip's), every pad key 48 px and more and none over the strip, and the strip's BREAK takes 2048 back to the welcome menu. The app bar is 48 px at its first paint (an init script reads
 it at the first animation frame) and 2 s later, with the touch class already on. Menu wears a dot while there is no
-BASIC (its name then "Menu, Add ROMs needed"), lists Add ROMs first, then Share, the links, Commands… and Install
-CLOADM…, opens moving nothing in the bar with the focus on its first item (Tab goes to the next), and its Add ROMs
-opens Add ROMs. Minesweeper opens on Pad (Up, Left, Down, Right, SPACE, ENTER, F, ABC, no BREAK: the strip's is the only one; every key 48 px and
+BASIC (its name then "Menu (ROMs needed)"), lists "Add ROMs (BASIC needs them)" first with the same dot, then Share,
+Settings…, the links, Commands… and Install CLOADM…, opens moving nothing in the bar with the focus on its first item
+(Tab goes to the next), and its Add ROMs opens Add ROMs; at 390x844 its Settings… brings the settings tabs into view
+with the focus on Display. Minesweeper opens on Pad (Up, Left, Down, Right, SPACE, ENTER, F, ABC, no BREAK: the strip's is the only one; every key 48 px and
 more, Stick offered); the pad's → and F reach the machine as RIGHT and F; ABC shows the keyboard for one key; Keys
 chosen in Minesweeper is remembered for it on that machine while 2048 still opens on Pad and LIZA on Keys; the MC-10's
 switch is Keys | Pad. The games' toast says "tap a key" and BREAK, never "Esc" or "press", lies under the app bar and
@@ -834,20 +853,41 @@ Not verified automatically: what Chrome's own reading mode (Android or desktop) 
 Readability is the stand-in. Mutations that turn the group red: no `inert` on what a view or a layout hides (20
 checks), a second `<main>` (16), the ports under the screen a `<div>` instead of an `<aside>` (6).
 
+**How the text-alternative comparison avoids a race, and what it does not cover.** `#screenAlt` is a DOM mirror of
+`Session.screenAlternative()` that the page refreshes at most once a second (js/ui/screen.js), and Chromium's
+accessibility tree is a third copy read over the DevTools protocol. Measured with CPU throttling at 4x, the live
+screen differed from the mirror in 40 of 135 samples across the three seconds a greeting takes to type, so a
+single-shot comparison of one live read against the AX text failed on a slow runner with nothing wrong. The check now
+requires four readings to agree - the live text before and after the AX read, the mirror, and the AX text - and
+retries until they do, within a stated bound; and it separately measures the mirror's lag after a key changes the
+screen, which is what makes a mirror that simply stops updating fail rather than being waited out (a mirror
+refreshing every 2.2 s goes red by name).
+
+**Not verified: a group's own `await ctx.close()`, and the tone measurement's wait.** Every group closes its own
+browser context inside its own body, and those calls are unbounded: a close that hangs there ends only by the
+caller's timeout (the CI job's `timeout-minutes`, or whatever runs the check locally). The same is true of the tone
+measurement in the sound group, which waits for the played blocks to fill an interval and has no bound of its own. What IS bounded and reported is the dump's wait (5 s), the
+`audio` group's own close (10 s, with a named FAIL), the per-group cleanup of any context a group left open (10 s,
+named FAIL) and the final `browser.close()` (15 s, named FAIL). A page wedged in synchronous JavaScript cannot be
+bounded from the host at all - a `Promise.race` bounds the wait, not the work - so that case also ends by the
+caller's timeout. One bounded helper for every group's close is the follow-up work.
+
 ### The machine and its ROMs: toasts, switches, the disk ROM, the menu, the Library, the copy
 
 These have no MAME oracle (AGENTS.md 4.6): the oracle is the behaviour listed below, and the
 browser check's group `uiModel` drives them with real events at 1280x720 and at 390x844 with touch:
 
-* Every toast is visible: a disk dropped without a disk ROM: the toast's box is inside the viewport and `elementFromPoint` at its centre
-  is the toast; it keeps its slot and its time runs. (`feedbackModel` checks the fixed top slot where nothing else is
+* Every toast is visible: a disk dropped without a disk ROM: the toast (the disk is in drive 0 on the disk controller alone, with **Add
+  disk ROM…**) has its box inside the viewport and `elementFromPoint` at its centre is the toast; it keeps its slot and
+  its time runs. An error toast (a disk image CLOADM can't read) is red. With that disk in and no tape, the drives
+  card is above the cassette deck on the phone and under the keyboard panel, and after it on the desktop. (`feedbackModel` checks the fixed top slot where nothing else is
   free, and that it goes after its 4 s.)
 * A switch names what comes out: the switch confirmation's text for a tape and a cartridge (both in the Library), a tape and a disk, a RAM
   change (and Cancel putting the select back), a snapshot's own disk with **Save to Library** (stored and linked),
   DriveWire (not listed, still mounted after the switch); the toasts after the switch. `tests/switch-losses.test.js`
   checks `Session.takenOut` and `Session.keepSnapshotDisk` in Node, the Speech/Sound Pak case included.
 * The disk ROM card: its title per machine (none on the Alpha and the MC-10), its `data-disk` mark with the socket
-  counts unchanged, and a drive's **Add ROMs…** landing on it (in view, focused, on top at its centre).
+  counts unchanged, and a drive's **Add disk ROM…** landing on it (in view, focused, on top at its centre).
 * The machine menu's footer and Your ROMs: Ctrl K "roms" Enter (Your ROMs, focus on its heading, nothing scrolled), the palette's top result for
   each of its words, the ROMs row first and its label with and without a stored test ROM, the "needs ROMs" toast and
   its action, ↓ from the last machine to both footer items, Esc, and each footer item's focus.
@@ -859,6 +899,33 @@ browser check's group `uiModel` drives them with real events at 1280x720 and at 
 
 Not verified automatically: how the fixed top slot reads to a person on a real phone (screenshots
 `r24-disk-toast-*.png` were looked at).
+
+### A disk without a disk ROM
+
+With no disk ROM a mount plugs the disk controller in with nothing in its ROM socket (`Session.plugBareDiskController`),
+without a reset, and the disk goes in. The program used is ours: `tools/mame-diff/fdc/gen-bare.js` writes one read
+routine (restore, then read track 0 sector 1 of drive 0, every byte taken on DRQ by polling; on the CoCo with NMI on
+INTRQ) in two builds: a ROM build for the MAME comparison below and a RAM build that runs on the built-in firmware.
+
+* `tests/disk-bare.test.js` (Dragon 64 with a VDK, CoCo with a JVC): the mount's message word for word; the board
+  with no ROM, its cartridge space reading 00 and no CART line tied to Q or raised, before and while running; the
+  program loaded first runs on through the mount (frames and its count go on, its code intact), its first read
+  finds no controller and its next one reads the sector, compared with the bytes `images.js`'s formula gives; a
+  snapshot taken in the middle of the transfer restored into a fresh machine runs on identically (registers, cycles,
+  frames) and finishes the read; a disk ROM stored afterwards waits for the next power cycle and then goes into the
+  same board's socket with the disk still in (the Delta DOS ROM on a Dragon: its own board replaces it at a reset,
+  with the disk moved across); **Take out** with the program running on; the MC-10, a Multi-Pak with no
+  controller, a cartridge in the port (it comes out, with a power-up); `disk=` before `load=` in a link; the command
+  box's disk commands; the command line's `--disk` note on stderr and in the JSON, and the guest's read.
+  Mutations that turned it red: the old refusal back; the board tying CART to Q; a reset when the board goes in; no
+  ROM fitted at the power cycle; the link's media in the order given.
+* The browser check's group `disk`: the card and an empty drive's menu with no disk ROM (its buttons and note), the
+  game dropped and then its disk (the toast and **Add disk ROM…**, the cartridge port's name, **Take out**), the game
+  running on and reading the disk (its screen), the loaded drive's menu, **Add disk ROM…** landing on the disk ROM's
+  card, Ctrl+K "mount" → **Insert a disk…** and **Eject disk**, a disk ROM dropped afterwards (the toast, the card)
+  and put in by **Switch off and on**. Group `url`: `load=…&disk=…` in either order runs the game with its disk in
+  (its first read, at its start, succeeds); `disk=` with no link is reported. Groups `media`, `feedback` and
+  `uiModel` follow the new messages, and `uiModel` checks the phone's slot order.
 
 ## The comparisons
 
@@ -947,6 +1014,12 @@ names it.
   integer scaling. So composite colour is on from the start, and the CoCo 3 starts on its composite monitor's
   palette; Sharp · RGB switches it to the RGB monitor's.
 
+* `node tools/mame-diff/run.js <dragon64|coco> --fdc --bare` runs `fdc/bare-dragon.asm` or `fdc/bare-coco.asm`
+  (`fdc/gen-bare.js`) as BASIC with the controller's ROM socket empty (MAME's holds 8K of 00, ours no ROM; both read
+  00), drive 0 holding `images.js`'s double-sided disk: a program that reads track 0 sector 1 through the registers
+  and ends in HALT. MAME 0.264: every instruction identical in all registers and cycle counts, and HALT reached:
+  `dragon64 --fdc --bare` 1,200,945 instructions compared (HALT at 66,473), `coco --fdc --bare` 1,208,171 (HALT at
+  66,937). `tests/regress.test.js` replays both (`trace dragon64 bare`, `trace coco bare`).
 * `node tools/mame-diff/run.js <dragon64|coco|coco3> --fdc [dragonfdc|premierfdc|cocofdc|multifdc] [--multi] [--images]` runs the
   floppy disk controller cartridges (`fdc/`: `-ext dragon_fdc` with a WD2797 and `-ext premier_fdc` with a WD2791 on
   the Dragon 64, `-ext fdc` with a WD1773 on the CoCo and the CoCo 3, and `multifdc`: the same CoCo controller in slot 4 of a
@@ -1658,6 +1731,24 @@ picture and keeps it the same in every field. The fast-rate picture has no autom
 
 * About one in five 1983 Dragons wouldn't run at the fast rates. We emulate a machine that accepts the POKEs.
 * Nothing persists past a reset or a power cycle: there is no "damage".
+
+## A known flash: the chat's Stop pill and a toast (not fixed here)
+
+When a turn is running and a long toast covers the chat's Stop button, the floating Stop pill (`#viewClaude`) can
+flash on and off once. `js/ui/ask.js` measures whether any Stop is reachable, and `body.claude-float` itself moves
+`#toastRegion` (`play/index.html`: `bottom: 96px` against its natural `8px`), so applying the pill can lift the very
+toast that was covering the Stop. The toast does not then hold still: `js/ui/feedback.js` re-places it as its inputs
+change (a natural toast becomes a placed or top-slot one), so between two `renderActing` samples the state the pill
+reads can change under it.
+
+The browser check measures it: `askEsc` counts how many times `#viewClaude` changes visibility while such a toast
+shows, and requires at most one, with no page errors. It does not currently assert that the toast really covers the
+Stop, nor that a Stop stays reachable — a stricter version of the check that asserts both is held for the release
+that fixes this.
+
+This is recorded rather than fixed: the fix touches the shared root — a toast's placement changing under a reader
+between samples — and is scheduled for the next minor release with that work. The check is left exactly as it was
+before this release, so the release changes no behaviour here.
 
 ---
 

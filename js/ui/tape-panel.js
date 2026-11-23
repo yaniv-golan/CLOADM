@@ -22,6 +22,7 @@
  * default, remembered (tapeSound), in the HUD and the Media tab.
  */
 import { $, put, putStyle, putClass } from './page.js';
+import { hex } from '../util.js';
 
 const pad3 = (n) => String(Math.max(0, Math.floor(n)) % 1000).padStart(3, '0');
 const mmss = (s) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`;
@@ -178,9 +179,10 @@ export function setupTapePanel(page) {
     if (waveFor !== m.deck.tape) shape(m.deck.tape);
     const p = m.profile.tape || {};
     put(eyebrow, 'textContent', st.error ? `READ ERROR · BLOCK ${st.error} OF ${st.blocks}`
-      : st.progress >= 1 ? `END OF TAPE · ${st.blocks} BLOCKS`
-        : st.motor ? `${rec ? 'RECORDING · ' : ''}LOADING · BLOCK ${Math.max(1, st.block)} OF ${st.blocks}`
-          : `STOPPED · BLOCK ${st.block} OF ${st.blocks}`);
+      : st.started != null ? `LOADED · STARTED ${hex(st.started)}`   // (a machine-code file the drop loaded and started)
+        : st.progress >= 1 ? `END OF TAPE · ${st.blocks} BLOCKS`
+          : st.motor ? `${rec ? 'RECORDING · ' : ''}LOADING · BLOCK ${Math.max(1, st.block)} OF ${st.blocks}`
+            : `STOPPED · BLOCK ${st.block} OF ${st.blocks}`);
     put(panel.dataset, 'state', st.error ? 'error' : st.progress >= 1 ? 'end' : st.motor ? 'playing' : 'stopped');
     put($('tapeLabel'), 'textContent', st.name);
     put($('tapeLength'), 'textContent', mmss(st.duration));

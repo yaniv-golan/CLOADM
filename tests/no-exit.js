@@ -107,8 +107,8 @@ process.kill = function (pid, sig) {
 // first shutdown event is prefixed with one, and the runner cuts the suite's output at the first NUL before judging
 // its summary (liveOutput in tests/suite-verdict.js). The marker is unforgeable in the direction that matters: it is
 // written by THIS process only, and only into its own stdout, so a NUL anywhere in a suite's stream means this
-// process reached shutdown before that byte. Two cases must not cut, and both did in earlier versions (round 2 of
-// review, and a probe here):
+// process reached shutdown before that byte. Two cases must not cut, and both did in earlier versions
+// (found in review and by a probe here):
 //  * the live writes end WITHOUT a newline (`process.stdout.write('working')`), so the marker lands mid-line. Cutting
 //    only at a line-initial marker let a shutdown-time "all passed" read as live -- the gate passed a suite that
 //    stopped part-way. So the cut is at ANY NUL this process wrote.

@@ -23,9 +23,11 @@ How to load programs, tapes, disks and cartridges, the keys, snapshots, sharing 
   machine-code tape straight into memory. An MC-10 tape (`.c10`, `.k7`) needs the MC-10, and CLOADM offers to
   switch.
 * **Wrong disk type:** CLOADM tells a DragonDOS disk from an RS-DOS one by its directory track and says which
-  machine it is for. A disk needs the machine's disk ROM (the DragonDOS or Delta cartridge, or Disk BASIC); the
-  drives under the screen say which one is missing, and their **Add ROMs…** opens **Your ROMs** on the disk ROM's
-  card ("Disk drives: DragonDOS or Delta DOS", tagged optional; on a CoCo, "Disk BASIC (RS-DOS)").
+  machine it is for. `DIR` and the other disk commands need the machine's disk ROM (the DragonDOS or Delta
+  cartridge, or Disk BASIC). Without it a disk still goes in, on the disk controller alone, for programs that read
+  the disk themselves; the drives under the screen say so, and **Add disk ROM…** (in a drive's menu and in the
+  mount's message) opens **Your ROMs** on the disk ROM's card ("Disk drives: DragonDOS or Delta DOS", tagged optional; on a
+  CoCo, "Disk BASIC (RS-DOS)").
 * **Wrong symbols when typing:** the keyboard has two modes (Input tab). **Translated** types what you type, so
   the shifted symbols follow your PC keyboard (`:` is `:` though your keyboard needs Shift for it and the
   machine does not; the machine's SHIFT follows the character, and your Shift still shifts letters and the
@@ -101,13 +103,13 @@ The [README](../README.md#what-works) has the short version of this table.
 | | Today | Coming |
 |---|---|---|
 | **Cassette** | `.CAS` played as a real 1200/2400 Hz signal through the cassette port, motor relay, fast loading; WAV recordings in; what `CSAVE`/`CSAVEM` write saved as `.CAS` or `.WAV` (a recording still running when the machine is switched is offered for saving first); a power cycle keeps the tape, the cartridge and its disks, as on real hardware; any tape exported as `.WAV`; the cassette panel (block, counter, motor, fast-forward or real speed, read errors, skip the tape, folded with **Hide the deck**); a line on the screen's border while a tape loads (name, S/F, block, End of tape, **Deck**); **Tape sound**, the tape heard as a recorder's speaker plays it (on by default; its switch in that line and the Media tab) | the tape signal through the machine's own sound (`AUDIO ON`: MAME 0.264 mixes none in, so neither does CLOADM; Tape sound is how you hear it) |
-| **Floppy** | The Dragon DOS cartridge (WD2797), the Premier / Delta cartridge (WD2791) and the RS-DOS cartridge (WD1773), cycle for cycle as MAME has them; VDK, JVC (`.dsk`) and DMK images read and written, including headerless NitrOS-9 / OS-9 `.dsk` images of 18 x 256-byte sectors, whose LSN 0 states the geometry (a 40-track two-sided image used to be read as 80 single-sided, and on the CoCo's drive did not mount at all); 4 drives (the Dragon Alpha's own 2), write-protect; the drives card under the screen: click a drive to insert a file, a disk from your library or a new blank disk (the sizes the disk system uses: 40 or 80 tracks, one or two sides for DragonDOS and Delta; 35 or 40 for Disk BASIC; VDK, JVC or, double-sided, DMK), see its light while it works, write-protect, download it with what was written, eject. A drive whose changes the browser's storage refused is marked "not saved" (Download keeps them); without a disk ROM, a drive says which one it takes. Disks are written back to the stored image a sector at a time. The disk ROM is yours, as every ROM; the Alpha needs none; [booting NitrOS-9](#booting-nitros-9) Level 2 on the CoCo 3 from your own 40-track floppy image, with CLOADM's own loader instead of a ROM | Booting NitrOS-9 from 80-track floppies |
+| **Floppy** | The Dragon DOS cartridge (WD2797), the Premier / Delta cartridge (WD2791) and the RS-DOS cartridge (WD1773), cycle for cycle as MAME has them; VDK, JVC (`.dsk`) and DMK images read and written, including headerless NitrOS-9 / OS-9 `.dsk` images of 18 x 256-byte sectors, whose LSN 0 states the geometry (a 40-track two-sided image used to be read as 80 single-sided, and on the CoCo's drive did not mount at all); 4 drives (the Dragon Alpha's own 2), write-protect; the drives card under the screen: click a drive to insert a file, a disk from your library or a new blank disk (the sizes the disk system uses: 40 or 80 tracks, one or two sides for DragonDOS and Delta; 35 or 40 for Disk BASIC; VDK, JVC or, double-sided, DMK), see its light while it works, write-protect, download it with what was written, eject. A drive whose changes the browser's storage refused is marked "not saved" (Download keeps them). Without a disk ROM a disk still mounts (a drop, **Open…**, the Library, a drive's menu, the `disk=` link, the command line's `--disk`): the disk controller goes in on its own, with nothing in its ROM socket, and the program running keeps running, so a game that drives the controller through its registers ($FF40-$FF4B) reads its level disk on the built-in firmware. The card says "Drives · no disk ROM · disks work for programs that read them directly"; a drive's menu offers **Insert disk…**, **New blank disk**, **From Library…** (and **Eject**) and notes that `DIR` and the other disk commands need DragonDOS or Delta DOS (on a CoCo, Disk BASIC), with **Add disk ROM…**; the cartridge port shows "Dragon disk controller · no disk ROM" (on a CoCo, "CoCo disk controller"), and **Take out** removes it. A disk ROM added afterwards goes in at the next reset or power cycle, and the page says so. Ctrl+K has **Insert a disk…**, **New blank disk** and **Eject disk**. On a phone, a slot holding media comes first under the keyboard panel, so a mounted disk is never below an empty cassette deck. Disks are written back to the stored image a sector at a time. The disk ROM is yours, as every ROM; the Alpha needs none; [booting NitrOS-9](#booting-nitros-9) Level 2 on the CoCo 3 from your own 40-track floppy image, with CLOADM's own loader instead of a ROM | Booting NitrOS-9 from 80-track floppies |
 | **Cartridges** | ROM cartridges (`.ROM`, `.CCC`, `.DGN`) at `$C000`, autostarting; banked ROM cartridges (up to 128K in 16K pages); the Games Master Cartridge (SN76489A) and the Orchestra-90 (stereo DACs), sound included; the Multi-Pak with four slots; all as MAME has them on the CoCo 1/2, the CoCo 3 and the Dragons (MAME offers the banked board only on the CoCos). The cartridge port's board menu picks the board, or picks it from the image; its Multi-Pak section fills the four slots and sets the front-panel switch. The Multi-Pak also takes a disk controller (DragonDOS, Delta DOS or Disk BASIC, your ROM) on the Dragon 64 and the CoCo, compared with MAME in slot 4; a slot's board menu offers it, and the drives card uses it. The Speech/Sound Pak is offered as a board (music only; speech not yet) on the CoCo 1/2, CoCo 2B, CoCo 3 and the Dragon 64 | Speech/Sound Pak: its AY `-wavwrite` comparison is not passing (cause not established), and SP0256 speech synthesis is not implemented |
 | **Printer, serial, DriveWire** | Printer (Dragon parallel, CoCo/MC-10 serial); the bit-banger and the Dragon 64's 6551 ACIA with a terminal or loopback plug; DriveWire 4 over the CoCo's Becker port, served in the browser: drives 0-3 from images in the browser's storage, printing, virtual serial channels to WebSockets; [booting NitrOS-9](#booting-nitros-9) Level 2 on the CoCo 3 from your own DriveWire image, with CLOADM's own loader instead of a ROM; serving a real CoCo over Web Serial (untested on hardware) | the full screens |
 | **Games** | 2048 and Minesweeper, written for CLOADM, on every 6809 model with 32K or more, with or without ROMs ([details](#games)) | |
 | **Input** | Keyboard in two modes (translated: the character typed; positional: the physical key), keyboard joystick, gamepads (two joysticks, dead zone), the Tandy and CoCo Max 3 Hi-Res interfaces, the CoCo 3 "The Rat" mouse, the CoCo Max Hi-Res module, mouse as the right joystick; an on-screen keyboard on phones and tablets (split for the thumbs when held sideways) and a touch joystick with FIRE, a tappable welcome menu | |
 | **Tools** | Assembler, Debugger, snapshots, POKE book; a command line, MCP server and Node API for CI and agents ([Automation](automation.md), [MCP](mcp.md)) | Step back (rewind) |
-| **Links, embedding, offline** | Every setting as a URL parameter (machine, RAM, CPU, a program, tape or cartridge to load, display, input); the Share screen: Share… or Copy link for a link that opens this machine exactly as it is, and under "More ways to share" a 6-second clip, a true-pixel screenshot and the snapshot file, plus the embed code for a blog post; embed mode with a JavaScript API; works offline once visited; **Install CLOADM…** in the app bar, beside Help (behind **Menu** on a phone), runs the browser's own prompt where there is one and shows the steps elsewhere, with a one-time offer once a program has run a minute; settings export and import (never ROMs) | A touch keyboard in embeds |
+| **Links, embedding, offline** | Every setting as a URL parameter (machine, RAM, CPU, a program, tape, cartridge or disk to load, display, input); the Share screen: Share… or Copy link for a link that opens this machine exactly as it is, and under "More ways to share" a 6-second clip, a true-pixel screenshot and the snapshot file, plus the embed code for a blog post; embed mode with a JavaScript API; works offline once visited; **Install CLOADM…** in the app bar, beside Help (behind **Menu** on a phone), runs the browser's own prompt where there is one and shows the steps elsewhere, with a one-time offer once a program has run a minute; settings export and import (never ROMs) | A touch keyboard in embeds |
 
 ### Games
 
@@ -395,6 +397,7 @@ doesn't have is reported in a message (with Details) and the rest of the link st
 | `load` | a link to a program, tape or cartridge | loads and runs it, as a dropped file |
 | `tape` | a link to a `.cas` or `.wav` | puts it in the deck; with `autorun` it loads and runs |
 | `cart` | a link to a cartridge ROM | plugs it in; it starts |
+| `disk` | a link to a disk image (`.vdk`, `.dsk`, `.dmk`) | puts it in the first free drive, before the link's other media: `?load=game.bin&disk=level.vdk` mounts the disk, then loads and runs the game. Without your disk ROM it goes in on the disk controller alone (see **Floppy** above) |
 | `rom` | a link to a ROM image (repeatable), never the Color Computer Archive | with `selftest=1`, the ROM self-test |
 | `display`, `phase`, `aspect`, `integer`, `curvature`, `glow` | `crt`/`sharp`, `1`/`2`, `4:3`/`fill`, `1`/`0`, `0`-`100` | for that visit only, never stored |
 | `joy` | `mouse`, `off` | the mouse as the right joystick |
@@ -436,7 +439,7 @@ either way.
 
 **Install it as an app** (`manifest.webmanifest`, `js/ui/install.js`). **Install CLOADM…**, in the app bar beside Help (behind **Menu** on a phone), runs the browser's own install prompt where there is one and shows the steps
 otherwise; the Help page's **Install CLOADM as an app on this device** has them for Chrome and Edge on a computer, Chrome on Android,
-Samsung Internet, Firefox on Android, iOS Safari and Chrome or Edge on iOS. Installed, it opens in its own window,
+Samsung Internet, Firefox on Android, Safari on a Mac (File → Add to Dock), iOS Safari and Chrome or Edge on iOS. Installed, it opens in its own window,
 without the browser's tabs and address bar, and still works offline.
 
 Once a program has run for a minute on a visit, the page offers it in a card of its own, floating over the page
@@ -467,6 +470,23 @@ with the line. `FCC`, `FCS` and `FCN` take `"text"` or text between two of the s
 Writing a game: [Game development](game-development.md) covers the memory map, the keyboard matrix, the VDG and SAM
 modes, DAC sound and frame timing, with a starter game (`examples/starter-game/catch.asm`, which runs with no ROMs)
 and how to test a game from the command line.
+
+## A Debugger stop on the emulator
+
+A stop in the **Debugger** (its Pause, a step, a breakpoint or watchpoint, a run that reached its limit) stays when
+you go back to the emulator: the machine is not run on behind your back. The emulator says so in three places: the
+**Pause** button reads **Resume**; a strip above the screen (between the header and the screen on a phone) says why
+and where ("Stopped at breakpoint $C0F3.", "Stopped: the watchpoint on $0400 was written at $C0F3."), with
+**Resume** and **Open Debugger**; and the status line reads "Stopped in the Debugger" (or "Paused" for the page's own
+Pause) instead of a speed. Resume, wherever you press it (the button, the strip, the Debugger's F5), ends either kind
+of pause.
+
+Starting something runs it: Run again, a program from Runs without ROMs, Open or a dropped program, tape or disk, a
+disk put in from the Library, Reset, Switch off and on and a machine switch each release the stop (the toast adds "The
+Debugger's stop at $C0F3 was released.") and end the page's Pause. A file that is refused (a .wav with no tape in it,
+BASIC on a machine without its ROM) starts nothing, so the stop stays. Your breakpoints stay set. The same holds for what Claude or the MCP server
+starts. While the machine is stopped, typing is refused rather than kept for later (keys, a tap on the welcome menu,
+a paste): a toast says "The machine is stopped: press Resume, then type." once per stop.
 
 ## ROM self-test
 

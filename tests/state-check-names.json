@@ -44,7 +44,12 @@
 "a single-density DMK is one the drive keeps its mounted bytes for",
 "lazy: the first snapshot after a write and commit equals the eager one",
 "lazy: the restored drive has the flux the live drive had, cell for cell",
-"lazy: the disk exported after a write on the restored drive equals the eager one"
+"lazy: the disk exported after a write on the restored drive equals the eager one",
+"chat machines: each machine's printout holds only its own prints, on screen or off",
+"chat machines: the basic machine's snapshot carries its printout",
+"chat machines: restoring the basic machine's snapshot brings its printout back",
+"chat machines: the chat machine's snapshot carries its printout",
+"chat machines: restoring the chat machine's snapshot brings its printout back"
 ],
 "state-fdc": [
 "snapshot taken during the read sector (dragon64 dragonfdc)",

@@ -87,10 +87,11 @@ const copyOf = (v) => JSON.parse(JSON.stringify(v));   // (a stored answer is re
   check('and starts again with the next one', clock.seconds() === 60);
 
   // ---- the steps ----
-  for (const p of ['chromium', 'desktopOther', 'android', 'samsung', 'firefoxAndroid', 'ios']) {
+  for (const p of ['chromium', 'desktopOther', 'safariMac', 'android', 'samsung', 'firefoxAndroid', 'ios']) {
     check(`the steps for ${p} say what to do`, typeof I.STEPS[p] === 'string' && I.STEPS[p].length > 20);
   }
   check('the iOS steps are Share, then Add to Home Screen', /Share/.test(I.STEPS.ios) && /Add to Home Screen/.test(I.STEPS.ios));
+  check('Safari on a Mac has a line of its own: "In Safari: File → Add to Dock."', I.STEPS.safariMac === 'In Safari: File → Add to Dock.', I.STEPS.safariMac);
   check('names the browsers the brief lists: Chrome/Edge desktop, Android Chrome, Samsung, Firefox Android, iOS Safari',
     /Chrome or Edge/.test(I.STEPS.chromium) && /Chrome/.test(I.STEPS.android) && /☰/.test(I.STEPS.samsung) && /Firefox/.test(I.STEPS.firefoxAndroid));
   // platformOf: every browser to its own steps, from the user agent alone (plus "this is iOS")
@@ -109,7 +110,7 @@ const copyOf = (v) => JSON.parse(JSON.stringify(v));   // (a stored answer is re
     ['Chrome on Windows', UA.chrome, false, 'chromium'],
     ['Edge on Windows (Chrome in its UA)', UA.edge, false, 'chromium'],
     ['Firefox on Windows', UA.firefoxDesktop, false, 'desktopOther'],
-    ['Safari on macOS', UA.safariDesktop, false, 'desktopOther'],
+    ['Safari on macOS', UA.safariDesktop, false, 'safariMac'],
     ['Chrome on Android', UA.chromeAndroid, false, 'android'],
     ['Samsung Internet', UA.samsung, false, 'samsung'],
     ['Firefox on Android', UA.firefoxAndroid, false, 'firefoxAndroid'],

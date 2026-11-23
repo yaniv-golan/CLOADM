@@ -185,6 +185,9 @@ node tests/roms.test.js      # ROM identification across machines (synthetic ima
 node tools/gen-rom-docs.js   # regenerate docs/roms.md from the profiles (tests/romdocs.test.js checks it)
 node tools/gen-page-preload.js  # regenerate the <link rel="modulepreload"> list in play/index.html (tests/pagepreload.test.js checks it)
 node tools/page-load.js      # how long /play/ takes to start over a throttled link: modulepreload's effect (see below)
+node tools/flicker-measure.js # a .cas dropped on stored ROMs, first visit vs repeat: DOM mutations, layout shifts, canvas
+                              # replacements, service-worker events and reloads per second, and #toastRegion's inline-style
+                              # writes (the toast placement loop's cost: see "the page's per-frame work" below)
 node tests/readme.test.js    # README.md and docs/*.md: only what GitHub renders; links, anchors and pictures resolve; no private or ROM-folder links
 node tests/tape.test.js      # cassette: WAV files, decoding impaired recordings, capturing csave.asm's output on every SAM model and the MC-10, Session
 node tests/tape-sound.test.js  # Tape sound: the tape's signal per frame tick for tick, silence when it stops, the low-pass, not machine state; the mux's cassette bias
@@ -201,6 +204,7 @@ node tests/disk.test.js      # disk images: VDK, JVC and DMK to and from flux, h
 node tests/fdc.test.js       # floppy controller cartridges register by register: commit delays, step rates, index, CRCs, NMI/HALT
 node tests/nmi-arm.test.js   # when a CPU starts taking NMI: on the 6809 LDS, LEAS and TFR r,S arm it and EXG does not; on the 6309 only LDS and LEAS do; an earlier edge is lost
 node tests/disks.test.js     # disks through the Session: stored, mounted and written back by range on the media store, write-protect, download, errors
+node tests/disk-bare.test.js # a disk without a disk ROM: the controller alone, a program on the built-in firmware reading it, the ROM put in later, a snapshot mid-read, the CLI note
 node tests/disks-mount-race.test.js   # a Library rename, import or delete of the image a mount is reading: it reads again or fails clearly
 node tests/disks-mount-case.test.js   # writes to the image being mounted under its own name or another case spelling, on case-sensitive, case-insensitive and unmeasured stores
 node tests/disks-newdisk.test.js      # a new blank disk formatted by our firmware; newDisk against an import of the same name
@@ -215,6 +219,8 @@ node tests/privacy-copy.test.js # the ROM privacy copy (README, docs, front, /ro
 node tests/cpu6309-offer.test.js   # the welcome menu is offered on every 6309 model ('menu', 'back'), and the file it fetches is the 6809 build (welcome.bin), as the 6809 gets
 node tests/cpu6309-session.test.js # the HD6309 runs the 6809 builds: welcome menu, LIZA, the demo and the chat firmware on every 6309 model, each ending in the same state as on the 6809
 node tests/returning.test.js # returning visits: greetings, carry-on (option 6; 5 on the 6803 build), what ran last, back to the menu from LIZA (BYE or BREAK) and the demo
+node tests/welcome-on-screen.test.js # "on screen now" (Session.welcomeOnScreen: the menu loaded on the machine shown, not stopped by the Debugger, and drawn) and 'lastrun', which "Last time" follows; the page side is the browser check's returning group (onScreenChecks)
+node tests/debugger-stop.test.js # a Debugger stop in the Session: Reset, a power cycle, a load and a switch release a Debugger stop (breakpoints kept, 'launch' and 'released' emitted), typing while stopped is refused once per stop, the status line says Stopped or Paused; the page side is the browser check's debugger group (debuggerStopChecks)
 node tests/power-on.test.js  # without ROMs: Reset restarts what runs; power-on, a machine switch and a snapshot of the stub's prompt bring the welcome menu (6809 and 6803)
 node tests/welcome6803.test.js # the 6803 welcome on mc10 and alice: raw screen cells, per-machine subtitle, keys, the two builds differ only at the HALT
 node tests/regress.test.js                # the trace and frame hashes of the diagnostic firmware, against their recorded values (no MAME needed; about a minute of work on one core, and tests/all.js runs it in parallel shards; --count prints the number of cases, --only <name or /regex/> runs some of them, e.g. --only dragon64 while changing one thing)
@@ -247,6 +253,7 @@ node tools/nitros9/boot-floppy-mame.js <_40d_1.dsk> --cpu 6809 --record tests/fi
 node tools/mame-diff/run.js coco3 --fdc cocofdc --halt   # the controller's HALT and NMI in halted sector reads at 0.89 and 1.78 MHz, with MAME
 node tools/mame-diff/run.js coco3 --fdc cocofdc --halt --empty   # a halted read on a drive with no disk: the CPU held for good, as in MAME
 node tools/mame-diff/run.js coco3 --fdc cocofdc --nitros9 [--cpu 6309]   # the NitrOS-9 floppy loader on a hand-built boot floppy, with MAME
+node tools/mame-diff/run.js dragon64 --fdc --bare   # the controller with an empty ROM socket, driven by a program reading track 0 sector 1 (also coco), with MAME
 node tools/browser-check.js --only nitros9   # Boot NitrOS-9 from the page (the release images when fetched)
 node tools/browser-check.js --only semantics # landmarks, headings, closed surfaces hidden for real, the screen's text alternative, a reading mode (Readability)
 node tools/nitros9/boot-mame.js <image> --cpu 6809 --seconds 30 --type 'dir\r' --at 15 --record tests/fixtures/nitros9/coco3-6809-becker.json   # its MAME reference (also boot.js: the same boot on ours)
@@ -307,6 +314,42 @@ final `missing files` check) one at a time, each on its own (`tools/browser-chec
   count, if any) or `browser check FAILED`. Exit code: 0 only if every check, wait and group passed; 1 otherwise;
   2 for a usage error.
 
+**Measuring a check's failure rate.** A check that fails once in CI and passes locally is not diagnosed by reading
+it: measure it. `tools/flaky-n.sh` runs one `--only` group N times and writes one line per run - the exit code, the
+1-minute load average at the start, the group summary, and the target check's own detail line (so a failure names
+the bound that broke rather than just "red") - and keeps the log of any run that failed while deleting the passing
+ones.
+
+```
+# run one group 20 times, recording the line of the check being investigated
+./tools/flaky-n.sh semantics 20 /tmp/flaky-semantics.txt "text alternative follows the screen"
+./tools/flaky-n.sh audio     20 /tmp/flaky-audio.txt     "no pop across power cycle"
+```
+
+Use `node tools/browser-check.js --list-groups` for the group names. Run it **alone, on a quiet machine, from the
+checkout you mean to measure** - the browser check is CPU-bound and a concurrent run, or a run started from a
+different checkout, measures something other than what you are asking about. Load matters: a shared machine can be
+busier than a CI runner or quieter, so record the load average each line carries and compare like with like. A rate
+measured under one load does not establish another's - a check that passes 20/20 under load 19 on a 14-core laptop
+may still fail on a 4-core runner at full tilt, and a mechanism found in the code is what settles it.
+
+Two probes reproduce, outside the gate, the two conditions behind the flaky checks, and both carry their own
+controls so a null result means something:
+
+```
+# the no-pop check under a forced stall: control (must give ~0.0078/0.0165), a planted pop (must be caught),
+# then the real measurement - 20 stalls of 500 ms at 20 phases
+node tools/audio-stall-probe.js control 1
+node tools/audio-stall-probe.js plant   2 500
+node tools/audio-stall-probe.js stall  20 500
+# the text alternative's mirror under a starved CPU: samples screenAlternative() and #screenAlt every 20 ms
+node tools/semantics-race-probe.js /tmp/race.txt 4     # 4 = CDP CPU throttling, a slow runner
+```
+`audio-stall-probe.js`'s `plant` mode writes a chunk at the opposite level into the sink on resume: if that is not
+caught, the probe cannot see a pop and its stall numbers prove nothing. `semantics-race-probe.js` prints every
+transition and how many samples the live screen differed from the 1 Hz mirror, which is the race the check now
+retries.
+
 **How /play/ starts.** The page's module graph is 100 modules and about 815 KB of plain ES modules with no
 build step, and it is six imports deep (the page → the Session → the machine families → the chips → the CPUs).
 Left to itself the browser learns about a module only when the module that imports it has arrived, so the
@@ -342,6 +385,19 @@ access (`readRange` to mount, `writeRange` for what the machine writes, only the
 drive's motor stops, on eject, and before the machine or the page goes away), never through the media index.
 A disk that comes back with a snapshot is the snapshot's own copy: it is not linked to the stored image, and
 Download saves it.
+
+**The page's per-frame work.** A toast is placed once per animation frame while it is up, so it keeps clear of a
+control that grows under it (`js/ui/feedback.js`; `follow` → `place`). That is one chain for the page, cancelled when
+the toast goes, and `place` writes the region's inline style and its class only when the placement changes. The
+browser check measures that directly: a stationary toast writes `#toastRegion`'s style **0 times in 60 frames** on
+desktop and phone (a per-frame writer gives ~60, and main gave ~180), and after a pinned toast has come and gone a
+placed toast queues **0 class mutations** on the region (a `classList.remove` of an absent class queues one per frame
+in Chromium; `toggle(c, false)` does not). The same check still requires the toast to follow a layout change, and
+`tests/toast-follow.test.js` pins the chain count, the stationary cost, the class churn and the follow in Node.
+
+(`node tools/flicker-measure.js` measures a page load, not a toast's placement: its window waits on the machine
+booting and usually holds no toast, so its `#toastRegion` count does not isolate the placement loop. It is useful for
+the load's DOM mutations and layout shifts, which is what the figures it prints are for.)
 
 ## Pictures
 

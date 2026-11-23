@@ -22,6 +22,8 @@
 import { $, safeArea } from './page.js';
 
 const SHORT = 4000, LONG = 8000, WAIT = 60000;
+// where a toast's action button stands inside its sentence (toast text 'Typing BASIC needs your BASIC ROM: {action}.')
+const INLINE = '{action}';
 export const currentView = () => ({ '#library': 'library', '#add-roms': 'roms', '#share': 'share' }[location.hash] || 'emulator');
 // where an attention card sits on each page: over the screen on the emulator, under the header elsewhere
 const ATTENTION_HOME = { emulator: () => document.querySelector('#monitor .tube'), library: () => document.querySelector('#library .libhead'), roms: () => document.querySelector('#romCard .libhead'), share: () => document.querySelector('#share > header') };
@@ -30,6 +32,52 @@ const ATTENTION_HOME = { emulator: () => document.querySelector('#monitor .tube'
 export function splitDetails(text) {
   const m = /^(.+?[.!?])\s+(\S[\s\S]*)$/.exec(text);
   return m && m[1].length >= 12 ? [m[1], m[2]] : [text, null];
+}
+
+// The placement decision, as data in and data out -- PURE. It reads no document, no window, no element and no
+// module state: everything it can consult is in `inputs`, which `readInputs()` builds. That is the point of the shape:
+// a read the decision needs but the inputs do not carry cannot be written, so the decision and the identity of the
+// decision (JSON.stringify(inputs)) cannot drift. (An earlier version kept a separate list as the cache key beside a
+// place() that still read the DOM; three different omissions in that list passed every test.)
+//   inputs: see readInputs()
+//   -> { kind: 'natural' }                      the stylesheet's own place
+//    | { kind: 'placed', left, top, width }     CSS px strings (width null: the stylesheet's width)
+//    | { kind: 'band', band, offText, fullWidth } the band under the screen's text; the caller measures the two forms
+//    | { kind: 'top' }                          the fixed slot at the top of the viewport
+export function decide(I) {
+  const { box: r, phone, area, controls, screen, tube: t, canvas: c, active, sideKeys = false } = I;
+  const w = r.width, h = r.height;
+  const hits = (a, o) => !(a.bottom <= o.top || a.top >= o.bottom || a.right <= o.left || a.left >= o.right);
+  const rect = (left, top) => ({ left, top, right: left + w, bottom: top + h });
+  const inView = (a) => a.left >= area.left && a.right <= area.right && a.top >= area.top && a.bottom <= area.bottom;
+  const free = (a, avoid) => inView(a) && avoid.every((o) => !hits(a, o));
+  const tries = [[r.left, r.top, true]];   // [left, top, also avoid the screen?]
+  if (!phone) {
+    const xs = [];
+    for (let x = area.left + 16; x + w <= area.right - 16; x += 8) xs.push(x);
+    xs.sort((a, b) => Math.abs(a - r.left) - Math.abs(b - r.left));
+    for (const x of xs) tries.push([x, r.top, true]);
+  }
+  // the screen's visible text, and the band under it inside what shows of the screen. A phone held sideways with the
+  // touch keys (sideKeys): the screen column has the window's height and the picture sits in the middle of its tube, so
+  // the band reaches the tube's foot, the black glass under the picture: the one place there that covers neither the
+  // text nor a key
+  const text = c && c.width ? (() => {
+    const f = (active || '0,0,1,1').split(',').map(Number);
+    return { left: c.left + f[0] * c.width, top: c.top + f[1] * c.height, right: c.left + f[2] * c.width, bottom: c.top + f[3] * c.height };
+  })() : null;
+  const band = t && t.width && t.height && text ? { left: Math.max(t.left, c.left, area.left) + 8, right: Math.min(t.right, c.right, area.right) - 8,
+    top: text.bottom + 2, bottom: Math.min(t.bottom, sideKeys ? Infinity : c.bottom, area.bottom) - 4 } : null;
+  const offText = controls.concat(text ? [text] : []);
+  tries.push([r.left, area.top + (phone ? 8 : 16), true]);
+  const at = tries.find(([x, y, avoidScreen]) => free(rect(x, y), avoidScreen ? controls.concat(screen) : controls));
+  if (at) {
+    if (at[0] === r.left && at[1] === r.top) return { kind: 'natural' };
+    // (the width the writer must set is the toast's own on a phone -- recorded here so it can be re-applied)
+    return { kind: 'placed', left: `${Math.round(at[0])}px`, top: `${Math.round(at[1])}px`, width: phone ? `${Math.round(w)}px` : null };
+  }
+  if (band && band.right - band.left > 40 && band.bottom - band.top > 12) return { kind: 'band', band, offText, fullWidth: w };
+  return { kind: 'top' };
 }
 
 export function createFeedback() {
@@ -44,9 +92,11 @@ export function createFeedback() {
     const t = cur;
     cur = null;
     clearTimeout(t.timer);
+    stopFollow();               // nothing places a toast that has gone
+    pinnedArea = null;          // (the next toast's slot is placed from its own inputs)
     box.hidden = true;
     unplace();
-    box.classList.remove('error');
+    dropClass(box, 'error'); dropClass(box, 'compact');   // (a form left on measured the NEXT toast's first frame)
     textEl.textContent = ''; detEl.textContent = ''; actEl.textContent = '';
     if (t.onEnd) t.onEnd(reason);
   }
@@ -61,11 +111,20 @@ export function createFeedback() {
     end('replaced');
     cur = t;
     t.seen = false;
+    dropClass(box, 'compact');   // (a previous toast may have left the compact form on: measure this one fresh)
+    decided = null;                 // a new toast: measure afresh
     t.left = t.action || t.details ? LONG : SHORT;
-    textEl.textContent = t.text;
+    // an action named in the sentence itself ("… your BASIC ROM: [Add ROMs]. Or …"): its button stands where the
+    // text says {action}, so the sentence reads on through it; otherwise it follows the text
+    const at = t.action ? t.text.indexOf(INLINE) : -1;
+    if (at >= 0) {
+      const b = document.createElement('button'); b.type = 'button'; b.className = 'inline'; b.textContent = t.action.label;
+      b.onclick = (e) => { e.stopPropagation(); if (cur !== t) return; end('action'); t.action.run(); };
+      textEl.replaceChildren(t.text.slice(0, at), b, t.text.slice(at + INLINE.length));
+    } else textEl.textContent = t.text;
     box.classList.toggle('error', !!t.error);
-    actEl.hidden = !t.action && !t.details;
-    actEl.textContent = t.action ? t.action.label : t.details ? 'Details' : '';
+    actEl.hidden = (!t.action || at >= 0) && !t.details;
+    actEl.textContent = t.action && at < 0 ? t.action.label : t.details ? 'Details' : '';
     detEl.hidden = true;
     moreEl.textContent = t.details || '';
     box.hidden = false;
@@ -89,93 +148,182 @@ export function createFeedback() {
   const region = box.parentNode;
   // (the install offer too: a toast must never cover it, in any of its layouts)
   const CONTROLS = 'header, .controls, .slots, aside.drawer, #attention, #touchKeys button, #claudeBar, #installOffer, #tapeHud:not([hidden]), #btnShowKeys:not([hidden])';
-  const boxes = (sel) => [...document.querySelectorAll(sel)].map((e) => e.getBoundingClientRect()).filter((o) => o.width && o.height);
-  const hits = (r, o) => !(r.bottom <= o.top || r.top >= o.bottom || r.right <= o.left || r.left >= o.right);
+  // Class changes that queue NO mutation when they change nothing. In a real browser `classList.remove('x')` and
+  // `add('x')` queue a class-attribute mutation whether or not 'x' was there (measured in Chromium: 10 remove() calls
+  // of an absent class on an element that has a class attribute give 10 records; `toggle('x', false)` gives 0), so a
+  // placed toast that re-applied its placement every frame -- or a natural toast re-applying -- rewrote a class
+  // attribute per frame even though nothing changed. `toggle(c, on)` is the one form that is silent when it changes
+  // nothing, so every class change goes through these two and a call site cannot reintroduce the churn.
+  const addClass = (el, c) => el.classList.toggle(c, true);
+  const dropClass = (el, c) => el.classList.toggle(c, false);
+  // ONE writer for the region's inline style, and it writes only what changed. Main wrote eleven properties every
+  // frame (6 in unplace, 5 in put): 2,715 style-attribute writes in a 3 s load window, 2,714 of them byte-identical.
+  // Clearing six already-empty properties every frame is exactly the thrash this fixes, so each writer compares before
+  // it writes and leaves an already-correct property alone.
+  const PROPS = ['left', 'top', 'right', 'bottom', 'transform', 'width'];
+  // The stylesheet's own place: no inline style at all. Clear what a placed toast set, and only if something is there.
+  function clearRegion() {
+    // nothing inline to clear: leave it (the stylesheet's place already holds, and a stationary toast must cost no
+    // writes at all -- clearing six already-empty properties every frame is exactly the thrash this fixes)
+    if (region.style.cssText === '') return;
+    for (const k of PROPS) if (region.style[k] !== '') region.style[k] = '';
+    dropClass(region, 'top');
+  }
+  // Place the toast: { left, top, width|null } px values. Writes a property only when its value changes.
+  // the writers' shared helpers (place() is a thin shell now: put/hitsRect/inViewOf are the only geometry it has)
+  const px = (v) => (typeof v === 'number' ? `${Math.round(v)}px` : v);
+  const put = (left, top, width = null) => placedAt(px(left), px(top), width === null ? null : px(width));
+  const hitsRect = (r, o) => !(r.bottom <= o.top || r.top >= o.bottom || r.right <= o.left || r.left >= o.right);
+  const inViewOf = (c, area) => c.left >= area.left && c.right <= area.right && c.top >= area.top && c.bottom <= area.bottom;
+  function placedAt(left, top, width) {
+    const want = { left, top, width };
+    for (const k of ['left', 'top', 'width']) {
+      const v = k === 'width' ? (width === null ? '' : width) : want[k];
+      if (region.style[k] !== v) region.style[k] = v;
+    }
+    for (const [k, v] of [['transform', 'none'], ['right', 'auto'], ['bottom', 'auto']]) if (region.style[k] !== v) region.style[k] = v;
+    dropClass(region, 'top');
+  }
+  // The fixed top slot: the class carries the rest, the two inline properties pin it away from the stylesheet's edge.
+  // `area` and `phone` are the decision's own inputs, passed in rather than read again: a second `innerWidth` read here
+  // was a DOM read outside readInputs(), so this writer could disagree with the key that recorded the decision.
+  function placedTop(area, phone, barBottom = 0) {
+    clearRegion();
+    addClass(region, 'top');
+    // the slot is inside the safe area: clear of a phone's notch (viewport-fit=cover) as well as of the top edge
+    // and under the app bar where it shows (a toast never covers the bar's buttons)
+    const top = `${Math.round(Math.max(area.top + (phone ? 8 : 16), barBottom ? barBottom + 8 : 0))}px`;
+    if (region.style.top !== top) region.style.top = top;
+    if (region.style.bottom !== 'auto') region.style.bottom = 'auto';
+  }
   // back to the stylesheet's place (a toast that ends, or one placed afresh)
-  function unplace() {
-    region.style.left = ''; region.style.top = ''; region.style.right = ''; region.style.bottom = '';
-    region.style.transform = ''; region.style.width = '';
-    region.classList.remove('top');
+  function unplace() { clearRegion(); }
+  // Everything place()'s decision reads, as one string: if it is unchanged the answer is unchanged, so a stationary
+  // toast needs no measurement and no write. (The controls' geometry is in it: a control that grows under the toast is
+  // a different answer, which is what the browser check's "a control grows under it" case needs.)
+  let measuredFor = null, decided = null;
+  // the safe-area key the pinned slot was last placed with (a phone's rotation changes --safe-t)
+  let pinnedArea = null;
+  // EVERY DOM read the placement needs, in one place and nowhere else. `place()` decides from exactly this object and
+  // uses it as the identity of the decision, so an input cannot be read by the decision and forgotten by the key.
+  function readInputs() {
+    const t = box.getBoundingClientRect(), area = safeArea();
+    const cv = document.getElementById('screen'), tubeEl = document.querySelector('#monitor .tube');
+    const boxOf = (o) => (o ? { left: o.left, top: o.top, right: o.right, bottom: o.bottom, width: o.width, height: o.height } : null);
+    return {
+      phone: innerWidth <= 700, area: { ...area },
+      box: boxOf(t), classes: `${box.className}|${region.className}|${document.body ? document.body.className : ''}`,
+      // the elements place() avoids: the controls, and #monitor itself (its bezel padding changes with the chat's
+      // phone layout) with the screen and the tube inside it
+      controls: [...document.querySelectorAll(CONTROLS)].map((e) => e.getBoundingClientRect()).filter((o) => o.width && o.height).map(boxOf),
+      screen: [...document.querySelectorAll('#monitor, #monitor .tube, #screen')].map((e) => e.getBoundingClientRect()).filter((o) => o.width && o.height).map(boxOf),
+      tube: boxOf(tubeEl && tubeEl.getBoundingClientRect()), canvas: boxOf(cv && cv.getBoundingClientRect()),
+      active: cv ? cv.dataset.active || '0,0,1,1' : '',
+      // a phone held sideways with the touch keys (decide's band reaches the tube's foot there)
+      sideKeys: !!(document.body && document.body.classList.contains('touch-keys')) && matchMedia('(orientation: landscape) and (max-height: 500px)').matches,
+      // the app bar's bottom edge where it shows (the top slot stands under it: a toast never covers the bar's buttons)
+      barBottom: (() => { const bar = document.getElementById('appbar'); if (!bar) return 0; const b = bar.getBoundingClientRect(); return b.height && b.bottom > 0 && getComputedStyle(bar).display !== 'none' ? b.bottom : 0; })(),
+    };
+  }
+  // put back the placement an unchanged frame would have decided on (writes only if something moved). `decided` is
+  // only ever 'natural' or 'placed' here: a 'top' toast is pinned and handled in `place` before the cache is read.
+  function reapply() {
+    if (decided.kind === 'natural') { unplace(); dropClass(box, 'compact'); return; }
+    if (decided.compact !== undefined) box.classList.toggle('compact', decided.compact);
+    placedAt(decided.left, decided.top, decided.width);
   }
   function place() {
-    if (cur && cur.pinned && !box.hidden) return;   // in the top slot: kept there until it goes
-    unplace();
-    if (box.hidden) return;
-    if (currentView() !== 'emulator') { seen(); return; }
-    const r = box.getBoundingClientRect(), w = r.width, h = r.height, phone = innerWidth <= 700, area = safeArea();
-    const controls = boxes(CONTROLS), screen = boxes('#monitor, #monitor .tube, #screen');   // (the phone chat's monitor has no box of its own)
-    const rect = (left, top) => ({ left, top, right: left + w, bottom: top + h });
-    // in view: inside the window less a phone's notch and home indicator (safeArea)
-    const inView = (c) => c.left >= area.left && c.right <= area.right && c.top >= area.top && c.bottom <= area.bottom;
-    const free = (c, avoid) => inView(c) && avoid.every((o) => !hits(c, o));
-    const tries = [];   // [left, top, also avoid the screen?]
-    tries.push([r.left, r.top, true]);
-    if (!phone) {
-      const xs = [];
-      for (let x = area.left + 16; x + w <= area.right - 16; x += 8) xs.push(x);
-      xs.sort((a, b) => Math.abs(a - r.left) - Math.abs(b - r.left));
-      for (const x of xs) tries.push([x, r.top, true]);
-    }
-    // the screen: never over its text; below the text area, on the screen's border, if there is room
-    // (compact there when the full toast does not fit)
-    const tube = document.querySelector('#monitor .tube'), cv = document.getElementById('screen');
-    const t = tube && tube.getBoundingClientRect(), c = cv && cv.getBoundingClientRect();
-    const text = c && c.width ? (() => {
-      const f = (cv.dataset.active || '0,0,1,1').split(',').map(Number);
-      return { left: c.left + f[0] * c.width, top: c.top + f[1] * c.height, right: c.left + f[2] * c.width, bottom: c.top + f[3] * c.height };
-    })() : null;
-    // the band under the text, inside what shows of the screen. A phone held sideways with the touch keys: the screen
-    // column has the window's height and the picture sits in the middle of its tube, so the band reaches the tube's
-    // foot, the black glass under the picture: the one place there that covers neither the text nor a key
-    const sideKeys = document.body.classList.contains('touch-keys') && matchMedia('(orientation: landscape) and (max-height: 500px)').matches;
-    const band = t && t.width && t.height && text ? { left: Math.max(t.left, c.left, area.left) + 8, right: Math.min(t.right, c.right, area.right) - 8,
-      top: text.bottom + 2, bottom: Math.min(t.bottom, sideKeys ? Infinity : c.bottom, area.bottom) - 4 } : null;
-    const offText = controls.concat(text ? [text] : []);
-    tries.push([r.left, area.top + (phone ? 8 : 16), true]);
-    const put = (x, y, width = null) => {
-      region.style.transform = 'none'; region.style.bottom = 'auto'; region.style.right = 'auto';
-      region.style.left = `${Math.round(x)}px`; region.style.top = `${Math.round(y)}px`;
-      if (width !== null) region.style.width = `${Math.round(width)}px`;
-    };
-    box.classList.remove('compact');
-    const at = tries.find(([x, y, avoidScreen]) => free(rect(x, y), avoidScreen ? controls.concat(screen) : controls));
-    if (at) {
-      if (at[0] !== r.left || at[1] !== r.top) put(at[0], at[1], phone ? w : null);
-      seen();
+    // In the top slot (pinned): the toast stays there until it goes, so no re-decision. But the slot's TOP comes from
+    // the safe area, which a phone's rotation changes (--safe-t is env(safe-area-inset-top): a notch at the top in
+    // portrait, at the side in landscape). Keeping the pin's original top left it under the notch after a rotation, so
+    // when the safe-area insets change the slot is re-applied from the new inputs -- the same slot, moved. This is the
+    // only thing a pinned toast still reads, and only while the insets are unchanged does it cost nothing.
+    if (cur && cur.pinned && !box.hidden) {
+      // the phone flag too: the slot's offset is 8 px on a phone and 16 px otherwise, so crossing 700 px with the
+      // safe area unchanged still needs the slot re-applied (an 8 px offset left on a wide window, or the reverse).
+      const A = readInputs(), a = A.area, areaKey = `${a.top}|${a.left}|${a.bottom}|${a.right}|${A.phone}`;
+      if (areaKey !== pinnedArea) { placedTop(a, A.phone, A.barBottom); pinnedArea = areaKey; }
       return;
     }
-    // in the band under the screen's text: as it is if it fits, else compact (smaller type, narrowed to the band)
-    if (band && band.right - band.left > 40 && band.bottom - band.top > 12) {
+    if (box.hidden) { unplace(); return; }
+    if (currentView() !== 'emulator') { unplace(); seen(); return; }
+    // Read, compare, and only when something changed decide and write. The decision needs the NATURAL box (no inline
+    // style), so a previous placement is cleared before the decision is measured; a frame whose inputs are unchanged
+    // puts the same placement back and satisfies every read from `decided`. `decided` is `{ ...verdict, compact }`
+    // where `compact` is the form the band branch needed, so a re-apply writes the same thing without measuring.
+    //
+    // THE KEY IS THE STATE THE NEXT FRAME WILL COMPARE, so it is recorded AFTER the write, by `settle()`, from every
+    // branch. The compare above reads the toast where it is now -- placed, once it has been placed -- so recording the
+    // key before the write (at the natural spot) meant a placed toast could never hit: the probe was its placed rect,
+    // the key its natural one, they differed every frame, and every frame cleared the region and wrote it again (12
+    // style writes a frame on a phone's top-edge path, 10 on the desktop bottom-edge scan; main did 12 and 11). The
+    // band path always recorded after its put(), which is why the band cached and the placed branch did not.
+    const probe = readInputs();
+    const key = JSON.stringify(probe);
+    if (decided && key === measuredFor) { reapply(); seen(); return; }
+    unplace();
+    // the decision is measured from the NATURAL box, so this read follows unplace() (never reuse `probe`: it was taken
+    // with the previous placement's inline style on, which would decide from the placed rect)
+    const I = readInputs();
+    const d = decide(I);
+    // `settle()` records the key from the state the page is actually in now; `box`'s class and the region's own inline
+    // style are both inputs, so this must follow the last write of each branch.
+    const settle = () => { measuredFor = JSON.stringify(readInputs()); };
+    if (d.kind === 'natural') { decided = d; dropClass(box, 'compact'); settle(); seen(); return; }
+    if (d.kind === 'placed') { put(d.left, d.top, d.width); decided = d; settle(); seen(); return; }
+    if (d.kind === 'band') {
+      // the compact form is a layout question, so it is measured here; `decided` records which form fit, so the
+      // re-apply never measures again
       for (const compact of [false, true]) {
         box.classList.toggle('compact', compact);
-        const bw = Math.min(compact ? Infinity : w, band.right - band.left);
+        const bw = Math.min(compact ? Infinity : d.fullWidth, d.band.right - d.band.left);
         put(0, 0, bw);
-        const bb = box.getBoundingClientRect(), x = (band.left + band.right - bb.width) / 2, y = band.bottom - bb.height;
+        const bb = box.getBoundingClientRect(), x = (d.band.left + d.band.right - bb.width) / 2, y = (d.band.bottom - bb.height);
         const spot = { left: x, top: y, right: x + bb.width, bottom: y + bb.height };
-        if (y >= band.top && free(spot, offText)) { put(x, y, bw); seen(); return; }
+        if (y >= d.band.top && inViewOf(spot, I.area) && d.offText.every((o) => !hitsRect(spot, o))) {
+          put(x, y, bw);
+          decided = { kind: 'placed', left: `${Math.round(x)}px`, top: `${Math.round(y)}px`, width: `${Math.round(bw)}px`, compact };
+          settle();   // (after put(): the region's width is part of the key)
+          seen(); return;
+        }
       }
-      box.classList.remove('compact');
+      dropClass(box, 'compact');
     }
     // nowhere it covers no control: the fixed slot at the top of the viewport, kept until the toast goes
-    box.classList.remove('compact');
-    unplace();
-    // (under the app bar where it shows: a toast never covers the bar's buttons)
-    const bar = document.getElementById('appbar'), br = bar.getBoundingClientRect();
-    const under = br.height && br.bottom > 0 && getComputedStyle(bar).display !== 'none' ? br.bottom + 8 : 0;
-    region.style.top = `${Math.round(Math.max(phone ? 8 : 16, under))}px`; region.style.bottom = 'auto';
-    region.classList.add('top');
-    if (cur) cur.pinned = true;
+    dropClass(box, 'compact');
+    placedTop(I.area, I.phone, I.barBottom);
+    decided = { kind: 'top' };
+    // NO settle() here, and no `reapply` arm for 'top': pinning below makes `place` return at its first line on every
+    // later frame, so this key is never compared again -- recording it would be a dead store (measured: reapply never
+    // runs with a 'top' decision). The slot is kept by the pin, not by the cache.
+    cur.pinned = true; pinnedArea = `${I.area.top}|${I.area.left}|${I.area.bottom}|${I.area.right}|${I.phone}`;
     seen();
   }
   // followed every frame while it is up: a control can move under it without the window scrolling or resizing
   // (the drawer filling in, a bar appearing above the slots), and it must never end up over one
-  function follow(t) { if (cur !== t) return; place(); requestAnimationFrame(() => follow(t)); }
+  // One placement chain for the page, cancelled when no toast is up. On main every show() started its own and none
+  // was ever cancelled: replacing a toast three times in a task left three chains placing the SAME frame (measured:
+  // three different positions written per frame), and each toast of a session added a loop that only ever returned
+  // early. `raf` is the chain in flight (null: none).
+  let raf = null;
+  function follow(t) {
+    if (cur !== t || raf !== null) return;          // (a chain is already running for this toast)
+    const step = () => {
+      raf = null;
+      if (cur !== t) return;                        // this toast is gone: the chain ends here
+      place();
+      if (cur === t) raf = requestAnimationFrame(step);
+    };
+    raf = requestAnimationFrame(step);
+  }
+  function stopFollow() { if (raf !== null) { cancelAnimationFrame(raf); raf = null; } }
   // text: what happened; error: an action failed; action: { label, run } (Undo, Show, Load); details: more text
   // (an error's sentences after the first go there by default); view: the page it belongs to (default: the one
   // shown); onEnd(reason): called once when it goes ('timeout', 'replaced', 'cleared', 'action', 'dropped', 'closed')
   function toast(text, { error = false, action = null, details, view = currentView(), onEnd = null } = {}) {
     if (details === undefined && error && !action) [text, details] = splitDetails(String(text));
     const t = { text: String(text), error, action, details: details || null, view, onEnd, raised: Date.now() };
+    if (!action) t.text = t.text.replace(INLINE, '');
     if (view !== currentView()) {
       const old = waiting.get(view);
       if (old && old.onEnd) old.onEnd('replaced');
@@ -253,9 +401,15 @@ export function createFeedback() {
   return {
     toast, attention, resolve, viewChanged,
     clear: () => end('cleared'),
-    get current() { return cur ? { text: cur.text, error: cur.error, view: cur.view } : null; },
+    // this toast goes now, if it is still the one up (a hint its program's first key has made moot); a newer one stays
+    dismiss: (t) => { if (t && cur === t) end('cleared'); },
+    // (text: with the action's label where an inline action stands, as the toast reads)
+    get current() { return cur ? { text: cur.text.replace(INLINE, cur.action ? cur.action.label : ''), error: cur.error, view: cur.view } : null; },
     // the toast up, and whether its time is running (seen)
     get pending() { return (cur ? [cur] : []).map((t) => ({ text: t.text, seen: !!t.seen })); },
     get attentionText() { return att ? att.text : null; },
+    // the placement's inputs, read from the page: the placement loop and its tests use it (the decision itself never
+    // reads the DOM, so this is the one place that does)
+    readPlacementInputs: readInputs,
   };
 }

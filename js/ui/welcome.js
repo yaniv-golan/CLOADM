@@ -23,7 +23,7 @@
 import { $, ESC, touchPanel } from './page.js';
 import { profiles } from '../machines/profiles.js';
 import { cpuFamily } from '../cpu/cpus.js';
-import { gameKey } from '../session.js';
+import { gameKey, WELCOME } from '../session.js';
 import { buildUrl } from '../config.js';
 
 // Programs that run without ROMs: our own only. Third-party homebrew is not bundled: the stub provides only
@@ -41,6 +41,10 @@ export const SHELF = [
   { name: 'Minesweeper', game: 'minesweeper', cpu: '6809', title: 'Minesweeper: find the ten mines (arrows or joystick; SPACE or fire opens, F or hold fire flags; BREAK leaves)' },
 ];
 const gameItem = (key) => SHELF.find((x) => x.game === key);
+// the welcome menu's key for LIZA ("1 TALK TO LIZA": the number whose event is 'liza', both builds)
+export const LIZA_KEY = WELCOME.events.indexOf('liza') + 1;
+// how long a program's "how to play" toast stays at most (howTo, below)
+export const HINT_MS = 4000;
 // the machine question: one button per family people are likely to have had
 const ASK = [['dragon64', 'Dragon 32 / 64'], ['coco', 'CoCo 1 / 2'], ['coco3', 'CoCo 3'], ['mc10', 'MC-10']];
 const el = (tag, text, cls) => { const e = document.createElement(tag); if (text != null) e.textContent = text; if (cls) e.className = cls; return e; };
@@ -58,13 +62,38 @@ export function setupWelcome(page, { showRoms, openClaude }) {
   // fetch began: anything that started or stopped one since (a Power cycle, a Reset, a program, a snapshot,
   // `stubPrompt` in the browser check) changes `stubRun`, and the start is dropped. `welcomeRunning` alone is not
   // enough: it is FALSE both before the menu starts and after something cleared it, so a fetch that lands after
-  // the page wiped the menu (stubPrompt does, then clicks Ask Claude) would put the menu back - and "Ask Claude"
-  // then opens the full-screen chat instead of the side panel, because that is what the menu asks for.
+  // the page wiped the menu (stubPrompt does) would put the menu back over what the page started.
   // byMachine: the program on the machine asked for it (the 'welcome:*' events, 'menu' after LIZA's BYE or the
   // demo): the start itself runs in Session.asMachine, so keys Claude typed that asked for it do not stop Claude
   // (the fetch before it is outside: what the person does meanwhile still stops Claude)
   // (byMachine: the ticket the Session gave when the program asked, Session.machineTicket; null: the person asked)
   const startAs = (byMachine, fn) => (byMachine ? session.asMachine(fn, byMachine) : fn());
+  // A program's "how to play" toast (a game, the colour demo): it says what the first key does, so that key ends it, or
+  // HINT_MS, whichever comes first; it does not wait out a hover as other toasts do (on a touch panel the tap on a key
+  // is a press on the page, which ends any toast already)
+  let endHowTo = () => {};
+  const howTo = (text) => {
+    endHowTo();
+    const t = page.toast(text);
+    const key = (e) => { if (page.toMachine(e)) end(); };
+    const timer = setTimeout(() => end(), HINT_MS);
+    const end = () => { removeEventListener('keydown', key, true); clearTimeout(timer); page.feedback.dismiss(t); };
+    addEventListener('keydown', key, true);
+    endHowTo = end;
+  };
+  // A key on the welcome menu that is not one of its numbers (a first-time visitor typing PRINT, or LIST, as on the
+  // real machine): the menu takes only numbers, and BASIC needs its ROM. Said once a visit. The menu's numbers, BREAK
+  // (Esc: the games menu's way back), Tab (it moves the focus) and keys held with Ctrl, Alt or Cmd are not such keys,
+  // and only while the menu is the screen the keys go to (not the chat, full screen in front of it).
+  let menuToldOnce = false;
+  const OTHER = new Set(['Enter', 'Backspace', 'Delete', 'Home', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']);
+  addEventListener('keydown', (e) => {
+    if (menuToldOnce || e.repeat || e.ctrlKey || e.altKey || e.metaKey || !session.welcomeRunning || !session.welcomeRunningOn || !page.toMachine(e)) return;
+    if (!(e.key.length === 1 ? !/[0-9]/.test(e.key) : OTHER.has(e.key))) return;
+    menuToldOnce = true;
+    page.toast(`This is CLOADM's welcome menu: press a number to choose. Typing BASIC needs your BASIC ROM: {action}. Or press ${LIZA_KEY} for LIZA, a program you can type to.`,
+      { action: { label: 'Add ROMs', run: showRoms } });
+  });
   async function runWelcome({ greeting = 'first', carryOn = null } = {}, { ifIdle = false, byMachine = null } = {}) {
     const m = session.personMachine, running = session.stubRun, gen = session.welcomeGenNow();
     try {
@@ -80,13 +109,14 @@ export function setupWelcome(page, { showRoms, openClaude }) {
   }
   session.on(async (ev, arg) => {
     if (ev === 'machine' || ev === 'loaded') { showBack(false); lastTime(); return; }
+    if (ev === 'lastrun') { lastTime(); return; }   // (recorded after 'loaded': the card names what Run again runs)
     // (what the menu or a program asks for: byMachine, so a key Claude typed does not stop Claude)
     const asked = session.machineTicket();   // (taken now, when the program asks: whose keys they were)
     if (ev === 'welcome:liza') await run(SHELF[0], { byMachine: asked });
     else if (ev === 'welcome:demo') {
       await run(SHELF[1], { byMachine: asked });
       showBack(true);
-      page.status(touchPanel() ? 'Colour demo: tap a key to start it; another tap goes back to the menu'
+      howTo(touchPanel() ? 'Colour demo: tap a key to start it; another tap goes back to the menu'
         : 'Colour demo: press a key to start it; another key goes back to the menu');
     } else if (ev === 'welcome:roms') showRoms();
     else if (ev === 'welcome:claude') await openClaude();
@@ -141,7 +171,7 @@ export function setupWelcome(page, { showRoms, openClaude }) {
         session.checkGame(item.game);   // (another CPU, or under 32K: says so before fetching anything)
         const bytes = await page.fetchBytes(`examples/${session.gameFile(item.game)}`);
         startAs(byMachine, () => session.runGame(item.game, bytes));
-        page.status(touchPanel() ? `${item.name}: tap a key to play; tap BREAK for the menu`
+        howTo(touchPanel() ? `${item.name}: tap a key to play; tap BREAK for the menu`
           : `${item.name}: press a key to start; BREAK (Esc) goes back to the menu`);
       } else {
         const bytes = await page.fetchBytes(item.url);
@@ -168,7 +198,7 @@ export function setupWelcome(page, { showRoms, openClaude }) {
   $('btnLizaRamCancel').onclick = () => { offer.hidden = true; page.focus(); };
   page.onEscape(ESC.card, () => !offer.hidden, () => $('btnLizaRamCancel').click());
   // "Runs without ROMs" in the drawer's Media tab: the welcome menu ("on screen now" while it
-  // runs), the programs for this machine's CPU, and the Claude chat. Each one a link can start (the welcome menu,
+  // runs and is drawn: onScreen below), the programs for this machine's CPU, and the Claude chat. Each one a link can start (the welcome menu,
   // LIZA, the games: ?start=; the chat: ?app=claude) is a real link to it on this machine, so "Copy link" gives the
   // direct link; a plain click runs it here, as a button would (a click with a modifier is left to the browser).
   const linkTo = (params) => buildUrl(location.href, Object.assign({ machine: session.personMachine.id, config: session.personMachine.config }, params));
@@ -187,7 +217,8 @@ export function setupWelcome(page, { showRoms, openClaude }) {
     {
       const w = entry('Welcome menu', { start: 'welcome' }, () => runWelcome({ greeting: 'back', carryOn: session.carryOn })); w.dataset.shelf = 'welcome';
       w.title = 'The Welcome menu: LIZA, colour and sound, adding ROMs, Claude, games';
-      if (session.welcomeRunning) { w.append(' ', el('span', 'on screen now', 'tag now')); w.setAttribute('aria-current', 'true'); }
+      tagged = onScreen();
+      if (tagged) { w.append(' ', el('span', 'on screen now', 'tag now')); w.setAttribute('aria-current', 'true'); }
       row.append(w);
     }
     for (const item of SHELF.filter((x) => !x.cpu || x.cpu === family)) {
@@ -202,6 +233,13 @@ export function setupWelcome(page, { showRoms, openClaude }) {
   }
   // the 20K offer belongs to the machine that was on; the welcome menu's "on screen now" follows what runs
   session.on((ev) => { if (ev === 'machine') offer.hidden = true; if (['machine', 'loaded', 'reset', 'firmware'].includes(ev)) shelf(); });
+  // "on screen now" is what the screen shows, not what was loaded: the welcome program executing and drawn
+  // (Session.welcomeOnScreen) while the page's Pause is off. That changes without an event (the menu's first frame,
+  // a Debugger stop or step, Pause), so the frame loop compares it with the tag shown and redraws the shelf only
+  // when they differ: one getter read per animation frame.
+  let tagged = false;
+  const onScreen = () => session.welcomeOnScreen && !page.paused;
+  page.onFrame(() => { if (onScreen() !== tagged) shelf(); });
   function firstVisit(askMachine) {
     box.replaceChildren();
     box.dataset.kind = 'first';

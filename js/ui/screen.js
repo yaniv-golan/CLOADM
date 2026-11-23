@@ -6,6 +6,8 @@ import { HostInput } from '../host/input.js';
 import { Gamepads } from '../host/gamepad.js';
 import { TapeListener } from '../host/tape-sound.js';
 
+const MODIFIER_KEYS = new Set(['Shift', 'Control', 'Alt', 'Meta', 'CapsLock', 'AltGraph']);
+
 export function setupScreen(page, { loadPrograms, roms }) {
   const { session, audio, canvas } = page;
   // WebGL for the CRT look; without it, the pixels only (the Display tab says so)
@@ -66,7 +68,12 @@ export function setupScreen(page, { loadPrograms, roms }) {
   // the left one), so a pad plugged in mid-session just starts working
   // a gamepad, or the mouse as joystick, moved out of its dead zone or fire pressed: the person's input
   input.onPlayer = () => session.personInput();
-  window.addEventListener('gamepadconnected', () => { havePads = true; page.status('Gamepad connected'); });
+  // said once a visit: the first pad is the right joystick (a second one, the left, needs no second toast)
+  let padToldOnce = false;
+  window.addEventListener('gamepadconnected', () => {
+    havePads = true;
+    if (!padToldOnce) { padToldOnce = true; page.status('Gamepad connected: it drives the right joystick.'); }
+  });
   const readPads = () => {
     if (!havePads && !(navigator.getGamepads && [...navigator.getGamepads()].some(Boolean))) return;
     havePads = true;
@@ -85,7 +92,7 @@ export function setupScreen(page, { loadPrograms, roms }) {
   // the page's "Tape sound" (js/host/tape-sound.js): the tape's signal over each frame, read from the deck after it
   const tapeListener = new TapeListener();
   const tapeFrame = (m) => { const ev = tapeListener.frame(m.deck, m.frameCycles); return ev ? { events: ev, cycles: m.frameCycles } : null; };
-  let shown = { picture: null, display: null, width: 0, height: 0, steps: -1, restores: 0 };
+  let shown = { picture: null, frames: -1, cycle: -1, display: null, width: 0, height: 0, steps: -1, restores: 0 };
   let altTime = -Infinity, alt = null;
   function tick(now) {
     requestAnimationFrame(tick);
@@ -111,10 +118,14 @@ export function setupScreen(page, { loadPrograms, roms }) {
       }
       fpsFrames += ran;
     }
+    // frames/cycle: the machine's own generation. render() hands back the SAME buffer each time, refilled by every
+    // frame, so its identity says nothing about frames run outside advance() (a tape load's restart, a menu start):
+    // any frame or instruction run since the last present, by whatever ran it, presents again.
     const picture = m.render(), box = fit(picture), display = session.display, steps = session.debugger ? session.debugger.steps : 0, restores = presenter.restores;
-    if (ran || picture !== shown.picture || display !== shown.display || box.width !== shown.width || box.height !== shown.height || steps !== shown.steps || restores !== shown.restores) {
+    const frames = m.frameCount, cycle = m.cycle;
+    if (ran || picture !== shown.picture || frames !== shown.frames || cycle !== shown.cycle || display !== shown.display || box.width !== shown.width || box.height !== shown.height || steps !== shown.steps || restores !== shown.restores) {
       presenter.present(picture, display, box.width, box.height);
-      shown = { picture, display, width: box.width, height: box.height, steps, restores };
+      shown = { picture, frames, cycle, display, width: box.width, height: box.height, steps, restores };
     }
     // the canvas's text alternative (#screenAlt, its fallback content): the screen as text for a screen reader or a
     // reader view, at most once a second, and written only when it changed
@@ -123,9 +134,14 @@ export function setupScreen(page, { loadPrograms, roms }) {
       const t = session.screenAlternative();
       if (t !== alt) { $('screenAlt').textContent = t; alt = t; }
     }
-    if (paused) return;
-    if (now - fpsTime >= 1000) { fps = fpsFrames * 1000 / (now - fpsTime); fpsFrames = 0; fpsTime = now; }
-    const s = session.statusLine(fps);
+    // Held by the page's Pause or stopped in the Debugger, one state: the Pause button reads Resume and
+    // the status line says which, in place of a speed no frame measures. The speed is measured afresh after a hold
+    // (fps null: a short first window), so nothing from before it is shown as current.
+    const held = paused || session.paused;
+    if (held !== shownHeld) showHeld(held);
+    if (held) { fps = null; fpsFrames = 0; fpsTime = now; }
+    else if (now - fpsTime >= (fps == null ? 250 : 1000)) { fps = fpsFrames * 1000 / (now - fpsTime); fpsFrames = 0; fpsTime = now; }
+    const s = session.statusLine(fps, paused);
     if (s !== lastStatus) { const el = $('status'); el.textContent = s; el.title = s; lastStatus = s; }   // the title carries what a narrow bar clips
   }
   requestAnimationFrame(tick);
@@ -140,6 +156,9 @@ export function setupScreen(page, { loadPrograms, roms }) {
   // (page.toMachine says which events go to the machine; js/ui/ask.js pauses Claude for the same ones, first)
   window.addEventListener('keydown', (e) => {
     if (!page.toMachine(e)) return;
+    // Stopped in the Debugger, a key is refused (the Session says so once per stop), not held or queued
+    // (a modifier alone types nothing: it is let through, so no Shift is left out of step with the host's)
+    if (!MODIFIER_KEYS.has(e.key) && session.refuseTyping()) { e.preventDefault(); return; }
     audio.start();
     if (input.keydown(e)) e.preventDefault();
   });
@@ -237,15 +256,27 @@ export function setupScreen(page, { loadPrograms, roms }) {
   // the screen shows a reset: no message
   $('btnReset').onclick = () => { session.reset(); page.focus(); };
   $('btnHardReset').onclick = () => { session.powerCycle({ reason: 'you power cycled the machine' }); page.focus(); };
-  $('btnPause').onclick = () => {
-    paused = !paused;
-    document.body.classList.toggle('paused', paused);
-    $('btnPause').textContent = paused ? 'Resume' : 'Pause';
-    $('btnPause').classList.toggle('active', paused);
-    audio.setActive(!paused && !document.hidden);
-  };
+  // The page's Pause (paused) and a Debugger stop (session.paused) are one state on the page: the button
+  // reads Resume (active) for either, and Resume ends both. A launch (Session 'launch': Run again, a load, Reset, a
+  // power cycle, a switch) ends the page's Pause as the Session releases a stop, so what is launched runs.
+  let shownHeld = false;
+  function showHeld(held) {
+    shownHeld = held;
+    document.body.classList.toggle('paused', held);
+    $('btnPause').textContent = held ? 'Resume' : 'Pause';
+    $('btnPause').classList.toggle('active', held);
+    audio.setActive(!held && !document.hidden);
+  }
+  function setPaused(on) {
+    paused = on;
+    page.paused = on;   // (the shelf's "on screen now": a paused machine is not running the menu)
+    showHeld(paused || session.paused);
+  }
+  page.resumeAll = () => { session.resume(); setPaused(false); };
+  $('btnPause').onclick = () => { if (paused || session.paused) page.resumeAll(); else setPaused(true); };
+  session.on((ev) => { if (ev === 'launch' && paused) setPaused(false); });
   // a hidden tab runs no frames (see the frame loop): its sound context is suspended too
-  document.addEventListener('visibilitychange', () => audio.setActive(!paused && !document.hidden));
+  document.addEventListener('visibilitychange', () => audio.setActive(!shownHeld && !document.hidden));
   $('btnTurbo').onclick = () => { session.turbo = !session.turbo; $('btnTurbo').classList.toggle('active', session.turbo); };
   $('chkFastTape').onchange = (e) => { session.fastTape = e.target.checked; };
   session.fastTape = $('chkFastTape').checked;
@@ -254,5 +285,5 @@ export function setupScreen(page, { loadPrograms, roms }) {
   const goFull = wrap.requestFullscreen || wrap.webkitRequestFullscreen;
   if (!goFull) $('btnFull').style.display = 'none';
   else $('btnFull').onclick = () => { Promise.resolve(goFull.call(wrap)).catch(() => page.status('Fullscreen is not available here', true)); };
-  return { input, readPads };
+  return { input, readPads, presented: () => presenter.pixels };
 }

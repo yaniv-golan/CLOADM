@@ -236,7 +236,7 @@ export function setupClaude(page) {
       show(true);
       page.status('Chat with Claude: type on the screen and press ENTER.');
       // no key: say so on the screen itself (the key card is beside it, or above it on a phone, below the fold)
-      if (chat !== had && !session.hasClaudeKey) session.chatNote(`No API key yet: add one ${whereKey()}.`);
+      if (chat !== had && !session.hasClaudeKey) session.chatNote(`No API key yet: add one ${whereKey()}. Get one at console.anthropic.com.`);
       page.focus();
       // without a key the key card comes first where the page stacks (a phone or a tablet), so the page starts at the
       // top rather than at the screen
@@ -406,7 +406,7 @@ export function setupClaude(page) {
     // (the on-screen keyboard's Menu is "← Emulator" there, and leaves the chat in one tap: touch-keys.js apply(), above)
     // the help line: the key state's text (in brackets on the chat screen too, from the firmware)
     // (while a turn is in progress the status line says what it is doing, with Stop)
-    const help = chat && chat.busy ? '' : k === 'none' ? `[No API key yet: add one ${whereKey()}.]` : keyText(k);
+    const help = chat && chat.busy ? '' : k === 'none' ? `[No API key yet: add one ${whereKey()}. Get one at console.anthropic.com.]` : keyText(k);
     $('claudeHelp').textContent = help;
     $('claudeHelp').hidden = !help;
     // the BASIC session card: consent, the switch, the restore point

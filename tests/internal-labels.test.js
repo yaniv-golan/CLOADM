@@ -83,7 +83,7 @@ const PATTERNS = [
   // key)") or an opcode ("(F9)") is not one
   { id: 13, re: /(?:\/\/|\/\*|<!--|check\(["'`])[\s*=-]*(?:\d+[a-z]?\.\s+)?[FMU]\d{1,2}[a-z]?(?:\/[FMU]\d{1,2})?(?=[:,]\s|\s+[-(]|\s+(?!keys?\b)[a-z])|\([MU]\d{1,2}[a-z]?[,)]/, notInRegisterFiles: true },
   // review rounds named as the source of a change
-  { id: 14, re: /\breview \d+\.\d+(?:\.\d+)? round\b|\bround-\d+ reviewer\b|\breview rounds?\b|\breviewer's finding\b/i },
+  { id: 14, re: /\breview \d+\.\d+(?:\.\d+)? round\b|\bround-\d+ reviewer\b|\breview rounds?\b|\breviewer's finding\b|\bround[- ]\d+(?:'s\b| of review\b| review\b|, the final\b)|\(item \d+\)/i },
 ];
 
 const global = (re) => new RegExp(re.source, re.flags.includes('g') ? re.flags : re.flags + 'g');
@@ -165,7 +165,8 @@ const POSITIVE = {
     '// R2-U4: every view', "check('R2 a view'", '(R6)', '(R1, R2)'],
   13: ['// F3: the refusal belongs', "check('M1 reader: Stop ends'", '// ---- 5. F2/F6: the write', '//  * M1 - Stop while', '(U2, M2)',
     '// ================= F2: the embed API', 'card (M2) */', "check(`F2 the person's input`", '// ---- 3b. F1: a ROM-less'],
-  14: ['(review 0.1.9 round 2)', "the round-2 reviewer's finding", 'two review rounds found', 'this review round added', "The reviewer's finding was"],
+  14: ['(review 0.1.9 round 2)', "the round-2 reviewer's finding", 'two review rounds found', 'this review round added', "The reviewer's finding was", '// ---- round-3 review: the shapes', '// ---- round 3, the final commit:',
+    "(round 2's rule)", '(round 2 of review, and a probe)', '// (item 1) a string'],
 };
 const NEGATIVE = {
   1: ['UX: the panel decides', 'UX R', 'a CRTC R12 read'],
@@ -182,7 +183,7 @@ const NEGATIVE = {
   12: ['rate (R1..R0)', 'R1 x 8 by R6', "'toolu_R1'", 'SAM · rate bit R1 cleared', '(SAM R1)', 'Interlace and Skew Register (R8)', '`screenRows` (R6)',
     '// CRTC R0 113, R1 80, R2 96, R10 $20 (no cursor), R11 11, R12/R13 $0050'],
   13: ['// an unmapped physical key (F5, a numpad key)', 'Over (F10) runs a JSR', 'ADCB extended (F9)', '// F1 key opens help', 'an M1 Abrams'],
-  14: ['the review of the code', 'a round of tests', 'reviewer: the person'],
+  14: ['the review of the code', 'a round of tests', 'reviewer: the person', 'coming round 11 frames later', 'round 2 trips', 'an item 1 list'],
 };
 for (const p of PATTERNS) {
   const pos = POSITIVE[p.id], neg = NEGATIVE[p.id];

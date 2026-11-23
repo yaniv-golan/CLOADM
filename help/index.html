@@ -50,6 +50,9 @@
     <ul>
       <li>Take snapshot</li>
       <li>Open a program, tape, disk or cartridge…</li>
+      <li>Insert a disk…</li>
+      <li>New blank disk</li>
+      <li>Eject disk</li>
       <li>Save the tape as .WAV</li>
       <li>Record to tape</li>
       <li>Share</li>
@@ -85,6 +88,13 @@
     </ul>
   </section>
 
+  <section class="card qa" aria-labelledby="claude-key">
+    <h2 id="claude-key">Claude: getting an API key</h2>
+    <div><strong>Where?</strong> <span>Get a key at <a href="https://console.anthropic.com/settings/keys">console.anthropic.com</a>, under <em>API keys</em>, and paste it into the key field beside the chat.</span></div>
+    <div><strong>What does it cost?</strong> <span>Use is billed to your Anthropic account: see <a href="https://www.anthropic.com/pricing#api">pricing</a>.</span></div>
+    <div><strong>No key?</strong> <span>Use CLOADM inside Claude instead: see <a href="https://github.com/yaniv-golan/CLOADM/blob/main/docs/mcp.md#use-with-claude">Use with Claude</a>.</span></div>
+  </section>
+
   <section class="card qa" aria-labelledby="claude-can">
     <h2 id="claude-can">What Claude can do</h2>
     <div><strong>Reads (always):</strong> <span>the machine's model and settings, the screen's text (not graphics), memory, and disassembly.</span></div>
@@ -115,6 +125,7 @@
       top left).</span></div>
     <div><strong>Chrome on Android.</strong> <span>Open the menu <kbd>⋮</kbd> and choose <em>Install app</em>, or on older
       versions <em>Add to Home screen</em>.</span></div>
+    <div><strong>Safari on a Mac.</strong> <span>In Safari: <em>File → Add to Dock</em>.</span></div>
     <div><strong>Samsung Internet.</strong> <span>Tap <kbd>☰</kbd> and choose <em>Add page to → Home screen</em>.</span></div>
     <div><strong>Firefox on Android.</strong> <span>Open the menu <kbd>⋮</kbd> and choose <em>Install</em> (older versions:
       <em>Add to Home screen</em>).</span></div>
@@ -132,7 +143,7 @@
     <div><strong>No sound.</strong> <span>Click the screen or press a key once; browsers keep sound off until you do.</span></div>
     <div><strong>Tape won't load.</strong> <span>Check it's for this machine, and undo any speed POKE first: <code>POKE 65494,0</code> undoes
       <code>POKE 65495,0</code>, and <code>POKE 65496,0</code> undoes <code>POKE 65497,0</code>.</span></div>
-    <div><strong>Disk shows nothing.</strong> <span>A disk needs the machine's disk ROM: the DragonDOS or Delta cartridge on a Dragon, Disk BASIC on a CoCo. The drives under the screen say which one is missing. Check the disk is for this machine too: DragonDOS disks are for a Dragon, RS-DOS disks for a CoCo, and CLOADM says which a disk is.</span></div>
+    <div><strong>Disk shows nothing.</strong> <span>DIR and the other disk commands need the machine's disk ROM: the DragonDOS or Delta cartridge on a Dragon, Disk BASIC on a CoCo. Without it a disk still goes in, for programs that read it directly, and the drives under the screen say so. Check the disk is for this machine too: DragonDOS disks are for a Dragon, RS-DOS disks for a CoCo, and CLOADM says which a disk is.</span></div>
     <div><strong>Wrong symbols.</strong> <span>Keys type what they say, so shifted symbols follow your keyboard, not the original layout.</span></div>
     <div><strong>ROMs gone in a new browser.</strong> <span>Use Save ROM pack in the old one and drop the file on CLOADM in the new one.</span></div>
   </section>

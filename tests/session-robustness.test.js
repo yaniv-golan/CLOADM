@@ -209,7 +209,7 @@ const newSession = (id = 'dragon64') => { const s = new Emu.Session({ store: Emu
   const chatM = s.chatMachines.chat, chatBefore = chatM.ram.slice();
   s.insertTape('x.cas', casTape());
   const msg = s.skipTape();
-  check('1b (skipTape) it loads the tape on the BASIC session and power cycles that one', /fast-loaded/.test(msg)
+  check('1b (skipTape) it loads the tape on the BASIC session and power cycles that one', /loaded \(.*\) and started at/.test(msg)
     && chatBefore.every((v, i) => v === chatM.ram[i]), `${msg}`);
 }
 {
@@ -263,7 +263,7 @@ const newSession = (id = 'dragon64') => { const s = new Emu.Session({ store: Emu
   const second = s.load('b.cas', tape);
   check('2 the second drop does not try them again', !/Your stored ROMs did not start BASIC|Using your ROMs again/.test(second), second);
   check('2 ...and the machine is not restarted into them (no firmware event)', fw - before2 === 0, `${fw - before2} firmware events`);
-  check('2 ...and the tape still loads, straight into memory on the stub', /fast-loaded/.test(second), second);
+  check('2 ...and the tape still loads, straight into memory on the stub', /loaded \(.*\) and started at/.test(second), second);
   // a power cycle clears the mark: the next drop tries them again
   s.powerCycle({ menu: false });
   const third = s.load('c.cas', tape);

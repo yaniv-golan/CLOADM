@@ -25,7 +25,7 @@ for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
   process.once(sig, () => { cleanup(); process.kill(process.pid, sig); });
 }
 // TRACKED FILES ONLY. This used to tar the whole repository root, which in the main checkout is 592 MB taking
-// about 26 s - .git is 140 MB of that, and .claude/worktrees holds every other worktree - copied twice whenever
+// about 26 s - .git is 140 MB of that, and any worktrees kept inside the checkout add the rest - copied twice whenever
 // all.js ran two of these at once. `git ls-files` is the tracked tree exactly: the same 464 files, 7.7 MB, 0.28 s,
 // and it cannot pick up .git, .claude, node_modules or anything else untracked. -z keeps a path containing a space
 // or newline intact; --null makes tar read the list as NUL-separated.

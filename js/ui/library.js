@@ -73,7 +73,7 @@ const names = (list) => (list.length === 1 ? base(list[0]) : list.length === 2 ?
 const label = (name) => base(name).replace(/\.[^.]*$/, '').toUpperCase();
 
 // changed(): the library's contents changed here (the quick-save slots are in it too); showRoms(): opens Your ROMs
-export function setupLibrary(page, { loadProgram, runShelf, changed, showRoms, reconnect = null }) {
+export function setupLibrary(page, { loadProgram, runShelf, changed, showRoms, reconnect = null, diskSaid }) {
   const { session } = page;
   const view = $('library');
   const meta = new Map();          // name -> { mtime, size, kind, family, format } (read once per version)
@@ -232,7 +232,7 @@ export function setupLibrary(page, { loadProgram, runShelf, changed, showRoms, r
         let msg;
         try { msg = await session.mountDisk(drive, name); } catch (e) { page.status(e.message, true); return; }
         close();
-        page.status(msg);
+        diskSaid(msg);
         return;
       }
       let bytes;

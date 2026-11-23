@@ -2,7 +2,7 @@
 // Compare one machine against MAME. Needs MAME (e.g. `apt install mame`); uses only our own firmware.
 //
 //   node tools/mame-diff/run.js <profile> [--ram <K>] [--video [--artifact N] [--attr] [--composite] [--text]] [--raster [--no-trace] [--keep]] [--vsc [--no-trace] [--keep]] [--printer [--no-trace]] [--serial] [--reset] [--rate|--ops] [--plus] [--plustext [--video]] [--paging [--video]] [--keep-firmware]
-//   node tools/mame-diff/run.js <dragon64|coco|coco3|dgnalpha> --fdc [dragonfdc|premierfdc|cocofdc|multifdc|alphafdc] [--images|--write|--nmi|--multi|--blank <fmt>:<T>x<H>|--halt [--empty]|--nitros9] [--keep-firmware]
+//   node tools/mame-diff/run.js <dragon64|coco|coco3|dgnalpha> --fdc [dragonfdc|premierfdc|cocofdc|multifdc|alphafdc] [--images|--write|--nmi|--multi|--blank <fmt>:<T>x<H>|--halt [--empty]|--nitros9|--bare] [--keep-firmware]
 //   node tools/mame-diff/run.js <coco|coco3|dragon64|dragon32> --cart <setup> [--audio]
 //
 // Trace mode (default): lockstep instruction trace, registers and cycle counts.
@@ -39,6 +39,8 @@
 // the same firmware on the HD6309 (dragon64 and tanodr64; the 6309 follows MAME and does not arm NMI on TFR/EXG).
 // --multi puts the controller in a Multi-Pak's slot 4 (-ext multi) and runs <board>-multi.asm (the diagnostic and the
 // Multi-Pak's part).
+// --bare (dragonfdc on dragon64, cocofdc on coco): the controller with no DOS ROM (MAME's socket holds 00s, ours no ROM)
+// and fdc/bare-<board>.asm (gen-bare.js) as BASIC, a program reading track 0 sector 1 of drive 0 by polling DRQ.
 // --sound (dgnalpha): the AY-3-8912 and the DAC against MAME's -wavwrite (alpha/sound-compare.js). On a SAM machine
 // (dragon64, dragon32, coco, ...): the DAC and the single-bit sound, through the command line's --wav path
 // (sam/dac-sound.js).
@@ -141,7 +143,7 @@ async function main() {
   }
   if (args.includes('--fdc')) {
     const fdc = require('./fdc/spec.js');
-    const t = fdc.trace(profileId, { controller, regenerate: !args.includes('--keep-firmware'), write: args.includes('--write'), halt: args.includes('--halt'), empty: args.includes('--empty'), nitros9: args.includes('--nitros9'), nmi: args.includes('--nmi'), multi: args.includes('--multi'), blank: blankOpt(), cpu: cpuOpt || '6809' });
+    const t = fdc.trace(profileId, { controller, regenerate: !args.includes('--keep-firmware'), write: args.includes('--write'), halt: args.includes('--halt'), empty: args.includes('--empty'), bare: args.includes('--bare'), nitros9: args.includes('--nitros9'), nmi: args.includes('--nmi'), multi: args.includes('--multi'), blank: blankOpt(), cpu: cpuOpt || '6809' });
     t.install();
     // --no-trace with --images: the images alone (MAME untraced; for the long formats of --blank)
     let code = args.includes('--no-trace') && args.includes('--images') ? 0 : await lockstep(Object.assign({}, t, { machine: t.machine() }));

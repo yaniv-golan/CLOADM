@@ -27,7 +27,9 @@
  * pool of two timers used in turn (TIMER_POOL = 2), so a change still waiting is lost when two newer ones follow it
  * within the delay: the Dragon board re-sends NMI on every DRQ change, which can swallow a short NMI pulse.
  *
- * The DOS ROM is the user's (8K, at $C000; CTS; Dragon and Premier: a 16K region with the rest 00): none is bundled. Without one the cartridge space reads 00.
+ * The DOS ROM is the user's (8K, at $C000; CTS; Dragon and Premier: a 16K region with the rest 00): none is bundled. Without one the cartridge space reads 00,
+ * and the board asserts no line by itself (no CART tied to Q, as a Program Pak's auto-start is): a program running when it
+ * is plugged in keeps running, and can drive the controller through its registers.
  *
  * Drives: mount(n, media) with media as js/chips/floppy.js describes (bytes, format, name, writeProtected,
  * onWrite); eject(n); setWriteProtect(n, on); flush() commits written tracks to the media now.
@@ -38,11 +40,11 @@ import { FloppyDrive } from '../chips/floppy.js';
 import { NEVER } from '../chips/attotime.js';
 
 const BOARDS = {
-  dragonfdc: { name: 'Dragon FDC (WD2797)', chip: 'wd2797', fdcClock: 1000000, drive: '525qd' },
-  premierfdc: { name: 'Premier FDC (WD2791)', chip: 'wd2791', fdcClock: 1000000, drive: '525qd' },
-  cocofdc: { name: 'CoCo FDC (WD1773)', chip: 'wd1773', fdcClock: 8000000, drive: '525dd' },
+  dragonfdc: { name: 'Dragon FDC (WD2797)', plain: 'Dragon disk controller', chip: 'wd2797', fdcClock: 1000000, drive: '525qd' },
+  premierfdc: { name: 'Premier FDC (WD2791)', plain: 'Premier disk controller', chip: 'wd2791', fdcClock: 1000000, drive: '525qd' },
+  cocofdc: { name: 'CoCo FDC (WD1773)', plain: 'CoCo disk controller', chip: 'wd1773', fdcClock: 8000000, drive: '525dd' },
   // built into the Dragon Alpha: no cartridge slot lines, READY not tied, drives 0 and 1 fitted (AlphaFdc below)
-  alphafdc: { name: 'Dragon Alpha disk interface (WD2797)', chip: 'wd2797', fdcClock: 1000000, drive: '35dd', slot: false, forceReady: false, fitted: 2 },
+  alphafdc: { name: 'Dragon Alpha disk interface (WD2797)', plain: 'Dragon Alpha disk interface', chip: 'wd2797', fdcClock: 1000000, drive: '35dd', slot: false, forceReady: false, fitted: 2 },
 };
 class DiskController extends SlotDevice {
   constructor(type, { rom = null } = {}) {
@@ -50,14 +52,7 @@ class DiskController extends SlotDevice {
     const b = BOARDS[type];
     this.slotLines = b.slot !== false;     // the Alpha's built-in interface has no slot lines
     this.board = b;
-    this.romBytes = rom ? Uint8Array.from(rom) : null;
-    this.cart = null;
-    if (this.romBytes) {
-      // Dragon, Premier: a 16K region, the ROM at its start and the rest 00 (ROMREGION_ERASE00); CoCo: the 8K ROM
-      // repeated through the window (ROM_RELOAD), which the machine's modulo mapping gives
-      if (type !== 'cocofdc' && this.romBytes.length < 0x4000) { this.cart = new Uint8Array(0x4000); this.cart.set(this.romBytes); }
-      else this.cart = this.romBytes;
-    }
+    this.fitRom(rom);
     this.wd = new WD17xx(b.chip, this.clock, b.fdcClock, 'wd', { forceReady: b.forceReady !== false });
     this.drives = [0, 1, 2, 3].map((i) => new FloppyDrive(this.clock, `drive${i}`, b.drive));
     this.fitted = b.fitted || 4;    // drives present; the others take no disk and can't be selected
@@ -68,7 +63,21 @@ class DiskController extends SlotDevice {
     this.wd.onDrq = (v) => { this.drq = v; this.updateLines(); };
     this.reset(true);
   }
+  // The DOS ROM in the board's socket (null: none, and the cartridge space reads 00). A board plugged in without one
+  // can be given one later (Session.fitDiskRom, at a reset or power cycle); the machine remaps its cartridge space.
+  fitRom(rom) {
+    this.romBytes = rom ? Uint8Array.from(rom) : null;
+    this.cart = null;
+    if (this.romBytes) {
+      // Dragon, Premier: a 16K region, the ROM at its start and the rest 00 (ROMREGION_ERASE00); CoCo: the 8K ROM
+      // repeated through the window (ROM_RELOAD), which the machine's modulo mapping gives
+      if (this.type !== 'cocofdc' && this.romBytes.length < 0x4000) { this.cart = new Uint8Array(0x4000); this.cart.set(this.romBytes); }
+      else this.cart = this.romBytes;
+    }
+  }
   get name() { return this.board.name; }
+  // the board's own name for the page, when it holds no DOS ROM ("Dragon disk controller")
+  get plainName() { return this.board.plain; }
   // only the CoCo controller drives HALT (its drive select latch's bit 7, while the data register waits for DRQ);
   // the Dragon and Premier boards have no such line, and the Alpha's interface is built into the machine
   get canHalt() { return this.type === 'cocofdc'; }

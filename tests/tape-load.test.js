@@ -203,14 +203,14 @@ for (const [how, toStub] of [
   s.runWithoutRoms({ menu: false });
   s.fastCas = true;
   const r = drop(s, plain, 5);
-  check('...but with "Load .CAS straight into memory" ticked it still goes straight into memory', r.m.useStub && /fast-loaded/.test(r.msg) && r.started, r.msg);
+  check('...but with "Load .CAS straight into memory" ticked it still goes straight into memory', r.m.useStub && /loaded \(.*\) and started at/.test(r.msg) && r.started, r.msg);
 }
 {
   // no ROMs stored: as before, into memory on the stub
   const s = new Emu.Session({ store: Emu.memoryStore(), welcomeMenu: false });
   s.switchMachine('dragon64', undefined, { menu: false });
   const r = drop(s, plain, 5);
-  check('no ROMs stored: a dropped tape goes into memory on the stub, as before', r.m.useStub && /test\.cas: TEST fast-loaded \$0E00-\$0E17, exec \$0E00/.test(r.msg) && r.started, r.msg);
+  check('no ROMs stored: a dropped tape goes into memory on the stub, as before', r.m.useStub && /^test\.cas loaded \(\$0E00–\$0E17\) and started at \$0E00\.$/.test(r.msg) && r.started, r.msg);
 }
 
 {
@@ -223,7 +223,7 @@ for (const [how, toStub] of [
   const r = drop(s, plain, 5);
   check('stored ROMs that do not start BASIC: back to no ROMs, the tape straight into memory, and the page says why',
     r.m.useStub && s.stubChosen.has('dragon64') && r.started && r.keys === ''
-    && /^Your stored ROMs did not start BASIC, so test\.cas went straight into memory\. test\.cas: TEST fast-loaded/.test(r.msg), `${r.msg} | keys ${r.keys}`);
+    && /^Your stored ROMs did not start BASIC, so test\.cas went straight into memory\. test\.cas loaded \(\$0E00–\$0E17\) and started at \$0E00\./.test(r.msg), `${r.msg} | keys ${r.keys}`);
 }
 {
   // The Claude chat machine (the same model, on the chat firmware, no ROMs) is on screen. A tape dropped then goes

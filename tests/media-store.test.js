@@ -919,7 +919,7 @@ function opfsRoot({ fold }) {
     //  - a measurement that THROWS (not a store refusal: a bug or an unexpected error) is not cached, so the next
     //    call tries again — a rejected promise left in place would freeze the safe answer for the whole visit;
     //  - a store that REFUSES (detectCase's own catch) is different on purpose: it records the safe answer so it is
-    //    not asked on every call (round 2's rule, tested above as "says so once").
+    //    not asked on every call (the rule tested above as "says so once").
     {
       const folder = fsaFolder({ fold: false });
       folder.put('disks/GAME.DSK', new Uint8Array(1));

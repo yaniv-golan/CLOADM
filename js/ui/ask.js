@@ -89,10 +89,11 @@ export function setupAsk(page, claude) {
     render();
   }
   claude.registerPanel({ open: show, close: hide, get shown() { return open; } });
-  // the header button: opens (full screen while the welcome menu is on screen), or closes what is open
+  // the header button: opens the side panel beside the person's machine, whatever is on it (the welcome menu
+  // included), or closes what is open
   $('btnAsk').onclick = () => {
     if (open || session.claudeView === 'full') { claude.close(); return; }
-    if (session.welcomeRunning) claude.openFull(); else claude.openPanel();
+    claude.openPanel();
   };
   // On a phone the person closing the sheet during a turn lowers it to peek instead, and it closes when the turn
   // ends: its peek line keeps the status and Stop (the drawer's strip is below the screen there, or hidden with the

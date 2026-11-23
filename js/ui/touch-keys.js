@@ -70,6 +70,8 @@ export function setupTouchKeys(page, { input }) {
       // a chord: SHIFT held down, then a key tapped before SHIFT's own HOLD_MS -- the key is shifted, as it always was
       for (const c of [...shiftArmed]) c();
       const { names, code } = keyPress(t, shift);
+      // (stopped in the Debugger, an on-screen key is refused as a keyboard key is; the release still goes)
+      if (session.refuseTyping()) return;
       // (the person's key: Claude acting on this machine pauses first, as for a key on the keyboard)
       session.personInput();
       input.touch(id, names, code, true);

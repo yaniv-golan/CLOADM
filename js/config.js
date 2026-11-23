@@ -21,6 +21,9 @@
  *   load=URL                load and run a program, tape or cartridge, as a dropped file would
  *   tape=URL                put a tape in the deck; with autorun it loads and runs (CLOAD/RUN, or CLOADM then EXEC)
  *   cart=URL                plug in a cartridge (it starts by itself)
+ *   disk=URL                put a disk image in the first free drive (without a disk ROM, on the disk controller alone);
+ *                           mounted before the link's other media, so load=game.bin&disk=level.vdk runs the game
+ *                           with its disk already in
  *   autorun[=1|0]           with tape=
  *   rom=URL (repeatable)    a ROM image to fetch (never from the Color Computer Archive; js/ui/rom-panel.js)
  *   selftest=1              with rom=: run the ROM self-test
@@ -50,7 +53,7 @@ export const DISPLAY_PARAMS = {
   glow: { key: 'glow', range: [0, 100] },
 };
 const FLAGS = { sound: 'sound', fasttape: 'fastTape', turbo: 'turbo', embed: 'embed', selftest: 'selftest', askclaude: 'askClaude' };
-const MEDIA = ['load', 'tape', 'cart'];
+const MEDIA = ['load', 'tape', 'cart', 'disk'];
 export const URL_PARAMS = ['machine', 'start', 'app', 'nitros9', ...MEDIA, 'autorun', 'rom', ...Object.keys(DISPLAY_PARAMS), 'joy', 'touch', ...Object.keys(FLAGS), 'storage'];
 const STORAGE = ['opfs', 'fsa', 'fallback'];
 const STARTS = ['welcome', 'liza', '2048', 'minesweeper'];
@@ -104,12 +107,14 @@ export function parseUrlConfig(search, fallbackMachine = 'dragon64') {
     else if (/^[^\\/\x00-\x1F]{1,200}$/.test(v)) cfg.nitros9 = v;
     else errors.push(`nitros9=${v}: 1 or the name of a DriveWire image in your library`);
   }
-  // media in the order the link gives them (the order they load in)
+  // media in the order they load in: disks first (a program the link loads finds its disk in the drive), then the
+  // rest in the order the link gives them
   for (const [kind, url] of p) {
     if (!MEDIA.includes(kind)) continue;
     if (url && isUrl(url)) cfg.media.push({ kind, url });
     else errors.push(`${kind}=${url}: not a link to a file`);
   }
+  cfg.media.sort((a, b) => (b.kind === 'disk') - (a.kind === 'disk'));
   if (p.has('autorun')) { const f = flag(p.get('autorun')); if (f === null) errors.push(`autorun=${p.get('autorun')}: 1 or 0`); else cfg.autorun = f; }
   for (const url of p.getAll('rom')) { if (url && isUrl(url)) cfg.roms.push(url); else errors.push(`rom=${url}: not a link to a file`); }
 
@@ -143,7 +148,7 @@ export function parseUrlConfig(search, fallbackMachine = 'dragon64') {
   return cfg;
 }
 
-// What a failed fetch of a link's file (load=, tape=, cart=, rom=) says. The browser reports a network failure and a
+// What a failed fetch of a link's file (load=, tape=, cart=, disk=, rom=) says. The browser reports a network failure and a
 // cross-origin refusal alike as a TypeError ("Failed to fetch", "Load failed"), which tells a person nothing; the usual
 // cause for a link to another site is that the site doesn't allow other sites to load its files (CORS). An HTTP error
 // status is not a TypeError and keeps its own words.

@@ -166,6 +166,8 @@ export const MEDIA_MOVE_WAIT_MS = 30000;
 const HELD = Symbol('held');
 // the disk cartridges each family can take (js/machines/profiles.js cartridgeRoms), the usual one first
 const DISK_DOS = { dragon: ['dragondos', 'deltados'], coco: ['rsdos'] };
+// what a disk mounted without a disk ROM is good for (the end of the mount's message: "level.vdk is in drive 0, ...")
+export const BARE_NOTE = 'on the disk controller only (no disk ROM). Programs that read the disk directly can use it; DIR and other disk commands need your disk ROM.';
 // quick-save slots: how many, and where they live in the media store (in the library, so the Library lists them
 // with the other snapshots)
 export const SNAPSHOT_SLOTS = 3;
@@ -337,6 +339,8 @@ export class Session {
     this.bootOk = null;             // the reset after which BASIC's OK was seen
     this.warmReset = null;          // { m, resetAt }: the run that began with the Reset button, not a power-on (bootStatus)
     this.welcome = null;            // the machine running the welcome program
+    this.typingRefusedFor = null;   // the Debugger stop the person was last told typing is refused for (refuseTyping)
+    this.welcomeFrom = 0;           // its frameCount when the welcome program was loaded (welcomeOnScreen)
     this.welcomeGen = 0;            // bumped by every start: the FIRST start to land wins (a later one is dropped)
     this.menuWatch = null;          // a program that goes back to the welcome menu when left (watchForMenu)
     // What runs on the stub firmware and how to restart it, per machine (Reset; see `reset`). Per machine because
@@ -348,7 +352,10 @@ export class Session {
     this.welcomeSoundOn = false;    // audio unlocked: the welcome program may play its tune
     this.tapeInfo = null;           // the tape in the deck: its block starts and length (tapeStatus)
     this.tapeWatch = null;          // the current or last run of the cassette motor: { done, error } (tapeStatus)
-    this.lastPrinted = 0;           // printout length at the last 'printer' event
+    this.tapeStarted = null;        // a machine-code tape fast-loaded and started: { tape, exec } (tapeStatus started)
+    // each machine's printout length when it was last reported by a 'printer' event (checkPrinter): the printout
+    // belongs to the machine, so the change is tracked per machine, not per session
+    this.printedSeen = new WeakMap();
     this.terminalBytes = [];        // what the machine has sent to the serial terminal
     // DriveWire: one server for the session, on its media store (images under DW_PREFIX); attached to the
     // machine's Becker port when it has one. Channels: WebSockets (DriveWireSocket) by channel number.
@@ -363,7 +370,12 @@ export class Session {
     this.WebSocket = globalThis.WebSocket;
     this.serial = globalThis.navigator && globalThis.navigator.serial;   // Web Serial (a mock in tests)
     this.serialLink = null;
-    this.drivewire.onPrint = (bytes) => { if (this.shownMachine) { for (const b of bytes) this.shownMachine.printed.push(b); this.checkPrinter(); } };
+    // a machine's DriveWire prints go to ITS printout, whichever machine is on screen (the shown machine is
+    // swapped by install and showChat while both machines run); the chat machine's server (startChat) gets its
+    // own handler, so its prints are kept too instead of being dropped. install sets the Session server's
+    // handler to the machine that takes it, and clears it when that machine leaves.
+    this.drivewire.onPrint = null;
+    this.dwPrint = (m) => (bytes) => { for (const b of bytes) m.printed.push(b); this.checkPrinter(); };
     this.drivewire.onChannelData = (ch, bytes) => { const s = this.dwSockets.get(ch); if (s) s.send(bytes); };
     this.drivewire.onChannelOpen = (ch) => { const s = this.dwSockets.get(ch); if (s) s.deliver(); };
     this.drivewire.onChannelRead = (ch) => { const s = this.dwSockets.get(ch); if (s) s.deliver(); };
@@ -562,6 +574,30 @@ export class Session {
   get paused() { return !!(this.debugger && this.debugger.stopped); }
   // continue the machine from where the debugger stopped it
   resume() { if (this.debugger) this.debugger.resume(); }
+  // A launch - Reset, a power cycle, a load (a program, a tape, the welcome menu, LIZA, a game,
+  // Run again), a disk put in from a drop or Open, a machine switch - runs what it starts, for the page, the MCP server
+  // and Claude alike. It emits 'launch' (the page lets go of its own Pause on it) and releases a Debugger stop on the
+  // machine it starts (a stop on another machine stays); the breakpoints stay set. -> the PC the released stop was
+  // at, or null; a release also emits ('released', pc), for the page's "The Debugger's stop at $C0F3 was released."
+  launch(m = this.shownMachine) {
+    this.emit('launch');
+    const d = this.debugger;
+    if (!d || !d.stopped || d.machine !== m) return null;
+    const pc = d.pc;
+    d.resume();
+    this.emit('released', pc);
+    return pc;
+  }
+  // The person's typing while the Debugger has the machine stopped is refused, not queued (keys, a tap on
+  // the welcome menu, its carry-on line, a paste, typed text): the machine reads nothing while stopped, so typing
+  // would only pile up behind the stop. -> true when refused; emits 'typing-refused' once per stop (the stop's reason
+  // object is new for every stop) for the page's one toast.
+  refuseTyping(m = this.shownMachine) {
+    const d = this.debugger;
+    if (!d || !d.stopped || d.machine !== m) return false;
+    if (this.typingRefusedFor !== d.stopReason) { this.typingRefusedFor = d.stopReason; this.emit('typing-refused'); }
+    return true;
+  }
 
   // ---------------- machine ----------------
   get startMachine() { return this.store.get('machine') || 'dragon64'; }
@@ -580,6 +616,7 @@ export class Session {
       m = createMachine(id, config || this.savedConfig(id));
       if (config) this.store.set(`config.${id}`, JSON.stringify(config));
     } catch (e) { m = createMachine(id); }
+    this.emit('launch');   // (a machine switch is a launch: the page's Pause ends, and adopt releases a stop)
     this.adopt(m);
     if (!this.stubChosen.has(id)) this.loadSavedRoms();
     // the Pak a machine starts with, from its `ssc` option (the ROMs are in place by now)
@@ -626,7 +663,11 @@ export class Session {
     this.dropChat();                      // a chat belongs to the machine it was opened on
     if (chat) this.clearStubRuns([chat.chat, chat.basic]);
     this.warmReset = null;                // a new machine is a power-on: the boot watchdog arms
+    // (a Debugger stop goes with the machine it was on, and that is said as a release. A switch is a launch, and says so
+    // itself (switchMachine); an opened snapshot is a restore, not a launch, and keeps the page's Pause)
+    const stoppedAt = this.debugger && this.debugger.stopped ? this.debugger.pc : null;
     if (this.debugger) { this.debugger.detach(); this.debugger = null; }
+    if (stoppedAt != null) this.emit('released', stoppedAt);
     if (m.debugger) { this.debugger = m.debugger; this.debugger.setSymbols(() => this.labels); }
     // the machines left behind keep no state in the Session: their ROM-failure sets go (a switch back is a fresh
     // try) and their stub-restart records with them (the record of a Machine that is gone cannot come back)
@@ -651,10 +692,17 @@ export class Session {
     this.applyDisplay();
     this.acc = 0;
     this.lastRate = this.cpuRate() && this.cpuRate().rate;
-    this.lastPrinted = m.printed.length;
+    this.printedSeen.set(m, m.printed.length);   // its printout is its own: report only what changes from here
     this.terminalBytes = [];
     this.wireTerminal();
     if (m.becker && !m.becker.server) { this.drivewire.resetLink(); m.becker.attach(this.drivewire); }
+    // the Session's server prints to the machine that holds it, or to no machine: a machine the Session has
+    // let go of (a switch ended the chat and its machines) must not be kept alive by the handler. The chat's
+    // two machines are the exception: dropChat is what lets them go, and between a showChat swap they both
+    // stay with the Session - the one going off screen keeps the server and its prints.
+    const holder = m.becker && m.becker.server === this.drivewire ? m
+      : this.chatMachines ? [this.chatMachines.basic, this.chatMachines.chat].find((c) => c.becker && c.becker.server === this.drivewire) : null;
+    this.drivewire.onPrint = holder ? this.dwPrint(holder) : null;
   }
 
   // ---------------- printer ----------------
@@ -681,10 +729,14 @@ export class Session {
     if (!this.shownMachine.printed.length) throw new SessionError('Nothing has been printed yet.');
     return { name: `${this.shownMachine.id}-printout.prn`, bytes: this.printout };
   }
-  // after frames run: a 'printer' event when the printout changed
+  // after frames run: a 'printer' event when any running machine's printout changed - the shown machine, and the
+  // chat's BASIC session and chat machine (startChat), which run beside each other whichever is on screen. The
+  // printout belongs to the machine that printed, so the length is tracked per machine (printedSeen): a machine
+  // that is not running now (switched away from) keeps what it printed for when it comes back.
   checkPrinter() {
-    const n = this.shownMachine.printed.length;
-    if (n !== this.lastPrinted) { this.lastPrinted = n; this.emit('printer'); }
+    const seen = (m) => { const n = m.printed.length; if (n !== (this.printedSeen.get(m) ?? n)) { this.printedSeen.set(m, n); this.emit('printer'); } };
+    if (this.shownMachine) seen(this.shownMachine);
+    if (this.chatMachines) { seen(this.chatMachines.basic); seen(this.chatMachines.chat); }
   }
 
   // ---------------- serial port (the CoCo's and the MC-10's bit-banger, the Dragon 64's 6551) ----------------
@@ -1071,9 +1123,11 @@ export class Session {
   // wipe the chat firmware rather than restart it.
   reset() {
     this.stopClaudeFor('you reset the machine');
+    this.launch();
     const m = this.shownMachine, again = this.stubRun && this.stubRun.m === m && m.useStub ? this.stubRun : null;
     this.endWelcome();
     this.keys.clear();
+    this.fitDiskRom(m);
     if (again) this.restart(again);
     else { this.setStubRun(m); m.reset(false); this.warmReset = { m, resetAt: m.frameCount }; }
     this.acc = 0;
@@ -1096,6 +1150,7 @@ export class Session {
     // session, so a load there stops Claude (as before); in the side panel the conversation acts on the machine it
     // runs beside, so its reply goes on - the decision this makes deliberate rather than incidental.
     this.stopClaudeFor(reason, m);
+    this.launch(m);
     this.endWelcome();
     this.setStubRun(m);
     this.keys.clear();
@@ -1103,6 +1158,7 @@ export class Session {
     // a power cycle keeps what is inserted, as on real hardware, so the Pak's option decides it again from the
     // ROMs that are stored (it is already in the port when nothing has changed)
     this.applySscOption(m);
+    this.fitDiskRom(m);
     m.reset(true);
     this.acc = 0;
     this.poweredOn();
@@ -1569,7 +1625,9 @@ export class Session {
     try { const v = JSON.parse(this.store.get('lastRun') || 'null'); return v && typeof v.kind === 'string' && typeof v.name === 'string' ? v : null; }
     catch (e) { return null; }
   }
-  setLastRun(kind, name) { this.store.set('lastRun', JSON.stringify({ kind, name })); }
+  // emits 'lastrun': a program records itself AFTER its load has emitted 'loaded', so a view of lastRun (the Media
+  // tab's "Last time") follows this event, not 'loaded', and names what Run again runs
+  setLastRun(kind, name) { this.store.set('lastRun', JSON.stringify({ kind, name })); this.emit('lastrun'); }
   // What the welcome menu's carry-on line offers on the machine in use: what ran last, if it runs here. A file only
   // on the machine it was loaded on (and only while its bytes are kept), the colour demo and the games only on a
   // 6809-family CPU, LIZA on every machine (its 6809 or 6803 build). null: no carry-on line.
@@ -1976,7 +2034,10 @@ export class Session {
   // that changed (the drive commits them when its motor stops, on eject and before the machine goes away).
   // They never go through the media index, which keeps everything it owns in memory. Writes to the store are
   // chained, so they land in order; diskWritesDone() waits for them.
-  // The disk cartridge (DragonDOS, Delta DOS or Disk BASIC) needs its ROM: the user's, like every other.
+  // The disk cartridge (DragonDOS, Delta DOS or Disk BASIC) runs the user's ROM, like every other. Without one a disk
+  // still mounts: the disk controller goes in with no ROM (its cartridge space reads 00, and it raises no line, so
+  // the program running keeps going), for programs that drive the controller themselves. A disk ROM added later
+  // takes its place at the next reset or power cycle (fitDiskRom).
 
   // where a file the person loads goes: the BASIC session while the Claude chat is full screen (Session.loadTarget)
   // the person's disks go in the same machine, so a disk dropped on the chat screen lands in the drives the person
@@ -2001,6 +2062,58 @@ export class Session {
     if (m.cartPort instanceof MultiPak) return m.cartPort.slots.find((c) => c instanceof DiskController) || null;
     return m.cartPort instanceof DiskController ? m.cartPort : null;
   }
+  // the disk controller in use when it holds no ROM (plugged in for a disk mounted without a disk ROM), or null
+  get bareDiskController() {
+    const fdc = this.diskMachine && this.diskController;
+    return fdc && fdc !== this.diskMachine.fdc && !fdc.romBytes ? fdc : null;
+  }
+  // the disk system a disk mounted without a disk ROM uses: the one last chosen for this family, else the first
+  bareDiskChoice() {
+    const choices = this.diskDosChoices().filter((c) => !c.builtin), saved = this.store.get(`diskDos.${machineFamily(this.diskMachine.profile)}`);
+    return choices.find((c) => c.id === saved) || choices[0] || null;
+  }
+  // The disk controller with no ROM, into an empty cartridge port: no reset, so the program running keeps going (the
+  // board raises no line of its own). A cartridge in the port comes out, and the machine is powered up afresh, as
+  // insertDiskDos does: the program was running from that cartridge.
+  plugBareDiskController(choice) {
+    const m = this.diskMachine;
+    this.flushDisks();
+    const had = !!m.cartPort;
+    m.insertCartridge(new devices[choice.controller]({}));
+    if (had) {
+      this.endWelcome();
+      this.keys.clear();
+      m.reset(true);
+      this.acc = 0;
+      this.poweredOn();
+    }
+    this.emit('disks');
+  }
+  // A disk controller plugged in without a ROM takes the disk ROM the user has added since: called by a reset and a
+  // power cycle, before the machine restarts. The ROM goes into the board's socket when it is the same board; another
+  // board (the Delta DOS cartridge for a Dragon controller) replaces it, with the disks moved across. Not while
+  // NitrOS-9 runs: its floppy boot uses the controller without a ROM on purpose. -> the disk system put in, or null
+  fitDiskRom(m = this.diskMachine) {
+    if (m !== this.diskMachine || this.nitros9Running) return null;
+    const fdc = this.bareDiskController, dos = fdc && this.preferredDiskDos();
+    if (!dos) return null;
+    const rom = this.roms.get(dos.id).rom;
+    if (dos.controller === fdc.type) {
+      fdc.fitRom(rom);
+      m.cartridgeChanged();
+    } else {
+      fdc.flush();
+      const next = new devices[dos.controller]({ rom });
+      const media = fdc.drives.slice(0, Math.min(fdc.fitted, next.fitted)).map((d) => (d.loaded ? d.media : null));
+      m.insertCartridge(next);
+      media.forEach((md, i) => { if (md) next.mount(i, md); });
+    }
+    this.store.set(`diskDos.${machineFamily(m.profile)}`, dos.id);
+    this.emit('disks');
+    return dos;
+  }
+  // a disk ROM stored for the board in use, waiting for the next reset or power cycle to go in (the page says so)
+  get diskRomWaiting() { return !!this.bareDiskController && !this.nitros9Running && !!this.preferredDiskDos(); }
   // plug a disk cartridge in (whatever was in the port comes out) and power the machine up with it
   // ---------------- blank disks (Session.newDisk) ----------------
   // The sizes offered for a new disk: the usual ones of the disk system in use (or the one a mount would plug in),
@@ -2027,7 +2140,7 @@ export class Session {
   async newDisk(drive, { format, tracks, heads }, { name = null, writeProtected = false } = {}) {
     this.checkDrive(drive);
     const type = this.blankDiskController();
-    if (!type) throw new SessionError(`The ${this.diskMachine.profile.name} has no disk drives in CLOADM.`);
+    if (!type) throw new SessionError(`The ${this.diskMachine.profile.name} has no disk drives in CLOADM. Disks go in on the Dragons and the CoCos.`);
     if (!['vdk', 'jvc', 'dmk'].includes(format)) throw new SessionError(`A new disk is a VDK, JVC or DMK image, not "${format}".`);
     const kind = DRIVE_TYPES[FDC_BOARDS[type].drive];
     if (!Number.isInteger(tracks) || tracks < 1 || tracks > Math.min(kind.tracks, 82)) throw new SessionError(`Drive ${drive} takes disks of 1 to ${Math.min(kind.tracks, 82)} tracks, not ${tracks}.`);
@@ -2137,6 +2250,27 @@ export class Session {
     this.poweredOn();
     this.emit('loaded');
     return 'Speech/Sound Pak taken out';
+  }
+  // Whatever is in the cartridge port, taken out (the board menu's "Take out") -> message. The disk controller without
+  // a ROM comes out with the machine running on (it was never part of what runs; its disks stay in the Library); any
+  // other board takes what runs with it, so the machine starts afresh, as on real hardware.
+  takeOutCartridge() {
+    const m = this.personMachine, c = m && m.cartPort;
+    if (!c) throw new SessionError('The cartridge port is empty.');
+    if (c instanceof SpeechSoundPak) return this.ejectSsc();
+    const bare = c === this.bareDiskController, name = bare ? c.plainName : c.name || 'The cartridge';
+    this.flushDisks();
+    m.ejectCartridge();
+    if (!bare) {
+      this.endWelcome();
+      this.keys.clear();
+      m.reset(true);
+      this.acc = 0;
+      this.poweredOn();
+    }
+    this.emit('loaded');
+    this.emit('disks');
+    return `${name} taken out`;
   }
   // set one of the machine's options (through resolveConfig, so an option the model lacks is refused) and
   // remember it with the model's configuration
@@ -2263,12 +2397,9 @@ export class Session {
     if (holder) throw new SessionError(`${holder.name} is already in drive ${holder.drive}${holder.where}.`);
     let fdc = this.diskController;
     if (!fdc && this.diskMachine.cartPort instanceof MultiPak) throw new SessionError('The Multi-Pak has no disk controller: put one in one of its slots first (Multi-Pak…).');
-    const dos = fdc ? null : this.preferredDiskDos();
-    if (!fdc && !dos) {
-      const c = this.diskDosChoices();
-      if (!c.length) throw new SessionError(`The ${this.diskMachine.profile.name} has no disk drives in CLOADM.`);
-      throw new SessionError(`Disks need a disk ROM: ${c.map((x) => `${x.name} (${cartridgeRoms[x.id].roms[0].files[0]})`).join(' or ')}. Load the ROM file first.`);
-    }
+    // the disk cartridge a mount plugs in: the user's disk ROM's, else the controller alone (bare)
+    const dos = fdc ? null : this.preferredDiskDos(), bare = fdc || dos ? null : this.bareDiskChoice();
+    if (!fdc && !dos && !bare) throw new SessionError(`The ${this.diskMachine.profile.name} has no disk drives in CLOADM. Disks go in on the Dragons and the CoCos.`);
     // The image is read once every write is in the store: the drive's own (a disk mounted again in the drive it is
     // in must be the image that drive wrote) and every one queued, a restore's put-back included. The machine runs
     // while the store is read, so the read is taken only if nothing has been queued for THIS image since before the
@@ -2308,8 +2439,9 @@ export class Session {
     if (!format) throw new SessionError(`${base}: not a disk image CLOADM can read (VDK, JVC/DSK or DMK).`);
     fdc = this.diskController;
     if (!fdc) {
-      if (!dos) throw new SessionError(`${base}: the disk cartridge was taken out; mount it again.`);
-      this.insertDiskDos(dos.id); fdc = this.diskController;
+      if (this.diskMachine.cartPort instanceof MultiPak) throw new SessionError(`${base}: the disk cartridge was taken out; mount it again.`);
+      if (dos) this.insertDiskDos(dos.id); else this.plugBareDiskController(bare);
+      fdc = this.diskController;
     }
     if (fdc.drives[drive].loaded) fdc.eject(drive);   // flushed above: nothing more to write
     try {
@@ -2318,7 +2450,13 @@ export class Session {
     } catch (e) { throw new SessionError(`${base}: ${e.message}`); }
     this.checkDiskLater(fdc.drives[drive]);
     this.emit('disks');
-    return `${base} in drive ${drive}${writeProtected ? ' (write-protected)' : ''}`;
+    // A disk the person puts in - from a drop, Open, the Library, a drive's menu - is a launch, once it is in
+    // (a mount that is refused leaves a Debugger stop and the page's Pause as they were). A held mount is the
+    // Session's own work (NitrOS-9's boot disk going in as part of its start), not one of the person's.
+    if (!held) this.launch(this.diskMachine);
+    const wp = writeProtected ? ' (write-protected)' : '';
+    if (fdc === this.bareDiskController) return `${base} is in drive ${drive}${wp}, ${BARE_NOTE}`;
+    return `${base} in drive ${drive}${wp}`;
   }
   // A mounted drive works out whether a snapshot must carry its image as mounted (js/chips/floppy.js, get
   // mountBytes: a round trip through the disk format, about three times the cost of the mount) only when first
@@ -2513,8 +2651,10 @@ export class Session {
     const fdc = this.diskMachine && this.diskController;
     if (!fdc) return { dos: null, count: 4, drives: [] };
     const id = this.diskMachine.fdc === fdc ? 'builtin' : Object.keys(cartridgeRoms).find((k) => cartridgeRoms[k].controller === fdc.type);
+    // bare: the controller holds no ROM (a disk mounted without a disk ROM)
+    const bare = fdc === this.bareDiskController;
     return {
-      dos: { id, name: id === 'builtin' ? fdc.name : cartridgeRoms[id].name },
+      dos: { id, name: id === 'builtin' ? fdc.name : bare ? fdc.plainName : cartridgeRoms[id].name, bare },
       count: fdc.fitted,
       drives: fdc.drives.map((d, i) => (d.loaded ? { drive: i, name: d.media.name, file: d.media.name.split('/').pop(), writeProtected: !!d.wpt, size: d.media.bytes.length, stored: !!d.media.onWrite, unsaved: (d.media.onWrite && this.diskUnsaved.get(d.media.name)) || null } : null)).filter(Boolean),
     };
@@ -2675,15 +2815,21 @@ export class Session {
     if (media.kind === 'disk') {
       throw new SessionError(`${name}: ${media.format}${media.family ? ` for a ${FAMILY_NAMES[media.family]}` : ''}. Disk images go in a disk drive, not into memory.`);
     }
+    // (What is loaded runs. A load is a launch only once it is accepted: each branch below calls go() after its
+    // own refusals, so a refused file - a .wav with no tape in it, BASIC with no ROM - leaves a Debugger stop and the
+    // page's Pause as they were. A restart through BASIC is a power cycle, which launches by itself.)
+    const go = () => this.launch(m);
     const d = formats.identify(name, bytes);
     switch (d.kind) {
       case 'binary':
         if (d.basic) {
           if (!m.hasRom) throw this.needsRom('A BASIC program');
+          go();
           takeOver();
           m.loadBasicProgram(d.segments[0].data, d.segments[0].addr);
           return where(`${name}: ${d.format}, ${d.segments[0].data.length} bytes – RUN`);
         }
+        go();
         this.inject(d.segments, d.exec, m);
         return where(`${name}: ${d.format} ${describeSegments(d.segments, d.exec)}`);
 
@@ -2698,6 +2844,7 @@ export class Session {
         // other type) is read by a program (OPEN "I",#-1 and INPUT #-1): it goes in the deck, nothing is typed
         // or run (CLOAD would stop with ?FM ERROR, and poking it into memory would run data as code).
         if (first.fileType !== 0 && first.fileType !== 2) {
+          go();
           this.cancelLoadTyping(m);
           m.deck.insert(tape);
           return where(`${name}: ${first.name} is a ${first.typeName} file, which a program reads (OPEN "I",#-1); it is in the deck`);
@@ -2734,16 +2881,21 @@ export class Session {
         let msg;
         if (first.fileType === 0) {
           if (!m.hasRom) throw this.needsRom('A BASIC tape');
+          go();
           takeOver();
           m.loadBasicProgram(first.data);
           msg = `${name}: ${first.name} (BASIC) fast-loaded – RUN`;
         } else {
           const seg = { addr: first.load, data: first.data };
+          go();
           this.inject([seg], first.exec, m);
-          msg = `${name}: ${first.name} fast-loaded ${describeSegments([seg], first.exec)}`;
+          const range = `${hex(first.load)}–${hex((first.load + first.data.length - 1) & 0xFFFF)}`;
+          msg = first.exec != null ? `${name} loaded (${range}) and started at ${hex(first.exec)}.` : `${name} loaded (${range}).`;
         }
         tape.seekByte(first.end);       // the rest stays in the deck for multi-part loaders
         m.deck.insert(tape);
+        // the deck says so too (tapeStatus started), until the tape moves on or another goes in
+        if (first.fileType === 2 && first.exec != null) this.tapeStarted = { tape, exec: first.exec };
         return where(note + msg);
       }
 
@@ -2752,12 +2904,14 @@ export class Session {
         this.flushDisks();
         let dev;
         try { dev = cartridgeFor(bytes, this.cartBoard); } catch (e) { throw new SessionError(`${name}: ${e.message}`); }
+        go();
         this.cartFiles.set(dev, name);
         return where(this.startCartridge(dev, `${name}: ${dev.name}`, m));
       }
 
       case 'basictext':
         if (!m.hasRom) throw this.needsRom('A BASIC listing');
+        go();
         takeOver();
         m.ensureBooted();
         m.typist.type('NEW\r' + d.text.replace(/\r\n?/g, '\n').split('\n').filter((l) => l.trim()).join('\r') + (run ? '\rRUN\r' : '\r'));
@@ -2766,6 +2920,7 @@ export class Session {
       default: {
         const a = askAddresses && askAddresses(name, bytes.length);
         if (!a) throw new SessionError(`${name}: unknown format (${bytes.length} bytes)`);
+        go();
         const seg = { addr: a.load, data: bytes };
         this.inject([seg], a.exec, m);
         return where(`${name}: raw ${describeSegments([seg], a.exec)}`);
@@ -2839,6 +2994,7 @@ export class Session {
   // line typed there is a line of the conversation - by design. (A caller that means the person's BASIC session
   // while the chat is open names it: typeText(text, session.personMachine).)
   typeText(text, m = this.shownMachine) {
+    if (this.refuseTyping(m)) return 0;   // (nothing is queued behind a Debugger stop)
     this.personInput(m);
     return this.queueText(text, m);
   }
@@ -3334,10 +3490,16 @@ export class Session {
     const kept = this.chat && !this.chatMachines ? this.chat : null;   // the side panel's conversation moves here
     if (!kept) this.dropChat();
     // the welcome program, if it runs, stays on the BASIC session: closing the chat comes back to its menu
-    const chatMachine = createMachine(basic.id, drivewire ? Object.assign({}, basic.config, { becker: true }) : basic.config);
+    // the chat machine carries the Becker port only when the chat talks on it: with the mailbox there is
+    // nothing for the port to do, and a becker on it would take the Session's server and the BASIC
+    // session's prints with it (a machine without the option keeps a config without the key)
+    const chatConfig = Object.assign({}, basic.config);
+    if (drivewire) chatConfig.becker = true; else delete chatConfig.becker;
+    const chatMachine = createMachine(basic.id, chatConfig);
     if (drivewire) {
       this.chatServer = new DriveWireServer({ store: this.media, namePrefix: DW_PREFIX, clock: this.drivewire.clock, sameName: (a, b) => this.sameName(a, b) });
       this.chatServer.drives = this.drivewire.drives;
+      this.chatServer.onPrint = this.dwPrint(chatMachine);   // the chat machine's prints are its own, too
       chatMachine.becker.attach(this.chatServer);
       if (!channel) channel = new DriveWireChatChannel(this.chatServer, CHAT_DW_CHANNEL);
     }
@@ -3614,11 +3776,12 @@ export class Session {
     this.unsavedRecording = Object.assign(r, { machine: this.shownMachine.profile.name });
     this.emit('recording');
   }
-  rewindTape() { const t = this.personMachine.deck.tape; if (t) t.seekByte(0); this.tapeWatch = null; return !!t; }
+  rewindTape() { const t = this.personMachine.deck.tape; if (t) t.seekByte(0); this.tapeWatch = null; this.tapeStarted = null; return !!t; }
 
   // ---------------- the cassette panel ----------------
   // What the deck is doing -> null without a tape, else { name, block, blocks, progress, seconds, duration,
-  // position, length, atEnd, motor, playing, realSpeed, error }. block counts the tape's blocks (js/media/cassette.js
+  // position, length, atEnd, motor, playing, realSpeed, error, started }. started is the exec address of a machine-code
+  // file the drop fast-loaded and started, until the tape moves on; block counts the tape's blocks (js/media/cassette.js
   // casBlocks) the play position has reached; position is that place as a byte of the image (0 to length, the leader
   // the deck adds before it counting as 0); seconds is how far into the tape that is at real speed. error is the block
   // number where BASIC stopped with ?IO ERROR: a run of the motor that ends with that on the last lines of
@@ -3633,6 +3796,8 @@ export class Session {
     }
     const info = this.tapeInfo, at = t.bytePosition();
     const block = info.blocks.filter((start) => start <= at).length;
+    // fast-loaded and started: true until the tape moves on (the motor runs: the program reads the rest) or is taken out
+    if (this.tapeStarted && (this.tapeStarted.tape !== t || deck.motor)) this.tapeStarted = null;
     // read errors: watch each run of the motor
     if (deck.motor) { if (!this.tapeWatch || this.tapeWatch.done) this.tapeWatch = { done: false, error: null }; }
     else if (this.tapeWatch && !this.tapeWatch.done) {
@@ -3643,6 +3808,7 @@ export class Session {
       name: t.name, block, blocks: info.blocks.length, progress: t.progress(), seconds: t.progress() * info.duration, duration: info.duration,
       position: Math.max(0, Math.min(t.bytes.length, at)), length: t.bytes.length, atEnd: t.atEnd(),
       motor: deck.motor, playing: deck.playing, realSpeed: !this.fastTape, error: this.tapeWatch ? this.tapeWatch.error : null,
+      started: this.tapeStarted ? this.tapeStarted.exec : null,
     };
   }
   // Skip the tape: load what is on it instantly instead (the machine is power cycled first, so whatever BASIC
@@ -3707,6 +3873,7 @@ export class Session {
     for (let i = 0; i <= carry.length; i++) m.poke(w.carry + i, i < carry.length ? carry.charCodeAt(i) : 0);
     this.welcome = m;
     this.welcomeBuild = w;
+    this.welcomeFrom = m.frameCount;   // (welcomeOnScreen: the menu is drawn once a frame has run after this one)
 
     this.emit('welcome');   // (the page's parts that depend on whether the welcome program runs: the quick-save slots)
     if (this.welcomeSoundOn) this.welcomeSound();
@@ -3721,6 +3888,15 @@ export class Session {
   get welcomeRunning() { return this.welcome === this.personMachine; }
   // on the machine on screen (a tap on the menu): what the canvas shows and types into
   get welcomeRunningOn() { return !!this.welcome && this.welcome === this.shownMachine; }
+  // What the page may call "on screen now" (the shelf's tag): the welcome program is not only loaded (welcomeRunning)
+  // but executing and drawn on the screen in use. All of: it is loaded on the person's machine; that machine is the
+  // one shown; the Debugger has not stopped it (paused); and at least one frame has run since it was loaded, so the
+  // picture is the menu's and not what was on screen before (a load runs no frame by itself). A caller with a pause
+  // of its own (the page's Pause button) adds it. Cheap: three comparisons, read once per animation frame.
+  get welcomeOnScreen() {
+    const m = this.welcome;
+    return !!m && m === this.personMachine && m === this.shownMachine && !this.paused && m.frameCount > this.welcomeFrom;
+  }
   // one of the bundled games (2048, Minesweeper) is what runs on this machine now: from runGame until it is left
   // (BREAK), or a load, a reset or a switch ends the watch.
   get gameRunning() { const w = this.menuWatch; return !!w && w.kind === 'game' && w.m === this.shownMachine; }
@@ -3853,9 +4029,11 @@ export class Session {
     this.pumpChat(o);
   }
   // (the machine's name is not in it: the app bar shows it on the machine button beside the status)
-  statusLine(fps) {
+  // held: the page's own Pause. Stopped or paused, the line says so in place of the speed, which would be
+  // stale (no frames run); fps null: running again, the speed not measured yet ("Running")
+  statusLine(fps, held = false) {
     const m = this.shownMachine;
-    let s = `${fps.toFixed(0)} fps · ${(fps / m.fps * 100).toFixed(0)}%`;
+    let s = this.paused ? 'Stopped in the Debugger' : held ? 'Paused' : fps == null ? 'Running' : `${fps.toFixed(0)} fps · ${(fps / m.fps * 100).toFixed(0)}%`;
     const t = m.deck.tape;
     if (t) s += ` · tape ${t.name} ${(t.progress() * 100).toFixed(0)}%${m.deck.motor ? ' ▶' : ''}`;
     return s;

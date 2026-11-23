@@ -76,7 +76,8 @@ export function platformOf(ua, ios) {
   if (/Firefox/.test(ua) && /Android/.test(ua)) return 'firefoxAndroid';
   if (/SamsungBrowser/.test(ua)) return 'samsung';
   if (/Android/.test(ua)) return 'android';
-  if (/Firefox/.test(ua) || (/Safari/.test(ua) && !/Chrome|Chromium|Edg/.test(ua))) return 'desktopOther';
+  if (/Safari/.test(ua) && !/Chrome|Chromium|Edg|Firefox/.test(ua)) return 'safariMac';
+  if (/Firefox/.test(ua)) return 'desktopOther';
   return 'chromium';
 }
 // CLOADM running as an installed app: the browser's display mode, or iOS Safari's own flag.
@@ -121,7 +122,8 @@ export function createRunClock(now = () => Date.now()) {
 // the Share sheet.
 export const STEPS = Object.freeze({
   chromium: 'Open the browser menu (⋮) and choose “Install CLOADM…” (Chrome or Edge: “Apps → Install this site as an app”).',
-  desktopOther: 'Open the browser menu and look for “Install this site” or “Add to Dock” (Safari: File → Add to Dock). Firefox on a computer installs no sites; use Chrome, Edge or Safari for this.',
+  desktopOther: 'Open the browser menu and look for “Install this site”. Firefox on a computer installs no sites; use Chrome, Edge or Safari for this.',
+  safariMac: 'In Safari: File → Add to Dock.',
   android: 'Open Chrome’s menu (⋮) and choose “Add to Home screen” — newer versions say “Install app”.',
   samsung: 'Tap ☰ and choose “Add page to”, then “Home screen”.',
   firefoxAndroid: 'Open Firefox’s menu (⋮) and choose “Install” — on older versions, “Add to Home screen”.',
