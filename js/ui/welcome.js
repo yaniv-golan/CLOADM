@@ -180,7 +180,9 @@ export function setupWelcome(page, { showRoms, openClaude }) {
         startAs(byMachine, () => session.load(item.url.split('/').pop(), bytes, { remember: false }));
         page.status(`${item.name} loaded`);
         session.setLastRun('demo', item.name);
-        session.watchForMenu('demo');
+        // the demo runs on the person's machine (the load above goes there, behind the chat): watch THAT machine,
+        // not whichever one is on screen, or a watch opened with the chat full screen would name the chat's machine
+        session.watchForMenu('demo', session.personMachine);
       }
     } catch (e) { page.status(`${item.name}: ${e.message}`, true); }
     page.focus();

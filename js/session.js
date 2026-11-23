@@ -870,8 +870,8 @@ export class Session {
     if (rec) this.stubRuns.set(m, rec); else this.stubRuns.delete(m);
     this.stubRun = this.stubRuns.get(this.shownMachine) || null;
   }
-  // take away the record of every machine the chat has beside the one in use (a chat belongs to its machines):
-  // endChat/dropChat and adopt use it, where before a single this.stubRun = null was enough
+  // take away the records of the machines named (adopt: the machines a switch or a snapshot leaves behind).
+  // Closing the chat is not that: its machine goes, but the BASIC session comes back unchanged and keeps its record
   clearStubRuns(machines) { for (const m of machines) if (m) this.stubRuns.delete(m); this.stubRun = this.stubRuns.get(this.shownMachine) || null; }
   // make m the machine in use (the caller has its ROMs set or sets them next, and emits 'machine'). The old
   // machine's disks keep what was written to them, a tape recording still running is kept (keepRecording), its chat
@@ -880,8 +880,10 @@ export class Session {
   adopt(m) {
     this.writeWatch.guard('A machine change');
     if (this.shownMachine) { this.drives.flush(); this.keepRecording(); }   // its disks and a recording still running are kept
-    this.endWelcome();
     const chat = this.chatMachines;
+    // the welcome is the PERSON's, and with the chat on screen it runs on the machine beside the chat (personMachine),
+    // so a switch, a snapshot or a power cycle ends it there; the chat's machine on screen is not its machine
+    if (this.shownMachine) this.endWelcome(this.personMachine);   // the person's machine, if there is one yet
     this.dropChat();                      // a chat belongs to the machine it was opened on
     if (chat) this.clearStubRuns([chat.chat, chat.basic]);
     this.warmReset = null;                // a new machine is a power-on: the boot watchdog arms
@@ -1171,7 +1173,7 @@ export class Session {
       // accepted (the last refusal is above): booting NitrOS-9 is a launch, so a Debugger stop on the machine is
       // released and NitrOS-9 runs. The mount itself is held and launches nothing; a refused boot keeps the stop.
       this.launch(mm);
-      this.endWelcome();
+      this.endWelcome(mm);          // the machine being booted (the person's): its welcome goes, not the chat's
       this.setStubRun(mm);          // the NitrOS-9 load starts on mm (its own record, not another machine's)
       this.keys.clear();
       const kind = floppy ? 'floppy' : 'drivewire';
@@ -1323,7 +1325,8 @@ export class Session {
   }
   // Reset and power without ROMs behave like a real computer, never a dead end:
   // the stub firmware's bare "NO ROM LOADED" screen is not where a button leaves you. Reset restarts what runs
-  // on the stub from its own entry point (the welcome menu, LIZA, a binary with an exec address: `stubRun`); with
+  // on the stub from its own entry point (the welcome menu, LIZA, a binary with an exec address: `stubRun`, the
+  // machine's own record in `stubRuns`); with
   // nothing to restart, and on every power-on without ROMs, the Session emits ('menu', 'back') and the page starts
   // the welcome menu, as a visit does. With ROMs,
   // reset and power-on are BASIC's.
@@ -1337,7 +1340,7 @@ export class Session {
     this.stopClaudeFor('you reset the machine');
     this.launch();
     const m = this.shownMachine, again = this.stubRun && this.stubRun.m === m && m.useStub ? this.stubRun : null;
-    this.endWelcome();
+    this.endWelcome(m);
     this.keys.clear();
     this.drives.fitRom(m);
     if (again) this.restart(again);
@@ -1363,7 +1366,7 @@ export class Session {
     // runs beside, so its reply goes on - the decision this makes deliberate rather than incidental.
     this.stopClaudeFor(reason, m);
     this.launch(m);
-    this.endWelcome();
+    this.endWelcome(m);     // the machine being powered (the person's), not whichever one is on screen
     this.dropRemovedRoms(m);
     this.setStubRun(m);
     this.keys.clear();
@@ -1419,7 +1422,7 @@ export class Session {
     if (r.welcome) { this.startWelcome(r.welcome.bytes, Object.assign({}, r.welcome, { reason: 'reset' })); return; }
     this.shownMachine.injectAndRun(r.segments, r.exec);
     this.setStubRun(this.shownMachine, r);
-    if (r.watch) this.watchForMenu(r.watch);
+    if (r.watch) this.watchForMenu(r.watch, r.m);
   }
   // after a hard reset: the firmware may have changed (ROMs or the stub) and the SAM rate is back to slow
   poweredOn() {
@@ -1963,7 +1966,7 @@ export class Session {
     }
     const stored = this.roms.get('ssc');
     this.drives.flush();
-    this.endWelcome();
+    this.endWelcome(m);
     this.keys.clear();
     m.insertCartridge(new SpeechSoundPak({ tms7040Rom: stored.tms7040, sp0256Rom: stored.sp0256 || null }));
     this.setOption('ssc', 'music');
@@ -1997,7 +2000,7 @@ export class Session {
     this.drives.flush();
     m.ejectCartridge();
     if (!bare) {
-      this.endWelcome();
+      this.endWelcome(m);
       this.keys.clear();
       m.reset(true);
       this.acc = 0;
@@ -2150,7 +2153,7 @@ export class Session {
     // the machine's onReset does not say so): Claude stops just before it does (inject does too), and nothing it
     // held is typed into the program; a load that is refused or cancelled leaves Claude alone
     const takeOver = () => { this.cancelLoadTyping(m); this.stopClaudeFor('you loaded a program', m); };
-    this.endWelcome();
+    this.endWelcome(m);     // this machine's welcome and watch: the chat's start of its own firmware ends neither
     this.setStubRun(m);     // the load starts something on THIS machine; the other machine's record is untouched
     const media = detectMedia(name, bytes);
     if (media.kind === 'disk') {
@@ -2291,7 +2294,7 @@ export class Session {
   // slot 4 only (the one compared with it); the Multi-Pak routes every slot alike, so any slot takes one here.
   insertMultiPak(items, { switchSlot = 4 } = {}) {
     const m = this.personMachine;
-    this.endWelcome();
+    this.endWelcome(m);
     if (!m.hasCartridgePort) throw new SessionError(`A Multi-Pak needs a cartridge port; the ${m.profile.name} has none`);
     if (!this.hasMultiPak) throw new SessionError(`The Multi-Pak is not verified on the ${m.profile.name} yet; it is offered on the machines it was compared with MAME on`);
     if (!Array.isArray(items) || items.length > 4) throw new SessionError('A Multi-Pak has four slots');
@@ -2734,6 +2737,8 @@ export class Session {
       const basic = this.chatMachines.basic, ch = this.chat.channel;
       this.chat.channel = null;
       if (ch && typeof ch.close === 'function') ch.close();
+      this.clearStubRuns([this.chatMachines.chat]);   // (the BASIC session keeps its own: it comes back unchanged)
+      if (this.menuWatch && this.chatMachines && this.menuWatch.m === this.chatMachines.chat) this.menuWatch = null;   // as dropChat
       this.chatMachines = null; this.chatView = null; this.chatServer = null;
       if (this.shownMachine !== basic) { this.install(basic); this.emit('machine'); }
     }
@@ -2789,13 +2794,12 @@ export class Session {
     chatMachine.reset(true);
     this.chatMachines = { chat: chatMachine, basic };
     this.chatView = 'chat';
-    const { welcome, welcomeBuild } = this;
     this.install(chatMachine);
     this.emit('machine');
     // on the chat machine itself (not loadTarget: the chat's own firmware is the one thing that loads there)
     this.loadMedia('chat.bin', firmware, null, { on: chatMachine });
-    // (loading ends the welcome; it ran on the BASIC session, not this one)
-    Object.assign(this, { welcome, welcomeBuild });
+    // (the load is the chat machine's own: the welcome and the menu watch it would end belong to the BASIC session
+    // beside it, and endWelcome(m) leaves them, as it leaves the person's welcome running on the stub)
     if (kept) {
       kept.channel = channel;
       kept.brief = brief;              // its replies are now read on the chat screen
@@ -2874,7 +2878,10 @@ export class Session {
     if (!this.chat) return;
     if (this.consent.pending) this.consent.pending.resolve(false);
     this.chat.abort();
-    if (this.chatMachines) this.clearStubRuns([this.chatMachines.chat, this.chatMachines.basic]);
+    // the chat's own machine goes with it; the BASIC session beside it comes back unchanged, and keeps what it
+    // ran (its Reset restarts LIZA, its menu watch stands), as if the chat had never opened
+    if (this.chatMachines) this.clearStubRuns([this.chatMachines.chat]);
+    if (this.menuWatch && this.chatMachines && this.menuWatch.m === this.chatMachines.chat) this.menuWatch = null;   // a watch on the machine being dropped
     this.chat = null; this.chatMachines = null; this.chatView = null; this.chatServer = null;
     this.endClaudePause();
     this.claudeView = null; this.claudeActing = null; this.consent.pending = null; this.consent.paused = null; this.claudeTool = null; this.claudeCall = null;
@@ -2884,7 +2891,7 @@ export class Session {
   runAssembled(res) {
     // the assembler panel is the person's: the program runs on personMachine (inject's default is the machine in
     // use, which with the chat full screen is the chat machine - the sweep's runAssembled row was red on that)
-    this.endWelcome();
+    this.endWelcome(this.personMachine);
     this.inject(res.segments, res.exec, this.personMachine);
     this.labels = res.symbols;                    // the debugger's disassembly shows them (see `debug`)
     if (this.debugger) this.debugger.setSymbols(() => this.labels);
@@ -2975,17 +2982,27 @@ export class Session {
   // A load, a switch, a reset or a power cycle ends the watch.
   // A game is watched with BASIC ROMs too: there BREAK hands the machine back to BASIC with a warm reset (BASIC
   // sets up the SAM, the PIAs and its interrupts again), as there is no menu to go back to.
-  watchForMenu(kind, on = null) {
-    const m = on || this.shownMachine;
+  // The watch belongs to ONE machine, and the caller names it: the chat (startChat) puts a second machine of its
+  // own on screen while the one LIZA runs on keeps running beside it, and that is not a replacement. DEFAULTING to
+  // the machine on screen is what let the page watch a demo on the chat's machine, which closing the chat then
+  // dropped with the watch still set. Only a machine that is really replaced - a switch, a snapshot, a power
+  // cycle, a load over it - ends the watch.
+  watchForMenu(kind, on) {
+    const m = on;
+    if (!m) throw new SessionError('watchForMenu needs the machine the program runs on.');
     const watch = kind === 'game' && !m.useStub ? true : this.welcomeMenu && WELCOME[cpuFamily(m.config.cpu)] && m.useStub;
     this.menuWatch = watch ? { kind, m, since: null, taken: m.stubKeysTaken, drawing: false } : null;
-    if (this.stubRun && this.stubRun.m === m) this.stubRun.watch = kind;   // a Reset restarts the watch too
+    const r = this.stubRuns.get(m);
+    if (r) r.watch = kind;   // a Reset restarts the watch too
   }
   checkMenuReturn() {
     const w = this.menuWatch;
     if (!w) return;
-    const m = this.shownMachine;
-    if (w.m !== m || (!m.useStub && w.kind !== 'game')) { this.menuWatch = null; return; }
+    // another machine is on screen (the chat's own): its frames run beside the watched one and say nothing about
+    // it. The menu is a start on the machine in use, so a return that comes now waits, unchanged.
+    if (w.m !== this.shownMachine) return;
+    const m = w.m;
+    if (!m.useStub && w.kind !== 'game') { this.menuWatch = null; return; }
     if (w.kind === 'game') {
       if (m.cpu.pc !== GAMES.done) return;
       if (!m.useStub) {   // with BASIC: back to it (the machine asked, as a menu return is asked)
@@ -3241,8 +3258,22 @@ export class Session {
     // (a silent start sets it after its first frame instead, once PLAYED is set: flushWelcome)
     if (this.welcomeRunning && !this.welcomeQuiet) this.welcome.poke(this.welcomeBuild.soundOk, 1);
   }
-  endWelcome() {
-    this.welcome = null; this.welcomeBuild = null; this.menuWatch = null; this.welcomeQuiet = null; this.menuReason = null;
+  // endWelcome(on): the machine leaving the welcome. REQUIRED: a default of the machine on screen is how a disk
+  // controller plugged in for the person's machine ended the CHAT machine's welcome instead. Its welcome and its
+  // watch go; the chat's machine on
+  // screen is not the one they belong to (startChat's load of its firmware must not end the BASIC session's return
+  // to the menu), so what belongs to another machine is left alone. menuReason is the reason the Session OFFERED
+  // with the 'menu' event: a start spends it (startWelcome), and a machine change ends it (adopt), whichever
+  // machine's welcome it was offered with. welcomeGen is the Session's: every start is cancelled, whichever
+  // machine's.
+  endWelcome(on) {
+    if (!on) throw new SessionError('endWelcome needs the machine leaving the welcome.');
+    if (this.welcome === on) { this.welcome = null; this.welcomeBuild = null; this.welcomeQuiet = null; }
+    if (this.menuWatch && this.menuWatch.m === on) this.menuWatch = null;
+    // the offered reason is superseded by any start at all, on any machine: the page will not start the menu from
+    // that offer (the start that takes it reads it before its own load, startWelcome), so it must not reach a later
+    // plain start - which would then be quiet when it should be a visit's tune
+    this.menuReason = null;
     this.welcomeGen++;   // anything that takes the machine cancels a welcome start still waiting on its bytes
   }
   // The generation a page takes before it fetches the welcome bytes and hands it back to startWelcome. Every way

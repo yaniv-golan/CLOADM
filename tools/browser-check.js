@@ -524,7 +524,7 @@ const openDisc = async (page, id) => { if (!(await page.evaluate((i) => document
 // It waits for the page's start first (the welcome menu it may be starting would land on top otherwise).
 const stubPrompt = async (page) => {
   await waitFor(page, () => window.emu && window.emu.started);
-  await page.evaluate(() => { const s = window.emu.session; s.endWelcome(); s.stubRun = null; s.keys.clear(); window.emu.machine.reset(true); });
+  await page.evaluate(() => { const s = window.emu.session; s.endWelcome(s.shownMachine); s.stubRun = null; s.keys.clear(); window.emu.machine.reset(true); });
 };
 // The full-screen chat as a person opens it from anywhere: Ctrl K, "Chat with Claude, full screen" (asking Claude, the
 // header's button included, opens the side panel instead, whatever is on the screen)
@@ -2471,6 +2471,36 @@ async function visitChecks(browser, base, check) {
   check('games: the last game is what the next visit\'s menu carries on with', await page.evaluate(() => JSON.stringify(window.emu.session.carryOn)) === '{"kind":"game","name":"Minesweeper"}');
   await key('1');
   check('welcome: 1 runs LIZA', await waitFor(page, () => window.emu.session.screenText().join('').includes('I AM LIZA')));
+  // THE BUG'S ORDER: LIZA is running and watched, then the chat is opened (the page's own route: Ctrl+K, then Full
+  // screen), then closed, then BYE. The chat's machine and the BASIC session run side by side, and opening the chat
+  // must not take away the BASIC session's return to the menu (Session endWelcome per machine, and checkMenuReturn
+  // waiting while another machine is on screen). With the bug the BYE leaves the goodbye on the screen and no menu
+  // comes - and, before that, the watch is already gone as soon as the chat opens.
+  {
+    const watched = await waitFor(page, () => window.emu.session.menuWatch && window.emu.session.menuWatch.kind === 'liza'
+      && window.emu.session.menuWatch.m === window.emu.session.shownMachine);
+    check('welcome: LIZA is running and watched on its own machine before the chat', watched);
+    // (the page's Ask Claude button, which is openPanel -> Full screen. Ctrl+K would work too - it is a window
+    // capture listener for ctrlKey/metaKey - but the button states the route without depending on a shortcut)
+    await page.click('#btnAsk');
+    check('welcome: Ask Claude opens the side panel', await waitFor(page, () => !document.getElementById('ask').hidden, null, 10000));
+    await page.click('#btnAskFull');
+    check('welcome: Full screen opens the chat on a machine of its own', await waitFor(page, () => document.body.classList.contains('claude-open')
+      && window.emu.session.chatView === 'chat' && !!window.emu.session.chatMachines, null, 15000),
+      await page.textContent('#toast'));
+    check('welcome: opening the chat leaves LIZA\'s watch on the BASIC session', await page.evaluate(() => window.emu.session.menuWatch
+      && window.emu.session.menuWatch.kind === 'liza' && window.emu.session.menuWatch.m !== window.emu.session.shownMachine),
+      await page.evaluate(() => JSON.stringify({ watch: window.emu.session.menuWatch && window.emu.session.menuWatch.kind })));
+    await page.click('#btnClaudeBack');
+    check('welcome: "← Emulator" comes back to the machine LIZA runs on, still watched', await waitFor(page, () => !document.body.classList.contains('claude-open')
+      && !window.emu.session.chatMachines && window.emu.session.menuWatch && window.emu.session.menuWatch.kind === 'liza'
+      && window.emu.session.menuWatch.m === window.emu.session.shownMachine, null, 15000));
+    await page.focus('#screen'); await page.keyboard.type('BYE', { delay: 60 }); await page.keyboard.press('Enter');
+    // the goodbye lasts LIZA_BYE_SECONDS of MACHINE time: bounded in machine frames, as returningChecks does
+    check('welcome: BYE in LIZA, watched before the chat, still returns to the welcome menu', await waitForFrames(page, () => window.emu.session.welcomeRunning
+      && window.emu.session.screenText()[6].trim() === 'BYE FOR NOW. PICK ANOTHER?', null, 400),
+      await page.evaluate(() => window.emu.session.screenText().slice(5, 8).join(' | ')));
+  }
   // "No BASIC · Add ROMs" opens Add ROMs, whose "Choose files…" opens the ROM file picker
   await page.click('#romPill');
   check('first visit: "No BASIC · Add ROMs" opens Add ROMs', await waitFor(page, romsOpen));
@@ -2842,6 +2872,29 @@ async function cpu6309Checks(browser, base, check) {
   await page.click('#btnClaudeBack');
   check('cpu=6309: "← Emulator" comes back to the welcome menu on the 6309', await waitFor(page, () => !document.body.classList.contains('claude-open') && window.emu.session.welcomeRunning && window.emu.machine.config.cpu === '6309'), await msg());
 
+  // LIZA watched FIRST, then the chat opened (the Ask Claude button, then Full screen - a digit typed while LIZA
+  // runs would be a line to LIZA), then closed, then BYE. The chat runs on a machine of its own while the BASIC
+  // session keeps running beside it, and opening it must not take away that session's return to the menu (Session's
+  // endWelcome per machine, and checkMenuReturn waiting while another machine is on screen).
+  await key('1');
+  check('cpu=6309 (liza then chat then BYE): key 1 runs LIZA', await waitFor(page, () => window.emu.session.screenText().join('').includes('I AM LIZA'), null, 20000));
+  check('cpu=6309 (liza then chat then BYE): LIZA is watched on its own machine before the chat', await waitFor(page, () => window.emu.session.menuWatch
+    && window.emu.session.menuWatch.kind === 'liza' && window.emu.session.menuWatch.m === window.emu.session.shownMachine));
+  await page.click('#btnAsk');
+  await waitFor(page, () => !document.getElementById('ask').hidden, null, 10000);
+  await page.click('#btnAskFull');
+  check('cpu=6309 (liza then chat then BYE): Full screen opens the chat', await waitFor(page, () => document.body.classList.contains('claude-open')
+    && window.emu.session.chatView === 'chat' && !!window.emu.session.chatMachines, null, 15000), await msg());
+  check('cpu=6309 (liza then chat then BYE): the watch stays on the BASIC session, not the chat machine', await page.evaluate(() => window.emu.session.menuWatch
+    && window.emu.session.menuWatch.m !== window.emu.session.shownMachine && window.emu.session.menuWatch.m === window.emu.session.personMachine));
+  await page.click('#btnClaudeBack');
+  check('cpu=6309 (liza then chat then BYE): "← Emulator" comes back to LIZA, still watched', await waitFor(page, () => !document.body.classList.contains('claude-open')
+    && !window.emu.session.chatMachines && window.emu.session.menuWatch && window.emu.session.menuWatch.kind === 'liza'
+    && window.emu.session.menuWatch.m === window.emu.session.shownMachine, null, 15000));
+  await page.focus('#screen'); await page.keyboard.type('BYE', { delay: 60 }); await page.keyboard.press('Enter');
+  check('cpu=6309 (liza then chat then BYE): BYE after the chat still returns to the welcome menu', await waitForFrames(page, () => window.emu.session.welcomeRunning
+    && window.emu.session.screenText()[6].trim() === 'BYE FOR NOW. PICK ANOTHER?', null, 400), await screenText());
+
   // a new visit with NO parameters: the 6309 choice must come from storage, not from the link (reloading the
   // current URL would keep `?cpu=6309` in the address and prove nothing). The demo ran, so the menu offers it as
   // option 6 ("PRESS 1 TO 6"), exactly as the 6809 would.
@@ -2852,8 +2905,13 @@ async function cpu6309Checks(browser, base, check) {
   check('cpu=6309: a visit with no parameters at all keeps the 6309 choice (from storage)', await waitFor(page, () => window.emu.machine && window.emu.machine.config.cpu === '6309')
     && await ev(() => location.search === ''), await ev(() => location.search));
   check('cpu=6309: the new visit opens on the welcome menu, no error', await menu() && !(await isError()), await msg());
-  check('cpu=6309: the new visit offers what ran last (the demo) as option 6, as on the 6809',
-    await waitFor(page, () => window.emu.session.screenText()[12].includes('CARRY ON WITH COLOUR') && window.emu.session.screenText()[14].includes('PRESS 1 TO 6')), await screenText());
+  // (the carry-on names what ran last in the visit before. This group's last run before the reload is LIZA - the
+  // liza-then-chat case above leaves it as lastRun - so the line is "6 CARRY ON WITH LIZA", at the menu's own rows:
+  // row 12 is the carry-on line and row 14 the "PRESS 1 TO 6" line, whatever the greeting (measured in
+  // tests/returning.test.js: rows 6 to 12, a blank 13, then 14)
+  check('cpu=6309: the new visit offers what ran last (LIZA) as option 6, as on the 6809',
+    await waitFor(page, () => window.emu.session.screenText()[12].trim() === '6 CARRY ON WITH LIZA'
+      && window.emu.session.screenText()[13].trim() === '' && window.emu.session.screenText()[14].trim() === 'PRESS 1 TO 6'), await screenText());
   check('cpu=6309: "Colour demo" is still on the shelf (the new visit\'s Media tab keeps it)', /Colour demo/.test(await page.$$eval('#shelf :is(a, button)', (b) => b.map((x) => x.textContent).join('|'))),
     await page.$$eval('#shelf :is(a, button)', (b) => b.map((x) => x.textContent).join('|')));
   check('cpu=6309: no page errors in the whole case', !errors.length, errors.join('; '));
@@ -8110,7 +8168,7 @@ async function keyboardSymbolsChecks(browser, base, check) {
     await ready(page);
     // the welcome menu would take the typed digits (and could start after the load): end it first, as stubPrompt does
     await waitFor(page, () => window.emu && window.emu.started);
-    await page.evaluate(() => window.emu.session.endWelcome());
+    await page.evaluate(() => window.emu.session.endWelcome(window.emu.session.shownMachine));
     await page.evaluate((bin) => window.emu.session.load('keyecho.bin', new Uint8Array(bin), { remember: false }), [...keyechoBinary(Emu, id)]);
     await waitFor(page, () => window.emu.machine.ram[(window.emu.machine.profile.textScreen || 0x400)] === 0x60);
     const text = printable(Emu, id);

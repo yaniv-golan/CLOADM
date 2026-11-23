@@ -338,6 +338,14 @@ Next version: 0.1.9-pre (the plugin and extension manifests carry it; `tests/plu
 
 ### Fixed
 
+- **BYE in LIZA was lost after opening the chat: the welcome menu never came back.** The full-screen chat runs on a
+  second machine of its own while the BASIC session keeps running beside it, but the chat's own start of its
+  firmware ended the BASIC session's menu watch (and its Reset program), and the watch treated the chat machine on
+  screen as the watched machine being replaced. Opening and closing the chat now leaves the BASIC session and its
+  program as they were: BYE in LIZA still brings the menu, a key while the colour demo draws still asks for it, and
+  Reset still restarts what ran there. While the chat is on screen the watch waits, since the menu is a start on the
+  machine in use, and starts when the BASIC session is back on screen.
+
 - **A long line typed on the chat screen goes whole, up to 1024 characters.** The chat firmware's line held 255
   characters (its lengths were single bytes) and the keys after the 255th were not sent: a 269-character prompt
   arrived as its first 255, and the screen only flashed. The line now holds 1024 (16-bit lengths, the buffer at

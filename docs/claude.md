@@ -42,6 +42,10 @@ on the machine in use
 (`Session.carryOn`): a file on the machine it was loaded on, the colour demo and the games on a 6809-family CPU (the
 6309 runs them too), LIZA everywhere. Leaving a program brings the menu back, "BYE FOR NOW.
 PICK ANOTHER?": BYE in LIZA, or a key once the colour demo is drawing (the Session watches and emits `menu`).
+The watch belongs to the machine the program runs on, and opening or closing the full-screen chat leaves that
+machine and its program as they were: BYE in LIZA still brings the menu, Reset still restarts what ran there. While
+the chat's own machine is on screen the watch waits, because the menu is a start on the machine in use; it comes
+when you are back on the BASIC session (Ctrl+B, **Show my BASIC session** or **← Emulator**).
 With ROMs the machine boots them as before; the Media tab's "Last time" runs the last item again, and the
 welcome menu is the first entry of "Runs without ROMs".
 Without ROMs the machine behaves like a real computer and never leaves you on the stub's bare screen: **Power
