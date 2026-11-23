@@ -117,14 +117,21 @@ export function createPage(session, audio) {
     // body, a first visit before any click) and no dialog open. Tab always moves focus; F5 and F12 are the browser's;
     // Esc closes what is open instead (page.escape, main.js): off the screen anything, on it a confirmation or a card.
     // js/ui/screen.js sends what passes to the machine; js/ui/ask.js pauses Claude for the same keys.
+    // the program last run (Session.lastRun) while it is what the screen shows now, else null: the page's Pause counts
+    runningNow() { return page.session.lastRunOnScreen && !page.paused ? page.session.lastRun : null; },
     toMachine(e) {
       return (e.target === canvas || e.target === document.body || e.target === document.documentElement)
         && e.key !== 'Tab' && e.key !== 'F12' && e.key !== 'F5' && !document.querySelector('dialog[open]')
         && !(e.key === 'Escape' && (e.defaultPrevented || page.escapable(e.target === canvas)));
     },
     // run fn, showing its message (or the error) as a toast
-    attempt(fn) {
-      try { const msg = fn(); if (msg) page.status(msg); return true; }
+    // split: msg -> [text, details] | null, for a message whose first part is the toast and the rest sits under Details
+    attempt(fn, { split = null } = {}) {
+      try {
+        const msg = fn(), parts = msg && split ? split(msg) : null;
+        if (parts) page.toast(parts[0], { details: parts[1] }); else if (msg) page.status(msg);
+        return true;
+      }
       catch (e) { page.status(e.message, true); if (!(e instanceof SessionError)) console.error(e); return false; }
     },
     // put a tape in the deck and say so. With no BASIC running the toast offers Load it now (Skip the tape: the tape's
@@ -133,7 +140,7 @@ export function createPage(session, audio) {
       let msg;
       try { msg = page.session.insertTape(name, bytes); } catch (e) { page.status(e.message, true); if (!(e instanceof SessionError)) console.error(e); return false; }
       if (page.session.basicRunning) page.status(msg);
-      else page.toast(msg.replace(/\.$/, ': {action}'), { action: { label: 'Load it now', run: () => page.attempt(() => page.session.skipTape()) } });
+      else page.toast(msg.replace(/\.$/, ': {action}'), { action: { label: 'Load it now', run: () => { page.attempt(() => page.session.skipTape()); page.sheets.closeTape(); } } });
       return true;
     },
     readFile: async (file) => new Uint8Array(await file.arrayBuffer()),

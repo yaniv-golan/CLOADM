@@ -210,6 +210,22 @@ Next version: 0.1.9-pre (the plugin and extension manifests carry it; `tests/plu
 
 ### Changed
 
+- **A phone's Cassette deck sheet closes when the program starts.** Load it now (the button in the toast after a tape goes
+  in with no BASIC to type CLOAD into) and Skip the tape close the sheet, so the screen shows the program starting. In the
+  sheet the slot's small deck picture is left out, since the big cassette is right there; the empty line "No tape · Insert
+  tape…" is a real button, and on a touch screen the hint says "tap the deck to insert", not "click".
+- **The machine menu's footer no longer stands over a model.** The models scroll in a box of their own above the footer
+  ("Add or see ROMs…", "RAM, CPU and speed…", "Which one is mine?"), so the last one, the CP-400 under KITS, is whole when
+  the list is scrolled to its end, and the fade above the footer says there is more. "Which one is mine?" ends in ↗
+  (it opens Help in a new tab) and closes the menu.
+- **Opening a program file says what happened first.** The toast reads "minesweeper.bin loaded and started." and keeps the
+  format and addresses ("DragonDOS binary $3000-$3FE6, exec $3000") under Details. The Session's message for the same load
+  has the same two parts.
+- **"On screen now" and "Last time" follow what the screen shows.** The program last run (a file from Open…, LIZA, the
+  colour demo, a game) is marked "on screen now" on its row (in "Recent on this machine" for a file, on the shelf for ours)
+  while it runs, and "Last time · Run again" is hidden then; a reset, the welcome menu, another program, a machine switch,
+  Pause or a Debugger stop bring the card back and take the mark off. The welcome menu's tag waits until the menu is drawn,
+  where it used to show a few tenths of a second early on a freshly switched machine (the CoCo 3's screen was still blank).
 - **The CI workflows' cache and artifact actions are on their current major versions**: `actions/cache` from 4.3.0 to
   6.1.0 and `actions/download-artifact` from 7.0.0 to 8.0.2, both pinned to a commit SHA with the tag beside it as
   the repository pins every action. `actions/cache` now runs on Node 24 (a runner 2.327.1 or newer, which
@@ -408,6 +424,9 @@ Next version: 0.1.9-pre (the plugin and extension manifests carry it; `tests/plu
 
 ### Fixed
 
+- **A first visit is never greeted "WELCOME BACK".** Picking a machine in the header menu, or the shelf's Welcome menu,
+  on the browser's first visit shows the title screen; only a later visit says it. (`Session.greetingFor` is now a method
+  of the session, which knows whether the visit began as the first.)
 - **The file pickers on a phone offer Files, not photos.** The pickers for programs, tapes, disks, cartridges, the
   Library and NitrOS-9 images name the extensions they take and application/octet-stream, so a phone still offers a
   file whose type it does not know (a .cas, a .vdk), and none asks for images: Open… no longer offers the Photo Library
