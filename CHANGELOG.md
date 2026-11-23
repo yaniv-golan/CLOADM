@@ -414,6 +414,10 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 
 ### Fixed
 
+- Two flaky checks: `tests/allsignal.test.js` looked for surviving processes once, the instant the runner exited, and
+  could still see a just-killed one; it now asks again for up to 5 s (a real survivor still fails it). The browser
+  check's "Esc on the screen with a line typed is BREAK" read the chat after a fixed three frames; it now waits for the
+  line to be dropped.
 - **The Dragon 64 Plus had the 6551 but no RS-232 port.** Like the Dragon 64 (MAME's `d64plus()` starts from `dragon64()`), it now has the port: PIA1 PB0 reads its RXD, idle high.
 - **Two debuggers could end up on one machine.** A `Debugger` made directly on a machine that already had one left both attached, so a watched write counted twice and the snapshot carried a different debugger from the one the Session drove. A machine now has one debugger: a new one takes the old one's place, `session.debug` returns the one the machine already carries, and adopting the machine already shown keeps its debugger.
 - **Run after a long debugger Over or Out no longer leaves the machine frozen for seconds.** Over, Out, Run to and
