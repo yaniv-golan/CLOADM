@@ -10,8 +10,8 @@
 //    drives-moment.cloadm, made with the old names on the Session), and the snapshot file opens and saves back;
 //  * the Session holds one DiskDrives as `drives`, none of the old names is left on the Session or its prototype,
 //    and every new name is on the drives;
-//  * the Session's key for a mount inside its own Library operation is handed to its drives only: a mount given any
-//    other key is refused while the library moves;
+//  * the Session's key for a mount inside its own Library operation is held privately by its drives: no property of
+//    the drives exposes it, and a mount given any key an embedder can make is refused while the library moves;
 //  * the API key reaches none of it.
 const fs = require('fs'), path = require('path');
 const { scenario, MAP, KEY, NOW, sha } = require('./session-drives-scenario');
@@ -70,18 +70,19 @@ const firstDiff = (a, b) => { let i = 0; while (i < a.length && a[i] === b[i]) i
     check('BARE_NOTE is exported from the drives\' module', typeof Emu.BARE_NOTE === 'string' && /no disk ROM/.test(Emu.BARE_NOTE));
   }
 
-  // ---- the Session's mount key: its drives have it, nothing else does ----
+  // ---- the Session's mount key: held privately, so nothing outside can skip the move checks ----
   {
     const s = new Emu.Session({ media: new MemoryMediaStore() });
     s.switchMachine('dragon64');
-    check('the drives hold the Session\'s mount key, a Symbol', typeof s.drives.held === 'symbol');
+    const own = Reflect.ownKeys(s.drives);
+    check('the mount key is not reachable on the drives: no `held`, no Symbol-named or Symbol-valued own property',
+      !('held' in s.drives) && own.every((k) => typeof k !== 'symbol' && typeof s.drives[k] !== 'symbol'), own.map(String).join());
     await s.media.write('disks/a.vdk', images.vdk(40, 1));
     s.library.movingMedia = true;
-    const forged = await s.drives.mount(0, 'a.vdk', { [Symbol('held')]: true }).then(() => 'mounted', (e) => e.message);
-    const given = await s.drives.mount(0, 'a.vdk', { [s.drives.held]: true }).then(() => 'mounted', (e) => e.message);
+    const forged = await s.drives.mount(0, 'a.vdk', { [Symbol('held')]: true, held: true }).then(() => 'mounted', (e) => e.message);
     s.library.movingMedia = false;
-    check('while the library moves, a mount with any other key is refused; with the Session\'s key it goes on',
-      /being moved/.test(forged) && given === 'mounted', `${forged} | ${given}`);
+    check('while the library moves, a mount with any key an embedder can make is refused', /being moved/.test(forged), forged);
+    // (the Session's own use of the key, a NitrOS-9 floppy boot inside a move, is tests/move-inflight.test.js's)
   }
 
   // ---- the drives' writes land in order, and an eject waits for them, on a store that answers slowly ----

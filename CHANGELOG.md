@@ -425,6 +425,10 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 
 ### Fixed
 
+- **A disk in a drive counts toward the install offer.** The page's "program in use" test (the one the
+  offer to install CLOADM as an app waits a minute of) asked the machine for a disk controller it never has, so a disk
+  waiting in a drive at the bare prompt never counted; it now asks the drives (`session.drives.controllerOf`). The
+  browser check's `install` group puts a disk in at the bare prompt and takes it out again.
 - **The Dragon 64 Plus had the 6551 but no RS-232 port.** Like the Dragon 64 (MAME's `d64plus()` starts from `dragon64()`), it now has the port: PIA1 PB0 reads its RXD, idle high.
 - **Run after a long debugger Over or Out no longer leaves the machine frozen for seconds.** Over, Out, Run to and
   Step run outside the frame loop, and their frames were not closed as machine time passed them: after an Over of a

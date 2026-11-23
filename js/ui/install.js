@@ -474,7 +474,9 @@ export function setupInstall(page, { started = () => true, machineMenu = null } 
     if (session.welcomeRunning) return false;
     if (session.nitros9Running) return true;   // the person's machine (as the getter now says)
     if (m.deck && m.deck.tape) return true;                                  // a tape in the deck
-    if (m.diskController && session.drives.status().drives.length) return true;  // a disk in a drive (only when one is fitted)
+    // a disk in a drive (only when one is fitted): the person's machine's controller, asked through the drives (a
+    // Machine has no diskController of its own: asking it for one never found a disk)
+    if (session.drives.controllerOf(m) && session.drives.status().drives.length) return true;
     return !m.atStubPrompt();
   }
   // A menu is open: the machine menu (where the item lives) or the phone's nav (which shows the same links). The card

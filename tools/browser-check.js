@@ -13388,6 +13388,26 @@ async function installChecks(browser, base, check) {
       && (await page.evaluate(() => window.emu.install.clock.seconds())) === 0, String(await page.evaluate(() => window.emu.install.clock.seconds())));
     await ctx.close();
   }
+  // a disk in a drive is something to come back to, even at the bare prompt with nothing running (programRunning:
+  // asked through the drives; a Machine has no disk controller of its own, and asking it for one never found a disk)
+  {
+    const { ctx, page, errors } = await open(browser, `${base}?machine=dragon64`);
+    await stubPrompt(page);
+    await waitFor(page, () => window.emu.machine.atStubPrompt());
+    await emuFrames(page, 2);
+    const bare = await page.evaluate(() => window.emu.install.state().programRunning);
+    await page.evaluate(() => window.emu.session.drives.importImage('stay.vdk', window.emu.Emu.blankDisk('vdk', 40, 1), 0));
+    await emuFrames(page, 2);
+    const withDisk = await page.evaluate(() => ({ running: window.emu.install.state().programRunning, prompt: window.emu.machine.atStubPrompt(), drives: window.emu.session.drives.status().drives.length }));
+    await page.evaluate(() => window.emu.session.drives.eject(0));
+    await emuFrames(page, 2);
+    const ejected = await page.evaluate(() => window.emu.install.state().programRunning);
+    check('install: at the bare prompt nothing counts as a program; a disk in a drive does; ejected, it no longer does',
+      bare === false && withDisk.running === true && withDisk.prompt === true && withDisk.drives === 1 && ejected === false,
+      JSON.stringify({ bare, withDisk, ejected }));
+    check('install: no page errors', !errors.length, errors.join('; '));
+    await ctx.close();
+  }
   // ---- 2a. a background tab runs no program: the clock settles when the page is hidden ----
   {
     const { ctx, page, errors } = await open(browser, `${base}?machine=dragon64&start=liza`);

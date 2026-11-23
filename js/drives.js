@@ -27,12 +27,13 @@ const DISK_DOS = { dragon: ['dragondos', 'deltados'], coco: ['rsdos'] };
 export const BARE_NOTE = 'on the disk controller only (no disk ROM). Programs that read the disk directly can use it; DIR and other disk commands need your disk ROM.';
 
 export class DiskDrives {
+  #held;
   // session: the Session it belongs to. held: the Session's key for a mount made inside a Library operation of its
-  // own (bootNitros9; see Session.mountDriveWire), private to the two modules: an embedder calling mount cannot skip
-  // its move checks.
+  // own (bootNitros9; see Session.mountDriveWire), kept in a private field: nothing outside the Session and this class
+  // can read it, so an embedder calling mount cannot skip its move checks.
   constructor(session, { held }) {
     this.session = session;
-    this.held = held;
+    this.#held = held;
     this.writing = Promise.resolve();   // the chain of disk image writes to the media store
     this.mounts = 0;                // mounts made so far: each mount's link carries the next number (link)
     this.checks = new Set();        // background round-trip checks not yet run (checkLater)
@@ -309,9 +310,9 @@ export class DiskDrives {
     } finally { this.session.library.creationLanded(full); }
   }
   // a stored disk image into a drive (plugging in the disk cartridge if none is) -> message
-  // opts[this.held]: as for mountDriveWire (the caller's Library operation is what the move waits for)
+  // opts[<the Session's key>]: as for mountDriveWire (the caller's Library operation is what the move waits for)
   async mount(drive, name, opts = {}) {
-    const { writeProtected = false } = opts, held = opts[this.held] === true;
+    const { writeProtected = false } = opts, held = opts[this.#held] === true;
     this.checkDrive(drive);
     if (!held) this.session.library.checkNotMoving();
     const full = this.storedName(name), base = full.slice(DISK_PREFIX.length);
