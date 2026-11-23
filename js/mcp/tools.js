@@ -35,7 +35,7 @@ import { SessionError } from '../errors.js';
 import { profiles } from '../machines/profiles.js';
 import { ChatSession, actingTools } from '../claude/chat.js';
 import { readOnlyTools, runReadOnlyTool, ADDRESS_MIN, ADDRESS_MAX } from '../claude/readtools.js';
-import { TOOL_CODES, ToolError, asToolError } from '../claude/toolerrors.js';
+import { TOOL_CODES, TOOL_ERRORS, ToolError, asToolError } from '../claude/toolerrors.js';
 import { detectMedia } from '../media/detect.js';
 import { formats } from '../media/formats.js';
 import { cpuFamily } from '../cpu/cpus.js';
@@ -206,10 +206,15 @@ export function createToolbox(host, { readOnly = false, maxMachines = MAX_MACHIN
   // the machine (assemble_and_load, BASIC's PEEK, a run_frames until on a memory byte) can still read the ROM, so a
   // determined agent can infer its contents through execution
   const romGuard = (m) => {
-    if (!refuseRomReads) return;
     const why = m.session.romCodeIn();
+    // the person's own WAD's level: refused on every host (it is not a ROM rule: userDataGuard below)
+    if (why === 'userdata') throw fail('rejected', TOOL_ERRORS['user-data']);
+    if (!refuseRomReads) return;
     if (why) throw fail('rejected', `memory is not readable here while ${why === 'roms' ? 'the machine runs the user\'s own ROMs' : why === 'nitros9' ? 'NitrOS-9 runs from the user\'s own image' : 'a cartridge is plugged in'}: it can hold copies of ROM code, and no tool returns ROM memory directly. Run without ROMs (boot with roms: false) to read memory`);
   };
+  // the screen too, never while a level converted from the person's own WAD is loaded (whatever refuseRomReads says:
+  // it is id Software's game data, not a ROM). screen_text and run_frames' screen go through runReadOnlyTool's rule.
+  const userDataGuard = (m) => { if (m.session.romCodeIn() === 'userdata') throw fail('rejected', TOOL_ERRORS['user-data']); };
 
   const get = (args) => {
     const id = args && args.machine_id;
@@ -456,6 +461,7 @@ export function createToolbox(host, { readOnly = false, maxMachines = MAX_MACHIN
       const m = get(args), input = Object.assign({}, args);
       delete input.machine_id;
       if (spec.name === 'peek' || spec.name === 'disassemble') romGuard(m);
+      else if (spec.name === 'screen_text') userDataGuard(m);
       m.chat.controller = new AbortController();
       if (signal) { if (signal.aborted) m.chat.controller.abort(); else signal.addEventListener('abort', () => m.chat.controller.abort(), { once: true }); }
       let out;
@@ -659,7 +665,9 @@ export function createToolbox(host, { readOnly = false, maxMachines = MAX_MACHIN
     annotations: { readOnlyHint: true, openWorldHint: false }, readOnlyOk: true, image: true,
     handler: (args) => {
       const scale = args.scale == null ? 1 : intIn(args.scale, 1, SCREENSHOT_SCALE_MAX, 'scale');
-      const m = get(args), mid = midFrame(m), frame = mid ? m.whole.frame : m.session.shownMachine.render();
+      const m = get(args);
+      userDataGuard(m);
+      const mid = midFrame(m), frame = mid ? m.whole.frame : m.session.shownMachine.render();
       return { width: frame.width * scale, height: frame.height * scale, mid_frame: mid, ...(mid ? { note: 'the machine stopped inside a frame: this is the last complete one; run_frames 2 to see a frame drawn entirely after this point' } : {}), image: host.png(frame, scale) };
     },
   });

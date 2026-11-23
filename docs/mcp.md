@@ -424,6 +424,12 @@ the rule is stricter: memory reads are refused while your ROMs run.) Reads of me
 in-page Claude, `peek`, `disassemble` and `screenshot` show what the machine holds, which with your ROMs includes ROM
 code, so treat what an agent reads as you would treat your ROMs.
 
+**Your own WAD.** While a [WYRMFIRE](using.md#wyrmfire) level converted from your own DOOM WAD is in a drive, every
+host refuses `screenshot`, `screen_text`, `peek`, `disassemble`, `find_bytes` and `run_frames`' screen with
+`rejected`: "Claude can't look at the screen or memory while your own WAD is loaded: it's id Software's game data."
+(`machine_info` still answers.) With WYRMFIRE's Freedoom level, screenshots work and memory reads follow the cartridge
+rule above.
+
 ### Protocol versions
 
 The server speaks both eras of the protocol on stdio. A client that opens with `initialize` is served by the

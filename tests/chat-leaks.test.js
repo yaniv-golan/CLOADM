@@ -62,6 +62,8 @@ const NITROS9 = synthNitrOs9Floppy();
 const { assembleFile, romImage } = require('../tools/mame-diff/lib/firmware');
 const GAME_2048 = new Uint8Array(fs.readFileSync(path.join(ROOT, 'examples/2048.bin')));
 const LIZA_6809 = new Uint8Array(fs.readFileSync(path.join(ROOT, 'examples/liza.bin')));
+const WYRM_ENGINE = new Uint8Array(fs.readFileSync(path.join(ROOT, 'examples/wyrmfire/wyrmfire.bin')));
+const WYRM_LEVEL = new Uint8Array(fs.readFileSync(path.join(ROOT, 'examples/wyrmfire/freedoom-e1m1.vdk')));
 const DOS_ROM = (() => {
   const FDC = path.join(ROOT, 'tools/mame-diff/fdc');
   require(path.join(FDC, 'gen-diag')).write();
@@ -196,6 +198,8 @@ const ROWS = [
   // the image goes into the library before the chat opens, so the boot finds it
   // (a machine switch replaces the machine and closes the conversation: documented, 'closes-chat')
   ['choose a machine (the machine menu)', () => {}, (s) => s.chooseMachine('coco3'), 'closes-chat'],
+  // WYRMFIRE switches the person's machine to a fresh Dragon 64 (as the machine menu does), so it closes the chat too
+  ['start WYRMFIRE (a fresh Dragon 64, as a switch)', () => {}, (s) => s.startWyrmfire(WYRM_ENGINE, WYRM_LEVEL), 'closes-chat'],
   ['load a recent file (recent list)', () => {}, (s) => { s.load('recent.bin', BIN); return s.library.loadRecent(0); }, 'closes-chat-or-throws'],
   // A real pack, from the Session's own export: it carries the stored ROMs' manifest and images, so the import
   // restores them (an empty array is not a pack, and the row used to swallow that refusal).
@@ -590,6 +594,10 @@ const REQUIRED = require.main !== module;
     'pickNitros9Image', 'openMedia', 'downloadMedia', 'drives.download', 'drives.writesDone', 'printoutFile',
     // programControls reads the menu watch of the SHOWN machine: the touch panel it answers drives what is on screen
     'programControls',
+    // WYRMFIRE: wyrmfireRunning and wyrmfireState read the PERSON's machine (its controller and drive 0); wyrmfireOn and
+    // romCodeIn read the machine named, the SHOWN one by default (Share's picture is the shown machine's); gameFiles and
+    // readGameFile read "Your game files" in the store. None changes anything.
+    'wyrmfireRunning', 'wyrmfireState', 'wyrmfireOn', 'romCodeIn', 'gameFiles', 'readGameFile',
     // claudeLink builds the "Ask Claude ↗" link from shareFile and shareUrl (both reads of the shown machine)
     'claudeLink',
     // menuTicketFor returns the ticket a menu starts with (the Session's menuTicket or the one passed); changes nothing
@@ -604,7 +612,9 @@ const REQUIRED = require.main !== module;
   // (removeRom and restoreRom act on the PERSON's machine, as addRoms does: never the chat machine)
   const LIBRARY = new Set(['addRoms', 'clearRoms', 'removeRom', 'restoreRom', 'deleteMedia', 'importDriveWireImage', 'importMedia',
     'importSettings', 'listMedia', 'moveMedia', 'newDriveWireImage', 'renameMedia', 'exportRomPack', 'exportSettings',
-    'setClaudeKey', 'clearClaudeKey', 'setLastRun', 'useMediaStore']);
+    'setClaudeKey', 'clearClaudeKey', 'setLastRun', 'useMediaStore',
+    // "Your game files" (WYRMFIRE's level converted from the person's own WAD): the store only
+    'saveGameFile', 'removeGameFile']);
   // Session state that belongs to no machine
   const SESSION = new Set(['welcomeSound', 'asMachine', 'connectDriveWireChannel', 'ejectDriveWire', 'endChat', 'emit',
     'on', 'personInput', 'ready', 'reset', 'resume', 'resumeClaude', 'setDisplay', 'startAsk', 'startChat', 'stopClaude',

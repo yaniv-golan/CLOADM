@@ -305,7 +305,11 @@ check('stripLine: a word changed beside a removed label still differs', stripLin
 
 // ---------------- the tree ----------------
 {
-  const EXEMPT = (f) => f === 'tests/internal-labels.test.js' || f.startsWith('tools/vendor/');
+  // third-party files served byte for byte at a pinned SHA-256 (js/wyrmfire/pin.js: WYRMFIRE's engine, converter and GPL
+  // text, Freedoom's level, licence and credits), exempt as tools/vendor/ is: they cannot be edited, and the pin's test
+  // checks them. Only the pinned files: examples/wyrmfire/SOURCE.txt is CLOADM's own and is scanned.
+  const THIRD_PARTY = new Set(Object.values(require('../js/wyrmfire/pin.js').WYRMFIRE_PIN.files).map((x) => x.path));
+  const EXEMPT = (f) => f === 'tests/internal-labels.test.js' || f.startsWith('tools/vendor/') || THIRD_PARTY.has(f);
   let files = [];
   try { files = cp.execFileSync('git', ['ls-files', '-z'], { cwd: root, encoding: 'utf8', maxBuffer: 64 << 20 }).split('\0').filter(Boolean); } catch (e) { /* no git */ }
   check('the tracked files are listed (git ls-files)', files.length > 100, String(files.length));

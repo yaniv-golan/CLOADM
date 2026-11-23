@@ -17,6 +17,21 @@ import { buildUrl } from '../config.js';
 import { needsLine } from '../media/romrefs.js';
 import { CanvasPresenter } from '../video/canvas.js';
 import { $, showView } from './page.js';
+import { WYRMFIRE_TEXT } from '../session.js';
+import { WYRM_TEXT } from './wyrmfire.js';
+import { crc32 } from '../util.js';
+
+// a PNG with a tEXt chunk (keyword, text) put in after its header chunk: the picture's own credit line (PNG 1.2, 4.2.3.1)
+async function pngWithText(blob, keyword, text) {
+  const png = new Uint8Array(await blob.arrayBuffer());
+  const data = new TextEncoder().encode(`${keyword}\0${text}`), type = new TextEncoder().encode('tEXt');
+  const chunk = new Uint8Array(12 + data.length), dv = new DataView(chunk.buffer);
+  dv.setUint32(0, data.length);
+  chunk.set(type, 4); chunk.set(data, 8);
+  dv.setUint32(8 + data.length, crc32(new Uint8Array([...type, ...data])) >>> 0);
+  const at = 8 + 25;   // the signature and IHDR (13 bytes of data)
+  return new Blob([png.subarray(0, at), chunk, png.subarray(at)], { type: 'image/png' });
+}
 
 const time = (d) => d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 const CLIP_SECONDS = 6;
@@ -62,6 +77,11 @@ export function setupShare(page) {
   // ---------------- share this moment ----------------
   async function capture() {
     const m = session.shownMachine, frame = m.render();
+    // WYRMFIRE: the link starts it afresh with the Freedoom level (Session.shareUrl), never this moment; with the
+    // person's own WAD, no picture and no clip (id Software's game data)
+    const wyrm = session.wyrmfireOn(m) || session.romCodeIn(m) === 'userdata';
+    const own = session.romCodeIn(m) === 'userdata';
+    if (wyrm) { await captureWyrmfire(m, frame, own); return; }
     // the picture at true pixels, captured with the snapshot so both show the same instant
     const c = document.createElement('canvas');
     new CanvasPresenter(c).present(frame);
@@ -73,6 +93,8 @@ export function setupShare(page) {
     const file = n9 ? null : await session.shareFile();
     const link = n9 ? session.shareUrl(location.href) : await session.snapshotLink(location.href, file);
     const png = await new Promise((ok) => c.toBlob(ok, 'image/png'));
+    setShots(false);
+    $('btnShareDownload').title = '';
     captured = { file, png, link, base: file ? file.name.replace(/\.cloadm$/, '') : `${m.profile.name.replace(/[^A-Za-z0-9]+/g, '')}-NitrOS-9` };
     const dl = $('btnShareDownload');
     dl.disabled = !file;
@@ -102,6 +124,36 @@ export function setupShare(page) {
     if (file.dropped.includes('deck.recording')) note('The tape being recorded is not in the link: it opens with the recorder stopped.');
     syncEmbed(m.id);
   }
+  function setShots(off, why = '') {
+    $('btnShareShot').disabled = off; $('btnShareShot').title = why;
+    if (kind) { clipBtn.disabled = off; clipBtn.title = why; }
+    const r = $('shareShotsOff');
+    r.textContent = why; r.hidden = !off;
+  }
+  async function captureWyrmfire(m, frame, own) {
+    const c = document.createElement('canvas');
+    if (!own) new CanvasPresenter(c).present(frame);
+    else { c.width = frame.width; c.height = frame.height; }
+    const png = own ? null : await pngWithText(await new Promise((ok) => c.toBlob(ok, 'image/png')), 'Comment', `WYRMFIRE ${WYRM_TEXT.level}`);
+    const link = session.shareUrl(location.href);
+    // the files say whose level it is: "-freedoom" on the name, and the PNG carries the credit line
+    captured = { file: null, png, link, base: `WYRMFIRE-${m.profile.name.replace(/[^A-Za-z0-9]+/g, '')}-freedoom`, wyrmfire: true };
+    const dl = $('btnShareDownload');
+    dl.disabled = true; dl.textContent = 'Download snapshot'; dl.title = WYRMFIRE_TEXT.snapshots;
+    const pic = $('sharePicture');
+    pic.width = c.width; pic.height = c.height;
+    pic.getContext('2d').drawImage(c, 0, 0);
+    $('shareTitle').textContent = 'WYRMFIRE · CLOADM';
+    $('shareWhen').textContent = own ? '' : WYRM_TEXT.level;
+    $('shareLink').value = link;
+    syncPrimary();
+    $('shareNote').textContent = WYRM_TEXT.share;
+    const rom = $('shareRom'), extra = $('shareExtra');
+    rom.textContent = ''; rom.classList.remove('warn'); extra.textContent = '';
+    const p = document.createElement('p'); p.textContent = WYRMFIRE_TEXT.snapshots; extra.append(p);
+    setShots(own, own ? WYRMFIRE_TEXT.userClips : '');
+    syncEmbed(m.id);
+  }
   // Share… (the system sheet, the URL only) where the browser can share it; in an embed only if the frame allows web-share
   const canNative = () => {
     const url = $('shareLink').value;
@@ -127,7 +179,7 @@ export function setupShare(page) {
     page.download(captured.file.name, captured.file.bytes, 'application/gzip');
     page.toast(`Saved ${captured.file.name}`, { details: 'Drop it on CLOADM to restore it.' });
   };
-  $('btnShareShot').onclick = () => page.download(`${captured.base}.png`, captured.png);
+  $('btnShareShot').onclick = () => { if (captured && captured.png) page.download(`${captured.base}.png`, captured.png); };
 
   // the clip: the screen as it plays (from now), recorded for CLIP_SECONDS
   const kind = clipType();
@@ -135,6 +187,8 @@ export function setupShare(page) {
   if (!kind) { clipBtn.disabled = true; clipBtn.textContent = 'Clip: this browser can\'t record video'; }
   else clipBtn.textContent = `Save ${CLIP_SECONDS}-second clip (${kind.label})`;
   clipBtn.onclick = () => {
+    // never of the person's own WAD's level (id Software's game data): the button is off then, and so is this
+    if (session.romCodeIn(session.shownMachine) === 'userdata') { page.status(WYRMFIRE_TEXT.userClips, true); return; }
     // drawn from the machine's own frames at true pixels (the screen canvas is hidden behind this view)
     const canvas = document.createElement('canvas'), presenter = new CanvasPresenter(canvas);
     presenter.present(session.shownMachine.render());
@@ -150,7 +204,7 @@ export function setupShare(page) {
       const name = `${captured ? captured.base : 'CLOADM'}.${kind.ext}`;
       page.download(name, blob);
       clipBtn.disabled = false; clipBtn.textContent = `Save ${CLIP_SECONDS}-second clip (${kind.label})`;
-      page.status(`Saved ${name}: ${CLIP_SECONDS} seconds of the screen.`);
+      page.status(`Saved ${name}: ${CLIP_SECONDS} seconds of the screen.${captured && captured.wyrmfire ? ` ${WYRM_TEXT.level}.` : ''}`);
     };
     clipBtn.disabled = true;
     let left = CLIP_SECONDS;

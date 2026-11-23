@@ -32,8 +32,8 @@ import { Tape } from './media/tape.js';
 import { casBlocks, casToWav, recordingToSamples, samplesToCas, writeWav } from './media/cassette.js';
 import { FAMILY_NAMES, detectMedia } from './media/detect.js';
 import { MediaIndex, LIBRARY_PREFIX, migrateLocalStorage } from './media/library.js';
-import { MediaLibrary, DISK_PREFIX, DW_PREFIX, MEDIA_MOVE_WAIT_MS } from './library.js';
-import { DiskDrives } from './drives.js';
+import { MediaLibrary, DISK_PREFIX, DW_PREFIX, GAMES_PREFIX, MEDIA_MOVE_WAIT_MS } from './library.js';
+import { DiskDrives, WYRMFIRE_USER_DISK } from './drives.js';
 import { DriveWireServer, CHANNELS as DW_CHANNELS, WINDOW_BASE as DW_WINDOW_BASE, WINDOW_COUNT as DW_WINDOW_COUNT } from './drivewire/server.js';
 import { DriveWireSocket } from './host/drivewire-ws.js';
 import { SerialDriveWireLink, webSerialAvailable } from './host/web-serial.js';
@@ -73,6 +73,7 @@ import { SNAPSHOT_EXT, SnapshotError, decodeSnapshot, encodeSnapshot } from './m
 import { missingImages, restoreRoms, stripRoms } from './media/romrefs.js';
 import { crc32, hex, registry, toBase64Url, fromBase64Url } from './util.js';
 import { buildUrl, NITROS9_MACHINES } from './config.js';
+import { WYRMFIRE_PIN } from './wyrmfire/pin.js';
 // an error meant for the user (bad file, missing ROM, ...); shared with the parts the Session drives
 import { SessionError } from './errors.js';
 export { SessionError };
@@ -127,7 +128,22 @@ const BASIC_RSTFLG = 0x71;
 // beside the arrows it reads (Minesweeper's F flags a mine); `joystick`, whether it reads a joystick too. The page's
 // touch panel opens on what it says (arrows: the pad) and offers the stick only where the machine has the port.
 // The games' own entries are in GAMES.list; a program not listed is played on the keyboard.
-export const PROGRAM_CONTROLS = Object.freeze({ liza: Object.freeze({ input: 'keyboard', extra: Object.freeze([]), joystick: false }) });
+export const PROGRAM_CONTROLS = Object.freeze({
+  liza: Object.freeze({ input: 'keyboard', extra: Object.freeze([]), joystick: false }),
+  // WYRMFIRE's keys (its README, and src/native.c's key scan): the arrows move and turn, Z and X strafe, SPACE fires,
+  // E opens a door or uses the exit, 1 to 3 pick a weapon, ENTER skips a cue or restarts. `big`: the two keys the
+  // touch pad gives its big buttons (FIRE and USE)
+  wyrmfire: Object.freeze({ input: 'arrows', extra: Object.freeze(['Z', 'X', '1', '2', '3']), joystick: false, big: Object.freeze([['SPACE', 'FIRE'], ['E', 'USE']]) }),
+});
+// "Your game files" in the media store (Session.saveGameFile): the converted level and what it was converted from
+export const GAME_FILE = Object.freeze({ disk: `${GAMES_PREFIX}wyrmfire-own.vdk`, meta: `${GAMES_PREFIX}wyrmfire-own.json` });
+// What the Session says while WYRMFIRE runs (js/ui/wyrmfire.js shows the same words)
+export const WYRMFIRE_TEXT = Object.freeze({
+  snapshots: 'Snapshots are off while WYRMFIRE runs.',
+  userReads: 'Claude can\'t look at the screen or memory while your own WAD is loaded: it\'s id Software\'s game data.',
+  userClips: 'Off while your own WAD is loaded: it\'s id Software\'s game data.',
+  userDisk: WYRMFIRE_USER_DISK,
+});
 // a game's GAMES.list key from its name ('Minesweeper' -> 'minesweeper'), or undefined
 export const gameKey = (name) => Object.keys(GAMES.list).find((k) => GAMES.list[k].name === name);
 // the 6803 welcome's files, per profile: the build's subtitle names the machine it runs on
@@ -607,6 +623,7 @@ export class Session {
     this.roms = new RomLibrary(this.index, romOwners);
     this.romsLeft = new WeakMap();   // machine -> CRCs removed from storage that it still runs (removeRom)
     this.stubChosen = new Set();    // machines the user chose to run without ROMs this session
+    this.wyrmfire = null;           // WYRMFIRE running: { m, fdc, media, level, name } (startWyrmfire, wyrmfireLevel)
     // The stored-ROM CRCs that did not start BASIC, per machine (Map<Machine, Set<crcs>>): a fresh try is a power-on
     // or a switch, which forgets them (poweredOn clears every machine's; adopt forgets the machine left behind), and
     // another set of ROMs is another key (storedRomsWaiting).
@@ -721,6 +738,7 @@ export class Session {
   async mediaElsewhere(msg) {
     if (!msg || msg.store !== this.media.kind || this.media.synchronous) return;
     if (msg.what === 'library') { this.emit('library'); return; }
+    if (msg.what === 'games') { this.emit('gamefiles'); return; }
     await this.index.refresh();   // what it brings in is reported through mediaForeign
   }
   // the index took in another page's change: the panels redraw. 'roms' carries { elsewhere: [{ machine, socket }] }
@@ -1683,6 +1701,9 @@ export class Session {
     // the machine: a link opens the model, not the contents of its cartridge slot
     const LOCAL = new Set(['mameCompat', 'hires']);
     for (const [k, v] of Object.entries(m.config)) if (!LOCAL.has(k) && m.profile.options[k]) config[k] = v;
+    // WYRMFIRE running: the link starts WYRMFIRE afresh with the Freedoom level (start=wyrmfire names the machine
+    // itself; never the game's state, never the person's own level). Not with app= (the chat), which start= conflicts with.
+    if (this.wyrmfireOn(m) && !extra.app) return buildUrl(base, { start: 'wyrmfire', ...extra });
     // NitrOS-9 running: the link boots it from the recipient's own image (never ours, never its name)
     return buildUrl(base, { machine: m.id, config, nitros9: this.nitros9On(m), ...extra });
   }
@@ -1719,6 +1740,7 @@ export class Session {
   // images and rebuilds the moment from their own (snapshotRoms, openSnapshot). AGENTS rule 1: no ROM byte leaves.
   async shareFile(now = new Date()) {
     const m = this.shownMachine;
+    if (this.wyrmfireOn(m) || this.userDataIn(m)) throw new SessionError(WYRMFIRE_TEXT.snapshots);
     // NitrOS-9's memory is the user's own NitrOS-9 image: a moment of it is never put in a link. shareUrl's link
     // (nitros9=1) boots NitrOS-9 from the recipient's own image instead.
     if (this.nitros9On(m)) throw new SessionError('A NitrOS-9 moment isn\'t shared as a snapshot: its memory holds your NitrOS-9. The link boots NitrOS-9 from their own DriveWire image instead.');
@@ -1738,7 +1760,10 @@ export class Session {
   // `m` is the machine the caller is about to read: the ROM guard must ask the SAME machine as the read, or it passes
   // for the wrong one (the embed API asks it about the person's machine and reads that one). The default stays the
   // machine on screen, which is what every existing caller means.
+  // 'userdata': WYRMFIRE runs a level converted from the person's own WAD (id Software's game data, which Claude and
+  // the page around an embed never see: not the memory, and not the screen either, ScreenGuard below).
   romCodeIn(m = this.shownMachine) {
+    if (this.userDataIn(m)) return 'userdata';
     if (this.nitros9On(m)) return 'nitros9';   // our loader, and the user's NitrOS-9 in RAM (shareFile)
     if (Object.keys(m.romCrcs()).length) return 'roms';
     if (m.cartPort) return 'cartridge';
@@ -1761,6 +1786,7 @@ export class Session {
   async snapshotFile(now = new Date()) {
     this.writeWatch.guard('snapshotFile');
     const m = this.personMachine;
+    if (this.wyrmfireOn(m) || this.userDataIn(m)) throw new SessionError(WYRMFIRE_TEXT.snapshots);
     const bytes = await encodeSnapshot(m.snapshot(), { name: m.profile.name, taken: now.toISOString() });
     const saved = m !== this.shownMachine ? 'your BASIC session' : null;
     return { name: `${m.profile.name.replace(/[^A-Za-z0-9]+/g, '')}-${stamp(now)}${SNAPSHOT_EXT}`, bytes, saved };
@@ -1825,6 +1851,7 @@ export class Session {
     let m;
     try { m = restoreSnapshot(snap, Object.fromEntries(p.roms.map((x) => [x.id, roms[x.id] || null]))); }
     catch (e) { throw new SessionError(`This snapshot can't be opened: ${e.message}.`); }
+    this.endWyrmfire();
     this.adopt(m);
     for (const p of this.profiles) p.clear();      // a profile counts what ran from the moment opened
     if (switching) this.store.set(`config.${m.id}`, JSON.stringify(snap.config));
@@ -2154,6 +2181,7 @@ export class Session {
     // held is typed into the program; a load that is refused or cancelled leaves Claude alone
     const takeOver = () => { this.cancelLoadTyping(m); this.stopClaudeFor('you loaded a program', m); };
     this.endWelcome(m);     // this machine's welcome and watch: the chat's start of its own firmware ends neither
+    this.endWyrmfire(m);    // anything loaded over WYRMFIRE ends it (startWyrmfire sets it again after its own load)
     this.setStubRun(m);     // the load starts something on THIS machine; the other machine's record is untouched
     const media = detectMedia(name, bytes);
     if (media.kind === 'disk') {
@@ -2836,6 +2864,8 @@ export class Session {
       show: () => {},
       screenText: () => this.screenText(basic()),
       readByte: (addr) => this.readByte(addr, basic()),
+      // a level converted from the person's own WAD is in its drives: the screen and memory are not read (runReadOnlyTool)
+      userData: () => this.romCodeIn(basic()) === 'userdata',
       // What the read-only tools ask about the machine they act on: whether BASIC has printed OK. bootStatus()
       // answers about the shown machine, which is the chat while a chat is open, so this asks the SAME
       // question of the BASIC session - and answers it the same way, through the one implementation below, so the
@@ -3250,11 +3280,119 @@ export class Session {
   // file, the welcome menu: the keyboard). id: a GAMES.list key or 'liza' (the touch panel remembers its mode per
   // program and machine under it)
   get programControls() {
+    if (this.wyrmfireOn(this.shownMachine)) return { id: 'wyrmfire', ...PROGRAM_CONTROLS.wyrmfire };
     const w = this.menuWatch;
     if (!w || w.m !== this.shownMachine) return null;
     if (w.kind === 'game' && GAMES.list[w.game]) return { id: w.game, ...GAMES.list[w.game].controls };
     if (w.kind === 'liza') return { id: 'liza', ...PROGRAM_CONTROLS.liza };
     return null;
+  }
+  // ---------------- WYRMFIRE (js/wyrmfire/pin.js; the page: js/ui/wyrmfire.js) ----------------
+  // WYRMFIRE, a GPL game engine for the Dragon 64 that plays a Doom-format level from a disk. It runs as its README
+  // says (wyrmfire docs/RELEASE.md, manifest.run): a Dragon 64 (64K, 6809) without ROMs, the DragonDOS disk
+  // controller WITHOUT its ROM in the cartridge port (a fresh one: a disk ROM the person has added is neither used nor
+  // touched: drives.fitRom leaves the controller bare while WYRMFIRE runs), the level disk write-protected in drive 0,
+  // kept mounted (the engine streams regions from it), and the engine binary loaded and started.
+  // engine, disk: the bytes (the page checks them against the pin first). level: 'freedoom' (the bundled level) or
+  // 'user' (converted in this browser from the person's own WAD: romCodeIn says 'userdata' while it runs).
+  // name: the WAD's file name for 'user'. -> the load message
+  startWyrmfire(engine, disk, { level = 'freedoom', name = null } = {}) {
+    this.writeWatch.guard('startWyrmfire');
+    if (level !== 'freedoom' && level !== 'user') throw new SessionError(`startWyrmfire: level is 'freedoom' or 'user', not ${JSON.stringify(level)}`);
+    if (!(engine instanceof Uint8Array) || !(disk instanceof Uint8Array)) throw new SessionError('startWyrmfire: the engine and the disk are bytes');
+    const want = WYRMFIRE_PIN.machine;
+    // a fresh machine: what ran is lost (the page asked first when something was running: js/ui/wyrmfire.js)
+    const config = Object.assign(this.savedConfig(want.id), want.config, { cpu: '6809' });
+    this.endWyrmfire();
+    this.switchMachine(want.id, config, { menu: false });
+    const m = this.personMachine;
+    // without ROMs: the engine drives the machine itself, as on the stub where it was built and tested
+    if (m.hasRom) {
+      m.setRoms(Object.fromEntries(m.profile.roms.map((x) => [x.id, null])));
+      this.stubChosen.add(m.id);
+      m.reset(true);
+      this.emit('roms');
+    }
+    const fdc = new devices[want.controller]({});
+    m.insertCartridge(fdc);
+    try { fdc.mount(want.drive, { bytes: disk, format: 'vdk', name: level === 'user' ? 'WYRMFIRE (your WAD).vdk' : 'WYRMFIRE (Freedoom).vdk', writeProtected: true }); }
+    catch (e) { throw new SessionError(`The WYRMFIRE level disk can't be read: ${e.message}`); }
+    // the disk is the game's: never linked to the Library (no onWrite), and it says whose it is
+    fdc.drives[want.drive].media.gameData = level;
+    this.emit('disks');
+    const msg = this.load('WYRMFIRE.BIN', engine, { remember: false });
+    this.wyrmfire = { m, fdc, media: fdc.drives[want.drive].media, level, name: level === 'user' ? String(name || 'your WAD') : null };
+    this.emit('program', 'wyrmfire');
+    this.emit('wyrmfire');
+    return msg;
+  }
+  // WYRMFIRE's level on machine m: 'freedoom', 'user' or null (not running). It runs while its controller is in the
+  // port with its disk in drive 0 and nothing has been loaded over it, on the machine it started on.
+  wyrmfireLevel(m = this.shownMachine) {
+    const w = this.wyrmfire;
+    if (!w || w.m !== m || m.cartPort !== w.fdc) return null;
+    const d = w.fdc.drives[WYRMFIRE_PIN.machine.drive];
+    return d && d.loaded && d.media === w.media ? w.level : null;
+  }
+  wyrmfireOn(m = this.shownMachine) { return !!this.wyrmfireLevel(m); }
+  // a disk converted from the person's own WAD is in one of m's drives (whatever runs: a restore point put back, or a
+  // program loaded over WYRMFIRE, still has it in the drive), so nothing hands the screen or memory out (romCodeIn)
+  userDataIn(m = this.shownMachine) {
+    const fdc = m && this.drives.controllerOf(m);
+    return !!fdc && fdc.drives.some((d) => d.loaded && d.media && d.media.gameData === 'user');
+  }
+  // the person's machine runs it (the page's strip, the snapshot panel, the touch panel)
+  get wyrmfireRunning() { return this.wyrmfireOn(this.personMachine); }
+  // what is running, for the page: { level, name } or null
+  get wyrmfireState() { const l = this.wyrmfireLevel(this.personMachine); return l ? { level: l, name: this.wyrmfire.name } : null; }
+  // ---- "Your game files": the WYRMFIRE level converted from the person's own WAD ----
+  // Only the converted disk and the WAD's file name are kept (never the WAD), in the media store under GAMES_PREFIX: not
+  // in the Library, the recent list, the carry-on, a snapshot, a share link or a settings export. One at a time: a new
+  // one replaces it. Written as a Library operation (a move waits for it, and copies it), and other pages on the same
+  // store are told ('games'), as the multi-tab rules have it for the Library's files.
+  // -> { kept: true } or { kept: false, why } when the store refused it or keeps nothing past this visit (the page says
+  // the level plays now and is gone after a reload)
+  async saveGameFile(disk, source) {
+    if (!(disk instanceof Uint8Array)) throw new SessionError('saveGameFile: the disk is bytes');
+    const meta = JSON.stringify({ source: String(source || 'your WAD').slice(0, 200), size: disk.length, version: WYRMFIRE_PIN.version, converter: WYRMFIRE_PIN.converterVersion });
+    if (this.media.kind === 'memory') return { kept: false, why: 'memory' };
+    try {
+      await this.library.libraryOp(async () => {
+        await this.media.write(GAME_FILE.disk, disk);
+        await this.media.write(GAME_FILE.meta, new TextEncoder().encode(meta));
+      });
+    } catch (e) { return { kept: false, why: e && e.message ? e.message : String(e) }; }
+    this.mediaPost('games');
+    this.emit('gamefiles');
+    return { kept: true };
+  }
+  // what "Your game files" holds: [{ id: 'wyrmfire', source, size }] (empty when nothing is kept)
+  async gameFiles() {
+    try {
+      if (!(await this.media.stat(GAME_FILE.disk)) || !(await this.media.stat(GAME_FILE.meta))) return [];
+      const meta = JSON.parse(new TextDecoder().decode(await this.media.read(GAME_FILE.meta)));
+      return [{ id: 'wyrmfire', source: String(meta.source), size: Number(meta.size) || 0 }];
+    } catch (e) { return []; }
+  }
+  // the kept level's bytes and source name -> { disk, source } or null
+  async readGameFile() {
+    const [f] = await this.gameFiles();
+    if (!f) return null;
+    return { disk: await this.media.read(GAME_FILE.disk), source: f.source };
+  }
+  async removeGameFile() {
+    await this.library.libraryOp(async () => {
+      for (const n of [GAME_FILE.disk, GAME_FILE.meta]) if (await this.media.stat(n)) await this.media.remove(n);
+    });
+    this.mediaPost('games');
+    this.emit('gamefiles');
+  }
+  // WYRMFIRE is left (a load over it, a snapshot opened, another start): m, when given, only if it ran there
+  endWyrmfire(m = null) {
+    const w = this.wyrmfire;
+    if (!w || (m && w.m !== m)) return;
+    this.wyrmfire = null;
+    this.emit('wyrmfire');
   }
   // the welcome build this machine runs: the 6809 file for every 6809-family model (the 6309 included), the
   // machine's own 6803 build on the MC-10 and the Alice (their subtitles differ). The page fetches it by this name.

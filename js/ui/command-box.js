@@ -23,7 +23,8 @@ export const GROUPS = ['Claude', 'Files', 'Views', 'Settings', 'Machine'];
 export const COMMANDS = [
   ['Chat with Claude, full screen', 'the machine becomes Claude', 'chat claude full screen', null, 'Claude'],
   ['What is this code doing?', 'asks Claude about the code at the program counter', 'debugger disassembly code explain routine', (page, claude) => claude.askAboutCode(), 'Claude'],
-  ['Take snapshot', 'saves everything, including your program, as a file', 'snapshot save state program keep', takeSnapshot, 'Files'],
+  ['Take snapshot', 'saves everything, including your program, as a file', 'snapshot save state program keep', takeSnapshot, 'Files',
+    (page) => (page.session.wyrmfireRunning || page.session.romCodeIn(page.session.personMachine) === 'userdata' ? { state: 'Off while WYRMFIRE runs', why: 'Snapshots are off while WYRMFIRE runs.' } : null)],
   ['Open a program, tape, disk or cartridge…', 'opens a file', 'load open file insert program tape disk cartridge cas bin', 'btnLoad', 'Files'],
   ['Insert a disk…', 'a disk image into the first free drive', 'disk drive mount vdk dsk floppy', (page) => page.drives.pick(), 'Files'],
   ['New blank disk', 'an empty disk in the first free drive', 'disk drive new blank empty format floppy', (page) => page.drives.blank(), 'Files'],
@@ -37,6 +38,7 @@ export const COMMANDS = [
   ['Record to tape', 'CSAVE becomes a .CAS file', 'record tape cas csave save', 'btnRecord', 'Files'],
   ['Share', 'a share link, a clip, a screenshot', 'share link clip screenshot capture embed', 'btnShare', 'Files'],
   ['Programs', 'the welcome menu, LIZA, the games; what ran here before', 'programs games demos liza run', (page) => page.openPrograms(), 'Views'],
+  ['WYRMFIRE', 'a 3D game for the Dragon 64, with the Freedoom level', 'doom game 3d freedoom wyrmfire', (page) => page.wyrmfire.start(), 'Views'],
   ['Open the Library', 'your tapes, disks and programs', 'library tapes disks programs files', 'navLibrary', 'Views'],
   ['Open the Debugger', 'assembler and disassembly', 'debugger assembler disassemble debug', 'navDebugger', 'Views'],
   ['Your ROMs', 'see, add or remove ROMs', 'basic firmware add delete remove forget', 'btnManageRoms', 'Settings'],

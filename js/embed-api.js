@@ -13,7 +13,7 @@
  * poke, screenText, setDisplay, watchFrames. Bytes travel as arrays of numbers or Uint8Arrays.
  */
 import { profiles } from './machines/profiles.js';
-import { SessionError } from './session.js';
+import { SessionError, WYRMFIRE_TEXT } from './session.js';
 
 const EVENTS = ['machine', 'loaded', 'reset', 'firmware'];
 const bytesOf = (b) => (b instanceof Uint8Array ? b : Array.isArray(b) ? Uint8Array.from(b) : null);
@@ -84,6 +84,7 @@ export class EmbedApi {
   peek(addr, length = 1) {
     const m = this.session.personMachine;
     const why = this.session.romCodeIn(m);
+    if (why === 'userdata') throw new SessionError(WYRMFIRE_TEXT.userReads);
     if (why) throw new SessionError(`peek is not available while ${why === 'roms' ? 'the machine runs your own ROMs' : why === 'nitros9' ? 'NitrOS-9 runs from your own image' : 'a cartridge is plugged in'}: its memory can hold copies of ROM code, which CLOADM never hands out.`);
     addrOf(addr);
     if (!Number.isInteger(length) || length < 1 || addr + length > 0x10000) throw new SessionError('peek: length runs past 65535');
@@ -102,7 +103,12 @@ export class EmbedApi {
     for (let i = 0; i < b.length; i++) m.poke(addr + i, b[i] & 0xFF);
     return b.length;
   }
-  screenText() { return this.session.screenText(this.session.personMachine); }
+  // the screen, never while a level converted from the person's own WAD is loaded (Session.romCodeIn: 'userdata')
+  screenText() {
+    const m = this.session.personMachine;
+    if (this.session.romCodeIn(m) === 'userdata') throw new SessionError(WYRMFIRE_TEXT.userReads);
+    return this.session.screenText(m);
+  }
   // display settings for this page only (never stored)
   setDisplay(changes) { return Object.assign({}, this.session.setDisplay(changes, { remember: false })); }
   watchFrames(on = true) { this.frames = !!on; return this.frames; }
