@@ -12,11 +12,11 @@ The short version, for a first session. Everything below it is the full guide, a
 **The commands you'll use** (no `package.json` on purpose: there is nothing to install and no `npm test`):
 
 ```
-node tests/all.js                                   # the full suite gate (~5-6 min); exit 0 = every suite passed
+node tests/all.js                                   # the full suite gate (~5-6 min; `git fetch --tags` first); exit 0 = all passed
 node tests/all.js --only cli,game-guide             # a quick subset while you work (marked SUBSET RUN: not the gate)
 node tests/regress.test.js                          # the regression hashes alone (MAME-verified traces and frames)
-node tools/browser-check.js                         # the real page in Chromium (15-20 min); run alone on the machine
-node tools/browser-check.js --only pwa,models       # just those browser-check groups (--list-groups lists them)
+node tools/browser-check.js --only pwa,models       # the browser-check groups your change touches: the local browser gate (4.7)
+node tools/browser-check.js                         # the whole page check (15-20 min, alone on the machine); CI and a daily run do it
 node tools/build-examples.js                        # rebuild examples/*.bin from source; also updates sw.js's file list
 node tools/pwa-files.js --write                     # update sw.js's offline file list after adding/removing a served file
 node cli/cloadm.js --asm prog.asm --frames 50 --screen   # assemble, run headless, print the screen (docs/automation.md)
@@ -37,8 +37,8 @@ Which proof levels apply to your kind of change: [section 4, "Which levels apply
 4. **Commit as yourself, with your GitHub noreply address** (`git config user.email
    "<id>+<login>@users.noreply.github.com"`), never as "Claude" or another tool's identity.
 5. **No force-push and no rebase of a branch you have pushed.** To catch up, merge the base branch in.
-6. **CI attempt 1 must be green.** Don't re-run a red run until it passes; fix it. A green re-run is accepted only
-   with the disclosure in section 6 (each earlier failure named, and why it is a flake).
+6. **CI attempt 1 must be green, and is never re-run.** Attempt 1 is the full browser gate. A red run is fixed with a
+   new commit, not re-run until it passes (section 6).
 
 ## 1. Hard rules
 
@@ -125,7 +125,7 @@ A change is done only when every applicable level below passes. Your report (sec
 name, run it by hand (Actions → tests → Run workflow). A pull request into `main` also runs it, on the merge result
 GitHub builds for the PR (`refs/pull/N/merge`): that run's SHA is a merge commit, so it is the proof that merging the
 branch keeps `main` green, not the proof for the branch -- report the run on the pushed head. It runs
-`node tests/all.js` and every group of
+`node tests/all.js` (in parallel parts, `--shard i/n`, which `gates` checks cover every suite once) and every group of
 the browser check, split over parallel shards that together must cover every group. Its final job, `gates`, is
 green only if all of them passed, and its summary gives the commit SHA and tree hash (`git rev-parse HEAD^{tree}`).
 That run, on the SHA you report, is the proof for levels 4.1, 4.2 and 4.7. Run the same commands locally while you
@@ -232,17 +232,37 @@ uninterrupted run.
 
 ### 4.7 The real page works
 ```
-node tools/browser-check.js [--screenshots DIR]
+node tools/browser-check.js --only <group,…> [--screenshots DIR]   # the groups your change touches
 ```
-This serves the repository and loads every model in Chromium, requiring no page errors and a running screen. It
-also runs LIZA end to end through the keyboard and checks the local-file notice. Extend it for every new UI feature
-(a panel opens, a disk mounts, a download is produced) so the feature is exercised through the page, not just
-through the Session. Look at the screenshots of anything visual. `--only <group,…>` runs just those groups.
+The browser check serves the repository and loads every model in Chromium, requiring no page errors and a running
+screen. It also runs LIZA end to end through the keyboard and checks the local-file notice. Extend it for every new UI
+feature (a panel opens, a disk mounts, a download is produced) so the feature is exercised through the page, not just
+through the Session. `--list-groups` lists the groups; [docs/development.md, "The fast
+loop"](docs/development.md#the-fast-loop) says which ones a change touches.
+
+**Where each part runs.**
+* **Locally (before you push):** `git fetch --tags`, then `node tests/all.js`, plus the browser-check groups the change
+  touches (`--only …`). That is the local gate; the whole check is not required locally.
+* **A change that touches NitrOS-9, disks or CoCo 3 boot** also runs `node tools/nitros9/fetch.js` and then `--only
+  nitros9` locally, with the images present (CI has no images, so the group only SKIPs there), and the report says so.
+* **CI attempt 1** runs every group, split over parallel shards: that is the full browser gate. It is never re-run; a
+  red shard is fixed with a new commit.
+* **Once a day** (`.github/workflows/browser-daily.yml`, not a gate) the whole check runs in ONE process on
+  `claude/v0.2-stage` and on `main`, and its summary lists every FAIL line. It catches what shards cannot: a group
+  that fails only after another has run in the same browser. A failure there is fixed, never quarantined or skipped.
+
+**Screenshots.** Authors look at the local screenshots (`--screenshots DIR`) of the groups they touched. Reviewers open
+the CI run's `browser-check-screenshots-<shard>` artifacts.
 
 The browser check is timing-sensitive under load: while it runs, nothing else runs on the same machine or
-container (no test suites, builds, MAME or a second browser check). In CI each shard has its own runner and runs
-its groups in one process, so groups in different shards never share a browser: run the whole check locally, in one
-process, before you push a change to the page.
+container (no test suites, builds, MAME or a second browser check).
+
+**The CI shards are generated, never edited.** `.github/browser-check-shards.json` is the plan
+`node .github/scripts/browser-check-shards.js --write` makes from the measured group times in
+`.github/browser-check-timings.json`, and the `shards` job fails if the file is not that plan or a group is in no
+shard, in two, or untimed. A new group is timed with `node tools/browser-check.js --only <group> --timings t.json`,
+then `node .github/scripts/browser-check-shards.js --merge t.json` (which also writes the shards). To rebalance from
+CI's own times, `--merge` the `browser-check-timings` artifact of a green run.
 
 ## 5. Oracle per area
 
@@ -271,8 +291,9 @@ Give these, and no claims beyond them:
 2. **Gate and commands run, with their results:**
    * the green CI run: its URL, the commit SHA and the tree hash from its `gates` summary, which must be the head
      of the branch under review (this replaces pasting local `tests/all.js`, `regress` and browser-check runs).
-     If the run's attempt (shown in the `gates` summary) is above 1, name each check that failed in the earlier
-     attempts and why you believe it is a flake; a green re-run is the gate only with that disclosure;
+     The attempt (shown in the `gates` summary) must be 1: a re-run is not the gate. A red attempt 1 is fixed with a
+     new commit, and the report names what failed and what fixed it;
+   * whether `--only nitros9` ran locally with the images, for a change that touches NitrOS-9, disks or CoCo 3 boot;
    * each `node tools/mame-diff/run.js <profile> [...]` (instruction counts, "identical", HALT reached), pasted as a
      short excerpt;
    * any `--video` or byte/audio comparisons (frames or bytes compared, tolerance).
@@ -286,13 +307,17 @@ rather than as done.
 
 ## 7. Review
 
-1. Check that the reported CI run is green and that its SHA and tree hash are the branch head you are reviewing.
-   If its attempt is above 1, the report must name the checks that failed earlier and why they are believed to be
-   flakes; without that, the green run is not the gate.
+1. Check that the reported CI run is green, attempt 1, and that its SHA and tree hash are the branch head you are
+   reviewing. Open its screenshot artifacts for anything visual.
 2. Read the diff. Replay the author's mutations (the deliberate breakages that showed their tests fail) and at
-   least two of your own; each must turn a test red.
+   least two of your own; each must turn a test red. Replay them with `--only`: `node tests/all.js --only <suite>` and
+   `node tools/browser-check.js --only <group>` for the groups the mutant touches.
 3. Re-run the gates locally only if the branch changes `tests/`, `tools/` or `.github/` in a way that isn't purely
    additive (a changed or removed check, tolerance or shard list). Any change to `.github/` counts as not purely
    additive, because the run being verified is the branch's own workflow. Otherwise the green run stands.
 4. A small fix within the change's scope may be re-reviewed by the same reviewer as a delta on the previous review.
    Give all findings in one verdict.
+5. **Integrating** (squashing reviewed branches onto the integration branch): no local run is needed when the
+   squashed commit's tree (`git rev-parse HEAD^{tree}`) equals the tree in the branch's green `gates` summary.
+   Otherwise run `node tests/all.js` plus the browser-check groups the merged changes touch. Batch 3-4 squashes per
+   push, so each CI run gates several of them at once.

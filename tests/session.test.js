@@ -116,9 +116,9 @@ s.turbo = false;
   const w = new Emu.Session({ store: st, media });
   w.switchMachine(w.startMachine);
   check('return visit: the last machine is restored', w.shownMachine.id === 'coco');
-  check('loadRecent loads the item on the machine it was loaded on', /loop\.bin/.test(w.loadRecent(0)) && w.shownMachine.id === 'dragon64' && w.shownMachine.cpu.pc === 0x3000);
+  check('loadRecent loads the item on the machine it was loaded on', /loop\.bin/.test(w.library.loadRecent(0)) && w.shownMachine.id === 'dragon64' && w.shownMachine.cpu.pc === 0x3000);
   for (let i = 0; i < 7; i++) w.load(`p${i}.bin`, Emu.toBinary(Emu.assemble(` ORG $3000\n FCB ${i}\n END`, '6809'), { format: 'dragondos' }));
-  check('recent list keeps the last 5, and only their files', w.recentMedia().length === 5 && media.snapshot().filter((f) => f.name.startsWith('recent/') && f.name.endsWith('.bin')).length === 5);
+  check('recent list keeps the last 5, and only their files', w.library.recentMedia().length === 5 && media.snapshot().filter((f) => f.name.startsWith('recent/') && f.name.endsWith('.bin')).length === 5);
   const exp = JSON.stringify(w.exportSettings());
   check('settings export holds no stored media files', !/"media\./.test(exp) && !/recent\/|roms\//.test(exp));
 }
@@ -164,36 +164,36 @@ const userMedia = (async () => {
   const u = new Emu.Session({ store: Emu.memoryStore() });
   const dsk = new Uint8Array(fsx.readFileSync(pathx.join(__dirname, 'fixtures/disks/rsdos.dsk')));
   const bin = new Uint8Array([0x55, 2, 0x30, 0x00, 0x00, 0x01, 0x30, 0x00, 0xAA, 0x39]);
-  await u.importMedia('UTILS.DSK', dsk);
-  await u.importMedia('HELLO.BIN', bin);
-  const names = (await u.listMedia()).map((x) => x.name).join();
+  await u.library.importMedia('UTILS.DSK', dsk);
+  await u.library.importMedia('HELLO.BIN', bin);
+  const names = (await u.library.listMedia()).map((x) => x.name).join();
   check('media: a disk image is stored under disks/, a program under library/; both listed, sorted', names === 'disks/UTILS.DSK,library/HELLO.BIN', names);
-  check('media: a disk image opens by its name', (await u.openMedia('disks/UTILS.DSK')).length === dsk.length);
-  await u.renameMedia('disks/UTILS.DSK', 'TOOLS.DSK');
-  const renamed = (await u.listMedia()).map((x) => x.name).join();
-  const across = await u.renameMedia('disks/TOOLS.DSK', 'library/TOOLS.DSK').then(() => null, (e) => e);
-  const climb = await u.openMedia('disks/../roms/x.rom').then(() => null, (e) => e);
+  check('media: a disk image opens by its name', (await u.library.openMedia('disks/UTILS.DSK')).length === dsk.length);
+  await u.library.renameMedia('disks/UTILS.DSK', 'TOOLS.DSK');
+  const renamed = (await u.library.listMedia()).map((x) => x.name).join();
+  const across = await u.library.renameMedia('disks/TOOLS.DSK', 'library/TOOLS.DSK').then(() => null, (e) => e);
+  const climb = await u.library.openMedia('disks/../roms/x.rom').then(() => null, (e) => e);
   check('media: a rename keeps a disk under disks/; moving it to library/ or climbing out is refused', renamed === 'disks/TOOLS.DSK,library/HELLO.BIN'
     && across instanceof Emu.SessionError && climb instanceof Emu.SessionError, renamed);
-  await u.deleteMedia('disks/TOOLS.DSK');
-  check('media: a disk image can be deleted', (await u.listMedia()).map((x) => x.name).join() === 'library/HELLO.BIN');
+  await u.library.deleteMedia('disks/TOOLS.DSK');
+  check('media: a disk image can be deleted', (await u.library.listMedia()).map((x) => x.name).join() === 'library/HELLO.BIN');
   // a disk in a drive is the drive's: no rename, delete or replace while it is in (a synthetic RS-DOS cartridge ROM:
   // a mount only needs one stored)
   u.switchMachine('coco');
   u.roms.put('rsdos', 'rom', new Uint8Array(0x2000).fill(0x39), 'disk11.rom');
-  await u.importMedia('WORK.DSK', dsk);
-  await u.mountDisk(1, 'disks/WORK.DSK');
+  await u.library.importMedia('WORK.DSK', dsk);
+  await u.drives.mount(1, 'disks/WORK.DSK');
   const refuse = async (p) => p.then(() => null, (e) => e);
-  const ren = await refuse(u.renameMedia('disks/WORK.DSK', 'OTHER.DSK'));
-  const del = await refuse(u.deleteMedia('disks/WORK.DSK'));
-  const rep = await refuse(u.importMedia('WORK.DSK', dsk));
+  const ren = await refuse(u.library.renameMedia('disks/WORK.DSK', 'OTHER.DSK'));
+  const del = await refuse(u.library.deleteMedia('disks/WORK.DSK'));
+  const rep = await refuse(u.library.importMedia('WORK.DSK', dsk));
   check('media: a disk in a drive is not renamed, deleted or replaced, and says which drive holds it',
     [ren, del, rep].every((e) => e instanceof Emu.SessionError) && /WORK\.DSK is in drive 1; eject it before you rename it/.test(ren.message)
     && /before you delete it/.test(del.message) && /before you replace it/.test(rep.message)
-    && (await u.listMedia()).map((x) => x.name).join() === 'disks/WORK.DSK,library/HELLO.BIN', `${ren && ren.message} | ${del && del.message}`);
-  await u.ejectDisk(1);
-  await u.renameMedia('disks/WORK.DSK', 'WORK2.DSK');
-  check('media: once ejected it can be renamed', (await u.listMedia()).map((x) => x.name).join() === 'disks/WORK2.DSK,library/HELLO.BIN');
+    && (await u.library.listMedia()).map((x) => x.name).join() === 'disks/WORK.DSK,library/HELLO.BIN', `${ren && ren.message} | ${del && del.message}`);
+  await u.drives.eject(1);
+  await u.library.renameMedia('disks/WORK.DSK', 'WORK2.DSK');
+  check('media: once ejected it can be renamed', (await u.library.listMedia()).map((x) => x.name).join() === 'disks/WORK2.DSK,library/HELLO.BIN');
 })();
 
 // type-in listings: what the Library's line check reports before typing

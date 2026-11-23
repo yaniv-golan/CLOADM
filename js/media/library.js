@@ -39,7 +39,7 @@ export const RECENT_LIST = 'recent/list.json';
 export const MIGRATION_MARKER = 'meta/migrated';
 // the index's files that change in place (the rest are named by their contents' CRC, or written once)
 export const INDEX_LISTS = [ROM_SOCKETS, ROM_NAMES, RECENT_LIST];
-// the recent list's length (Session.rememberMedia keeps the newest)
+// the recent list's length (MediaLibrary.rememberMedia keeps the newest)
 export const RECENT_LENGTH = 5;
 // user media lives here, apart from the index's own names; the Library may only touch this prefix
 export const LIBRARY_PREFIX = 'library/';
@@ -295,7 +295,7 @@ export class MediaIndex {
   }
   clearMachine(machine) { this.sockets[machine] = {}; this.changed.sockets.add(machine); this._write(ROM_SOCKETS, json(this.sockets)); }
 
-  // Write this index into another store's copy of it (Session.moveMedia), merged rather than replaced: the files
+  // Write this index into another store's copy of it (MediaLibrary.moveMedia), merged rather than replaced: the files
   // change in place, so keeping either side's whole file loses the other side's entries. Each machine's sockets
   // and each ROM's file name come from here when `ours` says so, and from there otherwise, and what only one side
   // has is kept; the recent list is the newer side's. ours: 'all' (a move: this is the library in use) or 'changed' (reconnecting a

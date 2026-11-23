@@ -127,7 +127,7 @@ check('the CP-400 ROM is the archive name cp400bas.rom', p.roms[0].files.include
     JSON.stringify(Object.entries(Emu.profiles).filter(([, q]) => !['dragon', 'coco', 'mc10'].includes(q.lineage)).map(([id, q]) => [id, q.lineage])));
   check('dragon200e is a Dragon by lineage, whatever its keyboard is called', p.lineage === 'dragon' && p.lineage === Emu.profiles.dragon64.lineage);
   // the disk cartridges the page offers: the Dragon 64's, never RS-DOS
-  const dos = (id) => { const s = new Emu.Session({ welcomeMenu: false }); s.switchMachine(id, {}, { menu: false }); return s.diskDosChoices().map((c) => c.id); };
+  const dos = (id) => { const s = new Emu.Session({ welcomeMenu: false }); s.switchMachine(id, {}, { menu: false }); return s.drives.dosChoices().map((c) => c.id); };
   const d200e = dos('dragon200e'), d64 = dos('dragon64');
   check('dragon200e offers the Dragon 64\'s disk cartridges (DragonDOS, Delta DOS), not RS-DOS',
     JSON.stringify(d200e) === JSON.stringify(d64) && d200e.includes('dragondos') && !d200e.includes('rsdos'), `${d200e} vs ${d64}`);

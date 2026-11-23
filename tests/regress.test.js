@@ -205,7 +205,7 @@ cases.push(['trace coco3 cocofdc halt empty', () => {
   };
   while (m.cycle < t.seconds * m.tickHz) m.runFrame();
   m.cpu.trace = null;
-  return { hash: h.toString(16).padStart(8, '0'), instructions: n, held: last === t.stuck.pc && m.cpu.haltLine && m.haltDefer !== null && m.cpu.pc === t.stuck.pc };
+  return { hash: h.toString(16).padStart(8, '0'), instructions: n, held: last === t.stuck.pc && m.cpu.haltLine && m.halt.haltDefer !== null && m.cpu.pc === t.stuck.pc };
 }]);
 // the page's NitrOS-9 floppy loader (js/machines/nitros9.js) reading a hand-built boot track, on both CPUs (run.js
 // coco3 --fdc cocofdc --nitros9 [--cpu 6309])

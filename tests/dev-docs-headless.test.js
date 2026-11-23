@@ -40,7 +40,7 @@ const cli = (args, opts = {}) => node([path.join(ROOT, 'cli/cloadm.js'), ...args
   const facts = (id) => {
     const s = new Emu.Session({ welcomeMenu: false });
     s.switchMachine(id, {}, { menu: false });
-    const m = s.shownMachine, p = Emu.profiles[id], disk = s.diskDosChoices().map((c) => c.id);
+    const m = s.shownMachine, p = Emu.profiles[id], disk = s.drives.dosChoices().map((c) => c.id);
     return {
       options: Object.keys(p.options),
       tape: m.deck ? 'cassette' : 'none',

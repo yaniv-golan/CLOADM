@@ -2,7 +2,7 @@
 //
 // An outside write must not run in the middle of a held I/O access.
 //
-// The CoCo 3 keeps an instruction the disk controller's HALT suspended (js/machines/coco3.js haltDefer) and, between
+// The CoCo 3 keeps an instruction the disk controller's HALT suspended (js/machines/halt-replay.js haltDefer) and, between
 // runs, asks the scheduler to pump that instruction's events with the held access's time (`haltResume` sets
 // `heldIo`, which ioTime()/accessStart() read). That window exists for the held access's own devices. Anything else
 // that reaches the bus in it runs in a machine state no instruction may see: the CPU's cycle count is the suspended
@@ -43,7 +43,7 @@ const held = () => {
   const t = spec.trace('coco3', { controller: 'cocofdc', halt: true, empty: true });
   const m = t.machine();
   let frames = 0;
-  while (frames < 400) { m.runFrame(); frames++; if (m.haltDefer && !m.inStep && m.cpu.cycleCount === 0) break; }
+  while (frames < 400) { m.runFrame(); frames++; if (m.halt.haltDefer && !m.inStep && m.cpu.cycleCount === 0) break; }
   return m;
 };
 // run `fn` inside the held window (from an event the held run fires), and record what the machine looked like
@@ -51,10 +51,10 @@ const held = () => {
 const inWindow = (m, fn) => {
   const seen = [];
   m.on('outside-write', (arg, at) => {
-    if (!m.heldIo) return;
-    const before = { at, ioTime: m.ioTime(), cycle: m.cycle, div: m.div, held: !!m.haltDefer, redirects: m.redirects };
+    if (!m.halt.heldIo) return;
+    const before = { at, ioTime: m.ioTime(), cycle: m.cycle, div: m.div, held: !!m.halt.haltDefer, redirects: m.redirects };
     const threw = (() => { try { fn(m); return null; } catch (e) { return e.message; } })();
-    seen.push({ before, threw, after: { ioTime: m.ioTime(), cycle: m.cycle, div: m.div, held: !!m.haltDefer, redirects: m.redirects } });
+    seen.push({ before, threw, after: { ioTime: m.ioTime(), cycle: m.cycle, div: m.div, held: !!m.halt.haltDefer, redirects: m.redirects } });
   });
   m.schedule(m.cycle + 1, 'outside-write');
   return seen;
@@ -67,7 +67,7 @@ const inWindow = (m, fn) => {
 const queueThenThrow = (m, a, v) => {
   const seen = [];
   m.on('outside-write', () => {
-    if (!m.heldIo) return;
+    if (!m.halt.heldIo) return;
     seen.push(true);
     m.write(a, v);
     throw new Error('test: a host hook that throws');   // out of the frame, not caught by the handler
@@ -85,9 +85,9 @@ const queueThenThrow = (m, a, v) => {
   const m = held();
   const { seen, err } = queueThenThrow(m, 0xFFB1, 0x08);
   check('held window: a write queued in a run that throws on its way out is still made by that run',
-    seen.length === 1 && !!err && /test: a host hook that throws/.test(err.message) && m.outsideWrites.length === 0
+    seen.length === 1 && !!err && /test: a host hook that throws/.test(err.message) && m.halt.outsideWrites.length === 0
       && m.gime.palette[1] === 0x08,
-    `the handler ran ${seen.length}x, the frame threw ${err ? err.message : 'nothing'}, left ${m.outsideWrites.length}, palette1 ${hex(m.gime.palette[1])}`);
+    `the handler ran ${seen.length}x, the frame threw ${err ? err.message : 'nothing'}, left ${m.halt.outsideWrites.length}, palette1 ${hex(m.gime.palette[1])}`);
 }
 
 // ---- 1. the window itself: a write from outside does not run in it ----
@@ -102,7 +102,7 @@ for (const [label, addr, value] of [
   ['a palette write to $FFB0', 0xFFB0, 0x01],
 ]) {
   const m = held();
-  const d0 = m.haltDefer, div0 = m.div;
+  const d0 = m.halt.haltDefer, div0 = m.div;
   const want = d0.s + d0.n * div0 - 1;      // (the parked divider: a rate write changes m.div by the end of the frame)
   const seen = inWindow(m, (mm) => mm.write(addr, value));
   m.runFrame();
@@ -124,7 +124,7 @@ for (const [label, addr, value] of [
   const m = held();
   const writes = [];
   const orig = m.ioWrite.bind(m);
-  m.ioWrite = (a, v) => { writes.push([a, v, m.heldIo]); return orig(a, v); };
+  m.ioWrite = (a, v) => { writes.push([a, v, m.halt.heldIo]); return orig(a, v); };
   const inWin = inWindow(m, (mm) => { mm.write(0xFFB0, 0x01); mm.write(0xFFB1, 0x02); });
   m.runFrame();
   m.ioWrite = orig;
@@ -155,7 +155,7 @@ for (const [label, addr, value] of [['a rate write to $FFD9', 0xFFD9, 0x00], ['a
     const trace = ramp(m);
     if (inWindowWrite) { inWindow(m, (mm) => mm.write(addr, value)); m.runFrame(); }
     else { m.runFrame(); m.write(addr, value); }
-    const parked = { cycle: m.cycle, total: m.cpu.totalCycles, div: m.div, held: !!m.haltDefer, redirects: m.redirects };
+    const parked = { cycle: m.cycle, total: m.cpu.totalCycles, div: m.div, held: !!m.halt.haltDefer, redirects: m.redirects };
     // release HALT and let the machine run on: the instruction that was held either completes or is dropped, and
     // from there the program is the same
     m.write(0xFF48, 0xD8);
@@ -180,7 +180,7 @@ for (const [label, addr, value] of [['a rate write to $FFD9', 0xFFD9, 0x00], ['a
 // side effects and all: a guard that moved that time or dropped the byte shows here.
 {
   const m = held();
-  const d0 = m.haltDefer, div0 = m.div;
+  const d0 = m.halt.haltDefer, div0 = m.div;
   const logged = [];
   for (let i = 0; i < d0.log.length; i += 2) logged.push(d0.log[i]);
   const ram = logged.find((a) => a < 0xFF00 && m.writeKind(a) === null) ?? 0x0400;
@@ -191,7 +191,7 @@ for (const [label, addr, value] of [['a rate write to $FFD9', 0xFFD9, 0x00], ['a
   let afterPoke = null, readInWindow = null;
   inWindow(m, (mm) => {
     mm.poke(ram, (was ^ 0x5A) & 0xFF);
-    afterPoke = { byte: mm.peek(ram), held: !!mm.haltDefer, redirects: mm.redirects };
+    afterPoke = { byte: mm.peek(ram), held: !!mm.halt.haltDefer, redirects: mm.redirects };
     readInWindow = { ioTime: mm.ioTime(), value: mm.read(0xFF48) };
   });
   m.runFrame();
@@ -210,7 +210,7 @@ for (const [label, addr, value] of [['a rate write to $FFD9', 0xFFD9, 0x00], ['a
 const queueAndStall = (m, a, v) => {
   inWindow(m, (mm) => { mm.write(a, v); mm.waitFor(new Promise(() => {})); });
   m.runFrame();
-  return m.outsideWrites.length;
+  return m.halt.outsideWrites.length;
 };
 
 // ---- 5. a queued write is let go even when the CPU never runs again ----
@@ -223,15 +223,34 @@ const queueAndStall = (m, a, v) => {
   // the write was made in an event of this frame's run; it must be in before that run returns
   m.runFrame();
   check('held window: a write queued in the window is made before the run that queued it returns',
-    m.gime.palette[0] === 0x03 && m.outsideWrites.length === 0,
-    `palette0 ${hex(m.gime.palette[0])}, queued ${m.outsideWrites.length}, still held ${!!m.haltDefer}`);
+    m.gime.palette[0] === 0x03 && m.halt.outsideWrites.length === 0,
+    `palette0 ${hex(m.gime.palette[0])}, queued ${m.halt.outsideWrites.length}, still held ${!!m.halt.haltDefer}`);
   // and a run that makes no step at all still makes it: step no instruction, and the queue empties
   const m2 = held();
-  m2.outsideWrite(0xFFB1, 0x04);
+  m2.halt.outsideWrite(0xFFB1, 0x04);
   m2.runCycles(m2.cycle);                 // the CPU already at `end`: the loop makes no step
   check('held window: a run with no step to make still makes the queued write',
-    m2.gime.palette[1] === 0x04 && m2.outsideWrites.length === 0,
-    `palette1 ${hex(m2.gime.palette[1])}, queued ${m2.outsideWrites.length}`);
+    m2.gime.palette[1] === 0x04 && m2.halt.outsideWrites.length === 0,
+    `palette1 ${hex(m2.gime.palette[1])}, queued ${m2.halt.outsideWrites.length}`);
+}
+
+// ---- 5b. the flush itself refuses the held window ----
+// flushOutsideWrites makes nothing while the window is open (heldIo): asked from an event the held run fires, with a
+// write just queued there, the queue keeps it and the device has not seen it; the run's own flush makes it once the
+// window has closed. (No shipped path asks for a flush inside the window; the guard is what keeps one that did from
+// making a write at the held access's time.)
+{
+  const m = held();
+  let inside = null;
+  inWindow(m, (mm) => {
+    mm.write(0xFFB0, 0x06);
+    mm.halt.flushOutsideWrites();
+    inside = { queued: mm.halt.outsideWrites.length, palette0: mm.gime.palette[0] };
+  });
+  m.runFrame();
+  check('held window: a flush asked inside the window makes nothing; the run makes the write once the window closes',
+    inside !== null && inside.queued === 1 && inside.palette0 !== 0x06 && m.gime.palette[0] === 0x06 && m.halt.outsideWrites.length === 0,
+    JSON.stringify({ inside, after: m.gime.palette[0], left: m.halt.outsideWrites.length }));
 }
 
 // ---- 6. a reset drops a queued write ----
@@ -242,7 +261,7 @@ const queueAndStall = (m, a, v) => {
   const m = held();
   const owed = queueAndStall(m, 0xFFB0, 0x07);
   m.reset(true);
-  const left = m.outsideWrites.length;
+  const left = m.halt.outsideWrites.length;
   const writes = [];
   const orig = m.ioWrite.bind(m);
   m.ioWrite = (a, v) => { writes.push(a); return orig(a, v); };
@@ -264,7 +283,7 @@ const queueAndStall = (m, a, v) => {
   const snap = m.snapshot();
   const b = held();                                // the same run, so the same model, options and ROM set
   b.restore(Emu.state.fromJSON(Emu.state.toJSON(snap)));
-  const bOwed = b.outsideWrites.length;
+  const bOwed = b.halt.outsideWrites.length;
   b.stall = null;                                  // the store answers (a snapshot carries no stall: it is not state)
   m.stall = null;
   b.runCycles(b.cycle);                            // no step: the flush after the loop still makes it
@@ -303,12 +322,12 @@ const queueAndStall = (m, a, v) => {
       if (f > 0) { const px = mm.render().data; for (let i = 0; i < px.length; i++) h = fnv(h, px[i]); }   // (frame 0 may hold a pre-snapshot picture)
     }
     mm.cpu.trace = null;
-    return { h, n, cycle: mm.cycle, total: mm.cpu.totalCycles, held: !!mm.haltDefer, pal: mm.gime.palette[6] };
+    return { h, n, cycle: mm.cycle, total: mm.cpu.totalCycles, held: !!mm.halt.haltDefer, pal: mm.gime.palette[6] };
   };
   const m = held();
   inWindow(m, (mm) => { mm.write(0xFF48, 0xD8); mm.write(0xFFB6, 0x3F); mm.waitFor(new Promise(() => {})); });
   m.runFrame();
-  const owed = m.outsideWrites.length;
+  const owed = m.halt.outsideWrites.length;
   const snap = m.snapshot();
   const b = held();
   b.restore(Emu.state.fromJSON(Emu.state.toJSON(snap)));
@@ -337,8 +356,8 @@ const queueAndStall = (m, a, v) => {
   const image = (mm) => mm.mem[((mm.gime.blockFor(at >> 13) * 0x2000) + (at & 0x1FFF)) & (mm.mem.length - 1)];
   const flags = (file.state.outsideWrites || []).map((w) => w.poke);
   check('held window: a queued poke under ROM survives a snapshot as a poke and lands in the image',
-    rom && owed === 1 && flags.length === 2 && flags[0] === false && flags[1] === true && image(b) === 0x5A && b.outsideWrites.length === 0,
-    `ROM at ${hex(at)} ${rom}, flags ${JSON.stringify(flags)}, image ${hex(image(b))}, left ${b.outsideWrites.length}`);
+    rom && owed === 1 && flags.length === 2 && flags[0] === false && flags[1] === true && image(b) === 0x5A && b.halt.outsideWrites.length === 0,
+    `ROM at ${hex(at)} ${rom}, flags ${JSON.stringify(flags)}, image ${hex(image(b))}, left ${b.halt.outsideWrites.length}`);
 }
 
 // ---- 7d. a restore keeps the queue's ORDER ----
@@ -349,15 +368,15 @@ const queueAndStall = (m, a, v) => {
   const m = held();
   inWindow(m, (mm) => { mm.write(0xFFB6, 0x3F); mm.write(0xFFB6, 0x12); mm.waitFor(new Promise(() => {})); });
   m.runFrame();
-  const saved = m.outsideWrites.map((w) => [w.a, w.v, w.poke]);
+  const saved = m.halt.outsideWrites.map((w) => [w.a, w.v, w.poke]);
   const b = held();
   b.restore(Emu.state.fromJSON(Emu.state.toJSON(m.snapshot())));
-  const restored = b.outsideWrites.map((w) => [w.a, w.v, w.poke]);
+  const restored = b.halt.outsideWrites.map((w) => [w.a, w.v, w.poke]);
   b.stall = null;
   b.runCycles(b.cycle);                                   // no step: the after-loop flush makes both, in order
   check('held window: a restore keeps the queued writes in order (two to one register: the later value is final)',
     JSON.stringify(saved) === JSON.stringify([[0xFFB6, 0x3F, false], [0xFFB6, 0x12, false]])
-      && JSON.stringify(restored) === JSON.stringify(saved) && b.gime.palette[6] === 0x12 && b.outsideWrites.length === 0,
+      && JSON.stringify(restored) === JSON.stringify(saved) && b.gime.palette[6] === 0x12 && b.halt.outsideWrites.length === 0,
     `saved ${JSON.stringify(saved)}, restored ${JSON.stringify(restored)}, palette6 ${hex(b.gime.palette[6])}`);
 }
 
@@ -368,7 +387,7 @@ const queueAndStall = (m, a, v) => {
 // session.personInput() and refreshes, which runs a frame; the panel is not left showing a stale byte.)
 {
   const m = held();
-  const d0 = m.haltDefer;
+  const d0 = m.halt.haltDefer;
   // a RAM byte the suspended instruction did not touch: a write to one it did read would be caught by cpuCheck and
   // drop the instruction (an outside change to memory it used), which is a different rule and is already pinned
   const logged = new Set();
@@ -380,7 +399,7 @@ const queueAndStall = (m, a, v) => {
   inWindow(m, (mm) => {
     dbg.write(ram, [(was ^ 0x5A) & 0xFF]);
     before = dbg.read(ram);             // the debugger's own view (peek): nothing bus-side happens
-    queued = mm.outsideWrites.length;
+    queued = mm.halt.outsideWrites.length;
   });
   m.runFrame();
   after = dbg.read(ram);
@@ -400,16 +419,16 @@ const queueAndStall = (m, a, v) => {
 // a hit as it drops everything of a step that did not happen - the defect would not show.)
 {
   const m = held();
-  const d0 = m.haltDefer;
+  const d0 = m.halt.haltDefer;
   const logged = new Set();
   for (let i = 0; i < d0.log.length; i += 2) logged.add(d0.log[i]);
   const ram = [...Array(0x100).keys()].map((i) => 0x0400 + i).find((a) => !logged.has(a) && m.writeKind(a) === null);
   const dbg = new Emu.Debugger(m);
   dbg.addWatchpoint(ram, 1, { read: false, write: true });
-  m.on('outside-write', () => { if (m.heldIo) { dbg.write(ram, [0x5A]); m.waitFor(new Promise(() => {})); } });
+  m.on('outside-write', () => { if (m.halt.heldIo) { dbg.write(ram, [0x5A]); m.waitFor(new Promise(() => {})); } });
   m.schedule(m.cycle + 1, 'outside-write');
   m.runFrame();
-  const owed = m.outsideWrites.length;
+  const owed = m.halt.outsideWrites.length;
   m.stall = null;
   m.write(0xFF48, 0xD8);            // FORCE INTERRUPT: HALT goes, so instructions run again
   let stopped = 0;
@@ -429,24 +448,24 @@ const queueAndStall = (m, a, v) => {
   const owed = queueAndStall(m, 0xFFB0, 0x01);          // queued, stalled: not made yet
   const dbg = new Emu.Debugger(m);
   dbg.write(0xFFB0, [0x02]);                            // a later debugger write to the same register
-  const behind = m.outsideWrites.length;
+  const behind = m.halt.outsideWrites.length;
   m.stall = null;
   m.runCycles(m.cycle);                                 // no step: the flush after the loop makes both, in order
   dbg.detach();
   check('held window: a later outside write behind a stalled queue lands last, not first',
-    owed === 1 && behind === 2 && m.gime.palette[0] === 0x02 && m.outsideWrites.length === 0,
-    `queued ${owed} then ${behind}, palette0 ${hex(m.gime.palette[0])}, left ${m.outsideWrites.length}`);
+    owed === 1 && behind === 2 && m.gime.palette[0] === 0x02 && m.halt.outsideWrites.length === 0,
+    `queued ${owed} then ${behind}, palette0 ${hex(m.gime.palette[0])}, left ${m.halt.outsideWrites.length}`);
 
   // a poke behind a stalled queued write to the same byte: the poke's value is final
   const p2 = held();
   const owed2 = queueAndStall(p2, 0x0401, 0x11);
   p2.poke(0x0401, 0x22);
-  const behind2 = p2.outsideWrites.length;
+  const behind2 = p2.halt.outsideWrites.length;
   p2.stall = null;
   p2.runCycles(p2.cycle);
   check('held window: a poke behind a stalled queue lands last, and its value is final',
-    owed2 === 1 && behind2 === 2 && p2.peek(0x0401) === 0x22 && p2.outsideWrites.length === 0,
-    `queued ${owed2} then ${behind2}, byte ${hex(p2.peek(0x0401))}, left ${p2.outsideWrites.length}`);
+    owed2 === 1 && behind2 === 2 && p2.peek(0x0401) === 0x22 && p2.halt.outsideWrites.length === 0,
+    `queued ${owed2} then ${behind2}, byte ${hex(p2.peek(0x0401))}, left ${p2.halt.outsideWrites.length}`);
 }
 
 // ---- 11. a write made DURING the flush waits behind the entries still queued ----
@@ -456,18 +475,18 @@ const queueAndStall = (m, a, v) => {
 // in between. The later write must be the final one.
 {
   const m = held();
-  m.outsideWrite(0xFFD9, 0x00);             // first: its I/O sync pumps the event below
-  m.outsideWrite(0x0400, 0x11);             // second: the older value that must not win
+  m.halt.outsideWrite(0xFFD9, 0x00);             // first: its I/O sync pumps the event below
+  m.halt.outsideWrite(0x0400, 0x11);             // second: the older value that must not win
   let inFlush = null;
   m.on('mid-flush', () => {
-    inFlush = m.outsideWrites.length;       // (the one being made now, still at the head, plus one waiting)
+    inFlush = m.halt.outsideWrites.length;       // (the one being made now, still at the head, plus one waiting)
     m.write(0x0400, 0x22);                  // a later write from a handler
   });
   m.schedule(m.cycle, 'mid-flush');
   m.runCycles(m.cycle);                     // no step: the after-loop flush makes the queue
   check('held window: a write made during the flush queues behind the entries still waiting',
-    inFlush !== null && inFlush === 2 && m.peek(0x0400) === 0x22 && m.outsideWrites.length === 0,
-    `in flush saw ${inFlush} waiting, byte ${hex(m.peek(0x0400))}, left ${m.outsideWrites.length}`);
+    inFlush !== null && inFlush === 2 && m.peek(0x0400) === 0x22 && m.halt.outsideWrites.length === 0,
+    `in flush saw ${inFlush} waiting, byte ${hex(m.peek(0x0400))}, left ${m.halt.outsideWrites.length}`);
 }
 
 // ---- 12. a debugger detached between the queue and the flush ----
@@ -478,13 +497,13 @@ const queueAndStall = (m, a, v) => {
   const dbg = new Emu.Debugger(m);
   inWindow(m, (mm) => { dbg.write(0xFFB2, [0x03]); mm.waitFor(new Promise(() => {})); });
   m.runFrame();
-  const owed = m.outsideWrites.length;
+  const owed = m.halt.outsideWrites.length;
   dbg.detach();
   m.stall = null;
   m.runFrame();
   check('held window: detaching a debugger between the queue and the flush still makes the queued write',
-    owed === 1 && m.gime.palette[2] === 0x03 && m.outsideWrites.length === 0,
-    `owed ${owed}, palette2 ${hex(m.gime.palette[2])}, left ${m.outsideWrites.length}`);
+    owed === 1 && m.gime.palette[2] === 0x03 && m.halt.outsideWrites.length === 0,
+    `owed ${owed}, palette2 ${hex(m.gime.palette[2])}, left ${m.halt.outsideWrites.length}`);
 }
 
 // ---- 13. a queued poke is made as a poke, not as a bus write ----
@@ -493,7 +512,7 @@ const queueAndStall = (m, a, v) => {
 // two paths, because a RAM byte reads the same either way and would not tell them apart.
 {
   const m = held();
-  m.outsideWrite(0xFFB3, 0x04);            // a bus write first
+  m.halt.outsideWrite(0xFFB3, 0x04);            // a bus write first
   m.poke(0x0402, 0x33);                    // a poke behind it
   const calls = [];
   const bw = m.busWrite.bind(m), pn = m.pokeNow.bind(m);
@@ -515,17 +534,17 @@ const queueAndStall = (m, a, v) => {
 // same register then lands at once (write() sees no queue), and the older queued value lands after it and wins.
 {
   const m = held();
-  m.outsideWrite(0xFFB2, 0x01);             // the only entry: the older value
+  m.halt.outsideWrite(0xFFB2, 0x01);             // the only entry: the older value
   let inFlush = null;
   m.on('mid-flush-last', () => {
-    inFlush = m.outsideWrites.length;       // the entry being made is still at the head
+    inFlush = m.halt.outsideWrites.length;       // the entry being made is still at the head
     m.write(0xFFB2, 0x02);                  // a later write from a handler, pumped by that entry's ioSync
   });
   m.schedule(m.cycle, 'mid-flush-last');
   m.runCycles(m.cycle);                     // no step: the after-loop flush makes the queue
   check('held window: a write made during the flush of the last entry lands after it (its value is final)',
-    inFlush === 1 && m.gime.palette[2] === 0x02 && m.outsideWrites.length === 0,
-    `in flush saw ${inFlush} queued, palette2 ${hex(m.gime.palette[2])}, left ${m.outsideWrites.length}`);
+    inFlush === 1 && m.gime.palette[2] === 0x02 && m.halt.outsideWrites.length === 0,
+    `in flush saw ${inFlush} queued, palette2 ${hex(m.gime.palette[2])}, left ${m.halt.outsideWrites.length}`);
 }
 
 // ---- 15. a flushed write that stalls the machine stops the run before an instruction ----
@@ -535,21 +554,21 @@ const queueAndStall = (m, a, v) => {
   const m = held();
   m.write(0xFF48, 0xD8);                    // FORCE INTERRUPT: HALT goes, so instructions run again
   for (let i = 0; i < 3; i++) m.runFrame();
-  const free = !m.haltDefer && !m.cpu.haltLine;
-  m.outsideWrite(0xFFB4, 0x05);
-  m.outsideWrite(0xFFB5, 0x06);             // waits behind the stall
+  const free = !m.halt.haltDefer && !m.cpu.haltLine;
+  m.halt.outsideWrite(0xFFB4, 0x05);
+  m.halt.outsideWrite(0xFFB5, 0x06);             // waits behind the stall
   m.on('stall-mid-flush', () => m.waitFor(new Promise(() => {})));
   m.schedule(m.cycle, 'stall-mid-flush');
   const tc = m.cpu.totalCycles, pc = m.cpu.pc, cyc = m.cycle;
   m.runCycles(m.cycle + 20000);
   check('held window: a flushed write that stalls the machine ends the run before any instruction runs',
     free && !!m.stall && m.cpu.totalCycles === tc && m.cpu.pc === pc && m.cycle === cyc
-      && m.gime.palette[4] === 0x05 && m.outsideWrites.length === 1,
-    `free ${free}, stall ${!!m.stall}, cycles run ${m.cpu.totalCycles - tc}, pc ${hex(pc)} -> ${hex(m.cpu.pc)}, palette4 ${hex(m.gime.palette[4])}, left ${m.outsideWrites.length}`);
+      && m.gime.palette[4] === 0x05 && m.halt.outsideWrites.length === 1,
+    `free ${free}, stall ${!!m.stall}, cycles run ${m.cpu.totalCycles - tc}, pc ${hex(pc)} -> ${hex(m.cpu.pc)}, palette4 ${hex(m.gime.palette[4])}, left ${m.halt.outsideWrites.length}`);
   m.stall = null;
   m.runCycles(m.cycle);
   check('held window: ...and the next run makes the rest of the queue',
-    m.gime.palette[5] === 0x06 && m.outsideWrites.length === 0, `palette5 ${hex(m.gime.palette[5])}, left ${m.outsideWrites.length}`);
+    m.gime.palette[5] === 0x06 && m.halt.outsideWrites.length === 0, `palette5 ${hex(m.gime.palette[5])}, left ${m.halt.outsideWrites.length}`);
 }
 
 console.log(fail ? `${fail} of ${n} held-write checks FAILED` : `all ${n} held-write checks passed`);

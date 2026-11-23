@@ -56,11 +56,11 @@ export function setupRomSockets(page, romInput, { confirmSwitch }) {
     return OPTIONAL_WHY[s.id] || 'Optional.';
   }
   // The disk ROM (R26): one card for a machine whose cartridge port takes a disk cartridge, from
-  // Session.diskDosChoices() ("Disk drives (optional): DragonDOS or Delta DOS"); none for a machine with its own disk
+  // DiskDrives.dosChoices() ("Disk drives (optional): DragonDOS or Delta DOS"); none for a machine with its own disk
   // interface (the Dragon Alpha) or with no cartridge port (the MC-10). Like the Pak's, it carries its own attribute
   // (data-disk), not data-status: it is not one of the machine's sockets, and the socket counts read [data-status].
   function diskCard() {
-    const c = session.diskDosChoices().filter((x) => !x.builtin);
+    const c = session.drives.dosChoices().filter((x) => !x.builtin);
     if (!c.length) return [];
     const card = el('div', null, 'socket'), ready = c.filter((x) => x.ready);
     card.id = 'romDiskCard'; card.tabIndex = -1;
@@ -69,7 +69,7 @@ export function setupRomSockets(page, romInput, { confirmSwitch }) {
     const body = el('div', null, 'body'), top = el('div', null, 'top');
     const names = c.map((x) => x.name.replace(/ cartridge$/, ''));
     top.append(el('strong', `Disk drives: ${names.join(' or ')}`), el('span', 'optional', 'tag'));
-    const state = ready.length ? `✓ ${ready.map((x) => `${x.name.replace(/ cartridge$/, '')} disk ROM`).join(', ')} · ${session.diskRomWaiting ? 'goes in at the next reset or power cycle (the disk controller in use has none yet)' : 'ready for disks'}`
+    const state = ready.length ? `✓ ${ready.map((x) => `${x.name.replace(/ cartridge$/, '')} disk ROM`).join(', ')} · ${session.drives.romWaiting ? 'goes in at the next reset or power cycle (the disk controller in use has none yet)' : 'ready for disks'}`
       : 'Without it, disks still go in, for programs that read them directly. CLOADM doesn\'t include one; add your own dump.';
     body.append(top, el('div', `8 KB · usually ${c.map((x) => x.rom).join(' or ')}`, 'expect'), el('div', state, 'state'));
     card.append(el('span', null, 'dot'), body);

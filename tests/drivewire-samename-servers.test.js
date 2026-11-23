@@ -1,7 +1,7 @@
 // DriveWire: the case rule reaches every server the Session builds, not only the Becker port's.
 //
 // The Session creates three DriveWire servers, each on the same media store and each given the store's case rule
-// (`sameName`, Session.sameName) at construction: the Becker port's (`Session.drivewire`), the one a real CoCo is
+// (`sameName`, MediaLibrary.sameName) at construction: the Becker port's (`Session.drivewire`), the one a real CoCo is
 // served from over Web Serial (`serveRealCoco`, `Session.serialLink.server`), and the chat's (`startChat(...,
 // { drivewire: true })`, `Session.chatServer`). The Becker one was pinned (tests/drivewire.test.js); the other two
 // were not, so deleting the sameName argument from either of them left every suite green.
@@ -117,7 +117,7 @@ const close = async (s) => { if (s.serialLink) await s.stopRealCoco(); if (s.cha
       // drive 9 SUCCEEDS, and a named mount on that same server would then match drive 9 exactly -- "added no
       // drive" would pass green while the comparison was broken. That is the defect this leg exists to catch.
       const { s, media, server, reached } = await build(which, true);
-      check(`${which}: precondition, a store that folds case`, media.caseInsensitive === true && s.caseInsensitive === true);
+      check(`${which}: precondition, a store that folds case`, media.caseInsensitive === true && s.library.caseInsensitive === true);
       const tied = !!server && reached && server.drives === s.drivewire.drives && server.store === s.media;
       check(`${which}: the server under test is the one this Session reached (the port's, the link's, the chat's), on its drives and store`,
         tied, `reached=${reached}`);
@@ -150,7 +150,7 @@ const close = async (s) => { if (s.serialLink) await s.stopRealCoco(); if (s.cha
     // ---------------- a case-sensitive store: the control -- they are two files ----------------
     {
       const { s, media, server } = await build(which, false);
-      check(`${which} control: precondition, a store that tells cases apart`, media.caseInsensitive === false && s.caseInsensitive === false);
+      check(`${which} control: precondition, a store that tells cases apart`, media.caseInsensitive === false && s.library.caseInsensitive === false);
       // the guard: a different file may mount in another drive
       let err = '';
       try { await server.mount(9, 'drivewire/game.dsk'); } catch (e) { err = e.message; }

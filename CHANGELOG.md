@@ -15,9 +15,15 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   mux with the Pak's music. It speaks from your own allophone ROM (the SP0256-AL2's), which you add in the ROM panel;
   CLOADM never includes one. Compared with MAME 0.264 on our own speech image (`node
   tools/mame-diff/ssc/speech-audio.js`): every sample within 1 LSB of MAME's recording on the CoCo 1/2, CoCo 2B,
-  CoCo 3 and Dragon 64, and the test suite holds MAME's recording so this is checked without MAME. Without the speech ROM
-  the board menu says "Speech/Sound Pak (music; speech needs your SP0256-AL2 ROM)" and the ROM panel says what the ROM
-  is for; when a program first speaks without it, one toast a session says so, with a way to add it. The Pak's sound-activity status bit is still a stub.
+  CoCo 3 and Dragon 64, and the test suite holds MAME's recording so this is checked without MAME. Without the
+  speech ROM the board menu says "Speech/Sound Pak (music; speech needs your SP0256-AL2 ROM)" and the ROM panel says
+  what the ROM is for; when a program first speaks without it, one toast a session says so, with a way to add it. The
+  Pak's sound-activity status bit is still a stub.
+- Two tools for contributors: `node tools/affected.js [<base>]` prints the `--only` suites and browser-check groups
+  for a diff (docs/development.md's fast-loop table, as data; `tests/affected.test.js` holds every file under `js/` to
+  at least one of them), and `node tools/prepush.js` runs the author's checklist before a push (the affected suites
+  and groups, the full gate, `sw.js`'s file list, CHANGELOG edits only under `[Unreleased]`, the skill copies, a
+  noreply email, the release tags, and a report skeleton).
 - **Minesweeper plays with a joystick.** Either joystick moves the cursor: one step as the stick leaves the centre,
   then again after 300 ms and every 120 ms while it is held (counted in fields, at the machine's own 50 or 60 Hz;
   centring the stick and pushing the same way again is a new press). Either fire button opens the square under the
@@ -178,6 +184,37 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 
 ### Changed
 
+- **The welcome menu's tune plays only when you asked for the menu.** It plays once the sound is unlocked for the visit's own menu and for the Welcome menu chosen from Programs; it is silent after a machine switch (a RAM or CPU change, the machine question, an opened snapshot), Reset, a power cycle, and when the menu comes back from LIZA, a game or the demo. The Session decides, so Claude's and MCP's switches are silent too.
+- **Faster CI gates, and shards that cannot go stale.** `node tests/all.js` runs in CI as three parts on three runners
+  (`--shard i/n`, planned from `tests/suite-times.json`), and the `gates` job checks from their logs that together
+  they ran every suite exactly once, the regression gate's completeness included (`.github/scripts/suite-shards.js`).
+  The browser-check shards are now generated from measured group times (`.github/browser-check-timings.json`,
+  `node .github/scripts/browser-check-shards.js --write`), and the shard check fails when the shard file is not that
+  plan. `node tools/browser-check.js --timings FILE` and `node tests/all.js --timings FILE` write the times; every CI
+  run publishes its group times, and `gates` lists every job's FAIL lines in its summary. A new daily workflow
+  (`browser-daily.yml`, not a gate) runs the whole browser check in one process on `claude/v0.2-stage` and `main`.
+  AGENTS.md 4.7: the local gate is `tests/all.js` plus the browser-check groups a change touches; CI attempt 1 is the
+  full browser gate and is never re-run.
+- `node tests/all.js` starts the suites longest first, from the times in `tests/suite-times.json` (the file
+  `--shard` plans its parts from, rewritten by `--record-times` after a passing whole run), and counts each regress shard as a slot of the pool; it still prints in
+  file order. `tests/move-inflight.test.js`'s "refused move" case now mounts a stored disk and checks the move's own
+  refusal: it never had a disk in a drive, so it passed on the move's 30 s wait running out; it also has a 50 ms bound
+  of its own, so a refusal that goes missing fails at once.
+- **A new toast replaces a focused or hovered one without a flash.** The box stays up (no frame without it,
+  no focus dropped, one announcement). With the focus inside it the new toast starts paused, its full 4 s (8 s with
+  an action) running from the moment the focus leaves; the focus stays on the action button only when the new toast
+  carries the same action, otherwise it moves to the toast itself, so an Enter meant for the old action fires nothing.
+  Under the pointer the new toast is paused until the pointer leaves.
+- **A toast in the top slot is pinned provisionally.** It still shows there in its first frame when no place
+  is free, but while a control that decides its place is still in its own animation (a sheet opening), for 300 ms at
+  most, it moves to a free place as soon as one opens (its position only, with no animation); after that it never
+  moves. A hovered or focused toast is not moved.
+- **A toast may cover what an opaque sheet already hides, never the sheet's own buttons.** The part of a
+  control under the Ask sheet or the attention card (marked `data-occludes`, each fully opaque) no longer keeps a
+  toast away; the sheet's Stop, Done and tabs always do, and a sheet still sliding hides nothing until it has settled.
+  On a phone a toast never goes over such a sheet: with no other place it takes the band under the header, as before.
+  While a modal dialog is open the toast moves into it, in the top layer above its contents, where it can be clicked,
+  and only the dialog's controls keep it away.
 - **The page's screen text reads every screen Claude's screen_text reads.** `Session.screenText`, which the embed
   API's `screenText`, the Ask panel, the tape panel and the boot watchdog read, decoded only the VDG's 32x16 page at a
   fixed address: on the Dragon 64 Plus's 80-column screen it returned the VDG page behind it, on a CoCo 3 GIME text
@@ -196,6 +233,35 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   them, with a `note`, as the VDG's semigraphics blocks are counted. `docs/mcp.md`, `docs/claude.md`, the skill and a
   new eval (`coco3-hidden-screen`) say so; `tests/screen-text-readers.test.js` checks both readers on firmware of our
   own against the rendered frame.
+- **The CoCo 3's HALT inside an instruction has its own module.** Where HALT arrived and was released in the last
+  step, an I/O access waiting for its release, an instruction held past the end of a run and run again with its bus
+  accesses replayed, and the outside writes queued while one is held move from `js/machines/coco3.js` into
+  `js/machines/halt-replay.js` (`machine.halt`, a `HaltReplay`), under the same names (`machine.haltDefer` is now
+  `machine.halt.haltDefer`). The machine keeps the bus decode and the run loop, and the Machine interface
+  (`replaying`, `cpuHeld`, `cpuCheck`, `stepN`). No behaviour change: the regression hashes are unchanged, the MAME
+  comparisons on the CoCo 3 (`run.js coco3`, `--fdc cocofdc` with `--halt`, `--halt --empty` and `--nitros9` on both
+  CPUs, `--video`) are identical, and snapshots taken while an instruction is held are byte-identical to before
+  (`tests/halt-replay-split.test.js`, with fixtures).
+- **The floppy drives have their own module.** The disk controller and disk cartridge, new blank disks, mounting,
+  ejecting and write-protecting, the writes back to the media store, the drives' status and the links a restore point
+  keeps move from the Session into `session.drives` (`js/drives.js`, `Emu.DiskDrives`), with shorter names:
+  `importDisk` is now `drives.importImage`, `mountDisk` `drives.mount`, `ejectDisk` `drives.eject`, `setDiskWriteProtect`
+  `drives.setWriteProtect`, `diskStatus` `drives.status`, `diskActivity` `drives.activity`, `listDisks` `drives.list`,
+  `downloadDisk` `drives.download`, `diskWritesDone` `drives.writesDone`, `flushDisks` `drives.flush`, `insertDiskDos`
+  `drives.insertDos`, `diskDosChoices` `drives.dosChoices`, `blankDiskChoices` `drives.blankChoices`,
+  `keepSnapshotDisk` `drives.keepSnapshot`, `diskController` `drives.controller`, `driveCount` `drives.count`;
+  `newDisk`, `checkDrive` and `checkNotInDrive` keep theirs. `BARE_NOTE` is exported from the new module. No
+  behaviour change; the disks a machine writes, a restore point's relinking, the status, the settings export and
+  snapshots are byte-identical to before (`tests/session-drives.test.js`, with fixtures).
+- **The media library has its own module.** Listing, opening, downloading, renaming, deleting and importing what
+  the person keeps, the recent list, the creations of disk names (one at a time, with the names they claim), the
+  store's rule for upper and lower case, and moving the library to another store move from the Session into
+  `session.library` (`js/library.js`, `Emu.MediaLibrary`), under the same names: `session.importMedia` is now
+  `session.library.importMedia`, `session.sameName` is `session.library.sameName`, and so on, with the library's
+  bookkeeping (`movingMedia`, `diskClaims`, ...) moving with them. The store handle (`session.media`), the media index
+  and the ROM library stay the Session's; `DISK_PREFIX`, `DW_PREFIX` and `MEDIA_MOVE_WAIT_MS` are exported from the
+  new module. No behaviour change; the disks a machine writes, the library, the recent list, the slots, the settings
+  export, snapshots and a move are byte-identical to before (`tests/session-library.test.js`, with fixtures).
 - **Claude's consent state has its own module.** The switch, the cards, "Don't ask again this session" and the
   pause's state move from six `claude*` fields on the Session into `Session.consent` (`js/claude/consent.js`), with
   its decisions as methods (`decide`, `recheck`, `setAllowed`, `answer`, `pause` / `resume` / `endPause`, `wait`);
@@ -292,10 +358,10 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   Worker refuses to start without it. `tests/connector.test.js` and `tests/skill.test.js` fail when the skill's section and
   the built instructions differ, and the skill's two copies stay byte for byte. The Worker must be deployed again
   when that section changes (`docs/deploy-connector.md`).
-- **A phone held upright: the panel decides, the screen takes the rest (UX R30).** The screen is the largest 4:3 one
+- **A phone held upright: the panel decides, the screen takes the rest.** The screen is the largest 4:3 one
   for which the app bar, the screen, the strip and the panel fit in the visible height, at most the page's width, and
   the picture fills it (no bezel). The panel has three modes, **Keys | Pad | Stick**: Pad is a D-pad with SPACE,
-  ENTER, the program's own keys and ABC (the keyboard for one key), on two rows of 48 px keys (BREAK is the strip's, R35); Stick is the touch
+  ENTER, the program's own keys and ABC (the keyboard for one key), on two rows of 48 px keys (BREAK is the strip's); Stick is the touch
   joystick, where the machine has a port. A bundled program opens in the mode it is played with (a new per-program
   `controls` field in the Session: 2048 and Minesweeper on the Pad, Minesweeper's with F and Stick offered; LIZA on
   Keys; anything else on Keys), and the choice is remembered per program and machine. With Pad, Stick or the keys
@@ -413,6 +479,10 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 
 ### Fixed
 
+- **A disk in a drive counts toward the install offer.** The page's "program in use" test (the one the
+  offer to install CLOADM as an app waits a minute of) asked the machine for a disk controller it never has, so a disk
+  waiting in a drive at the bare prompt never counted; it now asks the drives (`session.drives.controllerOf`). The
+  browser check's `install` group puts a disk in at the bare prompt and takes it out again.
 - **The Speech/Sound Pak's speech chip now runs its program at the right speed.** Its SP0256 sequencer reads the
   allophone ROM in the order a real dump is stored, decodes every instruction and parameter field, and steps once per
   sample on its own 3.12 MHz clock (10 kHz), holding each set of parameters for its pitch periods; its ready line now
@@ -428,6 +498,10 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   started 4 cycles after power-on. On the CoCo 1/2, CoCo 2B, CoCo 3 and Dragon 64 every AY write now lands at
   MAME's time and every steady level matches MAME's recording exactly. The CoCo 3 `$0405` difference in the
   interrupt comparison remains (the sound-activity bit, which is still a stub), and speech is still not implemented.
+- Two flaky checks: `tests/allsignal.test.js` looked for surviving processes once, the instant the runner exited, and
+  could still see a just-killed one; it now asks again for up to 5 s (a real survivor still fails it). The browser
+  check's "Esc on the screen with a line typed is BREAK" read the chat after a fixed three frames; it now waits for the
+  line to be dropped.
 - **The Dragon 64 Plus had the 6551 but no RS-232 port.** Like the Dragon 64 (MAME's `d64plus()` starts from `dragon64()`), it now has the port: PIA1 PB0 reads its RXD, idle high.
 - **Two debuggers could end up on one machine.** A `Debugger` made directly on a machine that already had one left both attached, so a watched write counted twice and the snapshot carried a different debugger from the one the Session drove. A machine now has one debugger: a new one takes the old one's place, `session.debug` returns the one the machine already carries, and adopting the machine already shown keeps its debugger.
 - **Run after a long debugger Over or Out no longer leaves the machine frozen for seconds.** Over, Out, Run to and

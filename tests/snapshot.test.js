@@ -374,7 +374,7 @@ const picture = (m) => { let h = 0x811C9DC5; for (const v of m.render().data) h 
     const list = await a.listSlots();
     check('slot 2 holds the CoCo 2B, a snapshot file in the library (library/snapshots/), so the Library lists it',
       list[1].machine === 'coco2b' && list[1].name === 'CoCo 2B' && list[1].size > 0 && list[0].empty
-      && (await a.listMedia()).map((x) => x.name).join() === 'library/snapshots/slot-2.cloadm', JSON.stringify(list[1]));
+      && (await a.library.listMedia()).map((x) => x.name).join() === 'library/snapshots/slot-2.cloadm', JSON.stringify(list[1]));
     const b = new Emu.Session({ store: kv(), media });   // a reload: a new page, the same store
     b.switchMachine('dragon64');
     const snap = await b.readSlot(2);

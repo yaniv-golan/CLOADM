@@ -103,7 +103,7 @@
  *   detectCase calls _listing when the store has one and list() otherwise.
  *   The Session measures too, at ready(), useMediaStore and
  *   moveMedia, and after a write it makes (refreshCase) while the store has no answer yet. Whatever settles it,
- *   `Session.caseInsensitive` reads the STORE's answer once the store has one, so no guard runs on a guess the
+ *   `MediaLibrary.caseInsensitive` reads the STORE's answer once the store has one, so no guard runs on a guess the
  *   store has since corrected. Guards that compare media names must use that answer, never `===`: on a store
  *   that does not tell cases apart, `GAME.DSK` and `game.dsk` are one file.
  *

@@ -122,7 +122,7 @@ for (const id of models) {
   for (const id of ['dragon64', 'coco', 'coco3']) {
     const s = new Emu.Session();
     s.switchMachine(id);
-    s.startWelcome(bin);
+    s.startWelcome(bin, { reason: 'visit' });   // (the tune plays for a visit; after a switch it is silent: tests/welcome-tune.test.js)
     const m = s.shownMachine;
     const edges = [];   // [absolute tick, level]
     const frames = (n) => { for (let i = 0; i < n; i++) { const base = m.frameBase; m.runFrame(); for (let k = 2; k < m.audioEvents.length; k += 2) edges.push([base + m.audioEvents[k], m.audioEvents[k + 1]]); } };
@@ -181,7 +181,7 @@ for (const id of models) {
   const t = new Emu.Session();
   t.switchMachine('dragon64');
   t.welcomeSound();
-  t.startWelcome(bin);
+  t.startWelcome(bin, { reason: 'visit' });
   check('audio unlocked before the start: the tune is armed', t.shownMachine.ram[Emu.WELCOME['6809'].soundOk] === 1);
 }
 

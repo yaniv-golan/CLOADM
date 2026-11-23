@@ -86,7 +86,7 @@ const keyStore = chatHere ? (() => { try { return localStorage ? storageKeyStore
 const session = new Session({ store: settings, media: mediaStore, keyStore, welcomeMenu: !link.embed });
 const page = createPage(session, new Audio());
 // a background write that fails (full storage, permission refused) must reach the user, not vanish
-session.index.writeError = (name, e) => page.status(session.indexWriteError(name, e), true);
+session.index.writeError = (name, e) => page.status(session.library.indexWriteError(name, e), true);
 // the handle exists before the awaited init, so anything watching the page sees it at once
 window.emu = { session, profiles, Emu, feedback: page.feedback, ready: false, started: false, audio: page.audio, audioRunning: () => page.audio.running, get machine() { return session.shownMachine; },
   // the input layer, for the browser check (keyboard modes, the keyboard joystick and the gamepads)
@@ -97,7 +97,7 @@ try {
   // a load or migration error: carry on with a fresh in-memory library for this visit (nothing is loaded,
   // so nothing retries the failed step, and the user is told the library will not persist)
   storageProblem = storageProblem || e;
-  session.useMediaStore(new MemoryMediaStore());
+  session.library.useMediaStore(new MemoryMediaStore());
 }
 window.emu.ready = true;
 // a state that stays true for the visit: attention (orange, until dismissed), not a passing toast, so the welcome
@@ -106,8 +106,8 @@ if (storageProblem) page.feedback.attention(`Your stored files could not be open
 // writes are best-effort until flush(): ask for them to settle before the page goes away, but do not
 // pretend that holds the page open — a reload can still overtake the last write
 // disks too: the drives hand what was written to the store
-addEventListener('pagehide', () => { session.flushDisks(); session.index.flush().catch(() => {}); });
-document.addEventListener('visibilitychange', () => { if (document.hidden) { session.flushDisks(); session.index.flush().catch(() => {}); } });
+addEventListener('pagehide', () => { session.drives.flush(); session.index.flush().catch(() => {}); });
+document.addEventListener('visibilitychange', () => { if (document.hidden) { session.drives.flush(); session.index.flush().catch(() => {}); } });
 window.emu.storageChoices = availableChoices();
 const machinePanel = setupMachinePanel(page, { showRoms: () => romSockets.reveal() });
 setupPokePanel(page);

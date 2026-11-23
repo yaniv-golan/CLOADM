@@ -863,7 +863,9 @@ silence, the re-prime's wait and its bound, bounded drop-oldest, the MessagePort
 after a pause it restarts at least `TARGET_MS` deep with no short block for the second after;
 after the unlock an AudioWorkletNode plays and no ScriptProcessorNode is made (no deprecation warning); through
 loads, resets, pause, turbo, sound off, machine switches and a 200 ms busy page, every sample the worklet plays at
-full gain equals the one the output stage made (tolerance 0) and no step exceeds 0.01; the tone of a square-wave
+full gain equals the one the output stage made (tolerance 0) and no step exceeds 0.01; after an underrun the fade out and
+in is a ramp of at most level / fadeLen (5 ms) a sample, measured on a loud 0.5 block put in through the sink (that
+program's own DAC level is blocked to near silence, so the step bound alone cannot see a missing fade); the tone of a square-wave
 program plays at the frequency the machine makes it (within the 0.5% steering) and the queue doesn't run dry while
 it plays (at most 2% of blocks); volume and mute; the four fallbacks to the ScriptProcessorNode (no AudioWorklet,
 its module failing to load or never loading, the processor failing); and (group `pwa`) offline, where the worklet's
@@ -1026,10 +1028,33 @@ browser check's group `uiModel` drives them with real events at 1280x720 and at 
   its time runs. An error toast (a disk image CLOADM can't read) is red. With that disk in and no tape, the drives
   card is above the cassette deck on the phone and under the keyboard panel, and after it on the desktop. (`feedbackModel` checks the fixed top slot where nothing else is
   free, and that it goes after its 4 s.)
+* R45 (`feedbackModel`, 1440x900): a toast replacing a focused one leaves the box up (a `MutationObserver` records no
+  `hidden` write) and the focus never on the body (in the same task and a frame later); with another action (an equal
+  label, another object) the focus is on the box, the new toast is up 10 s later and Enter fires nothing, and after
+  Shift+Tab it goes 8 s later; with the same action object the focus stays on the button and Enter runs it; with no
+  action the focus is on the box. A toast replacing a hovered one stays 10 s, then has its full 4 s after the pointer
+  leaves. One announcement per toast (the live region's text changes once for each). The provisional pin: a toast
+  raised as a sheet (a `.controls` element shrinking in 150 ms) opens is in view in its first frame in the top slot,
+  in the free place once the transition ends, with no animation, and its rect is the same in every 50 ms sample from
+  350 ms on; a focused provisional toast keeps the slot, and one that lands in the slot already focused is still provisional
+  past 300 ms, taking a place that opened meanwhile once the focus leaves. `tests/feedback-toasts.test.js` checks the same rules in Node,
+  with the 300 ms limit and a hovered provisional toast.
+* R47 (`feedbackModel`): at 390x844 with touch and the Ask sheet at peek, a toast too tall for the band under the screen
+  text is in the header band (the top slot under the 48 px bar), over neither the sheet nor its controls, its rect the
+  same from 350 ms on; at 900x800 with the side panel over part of the slots, the toast is in a free place that meets
+  no control part that shows and none of the panel's controls; the guard: every shown `[data-occludes]` element (the
+  sheet at peek, the panel, the attention card) has opacity 1 up its ancestors and a background alpha of 1; an
+  opaque overlay sliding in over a control occludes nothing until its transition ends (top slot in frame 1, its own
+  place after); a test `<dialog>` opened with `showModal()` over a toast, and a toast raised under it: in both
+  `elementFromPoint` at the toast's centre is the toast, and the region leaves the dialog and the top layer when it
+  closes; one announcement per toast. `askEsc` (5d) now runs the turn on a phone (header band, no Stop covered) and at
+  900 px (none of the panel's controls covered): the "toast over the Stop" it was written for cannot form under
+  R47, and in both the pill does not come and go and a Stop can be reached. `tests/feedback-toasts.test.js` checks each
+  rule in Node.
 * R25: the switch confirmation's text for a tape and a cartridge (both in the Library), a tape and a disk, a RAM
   change (and Cancel putting the select back), a snapshot's own disk with **Save to Library** (stored and linked),
   DriveWire (not listed, still mounted after the switch); the toasts after the switch. `tests/switch-losses.test.js`
-  checks `Session.takenOut` and `Session.keepSnapshotDisk` in Node, the Speech/Sound Pak case included.
+  checks `Session.takenOut` and `DiskDrives.keepSnapshot` in Node, the Speech/Sound Pak case included.
 * R26: the disk ROM card's title per machine (none on the Alpha and the MC-10), its `data-disk` mark with the socket
   counts unchanged, and a drive's **Add disk ROM…** landing on it (in view, focused, on top at its centre).
 * R28, R28b: Ctrl K "roms" Enter (Your ROMs, focus on its heading, nothing scrolled), the palette's top result for
@@ -1040,13 +1065,17 @@ browser check's group `uiModel` drives them with real events at 1280x720 and at 
 * R27: every text node and title, label and placeholder of the page (emulator, machine menu, Your ROMs, Share,
   Library) holds no "stub" and no "Machine tab", and "disk ROM" is the one term; the ROMs row's states, the .dgn
   warning and the snapshot sentence word for word.
+* R46: the welcome tune plays only when the person asked for the menu (the visit's own start and Programs' Welcome menu,
+  once the sound is unlocked); a machine switch, Reset, a power cycle and a return from LIZA, a game or the demo are silent.
+  `tests/welcome-tune.test.js` measures the DAC (the MC-10's latch) over about 3 s of frames on both firmware builds; the browser
+  check's group `visit` reads the firmware's PLAYED flag and counts the tune's DAC events after a page switch and a return.
 
 Not verified automatically: how the fixed top slot reads to a person on a real phone (screenshots
 `r24-disk-toast-*.png` were looked at).
 
 ### A disk without a disk ROM
 
-With no disk ROM a mount plugs the disk controller in with nothing in its ROM socket (`Session.plugBareDiskController`),
+With no disk ROM a mount plugs the disk controller in with nothing in its ROM socket (`DiskDrives.plugBareController`),
 without a reset, and the disk goes in. The program used is ours: `tools/mame-diff/fdc/gen-bare.js` writes one read
 routine (restore, then read track 0 sector 1 of drive 0, every byte taken on DRQ by polling; on the CoCo with NMI on
 INTRQ) in two builds: a ROM build for the MAME comparison below and a RAM build that runs on the built-in firmware.
@@ -1649,7 +1678,7 @@ I/O after every slice gives snapshots that all load, and a held `PSHU` that chan
 one and three save-and-restore round trips.
 
 A WRITE from outside made while the suspended instruction's events run (between runs, `heldIo`) is queued and made
-between instructions, at the machine's own time (`Coco3Machine.outsideWrite`, `flushOutsideWrites`): the same write
+between instructions, at the machine's own time (`HaltReplay.outsideWrite`, `flushOutsideWrites`): the same write
 made while parked, with `$FFD9` (measured in `tests/held-writeio.test.js`), charged 34,724 CPU cycles over the
 frame at commit 570d3fc, before this change; made one tick inside the window it charged 4,856, because the rate-write path took its
 `!inStep` branch and dropped the suspended instruction from inside its own event. Now the two charge the same

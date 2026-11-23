@@ -49,10 +49,10 @@ const A = () => images.vdk(40, 1), B = () => images.vdk(26, 1);
     const keep = A();
     await media.writeSync('disks/keep.vdk', keep);
     let release = null;
-    s.diskStoreChange(() => new Promise((r) => { release = () => r({ name: 'disks/hold', size: 0, mtime: 0 }); }), 'disks/hold');
-    const nd = s.newDisk(0, { format: 'vdk', tracks: 40, heads: 1 });   // picks disk-1.vdk, parks on the chain
+    s.drives.storeChange(() => new Promise((r) => { release = () => r({ name: 'disks/hold', size: 0, mtime: 0 }); }), 'disks/hold');
+    const nd = s.drives.newDisk(0, { format: 'vdk', tracks: 40, heads: 1 });   // picks disk-1.vdk, parks on the chain
     for (let i = 0; i < 50; i++) await tick();
-    const ren = q(s.renameMedia('disks/keep.vdk', 'disks/disk-1.vdk'));  // asked inside that wait
+    const ren = q(s.library.renameMedia('disks/keep.vdk', 'disks/disk-1.vdk'));  // asked inside that wait
     for (let i = 0; i < 50; i++) await tick();
     release();
     const [rn, ndr] = [await ren, await q(nd)];
@@ -73,10 +73,10 @@ const A = () => images.vdk(40, 1), B = () => images.vdk(26, 1);
     const keep = B(), fresh = A();
     await media.writeSync('disks/keep.vdk', keep);
     let release = null;
-    s.diskStoreChange(() => new Promise((r) => { release = () => r({ name: 'disks/hold', size: 0, mtime: 0 }); }), 'disks/hold');
-    const im = s.importMedia('fresh.vdk', fresh);
+    s.drives.storeChange(() => new Promise((r) => { release = () => r({ name: 'disks/hold', size: 0, mtime: 0 }); }), 'disks/hold');
+    const im = s.library.importMedia('fresh.vdk', fresh);
     for (let i = 0; i < 50; i++) await tick();
-    const ren = q(s.renameMedia('disks/keep.vdk', 'disks/fresh.vdk'));
+    const ren = q(s.library.renameMedia('disks/keep.vdk', 'disks/fresh.vdk'));
     for (let i = 0; i < 50; i++) await tick();
     release();
     const [rn, imr] = [await ren, await q(im)];
@@ -92,9 +92,9 @@ const A = () => images.vdk(40, 1), B = () => images.vdk(26, 1);
     const media = new MemoryMediaStore();
     const s = await session(media);
     await media.writeSync('disks/keep.vdk', A());
-    const nd = await q(s.newDisk(0, { format: 'vdk', tracks: 40, heads: 1 }, { name: 'later.vdk' }));
-    await s.ejectDisk(0);
-    const rn = await q(s.renameMedia('disks/keep.vdk', 'disks/later.vdk'));
+    const nd = await q(s.drives.newDisk(0, { format: 'vdk', tracks: 40, heads: 1 }, { name: 'later.vdk' }));
+    await s.drives.eject(0);
+    const rn = await q(s.library.renameMedia('disks/keep.vdk', 'disks/later.vdk'));
     check('3. ... but a rename onto a name that is no longer in flight is refused as taken, not as in use',
       nd.ok && !rn.ok && /already/i.test(rn.m), `${nd.m} | ${rn.m}`);
   }
@@ -108,15 +108,15 @@ const A = () => images.vdk(40, 1), B = () => images.vdk(26, 1);
     await media.writeSync('disks/keep.vdk', A());
     const realWrite = media.write.bind(media);
     media.write = (n, b) => (n === 'disks/never.vdk' ? Promise.reject(new MediaStoreError('quota', 'no space (forced)')) : realWrite(n, b));
-    const im = q(s.importMedia('never.vdk', B()));            // refused at its store write
-    const rn = q(s.renameMedia('disks/keep.vdk', 'disks/moved.vdk'));   // queued behind it
+    const im = q(s.library.importMedia('never.vdk', B()));            // refused at its store write
+    const rn = q(s.library.renameMedia('disks/keep.vdk', 'disks/moved.vdk'));   // queued behind it
     const [imr, rnr] = [await im, await rn];
     check('3. a rename queued behind a creation that the store refused still runs',
       !imr.ok && rnr.ok && same(await read(media, 'disks/moved.vdk'), A()), `${imr.ok ? 'import ok' : imr.m} | ${rnr.ok ? 'rename ok' : rnr.m}`);
     // and a rename of a disk a drive holds is refused at once, before any turn is taken (the drive writes it)
     media.write = realWrite;
-    const held = await q(s.importDisk('busy.vdk', B(), 0));
-    const rn2 = await q(s.renameMedia('disks/busy.vdk', 'disks/elsewhere.vdk'));
+    const held = await q(s.drives.importImage('busy.vdk', B(), 0));
+    const rn2 = await q(s.library.renameMedia('disks/busy.vdk', 'disks/elsewhere.vdk'));
     check('3. ... and a rename of a disk a drive holds is refused, naming the drive, with no waiting',
       held.ok && /is in drive 0; eject it before you rename it/.test(rn2.m), rn2.m || 'allowed');
   }
@@ -131,10 +131,10 @@ const A = () => images.vdk(40, 1), B = () => images.vdk(26, 1);
     const keep = A();
     await media.writeSync('disks/keep.vdk', keep);
     let release = null;
-    s.diskStoreChange(() => new Promise((r) => { release = () => r({ name: 'disks/hold', size: 0, mtime: 0 }); }), 'disks/hold');
-    const ren = q(s.renameMedia('disks/keep.vdk', 'disks/disk-1.vdk'));   // asked first; queues behind the hold
+    s.drives.storeChange(() => new Promise((r) => { release = () => r({ name: 'disks/hold', size: 0, mtime: 0 }); }), 'disks/hold');
+    const ren = q(s.library.renameMedia('disks/keep.vdk', 'disks/disk-1.vdk'));   // asked first; queues behind the hold
     for (let i = 0; i < 20; i++) await tick();
-    const nd = s.newDisk(0, { format: 'vdk', tracks: 40, heads: 1 });     // asked second; its listing cannot see the queued rename
+    const nd = s.drives.newDisk(0, { format: 'vdk', tracks: 40, heads: 1 });     // asked second; its listing cannot see the queued rename
     for (let i = 0; i < 20; i++) await tick();
     release();
     const [rn, ndr] = [await ren, await q(nd)];
@@ -160,18 +160,18 @@ const A = () => images.vdk(40, 1), B = () => images.vdk(26, 1);
     const realWrite = media.writeSync.bind(media);
     let refuse = true;
     media.writeSync = (n, b) => { if (n === 'disks/never.vdk' && refuse) throw refused; return realWrite(n, b); };
-    const im = await q(s.importMedia('never.vdk', A()));
+    const im = await q(s.library.importMedia('never.vdk', A()));
     refuse = false;
-    const rn = await q(s.renameMedia('disks/keep.vdk', 'disks/never.vdk'));
+    const rn = await q(s.library.renameMedia('disks/keep.vdk', 'disks/never.vdk'));
     check('3. setup: the import was refused by the store', !im.ok, im.m);
     check('3. ... and the name it was going to make is free at once (its claim went with it)',
       rn.ok && same(await read(media, 'disks/never.vdk'), B()), rn.m);
     // the same for a new disk whose mount fails: it is created and stored, its claim released with the creation
-    await s.ejectDisk(0);
-    const nd = await q(s.newDisk(0, { format: 'vdk', tracks: 40, heads: 1 }, { name: 'gone.vdk' }));
-    await s.ejectDisk(0);
-    const r1 = await q(s.renameMedia('disks/gone.vdk', 'disks/moved.vdk'));
-    const r2 = await q(s.renameMedia('disks/never.vdk', 'disks/gone.vdk'));
+    await s.drives.eject(0);
+    const nd = await q(s.drives.newDisk(0, { format: 'vdk', tracks: 40, heads: 1 }, { name: 'gone.vdk' }));
+    await s.drives.eject(0);
+    const r1 = await q(s.library.renameMedia('disks/gone.vdk', 'disks/moved.vdk'));
+    const r2 = await q(s.library.renameMedia('disks/never.vdk', 'disks/gone.vdk'));
     check('3. ... and a disk a creation made is an ordinary disk once it has finished (its name renamable)',
       nd.ok && r1.ok && r2.ok && same(await read(media, 'disks/gone.vdk'), B()), `${nd.m} | ${r2.m}`);
   }
@@ -186,8 +186,8 @@ const A = () => images.vdk(40, 1), B = () => images.vdk(26, 1);
       const s = await session(media);
       const keep = A(), other = B();
       await media.writeSync('disks/keep.vdk', keep);
-      const rn = q(s.renameMedia('disks/keep.vdk', 'disks/fresh.vdk'));   // asked first: takes the name
-      const im = how === 'importMedia' ? q(s.importMedia('fresh.vdk', other)) : q(s.importDisk('fresh.vdk', other, 1));
+      const rn = q(s.library.renameMedia('disks/keep.vdk', 'disks/fresh.vdk'));   // asked first: takes the name
+      const im = how === 'importMedia' ? q(s.library.importMedia('fresh.vdk', other)) : q(s.drives.importImage('fresh.vdk', other, 1));
       const [rr, ir] = [await rn, await im];
       check(`3. rename first, then ${how}: the import is refused as a second creation of the name`,
         rr.ok && !ir.ok && /already a disk named fresh\.vdk/.test(ir.m), `${rr.m || 'rename failed'} | ${ir.m || 'import wrote'}`);
@@ -202,8 +202,8 @@ const A = () => images.vdk(40, 1), B = () => images.vdk(26, 1);
     // finally, even on failure, and could not tell the two apart.
     const media = new MemoryMediaStore();
     const s = await session(media);
-    const rnP = q(s.renameMedia('disks/gone.vdk', 'disks/wanted.vdk'));   // the source is not there: it will fail
-    const imP = q(s.importMedia('wanted.vdk', B()));                      // queued behind it, before it is awaited
+    const rnP = q(s.library.renameMedia('disks/gone.vdk', 'disks/wanted.vdk'));   // the source is not there: it will fail
+    const imP = q(s.library.importMedia('wanted.vdk', B()));                      // queued behind it, before it is awaited
     const [rn, im] = [await rnP, await imP];
     check('3. a rename that failed does not land the name it never took',
       !rn.ok && im.ok && same(await read(media, 'disks/wanted.vdk'), B()), `${rn.m} | ${im.m || 'refused'}`);
@@ -215,12 +215,12 @@ const A = () => images.vdk(40, 1), B = () => images.vdk(26, 1);
     // Session relies on directly: two claims of one name, one release, and the name is still claimed; a second
     // release frees it. A Set (or a Map set to 1) fails the middle step.
     const s = await session(new MemoryMediaStore());
-    s.claimDiskName('disks/x.vdk');
-    s.claimDiskName('disks/x.vdk');
-    s.releaseDiskName('disks/x.vdk');
-    check('3. one release does not free a name two creations hold', s.claimedDiskName('disks/x.vdk'));
-    s.releaseDiskName('disks/x.vdk');
-    check('3. ... and the second release does', !s.claimedDiskName('disks/x.vdk'));
+    s.library.claimDiskName('disks/x.vdk');
+    s.library.claimDiskName('disks/x.vdk');
+    s.library.releaseDiskName('disks/x.vdk');
+    check('3. one release does not free a name two creations hold', s.library.claimedDiskName('disks/x.vdk'));
+    s.library.releaseDiskName('disks/x.vdk');
+    check('3. ... and the second release does', !s.library.claimedDiskName('disks/x.vdk'));
   }
 
   {
@@ -230,9 +230,9 @@ const A = () => images.vdk(40, 1), B = () => images.vdk(26, 1);
     const media = new MemoryMediaStore();
     const s = await session(media);
     await media.writeSync('disks/a.vdk', A());
-    const r1 = q(s.renameMedia('disks/a.vdk', 'disks/x.vdk'));
-    const r2 = q(s.renameMedia('disks/x.vdk', 'disks/y.vdk'));
-    const im = q(s.importDisk('x.vdk', B(), 1));
+    const r1 = q(s.library.renameMedia('disks/a.vdk', 'disks/x.vdk'));
+    const r2 = q(s.library.renameMedia('disks/x.vdk', 'disks/y.vdk'));
+    const im = q(s.drives.importImage('x.vdk', B(), 1));
     const [a, b, c] = [await r1, await r2, await im];
     check('3. a rename that vacated a name frees it for a creation queued behind',
       a.ok && b.ok && c.ok && same(await read(media, 'disks/x.vdk'), B()) && same(await read(media, 'disks/y.vdk'), A()),
@@ -254,8 +254,8 @@ const A = () => images.vdk(40, 1), B = () => images.vdk(26, 1);
       const link = await s.serveRealCoco(115200);
       // the chat's server, built exactly as startChat builds it (the full-screen chat cannot run here without a
       // firmware and a backend; this is the object startChat makes and keeps in chatServer)
-      s.chatServer = new DriveWireServer({ store: s.media, namePrefix: 'drivewire/', clock: s.drivewire.clock, sameName: (a, b) => s.sameName(a, b) });
-      await s.moveMedia(to);   // (the served server is still open, as it is while the cable is in)
+      s.chatServer = new DriveWireServer({ store: s.media, namePrefix: 'drivewire/', clock: s.drivewire.clock, sameName: (a, b) => s.library.sameName(a, b) });
+      await s.library.moveMedia(to);   // (the served server is still open, as it is while the cable is in)
       check('4. after a move the session, its Becker server, the served one and the chat\'s all use the new store',
         s.media === to && s.drivewire.store === to && link.server.store === to && s.chatServer.store === to,
         `session ${s.media === to} becker ${s.drivewire.store === to} served ${link.server.store === to} chat ${s.chatServer.store === to}`);

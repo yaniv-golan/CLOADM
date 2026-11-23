@@ -94,9 +94,9 @@ export function setupMachinePanel(page, { showRoms }) {
   async function inLibrary(items) {
     let names = [];
     if (items.some((t) => t.kind !== 'disk' && t.name)) {
-      try { names = (await session.listMedia()).map((x) => x.name.split('/').pop()); } catch (e) { names = []; }
+      try { names = (await session.library.listMedia()).map((x) => x.name.split('/').pop()); } catch (e) { names = []; }
     }
-    return items.filter((t) => (t.kind === 'disk' ? t.stored : !!t.name && names.some((n) => session.sameName(n, t.name))));
+    return items.filter((t) => (t.kind === 'disk' ? t.stored : !!t.name && names.some((n) => session.library.sameName(n, t.name))));
   }
   // to: { name: what it switches to (null for a RAM change), id, config }; onSwitch(taken, said) does it, taken being
   // what came out and said its " Took out: …." for the message; onCancel: what Cancel undoes. A running machine is
@@ -133,7 +133,7 @@ export function setupMachinePanel(page, { showRoms }) {
       try {
         // (said on the button itself, the control it is about: no toast)
         // (a retry after a failure skips the disks already saved: their drives are linked now)
-        for (const t of snap) { const now = session.diskStatus().drives.find((x) => x.drive === t.drive); if (now && !now.stored) await session.keepSnapshotDisk(t.drive); }
+        for (const t of snap) { const now = session.drives.status().drives.find((x) => x.drive === t.drive); if (now && !now.stored) await session.drives.keepSnapshot(t.drive); }
         save.textContent = 'Saved to Library';
       } catch (e) { save.disabled = false; page.status(e.message, true); }
     };

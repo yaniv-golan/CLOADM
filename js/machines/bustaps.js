@@ -21,7 +21,7 @@
  *
  * Each access is reported once. On the CoCo 3 an instruction that the disk controller's HALT suspends runs again
  * from its start, and the accesses it made before the held one are replayed rather than made again
- * (Coco3Machine.replayRead / replayWrite): they were reported when they were made, and a tap is not called for
+ * (HaltReplay.replayRead / replayWrite): they were reported when they were made, and a tap is not called for
  * the replay (Machine.replaying). The one exception is a tap added with { replays: true }, the debugger's: a
  * watchpoint hit belongs to the instruction that completes, so the debugger drops what an instruction reported
  * when it was suspended (Debugger._stepOnce) and takes its accesses again, replayed ones included, from the run

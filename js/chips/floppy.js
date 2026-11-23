@@ -55,7 +55,7 @@ const UNDAMAGED = new WeakSet();
 // about three times the cost of building the whole disk (a mount builds only the tracks the guest reads), so
 // mount() does not do it: the drive works it out once per mount,
 // the first time drive.mountBytes is read. The Session reads it in the background after a mount
-// (Session.checkDiskLater), so the work is normally done before the first snapshot; a snapshot taken sooner gets
+// (DiskDrives.checkLater), so the work is normally done before the first snapshot; a snapshot taken sooner gets
 // the same answer by doing it then. It cannot throw, so deferring it moves no error: a bad image still fails at
 // mount, in loadDisk. The caller keeps the mounted bytes only when this says the committed image cannot be trusted
 // to rebuild the drive.

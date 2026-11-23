@@ -140,7 +140,7 @@ export async function start() {
   let media, mediaNote;
   try { media = await openMediaStore(); mediaNote = media.constructor.name; } catch (e) { media = new MemoryMediaStore(); mediaNote = `memory (${e.message})`; }
   const session = new Session({ store: localStore(), media, welcomeMenu: false });
-  try { await session.ready(); } catch (e) { session.useMediaStore(new MemoryMediaStore()); mediaNote = `memory (${e.message})`; }
+  try { await session.ready(); } catch (e) { session.library.useMediaStore(new MemoryMediaStore()); mediaNote = `memory (${e.message})`; }
   const canvas = $('screen');
   const presenter = new CrispPresenter(canvas, frameToRGBA);
   const input = new HostInput(session.shownMachine, session.keys);
@@ -183,7 +183,7 @@ export async function start() {
   };
   const runProgram = (name) => attempt(() => {
     if (name === 'liza') return runLiza();
-    if (name === 'welcome') { say(session.startWelcome(files[session.welcomeFile])); return running(PROGRAM_NAMES.welcome); }
+    if (name === 'welcome') { say(session.startWelcome(files[session.welcomeFile], { reason: 'shelf' })); return running(PROGRAM_NAMES.welcome); }
     if (name === 'demo') {
       if (session.shownMachine.hasRom) session.runWithoutRoms({ menu: false });
       say(session.load('demo.bin', files['demo.bin'], { remember: false }));

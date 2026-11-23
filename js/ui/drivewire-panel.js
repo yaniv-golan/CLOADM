@@ -32,7 +32,7 @@ export function setupDriveWirePanel(page) {
     // line, as the Library does, and show no images rather than leave a promise nothing waits for
     let images;
     try { images = await session.driveWireImages(); }
-    catch (e) { images = []; fail(session.mediaError(e, 'the DriveWire images')); }
+    catch (e) { images = []; fail(session.library.mediaError(e, 'the DriveWire images')); }
     const mounts = new Map(session.driveWireMounts.map((d) => [d.drive, d]));
     box.replaceChildren();
     for (let d = 0; d < DRIVES; d++) {
@@ -82,10 +82,10 @@ export function setupDriveWirePanel(page) {
       // no drive chosen: the first image; with none at all (a store that refused the listing), say so rather
       // than read a name off an empty list
       const chosen = $('dwDrive0').value;
-      // (a refused listing is said as the box says it: session.mediaError, not the store's raw error)
+      // (a refused listing is said as the box says it: session.library.mediaError, not the store's raw error)
       let first = null;
       if (!chosen) {
-        try { first = (await session.driveWireImages())[0]; } catch (e) { throw session.mediaError(e, 'the DriveWire images'); }
+        try { first = (await session.driveWireImages())[0]; } catch (e) { throw session.library.mediaError(e, 'the DriveWire images'); }
       }
       if (!chosen && !first) throw new SessionError('No DriveWire image to save: add one first.');
       const f = await session.driveWireFile(chosen || first.name); page.download(f.name, f.bytes);
