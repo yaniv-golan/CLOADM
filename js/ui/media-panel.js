@@ -80,10 +80,12 @@ export function setupMediaPanel(page, { snapshots, disks, nitros9, keep }) {
   };
   // the deck shows the position: no message (and Rewind is disabled while the deck is empty)
   $('btnRewind').onclick = () => { session.rewindTape(); page.focus(); };
-  // Eject: the deck under the screen hides with the tape, so the focus goes to the slot's deck button (insert a tape)
+  // Eject: the deck under the screen hides with the tape, so the focus goes to the slot's deck button (insert a tape);
+  // on a phone with its Tape sheet closed (Eject from the palette), to the Tape chip that opens it
   $('btnEjectTape').onclick = () => {
     if (!session.ejectTape()) return;
-    $('btnTape').focus();
+    const to = [$('btnTape'), $('chipTape')].find((e) => e.checkVisibility());
+    if (to) to.focus(); else page.focus();
     page.status('Tape ejected.');
   };
 

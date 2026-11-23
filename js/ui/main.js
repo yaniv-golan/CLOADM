@@ -29,6 +29,7 @@ import { setupDebuggerStop } from './debugger-stop.js';
 import { setupSelfTestPanel } from './selftest-panel.js';
 import { setupPokePanel } from './poke-panel.js';
 import { setupDrawer } from './drawer.js';
+import { setupPhoneSheets } from './phone-sheets.js';
 import { setupLibrary } from './library.js';
 import { setupTypein } from './typein.js';
 import { setupMultiPakPanel } from './multipak-panel.js';
@@ -152,7 +153,7 @@ const showRoms = () => romSockets.reveal();
 // routes that open one (?app=claude, the Ask panel, the command box, a keypress) have nothing to reach.
 const claude = chatHere ? setupClaude(page) : null;
 // set up only when there is a controller: both modules drive the chat and would throw on null
-if (claude) setupAsk(page, claude);
+const ask = claude ? setupAsk(page, claude) : null;
 if (claude) setupCommandBox(page, claude, machinePanel);
 // the controls that hand Claude a key or a say over the machine take no press for their card's first moments on screen
 if (claude) {
@@ -171,6 +172,8 @@ if (claude) {
 window.emu.askPopout = claude ? null : setupAskPopout(page, { link, framed: framedInPage });
 const welcome = setupWelcome(page, { showRoms, openClaude: () => claude && claude.open() });
 const drawer = setupDrawer(page, { showRoms });
+// a phone: the ports and power in sheets, one row of chips under the on-screen panel
+page.sheets = setupPhoneSheets(page, { touchKeys: page.touchKeys, ask });
 const openRoms = () => { romSockets.reveal(); $('fileRom').click(); };
 // a program spoke on the Speech/Sound Pak with no speech ROM: once a session (Session.checkSpeechRom), with the way in
 session.on((ev) => { if (ev === 'speech-rom') page.toast(SSC_TEXT.speechNoRom, { action: { label: 'Add ROMs', run: () => romSockets.reveal() } }); });
@@ -238,18 +241,26 @@ $('btnMenu').onclick = () => {
 {
   const pill = $('romPill'), item = $('navRoms');
   // (the dot is drawn only: while it is on, Menu's name says what it means)
+  // (and an accent dot while media is in, on a short phone where Menu has the ports: js/ui/phone-sheets.js)
   const sync = () => {
     item.hidden = pill.hidden;
-    $('btnMenu').classList.toggle('dot', !pill.hidden);
-    if (pill.hidden) $('btnMenu').removeAttribute('aria-label'); else $('btnMenu').setAttribute('aria-label', 'Menu (ROMs needed)');
+    const menu = $('btnMenu'), media = menu.classList.contains('media');
+    menu.classList.toggle('dot', !pill.hidden);
+    // (both: its one dot is the ROMs', its name says both)
+    if (!pill.hidden) menu.setAttribute('aria-label', media ? 'Menu (ROMs needed, media inserted)' : 'Menu (ROMs needed)');
+    else if (media) menu.setAttribute('aria-label', 'Menu (media inserted)');
+    else menu.removeAttribute('aria-label');
   };
+  page.syncMenu = sync;
   const close = () => { $('appbar').classList.remove('menu-open'); $('btnMenu').setAttribute('aria-expanded', 'false'); };
   item.onclick = () => { close(); pill.click(); };
   $('navShare').onclick = () => { close(); $('btnShare').click(); };
-  // Settings…: the drawer's tabs are far below the screen on a phone; brought into view, on Display (a person looking
-  // for "settings" is most often after the picture: its look, its size, the colours)
+  // Settings…: with the touch keys, the Settings sheet on the tab last used (js/ui/phone-sheets.js); elsewhere the
+  // drawer's tabs, far below the screen in a narrow window, brought into view on Display (a person looking for
+  // "settings" is most often after the picture: its look, its size, the colours)
   $('navSettings').onclick = () => {
     close();
+    if (page.openSettings(null, $('btnMenu'))) return;   // (the focus back on Menu when it closes)
     const tab = $('tab-display');
     tab.click();
     tab.closest('[role="tablist"]').scrollIntoView({ block: 'start' });
@@ -257,15 +268,24 @@ $('btnMenu').onclick = () => {
   };
   new MutationObserver(sync).observe(pill, { attributes: true, attributeFilter: ['hidden'] });
   sync();
+  // Menu's order on a phone: Install… after Share…, before the links; on a wider page it is the app bar's last link
+  // (moved, not reordered by the stylesheet, so the focus goes down the list in the order it is drawn)
+  const narrow = matchMedia('(max-width: 700px)');
+  const installPlace = () => { if (narrow.matches) $('navShare').after($('navInstall')); else $('navInstall').closest('nav').append($('navInstall')); };
+  narrow.addEventListener('change', installPlace);
+  installPlace();
 }
 
 // Esc closes the topmost surface that is open (page.onEscape: confirmations, menus, cards, the views, the chat)
 //; on the screen only a confirmation or a card takes it, and otherwise it is the machine's BREAK; a control
-// that took it first (it prevents the default) and an open <dialog> (the browser closes it) keep it
+// that took it first (it prevents the default) and an open <dialog> (the browser closes it) keep it. A phone's
+// sheet is a dialog whose Esc is the page's own: what is open over it (a menu, a card) closes first, then the sheet
 page.onEscape(ESC.view, viewOpen, () => page.closeView());
 addEventListener('keydown', (e) => {
-  if (e.key !== 'Escape' || e.defaultPrevented || document.querySelector('dialog[open]')) return;
-  if (page.escape(e.target === $('screen'))) e.preventDefault();
+  if (e.key !== 'Escape' || e.defaultPrevented) return;
+  const dialog = document.querySelector('dialog[open]');
+  if (dialog && !dialog.classList.contains('sheet')) return;
+  if (page.escape(!dialog && e.target === $('screen'))) e.preventDefault();
 });
 
 const visit = session.visit();

@@ -79,8 +79,11 @@
   }
   #btnMenu { display: none; }
   @media (min-width: 701px) { #navRoms, #navShare, #navSettings { display: none; } }   /* (the app bar's pill and Share button there) */
+  /* (with the touch keys the drawer's tabs are in the Settings sheet at any width: Settings… is the way to them) */
+  @media (min-width: 701px) { body:is(.touch-keys, .touch-hidden) #navSettings { display: inline-flex; } }
   /* (an author display rule outranks the hidden attribute's, so it is stated: once installed, the link goes) */
   #navInstall[hidden] { display: none; }
+  #navInstall .ell { display: none; }   /* (Menu's "Install…" on a phone) */
   #machineMenu { position: absolute; top: calc(100% - 6px); left: 20px; z-index: 20; width: min(600px, calc(100vw - 40px)); background: var(--panel);
     border: 1px solid var(--line); border-radius: var(--r-14); padding: 14px; box-shadow: 0 20px 50px rgba(0, 0, 0, .6);
     display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 16px; max-height: 80vh; overflow-y: auto; }
@@ -251,6 +254,9 @@
   #toastText { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
   #toastAction { background: #0B0D0C; color: #E8EDE6; border: 0; border-radius: 8px; padding: 6px 10px; font-weight: 700; min-height: 0; }
   #toastText button.inline { background: #0B0D0C; color: #E8EDE6; border: 0; border-radius: 6px; padding: 0 8px; font: inherit; font-weight: 700; min-height: 0; }
+  /* a touch screen: the toast's buttons (Undo, Switch off and on…) are full-size tap targets */
+  body:is(.touch-keys, .touch-hidden) #toastAction, body:is(.touch-keys, .touch-hidden) #toastText button.inline { min-height: 44px; }
+  body:is(.touch-keys, .touch-hidden) #toastText button.inline { display: inline-flex; align-items: center; vertical-align: middle; }
   #toastDetails { flex-basis: 100%; font-size: 14px; color: #2A302C; overflow-wrap: anywhere; }
   #toastAlso { flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; overflow-wrap: anywhere; }
   #toastAlso[hidden] { display: none; }
@@ -1391,6 +1397,14 @@
     .appbar.menu-open nav { display: flex; position: absolute; z-index: 65; top: 100%; left: 8px; right: 8px; flex-direction: column; align-items: stretch; gap: 0;
       padding: 8px 16px; background: var(--panel); border: 1px solid var(--line-strong); border-top: 0; border-radius: 0 0 12px 12px; box-shadow: 0 20px 40px rgba(0, 0, 0, .6); }
     .appbar.menu-open nav a, .appbar.menu-open nav button.navlink { min-height: 44px; display: flex; align-items: center; text-align: left; }
+    /* Menu's order: Add ROMs, Settings…, Share…, Install… (js/ui/main.js moves it up here), Library, Debugger,
+       Commands…, then, under a rule, Help and GitHub */
+    .appbar.menu-open nav button.twoline { flex-direction: column; align-items: flex-start; justify-content: center; gap: 0; }
+    .appbar.menu-open nav .twoline .sub { font-size: 13px; color: var(--muted); }
+    #btnMenu.media:not(.dot)::after { content: ''; position: absolute; top: 7px; right: 5px; width: 8px; height: 8px; border-radius: 50%; background: var(--phosphor); }
+    .appbar.menu-open nav #navHelp { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
+    .appbar.menu-open #navInstall .more { display: none; }
+    .appbar.menu-open #navInstall .ell { display: inline; }
     #machineMenu { left: 8px; right: 8px; width: auto; grid-template-columns: minmax(0, 1fr); max-height: 70vh; }
     #switchConfirm { top: 100%; left: 8px; right: 8px; width: auto; }
     .layout { padding: 16px; }
@@ -1446,8 +1460,8 @@
     body.touch-keys:not(.chat-phone) #touchKeys .tk { height: 40px; min-height: 40px; }
     body.touch-keys:not(.chat-phone) #touchKeys #touchPad .tk { height: auto; min-height: 48px; }
     body.touch-keys:not(.chat-phone) #touchKeys > #touchFull { gap: 4px; }
-    /* the strip above the keys: [Keys|Pad|Stick] [BREAK] [CLEAR] [⌄], 44 px high; the switch at its own width (short
-       labels, each segment 44 px or more), BREAK and CLEAR sharing the rest, ⌄ (Hide keys) 44 px square */
+    /* the strip above the keys: [Keys|Pad|Stick] [BREAK] [CLEAR], 44 px high; the switch at its own width (short
+       labels, each segment 44 px or more), BREAK and CLEAR sharing the rest (Hide keys is in the Power sheet) */
     body.touch-keys:not(.chat-phone) #touchKeys > .tkcenter { display: flex; grid-column: 1 / -1; grid-row: 1; gap: 4px; min-width: 0; }
     body.touch-keys:not(.chat-phone) #touchKeys > .tkcenter > .tkbtns { display: contents; }
     body.touch-keys:not(.chat-phone) #touchKeys > .tkcenter > .tkmode { flex: none; }
@@ -1469,6 +1483,57 @@
   body.touch-hidden { padding-bottom: calc(68px + var(--safe-b)); }
   #btnShowKeys:not([hidden]) { position: fixed; z-index: 30; right: calc(12px + var(--safe-r)); bottom: calc(12px + var(--safe-b)); width: 44px; height: 44px;
     min-height: 44px; padding: 0; font-size: 22px; border-radius: 12px; display: inline-flex; align-items: center; justify-content: center; }
+  /* a phone (js/ui/phone-sheets.js): the chips under the on-screen panel, upright; the ports and the machine's
+     controls live in the sheets they open, so their places on the page are empty and not drawn */
+  #chipRow { display: none; }
+  body:is(.touch-keys, .touch-hidden):not(.chat-phone) #chipRow:not([hidden]) { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+  @media (orientation: landscape) and (max-height: 500px) { body #chipRow { display: none !important; } }
+  /* a short phone upright (under 600 px): no chip row, the screen keeps its room; Menu has the ports and Power */
+  @media (orientation: portrait) and (max-height: 599px) { body #chipRow { display: none !important; } }
+  .chip { font-family: var(--font-sans, inherit); height: 48px; min-height: 48px; min-width: 0; padding: 0 8px; display: flex; flex-direction: column; align-items: flex-start; justify-content: center;
+    gap: 1px; text-align: left; line-height: 1.15; }
+  .chip .cn { font-size: 14px; font-weight: 700; }
+  .chip .cs { font-size: 12px; color: var(--muted); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .chip.has-media { outline: 2px solid var(--phosphor); outline-offset: -2px; }
+  body:is(.touch-keys, .touch-hidden) .slots, body:is(.touch-keys, .touch-hidden) .controls[aria-label="Machine controls"] > :not(#btnShowKeys) { display: none; }
+  /* (the toolbar left holding ⌨ alone, fixed in its corner, and a row of controls none of which shows: no box, so no gap
+     under the panel, and the page does not scroll) */
+  body:is(.touch-keys, .touch-hidden) .controls[aria-label="Machine controls"] { display: contents; }
+  body:is(.touch-keys, .touch-hidden) .layout > main > .controls:not(:has(> :not([hidden]))) { display: none; }
+  /* the sheets: a modal dialog from the bottom upright (from the right side, held sideways) */
+  dialog.sheet { box-sizing: border-box; margin: 0; padding: 0; border: 1px solid var(--line-strong); color: var(--text); background: var(--panel);
+    width: 100%; max-width: none; max-height: 85dvh; inset: auto 0 0 0; border-radius: 16px 16px 0 0; overflow: auto; overscroll-behavior: contain;
+    padding-bottom: var(--safe-b); }
+  dialog.sheet::backdrop { background: rgba(0, 0, 0, .55); }
+  .sheethead { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; gap: 8px; padding: 8px 12px 8px 16px; background: var(--panel); border-bottom: 1px solid var(--line); }
+  .sheethead h2 { flex: 1; margin: 0; font-size: 17px; }
+  .sheethead button { height: 44px; min-height: 44px; }
+  .sheetbody { display: flex; flex-direction: column; gap: 12px; padding: 12px 16px 16px; }
+  .sheetbody > .slot { margin: 0; padding: 0; border: 0; background: none; }
+  /* (the sheet's own heading, or the ports sheet's tab, says it; and the sheet is the way to show or hide the deck) */
+  :is(#sheetCart, #sheetPorts) #cartSlot > .inner > .title { display: none; }
+  :is(#sheetTape, #sheetPorts) #tapePanel .deckhead { display: none; }
+  :is(#sheetTape, #sheetPorts) #tapePanel { margin: 0; }
+  #sheetPower .sheetbody { flex-direction: row; flex-wrap: wrap; }
+  /* Settings: from the screen's foot to the window's (js/ui/phone-sheets.js sets --sheet-h, at least half the window),
+     so the screen shows what a Display setting does; Expand takes the whole height */
+  #sheetSettings { height: var(--sheet-h, 60dvh); max-height: 100dvh; }
+  #sheetSettings.expanded { height: 100dvh; border-radius: 0; }
+  #sheetSettings [role="tablist"] { flex: none; }
+  #sheetSettings [role="tab"], #sheetPorts [role="tab"] { min-height: 44px; flex: none; }
+  #sheetPorts [role="tablist"] { flex: none; }
+  #sheetPorts [role="tabpanel"] > .sheetbody { padding: 0; }
+  /* held sideways: every sheet comes from the right side, 360 px wide and the window's height */
+  @media (orientation: landscape) and (max-height: 500px) {
+    dialog.sheet, #sheetSettings, #sheetSettings.expanded { inset: 0 0 0 auto; width: min(360px, 100vw); height: 100dvh; max-height: 100dvh; border-radius: 16px 0 0 16px;
+      padding-bottom: 0; padding-right: var(--safe-r); }
+    #btnSheetExpand { display: none; }   /* (it is the whole height already) */
+  }
+  /* the phone layout: the drawer's tabs are in the Settings sheet; what is left of it is not drawn while it holds
+     nothing that shows (Ask's strip, during a turn, still does), and the credits are behind Menu → Help */
+  body:is(.touch-keys, .touch-hidden) .layout > .drawer:not(:has(> :not([hidden]))) { display: none; }
+  body:is(.touch-keys, .touch-hidden) > footer { display: none; }
+  #sheetPower .sheetbody > button { min-height: 44px; flex: 1 1 40%; }
 </style>
 </head>
 <body>
@@ -1510,16 +1575,19 @@ npx serve -l 8000 .</pre>
     <!-- a phone's Menu: Add ROMs first while the machine has no BASIC (with Menu's dot beside it), Share and Settings… (the
          drawer's tabs, far down the page there) (js/ui/main.js; the app bar's pill and button elsewhere) -->
     <button id="navRoms" class="navlink" type="button" hidden>Add ROMs (BASIC needs them)<span class="dot" aria-hidden="true"></span></button>
-    <button id="navShare" class="navlink" type="button" title="A link that opens this machine as it is, a clip, a screenshot, a snapshot file; and the embed code">Share</button>
     <button id="navSettings" class="navlink" type="button">Settings…</button>
+    <!-- a short phone upright has no chips: the ports and Power are Menu's, each with its state (js/ui/phone-sheets.js) -->
+    <button id="navPorts" class="navlink twoline" type="button" hidden><span>Tape, disks and cartridge…</span><span class="sub" id="navPortsState">Empty</span></button>
+    <button id="navPower" class="navlink twoline" type="button" hidden><span>Power…</span><span class="sub" id="navPowerState">Running</span></button>
+    <button id="navShare" class="navlink" type="button" title="A link that opens this machine as it is, a clip, a screenshot, a snapshot file; and the embed code">Share…</button>
     <a href="play/#library" id="navLibrary">Library</a>
     <a href="play/#debugger" id="navDebugger">Debugger</a>
     <button id="navCommands" class="navlink" type="button">Commands… <kbd id="navCmdKbd">Ctrl K</kbd></button>
-    <a href="help/">Help</a>
-    <a href="https://github.com/yaniv-golan/cloadm">GitHub</a>
+    <a href="help/" id="navHelp">Help</a>
+    <a href="https://github.com/yaniv-golan/cloadm" id="navGithub">GitHub</a>
     <!-- js/ui/install.js: the browser's own install prompt, or the card with the steps that install it, which opens
          under the app bar, near this link (hidden once installed) -->
-    <button id="navInstall" class="navlink" type="button">Install<span class="more"> CLOADM…</span></button>
+    <button id="navInstall" class="navlink" type="button"><span>Install<span class="more"> CLOADM…</span><span class="ell">…</span></span></button>
   </nav>
   <button id="btnMenu" aria-expanded="false" aria-controls="appbar">Menu</button>
   <div id="machineMenu" role="menu" aria-label="Machines" hidden></div>
@@ -1664,6 +1732,14 @@ npx serve -l 8000 .</pre>
           <button type="button" data-touchmode="joystick" aria-pressed="false">Stick</button></div>
         <div class="tkbtns"><button id="tkBreak"></button><button id="tkClear"></button><button id="tkMenu" type="button" aria-expanded="false" aria-controls="tkMenuSheet">Menu</button></div></div>
       <div id="tkMenuSheet" role="group" aria-label="Keys menu" hidden></div>
+    </div>
+    <!-- a phone (the on-screen panel on, upright): the machine's ports and power as one row of chips under the panel,
+         each opening its sheet (js/ui/phone-sheets.js); the order is fixed -->
+    <div id="chipRow" role="group" aria-label="Tape, disks, cartridge and power" hidden>
+      <button type="button" class="chip" id="chipTape" data-sheet="sheetTape"><span class="cn">Tape</span><span class="cs">Empty</span></button>
+      <button type="button" class="chip" id="chipDisks" data-sheet="sheetDisks"><span class="cn">Disks</span><span class="cs">Empty</span></button>
+      <button type="button" class="chip" id="chipCart" data-sheet="sheetCart"><span class="cn">Cartridge</span><span class="cs">Empty</span></button>
+      <button type="button" class="chip" id="chipPower" data-sheet="sheetPower"><span class="cn">Power</span><span class="cs">Running</span></button>
     </div>
 
     <div class="controls" id="claudeViewRow" hidden><button id="btnClaudeView">Show my BASIC session</button>
@@ -2322,6 +2398,7 @@ npx serve -l 8000 .</pre>
 <link rel="modulepreload" href="js/ui/selftest-panel.js">
 <link rel="modulepreload" href="js/ui/poke-panel.js">
 <link rel="modulepreload" href="js/ui/drawer.js">
+<link rel="modulepreload" href="js/ui/phone-sheets.js">
 <link rel="modulepreload" href="js/ui/library.js">
 <link rel="modulepreload" href="js/ui/typein.js">
 <link rel="modulepreload" href="js/ui/multipak-panel.js">
@@ -2345,6 +2422,18 @@ npx serve -l 8000 .</pre>
 <link rel="modulepreload" href="js/ui/nitros9-panel.js">
 <link rel="modulepreload" href="js/ui/install.js">
 <!-- modulepreload:end -->
+<!-- a phone's sheets (js/ui/phone-sheets.js): the page's own controls move into them while the on-screen panel is on,
+     and back when it is off; each is a modal dialog -->
+<dialog id="sheetTape" class="sheet" hidden aria-labelledby="sheetTapeTitle"><div class="sheethead"><h2 id="sheetTapeTitle">Cassette deck</h2><button type="button" class="sheetdone">Done</button></div><div class="sheetbody" data-body="sheetTape"></div></dialog>
+<dialog id="sheetDisks" class="sheet" hidden aria-labelledby="sheetDisksTitle"><div class="sheethead"><h2 id="sheetDisksTitle">Disk drives</h2><button type="button" class="sheetdone">Done</button></div><div class="sheetbody" data-body="sheetDisks"><p class="muted sheetnote" hidden></p></div></dialog>
+<dialog id="sheetCart" class="sheet" hidden aria-labelledby="sheetCartTitle"><div class="sheethead"><h2 id="sheetCartTitle">Cartridge port</h2><button type="button" class="sheetdone">Done</button></div><div class="sheetbody" data-body="sheetCart"><p class="muted sheetnote" hidden></p></div></dialog>
+<dialog id="sheetPower" class="sheet" hidden aria-labelledby="sheetPowerTitle"><div class="sheethead"><h2 id="sheetPowerTitle">Power</h2><button type="button" class="sheetdone">Done</button></div><div class="sheetbody"><button type="button" id="btnHideKeys">Hide keys</button></div></dialog>
+<dialog id="sheetSettings" class="sheet" hidden aria-labelledby="sheetSettingsTitle"><div class="sheethead"><h2 id="sheetSettingsTitle">Settings</h2><button type="button" id="btnSheetExpand" aria-pressed="false">Expand</button><button type="button" class="sheetdone">Done</button></div><div class="sheetbody"></div></dialog>
+<!-- held sideways, the keys' Menu opens the three ports as one side sheet, a tab each (js/ui/phone-sheets.js moves
+     the Tape, Disks and Cartridge sheets' contents into its panels while it is open) -->
+<dialog id="sheetPorts" class="sheet" hidden aria-labelledby="sheetPortsTitle"><div class="sheethead"><h2 id="sheetPortsTitle">Tape, disks and cartridge</h2><button type="button" class="sheetdone">Done</button></div><div class="sheetbody">
+  <div role="tablist" aria-label="Tape, disks and cartridge" id="portTabs"><button role="tab" type="button" id="portTabTape" aria-controls="portPanelTape" data-sheet="sheetTape">Tape</button><button role="tab" type="button" id="portTabDisks" aria-controls="portPanelDisks" data-sheet="sheetDisks">Disks</button><button role="tab" type="button" id="portTabCart" aria-controls="portPanelCart" data-sheet="sheetCart">Cartridge</button></div>
+  <div role="tabpanel" id="portPanelTape" aria-labelledby="portTabTape"></div><div role="tabpanel" id="portPanelDisks" aria-labelledby="portTabDisks" hidden></div><div role="tabpanel" id="portPanelCart" aria-labelledby="portTabCart" hidden></div></div></dialog>
 <script type="module" src="js/ui/main.js" onerror="if (location.protocol !== 'file:') showStartError('The emulator\'s scripts could not be loaded from this server.')"></script>
 </body>
 </html>

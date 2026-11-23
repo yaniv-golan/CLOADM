@@ -516,7 +516,19 @@ const switchText = async (page, want) => { await maybeWaitFor('the text read as 
 // a RAM change asks first, as a machine switch does: answer Switch
 const confirmRam = async (page) => { await waitFor(page, () => !document.getElementById('switchConfirm').hidden); await page.click('#btnSwitch'); };
 // open a tab of the settings drawer
-const openTab = (page, name) => page.click(`[role="tab"]:text-is("${name}")`);
+// (on a phone the tabs are in the Settings sheet: opened first as a person would, Menu → Settings…; closeSheet after,
+// before anything outside the sheet is touched)
+const openTab = async (page, name) => {
+  if (await page.evaluate(() => { const d = document.querySelector('[role="tab"]').closest('dialog.sheet'); return !!d && !d.open; })) {
+    // (Menu → Settings… upright on a phone; Settings… in the app bar on a tablet; sideways, the keys' own Menu)
+    if (await page.isVisible('#btnMenu')) await page.click('#btnMenu');
+    if (await page.isVisible('#navSettings')) await page.click('#navSettings');
+    else { await page.click('#tkMenu'); await page.click('#tkMenuSheet [data-item="settings"]'); }
+    await waitFor(page, () => document.getElementById('sheetSettings').open);
+  }
+  return page.click(`[role="tab"]:text-is("${name}")`);
+};
+const closeSheet = (page) => page.evaluate(() => { const d = document.querySelector('dialog.sheet[open]'); if (d) d.querySelector('.sheetdone').click(); });
 // the Share screen's disclosures ("More ways to share" #shareMore, "Embed in a web page" #shareEmbed) open by their summary, as a person would
 const openDisc = async (page, id) => { if (!(await page.evaluate((i) => document.getElementById(i).open, id))) await page.click(`#${id} > summary`); };
 // The stub firmware's own prompt, for a check that types POKEs into it: a power-on of the machine itself, below the
@@ -4603,6 +4615,379 @@ async function librarySelectChecks(browser, base, check) {
 //    handler runs), and its click does not clear a toast the gesture itself raised;
 //  - a toast with no place free is not held back: it shows at once in the fixed slot at the top of the viewport, keeps
 //    that slot, and its time runs; a newer one replaces it.
+// ---------------- a phone's layout (the touch keys on): the chips under the panel and their sheets ----------------
+// iPhone 15 upright: the four chips (Tape, Disks, Cartridge, Power) in their fixed order under the keyboard panel, each a
+// full-size target; each opens its sheet, a modal dialog with the focus inside, and Esc closes it with the focus back on
+// the chip; the hardware keyboard does not reach the machine while a sheet is open; a tape mounted from the sheet names
+// itself on its chip; opening a sheet lets go of a held stick; Hide keys, then the floating ⌨, with the chips up
+// throughout; a toast's action button is a full-size target.
+async function phoneChecks(browser, base, check) {
+  const { devices } = require('playwright');
+  const ctx = await browser.newContext({ ...devices['iPhone 15'], serviceWorkers: 'block' });
+  const page = await ctx.newPage();
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto(`${base}?machine=dragon64`);
+  await started(page);
+  const CHIPS = ['chipTape', 'chipDisks', 'chipCart', 'chipPower'], SHEETS = ['sheetTape', 'sheetDisks', 'sheetCart', 'sheetPower'];
+  const row = await page.evaluate((ids) => {
+    const keys = document.getElementById('touchKeys').getBoundingClientRect();
+    return ids.map((id) => { const c = document.getElementById(id), r = c.getBoundingClientRect();
+      return { id, w: Math.round(r.width), h: Math.round(r.height), left: r.left, top: r.top, under: r.top >= keys.bottom - 1, seen: c.checkVisibility() && r.bottom <= innerHeight,
+        name: c.querySelector('.cn').textContent }; });
+  }, CHIPS);
+  check('phone: the four chips Tape, Disks, Cartridge, Power, in that order under the keyboard panel, each in view and at least 44 x 44',
+    row.map((c) => c.name).join() === 'Tape,Disks,Cartridge,Power' && row.every((c, i) => c.seen && c.under && c.w >= 44 && c.h >= 44 && (!i || c.left > row[i - 1].left)), JSON.stringify(row));
+  for (let i = 0; i < 4; i++) {
+    await page.tap(`#${CHIPS[i]}`);
+    const opened = await waitFor(page, (id) => document.getElementById(id).open && document.getElementById(id).contains(document.activeElement), SHEETS[i]);
+    const title = await page.evaluate((id) => document.querySelector(`#${id} h2`).textContent, SHEETS[i]);
+    await page.keyboard.press('Escape');
+    const closed = await waitFor(page, (id) => !document.querySelector('dialog[open]') && document.activeElement && document.activeElement.id === id, CHIPS[i]);
+    check(`phone: ${CHIPS[i]} opens its sheet "${title}" (a modal dialog, the focus inside); Esc closes it and the focus is back on the chip`,
+      opened && closed && title === ['Cassette deck', 'Disk drives', 'Cartridge port', 'Power'][i], JSON.stringify({ opened, closed, title }));
+  }
+  // Esc with the drive menu open over the Disks sheet: the menu closes first, the sheet stays; the next Esc closes it
+  await page.tap('#chipDisks');
+  await page.tap('#drives [data-drive="0"]');
+  const menuUp = await waitFor(page, () => !document.getElementById('driveMenu').hidden);
+  await page.keyboard.press('Escape');
+  const first = await page.evaluate(() => ({ menu: !document.getElementById('driveMenu').hidden, sheet: document.getElementById('sheetDisks').open }));
+  await page.keyboard.press('Escape');
+  const second = await page.evaluate(() => ({ sheet: document.getElementById('sheetDisks').open, focus: document.activeElement.id }));
+  check('phone: Esc with the drive menu open over the Disks sheet closes the menu and leaves the sheet; the next Esc closes the sheet, the focus on its chip',
+    menuUp && !first.menu && first.sheet && !second.sheet && second.focus === 'chipDisks', JSON.stringify({ menuUp, first, second }));
+  // the sheet is modal (the page behind it inert), and its Esc ranks over Claude paused by a key: Esc closes the sheet,
+  // Claude stays paused (the Esc after it is Claude's Stop)
+  await page.evaluate(() => window.emu.session.consent.pause([]));
+  await page.tap('#chipCart');
+  const modal = await page.evaluate(() => document.getElementById('sheetCart').matches(':modal'));
+  await page.keyboard.press('Escape');
+  const rank = await page.evaluate(() => ({ sheet: document.getElementById('sheetCart').open, paused: !!window.emu.session.consent.paused }));
+  check('phone: a sheet is modal, and with Claude paused by a key Esc closes the sheet first (Claude stays paused)', modal && !rank.sheet && rank.paused, JSON.stringify({ modal, rank }));
+  await page.evaluate(() => window.emu.session.consent.endPause());
+  // the hardware keyboard while a sheet is open: the welcome menu's "1" (LIZA) does not reach the machine
+  await page.tap('#chipPower');
+  await waitFor(page, () => document.getElementById('sheetPower').open);
+  const screenBefore = await page.evaluate(() => window.emu.session.screenText().join('\n'));
+  await page.keyboard.press('1');
+  await emuFrames(page, 60);
+  const screenAfter = await page.evaluate(() => window.emu.session.screenText().join('\n'));
+  check('phone: typing on the hardware keyboard while a sheet is open does not reach the machine (the welcome menu is still up after "1")',
+    screenBefore === screenAfter && /PRESS 1 TO 5/.test(screenAfter), screenAfter.slice(0, 120));
+  await page.keyboard.press('Escape');
+  // a tape mounted from the Tape sheet names itself on the chip
+  await page.tap('#chipTape');
+  await waitFor(page, () => document.getElementById('sheetTape').open);
+  await page.setInputFiles('#fileTape', { name: 'HI.CAS', mimeType: 'application/octet-stream', buffer: Buffer.alloc(256, 0x55) });   // (leader only: a tape the deck takes)
+  const named = await waitFor(page, () => document.querySelector('#chipTape .cs').textContent === 'HI.CAS');
+  const tapeChip = await page.evaluate(() => ({ text: document.querySelector('#chipTape .cs').textContent, label: document.getElementById('chipTape').getAttribute('aria-label'), media: document.getElementById('chipTape').classList.contains('has-media') }));
+  check('phone: a tape mounted from the Tape sheet: its chip says HI.CAS, is outlined, and is named "Tape: HI.CAS. Open the cassette deck."',
+    named && tapeChip.media && tapeChip.label === 'Tape: HI.CAS. Open the cassette deck.', JSON.stringify(tapeChip));
+  await page.evaluate(() => { if (document.querySelector('dialog[open]')) document.querySelector('dialog[open] .sheetdone').click(); window.emu.feedback.clear(); });
+  // a stick held when a sheet opens is let go of (the Stick mode, a finger on the stick, a sheet opened)
+  await page.evaluate(() => document.querySelector('[data-touchmode="joystick"]').click());
+  await waitFor(page, () => document.getElementById('touchStick').checkVisibility());
+  const held = await page.evaluate(() => {
+    const z = document.getElementById('touchStick'), r = z.getBoundingClientRect();
+    z.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 7, pointerType: 'touch', clientX: r.left + r.width / 2, clientY: r.top + r.height / 2, bubbles: true, isPrimary: true }));
+    z.dispatchEvent(new PointerEvent('pointermove', { pointerId: 7, pointerType: 'touch', clientX: r.left + r.width - 4, clientY: r.top + r.height / 2, bubbles: true, isPrimary: true }));
+    const live = document.getElementById('touchKnob').classList.contains('live');
+    document.getElementById('chipPower').click();
+    return { live, after: document.getElementById('touchKnob').classList.contains('live'), open: document.getElementById('sheetPower').open };
+  });
+  check('phone: opening a sheet with the stick held lets go of it', held.live && held.open && !held.after, JSON.stringify(held));
+  await page.evaluate(() => { document.querySelector('#sheetPower .sheetdone').click(); document.querySelector('[data-touchmode="keys"]').click(); });
+  // Hide keys (Power), then ⌨: the keys come back; the chips stay up throughout
+  await page.tap('#chipPower');
+  await page.tap('#btnHideKeys');
+  const hiddenNow = await waitFor(page, () => document.getElementById('touchKeys').hidden && document.body.classList.contains('touch-hidden'));
+  const chipsWhileHidden = await page.evaluate(() => document.getElementById('chipRow').checkVisibility() && !document.querySelector('dialog[open]'));
+  await page.tap('#btnShowKeys');
+  const back = await waitFor(page, () => !document.getElementById('touchKeys').hidden && document.body.classList.contains('touch-keys'));
+  check('phone: Hide keys (Power sheet), then ⌨: the keys come back, and the chip row is up throughout',
+    hiddenNow && chipsWhileHidden && back && await page.evaluate(() => document.getElementById('chipRow').checkVisibility()), JSON.stringify({ hiddenNow, chipsWhileHidden, back }));
+  // the page does not scroll: the header, the screen, the panel and the chips fit the window
+  const fits = await page.evaluate(() => ({ sh: document.documentElement.scrollHeight, h: innerHeight }));
+  check('phone: upright, the page does not scroll (scrollHeight within the window)', fits.sh <= fits.h, JSON.stringify(fits));
+  // Menu → Settings…: the Settings sheet with its tabs, each at least 44 px tall; Display one tap further; its top
+  // edge at or below the screen's foot; Expand makes it the whole height, Collapse gives that back
+  await page.tap('#btnMenu');
+  const menuOrder = await page.evaluate(() => [...document.querySelectorAll('#appbar nav > :is(a, button)')].filter((e) => e.checkVisibility()).map((e) => e.innerText.trim()));
+  check('phone: Menu lists Add ROMs, Settings…, Share…, Install…, Library, Debugger, Commands…, Help, GitHub, in that order (the focus order too)',
+    menuOrder.join('|') === 'Add ROMs (BASIC needs them)|Settings…|Share…|Install…|Library|Debugger|Commands…|Help|GitHub', JSON.stringify(menuOrder));
+  await page.tap('#navSettings');
+  const sheet = await waitFor(page, () => document.getElementById('sheetSettings').open);
+  const tabs = await page.evaluate(() => {
+    const d = document.getElementById('sheetSettings'), m = document.querySelector('.layout > main > .monitor').getBoundingClientRect();
+    return { tabs: [...d.querySelectorAll('[role="tab"]')].map((t) => [t.textContent, Math.round(t.getBoundingClientRect().height), t.checkVisibility()]),
+      top: Math.round(d.getBoundingClientRect().top), screenFoot: Math.round(m.bottom), focus: document.activeElement.getAttribute('role'), h: d.getBoundingClientRect().height, vh: innerHeight };
+  });
+  check('phone: Menu → Settings… opens the Settings sheet with its five tabs, each at least 44 px tall, the focus on the selected tab',
+    sheet && tabs.tabs.map((t) => t[0]).join() === 'Media,Display,Input,POKEs,Machine' && tabs.tabs.every((t) => t[1] >= 44 && t[2]) && tabs.focus === 'tab', JSON.stringify(tabs));
+  // (from the screen's foot exactly, here where that leaves more than half the window)
+  check('phone: the Settings sheet reaches from the screen\'s foot to the window\'s, and is at least half the window',
+    Math.abs(tabs.top - tabs.screenFoot) <= 1 && tabs.screenFoot <= tabs.vh / 2 && Math.abs(tabs.top + tabs.h - tabs.vh) <= 1, JSON.stringify(tabs));
+  await page.tap('#tab-display');
+  const display = await page.evaluate(() => !document.getElementById('panel-display').hidden && document.getElementById('panel-display').checkVisibility());
+  check('phone: Display is one tap further', display);
+  await page.tap('#btnSheetExpand');
+  const big = await page.evaluate(() => ({ h: Math.round(document.getElementById('sheetSettings').getBoundingClientRect().height), vh: innerHeight, label: document.getElementById('btnSheetExpand').textContent }));
+  await page.tap('#btnSheetExpand');
+  const small = await page.evaluate(() => ({ top: Math.round(document.getElementById('sheetSettings').getBoundingClientRect().top), label: document.getElementById('btnSheetExpand').textContent }));
+  check('phone: Expand makes the Settings sheet the whole height ("Collapse" then), and Collapse gives it back', big.h >= big.vh - 1 && big.label === 'Collapse' && small.top === tabs.top && small.label === 'Expand', JSON.stringify({ big, small }));
+  await page.keyboard.press('Escape');
+  const backOnMenu = await waitFor(page, () => !document.querySelector('dialog[open]'));
+  // the palette's "Display settings": the Settings sheet on Display; the next Menu → Settings… opens on the tab last used
+  await page.evaluate(() => document.getElementById('tab-media').click());
+  await page.keyboard.press('Control+k');
+  await waitFor(page, () => !document.getElementById('cmdBox').hidden);
+  await page.keyboard.type('display settings');
+  await page.keyboard.press('Enter');
+  const palette = await waitFor(page, () => document.getElementById('sheetSettings').open && document.getElementById('tab-display').getAttribute('aria-selected') === 'true'
+    && document.activeElement === document.getElementById('tab-display'));
+  await page.keyboard.press('Escape');
+  await waitFor(page, () => !document.querySelector('dialog[open]'));
+  await page.tap('#btnMenu'); await page.tap('#navSettings');
+  const last = await waitFor(page, () => document.getElementById('sheetSettings').open && document.activeElement === document.getElementById('tab-display'));
+  check('phone: the palette\'s "Display settings" opens the Settings sheet on Display; Menu → Settings… then opens on it again (the tab last used)', backOnMenu && palette && last);
+  await page.keyboard.press('Escape');
+  // the focus back on the chip even when the tap gave it none (iOS Safari does not focus a tapped button): the sheet
+  // names its opener; Done is a full-size target
+  await page.evaluate(() => { document.activeElement.blur(); document.getElementById('chipCart').click(); });
+  const done = await waitFor(page, () => document.getElementById('sheetCart').open) && await page.evaluate(() => Math.round(document.querySelector('#sheetCart .sheetdone').getBoundingClientRect().height));
+  await page.keyboard.press('Escape');
+  const backOnChip = await waitFor(page, () => document.activeElement === document.getElementById('chipCart'));
+  check('phone: a sheet opened with the focus elsewhere (a tap that focuses nothing) gives the focus to its chip when it closes; Done is at least 44 px tall', backOnChip && done >= 44, `Done ${done} px`);
+  // one sheet at a time; opening one closes Ask's phone sheet
+  // (a second sheet opened while one is open, as the tape bar's Deck can: the first closes)
+  const one = await page.evaluate(() => { document.getElementById('chipTape').click(); return document.getElementById('sheetTape').open; });
+  await page.evaluate(() => document.getElementById('chipPower').click());
+  const single = await page.evaluate(() => [...document.querySelectorAll('dialog.sheet[open]')].map((d) => d.id));
+  await page.keyboard.press('Escape');
+  await page.evaluate(() => document.getElementById('btnAsk').click());
+  const askOpen = await waitFor(page, () => document.body.classList.contains('ask-open'));
+  await page.evaluate(() => document.getElementById('chipDisks').click());
+  const askAfter = await page.evaluate(() => ({ ask: document.body.classList.contains('ask-open'), sheet: document.getElementById('sheetDisks').open }));
+  check('phone: one sheet at a time, and opening a sheet closes Ask\'s phone sheet', one && single.join() === 'sheetPower' && askOpen && !askAfter.ask && askAfter.sheet, JSON.stringify({ single, askOpen, askAfter }));
+  // the Disks sheet: NitrOS-9 under the drives; the chip names one disk by its file and two as "2 disks"
+  const n9 = await page.evaluate(() => { const b = document.querySelector('#sheetDisks .sheetbody'), d = document.getElementById('driveSlot'), n = document.getElementById('nitros9Slot');
+    return b.contains(d) && b.contains(n) && !!(d.compareDocumentPosition(n) & Node.DOCUMENT_POSITION_FOLLOWING); });
+  await page.keyboard.press('Escape');
+  const disk = [...fs.readFileSync(path.join(ROOT, 'tests/fixtures/disks/dragondos.vdk'))];
+  await page.evaluate((b) => window.emu.session.drives.importImage('games/first.vdk', new Uint8Array(b), 0), disk);
+  const oneDisk = await waitFor(page, () => document.querySelector('#chipDisks .cs').textContent === 'first.vdk');
+  await page.evaluate((b) => window.emu.session.drives.importImage('second.vdk', new Uint8Array(b), 1), disk);
+  const twoDisks = await waitFor(page, () => document.querySelector('#chipDisks .cs').textContent === '2 disks' && document.getElementById('chipDisks').classList.contains('has-media'));
+  check('phone: NitrOS-9 is in the Disks sheet under the drives; the Disks chip names one disk by its file ("first.vdk"), two as "2 disks", outlined',
+    n9 && oneDisk && twoDisks, JSON.stringify({ n9, oneDisk, twoDisks, chip: await page.textContent('#chipDisks .cs') }));
+  // Power: Paused after Pause, Running after Resume
+  await page.tap('#chipPower'); await page.tap('#btnPause');
+  const paused = await waitFor(page, () => document.querySelector('#chipPower .cs').textContent === 'Paused');
+  await page.tap('#btnPause');
+  const running = await waitFor(page, () => document.querySelector('#chipPower .cs').textContent === 'Running');
+  check('phone: the Power chip says Paused after Pause and Running after Resume', paused && running);
+  await page.keyboard.press('Escape');
+  // screenshots: each sheet open
+  if (shotDir) for (const [chip, sheet] of CHIPS.map((c, i) => [c, SHEETS[i]])) {
+    await page.tap(`#${chip}`); await waitFor(page, (id) => document.getElementById(id).open, sheet);
+    await page.screenshot({ path: path.join(shotDir, `phone-${sheet}.png`) });
+    await page.keyboard.press('Escape');
+  }
+  // the full-screen chat opened from a sheet (the Media tab's "Chat with Claude") closes the sheet (a key stored, so
+  // the chat needs no key form and the keys stay up: the sheet closes because the chat opened)
+  await page.evaluate(() => localStorage.setItem('cloadm.anthropicKey', 'sk-ant-PHONE-CHECK-0123456789'));
+  await page.tap('#btnMenu'); await page.tap('#navSettings');
+  await waitFor(page, () => document.getElementById('sheetSettings').open);
+  await page.tap('#tab-media');
+  if (shotDir) await page.screenshot({ path: path.join(shotDir, 'phone-sheetSettings.png') });
+  await page.evaluate(() => document.querySelector('#shelf [data-shelf="claude"]').click());
+  const chatClosed = await waitFor(page, () => document.body.classList.contains('claude-open') && !document.querySelector('dialog[open]'), null, 15000);
+  const keysUp = await page.evaluate(() => document.body.classList.contains('touch-keys'));
+  check('phone: opening the full-screen chat (the Media tab\'s "Chat with Claude") closes the sheet, the keys still up', chatClosed && keysUp, JSON.stringify({ chatClosed, keysUp }));
+  await page.evaluate(() => document.getElementById('btnClaudeBack') && document.getElementById('btnClaudeBack').click());
+  await waitFor(page, () => !document.body.classList.contains('claude-open'), null, 15000);
+  // a toast's action button on a touch screen: at least 44 px tall
+  await page.evaluate(() => window.emu.feedback.toast('Deleted a.bin', { action: { label: 'Undo', run() {} } }));
+  const act = await page.evaluate(() => Math.round(document.getElementById('toastAction').getBoundingClientRect().height));
+  check('phone: a toast\'s action button is at least 44 px tall on a touch screen', act >= 44, `${act} px`);
+  await page.evaluate(() => window.emu.feedback.clear());
+  check('phone: no page errors', !errors.length, errors.join('; '));
+  await ctx.close();
+
+  // sideways: the chips are not there (the keys stand around the screen), and nothing of the sheets is drawn
+  {
+    const c = await browser.newContext({ ...devices['iPhone 15 landscape'], serviceWorkers: 'block' });
+    const p = await c.newPage();
+    await p.goto(`${base}?machine=dragon64`);
+    await started(p);
+    if (shotDir) await p.screenshot({ path: path.join(shotDir, 'phone-sideways.png') });
+    const side = await p.evaluate(() => ({ chips: document.getElementById('chipRow').checkVisibility(), open: !!document.querySelector('dialog[open]'), sh: document.documentElement.scrollHeight, h: innerHeight }));
+    check('phone sideways: no chip row and no sheet open, and the page does not scroll', !side.chips && !side.open && side.sh <= side.h, JSON.stringify(side));
+    // the keys' Menu: Settings… and "Tape, disks and cartridge…" (after Settings…), and Power…
+    await p.tap('#tkMenu');
+    const items = await p.evaluate(() => [...document.querySelectorAll('#tkMenuSheet button')].filter((b) => b.checkVisibility()).map((b) => b.textContent));
+    check('phone sideways: the keys\' Menu lists Machine…, Settings…, Tape, disks and cartridge…, Power…, Commands…, then Install and Hide keys',
+      items.slice(0, 5).join('|') === 'Machine…|Settings…|Tape, disks and cartridge…|Power…|Commands…' && items.includes('Hide keys'), JSON.stringify(items));
+    // "Tape, disks and cartridge…": one side sheet from the right, 360 px wide and the window's height, a 44 px tab each
+    // switching in place; every port's controls can be reached; Esc closes it with the focus back on Menu
+    await p.tap('#tkMenuSheet [data-item="ports"]');
+    await waitFor(p, () => document.getElementById('sheetPorts').open);
+    const ports = await p.evaluate(() => { const d = document.getElementById('sheetPorts'), r = d.getBoundingClientRect();
+      return { title: d.querySelector('h2').textContent, r: [r.left, r.top, r.width, r.height].map(Math.round), vw: innerWidth, vh: innerHeight, focus: document.activeElement.id,
+        tabs: [...d.querySelectorAll('[role="tab"]')].map((t) => [t.textContent, Math.round(t.getBoundingClientRect().height)]), tape: document.getElementById('btnTape').checkVisibility() }; });
+    if (shotDir) await p.screenshot({ path: path.join(shotDir, 'phone-sideways-ports.png') });
+    await p.tap('#portTabDisks');
+    const disks = await p.evaluate(() => ({ drives: document.getElementById('driveSlot').checkVisibility(), tape: document.getElementById('btnTape').checkVisibility(), open: document.getElementById('sheetPorts').open }));
+    await p.tap('#portTabCart');
+    const cart = await p.evaluate(() => document.getElementById('cartSlot').checkVisibility() && document.getElementById('btnCart').checkVisibility());
+    await p.keyboard.press('Escape');
+    const closed = await waitFor(p, () => !document.querySelector('dialog[open]') && document.activeElement === document.getElementById('tkMenu'));
+    check('phone sideways: "Tape, disks and cartridge…" opens one side sheet of that name (360 px wide, the full height) on Tape, tabs Tape | Disks | Cartridge at least 44 px that switch in place, each port\'s controls in reach; Esc closes it, the focus on Menu',
+      ports.title === 'Tape, disks and cartridge' && ports.r[2] === Math.min(360, ports.vw) && ports.r[3] === ports.vh && ports.r[0] + ports.r[2] === ports.vw && ports.focus === 'portTabTape'
+      && ports.tabs.map((t) => t[0]).join() === 'Tape,Disks,Cartridge' && ports.tabs.every((t) => t[1] >= 44) && ports.tape && disks.drives && !disks.tape && disks.open && cart && closed,
+      JSON.stringify({ ports, disks, cart, closed }));
+    // Power… and Settings… sideways: the machine's controls and the settings, in reach
+    await p.tap('#tkMenu'); await p.tap('#tkMenuSheet [data-item="power"]');
+    const power = await waitFor(p, () => document.getElementById('sheetPower').open && ['btnReset', 'btnHardReset', 'btnPause', 'btnTurbo', 'btnHideKeys'].every((id) => document.getElementById(id).checkVisibility()));
+    await p.keyboard.press('Escape');
+    await p.tap('#tkMenu'); await p.tap('#tkMenuSheet [data-item="settings"]');
+    const settings = await waitFor(p, () => document.getElementById('sheetSettings').open && document.getElementById('tab-display').checkVisibility());
+    if (shotDir) await p.screenshot({ path: path.join(shotDir, 'phone-sideways-settings.png') });
+    await p.keyboard.press('Escape');
+    check('phone sideways: Power… (Reset, Switch off and on, Pause, Turbo, Hide keys) and Settings… (the tabs) are in reach from the keys\' Menu', power && settings);
+    // a tape in: the ports' sheet shows the deck without the cassette panel's own heading and Hide button, and the
+    // Cartridge tab without the card's "Cartridge port" title (the tabs say it); the arrow keys move between the tabs
+    await p.setInputFiles('#fileTape', { name: 'HI.CAS', mimeType: 'application/octet-stream', buffer: Buffer.alloc(256, 0x55) });
+    await waitFor(p, () => !document.getElementById('tapePanel').hidden);
+    await p.evaluate(() => window.emu.feedback.clear());
+    await p.tap('#tkMenu'); await p.tap('#tkMenuSheet [data-item="ports"]');
+    await waitFor(p, () => document.getElementById('sheetPorts').open && document.getElementById('portTabTape').getAttribute('aria-selected') === 'true');
+    const deck = await p.evaluate(() => ({ panel: document.getElementById('tapePanel').checkVisibility(), head: document.querySelector('#tapePanel .deckhead').checkVisibility(),
+      fold: document.getElementById('btnDeckFold').checkVisibility() }));
+    await p.keyboard.press('ArrowRight');
+    const right = await p.evaluate(() => ({ sel: document.getElementById('portTabDisks').getAttribute('aria-selected'), focus: document.activeElement.id, drives: document.getElementById('driveSlot').checkVisibility() }));
+    await p.keyboard.press('ArrowRight');
+    const cartTitle = await p.evaluate(() => ({ sel: document.getElementById('portTabCart').getAttribute('aria-selected'), title: document.querySelector('#cartSlot > .inner > .title').checkVisibility(), cart: document.getElementById('btnCart').checkVisibility() }));
+    await p.keyboard.press('ArrowRight');
+    const wrap = await p.evaluate(() => document.getElementById('portTabTape').getAttribute('aria-selected') === 'true' && document.activeElement.id === 'portTabTape');
+    await p.keyboard.press('ArrowLeft');
+    const left = await p.evaluate(() => document.getElementById('portTabCart').getAttribute('aria-selected') === 'true' && document.activeElement.id === 'portTabCart');
+    await p.keyboard.press('Escape');
+    check('phone sideways: with a tape in, the ports\' sheet shows the deck without its own heading or Hide button, and the Cartridge tab without the "Cartridge port" title',
+      deck.panel && !deck.head && !deck.fold && cartTitle.sel === 'true' && cartTitle.cart && !cartTitle.title, JSON.stringify({ deck, cartTitle }));
+    check('phone sideways: ArrowRight and ArrowLeft move between the ports\' tabs (selecting and focusing them, wrapping round)',
+      right.sel === 'true' && right.focus === 'portTabDisks' && right.drives && wrap && left, JSON.stringify({ right, wrap, left }));
+    await p.evaluate(() => document.getElementById('btnEjectTape').click());
+    // a disk in: the side sheet opens on Disks, the tab that holds media
+    await p.evaluate((b) => window.emu.session.drives.importImage('one.vdk', new Uint8Array(b), 0), [...fs.readFileSync(path.join(ROOT, 'tests/fixtures/disks/dragondos.vdk'))]);
+    await waitFor(p, () => document.getElementById('chipDisks').classList.contains('has-media'));
+    await p.tap('#tkMenu'); await p.tap('#tkMenuSheet [data-item="ports"]');
+    const onMedia = await waitFor(p, () => document.getElementById('sheetPorts').open && document.getElementById('portTabDisks').getAttribute('aria-selected') === 'true');
+    // turned upright with it open: the Disks sheet, open; and sideways again: the side sheet on Disks
+    await p.setViewportSize({ width: 393, height: 659 });
+    const upright = await waitFor(p, () => document.getElementById('sheetDisks').open && !document.getElementById('sheetPorts').open && document.getElementById('driveSlot').checkVisibility());
+    await p.setViewportSize({ width: 852, height: 393 });
+    const sideAgain = await waitFor(p, () => document.getElementById('sheetPorts').open && document.getElementById('portTabDisks').getAttribute('aria-selected') === 'true');
+    await p.keyboard.press('Escape');
+    // Settings on Display, turned: still open, still on Display
+    await p.tap('#tkMenu'); await p.tap('#tkMenuSheet [data-item="settings"]'); await p.tap('#tab-display');
+    await p.setViewportSize({ width: 393, height: 659 });
+    const turned = await waitFor(p, () => document.getElementById('sheetSettings').open && document.getElementById('tab-display').getAttribute('aria-selected') === 'true' && document.getElementById('panel-display').checkVisibility());
+    await p.keyboard.press('Escape');
+    check('phone: the ports\' side sheet opens on the tab that holds media; turned with a sheet open it stays open on the same tab as the other shape (Disks upright and sideways, Settings on Display)',
+      onMedia && upright && sideAgain && turned, JSON.stringify({ onMedia, upright, sideAgain, turned }));
+    await c.close();
+  }
+
+  // a short phone upright (under 600 px; 375 x 548 and 320 x 460): no chip row (the screen keeps its room, the page does
+  // not scroll); Menu has "Tape, disks and cartridge…" and "Power…" after Settings…, each with its state on a second
+  // line; Menu wears a dot while media is in ("Menu (media inserted)"); the ports' item opens the tabbed sheet from the
+  // bottom on the tab that holds media
+  for (const viewport of [{ width: 375, height: 548 }, { width: 320, height: 460 }]) {
+    const L = `phone (${viewport.width}x${viewport.height}, short)`;
+    const c = await browser.newContext({ viewport, hasTouch: true, isMobile: true, serviceWorkers: 'block' });
+    const p = await c.newPage();
+    const errs = [];
+    p.on('pageerror', (e) => errs.push(e.message));
+    await p.goto(`${base}?machine=coco`);
+    await started(p);
+    const first = await p.evaluate(() => ({ chips: document.getElementById('chipRow').checkVisibility(), sh: document.documentElement.scrollHeight, h: innerHeight }));
+    check(`${L}: no chip row, and the page does not scroll`, !first.chips && first.sh <= first.h, JSON.stringify(first));
+    await p.tap('#btnMenu');
+    const items = await p.evaluate(() => [...document.querySelectorAll('#appbar nav > :is(a, button)')].filter((e) => e.checkVisibility()).map((e) => e.innerText.trim().replace(/\s*\n\s*/g, ' / ')));
+    const at = items.indexOf('Settings…');
+    check(`${L}: Menu has "Tape, disks and cartridge…" (Empty) and "Power…" (Running) after Settings…, each state on a second line`,
+      at >= 0 && items[at + 1] === 'Tape, disks and cartridge… / Empty' && items[at + 2] === 'Power… / Running', JSON.stringify(items));
+    await p.tap('#navPower');
+    const power = await waitFor(p, () => document.getElementById('sheetPower').open);
+    await p.tap('#btnPause');
+    await p.keyboard.press('Escape');
+    // (read before any media goes in: a load is a launch, which ends the page's Pause)
+    const pausedState = await p.evaluate(() => document.getElementById('navPowerState').textContent);
+    const disk = [...fs.readFileSync(path.join(ROOT, 'tests/fixtures/disks/rsdos.dsk'))];
+    await p.evaluate((b) => window.emu.session.drives.importImage('games.dsk', new Uint8Array(b), 0), disk);
+    await p.setInputFiles('#fileTape', { name: 'HI.CAS', mimeType: 'application/octet-stream', buffer: Buffer.alloc(256, 0x55) });
+    // (no ROMs here, so Menu's one dot is the ROMs' too: its name says both)
+    const dotted = await waitFor(p, () => document.getElementById('btnMenu').getAttribute('aria-label') === 'Menu (ROMs needed, media inserted)'
+      && getComputedStyle(document.getElementById('btnMenu'), '::after').content !== 'none');
+    // and with ROMs not needed (the pill off, as with BASIC in): the accent dot, "Menu (media inserted)"
+    const accent = await p.evaluate(() => { document.getElementById('romPill').hidden = true; return new Promise((r) => requestAnimationFrame(() => r({
+      label: document.getElementById('btnMenu').getAttribute('aria-label'), dot: getComputedStyle(document.getElementById('btnMenu'), '::after').backgroundColor }))); });
+    await p.evaluate(() => { document.getElementById('romPill').hidden = false; });
+    await p.evaluate(() => window.emu.feedback.clear());
+    await p.tap('#btnMenu');
+    const states = await p.evaluate(() => ({ ports: document.getElementById('navPortsState').textContent, power: document.getElementById('navPowerState').textContent, label: document.getElementById('navPorts').getAttribute('aria-label') }));
+    check(`${L}: with media in, Menu wears a dot and is named "Menu (media inserted)" (the accent dot; with ROMs also needed, the ROMs' dot and both in its name); its items say "HI.CAS · 1 disk", and "Paused" after Pause`,
+      power && dotted && accent.label === 'Menu (media inserted)' && accent.dot === 'rgb(61, 245, 90)' && states.ports === 'HI.CAS · 1 disk' && pausedState === 'Paused' && states.label === 'Tape, disks and cartridge: HI.CAS · 1 disk.', JSON.stringify({ states, accent, pausedState }));
+    await p.tap('#navPorts');
+    const sheet = await waitFor(p, () => document.getElementById('sheetPorts').open && document.getElementById('portTabTape').getAttribute('aria-selected') === 'true');
+    const box = await p.evaluate(() => { const r = document.getElementById('sheetPorts').getBoundingClientRect(); return { bottom: Math.round(r.bottom), w: Math.round(r.width), vw: innerWidth, vh: innerHeight }; });
+    if (shotDir) await p.screenshot({ path: path.join(shotDir, `phone-short-${viewport.width}-ports.png`) });
+    await p.keyboard.press('Escape');
+    const back = await waitFor(p, () => !document.querySelector('dialog[open]') && document.activeElement === document.getElementById('btnMenu'));
+    check(`${L}: "Tape, disks and cartridge…" opens the tabbed sheet from the bottom, the whole width, on Tape (media in); Esc closes it, the focus on Menu`,
+      sheet && box.bottom === box.vh && box.w === box.vw && back, JSON.stringify({ sheet, box, back }));
+    check(`${L}: no page errors`, !errs.length, errs.join('; '));
+    await c.close();
+  }
+
+  // a desktop: the ports and the drawer exactly where they were before the phone layout (measured at 1440 x 900 on
+  // the page before it, scrolled to the top); the touch keys turned on (the phone layout moves the controls into the
+  // sheets) and off again: back in place, in their order, and working
+  {
+    const c = await browser.newContext({ viewport: { width: 1440, height: 900 }, serviceWorkers: 'block' });
+    const p = await c.newPage();
+    await p.goto(`${base}?machine=dragon64`);
+    await started(p);
+    const rects = () => p.evaluate(() => ['.slots', '.layout > .drawer'].map((sel) => { const r = document.querySelector(sel).getBoundingClientRect(); return [r.left, r.top, r.width, r.height].map(Math.round); }));
+    const order = () => p.evaluate(() => ({ slots: [...document.querySelector('.slots').children].map((e) => e.id || e.className),
+      controls: [...document.querySelector('.controls[aria-label="Machine controls"]').children].map((e) => e.id),
+      drawer: [...document.querySelector('.layout > .drawer').children].map((e) => e.id || e.getAttribute('role')), welcome: document.getElementById('welcome').parentElement.className }));
+    const baseline = [[71, 849, 900, 254], [1041, 88, 364, 803]];
+    const before = { rects: await rects(), order: await order() };
+    const setKeys = (v) => p.evaluate((v) => { const s = document.getElementById('selTouchKeys'); s.value = v; s.dispatchEvent(new Event('change')); }, v);
+    await setKeys('on');
+    const movedIn = await waitFor(p, () => !!document.querySelector('#sheetPower #btnPause') && !!document.querySelector('#sheetSettings #panel-input'));
+    await setKeys('off');
+    await waitFor(p, () => !document.body.classList.contains('touch-keys'));
+    await p.evaluate(() => scrollTo(0, 0));
+    const after = { rects: await rects(), order: await order() };
+    await p.click('#btnPause');
+    const works = await p.textContent('#btnPause');
+    await p.click('#btnPause');
+    // (the baseline was measured on the page before the phone layout, on another machine: its fonts can round a box by a
+    // pixel, so it is matched within 1 px; before and after here are the same page and must be exactly equal)
+    const near = before.rects.every((r, i) => r.every((v, j) => Math.abs(v - baseline[i][j]) <= 1));
+    check('desktop: .slots and the drawer where they were before the phone layout (1440 x 900, within 1 px of the measure taken then); after the touch keys on (the controls moved into the sheets) and off, back in place exactly and in their order, and a moved button still works',
+      near && movedIn && JSON.stringify(after) === JSON.stringify(before) && works === 'Resume',
+      JSON.stringify({ baseline, before, movedIn, after, works }));
+    const dup = await p.evaluate(() => { const seen = new Set(), d = []; for (const e of document.querySelectorAll('[id]')) { if (seen.has(e.id)) d.push(e.id); seen.add(e.id); } return d; });
+    check('desktop: no duplicate ids anywhere', dup.length === 0, dup.join());
+    await c.close();
+  }
+}
+
 async function feedbackModelChecks(browser, base, check) {
   const state = (page) => page.evaluate(() => {
     const t = document.getElementById('toast'), b = t.getBoundingClientRect(), reg = document.getElementById('toastRegion');
@@ -5917,23 +6302,23 @@ async function tapeExtrasChecks(browser, base, check) {
     check(`tape extras (${label}): with a tape in, "rewind" and "eject" find "Rewind the tape" and "Eject the tape", not muted`,
       w1[0].label === 'Rewind the tape' && !w1[0].off && w1[0].line === 'back to the start of the tape' && w2.some((r) => r.label === 'Eject the tape' && !r.off), JSON.stringify([w1, w2]));
     // the second file loading: the machine paused so the tape stays there
-    await page.click('#btnPause');
+    await page.evaluate(() => document.getElementById('btnPause').click());   // (on a phone in the Power sheet: a setting-up step)
     await page.evaluate(() => { const d = window.emu.machine.deck; d.tape.seekByte(d.tape.bytes.length / 2); d.setMotor(true); });
     const eyebrow = await waitFor(page, () => /^LOADING · FILE 2 OF 3 · BLOCK \d+ OF 9$/.test(document.getElementById('tapeEyebrow').textContent))
       && await page.textContent('#tapeEyebrow');
     check(`tape extras (${label}): a 3-file tape says "LOADING · FILE 2 OF 3 · BLOCK n OF 9"`, !!eyebrow, eyebrow || await page.textContent('#tapeEyebrow'));
-    if (shotDir) await page.locator('#tapePanel').screenshot({ path: path.join(shotDir, `tape-extras-file2-${label}.png`) });
+    if (shotDir && await page.isVisible('#tapePanel')) await page.locator('#tapePanel').screenshot({ path: path.join(shotDir, `tape-extras-file2-${label}.png`) });
     // Rewind through the palette (still paused: a running machine would play the tape on from the start at once)
     await runRow('rewind the tape', 'Rewind the tape');
     check(`tape extras (${label}): "Rewind the tape" rewinds it`, await waitFor(page, () => window.emu.machine.deck.tape.progress() < 0.05));
     // Eject through the palette, while the motor runs (a CLOAD waiting): the deck goes, the motor stays on
     await page.evaluate(() => window.emu.machine.deck.setMotor(true));
     await runRow('eject the tape', 'Eject the tape');
-    check(`tape extras (${label}): "Eject the tape": the deck hides, "Tape ejected.", the focus on the slot's deck button, the motor still on`,
+    check(`tape extras (${label}): "Eject the tape": the deck hides, "Tape ejected.", the focus on the slot's deck button (on a phone the Tape chip), the motor still on`,
       await waitFor(page, () => !window.emu.machine.deck.tape && document.getElementById('tapePanel').hidden && /^Tape ejected\.$/.test(document.getElementById('toastText').textContent)
-        && document.activeElement === document.getElementById('btnTape') && window.emu.machine.deck.motor),
+        && document.activeElement === document.getElementById(document.getElementById('chipRow').checkVisibility() ? 'chipTape' : 'btnTape') && window.emu.machine.deck.motor),
       JSON.stringify(await page.evaluate(() => ({ active: document.activeElement.id, toast: document.getElementById('toastText').textContent }))));
-    await page.click('#btnPause');   // running again
+    await page.evaluate(() => document.getElementById('btnPause').click());   // running again
     await palette('tape');
     const gone = await rowsNow();
     await close();
@@ -5943,6 +6328,7 @@ async function tapeExtrasChecks(browser, base, check) {
     const disabled = await page.isDisabled('#btnEjectTape');
     await page.setInputFiles('#fileTape', { name: 'three.cas', mimeType: 'application/octet-stream', buffer: three });
     await waitFor(page, () => !document.getElementById('tapePanel').hidden && !document.getElementById('btnEjectTape').disabled);
+    if (label === 'phone') { await page.tap('#chipTape'); await waitFor(page, () => document.getElementById('sheetTape').open); }   // (the deck is in the Tape sheet there)
     const box = await page.evaluate(() => { const b = document.getElementById('btnEjectTape').getBoundingClientRect(), r = document.getElementById('btnRewind').getBoundingClientRect(); return { b: b.toJSON(), r: r.toJSON() }; });
     if (shotDir) await page.locator('.slot.tape').screenshot({ path: path.join(shotDir, `tape-extras-slot-${label}.png`) });
     if (label === 'phone') {
@@ -6014,14 +6400,17 @@ async function tapeHudChecks(browser, base, check) {
       const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
       return { r: { left: r.left, top: r.top, right: r.right, bottom: r.bottom }, text, vw: innerWidth, vh: innerHeight, scrollY,
         onTop: !!top && h.contains(top), name: document.getElementById('hudName').textContent, state: document.getElementById('hudState').textContent,
-        anims: document.getAnimations().filter((a) => a.playState === 'running').map((a) => (a.effect && a.effect.target ? `${a.effect.target.id || a.effect.target.className}` : '?')) };
+        anims: document.getAnimations().filter((a) => a.playState === 'running').map((a) => (a.effect && a.effect.target ? `${a.effect.target.id || a.effect.target.className}` : '?')),
+        inSheet: !!document.getElementById('tapePanel').closest('dialog.sheet:not([open])') };
     });
     check(`tape HUD (${label}): hidden before; a dropped tape shows it in the viewport without scrolling, on top, with the name and block`,
       hiddenFirst && playing && hud.r.left >= 0 && hud.r.top >= 0 && hud.r.right <= hud.vw && hud.r.bottom <= hud.vh && hud.scrollY === 0 && hud.onTop
       && hud.name === 'Space Game.cas' && /\d+\/14$/.test(hud.state), JSON.stringify(hud));
     check(`tape HUD (${label}): never over the picture's text`, !rectsMeet(hud.r, hud.text), JSON.stringify([hud.r, hud.text]));
     const sayPlay = await page.textContent('#hudSay');
-    check(`tape HUD (${label}): one animation runs while the tape plays: the cassette panel's reels`, hud.anims.length === 1 && hud.anims[0] === 'window', hud.anims.join());
+    // (with the touch keys the deck is in its sheet, closed: then nothing turns at all)
+    check(`tape HUD (${label}): ${hud.inSheet ? 'no animation runs while the tape plays: the reels are in the closed Tape sheet' : 'one animation runs while the tape plays: the cassette panel\'s reels'}`,
+      hud.inSheet ? hud.anims.length === 0 : hud.anims.length === 1 && hud.anims[0] === 'window', hud.anims.join());
     if (shotDir) await page.screenshot({ path: path.join(shotDir, `tape-hud-${label.replace(' ', '-')}.png`) });
     if (sound) {
       // unlocked by a click (browsers allow sound only after one); then the tape's voice while it plays
@@ -8527,6 +8916,7 @@ async function touchJoystickChecks(browser, base, check) {
     await waitFor(page, () => window.emu.machine && !document.getElementById('touchKeys').hidden);
     await openTab(page, 'Input');
     await page.selectOption('#selTouchKeys', 'on');
+    await closeSheet(page);
     await page.locator('#tkModeSwitch [data-touchmode="joystick"]').click();
     await waitFor(page, () => document.getElementById('touchKeys').classList.contains('joystick'));
     await page.evaluate(() => { const m = window.emu.machine, f = m.setKey.bind(m); window.pressed = []; m.setKey = (k, d) => { window.pressed.push(`${k}${d ? '+' : '-'}`); return f(k, d); }; });
@@ -8907,13 +9297,15 @@ async function inputScreenChecks(browser, base, check) {
     const lay = await page.evaluate(() => {
       const r = (id) => document.getElementById(id).getBoundingClientRect();
       return { full: r('touchFull').height > 0 && r('touchLeft').width === 0, below: r('touchFull').top >= r('screen').bottom, fits: document.documentElement.scrollWidth <= innerWidth,
-        // BREAK, CLEAR and Menu share the switch's row, between the screen and the keys (the portrait fit below)
-        cols: document.querySelector('#touchFull .tkrow').children.length, buttons: ['tkBreak', 'tkClear', 'tkMenu'].every((id) => r(id).height >= 40 && r(id).bottom <= r('touchFull').top && r(id).top >= r('screen').bottom),
+        // BREAK and CLEAR share the switch's row, between the screen and the keys (the portrait fit below); upright the
+        // panel has no Menu of its own (the app bar's is the one Menu)
+        cols: document.querySelector('#touchFull .tkrow').children.length, buttons: ['tkBreak', 'tkClear'].every((id) => r(id).height >= 40 && r(id).bottom <= r('touchFull').top && r(id).top >= r('screen').bottom)
+          && !document.getElementById('tkMenu').checkVisibility(),
         // in portrait the Keys | Joystick switch sits ABOVE the keys (sideways it is in the
         // strip with BREAK, CLEAR and Menu)
         switchShown: r('tkModeSwitch').height > 0 && r('tkModeSwitch').bottom <= r('touchFull').top && r('tkModeSwitch').top >= r('screen').bottom };
     });
-    check('touch keys (phone, portrait): ten columns under the screen, the Keys | Joystick switch with BREAK, CLEAR and Menu above the keys, no sideways scrolling',
+    check('touch keys (phone, portrait): ten columns under the screen, the Keys | Joystick switch with BREAK and CLEAR above the keys (no second Menu), no sideways scrolling',
       lay.full && lay.below && lay.fits && lay.cols === 10 && lay.buttons && lay.switchShown, JSON.stringify(lay));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, 'touch-keys-portrait.png'), fullPage: true });
     await backspaceKey(page, '#touchFull', 'touch keys (phone, portrait)');
@@ -9128,13 +9520,13 @@ async function inputScreenChecks(browser, base, check) {
       const r = (el) => el.getBoundingClientRect(), s = r(document.getElementById('screen'));
       const covers = (id) => { const el = document.getElementById(id); if (el.hidden || getComputedStyle(el).display === 'none') return false; const b = r(el); return b.bottom > s.top && b.top < s.bottom && b.width > 0; };
       const key = document.querySelector('#touchFull [data-key="2"]');
-      // BREAK, CLEAR and Menu on screen as the page opens, with the keys: no scrolling to reach them
+      // BREAK, CLEAR and the app bar's Menu on screen as the page opens, with the keys: no scrolling to reach them
       const visible = (id) => { const b = r(document.getElementById(id)); return b.height >= 40 && b.top >= 0 && b.bottom <= innerHeight; };
       return { keys: !document.getElementById('touchKeys').hidden && !!key && r(key).height >= 40 && r(key).bottom <= innerHeight,
-        controls: ['tkBreak', 'tkClear', 'tkMenu'].every(visible), soundHint: covers('soundHint'), keyHint: covers('keyHint') };
+        controls: ['tkBreak', 'tkClear', 'btnMenu'].every(visible), soundHint: covers('soundHint'), keyHint: covers('keyHint') };
     });
     check('PHONE-1 (390 px): on a first visit the on-screen keyboard is there, and no hint covers the screen', first.keys && !first.soundHint && !first.keyHint, JSON.stringify(first));
-    check('PHONE-1 (390 px, portrait): BREAK, CLEAR and Menu are on screen with the keys, no scrolling', first.controls, JSON.stringify(first));
+    check('PHONE-1 (390 px, portrait): BREAK, CLEAR and Menu (the app bar\'s) are on screen with the keys, no scrolling', first.controls, JSON.stringify(first));
     // every message the page says from here (a toast goes after its seconds; the colour demo's can come and go
     // while the check waits for the tune)
     await page.evaluate(() => { window.__said = []; const t = document.getElementById('toastText');
@@ -13401,7 +13793,7 @@ async function phoneChatChecks(browser, base, check) {
     check(`phone chat (${label}): and nothing lies over it`, !after.covered.length, JSON.stringify(after.covered));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, `phone-chat-${label}-reply.png`) });
     // the way out is always there (PC-M1): upright, the chat bar stays at the top when the page scrolls; either way
-    // the keyboard's Menu is "← Emulator" and leaves the chat (back on the emulator it is ⌄ upright, Menu sideways)
+    // the keyboard's Menu is "← Emulator" and leaves the chat (back on the emulator it is gone upright, Menu sideways)
     if (label === 'portrait') {
       await page.evaluate(() => scrollTo(0, 500));
       check('phone chat (portrait): scrolled down, the chat bar and its "← Emulator" stay at the top', await page.evaluate(() => {
@@ -13412,7 +13804,7 @@ async function phoneChatChecks(browser, base, check) {
     check(`phone chat (${label}): the on-screen keyboard's Menu says "← Emulator"`, await page.textContent('#tkMenu') === '← Emulator');
     await page.tap('#tkMenu');
     check(`phone chat (${label}): and leaves the chat for the emulator`, await waitFor(page, () => !document.body.classList.contains('claude-open') && !/app=claude/.test(location.search)
-      && document.getElementById('tkMenu').textContent === (innerHeight > innerWidth ? '⌄' : 'Menu')));
+      && (innerHeight > innerWidth ? !document.getElementById('tkMenu').checkVisibility() : document.getElementById('tkMenu').textContent === 'Menu')));
     check(`phone chat (${label}): no page errors`, !errors.length, errors.join('; '));
     await ctx.close();
   }
@@ -14927,9 +15319,12 @@ async function semanticsChecks(browser, base, site, check) {
     // ports, the drawer and the footer
     const touch = !await page.locator('#appbar').isVisible();
     const navShown = await page.locator('#appbar > nav').isVisible();
-    const want = touch ? ['main "Dragon 64"'] : ['banner', ...(navShown ? ['navigation "App"'] : []), 'main "Dragon 64"', 'complementary "Tape, disks and cartridges"',
-      'complementary "Settings drawer"', 'contentinfo'];
-    check(`${L}: the landmarks: ${touch ? 'the emulator alone (main), its touch keys in place of the rest' : `the app bar (banner${navShown ? ', its links a navigation' : '; its links folded behind Menu, so no navigation'}), the emulator (main) with the ports under its screen (complementary), the settings drawer (complementary), the footer (contentinfo)`}`,
+    // (with the touch keys upright the ports are chips in the emulator and their sheets: no ports landmark)
+    const chips = await page.locator('#chipRow').isVisible();
+    // (and the drawer's tabs in the Settings sheet, the credits behind Menu → Help: no drawer, no footer)
+    const want = touch ? ['main "Dragon 64"'] : ['banner', ...(navShown ? ['navigation "App"'] : []), 'main "Dragon 64"',
+      ...(chips ? [] : ['complementary "Tape, disks and cartridges"', 'complementary "Settings drawer"', 'contentinfo'])];
+    check(`${L}: the landmarks: ${touch ? 'the emulator alone (main), its touch keys in place of the rest' : `the app bar (banner${navShown ? ', its links a navigation' : '; its links folded behind Menu, so no navigation'}), the emulator (main)${chips ? ' with the ports as chips (the settings in their sheet, no footer)' : ' with the ports under its screen (complementary), the settings drawer (complementary), the footer (contentinfo)'}`}`,
       JSON.stringify(o.landmarks) === JSON.stringify(want), JSON.stringify(o.landmarks));
     check(`${L}: the headings: one h1 naming the machine, none skipped`, inOrder(o.headings) && o.headings[0][1] === 'Dragon 64', JSON.stringify(o.headings));
 
@@ -16057,7 +16452,8 @@ async function installChecks(browser, base, check) {
       await painted(page);
       return clearReport(page);
     };
-    const hidden = await settledAfter(() => document.getElementById('tkMenu').click());
+    // (Hide keys: the Power sheet's, js/ui/phone-sheets.js)
+    const hidden = await settledAfter(() => document.getElementById('btnHideKeys').click());
     const hiddenKeys = await page.evaluate(() => document.getElementById('touchKeys').hidden);
     check('install (keys toggled): with the keys hidden (no resize), the card is clear of everything (⌨ included) or deferred unspent',
       hiddenKeys && clearOrOwed(hidden), JSON.stringify({ hiddenKeys, hidden }));
@@ -16656,7 +17052,7 @@ async function menuFocusChecks(browser, base, check) {
     // Menu links (a): the touch keys' Menu is a disclosure for a labelled group of buttons. Held sideways (upright the
     // panel has no Menu, the app bar's is the only one), then upright again for the rest
     await page.setViewportSize({ width: 844, height: 390 });
-    await waitFor(page, () => !document.getElementById('touchKeys').hidden && document.body.classList.contains('touch-keys') && document.getElementById('tkMenu').textContent === 'Menu');
+    await waitFor(page, () => !document.getElementById('touchKeys').hidden && document.body.classList.contains('touch-keys') && document.getElementById('tkMenu').checkVisibility());
     const roles = await page.evaluate(() => { const s = document.getElementById('tkMenuSheet'), m = document.getElementById('tkMenu');
       return { role: s.getAttribute('role'), label: s.getAttribute('aria-label'), items: s.querySelectorAll('[role="menuitem"]').length, controls: m.getAttribute('aria-controls') }; });
     check(`${L}: the keys' Menu sheet is a group labelled "Keys menu" (no menu role), and Menu controls it`,
@@ -16777,17 +17173,26 @@ async function uiModelChecks(browser, base, check) {
     await ticks(page, 5);
     check(`toast visible (${label}): the toast's time runs (seen) and it keeps its slot`, await page.evaluate(() => window.emu.feedback.pending[0] && window.emu.feedback.pending[0].seen)
       && box1 === await page.evaluate(() => JSON.stringify(document.getElementById('toast').getBoundingClientRect())));
-    // the mounted disk's drives card on a phone: above the empty cassette deck, the slots under the keyboard panel
-    // (play/index.html: a slot holding media comes first); on a desktop the slots keep their order
+    // a phone: the ports are chips in a fixed order under the keyboard panel, the Disks chip naming the disk and
+    // outlined (it holds media) while the empty Tape chip is not; on a desktop the slots keep their order
+    if (label === 'phone') {
+      const chips = await page.evaluate(() => {
+        const ids = ['chipTape', 'chipDisks', 'chipCart', 'chipPower'].map((id) => document.getElementById(id)), keys = document.getElementById('touchKeys');
+        const r = ids.map((c) => c.getBoundingClientRect());
+        return { order: r.every((x, i) => !i || x.left > r[i - 1].left), under: r.every((x) => x.top >= keys.getBoundingClientRect().bottom - 1),
+          disks: ids[1].querySelector('.cs').textContent, marked: ids[1].classList.contains('has-media') && !ids[0].classList.contains('has-media') };
+      });
+      check('slots (phone): with a disk in and no tape, the Disks chip names it and is outlined, the chips in their fixed order under the keyboard panel',
+        chips.order && chips.under && chips.disks === 'games.vdk' && chips.marked, JSON.stringify(chips));
+    } else {
     const order = await page.evaluate(() => {
       const top = (el) => el.getBoundingClientRect().top, tape = document.querySelector('.slots .slot.tape'), drives = document.getElementById('driveSlot');
       const keys = document.getElementById('touchKeys'), slots = document.querySelector('.slots');
       return { drivesFirst: top(drives) < top(tape), marked: drives.classList.contains('has-media') && !tape.classList.contains('has-media'),
         underKeys: !keys.checkVisibility() || keys.getBoundingClientRect().bottom <= slots.getBoundingClientRect().top + 1 };
     });
-    check(`slots (${label}): with a disk in and no tape, the drives card is ${label === 'phone' ? 'above' : 'after'} the cassette deck${label === 'phone' ? ', under the keyboard panel' : ''}`,
-      order.marked && order.underKeys && order.drivesFirst === (label === 'phone'), JSON.stringify(order));
-    if (shotDir && label === 'phone') await page.locator('.slots').screenshot({ path: path.join(shotDir, 'slots-phone-disk-first.png') });
+    check('slots (desktop): with a disk in and no tape, the drives card is after the cassette deck', order.marked && order.underKeys && !order.drivesFirst, JSON.stringify(order));
+    }
     await page.evaluate(() => window.emu.feedback.clear());
     // an error is red: the toast's bar is --error (#C42B23), not the orange of a warning (a disk image
     // CLOADM can't read)
@@ -16963,7 +17368,9 @@ async function uiModelChecks(browser, base, check) {
       await page.evaluate(() => { location.hash = ''; window.emu.session.switchMachine('dragon64'); });
       await waitFor(page, () => !document.body.classList.contains('roms-open'));
     }
-    // a drive's Add ROMs…: the Add ROMs view, on the card, in view and focused, the drawer not left scrolled
+    // a drive's Add ROMs…: the Add ROMs view, on the card, in view and focused, the drawer not left scrolled (on a
+    // phone the drives are in the Disks sheet, which the view replaces)
+    if (label === 'phone') await page.click('#chipDisks');
     await page.click('#drives [data-drive="0"]');
     await waitFor(page, () => !!document.getElementById('driveRoms'));
     await page.click('#driveRoms');
@@ -17024,6 +17431,7 @@ async function uiModelChecks(browser, base, check) {
       first === 'romRow' && before === 'Add ROMs →' && after === 'See or add ROMs →', JSON.stringify({ first, before, after }));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, `r28-machine-settings-${label}.png`), fullPage: label === 'desktop' });
     // a "needs ROMs" row: the toast after the switch says so, with Add ROMs (no button nested in the menu item)
+    await closeSheet(page);
     await page.evaluate(() => { scrollTo(0, 0); window.emu.feedback.clear(); });
     await page.click('#machineBtn');
     await waitFor(page, () => !document.getElementById('machineMenu').hidden);
@@ -17064,7 +17472,9 @@ async function uiModelChecks(browser, base, check) {
     await page.click('#btnRomBack');
     await waitFor(page, () => location.hash === '');
     // "RAM, CPU and speed…": Machine settings, focus on its heading (on a phone, the panel's top in view)
+    // (on a phone: the Settings sheet opens on Machine, its heading focused there)
     await openTab(page, 'Media');
+    await closeSheet(page);
     await page.evaluate(() => scrollTo(0, 0));
     await page.click('#machineBtn');
     await waitFor(page, () => !document.getElementById('machineMenu').hidden);
@@ -17273,6 +17683,7 @@ async function uiModelChecks(browser, base, check) {
       none === 'Not added · running without ROMs' && share.includes('A snapshot reopens on the same machine, RAM and ROMs.') && slots === 'A snapshot reopens on the same machine, RAM and ROMs.',
       JSON.stringify({ none, share, slots }));
     // the .dgn warning, said once, with its two answers
+    await closeSheet(page);
     await page.setInputFiles('#fileProgram', { name: 'dgame.dgn', mimeType: 'application/octet-stream', buffer: Buffer.alloc(8192, 0x12) });
     await waitFor(page, () => !document.getElementById('mediaOffer').hidden);
     const offer = await page.evaluate(() => [document.getElementById('mediaOfferText').textContent, document.getElementById('btnMediaSwitch').textContent, document.getElementById('btnMediaAnyway').textContent]);
@@ -17282,9 +17693,11 @@ async function uiModelChecks(browser, base, check) {
     await page.click('#btnMediaAnyway');
     // a disk without a disk ROM: the drive's menu and the toast both say "disk ROM"
     await page.evaluate(() => window.emu.feedback.clear());
+    if (label === 'phone') await page.click('#chipDisks');   // (the drives are in the Disks sheet there)
     await page.click('#drives [data-drive="0"]');
     const note = await page.evaluate(() => document.getElementById('driveNoRom').textContent.replace(/\s+/g, ' ').trim());
     await page.click('#driveClose');
+    if (label === 'phone') await page.click('#sheetDisks .sheetdone');
     await dropFiles(page, [['games.dsk', fs.readFileSync(path.join(ROOT, 'tests/fixtures/disks/rsdos.dsk'))]]);
     const toast = await toastSeen(page, /^games\.dsk is in drive 0, on the disk controller only \(no disk ROM\)\. Programs that read the disk directly can use it; DIR and other disk commands need your disk ROM\.$/);
     check(`copy (${label}): without a disk ROM the CoCo's drive menu names Disk BASIC, and the toast says "disk ROM"`,
@@ -17412,7 +17825,8 @@ async function mobileChecks(browser, base, check) {
       const { ctx, page, errors } = await open({ width: w, height: h }, '?machine=dragon64');
       const s = await rect(page, '#screen');
       check(`${L}, Keys: the screen at least as wide as v0.1.8's (${Math.round(s.w)} px, at least ${w === 375 ? 229 : 160})`, await mode(page) === 'keys' && s.w >= (w === 375 ? 229 : 160), JSON.stringify(s));
-      // the strip: [Keys|Pad|Stick] [BREAK] [CLEAR] [⌄], no two overlapping, all 44 px and more, inside the page
+      // the strip: [Keys|Pad|Stick] [BREAK] [CLEAR], no two overlapping, all 44 px and more, inside the page (no Menu of
+      // its own upright: Hide keys is in the Power sheet)
       const strip = await page.evaluate(() => {
         const els = [...document.querySelectorAll('#tkModeSwitch button'), ...['tkBreak', 'tkClear', 'tkMenu'].map((id) => document.getElementById(id))].filter((e) => e.checkVisibility());
         const bs = els.map((e) => { const r = e.getBoundingClientRect(); return { name: e.getAttribute('aria-label') || e.textContent.trim(), l: r.left, t: r.top, r: r.right, b: r.bottom, w: r.width, h: r.height }; });
@@ -17423,8 +17837,8 @@ async function mobileChecks(browser, base, check) {
           switchMeetsBreak: cross({ l: sw.left, t: sw.top, r: sw.right, b: sw.bottom }, { l: brk.left, t: brk.top, r: brk.right, b: brk.bottom }),
           off: bs.filter((b) => b.l < 0 || b.r > innerWidth).map((b) => b.name), oneRow: bs.every((b) => Math.abs(b.t - bs[0].t) < 3) };
       });
-      check(`${L}: the strip is Keys, Pad, Stick, BREAK, CLEAR and ⌄ (Hide keys) in one row, none overlapping (the switch clear of BREAK), none under 44x44 px, all on the page`,
-        strip.names.join() === 'Keys,Pad,Stick,BREAK,CLEAR,Hide keys' && !strip.small.length && !strip.overlaps.length && !strip.switchMeetsBreak && !strip.off.length && strip.oneRow, JSON.stringify(strip));
+      check(`${L}: the strip is Keys, Pad, Stick, BREAK and CLEAR in one row, none overlapping (the switch clear of BREAK), none under 44x44 px, all on the page`,
+        strip.names.join() === 'Keys,Pad,Stick,BREAK,CLEAR' && !strip.small.length && !strip.overlaps.length && !strip.switchMeetsBreak && !strip.off.length && strip.oneRow, JSON.stringify(strip));
       // the app bar: one row of 44 px controls; exactly one visible control named Menu on the page
       const bar = await page.evaluate(() => {
         const vis = [...document.querySelectorAll('#appbar > *')].filter((e) => e.checkVisibility() && e.getBoundingClientRect().width > 0);
@@ -17438,11 +17852,14 @@ async function mobileChecks(browser, base, check) {
       check(`${L}: the app bar is one row, 48 px (the machine, Open…, Ask Claude, Menu; Add ROMs not in it), its controls 44 px and more`,
         bar.ids.join() === 'machineBtn,btnLoad,btnAsk,btnMenu' && bar.oneRow && Math.round(bar.h) === 48 && !bar.small.length && !bar.rom, JSON.stringify(bar));
       check(`${L}: exactly one visible control named Menu`, bar.menus === 1, JSON.stringify(bar));
-      // Hide keys (⌄): the screen takes the width, ⌨ (Show keys) 44x44 inside the window; ⌨ brings the keys back
-      await tap(page, '#tkMenu');
+      // Hide keys (the Power sheet: its chip, or Menu → Power… on a short screen): the screen takes the width, ⌨ (Show
+      // keys) 44x44 inside the window; ⌨ brings the keys back
+      if (await page.isVisible('#chipPower')) await tap(page, '#chipPower');
+      else { await tap(page, '#btnMenu'); await tap(page, '#navPower'); }
+      await tap(page, '#btnHideKeys');
       await painted(page);
       const hid = { mode: await mode(page), s: await rect(page, '#screen'), fab: await rect(page, '#btnShowKeys'), label: await page.getAttribute('#btnShowKeys', 'aria-label') };
-      check(`${L}: ⌄ hides the keys; the screen takes the page's width (${hid.s && Math.round(hid.s.w)} px, at least ${w - 17}); ⌨, Show keys, 44x44 inside the window`,
+      check(`${L}: Hide keys hides the keys; the screen takes the page's width (${hid.s && Math.round(hid.s.w)} px, at least ${w - 17}); ⌨, Show keys, 44x44 inside the window`,
         hid.mode === 'hidden' && !!hid.s && fullWidth(hid.s.w, w) && !!hid.fab && hid.fab.w >= 44 && hid.fab.h >= 44 && hid.fab.l >= 0 && hid.fab.t >= 0 && hid.fab.r <= w && hid.fab.b <= h && hid.label === 'Show keys', JSON.stringify(hid));
       if (shotDir) await page.screenshot({ path: path.join(shotDir, `mobile-${w}x${h}-hidden.png`) });
       // and the page ends with room for ⌨: scrolled to its foot, ⌨ lies over no control of the page
@@ -17518,33 +17935,34 @@ async function mobileChecks(browser, base, check) {
     const items = await page.evaluate(() => [...document.querySelectorAll('.appbar nav > *')].filter((e) => e.checkVisibility()).map((e) => e.innerText.replace(/\s+/g, ' ').trim()));
     // the first item says why ROMs, and wears Menu's dot
     const itemDot = await page.evaluate(() => { const d = document.querySelector('#navRoms .dot'); return !!d && d.checkVisibility() && getComputedStyle(d).backgroundColor === getComputedStyle(document.getElementById('btnMenu'), '::after').backgroundColor; });
-    check('mobile (393x659): Menu has a dot while there is no BASIC, and lists "Add ROMs (BASIC needs them)" first, with the same dot, then Share, Settings…, the links, Commands… and Install CLOADM…',
-      dot && itemDot && items[0] === 'Add ROMs (BASIC needs them)' && items[1] === 'Share' && items[2] === 'Settings…' && items.includes('Commands…') && items.includes('Library') && items.includes('Install CLOADM…'), JSON.stringify({ dot, itemDot, items }));
+    check('mobile (393x659): Menu has a dot while there is no BASIC, and lists "Add ROMs (BASIC needs them)" first, with the same dot, then Settings…, Share…, Install…, the links, Commands…, Help and GitHub',
+      dot && itemDot && items.join('|') === 'Add ROMs (BASIC needs them)|Settings…|Share…|Install…|Library|Debugger|Commands…|Help|GitHub', JSON.stringify({ dot, itemDot, items }));
     check('mobile (393x659): opening Menu moves nothing in the bar', JSON.stringify(before) === JSON.stringify(await row()));
     // the focus on the first item as it opens; Tab goes down the list (not into what Menu hides)
     const f1 = await page.evaluate(() => document.activeElement.id);
     await page.keyboard.press('Tab');
     const f2 = await page.evaluate(() => document.activeElement.id || document.activeElement.textContent.trim());
-    check('mobile (393x659): Menu opens with the focus on its first item (Add ROMs), and Tab goes to the next (Share)', f1 === 'navRoms' && f2 === 'navShare', JSON.stringify({ f1, f2 }));
+    check('mobile (393x659): Menu opens with the focus on its first item (Add ROMs), and Tab goes to the next (Settings…)', f1 === 'navRoms' && f2 === 'navSettings', JSON.stringify({ f1, f2 }));
     await tap(page, '#navRoms');
     check('mobile (393x659): Menu\'s Add ROMs opens Add ROMs', await until(page, () => location.hash === '#add-roms'));
     check('mobile (Menu): no page errors', !errors.length, errors.join('; '));
     await ctx.close();
   }
-  // ---- Menu's Settings… at 390x844: the drawer's tabs brought into view, the focus on Display ----
+  // ---- Menu's Settings… at 390x844 with the touch keys: the Settings sheet on the tab last used (Media at first),
+  // the focus on it, in view, Menu closed ----
   {
     const { ctx, page, errors } = await open({ width: 390, height: 844 }, '?machine=dragon64');
     await tap(page, '#btnMenu');
     await until(page, () => document.getElementById('appbar').classList.contains('menu-open'));
     await tap(page, '#navSettings');
-    await until(page, () => document.activeElement && document.activeElement.id === 'tab-display');
+    await until(page, () => document.activeElement && document.activeElement.id === 'tab-media');
     const st = await page.evaluate(() => {
-      const t = document.getElementById('tab-display'), r = t.getBoundingClientRect();
-      return { focus: document.activeElement.id, selected: t.getAttribute('aria-selected'), panel: !document.getElementById('panel-display').hidden,
+      const t = document.getElementById('tab-media'), r = t.getBoundingClientRect();
+      return { focus: document.activeElement.id, selected: t.getAttribute('aria-selected'), panel: !document.getElementById('panel-media').hidden, sheet: document.getElementById('sheetSettings').open,
         inView: r.top >= 0 && r.bottom <= innerHeight && r.width > 0, menu: document.getElementById('appbar').classList.contains('menu-open') };
     });
-    check('mobile (390x844): Menu\'s Settings… brings the settings tabs into view with the focus on Display, its panel open, and Menu closed',
-      st.focus === 'tab-display' && st.selected === 'true' && st.panel && st.inView && !st.menu, JSON.stringify(st));
+    check('mobile (390x844): Menu\'s Settings… opens the Settings sheet on the tab last used (Media at first), the focus on it, in view, and Menu closed',
+      st.sheet && st.focus === 'tab-media' && st.selected === 'true' && st.panel && st.inView && !st.menu, JSON.stringify(st));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, 'mobile-settings-menu.png') });
     check('mobile (Settings…): no page errors', !errors.length, errors.join('; '));
     await ctx.close();
@@ -17648,8 +18066,8 @@ async function mobileChecks(browser, base, check) {
     const items = await page.evaluate(() => [...document.querySelectorAll('#tkMenuSheet button')].filter((e) => e.checkVisibility()).map((e) => e.textContent));
     await tap(page, '#tkMenuSheet [data-item="machine"]');
     const picker = await page.evaluate(() => { const m = document.getElementById('machineMenu'), r = m.getBoundingClientRect(); return { shown: !m.hidden && m.checkVisibility() && r.width > 0, inView: r.top >= 0 && r.bottom <= innerHeight + 1, first: document.elementFromPoint(r.left + 40, r.top + 40)?.closest('#machineMenu') === m }; });
-    check('mobile (734x343): the panel\'s Menu has Machine…, Commands…, Install CLOADM… and Hide keys; Machine… opens the machine picker, on screen and on top',
-      items.join() === 'Machine…,Commands…,Install CLOADM…,Hide keys' && picker.shown && picker.inView && picker.first, JSON.stringify({ items, picker }));
+    check('mobile (734x343): the panel\'s Menu has Machine…, Settings…, Tape, disks and cartridge…, Power…, Commands…, Install CLOADM… and Hide keys; Machine… opens the machine picker, on screen and on top',
+      items.join() === 'Machine…,Settings…,Tape, disks and cartridge…,Power…,Commands…,Install CLOADM…,Hide keys' && picker.shown && picker.inView && picker.first, JSON.stringify({ items, picker }));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, 'mobile-734x343-machine-picker.png') });
     await page.keyboard.press('Escape');
     check('mobile (734x343): Esc closes the picker, and the app bar gives way to the panel again', picker.shown && await until(page, () => document.getElementById('machineMenu').hidden && !document.body.classList.contains('machine-pick')
@@ -18297,6 +18715,7 @@ const GROUPS = (base, site) => [
   ['poke', (b) => pokeChecks(b, base, check)],
   ['feedback', (b) => feedbackChecks(b, base, check)],
   ['feedbackModel', (b) => feedbackModelChecks(b, base, check)],
+  ['phone', (b) => phoneChecks(b, base, check)],
   ['debuggerScreen', (b) => debuggerScreenChecks(b, base, check)],
   ['library', (b) => libraryChecks(b, base, check)],
   ['libraryStorage', (b) => libraryStorageChecks(base, check)],

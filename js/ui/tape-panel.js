@@ -218,9 +218,10 @@ export function setupTapePanel(page) {
     $('btnDeckFold').textContent = folded ? 'Show the deck' : 'Hide the deck';
   };
   $('btnDeckFold').onclick = () => { fold(!panel.classList.contains('folded')); update(); };
-  // "Deck" in the HUD: the panel, open, brought into view
+  // "Deck" in the HUD: the panel, open, brought into view (on a phone: its sheet, opened, js/ui/phone-sheets.js)
   $('btnHudDeck').onclick = () => {
     fold(false); update();
+    if (panel.closest('dialog.sheet')) { page.sheets.open('sheetTape', $('btnHudDeck')); return; }
     panel.scrollIntoView({ block: 'nearest', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
     $('btnDeckFold').focus({ preventScroll: true });
   };

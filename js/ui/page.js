@@ -268,4 +268,5 @@ export function createPage(session, audio) {
 // (claude: Claude paused by a key, which Esc stops; under the questions on screen, over the views and the chat)
 // (offer: a card nobody asked for, js/ui/install.js's automatic install offer. Below claude, so the screen's Esc
 // never reaches it and stays the machine's BREAK; off the screen it is closed like any card, over the views.)
-export const ESC = Object.freeze({ confirm: 10, menu: 20, card: 30, claude: 35, offer: 36, view: 40, chat: 50 });
+// (sheet: a phone's sheet, js/ui/phone-sheets.js: under the menus and cards that open over it, over Claude's panel)
+export const ESC = Object.freeze({ confirm: 10, menu: 20, card: 30, sheet: 33, claude: 35, offer: 36, view: 40, chat: 50 });

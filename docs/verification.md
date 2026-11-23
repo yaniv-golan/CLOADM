@@ -1152,6 +1152,23 @@ browser check's group `uiModel` drives them with real events at 1280x720 and at 
   900 px (none of the panel's controls covered): the "toast over the Stop" it was written for cannot form under
   the rule for opaque sheets, and in both the pill does not come and go and a Stop can be reached. `tests/feedback-toasts.test.js` checks each
   rule in Node.
+* The phone layout (`phone`, iPhone 15 upright): the four chips in their fixed order under the keyboard panel, each in
+  view and at least 44 x 44; each opens its sheet (a modal dialog, the focus inside, its title) and Esc closes it with
+  the focus back on the chip; the hardware keyboard does not reach the machine while a sheet is open (the welcome
+  menu's "1"); a tape mounted from the Tape sheet names itself on the chip (text, outline, accessible name); a held
+  stick is let go of when a sheet opens; Esc with the drive menu over the Disks sheet closes the menu first; a sheet is
+  modal, and its Esc ranks over Claude paused by a key; Hide keys from the Power sheet, then ⌨, with the chips up throughout; a toast's
+  action button at least 44 px tall. `uiModel` checks the Disks chip after a dropped disk; `semantics` the landmarks with
+  the ports as chips and every closed sheet hidden for real; `tapeHud` that the reels turn only in an open Tape sheet.
+  Also in `phone`: Menu → Settings… (its order, the sheet's tabs at least 44 px, its top edge at or below the screen's
+  foot, Expand and Collapse, the palette's "Display settings" on Display, the tab last used); the focus back on a chip
+  opened with the focus elsewhere; one sheet at a time and Ask's sheet closed; NitrOS-9 under the drives, the Disks
+  chip's file name and "2 disks"; Paused; the full-screen chat closing a sheet; sideways (iPhone 15 landscape) the keys'
+  Menu, the ports' side sheet (its size, tabs, each port in reach, Esc back to Menu), Power… and Settings…, the tab that
+  holds media, and turning with a sheet open; a short phone (375 x 548, 320 x 460) with no chip row, Menu's two items
+  and their states, its dot and name, and the ports' sheet from the bottom; a desktop at 1440 x 900 with the ports and
+  drawer where they were before (and back there after the touch keys on and off) and no duplicate ids. Screenshots of
+  each sheet. `mobile` keeps its screen-size floors unchanged.
 * A switch names what comes out: the switch confirmation's text for a tape and a cartridge (both in the Library), a tape and a disk, a RAM
   change (and Cancel putting the select back), a snapshot's own disk with **Save to Library** (stored and linked),
   DriveWire (not listed, still mounted after the switch); the toasts after the switch. `tests/switch-losses.test.js`

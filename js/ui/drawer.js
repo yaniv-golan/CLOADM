@@ -32,7 +32,7 @@ export const loadRow = (session, row) => {
 
 export function setupDrawer(page, { showRoms }) {
   const { session } = page;
-  const tabs = [...document.querySelectorAll('[role="tab"]')];
+  const tabs = [...document.querySelectorAll('.drawer [role="tab"]')];   // (the settings' own: not a sheet's)
   function select(tab, focus = false) {
     for (const t of tabs) {
       const on = t === tab;
