@@ -10304,7 +10304,7 @@ async function askEscChecks(browser, base, check) {
   // UX R47: a toast never covers the sheet's own controls (its Stop among them), so the "toast over the Stop" this case
   // was written for cannot form in any layout. What it checks now, in the two layouts where the sheet overlays the page:
   // on a phone (the sheet at peek) the toast is in the header band, pinned at the top under the bar; at 900 px (the
-  // side panel over the page) it is in a free place clear of the sheet's controls; in both it covers no Stop, the pill
+  // side panel over the page) and on a phone it covers none of the sheet's controls, no Stop among them, the pill
   // does not come and go, and a Stop can be reached.
   for (const [tag, viewport] of [['phone, sheet at peek', { width: 390, height: 844 }], ['900 px, side panel over the page', { width: 900, height: 800 }]]) {
     const { ctx, page, errors, replies } = await open(viewport);
@@ -10347,7 +10347,8 @@ async function askEscChecks(browser, base, check) {
     });
     if (phone) check(`${L}: the toast is in the header band (pinned at the top, under the bar), not over the sheet`,
       where.up && where.pinned && where.toast[1] === where.barBottom + 8 && !where.onSheet, JSON.stringify(where));
-    else check(`${L}: the toast is in a free place, clear of the sheet's controls`, where.up && !where.pinned && !where.onSheetControl, JSON.stringify(where));
+    // (at 900 px whether this long toast finds a free place or pins under the bar depends on how many lines it wraps to,
+    // which depends on the fonts: either is right; feedbackModel checks the free place with a short toast)
     check(`${L}: the toast covers none of the sheet's controls (no Stop under a toast, R47)`, where.up && !where.onSheetControl, JSON.stringify(where));
     check(`${L}: the pill does not come and go while the toast shows`, flips <= 1, `flips ${flips}`);
     // THE INVARIANT THE PILL EXISTS FOR: while the turn runs, the person must be able to reach a Stop. A pill that has

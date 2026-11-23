@@ -916,7 +916,7 @@ browser check's group `uiModel` drives them with real events at 1280x720 and at 
   place after); a test `<dialog>` opened with `showModal()` over a toast, and a toast raised under it: in both
   `elementFromPoint` at the toast's centre is the toast, and the region leaves the dialog and the top layer when it
   closes; one announcement per toast. `askEsc` (5d) now runs the turn on a phone (header band, no Stop covered) and at
-  900 px (a free place clear of the panel's controls): the "toast over the Stop" it was written for cannot form under
+  900 px (none of the panel's controls covered): the "toast over the Stop" it was written for cannot form under
   R47, and in both the pill does not come and go and a Stop can be reached. `tests/feedback-toasts.test.js` checks each
   rule in Node.
 * R25: the switch confirmation's text for a tape and a cartridge (both in the Library), a tape and a disk, a RAM
