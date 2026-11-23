@@ -217,4 +217,11 @@ function stubRom(cpu, size, base, opts = {}) {
   return out;
 }
 
-export { TextConsole, stubRom, banner };
+export { TextConsole, stubRom, banner, basicCursor };
+
+// The text screen cursor's cell on the 6809 families: BASIC's own ROM variable $0088-$0089, which the built-in
+// firmware imitates as its console's position (docs/game-development.md). Every program that prints through CHROUT
+// leaves it where the next character goes, and a program marks that cell with a block (our LIZA, and BASIC's ROM's
+// cursor); a reader counting semigraphics blocks must not read that block as part of a picture. One rule, used by
+// both machines that have it (js/machines/sam.js and js/machines/coco3.js), so they cannot disagree.
+function basicCursor(ram) { return (ram[0x88] << 8) | ram[0x89]; }

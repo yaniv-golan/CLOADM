@@ -26,7 +26,7 @@ import { InterruptHub } from './bus.js';
 import { wireCocoPias } from './cocopia.js';
 import { Machine } from './machine.js';
 import { SerialPort } from './rs232.js';
-import { TextConsole, banner, stubRom } from './stub.js';
+import { TextConsole, banner, stubRom, basicCursor } from './stub.js';
 import { state } from '../util.js';
 import { hzToAttos } from '../chips/attotime.js';
 import { HaltReplay, SUSPEND, justUnder, haltDeferState, haltDeferTimes } from './halt-replay.js';
@@ -89,6 +89,10 @@ class Coco3Machine extends Machine {
     this.on('timer', () => { this.timerEvent = null; this.gime.timerExpired(); });
     this.timerEvent = null;
   }
+
+  // The screen cursor's cell (textCursor in js/machines/machine.js): the same BASIC ROM variable (basicCursor) as
+  // the other 6809 families, since this machine's compatibility-mode page is that VDG's.
+  textCursor() { return basicCursor(this.ram); }
 
   // ---------------- ROMs / cartridge ----------------
   romImage() { return this.roms.basic && this.roms.basic.length >= 0x8000 ? this.roms.basic : STUB.rom; }

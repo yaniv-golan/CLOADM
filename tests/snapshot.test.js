@@ -15,6 +15,9 @@ const kv = () => { const m = new Map(); return { get: (k) => m.get(k) ?? null, s
 const rejects = async (p) => { try { await p; return null; } catch (e) { return e; } };
 const throws = (fn) => { try { fn(); return null; } catch (e) { return e; } };
 const fake = (size, seed) => { const b = new Uint8Array(size); let x = seed >>> 0; for (let i = 0; i < size; i++) { x = (x * 1103515245 + 12345) >>> 0; b[i] = x >>> 24; } return b; };
+// a file's bytes decompressed with Node's zlib, or null when it is not gzip at all (so a snapshot saved uncompressed
+// is a named FAIL, not a crash: gunzipSync throws, and a check that throws reports nothing by name)
+const gunzipOrNull = (bytes) => { try { return zlib.gunzipSync(Buffer.from(bytes)); } catch (e) { return null; } };
 
 // `frames` frames: every instruction (pc, a, b, x, cycles), every frame's pixels, then all of memory
 function run(m, frames) {
@@ -36,17 +39,61 @@ const picture = (m) => { let h = 0x811C9DC5; for (const v of m.render().data) h 
   const file = await s.snapshotFile(new Date('2026-11-14T16:30:05.250Z'));
   check('file name: model and time, .cloadm', file.name === 'Dragon64-20261114-163005.cloadm', file.name);
   check('file is gzip', file.bytes[0] === 0x1F && file.bytes[1] === 0x8B);
-  // read it back independently of the code under test (Node's zlib, plain JSON)
-  const json = JSON.parse(zlib.gunzipSync(Buffer.from(file.bytes)).toString('utf8'));
+  // read it back independently of the code under test (Node's zlib, plain JSON). A file that does not decompress is
+  // left null here and reported by the named check below, not by a throw that stops the suite before its summary.
+  const fileRaw = (() => { try { return zlib.gunzipSync(Buffer.from(file.bytes)); } catch (e) { return null; } })();
+  const json = fileRaw ? JSON.parse(fileRaw.toString('utf8')) : {};
+  check('the file decompresses (a snapshot saved uncompressed is caught here, by name)', fileRaw != null, fileRaw ? '' : 'it does not decompress');
   check(`header fields: format, version ${Emu.SNAPSHOT_VERSION}, machine, name, taken, config, ROM CRCs; the state has the picture`,
     json.format === 'cloadm-state' && json.version === Emu.SNAPSHOT_VERSION && json.machine === 'dragon64' && json.name === 'Dragon 64'
-    && json.taken === '2026-11-14T16:30:05.250Z' && json.config.ram === 64 && JSON.stringify(json.roms) === '{}' && json.state.frame && json.state.frame.$typed === 'Uint8Array',
+    && json.taken === '2026-11-14T16:30:05.250Z' && json.config.ram === 64 && JSON.stringify(json.roms) === '{}' && json.state && json.state.frame && json.state.frame.$typed === 'Uint8Array',
     JSON.stringify(Object.keys(json)));
   check('a 64K machine fits in under 40 KB', file.bytes.length < 40 * 1024, `${file.bytes.length} bytes`);
+
+  // ------------- a saved snapshot FILE is gzip, and smaller than what it holds -------------
+  // The stored size is a gzip artifact (the compressor's own choice of bytes), which the macOS suite taught the
+  // session tests to stop comparing (tests/gzip-contents.js); that leaves NOTHING checking that a snapshot is
+  // compressed at all. This does, on files the REAL save paths write - the Session's snapshot file and a quick-save
+  // slot in the media store - never on a buffer the test builds itself. For two machines of different sizes (a 64K
+  // Dragon, a 512K CoCo 3) the file starts with the gzip magic and is smaller than its own decompressed bytes, and
+  // the decompressed bytes are the JSON the file holds (a plain JSON header, read with Node's zlib: the code under
+  // test is not trusted to say what is inside). A packet that went uncompressed would fail all three.
+  for (const [id, ram] of [['dragon64', 64], ['coco3', 512]]) {
+    const m = new Emu.Session({ store: kv() });
+    m.switchMachine(id, { ram });
+    for (let f = 0; f < 20; f++) m.shownMachine.runFrame();
+    const f = await m.snapshotFile(new Date('2026-01-02T03:04:05Z'));
+    const raw = gunzipOrNull(f.bytes);
+    const head = raw ? JSON.parse(raw.toString('utf8')) : null;
+    check(`snapshot file (${id}, ${ram}K): starts with the gzip magic 1f 8b`,
+      f.bytes[0] === 0x1F && f.bytes[1] === 0x8B, `${f.bytes[0].toString(16)} ${f.bytes[1].toString(16)}`);
+    check(`snapshot file (${id}, ${ram}K): is a whole gzip file (not stored uncompressed)`,
+      raw != null, raw ? '' : 'it does not decompress: the file was saved uncompressed');
+    check(`snapshot file (${id}, ${ram}K): smaller than the state it holds`,
+      raw != null && f.bytes.length < raw.length, `${f.bytes.length} stored vs ${raw ? raw.length : '(not gzip)'} decoded`);
+    check(`snapshot file (${id}, ${ram}K): what it holds is this machine's JSON (${head && head.machine})`,
+      !!head && head.format === 'cloadm-state' && head.machine === id && head.version === Emu.SNAPSHOT_VERSION, JSON.stringify(head && { format: head.format, machine: head.machine, version: head.version }));
+    // the quick-save slot: saved through the Session (saveSlot writes library/snapshots/slot-1.cloadm through the
+    // media store), then read back from the store - the file the real save path wrote, not one the test built
+    const saved = await m.saveSlot(1);
+    const slot = await m.media.read('library/snapshots/slot-1.cloadm');
+    const slotRaw = gunzipOrNull(slot);
+    check(`quick-save slot (${id}, ${ram}K): stored as gzip, smaller than its contents`,
+      !!saved && slot[0] === 0x1F && slot[1] === 0x8B && slotRaw != null && slot.length < slotRaw.length,
+      `${slot.length} stored vs ${slotRaw ? slotRaw.length : '(not gzip)'} decoded`);
+  }
+
   const back = await s.readSnapshot(file.bytes);
   const again = await Emu.encodeSnapshot(back, { name: 'Dragon 64', taken: '2026-11-14T16:30:05.250Z' });
-  check('round trip: decode then encode gives the same JSON', zlib.gunzipSync(Buffer.from(again)).toString() === zlib.gunzipSync(Buffer.from(file.bytes)).toString());
-  check('uncompressed JSON reads too', (await s.readSnapshot(zlib.gunzipSync(Buffer.from(file.bytes)))).machine === 'dragon64');
+  const againRaw = (() => { try { return zlib.gunzipSync(Buffer.from(again)); } catch (e) { return null; } })();
+  check('round trip: decode then encode gives the same JSON', againRaw != null && fileRaw != null && againRaw.toString() === fileRaw.toString(),
+    againRaw == null ? 'the re-encoded file does not decompress' : '');
+  // an uncompressed snapshot keeps the same header and state, so the Session must read one too. The bytes here are
+  // made by the test from `back` (the snapshot it just decoded), not by the writer, so this holds even when the writer
+  // is the thing under test.
+  const unpacked = new TextEncoder().encode(Emu.state.toJSON(Object.assign({}, back)));
+  let unpackedRead = null; try { unpackedRead = (await s.readSnapshot(unpacked)).machine; } catch (e) { unpackedRead = e.message; }
+  check('uncompressed JSON reads too', unpackedRead === 'dragon64', `read back ${unpackedRead}`);
   check('looksLikeSnapshot: by extension, gzip or JSON; not a .CAS', Emu.looksLikeSnapshot('x.cloadm', new Uint8Array(4)) && Emu.looksLikeSnapshot('a', file.bytes)
     && !Emu.looksLikeSnapshot('liza.cas', new Uint8Array([0x55, 0x55, 0x3C])));
   // an unpacked pre-release file is taken as a snapshot (so it gets the pre-release refusal, not another loader)
@@ -238,9 +285,10 @@ const picture = (m) => { let h = 0x811C9DC5; for (const v of m.render().data) h 
     a.switchMachine('dragon32');
     for (let f = 0; f < 10; f++) a.shownMachine.runFrame();
     check('the snapshot names the ROM by CRC, never its bytes', !a.shownMachine.useStub);
-    const bytes = (await a.snapshotFile()).bytes, text = zlib.gunzipSync(Buffer.from(bytes)).toString();
+    const bytes = (await a.snapshotFile()).bytes;
+    const text = gunzipOrNull(bytes) != null ? gunzipOrNull(bytes).toString() : '';   // (named, not thrown: see gunzipOrNull)
     const crc = Emu.crc32(basic);
-    check('...', JSON.parse(text).roms.basic === crc && !text.includes(Buffer.from(basic.subarray(0, 48)).toString('base64')));
+    check('...', text !== '' && JSON.parse(text).roms.basic === crc && !text.includes(Buffer.from(basic.subarray(0, 48)).toString('base64')));
     const b = new Emu.Session({ store: kv() });
     b.switchMachine('dragon64');
     const snap = await b.readSnapshot(bytes);
@@ -388,7 +436,8 @@ const picture = (m) => { let h = 0x811C9DC5; for (const v of m.render().data) h 
     const bad = (await b.listSlots())[2];
     check('a damaged slot is listed with its error', /not a CLOADM snapshot/.test(bad.error), JSON.stringify(bad));
     // a slot a pre-release build saved: listed with the pre-release refusal, and refused when opened
-    const pre = new Uint8Array(zlib.gzipSync(Buffer.from(JSON.stringify(Object.assign({}, JSON.parse(zlib.gunzipSync(Buffer.from(await media.read('library/snapshots/slot-2.cloadm'))).toString()), { format: 'cloadm-snapshot', version: 19 })))));
+    const slot2Raw = gunzipOrNull(await media.read('library/snapshots/slot-2.cloadm'));
+    const pre = new Uint8Array(zlib.gzipSync(Buffer.from(JSON.stringify(Object.assign({}, slot2Raw ? JSON.parse(slot2Raw.toString()) : {}, { format: 'cloadm-snapshot', version: 19 })))));
     await media.write('library/snapshots/slot-3.cloadm', pre);
     const preRow = (await b.listSlots())[2];
     check('a pre-release slot is listed with the pre-release refusal', /pre-release build of CLOADM/.test(preRow.error), JSON.stringify(preRow));

@@ -163,6 +163,12 @@ class Machine {
   // with a power-on's in the same frame, which is why the boot watchdog also keys on `restored`, not only on this.
   get resetAt() { return this.frameCount - this.framesSinceReset; }
   stubActive() { return this.useStub; }
+  // The address of the cell the text screen's cursor block sits in, or null when this machine has no text cursor to
+  // name. The 6809 families keep it in BASIC's own variable $0088-$0089 (the ROM variable the built-in firmware
+  // imitates: docs/game-development.md); the MC-10 keeps ours in stubCursor, because it has no ROM variable this
+  // project can verify (docs/claude.md, LIZA for the 6803). A reader that counts semigraphics blocks uses it to tell
+  // the cursor's block from a picture block; a machine that cannot name its cursor says null and counts every block.
+  textCursor() { return null; }
   // No-ROM stub: PC hooks at the stub firmware's entry points (symbols from stubRom):
   // RESET runs init(), POLCAT returns a queued key (A, Z clear) or none (Z set), CHROUT prints A on
   // the console, and the cassette/cursor routines return with carry set (error)

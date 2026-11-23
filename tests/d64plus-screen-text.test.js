@@ -260,6 +260,11 @@ function pictureRows(m) {
   const d = Emu.SCREEN_TEXT_DESCRIPTION;
   check('description: the 80-column board, its registers, ASCII, each decline, and unknown codes read as counted spaces', /Dragon 64 Plus's 80-column screen/.test(d) && /R12\/R13/.test(d)   // the CRTC start address registers
     && /\$20-\$7E are read as ASCII \(P\. Mooney's IC22 EPROM dump/.test(d) && /interlace/.test(d) && /non-output/.test(d) && /fewer than 10 raster lines/.test(d) && /such a cell reads as a space and `unknown` counts them/.test(d), d);
+  // the VDG sentence Claude reads about the count: the cursor's block is left out (a change made with
+  // js/claude/readtools.js's cursor rule), so the description must not still say the cursor is one of the counted
+  // blocks, as it did before that change ("BASIC's cursor is one")
+  check('description: the VDG count leaves the cursor\'s block out, and no longer says the cursor is one of the blocks',
+    /`semigraphics` counts those cells/.test(d) && /leaving out the cursor's own block/.test(d) && !/cursor is one/.test(d), d);
 }
 
 console.log(`\n${n - fail}/${n} passed`);

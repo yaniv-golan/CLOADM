@@ -366,7 +366,11 @@ emulator.
     and `$FF9D`), a physical address, and it is read there, in physical RAM, as the display reads it: a page the MMU
     shows the CPU somewhere else, or nowhere (or a slot routed to ROM), is still the page on screen. `physicalBase`
     is that address and `base` the CPU address that shows the whole page under the current map, or `null` when no
-    slot does. In compatibility mode the GIME sets the lines each text row takes from `$FF9C` (BASIC's `$0F` is 12;
+    slot does. Cells whose bit 7 is set are semigraphics blocks: they read as spaces and `semigraphics` counts them,
+    with a `note`, so a picture of blocks is not mistaken for an empty screen - except the cursor's own block, the cell
+    the machine's cursor variable names (`textCursor`: BASIC's `$0088`-`$0089` on the 6809 families, the built-in
+    firmware's console position on the MC-10), which is left out; a screen whose only block is the cursor has no note.
+    In compatibility mode the GIME sets the lines each text row takes from `$FF9C` (BASIC's `$0F` is 12;
     `$03` is 8, `$0A` is 1), so the screen can show more or fewer than 16 rows - 24 at 8 lines a row on a 192-line
     body, 17 or 19 at 12 lines on a 200- or 225-line one, the last row cut short. The reader walks that screen the
     way the display does (`GIME.legacyTextScreen()`: ceil(body lines / lines a row) rows, `$FF9C`'s lines a row), so

@@ -31,7 +31,7 @@ import { Acia6551, InterruptHub } from './bus.js';
 import { wireCocoPias } from './cocopia.js';
 import { SerialPort } from './rs232.js';
 import { Machine } from './machine.js';
-import { TextConsole, banner, stubRom } from './stub.js';
+import { TextConsole, banner, stubRom, basicCursor } from './stub.js';
 import { state } from '../util.js';
 
 const CLOCKS_PER_TICK = 4;  // this machine's tick is one CPU cycle = 4 VDG clocks
@@ -158,6 +158,9 @@ class SamMachine extends Machine {
   // displayRead). The family's RAM mapping decides what is there; the Dragon 64 Plus overrides it with its
   // RAM banks and its video-RAM overlay.
   displayByte(a) { return this.ram[a]; }
+
+  // The screen cursor's cell (textCursor in js/machines/machine.js): BASIC's own ROM variable (basicCursor).
+  textCursor() { return basicCursor(this.ram); }
 
   // ---------------- ROMs ----------------
   romsChanged() {

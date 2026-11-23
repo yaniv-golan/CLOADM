@@ -244,20 +244,80 @@ const stateOf = (s) => JSON.stringify(s.shownMachine.saveState());
 
   // ---- 3. peek reads the machine's map, not raw RAM ----
   // semigraphics cells on the VDG's text screen (bit 7 set: a block, not a character) read as spaces; screen_text
-  // says how many there are, so a screen of blocks does not read as an empty one
+  // says how many there are, so a screen of blocks does not read as an empty one. The CURSOR's block is not one of
+  // them: the cell at the machine's own cursor is left out of the count, and when it is the only block there is no
+  // note at all (nothing to warn about). The expected counts below are worked out by hand from the bytes written to
+  // the page, never from the reader: the cursor is placed at $0500 (cell 256), the 261st cell written, and each
+  // case's total is the blocks written MINUS that one if it holds a block.
   {
     const s = boot('coco');
-    for (let i = 0; i < 512; i++) s.shownMachine.write(0x400 + i, i & 1 ? 0x8F : 0x80);   // a checkerboard of SG4 blocks
-    s.advance(1000 / s.shownMachine.fps + 0.01);
-    const r = await Emu.runReadOnlyTool(targetOf(s), 'screen_text', {});
-    check('screen_text on a screen of semigraphics blocks: no text, and it says 512 cells are semigraphics',
-      r.text === true && r.rows === 0 && r.semigraphics === 512 && /512 of the 512 cells are semigraphics/.test(r.note), J(r));
-    s.shownMachine.write(0x400, 0x08); s.shownMachine.write(0x401, 0x09);   // "HI" in the corner
-    const mixed = await Emu.runReadOnlyTool(targetOf(s), 'screen_text', {});
-    check('screen_text with text among blocks: the text, the blocks as spaces, and the count', mixed.lines[0] === 'HI' && mixed.semigraphics === 510, J(mixed));
-    for (let i = 0; i < 512; i++) s.shownMachine.write(0x400 + i, 0x60);   // all spaces
-    const plain = await Emu.runReadOnlyTool(targetOf(s), 'screen_text', {});
+    const m = s.shownMachine, SG = 0x8F, CUR = 0x500;   // (0x500 is $0400 + 256: the cursor's cell in row 8)
+    const cursorTo = () => { m.write(0x88, CUR >> 8); m.write(0x89, CUR & 0xFF); for (let i = 0; i < 2; i++) s.advance(1000 / m.fps + 0.01); };
+    const fill = (v) => { for (let i = 0; i < 512; i++) m.write(0x400 + i, v); };
+    const text = () => Emu.runReadOnlyTool(targetOf(s), 'screen_text', {});
+    // (a) the cursor's block alone: 1 block on the page, 0 of them a picture -> no count, no note
+    fill(0x60); m.write(CUR, SG); cursorTo();
+    const only = await text();
+    check('screen_text with only the cursor\'s block: no count and no note (an empty screen is not a picture of blocks)',
+      !('semigraphics' in only) && !('note' in only) && only.rows === 0, J(only));
+    // (b) one picture block in the corner plus the cursor's: 2 blocks written, 1 is the cursor's -> 1, singular
+    fill(0x60); m.write(0x400, SG); m.write(CUR, SG); cursorTo();
+    const one = await text();
+    check('screen_text with one picture block and a block at the cursor: counts 1, and the note is singular',
+      one.semigraphics === 1 && one.note === '1 of the 512 cells is a semigraphics block, read as spaces: screenshot shows them', J({ semigraphics: one.semigraphics, note: one.note }));
+    // (c) many picture blocks plus the cursor's: 10 written beside it at 0x410-0x419, plus the cursor's at cell 256
+    //     -> 11 blocks on the page, 1 is the cursor's, so 10 counted (plural)
+    fill(0x60); for (let i = 0; i < 10; i++) m.write(0x410 + i, SG); m.write(CUR, SG); cursorTo();
+    const many = await text();
+    check('screen_text with many picture blocks and a block at the cursor: counts them all, plural, never "are" for 1',
+      many.semigraphics === 10 && /^10 of the 512 cells are semigraphics blocks, read as spaces: /.test(many.note), J({ semigraphics: many.semigraphics, note: many.note }));
+    // (d) the cursor OFF a picture block: exactly the 10 picture blocks counted, the cursor's cell changes nothing
+    m.write(CUR, 0x60); cursorTo();
+    const offCursor = await text();
+    check('screen_text with the cursor on a plain cell: the 10 picture blocks counted, no cursor effect',
+      offCursor.semigraphics === 10, J({ semigraphics: offCursor.semigraphics }));
+    // (e) the cursor set somewhere off this page ($FFFF): the reader does not stop counting any block there
+    fill(0x60); m.write(0x400, SG); m.write(0x401, SG);
+    m.write(0x88, 0xFF); m.write(0x89, 0xFF); for (let i = 0; i < 2; i++) s.advance(1000 / m.fps + 0.01);
+    const offPage = await text();
+    check('screen_text with the cursor off the page: both blocks counted (no cell is dropped by mistake)',
+      offPage.semigraphics === 2, J({ semigraphics: offPage.semigraphics }));
+    // (f) a whole checkerboard, cursor on the page: 512 blocks written, cell 256 holds 0x80 (a block), so 511 counted
+    for (let i = 0; i < 512; i++) m.write(0x400 + i, i & 1 ? SG : 0x80);
+    cursorTo();
+    const all = await text();
+    check('screen_text on a screen of blocks, cursor on the page: no text, and 511 of the 512 are picture blocks',
+      all.text === true && all.rows === 0 && all.semigraphics === 511 && /511 of the 512 cells are semigraphics/.test(all.note), J(all));
+    s.shownMachine.write(0x400, 0x08); s.shownMachine.write(0x401, 0x09);   // "HI" in the corner (both were blocks)
+    const mixed = await text();
+    check('screen_text with text among blocks: the text, the blocks as spaces, and the count', mixed.lines[0] === 'HI' && mixed.semigraphics === 509, J({ semigraphics: mixed.semigraphics }));
+    fill(0x60);
+    const plain = await text();
     check('screen_text with no semigraphics: no count and no note', !('semigraphics' in plain) && !('note' in plain), J(plain));
+  }
+  // the cursor rule on the MC-10 too, whose cursor is the console's own (stubCursor) and not a ROM variable: the
+  // cursor's block at its page ($4000) is left out there as well
+  {
+    const s = boot('mc10');
+    const m = s.shownMachine;
+    for (let i = 0; i < 512; i++) m.write(0x4000 + i, 0x60);
+    m.stubCursor = 0x4000 + 100; m.write(0x4000 + 100, 0x8F); m.write(0x4000, 0x8F);
+    for (let i = 0; i < 2; i++) s.advance(1000 / m.fps + 0.01);
+    const r = await Emu.runReadOnlyTool(targetOf(s), 'screen_text', {});
+    check('MC-10: the console\'s cursor block is left out of the count (1 picture block counted, not 2)',
+      r.text === true && r.semigraphics === 1, J({ semigraphics: r.semigraphics, note: r.note }));
+  }
+  // and on a CoCo 3 in compatibility mode, whose page is walked in physical RAM: the cursor is a CPU address, so it is
+  // matched through the SAM's map, never used as a screen offset
+  {
+    const s = boot('coco3');
+    const m = s.shownMachine;
+    for (let i = 0; i < 512; i++) m.write(0x400 + i, 0x60);
+    m.write(0x88, 0x05); m.write(0x89, 0x00); m.write(0x500, 0x8F); m.write(0x400, 0x8F);
+    for (let i = 0; i < 3; i++) s.advance(1000 / m.fps + 0.01);
+    const r = await Emu.runReadOnlyTool(targetOf(s), 'screen_text', {});
+    check('CoCo 3 compatibility mode: the cursor block at $0500 is left out, the picture block at $0400 counted',
+      r.text === true && r.semigraphics === 1 && /^1 of the \d+ cells is a semigraphics block/.test(r.note), J({ semigraphics: r.semigraphics, note: r.note }));
   }
   // machine_info names each MC6847 graphics mode as the data sheet does (GM0-GM7: CG1 RG1 CG2 RG2 CG3 RG3 CG6 RG6, the
   // table written out here independently of js/chips/mc6847.js), on a VDG machine and on the CoCo 3's legacy path.

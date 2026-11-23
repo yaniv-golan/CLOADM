@@ -239,7 +239,9 @@ screenshot to see what happened. To find which keys a program reads, see `refere
   stripped and given as `attributes` runs), the CoCo 3's 32-column page where the display reads it even when the MMU
   shows it to the CPU elsewhere or not at all (`physicalBase`; `base` is null then), and the Dragon 64 Plus's 80
   columns while `set_display` shows them. Cells with no known character (semigraphics blocks, a Plus code outside
-  $20-$7E) read as spaces and are counted (`semigraphics`, `unknown`); a graphics mode is declined (`text: false`) -
+  $20-$7E) read as spaces and are counted (`semigraphics`, `unknown`); the cursor's own block (the cell a program
+  printing through CHROUT sits at, the machine's cursor variable) is NOT one of them and is left out of the count,
+  and a screen whose only block is the cursor has no `note` at all; a graphics mode is declined (`text: false`) -
   take a screenshot then.
 - **Addresses** may be given as decimal integers or hex text (`"$3000"`); `peek`, `disassemble` and `find_bytes`
   answer in hex, but `registers` and the machine summaries (`pc`) give decimal numbers. Convert with care before you

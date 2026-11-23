@@ -79,6 +79,14 @@ class Mc10Machine extends Machine {
       () => this.stubInit());
   }
 
+  // The screen cursor's cell: our console's own position (stubCursor), because the MC-10's ROM cursor variable is not
+  // an address this project can verify (docs/claude.md, LIZA for the 6803). -1 when it is off this machine's page, so
+  // a reader does not stop counting a block there.
+  textCursor() {
+    const c = this.stubCursor, page = this.profile.textScreen || 0x400;
+    return c >= page && c < page + 0x200 ? c : -1;
+  }
+
   romsChanged() {
     const d = this.roms[this.profile.roms[0].id];
     if (!d) { this.rom = null; return; }

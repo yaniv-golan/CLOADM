@@ -414,6 +414,12 @@ Next version: 0.1.9-pre (the plugin and extension manifests carry it; `tests/plu
   and the camera on an iPhone.
 - **Menu's "Install…" label on a phone keeps its space**: it read "InstallCLOADM…" (the space before "CLOADM…" was
   dropped where the Menu lays its items out).
+- **Claude's `screen_text` no longer counts the cursor as a semigraphics block**, and says "1 of the 512 cells is a
+  semigraphics block" for one. The cursor's block (the cell at the machine's cursor: BASIC's `$0088`-`$0089` on the
+  Dragon and CoCo, the built-in firmware's console position on the MC-10) read as part of a picture; it is now left
+  out of `semigraphics`, and a screen whose only block is the cursor has no `note` at all. The expected counts in
+  `tests/claude-readtools.test.js` come from the bytes the test writes, on the VDG, the MC-10 and a CoCo 3 in
+  compatibility mode. `docs/mcp.md`, `docs/claude.md` and the skill say so.
 - **BYE in LIZA was lost after opening the chat: the welcome menu never came back.** The full-screen chat runs on a
   second machine of its own while the BASIC session keeps running beside it, but the chat's own start of its
   firmware ended the BASIC session's menu watch (and its Reset program), and the watch treated the chat machine on

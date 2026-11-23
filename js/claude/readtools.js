@@ -87,7 +87,7 @@ export function readOnlyTools() {
 const CELL_COLS = 32;
 // The description Claude sees. It names the machines and modes the reader covers, and how non-ASCII characters and
 // attributes come back, so a model knows what to expect before it calls.
-export const SCREEN_TEXT_DESCRIPTION = "The text on the machine's screen, one string per row with trailing spaces trimmed (trailing blank rows are left out, so `rows` counts the rows returned, not the rows the screen has). Reads the MC6847 VDG 32x16 text screen (MC-10, Dragon 32/64/200, CoCo 1/2, and the CoCo 3 in its CoCo-compatible mode), from the page the VDG shows (on the Dragon and CoCo 1/2 the SAM's display offset, so a page a program has moved is read where it is) and every CoCo 3 GIME text mode, 6809 or 6309: 32, 40, 64 or 80 columns, with or without attribute bytes (as NitrOS-9 and BASIC's WIDTH 40/80 use); on a GIME text mode `screenRows` is how many rows the screen shows. GIME characters $20-$7E are ASCII; the GIME's international characters $00-$1F come back as the Unicode letters they show (Ç ü é â ä à å ç ê ë è ï î ß Ä Å ó æ Æ ô ö ø û ù Ø Ö Ü § £ ± ° ƒ) and $7F as ▒. Attribute bytes are never shown as characters: with attributes on, `attributes` gives each row's runs of fg, bg, underline and blink, where fg and bg are palette slots, not colours (the foreground is palette register 8+fg, the background palette register bg). On the VDG's text screen a cell with bit 7 set is a semigraphics block (BASIC's cursor is one): it reads as a space, and `semigraphics` counts those cells (with a `note`), so a picture made of blocks is not mistaken for an empty screen; screenshot shows it. Returned with the mode's name, `cols`, and where the screen was read from: `base`, the CPU address of the whole screen, given only when the memory map shows all of it to the CPU in one contiguous run (otherwise null: an MMU that splits or hides it, or 256-byte virtual rows), and on a CoCo 3 `physicalBase`, its address in the CoCo 3's physical RAM. The CoCo 3's compatibility-mode page is read where the display reads it, in physical RAM (`physicalBase`), also when the memory map (MMU) shows it to the CPU elsewhere or not at all (`base` is then that other address, or null). Declined with text:false and a reason: a graphics mode; a GIME text mode whose rows are too short to show a character (1 or 2 scanlines per row) or that shows no rows ($FF99 lines per field 2); and, on the Dragon 64 Plus's 80-column screen, a 6845 set-up the board cannot show whole (no rows or columns, R1 or R6 not less than the totals R0+1 or R4+1, wider than 80 columns or taller than the 264-line picture, fewer than 10 raster lines a row, an interlace mode, R8's display skew set to non-output). The Dragon 64 Plus's 80-column screen (its HD6845S, while the Display tab shows it) is read from the board's 2K video RAM as the CRTC walks it (start address R12/R13 as `startAddress`, R1 columns, R6 rows as `screenRows`, the 2K wrapping), as the next frame draws it; codes $20-$7E are read as ASCII (P. Mooney's IC22 EPROM dump and the Dragon Archive's Compusense character ROM dump both put 'A' at offset $0410, so code c's glyph is at c*16); the board's other codes ($00-$1F other symbols, $7F a solid block, $80-$FF mostly underlined forms of $00-$7F) are not mapped to characters here: such a cell reads as a space and `unknown` counts them (with a `note`); `base` is its CPU address only while $FFE2 maps the video RAM over $0000-$07FF and the screen does not wrap. Takes no parameters.";
+export const SCREEN_TEXT_DESCRIPTION = "The text on the machine's screen, one string per row with trailing spaces trimmed (trailing blank rows are left out, so `rows` counts the rows returned, not the rows the screen has). Reads the MC6847 VDG 32x16 text screen (MC-10, Dragon 32/64/200, CoCo 1/2, and the CoCo 3 in its CoCo-compatible mode), from the page the VDG shows (on the Dragon and CoCo 1/2 the SAM's display offset, so a page a program has moved is read where it is) and every CoCo 3 GIME text mode, 6809 or 6309: 32, 40, 64 or 80 columns, with or without attribute bytes (as NitrOS-9 and BASIC's WIDTH 40/80 use); on a GIME text mode `screenRows` is how many rows the screen shows. GIME characters $20-$7E are ASCII; the GIME's international characters $00-$1F come back as the Unicode letters they show (Ç ü é â ä à å ç ê ë è ï î ß Ä Å ó æ Æ ô ö ø û ù Ø Ö Ü § £ ± ° ƒ) and $7F as ▒. Attribute bytes are never shown as characters: with attributes on, `attributes` gives each row's runs of fg, bg, underline and blink, where fg and bg are palette slots, not colours (the foreground is palette register 8+fg, the background palette register bg). On the VDG's text screen a cell with bit 7 set is a semigraphics block: it reads as a space, and `semigraphics` counts those cells (with a `note`), so a picture made of blocks is not mistaken for an empty screen - leaving out the cursor's own block (the cell the machine's cursor variable names, where a program printing through CHROUT sits), so a screen whose only block is the cursor has no `note` at all; screenshot shows it. Returned with the mode's name, `cols`, and where the screen was read from: `base`, the CPU address of the whole screen, given only when the memory map shows all of it to the CPU in one contiguous run (otherwise null: an MMU that splits or hides it, or 256-byte virtual rows), and on a CoCo 3 `physicalBase`, its address in the CoCo 3's physical RAM. The CoCo 3's compatibility-mode page is read where the display reads it, in physical RAM (`physicalBase`), also when the memory map (MMU) shows it to the CPU elsewhere or not at all (`base` is then that other address, or null). Declined with text:false and a reason: a graphics mode; a GIME text mode whose rows are too short to show a character (1 or 2 scanlines per row) or that shows no rows ($FF99 lines per field 2); and, on the Dragon 64 Plus's 80-column screen, a 6845 set-up the board cannot show whole (no rows or columns, R1 or R6 not less than the totals R0+1 or R4+1, wider than 80 columns or taller than the 264-line picture, fewer than 10 raster lines a row, an interlace mode, R8's display skew set to non-output). The Dragon 64 Plus's 80-column screen (its HD6845S, while the Display tab shows it) is read from the board's 2K video RAM as the CRTC walks it (start address R12/R13 as `startAddress`, R1 columns, R6 rows as `screenRows`, the 2K wrapping), as the next frame draws it; codes $20-$7E are read as ASCII (P. Mooney's IC22 EPROM dump and the Dragon Archive's Compusense character ROM dump both put 'A' at offset $0410, so code c's glyph is at c*16); the board's other codes ($00-$1F other symbols, $7F a solid block, $80-$FF mostly underlined forms of $00-$7F) are not mapped to characters here: such a cell reads as a space and `unknown` counts them (with a `note`); `base` is its CPU address only while $FFE2 maps the video RAM over $0000-$07FF and the screen does not wrap. Takes no parameters.";
 
 // Whether screen_text can read the screen faithfully, and if not, why. ONE rule, used by screen_text to decide
 // what to answer and by machine_info to report `video.readable`, so the two cannot disagree: `readable === false`
@@ -196,7 +196,7 @@ function readScreen(m, readByte, { main = false } = {}) {
   // address elsewhere.
   if (mode.legacyBase != null) {
     const g = m.gime, t = g.legacyTextScreen(), at = mode.legacyBase;
-    const r = compatRows(t.chars);
+    const r = compatRows(t.chars, legacyCursorIndex(m, t));
     return { text: true, mode: mode.name, cols: CELL_COLS, base: contiguousCpuBase(g, t), physicalBase: at, screenRows: t.rows, ...r };
   }
   // the VDG family: the page the VDG shows, read where it fetches it (vdgPage: the SAM's display offset on the SAM
@@ -207,35 +207,55 @@ function readScreen(m, readByte, { main = false } = {}) {
   const page = vdgPage(m), n = VDG_ROWS * CELL_COLS;
   let cpuSees = page.addr(n - 1) === page.at + n - 1;
   for (let i = 0; cpuSees && i < n; i++) cpuSees = readByte(page.addr(i)) === page.byte(i);
-  return { text: true, mode: mode.name, cols: CELL_COLS, base: cpuSees ? page.at : null, ...vdgRows(page.byte) };
+  return { text: true, mode: mode.name, cols: CELL_COLS, base: cpuSees ? page.at : null, ...vdgRows(page.byte, m.textCursor ? m.textCursor() : null, page.addr) };
+}
+// the cursor's cell as an index into a compatibility-mode screen. The screen is walked in PHYSICAL RAM (the GIME's
+// own walk, t.chars from t.base), while the machine's cursor is BASIC's CPU address, so the cursor is mapped to a
+// physical address the way each machine's CPU reaches memory - the SAM's map (SAM6883.ramAddr) on the Dragon and
+// CoCo 1/2, the GIME's MMU (physAddr) on a CoCo 3 - and matched to a cell by that address, never used as an offset.
+function legacyCursorIndex(m, t) {
+  const c = m.textCursor ? m.textCursor() : null;
+  if (c == null || c < 0) return -1;
+  const phys = typeof m.ramAddr === 'function' ? m.ramAddr(c & 0xFFFF, m.sam ? m.sam.reg : 0)
+    : (m.gime && typeof m.gime.physAddr === 'function' ? m.gime.physAddr(c & 0xFFFF) : c);
+  return phys >= 0 && phys >= t.base && phys < t.base + t.rows * CELL_COLS ? phys - t.base : -1;
 }
 // 16 rows x 32 cells: the VDG family's own geometry. A cell with bit 7 set is a semigraphics block, not a character:
-// read as a space, and counted, so a picture made of blocks (or BASIC's cursor) is not taken for an empty screen
+// read as a space, and counted, so a picture made of blocks is not taken for an empty screen. The CURSOR's own block
+// (the cell machine.textCursor() names, where a program printing through CHROUT sits) is not a picture block and is
+// left out of the count: when it is the only block on the page there is no note at all, because the screen holds no
+// picture to warn about. A machine that cannot name its cursor (textCursor() null) counts every block.
 const VDG_ROWS = 16;
 // A VDG cell's byte (bit 6 inverse, bit 7 a semigraphics block) as the character the reader gives it.
 const vdgCell = (v) => (v & 0x80 ? ' ' : (() => { const c = v & 0x3F; return String.fromCharCode(c < 32 ? c + 64 : c); })());
-function vdgRows(byte) {
+// the note for a count of blocks out of `cells`; the singular is its own sentence, never "1 ... are"
+const blocksNote = (blocks, cells) => `${blocks} of the ${cells} cells ${blocks === 1 ? 'is a semigraphics block' : 'are semigraphics blocks'}, read as spaces: screenshot shows them`;
+// the cursor's cell as an index into the rows the reader walks, or -1 when it is not one of them. `at(i)` is the
+// screen address of cell i, so a page that the CPU or the display sees somewhere else is still matched by address.
+const cursorIndex = (cursor, at, cells) => { for (let i = 0; i < cells; i++) if (at(i) === cursor) return i; return -1; };
+function vdgRows(byte, cursor, addr) {
+  const cells = VDG_ROWS * CELL_COLS, skip = cursor == null ? -1 : cursorIndex(cursor, addr, cells);
   const rows = [];
   let blocks = 0;
   for (let row = 0; row < VDG_ROWS; row++) {
     let line = '';
     for (let col = 0; col < CELL_COLS; col++) {
-      const v = byte(row * CELL_COLS + col);
-      if (v & 0x80) blocks++;
+      const i = row * CELL_COLS + col, v = byte(i);
+      if (v & 0x80 && i !== skip) blocks++;
       line += vdgCell(v);
     }
     rows.push(line);
   }
-  return { rows, ...(blocks ? { semigraphics: blocks, note: `${blocks} of the ${VDG_ROWS * CELL_COLS} cells are semigraphics blocks, read as spaces: screenshot shows them` } : {}) };
+  return { rows, ...(blocks ? { semigraphics: blocks, note: blocksNote(blocks, cells) } : {}) };
 }
 // A CoCo 3 compatibility-mode screen's rows, as the GIME's own walk (legacyTextScreen) gives them: ceil(body / lines a
 // row) rows of 32 cells, a program's $FF9C followed rather than a fixed 16. Blocks are counted and read as spaces, as
-// on the VDG.
-function compatRows(chars) {
+// on the VDG, the cursor's cell left out the same way.
+function compatRows(chars, cursor) {
   let blocks = 0;
-  const rows = chars.map((c) => { let line = ''; for (const v of c) { if (v & 0x80) blocks++; line += vdgCell(v); } return line; });
+  const rows = chars.map((c, row) => { let line = ''; for (let i = 0; i < CELL_COLS; i++) { const v = c[i]; if (v & 0x80 && (cursor == null || row * CELL_COLS + i !== cursor)) blocks++; line += vdgCell(v); } return line; });
   const cells = rows.length * CELL_COLS;
-  return { rows, ...(blocks ? { semigraphics: blocks, note: `${blocks} of the ${cells} cells are semigraphics blocks, read as spaces: screenshot shows them` } : {}) };
+  return { rows, ...(blocks ? { semigraphics: blocks, note: blocksNote(blocks, cells) } : {}) };
 }
 
 // the rows as a model reads them: trailing spaces trimmed, trailing blank rows left out (both readers)
