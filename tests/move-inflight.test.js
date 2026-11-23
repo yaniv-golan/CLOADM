@@ -313,7 +313,7 @@ async function rig(from = new Emu.MemoryMediaStore(), opts = {}) {
   // (which write roms/*), a DriveWire mount (which hands the drives the store they then read and write in), and the
   // NitrOS-9 boot/its floppy save (which read the store and mount the image). None may write to the old place
   // after the move began or hand a drive the old store.
-  // Which guard refuses each, and which of those guards this review round added. A move already running when the
+  // Which guard refuses each, and which of those guards are new here. A move already running when the
   // call starts is refused before any await in every case; every guard below except mountDriveWire's re-check
   // predates this round (clearRoms and importRomPack got theirs in d669c7c, mountDriveWire its first in 2bb90bc).
   //

@@ -862,5 +862,9 @@
     "hash": "e4d254dd",
     "instructions": 402096,
     "halted": true
+  },
+  "video coco3 compat $FF9C": {
+    "hash": "616997a5",
+    "frames": 1500
   }
 }

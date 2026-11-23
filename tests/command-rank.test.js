@@ -1,7 +1,7 @@
 // The command box's matching (js/ui/command-box.js rankCommands): word starts in the label beat the extra words, which
 // beat a word one edit from a word's start (4 letters or more, its first letter kept); ties keep the list's order;
 // "Switch to <model>" rows only when a word names the model, otherwise the one "Switch machine…" row; the matched
-// parts of the label for <mark>. Expected rows are written out here, from the ruling's queries.
+// parts of the label for <mark>. Expected rows are written out here, from the queries the ranking was specified with.
 // Run: node tests/command-rank.test.js
 let fail = 0;
 const check = (name, cond, detail = '') => { if (!cond) { fail++; console.log(`FAIL ${name} ${detail}`); } else console.log(`ok   ${name} ${detail}`); };

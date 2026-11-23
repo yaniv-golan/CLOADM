@@ -76,7 +76,12 @@ Alice. Every socket, alias and the CRC32 of every known-good dump are in [roms.m
 
 ROMs, the Library and the last few programs you loaded live in browser-private storage
 (the Origin Private File System), which survives a reload and needs no permission. A browser without it falls back
-to keeping them for the visit, with a download and an import button for the files you want to keep. The Library's
+to keeping them for the visit, with a download and an import button for the files you want to keep. Several tabs of
+CLOADM share the browser's storage (or one chosen folder): what one tab adds or removes (a ROM, a Library item, a
+recent program) appears in the others without a reload and nothing one tab stored is lost to another's write; when two
+tabs put different ROMs in the same socket, the one put last stays. A delete with Undo leaves the other tabs alone until
+its toast ends. On the ROM screen a socket another tab changed while you look says **Changed in another tab**; a ROM
+another tab removed or replaced stays in this tab's running machine (the row says so) until you switch it off and on. (Download and open keeps each tab's files apart.) The Library's
 **Where your library is kept** changes this: inside this browser, a folder on your computer (File System Access,
 Chrome and Edge: ordinary files, and disk writes go straight back to the image file), or download and open. Choosing
 another place copies what CLOADM keeps there (the library, disk images, ROMs, recent programs; nothing else in your
@@ -488,6 +493,23 @@ with the line. `FCC`, `FCS` and `FCN` take `"text"` or text between two of the s
 Writing a game: [Game development](game-development.md) covers the memory map, the keyboard matrix, the VDG and SAM
 modes, DAC sound and frame timing, with a starter game (`examples/starter-game/catch.asm`, which runs with no ROMs)
 and how to test a game from the command line.
+
+## A Debugger stop on the emulator
+
+A stop in the **Debugger** (its Pause, a step, a breakpoint or watchpoint, a run that reached its limit) stays when
+you go back to the emulator: the machine is not run on behind your back. The emulator says so in three places: the
+**Pause** button reads **Resume**; a strip above the screen (between the header and the screen on a phone) says why
+and where ("Stopped at breakpoint $C0F3.", "Stopped: the watchpoint on $0400 was written at $C0F3."), with
+**Resume** and **Open Debugger**; and the status line reads "Stopped in the Debugger" (or "Paused" for the page's own
+Pause) instead of a speed. Resume, wherever you press it (the button, the strip, the Debugger's F5), ends either kind
+of pause.
+
+Starting something runs it: Run again, a program from Runs without ROMs, Open or a dropped program, tape or disk, a
+disk put in from the Library, booting NitrOS-9, Reset, Switch off and on and a machine switch each release the stop (the toast adds "The
+Debugger's stop at $C0F3 was released.") and end the page's Pause. A file that is refused (a .wav with no tape in it,
+BASIC on a machine without its ROM) starts nothing, so the stop stays. Your breakpoints stay set. The same holds for what Claude or the MCP server
+starts. While the machine is stopped, typing is refused rather than kept for later (keys, a tap on the welcome menu,
+a paste): a toast says "The machine is stopped: press Resume, then type." once per stop.
 
 ## ROM self-test
 

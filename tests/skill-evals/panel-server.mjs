@@ -6,7 +6,9 @@
 // connector/view/panel.js makes it: a Dragon 64 without ROMs running LIZA), plus open_emulator. What it cannot be is
 // the browser: there is no view, so open_emulator only says the emulator is open, and the panel's tools are listed
 // from the start rather than in the next message. Only the project's own programs; no ROMs.
-//   node tests/skill-evals/panel-server.mjs     (run.js starts it; it reads JSON-RPC lines on stdin)
+//   node tests/skill-evals/panel-server.mjs [--stopped]     (run.js starts it; it reads JSON-RPC lines on stdin)
+// --stopped (a case's `panel_state: stopped`): LIZA is at her prompt and the person has stopped the machine in the
+// panel's Debugger, so the tools that must run it refuse with machine-stopped until it is resumed.
 import fs from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline';
@@ -23,6 +25,7 @@ const program = (f) => new Uint8Array(fs.readFileSync(path.join(ROOT, 'examples'
 const session = new Session({ welcomeMenu: false });
 session.switchMachine('dragon64', undefined, { menu: false });
 await session.startLiza(program);
+if (process.argv.includes('--stopped')) { session.runFrames(150); session.debug.halt(); }
 const toolbox = panelToolbox(session, { png: framePng, program, now: () => Date.now(), date: () => new Date(), yield: () => new Promise((r) => setImmediate(r)) });
 const OPEN = { name: 'open_emulator', title: 'Open the CLOADM emulator', description: 'Opens CLOADM in the side panel. The machine on screen is machine_id "m1", already on (no boot needed), running LIZA.',
   inputSchema: { type: 'object', properties: {}, additionalProperties: false }, annotations: { readOnlyHint: true } };

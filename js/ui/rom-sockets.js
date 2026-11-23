@@ -2,7 +2,7 @@
  * Adding ROMs, at /play/#add-roms instead of the emulator. It opens from
  * "No BASIC · Add ROMs", the Machine tab's "Add ROMs →", the Welcome menu's key 3, the boot help's "Add
  * ROMs", and anything else that needs ROMs. It shows:
- *  - the disk ROM's card where the machine takes a disk cartridge (R26: a drive's Add ROMs… lands on it);
+ *  - the disk ROM's card where the machine takes a disk cartridge (a drive's Add ROMs… lands on it);
  *  - the machine's sockets, each with what it takes (size, usual file names), whether it is required, and what
  *    it holds or what is missing and why it matters (a required socket: no BASIC without it; an optional one:
  *    what you lose);
@@ -33,6 +33,9 @@ export function setupRomSockets(page, romInput, { confirmSwitch }) {
   const view = $('romCard');
   let offers = [];      // [{ machine, name, files }] from the last drop, until this screen closes or the machine restarts
   let found = null;     // the last drop's per-file results
+  // 'machine:socket' rows another tab changed while this screen was open: they say so, quietly, until it closes (a
+  // socket changing under the person's eyes, unexplained, looks like a bug)
+  const elsewhere = new Set();
 
   // ---------------- open and close (#add-roms) ----------------
   const isOpen = () => location.hash === '#add-roms';
@@ -40,7 +43,7 @@ export function setupRomSockets(page, romInput, { confirmSwitch }) {
     const open = isOpen();
     document.body.classList.toggle('roms-open', open);
     showView(view, open);
-    if (!open) offers = [];   // shown once, with the drop they came from: never again from a later visit to this screen
+    if (!open) { offers = []; elsewhere.clear(); }   // shown once, with the drop they came from: never again from a later visit to this screen
     if (open) { render(); $('romHeading').focus(); }
   }
   page.onView(show);
@@ -49,14 +52,23 @@ export function setupRomSockets(page, romInput, { confirmSwitch }) {
   $('btnRomJustLooking').onclick = close;
 
   // ---------------- the sockets ----------------
-  function socketState(s, left) {
-    if (left) return 'Removed · still in the running machine';
+  // what the running machine still has of a socket's ROM: one this page removed from storage (RomLibrary.remove,
+  // Session.romsStillRunning), or one another tab removed or replaced (Session.romElsewhere). The machine is not
+  // touched, so the row says what it runs
+  const RUNNING = {
+    removed: 'Removed · still in the running machine',
+    replaced: 'Replaced · the running machine keeps the old one until you switch off and on',
+  };
+  function socketState(s, machine, left) {
+    if (left) return RUNNING.removed;
+    const kept = session.romElsewhere(machine, s.id);
+    if (kept) return RUNNING[kept];
     if (s.status === 'verified') return `✓ ${s.file || 'loaded'} · Recognised`;
     if (s.status === 'loaded-unrecognised') return `◆ ${s.file || 'loaded'} · loaded, not recognised`;
     if (s.status === 'missing-required') return 'Waiting for a file. Without it there is no BASIC: the machine runs without ROMs, machine-code programs only.';
     return OPTIONAL_WHY[s.id] || 'Optional.';
   }
-  // The disk ROM (R26): one card for a machine whose cartridge port takes a disk cartridge, from
+  // The disk ROM: one card for a machine whose cartridge port takes a disk cartridge, from
   // DiskDrives.dosChoices() ("Disk drives (optional): DragonDOS or Delta DOS"); none for a machine with its own disk
   // interface (the Dragon Alpha) or with no cartridge port (the MC-10). Like the Pak's, it carries its own attribute
   // (data-disk), not data-status: it is not one of the machine's sockets, and the socket counts read [data-status].
@@ -71,7 +83,7 @@ export function setupRomSockets(page, romInput, { confirmSwitch }) {
     const names = c.map((x) => x.name.replace(/ cartridge$/, ''));
     top.append(el('strong', `Disk drives: ${names.join(' or ')}`), el('span', 'optional', 'tag'));
     const state = ready.length ? `✓ ${ready.map((x) => `${x.name.replace(/ cartridge$/, '')} disk ROM`).join(', ')} · ${session.drives.romWaiting ? 'goes in at the next reset or power cycle (the disk controller in use has none yet)' : 'ready for disks'}`
-      : 'Without it, disks still go in, for programs that read them directly. CLOADM doesn\'t include one; add your own dump.';
+      : 'Without it, disks still go in, for programs that read them directly. CLOADM doesn\'t include one; add your own copy.';
     body.append(top, el('div', `8 KB · usually ${c.map((x) => x.rom).join(' or ')}`, 'expect'), el('div', state, 'state'));
     card.append(el('span', null, 'dot'), body);
     return [card];
@@ -90,7 +102,8 @@ export function setupRomSockets(page, romInput, { confirmSwitch }) {
       if (left(s)) card.dataset.left = 'running';
       const body = el('div', null, 'body'), top = el('div', null, 'top');
       top.append(el('strong', s.label), el('span', s.required ? 'required' : 'optional', s.required ? 'tag req' : 'tag'));
-      body.append(top, el('div', `${kb(s.size)} · usually ${s.files.concat(s.aliases).join(' or ')}`, 'expect'), el('div', socketState(s, left(s)), 'state'));
+      body.append(top, el('div', `${kb(s.size)} · usually ${s.files.concat(s.aliases).join(' or ')}`, 'expect'), el('div', socketState(s, m.id, left(s)), 'state'));
+      if (elsewhere.has(`${m.id}:${s.id}`)) body.append(el('div', 'Changed in another tab', 'elsewhere muted'));
       card.append(el('span', null, 'dot'), body);
       return card;
     }), ...diskCard(), ...(session.offersSsc ? session.sscRoms().map((s) => {
@@ -188,7 +201,8 @@ export function setupRomSockets(page, romInput, { confirmSwitch }) {
     render();
   });
   // a drop's offers are about that moment: a new machine, a power-on or a reset ends them
-  session.on((ev) => {
+  session.on((ev, arg) => {
+    if (ev === 'roms' && arg && arg.elsewhere && isOpen()) for (const x of arg.elsewhere) elsewhere.add(`${x.machine}:${x.socket}`);
     if (ev === 'machine' || ev === 'firmware' || ev === 'reset') offers = [];
     if (ev === 'machine' || ev === 'roms' || ev === 'firmware' || ev === 'reset') render();
   });

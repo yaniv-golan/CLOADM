@@ -177,7 +177,7 @@ const A = () => images.vdk(40, 1), B = () => images.vdk(26, 1);
   }
 
   {
-    // The OTHER hole the reviewer found: rename asked first, then an IMPORT of the same name. The rename runs as a
+    // The other hole: rename asked first, then an IMPORT of the same name. The rename runs as a
     // creation but never LANDED the name it took, so an import queued behind it read it as a deliberate replace and
     // wrote its own bytes over the renamed image (both reported success). Every creation lands what it stores --
     // a rename included -- so the import behind it refuses as a second creation of that name.
@@ -334,7 +334,7 @@ const A = () => images.vdk(40, 1), B = () => images.vdk(26, 1);
       `${ra} | ${rb} | ${holders} drives`);
   }
   {
-    // The REGRESSION the reviewer found (it passed on main, failed here): the user's mount() parked in its stat, then
+    // A REGRESSION (it passed on main, failed here): the user's mount() parked in its stat, then
     // the guest's NAME MOUNT arm -- whose duplicate scan ran before its claim and never again inside it -- took a
     // second drive on the same file. Every arm must re-scan INSIDE the claim.
     const st = new MemoryMediaStore();

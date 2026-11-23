@@ -42,7 +42,7 @@ export const KEY_TEXT = Object.freeze({
   offline: 'Could not reach Claude. Check your connection.',
 });
 
-// UX ruling R11: while Claude is paused (the person's key), a card's accept button gives consent and resumes in one
+// Allow and resume: while Claude is paused (the person's key), a card's accept button gives consent and resumes in one
 // click. The card says so in a line of its own; the decline button is unchanged and never resumes.
 export const PAUSED_CARD_TEXT = Object.freeze({
   consent: 'Paused because you pressed a key. Allow and resume lets Claude go on and act on the machine for the rest of this session.',
@@ -422,7 +422,7 @@ export function setupClaude(page) {
     $('claudeLoad').hidden = !loading;
     if (loading) $('claudeLoadText').textContent = loadCardText(pend.load);
     else $('chkClaudeLoadNoAsk').checked = false;
-    // R11: paused while the card waits: "Allow and resume" / "Load and resume", and the line that says why
+    // paused while the card waits: "Allow and resume" / "Load and resume", and the line that says why
     const pausedCard = !!pend && !!session.consent.paused;
     drawAccept($('btnClaudeAllow'), pausedCard, 'Allow', 'Allow and resume');
     drawAccept($('btnClaudeLoad'), pausedCard, 'Load it', 'Load and resume');
@@ -441,7 +441,7 @@ export function setupClaude(page) {
     $('btnClaudeResume').hidden = !(status && session.consent.paused);
     if (!pend || !full) shownPending = null;
     else if (pend !== shownPending) { shownPending = pend; $('claudeSession').scrollIntoView({ block: 'center' }); }
-    // the card's strip: the latest turn's action lines, then the restore line (R12, R13). Never printed on the chat
+    // the card's strip: the latest turn's action lines, then the restore line. Never printed on the chat
     // screen itself: its frames are the chat firmware's alone.
     const points = session.claudePoints, last = chat ? chatTurns(chat.messages).filter((t) => t.actions.length || Object.keys(t.reads).length).pop() : null;
     if (last) {

@@ -113,6 +113,9 @@ const restarted = (method) => (s, chat) => {
   s.consent.setAllowed(true);
   chat.target[method] = () => ({ promise: Promise.resolve(), status: 'machine-restarted', key: method === 'pressBreak' ? 'BREAK' : undefined, requested: 4, consumed: 1, linesRequested: 1, linesDelivered: 0, end() {} });
 };
+// the Debugger has the machine stopped: the tools that must run it or press its keys refuse. The stop is
+// made with the machine (it is part of the machine's state the refusal must leave as it was)
+const stopped = (make) => () => { const s = make(); s.debug.halt(); return s; };
 const big = (k) => 'x'.repeat(k);
 const longProgram = Array.from({ length: 250 }, (_, i) => `${i + 1} REM ${'X'.repeat(230)}`).join('\n');   // ~60000 characters, over 24K of program
 
@@ -145,6 +148,7 @@ const OUTCOMES = {
     ['nobody to ask', stub, { text: 'AB' }, nobody, C.NO_CONSENT],
     ['"Just tell me the fix"', stub, { text: 'AB' }, decline, C.CONSENT_DECLINED],
     ['an uncoded failure inside', stub, { text: 'AB' }, raw('typeText'), C.TOOL_FAILED],
+    ['the Debugger has the machine stopped', stopped(stub), { text: 'AB' }, allow, C.MACHINE_STOPPED],
   ],
   load_basic: [
     ['loads', basic, { program: '10 PRINT "HI"\n20 GOTO 10' }, loadYes, OK((j) => JSON.stringify(Object.keys(j)) === '["lines","bytes","start","end"]' && j.lines === 2 && j.start === START && j.end === START + j.bytes - 1)],
@@ -178,6 +182,7 @@ const OUTCOMES = {
     ['"Just tell me the fix"', stub, {}, decline, C.CONSENT_DECLINED],
     ['Stop while paused', stub, {}, pausedThenStop, C.STOPPED],
     ['an uncoded failure inside', stub, {}, raw('pressBreak'), C.TOOL_FAILED],
+    ['the Debugger has the machine stopped', stopped(stub), {}, allow, C.MACHINE_STOPPED],
   ],
   assemble_and_load: [
     ['assembles and writes', stub, { source: 'GO LDA #$41\n', org: 0x3000 }, allow,
@@ -209,6 +214,8 @@ const OUTCOMES = {
     ['"Just tell me the fix"', stub, { target: 0x3000 }, decline, C.CONSENT_DECLINED],
     ['Stop while paused', stub, { target: 0x3000 }, pausedThenStop, C.STOPPED],
     ['an uncoded failure inside', stub, { target: 0x3000 }, raw('run'), C.TOOL_FAILED],
+    ['a jump while the Debugger has the machine stopped', stopped(stub), { target: 0x3000 }, allow, C.MACHINE_STOPPED],
+    ['RUN while the Debugger has the machine stopped', stopped(scanning), {}, allow, C.MACHINE_STOPPED],
   ],
 };
 
@@ -244,6 +251,43 @@ process.exitCode = 1;
     const desc = Emu.actingTools().find((t) => t.name === name).description;
     check(`${name}: the codes its description names are exactly the codes it was shown to return`, JSON.stringify(named(desc)) === JSON.stringify([...seen].sort()),
       `description ${named(desc)} | returned ${[...seen].sort()}`);
+  }
+  // the Debugger has the machine stopped: the reads still work through the chat (and leave it stopped), and once the
+  // person resumes it, typing works again
+  {
+    for (const [name, input] of [['screen_text', {}], ['peek', { address: 0x400, length: 4 }], ['machine_info', {}], ['disassemble', { address: 0x400, count: 2 }]]) {
+      const s = stopped(stub)();   // (one chat per session: modelCall starts it)
+      const r = await modelCall(s, name, input, allow);
+      check(`stopped: ${name} reads the stopped machine through the chat, and leaves it stopped`, r.isError === false && s.paused, r.raw && r.raw.slice(0, 160));
+    }
+    // refused before the consent gate: the person is not shown a card for a call that cannot happen
+    {
+      const s = stopped(stub)();
+      let asked = 0;
+      const r = await modelCall(s, 'type_text', { text: 'A' }, (ss) => { ss.consent.asker = () => { asked++; Promise.resolve().then(() => ss.consent.answer(true)); }; });
+      check('stopped: type_text is refused before anyone is asked (no consent card)', r.isError === true && r.json && r.json.error.code === C.MACHINE_STOPPED && asked === 0, `${asked} cards; ${r.raw}`);
+    }
+    const s = stopped(stub)();
+    s.resume();
+    const r = await modelCall(s, 'type_text', { text: 'A' }, allow, true);
+    check('stopped: after Resume, type_text types again', r.isError === false && r.json && r.json.consumed === 1, r.raw);
+    // the pre-act re-check: the Debugger stops the machine while the consent card waits, then the person allows it:
+    // the call is refused there, synchronously with the change, and nothing is typed (O1)
+    {
+      const s2 = stub();
+      const keys0 = s2.shownMachine.stubKeys.length;
+      const r2 = await modelCall(s2, 'type_text', { text: 'AB' }, (ss) => { ss.consent.asker = () => { Promise.resolve().then(() => { ss.debug.halt(); ss.consent.answer(true); }); }; });
+      check('stopped: halted while the consent card waits, then allowed: machine-stopped at the re-check, nothing typed or queued',
+        r2.isError === true && r2.json && r2.json.error.code === C.MACHINE_STOPPED && s2.shownMachine.stubKeys.length === keys0 && s2.shownMachine.typist.queue.length === 0, r2.raw);
+    }
+    // load_basic writes memory only: it works on a stopped machine with BASIC (our stand-in BASIC fixture) and leaves
+    // it stopped (O2)
+    {
+      const s3 = stopped(basic)();
+      const r3 = await modelCall(s3, 'load_basic', { program: '10 PRINT "HI"\n20 GOTO 10' }, loadYes);
+      check('stopped: load_basic loads into a stopped machine\'s BASIC and leaves it stopped', r3.isError === false && r3.json && r3.json.lines === 2 && s3.paused
+        && s3.readByte(START + 2) === 0 && s3.readByte(START + 3) === 10, r3.raw);
+    }
   }
   {
     const r = await modelCall(stub(), 'format_disk', {}, allow);

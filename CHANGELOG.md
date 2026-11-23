@@ -6,7 +6,7 @@ All notable changes to CLOADM are recorded here. The format follows
 
 ## [Unreleased]
 
-Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plugin.test.js` keeps them in step).
+Next version: 0.1.9-pre (the plugin and extension manifests carry it; `tests/plugin.test.js` keeps them in step).
 
 ### Added
 
@@ -77,52 +77,6 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   page's glossary keeps "dump" as a verb only). New: `Session.romFiles`, `removeRom`,
   `restoreRom` and `romsStillRunning`, `RomLibrary.usedBy`, `remove` and `restore`, the index's `removeImage`, and a
   toast's optional second line with its own action (`also`).
-- **Minesweeper plays with a joystick.** Either joystick moves the cursor: one step as the stick leaves the centre,
-  then again after 300 ms and every 120 ms while it is held (counted in fields, at the machine's own 50 or 60 Hz;
-  centring the stick and pushing the same way again is a new press). Either fire button opens the square under the
-  cursor with a tap (released in under 400 ms), on the release, and puts a flag on it when held 400 ms or more, at
-  that moment; after a win or a loss fire starts a new game as R does, when the button is released, so a long press
-  does not carry into the new game. The game reads the stick with the sound off, so the reading makes no buzz, and
-  while fire is down it ignores the keys fire's own matrix rows can make it read as pressed. The keyboard works as
-  before: the arrows, SPACE or ENTER to open, F to flag, R to start again, BREAK to leave. The shelf's line for the
-  game says so.
-- README: status, licence and live-demo badges, a looping picture of the welcome menu and LIZA (`img/readme-demo.gif`,
-  captured from the real page with no ROMs by `node tools/capture-gif.js`, with the small encoder in `tools/gif.js`),
-  and a "Use it with AI coding agents and Claude" section that points to the MCP server, the connector and plugin, the
-  command line and AGENTS.md.
-- **Claude's side panel shows Claude's hand on the machine.** While one of Claude's calls acts on the machine (any
-  tool that is not read-only: typing, keys, loading, switching, reset), the bezel takes a clay edge (outlined on a
-  light host theme) and a filled clay chip at its top left, in near-black text, says what it does, "Claude is typing:
-  DIR↵", with the keys shown as they reach the machine; the focus ring stays neutral. It stays 2 s after the call,
-  and the status line keeps "Claude typed DIR↵ · 12:04". A call that only reads shows a quiet "Claude read the
-  screen" or "Claude read memory" for 1.5 s. Your own keys never show a chip. Each call that acts is announced once
-  to screen readers, briefly (a long text by its length); reads are not announced. The tools and their approvals are
-  unchanged.
-- **The side panel's toolbar:** **Programs** (the programs this machine runs without ROMs, its own builds of LIZA and
-  the Welcome menu included, and Add ROMs for BASIC… while it has none), **Machine** (every model, marked "✓ BASIC
-  ready" or "needs ROMs", then Reset, Switch off and on, Add ROMs…), **Sound** and **⋯** (Open in side panel, Details,
-  Copy details). The menus work from the keyboard. The Welcome menu's own keys now run what they offer in the panel.
-- **On-screen keys in Claude's side panel on a phone or tablet**, where tapping the screen brought up no keyboard. Three
-  modes, as on the page (the layout, the keys and each program's mode now shared from `js/ui/touch-layout.js`):
-  **Keys** (the page's keyboard), **Pad** (a D-pad, SPACE, ENTER, the program's own keys such as Minesweeper's F, and
-  ABC for one key from the keyboard) and **Stick** (SPACE ENTER 1 2 Y N ABC, a stick and FIRE; only on a machine with
-  a joystick port, so not on the MC-10). Under them in every mode: the switch, CLEAR and BREAK, the only BREAK. A
-  program opens in the mode it is played with (2048 and Minesweeper on the Pad, LIZA and anything else on the Keys),
-  and the switch's choice is remembered per program, in the view's storage when it works, else for as long as the view
-  is open. They show on a touch screen (the host says so, or a coarse pointer, or a first touch) and not on a desktop;
-  **⋯ → Hide on-screen keys** hides them. Claude's typing and its chip are unchanged.
-- `machine_info` returns `route`: `"local"` from the local server, `"panel"` from the side panel's view. The view's
-  contract with the site (`PANEL_API` 3) is unchanged: the field is part of a tool's answer, not of the bridge.
-- A skill eval on the side-panel route, `panel-no-boot-wait` (the agent must not boot or mention boot waits), run on
-  `tests/skill-evals/panel-server.mjs`, a stand-in for the panel with its tools and the Worker's instructions.
-- **"Ask Claude ↗" where the chat can't run.** CLOADM shown inside another site's page has no chat (its key card
-  would be on someone else's page). The full page in a frame now keeps its Ask button, as **Ask Claude ↗**: a link
-  that opens CLOADM top-level in a new tab with this machine as it is now (the Share screen's snapshot link, with
-  `app=claude`, never `embed=1`, `rel="noopener noreferrer"`), where the chat runs on the key saved in your browser.
-  With NitrOS-9 running, whose moment can't be carried, it opens a fresh CLOADM with the chat and says so. The new
-  tab waits for you to type; it never starts a turn by itself. A screen-only embed shows nothing unless its link has
-  the new `askclaude=1`, the Share screen's **Offer 'Ask Claude ↗'**: then a small chip in the screen's corner does
-  the same. The browser check's new group `askPopout` covers it.
 - **Record a clip from a headless run: `--record FILE.avi` … `--record-stop`.** (Command line and a new media module; no
   change to the emulation.) One command writes the picture and sound together as a RIFF AVI 1.0 file
   (`js/media/avi.js`, a pure writer): 8-bit palettized video, the frame's own colour codes and table, with a
@@ -137,21 +91,6 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   `frameToRGBA`, the audio against the same run's `--wav` byte for byte, each frame's sample count, and the header
   rate on every model; mutants of the writer (the carried fraction dropped, R and B swapped, the palette chunk left
   out) fail it, and ffprobe and ffmpeg, when installed, must read the same rate and pixels.
-- **Headless developer docs: which paths each model has, a complete Node example, a graphics recipe and a serial note.** (Documentation,
-  one example and its test; no change to the emulator.) `docs/automation.md` gains a per-model table of the tape, disk-controller,
-  6551, bit-banger and Becker paths, built from `js/machines/profiles.js` (the options example no longer offers `becker=true`
-  generically: it is CoCo-family only, and the Dragon 64 refuses it with `bad-option`); a complete Node example that uses only the
-  public modules and runs from outside the repository (`docs/examples/headless-frame.mjs`: a Session, a DragonDOS binary, a held
-  key, stepped frames, the raw framebuffer, a PNG); a recipe for a graphics program with no text to wait on (wait on a frame counter
-  in RAM, from the command line and Node, with the elapsed frames and cycles, and how input is latched at a guest tick versus the
-  50/60 Hz video field); and a note on snapshotting a machine whose serial peer lives outside it (the freeze order, saving the peer's
-  in-flight bytes and resuming at the same byte). `tests/dev-docs-headless.test.js` rebuilds the table from the machines, runs the
-  example from a temporary directory and from a copy, fails mutants of its guest, and checks the numbers the text quotes.
-- **`?disk=URL` puts a disk in a drive from a link,** before the link's other media: `?load=game.bin&disk=level.vdk`
-  mounts the disk, then loads and runs the game. Ctrl+K gains **Insert a disk…**, **New blank disk** and **Eject
-  disk**; the cartridge port gains **Take out**.
-- **`node tools/mame-diff/run.js <dragon64|coco> --fdc --bare`:** the lockstep comparison with MAME of a program that
-  drives the disk controller with an empty ROM socket (`tools/mame-diff/fdc/gen-bare.js`).
 - **A Dragon disk example with no DOS ROM.** (Documentation, an example and its test; no change to the emulator.) `docs/automation.md`
   gains "Reading a disk with no DOS ROM": `docs/examples/disk-read.mjs` runs from outside the repository with the public modules only,
   builds a VDK in memory with `blankDisk` and `diskGeometry`, plugs the Dragon disk controller into a Dragon 64 without a DOS ROM
@@ -264,6 +203,23 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   1 disk", "Paused"), and wears a dot while media is in ("Menu (media inserted)"). Turning the phone with a sheet open
   keeps it open on the same tab. Upright the keys' strip has no Menu of its own any more (the app bar's is the one
   Menu): Hide keys is in the Power sheet.
+- **Booting NitrOS-9 releases a Debugger stop**, as the other launches do: an accepted boot releases it once and
+  the machine runs; a refused boot (a Multi-Pak in the port, say) keeps it. The boot's own held mount of its disk
+  launches nothing by itself.
+- **Claude and the MCP tools refuse what a Debugger stop would swallow.** While the Debugger has the machine stopped,
+  the tools that must run it or press its keys (`type_text`, `press_break`, `run`, and the MCP server's `press_keys`
+  and `run_frames`) fail with a new code, `machine-stopped`. Its detail says where it stopped, and its remedy says how
+  to go on: the person presses Resume, or Run in the Debugger. A stop made while one of those calls runs ends it
+  the same way: the keys not typed yet are dropped (the detail says how many went in), held keys are let go, and
+  `run_frames` with `until.pc` resumes only a stop its own breakpoint made. Before, the chat's keys waited behind the
+  stop and went in after Resume, `run_frames` ended as if done having run nothing, and an MCP `type_text` timed out. The person's own typing was already refused the same way. Reads
+  (`screen_text`, `peek`, `disassemble`, `registers`, `screenshot`, `machine_info`, `find_bytes`) and the tools that
+  only write memory (`poke`, `assemble_and_load`, `load_basic`) work on the stopped machine and leave it stopped, and
+  so does `step`, which before resumed it. Launches (`load`, `insert_disk`, `reset`, `power_cycle`) still release
+  the stop. The skill (and the side panel's instructions, which the connector's Worker serves once it is deployed
+  again) says what to do with `machine-stopped`, and a new eval covers it.
+- The disk ROM card in Your ROMs says "add your own copy" where it said "add your own dump"; the files you add are ROMs,
+  and "dump" is kept as the verb for reading a machine's ROMs out.
 - **The welcome menu's tune plays only when you asked for the menu.** It plays once the sound is unlocked for the visit's own menu and for the Welcome menu chosen from Programs; it is silent after a machine switch (a RAM or CPU change, the machine question, an opened snapshot), Reset, a power cycle, and when the menu comes back from LIZA, a game or the demo. The Session decides, so Claude's and MCP's switches are silent too.
 - **Faster CI gates, and shards that cannot go stale.** `node tests/all.js` runs in CI as three parts on three runners
   (`--shard i/n`, planned from `tests/suite-times.json`), and the `gates` job checks from their logs that together
@@ -285,6 +241,8 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   an action) running from the moment the focus leaves; the focus stays on the action button only when the new toast
   carries the same action, otherwise it moves to the toast itself, so an Enter meant for the old action fires nothing.
   Under the pointer the new toast is paused until the pointer leaves.
+  With the focus on the button of the toast's second line, the focus moves to the toast itself, even when the new
+  toast carries the same action; and a new toast without a second line leaves none of the old one behind.
 - **A toast in the top slot is pinned provisionally.** It still shows there in its first frame when no place
   is free, but while a control that decides its place is still in its own animation (a sheet opening), for 300 ms at
   most, it moves to a free place as soon as one opens (its position only, with no animation); after that it never
@@ -367,6 +325,264 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   under the line scanner, and four more that pin the backing field's exemption (only the two accessors' bodies and the
   Session constructor's `this._shown = null`) and require a file whose values do not settle within the reader's pass
   limit to fail rather than pass. It reads only the planted file per row, which takes it from about 23 s to about 2 s.
+- **The developer API's stable table covers what a headless script needs.** (Documentation and a test; no change to the emulator.)
+  `docs/automation.md`'s "What is stable" table now names `machine.setKey(name, down)` and the key names
+  (`Object.keys(machine.keyPos)`; the `[row, column]` values stay internal), `machine.frameCount`, `machine.now()`,
+  `machine.tickHz` and `machine.cpu.totalCycles`, the `Frame` fields (`width`, `height`, `aspect`, `active`, `data`, `table`) and
+  `framePng(frame, scale)` from `cli/cloadm.js`; `machine.serialPort`, `pcWatch`, `stubKeys` and the typist's internals are
+  listed as not promoted. `tests/devapi-stable.test.js` imports each promoted name through its public path and checks its
+  shape, so renaming one fails it.
+- **`toBinary(result, { format })` needs the format.** It used to write DragonDOS whenever the program was contiguous, even for a
+  CoCo, and DECB otherwise; now the caller says `'dragondos'` or `'decb'` (and an optional `maxGap`), and a call without one
+  throws. Every caller passes the format it means, and `examples/*.bin` are byte for byte what they were. `writeDragonDos` refuses a gap
+  of more than 256 bytes between two segments unless the caller raises `maxGap` (`examples/chat.bin` does: its blocks sit up to
+  1,438 bytes apart). The Assembler tab's Save writes the file the open machine loads: DECB on a CoCo, DragonDOS on a Dragon; on
+  the MC-10 and Alice, which load `.c10` tapes, Save is off and says why. `--disasm` now names labels from `--asm` as well.
+- **The Session's serial methods moved to `session.serial`.** `serialDevice` is `serial.device` (its fields now start with
+  `chip`), `attachSerial` is `serial.attach`, and `serialSend` is `serial.send`, which takes bytes, or text with `{ text: true }`, and
+  refuses any value outside 0..255 (`send([256])` used to go out as `$00`). A machine's `SerialPort` has a listener set (`listeners`,
+  `{ tx(byte, at), rx(byte, at) }`) in place of its one `onReceive`. The Web Serial object the DriveWire link uses is
+  `session.webSerial` (it was `session.serial`). The terminal log left the Session: `terminalText()`, `clearTerminal()` and
+  `terminalBytes` are gone; the serial panel keeps its own log as a subscriber, and turns it into text itself (`js/ui/terminal-text.js`).
+- **`Session.tapeWav` and `casToWav` write a tape as a player plays it.** The WAV had silence only at its start and end; it now has the
+  player's gaps (above) and a tape's short leaders made up to 128 bytes, so `wavToCas` of it returns the padded bytes (the
+  `.CAS` of a tape that already has its leaders comes back exactly). `casToSamples`' `silence` option is gone (`gaps: 'none'` is the
+  bytes as they are). The WAV decoder ends a run of bits at a silence and reads up to three damaged bytes (a bit or two off `$55`) at the
+  very start of a run, in front of a leader of at least 16 bytes, as `$55`: the first cycle after a silence is the least certain of a recording.
+
+### Fixed
+
+- **A long line typed on the chat screen goes whole, up to 1024 characters.** The chat firmware's line held 255
+  characters (its lengths were single bytes) and the keys after the 255th were not sent: a 269-character prompt
+  arrived as its first 255, and the screen only flashed. The line now holds 1024 (16-bit lengths, the buffer at
+  `$7300`); a line longer than the screen scrolls it as it is typed, and BACKSPACE brings back the rows that have
+  scrolled off. A key past the 1024th is refused with a notice on the row under the line, "[Full: 1024 characters.
+  ENTER sends it.]", and the flash. `tests/chat-long-lines.test.js` sends lines of 256, 269, 1000 and 1025 characters
+  through the Session on the Dragon 64, the CoCo and the CoCo 3, over the mailbox and DriveWire.
+- **The chat on a CoCo with 4K or 16K is refused, saying why.** Its firmware uses $0400-$7FFF, so on less memory it
+  loaded into memory that was not there and the chat screen stayed dead. `startChat` now refuses below 32K: "The chat
+  needs 32K of memory or more; this CoCo 1/2 has 16K. Give it 32K or more in its settings, or use a Dragon 32 or
+  64." The page shows it in its status line.
+- **The chat screen scrolls in fewer frames.** It copies two bytes a move (about 40% fewer cycles), so the frames
+  drawn while a scroll is part way, which show the row at the copy's edge twice, last less long.
+- **A line typed on the chat screen while a reply is still coming is kept whole.** The chat firmware used to ignore
+  every key from ENTER until the reply had ended, so a line typed ahead (by a person or a script, while Claude
+  answered, used its tools or waited at a consent card) lost its start and only its tail was sent. The keys now wait
+  in the firmware's type-ahead ring (2047 keys; a key past it flashes the screen) and are typed at the prompt once the reply has ended, in the order typed. BREAK while a reply comes
+  still only stops the reply. `tests/chat-firmware.test.js`, `tests/claude-chat-drivewire.test.js` and the
+  `chatScreen` browser check type 200-character lines and check the bytes the backend receives.
+- **A call stopped by the MCP server's 25 s time limit says so.** A long `type_text` on a host too slow to finish it
+  was stopped part way and reported `stopped`, "the person stopped Claude", which nobody had. It now fails
+  `time-limit`, with how many of the keys went in ("40 of 150 keys typed before the time limit; the rest was not
+  typed", or "...; the call did not finish" when even stopping it does not end the call), and nothing more goes in
+  afterwards (docs/mcp.md, the skill).
+- **A real CoCo's and the chat's DriveWire writes wait for a Library move.** A guest's named-object create over
+  Web Serial (Serve a real CoCo) or the full-screen chat's DriveWire wrote the store outside the Library's guard:
+  a move started meanwhile did not wait for it, and the new object was left in the place the move had left; a create
+  or a mount asked while the move copied went ahead. Every DriveWire server now has the Becker port's guard: a create
+  is a Library operation the move waits for, and both are answered "no such object" while the move copies.
+- **Adding a NitrOS-9 floppy image and Save to Library store their disk as a creation, like an import.** A rename
+  onto the name while the save was under way is refused, and a save asked behind a rename of that name refuses
+  instead of writing over the renamed image.
+- **Clearer rename refusals.** A blank new name (or "disks/" alone) and a ".." name say "<name> was not renamed:"
+  and why, rather than a bare folder or a path; a case-only rename on a store that does not tell cases apart names
+  the new name without the folder typed; Save to Library of a disk with no file name, or with a name that is not a
+  disk image's file name, says which and what to do.
+- **Two tabs no longer lose each other's ROMs, Library items or recent programs.** Every change to the media index
+  (which ROM is in which socket, the ROMs' file names, the recent list) wrote this tab's whole list over the stored
+  one, so with two tabs open the last writer won and silently dropped what the other had added, Undo included. Now each
+  change re-reads the stored list under a lock all tabs share (`navigator.locks`; one per store in Node), applies only
+  that change and writes the result (`MediaIndex`, js/media/library.js): the same socket changed in two tabs ends as
+  the change made last, and nothing else is lost. A collect removes only images no stored socket uses (a socket is now
+  stored before its image), and a recent program's file stays while the stored list still names it. A BroadcastChannel
+  tells the other tabs what changed (`Session.mediaShare`, `mediaElsewhere`): their index reads the lists again and
+  their panels redraw (`'roms'`, and the new `'recent'` and `'library'` events), quietly, with no message. The
+  in-memory fallback is each tab's own and says nothing. On the ROM screen a socket another tab changed while it
+  is open says so quietly ("Changed in another tab", until the screen closes); if the running machine still has the
+  ROM another tab removed or replaced, the row says "Removed · still in the running machine" or "Replaced · the
+  running machine keeps the old one until you switch off and on" (`Session.romElsewhere`), the machine is not touched,
+  and switching off and on then takes what is stored. Another tab's image or recent file is taken only once its bytes
+  are in: OPFS shows a file empty until its write closes, and a tab that read it then kept the empty bytes. A list
+  another tab stored is put in place only together with the files it names, never before they are read, and not over
+  a change this tab made while they were being read; a tab opening while another writes a file does not keep it half
+  written. `tests/media-multitab.test.js` (two indexes on one store,
+  asynchronous and synchronous, interleaved; two Sessions with a channel) and the browser check's `librarySelect`
+  group (two tabs on real OPFS: add in one and see it in the other, a ROM, delete with Undo across tabs).
+- **The TMS7000 assembler encoded `DJNZ Rn,@LABEL` (and every jump written with an `@`) as offset 0.** A relative jump takes a plain label or address; `@` marks an address operand (`CALL @LABEL`), so a jump written with it is now an error that says so, for all 38 relative forms (the jumps, DJNZ, BTJO/BTJZ and BTJOP/BTJZP). An undefined jump target is an error too (it encoded offset 0), and so is a target further than -128..127 from the next instruction (the offset wrapped to a different place); the message gives the distance.
+- **A printout on a CoCo no longer starts with a NUL.** The no-ROM stub made PIA1's PA1 (the RS-232 out) an output
+  while its output register held 0, so the line dropped to space at every start and the 600-baud serial printer
+  printed a $00 before anything a program sent (MAME 0.264 prints the same from that order). The stub now puts mark
+  there first, as a printer routine leaves the line, on every CoCo-lineage model and the CoCo 3; the Dragons, whose
+  port A is the parallel printer's, are unchanged. `run.js coco --printer --stub-init` compares the stub's start with
+  MAME byte for byte; `tests/stub-printer.test.js` checks the printed bytes.
+- **A printout on an MC-10 or Alice no longer starts with a stray byte.** Their no-ROM stub wrote port 2's DDR before
+  its data register, so P20 (the serial printer's line) dropped to space for a moment and the printer printed a $FF
+  at power-on, or garbled a program's first byte. The stub now writes the data register first; and the 6803 itself
+  now drives port 2 only once its data register has been written, as MAME's m6801 does, so a program that sets the DDR
+  first prints no stray byte either (the flag lives in the 6803's state; a file saved before it restores as driven).
+  `run.js mc10 --printer --stub-init` and `--glitch` (and `alice`, `coco`) give the bytes MAME 0.264 prints, identical.
+- **Claude's screen reading follows every CoCo 3 compatibility-mode text screen.** In compatibility (VDG) mode the
+  reader always walked 16 rows, as if `$FF9C` held BASIC's `$0F` (12 lines a row). A program that sets fewer lines a
+  row shows more rows - 24 at 8 lines, and on a 200- or 225-line body one or three more than 16 even at 12 lines,
+  with the last row cut short - and `screen_text` and the Session's reader now give exactly the rows the picture shows,
+  from the GIME's own walk of that screen (`GIME.legacyTextScreen`), checked row for row and cell for cell against the
+  rendered frame. Rows under 8 lines show no glyph whole and are declined, as the GIME's own text reader declines
+  them. The `coco3 --video` comparison gains compatibility text at `$FF9C` `$03`, `$02`, `$0B` and `$0A`, on a 192-
+  and a 200-line body.
+- **A disk in a drive counts toward the install offer.** The page's "program in use" test (the one the
+  offer to install CLOADM as an app waits a minute of) asked the machine for a disk controller it never has, so a disk
+  waiting in a drive at the bare prompt never counted; it now asks the drives (`session.drives.controllerOf`). The
+  browser check's `install` group puts a disk in at the bare prompt and takes it out again.
+- **The Speech/Sound Pak's speech chip now runs its program at the right speed.** Its SP0256 sequencer reads the
+  allophone ROM in the order a real dump is stored, decodes every instruction and parameter field, and steps once per
+  sample on its own 3.12 MHz clock (10 kHz), holding each set of parameters for its pitch periods; its ready line now
+  reaches the Pak's microcontroller. Compared with MAME 0.264 on our own speech image (`node
+  tools/mame-diff/ssc/speech.js`): every address load and every status change lands at MAME's time on the CoCo 1/2,
+  CoCo 2B, CoCo 3 and Dragon 64, and the test suite checks MAME's recorded times on the CoCo 1/2 and Dragon 64 without
+  MAME. Speech is still silent: the filter that turns the parameters into sound is next.
+- **The Speech/Sound Pak's music now sounds as MAME's does.** Its AY-3-8913 had three faults, each found by a new
+  comparison with MAME 0.264's `-wavwrite` (`node tools/mame-diff/ssc/audio.js`): it played every tone an octave low
+  (its stream ran at half its clock's rate), its levels were three channel levels added where the chip has one
+  output network (MAME's single-output table, at the Pak's gain of 2), and a register write reached it a few
+  cycles early. The Pak's own clock was also wrong: on the CoCo 3 it ran 4 times fast, and on every model it
+  started 4 cycles after power-on. On the CoCo 1/2, CoCo 2B, CoCo 3 and Dragon 64 every AY write now lands at
+  MAME's time and every steady level matches MAME's recording exactly. The CoCo 3 `$0405` difference in the
+  interrupt comparison remains (the sound-activity bit, which is still a stub), and speech is still not implemented.
+- Two flaky checks: `tests/allsignal.test.js` looked for surviving processes once, the instant the runner exited, and
+  could still see a just-killed one; it now asks again for up to 5 s (a real survivor still fails it). The browser
+  check's "Esc on the screen with a line typed is BREAK" read the chat after a fixed three frames; it now waits for the
+  line to be dropped.
+- **The Dragon 64 Plus had the 6551 but no RS-232 port.** Like the Dragon 64 (MAME's `d64plus()` starts from `dragon64()`), it now has the port: PIA1 PB0 reads its RXD, idle high.
+- **Two debuggers could end up on one machine.** A `Debugger` made directly on a machine that already had one left both attached, so a watched write counted twice and the snapshot carried a different debugger from the one the Session drove. A machine now has one debugger: a new one takes the old one's place, `session.debug` returns the one the machine already carries, and adopting the machine already shown keeps its debugger.
+- **Run after a long debugger Over or Out no longer leaves the machine frozen for seconds.** Over, Out, Run to and
+  Step run outside the frame loop, and their frames were not closed as machine time passed them: after an Over of a
+  million instructions the machine was some 170 frames past its open frame, and Run then closed one empty frame per
+  frame of real time (about 3 s) before the program ran again. The debugger now closes each frame its instructions
+  pass, through the machine's own frame path, where a free run would close it, so Run carries on in the next frame
+  and the instructions, frames, picture and sound are exactly those of a free run (`tests/debugger-catchup.test.js`,
+  on the Dragon 64, CoCo 3 and MC-10; the browser check's F5 case now asserts the CPU runs in the first frame after
+  Run). On the MC-10 the frame loop also ran a frame free while a breakpoint or watchpoint was set, so the machine did
+  not stop there; it now runs the frame through the debugger as on the other machines. The MCP `screenshot` after a
+  `step` that crosses a frame's end shows the frame the step closed, with `mid_frame` true. Frames closed inside a
+  debugger command play no sound on the page and are not in a `--wav` recording.
+- **The welcome menu's "carry on" line missed a program whose name differed only in case.** It now uses the store's own case rule: on a case-insensitive store `LOOP.bin` and `loop.bin` are one file.
+- **The "Ask Claude" pop-out link could open an old moment.** It is made fresh on a right click and a middle click too, so "Open in new tab" opens the machine as it is now.
+- **The side-panel view's on-screen keys followed only what the view itself started.** They now follow the program the machine runs, whoever started it (Programs, the Welcome menu's keys or Claude's load), and go back to the keyboard when a load or a reset ends it.
+- **A throwing connector-check scenario now shows as a failing check with the error**, not as a timeout.
+- **The Dragon 200-E was treated as a CoCo wherever the code asked "is this a Dragon?".** It was told apart by its
+  keyboard, and its Spanish layout has its own name, so it offered the RS-DOS cartridge instead of DragonDOS and Delta
+  DOS, printed through the CoCo's bit-banger instead of the Dragons' parallel port, read the bit-banger on PIA1 PB0,
+  took CoCo media and BASIC listings, and appeared outside the Dragons in the connector's model list. Its 6551 also
+  had no RS-232 port. MAME 0.264's driver builds it from the Dragon 64 (`src/mame/trs/dragon.cpp`:
+  `dragon200e_state::dragon200e()` starts with `dragon64(config)`, which fits the `dragon_fdc` cartridge slot, the
+  6551 and its `rs232` port; the printer is `dragon_state::pia1_pa_changed`). Each profile now names its `lineage`
+  (`dragon`, `coco` or `mc10`), every such decision reads it, and `machineFamily()` is gone. `tests/models.test.js`
+  and `tests/bus.test.js` check the 200-E's disk cartridges, printer and serial port against the Dragon 64's, and the
+  model table in `docs/automation.md` no longer needs a footnote. `tools/mame-diff/run.js dragon200e --fdc dragonfdc`
+  now runs, and the printer, serial and disk comparisons install the 200-E's character generator, which MAME requires.
+- **Sound comes back at once after a pause, a debugger stop or a stalled tab.** After the sound had run dry, the page's
+  frames restarted it one at a time, so the queue sat between empty and one frame for seconds while a 2% correction
+  slowly refilled it. The audio thread's queue now waits, silent, until 40 ms is queued, then fades in (a lone frame
+  still plays, at most 80 ms late). A queue deeper than 120 ms (frames pushed in a burst) now drops whole frames back to
+  40 ms within a quarter of a second, instead of draining at 2% for up to 5 s. The machines' samples are unchanged.
+  The ScriptProcessorNode stays only as the fallback where no AudioWorklet module can load (the connector's inline
+  view, whose policy allows no loaded script, and plain `http://` away from `localhost`). `tests/audio.test.js`
+  measures the recovery on a model of the page's clock; the browser check's `audio` group checks the real page.
+- **A poke to the MC-10's `$0015`-`$001F` was reported as one to the 6803's registers.** The 6803's on-chip registers end
+  at `$0014`; `$0015`-`$001F` go to the bus, where nothing answers, so a poke there is now refused as undecoded (and the
+  profiler, new in this release, counts a write there as a write to memory).
+- **A steadier no-pop sound check.** The browser check's `audio` group switched machines with the welcome menu on, so
+  the page started the menu a moment later, and on a slow runner its tune (square waves on the DAC, steps of 0.49)
+  reached the stream the check measures and read as a pop "after busy page". The switches now leave the menu off, the
+  check reads a second more of sound after the last step on every run, and it fails if a welcome program ran.
+- **A steadier disk-mount browser check.** "The program ran on through the mount" required the test program's
+  16-bit idle count to be higher after the mount than before, but the count wraps every 1.9 s, so a slow mount read
+  as a stopped program. The check now requires that the count moved.
+
+### 0.1.9-pre
+
+#### Added
+
+- **Minesweeper plays with a joystick.** Either joystick moves the cursor: one step as the stick leaves the centre,
+  then again after 300 ms and every 120 ms while it is held (counted in fields, at the machine's own 50 or 60 Hz;
+  centring the stick and pushing the same way again is a new press). Either fire button opens the square under the
+  cursor with a tap (released in under 400 ms), on the release, and puts a flag on it when held 400 ms or more, at
+  that moment; after a win or a loss fire starts a new game as R does, when the button is released, so a long press
+  does not carry into the new game. The game reads the stick with the sound off, so the reading makes no buzz, and
+  while fire is down it ignores the keys fire's own matrix rows can make it read as pressed. The keyboard works as
+  before: the arrows, SPACE or ENTER to open, F to flag, R to start again, BREAK to leave. The shelf's line for the
+  game says so.
+- README: status, licence and live-demo badges, a looping picture of the welcome menu and LIZA (`img/readme-demo.gif`,
+  captured from the real page with no ROMs by `node tools/capture-gif.js`, with the small encoder in `tools/gif.js`),
+  and a "Use it with AI coding agents and Claude" section that points to the MCP server, the connector and plugin, the
+  command line and AGENTS.md.
+- **Claude's side panel shows Claude's hand on the machine.** While one of Claude's calls acts on the machine (any
+  tool that is not read-only: typing, keys, loading, switching, reset), the bezel takes a clay edge (outlined on a
+  light host theme) and a filled clay chip at its top left, in near-black text, says what it does, "Claude is typing:
+  DIR↵", with the keys shown as they reach the machine; the focus ring stays neutral. It stays 2 s after the call,
+  and the status line keeps "Claude typed DIR↵ · 12:04". A call that only reads shows a quiet "Claude read the
+  screen" or "Claude read memory" for 1.5 s. Your own keys never show a chip. Each call that acts is announced once
+  to screen readers, briefly (a long text by its length); reads are not announced. The tools and their approvals are
+  unchanged.
+- **The side panel's toolbar:** **Programs** (the programs this machine runs without ROMs, its own builds of LIZA and
+  the Welcome menu included, and Add ROMs for BASIC… while it has none), **Machine** (every model, marked "✓ BASIC
+  ready" or "needs ROMs", then Reset, Switch off and on, Add ROMs…), **Sound** and **⋯** (Open in side panel, Details,
+  Copy details). The menus work from the keyboard. The Welcome menu's own keys now run what they offer in the panel.
+- **On-screen keys in Claude's side panel on a phone or tablet**, where tapping the screen brought up no keyboard. Three
+  modes, as on the page (the layout, the keys and each program's mode now shared from `js/ui/touch-layout.js`):
+  **Keys** (the page's keyboard), **Pad** (a D-pad, SPACE, ENTER, the program's own keys such as Minesweeper's F, and
+  ABC for one key from the keyboard) and **Stick** (SPACE ENTER 1 2 Y N ABC, a stick and FIRE; only on a machine with
+  a joystick port, so not on the MC-10). Under them in every mode: the switch, CLEAR and BREAK, the only BREAK. A
+  program opens in the mode it is played with (2048 and Minesweeper on the Pad, LIZA and anything else on the Keys),
+  and the switch's choice is remembered per program, in the view's storage when it works, else for as long as the view
+  is open. They show on a touch screen (the host says so, or a coarse pointer, or a first touch) and not on a desktop;
+  **⋯ → Hide on-screen keys** hides them. Claude's typing and its chip are unchanged.
+- `machine_info` returns `route`: `"local"` from the local server, `"panel"` from the side panel's view. The view's
+  contract with the site (`PANEL_API` 3) is unchanged: the field is part of a tool's answer, not of the bridge.
+- A skill eval on the side-panel route, `panel-no-boot-wait` (the agent must not boot or mention boot waits), run on
+  `tests/skill-evals/panel-server.mjs`, a stand-in for the panel with its tools and the Worker's instructions.
+- **"Ask Claude ↗" where the chat can't run.** CLOADM shown inside another site's page has no chat (its key card
+  would be on someone else's page). The full page in a frame now keeps its Ask button, as **Ask Claude ↗**: a link
+  that opens CLOADM top-level in a new tab with this machine as it is now (the Share screen's snapshot link, with
+  `app=claude`, never `embed=1`, `rel="noopener noreferrer"`), where the chat runs on the key saved in your browser.
+  With NitrOS-9 running, whose moment can't be carried, it opens a fresh CLOADM with the chat and says so. The new
+  tab waits for you to type; it never starts a turn by itself. A screen-only embed shows nothing unless its link has
+  the new `askclaude=1`, the Share screen's **Offer 'Ask Claude ↗'**: then a small chip in the screen's corner does
+  the same. The browser check's new group `askPopout` covers it.
+- **Headless developer docs: which paths each model has, a complete Node example, a graphics recipe and a serial note.** (Documentation,
+  one example and its test; no change to the emulator.) `docs/automation.md` gains a per-model table of the tape, disk-controller,
+  6551, bit-banger and Becker paths, built from `js/machines/profiles.js` (the options example no longer offers `becker=true`
+  generically: it is CoCo-family only, and the Dragon 64 refuses it with `bad-option`); a complete Node example that uses only the
+  public modules and runs from outside the repository (`docs/examples/headless-frame.mjs`: a Session, a DragonDOS binary, a held
+  key, stepped frames, the raw framebuffer, a PNG); a recipe for a graphics program with no text to wait on (wait on a frame counter
+  in RAM, from the command line and Node, with the elapsed frames and cycles, and how input is latched at a guest tick versus the
+  50/60 Hz video field); and a note on snapshotting a machine whose serial peer lives outside it (the freeze order, saving the peer's
+  in-flight bytes and resuming at the same byte). `tests/dev-docs-headless.test.js` rebuilds the table from the machines, runs the
+  example from a temporary directory and from a copy, fails mutants of its guest, and checks the numbers the text quotes.
+- **`?disk=URL` puts a disk in a drive from a link,** before the link's other media: `?load=game.bin&disk=level.vdk`
+  mounts the disk, then loads and runs the game. Ctrl+K gains **Insert a disk…**, **New blank disk** and **Eject
+  disk**; the cartridge port gains **Take out**.
+- **`node tools/mame-diff/run.js <dragon64|coco> --fdc --bare`:** the lockstep comparison with MAME of a program that
+  drives the disk controller with an empty ROM socket (`tools/mame-diff/fdc/gen-bare.js`).
+
+#### Changed
+
+- **Comments, test names and docs describe behaviour, not internal process labels.** Review and ruling IDs,
+  review-finding tags and old internal branch names are gone from the code, the tests, the docs and the released
+  sections of this file. `tests/internal-labels.test.js` keeps them out, and `tests/private-paths.test.js` keeps out
+  session links, private paths and folders, planning and inbox item numbers, personal email addresses and branch
+  names other than the CI globs. The CHANGELOG check compares a released
+  section with its tag after removing those labels from both sides; any other difference still fails.
+- **A Debugger stop stays a stop on the emulator, and says so**. Going back from the Debugger keeps
+  the machine stopped. The Pause button reads Resume, a strip above the screen says why and where ("Stopped at
+  breakpoint $C0F3.") with Resume and Open Debugger, and the status line reads "Stopped in the Debugger" (or "Paused"
+  for the page's own Pause) instead of a speed it could no longer measure. Resume on the button, the strip or the
+  Debugger's F5 ends both kinds of pause. Run again, a program from Runs without ROMs, Open or a drop (a program, tape
+  or disk), a disk put in from the Library, Reset, Switch off and on and a machine switch release the stop in the
+  Session (a refused file starts nothing and leaves it), so what Claude and the MCP
+  server start runs too; the breakpoints stay set, and the toast adds "The Debugger's stop at $C0F3 was released."
+  Typing while stopped (keys, a tap on the welcome menu, a paste, the Type-in panel) is refused with one toast per
+  stop, rather than queued behind the stop.
 - **`add_roms` keeps a URL as origin + path.** The store's `index.json` recorded the full URL a ROM came from, query
   string and fragment included, which can hold a token. It now keeps the origin and the path only.
 - **Test and tool tidy-ups, no emulation change.** `tools/mame-diff/tape/spec.js` takes its register lists from
@@ -374,7 +590,7 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   blocks (the worst case is unchanged, 4.99 s), and the comments in `js/host/audio.js` and `tools/browser-check.js`
   say what the sweep covers.
 - Using CLOADM with Claude leads with one default: "Use the connector" (a live side panel on the web and in the desktop
-  app, verified by the owner; phones not yet tested), then the plugin for developers and your own files, a "Which one?"
+  app, verified by the maintainers; phones not yet tested), then the plugin for developers and your own files, a "Which one?"
   table and a "Both on?" note, in the README and at the top of docs/mcp.md. The local server's `boot` and `load`
   descriptions and the skill (both copies) say to prefer the CLOADM side-panel connector for playing or watching with
   the person, and to use the local tools for files, scripting and tests (a description, not a refusal); a new eval,
@@ -457,7 +673,7 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   Menu (whose name then says "Menu, Add ROMs needed"); Share is in Menu too, and Menu opens as a sheet over the page,
   moving nothing, with the focus on its first item. A script in the page's head
   puts the touch layout on before the first paint, so nothing reflows when the panel arrives.
-- **No automatic install offer on a phone** (owner's decision), upright or sideways: Install CLOADM… (in the app bar's
+- **No automatic install offer on a phone**, upright or sideways: Install CLOADM… (in the app bar's
   Menu upright; in the panel's Menu held sideways) installs. Desktops and tablets keep the offer.
 - **The status in the app bar shows the speed only** ("50 fps · 100%"): the machine's name is on the button beside it,
   and at 1200 px the repeated name pushed the speed into an ellipsis. The links go tight first to leave it room; only
@@ -526,30 +742,6 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   Dragons and the CoCos; the MC-10 has no drives, and the Dragon Alpha's own interface is unchanged.
 - **On a phone, a slot holding media comes first** under the keyboard panel (then the cassette, the drives, the
   cartridge), so a mounted disk is never below an empty cassette deck.
-- **The developer API's stable table covers what a headless script needs.** (Documentation and a test; no change to the emulator.)
-  `docs/automation.md`'s "What is stable" table now names `machine.setKey(name, down)` and the key names
-  (`Object.keys(machine.keyPos)`; the `[row, column]` values stay internal), `machine.frameCount`, `machine.now()`,
-  `machine.tickHz` and `machine.cpu.totalCycles`, the `Frame` fields (`width`, `height`, `aspect`, `active`, `data`, `table`) and
-  `framePng(frame, scale)` from `cli/cloadm.js`; `machine.serialPort`, `pcWatch`, `stubKeys` and the typist's internals are
-  listed as not promoted. `tests/devapi-stable.test.js` imports each promoted name through its public path and checks its
-  shape, so renaming one fails it.
-- **`toBinary(result, { format })` needs the format.** It used to write DragonDOS whenever the program was contiguous, even for a
-  CoCo, and DECB otherwise; now the caller says `'dragondos'` or `'decb'` (and an optional `maxGap`), and a call without one
-  throws. Every caller passes the format it means, and `examples/*.bin` are byte for byte what they were. `writeDragonDos` refuses a gap
-  of more than 256 bytes between two segments unless the caller raises `maxGap` (`examples/chat.bin` does: its blocks sit up to
-  1,438 bytes apart). The Assembler tab's Save writes the file the open machine loads: DECB on a CoCo, DragonDOS on a Dragon; on
-  the MC-10 and Alice, which load `.c10` tapes, Save is off and says why. `--disasm` now names labels from `--asm` as well.
-- **The Session's serial methods moved to `session.serial`.** `serialDevice` is `serial.device` (its fields now start with
-  `chip`), `attachSerial` is `serial.attach`, and `serialSend` is `serial.send`, which takes bytes, or text with `{ text: true }`, and
-  refuses any value outside 0..255 (`send([256])` used to go out as `$00`). A machine's `SerialPort` has a listener set (`listeners`,
-  `{ tx(byte, at), rx(byte, at) }`) in place of its one `onReceive`. The Web Serial object the DriveWire link uses is
-  `session.webSerial` (it was `session.serial`). The terminal log left the Session: `terminalText()`, `clearTerminal()` and
-  `terminalBytes` are gone; the serial panel keeps its own log as a subscriber, and turns it into text itself (`js/ui/terminal-text.js`).
-- **`Session.tapeWav` and `casToWav` write a tape as a player plays it.** The WAV had silence only at its start and end; it now has the
-  player's gaps (above) and a tape's short leaders made up to 128 bytes, so `wavToCas` of it returns the padded bytes (the
-  `.CAS` of a tape that already has its leaders comes back exactly). `casToSamples`' `silence` option is gone (`gaps: 'none'` is the
-  bytes as they are). The WAV decoder ends a run of bits at a silence and reads up to three damaged bytes (a bit or two off `$55`) at the
-  very start of a run, in front of a leader of at least 16 bytes, as `$55`: the first cycle after a silence is the least certain of a recording.
 - **Asking Claude opens the side panel beside your machine, whatever is on it.** The header's **Ask Claude**, Ctrl+K's
   **Ask Claude: "…"** and the panel's openers now open the side panel with the welcome menu on screen too, where they
   used to open the full-screen chat and put a separate chat machine in place of yours. Your machine stays on screen and
@@ -557,83 +749,17 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   Claude reads your machine's screen and memory with "Let Claude use the emulator" off, as before (a new test,
   `tests/claude-read-ungated.test.js`, holds this in both views); only typing, POKEs, loading and running ask first.
 
-### Fixed
+#### Fixed
 
-- **The TMS7000 assembler encoded `DJNZ Rn,@LABEL` (and every jump written with an `@`) as offset 0.** A relative jump takes a plain label or address; `@` marks an address operand (`CALL @LABEL`), so a jump written with it is now an error that says so, for all 38 relative forms (the jumps, DJNZ, BTJO/BTJZ and BTJOP/BTJZP). An undefined jump target is an error too (it encoded offset 0), and so is a target further than -128..127 from the next instruction (the offset wrapped to a different place); the message gives the distance.
-- **A printout on a CoCo no longer starts with a NUL.** The no-ROM stub made PIA1's PA1 (the RS-232 out) an output
-  while its output register held 0, so the line dropped to space at every start and the 600-baud serial printer
-  printed a $00 before anything a program sent (MAME 0.264 prints the same from that order). The stub now puts mark
-  there first, as a printer routine leaves the line, on every CoCo-lineage model and the CoCo 3; the Dragons, whose
-  port A is the parallel printer's, are unchanged. `run.js coco --printer --stub-init` compares the stub's start with
-  MAME byte for byte; `tests/stub-printer.test.js` checks the printed bytes.
-- **A printout on an MC-10 or Alice no longer starts with a stray byte.** Their no-ROM stub wrote port 2's DDR before
-  its data register, so P20 (the serial printer's line) dropped to space for a moment and the printer printed a $FF
-  at power-on, or garbled a program's first byte. The stub now writes the data register first; and the 6803 itself
-  now drives port 2 only once its data register has been written, as MAME's m6801 does, so a program that sets the DDR
-  first prints no stray byte either (the flag lives in the 6803's state; a file saved before it restores as driven).
-  `run.js mc10 --printer --stub-init` and `--glitch` (and `alice`, `coco`) give the bytes MAME 0.264 prints, identical.
-- **A disk in a drive counts toward the install offer.** The page's "program in use" test (the one the
-  offer to install CLOADM as an app waits a minute of) asked the machine for a disk controller it never has, so a disk
-  waiting in a drive at the bare prompt never counted; it now asks the drives (`session.drives.controllerOf`). The
-  browser check's `install` group puts a disk in at the bare prompt and takes it out again.
-- **The Speech/Sound Pak's speech chip now runs its program at the right speed.** Its SP0256 sequencer reads the
-  allophone ROM in the order a real dump is stored, decodes every instruction and parameter field, and steps once per
-  sample on its own 3.12 MHz clock (10 kHz), holding each set of parameters for its pitch periods; its ready line now
-  reaches the Pak's microcontroller. Compared with MAME 0.264 on our own speech image (`node
-  tools/mame-diff/ssc/speech.js`): every address load and every status change lands at MAME's time on the CoCo 1/2,
-  CoCo 2B, CoCo 3 and Dragon 64, and the test suite checks MAME's recorded times on the CoCo 1/2 and Dragon 64 without
-  MAME. Speech is still silent: the filter that turns the parameters into sound is next.
-- **The Speech/Sound Pak's music now sounds as MAME's does.** Its AY-3-8913 had three faults, each found by a new
-  comparison with MAME 0.264's `-wavwrite` (`node tools/mame-diff/ssc/audio.js`): it played every tone an octave low
-  (its stream ran at half its clock's rate), its levels were three channel levels added where the chip has one
-  output network (MAME's single-output table, at the Pak's gain of 2), and a register write reached it a few
-  cycles early. The Pak's own clock was also wrong: on the CoCo 3 it ran 4 times fast, and on every model it
-  started 4 cycles after power-on. On the CoCo 1/2, CoCo 2B, CoCo 3 and Dragon 64 every AY write now lands at
-  MAME's time and every steady level matches MAME's recording exactly. The CoCo 3 `$0405` difference in the
-  interrupt comparison remains (the sound-activity bit, which is still a stub), and speech is still not implemented.
-- Two flaky checks: `tests/allsignal.test.js` looked for surviving processes once, the instant the runner exited, and
-  could still see a just-killed one; it now asks again for up to 5 s (a real survivor still fails it). The browser
-  check's "Esc on the screen with a line typed is BREAK" read the chat after a fixed three frames; it now waits for the
-  line to be dropped.
-- **The Dragon 64 Plus had the 6551 but no RS-232 port.** Like the Dragon 64 (MAME's `d64plus()` starts from `dragon64()`), it now has the port: PIA1 PB0 reads its RXD, idle high.
-- **Two debuggers could end up on one machine.** A `Debugger` made directly on a machine that already had one left both attached, so a watched write counted twice and the snapshot carried a different debugger from the one the Session drove. A machine now has one debugger: a new one takes the old one's place, `session.debug` returns the one the machine already carries, and adopting the machine already shown keeps its debugger.
-- **Run after a long debugger Over or Out no longer leaves the machine frozen for seconds.** Over, Out, Run to and
-  Step run outside the frame loop, and their frames were not closed as machine time passed them: after an Over of a
-  million instructions the machine was some 170 frames past its open frame, and Run then closed one empty frame per
-  frame of real time (about 3 s) before the program ran again. The debugger now closes each frame its instructions
-  pass, through the machine's own frame path, where a free run would close it, so Run carries on in the next frame
-  and the instructions, frames, picture and sound are exactly those of a free run (`tests/debugger-catchup.test.js`,
-  on the Dragon 64, CoCo 3 and MC-10; the browser check's F5 case now asserts the CPU runs in the first frame after
-  Run). On the MC-10 the frame loop also ran a frame free while a breakpoint or watchpoint was set, so the machine did
-  not stop there; it now runs the frame through the debugger as on the other machines. The MCP `screenshot` after a
-  `step` that crosses a frame's end shows the frame the step closed, with `mid_frame` true. Frames closed inside a
-  debugger command play no sound on the page and are not in a `--wav` recording.
-- **The welcome menu's "carry on" line missed a program whose name differed only in case.** It now uses the store's own case rule: on a case-insensitive store `LOOP.bin` and `loop.bin` are one file.
-- **The "Ask Claude" pop-out link could open an old moment.** It is made fresh on a right click and a middle click too, so "Open in new tab" opens the machine as it is now.
-- **The side-panel view's on-screen keys followed only what the view itself started.** They now follow the program the machine runs, whoever started it (Programs, the Welcome menu's keys or Claude's load), and go back to the keyboard when a load or a reset ends it.
-- **A throwing connector-check scenario now shows as a failing check with the error**, not as a timeout.
-- **The Dragon 200-E was treated as a CoCo wherever the code asked "is this a Dragon?".** It was told apart by its
-  keyboard, and its Spanish layout has its own name, so it offered the RS-DOS cartridge instead of DragonDOS and Delta
-  DOS, printed through the CoCo's bit-banger instead of the Dragons' parallel port, read the bit-banger on PIA1 PB0,
-  took CoCo media and BASIC listings, and appeared outside the Dragons in the connector's model list. Its 6551 also
-  had no RS-232 port. MAME 0.264's driver builds it from the Dragon 64 (`src/mame/trs/dragon.cpp`:
-  `dragon200e_state::dragon200e()` starts with `dragon64(config)`, which fits the `dragon_fdc` cartridge slot, the
-  6551 and its `rs232` port; the printer is `dragon_state::pia1_pa_changed`). Each profile now names its `lineage`
-  (`dragon`, `coco` or `mc10`), every such decision reads it, and `machineFamily()` is gone. `tests/models.test.js`
-  and `tests/bus.test.js` check the 200-E's disk cartridges, printer and serial port against the Dragon 64's, and the
-  model table in `docs/automation.md` no longer needs a footnote. `tools/mame-diff/run.js dragon200e --fdc dragonfdc`
-  now runs, and the printer, serial and disk comparisons install the 200-E's character generator, which MAME requires.
-- **Sound comes back at once after a pause, a debugger stop or a stalled tab.** After the sound had run dry, the page's
-  frames restarted it one at a time, so the queue sat between empty and one frame for seconds while a 2% correction
-  slowly refilled it. The audio thread's queue now waits, silent, until 40 ms is queued, then fades in (a lone frame
-  still plays, at most 80 ms late). A queue deeper than 120 ms (frames pushed in a burst) now drops whole frames back to
-  40 ms within a quarter of a second, instead of draining at 2% for up to 5 s. The machines' samples are unchanged.
-  The ScriptProcessorNode stays only as the fallback where no AudioWorklet module can load (the connector's inline
-  view, whose policy allows no loaded script, and plain `http://` away from `localhost`). `tests/audio.test.js`
-  measures the recovery on a model of the page's clock; the browser check's `audio` group checks the real page.
-- **A poke to the MC-10's `$0015`-`$001F` was reported as one to the 6803's registers.** The 6803's on-chip registers end
-  at `$0014`; `$0015`-`$001F` go to the bus, where nothing answers, so a poke there is now refused as undecoded (and the
-  profiler, new in this release, counts a write there as a write to memory).
+- **What the page says is on screen is what is on screen.** The Media tab's "Welcome menu · on screen now" meant only
+  that the menu had been loaded: started on a machine the Debugger had stopped, or while Pause held it, the tag showed
+  while the screen showed something else. It now shows exactly while the welcome program runs on the machine on
+  screen, is not stopped by the Debugger or Pause, and has drawn at least one frame (`Session.welcomeOnScreen`). The
+  screen itself could also lag: frames a load ran by itself (a tape's restart through BASIC) reached the canvas only
+  once the machine ran on, so while it was paused or stopped the canvas kept the picture from before; any frame or
+  instruction run now reaches it. And "Last time" could name the program before: after 2048 or LIZA started it
+  still named the previous one, while Run again ran the new one. It now always names what Run again runs (the
+  Session emits `lastrun` when it records what ran).
 - **An embedded CLOADM could open the Claude chat; the chat is no longer available in an embed.**
 - **Two server processes adding ROMs at once could lose index entries.** Every change to the ROM store's index now
   reads it again and writes it while holding a lock file (`index.lock`, broken after ten seconds if its holder died),
@@ -647,13 +773,6 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 - **A steadier tape-panel browser check.** The "motor on: LOADING" check no longer depends on how far a slow runner
   got into block 1 before the panel repainted: it moves the tape a quarter of the way in once the panel is playing,
   then still requires one frame with LOADING, a speed above x1, the reels turning and the left reel unwound.
-- **A steadier no-pop sound check.** The browser check's `audio` group switched machines with the welcome menu on, so
-  the page started the menu a moment later, and on a slow runner its tune (square waves on the DAC, steps of 0.49)
-  reached the stream the check measures and read as a pop "after busy page". The switches now leave the menu off, the
-  check reads a second more of sound after the last step on every run, and it fails if a welcome program ran.
-- **A steadier disk-mount browser check.** "The program ran on through the mount" required the test program's
-  16-bit idle count to be higher after the mount than before, but the count wraps every 1.9 s, so a slow mount read
-  as a stopped program. The check now requires that the count moved.
 - **`pushTape` is tested from a deep queue** (`tests/audio.test.js`): DRAINING back to NONE, a push dropped past
   `MAX_MS`, and the queue settling near `TARGET_MS`.
 - **A file dropped while the Claude chat is full screen goes to your BASIC session, not the chat.** The chat runs
@@ -756,6 +875,31 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   and Enter asked Claude instead. It now splits at punctuation as the labels are. A question, ending in "?", still goes
   to Claude even when its words match a command: "reset?" asks, with Reset listed beneath, and runs nothing. Only a
   command's whole label typed with its own "?" runs it.
+- **Toast placement no longer leaks a per-frame loop per toast or rewrites unchanged styles.** Every toast shown
+  started its own animation-frame chain and none was cancelled, so a session's toasts added permanent per-frame loops
+  (three chains placing the same frame were measured), and each frame cleared and rewrote eleven inline properties on
+  `#toastRegion`, 2,714 of 2,715 of them byte-identical. One cancellable chain now places a toast, and the style and
+  the class are written only when the placement changes (and cleared when the stylesheet's own place is right): the
+  browser check measures a stationary toast at 0 style writes in 60 frames on desktop and phone, and 0 class mutations
+  on the region once a pinned toast has gone (a `classList.remove` of an absent class queues one per frame in Chromium).
+  The toast still follows a resize, a scroll or a control that grows under it. The identity a placement is cached
+  under includes everything the decision reads (the safe-area insets, the screen's geometry and its visible text area
+  included), and a test changes each of those inputs in turn to show the placement is decided again rather than
+  re-applied from the cache. The chat's Stop pill still flashes while a toast covers it; that is a separate, known
+  issue, recorded in `docs/verification.md`.
+  `tests/toast-follow.test.js`, `tools/browser-check.js`, `tools/flicker-measure.js`.
+- **DriveWire printing goes to the machine that printed.** A print over the Becker port landed in the
+  printout of whichever machine was on screen — the BASIC session's printout could end up on the chat machine
+  after switching, or vanish when a chat was closed — and the chat machine's own DriveWire server had no
+  handler at all, so anything it printed was dropped. Each server's prints now go to the machine its Becker
+  port belongs to, on screen or off, survive ending a chat, and the Session's server holds no machine the
+  Session has let go of. A chat opened without DriveWire on a machine with the Becker port no longer runs
+  on a machine that carries the port: the port would take the Session's server and the BASIC session's
+  prints with it. `tests/drivewire-print.test.js` covers it.
+- **An off-screen print no longer disturbs the Machine tab's printout.** A DriveWire print from the
+  machine you are not looking at (the BASIC session while a full-screen chat is up) fires the printer
+  event, but the panel re-renders only when the printout it shows changed, so it no longer scrolls to the
+  end of an unchanged printout while you are scrolled up reading it.
 
 ### 0.1.8-pre
 
@@ -1189,7 +1333,7 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   the name lands at the END rather than straight after the write: a landing made after the write would let that
   second creation count as a replace and take the name. No product change.
 
-- **Menus and boxes give the focus back** (UX rulings R15–R18). The machine menu closes on `Esc` wherever the focus
+- **Menus and boxes give the focus back**. The machine menu closes on `Esc` wherever the focus
   is (on the screen too, where it used to stay open and `Esc` went to the machine as BREAK), on `Tab` out of it,
   and on a press outside it, and the focus goes back to its button unless the press landed on something that
   takes the focus. The same for the phone's **Menu** links (`Esc` and a tap outside, back to **Menu**; open only
@@ -1203,13 +1347,13 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   once the typing pauses, and the Library's "N selected" is a polite live region written only when the count
   changes. `js/ui/page.js` `outsidePress` is the one press-outside rule.
 
-- **Every toast is visible** (UX ruling R24). A toast that finds no place on the emulator page where it covers
+- **Every toast is visible**. A toast that finds no place on the emulator page where it covers
   neither a control nor the screen's text no longer waits unseen: it takes a fixed slot at the top of the viewport,
   above everything but the dialogs, keeps that slot until it goes, and its time starts there ("never invisible" wins
   over "never covers a control"). A disk dropped without a disk ROM used to say nothing visible, at desktop and phone
   sizes alike. An error toast is red (`--error`, 4.76:1 on the toast), no longer the orange of a warning.
 
-- **A switch names what comes out** (UX ruling R25). The question before a machine switch now says what the
+- **A switch names what comes out**. The question before a machine switch now says what the
   switch takes out of the machine in use ("Switching to Dragon 32 resets the Dragon 64 and takes out the tape
   GAME.CAS and the disk WORK.VDK in drive 0. They stay in your Library."); a disk that came with a snapshot is named as
   not kept, with **Save to Library** (`Session.keepSnapshotDisk`: stored, and the drive linked to it, as one Library
@@ -1219,12 +1363,12 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   switch a message says "Switched to Dragon 32. Took out: GAME.CAS, WORK.VDK (drive 0)." (`Session.takenOut`), as does
   a switch made by opening a snapshot.
 
-- **The disk ROM is findable** (UX ruling R26). **Your ROMs** shows a card for the disk ROM on every machine whose
+- **The disk ROM is findable**. **Your ROMs** shows a card for the disk ROM on every machine whose
   cartridge port takes a disk cartridge ("Disk drives (optional): DragonDOS or Delta DOS"; "Disk BASIC (RS-DOS)" on
   the CoCos), none on the Dragon Alpha (its own drives) or the MC-10. A drive's **Add ROMs…** opens Your ROMs on
   that card instead of a bare file chooser. The card is not one of the machine's sockets, which are counted as before.
 
-- **The machine menu and the palette lead to the ROMs** (UX rulings R28, R28b). The machine menu's footer is two
+- **The machine menu and the palette lead to the ROMs**. The machine menu's footer is two
   menu items after a separator, in its arrow and `Tab` order, with the "✓ = BASIC ready" legend beside them: **Add or see ROMs…** (Your ROMs for this machine, the
   focus on its heading) and **RAM, CPU and speed…** (Machine settings, the focus on its heading; on a phone its top
   scrolled into view). Choosing a machine that needs ROMs ends with "Switched to Dragon 64. It needs ROMs for
@@ -1233,12 +1377,12 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   first in Machine settings, which now has that heading, and its button reads **Add ROMs →** without BASIC and
   **See or add ROMs →** with it. The page says "Machine settings", never "Machine tab".
 
-- **ROMs in the Library** (UX ruling R19 A+). A **ROMs** chip after Snapshots shows one card, not tiles: "Your ROMs:
+- **ROMs in the Library**. A **ROMs** chip after Snapshots shows one card, not tiles: "Your ROMs:
   2 stored, used by Dragon 32 and Dragon 64. Manage them in Your ROMs →", or "No ROMs yet. CLOADM never includes
   ROMs; add your own dumps in Your ROMs →" (`Session.storedRoms`); with ROMs stored the chip is there even when the
   Library holds nothing else. A ROM dropped on the Library says "added to Your ROMs" with **Open Your ROMs**.
 
-- **Copy** (UX ruling R27). The page no longer says "stub": the ROMs row reads "BASIC ready" or "Not added · running
+- **Copy**. The page no longer says "stub": the ROMs row reads "BASIC ready" or "Not added · running
   without ROMs", and Share says the person opening a link "runs it without ROMs". One term, **disk ROM**, replaces
   "DOS ROM" and "disk cartridge ROM" ("Disks need a disk ROM: …"). A file for the other family is described once:
   "dgame.dgn is a Dragon cartridge; the CoCo 1/2 may not run it." with **Open on Dragon 64** and **Load anyway**.
@@ -1613,12 +1757,12 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 
 #### Changed
 
-- **Restore points: one small line instead of a card after every message** (UX ruling R12). Under the latest turn
+- **Restore points: one small line instead of a card after every message**. Under the latest turn
   that changed the machine: "↶ Restore to 23:58 · Restore points…", the second opening every point (the last 10)
   and what restoring does and doesn't roll back; while a turn runs, "Restore point at 23:58 · Stop first to restore".
   The same line in the side panel, the phone sheet and the full-screen chat; after a restore it moves to the
   previous point's turn. The "✓ restore point made" log line is gone, and nothing calls it Undo.
-- **What Claude did, one line per action under each turn** (UX ruling R13), replacing the activity log: "✓ typed
+- **What Claude did, one line per action under each turn**, replacing the activity log: "✓ typed
   "DIR"", "– didn't type "DIR": you said no", "– typed "DIR", but the machine didn't read the keys", "✗ couldn't
   …", partial pokes and loads, " · undone at 00:02" after a restore; a turn of more than 3 actions folds its ✓ lines
   into one button with the reads counted; a turn that only read says so on a plain line ("read the screen 2×,
@@ -2027,7 +2171,7 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 
 #### Changed
 
-- AGENTS.md: an item's scope comes from its brief or issue; contributors don't edit a roadmap.
+- AGENTS.md: an item's scope comes from its brief or issue.
 
 ### 0.1.0 (first public release, not tagged yet)
 
