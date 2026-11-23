@@ -56,7 +56,7 @@ const { synthNitrOs9Floppy } = require('./fixtures/nitros9-synth.js');
 const NITROS9 = synthNitrOs9Floppy();
 
 // Real bytes for the rows that need them, so every row REACHES the code whose routing it is there to check (a row
-// that throws before that point proves nothing - the round-2 reviewer's finding). The games and LIZA are the
+// that throws before that point proves nothing). The games and LIZA are the
 // project's own example programs; the DOS ROM is our own firmware (tools/mame-diff/fdc/dragon-write.asm), assembled
 // here as an 8K $C000 image in place of the DragonDOS cartridge's ROM - no real ROM is used, as AGENTS requires.
 const { assembleFile, romImage } = require('../tools/mame-diff/lib/firmware');
@@ -112,7 +112,7 @@ const ROWS = [
   // the load path
   ['load a binary (a program dropped on the screen)', () => {}, (s) => s.load('prog.bin', BIN)],
   ['load a .cas tape', () => {}, (s) => s.load('tape.cas', casTape())],
-  ['load a .cas tape with stored ROMs on the stub (the fix-D path)', withRoms, (s) => { s.runWithoutRoms({ menu: false }); s.fastCas = false; return s.load('t.cas', casTape()); }],
+  ['load a .cas tape with stored ROMs on the stub (the stored-ROMs tape path)', withRoms, (s) => { s.runWithoutRoms({ menu: false }); s.fastCas = false; return s.load('t.cas', casTape()); }],
   ['load a raw file with askAddresses', () => {}, (s) => s.load('raw.bin', new Uint8Array(16), { askAddresses: () => ({ load: 0x2000, exec: 0x2000 }) })],
   ['load a BASIC listing (basictext)', withRoms, (s) => s.load('prog.bas', new TextEncoder().encode('10 PRINT 1\n20 GOTO 10\n'))],
   ['load a cartridge', () => {}, (s) => s.load('prog.rom', new Uint8Array(0x2000).fill(0x39))],
@@ -597,7 +597,9 @@ const REQUIRED = require.main !== module;
     // bareDiskController and diskRomWaiting read the disk controller of the PERSON's machine (diskMachine); no change
     'drives.bareController', 'drives.romWaiting',
     // sscBoardLabel reads the stored ROMs (whether the Pak's speech ROM is in the library); no machine
-    'sscBoardLabel']);
+    'sscBoardLabel',
+    // romElsewhere reads the PERSON's machine's ROM CRCs against the stored socket another tab changed; no change
+    'romElsewhere']);
   // writes the library or settings only
   // (removeRom and restoreRom act on the PERSON's machine, as addRoms does: never the chat machine)
   const LIBRARY = new Set(['addRoms', 'clearRoms', 'removeRom', 'restoreRom', 'deleteMedia', 'importDriveWireImage', 'importMedia',
@@ -608,7 +610,10 @@ const REQUIRED = require.main !== module;
     'on', 'personInput', 'ready', 'reset', 'resume', 'resumeClaude', 'setDisplay', 'startAsk', 'startChat', 'stopClaude',
     'stopRealCoco', 'toSidePanel', 'showChat', 'watchForMenu',
     // chatNote writes a line of the page's own onto the chat channel (the chat screen), never onto the person's machine
-    'chatNote']);
+    'chatNote',
+    // refuseTyping reads whether the Debugger stopped the machine on screen and emits the page's toast; it
+    // queues and changes nothing on either machine
+    'refuseTyping']);
   // page concerns, not machine actions
   const UI = new Set(['mediaError', 'visit']);
   const rows = rowMethods();
@@ -629,7 +634,7 @@ const REQUIRED = require.main !== module;
     'lastRun', 'welcomeMenu', 'startMachine', 'caseInsensitive', 'webSerialAvailable', 'realCoco', 'driveWireMounts',
     'driveWireChannels', 'hasAnyRoms', 'hasMultiPak', 'claudeBusyActing', 'lizaFile', 'cartBoard', 'paused', 'display', 'debugger', 'stubRun',
     'stubChosen', 'offersSsc', 'tapeRecording', 'personMachine', 'shownMachine', 'nitros9Running', 'nitros9OnScreen',
-    'hasArtifactPhase', 'hasTwoScreens', 'welcomeRunning', 'welcomeRunningOn']) SESSION.add(n);
+    'hasArtifactPhase', 'hasTwoScreens', 'welcomeRunning', 'welcomeRunningOn', 'welcomeOnScreen']) SESSION.add(n);
   // Puppets whose reachability is decided where they live (see the note above): debug (the Debugger view closes the
   // chat, claude.js:283-286), chat (the ChatSession, not a machine), store/roms/index/media/keys/machine (the
   // Session's own services).

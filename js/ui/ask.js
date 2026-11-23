@@ -22,7 +22,7 @@
      the Library, Add ROMs, the Debugger) the status with Stop, Resume and Answer is at the bottom of the window
      (#viewClaude); every input of the person's to the machine pauses Claude (Session.personInput);
  *   - under each turn's reply, one small line per thing Claude did on the machine, and under the latest turn that
- *     changed it the restore line (js/ui/claude-lines.js: UX rulings R12 and R13; the last 10 points);
+ *     changed it the restore line (js/ui/claude-lines.js; the last 10 points);
  *   - the API key states with the same texts as full screen: no key (the key form replaces the message box),
  *     refused (the form reopens, red), rate limited and offline (Try again; nothing retries by itself);
  *   - context openers under the machine: "Explain this error" (a BASIC error on screen, orange) and "Help with my
@@ -214,10 +214,10 @@ export function setupAsk(page, claude) {
     if (!page.toMachine(e) || e.ctrlKey || e.metaKey || e.altKey || MODIFIERS.has(e.key)) return;
     if (session.personInput()) pausedNow = code;
   }, true);
-  // R10: while Claude is paused, Esc stops Claude (the pause ends, the turn is aborted, the held keys are dropped) in
+  // Esc while paused: while Claude is paused, Esc stops Claude (the pause ends, the turn is aborted, the held keys are dropped) in
   // every view: the side panel, the phone sheet, minimised, the full-screen chat (its chat and BASIC views). It is
   // Stop only, not also BREAK. A confirmation, a menu or a card that is open takes the Esc first (page.onEscape).
-  // Claude's own card waiting while paused registers no Esc of its own, so Esc there is this Stop (R11): the card is
+  // Claude's own card waiting while paused registers no Esc of its own, so Esc there is this Stop: the card is
   // answered stopped (stopClaude), not as a no.
   page.onEscape(ESC.claude, () => !!session.consent.paused && !pausedNow, () => claude.stop());
   // the browser's Fullscreen shows #screenWrap alone: Claude's status with Stop and Resume is in it (#fsClaude).
@@ -340,7 +340,7 @@ export function setupAsk(page, claude) {
     if (!session.consent.allowed) $('chkAskLoadNoAsk').checked = false;
     $('askConsent').hidden = !pending || loading;
     if (pending) $('askConsentText').textContent = `To do that, Claude needs to ${pending.name === 'poke' ? 'change memory' : pending.name === 'press_break' ? 'press BREAK' : pending.name === 'assemble_and_load' ? 'load a program into memory' : pending.name === 'run' ? 'start a program' : 'type into BASIC'}. With your permission it can type, POKE, run and press BREAK. You see everything happen on the screen, Stop works at any time, and a restore point is made first so restoring it puts everything back.`;
-    // R11: paused while the card waits: "Allow and resume" / "Load and resume", and the line that says why
+    // paused while the card waits: "Allow and resume" / "Load and resume", and the line that says why
     const pausedCard = !!pending && !!session.consent.paused;
     drawAccept($('btnAskAllow'), pausedCard, 'Allow', 'Allow and resume');
     drawAccept($('btnAskLoad'), pausedCard, 'Load it', 'Load and resume');

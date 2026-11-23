@@ -272,7 +272,7 @@ function spawnSuite(f, argv, done) {
     //
     // Read from `tail`, not the live output: the guard can raise its FAIL from a shutdown event (a suite that calls
     // process.exit() from a beforeExit handler), and that line is written after the marker. Reading the live output
-    // hid exactly that failure and reported it as a printed FAIL instead (review round 2). The guard's line is
+    // hid exactly that failure and reported it as a printed FAIL instead. The guard's line is
     // distinctive enough that a suite's own lookalike is not a concern: if one prints it at shutdown, hasFailureLine
     // fails the suite anyway, which is the right verdict for a printed "FAIL " line.
     const guardFailed = /^FAIL .*: process\.exit\(\) called at /m.test(tail(out));
@@ -327,7 +327,7 @@ function countCases() {
       env: guardEnv, detached: true, stdio: ['ignore', 'pipe', 'pipe'],
     });
     // In `live`, so a signal to the gate kills the count child and its descendants like every suite: without this a
-    // SIGINT while it counts reported "stopping 0 running suite(s)" and left the child running (review, 054 item 1).
+    // SIGINT while it counts reported "stopping 0 running suite(s)" and left the child running (a SIGINT while counting must stop the children).
     live.add(child);
     let out = '', done = false;
     const finish = (err) => {

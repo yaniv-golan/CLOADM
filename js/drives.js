@@ -15,7 +15,7 @@ import { DRIVE_TYPES } from './chips/floppy.js';
 import { detectDiskFormat, diskGeometry, blankDisk, DiskFormatError } from './media/disk.js';
 import { MediaStoreError } from './host/media-store.js';
 import { cartridgeRoms } from './machines/profiles.js';
-import { DISK_PREFIX, isDiskFileName } from './library.js';
+import { DISK_PREFIX, isDiskFileName, diskFileNameProblem } from './library.js';
 
 // how many times mount reads an image again when the image moved under its read (its own stored name, or
 // another spelling of the same file on a store that folds case): the image is read four times at most before the
@@ -373,6 +373,10 @@ export class DiskDrives {
     } catch (e) { throw new SessionError(`${base}: ${e.message}`); }
     this.checkLater(fdc.drives[drive]);
     this.session.emit('disks');
+    // A disk the person puts in - from a drop, Open, the Library, a drive's menu - is a launch, once it is in
+    // (a mount that is refused leaves a Debugger stop and the page's Pause as they were). A held mount is the
+    // Session's own work (NitrOS-9's boot disk going in as part of its start), not one of the person's.
+    if (!held) this.session.launch(this.targetMachine);
     const wp = writeProtected ? ' (write-protected)' : '';
     if (fdc === this.bareController) return `${base} is in drive ${drive}${wp}, ${BARE_NOTE}`;
     return `${base} in drive ${drive}${wp}`;
@@ -582,16 +586,27 @@ export class DiskDrives {
     return fdc.drives.slice(0, fdc.fitted).map((d) => busy && fdc.wd.floppy === d && d.mon === 0);
   }
   // The disk that came with a snapshot (not linked to the Library: status stored: false) saved to the Library under
-  // its name, and the drive linked to it from then on, so what the machine writes goes there (R25: a switch takes it
+  // its name, and the drive linked to it from then on, so what the machine writes goes there (a switch names what comes out: a switch takes it
   // out, and only the Library keeps it) -> message. A name the Library already has is refused: that is another disk.
   async keepSnapshot(drive) {
     this.checkDrive(drive);
     const fdc = this.controller, d = fdc && fdc.drives[drive];
     if (!d || !d.loaded) throw new SessionError(`Drive ${drive} is empty.`);
-    const full = this.storeName(d.media.name), base = full.slice(DISK_PREFIX.length);
+    // The name it would be stored under (storedName's derivation). A disk with no file's name (a snapshot an earlier
+    // build made of 'disks/ ') has nothing to be stored under, and one whose name is not a disk image's file name
+    // ('disks/sub/x.vdk') must not be stored as it is: each says so, and what to do, rather than the bare "needs a
+    // name" of a name the person was asked for
+    const named = typeof d.media.name === 'string' ? d.media.name : '';
+    const base = named.startsWith(DISK_PREFIX) ? named.slice(DISK_PREFIX.length) : named.split(/[\\/]/).pop();
+    if (!base.trim()) throw new SessionError(`The disk in drive ${drive} has no file name to save it under: download it, then add it to your Library under a name.`);
+    const problem = diskFileNameProblem(base);
+    if (problem) throw new SessionError(`The disk in drive ${drive} is named ${base}, which is not a disk image's file name (${problem}): download it, then add it to your Library under another name.`);
+    const full = DISK_PREFIX + base;
     if (d.media.onWrite) throw new SessionError(`${base} is already in your Library.`);
     const media = d.media;
-    // A Library operation (libraryOp): a move that starts meanwhile waits for it, so it looks in and writes to the one
+    // One creation of the name (library.createDisk), as an import is: the name claimed (a rename onto it is refused),
+    // its turn among the creations (an import of the name asked meanwhile is a second creation and refuses), and a
+    // Library operation (libraryOp): a move that starts meanwhile waits for it, so it looks in and writes to the one
     // store, which the move then copies. The look and the write are one queued disk change (storeChange): when it
     // runs, the image is copied and the drive linked in one synchronous step, so a write the machine makes after it
     // goes to the store behind this one, never into the gap between them. It is queued under no name: no mount of this
@@ -599,7 +614,7 @@ export class DiskDrives {
     // refused; one that read before finds no file), so a per-name count would change nothing.
     // (storeChange counts it in queued all the same, so writesSettled waits for it.)
     try {
-      await this.session.library.libraryOp(() => this.storeChange(async () => {
+      await this.session.library.createDisk(full, () => this.storeChange(async () => {
         if (await this.session.media.stat(full)) throw new SessionError(`Your Library already has a disk named ${base}; download this one instead.`);
         if (fdc.drives[drive].media !== media || media.onWrite) throw new SessionError(`Drive ${drive} no longer holds that disk.`);
         d.flush();
@@ -608,7 +623,6 @@ export class DiskDrives {
         try { await this.session.media.write(full, bytes); } catch (e) { if (media.onWrite) { media.onWrite = null; media.name = oldName; } throw e; }
       }));
     } catch (e) { throw this.session.library.mediaError(e, base, full); }
-    await this.session.library.refreshCase();
     this.session.emit('disks');
     return `Saved ${base} to your Library`;
   }

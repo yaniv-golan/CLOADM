@@ -18,6 +18,10 @@ A watchpoint on data: `until: {address: "$0400", value: 72}` stops as soon as th
 and disassemble at the PC to see what is next. After stepping, the video frame is unfinished: a screenshot then is
 the last whole frame (`mid_frame: true`); run 2 frames to see a whole frame drawn after it.
 
+In the side panel the person can stop the machine in the page's Debugger. Then `step` still steps (as the Debugger's
+Step does) and leaves the machine stopped where it ended, but `run_frames`, `type_text`, `press_keys`, `press_break`
+and `run` fail with `machine-stopped` until the person presses Resume: read the registers and memory meanwhile.
+
 ## Read code
 
 `disassemble` from an address (up to 64 instructions) in the machine's own instruction set (6809, 6309 or 6803).

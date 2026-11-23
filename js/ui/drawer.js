@@ -76,7 +76,7 @@ export function setupDrawer(page, { showRoms }) {
     }
   }
 
-  // Machine settings: the ROM summary, first in the panel (R28b), its button "Add ROMs →" without BASIC and "See or
+  // Machine settings: the ROM summary, first in the panel, its button "Add ROMs →" without BASIC and "See or
   // add ROMs →" with it; the header pill when the machine in use has no BASIC
   function roms() {
     const r = session.machineRoms(), m = session.personMachine;   // the person's machine (the BASIC session while the chat is on screen)
@@ -132,6 +132,7 @@ export function setupDrawer(page, { showRoms }) {
     if (ev === 'machine' || ev === 'loaded') { if (ev === 'machine') cartName = null; recent(); roms(); slots(); }
     if (ev === 'disks') slots();   // a disk mounted without a disk ROM plugs the controller in, and a reset gives it its ROM
     if (ev === 'roms') { roms(); recent(); slots(); }   // (slots: the Pak's board label follows its speech ROM)
+    if (ev === 'recent') recent();   // another tab loaded a program (Session.mediaElsewhere)
     // a tape mounted or ejected starts or stops the per-frame refresh of this row. A power cycle ejects the
     // deck and reports 'firmware' (Session.powerCycle -> poweredOn), not 'reset', so it has to be in this list:
     // without it the watcher outlived the tape and redrew the row every frame for the life of the page.

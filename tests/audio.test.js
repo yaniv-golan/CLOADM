@@ -431,7 +431,7 @@ for (const rate of [44100, 48000]) {
   }
   // AND the bound must have real HEADROOM over the measured worst case, not merely exceed it. A bound equal to the
   // measurement passes "settles within" and still flakes: the browser's real schedule is not this model's, and a
-  // post-stall queue is exactly where it runs. The reviewer's finding was that 5 s was "about 2% margin in exactly
+  // post-stall queue is exactly where it runs. The problem was that 5 s was "about 2% margin in exactly
   // the post-stall case"; requiring headroom is what makes such a bound fail here.
   const headroom = SETTLE_MS / slowest;
   check('audio: the settle bound has real headroom over the measured worst case (not merely above it)',

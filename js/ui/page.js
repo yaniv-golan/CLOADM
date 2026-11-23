@@ -36,7 +36,7 @@ export function safeArea() {
 const UNDRAWN = '.layout, #appbar, #appbar > nav, body > footer, #switchConfirm, .layout > .drawer, .slots';
 // the on-screen panel is up (js/ui/touch-keys.js): the page's words say "tap", and BREAK is its button, not Esc
 export const touchPanel = () => document.body.classList.contains('touch-keys');
-// Claude's turn paused by the person's key, on a touch screen (UX R30): there is no Esc to name there, so it says what
+// Claude's turn paused by the person's key, on a touch screen: there is no Esc to name there, so it says what
 // Stop does; one text, short enough for every place that shows it. The Session's own text stays as it is (it is
 // browser-free and names Esc): the page chooses.
 export const TOUCH_PAUSED_TEXT = 'Paused: you tapped a key · Stop ends Claude\'s turn';
@@ -95,8 +95,17 @@ export function createPage(session, audio) {
   const page = {
     session, audio, canvas, feedback,
     // an event's message (a toast; an error: a toast with Details), on the page shown now
-    status(msg, isError = false) { feedback.toast(msg, { error: isError }); },
-    toast: (text, opts) => feedback.toast(text, opts),
+    status(msg, isError = false) { feedback.toast(page.withReleased(msg), { error: isError }); },
+    toast: (text, opts) => feedback.toast(page.withReleased(text), opts),
+    // "The Debugger's stop at $C0F3 was released.", set by js/ui/debugger-stop.js when a launch released a stop,
+    // goes on the launch's own toast (the next one raised in the same turn)
+    releasedNote: null,
+    withReleased(text) {
+      const note = page.releasedNote;
+      if (!note) return text;
+      page.releasedNote = null;
+      return `${text} ${note}`;
+    },
     // for an action that finishes later: its messages go to the page it was started on, which shows them when
     // the user is back there (a minute at most)
     reporter() {
@@ -143,6 +152,11 @@ export function createPage(session, audio) {
       return () => { const i = page.frameWork.indexOf(fn); if (i >= 0) page.frameWork.splice(i, 1); };
     },
     frameWork: [],
+    // the Pause button holds the frame loop (js/ui/screen.js owns it): nothing runs, whatever is loaded
+    paused: false,
+    // Resume, wherever it is pressed (the Pause button, the stop strip, the Debugger's F5), ends both holds:
+    // the page's Pause and a Debugger stop (js/ui/screen.js sets it)
+    resumeAll: () => {},
     // run the frame callbacks; called once per animation frame by the screen loop, even when the machine ran
     // no frame (the things they follow can change without one, e.g. audio unlocking). A callback that returns
     // false is dropped. Iterating a copy lets a callback remove itself while it runs.

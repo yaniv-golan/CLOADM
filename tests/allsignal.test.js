@@ -129,7 +129,7 @@ process.on('beforeExit', () => { if (!finished) { finished = true; console.log('
 
   // A SIGINT while the gate is waiting for `regress.test.js --count` must kill the count child too. The count child
   // is spawned detached for its own group kill, so before it was in `live` a signal reported "stopping 0 running
-  // suite(s)" and left it (and its children) running (review, 054 item 1). Bounded end to end: the gate gets 4 s
+  // suite(s)" and left it (and its children) running. Bounded end to end: the gate gets 4 s
   // before the signal and is SIGKILLed at 12 s; the sweep runs on BOTH paths, so a red run here cannot leave a
   // process behind either.
   {

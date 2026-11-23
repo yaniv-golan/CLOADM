@@ -255,6 +255,35 @@ for (const [name, t, at] of cases) {
       lazy.exported.length === eager.exported.length && lazy.exported.every((v, i) => v === eager.exported[i]));
   }
 
+  // The printout belongs to the machine that printed (tests/drivewire-print.test.js): with a chat open in full
+  // screen, both machines have printed - the BASIC session over the Session's DriveWire server, the chat machine
+  // over its own, while the other is on screen. A snapshot of either machine carries its printout (printed is
+  // machine state, Machine.STATE), and restoring it brings the bytes back; the 'printer' event baselines
+  // (Session.printedSeen) are not machine state and travel in no snapshot.
+  {
+    const fs = require('fs');
+    const firmware = new Uint8Array(fs.readFileSync(path.join(__dirname, '../examples/chat.bin')));
+    const key = 'sk-ant-DW-PRINT-STATE-TEST-KEY-0123456789';
+    const s = new Emu.Session({ store: Emu.memoryStore() });
+    s.switchMachine('coco', { becker: true });
+    const basic = s.personMachine;
+    s.setClaudeKey(key);
+    s.startChat({ backend: new Emu.ClaudeBackend({ fetch: async () => null, apiKey: key }), firmware, drivewire: true });
+    const chat = s.shownMachine;
+    const dwPrint = (m, bytes) => { for (const b of bytes) { m.write(0xFF42, 0x50); m.write(0xFF42, b); } m.write(0xFF42, 0x46); };
+    dwPrint(basic, [0x41]);   // the BASIC session prints while the chat machine is shown
+    dwPrint(chat, [0x42]);    // and the chat machine over its own server
+    check('chat machines: each machine\'s printout holds only its own prints, on screen or off',
+      basic.printed.join(',') === '65' && chat.printed.join(',') === '66', `${basic.printed.join(',')} / ${chat.printed.join(',')}`);
+    for (const [name, m] of [['basic', basic], ['chat', chat]]) {
+      const snap = Emu.state.fromJSON(Emu.state.toJSON(m.snapshot()));
+      check(`chat machines: the ${name} machine's snapshot carries its printout`,
+        snap.state.printed.join(',') === m.printed.join(','), snap.state.printed.join(','));
+      const r = Emu.restoreSnapshot(snap, m.roms);
+      check(`chat machines: restoring the ${name} machine's snapshot brings its printout back`, r.printed.join(',') === m.printed.join(','), r.printed.join(','));
+    }
+  }
+
   // THE SPLIT IS FAITHFUL: this suite's check names must be exactly its slice of the names the unsplit suite ran.
 // Counting alone would let a dropped check and a duplicated one cancel out; the names cannot.
 {

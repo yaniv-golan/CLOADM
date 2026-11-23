@@ -11,7 +11,7 @@ const check = (name, cond, detail = '') => { n++; if (!cond) { fail++; console.l
 const ROOT = path.join(__dirname, '..');
 const read = (f) => fs.readFileSync(path.join(ROOT, f), 'utf8');
 
-// ---- A1: the page refuses the chat before setupClaude when the link embeds --------------------------------
+// ---- the page refuses the chat before setupClaude when the link embeds --------------------------------
 {
   const main = read('js/ui/main.js');
   // setupClaude must be conditional on NOT embedding: `link.embed ? null : setupClaude(page)` (or equivalent)
@@ -30,7 +30,7 @@ const read = (f) => fs.readFileSync(path.join(ROOT, f), 'utf8');
     'app=claude startup guard');
 }
 
-// ---- A2: no CSS-free route shows the chat in an embed: the asides are hidden --------------------------------
+// ---- no CSS-free route shows the chat in an embed: the asides are hidden --------------------------------
 {
   const html = read('play/index.html');
   // the embed rules as written: every `body.embed ... { ... }` block, joined
@@ -41,7 +41,7 @@ const read = (f) => fs.readFileSync(path.join(ROOT, f), 'utf8');
     !/body\.embed \.panels\b/.test(embedCss), '');
 }
 
-// ---- A3: EmbedApi.type takes the explicit personInput() call the other acting methods make ------------------
+// ---- EmbedApi.type takes the explicit personInput() call the other acting methods make ------------------
 // (Session.typeText itself already pauses - js/session.js's typeText calls personInput - so this is the embed layer
 // making the same call as load/insertTape/poke: defence in depth, not the only pause on the path.)
 {
@@ -53,7 +53,7 @@ const read = (f) => fs.readFileSync(path.join(ROOT, f), 'utf8');
   check('load still takes the pause (unchanged)', /personInput\(/.test(load));
 }
 
-// ---- A4: an EmbedApi with no chat cannot type into a chat machine (behavioural) -----------------------------
+// ---- an EmbedApi with no chat cannot type into a chat machine (behavioural) -----------------------------
 // (the mock's typeText calls personInput as the real Session.typeText does, so the pause is not double-counted: this
 // covers the EmbedApi LAYER - that it names a machine and takes its own pause - not the Session's behaviour, which
 // js/session.js owns and its own tests pin.)

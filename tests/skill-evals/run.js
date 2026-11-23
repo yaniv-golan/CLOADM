@@ -42,9 +42,11 @@ function readCase(name) {
   // server: local (the default, node cli/cloadm.js --mcp) or panel (panel-server.mjs: the side panel's tools and the
   // Worker's instructions, for a case on the side-panel route)
   const server = (/^server: (local|panel)$/m.exec(settings) || [])[1] || 'local';
+  // panel_state: stopped -- the panel's machine starts stopped in the Debugger, as the person would leave it
+  const panelState = (/^panel_state: (stopped)$/m.exec(settings) || [])[1] || null;
   const graders = fs.readdirSync(path.join(dir, 'graders')).filter((f) => f.endsWith('.md')).sort()
     .map((f) => fs.readFileSync(path.join(dir, 'graders', f), 'utf8').replace(/^---\n[\s\S]*?\n---\n/, '').trim());
-  return { name, dir, prompt, maxTurns, timeout, graders, server };
+  return { name, dir, prompt, maxTurns, timeout, graders, server, panelState };
 }
 
 function run(cmd, argv, { cwd, input, timeoutMs }) {
@@ -74,7 +76,7 @@ async function agentRun(c, arm, k) {
   }
   if (arm === 'with_skill') fs.cpSync(path.join(ROOT, 'skills', 'cloadm'), path.join(proj, '.claude', 'skills', 'cloadm'), { recursive: true });
   const mcp = path.join(runDir, 'mcp.json');
-  const serverArgs = c.server === 'panel' ? [path.join(HERE, 'panel-server.mjs')] : [path.join(ROOT, 'cli', 'cloadm.js'), '--mcp', '--media-root', media];
+  const serverArgs = c.server === 'panel' ? [path.join(HERE, 'panel-server.mjs'), ...(c.panelState === 'stopped' ? ['--stopped'] : [])] : [path.join(ROOT, 'cli', 'cloadm.js'), '--mcp', '--media-root', media];
   fs.writeFileSync(mcp, JSON.stringify({ mcpServers: { cloadm: { command: process.execPath, args: serverArgs } } }));
   const prompt = c.server === 'panel' ? c.prompt : `${c.prompt}\n\n(The emulator's media folder is ${media}.)`;
   const r = await run('claude', ['-p', prompt, '--model', MODEL, '--output-format', 'stream-json', '--verbose',

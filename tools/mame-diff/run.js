@@ -9,6 +9,7 @@
 // --video: the family's pixel comparison of every display mode (d64plus: its 80-column screen, d64plus/run-video.js); --artifact N sets MAME's and our composite
 // colour option (0 off, 1 Standard, 2 Reverse; default 1, MAME's default). --video --text (coco3, --cpu 6309 for
 // coco3h): the GIME text screens of coco3/text-screens.js, pixels and MAME's glyphs, and the screen-text reader.
+// --video --compat (coco3): the compatibility-mode text screen at $FF9C values other than BASIC's $0F (vdg-compat.asm).
 // --raster: mid-line video changes swept across every beam position (<family>/raster.asm, lib/raster.js):
 // lockstep to HALT, then every pixel of a swept field per case; --no-trace skips the lockstep part,
 // --keep leaves MAME's movie and the difference images in the work directory.
@@ -141,7 +142,7 @@ async function main() {
   if (args.includes('--video')) {
     const script = path.join(__dirname, profile.family, 'run-vdg.js');
     const ram = opt('--ram') ? ['--ram', opt('--ram')] : [];
-    const env = Object.assign({}, process.env, opt('--artifact') !== undefined ? { ARTIFACT: opt('--artifact') } : {}, args.includes('--attr') ? { ATTR: '1' } : {}, args.includes('--composite') ? { MONITOR: 'composite' } : {});
+    const env = Object.assign({}, process.env, opt('--artifact') !== undefined ? { ARTIFACT: opt('--artifact') } : {}, args.includes('--attr') ? { ATTR: '1' } : {}, args.includes('--compat') ? { COMPAT: '1' } : {}, args.includes('--composite') ? { MONITOR: 'composite' } : {});
     const r = cp.spawnSync('node', [script, profileId, ...ram], { stdio: 'inherit', env });
     return r.status === null ? 1 : r.status;
   }

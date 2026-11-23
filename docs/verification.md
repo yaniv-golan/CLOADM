@@ -450,7 +450,7 @@ its segment means follow the levels. Per segment: the pitch within 1% (all are e
 within 0.5% of the first segment's RMS. The DAC's half swing and upper half match to 0.01% (RMS) and 0.08% (mean), the
 single-bit sound to 0.06% and 0.24%, on all three machines. The single-bit sound adds 32 DAC steps
 (`js/machines/cocopia.js`), the weight of the DAC's top bit: the Tandy service manual's parts list gives the DAC's
-resistors R10-R15 as 10K to 324K and the single-bit sound's R22 as 10K (as MAME 0.264's `coco12.cpp` cites it; the
+resistors R10-R15 as 10K to 324K and the single-bit sound's resistor R22 as 10K (as MAME 0.264's `coco12.cpp` cites it; the
 manual itself was not available to this check), and MAME's level matches (it was 31.5 steps, which this comparison finds
 1.50% off and fails; `tests/cli-wav.test.js` pins it at 10240 alone and 30400 with DAC 63). A mutation
 that moves the DAC's upper half up one step fails the mean check alone (0.71% to 1.04%).
@@ -567,6 +567,22 @@ we do:
 | When a write takes effect | (no effect) | at the next field's start | MAME's `new_frame` latch, followed; unverified |
 | 1986 and 1987 GIMEs | one model | one model | nothing: unknown |
 | Compatibility mode | lines per row from `$FF9C` (S5's SG modes) | the same | S2, S5, MAME |
+
+The compatibility-mode text at `$FF9C` values other than BASIC's `$0F` is in the pixel comparison: `run.js coco3
+--video` puts up `compat text` at 8, 9, 4 and 1 lines a row (S5's 3-, 2- and 1-line SG settings and the 8-line
+setting) on a 192-line body and 8 lines on a 200-line one, as well as BASIC's 12. Each is compared with MAME cell for
+cell, a cell tall as `$FF9C` says, so a screen showing 24, 22, 48, 192 or 25 rows (not 16) is checked where it differs.
+Result against MAME 0.264: 0 of 5 different - the 1-line screen pixel-identical, the other four identical apart from
+our own font design (the instructions differ per cell, glyphs do not). The reader that follows these rows
+(`GIME.legacyTextScreen`) is checked against our own frame, row for row and cell for cell, in
+`tests/screen-text-readers.test.js` section 3b; it DECLINES rows under 8 lines ($FF9C 4-9 and $0B-$0E), where a glyph
+is shown only in part, with the same answer and reason the GIME native reader gives rows under 8 scanlines.
+
+That comparison's own per-cell grid had a bug these cases found: it took the body to start at picture line 24 and be
+192 lines tall, right for a 192-line screen only. On a 200- or 225-line screen (`$FF99` bits 5-6) the top border is 23
+or 8 lines, the body starts at line 22 or 7, and the grid straddled two text rows, so a two-colour cell read as three
+and a correct picture was reported different. It now takes the start and the height from `$FF99` (24/192, 22/200,
+7/225); the whole `--video` suite then passes with 0 different of 49.
 
 `run.js coco3 --vsc` (`coco3/gen-vsc.js`, our firmware in `coco3/vsc-1.asm` to `vsc-5.asm`) puts up 60 cases:
 8-line text and double-height (2-line) graphics with VSC stepped through 0-15, 9-, 10- and 11-line text, 8- and
@@ -688,7 +704,7 @@ tests cover from the data sheet and MAME's `crtc_update_row()`. The real 80-colu
 `d64plus/plustext.asm` (written by `d64plus/text-screens.js`), which puts up six screens: 80 columns from `$0000`,
 40 columns from `$0100`, a start scrolled three rows, a start at `$07C0` that wraps round the 2K video RAM, a 14-bit
 start `$2850` that mirrors `$0050`, and 64 columns of 20 rows of 13 lines; each clears the video RAM, writes its
-text (some of it where the start skips it), sets R1, R6, R9 and R12/R13 and holds for ten fields; then text goes
+text (some of it where the start skips it), sets CRTC R1, R6, R9 and R12/R13 and holds for ten fields; then text goes
 on the MC6847 page. Against 0.264 under `mameCompat`: 334,449 instructions to HALT, registers and cycle counts
 identical (`trace d64plus plustext.asm` in the regression gate). `run.js d64plus --plustext --video` compares each
 screen's picture with MAME's, every pixel (MAME sizes its screen to R1 x 8 by R6 x (R9 + 1); ours must be dark
@@ -989,7 +1005,7 @@ cancelling it; a mocked gamepad's toast, once; 2048's toast gone at the first ar
 ### Install as an app (the PWA offer)
 
 The **Install CLOADM…** item and the one-time offer card (`js/ui/install.js`) have no MAME oracle (AGENTS.md
-4.6): they are page behaviour. The oracle is the brief's own rules, checked two ways. In Node,
+4.6): they are page behaviour. The oracle is the offer's rules as written here, checked two ways. In Node,
 `tests/install.test.js` pins the pure rules: what each stored answer means, the first **Not now** waiting 14 days
 and a second ending the offers, a dismissed browser dialog waiting without spending that budget, every condition of
 the card one at a time, the program clock, and which steps each browser's user agent gets. In Chromium, the browser
@@ -1013,8 +1029,8 @@ Menu item is gone).
 
 ### Phones and the app bar (the browser check's `mobile` group)
 
-The v0.1.8 UI/UX review's phone and header findings, as UX R30 (owner-approved) rules them, with real touch
-(`hasTouch`, `isMobile`) at the visible sizes R30 names: 320x460, 375x548 and 393x659 upright, 734x343 sideways. Every
+The phone and app bar layout, with real touch
+(`hasTouch`, `isMobile`) at the visible sizes it is designed for: 320x460, 375x548 and 393x659 upright, 734x343 sideways. Every
 check failed on v0.1.8 except the guards named here. Upright, at each size: with the full keyboard the screen is at
 least as wide as v0.1.8 made it (229 px at 375x548; guard at 393x659); the strip is Keys, Pad, Stick, BREAK, CLEAR and
 ⌄ (Hide keys) in one row, none overlapping (the switch clear of BREAK), none under 44x44 px, all on the page; the app
@@ -1043,7 +1059,7 @@ only at 1200 px in a wide fallback font may it be left out (the layout group), n
 
 The page's menus and boxes (the machine menu, the phone's Menu links, a drive's menu, the Ctrl+K box, the touch
 keys' Menu sheet) and the polite live regions (Ctrl+K's match count, the Library's "N selected") have no MAME
-oracle (AGENTS.md 4.6): the oracle is the UX rulings R15-R18. The browser check's group `menuFocus` drives them with
+oracle (AGENTS.md 4.6): the oracle is the focus and announcement behaviour written down here. The browser check's group `menuFocus` drives them with
 real mouse, touch and keyboard events at 1280x720 and at 390x844 with touch, and after every step reads
 `document.activeElement` and whether the surface shows: Tab out of the machine menu closes it; Esc with the focus
 on the screen closes the machine menu (or Menu's links) and gives the focus to its button with no BREAK reaching
@@ -1084,17 +1100,36 @@ Not verified automatically: what Chrome's own reading mode (Android or desktop) 
 Readability is the stand-in. Mutations that turn the group red: no `inert` on what a view or a layout hides (20
 checks), a second `<main>` (16), the ports under the screen a `<div>` instead of an `<aside>` (6).
 
+**How the text-alternative comparison avoids a race, and what it does not cover.** `#screenAlt` is a DOM mirror of
+`Session.screenAlternative()` that the page refreshes at most once a second (js/ui/screen.js), and Chromium's
+accessibility tree is a third copy read over the DevTools protocol. Measured with CPU throttling at 4x, the live
+screen differed from the mirror in 40 of 135 samples across the three seconds a greeting takes to type, so a
+single-shot comparison of one live read against the AX text failed on a slow runner with nothing wrong. The check now
+requires four readings to agree - the live text before and after the AX read, the mirror, and the AX text - and
+retries until they do, within a stated bound; and it separately measures the mirror's lag after a key changes the
+screen, which is what makes a mirror that simply stops updating fail rather than being waited out (a mirror
+refreshing every 2.2 s goes red by name).
+
+**Not verified: a group's own `await ctx.close()`, and the tone measurement's wait.** Every group closes its own
+browser context inside its own body, and those calls are unbounded: a close that hangs there ends only by the
+caller's timeout (the CI job's `timeout-minutes`, or whatever runs the check locally). The same is true of the tone
+measurement in the sound group, which waits for the played blocks to fill an interval and has no bound of its own. What IS bounded and reported is the dump's wait (5 s), the
+`audio` group's own close (10 s, with a named FAIL), the per-group cleanup of any context a group left open (10 s,
+named FAIL) and the final `browser.close()` (15 s, named FAIL). A page wedged in synchronous JavaScript cannot be
+bounded from the host at all - a `Promise.race` bounds the wait, not the work - so that case also ends by the
+caller's timeout. One bounded helper for every group's close is the follow-up work.
+
 ### The machine and its ROMs: toasts, switches, the disk ROM, the menu, the Library, the copy
 
-UX rulings R24-R28 and R19 A+ have no MAME oracle (AGENTS.md 4.6): the oracle is the rulings themselves, and the
+These have no MAME oracle (AGENTS.md 4.6): the oracle is the behaviour listed below, and the
 browser check's group `uiModel` drives them with real events at 1280x720 and at 390x844 with touch:
 
-* R24: a disk dropped without a disk ROM: the toast (the disk is in drive 0 on the disk controller alone, with **Add
+* Every toast is visible: a disk dropped without a disk ROM: the toast (the disk is in drive 0 on the disk controller alone, with **Add
   disk ROM…**) has its box inside the viewport and `elementFromPoint` at its centre is the toast; it keeps its slot and
   its time runs. An error toast (a disk image CLOADM can't read) is red. With that disk in and no tape, the drives
   card is above the cassette deck on the phone and under the keyboard panel, and after it on the desktop. (`feedbackModel` checks the fixed top slot where nothing else is
   free, and that it goes after its 4 s.)
-* R45 (`feedbackModel`, 1440x900): a toast replacing a focused one leaves the box up (a `MutationObserver` records no
+* A toast replacing a focused or hovered one (`feedbackModel`, 1440x900): a toast replacing a focused one leaves the box up (a `MutationObserver` records no
   `hidden` write) and the focus never on the body (in the same task and a frame later); with another action (an equal
   label, another object) the focus is on the box, the new toast is up 10 s later and Enter fires nothing, and after
   Shift+Tab it goes 8 s later; with the same action object the focus stays on the button and Enter runs it; with no
@@ -1105,7 +1140,7 @@ browser check's group `uiModel` drives them with real events at 1280x720 and at 
   350 ms on; a focused provisional toast keeps the slot, and one that lands in the slot already focused is still provisional
   past 300 ms, taking a place that opened meanwhile once the focus leaves. `tests/feedback-toasts.test.js` checks the same rules in Node,
   with the 300 ms limit and a hovered provisional toast.
-* R47 (`feedbackModel`): at 390x844 with touch and the Ask sheet at peek, a toast too tall for the band under the screen
+* Opaque sheets (`feedbackModel`): at 390x844 with touch and the Ask sheet at peek, a toast too tall for the band under the screen
   text is in the header band (the top slot under the 48 px bar), over neither the sheet nor its controls, its rect the
   same from 350 ms on; at 900x800 with the side panel over part of the slots, the toast is in a free place that meets
   no control part that shows and none of the panel's controls; the guard: every shown `[data-occludes]` element (the
@@ -1115,18 +1150,18 @@ browser check's group `uiModel` drives them with real events at 1280x720 and at 
   `elementFromPoint` at the toast's centre is the toast, and the region leaves the dialog and the top layer when it
   closes; one announcement per toast. `askEsc` (5d) now runs the turn on a phone (header band, no Stop covered) and at
   900 px (none of the panel's controls covered): the "toast over the Stop" it was written for cannot form under
-  R47, and in both the pill does not come and go and a Stop can be reached. `tests/feedback-toasts.test.js` checks each
+  the rule for opaque sheets, and in both the pill does not come and go and a Stop can be reached. `tests/feedback-toasts.test.js` checks each
   rule in Node.
-* R25: the switch confirmation's text for a tape and a cartridge (both in the Library), a tape and a disk, a RAM
+* A switch names what comes out: the switch confirmation's text for a tape and a cartridge (both in the Library), a tape and a disk, a RAM
   change (and Cancel putting the select back), a snapshot's own disk with **Save to Library** (stored and linked),
   DriveWire (not listed, still mounted after the switch); the toasts after the switch. `tests/switch-losses.test.js`
   checks `Session.takenOut` and `DiskDrives.keepSnapshot` in Node, the Speech/Sound Pak case included.
-* R26: the disk ROM card's title per machine (none on the Alpha and the MC-10), its `data-disk` mark with the socket
+* The disk ROM card: its title per machine (none on the Alpha and the MC-10), its `data-disk` mark with the socket
   counts unchanged, and a drive's **Add disk ROM…** landing on it (in view, focused, on top at its centre).
-* R28, R28b: Ctrl K "roms" Enter (Your ROMs, focus on its heading, nothing scrolled), the palette's top result for
+* The machine menu's footer and Your ROMs: Ctrl K "roms" Enter (Your ROMs, focus on its heading, nothing scrolled), the palette's top result for
   each of its words, the ROMs row first and its label with and without a stored test ROM, the "needs ROMs" toast and
   its action, ↓ from the last machine to both footer items, Esc, and each footer item's focus.
-* R19 A+: the ROMs chip's card with and without ROMs (the count and the machines worked out from `session.roms`),
+* ROMs in the Library: the ROMs chip's card with and without ROMs (the count and the machines worked out from `session.roms`),
   the drop's **Open Your ROMs**, and the card's link. `tests/stored-roms.test.js` checks `Session.storedRoms`.
 * ROM tiles: an empty Library shows the ROMs chip and the "No ROMs yet" card; under the ROMs chip (none under All) a
   tile per stored image with its name, size, "Used by" (a shared image names every machine) and a Remove button of at
@@ -1142,16 +1177,41 @@ browser check's group `uiModel` drives them with real events at 1280x720 and at 
   registers, cycles and screen identical to a twin's for 30 frames after the removal, still running it after a
   reset, without ROMs after a switch off and on, and a disk cartridge's ROM taken out at the switch off and on. On
   the page, after the Remove the machine's socket still holds the same bytes and its frames and cycles go on.
-* R27: every text node and title, label and placeholder of the page (emulator, machine menu, Your ROMs, Share,
+* The copy: every text node and title, label and placeholder of the page (emulator, machine menu, Your ROMs, Share,
   Library) holds no "stub" and no "Machine tab", and "disk ROM" is the one term; the ROMs row's states, the .dgn
   warning and the snapshot sentence word for word.
-* R46: the welcome tune plays only when the person asked for the menu (the visit's own start and Programs' Welcome menu,
+* The welcome tune: it plays only when the person asked for the menu (the visit's own start and Programs' Welcome menu,
   once the sound is unlocked); a machine switch, Reset, a power cycle and a return from LIZA, a game or the demo are silent.
   `tests/welcome-tune.test.js` measures the DAC (the MC-10's latch) over about 3 s of frames on both firmware builds; the browser
   check's group `visit` reads the firmware's PLAYED flag and counts the tune's DAC events after a page switch and a return.
 
 Not verified automatically: how the fixed top slot reads to a person on a real phone (screenshots
 `r24-disk-toast-*.png` were looked at).
+
+### Library writes from every door: guest creates, saves and renames
+
+No MAME oracle (AGENTS.md 4.6): these are the Library's own ordering rules, and the oracle is each race played out
+with the loser held inside the await where its check had already passed. `tests/store-races.test.js`:
+* A guest's DriveWire named-object call over each server the Session builds besides the Becker port's (a real CoCo on
+  Web Serial, through a mocked `navigator.serial`; the full-screen chat's): a CREATE whose write is in flight when a
+  move starts is a Library operation the move waits for, after which the move is refused naming the guest's drive and
+  the object is in the store the session still uses; a CREATE or a MOUNT asked while the move copies is answered 0,
+  hands out no drive and writes neither place. Every server comes from one constructor
+  (`Session.newDriveWireServer`), which wires both guards.
+* addAndBootNitros9's floppy save and Save to Library (`drives.keepSnapshot`) store their disks/ name as one creation
+  (`library.createDisk`, the same path as a dropped disk image): a rename onto the name while the save is held is
+  refused ("a disk is being made under that name") and both images keep their bytes; a save asked behind a rename of
+  that name in flight refuses ("There is already a disk named n9.dsk in your library"), leaving the renamed image as
+  it was; an import asked during Save to Library refuses, and so does one asked while either save is still in its
+  case probe after the write (the landing comes at the creation's end, not before its write).
+* The words: a case-only rename on a store that does not tell cases apart names the new name without the folder
+  typed ("so work.vdk and WORK.VDK are the same name"); a blank new name, "disks/" alone and a ".." segment are
+  refused naming the item ("work.vdk was not renamed: the new name is blank (empty or only spaces).", "... ".." is
+  not a name a file can have."), each word for word, with the store unchanged; Save to Library of a disk with no
+  file name says so and what to do, and of one whose name is not a disk image's file name ("sub/x.vdk") says why.
+On the stage branch 30 of its first 45 checks fail. Each guard bypassed on its own (the real CoCo's server or the chat's
+built without the guards, either guard dropped, either save back to a plain Library operation, the creation's claim
+or its landing check dropped, the landing moved before the write, each message reverted) turns it red.
 
 ### A disk without a disk ROM
 
@@ -1898,30 +1958,30 @@ independently in `tests/games.test.js`:
   "slide N" = N of the 16 checks in `tests/games-slide.test.js` fail; "game N" = N of the 151 in
   `tests/games.test.js`.
 
-  | # | The edit | Measured at b985014 |
+  | The mutant | The edit | Measured at b985014 |
   |---|---|---|
-  | R01 no `SLIDE` | `GLSLIDE`: `JSR SLIDE` -> `NOP` | slide 9, game 0: crossed squares, merged-tile flash, order, one-field flash, mover values (h, i, k), flash duration, nothing left behind. (On (p) this fails only because the slide never runs, so there are no movers: (p) is not catching a trail here.) |
-  | R02 vertical step | in `SPOS`, delete the two `LSLA` after `LDA MSTEP` (a column step of 1, not 4) | slide 1: crossed squares |
-  | R03 skip a middle square | the second `SPSTEP` line (`FCB 1,1,2`) becomes `FCB 1,2,3` | slide 1: crossed squares |
-  | R04 a vanished tile | `SLPASS` becomes two passes. First pass: for each mover, `JSR SPOS`; `BEQ` past a mover that did not move this field, otherwise empty its `MPREV`. Second pass: for each mover, `JSR SPOS`; `BEQ` past one that did not move, otherwise draw `MTMP`. (Both passes skip unmoved movers; the blanking is unconditional for movers that did move.) | slide 1: every mover on its square (k) |
-  | R05 flash on wrong squares | in FLASH's paint loop, the `LDB B,X` commented "in B for SQPOS" becomes `LDA B,X` (NOT the restore loop's `LDB B,X`, commented "in B for DRAWSQ") | slide 1: the flash field |
-  | R06 only the first join flashes | after the first `JSR BOX`, `LBRA FLTICK` | slide 1: the flash field |
-  | R07 a field between the boxes | the paint loop has one `JSR BOX`; put `JSR SLFIELD` right after it, before `INC MI` | slide 2: the flash field, flash duration |
-  | R08 a field before the restore | the first instruction under `FLGO` becomes `JSR SLFIELD`, before the `LDA #1` that is there | slide 2: the flash field, flash duration |
-  | R09 a VSYNC before the restore | the first instruction under `FLGO` becomes `JSR VSYNC`, before the `LDA #1` that is there | slide 1: flash duration (d/F = 1.995) |
-  | R10 the pop never small | `SPPUT`: `LDA #1 / STA POP` -> `CLR POP` | slide 3: order, pop sizes, pop is cuttable |
-  | R11 the pop drawn full size | the pop box `#TILEW`/`#TILEH` instead of `-2`/`-14` | slide 3 (cut, order, pop sizes), game 1 (the board picture) |
-  | R12 the pop never cuttable | replace `SPWAIT`'s `LDA #3` with `LDB #3`, and the body `PSHS A / JSR SLFIELD / LDA KQN / PULS A / BNE SPDONE / DECA / BNE SPWAIT` with `JSR VSYNC / DECB / BNE SPWAIT` (three bare VSYNCs) | slide 2: order, pop is cuttable |
-  | R13 R drops the queue | in NEWGAME, immediately after `CLR WONSEEN` (before the `CLR SKIPPED` there), insert `CLR KQN` | slide 1: keys queued behind R |
-  | R14 queue depth 1 | `CMPB #4` -> `CMPB #1` in KQPUSH | slide 2 (keys behind R, queue depth), game 1 (the board picture) |
-  | R15 a broken queue shift | in KQPOP, `LDA 1,X` -> `LDA ,X` | slide 2 (keys behind R, queue depth), game 1 (the board picture) |
-  | R16 the queue not cleared at START | remove `CLR KQN` from START | slide 1: queue depth (the CoCo 3 leg) |
-  | R17 a joining tile reads the board | in `SPOS`, replace `LDB MI / LDX #MVF / LDA B,X` with `LDA MTO / LDX #BOARD / LDA A,X` | slide 2: joining tile, every mover on its square |
-  | R18 every mover drawn as a 2 | in `SPTILE`, `LDA MV` -> `LDA #1` | slide 3: mover values (h), joining tile (i), every mover on its square (k) |
-  | R19 two new tiles | a second `JSR SPAWN` after `GLDONE` | slide 3 (rule state, key mid-slide, pop is cuttable), game 6 |
-  | R20 a 2 drawn as a 4 | in `DRAWSQ`, after `LDA B,X`: `CMPA #1 / BNE DQ0 / LDA #2` and a new label `DQ0` before `JSR TILEAT` | slide 1 (the cut check), game 1 (the board picture) |
-  | R21 no flash at all | `JSR FLASH` -> `NOP` | slide 3: order, the flash field, flash duration |
-  | R22 a trail of copies | in SLPASS's clear pass, `LDB SPKEEP / JSR SPEMPTY` becomes `LDB SPKEEP / NOP / NOP / NOP` (a vacated square is never emptied; three NOPs keep the code size) | slide 1: nothing is left behind (a square with no mover on it keeps 204 bytes of ink) |
+  | no `SLIDE` | `GLSLIDE`: `JSR SLIDE` -> `NOP` | slide 9, game 0: crossed squares, merged-tile flash, order, one-field flash, mover values (h, i, k), flash duration, nothing left behind. (On (p) this fails only because the slide never runs, so there are no movers: (p) is not catching a trail here.) |
+  | vertical step | in `SPOS`, delete the two `LSLA` after `LDA MSTEP` (a column step of 1, not 4) | slide 1: crossed squares |
+  | skip a middle square | the second `SPSTEP` line (`FCB 1,1,2`) becomes `FCB 1,2,3` | slide 1: crossed squares |
+  | a vanished tile | `SLPASS` becomes two passes. First pass: for each mover, `JSR SPOS`; `BEQ` past a mover that did not move this field, otherwise empty its `MPREV`. Second pass: for each mover, `JSR SPOS`; `BEQ` past one that did not move, otherwise draw `MTMP`. (Both passes skip unmoved movers; the blanking is unconditional for movers that did move.) | slide 1: every mover on its square (k) |
+  | flash on wrong squares | in FLASH's paint loop, the `LDB B,X` commented "in B for SQPOS" becomes `LDA B,X` (NOT the restore loop's `LDB B,X`, commented "in B for DRAWSQ") | slide 1: the flash field |
+  | only the first join flashes | after the first `JSR BOX`, `LBRA FLTICK` | slide 1: the flash field |
+  | a field between the boxes | the paint loop has one `JSR BOX`; put `JSR SLFIELD` right after it, before `INC MI` | slide 2: the flash field, flash duration |
+  | a field before the restore | the first instruction under `FLGO` becomes `JSR SLFIELD`, before the `LDA #1` that is there | slide 2: the flash field, flash duration |
+  | a VSYNC before the restore | the first instruction under `FLGO` becomes `JSR VSYNC`, before the `LDA #1` that is there | slide 1: flash duration (d/F = 1.995) |
+  | the pop never small | `SPPUT`: `LDA #1 / STA POP` -> `CLR POP` | slide 3: order, pop sizes, pop is cuttable |
+  | the pop drawn full size | the pop box `#TILEW`/`#TILEH` instead of `-2`/`-14` | slide 3 (cut, order, pop sizes), game 1 (the board picture) |
+  | the pop never cuttable | replace `SPWAIT`'s `LDA #3` with `LDB #3`, and the body `PSHS A / JSR SLFIELD / LDA KQN / PULS A / BNE SPDONE / DECA / BNE SPWAIT` with `JSR VSYNC / DECB / BNE SPWAIT` (three bare VSYNCs) | slide 2: order, pop is cuttable |
+  | R drops the queue | in NEWGAME, immediately after `CLR WONSEEN` (before the `CLR SKIPPED` there), insert `CLR KQN` | slide 1: keys queued behind R |
+  | queue depth 1 | `CMPB #4` -> `CMPB #1` in KQPUSH | slide 2 (keys behind R, queue depth), game 1 (the board picture) |
+  | a broken queue shift | in KQPOP, `LDA 1,X` -> `LDA ,X` | slide 2 (keys behind R, queue depth), game 1 (the board picture) |
+  | the queue not cleared at START | remove `CLR KQN` from START | slide 1: queue depth (the CoCo 3 leg) |
+  | a joining tile reads the board | in `SPOS`, replace `LDB MI / LDX #MVF / LDA B,X` with `LDA MTO / LDX #BOARD / LDA A,X` | slide 2: joining tile, every mover on its square |
+  | every mover drawn as a 2 | in `SPTILE`, `LDA MV` -> `LDA #1` | slide 3: mover values (h), joining tile (i), every mover on its square (k) |
+  | two new tiles | a second `JSR SPAWN` after `GLDONE` | slide 3 (rule state, key mid-slide, pop is cuttable), game 6 |
+  | a 2 drawn as a 4 | in `DRAWSQ`, after `LDA B,X`: `CMPA #1 / BNE DQ0 / LDA #2` and a new label `DQ0` before `JSR TILEAT` | slide 1 (the cut check), game 1 (the board picture) |
+  | no flash at all | `JSR FLASH` -> `NOP` | slide 3: order, the flash field, flash duration |
+  | a trail of copies | in SLPASS's clear pass, `LDB SPKEEP / JSR SPEMPTY` becomes `LDB SPKEEP / NOP / NOP / NOP` (a vacated square is never emptied; three NOPs keep the code size) | slide 1: nothing is left behind (a square with no mover on it keeps 204 bytes of ink) |
 
   **Two product defects were found in review and fixed, each now checked:** a tile could vanish for a whole field - a
   mover that stayed put was not redrawn after another mover blanked its square - so the per-field draw now draws every
@@ -2129,6 +2189,24 @@ picture and keeps it the same in every field. The fast-rate picture has no autom
 
 * About one in five 1983 Dragons wouldn't run at the fast rates. We emulate a machine that accepts the POKEs.
 * Nothing persists past a reset or a power cycle: there is no "damage".
+
+## A known flash: the chat's Stop pill and a toast (not fixed here)
+
+When a turn is running and a long toast covers the chat's Stop button, the floating Stop pill (`#viewClaude`) can
+flash on and off once. `js/ui/ask.js` measures whether any Stop is reachable, and `body.claude-float` itself moves
+`#toastRegion` (`play/index.html`: `bottom: 96px` against its natural `8px`), so applying the pill can lift the very
+toast that was covering the Stop. The toast does not then hold still: `js/ui/feedback.js` re-places it as its inputs
+change (a natural toast becomes a placed or top-slot one), so between two `renderActing` samples the state the pill
+reads can change under it.
+
+The browser check measures it: `askEsc` counts how many times `#viewClaude` changes visibility while such a toast
+shows, and requires at most one, with no page errors. It does not currently assert that the toast really covers the
+Stop, nor that a Stop stays reachable — a stricter version of the check that asserts both is held for the release
+that fixes this.
+
+This is recorded rather than fixed: the fix touches the shared root — a toast's placement changing under a reader
+between samples — and is scheduled for the next minor release with that work. The check is left exactly as it was
+before this release, so the release changes no behaviour here.
 
 ---
 

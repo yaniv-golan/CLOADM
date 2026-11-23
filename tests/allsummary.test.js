@@ -188,7 +188,7 @@ const failedAs = (r, name) => r.status !== 0 && new RegExp(`FAIL  ${name.replace
     late.status === 0 ? 'the gate exited 0' : '');
   // The marker cuts at ANY NUL, not only a line-initial one: a live write with no trailing newline puts the marker
   // mid-line, and a line-initial-only rule then read the shutdown-time summary as live and PASSED a suite that
-  // stopped part-way. That was the one MAJOR finding of review round 2; this probe is it.
+  // stopped part-way. This probe is that case.
   const partial = gate("process.stdout.write('working');\n"
     + "process.on('exit', () => process.stdout.write('\\nall passed\\n'));\n"
     + "(async () => { await new Promise(() => {}); })();\n");
@@ -198,7 +198,7 @@ const failedAs = (r, name) => r.status !== 0 && new RegExp(`FAIL  ${name.replace
   const partialOk = gate("process.stdout.write('working');\nconsole.log('\\nall passed');\n");
   check('...and the same shape with the summary printed live still passes', partialOk.status === 0, `exit ${partialOk.status}`);
   // A guard failure raised DURING shutdown must still be reported as the guard's, not as a printed FAIL: the guard
-  // writes its line after the marker, so the regex has to read the tail (review round 2, finding 3). The suite calls
+  // writes its line after the marker, so the regex has to read the tail. The suite calls
   // process.exit() from a beforeExit handler, which the guard blocks; it also resets exitCode at exit.
   const guarded = gate("process.on('beforeExit', () => { try { process.exit(0); } catch (e) {} });\n"
     + "process.on('exit', () => { process.exitCode = 0; });\n");
@@ -215,7 +215,7 @@ const failedAs = (r, name) => r.status !== 0 && new RegExp(`FAIL  ${name.replace
     continued.status === 0 ? 'it passed: the limit is gone, update the comment' : '');
   // The exit-only path: an uncaught throw skips beforeExit but still runs exit handlers, so a suite that crashes
   // AFTER scheduling a throw and prints its summary from an exit handler must be failed. This is the only case that
-  // reaches the `exit` listener in tests/no-exit.js -- removing that listener must turn it red (review, 054 item 3).
+  // reaches the `exit` listener in tests/no-exit.js -- removing that listener must turn it red.
   const crashed = gate("process.on('exit', () => { console.log('all passed'); process.exitCode = 0; });\n"
     + "setTimeout(() => { throw new Error('boom'); }, 10);\n");
   check('a summary printed from an exit handler after a crash does not pass', crashed.status !== 0 && failedAs(crashed, 'zz-probe.test.js'),
@@ -467,7 +467,7 @@ const failedAs = (r, name) => r.status !== 0 && new RegExp(`FAIL  ${name.replace
     ['a kill of a suite with no summary is a kill, not a stopped-early pass', { code: 0, timedOut: true, guardFailed: false, stdout: '' }, 'killed'],
     ['a signal death has no code and is a failure', { code: null, timedOut: false, guardFailed: false, stdout: '' }, 'exit'],
     // the guard is decided BEFORE the exit code: a suite that called process.exit() and also exited 1 is reported as
-    // the guard's failure, so a reader is not told the wrong reason. (Review, 054 item 4: removing the reorder kept
+    // the guard's failure, so a reader is not told the wrong reason. (Removing the reorder kept
     // every case green, so this is the case that pins it.)
     ['a guard failure with a non-zero exit is the guard\'s failure, not a plain exit', { code: 1, timedOut: false, guardFailed: true, stdout: 'FAIL x: process.exit() called at 1: process.exit()\n' }, 'guard'],
   ];

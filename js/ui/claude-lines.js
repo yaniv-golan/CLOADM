@@ -1,10 +1,10 @@
 /*
  * The small lines under Claude's turns, shared by the side panel, the phone sheet (js/ui/ask.js) and the full-screen
  * chat's card (js/ui/claude.js):
- *   - the restore line (UX ruling R12): one muted line under the latest turn that changed the machine,
+ *   - the restore line: one muted line under the latest turn that changed the machine,
  *     "↶ Restore to 23:58 · Restore points…", the second a disclosure with every point and what restoring does; while
  *     a turn runs the button is disabled: "Restore point at 23:58 · Stop first to restore";
- *   - the action lines (UX ruling R13): one muted line per acting call under the turn's reply (js/claude/actions.js),
+ *   - the action lines: one muted line per acting call under the turn's reply (js/claude/actions.js),
  *     a turn with more than 3 acting calls folding its ✓ lines into one button.
  * Nodes are updated in place, never rebuilt, so focus stays on a button across re-renders and a live region
  * announces only what is new.
