@@ -241,6 +241,8 @@
   #toastText { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
   #toastAction { background: #0B0D0C; color: #E8EDE6; border: 0; border-radius: 8px; padding: 6px 10px; font-weight: 700; min-height: 0; }
   #toastText button.inline { background: #0B0D0C; color: #E8EDE6; border: 0; border-radius: 6px; padding: 0 8px; font: inherit; font-weight: 700; min-height: 0; }
+  /* on a phone the button standing in the sentence is a tap target: 44 px high */
+  @media (pointer: coarse), (max-width: 600px) { #toastText button.inline { min-height: 44px; padding: 0 14px; } }
   #toastDetails { flex-basis: 100%; font-size: 14px; color: #2A302C; overflow-wrap: anywhere; }
   #toastAlso { flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; overflow-wrap: anywhere; }
   #toastAlso[hidden] { display: none; }

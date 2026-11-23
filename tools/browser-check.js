@@ -5122,31 +5122,66 @@ async function tapePanelChecks(browser, base, check) {
   bytes.push(...block(0xFF, []));
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cloadm-tape-'));
   fs.writeFileSync(path.join(tmp, 'deck.cas'), Buffer.from(bytes));
-  // No BASIC (the stub): the toast says so and offers Load it now, which loads the tape's program and starts it, and the
-  // deck's sentence about BASIC's own S and F is hidden. (Node: tests/tape-no-basic.test.js.)
+  // The tape's toast and the deck's line about BASIC's own S and F follow whether BASIC runs (Node: tests/tape-no-basic.test.js).
+  // No BASIC (the stub): "<name> is in the deck. There's no BASIC to type CLOAD into: [Load it now]", the button inline in the
+  // sentence, visible, inside the screen and big enough to tap on a phone; Load it now loads the tape's program and starts it;
+  // the S-and-F line is hidden. BASIC running (our stand-in ROMs, as the reset group uses): the old toast, no button, the line shown.
   {
     const small = fs.mkdtempSync(path.join(os.tmpdir(), 'cloadm-tape-nobasic-'));
     const prog = [0x86, 0x42, 0xB7, 0x31, 0x00, 0x20, 0xFE];   // LDA #$42, STA $3100, BRA *
     fs.writeFileSync(path.join(small, 'nobasic.cas'), Buffer.from([...Array(128).fill(0x55), ...block(0, [...Buffer.from('NOBASIC '), 2, 0, 0, 0x30, 0x00, 0x30, 0x00]), ...Array(16).fill(0x55), ...block(1, prog), ...block(0xFF, [])]));
-    const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
-    const page = await ctx.newPage();
-    const errors = [];
-    page.on('pageerror', (e) => errors.push(e.message));
-    await page.goto(`${base}?machine=dragon64`);
-    await ready(page);
-    await stubPrompt(page);
-    await page.setInputFiles('#fileTape', path.join(small, 'nobasic.cas'));
-    await waitFor(page, () => /is in the deck/.test(document.getElementById('toast').textContent));
-    const toast = await page.evaluate(() => { const a = document.querySelector('#toastText button.inline'); return { text: document.getElementById('toastText').textContent.replace(/\s+/g, ' ').trim(), action: a ? a.textContent : null, visible: !!a && a.checkVisibility(), error: document.getElementById('toast').classList.contains('error') }; });
-    check('tape, no BASIC: the toast says "nobasic.cas is in the deck. There\'s no BASIC to type CLOAD into: [Load it now]"',
-      toast.text === "nobasic.cas is in the deck. There's no BASIC to type CLOAD into: Load it now" && toast.action === 'Load it now' && toast.visible && !toast.error, JSON.stringify(toast));
-    await waitFor(page, () => !document.getElementById('tapePanel').hidden);
-    check('tape, no BASIC: the deck does not talk about BASIC\'s own S and F', await page.isHidden('#tapeBasicNote'), await page.evaluate(() => document.getElementById('tapeBasicNote').checkVisibility() + ''));
-    await page.click('#toastText button.inline');
-    const started = await waitFor(page, () => window.emu.machine.read(0x3100) === 0x42 && /started at/.test(document.getElementById('toast').textContent), null, 15000);
-    check('tape, no BASIC: Load it now loads the program and starts it, and the usual start toast follows', started, await page.textContent('#toast'));
-    check('tape, no BASIC: no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    const fw = require('../tests/fixtures/reset-firmware').build(require('../tests/load')());
+    const toastOf = (page) => page.evaluate(() => { const a = document.querySelector('#toastText button.inline'), r = a ? a.getBoundingClientRect() : null;
+      return { text: document.getElementById('toastText').textContent.replace(/\s+/g, ' ').trim(), action: a ? a.textContent : null, visible: !!a && a.checkVisibility(),
+        error: document.getElementById('toast').classList.contains('error'), rect: r && { top: r.top, bottom: r.bottom, left: r.left, right: r.right, w: r.width, h: r.height }, vw: innerWidth, vh: innerHeight }; });
+    for (const [label, viewport] of [['desktop', { width: 1440, height: 900 }], ['phone', { width: 390, height: 844 }]]) {
+      const ctx = await browser.newContext({ viewport, hasTouch: label === 'phone' });
+      const page = await ctx.newPage();
+      const errors = [];
+      page.on('pageerror', (e) => errors.push(e.message));
+      await page.goto(`${base}?machine=dragon64`);
+      await ready(page);
+      await stubPrompt(page);
+      await page.setInputFiles('#fileTape', path.join(small, 'nobasic.cas'));
+      await waitFor(page, () => /is in the deck/.test(document.getElementById('toast').textContent));
+      const toast = await toastOf(page);
+      check(`tape, no BASIC (${label}): the toast says "nobasic.cas is in the deck. There's no BASIC to type CLOAD into: [Load it now]"`,
+        toast.text === "nobasic.cas is in the deck. There's no BASIC to type CLOAD into: Load it now" && toast.action === 'Load it now' && toast.visible && !toast.error, JSON.stringify(toast));
+      const r = toast.rect;
+      check(`tape, no BASIC (${label}): the Load it now button is inside the screen${label === 'phone' ? ' and at least 44 px tall' : ''}`,
+        !!r && r.left >= 0 && r.right <= toast.vw && r.top >= 0 && r.bottom <= toast.vh && r.w > 0 && (label !== 'phone' || r.h >= 44), JSON.stringify(r));
+      await waitFor(page, () => !document.getElementById('tapePanel').hidden);
+      check(`tape, no BASIC (${label}): the deck does not talk about BASIC's own S and F`, await page.isHidden('#tapeBasicNote'), await page.evaluate(() => document.getElementById('tapeBasicNote').checkVisibility() + ''));
+      if (shotDir) await page.screenshot({ path: path.join(shotDir, `tape-no-basic-${label}.png`) });
+      if (label === 'phone') await page.tap('#toastText button.inline'); else await page.click('#toastText button.inline');
+      const started = await waitFor(page, () => window.emu.machine.read(0x3100) === 0x42 && /started at/.test(document.getElementById('toast').textContent), null, 15000);
+      check(`tape, no BASIC (${label}): Load it now loads the program and starts it, and the usual start toast follows`, started, await page.textContent('#toast'));
+      check(`tape, no BASIC (${label}): no page errors`, !errors.length, errors.join('; '));
+      await ctx.close();
+    }
+    {
+      const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+      const page = await ctx.newPage();
+      const errors = [];
+      page.on('pageerror', (e) => errors.push(e.message));
+      await page.goto(`${base}?machine=dragon64`);
+      await ready(page);
+      await page.evaluate((b) => {
+        const crc = (bytes) => { let c = -1; for (const v of bytes) { c ^= v; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; } return ((c ^ -1) >>> 0).toString(16).toUpperCase().padStart(8, '0'); }
+        for (const id of ['dragon64', 'tanodr64']) window.emu.profiles[id].roms[0].crcs.push(crc(b));
+      }, [...fw.basic]);
+      await dropFiles(page, [['d64_1.rom', Buffer.from(fw.basic)], ['d64_2.rom', Buffer.from(fw.basic64)]]);
+      await waitFor(page, () => window.emu.session.bootStatus().state === 'ok' && window.emu.machine.id === 'dragon64');
+      await page.setInputFiles('#fileTape', path.join(small, 'nobasic.cas'));
+      await waitFor(page, () => /nobasic\.cas inserted/.test(document.getElementById('toast').textContent));
+      const toast = await toastOf(page);
+      check('tape, BASIC running: the toast is "Tape nobasic.cas inserted. Type CLOAD or CLOADM." with no button in it',
+        toast.text === 'Tape nobasic.cas inserted. Type CLOAD or CLOADM.' && toast.action === null, JSON.stringify(toast));
+      await waitFor(page, () => !document.getElementById('tapePanel').hidden);
+      check("tape, BASIC running: the deck's line about BASIC's own S and F is shown", await page.isVisible('#tapeBasicNote') && /BASIC's own S and F/.test(await page.textContent('#tapeBasicNote')));
+      check('tape, BASIC running: no page errors', !errors.length, errors.join('; '));
+      await ctx.close();
+    }
     fs.rmSync(small, { recursive: true, force: true });
   }
   for (const [label, viewport] of [['desktop', { width: 1440, height: 900 }], ['phone', { width: 390, height: 844 }]]) {

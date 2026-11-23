@@ -108,7 +108,7 @@ there; a file that is not there answers `cannot-read`, naming the folder. `load`
 cartridge or disk file from there as well as the bundled programs.
 
 **Tapes.** `load` a `.cas` runs it (without ROMs straight into memory; with ROMs through `CLOADM`, in emulated tape
-time). To control it yourself: `insert_tape`, `type_text` `CLOADM\n` (or `CLOAD\n`), then
+time). To control it yourself: `insert_tape` (with no BASIC running, it says so; use `load` instead), `type_text` `CLOADM\n` (or `CLOAD\n`), then
 `run_frames` with `until: {tape: "end"}` or `{tape: "stopped"}`, then `until: {text: "OK"}`. Machine summaries say
 the tape's state.
 
