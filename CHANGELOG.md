@@ -8,6 +8,12 @@ All notable changes to CLOADM are recorded here. The format follows
 
 Next version: 0.1.9-pre (the plugin and extension manifests carry it; `tests/plugin.test.js` keeps them in step).
 
+### Fixed
+
+- The release workflow's publish job had no checkout, so `gh release create` failed with "not a git repository": its step
+  now sets `GH_REPO`, and `tests/workflows-release.test.js` checks that every job that runs `gh` checks out or names the
+  repository.
+
 ### 0.1.9-pre
 
 #### Added
@@ -260,8 +266,6 @@ Next version: 0.1.9-pre (the plugin and extension manifests carry it; `tests/plu
 
 #### Fixed
 
-- The release workflow's publish job had no checkout, so `gh release create` failed with "not a git repository": its step now
-  sets `GH_REPO`, and `tests/workflows-release.test.js` checks that every job that runs `gh` checks out or names the repository.
 - **What the page says is on screen is what is on screen.** The Media tab's "Welcome menu · on screen now" meant only
   that the menu had been loaded: started on a machine the Debugger had stopped, or while Pause held it, the tag showed
   while the screen showed something else. It now shows exactly while the welcome program runs on the machine on
