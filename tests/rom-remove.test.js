@@ -93,6 +93,20 @@ const screenBytes = (m) => Array.from({ length: 512 }, (_, i) => m.read(0x0400 +
     // Undo after the power cycle: the ROM goes back in and the machine restarts with it
     a.restoreRom(r);
     check('Undo after a switch off and on: the machine has its ROM again', a.shownMachine.hasRom && a.machineRoms().bootable);
+    // The running machine's ROM removed, another put in its socket, then Undo: the socket keeps the new one, so the
+    // machine still runs a removed ROM, and the next switch off and on brings in the new one, not the removed one
+    {
+      const e = mk(); frames(e, 5);
+      const ecrc = e.romFiles()[0].crc, newer = standIn(11);
+      const er = e.removeRom(ecrc);
+      e.roms.put('dragon64', 'basic', newer, 'new.rom');
+      const back = e.restoreRom(er);
+      check('Undo with the running machine\'s socket refilled: the socket is skipped, and the removed ROM is still listed as running',
+        back.skipped.some((s) => s.owner === 'dragon64') && e.romsStillRunning().has(ecrc) && same(e.roms.get('dragon64').basic, newer), JSON.stringify(back.skipped));
+      e.powerCycle();
+      check('...and after a switch off and on the machine runs new.rom, and nothing is listed as still running',
+        same(e.shownMachine.roms.basic, newer) && !e.romsStillRunning().size);
+    }
     // Undo before a power cycle: the machine was never touched
     const c = mk(); frames(c, 5);
     const before = regs(c.shownMachine);
