@@ -1732,6 +1732,24 @@ picture and keeps it the same in every field. The fast-rate picture has no autom
 * About one in five 1983 Dragons wouldn't run at the fast rates. We emulate a machine that accepts the POKEs.
 * Nothing persists past a reset or a power cycle: there is no "damage".
 
+## A known flash: the chat's Stop pill and a toast (not fixed here)
+
+When a turn is running and a long toast covers the chat's Stop button, the floating Stop pill (`#viewClaude`) can
+flash on and off once. `js/ui/ask.js` measures whether any Stop is reachable, and `body.claude-float` itself moves
+`#toastRegion` (`play/index.html`: `bottom: 96px` against its natural `8px`), so applying the pill can lift the very
+toast that was covering the Stop. The toast does not then hold still: `js/ui/feedback.js` re-places it as its inputs
+change (a natural toast becomes a placed or top-slot one), so between two `renderActing` samples the state the pill
+reads can change under it.
+
+The browser check measures it: `askEsc` counts how many times `#viewClaude` changes visibility while such a toast
+shows, and requires at most one, with no page errors. It does not currently assert that the toast really covers the
+Stop, nor that a Stop stays reachable — a stricter version of the check that asserts both is held for the release
+that fixes this.
+
+This is recorded rather than fixed: the fix touches the shared root — a toast's placement changing under a reader
+between samples — and is scheduled for the next minor release with that work. The check is left exactly as it was
+before this release, so the release changes no behaviour here.
+
 ---
 
 See also: [The HD6309 core](cpu6309.md) · [MAME 0.289 results](mame-0289-results.md) · [Development](development.md) · [Machines](machines.md)

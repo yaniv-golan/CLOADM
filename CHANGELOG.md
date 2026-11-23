@@ -377,6 +377,20 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   to Claude even when its words match a command: "reset?" asks, with Reset listed beneath, and runs nothing. Only a
   command's whole label typed with its own "?" runs it.
 
+- **Toast placement no longer leaks a per-frame loop per toast or rewrites unchanged styles.** Every toast shown
+  started its own animation-frame chain and none was cancelled, so a session's toasts added permanent per-frame loops
+  (three chains placing the same frame were measured), and each frame cleared and rewrote eleven inline properties on
+  `#toastRegion`, 2,714 of 2,715 of them byte-identical. One cancellable chain now places a toast, and the style and
+  the class are written only when the placement changes (and cleared when the stylesheet's own place is right): the
+  browser check measures a stationary toast at 0 style writes in 60 frames on desktop and phone, and 0 class mutations
+  on the region once a pinned toast has gone (a `classList.remove` of an absent class queues one per frame in Chromium).
+  The toast still follows a resize, a scroll or a control that grows under it. The identity a placement is cached
+  under includes everything the decision reads (the safe-area insets, the screen's geometry and its visible text area
+  included), and a test changes each of those inputs in turn to show the placement is decided again rather than
+  re-applied from the cache. The chat's Stop pill still flashes while a toast covers it; that is a separate, known
+  issue, recorded in `docs/verification.md`.
+  `tests/toast-follow.test.js`, `tools/browser-check.js`, `tools/flicker-measure.js`.
+
 ### 0.1.8-pre
 
 #### Added

@@ -4534,6 +4534,87 @@ async function feedbackChecks(browser, base, check) {
       await tryClick('#toastAction');
       check('feedback: Undo puts the slot back as it was (empty)', await waitFor(page, () => /Snapshot 1 · empty/.test(document.querySelector('#slotList .row').textContent)));
     }
+    // A toast must not cost the page work every frame. Measured on main with tools/flicker-measure.js: 3,630-3,645 style
+    // writes during one page load while every show started its own uncancelled chain; and re-measured on this code, a
+    // stationary toast writes #toastRegion's style ZERO times in 60 frames on both desktop and phone. The budget is 1
+    // (not 40: a budget that far above the measurement would pass a writer that still wrote now and then); a per-frame
+    // writer, the defect this guards, writes about 60.
+    await ev(() => { window.emu.feedback.clear(); window.__w = 0;
+      new MutationObserver((recs) => { for (const r of recs) if (r.target && r.target.id === 'toastRegion' && r.attributeName === 'style') window.__w++; })
+        .observe(document, { subtree: true, attributes: true, attributeFilter: ['style'] }); });
+    await ev(() => window.emu.feedback.toast('Budget: a toast left up'));
+    await ticks(page, 3);
+    await ev(() => { window.__w = 0; });                 // (count from settled)
+    const moved = await ev(() => ({ left: document.getElementById('toastRegion').style.left, top: document.getElementById('toastRegion').style.top,
+      box: document.getElementById('toast').getBoundingClientRect().toJSON() }));
+    await ticks(page, 60);
+    const writes = await ev(() => window.__w);
+    check(`feedback (${label}): a stationary toast writes #toastRegion's style at most once in 60 frames (measured: 0)`,
+      writes <= 1, `${writes} style writes in 60 frames (a per-frame writer gives ~60; main gave ~180)`);
+    // ... and no CLASS mutation either, which is a separate attribute: classList.remove('top') queues one in Chromium
+    // even when 'top' is absent (measured: 10 calls, 10 records; toggle(c, false) gives 0). The case that bites is a
+    // placed toast after a PINNED one has come and gone, because the region then still carries class="top" for placedAt
+    // to clear every re-apply. A pinned toast is raised by covering the window; it is cleared, then a placing toast is
+    // observed. On a phone the top slot is the pinned one and EVERY toast pins, so this case is a desktop one.
+    if (label !== 'phone') {
+      await ev(() => { window.emu.feedback.clear(); });
+      await ticks(page, 2);
+      const classRecords = await ev(async () => {
+        const region = document.getElementById('toastRegion');
+        // pin a toast first: grow the controls the decision avoids until no free place exists, raise, wait for the pin
+        const grown = [...document.querySelectorAll('header, .controls, .slots, aside.drawer')];
+        const saved = grown.map((e) => e.style.minHeight);
+        for (const e of grown) e.style.minHeight = `${innerHeight + 400}px`;
+        window.emu.feedback.toast('Pinned first, so the region carries top');
+        await new Promise((r) => setTimeout(r, 300));
+        const pinned = region.classList.contains('top');
+        // shrink them back and clear: a now-FREE window, and a later toast will be PLACED
+        grown.forEach((e, i) => { e.style.minHeight = saved[i]; });
+        window.emu.feedback.clear();
+        await new Promise((r) => setTimeout(r, 120));
+        window.emu.feedback.toast('Placed after a pinned one');
+        await new Promise((r) => setTimeout(r, 300));
+        let n = 0;
+        const obs = new MutationObserver((recs) => { for (const r of recs) if (r.target === region && r.attributeName === 'class') n++; });
+        obs.observe(region, { attributes: true, attributeFilter: ['class'] });
+        await new Promise((r) => setTimeout(r, 1000));   // ~60 frames
+        obs.disconnect();
+        return { pinned, placed: region.style.left !== '' || region.style.top !== '', n, cls: region.className };
+      });
+      check(`feedback (${label}): after a pinned toast has gone, a placed toast queues no class mutation on the region in ~60 frames`,
+        classRecords.pinned && classRecords.placed && classRecords.n === 0,
+        JSON.stringify({ pinned: classRecords.pinned, placed: classRecords.placed, classRecords: classRecords.n, cls: classRecords.cls }));
+      await ev(() => window.emu.feedback.clear());
+    }
+    // and it still FOLLOWS: a layout change under it moves it
+    // PINNED-NESS BEFORE THE CHANGE: a header that grows under an unpinned toast may make it pin, and then it is held
+    // in the slot by design -- so which rule applies is read from the state before the change.
+    const pinnedBefore = await ev(() => document.getElementById('toastRegion').classList.contains('top'));
+    await ev(() => { document.querySelector('header').style.minHeight = '240px'; });
+    await ticks(page, 6);
+    const afterMove = await ev(() => ({ left: document.getElementById('toastRegion').style.left, top: document.getElementById('toastRegion').style.top,
+      box: document.getElementById('toast').getBoundingClientRect().toJSON() }));
+    const winH = await ev(() => innerHeight);
+    const winW = await ev(() => innerWidth);
+    await ev(() => { document.querySelector('header').style.minHeight = ''; });
+    // It must have MOVED, not merely stayed in view: a frozen placement passes "still in view" trivially. The header
+    // growing by 240 px pushes everything below it down by 240 (or the toast takes a different place), so the box's
+    // top must have changed -- that is what a placement that stopped re-placing cannot do.
+    const dy = afterMove.box.top - moved.box.top, dx = afterMove.box.left - moved.box.left;
+    const pinnedNow = await ev(() => document.getElementById('toastRegion').classList.contains('top'));
+    // A PINNED toast (one that took the fixed top slot) is held there until it goes, deliberately -- so it does not
+    // move with a layout change; on a phone, where no place is free, it must instead stay put. That is NOT the same
+    // claim as "it is somewhere in view": a placement that stopped re-placing also stays in view at its old spot. So
+    // the pinned branch asserts the toast is AT THE TOP, where the slot puts it -- its top within a slot's reach of the
+    // viewport's top edge. (Before this, the pinned branch was a bare `true`, and `wasPinned = before || after` read
+    // the pinned-ness AFTER the change too: an unpinned toast that pinned under the change and then froze passed.)
+    // An UNPINNED toast must have moved, which the header's growth makes it do.
+    const wasPinned = pinnedBefore || pinnedNow;
+    const atTopSlot = afterMove.box.top >= 0 && afterMove.box.top <= 80;   // (the slot is the top edge + 8-16 px)
+    check(`feedback (${label}): a layout change while the toast is up ${wasPinned ? 'keeps a pinned toast in its slot' : 'MOVES the toast'} (placement is still followed)`,
+      afterMove.box.top >= 0 && afterMove.box.bottom <= winH && afterMove.box.left >= 0 && afterMove.box.right <= winW
+        && (wasPinned ? (pinnedNow && atTopSlot) : (Math.abs(dy) > 20 || Math.abs(dx) > 20)),
+      `moved by (${dx}, ${dy}), pinned before ${pinnedBefore}, now ${pinnedNow}, atTopSlot ${atTopSlot}: ${JSON.stringify(moved.box)} -> ${JSON.stringify(afterMove.box)}`);
     check(`feedback (${label}): no page errors`, !errors.length, errors.join('; '));
     await ctx.close();
   }
