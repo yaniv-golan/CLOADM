@@ -9960,12 +9960,57 @@ async function askEscChecks(browser, base, check) {
     await page.evaluate(() => { window.emu.session.chat.sendLine('hello'); });
     await page.evaluate(() => document.getElementById('btnAskClose').click());   // (during a turn the sheet goes to peek)
     await waitFor(page, () => document.getElementById('ask').dataset.height === 'peek' && !document.getElementById('btnAskPeekStop').hidden, null, 5000);
+    // SETTLE BEFORE RAISING. `dataset.height === 'peek'` is set the instant the sheet is ASKED to peek; its layout
+    // follows a frame or two later. Raising the toast inside that window lets place() decide from rects that are about
+    // to change: measured, the toast then pinned to the top slot about once in ten runs instead of landing over the
+    // Stop, and the check's premise ("a toast over the sheet's Stop") silently did not exist. So wait until the rects
+    // place() reads stop changing -- two consecutive samples that agree -- before raising the toast.
+    await waitFor(page, () => {
+      const sel = 'header, .controls, .slots, aside.drawer, #attention, #touchKeys button, #claudeBar, #installOffer, #tapeHud:not([hidden])';
+      const key = [...document.querySelectorAll(sel)].map((e) => { const r = e.getBoundingClientRect();
+        return [r.left, r.top, r.right, r.bottom].map(Math.round).join(','); }).join('|')
+        + '#' + ['#screen', '#monitor .tube'].map((s) => { const e = document.querySelector(s); if (!e) return '';
+          const r = e.getBoundingClientRect(); return [r.left, r.top, r.right, r.bottom].map(Math.round).join(','); }).join('|');
+      const same = window.__settleKey === key;
+      window.__settleKey = key;
+      return same;
+    }, null, 5000);
     await page.evaluate(() => { window.__flips = 0; let was = document.getElementById('viewClaude').hidden;
       window.__obs = new MutationObserver(() => { const h = document.getElementById('viewClaude').hidden; if (h !== was) { window.__flips++; was = h; } });
       window.__obs.observe(document.getElementById('viewClaude'), { attributes: true }); window.emu.feedback.toast('A toast over the bottom of the window, long enough to wrap onto several lines on a phone, so that it lies over the sheet\'s Stop button at the bottom edge of the window for as long as it shows'); });
     await emuFrames(page, 90);
     const flips = await page.evaluate(() => window.__flips);
+    // PRECONDITION: the check is about a toast that COVERS the Stop, so prove it does before judging the pill.
+    // Without this it passes vacuously whenever the toast pins to the top slot instead -- the designed answer when no
+    // free place exists, and on a 390 px phone the usual one. Measure the TOAST (#toast), not #toastRegion: the region
+    // is the positioning wrapper and can span the viewport, so a region-based hit-test reports "covers the Stop" for a
+    // toast pinned at the top.
+    const covers = await page.evaluate(() => {
+      const reg = document.getElementById('toastRegion'), box = document.getElementById('toast'), stop = document.getElementById('btnAskPeekStop');
+      const tr = box.getBoundingClientRect(), sr = stop.getBoundingClientRect();
+      const x = sr.left + sr.width / 2, y = sr.top + sr.height / 2, at = document.elementFromPoint(x, y);
+      const onStop = !!at && (at === box || box.contains(at));
+      return { pinned: reg.classList.contains('top'), toast: [tr.left, tr.top, tr.right, tr.bottom].map(Math.round),
+        stop: [sr.left, sr.top, sr.right, sr.bottom].map(Math.round), onStop };
+    });
+    check(`${L}: setup: the toast covers the Stop button (the scenario the check names)`, covers.onStop, JSON.stringify(covers));
     check(`${L}: the pill does not come and go while the toast shows`, flips <= 1, `flips ${flips}`);
+    // THE INVARIANT THE PILL EXISTS FOR: while the turn runs, the person must be able to reach a Stop. A pill that has
+    // gone while NOTHING can be clicked is worse than one that flashes. Assert it against the page.
+    const reach = await page.evaluate(() => {
+      const ids = ['btnAskStatusStop', 'btnAskStripStop', 'btnAskStop', 'btnAskPeekStop', 'btnFsStop', 'btnClaudeStop', 'btnPipStop', 'btnViewStop'];
+      const out = [];
+      for (const id of ids) {
+        const e = document.getElementById(id);
+        if (!e || e.hidden) continue;
+        const r = e.getBoundingClientRect();
+        if (!r.width || !r.height || r.bottom <= 0 || r.right <= 0 || r.top >= innerHeight || r.left >= innerWidth) continue;
+        const x = r.left + r.width / 2, y = r.top + r.height / 2, at = document.elementFromPoint(x, y);
+        out.push({ id, reachable: !!at && (at === e || e.contains(at) || !!at.closest('#viewClaude')) });
+      }
+      return { any: out.some((o) => o.reachable), pill: !document.getElementById('viewClaude').hidden, stops: out };
+    });
+    check(`${L}: a Stop is still reachable while the toast shows (the pill's whole reason)`, reach.any, JSON.stringify(reach));
     await page.evaluate(() => window.emu.session.stopClaude());
     if (replies.held) replies.held.release();
     check(`${L}: no page errors`, !errors.length, errors.join('; '));
