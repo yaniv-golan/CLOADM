@@ -117,6 +117,8 @@ check('the skill\'s tool table names no tool the server does not have', extra.le
   check('the connector essentials keep the ROM rule: the person adds ROMs in the panel, no tool reads them, never look for them yourself',
     /ROMs: they live in the panel[^\n]*No tool reads or returns them[^\n]*never look for ROMs yourself/.test(section));
   check('the connector essentials do not speak for the host (no "the person approves each call")', !/approves each call/i.test(section));
+  check('the connector essentials say what to do when the app blocks an action with no approval prompt: tell the person to set the connector to "Manually approve"; reading works either way',
+    /fails because it needs the person's approval and no prompt came, tell them to set the CLOADM connector's Permission to "Manually approve"[^\n]*Reading tools work either way/.test(section));
 }
 
 // ---------------- what it says about the server is so, and its recipe works ----------------

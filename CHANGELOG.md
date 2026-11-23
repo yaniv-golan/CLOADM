@@ -10,6 +10,14 @@ Next version: 0.1.9-pre (the plugin and extension manifests carry it; `tests/plu
 
 ### Added
 
+- **Side panel on the Claude iOS app: "Manually approve".** With the CLOADM connector's Permission on its default
+  setting, the iOS app blocks the panel's tools that are not read-only (type_text and the rest) without showing a
+  prompt. The panel's **Details**, the side-panel guide (`docs/mcp.md`) and the phone check in
+  `docs/deploy-connector.md` now say to set the connector to **Manually approve**; the connector's instructions (the
+  skill's connector essentials, so the Worker's instructions hash changes) tell Claude to say the same when a call
+  fails for want of an approval that never came. The view cannot warn by itself: a call the app blocks never reaches
+  it, the app's tool-input and tool-result notifications carry no call id, and nothing tells the view about a
+  call the app blocked.
 - **The machine menu says what each machine is.** With no ROMs stored at all, one line at the top, "No ROMs yet:
   every machine needs its own ROMs for BASIC.", replaces the 17 "needs ROMs" tags; the ✓ / needs ROMs tags come back
   once any ROMs are stored. Each section has a subtitle (DRAGON "Dragon Data's machines and their Spanish and US
