@@ -406,6 +406,34 @@ for (const id of ['dragon64', 'coco3', 'mc10']) {
   released('full screen, runAssembled', (s) => s.runAssembled(LOOP), (m) => m.ram[0x3900] !== 0);
   released('full screen, a load with ROMs (no reset)', (s) => s.load('loop.bin', Emu.toBinary(LOOP, { format: 'dragondos' }), { remember: false }), (m) => m.ram[0x3900] !== 0, true);
   released('full screen, runAssembled with ROMs (no reset)', (s) => s.runAssembled(LOOP), (m) => m.ram[0x3900] !== 0, true);
+  // a Reset of the screen restarts the chat machine on screen, not the frozen BASIC session: its stop is kept, it stays
+  // frozen, and the side panel presents the stop
+  {
+    const { s, basic } = frozen();
+    const chatM = s.shownMachine, chatReset = chatM.resetAt, before = basic.cpu.totalCycles;
+    s.reset();
+    s.runFrames(3);
+    const kept = s.pendingStop && s.pendingStop.machine === basic && basic.cpu.totalCycles === before;
+    s.toSidePanel();
+    const r = s.debugger && s.debugger.stopReason;
+    check('full screen, a Reset of the screen (the chat machine): the BASIC session\'s stop is kept, it stays frozen, and the side panel presents it',
+      chatReset !== chatM.resetAt && kept && s.paused && r && r.kind === 'write' && r.value === 12,
+      JSON.stringify({ chatReset: chatM.resetAt !== chatReset, kept, paused: s.paused, reason: r }));
+  }
+  // a program the machine asked for itself (the welcome menu's choice, started under the ticket taken when it asked:
+  // asMachine) is started with Claude's exemption, which returns from stopClaudeFor early: it still releases the stop
+  {
+    const { s, basic } = frozen(true);
+    s.claudeActing = true; s.chat.busy = true;            // Claude acting, as when the menu's keys were Claude's
+    const ticket = s.machineTicket();
+    if (!ticket.claude) throw new Error('the ticket does not hold: this would not reach the exemption');
+    s.asMachine(() => s.runAssembled(LOOP), ticket);
+    s.claudeActing = null; s.chat.busy = false;
+    const c0 = basic.cpu.totalCycles;
+    s.runFrames(3);
+    check('full screen, a program started under a menu ticket that holds (stopClaudeFor returns early): the write stop is still released',
+      !s.pendingStop && basic.cpu.totalCycles > c0 && basic.ram[0x3900] !== 0, JSON.stringify({ pending: !!s.pendingStop }));
+  }
   {
     const { s } = frozen();
     s.switchMachine('coco', {}, { menu: false });
