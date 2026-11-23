@@ -460,6 +460,9 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   the page started the menu a moment later, and on a slow runner its tune (square waves on the DAC, steps of 0.49)
   reached the stream the check measures and read as a pop "after busy page". The switches now leave the menu off, the
   check reads a second more of sound after the last step on every run, and it fails if a welcome program ran.
+- **A steadier disk-mount browser check.** "The program ran on through the mount" required the test program's
+  16-bit idle count to be higher after the mount than before, but the count wraps every 1.9 s, so a slow mount read
+  as a stopped program. The check now requires that the count moved.
 - **`pushTape` is tested from a deep queue** (`tests/audio.test.js`): DRAINING back to NONE, a push dropped past
   `MAX_MS`, and the queue settling near `TARGET_MS`.
 - **A file dropped while the Claude chat is full screen goes to your BASIC session, not the chat.** The chat runs

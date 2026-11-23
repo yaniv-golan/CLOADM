@@ -159,8 +159,11 @@ async function bareDiskChecks(page, check, { dos }) {
     await waitFor(page, () => /0 · level\.vdk/.test(document.querySelector('#drives [data-drive="0"]').textContent)
       && document.getElementById('btnCart').textContent === 'Dragon disk controller · no disk ROM' && document.getElementById('btnCartOut').checkVisibility()),
     await text('btnCart'));
-  check('disks: the program ran on through the mount (no reset)', await page.evaluate(() => window.emu.machine.frameCount) > before.frame && await tick() > before.tick
-    && await page.evaluate((a) => window.emu.machine.ram[a] === 1, ADDR.DONE));
+  // TICK is the idle loop's 16-bit count (26 cycles a pass), so it wraps every 96 frames (1.9 s): a mount that takes
+  // longer on a slow runner can leave it BELOW where it was. That it moved at all is what shows the program ran on.
+  const after = { frame: await page.evaluate(() => window.emu.machine.frameCount), tick: await tick(), done: await page.evaluate((a) => window.emu.machine.ram[a], ADDR.DONE) };
+  check('disks: the program ran on through the mount (no reset)', after.frame > before.frame && ((after.tick - before.tick) & 0xFFFF) !== 0 && after.done === 1,
+    JSON.stringify({ before, after }));
   await page.evaluate((a) => { window.emu.machine.ram[a] = 1; }, ADDR.TRIG);
   check('disks: its next read finds the disk: READ OK and the sector\'s first bytes', await waitFor(page, (h) => window.emu.session.screenText()[0].startsWith(`READ OK ${h}`), T0S1_HEX), await top());
   if (shotDir) await page.screenshot({ path: path.join(shotDir, 'drives-bare-read.png') });
