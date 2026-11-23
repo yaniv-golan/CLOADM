@@ -187,6 +187,15 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   them, with a `note`, as the VDG's semigraphics blocks are counted. `docs/mcp.md`, `docs/claude.md`, the skill and a
   new eval (`coco3-hidden-screen`) say so; `tests/screen-text-readers.test.js` checks both readers on firmware of our
   own against the rendered frame.
+- **The media library has its own module.** Listing, opening, downloading, renaming, deleting and importing what
+  the person keeps, the recent list, the creations of disk names (one at a time, with the names they claim), the
+  store's rule for upper and lower case, and moving the library to another store move from the Session into
+  `session.library` (`js/library.js`, `Emu.MediaLibrary`), under the same names: `session.importMedia` is now
+  `session.library.importMedia`, `session.sameName` is `session.library.sameName`, and so on, with the library's
+  bookkeeping (`movingMedia`, `diskClaims`, ...) moving with them. The store handle (`session.media`), the media index
+  and the ROM library stay the Session's; `DISK_PREFIX`, `DW_PREFIX` and `MEDIA_MOVE_WAIT_MS` are exported from the
+  new module. No behaviour change; the disks a machine writes, the library, the recent list, the slots, the settings
+  export, snapshots and a move are byte-identical to before (`tests/session-library.test.js`, with fixtures).
 - **Claude's consent state has its own module.** The switch, the cards, "Don't ask again this session" and the
   pause's state move from six `claude*` fields on the Session into `Session.consent` (`js/claude/consent.js`), with
   its decisions as methods (`decide`, `recheck`, `setAllowed`, `answer`, `pause` / `resume` / `endPause`, `wait`);
@@ -542,7 +551,7 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   (`Session.menuTicketFor`): a machine question takes none, a `BYE` takes the `BYE`'s, and a returning visit takes
   none.
 - **A Recent row is found by the session's own name rule, and its "gone from the list" error is a `SessionError`.**
-  The row was matched with `===` where the rest of the app compares names with `Session.sameName` (the store's own
+  The row was matched with `===` where the rest of the app compares names with `session.library.sameName` (the store's own
   case rule), so on a store that does not tell cases apart a row drawn as `GAME.BIN` could not find `game.bin`. The
   error was a plain `Error`; it is now `SessionError`, so a caller can tell it from a fault (the page already showed
   it on the drawer's message line either way).
@@ -740,7 +749,7 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   still says where, and a name with a space or a file dropped under a path (`dir/work.vdk`, Windows separators) is
   named once by its own file name - and a library file dropped under a path reports the name the Library lists
   (`dir/prog.bin`, not just the leaf). The page's background-write notice takes its wording from the Session too
-  (`Session.indexWriteError`), so a failed ROM write is named once. One rule for the library import, a new blank
+  (`session.library.indexWriteError`), so a failed ROM write is named once. One rule for the library import, a new blank
   disk, a mount and the DriveWire box. The quota and not-found messages already wrote their own sentence and are
   unchanged. `tests/store-error-names.test.js`.
 

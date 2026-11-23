@@ -37,7 +37,7 @@ const fresh = ({ media = new MemoryMediaStore(), store = Emu.memoryStore() } = {
   const s = fresh();
   s.load('a.bin', prog('AA', 2));
   s.load('b.bin', prog('BB', 3));
-  const rows = drawer.recentRows(s.recentMedia(), 'dragon64');
+  const rows = drawer.recentRows(s.library.recentMedia(), 'dragon64');
   drawer.loadRow(s, rows.find((x) => x.r.name === 'b.bin'));
   check('recent click: a click loads the row\'s own file', s.shownMachine.ram[0x3000] === 0xBB, `$${s.shownMachine.ram[0x3000].toString(16)}`);
 }
@@ -48,7 +48,7 @@ const fresh = ({ media = new MemoryMediaStore(), store = Emu.memoryStore() } = {
   const s = fresh();
   s.load('a.bin', prog('AA', 2));
   s.load('b.bin', prog('BB', 3));
-  const rows = drawer.recentRows(s.recentMedia(), 'dragon64');   // drawn now: b.bin at index 0, a.bin at 1
+  const rows = drawer.recentRows(s.library.recentMedia(), 'dragon64');   // drawn now: b.bin at index 0, a.bin at 1
   s.load('c.bin', prog('CC', 4));                                // the list shifts: c.bin 0, b.bin 1, a.bin 2
   const aRow = rows.find((x) => x.r.name === 'a.bin');
   drawer.loadRow(s, aRow);
@@ -61,7 +61,7 @@ const fresh = ({ media = new MemoryMediaStore(), store = Emu.memoryStore() } = {
   const s = fresh();
   s.load('a.bin', prog('AA', 2));
   s.load('keep.bin', prog('99', 2));
-  const rows = drawer.recentRows(s.recentMedia(), 'dragon64');
+  const rows = drawer.recentRows(s.library.recentMedia(), 'dragon64');
   const oldA = rows.find((x) => x.r.name === 'a.bin');
   s.load('a.bin', prog('EE', 5));                                // the same name, new bytes: a different entry
   // the row named the OLD a.bin: it is still in the list (as the "2nd" copy), so the click must load ITS bytes
@@ -73,7 +73,7 @@ const fresh = ({ media = new MemoryMediaStore(), store = Emu.memoryStore() } = {
 {
   const s = fresh();
   s.load('old.bin', prog('AA', 2));
-  const rows = drawer.recentRows(s.recentMedia(), 'dragon64');
+  const rows = drawer.recentRows(s.library.recentMedia(), 'dragon64');
   for (let i = 1; i <= 5; i++) s.load(`n${i}.bin`, prog(30 + i, 3));   // evicts old.bin
   let msg = null;
   try { drawer.loadRow(s, rows[0]); } catch (e) { msg = e.message; }
@@ -86,23 +86,23 @@ const fresh = ({ media = new MemoryMediaStore(), store = Emu.memoryStore() } = {
   check('recent click: "gone from the list" is a SessionError (the drawer reports it, the console does not)', err instanceof Emu.SessionError, err && err.constructor.name);
 }
 
-// 5. the row's name is compared by the SESSION's rule (Session.sameName: the store's own case rule), not by ===.
+// 5. the row's name is compared by the SESSION's rule (MediaLibrary.sameName: the store's own case rule), not by ===.
 // A store that does not tell cases apart has one entry for "GAME.DSK" and "game.dsk"; a row drawn from one spelling
 // must find the entry -- the same way every guard in the Session compares names.
 {
   const ci = fresh({ media: new MemoryMediaStore({ caseInsensitive: true }) });   // a case-folding store, as APFS is
   ci.load('GAME.BIN', prog('AA', 2), { remember: true });
-  const rows = drawer.recentRows(ci.recentMedia(), 'dragon64');
+  const rows = drawer.recentRows(ci.library.recentMedia(), 'dragon64');
   const row = rows.find((x) => x.r.name === 'GAME.BIN');
   const other = { r: Object.assign({}, row.r, { name: 'game.bin' }), i: row.i };   // the same entry, other spelling
   let loaded = null;
   try { drawer.loadRow(ci, other); loaded = ci.personMachine.ram[0x3000]; } catch (e) { loaded = e.message; }
-  check('recent click: a row found under another spelling of its name loads (names by Session.sameName, not ===)',
+  check('recent click: a row found under another spelling of its name loads (names by MediaLibrary.sameName, not ===)',
     loaded === 0xAA, String(loaded));
   // the control: a case-SENSITIVE store (two names), the same row is not the same file, and says so
   const cs = fresh();
   cs.load('GAME.BIN', prog('AA', 2), { remember: true });
-  const csRow = drawer.recentRows(cs.recentMedia(), 'dragon64').find((x) => x.r.name === 'GAME.BIN');
+  const csRow = drawer.recentRows(cs.library.recentMedia(), 'dragon64').find((x) => x.r.name === 'GAME.BIN');
   let msg = null;
   try { drawer.loadRow(cs, { r: Object.assign({}, csRow.r, { name: 'game.bin' }), i: csRow.i }); } catch (e) { msg = e.message; }
   check('recent click: on a case-sensitive store the two spellings are two names, so the stale row says it is gone',

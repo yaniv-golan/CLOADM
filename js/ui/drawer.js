@@ -18,16 +18,16 @@ export const recentRows = (all, machine) => all.map((r, i) => ({ r, i })).filter
 // that has gone from the list: the row is then stale, and loadRecent(index) reports it, rather than silently
 // loading whatever moved into that slot.
 export const loadRow = (session, row) => {
-  const now = session.recentMedia();
-  // the name by the SESSION's rule (Session.sameName, the store's own case rule), never by ===: on a store that
+  const now = session.library.recentMedia();
+  // the name by the SESSION's rule (MediaLibrary.sameName, the store's own case rule), never by ===: on a store that
   // does not tell cases apart, "GAME.DSK" and "game.dsk" are one name everywhere else in the app, and a row drawn
   // from one spelling must find the entry under the other.
-  const at = now.findIndex((r) => session.sameName(r.name, row.r.name) && r.crc === row.r.crc && r.machine === row.r.machine);
+  const at = now.findIndex((r) => session.library.sameName(r.name, row.r.name) && r.crc === row.r.crc && r.machine === row.r.machine);
   // not found: the row was evicted (or its entry replaced) while the drawer was open. Loading by the row's old
   // index would load whatever moved into that slot -- a different file under the same click. Say it is gone, as a
   // SessionError: the drawer reports it on its own message line, where a plain Error would go to console.error.
   if (at < 0) throw new SessionError('That file is no longer in the recent list; open it again.');
-  return session.loadRecent(at);
+  return session.library.loadRecent(at);
 };
 
 export function setupDrawer(page, { showRoms }) {
@@ -53,7 +53,7 @@ export function setupDrawer(page, { showRoms }) {
   // Media: what was loaded on this machine before
   function recent() {
     const list = $('recentList');
-    const items = recentRows(session.recentMedia(), session.personMachine.id);
+    const items = recentRows(session.library.recentMedia(), session.personMachine.id);
     list.replaceChildren();
     // empty: hidden while "Last time" shows above it (the CSS), as the two would contradict each other
     for (const el of [list, $('recentHead')]) el.classList.toggle('recent-empty', !items.length);

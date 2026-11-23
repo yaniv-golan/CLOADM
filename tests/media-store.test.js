@@ -130,7 +130,7 @@ const bytes = (n, seed = 0) => { const b = new Uint8Array(n); let x = seed >>> 0
     s.switchMachine('coco');
     let err = null, msg = null;
     try { msg = s.load('big.bin', new Uint8Array(1000).fill(0x12), { askAddresses: () => ({ load: 0x3000, exec: 0x3000 }) }); } catch (e) { err = e; }
-    const r = s.recentMedia()[0];
+    const r = s.library.recentMedia()[0];
     check('a full store: the program still loads', !err && /raw/.test(msg || ''), err ? err.message : msg);
     check('...and the recent list says it is not stored', r && r.name === 'big.bin' && r.stored === false, JSON.stringify(r));
   }
@@ -143,7 +143,7 @@ const bytes = (n, seed = 0) => { const b = new Uint8Array(n); let x = seed >>> 0
     const seen = [];
     s.index.writeError = (name) => seen.push(name);
     const fresh = new store.MemoryMediaStore({ quotaBytes: 10 });
-    s.useMediaStore(fresh);
+    s.library.useMediaStore(fresh);
     check('useMediaStore: the Session, its media index and the ROM library use the new store', s.media === fresh && s.index.store === fresh && s.roms.index === s.index);
     check('...the write-error listener carries over', s.index.writeError !== undefined && s.index.writeError !== null);
     s.index.writeError('x', new Error('y'));
@@ -196,27 +196,27 @@ const bytes = (n, seed = 0) => { const b = new Uint8Array(n); let x = seed >>> 0
     const media = new store.MemoryMediaStore();
     const s = new Emu.Session({ store: Emu.memoryStore(), media });
     s.switchMachine('coco');
-    const r = await s.importMedia('programs/game.bin', new Uint8Array(64).fill(7));
-    check('importMedia stores a program under the library prefix', r.stored && r.stored.size === 64 && (await s.listMedia()).some((f) => f.name === 'library/programs/game.bin'), JSON.stringify(await s.listMedia()));
-    check('openMedia reads it back', eq(await s.openMedia('programs/game.bin'), new Uint8Array(64).fill(7)));
-    check('downloadMedia gives a file name and its bytes', (await s.downloadMedia('programs/game.bin')).name === 'game.bin');
-    await s.renameMedia('programs/game.bin', 'programs/better.bin');
-    check('renameMedia renames it', (await s.listMedia()).map((f) => f.name).join() === 'library/programs/better.bin');
+    const r = await s.library.importMedia('programs/game.bin', new Uint8Array(64).fill(7));
+    check('importMedia stores a program under the library prefix', r.stored && r.stored.size === 64 && (await s.library.listMedia()).some((f) => f.name === 'library/programs/game.bin'), JSON.stringify(await s.library.listMedia()));
+    check('openMedia reads it back', eq(await s.library.openMedia('programs/game.bin'), new Uint8Array(64).fill(7)));
+    check('downloadMedia gives a file name and its bytes', (await s.library.downloadMedia('programs/game.bin')).name === 'game.bin');
+    await s.library.renameMedia('programs/game.bin', 'programs/better.bin');
+    check('renameMedia renames it', (await s.library.listMedia()).map((f) => f.name).join() === 'library/programs/better.bin');
     check('renameMedia onto a taken name is a clear error', await (async () => {
-      await s.importMedia('other.bin', new Uint8Array(4));
-      try { await s.renameMedia('programs/better.bin', 'other.bin'); return false; }
+      await s.library.importMedia('other.bin', new Uint8Array(4));
+      try { await s.library.renameMedia('programs/better.bin', 'other.bin'); return false; }
       catch (e) { return e instanceof Emu.SessionError && /already|storage/i.test(e.message); }
     })());
-    check('deleteMedia removes it', (await s.deleteMedia('programs/better.bin')) === true && !(await s.listMedia()).some((f) => f.name === 'programs/better.bin'));
-    check('openMedia of a deleted name is a clear error', await (async () => { try { await s.openMedia('programs/better.bin'); return false; } catch (e) { return e instanceof Emu.SessionError && /no longer stored/.test(e.message); } })());
+    check('deleteMedia removes it', (await s.library.deleteMedia('programs/better.bin')) === true && !(await s.library.listMedia()).some((f) => f.name === 'programs/better.bin'));
+    check('openMedia of a deleted name is a clear error', await (async () => { try { await s.library.openMedia('programs/better.bin'); return false; } catch (e) { return e instanceof Emu.SessionError && /no longer stored/.test(e.message); } })());
     // a ROM image dropped through the same door goes through identification, not the blob store
-    const rom = await s.importMedia('bas12.rom', new Uint8Array(8192).fill(3));
+    const rom = await s.library.importMedia('bas12.rom', new Uint8Array(8192).fill(3));
     check('importMedia identifies a ROM image and sets up its socket', !!rom.roms && s.machineRoms('coco').sockets.find((x) => x.id === 'bas').status !== 'missing-required');
-    check('a ROM imported this way is not also listed as user media', !(await s.listMedia()).some((f) => /bas12/.test(f.name)));
+    check('a ROM imported this way is not also listed as user media', !(await s.library.listMedia()).some((f) => /bas12/.test(f.name)));
     // a full store refuses the write with a message the user can act on
     const tiny = new Emu.Session({ store: Emu.memoryStore(), media: new store.MemoryMediaStore({ quotaBytes: 100 }) });
     let quotaMsg = '';
-    try { await tiny.importMedia('big.bin', new Uint8Array(500)); } catch (e) { quotaMsg = e.message; }
+    try { await tiny.library.importMedia('big.bin', new Uint8Array(500)); } catch (e) { quotaMsg = e.message; }
     check('a full store is reported, not thrown raw', /No space left/.test(quotaMsg), quotaMsg);
   }
 
@@ -429,23 +429,23 @@ const bytes = (n, seed = 0) => { const b = new Uint8Array(n); let x = seed >>> 0
     await s.index.flush();
     const internal = (await media.list()).map((f) => f.name).filter((n) => !n.startsWith('library/'));
     check('setup: the index has its own blobs (roms/, recent/, meta/)', internal.some((n) => n.startsWith('roms/')) && internal.some((n) => n.startsWith('recent/')), internal.join(','));
-    check('listMedia shows only user media, never the index blobs', (await s.listMedia()).length === 0, JSON.stringify(await s.listMedia()));
+    check('listMedia shows only user media, never the index blobs', (await s.library.listMedia()).length === 0, JSON.stringify(await s.library.listMedia()));
 
     // import over an index name is impossible: it lands under library/ instead
-    await s.importMedia('roms/sockets.json', new Uint8Array([0xDE, 0xAD]));
+    await s.library.importMedia('roms/sockets.json', new Uint8Array([0xDE, 0xAD]));
     const socketsBlob = JSON.parse(Buffer.from(await media.read('roms/sockets.json')).toString());
     check('importMedia cannot overwrite the socket map', socketsBlob.coco && socketsBlob.coco.bas, JSON.stringify(socketsBlob));
-    check('importMedia of an index-looking name is stored under library/', (await s.listMedia()).some((f) => f.name === 'library/roms/sockets.json'));
+    check('importMedia of an index-looking name is stored under library/', (await s.library.listMedia()).some((f) => f.name === 'library/roms/sockets.json'));
 
     // deleteMedia and renameMedia target library/ names, so an index name cannot be hit
     check('renameMedia of an index-looking name renames the library copy only',
-      (await s.renameMedia('roms/sockets.json', 'mine.json')).name === 'library/mine.json' && (await media.stat('roms/sockets.json')) !== null);
-    await s.importMedia('roms/sockets.json', new Uint8Array([0xBE, 0xEF]));
+      (await s.library.renameMedia('roms/sockets.json', 'mine.json')).name === 'library/mine.json' && (await media.stat('roms/sockets.json')) !== null);
+    await s.library.importMedia('roms/sockets.json', new Uint8Array([0xBE, 0xEF]));
     check('deleteMedia of an index-looking name removes the library copy, not the index blob',
-      (await s.deleteMedia('roms/sockets.json')) === true && (await media.stat('roms/sockets.json')) !== null);
+      (await s.library.deleteMedia('roms/sockets.json')) === true && (await media.stat('roms/sockets.json')) !== null);
     // a ".." name cannot climb out of the prefix
     let traversal = '';
-    try { await s.importMedia('../roms/sockets.json', new Uint8Array([1])); } catch (e) { traversal = e.message; }
+    try { await s.library.importMedia('../roms/sockets.json', new Uint8Array([1])); } catch (e) { traversal = e.message; }
     check('a name with .. cannot escape the library prefix', /not a media library name/.test(traversal), traversal);
     // the socket map is still what the index holds in memory, and the machine still boots from it
     check('the in-memory index was never stale or corrupted', s.machineRoms('coco').sockets.find((x) => x.id === 'bas').crc === socketsBlob.coco.bas);

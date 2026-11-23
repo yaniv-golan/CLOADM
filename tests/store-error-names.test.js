@@ -91,7 +91,7 @@ const same = (a, b) => !!a && !!b && a.length === b.length && a.every((v, i) => 
     const s2 = await mk(); s2.media.failOn = 'disks/work.vdk';
     const s3 = await mk(); s3.media.failOn = 'disks/blank.vdk'; s3.media.err = PATH_FIRST('disks/blank.vdk', why);
     const m1 = (await q(s1.importDisk('work.vdk', A(), 0))).m;
-    const m2 = (await q(s2.importMedia('work.vdk', A()))).m;
+    const m2 = (await q(s2.library.importMedia('work.vdk', A()))).m;
     const m3 = (await q(s3.newDisk(0, { format: 'vdk', tracks: 40, heads: 1 }, { name: 'blank.vdk' }))).m;
     check('importDisk, importMedia and newDisk all report the same refused write the same way',
       m1 === `work.vdk: ${why}` && m2 === m1 && m3 === `blank.vdk: ${why}`, `${m1} | ${m2} | ${m3}`);
@@ -99,14 +99,14 @@ const same = (a, b) => !!a && !!b && a.length === b.length && a.every((v, i) => 
     // store's message leads with the STORED name, and the file must still be named once, as its own file name
     for (const given of ['dir/work.vdk', 'C:\\dir\\work.vdk']) {
       const sm = await mk(); sm.media.failOn = 'disks/work.vdk';
-      const got = (await q(sm.importMedia(given, A()))).m;
+      const got = (await q(sm.library.importMedia(given, A()))).m;
       check(`importMedia given as ${JSON.stringify(given)} is named once, by its file name`, got === `work.vdk: ${why}`, got);
     }
     // (3) a NON-disk file given as a path is stored as library/dir/prog.bin, so a failure reports the name the
     // Library shows -- "dir/prog.bin" -- not just the leaf, which would not match anything on screen
     {
       const sm = await mk(); sm.media.failOn = 'library/dir/prog.bin'; sm.media.err = PATH_FIRST('library/dir/prog.bin', why);
-      const got = (await q(sm.importMedia('dir/prog.bin', new Uint8Array(4)))).m;
+      const got = (await q(sm.library.importMedia('dir/prog.bin', new Uint8Array(4)))).m;
       check('a failed library import given as a path reports the library-relative name', got === `dir/prog.bin: ${why}`, got);
     }
   }
@@ -126,7 +126,7 @@ const same = (a, b) => !!a && !!b && a.length === b.length && a.every((v, i) => 
     const s3 = await session(m3);
     await m3.writeSync('disks/a.vdk', A());
     m3.rename = async (from, to) => { throw PATH_FIRST(to, why); };
-    const rn = await q(s3.renameMedia('disks/a.vdk', 'disks/b.vdk'));   // a valid new name, refused by the store
+    const rn = await q(s3.library.renameMedia('disks/a.vdk', 'disks/b.vdk'));   // a valid new name, refused by the store
     check('a rename refused at its destination keeps the destination path',
       !rn.ok && rn.m === `disks/a.vdk: disks/b.vdk: ${why}`, rn.m);
   }
@@ -135,39 +135,39 @@ const same = (a, b) => !!a && !!b && a.length === b.length && a.every((v, i) => 
   {
     const s = await session(new MemoryMediaStore());
     check('not-found: the session\'s own sentence, the name once',
-      s.mediaError(new MediaStoreError('not-found', 'disks/work.vdk is not in this store'), 'work.vdk').message
+      s.library.mediaError(new MediaStoreError('not-found', 'disks/work.vdk is not in this store'), 'work.vdk').message
         === 'work.vdk is no longer stored in this browser; load it again.');
     // the page's backends word quota with the path in it ("No space left for disks/UTILS.DSK"), the in-memory one
     // without; either way the session says the disk once, and says what to do
     for (const msg of ['No space left for disks/UTILS.DSK', 'No space left in this store (1024 bytes)', 'No space left for UTILS.DSK']) {
-      const got = s.mediaError(new MediaStoreError('quota', msg), 'UTILS.DSK').message;
+      const got = s.library.mediaError(new MediaStoreError('quota', msg), 'UTILS.DSK').message;
       check(`quota ("${msg}"): the disk is named once and nothing else`, got === "No space left in this browser's storage for UTILS.DSK. Delete something, or save your media as files.", got);
     }
     // a session message is handed on untouched, whatever name the caller passed
     const own = new Emu.SessionError('There is already a disk named work.vdk in your library: choose another name.');
-    check('a SessionError passes through unchanged', s.mediaError(own, 'work.vdk') === own);
+    check('a SessionError passes through unchanged', s.library.mediaError(own, 'work.vdk') === own);
     // a name given with its prefix is the name the user typed; it is named once like any other
     check('a caller\'s prefixed name is reported once',
-      s.mediaError(PATH_FIRST('disks/UTILS.DSK', 'permission was refused'), 'disks/UTILS.DSK', 'disks/UTILS.DSK').message === 'disks/UTILS.DSK: permission was refused');
+      s.library.mediaError(PATH_FIRST('disks/UTILS.DSK', 'permission was refused'), 'disks/UTILS.DSK', 'disks/UTILS.DSK').message === 'disks/UTILS.DSK: permission was refused');
     // a name with a space in it: the stored path leads, so it must be stripped -- a rule that only matched a
     // no-space prefix would leave the file named twice here
     check('a name with a space is named once',
-      s.mediaError(PATH_FIRST('disks/My Disk.vdk', 'permission was refused'), 'My Disk.vdk', 'disks/My Disk.vdk').message === 'My Disk.vdk: permission was refused');
+      s.library.mediaError(PATH_FIRST('disks/My Disk.vdk', 'permission was refused'), 'My Disk.vdk', 'disks/My Disk.vdk').message === 'My Disk.vdk: permission was refused');
     // a DIFFERENT file's path must not be stripped: the reader has to see where it failed
     check('a reason naming a different file keeps its path (where it failed is not lost)',
-      s.mediaError(PATH_FIRST('disks/sub/a.vdk', 'permission was refused'), 'a.vdk', 'disks/a.vdk').message === 'a.vdk: disks/sub/a.vdk: permission was refused');
+      s.library.mediaError(PATH_FIRST('disks/sub/a.vdk', 'permission was refused'), 'a.vdk', 'disks/a.vdk').message === 'a.vdk: disks/sub/a.vdk: permission was refused');
     // nor may a name that merely ENDS with this one be taken for it (under a rule that matches "/"+name, xa.vdk
     // would be stripped for a.vdk and the reader would read "a.vdk: no")
     check('a reason led by a name this one is only a suffix of is kept whole',
-      s.mediaError(PATH_FIRST('disks/xa.vdk', 'no'), 'a.vdk', 'disks/a.vdk').message === 'a.vdk: disks/xa.vdk: no');
+      s.library.mediaError(PATH_FIRST('disks/xa.vdk', 'no'), 'a.vdk', 'disks/a.vdk').message === 'a.vdk: disks/xa.vdk: no');
     // (2) the page's background-write listener (js/ui/main.js) reports a failed index write. It used to call
     // mediaError without the stored name, so a ROM image's path was repeated. The rule lives on the Session now
     // (indexWriteError), where the page's one-line listener takes it from and this test pins it.
     check('a background index write failure names the ROM once',
-      s.indexWriteError('roms/1234abcd.rom', PATH_FIRST('roms/1234abcd.rom', 'permission was refused')) === 'roms/1234abcd.rom: permission was refused',
-      s.indexWriteError('roms/1234abcd.rom', PATH_FIRST('roms/1234abcd.rom', 'permission was refused')));
+      s.library.indexWriteError('roms/1234abcd.rom', PATH_FIRST('roms/1234abcd.rom', 'permission was refused')) === 'roms/1234abcd.rom: permission was refused',
+      s.library.indexWriteError('roms/1234abcd.rom', PATH_FIRST('roms/1234abcd.rom', 'permission was refused')));
     check('... and a failure whose reason names nothing is still named and explained',
-      s.indexWriteError('roms/sockets.json', new MediaStoreError('quota', 'no space')) === "No space left in this browser's storage for roms/sockets.json. Delete something, or save your media as files.");
+      s.library.indexWriteError('roms/sockets.json', new MediaStoreError('quota', 'no space')) === "No space left in this browser's storage for roms/sockets.json. Delete something, or save your media as files.");
   }
 
   // ---------------- a disk name must have something after the prefix ----------------
@@ -183,12 +183,12 @@ const same = (a, b) => !!a && !!b && a.length === b.length && a.every((v, i) => 
       check(`importDisk ${JSON.stringify(given)}: refused as a name with nothing after the prefix`,
         !r.ok && r.m === 'A disk image needs a name.', r.m);
     }
-    const im = await q(s.importMedia('disks/', A()));
+    const im = await q(s.library.importMedia('disks/', A()));
     check('importMedia "disks/": refused the same way', !im.ok && im.m === 'A disk image needs a name.', im.m);
     // a file that is NOT a disk image, dropped with a path that ends in a separator: refused as a file, not as a disk
     // (what it is comes from its bytes; on main it was stored under a name that was only a prefix)
     const prog = new Uint8Array(64).fill(7);
-    const imf = await q(s.importMedia('programs/', prog));
+    const imf = await q(s.library.importMedia('programs/', prog));
     check('importMedia "programs/" of a program: refused as a file that needs a name',
       !imf.ok && imf.m === 'A file needs a name.', imf.m);
     check('... and nothing was stored under a prefix-only name',
@@ -225,7 +225,7 @@ const same = (a, b) => !!a && !!b && a.length === b.length && a.every((v, i) => 
     check('newDisk "disks/ ": refused as a name', !nd.ok && nd.m === 'A disk image needs a name.', nd.m || 'accepted');
     const mt = await q(s.mountDisk(0, 'disks/..'));
     check('mountDisk "disks/..": refused as a name', !mt.ok && mt.m === 'A disk image needs a name.', mt.m || 'accepted');
-    const im = await q(s.importMedia('x/..', B()));
+    const im = await q(s.library.importMedia('x/..', B()));
     check('importMedia "x/..": refused as a name', !im.ok && im.m === 'A disk image needs a name.', im.m || 'accepted');
     check('nothing was written by any of them', (await media.list()).length === 0, JSON.stringify((await media.list()).map((e) => e.name)));
     // (1) SURROUNDING SPACES ARE PART OF A FILE'S NAME. Round 2 refused them everywhere and stranded every disk a
@@ -243,7 +243,7 @@ const same = (a, b) => !!a && !!b && a.length === b.length && a.every((v, i) => 
       check('... and one stored as "b.vdk " mounts too', mnt2.ok && same(await read(m2, 'disks/b.vdk '), B()), mnt2.m || 'refused');
       const im = await q(s2.importDisk('c.vdk ', B(), 1));
       check('... and a disk may be imported under a name with a trailing space', im.ok && im.m === 'c.vdk  in drive 1', im.m || 'refused');
-      const pm = await q(s2.importMedia(' prog.bin', new Uint8Array(4)));
+      const pm = await q(s2.library.importMedia(' prog.bin', new Uint8Array(4)));
       check('... and a library file under a name with a leading space', pm.ok, pm.m || 'refused');
     }
     // a leading dot is a file name, not a segment: it stays allowed
@@ -260,7 +260,7 @@ const same = (a, b) => !!a && !!b && a.length === b.length && a.every((v, i) => 
       const media = new MemoryMediaStore();          // fresh each time: the first must not disturb the second
       await media.writeSync('disks/r.vdk', A());
       const s = await session(media);
-      const r = await q(s.renameMedia('disks/r.vdk', to));
+      const r = await q(s.library.renameMedia('disks/r.vdk', to));
       // refused for a REASON, not with the generic "needs a name" (which would misdescribe 'sub/x.vdk')
       check(`a disk rename to ${JSON.stringify(to)} is refused, saying what is wrong`,
         !r.ok && why.test(r.m) && !/needs a name\.?$/.test(r.m), r.m || 'allowed');
@@ -271,7 +271,7 @@ const same = (a, b) => !!a && !!b && a.length === b.length && a.every((v, i) => 
     const media = new MemoryMediaStore();
     await media.writeSync('library/prog.bin', new Uint8Array(4));
     const s = await session(media);
-    const lib = await q(s.renameMedia('prog.bin', 'sub/prog2.bin'));
+    const lib = await q(s.library.renameMedia('prog.bin', 'sub/prog2.bin'));
     check('... a library rename keeps its folders (the disk rule does not reach it)', lib.ok, lib.m || 'refused');
   }
 

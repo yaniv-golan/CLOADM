@@ -26,7 +26,7 @@ const { check, rejects, failures } = checker();
     check('diskStatus: two drives with their names, sizes, not write-protected, linked to the store', st.drives.length === 2 && st.drives[0].file === 'work.vdk' && st.drives[1].file === 'other.vdk'
       && st.drives[0].size === d0.length && !st.drives[0].writeProtected && st.drives.every((d) => d.stored), JSON.stringify(st.drives));
     check("'disks' events for the cartridge and both mounts", events >= 2, String(events));
-    const recentBefore = JSON.stringify(s.recentMedia());
+    const recentBefore = JSON.stringify(s.library.recentMedia());
     media.calls.length = 0;
     check('the writer firmware reaches HALT', runToHalt(s, halt));
     const l = log(s);
@@ -44,7 +44,7 @@ const { check, rejects, failures } = checker();
     check('the store got only in-place range writes inside the written sectors, never the whole file', writes.length >= 2 && writes.every((c) => c.m === 'writeRange')
       && writes.every((c) => inSector(c, 'disks/work.vdk', sectorOffset(12, 2)) || inSector(c, 'disks/other.vdk', sectorOffset(12, 1)))
       && ['disks/work.vdk', 'disks/other.vdk'].every((n) => { const w = writes.filter((c) => c.name === n); return w.length > 0 && w.reduce((a, c) => a + c.length, 0) <= 256; }), JSON.stringify(writes));
-    check('disk images never go through the media index (recent list and index names unchanged)', JSON.stringify(s.recentMedia()) === recentBefore
+    check('disk images never go through the media index (recent list and index names unchanged)', JSON.stringify(s.library.recentMedia()) === recentBefore
       && (await media.list('recent/')).length === 0 && (await media.list('roms/')).every((f) => !/vdk/.test(f.name)));
     const dl = await s.downloadDisk(0);
     check('downloadDisk(0): the written image, named as stored', dl.name === 'work.vdk' && same(dl.bytes, w0));

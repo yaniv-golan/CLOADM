@@ -84,7 +84,7 @@ function packetLength(pkt) {
 export class DriveWireServer {
   // store: a MediaStore; clock(): a Date for TIME; namePrefix: where named objects live in the store
   // sameName(a, b): whether two stored names are one file, by the store's rule (the Session passes its own
-  // Session.sameName, which follows the store's measured case rule); exact when the server has no store rule.
+  // MediaLibrary.sameName, which follows the store's measured case rule); exact when the server has no store rule.
   constructor({ store = null, clock = () => new Date(), namePrefix = 'drivewire/', sameName = (a, b) => a === b } = {}) {
     this.store = store;
     this.sameName = sameName;

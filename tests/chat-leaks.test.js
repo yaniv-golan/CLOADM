@@ -195,14 +195,14 @@ const ROWS = [
   // the image goes into the library before the chat opens, so the boot finds it
   // (a machine switch replaces the machine and closes the conversation: documented, 'closes-chat')
   ['choose a machine (the machine menu)', () => {}, (s) => s.chooseMachine('coco3'), 'closes-chat'],
-  ['load a recent file (recent list)', () => {}, (s) => { s.load('recent.bin', BIN); return s.loadRecent(0); }, 'closes-chat-or-throws'],
+  ['load a recent file (recent list)', () => {}, (s) => { s.load('recent.bin', BIN); return s.library.loadRecent(0); }, 'closes-chat-or-throws'],
   // A real pack, from the Session's own export: it carries the stored ROMs' manifest and images, so the import
   // restores them (an empty array is not a pack, and the row used to swallow that refusal).
   ['import a ROM pack', withRoms, (s) => s.importRomPack(Emu.readZip(s.exportRomPack().bytes))],
   ['import settings', () => {}, (s) => s.importSettings('{"format":"cloadm-settings","version":1,"settings":{}}')],
   // a ROM through the Library's import goes on to addRoms (session.js:1730), which reaches the machine: the row uses
   // a ROM for exactly that reason
-  ['import media into the library (a ROM: it goes on to addRoms)', () => {}, (s) => s.importMedia('d64_1.rom', basic)],
+  ['import media into the library (a ROM: it goes on to addRoms)', () => {}, (s) => s.library.importMedia('d64_1.rom', basic)],
   ['import a disk image into the library', withDos, (s) => s.importDisk('d.vdk', Emu.blankDisk('vdk', 40, 1), 0)],
   ['mount a disk by name', withDos, async (s) => { await s.media.write('disks/m.vdk', Emu.blankDisk('vdk', 40, 1)); return s.mountDisk(0, 'disks/m.vdk'); }],
   ['open a snapshot', () => {}, async (s) => { const snap = await s.readSnapshot((await s.snapshotFile()).bytes); return s.openSnapshot(snap); }, 'closes-chat'],
@@ -511,7 +511,9 @@ function uiCalledMethods() {
       // CALLS and READS alike: a getter that means the wrong machine is the nitros9Running class of bug, and reading
       // `session.x` is how a panel uses one. The shapes the reviewer named must not slip past silently:
       // session?.x(), session['x'], and a destructured `{ x } = session`: each is an ERROR below, not a silent miss.
-      for (const m of line.matchAll(/\bsession\??\.([a-zA-Z_][a-zA-Z0-9_]*)/g)) if (!out.has(m[1])) out.set(m[1], `${f}:${i + 1}`);
+      // the media library's members (session.library.x, js/library.js) are classified by their own names, as before
+      // they moved off the Session
+      for (const m of line.matchAll(/\bsession\??\.(?:library\.)?([a-zA-Z_][a-zA-Z0-9_]*)/g)) if (!out.has(m[1])) out.set(m[1], `${f}:${i + 1}`);
       for (const m of line.matchAll(/\bsession\s*\[\s*['"]([a-zA-Z_][a-zA-Z0-9_]*)['"]\s*\]/g)) out.set(`[${m[1]}]`, `${f}:${i + 1}`);
       for (const m of line.matchAll(/\b(?:const|let|var)\s*\{([^}]*)\}\s*=\s*session\b/g)) out.set(`{${m[1].trim()}}`, `${f}:${i + 1}`);
     });
@@ -525,7 +527,7 @@ function rowMethods() {
   // do - a setup that calls a method is also coverage of it
   for (const row of ROWS) {
     for (const fn of row.filter((x) => typeof x === 'function')) {
-      for (const m of String(fn).matchAll(/\bs\.([a-zA-Z_][a-zA-Z0-9_]*)\s*\(/g)) out.add(m[1]);
+      for (const m of String(fn).matchAll(/\bs\.(?:library\.)?([a-zA-Z_][a-zA-Z0-9_]*)\s*\(/g)) out.add(m[1]);
     }
   }
   return out;

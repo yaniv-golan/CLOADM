@@ -53,6 +53,7 @@ export * from './asm/assembler.js';
 export * from './asm/symbols.js';
 export * from './asm/disassembler.js';
 export * from './session.js';
+export { MediaLibrary, DISK_PREFIX, DW_PREFIX, MEDIA_MOVE_WAIT_MS } from './library.js';
 export * from './claude/backend.js';
 export * from './claude/brief.js';
 export * from './claude/channel.js';

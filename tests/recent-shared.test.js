@@ -29,16 +29,16 @@ const blobs = (media) => media.listSync('recent/').filter((f) => f.name.endsWith
   s.load('p3.bin', prog(5));
   s.load('renamed.bin', A);          // the same bytes under another name: its own row, the same blob
   s.load('p4.bin', prog(6));         // evicts mine.bin (the oldest)
-  const rows = s.recentMedia();
+  const rows = s.library.recentMedia();
   const renamed = rows.find((r) => r.name === 'renamed.bin');
   check('eviction: the renamed copy keeps its row', !!renamed, JSON.stringify(rows.map((r) => r.name)));
   check('eviction: and its bytes were not deleted with the evicted entry', !!renamed && renamed.stored, JSON.stringify(renamed));
   check('eviction: the blob for the shared bytes is still in the store', blobs(media).includes(`RECENT/${crc32(A)}.BIN`), blobs(media).join(','));
   // and it still loads, across a reload
   const s2 = session({ media, store: s.store });
-  const idx = s2.recentMedia().findIndex((r) => r.name === 'renamed.bin');
+  const idx = s2.library.recentMedia().findIndex((r) => r.name === 'renamed.bin');
   let loaded = false;
-  try { s2.loadRecent(idx); loaded = true; } catch (e) { loaded = false; }
+  try { s2.library.loadRecent(idx); loaded = true; } catch (e) { loaded = false; }
   check('eviction: after a reload the renamed copy still loads', loaded && s2.shownMachine.ram[0x3000] === 0x11);
 }
 
@@ -63,7 +63,7 @@ const blobs = (media) => media.listSync('recent/').filter((f) => f.name.endsWith
   ])));
   media.writeSync(`recent/${lower}.bin`, a);
   const s = session({ media });
-  check('old list: the lower-case entry still loads (read normalises the CRC)', /old\.bin/.test(s.loadRecent(0)) && s.shownMachine.ram[0x3000] === 0x11);
+  check('old list: the lower-case entry still loads (read normalises the CRC)', /old\.bin/.test(s.library.loadRecent(0)) && s.shownMachine.ram[0x3000] === 0x11);
   // loading five more files evicts old.bin; its file must go, whichever case it is stored under
   for (let i = 1; i <= 5; i++) s.load(`z${i}.bin`, prog(20 + i));
   // the file it was stored as is `recent/<lower>.bin`: assert on THAT name, not on an upper-cased listing

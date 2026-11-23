@@ -161,7 +161,7 @@ export class FsaMediaStore {
     checkName(from); checkName(to);
     if (from === to) return this.stat(from);
     // A case-only rename is not refused here: that needs FileSystemHandle.move() to be done without losing the
-    // file, which this store does not have. The Session refuses one (Session.renameMedia); a direct caller that
+    // file, which this store does not have. The Session refuses one (MediaLibrary.renameMedia); a direct caller that
     // makes one on a folder that does not tell cases apart loses the file. Reported, not fixed here.
     if (await this.stat(to)) throw new MediaStoreError('exists', `${to} is already in this store`);
     await this.write(to, await this.read(from));

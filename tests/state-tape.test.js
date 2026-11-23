@@ -134,7 +134,7 @@ const { Emu, spec, check, run, counts, checkNames, missingFromSlice } = require(
   s.load('mine.bin', Emu.toBinary(Emu.assemble(' ORG $3000\nL BRA L\n END', '6809'), { format: 'dragondos' }));
   for (let i = 0; i < 3; i++) s.shownMachine.runFrame();
   const text = Emu.state.toJSON(s.shownMachine.snapshot());
-  const mediaBefore = { roms: s.roms.sockets().length, recent: s.recentMedia().length, blobs: s.media.snapshot().length };
+  const mediaBefore = { roms: s.roms.sockets().length, recent: s.library.recentMedia().length, blobs: s.media.snapshot().length };
   check('snapshot: the stored ROM image bytes are not in it', !text.includes(Buffer.from(new Uint8Array(8192).fill(0x11)).toString('base64').slice(0, 24)));
   check('snapshot: it names the ROMs by CRC only', /"roms":\{[^}]*"bas":"[0-9A-F]{8}"/.test(text) || /"roms":/.test(text), text.slice(0, 120));
   // restoring into a fresh machine with the same ROMs leaves the media library untouched
@@ -142,7 +142,7 @@ const { Emu, spec, check, run, counts, checkNames, missingFromSlice } = require(
   s2.switchMachine('coco');
   s2.shownMachine.setRoms(s.shownMachine.roms);
   s2.shownMachine.restore(Emu.state.fromJSON(text));
-  const mediaAfter = { roms: s2.roms.sockets().length, recent: s2.recentMedia().length, blobs: s2.media.snapshot().length };
+  const mediaAfter = { roms: s2.roms.sockets().length, recent: s2.library.recentMedia().length, blobs: s2.media.snapshot().length };
   check('snapshot: loading one adds nothing to and removes nothing from the media library',
     JSON.stringify(mediaBefore) === JSON.stringify(mediaAfter), `${JSON.stringify(mediaBefore)} -> ${JSON.stringify(mediaAfter)}`);
 }

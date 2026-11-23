@@ -39,7 +39,7 @@ const { check, failures } = checker();
       let renamed = null;
       const reads = raceFirstRead(media, 'disks/x.vdk', async () => {
         await media.remove('disks/x.vdk');
-        renamed = await s.renameMedia('disks/y.vdk', 'disks/x.vdk').then(() => 'ok', (e) => e.message);
+        renamed = await s.library.renameMedia('disks/y.vdk', 'disks/x.vdk').then(() => 'ok', (e) => e.message);
       });
       const out = await s.mountDisk(0, 'x.vdk').then((m) => m, (e) => e);
       await s.diskWritesDone().catch(() => {});
@@ -53,7 +53,7 @@ const { check, failures } = checker();
       const { s, media } = await setup();
       const fresh = images.vdk(40, 1); fresh.fill(0x77, 0x2000, 0x2100);
       let imported = null;
-      const reads = raceFirstRead(media, 'disks/x.vdk', async () => { imported = await s.importMedia('disks/x.vdk', fresh).then(() => 'ok', (e) => e.message); });
+      const reads = raceFirstRead(media, 'disks/x.vdk', async () => { imported = await s.library.importMedia('disks/x.vdk', fresh).then(() => 'ok', (e) => e.message); });
       const out = await s.mountDisk(0, 'x.vdk').then((m) => m, (e) => e);
       await s.diskWritesDone().catch(() => {});
       const d = s.diskController.drives[0];
@@ -146,7 +146,7 @@ const { check, failures } = checker();
       const { s, media } = await setup();
       await s.importDisk('w.vdk', images.vdk(40, 1), 1); await s.ejectDisk(1);
       let deleted = null;
-      raceFirstRead(media, 'disks/x.vdk', async () => { deleted = await s.deleteMedia('disks/x.vdk').then(() => 'ok', (e) => e.message); });
+      raceFirstRead(media, 'disks/x.vdk', async () => { deleted = await s.library.deleteMedia('disks/x.vdk').then(() => 'ok', (e) => e.message); });
       const out = await s.mountDisk(0, 'x.vdk').then((m) => m, (e) => e);
       check('a delete of the very image being mounted: the mount fails clearly rather than holding a deleted image',
         out instanceof Emu.SessionError && /x\.vdk is no longer stored/.test(out.message) && !s.diskController.drives[0].loaded,
@@ -157,7 +157,7 @@ const { check, failures } = checker();
     {
       const { s, media } = await setup();
       let away = null;
-      raceFirstRead(media, 'disks/x.vdk', async () => { away = await s.renameMedia('disks/x.vdk', 'disks/moved.vdk').then(() => 'ok', (e) => e.message); });
+      raceFirstRead(media, 'disks/x.vdk', async () => { away = await s.library.renameMedia('disks/x.vdk', 'disks/moved.vdk').then(() => 'ok', (e) => e.message); });
       const out = await s.mountDisk(0, 'x.vdk').then((m) => m, (e) => e);
       check('a rename AWAY from the image being mounted: the mount re-reads, finds it gone and fails clearly',
         away === 'ok' && out instanceof Emu.SessionError && /x\.vdk is no longer stored/.test(out.message) && !s.diskController.drives[0].loaded,
@@ -165,7 +165,7 @@ const { check, failures } = checker();
     }
     // a distinct file whose name differs only in case must NOT be able to fail the mount, nor keep it re-reading:
     // on a case-sensitive store disks/WORK.DSK and disks/work.DSK are two files, and the mount follows the store's
-    // rule (Session.sameName). The writer is not bound: it writes on every read the mount makes, so the mount has to
+    // rule (MediaLibrary.sameName). The writer is not bound: it writes on every read the mount makes, so the mount has to
     // stop on the store's rule, not on the writer going quiet.
     {
       const { s, media } = session('dragon64', 'dragondos', 'dragon');

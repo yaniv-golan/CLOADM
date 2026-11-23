@@ -19,7 +19,7 @@ import { devices } from './machines/bus.js';
 import { DiskController, FDC_BOARDS } from './machines/fdc.js';
 import { DRIVE_TYPES } from './chips/floppy.js';
 import { detectDiskFormat, diskGeometry, blankDisk, DiskFormatError } from './media/disk.js';
-import { MediaStoreError, detectCaseSync, flipCase, measureOnce } from './host/media-store.js';
+import { MediaStoreError, flipCase } from './host/media-store.js';
 import { KeyQueue } from './machines/keyqueue.js';
 import { charToKeys } from './machines/keyboards.js';
 import { cartridgeRoms, createMachine, profiles, resolveConfig, restoreSnapshot } from './machines/profiles.js';
@@ -34,7 +34,8 @@ import { formats } from './media/formats.js';
 import { Tape } from './media/tape.js';
 import { casBlocks, casToWav, recordingToSamples, samplesToCas, writeWav } from './media/cassette.js';
 import { FAMILY_NAMES, detectMedia } from './media/detect.js';
-import { MediaIndex, LIBRARY_PREFIX, INDEX_PREFIXES, INDEX_LISTS, romImage, RECENT_LENGTH, isLibraryName, migrateLocalStorage } from './media/library.js';
+import { MediaIndex, LIBRARY_PREFIX, migrateLocalStorage } from './media/library.js';
+import { MediaLibrary, DISK_PREFIX, DW_PREFIX, MEDIA_MOVE_WAIT_MS, isDiskFileName } from './library.js';
 import { DriveWireServer, CHANNELS as DW_CHANNELS, WINDOW_BASE as DW_WINDOW_BASE, WINDOW_COUNT as DW_WINDOW_COUNT } from './drivewire/server.js';
 import { DriveWireSocket } from './host/drivewire-ws.js';
 import { SerialDriveWireLink, webSerialAvailable } from './host/web-serial.js';
@@ -129,42 +130,16 @@ const POKES = [
   { text: '?PEEK(25)*256+PEEK(26)', about: 'Where your BASIC program starts in memory.', chip: 'BASIC pointer at $19', basic: true },
 ];
 
-// where DriveWire images live in the media store
-export const DW_PREFIX = 'drivewire/';
-
 // the baud rates the serial terminal offers (the CoCo's BASIC and OS-9 drivers go up to 9600 on the bit-banger)
 export const SERIAL_BAUDS = [300, 600, 1200, 2400, 4800, 9600];
 // a snapshot that needs ROMs this browser doesn't have (or has in another version): machine and its name
 export class SnapshotRomsError extends SessionError {
   constructor(message, machine) { super(message); this.machine = machine; this.machineName = profiles[machine].name; }
 }
-// floppy disk images live in the media store under this prefix (never in the media index)
-export const DISK_PREFIX = 'disks/';
-// A disk image's own file name (what follows the prefix): not empty, not whitespace ONLY, no separator, and not the
-// segment '.' or '..' -- a name a folder store or OPFS cannot hold, and one that would climb out of its prefix.
-// Surrounding spaces are part of the name and are kept: a store that already holds " a.vdk" (main wrote such names)
-// must still be able to mount it, and a person who typed one meant it.
-const isDiskFileName = (base) => diskFileNameProblem(base) === null;
-// Why `base` is not a disk image's file name -> the reason, or null when it is one. A rename's destination gets the
-// reason (what is wrong with the name), the other doors the short "A disk image needs a name."
-const diskFileNameProblem = (base) => {
-  if (typeof base !== 'string' || base.length === 0) return 'it is empty';
-  if (/^\s+$/.test(base)) return 'it is empty or only spaces';
-  if (/[\\/]/.test(base)) return 'it has a folder separator; a disk image is one file';
-  if (base === '.' || base === '..') return 'it is only dots';
-  return null;
-};
 // how many times mountDisk reads an image again when the image moved under its read (its own stored name, or
 // another spelling of the same file on a store that folds case): the image is read four times at most before the
 // mount gives up. A write to a DIFFERENT stored file never spends this.
 const MOUNT_READ_RETRIES = 3;
-// everything CLOADM keeps in a media store (what moving the library copies)
-const STORE_PREFIXES = [LIBRARY_PREFIX, DISK_PREFIX, DW_PREFIX, ...INDEX_PREFIXES];
-// how long moveMedia waits for the Library operations under way before it gives up on them. A move never copies
-// the library out from under an import, a rename, a delete or a save it could not settle (see libraryOp); a store
-// that stopped answering would otherwise hang the move for good, so the wait ends with an error and the session
-// stays on the old store, with its library as it was.
-export const MEDIA_MOVE_WAIT_MS = 30000;
 // The key bootNitros9 sets on a mount's options when the mount runs inside its own Library operation (see
 // mountDriveWire). Module-private, so only this module can pass it: an embedder calling mountDisk or
 // mountDriveWire cannot skip their move checks.
@@ -575,19 +550,16 @@ export class Session {
   // embedders need no setup. keyStore: where the Claude API key lives (js/host/key-store.js), never `store`.
   // welcomeMenu: false for a page embedded in someone else's (?embed=1): the host drives a plain machine, so the
   // Session never asks for the welcome menu (power-on, reset, a switch, leaving LIZA); the bare stub stays
-  // mediaMoveWaitMs: how long moveMedia waits for the Library operations under way (MEDIA_MOVE_WAIT_MS); a test
-  // sets it short to prove the wait is bounded
+  // mediaMoveWaitMs: how long the library's moveMedia waits for the Library operations under way
+  // (MEDIA_MOVE_WAIT_MS, js/library.js); a test sets it short to prove the wait is bounded
   constructor({ store = memoryStore(), media = new MemoryMediaStore(), keyStore = null, welcomeMenu = true, mediaMoveWaitMs = MEDIA_MOVE_WAIT_MS } = {}) {
     this.welcomeMenu = welcomeMenu;
-    this.mediaMoveWaitMs = mediaMoveWaitMs;
     this.store = store;
     this.media = media;
-    // Does the store tell GAME.DSK from game.dsk? A store whose bytes are already in memory answers now (its
-    // class declares the fact, or a listing settles it); an asynchronous one is measured by ready(), so this
-    // starts at the safe answer (see CASE in js/host/media-store.js) and the guards below never compare names
-    // with === without it.
-    this._caseInsensitive = media.synchronous ? detectCaseSync(media) : (typeof media.caseInsensitive === 'boolean' ? media.caseInsensitive : true);
-    this.mediaSince = Date.now();   // when this visit started using the store: reconnecting copies what it wrote since
+    // the media library on that store (js/library.js): listing, import, rename and delete, the recent list, the
+    // names being made and the store's case rule, and moving it all to another store. Made before anything below
+    // that compares names or asks whether the library is moving (the DriveWire server's hooks).
+    this.library = new MediaLibrary(this, { mediaMoveWaitMs });
     // where the Claude API key lives: host-side only (js/host/key-store.js), never in `store`, the machine or a
     // snapshot. Default is memory-only, so Node tests and an embedder never need browser storage.
     this.keyStore = keyStore || new MemoryKeyStore();
@@ -643,13 +615,13 @@ export class Session {
     this.lastPrinted = 0;           // printout length at the last 'printer' event
     // DriveWire: one server for the session, on its media store (images under DW_PREFIX); attached to the
     // machine's Becker port when it has one. Channels: WebSockets (DriveWireSocket) by channel number.
-    this.drivewire = new DriveWireServer({ store: media, namePrefix: DW_PREFIX, sameName: (a, b) => this.sameName(a, b) });
+    this.drivewire = new DriveWireServer({ store: media, namePrefix: DW_PREFIX, sameName: (a, b) => this.library.sameName(a, b) });
     // a guest's named-object call reaches the store: a create writes it, and a mount hands the guest a drive it
     // then writes through - refused while the library is being copied, so neither can be lost to the move (the
     // reply is the protocol's "no such object")
-    this.drivewire.mayWrite = () => !this.movingMedia;
+    this.drivewire.mayWrite = () => !this.library.movingMedia;
     // ...and a create's write runs as a Library operation, so the move waits for it and it cannot begin mid-copy
-    this.drivewire.openLibraryOp = (run) => this.libraryOp(run);
+    this.drivewire.openLibraryOp = (run) => this.library.libraryOp(run);
     this.dwSockets = new Map();
     this.WebSocket = globalThis.WebSocket;
     this.webSerial = globalThis.navigator && globalThis.navigator.serial;   // Web Serial (a mock in tests)
@@ -659,9 +631,6 @@ export class Session {
     this.drivewire.onChannelOpen = (ch) => { const s = this.dwSockets.get(ch); if (s) s.deliver(); };
     this.drivewire.onChannelRead = (ch) => { const s = this.dwSockets.get(ch); if (s) s.deliver(); };
     this.diskWriting = Promise.resolve();   // the chain of disk image writes to the media store
-    this.movingMedia = false;       // moveMedia is copying the library to another place
-    this.movingOps = new Set();     // Library operations under way that the move waits for (libraryOp)
-    this.moveDone = null;           // a promise resolved when the move under way ends (afterMove)
     this.diskMounts = 0;            // mounts made so far: each mount's link carries the next number (diskLink)
     this.diskChecks = new Set();    // background round-trip checks not yet run (checkDiskLater)
     this.diskQueued = 0;            // changes to stored disk images queued so far (queueDiskWrite, diskStoreChange)
@@ -669,11 +638,6 @@ export class Session {
     this.diskChanges = new Map();   // stored image name (exact spelling) -> how many of those changes were to it
     this.diskError = null;          // a disk write the store refused, reported by diskWritesDone()
     this.diskUnsaved = new Map();   // stored image name -> why its last write was refused (until one succeeds)
-    this.creating = Promise.resolve();   // the creation of a library name in flight (createExclusive: newDisk, imports)
-    this.creationsAsked = [];       // askedAt of each creation asked and not yet finished, oldest first (createExclusive)
-    this.landing = 0;               // names creations have landed so far (each creation notes it when asked: createExclusive)
-    this.pendingLands = [];         // { name, at }: names landed that a creation still queued may have to refuse
-    this.diskClaims = new Map();   // stored name -> how many creations are making it (claimDiskName: a rename may not take one)
     this.debugger = null;           // created on first use by `debug` (js/debugger.js)
     this.pendingStop = null;        // a watchWrites 'stop' on the BASIC session beside a full-screen chat: { machine, reason } (writeStopped)
     // the Session's own probes and bus taps (js/hooks.js), put on the person's machine (install, followPerson): the
@@ -699,140 +663,8 @@ export class Session {
     const migrated = await migrateLocalStorage(this.store, this.media);
     if (migrated.migrated) await this.index.load();   // what the migration wrote, now in memory
     await this.index.flush();
-    await this.measureCase();
+    await this.library.measureCase();
     return this;
-  }
-  // Keep media in another store from now on, starting with an empty library there (the page does this with an
-  // in-memory store when browser storage can't be opened or read). The media index's write-error listener stays.
-  useMediaStore(media) {
-    const writeError = this.index.writeError;
-    this.media = media;
-    this._caseInsensitive = media.synchronous ? detectCaseSync(media) : (typeof media.caseInsensitive === 'boolean' ? media.caseInsensitive : true);
-    this.mediaSince = Date.now();   // when this visit started using the store: reconnecting copies what it wrote since
-    this.index = new MediaIndex(media);
-    this.index.writeError = writeError;
-    this.roms.index = this.index;
-  }
-  // Keep the library somewhere else from now on: the Library's "Where your library is kept". Every file CLOADM
-  // keeps in the current store (the library and its quick-save slots, disk images, DriveWire images, ROMs, recent
-  // programs: STORE_PREFIXES; nothing else in a folder of the user's) is copied there first; a file the new place
-  // already has is left as it is, and the old place keeps its copies, so nothing is lost either way. The index's
-  // lists (ROM sockets and names, the recent list) change in place, so they are merged (MediaIndex.mergeInto):
-  // this library's entries win, and with `reconnecting` (a folder that holds the library, reconnected after this
-  // visit kept it in the browser) the folder's win except what changed in this visit. Refused while a stored
-  // disk is in a drive, since the drives read and write it where it is kept now (checked at the start, and again
-  // after the waits below, right before the copy: checkNoStoredMounts).
-  // A copy that fails leaves the session on the old store.
-  // The library must not change while it is copied, and it must not be copied out from under what is already
-  // writing to it: the move waits for the Library operations under way (libraryOp: imports, renames, deletes,
-  // saves) to settle first - whichever way each one ends (a failure is its caller's to report) - and while it
-  // copies every new one is refused (checkNotMoving: "try again once it is done"). The wait is bounded
-  // (MEDIA_MOVE_WAIT_MS): a store that stops answering ends it with an error, and nothing is moved.
-  // -> { copied, kept }: how many files were copied, and how many the new place already had
-  async moveMedia(store, { reconnecting = false } = {}) {
-    this.checkNoStoredMounts();
-    let copied = 0, kept = 0;
-    if (store === this.media) return { copied, kept };
-    if (this.movingMedia) throw new SessionError('The library is being moved already.');
-    // The operations under way are taken now, in the same step as both checks, so nothing starts between them; the
-    // marker is set now too, so nothing that starts from here on can slip past either (its own guard refuses it).
-    const waiting = [...this.movingOps];
-    this.movingMedia = true;
-    let done;
-    this.moveDone = new Promise((resolve) => { done = resolve; });
-    this.moveDone.then(() => {}, () => {});
-    try {
-      // the disks' last writes, and the Library operations, under the one bound: either can be stuck on a store
-      // that stopped answering (a disks/ rename or import runs in the disks' chain too), and neither may hang the
-      // move for good. One deadline for both: the whole wait is bounded by mediaMoveWaitMs, not twice it
-      const deadline = Date.now() + this.mediaMoveWaitMs;
-      await this.boundedWait(this.diskWritesSettled(), 'The drives are still writing to the library', deadline);
-      await this.libraryWritesSettled(waiting, deadline);
-      // ...and checked again now that they have: an operation the move waited for can have left a drive mounted
-      // on the old store (the guest's DriveWire create hands out its drive inside its Library operation). Copying
-      // now would leave that drive writing to the store the session is about to leave, so the move is refused
-      // instead, with nothing copied and the session where it was.
-      this.checkNoStoredMounts();
-      return await this.copyMedia(store, reconnecting);
-    } finally { this.movingMedia = false; this.moveDone = null; done(); }
-  }
-  // a move is refused while a drive reads and writes a stored image where the library is kept now: a disk in a
-  // floppy drive, or a DriveWire drive (the user's mount, or the guest's named object)
-  checkNoStoredMounts() {
-    const busy = this.diskMachines().flatMap(({ machine, where }) => this.storedDisks(machine).map((d) => `drive ${d.drive}${where}: ${d.name.split('/').pop()}`))
-      .concat(this.driveWireMounts.map((d) => `DriveWire drive ${d.drive}: ${d.name}`));
-    if (busy.length) throw new SessionError(`Eject the disks first (${busy.join(', ')}): they are read and written where the library is kept now.`);
-  }
-  // `work` done, or `deadline` (a Date.now() value) reached: what it waits on never ended (a store that stopped
-  // answering). The first wait is given the deadline itself, so the two together stay within the one bound.
-  // A deadline already reached (the first wait used it all) is not a failure on its own: work that is settled when
-  // the race is set up wins over the 0 ms expiry, so a second wait with nothing outstanding does not fail a move
-  // that was in time; a wait still pending then is expired. It returns nothing: the work's value is the caller's.
-  async boundedWait(work, what, deadline) {
-    let timer = null;
-    const left = Math.max(0, deadline - Date.now());
-    const tooLong = new Promise((_, reject) => {
-      timer = setTimeout(() => reject(new SessionError(`${what} and did not finish: the move was stopped and your library is where it was. Try again once it is done.`)), left);
-      // (not unref'd: while it waits this timer is what ends the wait, so it must keep the process alive)
-    });
-    try { await Promise.race([work, tooLong]); } finally { clearTimeout(timer); }
-  }
-  // the Library operations in `waiting` have settled (finished or failed; their entry is gone from movingOps),
-  // or the move's deadline has passed and the move gives up: an operation that never ends (a store that stopped
-  // answering) fails the move with a message and leaves the session on its old store
-  async libraryWritesSettled(waiting, deadline) {
-    if (!waiting.length) return;
-    await this.boundedWait(Promise.all(waiting), `The library is still being written to (${waiting.length} operation${waiting.length === 1 ? '' : 's'})`, deadline);
-  }
-  // A Library operation that writes, renames or deletes in the store, run so that the move waits for it and it
-  // does not start while the move is copying. -> run()'s value; run's failure is the caller's (a move that waited
-  // for it keeps going: the operation says what went wrong to its own caller, and the move copies what is there).
-  // The caller has checked the move is not on (checkNotMoving) and taken whatever else it needs to read from the
-  // store BEFORE this call: once it is async, a move may begin before its first await, and then its store is the
-  // old one while the session uses the new one. Between the check and this call nothing awaits, so neither can a
-  // move begin.
-  async libraryOp(run) {
-    if (this.movingMedia) throw new SessionError('The library is being moved: try again once it is done.');
-    // registered synchronously, and only then started: a move that begins now (it cannot, this step runs to its
-    // first await) or already began (checked above) sees this, and its guard is the one that refuses.
-    let settle;
-    const settled = new Promise((resolve) => { settle = resolve; });
-    this.movingOps.add(settled);
-    try {
-      const p = (async () => run())();
-      p.then(() => {}, () => {});   // its failure is the caller's (below), not a rejection nothing listens to
-      return await p;
-    } finally { this.movingOps.delete(settled); settle(); }
-  }
-  async copyMedia(store, reconnecting) {
-    let copied = 0, kept = 0;
-    await this.index.flush();
-    const files = [];
-    for (const prefix of STORE_PREFIXES) files.push(...await this.media.list(prefix));
-    // Reconnecting, the folder is the library and the browser held it only for this visit: what the browser had
-    // from before is stale (copying it would bring back what was deleted from the folder), so only the files
-    // written in this visit go across, with the ROM images the sockets set in this visit use.
-    const images = reconnecting ? new Set([...this.index.changedImages()].map(romImage)) : null;
-    const wanted = (f) => !reconnecting || f.mtime >= this.mediaSince || images.has(f.name);
-    for (const f of files) {
-      if (INDEX_LISTS.includes(f.name) || !wanted(f)) continue;   // the lists are merged below, not kept or replaced whole
-      if (await store.stat(f.name)) { kept++; continue; }
-      try { await store.write(f.name, await this.media.read(f.name)); } catch (e) { throw this.mediaError(e, f.name, f.name); }
-      copied++;
-    }
-    // the index's lists, merged: a move takes this library's entries, reconnecting the folder's except what
-    // changed in this visit
-    try { copied += await this.index.mergeInto(store, { ours: reconnecting ? 'changed' : 'all' }); } catch (e) { throw this.mediaError(e, 'the ROM and recent lists'); }
-    this.useMediaStore(store);
-    await this.index.load();
-    await this.measureCase();   // the new store's own answer: another file system can tell cases apart where this one did not
-    // every DriveWire server the Session made reads and writes the store it is serving from: this one, and the ones
-    // serveRealCoco and the full-screen chat built (they outlive their links, and are used from the drives the
-    // drives list shares). A move that retargeted only the Becker port's left them on the old place.
-    for (const server of this.dwServers()) server.store = store;
-    this.emit('roms');
-    this.emit('storage');
-    return { copied, kept };
   }
   // Every DriveWire server this Session built and still holds: the Becker port's, the one a real CoCo is served
   // from (while it is open), and the chat's (while it is up). One list, so a change to where the library is kept
@@ -1033,8 +865,8 @@ export class Session {
     const clean = String(name).replace(/[\\/\x00-\x1F]/g, '_');
     if (!clean) throw new SessionError('The image needs a name.');
     if (bytes.length % 256) throw new SessionError(`${name}: ${bytes.length} bytes is not a whole number of 256-byte sectors.`);
-    this.checkNotMoving();
-    try { await this.libraryOp(() => this.media.write(DW_PREFIX + clean, bytes)); } catch (e) { throw this.mediaError(e, clean, DW_PREFIX + clean); }
+    this.library.checkNotMoving();
+    try { await this.library.libraryOp(() => this.media.write(DW_PREFIX + clean, bytes)); } catch (e) { throw this.library.mediaError(e, clean, DW_PREFIX + clean); }
     this.emit('drivewire');
     return clean;
   }
@@ -1047,24 +879,24 @@ export class Session {
     const { writeProtected = false } = opts, held = opts[HELD] === true;
     // the mount hands the drive the store it reads and writes in: not while the library moves, or the guest's
     // writes would land in the old place mid-copy
-    if (!held) this.checkNotMoving();
+    if (!held) this.library.checkNotMoving();
     this.drivewire.store = this.media;
     // One stored image, one drive (see DriveWireServer.mount). Only DriveWire drives can collide with each other:
     // an image here is always drivewire/... and a floppy is always disks/..., so a stored file is never both and no
-    // floppy drive can be holding this one. Names are compared by this.sameName (the store's case rule), which
+    // floppy drive can be holding this one. Names are compared by this.library.sameName (the store's case rule), which
     // the server was given at construction (DriveWireServer.sameStoredName).
     try { await this.drivewire.mount(drive, DW_PREFIX + name, { writeProtected }); } catch (e) { throw new SessionError(e.message.replace(DW_PREFIX, '')); }
     // The mount awaits a stat of the image, and a move can begin in that gap: its busy check found no mounts yet, so
     // it is not refused there. Checked again with nothing left to await, as mountDisk does: a drive must not come
     // out of the mount onto a store the move has just left.
-    if (this.movingMedia && !held) { this.drivewire.eject(drive); throw new SessionError('The library is being moved: try again once it is done.'); }
+    if (this.library.movingMedia && !held) { this.drivewire.eject(drive); throw new SessionError('The library is being moved: try again once it is done.'); }
     this.emit('drivewire');
   }
   ejectDriveWire(drive) { this.drivewire.eject(drive); this.emit('drivewire'); }
   get driveWireMounts() { return this.drivewire.mounts.map((d) => Object.assign(d, { name: d.name.startsWith(DW_PREFIX) ? d.name.slice(DW_PREFIX.length) : d.name })); }
   // an image as a file to keep (it has what the machine wrote)
   async driveWireFile(name) {
-    try { return { name, bytes: await this.media.read(DW_PREFIX + name) }; } catch (e) { throw this.mediaError(e, name, DW_PREFIX + name); }
+    try { return { name, bytes: await this.media.read(DW_PREFIX + name) }; } catch (e) { throw this.library.mediaError(e, name, DW_PREFIX + name); }
   }
   // connect virtual serial channel `ch` (0-14) or window channel (128-142) to a WebSocket; null url disconnects it
   connectDriveWireChannel(ch, url) {
@@ -1135,9 +967,9 @@ export class Session {
       const full = this.diskStoreName(name);
       // through the disk queue, like every other write to a stored image: a mount reading this name meanwhile
       // re-reads for it, and the drives' writes are ordered against it
-      this.checkNotMoving();
+      this.library.checkNotMoving();
       const base = full.slice(DISK_PREFIX.length);
-      try { await this.libraryOp(() => this.diskStoreChange(() => this.media.write(full, bytes), full)); } catch (e) { throw this.mediaError(e, base, full); }
+      try { await this.library.libraryOp(() => this.diskStoreChange(() => this.media.write(full, bytes), full)); } catch (e) { throw this.library.mediaError(e, base, full); }
       return this.bootSaved(base, 'disk');
     }
     return this.bootSaved(await this.importDriveWireImage(name, bytes), 'drivewire');
@@ -1152,7 +984,7 @@ export class Session {
   // build (a 6809 build runs on either CPU), and with the Becker port on for a DriveWire image.
   async bootNitros9(name, store = null) {
     // it reads the image from the store and mounts it: not while the library moves (nor does it then)
-    this.checkNotMoving();
+    this.library.checkNotMoving();
     // the person's machine (personMachine): with the chat on screen, this.shownMachine is the chat machine, and mm below
     // starts as m - so a boot that needs no switch (the same CPU, a floppy image) put the disk controller into the
     // CHAT's port and mounted there (review round 2, finding 3, confirmed with a real image)
@@ -1166,7 +998,7 @@ export class Session {
         if (!e || e.code !== 'not-found') failure = failure || e;   // a real storage error, not an absent image: say so
       }
     }
-    if (!found) throw failure ? this.mediaError(failure, name) : new SessionError(`There is no image called ${name} in your library.`);
+    if (!found) throw failure ? this.library.mediaError(failure, name) : new SessionError(`There is no image called ${name} in your library.`);
     const r = inspectOs9Disk(bytes);
     if (r.reason) throw new SessionError(`${name}: ${r.reason}`);
     const floppy = r.boot === 'floppy';
@@ -1185,7 +1017,7 @@ export class Session {
       const held = this.drivewire.holderOf(DW_PREFIX + name, 0);
       if (held !== null) throw new SessionError(`${name} is already in DriveWire drive ${held}: eject it there first.`);
     }
-    await this.libraryOp(async () => {
+    await this.library.libraryOp(async () => {
       let mm = m;
       if (m.config.cpu !== cpu || (!floppy && !m.config.becker)) mm = this.switchMachine(m.id, Object.assign({}, m.config, { cpu }, floppy ? {} : { becker: true }), { menu: false });
       if (floppy) {
@@ -1231,7 +1063,7 @@ export class Session {
   get webSerialAvailable() { return webSerialAvailable(this.webSerial); }
   async serveRealCoco(baud) {
     if (this.serialLink && this.serialLink.state === 'open') throw new SessionError('A real CoCo is already being served.');
-    const server = new DriveWireServer({ store: this.media, namePrefix: DW_PREFIX, clock: this.drivewire.clock, sameName: (a, b) => this.sameName(a, b) });
+    const server = new DriveWireServer({ store: this.media, namePrefix: DW_PREFIX, clock: this.drivewire.clock, sameName: (a, b) => this.library.sameName(a, b) });
     server.drives = this.drivewire.drives;
     const link = new SerialDriveWireLink(server, { serial: this.webSerial, onState: () => this.emit('drivewire') });
     try { await link.open(baud); } catch (e) { throw new SessionError(e.name === 'NotFoundError' ? 'No serial port chosen.' : e.message); }
@@ -1450,7 +1282,7 @@ export class Session {
   // power cycled if its ROMs changed.
   addRoms(files) {
     // the index's writes go to the store, which the move is copying: a drop may not land in the old one after it
-    this.checkNotMoving();
+    this.library.checkNotMoving();
     const m = this.personMachine, owners = romOwners();
     const { files: results } = identifyRoms(files, owners, m.id);
     const touched = new Map();   // owner id -> file names
@@ -1501,7 +1333,7 @@ export class Session {
   }
   // forget the ROMs of the machine in use (the index's writes: not while the library moves, as addRoms)
   clearRoms() {
-    this.checkNotMoving();
+    this.library.checkNotMoving();
     // the person's machine (personMachine): with the chat full screen this used to clear and reset the CHAT machine
     // and leave the person's own session on "NO ROM LOADED" (review round 2, finding 2)
     const m = this.personMachine;
@@ -1533,7 +1365,7 @@ export class Session {
   // restore a ROM pack (its ZIP entries) -> { machines, skipped }; the machine in use reloads its ROMs
   // ROM pack: restored into the index, which writes to the store (not while the library moves, as addRoms)
   importRomPack(zipEntries) {
-    this.checkNotMoving();
+    this.library.checkNotMoving();
     const { restored, skipped } = restoreRomPack(zipEntries, this.roms, romOwners());
     const ids = [...new Set(restored.map((r) => r.machine))];
     for (const id of ids) this.stubChosen.delete(id);
@@ -1806,12 +1638,12 @@ export class Session {
     // the snapshot is made from the machine and the slot written in one operation: a move waits for both, and the
     // write can never go to a store the session has left behind
     try {
-      return await this.libraryOp(async () => {
+      return await this.library.libraryOp(async () => {
         const { bytes, saved } = await this.snapshotFile();
         await this.media.write(slotName(n), bytes);
         return `Took snapshot ${n}${saved ? ` of ${saved}` : ''}`;
       });
-    } catch (e) { throw this.mediaError(e, `snapshot ${n}`); }
+    } catch (e) { throw this.library.mediaError(e, `snapshot ${n}`); }
   }
   // a slot's snapshot (then snapshotSwitch / openSnapshot as for a file)
   async readSlot(n) {
@@ -1819,23 +1651,23 @@ export class Session {
     return this.readSnapshot(await this.media.read(slotName(n)));
   }
   async clearSlot(n) {
-    this.checkNotMoving();
-    return this.libraryOp(() => this.media.remove(slotName(n)));
+    this.library.checkNotMoving();
+    return this.library.libraryOp(() => this.media.remove(slotName(n)));
   }
   // what a slot holds, as stored (null when empty), and putting that back: the Undo of a save
   async slotBytes(n) {
     slotName(n);
-    try { return (await this.media.stat(slotName(n))) ? await this.media.read(slotName(n)) : null; } catch (e) { throw this.mediaError(e, `slot ${n}`); }
+    try { return (await this.media.stat(slotName(n))) ? await this.media.read(slotName(n)) : null; } catch (e) { throw this.library.mediaError(e, `slot ${n}`); }
   }
   async restoreSlot(n, bytes) {
     slotName(n);
-    this.checkNotMoving();
+    this.library.checkNotMoving();
     try {
-      return await this.libraryOp(async () => {
+      return await this.library.libraryOp(async () => {
         if (bytes) await this.media.write(slotName(n), bytes);
         else if (await this.media.stat(slotName(n))) await this.media.remove(slotName(n));
       });
-    } catch (e) { throw this.mediaError(e, `slot ${n}`); }
+    } catch (e) { throw this.library.mediaError(e, `slot ${n}`); }
   }
 
   // a file that is a ROM image rather than a program, tape or cartridge (known contents or usual name)
@@ -1846,7 +1678,7 @@ export class Session {
   visit() {
     const first = this.store.get('visited') === null;
     this.store.set('visited', '1');
-    return { first, machineChosen: this.store.get('machineChosen') !== null, recent: this.recentMedia() };
+    return { first, machineChosen: this.store.get('machineChosen') !== null, recent: this.library.recentMedia() };
   }
   // What ran last (the returning visit's "Last time" and the menu's "CARRY ON WITH"), kept across visits:
   // { kind: 'liza' | 'demo' | 'game' | 'recent', name } or null (a game's name is its GAMES.list name). LIZA, the
@@ -1863,7 +1695,7 @@ export class Session {
   get carryOn() {
     const last = this.lastRun, m = this.shownMachine;
     if (!last || !m) return null;
-    if (last.kind === 'recent') { const r = this.recentMedia()[0]; return r && r.stored && this.sameName(r.name, last.name) && r.machine === m.id ? last : null; }
+    if (last.kind === 'recent') { const r = this.library.recentMedia()[0]; return r && r.stored && this.library.sameName(r.name, last.name) && r.machine === m.id ? last : null; }
     if (last.kind === 'demo') return cpuFamily(m.config.cpu) === '6809' ? last : null;
     if (last.kind === 'game') return cpuFamily(m.config.cpu) === '6809' && gameKey(last.name) ? last : null;
     return last;
@@ -1878,241 +1710,7 @@ export class Session {
   // visitor's ('back') -- the page used to decide this itself, and once got it wrong. One place decides it now.
   static greetingFor(offer) { return offer === 'none' ? 'first' : 'back'; }
   get hasAnyRoms() { return this.roms.sockets().some((s) => profiles[s.owner]); }
-  // The last few programs, tapes and cartridges loaded (bytes kept for items up to 1 MB).
-  // `copy` labels the rows that need telling apart, for two entries of ONE name — grouped with this.sameName,
-  // the store's own rule, so a store that tells cases apart does not group "GAME.BIN" with "game.bin" — that
-  // have different bytes: the newest is copy === false, the rest are later copies and get an ordinal (the
-  // SECOND '2nd', the THIRD '3rd', or 'older copy' past that). A name with a single entry is never labelled,
-  // and `copy` is null for it: there is nothing to tell it from.
-  recentMedia() {
-    const list = this.index.recentMedia();
-    // sameName is a folding rule, not an equivalence-key function (on a case-sensitive store it is ===), so
-    // entries are grouped by comparing against the names already seen rather than by a lower-cased key.
-    // Grouped by NAME and MACHINE: the drawer shows one machine's rows (drawer.js filters by machine), so two of
-    // one name on different machines are not copies of each other -- a lone Dragon row must not read "2nd".
-    const groups = [];   // [{ name, machine, members: [] }]
-    for (const r of list) {
-      let g = groups.find((x) => x.machine === r.machine && this.sameName(x.name, r.name));
-      if (!g) { g = { name: r.name, machine: r.machine, members: [] }; groups.push(g); }
-      g.members.push(r);
-    }
-    const label = new Map();
-    for (const g of groups) {
-      if (g.members.length < 2) continue;
-      g.members.forEach((r, n) => label.set(r, n === 0 ? false : n === 1 ? '2nd' : n === 2 ? '3rd' : 'older copy'));
-    }
-    return list.map((r) => Object.assign({}, r, { copy: label.has(r) ? label.get(r) : null }));
-  }
-  // A full store is not an error here: the program is loaded already, and the entry says its bytes were not kept.
-  // While the library moves, the index's two writes wait for it (afterMove): made against the old place now they
-  // would be the ones the move leaves behind, and they go to the index's store, which is the new place by then.
-  // The list is this visit's at once (the program ran), so the Media tab and "Last time" see it.
-  rememberMedia(name, bytes) {
-    const crc = crc32(bytes);
-    // Identity is the NAME (by this.sameName, the store's own case rule) plus the CONTENT HASH: this load
-    // replaces the entry with the same name and the same bytes. Two things follow, and both are deliberate:
-    //  - the SAME NAME with DIFFERENT bytes stays as its own entry. Each entry has its own blob (a blob is
-    //    named by its CRC) and loadRecent gives each row its own bytes (measured), so the older row is not a
-    //    lie about the newer one; the list labels it (see recentMedia).
-    //  - a RE-NAMED copy of the same bytes keeps its own entry too: a hash-only key would swallow it.
-    // A stored CRC may be in either case (an older build wrote it lower case); the index normalises the
-    // entries it reads, and compared here case-insensitively they are the same blob.
-    const list = this.index.recentMedia().filter((r) => !(this.sameName(r.name, name) && String(r.crc).toUpperCase() === crc));
-    const dropped = list.splice(RECENT_LENGTH - 1);
-    list.unshift({ name, crc, size: bytes.length, machine: this.shownMachine.id, stored: bytes.length <= 1 << 20 });
-    const entry = list[0];
-    // the two writes that go to the store. Made now, against the old place, while the library is moving, they are
-    // the ones the move leaves behind: then they are made once it is done, and if the new place is full the entry
-    // says so (the bytes are not kept), as the immediate path does.
-    const write = (entry) => {
-      // A blob is named by its CRC and can back MORE than one row: a renamed copy of the same bytes keeps its own
-      // entry with the same CRC. So an evicted entry's file may still be the only copy for a survivor, and dropping
-      // it would leave that row stored:true with nothing behind it (measured: the row then fails to load, even
-      // after a reload). Only a CRC no surviving entry references is deleted.
-      const kept = new Set(list.map((r) => String(r.crc).toUpperCase()));
-      for (const old of dropped) if (!kept.has(String(old.crc).toUpperCase())) this.index.dropRecent(old.crc);
-      try { if (entry.stored) this.index.putRecent(crc, bytes); }
-      catch (e) { if (!(e && e.code === 'quota')) throw e; entry.stored = false; this.index.recentBytes.delete(crc); }
-      this.index.setRecent(list);
-    };
-    if (this.movingMedia) {
-      this.index.recentBytes.set(crc, bytes); this.index.recent = list;   // this visit's list at once
-      this.afterMove(() => write(entry)).catch(() => {});
-    } else try { write(entry); } catch (e) { if (!(e && e.code === 'quota')) throw e; }
-  }
-  // run() once the move in progress, if any, is done: for an index write that can wait (the in-memory list already
-  // changed), so it reaches the store the session uses then, never the old one after the move began. A failed move
-  // changes nothing, so the write is still the right one.
-  async afterMove(run) {
-    while (this.movingMedia) await this.moveDone;
-    return run();
-  }
-  // load a recent item again (on the machine it was loaded on) -> message
-  loadRecent(i = 0) {
-    const r = this.recentMedia()[i];
-    const data = r && r.stored && this.index.recentData(r.crc);
-    if (!data) throw new SessionError('That file is no longer stored in this browser; load it again.');
-    if (r.machine !== this.shownMachine.id && profiles[r.machine]) this.switchMachine(r.machine);
-    return this.load(r.name, data);
-  }
 
-  // ---------------- the media library (what the Library screen will call) ----------------
-  // User media lives under LIBRARY_PREFIX ('library/'), apart from the index's own names (roms/, recent/,
-  // meta/). Every method here touches only that prefix: the ROM and recent blobs belong to the index and
-  // changing them behind its back would leave it stale (or corrupt it), so a name outside the prefix is
-  // refused rather than accepted.
-  // The user's media is under two prefixes: LIBRARY_PREFIX for everything loaded or added, and DISK_PREFIX for
-  // floppy disk images, which drives read and write in place. A name with either prefix is
-  // taken as it is; a bare name goes under LIBRARY_PREFIX.
-  libName(name) {
-    const disk = typeof name === 'string' && name.startsWith(DISK_PREFIX) && name.length > DISK_PREFIX.length;
-    const root = disk || (name && name.startsWith(LIBRARY_PREFIX)) ? name : LIBRARY_PREFIX + name;
-    // no ".." segment: a name must not be able to climb out of its prefix
-    if ((!disk && !isLibraryName(root)) || /(^|\/)\.\.(\/|$)/.test(root)) throw new SessionError(`${name}: not a media library name`);
-    return root;
-  }
-  // Everything the user's media holds (the library and the disk images), with sizes and modification times ->
-  // [{ name, size, mtime }] sorted by name (the index's own blobs are not listed: they are not the user's media)
-  async listMedia() {
-    const all = [...await this.media.list(LIBRARY_PREFIX), ...await this.media.list(DISK_PREFIX)];
-    return all.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
-  }
-  // read a stored blob by name -> Uint8Array (throws SessionError when it is gone)
-  async openMedia(name) {
-    const full = this.libName(name);
-    try { return await this.media.read(full); } catch (e) { throw this.mediaError(e, name, full); }
-  }
-  // { name, bytes } to save the user's file with (the Library's download, and the fallback's "keep")
-  async downloadMedia(name) { return { name: name.split('/').pop(), bytes: await this.openMedia(name) }; }
-  // a rename keeps the item under its prefix: `to` is a bare name or a name under the same prefix
-  // A disk image in a drive is the drive's: the drive reads it and writes back to it under that name, so it is not
-  // renamed, deleted or replaced while it is there -> refuses with the drive it is in
-  // Name comparisons here follow the store: on a store that does not tell upper from lower case (see CASE in
-  // js/host/media-store.js) GAME.DSK and game.dsk are one file, so they are one name to every guard below.
-  // ci: the rule to compare by (default: the store's rule now); a caller that must compare twice by one rule passes it
-  sameName(a, b, ci = this.caseInsensitive) { return ci ? String(a).toLowerCase() === String(b).toLowerCase() : a === b; }
-  // A new disk (newDisk) and an import (importDisk, importMedia) make a name that did not exist, and each checks
-  // the library before it writes. The check and the write are apart by awaits -- the listing of what is stored,
-  // the wait for the drives' writes -- so two creations can both pass the check, and the later write replaces the
-  // earlier one's bytes under the same name: a blank disk held at its read-back was replaced by an import of its
-  // name, and the mount that then read it back had nothing to mount. (Choosing the first free name can await a
-  // listing of its own, so even a name reserved straight after the check could be taken before it was written.)
-  // Creations therefore run one at a time (createExclusive): the second waits for the first to have written -- or
-  // failed -- and then checks again, so it is refused with the library's "already exists" as it would have been
-  // had it come second, and never takes the name or its bytes. Files, slots and DriveWire images are made by
-  // writes that replace (a file is imported again as a newer version of itself), so only these creations are
-  // serialised.
-  // -> what op returns
-  // The creation in flight runs op, then the next one runs. newDisk does not come back through here: it holds the
-  // turn already and calls the stored half (importDiskStored) directly, because re-entering would wait on its own
-  // turn and never finish.
-  //
-  // Two creations of one name must not both pass their check: the later write replaces the earlier one's bytes
-  // under the same name. Serialising them is not enough -- the second must know it is a SECOND creation and not a
-  // deliberate replace -- and the fact that tells them apart is the order of asking:
-  //   * a creation asked while a creation of that name was in flight is a second creation of it: if that one lands
-  //     the name, this one refuses;
-  //   * an import asked after the name is already in the library is a replace (a disk in a drive taking a newer
-  //     copy of itself), which is what importDisk has always done, and stays allowed.
-  // Names are compared with this.sameName -- the store's own rule (CASE in js/host/media-store.js) -- never with a
-  // key computed once: the store's rule can be learned (refreshCase) between asking and landing, and a key made
-  // under one rule then compared under another reopens the hole. The names in flight are kept as the raw strings
-  // they were asked with; a creation waiting for a name is tested against them with sameName at the moment it is
-  // asked, and again when its turn comes (so a name a new disk picks inside its turn is seen too).
-  // `askedAt`: how many names creations had LANDED when this one was asked for. A name landed after that is one
-  // this creation was waiting behind.
-  // There is no deadline on a turn. A creation whose store write never answers holds every later creation, as a
-  // hung store write already holds a mount or a library move: giving up on the wait would not stop the write, which
-  // could then land, mount and claim the name alongside the creations let in after it. An honest wait keeps the
-  // one-at-a-time guarantee; a store that never answers is the store backend's to fix.
-  // A disk creation's name, claimed while it is being made (newDisk, importDisk, importMedia): the name it will
-  // write, marked BEFORE the creation's first await that can let another Library action in, and released when it
-  // ends. A rename onto a claimed name is refused instead of racing the write. A newDisk with no name has none to
-  // claim until its listing has picked one; that far a rename cannot be blocked, and a name the listing picked is
-  // claimed in the same step it is picked (nothing awaits between the pick and the claim).
-  claimDiskName(full) { this.diskClaims.set(full, (this.diskClaims.get(full) || 0) + 1); }
-  // counted, not a Set: two creations of one name can be in flight (the second is refused at its turn, but it holds
-  // its claim until then), and the first to end must not release the second's claim
-  releaseDiskName(full) {
-    const n = this.diskClaims.get(full);
-    if (n === undefined) return;
-    if (n > 1) this.diskClaims.set(full, n - 1); else this.diskClaims.delete(full);
-  }
-  // run a disk creation with its name claimed until it ends (whatever it ends with)
-  claimingDiskName(full, run) {
-    this.claimDiskName(full);
-    let p;
-    try { p = Promise.resolve(run()); } catch (e) { this.releaseDiskName(full); throw e; }
-    return p.finally(() => this.releaseDiskName(full));
-  }
-  claimedDiskName(full) { for (const n of this.diskClaims.keys()) if (this.sameName(n, full)) return true; return false; }
-  createExclusive(op) {
-    const askedAt = this.landing;
-    this.creationsAsked.push(askedAt);
-    const run = this.creating.then(() => op(askedAt), () => op(askedAt));   // after the one in flight, however it ended
-    this.creating = run.then(() => this.creationFinished(), () => this.creationFinished());
-    return run;
-  }
-  // the oldest creation (they run in the order asked) is done: drop the landings no creation still queued can be
-  // behind -- one only refuses a landing after its own askedAt, and the oldest queued one has the smallest askedAt
-  // (landing only grows) -- so pendingLands holds at most the landings made while some creation was queued
-  creationFinished() {
-    this.creationsAsked.shift();
-    const oldest = this.creationsAsked[0];
-    this.pendingLands = oldest === undefined ? [] : this.pendingLands.filter((p) => p.at > oldest);
-  }
-  // has a creation in flight that this one was waiting behind already landed this name? -> the spelling it was
-  // stored with by the latest such landing (for the refusal's message), or null
-  landedRace(full, askedAt) {
-    for (let i = this.pendingLands.length - 1; i >= 0; i--) {
-      const p = this.pendingLands[i];
-      if (p.at <= askedAt) break;
-      if (this.sameName(p.name, full)) return p.vacated ? null : p.name;
-    }
-    return null;
-  }
-  // a creation has stored `full` and finished: count it, so a creation waiting behind it refuses (createExclusive)
-  creationLanded(full) {
-    this.landing++;
-    this.pendingLands.push({ name: full, at: this.landing });
-  }
-  // a rename moved an image AWAY from `full`: the name is free again, so a creation waiting behind it must not read
-  // an earlier landing of that name as still taken (A->X then X->Y leaves x.vdk free for an import behind both).
-  // Recorded as a landing of a name that is no longer there, which landedRace treats as "not taken" by this one.
-  nameVacated(full) {
-    this.landing++;
-    this.pendingLands.push({ name: full, vacated: true, at: this.landing });
-  }
-  // Does this library treat GAME.DSK and game.dsk as one name? The store's own settled answer wins: a real
-  // backend measures itself inside every list() (js/host/media-store-fsa.js _case), so the store can be settled by
-  // a route this Session did not take. Answering from the store whenever it has been measured is what keeps the
-  // two from drifting; the Session's own value is only the fallback while the store has no answer yet.
-  get caseInsensitive() {
-    const store = this.media;
-    if (typeof store.caseInsensitive === 'boolean' && store.caseMeasured) return store.caseInsensitive;
-    return this._caseInsensitive;
-  }
-  set caseInsensitive(v) { this._caseInsensitive = v; }
-  // Measure the store's rule now. Read-only (nothing is written to the user's folder). An empty store has nothing
-  // to put the question with: the measurement leaves it unmeasured (safe answer), and the question is put again when
-  // the store first gains a name (refreshCase).
-  async measureCase(store = this.media) {
-    // one path: measureOnce shares a measurement already in flight, so the Session and a listing that is measuring
-    // the same store wait on the same answer rather than starting a second one
-    if (store.synchronous) detectCaseSync(store); else await measureOnce(store);
-    return this.caseInsensitive;
-  }
-  // The same, when the store has just gained a name: an empty store's safe answer (case-insensitive) can be
-  // measured properly now there is a name to put the question with. Once measured it is not measured again (a
-  // store's answer is a property of the file system, not of what is in it).
-  async refreshCase() {
-    // one question, asked the one way it is asked anywhere (js/host/media-store.js detectCase): an empty store
-    // comes out unmeasured, and the next write asks again. Nothing here resolves a name through a path, so a
-    // folder whose directory spelling differs from what was asked for cannot decide it.
-    const store = this.media;
-    await (store.synchronous ? detectCaseSync(store) : measureOnce(store));
-    return this.caseInsensitive;
-  }
   checkNotInDrive(name, what) {
     const held = this.diskHolder(name);
     if (held) throw new SessionError(`${name.slice(DISK_PREFIX.length)}${held.name !== name ? ` (stored as ${held.name.slice(DISK_PREFIX.length)})` : ''} is in drive ${held.drive}${held.where}; eject it before you ${what} it.`);
@@ -2133,127 +1731,10 @@ export class Session {
     for (const { machine, where } of this.diskMachines()) {
       const fdc = this.diskControllerOf(machine);
       if (!fdc) continue;
-      const drive = fdc.drives.findIndex((d, i) => d.loaded && this.sameName(d.media.name, name) && !(skip && skip.machine === machine && skip.drive === i));
+      const drive = fdc.drives.findIndex((d, i) => d.loaded && this.library.sameName(d.media.name, name) && !(skip && skip.machine === machine && skip.drive === i));
       if (drive >= 0) return { drive, where, machine, name: fdc.drives[drive].media.name };
     }
     return null;
-  }
-  async renameMedia(from, to) {
-    const src = this.libName(from), prefix = src.startsWith(DISK_PREFIX) ? DISK_PREFIX : LIBRARY_PREFIX;
-    this.checkNotMoving();
-    this.checkNotInDrive(src, 'rename');
-    const dst = this.libName(to.startsWith(DISK_PREFIX) || to.startsWith(LIBRARY_PREFIX) ? to : prefix + to);
-    if (!dst.startsWith(prefix)) throw new SessionError(`${to}: a ${prefix === DISK_PREFIX ? 'disk image' : 'library item'} stays where it is`);
-    // The destination is a name this operation MAKES, so a disk image's must be a file's own name, as every other
-    // door that makes one insists -- and the refusal says what is wrong with it. Without this a rename to ' ' stored
-    // 'disks/ ' and a rename to 'sub/x.vdk' stored 'disks/sub/x.vdk': names no mount could read back.
-    if (prefix === DISK_PREFIX) {
-      const problem = diskFileNameProblem(dst.slice(DISK_PREFIX.length));
-      if (problem) throw new SessionError(`${to}: not a disk image name: ${problem}.`);
-    }
-    // A disk image's move runs as one CREATION, like a new disk or an import: one at a time, in the order each was
-    // asked, and its turn comes after every creation queued before it has ENDED. Two holes on main close with it:
-    //   - a rename onto a name a creation is making is refused above, before the queue (that creation's turn ends
-    //     before this rename's starts, so it is the creation's name while it lasts);
-    //   - a creation asked while this rename is queued runs after the rename has RUN, so its listing sees the moved
-    //     image under the new name and does not choose it. (On main the creation chose the name from a listing made
-    //     before the queued rename ran, and wrote its own bytes over the renamed image.)
-    const claim = prefix === DISK_PREFIX;
-    if (claim && this.claimedDiskName(dst)) throw new SessionError(`${to}: a disk is being made under that name: try again once it is done.`);
-    // A case-only rename on a store that does not tell cases apart cannot be done: it is one file, and the
-    // store's write-then-remove would replace it and then delete it. (The name is the name it already has.)
-    if (this.caseInsensitive && dst !== src && dst.toLowerCase() === src.toLowerCase()) {
-      throw new SessionError(`${to}: this ${this.media.kind === 'fsa' ? 'folder' : 'storage'} does not tell upper from lower case, so ${src.slice(prefix.length)} and ${to} are the same name.`);
-    }
-    const op = () => this.media.rename(src, dst);
-    const run = async () => {
-      const r = await this.libraryOp(() => (src.startsWith(DISK_PREFIX) ? this.diskStoreChange(op, [src, dst]) : op()));
-      // the rename took `dst`: land it, so a creation queued behind this one sees the name as taken (landedRace)
-      // and refuses, rather than reading it as a deliberate replace and writing its own bytes over the renamed
-      // image. And it vacated `src`: a creation queued behind must not read an earlier landing of that name as
-      // still taken. Both only on success: a rename that failed took nothing and vacated nothing.
-      if (claim) { this.creationLanded(dst); this.nameVacated(src); }
-      return r;
-    };
-    try {
-      return await (claim ? this.createExclusive(() => run()) : run());
-    } catch (e) { throw this.mediaError(e, from, src); }
-  }
-  async deleteMedia(name) {
-    const full = this.libName(name);
-    this.checkNotMoving();
-    this.checkNotInDrive(full, 'delete');
-    const op = () => this.media.remove(full);
-    try {
-      return await this.libraryOp(() => (full.startsWith(DISK_PREFIX) ? this.diskStoreChange(op, full) : op()));
-    } catch (e) { throw this.mediaError(e, name, full); }
-  }
-  // take a file the user picked into the library under `name`; ROM images go through identification, so
-  // they land in the index's own sockets rather than being written as an opaque blob; disk images go under
-  // DISK_PREFIX, where the drives find them
-  async importMedia(name, bytes) {
-    this.checkNotMoving();
-    if (Session.isRom(name, bytes)) return { roms: this.addRoms([{ name, bytes }]) };
-    // the file's own name is the last segment; anything that is not a file name (a path ending in a separator, a
-    // whitespace-only name, '.', '..') leaves nothing to name the file with. A disk image is refused as a disk
-    // (diskStoreName's rule, reached through this door too); anything else is refused as a file -- what it is is
-    // decided by its bytes, not by the missing name.
-    const base = name.split(/[\\/]/).pop();
-    const kind = detectMedia(base, bytes).kind;
-    if (!base || !isDiskFileName(base)) throw new SessionError(kind === 'disk' ? 'A disk image needs a name.' : 'A file needs a name.');
-    const target = kind === 'disk' ? DISK_PREFIX + base : this.libName(name);
-    this.checkNotInDrive(target, 'replace');   // synchronous, so it needs no creation's turn: a disk in a drive is not replaced
-    // non-disk media (programs, ROMs) are made by writes that replace, so they take no creation's turn; a disk
-    // image may replace one of its name, but not take a name a new disk (or another import) is making: it runs as
-    // one creation, ordered behind that one, and checks again (createExclusive)
-    const disk = target.startsWith(DISK_PREFIX);
-    // this runs when the creation's turn comes, which may be long after the caller was let in: a library move may
-    // have started meanwhile, and writing now would put the image in the folder it is moving away from. It runs as a
-    // Library operation, whose own check refuses it then (and which the move waits for once it has started).
-    if (disk) this.claimDiskName(target);   // before the creation's first await: a rename may not take the name it is making
-    const write = (askedAt) => this.libraryOp(async () => {
-      // a creation of this name landed after this one was asked for: a second creation of one name, refused rather
-      // than replacing it
-      const raced = this.landedRace(target, askedAt);
-      if (raced) throw new SessionError(`There is already a disk named ${raced.slice(DISK_PREFIX.length)} in your library: choose another name.`);
-      this.checkNotInDrive(target, 'replace');   // again, now no creation of the name is in flight
-      const r = await (disk ? this.diskStoreChange(() => this.media.write(target, bytes), target) : this.media.write(target, bytes));
-      // stored: landed however the rest ends, and only at the end (as importDiskStored)
-      // the store has a name now: on an empty store that is the first chance to put its case rule to the test (a
-      // read of the store it was written to, so inside the same Library operation)
-      try { await this.refreshCase(); } finally { if (disk) this.creationLanded(target); }
-      return { stored: r };
-    });
-    // What a failure is reported under. A disk image is stored under its own file name, so that is what the drives and
-    // the Library show; any other file is stored under the path the person dropped (library/dir/prog.bin), so its
-    // name is the stored one without the library prefix -- what the Library lists, not just the leaf.
-    const shown = disk ? base : target.slice(LIBRARY_PREFIX.length);
-    try { return disk ? await this.createExclusive(write) : await write(0); } catch (e) { throw this.mediaError(e, shown, target); }
-    finally { if (disk) this.releaseDiskName(target); }
-  }
-  // A store failure as the user should read it, named once. `name` is what the person sees (their file's own name);
-  // `stored` is the store's name for the file this operation works on, when the caller knows it -- and the caller
-  // always does: it is the name it just asked the store about. Nothing is guessed from the message: the two real
-  // backends lead their reason with the STORED path (`disks/work.vdk: permission was refused`), and that leading
-  // copy is dropped only when it is exactly this operation's stored name. Any other path the reason carries is
-  // kept: it is where the store failed, and a rename that fails at its destination must say so.
-  //   not-found, quota: said in the session's own words, with the name (what failed, then what to do); the store's
-  //     message is not used, so the several ways the backends word it (js/host/media-store-{fsa,opfs,memory}.js)
-  //     cannot make the sentence read differently.
-  // A SessionError is the session's own message already: it is handed on unchanged, so nothing above is said twice.
-  // What the page's background-write listener says when an index write fails (js/ui/main.js wires this method to its
-  // status line). The index's name IS the stored name, so it is handed over: without it a ROM image's path was
-  // repeated. -> the message
-  indexWriteError(name, e) { return this.mediaError(e, name, name).message; }
-  mediaError(e, name, stored = null) {
-    if (e instanceof SessionError) return e;
-    if (e && e.code === 'not-found') return new SessionError(`${name} is no longer stored in this browser; load it again.`);
-    if (e && e.code === 'quota') return new SessionError(`No space left in this browser's storage for ${name}. Delete something, or save your media as files.`);
-    let said = e && e.message ? e.message : 'storage error';
-    // the reason's leading "<path>: " is this file's copy of the name only when the path IS this operation's stored
-    // name for it -- compared whole, so a longer or different name is left alone (and a name with a space works)
-    if (stored && said.startsWith(`${stored}: `)) said = said.slice(stored.length + 2);
-    return new SessionError(`${name}: ${said}`);
   }
 
   // ---------------- programs and media ----------------
@@ -2378,7 +1859,7 @@ export class Session {
     try { bytes = blankDisk(format, tracks, heads); } catch (e) { throw new SessionError(e instanceof DiskFormatError ? e.message : String(e)); }
     // one creation at a time (createExclusive): the name is chosen and checked, written and mounted before another
     // creation looks, so a second one sees this disk and is refused rather than replacing its bytes
-    return this.createExclusive(async (askedAt) => {
+    return this.library.createExclusive(async (askedAt) => {
       // What this creation's errors are reported under. The listing below is the only throw here that is not
       // already a SessionError naming the disk (the name checks here and importDiskStored itself throw
       // SessionErrors, which mediaError hands on unchanged), so it is the one that needs a name. That name is the
@@ -2389,17 +1870,17 @@ export class Session {
       // name.") is still raised first, as it was when the derivation moved inside the turn.
       const label = (name ? this.diskStoreName(name).slice(DISK_PREFIX.length) : '') || 'A new disk';
       let listed;
-      try { listed = await this.listDisks(); } catch (e) { throw this.mediaError(e, label, DISK_PREFIX); }
+      try { listed = await this.listDisks(); } catch (e) { throw this.library.mediaError(e, label, DISK_PREFIX); }
       const stored = new Set(listed.map((d) => d.name));
       // on a store that does not tell cases apart, a name already there in another case is that same disk
-      const taken = (n) => stored.has(n) || [...stored].some((s) => this.sameName(s, n));
+      const taken = (n) => stored.has(n) || [...stored].some((s) => this.library.sameName(s, n));
       let full;
       if (name) {
         full = this.diskStoreName(name);
         const base = full.slice(DISK_PREFIX.length);
         if (detectDiskFormat(bytes, base) !== format) throw new SessionError(`${base}: a ${format.toUpperCase()} image needs a name ending .${format === 'jvc' ? 'dsk' : format}.`);
         if (taken(full)) {
-          const same = [...stored].find((s) => this.sameName(s, full));
+          const same = [...stored].find((s) => this.library.sameName(s, full));
           throw new SessionError(`There is already a disk named ${same.slice(DISK_PREFIX.length)} in your library: choose another name.`);
         }
       } else {
@@ -2408,11 +1889,11 @@ export class Session {
       }
       // the name is decided: claim it before the next await (importDiskStored's), so a rename cannot take it while
       // the blank is being written. (A name picked from the listing is claimed in the same step as the pick.)
-      this.claimDiskName(full);
+      this.library.claimDiskName(full);
       try {
         const msg = await this.importDiskStored(full, full.slice(DISK_PREFIX.length), bytes, drive, writeProtected, askedAt);
         return `New blank disk: ${msg}`;
-      } finally { this.releaseDiskName(full); }
+      } finally { this.library.releaseDiskName(full); }
     });
   }
   insertDiskDos(id) {
@@ -2567,41 +2048,41 @@ export class Session {
   // then meets it in its drive instead of replacing its bytes.
   async importDisk(name, bytes, drive = 0, { writeProtected = false } = {}) {
     this.checkDrive(drive);
-    this.checkNotMoving();
+    this.library.checkNotMoving();
     const full = this.diskStoreName(name), base = full.slice(DISK_PREFIX.length);
     const format = detectDiskFormat(bytes, base);
     if (!format) throw new SessionError(`${base}: not a disk image CLOADM can read (VDK, JVC/DSK or DMK).`);
     try { diskGeometry(bytes, format); } catch (e) { throw new SessionError(`${base}: ${e.message}`); }
-    return this.claimingDiskName(full, () => this.createExclusive((askedAt) => this.importDiskStored(full, base, bytes, drive, writeProtected, askedAt)));
+    return this.library.claimingDiskName(full, () => this.library.createExclusive((askedAt) => this.importDiskStored(full, base, bytes, drive, writeProtected, askedAt)));
   }
   // the stored part of importDisk, run as one creation. askedAt: the landing count when this creation was asked
   // for (see createExclusive), which tells a second creation of one name from a deliberate replace.
   async importDiskStored(full, base, bytes, drive, writeProtected, askedAt = 0) {
-    this.checkNotMoving();
+    this.library.checkNotMoving();
     // a creation of this name landed after this one was asked for: it is a second creation of one name, and must
     // refuse rather than replace. This is also the same-drive case the diskHolder checks below cannot see -- they
     // look for the image in a drive, and a creation's image may have been put in this very drive (the eject below
     // would remove it) or be about to be mounted after this operation read the drive as empty.
     // a creation of this name landed after this one was asked for -- a new disk, an import or a RENAME (all three
     // are creations: one at a time, in ask order) -- so this one is a second creation and refuses
-    const raced = this.landedRace(full, askedAt);
+    const raced = this.library.landedRace(full, askedAt);
     if (raced) throw new SessionError(`There is already a disk named ${raced.slice(DISK_PREFIX.length)} in your library: choose another name.`);
     const holder = this.diskHolder(full, { machine: this.diskMachine, drive });
     if (holder) throw new SessionError(`${holder.name} is in drive ${holder.drive}${holder.where}; eject it there first.`);
-    if (this.diskStatus().drives.some((d) => this.sameName(d.name, full))) await this.ejectDisk(drive);
+    if (this.diskStatus().drives.some((d) => this.library.sameName(d.name, full))) await this.ejectDisk(drive);
     await this.diskWritesDone();
     // checked again with nothing left to wait for: a mount of this name that went in meanwhile keeps its file
     const again = this.diskHolder(full);
     if (again) throw new SessionError(`${again.name} is in drive ${again.drive}${again.where}; eject it there first.`);
-    this.checkNotMoving();
-    try { await this.diskStoreChange(() => this.media.write(full, bytes), full); } catch (e) { throw this.mediaError(e, base, full); }
+    this.library.checkNotMoving();
+    try { await this.diskStoreChange(() => this.media.write(full, bytes), full); } catch (e) { throw this.library.mediaError(e, base, full); }
     // The name is stored, so from here on this creation lands it however it ends -- mounted, a mount that fails, or a
     // case probe that throws -- and it lands it only at the end: a creation asked at any point while this one runs
     // (askedAt below this landing) is waiting behind it and refuses, while one asked after it finished is a
     // deliberate replace. Landing straight after the write would let an import asked between the write and the end
     // count as a replace and take the name.
     try {
-      await this.refreshCase();   // the store has a name now: it can put its case rule to the test
+      await this.library.refreshCase();   // the store has a name now: it can put its case rule to the test
       // stored by now: a mount that fails says so, rather than that the import did not happen
       try { return await this.mountDisk(drive, full, { writeProtected }); }
       catch (e) { throw new SessionError(`${base} was saved to your Library but not put in drive ${drive}: ${e.message}`); }
@@ -2612,15 +2093,15 @@ export class Session {
       // creation's own messages exact: the "in drive N" refusals, and the mount failure just above, which already
       // names the disk. (A backend message that itself embeds the path therefore repeats it, exactly as
       // importMedia's has always done: mediaError adds the name to whatever the store said.)
-      throw this.mediaError(e, base, full);
-    } finally { this.creationLanded(full); }
+      throw this.library.mediaError(e, base, full);
+    } finally { this.library.creationLanded(full); }
   }
   // a stored disk image into a drive (plugging in the disk cartridge if none is) -> message
   // opts[HELD]: as for mountDriveWire (the caller's Library operation is what the move waits for)
   async mountDisk(drive, name, opts = {}) {
     const { writeProtected = false } = opts, held = opts[HELD] === true;
     this.checkDrive(drive);
-    if (!held) this.checkNotMoving();
+    if (!held) this.library.checkNotMoving();
     const full = this.storedDiskName(name), base = full.slice(DISK_PREFIX.length);
     const holder = this.diskHolder(full, { machine: this.diskMachine, drive });
     if (holder) throw new SessionError(`${holder.name} is already in drive ${holder.drive}${holder.where}.`);
@@ -2640,20 +2121,20 @@ export class Session {
     // a change queued while the store is read cannot slip past it. Every change to this image, under any spelling
     // it shares, spends the four-read budget; another file's changes never do. The rule is taken once per pass, so
     // the count before and after a read are summed over the same names even if the store is measured meanwhile.
-    const changesTo = (ci) => { let c = 0; for (const [n, k] of this.diskChanges) if (this.sameName(n, full, ci)) c += k; return c; };
+    const changesTo = (ci) => { let c = 0; for (const [n, k] of this.diskChanges) if (this.library.sameName(n, full, ci)) c += k; return c; };
     let bytes, reads = 0;
     for (;;) {
       const flush = () => { const f = this.diskController; if (f && f.drives[drive].loaded) f.drives[drive].flush(); };
       flush();
       // counted before the wait: a change to this image queued from here on (even in the step after the wait)
       // means read again
-      const ci = this.caseInsensitive, before = changesTo(ci);
+      const ci = this.library.caseInsensitive, before = changesTo(ci);
       await this.diskWritesDone();
       try {
         const st = await this.media.stat(full);
         if (!st) throw new MediaStoreError('not-found', full);
         bytes = await this.media.readRange(full, 0, st.size);
-      } catch (e) { throw this.mediaError(e, base, full); }
+      } catch (e) { throw this.library.mediaError(e, base, full); }
       flush();
       const moved = changesTo(ci) !== before;
       if (!moved) break;
@@ -2663,7 +2144,7 @@ export class Session {
     // (into another drive, or into this one) is seen
     const again = this.diskHolder(full, { machine: this.diskMachine, drive });
     if (again) throw new SessionError(`${base} is already in drive ${again.drive}${again.where}.`);
-    if (!held) this.checkNotMoving();
+    if (!held) this.library.checkNotMoving();
     const format = detectDiskFormat(bytes, base);
     if (!format) throw new SessionError(`${base}: not a disk image CLOADM can read (VDK, JVC/DSK or DMK).`);
     fdc = this.diskController;
@@ -2700,9 +2181,6 @@ export class Session {
     p.then(() => this.diskChecks.delete(p));
   }
   disksChecked() { return Promise.all([...this.diskChecks]); }
-  // no disk goes in while the library is being moved (moveMedia): it would be read from one place and written to the other
-  // (nor does the Library change anything: the copy would miss it, and the library moved to would not have it)
-  checkNotMoving() { if (this.movingMedia) throw new SessionError('The library is being moved: try again once it is done.'); }
   // A mounted disk's link to its stored image (media.onWrite). Each mount gets a link of its own, and the link is
   // the identity of that continuous mount of that stored image: link.mount = { id, name, writes (how many changes
   // the drive has handed to the store through it), failed (a write through it was refused and no whole image has
@@ -2809,10 +2287,10 @@ export class Session {
       const fdc = this.diskControllerOf(rollback.machine), d = fdc && fdc.drives[rollback.drive];
       if (d && d.loaded && d.media.onWrite && d.media.onWrite.mount === mount) d.media.onWrite = null;
       this.diskUnsaved.delete(name);
-      const why = this.mediaError(e, base, name).message.replace(/[.\s]+$/, '');
+      const why = this.library.mediaError(e, base, name).message.replace(/[.\s]+$/, '');
       this.addDiskError(new SessionError(`Drive ${rollback.drive}: the Library's ${base} couldn't be put back to the restored disk (${why}); the restored disk isn't saved to the Library. Download it to keep it.`));
     } else {
-      const err = this.mediaError(e, base, name);
+      const err = this.library.mediaError(e, base, name);
       this.addDiskError(err);
       this.diskUnsaved.set(name, err.message);
     }
@@ -2910,7 +2388,7 @@ export class Session {
     // refused; one that read before finds no file), so a per-name count would change nothing.
     // (diskStoreChange counts it in diskQueued all the same, so diskWritesSettled waits for it.)
     try {
-      await this.libraryOp(() => this.diskStoreChange(async () => {
+      await this.library.libraryOp(() => this.diskStoreChange(async () => {
         if (await this.media.stat(full)) throw new SessionError(`Your Library already has a disk named ${base}; download this one instead.`);
         if (fdc.drives[drive].media !== media || media.onWrite) throw new SessionError(`Drive ${drive} no longer holds that disk.`);
         d.flush();
@@ -2918,8 +2396,8 @@ export class Session {
         media.name = full; media.onWrite = this.diskLink(full);
         try { await this.media.write(full, bytes); } catch (e) { if (media.onWrite) { media.onWrite = null; media.name = oldName; } throw e; }
       }));
-    } catch (e) { throw this.mediaError(e, base, full); }
-    await this.refreshCase();
+    } catch (e) { throw this.library.mediaError(e, base, full); }
+    await this.library.refreshCase();
     this.emit('disks');
     return `Saved ${base} to your Library`;
   }
@@ -2989,7 +2467,7 @@ export class Session {
   // run: false types a BASIC listing without the RUN after it (the MCP server's load; the page always runs it)
   load(name, bytes, { askAddresses = null, remember = true, run = true } = {}) {
     const msg = this.loadMedia(name, bytes, askAddresses, { run });
-    if (remember) { this.rememberMedia(name, bytes); this.setLastRun('recent', name); }
+    if (remember) { this.library.rememberMedia(name, bytes); this.setLastRun('recent', name); }
     this.emit('loaded');
     return msg;
   }
@@ -3652,7 +3130,7 @@ export class Session {
     // the welcome program, if it runs, stays on the BASIC session: closing the chat comes back to its menu
     const chatMachine = createMachine(basic.id, drivewire ? Object.assign({}, basic.config, { becker: true }) : basic.config);
     if (drivewire) {
-      this.chatServer = new DriveWireServer({ store: this.media, namePrefix: DW_PREFIX, clock: this.drivewire.clock, sameName: (a, b) => this.sameName(a, b) });
+      this.chatServer = new DriveWireServer({ store: this.media, namePrefix: DW_PREFIX, clock: this.drivewire.clock, sameName: (a, b) => this.library.sameName(a, b) });
       this.chatServer.drives = this.drivewire.drives;
       chatMachine.becker.attach(this.chatServer);
       if (!channel) channel = new DriveWireChatChannel(this.chatServer, CHAT_DW_CHANNEL);

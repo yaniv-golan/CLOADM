@@ -128,7 +128,7 @@ const { check, rejects, failures } = checker();
       media.holdReadBack();
       const p1 = q(s.newDisk(0, { format: 'vdk', tracks: 40, heads: 2 }, { name: N }));
       await media.held();
-      const p2 = q(s.importMedia(N, vdk40x2()));
+      const p2 = q(s.library.importMedia(N, vdk40x2()));
       let early = false; p2.then(() => { early = true; });
       for (let i = 0; i < 5; i++) await new Promise((r) => setImmediate(r));
       check('Library import: importing the same name waits for the new disk to finish', !early);
@@ -148,7 +148,7 @@ const { check, rejects, failures } = checker();
       const realWrite = media.write.bind(media);
       let release = null, hold = 1;
       media.write = (n, b) => { if (n === 'disks/blank.vdk' && hold-- > 0) return new Promise((r) => { release = () => r(realWrite(n, b)); }); return realWrite(n, b); };
-      const p2 = q(s.importMedia(N, vdk40x2()));
+      const p2 = q(s.library.importMedia(N, vdk40x2()));
       for (let i = 0; i < 500 && !release; i++) await new Promise((r) => setImmediate(r));
       const atWrite = !!release;
       const p1 = q(s.newDisk(0, { format: 'vdk', tracks: 40, heads: 2 }, { name: N }));
@@ -286,7 +286,7 @@ const { check, rejects, failures } = checker();
       // the ORDER this case is about: the new disk has already chosen and written disk-1.vdk, but has not landed it
       // (no creation has finished), so the import below is asked while that creation is still in flight
       check('auto-named: the new disk has written disk-1.vdk and not yet landed it when the import is asked',
-        (await media.list('disks/')).map((f) => f.name).join() === 'disks/disk-1.vdk' && s.landing === 0, `landing=${s.landing}`);
+        (await media.list('disks/')).map((f) => f.name).join() === 'disks/disk-1.vdk' && s.library.landing === 0, `landing=${s.library.landing}`);
       const p2 = q(s.importDisk('disk-1.vdk', images.vdk(20, 1), 0));       // SAME drive, the name it will pick
       media.release();
       const r1 = await p1, r2 = await p2;
@@ -309,9 +309,9 @@ const { check, rejects, failures } = checker();
       media.holdReadBack();
       const p1 = q(s.newDisk(0, { format: 'vdk', tracks: 40, heads: 2 }, { name: N }));
       await media.held();
-      const p2 = q(s.importMedia('late.dsk', images.vdk(40, 1)));   // queued behind the held new disk
+      const p2 = q(s.library.importMedia('late.dsk', images.vdk(40, 1)));   // queued behind the held new disk
       for (let i = 0; i < 5; i++) await new Promise((r) => setImmediate(r));
-      const moving = s.moveMedia(target);                            // starts, and is held at its own write
+      const moving = s.library.moveMedia(target);                            // starts, and is held at its own write
       for (let i = 0; i < 50 && !tRelease; i++) await new Promise((r) => setImmediate(r));
       media.release();                                               // the new disk finishes; the import's turn comes now
       const r2 = await p2;
@@ -355,7 +355,7 @@ const { check, rejects, failures } = checker();
         && same(await media.read('disks/stuck.vdk'), Emu.blankDisk('vdk', 40, 1)) && same(await media.read('disks/after.vdk'), images.vdk(40, 1)));
       check('no deadline: stuck.vdk is in one drive only (0), after.vdk in 1',
         s.diskStatus().drives.map((d) => `${d.drive}:${d.file}`).join() === '0:stuck.vdk,1:after.vdk', JSON.stringify(s.diskStatus().drives));
-      check('no deadline: with the queue empty, no landing is kept', s.pendingLands.length === 0 && s.creationsAsked.length === 0, JSON.stringify(s.pendingLands));
+      check('no deadline: with the queue empty, no landing is kept', s.library.pendingLands.length === 0 && s.library.creationsAsked.length === 0, JSON.stringify(s.library.pendingLands));
     }
     // 10. R3: the first creation FAILS (its store write is refused) while a creation of the same name is queued: the
     //     queued one is not a second creation of anything and succeeds, its bytes stored and mounted.
@@ -410,8 +410,8 @@ const { check, rejects, failures } = checker();
       check('spelling: the replace lands, and the creation racing it is refused naming the spelling that landed last',
         rd.ok && !re.ok && re.m === 'There is already a disk named Game.dsk in your library: choose another name.', `${rd.m} | ${re.m}`);
       check('spelling: the store holds the replace\'s bytes, in drive 0 only', same(await media.read('disks/GAME.DSK'), images.vdk(40, 2))
-        && s.diskStatus().drives.filter((d) => s.sameName(d.name, 'disks/game.dsk')).map((d) => d.drive).join() === '0', JSON.stringify(s.diskStatus().drives));
-      check('pruning: with the queue empty, no landing is kept', s.pendingLands.length === 0 && s.creationsAsked.length === 0, JSON.stringify(s.pendingLands));
+        && s.diskStatus().drives.filter((d) => s.library.sameName(d.name, 'disks/game.dsk')).map((d) => d.drive).join() === '0', JSON.stringify(s.diskStatus().drives));
+      check('pruning: with the queue empty, no landing is kept', s.library.pendingLands.length === 0 && s.library.creationsAsked.length === 0, JSON.stringify(s.library.pendingLands));
     }
      // 13. the new disk's blank is stored but its mount FAILS (not because the library is moving: the read-back finds
     //     nothing), while an import of its name is queued. The creation still landed the name, so the import is

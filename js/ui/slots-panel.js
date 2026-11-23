@@ -19,7 +19,7 @@ export function setupSlotsPanel(page, { snapshots }) {
     // can take a while to answer: shown meanwhile, they flashed up on a first visit)
     if (session.welcomeRunning) $('quickSave').hidden = true;
     let slots;
-    try { slots = await session.listSlots(); } catch (e) { page.status(session.mediaError(e, 'the snapshots').message, true); return; }
+    try { slots = await session.listSlots(); } catch (e) { page.status(session.library.mediaError(e, 'the snapshots').message, true); return; }
     $('quickSave').hidden = session.welcomeRunning && slots.every((s) => s.empty);
     box.replaceChildren(...slots.map((s) => {
       const row = el('div', null, 'row slot-row'); row.dataset.slot = s.n;

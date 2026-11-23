@@ -314,7 +314,7 @@ const ACT = {
       check('repro: the writer firmware ran during the turn (drive 0 written since the point)', await r.write() && same(await r.read('work.vdk'), r.w0));
       await s.ejectDisk(0);
       const lib = images.vdk(40, 2).fill(0x5A, 12);
-      await s.importMedia('work.vdk', lib);
+      await s.library.importMedia('work.vdk', lib);
       await s.mountDisk(0, 'work.vdk');
       const from = r.writes.length;
       const res = s.restoreClaude();
@@ -332,7 +332,7 @@ const ACT = {
       const r = await rig(), { s } = r;
       await r.point(); await r.write();
       await s.ejectDisk(0);
-      await s.deleteMedia('disks/work.vdk');
+      await s.library.deleteMedia('disks/work.vdk');
       const fresh = images.vdk(40, 2).fill(0x3C, 12);
       await s.importDisk('work.vdk', fresh, 0);
       const from = r.writes.length;
@@ -361,10 +361,10 @@ const ACT = {
       check('full screen: the chat machine is on screen, the BASIC session keeps its drives', s.shownMachine !== r.m && s.chatTarget().machine === r.m && r.basicStored(0) === true);
       await r.point(); await r.write();
       const lib = images.vdk(40, 2).fill(0x5A, 12);
-      const imp = await s.importMedia('work.vdk', lib).then(() => null, (e) => e);
-      const ren = await s.renameMedia('disks/work.vdk', 'gone.vdk').then(() => null, (e) => e);
-      const del = await s.deleteMedia('disks/work.vdk').then(() => null, (e) => e);
-      const mov = await s.moveMedia(new MemoryMediaStore()).then(() => null, (e) => e);
+      const imp = await s.library.importMedia('work.vdk', lib).then(() => null, (e) => e);
+      const ren = await s.library.renameMedia('disks/work.vdk', 'gone.vdk').then(() => null, (e) => e);
+      const del = await s.library.deleteMedia('disks/work.vdk').then(() => null, (e) => e);
+      const mov = await s.library.moveMedia(new MemoryMediaStore()).then(() => null, (e) => e);
       check('full screen: replacing, renaming, deleting a disk in the BASIC session\'s drive, or moving the library, is refused, naming the BASIC session',
         [imp, ren, del, mov].every((e) => e instanceof Emu.SessionError && /drive 0 of your BASIC session/.test(e.message)) && same(await r.read('work.vdk'), r.w0),
         [imp, ren, del, mov].map((e) => (e ? e.message : 'accepted')).join(' | '));
@@ -500,7 +500,7 @@ const ACT = {
     // two mounts of the same image into two drives at once: one is refused
     {
       const r = await rig(), { s } = r;
-      await s.importMedia('x.vdk', images.vdk(40, 1));
+      await s.library.importMedia('x.vdk', images.vdk(40, 1));
       const [a, b] = await Promise.all([s.mountDisk(2, 'x.vdk'), s.mountDisk(3, 'x.vdk')].map((q) => q.then(() => null, (e) => e)));
       const held = s.diskStatus().drives.filter((d) => d.name === 'disks/x.vdk');
       check('two mounts of one image into two drives at once: exactly one goes in, the other is refused saying where it is',
@@ -566,8 +566,8 @@ const ACT = {
       media.readRange = async (...a) => { const out = await rr(...a); await sleep(30); return out; };
       const pm = s.mountDisk(0, 'work.vdk').then(() => null, (e) => e);
       await sleep(10);
-      const r1 = await s.renameMedia('disks/work.vdk', 'moved.vdk').then(() => null, (e) => e);
-      const r2 = await s.renameMedia('disks/other.vdk', 'work.vdk').then(() => null, (e) => e);
+      const r1 = await s.library.renameMedia('disks/work.vdk', 'moved.vdk').then(() => null, (e) => e);
+      const r2 = await s.library.renameMedia('disks/other.vdk', 'work.vdk').then(() => null, (e) => e);
       const em = await pm;
       const d = s.diskControllerOf(r.m).drives[0];
       const stored = await media.read('disks/work.vdk').catch(() => null);
@@ -617,7 +617,7 @@ const ACT = {
       link(100, new Uint8Array([0xAB]), fdc.drives[0].media.bytes.length);
       fdc.eject(0); fdc.eject(1);
       const dst = new MemoryMediaStore();
-      await s.moveMedia(dst);
+      await s.library.moveMedia(dst);
       check('moving the library: a disk write still on its way when the disks were ejected reaches the new place', s.media === dst && (await dst.read('disks/work.vdk'))[100] === 0xAB);
     }
     {
@@ -627,7 +627,7 @@ const ACT = {
       const theirs = images.vdk(40, 1); theirs.fill(0x55, 100, 4000);
       dst.writeSync('disks/work.vdk', theirs);   // the folder already has a different work.vdk
       const slowStat = dst.stat.bind(dst); dst.stat = async (nm) => { await new Promise((res) => setTimeout(res, 5)); return slowStat(nm); };
-      const [mv, mt] = await Promise.all([s.moveMedia(dst), s.mountDisk(0, 'work.vdk')].map((q) => q.then((x) => x, (e) => e)));
+      const [mv, mt] = await Promise.all([s.library.moveMedia(dst), s.mountDisk(0, 'work.vdk')].map((q) => q.then((x) => x, (e) => e)));
       const d = s.diskControllerOf(r.m).drives[0];
       check('a mount while the library moves is refused (it would read one place and write the other); the move completes',
         mt instanceof Emu.SessionError && /library is being moved/.test(mt.message) && !(mv instanceof Error) && s.media === dst && !d.loaded,
@@ -639,9 +639,9 @@ const ACT = {
       await s.ejectDisk(0); await s.ejectDisk(1);
       const dst = new MemoryMediaStore();
       const slowStat = dst.stat.bind(dst); dst.stat = async (nm) => { await new Promise((res) => setTimeout(res, 5)); return slowStat(nm); };
-      const mv = s.moveMedia(dst);
+      const mv = s.library.moveMedia(dst);
       await new Promise((res) => setTimeout(res, 7));
-      const tries = await Promise.all([s.importMedia('fresh.vdk', images.vdk(40, 1)), s.deleteMedia('disks/other.vdk'), s.renameMedia('disks/work.vdk', 'moved.vdk')].map((q) => q.then(() => null, (e) => e)));
+      const tries = await Promise.all([s.library.importMedia('fresh.vdk', images.vdk(40, 1)), s.library.deleteMedia('disks/other.vdk'), s.library.renameMedia('disks/work.vdk', 'moved.vdk')].map((q) => q.then(() => null, (e) => e)));
       const mvErr = await mv.then(() => null, (e) => e);
       const names = (await dst.list('disks/')).map((f) => f.name).join(',');
       check('while the library moves, importing, deleting and renaming disks are refused; the moved library has exactly the disks it had',
@@ -664,7 +664,7 @@ const ACT = {
       await r.point(); await r.write();
       await s.ejectDisk(0);
       const lib = images.vdk(40, 2).fill(0x5A, 12);
-      await s.importMedia('work.vdk', lib);
+      await s.library.importMedia('work.vdk', lib);
       await s.mountDisk(0, 'work.vdk');
       let calls = 0; const real = s.restorePoint.bind(s); s.restorePoint = (m, snap) => { calls++; return real(m, snap); };
       const from = r.writes.length;
