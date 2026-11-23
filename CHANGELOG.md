@@ -382,6 +382,7 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 
 ### Fixed
 
+- **Two debuggers could end up on one machine.** A `Debugger` made directly on a machine that already had one left both attached, so a watched write counted twice and the snapshot carried a different debugger from the one the Session drove. A machine now has one debugger: a new one takes the old one's place, `session.debug` returns the one the machine already carries, and adopting the machine already shown keeps its debugger.
 - **Run after a long debugger Over or Out no longer leaves the machine frozen for seconds.** Over, Out, Run to and
   Step run outside the frame loop, and their frames were not closed as machine time passed them: after an Over of a
   million instructions the machine was some 170 frames past its open frame, and Run then closed one empty frame per
