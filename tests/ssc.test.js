@@ -52,6 +52,8 @@ function host() {
     ioTime: () => Math.round(h.t),
     clockUnits: () => Math.round(h.t),
     tickAt: (u) => Math.round(h.t) + u,
+    powerOnTick: () => 0,
+    cartClockHz: 1e6,   // the port's clock equals tickHz: one tick per card cycle, as on the SAM machines
     schedule(at, name, arg) {
       h.q.push({ at, name, arg, seq: h.seq++ });
       h.q.sort((a, b) => a.at - b.at || a.seq - b.seq);
@@ -623,6 +625,34 @@ function host() {
       rows.length >= 2 && distinct === rows.length, `${rows.length} changes, ${distinct} distinct stamps`);
     check(`AY timestamps (${label}): each stamp is its sample's period start, within the instruction just run`,
       offGrid === 0 && worst < 64, `${offGrid} off the 4-cycle grid or ahead of the card, worst cardPos - stamp ${worst}`);
+  }
+}
+
+// ---------------------------------------------------------------------------------------------------
+// The card's clock against MAME's: the first AY write of gen-ay.js's program happens 129 card cycles after
+// power-on and the second 216 after it. Those are MAME 0.264's own figures (a Lua tap on the PIC's port C,
+// `coco -ext ssc`, the time of each write times 894,886 Hz); 129 is also the sum of the program's first
+// instructions' cycle counts. Two bugs this pins:
+// the card starting at the CPU's first instruction instead of the power-on origin (it read 133), and the card
+// counting one cycle per machine tick on the CoCo 3, where a tick is a quarter of one (it ran 4 times fast).
+{
+  const { ourMachine } = require('../tools/mame-diff/ssc/audio.js');
+  for (const profileId of ['coco', 'coco3']) {
+    const m = ourMachine(profileId);
+    const pak = m.cartPort;
+    // in TIME, as card cycles of the port's 894,886 Hz clock: ticks x cartClockHz / tickHz (not the code's own
+    // ticks-per-cycle, which a wrong rate would cancel out of)
+    const writes = [];
+    const orig = pak.ay.dataW;
+    pak.ay.dataW = function (v) {
+      writes.push(Math.round(Number(pak.cardPos - BigInt(m.powerOnTick())) * m.cartClockHz / m.tickHz));
+      return orig.call(this, v);
+    };
+    for (let f = 0; f < 3; f++) m.runFrame();
+    check(`card clock (${profileId}): the first AY write is 129 card cycles after power-on, as in MAME`,
+      writes[0] === 129, `${writes[0]}`);
+    // and the second at MAME's 216 (the same tap)
+    check(`card clock (${profileId}): the second AY write at 216, as in MAME`, writes[1] === 216, `${writes[1]}`);
   }
 }
 
