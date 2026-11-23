@@ -405,6 +405,14 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 
 ### Fixed
 
+- **The Speech/Sound Pak's music now sounds as MAME's does.** Its AY-3-8913 had three faults, each found by a new
+  comparison with MAME 0.264's `-wavwrite` (`node tools/mame-diff/ssc/audio.js`): it played every tone an octave low
+  (its stream ran at half its clock's rate), its levels were three channel levels added where the chip has one
+  output network (MAME's single-output table, at the Pak's gain of 2), and a register write reached it a few
+  cycles early. The Pak's own clock was also wrong: on the CoCo 3 it ran 4 times fast, and on every model it
+  started 4 cycles after power-on. On the CoCo 1/2, CoCo 2B, CoCo 3 and Dragon 64 every AY write now lands at
+  MAME's time and every steady level matches MAME's recording exactly. The CoCo 3 `$0405` difference in the
+  interrupt comparison remains (the sound-activity bit, which is still a stub), and speech is still not implemented.
 - **The Dragon 64 Plus had the 6551 but no RS-232 port.** Like the Dragon 64 (MAME's `d64plus()` starts from `dragon64()`), it now has the port: PIA1 PB0 reads its RXD, idle high.
 - **Two debuggers could end up on one machine.** A `Debugger` made directly on a machine that already had one left both attached, so a watched write counted twice and the snapshot carried a different debugger from the one the Session drove. A machine now has one debugger: a new one takes the old one's place, `session.debug` returns the one the machine already carries, and adopting the machine already shown keeps its debugger.
 - **Run after a long debugger Over or Out no longer leaves the machine frozen for seconds.** Over, Out, Run to and

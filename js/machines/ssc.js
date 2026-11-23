@@ -119,7 +119,7 @@ class SpeechSoundPak extends SlotDevice {
     this.soundActive = false;   // the SAC's envelope follower is above its threshold
     this.sacEnvelope = 0;
     this.cardPos = 0n;      // where the card's clock has run to, in machine ticks
-    this.ayDiv = 0;         // card cycles since the AY's last sample (AY_DIV per sample)
+    this.ayDiv = 0;         // card cycles into the AY's current sample period (0: the next cycle starts a sample)
     this.ayWrites = null;   // the AY bus writes of the PIC instruction being run (toAy), applied at its end
     this.ayOut = new Float32Array(1);   // the AY's one output (single-output mode), one sample
     // The Pak's level as the machine's sound path last heard it: the AY's single output times AY_GAIN, or 0
@@ -359,19 +359,51 @@ class SpeechSoundPak extends SlotDevice {
     this.ayWrites = null;
     const start = this.cardPos, k = this.cardTicksPerCycle();
     this.cardPos += BigInt(Math.max(1, cycles) * k);
-    // the AY's stream and the SP0256 are stepped for each cycle the PIC took. Each AY sample is stamped with the
-    // START of its own period, the AY_DIV cycles that end at the cycle which completes it: the sample is the
-    // level for that whole period, as a MAME stream sample is for its (a register written inside the period is
-    // in that sample on both sides). Measured against MAME's -wavwrite (gen-ay.js), stamping at the period's
-    // end puts every level change one AY sample late; stamping at the instruction's end, as an earlier revision
-    // did, moved them by up to an instruction's length as well.
+    // the AY's stream and the SP0256 are stepped for each cycle the PIC took. An AY sample is made at the START of
+    // its period (every AY_DIV card cycles from power-on, MAME's sample k at time k / stream rate) and stamped with
+    // that start: it is the level for its whole period. This instruction's AY writes land after the loop, at the
+    // instruction's end T, so every sample that started before T plays the old registers and the first one to
+    // start at or after T plays the new. That is MAME's order: a write calls the stream's update() up to T, and a
+    // stream view's end index rounds UP (sound.h read_stream_view: time_to_buffer_index(end, true)), so the
+    // sample in progress at T is made before the register changes. Measured against MAME's -wavwrite (gen-ay.js):
+    // giving that sample the new value instead put tone channels half a period out of phase after a period
+    // change, and stamping a sample at its period's end put every level change one AY sample late.
+    //
+    // config.mameCompat: MAME's AY samples fall on its own grid instead (mameAySamples below), so they are made
+    // there, by the same rule: every sample that starts before the instruction's end, before its writes.
+    const grid = this.host && this.host.config && this.host.config.mameCompat;
+    if (grid) this.mameAySamples(start, this.cardPos);
     for (let i = 0; i < Math.max(1, cycles); i++) {
-      if (this.ay.step) {
-        if (++this.ayDiv >= AY_DIV) { this.ayDiv = 0; this.stepAy(start + BigInt((i + 1 - AY_DIV) * k)); }
+      if (!grid) {
+        if (this.ayDiv === 0) this.stepAy(start + BigInt(i * k));
+        this.ayDiv = (this.ayDiv + 1) % AY_DIV;
       }
       if (this.sp0256.step) this.sp0256.step();
     }
     for (const [fn, v] of writes) fn.call(this.ay, v);
+  }
+  // MAME's AY sample grid (config.mameCompat; a deviation documented in docs/verification.md). On the hardware the
+  // AY makes one sample per AY_DIV card cycles. MAME keeps device clocks as whole hertz: the Pak is 894,886 Hz
+  // (the slot's 894,886.25 truncated; 888,625 on the Dragon), the AY DERIVED_CLOCK(2, 1) of that, 1,789,772 Hz, and
+  // its stream clock / 8 = 223,721 samples a second (integer division; 4 card cycles would be 223,721.56). A stream
+  // sample's start is counted within each second, `second + index x period` with the period 1e18 / rate
+  // attoseconds truncated (sound.cpp stream_buffer, time_to_buffer_index). So MAME's grid slips about half a sample
+  // a second against the card's cycles, and a write near a sample boundary lands one sample later than on the
+  // hardware grid: measured with gen-ay.js at 1.008 s, that put a tone half a period out of phase. Here the samples
+  // whose MAME start is in [from, to) (machine ticks) are made, each stamped with the tick its start falls in.
+  mameAySamples(from, to) {
+    const host = this.host, unit = host.unitAttos, origin = BigInt(Math.round(host.powerOnTick()));
+    const rate = BigInt(Math.floor(Math.floor(host.cartClockHz) * 2 / 8)), sec = 10n ** 18n, period = sec / rate;
+    const attosOf = (tick) => (tick - origin) * unit;
+    // the first sample starting at or after `t`: time_to_buffer_index rounding up, within t's second
+    const firstAt = (t) => (t / sec) * rate + ((t % sec) + period - 1n) / period;
+    const startOf = (i) => (i / rate) * sec + (i % rate) * period;
+    const end = attosOf(to);
+    for (let i = firstAt(attosOf(from)); ; i++) {
+      const t = startOf(i);
+      if (t >= end) break;
+      this.stepAy(origin + t / unit);
+    }
   }
   // One AY sample, and the level it leaves on the machine's sound path: the chip's single output times AY_GAIN.
   // The host is told only when the level changes - the same "report level changes" contract the Games Master

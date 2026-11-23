@@ -74,7 +74,7 @@ What each machine's comparison with MAME 0.264 showed when it was verified (the 
 | Dragon 64 + Speech/Sound Pak (`--ssc`, masked-interrupt case) | 1,156,994 instructions compared (a 4-second run: the count of instructions the comparison covers, not of the firmware's work), HALT reached at 195,913 — the **same trace** as the CoCo's, instruction for instruction: measured, both reach HALT after 195,913 instructions and 708,037 cycles, and the trace hash to HALT is the same (`7b896afc`) on both. The compared count differs from the CoCo's (1,164,214) only because the run is bounded by emulated seconds and the two models' clocks differ slightly (888,625 vs 894,886 Hz, 0.7 %), not because the PAL frame is longer: a longer frame holds proportionally more instructions, so the rate per emulated second is nearly the same | – | – |
 | Color Computer + Speech/Sound Pak (`--ssc int3`, interrupt case) | outcome comparison against MAME: 107 of 107 device-write rows identical, work RAM identical, HALT on both sides (not an instruction lockstep: the two CPUs overlap, see below). **The work-RAM match is not coverage of the sound-activity bit**: `$0405` holds a `$FF7E` status read whose bit 5 comes from an activity window this emulator does not model, and this model's pass depends on the firmware's fixed read landing outside that window (see below) | – | – |
 | CoCo 2B + Speech/Sound Pak (`--ssc int3`, interrupt case) | outcome comparison against MAME: 107 of 107 device-write rows identical, work RAM identical, HALT on both sides (this model's own `compare.js` run, not the CoCo's). As above, the work-RAM match is **not** coverage of bit 5 | – | – |
-| CoCo 3 + Speech/Sound Pak (`--ssc int3`, interrupt case) | **outcome comparison against MAME differs**, and is not claimed: the device writes still match (107 of 107 rows) and both sides reach HALT, but the final work RAM does not — MAME leaves `$0405` = `$DF` and we leave `$FF`. `$0405` holds a `$FF7E` status read and bit 5 is the sound-activity circuit: on MAME that bit dips low for a while after an allophone load, and the firmware's fixed read 18.4 ms after the load lands **inside** that dip here and outside it on the CoCo 1/2 and 2B. Our own model stubs the circuit and always reads the bit high, so we read `$FF` on every model. Why the dip sits at a different offset on the CoCo 3 is **not established**. Our side is still pinned in the gate as `trace coco3 ssc int3 (our side; MAME differs at $0405)` | – | – |
+| CoCo 3 + Speech/Sound Pak (`--ssc int3`, interrupt case) | **outcome comparison against MAME differs**, and is not claimed: the device writes still match (107 of 107 rows) and both sides reach HALT, but the final work RAM does not — MAME leaves `$0405` = `$DF` and we leave `$FF`. `$0405` holds a `$FF7E` status read and bit 5 is the sound-activity circuit: on MAME that bit dips low for a while after an allophone load, and the firmware's fixed read 18.4 ms after the load lands **inside** that dip here and outside it on the CoCo 1/2 and 2B. Our own model stubs the circuit and always reads the bit high, so we read `$FF` on every model. This difference is **known and open** (below: it is not the card's clock, which ran 4 times fast on the CoCo 3 and is fixed; it is the stubbed circuit). Our side is still pinned in the gate as `trace coco3 ssc int3 (our side; MAME differs at $0405)` | – | – |
 | Dragon 64 + Speech/Sound Pak (`--ssc int3`, interrupt case) | outcome comparison against MAME: 107 of 107 device-write rows identical, work RAM identical, HALT on both sides. As on the CoCo 1/2 and 2B, the work-RAM match is **not coverage of the sound-activity bit** (below), so that half is weaker than it looks; the write sequence is genuine | – | – |
 
 **Speech/Sound Pak** (`run.js coco --ssc`, `tools/mame-diff/ssc/`). The Pak's own ROMs are the user's, so the
@@ -139,8 +139,8 @@ allophone load:
 The firmware reads `$FF7E` at a **fixed 18.384 ms** after that load, the same figure on both models to the last
 digit. So the read does not move — the **window** does: 18.4 ms is outside the CoCo 2B's window (it reads `FF`)
 and inside the CoCo 3's (it reads `DF`). This emulator's own model of the circuit is a stub (`soundActive` is
-set false at `js/machines/ssc.js:107` and never set again), so bit 5 reads high unconditionally here, which is why
-we report `$FF` on every model.
+set false in the `SpeechSoundPak` constructor, `js/machines/ssc.js`, and never set again), so bit 5 reads high
+unconditionally here, which is why we report `$FF` on every model.
 
 Two consequences:
 
@@ -148,9 +148,13 @@ Two consequences:
   firmware's fixed read lands relative to a window we do not model. Move the settle delay in `ssc.asm` and those
   two could read `DF` as well. Their device-write sequence, which is what the card's decode determines, is genuine
   coverage and is unaffected.
-* **Why the dip sits at a different offset on the CoCo 3 is not established.** The card's clock is derived from the
-  machine's (a 13-instruction 6809 loop costs 16 card cycles on the CoCo 1/2 and 56 on the CoCo 3, measured here),
-  which is the obvious place to look, but the mechanism was not pinned down and is not claimed.
+* **The CoCo 3's `$0405` difference is known and open.** It was measured with the Pak's clock running 4 times fast on
+  the CoCo 3 (a 13-instruction 6809 loop cost 56 card cycles there against 16 on the CoCo 1/2): the card advanced
+  one cycle per machine tick, and a CoCo 3 tick is a GIME clock, a quarter of a CPU cycle. That is fixed (the card
+  counts the host's `cartClockHz`, below), and `compare.js coco3` still leaves 107 of 107 device writes identical
+  with `$0405` reading `$DF` on MAME and `$FF` here. So the clock was not the cause: what remains is the
+  sound-activity circuit, which this emulator stubs. It stays open until the circuit is modelled (deferred: MAME's
+  circuit averages the AY's level per stream update call, not per unit of time).
 
 Our side is also pinned as a hash in `tests/regress.test.js`, in the same form as every other case: the full
 instruction trace (registers and cycle counts) to HALT, plus the final work RAM and the ordered write sequence —
@@ -202,24 +206,59 @@ The "0 `SERVE`" run of the earlier revision and the comparison that now passes
 (`tools/mame-diff/ssc/compare.js`) were both run with the same harness. Between them the firmware gained the
 settle delay; no harness change is involved.
 
-**Not verified for the Speech/Sound Pak: its audio.** The Speech/Sound Pak plays its AY sound, gated by the CoCo
-sound mux as in MAME (`coco.cpp:555`: the cartridge is heard when PIA1 CB2 and PIA0 CB2 are high and PIA0 CA2 is
-low; an equality test, so all three high selects another source, and a cartridge in a Multi-Pak slot is gated
-the same way, as MAME's `coco_multi.cpp` forwards `set_sound_enable` to every slot). Its comparison with MAME
-`-wavwrite` is not yet passing, and the comparison is recorded as **not verified**. What is measured: each side's
-recording holds four level plateaus (a value held for roughly 120,000 samples at 48 kHz, so they are the waveform's
-levels and not resampler edges). MAME's are **10,371, 11,110, 16,407 and 16,994 LSB**; ours are **−12,288,
-−11,329, −4,546 and −3,587 LSB**. The steps between neighbouring plateaus are **739, 5,297 and 587 LSB** in
-MAME's recording and **959, 6,783 and 959 LSB** in ours, so step for step **MAME's is 0.770, 0.781 and 0.612 of
-ours**. A single offset and scale would make those three ratios equal; they are not, so no one offset-plus-scale
-map reconciles the two sets, and no slope is claimed between them. Largest difference 29,281 LSB
-against the cartridge comparisons' 2 LSB tolerance. **The cause is not established.**
+**The Speech/Sound Pak's AY sound** (`node tools/mame-diff/ssc/audio.js <coco|coco2b|coco3|dragon64>`). The Pak
+plays its AY sound gated by the CoCo sound mux as in MAME (`coco.cpp:555`: the cartridge is heard when PIA1 CB2 and
+PIA0 CB2 are high and PIA0 CA2 is low; an equality test, so all three high selects another source, and a cartridge
+in a Multi-Pak slot is gated the same way, as MAME's `coco_multi.cpp` forwards `set_sound_enable` to every slot).
+Both sides run our own firmware (`ssc/gen-ay.js`): the TMS7040 plays every step of an AY program from its own
+reset, so no 6809 handshake is in the sound, and the 6809 only opens the mux. The program covers every channel's
+volume 0-15 alone and against the others, all 16 envelope shapes on one, two and three channels and through a tone
+gate, tone periods 0, 1, $FFF and others, noise periods 0, 1, 16 and 31 alone and mixed, and a write to a
+deselected chip. Two checks, on each of the four models the Pak is offered on, both passing on MAME 0.264:
+
+| Model | AY data writes (MAME's time, Lua tap on the PIC's port C) | Levels (steady samples, 48 kHz, 2 channels) |
+|---|---|---|
+| CoCo 1/2 | 187 of 187, each within 0.331 card cycles | 539,538 compared, largest difference 0 LSB (tolerance 2) |
+| CoCo 2B | 187 of 187, within 0.331 | 539,538 compared, 0 LSB |
+| CoCo 3 | 187 of 187, within 0.456 | 533,726 compared, 0 LSB |
+| Dragon 64 | 187 of 187, within 0.000 | 539,400 compared, 0 LSB |
+
+The write limit is half a card cycle: MAME's Pak clock is 894,886 Hz, ours 894,886.25, under 0.4 cycle apart over
+the run. The levels are compared at every sample where both recordings hold one value for three samples running,
+from the later of 20 ms (MAME's first sound update period, as for the cartridges) and the 6809's opening of the mux:
+before it, the recording is the machine's own DAC and single-bit sound (compared by `sam/dac-sound.js`). The 2 LSB
+tolerance covers float rounding in the order MAME sums its streams; one AY level step here is at least 58 LSB.
+**Transitions are not part of the result**: at every level change MAME's recording is one output sample (1/48000 s)
+later than the resampler port puts ours, on every model. With that delay every sample matches within 1 LSB (the
+run reports it on its own line), and it is the same constant `cart/audio.js` measured for the cartridges, but its
+source in MAME's sound path is not established, so it is not applied to the result.
+
+What made it match, each found by this comparison and fixed in `js/chips/ay8910.js` and `js/machines/ssc.js`:
+* **The output network.** `coco_ssc.cpp:181` builds the AY-3-8913 with `set_flags(AY8910_SINGLE_OUTPUT)`, which
+  replaces the default legacy flag: its three channels are one resistor network into a 1 kOhm load, not three
+  levels added, and the table is not normalised (`build_3D_table` with `normalize = 0`); the Pak routes it at
+  `AY8913_GAIN 2.0` (`coco_ssc.cpp:59`). The AY core has a `'single'` output mode for it; the Dragon Alpha's
+  AY-3-8912 stays `'legacy'`. Before: four plateaus of −12,288 / −11,329 / −4,546 / −3,587 LSB against MAME's
+  10,371 / 11,110 / 16,407 / 16,994; after, those exactly (`tests/ay8910.test.js` pins MAME's four numbers).
+* **The stream rate.** The AY's clock is `DERIVED_CLOCK(2, 1)`, twice the card's cycle rate (the TMS7040's divider
+  of 2 is its own), and MAME streams it at clock / 8: one sample per 4 card cycles, not 8. Every tone played at half
+  MAME's frequency.
+* **When a write lands.** MAME's TMS7000 charges an instruction's cycles before executing it (`tms7000op.cpp`,
+  e.g. `am_i2p`), so a port write's time is the instruction's end, and the AY stream is brought up to that time
+  with the old registers, the sample in progress included (a stream view's end rounds up, `sound.h`). So every
+  sample that starts before the write plays the old registers and the first to start at or after it the new.
+  Getting this wrong put tones half a period out of phase after a period change.
+* **The card's clock.** At power-on the card started at the CPU's first instruction, 4 cycles after MAME's time 0
+  (every write 4 cycles late; the host now gives the power-on origin, `powerOnTick()`); and on the CoCo 3 it ran 4
+  times fast (above). Both are pinned by `tests/ssc.test.js` against MAME's write times, 129 and 216 card cycles.
+* **MAME's whole-hertz sample grid** (`config.mameCompat` only; "Deviations from MAME").
+
 Its speech (SP0256 synthesis) isn't implemented yet: the SP0256's model is the microsequencer
 and host interface, with no filter and no DAC, so nothing reaches the mixer from it. That part is verifiable
 without a copyrighted ROM: an SP0256 image built by our own tools can be installed in MAME and compared with
 `-wavwrite`, as AGENTS.md section 5 (Cartridges) describes — so it is a real remaining task.
 **The sound-activity circuit belongs to this same gap.** `$FF7E` bit 5 reports whether the speech chip is making
-sound, and this emulator stubs it to a constant high (`js/machines/ssc.js:107`), so the bit is wrong for as long as
+sound, and this emulator stubs it to a constant high (`soundActive` in `js/machines/ssc.js`), so the bit is wrong for as long as
 the SP0256's audio is; it is listed here rather than as a separate defect, and no work on it makes sense before
 speech audio exists.
 
@@ -1280,6 +1319,16 @@ names it.
   checks the silences and shows the runs between them without comparing them.
 
 MAME artefacts reproduced only under `config.mameCompat` (the comparisons turn it on; the product does not):
+
+* Speech/Sound Pak AY sample grid (`js/machines/ssc.js`, `mameAySamples`): on the hardware the AY makes one sample
+  per 4 card cycles (its clock is twice the card's, and a sample is 8 of its clocks). MAME keeps device clocks as
+  whole hertz, so the Pak is 894,886 Hz (888,625 on the Dragon), the AY 1,789,772 Hz and its stream 1,789,772 / 8 =
+  223,721 samples a second, counted from each second's start (`sound.cpp`, `time_to_buffer_index`), where 4 card
+  cycles would make 223,721.56. MAME's grid therefore slips about half a sample a second against the card's
+  cycles, and a register write near a sample boundary lands one sample later than on the hardware's grid; measured
+  with `ssc/gen-ay.js`, that put a tone half a period out of phase after a period change at 1.008 s. Under
+  `config.mameCompat` the AY's samples fall on MAME's grid; otherwise on the hardware's (`tests/ssc.test.js`:
+  223,721 and 223,722 samples in the first 894,886 card cycles).
 
 * CoCo 3 GIME vertical fine scroll (`$FF9C`): MAME 0.264 never scrolls a GIME-mode row (its top border resets the
   row's line counter on every line, `gime.cpp` `record_border_scanline`, after `new_frame` loaded VSC into it). The

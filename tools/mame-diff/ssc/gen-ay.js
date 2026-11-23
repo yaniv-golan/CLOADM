@@ -41,7 +41,7 @@ function steps() {
   for (let shape = 0; shape < 16; shape++) at([[8, 0x10], [13, shape]], 8);
   at([[9, 8], [10, 0x10], [13, 0x0E]], 10);                              // A and C on the envelope, B fixed
   at([[9, 0x10], [13, 0x0A]], 10);                                       // all three
-  at([[9, 0], [10, 0], [0, 40], [1, 0], [7, 0x3E], [13, 0x0C]], 10);     // A: envelope with its tone gate
+  at([[8, 0x10], [9, 0], [10, 0], [11, 32], [12, 0], [0, 40], [1, 0], [7, 0x3E], [13, 0x0C]], 10);   // A: envelope, tone gate
   // C. tones
   at([[7, 0x38], [0, 0], [1, 0], [2, 1], [3, 0], [4, 0xFF], [5, 0x0F], [8, 15], [9, 10], [10, 5]], 20);
   at([[0, 140], [2, 93], [4, 50], [5, 0]], 20);

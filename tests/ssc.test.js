@@ -656,5 +656,32 @@ function host() {
   }
 }
 
+// ---------------------------------------------------------------------------------------------------
+// The AY's sample grid. On the hardware the AY makes one sample per 4 card cycles, so the first 894,886 card cycles
+// (about a second) hold samples starting at 0, 4, ... 894,884: 223,722. MAME keeps clocks as whole hertz and runs
+// the stream at 1,789,772 / 8 = 223,721 samples a second, each 1e18 / 223,721 = 4,469,853,075,929 attoseconds,
+// while 894,886 card cycles of 1e18 / 894,886 attoseconds end at 999,999,999,999,449,554: 223,721 sample starts
+// fall before that. config.mameCompat follows MAME's grid (docs/verification.md, "Deviations from MAME"); without
+// it the hardware's. Both counted from the samples' stamps, the tick each sample starts in.
+{
+  const Emu = require('../tests/load.js')();
+  const { romImage } = require('../tools/mame-diff/lib/firmware.js');
+  const { ayPic, ayHost } = require('../tools/mame-diff/ssc/gen-ay.js');
+  const { buildSp0256 } = require('../tools/mame-diff/ssc/gen-roms.js');
+  for (const [mameCompat, want] of [[false, 223722], [true, 223721]]) {
+    const m = Emu.createMachine('coco', { mameCompat });
+    m.setRoms(Object.fromEntries(Emu.profiles.coco.roms.map((r) => [r.id, romImage(ayHost(), r.at, r.size, 0x12)])));
+    m.insertCartridge(new Emu.SpeechSoundPak({ tms7040Rom: ayPic(), sp0256Rom: buildSp0256() }));
+    m.reset(true);
+    const pak = m.cartPort, origin = BigInt(m.powerOnTick());
+    let count = 0;
+    const stepAy = pak.stepAy.bind(pak);
+    pak.stepAy = (at) => { if (at - origin < 894886n) count++; return stepAy(at); };
+    while (pak.cardPos - origin < 894886n + 100n) m.runFrame();
+    const label = mameCompat ? 'mameCompat: MAME\'s whole-hertz stream' : 'hardware: every 4 card cycles';
+    check(`AY sample grid (${label}): ${want} samples start in the first 894,886 card cycles`, count === want, `${count}`);
+  }
+}
+
 console.log(`${n - fail}/${n} SSC checks passed`);
 process.exitCode = fail ? 1 : 0;
