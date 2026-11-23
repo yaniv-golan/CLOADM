@@ -71,9 +71,9 @@ jobs:
           key: playwright-debs-1.63.0-${{ steps.image.outputs.image }}
       # Its own time limit, under the job's: a hung mirror fails this step loudly instead of running the job into its
       # timeout. Only the install is retried, inside the script; the browser check never is. The script's header has
-      # the decisions and the worst case (1340 s).
+      # the decisions and the worst case (2010 s).
       - name: Install the browser and its OS packages
-        timeout-minutes: 25
+        timeout-minutes: 35
         run: .github/scripts/install-browser-deps.sh
       - name: Run the whole browser check in one process
         run: |
