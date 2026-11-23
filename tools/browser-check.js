@@ -73,6 +73,38 @@ const run = lib.makeRun();
 const { check, skip } = run;
 const shotDir = (() => { const i = process.argv.indexOf('--screenshots'); return i > 0 ? process.argv[i + 1] : null; })();
 
+// bounded(promise, ms): { outcome, value, error }, outcome being 'settled', 'rejected' or 'timeout'.
+//
+// The TIMER IS CLEARED when the promise settles and UNREF'd as a belt, because an uncleared setTimeout keeps Node's
+// event loop alive: a run would idle up to `ms` AFTER printing its summary (measured: 14.9 s on every --only run
+// before this helper existed). The settled flag makes the losing side a no-op, so an abandoned promise cannot report
+// into a check that belongs to a later group.
+//
+// IT DOES NOT RETURN A BOOLEAN, deliberately. An earlier version returned true for both "settled" and "rejected",
+// so a caller testing `!won` treated a failed evaluate as a success and went on to read a value that was never set.
+//
+// NODE SIDE ONLY: it uses unref(), which the browser page does not have. Code inside page.evaluate() must not call
+// it (a setTimeout there is the browser's event loop, which nothing here can hold open).
+// the close bounds, one place each: a context close may take a moment; the browser itself, longer
+const CLOSE_MS = 10000;
+const BROWSER_CLOSE_MS = 15000;
+
+async function bounded(promise, ms) {
+  let settled = false;
+  let timer = null;
+  const timeout = new Promise((resolve) => {
+    timer = setTimeout(() => { if (!settled) { settled = true; resolve({ outcome: 'timeout' }); } }, ms);
+    timer.unref();          // belt: even a throw before clearTimeout cannot hold the loop open
+  });
+  return Promise.race([
+    // (a late settle cannot win the race - `timeout` has resolved by then - so there is no 'late' outcome to report;
+    // the settled flag's job here is only to stop the loser from touching a check)
+    promise.then((value) => { if (settled) return; settled = true; clearTimeout(timer); return { outcome: 'settled', value }; },
+      (error) => { if (settled) return; settled = true; clearTimeout(timer); return { outcome: 'rejected', error }; }),
+    timeout,
+  ]);
+}
+
 // a static server like the real host: a folder serves its index.html, and a folder named without its
 // trailing slash redirects to it (/play -> /play/). Every path it can't serve is recorded: no page may ask for a
 // missing resource (checked at the end of the run)
@@ -965,6 +997,8 @@ async function audioChecks(browser, base, check) {
       const ours = new URL('js/host/audio-worklet.js', document.baseURI).href;
       const tryIt = async (make, url) => {
         const c = make(), t0 = performance.now();
+        // (this runs IN THE PAGE: bounded() and unref() are Node-side, so the wait is a plain race here. The timer
+        // holds nothing open - it is the browser's event loop, not Node's.)
         const r = await Promise.race([c.audioWorklet.addModule(url).then(() => 'loaded', (e) => `rejected: ${e.message}`), new Promise((res) => setTimeout(() => res('pending after 5 s'), 5000))]);
         return `${r} (${Math.round(performance.now() - t0)} ms, ${c.state})`;
       };
@@ -1052,8 +1086,88 @@ async function audioChecks(browser, base, check) {
     return { jump, at, n: p.length, peak };
   });
   const where = (marks.filter((m) => m[1] <= at).pop() || ['start'])[0];
+  // SELF-DIAGNOSING: when the step is over the bound, print what the sample stream was doing around it, so the next
+  // failure names its cause instead of quoting one number. Measured on a planted step: it fires and prints the dump;
+  // a clean run prints nothing. Diagnosing only - the bound (0.01) and the firmware are untouched, because 20
+  // forced-stall runs at 500 ms produced no step (tools/audio-stall-probe.js: control 0.0079/0.0165, plant caught,
+  // stall 0/20), so there is no reproduced cause to fix.
+  //
+  // WHAT CAN AND CANNOT BE SHOWN. The page's sink is a PortSink (js/host/audio.js:148): it knows what was written,
+  // what the processor reported removed, and the context frame that report is as of, so `buffered()` is a real
+  // queue depth. The worklet's own SampleQueue - the fade envelope, the held `last` sample, the dry-block count - is
+  // ON THE AUDIO THREAD and has no channel back except the tap, so it is NOT read here: printing zeros for those
+  // would look like evidence and be none. The dry information the page does have is the tap's own blocks: a block
+  // that took fewer samples than it emits ran the queue dry.
+  let diag = '';
+  if (jump >= 0.01) {
+    // A dump that throws would replace the FAIL line with a crash, losing the very number that failed. So it is
+    // wrapped, a sink that is not the PortSink this expects says so by type, and the WAIT on it is BOUNDED: a stubbed
+    // or wedged sink must fail fast by name, never hold the check open. DUMP_MS is short because the evaluate reads
+    // numbers already in the page.
+    //
+    // Promise.race bounds the WAIT, not the WORK: an abandoned page.evaluate keeps running in the page. That is
+    // acceptable for a diagnostic at the end of an already-failed check, and it is why the group's own cleanup
+    // (ctx.close(), later) is raced against a timer too - a page still spinning in an abandoned evaluate must not
+    // be able to hang the close. A dump that can hang the check would be worse than no dump at all.
+    const DUMP_MS = 5000;
+    let d = null, dumpErr = null;
+    try {
+      const dump = page.evaluate(([at, where]) => {
+        const p = window.played, a = window.emu.audio, sink = a.out.sink;
+        const win = [];
+        for (let i = Math.max(0, at - 6); i <= Math.min(p.length - 1, at + 6); i++) win.push(+p[i].toFixed(5));
+        const blocks = window.blocks || [];
+        // a block that took fewer queued samples than its output length ran dry; the tap carries that per block
+        const dryBlocks = blocks.filter((b) => b.n < b.out.length).length;
+        const near = blocks.filter((b) => b.n < b.out.length).slice(-3)
+          .map((b) => ({ start: b.start, n: b.n, out: b.out.length, full: b.full, time: +b.time.toFixed(4) }));
+        // EVERY READ IN HERE IS GUARDED SEPARATELY. A sink is not ours to trust: one whose buffered() throws (a
+        // stubbed or broken sink) must cost that ONE field, not the whole dump - and a dump that rejects on a bad
+        // getter is how a diagnostic turns into a timeout. `safe` returns null and records why. (A getter that
+        // busy-loops cannot be caught by anything in the page: that is the caller's timeout, and it is stated as
+        // such in docs/verification.md.)
+        const errs = [];
+        const safe = (what, fn) => { try { return fn(); } catch (e) { errs.push(`${what}: ${(e && e.message) || e}`); return null; } };
+        const isPort = safe('isPort', () => sink && typeof sink.buffered === 'function' && 'written' in sink && 'removed' in sink) === true;
+        return {
+          sink: safe('sink', () => (sink ? sink.constructor.name : 'none')), portSink: isPort,
+          window: win, sampleIndex: at,
+          buffered: isPort ? safe('buffered', () => sink.buffered()) : null,
+          written: isPort ? safe('written', () => sink.written) : null,
+          removed: isPort ? safe('removed', () => sink.removed) : null,
+          reportFrame: isPort ? safe('reportFrame', () => sink.frame) : null,
+          ctxTime: safe('ctxTime', () => (a.ctx ? +a.ctx.currentTime.toFixed(4) : null)),
+          path: safe('path', () => a.path),
+          dryBlocks, blocks: blocks.length, lastDryBlocks: near, after: where,
+          readErrors: errs,
+        };
+      }, [at, where]);
+      // bounded() on the EVALUATE ITSELF, so a page that hangs (busy-loop or never resolves) costs DUMP_MS, not the
+      // run: our wait stops even if the page's own work cannot. A rejection is a named reason too - it must not be
+      // mistaken for a value (see bounded's note).
+      const b = await bounded(dump, DUMP_MS);
+      if (b.outcome === 'settled') d = b.value;
+      else if (b.outcome === 'timeout') dumpErr = `its read timed out after ${DUMP_MS} ms`;
+      else if (b.outcome === 'rejected') dumpErr = (b.error && b.error.message) || String(b.error);
+      else dumpErr = 'its read settled after the bound fired';
+    } catch (e) {
+      dumpErr = (e && e.message) || String(e);
+    }
+    if (dumpErr) {
+      diag = ` | dump unavailable: ${dumpErr}`;
+    } else {
+      // SAY WHEN: the window is the 13 played samples around the worst step (that IS "at that sample"); the sink and
+      // context fields are read when the dump runs, at the END of the run, not at the failing sample.
+      diag = ` | window around sample ${d.sampleIndex} after "${where}": ${JSON.stringify(d.window)}`
+        + ` | sink state read at the end of the run: ${JSON.stringify({
+          sink: d.sink, portSink: d.portSink, buffered: d.buffered, written: d.written, removed: d.removed,
+          reportFrame: d.reportFrame, ctxTime: d.ctxTime, path: d.path, dryBlocks: d.dryBlocks, blocks: d.blocks,
+          lastDryBlocks: d.lastDryBlocks, readErrors: d.readErrors })}`
+        + ' | (the worklet\'s fade/held sample are on the audio thread and not readable from the page)';
+    }
+  }
   check('sound: no pop across power cycle, reset, load, pause, turbo, sound off/on, machine switch and a busy page',
-    running && n > 48000 && jump < 0.01 && !errors.length, `${n} samples, largest step ${jump.toFixed(4)} (after "${where}"), peak ${peak.toFixed(3)}${errors.length ? ' ' + errors.join('; ') : ''}`);
+    running && n > 48000 && jump < 0.01 && !errors.length, `${n} samples, largest step ${jump.toFixed(4)} (after "${where}"), peak ${peak.toFixed(3)}${errors.length ? ' ' + errors.join('; ') : ''}${diag}`);
   // The window is 350 ms on the audio clock, and lies wholly inside the 500 ms spin.
   const WINDOW = 0.35;
   const busy = await page.evaluate((W) => {
@@ -1269,7 +1383,16 @@ async function audioChecks(browser, base, check) {
     kept.same && kept.nodes.worklet === 1 && kept.nodes.script === 0, JSON.stringify(kept));
   check('sound: no ScriptProcessorNode deprecation warning in the console', warnings.length === 0, warnings.join(' | '));
   check('sound: no page errors', !errors.length, errors.join('; '));
-  await ctx.close();
+  // the close is raced: a page still spinning in an abandoned dump evaluate must not hold the group open (see DUMP_MS
+  // above). A close that loses the race is REPORTED, not swallowed - an unclosed context is a leak in the run, so it
+  // is a FAIL (nonzero exit); the per-group cleanup and the final browser.close() still tear the browser down.
+  {
+    // bounded(): its timer is cleared when the close wins (an uncleared one held the process open 15 s after the
+    // summary), and a rejection arriving after the bound fired is swallowed rather than reported into a later group.
+    const b = await bounded(ctx.close(), CLOSE_MS);
+    if (b.outcome === 'rejected') run.check('sound: its audio context closes', false, (b.error && b.error.message) || String(b.error));
+    else if (b.outcome !== 'settled') run.check('sound: its audio context closes', false, `still open after ${CLOSE_MS} ms (left to the per-group cleanup and browser.close())`);
+  }
 
   // Fallback: without AudioWorklet (or when its module fails to load) the ScriptProcessorNode plays the same
   // output stage on the page's thread: sound still works, and the program's tone is in the samples it plays
@@ -13308,9 +13431,16 @@ async function semanticsChecks(browser, base, site, check) {
     await ready(page);
     await started(page);
     await waitFor(page, () => window.emu.session.screenAlternative().includes('TALK TO LIZA'));
-    // (the text alternative follows the screen within a second: wait for it to have caught up)
-    await waitFor(page, () => document.getElementById('screenAlt').textContent === window.emu.session.screenAlternative());
     const L = `semantics (${label})`;
+    // (the mirror catches up within its 1 s refresh: a bounded wait, so a mirror that stops updating fails HERE
+    //  rather than racing the equality below. This used to be a single-shot waitFor on the same equality the LIZA
+    //  check makes; it timed out 30 s on a mirror that never caught up, which is what a mutant of screen.js does.)
+    {
+      const settled = await page.evaluate(() => window.emu.session.screenAlternative());
+      const ok = await waitFor(page, (want) => document.getElementById('screenAlt').textContent === want, settled, 5000);
+      check(`${L}: the welcome menu's text alternative has reached #screenAlt`, ok,
+        `bound 5000 ms; live ${JSON.stringify(String(settled).slice(0, 80))}`);
+    }
     if (shotDir) await page.screenshot({ path: path.join(shotDir, `semantics-${label.replace(/ /g, '-')}.png`) });
 
     // one <main>, one main landmark; the landmarks; the headings
@@ -13398,10 +13528,78 @@ async function semanticsChecks(browser, base, site, check) {
     if (label === 'desktop') {
       await page.click('#screen');
       await page.keyboard.press('1');
-      const follows = await waitFor(page, () => /LIZA/.test(window.emu.session.screenAlternative()) && !/TALK TO LIZA/.test(window.emu.session.screenAlternative())
-        && document.getElementById('screenAlt').textContent === window.emu.session.screenAlternative());
-      const ax2 = await screenAx(page);
-      check(`${L}: the text alternative follows the screen (LIZA started from the menu)`, follows && norm(ax2.text) === norm(await page.evaluate(() => window.emu.session.screenAlternative())), JSON.stringify(ax2.text.slice(0, 120)));
+      // FOUR READINGS MUST AGREE, and they are taken across two clocks, so the comparison is retried rather than
+      // made once. `screenAlternative()` reads the LIVE screen; `#screenAlt` is a DOM mirror the page refreshes at
+      // most once a second (js/ui/screen.js:121); Chromium's accessibility tree is a third, read over CDP. Measured
+      // under CPU throttling x4: LIZA's greeting is still typing for ~80 ms and the live screen differs from the
+      // mirror in 40 of 135 samples over 3 s, so a single-shot equality was a race - on a slow runner it failed with
+      // nothing wrong (a check that passes locally and fails only under CI load). Each attempt reads alt, the page's
+      // own mirror, the AX tree,
+      // then alt again, and passes only when all four agree: alt before == alt after (the screen held still across
+      // the CDP round trip), and both equal the mirror and the AX text.
+      //
+      // The WAIT is bounded by more than two mirror periods: the mirror may be up to a second behind, and a retry
+      // must be able to see it catch up twice over. 2500 ms is stated here rather than inherited from a default.
+      const STABLE_MS = 2500;
+      const readAll = async () => {
+        const alt1 = await page.evaluate(() => window.emu.session.screenAlternative());
+        const mirror1 = await page.evaluate(() => document.getElementById('screenAlt').textContent);
+        const ax = await screenAx(page);
+        const alt2 = await page.evaluate(() => window.emu.session.screenAlternative());
+        return { alt1, mirror1, ax: ax.text, alt2 };
+      };
+      const agree = (r) => r.alt1 === r.alt2 && r.alt1 === r.mirror1 && norm(r.alt1) === norm(r.ax);
+      // LIZA must be ON SCREEN before stability means anything: at the welcome menu all four readings also agree,
+      // so a four-way check that starts too early passes on the wrong screen. The old single condition got this for
+      // free by testing /LIZA/ inside the equality; here it is a precondition, waited for first.
+      const LIZA_MS = 30000;
+      const onLiza = await waitFor(page, () => /LIZA/.test(window.emu.session.screenAlternative())
+        && !/TALK TO LIZA/.test(window.emu.session.screenAlternative()), null, LIZA_MS);
+      let readings = null, stable = false;
+      for (const t0 = Date.now(); ;) {
+        readings = await readAll();
+        if (agree(readings)) { stable = true; break; }
+        if (Date.now() - t0 >= STABLE_MS) break;
+      }
+      check(`${L}: the text alternative follows the screen (LIZA started from the menu)`,
+        onLiza && stable,
+        `LIZA on screen ${onLiza}, stable ${stable} (bound ${STABLE_MS} ms); alt before == after ${readings.alt1 === readings.alt2}; `
+        + `live == #screenAlt ${readings.alt1 === readings.mirror1}; live == AX ${norm(readings.alt1) === norm(readings.ax)}; `
+        + JSON.stringify({ alt: readings.alt1.slice(0, 120), mirror: readings.mirror1.slice(0, 120), ax: readings.ax.slice(0, 120) }));
+      // THE MIRROR'S OWN CONTRACT, measured from a CHANGE rather than from a screen that is already settled.
+      // (The previous version waited for equality after `stable` had already established it, so its bound was
+      // really STABLE_MS and a mirror refreshing every 2200 ms passed it.) Here the screen is changed on purpose -
+      // a key typed at LIZA's prompt adds a character - and the page reports how long #screenAlt took to carry the
+      // new live text. The measurement runs INSIDE the page so it shares the mirror's own clock (the rAF that
+      // writes it), and it is bounded by the mirror's refresh period plus a frame or two for a slow runner. A mirror
+      // that never updates gives null (never caught up) and fails; one that updates slowly gives a number over the
+      // bound and fails.
+      const MIRROR_MS = 1500;   // js/ui/screen.js:121 refreshes at most once a second; a frame or two of margin
+      const lag = await page.evaluate((limit) => new Promise((res) => {
+        const el = document.getElementById('screenAlt');
+        // `before` is the LIVE screen, not the mirror: the message says what actually happened, so it must know
+        // whether the key changed the screen at all (a key that the machine ignores changes nothing, and then a
+        // mirror "catching up" is meaningless).
+        const before = window.emu.session.screenAlternative();
+        const t0 = performance.now();
+        // press a key through the page's own handler so the machine's screen really changes. The event must be
+        // dispatched ON THE CANVAS: js/ui/page.js toMachine accepts only a target of the canvas, the body or the
+        // document element (a window dispatch would have target === window and be dropped), and one dispatch on the
+        // canvas is one key.
+        document.getElementById('screen').dispatchEvent(new KeyboardEvent('keydown', { key: 'z', bubbles: true }));
+        const tick = () => {
+          const live = window.emu.session.screenAlternative();
+          if (live !== before && el.textContent === live) { res({ ms: Math.round(performance.now() - t0), changed: true }); return; }
+          if (performance.now() - t0 > limit) { res({ ms: null, changed: live !== before }); return; }
+          requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      }), MIRROR_MS);
+      check(`${L}: #screenAlt carries a screen change within its 1 s refresh`,
+        lag.ms !== null && lag.ms <= MIRROR_MS,
+        !lag.changed ? 'the key did not change the screen, so the mirror had nothing to carry'
+          : lag.ms === null ? `the screen changed but #screenAlt never caught up within ${MIRROR_MS} ms`
+            : `${lag.ms} ms after the key changed the screen`);
       // Ask Claude's side panel (off the welcome menu it opens beside the machine): a complementary landmark while open,
       // hidden for real once closed
       await page.click('#btnAsk'); await waitFor(page, () => !document.getElementById('ask').hidden);
@@ -16534,14 +16732,42 @@ const GROUPS = (base, site) => [
         // what the group left open (all of it, when it threw part-way) is closed, so it can't run on into the next
         // group; a browser that went away is started again for the next group
         if (!browser.isConnected()) { browser = await chromium.launch(); return; }
-        for (const c of browser.contexts()) if (!before.has(c)) await c.close();
+        // BOUNDED, AND LOUD. A group can leave a page spinning in an abandoned evaluate (a diagnostic that was raced
+        // and given up on), and Playwright's close waits for the page: racing it keeps the group cleanup - and so the
+        // run and the final browser.close() in the finally - from being held open by that page. A close that loses
+        // the race is NOT swallowed: it is reported as a FAIL for this group (so the exit code is nonzero), because
+        // a context the run could not close is a leak in the run, and a silent timer would make that invisible.
+        // browser.close() in the finally is the backstop that still kills the browser process.
+        for (const c of browser.contexts()) {
+          if (before.has(c)) continue;
+          const b = await bounded(c.close(), CLOSE_MS);
+          if (b.outcome === 'rejected') run.check(`${name}: its context closes`, false, (b.error && b.error.message) || String(b.error));
+          else if (b.outcome !== 'settled') run.check(`${name}: its context closes`, false, `still open after ${CLOSE_MS} ms (left to browser.close())`);
+        }
       });
     }
     await run.group('missing files', async () => check('no request in the whole run asked for a missing file', !missing.size, [...missing].join(', ')));
   } finally {
-    await browser.close();
+    // BOUNDED: a page wedged in an abandoned evaluate can make browser.close() wait (Playwright closes the pages
+    // first). The browser's PROCESS is killed either way when this node process exits, so a close that loses the
+    // race is reported as a FAIL rather than allowed to hold the run open - a run that cannot tear its own browser
+    // down is a defect in the run, not something to wait out.
+    const b = await bounded(browser.close(), BROWSER_CLOSE_MS);
+    if (b.outcome === 'rejected') run.check('the browser closes at the end of the run', false, (b.error && b.error.message) || String(b.error));
+    else if (b.outcome !== 'settled') run.check('the browser closes at the end of the run', false, `still open after ${BROWSER_CLOSE_MS} ms (killed when this process exits)`);
     server.close();
     server.closeAllConnections();   // (kept-alive connections would hold the run open after its summary)
+    // WHAT THE IN-RUN BOUNDS CAN AND CANNOT DO, stated so nobody reads more into them. Each await above is raced,
+    // so a wedged page cannot stop the summary printing: the FAIL lines and the exit code are always produced.
+    // But a close that lost its race leaves a browser CHILD PROCESS with open pipes, and that keeps Node's event
+    // loop alive - measured: an unref'd server plus one live child still holds the process, so unref'ing the server
+    // (done here) is necessary and NOT sufficient. This Playwright build has no browser.process() to SIGKILL
+    // (checked: undefined), and process.exit() is forbidden in tools/ (tests/exitcode.test.js - forcing the exit
+    // deadlocks Node). So when the browser will not close, this process ends the only way it can: the CALLER's
+    // timeout kills it, and the browser process with it. That is the hard backstop - the CI job's timeout-minutes,
+    // or whatever runs the check locally - and it is why that timeout is the outer bound of last resort rather than
+    // a belt on top of the inner ones.
+    server.unref();   // (the one handle that IS ours to release; same reason as the debugger host at :7578)
   }
   process.exitCode = run.summary();
 })();

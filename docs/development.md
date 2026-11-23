@@ -310,6 +310,42 @@ final `missing files` check) one at a time, each on its own (`tools/browser-chec
   count, if any) or `browser check FAILED`. Exit code: 0 only if every check, wait and group passed; 1 otherwise;
   2 for a usage error.
 
+**Measuring a check's failure rate.** A check that fails once in CI and passes locally is not diagnosed by reading
+it: measure it. `tools/flaky-n.sh` runs one `--only` group N times and writes one line per run - the exit code, the
+1-minute load average at the start, the group summary, and the target check's own detail line (so a failure names
+the bound that broke rather than just "red") - and keeps the log of any run that failed while deleting the passing
+ones.
+
+```
+# run one group 20 times, recording the line of the check being investigated
+./tools/flaky-n.sh semantics 20 /tmp/flaky-semantics.txt "text alternative follows the screen"
+./tools/flaky-n.sh audio     20 /tmp/flaky-audio.txt     "no pop across power cycle"
+```
+
+Use `node tools/browser-check.js --list-groups` for the group names. Run it **alone, on a quiet machine, from the
+checkout you mean to measure** - the browser check is CPU-bound and a concurrent run, or a run started from a
+different checkout, measures something other than what you are asking about. Load matters: a shared machine can be
+busier than a CI runner or quieter, so record the load average each line carries and compare like with like. A rate
+measured under one load does not establish another's - a check that passes 20/20 under load 19 on a 14-core laptop
+may still fail on a 4-core runner at full tilt, and a mechanism found in the code is what settles it.
+
+Two probes reproduce, outside the gate, the two conditions behind the flaky checks, and both carry their own
+controls so a null result means something:
+
+```
+# the no-pop check under a forced stall: control (must give ~0.0078/0.0165), a planted pop (must be caught),
+# then the real measurement - 20 stalls of 500 ms at 20 phases
+node tools/audio-stall-probe.js control 1
+node tools/audio-stall-probe.js plant   2 500
+node tools/audio-stall-probe.js stall  20 500
+# the text alternative's mirror under a starved CPU: samples screenAlternative() and #screenAlt every 20 ms
+node tools/semantics-race-probe.js /tmp/race.txt 4     # 4 = CDP CPU throttling, a slow runner
+```
+`audio-stall-probe.js`'s `plant` mode writes a chunk at the opposite level into the sink on resume: if that is not
+caught, the probe cannot see a pop and its stall numbers prove nothing. `semantics-race-probe.js` prints every
+transition and how many samples the live screen differed from the 1 Hz mirror, which is the race the check now
+retries.
+
 **How /play/ starts.** The page's module graph is 100 modules and about 815 KB of plain ES modules with no
 build step, and it is six imports deep (the page → the Session → the machine families → the chips → the CPUs).
 Left to itself the browser learns about a module only when the module that imports it has arrived, so the

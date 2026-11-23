@@ -853,6 +853,25 @@ Not verified automatically: what Chrome's own reading mode (Android or desktop) 
 Readability is the stand-in. Mutations that turn the group red: no `inert` on what a view or a layout hides (20
 checks), a second `<main>` (16), the ports under the screen a `<div>` instead of an `<aside>` (6).
 
+**How the text-alternative comparison avoids a race, and what it does not cover.** `#screenAlt` is a DOM mirror of
+`Session.screenAlternative()` that the page refreshes at most once a second (js/ui/screen.js), and Chromium's
+accessibility tree is a third copy read over the DevTools protocol. Measured with CPU throttling at 4x, the live
+screen differed from the mirror in 40 of 135 samples across the three seconds a greeting takes to type, so a
+single-shot comparison of one live read against the AX text failed on a slow runner with nothing wrong. The check now
+requires four readings to agree - the live text before and after the AX read, the mirror, and the AX text - and
+retries until they do, within a stated bound; and it separately measures the mirror's lag after a key changes the
+screen, which is what makes a mirror that simply stops updating fail rather than being waited out (a mirror
+refreshing every 2.2 s goes red by name).
+
+**Not verified: a group's own `await ctx.close()`, and the tone measurement's wait.** Every group closes its own
+browser context inside its own body, and those calls are unbounded: a close that hangs there ends only by the
+caller's timeout (the CI job's `timeout-minutes`, or whatever runs the check locally). The same is true of the tone
+measurement in the sound group, which waits for the played blocks to fill an interval and has no bound of its own. What IS bounded and reported is the dump's wait (5 s), the
+`audio` group's own close (10 s, with a named FAIL), the per-group cleanup of any context a group left open (10 s,
+named FAIL) and the final `browser.close()` (15 s, named FAIL). A page wedged in synchronous JavaScript cannot be
+bounded from the host at all - a `Promise.race` bounds the wait, not the work - so that case also ends by the
+caller's timeout. One bounded helper for every group's close is the follow-up work.
+
 ### The machine and its ROMs: toasts, switches, the disk ROM, the menu, the Library, the copy
 
 UX rulings R24-R28 and R19 A+ have no MAME oracle (AGENTS.md 4.6): the oracle is the rulings themselves, and the
