@@ -15,7 +15,7 @@ import { DRIVE_TYPES } from './chips/floppy.js';
 import { detectDiskFormat, diskGeometry, blankDisk, DiskFormatError } from './media/disk.js';
 import { MediaStoreError } from './host/media-store.js';
 import { cartridgeRoms } from './machines/profiles.js';
-import { DISK_PREFIX, isDiskFileName } from './library.js';
+import { DISK_PREFIX, isDiskFileName, diskFileNameProblem } from './library.js';
 
 // how many times mount reads an image again when the image moved under its read (its own stored name, or
 // another spelling of the same file on a store that folds case): the image is read four times at most before the
@@ -588,11 +588,16 @@ export class DiskDrives {
     this.checkDrive(drive);
     const fdc = this.controller, d = fdc && fdc.drives[drive];
     if (!d || !d.loaded) throw new SessionError(`Drive ${drive} is empty.`);
-    // a disk with no file's name (a snapshot an earlier build made of 'disks/ ') has nothing to be stored under: say
-    // so, and what to do, rather than the bare "needs a name" of a name the person was asked for
-    let full;
-    try { full = this.storeName(d.media.name); } catch (e) { throw new SessionError(`The disk in drive ${drive} has no file name to save it under: download it, then add it to your Library under a name.`); }
-    const base = full.slice(DISK_PREFIX.length);
+    // The name it would be stored under (storedName's derivation). A disk with no file's name (a snapshot an earlier
+    // build made of 'disks/ ') has nothing to be stored under, and one whose name is not a disk image's file name
+    // ('disks/sub/x.vdk') must not be stored as it is: each says so, and what to do, rather than the bare "needs a
+    // name" of a name the person was asked for
+    const named = typeof d.media.name === 'string' ? d.media.name : '';
+    const base = named.startsWith(DISK_PREFIX) ? named.slice(DISK_PREFIX.length) : named.split(/[\\/]/).pop();
+    if (!base.trim()) throw new SessionError(`The disk in drive ${drive} has no file name to save it under: download it, then add it to your Library under a name.`);
+    const problem = diskFileNameProblem(base);
+    if (problem) throw new SessionError(`The disk in drive ${drive} is named ${base}, which is not a disk image's file name (${problem}): download it, then add it to your Library under another name.`);
+    const full = DISK_PREFIX + base;
     if (d.media.onWrite) throw new SessionError(`${base} is already in your Library.`);
     const media = d.media;
     // One creation of the name (library.createDisk), as an import is: the name claimed (a rename onto it is refused),

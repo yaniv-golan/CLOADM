@@ -542,7 +542,8 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   instead of writing over the renamed image.
 - **Clearer rename refusals.** A blank new name (or "disks/" alone) and a ".." name say "<name> was not renamed:"
   and why, rather than a bare folder or a path; a case-only rename on a store that does not tell cases apart names
-  the new name without the folder typed; Save to Library of a disk with no file name says so and what to do.
+  the new name without the folder typed; Save to Library of a disk with no file name, or with a name that is not a
+  disk image's file name, says which and what to do.
 - **The TMS7000 assembler encoded `DJNZ Rn,@LABEL` (and every jump written with an `@`) as offset 0.** A relative jump takes a plain label or address; `@` marks an address operand (`CALL @LABEL`), so a jump written with it is now an error that says so, for all 38 relative forms (the jumps, DJNZ, BTJO/BTJZ and BTJOP/BTJZP). An undefined jump target is an error too (it encoded offset 0), and so is a target further than -128..127 from the next instruction (the offset wrapped to a different place); the message gives the distance.
 - **A printout on a CoCo no longer starts with a NUL.** The no-ROM stub made PIA1's PA1 (the RS-232 out) an output
   while its output register held 0, so the line dropped to space at every start and the 600-baud serial printer

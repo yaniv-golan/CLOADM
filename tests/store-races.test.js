@@ -220,6 +220,49 @@ const CREATE = (name) => [0x02, name.length, ...Buffer.from(name)];   // OP_NAME
     check('2d ...and the saved disk is the snapshot\'s', same(await read(media, 'disks/work.vdk'), bytes));
   }
 
+  // e) the landing comes at the END of the creation: a creation of the name asked while the save is still inside it
+  //    (its store write done, the case probe pending) is waiting behind it, so it is a second creation and refuses
+  //    with "already a disk named". Landing any earlier would let it count as a deliberate replace.
+  const holdRefreshCase = (s) => {
+    const g = deferred(), orig = s.library.refreshCase.bind(s.library);
+    let held = 0;
+    s.library.refreshCase = async () => { held++; if (held === 1) await g.p; return orig(); };
+    return { release: g.resolve, held: () => held };
+  };
+  {
+    // Save to Library; the import goes in drive 1 (importDisk), whose name checks run in its turn, landing first
+    const media = new MemoryMediaStore();
+    const { s, bytes } = await snapshotDisk(media);
+    const h = holdRefreshCase(s);
+    const kept = q(s.drives.keepSnapshot(0));
+    await settleMany();
+    const stored = same(await read(media, 'disks/work.vdk'), bytes);
+    const im = q(s.drives.importImage('work.vdk', images.vdk(26, 1), 1));
+    await settleMany();
+    h.release();
+    const [k, i] = [await kept, await im];
+    check('2e Save to Library: held in its case probe, after its write', h.held() >= 1 && stored);
+    check('2e ...an import of the name asked then refuses as a second creation', !i.ok && i.m === 'There is already a disk named work.vdk in your library: choose another name.', i.m || 'allowed');
+    check('2e ...and the save went through, its bytes kept', k.ok && same(await read(media, 'disks/work.vdk'), bytes), k.m);
+  }
+  {
+    // the NitrOS-9 floppy save; the import is the Library's drop (importMedia)
+    const media = new MemoryMediaStore();
+    const s = await rig(media);
+    const boot = FLOPPY();
+    const h = holdRefreshCase(s);
+    const add = q(s.addAndBootNitros9('n9.dsk', boot));
+    await settleMany();
+    const stored = same(await read(media, 'disks/n9.dsk'), boot);
+    const im = q(s.library.importMedia('n9.dsk', images.vdk(26, 1)));
+    await settleMany();
+    h.release();
+    const [a, i] = [await add, await im];
+    check('2e NitrOS-9 save: held in its case probe, after its write', h.held() >= 1 && stored);
+    check('2e ...an import of the name asked then refuses as a second creation', !i.ok && i.m === 'There is already a disk named n9.dsk in your library: choose another name.', i.m || 'allowed');
+    check('2e ...and the image boots with its own bytes', a.ok && same(await read(media, 'disks/n9.dsk'), boot), a.m);
+  }
+
   // ---------------- 3. the case-only refusal names the name, not the typed path ----------------
   {
     const media = new MemoryMediaStore({ caseInsensitive: true });
@@ -260,13 +303,17 @@ const CREATE = (name) => [0x02, name.length, ...Buffer.from(name)];   // OP_NAME
     // Save to Library of a disk whose name is no file's name (a snapshot made by an earlier build with 'disks/ ')
     const media = new MemoryMediaStore();
     const { s, snap } = await snapshotDisk(media);
-    for (const nm of ['disks/ ', ' ', 'disks/']) {
+    const noName = 'The disk in drive 0 has no file name to save it under: download it, then add it to your Library under a name.';
+    for (const [nm, want] of [
+      ['disks/ ', noName], [' ', noName], ['disks/', noName],
+      // it HAS a name, just not a disk image's file name: said so, with the reason
+      ['disks/sub/x.vdk', 'The disk in drive 0 is named sub/x.vdk, which is not a disk image\'s file name (it has a folder separator; a disk image is one file): download it, then add it to your Library under another name.'],
+    ]) {
       s.openSnapshot(snap);
       const d = s.drives.controller.drives[0];
       d.media.name = nm;
       const r = await q(s.drives.keepSnapshot(0));
-      check(`4 Save to Library of a disk named ${JSON.stringify(nm)}: says the disk has no file name, and what to do`,
-        !r.ok && r.m === 'The disk in drive 0 has no file name to save it under: download it, then add it to your Library under a name.', r.m || 'saved');
+      check(`4 Save to Library of a disk named ${JSON.stringify(nm)}: says what is wrong with its name, and what to do`, !r.ok && r.m === want, r.m || 'saved');
     }
     check('4 ...and nothing was stored', (await names(media, 'disks/')) === '', await names(media, 'disks/'));
   }

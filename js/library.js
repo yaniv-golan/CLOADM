@@ -26,7 +26,7 @@ export const DISK_PREFIX = 'disks/';
 export const isDiskFileName = (base) => diskFileNameProblem(base) === null;
 // Why `base` is not a disk image's file name -> the reason, or null when it is one. A rename's destination gets the
 // reason (what is wrong with the name), the other doors the short "A disk image needs a name."
-const diskFileNameProblem = (base) => {
+export const diskFileNameProblem = (base) => {
   if (typeof base !== 'string' || base.length === 0) return 'it is empty';
   if (/^\s+$/.test(base)) return 'it is empty or only spaces';
   if (/[\\/]/.test(base)) return 'it has a folder separator; a disk image is one file';
