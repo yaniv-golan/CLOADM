@@ -27,8 +27,8 @@ const J = (...parts) => parts.join('');
 // Pattern 13 (finding IDs such as M1) is not applied in REGISTER_FILES, where M1/M0 are the SAM's memory size bits.
 const REGISTER_FILES = new RegExp('^(?:' + [
   'js/chips/mc6845\\.js', 'js/machines/(?:d64plus|sam|cocopia)\\.js', 'js/claude/readtools\\.js',
-  'tools/mame-diff/d64plus/[^/]+', 'tools/mame-diff/sam/(?:fastvid\\.asm|run-fastvid\\.js)', 'tools/mame-diff/coco3/gen-diag\\.js',
-  'tests/(?:mc6845|ay8910|tms7000-core|d64plus|d64plus-screen-text|samrate|sammem|models|machine)\\.test\\.js',
+  'tools/mame-diff/d64plus/[^/]+', 'tools/mame-diff/ssc/gen-(?:ay|speak)\\.js', 'tools/mame-diff/sam/(?:fastvid\\.asm|run-fastvid\\.js)', 'tools/mame-diff/coco3/gen-diag\\.js',
+  'tests/(?:mc6845|ay8910|tms7000-core|d64plus|d64plus-screen-text|screen-text-readers|samrate|sammem|models|machine)\\.test\\.js',
 ].join('|') + ')$');
 const SEP = '\\s*(?:\\/|,|and|or|to|–|-)\\s*';
 // a list item: "R12", "R9 11" or "R10 $20 (no cursor)" (a register, its value and a note on it)

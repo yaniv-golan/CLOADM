@@ -94,7 +94,7 @@ export function setupWelcome(page, { showRoms, openClaude }) {
     page.toast(`This is CLOADM's welcome menu: press a number to choose. Typing BASIC needs your BASIC ROM: {action}. Or press ${LIZA_KEY} for LIZA, a program you can type to.`,
       { action: { label: 'Add ROMs', run: showRoms } });
   });
-  // reason: why it starts (Session WELCOME_REASONS: R46, the tune plays only for 'visit' and 'shelf'); the menu the Session
+  // reason: why it starts (Session WELCOME_REASONS: the tune plays only for 'visit' and 'shelf'); the menu the Session
   // offered (a switch, a Reset, a return: the 'menu' event) comes without one and the Session knows why
   async function runWelcome({ greeting = 'first', carryOn = null } = {}, { ifIdle = false, byMachine = null, reason = undefined } = {}) {
     const m = session.personMachine, running = session.stubRun, gen = session.welcomeGenNow();

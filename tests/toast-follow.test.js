@@ -98,7 +98,7 @@ function world({ width = 1440, height = 900, controlBox = null } = {}) {
       querySelector() { return null; },
       querySelectorAll() { return []; },
       append() {}, remove() {}, addEventListener() {}, removeEventListener() {}, focus() {}, setAttribute() {},
-      // what the stage's toast rules read (UX R45: is the box hovered or focused; the second line is emptied when a
+      // what the stage's toast rules read (is the box hovered or focused; the second line is emptied when a
       // toast ends): nothing here is hovered, and nothing has the focus (document.activeElement is null)
       matches() { return false; }, contains(x) { return x === this; }, replaceChildren() {},
     };
