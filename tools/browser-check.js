@@ -232,7 +232,7 @@ async function bareDiskChecks(page, check, { dos }) {
   // its Add disk ROM… opens Your ROMs on the disk ROM's card
   await page.click('#driveRoms');
   check('disks: the menu\'s Add disk ROM… opens Your ROMs on the disk ROM card, which says disks still go in without it', await waitFor(page, () => location.hash === '#add-roms'
-    && /Without it, disks still go in, for programs that read them directly\./.test(document.getElementById('romDiskCard').textContent)), await page.evaluate(() => location.hash));
+    && /Without it, disks still go in, for programs that read them directly\. CLOADM doesn't include one; add your own copy\./.test(document.getElementById('romDiskCard').textContent)), await page.evaluate(() => location.hash));
   await page.evaluate(() => { location.hash = ''; });
   // (back on the emulator: the ports are no longer inert behind the view, so a file input there can open)
   await waitFor(page, () => document.getElementById('driveSlot').checkVisibility() && !document.getElementById('fileDisk').closest('[inert]'));
@@ -6456,7 +6456,15 @@ async function glossaryChecks(browser, site, check) {
   await scan('/play/ Add ROMs');
   await page.evaluate(() => { location.hash = '#library'; });
   await waitFor(page, () => !document.getElementById('library').hidden);
+  // the empty Library's ROMs card is filled in when the Library has rendered: scan it only once it is there and shown
+  // (it is what says "add your own copy"), then again under the ROMs filter, where the same card sits above the tiles
+  const romsCardShown = () => { const b = document.getElementById('libRomsBox'), t = document.getElementById('libRomsText'); return !b.hidden && b.getClientRects().length > 0 && /ROMs/.test(t.textContent); };
+  await waitFor(page, romsCardShown);
+  check('glossary: the empty Library shows its ROMs card, and it is among the words scanned', /No ROMs yet\. CLOADM never includes ROMs; add your own in/.test(await words()), (await words()).slice(0, 300));
   await scan('/play/ Library');
+  await page.click('#libKinds [data-kind-filter="roms"]');
+  await waitFor(page, romsCardShown);
+  await scan('/play/ Library, ROMs filter');
   await page.evaluate(() => { location.hash = ''; });
   await page.click('#btnShare');
   await waitFor(page, () => location.hash === '#share' && !document.getElementById('share').hidden);
