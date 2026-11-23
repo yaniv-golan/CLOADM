@@ -2443,15 +2443,85 @@ async function visitChecks(browser, base, check) {
   await page.waitForTimeout(3500);
   check('welcome: ... and it plays no tune (no high-level DAC event in 3.5 s)', await page.evaluate(() => window.__tune) === 0, String(await page.evaluate(() => window.__tune)));
   // the games: 5 opens the games menu, 1 and 2 start 2048 and Minesweeper (the 128x192 four-colour screen), their
-  // keys change the screen, and BREAK (Esc) comes back to the menu. The frame is summed in the page: a key that
-  // the game took redraws it.
-  const frameSum = () => page.evaluate(() => { const d = window.emu.machine.render().data; let h = 0; for (let i = 0; i < d.length; i += 3) h = (h * 31 + d[i]) >>> 0; return h; });
+  // keys change the game, and BREAK (Esc) comes back to the menu.
+  //
+  // A key's effect is read from the PROGRAM'S OWN STATE, never from the clock or a fixed number of frames. The old
+  // test compared frame hashes, which was a coin toss for two reasons:
+  //  * the game seeds its random numbers from ENTROPY, and GETKEY counts one per keyboard poll while the title page
+  //    waits for its key (examples/games.inc, RANDOMIZE), so how long the test takes to press that key decides the
+  //    board. On some boards a direction moves nothing (its lines are already packed against the edge) and no frame
+  //    changes: over 201 title-page timings, ArrowUp was a no-op on 5 of them.
+  //  * a frame hash is a statement about the whole picture, not about the move, so any redraw satisfies it.
+  // The seed is therefore poked first (GAMES.seed, the field the games' own Node tests use), which fixes the board,
+  // and each press is confirmed by what the game itself records: 2048 counts a change in MOVES, Minesweeper moves
+  // its cursor (CURX, CURY). Then the game is waited on until it is back at its key wait.
   const graphics = () => page.evaluate(() => (window.emu.machine.pia1.saveState().b.or & 0x80) !== 0);
+  // the picture, summed, and a wait for it to differ from a sum taken before the key. With the seed fixed a pressed
+  // direction always changes the board, so the picture MUST differ: the original assertion, now deterministic.
+  const frameSum = () => page.evaluate(() => { const d = window.emu.machine.render().data; let h = 0; for (let i = 0; i < d.length; i += 3) h = (h * 31 + d[i]) >>> 0; return h; });
+  const frameDiffers = (was) => waitFor(page, (b) => { const d = window.emu.machine.render().data; let h = 0; for (let i = 0; i < d.length; i += 3) h = (h * 31 + d[i]) >>> 0; return h !== b; }, was);
+  // The picture of a game that has STOPPED drawing, for a "before" reading. A picture taken mid-draw makes a
+  // difference check pass on the tail of that draw whatever the move did - which is how a game that counted a move
+  // without drawing it slipped past the first version of this check.
+  // Two things must hold, and neither alone is enough:
+  //  * the program is at its key wait: a game draws its page and then waits in GETKEY, which counts one per keyboard
+  //    poll in ENTROPY. (Two equal readings are not enough here: the title's first frames are identical while it is
+  //    still drawing.)
+  //  * the picture has stopped changing: GETKEY is reached before the rest of the loop runs, so on the 2048 side the
+  //    key wait can be met while SCORES and CHKWIN are still drawing.
+  // Both are CHECKED, not assumed: if either fails the baseline picture cannot be trusted, and returning it silently
+  // would let the difference check after the key pass whatever the move did. So this fails loudly by name, with
+  // which half failed, and still returns its last picture so the run goes on.
+  const drawnAndWaiting = async (s, at) => {
+    const start = await page.evaluate((e) => window.emu.machine.ram[e] * 256 + window.emu.machine.ram[e + 1], s.ENTROPY);
+    const waiting = await waitFor(page, ([e, b]) => window.emu.machine.ram[e] * 256 + window.emu.machine.ram[e + 1] !== b, [s.ENTROPY, start]);
+    // Sampled INSIDE the page, one reading per distinct machine frame. Reading from the Node side instead lets a
+    // period-two animation through: each round trip covers its own, always-even number of frames, so the samples
+    // land on the same phase and a screen redrawn on alternate fields reads as settled.
+    const samples = await page.evaluate((n) => new Promise((res) => {
+      const out = [];
+      let last = -1;
+      const step = () => {
+        const fc = window.emu.machine.frameCount;
+        if (fc === last) return setTimeout(step, 4);
+        last = fc;
+        const d = window.emu.machine.render().data;
+        let h = 0;
+        for (let i = 0; i < d.length; i += 3) h = (h * 31 + d[i]) >>> 0;
+        out.push(h);
+        if (out.length >= n) res(out); else setTimeout(step, 4);
+      };
+      step();
+    }), 12);
+    // settled = three equal readings IN A ROW at the end. A screen may still be finishing its last frames when the
+    // wait begins (the key wait is met before SCORES and CHKWIN run), so the first samples may differ. Three in a
+    // row cannot come from an animation of period two or more, which is what a title redrawn on alternate fields is.
+    const still = samples.length >= 3 && samples.slice(-3).every((h) => h === samples[samples.length - 1]);
+    check(`games: ${at}: the picture before the key is taken from a settled screen`, waiting && still,
+      waiting ? (still ? 'at its key wait, picture stopped' : `the picture never settled over ${samples.length} frames`) : 'the game never reached its key wait');
+    return samples[samples.length - 1];
+  };
+  // A game's symbols come from its own source, assembled in the page and cached. Its INCLUDE is read the way the
+  // source declares it, so a symbol cannot drift from the code on screen.
+  const gameSyms = {};
+  const symsFor = async (name) => {
+    if (gameSyms[name]) return gameSyms[name];
+    gameSyms[name] = await page.evaluate(async (n) => {
+      const src = await (await fetch(`examples/${n}.asm`)).text();
+      const files = {};
+      for (const m of src.matchAll(/^\s*INCLUDE\s+"([^"]+)"/gm)) files[m[1]] = await (await fetch(`examples/${m[1]}`)).text();
+      const a = window.emu.Emu.assemble(src, '6809', { include: (f) => files[f] });
+      if (!a.ok) throw new Error(`${n}.asm did not assemble: ${JSON.stringify(a.errors)}`);
+      const want = ['SEED', 'BOARD', 'MOVES', 'KQN', 'POP', 'CURX', 'CURY', 'SELECT', 'PLANTED', 'OPENED', 'ENTROPY'];
+      return Object.fromEntries(want.filter((k) => a.symbols.has(k)).map((k) => [k, a.symbols.get(k)]));
+    }, name.toLowerCase());
+    return gameSyms[name];
+  };
   await key('5');
   check('welcome: 5 PLAY A GAME opens the games menu, NEW GAMES FOR AN OLD MACHINE', await waitFor(page, () => window.emu.session.welcomeRunning && window.emu.session.screenText()[6].trim() === 'NEW GAMES FOR AN OLD MACHINE'
     && window.emu.session.screenText()[8].trim() === '1 2048' && window.emu.session.screenText()[9].trim() === '2 MINESWEEPER'));
   if (shotDir) await page.locator('#screenWrap').screenshot({ path: path.join(shotDir, 'welcome-games.png') });
-  for (const [k, name, moves] of [['1', '2048', ['ArrowLeft', 'ArrowUp']], ['2', 'Minesweeper', ['ArrowRight', 'ArrowDown']]]) {
+  for (const [k, name, presses] of [['1', '2048', ['ArrowLeft', 'ArrowUp']], ['2', 'Minesweeper', ['ArrowRight', 'ArrowDown']]]) {
     if (k === '2') {
       await key('5');
       await waitFor(page, () => window.emu.session.screenText()[6].trim() === 'NEW GAMES FOR AN OLD MACHINE');
@@ -2460,20 +2530,88 @@ async function visitChecks(browser, base, check) {
     check(`games: ${k} starts ${name} on its title page (the four-colour screen)`, await waitFor(page, (n) => !window.emu.session.welcomeRunning
       && (window.emu.machine.pia1.saveState().b.or & 0x80) !== 0 && new RegExp(`^${n}: press a key`).test(document.getElementById('toast').textContent), name) && await graphics(),
       await page.textContent('#toast'));
-    await page.waitForTimeout(300);
+    const s = await symsFor(name);
+    // the title page is waiting for its key: poke the seed now, before the key lets the game read it (RANDOMIZE)
+    await page.evaluate(([a, v]) => { window.emu.machine.poke(a, v >> 8); window.emu.machine.poke(a + 1, v & 0xFF); }, [s.SEED, 2]);
     if (shotDir) await page.locator('#screenWrap').screenshot({ path: path.join(shotDir, `games-${name.toLowerCase()}-title.png`) });
-    let before = await frameSum();
+    // the title page, complete and waiting for its key, read BEFORE the key that leaves it
+    const titlePic = await drawnAndWaiting(s, `${name}, the title page`);
     await key(' ');
-    check(`games: ${name}: a key leaves the title page for the game (the screen changes)`, await waitFor(page, (b) => {
-      const d = window.emu.machine.render().data; let h = 0; for (let i = 0; i < d.length; i += 3) h = (h * 31 + d[i]) >>> 0; return h !== b; }, before));
-    await page.waitForTimeout(300);
-    if (k === '2') { await key(' '); await page.waitForTimeout(300); }   // Minesweeper: open the first square
-    for (const mv of moves) {
-      before = await frameSum();
+    // on the board, read two ways: its own state (2048 has drawn its two starting tiles; Minesweeper's board is up,
+    // its cursor in the middle, where its title page has none), AND the picture, which must differ from the title's.
+    check(`games: ${name}: a key leaves the title page for the game (its state)`, await waitFor(page, ([n, b, x, y]) => {
+      const ram = window.emu.machine.ram;
+      if (n === '2048') { let c = 0; for (let i = 0; i < 16; i++) if (ram[b + i]) c++; return c >= 2; }
+      // Minesweeper's NEWGAME puts the cursor in the middle; the title page has none (the RAM is 0 there)
+      return ram[x] === 3 && ram[y] === 3;
+    }, [name, s.BOARD, s.CURX, s.CURY]));
+    check(`games: ${name}: a key leaves the title page for the game (the screen changes)`, await frameDiffers(titlePic));
+    // Minesweeper: open the first square (the mines are laid lazily, by this open)
+    if (k === '2') {
+      await key(' ');
+      check('games: Minesweeper: opening a square lays the mines and opens ground',
+        await waitFor(page, ([p, o]) => window.emu.machine.ram[p] > 0 && window.emu.machine.ram[o] > 0, [s.PLANTED, s.OPENED]));
+    }
+    // the game's own statement that it is waiting, not mid-animation. 2048: nothing queued, no pop running.
+    // Minesweeper: SELECT is recomputed from the cursor every pass of its loop, so SELECT = CURY*8+CURX means it
+    // has caught up. Both are bounded in the game, so a slow page takes more machine frames, never a different result.
+    // 2048 back at its key wait: its GETKEY polls in a tight loop and counts every poll in ENTROPY, so a frame in
+    // which ENTROPY jumps by hundreds is one spent waiting for a key (the signal tests/games.test.js uses). KQN=0
+    // and POP=0 is NOT enough - both clear before the pop's final redraw, so the picture can still change four
+    // frames after they say "idle", which is what made the settled-baseline check fail intermittently.
+    // Minesweeper recomputes SELECT from the cursor every pass of its loop, so SELECT = CURY*8+CURX means caught up.
+    const ent = () => page.evaluate((e) => window.emu.machine.ram[e] * 256 + window.emu.machine.ram[e + 1], s.ENTROPY);
+    // The difference MUST be masked to 16 bits, as tests/games.test.js masks it: ENTROPY is a word in the machine's
+    // RAM and wraps, running at about 494 a frame while GETKEY polls, so it goes round every ~133 frames. If `was`
+    // is taken near $FFFF the unmasked difference goes NEGATIVE and the wait times out - a false red, not a
+    // slow game. A known value just below the wrap is poked in by the "settled baseline survives the ENTROPY wrap"
+    // check below, which fails without this mask.
+    const settled = (from) => name === '2048'
+      ? waitFor(page, ([e, was]) => ((window.emu.machine.ram[e] * 256 + window.emu.machine.ram[e + 1] - was) & 0xFFFF) > 200, [s.ENTROPY, from])
+      : waitFor(page, ([cx, cy, sel]) => window.emu.machine.ram[sel] === ((window.emu.machine.ram[cy] * 8) + window.emu.machine.ram[cx]), [s.CURX, s.CURY, s.SELECT]);
+    for (const mv of presses) {
+      await settled(await ent());
+      // EVERY 16-bit word in this block, and why only one of them needs a mask. Checked so a wrap cannot hide here:
+      //  * ENTROPY (the settle above) WRAPS: it is a free-running word the game increments every poll of its key
+      //    loop, ~494 a frame. Masked, and proved by the "survives ENTROPY wrapping" check below.
+      //  * the `waiting` test in drawnAndWaiting compares for INEQUALITY only, so a wrap is just another change:
+      //    no arithmetic, nothing to mask.
+      //  * MOVES (2048) is reset to 0 by NEWGAME and only ever incremented, once per move that changed the board.
+      //    It cannot reach $FFFF in a run of this test, and the comparison is `>`, so even a wrap would be a
+      //    change in the right direction.
+      //  * CURX/CURY (Minesweeper) are 0..7 by construction: MOVE rejects any step that would reach 8 (`CMPA #8 /
+      //    BHS MVNONE`), so the packed word is 0..$0707 and cannot wrap.
+      // TWO separate readings before the key, and they are not interchangeable: `was` is the game's own state (a word),
+      // `pic` is the summed picture. The screen check must compare the picture with `pic`; comparing it with `was`
+      // would be a hash against a move count, which is never equal and so can never fail.
+      const was = name === '2048'
+        ? await page.evaluate((m) => window.emu.machine.ram[m] * 256 + window.emu.machine.ram[m + 1], s.MOVES)
+        : await page.evaluate(([x, y]) => (window.emu.machine.ram[x] << 8) | window.emu.machine.ram[y], [s.CURX, s.CURY]);
+      const pic = await drawnAndWaiting(s, `${name}, before ${mv}`);
       await key(mv);
-      check(`games: ${name}: ${mv} changes the screen`, await waitFor(page, (b) => {
-        const d = window.emu.machine.render().data; let h = 0; for (let i = 0; i < d.length; i += 3) h = (h * 31 + d[i]) >>> 0; return h !== b; }, before));
-      await page.waitForTimeout(200);
+      if (name === '2048') {
+        check(`games: 2048: ${mv} is taken (the game's MOVE counter goes up)`, await waitFor(page, ([m, w]) =>
+          window.emu.machine.ram[m] * 256 + window.emu.machine.ram[m + 1] > w, [s.MOVES, was]));
+        check(`games: 2048: ${mv} finishes and the game waits for the next key`, await settled(await ent()));
+      } else {
+        check(`games: Minesweeper: ${mv} is taken (the game's cursor moves)`, await waitFor(page, ([x, y, w]) =>
+          ((window.emu.machine.ram[x] << 8) | window.emu.machine.ram[y]) !== w, [s.CURX, s.CURY, was]));
+        check(`games: Minesweeper: ${mv} settles (the cursor and SELECT agree, the game is waiting)`, await settled(await ent()));
+      }
+      // the board the move made is DRAWN: the picture must differ from the one before the key. Both games redraw
+      // inside the move itself, so this is not a race with a later frame - a game that counted the move without
+      // drawing it fails here.
+      check(`games: ${name}: ${mv} changes the screen (the board it moved)`, await frameDiffers(pic));
+    }
+    // ENTROPY is a 16-bit word and WRAPS while GETKEY polls (about every 133 frames at ~494 a frame), so the
+    // settle difference must be masked to 16 bits, as tests/games.test.js masks it. Planting a value just below
+    // the wrap proves the mask is there: with `was` at $FF00, the unmasked difference is negative for ever (the
+    // value can never exceed 65535, so it can never climb back past was+200) and the wait times out; masked, it
+    // passes on the very next frame. Measured: masked true after 1 frame, unmasked never true in 2000 frames.
+    if (name === '2048') {
+      await page.evaluate((e) => { window.emu.machine.poke(e, 0xFF); window.emu.machine.poke(e + 1, 0x00); }, s.ENTROPY);
+      check('games: 2048: the settle survives ENTROPY wrapping past $FFFF (the difference is masked to 16 bits)',
+        await settled(0xFF00));
     }
     if (shotDir) await page.locator('#screenWrap').screenshot({ path: path.join(shotDir, `games-${name.toLowerCase()}-play.png`) });
     await key('Escape');
