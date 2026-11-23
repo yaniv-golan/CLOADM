@@ -189,13 +189,15 @@ function readScreen(m, readByte, { main = false } = {}) {
   if (mode.gimeText) return gimeText(m, mode);
   if (mode.plusText) return plusText(m, mode);
   // A CoCo 3 in its compatibility mode: the page is read where the display reads it, in physical RAM (videoBase(),
-  // which follows the SAM's page bits and $FF9D), through the GIME's own side-effect-free mem(). Reading it through
-  // the CPU's map instead would read another page whenever the MMU maps that CPU address elsewhere.
+  // which follows the SAM's page bits and $FF9D), through the GIME's own side-effect-free mem(), and the rows are the
+  // ones the display shows - the GIME walks that screen itself (legacyTextScreen: ceil(body / lines per row) rows,
+  // $FF9C's lines a row, the last perhaps cut short), so a program's $FF9C other than BASIC's $0F is followed rather
+  // than assumed. Reading it through the CPU's map instead would read another page whenever the MMU maps that CPU
+  // address elsewhere.
   if (mode.legacyBase != null) {
-    const g = m.gime, at = mode.legacyBase;
-    const r = vdgRows((i) => g.mem(at + i));
-    return { text: true, mode: mode.name, cols: CELL_COLS,
-      base: contiguousCpuBase(g, { base: at, rows: VDG_ROWS, pitch: CELL_COLS, hoff: 0, hven: false }), physicalBase: at, ...r };
+    const g = m.gime, t = g.legacyTextScreen(), at = mode.legacyBase;
+    const r = compatRows(t.chars);
+    return { text: true, mode: mode.name, cols: CELL_COLS, base: contiguousCpuBase(g, t), physicalBase: at, screenRows: t.rows, ...r };
   }
   // the VDG family: the page the VDG shows, read where it fetches it (vdgPage: the SAM's display offset on the SAM
   // machines), never through the CPU's map, which can page something else in (the Dragon 64 Plus's banks); a CoCo 3
@@ -210,6 +212,8 @@ function readScreen(m, readByte, { main = false } = {}) {
 // 16 rows x 32 cells: the VDG family's own geometry. A cell with bit 7 set is a semigraphics block, not a character:
 // read as a space, and counted, so a picture made of blocks (or BASIC's cursor) is not taken for an empty screen
 const VDG_ROWS = 16;
+// A VDG cell's byte (bit 6 inverse, bit 7 a semigraphics block) as the character the reader gives it.
+const vdgCell = (v) => (v & 0x80 ? ' ' : (() => { const c = v & 0x3F; return String.fromCharCode(c < 32 ? c + 64 : c); })());
 function vdgRows(byte) {
   const rows = [];
   let blocks = 0;
@@ -217,13 +221,21 @@ function vdgRows(byte) {
     let line = '';
     for (let col = 0; col < CELL_COLS; col++) {
       const v = byte(row * CELL_COLS + col);
-      if (v & 0x80) { line += ' '; blocks++; continue; }
-      const c = v & 0x3F;
-      line += String.fromCharCode(c < 32 ? c + 64 : c);
+      if (v & 0x80) blocks++;
+      line += vdgCell(v);
     }
     rows.push(line);
   }
   return { rows, ...(blocks ? { semigraphics: blocks, note: `${blocks} of the ${VDG_ROWS * CELL_COLS} cells are semigraphics blocks, read as spaces: screenshot shows them` } : {}) };
+}
+// A CoCo 3 compatibility-mode screen's rows, as the GIME's own walk (legacyTextScreen) gives them: ceil(body / lines a
+// row) rows of 32 cells, a program's $FF9C followed rather than a fixed 16. Blocks are counted and read as spaces, as
+// on the VDG.
+function compatRows(chars) {
+  let blocks = 0;
+  const rows = chars.map((c) => { let line = ''; for (const v of c) { if (v & 0x80) blocks++; line += vdgCell(v); } return line; });
+  const cells = rows.length * CELL_COLS;
+  return { rows, ...(blocks ? { semigraphics: blocks, note: `${blocks} of the ${cells} cells are semigraphics blocks, read as spaces: screenshot shows them` } : {}) };
 }
 
 // the rows as a model reads them: trailing spaces trimmed, trailing blank rows left out (both readers)
@@ -430,7 +442,16 @@ function videoMode(m, { main = false } = {}) {
     // the next frame start the profile's page is read through the CPU's map, as before the switch.
     const ag = !!(gime.ff22 & 0x80);
     const raw = (ag || gime.legacy !== true || typeof gime.videoBase !== 'function') ? null : gime.videoBase();
-    return { text: !ag, cols: ag ? 0 : 32, legacyBase: raw, name: ag ? `GIME legacy: MC6847 graphics, ${graphicsName(gime.ff22)}` : 'GIME legacy: MC6847 text' };
+    if (ag) return { text: false, cols: 0, legacyBase: null, name: `GIME legacy: MC6847 graphics, ${graphicsName(gime.ff22)}` };
+    // in compatibility text mode $FF9C sets the lines each row takes (COMPAT_TEXT_LPR), and a row shorter than a glyph
+    // shows only its top lines: at 8 lines every glyph of our font is whole, at 7 only 10 of 63, at 4 only 2, at 1
+    // none. The same rule as the GIME native reader's $FF98 lines per row under 8: decline, do not return fragments.
+    // (the lines per row come from $FF9C as it stands, so the answer is the same before and after the frame that
+    // latches the mode; legacyTextScreen is null until then, and the profile's page is read below, as before the switch.)
+    const lpr = gime.compatTextLpr;
+    if (lpr < 8) return { text: true, readable: false, cols: 32, legacyBase: raw, name: 'GIME legacy: MC6847 text',
+      reason: `the GIME draws ${lpr} scanline${lpr === 1 ? '' : 's'} per text row ($FF9C lines per row), so no character is shown whole` };
+    return { text: true, cols: 32, legacyBase: raw, name: 'GIME legacy: MC6847 text' };
   }
   const vdg = m.vdg;
   if (vdg && vdg.firstMode) {

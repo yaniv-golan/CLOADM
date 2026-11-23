@@ -356,6 +356,14 @@ Next version: 0.1.9-pre (the plugin and extension manifests carry it; `tests/plu
   now drives port 2 only once its data register has been written, as MAME's m6801 does, so a program that sets the DDR
   first prints no stray byte either (the flag lives in the 6803's state; a file saved before it restores as driven).
   `run.js mc10 --printer --stub-init` and `--glitch` (and `alice`, `coco`) give the bytes MAME 0.264 prints, identical.
+- **Claude's screen reading follows every CoCo 3 compatibility-mode text screen.** In compatibility (VDG) mode the
+  reader always walked 16 rows, as if `$FF9C` held BASIC's `$0F` (12 lines a row). A program that sets fewer lines a
+  row shows more rows - 24 at 8 lines, and on a 200- or 225-line body one or three more than 16 even at 12 lines,
+  with the last row cut short - and `screen_text` and the Session's reader now give exactly the rows the picture shows,
+  from the GIME's own walk of that screen (`GIME.legacyTextScreen`), checked row for row and cell for cell against the
+  rendered frame. Rows under 8 lines show no glyph whole and are declined, as the GIME's own text reader declines
+  them. The `coco3 --video` comparison gains compatibility text at `$FF9C` `$03`, `$02`, `$0B` and `$0A`, on a 192-
+  and a 200-line body.
 - **A disk in a drive counts toward the install offer.** The page's "program in use" test (the one the
   offer to install CLOADM as an app waits a minute of) asked the machine for a disk controller it never has, so a disk
   waiting in a drive at the bare prompt never counted; it now asks the drives (`session.drives.controllerOf`). The

@@ -38,17 +38,31 @@ const ATTR = !!process.env.ATTR;
 // MONITOR=composite (run.js coco3 --video --composite): MAME's composite monitor and ours, every mode plus the
 // $FF98 BPI (burst phase invert) and MOCH (monochrome) variants, in vdg-composite.asm
 const COMPOSITE = process.env.MONITOR === 'composite';
+// COMPAT=1 (run.js coco3 --video --compat): the compatibility-mode text screen at $FF9C values other than BASIC's
+// 12 lines a row (vdg-compat.asm). $FF9C sets the lines each text row takes (COMPAT_TEXT_LPR: 8, 9, 4, 1 lines and so
+// on), so the screen shows more rows than BASIC's 16 - 24 at 8 lines on a 192-line body, 25 on a 200-line one. Each is
+// compared cell for cell, a cell tall as $FF9C says, so the row count and the last cut row are checked.
+const COMPAT = !!process.env.COMPAT;
 const { png } = require('../lib/png');
 const { workDir, keepWorkDir } = require('../lib/workdir');
 const ARTIFACT = process.env.ARTIFACT === undefined ? 0 : +process.env.ARTIFACT;
 // VDG_WORK: a folder of your own, kept (and needed by SKIP_MAME=1); otherwise a fresh one, removed at exit
-const WORK = process.env.VDG_WORK || workDir(ATTR ? 'coco3-vdg-attr' : `coco3-vdg-${COMPOSITE ? 'composite' : 'artifact'}${ARTIFACT}`);
+const VARIANT = ATTR ? 'attr' : COMPAT ? 'compat' : COMPOSITE ? 'composite' : `artifact${ARTIFACT}`;
+const WORK = process.env.VDG_WORK || workDir(`coco3-vdg-${VARIANT}`);
 if (process.env.SKIP_MAME && !process.env.VDG_WORK) { console.error('SKIP_MAME=1 reuses captures in VDG_WORK: set VDG_WORK too'); process.exitCode = 2; return; }
 fs.mkdirSync(path.join(WORK, 'roms/coco3'), { recursive: true });
 fs.mkdirSync(path.join(WORK, 'out'), { recursive: true });
 
 // ---- display modes: [name, $FF90, $FF98, $FF99, $FF9A, $FF9F, $FF22, SAM V, text columns (0 = graphics)] ----
 const C = 0xC0; // CoCo-compatible mode, MMU off
+// the compatibility-mode text screens at $FF9C values other than BASIC's $0F (12 lines a row): 8, 9, 4 and 1 lines
+// (S5's SG modes are the 4, 3, 2 and 1-line settings), on a 192-line body and 8 lines on a 200-line one. COMPAT=1.
+const COMPAT_MODES = [
+  ['compat text 8 lines ($FF9C 3)', C, 0, 0, 0, 0, 0x00, 0, 32], ['compat text 9 lines ($FF9C 2)', C, 0, 0, 0, 0, 0x00, 0, 32],
+  ['compat text 4 lines ($FF9C B)', C, 0, 0, 0, 0, 0x00, 0, 32], ['compat text 1 line ($FF9C A)', C, 0, 0, 0, 0, 0x00, 0, 32],
+  ['compat text 8 lines, 200 ($FF9C 3)', C, 0, 0x20, 0, 0, 0x00, 0, 32],
+];
+const COMPAT_FF9C = [0x03, 0x02, 0x0B, 0x0A, 0x03];   // each compat mode's $FF9C, in MODES order
 const MODES_ALL = [
   ['compat text CSS0', C, 0, 0, 0, 0, 0x00, 0, 32], ['compat text CSS1', C, 0, 0, 0, 0, 0x08, 0, 32],
   ['compat text lower case', C, 0, 0, 0, 0, 0x10, 0, 32], ['compat text GM1 inverse', C, 0, 0, 0, 0, 0x20, 0, 32],
@@ -96,7 +110,10 @@ for (const [name, f90, f98, f99, f9a, f9f, f22, v, cols] of MODES_ALL.filter((m)
   COMPOSITE_MODES.push([`${name} BPI MOCH`, f90, f98 | 0x30, f99, f9a, f9f, f22, v, cols]);
 }
 
-const MODES = ATTR ? ATTR_MODES : COMPOSITE ? COMPOSITE_MODES : process.env.REV ? MODES_ALL.slice().reverse() : MODES_ALL;
+// COMPAT: its modes carry their $FF9C as a per-mode byte (a tenth field the firmware reads after $FF22); the other
+// suites keep the fixed $0F the firmware sets once, so their firmware is unchanged.
+if (COMPAT) for (const [i, m] of COMPAT_MODES.entries()) m.push(COMPAT_FF9C[i]);
+const MODES = ATTR ? ATTR_MODES : COMPOSITE ? COMPOSITE_MODES : COMPAT ? COMPAT_MODES : process.env.REV ? MODES_ALL.slice().reverse() : MODES_ALL;
 
 // ---- firmware ----
 const L = [];
@@ -161,6 +178,7 @@ e(`        CMPA    #$FF`);
 e(ATTR ? `        LBEQ    DONE` : `        BEQ     DONE`);   // (the attribute suite's blink step puts DONE out of short range)
 e(`        STA     $FF90`);
 for (const r of ['$FF98', '$FF99', '$FF9A', '$FF9F', '$FF22']) { e(`        LDA     ,Y+`); e(`        STA     ${r}`); }
+if (COMPAT) { e(`        LDA     ,Y+`); e(`        STA     $FF9C`); }   // this mode's lines a text row
 e(`        LDB     ,Y+`);         // SAM V
 e(`        LDX     #$FFC0`);
 e(`        LDA     #3`);
@@ -220,7 +238,10 @@ const hx = (v) => '$' + v.toString(16).toUpperCase().padStart(2, '0');
 e(`MODES   EQU     *`);
 for (const m of [...MODES, MODES[MODES.length - 1]]) {   // the extra entry lets the last mode be captured
   const [, f90, f98, f99, f9a, f9f, f22, v] = m;
-  e(`        FCB     ${[f90, f98, f99, f9a, f9f, f22, v].map(hx).join(',')}`);
+  // the other suites emit one line (byte-identical to before); COMPAT splits it so $FF9C sits between $FF22 and SAM V,
+  // the order the firmware reads them in
+  if (COMPAT) { e(`        FCB     ${[f90, f98, f99, f9a, f9f, f22].map(hx).join(',')},${hx(m[9])},${hx(v)}`); }
+  else e(`        FCB     ${[f90, f98, f99, f9a, f9f, f22, v].map(hx).join(',')}`);
   e(`        FDB     ${f90 & 0x80 ? 'PALC' : 'PALG'}`);
   // toggle the blink state once, at the first blink mode; it then holds for the rest (the timer is stopped)
   if (ATTR) e(`        FCB     ${m[9] && m === MODES.find((x) => x[9]) ? 1 : 0}`);
@@ -230,7 +251,7 @@ e(`PALC    FCB     18,54,9,36,63,27,45,38,0,18,0,63,0,18,0,38`);   // CoCo 3 BAS
 e(`PALG    FCB     ${Array.from({ length: 16 }, (_, i) => (i * 5 + 3) & 63).join(',')}`);
 e(`        ORG     $FFFE`);
 e(`        FDB     RESET`);
-fs.writeFileSync(path.join(__dirname, ATTR ? 'vdg-attr.asm' : COMPOSITE ? 'vdg-composite.asm' : 'vdg.asm'), '; CoCo 3 video comparison firmware, generated by run-vdg.js - do not edit\n' + L.join('\n') + '\n        END     RESET\n');
+fs.writeFileSync(path.join(__dirname, ATTR ? 'vdg-attr.asm' : COMPAT ? 'vdg-compat.asm' : COMPOSITE ? 'vdg-composite.asm' : 'vdg.asm'), '; CoCo 3 video comparison firmware, generated by run-vdg.js - do not edit\n' + L.join('\n') + '\n        END     RESET\n');
 let asm;
 try { asm = assemble(L.join('\n')); } catch (e) { console.error(e.asm || e.message); process.exitCode = 1; return; }   // module scope: nothing below runs
 const rom = romImage(asm, 0x8000, 0x8000, 0x12);
@@ -320,21 +341,30 @@ for (let ph = 1; ph <= N; ph++) {
     // text: classify differences per character cell
     const legacy = !!(f90 & 0x80);
     const cw = legacy ? 16 : ((f99 & 0x04) ? 640 : 512) / cols, x0 = legacy || !(f99 & 0x04) ? 64 : 0;
-    const ch = legacy ? 12 : [1, 1, 2, 8, 9, 10, 11, 1][f98 & 7];
-    const y0 = 24;
+    // a compatibility text cell is $FF9C's lines tall (12 at BASIC's $0F; the COMPAT suite is other values), a GIME one $FF98's
+    const ch = legacy ? (COMPAT ? [11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 4, 3, 2, 1, 12][MODES[ph - 1][9]] : 12) : [1, 1, 2, 8, 9, 10, 11, 1][f98 & 7];
+    // the body's first picture line and height, from $FF99 bits 5-6 (192, 200 or 225 lines: the top border is 25, 23 or
+    // 8 lines, and recordBody's y = physical - 1, so the first body line is 24, 22 or 7). A fixed 24 and 192 cut every
+    // cell wrong on a 200- or 225-line screen: the grid straddled two text rows and a two-colour cell read as three.
+    // 10xxxxxx (LPF 2) is the GIME's "zero/infinite" line count (js/chips/gime.js updateGeometry, MAME's LPF 2): the
+    // body never ends, so there is no character grid to classify against. No mode in any suite sets it; if one did
+    // there is nothing to grade, so it is counted as a difference rather than thrown on.
+    const body = { 0x00: [24, 192], 0x20: [22, 200], 0x60: [7, 225] }[f99 & 0x60];
+    if (!body) { failed++; console.log(`DIFF  ${name.padEnd(24)} $FF99 bits 5-6 = 0x${(f99 & 0x60).toString(16)} is the GIME's no-body line count: no character grid to compare`); continue; }
+    const [y0, bodyLines] = body;
     realBad = 0;
-    for (let cy = y0; cy < y0 + 192; cy += ch) for (let cx = x0; cx < x0 + cols * cw; cx += cw) {
+    for (let cy = y0; cy < y0 + bodyLines; cy += ch) for (let cx = x0; cx < x0 + cols * cw; cx += cw) {
       let any = false; const sm = new Set(), so = new Set();
-      for (let y = cy; y < Math.min(cy + ch, y0 + 192); y++) for (let x = cx; x < cx + cw; x++) { if (bad[y * W + x]) any = true; sm.add(M(x, y)); so.add(O(x, y)); }
+      for (let y = cy; y < Math.min(cy + ch, y0 + bodyLines); y++) for (let x = cx; x < cx + cw; x++) { if (bad[y * W + x]) any = true; sm.add(M(x, y)); so.add(O(x, y)); }
       if (!any) continue;
       // a character cell only ever shows its foreground and background colour, so if both
       // pictures together use no more than two colours in it, only the glyph shapes differ
       const sameSet = new Set([...sm, ...so]).size <= 2;
       if (sameSet) cells++;
-      else for (let y = cy; y < Math.min(cy + ch, y0 + 192); y++) for (let x = cx; x < cx + cw; x++) if (bad[y * W + x]) realBad++;
+      else for (let y = cy; y < Math.min(cy + ch, y0 + bodyLines); y++) for (let x = cx; x < cx + cw; x++) if (bad[y * W + x]) realBad++;
     }
     // differences outside the character grid are real
-    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (bad[y * W + x] && (y < y0 || y >= y0 + 192 || x < x0 || x >= x0 + cols * cw)) realBad++;
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (bad[y * W + x] && (y < y0 || y >= y0 + bodyLines || x < x0 || x >= x0 + cols * cw)) realBad++;
   }
   if (realBad) {
     failed++;

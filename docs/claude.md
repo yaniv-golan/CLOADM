@@ -356,7 +356,11 @@ emulator.
     and `$FF9D`), a physical address, and it is read there, in physical RAM, as the display reads it: a page the MMU
     shows the CPU somewhere else, or nowhere (or a slot routed to ROM), is still the page on screen. `physicalBase`
     is that address and `base` the CPU address that shows the whole page under the current map, or `null` when no
-    slot does.
+    slot does. In compatibility mode the GIME sets the lines each text row takes from `$FF9C` (BASIC's `$0F` is 12;
+    `$03` is 8, `$0A` is 1), so the screen can show more or fewer than 16 rows - 24 at 8 lines a row on a 192-line
+    body, 17 or 19 at 12 lines on a 200- or 225-line one, the last row cut short. The reader walks that screen the
+    way the display does (`GIME.legacyTextScreen()`: ceil(body lines / lines a row) rows, `$FF9C`'s lines a row), so
+    a program's `$FF9C` is followed rather than assumed, and `screenRows` gives the count.
   * **every CoCo 3 GIME text mode** (6809 or 6309): 32, 40, 64 or 80 columns, with or without attribute bytes, as
     NitrOS-9 and BASIC's `WIDTH 40`/`WIDTH 80` use. The GIME walks the screen itself (`GIME.textScreen()` in
     `js/chips/gime.js`, beside the renderer it follows): the video start (`$FF9B`/`$FF9D`/`$FF9E`), the row pitch

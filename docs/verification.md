@@ -568,6 +568,22 @@ we do:
 | 1986 and 1987 GIMEs | one model | one model | nothing: unknown |
 | Compatibility mode | lines per row from `$FF9C` (S5's SG modes) | the same | S2, S5, MAME |
 
+The compatibility-mode text at `$FF9C` values other than BASIC's `$0F` is in the pixel comparison: `run.js coco3
+--video` puts up `compat text` at 8, 9, 4 and 1 lines a row (S5's 3-, 2- and 1-line SG settings and the 8-line
+setting) on a 192-line body and 8 lines on a 200-line one, as well as BASIC's 12. Each is compared with MAME cell for
+cell, a cell tall as `$FF9C` says, so a screen showing 24, 22, 48, 192 or 25 rows (not 16) is checked where it differs.
+Result against MAME 0.264: 0 of 5 different - the 1-line screen pixel-identical, the other four identical apart from
+our own font design (the instructions differ per cell, glyphs do not). The reader that follows these rows
+(`GIME.legacyTextScreen`) is checked against our own frame, row for row and cell for cell, in
+`tests/screen-text-readers.test.js` section 3b; it DECLINES rows under 8 lines ($FF9C 4-9 and $0B-$0E), where a glyph
+is shown only in part, with the same answer and reason the GIME native reader gives rows under 8 scanlines.
+
+That comparison's own per-cell grid had a bug these cases found: it took the body to start at picture line 24 and be
+192 lines tall, right for a 192-line screen only. On a 200- or 225-line screen (`$FF99` bits 5-6) the top border is 23
+or 8 lines, the body starts at line 22 or 7, and the grid straddled two text rows, so a two-colour cell read as three
+and a correct picture was reported different. It now takes the start and the height from `$FF99` (24/192, 22/200,
+7/225); the whole `--video` suite then passes with 0 different of 49.
+
 `run.js coco3 --vsc` (`coco3/gen-vsc.js`, our firmware in `coco3/vsc-1.asm` to `vsc-5.asm`) puts up 60 cases:
 8-line text and double-height (2-line) graphics with VSC stepped through 0-15, 9-, 10- and 11-line text, 8- and
 11-line graphics, 1-line rows (LPR 0 and 1), LPR 7, the 200- and 225-line resolutions, and VSC written mid-field (in
