@@ -136,7 +136,7 @@ jobs:
     needs: shards
     # Same pin, same reason - and here it matters more: Playwright's chromium is built per Ubuntu release.
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 45   # the install step alone may take 35 (its own limit); the browser check ~5
     strategy:
       # Every shard runs to the end even when another fails, so one run shows every failing group.
       fail-fast: false
@@ -175,9 +175,9 @@ jobs:
           key: playwright-debs-1.63.0-${{ steps.image.outputs.image }}
       # Its own time limit, under the job's: a hung mirror fails this step loudly instead of running the job into its
       # timeout. Only the install is retried, inside the script; the browser check never is. The script's header has
-      # the decisions and the worst case (1340 s).
+      # the decisions and the worst case (2010 s).
       - name: Install the browser and its OS packages
-        timeout-minutes: 25
+        timeout-minutes: 35
         run: .github/scripts/install-browser-deps.sh
       - name: Run the browser check (${{ matrix.groups }})
         env:
