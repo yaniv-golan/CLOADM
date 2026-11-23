@@ -48,7 +48,8 @@ export function setupRomSockets(page, romInput, { confirmSwitch }) {
   $('btnRomJustLooking').onclick = close;
 
   // ---------------- the sockets ----------------
-  function socketState(s) {
+  function socketState(s, left) {
+    if (left) return 'Removed · still in the running machine';
     if (s.status === 'verified') return `✓ ${s.file || 'loaded'} · Recognised`;
     if (s.status === 'loaded-unrecognised') return `◆ ${s.file || 'loaded'} · loaded, not recognised`;
     if (s.status === 'missing-required') return 'Waiting for a file. Without it there is no BASIC: the machine runs without ROMs, machine-code programs only.';
@@ -78,13 +79,17 @@ export function setupRomSockets(page, romInput, { confirmSwitch }) {
   function render() {
     if (!isOpen() || !session.personMachine) return;
     const m = session.personMachine, info = session.machineRoms(m.id), name = m.profile.name;   // the person's machine
+    // a socket whose ROM was removed from storage while the machine runs it (it keeps it until switched off and on)
+    const still = session.romsStillRunning(m), running = m.romCrcs();
+    const left = (s) => !s.crc && still.has(running[s.id]);
     $('romMachine').textContent = name.toUpperCase();
     $('romSockets').replaceChildren(...info.sockets.map((s) => {
       const card = el('div', null, 'socket');
       card.dataset.socket = s.id; card.dataset.status = s.status;
+      if (left(s)) card.dataset.left = 'running';
       const body = el('div', null, 'body'), top = el('div', null, 'top');
       top.append(el('strong', s.label), el('span', s.required ? 'required' : 'optional', s.required ? 'tag req' : 'tag'));
-      body.append(top, el('div', `${kb(s.size)} · usually ${s.files.concat(s.aliases).join(' or ')}`, 'expect'), el('div', socketState(s), 'state'));
+      body.append(top, el('div', `${kb(s.size)} · usually ${s.files.concat(s.aliases).join(' or ')}`, 'expect'), el('div', socketState(s, left(s)), 'state'));
       card.append(el('span', null, 'dot'), body);
       return card;
     }), ...diskCard(), ...(session.offersSsc ? session.sscRoms().map((s) => {

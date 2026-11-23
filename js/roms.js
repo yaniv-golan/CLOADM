@@ -189,6 +189,28 @@ export class RomLibrary {
     this.index.clearMachine(machine);
     this.collect();
   }
+  // the owners (machines and cartridges, in profile order) whose sockets hold this image
+  usedBy(crc) { return [...new Set(this.sockets().filter((s) => s.crc === crc).map((s) => s.owner))]; }
+  // take one image out of every socket that holds it -> { crc, name, bytes, sockets: [{ owner, socket }] }, all that
+  // restore() needs to put it back (null when no socket holds it)
+  remove(crc) {
+    const bytes = this.index.image(crc);
+    if (!bytes) return null;
+    const name = this.index.fileName(crc);
+    const sockets = this.index.removeImage(crc).map((s) => ({ owner: s.machine, socket: s.socket }));
+    return { crc, name, bytes, sockets };
+  }
+  // -> { restored, skipped }: the sockets it went back into, and those left alone because another ROM was put in them
+  // since (that ROM stays: Undo never replaces what the user added after the Remove)
+  restore(removed) {
+    const restored = [], skipped = [];
+    for (const s of removed.sockets) {
+      if (this.index.socketCrc(s.owner, s.socket)) { skipped.push(s); continue; }
+      this.put(s.owner, s.socket, removed.bytes, removed.name);
+      restored.push(s);
+    }
+    return { restored, skipped };
+  }
   // every stored socket: [{ owner, socket, crc }]
   sockets() {
     const out = [];

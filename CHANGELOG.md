@@ -54,6 +54,20 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   the intermediate squares, the flash (its `$AA`/`$55` highlight for one field), the pop (small then full, from
   the geometry), each tile drawn with its own value as it moves (a tile that joins becomes the merged value only
   on the flash), their order, and a key during the slide.
+- **Remove one ROM from the Library.** Under the Library's **ROMs** chip (never under **All**) each stored ROM image
+  is a tile: its file name, its size, "Used by Dragon 64, Tano Dragon 64" (a disk cartridge is named too, "DragonDOS
+  cartridge") and **Remove** (44 px). Remove takes the image out of every socket that holds it at once, so a reload
+  can't bring it back; the toast "Removed d64_1.rom." offers **Undo** for 8 s (kept while it has the focus), which
+  puts the same bytes back in every socket that is still empty (a socket given another ROM since keeps it, and the
+  page says so: "Restored d64_1.rom (Dragon 64 32K-mode BASIC already had another ROM)"); a disk cartridge switched
+  off and on without its ROM since gets it back. The machine running that ROM is not reset: it keeps it until it is
+  switched off and on, the toast's second line says so ("The Dragon 64 keeps it until you switch off and on.") with
+  **Switch off and on**, and its socket in **Your ROMs** reads "Removed · still in the running machine". A disk
+  cartridge's ROM comes out the same way. The ROMs chip and its card ("No ROMs yet. CLOADM never includes ROMs; add
+  your own in Your ROMs →") now show in an empty Library too (the card says "your own", not "your own dumps": the
+  page's glossary keeps "dump" as a verb only). New: `Session.romFiles`, `removeRom`,
+  `restoreRom` and `romsStillRunning`, `RomLibrary.usedBy`, `remove` and `restore`, the index's `removeImage`, and a
+  toast's optional second line with its own action (`also`).
 - **Minesweeper plays with a joystick.** Either joystick moves the cursor: one step as the stick leaves the centre,
   then again after 300 ms and every 120 ms while it is held (counted in fields, at the machine's own 50 or 60 Hz;
   centring the stick and pushing the same way again is a new press). Either fire button opens the square under the

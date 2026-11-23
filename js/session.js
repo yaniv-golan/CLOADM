@@ -589,6 +589,7 @@ export class Session {
     this.acc = 0;
     this.keys = new KeyQueue();     // host key presses for the matrix, applied at frame starts (keyqueue.js)
     this.roms = new RomLibrary(this.index, romOwners);
+    this.romsLeft = new WeakMap();   // machine -> CRCs removed from storage that it still runs (removeRom)
     this.stubChosen = new Set();    // machines the user chose to run without ROMs this session
     // The stored-ROM CRCs that did not start BASIC, per machine (Map<Machine, Set<crcs>>): a fresh try is a power-on
     // or a switch, which forgets them (poweredOn clears every machine's; adopt forgets the machine left behind), and
@@ -1219,6 +1220,7 @@ export class Session {
     // runs beside, so its reply goes on - the decision this makes deliberate rather than incidental.
     this.stopClaudeFor(reason, m);
     this.endWelcome();
+    this.dropRemovedRoms(m);
     this.setStubRun(m);
     this.keys.clear();
     this.drives.flush();
@@ -1230,6 +1232,16 @@ export class Session {
     this.acc = 0;
     this.poweredOn();
     if (menu) this.offerMenu(null, 'reset');
+  }
+  // ROMs removed from storage while m ran them come out now, at a switch off and on: its sockets are filled again
+  // from what is stored, and a disk cartridge whose ROM was removed is left without one
+  dropRemovedRoms(m) {
+    const left = this.romsLeft.get(m);
+    if (!left || !left.size) return;
+    this.romsLeft.delete(m);
+    if (Object.values(m.romCrcs()).some((c) => left.has(c))) this.loadSavedRoms(m);
+    const cart = m.cartPort;
+    if (cart && cart.romBytes && cart.romBytes.length && left.has(crc32(cart.romBytes)) && cart.fitRom) { cart.fitRom(null); m.cartridgeChanged(); }
   }
   // no ROMs, nothing running: the welcome menu, greeting the visitor back (the page has its bytes)
   // The event's argument is how the menu is offered: 'back' (a returning visit) or 'bye' (back from a program) as
@@ -1319,6 +1331,65 @@ export class Session {
     const sockets = this.roms.sockets(), owners = romOwners();
     return { count: new Set(sockets.map((x) => x.crc)).size, users: [...new Set(sockets.map((x) => x.owner))].map((id) => owners[id].name) };
   }
+  // The Library's ROM tiles: each image stored, once -> [{ crc, name, size, owners: [id], users: [name] }], in the
+  // order of the first owner (profile order: the machines, then the cartridges). name: the file it came from, or
+  // "ROM <CRC>" when none was kept.
+  romFiles() {
+    const owners = romOwners();
+    return [...new Set(this.roms.sockets().map((s) => s.crc))].map((crc) => {
+      const ids = this.roms.usedBy(crc);
+      return { crc, name: this.roms.fileName(crc) || `ROM ${crc}`, size: this.roms.image(crc).length, owners: ids, users: ids.map((id) => owners[id].name) };
+    });
+  }
+  // Remove one ROM image from every socket that holds it, at once (the index writes it to the store). A machine
+  // running it keeps it, as a chip already in its socket, until it is next switched off and on (powerCycle drops it
+  // then): the machine is not reset. -> { crc, name, bytes, sockets, running: the name of the person's machine when
+  // it runs this image (in its own sockets or its cartridge's), else null }: what restoreRom needs for Undo.
+  removeRom(crc) {
+    this.library.checkNotMoving();
+    const removed = this.roms.remove(crc);
+    if (!removed) throw new SessionError('That ROM is not stored.');
+    const m = this.personMachine;
+    let running = null;
+    if (this.runningRomCrcs(m).has(crc)) {
+      if (!this.romsLeft.has(m)) this.romsLeft.set(m, new Set());
+      this.romsLeft.get(m).add(crc);
+      running = m.profile.name;
+    }
+    this.emit('roms');
+    return Object.assign(removed, { running });
+  }
+  // Undo a removeRom: the image goes back, byte for byte, into every socket it was in that is still empty; a socket
+  // given another ROM since keeps that one (skipped). A machine that still runs the image forgets it was removed; one
+  // switched off and on since without it (in its own sockets, or a disk cartridge left without its ROM) takes it back
+  // and restarts, as a drop of that ROM would.
+  // -> { restored, skipped: [{ owner, socket, name: "Dragon 64 BASIC" }] }
+  restoreRom(removed) {
+    this.library.checkNotMoving();
+    const { restored, skipped } = this.roms.restore(removed);
+    const owners = romOwners(), named = (s) => Object.assign({ name: `${owners[s.owner].name} ${owners[s.owner].roms.find((x) => x.id === s.socket).label}` }, s);
+    const m = this.personMachine, left = this.romsLeft.get(m);
+    const mine = restored.some((s) => s.owner === m.id), cartridge = restored.some((s) => cartridgeRoms[s.owner]) && !!this.drives.bareController;
+    if (left && left.has(removed.crc)) {
+      // still running it: forgotten as removed, unless one of its own sockets kept another ROM (that one goes in at the
+      // next switch off and on)
+      if (!skipped.some((s) => s.owner === m.id)) left.delete(removed.crc);
+    } else if ((mine && !this.stubChosen.has(m.id)) || cartridge) {
+      if (mine) this.loadSavedRoms(m);
+      this.powerCycle({ on: m });
+    }
+    this.emit('roms');
+    return { restored: restored.map(named), skipped: skipped.map(named) };
+  }
+  // the CRCs of the ROMs m runs now: its own sockets and its cartridge's ROM
+  runningRomCrcs(m) {
+    const out = new Set(Object.values(m.romCrcs()));
+    const cart = m.cartPort && m.cartPort.romBytes;
+    if (cart && cart.length) out.add(crc32(cart));
+    return out;
+  }
+  // the ROMs removed from storage that m still runs (Your ROMs: "Removed · still in the running machine")
+  romsStillRunning(m = this.personMachine) { return new Set(this.romsLeft.get(m) || []); }
   machinesWithRoms() {
     return Object.keys(profiles).map((id) => this.machineRoms(id)).filter((x) => x.sockets.some((s) => s.status !== 'missing-required' && s.status !== 'missing-optional'));
   }

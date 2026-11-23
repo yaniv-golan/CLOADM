@@ -36,7 +36,8 @@ export function splitDetails(text) {
 }
 
 export function createFeedback() {
-  const box = $('toast'), textEl = $('toastText'), actEl = $('toastAction'), detEl = $('toastDetails'), moreEl = detEl;
+  const box = $('toast'), textEl = $('toastText'), actEl = $('toastAction'), detEl = $('toastDetails'), moreEl = detEl, alsoEl = $('toastAlso');
+  const el = (tag, text) => { const e = document.createElement(tag); e.textContent = text; return e; };
   const attBox = $('attention'), attText = $('attentionText'), attAct = $('attentionAction');
   let cur = null;                     // { text, error, action, details, view, ends, onEnd, timer, left, paused }
   const waiting = new Map();          // view -> toast raised while the user was elsewhere
@@ -55,6 +56,7 @@ export function createFeedback() {
       topLayer(null);
       box.classList.remove('error');
       textEl.textContent = ''; detEl.textContent = ''; actEl.textContent = '';
+      alsoEl.hidden = true; alsoEl.replaceChildren();
     }
     unplace();
     if (t.onEnd) t.onEnd(reason);
@@ -77,7 +79,7 @@ export function createFeedback() {
     cur = t;
     t.seen = false;
     t.paused = false;     // (paused at once below, in seen(), while the focus or the pointer is in the box)
-    t.left = t.action || t.details ? LONG : SHORT;
+    t.left = t.action || t.also || t.details ? LONG : SHORT;
     // an action named in the sentence itself ("… your BASIC ROM: [Add ROMs]. Or …"): its button stands where the
     // text says {action}, so the sentence reads on through it; otherwise it follows the text
     const at = t.action ? t.text.indexOf(INLINE) : -1;
@@ -91,6 +93,13 @@ export function createFeedback() {
     actEl.textContent = t.action && at < 0 ? t.action.label : t.details ? 'Details' : '';
     detEl.hidden = true;
     moreEl.textContent = t.details || '';
+    // a second line with its own action ("The Dragon 64 keeps it until you switch off and on. [Switch off and on]")
+    alsoEl.hidden = !t.also;
+    if (t.also) {
+      const b = document.createElement('button'); b.type = 'button'; b.textContent = t.also.action.label;
+      b.onclick = (e) => { e.stopPropagation(); if (cur !== t) return; end('action'); t.also.action.run(); };
+      alsoEl.replaceChildren(el('span', t.also.text), b);
+    }
     box.hidden = false;
     if (hadFocus) {
       const inline = textEl.querySelector ? textEl.querySelector('button') : null;
@@ -275,12 +284,13 @@ export function createFeedback() {
   // followed every frame while it is up: a control can move under it without the window scrolling or resizing
   // (the drawer filling in, a bar appearing above the slots), and it must never end up over one
   function follow(t) { if (cur !== t) return; place(); requestAnimationFrame(() => follow(t)); }
-  // text: what happened; error: an action failed; action: { label, run } (Undo, Show, Load); details: more text
+  // text: what happened; error: an action failed; action: { label, run } (Undo, Show, Load); also: a second line with
+  // its own action, { text, action: { label, run } }; details: more text
   // (an error's sentences after the first go there by default); view: the page it belongs to (default: the one
   // shown); onEnd(reason): called once when it goes ('timeout', 'replaced', 'cleared', 'action', 'dropped', 'closed')
-  function toast(text, { error = false, action = null, details, view = currentView(), onEnd = null } = {}) {
+  function toast(text, { error = false, action = null, also = null, details, view = currentView(), onEnd = null } = {}) {
     if (details === undefined && error && !action) [text, details] = splitDetails(String(text));
-    const t = { text: String(text), error, action, details: details || null, view, onEnd, raised: Date.now() };
+    const t = { text: String(text), error, action, also, details: details || null, view, onEnd, raised: Date.now() };
     if (!action) t.text = t.text.replace(INLINE, '');
     if (view !== currentView()) {
       const old = waiting.get(view);
@@ -362,7 +372,7 @@ export function createFeedback() {
     // this toast goes now, if it is still the one up (a hint its program's first key has made moot); a newer one stays
     dismiss: (t) => { if (t && cur === t) end('cleared'); },
     // (text: with the action's label where an inline action stands, as the toast reads)
-    get current() { return cur ? { text: cur.text.replace(INLINE, cur.action ? cur.action.label : ''), error: cur.error, view: cur.view } : null; },
+    get current() { return cur ? { text: cur.text.replace(INLINE, cur.action ? cur.action.label : ''), error: cur.error, view: cur.view, also: cur.also ? cur.also.text : null } : null; },
     // the toast up, and whether its time is running (seen)
     get pending() { return (cur ? [cur] : []).map((t) => ({ text: t.text, seen: !!t.seen })); },
     get attentionText() { return att ? att.text : null; },
