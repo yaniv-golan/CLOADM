@@ -199,7 +199,8 @@ export function setupMachinePanel(page, { showRoms }) {
   // the menu's "RAM, CPU and speed…": the Machine settings tab, with the focus on its heading (on a phone, its top
   // scrolled into view)
   function machineSettings() {
-    $('tab-machine').click();
+    // (on a phone: the Settings sheet, open on the tab, its heading focused in it)
+    if (page.openSettings('tab-machine')) { $('machineHeading').focus(); return; }
     const h = $('machineHeading'), phone = matchMedia('(max-width: 700px)').matches;
     h.focus({ preventScroll: phone });
     if (phone) h.scrollIntoView({ block: 'start' });

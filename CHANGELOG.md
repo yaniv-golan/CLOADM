@@ -208,6 +208,37 @@ Next version: 0.1.9-pre (the plugin and extension manifests carry it; `tests/plu
 
 ### Changed
 
+- **A phone's ports and power are four chips under the keyboard.** With the on-screen keys on (or hidden for now), one
+  row of chips sits under the keyboard panel, in a fixed order: Tape, Disks, Cartridge and Power, each saying what is
+  in it (Empty, the file name, "2 disks"; Running or Paused) and outlined while it holds media. Each opens its sheet,
+  a modal dialog holding the page's own controls: "Cassette deck" (the deck and, while a tape is in, the cassette
+  panel), "Disk drives" (the drives, and NitrOS-9 where it is offered), "Cartridge port" (the board and the Multi-Pak)
+  and "Power" (Reset, Switch off and on, Pause, Turbo, Fullscreen, Hide keys). The focus goes to the sheet's first
+  control and back to its chip when it closes; Esc closes it after anything open over it (the drive menu, an offer
+  after a load); the machine keeps running and the hardware keyboard does not type into it while a sheet is open; a
+  stick held when a sheet opens is let go of. A narrow desktop window keeps its layout, and so does a desktop. The
+  tape bar's Deck opens the Tape sheet there, and a toast's buttons are at least 44 px tall on a touch screen.
+- **A phone's settings are a sheet, from Menu → Settings….** With the on-screen keys on, the drawer's tabs (Media,
+  Display, Input, POKEs, Machine) are in a "Settings" sheet that reaches from the screen's foot to the window's (at
+  least half the window, so the screen shows what a Display setting does), opening on the tab last used with the focus
+  on it; Expand makes it the whole height and Collapse gives that back; each tab is 44 px tall and the tab bar scrolls
+  sideways. The "Running with no ROMs" card is at the top of the Media tab, and the credits are behind Menu → Help. The
+  palette's settings commands, the machine menu's "RAM, CPU and speed…" and Ask's rail open the sheet (openSettings).
+  The page no longer scrolls: the header, the screen, the panel and the chips fit the window. Menu's order on a phone:
+  Add ROMs, Settings…, Share…, Install…, Library, Debugger, Commands…, then Help and GitHub under a rule.
+- **Held sideways, and on a short phone upright, the ports are one tabbed sheet.** Sideways the keys' Menu lists
+  Machine…, Settings…, "Tape, disks and cartridge…", Power…, Commands…, Install and Hide keys; "Tape, disks and
+  cartridge…" opens one side sheet of that name (360 px wide, the whole height), its tabs Tape, Disks and Cartridge
+  switching in place, opening on the tab that holds media (else the one last used). Every sheet comes from the right
+  side there. On a phone upright under 600 px tall there is no chip row (the screen keeps its size); Menu has "Tape,
+  disks and cartridge…" (the same sheet from the bottom) and "Power…", each with its state on a second line ("HI.CAS ·
+  1 disk", "Paused"), and wears a dot while media is in ("Menu (media inserted)"). Turning the phone with a sheet open
+  keeps it open on the same tab. Upright the keys' strip has no Menu of its own any more (the app bar's is the one
+  Menu): Hide keys is in the Power sheet.
+- **A tape put in with no BASIC running says so.** With no ROMs in use, or before BASIC has printed OK, the toast reads
+  "<name> is in the deck. There's no BASIC to type CLOAD into: Load it now", and Load it now loads the tape's program and
+  starts it (the same as Skip the tape). With BASIC running the toast is as before, and the deck's line about BASIC's
+  own S and F shows only then.
 - **Booting NitrOS-9 releases a Debugger stop**, as the other launches do: an accepted boot releases it once and
   the machine runs; a refused boot (a Multi-Pak in the port, say) keeps it. The boot's own held mount of its disk
   launches nothing by itself.
@@ -511,6 +542,9 @@ Next version: 0.1.9-pre (the plugin and extension manifests carry it; `tests/plu
 - **A steadier disk-mount browser check.** "The program ran on through the mount" required the test program's
   16-bit idle count to be higher after the mount than before, but the count wraps every 1.9 s, so a slow mount read
   as a stopped program. The check now requires that the count moved.
+- The release workflow's publish job had no checkout, so `gh release create` failed with "not a git repository": its step
+  now sets `GH_REPO`, and `tests/workflows-release.test.js` checks that every job that runs `gh` checks out or names the
+  repository.
 
 ### 0.1.9-pre
 

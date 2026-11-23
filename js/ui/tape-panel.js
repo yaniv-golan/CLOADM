@@ -197,6 +197,7 @@ export function setupTapePanel(page) {
     if ($('btnRealSpeed').getAttribute('aria-pressed') !== String(st.realSpeed)) $('btnRealSpeed').setAttribute('aria-pressed', String(st.realSpeed));
     put($('btnRealSpeed'), 'textContent', `Real speed: ${st.realSpeed ? 'on' : 'off'}`);
     put($('btnSkipTape'), 'hidden', st.progress >= 1);
+    put($('tapeBasicNote'), 'hidden', !session.basicRunning);   // BASIC's S and F: only while BASIC runs
     put($('btnTapeRetry'), 'hidden', !st.error);
     if (!panel.classList.contains('folded')) drawWave(st);
   }
@@ -218,9 +219,10 @@ export function setupTapePanel(page) {
     $('btnDeckFold').textContent = folded ? 'Show the deck' : 'Hide the deck';
   };
   $('btnDeckFold').onclick = () => { fold(!panel.classList.contains('folded')); update(); };
-  // "Deck" in the HUD: the panel, open, brought into view
+  // "Deck" in the HUD: the panel, open, brought into view (on a phone: its sheet, opened, js/ui/phone-sheets.js)
   $('btnHudDeck').onclick = () => {
     fold(false); update();
+    if (panel.closest('dialog.sheet')) { page.sheets.open('sheetTape', $('btnHudDeck')); return; }
     panel.scrollIntoView({ block: 'nearest', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
     $('btnDeckFold').focus({ preventScroll: true });
   };
