@@ -4,7 +4,7 @@
  * offers a choice; changing one power-cycles the machine).
  */
 import { availableProfiles } from '../machines/profiles.js';
-import { caseOf, groupProfiles } from '../machines/menu.js';
+import { caseOf, groupProfiles, SUBTITLES, describe } from '../machines/menu.js';
 import { $, ESC } from './page.js';
 
 // the menu's sections and the bezel/nameplate choice live in js/machines/menu.js (data only, tested in Node)
@@ -33,24 +33,45 @@ export function setupMachinePanel(page, { showRoms }) {
   const btn = $('machineBtn'), menu = $('machineMenu'), confirm = $('switchConfirm');
   let pending = null;   // what Switch does
 
+  // the footer's line for the model under the pointer or the focus: visual only (the item carries the same words as its
+  // aria-description, so a screen reader hears them once, with the item)
+  let about = null;
+  const say = (p) => { if (about) about.textContent = p ? describe(p) : ''; };
   function buildMenu() {
     menu.replaceChildren();
+    // With no ROMs stored at all, one line at the top instead of a "needs ROMs" tag on every row; the tags (and the
+    // ✓ legend) once any are stored
+    const none = session.storedRoms().count === 0;
+    // (a screen reader hears that line as the menu's description: the line itself is no menu item)
+    if (none) menu.setAttribute('aria-describedby', 'menuNoRoms'); else menu.removeAttribute('aria-describedby');
+    if (none) {
+      const top = document.createElement('p'); top.id = 'menuNoRoms'; top.setAttribute('role', 'none');
+      top.textContent = 'No ROMs yet: every machine needs its own ROMs for BASIC.';
+      menu.append(top);
+    }
     // every profile is in exactly one section (groupProfiles is exhaustive; a new model cannot go missing)
     for (const [name, list] of groupProfiles(availableProfiles())) {
       const g = document.createElement('div'); g.className = 'machines';
       const h = document.createElement('div'); h.className = 'group-name'; h.textContent = name;
-      g.append(h);
+      const sub = document.createElement('div'); sub.className = 'group-sub'; sub.textContent = SUBTITLES[name];
+      g.append(h, sub);
       for (const p of list) {
         const b = document.createElement('button');
         b.setAttribute('role', 'menuitem');
         b.dataset.machine = p.id;
-        const ready = session.machineRoms(p.id).bootable;
+        b.setAttribute('aria-description', describe(p));
         const n = document.createElement('span'); n.textContent = p.name;
-        const t = document.createElement('span'); t.className = ready ? 'tag ready' : 'tag'; t.textContent = ready ? '✓' : 'needs ROMs';
-        if (ready) t.setAttribute('aria-label', 'BASIC ready');
-        b.append(n, t);
+        b.append(n);
+        if (!none) {
+          const ready = session.machineRoms(p.id).bootable;
+          const t = document.createElement('span'); t.className = ready ? 'tag ready' : 'tag'; t.textContent = ready ? '✓' : 'needs ROMs';
+          if (ready) t.setAttribute('aria-label', 'BASIC ready');
+          b.append(t);
+        }
         if (p.id === session.shownMachine.id) b.setAttribute('aria-current', 'true');
         b.onclick = () => pick(p.id);
+        b.addEventListener('focus', () => say(p));
+        b.addEventListener('pointerenter', () => say(p));
         g.append(b);
       }
       menu.append(g);
@@ -63,8 +84,15 @@ export function setupMachinePanel(page, { showRoms }) {
     const legend = document.createElement('span'), tick = document.createElement('span');
     legend.className = 'legend'; tick.className = 'tag ready'; tick.textContent = '✓';
     legend.append(tick, ' = BASIC ready');
+    legend.hidden = none;
+    // "Which one is mine? →": Help's list of the machines, what each is and the ROMs it needs (a new tab)
+    const mine = document.createElement('a');
+    mine.id = 'menuWhich'; mine.setAttribute('role', 'menuitem'); mine.href = 'help/#machines'; mine.target = '_blank'; mine.rel = 'noopener';
+    mine.textContent = 'Which one is mine? →';
+    mine.onclick = () => openMenu(false);
+    about = document.createElement('p'); about.id = 'menuAbout'; about.setAttribute('aria-hidden', 'true');
     foot.append(item('menuRoms', 'Add or see ROMs…', () => { openMenu(false); showRoms(); }),
-      item('menuSettings', 'RAM, CPU and speed…', () => { openMenu(false); machineSettings(); }), legend);
+      item('menuSettings', 'RAM, CPU and speed…', () => { openMenu(false); machineSettings(); }), mine, legend, about);
     menu.append(sep, foot);
   }
   function openMenu(open) {
@@ -199,7 +227,7 @@ export function setupMachinePanel(page, { showRoms }) {
   page.onEscape(ESC.menu, menuOpen, () => closeMenu(true));
   page.outsidePress(menuOpen, (t) => menu.contains(t) || btn.contains(t), closeMenu);
   menu.addEventListener('keydown', (e) => {
-    const items = [...menu.querySelectorAll('button')], i = items.indexOf(document.activeElement);
+    const items = [...menu.querySelectorAll('[role="menuitem"]')], i = items.indexOf(document.activeElement);
     // Tab leaves the menu: it closes, and the Tab moves on from its button
     if (e.key === 'Tab') closeMenu(true);
     else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); items[(i + (e.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length].focus(); }

@@ -900,6 +900,27 @@ snapshot. The page (browser check, group `tapeHud`, desktop and phone): on by de
 Sound switched off nothing at all is sent to the output while the tape plays (`tests/tape-sound.test.js` checks the
 same gate in Node). How it sounds is a matter of ear, not checked automatically.
 
+### The machine menu's descriptions and Help's list of machines
+
+Each description in `js/machines/menu.js` states only what the MAME 0.264 driver lines it cites say
+(`src/mame/trs/dragon.cpp`, `dgnalpha.cpp`, `coco12.cpp`, `coco3.cpp`, `mc10.cpp`: the COMP() entry's year, maker, name
+and parent, a machine config or ROM_START, or the driver's own notes, such as the Alpha's "a prototype in development
+when Dragon Data went bust"), and a maker the model's name already gives is not repeated. Where a driver states no
+country (the clones' and the Alice's), the descriptions say none; the section subtitles are the design's agreed words,
+and KITS's, which names what the catch-all holds, says only what MAME's cp400 entry does (a CoCo child with its own
+BASIC ROM). This is checked by reading, against the cited lines, not by a test. `tests/machine-menu.test.js`: every profile has a description
+with its source, no description names a model that does not exist, and none repeats the maker its model's name gives; `describe()`'s form; every section the menu
+shows has a subtitle and no other does; KITS's subtitle names every model the catch-all holds; Help's generated list is
+up to date with the data and lists exactly the 17 models `availableProfiles()` offers, each with its description and
+every ROM socket's label and file names. Browser check, group `uiModel` (1280x720 and 390x844): with no ROMs, the top
+line and no tags or legend, and that line as the menu's aria-describedby (none once ROMs are stored); the band above
+the footer fading into the panel's colour, with no mask over the page; every section's subtitle as the data words it; every item's aria-description its
+description, and no live region; **Which one is mine? →** a menu item linking `help/#machines`; on the desktop arrow
+focus changing the footer line to the focused item's description (aria-hidden), and hovering the CD-6809 showing its
+line in view at the menu's foot; on the phone no footer line but the subtitles and the link; with a synthetic Dragon
+32 BASIC stored, the tags on every row and ✓ exactly on the machines `machineRoms` calls bootable; the link opening
+Help at `#machines` with 17 models.
+
 ### The tape's extras: Eject, the Ctrl+K tape commands, several files, recordings named
 
 No MAME oracle (AGENTS.md 4.6): page behaviour. `tests/tape-extras.test.js` records real CSAVEs, the project's writer

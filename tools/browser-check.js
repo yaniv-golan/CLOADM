@@ -7491,7 +7491,10 @@ async function layoutChecks(browser, base, check) {
     // under at least one section, with no empty section
     check(`layout (${label}): machine menu lists every model exactly once under a section`,
       groups.length > 0 && new Set(listed).size === all.length && all.every((id) => listed.includes(id)), `${groups.join()} | ${listed.join(' ')}`);
-    check(`layout (${label}): no ROMs: every model says it needs them`, (await page.$$eval('#machineMenu .tag', (t) => t.map((x) => x.textContent))).filter((t) => t === 'needs ROMs').length === all.length);
+    // no ROMs: one line at the top says every machine needs them, instead of a tag on each row (uiModel checks the tags
+    // once ROMs are stored)
+    check(`layout (${label}): no ROMs: one line says every machine needs its own ROMs, and no row has a tag`,
+      await page.textContent('#menuNoRoms') === 'No ROMs yet: every machine needs its own ROMs for BASIC.' && (await page.$$eval('#machineMenu [data-machine] .tag', (t) => t.length)) === 0);
     check(`layout (${label}): the CP 400 is in the menu (it matched no section before)`, listed.includes('cp400'), listed.join(' '));
     await shot('machine-menu');
     // a switch asks first; Cancel keeps the machine; Escape closes the menu
@@ -17234,6 +17237,84 @@ async function uiModelChecks(browser, base, check) {
     await page.evaluate(() => { if (window.emu.machine.useStub) { window.emu.session.stubChosen.delete('coco'); window.emu.session.switchMachine('coco'); } location.hash = ''; });
     await openTab(page, 'Machine');
     check(`copy (${label}): with BASIC in use the ROMs row says "BASIC ready"`, await waitFor(page, () => document.getElementById('romState').textContent === 'BASIC ready'), await page.textContent('#romState'));
+    await ctx.close();
+  }
+  // ---- the machine menu: one "No ROMs yet" line instead of 17 tags, a subtitle per section, the footer's line for the
+  // model under the focus or the pointer (each item's aria-description), "Which one is mine? →" to Help's list ----
+  for (const [label, opts] of SIZES) {
+    const ctx = await browser.newContext(Object.assign({ serviceWorkers: 'block' }, opts));
+    const page = await ctx.newPage();
+    page.on('pageerror', (e) => errors.push(`${label}: ${e.message}`));
+    await page.goto(`${base}?machine=dragon64`); await started(page);
+    const menuState = () => page.evaluate(async () => {
+      const m = document.getElementById('machineMenu'), { SUBTITLES, describe } = await import(new URL('js/machines/menu.js', document.baseURI).href);
+      const items = [...m.querySelectorAll('[data-machine]')];
+      return { top: (() => { const t = document.getElementById('menuNoRoms'); return t && t.checkVisibility() ? t.textContent : null; })(),
+        tags: items.map((b) => (b.querySelector('.tag') ? b.querySelector('.tag').textContent : null)),
+        ids: items.map((b) => b.dataset.machine),
+        legend: m.querySelector('.legend').checkVisibility(),
+        subs: [...m.querySelectorAll('.machines')].filter((g) => g.querySelector('.group-name')).map((g) => [g.querySelector('.group-name').textContent, g.querySelector('.group-sub') && g.querySelector('.group-sub').checkVisibility() ? g.querySelector('.group-sub').textContent : null]),
+        want: SUBTITLES,
+        described: items.every((b) => b.getAttribute('aria-description') === describe(window.emu.profiles[b.dataset.machine])),
+        which: (() => { const a = document.getElementById('menuWhich'); return a && a.checkVisibility() && [a.textContent, a.getAttribute('href'), a.getAttribute('role')].join('|'); })(),
+        about: (() => { const a = document.getElementById('menuAbout'); return { shown: a.checkVisibility(), text: a.textContent, hidden: a.getAttribute('aria-hidden') }; })(),
+        describedBy: (() => { const id = m.getAttribute('aria-describedby'), d = id && document.getElementById(id); return d ? d.textContent : null; })(),
+        // the fade above the footer: into the panel's colour (the footer's ::before), never a mask showing the page through
+        fade: (() => { const f = getComputedStyle(m.querySelector('.footer'), '::before'), panel = getComputedStyle(m).backgroundColor;
+          return { mask: getComputedStyle(m).maskImage || getComputedStyle(m).webkitMaskImage || 'none', image: f.backgroundImage, panel }; })(),
+        live: !!m.querySelector('[aria-live]') };
+    });
+    await page.click('#machineBtn');
+    await waitFor(page, () => !document.getElementById('machineMenu').hidden);
+    const none = await menuState();
+    check(`machine menu (${label}): no ROMs stored: one line at the top, "No ROMs yet: every machine needs its own ROMs for BASIC.", and no tags (no legend)`,
+      none.top === 'No ROMs yet: every machine needs its own ROMs for BASIC.' && none.tags.length === 17 && none.tags.every((t) => t === null) && !none.legend, JSON.stringify(none));
+    check(`machine menu (${label}): every section shows its subtitle, as the data words it`,
+      none.subs.length === 5 && none.subs.every(([g, sub]) => sub === none.want[g]), JSON.stringify(none.subs));
+    check(`machine menu (${label}): every item carries its description as aria-description; no live region`, none.described && !none.live);
+    check(`machine menu (${label}): with no ROMs a screen reader hears the "No ROMs yet" line as the menu's description (aria-describedby)`,
+      none.describedBy === 'No ROMs yet: every machine needs its own ROMs for BASIC.', String(none.describedBy));
+    check(`machine menu (${label}): the band above the footer fades into the panel's colour, with no mask over the page`,
+      none.fade.mask === 'none' && none.fade.image.includes(none.fade.panel.replace(/\)$/, '')), JSON.stringify(none.fade));
+    check(`machine menu (${label}): the footer has "Which one is mine? →" to help/#machines, a menu item`, none.which === 'Which one is mine? →|help/#machines|menuitem', String(none.which));
+    // arrow focus: the footer line follows (visual only), and it matches the focused item's description
+    await page.keyboard.press('ArrowDown');
+    const f1 = await page.evaluate(() => [document.activeElement.getAttribute('aria-description'), document.getElementById('menuAbout').textContent]);
+    await page.keyboard.press('ArrowDown');
+    const f2 = await page.evaluate(() => [document.activeElement.getAttribute('aria-description'), document.getElementById('menuAbout').textContent]);
+    const ab = await menuState();
+    if (label === 'phone') {
+      check(`machine menu (${label}): no footer line on a phone (the description stays the item's aria-description); subtitles and the link show`,
+        !ab.about.shown && ab.subs.every(([, sub]) => !!sub) && !!ab.which && !!f2[0], JSON.stringify(ab.about));
+    } else {
+      check(`machine menu (${label}): arrow focus changes the footer line, which is the focused item's description, hidden from screen readers`,
+        f1[0] && f1[0] === f1[1] && f2[0] === f2[1] && f1[1] !== f2[1] && ab.about.shown && ab.about.hidden === 'true', JSON.stringify({ f1, f2, about: ab.about }));
+      await page.hover('[data-machine="cd6809"]');
+      check(`machine menu (${label}): hovering a model shows its line, in view at the menu's foot (on top at its centre): "Codimex CD-6809: a CoCo clone, 1983."`,
+        await waitFor(page, () => { const a = document.getElementById('menuAbout'), r = a.getBoundingClientRect(), e = document.elementFromPoint(r.left + 20, r.top + r.height / 2);
+          return a.textContent === 'Codimex CD-6809: a CoCo clone, 1983.' && r.bottom <= innerHeight && r.top >= 0 && !!e && a.contains(e); }),
+        JSON.stringify(await page.evaluate(() => document.getElementById('menuAbout').getBoundingClientRect().toJSON())));
+      if (shotDir) await page.screenshot({ path: path.join(shotDir, `machine-menu-noroms-${label}.png`) });
+    }
+    if (label === 'phone' && shotDir) await page.screenshot({ path: path.join(shotDir, `machine-menu-noroms-${label}.png`) });
+    await page.keyboard.press('Escape');
+    // one ROM set stored (a synthetic Dragon 32 BASIC, matched by its usual name): the tags come back, ✓ only where it boots
+    await dropFiles(page, [['d32.rom', fake(16384, 81)]]);
+    await waitFor(page, () => window.emu.session.storedRoms().count === 1);
+    await page.click('#machineBtn');
+    await waitFor(page, () => !document.getElementById('machineMenu').hidden);
+    const one = await menuState();
+    const boots = await page.evaluate(() => Object.keys(window.emu.profiles).filter((id) => window.emu.session.machineRoms(id).bootable));
+    check(`machine menu (${label}): with one ROM set stored, no top line, the tags on every row and ✓ only on the machines it boots (${boots.join(', ')})`,
+      one.top === null && one.describedBy === null && one.legend && one.tags.every((t) => t === '✓' || t === 'needs ROMs')
+      && one.ids.every((id, i) => (one.tags[i] === '✓') === boots.includes(id)) && boots.length >= 1, JSON.stringify({ tags: one.tags, boots }));
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, `machine-menu-roms-${label}.png`) });
+    // the link: Help's list of the machines, in a new tab
+    const [help] = await Promise.all([ctx.waitForEvent('page'), page.click('#menuWhich')]);
+    await help.waitForLoadState();
+    const listed = await help.evaluate(() => ({ hash: location.hash, models: document.querySelectorAll('#machines ~ dl dt[id^="machine-"]').length, head: !!document.getElementById('machines') }));
+    check(`machine menu (${label}): "Which one is mine? →" opens Help at #machines, which lists all 17 models`, listed.hash === '#machines' && listed.head && listed.models === 17, JSON.stringify(listed));
+    if (shotDir) await help.screenshot({ path: path.join(shotDir, `help-machines-${label}.png`) });
     await ctx.close();
   }
   check('ui model: no page errors', !errors.length, errors.join('; '));

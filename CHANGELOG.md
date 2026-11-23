@@ -10,6 +10,19 @@ Next version: 0.1.9-pre (the plugin and extension manifests carry it; `tests/plu
 
 ### Added
 
+- **The machine menu says what each machine is.** With no ROMs stored at all, one line at the top, "No ROMs yet:
+  every machine needs its own ROMs for BASIC.", replaces the 17 "needs ROMs" tags; the ✓ / needs ROMs tags come back
+  once any ROMs are stored. Each section has a subtitle (DRAGON "Dragon Data's machines and their Spanish and US
+  versions", COCO "Tandy's Color Computers", MC-10 "Tandy's MC-10 and the French Matra Alice", CLONES "Brazilian
+  copies of the CoCo", KITS naming what it holds, today the Prológica CP-400). The footer, kept in view while the
+  models scroll, shows one line for the model under the pointer or the focus ("Codimex CD-6809: a CoCo clone,
+  1983."), visual only: each item carries the same words as its aria-description (none on a phone); with no ROMs a
+  screen reader hears the "No ROMs yet" line as the menu's description. The models fade into the panel above the
+  footer. The
+  footer's new **Which one is mine? →** opens Help's new **Which machine is mine?** section (`help/#machines`), every
+  model with what it is and the ROMs it takes by the names Your ROMs uses, generated from the data by
+  `node tools/gen-machine-help.js`. The descriptions are data in `js/machines/menu.js` (`SUBTITLES`, `DESCRIPTIONS`,
+  `describe`), each stating only what its cited MAME 0.264 driver lines say.
 - **The Speech/Sound Pak speaks.** Its SP0256 now turns its parameters into sound: the pitch impulses or noise, the
   six-stage filter with the chip's coefficient table, and its output, at MAME's level, through the cartridge sound
   mux with the Pak's music. It speaks from your own allophone ROM (the SP0256-AL2's), which you add in the ROM panel;
