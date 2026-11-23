@@ -443,7 +443,7 @@ for (const [id, caseNo] of [['coco', 16], ['dragon64', 17]]) {
   const fs = require('fs');
   const s = new Emu.Session();
   s.switchMachine('dragon64');
-  s.startWelcome(new Uint8Array(fs.readFileSync(path.join(__dirname, '../examples/welcome.bin'))));
+  s.startWelcome(new Uint8Array(fs.readFileSync(path.join(__dirname, '../examples/welcome.bin'))), { reason: 'visit' });   // (the visit's tune: silent after a switch)
   s.welcomeSound();
   const a = s.shownMachine;
   for (let f = 0; f < 60; f++) a.runFrame();   // the stripe is built by frame 32; the tune starts then

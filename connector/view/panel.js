@@ -183,7 +183,7 @@ export async function start() {
   };
   const runProgram = (name) => attempt(() => {
     if (name === 'liza') return runLiza();
-    if (name === 'welcome') { say(session.startWelcome(files[session.welcomeFile])); return running(PROGRAM_NAMES.welcome); }
+    if (name === 'welcome') { say(session.startWelcome(files[session.welcomeFile], { reason: 'shelf' })); return running(PROGRAM_NAMES.welcome); }
     if (name === 'demo') {
       if (session.shownMachine.hasRom) session.runWithoutRoms({ menu: false });
       say(session.load('demo.bin', files['demo.bin'], { remember: false }));

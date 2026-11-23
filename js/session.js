@@ -84,11 +84,18 @@ export const romOwners = () => Object.assign({}, profiles, cartridgeRoms, { ssc:
 // build sits at $6000 and covers eleven models (the HD6309 included: it runs the 6809 build in emulation
 // mode, like any 6809 program); the 6803 build (the MC-10 and the Matra Alice) sits at
 // $5000 and is built once per machine, so its subtitle names the one it runs on.
+// Why a welcome menu starts (R46: its tune plays only when the person asked for the menu). 'visit': the visit's own
+// start; 'shelf': chosen from Programs (the Welcome menu item, a link, Claude's load); both play it once the sound is
+// unlocked. The rest are silent: 'switch' (a machine switch, a RAM or CPU change, an opened snapshot), 'reset' (Reset,
+// a power cycle, ROMs removed) and 'return' (back from LIZA, a game or the demo). A silent start sets the firmware's
+// PLAYED flag itself (`played`, below), so the tune is spent before anything can unlock it.
+export const WELCOME_REASONS = Object.freeze(['visit', 'shelf', 'switch', 'reset', 'return']);
+const WELCOME_QUIET = Object.freeze(new Set(['switch', 'reset', 'return']));
 export const WELCOME = Object.freeze({
   // carryMax: the carry-on line's text, 0-terminated (none when the first byte is 0), this long at most (the 6809
   // build's line has the room for "CARRY ON WITH MINESWEEPER")
-  '6809': Object.freeze({ file: 'welcome.bin', start: 0x6000, event: 0x6003, soundOk: 0x6004, greet: 0x6006, carry: 0x6007, carryMax: 26 }),
-  '6803': Object.freeze({ file: null, start: 0x5000, event: 0x5003, soundOk: 0x5004, greet: 0x5006, carry: 0x5007, carryMax: 24 }),
+  '6809': Object.freeze({ file: 'welcome.bin', start: 0x6000, event: 0x6003, soundOk: 0x6004, played: 0x6005, greet: 0x6006, carry: 0x6007, carryMax: 26 }),
+  '6803': Object.freeze({ file: null, start: 0x5000, event: 0x5003, soundOk: 0x5004, played: 0x5005, greet: 0x5006, carry: 0x5007, carryMax: 24 }),
   // the choices 1-7: keys 1-4 of the menu, its carry-on line (key 5 on the 6803 build, 6 on the 6809 one), and the
   // 6809 build's games menu (key 5, then 1 or 2)
   events: Object.freeze(['liza', 'demo', 'roms', 'claude', 'carryon', '2048', 'minesweeper']),
@@ -599,6 +606,8 @@ export class Session {
     this.stubRun = null;            // the record for the machine in use, set by `install`; '' until there is one
     this.welcomeBuild = null;       // its build's fixed addresses (WELCOME[profile cpu])
     this.welcomeSoundOn = false;    // audio unlocked: the welcome program may play its tune
+    this.menuReason = null;         // why the menu was last offered (offerMenu): the next startWelcome without a reason of its own takes it
+    this.welcomeQuiet = null;       // { m, at }: a silent start waiting for its first frame, then PLAYED is set (flushWelcome)
     this.tapeInfo = null;           // the tape in the deck: its block starts and length (tapeStatus)
     this.tapeWatch = null;          // the current or last run of the cassette motor: { done, error } (tapeStatus)
     this.tapeStarted = null;        // a machine-code tape fast-loaded and started: { tape, exec } (tapeStatus started)
@@ -726,7 +735,7 @@ export class Session {
     m.reset(true);
     this.lastRate = this.cpuRate() && this.cpuRate().rate;
     this.emit('machine');
-    if (menu) this.offerMenu(offer);   // switched on without ROMs: the welcome menu
+    if (menu) this.offerMenu(offer, 'switch');   // switched on without ROMs: the welcome menu
     return m;
   }
   // What a switch to model `id` with `config` (a RAM change: the same id) takes out of the machine in use, for the
@@ -1191,7 +1200,7 @@ export class Session {
     else { this.setStubRun(m); m.reset(false); this.warmReset = { m, resetAt: m.frameCount }; }
     this.acc = 0;
     this.emit('reset');
-    if (!again) this.offerMenu();
+    if (!again) this.offerMenu(null, 'reset');
   }
   // A power cycle keeps what is inserted, as on real hardware: the cartridge (and so a disk controller's disks)
   // and the tape where it was; only RAM, the chips and the CPU start over. menu: false when the caller starts a
@@ -1220,16 +1229,18 @@ export class Session {
     m.reset(true);
     this.acc = 0;
     this.poweredOn();
-    if (menu) this.offerMenu();
+    if (menu) this.offerMenu(null, 'reset');
   }
   // no ROMs, nothing running: the welcome menu, greeting the visitor back (the page has its bytes)
   // The event's argument is how the menu is offered: 'back' (a returning visit) or 'bye' (back from a program) as
   // before, or 'none' from the machine question's switch, which starts the menu without a carry-on line.
-  offerMenu(offer = null) {
+  // reason: why (WELCOME_REASONS): the start that follows takes it unless it names its own, and the tune is silent
+  // for a switch, a reset and a return (R46)
+  offerMenu(offer = null, reason = 'switch') {
     // the person's machine (personMachine): a Reset after a load on the chat screen used to offer the welcome menu
     // to the CHAT machine, which never runs it, and the page acted on that (review probe B)
     const m = this.personMachine;
-    if (this.welcomeMenu && m.useStub && WELCOME[cpuFamily(m.config.cpu)]) this.emit('menu', offer || 'back');
+    if (this.welcomeMenu && m.useStub && WELCOME[cpuFamily(m.config.cpu)]) { this.menuReason = reason; this.emit('menu', offer || 'back'); }
   }
   // run segments at exec (Machine.injectAndRun), remembering them as the stub's program to restart on Reset.
   // on: the machine to run them on (loadMedia's target: the BASIC session while the chat is full screen), else the
@@ -1246,7 +1257,7 @@ export class Session {
   }
   // start a stub program again from its entry point: the welcome menu as it was, or the bytes and exec address
   restart(r) {
-    if (r.welcome) { this.startWelcome(r.welcome.bytes, r.welcome); return; }
+    if (r.welcome) { this.startWelcome(r.welcome.bytes, Object.assign({}, r.welcome, { reason: 'reset' })); return; }
     this.shownMachine.injectAndRun(r.segments, r.exec);
     this.setStubRun(this.shownMachine, r);
     if (r.watch) this.watchForMenu(r.watch);
@@ -1334,7 +1345,7 @@ export class Session {
     m.reset(true);
     this.emit('roms');
     this.poweredOn();
-    this.offerMenu();
+    this.offerMenu(null, 'reset');
   }
   // Run the built-in stub firmware on the machine the person is working on (personMachine: the BASIC session while
   // the chat is full screen), also when ROMs are loaded. The load's fall-back for stored ROMs that do not start
@@ -1602,7 +1613,7 @@ export class Session {
     this.emit('roms');
     this.emit('loaded');
     // a moment taken on the stub's bare prompt has nothing running to come back to: the welcome menu, as a power-on
-    if (m.atStubPrompt()) this.offerMenu();
+    if (m.atStubPrompt()) this.offerMenu(null, 'switch');
     this.emit('disks');
     this.emit('nitros9');
     // an opened moment is a restore, not a power-on: announced as 'restored' (never 'reset'), the same event an
@@ -2751,6 +2762,7 @@ export class Session {
     this.menuWatch = null;
     // the page starts the menu in asMachine with this ticket (machineTicket): the keys that asked for it
     this.menuTicket = w.ticket || this.machineTicket();
+    this.menuReason = 'return';
     this.emit('menu');
   }
   // the one-step switch: fit the RAM option LIZA needs, keeping the other options
@@ -2864,7 +2876,13 @@ export class Session {
   // gen: the welcomeGen a page took (welcomeGenNow) before fetching these bytes. When it is given and something
   // took the machine since, the start does nothing and this returns null: the menu must not take the screen back
   // from what the person started while its bytes were on the way.
-  startWelcome(bytes, { greeting = 'first', carryOn = null, gen = null } = {}) {
+  // reason: why it starts (WELCOME_REASONS); without one, the reason the menu was offered with (offerMenu), else 'visit'.
+  // A silent reason ('switch', 'reset', 'return') keeps the tune from playing: PLAYED is set once the firmware has
+  // cleared it in its first frame (flushWelcome), whether or not the audio is unlocked, now or later.
+  startWelcome(bytes, { greeting = 'first', carryOn = null, gen = null, reason = null } = {}) {
+    const why = reason || this.menuReason || 'visit';
+    this.menuReason = null;
+    if (!WELCOME_REASONS.includes(why)) throw new SessionError(`unknown welcome reason "${why}"`);
     // The ticket catches "the machine was taken by something else while the bytes were in flight" -- a program
     // loaded, a snapshot opened, a Reset, a switch the person did not ask for. It is compared BEFORE the start's own
     // machine work (which bumps it through endWelcome), and there is only ever ONE start per turn now
@@ -2898,6 +2916,7 @@ export class Session {
     this.welcomeBuild = w;
 
     this.emit('welcome');   // (the page's parts that depend on whether the welcome program runs: the quick-save slots)
+    this.welcomeQuiet = WELCOME_QUIET.has(why) ? { m, at: m.frameCount } : null;
     if (this.welcomeSoundOn) this.welcomeSound();
     const last = (carry ? 1 : 0) + (w === WELCOME['6809'] ? 5 : 4);   // the 6809 build has the games too
     return `Welcome: press 1 to ${last}`;
@@ -2935,10 +2954,11 @@ export class Session {
     // the PERSON's machine, the same machine welcomeRunning now means: it poked this.shownMachine, so with the chat open
     // the 1 went into the CHAT firmware's $6004 (inside chat.bin's $6000 load range) and the person's menu never got
     // its sound (review 0.1.9 round 3). The welcome build is the person's machine's build, as startWelcome sets it.
-    if (this.welcomeRunning) this.welcome.poke(this.welcomeBuild.soundOk, 1);
+    // (a silent start sets it after its first frame instead, once PLAYED is set: flushWelcome)
+    if (this.welcomeRunning && !this.welcomeQuiet) this.welcome.poke(this.welcomeBuild.soundOk, 1);
   }
   endWelcome() {
-    this.welcome = null; this.welcomeBuild = null; this.menuWatch = null;
+    this.welcome = null; this.welcomeBuild = null; this.menuWatch = null; this.welcomeQuiet = null; this.menuReason = null;
     this.welcomeGen++;   // anything that takes the machine cancels a welcome start still waiting on its bytes
   }
   // The generation a page takes before it fetches the welcome bytes and hands it back to startWelcome. Every way
@@ -2949,6 +2969,14 @@ export class Session {
   // after the frames just run: emit the key posted in the mailbox, if any, and clear it
   flushWelcome() {
     if (!this.welcomeRunning) return;
+    // a silent start: its first frame has run, so the firmware has cleared PLAYED (its START) and has not yet
+    // reached the tune (SOUNDOK is held back until now): set PLAYED, then let SOUNDOK through
+    const q = this.welcomeQuiet;
+    if (q && q.m === this.welcome && this.welcome.frameCount > q.at) {
+      this.welcomeQuiet = null;
+      this.welcome.poke(this.welcomeBuild.played, 1);
+      if (this.welcomeSoundOn) this.welcome.poke(this.welcomeBuild.soundOk, 1);
+    }
     // the same pair as welcomeSound: the gate is the person's machine (welcomeRunning) and this is what it reads and
     // clears - this.shownMachine's $6003 is chat firmware code with the chat open (review 0.1.9 round 3)
     const m = this.welcome, at = this.welcomeBuild.event, key = m.peek ? m.peek(at) : m.ram[at];
