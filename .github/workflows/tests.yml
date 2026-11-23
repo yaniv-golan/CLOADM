@@ -3,9 +3,12 @@
 # (GitHub's refs/pull/N/merge, so the `gates` summary's SHA is a merge commit, not the branch head -- the run is
 # proof for the result of merging, which is what main would receive, not for the branch on its own).
 # On demand for any other branch (workflow_dispatch). A green run on a commit is the definition of done for that exact commit (AGENTS.md section 4):
-# `node tests/all.js` (which includes the regression gate) and every group of the browser check, split over parallel
-# shards. The final job, "gates", is green only if every other job passed; its summary gives the commit, its tree
-# hash and each job's pass/fail/skip counts, so a reviewer can match the run to the tree they read.
+# `node tests/all.js` (which includes the regression gate), split into parts on parallel runners (`--shard i/n`), and
+# every group of the browser check, split over parallel shards generated from measured group times. The final job,
+# "gates", is green only if every other job passed and the all.js parts together ran every suite exactly once; its
+# summary gives the commit, its tree hash, each job's pass/fail/skip counts and every FAIL line, so a reviewer can
+# match the run to the tree they read. Attempt 1 is the gate and is never re-run (AGENTS.md 4.7). The whole browser
+# check in one process runs daily in browser-daily.yml, which is not a gate.
 #
 # Every action is pinned to a full commit SHA with the release tag it is as a comment beside it: a tag can be moved
 # to other code, a SHA cannot. Dependabot (.github/dependabot.yml) proposes the bump, with the tag. Never pin to a
@@ -83,12 +86,20 @@ jobs:
           echo "matrix=$(node .github/scripts/browser-check-shards.js --matrix)" >> "$GITHUB_OUTPUT"
 
   suites:
-    name: node tests/all.js
+    name: node tests/all.js ${{ matrix.shard }}
     # Pinned, not ubuntu-latest: the image moves under us (it once went to 26.04, which the Playwright then pinned,
     # 1.55, had no chromium for) and a green run should mean the code changed, not the runner. Move this
     # deliberately, with the browsers.
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    # The gate in three parts on three runners (`node tests/all.js --shard i/n`, planned from tests/suite-times.json),
+    # because one runner took 5-6 minutes for the whole of it. The parts are disjoint and cover every suite; the
+    # `gates` job checks that from their logs (.github/scripts/suite-shards.js), so a part that never ran or a suite
+    # that fell between them fails the gate. Change the count here only: n is read from the matrix.
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
     steps:
       # The whole history, with its tags: tests/changelog.test.js compares each released section of CHANGELOG.md with
       # the same section in its release tag, and a shallow checkout has no tags (the test fails on CI without them).
@@ -98,21 +109,26 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7.1.0
         with:
           node-version: '22'
-      - name: Run every suite
+      - name: Run part ${{ matrix.shard }} of every suite
         run: |
           set -o pipefail
-          node tests/all.js | tee all.log
+          node tests/all.js --shard '${{ matrix.shard }}/${{ strategy.job-total }}' --timings suite-times.json | tee all.log
       - name: Count
         if: always()
         run: |
           mkdir -p counts
-          printf '| suites (tests/all.js) | %s | %s | %s | %s |\n' "${{ job.status }}" \
-            "$(grep -cE '^pass  [^ ]+\.test\.js ' all.log || true)" "$(grep -cE '^FAIL  [^ ]+\.test\.js ' all.log || true)" "-" > counts/suites.md
-          cat counts/suites.md >> "$GITHUB_STEP_SUMMARY"
+          touch all.log
+          printf '| suites (tests/all.js %s/%s) | %s | %s | %s | %s |\n' "${{ matrix.shard }}" "${{ strategy.job-total }}" "${{ job.status }}" \
+            "$(grep -cE '^pass  [^ ]+\.test\.js ' all.log || true)" "$(grep -cE '^FAIL  [^ ]+\.test\.js ' all.log || true)" "-" > "counts/suites-${{ matrix.shard }}.md"
+          cat "counts/suites-${{ matrix.shard }}.md" >> "$GITHUB_STEP_SUMMARY"
+          # the whole log goes to gates, which checks that the parts together ran every suite once
+          cp all.log "counts/all-${{ matrix.shard }}.log"
+          grep -E '^(FAIL|FAILED:)' all.log > "counts/fails-suites-${{ matrix.shard }}.txt" || true
+          cp suite-times.json "counts/suite-times-${{ matrix.shard }}.json" 2>/dev/null || true
       - if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
-          name: counts-suites
+          name: counts-suites-${{ matrix.shard }}
           path: counts/
 
   pages:
@@ -158,7 +174,7 @@ jobs:
         run: |
           set -o pipefail
           node .github/scripts/browser-check-shards.js --shard '${{ matrix.shard }}' "$CHECK_GROUPS"
-          node tools/browser-check.js --only "$CHECK_GROUPS" --screenshots browser-shots | tee check.log
+          node tools/browser-check.js --only "$CHECK_GROUPS" --screenshots browser-shots --timings timings.json | tee check.log
       - name: Count
         if: always()
         env:
@@ -171,6 +187,10 @@ jobs:
             > "counts/pages-${{ matrix.shard }}.md"
           cat "counts/pages-${{ matrix.shard }}.md" >> "$GITHUB_STEP_SUMMARY"
           grep -i '^skip' check.log >> "$GITHUB_STEP_SUMMARY" || true
+          # the FAIL lines, for the gates summary; and this run's group times (node .github/scripts/browser-check-shards.js
+          # --merge takes them into .github/browser-check-timings.json)
+          grep -E '^FAIL' check.log > "counts/fails-pages-${{ matrix.shard }}.txt" || true
+          cp timings.json "counts/timings-${{ matrix.shard }}.json" 2>/dev/null || true
       - if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
@@ -224,13 +244,36 @@ jobs:
             echo "| job | result | pass | fail | skip |"
             echo "|---|---|---|---|---|"
             cat counts/*.md 2>/dev/null || true
+            # every FAIL line of every part, by job, so a red run says what failed without opening each log
+            for f in counts/fails-*.txt; do
+              [ -s "$f" ] || continue
+              echo
+              echo "### FAIL lines: $(basename "$f" .txt | sed 's/^fails-//')"
+              echo
+              echo '```'
+              head -n 60 "$f"
+              echo '```'
+            done
           } >> "$GITHUB_STEP_SUMMARY"
+          # This run's browser-check group times, merged, for refreshing .github/browser-check-timings.json.
+          if ls counts/timings-*.json >/dev/null 2>&1; then
+            node .github/scripts/browser-check-shards.js --merge-out browser-check-timings.json counts/timings-*.json || true
+          fi
+          status=0
+          # Every part of tests/all.js reported, and together they ran every suite exactly once, regress included.
+          node .github/scripts/suite-shards.js counts/all-*.log || status=1
           # Every browser-check shard must have reported; a missing one is a failure, not a pass.
           want=$(node .github/scripts/browser-check-shards.js --matrix | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s).include.length))')
           have=$(ls counts/pages-*.md 2>/dev/null | wc -l)
           echo "browser-check shards reported: $have of $want"
-          test "$have" = "$want"
-          test "${{ needs.shards.result }}" = success
-          test "${{ needs.suites.result }}" = success
-          test "${{ needs.pages.result }}" = success
-
+          test "$have" = "$want" || status=1
+          test "${{ needs.shards.result }}" = success || status=1
+          test "${{ needs.suites.result }}" = success || status=1
+          test "${{ needs.pages.result }}" = success || status=1
+          exit $status
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: browser-check-timings
+          path: browser-check-timings.json
+          if-no-files-found: ignore

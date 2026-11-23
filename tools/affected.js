@@ -65,7 +65,7 @@ const AREAS = [
   { row: '`CHANGELOG.md`', paths: ['CHANGELOG.md'], suites: ['changelog'], groups: [] },
   { row: 'The test runner (`tests/all.js`, `suite-verdict.js`, `no-exit.js`)',
     paths: ['tests/all.js', 'tests/suite-verdict.js', 'tests/no-exit.js', 'tests/suite-times.json'],
-    suites: ['allsummary', 'allsignal', 'allsched', 'exitguard', 'exitcode'], groups: [] },
+    suites: ['allsummary', 'allsignal', 'allsched', 'suite-shards', 'exitguard', 'exitcode'], groups: [] },
   { row: '`tools/browser-check*.js`, `.github/`', paths: ['tools/browser-check', '.github/'], suites: ['browser-check'], groups: [],
     note: 'tools/browser-check*.js or .github/ changed: add the browser-check groups you touched' },
 

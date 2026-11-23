@@ -8,6 +8,7 @@ const ROOT = path.join(__dirname, '..');
 const script = path.join(ROOT, '.github', 'scripts', 'browser-check-shards.js');
 const realCheck = fs.readFileSync(path.join(ROOT, 'tools', 'browser-check.js'), 'utf8');
 const realShards = JSON.parse(fs.readFileSync(path.join(ROOT, '.github', 'browser-check-shards.json'), 'utf8'));
+const realTimings = JSON.parse(fs.readFileSync(path.join(ROOT, '.github', 'browser-check-timings.json'), 'utf8'));
 const groups = cp.execFileSync(process.execPath, [path.join(ROOT, 'tools', 'browser-check.js'), '--list-groups'], { encoding: 'utf8' }).trim().split('\n');
 
 // A copy of the browser check runs from tmp/tools, beside links to what it requires (its lib, and tests/ for the emulator).
@@ -18,12 +19,16 @@ fs.symlinkSync(path.join(ROOT, 'tests'), path.join(dir, 'tests'));
 // the check also reads js/host/audio.js for SETTLE_MS (the tone check's settle bound), so the copy needs js/ too
 fs.symlinkSync(path.join(ROOT, 'js'), path.join(dir, 'js'));
 let n = 0;
-function run({ check = realCheck, shards = realShards, args = [] } = {}) {
-  const c = path.join(dir, 'tools', `browser-check-${++n}.js`), s = path.join(dir, `shards-${n}.json`);
+let last = null;   // the files of the latest run(), to read back what --write and --merge wrote
+function run({ check = realCheck, shards = realShards, timings = realTimings, args = [] } = {}) {
+  const c = path.join(dir, 'tools', `browser-check-${++n}.js`), s = path.join(dir, `shards-${n}.json`), t = path.join(dir, `timings-${n}.json`);
   fs.writeFileSync(c, check);
   fs.writeFileSync(s, JSON.stringify(shards));
-  return cp.spawnSync(process.execPath, [script, ...args], { env: { ...process.env, BROWSER_CHECK: c, BROWSER_CHECK_SHARDS: s }, encoding: 'utf8' });
+  fs.writeFileSync(t, JSON.stringify(timings));
+  last = { shards: s, timings: t };
+  return cp.spawnSync(process.execPath, [script, ...args], { env: { ...process.env, BROWSER_CHECK: c, BROWSER_CHECK_SHARDS: s, BROWSER_CHECK_TIMINGS: t }, encoding: 'utf8' });
 }
+const readJson = (f) => JSON.parse(fs.readFileSync(f, 'utf8'));
 const fails = (r, re, what) => {
   assert.notStrictEqual(r.status, 0, `${what}: passed\n${r.stdout}${r.stderr}`);
   assert.match(r.stderr, re, `${what}: the failure should say ${re}`);
@@ -57,6 +62,44 @@ try {
   // A browser check that can't list its groups fails the check rather than passing on an empty list.
   fails(run({ check: realCheck.replace("if (process.argv.includes('--list-groups'))", "throw new Error('broken'); if (0)") }), /--list-groups failed/, 'a browser check whose --list-groups fails');
   fails(run({ check: realCheck.replace("console.log(names.join('\\n')); return;", 'return;') }), /printed no groups/, 'a browser check whose --list-groups prints nothing');
+
+  // The shard file is the plan the timings give: --write reproduces the committed file exactly, and a file that is not
+  // the plan (a hand edit, or timings changed and not written out) fails; so does a group with no time, or a time for
+  // a group the check does not have.
+  {
+    const w = run({ shards: { shards: [['nav']] }, args: ['--write'] });
+    assert.strictEqual(w.status, 0, w.stdout + w.stderr);
+    assert.deepStrictEqual(readJson(last.shards).shards, realShards.shards, '--write must reproduce the committed shard file');
+    console.log('ok   --write reproduces .github/browser-check-shards.json from the timings');
+    const sec = realShards.shards.map((sh) => sh.reduce((a, g) => a + realTimings.groups[g], 0));
+    const total = sec.reduce((a, b) => a + b, 0), biggest = Math.max(...Object.values(realTimings.groups));
+    const bound = Math.max(biggest, total / sec.length) * 1.15;
+    assert.ok(Math.max(...sec) <= bound, `shards ${sec.map(Math.round).join('/')} s: the longest is more than 15% over ${Math.round(bound / 1.15)} s`);
+    console.log(`ok   the plan is balanced: ${sec.map(Math.round).join('/')} s (ideal ${Math.round(Math.max(biggest, total / sec.length))} s)`);
+  }
+  const swapped = realShards.shards.map((sh) => [...sh]);
+  { const a = swapped[0].pop(), b = swapped[1].pop(); swapped[0].push(b); swapped[1].push(a); }
+  fails(run({ shards: { shards: swapped } }), /is not the plan .* \(stale or edited by hand\)/, 'a shard file that is not the plan (two groups swapped)');
+  fails(run({ timings: { ...realTimings, groups: { ...realTimings.groups, nav: realTimings.groups.nav + 500 } } }), /is not the plan/, 'timings changed and the shards not written out');
+  { const g = { ...realTimings.groups }; delete g.nav; fails(run({ timings: { ...realTimings, groups: g } }), /no time in .* for: nav /, 'a group with no time'); }
+  fails(run({ timings: { ...realTimings, groups: { ...realTimings.groups, zzGone: 3 } } }), /times groups the check does not have: zzGone/, 'a time for a group the check does not have');
+  fails(run({ timings: { ...realTimings, shards: 0 } }), /"shards" must be a whole number/, 'no shard count');
+  // --merge takes measured times in (only the groups measured), drops groups the check no longer has, and writes the plan.
+  {
+    const t = path.join(dir, 'measured.json');
+    fs.writeFileSync(t, JSON.stringify({ groups: { nav: 777, zzGone: 5 } }));
+    const m = run({ timings: { ...realTimings, groups: { ...realTimings.groups, zzOld: 9 } }, args: ['--merge', t] });
+    assert.strictEqual(m.status, 0, m.stdout + m.stderr);
+    const merged = readJson(last.timings).groups;
+    assert.strictEqual(merged.nav, 777, 'the measured time replaces the old one');
+    assert.strictEqual(merged.favicon, realTimings.groups.favicon, 'an unmeasured group keeps its time');
+    assert.ok(!('zzGone' in merged) && !('zzOld' in merged), 'groups the check does not have are dropped');
+    assert.ok(readJson(last.shards).shards.flat().includes('nav') && readJson(last.shards).shards.flat().length === groups.length, 'the written plan holds every group');
+    const env = { ...process.env, BROWSER_CHECK: path.join(dir, 'tools', `browser-check-${n}.js`), BROWSER_CHECK_SHARDS: last.shards, BROWSER_CHECK_TIMINGS: last.timings };
+    const after = cp.spawnSync(process.execPath, [script], { env, encoding: 'utf8' });
+    assert.strictEqual(after.status, 0, `after --merge the shards are the plan: ${after.stderr}`);
+    console.log('ok   --merge updates the measured groups, keeps the rest, drops unknown ones and writes the plan');
+  }
 
   // --shard N 'list': the --only argument a shard job is about to pass must be exactly its shard's list.
   const first = realShards.shards[0].join(',');

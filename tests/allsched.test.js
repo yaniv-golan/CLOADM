@@ -39,7 +39,7 @@ fs.writeFileSync(path.join(tests, 'pc.test.js'), probe('pc', 1500));
 fs.writeFileSync(path.join(tests, 'zz-shard.test.js'), probe('zz', 600));
 const TIMES = path.join(tests, 'suite-times.json');
 const times = { 'pa.test.js': 1, 'pb.test.js': 1, 'pc.test.js': 50, 'regress.test.js': 0.1, 'zz-shard.test.js': 10 };
-fs.writeFileSync(TIMES, JSON.stringify(times));
+fs.writeFileSync(TIMES, JSON.stringify({ '//': 'a note that --record-times keeps', suites: times }));
 
 // the runner as the gate runs it: without the exit guard on itself (see tests/allsignal.test.js)
 const env = Object.assign({}, process.env, { ALLSCHED_LOG: LOG,
@@ -72,14 +72,16 @@ try {
   // --record-times: only a full run, only a passing one
   const only = gate(['--only', 'pa', '--record-times']);
   check('--record-times with --only is refused (exit 2), times unchanged', only.status === 2 && /needs a full run/.test(only.out)
-    && JSON.stringify(JSON.parse(fs.readFileSync(TIMES, 'utf8'))) === JSON.stringify(times));
+    && JSON.stringify(JSON.parse(fs.readFileSync(TIMES, 'utf8')).suites) === JSON.stringify(times));
+  const part = gate(['--shard', '1/2', '--record-times']);
+  check('--record-times with --shard is refused too (exit 2)', part.status === 2 && /needs a full run/.test(part.out), part.out.slice(-200));
   const bad = gate(['--record-times'], { PROBE_FAIL: 'pb' });
   check('--record-times after a failing run writes nothing', bad.status === 1 && /not written, the run failed/.test(bad.out)
-    && JSON.stringify(JSON.parse(fs.readFileSync(TIMES, 'utf8'))) === JSON.stringify(times), bad.status === 1 ? '' : bad.out.slice(-200));
+    && JSON.stringify(JSON.parse(fs.readFileSync(TIMES, 'utf8')).suites) === JSON.stringify(times), bad.status === 1 ? '' : bad.out.slice(-200));
   const rec = gate(['--record-times']);
-  const got = JSON.parse(fs.readFileSync(TIMES, 'utf8'));
-  check('--record-times after a passing full run writes every suite\'s time, in seconds', rec.status === 0
-    && Object.keys(got).sort().join() === Object.keys(times).sort().join() && got['pc.test.js'] >= 1.4 && got['pc.test.js'] < 30, JSON.stringify(got));
+  const file = JSON.parse(fs.readFileSync(TIMES, 'utf8')), got = file.suites;
+  check('--record-times after a passing full run writes every suite\'s time, in seconds, in the one format --shard reads (its note kept)', rec.status === 0
+    && file['//'] === 'a note that --record-times keeps' && Object.keys(got).sort().join() === Object.keys(times).sort().join() && got['pc.test.js'] >= 1.4 && got['pc.test.js'] < 30, JSON.stringify(got));
 } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 
 console.log(fail ? `${fail} FAILED` : 'all passed');

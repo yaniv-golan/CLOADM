@@ -446,9 +446,11 @@ const MIN_USES = 23;   // tests.yml 13 + release.yml 7 + pages.yml 3, measured w
   const names = Object.values(jobNames(tests));
   const keys = jobKeys(tests);
   check('the job keys are read from under jobs:', keys.includes('suites') && keys.includes('gates') && keys.includes('pages'), keys.join(' | '));
-  for (const job of ['browser-check shards are complete', 'node tests/all.js', 'gates']) {
+  for (const job of ['browser-check shards are complete', 'gates']) {
     check(`tests.yml has a job named "${job}" (the docs and the PR template name it)`, names.includes(job), names.join(' | '));
   }
+  check('tests.yml names a "node tests/all.js <part>" job family (tests/all.js --shard i/n)', names.some((n) => /^node tests\/all\.js \$\{\{\s*matrix\.shard\s*\}\}$/.test(n)),
+    names.join(' | '));
   check('tests.yml names a "browser check <shard>" job family', names.some((n) => /^browser check \$\{\{\s*matrix\.shard\s*\}\}$/.test(n)),
     names.filter((n) => /browser check/.test(n)).join(' | '));
   // A RE-RUN must never cancel: cancelling the newest head's run on behalf of an older commit's re-run takes away
