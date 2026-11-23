@@ -93,7 +93,7 @@ function run({ installed = [], cached = [], mirrorFails = false, dpkgNoop = fals
     encoding: 'utf8', timeout: 120000,   // the runs here take 1-15 s; this only stops a hung one
     env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, STATE: state, NEEDED: NEEDED.join(' '), DEBS_DIR: debs,
       APT_CONF: path.join(dir, 'apt.conf'), APT_ARCHIVES: arch, PAUSE: '0', LOCKS: path.join(state, 'lock'), TOK: tok, HOLD: holdTok,
-      T_UPDATE: '1', KILL_AFTER: '1', LOCK_WAIT: '5' },
+      T_UPDATE: '4', KILL_AFTER: '1', LOCK_WAIT: '5' },   // 4 s: a stub apt-get that does not hang must finish well inside it under a loaded gate (1 s did not on CI)
   });
   const alive = (t) => cp.spawnSync('pgrep', ['-f', `sleep ${t}`], { encoding: 'utf8' }).stdout.trim();
   const survivors = [alive(tok), alive(holdTok)].filter(Boolean).join(' ');
@@ -148,7 +148,7 @@ const says = (r, re) => re.test(r.out);
 // 6. try 1's apt-get update hangs past its limit with a child of it holding the dpkg lock (CI 45180359317)
 {
   const r = run({ hang: 'group' });
-  check('a hung update with a child holding the lock: stopped at its limit', says(r, /'apt-get update' passed its 1 s limit: stopping its whole process group/), r.out.trim().split('\n').slice(0, 3).join(' | '));
+  check('a hung update with a child holding the lock: stopped at its limit', says(r, /'apt-get update' passed its 4 s limit: stopping its whole process group/), r.out.trim().split('\n').slice(0, 3).join(' | '));
   check('...try 2 gets the lock and the install succeeds', r.status === 0 && says(r, /installed from the mirror/) && !has(r, /lock held/), r.calls.join(' | '));
   check('...and no process of the stub survives', r.survivors === '', `survivors: ${r.survivors}`);
 }
