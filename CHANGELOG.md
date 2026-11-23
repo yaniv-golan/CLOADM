@@ -226,6 +226,14 @@ Next version: 0.1.9-pre (the plugin and extension manifests carry it; `tests/plu
   while it runs, and "Last time · Run again" is hidden then; a reset, the welcome menu, another program, a machine switch,
   Pause or a Debugger stop bring the card back and take the mark off. The welcome menu's tag waits until the menu is drawn,
   where it used to show a few tenths of a second early on a freshly switched machine (the CoCo 3's screen was still blank).
+- **The side panel's tool list fits the host's limit.** claude.ai drops a tool list whose input schemas together pass
+  8 KB, and the panel's were 11.1 KB. The panel now lists its tools through one compaction of the toolbox's own schemas
+  (`compactTool`, `connector/view/tools.js`): 7.5 KB. The parameter that names the machine (`machine_id`) carries no
+  description (boot's and the connector's instructions say it comes from boot), an address is "0-65535 or hex" in one
+  short type, `switch_machine`'s model, options and ROM flag say "as boot", some descriptions are shorter, and the
+  `additionalProperties: false` and empty `required` lists are left out. The local MCP server's schemas are unchanged:
+  full and closed. `tests/connector.test.js` compares the compact and full schema of every tool structurally (names,
+  types, bounds, enums, required names) and fails when the panel's schemas pass a budget of 7,600 bytes.
 - **The CI workflows' cache and artifact actions are on their current major versions**: `actions/cache` from 4.3.0 to
   6.1.0 and `actions/download-artifact` from 7.0.0 to 8.0.2, both pinned to a commit SHA with the tag beside it as
   the repository pins every action. `actions/cache` now runs on Node 24 (a runner 2.327.1 or newer, which
@@ -428,6 +436,17 @@ Next version: 0.1.9-pre (the plugin and extension manifests carry it; `tests/plu
   the shelf's Welcome menu, on the browser's first visit shows the title screen; once a program has run, or on a later
   visit, the menu says it. (`Session.greetingFor` is now a method of the session, which knows whether the visit began
   as the first.)
+- The side panel's view no longer tells the host its size before it has sent `ui/notifications/initialized`: the latest
+  size waits, and one `ui/notifications/size-changed` follows it.
+- **The catch-up check after a pause holds the worklet's own contract.** The check failed CI on a
+  single short block: the worklet starting its underrun fade on a queue a slow runner had stalled for a moment
+  - its specified, inaudible dip ("a dip that refills before the fade reaches 0 is not a gap"), with the same
+  run's no-pop, tolerance-0 and fade checks all green through it. The check's "no short block at all" was a
+  proxy for the pathology it was written for (the shallow restart's train of shorts) and it over-fired. It now
+  classifies by the contract, in one function shared by the check and its tests so they cannot drift: a train
+  (2 or more shorts), a short whose gap completed (the worklet's re-prime count is up) and a shallow restart all
+  FAIL, and a lone short PASSES only when the samples played through it step within the no-pop bound - accepted
+  only when provably click-free by the product's own measure.
 - **The file pickers on a phone offer Files, not photos.** The pickers for programs, tapes, disks, cartridges, the
   Library and NitrOS-9 images name the extensions they take and application/octet-stream, so a phone still offers a
   file whose type it does not know (a .cas, a .vdk), and none asks for images: Open… no longer offers the Photo Library

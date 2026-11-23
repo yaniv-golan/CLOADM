@@ -18,13 +18,15 @@
 // insets the host's own controls cover, safeAreaInsets; and whether it is a phone, platform and deviceCapabilities).
 // Only the keys the view uses are kept (CONTEXT_KEYS).
 // CLOADM_BRIDGE.sizeChanged(width, height) tells the host the view's content size (ui/notifications/size-changed), for
-// a host that sizes the view from its content (inline); the same size twice is sent once.
+// a host that sizes the view from its content (inline); the same size twice is sent once, and sizes asked for before the
+// host's initialized has gone out are held back: the latest of them is sent once after it.
 (() => {
   const cfg = window.CLOADM_VIEW || {};
   const EARLY_WAIT_MS = 15000;   // with the tools' own 25 s limit, inside the host's 45 s per call
   const host = window.parent;
   let rid = 1;
   const waiting = new Map(), running = new Map();
+  let pendingSize = null;        // the latest size asked for before the host's initialized (CLOADM_BRIDGE.sizeChanged)
   const send = (m) => host.postMessage(Object.assign({ jsonrpc: '2.0' }, m), '*');
   const rpc = (method, params) => new Promise((ok, no) => { const id = rid++; waiting.set(id, { ok, no }); send({ id, method, params }); });
   // an error in the toolbox's shape ({ code, remedy, detail }), as an MCP tool result
@@ -72,7 +74,11 @@
     },
     sizeChanged(width, height) {
       const w = Math.ceil(width), h = Math.ceil(height);
-      if (!(w > 0 && h > 0) || (log.size && log.size[0] === w && log.size[1] === h)) return false;
+      if (!(w > 0 && h > 0)) return false;
+      // before the host's initialized has gone out nothing is sent (a host takes no notification from a view that has not
+      // said it is ready): the latest size waits, and goes once, when ui/notifications/initialized has been sent
+      if (log.initialized === null) { pendingSize = [w, h]; return false; }
+      if (log.size && log.size[0] === w && log.size[1] === h) return false;
       log.size = [w, h]; log.sizes++;
       send({ method: 'ui/notifications/size-changed', params: { width: w, height: h } });
       changed();
@@ -137,6 +143,7 @@
       if (r) B.hostContext = merge(merge({}, r.hostContext), B.hostContext);
       send({ method: 'ui/notifications/initialized', params: {} });
       log.initialized = ms();
+      if (pendingSize) { const [w, h] = pendingSize; pendingSize = null; B.sizeChanged(w, h); }
       if (impl) listChanged();
       changed();
     }, (er) => { log.init = `failed: ${(er && er.message) || er}`; changed(); });

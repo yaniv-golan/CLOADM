@@ -24,6 +24,11 @@ answers Claude's MCP requests with two tools and two views, and the emulator the
   serving the old text. The Worker holds no copy of its own; `tests/connector.test.js` and `tests/skill.test.js` fail
   when the skill's section and what the build serves differ (the connector test also checks the last generated
   `views.gen.js`), and `.agents/skills/cloadm/` must stay a byte-for-byte copy of `skills/cloadm/`.
+* **The panel's tool list is kept under claude.ai's 8 KB limit for input schemas.** `compactTool`
+  (`connector/view/tools.js`) shortens the toolbox's schemas for the panel only (the local MCP server lists them in
+  full); `tests/connector.test.js` compares each compact schema with the full one and holds the total to 7,600 bytes,
+  so a new tool or a longer description that passes the budget fails the test, and the fix is shorter wording (or a
+  rule in `compactTool`'s `WORDS`).
 * **CORS on the site.** Module scripts are fetched with CORS from the view's origin (`*.claudemcpcontent.com`).
   GitHub Pages sends `Access-Control-Allow-Origin: *`; check it after the release is live:
 
