@@ -1,5 +1,5 @@
 // The shared indexed-PNG writer and card picture (js/media/png.js, js/video/card.js), taken byte for byte from the
-// short-links branch (claude/short-links 407ca8d), with their unit tests copied here from its
+// short-links work, with their unit tests copied here from its
 // tests/program-pages.test.js (the PNG and card sections and the decoder they use, unchanged):
 //  * PNG: a hand-built picture whose file bytes are worked out here from the specification (filter Up, 4-bit
 //    packing, chunk CRCs from zlib), 8-bit palettes, and readPngHeader's refusals
