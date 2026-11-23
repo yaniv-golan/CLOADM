@@ -1590,7 +1590,7 @@ async function driveWireChecks(browser, base, check) {
   // the panel disables Save when its listing is empty, so the click is made on an enabled button that then meets a
   // store that will not answer: this is a stale panel, not a button the person could not reach
   await page.evaluate(() => { const b = document.getElementById('btnDwSave'); b.disabled = false; b.click(); });
-  // in the Library's words (session.mediaError: what failed, then why), not the store's raw error
+  // in the Library's words (session.library.mediaError: what failed, then why), not the store's raw error
   check('drivewire: Save drive 0 with the listing refused says so on the status line',
     await waitFor(page, () => /the DriveWire images: the folder’s permission was revoked/.test(document.getElementById('toast').textContent) && document.getElementById('toast').classList.contains('error'), null, 5000),
     await page.textContent('#toast'));
@@ -2692,7 +2692,7 @@ async function mediaBackendChecks(browser, base, check) {
   });
   check('OPFS: list() of a prefix with no directory is empty (not the whole store under that name); a partial name still filters',
     opfsList.missing === 0 && opfsList.deep === 0 && opfsList.partial, JSON.stringify(opfsList));
-  check('OPFS: the recent list survives a reload', await page.evaluate(() => window.emu.session.recentMedia().length) >= 0);
+  check('OPFS: the recent list survives a reload', await page.evaluate(() => window.emu.session.library.recentMedia().length) >= 0);
   // a file removed between the directory listing and the read of its size (a Library delete in flight): listed
   // without it, not a NotFoundError for the whole list (seen under load in the library check)
   const vanished = await page.evaluate(async () => {
@@ -2735,7 +2735,7 @@ async function mediaBackendChecks(browser, base, check) {
       return { crc: s.crc, bytes: img ? Array.from(img).slice(0, 4) : null };
     });
     check('migration: the ROM is in the new library', !!migratedRom.crc && migratedRom.bytes.join() === [...rom.subarray(0, 4)].join(), JSON.stringify(migratedRom));
-    check('migration: the recent item still loads', await mp.evaluate(() => window.emu.session.recentMedia().length === 1 && window.emu.session.recentMedia()[0].name === 'old.bin'));
+    check('migration: the recent item still loads', await mp.evaluate(() => window.emu.session.library.recentMedia().length === 1 && window.emu.session.library.recentMedia()[0].name === 'old.bin'));
     const left = await mp.evaluate(() => Object.keys(localStorage).filter((k) => /^cloadm\.(rom|romdata|romname|media)/.test(k) || k === 'cloadm.recent'));
     check('migration: nothing is left behind in localStorage', left.length === 0, left.join(','));
     check('migration: small settings stay in localStorage', await mp.evaluate(() => localStorage.getItem('cloadm.machine') === 'coco' && localStorage.getItem('cloadm.visited') === '1'));
@@ -2764,8 +2764,8 @@ async function mediaBackendChecks(browser, base, check) {
     const [download] = await Promise.all([
       fp.waitForEvent('download'),
       fp.evaluate(async () => {
-        await window.emu.session.importMedia('keep/notes.txt', new TextEncoder().encode('hello from CLOADM'));
-        const { name, bytes } = await window.emu.session.downloadMedia('keep/notes.txt');
+        await window.emu.session.library.importMedia('keep/notes.txt', new TextEncoder().encode('hello from CLOADM'));
+        const { name, bytes } = await window.emu.session.library.downloadMedia('keep/notes.txt');
         window.emu.downloadBytes = window.emu.downloadBytes || null;
         const url = URL.createObjectURL(new Blob([bytes]));
         const a = document.createElement('a'); a.href = url; a.download = name; a.click();
@@ -2780,7 +2780,7 @@ async function mediaBackendChecks(browser, base, check) {
     const imported = await fp.evaluate(async () => {
       const f = new File([new Uint8Array([1, 2, 3, 4, 5])], 'tiny.bin');
       await window.emu.session.media.adopt('library/picked/tiny.bin', f);
-      return Array.from(await window.emu.session.openMedia('picked/tiny.bin'));
+      return Array.from(await window.emu.session.library.openMedia('picked/tiny.bin'));
     });
     check('fallback: a picked file is imported under its name', imported.join() === '1,2,3,4,5', imported.join());
     await fctx.close();
@@ -2818,8 +2818,8 @@ async function mediaBackendChecks(browser, base, check) {
       const { Session } = await import('/js/session.js');
       const s = new Session({ store: { get: () => null, set() {}, remove() {}, keys: () => [] }, media: new FsaMediaStore(window.__mockDirectory()) });
       await s.ready();
-      await s.importMedia('mine.bin', new Uint8Array(8192).fill(0x42));
-      return { listed: (await s.listMedia()).map((f) => f.name), opened: Array.from(await s.openMedia('mine.bin')).slice(0, 2) };
+      await s.library.importMedia('mine.bin', new Uint8Array(8192).fill(0x42));
+      return { listed: (await s.library.listMedia()).map((f) => f.name), opened: Array.from(await s.library.openMedia('mine.bin')).slice(0, 2) };
     });
     check('File System Access (mocked handle): a Session lists and opens its media', sessionOk.listed.includes('library/mine.bin') && sessionOk.opened.join() === '66,66', JSON.stringify(sessionOk));
     await fsaCtx.close();
@@ -2850,12 +2850,12 @@ async function mediaBackendChecks(browser, base, check) {
         // what the FOLDER says, asked of the store itself: is GAME.DSK and game.dsk one entry?
         const alias = !!(await media.stat('disks/game.dsk'));
         const mounted = await s.mountDisk(1, 'game.dsk').then(() => null, (e) => e.message);
-        const del = await s.deleteMedia('disks/game.dsk').then(() => null, (e) => e.message);
-        const renamed = await s.renameMedia('disks/game.dsk', 'other.dsk').then((x) => 'ok', (e) => e.message);
+        const del = await s.library.deleteMedia('disks/game.dsk').then(() => null, (e) => e.message);
+        const renamed = await s.library.renameMedia('disks/game.dsk', 'other.dsk').then((x) => 'ok', (e) => e.message);
         // and the guard's answer must be the folder's, both ways round
         const refused = [mounted, del, renamed].every((m) => m && /drive 0/.test(m));
         const allowed = [mounted, del, renamed].every((m) => m === null || m === 'ok' || !/drive 0/.test(m));
-        return { alias, measured: s.caseInsensitive, refused, allowed, mounted, del, renamed };
+        return { alias, measured: s.library.caseInsensitive, refused, allowed, mounted, del, renamed };
       });
       check(`disk names (${fold ? 'a folder that does not tell case' : 'a folder that does'}): the store's answer is measured from the folder, not assumed`,
         r.measured === fold, JSON.stringify(r));
@@ -2890,15 +2890,15 @@ async function mediaBackendChecks(browser, base, check) {
       const r = await page3.evaluate(async (fold) => {
         const { MemoryMediaStore } = await import('/js/host/media-store-memory.js');
         const s = window.emu.session;
-        s.useMediaStore(new MemoryMediaStore({ caseInsensitive: fold }));
+        s.library.useMediaStore(new MemoryMediaStore({ caseInsensitive: fold }));
         s.switchMachine('coco');
         s.roms.put('rsdos', 'rom', new Uint8Array(0x2000).fill(0x39), 'disk11.rom');
         // A blank VDK from the format's layout. Two imports of the one name in two cases: on a store that folds
         // them that is one file (the first spelling kept), on one that does not it is two.
         const vdk = () => { const b = new Uint8Array(12 + 40 * 18 * 256); b[0] = 0x64; b[1] = 0x6B; b[2] = 12; b[8] = 40; b[9] = 1; return b; };
-        await s.importMedia('GAME.DSK', vdk());
-        await s.importMedia('game.DSK', vdk());
-        await s.importMedia('OTHER.DSK', vdk());
+        await s.library.importMedia('GAME.DSK', vdk());
+        await s.library.importMedia('game.DSK', vdk());
+        await s.library.importMedia('OTHER.DSK', vdk());
         // The drive holds the OTHER spelling: on a folding store mountDisk's stat finds the one stored file, so the
         // drive says game.dsk while the library lists GAME.DSK. A card that compares names with === would then
         // offer a disk that is already in a drive. On a plain store the other spelling is a separate file.
@@ -2908,7 +2908,7 @@ async function mediaBackendChecks(browser, base, check) {
         document.querySelector('#drives [data-drive="1"]').click();
         await new Promise((r) => setTimeout(r, 50));
         const offered = [...document.querySelectorAll('#driveStored option')].map((o) => o.value);
-        return { fold, offered, held: s.diskStatus().drives.map((d) => d.name), listed: (await s.listDisks()).map((d) => d.name), measured: s.caseInsensitive };
+        return { fold, offered, held: s.diskStatus().drives.map((d) => d.name), listed: (await s.listDisks()).map((d) => d.name), measured: s.library.caseInsensitive };
       }, fold);
       // folding: GAME.DSK and game.DSK are one stored file and that file is in drive 0, so only OTHER.DSK is on
       // offer; plain: they are two files, the drive holds one of them, so the other and OTHER.DSK are
@@ -2959,9 +2959,9 @@ async function mediaBackendChecks(browser, base, check) {
       s.addRoms([{ name: 'bas12.rom', bytes: new Uint8Array(8192).fill(0x51) }]);
       await s.index.flush();
       const before = await s.media.read('roms/sockets.json').then((b) => new TextDecoder().decode(b));
-      await s.importMedia('roms/sockets.json', new Uint8Array([0xDE, 0xAD]));
+      await s.library.importMedia('roms/sockets.json', new Uint8Array([0xDE, 0xAD]));
       const after = await s.media.read('roms/sockets.json').then((b) => new TextDecoder().decode(b));
-      const listed = (await s.listMedia()).map((f) => f.name);
+      const listed = (await s.library.listMedia()).map((f) => f.name);
       return { same: before === after, listed, hasIndex: listed.some((n) => n.startsWith('roms/') || n.startsWith('recent/')) };
     });
     check('library: importing an index-looking name leaves the socket map untouched', NS.same, JSON.stringify(NS));
@@ -3833,7 +3833,7 @@ async function librarySelectChecks(browser, base, check) {
     await ready(page);
     await page.setInputFiles('#fileLib', Object.keys(files).map((n) => path.join(tmp, n)));
     await waitFor(page, () => document.querySelectorAll('#libTiles .tile, #libTapes .spine').length === 4);
-    const stored = () => page.evaluate(async () => (await window.emu.session.listMedia()).map((x) => x.name.split('/').pop()).join());
+    const stored = () => page.evaluate(async () => (await window.emu.session.library.listMedia()).map((x) => x.name.split('/').pop()).join());
     const tile = (name) => `#library [data-name="library/${name}"]`;
     // what the page shows of select mode
     const state = () => page.evaluate(() => {
@@ -3936,12 +3936,12 @@ async function librarySelectChecks(browser, base, check) {
       const t0 = Date.now();
       // still stored while its toast is up; the toast's end (its 8 s, later under load) is what removes it
       const raised = await waitFor(page, () => /Deleted DEMO\.BIN/.test(document.getElementById('toastText').textContent), null, 8000);
-      const keptMeanwhile = /DEMO\.BIN/.test(await page.evaluate(async () => (await window.emu.session.listMedia()).map((x) => x.name).join()));
+      const keptMeanwhile = /DEMO\.BIN/.test(await page.evaluate(async () => (await window.emu.session.library.listMedia()).map((x) => x.name).join()));
       const ended = await waitFor(page, () => document.getElementById('toast').hidden, null, 30000);
       const took = Date.now() - t0;
       // removed from the store and from the shelf (the shelf redraws just after the store's delete); up to 10 s after
       // the toast ends, for a rare storage stall that was measured (1 run in 20 of `--only feedback` over 3 s)
-      const gone = ended && await waitFor(page, async (sel) => !(await window.emu.session.listMedia()).some((x) => x.name === 'library/DEMO.BIN') && !document.querySelector(sel), tile('DEMO.BIN'), 10000);
+      const gone = ended && await waitFor(page, async (sel) => !(await window.emu.session.library.listMedia()).some((x) => x.name === 'library/DEMO.BIN') && !document.querySelector(sel), tile('DEMO.BIN'), 10000);
       check(`${L}: without Undo the item is removed when the toast ends (8 s), and the toast goes`, raised && keptMeanwhile && gone && took >= 7000 && await page.isHidden('#toast'),
         `${took} ms; raised ${raised}, kept meanwhile ${keptMeanwhile}, ended ${ended}`);
     }
@@ -4295,7 +4295,7 @@ async function feedbackChecks(browser, base, check) {
     check(`feedback (${label}): it shows when the user is back on its page`, raised && await shownWithin(page, /Waiting for the Library/));
 
     // Delete: no confirm box, the item goes at once, Undo brings it back; otherwise it is removed when the toast ends
-    const stored = () => page.evaluate(async () => (await window.emu.session.listMedia()).map((x) => x.name).join());
+    const stored = () => page.evaluate(async () => (await window.emu.session.library.listMedia()).map((x) => x.name).join());
     const tileOf = (n) => page.evaluate((n) => !!document.querySelector(`#libTiles [data-name="library/${n}"]`), n);
     await page.click('[data-kind-filter="all"]');
     await page.click('#btnLibSelect');
@@ -4321,7 +4321,7 @@ async function feedbackChecks(browser, base, check) {
     // the toast ends: a rare storage stall was measured (1 run in 20 of `--only feedback` over 3 s); the delete
     // itself takes milliseconds. The order stays checked: still stored while the toast was up (raisedDelete)
     check(`feedback (${label}): the delete happens when its toast ends`, raisedDelete && ended
-      && await waitFor(page, async () => !(await window.emu.session.listMedia()).some((x) => x.name === 'library/WORLD.BIN')
+      && await waitFor(page, async () => !(await window.emu.session.library.listMedia()).some((x) => x.name === 'library/WORLD.BIN')
         && !document.querySelector('#libTiles [data-name="library/WORLD.BIN"]'), null, 10000),
       `raised ${raisedDelete}, ended ${ended}; now: toast "${await ev(() => document.getElementById('toast').textContent)}", stored ${await stored()}, tile ${await tileOf('WORLD.BIN')}`);
     if (await ev(() => !document.getElementById('libSelBar').hidden)) await page.click('#btnLibDone');
@@ -4460,8 +4460,8 @@ async function libraryChecks(browser, base, check) {
     fs.writeFileSync(path.join(tmp, 'KEPT.BIN'), bin);
     await page.setInputFiles('#fileProgram', path.join(tmp, 'KEPT.BIN'));
     // (waited for: the file is stored after the load, as fast as the store answers; listing it then is the check)
-    const kept = await waitFor(page, async () => (await window.emu.session.listMedia()).some((x) => x.name === 'library/KEPT.BIN'));
-    check('library: a program loaded with Insert… is kept in the Library', kept, (await page.evaluate(async () => (await window.emu.session.listMedia()).map((x) => x.name))).join(' '));
+    const kept = await waitFor(page, async () => (await window.emu.session.library.listMedia()).some((x) => x.name === 'library/KEPT.BIN'));
+    check('library: a program loaded with Insert… is kept in the Library', kept, (await page.evaluate(async () => (await window.emu.session.library.listMedia()).map((x) => x.name))).join(' '));
     // a disk image: clicking it mounts it in a drive (through mountDisk); while it is in, Rename and Delete refuse;
     // ejected, it can be deleted. (A CoCo with a synthetic RS-DOS cartridge ROM: a mount only needs one stored.)
     await page.evaluate(() => { const s = window.emu.session; s.roms.put('rsdos', 'rom', new Uint8Array(0x2000).fill(0x39), 'disk11.rom'); s.switchMachine('coco'); });
@@ -4486,7 +4486,7 @@ async function libraryChecks(browser, base, check) {
     await page.click('#btnLibDelete');
     await waitFor(page, () => /eject it before you delete it/.test(document.getElementById('toast').textContent));
     const deleteMsg = await page.textContent('#toast');
-    const still = await page.evaluate(async () => (await window.emu.session.listMedia()).some((x) => x.name === 'disks/UTILS.DSK'));
+    const still = await page.evaluate(async () => (await window.emu.session.library.listMedia()).some((x) => x.name === 'disks/UTILS.DSK'));
     check('library: a disk in a drive can be neither renamed nor deleted, and the status says which drive holds it',
       /^UTILS\.DSK is in drive 0; eject it before you rename it/.test(renameMsg) && /^UTILS\.DSK is in drive 0; eject it before you delete it/.test(deleteMsg) && still && stillSelected,
       `${renameMsg} | ${deleteMsg}`);
@@ -4496,7 +4496,7 @@ async function libraryChecks(browser, base, check) {
     // leaving the Library ends the Undo toast: the delete is done then
     await page.click('#btnLibBack');
     check('library: ejected, the disk can be deleted (done when the Library is left, which ends its Undo)',
-      await waitFor(page, async () => !(await window.emu.session.listMedia()).some((x) => x.name === 'disks/UTILS.DSK'), null, 3000));
+      await waitFor(page, async () => !(await window.emu.session.library.listMedia()).some((x) => x.name === 'disks/UTILS.DSK'), null, 3000));
 
     // type-in: on the stub it asks for ROMs; with BASIC (the Dragon 32's synthetic ROM) the listing is typed key by key
     await page.evaluate(() => { location.hash = '#library'; });
@@ -5004,7 +5004,7 @@ async function libraryStorageChecks(base, check) {
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
   const kind = () => page.evaluate(() => window.emu.session.media.kind);
-  const names = () => page.evaluate(async () => (await window.emu.session.listMedia()).map((x) => x.name).join());
+  const names = () => page.evaluate(async () => (await window.emu.session.library.listMedia()).map((x) => x.name).join());
   const msg = () => page.textContent('#toast');
   // a choice is done when its status says so (the store changes first, then the index loads and the cards redraw)
   const settled = (re) => waitFor(page, (src) => new RegExp(src).test(document.getElementById('toast').textContent), re.source);
@@ -5089,7 +5089,7 @@ async function libraryStorageChecks(base, check) {
   await page.reload(); await ready(page);
   check('storage: after a reload the library is still in the folder (choice and folder remembered)', await kind() === 'fsa' && /library\/HELLO\.BIN/.test(await names())
     && await page.isHidden('#libReconnect'), `${await kind()} ${await names()}`);
-  await page.evaluate(() => window.emu.session.importMedia('NEW.BIN', new Uint8Array([0x55, 2, 0x30, 0, 0, 1, 0x30, 0, 0xAA, 0x39])));
+  await page.evaluate(() => window.emu.session.library.importMedia('NEW.BIN', new Uint8Array([0x55, 2, 0x30, 0, 0, 1, 0x30, 0, 0xAA, 0x39])));
   check('storage: what is added now goes into the folder', await page.evaluate(async () => {
     const d = await (await (await navigator.storage.getDirectory()).getDirectoryHandle('my-folder')).getDirectoryHandle('library');
     return !!(await d.getFileHandle('NEW.BIN').catch(() => null));
@@ -5103,7 +5103,7 @@ async function libraryStorageChecks(base, check) {
     && /^Your library is in the folder “my-folder”, and the browser wants your permission again/.test(asked.text), JSON.stringify(asked));
   if (shotDir) await page.locator('#libStorage').screenshot({ path: path.join(shotDir, 'library-reconnect-desktop.png') });
   // something added while the folder waits for permission is kept in the browser, and must reach the folder
-  await page.evaluate(() => window.emu.session.importMedia('WHILE.BIN', new Uint8Array([0x55, 2, 0x30, 0, 0, 1, 0x30, 0, 0xAA, 0x39])));
+  await page.evaluate(() => window.emu.session.library.importMedia('WHILE.BIN', new Uint8Array([0x55, 2, 0x30, 0, 0, 1, 0x30, 0, 0xAA, 0x39])));
   await page.click('#btnLibReconnect');
   await settled(/^Your library is back in the folder/);
   const inFolder = await page.evaluate(async () => {
@@ -14903,7 +14903,7 @@ async function uiModelChecks(browser, base, check) {
     await page.setInputFiles('#fileTape', { name: 'GAME.CAS', mimeType: 'application/octet-stream', buffer: Buffer.alloc(300, 0x55) });
     await waitFor(page, () => window.emu.machine.deck.tape && window.emu.machine.deck.tape.name === 'GAME.CAS');
     await page.setInputFiles('#fileCart', { name: 'GAME.DGN', mimeType: 'application/octet-stream', buffer: cart });
-    await waitFor(page, async () => !!window.emu.machine.cartPort && (await window.emu.session.listMedia()).filter((x) => /GAME\.(CAS|DGN)$/.test(x.name)).length === 2);
+    await waitFor(page, async () => !!window.emu.machine.cartPort && (await window.emu.session.library.listMedia()).filter((x) => /GAME\.(CAS|DGN)$/.test(x.name)).length === 2);
     await page.click('#machineBtn');
     await page.click('#machineMenu button[data-machine="dragon32"]');
     await waitFor(page, () => !document.getElementById('switchConfirm').hidden);
@@ -14942,7 +14942,7 @@ async function uiModelChecks(browser, base, check) {
     await dropFiles(page, [['WORK.VDK', Buffer.from(images.vdk(40, 1))]]);
     await waitFor(page, () => window.emu.session.diskStatus().drives.some((d) => d.file === 'WORK.VDK' && d.stored));
     await page.setInputFiles('#fileTape', { name: 'GAME.CAS', mimeType: 'application/octet-stream', buffer: Buffer.alloc(300, 0x55) });
-    await waitFor(page, async () => (await window.emu.session.listMedia()).some((x) => /GAME\.CAS$/.test(x.name)));
+    await waitFor(page, async () => (await window.emu.session.library.listMedia()).some((x) => /GAME\.CAS$/.test(x.name)));
     await page.click('#machineBtn');
     await page.click('#machineMenu button[data-machine="coco"]');
     await waitFor(page, () => !document.getElementById('switchConfirm').hidden);
@@ -14976,7 +14976,7 @@ async function uiModelChecks(browser, base, check) {
     await page.evaluate(() => window.emu.session.switchMachine('dragon64'));
     await dropFiles(page, [['SNAP.VDK', Buffer.from(images.vdk(40, 1))]]);
     await waitFor(page, () => window.emu.session.diskStatus().drives.some((d) => d.file === 'SNAP.VDK'));
-    const snap = await page.evaluate(async () => { const s = window.emu.session, f = await s.snapshotFile(); await s.ejectDisk(0); await s.deleteMedia('disks/SNAP.VDK'); return [...f.bytes]; });
+    const snap = await page.evaluate(async () => { const s = window.emu.session, f = await s.snapshotFile(); await s.ejectDisk(0); await s.library.deleteMedia('disks/SNAP.VDK'); return [...f.bytes]; });
     await dropFiles(page, [['moment.cloadm', Buffer.from(snap)]]);
     await waitFor(page, () => window.emu.session.diskStatus().drives.some((d) => d.file === 'SNAP.VDK' && !d.stored));
     await page.click('#machineBtn');
@@ -14988,10 +14988,10 @@ async function uiModelChecks(browser, base, check) {
       && await page.isVisible('#btnSwitchSaveDisk') && await page.textContent('#btnSwitchSaveDisk') === 'Save to Library', asked);
     if (shotDir) await page.screenshot({ path: path.join(shotDir, 'r25-snapshot-disk.png') });
     await page.click('#btnSwitchSaveDisk');
-    check('R25: Save to Library stores the snapshot\'s disk and links the drive to it; the confirm stays up, its button saying "Saved to Library"', await waitFor(page, async () => (await window.emu.session.listMedia()).some((x) => x.name === 'disks/SNAP.VDK')
+    check('R25: Save to Library stores the snapshot\'s disk and links the drive to it; the confirm stays up, its button saying "Saved to Library"', await waitFor(page, async () => (await window.emu.session.library.listMedia()).some((x) => x.name === 'disks/SNAP.VDK')
         && window.emu.session.diskStatus().drives[0].stored) && await page.isVisible('#switchConfirm') && await page.evaluate(() => window.emu.machine.id === 'dragon64')
       && await waitFor(page, () => { const b = document.getElementById('btnSwitchSaveDisk'); return b.textContent === 'Saved to Library' && b.disabled; }), JSON.stringify(await page.evaluate(async () => ({ toast: document.getElementById('toastText').textContent,
-        lib: (await window.emu.session.listMedia()).map((x) => x.name), drives: window.emu.session.diskStatus().drives, confirm: !document.getElementById('switchConfirm').hidden, id: window.emu.machine.id }))));
+        lib: (await window.emu.session.library.listMedia()).map((x) => x.name), drives: window.emu.session.diskStatus().drives, confirm: !document.getElementById('switchConfirm').hidden, id: window.emu.machine.id }))));
     await page.click('#btnSwitchCancel');
 
     // Save to Library with two snapshot disks, the second refused once: the retry saves only the one still unsaved
@@ -15001,7 +15001,7 @@ async function uiModelChecks(browser, base, check) {
     await waitFor(page, () => window.emu.session.diskStatus().drives.some((d) => d.file === 'A.VDK'));
     await page.evaluate(async (b) => { await window.emu.session.importDisk('B.VDK', new Uint8Array(b), 1); }, [...images.vdk(40, 1)]);
     const snap2 = await page.evaluate(async () => { const s = window.emu.session, f = await s.snapshotFile(); await s.ejectDisk(0); await s.ejectDisk(1);
-      await s.deleteMedia('disks/A.VDK'); await s.deleteMedia('disks/B.VDK'); return [...f.bytes]; });
+      await s.library.deleteMedia('disks/A.VDK'); await s.library.deleteMedia('disks/B.VDK'); return [...f.bytes]; });
     await dropFiles(page, [['two.cloadm', Buffer.from(snap2)]]);
     await waitFor(page, () => window.emu.session.diskStatus().drives.filter((d) => !d.stored).length === 2);
     await page.evaluate(() => { const s = window.emu.session, keep = s.keepSnapshotDisk.bind(s); let once = true;
@@ -15185,7 +15185,7 @@ async function uiModelChecks(browser, base, check) {
     const page = await ctx.newPage();
     page.on('pageerror', (e) => errors.push(`${label}: ${e.message}`));
     await page.goto(`${base}?machine=dragon64`); await started(page);
-    await page.evaluate(() => window.emu.session.importMedia('GAME.CAS', new Uint8Array(300).fill(0x55)));
+    await page.evaluate(() => window.emu.session.library.importMedia('GAME.CAS', new Uint8Array(300).fill(0x55)));
     await page.evaluate(() => { location.hash = '#library'; });
     await waitFor(page, () => !document.getElementById('library').hidden && !document.getElementById('libFilters').hidden);
     const chips = await page.evaluate(() => [...document.querySelectorAll('[data-kind-filter]')].map((b) => b.textContent));

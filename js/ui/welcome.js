@@ -143,11 +143,11 @@ export function setupWelcome(page, { showRoms, openClaude }) {
     if (last.kind === 'liza') await run(SHELF[0], { byMachine });
     else if (last.kind === 'demo') await run(SHELF[1], { byMachine });
     else if (last.kind === 'game') await run(gameItem(gameKey(last.name)), { byMachine });
-    else { page.attempt(() => startAs(byMachine, () => session.loadRecent(0))); page.focus(); }
+    else { page.attempt(() => startAs(byMachine, () => session.library.loadRecent(0))); page.focus(); }
   }
   // the Media tab's "Last time": the name (and the machine, for a file) and "Run again"
   function lastTime() {
-    const last = session.lastRun, recent = session.recentMedia()[0];
+    const last = session.lastRun, recent = session.library.recentMedia()[0];
     const file = last && last.kind === 'recent' ? recent : null;
     const shown = !!last && (last.kind !== 'recent' || (!!file && file.stored));
     $('lastTime').hidden = !shown;

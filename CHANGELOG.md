@@ -188,6 +188,15 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   them, with a `note`, as the VDG's semigraphics blocks are counted. `docs/mcp.md`, `docs/claude.md`, the skill and a
   new eval (`coco3-hidden-screen`) say so; `tests/screen-text-readers.test.js` checks both readers on firmware of our
   own against the rendered frame.
+- **The media library has its own module.** Listing, opening, downloading, renaming, deleting and importing what
+  the person keeps, the recent list, the creations of disk names (one at a time, with the names they claim), the
+  store's rule for upper and lower case, and moving the library to another store move from the Session into
+  `session.library` (`js/library.js`, `Emu.MediaLibrary`), under the same names: `session.importMedia` is now
+  `session.library.importMedia`, `session.sameName` is `session.library.sameName`, and so on, with the library's
+  bookkeeping (`movingMedia`, `diskClaims`, ...) moving with them. The store handle (`session.media`), the media index
+  and the ROM library stay the Session's; `DISK_PREFIX`, `DW_PREFIX` and `MEDIA_MOVE_WAIT_MS` are exported from the
+  new module. No behaviour change; the disks a machine writes, the library, the recent list, the slots, the settings
+  export, snapshots and a move are byte-identical to before (`tests/session-library.test.js`, with fixtures).
 - **Claude's consent state has its own module.** The switch, the cards, "Don't ask again this session" and the
   pause's state move from six `claude*` fields on the Session into `Session.consent` (`js/claude/consent.js`), with
   its decisions as methods (`decide`, `recheck`, `setAllowed`, `answer`, `pause` / `resume` / `endPause`, `wait`);

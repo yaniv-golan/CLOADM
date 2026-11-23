@@ -1,0 +1,234 @@
+{
+ "report": {
+  "import0": "work.vdk in drive 0",
+  "import1": "other.vdk in drive 1",
+  "halted": true,
+  "drives": [
+   {
+    "drive": 0,
+    "name": "disks/work.vdk",
+    "file": "work.vdk",
+    "writeProtected": false,
+    "size": 368652,
+    "stored": true,
+    "unsaved": null
+   },
+   {
+    "drive": 1,
+    "name": "disks/other.vdk",
+    "file": "other.vdk",
+    "writeProtected": true,
+    "size": 184332,
+    "stored": true,
+    "unsaved": null
+   }
+  ],
+  "listing": [
+   {
+    "name": "disks/TOOLS.DSK",
+    "size": 161292
+   },
+   {
+    "name": "disks/other.vdk",
+    "size": 184332
+   },
+   {
+    "name": "disks/work.vdk",
+    "size": 368652
+   },
+   {
+    "name": "library/HI.BIN",
+    "size": 12
+   }
+  ],
+  "opened": "3705c4f0143eaa69869e58500d71f2fc32f583a9c887f3a4ec23d1265272bc2a",
+  "download": {
+   "name": "HI.BIN",
+   "sha": "16067015629c227f6f761008dcade0060b0c3f5d7142791540f59dc81a970608"
+  },
+  "refused": "work.vdk is in drive 0; eject it before you rename it.",
+  "sameName": [
+   true,
+   true
+  ],
+  "load": "loop.bin: DragonDOS binary $3000-$3002, exec $3000",
+  "recent": [
+   {
+    "name": "loop.bin",
+    "crc": "28F5B87C",
+    "size": 12,
+    "machine": "dragon64",
+    "stored": true,
+    "copy": null
+   }
+  ],
+  "slot": "Took snapshot 2",
+  "slots": [
+   {
+    "n": 1,
+    "empty": true,
+    "machine": null,
+    "size": null
+   },
+   {
+    "n": 2,
+    "empty": false,
+    "machine": "dragon64",
+    "size": 321295
+   },
+   {
+    "n": 3,
+    "empty": true,
+    "machine": null,
+    "size": null
+   }
+  ],
+  "settings": "{\"format\":\"cloadm-settings\",\"version\":1,\"settings\":{\"keyboardMode\":\"positional\",\"machine\":\"dragon64\",\"tapeSound\":\"0\"}}",
+  "snapshotName": "Dragon64-20260102-030405.cloadm",
+  "stored": [
+   {
+    "name": "disks/TOOLS.DSK",
+    "size": 161292,
+    "sha": "3705c4f0143eaa69869e58500d71f2fc32f583a9c887f3a4ec23d1265272bc2a"
+   },
+   {
+    "name": "disks/other.vdk",
+    "size": 184332,
+    "sha": "80b3f978b19e6e036cf9f06fad580cad7773985e67fcefa4ab76cd31d90f9b54"
+   },
+   {
+    "name": "disks/work.vdk",
+    "size": 368652,
+    "sha": "3a37e8bd1e71f5dc4d9469f5062f8aa60f27d7e6cd26757218cafbbe1ff342d0"
+   },
+   {
+    "name": "library/HI.BIN",
+    "size": 12,
+    "sha": "16067015629c227f6f761008dcade0060b0c3f5d7142791540f59dc81a970608"
+   },
+   {
+    "name": "library/snapshots/slot-2.cloadm",
+    "size": 321295,
+    "sha": "c5da7df480cc66ed8403e17cd115c0af08e554ff2191c2ccb4d6d58fdce48255"
+   },
+   {
+    "name": "recent/28F5B87C.bin",
+    "size": 12,
+    "sha": "16067015629c227f6f761008dcade0060b0c3f5d7142791540f59dc81a970608"
+   },
+   {
+    "name": "recent/list.json",
+    "size": 83,
+    "sha": "a6c061fff4f959919aedaa0802ee168e9295992ef99808fe8a13dc4269fc98db"
+   },
+   {
+    "name": "roms/8501FD2D.rom",
+    "size": 16384,
+    "sha": "9f448f28e46cad0742a899c9acd6fa1d54e435d649e75216911978c0a14afb33"
+   },
+   {
+    "name": "roms/C9C6198A.rom",
+    "size": 8192,
+    "sha": "5b6e7385bafa341a1a01da1a1f6c46ae38541d99786e1d20547ea4d3f6625422"
+   },
+   {
+    "name": "roms/names.json",
+    "size": 49,
+    "sha": "3ee4dcae11a931c8c859ead133ae05ba812082ed7ef964b16e28d33cf4edc187"
+   },
+   {
+    "name": "roms/sockets.json",
+    "size": 85,
+    "sha": "03582b56eb4a74ad9f9669193fd1da68899ff93acff8562eec684ca880090568"
+   }
+  ],
+  "moveRefused": "Eject the disks first (drive 0: work.vdk, drive 1: other.vdk): they are read and written where the library is kept now.",
+  "moved": {
+   "copied": 11,
+   "kept": 0
+  },
+  "movedStore": [
+   {
+    "name": "disks/TOOLS.DSK",
+    "size": 161292,
+    "sha": "3705c4f0143eaa69869e58500d71f2fc32f583a9c887f3a4ec23d1265272bc2a"
+   },
+   {
+    "name": "disks/other.vdk",
+    "size": 184332,
+    "sha": "80b3f978b19e6e036cf9f06fad580cad7773985e67fcefa4ab76cd31d90f9b54"
+   },
+   {
+    "name": "disks/work.vdk",
+    "size": 368652,
+    "sha": "3a37e8bd1e71f5dc4d9469f5062f8aa60f27d7e6cd26757218cafbbe1ff342d0"
+   },
+   {
+    "name": "library/HI.BIN",
+    "size": 12,
+    "sha": "16067015629c227f6f761008dcade0060b0c3f5d7142791540f59dc81a970608"
+   },
+   {
+    "name": "library/snapshots/slot-2.cloadm",
+    "size": 321295,
+    "sha": "c5da7df480cc66ed8403e17cd115c0af08e554ff2191c2ccb4d6d58fdce48255"
+   },
+   {
+    "name": "recent/28F5B87C.bin",
+    "size": 12,
+    "sha": "16067015629c227f6f761008dcade0060b0c3f5d7142791540f59dc81a970608"
+   },
+   {
+    "name": "recent/list.json",
+    "size": 83,
+    "sha": "a6c061fff4f959919aedaa0802ee168e9295992ef99808fe8a13dc4269fc98db"
+   },
+   {
+    "name": "roms/8501FD2D.rom",
+    "size": 16384,
+    "sha": "9f448f28e46cad0742a899c9acd6fa1d54e435d649e75216911978c0a14afb33"
+   },
+   {
+    "name": "roms/C9C6198A.rom",
+    "size": 8192,
+    "sha": "5b6e7385bafa341a1a01da1a1f6c46ae38541d99786e1d20547ea4d3f6625422"
+   },
+   {
+    "name": "roms/names.json",
+    "size": 49,
+    "sha": "3ee4dcae11a931c8c859ead133ae05ba812082ed7ef964b16e28d33cf4edc187"
+   },
+   {
+    "name": "roms/sockets.json",
+    "size": 85,
+    "sha": "03582b56eb4a74ad9f9669193fd1da68899ff93acff8562eec684ca880090568"
+   }
+  ],
+  "after": [
+   {
+    "name": "disks/TOOLS.DSK",
+    "size": 161292
+   },
+   {
+    "name": "disks/other.vdk",
+    "size": 184332
+   },
+   {
+    "name": "disks/work.vdk",
+    "size": 368652
+   },
+   {
+    "name": "library/HI.BIN",
+    "size": 12
+   },
+   {
+    "name": "library/snapshots/slot-2.cloadm",
+    "size": 321295
+   }
+  ],
+  "remount": "work.vdk in drive 0",
+  "movedDisk": "3a37e8bd1e71f5dc4d9469f5062f8aa60f27d7e6cd26757218cafbbe1ff342d0"
+ },
+ "machine": "b05d6d564c64bb998074ec3ffbd992df77aafb8201da856e143d6e2531d39f54",
+ "snapshotFile": "538694c8bd9e49f4f86cba00446eea8f31939875e75e6e37925ad0d5dd812cbd"
+}

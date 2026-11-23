@@ -1,4 +1,4 @@
-// Moving the library (Session.moveMedia) while the Library is being written: what the move does with an import,
+// Moving the library (MediaLibrary.moveMedia) while the Library is being written: what the move does with an import,
 // rename, delete or save already under way when it starts, one that starts while it copies, one that fails while
 // it waits, and one that never ends.
 // The oracle is what the stores hold after the move: every file this session put in the old store before the move
@@ -37,9 +37,9 @@ async function rig(from = new Emu.MemoryMediaStore(), opts = {}) {
     const s = await rig(from);
     const gate = deferred();
     const slow = slowWrite(from, gate.p);
-    const imp = s.importMedia('LATE.BIN', bin);
+    const imp = s.library.importMedia('LATE.BIN', bin);
     await settle();                       // the import is inside from.write now
-    const mv = s.moveMedia(to);
+    const mv = s.library.moveMedia(to);
     await settle();
     check('import in flight: the move has not finished while the import is stuck (it waits for it)', from === s.media);
     gate.resolve();
@@ -54,13 +54,13 @@ async function rig(from = new Emu.MemoryMediaStore(), opts = {}) {
   {
     const from = new Emu.MemoryMediaStore(), to = new Emu.MemoryMediaStore();
     const s = await rig(from);
-    await s.importMedia('OLD.BIN', bin);
+    await s.library.importMedia('OLD.BIN', bin);
     const gate = deferred();
     from.__rename = from.rename.bind(from);
     from.rename = async (a, b) => { await gate.p; return from.__rename(a, b); };
-    const ren = s.renameMedia('library/OLD.BIN', 'NEW.BIN');
+    const ren = s.library.renameMedia('library/OLD.BIN', 'NEW.BIN');
     await settle();
-    const mv = s.moveMedia(to);
+    const mv = s.library.moveMedia(to);
     gate.resolve();
     await Promise.all([ren, mv]);
     check('rename in flight: the moved library has the new name (not the old one)', (await names(to, 'library/')) === 'library/NEW.BIN', await names(to, 'library/'));
@@ -71,14 +71,14 @@ async function rig(from = new Emu.MemoryMediaStore(), opts = {}) {
   {
     const from = new Emu.MemoryMediaStore(), to = new Emu.MemoryMediaStore();
     const s = await rig(from);
-    await s.importMedia('GONE.BIN', bin);
-    await s.importMedia('KEEP.BIN', bin);
+    await s.library.importMedia('GONE.BIN', bin);
+    await s.library.importMedia('KEEP.BIN', bin);
     const gate = deferred();
     from.__remove = from.remove.bind(from);
     from.remove = async (nm) => { await gate.p; return from.__remove(nm); };
-    const del = s.deleteMedia('GONE.BIN');
+    const del = s.library.deleteMedia('GONE.BIN');
     await settle();
-    const mv = s.moveMedia(to);
+    const mv = s.library.moveMedia(to);
     gate.resolve();
     await Promise.all([del, mv]);
     check('delete in flight: the moved library has only the file that was kept', (await names(to, 'library/')) === 'library/KEEP.BIN', await names(to, 'library/'));
@@ -93,7 +93,7 @@ async function rig(from = new Emu.MemoryMediaStore(), opts = {}) {
     const slow = slowWrite(from, gate.p);
     const save = s.saveSlot(1);
     await settle();
-    const mv = s.moveMedia(to);
+    const mv = s.library.moveMedia(to);
     gate.resolve();
     const msg = await save;
     await mv;
@@ -107,13 +107,13 @@ async function rig(from = new Emu.MemoryMediaStore(), opts = {}) {
   {
     const from = new Emu.MemoryMediaStore(), to = new Emu.MemoryMediaStore();
     const s = await rig(from);
-    await s.importMedia('SAFE.BIN', bin);
+    await s.library.importMedia('SAFE.BIN', bin);
     const gate = deferred();
     from.__write = from.write.bind(from);
     from.write = async (nm, bytes) => { await gate.p; throw Object.assign(new Error('the folder went away'), { code: 'io' }); };
-    const imp = s.importMedia('DOOMED.BIN', bin);
+    const imp = s.library.importMedia('DOOMED.BIN', bin);
     await settle();
-    const mv = s.moveMedia(to);
+    const mv = s.library.moveMedia(to);
     await settle();
     gate.resolve();
     const [e, r] = await Promise.all([refuse(imp), refuse(mv)]);
@@ -130,14 +130,14 @@ async function rig(from = new Emu.MemoryMediaStore(), opts = {}) {
   {
     const from = new Emu.MemoryMediaStore(), to = new Emu.MemoryMediaStore();
     const s = await rig(from);
-    await s.importMedia('BEFORE.BIN', bin);
+    await s.library.importMedia('BEFORE.BIN', bin);
     const gate = deferred();
     to.__stat = to.stat.bind(to);
     to.stat = async (nm) => { await gate.p; return to.__stat(nm); };   // the copy, held in the new place
-    const mv = s.moveMedia(to);
+    const mv = s.library.moveMedia(to);
     await settle();
     const tries = await Promise.all([
-      s.importMedia('DURING.BIN', bin), s.renameMedia('library/BEFORE.BIN', 'DURING.BIN'), s.deleteMedia('BEFORE.BIN'), s.saveSlot(2),
+      s.library.importMedia('DURING.BIN', bin), s.library.renameMedia('library/BEFORE.BIN', 'DURING.BIN'), s.library.deleteMedia('BEFORE.BIN'), s.saveSlot(2),
       s.importDriveWireImage('during.dsk', new Uint8Array(256)),
     ].map(refuse));
     check('during the move: import, rename, delete, save and a DriveWire image are refused, saying the library is being moved',
@@ -148,7 +148,7 @@ async function rig(from = new Emu.MemoryMediaStore(), opts = {}) {
     gate.resolve();
     await mv;
     check('during the move: the moved library is what it was when the move began', (await names(to, 'library/')) === 'library/BEFORE.BIN', await names(to, 'library/'));
-    const after = await s.importMedia('DURING.BIN', bin);
+    const after = await s.library.importMedia('DURING.BIN', bin);
     check('during the move: once it is done the same import works, into the new place only', after && same(await to.read('library/DURING.BIN'), bin) && !(await from.stat('library/DURING.BIN')));
   }
 
@@ -156,21 +156,21 @@ async function rig(from = new Emu.MemoryMediaStore(), opts = {}) {
   {
     const from = new Emu.MemoryMediaStore(), to = new Emu.MemoryMediaStore();
     const s = await rig(from, { mediaMoveWaitMs: 30 });
-    await s.importMedia('SAFE.BIN', bin);
+    await s.library.importMedia('SAFE.BIN', bin);
     const gate = deferred();   // never resolved
     from.__write = from.write.bind(from);
     from.write = async (nm, bytes) => { await gate.p; return from.__write(nm, bytes); };
-    const imp = s.importMedia('STUCK.BIN', bin);
+    const imp = s.library.importMedia('STUCK.BIN', bin);
     await settle();
     const started = Date.now();
-    const e = await refuse(s.moveMedia(to));
+    const e = await refuse(s.library.moveMedia(to));
     const took = Date.now() - started;
     check('a stuck operation: the move gives up after its wait and says so', e instanceof Emu.SessionError && /still being written to/.test(e.message), e && e.message);
     check('a stuck operation: it gave up at about the wait (not at once, not never)', took >= 25 && took < 3000, `${took} ms`);
     check('a stuck operation: the session stayed on the old place and nothing was copied', s.media === from && (await to.list('')).length === 0);
     gate.resolve();
     await refuse(imp);
-    check('a stuck operation: once it finally ends the move works', !(await refuse(s.moveMedia(to))) && s.media === to && same(await to.read('library/SAFE.BIN'), bin));
+    check('a stuck operation: once it finally ends the move works', !(await refuse(s.library.moveMedia(to))) && s.media === to && same(await to.read('library/SAFE.BIN'), bin));
   }
 
   // ---- a disks/ operation never ends (a disks/ rename runs in the drives' write chain, not only in the Library's):
@@ -179,21 +179,21 @@ async function rig(from = new Emu.MemoryMediaStore(), opts = {}) {
     const from = new Emu.MemoryMediaStore(), to = new Emu.MemoryMediaStore();
     const s = await rig(from, { mediaMoveWaitMs: 30 });
     await from.write('disks/W.DSK', new Uint8Array(1024));
-    await s.importMedia('SAFE.BIN', bin);
+    await s.library.importMedia('SAFE.BIN', bin);
     const gate = deferred();   // never resolved
     from.__rename = from.rename.bind(from);
     from.rename = async (a, b) => { await gate.p; return from.__rename(a, b); };
-    const ren = s.renameMedia('disks/W.DSK', 'X.DSK');
+    const ren = s.library.renameMedia('disks/W.DSK', 'X.DSK');
     await settle();
     const started = Date.now();
-    const e = await refuse(s.moveMedia(to));
+    const e = await refuse(s.library.moveMedia(to));
     check('a stuck disks/ rename: the move gives up after its wait and says so (the drives\' chain is bounded too)',
       e instanceof Emu.SessionError && /drives are still writing/.test(e.message), e && e.message);
     check('a stuck disks/ rename: it gave up at about the wait, and the session stayed on the old place',
       Date.now() - started < 3000 && s.media === from && (await to.list('')).length === 0, `${Date.now() - started} ms`);
     gate.resolve(); await refuse(ren);
     // (the refused operation is the caller's: nothing is left waiting)
-    check('a stuck disks/ rename: once it finally ends the move works', !(await refuse(s.moveMedia(to))) && s.media === to);
+    check('a stuck disks/ rename: once it finally ends the move works', !(await refuse(s.library.moveMedia(to))) && s.media === to);
   }
 
   // ---- the two waits share ONE deadline. The disks' chain is held for most of the bound and then finishes, and
@@ -213,10 +213,10 @@ async function rig(from = new Emu.MemoryMediaStore(), opts = {}) {
     const opGate = deferred();
     from.__write = from.write.bind(from);
     from.write = async (nm, bytes) => { if (nm === 'library/STUCK.BIN') await opGate.p; return from.__write(nm, bytes); };
-    const imp = s.importMedia('STUCK.BIN', bin);
+    const imp = s.library.importMedia('STUCK.BIN', bin);
     await settle();
     const started = Date.now();
-    const mv = refuse(s.moveMedia(to));
+    const mv = refuse(s.library.moveMedia(to));
     setTimeout(() => diskGate.resolve(), Math.round(BOUND * 0.67));   // the first wait ends 67% in
     const e = await mv;
     const took = Date.now() - started;
@@ -232,7 +232,7 @@ async function rig(from = new Emu.MemoryMediaStore(), opts = {}) {
     const from = new Emu.MemoryMediaStore(), to = new Emu.MemoryMediaStore();
     const s = await rig(from, { mediaMoveWaitMs: 60 });
     await from.write('disks/W.DSK', new Uint8Array(1024));
-    await s.importMedia('SAFE.BIN', bin);
+    await s.library.importMedia('SAFE.BIN', bin);
     // the disks' chain finishes just inside the bound, so the second wait meets a spent deadline with nothing
     // pending: it must not fail a move that was in time
     from.__writeRange = from.writeRange.bind(from);
@@ -240,7 +240,7 @@ async function rig(from = new Emu.MemoryMediaStore(), opts = {}) {
     s.queueDiskWrite('disks/W.DSK', 0, new Uint8Array([7]), 1024);
     await settle();
     const t = Date.now();
-    const e = await refuse(s.moveMedia(to));
+    const e = await refuse(s.library.moveMedia(to));
     check('a deadline nearly spent by the first wait: the move still completes when nothing else is pending',
       e === null && s.media === to && Date.now() - t < 200, e ? e.message : `${Date.now() - t} ms`);
   }
@@ -251,12 +251,12 @@ async function rig(from = new Emu.MemoryMediaStore(), opts = {}) {
     const s = await rig();
     const past = Date.now() - 1;
     // it returns nothing (the value is the caller's own promise): what matters is whether it throws
-    const settledPast = await s.boundedWait(Promise.resolve(), 'the test wait', past).then(() => 'returned', (e) => e);
+    const settledPast = await s.library.boundedWait(Promise.resolve(), 'the test wait', past).then(() => 'returned', (e) => e);
     check('boundedWait at a deadline already reached: settled work does not fail', settledPast === 'returned', settledPast && (settledPast.message || settledPast));
-    const pending = await s.boundedWait(new Promise(() => {}), 'the test wait', past).then(() => 'returned', (e) => e);
+    const pending = await s.library.boundedWait(new Promise(() => {}), 'the test wait', past).then(() => 'returned', (e) => e);
     check('boundedWait at a deadline already reached: a wait still pending expires, with the message',
       pending instanceof Emu.SessionError && /the test wait and did not finish/.test(pending.message), pending && (pending.message || pending));
-    const settledNow = await s.boundedWait(Promise.resolve(), 'the test wait', Date.now()).then(() => 'returned', (e) => e);
+    const settledNow = await s.library.boundedWait(Promise.resolve(), 'the test wait', Date.now()).then(() => 'returned', (e) => e);
     check('boundedWait at exactly now: settled work does not fail', settledNow === 'returned', settledNow && (settledNow.message || settledNow));
   }
 
@@ -266,9 +266,9 @@ async function rig(from = new Emu.MemoryMediaStore(), opts = {}) {
     const s = await rig(from);
     const gate = deferred();
     const slow = slowWrite(from, gate.p);
-    const imp = s.importMedia('ONE.BIN', bin);
+    const imp = s.library.importMedia('ONE.BIN', bin);
     await settle();
-    const e = await refuse(s.moveMedia(to));
+    const e = await refuse(s.library.moveMedia(to));
     check('a refused move: it does not wait for the operation (refused at once)', e instanceof Emu.SessionError);
     gate.resolve();
     await imp;
@@ -281,11 +281,11 @@ async function rig(from = new Emu.MemoryMediaStore(), opts = {}) {
     const from = new Emu.MemoryMediaStore(), to = new Emu.MemoryMediaStore();
     const s = await rig(from);
     s.switchMachine('dragon64');
-    await s.importMedia('HOLD.BIN', bin);   // one file to copy, so the move is held in the new place
+    await s.library.importMedia('HOLD.BIN', bin);   // one file to copy, so the move is held in the new place
     const gate = deferred();
     to.__write = to.write.bind(to);
     to.write = async (nm, bytes) => { await gate.p; return to.__write(nm, bytes); };   // the copy, held in the new place
-    const mv = s.moveMedia(to);
+    const mv = s.library.moveMedia(to);
     await settle();
     const drop = (() => { try { s.addRoms([{ name: 'd64_1.rom', bytes: rom(3) }, { name: 'd64_2.rom', bytes: rom(5) }]); return null; } catch (e) { return e; } })();
     check('during the move: a ROM drop that writes the index is refused, as the Library\'s own changes are',
@@ -328,12 +328,12 @@ async function rig(from = new Emu.MemoryMediaStore(), opts = {}) {
     s.switchMachine('coco3');
     s.addRoms([{ name: 'bas13.rom', bytes: rom(7).subarray(0, 0x2000) }, { name: 'extbas11.rom', bytes: rom(9).subarray(0, 0x2000) }]);
     await s.importDriveWireImage('boot.dsk', makeOs9Disk(Emu, { cpu: '6809' }));
-    await s.importMedia('HOLD.BIN', bin);   // one file to copy, so the move is held in the new place
+    await s.library.importMedia('HOLD.BIN', bin);   // one file to copy, so the move is held in the new place
     const beforeSockets = JSON.stringify(s.index.sockets);
     const gate = deferred();
     to.__write = to.write.bind(to);
     to.write = async (nm, bytes) => { await gate.p; return to.__write(nm, bytes); };
-    const mv = s.moveMedia(to);
+    const mv = s.library.moveMedia(to);
     await settle();
     const guarded = (fn) => { try { const r = fn(); return r instanceof Promise ? r.then(() => null, (e) => e) : null; } catch (e) { return Promise.resolve(e); } };
     const packs = [{ name: 'cloadm-rompack.json', data: new TextEncoder().encode(JSON.stringify({ format: 'cloadm-rompack', version: 1, sockets: [] })) }];
@@ -365,7 +365,7 @@ async function rig(from = new Emu.MemoryMediaStore(), opts = {}) {
     const from = new Emu.MemoryMediaStore(), to = new Emu.MemoryMediaStore();
     const s = await rig(from);
     await s.importDriveWireImage('boot.dsk', new Uint8Array(512));
-    await s.importMedia('HOLD.BIN', bin);
+    await s.library.importMedia('HOLD.BIN', bin);
     // the server's stat of the image, held: the mount is inside drivewire.mount when the move starts
     const gate = deferred();
     from.__stat = from.stat.bind(from);
@@ -376,7 +376,7 @@ async function rig(from = new Emu.MemoryMediaStore(), opts = {}) {
     const copyGate = deferred();
     to.__write = to.write.bind(to);
     to.write = async (nm, bytes) => { await copyGate.p; return to.__write(nm, bytes); };
-    const mv = refuse(s.moveMedia(to));
+    const mv = refuse(s.library.moveMedia(to));
     await settle();
     gate.resolve();                       // the mount resumes while the move copies
     await settle();
@@ -396,7 +396,7 @@ async function rig(from = new Emu.MemoryMediaStore(), opts = {}) {
   {
     const from = new Emu.MemoryMediaStore(), to = new Emu.MemoryMediaStore();
     const s = await rig(from);
-    await s.importMedia('HOLD.BIN', bin);
+    await s.library.importMedia('HOLD.BIN', bin);
     await from.write('drivewire/OLD', new Uint8Array(256));
     const srv = s.drivewire;
     // the host's gate is the evidence: during the copy it says no, and before/after it says yes
@@ -409,9 +409,9 @@ async function rig(from = new Emu.MemoryMediaStore(), opts = {}) {
     const copyGate = deferred();
     to.__write = to.write.bind(to);
     to.write = async (nm, bytes) => { await copyGate.p; return to.__write(nm, bytes); };
-    const mv = refuse(s.moveMedia(to));
+    const mv = refuse(s.library.moveMedia(to));
     await settle();
-    check('the guest store gate: closed while the library is copied', s.movingMedia === true && srv.mayWrite() === false);
+    check('the guest store gate: closed while the library is copied', s.library.movingMedia === true && srv.mayWrite() === false);
     // and the request made then is answered 0 with nothing mounted, and never reached the store
     for (const b of [0x01, 3, 0x4F, 0x4C, 0x44]) srv.receive(b);
     for (let k = 0; k < 200 && srv.busy; k++) await srv.busy;
@@ -436,7 +436,7 @@ async function rig(from = new Emu.MemoryMediaStore(), opts = {}) {
   {
     const from = new Emu.MemoryMediaStore(), to = new Emu.MemoryMediaStore();
     const s = await rig(from);
-    await s.importMedia('HOLD.BIN', bin);
+    await s.library.importMedia('HOLD.BIN', bin);
     await from.write('drivewire/OLD', new Uint8Array(256));
     const srv = s.drivewire;
     // the guest's mount, accepted while no move runs; the store's stat of the name is held
@@ -450,7 +450,7 @@ async function rig(from = new Emu.MemoryMediaStore(), opts = {}) {
     const copyGate = deferred();
     to.__write = to.write.bind(to);
     to.write = async (nm, bytes) => { await copyGate.p; return to.__write(nm, bytes); };
-    const mv = refuse(s.moveMedia(to));
+    const mv = refuse(s.library.moveMedia(to));
     await settle();
     statGate.resolve();
     for (let k = 0; k < 200 && srv.busy; k++) await srv.busy;
@@ -479,9 +479,9 @@ async function rig(from = new Emu.MemoryMediaStore(), opts = {}) {
   for (const late of [false, true]) {
     const from = new Emu.MemoryMediaStore(), to = new Emu.MemoryMediaStore();
     const s = await rig(from);
-    await s.importMedia('HOLD.BIN', bin);
+    await s.library.importMedia('HOLD.BIN', bin);
     const srv = s.drivewire;
-    if (late) srv.openLibraryOp = (run) => s.libraryOp(run).then(async (v) => { await settle(); return v; });
+    if (late) srv.openLibraryOp = (run) => s.library.libraryOp(run).then(async (v) => { await settle(); return v; });
     const check = (name, cond, detail) => checkOuter(`${late ? '[caller resumes late] ' : ''}${name}`, cond, detail);
     const writeGate = deferred();
     let copiedWrites = 0;
@@ -492,11 +492,11 @@ async function rig(from = new Emu.MemoryMediaStore(), opts = {}) {
     for (const b of [0x02, 3, 0x4E, 0x45, 0x57]) srv.receive(b);   // CREATE "NEW"
     await settle();
     check('create in flight: the create is inside its write (its Library operation registered), nothing answered yet',
-      srv.output.length === 0 && s.movingOps.size === 1);
-    const mv = refuse(s.moveMedia(to));
+      srv.output.length === 0 && s.library.movingOps.size === 1);
+    const mv = refuse(s.library.moveMedia(to));
     await settle();
     check('create in flight: the move passed its first busy check and is waiting for the create',
-      s.movingMedia === true && srv.drives.size === 0 && s.media === from);
+      s.library.movingMedia === true && srv.drives.size === 0 && s.media === from);
     writeGate.resolve();                  // the write lands; the create hands out its drive inside its operation
     for (let k = 0; k < 200 && srv.busy; k++) await srv.busy;
     const mverr = await mv;
@@ -508,7 +508,7 @@ async function rig(from = new Emu.MemoryMediaStore(), opts = {}) {
       mverr instanceof Emu.SessionError && /Eject the disks first/.test(mverr.message) && mverr.message.includes(`DriveWire drive ${out[0]}: NEW`),
       mverr ? mverr.message : 'the move succeeded');
     check('create in flight: nothing was copied, and the session stayed on the old store, no longer moving',
-      copiedWrites === 0 && (await to.list('')).length === 0 && s.media === from && srv.store === from && s.movingMedia === false,
+      copiedWrites === 0 && (await to.list('')).length === 0 && s.media === from && srv.store === from && s.library.movingMedia === false,
       JSON.stringify({ copiedWrites, inNew: await names(to), onOld: s.media === from }));
     // the guest's write through its drive lands where the session keeps its library
     const sector = Uint8Array.from({ length: 256 }, (_, i) => i ^ 0x5A);
@@ -517,7 +517,7 @@ async function rig(from = new Emu.MemoryMediaStore(), opts = {}) {
       same((await s.media.read('drivewire/NEW')).subarray(0, 256), sector));
     // control: with the guest's drive released, the same move goes through and carries the object
     srv.eject(out[0]);
-    const r = await refuse(s.moveMedia(to));
+    const r = await refuse(s.library.moveMedia(to));
     check('control: with the drive released, the move succeeds and the object (with the guest\'s write) moves',
       !(r instanceof Error) && s.media === to && same((await to.read('drivewire/NEW')).subarray(0, 256), sector), r && r.message);
   }
@@ -526,7 +526,7 @@ async function rig(from = new Emu.MemoryMediaStore(), opts = {}) {
   {
     const from = new Emu.MemoryMediaStore(), to = new Emu.MemoryMediaStore();
     const s = await rig(from);
-    await s.importMedia('HOLD.BIN', bin);
+    await s.library.importMedia('HOLD.BIN', bin);
     const srv = s.drivewire;
     const writeGate = deferred();
     from.__write = from.write.bind(from);
@@ -536,9 +536,9 @@ async function rig(from = new Emu.MemoryMediaStore(), opts = {}) {
     };
     for (const b of [0x02, 3, 0x4E, 0x45, 0x57]) srv.receive(b);   // CREATE "NEW"
     await settle();
-    const mv = refuse(s.moveMedia(to));
+    const mv = refuse(s.library.moveMedia(to));
     await settle();
-    check('create failing in flight: the move is waiting for it', s.movingMedia === true && srv.output.length === 0);
+    check('create failing in flight: the move is waiting for it', s.library.movingMedia === true && srv.output.length === 0);
     writeGate.resolve();
     for (let k = 0; k < 200 && srv.busy; k++) await srv.busy;
     const r = await mv;
@@ -563,7 +563,7 @@ async function rig(from = new Emu.MemoryMediaStore(), opts = {}) {
       const s = await rig(from);
       s.switchMachine('coco3');
       await s.importDriveWireImage('boot.dsk', makeOs9Disk(Emu, { cpu: '6809' }));
-      await s.importMedia('HOLD.BIN', bin);
+      await s.library.importMedia('HOLD.BIN', bin);
       const wasMachine = s.shownMachine;
       s.drivewire.output.push(0xA5);        // a byte for the guest on the link: a switch to the Becker port drops it
       // bootNitros9's first awaited read, held: the boot is inside its reads while the move starts
@@ -576,10 +576,10 @@ async function rig(from = new Emu.MemoryMediaStore(), opts = {}) {
       const copyGate = deferred();
       to.__write = to.write.bind(to);
       to.write = async (nm, bytes) => { await copyGate.p; return to.__write(nm, bytes); };
-      const mv = s.moveMedia(to);
+      const mv = s.library.moveMedia(to);
       await settle();
       check('a boot whose reads are in flight when the move starts: the move is still copying when the read returns',
-        s.movingMedia === true && s.driveWireMounts.length === 0, `moving=${s.movingMedia} mounts=${JSON.stringify(s.driveWireMounts)}`);
+        s.library.movingMedia === true && s.driveWireMounts.length === 0, `moving=${s.library.movingMedia} mounts=${JSON.stringify(s.driveWireMounts)}`);
       gate.resolve();
       await settle();
       const e = await boot;
@@ -603,7 +603,7 @@ async function rig(from = new Emu.MemoryMediaStore(), opts = {}) {
       s.switchMachine('coco3');
       // the image in the store (importDisk would want a disk ROM to mount it; the boot reads the store itself)
       await from.write('disks/floppy.dsk', makeOs9Disk(Emu, { driver: 'rb1773', port: 'floppy', sides: 2, sectors: 1440, cpu: '6309' }));
-      await s.importMedia('HOLD.BIN', bin);
+      await s.library.importMedia('HOLD.BIN', bin);
       // what a switch would throw away, set up so a refused boot can be seen not to have touched it: a breakpoint,
       // the debugger paused, the welcome menu's stub run
       const dbg = s.debug;
@@ -624,10 +624,10 @@ async function rig(from = new Emu.MemoryMediaStore(), opts = {}) {
       const copyGate = deferred();
       to.__write = to.write.bind(to);
       to.write = async (nm, bytes) => { await copyGate.p; return to.__write(nm, bytes); };
-      const mv = s.moveMedia(to);
+      const mv = s.library.moveMedia(to);
       await settle();
       check('a floppy boot whose reads are in flight: the move is still copying when the read returns',
-        s.movingMedia === true, `moving=${s.movingMedia}`);
+        s.library.movingMedia === true, `moving=${s.library.movingMedia}`);
       gate.resolve();
       await settle();
       const e = await boot;
@@ -657,7 +657,7 @@ async function rig(from = new Emu.MemoryMediaStore(), opts = {}) {
       await from.write(image, kind === 'floppy'
         ? makeOs9Disk(Emu, { driver: 'rb1773', port: 'floppy', sides: 2, sectors: 1440, cpu: '6309' })
         : makeOs9Disk(Emu, { cpu: '6809' }));
-      await s.importMedia('HOLD.BIN', bin);
+      await s.library.importMedia('HOLD.BIN', bin);
       const was = s.shownMachine;
       // the mount's own stat of the image (not the boot's read) is held: the boot is past its post-reads check
       const statGate = deferred();
@@ -672,9 +672,9 @@ async function rig(from = new Emu.MemoryMediaStore(), opts = {}) {
       check(`[${kind}, inside the mount] the boot has rebuilt the machine and is inside its mount's stat`,
         s.shownMachine !== was && heldStat && (kind === 'floppy' ? !!s.diskController : s.shownMachine.config.becker === true),
         `switched=${s.shownMachine !== was} held=${heldStat}`);
-      const mv = refuse(s.moveMedia(to));
+      const mv = refuse(s.library.moveMedia(to));
       await settle();
-      check(`[${kind}, inside the mount] the move is waiting for the boot`, s.movingMedia === true && s.media === from);
+      check(`[${kind}, inside the mount] the move is waiting for the boot`, s.library.movingMedia === true && s.media === from);
       statGate.resolve();                    // the mount resumes; the move is still waiting for the boot
       const msg = await boot;
       const mvRes = await mv;
@@ -685,7 +685,7 @@ async function rig(from = new Emu.MemoryMediaStore(), opts = {}) {
       check(`[${kind}, inside the mount] the move was then refused, naming drive 0`,
         mvRes instanceof Emu.SessionError && /Eject the disks first \((DriveWire )?drive 0: /.test(mvRes.message), mvRes ? mvRes.message : 'the move succeeded');
       check(`[${kind}, inside the mount] nothing was copied, and the session stayed on the store the drive uses`,
-        copiedWrites === 0 && s.media === from && s.movingMedia === false && (kind === 'floppy' || s.drivewire.store === from),
+        copiedWrites === 0 && s.media === from && s.library.movingMedia === false && (kind === 'floppy' || s.drivewire.store === from),
         JSON.stringify({ copiedWrites, onOld: s.media === from }));
     }
   }
@@ -699,11 +699,11 @@ async function rig(from = new Emu.MemoryMediaStore(), opts = {}) {
     s.switchMachine('coco3', Object.assign({}, s.shownMachine.config, { becker: true }));
     await s.importDriveWireImage('pub.dsk', new Uint8Array(512));
     await from.write('disks/pub.dsk', new Uint8Array(161280));
-    await s.importMedia('HOLD.BIN', bin);
+    await s.library.importMedia('HOLD.BIN', bin);
     const copyGate = deferred();
     to.__write = to.write.bind(to);
     to.write = async (nm, bytes) => { await copyGate.p; return to.__write(nm, bytes); };
-    const mv = refuse(s.moveMedia(to));
+    const mv = refuse(s.library.moveMedia(to));
     await settle();
     const dw = await refuse(s.mountDriveWire(0, 'pub.dsk', { held: true }));
     const fd = await refuse(s.mountDisk(0, 'pub.dsk', { held: true }));
@@ -723,7 +723,7 @@ async function rig(from = new Emu.MemoryMediaStore(), opts = {}) {
       const from = new Emu.MemoryMediaStore(), to = new Emu.MemoryMediaStore();
       const s = await rig(from);
       s.switchMachine('coco3');
-      await s.importMedia('HOLD.BIN', bin);
+      await s.library.importMedia('HOLD.BIN', bin);
       const file = `${kind}9.dsk`, stored = (kind === 'floppy' ? 'disks/' : 'drivewire/') + file;
       const bytes = kind === 'floppy'
         ? makeOs9Disk(Emu, { driver: 'rb1773', port: 'floppy', sides: 2, sectors: 1440, cpu: '6309' })
@@ -738,7 +738,7 @@ async function rig(from = new Emu.MemoryMediaStore(), opts = {}) {
       const was = s.shownMachine;
       const boot = refuse(s.addAndBootNitros9(file, bytes));
       await settle();
-      const mv = refuse(s.moveMedia(to));
+      const mv = refuse(s.library.moveMedia(to));
       await settle();
       writeGate.resolve();
       const e = await boot;
@@ -759,15 +759,15 @@ async function rig(from = new Emu.MemoryMediaStore(), opts = {}) {
     const from = new Emu.MemoryMediaStore(), to = new Emu.MemoryMediaStore();
     const s = await rig(from);
     s.switchMachine('dragon64');
-    await s.importMedia('HOLD.BIN', bin);
+    await s.library.importMedia('HOLD.BIN', bin);
     const gate = deferred();
     to.__write = to.write.bind(to);
     to.write = async (nm, bytes) => { await gate.p; return to.__write(nm, bytes); };
-    const mv = s.moveMedia(to);
+    const mv = s.library.moveMedia(to);
     await settle();
     const msg = s.load('DURING.BIN', new Uint8Array([0x55, 2, 0x30, 0x00, 0x00, 1, 0x30, 0x00, 0xAA, 0x39]));
     check('a load during the move: the program loads at once', /binary/.test(msg), msg);
-    check('a load during the move: its entry is in this visit\'s list already', s.recentMedia()[0].name === 'DURING.BIN');
+    check('a load during the move: its entry is in this visit\'s list already', s.library.recentMedia()[0].name === 'DURING.BIN');
     check('a load during the move: nothing of it is written to the old place', !(await from.stat('recent/list.json')));
     gate.resolve();
     await mv;
@@ -785,7 +785,7 @@ async function rig(from = new Emu.MemoryMediaStore(), opts = {}) {
     const from = new Emu.MemoryMediaStore(), to = new Emu.MemoryMediaStore();
     const s = await rig(from);
     s.switchMachine('dragon64');
-    await s.importMedia('HOLD.BIN', bin);
+    await s.library.importMedia('HOLD.BIN', bin);
     const gate = deferred();
     to.__write = to.write.bind(to);
     to.write = async (nm, bytes) => {
@@ -799,13 +799,13 @@ async function rig(from = new Emu.MemoryMediaStore(), opts = {}) {
       if (/^recent\/[0-9A-F]+\.bin$/.test(nm)) throw Object.assign(new Error('no room'), { code: 'quota' });
       return to.__writeSync(nm, bytes);
     };
-    const mv = s.moveMedia(to);
+    const mv = s.library.moveMedia(to);
     await settle();
     s.load('DUR.BIN', new Uint8Array([0x55, 2, 0x30, 0x00, 0x00, 1, 0x30, 0x00, 0xAA, 0x39]));
     gate.resolve();
     await mv;
     await settle();
-    const e = s.recentMedia()[0];
+    const e = s.library.recentMedia()[0];
     check('a load into a full new place: the entry says its bytes were not kept', e.name === 'DUR.BIN' && e.stored === false, JSON.stringify(e));
     check('a load into a full new place: the list on disk says so too, and holds no blob it could not write',
       JSON.parse(new TextDecoder().decode(await to.read('recent/list.json')))[0].stored === false && !(await to.list('recent/')).some((f) => /\.bin$/.test(f.name)));

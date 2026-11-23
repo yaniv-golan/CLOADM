@@ -123,6 +123,7 @@ const FILES = [
   'js/host/storage.js',
   'js/host/tape-sound.js',
   'js/host/web-serial.js',
+  'js/library.js',
   'js/machines/alpha.js',
   'js/machines/becker.js',
   'js/machines/bus.js',

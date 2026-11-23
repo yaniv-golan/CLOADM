@@ -1,7 +1,7 @@
 // The Media tab's "Recent on this machine" list: what makes two loads one entry, what makes two, and what a
 // row's click loads.
 //
-// Identity is the NAME (case-folded, the store's own rule via Session.sameName) plus the CONTENT HASH. So:
+// Identity is the NAME (case-folded, the store's own rule via MediaLibrary.sameName) plus the CONTENT HASH. So:
 //  - the same name and bytes loaded twice is one entry (the newest);
 //  - the same name with DIFFERENT bytes is two real entries, because each keeps and loads its own bytes
 //    (measured: the older row's loadRecent returns its own program, not the newer one's);
@@ -14,7 +14,7 @@ const { crc32 } = require('../js/util.js');
 
 let fail = 0;
 const check = (name, cond, detail = '') => { if (!cond) { fail++; console.log(`FAIL ${name} ${detail}`); } else console.log(`ok   ${name} ${detail}`); };
-const show = (s) => s.recentMedia().map((r) => `${r.name}#${r.crc}${r.copy ? '*' : ''}`).join(' | ') || '(empty)';
+const show = (s) => s.library.recentMedia().map((r) => `${r.name}#${r.crc}${r.copy ? '*' : ''}`).join(' | ') || '(empty)';
 const bytes = (s) => new TextEncoder().encode(s);
 
 // a session on a fresh machine; `media` lets a test plant a stored list before the session reads it
@@ -32,7 +32,7 @@ const progB = Emu.toBinary(Emu.assemble(' ORG $3000\n FCB $BB,$BB,$BB,$BB,$BB\nL
   const s = session();
   s.load('2048.bin', progA);
   s.load('2048.bin', progA);
-  check('recent: the same name and bytes loaded twice is one entry', s.recentMedia().length === 1, show(s));
+  check('recent: the same name and bytes loaded twice is one entry', s.library.recentMedia().length === 1, show(s));
 }
 
 // ---- 2. RED on main: an older build's lower-case CRC is the same file, not a second entry ----
@@ -47,10 +47,10 @@ const progB = Emu.toBinary(Emu.assemble(' ORG $3000\n FCB $BB,$BB,$BB,$BB,$BB\nL
   // wrote lower case comes back upper case, so it can never be a second identity for the same blob)
   const raw = session({ media });
   check('recent: the CRC of a stored entry is normalised to upper case as the list is read',
-    raw.recentMedia().length === 1 && raw.recentMedia()[0].crc === crc, show(raw));
+    raw.library.recentMedia().length === 1 && raw.library.recentMedia()[0].crc === crc, show(raw));
   const s = session({ media });
   s.load('2048.bin', progA);
-  const r = s.recentMedia();
+  const r = s.library.recentMedia();
   check('recent: an entry stored with a lower-case CRC is the same file, not a second one', r.length === 1, show(s));
   check('recent: the CRC read back is normalised to upper case', r.length === 1 && r[0].crc === crc, show(s));
 }
@@ -60,15 +60,15 @@ const progB = Emu.toBinary(Emu.assemble(' ORG $3000\n FCB $BB,$BB,$BB,$BB,$BB\nL
   const s = session();
   s.load('2048.bin', progA);
   s.load('2048.bin', progB);
-  const r = s.recentMedia();
+  const r = s.library.recentMedia();
   check('recent: the same name with different bytes is two entries', r.length === 2, show(s));
   check('recent: the newest is first', r.length === 2 && r[0].crc === crc32(progB), show(s));
   // each row loads its own bytes: this is WHY both rows are honest rather than one lying about the other
   const newest = session({ media: s.media });
-  newest.loadRecent(0);
+  newest.library.loadRecent(0);
   check('recent: the newest row loads the newest bytes', newest.shownMachine.ram[0x3000] === 0xBB, `$${newest.shownMachine.ram[0x3000].toString(16)}`);
   const older = session({ media: s.media });
-  older.loadRecent(1);
+  older.library.loadRecent(1);
   check('recent: the older row loads its OWN bytes, not the newer ones', older.shownMachine.ram[0x3000] === 0xAA, `$${older.shownMachine.ram[0x3000].toString(16)}`);
 }
 
@@ -77,18 +77,18 @@ const progB = Emu.toBinary(Emu.assemble(' ORG $3000\n FCB $BB,$BB,$BB,$BB,$BB\nL
   const s = session();
   s.load('2048.bin', progA);
   s.load('2048.bin', progB);
-  const r = s.recentMedia();
+  const r = s.library.recentMedia();
   check('recent: of two same-name entries the newest is unlabelled and the older is told apart',
     r.length === 2 && r[0].copy === false && r[1].copy === '2nd', JSON.stringify(r.map((x) => [x.name, x.copy])));
   // a single entry of a name is not labelled a copy
   const one = session();
   one.load('2048.bin', progA);
-  check('recent: a name with one entry is not labelled a copy', one.recentMedia()[0].copy === null);
+  check('recent: a name with one entry is not labelled a copy', one.library.recentMedia()[0].copy === null);
   // three of one name: the second and third are told apart, and a fourth would be "older copy"
   const progC = Emu.toBinary(Emu.assemble(' ORG $3000\n FCB $CC,$CC,$CC,$CC,$CC,$CC\nL BRA L\n END', '6809'), { format: 'dragondos' });
   const three = session();
   for (const p of [progA, progB, progC]) three.load('2048.bin', p);
-  const t = three.recentMedia();
+  const t = three.library.recentMedia();
   check('recent: three of one name are labelled newest, 2nd, 3rd',
     t.length === 3 && t[0].copy === false && t[1].copy === '2nd' && t[2].copy === '3rd', JSON.stringify(t.map((x) => x.copy)));
 }
@@ -98,7 +98,7 @@ const progB = Emu.toBinary(Emu.assemble(' ORG $3000\n FCB $BB,$BB,$BB,$BB,$BB\nL
   const s = session();
   s.load('mine.bin', progA);
   s.load('renamed.bin', progA);
-  const r = s.recentMedia();
+  const r = s.library.recentMedia();
   check('recent: a re-named copy of the same bytes is its own entry',
     r.length === 2 && r.map((x) => x.name).sort().join() === 'mine.bin,renamed.bin', show(s));
 }
@@ -110,21 +110,21 @@ const progB = Emu.toBinary(Emu.assemble(' ORG $3000\n FCB $BB,$BB,$BB,$BB,$BB\nL
   const s = session();
   s.load('2048.bin', progA);
   s.load('2048.BIN', progA);
-  check('recent: on a store that tells cases apart, two spellings are two files', s.recentMedia().length === 2, show(s));
+  check('recent: on a store that tells cases apart, two spellings are two files', s.library.recentMedia().length === 2, show(s));
   // ...and they are NOT "copies" of one another: two entries of two different names each get copy === null, so
   // the Media tab does not label a store's ordinary two files as a second copy of one
   check('recent: two spellings on a case-sensitive store are not labelled as copies of one name',
-    s.recentMedia().every((r) => r.copy === null), JSON.stringify(s.recentMedia().map((r) => [r.name, r.copy])));
+    s.library.recentMedia().every((r) => r.copy === null), JSON.stringify(s.library.recentMedia().map((r) => [r.name, r.copy])));
   const ci = new MemoryMediaStore({ caseInsensitive: true });
   const t = session({ media: ci });
   t.load('2048.bin', progA);
   t.load('2048.BIN', progA);
-  check('recent: on a store that does not tell cases apart, a case-only difference is the same file', t.recentMedia().length === 1, show(t));
+  check('recent: on a store that does not tell cases apart, a case-only difference is the same file', t.library.recentMedia().length === 1, show(t));
   const u = session({ media: new MemoryMediaStore({ caseInsensitive: true }) });
   u.load('2048.bin', progA);
   u.load('2048.BIN', progB);
   check('recent: a case-only difference with other bytes is still two entries (identity needs the hash too)',
-    u.recentMedia().length === 2 && u.recentMedia().map((x) => x.name).join() === '2048.BIN,2048.bin', show(u));
+    u.library.recentMedia().length === 2 && u.library.recentMedia().map((x) => x.name).join() === '2048.BIN,2048.bin', show(u));
 }
 
 // ---- 7. a replaced entry's file goes, so the list and its files agree ----
@@ -134,13 +134,13 @@ const progB = Emu.toBinary(Emu.assemble(' ORG $3000\n FCB $BB,$BB,$BB,$BB,$BB\nL
   s.load('2048.bin', progA);
   s.load('2048.bin', progA);   // the same file again: one entry, and its blob is rewritten, not orphaned
   check('recent: reloading the same file leaves ONE blob and the list agrees with it',
-    s.recentMedia().length === 1 && s.media.listSync('recent/').filter((f) => f.name.endsWith('.bin')).length === 1,
+    s.library.recentMedia().length === 1 && s.media.listSync('recent/').filter((f) => f.name.endsWith('.bin')).length === 1,
     s.media.listSync('recent/').map((f) => f.name).join(','));
   // a different file of the same name keeps its own blob: both rows are real, so both must be stored
   s.load('2048.bin', progB);
   const blobs = s.media.listSync('recent/').filter((f) => f.name.endsWith('.bin')).map((f) => f.name);
   check('recent: two same-name entries keep their own blobs (neither row is left pointing at nothing)',
-    s.recentMedia().length === 2 && blobs.includes(`recent/${oldCrc}.bin`) && blobs.includes(`recent/${crc32(progB)}.bin`), blobs.join(','));
+    s.library.recentMedia().length === 2 && blobs.includes(`recent/${oldCrc}.bin`) && blobs.includes(`recent/${crc32(progB)}.bin`), blobs.join(','));
 }
 
 // ---- 8. still the last 5, and only their files ----
@@ -148,8 +148,8 @@ const progB = Emu.toBinary(Emu.assemble(' ORG $3000\n FCB $BB,$BB,$BB,$BB,$BB\nL
   const s = session();
   for (let i = 0; i < 7; i++) s.load(`p${i}.bin`, Emu.toBinary(Emu.assemble(` ORG $3000\n FCB ${i}\nL BRA L\n END`, '6809'), { format: 'dragondos' }));
   const blobs = s.media.listSync('recent/').filter((f) => f.name.endsWith('.bin'));
-  check('recent: still the last 5, and only their files', s.recentMedia().length === 5 && blobs.length === 5,
-    `${s.recentMedia().length} entries, ${blobs.length} blobs`);
+  check('recent: still the last 5, and only their files', s.library.recentMedia().length === 5 && blobs.length === 5,
+    `${s.library.recentMedia().length} entries, ${blobs.length} blobs`);
 }
 
 // ---- 9. a lower-case CRC in the stored list does not leave a file behind when the file is loaded again ----
@@ -164,7 +164,7 @@ const progB = Emu.toBinary(Emu.assemble(' ORG $3000\n FCB $BB,$BB,$BB,$BB,$BB\nL
   media.writeSync(`recent/${crc}.bin`, progA);
   const s = session({ media });
   s.load('2048.bin', progA);
-  check('recent: the healed entry still loads (its bytes are found under the normalised CRC)', /2048\.bin/.test(s.loadRecent(0)) && s.shownMachine.ram[0x3000] === 0xAA);
+  check('recent: the healed entry still loads (its bytes are found under the normalised CRC)', /2048\.bin/.test(s.library.loadRecent(0)) && s.shownMachine.ram[0x3000] === 0xAA);
 }
 
 // ---- 10. the copy label is per MACHINE: the drawer shows one machine's rows, so two of one name on different
@@ -174,12 +174,12 @@ const progB = Emu.toBinary(Emu.assemble(' ORG $3000\n FCB $BB,$BB,$BB,$BB,$BB\nL
   s.load('2048.bin', progA);
   s.switchMachine('coco');
   s.load('2048.bin', progB);
-  const r = s.recentMedia();
+  const r = s.library.recentMedia();
   check('recent: two of one name on different machines are not labelled as copies of each other',
     r.length === 2 && r.every((x) => x.copy === null), JSON.stringify(r.map((x) => [x.name, x.machine, x.copy])));
   s.switchMachine('dragon64');
-  check('recent: and the Dragon row alone is unlabelled on the Dragon', s.recentMedia().filter((x) => x.machine === 'dragon64').every((x) => x.copy === null)
-    && s.recentMedia().filter((x) => x.machine === 'dragon64').length === 1, JSON.stringify(s.recentMedia().map((x) => [x.machine, x.copy])));
+  check('recent: and the Dragon row alone is unlabelled on the Dragon', s.library.recentMedia().filter((x) => x.machine === 'dragon64').every((x) => x.copy === null)
+    && s.library.recentMedia().filter((x) => x.machine === 'dragon64').length === 1, JSON.stringify(s.library.recentMedia().map((x) => [x.machine, x.copy])));
 }
 
 // ---- 11. junk entries (no name or no crc, from a hand-edited or older list) are dropped on read, not grouped ----
@@ -194,7 +194,7 @@ const progB = Emu.toBinary(Emu.assemble(' ORG $3000\n FCB $BB,$BB,$BB,$BB,$BB\nL
   ])));
   media.writeSync(`recent/${crc32(progA)}.bin`, progA);
   const s = session({ media });
-  const r = s.recentMedia();
+  const r = s.library.recentMedia();
   check('recent: entries with no name or no CRC are dropped on read', r.length === 1 && r[0].name === 'good.bin', JSON.stringify(r));
 }
 

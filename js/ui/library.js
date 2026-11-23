@@ -1,6 +1,6 @@
 /*
  * The Library: everything the user has loaded,
- * kept in the media store (Session.listMedia / openMedia / downloadMedia / renameMedia / deleteMedia /
+ * kept in the media store (MediaLibrary.listMedia / openMedia / downloadMedia / renameMedia / deleteMedia /
  * importMedia: under library/, and disk images under disks/, where the drives find them), shown as tape spines and disk and cartridge tiles, filtered by machine and
  * kind; its empty state; the type-in card (js/ui/typein.js); and the magazine rack.
  *
@@ -17,13 +17,13 @@
  * Where it is kept ("Stored in browser storage (OPFS), or linked to a folder on your computer"): inside this
  * browser, a folder the user picks (File System Access: disk writes go straight back to the image file), or
  * download and open where the browser keeps nothing. Choosing another copies the library there
- * (Session.moveMedia; the old place keeps its copies) and is remembered: the choice in settings, the folder's
+ * (MediaLibrary.moveMedia; the old place keeps its copies) and is remembered: the choice in settings, the folder's
  * handle in IndexedDB (js/host/folder-handle.js). A folder whose permission didn't survive the reload is
  * offered for reconnecting (`reconnect`, from openChosenStore); until then the library is kept in the browser.
  */
 import { detectMedia, FAMILY_NAMES } from '../media/detect.js';
 import { expand, pickedFiles, droppedFiles } from './files.js';
-import { DISK_PREFIX } from '../session.js';
+import { DISK_PREFIX } from '../library.js';
 import { $, showView } from './page.js';
 import { availableChoices, openMediaStore } from '../host/media-store-open.js';
 import { FsaMediaStore } from '../host/media-store-fsa.js';
@@ -115,7 +115,7 @@ export function setupLibrary(page, { loadProgram, runShelf, changed, showRoms, r
     let d = { kind: 'other', family: null, format: '' };
     if (/\.cloadm$/i.test(st.name)) d = { kind: 'snapshot', family: null, format: 'snapshot' };
     else {
-      try { const m = detectMedia(base(st.name), await session.openMedia(st.name)); d = { kind: KIND_OF[m.kind] || 'other', family: m.family || null, format: m.format || '' }; }
+      try { const m = detectMedia(base(st.name), await session.library.openMedia(st.name)); d = { kind: KIND_OF[m.kind] || 'other', family: m.family || null, format: m.format || '' }; }
       catch (e) { d = { kind: 'other', family: null, format: 'unreadable' }; }
     }
     const out = Object.assign({ mtime: st.mtime, size: st.size }, d);
@@ -124,7 +124,7 @@ export function setupLibrary(page, { loadProgram, runShelf, changed, showRoms, r
   }
   async function refresh() {
     let list;
-    try { list = await session.listMedia(); } catch (e) { page.status(session.mediaError(e, 'the library').message, true); list = []; }
+    try { list = await session.library.listMedia(); } catch (e) { page.status(session.library.mediaError(e, 'the library').message, true); list = []; }
     changed();
     items = [];
     for (const st of list) items.push(Object.assign({ name: st.name }, await describe(st)));
@@ -236,7 +236,7 @@ export function setupLibrary(page, { loadProgram, runShelf, changed, showRoms, r
         return;
       }
       let bytes;
-      try { bytes = await session.openMedia(name); } catch (e) { page.status(e.message, true); return; }
+      try { bytes = await session.library.openMedia(name); } catch (e) { page.status(e.message, true); return; }
       close();
       keeping = true;
       try { await loadProgram(base(name), bytes); } finally { keeping = false; }
@@ -268,7 +268,7 @@ export function setupLibrary(page, { loadProgram, runShelf, changed, showRoms, r
   $('btnLibLoad').onclick = () => { const n = one(); setSelecting(false); load(n); };
   $('btnLibDownload').onclick = async () => {
     const list = [...selected];
-    try { for (const n of list) { const f = await session.downloadMedia(n); page.download(f.name, f.bytes); } page.status(`Saved ${names(list)}`); }
+    try { for (const n of list) { const f = await session.library.downloadMedia(n); page.download(f.name, f.bytes); } page.status(`Saved ${names(list)}`); }
     catch (e) { page.status(e.message, true); }
   };
   // Rename: a name field on the item itself; Enter saves, Esc cancels. A disk in a drive is refused at once.
@@ -295,7 +295,7 @@ export function setupLibrary(page, { loadProgram, runShelf, changed, showRoms, r
       const clean = input.value.trim().replace(/[\\/]/g, '-');   // a name, not a path: the status says what it was saved as
       if (!clean || clean === base(name)) { render(); return; }
       try {
-        await session.renameMedia(name, clean);
+        await session.library.renameMedia(name, clean);
         selected.delete(name); selected.add(prefixOf(name) + clean);
         page.status(`Renamed to ${clean}`);
       } catch (err) { page.status(err.code === 'exists' ? `There is already a ${clean} in the library.` : err.message, true); }
@@ -318,7 +318,7 @@ export function setupLibrary(page, { loadProgram, runShelf, changed, showRoms, r
       onEnd: async (why) => {
         if (why === 'action') return;
         if (pending === mine) pending = null;
-        for (const n of list) { try { await session.deleteMedia(n); } catch (e) { page.toast(e.message, { error: true, view: 'library' }); } }
+        for (const n of list) { try { await session.library.deleteMedia(n); } catch (e) { page.toast(e.message, { error: true, view: 'library' }); } }
         refresh();
       },
     });
@@ -328,7 +328,7 @@ export function setupLibrary(page, { loadProgram, runShelf, changed, showRoms, r
   // a file the user gave CLOADM is kept in the library (ROMs go to their sockets, not here)
   async function keep(name, bytes) {
     if (keeping) return;
-    try { await session.importMedia(base(name), bytes); }
+    try { await session.library.importMedia(base(name), bytes); }
     catch (e) { page.status(`${base(name)} wasn't kept in your Library: ${e.message}`, true); }
     if (isOpen()) refresh();
   }
@@ -337,7 +337,7 @@ export function setupLibrary(page, { loadProgram, runShelf, changed, showRoms, r
     let kept = 0, roms = 0;
     const say = page.reporter(), added = [];
     for (const f of files) {
-      try { const r = await session.importMedia(base(f.name), f.bytes); if (r.roms) roms++; else { kept++; added.push(base(f.name)); } }
+      try { const r = await session.library.importMedia(base(f.name), f.bytes); if (r.roms) roms++; else { kept++; added.push(base(f.name)); } }
       catch (e) { errors.push(e.message); }
     }
     await refresh();
@@ -414,7 +414,7 @@ export function setupLibrary(page, { loadProgram, runShelf, changed, showRoms, r
     }
     moving = true; renderStorage();
     try {
-      const r = await session.moveMedia(store);
+      const r = await session.library.moveMedia(store);
       if (id === 'fsa') await saveFolder(store.directory); else await forgetFolder();
       session.store.set('storage', id);
       reconnect = null;
@@ -426,7 +426,7 @@ export function setupLibrary(page, { loadProgram, runShelf, changed, showRoms, r
   $('btnLibReconnect').onclick = async () => {
     const dir = reconnect;
     if (!dir || !await FsaMediaStore.authorize(dir).catch(() => false)) { page.status('Permission to use that folder was not given; your library stays inside this browser for now.', true); return; }
-    try { await session.moveMedia(new FsaMediaStore(dir), { reconnecting: true }); reconnect = null; page.status(`Your library is back in the folder “${dir.name}”.`); }
+    try { await session.library.moveMedia(new FsaMediaStore(dir), { reconnecting: true }); reconnect = null; page.status(`Your library is back in the folder “${dir.name}”.`); }
     catch (e) { page.status(e.message, true); }
     renderStorage(); refresh();
   };

@@ -137,7 +137,7 @@ async function xfer(s, bytes) {
     try { await u.mount(0, 'd0'); moved = 'allowed'; } catch (e) { moved = e.message; }
     check('mount: after an eject the image mounts again', moved === 'allowed', moved);
     // The one name comparison (DriveWireServer.sameStoredName) is the `sameName` the server is given: exact by
-    // default, the store's rule when the Session supplies it (Session.sameName). Both readers of it are covered:
+    // default, the store's rule when the Session supplies it (MediaLibrary.sameName). Both readers of it are covered:
     // the mount guard and the named-object lookup.
     {
       const v = await setup(new MemoryMediaStore());
@@ -450,7 +450,7 @@ async function xfer(s, bytes) {
     check('Session: re-mounting it in the same drive is allowed (the page re-mounts on a write-protect change)', remount === 'allowed', remount);
     check('Session: ... with the new setting in what is mounted', s.driveWireMounts.find((d) => d.drive === 0).writeProtected === true, JSON.stringify(s.driveWireMounts));
     await s.mountDriveWire(0, 'boot.dsk');   // (back to writable for the reads below)
-    // the guard compares names the way the store does (Session.sameName): on a case-insensitive store GAME.DSK and
+    // the guard compares names the way the store does (MediaLibrary.sameName): on a case-insensitive store GAME.DSK and
     // game.dsk are one file, so a second drive on it is refused, naming the drive that holds it; on a store that tells
     // cases apart they are two files and both mount
     for (const caseInsensitive of [true, false]) {

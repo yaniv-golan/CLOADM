@@ -219,7 +219,7 @@ const { check, failures } = checker();
       await s.importDisk('a.vdk', a, 0); await s.ejectDisk(0);
       if (!fold) await media.write('disks/A.vdk', images.vdk(40, 2));
       check(`setup: the store's rule is unmeasured and the Session takes it as case-insensitive (store ${fold ? 'folds' : 'keeps spellings apart'})`,
-        media.caseMeasured !== true && s.caseInsensitive === true);
+        media.caseMeasured !== true && s.library.caseInsensitive === true);
       const reads = raceFirstRead(media, 'disks/a.vdk', async () => {
         s.diskLink('disks/A.vdk')(0x300, new Uint8Array([0x5A]), a.length);
         await s.diskWritesDone().catch(() => {});
@@ -246,11 +246,11 @@ const { check, failures } = checker();
       await media.write('disks/A.vdk', images.vdk(40, 2));
       s.diskLink('disks/A.vdk')(0x300, new Uint8Array([0x5A]), a.length);
       await s.diskWritesDone();
-      const unmeasured = s.caseInsensitive === true && media.caseMeasured !== true;
+      const unmeasured = s.library.caseInsensitive === true && media.caseMeasured !== true;
       let measured = null;
       const reads = raceFirstRead(media, 'disks/a.vdk', async () => {
         measurable = true;
-        measured = await s.refreshCase();
+        measured = await s.library.refreshCase();
         s.diskLink('disks/a.vdk')(0x900, new Uint8Array([0x42]), a.length);
         await s.diskWritesDone().catch(() => {});
       });

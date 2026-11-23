@@ -140,7 +140,7 @@ export async function start() {
   let media, mediaNote;
   try { media = await openMediaStore(); mediaNote = media.constructor.name; } catch (e) { media = new MemoryMediaStore(); mediaNote = `memory (${e.message})`; }
   const session = new Session({ store: localStore(), media, welcomeMenu: false });
-  try { await session.ready(); } catch (e) { session.useMediaStore(new MemoryMediaStore()); mediaNote = `memory (${e.message})`; }
+  try { await session.ready(); } catch (e) { session.library.useMediaStore(new MemoryMediaStore()); mediaNote = `memory (${e.message})`; }
   const canvas = $('screen');
   const presenter = new CrispPresenter(canvas, frameToRGBA);
   const input = new HostInput(session.shownMachine, session.keys);
