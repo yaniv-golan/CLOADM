@@ -92,7 +92,7 @@ function busyMachine({ cart = null } = {}) {
   check('...and released again', h.halt.logBus === false && !h.cpu.haltLine);
   // and a line from a source with no log behind it, asserted from INSIDE a step (an event, a hook): it must not
   // suspend the instruction - with nothing logged the replay would drop it and its accesses would happen twice. It
-  // halts the CPU between instructions, which is what a line with no device-tree delay does. (Review finding.)
+  // halts the CPU between instructions, which is what a line with no device-tree delay does.
   for (const cart of [null, new Emu.RomCartridge(new Uint8Array(0x2000))]) {
     const g = Emu.createMachine('coco3');
     if (cart) g.insertCartridge(cart);

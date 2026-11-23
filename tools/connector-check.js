@@ -225,7 +225,7 @@ async function scenario(browser, check, name, { uri, cors = true, panelApi = nul
   }
 }
 
-// The view's own controls (R29), in the site variant (the same shell and panel.js as inline): the screen's fit inline
+// The view's own controls, in the site variant (the same shell and panel.js as inline): the screen's fit inline
 // (the host sizing the view from its content) and at a fixed height (the side panel) at 400, 600 and 900 px, the
 // one-row toolbar, Details, ⋯'s "Open in side panel" by display mode, every Programs and Machine item, the menus from
 // the keyboard, the sound switch, and Claude's chip: acting, reading, its keys, its announcement, never the person's.
@@ -331,7 +331,7 @@ async function uiScenario(browser, check, { shots = null } = {}) {
     await wait(v, () => /LIZA - A DRAGON/.test(window.cloadmView.session.screenText().join('\n')), null, 6000);
     const viaMenu = await state();
     check('connector ui: a choice typed in the Welcome menu runs (1: LIZA)', /LIZA - A DRAGON 64/.test(viaMenu.screen) && /^LIZA is running/.test(viaMenu.status), JSON.stringify(viaMenu).slice(0, 300));
-    // ---- the menus from the keyboard (R16): ArrowDown opens on the first item, ArrowUp on the last; arrows, Home, End move; Escape closes back to the trigger; Enter picks
+    // ---- the menus from the keyboard: ArrowDown opens on the first item, ArrowUp on the last; arrows, Home, End move; Escape closes back to the trigger; Enter picks
     await v.focus('#programs');
     await page.keyboard.press('ArrowDown');
     const first = await v.evaluate(() => [document.getElementById('programs').getAttribute('aria-expanded'), document.activeElement.dataset.program]);
@@ -435,7 +435,7 @@ async function uiScenario(browser, check, { shots = null } = {}) {
     const afterReads = await v.evaluate(() => document.getElementById('announce').textContent);
     check('connector ui: one short announcement per acting call ("Claude is typing 300 characters" for a long text), and none for a loop of reads',
       longSaid === `Claude is typing ${long.length} characters` && afterReads === longSaid, JSON.stringify({ longSaid, afterReads }));
-    // R34, Claude's colour, in the host's light and dark themes: a filled clay chip with near-black text (contrast
+    // Claude's colour, in the host's light and dark themes: a filled clay chip with near-black text (contrast
     // ≥ 4.5, keys included), always the word "Claude"; the bezel's clay edge with a #B85C3E outline on a light host
     // (≥ 3:1 against #FAF9F5); the focus ring neutral, never clay
     const colours = {};

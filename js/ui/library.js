@@ -395,7 +395,7 @@ export function setupLibrary(page, { loadProgram, runShelf, changed, showRoms, r
     if (errors.length) { say(text ? `${text}. ${errors.join(' · ')}` : errors.join(' · '), true, text ? { details: errors.join(' · ') } : {}); return; }
     if (!text) { say('Nothing added: no files in what you gave'); return; }
     const one = kept === 1 && items.find((i) => base(i.name) === added[0]);
-    // ROMs only: "Open Your ROMs" (R19 A+)
+    // ROMs only: "Open Your ROMs"
     say(text, false, { action: roms && !kept ? { label: 'Open Your ROMs', run: showRoms } : !isOpen() ? { label: 'Show', run: () => page.openView('#library') } : one ? { label: 'Load', run: () => load(one.name) } : null });
   }
   const pick = () => $('fileLib').click();

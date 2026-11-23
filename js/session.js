@@ -51,7 +51,7 @@ import { Consent, STOPPED } from './claude/consent.js';
 import { screenRows, screenTextTool } from './claude/readtools.js';
 
 // the status of a turn paused by the person's key, in every view that shows it with Resume and Stop (Esc is Stop then)
-// (one text for every paused state, UX R11b: whether a call waits, typing is held, or Claude only writes its reply,
+// (one text for every paused state: whether a call waits, typing is held, or Claude only writes its reply,
 // its next action waits; "Esc stops Claude" is never dropped)
 export const CLAUDE_PAUSED_TEXT = 'Paused: you pressed a key · Claude\'s next action waits · Esc stops Claude';
 // the same where it must fit one line (the browser Fullscreen's pill)
@@ -94,7 +94,7 @@ export const romOwners = () => Object.assign({}, profiles, cartridgeRoms, { ssc:
 // build sits at $6000 and covers eleven models (the HD6309 included: it runs the 6809 build in emulation
 // mode, like any 6809 program); the 6803 build (the MC-10 and the Matra Alice) sits at
 // $5000 and is built once per machine, so its subtitle names the one it runs on.
-// Why a welcome menu starts (R46: its tune plays only when the person asked for the menu). 'visit': the visit's own
+// Why a welcome menu starts (its tune plays only when the person asked for the menu). 'visit': the visit's own
 // start; 'shelf': chosen from Programs (the Welcome menu item, a link, Claude's load); both play it once the sound is
 // unlocked. The rest are silent: 'switch' (a machine switch, a RAM or CPU change, an opened snapshot), 'reset' (Reset,
 // a power cycle, ROMs removed) and 'return' (back from LIZA, a game or the demo). A silent start sets the firmware's
@@ -123,7 +123,7 @@ export const GAMES = Object.freeze({
 });
 // Color BASIC's and Dragon BASIC's warm-start flag: $55 there at reset means a warm start (the program kept)
 const BASIC_RSTFLG = 0x71;
-// What a bundled program is played with (UX R30, R32): `input` is 'keyboard', 'arrows' or 'joystick'; `extra`, the keys
+// What a bundled program is played with: `input` is 'keyboard', 'arrows' or 'joystick'; `extra`, the keys
 // beside the arrows it reads (Minesweeper's F flags a mine); `joystick`, whether it reads a joystick too. The page's
 // touch panel opens on what it says (arrows: the pad) and offers the stick only where the machine has the port.
 // The games' own entries are in GAMES.list; a program not listed is played on the keyboard.
@@ -614,6 +614,8 @@ export class Session {
     this.bootOk = null;             // the reset after which BASIC's OK was seen
     this.warmReset = null;          // { m, resetAt }: the run that began with the Reset button, not a power-on (bootStatus)
     this.welcome = null;            // the machine running the welcome program
+    this.typingRefusedFor = null;   // the Debugger stop the person was last told typing is refused for (refuseTyping)
+    this.welcomeFrom = 0;           // its frameCount when the welcome program was loaded (welcomeOnScreen)
     this.welcomeGen = 0;            // bumped by every start: the FIRST start to land wins (a later one is dropped)
     this.menuWatch = null;          // a program that goes back to the welcome menu when left (watchForMenu)
     // What runs on the stub firmware and how to restart it, per machine (Reset; see `reset`). Per machine because
@@ -628,7 +630,9 @@ export class Session {
     this.tapeInfo = null;           // the tape in the deck: its block starts and length (tapeStatus)
     this.tapeWatch = null;          // the current or last run of the cassette motor: { done, error } (tapeStatus)
     this.tapeStarted = null;        // a machine-code tape fast-loaded and started: { tape, exec } (tapeStatus started)
-    this.lastPrinted = 0;           // printout length at the last 'printer' event
+    // each machine's printout length when it was last reported by a 'printer' event (checkPrinter): the printout
+    // belongs to the machine, so the change is tracked per machine, not per session
+    this.printedSeen = new WeakMap();
     this.speechRomNoted = false;    // 'speech-rom' has been emitted (once a session: checkSpeechRom)
     // DriveWire: one server for the session, on its media store (images under DW_PREFIX); attached to the
     // machine's Becker port when it has one. Channels: WebSockets (DriveWireSocket) by channel number.
@@ -643,7 +647,12 @@ export class Session {
     this.WebSocket = globalThis.WebSocket;
     this.webSerial = globalThis.navigator && globalThis.navigator.serial;   // Web Serial (a mock in tests)
     this.serialLink = null;
-    this.drivewire.onPrint = (bytes) => { if (this.shownMachine) { for (const b of bytes) this.shownMachine.printed.push(b); this.checkPrinter(); } };
+    // a machine's DriveWire prints go to ITS printout, whichever machine is on screen (the shown machine is
+    // swapped by install and showChat while both machines run); the chat machine's server (startChat) gets its
+    // own handler, so its prints are kept too instead of being dropped. install sets the Session server's
+    // handler to the machine that takes it, and clears it when that machine leaves.
+    this.drivewire.onPrint = null;
+    this.dwPrint = (m) => (bytes) => { for (const b of bytes) m.printed.push(b); this.checkPrinter(); };
     this.drivewire.onChannelData = (ch, bytes) => { const s = this.dwSockets.get(ch); if (s) s.send(bytes); };
     this.drivewire.onChannelOpen = (ch) => { const s = this.dwSockets.get(ch); if (s) s.deliver(); };
     this.drivewire.onChannelRead = (ch) => { const s = this.dwSockets.get(ch); if (s) s.deliver(); };
@@ -736,6 +745,8 @@ export class Session {
     if (!m.debugger) new Debugger(m, { symbols: () => this.labels });
     // (one a restored snapshot made, or one made on the machine directly, shows the Session's symbols too, unless it has its own)
     if (m.debugger._symbols === null) m.debugger.setSymbols(() => this.labels);
+    // (its stops are reported as the Session's: a debugger made on the machine directly gets that here)
+    if (!m.debugger.onStop) this.watchStops(m.debugger);
     return m.debugger;
   }
   // The debugger of the machine in use, or null. A machine has one debugger (js/debugger.js: a new one takes the
@@ -764,6 +775,42 @@ export class Session {
   get paused() { return !!(this.debugger && this.debugger.stopped); }
   // continue the machine from where the debugger stopped it
   resume() { if (this.debugger) this.debugger.resume(); }
+  // A launch - Reset, a power cycle, a load (a program, a tape, the welcome menu, LIZA, a game,
+  // Run again), a disk put in from a drop or Open, a machine switch - runs what it starts, for the page, the MCP server
+  // and Claude alike. It emits 'launch' (the page lets go of its own Pause on it) and releases a Debugger stop on the
+  // machine it starts (a stop on another machine stays); the breakpoints stay set. -> the PC the released stop was
+  // at, or null; a release also emits ('released', pc), for the page's "The Debugger's stop at $C0F3 was released."
+  launch(m = this.shownMachine) {
+    this.emit('launch');
+    const d = this.debugger;
+    if (!d || !d.stopped || d.machine !== m) return null;
+    const pc = d.pc;
+    d.resume();
+    this.emit('released', pc);
+    return pc;
+  }
+  // Every stop the Debugger makes (its Pause, a step, a breakpoint or watchpoint, a run limit, MCP's step) is a
+  // ('debugger-stopped', machine) event: what is in flight on that machine when it stops - Claude's keys - ends then
+  // (ChatSession.keys, through the chat target's onStopped) rather than waiting behind the stop.
+  watchStops(d) { d.onStop = () => this.emit('debugger-stopped', d.machine); }
+  // Is machine m stopped by the Debugger (the stop that keeps it stopped)? -> { pc, kind } (where, and Debugger.stopReason's kind), or
+  // null. The one test both sides use: the person's typing (refuseTyping) and Claude's and the MCP tools that need the
+  // machine to run or read keys (the chat target's stopped(): ChatSession.callTool, and js/mcp/tools.js).
+  stoppedOn(m = this.shownMachine) {
+    const d = this.debugger;
+    if (!d || !d.stopped || d.machine !== m) return null;
+    return { pc: d.pc, kind: (d.stopReason && d.stopReason.kind) || 'halt' };
+  }
+  // The person's typing while the Debugger has the machine stopped is refused, not queued (keys, a tap on
+  // the welcome menu, its carry-on line, a paste, typed text): the machine reads nothing while stopped, so typing
+  // would only pile up behind the stop. -> true when refused; emits 'typing-refused' once per stop (the stop's reason
+  // object is new for every stop) for the page's one toast.
+  refuseTyping(m = this.shownMachine) {
+    const d = this.debugger;
+    if (!this.stoppedOn(m)) return false;
+    if (this.typingRefusedFor !== d.stopReason) { this.typingRefusedFor = d.stopReason; this.emit('typing-refused'); }
+    return true;
+  }
 
   // ---------------- machine ----------------
   get startMachine() { return this.store.get('machine') || 'dragon64'; }
@@ -783,6 +830,7 @@ export class Session {
       m = createMachine(id, config || this.savedConfig(id));
       if (config) this.store.set(`config.${id}`, JSON.stringify(config));
     } catch (e) { m = createMachine(id); }
+    this.emit('launch');   // (a machine switch is a launch: the page's Pause ends, and adopt releases a stop)
     this.adopt(m);
     if (!this.stubChosen.has(id)) this.loadSavedRoms();
     // the Pak a machine starts with, from its `ssc` option (the ROMs are in place by now)
@@ -794,7 +842,7 @@ export class Session {
     return m;
   }
   // What a switch to model `id` with `config` (a RAM change: the same id) takes out of the machine in use, for the
-  // page to name before and after it (UX ruling R25): [{ kind: 'tape' | 'cartridge' | 'disk', name (the file, or null
+  // page to name before and after it: [{ kind: 'tape' | 'cartridge' | 'disk', name (the file, or null
   // for a cartridge whose file is not known), drive (a disk's), stored (a disk linked to the Library: false for the
   // disk that came with a snapshot) }]. Not listed: the DriveWire server's disks (the Session's, not the machine's: they
   // stay mounted) and a Speech/Sound Pak that the new machine's `ssc` option puts back (applySscOption).
@@ -830,8 +878,14 @@ export class Session {
     this.dropChat();                      // a chat belongs to the machine it was opened on
     if (chat) this.clearStubRuns([chat.chat, chat.basic]);
     this.warmReset = null;                // a new machine is a power-on: the boot watchdog arms
-    if (this.debugger && this.debugger.machine !== m) this.debugger.detach();   // (adopting the machine already shown keeps its debugger)
-    if (m.debugger) m.debugger.setSymbols(() => this.labels);
+    // (a Debugger stop goes with the machine it was on, and that is said as a release. A switch is a launch, and says so
+    // itself (switchMachine); an opened snapshot is a restore, not a launch, and keeps the page's Pause. Adopting the
+    // machine already shown keeps its debugger, and its stop.)
+    const left = this.debugger && this.debugger.machine !== m ? this.debugger : null;
+    const stoppedAt = left && left.stopped ? left.pc : null;
+    if (left) left.detach();
+    if (stoppedAt != null) this.emit('released', stoppedAt);
+    if (m.debugger) { m.debugger.setSymbols(() => this.labels); this.watchStops(m.debugger); }
     // the machines left behind keep no state in the Session: their ROM-failure sets go (a switch back is a fresh
     // try) and their stub-restart records with them (the record of a Machine that is gone cannot come back)
     for (const [mm] of this.bootFailed) if (mm !== this.shownMachine && mm !== m) this.bootFailed.delete(mm);
@@ -859,8 +913,15 @@ export class Session {
     this.applyDisplay();
     this.acc = 0;
     this.lastRate = this.cpuRate() && this.cpuRate().rate;
-    this.lastPrinted = m.printed.length;
+    this.printedSeen.set(m, m.printed.length);   // its printout is its own: report only what changes from here
     if (m.becker && !m.becker.server) { this.drivewire.resetLink(); m.becker.attach(this.drivewire); }
+    // the Session's server prints to the machine that holds it, or to no machine: a machine the Session has
+    // let go of (a switch ended the chat and its machines) must not be kept alive by the handler. The chat's
+    // two machines are the exception: dropChat is what lets them go, and between a showChat swap they both
+    // stay with the Session - the one going off screen keeps the server and its prints.
+    const holder = m.becker && m.becker.server === this.drivewire ? m
+      : this.chatMachines ? [this.chatMachines.basic, this.chatMachines.chat].find((c) => c.becker && c.becker.server === this.drivewire) : null;
+    this.drivewire.onPrint = holder ? this.dwPrint(holder) : null;
     if (undelivered) throw undelivered;
   }
 
@@ -888,10 +949,14 @@ export class Session {
     if (!this.shownMachine.printed.length) throw new SessionError('Nothing has been printed yet.');
     return { name: `${this.shownMachine.id}-printout.prn`, bytes: this.printout };
   }
-  // after frames run: a 'printer' event when the printout changed
+  // after frames run: a 'printer' event when any running machine's printout changed - the shown machine, and the
+  // chat's BASIC session and chat machine (startChat), which run beside each other whichever is on screen. The
+  // printout belongs to the machine that printed, so the length is tracked per machine (printedSeen): a machine
+  // that is not running now (switched away from) keeps what it printed for when it comes back.
   checkPrinter() {
-    const n = this.shownMachine.printed.length;
-    if (n !== this.lastPrinted) { this.lastPrinted = n; this.emit('printer'); }
+    const seen = (m) => { const n = m.printed.length; if (n !== (this.printedSeen.get(m) ?? n)) { this.printedSeen.set(m, n); this.emit('printer'); } };
+    if (this.shownMachine) seen(this.shownMachine);
+    if (this.chatMachines) { seen(this.chatMachines.basic); seen(this.chatMachines.chat); }
   }
   // A program on the shown machine has asked the Speech/Sound Pak to speak, and the Pak has no allophone ROM: emit
   // 'speech-rom' once in this Session's life (SPEECH_ROM_NOTE is what the page says). Checked after every frame,
@@ -994,7 +1059,7 @@ export class Session {
   nitros9On(m = this.shownMachine) { return !!this.nitros9Loader(m); }
   // Is NitrOS-9 running on the machine the PERSON is working on? personMachine, not this.shownMachine: with the chat full
   // screen this.shownMachine is the chat machine, which never has the loader, so this answered false and the NitrOS-9 panel
-  // hid **Leave** - the fixed leaveNitros9 could not be reached (review 0.1.9 round 1). The readers that mean the
+  // hid **Leave** - the fixed leaveNitros9 could not be reached. The readers that mean the
   // person's machine are the ROMs row and pill, the nitros9 panel and install's "a program is running".
   // Share is NOT one of them: it pairs a picture of the machine ON SCREEN with a link to that same machine
   // (js/ui/share.js capture, and shareUrl below), so it asks nitros9OnScreen.
@@ -1054,7 +1119,7 @@ export class Session {
     this.library.checkNotMoving();
     // the person's machine (personMachine): with the chat on screen, this.shownMachine is the chat machine, and mm below
     // starts as m - so a boot that needs no switch (the same CPU, a floppy image) put the disk controller into the
-    // CHAT's port and mounted there (review round 2, finding 3, confirmed with a real image)
+    // CHAT's port and mounted there (confirmed with a real image)
     const m = this.personMachine;
     if (!Session.NITROS9_MACHINES.includes(m.id)) throw new SessionError(`NitrOS-9 boots here on the CoCo 3, not the ${m.profile.name}. Switch to the CoCo 3 first.`);
     if (!name) throw new SessionError(`No NitrOS-9 image: add your NitrOS-9 disk image (download nos96809l2v030300coco3.zip, or nos96309l2v030300coco3.zip for the HD6309, from ${NITROS9_IMAGES_URL}, unzip it, and use the file ending in _becker.dsk for DriveWire, or _40d_1.dsk for the floppy drive).`);
@@ -1095,6 +1160,9 @@ export class Session {
         else if (fdc.type !== 'cocofdc') throw new SessionError(`NitrOS-9 boots from the CoCo disk controller, not the ${fdc.name}.`);
         await this.drives.mount(0, DISK_PREFIX + name, { [HELD]: true });
       } else await this.mountDriveWire(0, name, { [HELD]: true });
+      // accepted (the last refusal is above): booting NitrOS-9 is a launch, so a Debugger stop on the machine is
+      // released and NitrOS-9 runs. The mount itself is held and launches nothing; a refused boot keeps the stop.
+      this.launch(mm);
       this.endWelcome();
       this.setStubRun(mm);          // the NitrOS-9 load starts on mm (its own record, not another machine's)
       this.keys.clear();
@@ -1259,6 +1327,7 @@ export class Session {
   // wipe the chat firmware rather than restart it.
   reset() {
     this.stopClaudeFor('you reset the machine');
+    this.launch();
     const m = this.shownMachine, again = this.stubRun && this.stubRun.m === m && m.useStub ? this.stubRun : null;
     this.endWelcome();
     this.keys.clear();
@@ -1285,6 +1354,7 @@ export class Session {
     // session, so a load there stops Claude (as before); in the side panel the conversation acts on the machine it
     // runs beside, so its reply goes on - the decision this makes deliberate rather than incidental.
     this.stopClaudeFor(reason, m);
+    this.launch(m);
     this.endWelcome();
     this.dropRemovedRoms(m);
     this.setStubRun(m);
@@ -1316,7 +1386,7 @@ export class Session {
   // The event's argument is how the menu is offered: 'back' (a returning visit) or 'bye' (back from a program) as
   // before, or 'none' from the machine question's switch, which starts the menu without a carry-on line.
   // reason: why (WELCOME_REASONS): the start that follows takes it unless it names its own, and the tune is silent
-  // for a switch, a reset and a return (R46)
+  // for a switch, a reset and a return (the welcome tune plays only when the menu was asked for)
   offerMenu(offer = null, reason = 'switch') {
     // the person's machine (personMachine): a Reset after a load on the chat screen used to offer the welcome menu
     // to the CHAT machine, which never runs it, and the page acted on that (review probe B)
@@ -1393,7 +1463,7 @@ export class Session {
     return { id, name: p.name, bootable: isBootable(p, roms), sockets };
   }
   // every machine with at least one ROM stored
-  // The ROMs stored in this browser, for the Library's ROMs card (R19 A+): { count: the images stored (one dump in the
+  // The ROMs stored in this browser, for the Library's ROMs card: { count: the images stored (one dump in the
   // sockets of several models counts once), users: the names of the machines and cartridges whose sockets hold them,
   // in profile order }
   storedRoms() {
@@ -1477,7 +1547,7 @@ export class Session {
   clearRoms() {
     this.library.checkNotMoving();
     // the person's machine (personMachine): with the chat full screen this used to clear and reset the CHAT machine
-    // and leave the person's own session on "NO ROM LOADED" (review round 2, finding 2)
+    // and leave the person's own session on "NO ROM LOADED"
     const m = this.personMachine;
     this.roms.clear(m.id);
     this.loadSavedRoms(m);
@@ -1830,7 +1900,9 @@ export class Session {
     try { const v = JSON.parse(this.store.get('lastRun') || 'null'); return v && typeof v.kind === 'string' && typeof v.name === 'string' ? v : null; }
     catch (e) { return null; }
   }
-  setLastRun(kind, name) { this.store.set('lastRun', JSON.stringify({ kind, name })); }
+  // emits 'lastrun': a program records itself AFTER its load has emitted 'loaded', so a view of lastRun (the Media
+  // tab's "Last time") follows this event, not 'loaded', and names what Run again runs
+  setLastRun(kind, name) { this.store.set('lastRun', JSON.stringify({ kind, name })); this.emit('lastrun'); }
   // What the welcome menu's carry-on line offers on the machine in use: what ran last, if it runs here. A file only
   // on the machine it was loaded on (and only while its bytes are kept), the colour demo and the games only on a
   // 6809-family CPU, LIZA on every machine (its 6809 or 6803 build). null: no carry-on line.
@@ -2076,15 +2148,21 @@ export class Session {
     if (media.kind === 'disk') {
       throw new SessionError(`${name}: ${media.format}${media.family ? ` for a ${FAMILY_NAMES[media.family]}` : ''}. Disk images go in a disk drive, not into memory.`);
     }
+    // (What is loaded runs. A load is a launch only once it is accepted: each branch below calls go() after its
+    // own refusals, so a refused file - a .wav with no tape in it, BASIC with no ROM - leaves a Debugger stop and the
+    // page's Pause as they were. A restart through BASIC is a power cycle, which launches by itself.)
+    const go = () => this.launch(m);
     const d = formats.identify(name, bytes);
     switch (d.kind) {
       case 'binary':
         if (d.basic) {
           if (!m.hasRom) throw this.needsRom('A BASIC program');
+          go();
           takeOver();
           m.loadBasicProgram(d.segments[0].data, d.segments[0].addr);
           return where(`${name}: ${d.format}, ${d.segments[0].data.length} bytes – RUN`);
         }
+        go();
         this.inject(d.segments, d.exec, m);
         return where(`${name}: ${d.format} ${describeSegments(d.segments, d.exec)}`);
 
@@ -2099,6 +2177,7 @@ export class Session {
         // other type) is read by a program (OPEN "I",#-1 and INPUT #-1): it goes in the deck, nothing is typed
         // or run (CLOAD would stop with ?FM ERROR, and poking it into memory would run data as code).
         if (first.fileType !== 0 && first.fileType !== 2) {
+          go();
           this.cancelLoadTyping(m);
           m.deck.insert(tape);
           return where(`${name}: ${first.name} is a ${first.typeName} file, which a program reads (OPEN "I",#-1); it is in the deck`);
@@ -2136,11 +2215,13 @@ export class Session {
         let msg;
         if (first.fileType === 0) {
           if (!m.hasRom) throw this.needsRom('A BASIC tape');
+          go();
           takeOver();
           m.loadBasicProgram(first.data);
           msg = `${name}: ${first.name} (BASIC) fast-loaded – RUN`;
         } else {
           const seg = { addr: first.load, data: first.data };
+          go();
           this.inject([seg], first.exec, m);
           const range = `${hex(first.load)}–${hex((first.load + first.data.length - 1) & 0xFFFF)}`;
           msg = first.exec != null ? `${name} loaded (${range}) and started at ${hex(first.exec)}.` : `${name} loaded (${range}).`;
@@ -2157,12 +2238,14 @@ export class Session {
         this.drives.flush();
         let dev;
         try { dev = cartridgeFor(bytes, this.cartBoard); } catch (e) { throw new SessionError(`${name}: ${e.message}`); }
+        go();
         this.cartFiles.set(dev, name);
         return where(this.startCartridge(dev, `${name}: ${dev.name}`, m));
       }
 
       case 'basictext':
         if (!m.hasRom) throw this.needsRom('A BASIC listing');
+        go();
         takeOver();
         m.ensureBooted();
         m.typist.type('NEW\r' + d.text.replace(/\r\n?/g, '\n').split('\n').filter((l) => l.trim()).join('\r') + (run ? '\rRUN\r' : '\r'));
@@ -2171,6 +2254,7 @@ export class Session {
       default: {
         const a = askAddresses && askAddresses(name, bytes.length);
         if (!a) throw new SessionError(`${name}: unknown format (${bytes.length} bytes)`);
+        go();
         const seg = { addr: a.load, data: bytes };
         this.inject([seg], a.exec, m);
         return where(`${name}: raw ${describeSegments([seg], a.exec)}`);
@@ -2244,6 +2328,7 @@ export class Session {
   // line typed there is a line of the conversation - by design. (A caller that means the person's BASIC session
   // while the chat is open names it: typeText(text, session.personMachine).)
   typeText(text, m = this.shownMachine) {
+    if (this.refuseTyping(m)) return 0;   // (nothing is queued behind a Debugger stop)
     this.personInput(m);
     return this.queueText(text, m);
   }
@@ -2390,7 +2475,7 @@ export class Session {
   gateTools(chat) {
     // the point's disks were recorded when it was taken (chatTarget's snapshot); it is stamped when it is kept
     // (with the turn it belongs to and the first action it covers: the views put the restore line under that turn,
-    // and a restore marks the actions it took back, UX rulings R12 and R13)
+    // and a restore marks the actions it took back)
     chat.onRestorePoint = (snap) => {
       const info = this.claudePointInfo.get(snap);
       if (info) Object.assign(info, { at: Date.now(), turn: chat.line ? chat.line.turn : null, fromAction: chat.actionSeq });
@@ -2627,7 +2712,7 @@ export class Session {
     this.stopClaude();
     const notices = this.drives.restorePoint(m, snap);
     chat.undo.length = index;
-    // the actions the point took back are marked undone, with the restore's time (R13)
+    // the actions the point took back are marked undone, with the restore's time
     const info = this.claudePointInfo.get(snap);
     if (info && info.fromAction != null) chat.markUndone(info.fromAction);
     chat.changed();
@@ -2673,10 +2758,16 @@ export class Session {
     const kept = this.chat && !this.chatMachines ? this.chat : null;   // the side panel's conversation moves here
     if (!kept) this.dropChat();
     // the welcome program, if it runs, stays on the BASIC session: closing the chat comes back to its menu
-    const chatMachine = createMachine(basic.id, drivewire ? Object.assign({}, basic.config, { becker: true }) : basic.config);
+    // the chat machine carries the Becker port only when the chat talks on it: with the mailbox there is
+    // nothing for the port to do, and a becker on it would take the Session's server and the BASIC
+    // session's prints with it (a machine without the option keeps a config without the key)
+    const chatConfig = Object.assign({}, basic.config);
+    if (drivewire) chatConfig.becker = true; else delete chatConfig.becker;
+    const chatMachine = createMachine(basic.id, chatConfig);
     if (drivewire) {
       this.chatServer = new DriveWireServer({ store: this.media, namePrefix: DW_PREFIX, clock: this.drivewire.clock, sameName: (a, b) => this.library.sameName(a, b) });
       this.chatServer.drives = this.drivewire.drives;
+      this.chatServer.onPrint = this.dwPrint(chatMachine);   // the chat machine's prints are its own, too
       chatMachine.becker.attach(this.chatServer);
       if (!channel) channel = new DriveWireChatChannel(this.chatServer, CHAT_DW_CHANNEL);
     }
@@ -2741,6 +2832,10 @@ export class Session {
       writeSegments: (res) => this.injectAssembled(res, basic()),
       checkRun: (t) => this.checkRunTarget(t, basic()),
       run: (t) => this.runAt(t, basic()),
+      // stopped by the Debugger -> { pc, kind }, else null (Session.stoppedOn): the tools that must run it refuse
+      stopped: () => this.stoppedOn(basic()),
+      // fn() at every Debugger stop of this machine -> a function that stops listening
+      onStopped: (fn) => this.on((ev, m) => { if (ev === 'debugger-stopped' && m === basic()) fn(); }),
       // a restore point: when it was taken and the drives linked to the media store at that moment (their links)
       snapshot: () => { const snap = basic().snapshot(); this.claudePointInfo.set(snap, { at: Date.now(), disks: this.drives.stored(basic()) }); return snap; },
       // the same guarded path as restoreClaude -> restorePoint's notices
@@ -3055,7 +3150,7 @@ export class Session {
     // (Session.chooseMachine starts the menu once; the page no longer races it with a second one).
     if (gen !== null && gen !== this.welcomeGen) return null;
     // the person's machine (personMachine): the welcome program is for them, and with the chat full screen the
-    // machine on screen runs the chat firmware (review round 2, finding 4)
+    // machine on screen runs the chat firmware
     const m = this.personMachine, w = WELCOME[cpuFamily(m.config.cpu)];
     if (!w) throw new SessionError(`There is no Welcome menu for the ${m.profile.name}'s ${m.config.cpu}.`);
     const g = WELCOME.greetings.indexOf(greeting);
@@ -3080,6 +3175,7 @@ export class Session {
     for (let i = 0; i <= carry.length; i++) m.poke(w.carry + i, i < carry.length ? carry.charCodeAt(i) : 0);
     this.welcome = m;
     this.welcomeBuild = w;
+    this.welcomeFrom = m.frameCount;   // (welcomeOnScreen: the menu is drawn once a frame has run after this one)
 
     this.emit('welcome');   // (the page's parts that depend on whether the welcome program runs: the quick-save slots)
     this.welcomeQuiet = WELCOME_QUIET.has(why) ? { m, at: m.frameCount } : null;
@@ -3095,6 +3191,15 @@ export class Session {
   get welcomeRunning() { return this.welcome === this.personMachine; }
   // on the machine on screen (a tap on the menu): what the canvas shows and types into
   get welcomeRunningOn() { return !!this.welcome && this.welcome === this.shownMachine; }
+  // What the page may call "on screen now" (the shelf's tag): the welcome program is not only loaded (welcomeRunning)
+  // but executing and drawn on the screen in use. All of: it is loaded on the person's machine; that machine is the
+  // one shown; the Debugger has not stopped it (paused); and at least one frame has run since it was loaded, so the
+  // picture is the menu's and not what was on screen before (a load runs no frame by itself). A caller with a pause
+  // of its own (the page's Pause button) adds it. Cheap: three comparisons, read once per animation frame.
+  get welcomeOnScreen() {
+    const m = this.welcome;
+    return !!m && m === this.personMachine && m === this.shownMachine && !this.paused && m.frameCount > this.welcomeFrom;
+  }
   // one of the bundled games (2048, Minesweeper) is what runs on this machine now: from runGame until it is left
   // (BREAK), or a load, a reset or a switch ends the watch.
   get gameRunning() { const w = this.menuWatch; return !!w && w.kind === 'game' && w.m === this.shownMachine; }
@@ -3119,7 +3224,7 @@ export class Session {
     this.welcomeSoundOn = true;
     // the PERSON's machine, the same machine welcomeRunning now means: it poked this.shownMachine, so with the chat open
     // the 1 went into the CHAT firmware's $6004 (inside chat.bin's $6000 load range) and the person's menu never got
-    // its sound (review 0.1.9 round 3). The welcome build is the person's machine's build, as startWelcome sets it.
+    // its sound. The welcome build is the person's machine's build, as startWelcome sets it.
     // (a silent start sets it after its first frame instead, once PLAYED is set: flushWelcome)
     if (this.welcomeRunning && !this.welcomeQuiet) this.welcome.poke(this.welcomeBuild.soundOk, 1);
   }
@@ -3144,7 +3249,7 @@ export class Session {
       if (this.welcomeSoundOn) this.welcome.poke(this.welcomeBuild.soundOk, 1);
     }
     // the same pair as welcomeSound: the gate is the person's machine (welcomeRunning) and this is what it reads and
-    // clears - this.shownMachine's $6003 is chat firmware code with the chat open (review 0.1.9 round 3)
+    // clears - this.shownMachine's $6003 is chat firmware code with the chat open
     const m = this.welcome, at = this.welcomeBuild.event, key = m.peek ? m.peek(at) : m.ram[at];
     if (!key) return;
     m.poke(at, 0);
@@ -3259,9 +3364,11 @@ export class Session {
     return ww.active && m === this.hooks.machine ? (end) => ww.runTo(m, end) : null;
   }
   // (the machine's name is not in it: the app bar shows it on the machine button beside the status)
-  statusLine(fps) {
+  // held: the page's own Pause. Stopped or paused, the line says so in place of the speed, which would be
+  // stale (no frames run); fps null: running again, the speed not measured yet ("Running")
+  statusLine(fps, held = false) {
     const m = this.shownMachine;
-    let s = `${fps.toFixed(0)} fps · ${(fps / m.fps * 100).toFixed(0)}%`;
+    let s = this.paused ? 'Stopped in the Debugger' : held ? 'Paused' : fps == null ? 'Running' : `${fps.toFixed(0)} fps · ${(fps / m.fps * 100).toFixed(0)}%`;
     const t = m.deck.tape;
     if (t) s += ` · tape ${t.name} ${(t.progress() * 100).toFixed(0)}%${m.deck.motor ? ' ▶' : ''}`;
     return s;

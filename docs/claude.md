@@ -184,7 +184,7 @@ Two ways to talk to Claude, one conversation:
   they were yours (a key pressed while Claude paused, or only thought), and Claude stops. Only the start itself is exempt
   (asMachine is synchronous; the page fetches the bytes first), so what you do while they are fetched still stops
   Claude. In every case a later Resume types nothing and runs nothing.
-  `node tests/claude-turn-scope.test.js` (R10 cases) and the browser check's `askEscChecks` cover these.
+  `node tests/claude-turn-scope.test.js` (its Esc-while-paused cases) and the browser check's `askEscChecks` cover these.
 * **The turn's status.** While a turn is in progress every view shows what it is doing, with **Stop** beside it
   (`Session.claudeStatus`): *Thinking…* while the reply comes (the model thinking, or streaming text or a long tool
   call that shows no text yet), *Using <tool>…* while a tool runs, *Waiting for your OK* while a card asks (or,
@@ -228,7 +228,7 @@ Two ways to talk to Claude, one conversation:
 * **What is this code doing?** in the Ctrl+K box asks about the code at the program counter: the disassembly and
   the registers go with the question (`Session.codeAt`), and the panel says Claude can read the code and the
   registers. A restore point is made before
-  Claude's first change in each turn. **The restore line** (UX ruling R12, `js/ui/claude-lines.js`): one small, muted
+  Claude's first change in each turn. **The restore line** (`js/ui/claude-lines.js`): one small, muted
   line under the latest turn that changed the machine, "↶ Restore to 23:58 · Restore points…", in the side panel,
   the phone sheet and the full-screen chat's card alike. The first button restores the newest point (its label for
   screen readers: "Restore the machine to 23:58, before Claude's last changes"; never "Undo"); **Restore points…** is
@@ -238,7 +238,7 @@ Two ways to talk to Claude, one conversation:
   since the point." While a turn runs the line reads "Restore point at 23:58 · Stop first to restore", its button
   disabled. Each point records the turn it was taken in (`Session.claudePoints[].turn`), so after a restore the line
   moves to the previous point's turn, or goes when none is left.
-  **What Claude did** (UX ruling R13, `js/claude/actions.js`): under each turn's reply, one small, muted line per
+  **What Claude did** (`js/claude/actions.js`): under each turn's reply, one small, muted line per
   acting call, in order, made from what the call returned or threw, never guessed: "✓ typed "DIR"", "✓ typed 3
   lines", "✓ pressed BREAK", "✓ poked 3 bytes at $0400", "✓ loaded a 12-line BASIC program", "✓ assembled and loaded
   128 bytes at $3000", "✓ ran RUN", "✓ started $3000"; partly done "✓ loaded 120 of 128 bytes at $3000 (8 not
@@ -422,8 +422,8 @@ emulator.
     power-on registers (8 lines a row) are declined that way until a program sets the board up; Compusense's own
     set-up (p. 4: 80 x 24 rows of 11 lines) is read.
 
-    The R8 decline is sourced from Hitachi, "HD6845S, HD68A45S, HD68B45S" data sheet, Interlace and Skew Register
-    (R8), Tables 4-6, PDF p. 11 (the printed page numbers are cropped in the archived scan). Bits 1-0 are 00 and 10
+    The R8 decline is sourced from Hitachi, "HD6845S, HD68A45S, HD68B45S" data sheet, Interlace and Skew
+    Register (R8), Tables 4-6, PDF p. 11 (the printed page numbers are cropped in the archived scan). Bits 1-0 are 00 and 10
     non-interlace, 01 interlace sync and 11 interlace sync and video. Bits 5-4 (display skew) and 7-6 (cursor skew)
     are 00 none, 01 one character, 10 two characters and 11 non-output. A skew of 1 or 2 characters only moves the
     picture, so it is read. Neither our renderer nor MAME 0.264 models skew, so the 80-column picture is not moved
@@ -502,7 +502,7 @@ emulator.
   keyword's round trip, whole-program round trips to the normalised listing, the memory layout and pointers on the
   three families with our own firmware in the BASIC socket, every error, and the consent gate.
   **Not checked automatically:** that a real BASIC lists and runs what `load_basic` wrote. That needs the BASIC
-  ROMs, which no test may use; the owner checks it by hand (manual test step 4 below).
+  ROMs, which no test may use; a maintainer checks it by hand (manual test step 4 below).
 * **Which to use.** The tool descriptions and the brief (`TYPING_POLICY` in `js/claude/chat.js`) tell Claude: type a
   program of 3 lines or fewer with `type_text`; for a longer one, call `load_basic` without asking in prose first
   (its card is the question: nothing loads unless the person agrees there); after either, check with LIST and
@@ -602,6 +602,7 @@ emulator.
   | `program-too-large` | the program does not fit in this BASIC session's free memory (detail gives the sizes): shorten it, or ask the person to free memory (for example PCLEAR 1 on a CoCo or Dragon) |
   | `unknown-machine` | this machine's BASIC is not one load_basic knows: type the program with type_text instead |
   | `load-declined` | the person chose not to load the program: do not load it; offer to type it if it has 3 lines or fewer, or give them the listing |
+  | `machine-stopped` | the Debugger has the machine stopped (detail says where and why): it runs no frames and reads no keys until it is resumed, so nothing more was typed, pressed or run (a call made while it was stopped did nothing; one it stopped part-way says in detail how far it got, and the rest was dropped). Reading still works (screen_text, peek, disassemble, registers, screenshot). Ask the person to press Resume (or Run in the Debugger), then call again; loading a program, Reset or a power cycle also releases the stop, and starts that instead |
   | `include-unreadable` | an INCLUDE file could not be read (detail names it and why); nothing was written: put the code it holds into the source itself and call again |
   | `tool-failed` | the tool failed inside the emulator (detail says how): read the machine with machine_info or screen_text before going on, and tell the person; do not repeat the call unchanged. (When the detail says the CALL was wrong - it names a tool target, say - fix the call; nothing was read and the machine is fine.) |
   | `not-typable` | the machine cannot take the characters in detail (no key for them on this keyboard, or above $7E, which BASIC cannot store as text): leave them out or use plain ASCII it has (BASIC keywords are uppercase) |

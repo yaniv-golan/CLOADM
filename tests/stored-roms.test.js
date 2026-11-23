@@ -1,4 +1,4 @@
-// Session.storedRoms(): what the Library's ROMs card says (UX ruling R19 A+): how many ROM images are stored (one image
+// Session.storedRoms(): what the Library's ROMs card says: how many ROM images are stored (one image
 // in the sockets of several models counts once) and the names of the machines and cartridges that use them, in profile
 // order. Synthetic ROM images only (the project never uses real ones); the expected values are written out here.
 const Emu = require('./load')();

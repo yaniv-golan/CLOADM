@@ -73,7 +73,7 @@ const programs = () => Object.fromEntries(PROGRAM_FILES.map((f) => [f, fs.readFi
 // JSON inside a <script>: no "</script" or "<!--" can end or confuse it
 const scriptJson = (v) => JSON.stringify(v).replace(/</g, '\\u003c');
 
-// The view's page (R29): a one-row toolbar (Programs, Machine, Sound, and ⋯ with Open in side panel, Details and Copy
+// The view's page: a one-row toolbar (Programs, Machine, Sound, and ⋯ with Open in side panel, Details and Copy
 // details), the screen in a thin bezel with its "Click to type" chip and Claude's chip, ONE status line, and the
 // diagnostics behind Details (closed at first; docs/deploy-connector.md's verify step reads them there). panel.js fills
 // the menus and wires everything; until it runs, the status line says the emulator is starting (or why it did not:

@@ -1,7 +1,7 @@
 # Every comparison under MAME 0.289
 
 The project's reference is MAME 0.264. This is what the whole harness reports when the MAME in use is **0.289**,
-so the owner can decide when to move the reference. It records facts and changes no emulator behaviour.
+so the maintainers can decide when to move the reference. It records facts and changes no emulator behaviour.
 
 Every 0.289 figure below was produced by running the harness against MAME 0.289 (`0.289 (unknown)`). **The 0.264
 column is empty on purpose.** Nothing in it was run, and none of it is guessed from source or memory; the exact

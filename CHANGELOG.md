@@ -6,7 +6,7 @@ All notable changes to CLOADM are recorded here. The format follows
 
 ## [Unreleased]
 
-Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plugin.test.js` keeps them in step).
+Next version: 0.1.9-pre (the plugin and extension manifests carry it; `tests/plugin.test.js` keeps them in step).
 
 ### Added
 
@@ -77,52 +77,6 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   page's glossary keeps "dump" as a verb only). New: `Session.romFiles`, `removeRom`,
   `restoreRom` and `romsStillRunning`, `RomLibrary.usedBy`, `remove` and `restore`, the index's `removeImage`, and a
   toast's optional second line with its own action (`also`).
-- **Minesweeper plays with a joystick.** Either joystick moves the cursor: one step as the stick leaves the centre,
-  then again after 300 ms and every 120 ms while it is held (counted in fields, at the machine's own 50 or 60 Hz;
-  centring the stick and pushing the same way again is a new press). Either fire button opens the square under the
-  cursor with a tap (released in under 400 ms), on the release, and puts a flag on it when held 400 ms or more, at
-  that moment; after a win or a loss fire starts a new game as R does, when the button is released, so a long press
-  does not carry into the new game. The game reads the stick with the sound off, so the reading makes no buzz, and
-  while fire is down it ignores the keys fire's own matrix rows can make it read as pressed. The keyboard works as
-  before: the arrows, SPACE or ENTER to open, F to flag, R to start again, BREAK to leave. The shelf's line for the
-  game says so.
-- README: status, licence and live-demo badges, a looping picture of the welcome menu and LIZA (`img/readme-demo.gif`,
-  captured from the real page with no ROMs by `node tools/capture-gif.js`, with the small encoder in `tools/gif.js`),
-  and a "Use it with AI coding agents and Claude" section that points to the MCP server, the connector and plugin, the
-  command line and AGENTS.md.
-- **Claude's side panel shows Claude's hand on the machine.** While one of Claude's calls acts on the machine (any
-  tool that is not read-only: typing, keys, loading, switching, reset), the bezel takes a clay edge (outlined on a
-  light host theme) and a filled clay chip at its top left, in near-black text, says what it does, "Claude is typing:
-  DIR↵", with the keys shown as they reach the machine; the focus ring stays neutral. It stays 2 s after the call,
-  and the status line keeps "Claude typed DIR↵ · 12:04". A call that only reads shows a quiet "Claude read the
-  screen" or "Claude read memory" for 1.5 s. Your own keys never show a chip. Each call that acts is announced once
-  to screen readers, briefly (a long text by its length); reads are not announced. The tools and their approvals are
-  unchanged.
-- **The side panel's toolbar:** **Programs** (the programs this machine runs without ROMs, its own builds of LIZA and
-  the Welcome menu included, and Add ROMs for BASIC… while it has none), **Machine** (every model, marked "✓ BASIC
-  ready" or "needs ROMs", then Reset, Switch off and on, Add ROMs…), **Sound** and **⋯** (Open in side panel, Details,
-  Copy details). The menus work from the keyboard. The Welcome menu's own keys now run what they offer in the panel.
-- **On-screen keys in Claude's side panel on a phone or tablet**, where tapping the screen brought up no keyboard. Three
-  modes, as on the page (the layout, the keys and each program's mode now shared from `js/ui/touch-layout.js`):
-  **Keys** (the page's keyboard), **Pad** (a D-pad, SPACE, ENTER, the program's own keys such as Minesweeper's F, and
-  ABC for one key from the keyboard) and **Stick** (SPACE ENTER 1 2 Y N ABC, a stick and FIRE; only on a machine with
-  a joystick port, so not on the MC-10). Under them in every mode: the switch, CLEAR and BREAK, the only BREAK. A
-  program opens in the mode it is played with (2048 and Minesweeper on the Pad, LIZA and anything else on the Keys),
-  and the switch's choice is remembered per program, in the view's storage when it works, else for as long as the view
-  is open. They show on a touch screen (the host says so, or a coarse pointer, or a first touch) and not on a desktop;
-  **⋯ → Hide on-screen keys** hides them. Claude's typing and its chip are unchanged.
-- `machine_info` returns `route`: `"local"` from the local server, `"panel"` from the side panel's view. The view's
-  contract with the site (`PANEL_API` 3) is unchanged: the field is part of a tool's answer, not of the bridge.
-- A skill eval on the side-panel route, `panel-no-boot-wait` (the agent must not boot or mention boot waits), run on
-  `tests/skill-evals/panel-server.mjs`, a stand-in for the panel with its tools and the Worker's instructions.
-- **"Ask Claude ↗" where the chat can't run.** CLOADM shown inside another site's page has no chat (its key card
-  would be on someone else's page). The full page in a frame now keeps its Ask button, as **Ask Claude ↗**: a link
-  that opens CLOADM top-level in a new tab with this machine as it is now (the Share screen's snapshot link, with
-  `app=claude`, never `embed=1`, `rel="noopener noreferrer"`), where the chat runs on the key saved in your browser.
-  With NitrOS-9 running, whose moment can't be carried, it opens a fresh CLOADM with the chat and says so. The new
-  tab waits for you to type; it never starts a turn by itself. A screen-only embed shows nothing unless its link has
-  the new `askclaude=1`, the Share screen's **Offer 'Ask Claude ↗'**: then a small chip in the screen's corner does
-  the same. The browser check's new group `askPopout` covers it.
 - **Record a clip from a headless run: `--record FILE.avi` … `--record-stop`.** (Command line and a new media module; no
   change to the emulation.) One command writes the picture and sound together as a RIFF AVI 1.0 file
   (`js/media/avi.js`, a pure writer): 8-bit palettized video, the frame's own colour codes and table, with a
@@ -137,21 +91,6 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   `frameToRGBA`, the audio against the same run's `--wav` byte for byte, each frame's sample count, and the header
   rate on every model; mutants of the writer (the carried fraction dropped, R and B swapped, the palette chunk left
   out) fail it, and ffprobe and ffmpeg, when installed, must read the same rate and pixels.
-- **Headless developer docs: which paths each model has, a complete Node example, a graphics recipe and a serial note.** (Documentation,
-  one example and its test; no change to the emulator.) `docs/automation.md` gains a per-model table of the tape, disk-controller,
-  6551, bit-banger and Becker paths, built from `js/machines/profiles.js` (the options example no longer offers `becker=true`
-  generically: it is CoCo-family only, and the Dragon 64 refuses it with `bad-option`); a complete Node example that uses only the
-  public modules and runs from outside the repository (`docs/examples/headless-frame.mjs`: a Session, a DragonDOS binary, a held
-  key, stepped frames, the raw framebuffer, a PNG); a recipe for a graphics program with no text to wait on (wait on a frame counter
-  in RAM, from the command line and Node, with the elapsed frames and cycles, and how input is latched at a guest tick versus the
-  50/60 Hz video field); and a note on snapshotting a machine whose serial peer lives outside it (the freeze order, saving the peer's
-  in-flight bytes and resuming at the same byte). `tests/dev-docs-headless.test.js` rebuilds the table from the machines, runs the
-  example from a temporary directory and from a copy, fails mutants of its guest, and checks the numbers the text quotes.
-- **`?disk=URL` puts a disk in a drive from a link,** before the link's other media: `?load=game.bin&disk=level.vdk`
-  mounts the disk, then loads and runs the game. Ctrl+K gains **Insert a disk…**, **New blank disk** and **Eject
-  disk**; the cartridge port gains **Take out**.
-- **`node tools/mame-diff/run.js <dragon64|coco> --fdc --bare`:** the lockstep comparison with MAME of a program that
-  drives the disk controller with an empty ROM socket (`tools/mame-diff/fdc/gen-bare.js`).
 - **A Dragon disk example with no DOS ROM.** (Documentation, an example and its test; no change to the emulator.) `docs/automation.md`
   gains "Reading a disk with no DOS ROM": `docs/examples/disk-read.mjs` runs from outside the repository with the public modules only,
   builds a VDK in memory with `blankDisk` and `diskGeometry`, plugs the Dragon disk controller into a Dragon 64 without a DOS ROM
@@ -237,6 +176,21 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 
 ### Changed
 
+- **Booting NitrOS-9 releases a Debugger stop**, as the other launches do: an accepted boot releases it once and
+  the machine runs; a refused boot (a Multi-Pak in the port, say) keeps it. The boot's own held mount of its disk
+  launches nothing by itself.
+- **Claude and the MCP tools refuse what a Debugger stop would swallow.** While the Debugger has the machine stopped,
+  the tools that must run it or press its keys (`type_text`, `press_break`, `run`, and the MCP server's `press_keys`
+  and `run_frames`) fail with a new code, `machine-stopped`. Its detail says where it stopped, and its remedy says how
+  to go on: the person presses Resume, or Run in the Debugger. A stop made while one of those calls runs ends it
+  the same way: the keys not typed yet are dropped (the detail says how many went in), held keys are let go, and
+  `run_frames` with `until.pc` resumes only a stop its own breakpoint made. Before, the chat's keys waited behind the
+  stop and went in after Resume, `run_frames` ended as if done having run nothing, and an MCP `type_text` timed out. The person's own typing was already refused the same way. Reads
+  (`screen_text`, `peek`, `disassemble`, `registers`, `screenshot`, `machine_info`, `find_bytes`) and the tools that
+  only write memory (`poke`, `assemble_and_load`, `load_basic`) work on the stopped machine and leave it stopped, and
+  so does `step`, which before resumed it. Launches (`load`, `insert_disk`, `reset`, `power_cycle`) still release
+  the stop. The skill (and the side panel's instructions, which the connector's Worker serves once it is deployed
+  again) says what to do with `machine-stopped`, and a new eval covers it.
 - **The welcome menu's tune plays only when you asked for the menu.** It plays once the sound is unlocked for the visit's own menu and for the Welcome menu chosen from Programs; it is silent after a machine switch (a RAM or CPU change, the machine question, an opened snapshot), Reset, a power cycle, and when the menu comes back from LIZA, a game or the demo. The Session decides, so Claude's and MCP's switches are silent too.
 - **Faster CI gates, and shards that cannot go stale.** `node tests/all.js` runs in CI as three parts on three runners
   (`--shard i/n`, planned from `tests/suite-times.json`), and the `gates` job checks from their logs that together
@@ -340,165 +294,6 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   under the line scanner, and four more that pin the backing field's exemption (only the two accessors' bodies and the
   Session constructor's `this._shown = null`) and require a file whose values do not settle within the reader's pass
   limit to fail rather than pass. It reads only the planted file per row, which takes it from about 23 s to about 2 s.
-- **`add_roms` keeps a URL as origin + path.** The store's `index.json` recorded the full URL a ROM came from, query
-  string and fragment included, which can hold a token. It now keeps the origin and the path only.
-- **Test and tool tidy-ups, no emulation change.** `tools/mame-diff/tape/spec.js` takes its register lists from
-  `lib/regs.js` like the other specs. The settle sweep in `tests/audio.test.js` now covers 30 fps and 2048-sample
-  blocks (the worst case is unchanged, 4.99 s), and the comments in `js/host/audio.js` and `tools/browser-check.js`
-  say what the sweep covers.
-- Using CLOADM with Claude leads with one default: "Use the connector" (a live side panel on the web and in the desktop
-  app, verified by the owner; phones not yet tested), then the plugin for developers and your own files, a "Which one?"
-  table and a "Both on?" note, in the README and at the top of docs/mcp.md. The local server's `boot` and `load`
-  descriptions and the skill (both copies) say to prefer the CLOADM side-panel connector for playing or watching with
-  the person, and to use the local tools for files, scripting and tests (a description, not a refusal); a new eval,
-  `prefer-side-panel`, covers it.
-  The lead also suggests the optional `cloadm-skill.zip` from the Releases page (the asset `release.yml` publishes).
-- The install offer card and Help's install section say "Install CLOADM as an app on this device"; Help points to
-  "Use with Claude" for the Claude routes. The menu item is still "Install CLOADM…".
-- The README's top picture is the GIF; the static `img/readme-liza.png` is gone and `tools/capture-images.js` no
-  longer writes it. `tests/readme.test.js` now checks GIF pictures too (a real GIF, 4:3, captured by a tool in `tools/`).
-- **Copy and small fixes from the v0.1.8 UI review.** Starting LIZA from the welcome menu, or the colour demo from the Media
-  tab's shelf, says "LIZA loaded" / "Colour demo loaded" instead of "liza.bin: DragonDOS binary $3000-$3C90, exec $3000" (a file you bring keeps its addresses).
-  A link naming a machine CLOADM doesn't have, or a `start=` or `app=` it doesn't know, shows one short toast ("machine=nosuch: no such machine (opened Dragon 64
-  instead)", not a list of every machine), and `#share=` with anything after it says the share link couldn't be read
-  instead of landing on the welcome menu in silence. On the Add ROMs screen the "optional" tag stays beside the
-  title of the disk and Speech/Sound Pak cards (a long title wraps inside its own space), and neither title repeats
-  "(optional)" beside the tag. **Install CLOADM…** moved from the foot of the machine menu to the app bar, beside Help
-  (behind Menu on a phone), and its card opens under the bar, near the link. The welcome menu's sixth option, "CARRY ON
-  WITH …", no longer pushes "PRESS 1 TO 6" against the colour bar: the options move up a row and a blank row stays
-  above the prompt, as on the MC-10 and Alice. No frame hash changes (the regression firmware never shows the sixth
-  option). The browser check's new group `uiCopy` covers each of these.
-- **The Claude chat with no key says so on its own screen.** The chat screen used to be an empty black box with a
-  `>` prompt, and the "No API key yet" note sat beside it (below the fold on a phone). The line is now on the screen too,
-  as the firmware shows a reply (`Session.chatNote`: not the conversation, never what Claude reads), and after Save key
-  the screen says "Key saved. Type below and press ENTER." (plain ASCII: the chat font has no check mark) and the key card reads "Key saved ✓ · Saved in this browser · Change · Forget". The key
-  stays out of machine memory, snapshots, settings exports and the chat screen itself (`tests/claude-session.test.js`
-  reads the screen's text and checks the key is not on it).
-- **Mounting a floppy builds only the tracks the machine reads.** A disk image used to be turned into flux, every
-  track and side, the moment it was mounted or a snapshot holding it was restored: about 130 ms for a 180K JVC in
-  Node, now well under 5 ms. Each track is now built the first time the drive reaches it (`FloppyImage.track(k)`), so
-  a mount or a restore checks the image and returns at once, and the time moves to the first read of each track.
-  Errors in the image (a bad header, a DMK ID pointer that misses its mark, a track layout too long to fit) are still
-  reported at mount. The flux, the bits and the sectors every track gives are unchanged, and so are the regression
-  hashes.
-- **Building a floppy track allocates far less.** The MFM and FM cells a track is built from now go into a
-  `Uint32Array` that doubles when full (`CellBuffer`), not a JavaScript array of one slot per cell, and the flux
-  positions are scaled with exact `Number` arithmetic (`fluxPosition`) instead of a `BigInt` per transition. In Node,
-  building every track of a 180K VDK takes about 88 ms instead of 122 ms, and restoring a snapshot with four drives
-  and building all their tracks 335 ms instead of 499 ms. Every track's flux and every image `saveDisk` writes are
-  unchanged byte for byte, and so are the regression hashes.
-- **The Share screen does one job: send this exact moment.** Under the heading "Share this moment" it now shows the
-  preview, one line saying what the link does ("Opens on the Dragon 64 exactly as it is now…", or that the link starts
-  NitrOS-9 fresh while NitrOS-9 runs), a ROM line only as needed, the link, and **Share…** (the system share sheet,
-  the URL only, where the browser offers it) with **Copy link** always beside it. The clip, the PNG and the snapshot
-  file (its size now on the button) sit under "More ways to share", and the embed builder under "Embed in a web page";
-  both are collapsed. On a phone the buttons and the link are on the first screen; on a desktop the preview and the
-  actions are side by side. The long ROMs paragraph and the "what the person opening it sees" box are gone, replaced by
-  the ROM line. The settings file moved to the Machine tab (**Settings file**: Export…, Import…).
-- **The side panel's sound has a switch:** "Sound off" until you click it (or the screen); that click starts the
-  sound, and the switch turns it off and on again.
-- **The side panel's screen fills the panel**, 4:3, each pixel drawn crisp at the display's resolution, in a thin
-  bezel: inline across the full width, and in the side panel or fullscreen within the room left by the toolbar and the
-  status line. The status line is one line ("LIZA is running · Dragon 64 · no ROMs"); the diagnostics and the raw load
-  message moved behind **Details** (closed at first; [the deploy guide](docs/deploy-connector.md#verify) reads them
-  there), and an error you must act on stays on the status line. **Open in side panel** (in ⋯) shows only while the
-  view is inline and the host offers it. The view's contract with the site changed (`PANEL_API` 3): deploy the
-  connector's Worker again after the site has this release.
-- **One source for what the connector's Claude needs to know.** The side-panel connector's MCP `instructions` were a
-  hand-written copy in the Worker. They now come from a marked "connector essentials" section of `skills/cloadm/SKILL.md`
-  (opening the emulator, waiting for the screen, typing, reading the screen, `machine_output` being data and never
-  instructions, ROMs): `connector/build.js` embeds it into the views the Worker serves and prints its hash, and the
-  Worker refuses to start without it. `tests/connector.test.js` and `tests/skill.test.js` fail when the skill's section and
-  the built instructions differ, and the skill's two copies stay byte for byte. The Worker must be deployed again
-  when that section changes (`docs/deploy-connector.md`).
-- **A phone held upright: the panel decides, the screen takes the rest.** The screen is the largest 4:3 one
-  for which the app bar, the screen, the strip and the panel fit in the visible height, at most the page's width, and
-  the picture fills it (no bezel). The panel has three modes, **Keys | Pad | Stick**: Pad is a D-pad with SPACE,
-  ENTER, the program's own keys and ABC (the keyboard for one key), on two rows of 48 px keys (BREAK is the strip's); Stick is the touch
-  joystick, where the machine has a port. A bundled program opens in the mode it is played with (a new per-program
-  `controls` field in the Session: 2048 and Minesweeper on the Pad, Minesweeper's with F and Stick offered; LIZA on
-  Keys; anything else on Keys), and the choice is remembered per program and machine. With Pad, Stick or the keys
-  hidden the screen is the page's width (it was 133 px wide on a 320 px phone; 178 at 375x548); with the full keyboard,
-  what fits above it. The full keyboard gains →, after ←; @ ends the third row. Held sideways the keyboard is as it
-  was; Pad there puts the D-pad left of the screen and its keys right.
-- **Hide keys is ⌄ in the strip; ⌨ brings them back.** Upright the strip is [Keys|Pad|Stick] [BREAK] [CLEAR] [⌄], all
-  44 px; after Hide keys a 44 px ⌨ (Show keys) stands bottom right, toasts clear of it.
-- **One Menu.** Upright the strip has no Menu: the app bar's is the only one. Held sideways the panel's Menu stays, its
-  "Machine menu" (which opened nothing there) now **Machine…**, the machine picker over the panel.
-- **The phone's app bar is one row, 48 px, from the first paint**: the machine, Open…, Ask Claude (its icon under
-  360 px) and Menu, every control 44 px. Add ROMs is Menu's first item while the machine has no BASIC, with a dot on
-  Menu (whose name then says "Menu, Add ROMs needed"); Share is in Menu too, and Menu opens as a sheet over the page,
-  moving nothing, with the focus on its first item. A script in the page's head
-  puts the touch layout on before the first paint, so nothing reflows when the panel arrives.
-- **No automatic install offer on a phone** (owner's decision), upright or sideways: Install CLOADM… (in the app bar's
-  Menu upright; in the panel's Menu held sideways) installs. Desktops and tablets keep the offer.
-- **The status in the app bar shows the speed only** ("50 fps · 100%"): the machine's name is on the button beside it,
-  and at 1200 px the repeated name pushed the speed into an ellipsis. The links go tight first to leave it room; only
-  where even that leaves none (1200 px in a wide font) is it left out, never cut to a stub.
-- **The games' 1x text is proportional: a proportional font for legibility; title screen draws one frame slower,
-  inside its 30-frame budget.** 2048 and Minesweeper's small text used to draw every character in a fixed four-pixel
-  cell, which made the letters a three-pixel cell cannot tell apart — A, H, M, R and W — hard to read. Those five are
-  now drawn five pixels wide and the rest in a cell of the glyph's own width plus one blank column, so the shapes are
-  distinct. A line with any of them is up to two pixels per such letter wider, not narrower: 2048's
-  "JOIN THE TILES TO MAKE 2048" (three of them) goes from 107 to 113 pixels, still well inside the 128-pixel screen.
-  Three of the small strings changed to fit: 2048's "ARROWS OR W A S D SLIDE THEM" is now "ARROWS OR WASD SLIDE
-  THEM" (129 pixels would not fit), and both games' footers read "ARROWS  R=NEW  BREAK=QUIT" (2048's and
-  Minesweeper's were "ARROWS MOVE  R NEW  BREAK LEAVES"). Minesweeper's title line became "F FLAGS A MINE  R START".
-  In-game redraws are unchanged.
-- **One CLOADM plugin for Claude, with two servers.** The plugin (still `cloadm`, from the same marketplace) carries
-  the side panel, *cloadm-panel* (`https://mcp.cloadm.dev/mcp`), and the local server, *cloadm*
-  (`node cli/cloadm.js --mcp`; the same id as before, so allowlists naming `mcp__plugin_cloadm_cloadm__*` keep working), and declares `network.hosts: ["mcp.cloadm.dev"]`. On the web and in desktop chat, open
-  the plugin's Connectors tab and click **Connect** next to *cloadm-panel*: the emulator opens in Claude's side panel.
-  Cowork and Claude Code run it on your computer, with your ROM files and `~/CLOADM`. The plugin manifest shows only
-  each server's id (no per-server title), so the docs use the ids. New description: "Play Dragon and Tandy Color
-  Computer machines with Claude: live in Claude's side panel, or on your computer with your own ROMs and files." The
-  `.mcpb` extension and the other agents' MCP entries are unchanged.
-- The README ("With Claude") and the top of docs/mcp.md lead with "Install the CLOADM plugin": the two steps, a note on
-  the badge Claude shows for a connector Anthropic hasn't reviewed, a table by where you use Claude (web and desktop
-  chat, Cowork and Claude Code, phone, other agents) and "Without the plugin" (the connector alone, without the
-  skill). The "Use the connector" lead, its "Which one?" table and "Both on?" are gone. Phones: the plugin and the
-  connector install, but the side panel can't be used there yet. A connector added by hand before is the one the plugin's
-  *cloadm-panel* uses, so there is no second one.
-- **The skill knows its route.** Its first step is which route it is on, then its "Side panel" or "On this computer"
-  section; the boot waits, the `BUILT-IN STUB` banner, `~/CLOADM`, ROM files, tapes, disks, snapshots and `add_roms`
-  are now only under "On this computer" (both copies). Each server's MCP instructions open with the route ("You are
-  driving CLOADM in the person's side panel." or "... on the person's computer."). The side panel's line is in the
-  skill's connector essentials, so the connector's Worker must be deployed again (`docs/deploy-connector.md`).
-- **Allow, Save key, Forget and "Let Claude use the emulator" wait half a second.** A press in the first 500 ms after
-  their card shows (or shows again, or the page comes back to the foreground) does nothing and leaves the focus where
-  it is, so a click or key meant for what was there a moment before can't answer them. The card fades in, the
-  controls are marked unavailable to assistive technology until then and announced once they take presses, and they
-  look the same throughout. Window focus doesn't restart the wait, and nothing but the time ends it: a tap works with
-  no pointer movement. The browser check's new group `armGuard` covers it.
-- **First use, from a cold usability test.** A key on the welcome menu that isn't one of its numbers says, once a
-  visit, "This is CLOADM's welcome menu: press a number to choose. Typing BASIC needs your BASIC ROM: [Add ROMs]. Or
-  press 1 for LIZA, a program you can type to." The "No BASIC · Add ROMs" pill's title says "No BASIC: this machine
-  needs its BASIC ROM to type programs".
-- **The Claude API key says where it comes from.** Under the key field (the chat's card and the Ask panel): "Get a key
-  at console.anthropic.com (API keys). Use is billed to your Anthropic account: see pricing ↗", and "No key? Use CLOADM
-  inside Claude instead: Use with Claude ↗". The chat screen's no-key line adds "Get one at console.anthropic.com.".
-  Help has a section, "Claude: getting an API key".
-- **A machine-code tape that loads and starts says so:** "HI.CAS loaded ($3000–$30FF) and started at $3000." (its own
-  name, range and start address), and the deck reads "LOADED · STARTED $3000" until the tape moves on.
-- **On a phone, Menu has Settings…**: it brings the settings tabs into view with the focus on Display. Its first item
-  reads "Add ROMs (BASIC needs them)" with the same dot as Menu, whose name is then "Menu (ROMs needed)".
-- **The machine switch's question stands under the machine button** (directly under the bar on a phone), with the
-  focus in it; Esc cancels it.
-- A gamepad connecting says, once a visit, "Gamepad connected: it drives the right joystick."
-- The install steps give Safari on a Mac a line of its own, "In Safari: File → Add to Dock." (the card and Help).
-- **A disk mounts without the disk ROM.** Until now every way in (a drop, **Open…**, the Library, a drive's menu, the
-  command line's `--disk`, the MCP server) ended in "Disks need a disk ROM… Load the ROM file first." Without your
-  disk ROM the disk controller now goes in on its own, with nothing in its ROM socket, and the disk goes in: a game
-  that drives the controller through its registers reads its level disk on the built-in firmware. It works while a
-  program runs: the controller raises no line by itself, so the program keeps going and its next read finds the
-  disk. `DIR` and the other disk commands still need the disk ROM, and the page says so: the drives card ("Drives ·
-  no disk ROM · disks work for programs that read them directly"), a drive's menu (**Insert disk…**, **New blank
-  disk**, **From Library…**, **Eject**, and a note with **Add disk ROM…**), the mount's toast, the cartridge port
-  ("Dragon disk controller · no disk ROM") and the disk ROM's card in **Your ROMs**. A disk ROM added afterwards goes
-  in at the next reset or power cycle. The command line prints the same note to stderr (`note` in its JSON). On the
-  Dragons and the CoCos; the MC-10 has no drives, and the Dragon Alpha's own interface is unchanged.
-- **On a phone, a slot holding media comes first** under the keyboard panel (then the cassette, the drives, the
-  cartridge), so a mounted disk is never below an empty cassette deck.
 - **The developer API's stable table covers what a headless script needs.** (Documentation and a test; no change to the emulator.)
   `docs/automation.md`'s "What is stable" table now names `machine.setKey(name, down)` and the key names
   (`Object.keys(machine.keyPos)`; the `[row, column]` values stay internal), `machine.frameCount`, `machine.now()`,
@@ -523,12 +318,6 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   `.CAS` of a tape that already has its leaders comes back exactly). `casToSamples`' `silence` option is gone (`gaps: 'none'` is the
   bytes as they are). The WAV decoder ends a run of bits at a silence and reads up to three damaged bytes (a bit or two off `$55`) at the
   very start of a run, in front of a leader of at least 16 bytes, as `$55`: the first cycle after a silence is the least certain of a recording.
-- **Asking Claude opens the side panel beside your machine, whatever is on it.** The header's **Ask Claude**, Ctrl+K's
-  **Ask Claude: "…"** and the panel's openers now open the side panel with the welcome menu on screen too, where they
-  used to open the full-screen chat and put a separate chat machine in place of yours. Your machine stays on screen and
-  keeps running. Only **Chat with Claude, full screen** and the welcome menu's chat item open the full-screen chat.
-  Claude reads your machine's screen and memory with "Let Claude use the emulator" off, as before (a new test,
-  `tests/claude-read-ungated.test.js`, holds this in both views); only typing, POKEs, loading and running ask first.
 
 ### Fixed
 
@@ -627,6 +416,275 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 - **A poke to the MC-10's `$0015`-`$001F` was reported as one to the 6803's registers.** The 6803's on-chip registers end
   at `$0014`; `$0015`-`$001F` go to the bus, where nothing answers, so a poke there is now refused as undecoded (and the
   profiler, new in this release, counts a write there as a write to memory).
+- **A steadier no-pop sound check.** The browser check's `audio` group switched machines with the welcome menu on, so
+  the page started the menu a moment later, and on a slow runner its tune (square waves on the DAC, steps of 0.49)
+  reached the stream the check measures and read as a pop "after busy page". The switches now leave the menu off, the
+  check reads a second more of sound after the last step on every run, and it fails if a welcome program ran.
+- **A steadier disk-mount browser check.** "The program ran on through the mount" required the test program's
+  16-bit idle count to be higher after the mount than before, but the count wraps every 1.9 s, so a slow mount read
+  as a stopped program. The check now requires that the count moved.
+
+### 0.1.9-pre
+
+#### Added
+
+- **Minesweeper plays with a joystick.** Either joystick moves the cursor: one step as the stick leaves the centre,
+  then again after 300 ms and every 120 ms while it is held (counted in fields, at the machine's own 50 or 60 Hz;
+  centring the stick and pushing the same way again is a new press). Either fire button opens the square under the
+  cursor with a tap (released in under 400 ms), on the release, and puts a flag on it when held 400 ms or more, at
+  that moment; after a win or a loss fire starts a new game as R does, when the button is released, so a long press
+  does not carry into the new game. The game reads the stick with the sound off, so the reading makes no buzz, and
+  while fire is down it ignores the keys fire's own matrix rows can make it read as pressed. The keyboard works as
+  before: the arrows, SPACE or ENTER to open, F to flag, R to start again, BREAK to leave. The shelf's line for the
+  game says so.
+- README: status, licence and live-demo badges, a looping picture of the welcome menu and LIZA (`img/readme-demo.gif`,
+  captured from the real page with no ROMs by `node tools/capture-gif.js`, with the small encoder in `tools/gif.js`),
+  and a "Use it with AI coding agents and Claude" section that points to the MCP server, the connector and plugin, the
+  command line and AGENTS.md.
+- **Claude's side panel shows Claude's hand on the machine.** While one of Claude's calls acts on the machine (any
+  tool that is not read-only: typing, keys, loading, switching, reset), the bezel takes a clay edge (outlined on a
+  light host theme) and a filled clay chip at its top left, in near-black text, says what it does, "Claude is typing:
+  DIR↵", with the keys shown as they reach the machine; the focus ring stays neutral. It stays 2 s after the call,
+  and the status line keeps "Claude typed DIR↵ · 12:04". A call that only reads shows a quiet "Claude read the
+  screen" or "Claude read memory" for 1.5 s. Your own keys never show a chip. Each call that acts is announced once
+  to screen readers, briefly (a long text by its length); reads are not announced. The tools and their approvals are
+  unchanged.
+- **The side panel's toolbar:** **Programs** (the programs this machine runs without ROMs, its own builds of LIZA and
+  the Welcome menu included, and Add ROMs for BASIC… while it has none), **Machine** (every model, marked "✓ BASIC
+  ready" or "needs ROMs", then Reset, Switch off and on, Add ROMs…), **Sound** and **⋯** (Open in side panel, Details,
+  Copy details). The menus work from the keyboard. The Welcome menu's own keys now run what they offer in the panel.
+- **On-screen keys in Claude's side panel on a phone or tablet**, where tapping the screen brought up no keyboard. Three
+  modes, as on the page (the layout, the keys and each program's mode now shared from `js/ui/touch-layout.js`):
+  **Keys** (the page's keyboard), **Pad** (a D-pad, SPACE, ENTER, the program's own keys such as Minesweeper's F, and
+  ABC for one key from the keyboard) and **Stick** (SPACE ENTER 1 2 Y N ABC, a stick and FIRE; only on a machine with
+  a joystick port, so not on the MC-10). Under them in every mode: the switch, CLEAR and BREAK, the only BREAK. A
+  program opens in the mode it is played with (2048 and Minesweeper on the Pad, LIZA and anything else on the Keys),
+  and the switch's choice is remembered per program, in the view's storage when it works, else for as long as the view
+  is open. They show on a touch screen (the host says so, or a coarse pointer, or a first touch) and not on a desktop;
+  **⋯ → Hide on-screen keys** hides them. Claude's typing and its chip are unchanged.
+- `machine_info` returns `route`: `"local"` from the local server, `"panel"` from the side panel's view. The view's
+  contract with the site (`PANEL_API` 3) is unchanged: the field is part of a tool's answer, not of the bridge.
+- A skill eval on the side-panel route, `panel-no-boot-wait` (the agent must not boot or mention boot waits), run on
+  `tests/skill-evals/panel-server.mjs`, a stand-in for the panel with its tools and the Worker's instructions.
+- **"Ask Claude ↗" where the chat can't run.** CLOADM shown inside another site's page has no chat (its key card
+  would be on someone else's page). The full page in a frame now keeps its Ask button, as **Ask Claude ↗**: a link
+  that opens CLOADM top-level in a new tab with this machine as it is now (the Share screen's snapshot link, with
+  `app=claude`, never `embed=1`, `rel="noopener noreferrer"`), where the chat runs on the key saved in your browser.
+  With NitrOS-9 running, whose moment can't be carried, it opens a fresh CLOADM with the chat and says so. The new
+  tab waits for you to type; it never starts a turn by itself. A screen-only embed shows nothing unless its link has
+  the new `askclaude=1`, the Share screen's **Offer 'Ask Claude ↗'**: then a small chip in the screen's corner does
+  the same. The browser check's new group `askPopout` covers it.
+- **Headless developer docs: which paths each model has, a complete Node example, a graphics recipe and a serial note.** (Documentation,
+  one example and its test; no change to the emulator.) `docs/automation.md` gains a per-model table of the tape, disk-controller,
+  6551, bit-banger and Becker paths, built from `js/machines/profiles.js` (the options example no longer offers `becker=true`
+  generically: it is CoCo-family only, and the Dragon 64 refuses it with `bad-option`); a complete Node example that uses only the
+  public modules and runs from outside the repository (`docs/examples/headless-frame.mjs`: a Session, a DragonDOS binary, a held
+  key, stepped frames, the raw framebuffer, a PNG); a recipe for a graphics program with no text to wait on (wait on a frame counter
+  in RAM, from the command line and Node, with the elapsed frames and cycles, and how input is latched at a guest tick versus the
+  50/60 Hz video field); and a note on snapshotting a machine whose serial peer lives outside it (the freeze order, saving the peer's
+  in-flight bytes and resuming at the same byte). `tests/dev-docs-headless.test.js` rebuilds the table from the machines, runs the
+  example from a temporary directory and from a copy, fails mutants of its guest, and checks the numbers the text quotes.
+- **`?disk=URL` puts a disk in a drive from a link,** before the link's other media: `?load=game.bin&disk=level.vdk`
+  mounts the disk, then loads and runs the game. Ctrl+K gains **Insert a disk…**, **New blank disk** and **Eject
+  disk**; the cartridge port gains **Take out**.
+- **`node tools/mame-diff/run.js <dragon64|coco> --fdc --bare`:** the lockstep comparison with MAME of a program that
+  drives the disk controller with an empty ROM socket (`tools/mame-diff/fdc/gen-bare.js`).
+
+#### Changed
+
+- **Comments, test names and docs describe behaviour, not internal process labels.** Review and ruling IDs,
+  review-finding tags and old internal branch names are gone from the code, the tests, the docs and the released
+  sections of this file. `tests/internal-labels.test.js` keeps them out, and `tests/private-paths.test.js` keeps out
+  session links, private paths and folders, planning and inbox item numbers, personal email addresses and branch
+  names other than the CI globs. The CHANGELOG check compares a released
+  section with its tag after removing those labels from both sides; any other difference still fails.
+- **A Debugger stop stays a stop on the emulator, and says so**. Going back from the Debugger keeps
+  the machine stopped. The Pause button reads Resume, a strip above the screen says why and where ("Stopped at
+  breakpoint $C0F3.") with Resume and Open Debugger, and the status line reads "Stopped in the Debugger" (or "Paused"
+  for the page's own Pause) instead of a speed it could no longer measure. Resume on the button, the strip or the
+  Debugger's F5 ends both kinds of pause. Run again, a program from Runs without ROMs, Open or a drop (a program, tape
+  or disk), a disk put in from the Library, Reset, Switch off and on and a machine switch release the stop in the
+  Session (a refused file starts nothing and leaves it), so what Claude and the MCP
+  server start runs too; the breakpoints stay set, and the toast adds "The Debugger's stop at $C0F3 was released."
+  Typing while stopped (keys, a tap on the welcome menu, a paste, the Type-in panel) is refused with one toast per
+  stop, rather than queued behind the stop.
+- **`add_roms` keeps a URL as origin + path.** The store's `index.json` recorded the full URL a ROM came from, query
+  string and fragment included, which can hold a token. It now keeps the origin and the path only.
+- **Test and tool tidy-ups, no emulation change.** `tools/mame-diff/tape/spec.js` takes its register lists from
+  `lib/regs.js` like the other specs. The settle sweep in `tests/audio.test.js` now covers 30 fps and 2048-sample
+  blocks (the worst case is unchanged, 4.99 s), and the comments in `js/host/audio.js` and `tools/browser-check.js`
+  say what the sweep covers.
+- Using CLOADM with Claude leads with one default: "Use the connector" (a live side panel on the web and in the desktop
+  app, verified by the maintainers; phones not yet tested), then the plugin for developers and your own files, a "Which one?"
+  table and a "Both on?" note, in the README and at the top of docs/mcp.md. The local server's `boot` and `load`
+  descriptions and the skill (both copies) say to prefer the CLOADM side-panel connector for playing or watching with
+  the person, and to use the local tools for files, scripting and tests (a description, not a refusal); a new eval,
+  `prefer-side-panel`, covers it.
+  The lead also suggests the optional `cloadm-skill.zip` from the Releases page (the asset `release.yml` publishes).
+- The install offer card and Help's install section say "Install CLOADM as an app on this device"; Help points to
+  "Use with Claude" for the Claude routes. The menu item is still "Install CLOADM…".
+- The README's top picture is the GIF; the static `img/readme-liza.png` is gone and `tools/capture-images.js` no
+  longer writes it. `tests/readme.test.js` now checks GIF pictures too (a real GIF, 4:3, captured by a tool in `tools/`).
+- **Copy and small fixes from the v0.1.8 UI review.** Starting LIZA from the welcome menu, or the colour demo from the Media
+  tab's shelf, says "LIZA loaded" / "Colour demo loaded" instead of "liza.bin: DragonDOS binary $3000-$3C90, exec $3000" (a file you bring keeps its addresses).
+  A link naming a machine CLOADM doesn't have, or a `start=` or `app=` it doesn't know, shows one short toast ("machine=nosuch: no such machine (opened Dragon 64
+  instead)", not a list of every machine), and `#share=` with anything after it says the share link couldn't be read
+  instead of landing on the welcome menu in silence. On the Add ROMs screen the "optional" tag stays beside the
+  title of the disk and Speech/Sound Pak cards (a long title wraps inside its own space), and neither title repeats
+  "(optional)" beside the tag. **Install CLOADM…** moved from the foot of the machine menu to the app bar, beside Help
+  (behind Menu on a phone), and its card opens under the bar, near the link. The welcome menu's sixth option, "CARRY ON
+  WITH …", no longer pushes "PRESS 1 TO 6" against the colour bar: the options move up a row and a blank row stays
+  above the prompt, as on the MC-10 and Alice. No frame hash changes (the regression firmware never shows the sixth
+  option). The browser check's new group `uiCopy` covers each of these.
+- **The Claude chat with no key says so on its own screen.** The chat screen used to be an empty black box with a
+  `>` prompt, and the "No API key yet" note sat beside it (below the fold on a phone). The line is now on the screen too,
+  as the firmware shows a reply (`Session.chatNote`: not the conversation, never what Claude reads), and after Save key
+  the screen says "Key saved. Type below and press ENTER." (plain ASCII: the chat font has no check mark) and the key card reads "Key saved ✓ · Saved in this browser · Change · Forget". The key
+  stays out of machine memory, snapshots, settings exports and the chat screen itself (`tests/claude-session.test.js`
+  reads the screen's text and checks the key is not on it).
+- **Mounting a floppy builds only the tracks the machine reads.** A disk image used to be turned into flux, every
+  track and side, the moment it was mounted or a snapshot holding it was restored: about 130 ms for a 180K JVC in
+  Node, now well under 5 ms. Each track is now built the first time the drive reaches it (`FloppyImage.track(k)`), so
+  a mount or a restore checks the image and returns at once, and the time moves to the first read of each track.
+  Errors in the image (a bad header, a DMK ID pointer that misses its mark, a track layout too long to fit) are still
+  reported at mount. The flux, the bits and the sectors every track gives are unchanged, and so are the regression
+  hashes.
+- **Building a floppy track allocates far less.** The MFM and FM cells a track is built from now go into a
+  `Uint32Array` that doubles when full (`CellBuffer`), not a JavaScript array of one slot per cell, and the flux
+  positions are scaled with exact `Number` arithmetic (`fluxPosition`) instead of a `BigInt` per transition. In Node,
+  building every track of a 180K VDK takes about 88 ms instead of 122 ms, and restoring a snapshot with four drives
+  and building all their tracks 335 ms instead of 499 ms. Every track's flux and every image `saveDisk` writes are
+  unchanged byte for byte, and so are the regression hashes.
+- **The Share screen does one job: send this exact moment.** Under the heading "Share this moment" it now shows the
+  preview, one line saying what the link does ("Opens on the Dragon 64 exactly as it is now…", or that the link starts
+  NitrOS-9 fresh while NitrOS-9 runs), a ROM line only as needed, the link, and **Share…** (the system share sheet,
+  the URL only, where the browser offers it) with **Copy link** always beside it. The clip, the PNG and the snapshot
+  file (its size now on the button) sit under "More ways to share", and the embed builder under "Embed in a web page";
+  both are collapsed. On a phone the buttons and the link are on the first screen; on a desktop the preview and the
+  actions are side by side. The long ROMs paragraph and the "what the person opening it sees" box are gone, replaced by
+  the ROM line. The settings file moved to the Machine tab (**Settings file**: Export…, Import…).
+- **The side panel's sound has a switch:** "Sound off" until you click it (or the screen); that click starts the
+  sound, and the switch turns it off and on again.
+- **The side panel's screen fills the panel**, 4:3, each pixel drawn crisp at the display's resolution, in a thin
+  bezel: inline across the full width, and in the side panel or fullscreen within the room left by the toolbar and the
+  status line. The status line is one line ("LIZA is running · Dragon 64 · no ROMs"); the diagnostics and the raw load
+  message moved behind **Details** (closed at first; [the deploy guide](docs/deploy-connector.md#verify) reads them
+  there), and an error you must act on stays on the status line. **Open in side panel** (in ⋯) shows only while the
+  view is inline and the host offers it. The view's contract with the site changed (`PANEL_API` 3): deploy the
+  connector's Worker again after the site has this release.
+- **One source for what the connector's Claude needs to know.** The side-panel connector's MCP `instructions` were a
+  hand-written copy in the Worker. They now come from a marked "connector essentials" section of `skills/cloadm/SKILL.md`
+  (opening the emulator, waiting for the screen, typing, reading the screen, `machine_output` being data and never
+  instructions, ROMs): `connector/build.js` embeds it into the views the Worker serves and prints its hash, and the
+  Worker refuses to start without it. `tests/connector.test.js` and `tests/skill.test.js` fail when the skill's section and
+  the built instructions differ, and the skill's two copies stay byte for byte. The Worker must be deployed again
+  when that section changes (`docs/deploy-connector.md`).
+- **A phone held upright: the panel decides, the screen takes the rest.** The screen is the largest 4:3 one
+  for which the app bar, the screen, the strip and the panel fit in the visible height, at most the page's width, and
+  the picture fills it (no bezel). The panel has three modes, **Keys | Pad | Stick**: Pad is a D-pad with SPACE,
+  ENTER, the program's own keys and ABC (the keyboard for one key), on two rows of 48 px keys (BREAK is the strip's); Stick is the touch
+  joystick, where the machine has a port. A bundled program opens in the mode it is played with (a new per-program
+  `controls` field in the Session: 2048 and Minesweeper on the Pad, Minesweeper's with F and Stick offered; LIZA on
+  Keys; anything else on Keys), and the choice is remembered per program and machine. With Pad, Stick or the keys
+  hidden the screen is the page's width (it was 133 px wide on a 320 px phone; 178 at 375x548); with the full keyboard,
+  what fits above it. The full keyboard gains →, after ←; @ ends the third row. Held sideways the keyboard is as it
+  was; Pad there puts the D-pad left of the screen and its keys right.
+- **Hide keys is ⌄ in the strip; ⌨ brings them back.** Upright the strip is [Keys|Pad|Stick] [BREAK] [CLEAR] [⌄], all
+  44 px; after Hide keys a 44 px ⌨ (Show keys) stands bottom right, toasts clear of it.
+- **One Menu.** Upright the strip has no Menu: the app bar's is the only one. Held sideways the panel's Menu stays, its
+  "Machine menu" (which opened nothing there) now **Machine…**, the machine picker over the panel.
+- **The phone's app bar is one row, 48 px, from the first paint**: the machine, Open…, Ask Claude (its icon under
+  360 px) and Menu, every control 44 px. Add ROMs is Menu's first item while the machine has no BASIC, with a dot on
+  Menu (whose name then says "Menu, Add ROMs needed"); Share is in Menu too, and Menu opens as a sheet over the page,
+  moving nothing, with the focus on its first item. A script in the page's head
+  puts the touch layout on before the first paint, so nothing reflows when the panel arrives.
+- **No automatic install offer on a phone**, upright or sideways: Install CLOADM… (in the app bar's
+  Menu upright; in the panel's Menu held sideways) installs. Desktops and tablets keep the offer.
+- **The status in the app bar shows the speed only** ("50 fps · 100%"): the machine's name is on the button beside it,
+  and at 1200 px the repeated name pushed the speed into an ellipsis. The links go tight first to leave it room; only
+  where even that leaves none (1200 px in a wide font) is it left out, never cut to a stub.
+- **The games' 1x text is proportional: a proportional font for legibility; title screen draws one frame slower,
+  inside its 30-frame budget.** 2048 and Minesweeper's small text used to draw every character in a fixed four-pixel
+  cell, which made the letters a three-pixel cell cannot tell apart — A, H, M, R and W — hard to read. Those five are
+  now drawn five pixels wide and the rest in a cell of the glyph's own width plus one blank column, so the shapes are
+  distinct. A line with any of them is up to two pixels per such letter wider, not narrower: 2048's
+  "JOIN THE TILES TO MAKE 2048" (three of them) goes from 107 to 113 pixels, still well inside the 128-pixel screen.
+  Three of the small strings changed to fit: 2048's "ARROWS OR W A S D SLIDE THEM" is now "ARROWS OR WASD SLIDE
+  THEM" (129 pixels would not fit), and both games' footers read "ARROWS  R=NEW  BREAK=QUIT" (2048's and
+  Minesweeper's were "ARROWS MOVE  R NEW  BREAK LEAVES"). Minesweeper's title line became "F FLAGS A MINE  R START".
+  In-game redraws are unchanged.
+- **One CLOADM plugin for Claude, with two servers.** The plugin (still `cloadm`, from the same marketplace) carries
+  the side panel, *cloadm-panel* (`https://mcp.cloadm.dev/mcp`), and the local server, *cloadm*
+  (`node cli/cloadm.js --mcp`; the same id as before, so allowlists naming `mcp__plugin_cloadm_cloadm__*` keep working), and declares `network.hosts: ["mcp.cloadm.dev"]`. On the web and in desktop chat, open
+  the plugin's Connectors tab and click **Connect** next to *cloadm-panel*: the emulator opens in Claude's side panel.
+  Cowork and Claude Code run it on your computer, with your ROM files and `~/CLOADM`. The plugin manifest shows only
+  each server's id (no per-server title), so the docs use the ids. New description: "Play Dragon and Tandy Color
+  Computer machines with Claude: live in Claude's side panel, or on your computer with your own ROMs and files." The
+  `.mcpb` extension and the other agents' MCP entries are unchanged.
+- The README ("With Claude") and the top of docs/mcp.md lead with "Install the CLOADM plugin": the two steps, a note on
+  the badge Claude shows for a connector Anthropic hasn't reviewed, a table by where you use Claude (web and desktop
+  chat, Cowork and Claude Code, phone, other agents) and "Without the plugin" (the connector alone, without the
+  skill). The "Use the connector" lead, its "Which one?" table and "Both on?" are gone. Phones: the plugin and the
+  connector install, but the side panel can't be used there yet. A connector added by hand before is the one the plugin's
+  *cloadm-panel* uses, so there is no second one.
+- **The skill knows its route.** Its first step is which route it is on, then its "Side panel" or "On this computer"
+  section; the boot waits, the `BUILT-IN STUB` banner, `~/CLOADM`, ROM files, tapes, disks, snapshots and `add_roms`
+  are now only under "On this computer" (both copies). Each server's MCP instructions open with the route ("You are
+  driving CLOADM in the person's side panel." or "... on the person's computer."). The side panel's line is in the
+  skill's connector essentials, so the connector's Worker must be deployed again (`docs/deploy-connector.md`).
+- **Allow, Save key, Forget and "Let Claude use the emulator" wait half a second.** A press in the first 500 ms after
+  their card shows (or shows again, or the page comes back to the foreground) does nothing and leaves the focus where
+  it is, so a click or key meant for what was there a moment before can't answer them. The card fades in, the
+  controls are marked unavailable to assistive technology until then and announced once they take presses, and they
+  look the same throughout. Window focus doesn't restart the wait, and nothing but the time ends it: a tap works with
+  no pointer movement. The browser check's new group `armGuard` covers it.
+- **First use, from a cold usability test.** A key on the welcome menu that isn't one of its numbers says, once a
+  visit, "This is CLOADM's welcome menu: press a number to choose. Typing BASIC needs your BASIC ROM: [Add ROMs]. Or
+  press 1 for LIZA, a program you can type to." The "No BASIC · Add ROMs" pill's title says "No BASIC: this machine
+  needs its BASIC ROM to type programs".
+- **The Claude API key says where it comes from.** Under the key field (the chat's card and the Ask panel): "Get a key
+  at console.anthropic.com (API keys). Use is billed to your Anthropic account: see pricing ↗", and "No key? Use CLOADM
+  inside Claude instead: Use with Claude ↗". The chat screen's no-key line adds "Get one at console.anthropic.com.".
+  Help has a section, "Claude: getting an API key".
+- **A machine-code tape that loads and starts says so:** "HI.CAS loaded ($3000–$30FF) and started at $3000." (its own
+  name, range and start address), and the deck reads "LOADED · STARTED $3000" until the tape moves on.
+- **On a phone, Menu has Settings…**: it brings the settings tabs into view with the focus on Display. Its first item
+  reads "Add ROMs (BASIC needs them)" with the same dot as Menu, whose name is then "Menu (ROMs needed)".
+- **The machine switch's question stands under the machine button** (directly under the bar on a phone), with the
+  focus in it; Esc cancels it.
+- A gamepad connecting says, once a visit, "Gamepad connected: it drives the right joystick."
+- The install steps give Safari on a Mac a line of its own, "In Safari: File → Add to Dock." (the card and Help).
+- **A disk mounts without the disk ROM.** Until now every way in (a drop, **Open…**, the Library, a drive's menu, the
+  command line's `--disk`, the MCP server) ended in "Disks need a disk ROM… Load the ROM file first." Without your
+  disk ROM the disk controller now goes in on its own, with nothing in its ROM socket, and the disk goes in: a game
+  that drives the controller through its registers reads its level disk on the built-in firmware. It works while a
+  program runs: the controller raises no line by itself, so the program keeps going and its next read finds the
+  disk. `DIR` and the other disk commands still need the disk ROM, and the page says so: the drives card ("Drives ·
+  no disk ROM · disks work for programs that read them directly"), a drive's menu (**Insert disk…**, **New blank
+  disk**, **From Library…**, **Eject**, and a note with **Add disk ROM…**), the mount's toast, the cartridge port
+  ("Dragon disk controller · no disk ROM") and the disk ROM's card in **Your ROMs**. A disk ROM added afterwards goes
+  in at the next reset or power cycle. The command line prints the same note to stderr (`note` in its JSON). On the
+  Dragons and the CoCos; the MC-10 has no drives, and the Dragon Alpha's own interface is unchanged.
+- **On a phone, a slot holding media comes first** under the keyboard panel (then the cassette, the drives, the
+  cartridge), so a mounted disk is never below an empty cassette deck.
+- **Asking Claude opens the side panel beside your machine, whatever is on it.** The header's **Ask Claude**, Ctrl+K's
+  **Ask Claude: "…"** and the panel's openers now open the side panel with the welcome menu on screen too, where they
+  used to open the full-screen chat and put a separate chat machine in place of yours. Your machine stays on screen and
+  keeps running. Only **Chat with Claude, full screen** and the welcome menu's chat item open the full-screen chat.
+  Claude reads your machine's screen and memory with "Let Claude use the emulator" off, as before (a new test,
+  `tests/claude-read-ungated.test.js`, holds this in both views); only typing, POKEs, loading and running ask first.
+
+#### Fixed
+
+- **What the page says is on screen is what is on screen.** The Media tab's "Welcome menu · on screen now" meant only
+  that the menu had been loaded: started on a machine the Debugger had stopped, or while Pause held it, the tag showed
+  while the screen showed something else. It now shows exactly while the welcome program runs on the machine on
+  screen, is not stopped by the Debugger or Pause, and has drawn at least one frame (`Session.welcomeOnScreen`). The
+  screen itself could also lag: frames a load ran by itself (a tape's restart through BASIC) reached the canvas only
+  once the machine ran on, so while it was paused or stopped the canvas kept the picture from before; any frame or
+  instruction run now reaches it. And "Last time" could name the program before: after 2048 or LIZA started it
+  still named the previous one, while Run again ran the new one. It now always names what Run again runs (the
+  Session emits `lastrun` when it records what ran).
 - **An embedded CLOADM could open the Claude chat; the chat is no longer available in an embed.**
 - **Two server processes adding ROMs at once could lose index entries.** Every change to the ROM store's index now
   reads it again and writes it while holding a lock file (`index.lock`, broken after ten seconds if its holder died),
@@ -640,13 +698,6 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 - **A steadier tape-panel browser check.** The "motor on: LOADING" check no longer depends on how far a slow runner
   got into block 1 before the panel repainted: it moves the tape a quarter of the way in once the panel is playing,
   then still requires one frame with LOADING, a speed above x1, the reels turning and the left reel unwound.
-- **A steadier no-pop sound check.** The browser check's `audio` group switched machines with the welcome menu on, so
-  the page started the menu a moment later, and on a slow runner its tune (square waves on the DAC, steps of 0.49)
-  reached the stream the check measures and read as a pop "after busy page". The switches now leave the menu off, the
-  check reads a second more of sound after the last step on every run, and it fails if a welcome program ran.
-- **A steadier disk-mount browser check.** "The program ran on through the mount" required the test program's
-  16-bit idle count to be higher after the mount than before, but the count wraps every 1.9 s, so a slow mount read
-  as a stopped program. The check now requires that the count moved.
 - **`pushTape` is tested from a deep queue** (`tests/audio.test.js`): DRAINING back to NONE, a push dropped past
   `MAX_MS`, and the queue settling near `TARGET_MS`.
 - **A file dropped while the Claude chat is full screen goes to your BASIC session, not the chat.** The chat runs
@@ -749,6 +800,31 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   and Enter asked Claude instead. It now splits at punctuation as the labels are. A question, ending in "?", still goes
   to Claude even when its words match a command: "reset?" asks, with Reset listed beneath, and runs nothing. Only a
   command's whole label typed with its own "?" runs it.
+- **Toast placement no longer leaks a per-frame loop per toast or rewrites unchanged styles.** Every toast shown
+  started its own animation-frame chain and none was cancelled, so a session's toasts added permanent per-frame loops
+  (three chains placing the same frame were measured), and each frame cleared and rewrote eleven inline properties on
+  `#toastRegion`, 2,714 of 2,715 of them byte-identical. One cancellable chain now places a toast, and the style and
+  the class are written only when the placement changes (and cleared when the stylesheet's own place is right): the
+  browser check measures a stationary toast at 0 style writes in 60 frames on desktop and phone, and 0 class mutations
+  on the region once a pinned toast has gone (a `classList.remove` of an absent class queues one per frame in Chromium).
+  The toast still follows a resize, a scroll or a control that grows under it. The identity a placement is cached
+  under includes everything the decision reads (the safe-area insets, the screen's geometry and its visible text area
+  included), and a test changes each of those inputs in turn to show the placement is decided again rather than
+  re-applied from the cache. The chat's Stop pill still flashes while a toast covers it; that is a separate, known
+  issue, recorded in `docs/verification.md`.
+  `tests/toast-follow.test.js`, `tools/browser-check.js`, `tools/flicker-measure.js`.
+- **DriveWire printing goes to the machine that printed.** A print over the Becker port landed in the
+  printout of whichever machine was on screen — the BASIC session's printout could end up on the chat machine
+  after switching, or vanish when a chat was closed — and the chat machine's own DriveWire server had no
+  handler at all, so anything it printed was dropped. Each server's prints now go to the machine its Becker
+  port belongs to, on screen or off, survive ending a chat, and the Session's server holds no machine the
+  Session has let go of. A chat opened without DriveWire on a machine with the Becker port no longer runs
+  on a machine that carries the port: the port would take the Session's server and the BASIC session's
+  prints with it. `tests/drivewire-print.test.js` covers it.
+- **An off-screen print no longer disturbs the Machine tab's printout.** A DriveWire print from the
+  machine you are not looking at (the BASIC session while a full-screen chat is up) fires the printer
+  event, but the panel re-renders only when the printout it shows changed, so it no longer scrolls to the
+  end of an unchanged printout while you are scrolled up reading it.
 
 ### 0.1.8-pre
 
@@ -1182,7 +1258,7 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   the name lands at the END rather than straight after the write: a landing made after the write would let that
   second creation count as a replace and take the name. No product change.
 
-- **Menus and boxes give the focus back** (UX rulings R15–R18). The machine menu closes on `Esc` wherever the focus
+- **Menus and boxes give the focus back**. The machine menu closes on `Esc` wherever the focus
   is (on the screen too, where it used to stay open and `Esc` went to the machine as BREAK), on `Tab` out of it,
   and on a press outside it, and the focus goes back to its button unless the press landed on something that
   takes the focus. The same for the phone's **Menu** links (`Esc` and a tap outside, back to **Menu**; open only
@@ -1196,13 +1272,13 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   once the typing pauses, and the Library's "N selected" is a polite live region written only when the count
   changes. `js/ui/page.js` `outsidePress` is the one press-outside rule.
 
-- **Every toast is visible** (UX ruling R24). A toast that finds no place on the emulator page where it covers
+- **Every toast is visible**. A toast that finds no place on the emulator page where it covers
   neither a control nor the screen's text no longer waits unseen: it takes a fixed slot at the top of the viewport,
   above everything but the dialogs, keeps that slot until it goes, and its time starts there ("never invisible" wins
   over "never covers a control"). A disk dropped without a disk ROM used to say nothing visible, at desktop and phone
   sizes alike. An error toast is red (`--error`, 4.76:1 on the toast), no longer the orange of a warning.
 
-- **A switch names what comes out** (UX ruling R25). The question before a machine switch now says what the
+- **A switch names what comes out**. The question before a machine switch now says what the
   switch takes out of the machine in use ("Switching to Dragon 32 resets the Dragon 64 and takes out the tape
   GAME.CAS and the disk WORK.VDK in drive 0. They stay in your Library."); a disk that came with a snapshot is named as
   not kept, with **Save to Library** (`Session.keepSnapshotDisk`: stored, and the drive linked to it, as one Library
@@ -1212,12 +1288,12 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   switch a message says "Switched to Dragon 32. Took out: GAME.CAS, WORK.VDK (drive 0)." (`Session.takenOut`), as does
   a switch made by opening a snapshot.
 
-- **The disk ROM is findable** (UX ruling R26). **Your ROMs** shows a card for the disk ROM on every machine whose
+- **The disk ROM is findable**. **Your ROMs** shows a card for the disk ROM on every machine whose
   cartridge port takes a disk cartridge ("Disk drives (optional): DragonDOS or Delta DOS"; "Disk BASIC (RS-DOS)" on
   the CoCos), none on the Dragon Alpha (its own drives) or the MC-10. A drive's **Add ROMs…** opens Your ROMs on
   that card instead of a bare file chooser. The card is not one of the machine's sockets, which are counted as before.
 
-- **The machine menu and the palette lead to the ROMs** (UX rulings R28, R28b). The machine menu's footer is two
+- **The machine menu and the palette lead to the ROMs**. The machine menu's footer is two
   menu items after a separator, in its arrow and `Tab` order, with the "✓ = BASIC ready" legend beside them: **Add or see ROMs…** (Your ROMs for this machine, the
   focus on its heading) and **RAM, CPU and speed…** (Machine settings, the focus on its heading; on a phone its top
   scrolled into view). Choosing a machine that needs ROMs ends with "Switched to Dragon 64. It needs ROMs for
@@ -1226,12 +1302,12 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   first in Machine settings, which now has that heading, and its button reads **Add ROMs →** without BASIC and
   **See or add ROMs →** with it. The page says "Machine settings", never "Machine tab".
 
-- **ROMs in the Library** (UX ruling R19 A+). A **ROMs** chip after Snapshots shows one card, not tiles: "Your ROMs:
+- **ROMs in the Library**. A **ROMs** chip after Snapshots shows one card, not tiles: "Your ROMs:
   2 stored, used by Dragon 32 and Dragon 64. Manage them in Your ROMs →", or "No ROMs yet. CLOADM never includes
   ROMs; add your own dumps in Your ROMs →" (`Session.storedRoms`); with ROMs stored the chip is there even when the
   Library holds nothing else. A ROM dropped on the Library says "added to Your ROMs" with **Open Your ROMs**.
 
-- **Copy** (UX ruling R27). The page no longer says "stub": the ROMs row reads "BASIC ready" or "Not added · running
+- **Copy**. The page no longer says "stub": the ROMs row reads "BASIC ready" or "Not added · running
   without ROMs", and Share says the person opening a link "runs it without ROMs". One term, **disk ROM**, replaces
   "DOS ROM" and "disk cartridge ROM" ("Disks need a disk ROM: …"). A file for the other family is described once:
   "dgame.dgn is a Dragon cartridge; the CoCo 1/2 may not run it." with **Open on Dragon 64** and **Load anyway**.
@@ -1606,12 +1682,12 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 
 #### Changed
 
-- **Restore points: one small line instead of a card after every message** (UX ruling R12). Under the latest turn
+- **Restore points: one small line instead of a card after every message**. Under the latest turn
   that changed the machine: "↶ Restore to 23:58 · Restore points…", the second opening every point (the last 10)
   and what restoring does and doesn't roll back; while a turn runs, "Restore point at 23:58 · Stop first to restore".
   The same line in the side panel, the phone sheet and the full-screen chat; after a restore it moves to the
   previous point's turn. The "✓ restore point made" log line is gone, and nothing calls it Undo.
-- **What Claude did, one line per action under each turn** (UX ruling R13), replacing the activity log: "✓ typed
+- **What Claude did, one line per action under each turn**, replacing the activity log: "✓ typed
   "DIR"", "– didn't type "DIR": you said no", "– typed "DIR", but the machine didn't read the keys", "✗ couldn't
   …", partial pokes and loads, " · undone at 00:02" after a restore; a turn of more than 3 actions folds its ✓ lines
   into one button with the reads counted; a turn that only read says so on a plain line ("read the screen 2×,
@@ -2020,7 +2096,7 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 
 #### Changed
 
-- AGENTS.md: an item's scope comes from its brief or issue; contributors don't edit a roadmap.
+- AGENTS.md: an item's scope comes from its brief or issue.
 
 ### 0.1.0 (first public release, not tagged yet)
 

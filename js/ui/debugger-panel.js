@@ -73,7 +73,7 @@ export function setupDebuggerPanel(page) {
     const d = session.debug, m = session.shownMachine, cyc = Math.floor(m.cpu.totalCycles).toLocaleString('en-US');
     const st = $('dbgStatus');
     st.classList.toggle('stopped', d.stopped);
-    if (!d.stopped) { st.textContent = `● Running · cycle ${cyc}`; return; }
+    if (!d.stopped) { st.textContent = page.paused ? `● Paused (the page's Pause) · cycle ${cyc}` : `● Running · cycle ${cyc}`; return; }
     const r = d.stopReason || {}, at = where(d.pc);
     st.textContent = r.kind === 'breakpoint' ? `● Stopped at breakpoint · ${at} · cycle ${cyc}`
       : r.kind === 'watchpoint' ? `● Stopped by a ${r.access} of ${hex4(r.address)} (${hex2(r.value)}) · at ${at} · cycle ${cyc}`
@@ -84,7 +84,8 @@ export function setupDebuggerPanel(page) {
           : lastAction === 'step' ? `● Stepped to ${at} · cycle ${cyc}` : `● Paused at ${at} · cycle ${cyc}`;
   }
   function runButton() {
-    const b = $('btnDbgRun'), stopped = session.debug.stopped;
+    // The F5 key mirrors the page's one Pause/Resume state: Run while stopped here or held by the page's Pause
+    const b = $('btnDbgRun'), stopped = session.debug.stopped || page.paused;
     b.replaceChildren(stopped ? 'Run ' : 'Pause ', el('kbd', 'F5'));
     b.classList.toggle('primary', stopped);
   }
@@ -202,7 +203,7 @@ export function setupDebuggerPanel(page) {
   function command(kind) {
     lastAction = kind;
     try {
-      if (kind === 'run') { if (d().stopped) session.resume(); else d().halt(); }
+      if (kind === 'run') { if (d().stopped || page.paused) page.resumeAll(); else d().halt(); }
       else if (kind === 'step') { if (!d().stopped) d().halt(); d().step(); hold(); }
       else if (kind === 'over') { if (!d().stopped) d().halt(); d().stepOver(); hold(); }
       else if (kind === 'out') { if (!d().stopped) d().halt(); d().runToReturn(); hold(); }

@@ -68,7 +68,7 @@ export function setupShare(page) {
     // the shared snapshot: no byte of a ROM or cartridge, only their names (Session.shareFile, AGENTS rule 1).
     // NitrOS-9's memory is the user's own NitrOS-9: its link boots NitrOS-9 from the recipient's image instead.
     // The SHOWN machine's NitrOS-9, not the person's: the picture above is the shown machine's and shareUrl builds the
-    // link for it, so with the chat full screen this must ask about the chat, as shareUrl does (review 0.1.9 round 2).
+    // link for it, so with the chat full screen this must ask about the chat, as shareUrl does.
     const n9 = session.nitros9OnScreen;
     const file = n9 ? null : await session.shareFile();
     const link = n9 ? session.shareUrl(location.href) : await session.snapshotLink(location.href, file);

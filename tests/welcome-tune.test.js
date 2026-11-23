@@ -1,4 +1,4 @@
-// R46: the welcome menu's tune plays only when the person asked for the menu. The Session decides, so the page, MCP
+// The welcome menu's tune plays only when the person asked for the menu. The Session decides, so the page, MCP
 // and Claude's switches all follow it (js/session.js startWelcome, offerMenu, flushWelcome, welcomeSound).
 //   PLAYS   the visit's own start, once the sound is unlocked (including an unlock while that menu is up), and the
 //           menu chosen from Programs (the shelf);

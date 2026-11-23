@@ -17,7 +17,7 @@
  */
 
 const LOWPASS_HZ = 3200;
-const DEFAULT_VOLUME = 0.15;   // against the machine's 0.5: there, not loud (the owner's "modest volume")
+const DEFAULT_VOLUME = 0.15;   // against the machine's 0.5: there, not loud (a modest volume)
 
 // The level events of tape signal (js/media/tape.js: halves = entry lengths in ticks, levels = 0/1) from entry
 // position (i, left) on, `ticks` long, starting at cycle `at` -> [cycle, level, ...]

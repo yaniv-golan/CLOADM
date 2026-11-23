@@ -22,10 +22,10 @@
 #
 # Nothing is built: the site is the repository as committed.
 #
-# IT DOES NOTHING UNTIL THE OWNER SWITCHES PAGES OVER. The guard includes `vars.PAGES_VIA_ACTIONS == 'true'`, a
+# IT DOES NOTHING UNTIL A MAINTAINER SWITCHES PAGES OVER. The guard includes `vars.PAGES_VIA_ACTIONS == 'true'`, a
 # repository variable that does not exist yet, so every run skips and legacy Pages keeps serving main exactly as it
 # does today. That is deliberate: it means merging this changes nothing, and the order of merging and switching
-# cannot matter. The owner's procedure is in docs/development.md ("Publishing the site").
+# cannot matter. The publishing procedure is in docs/development.md ("Publishing the site").
 #
 # Every action is pinned to a full commit SHA with its release tag beside it, as in tests.yml.
 name: pages

@@ -75,7 +75,7 @@ export function menuItem(label, { role = 'menuitem', tag = null, tagOk = false, 
 }
 
 // The size of the screen in CSS pixels in a box availW x availH (availH null: no limit, the width decides): the
-// largest 4:3 picture that fits, to the pixel (R29: no dead space; the pixels are scaled without smoothing).
+// largest 4:3 picture that fits, to the pixel (no dead space; the pixels are scaled without smoothing).
 export function screenSize(availW, availH = null, { aspect = 4 / 3 } = {}) {
   const h = Math.max(1, Math.floor(Math.min(availH == null ? Infinity : availH, availW / aspect)));
   return { width: Math.max(1, Math.floor(h * aspect)), height: h };
@@ -199,7 +199,7 @@ export function announcement(d) {
   return `${d.now}${d.keys.length > ANNOUNCE_KEYS ? `${d.keys.slice(0, ANNOUNCE_KEYS)}…` : d.keys}`;
 }
 
-// The chip on the bezel (R29, R34). An acting call: the bezel takes Claude's clay edge and the chip says what it does,
+// The chip on the bezel. An acting call: the bezel takes Claude's clay edge and the chip says what it does,
 // with the keys (a window of KEYS_SHOWN characters that follows the typing) as they reach the machine (typed(n)) and
 // a cursor; done() shows what it did for HOLD_MS. A reading call: a quiet chip for READ_MS. The person's own input never comes
 // here. els: { bezel, chip, text, keys, left }

@@ -199,7 +199,7 @@ class D64PlusMachine extends SamMachine {
   // with a bank selected the CPU's $0100 is a bank byte, not this.ram[0x100].
   //
   // $FFE0 (status) is 0 on the HD6845S and needs no clock; $FFE1 (register data) is answered by the same
-  // readRegister() the CPU's read uses - side-effect-free for every register except the light-pen latch R16,
+  // readRegister() the CPU's read uses - side-effect-free for every register except the light pen latch R16,
   // which a look must not clear, so R16/R17 read as 0 here; $FFE2 (DE) is 0xFF/0xFE from the clock, which a look
   // does not advance, so it reads the level as of the last clock rather than inventing one.
   peek(a) {
