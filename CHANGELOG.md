@@ -12,9 +12,13 @@ Next version: 0.1.9-pre (the plugin and extension manifests carry it; `tests/plu
 
 - **Link previews.** `index.html` and `play/index.html` have a meta description ("CLOADM: Dragon and Tandy Color
   Computer emulator in your browser. Runs LIZA and games with no ROMs; add yours for BASIC."), Open Graph tags and a
-  `summary_large_image` X card. The picture, `img/og.png` (1200x630, at https://cloadm.dev/img/og.png and in the
-  offline copy), is the welcome menu in a monitor beside the name, made by `tools/capture-og.js` from the real page with
-  no ROMs (it refuses to capture with one loaded). `tests/link-preview.test.js`.
+  `summary_large_image` X card. The picture, `img/og.png` (1200x630, 16 colours, at https://cloadm.dev/img/og.png
+  and in the offline copy), is the welcome menu in a CRT bezel with "cloadm.dev" on it, beside the name. It is made by
+  one reusable, browser-free renderer, `js/video/card.js` (`renderCard(frame, { caption })` -> PNG bytes, drawing its
+  text in the chat terminal's own font, now `js/video/chat-font.js`), over a small indexed-PNG and deflate writer,
+  `js/media/png.js`. `tools/capture-og.js` captures the welcome menu from the real page with no ROMs (it refuses to
+  capture with one loaded) and calls it. `tests/link-preview.test.js`, `tests/card.test.js` (the PNG decoded
+  independently: size, palette, CRCs, the frame's pixels in the glass, the caption).
 - **Arriving on a shared moment.** A share link's moment that runs without ROMs opens without the "Running with no
   ROMs" card and the orange **No BASIC** pill: the person came to see that moment. Both come back once they leave it
   (Reset back to the menu, Switch off and on, or a machine switch). `Session.sharedMoment`, set by
