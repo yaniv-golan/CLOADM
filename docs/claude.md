@@ -312,10 +312,13 @@ emulator.
   ROM is stored for its model either way, so a ROM dropped here sets up the same model's BASIC session; the chat
   machine keeps running its firmware and takes the stored ROMs when you go back to BASIC. The POKE book, Remove ROMs,
   Save snapshot, Skip on the cassette and the welcome menu are the BASIC session's too.
-* **Typing.** A line can be up to 255 characters. It wraps as you type the way replies wrap: a word that doesn't fit
+* **Typing.** A line can be up to 1024 characters. It wraps as you type the way replies wrap: a word that doesn't fit
   moves to the next line, a word with no space in it breaks at the character, and a space that falls at the end of a
-  full line ends it without being drawn. BACKSPACE goes back across the wraps. A key past the 255th is refused visibly: the screen flashes (the VDG's colour
-  set switches from green to buff for about a tenth of a second) instead of the key being dropped without notice.
+  full line ends it without being drawn. A line longer than the screen scrolls it as you type; BACKSPACE goes back
+  across the wraps, and a row that has scrolled off the top comes back as you reach it. A key past the 1024th is
+  refused visibly, never dropped without notice: the row under the line says "[Full: 1024 characters. ENTER sends
+  it.]" (BACKSPACE, ENTER or BREAK takes it away) and the screen flashes (the VDG's colour set switches from green to
+  buff for about a tenth of a second).
   You can type ahead: keys typed while a reply is still coming (or while Claude uses its tools, or a card waits) are
   kept and typed at the prompt once the reply has ended, so a line typed then is sent whole. BREAK (Esc) while a reply
   comes only stops the reply; it is not kept for the next line.

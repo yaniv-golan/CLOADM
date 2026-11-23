@@ -436,11 +436,17 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 
 ### Fixed
 
+- **A long line typed on the chat screen goes whole, up to 1024 characters.** The chat firmware's line held 255
+  characters (its lengths were single bytes) and the keys after the 255th were not sent: a 269-character prompt
+  arrived as its first 255, and the screen only flashed. The line now holds 1024 (16-bit lengths, the buffer at
+  `$7300`); a line longer than the screen scrolls it as it is typed, and BACKSPACE brings back the rows that have
+  scrolled off. A key past the 1024th is refused with a notice on the row under the line, "[Full: 1024 characters.
+  ENTER sends it.]", and the flash. `tests/chat-long-lines.test.js` sends lines of 256, 269, 1000 and 1025 characters
+  through the Session on the Dragon 64, the CoCo and the CoCo 3, over the mailbox and DriveWire.
 - **A line typed on the chat screen while a reply is still coming is kept whole.** The chat firmware used to ignore
   every key from ENTER until the reply had ended, so a line typed ahead (by a person or a script, while Claude
   answered, used its tools or waited at a consent card) lost its start and only its tail was sent. The keys now wait
-  in the firmware's type-ahead ring (255 keys, the line's own limit; a key past it flashes the screen, as a key past
-  the 255th does) and are typed at the prompt once the reply has ended, in the order typed. BREAK while a reply comes
+  in the firmware's type-ahead ring (2047 keys; a key past it flashes the screen) and are typed at the prompt once the reply has ended, in the order typed. BREAK while a reply comes
   still only stops the reply. `tests/chat-firmware.test.js`, `tests/claude-chat-drivewire.test.js` and the
   `chatScreen` browser check type 200-character lines and check the bytes the backend receives.
 - **A call stopped by the MCP server's 25 s time limit says so.** A long `type_text` on a host too slow to finish it

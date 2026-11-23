@@ -14,11 +14,12 @@
 //  * lowercase is shown as lowercase (the font has both cases, so no inverted-video trick);
 //  * a reply longer than the screen scrolls, keeping the newest lines;
 //  * a line typed at the keyboard reaches the backend byte for byte (no case change, no added characters), up to
-//    255 characters; it wraps as it is typed the way replies wrap: a word that
+//    1024 characters; it wraps as it is typed the way replies wrap: a word that
 //    does not fit moves to the next line, a word with no space breaks at the character, and a space that falls at
-//    the end of a full line ends it unseen (typedLayout below); BACKSPACE goes back across the wraps, and a key
-//    past the limit is refused visibly: the screen flashes
-//    (the VDG's CSS bit, green to buff, for about a tenth of a second) instead of the key being dropped silently;
+//    the end of a full line ends it unseen (typedLayout below); a line longer than the screen scrolls it; BACKSPACE
+//    goes back across the wraps, into rows scrolled off the top too, and a key past the limit is refused visibly: a
+//    notice on the row under the line says the message is full, and the screen flashes (the VDG's CSS bit, green to
+//    buff, for about a tenth of a second), instead of the key being dropped silently;
 //  * "Thinking..." shows until the first byte of the reply arrives.
 //  * keys typed while a reply comes (from ENTER until its $04) are kept, in order, and typed at the prompt once it is
 //    back, so a line typed ahead arrives whole; BREAK typed then is not kept (on the page it stops the reply).
@@ -102,11 +103,23 @@ function start() {
   const s = { machine: m, channel, toBackend };
   s.run = (frames = 2) => { for (let i = 0; i < frames; i++) { pump(); m.runFrame(); pump(); } };
   s.type = (text) => { for (const ch of text) { m.stubKeys.push(ch.charCodeAt(0)); s.run(2); } };
-  // (the mailbox carries one byte a frame, so a 255-character line takes 256 frames to go)
-  s.enter = () => { m.stubKeys.push(13); s.run(3); for (let i = 0; i < 400 && pending(); i++) s.run(1); };
+  // ENTER: the keys before it taken, then the line queued (NEWLINE can scroll the whole screen, a few frames), then
+  // sent: the mailbox carries one byte a frame, so a 1024-character line takes 1025 frames to go
+  s.enter = () => {
+    const before = toBackend.length;
+    m.stubKeys.push(13);
+    if (!m.ram[asm.symbols.get('WAIT')]) s.settle();   // (while a reply is awaited the keys stay in the ring)
+    for (let i = 0; i < 30 && !pending() && toBackend.length === before; i++) s.run(1);
+    for (let i = 0; i < 1200 && pending(); i++) s.run(1);
+    s.run(3);
+  };
   // while the firmware still has line bytes queued, keep stepping
   const pending = () => m.ram[asm.symbols.get('SPEND')] !== 0;
   s.screen = () => screenRows(m);
+  // until every key typed has been taken: out of the stub's queue and out of the firmware's type-ahead ring (a key
+  // that scrolls the whole screen takes a few frames)
+  const ring = (sym) => m.ram[asm.symbols.get(sym)] * 256 + m.ram[asm.symbols.get(sym) + 1];
+  s.settle = () => { for (let i = 0; i < 20000 && (m.stubKeys.length || ring('TAHEAD') !== ring('TATAIL')); i++) s.run(1); s.run(10); };
   return s;
 }
 // the wrap rule from the spec, as an oracle independent of the firmware
@@ -240,28 +253,91 @@ const POEM = 'Will you please write a short poem about how wonderful the Dragon 
   check('the 69-character prompt reaches the backend byte for byte, then CR', sent === `${POEM}\r`, JSON.stringify(sent));
 }
 
-// ---- 9. a 255-character line, and the limit ----
+// ---- 9. long lines (256, 269, 1000 and 1024 characters), the limit, and BACKSPACE into rows scrolled away ----
+// The line holds BMAX (1024) characters: lengths are 16-bit. A line longer than the screen scrolls it as it is typed;
+// BACKSPACE back into a row that has scrolled off the top brings it back. Past the limit a key is refused: a notice
+// on the row under the line says the message is full, and the screen flashes.
 const CHARS = 'abcdefghijklmnopqrstuvwxyz ABCDEFGHIJKLMNOPQRSTUVWXYZ 0123456789.,?!';
-const LONG = Array.from({ length: 255 }, (_, i) => CHARS[(i * 7) % CHARS.length]).join('');
+const textOf = (n, k = 7) => Array.from({ length: n }, (_, i) => CHARS[(i * k) % CHARS.length]).join('').replace(/ $/, '.');
+const LONG = textOf(255);
+const BMAX = asm.symbols.get('BMAX');
+const word = (m, sym) => m.ram[asm.symbols.get(sym)] * 256 + m.ram[asm.symbols.get(sym) + 1];
+// the rows of the typed line as the screen should show them: the layout's last rows, ending on the cursor's row
+// (after the keys have been taken: a scroll of the whole screen takes a few frames)
+const linesShown = (s, layout) => {
+  s.settle();
+  const rows = s.screen(), cur = s.machine.ram[asm.symbols.get('CURROW')];
+  for (let j = 0; j <= cur && j < layout.length; j++) {
+    const i = layout.length - 1 - j, want = (i === 0 ? `> ${layout[i]}` : layout[i]).trimEnd();
+    if (rows[cur - j].trimEnd() !== want) return { ok: false, row: cur - j, got: rows[cur - j], want };
+  }
+  return { ok: true };
+};
+check('the line holds 1024 characters (BMAX)', BMAX === 1024);
+for (const len of [256, 269, 1000]) {
+  const s = start();
+  s.run(30);
+  const text = textOf(len, len === 269 ? 11 : 7);
+  s.type(text);
+  const shown = linesShown(s, typedLayout(text));
+  s.enter();
+  const sent = s.toBackend.map((b) => String.fromCharCode(b)).join('');
+  check(`a ${len}-character line shows as typed (the screen scrolling under it) and reaches the backend byte for byte, then CR`,
+    text.length === len && shown.ok && sent === `${text}\r`, `${JSON.stringify(shown)} sent ${sent.length} bytes`);
+}
 {
   const s = start();
   s.run(30);
-  s.type(LONG);
-  const rows = s.screen(), layout = typedLayout(LONG);
-  check('a 255-character line is all on screen, wrapped at words as typed', LONG.length === 255 && onScreen(rows, layout), JSON.stringify({ rows: rows.slice(0, 8), layout }));
-  // past the limit: the key is refused, and the screen flashes
+  const full = textOf(BMAX);
+  s.type(full);
+  const layout = typedLayout(full);
+  check('a 1024-character line shows as typed, its last rows on screen', linesShown(s, layout).ok && word(s.machine, 'BLEN') === BMAX, JSON.stringify(linesShown(s, layout)));
+  // past the limit: the key is refused, a notice says so on the row under the line, and the screen flashes
   const lit = () => { const f = s.machine.render(); const seen = new Set(); for (let i = 0; i < f.data.length; i += 37) seen.add(f.table[f.data[i]]); return [...seen].sort().join(); };
   const normal = lit();
   s.machine.stubKeys.push('X'.charCodeAt(0));
   const during = [];
-  for (let i = 0; i < 12; i++) { s.run(1); during.push(lit()); }
-  check('a key past 255 is not taken: the line is unchanged on screen', onScreen(s.screen(), layout) && s.screen()[layout.length].trim() === ''
-    && s.machine.ram[asm.symbols.get('BLEN')] === 255);
-  check('a key past 255 flashes the screen (CSS: green to buff) and it comes back', during.some((c) => c !== normal) && during[during.length - 1] === normal,
-    JSON.stringify({ normal, during }));
+  for (let i = 0; i < 30; i++) { s.run(1); during.push(lit()); }   // (the notice's row can scroll the screen first)
+  const cur = s.machine.ram[asm.symbols.get('CURROW')];
+  const notice = s.screen()[cur + 1] || '';
+  check('a key past 1024 is not taken: the line is unchanged', word(s.machine, 'BLEN') === BMAX && linesShown(s, layout).ok, JSON.stringify(linesShown(s, layout)));
+  check('a key past 1024 shows a notice on the row under the line: the message is full, ENTER sends it',
+    notice.trimEnd() === '[Full: 1024 characters. ENTER sends it.]', JSON.stringify(notice));
+  check('a key past 1024 flashes the screen (CSS: green to buff) and it comes back', during.some((c) => c !== normal) && during[during.length - 1] === normal,
+    JSON.stringify({ normal, during: during.slice(0, 3) }));
   s.enter();
   const sent = s.toBackend.map((b) => String.fromCharCode(b)).join('');
-  check('the whole 255-character line reaches the backend byte for byte, then CR (nothing past the limit)', sent === `${LONG}\r`, `${sent.length} bytes`);
+  check('the whole 1024-character line reaches the backend byte for byte, then CR (nothing past the limit)', sent === `${full}\r`, `${sent.length} bytes`);
+  check('ENTER takes the notice away (the line and Thinking... follow on; no notice left)', !s.screen().some((l) => /\[Full:/.test(l)));
+}
+{
+  // BACKSPACE into rows scrolled off the top: they come back, drawn again, the prompt with the first
+  const s = start();
+  s.run(30);
+  const full = textOf(BMAX);
+  s.type(full);
+  s.machine.stubKeys.push('X'.charCodeAt(0)); s.run(30);              // the notice up...
+  s.machine.stubKeys.push(8); s.run(2);                                // ...and BACKSPACE takes it away with a character
+  const noNote = !s.screen().some((l) => /\[Full:/.test(l));
+  // (BACKSPACE does not lay the line out again: a word that moved down stays down. So the oracle is the full line's
+  // layout cut at a place where the shorter line lays out the same way: every row but the last as the full line's)
+  const fullRows = typedLayout(full);
+  // (inside the first row: the way back goes through every row that scrolled off, up to the prompt's)
+  const keep = [...Array(20).keys()].map((i) => 30 - i).find((k) => {
+    const r = typedLayout(full.slice(0, k));
+    return r.length === 1 && fullRows[0].startsWith(r[0]) && !r[0].endsWith(' ');
+  });
+  for (let i = 0; i < BMAX - 1 - keep; i++) { s.machine.stubKeys.push(8); s.run(2); }
+  s.settle();
+  const left = full.slice(0, keep), shown = linesShown(s, typedLayout(left));
+  check('(a place to cut the line where the oracle holds)', keep > 0, String(keep));
+  check('BACKSPACE takes the notice away', noNote);
+  check(`BACKSPACE from 1024 back to ${keep} characters brings the scrolled-off rows back, the prompt row too`,
+    word(s.machine, 'BLEN') === keep && shown.ok && s.screen()[0].startsWith('> '), `${word(s.machine, 'BLEN')} ${JSON.stringify(shown)} ${JSON.stringify(s.screen().slice(0, 3))}`);
+  s.type('Z');
+  s.enter();
+  const sent = s.toBackend.map((b) => String.fromCharCode(b)).join('');
+  check('typing goes on from there, and the line sent is what is on screen', sent === `${left}Z\r`, JSON.stringify(sent.slice(-12)));
 }
 
 // ---- 10. BACKSPACE goes back across the wrap ----
@@ -338,21 +414,23 @@ const sentText = (s) => s.toBackend.map((b) => String.fromCharCode(b)).join('');
   check('BREAK typed while the reply comes is not kept; the keys around it are', sentText(s) === `${before}abcxyz\r`, JSON.stringify(sentText(s).slice(before.length)));
 }
 {
-  // the ring holds 255 keys, as the line does: the 256th typed ahead is refused (the screen flashes), not kept
+  // the ring holds 2047 keys: the 2048th typed ahead is refused (the screen flashes), not kept; what the ring kept goes
+  // into the line once the prompt is back, up to its 1024
   const s = start();
   s.run(30);
   s.type('first'); s.enter();
   const css = [];
   const m = s.machine, w = m.write.bind(m);
   m.write = (a, v) => { if (a === 0xFF22) css.push(v & 0x08); return w(a, v); };
-  for (let i = 0; i < 256; i++) m.stubKeys.push(0x61 + (i % 26));
-  s.run(20);
+  for (let i = 0; i < 2048; i++) m.stubKeys.push(0x61 + (i % 26));
+  s.run(60);
   m.write = w;
   const flashed = css.includes(0x08);
+  const ring = (word(m, 'TATAIL') - word(m, 'TAHEAD') + 2048) % 2048;
   endReply(s, 'ok');
-  s.run(120);
-  check('256 keys typed ahead: 255 are kept, the screen flashes for the 256th, and the line holds all 255',
-    flashed && m.ram[Emu.CHAT_STATE.blen] === 255, `flash ${flashed}, BLEN ${m.ram[Emu.CHAT_STATE.blen]}`);
+  s.run(2400);
+  check('2048 keys typed ahead: 2047 are kept, the screen flashes for the 2048th, and the line then holds its 1024',
+    flashed && ring === 2047 && word(m, 'BLEN') === 1024, `flash ${flashed}, ring ${ring}, BLEN ${word(m, 'BLEN')}`);
 }
 
 console.log(`${n - fail}/${n} chat firmware checks passed`);

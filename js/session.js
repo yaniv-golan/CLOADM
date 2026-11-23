@@ -2224,7 +2224,7 @@ export class Session {
   get chatPromptEmpty() {
     const cm = this.chatMachines && this.chatView === 'chat' && this.chatMachines.chat;
     if (!cm || !this.chat || this.chat.busy) return false;
-    return this.readByte(CHAT_STATE.blen, cm) === 0 && this.readByte(CHAT_STATE.wait, cm) === 0;
+    return this.readByte(CHAT_STATE.blen, cm) === 0 && this.readByte(CHAT_STATE.blen + 1, cm) === 0 && this.readByte(CHAT_STATE.wait, cm) === 0;
   }
   get hasClaudeKey() { return !!this.keyStore.get(); }
   // Ask Claude: the conversation without the chat machine, shown in the side

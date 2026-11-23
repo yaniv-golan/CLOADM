@@ -115,7 +115,7 @@ async function say(s, calls, line, want) {
     const words = chatScreen(s).join(' ').split(/\s+/).filter((w) => w === 'DriveWire.' || w === 'Over');
     check(`${id}: a 399-byte reply takes several SERREADMs and arrives whole`, reads.length >= 2 && s.chatServer.channels[14].queue.length === 0
       && s.chat.messages.slice(-1)[0].content === long && words.length === 50, `${reads.length} reads; ${words.length} of its 50 words on screen`);
-    // a 255-character typed line (the firmware's limit) goes out whole over FASTWRITE
+    // a 255-character typed line (the firmware's old limit; tests/chat-long-lines.test.js takes it to 1024) goes out whole over FASTWRITE
     const line255 = Array.from({ length: 255 }, (_, i) => 'Long line over DriveWire, 0123456789. '[i % 38]).join('');
     for (let i = 0; i < 400 && s.chat.busy; i++) await frames(s, 2);
     await frames(s, 20);

@@ -218,9 +218,9 @@ async function say(s, calls, line, want) {
     frames(s, 10);
     check('chatPromptEmpty: a fresh prompt is empty and idle', s.chatPromptEmpty === true);
     key('a'.charCodeAt(0)); key('b'.charCodeAt(0));
-    check('chatPromptEmpty: with two characters typed it is not (BLEN = 2)', s.chatPromptEmpty === false && s.readByte(Emu.CHAT_STATE.blen, s.shownMachine) === 2);
+    check('chatPromptEmpty: with two characters typed it is not (BLEN = 2)', s.chatPromptEmpty === false && s.readByte(Emu.CHAT_STATE.blen, s.shownMachine) === 0 && s.readByte(Emu.CHAT_STATE.blen + 1, s.shownMachine) === 2);
     key(0x03);
-    check('chatPromptEmpty: BREAK drops the typed line, and the prompt is empty again', s.chatPromptEmpty === true && s.readByte(Emu.CHAT_STATE.blen, s.shownMachine) === 0);
+    check('chatPromptEmpty: BREAK drops the typed line, and the prompt is empty again', s.chatPromptEmpty === true && s.readByte(Emu.CHAT_STATE.blen, s.shownMachine) === 0 && s.readByte(Emu.CHAT_STATE.blen + 1, s.shownMachine) === 0);
     s.typeText('hi\n');
     for (let i = 0; i < 40 && !chat.busy && calls.length < 1; i++) { frames(s, 1); await settle(); }
     check('chatPromptEmpty: with the line sent and its reply on the way it is not (WAIT set, or the reply streaming)', s.chatPromptEmpty === false, `wait ${s.readByte(Emu.CHAT_STATE.wait, s.shownMachine)} busy ${chat.busy}`);

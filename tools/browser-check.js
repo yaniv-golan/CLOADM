@@ -8235,7 +8235,7 @@ async function chatScreenChecks(browser, base, check) {
   }
 }
 
-// Long lines typed on the chat screen through the keyboard reach the API byte for byte: a 200-character line typed at
+// Long lines typed on the chat screen through the keyboard reach the API byte for byte: a 300-character line typed at
 // the prompt, and one typed while the previous reply still comes down the mailbox (the firmware keeps those keys in
 // its type-ahead ring and types them once the prompt is back; it used to drop them, sending only the line's tail).
 async function chatLongLineChecks(browser, base, check) {
@@ -8266,16 +8266,16 @@ async function chatLongLineChecks(browser, base, check) {
   await page.focus('#screen');
   const lastLine = (n) => requests[n] && requests[n].messages.slice(-1)[0].content;
   // 1. at the prompt
-  const one = ('Tell me the top line before you answer, then explain the screen of the Dragon 64 in a few words. ').repeat(3).slice(0, 199) + '?';
+  const one = ('Tell me the top line before you answer, then explain the screen of the Dragon 64 in a few words. ').repeat(4).slice(0, 299) + '?';   // (past the old 255)
   await page.keyboard.type(one, { delay: 5 });
   await page.keyboard.press('Enter');
   await waitFor(page, () => window.emu.session.chat.busy || window.emu.session.chat.messages.length > 0, null, 20000);
   await idle();
-  check(`${L}: a 200-character line typed on the screen reaches the API byte for byte`, requests.length >= 1 && lastLine(0) === one, JSON.stringify(lastLine(0)));
+  check(`${L}: a 300-character line typed on the screen reaches the API byte for byte`, requests.length >= 1 && lastLine(0) === one, JSON.stringify(lastLine(0)));
   // 2. typed while a reply is still coming down: the firmware waits (WAIT) and the keys are kept
   await page.keyboard.type('next', { delay: 5 });
   await page.keyboard.press('Enter');
-  const waiting = await waitFor(page, () => window.emu.session.readByte(0x6037, window.emu.session.chatMachines.chat) === 1 && window.emu.session.chat.channel.queued > 0, null, 20000);
+  const waiting = await waitFor(page, () => window.emu.session.readByte(window.emu.Emu.CHAT_STATE.wait, window.emu.session.chatMachines.chat) === 1 && window.emu.session.chat.channel.queued > 0, null, 20000);
   const two = ('Type ahead: this line is typed while the reply before it still comes, and it must arrive whole. ').repeat(3).slice(0, 199) + '!';
   await page.keyboard.type(two, { delay: 5 });
   const stillComing = await page.evaluate(() => window.emu.session.chat.channel.queued > 0 || window.emu.session.chat.busy);
@@ -12178,7 +12178,7 @@ async function escChatChecks(browser, base, check) {
   const L = 'chat Esc';
   const where = () => page.evaluate(() => ({ full: window.emu.session.claudeView === 'full', open: document.body.classList.contains('claude-open'), url: location.pathname + location.search + location.hash,
     focus: document.activeElement && (document.activeElement.id || document.activeElement.tagName), busy: !!(window.emu.session.chat && window.emu.session.chat.busy),
-    blen: window.emu.session.chatMachines ? window.emu.session.readByte(0x6013, window.emu.session.chatMachines.chat) : null }));
+    blen: window.emu.session.chatMachines ? ((s, m) => s.readByte(window.emu.Emu.CHAT_STATE.blen, m) * 256 + s.readByte(window.emu.Emu.CHAT_STATE.blen + 1, m))(window.emu.session, window.emu.session.chatMachines.chat) : null }));
   const idle = () => waitFor(page, () => window.emu.session.chatPromptEmpty === true, null, 15000);
   const left = () => waitFor(page, () => window.emu.session.claudeView !== 'full' && document.getElementById('claude').hidden && !/app=claude/.test(location.search), null, 5000);
   const openChat = async () => {
@@ -12990,10 +12990,10 @@ async function uiQaChecks(browser, base, check) {
   const stepped = await page.evaluate(() => !!(history.state && history.state.claudeChat));
   // (with a line typed, BREAK has something to do: the firmware drops the line; the empty, idle prompt is leave-the-chat, in escChatChecks)
   await page.focus('#screen'); await emuFrames(page, 3); await page.keyboard.type('x');
-  const typed = await waitFor(page, () => window.emu.session.readByte(0x6013, window.emu.session.chatMachines.chat) === 1);
+  const typed = await waitFor(page, () => ((s, m) => s.readByte(window.emu.Emu.CHAT_STATE.blen, m) * 256 + s.readByte(window.emu.Emu.CHAT_STATE.blen + 1, m))(window.emu.session, window.emu.session.chatMachines.chat) === 1);
   await page.keyboard.press('Escape'); await emuFrames(page, 3);
   check('in the full-screen chat, Esc on the screen with a line typed is BREAK (the line is dropped) and keeps the chat open', typed
-    && await page.evaluate(() => window.emu.session.claudeView === 'full' && window.emu.session.readByte(0x6013, window.emu.session.chatMachines.chat) === 0));
+    && await page.evaluate(() => window.emu.session.claudeView === 'full' && ((s, m) => s.readByte(window.emu.Emu.CHAT_STATE.blen, m) * 256 + s.readByte(window.emu.Emu.CHAT_STATE.blen + 1, m))(window.emu.session, window.emu.session.chatMachines.chat) === 0));
   await page.focus('#btnFullSide'); await page.keyboard.press('Escape');
   check('in the full-screen chat, Esc off the screen closes it', await waitFor(page, () => window.emu.session.claudeView !== 'full' && document.getElementById('claude').hidden));
   // and takes the chat's history step back, as "← Emulator" and the browser's Back do (phone-chat's leave()): the
