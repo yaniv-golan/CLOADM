@@ -51,10 +51,11 @@ function skipReason({ platform, env, haveSetsid, haveProc }) {
   try {
     reason = skipReason({ platform: process.platform, env: process.env,
       haveSetsid: cp.spawnSync('sh', ['-c', 'command -v setsid >/dev/null']).status === 0, haveProc: fs.existsSync('/proc/self/fd') });
-  } catch (e) { check('this machine can run the test (CI never skips it)', false, e.message); process.exit(1); }
+  } catch (e) { check('this machine can run the test (CI never skips it)', false, e.message); process.exitCode = 1; return; }
   if (reason) {
     console.log(`SKIP ${reason}`);
-    process.exit(fail ? 1 : 0);
+    process.exitCode = fail ? 1 : 0;
+    return;   // (module scope: nothing below runs)
   }
 }
 const SCRIPT = path.join(__dirname, '..', '.github', 'scripts', 'install-browser-deps.sh');
