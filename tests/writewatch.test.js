@@ -493,7 +493,7 @@ function heldTest() {
       s.watchWrites({ start: 0xFEFF, end: 0xFEFF }, (e) => { ev.push(e); if (m.cpuHeld || m.inStep) held++; });
       for (let fr = 0; fr < 300 && ev.length < 60; fr++) {
         if (how === 'session') s.runFrames(1); else m.runFrame();
-        if (m.haltDefer) suspended++;
+        if (m.halt.haltDefer) suspended++;
       }
       const done = stds - (m.cpuHeld ? 1 : 0);   // (one held now has had its probe, not its delivery)
       check(`held STD (${label}, ${how}): suspended ${suspended} times, each completed STD's $FEFF write reported once`,

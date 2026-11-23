@@ -123,7 +123,7 @@ try {
   const times = JSON.parse(fs.readFileSync(path.join(TESTS, 'suite-times.json'), 'utf8')).suites;
   const stale = Object.keys(times).filter((f) => !onDisk.includes(f));
   check('tests/suite-times.json names only real suites, and most of them', stale.length === 0 && Object.keys(times).length >= onDisk.length * 0.9,
-    stale.length ? `not suites: ${stale.join(', ')} (refresh: node tests/all.js --timings tests/suite-times.json)` : `${Object.keys(times).length} of ${onDisk.length} timed`);
+    stale.length ? `not suites: ${stale.join(', ')} (refresh: node tests/all.js --record-times)` : `${Object.keys(times).length} of ${onDisk.length} timed`);
 } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 
 console.log(fail ? `${fail} suite-shards check(s) FAILED` : 'all suite-shards checks passed');

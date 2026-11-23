@@ -80,10 +80,20 @@ export function setupMediaPanel(page, { snapshots, disks, nitros9, keep }) {
   };
   // the deck shows the position: no message (and Rewind is disabled while the deck is empty)
   $('btnRewind').onclick = () => { session.rewindTape(); page.focus(); };
+  // Eject: the deck under the screen hides with the tape, so the focus goes to the slot's deck button (insert a tape);
+  // on a phone with its Tape sheet closed (Eject from the palette), to the Tape chip that opens it
+  $('btnEjectTape').onclick = () => {
+    if (!session.ejectTape()) return;
+    const to = [$('btnTape'), $('chipTape')].find((e) => e.checkVisibility());
+    if (to) to.focus(); else page.focus();
+    page.status('Tape ejected.');
+  };
 
   // recording what the machine writes (CSAVE, CSAVEM): Record arms the deck, a second click saves the .CAS
   const download = (name, bytes, type) => page.download(name, bytes, type);
   let lastRecording = null;
+  // (the command box asks whether there is a recording to save as WAV when no tape is in)
+  page.tape = { recorded: () => !!lastRecording };
   const showRecording = () => {
     const on = session.tapeRecording;
     $('btnRecord').setAttribute('aria-pressed', String(on));
@@ -95,10 +105,27 @@ export function setupMediaPanel(page, { snapshots, disks, nitros9, keep }) {
     showRecording();
     lastRecording = r;
     if (!r.cas.length) { page.status('Nothing was written to tape (no blocks found in the recording).', true); return; }
-    download('recording.cas', r.cas, 'application/octet-stream');
-    page.status(`Recorded ${r.blocks} block(s) in ${r.seconds.toFixed(1)} s${r.badBlocks ? `, ${r.badBlocks} damaged` : ''}: saved recording.cas (Save .WAV for the sound).`);
+    saveRecording(r);
     page.focus();
   };
+  // A recording goes into the Library, named after the first file on it (Session.recordingName; a name already taken
+  // gets " (2)"), with Download in its toast; where the browser keeps nothing ("Download and open files") it is
+  // downloaded under that name instead
+  async function saveRecording(r) {
+    const named = session.constructor.recordingName(r.cas), wanted = named.name;
+    const count = named.files > 1 ? ` (${named.files} files)` : '';
+    if (session.media.kind === 'fallback') {
+      download(wanted, r.cas, 'application/octet-stream');
+      page.status(`Saved ${wanted}${count}.`);
+      return;
+    }
+    let name = wanted;
+    try {
+      name = await session.library.uniqueName(wanted);
+      await session.library.importMedia(name, r.cas);
+    } catch (e) { page.status(`${name} wasn't saved to your Library: ${e.message}`, true); return; }
+    page.toast(`Saved ${name} to your Library${count}.`, { action: { label: 'Download', run: () => download(name, r.cas, 'application/octet-stream') } });
+  }
   // the tape in the deck as WAV; with no tape, the last recording as it was written
   $('btnTapeWav').onclick = () => {
     if (!session.personMachine.deck.tape && lastRecording) { download('recording.wav', lastRecording.wav, 'audio/wav'); page.status('Saved recording.wav'); return; }
@@ -110,10 +137,8 @@ export function setupMediaPanel(page, { snapshots, disks, nitros9, keep }) {
     if (ev !== 'recording' || !session.unsavedRecording) return;
     const r = session.unsavedRecording;
     session.unsavedRecording = null;
-    if (window.confirm(`The tape recording on the ${r.machine} was not saved (${r.blocks} blocks). Save recording.cas before it is gone?`)) {
-      download('recording.cas', r.cas, 'application/octet-stream');
-      page.status(`Saved recording.cas (${r.blocks} blocks recorded on the ${r.machine})`);
-    }
+    const name = session.constructor.recordingName(r.cas).name;
+    if (window.confirm(`The tape recording on the ${r.machine} was not saved (${r.blocks} blocks). Save ${name} before it is gone?`)) saveRecording(r);
   });
 
   return { loadProgram, loadPrograms };

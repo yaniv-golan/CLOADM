@@ -6,10 +6,10 @@
 *
 * Register sequence (js/chips/ay8910.js's map; MAME's ay8910.cpp is the same part):
 *   7  mixer: tone A, B and C on (bits 0-2 clear), noise off (bits 3-5 set) = $38
-*   0/1 tone A period, 2/3 tone B period (12-bit dividers of clock/16; at the card's 894,886 Hz,
-*       period 140 -> 399 Hz and period 93 -> 601 Hz)
+*   0/1 tone A period, 2/3 tone B period (12-bit dividers of clock/16; the AY's clock is 1,789,772.5 Hz,
+*       twice the card's cycle rate, so period 140 -> 799 Hz and period 93 -> 1203 Hz)
 *   8  volume A = 12/15, 9 volume B = 6/15, 10 volume C = 0 (silent) -> two channels sound
-* then period 70 (799 Hz) / 46 (1216 Hz), then 200 (280 Hz) / 33 (1695 Hz).
+* then period 70 (1598 Hz) / 46 (2432 Hz), then 200 (559 Hz) / 33 (3390 Hz).
 *
 * The AY-3-8913 latches its register number on a port C write with BDIR and BC1 both set, and its data on a
 * write with BDIR set and BC1 clear (js/chips/ay8910.js); port C bits 3 and 0 are those lines and bit 6 is the
@@ -60,7 +60,7 @@ AYREG   MOVP    A,P10        ; port D = register number
         MOVP    %$08,P8      ; BDIR only: write the data
         RETS
 
-* ---- tone 1: mixer on, two channels, A = 399 Hz, B = 601 Hz ----
+* ---- tone 1: mixer on, two channels, A = 799 Hz, B = 1203 Hz ----
 TONE1   MOV     %$07,A
         MOV     %$38,B
         CALL    @AYREG       ; mixer: tone A/B/C on, noise off
@@ -90,26 +90,26 @@ TONE1   MOV     %$07,A
 * ---- tone 2: the same two channels an octave up ----
 TONE2   MOV     %$00,A
         MOV     %$46,B
-        CALL    @AYREG       ; tone A low = 70 (799 Hz)
+        CALL    @AYREG       ; tone A low = 70 (1598 Hz)
         MOV     %$02,A
         MOV     %$2E,B
-        CALL    @AYREG       ; tone B low = 46 (1216 Hz)
+        CALL    @AYREG       ; tone B low = 46 (2432 Hz)
         RETS
 
 * ---- tone 3: one more change, then steady ----
 TONE3   MOV     %$00,A
         MOV     %$C8,B
-        CALL    @AYREG       ; tone A low = 200 (280 Hz)
+        CALL    @AYREG       ; tone A low = 200 (559 Hz)
         MOV     %$02,A
         MOV     %$21,B
-        CALL    @AYREG       ; tone B low = 33 (1695 Hz)
+        CALL    @AYREG       ; tone B low = 33 (3390 Hz)
         RETS
 
 * ---- a delay between tones so each is heard: R0 counts 0..255 while R1 counts 7 outer passes ----
 PAUSE   MOV     %$FF,R0
         MOV     %$07,R1
-PLOOP   DJNZ    R0,@PLOOP
-        DJNZ    R1,@PLOOP
+PLOOP   DJNZ    R0,PLOOP
+        DJNZ    R1,PLOOP
         RETS
 
 * ---- vectors: INT3 at >FFF8/>FFF9, reset at >FFFE/>FFFF (Table 3-12)

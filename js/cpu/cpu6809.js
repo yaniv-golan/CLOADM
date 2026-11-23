@@ -363,7 +363,7 @@ class CPU6809 {
 
   // The registers an instruction changes, kept at the start of a step (mark) so that the machine can take the step
   // back (rewind) and run the instruction again from its start: the CoCo 3 does so for an instruction that HALT
-  // suspends past the end of a run (js/machines/coco3.js haltWait). Lines and pending interrupts are not kept: they
+  // suspends past the end of a run (js/machines/halt-replay.js haltWait). Lines and pending interrupts are not kept: they
   // change at their own times, not by the instruction. haltTail and totalCycles change only between instructions.
   mark() {
     const p = this.pre;
@@ -412,7 +412,7 @@ class CPU6809 {
     this.totalCycles += this.c;
     return this.c;
   }
-  // the instruction at pc run again from its start after rewind() (js/machines/coco3.js haltResume): it was under way
+  // the instruction at pc run again from its start after rewind() (js/machines/halt-replay.js haltResume): it was under way
   // when it was suspended, so no interrupt is taken first, and the trace, which logged it then, isn't called again
   rerun() {
     this.cycleCount = 0;

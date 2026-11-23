@@ -777,24 +777,29 @@ async function cartridgeChecks(browser, base, check) {
 // lockstep with MAME matched (CoCo 1/2, CoCo 2B, CoCo 3, Dragon 64), the Insert button runs OUR tone firmware as
 // the PIC, and the machine's music path runs. Every ROM here is built by our own tools (tools/mame-diff/ssc/), never a real dump.
 async function sscBoardChecks(browser, base, check) {
-  const { toneFirmware } = require('../tools/mame-diff/ssc/audio.js');
+  const { toneFirmware } = require('../tools/mame-diff/ssc/gen-roms.js');
   const ctx = await browser.newContext();
   const page = await ctx.newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
   await page.goto(`${base}?machine=coco`);
   await started(page);
-  // the board menu names it, music only, and offers it on the CoCo
-  const menu = await page.evaluate(() => {
+  // the board menu offers it on the CoCo, named for what it does with no speech ROM yet (SSC_TEXT, js/session.js)
+  const sscMenu = () => page.evaluate(() => {
     const o = document.querySelector('#selCartBoard option[value="ssc"]');
     return o ? { text: o.textContent, hidden: o.hidden } : null;
   });
-  check('Speech/Sound Pak: the board menu names it "music only; speech not yet", offered on the CoCo',
-    menu && /music only/.test(menu.text) && /speech not yet/.test(menu.text) && menu.hidden === false, JSON.stringify(menu));
+  const menu = await sscMenu();
+  check('Speech/Sound Pak: offered on the CoCo, its board menu label "Speech/Sound Pak (music; speech needs your SP0256-AL2 ROM)"',
+    menu && menu.text === 'Speech/Sound Pak (music; speech needs your SP0256-AL2 ROM)' && menu.hidden === false, JSON.stringify(menu));
   // the ROM panel shows the Pak's PIC socket (required) and its optional speech socket
   await openRoms(page);
   const sockets = await page.evaluate(() => [...document.querySelectorAll('#romSockets .socket')]
-    .map((c) => ({ id: c.dataset.socket, status: c.dataset.ssc })).filter((s) => s.id && s.id.startsWith('ssc-')));
+    .map((c) => ({ id: c.dataset.socket, status: c.dataset.ssc, state: (c.querySelector('.state') || {}).textContent }))
+    .filter((s) => s.id && s.id.startsWith('ssc-')));
+  check('Speech/Sound Pak: the speech socket, missing, says what it is and that CLOADM never includes it',
+    sockets.some((s) => s.id === 'ssc-sp0256' && s.state === 'Optional: the SP0256-AL2 speech ROM. Without it the Pak plays music and stays silent for speech. CLOADM never includes it; add your own copy.'),
+    JSON.stringify(sockets));
   check('Speech/Sound Pak: the ROM panel shows its PIC and speech sockets, the PIC required',
     sockets.some((s) => s.id === 'ssc-tms7040' && s.status === 'missing-required') && sockets.some((s) => s.id === 'ssc-sp0256' && s.status === 'missing-optional'),
     JSON.stringify(sockets));
@@ -841,8 +846,9 @@ async function sscBoardChecks(browser, base, check) {
     return { msg: document.getElementById('toast').textContent, type: c && c.type, name: c && c.name,
       btn: document.getElementById('btnCart').textContent, hasAy: !!(c && c.ay), sp: c && c.sp0256Data };
   });
-  check('Speech/Sound Pak: our tone firmware as the PIC; the Pak goes in (music, no speech ROM needed)',
-    ins.type === 'ssc' && ins.name === 'Speech/Sound Pak' && ins.hasAy && ins.sp === null && /Speech\/Sound Pak inserted/.test(ins.msg),
+  check('Speech/Sound Pak: our tone firmware as the PIC; the Pak goes in (music, no speech ROM needed), and says music only',
+    ins.type === 'ssc' && ins.name === 'Speech/Sound Pak' && ins.hasAy && ins.sp === null &&
+    ins.msg.includes('Speech/Sound Pak inserted (music only: add your own SP0256-AL2 ROM in Your ROMs for speech)'),
     JSON.stringify(ins));
   // the card's own clock runs the PIC, whose tone firmware programs the AY: the AY's mixer leaves its reset value
   const plays = await waitFor(page, () => {
@@ -909,6 +915,77 @@ async function sscBoardChecks(browser, base, check) {
   check('Speech/Sound Pak: inserts on the Dragon 64 and its PIC programs the AY there',
     bootable && dragonPak.type === 'ssc' && /Speech\/Sound Pak/.test(dragonPak.btn) && dragonPlays && dragonRegs.mixer !== 0 && dragonRegs.volA > 0,
     JSON.stringify({ bootable, pak: dragonPak, regs: dragonRegs }));
+  // SPEECH through the page, back on the CoCo, from our own images (tools/mame-diff/ssc/gen-voice.js, never a real
+  // SP0256-AL2): its PIC program, which loads allophones from its own reset, as the PIC ROM, and a 6809 program that
+  // opens the sound mux (gen-ay.js) as BASIC. First with NO speech ROM: the program speaks, so the page says once, with
+  // a way to the ROMs, that there is no speech ROM; and only once a session, through more speech and a re-insert.
+  const { voicePic, voiceImage } = require('../tools/mame-diff/ssc/gen-voice.js');
+  const { ayHost } = require('../tools/mame-diff/ssc/gen-ay.js');
+  await page.evaluate(() => window.emu.session.switchMachine('coco'));
+  await page.waitForFunction(() => window.emu.machine && window.emu.machine.profile.id === 'coco', null, { timeout: 15000 });
+  await page.setInputFiles('#fileRom', [
+    { name: 'pic-7040-510.bin', mimeType: 'application/octet-stream', buffer: Buffer.from(voicePic()) },
+    { name: 'bas12.rom', mimeType: 'application/octet-stream', buffer: Buffer.from(romImage(ayHost(), 0xA000, 0x2000, 0x12)) },
+  ]);
+  await waitFor(page, () => window.emu.session.machineRoms('coco').bootable, null, 8000);
+  // back on the emulator page (a toast raised for another page waits until the person is back there)
+  await page.evaluate(() => { location.hash = ''; });
+  await waitFor(page, () => !document.body.classList.contains('roms-open'));
+  const NO_ROM = "This program is speaking, but there's no speech ROM: add your own SP0256-AL2 ROM in Your ROMs.";
+  await page.evaluate((text) => {
+    // every time the toast comes up with these words
+    window.__speechToasts = 0;
+    const el = document.getElementById('toast');
+    new MutationObserver(() => {
+      const on = !el.hidden && document.getElementById('toastText').textContent === text;
+      if (on && !window.__speechToastOn) window.__speechToasts++;
+      window.__speechToastOn = on;
+    }).observe(el, { attributes: true, childList: true, subtree: true, characterData: true });
+    window.emu.session.insertSsc();
+  }, NO_ROM);
+  const toasted = await waitFor(page, () => window.__speechToasts >= 1, null, 8000);
+  const toast = await page.evaluate(() => ({ text: document.getElementById('toastText').textContent,
+    action: document.getElementById('toastAction').hidden ? null : document.getElementById('toastAction').textContent }));
+  check('Speech/Sound Pak: a program speaking with no speech ROM brings the toast, with "Add ROMs"',
+    toasted && toast.text === NO_ROM && toast.action === 'Add ROMs', JSON.stringify(toast));
+  // more speech, then the Pak out and in again: no second toast
+  await page.evaluate(() => { document.getElementById('toast').hidden = true; window.__speechToastOn = false; });
+  await emuFrames(page, 60);
+  await page.evaluate(() => { const s = window.emu.session; s.ejectSsc(); s.insertSsc(); });
+  await emuFrames(page, 120);
+  const toasts = await page.evaluate(() => window.__speechToasts);
+  check('Speech/Sound Pak: the no-speech-ROM toast comes once a session (more speech and a re-insert say nothing more)',
+    toasts === 1, `${toasts} toasts`);
+  // now the speech ROM: the ROM panel says the Pak speaks, the board menu takes the plain name, and the speech reaches
+  // the machine's sound path: hundreds of distinct levels within seconds (the AY alone, idle, gives one). The levels
+  // themselves are compared with MAME by tools/mame-diff/ssc/speech-audio.js and tests/ssc.test.js.
+  await page.setInputFiles('#fileRom', [
+    { name: 'sp0256-al2.bin', mimeType: 'application/octet-stream', buffer: Buffer.from(voiceImage()) },
+  ]);
+  await waitFor(page, () => window.emu.session.sscRoms().every((s) => s.status === 'loaded'), null, 8000);
+  await openRoms(page);
+  const spLine = await page.evaluate(() => { const c = document.querySelector('#romSockets .socket[data-socket="ssc-sp0256"] .state'); return c && c.textContent; });
+  check('Speech/Sound Pak: the speech socket, loaded, says "SP0256-AL2 speech ROM ✓ · the Pak speaks."',
+    spLine === 'SP0256-AL2 speech ROM ✓ · the Pak speaks.', spLine);
+  await page.evaluate(() => { location.hash = ''; });
+  await waitFor(page, () => !document.body.classList.contains('roms-open'));
+  const menuWithRom = await sscMenu();
+  check('Speech/Sound Pak: with the speech ROM added the board menu says just "Speech/Sound Pak"',
+    menuWithRom && menuWithRom.text === 'Speech/Sound Pak', JSON.stringify(menuWithRom));
+  const spoken = await page.evaluate(() => {
+    const s = window.emu.session;
+    const msg = s.insertSsc();
+    const m = window.emu.machine;
+    window.__speechLevels = new Set();
+    const cartSound = m.cartSound.bind(m);
+    m.cartSound = (tick, level) => { window.__speechLevels.add(level); return cartSound(tick, level); };
+    return { msg, sp: m.cartPort.sp0256Data ? m.cartPort.sp0256Data.length : 0 };
+  });
+  const speaks = await waitFor(page, () => window.__speechLevels.size > 300, null, 15000);
+  const heard = await page.evaluate(() => window.__speechLevels.size);
+  check('Speech/Sound Pak: with an allophone ROM it says music and speech, and the speech reaches the sound path',
+    spoken.msg === 'Speech/Sound Pak inserted (music and speech)' && spoken.sp === 2048 && speaks,
+    JSON.stringify({ ...spoken, levels: heard }));
   check('Speech/Sound Pak: no page errors', errors.length === 0, errors.join('; '));
   await ctx.close();
 }
@@ -5168,11 +5245,13 @@ async function libraryChecks(browser, base, check) {
     await waitFor(page, () => !document.getElementById('library').hidden && !document.getElementById('libEmpty').hidden);
     const empty = await page.evaluate(() => ({
       lib: !document.getElementById('library').hidden, emu: getComputedStyle(document.querySelector('.layout')).display === 'none',
-      empty: !document.getElementById('libEmpty').hidden, filters: document.getElementById('libFilters').hidden,
+      empty: !document.getElementById('libEmpty').hidden, filters: !document.getElementById('libFilters').hidden,
+      romsChip: !!document.querySelector('[data-kind-filter="roms"]') && document.querySelector('[data-kind-filter="roms"]').checkVisibility(),
+      romsCard: document.getElementById('libRomsCard').checkVisibility() && document.getElementById('libRomsCard').textContent,
       head: document.querySelector('#libEmpty h2').textContent, where: document.getElementById('libWhere').textContent,
       fits: document.documentElement.scrollWidth <= innerWidth }));
-    check(`library (${label}): #library shows the Library instead of the emulator, empty state, where it is kept, no sideways scroll`,
-      empty.lib && empty.emu && empty.empty && empty.filters && empty.head === 'Your tapes, disks and cartridges will appear here'
+    check(`library (${label}): #library shows the Library instead of the emulator, empty state (with the filters, the ROMs chip and the ROMs card), where it is kept, no sideways scroll`,
+      empty.lib && empty.emu && empty.empty && empty.filters && empty.romsChip && empty.romsCard === 'No ROMs yet. CLOADM never includes ROMs; add your own in Your ROMs →' && empty.head === 'Your tapes, disks and cartridges will appear here'
       && /^Stored in this browser \(OPFS\)/.test(empty.where) && empty.fits, JSON.stringify(empty));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, `library-empty-${label}.png`), fullPage: true });
     if (label === 'phone') {
@@ -5528,8 +5607,8 @@ async function tapePanelChecks(browser, base, check) {
     await page.click('#btnHardReset');
     await emuFrames(page, 5);   // the power cycle has happened and the machine runs again
     check('tape panel: a power cycle keeps the tape, and the panel', await page.isVisible('#tapePanel') && await page.evaluate(() => !!window.emu.machine.deck.tape));
-    // recording, with no tape in the deck (taken out through the deck: the page has no Eject control yet)
-    await page.evaluate(() => window.emu.machine.deck.eject());
+    // recording, with no tape in the deck (taken out with the slot's Eject)
+    await page.click('#btnEjectTape');
     const gone = await waitFor(page, () => document.getElementById('tapePanel').hidden);
     await page.click('#btnRecord');
     await waitFor(page, () => !document.getElementById('tapePanel').hidden && /^RECORDING/.test(document.getElementById('tapeEyebrow').textContent));
@@ -5540,6 +5619,139 @@ async function tapePanelChecks(browser, base, check) {
     await ctx.close();
   }
   fs.rmSync(tmp, { recursive: true, force: true });
+  await tapeExtrasChecks(browser, base, check);
+}
+
+// The tape's extras, at the desktop and phone sizes: the Ctrl+K commands "Insert a tape…" (the tape picker),
+// "Rewind the tape" and "Eject the tape" (the last two only while a tape is in); Eject (the palette's, the slot's)
+// hides the deck, says "Tape ejected." and leaves the focus on the slot's deck button; a tape of three files says
+// which one is loading.
+async function tapeExtrasChecks(browser, base, check) {
+  const block = (type, data) => { let sum = (type + data.length) & 0xFF; for (const v of data) sum = (sum + v) & 0xFF; return [0x55, 0x3C, type, data.length, ...data, sum]; };
+  const file = (name) => [...Array(128).fill(0x55), ...block(0, [...Buffer.from(name.padEnd(8)), 2, 0, 0, 0x30, 0x00, 0x30, 0x00]),
+    ...Array(128).fill(0x55), ...block(1, Array.from({ length: 200 }, (_, i) => i & 0xFF)), ...block(0xFF, [])];
+  const three = Buffer.from([...file('ONE'), ...file('TWO'), ...file('THREE')]);
+  for (const [label, viewport] of [['desktop', { width: 1440, height: 900 }], ['phone', { width: 390, height: 844 }]]) {
+    const errors = [];
+    // (the phone with touch: the slot's buttons are then at least 44 px tall)
+    const ctx = await browser.newContext(label === 'phone' ? { viewport, hasTouch: true, isMobile: true } : { viewport });
+    const page = await ctx.newPage();
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto(`${base}?machine=dragon64`);
+    await ready(page);
+    await stubPrompt(page);
+    const palette = async (q) => {
+      if (await page.isHidden('#cmdBox')) await page.keyboard.press('Control+k');
+      await waitFor(page, () => !document.getElementById('cmdBox').hidden);
+      await page.fill('#cmdInput', q);
+      return page.evaluate(() => [...document.querySelectorAll('#cmdList [role="option"]')].map((o) => o.firstChild.textContent));
+    };
+    // the rows as they show: label, second line, aria-disabled, chosen
+    const rowsNow = () => page.evaluate(() => [...document.querySelectorAll('#cmdList [role="option"]')].map((o) => ({ label: o.firstChild.textContent,
+      line: o.querySelector('.hint').textContent, off: o.getAttribute('aria-disabled') === 'true', sel: o.getAttribute('aria-selected') === 'true', disabledAttr: o.hasAttribute('disabled') })));
+    // choose a command that doesn't apply: the box stays open, nothing runs, the row says why, said once in the live region
+    const refuse = async (q, want, why, unchanged) => {
+      const rows = await palette(q), at = rows.indexOf(want);
+      const before = await page.evaluate(unchanged);
+      for (let i = 0; i < at; i++) await page.keyboard.press('ArrowDown');
+      const chosen = (await rowsNow()).find((r) => r.label === want);
+      await page.evaluate(() => { window.__said = []; window.__liveMo = new MutationObserver(() => window.__said.push(document.getElementById('cmdLive').textContent));
+        window.__liveMo.observe(document.getElementById('cmdLive'), { childList: true, characterData: true, subtree: true }); });
+      await page.keyboard.press('Enter');
+      await page.waitForTimeout(500);   // (past the 300 ms after which a typed query's count would be said)
+      const after = await rowsNow(), row = after.find((r) => r.label === want);
+      const said = await page.evaluate(() => { window.__liveMo.disconnect(); return window.__said.filter((t) => t); });
+      return { at, chosen, row, said, open: !(await page.isHidden('#cmdBox')), same: JSON.stringify(before) === JSON.stringify(await page.evaluate(unchanged)), why };
+    };
+    const refusedOk = (r) => r.at >= 0 && r.chosen && r.chosen.sel && r.chosen.off && !r.chosen.disabledAttr && r.open && r.same && r.row.line === r.why
+      && r.said.length === 1 && r.said[0] === r.why;
+    const close = async () => { await page.keyboard.press('Escape'); await waitFor(page, () => document.getElementById('cmdBox').hidden); };
+    // run the palette's row with this label (↓ to it from the first row, then Enter)
+    const runRow = async (q, want) => {
+      const rows = await palette(q), at = rows.indexOf(want);
+      for (let i = 0; i < at; i++) await page.keyboard.press('ArrowDown');
+      await page.keyboard.press('Enter');
+      return at;
+    };
+    await page.click('#screen');
+    await palette('tape');
+    const empty = await rowsNow();
+    const row = (l) => empty.find((r) => r.label === l);
+    await close();
+    // (the box shows at most 8 commands: "tape" matches seven, so all three muted rows show, after the others)
+    check(`tape extras (${label}): with no tape, Ctrl+K "tape" lists "Insert a tape…" and, muted after the rows that apply ("No tape in", aria-disabled, no disabled attribute), Rewind, Eject and Save .WAV`,
+      row('Insert a tape…') && !row('Insert a tape…').off && ['Rewind the tape', 'Eject the tape', 'Save the tape as .WAV'].every((l) => row(l) && row(l).off && row(l).line === 'No tape in' && !row(l).disabledAttr)
+      && empty.filter((r) => r.off).every((r) => r.line === 'No tape in' && !r.disabledAttr)
+      && empty.findIndex((r) => r.off) > empty.findIndex((r) => r.label === 'Insert a tape…') && empty.filter((r) => !/^Ask Claude/.test(r.label)).every((r, i, a) => !r.off || a.slice(i).every((x) => x.off)),
+      JSON.stringify(empty));
+    // choosing them says why, in the box, and does nothing
+    const deck = () => JSON.stringify([!!window.emu.machine.deck.tape, window.emu.session.tapeRecording]);
+    const r1 = await refuse('rewind', 'Rewind the tape', 'No tape in. Insert one with "Insert a tape…".', deck);
+    await close();
+    const r2 = await refuse('eject the tape', 'Eject the tape', 'No tape in the deck.', deck);
+    await close();
+    const r3 = await refuse('wav', 'Save the tape as .WAV', 'No tape in and nothing recorded yet.', deck);
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, `tape-extras-refused-${label}.png`) });
+    await close();
+    check(`tape extras (${label}): with no tape, choosing Rewind, Eject or Save as .WAV keeps the box open, does nothing, shows why on the row and says it once`,
+      [r1, r2, r3].every(refusedOk), JSON.stringify([r1, r2, r3]));
+    // "Insert a tape…" opens the tape picker (seen in the page: a headless browser does not always open a chooser)
+    await page.evaluate(() => { const i = document.getElementById('fileTape'); window.__tapePicks = 0; i.click = () => { window.__tapePicks++; }; });
+    await runRow('insert a tape', 'Insert a tape…');
+    check(`tape extras (${label}): "Insert a tape…" opens the tape picker (.cas and .wav)`, await waitFor(page, () => window.__tapePicks === 1)
+      && /\.cas/.test(await page.getAttribute('#fileTape', 'accept')) && /\.wav/.test(await page.getAttribute('#fileTape', 'accept')));
+    await page.evaluate(() => { delete document.getElementById('fileTape').click; });
+    await page.setInputFiles('#fileTape', { name: 'three.cas', mimeType: 'application/octet-stream', buffer: three });
+    await waitFor(page, () => !document.getElementById('tapePanel').hidden);
+    await palette('rewind');
+    const w1 = await rowsNow();
+    await palette('eject');
+    const w2 = await rowsNow();
+    await close();
+    check(`tape extras (${label}): with a tape in, "rewind" and "eject" find "Rewind the tape" and "Eject the tape", not muted`,
+      w1[0].label === 'Rewind the tape' && !w1[0].off && w1[0].line === 'back to the start of the tape' && w2.some((r) => r.label === 'Eject the tape' && !r.off), JSON.stringify([w1, w2]));
+    // the second file loading: the machine paused so the tape stays there
+    await page.evaluate(() => document.getElementById('btnPause').click());   // (on a phone in the Power sheet: a setting-up step)
+    await page.evaluate(() => { const d = window.emu.machine.deck; d.tape.seekByte(d.tape.bytes.length / 2); d.setMotor(true); });
+    const eyebrow = await waitFor(page, () => /^LOADING · FILE 2 OF 3 · BLOCK \d+ OF 9$/.test(document.getElementById('tapeEyebrow').textContent))
+      && await page.textContent('#tapeEyebrow');
+    check(`tape extras (${label}): a 3-file tape says "LOADING · FILE 2 OF 3 · BLOCK n OF 9"`, !!eyebrow, eyebrow || await page.textContent('#tapeEyebrow'));
+    if (shotDir && await page.isVisible('#tapePanel')) await page.locator('#tapePanel').screenshot({ path: path.join(shotDir, `tape-extras-file2-${label}.png`) });
+    // Rewind through the palette (still paused: a running machine would play the tape on from the start at once)
+    await runRow('rewind the tape', 'Rewind the tape');
+    check(`tape extras (${label}): "Rewind the tape" rewinds it`, await waitFor(page, () => window.emu.machine.deck.tape.progress() < 0.05));
+    // Eject through the palette, while the motor runs (a CLOAD waiting): the deck goes, the motor stays on
+    await page.evaluate(() => window.emu.machine.deck.setMotor(true));
+    await runRow('eject the tape', 'Eject the tape');
+    check(`tape extras (${label}): "Eject the tape": the deck hides, "Tape ejected.", the focus on the slot's deck button (on a phone the Tape chip), the motor still on`,
+      await waitFor(page, () => !window.emu.machine.deck.tape && document.getElementById('tapePanel').hidden && /^Tape ejected\.$/.test(document.getElementById('toastText').textContent)
+        && document.activeElement === document.getElementById(document.getElementById('chipRow').checkVisibility() ? 'chipTape' : 'btnTape') && window.emu.machine.deck.motor),
+      JSON.stringify(await page.evaluate(() => ({ active: document.activeElement.id, toast: document.getElementById('toastText').textContent }))));
+    await page.evaluate(() => document.getElementById('btnPause').click());   // running again
+    await palette('tape');
+    const gone = await rowsNow();
+    await close();
+    check(`tape extras (${label}): with the tape out, Rewind and Eject are muted again ("No tape in")`,
+      ['Rewind the tape', 'Eject the tape'].every((l) => { const r = gone.find((x) => x.label === l); return r && r.off && r.line === 'No tape in'; }), JSON.stringify(gone));
+    // the slot's Eject button: disabled without a tape; with one, it ejects as the palette does
+    const disabled = await page.isDisabled('#btnEjectTape');
+    await page.setInputFiles('#fileTape', { name: 'three.cas', mimeType: 'application/octet-stream', buffer: three });
+    await waitFor(page, () => !document.getElementById('tapePanel').hidden && !document.getElementById('btnEjectTape').disabled);
+    if (label === 'phone') { await page.tap('#chipTape'); await waitFor(page, () => document.getElementById('sheetTape').open); }   // (the deck is in the Tape sheet there)
+    const box = await page.evaluate(() => { const b = document.getElementById('btnEjectTape').getBoundingClientRect(), r = document.getElementById('btnRewind').getBoundingClientRect(); return { b: b.toJSON(), r: r.toJSON() }; });
+    if (shotDir) await page.locator('.slot.tape').screenshot({ path: path.join(shotDir, `tape-extras-slot-${label}.png`) });
+    if (label === 'phone') {
+      const heights = await page.evaluate(() => [...document.querySelectorAll('.slot.tape .bar button')].map((b) => [b.id, b.getBoundingClientRect().height]));
+      check(`tape extras (${label}, touch): the slot's Rewind, Eject, Record and Save .WAV are at least 44 px tall`, heights.length === 4 && heights.every(([, h]) => h >= 44), JSON.stringify(heights));
+    }
+    await page.click('#btnEjectTape');
+    check(`tape extras (${label}): the slot's Eject (next to Rewind, disabled with no tape) ejects: deck hidden, toast, focus on the deck button`,
+      disabled && Math.abs(box.b.top - box.r.top) < 4 && box.b.left > box.r.left
+      && await waitFor(page, () => !window.emu.machine.deck.tape && document.getElementById('tapePanel').hidden && /^Tape ejected\.$/.test(document.getElementById('toastText').textContent)
+        && document.activeElement === document.getElementById('btnTape') && document.getElementById('tapeName').textContent === 'No tape · Insert tape…'), JSON.stringify(box));
+    check(`tape extras (${label}): no page errors`, !errors.length, errors.join('; '));
+    await ctx.close();
+  }
 }
 
 // The tape HUD, the one moving deck and Tape sound (js/ui/tape-panel.js, js/host/tape-sound.js). At the desktop,
@@ -6212,10 +6424,10 @@ async function commandsChecks(browser, site, check) {
   // written out here rather than read from COMMANDS (the page's own list is checked against them)
   const WANT = [
     ['Claude', ['Chat with Claude, full screen', 'What is this code doing?']],
-    ['Files', ['Take snapshot', 'Open a program, tape, disk or cartridge…', 'Insert a disk…', 'New blank disk', 'Eject disk', 'Save the tape as .WAV', 'Record to tape', 'Share']],
+    ['Files', ['Take snapshot', 'Open a program, tape, disk or cartridge…', 'Insert a disk…', 'New blank disk', 'Eject disk', 'Insert a tape…', 'Rewind the tape', 'Eject the tape', 'Save the tape as .WAV', 'Record to tape', 'Share']],
     ['Views', ['Open the Library', 'Open the Debugger']],
     ['Settings', ['Your ROMs', 'Display settings', 'Input settings', 'POKEs', 'Machine settings']],   // (Your ROMs: R28b)
-    ['Machine', ['Pause or resume', 'Turbo', 'Fullscreen', 'Reset', 'Switch off and on']],
+    ['Machine', ['Pause or resume', 'Turbo', 'Fullscreen', 'Reset', 'Switch off and on', 'Switch machine…', 'Help']],
   ];
   const LABELS = WANT.flatMap(([, l]) => l);
   const CLAUDE_NOTE = "Claude reads this emulated machine's screen text and memory, and acts on it only with your permission.";
@@ -6267,7 +6479,7 @@ async function commandsChecks(browser, site, check) {
     for (let i = 1; i < LABELS.length; i++) await page.keyboard.press('ArrowDown');
     const end = await page.evaluate(() => { const l = document.getElementById('cmdList'), lr = l.getBoundingClientRect(), o = document.querySelector('#cmdList [role="option"][aria-selected="true"]'), r = o.getBoundingClientRect();
       return { text: o.firstChild.textContent, top: r.top, bottom: r.bottom, lTop: lr.top, lBottom: lr.bottom, scrolled: l.scrollTop }; });
-    check(`${L}: ↓ to the last row scrolls it into view`, end.text === 'Switch off and on' && end.scrolled > 0 && end.top >= end.lTop - 1 && end.bottom <= end.lBottom + 1, JSON.stringify(end));
+    check(`${L}: ↓ to the last row scrolls it into view`, end.text === 'Help' && end.scrolled > 0 && end.top >= end.lTop - 1 && end.bottom <= end.lBottom + 1, JSON.stringify(end));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, `commands-${label}.png`) });
     await page.keyboard.press('Escape');
     // typing still filters, the first match selected and "Ask Claude" last
@@ -6370,6 +6582,103 @@ async function commandsChecks(browser, site, check) {
         'A restore point is made first.', 'What Claude reads goes to Anthropic with your key.'].every((t) => help.text.includes(t)) && !/Every action is listed in the chat/.test(help.text),
       help.h2.join('|'));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, 'help-commands.png'), fullPage: true });
+    await ctx.close();
+  }
+  // typo tolerance, ranking, the models, Help, the synonyms, the wrap keys and the marks, at the desktop and phone sizes
+  for (const [label, viewport] of [['1280x720', { width: 1280, height: 720 }], ['phone', { width: 390, height: 844 }]]) {
+    const L = `commands (${label})`;
+    const { ctx, page } = await open({ viewport });
+    const query = async (q) => {
+      if (await page.isHidden('#cmdBox')) { await page.click('#screen'); await page.keyboard.press('Control+k'); await waitFor(page, () => !document.getElementById('cmdBox').hidden); }
+      await page.fill('#cmdInput', q);
+      return page.evaluate(() => [...document.querySelectorAll('#cmdList [role="option"]')].map((o) => ({ text: o.firstChild.textContent, name: o.getAttribute('aria-label'),
+        marks: [...o.querySelectorAll('mark')].map((m) => m.textContent), sel: o.getAttribute('aria-selected') === 'true',
+        off: o.getAttribute('aria-disabled') === 'true', line: o.querySelector('.hint').textContent, disabledAttr: o.hasAttribute('disabled') })));
+    };
+    const firsts = {};
+    for (const q of ['rset', 'setings', 'setin', 'coco 3', 'help', 'delete rom', 'switch']) firsts[q] = (await query(q))[0];
+    check(`${L}: "rset" -> Reset, "setings" and "setin" -> a Settings command, "coco 3" -> Switch to CoCo 3, "help" -> Help, "delete rom" -> Your ROMs, first and selected`,
+      firsts.rset.text === 'Reset' && /settings$/.test(firsts.setings.text) && /settings$/.test(firsts.setin.text) && firsts['coco 3'].text === 'Switch to CoCo 3'
+      && firsts.help.text === 'Help' && firsts['delete rom'].text === 'Your ROMs' && Object.values(firsts).every((f) => f.sel), JSON.stringify(firsts));
+    const sw = await query('switch');
+    check(`${L}: "switch" names no model: one "Switch machine…" row and no "Switch to" rows`, sw.some((r) => r.text === 'Switch machine…') && !sw.some((r) => /^Switch to/.test(r.text)), JSON.stringify(sw.map((r) => r.text)));
+    // the running Dragon 64: listed after the ones that apply, muted "Running now"; choosing it says why, the box stays
+    // open, the machine stays, and the live region says it once
+    const own = await query('dragon 64');
+    const ownAt = own.findIndex((r) => r.text === 'Switch to Dragon 64'), ownRow = own[ownAt];
+    check(`${L}: the running Dragon 64 has a "Switch to" row, muted "Running now" (aria-disabled, no disabled attribute), after the other Dragon 64s`,
+      ownRow && ownRow.off && ownRow.line === 'Running now' && !ownRow.disabledAttr && own.some((r) => r.text === 'Switch to Tano Dragon 64' && !r.off)
+      && own.slice(0, ownAt).every((r) => !r.off), JSON.stringify(own.map((r) => [r.text, r.off, r.line])));
+    for (let i = 0; i < ownAt; i++) await page.keyboard.press('ArrowDown');
+    const chosen = (await page.evaluate(() => { const o = document.querySelector('#cmdList [aria-selected="true"]'); return o && o.firstChild.textContent; }));
+    await page.evaluate(() => { window.__said = []; window.__liveMo = new MutationObserver(() => window.__said.push(document.getElementById('cmdLive').textContent));
+      window.__liveMo.observe(document.getElementById('cmdLive'), { childList: true, characterData: true, subtree: true }); });
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(500);
+    const after = (await page.evaluate(() => [...document.querySelectorAll('#cmdList [role="option"]')].map((o) => [o.firstChild.textContent, o.querySelector('.hint').textContent])))
+      .find(([t]) => t === 'Switch to Dragon 64');
+    const said = await page.evaluate(() => { window.__liveMo.disconnect(); return window.__said.filter((t) => t); });
+    check(`${L}: choosing it (selectable with the arrows) keeps the box open, shows "You're using the Dragon 64 now." on the row, says it once, switches nothing`,
+      chosen === 'Switch to Dragon 64' && !(await page.isHidden('#cmdBox')) && await page.isHidden('#switchConfirm') && after && after[1] === "You're using the Dragon 64 now."
+      && said.length === 1 && said[0] === "You're using the Dragon 64 now." && await page.evaluate(() => window.emu.machine.id === 'dragon64'), JSON.stringify({ chosen, after, said }));
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, `commands-running-now-${label}.png`) });
+    const none = await query('xyzzy');
+    check(`${L}: "xyzzy": only Ask Claude`, none.length === 1 && /^Ask Claude: "xyzzy"/.test(none[0].text), JSON.stringify(none));
+    // at most 8 commands, Ask Claude last
+    const many = await query('s');
+    check(`${L}: at most 8 commands, then Ask Claude`, many.length <= 9 && many.length >= 8 && /^Ask Claude/.test(many[many.length - 1].text), JSON.stringify(many.map((r) => r.text)));
+    // marks: the matched part in <mark>, the option's accessible name the plain label
+    const coco = (await query('coco 3'))[0];
+    const acc = await page.evaluate(() => { const o = document.querySelector('#cmdList [role="option"]'); return o.getAttribute('aria-label'); });
+    const roleName = await page.getByRole('option', { name: 'Switch to CoCo 3', exact: true }).count();
+    check(`${L}: the matched parts are marked ("CoCo", "3"); the option's name is the plain label, no mark text in it`,
+      JSON.stringify(coco.marks) === JSON.stringify(['CoCo', '3']) && acc === 'Switch to CoCo 3' && roleName === 1, JSON.stringify({ coco, acc, roleName }));
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, `commands-marks-${label}.png`) });
+    // wrap: ↓ on the last row goes to the first
+    const rows = await query('reset');
+    for (let i = 0; i < rows.length; i++) await page.keyboard.press('ArrowDown');
+    const wrapped = await page.evaluate(() => document.querySelector('#cmdList [aria-selected="true"]').firstChild.textContent);
+    check(`${L}: ↓ on the last row goes back to the first`, wrapped === rows[0].text, JSON.stringify({ wrapped, rows: rows.map((r) => r.text) }));
+    // ↑ with nothing chosen (the empty box) goes to the last row
+    await page.fill('#cmdInput', '');
+    await page.keyboard.press('ArrowUp');
+    const last = await page.evaluate(() => { const o = [...document.querySelectorAll('#cmdList [role="option"]')]; return [o[o.length - 1].firstChild.textContent, o[o.length - 1].getAttribute('aria-selected')]; });
+    check(`${L}: ↑ with nothing chosen goes to the last row`, last[0] === 'Help' && last[1] === 'true', JSON.stringify(last));
+    // "coco 3" Enter: the machine menu's confirmation, naming the CoCo 3; Cancel leaves the Dragon 64
+    await query('coco 3');
+    await page.keyboard.press('Enter');
+    check(`${L}: "Switch to CoCo 3" asks first, through the machine menu's confirmation`, await waitFor(page, () => !document.getElementById('switchConfirm').hidden
+      && document.getElementById('switchName').textContent === 'CoCo 3' && document.activeElement === document.getElementById('btnSwitch')));
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, `commands-switch-confirm-${label}.png`) });
+    await page.click('#btnSwitchCancel');
+    check(`${L}: Cancel keeps the Dragon 64`, await waitFor(page, () => document.getElementById('switchConfirm').hidden && window.emu.machine.id === 'dragon64'));
+    // "Switch machine…" opens the machine menu
+    await query('switch');
+    const at = (await query('switch')).findIndex((r) => r.text === 'Switch machine…');
+    for (let i = 0; i < at; i++) await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('Enter');
+    check(`${L}: "Switch machine…" opens the machine menu`, await waitFor(page, () => !document.getElementById('machineMenu').hidden && document.getElementById('machineMenu').contains(document.activeElement)));
+    await page.keyboard.press('Escape');
+    // Help: the guide in a new tab
+    await query('help');
+    const [tab] = await Promise.all([ctx.waitForEvent('page'), page.keyboard.press('Enter')]);
+    await tab.waitForLoadState();
+    check(`${L}: "Help" opens the guide in a new tab`, /\/help\/$/.test(new URL(tab.url()).pathname), tab.url());
+    await tab.close();
+    // "eject" with a tape in (no disk): Eject the tape first
+    await page.setInputFiles('#fileTape', { name: 't.cas', mimeType: 'application/octet-stream', buffer: Buffer.from([...Array(128).fill(0x55), 0x3C, 0xFF, 0, 0xFF]) });
+    await waitFor(page, () => !!window.emu.machine.deck.tape);
+    const ej = await query('eject');
+    check(`${L}: "eject" with a tape in and no disk -> Eject the tape first, then Eject disk, muted "No disk in"`, ej[0].text === 'Eject the tape' && !ej[0].off
+      && ej[1].text === 'Eject disk' && ej[1].off && ej[1].line === 'No disk in', JSON.stringify(ej.map((r) => [r.text, r.off, r.line])));
+    // every muted row the box shows is aria-disabled and selectable with the arrows
+    await query('');
+    const offRows = await page.evaluate(() => [...document.querySelectorAll('#cmdList [role="option"][aria-disabled="true"]')].map((o) => o.id));
+    let reached = 0;
+    const total = await page.evaluate(() => document.querySelectorAll('#cmdList [role="option"]').length);
+    for (let i = 0; i < total; i++) { await page.keyboard.press('ArrowDown'); if (offRows.includes(await page.evaluate(() => document.getElementById('cmdInput').getAttribute('aria-activedescendant')))) reached++; }
+    check(`${L}: in the empty box the muted rows (Eject disk: no disk) are aria-disabled and each is reached by the arrows`, offRows.length >= 1 && reached === offRows.length, JSON.stringify({ offRows, reached }));
+    await page.keyboard.press('Escape');
     await ctx.close();
   }
   check('commands: no page errors', !errors.length, errors.join('; '));
@@ -7260,10 +7569,13 @@ async function tapeChecks(browser, base, check) {
   check('tape: Record arms the deck', await page.getAttribute('#btnRecord', 'aria-pressed') === 'true' && await page.evaluate(() => window.emu.session.tapeRecording));
   await page.click('#btnPause');      // resume: the firmware runs from its reset with the deck already recording
   check('tape: the firmware writes its tape', await waitFor(page, (h) => window.emu.machine.cpu.pc === h, halt, 15000));
-  const [cas] = await Promise.all([page.waitForEvent('download'), page.click('#btnRecord')]);
-  const casBytes = fs.readFileSync(await cas.path());
-  check('tape: stopping saves recording.cas, exactly the bytes written', cas.suggestedFilename() === 'recording.cas' && Buffer.from(casBytes).equals(Buffer.from(stream))
-    && /Recorded 3 block\(s\)/.test(await page.textContent('#toast')), await page.textContent('#toast'));
+  await page.click('#btnRecord');
+  const saved = await waitFor(page, () => document.getElementById('toastText').textContent === 'Saved CLOADM.CAS to your Library.' && document.getElementById('toastAction').textContent === 'Download');
+  const stored = await page.evaluate(async () => Array.from(await window.emu.session.library.openMedia('CLOADM.CAS')));
+  check('tape: Stop and save puts the recording in the Library as CLOADM.CAS (its CSAVE name), exactly the bytes written',
+    saved && Buffer.from(stored).equals(Buffer.from(stream)), await page.textContent('#toast'));
+  const [cas] = await Promise.all([page.waitForEvent('download'), page.click('#toastAction')]);
+  check('tape: the toast\'s Download saves CLOADM.CAS, the same bytes', cas.suggestedFilename() === 'CLOADM.CAS' && Buffer.from(fs.readFileSync(await cas.path())).equals(Buffer.from(stream)));
   const [wav] = await Promise.all([page.waitForEvent('download'), page.click('#btnTapeWav')]);
   const fromWav = Emu.wavToCas(new Uint8Array(fs.readFileSync(await wav.path())));
   check('tape: Save .WAV saves the recording as it was written, which decodes to the same bytes', wav.suggestedFilename() === 'recording.wav' && Buffer.from(fromWav.bytes).equals(Buffer.from(stream)));
@@ -7283,10 +7595,21 @@ async function tapeChecks(browser, base, check) {
   check('tape: the firmware writes its tape again', await waitFor(page, (h) => window.emu.machine.cpu.pc === h, halt, 15000));
   let asked = '';
   page.once('dialog', (d) => { asked = d.message(); d.accept(); });
-  const [kept] = await Promise.all([page.waitForEvent('download'), pickMachine(page, 'coco')]);
-  check('tape: switching machine while recording asks to save it first, and saves it', /recording on the Dragon 32/.test(asked) && /3 blocks/.test(asked)
-    && kept.suggestedFilename() === 'recording.cas' && Buffer.from(fs.readFileSync(await kept.path())).equals(Buffer.from(stream))
+  await pickMachine(page, 'coco');
+  const kept = await waitFor(page, async () => { try { return Array.from(await window.emu.session.library.openMedia('CLOADM (2).CAS')); } catch (e) { return false; } });
+  const keptBytes = await page.evaluate(async () => Array.from(await window.emu.session.library.openMedia('CLOADM (2).CAS')));
+  check('tape: switching machine while recording asks to save it first, under its name, and saves it in the Library as "CLOADM (2).CAS" (the name is taken)',
+    /recording on the Dragon 32/.test(asked) && /3 blocks/.test(asked) && /Save CLOADM\.CAS before/.test(asked)
+    && kept && Buffer.from(keptBytes).equals(Buffer.from(stream))
     && await page.evaluate(() => window.emu.machine.id === 'coco' && !window.emu.session.tapeRecording), asked);
+  // both are Library items after a reload (another page of the same browser profile)
+  await page.evaluate(() => window.emu.session.index.flush && window.emu.session.index.flush());
+  const p2 = await ctx.newPage();
+  await p2.goto(`${base}?machine=dragon32#library`); await ready(p2);
+  check('tape: the recordings are in the Library after a reload', await waitFor(p2, () => {
+    const names = [...document.querySelectorAll('#libTapes [data-name]')].map((b) => b.dataset.name.split('/').pop());
+    return names.includes('CLOADM.CAS') && names.includes('CLOADM (2).CAS'); }), await p2.evaluate(() => [...document.querySelectorAll('#libTapes [data-name]')].map((b) => b.dataset.name).join()));
+  await p2.close();
   // A machine-code tape dropped on the page with ROMs in: the machine is restarted, CLOADM is typed, and EXEC on a
   // line of its own once BASIC is back at its prompt. BASIC is our stand-in (tape/standin.asm: a line per ENTER,
   // CLOADM, then a jump to the exec address), installed in the CoCo's BASIC sockets in the page; the tape's
@@ -7330,6 +7653,61 @@ async function tapeChecks(browser, base, check) {
   check('tape: ...and it loads through BASIC and runs', ranAgain,
     await page.evaluate(() => `rom ${window.emu.machine.hasRom}, stage ${String.fromCharCode(window.emu.machine.ram[0x80])}, pc ${window.emu.machine.cpu.pc.toString(16)}`));
   check('tape: no page errors', !errors.length, errors.join('; '));
+  await ctx.close();
+  await tapeRecordingNameChecks(browser, base, check);
+}
+
+// Two CSAVEs in one recording make one file, and the toast counts them; with "Download and open files" the recording
+// is downloaded under its CSAVE name instead of kept. The writer firmware (tools/mame-diff/tape/csave.asm) runs twice
+// in one recording, a reset between, as the Dragon 32's ROM.
+async function tapeRecordingNameChecks(browser, base, check) {
+  const ctx = await browser.newContext({ acceptDownloads: true });
+  const errors = [];
+  let page, halt;
+  // a page on the Dragon 32 with the writer firmware in, paused (query: the link's settings)
+  const open = async (query) => {
+    page = await ctx.newPage();
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto(`${base}?machine=dragon32${query}`);
+    await ready(page);
+    await page.click('#btnPause');
+    halt = await page.evaluate(async () => {
+      const { assemble } = await import(new URL('js/asm/assembler.js', document.baseURI).href);
+      const res = assemble(await (await fetch('tools/mame-diff/tape/csave.asm')).text(), '6809');
+      const img = new Uint8Array(0x4000).fill(0x12);
+      for (const sgm of res.segments) img.set(sgm.data, sgm.addr - 0x8000);
+      const m = window.emu.machine;
+      m.setRoms({ basic: img }); m.reset(true);
+      return res.symbols.get('HALT');
+    });
+  };
+  await open('');
+  // record `times` runs of the writer, then Stop and save
+  const record = async (times) => {
+    await page.evaluate(() => window.emu.machine.reset(true));
+    await page.click('#btnRecord');
+    await page.click('#btnPause');
+    for (let n = 0; n < times; n++) {
+      if (n) await page.evaluate(() => window.emu.machine.reset(true));
+      await waitFor(page, (h) => window.emu.machine.cpu.pc === h, halt, 15000);
+    }
+    await page.click('#btnPause');
+  };
+  await record(2);
+  await page.click('#btnRecord');
+  check('tape: two CSAVEs in one recording: one file, named after the first, and the toast says "(2 files)"',
+    await waitFor(page, () => document.getElementById('toastText').textContent === 'Saved CLOADM.CAS to your Library (2 files).'),
+    await page.textContent('#toastText'));
+  // "Download and open files": the recording is downloaded under its CSAVE name, not kept
+  await page.close();
+  await open('&storage=fallback');
+  const kind = await page.evaluate(() => window.emu.session.media.kind);
+  await record(1);
+  const [dl] = await Promise.all([page.waitForEvent('download'), page.click('#btnRecord')]);
+  check('tape: with "Download and open files" the recording is downloaded as CLOADM.CAS, not kept in the Library',
+    kind === 'fallback' && dl.suggestedFilename() === 'CLOADM.CAS' && await page.evaluate(async () => !(await window.emu.session.library.listMedia()).some((x) => /CLOADM/.test(x.name))),
+    JSON.stringify({ kind, name: dl.suggestedFilename() }));
+  check('tape: recording names, no page errors', !errors.length, errors.join('; '));
   await ctx.close();
 }
 
@@ -13702,9 +14080,13 @@ async function uiQaChecks(browser, base, check) {
   // (with a line typed, BREAK has something to do: the firmware drops the line; the empty, idle prompt is leave-the-chat, in escChatChecks)
   await page.focus('#screen'); await emuFrames(page, 3); await page.keyboard.type('x');
   const typed = await waitFor(page, () => window.emu.session.readByte(0x6013, window.emu.session.chatMachines.chat) === 1);
-  await page.keyboard.press('Escape'); await emuFrames(page, 3);
-  check('in the full-screen chat, Esc on the screen with a line typed is BREAK (the line is dropped) and keeps the chat open', typed
-    && await page.evaluate(() => window.emu.session.claudeView === 'full' && window.emu.session.readByte(0x6013, window.emu.session.chatMachines.chat) === 0));
+  // wait for the firmware to drop the line rather than reading it after a fixed few frames: under load those frames
+  // can pass before the chat machine has run its BREAK handling, which flaked this check. An Esc that does nothing
+  // never clears the byte, so waitFor times out and the check still fails.
+  await page.keyboard.press('Escape');
+  const dropped = await waitFor(page, () => window.emu.session.readByte(0x6013, window.emu.session.chatMachines.chat) === 0);
+  check('in the full-screen chat, Esc on the screen with a line typed is BREAK (the line is dropped) and keeps the chat open', typed && dropped
+    && await page.evaluate(() => window.emu.session.claudeView === 'full'));
   await page.focus('#btnFullSide'); await page.keyboard.press('Escape');
   check('in the full-screen chat, Esc off the screen closes it', await waitFor(page, () => window.emu.session.claudeView !== 'full' && document.getElementById('claude').hidden));
   // and takes the chat's history step back, as "← Emulator" and the browser's Back do (phone-chat's leave()): the
@@ -13896,6 +14278,24 @@ async function semanticsChecks(browser, base, site, check) {
     const text = (n) => (n.role && n.role.value === 'StaticText' ? n.name.value : '') + (n.childIds || []).map((c) => text(byId.get(c))).join('');
     return { count: app.length, name: app[0] && app[0].name && app[0].name.value, text: app[0] ? text(app[0]) : '' };
   };
+  // The screen's text in the accessibility tree and the screen's own text, read at ONE moment. A running machine can
+  // change the screen between two reads (LIZA's cursor blinks after its prompt), and the page copies the screen's text
+  // into #screenAlt only about once a second, so a tree read and a later read of the screen can honestly differ (a CI
+  // failure: the tree held the greeting ending in ">", the second read did not). So the machine is paused (the page's own
+  // Pause: its once-a-second copy goes on while it is paused), the copy is waited for, the tree, the screen and the copy
+  // are read, and the machine is let go again. The comparison stays exact: nothing moves between the reads.
+  const frozenScreen = async (page) => {
+    const toggle = () => page.evaluate(() => document.getElementById('btnPause').click());   // (hidden on a phone held sideways: a click on it still works)
+    await toggle();
+    try {
+      await waitFor(page, () => document.getElementById('screenAlt').textContent === window.emu.session.screenAlternative());
+      const ax = await screenAx(page);
+      const live = await page.evaluate(() => window.emu.session.screenAlternative());
+      const copy = await page.evaluate(() => document.getElementById('screenAlt').textContent);
+      const paused = await page.evaluate(() => window.emu.session.paused || document.getElementById('btnPause').classList.contains('active'));
+      return { ax, live, copy, paused };
+    } finally { await toggle(); }
+  };
   // what a reading mode extracts: Readability on a copy of the document, as the page is now
   const extract = async (page) => {
     if (!await page.evaluate(() => typeof window.Readability === 'function')) await page.addScriptTag({ path: READER });
@@ -13941,10 +14341,10 @@ async function semanticsChecks(browser, base, site, check) {
     check(`${L}: the headings: one h1 naming the machine, none skipped`, inOrder(o.headings) && o.headings[0][1] === 'Dragon 64', JSON.stringify(o.headings));
 
     // the screen: an application named as before, its text alternative the screen's text
-    const ax = await screenAx(page);
-    const alt = await page.evaluate(() => window.emu.session.screenAlternative());
+    const { ax, live: alt, copy, paused } = await frozenScreen(page);
     check(`${L}: the screen is one application, named, its text alternative the screen's text in the accessibility tree`,
-      ax.count === 1 && ax.name === 'The emulated screen. Click it, then type. Tab leaves it.' && norm(ax.text) === norm(alt) && /1 TALK TO LIZA/.test(ax.text), JSON.stringify(ax));
+      ax.count === 1 && ax.name === 'The emulated screen. Click it, then type. Tab leaves it.' && paused && norm(ax.text) === norm(alt) && norm(copy) === norm(alt) && /1 TALK TO LIZA/.test(ax.text),
+      JSON.stringify({ ax, live: alt, copy, paused }));
 
     // closed surfaces, as the page starts and after each has been opened and closed again
     await closedOk(page, `${L}, as it starts`);
@@ -14012,8 +14412,11 @@ async function semanticsChecks(browser, base, site, check) {
       await page.keyboard.press('1');
       const follows = await waitFor(page, () => /LIZA/.test(window.emu.session.screenAlternative()) && !/TALK TO LIZA/.test(window.emu.session.screenAlternative())
         && document.getElementById('screenAlt').textContent === window.emu.session.screenAlternative());
-      const ax2 = await screenAx(page);
-      check(`${L}: the text alternative follows the screen (LIZA started from the menu)`, follows && norm(ax2.text) === norm(await page.evaluate(() => window.emu.session.screenAlternative())), JSON.stringify(ax2.text.slice(0, 120)));
+      // (the tree and the screen are read at one moment, the machine paused: LIZA's cursor must not move between them)
+      const fr = await frozenScreen(page);
+      check(`${L}: the text alternative follows the screen (LIZA started from the menu)`,
+        follows && fr.paused && /LIZA/.test(fr.live) && !/TALK TO LIZA/.test(fr.live) && norm(fr.ax.text) === norm(fr.live) && norm(fr.copy) === norm(fr.live),
+        JSON.stringify({ follows, paused: fr.paused, ax: fr.ax.text.slice(0, 160), live: fr.live.slice(0, 160), copy: fr.copy.slice(0, 160) }));
       // Ask Claude's side panel (off the welcome menu it opens beside the machine): a complementary landmark while open,
       // hidden for real once closed
       await page.click('#btnAsk'); await waitFor(page, () => !document.getElementById('ask').hidden);
@@ -15623,7 +16026,7 @@ async function menuFocusChecks(browser, base, check) {
     // R17 (a): the touch keys' Menu is a disclosure for a labelled group of buttons. Held sideways (UX R30: upright the
     // panel has no Menu, the app bar's is the only one), then upright again for the rest
     await page.setViewportSize({ width: 844, height: 390 });
-    await waitFor(page, () => !document.getElementById('touchKeys').hidden && document.body.classList.contains('touch-keys') && document.getElementById('tkMenu').textContent === 'Menu');
+    await waitFor(page, () => !document.getElementById('touchKeys').hidden && document.body.classList.contains('touch-keys') && document.getElementById('tkMenu').checkVisibility());
     const roles = await page.evaluate(() => { const s = document.getElementById('tkMenuSheet'), m = document.getElementById('tkMenu');
       return { role: s.getAttribute('role'), label: s.getAttribute('aria-label'), items: s.querySelectorAll('[role="menuitem"]').length, controls: m.getAttribute('aria-controls') }; });
     check(`${L}: the keys' Menu sheet is a group labelled "Keys menu" (no menu role), and Menu controls it`,
@@ -16072,8 +16475,8 @@ async function uiModelChecks(browser, base, check) {
     await page.click('[data-kind-filter="roms"]');
     const empty = await page.evaluate(() => ({ card: !document.getElementById('libRomsBox').hidden && document.getElementById('libRomsCard').textContent,
       tiles: !document.getElementById('libTapesBox').hidden || !document.getElementById('libTilesBox').hidden, none: !document.getElementById('libNone').hidden }));
-    check(`R19 A+ (${label}): a "ROMs" chip after Snapshots; with no ROMs one card: "No ROMs yet. CLOADM never includes ROMs; add your own dumps in Your ROMs →", no tiles`,
-      chips.slice(-2).join('|') === 'Snapshots|ROMs' && empty.card === 'No ROMs yet. CLOADM never includes ROMs; add your own dumps in Your ROMs →' && !empty.tiles && !empty.none,
+    check(`R19 A+ (${label}): a "ROMs" chip after Snapshots; with no ROMs one card: "No ROMs yet. CLOADM never includes ROMs; add your own in Your ROMs →", no tiles`,
+      chips.slice(-2).join('|') === 'Snapshots|ROMs' && empty.card === 'No ROMs yet. CLOADM never includes ROMs; add your own in Your ROMs →' && !empty.tiles && !empty.none,
       JSON.stringify({ chips, empty }));
     // a (synthetic) ROM dropped on the Library: "added to Your ROMs", with Open Your ROMs
     await dropFiles(page, [['d64_1.rom', fake(16384, 41)]], null, 'library');
@@ -16119,11 +16522,101 @@ async function uiModelChecks(browser, base, check) {
     p2.on('pageerror', (e) => errors.push(`${label}: ${e.message}`));
     await p2.goto(`${base}?machine=dragon64#library`); await started(p2);
     await waitFor(p2, () => !document.getElementById('library').hidden && !document.getElementById('libEmpty').hidden);
-    const before = await p2.evaluate(() => document.getElementById('libFilters').hidden);
+    // an empty Library: the filters with the ROMs chip, and the ROMs card under the empty state
+    const before = await p2.evaluate(() => { const b = document.querySelector('[data-kind-filter="roms"]'), c = document.getElementById('libRomsCard');
+      return !!b && b.checkVisibility() && c.checkVisibility() && c.textContent; });
+    check(`ROM tiles (${label}): an empty Library shows the ROMs chip and the card "No ROMs yet. CLOADM never includes ROMs; add your own in Your ROMs →"`,
+      before === 'No ROMs yet. CLOADM never includes ROMs; add your own in Your ROMs →', JSON.stringify(before));
+    if (shotDir) await p2.screenshot({ path: path.join(shotDir, `rom-tiles-empty-library-${label}.png`) });
     await dropFiles(p2, [['d64_1.rom', fake(16384, 62)]], null, 'library');
-    check(`R19 A+ (${label}): a ROM dropped on an empty Library: the filters (with ROMs) appear`, before
-      && await waitFor(p2, () => { const b = document.querySelector('[data-kind-filter="roms"]'); return !document.getElementById('libFilters').hidden && !!b && b.checkVisibility(); }));
+    check(`R19 A+ (${label}): a ROM dropped on an empty Library: the card counts it`,
+      await waitFor(p2, () => /^Your ROMs: 1 stored, used by .*Dragon 64.*\. Manage them in Your ROMs →$/.test(document.getElementById('libRomsCard').textContent) && document.getElementById('libRomsCard').checkVisibility()));
     await ctx2.close();
+  }
+  // ---- ROM tiles: under the ROMs chip a tile per stored image (name, size, used by, Remove); Remove at once with
+  // Undo; a ROM the running machine uses stays in it until a switch off and on ----
+  for (const [label, opts] of SIZES) {
+    const ctx = await browser.newContext(Object.assign({ serviceWorkers: 'block' }, opts));
+    const page = await ctx.newPage();
+    page.on('pageerror', (e) => errors.push(`${label}: ${e.message}`));
+    await page.goto(`${base}?machine=dragon64`); await started(page);
+    const d64 = fake(16384, 71), d32 = fake(16384, 72);
+    await page.evaluate(() => window.emu.session.library.importMedia('GAME.CAS', new Uint8Array(300).fill(0x55)));
+    // (synthetic images, matched by their usual file names: d64_1.rom goes into the Dragon 64 and the Tano Dragon 64)
+    await dropFiles(page, [['d64_1.rom', d64], ['d32.rom', d32]]);
+    await waitFor(page, () => window.emu.session.storedRoms().count === 2);
+    const crcOf = () => page.evaluate(() => { const r = window.emu.session.roms.get('dragon64').basic, t = window.emu.session.roms.get('tanodr64').basic;
+      return [r ? Array.from(r).join() : null, t ? Array.from(t).join() : null]; });
+    const original = await crcOf();
+    await page.evaluate(() => { location.hash = '#library'; });
+    await waitFor(page, () => !document.getElementById('library').hidden && !document.getElementById('libFilled').hidden);
+    const inAll = await page.evaluate(() => document.querySelectorAll('#libRomTiles li').length);
+    await page.click('[data-kind-filter="roms"]');
+    const tiles = () => page.evaluate(() => [...document.querySelectorAll('#libRomTiles li')].filter((t) => t.checkVisibility())
+      .map((t) => [...t.children].map((c) => c.textContent).join('|')));
+    const got = await tiles();
+    check(`ROM tiles (${label}): none under All; under ROMs a tile per image: name, size, "Used by" (both machines for a shared one) and Remove`,
+      inAll === 0 && JSON.stringify(got) === JSON.stringify(['d32.rom|16 KB|Used by Dragon 32|Remove', 'd64_1.rom|16 KB|Used by Dragon 64, Tano Dragon 64, Dragon 64 Plus|Remove']), JSON.stringify({ inAll, got }));
+    const geo = await page.evaluate(() => [...document.querySelectorAll('#libRomTiles li')].map((t) => { const b = t.querySelector('button').getBoundingClientRect(); return { left: Math.round(t.getBoundingClientRect().left), h: b.height, w: b.width }; }));
+    check(`ROM tiles (${label}): Remove buttons are at least 44 px${label === 'phone' ? '; one column on a phone' : ''}`,
+      geo.every((g) => g.h >= 44 && g.w >= 44) && (label !== 'phone' || new Set(geo.map((g) => g.left)).size === 1), JSON.stringify(geo));
+    check(`ROM tiles (${label}): each Remove names its ROM for a screen reader`,
+      await page.evaluate(() => [...document.querySelectorAll('#libRomTiles button')].map((b) => b.getAttribute('aria-label')).join('|')) === 'Remove d32.rom|Remove d64_1.rom');
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, `rom-tiles-${label}.png`) });
+    // Remove the ROM the running Dragon 64 uses: the tile goes, the toast offers Undo and a switch off and on; it is
+    // gone from both machines' storage, and the machine still runs it
+    await page.click('[data-remove] >> nth=1');
+    const toast = () => page.evaluate(() => ({ text: document.getElementById('toastText').textContent, action: document.getElementById('toastAction').textContent,
+      also: document.getElementById('toastAlso').hidden ? null : document.getElementById('toastAlso').textContent, shown: document.getElementById('toast').checkVisibility() }));
+    const t1 = await waitFor(page, () => /^Removed d64_1\.rom\.$/.test(document.getElementById('toastText').textContent)) && await toast();
+    const after = await tiles(), stored = await crcOf(), runs = await page.evaluate(() => window.emu.machine.hasRom);
+    check(`ROM tiles (${label}): Remove: the tile goes; "Removed d64_1.rom. [Undo]" with "The Dragon 64 keeps it until you switch off and on. [Switch off and on]"; gone from both machines, still in the running one`,
+      t1 && t1.shown && t1.action === 'Undo' && t1.also === 'The Dragon 64 keeps it until you switch off and on.Switch off and on'
+      && JSON.stringify(after) === JSON.stringify(['d32.rom|16 KB|Used by Dragon 32|Remove']) && stored[0] === null && stored[1] === null && runs,
+      JSON.stringify({ t1, after, runs }));
+    // the running machine is untouched: the same ROM bytes in its socket, and it keeps running (frames and cycles go on)
+    const run0 = await page.evaluate(() => ({ f: window.emu.machine.frameCount, c: window.emu.machine.cpu.totalCycles }));
+    const sameRom = await page.evaluate((want) => { const r = window.emu.machine.roms.basic; return !!r && Array.from(r).join() === want; }, original[0]);
+    check(`ROM tiles (${label}): after the Remove the machine runs on with the removed ROM, its bytes unchanged in its socket`, sameRom
+      && await waitFor(page, (r) => window.emu.machine.frameCount > r.f + 10 && window.emu.machine.cpu.totalCycles > r.c, run0));
+    check(`ROM tiles (${label}): the focus moves to the remaining tile's Remove`, await page.evaluate(() => document.activeElement && document.activeElement.dataset.remove !== undefined));
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, `rom-tiles-removed-${label}.png`) });
+    // the toast stays while it has the focus (more than its 8 s)
+    await page.focus('#toastAction');
+    await page.waitForTimeout(9000);
+    check(`ROM tiles (${label}): the toast stays while focused`, (await toast()).shown);
+    await page.click('#toastAction');
+    check(`ROM tiles (${label}): Undo puts the tile and both sockets back, byte-identical`,
+      await waitFor(page, () => document.querySelectorAll('#libRomTiles li').length === 2) && JSON.stringify(await crcOf()) === JSON.stringify(original), JSON.stringify(await tiles()));
+    // removed again, then Your ROMs: the socket row says the running machine still has it
+    await page.click('[data-remove] >> nth=1');
+    await waitFor(page, () => document.querySelectorAll('#libRomTiles li').length === 1);
+    await page.evaluate(() => { location.hash = '#add-roms'; });
+    const row = await waitFor(page, () => /^Removed · still in the running machine$/.test((document.querySelector('#romSockets [data-socket="basic"] .state') || {}).textContent))
+      && await page.evaluate(() => document.querySelector('#romSockets [data-socket="basic"]').dataset.left);
+    check(`ROM tiles (${label}): Your ROMs reads "Removed · still in the running machine" on the socket`, row === 'running',
+      await page.evaluate(() => (document.querySelector('#romSockets [data-socket="basic"] .state') || {}).textContent));
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, `rom-tiles-your-roms-${label}.png`) });
+    // put back through a drop, the running machine starts with it; removed once more, the toast's Switch off and on
+    // leaves the machine in its no-ROM state
+    await page.evaluate(() => { location.hash = '#library'; });
+    await dropFiles(page, [['d64_1.rom', d64]], null, 'library');
+    await waitFor(page, () => document.querySelectorAll('#libRomTiles li').length === 2);
+    await page.click('[data-remove] >> nth=1');
+    await waitFor(page, () => !document.getElementById('toastAlso').hidden);
+    await page.click('#toastAlso button');
+    check(`ROM tiles (${label}): the toast's Switch off and on: the machine runs without ROMs`,
+      await waitFor(page, () => !window.emu.machine.hasRom && !window.emu.session.romsStillRunning().size));
+    // a ROM the running machine does not use: no second line
+    await page.click('[data-remove] >> nth=0');
+    const t2 = await waitFor(page, () => /^Removed d32\.rom\.$/.test(document.getElementById('toastText').textContent)) && await toast();
+    check(`ROM tiles (${label}): a ROM the running machine doesn't use: no second line`, t2 && t2.also === null && t2.action === 'Undo', JSON.stringify(t2));
+    // a reload: removed is removed (once the store has the write: it is queued at the click)
+    await page.evaluate(() => window.emu.session.index.flush());
+    await page.reload(); await started(page);
+    check(`ROM tiles (${label}): after a reload the removed ROMs are gone`, await waitFor(page, () => window.emu.session.romFiles().length === 0),
+      JSON.stringify(await page.evaluate(() => window.emu.session.romFiles().map((f) => f.name))));
+    await ctx.close();
   }
 
   // ---- R27: the copy: no "stub" on the page, one term ("disk ROM"), the .dgn warning said once, the snapshot sentence ----

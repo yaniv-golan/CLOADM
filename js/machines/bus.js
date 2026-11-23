@@ -5,7 +5,9 @@
  *   attach(host)        the host is the machine (or a Multi-Pak slot standing in for it): now(), ioTime(),
  *                       schedule(at, name, arg, pri), cancel(e), on(name, fn), off(name) (the handler and its
  *                       queued events), tickHz, clockUnits(), unitAttos and tickAt(u) (exact time,
- *                       js/chips/attoclock.js), config, lineDelays and slotHz (the slot's clock, which its line
+ *                       js/chips/attoclock.js), powerOnTick() (the tick MAME's time starts from at the last
+ *                       power-on), cartClockHz (the port's own clock, which a cartridge's processor runs
+ *                       from), config, lineDelays and slotHz (the slot's clock, which its line
  *                       delays count), setLine(source, line, level) (irq, firq, nmi, halt, cart),
  *                       cartridgeChanged() and cartSound(source, level)
  *   detach()            taken out (ejected or replaced, a Multi-Pak's slots with it): drop the lines it asserts,

@@ -719,9 +719,17 @@ class SamMachine extends Machine {
     const w = (a, v) => this.write(a, v);
     w(0xFF01, 0x00); w(0xFF00, 0x00); w(0xFF01, 0x34);
     w(0xFF03, 0x00); w(0xFF02, 0xFF); w(0xFF03, 0x35);   // FS IRQ enabled
+    // PIA1 port A. On a CoCo, PA1 is the RS-232 out to the serial printer: mark (high) goes into the output register
+    // BEFORE the DDR makes PA1 an output, as a printer routine leaves the line between characters. Made an output with
+    // 0 there, the line dropped to space and the 600-baud printer read the drop as a start bit and printed a NUL at
+    // every start (MAME 0.264 too: tools/mame-diff/sam/printer-stubinit.asm, run.js coco --printer --stub-init). A
+    // Dragon's port A is its parallel printer's: the stub sets it up as before, which prints nothing past the byte
+    // every reset prints (tools/mame-diff/sam/spec.js printer, atReset).
+    const coco = this.profile.lineage === 'coco', pa = coco ? 0x82 : 0x80;
+    if (coco) { w(0xFF21, 0x34); w(0xFF20, pa); }
     w(0xFF21, 0x00); w(0xFF20, 0xFE); w(0xFF21, 0x34);   // motor off
     w(0xFF23, 0x00); w(0xFF22, 0xFE); w(0xFF23, 0x3C);   // sound enabled
-    w(0xFF20, 0x80); w(0xFF22, 0x04);                    // DAC mid, text mode
+    w(0xFF20, pa); w(0xFF22, 0x04);                      // DAC mid (and on a CoCo the RS-232 out still at mark), text mode
     // text at $0400, map type 0, and the memory size the fitted RAM needs, as BASIC sets it at power-on: M=01 for
     // 16K, M=10 for 32K and 64K (MC6883 data sheet p. 4-645, "Memory Size"). M sizes the video counter
     // (js/chips/sam6883.js counterMask), so at M=00 a screen above $0FFF would show the first 4K again.

@@ -74,7 +74,7 @@ What each machine's comparison with MAME 0.264 showed when it was verified (the 
 | Dragon 64 + Speech/Sound Pak (`--ssc`, masked-interrupt case) | 1,156,994 instructions compared (a 4-second run: the count of instructions the comparison covers, not of the firmware's work), HALT reached at 195,913 — the **same trace** as the CoCo's, instruction for instruction: measured, both reach HALT after 195,913 instructions and 708,037 cycles, and the trace hash to HALT is the same (`7b896afc`) on both. The compared count differs from the CoCo's (1,164,214) only because the run is bounded by emulated seconds and the two models' clocks differ slightly (888,625 vs 894,886 Hz, 0.7 %), not because the PAL frame is longer: a longer frame holds proportionally more instructions, so the rate per emulated second is nearly the same | – | – |
 | Color Computer + Speech/Sound Pak (`--ssc int3`, interrupt case) | outcome comparison against MAME: 107 of 107 device-write rows identical, work RAM identical, HALT on both sides (not an instruction lockstep: the two CPUs overlap, see below). **The work-RAM match is not coverage of the sound-activity bit**: `$0405` holds a `$FF7E` status read whose bit 5 comes from an activity window this emulator does not model, and this model's pass depends on the firmware's fixed read landing outside that window (see below) | – | – |
 | CoCo 2B + Speech/Sound Pak (`--ssc int3`, interrupt case) | outcome comparison against MAME: 107 of 107 device-write rows identical, work RAM identical, HALT on both sides (this model's own `compare.js` run, not the CoCo's). As above, the work-RAM match is **not** coverage of bit 5 | – | – |
-| CoCo 3 + Speech/Sound Pak (`--ssc int3`, interrupt case) | **outcome comparison against MAME differs**, and is not claimed: the device writes still match (107 of 107 rows) and both sides reach HALT, but the final work RAM does not — MAME leaves `$0405` = `$DF` and we leave `$FF`. `$0405` holds a `$FF7E` status read and bit 5 is the sound-activity circuit: on MAME that bit dips low for a while after an allophone load, and the firmware's fixed read 18.4 ms after the load lands **inside** that dip here and outside it on the CoCo 1/2 and 2B. Our own model stubs the circuit and always reads the bit high, so we read `$FF` on every model. Why the dip sits at a different offset on the CoCo 3 is **not established**. Our side is still pinned in the gate as `trace coco3 ssc int3 (our side; MAME differs at $0405)` | – | – |
+| CoCo 3 + Speech/Sound Pak (`--ssc int3`, interrupt case) | **outcome comparison against MAME differs**, and is not claimed: the device writes still match (107 of 107 rows) and both sides reach HALT, but the final work RAM does not — MAME leaves `$0405` = `$DF` and we leave `$FF`. `$0405` holds a `$FF7E` status read and bit 5 is the sound-activity circuit: on MAME that bit dips low for a while after an allophone load, and the firmware's fixed read 18.4 ms after the load lands **inside** that dip here and outside it on the CoCo 1/2 and 2B. Our own model stubs the circuit and always reads the bit high, so we read `$FF` on every model. This difference is **known and open** (below: it is not the card's clock, which ran 4 times fast on the CoCo 3 and is fixed; it is the stubbed circuit). Our side is still pinned in the gate as `trace coco3 ssc int3 (our side; MAME differs at $0405)` | – | – |
 | Dragon 64 + Speech/Sound Pak (`--ssc int3`, interrupt case) | outcome comparison against MAME: 107 of 107 device-write rows identical, work RAM identical, HALT on both sides. As on the CoCo 1/2 and 2B, the work-RAM match is **not coverage of the sound-activity bit** (below), so that half is weaker than it looks; the write sequence is genuine | – | – |
 
 **Speech/Sound Pak** (`run.js coco --ssc`, `tools/mame-diff/ssc/`). The Pak's own ROMs are the user's, so the
@@ -139,8 +139,8 @@ allophone load:
 The firmware reads `$FF7E` at a **fixed 18.384 ms** after that load, the same figure on both models to the last
 digit. So the read does not move — the **window** does: 18.4 ms is outside the CoCo 2B's window (it reads `FF`)
 and inside the CoCo 3's (it reads `DF`). This emulator's own model of the circuit is a stub (`soundActive` is
-set false at `js/machines/ssc.js:107` and never set again), so bit 5 reads high unconditionally here, which is why
-we report `$FF` on every model.
+set false in the `SpeechSoundPak` constructor, `js/machines/ssc.js`, and never set again), so bit 5 reads high
+unconditionally here, which is why we report `$FF` on every model.
 
 Two consequences:
 
@@ -148,9 +148,13 @@ Two consequences:
   firmware's fixed read lands relative to a window we do not model. Move the settle delay in `ssc.asm` and those
   two could read `DF` as well. Their device-write sequence, which is what the card's decode determines, is genuine
   coverage and is unaffected.
-* **Why the dip sits at a different offset on the CoCo 3 is not established.** The card's clock is derived from the
-  machine's (a 13-instruction 6809 loop costs 16 card cycles on the CoCo 1/2 and 56 on the CoCo 3, measured here),
-  which is the obvious place to look, but the mechanism was not pinned down and is not claimed.
+* **The CoCo 3's `$0405` difference is known and open.** It was measured with the Pak's clock running 4 times fast on
+  the CoCo 3 (a 13-instruction 6809 loop cost 56 card cycles there against 16 on the CoCo 1/2): the card advanced
+  one cycle per machine tick, and a CoCo 3 tick is a GIME clock, a quarter of a CPU cycle. That is fixed (the card
+  counts the host's `cartClockHz`, below), and `compare.js coco3` still leaves 107 of 107 device writes identical
+  with `$0405` reading `$DF` on MAME and `$FF` here. So the clock was not the cause: what remains is the
+  sound-activity circuit, which this emulator stubs. It stays open until the circuit is modelled (deferred: MAME's
+  circuit averages the AY's level per stream update call, not per unit of time).
 
 Our side is also pinned as a hash in `tests/regress.test.js`, in the same form as every other case: the full
 instruction trace (registers and cycle counts) to HALT, plus the final work RAM and the ordered write sequence —
@@ -190,38 +194,155 @@ case now that both sides compare equal. The earlier "35 of 37" and "0" figures a
 *One measured timing difference in that case, and how the firmware handles it.* The SP0256 runs its own
 sequencer at its sample rate (MAME steps it once per sample, `clock/336`, about 9.3 kHz), not at the card's cycle
 rate, so after an allophone load it can take several sample periods to reach the `RET` that raises the `SBY`
-pin (status bit 6). This emulator's stage-1 model steps that sequencer once per card cycle, so it reaches `RET`
-sooner. Measured on the same firmware built with and without the wait the firmware now has: MAME leaves `$BF` at
-`$0405` (SBY low, sampled before the sequencer got there) when it reads the pin immediately, and `$FF` with the
-wait; this emulator leaves `$FF` either way. The firmware therefore waits before it samples the pin, as real code
-would. It is the emulator whose model is too fast, so the wait belongs in the firmware. That is a pacing difference in the
-speech chip's stage-1 model, not a hardware deviation, and it is why the wait is in the firmware rather than a
-`mameCompat` branch.
+pin (status bit 6). When this was measured, this emulator's stage-1 model stepped that sequencer once per card
+cycle, so it reached `RET` sooner: on the same firmware built with and without the wait it now has, MAME left `$BF`
+at `$0405` (SBY low, sampled before the sequencer got there) when it read the pin immediately, and `$FF` with the
+wait, while this emulator left `$FF` either way. The firmware therefore waits before it samples the pin, as real
+code would. The stage-2 sequencer (below, "The Speech/Sound Pak's SP0256 timing") runs once per sample on the chip's
+own clock, as MAME does, so that pacing difference is gone; the wait stays, since real firmware needs it too.
 
 The "0 `SERVE`" run of the earlier revision and the comparison that now passes
 (`tools/mame-diff/ssc/compare.js`) were both run with the same harness. Between them the firmware gained the
 settle delay; no harness change is involved.
 
-**Not verified for the Speech/Sound Pak: its audio.** The Speech/Sound Pak plays its AY sound, gated by the CoCo
-sound mux as in MAME (`coco.cpp:555`: the cartridge is heard when PIA1 CB2 and PIA0 CB2 are high and PIA0 CA2 is
-low; an equality test, so all three high selects another source, and a cartridge in a Multi-Pak slot is gated
-the same way, as MAME's `coco_multi.cpp` forwards `set_sound_enable` to every slot). Its comparison with MAME
-`-wavwrite` is not yet passing, and the comparison is recorded as **not verified**. What is measured: each side's
-recording holds four level plateaus (a value held for roughly 120,000 samples at 48 kHz, so they are the waveform's
-levels and not resampler edges). MAME's are **10,371, 11,110, 16,407 and 16,994 LSB**; ours are **−12,288,
-−11,329, −4,546 and −3,587 LSB**. The steps between neighbouring plateaus are **739, 5,297 and 587 LSB** in
-MAME's recording and **959, 6,783 and 959 LSB** in ours, so step for step **MAME's is 0.770, 0.781 and 0.612 of
-ours**. A single offset and scale would make those three ratios equal; they are not, so no one offset-plus-scale
-map reconciles the two sets, and no slope is claimed between them. Largest difference 29,281 LSB
-against the cartridge comparisons' 2 LSB tolerance. **The cause is not established.**
-Its speech (SP0256 synthesis) isn't implemented yet: the SP0256's model is the microsequencer
-and host interface, with no filter and no DAC, so nothing reaches the mixer from it. That part is verifiable
-without a copyrighted ROM: an SP0256 image built by our own tools can be installed in MAME and compared with
-`-wavwrite`, as AGENTS.md section 5 (Cartridges) describes — so it is a real remaining task.
-**The sound-activity circuit belongs to this same gap.** `$FF7E` bit 5 reports whether the speech chip is making
-sound, and this emulator stubs it to a constant high (`js/machines/ssc.js:107`), so the bit is wrong for as long as
-the SP0256's audio is; it is listed here rather than as a separate defect, and no work on it makes sense before
-speech audio exists.
+**The Speech/Sound Pak's AY sound** (`node tools/mame-diff/ssc/audio.js <coco|coco2b|coco3|dragon64>`). The Pak
+plays its AY sound gated by the CoCo sound mux as in MAME (`coco.cpp:555`: the cartridge is heard when PIA1 CB2 and
+PIA0 CB2 are high and PIA0 CA2 is low; an equality test, so all three high selects another source, and a cartridge
+in a Multi-Pak slot is gated the same way, as MAME's `coco_multi.cpp` forwards `set_sound_enable` to every slot).
+Both sides run our own firmware (`ssc/gen-ay.js`): the TMS7040 plays every step of an AY program from its own
+reset, so no 6809 handshake is in the sound, and the 6809 only opens the mux. The program covers every channel's
+volume 0-15 alone and against the others, all 16 envelope shapes on one, two and three channels and through a tone
+gate, tone periods 0, 1, $FFF and others, noise periods 0, 1, 16 and 31 alone and mixed, and a write to a
+deselected chip. Two checks, on each of the four models the Pak is offered on, both passing on MAME 0.264:
+
+| Model | AY data writes (MAME's time, Lua tap on the PIC's port C) | Levels (steady samples, 48 kHz, 2 channels) |
+|---|---|---|
+| CoCo 1/2 | 187 of 187, each within 0.331 card cycles | 539,538 compared, largest difference 0 LSB (tolerance 2) |
+| CoCo 2B | 187 of 187, within 0.331 | 539,538 compared, 0 LSB |
+| CoCo 3 | 187 of 187, within 0.456 | 533,726 compared, 0 LSB |
+| Dragon 64 | 187 of 187, within 0.000 | 539,400 compared, 0 LSB |
+
+The write limit is half a card cycle: MAME's Pak clock is 894,886 Hz, ours 894,886.25, which drifts a third of a
+cycle over the 1.33 s program (measured worst 0.456 cycle, on the CoCo 3, in the table above). The levels are compared at every sample where both recordings hold one value for three samples running,
+from the later of 20 ms (MAME's first sound update period, as for the cartridges) and the 6809's opening of the mux:
+before it, the recording is the machine's own DAC and single-bit sound (compared by `sam/dac-sound.js`). The 2 LSB
+tolerance covers float rounding in the order MAME sums its streams; one AY level step here is at least 58 LSB.
+**Transitions are not part of the result**: at every level change MAME's recording is one output sample (1/48000 s)
+later than the resampler port puts ours, on every model. With that delay every sample matches within 1 LSB (the
+run reports it on its own line), and it is the same constant `cart/audio.js` measured for the cartridges, but its
+source in MAME's sound path is not established, so it is not applied to the result.
+
+What made it match, each found by this comparison and fixed in `js/chips/ay8910.js` and `js/machines/ssc.js`:
+* **The output network.** `coco_ssc.cpp:181` builds the AY-3-8913 with `set_flags(AY8910_SINGLE_OUTPUT)`, which
+  replaces the default legacy flag: its three channels are one resistor network into a 1 kOhm load, not three
+  levels added, and the table is not normalised (`build_3D_table` with `normalize = 0`); the Pak routes it at
+  `AY8913_GAIN 2.0` (`coco_ssc.cpp:59`). The AY core has a `'single'` output mode for it; the Dragon Alpha's
+  AY-3-8912 stays `'legacy'`. Before: four plateaus of −12,288 / −11,329 / −4,546 / −3,587 LSB against MAME's
+  10,371 / 11,110 / 16,407 / 16,994; after, those exactly (`tests/ay8910.test.js` pins MAME's four numbers).
+* **The stream rate.** The AY's clock is `DERIVED_CLOCK(2, 1)`, twice the card's cycle rate (the TMS7040's divider
+  of 2 is its own), and MAME streams it at clock / 8: one sample per 4 card cycles, not 8. Every tone played at half
+  MAME's frequency.
+* **When a write lands.** MAME's TMS7000 charges an instruction's cycles before executing it (`tms7000op.cpp`,
+  e.g. `am_i2p`), so a port write's time is the instruction's end, and the AY stream is brought up to that time
+  with the old registers, the sample in progress included (a stream view's end rounds up, `sound.h`). So every
+  sample that starts before the write plays the old registers and the first to start at or after it the new.
+  Getting this wrong put tones half a period out of phase after a period change.
+* **The card's clock.** At power-on the card started at the CPU's first instruction, 4 cycles after MAME's time 0
+  (every write 4 cycles late; the host now gives the power-on origin, `powerOnTick()`); and on the CoCo 3 it ran 4
+  times fast (above). Both are pinned by `tests/ssc.test.js` against MAME's write times, 129 and 216 card cycles.
+* **MAME's whole-hertz sample grid** (`config.mameCompat` only; "Deviations from MAME").
+
+**The Speech/Sound Pak's SP0256 timing** (`node tools/mame-diff/ssc/speech.js <coco|coco2b|coco3|dragon64>`). The
+speech chip's sequencer (`js/chips/sp0256.js`, stage 2) runs one step per sample on its own 3.12 MHz clock: the
+instruction set, the parameter decode for every load in all four modes, repeat counts with SETMODE's high bits,
+interpolation, deltas, PAUSE, JSR/RTS and PAGE, the LRQ/SBY handshake, and LRQ on the PIC's INT1. Its bit order is
+the one an unreversed AL2 dump speaks in (LSB first, branch addresses most significant bit first; GI's binary
+notation agrees). Both sides run our own images: the speech program from `ssc/sp0256-asm.js`, installed in MAME
+under the AL2's file name, `sp0256-al2.bin`, but always our own generated image, never a real SP0256-AL2, which is
+copyrighted and never fetched, recreated or used here (AGENTS.md hard rule 1) (`ssc/gen-speak.js`:
+50 allophones, one test each, each ending in a marker load whose timing a misframed field would change), a PIC
+program that loads allophones 1-50 as the chip's LRQ asks for them, and a 6809 program that reads `$FF7E` once the
+last load is made. Two checks, both passing on MAME 0.264:
+
+| Model | Address loads (MAME's time, Lua tap on the PIC's port C) | `$FF7E` changes (Lua read tap) |
+|---|---|---|
+| CoCo 1/2 | 50 of 50, each within 0.309 card cycles | 2 of 2, each on the same 6809 read; SBY's rise seen |
+| CoCo 2B | 50 of 50, within 0.309 | 2 of 2, same read |
+| CoCo 3 | 50 of 50, within 0.426 | 2 of 2, same read |
+| Dragon 64 | 50 of 50, within 0.000 | 2 of 2, same read |
+
+Each load's time is the moment the chip took the allophone before it, so the 50 times pin every test's length to
+the card cycle: a field width wrong by one bit, a repeat count or a pitch period off by one sample, moves every load
+after it. The parameter table (GI's bit-precision maps, which the stage-1 work could not read from GI's scan) is
+restated in our own form from MAME's, and was checked against it entry by entry, 64 of 64. The 6809 does not read
+the status while the PIC is loading: a status read brings the chip up to that moment (MAME's `sby_r` updates its
+stream), so an LRQ change could come from a 6809 read, and MAME hands that to the PIC across two CPUs it interleaves
+on its scheduler, which moved single loads by one pass of the PIC's polling loop when the 6809 read throughout. Under
+`config.mameCompat` the chip runs on MAME's grid, and an LRQ change less than a card cycle ahead of a PIC instruction
+reaches it first (both under "Deviations from MAME"). The Pak's existing comparisons were re-run with the new
+sequencer (its image rebuilt by the assembler: `gen-roms.js`): `run.js <profile> --ssc` identical to HALT on all four
+models, and `ssc/compare.js` identical on the CoCo 1/2, 2B and Dragon 64, with the CoCo 3's `$0405` as before. The
+interrupt-case keys `trace <profile> ssc int3` changed (the 6809's status reads see SBY at the new times; the
+instruction counts are unchanged) and were recorded after those runs passed.
+
+The CI has no MAME, so `tests/ssc.test.js` holds MAME's own recording of this run on the CoCo 1/2 and the Dragon 64
+(`tests/fixtures/ssc/speech-mame.json`: the 50 address-load times and the `$FF7E` changes, with the speech image MAME
+ran) and runs that image under `config.mameCompat`: every load within half a card cycle of MAME's, every status change
+on MAME's read. It fails if the address load is applied at once instead of at the end of the PIC's instruction (the
+first load 11 card cycles early), if the mameCompat LRQ-ahead rule is removed (load 28 on the CoCo, 39 on the Dragon,
+one polling pass of 23 cycles late), or if a field width is wrong (DELTA_9's pitch read as 4 bits: from load 27 on),
+and if `gen-speak.js` stops building the recorded image.
+
+**The Speech/Sound Pak's SP0256 sound** (`node tools/mame-diff/ssc/speech-audio.js <coco|coco2b|coco3|dragon64>`).
+The chip's output (`js/chips/sp0256.js`, stage 3, MAME's model): the excitation (an impulse of the amplitude every
+pitch period, or plus or minus the amplitude from a 15-bit noise register), six second-order filter stages in 16-bit
+arithmetic that wraps, their B and F multipliers from the SP0250 Applications Manual's coefficient quantization (our
+table is built from its step breakpoints and equals MAME's 128 values), and the last stage held to 14 bits, times 4.
+The Pak (`js/machines/ssc.js`) adds it to its sound path at MAME's gain, `SP0256_GAIN` 1.75 of full scale 32,768,
+gated by the sound mux with the AY (`set_sound_enable`). Both sides run our own images: the speech program from
+`ssc/gen-voice.js` (24 tests: every load that sets coefficients in all four modes, voiced at several pitches and
+amplitudes, both coefficient signs and stage 5, interpolation, SETMSB and delta updates of a playing sound, noise,
+PAUSE, and the chip halting after a voiced and after an unvoiced sound), installed in MAME as `sp0256-al2.bin` but
+always our own image, never a real SP0256-AL2; its PIC program is `gen-speak.js`'s with two holds, and the 6809 only
+opens the mux (`gen-ay.js`). MAME records at the chip's stream rate (`-wavwrite`, `-samplerate 9285`,
+`-nocompressor`), so each recorded sample is one chip sample; ours is the machine's sound path read at each speech
+sample's stamp and written as MAME writes a WAV sample (clamped to plus or minus 1, times 32,767, truncated):
+
+| Model | Samples compared | Largest difference | Over 1 LSB |
+|---|---|---|---|
+| CoCo 1/2 | 18,380 (from sample 190) | 1 LSB | 0 |
+| CoCo 2B | 18,380 | 1 LSB | 0 |
+| CoCo 3 | 17,813 (from sample 757, where its 6809 opens the mux) | 1 LSB | 0 |
+| Dragon 64 | 18,380 | 1 LSB | 0 |
+
+All 24 address loads are made on each, MAME's recording holds about 2,170 distinct values and none clipped, and its
+two channels are the same. Our sample k is compared with MAME's sample k + 1: from its first sound update on, MAME's
+recording is one output sample later than its streams put it, the constant the cartridge and AY comparisons also
+see (`cart/audio.js`, `ssc/audio.js`; its source in MAME is not established). The first 1/50 s is left out, because
+in that update MAME's resampler holds one sample twice, and so is everything before the 6809 opens the mux (the
+machine's own sound, compared by `sam/dac-sound.js`; on the CoCo 3 it differs here, -8,191 against 0), plus 4 samples:
+MAME gates the sample the mux opens on when it mixes, we when the sample is made. The 1 LSB tolerance covers float
+rounding: MAME resamples the AY's idle level (heard, since the mux is open) from its 1.79 MHz stream with 32-bit
+float sums, which moves the sum by an ulp at some samples; measured, 1 sample in 18,564 differs, by 1. The test
+image's levels are chosen to stay inside what the recording can hold (`gen-voice.js` runs our chip to choose the
+INPUTS; the expected output is MAME's recording), so two parts of the model cannot be seen in it: the 14-bit hold and
+the 16-bit wrap. Both only act beyond full scale, where the recording clips; `tests/sp0256.test.js` pins them with
+values worked by hand from MAME's model.
+
+The CI has no MAME, so `tests/ssc.test.js` holds MAME's recording on the CoCo 1/2 and the Dragon 64
+(`tests/fixtures/ssc/voice-mame.json`, with the speech image and PIC program MAME ran) and requires the same, every
+sample within 1 LSB, plus that `gen-voice.js` still builds those images. Mutations, each turning it red: the B term
+shifted by 8 instead of 9; the coefficient table's first segment 8k instead of 8k + 1; no delay reset at an impulse;
+the halted chip forgetting its amplitude; noise taps 0x4000; no amplitude interpolation; the Pak's gain 1.5; the
+speech stamped 3 periods on; and speech not gated by the mux (a hardware-grid check: with gen-speak.js's 6809
+program, which never opens the mux, the sound path holds one level). `tests/state.test.js` snapshots the Pak in the
+middle of an allophone, part way through a frame, with speech levels not yet passed on, and the restored machine's
+sound is identical level for level.
+
+**The sound-activity circuit** is the one part of the Pak still missing. `$FF7E` bit 5 reports whether the Pak is
+making sound, and this emulator stubs it to a constant high (`soundActive` in `js/machines/ssc.js`). MAME's circuit
+follows the AY's level only (`coco_ssc.cpp`: the AY is routed through it, the SP0256 straight to the speaker); it is
+deferred, and the CoCo 3's `$0405` difference in `ssc/compare.js` comes from it.
 
 **Where the Pak is offered, and where it is not.** The cartridge port's board menu offers it on the four models
 whose Pak **instruction lockstep** (`run.js <profile> --ssc`, the masked case) has matched MAME 0.264 to HALT: CoCo
@@ -263,9 +384,18 @@ firmware never writes the 6551's `$FF04-$FF07`. Those parts are covered by keys 
 dragon64` (the SAM diagnostic's phase 4 reads BANKID at `$BF00` with PB2 both ways, and fails on the PB2 mutation)
 and `acia dragon64`. The comparable earlier statement for the CoCos' SSC keys is the same: they cover the Pak, and
 the models' own differences are covered by their own keys.
-The board is described as **music only** wherever it appears, because speech is the unimplemented half above. Its
-PIC (TMS7040) ROM is the user's, added through the ROM panel; the SP0256 allophone ROM is optional, since nothing
-plays it yet. Offering the Pak on these four models rests on the instruction lockstep above; the interrupt case
+Its PIC (TMS7040) ROM is the user's, added through the ROM panel and required; the SP0256-AL2 speech ROM is the
+user's too and optional (CLOADM never includes it). The words for it are one table, `SSC_TEXT` in `js/session.js`:
+without the speech ROM the board menu says **Speech/Sound Pak (music; speech needs your SP0256-AL2 ROM)** and with it
+**Speech/Sound Pak**; the ROM panel's speech socket says it is optional, what it does and that CLOADM never includes
+it, or, loaded, that the Pak speaks; and when a program first asks the Pak to speak with no speech ROM (an address
+load, noted by the Pak and checked by the Session after every frame, however the frames were run: the page,
+Claude's tools, MCP, a script) the Session emits `speech-rom` once in its life, which the page shows as one toast
+with an "Add ROMs" button (the stdio MCP server, `cli/mcp.js`, has no page, and nothing there listens for it). `tests/ssc-board.test.js` holds the words, the label switch and the once-a-session rule
+(more speech, and the Pak out and in again, say nothing more; with the ROM in, or a program that never speaks, nothing
+at all); the browser check's `sscBoard` group checks the menu label both ways, both panel lines and the toast exactly
+once through the page, all with our own stand-in speech program, and hears the speech reach the machine's sound
+path once the stand-in speech image is added. Offering the Pak on these four models rests on the instruction lockstep above; the interrupt case
 (`compare.js`) additionally passes on the CoCo 1/2, the CoCo 2B and the Dragon 64, and on the CoCo 3 it does not.
 That pass is weaker than it sounds: those three models' work RAM matches because the firmware's fixed read lands
 outside a sound-activity window this emulator does not model (above), so it is not evidence about bit 5 either
@@ -754,6 +884,51 @@ snapshot. The page (browser check, group `tapeHud`, desktop and phone): on by de
 Sound switched off nothing at all is sent to the output while the tape plays (`tests/tape-sound.test.js` checks the
 same gate in Node). How it sounds is a matter of ear, not checked automatically.
 
+### The tape's extras: Eject, the Ctrl+K tape commands, several files, recordings named
+
+No MAME oracle (AGENTS.md 4.6): page behaviour. `tests/tape-extras.test.js` records real CSAVEs, the project's writer
+firmware (`tools/mame-diff/tape/csave.asm`) running as the Dragon 32's ROM with the name in its namefile block changed
+per case: "HELLO" names HELLO.CAS, a blank name and an empty recording "Recording HH-MM.cas", "A/B" A_B.CAS (and
+every other forbidden character "_"), two runs in one recording one file named after the first with 2 files;
+`MediaLibrary.uniqueName` gives "HELLO (2).CAS" and "(3)" once the names are taken. A 2-file tape reports file 2 of 2
+past its second namefile block. `Session.ejectTape` empties the deck, emits `'tape'`, clears the tape watch, and
+with the motor on resets nothing: the machine runs on and the motor stays on. Browser check, group `tapePanel`
+(1440x900 and 390x844): Ctrl+K without a tape lists **Insert a tape…** (which opens the tape picker, .cas and .wav),
+then Rewind, Eject and Save the tape as .WAV muted ("No tape in", aria-disabled, no disabled attribute, after every row
+that applies); choosing each of them keeps the box open, changes nothing, puts its reason on its row and says it once
+in the live region; with a tape, "rewind" and "eject" find them, not muted; a 3-file tape reads "LOADING · FILE 2 OF 3 ·
+BLOCK 4 OF 9"; **Rewind the tape** rewinds; **Eject the tape**, with the motor on, hides the deck, says "Tape
+ejected." and leaves the focus on the slot's deck button with the motor still on; the commands are then muted
+again; the slot's **Eject** sits beside **Rewind**, is disabled with no tape, and ejects the same way. Group `tape`:
+the writer firmware's recording is saved to the Library as CLOADM.CAS, byte for byte, and the toast's **Download**
+saves the same bytes under that name; the recording kept at a machine switch is offered as CLOADM.CAS and saved as
+"CLOADM (2).CAS"; both are on the Library's shelf after a reload. Two runs of the writer in one recording save one
+CLOADM.CAS, and the toast says "(2 files)"; with `?storage=fallback` ("Download and open files") the recording is
+downloaded as CLOADM.CAS and nothing is kept. On the touch phone the slot's Rewind, Eject, Record and Save .WAV are at
+least 44 px tall.
+
+### Ctrl+K: ranking, typos, the machines, Help
+
+No MAME oracle (page behaviour). `tests/command-rank.test.js` runs `rankCommands` on the page's own command list
+with the models' "Switch to" rows: "rset" gives Reset first, "setings" and "setin" a settings command, "coco 3"
+Switch to CoCo 3, "help", "guide" and "how" Help, "delete rom", "forget" and "remove rom" Your ROMs, "eject" with a
+tape and no disk Eject the tape; "xyzzy" nothing; "switch" and "machine" the one Switch machine… row and no model
+rows; every model has its row by its name, the running one muted ("Running now", "You're using the <model> now.") and after
+the ones that apply; "eject" with only a tape gives Eject the tape, then Eject disk muted ("No disk in"), with both in
+both apply in the list's order, with neither both muted; Rewind and Save the tape as .WAV say their reasons, the WAV
+not with a recording; a synthetic list shows the tiers (label
+start in list order, then other words, then a near miss); 3-letter words are not forgiven and a near miss keeps its
+first letter; the marks are the matched parts of the label. `tests/disk-bare.test.js` checks Eject disk's state and reason
+with no disk in. Browser check, group `commands` (1280x720 and 390x844): the same first rows, selected; at most 8
+commands then Ask Claude; the marks and the option's accessible name (the plain label, found by role and exact name);
+↓ wrapping from the last row to the first and ↑ from none chosen to the last; "coco 3" Enter opening the switch
+confirmation naming the CoCo 3, Cancel keeping the Dragon 64; Switch machine… opening the machine menu; Help opening
+`help/` in a new tab; the empty box's list with Switch machine… and Help last; every label in Help; the running
+Dragon 64's row muted "Running now" after the other Dragon 64s, reached with the arrows, and Enter on it keeping the
+box open, putting "You're using the Dragon 64 now." on the row, saying it once in the live region and switching
+nothing; "eject" with a tape in giving Eject the tape, then Eject disk muted; every muted row in the empty box
+aria-disabled and reached by the arrows.
+
 ### The tape HUD and the cassette panel
 
 Browser check, groups `tapeHud` and `tapePanel`. At 1440x900, 820x1180, 390x844 and 844x390 (touch at the last three),
@@ -949,6 +1124,20 @@ browser check's group `uiModel` drives them with real events at 1280x720 and at 
   its action, ↓ from the last machine to both footer items, Esc, and each footer item's focus.
 * R19 A+: the ROMs chip's card with and without ROMs (the count and the machines worked out from `session.roms`),
   the drop's **Open Your ROMs**, and the card's link. `tests/stored-roms.test.js` checks `Session.storedRoms`.
+* ROM tiles: an empty Library shows the ROMs chip and the "No ROMs yet" card; under the ROMs chip (none under All) a
+  tile per stored image with its name, size, "Used by" (a shared image names every machine) and a Remove button of at
+  least 44 px (one column on the phone); Remove takes the tile away, the toast reads "Removed d64_1.rom." with Undo and
+  the second line about the running Dragon 64, both machines' sockets are empty and the machine still runs it; the
+  toast stays past its 8 s while focused; Undo brings the tile and both sockets back byte for byte; Your ROMs reads
+  "Removed · still in the running machine"; the toast's Switch off and on leaves the machine without ROMs; a ROM the
+  machine doesn't use gets no second line; after a reload the removed ROMs are gone. `tests/rom-remove.test.js`
+  checks it in Node with NOP stand-in ROMs: each image once in `romFiles` with its users, removal from every socket
+  written to the store (a library loaded again from it lacks the image), Undo byte for byte (never over a ROM put in a socket since: that one stays,
+  after a collect too, and the skipped socket is named; a disk cartridge switched off and on without its ROM gets it
+  back, with a restart), a running machine's
+  registers, cycles and screen identical to a twin's for 30 frames after the removal, still running it after a
+  reset, without ROMs after a switch off and on, and a disk cartridge's ROM taken out at the switch off and on. On
+  the page, after the Remove the machine's socket still holds the same bytes and its frames and cycles go on.
 * R27: every text node and title, label and placeholder of the page (emulator, machine menu, Your ROMs, Share,
   Library) holds no "stub" and no "Machine tab", and "disk ROM" is the one term; the ROMs row's states, the .dgn
   warning and the snapshot sentence word for word.
@@ -1201,6 +1390,27 @@ names it.
   * The serial printers sample each bit at its middle, 1.5 to 9.5 bit times after the start edge, as MAME's
     `diserial.cpp` does (`js/machines/serial.js`). Making the line an output while it holds 0 is a start bit:
     the firmware sets the output register before the DDR.
+  * `run.js coco --printer --stub-init` runs `sam/printer-stubinit.asm`, which sets PIA1 up exactly as CLOADM's
+    no-ROM stub does (`js/machines/sam.js` and `coco3.js` stubInit) before the same print. Before 0.2 the stub made
+    PA1 an output with 0 in its output register, then wrote $80: MAME 0.264 and ours both printed one NUL before the
+    first byte (306 bytes identical, the extra one a $00), so every program started on the stub had a printout
+    beginning with $00. The stub now puts mark in the output register first: **305 bytes identical**, nothing
+    before the first byte sent, trace identical to HALT (3,211,861 instructions). `tests/stub-printer.test.js`
+    checks the printed bytes of every CoCo-lineage stub, and that the Dragons' stub prints only the reset's byte.
+  * `run.js mc10 --printer --stub-init` (and `alice`) runs `mc10/printer-stubinit.asm`, ports set up as the MC-10 and
+    Alice stub sets them up (`js/machines/mc10.js` stubInit, port 2's data register before its DDR): **306 bytes
+    identical**, nothing before the first byte, trace identical to HALT (3,584,013 instructions compared).
+  * `run.js <coco|mc10|alice> --printer --glitch` runs `sam/` or `mc10/printer-glitch.asm`: the printer line dropped
+    for a few cycles once it idles at mark, then the print. MAME 0.264's receiver (`diserial.cpp`) has no false-start
+    check: any drop is a start bit, and it prints $FF for it; so does CLOADM's (`js/machines/serial.js`), **307 bytes
+    identical** on the MC-10 and Alice, 306 on the CoCo (one text byte shorter). The MC-10 firmware first sets port 2
+    up DDR first, the order the stub had before 0.2. MAME's m6801 drives port 2 only once its data register has been
+    written (`m6801.cpp` `write_port2`: `if (!m_port2_written) return;`, cleared at reset, set by `p2_data_w` and the
+    output compare), so that order prints nothing there. CLOADM's 6803 drove the data register's 0 and printed a
+    stray byte (its first byte came out $7F instead of $00) until it did the same (`js/cpu/cpu6803.js`, `p2Written`, a
+    field in the 6803's state; a 6809 snapshot is unchanged, so `SNAPSHOT_VERSION` does not move). The MC6803's data
+    registers are not set by reset, so the hardware's level there is
+    undefined; MAME's choice is kept. `tests/stub-printer.test.js` checks CLOADM's bytes against MAME's record.
 
 * `node tools/mame-diff/run.js <profile> --serial` runs `sam/serial-loopback.asm` (`mc10/serial-loopback.asm`) with
   a loopback plug on the bit-banger, in lockstep with MAME's `-rs232 loopback`: the firmware sends 13 bytes as
@@ -1325,7 +1535,41 @@ names it.
   MAME's silences. What a program reads is the same (`tape/cloadm.asm`, above); the comparison of the signal
   checks the silences and shows the runs between them without comparing them.
 
+* The Speech/Sound Pak's speech on the sound path (`js/machines/ssc.js`, `SP_LAG`): each speech sample's level is
+  heard from two sample periods after its period starts, about 0.2 ms late. The chip makes a sample when its period
+  ends (or, for a status read or an address load, when it starts), up to a PIC instruction after the AY's samples
+  for the same moment have been passed on, and the machine's sound path takes levels in time order; two periods on
+  is after the card's position whenever a sample is made. MAME's stream holds sample k for its own period. The
+  comparison (`ssc/speech-audio.js`) reads our levels at those stamps, so the values are compared exactly; only
+  the 0.2 ms differs.
+
 MAME artefacts reproduced only under `config.mameCompat` (the comparisons turn it on; the product does not):
+
+* SP0256 sample rate (`js/chips/sp0256.js`, `SAMPLE_CLOCKS`; `js/machines/ssc.js`, `spGrid`): the hardware makes one
+  sample every 312 clocks of its 3.12 MHz crystal, 10 kHz (GI's "SP0250 Applications Manual", June 1982, pin 20
+  SYNC: "640ns positive pulse with a duty cycle of 312 clocks"; the 3.12 MHz crystal from the Radio Shack SP0256
+  datasheet, catalog 276-1784; CPCWiki's "SP0256 Measured Timings" gives 3.12 MHz / 2 / 156 = 10 kHz, a secondary
+  source not read here, its host being network-blocked). MAME 0.264's `sp0256.cpp` divides by `CLOCK_DIVIDER
+  (7*6*8)`, 336, with no citation, while its own comment says it generates "~10kHz samples"; as a whole-hertz
+  stream that is 9,285 samples a second, counted from each second's start. Under `config.mameCompat` the chip runs
+  on MAME's grid; otherwise at 10 kHz.
+
+* SP0256 LRQ and the PIC's scheduler (`js/machines/ssc.js`, `stepCard`): MAME gives a CPU the time to its next timer
+  as a whole number of its cycles, rounded down, and does not run it for none, so the speech chip's per-sample timer
+  fires before a PIC instruction that would start less than one card cycle earlier. Under `config.mameCompat` an LRQ
+  change that close reaches INT1 before the instruction; otherwise after it, at the instruction's end. Measured with
+  `ssc/gen-speak.js`: instructions starting 0.06 and 0.88 card cycles before a sample boundary read the INT1 flag set
+  on MAME, each moving one address load by a pass of the PIC's polling loop (23 card cycles) until this was modelled.
+
+* Speech/Sound Pak AY sample grid (`js/machines/ssc.js`, `mameAySamples`): on the hardware the AY makes one sample
+  per 4 card cycles (its clock is twice the card's, and a sample is 8 of its clocks). MAME keeps device clocks as
+  whole hertz, so the Pak is 894,886 Hz (888,625 on the Dragon), the AY 1,789,772 Hz and its stream 1,789,772 / 8 =
+  223,721 samples a second, counted from each second's start (`sound.cpp`, `time_to_buffer_index`), where 4 card
+  cycles would make 223,721.56. MAME's grid therefore slips about half a sample a second against the card's
+  cycles, and a register write near a sample boundary lands one sample later than on the hardware's grid; measured
+  with `ssc/gen-ay.js`, that put a tone half a period out of phase after a period change at 1.008 s. Under
+  `config.mameCompat` the AY's samples fall on MAME's grid; otherwise on the hardware's (`tests/ssc.test.js`:
+  223,721 and 223,722 samples in the first 894,886 card cycles).
 
 * CoCo 3 GIME vertical fine scroll (`$FF9C`): MAME 0.264 never scrolls a GIME-mode row (its top border resets the
   row's line counter on every line, `gime.cpp` `record_border_scanline`, after `new_frame` loaded VSC into it). The
@@ -1531,7 +1775,7 @@ I/O after every slice gives snapshots that all load, and a held `PSHU` that chan
 one and three save-and-restore round trips.
 
 A WRITE from outside made while the suspended instruction's events run (between runs, `heldIo`) is queued and made
-between instructions, at the machine's own time (`Coco3Machine.outsideWrite`, `flushOutsideWrites`): the same write
+between instructions, at the machine's own time (`HaltReplay.outsideWrite`, `flushOutsideWrites`): the same write
 made while parked, with `$FFD9` (measured in `tests/held-writeio.test.js`), charged 34,724 CPU cycles over the
 frame at commit 570d3fc, before this change; made one tick inside the window it charged 4,856, because the rate-write path took its
 `!inStep` branch and dropped the suspended instruction from inside its own event. Now the two charge the same
@@ -1624,6 +1868,70 @@ independently in `tests/games.test.js`:
   board and BCD score in memory match after every move; joins happen once per move; a move that changes nothing brings
   no tile; a full board with only a vertical join left is not over; a stuck board is over (both checked on the model
   first); 2048 is announced once and play goes on; the same game on the Dragon 32, CoCo, CoCo 3 and 6309.
+* 2048's animation, `tests/games-slide.test.js` (16 checks), at the field clock the tests read (the ENTROPY byte, which
+  every field of the slide AND of the pop ticks once - both take a VSYNC, which the key wait does not; the pop is also
+  sampled per frame so its own fields can be seen): a tile travelling three squares is drawn in each square it passes
+  over, so a row's ink takes more than two shapes over the fields; the joined tile is drawn for exactly one field in the
+  `$AA`/`$55` fill that no tile
+  style has, between its own looks (read from the box's dominant even-row and odd-row bytes); a new tile is SMALL
+  (the pop's 4x20 = 80 inked bytes) for frames after an empty slot, then FULL (6x34 = 204), both sizes derived from
+  the geometry; a tile mid-slide carries the mover's OWN value, not a merged one (a 4's `$FF` body on the columns it
+  crosses, and a joining tile - a 2 crossing three squares to join a 2, a 4 to join a 4 - showing what it WAS, `$55`
+  or `$FF`, never the `$FF` or `$77` of the value the join makes); the board in memory is the move's rule state with
+  exactly one tile added, unchanged by how it was drawn; a key pressed mid-slide ends it at once (no intermediate
+  shape after it) and is played as the next move, which puts the tile where that key sends it; a key during the
+  POP ends it at once too, and keys pressed during one animation are queued four deep and all played, in order
+  (the queue's depth and oldest-first order are checked directly, and on a CoCo 3 whose RAM is garbage at
+  power-on); nothing is left behind (a square a mover has left shows no ink on that field); the flash lasts one
+  field, measured in machine cycles against the machine's own `frameCycles` (`d/F = 0.999` on a 50 Hz Dragon and a
+  60 Hz CoCo); and the order is slide, then flash, then pop.
+
+  **Every mutant, with its exact edit and what it was measured to redden.** Every row was measured in a separate
+  worktree at `b985014`. The rows depend only on `tests/` and `examples/`, and those are the same at `b985014` as at
+  this commit (`git diff b985014 HEAD -- tests examples` is empty): every later commit edits this file alone.
+  To reproduce one: apply the edit,
+  `node tools/build-examples.js`, then `node tests/games-slide.test.js` and `node tests/games.test.js`.
+  "slide N" = N of the 16 checks in `tests/games-slide.test.js` fail; "game N" = N of the 151 in
+  `tests/games.test.js`.
+
+  | # | The edit | Measured at b985014 |
+  |---|---|---|
+  | R01 no `SLIDE` | `GLSLIDE`: `JSR SLIDE` -> `NOP` | slide 9, game 0: crossed squares, merged-tile flash, order, one-field flash, mover values (h, i, k), flash duration, nothing left behind. (On (p) this fails only because the slide never runs, so there are no movers: (p) is not catching a trail here.) |
+  | R02 vertical step | in `SPOS`, delete the two `LSLA` after `LDA MSTEP` (a column step of 1, not 4) | slide 1: crossed squares |
+  | R03 skip a middle square | the second `SPSTEP` line (`FCB 1,1,2`) becomes `FCB 1,2,3` | slide 1: crossed squares |
+  | R04 a vanished tile | `SLPASS` becomes two passes. First pass: for each mover, `JSR SPOS`; `BEQ` past a mover that did not move this field, otherwise empty its `MPREV`. Second pass: for each mover, `JSR SPOS`; `BEQ` past one that did not move, otherwise draw `MTMP`. (Both passes skip unmoved movers; the blanking is unconditional for movers that did move.) | slide 1: every mover on its square (k) |
+  | R05 flash on wrong squares | in FLASH's paint loop, the `LDB B,X` commented "in B for SQPOS" becomes `LDA B,X` (NOT the restore loop's `LDB B,X`, commented "in B for DRAWSQ") | slide 1: the flash field |
+  | R06 only the first join flashes | after the first `JSR BOX`, `LBRA FLTICK` | slide 1: the flash field |
+  | R07 a field between the boxes | the paint loop has one `JSR BOX`; put `JSR SLFIELD` right after it, before `INC MI` | slide 2: the flash field, flash duration |
+  | R08 a field before the restore | the first instruction under `FLGO` becomes `JSR SLFIELD`, before the `LDA #1` that is there | slide 2: the flash field, flash duration |
+  | R09 a VSYNC before the restore | the first instruction under `FLGO` becomes `JSR VSYNC`, before the `LDA #1` that is there | slide 1: flash duration (d/F = 1.995) |
+  | R10 the pop never small | `SPPUT`: `LDA #1 / STA POP` -> `CLR POP` | slide 3: order, pop sizes, pop is cuttable |
+  | R11 the pop drawn full size | the pop box `#TILEW`/`#TILEH` instead of `-2`/`-14` | slide 3 (cut, order, pop sizes), game 1 (the board picture) |
+  | R12 the pop never cuttable | replace `SPWAIT`'s `LDA #3` with `LDB #3`, and the body `PSHS A / JSR SLFIELD / LDA KQN / PULS A / BNE SPDONE / DECA / BNE SPWAIT` with `JSR VSYNC / DECB / BNE SPWAIT` (three bare VSYNCs) | slide 2: order, pop is cuttable |
+  | R13 R drops the queue | in NEWGAME, immediately after `CLR WONSEEN` (before the `CLR SKIPPED` there), insert `CLR KQN` | slide 1: keys queued behind R |
+  | R14 queue depth 1 | `CMPB #4` -> `CMPB #1` in KQPUSH | slide 2 (keys behind R, queue depth), game 1 (the board picture) |
+  | R15 a broken queue shift | in KQPOP, `LDA 1,X` -> `LDA ,X` | slide 2 (keys behind R, queue depth), game 1 (the board picture) |
+  | R16 the queue not cleared at START | remove `CLR KQN` from START | slide 1: queue depth (the CoCo 3 leg) |
+  | R17 a joining tile reads the board | in `SPOS`, replace `LDB MI / LDX #MVF / LDA B,X` with `LDA MTO / LDX #BOARD / LDA A,X` | slide 2: joining tile, every mover on its square |
+  | R18 every mover drawn as a 2 | in `SPTILE`, `LDA MV` -> `LDA #1` | slide 3: mover values (h), joining tile (i), every mover on its square (k) |
+  | R19 two new tiles | a second `JSR SPAWN` after `GLDONE` | slide 3 (rule state, key mid-slide, pop is cuttable), game 6 |
+  | R20 a 2 drawn as a 4 | in `DRAWSQ`, after `LDA B,X`: `CMPA #1 / BNE DQ0 / LDA #2` and a new label `DQ0` before `JSR TILEAT` | slide 1 (the cut check), game 1 (the board picture) |
+  | R21 no flash at all | `JSR FLASH` -> `NOP` | slide 3: order, the flash field, flash duration |
+  | R22 a trail of copies | in SLPASS's clear pass, `LDB SPKEEP / JSR SPEMPTY` becomes `LDB SPKEEP / NOP / NOP / NOP` (a vacated square is never emptied; three NOPs keep the code size) | slide 1: nothing is left behind (a square with no mover on it keeps 204 bytes of ink) |
+
+  **Two product defects were found in review and fixed, each now checked:** a tile could vanish for a whole field - a
+  mover that stayed put was not redrawn after another mover blanked its square - so the per-field draw now draws every
+  mover and empties a square only when no mover is on it, and the check requires, per field, each mover's own body on
+  the square the model puts it. And the pop could
+  not be cut - its three fields ran blind - so each pop field now takes a VSYNC, an ENTROPY tick and a POLCAT poll like
+  the slide's, and a check presses a key during the pop and requires the move applied within one field. A third: the
+  slide read a mover's value off the post-move board, so a tile that merged slid in already showing the merged value;
+  the per-mover `MVF` table (filled from the row before it is packed) fixes it, and the joining-tile check turns red
+  when the slide reads the board again. A fourth: the flash loaded the join square into the wrong register, so squares
+  0..MRGN-1 always flashed; the check above names it.
+  **A part-painted frame is expected:** a tile is drawn one square at a time and a field's draw takes part of a frame,
+  so a single frame can show a tile partly painted; the next field completes it. It is not a wrong value or a missing
+  tile (that is the defect above, checked), and the checks read the body byte of the rows already drawn.
 * Minesweeper: over 40 seeds the first square is safe with no mine next to it, ten mines, every count right, and the
   flood opens exactly what the rules open; flags (at most ten, not on open squares, a flagged square does not open);
   a scripted win and a loss; the stack stays within 32 bytes of $3000 over a whole game (a queue, never recursion); a
@@ -1646,6 +1954,13 @@ independently in `tests/games.test.js`:
   games menu's keys) each turn `tests/games.test.js` or `tests/welcome.test.js` red, and so do five more: the flood
   opening flagged squares (testing OPEN only), the title page ignoring BREAK, the SAM's M not put back, no reset at
   `DONE` with ROMs, and no RAM check.
+* Where a game's image and variables may reach: both games REFUSE a 16K machine (`GAMES.ram = 32`, and `checkGame`
+  refuses), so the 16K bound (`$4000`) does not apply to them. `tests/games.test.js` holds them instead to their real
+  bound, the 32K machine's RAM top and ROM base: image and variables below `$8000`. It also records every display
+  base the SAM's F register is set to across the scripted game (`displayBase = F6..F0 * 512`,
+  `js/chips/sam6883.js:101`) and requires the pages shown to be exactly `$0400` while the image and the variables stay
+  clear of each page's 6K. Three deliberate breakages each turn it red by name: an image crossing `$8000`, a variable
+  placed at the stack's floor (`$2FDF`), and a second page shown over the image (`$3000`).
 
 ### The analogue joystick in Minesweeper
 

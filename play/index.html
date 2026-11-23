@@ -203,6 +203,8 @@
   .slot .inner { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
   .slot .title { font-size: 14px; color: var(--muted); }
   .slot .name { font-weight: 700; overflow-wrap: anywhere; }
+  /* on touch the slots' buttons (Rewind, Eject, Record, Save .WAV) are at least 44 px tall */
+  @media (pointer: coarse) { .slot .bar button { min-height: 44px; } }
   /* The NitrOS-9 image list: one full-width row in the card, never wider than it (a long release file name would
      push it out past the card's edge); the closed list clips the end with an ellipsis, the open list and the
      title (set with the choice) show the whole name. */
@@ -214,7 +216,7 @@
   .mpLabel { min-width: 3.5em; color: var(--text-2); }
   .mpRow button:not(.primary) { max-width: 12em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .mpRow select { min-width: 0; max-width: 100%; text-overflow: ellipsis; }
-  /* the cartridge port's board menu: its longest label ("Speech/Sound Pak (music only; speech not yet)") is wider
+  /* the cartridge port's board menu: a long label can be wider
      than a phone, and a <select> is as wide as its widest option unless told otherwise, which pushed the page
      sideways. Constrain it the way the Multi-Pak's board menus already are. */
   #selCartBoard { min-width: 0; max-width: 100%; text-overflow: ellipsis; }
@@ -246,6 +248,9 @@
   body:is(.touch-keys, .touch-hidden) #toastAction, body:is(.touch-keys, .touch-hidden) #toastText button.inline { min-height: 44px; }
   body:is(.touch-keys, .touch-hidden) #toastText button.inline { display: inline-flex; align-items: center; vertical-align: middle; }
   #toastDetails { flex-basis: 100%; font-size: 14px; color: #2A302C; overflow-wrap: anywhere; }
+  #toastAlso { flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; overflow-wrap: anywhere; }
+  #toastAlso[hidden] { display: none; }
+  #toastAlso button { background: #0B0D0C; color: #E8EDE6; border: 0; border-radius: 8px; padding: 6px 10px; font-weight: 700; min-height: 0; }
   @media (max-width: 700px) { #toastRegion { left: calc(8px + var(--safe-l)); right: calc(8px + var(--safe-r)); bottom: calc(8px + var(--safe-b));
     transform: none; width: auto; max-width: none; } }
   /* js/ui/feedback.js: a toast with no free place takes this fixed slot at the top (never invisible); above everything
@@ -941,6 +946,14 @@
   [aria-pressed="true"] > .tick { background: var(--phosphor); border-color: var(--phosphor); }
   #libRomsCard { margin: 0; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-14); padding: 16px 18px; font-size: 16px; line-height: 1.5; }
   #libRomsLink { white-space: nowrap; }
+  #libRomsBox:not([hidden]) { display: flex; flex-direction: column; gap: 14px; }
+  .romtiles { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px; }
+  .romtiles:empty { display: none; }
+  .romtile { background: #1C1C1C; border: 1px solid #2E2E2E; border-radius: var(--r-10); padding: 12px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+  .romtile .name { font-size: 16px; overflow-wrap: anywhere; }
+  .romtile .size, .romtile .users { font-size: 14px; color: var(--muted); }
+  .romtile .libbtn { align-self: flex-start; margin-top: 4px; }
+  @media (max-width: 700px) { .romtiles { grid-template-columns: 1fr; } }
   #library .rename { position: absolute; left: 10px; right: 10px; top: 10px; z-index: 2; background: #13240F; padding: 6px; border-radius: 8px; display: flex;
     flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
   .spines .rename { right: auto; left: 0; width: 220px; }
@@ -1117,6 +1130,7 @@
   #cmdInput { flex: 1; min-width: 0; background: transparent; border: 0; color: var(--text); font: inherit; font-size: 17px; padding: 4px 0; outline: none; box-shadow: none; }
   .cmdhead kbd { font: 13px var(--font-mono); color: var(--muted); }
   #cmdList { flex: 1 1 auto; min-height: 0; max-height: 100%; overflow: auto; overscroll-behavior: contain; }
+  #cmdList mark { background: transparent; color: var(--phosphor); font-weight: 700; }
   #cmdList .cmdnote { padding: 0 16px 6px; font-size: 13px; color: var(--muted); }
   #cmdList .group { padding: 8px 16px 4px; font-size: 13px; color: var(--muted); }
   #cmdList .group + [role="option"] { }
@@ -1124,6 +1138,9 @@
   #cmdList [role="option"] { display: flex; justify-content: space-between; gap: 12px; padding: 11px 16px; font-size: 15px; cursor: pointer; }
   #cmdList [role="option"] .hint { color: var(--muted); font-size: 14px; text-align: right; }
   #cmdList [role="option"][aria-selected="true"] { background: var(--line); }
+  /* a command that doesn't apply now: its state in italics; once chosen, why, readable */
+  #cmdList [role="option"].off .hint { font-style: italic; }
+  #cmdList [role="option"].off .hint.why { font-style: normal; color: var(--text-2); }
   #cmdList [role="option"].ask { color: var(--green); }
   #cmdList .cmdgroup + .cmdgroup { border-top: 1px solid var(--line); }
   .cmdfoot { padding: 10px 16px; border-top: 1px solid var(--line); font-size: 13px; color: var(--muted); }
@@ -1734,7 +1751,7 @@ npx serve -l 8000 .</pre>
         <div class="inner">
           <div class="title">Cassette · <span id="tapeState">click the deck to insert</span></div>
           <div class="name" id="tapeName">No tape</div>
-          <div class="bar"><button id="btnRewind">Rewind</button>
+          <div class="bar"><button id="btnRewind">Rewind</button><button id="btnEjectTape">Eject</button>
             <button id="btnRecord" class="rec" aria-pressed="false" title="Record what the machine writes to tape (CSAVE, CSAVEM) as a .CAS file">Record</button>
             <button id="btnTapeWav" title="Save the tape in the deck, or the last recording, as a WAV file">Save .WAV</button></div>
         </div>
@@ -1769,7 +1786,7 @@ npx serve -l 8000 .</pre>
             <select id="selCartBoard" aria-label="Cartridge board for the next image" title="The board the next cartridge image goes on">
               <option value="auto">Board: automatic</option><option value="pak">Program Pak</option><option value="banked">Banked ROM</option>
               <option value="gmc">Games Master</option><option value="orch90">Orchestra-90</option>
-              <option value="ssc">Speech/Sound Pak (music only; speech not yet)</option></select></div>
+              <option value="ssc">Speech/Sound Pak (music; speech needs your SP0256-AL2 ROM)</option></select></div>
           <details id="mpak"><summary>Multi-Pak…</summary>
             <div class="mpSlots">
               <div class="mpRow"><span class="mpLabel">Slot 1</span><button id="btnMpSlot1" aria-label="Multi-Pak slot 1: choose a cartridge image">Empty</button>
@@ -2123,7 +2140,7 @@ npx serve -l 8000 .</pre>
 <!-- The Library: shown instead of the emulator at #library -->
 <!-- Claude's status with Stop (and Resume while paused, Answer while a card waits) on the page views (Share, the Library, Add ROMs, the Debugger), which hide the emulator: outside .layout so every view shows it -->
 <div id="viewClaude" role="status" hidden><span class="dot" aria-hidden="true"></span><span id="viewClaudeText"></span><button id="btnViewAnswer" hidden>Answer</button><button id="btnViewResume" hidden>Resume</button><button id="btnViewStop">Stop</button></div>
-<div id="toastRegion" role="status" aria-live="polite"><div id="toast" hidden><span id="toastText"></span><button id="toastAction" type="button" hidden></button><div id="toastDetails" hidden></div></div></div>
+<div id="toastRegion" role="status" aria-live="polite"><div id="toast" hidden><span id="toastText"></span><button id="toastAction" type="button" hidden></button><div id="toastDetails" hidden></div><div id="toastAlso" hidden></div></div></div>
 <div id="attention" hidden data-occludes><span id="attentionText"></span><span class="bar"><button id="attentionAction" class="primary" hidden></button><button id="attentionClose">Dismiss</button></span></div>
 <div id="library" role="main" aria-labelledby="libHeading" hidden>
   <div class="libhead"><a href="play/" id="btnLibBack">← Emulator</a><strong class="wordmark">LIBRARY</strong><span class="grow"></span><a href="help/">Help</a></div>
@@ -2165,9 +2182,10 @@ npx serve -l 8000 .</pre>
         <p id="libNone" class="muted" hidden>Nothing here for this machine and kind.</p>
         <div id="libTapesBox"><div class="eyebrow">Tapes</div><div class="spines" id="libTapes"></div></div>
         <div id="libTilesBox"><div class="eyebrow">Disks, cartridges and programs</div><div class="tiles" id="libTiles"></div></div>
-        <!-- the ROMs chip (R19 A+): one card, not tiles; the ROMs themselves are managed in Your ROMs -->
-        <div id="libRomsBox" hidden><p id="libRomsCard"><span id="libRomsText"></span> <a href="play/#add-roms" id="libRomsLink"></a></p></div>
       </div>
+      <!-- the ROMs: one card (also in an empty Library), and under the ROMs chip a tile per ROM image with Remove -->
+      <div id="libRomsBox" hidden><p id="libRomsCard"><span id="libRomsText"></span> <a href="play/#add-roms" id="libRomsLink"></a></p>
+        <ul class="romtiles" id="libRomTiles" aria-label="Your ROMs"></ul></div>
       <p class="muted" style="margin:0" id="libFooter">Click a spine or a tile, or drag it onto the machine's screen, to load it. Drop files or a folder here to add them.</p>
       <div class="storage" id="libStorage">
         <div class="eyebrow" id="libStorageHeading">Where your library is kept</div>
@@ -2271,6 +2289,7 @@ npx serve -l 8000 .</pre>
 <link rel="modulepreload" href="js/chips/mc6845.js">
 <link rel="modulepreload" href="js/machines/d64plus.js">
 <link rel="modulepreload" href="js/chips/gime.js">
+<link rel="modulepreload" href="js/machines/halt-replay.js">
 <link rel="modulepreload" href="js/machines/coco3.js">
 <link rel="modulepreload" href="js/machines/mc10.js">
 <link rel="modulepreload" href="js/chips/ay8910.js">

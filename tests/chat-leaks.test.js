@@ -119,6 +119,7 @@ const ROWS = [
   // the deck
   ['insert a tape', () => {}, (s) => s.insertTape('x.cas', casTape())],
   ['rewind the tape', withTape, (s) => s.rewindTape()],
+  ['eject the tape', withTape, (s) => s.ejectTape()],
   ['skip the tape (load it instantly)', withTape, (s) => s.skipTape()],
   ['tape to WAV', withTape, (s) => s.tapeWav()],
   ['start recording', () => {}, (s) => s.startTapeRecording()],
@@ -579,6 +580,10 @@ const REQUIRED = require.main !== module;
     'readSlot', 'readSnapshot', 'readSnapshotLink', 'recentMedia', 'sameName', 'savedConfig', 'screenText',
     'shareFile', 'shareUrl', 'slotBytes', 'snapshotLink', 'snapshotRoms', 'snapshotSwitch', 'sscRoms', 'statusLine',
     'takenOut', 'tapeStatus', 'welcomeFile', 'welcomeRunning', 'drives.preferredDos', 'storedRoms',
+    // uniqueName lists the library to find a free name (it writes nothing); recordingName names .CAS bytes (pure)
+    'uniqueName', 'recordingName',
+    // romFiles lists the stored ROM images; romsStillRunning reads which removed ones the PERSON's machine still runs
+    'romFiles', 'romsStillRunning',
     // (main 1dd66fa: all four are reads/pure. indexWriteError formats a stored-write error; tapeRunning reads the
     // PERSON's deck motor flag; screenAlternative describes the SHOWN screen's text; welcomeGenNow reads the ticket)
     'indexWriteError', 'tapeRunning', 'screenAlternative', 'welcomeGenNow',
@@ -590,9 +595,12 @@ const REQUIRED = require.main !== module;
     // menuTicketFor returns the ticket a menu starts with (the Session's menuTicket or the one passed); changes nothing
     'menuTicketFor',
     // bareDiskController and diskRomWaiting read the disk controller of the PERSON's machine (diskMachine); no change
-    'drives.bareController', 'drives.romWaiting']);
+    'drives.bareController', 'drives.romWaiting',
+    // sscBoardLabel reads the stored ROMs (whether the Pak's speech ROM is in the library); no machine
+    'sscBoardLabel']);
   // writes the library or settings only
-  const LIBRARY = new Set(['addRoms', 'clearRoms', 'deleteMedia', 'importDriveWireImage', 'importMedia',
+  // (removeRom and restoreRom act on the PERSON's machine, as addRoms does: never the chat machine)
+  const LIBRARY = new Set(['addRoms', 'clearRoms', 'removeRom', 'restoreRom', 'deleteMedia', 'importDriveWireImage', 'importMedia',
     'importSettings', 'listMedia', 'moveMedia', 'newDriveWireImage', 'renameMedia', 'exportRomPack', 'exportSettings',
     'setClaudeKey', 'clearClaudeKey', 'setLastRun', 'useMediaStore']);
   // Session state that belongs to no machine
