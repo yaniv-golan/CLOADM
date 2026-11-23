@@ -188,8 +188,9 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 
 - `node tests/all.js` starts the suites longest first, from the times in `tests/suite-times.json` (the file
   `--shard` plans its parts from, rewritten by `--record-times` after a passing whole run), and counts each regress shard as a slot of the pool; it still prints in
-  file order. `tests/move-inflight.test.js` gives its one case that waited out the 30 s default move bound a 50 ms bound
-  of its own.
+  file order. `tests/move-inflight.test.js`'s "refused move" case now mounts a stored disk and checks the move's own
+  refusal: it never had a disk in a drive, so it passed on the move's 30 s wait running out; it also has a 50 ms bound
+  of its own, so a refusal that goes missing fails at once.
 - **The page's screen text reads every screen Claude's screen_text reads.** `Session.screenText`, which the embed
   API's `screenText`, the Ask panel, the tape panel and the boot watchdog read, decoded only the VDG's 32x16 page at a
   fixed address: on the Dragon 64 Plus's 80-column screen it returned the VDG page behind it, on a CoCo 3 GIME text

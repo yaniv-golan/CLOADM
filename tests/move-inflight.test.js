@@ -5,6 +5,8 @@
 // began is in the new one, byte for byte, and nothing this session wrote while the move ran landed in the old one.
 // Run: node tests/move-inflight.test.js
 const Emu = require('./load')();
+const fs = require('fs'), path = require('path');
+const dsk = new Uint8Array(fs.readFileSync(path.join(__dirname, 'fixtures/disks/rsdos.dsk')));
 
 let n = 0, fail = 0;
 const checkOuter = (name, cond, detail = '') => { n++; if (!cond) { fail++; console.log(`FAIL ${name} ${detail}`); } else console.log(`ok   ${name} ${detail}`); };
@@ -261,20 +263,28 @@ async function rig(from = new Emu.MemoryMediaStore(), opts = {}) {
   }
 
   // ---- a move that is refused (a disk in a drive) waits for nothing: the operation then runs as usual ----
+  // A stored disk really is in a drive, so the refusal is the move's own ("Eject the disks first"), given before it
+  // waits for anything. The bound is short so that a move that did wait (a refusal that went missing) ends at once
+  // with the wait's own error, which the message check tells apart, instead of sitting out the 30 s default.
   {
     const from = new Emu.MemoryMediaStore(), to = new Emu.MemoryMediaStore();
-    // a short bound of its own: the import below is held until after the move answers, so with the default bound
-    // (MEDIA_MOVE_WAIT_MS, 30 s) this one case spent 30 s of the suite's ~31 s waiting it out
     const s = await rig(from, { mediaMoveWaitMs: 50 });
+    s.switchMachine('coco');
+    s.roms.put('rsdos', 'rom', new Uint8Array(0x2000).fill(0x39), 'disk11.rom');
+    await s.library.importMedia('WORK.DSK', dsk);
+    await s.mountDisk(1, 'disks/WORK.DSK');
     const gate = deferred();
     const slow = slowWrite(from, gate.p);
     const imp = s.library.importMedia('ONE.BIN', bin);
     await settle();
     const e = await refuse(s.library.moveMedia(to));
-    check('a refused move: it does not wait for the operation (refused at once)', e instanceof Emu.SessionError);
+    check('a refused move: refused for the disk in the drive, at once (not after waiting for the operation)',
+      e instanceof Emu.SessionError && /Eject the disks first \(drive 1: WORK\.DSK\)/.test(e.message), e ? e.message : 'the move succeeded');
+    check('a refused move: the import it did not wait for is still under way', s.library.movingOps.size > 0 && !s.library.movingMedia);
     gate.resolve();
     await imp;
-    check('a refused move: the operation simply finished in the place it started', same(await slow.read('library/ONE.BIN'), bin) && s.media === from);
+    check('a refused move: the operation simply finished in the place it started', same(await slow.read('library/ONE.BIN'), bin) && s.media === from
+      && (await to.list('')).length === 0);
   }
 
   // ---- a ROM drop uses the index, which keeps its lists in memory: not while the move copies (the merge takes
