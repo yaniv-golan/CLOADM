@@ -305,7 +305,7 @@ emulator.
   screen and gets the keyboard. Both machines run, the one off screen in the picture-in-picture, so Claude's typing
   goes in while you watch the chat. The chat needs a 6809-family CPU (the 6309 runs the firmware unchanged) and
   32K or more: the firmware uses $0400-$7FFF. On a machine with less (a CoCo with 4K or 16K) the chat is
-  refused, saying so ("The chat needs 32K of memory or more"): give it 32K or more, or pick a 32K model (the Dragon 64); the chat opens on a Dragon 64 from an MC-10 or Alice.
+  refused, saying so ("The chat needs 32K of memory or more"): give it 32K or more, or use a Dragon 32 or 64; the chat opens on a Dragon 64 from an MC-10 or Alice.
   A file dropped while the chat is full screen (a program, a tape, a cartridge, a disk or a ROM) goes to your BASIC
   session, never the chat machine: the chat machine runs the chat firmware, and a load there would overwrite it and
   take the chat screen away. The message says where it went, and the drives card shows the BASIC session's drives. A

@@ -108,7 +108,7 @@ const CASES = [['dragon64', false], ['coco', false], ['coco', true], ['coco2b', 
       try { s.startChat({ backend, firmware: FIRMWARE, channel: new Emu.MemoryChannel() }); } catch (e) { err = e.message; }
       if (ram < 32) {
         check(`${id} ${ram}K: the chat is refused, saying it needs 32K, and nothing changes`,
-          /needs 32K of memory or more; this .* has \d+K/.test(err) && s.shownMachine === basic && !s.chatMachines && !s.chat, err);
+          /^The chat needs 32K of memory or more; this .* has \d+K\. Give it 32K or more in its settings, or use a Dragon 32 or 64\.$/.test(err) && s.shownMachine === basic && !s.chatMachines && !s.chat, err);
       } else {
         await frames(s, 30);
         check(`${id} ${ram}K: the chat starts and its firmware draws the prompt`, !err && !!s.chatMachines && chatScreen(s)[0].startsWith('>'),

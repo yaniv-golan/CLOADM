@@ -445,8 +445,8 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
   through the Session on the Dragon 64, the CoCo and the CoCo 3, over the mailbox and DriveWire.
 - **The chat on a CoCo with 4K or 16K is refused, saying why.** Its firmware uses $0400-$7FFF, so on less memory it
   loaded into memory that was not there and the chat screen stayed dead. `startChat` now refuses below 32K: "The chat
-  needs 32K of memory or more; this CoCo 1/2 has 16K. Give it 32K or more in its settings, or use a 32K model such as
-  the Dragon 64." The page shows it in its status line.
+  needs 32K of memory or more; this CoCo 1/2 has 16K. Give it 32K or more in its settings, or use a Dragon 32 or
+  64." The page shows it in its status line.
 - **The chat screen scrolls in fewer frames.** It copies two bytes a move (about 40% fewer cycles), so the frames
   drawn while a scroll is part way, which show the row at the copy's edge twice, last less long.
 - **A line typed on the chat screen while a reply is still coming is kept whole.** The chat firmware used to ignore

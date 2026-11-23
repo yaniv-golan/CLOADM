@@ -2530,7 +2530,7 @@ export class Session {
     // the firmware lives at $6000-$7FFF and draws at $0400: with 4K or 16K it would load into memory that is not there
     // (a dead screen), so it is refused, saying how to get the memory
     if (basic.config.ram < 32) {
-      throw new SessionError(`The chat needs 32K of memory or more; this ${basic.profile.name} has ${basic.config.ram}K. Give it 32K or more in its settings, or use a 32K model such as the Dragon 64.`);
+      throw new SessionError(`The chat needs 32K of memory or more; this ${basic.profile.name} has ${basic.config.ram}K. Give it 32K or more in its settings, or use a Dragon 32 or 64.`);
     }
     const kept = this.chat && !this.chatMachines ? this.chat : null;   // the side panel's conversation moves here
     if (!kept) this.dropChat();

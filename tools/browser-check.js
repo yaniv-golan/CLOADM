@@ -8235,6 +8235,31 @@ async function chatScreenChecks(browser, base, check) {
   }
 }
 
+// The chat on a 16K CoCo: refused (its firmware uses $0400-$7FFF), and the page says why in its status line, "Chat: The
+// chat needs 32K of memory or more; ...", instead of opening a chat screen that stays dead. Nothing is switched.
+async function chatRamChecks(browser, base, check) {
+  const L = 'chat on a 16K CoCo';
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, serviceWorkers: 'block' });
+  const page = await ctx.newPage();
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.addInitScript(() => localStorage.setItem('cloadm.anthropicKey', 'sk-ant-BROWSER-CHECK-KEY-0123456789'));
+  await page.goto(`${base}?machine=coco&ram=16&app=claude`);
+  await started(page);
+  const said = await waitFor(page, () => { const t = document.getElementById('toast'); return t && !t.hidden && /^Chat: The chat needs 32K of memory or more/.test(document.getElementById('toastText').textContent); }, null, 20000);
+  // (an error's first sentence is the status line; the rest is behind its Details button: js/ui/feedback.js splitDetails)
+  const shown = await page.evaluate(() => ({ text: document.getElementById('toastText').textContent, details: document.getElementById('toastDetails').textContent,
+    button: !document.getElementById('toastAction').hidden && document.getElementById('toastAction').textContent }));
+  const state = await page.evaluate(() => ({ full: window.emu.session.claudeView === 'full', chat: !!window.emu.session.chatMachines, id: window.emu.session.shownMachine.id, ram: window.emu.session.shownMachine.config.ram }));
+  check(`${L}: the status line says the chat needs 32K, and its Details say how to get it`,
+    said && shown.text === 'Chat: The chat needs 32K of memory or more; this CoCo 1/2 has 16K.' && shown.button === 'Details'
+    && shown.details === 'Give it 32K or more in its settings, or use a Dragon 32 or 64.', JSON.stringify(shown));
+  check(`${L}: no chat screen opens and the machine is left as it was`, !state.full && !state.chat && state.id === 'coco' && state.ram === 16, JSON.stringify(state));
+  if (shotDir) await page.screenshot({ path: path.join(shotDir, 'chat-ram-refused.png') });
+  check(`${L}: no page errors`, !errors.length, errors.join('; '));
+  await ctx.close();
+}
+
 // Long lines typed on the chat screen through the keyboard reach the API byte for byte: a 300-character line typed at
 // the prompt, and one typed while the previous reply still comes down the mailbox (the firmware keeps those keys in
 // its type-ahead ring and types them once the prompt is back; it used to drop them, sending only the line's tail).
@@ -16471,7 +16496,7 @@ const GROUPS = (base, site) => [
   // (the first-use checks run with the copy's: the same kind of check, and no shard of their own)
   ['uiCopy', async (b) => { await uiCopyChecks(b, base, check); await firstUseChecks(b, base, check); }],
   ['welcomeScreen', (b) => welcomeScreenChecks(b, base, check)],
-  ['chatScreen', async (b) => { await chatScreenChecks(b, base, check); await chatLongLineChecks(b, base, check); }],
+  ['chatScreen', async (b) => { await chatScreenChecks(b, base, check); await chatLongLineChecks(b, base, check); await chatRamChecks(b, base, check); }],
   ['phoneChat', (b) => phoneChatChecks(b, base, check)],
   ['share', (b) => shareChecks(b, base, site, check)],
   ['favicon', (b) => faviconChecks(b, site, check)],
