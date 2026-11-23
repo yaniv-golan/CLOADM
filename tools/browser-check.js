@@ -1306,6 +1306,44 @@ async function audioChecks(browser, base, check) {
   });
   check('sound: pause, turbo, sound off, hiding and machine switches keep one context and one node (nothing leaks)',
     kept.same && kept.nodes.worklet === 1 && kept.nodes.script === 0, JSON.stringify(kept));
+  // The fade after an underrun really ramps. The no-pop check above cannot see it: its program plays a steady DAC
+  // level, which the output stage's DC blocker turns into silence (peak ~0.017), so a hard cut at the busy-page
+  // underrun stays under its 0.01 step bound and removing the fade passed every check. So this one puts a loud
+  // steady level (0.5) into the queue itself, through the page's own sink (the call the machine's frames make; it
+  // is not DC-blocked there), lets the page's thread run dry (a 400 ms spin: no frame can run, nothing else feeds
+  // the queue), and puts a second 0.5 block in at the end of the same task, before any frame can. What the
+  // worklet then plays is measured sample by sample: the fade-out from 0.5 to exact silence, and the fade-in from
+  // silence back to 0.5 after the re-prime, each a ramp of at most level / fadeLen per sample, where fadeLen is the
+  // documented 5 ms of samples (js/host/audio-worklet.js header), written here as 0.005 s and NOT read from the
+  // module under test, so that shortening the fade cannot shorten this check's bound too. Removed fade (FADE_MS
+  // 0.001: a one-sample fade): the step at both ends is the whole 0.5.
+  const LEVEL = 0.5;
+  const n0 = await page.evaluate(() => window.played.length);
+  await page.evaluate((L) => {
+    const a = window.emu.audio, sink = a.out.sink, rate = a.ctx.sampleRate;
+    sink.write(new Float32Array(Math.round(rate * 0.05)).fill(L));     // 50 ms, then nothing: the queue runs dry
+    const t = performance.now(); while (performance.now() - t < 400);
+    sink.write(new Float32Array(Math.round(rate * 0.1)).fill(L));      // 100 ms, queued before any frame can run
+  }, LEVEL);
+  await page.evaluate((n0) => new Promise((res) => { const t = setInterval(() => { if (window.played.length >= n0 + 0.9 * window.emu.audio.ctx.sampleRate) { clearInterval(t); res(); } }, 20); }), n0);
+  const ramp = await page.evaluate(({ n0, L, ms }) => {
+    const p = window.played, rate = window.emu.audio.ctx.sampleRate, len = Math.round(rate * ms / 1000);
+    const at = (i) => Math.fround(p[i]);
+    // the first run of exactly L after n0 is the 50 ms plateau (older frames are ~0); its end starts the fade-out
+    let i = n0; while (i < p.length && at(i) !== Math.fround(L)) i++;
+    const plateau = i; while (i < p.length && at(i) === Math.fround(L)) i++;
+    const out0 = i - 1;                                               // the last full-level sample
+    let z = out0 + 1; while (z < p.length && p[z] !== 0) z++;         // the first exact silence
+    let a0 = z; while (a0 < p.length && p[a0] === 0) a0++;            // where it plays again
+    const step = (from, to) => { let m = 0; for (let k = from + 1; k <= to && k < p.length; k++) m = Math.max(m, Math.abs(p[k] - p[k - 1])); return m; };
+    const down = step(out0, z), up = step(a0 - 1, a0 + len + 1), top = a0 + len - 1 < p.length ? at(a0 + len - 1) : null;
+    let mono = true; for (let k = a0 + 1; k <= a0 + len - 1 && k < p.length; k++) if (p[k] < p[k - 1]) mono = false;
+    return { found: plateau < p.length && z < p.length && a0 < p.length, plateauLen: out0 + 1 - plateau, fadeOut: z - out0, fadeLen: len, down, up, top, mono, bound: L / len, rate };
+  }, { n0, L: LEVEL, ms: 5 });
+  const slack = 1e-3 * ramp.bound + 1e-6;
+  check('sound: the fade after an underrun ramps: out from 0.5 to silence and back in, at most level/fadeLen (5 ms) a sample, no step',
+    ramp.found && ramp.plateauLen >= 1000 && ramp.fadeOut >= ramp.fadeLen && ramp.down <= ramp.bound + slack && ramp.up <= ramp.bound + slack && ramp.mono && ramp.top === Math.fround(LEVEL),
+    JSON.stringify(ramp));
   check('sound: no ScriptProcessorNode deprecation warning in the console', warnings.length === 0, warnings.join(' | '));
   check('sound: no page errors', !errors.length, errors.join('; '));
   await ctx.close();

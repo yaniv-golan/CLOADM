@@ -733,7 +733,9 @@ silence, the re-prime's wait and its bound, bounded drop-oldest, the MessagePort
 after a pause it restarts at least `TARGET_MS` deep with no short block for the second after;
 after the unlock an AudioWorkletNode plays and no ScriptProcessorNode is made (no deprecation warning); through
 loads, resets, pause, turbo, sound off, machine switches and a 200 ms busy page, every sample the worklet plays at
-full gain equals the one the output stage made (tolerance 0) and no step exceeds 0.01; the tone of a square-wave
+full gain equals the one the output stage made (tolerance 0) and no step exceeds 0.01; after an underrun the fade out and
+in is a ramp of at most level / fadeLen (5 ms) a sample, measured on a loud 0.5 block put in through the sink (that
+program's own DAC level is blocked to near silence, so the step bound alone cannot see a missing fade); the tone of a square-wave
 program plays at the frequency the machine makes it (within the 0.5% steering) and the queue doesn't run dry while
 it plays (at most 2% of blocks); volume and mute; the four fallbacks to the ScriptProcessorNode (no AudioWorklet,
 its module failing to load or never loading, the processor failing); and (group `pwa`) offline, where the worklet's
