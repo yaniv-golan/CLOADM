@@ -369,7 +369,8 @@ emulator.
     slot does. Cells whose bit 7 is set are semigraphics blocks: they read as spaces and `semigraphics` counts them,
     with a `note`, so a picture of blocks is not mistaken for an empty screen - except the cursor's own block, the cell
     the machine's cursor variable names (`textCursor`: BASIC's `$0088`-`$0089` on the 6809 families, the built-in
-    firmware's console position on the MC-10), which is left out; a screen whose only block is the cursor has no note. The cursor's cell is left out by its address, not by what it shows: a picture block sitting exactly at the cursor's
+    firmware's console position on the MC-10), which is left out; a screen whose only block is the cursor has no note.
+    The cursor's cell is left out by its address, not by what it shows: a picture block sitting exactly at the cursor's
     address with no cursor drawn there is not counted either.
     In compatibility mode the GIME sets the lines each text row takes from `$FF9C` (BASIC's `$0F` is 12;
     `$03` is 8, `$0A` is 1), so the screen can show more or fewer than 16 rows - 24 at 8 lines a row on a 192-line

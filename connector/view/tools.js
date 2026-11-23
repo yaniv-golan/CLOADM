@@ -46,7 +46,7 @@ export const NO_FILES = 'Claude\'s side panel has no media folder and reads no f
 //  * SHORTER: the descriptions below, each a substitution into the toolbox's own wording (so its numbers are the
 //    constants'), and a rule that no longer finds its text is an error, not a silent no-op.
 const WORDS = [
-  ['run_frames.until', ' (checked after every frame; pc stops at the instruction)', ' (checked every frame)'],
+  ['run_frames.until', 'checked after every frame; pc stops at the instruction', 'checked every frame; pc: at the instruction'],
   ['run_frames.until', 'text (with ignore_case if you like), address with value, pc, tape, or screen.', 'text (and ignore_case), address with value, pc, tape, screen.'],
   ['run_frames.until.text', 'text that must appear on the screen, as it is: a plain substring of the rows as screen_text reads them (joined by "\\n", each row\'s trailing spaces trimmed), e.g. "OK" or "PRESS ANY KEY"', 'text that must appear on the screen: a substring of screen_text\'s rows (joined by "\\n", trailing spaces trimmed), e.g. "OK"'],
   ['run_frames.until.ignore_case', 'match whatever the case (screens are mostly upper case)', 'ignore the case'],

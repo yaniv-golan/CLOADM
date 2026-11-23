@@ -236,7 +236,7 @@ const J = JSON.stringify;
   check('panel tools: everything the panel runs is offered', want.every((w) => offered.some((t) => t.name === w)) && offered.length <= 64, want.filter((w) => !offered.some((t) => t.name === w)).join(','));
   // The host drops a tool listing whose input schemas together run past 8 KB (claude.ai said so of this panel's: it was
   // 11.1 KB). The budget is under that with a margin; a longer description or one more parameter spends it, and the fix
-  // is shorter wording, not a bigger number (docs/mcp.md says how the schemas are kept short).
+  // is shorter wording, not a bigger number (docs/deploy-connector.md says how the schemas are kept short).
   {
     const bytes = (x) => Buffer.byteLength(JSON.stringify(x));
     const SCHEMA_BUDGET = 7600, LIST_BUDGET = 28000, WORKER_BUDGET = 2000;
@@ -278,6 +278,17 @@ const J = JSON.stringify;
     }
     check('compaction: every tool\'s compact schema has the full one\'s property names, types, bounds, enums and required names (descriptions and closing aside)', !differ.length, differ.join());
     check('compaction: no description gets longer, and an address\'s range stays in its description', !longer.length && !noRange.length, `${longer.join()} | ${noRange.join()}`);
+    // wording the structural comparison cannot judge: a quantity keeps its unit word. Every unit word the full description
+    // uses outside a quoted example is still in the compact one (frames, keys, bytes, characters, instructions, pixels ...)
+    const UNIT = /\b(frames?|ms|keys?|bytes?|characters?|instructions?|pixels?|seconds?|rows?|lines?|KB)\b/gi;
+    const unitsOf = (d) => new Set((d.replace(/"[^"]*"/g, '').match(UNIT) || []).map((u) => u.toLowerCase().replace(/s$/, '')));
+    const lostUnit = [];
+    const unitWalk = (c, f, at) => { for (const [pn, pv] of Object.entries(c.properties || {})) {
+      const fb = f.properties[pn];
+      if (typeof pv.description === 'string' && typeof fb.description === 'string') { const have = unitsOf(pv.description); for (const u of unitsOf(fb.description)) if (!have.has(u)) lostUnit.push(`${at}.${pn}: ${u}`); }
+      unitWalk(pv, fb, `${at}.${pn}`); } };
+    for (const t of offered) unitWalk(t.inputSchema, local[t.name].inputSchema, t.name);
+    check('compaction: a quantity keeps its unit word (frames, keys, bytes, characters, instructions, pixels) wherever the full description had one, quoted examples aside', !lostUnit.length, lostUnit.join('; '));
     const rules = panel.compactionRules();
     check('compaction: every rewording rule found its text in the toolbox\'s schemas (none is stale)', rules.words.every((w) => rules.used.includes(w)) && rules.noEnum.every((w) => rules.used.includes(w)),
       `${rules.words.filter((w) => !rules.used.includes(w)).map((w) => w.replace('\u0000', ' <- ').slice(0, 60)).join(' | ')}`);
