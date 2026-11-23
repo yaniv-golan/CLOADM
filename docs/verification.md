@@ -1594,7 +1594,7 @@ I/O after every slice gives snapshots that all load, and a held `PSHU` that chan
 one and three save-and-restore round trips.
 
 A WRITE from outside made while the suspended instruction's events run (between runs, `heldIo`) is queued and made
-between instructions, at the machine's own time (`Coco3Machine.outsideWrite`, `flushOutsideWrites`): the same write
+between instructions, at the machine's own time (`HaltReplay.outsideWrite`, `flushOutsideWrites`): the same write
 made while parked, with `$FFD9` (measured in `tests/held-writeio.test.js`), charged 34,724 CPU cycles over the
 frame at commit 570d3fc, before this change; made one tick inside the window it charged 4,856, because the rate-write path took its
 `!inStep` branch and dropped the suspended instruction from inside its own event. Now the two charge the same
