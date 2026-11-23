@@ -1007,7 +1007,13 @@ async function audioChecks(browser, base, check) {
     ['resume', () => page.click('#btnPause'), async () => { const n0 = await page.evaluate(() => window.played.length); await waitFor(page, (n0) => window.played.length >= n0 + 1.2 * window.emu.audio.ctx.sampleRate, n0, 15000); }],
     ['turbo', () => page.click('#btnTurbo')], ['turbo off', () => page.click('#btnTurbo')],
     ['sound off', () => page.$eval('#chkSound', (c) => c.click())], ['sound on', () => page.$eval('#chkSound', (c) => c.click())],
-    ['switch', () => page.evaluate(() => window.emu.session.switchMachine('coco'))], ['load', load], ['switch back', () => page.evaluate(() => window.emu.session.switchMachine('dragon64'))],
+    // (menu: false: a switch without ROMs otherwise offers the welcome menu, which the page fetches and starts a moment
+    // later, and whose tune - square waves on the DAC, $FC <-> $04, steps of 0.49 at volume 0.5 - starts about 0.64 s
+    // of machine time after it. That is sound the program plays, not a pop, and it landed in the measured stream on a
+    // slow runner (CI: "largest step 0.4784 (after "busy page"), peak 0.291"). The switch itself, the discontinuity
+    // checked here, is the same either way.)
+    ['switch', () => page.evaluate(() => window.emu.session.switchMachine('coco', undefined, { menu: false }))], ['load', load],
+    ['switch back', () => page.evaluate(() => window.emu.session.switchMachine('dragon64', undefined, { menu: false }))],
     // the page's thread busy for 500 ms (no frames, no messages): the audio thread plays on from its queue, and
     // when that runs dry fades to silence instead of glitching.
     // The machine's frames are driven by requestAnimationFrame (js/ui/screen.js:86), which cannot run while this
@@ -1054,6 +1060,9 @@ async function audioChecks(browser, base, check) {
   ];
   const marks = [];
   for (const [name, act, until = wait] of steps) { marks.push([name, ...await page.evaluate(() => [window.played.length, window.blocks.length])]); await act(); await until(); }
+  // a whole second more of sound before the no-pop check reads the stream, so what the machine plays after the last
+  // step is in it on every run, however fast the runner (a welcome tune starting late was in it only on a slow one)
+  { const n0 = await page.evaluate(() => window.played.length); await waitFor(page, (n0) => window.played.length >= n0 + window.emu.audio.ctx.sampleRate, n0); }
   // The bounded catch-up after a pause (js/host/audio-worklet.js SampleQueue's re-prime): paused, the queue ran dry
   // and faded out; on resume the page's frames restart one at a time, as the clock makes them due. The worklet holds
   // them, silent, until TARGET_MS is queued, then plays: the first block that plays again starts at least TARGET_MS
@@ -1071,14 +1080,16 @@ async function audioChecks(browser, base, check) {
   }, { from: marks.find((m) => m[0] === 'resume')[2], to: marks.find((m) => m[0] === 'turbo')[2], target: TARGET_MS });
   check(`sound: after a pause the worklet restarts at least TARGET_MS (${TARGET_MS} ms) deep and no block runs short for the second after (the bounded catch-up)`,
     resumed.restart >= 0 && resumed.queued >= resumed.need && resumed.second > 300 && resumed.short === 0, JSON.stringify(resumed));
-  const { jump, at, n, peak } = await page.evaluate(() => {
+  const { jump, at, n, peak, welcome } = await page.evaluate(() => {
     const p = window.played; let jump = 0, at = 0, peak = 0;
     for (let i = 1; i < p.length; i++) { const d = Math.abs(p[i] - p[i - 1]); if (d > jump) { jump = d; at = i; } peak = Math.max(peak, Math.abs(p[i])); }
-    return { jump, at, n: p.length, peak };
+    // the only program that played is DAC_HIGH: no welcome menu (and so no tune) started behind the steps
+    return { jump, at, n: p.length, peak, welcome: window.emu.session.welcomeRunning };
   });
   const where = (marks.filter((m) => m[1] <= at).pop() || ['start'])[0];   // (marks: [name, samples, blocks])
   check('sound: no pop across power cycle, reset, load, pause, turbo, sound off/on, machine switch and a busy page',
-    running && n > 48000 && jump < 0.01 && !errors.length, `${n} samples, largest step ${jump.toFixed(4)} (after "${where}"), peak ${peak.toFixed(3)}${errors.length ? ' ' + errors.join('; ') : ''}`);
+    running && n > 48000 && jump < 0.01 && !welcome && !errors.length,
+    `${n} samples, largest step ${jump.toFixed(4)} (after "${where}"), peak ${peak.toFixed(3)}${welcome ? ', the welcome menu ran' : ''}${errors.length ? ' ' + errors.join('; ') : ''}`);
   // The window is 350 ms on the audio clock, and lies wholly inside the 500 ms spin.
   const WINDOW = 0.35;
   const busy = await page.evaluate((W) => {

@@ -456,6 +456,10 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 - **A steadier tape-panel browser check.** The "motor on: LOADING" check no longer depends on how far a slow runner
   got into block 1 before the panel repainted: it moves the tape a quarter of the way in once the panel is playing,
   then still requires one frame with LOADING, a speed above x1, the reels turning and the left reel unwound.
+- **A steadier no-pop sound check.** The browser check's `audio` group switched machines with the welcome menu on, so
+  the page started the menu a moment later, and on a slow runner its tune (square waves on the DAC, steps of 0.49)
+  reached the stream the check measures and read as a pop "after busy page". The switches now leave the menu off, the
+  check reads a second more of sound after the last step on every run, and it fails if a welcome program ran.
 - **`pushTape` is tested from a deep queue** (`tests/audio.test.js`): DRAINING back to NONE, a push dropped past
   `MAX_MS`, and the queue settling near `TARGET_MS`.
 - **A file dropped while the Claude chat is full screen goes to your BASIC session, not the chat.** The chat runs
