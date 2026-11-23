@@ -1039,7 +1039,7 @@ exactly one visible control is named Menu; ⌄ hides the keys, the screen then t
 rounding allowed: the picture is whole pixels) and ⌨ (Show keys) is 44x44 inside the window and brings them back;
 scrolled to the page's foot, ⌨ covers nothing of it; 2048 opens on Pad with the screen at the page's width, exactly one visible BREAK (the strip's), every pad key 48 px and more and none over the strip, and the strip's BREAK takes 2048 back to the welcome menu. The app bar is 48 px at its first paint (an init script reads
 it at the first animation frame) and 2 s later, with the touch class already on. Menu wears a dot while there is no
-BASIC (its name then "Menu (ROMs needed)"), lists "Add ROMs (BASIC needs them)" first with the same dot, then Share,
+BASIC (its name then "Menu (ROMs needed)"), lists Programs… first, then "Add ROMs (BASIC needs them)" with the same dot, then Share,
 Settings…, the links, Commands… and Install CLOADM…, opens moving nothing in the bar with the focus on its first item
 (Tab goes to the next), and its Add ROMs opens Add ROMs; at 390x844 its Settings… brings the settings tabs into view
 with the focus on Display. Minesweeper opens on Pad (Up, Left, Down, Right, SPACE, ENTER, F, ABC, no BREAK: the strip's is the only one; every key 48 px and
@@ -1169,6 +1169,15 @@ browser check's group `uiModel` drives them with real events at 1280x720 and at 
   and their states, its dot and name, and the ports' sheet from the bottom; a desktop at 1440 x 900 with the ports and
   drawer where they were before (and back there after the touch keys on and off) and no duplicate ids. Screenshots of
   each sheet. `mobile` keeps its screen-size floors unchanged.
+  Also in `phone`: Menu → Programs… (Menu's order with Programs… first; the "Programs" sheet's sections, the shelf with
+  "on screen now", the focus in it; the Media tab left with only the tape options; the sheet's order, Last time at the
+  top, then the no-ROM card, the shelf, Recent, Snapshots with its heading and note, the Library link), then 2048 from
+  it: two taps, the sheet closed and the game running; the palette's "Programs" found by programs, games, demos, liza
+  and run, with Last time (2048) the sheet's first item after; on a desktop the palette's "Programs" selecting the
+  Media tab from Display with the focus on the shelf's first item; "Chat with Claude" from the sheet closing it. No Menu label with its words run together, upright, sideways (the keys' Menu), at
+  393 x 659 (`mobile`) and in the desktop app bar at 1440 and 900 px: every two drawn letters with a space between them
+  in the text stand apart on the screen. The media file pickers' accept values, exactly: their extensions and
+  application/octet-stream, and no picker asking for image/*.
 * A switch names what comes out: the switch confirmation's text for a tape and a cartridge (both in the Library), a tape and a disk, a RAM
   change (and Cancel putting the select back), a snapshot's own disk with **Save to Library** (stored and linked),
   DriveWire (not listed, still mounted after the switch); the toasts after the switch. `tests/switch-losses.test.js`

@@ -247,7 +247,7 @@ export function setupWelcome(page, { showRoms, openClaude }) {
   function firstVisit(askMachine) {
     box.replaceChildren();
     box.dataset.kind = 'first';
-    box.append(el('div', 'Running with no ROMs.', 'lead'), el('div', 'Programs that run without them are in the Media tab below.', 'muted'));
+    box.append(el('div', 'Running with no ROMs.', 'lead'), el('div', 'Programs that run without them are listed below.', 'muted'));
     if (askMachine) {
       const ask = el('div', null, 'ask'); ask.id = 'askMachine';
       ask.append(el('span', 'Which computer did you have? '));

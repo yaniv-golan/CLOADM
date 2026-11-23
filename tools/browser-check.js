@@ -528,6 +528,39 @@ const openTab = async (page, name) => {
   }
   return page.click(`[role="tab"]:text-is("${name}")`);
 };
+// the programs (the no-ROM shelf, Recent on this machine, Open your library →): on a phone the Programs sheet (Menu →
+// Programs…; sideways, the keys' own Menu), elsewhere the drawer's Media tab
+const openPrograms = async (page) => {
+  if (await page.evaluate(() => { const d = document.getElementById('shelf').closest('dialog.sheet'); return !!d && !d.open; })) {
+    if (await page.isVisible('#btnMenu')) await page.click('#btnMenu');
+    if (await page.isVisible('#navPrograms')) await page.click('#navPrograms');
+    else { await page.click('#tkMenu'); await page.click('#tkMenuSheet [data-item="programs"]'); }
+    await waitFor(page, () => document.getElementById('sheetPrograms').open);
+  } else if (!(await page.evaluate(() => document.getElementById('shelf').closest('dialog.sheet')))) await openTab(page, 'Media');
+};
+// words run together where a label is drawn (the space between them dropped by the layout: a flex item's leading space
+// is trimmed, so "Install" and a " CLOADM…" span drawn as two flex items read "InstallCLOADM…"): every two drawn letters
+// with white space between them in the label's shown text must stand apart on the screen. -> the labels that do not
+const gluedLabels = (page, sel) => page.evaluate((sel) => {
+  const out = [];
+  for (const el of document.querySelectorAll(sel)) {
+    if (!el.checkVisibility()) continue;
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    let prev = null, space = false;
+    for (let n; (n = walker.nextNode());) {
+      if (!n.parentElement.checkVisibility()) continue;   // (text not shown: a display: none part of the label)
+      for (let i = 0; i < n.data.length; i++) {
+        if (/\s/.test(n.data[i])) { space = true; continue; }
+        const range = document.createRange(); range.setStart(n, i); range.setEnd(n, i + 1);
+        const r = range.getBoundingClientRect();
+        if (!r.width) continue;
+        if (prev && space && Math.abs(prev.top - r.top) < 2 && r.left - prev.right < 2) out.push(`${el.id || el.textContent.trim()}: "${el.innerText.trim()}"`);
+        prev = r; space = false;
+      }
+    }
+  }
+  return out;
+}, sel);
 const closeSheet = (page) => page.evaluate(() => { const d = document.querySelector('dialog.sheet[open]'); if (d) d.querySelector('.sheetdone').click(); });
 // the Share screen's disclosures ("More ways to share" #shareMore, "Embed in a web page" #shareEmbed) open by their summary, as a person would
 const openDisc = async (page, id) => { if (!(await page.evaluate((i) => document.getElementById(i).open, id))) await page.click(`#${id} > summary`); };
@@ -4852,8 +4885,10 @@ async function phoneChecks(browser, base, check) {
   // edge at or below the screen's foot; Expand makes it the whole height, Collapse gives that back
   await page.tap('#btnMenu');
   const menuOrder = await page.evaluate(() => [...document.querySelectorAll('#appbar nav > :is(a, button)')].filter((e) => e.checkVisibility()).map((e) => e.innerText.trim()));
-  check('phone: Menu lists Add ROMs, Settings…, Share…, Install…, Library, Debugger, Commands…, Help, GitHub, in that order (the focus order too)',
-    menuOrder.join('|') === 'Add ROMs (BASIC needs them)|Settings…|Share…|Install…|Library|Debugger|Commands…|Help|GitHub', JSON.stringify(menuOrder));
+  check('phone: Menu lists Programs…, Add ROMs, Settings…, Share…, Install…, Library, Debugger, Commands…, Help, GitHub, in that order (the focus order too)',
+    menuOrder.join('|') === 'Programs…|Add ROMs (BASIC needs them)|Settings…|Share…|Install…|Library|Debugger|Commands…|Help|GitHub', JSON.stringify(menuOrder));
+  const gluedMenu = await gluedLabels(page, '#appbar nav > :is(a, button)');
+  check('phone: no Menu label has words run together (each space between words drawn)', !gluedMenu.length, JSON.stringify(gluedMenu));
   await page.tap('#navSettings');
   const sheet = await waitFor(page, () => document.getElementById('sheetSettings').open);
   const tabs = await page.evaluate(() => {
@@ -4932,17 +4967,64 @@ async function phoneChecks(browser, base, check) {
     await page.screenshot({ path: path.join(shotDir, `phone-${sheet}.png`) });
     await page.keyboard.press('Escape');
   }
-  // the full-screen chat opened from a sheet (the Media tab's "Chat with Claude") closes the sheet (a key stored, so
-  // the chat needs no key form and the keys stay up: the sheet closes because the chat opened)
+  // Menu → Programs… → 2048: two taps. The Programs sheet is the Media tab's programs, moved: "Runs without ROMs" (the
+  // one running "on screen now"), "Recent on this machine", "Open your library →"; the Media tab keeps the tape options
+  await page.tap('#btnMenu');
+  await page.tap('#navPrograms');
+  const progOpen = await waitFor(page, () => document.getElementById('sheetPrograms').open);
+  const prog = await page.evaluate(() => {
+    const d = document.getElementById('sheetPrograms'), shown = (sel) => [...d.querySelectorAll(sel)].filter((e) => e.checkVisibility()).map((e) => e.textContent.trim());
+    return { title: d.querySelector('h2').textContent, heads: shown('.sheetbody :is(.eyebrow, #linkLibrary)'), shelf: shown('#shelf :is(a, button)'),
+      focus: d.contains(document.activeElement), shelves: document.querySelectorAll('#shelf').length,
+      media: [...document.getElementById('panel-media').children].map((e) => (e.querySelector('input') || e).id) };
+  });
+  check('phone: Menu → Programs… opens the "Programs" sheet: Runs without ROMs (Welcome menu on screen now, LIZA, Colour demo, 2048, Minesweeper, Chat with Claude), Recent on this machine, Open your library →, the focus in it',
+    progOpen && prog.title === 'Programs' && prog.heads.join('|') === 'Runs without ROMs|Recent on this machine|Open your library →'
+      && prog.shelf.join('|') === 'Welcome menu on screen now|LIZA|Colour demo|2048|Minesweeper|Chat with Claude' && prog.focus && prog.shelves === 1, JSON.stringify(prog));
+  check('phone: the Media tab keeps only the tape options (Fast tape loading, Tape sound, Load .CAS straight into memory)', prog.media.join() === 'chkFastTape,chkTapeSound,chkFastCas', JSON.stringify(prog.media));
+  // the sheet's order: Last time (Run again) at the top, the no-ROM card, Runs without ROMs, Recent, Snapshots (its
+  // heading and note), Open your library →
+  const progOrder = await page.evaluate(() => ({ ids: [...document.querySelector('#sheetPrograms .sheetbody').children].map((e) => e.id),
+    snap: [...document.querySelectorAll('#quickSave > :is(.eyebrow, #slotNote)')].map((e) => e.textContent) }));
+  // the no-ROM card in the sheet points at what is below it there, not at a Media tab
+  const card = await page.evaluate(() => { const w = document.getElementById('welcome'); return { inSheet: !!w.closest('#sheetPrograms'), shown: w.checkVisibility(), text: w.innerText.replace(/\s+/g, ' ').trim() }; });
+  check('phone: the "Running with no ROMs." card in the Programs sheet says "Programs that run without them are listed below."',
+    card.inSheet && card.shown && card.text.startsWith('Running with no ROMs. Programs that run without them are listed below.'), JSON.stringify(card));
+  check('phone: the Programs sheet\'s order: Last time, the no-ROM card, Runs without ROMs, Recent on this machine, Snapshots (heading and note), Open your library →',
+    progOrder.ids.join() === 'lastTime,welcome,shelfHead,shelf,recentHead,recentList,quickSave,linkLibrary'
+      && progOrder.snap.join('|') === 'Snapshots|A snapshot reopens on the same machine, RAM and ROMs.', JSON.stringify(progOrder));
+  if (shotDir) await page.screenshot({ path: path.join(shotDir, 'phone-sheetPrograms.png') });
+  await page.tap('#shelf :is(a, button):text-is("2048")');
+  const game = await waitFor(page, () => window.emu.session.gameRunning && window.emu.session.lastRun && window.emu.session.lastRun.name === '2048' && !document.querySelector('dialog[open]'), null, 15000);
+  check('phone: Menu → Programs… → 2048 runs it in two taps, the sheet closed so the screen shows it', game,
+    await page.evaluate(() => JSON.stringify({ game: window.emu.session.gameRunning, last: window.emu.session.lastRun, open: !!document.querySelector('dialog[open]') })));
+  // the palette's "Programs" (games, demos, liza, run find it): the same sheet
+  const viaPalette = [];
+  for (const word of ['programs', 'games', 'demos', 'liza', 'run']) {
+    await page.keyboard.press('Control+k');
+    await waitFor(page, () => !document.getElementById('cmdBox').hidden);
+    await page.keyboard.type(word);
+    viaPalette.push([word, await page.evaluate(() => [...document.querySelectorAll('#cmdBox [role="option"]')].some((o) => o.textContent.startsWith('Programs')))]);
+    await page.keyboard.press('Escape');
+    await waitFor(page, () => document.getElementById('cmdBox').hidden);
+  }
+  await page.keyboard.press('Control+k');
+  await waitFor(page, () => !document.getElementById('cmdBox').hidden);
+  await page.keyboard.type('programs');
+  await page.keyboard.press('Enter');
+  const palProg = await waitFor(page, () => document.getElementById('sheetPrograms').open);
+  // after 2048, Last time shows, the first thing in the sheet
+  const lastTop = await page.evaluate(() => { const d = document.getElementById('sheetPrograms'), first = [...d.querySelectorAll('.sheetbody > *')].find((e) => e.checkVisibility());
+    return { first: first && first.id, name: document.getElementById('lastName').textContent, top: Math.round(first.getBoundingClientRect().top - d.querySelector('.sheetbody').getBoundingClientRect().top) }; });
+  check('phone: the palette\'s "Programs" (found by programs, games, demos, liza, run) opens the Programs sheet, Last time (2048) at its top',
+    palProg && viaPalette.every((x) => x[1]) && lastTop.first === 'lastTime' && lastTop.name === '2048', JSON.stringify({ viaPalette, lastTop }));
+  // the full-screen chat opened from a sheet (the Programs sheet's "Chat with Claude") closes the sheet (a key stored,
+  // so the chat needs no key form and the keys stay up: the sheet closes because the chat opened)
   await page.evaluate(() => localStorage.setItem('cloadm.anthropicKey', 'sk-ant-PHONE-CHECK-0123456789'));
-  await page.tap('#btnMenu'); await page.tap('#navSettings');
-  await waitFor(page, () => document.getElementById('sheetSettings').open);
-  await page.tap('#tab-media');
-  if (shotDir) await page.screenshot({ path: path.join(shotDir, 'phone-sheetSettings.png') });
   await page.evaluate(() => document.querySelector('#shelf [data-shelf="claude"]').click());
   const chatClosed = await waitFor(page, () => document.body.classList.contains('claude-open') && !document.querySelector('dialog[open]'), null, 15000);
   const keysUp = await page.evaluate(() => document.body.classList.contains('touch-keys'));
-  check('phone: opening the full-screen chat (the Media tab\'s "Chat with Claude") closes the sheet, the keys still up', chatClosed && keysUp, JSON.stringify({ chatClosed, keysUp }));
+  check('phone: opening the full-screen chat (the Programs sheet\'s "Chat with Claude") closes the sheet, the keys still up', chatClosed && keysUp, JSON.stringify({ chatClosed, keysUp }));
   await page.evaluate(() => document.getElementById('btnClaudeBack') && document.getElementById('btnClaudeBack').click());
   await waitFor(page, () => !document.body.classList.contains('claude-open'), null, 15000);
   // a toast's action button on a touch screen: at least 44 px tall
@@ -4965,8 +5047,9 @@ async function phoneChecks(browser, base, check) {
     // the keys' Menu: Settings… and "Tape, disks and cartridge…" (after Settings…), and Power…
     await p.tap('#tkMenu');
     const items = await p.evaluate(() => [...document.querySelectorAll('#tkMenuSheet button')].filter((b) => b.checkVisibility()).map((b) => b.textContent));
-    check('phone sideways: the keys\' Menu lists Machine…, Settings…, Tape, disks and cartridge…, Power…, Commands…, then Install and Hide keys',
-      items.slice(0, 5).join('|') === 'Machine…|Settings…|Tape, disks and cartridge…|Power…|Commands…' && items.includes('Hide keys'), JSON.stringify(items));
+    const gluedKeys = await gluedLabels(p, '#tkMenuSheet button');
+    check('phone sideways: the keys\' Menu lists Programs…, Machine…, Settings…, Tape, disks and cartridge…, Power…, Commands…, then Install and Hide keys, no label\'s words run together',
+      items.slice(0, 6).join('|') === 'Programs…|Machine…|Settings…|Tape, disks and cartridge…|Power…|Commands…' && items.includes('Hide keys') && !gluedKeys.length, JSON.stringify({ items, gluedKeys }));
     // "Tape, disks and cartridge…": one side sheet from the right, 360 px wide and the window's height, a 44 px tab each
     // switching in place; every port's controls can be reached; Esc closes it with the focus back on Menu
     await p.tap('#tkMenuSheet [data-item="ports"]');
@@ -5101,12 +5184,13 @@ async function phoneChecks(browser, base, check) {
     const rects = () => p.evaluate(() => ['.slots', '.layout > .drawer'].map((sel) => { const r = document.querySelector(sel).getBoundingClientRect(); return [r.left, r.top, r.width, r.height].map(Math.round); }));
     const order = () => p.evaluate(() => ({ slots: [...document.querySelector('.slots').children].map((e) => e.id || e.className),
       controls: [...document.querySelector('.controls[aria-label="Machine controls"]').children].map((e) => e.id),
-      drawer: [...document.querySelector('.layout > .drawer').children].map((e) => e.id || e.getAttribute('role')), welcome: document.getElementById('welcome').parentElement.className }));
+      drawer: [...document.querySelector('.layout > .drawer').children].map((e) => e.id || e.getAttribute('role')), welcome: document.getElementById('welcome').parentElement.className,
+      media: [...document.getElementById('panel-media').children].map((e) => e.id || e.className || e.tagName) }));
     const baseline = [[71, 849, 900, 254], [1041, 88, 364, 803]];
     const before = { rects: await rects(), order: await order() };
     const setKeys = (v) => p.evaluate((v) => { const s = document.getElementById('selTouchKeys'); s.value = v; s.dispatchEvent(new Event('change')); }, v);
     await setKeys('on');
-    const movedIn = await waitFor(p, () => !!document.querySelector('#sheetPower #btnPause') && !!document.querySelector('#sheetSettings #panel-input'));
+    const movedIn = await waitFor(p, () => !!document.querySelector('#sheetPower #btnPause') && !!document.querySelector('#sheetSettings #panel-input') && !!document.querySelector('#sheetPrograms #shelf'));
     await setKeys('off');
     await waitFor(p, () => !document.body.classList.contains('touch-keys'));
     await p.evaluate(() => scrollTo(0, 0));
@@ -5122,6 +5206,35 @@ async function phoneChecks(browser, base, check) {
       JSON.stringify({ baseline, before, movedIn, after, works }));
     const dup = await p.evaluate(() => { const seen = new Set(), d = []; for (const e of document.querySelectorAll('[id]')) { if (seen.has(e.id)) d.push(e.id); seen.add(e.id); } return d; });
     check('desktop: no duplicate ids anywhere', dup.length === 0, dup.join());
+    // the palette's "Programs" on a desktop: the Media tab selected (from Display) and the focus on the shelf's first item
+    await p.click('#tab-display');
+    await p.keyboard.press('Control+k');
+    await waitFor(p, () => !document.getElementById('cmdBox').hidden);
+    await p.keyboard.type('programs');
+    await p.keyboard.press('Enter');
+    const deskProg = await waitFor(p, () => document.getElementById('cmdBox').hidden && document.getElementById('tab-media').getAttribute('aria-selected') === 'true'
+      && document.activeElement === document.querySelector('#shelf :is(a, button)'));
+    const deskState = await p.evaluate(() => ({ media: document.getElementById('tab-media').getAttribute('aria-selected'), focus: document.activeElement.textContent, sheet: !!document.querySelector('dialog[open]') }));
+    check('desktop: the palette\'s "Programs" selects the Media tab and puts the focus on the shelf\'s first item (no sheet)', deskProg && !deskState.sheet, JSON.stringify(deskState));
+    // the app bar: no Programs… (the drawer's Media tab is in view), and no label with its words run together, at
+    // 1440 (Install, the short label) and at 900 ("Install CLOADM…")
+    const bar = [];
+    for (const width of [1440, 900]) {
+      await p.setViewportSize({ width, height: 900 });
+      await p.waitForTimeout(100);
+      bar.push({ width, programs: await p.isVisible('#navPrograms'), install: await p.evaluate(() => document.getElementById('navInstall').innerText.trim()), glued: await gluedLabels(p, '.appbar nav > *') });
+    }
+    check('desktop: the app bar has no Programs…, and no label with its words run together ("Install", then "Install CLOADM…" at 900 px)',
+      bar.every((b) => !b.programs && !b.glued.length) && bar[0].install === 'Install' && bar[1].install === 'Install CLOADM…', JSON.stringify(bar));
+    // the file pickers: the extensions each takes, and application/octet-stream so a phone offers a file of a type it
+    // does not know (a .cas, a .vdk); no image/* (iOS would offer the Photo Library and the camera)
+    const MEDIA = '.bin,.cas,.c10,.k7,.wav,.rom,.ccc,.dgn,.vdk,.dsk,.jvc,.dmk,.os9,.img,.bas,.txt', OS = 'application/octet-stream';
+    const want = { fileProgram: `${MEDIA},.cloadm,${OS}`, fileLib: `${MEDIA},.cloadm,.zip,${OS}`, fileTape: `.cas,.c10,.k7,.wav,${OS}`, fileCart: `.rom,.ccc,.dgn,.bin,${OS}`,
+      fileMpSlot: `.rom,.ccc,.dgn,.bin,${OS}`, fileDisk: `.vdk,.dsk,.jvc,.dmk,${OS}`, n9File: `.dsk,.os9,.img,${OS}`, dwImport: `.dsk,.os9,.img,${OS}` };
+    const accepts = await p.evaluate((ids) => Object.fromEntries(ids.map((id) => [id, document.getElementById(id).getAttribute('accept')])), Object.keys(want));
+    const images = await p.evaluate(() => [...document.querySelectorAll('input[type="file"]')].filter((i) => /image\//.test(i.accept || '')).map((i) => i.id));
+    check('desktop: the media file pickers accept their extensions and application/octet-stream, and no picker asks for image/*',
+      Object.entries(want).every(([id, v]) => accepts[id] === v) && !images.length, JSON.stringify({ accepts, images }));
     await c.close();
   }
 }
@@ -6029,7 +6142,7 @@ async function libraryChecks(browser, base, check) {
     const viaNav = await page.isVisible('#library');
     await page.click('#btnLibBack'); await libShown(false);
     const back = await page.isHidden('#library') && await page.isVisible('#screen');
-    await openTab(page, 'Media'); await page.click('#linkLibrary'); await libShown(true);
+    await openPrograms(page); await page.click('#linkLibrary'); await libShown(true);
     check('library: the header link and the Media tab\'s "Open your library →" open it; "← Emulator" closes it', viaNav && back && await page.isVisible('#library'));
     // select mode: rename, download, delete
     await page.click('#btnLibSelect');
@@ -7224,7 +7337,7 @@ async function commandsChecks(browser, site, check) {
   const WANT = [
     ['Claude', ['Chat with Claude, full screen', 'What is this code doing?']],
     ['Files', ['Take snapshot', 'Open a program, tape, disk or cartridge…', 'Insert a disk…', 'New blank disk', 'Eject disk', 'Insert a tape…', 'Rewind the tape', 'Eject the tape', 'Save the tape as .WAV', 'Record to tape', 'Share']],
-    ['Views', ['Open the Library', 'Open the Debugger']],
+    ['Views', ['Programs', 'Open the Library', 'Open the Debugger']],
     ['Settings', ['Your ROMs', 'Display settings', 'Input settings', 'POKEs', 'Machine settings']],   // (Your ROMs first)
     ['Machine', ['Pause or resume', 'Turbo', 'Fullscreen', 'Reset', 'Switch off and on', 'Switch machine…', 'Help']],
   ];
@@ -18178,14 +18291,16 @@ async function mobileChecks(browser, base, check) {
     const items = await page.evaluate(() => [...document.querySelectorAll('.appbar nav > *')].filter((e) => e.checkVisibility()).map((e) => e.innerText.replace(/\s+/g, ' ').trim()));
     // the first item says why ROMs, and wears Menu's dot
     const itemDot = await page.evaluate(() => { const d = document.querySelector('#navRoms .dot'); return !!d && d.checkVisibility() && getComputedStyle(d).backgroundColor === getComputedStyle(document.getElementById('btnMenu'), '::after').backgroundColor; });
-    check('mobile (393x659): Menu has a dot while there is no BASIC, and lists "Add ROMs (BASIC needs them)" first, with the same dot, then Settings…, Share…, Install…, the links, Commands…, Help and GitHub',
-      dot && itemDot && items.join('|') === 'Add ROMs (BASIC needs them)|Settings…|Share…|Install…|Library|Debugger|Commands…|Help|GitHub', JSON.stringify({ dot, itemDot, items }));
+    check('mobile (393x659): Menu has a dot while there is no BASIC, and lists Programs… first, then "Add ROMs (BASIC needs them)", with the same dot, Settings…, Share…, Install…, the links, Commands…, Help and GitHub',
+      dot && itemDot && items.join('|') === 'Programs…|Add ROMs (BASIC needs them)|Settings…|Share…|Install…|Library|Debugger|Commands…|Help|GitHub', JSON.stringify({ dot, itemDot, items }));
+    const glued = await gluedLabels(page, '.appbar nav > *');
+    check('mobile (393x659): no Menu label has words run together', !glued.length, JSON.stringify(glued));
     check('mobile (393x659): opening Menu moves nothing in the bar', JSON.stringify(before) === JSON.stringify(await row()));
     // the focus on the first item as it opens; Tab goes down the list (not into what Menu hides)
     const f1 = await page.evaluate(() => document.activeElement.id);
     await page.keyboard.press('Tab');
     const f2 = await page.evaluate(() => document.activeElement.id || document.activeElement.textContent.trim());
-    check('mobile (393x659): Menu opens with the focus on its first item (Add ROMs), and Tab goes to the next (Settings…)', f1 === 'navRoms' && f2 === 'navSettings', JSON.stringify({ f1, f2 }));
+    check('mobile (393x659): Menu opens with the focus on its first item (Programs…), and Tab goes to the next (Add ROMs)', f1 === 'navPrograms' && f2 === 'navRoms', JSON.stringify({ f1, f2 }));
     await tap(page, '#navRoms');
     check('mobile (393x659): Menu\'s Add ROMs opens Add ROMs', await until(page, () => location.hash === '#add-roms'));
     check('mobile (Menu): no page errors', !errors.length, errors.join('; '));
@@ -18309,8 +18424,8 @@ async function mobileChecks(browser, base, check) {
     const items = await page.evaluate(() => [...document.querySelectorAll('#tkMenuSheet button')].filter((e) => e.checkVisibility()).map((e) => e.textContent));
     await tap(page, '#tkMenuSheet [data-item="machine"]');
     const picker = await page.evaluate(() => { const m = document.getElementById('machineMenu'), r = m.getBoundingClientRect(); return { shown: !m.hidden && m.checkVisibility() && r.width > 0, inView: r.top >= 0 && r.bottom <= innerHeight + 1, first: document.elementFromPoint(r.left + 40, r.top + 40)?.closest('#machineMenu') === m }; });
-    check('mobile (734x343): the panel\'s Menu has Machine…, Settings…, Tape, disks and cartridge…, Power…, Commands…, Install CLOADM… and Hide keys; Machine… opens the machine picker, on screen and on top',
-      items.join() === 'Machine…,Settings…,Tape, disks and cartridge…,Power…,Commands…,Install CLOADM…,Hide keys' && picker.shown && picker.inView && picker.first, JSON.stringify({ items, picker }));
+    check('mobile (734x343): the panel\'s Menu has Programs…, Machine…, Settings…, Tape, disks and cartridge…, Power…, Commands…, Install CLOADM… and Hide keys; Machine… opens the machine picker, on screen and on top',
+      items.join() === 'Programs…,Machine…,Settings…,Tape, disks and cartridge…,Power…,Commands…,Install CLOADM…,Hide keys' && picker.shown && picker.inView && picker.first, JSON.stringify({ items, picker }));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, 'mobile-734x343-machine-picker.png') });
     await page.keyboard.press('Escape');
     check('mobile (734x343): Esc closes the picker, and the app bar gives way to the panel again', picker.shown && await until(page, () => document.getElementById('machineMenu').hidden && !document.body.classList.contains('machine-pick')

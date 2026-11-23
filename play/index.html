@@ -78,9 +78,9 @@
     .appbar.nostatus > #status { display: none; }
   }
   #btnMenu { display: none; }
-  @media (min-width: 701px) { #navRoms, #navShare, #navSettings { display: none; } }   /* (the app bar's pill and Share button there) */
+  @media (min-width: 701px) { #navPrograms, #navRoms, #navShare, #navSettings { display: none; } }   /* (the app bar's pill and Share button there) */
   /* (with the touch keys the drawer's tabs are in the Settings sheet at any width: Settings… is the way to them) */
-  @media (min-width: 701px) { body:is(.touch-keys, .touch-hidden) #navSettings { display: inline-flex; } }
+  @media (min-width: 701px) { body:is(.touch-keys, .touch-hidden) :is(#navPrograms, #navSettings) { display: inline-flex; } }
   /* (an author display rule outranks the hidden attribute's, so it is stated: once installed, the link goes) */
   #navInstall[hidden] { display: none; }
   #navInstall .ell { display: none; }   /* (Menu's "Install…" on a phone) */
@@ -1574,8 +1574,10 @@ npx serve -l 8000 .</pre>
   <!-- js/ui/ask-popout.js: in place of Ask where this page is shown inside another site's page (the chat is off there) -->
   <a id="btnAskPop"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z"/></svg><span class="lbl">Ask Claude ↗</span></a>
   <nav aria-label="App">
-    <!-- a phone's Menu: Add ROMs first while the machine has no BASIC (with Menu's dot beside it), Share and Settings… (the
+    <!-- a phone's Menu: Programs… first (the no-ROM shelf and what ran here before, in a sheet: js/ui/phone-sheets.js),
+         then Add ROMs while the machine has no BASIC (with Menu's dot beside it), Share and Settings… (the
          drawer's tabs, far down the page there) (js/ui/main.js; the app bar's pill and button elsewhere) -->
+    <button id="navPrograms" class="navlink" type="button">Programs…</button>
     <button id="navRoms" class="navlink" type="button" hidden>Add ROMs (BASIC needs them)<span class="dot" aria-hidden="true"></span></button>
     <button id="navSettings" class="navlink" type="button">Settings…</button>
     <!-- a short phone upright has no chips: the ports and Power are Menu's, each with its state (js/ui/phone-sheets.js) -->
@@ -1783,7 +1785,7 @@ npx serve -l 8000 .</pre>
           <div class="title">Drives · <span id="driveDos"></span> · <span id="driveHint">click a drive to insert</span></div>
           <div class="drives" id="drives" role="group" aria-label="Disk drives"></div>
           <div class="drive-menu" id="driveMenu" hidden></div>
-          <input type="file" id="fileDisk" accept=".vdk,.dsk,.jvc,.dmk" hidden>
+          <input type="file" id="fileDisk" accept=".vdk,.dsk,.jvc,.dmk,application/octet-stream" hidden>
         </div>
       </div>
       <div class="slot" id="nitros9Slot" hidden>
@@ -1797,7 +1799,7 @@ npx serve -l 8000 .</pre>
             get <code>nos96809l2v030300coco3.zip</code> (6809) or <code>nos96309l2v030300coco3.zip</code> (6309), unzip it,
             and add the file ending in <code>_becker.dsk</code> (boots over DriveWire) or <code>_40d_1.dsk</code> (from the
             floppy drive). CLOADM's own loader boots it.</div>
-          <input type="file" id="n9File" accept=".dsk,.os9,.img" hidden>
+          <input type="file" id="n9File" accept=".dsk,.os9,.img,application/octet-stream" hidden>
         </div>
       </div>
       <div class="slot" id="cartSlot">
@@ -1958,7 +1960,7 @@ npx serve -l 8000 .</pre>
     <div role="tabpanel" id="panel-media" aria-labelledby="tab-media">
       <div id="lastTime" class="lasttime" hidden><div><span class="eyebrow">Last time</span><strong id="lastName"></strong></div>
         <button id="btnRunAgain" class="primary">Run again</button></div>
-      <div class="eyebrow">Runs without ROMs</div>
+      <div class="eyebrow" id="shelfHead">Runs without ROMs</div>
       <div id="shelf"></div>
       <div class="eyebrow" id="recentHead">Recent on this machine</div>
       <div id="recentList"></div>
@@ -2040,7 +2042,7 @@ npx serve -l 8000 .</pre>
       <div id="dwSection" hidden>
         <div class="eyebrow">DriveWire</div>
         <div id="dwDrives"></div>
-        <div class="bar"><button id="btnDwAdd">Add image…</button><input type="file" id="dwImport" accept=".dsk,.os9,.img" hidden>
+        <div class="bar"><button id="btnDwAdd">Add image…</button><input type="file" id="dwImport" accept=".dsk,.os9,.img,application/octet-stream" hidden>
           <button id="btnDwNew">New blank</button><button id="btnDwSave" disabled>Save drive 0</button></div>
         <div class="bar"><select id="dwChan" aria-label="DriveWire channel"></select>
           <input id="dwUrl" type="text" aria-label="WebSocket address for the channel" placeholder="ws://…" style="flex:1"><button id="btnDwConnect">Connect</button></div>
@@ -2251,13 +2253,15 @@ npx serve -l 8000 .</pre>
   </div>
 </div>
 <!-- the Library's Undo toast ("Deleted chat.bin · Undo", 8 s) -->
-<input type="file" id="fileLib" hidden multiple>
+<!-- the media pickers: the extensions they take, and application/octet-stream so a file whose type the phone does not
+     know (a .cas, a .vdk) can still be picked; no image/*, so iOS offers Files, not the Photo Library and the camera -->
+<input type="file" id="fileLib" hidden multiple accept=".bin,.cas,.c10,.k7,.wav,.rom,.ccc,.dgn,.vdk,.dsk,.jvc,.dmk,.os9,.img,.bas,.txt,.cloadm,.zip,application/octet-stream">
 <input type="file" id="folderLib" hidden webkitdirectory>
-<input type="file" id="fileProgram" hidden multiple>
+<input type="file" id="fileProgram" hidden multiple accept=".bin,.cas,.c10,.k7,.wav,.rom,.ccc,.dgn,.vdk,.dsk,.jvc,.dmk,.os9,.img,.bas,.txt,.cloadm,application/octet-stream">
 
-<input type="file" id="fileTape" hidden accept=".cas,.c10,.k7,.wav">
-<input type="file" id="fileCart" hidden accept=".rom,.ccc,.dgn,.bin">
-<input type="file" id="fileMpSlot" hidden accept=".rom,.ccc,.dgn,.bin">
+<input type="file" id="fileTape" hidden accept=".cas,.c10,.k7,.wav,application/octet-stream">
+<input type="file" id="fileCart" hidden accept=".rom,.ccc,.dgn,.bin,application/octet-stream">
+<input type="file" id="fileMpSlot" hidden accept=".rom,.ccc,.dgn,.bin,application/octet-stream">
 <input type="file" id="fileRom" hidden multiple>
 <input type="file" id="folderRom" hidden webkitdirectory>
 <div id="dropOverlay" hidden aria-hidden="true"><div>Drop to load<span>ROMs, programs, tapes, cartridges, snapshots, ZIPs or a folder</span></div></div>
@@ -2430,6 +2434,7 @@ npx serve -l 8000 .</pre>
 <dialog id="sheetDisks" class="sheet" hidden aria-labelledby="sheetDisksTitle"><div class="sheethead"><h2 id="sheetDisksTitle">Disk drives</h2><button type="button" class="sheetdone">Done</button></div><div class="sheetbody" data-body="sheetDisks"><p class="muted sheetnote" hidden></p></div></dialog>
 <dialog id="sheetCart" class="sheet" hidden aria-labelledby="sheetCartTitle"><div class="sheethead"><h2 id="sheetCartTitle">Cartridge port</h2><button type="button" class="sheetdone">Done</button></div><div class="sheetbody" data-body="sheetCart"><p class="muted sheetnote" hidden></p></div></dialog>
 <dialog id="sheetPower" class="sheet" hidden aria-labelledby="sheetPowerTitle"><div class="sheethead"><h2 id="sheetPowerTitle">Power</h2><button type="button" class="sheetdone">Done</button></div><div class="sheetbody"><button type="button" id="btnHideKeys">Hide keys</button></div></dialog>
+<dialog id="sheetPrograms" class="sheet" hidden aria-labelledby="sheetProgramsTitle"><div class="sheethead"><h2 id="sheetProgramsTitle">Programs</h2><button type="button" class="sheetdone">Done</button></div><div class="sheetbody"></div></dialog>
 <dialog id="sheetSettings" class="sheet" hidden aria-labelledby="sheetSettingsTitle"><div class="sheethead"><h2 id="sheetSettingsTitle">Settings</h2><button type="button" id="btnSheetExpand" aria-pressed="false">Expand</button><button type="button" class="sheetdone">Done</button></div><div class="sheetbody"></div></dialog>
 <!-- held sideways, the keys' Menu opens the three ports as one side sheet, a tab each (js/ui/phone-sheets.js moves
      the Tape, Disks and Cartridge sheets' contents into its panels while it is open) -->
