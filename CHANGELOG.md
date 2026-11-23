@@ -212,6 +212,8 @@ Next version: 0.1.9-pre (the plugin and extension manifests carry it; `tests/plu
   an action) running from the moment the focus leaves; the focus stays on the action button only when the new toast
   carries the same action, otherwise it moves to the toast itself, so an Enter meant for the old action fires nothing.
   Under the pointer the new toast is paused until the pointer leaves.
+  With the focus on the button of the toast's second line, the focus moves to the toast itself, even when the new
+  toast carries the same action; and a new toast without a second line leaves none of the old one behind.
 - **A toast in the top slot is pinned provisionally.** It still shows there in its first frame when no place
   is free, but while a control that decides its place is still in its own animation (a sheet opening), for 300 ms at
   most, it moves to a free place as soon as one opens (its position only, with no animation); after that it never
