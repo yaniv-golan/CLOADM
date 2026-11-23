@@ -4096,6 +4096,25 @@ async function phoneChecks(browser, base, check) {
     check(`phone: ${CHIPS[i]} opens its sheet "${title}" (a modal dialog, the focus inside); Esc closes it and the focus is back on the chip`,
       opened && closed && title === ['Cassette deck', 'Disk drives', 'Cartridge port', 'Power'][i], JSON.stringify({ opened, closed, title }));
   }
+  // Esc with the drive menu open over the Disks sheet: the menu closes first, the sheet stays; the next Esc closes it
+  await page.tap('#chipDisks');
+  await page.tap('#drives [data-drive="0"]');
+  const menuUp = await waitFor(page, () => !document.getElementById('driveMenu').hidden);
+  await page.keyboard.press('Escape');
+  const first = await page.evaluate(() => ({ menu: !document.getElementById('driveMenu').hidden, sheet: document.getElementById('sheetDisks').open }));
+  await page.keyboard.press('Escape');
+  const second = await page.evaluate(() => ({ sheet: document.getElementById('sheetDisks').open, focus: document.activeElement.id }));
+  check('phone: Esc with the drive menu open over the Disks sheet closes the menu and leaves the sheet; the next Esc closes the sheet, the focus on its chip',
+    menuUp && !first.menu && first.sheet && !second.sheet && second.focus === 'chipDisks', JSON.stringify({ menuUp, first, second }));
+  // the sheet is modal (the page behind it inert), and its Esc ranks over Claude paused by a key: Esc closes the sheet,
+  // Claude stays paused (the Esc after it is Claude's Stop)
+  await page.evaluate(() => window.emu.session.consent.pause([]));
+  await page.tap('#chipCart');
+  const modal = await page.evaluate(() => document.getElementById('sheetCart').matches(':modal'));
+  await page.keyboard.press('Escape');
+  const rank = await page.evaluate(() => ({ sheet: document.getElementById('sheetCart').open, paused: !!window.emu.session.consent.paused }));
+  check('phone: a sheet is modal, and with Claude paused by a key Esc closes the sheet first (Claude stays paused)', modal && !rank.sheet && rank.paused, JSON.stringify({ modal, rank }));
+  await page.evaluate(() => window.emu.session.consent.endPause());
   // the hardware keyboard while a sheet is open: the welcome menu's "1" (LIZA) does not reach the machine
   await page.tap('#chipPower');
   await waitFor(page, () => document.getElementById('sheetPower').open);

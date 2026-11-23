@@ -86,14 +86,15 @@ export function setupPhoneSheets(page, { touchKeys, ask = null }) {
   new MutationObserver(chips).observe(document.body, { attributes: true, attributeFilter: ['class'] });
 
   // ---- opening and closing
-  let openSheet = null, opener = null, guests = [];
-  function open(id, from = null) {
+  let openSheet = null, guests = [];
+  // (the focus goes back to what had it when the sheet opened, the chip or the menu item: the dialog does that itself)
+  function open(id) {
     const d = $(id);
     if (openSheet === d) return;
-    close(false);
+    close();
     if (ask && ask.open) ask.hide();
     touchKeys.release();   // a stick or FIRE held with the other hand is let go of
-    openSheet = d; opener = from;
+    openSheet = d;
     // what opens over the sheet is shown in it (an offer after a load from the sheet, the snapshot card)
     guests = GUESTS.map((sel) => document.querySelector(sel)).filter(Boolean).map((el) => { const mark = document.createComment('sheet guest'); el.before(mark); d.append(el); return [mark, el]; });
     d.hidden = false;   // (closed, a sheet is hidden for real: out of the accessibility tree and the focus order)
@@ -101,7 +102,7 @@ export function setupPhoneSheets(page, { touchKeys, ask = null }) {
     const first = d.querySelector('.sheetbody [aria-selected="true"]') || [...d.querySelectorAll(`.sheetbody ${FOCUSABLE}`)].find((e) => e.checkVisibility());
     (first || d.querySelector('.sheetdone')).focus();
   }
-  function close(refocus = true) {
+  function close() {
     const d = openSheet;
     if (!d) return;
     openSheet = null;
@@ -109,25 +110,22 @@ export function setupPhoneSheets(page, { touchKeys, ask = null }) {
     guests = [];
     if (d.open) d.close();
     d.hidden = true;
-    const back = opener;
-    opener = null;
-    if (refocus && back && back.isConnected) back.focus();
   }
   for (const s of SHEETS) {
     const d = $(s.id);
-    $(s.chip).onclick = (e) => open(s.id, e.currentTarget);
+    $(s.chip).onclick = () => open(s.id);
     d.querySelector('.sheetdone').onclick = () => close();
     // closed any other way (the browser's own close request): tidy up the same way
     d.addEventListener('close', () => { if (openSheet === d) close(); });
     // a tap on the backdrop (outside the sheet's box) closes it
     d.addEventListener('click', (e) => { if (e.target === d) { const r = d.getBoundingClientRect(); if (e.clientY < r.top || e.clientY > r.bottom || e.clientX < r.left || e.clientX > r.right) close(); } });
   }
-  $('btnHideKeys').onclick = () => { close(false); touchKeys.hide(); };
+  $('btnHideKeys').onclick = () => { close(); touchKeys.hide(); };
   page.onEscape(ESC.sheet, () => !!openSheet, () => close());
   // a view (the Library, Your ROMs, Share, the Debugger) takes the page, opened from a sheet or not: the sheet closes
-  page.onView(() => { if (viewOpen()) close(false); }, { every: true });
+  page.onView(() => { if (viewOpen()) close(); }, { every: true });
   // the full-screen chat takes the page: a sheet closes
-  new MutationObserver(() => { if (document.body.classList.contains('claude-open')) close(false); }).observe(document.body, { attributes: true, attributeFilter: ['class'] });
+  new MutationObserver(() => { if (document.body.classList.contains('claude-open')) close(); }).observe(document.body, { attributes: true, attributeFilter: ['class'] });
   place();
-  return { open: (id, from) => open(id, from), close, get openSheet() { return openSheet; } };
+  return { open, close, get openSheet() { return openSheet; } };
 }

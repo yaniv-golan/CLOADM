@@ -220,7 +220,7 @@ export function setupTapePanel(page) {
   // "Deck" in the HUD: the panel, open, brought into view (on a phone: its sheet, opened, js/ui/phone-sheets.js)
   $('btnHudDeck').onclick = () => {
     fold(false); update();
-    if (panel.closest('dialog.sheet')) { page.sheets.open('sheetTape', $('btnHudDeck')); return; }
+    if (panel.closest('dialog.sheet')) { page.sheets.open('sheetTape'); return; }
     panel.scrollIntoView({ block: 'nearest', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
     $('btnDeckFold').focus({ preventScroll: true });
   };

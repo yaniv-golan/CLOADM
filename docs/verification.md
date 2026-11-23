@@ -925,7 +925,8 @@ browser check's group `uiModel` drives them with real events at 1280x720 and at 
   view and at least 44 x 44; each opens its sheet (a modal dialog, the focus inside, its title) and Esc closes it with
   the focus back on the chip; the hardware keyboard does not reach the machine while a sheet is open (the welcome
   menu's "1"); a tape mounted from the Tape sheet names itself on the chip (text, outline, accessible name); a held
-  stick is let go of when a sheet opens; Hide keys from the Power sheet, then ⌨, with the chips up throughout; a toast's
+  stick is let go of when a sheet opens; Esc with the drive menu over the Disks sheet closes the menu first; a sheet is
+  modal, and its Esc ranks over Claude paused by a key; Hide keys from the Power sheet, then ⌨, with the chips up throughout; a toast's
   action button at least 44 px tall. `uiModel` checks the Disks chip after a dropped disk; `semantics` the landmarks with
   the ports as chips and every closed sheet hidden for real; `tapeHud` that the reels turn only in an open Tape sheet.
 * R25: the switch confirmation's text for a tape and a cartridge (both in the Library), a tape and a disk, a RAM
