@@ -981,7 +981,7 @@ WARMS   FCB     $57,$41,$52,$4D,0
       isFull(wave) === true && isFull(up) === false, `wave ${isFull(wave)}, stuck-high ${isFull(up)}`);
   }
   const what = bursts.map((b) => `${(b[0] / 44100).toFixed(2)}+${(len(b) / 44100).toFixed(3)}`).join(' ');
-  // The cue list, in order: the first square's open tick (E5), two cursor ticks (the right arrow, the down
+  // The cue list, in order: the first square's open tick (note E5), two cursor ticks (the right arrow, the down
   // arrow), the low buzz of F on an OPEN square, three cursor ticks to (6,3), the flag's C5-G5 on and off, and
   // the mine: one noise burst. Every burst is at full swing on the DAC (top to bottom, 63 steps), and every
   // TONE cue has a pitch.

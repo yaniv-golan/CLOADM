@@ -12,13 +12,16 @@ const cp = require('child_process'), fs = require('fs'), path = require('path');
 
 const J = (...parts) => parts.join('');
 const SEP = '[ \\t\\u00A0]*';                        // none, spaces, a tab or a no-break space
+const SEP_ID = '[ \\t\\u00A0]*[#-]?[ \\t\\u00A0]*';       // ... and a dash or a hash with its spaces: "X-12", "X #12"
 
 // a planning id: the planning prefix and a number, spaced (a space, two, a tab or a no-break space) or joined, in
 // either case. Spared: a year in prose (the spaced form with exactly four digits, as in "10 at night, 2026"), and in
 // an .asm file an assembly label (the joined form at the start of a line, or as an operand after an opcode)
 function planningSpared(line, m, file) {
   const sep = m[1], digits = m[2], before = line.slice(0, m.index);
-  if (sep.length && digits.length === 4) return true;
+  // a time range written with a dash (an hour, the two letters, a dash and an hour): digits before the match, so a plain id is not one
+  if (/[#-]/.test(sep) && /-/.test(sep) && /\d[ \t\u00A0]*$/.test(before)) return true;
+  if (/^[ \t\u00A0]+$/.test(sep) && digits.length === 4) return true;
   if (!sep.length && file && file.endsWith('.asm')) return /^\s*$/.test(before) || /^(?:\S+)?\s+[A-Z]{2,5}\s+$/i.test(before);
   return false;
 }
@@ -33,6 +36,9 @@ function inboxSpared(line, m) {
 // domain (example.com, example.org, example.net, or a .example, .test, .invalid or .localhost name)
 function emailSpared(line, m) {
   const domain = m[2].toLowerCase();
+  // the attribution address of the commit trailers, and the SSH remote form ("git@github.com:owner/repo")
+  if (m[1] === 'noreply' && domain === 'anthropic.com') return true;
+  if (m[1] === 'git' && domain === 'github.com' && line[m.index + m[0].length] === ':') return true;
   return /(?:^|\.)users\.noreply\.github\.com$/.test(domain) || /^example\.(?:com|org|net)$/.test(domain)
     || /\.(?:example|test|invalid|localhost)$/.test(domain);
 }
@@ -42,23 +48,26 @@ const PATTERNS = [
   { id: 'session-link', what: 'a link to a Claude session', re: new RegExp(J('claude\\.ai', '\\/code\\/session')) },
   { id: 'private-repo', what: 'the private planning repository', re: new RegExp(J('cloadm', '-private'), 'i') },
   { id: 'local-path', what: 'a path on a developer machine or a cloud container', re: new RegExp(J('\\/home', '\\/user\\b|\\/tmp', '\\/claude-|\\/root', '\\/\\.ccr\\b')) },
-  // a home directory on macOS or Windows: the Users folder at the root, or under a drive letter (either slash)
-  { id: 'home-path', what: 'a home directory on a Mac or a Windows machine', re: new RegExp(J('(?<![\\w.-])\\/Users', '\\/[A-Za-z][\\w.-]*|\\b[A-Za-z]:[\\\\\\/]Users', '[\\\\\\/]'), 'i') },
+  // a home directory on macOS or Windows: the Users folder at the root (that spelling only: "/users/…" is another path), or
+  // under a drive letter (either slash, any case: Windows paths do not care)
+  { id: 'home-path', what: 'a home directory on a Mac or a Windows machine', re: new RegExp(J('(?<![\\w.-])\\/Users', '\\/[A-Za-z][\\w.-]*|\\b[A-Za-z]:[\\\\\\/][Uu][Ss][Ee][Rr][Ss]', '[\\\\\\/]')) },
   { id: 'worktree', what: 'a worktree path', re: new RegExp(J('\\.claude', '\\/worktrees\\b')) },
   { id: 'worker', what: 'a runner or worker named for a machine', re: new RegExp(J('\\bCLOADM', '-local\\b|\\blocal[- ]runner\\b|\\bworker[- ]session\\b|\\bw[1-9]', "'s\\b"), 'i') },
-  // a branch, bare or as a ref ("origin/…", "refs/heads/…", "refs/remotes/origin/…"): a CI glob ("ds/**",
+  // a branch, bare or as a ref under a remote ("origin/…", "upstream/…", "fork/…", "remotes/<name>/…", "refs/heads/…",
+  // "refs/remotes/<name>/…": any remote name after remotes/, and the usual remote names bare; another bare word before
+  // the slash is a directory, "js/claude/brief.js"): a CI glob ("ds/**",
   // "claude/**") is public and fine, and any other path segment ("js/claude/brief.js", "@anthropic-ai/claude-code")
   // is not a branch;
   // and a release-stage branch (claude/ then v<major>.<minor>[.<patch>]-stage, exactly) is public process: CI runs on it
   { id: 'branch', what: 'a branch name outside the CI globs',
-    re: new RegExp(J('(?:(?<![\\w\\/.@-])|(?<=\\b(?:origin|refs\\/heads|refs\\/remotes\\/origin)\\/))(?:ds|claude)', '\\/(?!\\*\\*)(?!(?<=claude\\/)v\\d+\\.\\d+(?:\\.\\d+)?-stage(?![\\w\\/-]|\\.\\w))[a-z0-9][\\w.-]*')) },
-  { id: 'planning', what: 'a planning item number', re: new RegExp(J('\\bP', 'M(', SEP, ')(\\d+)\\b'), 'gi'), spared: planningSpared },
+    re: new RegExp(J('(?:(?<![\\w\\/.@-])|(?<=\\b(?:origin|upstream|fork|remotes\\/[\\w.-]+|refs\\/heads|refs\\/remotes\\/[\\w.-]+)\\/))(?:ds|claude)', '\\/(?!\\*\\*)(?!(?<=claude\\/)v\\d+\\.\\d+(?:\\.\\d+)?-stage(?![\\w\\/-]|\\.\\w))[a-z0-9][\\w.-]*')) },
+  { id: 'planning', what: 'a planning item number', re: new RegExp(J('\\bP', 'M(', SEP_ID, ')(\\d+)\\b'), 'gi'), spared: planningSpared },
   { id: 'inbox', what: 'an inbox item number', re: new RegExp(J('\\b(?:in', 'box|mail', 'box)(', SEP, ')(\\d{1,6})\\b'), 'gi'), spared: inboxSpared },
   { id: 'inbox-path', what: 'an inbox path', re: new RegExp(J('\\/to', '-local\\/\\d+')) },
-  { id: 'bus', what: 'the shared local work folder', re: new RegExp(J('(?:~|\\$HOME)\\/cloadm', '-[\\w.-]+'), 'i') },
+  { id: 'bus', what: 'the shared local work folder', re: new RegExp(J('(?:~|\\$HOME|\\/home\\/[\\w.-]+)\\/cloadm', '-[\\w.-]+'), 'i') },
   { id: 'local-md', what: 'the machine-local instructions file', re: new RegExp(J('\\bCLAUDE\\.', 'local\\.md\\b'), 'i'), exempt: (f) => f === '.gitignore' },
   { id: 'email', what: 'a personal email address',
-    re: new RegExp(J('(?<![\\w.+\\/:-])([\\w.+-]+)', '@((?:[A-Za-z0-9-]+\\.)+[A-Za-z]{2,})\\b(?![.@\\w-])'), 'g'), spared: emailSpared },
+    re: new RegExp(J('(?:(?<![\\w.+\\/:-])|(?<=mailto:))([\\w.+-]+)', '@((?:[A-Za-z0-9-]+\\.)+[A-Za-z]{2,})\\b(?![@\\w-])(?!\\.[\\w-])'), 'g'), spared: emailSpared },
 ];
 
 // the pattern ids that match one line of `file` (a path in the tree; without it the line is read as a .js file's)
@@ -88,14 +97,16 @@ const POSITIVE = {
   worktree: [J('.claude', '/worktrees holds every other worktree'), J('cd .claude', '/worktrees/x')],
   worker: [J('run on CLOADM', '-local'), J('the local', ' runner'), J('a local', '-runner job'), J('w1', "'s branch"), J('the worker', ' session')],
   'home-path': [J('/Users', '/jane/src/CLOADM'), J('C:', '\\Users\\jane\\CLOADM'), J('c:', '/use', 'rs/jane/x'), J('see /Users', '/sam')],
-  branch: [J('git push origin', '/ds/cpu-fix'), J('refs/heads', '/claude/label-cleanup'), J('refs/remotes/origin', '/ds/x-y'), J('(ds', '/cpu6309-welcome fixed it)'), J('ds', '/load-flicker-w2 brings'), J('claude', '/label-cleanup'), J('claude', '/v0.2-stage-x'), J('claude', '/foo-stage'), J('claude', '/v02-anything'), J('ds', '/v0.2-stage')],
+  branch: [J('git push origin', '/ds/cpu-fix'), J('refs/heads', '/claude/label-cleanup'), J('refs/remotes/origin', '/ds/x-y'), J('(ds', '/cpu6309-welcome fixed it)'), J('ds', '/load-flicker-w2 brings'), J('claude', '/label-cleanup'), J('claude', '/v0.2-stage-x'), J('claude', '/foo-stage'), J('claude', '/v02-anything'), J('ds', '/v0.2-stage'), J('git fetch upstream', '/ds/x'), J('refs/remotes/upstream', '/claude/x'), J('fork', '/ds/y'), J('remotes/fork', '/claude/z')],
   planning: [J('as P', 'M 143 says'), J('see P', 'M143'), J('p', 'm 12 asks'), J('P', 'M  7'), J('P', 'M\t7'), J('P', 'M 7'),
-    [J('BEQ     P', 'M1'), 'tests/x.js'], [J('; P', 'M 12 asked for this'), 'examples/x.asm'], [J('P', 'M 12345 decided'), 'docs/x.md']],
+    [J('BEQ     P', 'M1'), 'tests/x.js'], [J('; P', 'M 12 asked for this'), 'examples/x.asm'], [J('P', 'M 12345 decided'), 'docs/x.md'],
+    J('P', 'M-12 says'), J('P', 'M#12'), J('see P', 'M #12'), J('P', 'M - 12'), J('P', 'M -12')],
   inbox: [J('in', 'box 12'), J('Mail', 'box 3 says'), J('in', 'box 123456'), J('in', 'box\t9')],
   'inbox-path': [J('../to', '-local/12.md'), J('~/x/to', '-local/3')],
-  bus: [J('~/cloadm', '-bus/inbox'), J('$HOME/CLOADM', '-shared/x')],
+  bus: [J('~/cloadm', '-bus/inbox'), J('$HOME/CLOADM', '-shared/x'), J('/home', '/jane/cloadm', '-bus'), J('see /home', '/sam/cloadm', '-shared/x')],
   'local-md': [[J('see CLAUDE.', 'local.md'), 'AGENTS.md'], [J('claude.', 'local.md holds it'), 'docs/x.md']],
-  email: [J('jane', '@', 'company.io'), J('mail first.last', '@company.co.uk for it'), J('<someone', '@gmail.com>')],
+  email: [J('jane', '@', 'company.io'), J('mail first.last', '@company.co.uk for it'), J('<someone', '@gmail.com>'),
+    J('write to jane', '@company.io.'), J('jane', '@company.io, or'), J('mailto:jane', '@company.io'), J('<mailto:a', '@b.com>')],
 };
 const NEGATIVE = {
   session: ['the session ends', 'session_id', J('a session', '_01 prefix')],
@@ -104,17 +115,18 @@ const NEGATIVE = {
   'local-path': ['/home/runner/work/CLOADM', 'the user home', '/tmp/cloadm-nitros9', 'os.tmpdir()'],
   worktree: ['a worktree', 'git worktree add', 'worktrees'],
   worker: ['const w1 = 3', 'W2 is held', 'a Web Worker', 'the runner', 'service-worker events'],
-  'home-path': ['/home/runner/work', 'the Users list', 'api/Users', 'https://site.com/x/Users', 'D:\\games\\x', 'fooUsers/x'],
-  branch: ['refs/heads/main', 'origin/main', 'refs/heads/ds/**', 'origin/claude/**', 'branches: [main, "claude/**", "ds/**"]', 'js/claude/brief.js', '@anthropic-ai/claude-code', 'skills/claude', 'the ds/** glob', J('claude', '/v0.2-stage'), J('merged into claude', '/v0.1.9-stage'), J('on `claude', '/v0.2-stage` and `main`')],
+  'home-path': ['/home/runner/work', 'the Users list', 'api/Users', 'https://site.com/x/Users', 'D:\\games\\x', 'fooUsers/x', '/users/jane/x', '/users/jane', 'Users/jane'],
+  branch: ['refs/heads/main', 'origin/main', 'refs/heads/ds/**', 'origin/claude/**', 'branches: [main, "claude/**", "ds/**"]', 'js/claude/brief.js', '@anthropic-ai/claude-code', 'skills/claude', 'the ds/** glob', J('claude', '/v0.2-stage'), J('merged into claude', '/v0.1.9-stage'), J('on `claude', '/v0.2-stage` and `main`'), 'upstream/main', 'refs/remotes/upstream/main', 'src/ds/x.js', 'lib/claude/helper.js'],
   planning: [J('at 10 P', 'M 2026 we met'), J('P', 'M 1999'), 'PMODE 4', '3 PM', 'npm 12', '2pm 3',
     [J('P', 'M1     BITA    #KRIGHT'), 'examples/starter-game/catch.asm'], [J('        BEQ     P', 'M1'), 'examples/starter-game/catch.asm'],
-    [J('        BHS     P', 'M2'), 'examples/x.asm']],
+    [J('        BHS     P', 'M2'), 'examples/x.asm'],
+    J('2 P', 'M-4 P', 'M'), J('between 9 and 5 P', 'M-6')],
   inbox: [J('the $7000 key mail', 'box 1'), J('mail', 'box at $7000, byte 2'), J('in', 'box zero'), 'the mailbox', J('in', 'box1234567')],
   'inbox-path': ['to-local/x', '/to-local/', '/to-locals/12'],
-  bus: ['/tmp/cloadm-nitros9', 'cloadm-regress-cli-x', '~/cloadm', 'cloadm-panel'],
+  bus: ['/tmp/cloadm-nitros9', 'cloadm-regress-cli-x', '~/cloadm', 'cloadm-panel', '/home/runner/work/CLOADM', '/home/jane/cloadm', '/home/jane/cloadm.dev'],
   'local-md': [['CLAUDE.md', 'AGENTS.md'], ['local.md', 'docs/x.md'], [J('CLAUDE.', 'local.md'), '.gitignore']],
   email: [J('yaniv-golan', '@users.noreply.github.com'), 'playwright@1.63.0', J('https://user', '@host.com/x'), J('https://user:pass', '@host.com/'),
-    J('someone', '@example.com'), J('a', '@b.example'), J('x', '@site.test'), J('y', '@z.invalid'), J('z', '@machine.localhost'), '@types/node', 'npm i x@latest'],
+    J('someone', '@example.com'), J('a', '@b.example'), J('x', '@site.test'), J('y', '@z.invalid'), J('z', '@machine.localhost'), '@types/node', 'npm i x@latest', J('noreply', '@anthropic.com'), J('Co-Authored-By: Claude <noreply', '@anthropic.com>'), J('git clone git', '@github.com:owner/repo.git'), J('see user', '@example.com.'), J('mailto:a', '@example.org')],
 };
 const pair = (c) => (Array.isArray(c) ? c : [c, 'x.js']);
 for (const p of PATTERNS) {
