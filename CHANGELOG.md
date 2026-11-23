@@ -467,6 +467,33 @@ Next version: 0.1.9-pre (the plugin and extension manifests carry it; `tests/plu
   Reset still restarts what ran there. While the chat is on screen the watch waits, since the menu is a start on the
   machine in use, and starts when the BASIC session is back on screen.
 
+- **The browser check can no longer hang on its own teardown.** Every close a check group performs inside its own
+  body - a browser context (299 sites), a page it opened itself (10), the library storage group's own browser and
+  its persistent-context profile, and the connector module's seven - was a bare `await`, so a page left wedged in
+  an abandoned evaluate would hang the whole run until the caller's outer timeout killed it, with nothing
+  reported. All of them now go through the one `bounded()` helper: a hung close FAILs by name (`"<group>: a
+  context it opened closes"`, distinct from the per-group cleanup's own name, so the log shows which layer caught
+  it), the run goes on with exit 1, and the cleanup and the final `browser.close()` still tear the run's browser
+  down (verified by planted hangs: no leaked Chromium, bounded wall time). The two browsers the library storage
+  group launches OUTSIDE the run's own are reached by neither, so their closes are raced and their Chromium is
+  killed on a timeout: the group's own browser goes through chromium.launchServer() (whose BrowserServer
+  exposes the process handle a directly-launched browser does not in this build) and is killed through exactly
+  that server; the persistent context is found by its own mkdtemp profile path, unique to its run - the belts
+  touch no other run's Chromium, and a bystander browser from another run survives a planted hung close here
+  while the run's own is killed (before, the shared marker's kill swept other runs' browsers too). A planted
+  hung close there - which before the belts left the run idling with five Chromium processes until killed from
+  outside - now gives a named FAIL, exit 1, and an actual exit with the chromium count back at baseline. The
+  sound group's tone measurement - a page-side poll waiting for a full second of played blocks - and the two
+  volume peak polls are bounded the same way (10 s, ~10x the audio needed): a starved tone FAILs by name twice,
+  once saying the measurement produced its numbers at all (so a swallowed outcome cannot turn the run green)
+  and once carrying the probe's own state (blocks so far, full count against what it needed, resampler mode,
+  queue depth, the audio clock, the context's own state); each peak poll also has its own named ran-check (the
+  loud one outside the guard that would otherwise skip it) so a swallowed peak starve cannot pass green either;
+  and a starved tone no longer stops the group: the checks that need a live tone are skipped and the rest (the
+  mute fade, the fallback contexts, the whole-session comparisons) still run.
+  `bounded()` moved into `browser-check-lib.js`, tested there for what a caller can observe: its four outcomes,
+  the unref that keeps a process from idling out the bound, and a late settle's inability to change the outcome.
+
 - **A long line typed on the chat screen goes whole, up to 1024 characters.** The chat firmware's line held 255
   characters (its lengths were single bytes) and the keys after the 255th were not sent: a 269-character prompt
   arrived as its first 255, and the screen only flashed. The line now holds 1024 (16-bit lengths, the buffer at
