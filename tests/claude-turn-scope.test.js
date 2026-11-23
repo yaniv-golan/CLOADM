@@ -287,7 +287,7 @@ function askSession({ include = null, stallMs } = {}) {
     s.endChat();
   }
 
-  // ================= E: the history stays one the API accepts =================
+  // ================= the history stays one the API accepts =================
   const valid = (api, i) => api.calls[i] && apiProblem(api.calls[i].body.messages) === null;
   const noBlank = (chat) => chat.messages.every((m) => typeof m.content !== 'string' || m.content.trim());
   {
@@ -320,7 +320,7 @@ function askSession({ include = null, stallMs } = {}) {
           && sent[5].role === 'assistant' && sent[5].content === '(Note from the page, not a reply: in this turn Claude called machine_info and wrote no text.)'
           && chat.messages.filter((m) => m.note).length === 1 && !('note' in sent[5]) && sent[6].content === 'third'
         : sent.length === 3 && sent[2].content === 'third' && !JSON.stringify(sent).includes('second');
-      check(`E ${what}: no blank assistant message is kept, every request is valid, the question is not glued to the next, and the next line is answered`,
+      check(`history: ${what}: no blank assistant message is kept, every request is valid, the question is not glued to the next, and the next line is answered`,
         r !== 'timeout' && r3 !== 'timeout' && noBlank(chat) && !api.refused.length && valid(api, at) && shape && !chat.error && chat.messages.slice(-1)[0].content === 'Third answer.',
         `${api.refused.join('; ')} ${chat.error && chat.error.message} ${JSON.stringify(sent)}`);
       s.endChat();
@@ -348,7 +348,7 @@ function askSession({ include = null, stallMs } = {}) {
       replies.push({ body: textReply('Next answer.') });
       const at = api.calls.length;
       await within(chat.sendLine('next'));
-      check(`E ${what}: the turn ends (${failed}), the history has no blank message, and the next request is valid and answered`,
+      check(`history: ${what}: the turn ends (${failed}), the history has no blank message, and the next request is valid and answered`,
         r !== 'timeout' && failed && noBlank(chat) && valid(api, at) && !api.refused.length && chat.messages.slice(-1)[0].content === 'Next answer.'
         // the person's lines: a turn in which a tool result came back keeps its line (marked ended) and the result
         // with the page's note; a turn in which none did is dropped
@@ -366,7 +366,7 @@ function askSession({ include = null, stallMs } = {}) {
     const api = strictApi(replies);
     const b = new Emu.ClaudeBackend({ fetch: api.fetch, apiKey: KEY });
     const out = await b.send({ system: 'S', messages: [{ role: 'user', content: 'a' }, { role: 'assistant', content: '' }, { role: 'user', content: 'b' }] });
-    check('E backend: a history holding an empty assistant message is sent as a valid conversation (no 400)', out.text === 'Fine.' && !api.refused.length && valid(api, 0)
+    check('history: backend: a history holding an empty assistant message is sent as a valid conversation (no 400)', out.text === 'Fine.' && !api.refused.length && valid(api, 0)
       && JSON.stringify(api.calls[0].body.messages) === JSON.stringify([{ role: 'user', content: 'a\n\nb' }]), JSON.stringify(api.calls[0].body.messages));
   }
   {
@@ -377,18 +377,18 @@ function askSession({ include = null, stallMs } = {}) {
     const res = (id) => ({ type: 'tool_result', tool_use_id: id, content: '1' });
     const good = [{ role: 'user', content: 'q' }, { role: 'assistant', content: [think, { type: 'text', text: 'looking' }, use('u1')] }, { role: 'user', content: [res('u1')] }, { role: 'assistant', content: 'a' }, { role: 'user', content: 'q2' }];
     const same = (x, y) => JSON.stringify(x) === JSON.stringify(y);
-    check('E apiMessages: a valid conversation is unchanged (and the input is not modified)', same(A(good), good) && apiProblem(good) === null);
+    check('history: apiMessages: a valid conversation is unchanged (and the input is not modified)', same(A(good), good) && apiProblem(good) === null);
     const input = [{ role: 'assistant', content: 'stale' }, { role: 'user', content: 'q' }, { role: 'assistant', content: '' }, { role: 'user', content: 'q2' }, { role: 'assistant', content: '  \n' }, { role: 'user', content: 'q3' }];
     const copy = JSON.stringify(input);
-    check('E apiMessages: a leading assistant message and empty or blank assistant messages are dropped, and the user lines joined',
+    check('history: apiMessages: a leading assistant message and empty or blank assistant messages are dropped, and the user lines joined',
       same(A(input), [{ role: 'user', content: 'q\n\nq2\n\nq3' }]) && JSON.stringify(input) === copy, JSON.stringify(A(input)));
-    check('E apiMessages: a tool_use without its tool_result is dropped, and an assistant message left with only thinking goes too',
+    check('history: apiMessages: a tool_use without its tool_result is dropped, and an assistant message left with only thinking goes too',
       same(A([{ role: 'user', content: 'q' }, { role: 'assistant', content: [think, use('u2')] }, { role: 'user', content: 'q2' }]), [{ role: 'user', content: 'q\n\nq2' }]),
       JSON.stringify(A([{ role: 'user', content: 'q' }, { role: 'assistant', content: [think, use('u2')] }, { role: 'user', content: 'q2' }])));
-    check('E apiMessages: a tool_result without its tool_use is dropped; blank text blocks are dropped, others kept',
+    check('history: apiMessages: a tool_result without its tool_use is dropped; blank text blocks are dropped, others kept',
       same(A([{ role: 'user', content: 'q' }, { role: 'assistant', content: [{ type: 'text', text: '' }, { type: 'text', text: 'ok' }] }, { role: 'user', content: [res('zz'), { type: 'text', text: 'more' }] }]),
         [{ role: 'user', content: 'q' }, { role: 'assistant', content: [{ type: 'text', text: 'ok' }] }, { role: 'user', content: [{ type: 'text', text: 'more' }] }]));
-    check('E apiMessages: two tool_uses, one answered: the answered pair is kept, the other dropped',
+    check('history: apiMessages: two tool_uses, one answered: the answered pair is kept, the other dropped',
       same(A([{ role: 'user', content: 'q' }, { role: 'assistant', content: [use('a'), use('b')] }, { role: 'user', content: [res('a')] }]),
         [{ role: 'user', content: 'q' }, { role: 'assistant', content: [use('a')] }, { role: 'user', content: [res('a')] }]));
     // every output above, and random mixes of these pieces, are conversations the API accepts
@@ -411,24 +411,24 @@ function askSession({ include = null, stallMs } = {}) {
       if (why) bad = { h, out, why };
       else if (asks && !(typeof out[out.length - 1].content === 'string' ? out[out.length - 1].content : out[out.length - 1].content.filter((b) => b.type === 'text').map((b) => b.text).join('\n\n')).endsWith(h[h.length - 1].content)) bad = { h, out, why: 'the last line was lost' };
     }
-    check('E apiMessages: 4000 random histories of good and bad pieces all come out valid (ending on the person\'s line, never lost), or are refused with bad-history when nothing ends them',
+    check('history: apiMessages: 4000 random histories of good and bad pieces all come out valid (ending on the person\'s line, never lost), or are refused with bad-history when nothing ends them',
       !bad && threw > 0, bad ? JSON.stringify(bad) : `${threw} refused`);
     // the shapes a review found (each failed before): an orphan tool_result left first, text joined before a
     // tool_result, a blank last user message, nothing at all
     const orphanFirst = [{ role: 'assistant', content: [use('x')] }, { role: 'user', content: [res('x')] }, { role: 'assistant', content: 'ok' }, { role: 'user', content: 'q' }];
-    check('E apiMessages: a tool_result whose tool_use was the dropped leading message is dropped too (it never comes first)',
+    check('history: apiMessages: a tool_result whose tool_use was the dropped leading message is dropped too (it never comes first)',
       same(A(orphanFirst), [{ role: 'user', content: 'q' }]), JSON.stringify(A(orphanFirst)));
     const textBefore = [{ role: 'user', content: 'q' }, { role: 'assistant', content: [use('y')] }, { role: 'user', content: 'note' }, { role: 'user', content: [res('y')] }];
     const tb = A(textBefore);
-    check('E apiMessages: a user line joined with a tool_result comes after it (tool_results first), and the result is valid',
+    check('history: apiMessages: a user line joined with a tool_result comes after it (tool_results first), and the result is valid',
       same(tb, [{ role: 'user', content: 'q' }, { role: 'assistant', content: [use('y')] }, { role: 'user', content: [res('y'), { type: 'text', text: 'note' }] }]) && apiProblem(tb) === null, JSON.stringify(tb));
     const inOne = A([{ role: 'user', content: 'q' }, { role: 'assistant', content: [use('z')] }, { role: 'user', content: [{ type: 'text', text: 'n' }, res('z')] }]);
-    check('E apiMessages: text before a tool_result in one user message is put after it', same(inOne.slice(-1), [{ role: 'user', content: [res('z'), { type: 'text', text: 'n' }] }]) && apiProblem(inOne) === null, JSON.stringify(inOne));
+    check('history: apiMessages: text before a tool_result in one user message is put after it', same(inOne.slice(-1), [{ role: 'user', content: [res('z'), { type: 'text', text: 'n' }] }]) && apiProblem(inOne) === null, JSON.stringify(inOne));
     const refusedWith = (h) => { try { return { out: A(h) }; } catch (e) { return { code: e.code, message: e.message }; } };
     const blankLast = refusedWith([{ role: 'user', content: 'q' }, { role: 'assistant', content: 'a' }, { role: 'user', content: '  ' }]);
-    check('E apiMessages: a blank last user message is refused (bad-history), not sent as a conversation ending on the assistant', blankLast.code === 'bad-history' && /does not end with a question/.test(blankLast.message), JSON.stringify(blankLast));
+    check('history: apiMessages: a blank last user message is refused (bad-history), not sent as a conversation ending on the assistant', blankLast.code === 'bad-history' && /does not end with a question/.test(blankLast.message), JSON.stringify(blankLast));
     const nothing = [[], [{ role: 'user', content: ' ' }], [{ role: 'assistant', content: 'a' }]].map(refusedWith);
-    check('E apiMessages: nothing to send (no messages, only blank, only an assistant message) is refused (bad-history), never []', nothing.every((r) => r.code === 'bad-history'), JSON.stringify(nothing));
+    check('history: apiMessages: nothing to send (no messages, only blank, only an assistant message) is refused (bad-history), never []', nothing.every((r) => r.code === 'bad-history'), JSON.stringify(nothing));
     // what an adversarial review found getting through (each passed both apiMessages and the checker before)
     const q = { role: 'user', content: 'q' };
     const tu = (id) => ({ type: 'tool_use', name: 'peek', input: {}, ...(id === undefined ? {} : { id }) });
@@ -449,13 +449,13 @@ function askSession({ include = null, stallMs } = {}) {
     ];
     for (const [what, h, want] of odd) {
       const r = refusedWith(h);
-      check(`E apiMessages: ${what}: made valid (expected written by hand)`, r.out && same(r.out, want) && apiProblem(r.out) === null && Emu.apiShapeProblem(r.out) === null, JSON.stringify(r));
+      check(`history: apiMessages: ${what}: made valid (expected written by hand)`, r.out && same(r.out, want) && apiProblem(r.out) === null && Emu.apiShapeProblem(r.out) === null, JSON.stringify(r));
     }
-    check('E apiShapeProblem: repeated or missing ids, a block in the wrong role, an unknown block are each a problem',
+    check('history: apiShapeProblem: repeated or missing ids, a block in the wrong role, an unknown block are each a problem',
       [[q, { role: 'assistant', content: [tu('a'), tu('a')] }, { role: 'user', content: [tr('a')] }], [q, { role: 'assistant', content: [tu('a')] }, { role: 'user', content: [tr('a'), tr('a')] }],
         [q, { role: 'assistant', content: [tu()] }, { role: 'user', content: [tr()] }], [{ role: 'user', content: [think, { type: 'text', text: 'q' }] }], [{ role: 'user', content: [{ type: 'foo' }] }],
         [q, { role: 'assistant', content: [{ type: 'image', source: {} }] }, q]].every((h) => !!Emu.apiShapeProblem(h)));
-    check('E apiShapeProblem: the checker agrees with the mocked API on what is valid', Emu.apiShapeProblem(good) === null && Emu.apiShapeProblem(tb) === null
+    check('history: apiShapeProblem: the checker agrees with the mocked API on what is valid', Emu.apiShapeProblem(good) === null && Emu.apiShapeProblem(tb) === null
       && !!Emu.apiShapeProblem([{ role: 'user', content: [{ type: 'text', text: 'n' }, res('y')] }]) && !!Emu.apiShapeProblem([]) && !!Emu.apiShapeProblem([{ role: 'user', content: 'q' }, { role: 'assistant', content: 'a' }]));
   }
 
@@ -465,7 +465,7 @@ function askSession({ include = null, stallMs } = {}) {
     const b = new Emu.ClaudeBackend({ fetch: api.fetch, apiKey: KEY });
     let err = null;
     try { await b.send({ system: 'S', messages: [{ role: 'user', content: 'q' }, { role: 'assistant', content: 'a' }, { role: 'user', content: ' ' }] }); } catch (e) { err = e; }
-    check('E backend: a history with no question at the end fails the turn (bad-history, a ClaudeError) and nothing is sent', err && err.code === 'bad-history' && err instanceof Emu.ClaudeError && api.calls.length === 0, err && err.message);
+    check('history: backend: a history with no question at the end fails the turn (bad-history, a ClaudeError) and nothing is sent', err && err.code === 'bad-history' && err instanceof Emu.ClaudeError && api.calls.length === 0, err && err.message);
     // sendLine: a blank line is no turn (no request, nothing recorded, not busy), whatever reaches it
     const { chat, api: api2, s } = askSession();
     let ends = 0;
@@ -473,7 +473,7 @@ function askSession({ include = null, stallMs } = {}) {
     chat.onTurnEnd = () => { ends++; was(); };
     const outs = [];
     for (const line of ['', '   ', '\n\t', null, undefined, 42]) outs.push(await chat.sendLine(line));
-    check('E sendLine: a blank (or not a string) line starts no turn: no request, nothing recorded, no error', outs.every((o) => o === null) && api2.calls.length === 0
+    check('history: sendLine: a blank (or not a string) line starts no turn: no request, nothing recorded, no error', outs.every((o) => o === null) && api2.calls.length === 0
       && chat.messages.length === 0 && !chat.busy && !chat.error && ends === 0, JSON.stringify({ outs, calls: api2.calls.length, msgs: chat.messages }));
     s.endChat();
   }

@@ -758,7 +758,7 @@ cancelling it; a mocked gamepad's toast, once; 2048's toast gone at the first ar
 ### Install as an app (the PWA offer)
 
 The **Install CLOADM…** item and the one-time offer card (`js/ui/install.js`) have no MAME oracle (AGENTS.md
-4.6): they are page behaviour. The oracle is the brief's own rules, checked two ways. In Node,
+4.6): they are page behaviour. The oracle is the offer's rules as written here, checked two ways. In Node,
 `tests/install.test.js` pins the pure rules: what each stored answer means, the first **Not now** waiting 14 days
 and a second ending the offers, a dismissed browser dialog waiting without spending that budget, every condition of
 the card one at a time, the program clock, and which steps each browser's user agent gets. In Chromium, the browser

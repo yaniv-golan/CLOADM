@@ -463,7 +463,7 @@ export function setupInstall(page, { started = () => true, machineMenu = null } 
   document.addEventListener('visibilitychange', () => { if (document.hidden) clock.set(false); });
   // A program is in use: not the welcome menu, not the stub's bare prompt, not a paused or debugger-stopped machine.
   // BASIC at its prompt counts (it is the machine the user came for), and so do a tape in the deck and a disk in a
-  // drive: the brief lists "LIZA, a binary, a tape, a disk, or BASIC with ROMs", and a tape or disk is something to
+  // drive: a program in use is "LIZA, a binary, a tape, a disk, or BASIC with ROMs", and a tape or disk is something to
   // come back to even before it has been read.
   function programRunning() {
     // ONE machine throughout: the person's (the getters below - welcomeRunning, nitros9Running - are person-framed,

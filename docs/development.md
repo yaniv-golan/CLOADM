@@ -231,6 +231,7 @@ node tests/fastloop.test.js               # the fast-loop table above: every sui
 node tests/allsignal.test.js              # a signal to the gate stops every suite and exits 128+n; nothing survives
 node tests/changelog.test.js              # a released CHANGELOG section equals the same section in its git tag (named corrections aside, internal labels removed from both sides), and every release uses Keep a Changelog headings (Added/Changed/Fixed); needs the tags (CI fetches them, `git fetch --tags` locally: without them it prints a SKIP line per tag)
 node tests/internal-labels.test.js        # no tracked file carries the maintainers' internal process labels (review and ruling IDs, old branch names); each pattern on cases of its own
+node tests/private-paths.test.js          # no tracked file names a Claude session, the private repo, a local path or worktree, a worker, or a branch outside the CI globs
 node tests/workflows-release.test.js      # release.yml packs in a read-only job, checks the notes before attesting, checks the artifact hand-off on every run, and its dry run cannot publish; pages.yml publishes main only after the gates, on a main push, once PAGES_VIA_ACTIONS is set
 node tests/exitcode.test.js               # no suite or tool forces process.exit() (the Node 25 deadlock), by static scan
 node tests/exitguard.test.js              # the same rule at run time, against every spelling a static scan cannot see

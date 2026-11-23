@@ -74,6 +74,11 @@ Next version: 0.1.8-pre (the plugin and extension manifests carry it; `tests/plu
 
 ### Changed
 
+- **Comments, test names and docs describe behaviour, not internal process labels.** Review and ruling IDs,
+  review-finding tags and old internal branch names are gone from the code, the tests, the docs and the released
+  sections of this file. `tests/internal-labels.test.js` keeps them out, and `tests/private-paths.test.js` keeps out
+  session links, private paths and branch names other than the CI globs. The CHANGELOG check compares a released
+  section with its tag after removing those labels from both sides; any other difference still fails.
 - **A Debugger stop stays a stop on the emulator, and says so**. Going back from the Debugger keeps
   the machine stopped. The Pause button reads Resume, a strip above the screen says why and where ("Stopped at
   breakpoint $C0F3.") with Resume and Open Debugger, and the status line reads "Stopped in the Debugger" (or "Paused"

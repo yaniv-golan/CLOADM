@@ -104,18 +104,18 @@ process.exitCode = 1;
     await line(s, chat, 'first');
     let stopped = false;
     const r = await line(s, chat, 'poke it', act ? () => { if (!stopped && a.bodies.length === 3) { stopped = true; act(s, chat); } } : null);
-    check(`B ${what}: the turn failed (${code}) after the poke landed`, r === null && chat.error && chat.error.code === code && s.shownMachine.ram[0x3000] === 7, chat.error && chat.error.code);
+    check(`failed turn: ${what}: the turn failed (${code}) after the poke landed`, r === null && chat.error && chat.error.code === code && s.shownMachine.ram[0x3000] === 7, chat.error && chat.error.code);
     const note = `(Note from the page: this turn ended with ${code} after these tool results.)`;
-    check(`B ${what}: the history keeps the line (marked ended), the tool round and the page's note`,
+    check(`failed turn: ${what}: the history keeps the line (marked ended), the tool round and the page's note`,
       chat.messages.length === 5 && chat.messages[2].content === 'poke it' && chat.messages[2].ended === code
       && chat.messages[3].content.some((b) => b.type === 'tool_use' && b.id === 'toolu_B1')
       && JSON.stringify(chat.messages[4].content.map((b) => b.type)) === '["tool_result","text"]' && chat.messages[4].content[1].text === note, JSON.stringify(chat.messages.slice(2)));
     await line(s, chat, 'what happened?');
     const next = a.bodies[a.bodies.length - 1].json.messages;
-    check(`B ${what}: the next request carries the tool_result and the note, and is one the API accepts`,
+    check(`failed turn: ${what}: the next request carries the tool_result and the note, and is one the API accepts`,
       Emu.apiShapeProblem(next) === null && toolResults(next).length === 1 && toolResults(next)[0].tool_use_id === 'toolu_B1'
       && JSON.parse(toolResults(next)[0].content).written === 1 && JSON.stringify(next).includes(JSON.stringify(note)) && next[next.length - 1].content.slice(-1)[0].text === 'what happened?', JSON.stringify(next.slice(2)));
-    check(`B ${what}: the views show the failed turn as before (not at all; the panel shows the failed line itself)`,
+    check(`failed turn: ${what}: the views show the failed turn as before (not at all; the panel shows the failed line itself)`,
       JSON.stringify(Emu.transcript(chat.messages).map((m) => m.content)) === JSON.stringify(['first', 'First.', 'what happened?', 'Next.']), JSON.stringify(Emu.transcript(chat.messages)));
     s.endChat();
   }
@@ -125,7 +125,7 @@ process.exitCode = 1;
     await line(s, chat, 'first');
     const before = JSON.stringify(chat.messages);
     const r = await line(s, chat, 'second');
-    check(`B ${what} before any tool ran: the history is unchanged`, r === null && chat.error && JSON.stringify(chat.messages) === before, JSON.stringify(chat.messages));
+    check(`failed turn: ${what} before any tool ran: the history is unchanged`, r === null && chat.error && JSON.stringify(chat.messages) === before, JSON.stringify(chat.messages));
     s.endChat();
   }
   // Stop during the second of two tool calls in one reply: the first one's result is kept, the unanswered call is not
@@ -136,11 +136,11 @@ process.exitCode = 1;
     chat.runTool = async (nm, input) => { const out = await inner(nm, input); if (input.address === 0x3000) chat.abort(); return out; };
     await line(s, chat, 'poke twice');
     chat.runTool = inner;
-    check('B Stop between two calls of one reply: the first result is kept, the second call is neither run nor kept',
+    check('failed turn: Stop between two calls of one reply: the first result is kept, the second call is neither run nor kept',
       chat.error.code === 'aborted' && s.shownMachine.ram[0x3000] === 1 && s.shownMachine.ram[0x3001] === 0 && toolResults(chat.messages).map((b) => b.tool_use_id).join() === 'toolu_C1'
       && !JSON.stringify(chat.messages).includes('toolu_C2'), JSON.stringify(chat.messages));
     await line(s, chat, 'and now?');
-    check('B and the next request is one the API accepts', Emu.apiShapeProblem(a.bodies[a.bodies.length - 1].json.messages) === null);
+    check('failed turn: and the next request is one the API accepts', Emu.apiShapeProblem(a.bodies[a.bodies.length - 1].json.messages) === null);
     s.endChat();
   }
 
@@ -150,7 +150,7 @@ process.exitCode = 1;
     let done = false;
     await line(s, chat, 'poke it', () => { if (!done && a.bodies.length === 2) { done = true; chat.abort('you reset the machine'); } });
     const note = chat.messages[chat.messages.length - 1].content.slice(-1)[0].text;
-    check('B a page Stop with a reason: the note carries it', note === '(Note from the page: this turn ended with aborted (you reset the machine) after these tool results.)', note);
+    check('failed turn: a page Stop with a reason: the note carries it', note === '(Note from the page: this turn ended with aborted (you reset the machine) after these tool results.)', note);
     s.endChat();
   }
 

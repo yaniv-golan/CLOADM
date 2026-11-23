@@ -7803,8 +7803,8 @@ async function inputScreenChecks(browser, base, check) {
       return { full: r('touchFull').height > 0 && r('touchLeft').width === 0, below: r('touchFull').top >= r('screen').bottom, fits: document.documentElement.scrollWidth <= innerWidth,
         // BREAK, CLEAR and Menu share the switch's row, between the screen and the keys (the portrait fit below)
         cols: document.querySelector('#touchFull .tkrow').children.length, buttons: ['tkBreak', 'tkClear', 'tkMenu'].every((id) => r(id).height >= 40 && r(id).bottom <= r('touchFull').top && r(id).top >= r('screen').bottom),
-        // the brief: in portrait the Keys | Joystick switch sits ABOVE the keys (the brief's "above the keys";
-        // sideways it is in the strip with BREAK, CLEAR and Menu)
+        // in portrait the Keys | Joystick switch sits ABOVE the keys (sideways it is in the
+        // strip with BREAK, CLEAR and Menu)
         switchShown: r('tkModeSwitch').height > 0 && r('tkModeSwitch').bottom <= r('touchFull').top && r('tkModeSwitch').top >= r('screen').bottom };
     });
     check('touch keys (phone, portrait): ten columns under the screen, the Keys | Joystick switch with BREAK, CLEAR and Menu above the keys, no sideways scrolling',
@@ -12326,13 +12326,13 @@ async function emulatorBackChecks(browser, base, check) {
   const MARK = 'VIEW-MARK-conversation';
   const panelState = (mark) => page.evaluate((mark) => {
     const s = window.emu.session, ask = document.getElementById('ask');
-    return { open: !ask.hidden && document.body.classList.contains('ask-open'), view: s.claudeView, same: s.chat === window.__r2chat,
+    return { open: !ask.hidden && document.body.classList.contains('ask-open'), view: s.claudeView, same: s.chat === window.__viewChat,
       shows: document.getElementById('askMessages').textContent.includes(mark), url: location.pathname + location.search + location.hash };
   }, mark);
   const panelBack = (mark) => waitFor(page, (mark) => { const s = window.emu.session, ask = document.getElementById('ask');
-    return !ask.hidden && document.body.classList.contains('ask-open') && s.claudeView === 'panel' && s.chat === window.__r2chat
+    return !ask.hidden && document.body.classList.contains('ask-open') && s.claudeView === 'panel' && s.chat === window.__viewChat
       && document.getElementById('askMessages').textContent.includes(mark); }, mark);
-  const tag = () => page.evaluate((mark) => { const s = window.emu.session; window.__r2chat = s.chat; s.chat.messages.push({ role: 'user', content: mark }); s.emit('chat'); }, MARK);
+  const tag = () => page.evaluate((mark) => { const s = window.emu.session; window.__viewChat = s.chat; s.chat.messages.push({ role: 'user', content: mark }); s.emit('chat'); }, MARK);
   // a view by Ctrl K, as a person on a narrow window does
   const byCtrlK = async (words) => {
     await page.evaluate(() => document.activeElement && document.activeElement.blur());
@@ -12614,7 +12614,7 @@ async function backFocusChecks(browser, base, check) {
   const focusId = () => page.evaluate(() => document.activeElement && (document.activeElement.id || document.activeElement.tagName));
   const onEmulator = () => waitFor(page, () => location.hash === '' && !/app=claude/.test(location.search) && ['debugView', 'library', 'share', 'romCard', 'claude'].every((id) => document.getElementById(id).hidden)
     && window.emu.session.claudeView !== 'full', null, 5000);
-  const MARK = 'D2-MARK-conversation';
+  const MARK = 'FOCUS-MARK-conversation';
   const load = async (query) => { await page.goto(`${base}${query}`); await started(page); };
   // the full-screen chat as a person opens it from the emulator: Ctrl K, "Chat with Claude, full screen"
   const openChat = async () => {
@@ -12622,13 +12622,13 @@ async function backFocusChecks(browser, base, check) {
     await page.keyboard.press('Control+k'); await page.fill('#cmdInput', 'Chat with Claude, full screen'); await page.keyboard.press('Enter');
     await waitFor(page, () => window.emu.session.claudeView === 'full' && document.body.classList.contains('claude-open'));
   };
-  const tag = () => page.evaluate((mark) => { const s = window.emu.session; window.__d2chat = s.chat; s.chat.messages.push({ role: 'user', content: mark }); s.emit('chat'); }, MARK);
+  const tag = () => page.evaluate((mark) => { const s = window.emu.session; window.__focusChat = s.chat; s.chat.messages.push({ role: 'user', content: mark }); s.emit('chat'); }, MARK);
   const closeBy = {
     '← Emulator': (back) => page.click(back),
     Esc: async () => { await page.evaluate(() => document.activeElement && document.activeElement.blur()); await page.keyboard.press('Escape'); },
     'browser Back': () => page.goBack(),
   };
-  // D2: focus after the view closes, from the plain emulator and from the full-screen chat (the Ask panel reopens)
+  // Focus after the view closes, from the plain emulator and from the full-screen chat (the Ask panel reopens)
   for (const [name, id, back, open] of VIEWS) {
     for (const [how, close] of Object.entries(closeBy)) {
       await load('?machine=dragon64');
@@ -12639,12 +12639,12 @@ async function backFocusChecks(browser, base, check) {
       await openChat(); await tag();
       await page.click(open); await waitFor(page, (id) => !document.getElementById(id).hidden, id);
       await close(back);
-      const shown = await onEmulator() && await waitFor(page, (mark) => { const a = document.getElementById('ask'); return !a.hidden && document.body.classList.contains('ask-open') && window.emu.session.chat === window.__d2chat
+      const shown = await onEmulator() && await waitFor(page, (mark) => { const a = document.getElementById('ask'); return !a.hidden && document.body.classList.contains('ask-open') && window.emu.session.chat === window.__focusChat
         && document.getElementById('askMessages').textContent.includes(mark); }, MARK);
       check(`back focus: full-screen chat → ${name} → ${how}: the Ask panel reopens on the conversation and the screen keeps the focus`, shown && await waitFor(page, () => document.activeElement.id === 'screen'), await focusId());
     }
   }
-  // D3: a reload while a view is open (the full-screen chat under it), then Back: the emulator's address has no app=claude
+  // A reload while a view is open (the full-screen chat under it), then Back: the emulator's address has no app=claude
   for (const [name, id, back, open] of VIEWS) {
     for (const query of ['?machine=dragon64', '?machine=dragon64&app=claude']) {
       await load(query);
@@ -12657,7 +12657,7 @@ async function backFocusChecks(browser, base, check) {
       check(`back address: ${query} → chat → ${name} → reload → Back: the address has no app=claude`, reloaded && await waitFor(page, () => !/app=claude/.test(location.search) && location.hash === ''), JSON.stringify(w));
     }
   }
-  // D1: from a view, the full-screen chat fails to open (the firmware does not load): the view's close still reopens the panel
+  // From a view, the full-screen chat fails to open (the firmware does not load): the view's close still reopens the panel
   await load('?machine=dragon64');
   await openChat(); await tag();
   await page.click('#navDebugger'); await waitFor(page, () => !document.getElementById('debugView').hidden);
@@ -14561,7 +14561,7 @@ async function installChecks(browser, base, check) {
   // One page per size (the card's offer is a once-a-visit moment, so a size cannot reuse another's page), which is
   // why the grid is sampled rather than exhaustive: six widths x seven heights without the on-screen keyboard, the
   // phone held sideways (844x390; 700x390, a narrow window sideways with the keyboard up), and the upright touch
-  // layouts the reviewer found the card over keys in. The keys always count, in every layout.
+  // layouts where the card once covered keys. The keys always count, in every layout.
   {
     const WIDTHS = [480, 700, 900, 1060, 1280, 1500], HEIGHTS = [360, 420, 480, 540, 600, 800, 1000];
     const PORTRAIT_TOUCH = [[390, 844], [412, 915], [360, 740], [390, 768], [480, 768], [600, 900], [360, 900], [700, 1100],

@@ -725,7 +725,7 @@
     /* the halves' rows share the height above the control row: 56 px each where there is room, never under 40 */
     body.touch-keys #touchKeys > .tkhalf .tkrow { flex: 0 1 56px; min-height: 40px; }
     body.touch-keys #touchKeys > .tkhalf .tk { height: auto; }
-    /* the control strip in one row under the screen, in the brief's order: BREAK, CLEAR, Keys|Joystick, Menu
+    /* the control strip in one row under the screen, in this order: BREAK, CLEAR, Keys|Joystick, Menu
        (hide keys is in Menu). The buttons box is unpacked so the four can order themselves. The row is centred
        under the screen and at least as wide as it, and wider where the labels need it: the halves stop above
        this row, so it may run under them, and no label is ever cut short. */
@@ -741,7 +741,7 @@
     body.touch-keys #touchKeys > .tkcenter #tkClear { order: 2; flex: 1 0 auto; padding: 0 12px; }
     body.touch-keys #touchKeys > .tkcenter #tkMenu { order: 4; flex: 1 0 auto; padding: 0 12px; }
     /* joystick mode, sideways: the screen keeps the column the tube is given; the stick's zone is the left of it
-       and the strip and FIRE the right, each as wide as the other (the brief: the left half the stick, the right
+       and the strip and FIRE the right, each as wide as the other (the left half the stick, the right
        half FIRE and the key strip); the control row is the keys mode's, under all three */
     body.touch-stick #touchKeys, body.touch-pad #touchKeys { grid-template-columns: minmax(0, 1fr) minmax(0, min(360px, 44vw)) minmax(0, 1fr); }
     body.touch-stick #touchKeys > #touchStick { grid-column: 1; grid-row: 1 / span 3; height: auto; align-self: stretch; }

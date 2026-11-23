@@ -2,7 +2,7 @@
 //
 // `?machine=coco3&cpu=6309` once opened on "Welcome: examples/undefined: HTTP 404": the menu's lookups
 // (Session.offerMenu, Session.welcomeFile) were keyed by the CPU name, and the table has a 6809 family entry, no
-// 6309 one (ds/cpu6309-welcome fixed it by looking up the CPU's family). tests/cpu6309-session.test.js proves
+// 6309 one (the fix looks the menu up by the CPU's family). tests/cpu6309-session.test.js proves
 // that the menu, LIZA and the demo RUN on a 6309 once started, always with { menu: false }; what it does not
 // cover is the OFFER: switching to a 6309 machine, with no ROMs, emits ('menu', 'back') so the page starts the
 // menu, and the file it fetches for the 6309 is examples/welcome.bin, the 6809 build, which exists.

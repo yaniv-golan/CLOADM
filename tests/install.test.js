@@ -92,7 +92,7 @@ const copyOf = (v) => JSON.parse(JSON.stringify(v));   // (a stored answer is re
   }
   check('the iOS steps are Share, then Add to Home Screen', /Share/.test(I.STEPS.ios) && /Add to Home Screen/.test(I.STEPS.ios));
   check('Safari on a Mac has a line of its own: "In Safari: File → Add to Dock."', I.STEPS.safariMac === 'In Safari: File → Add to Dock.', I.STEPS.safariMac);
-  check('names the browsers the brief lists: Chrome/Edge desktop, Android Chrome, Samsung, Firefox Android, iOS Safari',
+  check('names each browser it gives steps for: Chrome/Edge desktop, Android Chrome, Samsung, Firefox Android, iOS Safari',
     /Chrome or Edge/.test(I.STEPS.chromium) && /Chrome/.test(I.STEPS.android) && /☰/.test(I.STEPS.samsung) && /Firefox/.test(I.STEPS.firefoxAndroid));
   // platformOf: every browser to its own steps, from the user agent alone (plus "this is iOS")
   const UA = {

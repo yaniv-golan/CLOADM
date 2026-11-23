@@ -1,8 +1,8 @@
 // The maintainers' internal process labels stay out of the tree: review and ruling IDs ("UX R30", "R28b", "(R25)"),
 // review-finding tags used as labels, old internal branch names, private planning references. This suite scans every
 // tracked file for them, line by line, and checks each pattern on cases of its own. It is the one file exempt from the
-// scan (it has to spell the labels out), with tests/private-refs.test.js (the private-reference guard, which spells
-// out what it looks for too) and tools/vendor/ (third-party code).
+// scan (it has to spell the labels out), with tests/private-paths.test.js (the private-reference guard, which
+// spells out what it looks for too) and tools/vendor/ (third-party code).
 //
 // The patterns live here and nowhere else: tests/changelog-guard.js requires this file for them and removes their
 // matches from both sides before it compares a released CHANGELOG section with its tag, so a released section may
@@ -68,7 +68,8 @@ const PATTERNS = [
   { id: 2, re: /\b(?:UX|PM|owner)[ -]rulings?\b|\bthe ruling(?:'s)?\b|\bR\d{1,3} ruling\b/ },
   { id: 3, re: /(?<![\w$#.])R(?:1[89]|[2-9]\d)[a-z]?\b/, rNumber: true },
   { id: 4, re: /(?<![\w$#.])R1[0-7][a-z]?\b/, rNumber: true },
-  { id: 5, re: /\bthe owner\b|\bowner(?:'s|-approved)\b/i },
+  // "the owner" as a process role; an "Owner field" or an "Owner's Manual" is a thing, not a role
+  { id: 5, re: /\bthe owner\b(?! field|'s manual)|\bowner(?:'s|-approved)\b(?! manual)/i },
   { id: 6, re: /\bPM(?: ruling\b|[ \t]*[-#_][ \t]*\d)/ },
   { id: 7, re: /(?:\/\/ |---- |check\(["'`]|^\s*)[mp]\d{1,2}: |UI\/UX review|\bfix-[A-Z]\b/ },
   { id: 8, re: /\b[Rr]eview,? \d{3} item \d+/ },
@@ -84,6 +85,20 @@ const PATTERNS = [
   { id: 13, re: /(?:\/\/|\/\*|<!--|check\(["'`])[\s*=-]*(?:\d+[a-z]?\.\s+)?[FMU]\d{1,2}[a-z]?(?:\/[FMU]\d{1,2})?(?=[:,]\s|\s+[-(]|\s+(?!keys?\b)[a-z])|\([MU]\d{1,2}[a-z]?[,)]/, notInRegisterFiles: true },
   // review rounds named as the source of a change
   { id: 14, re: /\breview \d+\.\d+(?:\.\d+)? round\b|\bround-\d+ reviewer\b|\breview rounds?\b|\breviewer's finding\b|\bround[- ]\d+(?:'s\b| of review\b| review\b|, the final\b)|\(item \d+\)/i },
+  // lettered finding labels A-E: a section header ("// ===== A: "), a letter and digit opening a comment ("// D2: ",
+  // "// ---- A1: "), a header bullet ("//  * B - "), a test name opening with one ("check('A1 ", "check('C the "),
+  // and the marker names made from one ('D2-MARK-x', window.__d2chat). A test name "B is ..." is the connector's view B. One letter alone opening a comment is
+  // left: "// C is the quotient's bit 0", "// E accumulator" and "// A1 x3" (an MFM sync mark) are registers and
+  // data, and the connector's views are really named A and B
+  { id: 15, re: /\/\/\s*=+\s*[A-E]\d?:\s|(?:\/\/|\/\*)[\s*-]*[A-E]\d:\s|\/\/\s+\*\s+[A-E]\d? - |check\(["'`](?:[A-E]\d\s|[B-E] (?!is\b)[a-z])|\b[A-Z]\d-MARK\b|__[a-z]\d[a-z]+\b/ },
+  // a process role or a reviewer's words as the reason for code
+  { id: 16, re: /\b(?:UX|PM|design|product) lead\b|\bthe reviewers? (?:said|asked|wanted|found|noted|flagged)\b/i },
+  // a ruling's sub-labels: "R44 b5", "(R44 b1)", "R44 (b4)", "R44, b4", and one opening a comment ("// b3: ",
+  // "//  (b4) "). A variable named so ("catch (e2)", "mixCodes(c0, c1)") is not one
+  { id: 17, re: /\bR\d+,? \(?[a-e]\d\)?(?![\w(])|(?:\/\/|\/\*)\s*(?:\([a-e]\d\)\s|[a-e]\d:\s)/ },
+  // a ticket or pull request named as the source ("PR-4", "PR #12", "issue #3", "see #40", "(#123)"); a number
+  // inside a quoted title of another project's change ('"raster timing (#16698)"' in MAME's log) is that project's
+  { id: 18, re: /\bPR(?:-| ?#)\d+\b|\b(?:issue|ticket|bug) #\d+\b|\bsee #\d+\b|\(#\d+\)(?!["'])/i },
 ];
 
 const global = (re) => new RegExp(re.source, re.flags.includes('g') ? re.flags : re.flags + 'g');
@@ -167,13 +182,19 @@ const POSITIVE = {
     '// ================= F2: the embed API', 'card (M2) */', "check(`F2 the person's input`", '// ---- 3b. F1: a ROM-less'],
   14: ['(review 0.1.9 round 2)', "the round-2 reviewer's finding", 'two review rounds found', 'this review round added', "The reviewer's finding was", '// ---- round-3 review: the shapes', '// ---- round 3, the final commit:',
     "(round 2's rule)", '(round 2 of review, and a probe)', '// (item 1) a string'],
+  15: ["  // ================= A: the person's input", '    // A1: the consent card', '// ---- A3: EmbedApi.type', '//  * B - the person\'s input',
+    "check('A2 the person", "check(`B the person's input", "check('C the turn goes on", "check('D a machine without BASIC", "check('E backend",
+    "const MARK = 'D2-MARK-conversation';", 'window.__d2chat = s.chat', '  // D3: a reload while a view'],
+  16: ['as the UX lead asked', 'the PM lead decided', 'the reviewer said so', 'what the reviewers found', 'The reviewer flagged it'],
+  17: ['// R44 (b4): a launch', '(R44 b1): the button', "check('R44 b5: typing", '(UX ruling R44, b4)', '//  (b4) Reset, a power cycle', '// b3: the status line'],
+  18: ['fixed in PR-4', 'see PR #12', 'as issue #3 says', 'see #40 for why', 'a race (#123) in the mount', 'ticket #7'],
 };
 const NEGATIVE = {
   1: ['UX: the panel decides', 'UX R', 'a CRTC R12 read'],
   2: ['the rule says', 'a ruler', 'R12 rule'],
   3: ['$R30', 'PR25', 'R2D2', 'a.R30 b', '#R24'],
   4: ['R12/R13 start address', 'cursor (R14/R15, R10/R11)', 'the CRTC R10 blink bits', 'R6 rows', 'R1 and R9'],
-  5: ['the owning machine', 'owners', 'CODEOWNERS'],
+  5: ['the owning machine', 'owners', 'CODEOWNERS', "the Owner's Manual says", 'the Owner field of the record', "the owner's manual"],
   6: ['BEQ PM1', 'PM2      RTS', '3 PM', 'PMODE 4'],
   7: ['printed p13: bits', 'map: 1', 'm6809: the CPU', 'fix-up'],
   8: ['review 54 items', 'reviewed item 1'],
@@ -184,6 +205,12 @@ const NEGATIVE = {
     '// CRTC R0 113, R1 80, R2 96, R10 $20 (no cursor), R11 11, R12/R13 $0050'],
   13: ['// an unmapped physical key (F5, a numpad key)', 'Over (F10) runs a JSR', 'ADCB extended (F9)', '// F1 key opens help', 'an M1 Abrams'],
   14: ['the review of the code', 'a round of tests', 'reviewer: the person', 'coming round 11 frames later', 'round 2 trips', 'an item 1 list'],
+  15: ["// C is the quotient's bit 0 [Atkinson p.59]", '// E accumulator', '// A1 x3, FB, 256 data, 2 CRC', '// C2 as output (bit 5 set)',
+    "check('A: the only thing it fetches is panel.js'", "check('B is about 1 MiB'", '//   B (open_emulator_inline): this file', '// D and W are both 16-bit',
+    "// A disk the person puts in", "check('a refused drop'", 'const w2 = lib()', '__proto__'],
+  16: ['the lead line', 'a UX question', 'the reviewer: a person', 'reviewers read the diff'],
+  17: ['catch (e2) { }', 'mixCodes(c0, c1)', 'twoFrames(c2);', 'const b1 = 3', '(a5)', 'R44 rows'],
+  18: ['"trs/coco: raster timing (#16698)" (Oct 2026)', 'color: #000;', 'PR1     STA', '#C42B23', 'the issue is', 'press #'],
 };
 for (const p of PATTERNS) {
   const pos = POSITIVE[p.id], neg = NEGATIVE[p.id];
@@ -267,7 +294,7 @@ check('stripLine: a word changed beside a removed label still differs', stripLin
 
 // ---------------- the tree ----------------
 {
-  const EXEMPT = (f) => f === 'tests/internal-labels.test.js' || f === 'tests/private-refs.test.js' || f.startsWith('tools/vendor/');
+  const EXEMPT = (f) => f === 'tests/internal-labels.test.js' || f === 'tests/private-paths.test.js' || f.startsWith('tools/vendor/');
   let files = [];
   try { files = cp.execFileSync('git', ['ls-files', '-z'], { cwd: root, encoding: 'utf8', maxBuffer: 64 << 20 }).split('\0').filter(Boolean); } catch (e) { /* no git */ }
   check('the tracked files are listed (git ls-files)', files.length > 100, String(files.length));
