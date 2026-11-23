@@ -13,12 +13,14 @@ const Emu = require('./load')();
 let fail = 0;
 const check = (name, cond, detail = '') => { if (!cond) { fail++; console.log(`FAIL ${name} ${detail}`); } else console.log(`ok   ${name} ${detail}`); };
 const SHIM = path.join(__dirname, 'gzip-platform.js');
+// (a run of the whole suite may itself preload the stand-in through NODE_OPTIONS: the children here choose for themselves)
+const CLEAN = Object.assign({}, process.env, { NODE_OPTIONS: '' });
 
 // the same machine's snapshot file, written natively and written by the stand-in (a child process: it replaces a global)
 const snapshotBytes = (shim) => cp.execFileSync(process.execPath, [...(shim ? ['-r', SHIM] : []), '-e', `
   const Emu = require(${JSON.stringify(path.join(__dirname, 'load'))})();
   (async () => { const s = new Emu.Session({ store: Emu.memoryStore() }); s.switchMachine('dragon64'); for (let i = 0; i < 5; i++) s.shownMachine.runFrame();
-    process.stdout.write(Buffer.from((await s.snapshotFile(new Date(1e12))).bytes).toString('base64')); })();`], { maxBuffer: 1 << 28 }).toString();
+    process.stdout.write(Buffer.from((await s.snapshotFile(new Date(1e12))).bytes).toString('base64')); })();`], { maxBuffer: 1 << 28, env: CLEAN }).toString();
 const native = Buffer.from(snapshotBytes(false), 'base64'), other = Buffer.from(snapshotBytes(true), 'base64');
 check('the stand-in writes a different file: other bytes, another length, the macOS operating system byte', Buffer.compare(native, other) !== 0 && native.length !== other.length && other[9] === 19 && native[9] !== 19,
   `native ${native.length} bytes (byte 9 = ${native[9]}), stand-in ${other.length} bytes (byte 9 = ${other[9]})`);
@@ -27,7 +29,7 @@ check('(set-up) the module under test is the real one', typeof Emu.decodeSnapsho
 
 // the suites that read snapshot files, under the stand-in
 for (const suite of ['session-library', 'session-drives', 'snapshot', 'state-split']) {
-  const r = cp.spawnSync(process.execPath, ['-r', SHIM, path.join(__dirname, `${suite}.test.js`)], { encoding: 'utf8', maxBuffer: 1 << 28 });
+  const r = cp.spawnSync(process.execPath, ['-r', SHIM, path.join(__dirname, `${suite}.test.js`)], { encoding: 'utf8', maxBuffer: 1 << 28, env: CLEAN });
   const fails = (r.stdout.match(/^FAIL .*/gm) || []).map((l) => l.slice(0, 160));
   check(`${suite}.test.js passes under the stand-in (another deflate, the macOS header byte)`, r.status === 0 && !fails.length, fails.slice(0, 3).join(' | ') || (r.stderr || '').slice(0, 200));
 }

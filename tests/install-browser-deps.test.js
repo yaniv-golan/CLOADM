@@ -26,6 +26,37 @@ const fs = require('fs'), os = require('os'), path = require('path'), cp = requi
 
 let fail = 0;
 const check = (name, cond, detail = '') => { if (!cond) { fail++; console.log(`FAIL ${name} ${detail}`); } else console.log(`ok   ${name} ${detail}`); };
+// The script runs only on Linux runners and the test drives it with setsid and /proc (the lock holders and the process
+// groups it checks are Linux's): on a machine without them (macOS) the test says SKIP with that reason instead of failing
+// with "setsid: command not found". On CI (CI set, on Linux) it never takes that path: a missing setsid there is a failure.
+// -> the reason to skip, or null to run; throws when CI on Linux lacks what the test needs
+const NEEDS = 'needs Linux: setsid and /proc';
+function skipReason({ platform, env, haveSetsid, haveProc }) {
+  if (haveSetsid && haveProc) return null;
+  if (platform === 'linux' && env.CI) throw new Error(`CI on Linux must run this test, but ${haveSetsid ? '' : 'setsid '}${haveProc ? '' : '/proc '}is missing`);
+  return NEEDS;
+}
+{
+  const probe = { platform: 'linux', env: {}, haveSetsid: true, haveProc: true };
+  const throws = (o) => { try { skipReason(Object.assign({}, probe, o)); return false; } catch (e) { return /CI on Linux must run/.test(e.message); } };
+  check('skip rule: setsid and /proc present: run', skipReason(probe) === null);
+  check('skip rule: no setsid on a Mac (no CI): skip, with the reason', skipReason(Object.assign({}, probe, { platform: 'darwin', haveSetsid: false, haveProc: false })) === NEEDS);
+  check('skip rule: no setsid on Linux outside CI: skip, with the reason', skipReason(Object.assign({}, probe, { haveSetsid: false })) === NEEDS);
+  check('skip rule: CI on Linux without setsid is a failure, never a skip', throws({ env: { CI: '1' }, haveSetsid: false }));
+  check('skip rule: CI on Linux without /proc is a failure, never a skip', throws({ env: { CI: '1' }, haveProc: false }));
+  check('skip rule: CI on a Mac is not Linux: skip', skipReason(Object.assign({}, probe, { platform: 'darwin', env: { CI: '1' }, haveSetsid: false })) === NEEDS);
+}
+{
+  let reason;
+  try {
+    reason = skipReason({ platform: process.platform, env: process.env,
+      haveSetsid: cp.spawnSync('sh', ['-c', 'command -v setsid >/dev/null']).status === 0, haveProc: fs.existsSync('/proc/self/fd') });
+  } catch (e) { check('this machine can run the test (CI never skips it)', false, e.message); process.exit(1); }
+  if (reason) {
+    console.log(`SKIP ${reason}`);
+    process.exit(fail ? 1 : 0);
+  }
+}
 const SCRIPT = path.join(__dirname, '..', '.github', 'scripts', 'install-browser-deps.sh');
 const REAL = fs.readFileSync(SCRIPT, 'utf8');
 const NEEDED = ['fonts-unifont', 'xfonts-utils'];   // what Playwright's list needs that the "image" lacks
