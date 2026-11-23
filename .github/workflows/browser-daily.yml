@@ -55,14 +55,26 @@ jobs:
         with:
           path: ~/.cache/ms-playwright
           key: playwright-1.63.0-ubuntu-24.04-chromium
-      - name: Install the browser and its OS packages
+      # The OS packages chromium needs that the runner image lacks (9 font packages, ~32 MB, measured 2026-11-23) come
+      # from an Ubuntu mirror, and a slow or hung mirror made this step take 3-30 minutes on some shards. The .deb files
+      # of exactly those packages are cached, keyed on the runner image (ImageOS-ImageVersion, so an image update
+      # starts a fresh cache rather than installing old files over it) and the Playwright version.
+      - name: Name the runner image for the cache
+        id: image
         run: |
-          npx playwright install chromium
-          for try in 1 2 3; do
-            sudo apt-get update && npx playwright install-deps chromium && exit 0
-            echo "OS packages: try $try failed"; sleep $((try * 10))
-          done
-          exit 1
+          test -n "${ImageOS:-}" && test -n "${ImageVersion:-}" || { echo "no ImageOS/ImageVersion on this runner"; exit 1; }
+          echo "image=$ImageOS-$ImageVersion" >> "$GITHUB_OUTPUT"
+      - name: Cache the browser's OS packages
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
+        with:
+          path: ~/playwright-debs
+          key: playwright-debs-1.63.0-${{ steps.image.outputs.image }}
+      # Its own time limit, under the job's: a hung mirror fails this step loudly instead of running the job into its
+      # timeout. Only the install is retried, inside the script; the browser check never is. The script's header has
+      # the decisions and the worst case (1340 s).
+      - name: Install the browser and its OS packages
+        timeout-minutes: 25
+        run: .github/scripts/install-browser-deps.sh
       - name: Run the whole browser check in one process
         run: |
           set -o pipefail
