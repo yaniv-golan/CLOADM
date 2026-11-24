@@ -3291,24 +3291,36 @@ async function cpu6309Checks(browser, base, check) {
   // keys 2 and 4 (demo, chat) come up on the 6309 as on the 6809
   await key('2');
   check('cpu=6309: key 2 runs the colour demo', await waitFor(page, () => /Colour demo: press a key/.test(document.getElementById('toast').textContent) && window.emu.machine.cpu.pc >= 0x4000 && window.emu.machine.cpu.pc < 0x4200, null, 20000), await msg());
-  // the demo is really executing on the 6309: over a short window its program counter is seen in the demo's own
-  // code ($4000-$41FF, where demo.bin loads), the 6309's illegal-opcode trap flag (MD bit 6) is never set, and the
-  // welcome program is no longer in charge. (A single sample is not enough: the demo calls the stub's POLCAT at
-  // $B100 between frames. The trap bit, not a PC at $FFF0, is the signal: a 6309 trap jumps to the vector's
-  // CONTENTS in one instruction, so the PC is never $FFF0 itself.)
+  // The demo is really executing on the 6309: its program counter enters the demo's own code ($4000-$41FF, where
+  // demo.bin loads), and over a SPAN AFTER that entry the 6309's illegal-opcode trap flag (MD bit 6) is never set.
+  // Bounded in EMULATED frames, not wall time: a page slowed by load runs fewer frames a second but the same frames,
+  // so the check holds however slow the runner is (the old sampling of PC every 25 ms of wall clock failed on CI's
+  // starved runners - the window could close before the demo had drawn, and 40 wall-clock samples could all land in
+  // the stub between demo frames).
+  //
+  // The span is the point. Ending the wait as soon as the PC is in the demo window would sample "never trapped" over
+  // the handful of frames between two evaluates (measured: about four), not over the demo running - and a trap that
+  // fires a moment later would be missed. So the condition is "in the demo window AND 100 frames have run since
+  // entry", and MD and the welcome flag are read at the END of that span: 100 frames is two seconds of machine time
+  // at 50 Hz, the window the old wall-clock loop had, and then some.
+  //
+  // (The trap bit, not a PC at $FFF0, is the signal: a 6309 trap jumps to the vector's CONTENTS in one instruction,
+  // so the PC is never $FFF0 itself. It is STICKY - trap() does `md |= bit` (js/cpu/cpu6309.js), and only a reset
+  // clears it - so one read at the end covers every trace of a trap during the span. A single PC sample is not
+  // enough either: the demo calls the stub's POLCAT at $B100 between frames, so "in demo code" is a property of SOME
+  // frame in the span, not of every one.)
+  const DEMO_SPAN = 100;
+  await ev(() => { window.__demo = { f0: null, inDemo: false }; });
+  const inDemo = await waitForFrames(page, (span) => {
+    const m = window.emu.machine, pc = m.cpu.pc, out = window.__demo;
+    if (out.f0 === null && pc >= 0x4000 && pc < 0x4200) out.f0 = m.frameCount;   // the frame the demo's code is first seen on
+    if (pc >= 0x4000 && pc < 0x4200) out.inDemo = true;
+    return out.f0 !== null && m.frameCount - out.f0 >= span;
+  }, DEMO_SPAN, 400);                                       // 400 frames bound: plenty for entry (8 s at 50 Hz) plus the 100-frame span
   {
-    const seen = await ev(async () => {
-      const out = { inDemo: false, trapped: false, welcome: false };
-      for (let i = 0; i < 40; i++) {
-        const m = window.emu.machine, pc = m.cpu.pc;
-        if (pc >= 0x4000 && pc < 0x4200) out.inDemo = true;
-        if ((m.cpu.md & 0x40) !== 0) out.trapped = true;   // illegal-opcode trap taken
-        out.welcome = out.welcome || window.emu.session.welcomeRunning;
-        await new Promise((r) => setTimeout(r, 25));
-      }
-      return out;
-    });
-    check('cpu=6309: the demo executes its own code and takes no illegal-opcode trap', seen.inDemo && !seen.trapped && !seen.welcome, JSON.stringify(seen));
+    // read MD and the welcome flag at the END of the span, not at entry
+    const seen = await ev(() => ({ inDemo: window.__demo.inDemo, trapped: (window.emu.machine.cpu.md & 0x40) !== 0, welcome: window.emu.session.welcomeRunning }));
+    check('cpu=6309: the demo executes its own code and takes no illegal-opcode trap', inDemo && seen.inDemo && !seen.trapped && !seen.welcome, JSON.stringify({ inDemo, seen }));
   }
   // "Back to the menu" starts the menu afresh (greeting 'first', no carry-on option): the same on 6809 and 6309
   await page.click('#btnWelcomeBack');
