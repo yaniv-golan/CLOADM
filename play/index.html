@@ -615,6 +615,15 @@
   #share p.small, #share .why { font-size: 13px; line-height: 1.4; }
   #share .why { color: var(--orange); }
   #share .why:empty, #share .small:empty { display: none; }
+  /* the caption is one line over the picture, and nothing wraps. What gives way, in that order (owner's ruling): the
+     prefix is never cut, so it is its own span that does not shrink; the name after it ends in "…" instead. " · CLOADM"
+     is gone from every mode. The prefix span's own box is what the browser check measures (its right edge inside the
+     caption's, its scrollWidth no wider than its clientWidth), so "the prefix is whole" is checked, not looked at. */
+  #share figcaption strong { display: flex; min-width: 0; flex: 0 1 auto; font-size: inherit; color: inherit; }
+  #share figcaption #sharePrefix, #share figcaption #shareName { font-size: inherit; color: inherit; }
+  #share figcaption #sharePrefix { flex: none; white-space: nowrap; }
+  #share figcaption #shareName { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #share figcaption #sharePrefix[hidden] { display: none; }
   #share .qrrow { display: flex; gap: 14px; align-items: center; }
   #share #shareQr { width: 132px; height: 132px; image-rendering: pixelated; background: #fff; border-radius: 6px; flex: none; }
   #share .qrrow[hidden] { display: none; }
@@ -1756,7 +1765,7 @@ npx serve -l 8000 .</pre>
   <figure class="preview">
     <div class="frame"><canvas id="sharePicture" role="img" aria-label="Captured picture: link preview, rendered from the real frame"></canvas>
       <div class="stripe" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
-    <figcaption><strong id="shareTitle"></strong><span id="shareWhen"></span></figcaption>
+    <figcaption><strong id="shareTitle"><span id="sharePrefix">What they'll see first · </span><span id="shareName"></span></strong><span id="shareWhen"></span></figcaption>
   </figure>
   <section class="col main" aria-labelledby="shareHeading">
     <h1 id="shareHeading">Share this moment</h1>

@@ -4533,13 +4533,13 @@ async function snapshotChecks(browser, base, check) {
       const c = document.getElementById('sharePicture'), d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data, f = window.emu.machine.render();
       let colours = new Set(); for (let i = 0; i < d.length; i += 4 * 97) colours.add(`${d[i]},${d[i + 1]},${d[i + 2]}`);
       const box = document.getElementById('share').getBoundingClientRect();
-      return { w: c.width, h: c.height, fw: f.width, fh: f.height, colours: colours.size, title: document.getElementById('shareTitle').textContent,
+      return { w: c.width, h: c.height, fw: f.width, fh: f.height, colours: colours.size, title: document.getElementById('shareTitle').innerText,
         link: document.getElementById('shareLink').value, recipient: document.getElementById('shareRom').textContent, note: document.getElementById('shareNote').textContent, kb: document.getElementById('btnShareDownload').textContent,
         fits: box.left >= 0 && box.right <= innerWidth, scrollX: document.documentElement.scrollWidth <= innerWidth };
     });
     check(`snapshot (${label}): Share shows the captured picture at true size, the title, a link, what it does and what a recipient needs`,
-      view.w === view.fw && view.h === view.fh && view.colours > 1 && view.title === 'Dragon 64 · CLOADM' && /\/play\/\?machine=dragon64/.test(view.link)
-      && view.recipient === 'Runs without ROMs, so it opens for anyone.' && /^Opens on the Dragon 64 exactly as it is now\./.test(view.note) && /^Download snapshot \(\d+ KB\)$/.test(view.kb) && view.fits && view.scrollX, JSON.stringify(Object.assign({}, view, { link: view.link.slice(0, 80) + '…' })));
+      view.w === view.fw && view.h === view.fh && view.colours > 1 && view.title === "What they'll see first · Dragon 64" && /\/play\/\?machine=dragon64/.test(view.link)
+      && view.recipient === 'Runs without ROMs, so it opens for anyone.' && view.note === 'Opens a copy of this Dragon 64 exactly as it is now: the screen, the program and everything in memory, including anything you typed. Changes you make later aren\'t in it.' && /^Download snapshot \(\d+ KB\)$/.test(view.kb) && view.fits && view.scrollX, JSON.stringify(Object.assign({}, view, { link: view.link.slice(0, 80) + '…' })));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, `share-${label}.png`) });
     // the screen area is hidden behind the share view and the page loop keeps running (paused): the screen keeps
     // its size, so it is there again the moment the view closes (it was shrunk to nothing, review of 4050c58)
@@ -15801,7 +15801,7 @@ async function shareScreenChecks(browser, base, check) {
     // the first screen is the whole moment and one Copy: the picture, what the link opens, and the primary button (with
     // the long link one tap away, not shown until taps fall back or "More ways to share" opens)
     return { tops: ['shareHeading', 'sharePicture', 'shareTitle', 'shareNote', 'shareRom', 'btnShareCopy', 'previewSwitch'].map((i) => `${i}:${Math.round(r(i).top)}-${Math.round(r(i).bottom)}`).join(' '), bottom: Math.round(r('btnShareCopy').bottom), native: vis(r('btnShareNative')), copy: vis(r('btnShareCopy')),
-      note: document.getElementById('shareNote').textContent, cap: document.getElementById('shareTitle').textContent, sw: vis(r('previewSwitch')),
+      note: document.getElementById('shareNote').textContent, cap: document.getElementById('shareTitle').innerText, sw: vis(r('previewSwitch')),
       h: document.documentElement.scrollHeight, vh: innerHeight,
       pic: r('sharePicture').height, closed: ['shareMore', 'shareEmbed'].every((id) => !document.getElementById(id).open),
       longOpen: document.getElementById('shareMore').open, fieldShown: vis(r('shareLink')) };
@@ -15809,9 +15809,9 @@ async function shareScreenChecks(browser, base, check) {
   if (shotDir) await page.screenshot({ path: path.join(shotDir, 'share-r33-375x548.png') });
   check('share screen (375x548): on open, the primary Copy link and the preview switch are inside the viewport, the long link is folded away',
     first.copy && first.sw && !first.longOpen && !first.fieldShown, JSON.stringify(first));
-  check('share screen (375x548): the clarity copy is the fixed wording, exactly, and the caption is prefixed "What they\'ll see first · "',
+  check('share screen (375x548): the clarity copy is the fixed wording, exactly, and the caption is prefixed "What they\'ll see first · " with no " · CLOADM"',
     first.note === 'Opens a copy of this Dragon 64 exactly as it is now: the screen, the program and everything in memory, including anything you typed. Changes you make later aren\'t in it.'
-    && /^What they'll see first · Dragon 64 · CLOADM$/.test(first.cap), JSON.stringify({ note: first.note, cap: first.cap }));
+    && first.cap === "What they'll see first · Dragon 64", JSON.stringify({ note: first.note, cap: first.cap }));
   check('share screen (375x548): with the disclosures closed the page is at most 1.5 screens tall, the preview at most 30vh', first.closed && first.h <= first.vh * 1.5 && first.pic <= first.vh * 0.3 + 1, JSON.stringify(first));
   // the long link's Copy button, wholly inside the viewport at the sizes the page supports. A width sweep, because the
   // share screen is two columns above 860px and one below, and the short-link section made the two-column first screen
@@ -15862,11 +15862,16 @@ async function shareScreenChecks(browser, base, check) {
     await sp.evaluate(() => { window.emu.session.shareFile = async () => { throw new Error('This snapshot can\'t be shared: a guardrail refused it.'); }; });
     await sp.evaluate(() => document.getElementById('btnShare').click());
     await waitFor(sp, () => document.getElementById('share').checkVisibility(), null, 15000);
-    const g = await sp.evaluate(() => ({ disabled: document.getElementById('btnShareCopy').disabled, note: document.getElementById('shareNote').textContent,
-      why: document.getElementById('primaryWhy').textContent, whyShown: document.getElementById('primaryWhy').checkVisibility(),
-      terms: document.getElementById('shortTerms').checkVisibility(), sw: document.getElementById('previewSwitch').checkVisibility(), native: document.getElementById('btnShareNative').hidden }));
-    check('one link: a moment a guardrail forbids encoding: Copy is disabled, the reason is inline, and nothing is uploaded',
-      g.disabled && /^This moment can't be put in a link\./.test(g.note) && /guardrail refused/.test(g.why) && g.whyShown && !g.terms && !g.sw && g.native && !serr.length, JSON.stringify(g));
+    const g = await sp.evaluate(() => { const b = document.getElementById('btnShareCopy'), cs = getComputedStyle(b);
+      return { disabled: b.disabled, hasAttr: b.hasAttribute('disabled'), opacity: parseFloat(cs.opacity), cursor: cs.cursor,
+        note: document.getElementById('shareNote').textContent,
+        why: document.getElementById('primaryWhy').textContent, whyShown: document.getElementById('primaryWhy').checkVisibility(),
+        terms: document.getElementById('shortTerms').checkVisibility(), sw: document.getElementById('previewSwitch').checkVisibility(), native: document.getElementById('btnShareNative').hidden }; });
+    // the reason is said ONCE, inline under Copy (owner's ruling): #shareNote is empty, #primaryWhy holds it, and the
+    // button is really disabled — the attribute, and the page's disabled look (opacity under 1, as every disabled button)
+    check('one link: a moment a guardrail forbids encoding: Copy carries `disabled` and a disabled look, and the reason is said once, inline',
+      g.disabled && g.hasAttr && g.opacity < 1 && g.cursor === 'default'
+      && g.note === '' && /guardrail refused/.test(g.why) && g.whyShown && !g.terms && !g.sw && g.native && !serr.length, JSON.stringify(g));
     await sc.close();
   }
 
@@ -15931,16 +15936,35 @@ async function shareScreenChecks(browser, base, check) {
     await sp.goto(`${base}?machine=dragon64&start=2048`);
     await linkIn(sp);
     await waitFor(sp, () => window.emu.session && window.emu.session.gameRunning, null, 30000);
+    // 2048 has STARTED, not drawn: the check must wait for its TITLE, or the picture (the frame at the tap) is the blank
+    // screen the first version photographed. The signal is the games group's: 2048's GETKEY counts every key poll in
+    // ENTROPY, so a frame whose count climbs by hundreds is one spent at its key wait, the title complete. Measured on
+    // this machine: reached at frame 19 (375 wide) and frame 17 (1280), and the title then carries EXACTLY four colours.
+    const ent = await sp.evaluate(async () => { const src = await (await fetch('examples/2048.asm')).text(); const files = {};
+      for (const m of src.matchAll(/^\s*INCLUDE\s+"([^"]+)"/gm)) files[m[1]] = await (await fetch(`examples/${m[1]}`)).text();
+      const a = window.emu.Emu.assemble(src, '6809', { include: (f) => files[f] }); return a.ok ? a.symbols.get('ENTROPY') : null; });
+    const wasEnt = await sp.evaluate((e) => window.emu.machine.ram[e] * 256 + window.emu.machine.ram[e + 1], ent);
+    const drawn = await waitFor(sp, ([e, b]) => ((window.emu.machine.ram[e] * 256 + window.emu.machine.ram[e + 1] - b) & 0xFFFF) > 200, [ent, wasEnt], 30000);
     await sp.evaluate(() => { location.hash = '#share'; });
     await waitFor(sp, () => !!document.getElementById('shareLink').value, null, 15000);
     const ut = await sp.evaluate(() => {
       const b = document.getElementById('btnShareCopy').getBoundingClientRect(), hit = document.elementFromPoint((b.left + b.right) / 2, (b.top + b.bottom) / 2), btn = document.getElementById('btnShareCopy');
+      // the picture really is 2048's title: every pixel read (no sampling), and a title page carries the four colours
+      // measured on it (ground, name, text, tiles). A blank screen carries one.
+      const c = document.getElementById('sharePicture'), d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+      const colours = new Set(); for (let i = 0; i < d.length; i += 4) colours.add(`${d[i]},${d[i + 1]},${d[i + 2]}`);
       return { shown: btn.checkVisibility(), bottom: Math.round(b.bottom), vh: innerHeight, onTop: !!hit && (hit === btn || btn.contains(hit)),
-        note: document.getElementById('primaryNote').textContent, terms: document.getElementById('shortTerms').checkVisibility(), sw: document.getElementById('previewSwitch').checkVisibility() };
+        note: document.getElementById('shareNote').textContent, primaryNote: document.getElementById('primaryNote').textContent,
+        // innerText, not textContent: a hidden prefix is not shown, and textContent would still carry its words
+        cap: document.getElementById('shareTitle').innerText, prefixShown: document.getElementById('sharePrefix').checkVisibility(),
+        colours: colours.size, terms: document.getElementById('shortTerms').checkVisibility(), sw: document.getElementById('previewSwitch').checkVisibility() };
     });
     if (shotDir) await sp.screenshot({ path: path.join(shotDir, `share-untouched-${label}.png`) });
+    // the program-page note, said once under the picture (the primary's own line stays empty); the caption names the
+    // program and machine with no "What they'll see first" prefix; nothing is uploaded
     check(`one link (${label}): a bundled program started and untouched: the primary offers its page, with nothing to upload`,
-      ut.shown && ut.bottom <= ut.vh && ut.onTop && ut.note === 'Opens 2048 from the start, for anyone.' && !ut.terms && !ut.sw, JSON.stringify(ut));
+      ut.shown && ut.bottom <= ut.vh && ut.onTop && drawn && ut.colours === 4 && ut.note === 'Opens 2048 from the start, for anyone. The snapshot link below keeps this exact moment.'
+      && ut.primaryNote === '' && ut.cap === '2048 · Dragon 64' && !ut.prefixShown && !ut.terms && !ut.sw, JSON.stringify(ut));
     // the tap copies the program page, and after it the made field (here: only the program page is a link) is reachable
     await sp.click('#btnShareCopy');
     check(`one link (${label}): the tap copies /2048/ (the program page), nothing uploaded`,
@@ -15958,6 +15982,35 @@ async function shareScreenChecks(browser, base, check) {
     if (shotDir) await sp.screenshot({ path: path.join(shotDir, `share-played-${label}.png`) });
     check(`one link (${label}): played (one key): the primary shares the moment, and "Link to 2048 from the start" is in More ways`,
       played.terms && played.note === '' && !!item && item.text === 'Link to 2048 from the start' && item.shown && /\/2048\/$/.test(item.href), JSON.stringify({ played, item }));
+    await sc.close();
+  }
+
+  // The caption one line over the picture, and what gives way (owner's ruling): " · CLOADM" is gone from every mode,
+  // and the machine name is what ends in "…" — the prefix is never the part that is cut. Checked on the LONGEST case
+  // (a snapshot of a Color Computer 3, the longest machine name) at a phone's 375px, by measuring both spans: the
+  // prefix's own box inside the caption's, and the prefix's scrollWidth not wider than its clientWidth. Not a colour
+  // check: a truncated prefix would still be legible pixels. (The longest real name is "Prológica CP-400"; CoCo 3 is
+  // the one the owner named, and its full caption "What they'll see first · CoCo 3" is the case that must fit.)
+  {
+    const sc = await browser.newContext({ viewport: { width: 375, height: 548 }, serviceWorkers: 'block' });
+    const sp = await sc.newPage();
+    sp.on('pageerror', (e) => errors.push(e.message));
+    await sp.goto(`${base}?machine=coco3#share`);
+    await started(sp);
+    await waitFor(sp, () => !document.getElementById('share').hidden && !!document.getElementById('shareLink').value, null, 30000);
+    const cap = await sp.evaluate(() => {
+      const box = document.querySelector('#share figcaption').getBoundingClientRect();
+      const pre = document.getElementById('sharePrefix'), p = pre.getBoundingClientRect(), n = document.getElementById('shareName');
+      return { text: document.getElementById('shareTitle').innerText, prefix: pre.textContent, name: n.textContent,
+        prefixRight: Math.round(p.right), boxRight: Math.round(box.right), boxLeft: Math.round(box.left),
+        prefixScroll: pre.scrollWidth, prefixClient: pre.clientWidth, nameClips: n.scrollWidth > n.clientWidth,
+        prefixShown: pre.checkVisibility(), boxWidth: Math.round(box.width) };
+    });
+    if (shotDir) await sp.screenshot({ path: path.join(shotDir, 'share-caption-375-coco3.png') });
+    check('share screen (375x548, CoCo 3): the caption\'s prefix "What they\'ll see first ·" is whole — its box inside the caption\'s and untruncated — and the name, not the prefix, is what ends in "…"',
+      cap.prefixShown && cap.prefix === "What they'll see first · " && /^What they'll see first · CoCo 3$/.test(cap.text)
+      && cap.prefixRight <= cap.boxRight && cap.prefixRight - cap.boxLeft <= cap.boxWidth
+      && cap.prefixScroll <= cap.prefixClient, JSON.stringify(cap));
     await sc.close();
   }
 
@@ -17123,7 +17176,7 @@ async function semanticsChecks(browser, base, site, check) {
 
     // the views: each its own main landmark with one h1, the emulator behind it inert and out of a reading mode
     for (const [hash, name, own, backBtn] of [['#library', 'Library', 'Your tapes, disks and cartridges', '#btnLibBack'],
-      ['#share', 'Share this moment', 'Opens on the', '#shareBack'], ['#debugger', 'DEBUGGER', 'Breakpoints', '#btnDbgBack'],
+      ['#share', 'Share this moment', 'everything in memory', '#shareBack'], ['#debugger', 'DEBUGGER', 'Breakpoints', '#btnDbgBack'],
       ['#add-roms', 'Give it a BASIC to boot', 'Drop your ROM files here', '#btnRomBack']]) {
       if (label !== 'desktop' && hash !== '#library') continue;   // (the views do not change with the size; the Library stands for them)
       await page.evaluate((h) => { location.hash = h; }, hash);

@@ -89,10 +89,14 @@ export function setupShare(page, { linkStore }) {
   }
 
   let fallbackWhy = ''; // a tap that tried the short link and fell back to the long one: why, said under the button
+  // the snapshot's clarity copy (fixed wording): what a link opens, and that later changes are not in it. One function,
+  // so capture() and the mode switch cannot say it differently.
+  const snapshotNote = (machine) => `Opens a copy of this ${machine} exactly as it is now: the screen, the program and everything in memory, including anything you typed. Changes you make later aren't in it.`;
 
   // ---------------- share this moment ----------------
   async function capture() {
     const m = session.shownMachine, frame = m.render();
+    const name = m.profile.name.replace(/^Tandy /, '');
     // the picture at true pixels, captured with the snapshot so both show the same instant
     const c = document.createElement('canvas');
     new CanvasPresenter(c).present(frame);
@@ -109,15 +113,13 @@ export function setupShare(page, { linkStore }) {
     const png = await new Promise((ok) => c.toBlob(ok, 'image/png'));
     // the bundled program, when it is one nobody has touched: its own page is the primary link (nothing is uploaded)
     const untouched = n9 || refusal ? null : session.untouchedBundledProgram(location.href);
-    captured = { at: Date.now(), file, png, link, untouched, refusal, base: file ? file.name.replace(/\.cloadm$/, '') : `${m.profile.name.replace(/[^A-Za-z0-9]+/g, '')}-${n9 ? 'NitrOS-9' : 'moment'}` };
+    captured = { at: Date.now(), file, png, link, untouched, refusal, machine: name, base: file ? file.name.replace(/\.cloadm$/, '') : `${m.profile.name.replace(/[^A-Za-z0-9]+/g, '')}-${n9 ? 'NitrOS-9' : 'moment'}` };
     const dl = $('btnShareDownload');
     dl.disabled = !file;
     dl.textContent = file ? `Download snapshot (${(file.bytes.length / 1024).toFixed(0)} KB)` : 'Download snapshot';
     const pic = $('sharePicture');
     pic.width = c.width; pic.height = c.height;
     pic.getContext('2d').drawImage(c, 0, 0);
-    const name = m.profile.name.replace(/^Tandy /, '');
-    $('shareTitle').textContent = `What they'll see first · ${name} · CLOADM`;
     $('shareWhen').textContent = capturedAgo(captured.at);
     $('shareLink').value = link;
     short = null; fallbackWhy = '';
@@ -128,20 +130,19 @@ export function setupShare(page, { linkStore }) {
     rom.textContent = ''; rom.classList.remove('warn'); extra.textContent = '';
     const note = (text) => { const p = document.createElement('p'); p.textContent = text; extra.append(p); };
     if (refusal) {
-      // nothing to encode: the line under the picture says what the guardrail refused, and Copy stays dark (syncPrimary)
-      $('shareNote').textContent = `This moment can't be put in a link. ${refusal}`;
+      // nothing to encode: the reason is said ONCE, inline under Copy (syncPrimary's #primaryWhy, in the guardrail's
+      // own words), and Copy stays dark. #shareNote is syncPrimary's, and holds nothing here.
       $('shortTerms').hidden = true; $('previewSwitch').hidden = true;
       syncEmbed(m.id);
       return;
     }
     if (!file) {
-      $('shareNote').textContent = `The link starts NitrOS-9 fresh on the ${name}; it can't hold this exact moment.`;
       note('They need their own NitrOS-9 DriveWire image in their library: the link boots NitrOS-9 on the CoCo 3 from it, and holds no part of yours.');
       syncEmbed(m.id);
       return;
     }
-    // the snapshot's clarity copy (fixed wording): what a link opens, and that later changes are not in it
-    $('shareNote').textContent = `Opens a copy of this ${name} exactly as it is now: the screen, the program and everything in memory, including anything you typed. Changes you make later aren't in it.`;
+    // (the line under the picture is syncPrimary's: called just above through syncLongNote, it sets the snapshot's
+    // clarity copy, or, for an untouched bundled program, the program-page note. One owner, so the two cannot differ.)
     if (file.needs.length) { rom.textContent = needsLine(file.needs); rom.classList.add('warn'); }
     else rom.textContent = 'Runs without ROMs, so it opens for anyone.';
     // a tape being recorded is not in the link (its pulse timings could carry ROM code: js/media/romrefs.js)
@@ -186,9 +187,16 @@ export function setupShare(page, { linkStore }) {
     $('longNote').textContent = alwaysLong() ? 'Long link: nothing is uploaded.' : 'Holds the whole moment in the address; nothing is uploaded.';
     syncPrimary();
   }
-  // the primary button, the line under it, and the disclosures that belong to each form: the yellow reason only where
-  // there is nothing to make a short link of (a refusal, offline, or a fallback a tap already made, `fallbackWhy`);
-  // offline says so in its words.
+  // One note per mode (owner's ruling):
+  //  - program-page mode: #shareNote (the line under the picture) holds the program-page note; #primaryNote, the
+  //    primary's own second line, is empty, so the same thought is not said twice. The note's second sentence promises
+  //    the snapshot link, so it comes only when such a link IS in the view: a moment's link exists (captured.link) and
+  //    "More ways to share" offers it. Untouched, that is the long link — the moment's link — so it is promised.
+  //  - snapshot mode: #shareNote keeps the snapshot's clarity copy (capture() sets it), and #primaryNote says the
+  //    always-long note when that switch is what the tap gives.
+  // The caption is a prefix plus the name, the prefix its own span so it is never the part that is ellipsised, and the
+  // prefix is shown only in snapshot mode: "<program> · <machine>" in program-page mode, as the picture there is that
+  // page. " · CLOADM" is gone from every mode (it was the first thing to give way, and the page is CLOADM everywhere).
   function syncPrimary() {
     const mode = primaryMode(), why = mode === 'long' && !alwaysLong() ? shortWhy() : null;
     const native = canNative();
@@ -200,7 +208,22 @@ export function setupShare(page, { linkStore }) {
     $('btnShareCopy').classList.toggle('primary', !native);
     $('btnShareNative').hidden = !native || !captured || nothingToCopy;
     $('btnShareNative').classList.toggle('primary', native);
-    $('primaryNote').textContent = mode !== 'program' ? (mode === 'long' && alwaysLong() ? 'Long link: nothing is uploaded.' : '') : `Opens ${captured.untouched.name} from the start, for anyone.`;
+    const program = mode === 'program' && captured.untouched;
+    // the program-page note, said once, in the line under the picture
+    if (program) {
+      const moment = !!captured.link && !nothingToCopy;
+      $('shareNote').textContent = `Opens ${captured.untouched.name} from the start, for anyone.${moment ? ' The snapshot link below keeps this exact moment.' : ''}`;
+      $('primaryNote').textContent = '';
+      $('sharePrefix').hidden = true;
+      $('shareName').textContent = `${captured.untouched.name} · ${captured.machine}`;
+    } else {
+      // the line under the picture, one owner for every capture: a refusal says nothing there (its reason is the
+      // inline #primaryWhy, said once); NitrOS-9 says its own sentence; a file says the snapshot's clarity copy
+      $('shareNote').textContent = !captured ? '' : captured.refusal ? '' : captured.file ? snapshotNote(captured.machine) : `The link starts NitrOS-9 fresh on the ${captured.machine}; it can't hold this exact moment.`;
+      $('primaryNote').textContent = mode === 'long' && alwaysLong() ? 'Long link: nothing is uploaded.' : '';
+      $('sharePrefix').hidden = false;
+      $('shareName').textContent = captured ? captured.machine : '';
+    }
     // a tap that fell back (fallbackWhy) has already made the choice, even though primaryMode said 'short' before it;
     // the reason it fell back is what the person needs to see, not the state before the tap
     $('primaryWhy').textContent = captured && captured.refusal ? captured.refusal : fallbackWhy || (nothingToCopy ? 'This moment can\'t be put in a link.' : why === 'offline' ? OFFLINE_LONG : why && why !== 'Not for this moment.' ? why : '');
