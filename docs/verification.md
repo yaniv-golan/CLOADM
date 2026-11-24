@@ -2163,7 +2163,7 @@ Not hardware behaviour, so MAME is not its oracle (AGENTS.md section 4.6). The e
 * both views nested as Claude nests them (host → sandbox proxy → `srcdoc` view, `allow-scripts allow-same-origin
   allow-forms`) under the CSP the specification builds from the declared `_meta.ui.csp`, with and without CORS on the
   site: typing into LIZA, a game and its screenshot, real keys, storage, ROMs kept in the view's storage and memory
-  reads refused while they run (the browser check's `connector` group, `tools/connector-check.js`).
+  reads that include the ROM areas while they run (the browser check's `connector` group, `tools/connector-check.js`).
 * the view's own controls, in Chromium (the same group): inline, with the host sizing the view from its content, the
   screen 4:3 at the full width and the height stable (no resize loop); in the side panel (a fixed height) the screen
   filling the limiting dimension within 16 px at 400, 600 and 900 px wide and at 900 x 560, the toolbar one row;
