@@ -1703,18 +1703,23 @@ export class Session {
   }
 
   // "Copy bug report" (js/bugreport.js): the version, the machine on screen and its options, its ROMs by CRC only, the
-  // browser, the file loaded last (name and SHA-256; a WAD is not named) and, only with snapshot, the moment as the
+  // browser, the file loaded last (name and SHA-256; a WAD is not named; a cartridge by CRC32 only) and, only with snapshot, the moment as the
   // Share screen's ROM-free link. Never the Claude key, a ROM's bytes or file name. -> { text, parts }
   async bugReport({ base = 'https://cloadm.dev/play/', browser = '', snapshot = false } = {}) {
     const m = this.shownMachine, options = {};
     for (const [k, v] of Object.entries(m.config)) if (m.profile.options[k]) options[k] = v;
     const last = this.lastLoaded;
-    const file = !last ? null : isWad(last.name, last.bytes) ? { wad: true } : { name: last.name, sha256: await sha256Hex(last.bytes) };
+    // a cartridge (or anything that is a ROM image) is someone's ROM: by its CRC only, never its name or SHA-256
+    let kind = null;
+    if (last) { try { kind = formats.identify(last.name, last.bytes).kind; } catch (e) { kind = null; } }
+    const cart = !!last && !isWad(last.name, last.bytes) && (kind === 'cart' || Session.isRom(last.name, last.bytes));
+    const file = !last ? null : isWad(last.name, last.bytes) ? { wad: true } : cart ? { cartridge: crc32(last.bytes) } : { name: last.name, sha256: await sha256Hex(last.bytes) };
     let link = null, snapshotNote = '';
     if (snapshot) {
       try { link = await this.snapshotLink(base); } catch (e) { if (!(e instanceof SessionError)) throw e; snapshotNote = `not included (${e.message})`; }
     }
-    const parts = { machine: { id: m.id, name: m.profile.name }, options, roms: m.romCrcs(), browser, file, snapshot: link, snapshotNote };
+    const roms = Object.assign({}, m.romCrcs(), cart ? { cartridge: file.cartridge } : {});
+    const parts = { machine: { id: m.id, name: m.profile.name }, options, roms, browser, file, snapshot: link, snapshotNote };
     return { text: bugReportText(parts), parts };
   }
 

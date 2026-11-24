@@ -82,6 +82,20 @@ function everything(text) {
       && !b.some((x) => x.includes(Buffer.from('PLANTED')) || x.includes(Buffer.from(wsha)) || x.includes(Buffer.from(wad.subarray(4, 4 + W)))), r.text.split('\n')[5]);
   }
 
+  // a cartridge loaded last: someone's ROM, so "a cartridge, CRC32 X" and its CRC on the ROMs line; never its name or hash
+  {
+    const c = new Emu.Session({ store: Emu.memoryStore() });
+    c.switchMachine('coco');
+    const pak = standIn(0x2000, 77); pak[0] = 0x20; pak[1] = 0xFE;
+    c.load('PLANTED-SECRET-CART.ccc', pak);
+    for (let i = 0; i < 5; i++) c.shownMachine.runFrame();
+    const r = await c.bugReport({ browser: 'B', snapshot: true }), crc = Emu.crc32(pak), psha = crypto.createHash('sha256').update(pak).digest('hex');
+    const b = everything(r.text);
+    check('a cartridge loaded last: "a cartridge, CRC32 X", its CRC on the ROMs line, no name, no SHA-256, none of its bytes',
+      r.text.includes(`File: a cartridge, CRC32 ${crc}`) && new RegExp(`^ROMs \\(CRC32\\): .*cartridge ${crc}`, 'm').test(r.text)
+      && !b.some((x) => x.includes(Buffer.from('PLANTED-SECRET-CART')) || x.includes(Buffer.from(psha))) && b.every((x) => !hasWindow(x, windows([pak]))), r.text.split('\n').slice(3, 6).join(' | '));
+  }
+
   // nothing loaded; and a moment that cannot be shared says why instead of failing
   const fresh = new Emu.Session({ store: Emu.memoryStore() });
   fresh.switchMachine('coco');
