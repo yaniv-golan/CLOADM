@@ -109,7 +109,7 @@ export function setupShare(page, { linkStore }) {
     const png = await new Promise((ok) => c.toBlob(ok, 'image/png'));
     // the bundled program, when it is one nobody has touched: its own page is the primary link (nothing is uploaded)
     const untouched = n9 || refusal ? null : session.untouchedBundledProgram(location.href);
-    captured = { at: Date.now(), file, png, link, untouched, refusal, base: file ? file.name.replace(/\.cloadm$/, '') : `${m.profile.name.replace(/[^A-Za-z0-9]+/g, '')}-NitrOS-9` };
+    captured = { at: Date.now(), file, png, link, untouched, refusal, base: file ? file.name.replace(/\.cloadm$/, '') : `${m.profile.name.replace(/[^A-Za-z0-9]+/g, '')}-${n9 ? 'NitrOS-9' : 'moment'}` };
     const dl = $('btnShareDownload');
     dl.disabled = !file;
     dl.textContent = file ? `Download snapshot (${(file.bytes.length / 1024).toFixed(0)} KB)` : 'Download snapshot';
