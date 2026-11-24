@@ -13251,13 +13251,21 @@ async function askEscChecks(browser, base, check) {
   // the top one covers one), so here the pill must not move at all, for any of 20 toasts, long and short.
   // (What turns it red: the fallback always taking the top slot -- `slot === 'bottom'` never chosen in feedback.js. The
   // premise check then fails on every long toast, and the pill comes and goes once per long toast.)
-  for (const [tag, viewport, opts, full] of [
-    ['held sideways with the touch keys, Claude typing', { width: 844, height: 390 }, { hasTouch: true, isMobile: true }, false],
-    ['the full-screen chat at 1280 px, Claude typing', { width: 1280, height: 800 }, {}, true],
-    ['the full-screen chat held sideways, Claude typing', { width: 844, height: 390 }, { hasTouch: true, isMobile: true }, true]]) {
+  // The full-screen chat's own view (the chat on the big screen, the BASIC session in the PiP) is where BOTH slots
+  // cover a Stop for a long toast: the top one #claudeBar's, the bottom one the PiP's. Each leaves the other reachable,
+  // so the fallback keeps the top slot, and `under` is exactly #btnClaudeStop, the pill never shows and the PiP's Stop
+  // can be clicked. (What turns these red: preferring the bottom slot when both cover one -- `under` becomes the PiP's
+  // Stop. The guard for a slot that covers EVERY Stop is checked in tests/toast-follow.test.js, where the slots overlap.)
+  const UNDER_CHAT = { 1280: ['btnClaudeStop'], 844: ['btnClaudeStop'] };
+  for (const [tag, viewport, opts, full, chatView] of [
+    ['held sideways with the touch keys, Claude typing', { width: 844, height: 390 }, { hasTouch: true, isMobile: true }, false, false],
+    ['the full-screen chat at 1280 px, Claude typing', { width: 1280, height: 800 }, {}, true, false],
+    ['the full-screen chat held sideways, Claude typing', { width: 844, height: 390 }, { hasTouch: true, isMobile: true }, true, false],
+    ['the full-screen chat\'s own view at 1280 px, Claude typing', { width: 1280, height: 800 }, {}, true, true],
+    ['the full-screen chat\'s own view held sideways, Claude typing', { width: 844, height: 390 }, { hasTouch: true, isMobile: true }, true, true]]) {
     const { ctx, page, errors, replies } = await open(viewport, opts);
     const L = `askEsc (a toast with no free place while a turn runs, ${tag})`;
-    const ok = await typing(page, replies, { full });
+    const ok = await typing(page, replies, { full, basicView: !chatView });
     if (!full) await page.evaluate(() => document.getElementById('btnAskClose').click());
     // SETTLE BEFORE RAISING: the rects place() reads, two samples in a row the same
     await waitFor(page, () => {
@@ -13298,15 +13306,70 @@ async function askEscChecks(browser, base, check) {
     const long = reps.filter((r) => r.i % 2 === 0);
     check(`${L}: setup: Claude's turn runs, and the long toast has no free place (it takes the fallback slot, the scenario the check names)`,
       ok && reps.length === 20 && long.every((r) => r.slot), JSON.stringify(long.slice(0, 2)));
-    check(`${L}: no toast lies over a Stop, in the fallback slot or anywhere`, reps.every((r) => !r.under.length), JSON.stringify(reps.filter((r) => r.under.length).slice(0, 3)));
+    if (!chatView) check(`${L}: no toast lies over a Stop, in the fallback slot or anywhere`, reps.every((r) => !r.under.length), JSON.stringify(reps.filter((r) => r.under.length).slice(0, 3)));
+    else {
+      const want = JSON.stringify(UNDER_CHAT[viewport.width]);
+      check(`${L}: both slots cover a Stop: each long toast lies over exactly ${want} (the slot that leaves another uncovered), a short one over none`,
+        long.every((r) => JSON.stringify(r.under) === want) && reps.filter((r) => r.i % 2).every((r) => !r.under.length),
+        JSON.stringify(reps.slice(0, 4).map((r) => ({ i: r.i, under: r.under, toast: r.toast }))));
+    }
     check(`${L}: 20 toasts in a row: the pill never shows (a Stop stays reachable without it)`, reps.every((r) => r.n === 0), JSON.stringify(reps.map((r) => r.n)));
     check(`${L}: a Stop is reachable while every toast shows (the pill's whole reason)`, reps.every((r) => r.reach.length), JSON.stringify(reps.filter((r) => !r.reach.length).slice(0, 3)));
     if (shotDir) {
       // the long toast in its fallback slot, the turn's Stop beside it
       await page.evaluate(() => window.emu.feedback.toast('A toast over the bottom of the window, long enough to wrap onto several lines on a phone, so that it lies over the sheet\'s Stop button at the bottom edge of the window for as long as it shows'));
       await emuFrames(page, 30);
-      await page.screenshot({ path: path.join(shotDir, `askesc-fallback-slot-${viewport.width}x${viewport.height}${full ? '-full' : ''}.png`) });
+      await page.screenshot({ path: path.join(shotDir, `askesc-fallback-slot-${viewport.width}x${viewport.height}${full ? (chatView ? '-chat' : '-full') : ''}.png`) });
     }
+    await page.evaluate(() => window.emu.session.stopClaude());
+    if (replies.held) replies.held.release();
+    check(`${L}: no page errors`, !errors.length, errors.join('; '));
+    await closeCtx(ctx);
+  }
+  // ... and the other order: the toast first, pinned in its slot with no turn running, THEN the turn starts (its Stop
+  // appears, and #claudeBar's status text changes as it goes). A pinned toast is not placed again, except that the slot is
+  // chosen again when Claude's Stops change: here the Stop that appears under it moves it off. Both full-screen layouts,
+  // the BASIC session on the big screen. (What turns it red: the pinned toast not following the Stops -- the pin key
+  // without them -- the toast stays over #btnClaudeStop, the pill comes up, and held sideways no Stop can be clicked.)
+  for (const [tag, viewport, opts] of [
+    ['1280 px', { width: 1280, height: 800 }, {}],
+    ['held sideways', { width: 844, height: 390 }, { hasTouch: true, isMobile: true }]]) {
+    const { ctx, page, errors, replies } = await open(viewport, opts);
+    const L = `askEsc (the full-screen chat, ${tag}: a toast first, then Claude's turn starts)`;
+    await page.evaluate(() => document.getElementById('btnAsk').click());
+    await page.evaluate(() => window.emu.session.consent.setAllowed(true));
+    await page.evaluate(() => document.getElementById('btnAskFull').click());
+    await waitFor(page, () => window.emu.session.claudeView === 'full' && !!window.emu.session.chatMachines, null, 15000);
+    await page.evaluate(() => document.getElementById('btnClaudeView').click());
+    await waitFor(page, () => window.emu.session.chatView === 'basic');
+    await emuFrames(page, 30);
+    // (an action keeps the toast up 8 s: the turn starts inside that)
+    await page.evaluate(() => { const v = document.getElementById('viewClaude'); window.__flips = 0; let was = v.hidden;
+      window.__obs = new MutationObserver(() => { if (v.hidden !== was) { window.__flips++; was = v.hidden; } }); window.__obs.observe(v, { attributes: true });
+      window.emu.feedback.toast('A toast over the bottom of the window, long enough to wrap onto several lines on a phone, so that it lies over the sheet\'s Stop button at the bottom edge of the window for as long as it shows', { action: { label: 'Undo', run() {} } }); });
+    await emuFrames(page, 30);
+    const before = await page.evaluate(() => ({ slot: document.getElementById('toastRegion').classList.contains('top'), up: !document.getElementById('toast').hidden, busy: !!window.emu.session.claudeStatus }));
+    replies.push({ body: tools([{ name: 'type_text', input: { text: LISTING } }]) }, { hold: true, body: text('Typed.') });
+    await page.evaluate(() => { window.emu.session.chat.sendLine('Type a long listing for me'); });
+    const acting = await waitFor(page, () => window.emu.session.chatTarget().machine.typist.queue.length > 100 && window.emu.session.claudeBusyActing, null, 8000);
+    await emuFrames(page, 90);
+    const after = await page.evaluate(() => {
+      const IDS = ['btnAskStatusStop', 'btnAskStripStop', 'btnAskStop', 'btnAskPeekStop', 'btnFsStop', 'btnClaudeStop', 'btnPipStop', 'btnViewStop'];
+      const box = document.getElementById('toast');
+      const stops = IDS.map((id) => document.getElementById(id)).filter((e) => e && !e.hidden).map((e) => {
+        const r = e.getBoundingClientRect();
+        if (!r.width || !r.height || r.bottom <= 0 || r.right <= 0 || r.top >= innerHeight || r.left >= innerWidth) return null;
+        const at = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+        return { id: e.id, underToast: !!at && box.contains(at), reachable: !!at && (at === e || e.contains(at)) };
+      }).filter(Boolean);
+      window.__obs.disconnect();
+      return { up: !box.hidden, flips: window.__flips, under: stops.filter((s) => s.underToast).map((s) => s.id), reach: stops.filter((s) => s.reachable).map((s) => s.id) };
+    });
+    check(`${L}: setup: the toast is pinned in the fallback slot before the turn, and is still up once Claude types`,
+      before.slot && before.up && !before.busy && acting && after.up, JSON.stringify({ before, acting, up: after.up }));
+    check(`${L}: the toast moves off the Stop that appears under it (no Stop under the toast)`, !after.under.length, JSON.stringify(after));
+    check(`${L}: the pill never shows (0 changes)`, after.flips === 0, `flips ${after.flips}`);
+    check(`${L}: a Stop can be clicked`, after.reach.length > 0, JSON.stringify(after.reach));
     await page.evaluate(() => window.emu.session.stopClaude());
     if (replies.held) replies.held.release();
     check(`${L}: no page errors`, !errors.length, errors.join('; '));

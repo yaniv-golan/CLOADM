@@ -247,6 +247,42 @@ export function createFeedback() {
     if (region.style.top !== top) region.style.top = top;
     if (region.style.bottom !== 'auto') region.style.bottom = 'auto';
   }
+  // What a pinned toast still follows: the safe area and the phone flag (the slot's offset), and Claude's Stops that
+  // show (the slot keeps off them). Unchanged, a pinned toast costs nothing.
+  const pinKey = (A) => { const a = A.area;
+    return `${a.top}|${a.left}|${a.bottom}|${a.right}|${A.phone}|${A.stops.map((o) => [o.left, o.top, o.right, o.bottom].map(Math.round).join(',')).join(';')}`; };
+  // The fallback slot, placed: the top one where it covers none of Claude's Stops that show; else the stylesheet's own
+  // bottom one (#toastRegion.top's z-index, no inline style) where that covers none; where both cover one, the slot that
+  // leaves one of them uncovered, the top one first (it leaves the chat's floating pill's Stop clear when every other is
+  // under the toast). A Stop under a toast pulled the chat's pill (#viewClaude) up for as long as the toast showed.
+  // The top slot must clear the picture's top where it can: at a phone-width window it sits under the app bar and the
+  // picture begins just below it, so the normal form's height ran onto the picture's first row -- the title LIZA (and
+  // the welcome menu) write there (measured: "LIZA loaded" over row 0 at 390x844, the slot at 56 and the picture at
+  // 89). The compact form is shorter; the slot takes it when only that fits between the bar and the picture. Where
+  // neither fits it stays the normal form. (The bottom slot is always the normal form.)
+  function fallbackSlot(I) {
+    const top = () => {
+      dropClass(box, 'compact');
+      const slotTop = Math.max(I.area.top + (I.phone ? 8 : 16), I.barBottom ? I.barBottom + 8 : 0);
+      const picTop = I.canvas && I.canvas.width ? I.canvas.top : null;
+      if (picTop !== null && slotTop + box.getBoundingClientRect().height > picTop) {
+        addClass(box, 'compact');
+        if (slotTop + box.getBoundingClientRect().height > picTop) dropClass(box, 'compact');   // neither fits
+      }
+      placedTop(I.area, I.phone, I.barBottom);
+    };
+    const covered = () => { const b = box.getBoundingClientRect(); return I.stops.filter((o) => hitsRect(b, o)).length; };
+    top();
+    if (!I.stops.length) return 'top';
+    const onTop = covered();
+    if (onTop === 0) return 'top';
+    dropClass(box, 'compact');
+    placedTop(I.area, I.phone, I.barBottom, 'bottom');
+    const onBottom = covered();
+    if (onBottom === 0 || (onTop === I.stops.length && onBottom < I.stops.length)) return 'bottom';
+    top();
+    return 'top';
+  }
   // back to the stylesheet's place (a toast that ends, or one placed afresh)
   function unplace() { clearRegion(); }
   // Everything place()'s decision reads, as one string: if it is unchanged the answer is unchanged, so a stationary
@@ -361,8 +397,10 @@ export function createFeedback() {
     if (cur && !box.hidden && (cur.pinned === true || (cur.pinned === 'provisional' && held()))) {
       // the phone flag too: the slot's offset is 8 px on a phone and 16 px otherwise, so crossing 700 px with the
       // safe area unchanged still needs the slot re-applied (an 8 px offset left on a wide window, or the reverse).
-      const A = readInputs(), a = A.area, areaKey = `${a.top}|${a.left}|${a.bottom}|${a.right}|${A.phone}`;
-      if (areaKey !== pinnedArea) { placedTop(a, A.phone, A.barBottom, cur.slot); pinnedArea = areaKey; }
+      // And Claude's Stops: a turn that starts after the toast pinned, or a Stop that slides under it (#claudeBar's
+      // status text growing), chooses the slot again -- the one move a pinned toast makes for them.
+      const A = readInputs(), key = pinKey(A);
+      if (key !== pinnedArea) { cur.slot = fallbackSlot(A); pinnedArea = key; }
       return;
     }
     if (box.hidden) { unplace(); return; }
@@ -410,28 +448,9 @@ export function createFeedback() {
       }
       dropClass(box, 'compact');
     }
-    // nowhere it covers no control: the fixed slot at the top of the viewport, kept until the toast goes.
-    // The slot must clear the picture's top where it can: at a phone-width window it sits under the app bar and the
-    // picture begins just below it, so the normal form's height ran onto the picture's first row -- the title LIZA (and
-    // the welcome menu) write there (measured: "LIZA loaded" over row 0 at 390x844, the slot at 56 and the picture at
-    // 89). The compact form is shorter; the slot takes it when only that fits between the bar and the picture. Where
-    // neither fits it stays the normal form, exactly as before.
-    dropClass(box, 'compact');
-    const slotTop = Math.max(I.area.top + (I.phone ? 8 : 16), I.barBottom ? I.barBottom + 8 : 0);
-    const picTop = I.canvas && I.canvas.width ? I.canvas.top : null;
-    if (picTop !== null && slotTop + box.getBoundingClientRect().height > picTop) {
-      box.classList.add('compact');
-      if (slotTop + box.getBoundingClientRect().height > picTop) box.classList.remove('compact');   // neither fits: as before
-    }
-    const topCompact = box.classList.contains('compact');
-    placedTop(I.area, I.phone, I.barBottom);
-    let slot = 'top';
-    const onStop = () => { const b = box.getBoundingClientRect(); return I.stops.some((o) => hitsRect(b, o)); };
-    if (I.stops.length && onStop()) {
-      dropClass(box, 'compact');
-      placedTop(I.area, I.phone, I.barBottom, 'bottom');
-      if (onStop()) { placedTop(I.area, I.phone, I.barBottom); if (topCompact) addClass(box, 'compact'); } else slot = 'bottom';
-    }
+    // nowhere it covers no control: the fallback slot (the top one, or the bottom one off Claude's Stop: fallbackSlot),
+    // kept until the toast goes
+    const slot = fallbackSlot(I);
     if (cur) cur.slot = slot;
     decided = { kind: 'top' };
     // NO settle() here, and no `reapply` arm for 'top': a 'top' decision is never re-applied from the cache. Once the
@@ -444,7 +463,7 @@ export function createFeedback() {
       if (!cur.pinned) { cur.pinned = 'provisional'; cur.pinnedAt = Date.now(); }
       if (Date.now() - cur.pinnedAt >= PROVISIONAL || !moving()) { if (!held()) cur.pinned = true; }
     }
-    pinnedArea = `${I.area.top}|${I.area.left}|${I.area.bottom}|${I.area.right}|${I.phone}`;
+    pinnedArea = pinKey(I);
     seen();
   }
   // followed every frame while it is up: a control can move under it without the window scrolling or resizing
@@ -553,6 +572,10 @@ export function createFeedback() {
   return {
     toast, attention, resolve, viewChanged,
     clear: () => end('cleared'),
+    // place the toast now from the page as it is, not at the next frame: a reader that measures what the toast covers
+    // (js/ui/ask.js: is any Stop reachable?) calls it first, so it never judges a placement one page change behind
+    // (a turn's Stop that has just appeared under a pinned toast, which the next frame moves off)
+    catchUp: () => { if (cur && !box.hidden) place(); },
     // this toast goes now, if it is still the one up (a hint its program's first key has made moot); a newer one stays
     dismiss: (t) => { if (t && cur === t) end('cleared'); },
     // (text: with the action's label where an inline action stands, as the toast reads)

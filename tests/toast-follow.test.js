@@ -639,9 +639,59 @@ function decideWithHostileDom(I) {
     // a Stop under each: the top slot (never invisible; the pill stands in for the Stop then)
     const c = pinned([{ left: 150, top: 20, right: 210, bottom: 44, width: 60, height: 24 }, { left: 150, top: 770, right: 210, bottom: 794, width: 60, height: 24 }]);
     check('a Stop under both slots: the top slot, as before', c.cls && c.slotTop === '8px' && c.top === 8, JSON.stringify({ top: c.top, slotTop: c.slotTop }));
-    // a Stop that is not shown (zero size) counts for nothing
-    const d = pinned([{ left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0 }]);
-    check('a Stop that does not show (no size) leaves the top slot', d.cls && d.slotTop === '8px', JSON.stringify({ slotTop: d.slotTop }));
+    // a Stop that is not shown (zero size) counts for nothing -- placed INSIDE the top slot, so a reading that kept
+    // zero-size rects would see it covered and move the toast to the bottom
+    const d = pinned([{ left: 150, top: 20, right: 150, bottom: 20, width: 0, height: 0 }]);
+    check('a Stop that does not show (no size, inside the top slot) leaves the top slot', d.cls && d.slotTop === '8px', JSON.stringify({ slotTop: d.slotTop }));
+    // pinned in the bottom slot, the safe area changes (a notched phone rotating): the slot is chosen again from the new
+    // inputs and stays the bottom one -- not the top slot re-applied with an inline top
+    {
+      const e = pinned([{ left: 150, top: 40, right: 210, bottom: 64, width: 60, height: 24 }]);
+      const was = e.slotTop === '' && e.cls;
+      e.w.sandbox.__safeTop = 44;
+      e.w.frame(); e.w.frame();
+      const r = e.w.box.getBoundingClientRect();
+      check('pinned in the bottom slot, a safe-area change keeps the bottom slot (no inline top)',
+        was && e.w.region.classList.contains('top') && e.w.region.style.top === '' && Math.round(r.top) === natural.top,
+        JSON.stringify({ was, top: Math.round(r.top), slotTop: e.w.region.style.top }));
+    }
+    // a Stop that appears AFTER the toast pinned in the top slot (a turn that starts, a Stop that slides under it): the
+    // slot is chosen again, and the toast moves to the bottom one; nothing else moves a pinned toast
+    {
+      const stops = [];
+      const w = world({ width: 390, height: 800, controlBox: all, stops });
+      const fb = loadFeedback(w);
+      w.box._rect = { ...natural };
+      raise(fb, 'first'); w.frame(); w.frame();
+      const before = w.region.style.top;
+      for (let i = 0; i < 5; i++) w.frame();
+      stops.push({ left: 150, top: 20, right: 210, bottom: 44, width: 60, height: 24 });
+      w.frame(); w.frame();
+      check('a Stop that comes under a pinned toast moves it to the bottom slot', before === '8px' && w.region.style.top === '' && w.region.classList.contains('top'),
+        JSON.stringify({ before, after: w.region.style.top }));
+      const n = w.writes('toastRegion').length;
+      for (let i = 0; i < 20; i++) w.frame();
+      check('... and then it costs no writes in 20 frames', w.writes('toastRegion').length === n, `${w.writes('toastRegion').length - n} writes`);
+    }
+    // both slots cover a Stop (a tall toast on a short window: the slots overlap). The top one covers every Stop, the
+    // bottom one leaves one uncovered: the bottom one, so a Stop stays reachable.
+    {
+      const short = { left: 0, top: 0, right: 390, bottom: 120, width: 390, height: 120 };
+      const stops = [{ left: 150, top: 10, right: 210, bottom: 20, width: 60, height: 10 }, { left: 150, top: 60, right: 210, bottom: 66, width: 60, height: 6 }];
+      const w = world({ width: 390, height: 120, controlBox: short, stops });
+      const fb = loadFeedback(w);
+      w.box._rect = { left: 8, top: 40, right: 382, bottom: 120, width: 374, height: 80 };
+      raise(fb, 'tall'); w.frame(); w.frame();
+      check('both slots cover a Stop: the one that leaves a Stop uncovered (here the bottom one)', w.region.classList.contains('top') && w.region.style.top === '',
+        JSON.stringify({ slotTop: w.region.style.top }));
+      // and when each covers the same number, every one of them: the top slot, as before
+      stops.splice(0, 1, { left: 150, top: 50, right: 210, bottom: 56, width: 60, height: 6 });
+      const w2 = world({ width: 390, height: 120, controlBox: short, stops: stops.slice() });
+      const fb2 = loadFeedback(w2);
+      w2.box._rect = { left: 8, top: 40, right: 382, bottom: 120, width: 374, height: 80 };
+      raise(fb2, 'tall'); w2.frame(); w2.frame();
+      check('... and where both cover every Stop: the top slot', w2.region.style.top === '8px', JSON.stringify({ slotTop: w2.region.style.top }));
+    }
   }
 
   // ---- the safe area changes under a pinned toast (a notched phone rotating) ----

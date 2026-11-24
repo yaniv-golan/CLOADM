@@ -10,15 +10,23 @@ Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.
 
 #### Fixed
 
-- **A toast with no free place no longer covers Claude's Stop.** While a turn ran, a toast that found no free place took
-  the fixed slot at the top of the window, and in three layouts that slot lay over the turn's Stop: a phone held
-  sideways with the touch keys while Claude types (the Stop on the screen), and the full-screen chat at 1280 px and held
-  sideways (the chat's Stop, and held sideways the floating pill's own). The chat's Stop pill then came up for as long
-  as the toast showed and went with it -- the flash `docs/verification.md` recorded as known -- and held sideways no
-  Stop could be clicked at all. `js/ui/feedback.js` now keeps the fallback slot off every Claude Stop that shows: it
-  takes the stylesheet's bottom slot when the top one would cover one (the top one, as before, when both would). The
-  browser check's stricter `askEsc` case, held back until this fix, runs 20 toasts in each
-  of those layouts and requires no toast over a Stop, the pill never moving and a Stop always reachable.
+- **A toast with no free place keeps off Claude's Stop where it can, and the chat's Stop pill no longer flashes.**
+  While a turn ran, a toast that found no free place took the fixed slot at the top of the window, and in some layouts
+  that slot lay over the turn's Stop: a phone held sideways with the touch keys while Claude types (the Stop on the
+  screen), and the full-screen chat at 1280 px and held sideways (the chat's Stop, and held sideways the floating
+  pill's own). The chat's Stop pill then came up for as long as the toast showed and went with it -- the flash
+  `docs/verification.md` recorded as known -- and held sideways no Stop could be clicked at all. `js/ui/feedback.js`
+  now chooses the fallback slot by Claude's Stops that show: the top one where it covers none, else the stylesheet's
+  bottom one where that covers none; where both would cover one, the top one unless it covers every Stop and the
+  bottom one does not, so another Stop stays reachable. A pinned toast chooses again when a Stop appears or moves under
+  it (a turn that starts after the toast, the chat bar's status text growing), and `js/ui/ask.js` has the toast placed
+  from the same page state before it judges whether a Stop can be reached. Both slots cover a Stop often for a long
+  toast: the full-screen chat's own view (the chat on the big screen) at most sizes, a short BASIC view with a long
+  toast, a phone upright with the sheet. On a phone the bottom slot covers the touch keys' bottom row and the PiP's
+  controls, and the top slot the Back and Full-size buttons; neither covers the chat's input, Send or Copy. The browser
+  check's stricter `askEsc` cases (held back until this fix) run 20 toasts in each of these layouts, a toast raised
+  before the turn starts, and the full-screen chat's own view, and require the pill never to move and a Stop always to
+  be reachable.
 
 ### 0.2.0
 

@@ -1208,15 +1208,26 @@ browser check's group `uiModel` drives them with real events at 1280x720 and at 
   900 px (none of the panel's controls covered): the "toast over the Stop" it was written for cannot form under
   the rule for opaque sheets, and in both the pill does not come and go and a Stop can be reached. `tests/feedback-toasts.test.js` checks each
   rule in Node.
-* The fallback slot keeps off Claude's Stop (`askEsc`): where a toast has no free place while a turn runs -- a phone
-  held sideways (844x390, touch) while Claude types, and the full-screen chat at 1280x800 and held sideways -- the long
-  toast takes the fallback slot, and that slot is the top one only if it covers none of Claude's Stops that show,
-  otherwise the stylesheet's bottom one. For 20 toasts in a row, long and short, in each layout: the premise (the long
-  toast is in the fallback slot), `elementFromPoint` at every shown Stop's centre is never the toast, `#viewClaude`
-  never changes visibility (0 changes), and a Stop can be clicked while each toast shows. With the fallback always the
-  top slot (the code before this check) it fails: the toast lies over `#btnAskStop` or `#btnClaudeStop` (held sideways
-  over the pill's own `#btnViewStop` too), the pill comes and goes once per long toast, and held sideways no Stop can be
-  clicked.
+* The fallback slot and Claude's Stop (`askEsc`, `tests/toast-follow.test.js`): a toast with no free place takes the
+  top slot where it covers none of Claude's Stops that show, else the stylesheet's bottom slot where that covers none;
+  where both cover one (common for a long toast: the full-screen chat's own view, a short BASIC view, a phone upright
+  with the sheet), the top slot unless it covers every Stop and the bottom one does not. A pinned toast chooses again
+  when a Stop appears or moves (the pin follows the Stops' rects as it follows the safe area), and `js/ui/ask.js` has
+  the toast placed from the same page state (`feedback.catchUp()`) before it judges whether a Stop can be reached.
+  On a phone the bottom slot covers the touch keys' bottom row (space, SHIFT, BREAK…) and the PiP's controls, and the
+  top slot the Back and Full-size buttons; neither covers the chat's input, Send or Copy. Checked in the page: 20 toasts
+  in a row, long and short, with a turn running -- a phone held sideways (844x390, touch) while Claude types, the
+  full-screen chat over the BASIC session at 1280x800 and held sideways (the long toast in the bottom slot, over no Stop),
+  and the full-screen chat's own view at both sizes (both slots cover a Stop: the long toast over exactly
+  `#btnClaudeStop`, the PiP's Stop reachable). In each the premise (the long toast is in the fallback slot), the Stops
+  under the toast (`elementFromPoint` at each shown Stop's centre), `#viewClaude` never changing visibility, and a Stop
+  that can be clicked for every toast. And the other order, in both full-screen sizes: a toast pinned before the turn,
+  then the turn starts -- the toast moves off the Stop that appears, the pill never shows, a Stop can be clicked. In
+  Node: the slot for a Stop under the top slot, only under the bottom one, under both, a zero-size Stop inside the top
+  slot, a Stop that appears after the pin, a safe-area change while pinned in the bottom slot, and overlapping slots
+  where only the bottom one leaves a Stop uncovered. With the fallback always the top slot (the code before) the page
+  check fails: the toast lies over `#btnAskStop` or `#btnClaudeStop` (held sideways over the pill's own `#btnViewStop`
+  too), the pill comes and goes once per long toast, and held sideways no Stop can be clicked.
 * The phone layout (`phone`, iPhone 15 upright): the four chips in their fixed order under the keyboard panel, each in
   view and at least 44 x 44; each opens its sheet (a modal dialog, the focus inside, its title) and Esc closes it with
   the focus back on the chip; the hardware keyboard does not reach the machine while a sheet is open (the welcome
