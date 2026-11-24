@@ -3,7 +3,7 @@
 // The Ask panel's example questions (js/claude/prompts.js), browser-free, no network, no ROMs.
 //
 // What is proved:
-//  * promptsFor: every set's three questions, word for word as the approved ruling gives them (written out here by
+//  * promptsFor: every set's three questions, word for word as the specification gives them (written out here by
 //    hand, not taken from the module), and the priority: for every pair of situations, the higher one wins;
 //  * promptState on real Sessions: the Debugger stopped, a link arrival (and what ends it: a key, a message, a
 //    launch), the welcome menu without and with ROMs for the machine, LIZA, 2048, Minesweeper, the demo, a machine-code
@@ -20,8 +20,8 @@ const ROOT = path.join(__dirname, '..');
 const bin = (name) => new Uint8Array(fs.readFileSync(path.join(ROOT, `examples/${name}.bin`)));
 const frames = (s, k) => { for (let i = 0; i < k; i++) s.advance(1000 / s.shownMachine.fps + 0.01); };
 
-// ---- 1. the sets, as the ruling words them ----
-const RULING = {
+// ---- 1. the sets, word for word as specified ----
+const SPEC = {
   stopped: ['Why did it stop here?', 'What does this code do?', 'What should I look at next?'],
   link: ['What am I looking at?', 'What can I do here?', 'How do I start this from the beginning?'],
   wyrmfire: ['How do I play this?', 'How does a 3D engine run on a 6809?', 'What are the controls?'],
@@ -53,11 +53,11 @@ const SITUATIONS = [
 ];
 {
   const pf = Emu.promptsFor;
-  for (const [id, words] of Object.entries(RULING)) {
+  for (const [id, words] of Object.entries(SPEC)) {
     check(`set ${id}: three questions, word for word`, JSON.stringify(Emu.PROMPT_SETS[id]) === JSON.stringify(words), JSON.stringify(Emu.PROMPT_SETS[id]));
   }
-  check('no set beyond the ruling\'s', Object.keys(Emu.PROMPT_SETS).sort().join() === Object.keys(RULING).sort().join());
-  for (const [id, st] of SITUATIONS) check(`promptsFor ${JSON.stringify(st)} -> ${id}`, pf(st).id === id && JSON.stringify(pf(st).prompts) === JSON.stringify(RULING[id]), pf(st).id);
+  check('no set beyond the specified ones', Object.keys(Emu.PROMPT_SETS).sort().join() === Object.keys(SPEC).sort().join());
+  for (const [id, st] of SITUATIONS) check(`promptsFor ${JSON.stringify(st)} -> ${id}`, pf(st).id === id && JSON.stringify(pf(st).prompts) === JSON.stringify(SPEC[id]), pf(st).id);
   check('welcome with ROMs -> welcome-rom', pf({ program: 'welcome', roms: true }).id === 'welcome-rom');
   check('BASIC at the prompt, no program -> basic-empty', pf({ basic: 'prompt', lines: 0 }).id === 'basic-empty');
   check('nothing known -> fallback', pf({}).id === 'fallback' && pf(null).id === 'fallback' && pf({ program: 'something-else' }).id === 'fallback');
