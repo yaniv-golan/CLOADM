@@ -630,45 +630,33 @@
   #share .disc[open] { padding-bottom: 16px; }
   #share .disc[open] > summary { margin-bottom: 8px; }
   @media (max-width: 860px) {
-    #share { grid-template-columns: minmax(0, 1fr); padding: 4px 16px 24px; row-gap: 8px; }
+    /* One declaration per selector: the winners of the rules this block accumulated while the phone layout was being
+       fitted. Computed styles at 375x548 and 861x600 are unchanged by the tidying. */
+    #share { grid-template-columns: minmax(0, 1fr); padding: 2px 16px 12px; row-gap: 2px; }
+    /* A phone's first screen must end with the long link's Copy still visible, with a margin to spare: CI's Linux
+       Chromium wraps #shareNote to one line more than a Mac (+19px), so a fit decided by a few local pixels fails there.
+       The picture keeps its height (the screen must stay recognisable) and its caption is one line at its foot instead
+       of two stacked over the lower half of the screen. */
     #share .frame { height: 20vh; aspect-ratio: auto; }
+    #share .frame canvas { height: 90%; }
     #share .preview { position: relative; }
-    /* the caption over the picture, in ONE line at its foot (it was two, stacked, covering the lower half of the
-       screen the person is sharing) */
     #share figcaption { position: absolute; left: 0; right: 0; bottom: 0; background: rgba(5, 6, 5, .72);
       flex-direction: row; flex-wrap: nowrap; justify-content: space-between; align-items: baseline; gap: 8px;
       padding: 3px 10px; font-size: 12px; }
     #share figcaption strong, #share figcaption span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-    #share .frame canvas { height: 90%; }
-    #share figcaption { padding: 4px 12px; flex-direction: row; justify-content: space-between; font-size: 13px; }
-    #share .col { gap: 6px; }
-    #share h1 { font-size: 20px; }
+    #share .col { gap: 2px; }
+    #share h1 { font-size: 18px; }
     #share p { font-size: 14px; line-height: 1.25; }
-    #share .sharebtns button { min-height: 40px; flex: 1 1 0; }
-    #share .linkrow input { padding: 9px 12px; }
-    #share .shortbar button, #share .sharebtns button { min-height: 40px; }
-    #share #shareQr { width: 104px; height: 104px; }
+    #share p.small, #share .why { font-size: 12px; line-height: 1.3; }
+    #share #shortTerms { font-size: 11px; line-height: 1.25; }
     #share .linkset { gap: 4px; }
+    #share .linkrow input { padding: 9px 12px; }
+    #share .sharebtns button { min-height: 38px; flex: 1 1 0; }
+    #share .shortbar button { min-height: 38px; }
+    #share #shareQr { width: 104px; height: 104px; }
     /* the button says "Make a short link": on a phone its heading is for assistive technology only, so the long link's
        Copy stays on the first screen */
     #share #shortHeading { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-    #share p.small, #share .why { font-size: 12px; line-height: 1.3; }
-    /* A phone's first screen must end with the long link's Copy still visible, with a margin to spare: CI's Linux
-       Chromium wraps #shareNote to one line more than a Mac (+19px), so a fit decided by a few local pixels fails there.
-       The picture keeps its height (the screen must stay recognisable), its caption is one line at its foot instead of
-       two stacked over the lower half of the screen, and the spacing around it is tightened. */
-    #share { row-gap: 2px; padding: 2px 16px 12px; }
-    #share .col { gap: 2px; }
-    #share h1 { font-size: 18px; }
-    #share p { line-height: 1.25; }
-    #share .linkset { gap: 4px; }
-    #share .frame { height: 20vh; }
-    #share figcaption { position: absolute; left: 0; right: 0; bottom: 0; background: rgba(5, 6, 5, .72);
-      flex-direction: row; flex-wrap: nowrap; justify-content: space-between; align-items: baseline; gap: 8px;
-      padding: 3px 10px; font-size: 12px; }
-    #share figcaption strong, #share figcaption span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-    #share #shortTerms { font-size: 11px; line-height: 1.25; }
-    #share .sharebtns button, #share .shortbar button { min-height: 38px; }
   }
 
 
