@@ -22,6 +22,7 @@ import { BASIC_LINE_MAX } from '../media/basic.js';
 import { BASIC_PROGRAM_TEXT_MAX, planBasic, writeBasic } from './basicload.js';
 import { opensTurn, wholeTurn } from './history.js';
 import { actionRecord, readKind } from './actions.js';
+import { ClaudeError } from './backend.js';
 
 // The acting tools: the ones that change the BASIC session. Each is one entry of ACTING below - its schema, a
 // `check` that refuses with nothing changed, and an `act` that makes the change - and ChatSession.runTool runs
@@ -177,7 +178,9 @@ export function machineTools() { return [...readOnlyTools(), ...actingTools()]; 
 export const ACTING_TOOL_NAMES = Object.freeze(Object.keys(ACTING));
 
 // The chat firmware's channel mailbox (examples/chat.asm): two status/data pairs, one each way.
-export const CHAT_CHANNEL = Object.freeze({ rx: 0x7000, tx: 0x7002 });
+export const CHAT_CHANNEL = Object.freeze({ rx: 0x7000, tx: 0x7002, nokey: 0x7024 });
+// (nokey: NOKEY, which the page sets every frame while the chat has no API key, so ENTER shows no "Thinking...";
+// tests/chat-firmware.test.js ties it to the assembled source)
 // Two of the firmware's variables, read by the page to tell whether BREAK would do anything (Esc on an empty, idle
 // prompt leaves the chat instead): BLEN, the characters on the typed line (16 bits, high byte first), and WAIT, set
 // from ENTER until the reply ends. tests/chat-firmware.test.js ties these addresses to the assembled source.
@@ -189,6 +192,9 @@ export const CHAT_SCREEN = Object.freeze({ cols: 42, rows: 24 });
 // The byte that ends every turn toward the firmware (a reply, an error, a refusal or a stop): until it comes, the
 // firmware takes no typing, so a line typed early can't land in the middle of a reply.
 export const END_OF_REPLY = 0x04;
+// a backend that holds an API key field and it is empty (a ClaudeBackend before a key is added); a stand-in backend
+// with no key field is taken to need none
+const keyless = (b) => !!b && 'apiKey' in b && !b.apiKey;
 
 // a ChatSession built without a gate acts for nobody
 const NO_GATE = () => { throw new ToolError(TOOL_CODES.NO_CONSENT); };
@@ -255,6 +261,15 @@ export class ChatSession {
   async sendLine(text) {
     // a blank line asks nothing (the API would refuse it): no turn, and nothing recorded
     if (this.busy || typeof text !== 'string' || !text.trim()) return null;
+    // no API key: no turn starts (nothing thinks, no request), and the line right after the typed one is the page's
+    // own (noKeyText: "No API key yet: add one …"), or the backend's words where no page gave one
+    if (keyless(this.backend)) {
+      this.error = new ClaudeError('no-key', 'No API key: add your Anthropic API key to chat.');
+      this.emitText(`[${this.noKeyText || this.error.message}]\r\n`);
+      if (this.channel) this.channel.send(Uint8Array.of(END_OF_REPLY));
+      this.changed();
+      return null;
+    }
     this.busy = true; this.error = null; this.snapped = false;
     this.controller = new AbortController(); this.abortReason = null;
     this.trim();
@@ -375,6 +390,8 @@ export class ChatSession {
   // The mailbox is read and written at CPU addresses (peek/poke), so a machine with an MMU (the CoCo 3) works too.
   // A DriveWire channel needs no pump: the firmware talks to the server itself, over the Becker port.
   pump(machine) {
+    // (whatever the channel: the firmware reads NOKEY when a line is entered)
+    if (machine) machine.poke(CHAT_CHANNEL.nokey, keyless(this.backend) ? 1 : 0);
     if (!this.channel || !machine || typeof this.channel.poll !== 'function') return;
     const rx = CHAT_CHANNEL.rx, tx = CHAT_CHANNEL.tx;
     const rd = (a) => (typeof machine.peek === 'function' ? machine.peek(a) : machine.ram[a]);

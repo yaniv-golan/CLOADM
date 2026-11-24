@@ -242,13 +242,14 @@ export function setupClaude(page) {
       state.pip = false;                  // the chat screen is the chat only, until Claude acts or Ctrl+B
       if (panel) panel.close({ keep: true });
       show(true);
-      page.status('Chat with Claude: type on the screen and press ENTER.');
+      // (with no key the screen's own no-key line is the cue: there is nothing to type to yet)
+      if (session.hasClaudeKey) page.status('Chat with Claude: type on the screen and press ENTER.');
       // no key: say so on the screen itself (the key card is beside it, or above it on a phone, below the fold)
       if (chat !== had && !session.hasClaudeKey) session.chatNote(`No API key yet: add one ${whereKey()}. Get one at console.anthropic.com.`);
       page.focus();
-      // without a key the key card comes first where the page stacks (a phone or a tablet), so the page starts at the
-      // top rather than at the screen
-      if (document.body.classList.contains('claude-nokey')) scrollTo(0, 0);
+      // the page starts at its top: on a phone that is the chat's screen (under its bar), first; on a tablet without a
+      // key it is the key card, which comes first there
+      if (phoneLayout() || document.body.classList.contains('claude-nokey')) scrollTo(0, 0);
       return chat;
     })();
     try { return await opening; } catch (e) { page.status(`Chat: ${e.message}`, true); return null; } finally { opening = null; }
@@ -332,6 +333,14 @@ export function setupClaude(page) {
     if (session.claudeView === 'full') page.focus();
   };
   $('claudeKeyInput').onkeydown = (e) => { if (e.key === 'Enter') $('btnClaudeKeySave').click(); };
+  // a phone's chat with no key: the key card and the BASIC session card are one line under the screen; "Add key…" opens
+  // the form (body.claude-keyform, until the chat closes)
+  $('btnClaudeAddKey').onclick = () => {
+    document.body.classList.add('claude-keyform');
+    render();
+    $('claudeKeyCard').scrollIntoView({ block: 'start' });
+    $('claudeKeyInput').focus();
+  };
   let editingKey = false;
   $('btnClaudeKeyChange').onclick = () => { editingKey = true; render(); $('claudeKeyInput').focus(); };
   $('btnClaudeKeyForget').onclick = () => { forgetKey(); $('claudeKeyInput').value = ''; render(); };
@@ -399,14 +408,19 @@ export function setupClaude(page) {
     $('claudeKeySaved').hidden = form;
     $('claudeKeyTag').textContent = 'Saved in this browser.';
     // a phone (body.chat-phone, play/index.html): the screen takes the room, its border cut off; without a key the
-    // key card comes first and the machine keyboard stands aside for the phone's own
+    // key card and the BASIC session card fold into one line under the screen, and once "Add key…" opens the form the
+    // machine keyboard stands aside for the phone's own
     const phoneChat = full && phoneLayout();
     document.body.classList.toggle('chat-phone', phoneChat);
     document.body.classList.toggle('claude-nokey', full && form);
+    if (!full) document.body.classList.remove('claude-keyform');
+    // (folded: the line under the screen stands for the key card and the BASIC session card until "Add key…")
+    const folded = phoneChat && form && !document.body.classList.contains('claude-keyform');
+    $('claudeFold').hidden = !folded;
     page.cropBorder = phoneChat && session.chatView === 'chat';
     // (and while a card waits for the person, in any view: held sideways the keyboard covers the whole page, the card
     // with it; nothing of Claude's types meanwhile)
-    if (page.touchKeys) page.touchKeys.standAside((phoneChat && form) || !!session.consent.pending);
+    if (page.touchKeys) page.touchKeys.standAside((phoneChat && form && !folded) || !!session.consent.pending);
     // the panel's offer depends on body.chat-phone (touch-keys.js: a full-screen chat on a phone is not a BASIC
     // machine's screen, and the joystick is not offered there), so a change of it must be applied, not just the
     // class toggled: the stick, FIRE and the switch come and go with it
@@ -414,7 +428,10 @@ export function setupClaude(page) {
     // (the on-screen keyboard's Menu is "← Emulator" there, and leaves the chat in one tap: touch-keys.js apply(), above)
     // the help line: the key state's text (in brackets on the chat screen too, from the firmware)
     // (while a turn is in progress the status line says what it is doing, with Stop)
-    const help = chat && chat.busy ? '' : k === 'none' ? `[No API key yet: add one ${whereKey()}. Get one at console.anthropic.com.]` : keyText(k);
+    const noKey = `No API key yet: add one ${whereKey()}. Get one at console.anthropic.com.`;
+    // (a line typed with no key is answered on the chat screen with these same words: ChatSession.sendLine)
+    if (chat) chat.noKeyText = noKey;
+    const help = chat && chat.busy ? '' : k === 'none' ? `[${noKey}]` : keyText(k);
     $('claudeHelp').textContent = help;
     $('claudeHelp').hidden = !help;
     // the BASIC session card: consent, the switch, the restore point
@@ -461,7 +478,7 @@ export function setupClaude(page) {
     const basic = session.chatMachines && session.chatMachines.basic;
     $('claudeSpec').textContent = basic ? `${basic.profile.name} · chat firmware, no ROM needed` : '';
     $('claudeBasicNote').textContent = basic && !basic.hasRom
-      ? 'Your BASIC session has no BASIC ROMs, so it runs without ROMs: Claude can read and change its memory, but BASIC programs need your ROMs.' : '';
+      ? 'No BASIC ROMs added, so BASIC programs won\'t run here. Claude can still read and change the machine\'s memory.' : '';
     // the swap and the picture-in-picture
     const peeking = session.chatView === 'basic';
     $('claudePip').hidden = !full || !state.pip;
@@ -478,7 +495,7 @@ export function setupClaude(page) {
   // where the key card is, seen from the screen: the words follow the layout ("on the right" beside the screen on a
   // wide page, "above" on a phone, where it comes first)
   function whereKey() {
-    const c = $('claudeKeyCard').getBoundingClientRect(), s = $('screen').getBoundingClientRect();
+    const c = ($('claudeFold').hidden ? $('claudeKeyCard') : $('claudeFold')).getBoundingClientRect(), s = $('screen').getBoundingClientRect();
     if (!c.width || !s.width) return 'on the right';
     if (c.left >= s.right - 1) return 'on the right';
     if (c.bottom <= s.top + 1) return 'above';

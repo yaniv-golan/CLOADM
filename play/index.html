@@ -895,8 +895,13 @@
   body.chat-phone #claudeBar { position: sticky; top: 0; z-index: 7; background: var(--ground); }
   /* without a key the key card comes first wherever the page stacks the chat under the screen (a phone, a tablet:
      under about 1020 px the layout wraps), so it is not a screen or more below */
-  body.chat-phone.claude-nokey #claude { order: -1; }
-  @media (max-width: 1019px) { body.claude-open.claude-nokey #claude { order: -1; } }
+  /* (a phone keeps the chat's screen first: the key card and the BASIC session card fold into one line under it,
+     #claudeFold, until "Add key…" opens the form) */
+  @media (max-width: 1019px) { body.claude-open.claude-nokey:not(.chat-phone) #claude { order: -1; } }
+  #claudeFold[hidden] { display: none; }
+  #claudeFold { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 15px; color: var(--text-2); }
+  #claudeFold button { min-height: 44px; padding: 0 14px; }
+  body.chat-phone.claude-nokey:not(.claude-keyform) :is(#claudeKeyCard, #claudeSession, #claudeHelp) { display: none !important; }
   @media (orientation: landscape) and (max-height: 500px) {
     /* held sideways: a wider screen between the keyboard's halves, its buttons in one row under it (the switch is
        not offered in the chat: there is no BASIC machine's joystick to drive there) */
@@ -2058,6 +2063,8 @@ npx serve -l 8000 .</pre>
   <div id="armAnnounce" class="sr-only" role="status" aria-live="polite"></div>
 
   <aside id="claude" aria-label="Chat with Claude" hidden>
+    <!-- a phone's chat with no key: the key card and the BASIC session card folded into one line under the screen -->
+    <div id="claudeFold" hidden><span>No API key yet</span><span aria-hidden="true"> · </span><button id="btnClaudeAddKey">Add key…</button></div>
     <section class="card" id="claudeKeyCard">
       <label for="claudeKeyInput">Your Anthropic API key</label>
       <input id="claudeKeyInput" type="password" autocomplete="off" spellcheck="false" placeholder="sk-ant-…">

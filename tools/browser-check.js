@@ -15409,25 +15409,44 @@ async function phoneChatChecks(browser, base, check) {
     await page.goto(`${base}?machine=dragon64&app=claude`);
     await waitFor(page, () => window.emu && window.emu.session && window.emu.session.claudeView === 'full' && document.body.classList.contains('chat-phone'), null, 20000);
     await emuFrames(page, 5);
+    // no key: the chat's screen comes first, in view at the top; the key card and the BASIC session card are one line
+    // under it, "No API key yet · Add key…"; no "type on the screen and press ENTER" toast (the screen's own no-key line
+    // is the cue)
     const key = await page.evaluate(() => {
       const r = (id) => document.getElementById(id).getBoundingClientRect();
       const inView = (b) => b.height > 0 && b.top >= 0 && b.bottom <= innerHeight && b.left >= 0 && b.right <= innerWidth;
-      const i = r('claudeKeyInput'), s = r('btnClaudeKeySave');
-      return { scrollY, input: inView(i), save: inView(s), onTop: document.elementFromPoint(i.left + i.width / 2, i.top + i.height / 2) === document.getElementById('claudeKeyInput'),
-        keys: !document.getElementById('touchKeys').hidden, help: document.getElementById('claudeHelp').textContent, appbar: getComputedStyle(document.querySelector('.appbar')).display };
+      const t = document.getElementById('screen').closest('.tube').getBoundingClientRect(), f = r('claudeFold'), add = r('btnClaudeAddKey');
+      const at = document.elementFromPoint(add.left + add.width / 2, add.top + add.height / 2);
+      return { scrollY, screenFirst: t.top < f.top || t.right <= f.left, screenTop: Math.round(t.top), screenSeen: t.top >= 0 && t.top < innerHeight / 2,
+        fold: document.getElementById('claudeFold').checkVisibility() ? document.getElementById('claudeFold').innerText.replace(/\s+/g, ' ').trim() : null,
+        addH: Math.round(add.height), addOnTop: !!at && (at === document.getElementById('btnClaudeAddKey') || document.getElementById('btnClaudeAddKey').contains(at)),
+        card: document.getElementById('claudeKeyCard').checkVisibility(), session: document.getElementById('claudeSession').checkVisibility(),
+        toast: document.getElementById('toast').textContent, keys: !document.getElementById('touchKeys').hidden,
+        help: document.getElementById('claudeHelp').textContent, appbar: getComputedStyle(document.querySelector('.appbar')).display };
     });
-    check(`phone chat (${label}): no key: the key field and Save are on screen as the chat opens, not covered, the machine keyboard stands aside`,
-      key.scrollY === 0 && key.input && key.save && key.onTop && !key.keys, JSON.stringify(key));
-    if (label === 'portrait') check('phone chat (portrait): no key: the help line says the key goes above (the card comes first), not "on the right"', /add one above/.test(key.help) && !/right/.test(key.help), key.help);
-    else {
-      // held sideways the card sits beside the screen, so both fit the height (PC-M2: the screen was a screen and a half down)
-      const side = await page.evaluate(() => { const s = document.getElementById('screen').closest('.tube').getBoundingClientRect(), c = document.getElementById('claudeKeyCard').getBoundingClientRect();
-        return { screen: s.top >= 0 && s.bottom <= innerHeight && s.height > 200, beside: c.left >= s.right }; });
-      check('phone chat (sideways): no key: the key card is beside the screen, both on screen, and the help line says "on the right"', side.screen && side.beside && /add one on the right/.test(key.help),
-        JSON.stringify({ ...side, help: key.help }));
-    }
+    check(`phone chat (${label}): no key: the chat's screen comes first and is in view; under it one line "No API key yet · Add key…" stands for the key card and the BASIC session card`,
+      key.scrollY === 0 && key.screenFirst && key.screenSeen && key.fold === 'No API key yet · Add key…' && !key.card && !key.session && key.addH >= 44, JSON.stringify(key));
+    check(`phone chat (${label}): no key: no "type on the screen and press ENTER" toast`, !/press ENTER/.test(key.toast), key.toast);
     check(`phone chat (${label}): the app bar gives way to the chat bar (its "← Emulator" leads back)`, key.appbar === 'none' && await page.isVisible('#btnClaudeBack'));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, `phone-chat-${label}-nokey.png`) });
+    // a line typed with no key: no turn starts (no "Thinking…", no request), and the page's no-key line answers it
+    await page.evaluate(() => window.emu.session.typeText('hello\n'));
+    const typed = await waitFor(page, () => !!window.emu.session.chat.error && window.emu.session.chat.error.code === 'no-key', null, 15000)
+      && await page.evaluate(() => ({ status: window.emu.session.claudeStatus, busy: window.emu.session.chat.busy, nokey: window.emu.session.shownMachine.peek(0x7024) }));
+    check(`phone chat (${label}): a line typed with no key starts no turn: no "Thinking…", no request, and the firmware is told there is no key`,
+      !!typed && typed.status === null && !typed.busy && typed.nokey === 1 && requests.length === 0, JSON.stringify(typed));
+    // "Add key…" opens the form: the key field and Save on screen, not covered, the machine keyboard stands aside
+    await page.evaluate(() => document.getElementById('btnClaudeAddKey').scrollIntoView({ block: 'center' }));
+    await page.tap('#btnClaudeAddKey');
+    const form = await page.evaluate(() => {
+      const r = (id) => document.getElementById(id).getBoundingClientRect();
+      const inView = (b) => b.height > 0 && b.top >= 0 && b.bottom <= innerHeight && b.left >= 0 && b.right <= innerWidth;
+      const i = r('claudeKeyInput'), s = r('btnClaudeKeySave');
+      return { input: inView(i), save: inView(s), onTop: document.elementFromPoint(i.left + i.width / 2, i.top + i.height / 2) === document.getElementById('claudeKeyInput'),
+        focus: document.activeElement.id, fold: document.getElementById('claudeFold').checkVisibility(), keys: !document.getElementById('touchKeys').hidden };
+    });
+    check(`phone chat (${label}): "Add key…" opens the key form, its field focused and on screen with Save, not covered; the machine keyboard stands aside`,
+      form.input && form.save && form.onTop && form.focus === 'claudeKeyInput' && !form.fold && !form.keys, JSON.stringify(form));
     await page.fill('#claudeKeyInput', 'sk-ant-PHONE-CHECK-0123456789');
     await page.tap('#btnClaudeKeySave');
     check(`phone chat (${label}): with the key saved the machine keyboard is back`, await waitFor(page, () => !document.getElementById('touchKeys').hidden && document.getElementById('claudeKeyCard').hidden));
