@@ -1208,6 +1208,15 @@ browser check's group `uiModel` drives them with real events at 1280x720 and at 
   900 px (none of the panel's controls covered): the "toast over the Stop" it was written for cannot form under
   the rule for opaque sheets, and in both the pill does not come and go and a Stop can be reached. `tests/feedback-toasts.test.js` checks each
   rule in Node.
+* The fallback slot keeps off Claude's Stop (`askEsc`): where a toast has no free place while a turn runs -- a phone
+  held sideways (844x390, touch) while Claude types, and the full-screen chat at 1280x800 and held sideways -- the long
+  toast takes the fallback slot, and that slot is the top one only if it covers none of Claude's Stops that show,
+  otherwise the stylesheet's bottom one. For 20 toasts in a row, long and short, in each layout: the premise (the long
+  toast is in the fallback slot), `elementFromPoint` at every shown Stop's centre is never the toast, `#viewClaude`
+  never changes visibility (0 changes), and a Stop can be clicked while each toast shows. With the fallback always the
+  top slot (the code before this check) it fails: the toast lies over `#btnAskStop` or `#btnClaudeStop` (held sideways
+  over the pill's own `#btnViewStop` too), the pill comes and goes once per long toast, and held sideways no Stop can be
+  clicked.
 * The phone layout (`phone`, iPhone 15 upright): the four chips in their fixed order under the keyboard panel, each in
   view and at least 44 x 44; each opens its sheet (a modal dialog, the focus inside, its title) and Esc closes it with
   the focus back on the chip; the hardware keyboard does not reach the machine while a sheet is open (the welcome
@@ -2283,24 +2292,6 @@ picture and keeps it the same in every field. The fast-rate picture has no autom
 
 * About one in five 1983 Dragons wouldn't run at the fast rates. We emulate a machine that accepts the POKEs.
 * Nothing persists past a reset or a power cycle: there is no "damage".
-
-## A known flash: the chat's Stop pill and a toast (not fixed here)
-
-When a turn is running and a long toast covers the chat's Stop button, the floating Stop pill (`#viewClaude`) can
-flash on and off once. `js/ui/ask.js` measures whether any Stop is reachable, and `body.claude-float` itself moves
-`#toastRegion` (`play/index.html`: `bottom: 96px` against its natural `8px`), so applying the pill can lift the very
-toast that was covering the Stop. The toast does not then hold still: `js/ui/feedback.js` re-places it as its inputs
-change (a natural toast becomes a placed or top-slot one), so between two `renderActing` samples the state the pill
-reads can change under it.
-
-The browser check measures it: `askEsc` counts how many times `#viewClaude` changes visibility while such a toast
-shows, and requires at most one, with no page errors. It does not currently assert that the toast really covers the
-Stop, nor that a Stop stays reachable — a stricter version of the check that asserts both is held for the release
-that fixes this.
-
-This is recorded rather than fixed: the fix touches the shared root — a toast's placement changing under a reader
-between samples — and is scheduled for the next minor release with that work. The check is left exactly as it was
-before this release, so the release changes no behaviour here.
 
 ---
 

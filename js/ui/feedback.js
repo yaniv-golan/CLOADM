@@ -178,7 +178,8 @@ export function createFeedback() {
   // screen text: it is the user's to read). Placed again every frame while it is up (follow), so a control that moves
   // or grows under it (the drawer filling in after the toast appeared) never ends up covered. When none of those
   // places is free, "never invisible" wins over "never covers a control": the toast takes a fixed slot at the top of
-  // the viewport (#toastRegion.top: above everything but the dialogs), keeps that slot until it goes (it is not
+  // the viewport (#toastRegion.top: above everything but the dialogs) -- or, when the top one would cover one of
+  // Claude's Stops that show (STOPS below), the stylesheet's own bottom place with the same class -- keeps that slot until it goes (it is not
   // placed again, so it does not jump about under the user's eyes), and its time starts there. That pin is
   // provisional at first: it is placed in the slot in the frame it appears in, but while a control that
   // decides where it may go is still in its own animation (a sheet opening), and for 300 ms at most, it is placed
@@ -190,6 +191,12 @@ export function createFeedback() {
   const region = box.parentNode;
   // (the install offer too: a toast must never cover it, in any of its layouts)
   const CONTROLS = 'header, .controls, .slots, aside.drawer, #attention, #touchKeys button, #claudeBar, #installOffer, #tapeHud:not([hidden]), #btnShowKeys:not([hidden])';
+  // Claude's Stop buttons (the same list js/ui/ask.js reads, and the pill's own). The fixed fallback slot covers controls
+  // by design ("never invisible" wins), but never the Stop of a running turn: a toast there pulled the chat's pill
+  // (#viewClaude) up for exactly as long as it showed, and down again when it went -- the "flash" the pill does for a
+  // toast. So the fallback has two slots, the top one and the stylesheet's own bottom one, and takes the first that
+  // covers no Stop that shows (the top one when both do, as before).
+  const STOPS = '#btnAskStatusStop, #btnAskStripStop, #btnAskStop, #btnAskPeekStop, #btnFsStop, #btnClaudeStop, #btnPipStop, #btnViewStop';
   // Class changes that queue NO mutation when they change nothing. In a real browser `classList.remove('x')` and
   // `add('x')` queue a class-attribute mutation whether or not 'x' was there (measured in Chromium: 10 remove() calls
   // of an absent class on an element that has a class attribute give 10 records; `toggle('x', false)` gives 0), so a
@@ -229,9 +236,11 @@ export function createFeedback() {
   // The fixed top slot: the class carries the rest, the two inline properties pin it away from the stylesheet's edge.
   // `area` and `phone` are the decision's own inputs, passed in rather than read again: a second `innerWidth` read here
   // was a DOM read outside readInputs(), so this writer could disagree with the key that recorded the decision.
-  function placedTop(area, phone, barBottom = 0) {
+  function placedTop(area, phone, barBottom = 0, slot = 'top') {
     clearRegion();
     addClass(region, 'top');
+    // the bottom slot: the stylesheet's own place, above the page as the top slot is (the class: no inline style)
+    if (slot === 'bottom') return;
     // the slot is inside the safe area: clear of a phone's notch (viewport-fit=cover) as well as of the top edge
     // and under the app bar where it shows (a toast never covers the bar's buttons)
     const top = `${Math.round(Math.max(area.top + (phone ? 8 : 16), barBottom ? barBottom + 8 : 0))}px`;
@@ -267,6 +276,8 @@ export function createFeedback() {
       active: cv ? cv.dataset.active || '0,0,1,1' : '',
       // a phone held sideways with the touch keys (decide's band reaches the tube's foot there)
       sideKeys: !!(document.body && document.body.classList.contains('touch-keys')) && matchMedia('(orientation: landscape) and (max-height: 500px)').matches,
+      // the turn's Stops that show (the fallback slot keeps clear of them)
+      stops: [...document.querySelectorAll(STOPS)].map((e) => e.getBoundingClientRect()).filter(shown).map(boxOf),
       // the app bar's bottom edge where it shows (the top slot stands under it: a toast never covers the bar's buttons)
       barBottom: (() => { const bar = document.getElementById('appbar'); if (!bar) return 0; const b = bar.getBoundingClientRect(); return b.height && b.bottom > 0 && getComputedStyle(bar).display !== 'none' ? b.bottom : 0; })(),
     };
@@ -351,7 +362,7 @@ export function createFeedback() {
       // the phone flag too: the slot's offset is 8 px on a phone and 16 px otherwise, so crossing 700 px with the
       // safe area unchanged still needs the slot re-applied (an 8 px offset left on a wide window, or the reverse).
       const A = readInputs(), a = A.area, areaKey = `${a.top}|${a.left}|${a.bottom}|${a.right}|${A.phone}`;
-      if (areaKey !== pinnedArea) { placedTop(a, A.phone, A.barBottom); pinnedArea = areaKey; }
+      if (areaKey !== pinnedArea) { placedTop(a, A.phone, A.barBottom, cur.slot); pinnedArea = areaKey; }
       return;
     }
     if (box.hidden) { unplace(); return; }
@@ -412,7 +423,16 @@ export function createFeedback() {
       box.classList.add('compact');
       if (slotTop + box.getBoundingClientRect().height > picTop) box.classList.remove('compact');   // neither fits: as before
     }
+    const topCompact = box.classList.contains('compact');
     placedTop(I.area, I.phone, I.barBottom);
+    let slot = 'top';
+    const onStop = () => { const b = box.getBoundingClientRect(); return I.stops.some((o) => hitsRect(b, o)); };
+    if (I.stops.length && onStop()) {
+      dropClass(box, 'compact');
+      placedTop(I.area, I.phone, I.barBottom, 'bottom');
+      if (onStop()) { placedTop(I.area, I.phone, I.barBottom); if (topCompact) addClass(box, 'compact'); } else slot = 'bottom';
+    }
+    if (cur) cur.slot = slot;
     decided = { kind: 'top' };
     // NO settle() here, and no `reapply` arm for 'top': a 'top' decision is never re-applied from the cache. Once the
     // pin is final, `place` returns at its first line on every later frame; while it is provisional, every

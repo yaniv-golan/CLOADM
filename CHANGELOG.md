@@ -8,6 +8,18 @@ All notable changes to CLOADM are recorded here. The format follows
 
 Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.test.js` keeps them in step).
 
+#### Fixed
+
+- **A toast with no free place no longer covers Claude's Stop.** While a turn ran, a toast that found no free place took
+  the fixed slot at the top of the window, and in three layouts that slot lay over the turn's Stop: a phone held
+  sideways with the touch keys while Claude types (the Stop on the screen), and the full-screen chat at 1280 px and held
+  sideways (the chat's Stop, and held sideways the floating pill's own). The chat's Stop pill then came up for as long
+  as the toast showed and went with it -- the flash `docs/verification.md` recorded as known -- and held sideways no
+  Stop could be clicked at all. `js/ui/feedback.js` now keeps the fallback slot off every Claude Stop that shows: it
+  takes the stylesheet's bottom slot when the top one would cover one (the top one, as before, when both would). The
+  browser check's stricter `askEsc` case, held back until this fix, runs 20 toasts in each
+  of those layouts and requires no toast over a Stop, the pill never moving and a Stop always reachable.
+
 ### 0.2.0
 
 #### Added

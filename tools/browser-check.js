@@ -13301,6 +13301,12 @@ async function askEscChecks(browser, base, check) {
     check(`${L}: no toast lies over a Stop, in the fallback slot or anywhere`, reps.every((r) => !r.under.length), JSON.stringify(reps.filter((r) => r.under.length).slice(0, 3)));
     check(`${L}: 20 toasts in a row: the pill never shows (a Stop stays reachable without it)`, reps.every((r) => r.n === 0), JSON.stringify(reps.map((r) => r.n)));
     check(`${L}: a Stop is reachable while every toast shows (the pill's whole reason)`, reps.every((r) => r.reach.length), JSON.stringify(reps.filter((r) => !r.reach.length).slice(0, 3)));
+    if (shotDir) {
+      // the long toast in its fallback slot, the turn's Stop beside it
+      await page.evaluate(() => window.emu.feedback.toast('A toast over the bottom of the window, long enough to wrap onto several lines on a phone, so that it lies over the sheet\'s Stop button at the bottom edge of the window for as long as it shows'));
+      await emuFrames(page, 30);
+      await page.screenshot({ path: path.join(shotDir, `askesc-fallback-slot-${viewport.width}x${viewport.height}${full ? '-full' : ''}.png`) });
+    }
     await page.evaluate(() => window.emu.session.stopClaude());
     if (replies.held) replies.held.release();
     check(`${L}: no page errors`, !errors.length, errors.join('; '));
