@@ -1245,6 +1245,18 @@ browser check's group `uiModel` drives them with real events at 1280x720 and at 
   its action, ↓ from the last machine to both footer items, Esc, and each footer item's focus.
 * ROMs in the Library: the ROMs chip's card with and without ROMs (the count and the machines worked out from `session.roms`),
   the drop's **Open Your ROMs**, and the card's link. `tests/stored-roms.test.js` checks `Session.storedRoms`.
+* ROM state, one story (browser check `romTruth`, `tools/browser-check.js`): on one first visit, with no
+  reload, the side card, the welcome menu and Your ROMs are checked against each other in three states — no ROMs,
+  an unrecognised ROM loaded (our own NOP image at a socket's name and size, never a real dump), and "Run without
+  ROMs" with the ROMs still in the sockets. The card says "Running with no ROMs." only in the first, is gone in the
+  second, and says "Running without your ROMs." with a working "Use my ROMs" button in the third; menu option 3 reads "ADD YOUR ROMS FOR
+  BASIC" in the first and "USE YOUR ROMS FOR BASIC" in the third. Your ROMs lists a machine under "Also ready to run
+  BASIC" only for a verified dump, and the note about a file that could not be used sits beside the socket list.
+  `tests/roms.test.js` checks the two rules in Node (`Session.machinesVerified`, `Session.romsReadyButOff`), with a
+  mutant that asks "filled" instead of "verified".
+  **Not verified:** no MAME loader sets ROMSW to 1, so the "USE YOUR ROMS FOR BASIC" branch is not MAME-compared.
+  It is the same menu table and a two-way branch on one byte (the same code path that draws "ADD YOUR ROMS FOR
+  BASIC", which is compared), held instead by the Node tests on both welcome builds, which read the drawn cells.
 * ROM tiles: an empty Library shows the ROMs chip and the "No ROMs yet" card; under the ROMs chip (none under All) a
   tile per stored image with its name, size, "Used by" (a shared image names every machine) and a Remove button of at
   least 44 px (one column on the phone); Remove takes the tile away, the toast reads "Removed d64_1.rom." with Undo and

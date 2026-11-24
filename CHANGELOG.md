@@ -432,6 +432,16 @@ Next version: 0.1.9-pre (the plugin and extension manifests carry it; `tests/plu
 
 ### Fixed
 
+- **The side card, the screen and the ROM page told different stories about ROMs.** With a ROM loaded that CLOADM
+  does not recognise, the machine runs it, but the side card still said *Running with no ROMs.*; and after **Run
+  without ROMs** the ROMs are in the sockets and only switched off, while the card said the same thing and the
+  Welcome menu still offered **3 ADD YOUR ROMS FOR BASIC** — asking for what was already there. The card now
+  follows the machine: *Running with no ROMs.* only when there are none, *Running without your ROMs.*
+  when the required ROMs are in the sockets and the stub was chosen (with a **Use my ROMs** button on the card), and no card
+  once the ROMs run. The Welcome menu's option 3 reads **USE YOUR ROMS FOR BASIC** in that state. On **Your ROMs**, a
+  machine is listed as *Also ready to run BASIC* only when every required socket holds a **recognised** dump, not
+  a file that was merely loaded. The note about a file that could not be used moved from a toast at the foot of
+  the window to beside the socket list it is about, so it is read without scrolling.
 - **A first visit is not greeted "WELCOME BACK" while nothing has run in it.** Picking a machine in the header menu, or
   the shelf's Welcome menu, on the browser's first visit shows the title screen; once a program has run, or on a later
   visit, the menu says it. (`Session.greetingFor` is now a method of the session, which knows whether the visit began

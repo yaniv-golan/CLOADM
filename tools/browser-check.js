@@ -2545,7 +2545,12 @@ async function romUiChecks(browser, base, check) {
   await waitFor(page, () => !document.getElementById('romOffers').hidden);
   check('offer: a ROM for another machine offers to switch', /d32\.rom is for the Dragon 32\. The Dragon 32 is now ready too\./.test(await page.textContent('#romOffers'))
     && !(await page.evaluate(() => document.getElementById('toast').classList.contains('error'))), await page.textContent('#romOffers'));
-  check('offer: the ready machines are summarised', /Also ready to run BASIC: Dragon 32/.test(await page.textContent('#romReady')));
+  // d32.rom is a synthetic image matched by NAME only (not a known dump), so the Dragon 32 is loaded but not
+  // verified: "Also ready to run BASIC" claims a verified dump, and must not name it. What the offer above says (it
+  // is "now ready too", an offer to switch and try) is about the drop, not this summary.
+  check('offer: "Also ready to run BASIC" names no machine whose dump is only loaded, not recognised',
+    !/Dragon 32/.test(await page.textContent('#romReady'))
+    && /d32\.rom is for the Dragon 32\./.test(await page.textContent('#romOffers')), await page.textContent('#romReady'));
   await shot('offer');
   await page.click('#romOffers button.primary');
   // (the switch asks first, as the machine menu does: the machine in use may be running something)
@@ -19564,6 +19569,7 @@ const GROUPS = (base, site) => [
   ['snapshot', (b) => snapshotChecks(b, base, check)],
   ['liza6803', (b) => liza6803Checks(b, base, check)],
   ['romInput', (b) => romInputChecks(b, base, check)],
+  ['romTruth', (b) => romTruthChecks(b, base, check)],
   ['design', (b) => designChecks(b, base, check)],
   ['inputScreen', (b) => inputScreenChecks(b, base, check)],
   ['touchJoystick', (b) => touchJoystickChecks(b, base, check)],
@@ -19678,3 +19684,196 @@ const GROUPS = (base, site) => [
     fs.writeFileSync(timingsFile, JSON.stringify({ groups }, null, 2) + '\n');
   }
 })();
+
+// The ROM state tells one story. Three surfaces say what the machine is doing: the side card ("Running with no
+// ROMs."), the screen (the welcome menu's option 3) and, on Your ROMs, the list of other machines that are "Also
+// ready to run BASIC". They used to disagree: with an unrecognised ROM loaded the card still said "no ROMs", and
+// after "Run without ROMs" the menu still offered "3 ADD YOUR ROMS FOR BASIC" when the ROMs were already in the
+// sockets. Measured on our own NOP image (a socket's usual name, the right size, not a known dump), so no real ROM
+// is involved. The whole set is driven on ONE first visit, in order, because the bug is in how the state changes:
+// nothing here reloads.
+const romTruthChecks = async (browser, base, check) => {
+  const archive = [];
+  const ctx = await guardedContext(browser, archive);
+  const page = await ctx.newPage();
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  const NOP = Buffer.alloc(8192, 0x12);          // 8K of NOP: the CoCo BASIC socket's size, no known CRC
+  const card = () => page.evaluate(() => {
+    const b = document.getElementById('welcome');
+    return b && !b.hidden ? { kind: b.dataset.kind || '', text: b.textContent.replace(/\s+/g, ' ').trim() } : null;
+  });
+  const menuRow3 = () => page.evaluate(() => {
+    const rows = window.emu.session.screenText();
+    return (rows.find((r) => /^\s*3\s/.test(r)) || '').trim();
+  });
+  // the menu is drawn by the program a frame after it is loaded: wait for the row rather than race it
+  const menuReady = (re) => waitFor(page, (src) => window.emu.session.screenText().some((r) => new RegExp(src).test(r)), re.source, 15000);
+  // the card must say what the machine IS: its own words, not just "not hidden"
+  await page.goto(`${base}?machine=coco`);
+  await waitFor(page, () => !!(window.emu && window.emu.session && window.emu.started === true), null, 40000);
+  await emuFrames(page, 20);
+  {
+    await menuReady(/^\s*3\s+ADD YOUR ROMS/);
+    const c = await card();
+    check('rom states: with no ROMs the side card says so, and the menu offers to add them',
+      !!c && /^Running with no ROMs\./.test(c.text) && /ADD YOUR ROMS/.test(await menuRow3()),
+      `${c ? c.text.slice(0, 80) : '(no card)'} / menu: ${await menuRow3()}`);
+  }
+  // an unrecognised ROM: the machine now runs it, so the card must stop saying "no ROMs" (the menu is gone with it)
+  await page.setInputFiles('#fileRom', [{ name: 'bas12.rom', mimeType: 'application/octet-stream', buffer: NOP }]);
+  const ran = await waitFor(page, () => !window.emu.session.machineRoms('coco').sockets.find((s) => s.id === 'bas').status.startsWith('missing'), null, 15000);
+  check('rom states: the unrecognised ROM is loaded (the probe of the other checks)', ran, await romStatus(page, 'coco'));
+  await emuFrames(page, 20);
+  // the first visit's own card must SURVIVE the things that fire the same events: a machine picked in its question,
+  // and a Reset. (Regression: refreshCard's 'empty' state hid a 'first' card on 'machine' and 'reset'.)
+  {
+    const ctxF = await guardedContext(browser, archive);
+    const pf = await ctxF.newPage();
+    const errsF = [];
+    pf.on('pageerror', (e) => errsF.push(e.message));
+    const kind = () => pf.evaluate(() => { const b = document.getElementById('welcome'); return b && !b.hidden ? (b.dataset.kind || '') : null; });
+    await pf.goto(base);
+    await waitFor(pf, () => !!(window.emu && window.emu.session && window.emu.started === true), null, 40000);
+    await emuFrames(pf, 15);
+    const before = await kind();
+    await pf.evaluate(() => { const b = document.querySelector('#askMachine [data-machine]'); if (b) b.click(); });
+    await emuFrames(pf, 20);
+    check('rom states: the first visit\'s card survives a machine picked in its own question', before === 'first' && (await kind()) === 'first',
+      `${before} -> ${await kind()}`);
+    await pf.evaluate(() => window.emu.session.personMachine && document.querySelector('[data-action="reset"], #btnReset') && (document.getElementById('btnReset') || { click() {} }).click());
+    await emuFrames(pf, 20);
+    check('rom states: ...and survives a Reset', (await kind()) === 'first', String(await kind()));
+    check('rom states: no page errors (first visit)', errsF.length === 0, errsF.join(' | '));
+    await ctxF.close();
+  }
+  check('rom states: with an unrecognised ROM loaded the card does not say "no ROMs" (the ROM is what runs)',
+    (await card()) === null, JSON.stringify(await card()));
+  // "Run without ROMs" with the ROMs still in the sockets: nothing is missing, so the card says what to do and the
+  // menu stops asking for ROMs it already has
+  await page.evaluate(() => document.getElementById('btnRunStub').click());
+  await waitFor(page, () => window.emu.session.personMachine.useStub && window.emu.session.machineRoms('coco').bootable, null, 15000);
+  await emuFrames(page, 20);
+  {
+    await menuReady(/^\s*3\s+(ADD YOUR|USE YOUR)/);
+    const c = await card();
+    const row = await menuRow3();
+    check('rom states: after "Run without ROMs" the card says the ROMs are yours to use, not that there are none',
+      !!c && /^Running without your ROMs\./.test(c.text) && /Use my ROMs/.test(c.text) && !/^Running with no ROMs/.test(c.text),
+      c ? c.text.slice(0, 110) : '(no card)');
+    check('rom states: ...and the menu offers to USE the ROMs it has, not to add them again',
+      /USE YOUR ROMS FOR BASIC/.test(row) && !/ADD YOUR ROMS/.test(row), `row 3: ${row || '(none)'}`);
+  }
+  // THE CARD'S OWN BUTTON, first, while the card is really up: a test that clicks it after the Dismiss block clicks a
+  // hidden element and is true before the click, so it cannot fail (a mutant that removed both hides still passed).
+  // The card must be VISIBLE, and the click is a person's (page.click on the element), not a JS .click().
+  {
+    const visible = await page.isVisible('#welcome [data-card-switch]');
+    check('rom states: the "off" card is up with its "Use my ROMs" button, before it is clicked', visible && (await card()) !== null,
+      JSON.stringify(await card()));
+    await page.click('#welcome [data-card-switch]');
+    const done = await waitFor(page, () => !window.emu.session.personMachine.useStub, null, 20000);
+    await emuFrames(page, 20);
+    check('rom states: the card\'s "Use my ROMs" runs the ROMs and the card goes', done && (await card()) === null,
+      `useStub ${await page.evaluate(() => window.emu.session.personMachine.useStub)}, card ${JSON.stringify(await card())}`);
+  }
+  // Dismiss sticks: the card stays gone across the events that re-check it (reset, firmware), until a state that
+  // needs a card arrives. (A dismissed card that comes back on the next Reset is a card you cannot get rid of.)
+  // The card is brought genuinely back first -- ROMs off (state 'none'), then the stub chosen again -- so what is
+  // dismissed is a card that was really shown, not one left hidden by the block above.
+  {
+    await page.evaluate(() => { const m = window.emu.session.personMachine; window.emu.session.stubChosen.delete(m.id); window.emu.session.switchMachine(m.id); });
+    await waitFor(page, () => !window.emu.session.personMachine.useStub, null, 20000);
+    await page.evaluate(() => window.emu.session.runWithoutRoms());
+    await waitFor(page, () => { const b = document.getElementById('welcome'); return !!b && !b.hidden && !!b.querySelector('.close'); }, null, 15000);
+    await page.click('#welcome .close');
+    const gone = await page.evaluate(() => { const b = document.getElementById('welcome'); return !b || b.hidden; });
+    await emuFrames(page, 5);
+    await page.evaluate(() => window.emu.session.personMachine && document.getElementById('btnReset').click());
+    await emuFrames(page, 25);
+    const still = await page.evaluate(() => { const b = document.getElementById('welcome'); return !b || b.hidden; });
+    check('rom states: Dismiss on the card sticks across a Reset', gone && still, `dismissed ${gone}, still hidden after Reset ${still}`);
+
+    // AND THE DISMISSAL LIFTS: the card dismissed above must come back when the machine's state changes, or a card
+    // dismissed once can never be seen again. A state change to 'none' (the ROMs running) resets it; the next stub
+    // choice is a new thing to say and the card returns. (Before this ran after a Dismiss, the check exercised
+    // nothing: a mutant that never reset the dismissal still passed.)
+    await page.evaluate(() => { const m = window.emu.session.personMachine; window.emu.session.stubChosen.delete(m.id); window.emu.session.switchMachine(m.id); });
+    await waitFor(page, () => !window.emu.session.personMachine.useStub, null, 20000);
+    await page.evaluate(() => window.emu.session.runWithoutRoms());
+    const cameBack = await waitFor(page, () => { const b = document.getElementById('welcome'); return !!b && !b.hidden && !!b.querySelector('[data-card-switch]'); }, null, 15000);
+    check('rom states: a dismissed card comes back when the ROMs are switched off and on again (the dismissal lifts)',
+      cameBack && (await card()) !== null, JSON.stringify(await card()));
+  }
+  // ...and the card being hidden does NOT mean the person is left with a silent screen: the ROM runs and never
+  // prints OK, so the boot-help overlay comes up on its own, naming the file that was not recognised. (The card
+  // says what the machine has; this says what went wrong, and with ROMs in the machine it is the only one that can.)
+  {
+    // a fresh power-on with the ROMs: the watchdog starts a new run, watches it, and answers 'failed' when OK never
+    // comes. (The boot earlier in this group had already been answered -- 'stub' -- and bootStatus only changes on a
+    // machine, firmware or reset event, all of which this fires.)
+    await page.evaluate(() => { const m = window.emu.session.personMachine; window.emu.session.stubChosen.delete(m.id); window.emu.session.switchMachine(m.id); });
+    await waitFor(page, () => !window.emu.session.personMachine.useStub, null, 20000);
+    await emuFrames(page, 10);
+    const shown = await waitFor(page, () => { const b = document.getElementById('bootHelp'); return !!b && !b.hidden; }, null, 45000);
+    const r = await page.evaluate(() => ({
+      state: window.emu.session.bootStatus(5).state,
+      title: (document.getElementById('bootHelpTitle') || {}).textContent || '',
+      text: (document.getElementById('bootHelpText') || {}).textContent || '',
+      card: (() => { const b = document.getElementById('welcome'); return b && !b.hidden; })(),
+      // the buttons it offers with ROMs in the machine
+      sockets: (() => { const b = document.getElementById('btnBootSockets'); return b ? !b.hidden : null; })(),
+      stub: (() => { const b = document.getElementById('btnBootStub'); return b ? !b.hidden : null; })(),
+    }));
+    check('rom states: an unrecognised ROM that never boots still gets the boot-help overlay, naming the file',
+      shown && r.state === 'failed' && /No OK after 5 seconds/.test(r.title) && /bas12\.rom/.test(r.text) && /isn't recognised/.test(r.text),
+      `${r.state} · ${r.title} · ${r.text.slice(0, 90)}`);
+    check('rom states: ...while the side card stays hidden (the overlay is what explains it)',
+      r.card === false && r.sockets === true && r.stub === true, `card ${r.card}, Add ROMs ${r.sockets}, Run without ROMs ${r.stub}`);
+  }
+  check('rom states: no page errors', errors.length === 0, errors.join(' | '));
+  await ctx.close();
+
+  // ---- Your ROMs: who is "Also ready to run BASIC", and where the note about a file it could not use sits ----
+  // A machine counts only when every REQUIRED socket holds a VERIFIED dump. A file that is merely loaded (right name
+  // or size) is not proof of a working BASIC: it was being listed as ready the moment its socket was filled.
+  const ctx2 = await guardedContext(browser, archive);
+  const p2 = await ctx2.newPage();
+  const errs2 = [];
+  p2.on('pageerror', (e) => errs2.push(e.message));
+  await p2.goto(`${base}?machine=dragon64`);
+  await waitFor(p2, () => !!(window.emu && window.emu.session && window.emu.started === true), null, 40000);
+  await emuFrames(p2, 10);
+  // d64_1.rom is the Dragon 64's first socket AND the Tano Dragon 64's: loaded, not a known dump
+  await p2.setInputFiles('#fileRom', [{ name: 'd64_1.rom', mimeType: 'application/octet-stream', buffer: Buffer.alloc(16384, 0x12) }]);
+  await waitFor(p2, () => window.emu.session.machineRoms('tanodr64').bootable, null, 15000);
+  await openRoms(p2);
+  {
+    const r = await p2.evaluate(() => {
+      const rd = document.getElementById('romReady');
+      const sk = document.getElementById('romSockets');
+      // show the line as it would be if it had a machine to name, so its PLACE can be measured even while empty
+      const was = rd.textContent; rd.textContent = 'Also ready to run BASIC: X.'; const a = rd.getBoundingClientRect();
+      const b = sk.getBoundingClientRect(); rd.textContent = was;
+      return { text: was.trim(), below: Math.round(a.top - b.bottom), gap: Math.round(a.top - b.bottom) > 0 && Math.round(a.top - b.bottom) < 260 };
+    });
+    check('rom page: a file that is only loaded does not make its other machine "Also ready to run BASIC"',
+      !/Tano Dragon 64/.test(r.text), r.text || '(empty)');
+    check('rom page: that line sits beside the socket list it is about, not below the scroll',
+      r.below > 0 && r.below < 260, `${r.below}px below the list`);
+  }
+  // a file CLOADM cannot use: the note goes beside the list, where the thing it is about is
+  await p2.setInputFiles('#fileRom', [{ name: 'bas99.rom', mimeType: 'application/octet-stream', buffer: Buffer.alloc(4096, 7) }]);
+  {
+    const r = await waitFor(p2, () => { const b = document.getElementById('romProblems'); return !b.hidden && b.textContent.trim() ? b.textContent.trim() : false; }, null, 10000);
+    const where = await p2.evaluate(() => {
+      const pb = document.getElementById('romProblems'), sk = document.getElementById('romSockets');
+      const a = pb.getBoundingClientRect(), b = sk.getBoundingClientRect();
+      return { below: Math.round(a.top - b.bottom), sameColumn: pb.parentElement === sk.parentElement };
+    });
+    check('rom page: a file it could not use is said beside the socket list, not in a toast at the window foot',
+      r !== false && where.sameColumn && where.below > 0 && where.below < 400, `${r || '(no note)'} · ${where.below}px below the list`);
+  }
+  check('rom page: no page errors', errs2.length === 0, errs2.join(' | '));
+  await ctx2.close();
+};

@@ -635,7 +635,9 @@ const REQUIRED = require.main !== module;
     'lastRun', 'welcomeMenu', 'startMachine', 'caseInsensitive', 'webSerialAvailable', 'realCoco', 'driveWireMounts',
     'driveWireChannels', 'hasAnyRoms', 'hasMultiPak', 'claudeBusyActing', 'lizaFile', 'cartBoard', 'paused', 'display', 'debugger', 'stubRun',
     'stubChosen', 'offersSsc', 'tapeRecording', 'personMachine', 'shownMachine', 'nitros9Running', 'nitros9OnScreen',
-    'hasArtifactPhase', 'hasTwoScreens', 'welcomeRunning', 'welcomeRunningOn', 'welcomeOnScreen', 'lastRunOnScreen']) SESSION.add(n);
+    'hasArtifactPhase', 'hasTwoScreens', 'welcomeRunning', 'welcomeRunningOn', 'welcomeOnScreen', 'lastRunOnScreen',
+    // both default to the person's machine and read only its own sockets: nothing of the chat machine's
+    'romsReadyButOff', 'machinesVerified']) SESSION.add(n);
   // Puppets whose reachability is decided where they live (see the note above): debug (the Debugger view closes the
   // chat, claude.js:283-286), chat (the ChatSession, not a machine), store/roms/index/media/keys/machine (the
   // Session's own services).
