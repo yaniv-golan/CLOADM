@@ -381,7 +381,7 @@ export function setupTouchKeys(page, { input }) {
   $('selTouchKeys').onchange = (e) => { session.store.set('touchKeys', e.target.value); hidden = false; apply(); };
   $('btnShowKeys').onclick = () => { hidden = false; apply(); };
   // The panel's menu button, held sideways only (the app bar's Menu is the only Menu elsewhere). The order puts what
-  // acts on this machine first: Programs…, Open…, Ask Claude…, Tape, disks and cartridge…, Machine…, Settings…,
+  // acts on this machine first: Programs…, Open…, Ask Claude…, Share…, Tape, disks and cartridge…, Machine…, Settings…,
   // Power…, then under a rule Commands…, Install CLOADM… and Hide keys. The three that open something on this very machine come first;
   // Commands… (Share, Library, Debugger, Help and the rest) sits below the rule with the app-level items. In a phone's
   // chat (body.chat-phone, js/ui/claude.js) the app bar gives way to the chat bar, so it is "← Emulator" and leaves the
@@ -394,6 +394,10 @@ export function setupTouchKeys(page, { input }) {
     sheet.innerHTML = '<button type="button" data-item="programs">Programs…</button>'
       + '<button type="button" data-item="open">Open…</button>'
       + (noChat() ? '' : '<button type="button" data-item="ask">Ask Claude…</button>')
+      // Share…, the app bar's Share (this moment as a link, js/ui/share.js): wherever the app bar has it, so also in a
+      // page framed in another site (no chat there, Share all the same); not in an embed (?embed=1), which has no app bar
+      // and no Share of its own (play/index.html hides it there: the embed class arrives after this sheet is built)
+      + '<button type="button" data-item="share">Share…</button>'
       + '<button type="button" data-item="ports">Tape, disks and cartridge…</button>'
       + '<button type="button" data-item="machine">Machine…</button><button type="button" data-item="settings">Settings…</button>'
       + '<button type="button" data-item="power">Power…</button>'
@@ -425,6 +429,7 @@ export function setupTouchKeys(page, { input }) {
     if (b.dataset.item === 'programs') page.openPrograms($('tkMenu'));
     else if (b.dataset.item === 'open') { $('fileProgram').click(); $('tkMenu').focus(); }
     else if (b.dataset.item === 'ask') openAsk();
+    else if (b.dataset.item === 'share') $('btnShare').click();   // (the Share screen's own "← Emulator" comes back here)
     else if (b.dataset.item === 'machine') openMachines();
     else if (b.dataset.item === 'settings') page.openSettings(null, $('tkMenu'));
     else if (b.dataset.item === 'ports') page.sheets.openPorts(null, $('tkMenu'));

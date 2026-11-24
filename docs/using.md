@@ -304,7 +304,8 @@ MC-10 or Alice, not when the right port holds a Hi-Res interface or The Rat, and
   The switch's choice is remembered per program and machine, and `?touch=joystick` or `?touch=keys` sets it for the
   visit.
 * Keys mode: held sideways the keyboard splits for your thumbs, BREAK, CLEAR, the switch and Menu sit under it (Menu
-  has Machine… — the machine picker —, Commands… and **Hide keys**). `SHIFT` shifts the next key. Input tab →
+  has Programs…, Open…, Ask Claude…, **Share…**, the ports, Machine… — the machine picker —, Settings…, Power…, Commands…
+  and **Hide keys**; an embed has no Ask Claude…, Commands… or Share…). `SHIFT` shifts the next key. Input tab →
   On-screen keyboard: Automatic, Always or Never.
 * On a phone held upright the whole panel fits on screen with the browser's toolbars up, the row with ENTER included:
   the strip [Keys|Pad|Stick] [BREAK] [CLEAR] [⌄] lies between the screen and the keys, and the screen takes the room

@@ -176,6 +176,7 @@
   body.embed .appbar, body.embed #switchConfirm, body.embed .drawer, body.embed footer, body.embed .controls,
   body.embed .slots, body.embed .hint, body.embed .plate, body.embed #welcome,
   body.embed #claude, body.embed #ask, body.embed #askRail { display: none !important; }
+  body.embed #tkMenuSheet [data-item="share"] { display: none !important; }   /* no Share in an embed (js/ui/touch-keys.js) */
   /* a page shown inside another page has no Claude chat: its buttons are hidden, not left dead (js/ui/main.js) */
   body.no-claude #btnAsk, body.no-claude #navCommands, body.no-claude [data-shelf="claude"], body.no-claude #claude, body.no-claude #ask, body.no-claude #askRail { display: none !important; }
   body.embed .layout { padding: 0; display: block; }
