@@ -56,6 +56,7 @@
 //
 //   node tools/browser-check.js [--only g1,g2] [--screenshots DIR] [--timings FILE]
 const http = require('http'), fs = require('fs'), path = require('path'), os = require('os'), zlib = require('zlib'), child_process = require('child_process');
+const { pathToFileURL } = require('url');
 // the snapshot format this tree writes (the version checks build a newer file from it)
 const { SNAPSHOT_VERSION } = require('../tests/load')();
 // the settle bound is the audio module's own derivation, never a literal here (see SETTLE_MS in js/host/audio.js)
@@ -5819,16 +5820,20 @@ async function phoneChecks(browser, base, check) {
     }
     check('desktop: the app bar has no Programs…, and no label with its words run together ("Install", then "Install CLOADM…" at 900 px)',
       bar.every((b) => !b.programs && !b.glued.length) && bar[0].install === 'Install' && bar[1].install === 'Install CLOADM…', JSON.stringify(bar));
-    // the file pickers: the extensions each takes, and application/octet-stream so a phone offers a file of a type it
-    // does not know (a .cas, a .vdk); no image/* (iOS would offer the Photo Library and the camera)
+    // the audit of every file picker on the page: each has an accept list of its own purpose (the extensions it takes, and
+    // application/octet-stream so a phone offers a file of a type it does not know, a .cas, a .vdk), none asks for image/*
+    // or video/* (iOS would offer the Photo Library and the camera next to Files) or carries `capture`, and a picker
+    // that is not in this table fails the check
     // (.img, NitrOS-9's DriveWire images, only where they open: the NitrOS-9 and DriveWire pickers)
+    const { ROM_PICKER_ACCEPT } = await import(pathToFileURL(path.join(ROOT, 'js', 'roms.js')).href);
     const MEDIA = '.bin,.cas,.c10,.k7,.wav,.rom,.ccc,.dgn,.vdk,.dsk,.jvc,.dmk,.os9,.bas,.txt', OS = 'application/octet-stream';
-    const want = { fileProgram: `${MEDIA},.cloadm,${OS}`, fileLib: `${MEDIA},.cloadm,.zip,${OS}`, fileTape: `.cas,.c10,.k7,.wav,${OS}`, fileCart: `.rom,.ccc,.dgn,.bin,${OS}`,
-      fileMpSlot: `.rom,.ccc,.dgn,.bin,${OS}`, fileDisk: `.vdk,.dsk,.jvc,.dmk,${OS}`, n9File: `.dsk,.os9,.img,${OS}`, dwImport: `.dsk,.os9,.img,${OS}` };
-    const accepts = await p.evaluate((ids) => Object.fromEntries(ids.map((id) => [id, document.getElementById(id).getAttribute('accept')])), Object.keys(want));
-    const images = await p.evaluate(() => [...document.querySelectorAll('input[type="file"]')].filter((i) => /image\//.test(i.accept || '')).map((i) => i.id));
-    check('desktop: the media file pickers accept their extensions and application/octet-stream, and no picker asks for image/*',
-      Object.entries(want).every(([id, v]) => accepts[id] === v) && !images.length, JSON.stringify({ accepts, images }));
+    const want = { fileProgram: `${MEDIA},.cloadm,${OS}`, fileLib: `${MEDIA},.cloadm,.zip,${OS}`, folderLib: `${MEDIA},.cloadm,.zip,${OS}`, fileTape: `.cas,.c10,.k7,.wav,${OS}`,
+      fileCart: `.rom,.ccc,.dgn,.bin,${OS}`, fileMpSlot: `.rom,.ccc,.dgn,.bin,${OS}`, fileDisk: `.vdk,.dsk,.jvc,.dmk,${OS}`, n9File: `.dsk,.os9,.img,${OS}`,
+      dwImport: `.dsk,.os9,.img,${OS}`, fileRom: ROM_PICKER_ACCEPT, folderRom: ROM_PICKER_ACCEPT, fileSettings: '.json,application/json', fileAsm: '.asm,.s,.txt' };
+    const audit = await p.evaluate(() => [...document.querySelectorAll('input[type="file"]')].map((i) => ({ id: i.id, accept: i.getAttribute('accept'), capture: i.hasAttribute('capture') })));
+    const bad = audit.filter((i) => i.accept === null || i.capture || /(^|,)\s*(image|video)\//.test(i.accept) || i.accept !== want[i.id]).map((i) => i.id);
+    check('desktop: every file picker on the page (' + audit.map((i) => i.id).join(', ') + ') has the accept list of its purpose, none asks for image/* or video/* or has capture',
+      audit.length === Object.keys(want).length && Object.keys(want).every((id) => audit.some((i) => i.id === id)) && !bad.length, JSON.stringify({ bad, audit }));
     await closeCtx(c);
   }
 }
