@@ -4533,7 +4533,9 @@ async function snapshotChecks(browser, base, check) {
       const c = document.getElementById('sharePicture'), d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data, f = window.emu.machine.render();
       let colours = new Set(); for (let i = 0; i < d.length; i += 4 * 97) colours.add(`${d[i]},${d[i + 1]},${d[i + 2]}`);
       const box = document.getElementById('share').getBoundingClientRect();
-      return { w: c.width, h: c.height, fw: f.width, fh: f.height, colours: colours.size, title: document.getElementById('shareTitle').innerText,
+      return { w: c.width, h: c.height, fw: f.width, fh: f.height, colours: colours.size,
+        // (whitespace runs collapsed: innerText puts a newline between the caption's two flex-item spans)
+        title: document.getElementById('shareTitle').innerText.replace(/\s+/g, ' ').trim(),
         link: document.getElementById('shareLink').value, recipient: document.getElementById('shareRom').textContent, note: document.getElementById('shareNote').textContent, kb: document.getElementById('btnShareDownload').textContent,
         fits: box.left >= 0 && box.right <= innerWidth, scrollX: document.documentElement.scrollWidth <= innerWidth };
     });
@@ -15801,7 +15803,10 @@ async function shareScreenChecks(browser, base, check) {
     // the first screen is the whole moment and one Copy: the picture, what the link opens, and the primary button (with
     // the long link one tap away, not shown until taps fall back or "More ways to share" opens)
     return { tops: ['shareHeading', 'sharePicture', 'shareTitle', 'shareNote', 'shareRom', 'btnShareCopy', 'previewSwitch'].map((i) => `${i}:${Math.round(r(i).top)}-${Math.round(r(i).bottom)}`).join(' '), bottom: Math.round(r('btnShareCopy').bottom), native: vis(r('btnShareNative')), copy: vis(r('btnShareCopy')),
-      note: document.getElementById('shareNote').textContent, cap: document.getElementById('shareTitle').innerText, sw: vis(r('previewSwitch')),
+      note: document.getElementById('shareNote').textContent,
+      // innerText, not textContent: a hidden prefix is not shown. The caption's two spans are flex items (blockified),
+      // so innerText puts a newline between them; whitespace runs are collapsed to the one space a person sees.
+      cap: document.getElementById('shareTitle').innerText.replace(/\s+/g, ' ').trim(), sw: vis(r('previewSwitch')),
       h: document.documentElement.scrollHeight, vh: innerHeight,
       pic: r('sharePicture').height, closed: ['shareMore', 'shareEmbed'].every((id) => !document.getElementById(id).open),
       longOpen: document.getElementById('shareMore').open, fieldShown: vis(r('shareLink')) };
@@ -15971,7 +15976,7 @@ async function shareScreenChecks(browser, base, check) {
       return { shown: btn.checkVisibility(), bottom: Math.round(b.bottom), vh: innerHeight, onTop: !!hit && (hit === btn || btn.contains(hit)),
         note: document.getElementById('shareNote').textContent, primaryNote: document.getElementById('primaryNote').textContent,
         // innerText, not textContent: a hidden prefix is not shown, and textContent would still carry its words
-        cap: document.getElementById('shareTitle').innerText, prefixShown: document.getElementById('sharePrefix').checkVisibility(),
+        cap: document.getElementById('shareTitle').innerText.replace(/\s+/g, ' ').trim(), prefixShown: document.getElementById('sharePrefix').checkVisibility(),
         colours: colours.size, pictureIsThatFrame: sized && bad === 0, badPixels: bad, pixels: n,
         pictureFrame: window.emu.machine.frameCount, frameCountAtPause: framePx.fc,
         terms: document.getElementById('shortTerms').checkVisibility(), sw: document.getElementById('previewSwitch').checkVisibility() };
@@ -16020,7 +16025,7 @@ async function shareScreenChecks(browser, base, check) {
     const cap = await sp.evaluate(() => {
       const box = document.querySelector('#share figcaption').getBoundingClientRect();
       const pre = document.getElementById('sharePrefix'), p = pre.getBoundingClientRect(), n = document.getElementById('shareName');
-      return { text: document.getElementById('shareTitle').innerText, prefix: pre.textContent, name: n.textContent,
+      return { text: document.getElementById('shareTitle').innerText.replace(/\s+/g, ' ').trim(), prefix: pre.textContent, name: n.textContent,
         prefixRight: Math.round(p.right), boxRight: Math.round(box.right), boxLeft: Math.round(box.left),
         prefixScroll: pre.scrollWidth, prefixClient: pre.clientWidth, nameClips: n.scrollWidth > n.clientWidth,
         prefixShown: pre.checkVisibility(), boxWidth: Math.round(box.width) };
