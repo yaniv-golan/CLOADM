@@ -102,10 +102,11 @@ check('plugin.json: "CLOADM on this computer" is node cli/cloadm.js --mcp from t
   server.command === 'node' && JSON.stringify(server.args) === JSON.stringify(['${CLAUDE_PLUGIN_ROOT}/cli/cloadm.js', '--mcp']) && Object.keys(server).length === 2, JSON.stringify(server));
 check('plugin.json: "CLOADM side panel" is the connector over HTTP, https://mcp.cloadm.dev/mcp, and nothing else',
   panel.type === 'http' && panel.url === 'https://mcp.cloadm.dev/mcp' && Object.keys(panel).length === 2, JSON.stringify(panel));
-// Each server announces its own name as the key reads: the same words in serverInfo.name and title (cli/mcp.js, connector/worker)
-check('the servers\' own names are the plugin keys: serverInfo.name and title in cli/mcp.js and the Worker',
-  /SERVER_INFO = Object\.freeze\(\{ name: 'CLOADM on this computer', title: 'CLOADM on this computer'/.test(fs.readFileSync(rel('cli/mcp.js'), 'utf8'))
-  && /name: 'CLOADM side panel', title: 'CLOADM side panel'/.test(fs.readFileSync(rel('connector/worker/src/server.js'), 'utf8')));
+// Each server keeps its stable id in serverInfo.name and announces the display words, the same as its plugin key, in
+// serverInfo.title (cli/mcp.js, connector/worker)
+check('the servers\' serverInfo: stable ids cloadm-files and cloadm-panel as name, the plugin keys\' words as title',
+  /SERVER_INFO = Object\.freeze\(\{ name: 'cloadm-files', title: 'CLOADM on this computer'/.test(fs.readFileSync(rel('cli/mcp.js'), 'utf8'))
+  && /name: 'cloadm-panel', title: 'CLOADM side panel'/.test(fs.readFileSync(rel('connector/worker/src/server.js'), 'utf8')));
 // Claude Code names a plugin server's tools mcp__plugin_<plugin>_<key>__<tool>, each part with anything outside
 // [a-zA-Z0-9_-] written as "_" (the spaces in a key); the API takes tool names of 64 characters at most
 const toolName = (plugin, key, tool) => `mcp__plugin_${plugin.replace(/[^a-zA-Z0-9_-]/g, '_')}_${key.replace(/[^a-zA-Z0-9_-]/g, '_')}__${tool}`;
@@ -206,7 +207,7 @@ function launch(command, args, home) {
     child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list' }) + '\n');
   });
 }
-const answered = (r) => r.msgs.length >= 2 && r.msgs[0] && r.msgs[0].id === 1 && r.msgs[0].result && r.msgs[0].result.serverInfo.name === 'CLOADM on this computer' &&
+const answered = (r) => r.msgs.length >= 2 && r.msgs[0] && r.msgs[0].id === 1 && r.msgs[0].result && r.msgs[0].result.serverInfo.name === 'cloadm-files' &&
   r.msgs[1] && r.msgs[1].id === 2 && r.msgs[1].result && r.msgs[1].result.tools.length === serverTools.length;
 
 (async () => {

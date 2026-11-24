@@ -10,11 +10,13 @@ Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.
 
 #### Changed
 
-- **The plugin's servers are named *CLOADM side panel* and *CLOADM on this computer*.** The plugin format has no field
+- **The plugin's servers are keyed *CLOADM side panel* and *CLOADM on this computer*.** The plugin format has no field
   for a server's display name (`mcpServers` is "keyed by name"), and Claude's plugin page and chat menu showed the old
-  keys, `cloadm-panel` and `cloadm`. The keys are now the readable names (`claude plugin validate` accepts them), and
-  each server announces the same words as its `serverInfo` name and title. Claude Code writes the spaces as underscores
-  in tool names, `mcp__plugin_cloadm_CLOADM_on_this_computer__boot`; the longest, the panel's
+  keys, `cloadm-panel` and `cloadm`. The keys are now the readable names (`claude plugin validate` accepts them, and
+  Claude Code lists them); the servers' own `serverInfo.title` says the same words, and their `serverInfo.name` stays
+  the stable id (`cloadm-panel`, `cloadm-files`). What claude.ai's plugin page and chat menu show for the new keys is
+  not yet confirmed. Claude Code writes the spaces as underscores in tool names,
+  `mcp__plugin_cloadm_CLOADM_on_this_computer__boot`; the longest, the panel's
   `mcp__plugin_cloadm_CLOADM_side_panel__open_emulator_inline`, is 58 characters, and `tests/plugin.test.js` holds
   every tool name to the API's 64. An allowlist rule that named `mcp__plugin_cloadm_cloadm__*` needs the new name.
 

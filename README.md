@@ -83,7 +83,8 @@ In Cowork and Claude Code it runs on your computer instead, with your ROM files 
 The plugin's two servers are *CLOADM side panel* (the side panel, at `https://mcp.cloadm.dev/mcp`) and *CLOADM on this
 computer* (on your computer, `node cli/cloadm.js --mcp`, the name the Desktop extension has too); each Claude app uses
 the one it can. Claude lists the plugin as **CLOADM**. The plugin format has no field for a server's display name: the
-key under `mcpServers` is the name, so the keys are these readable names.
+key under `mcpServers` is the name, so the keys are these readable names, which Claude Code lists. How claude.ai's plugin
+page and chat menu show them is to be confirmed by the maintainer after release (they showed the earlier keys).
 
 #### Without the plugin
 

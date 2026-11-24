@@ -35,7 +35,8 @@ In Cowork and Claude Code it runs on your computer instead, with your ROM files 
 The plugin's two servers are *CLOADM side panel* (the side panel, at `https://mcp.cloadm.dev/mcp`) and *CLOADM on this
 computer* (on your computer, `node cli/cloadm.js --mcp`, the name the Desktop extension has too); each Claude app uses
 the one it can. Claude lists the plugin as **CLOADM**. The plugin format has no field for a server's display name: the
-key under `mcpServers` is the name, so the keys are these readable names.
+key under `mcpServers` is the name, so the keys are these readable names, which Claude Code lists. How claude.ai's plugin
+page and chat menu show them is to be confirmed by the maintainer after release (they showed the earlier keys).
 
 ### Without the plugin
 
@@ -49,16 +50,17 @@ own marketplace.
 
 | Way | Install | Where the emulator runs | Tested |
 |---|---|---|---|
-| **1. The CLOADM plugin** (most people) | Customize → Plugins → Add marketplace → `yaniv-golan/CLOADM` → Add **CLOADM**; on the web and in desktop chat, then **Connect** next to *CLOADM side panel* on the plugin's Connectors tab; in Claude Code `/plugin marketplace add yaniv-golan/CLOADM`, then `/plugin install cloadm@cloadm-marketplace` | web and desktop chat: in Claude's side panel (*CLOADM side panel*); Cowork and Claude Code: on your computer (*CLOADM on this computer*) | by the maintainers: web and desktop chat show *CLOADM side panel* with a Connect button and use the side panel; Cowork uses the local server |
+| **1. The CLOADM plugin** (most people) | Customize → Plugins → Add marketplace → `yaniv-golan/CLOADM` → Add **CLOADM**; on the web and in desktop chat, then **Connect** next to *CLOADM side panel* on the plugin's Connectors tab; in Claude Code `/plugin marketplace add yaniv-golan/CLOADM`, then `/plugin install cloadm@cloadm-marketplace` | web and desktop chat: in Claude's side panel (*CLOADM side panel*); Cowork and Claude Code: on your computer (*CLOADM on this computer*) | by the maintainers: web and desktop chat show a Connect button and use the side panel; Cowork uses the local server (the new names are not yet confirmed on claude.ai) |
 | 2. The connector alone (no skill) | Plugins → Add → "Add custom connector" → name `CLOADM` and URL `https://mcp.cloadm.dev/mcp` → **No sign-in** → Add | in Claude's side panel, in your browser | claude.ai on the web and the desktop app, by the maintainers |
 | 3. `.mcpb` extension (niche) | download `cloadm.mcpb` from the [Releases](https://github.com/yaniv-golan/CLOADM/releases) page and open it | on your computer, Claude Desktop only | |
 | 4. Other agents (Cursor, Codex, Gemini CLI, …) | an MCP entry for `node cli/cloadm.js --mcp`, plus `.agents/skills/` | on your computer | see [below](#cursor-gemini-cli-codex-and-other-mcp-clients) |
 
 **1. The CLOADM plugin.** One plugin with the skill and two servers (`.claude-plugin/plugin.json`). The plugin
 manifest names each server by its key ([plugins reference](https://code.claude.com/docs/en/plugins-reference):
-`mcpServers` holds "server configs keyed by name"; no per-server title), so the keys are readable names, and they are
-what Claude shows (Claude Code names the tools `mcp__plugin_cloadm_CLOADM_side_panel__<tool>` and
-`mcp__plugin_cloadm_CLOADM_on_this_computer__<tool>`, its spaces written as underscores):
+`mcpServers` holds "server configs keyed by name"; no per-server title), so the keys are readable names, which Claude
+Code lists (it names the tools `mcp__plugin_cloadm_CLOADM_side_panel__<tool>` and
+`mcp__plugin_cloadm_CLOADM_on_this_computer__<tool>`, its spaces written as underscores). claude.ai's plugin page and
+chat menu showed the earlier keys; the maintainer confirms what they show for these after release:
 
 - *CLOADM side panel*, the remote server `https://mcp.cloadm.dev/mcp`. On the web and in desktop chat it is on the plugin's
   Connectors tab with a **Connect** button; after **Connect** and **Continue**, the emulator runs in Claude's side

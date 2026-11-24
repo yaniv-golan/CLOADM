@@ -119,9 +119,9 @@ const J = JSON.stringify;
   check('tools/list: the two server tools, each opening its view, no arguments, read-only',
     J(tools.map((t) => [t.name, t._meta.ui.resourceUri])) === J([['open_emulator', 'ui://cloadm/panel.html'], ['open_emulator_inline', 'ui://cloadm/inline.html']])
     && tools.every((t) => t.inputSchema.type === 'object' && J(t.inputSchema.properties) === '{}' && t.annotations.readOnlyHint), J(tools).slice(0, 300));
-  // what people see: the server is "CLOADM side panel" (also the plugin's key for it); the tools' titles are
+  // what people see: the server is titled "CLOADM side panel" (also the plugin's key for it; its name stays the id cloadm-panel); the tools' titles are
   // plain verbs; Open CLOADM comes first, the offline copy only after a blocked load
-  check('names: serverInfo is "CLOADM side panel", name and title', init.body.result.serverInfo.name === 'CLOADM side panel' && init.body.result.serverInfo.title === 'CLOADM side panel', J(init.body.result.serverInfo));
+  check('names: serverInfo is cloadm-panel, titled "CLOADM side panel"', init.body.result.serverInfo.name === 'cloadm-panel' && init.body.result.serverInfo.title === 'CLOADM side panel', J(init.body.result.serverInfo));
   check('names: "Open CLOADM" and "Open CLOADM (offline copy)", each with its description, the title in annotations too',
     J(tools.map((t) => [t.title, t.description, t.annotations.title])) === J([
       ['Open CLOADM', 'Opens the CLOADM emulator in a panel beside the chat. Use this first.', 'Open CLOADM'],

@@ -37,7 +37,7 @@ for await (const line of readline.createInterface({ input: process.stdin })) {
   try { msg = JSON.parse(line); } catch (e) { send({ id: null, error: { code: -32700, message: 'parse error' } }); continue; }
   if (msg.id == null) continue;   // notifications
   const p = msg.params || {};
-  if (msg.method === 'initialize') send({ id: msg.id, result: { protocolVersion: p.protocolVersion || '2025-06-18', capabilities: { tools: { listChanged: false } }, serverInfo: { name: 'CLOADM side panel', version: '0' }, instructions: essentials() } });
+  if (msg.method === 'initialize') send({ id: msg.id, result: { protocolVersion: p.protocolVersion || '2025-06-18', capabilities: { tools: { listChanged: false } }, serverInfo: { name: 'cloadm-panel-eval', version: '0' }, instructions: essentials() } });
   else if (msg.method === 'ping') send({ id: msg.id, result: {} });
   else if (msg.method === 'tools/list') send({ id: msg.id, result: { tools: [OPEN, ...toolbox.tools()] } });
   else if (msg.method === 'tools/call' && p.name === 'open_emulator') send({ id: msg.id, result: { content: [{ type: 'text', text: 'CLOADM is open in the side panel: machine_id "m1", a Dragon 64 running LIZA. Its tools are available now.' }] } });
