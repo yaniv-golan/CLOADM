@@ -5277,6 +5277,64 @@ async function librarySelectChecks(browser, base, check) {
 // the chip; the hardware keyboard does not reach the machine while a sheet is open; a tape mounted from the sheet names
 // itself on its chip; opening a sheet lets go of a held stick; Hide keys, then the floating ⌨, with the chips up
 // throughout; a toast's action button is a full-size target.
+async function phoneSnapshotChecks(browser, base, check) {
+  // A phone's snapshots: Menu has "Take snapshot" and "Restore snapshot…" right under Share…. The slots' heading never
+  // stands alone: with no snapshot, "Restore snapshot…" shows the list with the line "No snapshots yet. Take one from
+  // Menu → Take snapshot."; Take snapshot fills slot 1 (the first empty one) and says so; the Library's Snapshots
+  // filter with none says the same line.
+  {
+    const L = 'phone snapshots (393x659)';
+    const c = await browser.newContext({ viewport: { width: 393, height: 659 }, hasTouch: true, isMobile: true, serviceWorkers: 'block' });
+    const p = await c.newPage();
+    const errs = [];
+    p.on('pageerror', (e) => errs.push(e.message));
+    await p.goto(`${base}?machine=dragon64`);
+    await started(p);
+    await p.tap('#btnMenu');
+    await waitFor(p, () => document.getElementById('appbar').classList.contains('menu-open'), null, 5000);
+    const items = await p.evaluate(() => [...document.querySelectorAll('#appbar nav > :is(a, button)')].filter((e) => e.checkVisibility()).map((e) => e.innerText.trim()));
+    const at = items.indexOf('Share…');
+    check(`${L}: Menu has "Take snapshot" and "Restore snapshot…" right under Share…`, at >= 0 && items[at + 1] === 'Take snapshot' && items[at + 2] === 'Restore snapshot…', JSON.stringify(items));
+    // no snapshot yet (the welcome menu runs): the list comes with its line, never a bare heading
+    await p.tap('#navSnapRestore');
+    const empty = await waitFor(p, () => document.getElementById('sheetPrograms').open && document.getElementById('quickSave').checkVisibility(), null, 5000)
+      && await p.evaluate(() => ({ line: document.getElementById('slotEmpty').checkVisibility() ? document.getElementById('slotEmpty').textContent : null,
+        rows: document.querySelectorAll('#slotList .slot-row').length, head: document.querySelector('#quickSave .eyebrow').checkVisibility() }));
+    check(`${L}: no snapshot yet: "Restore snapshot…" opens the slots list with its heading and the line "No snapshots yet. Take one from Menu → Take snapshot."`,
+      !!empty && empty.head && empty.rows === 3 && empty.line === 'No snapshots yet. Take one from Menu → Take snapshot.', JSON.stringify(empty));
+    await p.tap('#sheetPrograms .sheetdone');
+    await waitFor(p, () => !document.getElementById('sheetPrograms').open, null, 5000);
+    // Take snapshot: into slot 1, said by a toast
+    await p.tap('#btnMenu');
+    await waitFor(p, () => document.getElementById('appbar').classList.contains('menu-open'), null, 5000);
+    await p.tap('#navSnapTake');
+    const taken = await waitFor(p, () => /Snapshot 1 taken/.test(document.getElementById('toast').textContent), null, 15000)
+      && await p.evaluate(async () => (await window.emu.session.listSlots()).map((s) => !s.empty));
+    check(`${L}: "Take snapshot" takes one into slot 1, the first empty one, and says "Snapshot 1 taken"`, Array.isArray(taken) && JSON.stringify(taken) === '[true,false,false]', JSON.stringify(taken));
+    await p.tap('#btnMenu');
+    await waitFor(p, () => document.getElementById('appbar').classList.contains('menu-open'), null, 5000);
+    await p.tap('#navSnapRestore');
+    const full = await waitFor(p, () => document.getElementById('sheetPrograms').open && document.activeElement && document.activeElement.getAttribute('aria-label') === 'Restore snapshot 1', null, 5000)
+      && await p.evaluate(() => ({ line: document.getElementById('slotEmpty').checkVisibility(), row: document.querySelector('#slotList .slot-row').innerText }));
+    check(`${L}: "Restore snapshot…" opens the list with the focus on Restore snapshot 1, and the empty line is gone`, !!full && !full.line && /Snapshot 1 · /.test(full.row), JSON.stringify(full));
+    await closeCtx(c);
+    // the Library's Snapshots filter, with none
+    const c2 = await browser.newContext({ viewport: { width: 1280, height: 800 }, serviceWorkers: 'block' });
+    const p2 = await c2.newPage();
+    p2.on('pageerror', (e) => errs.push(e.message));
+    await p2.goto(`${base}?machine=dragon64`);
+    await started(p2);
+    await p2.evaluate(async () => { const b = new Uint8Array(await (await fetch('examples/demo.bin')).arrayBuffer()); await window.emu.session.library.importMedia('demo.bin', b); });
+    await p2.goto(`${base}#library`);
+    await waitFor(p2, () => !!document.querySelector('[data-kind-filter="snapshot"]') && document.querySelector('[data-kind-filter="snapshot"]').checkVisibility(), null, 15000);
+    await p2.click('[data-kind-filter="snapshot"]');
+    check('library: the Snapshots filter with none says "No snapshots yet. Take one from Menu → Take snapshot."',
+      await waitFor(p2, () => document.getElementById('libNone').checkVisibility() && document.getElementById('libNone').textContent === 'No snapshots yet. Take one from Menu → Take snapshot.', null, 10000));
+    await closeCtx(c2);
+    check(`${L}: no page errors`, !errs.length, errs.join('; '));
+  }
+}
+
 async function phoneChecks(browser, base, check) {
   const { devices } = require('playwright');
   const ctx = await browser.newContext({ ...devices['iPhone 15'], serviceWorkers: 'block' });
@@ -5879,6 +5937,7 @@ async function phoneChecks(browser, base, check) {
     check(`${L}: no page errors`, !errs.length, errs.join('; '));
     await closeCtx(c);
   }
+  await phoneSnapshotChecks(browser, base, check);
 }
 
 async function feedbackModelChecks(browser, base, check) {

@@ -148,6 +148,8 @@ export function setupLibrary(page, { loadProgram, runShelf, changed, showRoms, r
     $('libEmpty').hidden = items.length > 0 || roms;
     $('libFilled').hidden = !items.length || roms;
     $('libNone').hidden = !items.length || shown.length > 0 || roms;
+    // (the Snapshots filter with none says where one comes from)
+    $('libNone').textContent = kind === 'snapshot' ? 'No snapshots yet. Take one from Menu → Take snapshot.' : 'Nothing here for this machine and kind.';
     $('libRomsBox').hidden = !roms && items.length > 0;
     romsCard(roms);
     $('btnLibSelect').hidden = !items.length || roms;   // (nothing to select: an empty Library, or the ROM tiles)

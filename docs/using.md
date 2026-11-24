@@ -376,6 +376,12 @@ the cartridge, and the picture. **Download snapshot** saves it as a `.cloadm` fi
 (or pick it with **Open…**) to restore it. **Screenshot** saves the picture at the machine's true
 pixels.
 
+Three quick-save slots (**Snapshot 1–3**) keep a snapshot in this browser: **Take snapshot** and **Restore** on each
+slot, in the Media tab (in **Programs…** on a phone). On a phone, **Menu** has **Take snapshot** (into the first empty
+slot, else the one taken longest ago; the toast's **Undo** puts back what it held) and **Restore snapshot…** (the slots
+list) under **Share…**. The slots' heading never stands alone: hidden until they are listed, and with all three empty
+it says "No snapshots yet. Take one from Menu → Take snapshot."; so does the Library's **Snapshots** filter with none.
+
 A snapshot never contains ROMs, only the CRC of each ROM it ran with. Opening one needs exactly those ROMs in this
 browser (or none, if it ran without ROMs); otherwise CLOADM says which ROM it needs and opens the snapshot as
 soon as you add it. A snapshot of another model or RAM size asks before switching. A restored moment is not a
