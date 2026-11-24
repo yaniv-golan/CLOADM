@@ -18,6 +18,14 @@ Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.
   their space, and on a check that finds no label to read. The Install label's own fix (the space kept where the Menu
   lays its items out) came before 0.2.0; this holds it, and every other label, to it.
 
+#### Fixed
+
+- **"On screen now" tells two files of one name apart.** The mark on a Recent row matched the file name only, so two
+  files with the same name and different bytes could be told apart by position alone. The last run now records the
+  file's content hash with its name (`Session.lastRun.crc`, `Session.isLastRun(entry)`), and only the row with that
+  name and those bytes is marked and offered as the menu's carry-on. A last run recorded by an earlier build has no
+  hash, so its carry-on line is not offered until a file is run again.
+
 ### 0.2.0
 
 #### Added

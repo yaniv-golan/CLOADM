@@ -53,17 +53,17 @@ export function setupDrawer(page, { showRoms }) {
   select(tabs[0]);
 
   // Media: what was loaded on this machine before
-  let runShown = null;   // the running file's name the list was drawn with (the frame loop redraws it when that changes)
-  // the recent row that runs now, by name (null: nothing running, or not a recent file). ONE definition, used by
-  // the frame reconciler below and by the reset/firmware handler in session.on (so the two can never disagree).
-  const runKey = () => { const r = page.runningNow(); return r && r.kind === 'recent' ? r.name : null; };
+  let runShown = null;   // the running file (name and content hash) the list was drawn with (the frame loop redraws it when that changes)
+  // the recent row that runs now, by name and content hash (null: nothing running, or not a recent file). ONE definition,
+  // used by the frame reconciler below and by the reset/firmware handler in session.on (so the two can never disagree).
+  const runKey = () => { const r = page.runningNow(); return r && r.kind === 'recent' ? `${r.name}\0${r.crc}` : null; };
   function recent() {
     const list = $('recentList');
     const items = recentRows(session.library.recentMedia(), session.personMachine.id);
     // the file that runs now (the list's first, which is what was loaded last) says so; the Media tab's "Last time" card
     // is for what is not running (js/ui/welcome.js)
     const running = page.runningNow();
-    runShown = running && running.kind === 'recent' ? running.name : null;
+    runShown = running && running.kind === 'recent' ? `${running.name}\0${running.crc}` : null;
     // the list is rebuilt whenever its marks change, and a rebuild drops the node that had the focus.
     // The row that had focus gets it back - BY IDENTITY, the library's own (the file it names plus its
     // content hash, recentKey's rule, js/media/library.js), not by place and not by the copy tag:
@@ -93,7 +93,7 @@ export function setupDrawer(page, { showRoms }) {
       if (r.copy) { const c = document.createElement('span'); c.className = 'copy'; c.textContent = r.copy; b.append(n, c, k); }
       else b.append(n, k);
       b.dataset.name = r.name; b.dataset.crc = String(r.crc).toUpperCase();   // the focus key (recentKey's rule): the redraw restores by it
-      if (i === 0 && runShown !== null && session.library.sameName(r.name, runShown)) { n.after(Object.assign(document.createElement('span'), { className: 'tag now', textContent: 'on screen now' })); b.setAttribute('aria-current', 'true'); }
+      if (runShown !== null && session.isLastRun(r)) { n.after(Object.assign(document.createElement('span'), { className: 'tag now', textContent: 'on screen now' })); b.setAttribute('aria-current', 'true'); }
       b.disabled = !r.stored;
       b.onclick = () => { page.attempt(() => loadRow(session, { r, i })); page.focus(); };
       list.append(b);

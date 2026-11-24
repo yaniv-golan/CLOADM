@@ -3186,6 +3186,27 @@ async function onScreenChecks(browser, base, check) {
   await page.click('#btnPause');
   await invariant('resumed after the tape load', false);
   if (shotDir) await page.locator('#screenWrap').screenshot({ path: path.join(shotDir, 'on-screen-tape.png') });
+  // (4b) two files of one name and different content: only the one that runs is marked "on screen now"
+  {
+    const twin = (data) => ({ name: 'twin.bin', mimeType: 'application/octet-stream', buffer: Buffer.from([0x55, 0x02, 0x30, 0x00, 0x00, data.length, 0x30, 0x00, 0xAA, ...data]) });
+    const A = twin([0x20, 0xFE]), B = twin([0x12, 0x20, 0xFE]);
+    const marked = () => page.evaluate(() => [...document.querySelectorAll('#recentList .row')].filter((r) => r.dataset.name === 'twin.bin').map((r) => [r.dataset.crc, !!r.querySelector('.tag.now')]));
+    await page.setInputFiles('#fileProgram', A);
+    await waitFor(page, () => document.getElementById('lastTime').hidden && window.emu.session.lastRunOnScreen);
+    const afterA = await marked();
+    await page.setInputFiles('#fileProgram', B);
+    await waitFor(page, () => document.querySelectorAll('#recentList .row[data-name="twin.bin"]').length === 2 && window.emu.session.lastRunOnScreen);
+    const afterB = await marked();
+    const crcB = await page.evaluate(() => window.emu.session.lastRun.crc);
+    check('open: two files of one name and different bytes: with the first running only its row is marked; with the second, only the second\'s',
+      afterA.length === 1 && afterA[0][1] && afterB.length === 2 && afterB.filter((r) => r[1]).length === 1 && afterB.find((r) => r[1])[0] === crcB, JSON.stringify({ afterA, afterB, crcB }));
+    await page.setInputFiles('#fileProgram', A);
+    await waitFor(page, (c) => window.emu.session.lastRun.crc !== c, crcB);
+    await waitFor(page, () => document.querySelectorAll('#recentList .row[data-name="twin.bin"] .tag.now').length === 1);
+    const afterA2 = await marked(), crcA = await page.evaluate(() => window.emu.session.lastRun.crc);
+    check('open: loading the first again moves the mark to its row', afterA2.filter((r) => r[1]).length === 1 && afterA2.find((r) => r[1])[0] === crcA && crcA !== crcB, JSON.stringify({ afterA2, crcA, crcB }));
+  }
+
   // (5) a machine switch on a first visit: the new machine's menu is not "on screen now" while its screen has no menu
   // on it, and the visit is never greeted "WELCOME BACK"
   {
@@ -6996,11 +7017,11 @@ async function tapePanelChecks(browser, base, check) {
         const rows = s.library.recentMedia().filter((r) => r.machine === m);
         // the drawer's own render, once it has had the 'loaded'/'lastrun' event this load emitted
         const drawn = [...document.querySelectorAll('#recentList .row')].map((b) => b.textContent);
-        return { names: rows.map((r) => r.name), stored: rows.map((r) => !!r.stored), drawn, lastRun: s.lastRun };
+        return { names: rows.map((r) => r.name), stored: rows.map((r) => !!r.stored), crcs: rows.map((r) => String(r.crc).toUpperCase()), drawn, lastRun: s.lastRun };
       });
       check(`tape, no BASIC (${label}): the tape Skip loaded is in "Recent on this machine", as a row the person can click`,
         JSON.stringify(recentAfterSkip.names) === JSON.stringify(['nobasic.cas']) && recentAfterSkip.stored.every(Boolean)
-          && recentAfterSkip.drawn.some((t) => t.startsWith('nobasic.cas')) && JSON.stringify(recentAfterSkip.lastRun) === JSON.stringify({ kind: 'recent', name: 'nobasic.cas' }),
+          && recentAfterSkip.drawn.some((t) => t.startsWith('nobasic.cas')) && JSON.stringify(recentAfterSkip.lastRun) === JSON.stringify({ kind: 'recent', name: 'nobasic.cas', crc: recentAfterSkip.crcs[0] }),
         JSON.stringify(recentAfterSkip));
       check(`tape, no BASIC (${label}): no page errors`, !errors.length, errors.join('; '));
       await closeCtx(ctx);
