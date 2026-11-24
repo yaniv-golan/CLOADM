@@ -140,9 +140,15 @@ const sealed = (n = 3000, seed = 1) => Uint8Array.from({ length: n }, (_, i) => 
       check('the scheduled handler (Cron Trigger) counts through to yesterday', waits.length === 1 && cs.openedThrough === '2026-11-27' && cs.opened === 12, JSON.stringify(cs));
       await W.addOpens(env, new Date('2026-11-27T03:17:00Z'), analytics(counted(99)));   // an earlier day again: nothing
       check('a run for days already counted changes nothing', JSON.parse(env.BUCKET.text('stats/counts.json')).opened === 12);
+      // two runs at once (a retried Cron Trigger): both read the counts before either writes, both ask; the day is added once
+      const before = JSON.parse(env.BUCKET.text('stats/counts.json')).opened;
+      await Promise.all([W.addOpens(env, new Date('2026-11-29T03:17:00Z'), analytics(counted(3))), W.addOpens(env, new Date('2026-11-29T03:17:00Z'), analytics(counted(3)))]);
+      const both = JSON.parse(env.BUCKET.text('stats/counts.json'));
+      check('two runs at once for the same day add its opens once', both.opened === before + 3 && both.openedThrough === '2026-11-28', JSON.stringify(both));
+
     }
     const stats = env.BUCKET.text('stats/');
-    check('the public totals page (stats/): the totals, nothing per person', /Short links made<\/td><td>3</.test(stats) && /Short links opened \(to the end of 2026-11-27\)<\/td><td>12</.test(stats)
+    check('the public totals page (stats/): the totals, nothing per person', /Short links made<\/td><td>3</.test(stats) && /Short links opened \(to the end of 2026-11-28\)<\/td><td>15</.test(stats)
       && /Short links removed<\/td><td>1</.test(stats));
     const everything = [...env.BUCKET.objects.values()].map((o) => new TextDecoder('latin1').decode(o.bytes) + JSON.stringify(o.customMetadata)).join('\n');
     check('no address is stored anywhere, nor the analytics token', !everything.includes(IP) && !everything.includes('203.0.113') && !everything.includes('test-analytics-token'));
@@ -156,10 +162,10 @@ const sealed = (n = 3000, seed = 1) => Uint8Array.from({ length: n }, (_, i) => 
       c3.created++;
       env.BUCKET.objects.set(k, Object.assign({}, o, { bytes: new TextEncoder().encode(JSON.stringify(c3)), etag: `race${++env.BUCKET.n}` }));
     };
-    await W.addOpens(env, new Date('2026-11-29T03:17:00Z'), analytics(counted(4)));
+    await W.addOpens(env, new Date('2026-11-30T03:17:00Z'), analytics(counted(4)));
     env.BUCKET.beforePut = null;
     const c4 = JSON.parse(env.BUCKET.text('stats/counts.json'));
-    check('counts: a concurrent write is kept, and this one redone on top of it', raced && c4.created === 4 && c4.opened === 16, env.BUCKET.text('stats/counts.json'));
+    check('counts: a concurrent write is kept, and this one redone on top of it', raced && c4.created === 4 && c4.opened === 19, env.BUCKET.text('stats/counts.json'));
   }
 
   // ---------------- refusals ----------------
