@@ -13327,10 +13327,13 @@ async function askEscChecks(browser, base, check) {
         .map((e) => e.getBoundingClientRect()).filter((o) => o.width && o.height);
       const bar = document.getElementById('appbar').getBoundingClientRect();
       return { up: !box.hidden, pinned: reg.classList.contains('top'), toast: [tr.left, tr.top, tr.right, tr.bottom].map(Math.round), barBottom: Math.round(bar.bottom),
-        onSheetControl: sheetControls.some(meets), onSheet: meets(document.getElementById('ask').getBoundingClientRect()) };
+        onSheetControl: sheetControls.some(meets), onSheet: meets(document.getElementById('ask').getBoundingClientRect()),
+        onPicture: meets(document.getElementById('screen').getBoundingClientRect()) };
     });
-    if (phone) check(`${L}: the toast is in the header band (pinned at the top, under the bar), not over the sheet`,
-      where.up && where.pinned && where.toast[1] === where.barBottom + 8 && !where.onSheet, JSON.stringify(where));
+    // (the header band would lie on the picture, which starts under the bar: the long toast docks under the picture,
+    // over the keys, in the fixed slot)
+    if (phone) check(`${L}: the toast is in the fixed slot docked off the picture (under it, over the keys), not over the sheet`,
+      where.up && where.pinned && !where.onPicture && !where.onSheet && !where.onSheetControl, JSON.stringify(where));
     // (at 900 px whether this long toast finds a free place or pins under the bar depends on how many lines it wraps to,
     // which depends on the fonts: either is right; feedbackModel checks the free place with a short toast)
     check(`${L}: the toast covers none of the sheet's controls (no Stop under a toast)`, where.up && !where.onSheetControl, JSON.stringify(where));
@@ -13379,22 +13382,15 @@ async function askEscChecks(browser, base, check) {
     check(`${L}: no page errors`, !errors.length, errors.join('; '));
     await closeCtx(ctx);
   }
-  // ... and where the toast HAS no free place, so it takes the fallback slot: the stricter check (held back until this fix:
-  // prove the premise on #toast itself, settle before raising, a Stop reachable). Three layouts where the long toast
-  // finds no free place while a turn runs: a phone held sideways with the touch keys while Claude types (the only Stop
-  // is the screen's own, #askActing, at the tube's top), and the full-screen chat with Claude typing into the BASIC
-  // session, at 1280 px and held sideways (the chat's Stop in #claudeBar and the PiP's). The top slot lay over those
-  // Stops, so the pill came up for as long as each toast showed and went with it -- once per toast, which `flips <= 1`
-  // allowed. js/ui/feedback.js now keeps the fallback slot off every Stop that shows (the stylesheet's bottom slot when
-  // the top one covers one), so here the pill must not move at all, for any of 20 toasts, long and short.
-  // (What turns it red: the fallback always taking the top slot -- `slot === 'bottom'` never chosen in feedback.js. The
-  // premise check then fails on every long toast, and the pill comes and goes once per long toast.)
-  // The full-screen chat's own view (the chat on the big screen, the BASIC session in the PiP) is where BOTH slots
-  // cover a Stop for a long toast: the top one #claudeBar's, the bottom one the PiP's. Each leaves the other reachable,
-  // so the fallback keeps the top slot, and `under` is exactly #btnClaudeStop, the pill never shows and the PiP's Stop
-  // can be clicked. (What turns these red: preferring the bottom slot when both cover one -- `under` becomes the PiP's
-  // Stop. The guard for a slot that covers EVERY Stop is checked in tests/toast-follow.test.js, where the slots overlap.)
-  const UNDER_CHAT = { 1280: ['btnClaudeStop'], 844: ['btnClaudeStop'] };
+  // ... and the layouts where the long toast once had no free place while a turn runs: a phone held sideways with the
+  // touch keys while Claude types (the only Stop is the screen's own, #askActing, at the tube's top), and the full-screen
+  // chat with Claude typing into the BASIC session, at 1280 px and held sideways (the chat's Stop in #claudeBar and the
+  // PiP's), the BASIC session or the chat on the big screen. A toast never lies over the picture now: a desktop docks it
+  // under the tube, and the fixed slot docks off the picture (over a keys' side held sideways), taking of its slots the
+  // first that covers no Stop (js/ui/feedback.js fallbackSlot). Here every toast must keep off the picture and off every
+  // Stop, and the pill must not move at all, for any of 20 toasts, long and short.
+  // (What turns it red: the fallback slot ignoring Claude's Stops -- the first slot off the picture always taken; held
+  // sideways the long toast then lies over #btnClaudeStop and the pill comes and goes.)
   for (const [tag, viewport, opts, full, chatView] of [
     ['held sideways with the touch keys, Claude typing', { width: 844, height: 390 }, { hasTouch: true, isMobile: true }, false, false],
     ['the full-screen chat at 1280 px, Claude typing', { width: 1280, height: 800 }, {}, true, false],
@@ -13435,22 +13431,19 @@ async function askEscChecks(browser, base, check) {
           return { id: e.id, underToast: !!at && box.contains(at), reachable: !!at && (at === e || e.contains(at)) };
         }).filter(Boolean);
         const tr = box.getBoundingClientRect();
-        out.push({ i, n, slot: reg.classList.contains('top'), toast: [tr.left, tr.top, tr.right, tr.bottom].map(Math.round),
+        const pr = document.getElementById('screen').getBoundingClientRect();
+        out.push({ i, n, slot: reg.classList.contains('top'), onPicture: !(tr.bottom <= pr.top || tr.top >= pr.bottom || tr.right <= pr.left || tr.left >= pr.right), toast: [tr.left, tr.top, tr.right, tr.bottom].map(Math.round),
           under: stops.filter((s) => s.underToast).map((s) => s.id), reach: stops.filter((s) => s.reachable).map((s) => s.id) });
       }
       window.emu.feedback.clear();
       return out;
     });
+    // (a desktop now docks the long toast under the tube, a free place; held sideways the fixed slot docks over a keys' side
+    // off the picture: either way the toast is over neither the picture nor, where a slot covers none, a Stop)
     const long = reps.filter((r) => r.i % 2 === 0);
-    check(`${L}: setup: Claude's turn runs, and the long toast has no free place (it takes the fallback slot, the scenario the check names)`,
-      ok && reps.length === 20 && long.every((r) => r.slot), JSON.stringify(long.slice(0, 2)));
-    if (!chatView) check(`${L}: no toast lies over a Stop, in the fallback slot or anywhere`, reps.every((r) => !r.under.length), JSON.stringify(reps.filter((r) => r.under.length).slice(0, 3)));
-    else {
-      const want = JSON.stringify(UNDER_CHAT[viewport.width]);
-      check(`${L}: both slots cover a Stop: each long toast lies over exactly ${want} (the slot that leaves another uncovered), a short one over none`,
-        long.every((r) => JSON.stringify(r.under) === want) && reps.filter((r) => r.i % 2).every((r) => !r.under.length),
-        JSON.stringify(reps.slice(0, 4).map((r) => ({ i: r.i, under: r.under, toast: r.toast }))));
-    }
+    check(`${L}: setup: Claude's turn runs, and every toast keeps off the picture (docked under the tube, or in a fixed slot)`,
+      ok && reps.length === 20 && reps.every((r) => !r.onPicture), JSON.stringify(long.slice(0, 2)));
+    check(`${L}: no toast lies over a Stop, in a fixed slot or anywhere`, reps.every((r) => !r.under.length), JSON.stringify(reps.filter((r) => r.under.length).slice(0, 3)));
     check(`${L}: 20 toasts in a row: the pill never shows (a Stop stays reachable without it)`, reps.every((r) => r.n === 0), JSON.stringify(reps.map((r) => r.n)));
     check(`${L}: a Stop is reachable while every toast shows (the pill's whole reason)`, reps.every((r) => r.reach.length), JSON.stringify(reps.filter((r) => !r.reach.length).slice(0, 3)));
     if (shotDir) {
@@ -13486,7 +13479,9 @@ async function askEscChecks(browser, base, check) {
       window.__obs = new MutationObserver(() => { if (v.hidden !== was) { window.__flips++; was = v.hidden; } }); window.__obs.observe(v, { attributes: true });
       window.emu.feedback.toast('A toast over the bottom of the window, long enough to wrap onto several lines on a phone, so that it lies over the sheet\'s Stop button at the bottom edge of the window for as long as it shows', { action: { label: 'Undo', run() {} } }); });
     await emuFrames(page, 30);
-    const before = await page.evaluate(() => ({ slot: document.getElementById('toastRegion').classList.contains('top'), up: !document.getElementById('toast').hidden, busy: !!window.emu.session.claudeStatus }));
+    const before = await page.evaluate(() => { const t = document.getElementById('toast').getBoundingClientRect(), p = document.getElementById('screen').getBoundingClientRect();
+      return { slot: document.getElementById('toastRegion').classList.contains('top'), up: !document.getElementById('toast').hidden, busy: !!window.emu.session.claudeStatus,
+        onPicture: !(t.bottom <= p.top || t.top >= p.bottom || t.right <= p.left || t.left >= p.right) }; });
     replies.push({ body: tools([{ name: 'type_text', input: { text: LISTING } }]) }, { hold: true, body: text('Typed.') });
     await page.evaluate(() => { window.emu.session.chat.sendLine('Type a long listing for me'); });
     const acting = await waitFor(page, () => window.emu.session.chatTarget().machine.typist.queue.length > 100 && window.emu.session.claudeBusyActing, null, 8000);
@@ -13503,8 +13498,8 @@ async function askEscChecks(browser, base, check) {
       window.__obs.disconnect();
       return { up: !box.hidden, flips: window.__flips, under: stops.filter((s) => s.underToast).map((s) => s.id), reach: stops.filter((s) => s.reachable).map((s) => s.id) };
     });
-    check(`${L}: setup: the toast is pinned in the fallback slot before the turn, and is still up once Claude types`,
-      before.slot && before.up && !before.busy && acting && after.up, JSON.stringify({ before, acting, up: after.up }));
+    check(`${L}: setup: the toast is up before the turn, off the picture, and is still up once Claude types`,
+      before.up && !before.onPicture && !before.busy && acting && after.up, JSON.stringify({ before, acting, up: after.up }));
     check(`${L}: the toast moves off the Stop that appears under it (no Stop under the toast)`, !after.under.length, JSON.stringify(after));
     check(`${L}: the pill never shows (0 changes)`, after.flips === 0, `flips ${after.flips}`);
     check(`${L}: a Stop can be clicked`, after.reach.length > 0, JSON.stringify(after.reach));
@@ -19932,11 +19927,38 @@ async function mobileChecks(browser, base, check) {
       const box = document.getElementById('toast').getBoundingClientRect(), bar = document.getElementById('appbar');
       const cross = (a, b) => a.left < b.right - 0.5 && b.left < a.right - 0.5 && a.top < b.bottom - 0.5 && b.top < a.bottom - 0.5;
       const keys = [...document.querySelectorAll('#touchKeys button')].filter((e) => e.checkVisibility() && cross(box, e.getBoundingClientRect())).map((e) => e.textContent.trim());
-      return { text: document.getElementById('toastText').textContent, keys, underBar: !bar.checkVisibility() || box.top >= bar.getBoundingClientRect().bottom - 0.5,
+      const strip = [...document.querySelectorAll('#tkBreak, #tkClear, #tkMenu, #tkModeSwitch button')].filter((e) => e.checkVisibility() && cross(box, e.getBoundingClientRect())).map((e) => e.textContent.trim());
+      return { text: document.getElementById('toastText').textContent, keys, strip, onPicture: cross(box, document.getElementById('screen').getBoundingClientRect()),
         inView: box.top >= 0 && box.bottom <= innerHeight && box.left >= 0 && box.right <= innerWidth };
     });
-    check(`mobile (${w}x${h}, 2048): the toast says tap (no "Esc", no "press"), lies under the app bar and over no key`,
-      /tap a key/.test(t.text) && /BREAK/.test(t.text) && !/Esc|press/.test(t.text) && t.underBar && !t.keys.length && t.inView, JSON.stringify(t));
+    // (a toast never lies over the picture: here it is docked over the keys, under the BREAK/CLEAR strip, or over the
+    // app bar when it is one line; a key under it still takes the tap)
+    check(`mobile (${w}x${h}, 2048): the toast says tap (no "Esc", no "press"), lies over neither the picture nor the BREAK/CLEAR strip`,
+      /tap a key/.test(t.text) && /BREAK/.test(t.text) && !/Esc|press/.test(t.text) && !t.onPicture && !t.strip.length && t.inView, JSON.stringify(t));
+    {
+      // a toast of more lines than one is docked over the letter rows: a tap on a key it lies over reaches the key (the
+      // toast's body takes no taps)
+      await page.evaluate(() => window.emu.feedback.toast('2048: tap a key to play; tap BREAK for the menu. A second sentence makes this toast wrap onto more than one line.'));
+      await painted(page);
+      const at = await page.evaluate(() => {
+        const box = document.getElementById('toast').getBoundingClientRect();
+        // a point inside both the toast and a key, clear of the toast's own button
+        const act = document.getElementById('toastAction').getBoundingClientRect();
+        for (const key of [...document.querySelectorAll('#touchKeys button')].filter((e) => e.checkVisibility())) {
+          const r = key.getBoundingClientRect();
+          const l = Math.max(r.left, box.left) + 2, t = Math.max(r.top, box.top) + 2, rr = Math.min(r.right, box.right) - 2, b = Math.min(r.bottom, box.bottom) - 2;
+          if (rr <= l || b <= t) continue;
+          const x = (l + rr) / 2, y = (t + b) / 2;
+          if (x >= act.left && x <= act.right && y >= act.top && y <= act.bottom) continue;
+          window.__keyHit = null; key.addEventListener('pointerdown', () => { window.__keyHit = key.textContent.trim(); }, { once: true });
+          return { x, y, name: key.textContent.trim() };
+        }
+        return null;
+      });
+      if (at) await page.touchscreen.tap(at.x, at.y);
+      const hit = await page.evaluate(() => ({ key: window.__keyHit, toastUp: !document.getElementById('toast').hidden }));
+      check(`mobile (${w}x${h}, 2048): a tap on a key under a showing toast (${at && at.name}) reaches the key`, !!at && hit.key === at.name, JSON.stringify({ at, hit }));
+    }
     if (shotDir) await page.screenshot({ path: path.join(shotDir, `mobile-${w}x${h}-toast.png`) });
     await closeCtx(ctx);
   }
@@ -20830,7 +20852,8 @@ async function toastOffScreenChecks(browser, base, check) {
     await emuFrames(page, 10);
     for (const text of ['LIZA loaded', 'JUNK.BIN loaded and started. DragonDOS binary $3000-$300E, exec $3000']) {
       await page.evaluate((t) => { window.emu.feedback.clear(); window.emu.feedback.toast(t, { action: { label: 'Undo', run() {} } }); }, text);
-      await toastSeen(page, new RegExp(text.slice(0, 8).replace(/[.$]/g, "\\$&")));
+      // (shown, not toastSeen: a toast docked over the keys takes no taps, so elementFromPoint goes through it)
+      await waitFor(page, (t) => !document.getElementById('toast').hidden && document.getElementById('toastText').textContent === t, text);
       await emuFrames(page, 3);
       const r = await page.evaluate(() => {
         const rect = (e) => { const b = e.getBoundingClientRect(); return { left: b.left, top: b.top, right: b.right, bottom: b.bottom }; };

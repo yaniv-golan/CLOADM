@@ -36,10 +36,12 @@ Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.
 #### Changed
 
 - **A toast never lies over the screen's picture.** One rule in `js/ui/feedback.js` above the others: on a desktop the
-  toast docks under the tube; held sideways (the touch keys at both sides) it docks over the wider keys' side; upright it
-  docks under the picture and the "Tap for sound" chip, over the keys. The band under the screen's text now starts under
-  the picture, never on it. The copy is unchanged. The browser check's new `toastOffScreen` group holds the toast's and
-  the canvas's rects apart at 1280x800, 653x280 and 393x659, and the chip uncovered.
+  toast docks under the tube; held sideways (the touch keys at both sides) it docks over the keys' side that covers none
+  of Claude's Stops; upright a one-line toast goes over the app bar and a longer one under the BREAK/CLEAR strip, over
+  the letter rows. A toast over the keys takes no taps but its own buttons: a key under it still types. The band under
+  the screen's text now starts under the picture, never on it. The copy is unchanged. The browser check's new
+  `toastOffScreen` group holds the toast's and the canvas's rects apart at 1280x800, 653x280 and 393x659, and the
+  "Tap for sound" chip uncovered; `mobile` taps a key through a showing toast.
 - **Add ROMs says at once when a file isn't a ROM image.** An error toast and a line under the drop zone: "fake.rom isn't
   a ROM image, so it wasn't added.", or for several "3 files weren't ROM images, so they weren't added. See What you
   dropped.", which brings the "What you dropped" card into view. Before, only that card, below the fold, said so. The

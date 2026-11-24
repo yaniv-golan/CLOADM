@@ -310,6 +310,9 @@
     display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 10px; box-shadow: 0 8px 24px rgba(0, 0, 0, .45); }
   #toast[hidden] { display: none; }
   /* on the screen's border under its text (js/ui/feedback.js), where room is short */
+  /* docked over the touch keys (js/ui/feedback.js fallbackSlot): taps go through to the keys, but for its own buttons */
+  #toast.passthru, #toastRegion:has(> #toast.passthru) { pointer-events: none; }
+  #toast.passthru button, #toast.passthru a { pointer-events: auto; }
   #toast.compact { font-size: 12px; line-height: 1.25; padding: 2px 8px; gap: 2px 6px; border-radius: 8px; box-shadow: none; }
   #toast.compact #toastAction { padding: 1px 6px; font-size: 12px; }
   /* an error is red: the bar and the edge in --error, 4.76:1 on the toast's paper (css/tokens.css) */
