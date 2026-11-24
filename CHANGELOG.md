@@ -8,6 +8,14 @@ All notable changes to CLOADM are recorded here. The format follows
 
 Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.test.js` keeps them in step).
 
+#### Fixed
+
+- **The docs say what Claude's plugin page shows for the servers.** README and `docs/mcp.md` said the side panel's server
+  "calls itself *CLOADM side panel*"; Claude's plugin page and chat menu list the plugin's servers by their ids,
+  *cloadm-panel* and *cloadm*. The plugin format (`mcpServers` keyed by name) has no field for a server's display name,
+  and nothing in Claude's plugin documentation says the server's own `serverInfo` name or title is used there, so
+  the ids stay: renaming them would change the tool names users' allowlists hold (`mcp__plugin_cloadm_cloadm__*`).
+
 ### 0.2.0
 
 #### Added

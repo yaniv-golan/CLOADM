@@ -127,8 +127,8 @@ const PHONE_VIEW_WORKS = false;
     const after = end >= 0 ? t.slice(end, end + 900) : '';
     check(`${f}: "Without the plugin": the connector URL, named CLOADM, no sign-in, the side panel but not the skill`,
       after.includes('Add `https://mcp.cloadm.dev/mcp` as a custom connector and name it **CLOADM** (no sign-in). You get the side panel but not the skill that teaches Claude to play it well.'));
-    check(`${f}: the names people see: the plugin CLOADM, the servers CLOADM side panel and CLOADM on this computer (the extension's name too)`,
-      sec.includes('Claude lists the plugin as **CLOADM**. The side panel\'s server calls itself *CLOADM side panel*, and the one on your\ncomputer *CLOADM on this computer*, the name the Desktop extension has too.'));
+    check(`${f}: the names people see: the plugin CLOADM; its servers listed as cloadm-panel and cloadm (the plugin format has no display name for a server), their own names CLOADM side panel and CLOADM on this computer shown only where a client reads them`,
+      sec.includes('Claude lists the plugin as **CLOADM**. Its plugin page and chat menu label the two servers by their ids, *cloadm-panel*\nand *cloadm*: the plugin format has no field for a server\'s display name (the key under `mcpServers` is the name), so\nthe servers\' own names, *CLOADM side panel* and *CLOADM on this computer* (the Desktop extension\'s name too), show only\nwhere a client reads them from the server.'));
     const ALREADY = "Already added https://mcp.cloadm.dev/mcp as a custom connector? The plugin's cloadm-panel uses that same connector, so you won't have two; you can keep it.";
     const steps = sec.slice(sec.indexOf('2. On the web and in desktop chat'), sec.indexOf('In Cowork and Claude Code'));
     check(`${f}: the note for a connector already added by hand, under step 2 and under "Without the plugin"`,
