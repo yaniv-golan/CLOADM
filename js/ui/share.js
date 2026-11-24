@@ -306,7 +306,8 @@ export function setupShare(page, { linkStore }) {
     const ok = await copyText($('shareLink').value, $('btnShareCopyLong'), 'shareLink');
     page.toast(ok ? 'Long link copied' : 'Press Ctrl+C to copy the link');
   };
-  $('shareAlwaysLong').onchange = () => setAlwaysLong($('shareAlwaysLong').checked);
+  // the switch and what each tap gives change together: both notes are re-said at once, not only on the next capture
+  $('shareAlwaysLong').onchange = () => { setAlwaysLong($('shareAlwaysLong').checked); syncLongNote(); };
   $('shareAlwaysLong').checked = alwaysLong();
   $('btnShareDownload').onclick = () => {
     page.download(captured.file.name, captured.file.bytes, 'application/gzip');

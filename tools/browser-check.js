@@ -15870,6 +15870,57 @@ async function shareScreenChecks(browser, base, check) {
     await sc.close();
   }
 
+  // "Always use long links": remembered in this browser; with it on, the tap copies the long link and the note says so,
+  // and it survives a reload
+  const al = await browser.newContext({ viewport: { width: 1280, height: 800 }, serviceWorkers: 'block', permissions: ['clipboard-read', 'clipboard-write'] });
+  const alp = await al.newPage();
+  alp.on('pageerror', (e) => errors.push(e.message));
+  await alp.goto(`${base}?machine=dragon64#share`);
+  await started(alp);
+  await waitFor(alp, () => !!document.getElementById('shareLink').value);
+  const openMore = (pp) => pp.evaluate(() => { const d = document.getElementById('shareMore'); d.open = true; d.querySelector(':scope > :not(summary)').hidden = false; });
+  await openMore(alp);
+  await alp.check('#shareAlwaysLong');
+  await alp.click('#btnShareCopy');
+  const alwaysClip = await alp.evaluate(() => navigator.clipboard.readText().catch(() => ''));
+  const alwaysNote = await alp.evaluate(() => ({ long: document.getElementById('longNote').textContent, note: document.getElementById('primaryNote').textContent, field: document.getElementById('shareLink').value }));
+  check('one link: "Always use long links": the tap copies the short link never, the long one, and both notes say nothing is uploaded',
+    /#z=/.test(alwaysClip) && alwaysClip === alwaysNote.field && alwaysNote.long === 'Long link: nothing is uploaded.' && alwaysNote.note === 'Long link: nothing is uploaded.', JSON.stringify(Object.assign({}, alwaysNote, { field: alwaysNote.field.slice(0, 30) })));
+  await alp.reload();
+  await started(alp);
+  await waitFor(alp, () => !!document.getElementById('shareLink').value);
+  const afterReload = await alp.evaluate(() => ({ checked: document.getElementById('shareAlwaysLong').checked, long: document.getElementById('longNote').textContent, mode: document.getElementById('previewSwitch').checkVisibility() }));
+  check('one link: "Always use long links" survives a reload: the switch is still on, the note still says long, the short link\'s switch is not offered', afterReload.checked && afterReload.long === 'Long link: nothing is uploaded.' && !afterReload.mode, JSON.stringify(afterReload));
+  await openMore(alp);
+  await alp.uncheck('#shareAlwaysLong');
+  check('one link: "Always use long links" off again: the short link is offered once more', await waitFor(alp, () => document.getElementById('previewSwitch').checkVisibility()));
+  await closeCtx(al);
+
+  // storage that throws: the switch still works for the visit, and a tap does not fall over
+  const ctxs = await browser.newContext({ viewport: { width: 1280, height: 900 }, serviceWorkers: 'block' });
+  await ctxs.addInitScript(() => { const g = Storage.prototype.getItem, s = Storage.prototype.setItem; Storage.prototype.getItem = function (k) { if (k === 'cloadm.alwaysLongLinks') throw new Error('denied'); return g.call(this, k); }; Storage.prototype.setItem = function (k) { if (k === 'cloadm.alwaysLongLinks') throw new Error('denied'); return s.call(this, k); }; });
+  const ps = await ctxs.newPage();
+  const serrors = [];
+  ps.on('pageerror', (e) => serrors.push(e.message));
+  await ps.goto(`${base}?machine=dragon64#share`);
+  await linkIn(ps);
+  await waitFor(ps, () => !!document.getElementById('shareLink').value);
+  check('one link: localStorage that throws on the always-long key: the page still opens, and the switch reads off', await ps.evaluate(() => document.getElementById('shareAlwaysLong').checked === false && !!document.getElementById('shareLink').value) && !serrors.length, serrors.join('; '));
+  await closeCtx(ctxs);
+
+  // a clipboard that rejects: the field is shown with the link in it and selected, and the note says press Ctrl/⌘+C
+  const ctxr = await browser.newContext({ viewport: { width: 1280, height: 900 }, serviceWorkers: 'block', permissions: ['clipboard-read', 'clipboard-write'] });
+  const pr = await ctxr.newPage();
+  pr.on('pageerror', (e) => errors.push(e.message));
+  await pr.goto(`${base}?machine=dragon64#share`);
+  await linkIn(pr);
+  await waitFor(pr, () => !!document.getElementById('shareLink').value);
+  await pr.evaluate(() => { navigator.clipboard.writeText = () => Promise.reject(new Error('denied')); });
+  await pr.click('#btnShareCopy');
+  const rej = await waitFor(pr, () => /Press Ctrl\+C to copy the link/.test(document.getElementById('toastRegion').textContent), null, 10000)
+    && await pr.evaluate(() => { const f = document.getElementById('shareLink'); return f.checkVisibility() && f.selectionEnd > 0 && !f.hidden; });
+  check('one link: a clipboard that rejects: the link is shown, selected, and the note says press Ctrl/⌘+C (Copy never leaves nothing)', rej);
+  await closeCtx(ctxr);
   // ---- the "one link" layout: a bundled program nobody has touched gives its page; once played, the moment, with its
   // page offered in "More ways to share"; and a tap's field is visible at every size (Documented in js/ui/share.js and
   // Session.untouchedBundledProgram; the server paths are the short-link group's, below) ----
@@ -20570,53 +20621,6 @@ async function shortLinkChecks(browser, base, site, check) {
   check('shortLink: offline the tap copies the LONG link, the note says so (it works without any server), and online it goes back', offReason && /#z=/.test(offClip)
     && await waitFor(page, () => document.getElementById('primaryWhy').textContent === ''), offClip.slice(0, 30));
 
-  // "Always use long links": remembered in this browser; with it on, the tap copies the long link and the note says so,
-  // and it survives a reload
-  await openShare(page);
-  await page.evaluate(() => { location.hash = '#share'; });
-  await page.evaluate(() => { const d = document.getElementById('shareMore'); d.open = true; d.querySelector(':scope > :not(summary)').hidden = false; });
-  await page.check('#shareAlwaysLong');
-  await page.click('#btnShareCopy');
-  const alwaysClip = await page.evaluate(() => navigator.clipboard.readText().catch(() => ''));
-  const alwaysNote = await page.evaluate(() => ({ long: document.getElementById('longNote').textContent, note: document.getElementById('primaryNote').textContent, field: document.getElementById('shareLink').value }));
-  check('shortLink: "Always use long links": the tap copies the short link never, the long one, and both notes say nothing is uploaded',
-    /#z=/.test(alwaysClip) && alwaysClip === alwaysNote.field && alwaysNote.long === 'Long link: nothing is uploaded.' && alwaysNote.note === 'Long link: nothing is uploaded.', JSON.stringify(Object.assign({}, alwaysNote, { field: alwaysNote.field.slice(0, 30) })));
-  await page.reload();
-  await linkIn(page);
-  await waitFor(page, () => !!document.getElementById('shareLink').value);
-  const afterReload = await page.evaluate(() => ({ checked: document.getElementById('shareAlwaysLong').checked, long: document.getElementById('longNote').textContent, mode: document.getElementById('previewSwitch').checkVisibility() }));
-  check('shortLink: "Always use long links" survives a reload: the switch is still on, the note still says long, the short link\'s switch is not offered', afterReload.checked && afterReload.long === 'Long link: nothing is uploaded.' && !afterReload.mode, JSON.stringify(afterReload));
-  await page.evaluate(() => { const d = document.getElementById('shareMore'); d.open = true; d.querySelector(':scope > :not(summary)').hidden = false; });
-  await page.uncheck('#shareAlwaysLong');
-  check('shortLink: "Always use long links" off again: the short link is offered once more', await waitFor(page, () => document.getElementById('previewSwitch').checkVisibility()));
-
-  // storage that throws: the switch still works for the visit, and a tap does not fall over
-  const ctxs = await browser.newContext({ viewport: { width: 1280, height: 900 }, serviceWorkers: 'block' });
-  await ctxs.addInitScript(() => { const g = Storage.prototype.getItem, s = Storage.prototype.setItem; Storage.prototype.getItem = function (k) { if (k === 'cloadm.alwaysLongLinks') throw new Error('denied'); return g.call(this, k); }; Storage.prototype.setItem = function (k) { if (k === 'cloadm.alwaysLongLinks') throw new Error('denied'); return s.call(this, k); }; });
-  await serve(ctxs);
-  const ps = await ctxs.newPage();
-  const serrors = [];
-  ps.on('pageerror', (e) => serrors.push(e.message));
-  await ps.goto(`${base}?machine=dragon64#share`);
-  await linkIn(ps);
-  await waitFor(ps, () => !!document.getElementById('shareLink').value);
-  check('shortLink: localStorage that throws on the always-long key: the page still opens, and the switch reads off', await ps.evaluate(() => document.getElementById('shareAlwaysLong').checked === false && !!document.getElementById('shareLink').value) && !serrors.length, serrors.join('; '));
-  await closeCtx(ctxs);
-
-  // a clipboard that rejects: the field is shown with the link in it and selected, and the note says press Ctrl/⌘+C
-  const ctxr = await browser.newContext({ viewport: { width: 1280, height: 900 }, serviceWorkers: 'block' });
-  await serve(ctxr);
-  const pr = await ctxr.newPage();
-  pr.on('pageerror', (e) => errors.push(e.message));
-  await pr.goto(`${base}?machine=dragon64#share`);
-  await linkIn(pr);
-  await waitFor(pr, () => !!document.getElementById('shareLink').value);
-  await pr.evaluate(() => { navigator.clipboard.writeText = () => Promise.reject(new Error('denied')); });
-  await pr.click('#btnShareCopy');
-  const rej = await waitFor(pr, () => /Press Ctrl\+C to copy the link/.test(document.getElementById('toastRegion').textContent), null, 10000)
-    && await pr.evaluate(() => { const f = document.getElementById('shareLink'); return f.checkVisibility() && f.selectionEnd > 0 && !f.hidden; });
-  check('shortLink: a clipboard that rejects: the link is shown, selected, and the note says press Ctrl/⌘+C (Copy never leaves nothing)', rej);
-  await closeCtx(ctxr);
 
   // a cartridge moment: no short link, so the tap copies the long link and its reason is shown (never hidden)
   await page.click('#shareBack');
