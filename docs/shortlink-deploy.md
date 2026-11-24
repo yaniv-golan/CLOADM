@@ -15,15 +15,17 @@ Per link, three objects in the bucket:
 | Key | What | Who reads it |
 |---|---|---|
 | `<id>.bin` | the moment, sealed with AES-GCM in the person's browser (≤ 64 KB) | the page, `GET https://s.cloadm.dev/<id>.bin` |
-| `<id>.png` | the preview picture, only if the person left "Show a preview picture" on: 1200 × 630, indexed, ≤ 16 colours, ≤ 32 KB, only IHDR/PLTE/IDAT/IEND | link unfurlers |
+| `<id>.png` | the preview picture, only if the person left "Show a preview picture" on: 1200 × 630, indexed, ≤ 16 colours, ≤ 32 KB, only IHDR/PLTE/IDAT/IEND (PLTE first, the IDATs together), and its pixels unpacked to check them: exactly 1200 × 630 of them, filters 0 to 4, every colour in the palette (an inflation bomb is stopped one byte past the size) | link unfurlers |
 | `<id>` | the arrival page, from a fixed template (machine name and id only), which goes straight to `https://cloadm.dev/play/#l=<id>.<key>` and sends nothing | people and unfurlers |
 
 The key is never sent: it is the part after `#`. The delete token's SHA-256 is kept in `<id>.bin`'s metadata; the
 token itself only in the browser that made the link. **Links never expire**: there is no lifecycle rule, and none
 should be added.
 
-Counts, totals only, in `stats/counts.json` (links made, opened, removed), and a public page `stats/` that the Worker
-rewrites with each count. No address, user agent or anything per person is stored.
+Counts, totals only, in `stats/counts.json` (links made, counted once stored; opened; deleted by whoever made them),
+and a public page `stats/` that the Worker rewrites with each count. The daily cap counts in an object of its own,
+`limits/today.json`, so nothing that writes the totals can slow down or block making a link, and a total that can't be
+written is skipped rather than holding up the request. No address, user agent or anything per person is stored.
 
 **Opens** are counted without anything on the read path: no Worker runs on a read and no page sends a ping. Once a day
 a Cron Trigger runs the Worker's `scheduled` handler, which asks Cloudflare's GraphQL Analytics API for the zone's
@@ -78,7 +80,7 @@ cloadm.dev is ever proxied by Cloudflare, the same query on `clientRequestPath: 
 |---|---|---|
 | A moment's size | `MAX_SEALED` in the Worker (and `Session.SHORT_SEALED_MAX`) | 64 KB |
 | The picture | `MAX_PNG`, `PNG_COLOURS` (and `Session.SHORT_PNG`) | 32 KB, 16 colours |
-| Per address | `RATE_IP` binding | 10 a minute |
+| Per address | `RATE_IP` binding (making and deleting links, counted apart) | 10 a minute |
 | Everyone, per minute | `RATE_ALL` binding | 120 a minute |
 | Everyone, per day | `DAILY_CAP` var (UTC day, counted in `stats/counts.json`) | 5000 |
 | Kill switch | `NEW_LINKS = "off"` (then `npx wrangler deploy`, or set it in the dashboard) | on |
@@ -92,10 +94,13 @@ offers the long link); existing links stay readable, because reads never run the
 A report ("Report this link" on the arrival page) names the id. Remove its three objects:
 
 ```
-npx wrangler r2 object delete <BUCKET_NAME>/<id>
-npx wrangler r2 object delete <BUCKET_NAME>/<id>.bin
-npx wrangler r2 object delete <BUCKET_NAME>/<id>.png
+npx wrangler r2 object delete <BUCKET_NAME>/<id> --remote
+npx wrangler r2 object delete <BUCKET_NAME>/<id>.bin --remote
+npx wrangler r2 object delete <BUCKET_NAME>/<id>.png --remote
 ```
+
+(`--remote` matters: without it Wrangler 4 deletes from its local development copy and the link stays up.) A takedown
+does not change the public totals: "Short links deleted by whoever made them" counts only "Delete this link".
 
 **Cached copies may live up to 1 day after removal** (the cache rule's TTL): there is no purge step. For anything
 urgent, flip the kill switch as well, and purge `https://s.cloadm.dev/<id>` by hand in the dashboard (Caching →
