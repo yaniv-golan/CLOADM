@@ -213,8 +213,8 @@ Next version: 0.1.9-pre (the plugin and extension manifests carry it; `tests/plu
 - **Claude reads everything in the machine on every host, ROM areas included.** The MCP tools no longer refuse to read
   memory while the user's ROMs, a cartridge or NitrOS-9 are in the machine: `peek`, `find_bytes`, `disassemble`,
   `screen_text`, `screenshot` and `run_frames` answer the same in the local server, the side panel and the claude.ai
-  connector, as the in-page Claude already did. The toolbox option that refused (`refuseRomReads`) is gone, with its
-  `rejected` error. What CLOADM itself shares is unchanged: snapshots and share links carry no ROM, and `add_roms`
+  connector, as the in-page Claude already did. The toolbox option that refused (`refuseRomReads`) is gone, and with it
+  the `rejected` refusal of memory reads. What CLOADM itself shares is unchanged: snapshots and share links carry no ROM, and `add_roms`
   keeps its rules. The embedding API's `peek` is not part of this and keeps its own rule. `docs/mcp.md` and the skill
   say what the tools can read.
 - **A phone's Cassette deck sheet closes when the program starts.** Load it now (the button in the toast after a tape goes
