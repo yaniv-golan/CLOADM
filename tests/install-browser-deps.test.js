@@ -5,20 +5,25 @@
 //   - all present: nothing installed, apt never run;
 //   - a cache hit: dpkg -i of the missing packages' files only (never a cached file of a package the image has, which
 //     dpkg would downgrade), no apt-get update;
-//   - no cache: the mirror; only the missing packages' .deb files are kept for the cache, not whatever else apt fetched;
-//     apt's time limits are written before any apt command runs;
+//   - no cache: the mirror; apt-get install of exactly the missing packages (--no-install-recommends, never a package
+//     the image has), without translation lists; only the missing packages' .deb files are kept for the cache, not
+//     whatever else apt fetched; apt's time limits are written before any apt command runs;
 //   - a cache that does not satisfy the check: falls through to the mirror, repairing with apt-get install -f first;
-//   - a mirror that keeps failing: two tries, then a loud failure;
+//   - a mirror that keeps failing: three tries, each on a different mirror (the image's, then azure.archive, then
+//     archive.ubuntu.com, each through its own signed sources list), then a loud failure;
+//   - a mirror that stalls mid-install (CI 45333139695): stopped at its limit, and the next try asks the next mirror;
 //   - an apt-get update that hangs past its limit while a child of it holds the dpkg lock (CI 45180359317): the whole
 //     process group is stopped, so the lock is free and try 2 succeeds, and no stub process survives;
 //   - a lock held by a process in a session of its own (as sudo starts apt-get: CI 45181201761), for a while: try 2
 //     waits for it and succeeds;
 //   - ...and for good: after the wait the holder is stopped (named in the output), and try 2 succeeds;
+//   - the workflows restore the cache with a fallback to an earlier image's, and save it right after a good install;
 //   - apt is told to wait for a lock at most LOCK_WAIT s (DPkg::Lock::Timeout);
 //   - a killed holder leaves dpkg "interrupted" (the stub install-deps then fails, as apt does): the repair after the
 //     kill, and the lock wait before every `dpkg --configure -a` (dpkg fails on a held lock), let the next try work;
 //   - run as a user, the script re-runs itself under sudo once, with INSTALL_DEPS_AS_ROOT=1.
-// Removing the check after dpkg (the review's mutant) turns case 4 red; running commands without setsid turns case 6
+// Retrying the same mirror (MIRRORS reduced to one entry) turns cases 5 and 5b red; installing every package
+// (dropping $need) turns case 3 red; removing the check after dpkg (the review's mutant) turns case 4 red; running commands without setsid turns case 6
 // red; dropping the lock wait turns case 7 red; no lock wait before the repair turns case 8 red; no repair after a kill
 // turns case 9 red; no re-run under sudo turns case 10 red.
 // Run: node tests/install-browser-deps.test.js
@@ -87,13 +92,6 @@ if [ "$*" = "playwright install-deps --dry-run chromium" ]; then
   if [ \${#miss[@]} -eq 0 ]; then echo "All system dependencies are installed."; exit 0; fi
   echo "Missing system dependencies (\${#miss[@]}):"; for p in "\${miss[@]}"; do echo "  $p"; done; exit 1
 fi
-if [ "$*" = "playwright install-deps chromium" ]; then
-  [ -e "$STATE/mirror-fails" ] && { echo "E: mirror unreachable"; exit 100; }
-  [ -e "$STATE/interrupted" ] && { echo "E: dpkg was interrupted, you must manually run 'dpkg --configure -a'"; echo "install-deps: interrupted" >> "$STATE/calls"; exit 100; }
-  mkdir -p "$APT_ARCHIVES"
-  for p in $NEEDED libgbm1; do echo "$p" >> "$STATE/installed"; : > "$APT_ARCHIVES/\${p}_1.0_amd64.deb"; done
-  exit 0
-fi
 exit 99
 `,
   // sudo: its options dropped, the command run as it is (the script re-runs itself under sudo when not root)
@@ -101,9 +99,16 @@ exit 99
   // id -u: the uid the run pretends to have ($STATE/uid); anything else is the real id
   id: '#!/usr/bin/env bash\n[ "$1" = -u ] && { cat "$STATE/uid"; exit 0; }\nexec /usr/bin/id "$@"\n',
   // apt-get: fails as apt does when another process holds the lock; on its FIRST update, $STATE/hang makes it hang
-  // with the lock held by a child in its group ("group") or by a process outside it ("escape", for $HOLD s)
+  // with the lock held by a child in its group ("group") or by a process outside it ("escape", for $HOLD s). The mirror
+  // is the one its -o Dir::Etc::SourceList file names, or "default"; an install from a mirror listed in
+  // $STATE/stall hangs, and one from any mirror fails while dpkg is interrupted.
   'apt-get': `#!/usr/bin/env bash
-echo "apt-get $* conf=$([ -s "$APT_CONF" ] && echo yes || echo no)" >> "$STATE/calls"
+mirror=default; args=()
+while [ $# -gt 0 ]; do
+  if [ "$1" = -o ]; then case "$2" in Dir::Etc::SourceList=*) mirror=$(awk '{print $3; exit}' "\${2#*=}");; esac; shift 2; else args+=("$1"); shift; fi
+done
+set -- "\${args[@]}"
+echo "apt-get $* mirror=$mirror conf=$([ -s "$APT_CONF" ] && echo yes || echo no)" >> "$STATE/calls"
 for fd in /proc/[0-9]*/fd/*; do
   if [ "$(readlink "$fd" 2>/dev/null)" = "$LOCKS" ]; then echo "E: Could not get lock $LOCKS"; echo "apt-get: lock held" >> "$STATE/calls"; exit 100; fi
 done
@@ -116,6 +121,14 @@ if [ "$1" = update ] && [ -e "$STATE/hang" ] && [ ! -e "$STATE/hung" ]; then
   sleep 0.3; exec sleep "$TOK"
 fi
 [ "$1" = update ] && [ -e "$STATE/mirror-fails" ] && exit 100
+if [ "$1 $2" = "install -y" ]; then
+  [ -e "$STATE/interrupted" ] && { echo "E: dpkg was interrupted, you must manually run 'dpkg --configure -a'"; echo "apt-get: interrupted" >> "$STATE/calls"; exit 100; }
+  grep -qx "$mirror" "$STATE/stall" 2>/dev/null && exec sleep "$TOK"
+  shift 2; [ "$1" = --no-install-recommends ] && shift
+  mkdir -p "$APT_ARCHIVES"
+  # the named packages, and a dependency's file apt also fetched (libgbm1), which the cache must not keep
+  for p in "$@" libgbm1; do echo "$p" >> "$STATE/installed"; : > "$APT_ARCHIVES/\${p}_1.0_amd64.deb"; done
+fi
 exit 0
 `,
   // dpkg: like the real one, ignores apt's lock timeout and fails at once on a held lock; --configure -a repairs an
@@ -134,7 +147,7 @@ exit 0
 `,
 };
 
-function run({ installed = [], cached = [], mirrorFails = false, dpkgNoop = false, hang = null, hold = 2, preHold = false, uid = 0, script = REAL } = {}) {
+function run({ installed = [], cached = [], mirrorFails = false, stall = [], dpkgNoop = false, hang = null, hold = 2, preHold = false, uid = 0, script = REAL } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ibd-'));
   const bin = path.join(dir, 'bin'), state = path.join(dir, 'state'), debs = path.join(dir, 'debs'), arch = path.join(dir, 'archives');
   for (const d of [bin, state, debs]) fs.mkdirSync(d);
@@ -143,6 +156,7 @@ function run({ installed = [], cached = [], mirrorFails = false, dpkgNoop = fals
   fs.writeFileSync(path.join(state, 'calls'), '');
   if (mirrorFails) fs.writeFileSync(path.join(state, 'mirror-fails'), '');
   if (dpkgNoop) fs.writeFileSync(path.join(state, 'dpkg-noop'), '');
+  fs.writeFileSync(path.join(state, 'stall'), stall.map((m) => m + '\n').join(''));
   if (hang) fs.writeFileSync(path.join(state, 'hang'), hang);
   // a sleep length no other process has, so the survivors of this run can be found (and cleaned up) by it
   const tok = `1777.${process.pid}${Math.floor(Math.random() * 1e6)}`, holdTok = `${hold}.${process.pid}${Math.floor(Math.random() * 1e6)}`;
@@ -160,7 +174,7 @@ function run({ installed = [], cached = [], mirrorFails = false, dpkgNoop = fals
   const r = cp.spawnSync('bash', [sh], {
     encoding: 'utf8', timeout: 120000,   // the runs here take 1-15 s; this only stops a hung one
     env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, STATE: state, NEEDED: NEEDED.join(' '), DEBS_DIR: debs,
-      APT_CONF: path.join(dir, 'apt.conf'), APT_ARCHIVES: arch, PAUSE: '0', LOCKS: path.join(state, 'lock'), TOK: tok, HOLD: holdTok,
+      APT_CONF: path.join(dir, 'apt.conf'), APT_ARCHIVES: arch, SOURCES: path.join(dir, 'mirror.list'), T_INSTALL: '4', PAUSE: '0', LOCKS: path.join(state, 'lock'), TOK: tok, HOLD: holdTok,
       T_UPDATE: '4', KILL_AFTER: '1', LOCK_WAIT: '5' },   // 4 s: a stub apt-get that does not hang must finish well inside it under a loaded gate (1 s did not on CI)
   });
   const alive = (t) => cp.spawnSync('pgrep', ['-f', `sleep ${t}`], { encoding: 'utf8' }).stdout.trim();
@@ -171,6 +185,7 @@ function run({ installed = [], cached = [], mirrorFails = false, dpkgNoop = fals
     calls: fs.readFileSync(path.join(state, 'calls'), 'utf8').trim().split('\n').filter(Boolean),
     kept: fs.readdirSync(debs).sort(),
     survivors,
+    sources: fs.existsSync(path.join(dir, 'mirror.list')) ? fs.readFileSync(path.join(dir, 'mirror.list'), 'utf8') : '',
   };
   fs.rmSync(dir, { recursive: true, force: true });
   return res;
@@ -195,9 +210,14 @@ const says = (r, re) => re.test(r.out);
 // 3. no cache: the mirror; the kept files are the missing packages' only; apt's limits written before apt runs
 {
   const r = run({});
-  check('no cache: exits 0, installed from the mirror', r.status === 0 && says(r, /installed from the mirror; 2 \.deb files kept/), r.out.trim().split('\n').pop());
+  check('no cache: exits 0, installed from the image\'s own mirror', r.status === 0 && says(r, /installed from the mirror \(default\); 2 \.deb files kept/), r.out.trim().split('\n').pop());
+  const inst = r.calls.filter((c) => /^apt-get install -y/.test(c));
+  check('...one apt-get install, of exactly the missing packages, without recommends',
+    inst.length === 1 && inst[0] === `apt-get install -y --no-install-recommends ${NEEDED.join(' ')} mirror=default conf=yes`, inst.join(' | '));
+  check('...no translation lists, on every apt-get of the try', /"\$\{opts\[@\]\}" update/.test(REAL) && /"\$\{opts\[@\]\}" install -y --no-install-recommends \$need/.test(REAL)
+    && /opts=\(-o Acquire::Languages=none\)/.test(REAL));
   check('...the cache keeps only the missing packages, not what else apt fetched', JSON.stringify(r.kept) === JSON.stringify(NEEDED.map((p) => `${p}_1.0_amd64.deb`)), r.kept.join(' '));
-  check('...apt\'s time limits are in place before apt-get update runs', has(r, /^apt-get update conf=yes$/) && !has(r, /conf=no/), r.calls.filter((c) => /^apt-get/.test(c)).join(' | '));
+  check('...apt\'s time limits are in place before apt-get update runs', has(r, /^apt-get update mirror=default conf=yes$/) && !has(r, /conf=no/), r.calls.filter((c) => /^apt-get/.test(c)).join(' | '));
   check('...and the check ran again after the install', r.calls.filter((c) => /--dry-run/.test(c)).length === 2, `${r.calls.filter((c) => /--dry-run/.test(c)).length} checks`);
 }
 // 4. a cache whose files do not satisfy the check: the mirror, after apt-get install -f
@@ -207,16 +227,28 @@ const says = (r, re) => re.test(r.out);
   check('...repairs with apt-get install -f, then installs from the mirror', has(r, /^apt-get install -f -y/) && has(r, /^apt-get update/) && r.status === 0 && says(r, /installed from the mirror/),
     r.calls.join(' | '));
 }
-// 5. a mirror that keeps failing: two tries, then a loud failure
+// 5. mirrors that keep failing: three tries, each on the next mirror, then a loud failure
 {
   const r = run({ mirrorFails: true });
-  check('a failing mirror: exits 1, saying the browser check did not run', r.status === 1 && says(r, /could not be installed in 2 tries.*the browser check did not run/), r.out.trim().split('\n').pop());
-  check('...after exactly two tries', r.calls.filter((c) => /^apt-get update/.test(c)).length === 2, `${r.calls.filter((c) => /^apt-get update/.test(c)).length} updates`);
+  const ups = r.calls.filter((c) => /^apt-get update/.test(c)).map((c) => c.replace(/^.*mirror=(\S+).*$/, '$1'));
+  check('failing mirrors: exits 1, saying the browser check did not run', r.status === 1 && says(r, /could not be installed in 3 tries, from 3 mirrors.*the browser check did not run/), r.out.trim().split('\n').pop());
+  check('...after exactly three tries, each on a different mirror, the image\'s first',
+    JSON.stringify(ups) === JSON.stringify(['default', 'http://azure.archive.ubuntu.com/ubuntu', 'http://archive.ubuntu.com/ubuntu']), ups.join(' '));
+  check('...a named mirror gets its own sources list: the release, -updates and -security, main and universe, signed by the Ubuntu archive key',
+    r.sources === ['', '-updates', '-security'].map((x) => `deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] http://archive.ubuntu.com/ubuntu noble${x} main universe\n`).join(''), JSON.stringify(r.sources));
+}
+// 5b. the image's mirror stalls mid-install (CI 45333139695): stopped at its limit, then the next mirror installs
+{
+  const r = run({ stall: ['default'] });
+  check('a mirror that stalls mid-install: stopped at its limit', says(r, /'apt-get -o Acquire::Languages=none install -y --no-install-recommends .*' passed its 4 s limit/), r.out.split('\n').filter((l) => /limit/.test(l)).join(' | '));
+  check('...and try 2 asks the next mirror, which installs', r.status === 0 && says(r, /try 1 \(default\) failed/) && says(r, /installed from the mirror \(http:\/\/azure\.archive\.ubuntu\.com\/ubuntu\)/),
+    r.out.split('\n').filter((l) => /OS packages/.test(l)).join(' | '));
+  check('...with no process of the stalled install left', r.survivors === '', `survivors: ${r.survivors}`);
 }
 // 6. try 1's apt-get update hangs past its limit with a child of it holding the dpkg lock (CI 45180359317)
 {
   const r = run({ hang: 'group' });
-  check('a hung update with a child holding the lock: stopped at its limit', says(r, /'apt-get update' passed its 4 s limit: stopping its whole process group/), r.out.trim().split('\n').slice(0, 3).join(' | '));
+  check('a hung update with a child holding the lock: stopped at its limit', says(r, /'apt-get -o Acquire::Languages=none update' passed its 4 s limit: stopping its whole process group/), r.out.trim().split('\n').slice(0, 3).join(' | '));
   check('...try 2 gets the lock and the install succeeds', r.status === 0 && says(r, /installed from the mirror/) && !has(r, /lock held/), r.calls.join(' | '));
   check('...and no process of the stub survives', r.survivors === '', `survivors: ${r.survivors}`);
 }
@@ -243,13 +275,13 @@ const says = (r, re) => re.test(r.out);
 // 8b. in case 8 the stopped holder left dpkg interrupted, and the repair ran with the lock free
 {
   const r = run({ hang: 'escape', hold: 1000 });
-  check('a stopped holder leaves dpkg interrupted: the repair runs with the lock free, and try 2 installs', r.status === 0 && !has(r, /dpkg: lock held/) && !has(r, /install-deps: interrupted/),
-    r.calls.filter((c) => /dpkg|install-deps|lock/.test(c)).join(' | '));
+  check('a stopped holder leaves dpkg interrupted: the repair runs with the lock free, and try 2 installs', r.status === 0 && !has(r, /dpkg: lock held/) && !has(r, /apt-get: interrupted/),
+    r.calls.filter((c) => /dpkg|install|lock/.test(c)).join(' | '));
 }
 // 9. a holder already there at the start (dpkg interrupted): stopped before try 1, repaired, and try 1 installs
 {
   const r = run({ preHold: true, hold: 1000 });
-  check('a lock held from before: stopped, dpkg repaired, try 1 installs', r.status === 0 && says(r, /repairing after the stopped holders/) && !says(r, /try 1 failed/) && !has(r, /install-deps: interrupted/),
+  check('a lock held from before: stopped, dpkg repaired, try 1 installs', r.status === 0 && says(r, /repairing after the stopped holders/) && !says(r, /try 1 .*failed/) && !has(r, /apt-get: interrupted/),
     r.out.split('\n').filter((l) => /OS packages/.test(l)).join(' | '));
   check('...and the holder is gone', r.survivors === '', `survivors: ${r.survivors}`);
 }
@@ -266,11 +298,18 @@ const says = (r, re) => re.test(r.out);
   check('as root: no sudo at all', r.status === 0 && !has(r, /^sudo /), r.calls.join(' | '));
 }
 
-// Both workflows run this one script, under a step time limit.
+// Both workflows run this one script, under a step time limit no shorter than the script's worst case, and keep its
+// cache: restored by the runner image, else the newest cache of an earlier image of the same OS; saved right after a
+// good install (not at the job's end, which a failing browser check would skip), unless the exact key was restored.
+const worst = Number(REAL.match(/= (\d+) s, [\d.]+ minutes: under the step's (\d+)-minute limit/)[1]);
 for (const wf of ['tests.yml', 'browser-daily.yml']) {
   const t = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', wf), 'utf8');
-  check(`${wf} installs through the script, with a step time limit and a cache keyed on the runner image`,
-    /timeout-minutes: \d+\n\s+run: \.github\/scripts\/install-browser-deps\.sh/.test(t) && /key: playwright-debs-[\d.]+-\$\{\{ steps\.image\.outputs\.image \}\}/.test(t));
+  const step = t.match(/timeout-minutes: (\d+)\n\s+run: \.github\/scripts\/install-browser-deps\.sh\n/);
+  check(`${wf} installs through the script, with a step time limit over its worst case (${worst} s)`, !!step && Number(step[1]) * 60 > worst, step ? `${step[1]} min` : 'no install step');
+  const restore = t.match(/- name: Restore the browser's OS packages\n\s+id: debs\n\s+uses: actions\/cache\/restore@[0-9a-f]{40}  # v[\d.]+\n\s+with:\n\s+path: ~\/playwright-debs\n\s+key: playwright-debs-([\d.]+)-\$\{\{ steps\.image\.outputs\.image \}\}\n\s+restore-keys: playwright-debs-([\d.]+)-\$\{\{ env\.ImageOS \}\}-\n/);
+  check(`${wf} restores the .deb cache by runner image, falling back to an earlier image of the same OS and Playwright`, !!restore && restore[1] === restore[2]);
+  const save = t.match(/run: \.github\/scripts\/install-browser-deps\.sh\n\s+- name: Save the browser's OS packages\n\s+if: steps\.debs\.outputs\.cache-hit != 'true'\n\s+uses: actions\/cache\/save@[0-9a-f]{40}  # v[\d.]+\n\s+with:\n\s+path: ~\/playwright-debs\n\s+key: playwright-debs-([\d.]+)-\$\{\{ steps\.image\.outputs\.image \}\}\n/);
+  check(`${wf} saves the .deb cache right after the install, unless the exact key was restored`, !!save && !!restore && save[1] === restore[1]);
 }
 
 done('install-browser-deps checks');

@@ -470,6 +470,18 @@ Next version: 0.1.9-pre (the plugin and extension manifests carry it; `tests/plu
 
 ### Fixed
 
+- **A slow Ubuntu mirror no longer fails a browser-check shard.** The CI step that installs chromium's OS packages
+  (`.github/scripts/install-browser-deps.sh`) asked the runner image's mirror twice. On runs 45303943290,
+  45322323380 and 45333139695 that mirror sent ~100 KB/s, both tries ran out of time, no check ran, and attempt 1 went
+  red. Each try now asks a different mirror: the image's own, then `azure.archive.ubuntu.com`, then
+  `archive.ubuntu.com`, a named one through a sources list of its own signed by the Ubuntu archive key. A try installs
+  only the packages Playwright's check reports missing (`apt-get install --no-install-recommends`, no translation
+  lists), not Playwright's whole list, which also upgraded 11 MB of mesa. The .deb cache is now restored with a
+  fallback to the newest cache of an earlier runner image, so an image update no longer sends every shard to the
+  mirror at once, and it is saved right after a good install rather than at the end of a successful job. Playwright's
+  check still decides whether the step passes, and an install that fails on every mirror still fails the step
+  loudly. `tests/install-browser-deps.test.js` covers the mirror order, a stalled mirror and the cache steps.
+
 - **Eight things the v0.1.9 cold test found on a phone and in the chat.**
   A tape put in the deck and loaded with **Skip the tape** (or **Load it now**) now appears in the Media tab's
   **Recent on this machine**, like any file the person opened: it was loaded with the flag that keeps our own LIZA and
