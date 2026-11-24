@@ -151,13 +151,14 @@ async function closeOwnBrowser(browser, ms = BROWSER_CLOSE_MS) {
 async function closeOwnPersistentContext(ctx, profile, ms = BROWSER_CLOSE_MS) {
   const b = await bounded(ctx.close(), ms);
   let after = 'left to the caller\'s outer timeout';   // no belt ran (or none could): the honest remainder
+  let killed = 0;   // (hoisted: the facts returned below name it whether or not a belt ran)
   if (b.outcome !== 'settled') {
     // the profile path is in Chromium's command line (its user-data-dir); mkdtemp made it unique to this run.
     // execFileSync passes the path as one argv element (no shell), and pgrep -f takes a REGEX, so the path is
     // regex-escaped first: without escaping, a path containing regex metacharacters could match OTHER command
     // lines - the match must stay literal to stay this run's.
     const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    let killed = 0, pids = [];
+    let pids = [];
     try {
       const out = child_process.execFileSync('pgrep', ['-f', escapeRe(profile)], { stdio: ['ignore', 'pipe', 'ignore'] });
       pids = String(out).split('\n').map(Number).filter(Boolean);
@@ -181,6 +182,10 @@ async function closeOwnPersistentContext(ctx, profile, ms = BROWSER_CLOSE_MS) {
     }
   }
   lib.reportClose(check, closeLabel('its own profile browser closes'), b, ms, after);
+  // the caller's leak check needs the facts: did the close settle on its own (no belt needed), or did
+  // the belt really kill the process - or could it not say? 'already gone' is the one state where no
+  // kill was needed and the process is known dead (pgrep's own "no match").
+  return { outcome: b.outcome, after, killed };
 }
 
 // a static server like the real host: a folder serves its index.html, and a folder named without its
@@ -7724,13 +7729,21 @@ async function libraryStorageChecks(base, check) {
 } finally {
     // the close is bounded and belted (kill on a hung close, honest after-text), the dir removal retries and
     // warns by name; a finally that threw would bury the group's real result under a cleanup error.
-    if (ctx) await closeOwnPersistentContext(ctx, profile);
+    // the close's own facts: the removal is claimed ok only when the dir is REALLY gone AND the
+    // browser behind it is known dead - a settled close (it closed on its own), a belt that killed,
+    // or pgrep's own 'already gone'. A close that timed out with a belt that could not say (pgrep
+    // missing, or refusing: exit 2) is NOT ok even with the dir gone: nothing shows the process is
+    // dead, and a live one re-creates the dir it is still pointed at. Re-checked AFTER the kill:
+    // the dir must still be there to be removed, and the claim says what it saw.
+    const closeFacts = ctx ? await closeOwnPersistentContext(ctx, profile) : { outcome: 'settled', after: 'no context was opened', killed: 0 };
     const warn = (ok, detail) => check(`library storage: its profile directory is removed${ok ? '' : ' (WARN: a temp dir leaked)'}`, ok, detail);
     let gone = false, last = null;
     for (let i = 0; !gone && i < 20; i++) {
       try { fs.rmSync(profile, { recursive: true, force: true }); gone = true; } catch (e) { last = e.code || e.message; await new Promise((r) => setTimeout(r, 100)); }
     }
-    warn(gone, gone ? '' : `${profile} still there (${last}) - a temp dir leaked, not the browser`);
+    const stillGone = gone && !fs.existsSync(profile);   // re-check: a live browser re-creates the dir it is pointed at
+    const knownDead = closeFacts.outcome === 'settled' || closeFacts.after === 'killed' || closeFacts.after === 'its process was already gone';
+    warn(stillGone && knownDead, !stillGone ? `${profile} still there (${last}) - a temp dir leaked, not the browser` : !knownDead ? `the directory is gone but the close could not say the browser is: ${closeFacts.after}` : '');
   }
 
   // a browser without folder access (no showDirectoryPicker): that choice is offered greyed out with the reason; phone width

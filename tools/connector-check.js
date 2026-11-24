@@ -139,7 +139,12 @@ const wait = (page, fn, arg, ms = 20000) => page.waitForFunction(fn, arg, { time
 // close FAILs by name (the scenario's label names it) and the per-group cleanup of the run that includes this group
 // as `connector` catches the context again; the final browser.close() is the backstop.
 const CLOSE_MS = 10000, BROWSER_CLOSE_MS = 15000;
+// every close label this run used: a hung close FAILs by name, and the name has to be the ONE name of
+// the context it closed - a duplicate label names nothing (two blocks share one name, and a FAIL
+// under it cannot say which block hung). The group asserts the uniqueness at its end.
+const closeLabels = [];
 const closeCtx = async (label, ctx, check, ms = CLOSE_MS) => {
+  closeLabels.push(label);
   reportClose(check, label, await bounded(ctx.close(), ms), ms);
 };
 
@@ -257,7 +262,7 @@ async function scenario(browser, check, name, { uri, cors = true, panelApi = nul
     }
     check(`connector ${name}: no page errors`, !errors.length, errors.join(' | '));
   } finally {
-    await closeCtx(`connector: a context it opened closes (the site scenario)`, ctx, check);
+    await closeCtx(`connector: a context it opened closes (the ${name} scenario)`, ctx, check);
     srv.server.close();
     srv.server.closeAllConnections();
   }
@@ -678,7 +683,7 @@ async function phoneScenario(browser, check, { shots = null } = {}) {
         await pickProgram('liza');
         check('connector phone: on the MC-10 (no joystick port) the switch is Keys | Pad, no Stick, and BREAK still shows once', JSON.stringify(mc10.sw) === '["Keys","Pad"]' && mc10.breaks === 1, JSON.stringify(mc10));
       }
-      await closeCtx(`connector: a context it opened closes (the phone scenario (insets and fullscreen))`, ctx, check);
+      await closeCtx(`connector: a context it opened closes (the phone scenario (insets and fullscreen, ${name}))`, ctx, check);
     }
     // ---- the choice is remembered per program: across a reload where the view's storage works; where it throws, for
     // the view's life only, and silently (no error), back to the program's own mode after a reload
@@ -707,7 +712,7 @@ async function phoneScenario(browser, check, { shots = null } = {}) {
         : 'connector phone: the choice is remembered per program: LIZA on the Pad, 2048 on its own Pad, LIZA still on the Pad, and after a reload of the view too (the view\'s storage)',
       ready && g === 'pad' && kept === 'pad' && (broken ? reloaded === 'keys' && /^throws SecurityError$/.test(stored) && errors.length === errs0 : reloaded === 'pad' && stored === 'pad'),
       JSON.stringify({ broken, g, kept, stored, reloaded, errors: errors.slice(errs0) }));
-      await closeCtx(`connector: a context it opened closes (the phone scenario (the mode choice))`, ctx, check);
+      await closeCtx(`connector: a context it opened closes (the phone scenario (the mode choice${broken ? ', storage that throws' : ''}))`, ctx, check);
     }
     // ---- the keys' mode follows what the Session says runs (Session.programControls), not only what the view started:
     // Claude loads Minesweeper (the Pad), and a reset made through the Session leaves the program (back to the Keys)
@@ -723,7 +728,7 @@ async function phoneScenario(browser, check, { shots = null } = {}) {
       const left = await mode();
       check('connector phone: the on-screen keys follow what the Session runs: LIZA on the Keys, Claude\'s load of Minesweeper on the Pad, and a reset made through the Session back on the Keys',
         ready && start === 'keys' && loaded === 'pad' && left === 'keys', JSON.stringify({ start, loaded, left }));
-      await closeCtx(`connector: a context it opened closes (the phone scenario (the mode choice))`, ctx, check);
+      await closeCtx(`connector: a context it opened closes (the phone scenario (the keys follow the Session))`, ctx, check);
     }
     // ---- a desktop: no keys
     {
@@ -749,6 +754,16 @@ async function connectorChecks(browser, check, { shots = null } = {}) {
   await scenario(browser, check, 'no-cors', { uri: 'ui://cloadm/panel.html', cors: false, shots });
   await scenario(browser, check, 'kept-out', { uri: 'ui://cloadm/panel.html', granted: { resourceDomains: null, connectDomains: null }, shots });
   await scenario(browser, check, 'out-of-step', { uri: 'ui://cloadm/panel.html', panelApi: 999 });
+  // every context this group opened has been closed by now, each under its own label; the labels must
+  // all be different, or a FAIL under a shared name could not say which block it was. The count is
+  // the group's own, EXACTLY: fourteen closes - five scenario() runs (site, inline, no-cors,
+  // kept-out, out-of-step), the ui scenario, and the phone blocks' eight (inline, touch, the insets
+  // loop's two, the mode-choice loop's two, the keys-following block, the desktop). One fewer means
+  // a whole block's close vanished; one more means a new block must be counted here too.
+  const seen = new Set(), dup = [];
+  for (const l of closeLabels) { if (seen.has(l)) dup.push(l); seen.add(l); }
+  check('connector: every context it opened closes under its own label (no two the same, and all fourteen of them)',
+    closeLabels.length === 14 && !dup.length, `${closeLabels.length} closed, duplicates: ${dup.join(' | ')}`);
 }
 module.exports = { connectorChecks, uiScenario, phoneScenario, specCsp };
 
