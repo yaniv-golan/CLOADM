@@ -16064,6 +16064,38 @@ async function shareScreenChecks(browser, base, check) {
     await sc.close();
   }
 
+  // The KILL SWITCH, locally: s.cloadm.dev answers /api/new with the Worker's own 503 (its exact status and JSON
+  // error), fulfilled here with route.fulfill - never route.fetch, which is what makes the shortLink group unrunnable
+  // on a host that cannot reach the real Worker. The spec's behaviour is the same as any failure: the tap copies the
+  // LONG link, its field opens, and the reason says short links aren't available in the page's own words (never the
+  // server's). A tap is async, so the finished state is waited for, not read straight after the click.
+  {
+    const sc = await browser.newContext({ viewport: { width: 1280, height: 900 }, serviceWorkers: 'block', permissions: ['clipboard-read', 'clipboard-write'] });
+    await sc.route('https://s.cloadm.dev/**', (route) => {
+      const u = new URL(route.request().url());
+      if (u.pathname === '/api/new') return route.fulfill({ status: 503, headers: { 'content-type': 'application/json', 'access-control-allow-origin': '*' },
+        body: JSON.stringify({ error: 'New short links are switched off for now. The long link still works.' }) });
+      return route.fulfill({ status: 404, headers: { 'access-control-allow-origin': '*' }, body: 'no' });
+    });
+    const sp = await sc.newPage();
+    sp.on('pageerror', (e) => errors.push(e.message));
+    await sp.goto(`${base}?machine=dragon64#share`);
+    await started(sp);
+    await waitFor(sp, () => !!document.getElementById('shareLink').value);
+    await sp.click('#btnShareCopy');
+    const landed = await waitFor(sp, () => /Short links aren't available right now/.test(document.getElementById('primaryWhy').textContent)
+      && document.getElementById('shareMore').open, null, 20000);
+    const kill = await sp.evaluate(async () => ({ why: document.getElementById('primaryWhy').textContent,
+      whyShown: document.getElementById('primaryWhy').checkVisibility(), longOpen: document.getElementById('shareMore').open,
+      made: !document.getElementById('shortMade').hidden, field: document.getElementById('shareLink').value,
+      clip: await navigator.clipboard.readText().catch(() => ''), toast: document.getElementById('toastRegion').textContent.trim() }));
+    if (shotDir) await sp.screenshot({ path: path.join(shotDir, 'share-kill-switch.png') });
+    check('share screen: the kill switch (a 503 from s.cloadm.dev): the tap copies the LONG link, its field opens, and the reason is the page\'s, not the server\'s',
+      landed && /#z=/.test(kill.clip) && kill.clip === kill.field && kill.why === "Short links aren't available right now, so this is the long link: it works without any server."
+      && kill.whyShown && kill.longOpen && !kill.made && !/switched off/i.test(kill.why + kill.toast), JSON.stringify(Object.assign({}, kill, { clip: kill.clip.slice(0, 40), field: kill.field.slice(0, 40) })));
+    await closeCtx(sc);
+  }
+
   // a tap whose short-link server is unreachable (no route here): the field it copied into is shown, at 375 where it matters
   {
     const sc = await browser.newContext({ viewport: { width: 375, height: 548 }, serviceWorkers: 'block', permissions: ['clipboard-read', 'clipboard-write'] });
@@ -20708,6 +20740,11 @@ async function shortLinkChecks(browser, base, site, check) {
   await linkIn(pk);
   await waitFor(pk, () => !!document.getElementById('shareLink').value);
   await pk.click('#btnShareCopy');
+  // the tap is ASYNC (it seals the moment and asks the store): the fallback's reason and the opened field appear only
+  // when it lands. Reading straight after the click saw an empty reason (CI attempt 1 on 35551b5d failed exactly so),
+  // so both are waited for - the copy finished AND the page said why - before anything is read.
+  await waitFor(pk, () => /Short links aren't available right now/.test(document.getElementById('primaryWhy').textContent)
+    && document.getElementById('shareMore').open, null, 20000);
   const killClip = await pk.evaluate(() => navigator.clipboard.readText());
   const kill = await pk.evaluate(() => ({ why: document.getElementById('primaryWhy').textContent, whyShown: document.getElementById('primaryWhy').checkVisibility(), field: document.getElementById('shareLink').value,
     longOpen: document.getElementById('shareMore').open, made: !document.getElementById('shortMade').hidden }));
