@@ -280,7 +280,7 @@ export function setupAsk(page, claude) {
       // (Off, or nowhere to show them: nothing is drawn, and with Off the machine is not read for them)
       if (!session.claudeFeatures) { shown = null; chosen = null; }
       if (place) { $('askSuggest').replaceChildren(); $('askStripQs').replaceChildren($('askOpenLabel')); delete $('askSuggest').dataset.set; place = null; }
-      $('askSuggestLabel').hidden = true; $('askOpenLabel').hidden = true; $('askChoose').hidden = true;
+      reveal($('askSuggestLabel'), false); reveal($('askOpenLabel'), false); reveal($('askChoose'), false);
       return;
     }
     if (fresh) { shown = null; chosen = null; }
@@ -297,28 +297,38 @@ export function setupAsk(page, claude) {
         b.onclick = () => (at === 'panel' ? pick(q, b) : openWith(q));
         return b;
       });
+      // (a rebuild in the same place keeps the keyboard: the question at the focused one's place takes the focus, so
+      // the focus never drops to the page, where the next key would go to the machine)
+      const had = document.activeElement, from = had && had.tagName === 'BUTTON' && (had.parentElement === $('askSuggest') || had.parentElement === $('askStripQs')) ? had.parentElement : null;
+      const keep = from && at === place && from === (at === 'panel' ? $('askSuggest') : $('askStripQs')) ? [...from.querySelectorAll('button')].indexOf(had) : -1;
       // (one place at a time: the other is emptied; the strip keeps its lead label first)
       if (at === 'panel') { $('askStripQs').replaceChildren($('askOpenLabel')); $('askSuggest').replaceChildren(...buttons); }
       else { $('askSuggest').replaceChildren(); $('askStripQs').replaceChildren($('askOpenLabel'), ...buttons); }
+      if (keep >= 0 && buttons[keep]) buttons[keep].focus({ preventScroll: true });
       $('askSuggest').dataset.set = shown;
       place = at; noKeyShown = nk;
     }
     if (announce) $('askSuggestNote').textContent = 'Suggestions updated';
-    $('askSuggestLabel').hidden = !(at === 'panel' && nk);
-    $('askOpenLabel').hidden = !(at === 'strip' && nk);
-    $('askChoose').hidden = !(at === 'panel' && nk && chosen != null);
-    if (at === 'strip') fitStrip();
+    reveal($('askSuggestLabel'), at === 'panel' && nk);
+    reveal($('askChoose'), at === 'panel' && nk && chosen != null);
+    if (at === 'strip') fitStrip(nk); else reveal($('askOpenLabel'), false);
   }
-  // the strip is one line of whole questions: those that do not fit in it whole are left out, never cut or scrolled
-  function fitStrip() {
-    const box = $('askStripQs'), qs = [...box.querySelectorAll('button')];
-    for (const b of qs) b.hidden = false;
+  // (written only when it changes: this runs a few times a second, and an attribute set to its own value is still a
+  // change to anything watching the page)
+  const reveal = (e, on) => { if (e.hidden === on) e.hidden = !on; };
+  // the strip is one line of whole questions: those that do not fit in it whole are left out, never cut or scrolled.
+  // Each question's width is measured once, shown (widths); the line is then laid out from them.
+  const widths = new WeakMap();
+  function fitStrip(lead = !$('askOpenLabel').hidden) {
+    const box = $('askStripQs'), qs = [...box.querySelectorAll('button')], label = $('askOpenLabel');
+    reveal(label, lead);
     if (!box.checkVisibility()) return;
-    const right = box.parentElement.getBoundingClientRect().right;
-    let out = false;
-    for (const b of qs) { out = out || b.getBoundingClientRect().right > right + 0.5; b.hidden = out; }
+    if (qs.some((b) => !widths.has(b))) { for (const b of qs) reveal(b, true); for (const b of qs) widths.set(b, b.getBoundingClientRect().width); }
+    const gap = parseFloat(getComputedStyle(box).columnGap) || 0, room = box.parentElement.clientWidth;
+    let used = lead ? label.getBoundingClientRect().width + gap : 0, out = false;
+    for (const b of qs) { out = out || used + widths.get(b) > room + 0.5; if (!out) used += widths.get(b) + gap; reveal(b, !out); }
     // (the lead alone is not a line: with no whole question it goes too)
-    if (qs.length && qs[0].hidden) $('askOpenLabel').hidden = true;
+    if (lead && qs.length && qs[0].hidden) reveal(label, false);
   }
   new ResizeObserver(() => { if (place === 'strip') fitStrip(); }).observe($('screenNotesBox'));
   // a question in the open panel: with a key it fills the message box; without one it is selected, and the two

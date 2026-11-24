@@ -6746,6 +6746,10 @@ async function feedbackChecks(browser, base, check) {
       const classRecords = await ev(async () => {
         const region = document.getElementById('toastRegion');
         // pin a toast first: grow the controls the decision avoids until no free place exists, raise, wait for the pin
+        // (from the page's top: scrolled down, the browser's scroll anchoring keeps the content in place as the app bar
+        // grows, so the grown bar leaves the window and a place stays free; an earlier step - the quick-save slots'
+        // line coming and going - may have left the page scrolled)
+        scrollTo(0, 0);
         const grown = [...document.querySelectorAll('header, .controls, .slots, aside.drawer')];
         const saved = grown.map((e) => e.style.minHeight);
         for (const e of grown) e.style.minHeight = `${innerHeight + 400}px`;
@@ -11832,6 +11836,8 @@ async function uiCopyChecks(browser, base, check) {
     const seen = nokey.ok && /^\[No API key yet: add one (above|below|on the right)\. Get one at console\.anthropic\.com\.\]$/.test(help), keyUi = { screen: nokey.rows.join('|'), help };
     check('chat key: with no key, "No API key yet: add one … Get one at console.anthropic.com." is on the chat screen itself and in the note beside it', seen, JSON.stringify(keyUi));
     await shot(page, 'chat-nokey');
+    // (a phone folds the key card into "No API key yet · Add key…" under the screen: the button opens it)
+    if (await page.isVisible('#btnClaudeAddKey')) await page.click('#btnClaudeAddKey');
     await page.fill('#claudeKeyInput', KEY);
     await page.click('#btnClaudeKeySave');
     const savedOnScreen = await screenHas('Key saved. Type below and press ENTER.');
@@ -16461,7 +16467,8 @@ async function settingsChecks(browser, base, check) {
     // the test sees what it looks for: On, the same screen shows the opener
     await op.evaluate(() => window.emu.session.setClaudeFeatures(true));
     await sn();
-    check('settings: (the same screen with Claude features On shows the example questions under the machine)', await waitFor(op, () => document.getElementById('askOpeners').checkVisibility() && document.querySelectorAll('#askStripQs button').length === 3, null, 5000) && api.length === 0);
+    // (drawn for the line under the screen; a note there, the sound note, may hold the line meanwhile)
+    check('settings: (the same screen with Claude features On draws the example questions for the line under the screen)', await waitFor(op, () => document.querySelectorAll('#askStripQs button').length === 3, null, 5000) && api.length === 0);
     await offCtx.close();
   }
   const [dl] = await Promise.all([page.waitForEvent('download'), page.click('#btnSettingsExport')]);
@@ -20528,8 +20535,10 @@ async function mobileChecks(browser, base, check) {
     const { ctx, page, errors } = await open({ width: 734, height: 343 }, '?machine=dragon64');
     const s = await rect(page, '#screen');
     const menus = await page.evaluate(() => [...document.querySelectorAll('button, a')].filter((e) => e.checkVisibility() && e.getBoundingClientRect().width > 0 && (e.getAttribute('aria-label') || e.textContent).trim() === 'Menu').length);
-    check('mobile (734x343, sideways): Keys as before (the screen 250x187 at 242,52, between the halves; guards: as v0.1.8), one control named Menu',
-      await mode(page) === 'keys' && Math.round(s.l) === 242 && Math.round(s.t) === 52 && Math.round(s.w) === 250 && Math.round(s.h) === 187 && menus === 1, JSON.stringify({ s, menus }));
+    // (the picture is v0.1.8's size; it sits 8 px higher since the plate under the tube says "CLOADM" sideways, which
+    // takes 16 px of the tube's height: the picture is held by the tube's width here, so it keeps its size)
+    check('mobile (734x343, sideways): Keys as before (the screen 250x187 at 242,44, between the halves; guards: v0.1.8\'s size), one control named Menu',
+      await mode(page) === 'keys' && Math.round(s.l) === 242 && Math.round(s.t) === 44 && Math.round(s.w) === 250 && Math.round(s.h) === 187 && menus === 1, JSON.stringify({ s, menus }));
     await tap(page, '#tkMenu');
     const items = await page.evaluate(() => [...document.querySelectorAll('#tkMenuSheet button')].filter((e) => e.checkVisibility()).map((e) => e.textContent));
     await tap(page, '#tkMenuSheet [data-item="machine"]');
