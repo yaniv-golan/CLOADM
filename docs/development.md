@@ -99,6 +99,14 @@ t.json`, then `node .github/scripts/browser-check-shards.js --merge t.json`. Eve
 the `browser-check-timings` artifact (merge it to rebalance: `--merge` keeps a smoothed average per group, weighted by the timings file's `"smoothing"`, so one noisy run cannot swing the plan), and `node tests/all.js --record-times` rewrites
 `tests/suite-times.json` from a passing whole run (`--timings FILE` writes one run's or one part's times elsewhere). A green run's `gates` summary (commit SHA, tree hash, each job's counts) is the
 definition of done; see AGENTS.md section 4.
+
+The browser shards install chromium's OS packages with `.github/scripts/install-browser-deps.sh`. The .deb files are
+cached per runner image (`playwright-debs-<playwright>-<ImageOS>-<ImageVersion>`). On a new image the step restores
+the newest cache of an earlier image of the same OS, and it saves the cache right after a good install. On a cache
+miss, each try asks a different apt mirror (azure.archive.ubuntu.com, the image's own, archive.ubuntu.com), each
+under its own time limit, so a stalled mirror costs one try rather than failing the shard. Playwright's
+`install-deps --dry-run` check still decides whether the step passes.
+
 Every action in the workflows is pinned to a commit SHA with its release tag beside it, and `pull_request_target` is
 never used; `node tests/workflows.test.js` holds both, and that an action used in more than one workflow carries the
 same SHA in each (so a bump cannot be applied to one file and not another). `.github/dependabot.yml` proposes the

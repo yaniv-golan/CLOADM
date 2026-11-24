@@ -9,9 +9,10 @@
 //     the image has), without translation lists; only the missing packages' .deb files are kept for the cache, not
 //     whatever else apt fetched; apt's time limits are written before any apt command runs;
 //   - a cache that does not satisfy the check: falls through to the mirror, repairing with apt-get install -f first;
-//   - a mirror that keeps failing: three tries, each on a different mirror (the image's, then azure.archive, then
-//     archive.ubuntu.com, each through its own signed sources list), then a loud failure;
-//   - a mirror that stalls mid-install (CI 45333139695): stopped at its limit, and the next try asks the next mirror;
+//   - a mirror that keeps failing: three tries, each on a different mirror (azure.archive, then the image's own, then
+//     archive.ubuntu.com, a named one through its own signed sources list), then a loud failure;
+//   - a mirror that stalls mid-install (CI 45333139695, 45337281354): stopped at its limit, and the next try asks the
+//     next mirror;
 //   - an apt-get update that hangs past its limit while a child of it holds the dpkg lock (CI 45180359317): the whole
 //     process group is stopped, so the lock is free and try 2 succeeds, and no stub process survives;
 //   - a lock held by a process in a session of its own (as sudo starts apt-get: CI 45181201761), for a while: try 2
@@ -210,14 +211,14 @@ const says = (r, re) => re.test(r.out);
 // 3. no cache: the mirror; the kept files are the missing packages' only; apt's limits written before apt runs
 {
   const r = run({});
-  check('no cache: exits 0, installed from the image\'s own mirror', r.status === 0 && says(r, /installed from the mirror \(default\); 2 \.deb files kept/), r.out.trim().split('\n').pop());
+  check('no cache: exits 0, installed from the first mirror', r.status === 0 && says(r, /installed from the mirror \(http:\/\/azure\.archive\.ubuntu\.com\/ubuntu\); 2 \.deb files kept/), r.out.trim().split('\n').pop());
   const inst = r.calls.filter((c) => /^apt-get install -y/.test(c));
   check('...one apt-get install, of exactly the missing packages, without recommends',
-    inst.length === 1 && inst[0] === `apt-get install -y --no-install-recommends ${NEEDED.join(' ')} mirror=default conf=yes`, inst.join(' | '));
+    inst.length === 1 && inst[0] === `apt-get install -y --no-install-recommends ${NEEDED.join(' ')} mirror=http://azure.archive.ubuntu.com/ubuntu conf=yes`, inst.join(' | '));
   check('...no translation lists, on every apt-get of the try', /"\$\{opts\[@\]\}" update/.test(REAL) && /"\$\{opts\[@\]\}" install -y --no-install-recommends \$need/.test(REAL)
     && /opts=\(-o Acquire::Languages=none\)/.test(REAL));
   check('...the cache keeps only the missing packages, not what else apt fetched', JSON.stringify(r.kept) === JSON.stringify(NEEDED.map((p) => `${p}_1.0_amd64.deb`)), r.kept.join(' '));
-  check('...apt\'s time limits are in place before apt-get update runs', has(r, /^apt-get update mirror=default conf=yes$/) && !has(r, /conf=no/), r.calls.filter((c) => /^apt-get/.test(c)).join(' | '));
+  check('...apt\'s time limits are in place before apt-get update runs', has(r, /^apt-get update mirror=http:\/\/azure\.archive\.ubuntu\.com\/ubuntu conf=yes$/) && !has(r, /conf=no/), r.calls.filter((c) => /^apt-get/.test(c)).join(' | '));
   check('...and the check ran again after the install', r.calls.filter((c) => /--dry-run/.test(c)).length === 2, `${r.calls.filter((c) => /--dry-run/.test(c)).length} checks`);
 }
 // 4. a cache whose files do not satisfy the check: the mirror, after apt-get install -f
@@ -232,23 +233,23 @@ const says = (r, re) => re.test(r.out);
   const r = run({ mirrorFails: true });
   const ups = r.calls.filter((c) => /^apt-get update/.test(c)).map((c) => c.replace(/^.*mirror=(\S+).*$/, '$1'));
   check('failing mirrors: exits 1, saying the browser check did not run', r.status === 1 && says(r, /could not be installed in 3 tries, from 3 mirrors.*the browser check did not run/), r.out.trim().split('\n').pop());
-  check('...after exactly three tries, each on a different mirror, the image\'s first',
-    JSON.stringify(ups) === JSON.stringify(['default', 'http://azure.archive.ubuntu.com/ubuntu', 'http://archive.ubuntu.com/ubuntu']), ups.join(' '));
+  check('...after exactly three tries, each on a different mirror: azure.archive, the image\'s, archive.ubuntu.com',
+    JSON.stringify(ups) === JSON.stringify(['http://azure.archive.ubuntu.com/ubuntu', 'default', 'http://archive.ubuntu.com/ubuntu']), ups.join(' '));
   check('...a named mirror gets its own sources list: the release, -updates and -security, main and universe, signed by the Ubuntu archive key',
     r.sources === ['', '-updates', '-security'].map((x) => `deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] http://archive.ubuntu.com/ubuntu noble${x} main universe\n`).join(''), JSON.stringify(r.sources));
 }
-// 5b. the image's mirror stalls mid-install (CI 45333139695): stopped at its limit, then the next mirror installs
+// 5b. the first mirror stalls mid-install (CI 45333139695): stopped at its limit, then the next mirror installs
 {
-  const r = run({ stall: ['default'] });
-  check('a mirror that stalls mid-install: stopped at its limit', says(r, /'apt-get -o Acquire::Languages=none install -y --no-install-recommends .*' passed its 4 s limit/), r.out.split('\n').filter((l) => /limit/.test(l)).join(' | '));
-  check('...and try 2 asks the next mirror, which installs', r.status === 0 && says(r, /try 1 \(default\) failed/) && says(r, /installed from the mirror \(http:\/\/azure\.archive\.ubuntu\.com\/ubuntu\)/),
+  const r = run({ stall: ['http://azure.archive.ubuntu.com/ubuntu'] });
+  check('a mirror that stalls mid-install: stopped at its limit', says(r, /'apt-get -o Acquire::Languages=none .*install -y --no-install-recommends .*' passed its 4 s limit/), r.out.split('\n').filter((l) => /limit/.test(l)).join(' | '));
+  check('...and try 2 asks the next mirror, which installs', r.status === 0 && says(r, /try 1 \(http:\/\/azure\.archive\.ubuntu\.com\/ubuntu\) failed/) && says(r, /installed from the mirror \(default\)/),
     r.out.split('\n').filter((l) => /OS packages/.test(l)).join(' | '));
   check('...with no process of the stalled install left', r.survivors === '', `survivors: ${r.survivors}`);
 }
 // 6. try 1's apt-get update hangs past its limit with a child of it holding the dpkg lock (CI 45180359317)
 {
   const r = run({ hang: 'group' });
-  check('a hung update with a child holding the lock: stopped at its limit', says(r, /'apt-get -o Acquire::Languages=none update' passed its 4 s limit: stopping its whole process group/), r.out.trim().split('\n').slice(0, 3).join(' | '));
+  check('a hung update with a child holding the lock: stopped at its limit', says(r, /'apt-get -o Acquire::Languages=none [^']*update' passed its 4 s limit: stopping its whole process group/), r.out.trim().split('\n').slice(0, 3).join(' | '));
   check('...try 2 gets the lock and the install succeeds', r.status === 0 && says(r, /installed from the mirror/) && !has(r, /lock held/), r.calls.join(' | '));
   check('...and no process of the stub survives', r.survivors === '', `survivors: ${r.survivors}`);
 }
@@ -306,8 +307,11 @@ for (const wf of ['tests.yml', 'browser-daily.yml']) {
   const t = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', wf), 'utf8');
   const step = t.match(/timeout-minutes: (\d+)\n\s+run: \.github\/scripts\/install-browser-deps\.sh\n/);
   check(`${wf} installs through the script, with a step time limit over its worst case (${worst} s)`, !!step && Number(step[1]) * 60 > worst, step ? `${step[1]} min` : 'no install step');
-  const restore = t.match(/- name: Restore the browser's OS packages\n\s+id: debs\n\s+uses: actions\/cache\/restore@[0-9a-f]{40}  # v[\d.]+\n\s+with:\n\s+path: ~\/playwright-debs\n\s+key: playwright-debs-([\d.]+)-\$\{\{ steps\.image\.outputs\.image \}\}\n\s+restore-keys: playwright-debs-([\d.]+)-\$\{\{ env\.ImageOS \}\}-\n/);
+  const restore = t.match(/- name: Restore the browser's OS packages\n\s+id: debs\n\s+uses: actions\/cache\/restore@[0-9a-f]{40}  # v[\d.]+\n\s+with:\n\s+path: ~\/playwright-debs\n\s+key: playwright-debs-([\d.]+)-\$\{\{ steps\.image\.outputs\.image \}\}\n\s+restore-keys: playwright-debs-([\d.]+)-\$\{\{ steps\.image\.outputs\.os \}\}-\n/);
   check(`${wf} restores the .deb cache by runner image, falling back to an earlier image of the same OS and Playwright`, !!restore && restore[1] === restore[2]);
+  // the fallback's OS comes from the image step: ImageOS is a runner variable, not in the env context, and
+  // `${{ env.ImageOS }}` read as empty (CI 45337281354 looked up "playwright-debs-1.63.0--")
+  check(`${wf} names the OS for that fallback from the runner's ImageOS`, /echo "os=\$ImageOS" >> "\$GITHUB_OUTPUT"/.test(t) && !/env\.ImageOS/.test(t));
   const save = t.match(/run: \.github\/scripts\/install-browser-deps\.sh\n\s+- name: Save the browser's OS packages\n\s+if: steps\.debs\.outputs\.cache-hit != 'true'\n\s+uses: actions\/cache\/save@[0-9a-f]{40}  # v[\d.]+\n\s+with:\n\s+path: ~\/playwright-debs\n\s+key: playwright-debs-([\d.]+)-\$\{\{ steps\.image\.outputs\.image \}\}\n/);
   check(`${wf} saves the .deb cache right after the install, unless the exact key was restored`, !!save && !!restore && save[1] === restore[1]);
 }

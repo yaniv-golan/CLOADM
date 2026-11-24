@@ -12,10 +12,13 @@
 #      packages the check reports missing, from disk, then the check again. A package the image already has is never
 #      touched, so nothing on the image is downgraded; a file from an earlier image that no longer fits (a dependency
 #      dpkg refuses) fails the check, and the mirror takes over after apt-get install -f.
-#   3. Otherwise a mirror, one per try, in $MIRRORS order: the image's own sources ("default"), then each mirror named,
-#      through a sources list of its own (main and universe of the release, -updates and -security, signed by the
-#      Ubuntu archive key). A mirror that stalls or trickles is not retried: the next try asks the next mirror, as CI
-#      45333139695 needed (the image's us-east-2.ec2 mirror sent 100 KB/s, and both tries waited on it). Each try runs
+#   3. Otherwise a mirror, one per try, in $MIRRORS order: azure.archive.ubuntu.com, then the image's own sources
+#      ("default"), then archive.ubuntu.com; a named one through a sources list of its own (main and universe of the
+#      release, -updates and -security, signed by the Ubuntu archive key). A mirror that stalls or trickles is not
+#      retried: the next try asks the next mirror. CI 45333139695 needed that (the image's us-east-2.ec2 mirror sent
+#      100 KB/s and both tries waited on it), and CI 45337281354 measured it: on 5 of 8 shards the image's mirror
+#      sent 122 kB/s and hit its limit, then azure.archive installed the same packages in 2 s. That is why azure.archive
+#      comes first, and the image's mirror is still tried after it. Each try runs
 #      apt-get update without translation lists, then apt-get install --no-install-recommends of exactly the packages
 #      the check reported missing (what `playwright install-deps` would install, without upgrading packages the image
 #      already has: it re-installed its whole list and pulled 11 MB of mesa upgrades), then the check. The .deb files
@@ -47,7 +50,7 @@ set -u
 DEBS_DIR="${DEBS_DIR:-$HOME/playwright-debs}"
 APT_CONF="${APT_CONF:-/etc/apt/apt.conf.d/99ci-apt}"
 APT_ARCHIVES="${APT_ARCHIVES:-/var/cache/apt/archives}"
-MIRRORS="${MIRRORS:-default http://azure.archive.ubuntu.com/ubuntu http://archive.ubuntu.com/ubuntu}"
+MIRRORS="${MIRRORS:-http://azure.archive.ubuntu.com/ubuntu default http://archive.ubuntu.com/ubuntu}"
 SOURCES="${SOURCES:-/etc/apt/ci-mirror.list}"
 KEYRING="${KEYRING:-/usr/share/keyrings/ubuntu-archive-keyring.gpg}"
 LOCKS="${LOCKS:-/var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/lib/apt/lists/lock /var/cache/apt/archives/lock}"

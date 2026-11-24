@@ -473,8 +473,10 @@ Next version: 0.1.9-pre (the plugin and extension manifests carry it; `tests/plu
 - **A slow Ubuntu mirror no longer fails a browser-check shard.** The CI step that installs chromium's OS packages
   (`.github/scripts/install-browser-deps.sh`) asked the runner image's mirror twice. On runs 45303943290,
   45322323380 and 45333139695 that mirror sent ~100 KB/s, both tries ran out of time, no check ran, and attempt 1 went
-  red. Each try now asks a different mirror: the image's own, then `azure.archive.ubuntu.com`, then
-  `archive.ubuntu.com`, a named one through a sources list of its own signed by the Ubuntu archive key. A try installs
+  red. Each try now asks a different mirror: `azure.archive.ubuntu.com`, then the image's own, then
+  `archive.ubuntu.com`, a named one through a sources list of its own signed by the Ubuntu archive key. The first CI
+  run measured it: on 5 of 8 shards the image's mirror sent 122 kB/s and hit its limit, then azure.archive installed
+  the same packages in 2 s. A try installs
   only the packages Playwright's check reports missing (`apt-get install --no-install-recommends`, no translation
   lists), not Playwright's whole list, which also upgraded 11 MB of mesa. The .deb cache is now restored with a
   fallback to the newest cache of an earlier runner image, so an image update no longer sends every shard to the
