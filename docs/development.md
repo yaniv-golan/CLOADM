@@ -43,7 +43,7 @@ names contain one of the parts, and `node tools/browser-check.js --only <group>[
 | `cli/` (the command line and the MCP server) | `cli,mcp,game-guide,starter-game` | none |
 | `connector/` (the side-panel connector) | `connector,mcp,skill` | `connector` |
 | `examples/` (a program or game) | `pwa,starter-game,game-guide,welcome` and the example's own suite | `pwa` (and the group that offers it) |
-| `js/ui/`, `play/`, `css/`, `index.html` | `session,readme,screen-alternative` | the panel's groups and `semantics` (CI attempt 1 runs every group) |
+| `js/ui/`, `play/`, `css/`, `index.html` | `session,readme,screen-alternative` | the panel's groups, `semantics` and `menuWords` (a label's words, in every menu and sheet; CI attempt 1 runs every group) |
 | Docs (`README.md`, `docs/`) | `readme,romdocs,game-guide,dev-docs-headless,disk-read-example` | none |
 | `CHANGELOG.md` | `changelog` | none |
 | The test runner (`tests/all.js`, `suite-verdict.js`, `no-exit.js`) | `allsummary,allsignal,allsched,suite-shards,exitguard,exitcode` | none |
