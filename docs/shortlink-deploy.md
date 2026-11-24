@@ -16,15 +16,26 @@ Per link, three objects in the bucket:
 |---|---|---|
 | `<id>.bin` | the moment, sealed with AES-GCM in the person's browser (≤ 64 KB) | the page, `GET https://s.cloadm.dev/<id>.bin` |
 | `<id>.png` | the preview picture, only if the person left "Show a preview picture" on: 1200 × 630, indexed, ≤ 16 colours, ≤ 32 KB, only IHDR/PLTE/IDAT/IEND | link unfurlers |
-| `<id>` | the arrival page, from a fixed template (machine name and id only), which counts the open and goes to `https://cloadm.dev/play/#l=<id>.<key>` | people and unfurlers |
+| `<id>` | the arrival page, from a fixed template (machine name and id only), which goes straight to `https://cloadm.dev/play/#l=<id>.<key>` and sends nothing | people and unfurlers |
 
 The key is never sent: it is the part after `#`. The delete token's SHA-256 is kept in `<id>.bin`'s metadata; the
 token itself only in the browser that made the link. **Links never expire**: there is no lifecycle rule, and none
 should be added.
 
-Counts, totals only, in `stats/counts.json` (links made, opened, removed; starts of programs in `COUNTED_STARTS`), and
-a public page `stats/` that the Worker rewrites with each count. No address, user agent or anything per person is
-stored. Opens are counted by the arrival page's one `POST /api/opened` (no id in it), so reads stay Worker-free.
+Counts, totals only, in `stats/counts.json` (links made, opened, removed), and a public page `stats/` that the Worker
+rewrites with each count. No address, user agent or anything per person is stored.
+
+**Opens** are counted without anything on the read path: no Worker runs on a read and no page sends a ping. Once a day
+a Cron Trigger runs the Worker's `scheduled` handler, which asks Cloudflare's GraphQL Analytics API for the zone's
+successful `GET`s of `s.cloadm.dev/<id>.bin` (the page fetches a link's moment once per open; cached answers are
+counted too, as the zone's HTTP analytics see them) for each UTC day not yet counted, up to yesterday and at most 30
+days back, and adds the total. A failed run adds nothing; the next one counts the same days. The query asks for a count
+only, nothing about who.
+
+**Program starts are not counted.** A start counter (for WYRMFIRE) would need the zone's analytics to see the program
+page's requests, which only happens when cloadm.dev is served through Cloudflare's proxy. cloadm.dev is served by
+GitHub Pages (`CNAME`, `.github/workflows/pages.yml`), so that counter was left out rather than replaced by a beacon. If
+cloadm.dev is ever proxied by Cloudflare, the same query on `clientRequestPath: "/wyrmfire/"` would count it.
 
 ## Steps
 
@@ -49,7 +60,16 @@ stored. Opens are counted by the arrival page's one `POST /api/opened` (no id in
 
    Wrangler bundles `worker.js` with the one file it imports from the site (`js/media/png.js`). The route
    `s.cloadm.dev/api/*` is the only place the Worker runs.
-6. **Check it.** Make a short link on cloadm.dev's Share screen, open it in a private window, and look at
+6. **Opens.** Make an API token (My Profile → API Tokens → Create Token → Custom) with the one permission **Zone →
+   Analytics → Read** on the cloadm.dev zone, and give it to the Worker as a secret (never in `wrangler.toml`):
+
+   ```
+   npx wrangler secret put CF_ANALYTICS_TOKEN
+   ```
+
+   Put the zone's id (the cloadm.dev zone's Overview page) in `ZONE_ID`, and keep the `[triggers]` cron from the
+   example (once a day). Without the token or the zone id, opens are simply not counted.
+7. **Check it.** Make a short link on cloadm.dev's Share screen, open it in a private window, and look at
    `https://s.cloadm.dev/stats/`.
 
 ## Limits and switches

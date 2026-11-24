@@ -78,16 +78,8 @@ const colours = (d) => Array.from(d.pixels, (i) => d.palette[i].join(','));
     const cfg = Emu.parseUrlConfig(`?start=${name}`);
     check(`${name}: start=${name} is a start the page has`, cfg.start === name && !cfg.errors.length, JSON.stringify(cfg.errors));
   }
-  check('no program page sends anything anywhere unless its entry asks to count starts (none does yet)',
-    tool.NAMES.every((n) => !/fetch\(|sendBeacon|XMLHttpRequest/.test(fs.readFileSync(path.join(ROOT, n, 'index.html'), 'utf8'))));
-  {
-    const counted = tool.page('2048');   // the real page, then one whose entry sets countStarts
-    tool.PROGRAMS.__probe = Object.assign({}, tool.PROGRAMS['2048'], { id: 'wyrmfire', countStarts: true });
-    const html = tool.page('__probe');
-    delete tool.PROGRAMS.__probe;
-    check('a page whose entry counts starts: one POST of its id to s.cloadm.dev/api/started, then the redirect', !/fetch\(/.test(counted)
-      && html.includes("fetch('https://s.cloadm.dev/api/started', { method: 'POST', body: '__probe', mode: 'no-cors', keepalive: true })"));
-  }
+  check('no program page sends anything anywhere (no ping, no beacon, no request of its own)',
+    tool.NAMES.every((n) => !/fetch\(|sendBeacon|XMLHttpRequest|new Image/.test(fs.readFileSync(path.join(ROOT, n, 'index.html'), 'utf8'))));
   check('Session.programPageUrl: a program without a page has none', new Emu.Session().programPageUrl('demo', 'https://cloadm.dev/') === null);
   check('the pages are the list in js/program-pages.js, and the service worker\'s folders follow it',
     tool.NAMES.join() === Emu.PROGRAM_PAGES.map((p) => p.id).join() && Emu.PROGRAM_PAGES.every((p) => require('../tools/pwa-files.js').DIRS.includes(p.id)));

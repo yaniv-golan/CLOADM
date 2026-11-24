@@ -4,8 +4,9 @@
 //    allowed by the hash in its CSP, worked out here; only the id and the machine's name in it; Report this link)
 //  * every refusal: origin, kill switch (existing links stay), per-address, global and daily limits, sizes, malformed
 //    requests, every way a picture can be wrong
-//  * delete by token (wrong token refused, stored as a hash only), counts kept under concurrent writes, the public
-//    totals page, and no address stored anywhere
+//  * delete by token (wrong token refused, stored as a hash only); opens counted by the daily cron from the zone's
+//    analytics (the request it makes, catching up missed days, never twice); counts kept under concurrent writes; the
+//    public totals page; no address stored anywhere
 //  * the Worker and the page agree: newLinkBody is what the Worker reads; the machines and the limits are the page's
 const zlib = require('zlib');
 const Emu = require('./load')();
@@ -66,12 +67,15 @@ const sealed = (n = 3000, seed = 1) => Uint8Array.from({ length: n }, (_, i) => 
     const text = html.replace(/<[^>]*>/g, ' ');
     check('the arrival page: no bytes of the moment, no address, no token', !html.includes(out.deleteToken) && !html.includes(IP) && !html.includes('dragon64'), text.replace(/\s+/g, ' ').slice(0, 80));
 
-    // run the arrival script as a browser would: it pings /api/opened and goes on with the key
+    // run the arrival script as a browser would: it goes on with the key and sends nothing anywhere (no ping: opens
+    // are counted from the zone's analytics, countOpens below), and its CSP allows no connection at all
     const calls = [], loc = { pathname: `/${out.id}`, hash: '#0123456789abcdefghijkl', replaced: null, replace(u) { this.replaced = u; } };
-    new Function('fetch', 'location', 'document', script)((u, o) => { calls.push([u, o.method]); return Promise.resolve(); }, loc, { getElementById: () => ({}) });
-    check('the arrival script: POST /api/opened (no id), then cloadm.dev/play/#l=<id>.<key>', JSON.stringify(calls) === JSON.stringify([['/api/opened', 'POST']]) && loc.replaced === `https://cloadm.dev/play/#l=${out.id}.0123456789abcdefghijkl`, loc.replaced);
+    const spy = (...a) => { calls.push(a); return Promise.resolve(); };
+    new Function('fetch', 'navigator', 'XMLHttpRequest', 'location', 'document', script)(spy, { sendBeacon: spy }, function () { calls.push('xhr'); }, loc, { getElementById: () => ({}) });
+    check('the arrival script: straight to cloadm.dev/play/#l=<id>.<key>, no request of any kind, connect-src none', calls.length === 0 && loc.replaced === `https://cloadm.dev/play/#l=${out.id}.0123456789abcdefghijkl`
+      && /connect-src 'none'/.test(csp) && !/fetch|sendBeacon|XMLHttpRequest/.test(script), loc.replaced);
     const said = {}, nokey = { pathname: `/${out.id}`, hash: '', replaced: null, replace(u) { this.replaced = u; } };
-    new Function('fetch', 'location', 'document', script)(() => Promise.resolve(), nokey, { getElementById: () => said });
+    new Function('location', 'document', script)(nokey, { getElementById: () => said });
     check('the arrival script: a link without its key stays and says what is missing', nokey.replaced === null && /missing its key/.test(said.textContent));
 
     // without a picture
@@ -99,29 +103,63 @@ const sealed = (n = 3000, seed = 1) => Uint8Array.from({ length: n }, (_, i) => 
     check('takedown by id (removeLink, the documented commands do the same): all three gone', !b.has(r2.id) && !b.has(`${r2.id}.bin`));
 
     // ---------------- counts ----------------
-    for (let i = 0; i < 3; i++) await call(env, req('/api/opened', { origin: 'https://s.cloadm.dev' }));
-    await call(env, req('/api/started', { body: 'wyrmfire', type: 'text/plain' }));
-    const notCounted = await call(env, req('/api/started', { body: 'liza', type: 'text/plain' }));
+    check('no ping addresses: /api/opened and /api/started are not there (404)', (await call(env, req('/api/opened'))).status === 404
+      && (await call(env, req('/api/started', { body: 'wyrmfire', type: 'text/plain' }))).status === 404);
     const c = JSON.parse(env.BUCKET.text('stats/counts.json'));
-    check('counts: made, opened, removed, wyrmfire started; another program is not counted (400)', c.created === 3 && c.opened === 3 && c.removed === 1 && c.started.wyrmfire === 1 && !c.started.liza && notCounted.status === 400, JSON.stringify(c));
+    check('counts: made and removed, nothing opened yet (opens come from the daily analytics run)', c.created === 3 && c.removed === 1 && c.opened === 0 && !('started' in c), JSON.stringify(c));
+    // opens: the daily cron asks the zone's analytics for yesterday's successful GETs of /<id>.bin and adds the total once
+    const asked = [];
+    const analytics = (answer) => async (url, init) => { asked.push({ url, init }); return typeof answer === 'function' ? answer() : new Response(JSON.stringify(answer), { status: 200 }); };
+    const counted = (n) => ({ data: { viewer: { zones: [{ httpRequestsAdaptiveGroups: [{ count: n }] }] } } });
+    const day1 = new Date('2026-11-25T03:17:00Z');
+    check('opens: not configured (no token or zone): nothing asked, nothing added', (await W.addOpens(env, day1, analytics(counted(9)))) === null && asked.length === 0);
+    env.CF_ANALYTICS_TOKEN = 'test-analytics-token'; env.ZONE_ID = 'zone0123';
+    const got = await W.addOpens(env, day1, analytics(counted(7)));
+    const q = asked[0], qb = q && JSON.parse(q.init.body);
+    check('opens: one POST to the GraphQL API with the token, for the zone and yesterday (UTC)', asked.length === 1 && q.url === 'https://api.cloudflare.com/client/v4/graphql'
+      && q.init.headers.Authorization === 'Bearer test-analytics-token' && qb.variables.zone === 'zone0123'
+      && qb.variables.start === '2026-11-24T00:00:00.000Z' && qb.variables.end === '2026-11-25T00:00:00.000Z', q && q.init.body.slice(0, 160));
+    check('opens: the query counts successful GETs of s.cloadm.dev/<id>.bin and nothing about who', /clientRequestHTTPHost: "s\.cloadm\.dev"/.test(qb.query) && /clientRequestPath_like: "\/%\.bin"/.test(qb.query)
+      && /clientRequestHTTPMethodName: "GET"/.test(qb.query) && /edgeResponseStatus: 200/.test(qb.query) && /\{ count \}/.test(qb.query) && !/clientIP|userAgent|country/i.test(qb.query));
+    const c1 = JSON.parse(env.BUCKET.text('stats/counts.json'));
+    check('opens: added, and the day recorded', got.opens === 7 && c1.opened === 7 && c1.openedThrough === '2026-11-24', JSON.stringify(c1));
+    await W.addOpens(env, new Date('2026-11-25T20:00:00Z'), analytics(counted(7)));
+    check('opens: a second run the same day asks nothing and adds nothing', asked.length === 1 && JSON.parse(env.BUCKET.text('stats/counts.json')).opened === 7);
+    const failed = await W.addOpens(env, new Date('2026-11-26T03:17:00Z'), analytics(() => new Response('{"errors":[{"message":"rate limited"}]}', { status: 429 }))).then(() => null, (e) => e);
+    check('opens: the analytics API failing adds nothing and keeps the day uncounted', failed instanceof Error && JSON.parse(env.BUCKET.text('stats/counts.json')).openedThrough === '2026-11-24');
+    await W.addOpens(env, new Date('2026-11-27T03:17:00Z'), analytics(counted(5)));
+    const qc = JSON.parse(asked[asked.length - 1].init.body).variables, c2 = JSON.parse(env.BUCKET.text('stats/counts.json'));
+    check('opens: the next run catches up, both missed days in one query', qc.start === '2026-11-25T00:00:00.000Z' && qc.end === '2026-11-27T00:00:00.000Z' && c2.opened === 12 && c2.openedThrough === '2026-11-26', JSON.stringify(qc));
+    // the Worker's own scheduled handler (the Cron Trigger) does the same, through the platform's fetch
+    {
+      const real = globalThis.fetch, waits = [];
+      globalThis.fetch = analytics(counted(0));
+      try { await worker.scheduled({ scheduledTime: Date.parse('2026-11-28T03:17:00Z') }, env, { waitUntil: (p) => waits.push(p) }); await Promise.all(waits); }
+      finally { globalThis.fetch = real; }
+      const cs = JSON.parse(env.BUCKET.text('stats/counts.json'));
+      check('the scheduled handler (Cron Trigger) counts through to yesterday', waits.length === 1 && cs.openedThrough === '2026-11-27' && cs.opened === 12, JSON.stringify(cs));
+      await W.addOpens(env, new Date('2026-11-27T03:17:00Z'), analytics(counted(99)));   // an earlier day again: nothing
+      check('a run for days already counted changes nothing', JSON.parse(env.BUCKET.text('stats/counts.json')).opened === 12);
+    }
     const stats = env.BUCKET.text('stats/');
-    check('the public totals page (stats/): the totals, nothing per person', /Short links made<\/td><td>3</.test(stats) && /Short links opened<\/td><td>3</.test(stats) && /wyrmfire started from its page<\/td><td>1</.test(stats));
+    check('the public totals page (stats/): the totals, nothing per person', /Short links made<\/td><td>3</.test(stats) && /Short links opened \(to the end of 2026-11-27\)<\/td><td>12</.test(stats)
+      && /Short links removed<\/td><td>1</.test(stats));
     const everything = [...env.BUCKET.objects.values()].map((o) => new TextDecoder('latin1').decode(o.bytes) + JSON.stringify(o.customMetadata)).join('\n');
-    check('no address is stored anywhere', !everything.includes(IP) && !everything.includes('203.0.113'));
-    // a count written by someone else between the Worker's read and its write (another open, landing first) is kept:
+    check('no address is stored anywhere, nor the analytics token', !everything.includes(IP) && !everything.includes('203.0.113') && !everything.includes('test-analytics-token'));
+    // a count written by someone else between the Worker's read and its write (a link made, landing first) is kept:
     // the etag check refuses the stale write and the change is redone on the new counts
     let raced = false;
     env.BUCKET.beforePut = async (k) => {
       if (k !== 'stats/counts.json' || raced) return;
       raced = true;
-      const o = env.BUCKET.objects.get(k), c2 = JSON.parse(new TextDecoder().decode(o.bytes));
-      c2.opened++;
-      env.BUCKET.objects.set(k, Object.assign({}, o, { bytes: new TextEncoder().encode(JSON.stringify(c2)), etag: `race${++env.BUCKET.n}` }));
+      const o = env.BUCKET.objects.get(k), c3 = JSON.parse(new TextDecoder().decode(o.bytes));
+      c3.created++;
+      env.BUCKET.objects.set(k, Object.assign({}, o, { bytes: new TextEncoder().encode(JSON.stringify(c3)), etag: `race${++env.BUCKET.n}` }));
     };
-    await call(env, req('/api/opened'));
+    await W.addOpens(env, new Date('2026-11-29T03:17:00Z'), analytics(counted(4)));
     env.BUCKET.beforePut = null;
-    check('counts: a concurrent write is kept, and this one redone on top of it (4 opens before, the racing one, this one)', raced && JSON.parse(env.BUCKET.text('stats/counts.json')).opened === 5,
-      env.BUCKET.text('stats/counts.json'));
+    const c4 = JSON.parse(env.BUCKET.text('stats/counts.json'));
+    check('counts: a concurrent write is kept, and this one redone on top of it', raced && c4.created === 4 && c4.opened === 16, env.BUCKET.text('stats/counts.json'));
   }
 
   // ---------------- refusals ----------------
@@ -172,8 +210,7 @@ const sealed = (n = 3000, seed = 1) => Uint8Array.from({ length: n }, (_, i) => 
     k.NEW_LINKS = 'off';
     const [ks, km] = await status(req('/api/new', { body: good() }), k);
     check('kill switch (NEW_LINKS=off): new links refused (503) with a message', ks === 503 && /switched off/.test(km), km);
-    check('kill switch: the existing link\'s objects stay, and opens are still counted', k.BUCKET.objects.has(`${made.id}.bin`) && k.BUCKET.objects.has(made.id)
-      && (await call(k, req('/api/opened'))).status === 204);
+    check('kill switch: the existing link\'s objects stay (reads never run the Worker)', k.BUCKET.objects.has(`${made.id}.bin`) && k.BUCKET.objects.has(made.id));
     check('kill switch: delete still works', (await call(k, req('/api/delete', { body: JSON.stringify({ id: made.id, token: made.deleteToken }), type: 'application/json' }))).status === 204);
 
     // limits

@@ -28,7 +28,15 @@ namespace_id = "<ANOTHER_UNIQUE_INTEGER, e.g. 1102>"
   limit = 120
   period = 60
 
+# once a day (UTC): count yesterday's opens from the zone's analytics (the scheduled handler); the token is the secret
+# CF_ANALYTICS_TOKEN (npx wrangler secret put CF_ANALYTICS_TOKEN), never written here
+[triggers]
+crons = ["17 3 * * *"]
+
 [vars]
+# the cloadm.dev zone's id, for the analytics query that counts opens
+ZONE_ID = "<ZONE_ID>"
+
 # the kill switch: "off" refuses new links (503); existing links stay readable, as reads never reach the Worker
 NEW_LINKS = "on"
 # the most new links in one UTC day, counted in stats/counts.json

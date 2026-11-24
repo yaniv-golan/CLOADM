@@ -10,7 +10,7 @@
  *             fewer, 32 KB at most, checked chunk by chunk (js/media/png.js readPngHeader)
  *   <id>      the arrival page: a FIXED template (arrivalPage below) whose only variables are the id (8 base64url
  *             characters, made here) and the machine's name (from MACHINES, never from the request); its one script,
- *             allowed by its hash, counts the open and goes on to https://cloadm.dev/play/#l=<id>.<key>.
+ *             allowed by its hash, goes on to https://cloadm.dev/play/#l=<id>.<key> and sends nothing anywhere.
  * Reads are R2 through the cache on the s.cloadm.dev custom domain: this Worker runs only on /api/*. Links never expire.
  *
  * POST /api/new      body: [u8 1][u8 n][n bytes machine id][u32 LE sealed length][sealed][png, or nothing]
@@ -18,8 +18,11 @@
  *                    limit (RATE_IP, 429), the global limits (RATE_ALL per minute and DAILY_CAP a day, 429), anything
  *                    malformed (400) or too large (413), an origin other than ALLOWED_ORIGINS (403).
  * POST /api/delete   body JSON { id, token } -> 204; 403 when the token's SHA-256 is not the one stored with the link.
- * POST /api/opened   (the arrival page; no body)   -> 204, counts one open. No id, no address is kept.
- * POST /api/started  body: a program id in COUNTED_STARTS (a program page) -> 204, counts one start.
+ * scheduled (a daily Cron Trigger): adds the opens of the UTC days not yet counted (up to yesterday), read from
+ *                    Cloudflare's analytics (countOpens):
+ *                    the successful GETs of s.cloadm.dev/<id>.bin, cached ones included, as a total. Nothing on the read
+ *                    path runs code or sends a ping. Needs the secret CF_ANALYTICS_TOKEN and the var ZONE_ID; without
+ *                    them the opens are not counted.
  * Counts live in one R2 object, stats/counts.json (written with an etag check so none is lost), and the public page
  * stats/ (static HTML, rewritten with each count) shows the totals. No address or per-person data is stored anywhere.
  */
@@ -38,14 +41,11 @@ export const MACHINES = Object.freeze({
   lzcolor64: 'LZ Color64', cd6809: 'Codimex CD-6809', cp400: 'Prológica CP-400', coco3: 'CoCo 3', coco3p: 'CoCo 3 (PAL)', mc10: 'MC-10',
   alice: 'Matra Alice',
 });
-// the programs whose starts are counted (their program pages send POST /api/started)
-export const COUNTED_STARTS = Object.freeze(['wyrmfire']);
 const ID = /^[A-Za-z0-9_-]{8}$/;
 
 // ---------------- the arrival page ----------------
 // Its script is the same for every link (it reads the id from the address), so its hash is fixed
-export const ARRIVAL_SCRIPT = "fetch('/api/opened',{method:'POST',keepalive:true}).catch(function(){});"
-  + "var id=location.pathname.slice(1),k=location.hash.slice(1);"
+export const ARRIVAL_SCRIPT = "var id=location.pathname.slice(1),k=location.hash.slice(1);"
   + `if(/^[A-Za-z0-9_-]{8}$/.test(id)&&/^[A-Za-z0-9_-]{22}$/.test(k))location.replace('${PLAY}#l='+id+'.'+k);`
   + "else document.getElementById('m').textContent='This link is missing its key: copy the whole link, with the part after #.';";
 export const ARRIVAL_STYLE = 'body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0B0D0C;color:#E8EDE9;font:16px/1.5 system-ui,sans-serif}'
@@ -63,7 +63,7 @@ export async function arrivalPage(id, machine, picture, reportTo) {
   const report = /^[^@\s"<>]+@[A-Za-z0-9.-]+$/.test(reportTo || '')
     ? `<p><a href="mailto:${esc(reportTo)}?subject=${encodeURIComponent(`Report CLOADM link ${id}`)}">Report this link</a></p>` : '';
   const csp = `default-src 'none'; script-src 'sha256-${b64(await sha256(ARRIVAL_SCRIPT))}'; style-src 'sha256-${b64(await sha256(ARRIVAL_STYLE))}'; `
-    + "connect-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+    + "connect-src 'none'; img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -130,7 +130,7 @@ const today = (now) => now.toISOString().slice(0, 10);
 export async function bump(env, now, fn) {
   for (let tries = 0; tries < 8; tries++) {
     const cur = await env.BUCKET.get(COUNTS);
-    const c = cur ? JSON.parse(await cur.text()) : { created: 0, opened: 0, removed: 0, started: {}, day: '', createdToday: 0 };
+    const c = cur ? JSON.parse(await cur.text()) : { created: 0, opened: 0, removed: 0, openedThrough: '', day: '', createdToday: 0 };
     if (c.day !== today(now)) { c.day = today(now); c.createdToday = 0; }
     fn(c);
     const put = await env.BUCKET.put(COUNTS, JSON.stringify(c), {
@@ -142,8 +142,7 @@ export async function bump(env, now, fn) {
   throw new Refused(503, 'The counts are busy: try again in a moment.');
 }
 export function statsPage(c) {
-  const rows = [['Short links made', c.created], ['Short links opened', c.opened], ['Short links removed', c.removed],
-    ...Object.entries(c.started || {}).map(([p, n]) => [`${p} started from its page`, n])];
+  const rows = [['Short links made', c.created], [`Short links opened${c.openedThrough ? ` (to the end of ${c.openedThrough})` : ''}`, c.opened], ['Short links removed', c.removed]];
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>CLOADM short links: totals</title>
@@ -213,7 +212,47 @@ async function deleteLink(request, env, now) {
   await bump(env, now, (c) => { c.removed++; });
 }
 
+// ---------------- opens, from the zone's analytics ----------------
+export const ANALYTICS = 'https://api.cloudflare.com/client/v4/graphql';
+export const OPENS_QUERY = `query Opens($zone: string!, $start: Time!, $end: Time!) {
+  viewer { zones(filter: { zoneTag: $zone }) {
+    httpRequestsAdaptiveGroups(limit: 1, filter: { datetime_geq: $start, datetime_lt: $end, clientRequestHTTPHost: "s.cloadm.dev",
+      clientRequestHTTPMethodName: "GET", clientRequestPath_like: "/%.bin", edgeResponseStatus: 200 }) { count }
+  } }
+}`;
+// (env, the moment the cron runs, the last day already counted or '') -> { from, through, opens }: the successful GETs
+// of s.cloadm.dev/<id>.bin from the day after `counted` (at most OPENS_DAYS back) to the end of yesterday (UTC), or null
+// when the analytics token or zone is not configured, or there is no whole day to count. Throws when the analytics API
+// fails: nothing is added, and the next run counts the same days.
+export const OPENS_DAYS = 30;
+const DAY = 86400000;
+const iso = (t) => new Date(t).toISOString().slice(0, 10);
+export async function countOpens(env, now, counted = '', fetchImpl = fetch) {
+  if (!env.CF_ANALYTICS_TOKEN || !env.ZONE_ID) return null;
+  const end = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  const start = Math.max(counted ? Date.parse(`${counted}T00:00:00Z`) + DAY : end - DAY, end - OPENS_DAYS * DAY);
+  if (!(start < end)) return null;
+  const res = await fetchImpl(ANALYTICS, { method: 'POST', headers: { Authorization: `Bearer ${env.CF_ANALYTICS_TOKEN}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query: OPENS_QUERY, variables: { zone: env.ZONE_ID, start: new Date(start).toISOString(), end: new Date(end).toISOString() } }) });
+  const out = await res.json().catch(() => null);
+  if (!res.ok || !out || out.errors || !out.data) throw new Error(`analytics: ${res.status} ${out && out.errors ? JSON.stringify(out.errors).slice(0, 200) : ''}`);
+  const groups = (((out.data.viewer || {}).zones || [])[0] || {}).httpRequestsAdaptiveGroups || [];
+  return { from: iso(start), through: iso(end - DAY), opens: groups.reduce((n, g) => n + (Number(g.count) || 0), 0) };
+}
+// the daily cron: the days not yet counted, added once (a second run on the same day adds nothing)
+export async function addOpens(env, now, fetchImpl = fetch) {
+  const cur = await env.BUCKET.get(COUNTS);
+  const counted = cur ? JSON.parse(await cur.text()).openedThrough || '' : '';
+  const got = await countOpens(env, now, counted, fetchImpl);
+  if (!got) return null;
+  await bump(env, now, (c) => { if ((c.openedThrough || '') >= got.through) return; c.opened += got.opens; c.openedThrough = got.through; });
+  return got;
+}
+
 export default {
+  async scheduled(controller, env, ctx) {
+    ctx.waitUntil(addOpens(env, new Date(controller.scheduledTime || Date.now())));
+  },
   async fetch(request, env, ctx, now = new Date()) {
     const url = new URL(request.url), origin = request.headers.get('Origin');
     const headers = cors(env, origin);
@@ -232,15 +271,6 @@ export default {
           if (!origin || !allowed(env).includes(origin)) throw new Refused(403, 'Short links are removed from CLOADM\'s own page.');
           await deleteLink(request, env, now);
           return new Response(null, { status: 204, headers });
-        case '/api/opened':
-          await bump(env, now, (c) => { c.opened++; });
-          return new Response(null, { status: 204, headers });
-        case '/api/started': {
-          const p = new TextDecoder().decode(await readBody(request, 64)).trim();
-          if (!COUNTED_STARTS.includes(p)) throw new Refused(400, 'Not a program whose starts are counted.');
-          await bump(env, now, (c) => { c.started[p] = (c.started[p] || 0) + 1; });
-          return new Response(null, { status: 204, headers });
-        }
         default: throw new Refused(404, 'No such address.');
       }
     } catch (e) {

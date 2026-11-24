@@ -65,7 +65,7 @@ function page(name) {
 <meta property="og:image:alt" content="${esc(p.name)} running in CLOADM: the emulated screen">
 <meta name="twitter:card" content="summary_large_image">
 <meta http-equiv="refresh" content="0; url=${to}">
-<script>${p.countStarts ? `fetch('https://s.cloadm.dev/api/started', { method: 'POST', body: '${name}', mode: 'no-cors', keepalive: true }).catch(function () {});\n` : ''}location.replace('${to}' + location.hash);</script>
+<script>location.replace('${to}' + location.hash);</script>
 </head>
 <body>
 <main>

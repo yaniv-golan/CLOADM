@@ -21,8 +21,8 @@ Next version: 0.1.9-pre (the plugin and extension manifests carry it; `tests/plu
   and only online; otherwise the button is switched off with the reason beside it. The long link is labelled "Exact
   moment · works offline, never expires". The server is a Cloudflare Worker in `shortlink/` (not deployed from here:
   `docs/shortlink-deploy.md`): links don't expire; size caps, per-address, per-minute and daily limits, a kill switch,
-  removal by id, "Report this link", and totals only at `s.cloadm.dev/stats/` (no addresses kept; the only pings are
-  the arrival page's open count, which carries no id, and a program page's start count where its entry asks for one).
+  removal by id, "Report this link", and totals only at `s.cloadm.dev/stats/` (no addresses kept, no pings or beacons: opens are counted once a day from
+  Cloudflare's analytics by the Worker's Cron Trigger; program starts are not counted).
 - **Program pages.** cloadm.dev/2048/, /liza/ and /minesweeper/ each have their own link preview (title, description
   and a 1200x630 picture of the program on the built-in firmware, made by `tools/program-cards.js`), a Play button, and
   go straight to the start link `/play/?start=<program>`. They work offline like the rest of the site. One entry in

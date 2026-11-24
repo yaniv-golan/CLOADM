@@ -1803,7 +1803,9 @@ guardrail (ROMs, cartridge, NitrOS-9, too large) refusing before any request. `t
 in Node against an in-memory R2 bucket: the three objects, the arrival page's CSP hashes worked out in the test, every
 PNG rule, every limit, the kill switch, delete tokens, concurrent counts, no address stored. The browser check's
 `shortLink` group runs the same Worker behind Playwright routes for s.cloadm.dev and cloadm.dev: made on the Share
-screen, opened from its arrival page in another profile, deleted, the kill switch, offline, a cartridge moment.
+screen, opened from its arrival page in another profile (s.cloadm.dev asked for the page and the moment only: no
+ping), deleted, the kill switch, offline, a cartridge moment. The daily open count (the Cron Trigger) is tested in Node
+against a mocked GraphQL API: the request, the counted days, a failure and the catch-up after it.
 Not verified here: the deployed Worker on Cloudflare (its bindings, the R2 custom domain, the cache rule and CORS rule);
 docs/shortlink-deploy.md ends with the check to run once it is deployed.
 

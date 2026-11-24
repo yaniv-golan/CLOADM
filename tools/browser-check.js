@@ -19452,18 +19452,19 @@ async function armGuardChecks(browser, base, check) {
 // requests to it (/api/* to the Worker, everything else read from the bucket, as R2's custom domain serves it), and
 // routes https://cloadm.dev/ to this run's own site, so the arrival page's redirect lands on this build. Nothing reaches
 // Cloudflare. Made on the Share screen (QR, preview switch, the public-copy lines), opened from the arrival page in
-// another profile (the moment, the open counted), deleted, made without a picture, refused by the kill switch, and
+// another profile (the moment; nothing but the link's own files fetched from s.cloadm.dev), deleted, made without a picture, refused by the kill switch, and
 // switched off with its reason for a cartridge moment and offline.
 async function shortLinkChecks(browser, base, site, check) {
   const { pathToFileURL } = require('url');
   const W = await import(pathToFileURL(path.join(__dirname, '../shortlink/worker.js')).href);
   const { MemoryBucket, memoryLimiter } = await import(pathToFileURL(path.join(__dirname, '../shortlink/memory-bucket.js')).href);
   const local = site.replace(/\/$/, '');
-  const env = { BUCKET: new MemoryBucket(), RATE_IP: memoryLimiter(100), RATE_ALL: memoryLimiter(1000), DAILY_CAP: '100',
+  const env = { seen: [], BUCKET: new MemoryBucket(), RATE_IP: memoryLimiter(100), RATE_ALL: memoryLimiter(1000), DAILY_CAP: '100',
     ALLOWED_ORIGINS: `${local},https://cloadm.dev`, REPORT_EMAIL: 'abuse@example.com' };
   const serve = async (ctx) => {
     await ctx.route('https://s.cloadm.dev/**', async (route) => {
       const r = route.request(), u = new URL(r.url()), origin = r.headers().origin;
+      env.seen.push(`${r.method()} ${u.pathname}`);
       if (u.pathname.startsWith('/api/')) {
         const res = await W.default.fetch(new Request(r.url(), { method: r.method(), headers: r.headers(), body: ['GET', 'HEAD'].includes(r.method()) ? null : r.postDataBuffer() }), env, {});
         return route.fulfill({ status: res.status, headers: Object.fromEntries(res.headers), body: Buffer.from(await res.arrayBuffer()) });
@@ -19522,12 +19523,17 @@ async function shortLinkChecks(browser, base, site, check) {
   const arrival = id ? env.BUCKET.text(id) || '' : '';
   check('shortLink: the arrival page\'s preview: "A moment on a Dragon 64, CLOADM" and its picture', /<meta property="og:title" content="A moment on a Dragon 64, CLOADM">/.test(arrival)
     && arrival.includes(`<meta property="og:image" content="https://s.cloadm.dev/${id}.png">`));
+  const seenBefore = env.seen.length;
   if (id) await p2.goto(r.url);
   await p2.waitForURL(/^https:\/\/cloadm\.dev\/play\//, { timeout: 15000 }).catch(() => {});
   await linkIn(p2);
   const opened = await waitFor(p2, () => window.__said.some((x) => /^Snapshot opened: Dragon 64/.test(x)), null, 15000);
-  check('shortLink: opened in another profile: that exact moment, the fragment cleared, the open counted (no id kept)', opened && await p2.evaluate(() => window.emu.machine.ram[1030] === 42 && location.hash === '')
-    && JSON.parse(env.BUCKET.text('stats/counts.json')).opened === 1 && !env.BUCKET.text('stats/counts.json').includes(id), await p2.evaluate(() => window.__said.join(' | ')));
+  // opening asked s.cloadm.dev for the arrival page and the sealed moment, and nothing else: no ping (opens are counted
+  // from the zone's analytics by the daily cron, shortlink/worker.js countOpens)
+  const seen = env.seen.slice(seenBefore);
+  check('shortLink: opened in another profile: that exact moment, the fragment cleared; s.cloadm.dev asked only for the page and the moment',
+    opened && await p2.evaluate(() => window.emu.machine.ram[1030] === 42 && location.hash === '') && JSON.stringify(seen) === JSON.stringify([`GET /${id}`, `GET /${id}.bin`]),
+    `${JSON.stringify(seen)} · ${await p2.evaluate(() => window.__said.join(' | '))}`);
 
   // delete: all three objects gone; opening it again says so
   await page.click('#btnShortDelete');
