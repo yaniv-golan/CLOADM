@@ -19,7 +19,7 @@ Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.
   lays its items out) came before 0.2.0; this holds it, and every other label, to it.
 - **One link on the Share screen.** The screen now offers one **Copy link** (+ **Share…**). A bundled program nobody has
   touched since it started (2048, LIZA, Minesweeper) gives its program page instead — nothing is uploaded, and the line
-  under the picture says "Opens 2048 from the start, for anyone." once; played, the primary shares the moment, and "More
+  under the picture says "Opens 2048 from the start, for anyone." once (the ROM line is not shown then: a program page never needs ROMs); played, the primary shares the moment, and "More
   ways to share" adds **Link to &lt;program&gt; from the start**. A tap that tries a
   short link and can't make one (offline, a refusal, the server) copies the long link with the reason in view; a
   clipboard the browser refuses leaves the link shown and selected. **More ways to share** holds the long link, its Copy,
@@ -78,8 +78,8 @@ Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.
 
 #### Removed
 
-- **The `#s=` long-link form.** A long link is `#z=` only (`Session.readSnapshotLink`, `js/ui/main.js`). A link from a
-  pre-launch build, which wrote the snapshot file itself after `#s=`, no longer opens: the page answers it with the
+- **The `#s=` long-link form.** A long link is `#z=` only (`Session.readSnapshotLink`, `js/ui/main.js`). A link made by
+  v0.2.0 or earlier, which wrote the snapshot file itself after `#s=`, no longer opens: the page answers it with the
   same "This share link couldn't be read." refusal it gives any share-link hash no reader claims, and clears it from
   the address. `.cloadm` files are unchanged.
 

@@ -1,5 +1,5 @@
 // The Share screen's "one link": a bundled program nobody has touched since it started has nothing of its own to
-// share, so its program page is the primary link and nothing is uploaded (Session.untouchedBundledProgram). The rule
+// share, so its program page is the primary link and nothing is uploaded (Session.untouchedBundledProgram).
 // The rule: "untouched" means untouched since the program started. Any key or joystick input (Session.personInput,
 // which every way the person's hand reaches the machine goes through), a load, a typed line, a press of BREAK, a disk
 // or a tape going in, or a memory change by a tool (pokeBytes, injectAssembled) makes it a moment, and the primary shares

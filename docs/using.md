@@ -407,7 +407,7 @@ line under the picture says what the link does, and a ROM line says whether the 
 the link starts NitrOS-9 fresh instead (no snapshot file). The link there, the long link, carries the moment itself (the snapshot rides in the
 fragment after `#z=`, which browsers never send to a server: a version byte, then the snapshot packed with deflate,
 its byte arrays raw rather than in base64, and without the rendered picture, which the machine draws again on the first
-frame after it opens; about 2 to 8 KB, LIZA's about 5 KB). `#z=` is the only long-link form: saved `.cloadm` files are unchanged, and a link made by a pre-launch build (which wrote the snapshot file itself after `#s=`) gets the page's clear "This share link couldn't be read." refusal. The embed builder writes the iframe and script for the machine, program and options you pick.
+frame after it opens; about 2 to 8 KB, LIZA's about 5 KB). `#z=` is the only long-link form: saved `.cloadm` files are unchanged, and a link made by v0.2.0 or earlier (which wrote the snapshot file itself after `#s=`) gets the page's clear "This share link couldn't be read." refusal. The embed builder writes the iframe and script for the machine, program and options you pick.
 
 **One link.** The Share screen offers one **Copy link** (with **Share…** beside it where the browser has a share sheet).
 What a tap gives depends on what is on screen:
@@ -415,7 +415,7 @@ What a tap gives depends on what is on screen:
 * **A bundled program nobody has touched since it started** (2048, LIZA, Minesweeper, opened from its page or the menu
   and not yet played) has nothing of its own to send: the tap copies its **program page** (`cloadm.dev/2048/` and so on)
   and the line under the picture says "Opens 2048 from the start, for anyone. The snapshot link below keeps this exact
-  moment." — said once, there, not again under the button; the picture's caption reads "2048 · Dragon 64". The program
+  moment." — said once, there, not again under the button, and with no ROM line (a program page never needs ROMs); the picture's caption reads "2048 · Dragon 64". The program
   page itself is all that is shared: the tap uploads nothing. Press a key, move the joystick, type a line, load
   something, or let a tool change memory, and it is a moment from then on.
 * **Otherwise a short link**, made on the tap: `https://s.cloadm.dev/<id>#<key>`, about 50 characters, copied for you,

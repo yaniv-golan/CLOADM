@@ -240,6 +240,8 @@ export function setupShare(page, { linkStore }) {
     // a "when a link is offered" branch would be dead code.
     if (program) {
       $('shareNote').textContent = `Opens ${captured.untouched.name} from the start, for anyone. The snapshot link below keeps this exact moment.`;
+      // a program page never needs ROMs, and "for anyone" is said once (in the note above), not again in the ROM line
+      $('shareRom').hidden = true;
       $('primaryNote').textContent = '';
       $('sharePrefix').hidden = true;
       $('shareName').textContent = `${captured.untouched.name} · ${captured.machine}`;
@@ -249,6 +251,7 @@ export function setupShare(page, { linkStore }) {
       $('shareNote').textContent = !captured ? '' : captured.refusal ? '' : captured.file ? snapshotNote(captured.machine) : `The link starts NitrOS-9 fresh on the ${captured.machine}; it can't hold this exact moment.`;
       $('primaryNote').textContent = mode === 'long' && alwaysLong() ? 'Long link: nothing is uploaded.' : '';
       $('sharePrefix').hidden = false;
+      $('shareRom').hidden = false;
       $('shareName').textContent = captured ? captured.machine : '';
     }
     // a tap that fell back (fallbackWhy) has already made the choice, even though primaryMode said 'short' before it;

@@ -16250,16 +16250,18 @@ async function shareScreenChecks(browser, base, check) {
         cap: document.getElementById('shareTitle').innerText.replace(/\s+/g, ' ').trim(), prefixShown: document.getElementById('sharePrefix').checkVisibility(),
         colours: colours.size, pictureIsThatFrame: sized && bad === 0, badPixels: bad, pixels: n,
         pictureFrame: window.emu.machine.frameCount, frameCountAtPause: framePx.fc,
-        terms: document.getElementById('shortTerms').checkVisibility(), sw: document.getElementById('previewSwitch').checkVisibility() };
+        terms: document.getElementById('shortTerms').checkVisibility(), sw: document.getElementById('previewSwitch').checkVisibility(),
+        // a program page never needs ROMs: the ROM line is hidden, so "for anyone" is said once
+        rom: document.getElementById('shareRom').checkVisibility(), anyone: (document.getElementById('share').innerText.match(/for anyone/g) || []).length };
     }, framePx);
     await sp.evaluate(() => document.getElementById('btnPause').click());   // (resume: the rest of the block plays on)
     if (shotDir) await sp.screenshot({ path: path.join(shotDir, `share-untouched-${label}.png`) });
     // the program-page note, said once under the picture (the primary's own line stays empty); the caption names the
     // program and machine with no "What they'll see first" prefix; nothing is uploaded; and the picture is that frame
-    check(`one link (${label}): a bundled program started and untouched: the primary offers its page, nothing uploaded, and the picture is the frame at the tap`,
+    check(`one link (${label}): a bundled program started and untouched: the primary offers its page, nothing uploaded, the picture is the frame at the tap, and the ROM line is hidden ("for anyone" said once)`,
       ut.shown && ut.bottom <= ut.vh && ut.onTop && drawn && ut.pictureIsThatFrame && ut.colours === 4
       && ut.note === 'Opens 2048 from the start, for anyone. The snapshot link below keeps this exact moment.'
-      && ut.primaryNote === '' && ut.cap === '2048 · Dragon 64' && !ut.prefixShown && !ut.terms && !ut.sw, JSON.stringify(ut));
+      && ut.primaryNote === '' && ut.cap === '2048 · Dragon 64' && !ut.prefixShown && !ut.terms && !ut.sw && !ut.rom && ut.anyone === 1, JSON.stringify(ut));
     // the tap copies the program page, and after it the made field (here: only the program page is a link) is reachable
     await sp.click('#btnShareCopy');
     check(`one link (${label}): the tap copies /2048/ (the program page), nothing uploaded`,
@@ -16270,13 +16272,14 @@ async function shareScreenChecks(browser, base, check) {
     await sp.evaluate(() => window.emu.session.personInput());
     await sp.evaluate(() => document.getElementById('btnShare').click());
     await sp.waitForTimeout(600);
-    const played = await sp.evaluate(() => ({ terms: document.getElementById('shortTerms').checkVisibility(), note: document.getElementById('primaryNote').textContent }));
+    const played = await sp.evaluate(() => ({ terms: document.getElementById('shortTerms').checkVisibility(), note: document.getElementById('primaryNote').textContent,
+      rom: document.getElementById('shareRom').checkVisibility() && document.getElementById('shareRomFull').textContent === 'Runs without ROMs, so it opens for anyone.' }));
     await openDisc(sp, 'shareMore');
     await waitFor(sp, () => !document.querySelector('#shareMore > .col').hidden);   // (the toggle listener unhides the body)
     const item = await sp.evaluate(() => { const b = document.getElementById('btnShareProgramPage'); return b ? { text: b.textContent, shown: b.checkVisibility(), href: b.dataset.href } : null; });
     if (shotDir) await sp.screenshot({ path: path.join(shotDir, `share-played-${label}.png`) });
     check(`one link (${label}): played (one key): the primary shares the moment, and "Link to 2048 from the start" is in More ways`,
-      played.terms && played.note === '' && !!item && item.text === 'Link to 2048 from the start' && item.shown && /\/2048\/$/.test(item.href), JSON.stringify({ played, item }));
+      played.terms && played.note === '' && played.rom && !!item && item.text === 'Link to 2048 from the start' && item.shown && /\/2048\/$/.test(item.href), JSON.stringify({ played, item }));
     await sc.close();
   }
 
@@ -16613,6 +16616,20 @@ async function shareLayoutChecks(browser, base, check) {
     if (shotDir) await page.screenshot({ path: path.join(shotDir, `share-${w}x${h}-${state.replace(/[^a-z]+/gi, '-')}-tapped.png`) });
     check(`share layout (${label}): after the tap the field it made (${field === 'shareShort' ? 'the short link' : 'the long link'}) is on screen, focused and not covered, and the page itself did not scroll`,
       landed && after.focused && after.shown && after.onTop && after.pageStill && (field === 'shareShort' ? after.short : after.long), JSON.stringify(Object.assign({}, after, { value: after.value.slice(0, 40) })));
+    // the tab order after the tap follows what the screen shows: the back link -> Copy -> the field it made -> the
+    // disclosures (the long link's field is inside "More ways to share", so after its summary and before Embed's)
+    const tabs2 = [];
+    await page.focus('#shareBack');
+    for (let i = 0; i < 40; i++) {
+      tabs2.push(await page.evaluate(() => { const a = document.activeElement; return a.tagName === 'SUMMARY' ? `${a.parentElement.id}>summary` : a.id || a.tagName; }));
+      if (tabs2[tabs2.length - 1] === 'shareEmbed>summary') break;
+      await page.keyboard.press('Tab');
+    }
+    const at2 = (id) => tabs2.indexOf(id);
+    check(`share layout (${label}): after the tap the tab order is the back link -> Copy -> the field it made -> the disclosures`,
+      at2('shareBack') === 0 && at2('btnShareCopy') > 0 && at2(field) > at2('btnShareCopy') && at2('shareEmbed>summary') > at2(field)
+      && (field === 'shareShort' ? at2('shareMore>summary') > at2(field) : at2('shareMore>summary') < at2(field)), tabs2.join(' '));
+    await page.evaluate((f) => { document.getElementById('shareSide').scrollTop = 0; window.scrollTo(0, 0); document.getElementById(f).focus(); }, field);
     if (field === 'shareShort') check(`share layout (${label}): with the short link made, Copy, its field and the ROM line are all on the first screen`, after.copy && after.shown && after.rom, JSON.stringify(Object.assign({}, after, { value: after.value.slice(0, 40) })));
     // every disclosure is reachable and opens (a click that lands on its summary: Playwright scrolls to it and refuses a
     // covered target)
@@ -21368,8 +21385,8 @@ async function shortLinkChecks(browser, base, site, check) {
   // when it lands. Reading straight after the click saw an empty reason (CI attempt 1 on 35551b5d failed exactly so),
   // so both are waited for - the copy finished AND the page said why - before anything is read.
   // BOUNDED, and a timeout FAILS: waitFor returns false and records its own FAIL (browser-check-lib's
-    // waitTimedOut) when the state never comes, and `landed` is also required by the check below - so a tap that never
-    // falls back cannot pass. Its payload is printed with whatever the page held at that moment.
+  // waitTimedOut) when the state never comes, and `landed` is also required by the check below - so a tap that never
+  // falls back cannot pass. Its payload is printed with whatever the page held at that moment.
   const landed = await waitFor(pk, () => /Short links aren't available right now/.test(document.getElementById('primaryWhy').textContent)
     && document.getElementById('shareMore').open, null, 20000);
   const killClip = await pk.evaluate(() => navigator.clipboard.readText());

@@ -1854,6 +1854,8 @@ npx serve -l 8000 .</pre>
       <p id="primaryWhy" class="why"></p>
       <p id="primaryNote" class="small"></p>
       <p class="small" id="shortTerms">Stores a sealed copy on cloadm.dev that only people with the link can open; the server can't read it. Links don't expire; a link reported for abuse can be removed.</p>
+      <!-- the picture switch before the link a tap makes: what the screen shows and the tab order are the same order -->
+      <label class="switch" id="previewSwitch"><input type="checkbox" id="sharePreview" role="switch" checked> Show a preview picture (public)</label>
       <div id="shortMade" hidden>
         <div class="linkrow"><label for="shareShort" class="sr-only">Short link</label><input id="shareShort" readonly><button id="btnShortCopy">Copy</button>
           <button id="btnShortQr" class="icon" aria-pressed="false" aria-controls="shortQrWrap" title="Show the QR code">QR</button></div>
@@ -1862,7 +1864,6 @@ npx serve -l 8000 .</pre>
         <button id="btnShortDelete">Delete this link</button>
       </div>
     </div>
-    <label class="switch" id="previewSwitch"><input type="checkbox" id="sharePreview" role="switch" checked> Show a preview picture (public)</label>
   </section>
   <details class="disc" id="shareMore">
     <summary><h2 id="moreHeading">More ways to share</h2></summary>

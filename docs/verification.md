@@ -1851,7 +1851,7 @@ No MAME oracle: the page decides what a tap gives. `tests/share-one-link.test.js
 to its rule: a bundled program's own running (frames, its timers, LIZA's prompt drawing itself) is not a touch,
 and each way in (a key, a typed line, a poke, a program a tool assembled, a tape, a disk, BREAK) makes it a moment; a
 load takes the program away; the colour demo (no program page) is never offered; nothing running is null. The browser
-check's `share` group runs the same at 375x548, 861x600, 1024x640 and 1280x720: an untouched 2048 copies its program
+check's `share` group runs the same at 375x548, 861x600, 1024x640 and 1280x720: an untouched 2048 hides the ROM line ("for anyone" said once) and copies its program
 page, a played one shares the moment and offers "Link to 2048 from the start" under "More ways to share"; the primary
 Copy is inside the viewport, hit-testable, and keeps at least 16px of CI-predicted headroom (the Mac's bottom + 19px
 for a possible extra wrapped line) above the 548px fold; a tap that falls back to the long link shows the field; the
@@ -1895,7 +1895,8 @@ line (a Range's first client rect) are wholly on screen, inside the scrolling co
 scroll; the preview at least 120px wide; Copy and Share… at least 44px tall; the ROM line's one-line form and its title;
 on a short landscape screen the two columns, the picture's share of the width (40%, 30% under 300px), its caption one
 line under it, the column's order read from the tops, the page itself never scrolling; the tab order from the back link
-reaches Copy, then "More ways to share", then "Embed"; after a tap the field it made is focused, on screen and what
+reaches Copy, then "More ways to share", then "Embed", and after a tap Copy, then the field it made, then the
+disclosures (the picture switch now comes before the made field in the page, as on screen); after a tap the field it made is focused, on screen and what
 `elementFromPoint` finds (no toast over it), and with the short link made Copy, its field and the ROM line are all on the
 first screen; both disclosures open by a real click on their summary and what they hold can be pressed. On a desktop
 (861x600, 1024x640, 1280x720) Save picture and Save clip are in Copy's row, and the preview's frame and stripe fill its
