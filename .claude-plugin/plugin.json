@@ -21,14 +21,14 @@
   ],
   "icon": "./icons/icon-512.png",
   "mcpServers": {
-    "cloadm": {
+    "CLOADM on this computer": {
       "command": "node",
       "args": [
         "${CLAUDE_PLUGIN_ROOT}/cli/cloadm.js",
         "--mcp"
       ]
     },
-    "cloadm-panel": {
+    "CLOADM side panel": {
       "type": "http",
       "url": "https://mcp.cloadm.dev/mcp"
     }

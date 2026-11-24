@@ -25,7 +25,7 @@ const ROOT = path.join(__dirname, '..');
 // the stateless revisions this server speaks (per-request _meta), and the handshake ones (initialize), newest first
 const MODERN_VERSIONS = ['2026-07-28'];
 const LEGACY_VERSIONS = ['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05'];
-const SERVER_INFO = Object.freeze({ name: 'cloadm-files', title: 'CLOADM on this computer', version: '1' });
+const SERVER_INFO = Object.freeze({ name: 'CLOADM on this computer', title: 'CLOADM on this computer', version: '1' });
 const META = 'io.modelcontextprotocol/';
 const UNSUPPORTED_VERSION = -32022;   // 2026-07-28's UnsupportedProtocolVersionError
 const LIST_TTL_MS = 3600000;          // tools/list does not change while the server runs

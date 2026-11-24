@@ -8,13 +8,15 @@ All notable changes to CLOADM are recorded here. The format follows
 
 Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.test.js` keeps them in step).
 
-#### Fixed
+#### Changed
 
-- **The docs say what Claude's plugin page shows for the servers.** README and `docs/mcp.md` said the side panel's server
-  "calls itself *CLOADM side panel*"; Claude's plugin page and chat menu list the plugin's servers by their ids,
-  *cloadm-panel* and *cloadm*. The plugin format (`mcpServers` keyed by name) has no field for a server's display name,
-  and nothing in Claude's plugin documentation says the server's own `serverInfo` name or title is used there, so
-  the ids stay: renaming them would change the tool names users' allowlists hold (`mcp__plugin_cloadm_cloadm__*`).
+- **The plugin's servers are named *CLOADM side panel* and *CLOADM on this computer*.** The plugin format has no field
+  for a server's display name (`mcpServers` is "keyed by name"), and Claude's plugin page and chat menu showed the old
+  keys, `cloadm-panel` and `cloadm`. The keys are now the readable names (`claude plugin validate` accepts them), and
+  each server announces the same words as its `serverInfo` name and title. Claude Code writes the spaces as underscores
+  in tool names, `mcp__plugin_cloadm_CLOADM_on_this_computer__boot`; the longest, the panel's
+  `mcp__plugin_cloadm_CLOADM_side_panel__open_emulator_inline`, is 58 characters, and `tests/plugin.test.js` holds
+  every tool name to the API's 64. An allowlist rule that named `mcp__plugin_cloadm_cloadm__*` needs the new name.
 
 ### 0.2.0
 

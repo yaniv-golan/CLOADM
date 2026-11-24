@@ -111,10 +111,10 @@ const PHONE_VIEW_WORKS = false;
     const t = fs.readFileSync(path.join(ROOT, f), 'utf8');
     const h = f === 'README.md' ? '### With Claude' : '## Use with Claude', sub = f === 'README.md' ? '#### Without the plugin' : '### Without the plugin';
     const at = t.indexOf(`\n${h}\n`), end = t.indexOf(`\n${sub}\n`), sec = at >= 0 && end > at ? t.slice(at, end) : '';
-    check(`${f}: "${h}" leads with the plugin, then step 1 (the marketplace) and step 2 (Connect cloadm-panel, then Continue)`,
+    check(`${f}: "${h}" leads with the plugin, then step 1 (the marketplace) and step 2 (Connect CLOADM side panel, then Continue)`,
       /^\n#+ [^\n]+\n\n\*\*Install the CLOADM plugin\.\*\* One plugin works everywhere Claude does\.\n/.test(sec)
       && sec.includes('1. Customize → Plugins → Add marketplace → `yaniv-golan/CLOADM` → Add **CLOADM**.') && sec.includes('`/plugin install cloadm@cloadm-marketplace`')
-      && /2\. On the web and in desktop chat: open the plugin's Connectors tab and click \*\*Connect\*\* next to \*cloadm-panel\*, then\s+\*\*Continue\*\*\. The emulator then opens in Claude's side panel\./.test(sec)
+      && /2\. On the web and in desktop chat: open the plugin's Connectors tab and click \*\*Connect\*\* next to \*CLOADM side panel\*, then\s+\*\*Continue\*\*\. The emulator then opens in Claude's side panel\./.test(sec)
       && sec.includes('In Cowork and Claude Code it runs on your computer instead, with your ROM files and the ~/CLOADM folder; nothing to connect.'), `${sec.length} characters`);
     check(`${f}: the badge note (not reviewed, mcp.cloadm.dev, no sign-in, only the emulator, open source)`,
       sec.includes("Claude shows this for any connector Anthropic hasn't reviewed. CLOADM's runs at mcp.cloadm.dev, needs no sign-in, and sees only the emulator in that panel. Nothing else of yours. It's open source: [source](https://github.com/yaniv-golan/CLOADM/tree/main/connector)."));
@@ -127,9 +127,9 @@ const PHONE_VIEW_WORKS = false;
     const after = end >= 0 ? t.slice(end, end + 900) : '';
     check(`${f}: "Without the plugin": the connector URL, named CLOADM, no sign-in, the side panel but not the skill`,
       after.includes('Add `https://mcp.cloadm.dev/mcp` as a custom connector and name it **CLOADM** (no sign-in). You get the side panel but not the skill that teaches Claude to play it well.'));
-    check(`${f}: the names people see: the plugin CLOADM; its servers listed as cloadm-panel and cloadm (the plugin format has no display name for a server), their own names CLOADM side panel and CLOADM on this computer shown only where a client reads them`,
-      sec.includes('Claude lists the plugin as **CLOADM**. Its plugin page and chat menu label the two servers by their ids, *cloadm-panel*\nand *cloadm*: the plugin format has no field for a server\'s display name (the key under `mcpServers` is the name), so\nthe servers\' own names, *CLOADM side panel* and *CLOADM on this computer* (the Desktop extension\'s name too), show only\nwhere a client reads them from the server.'));
-    const ALREADY = "Already added https://mcp.cloadm.dev/mcp as a custom connector? The plugin's cloadm-panel uses that same connector, so you won't have two; you can keep it.";
+    check(`${f}: the names people see: the plugin CLOADM; its servers CLOADM side panel and CLOADM on this computer, the plugin's keys (the format has no display name for a server)`,
+      sec.includes("The plugin's two servers are *CLOADM side panel* (the side panel, at `https://mcp.cloadm.dev/mcp`) and *CLOADM on this\ncomputer* (on your computer, `node cli/cloadm.js --mcp`, the name the Desktop extension has too); each Claude app uses\nthe one it can. Claude lists the plugin as **CLOADM**. The plugin format has no field for a server's display name: the\nkey under `mcpServers` is the name, so the keys are these readable names."));
+    const ALREADY = "Already added https://mcp.cloadm.dev/mcp as a custom connector? The plugin's CLOADM side panel uses that same connector, so you won't have two; you can keep it.";
     const steps = sec.slice(sec.indexOf('2. On the web and in desktop chat'), sec.indexOf('In Cowork and Claude Code'));
     check(`${f}: the note for a connector already added by hand, under step 2 and under "Without the plugin"`,
       t.split(ALREADY).length - 1 === 2 && steps.includes(ALREADY) && after.includes(ALREADY));

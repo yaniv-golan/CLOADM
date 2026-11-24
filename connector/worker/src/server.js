@@ -61,7 +61,7 @@ export function createServer(views) {
   // essentials section) into the generated views, so the skill is their one source
   if (typeof views.instructions !== 'string' || !views.instructions) throw new Error('the views carry no instructions: build them with connector/build.js');
   const RES = resources(views);
-  const info = { name: 'cloadm-panel', title: 'CLOADM side panel', version: views.version };
+  const info = { name: 'CLOADM side panel', title: 'CLOADM side panel', version: views.version };
   const ok = (id, result) => ({ jsonrpc: '2.0', id, result });
   const err = (id, code, message) => ({ jsonrpc: '2.0', id, error: { code, message } });
   function handle(msg) {
