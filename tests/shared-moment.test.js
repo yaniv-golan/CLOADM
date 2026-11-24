@@ -93,6 +93,39 @@ const arrive = async (link, { shared = true } = {}) => {
     check('another snapshot opened from a file: no longer quiet', b.sharedMoment === false);
   }
 
+  // ---- 7. a moment of the stub's BARE prompt has nothing running: opening it offers the welcome menu ----
+  // (js/session.js, openSnapshot's atStubPrompt branch: "a moment taken on the stub's bare prompt has nothing running
+  // to come back to: the welcome menu, as a power-on"). The page's 'menu' handler then runs the welcome program, which
+  // overwrites the restored RAM: that is expected for this moment, and it is why the browser check that opens a link's
+  // moment uses one with a PROGRAM running (browser-check.js, "keeps the fragment through the redirect").
+  {
+    const a = session(null);
+    frames(a.shownMachine, 30);                       // the stub's own idle screen: still at the prompt
+    const stubLink = await a.snapshotLink(BASE);
+    const b = session(null), events = [];
+    b.on((ev) => events.push(ev));
+    const snap = await b.readSnapshotLink(new URL(stubLink).hash);
+    b.openSnapshot(snap, { shared: true });
+    check('a moment of the stub\'s bare prompt is at the prompt', snap && b.shownMachine.atStubPrompt() === true);
+    check('a moment of the stub\'s bare prompt offers the welcome menu', events.includes('menu'), JSON.stringify(events));
+  }
+  // ---- 8. a moment with a PROGRAM running does not: it opens and stays ----
+  {
+    const a = session(null);
+    a.inject(FILL, 0x7000);                            // the same 14-byte program the browser check now uses
+    frames(a.shownMachine, 5);
+    a.shownMachine.poke(0x3000, 0xA7);
+    const progLink = await a.snapshotLink(BASE);
+    const b = session(null), events = [];
+    b.on((ev) => events.push(ev));
+    b.openSnapshot(await b.readSnapshotLink(new URL(progLink).hash), { shared: true });
+    frames(b.shownMachine, 60);                        // long enough for any menu to have replaced it
+    check('a moment with a program running is not at the prompt', b.shownMachine.atStubPrompt() === false);
+    check('a moment with a program running does not offer the menu', !events.includes('menu'), JSON.stringify(events));
+    check('a moment with a program running keeps its memory, 60 frames on', b.shownMachine.read(0x3000) === 0xA7, String(b.shownMachine.read(0x3000)));
+    check('a moment with a program running keeps its screen, 60 frames on', b.screenText()[0].replace(/ /g, '').startsWith('AAAA'), b.screenText()[0]);
+  }
+
   console.log(fail ? `\n${fail} FAILED` : '\nall passed');
   process.exitCode = fail ? 1 : 0;
 })().catch((e) => { console.error('test crashed:', e); process.exitCode = 1; });

@@ -126,11 +126,13 @@ The [README](../README.md#what-works) has the short version of this table.
 | **Games** | 2048 and Minesweeper, written for CLOADM, on every 6809 model with 32K or more, with or without ROMs ([details](#games)) | |
 | **Input** | Keyboard in two modes (translated: the character typed; positional: the physical key), keyboard joystick, gamepads (two joysticks, dead zone), the Tandy and CoCo Max 3 Hi-Res interfaces, the CoCo 3 "The Rat" mouse, the CoCo Max Hi-Res module, mouse as the right joystick; an on-screen keyboard on phones and tablets (split for the thumbs when held sideways) and a touch joystick with FIRE, a tappable welcome menu | |
 | **Tools** | Assembler, Debugger, snapshots, POKE book; a command line, MCP server and Node API for CI and agents ([Automation](automation.md), [MCP](mcp.md)) | Step back (rewind) |
-| **Links, embedding, offline** | Every setting as a URL parameter (machine, RAM, CPU, a program, tape, cartridge or disk to load, display, input); the Share screen: Share… or Copy link for a link that opens this machine exactly as it is (pasted in a chat or a post, a cloadm.dev link shows a preview picture), and under "More ways to share" a 6-second clip, a true-pixel screenshot and the snapshot file, plus the embed code for a blog post; embed mode with a JavaScript API; works offline once visited; **Install CLOADM…** in the app bar, beside Help (behind **Menu** on a phone), runs the browser's own prompt where there is one and shows the steps elsewhere, with a one-time offer once a program has run a minute; settings export and import (never ROMs) | A touch keyboard in embeds |
+| **Links, embedding, offline** | Every setting as a URL parameter (machine, RAM, CPU, a program, tape, cartridge or disk to load, display, input); the Share screen's one **Copy link**: an untouched bundled program gives its page (`cloadm.dev/2048/`), otherwise a short link (`s.cloadm.dev/<id>#<key>`, about 50 characters, sealed in your browser, with a QR code and an optional public preview picture; online and without ROMs), or the long link where a short one can't be made; under "More ways to share" the long link ("Long link (works offline; nothing is uploaded)"), "Always use long links", a 6-second clip, a true-pixel screenshot and the snapshot file, plus the embed code for a blog post; embed mode with a JavaScript API; works offline once visited; **Install CLOADM…** in the app bar, beside Help (behind **Menu** on a phone), runs the browser's own prompt where there is one and shows the steps elsewhere, with a one-time offer once a program has run a minute; settings export and import (never ROMs) | A touch keyboard in embeds |
 
 ### Games
 
 2048 and Minesweeper, written for CLOADM: the welcome menu's **5 PLAY A GAME**, which shows NEW GAMES FOR AN OLD MACHINE (1 2048, 2 Minesweeper, 0 back), `?start=2048` or `?start=minesweeper`, the Media tab's "Runs without ROMs", or `--program` on the command line. They draw on the VDG's 128x192 four-colour screen, play their sounds on the DAC and read the keys through the firmware, so they run on every 6809 model with 32K or more (Dragon, CoCo 1/2/3, the clones, the 6309 option), with or without ROMs; not on a 4K or 16K CoCo (CLOADM says so) or the MC-10 or Alice (6803). 2048: the arrows or W A S D slide the tiles, R starts again. A move is animated: its tiles travel to where they land, the joined squares flash once, then the new tile pops in; a key pressed during the animation ends it at once and is played as the next move. Minesweeper (8x8, ten mines, the first square always safe): the arrows or either joystick (or the keyboard joystick) move the cursor, SPACE or ENTER opens, F flags, R starts again. On a joystick, fire opens on a tap and flags when held 0.4 s, and after a win or a loss fire starts again once you let it go. BREAK (Esc), on the title page too, leaves a game: without ROMs for the menu, which then offers it as its last option; with BASIC ROMs back to BASIC, started afresh (the game draws over the memory BASIC keeps its program and a disk system its workspace in, so a BASIC program in memory is not kept when a game runs; save it first).
+
+Each program has a program page of its own for sharing, with its own preview picture and a Play button: [cloadm.dev/2048/](https://cloadm.dev/2048/), [cloadm.dev/liza/](https://cloadm.dev/liza/) and [cloadm.dev/minesweeper/](https://cloadm.dev/minesweeper/). Opening one goes straight to its start link, `/play/?start=<program>`, and works offline after a first visit to the site.
 
 Sources: `examples/2048.asm`, `examples/minesweeper.asm`, `examples/games.inc`
 
@@ -398,11 +400,46 @@ share sheet; it hands over the link only) or **Copy link** is the main button, a
 with a snapshot can pass 1000 characters and some share targets cut it short. Under **More ways to share**: a 6-second clip,
 a true-pixel screenshot and the snapshot file (its size is on the button); under **Embed in a web page**: the embed code. A
 line under the picture says what the link does, and a ROM line says whether the person opening it needs their own ROMs. While NitrOS-9 runs
-the link starts NitrOS-9 fresh instead (no snapshot file). The link there carries the moment itself (the snapshot rides in the
-fragment after `#s=`, which browsers never send to a server, so the link is long: about 4 to 10 KB), and the
-embed builder writes the iframe and script for the machine, program and options you pick. The link's field is labelled
-**Exact moment (long link)**, and the card under the picture says when the moment was captured, relative to now:
-"captured just now", then "3 minutes ago" (hours or days if the screen stays open that long).
+the link starts NitrOS-9 fresh instead (no snapshot file). The link there, the long link, carries the moment itself (the snapshot rides in the
+fragment after `#z=`, which browsers never send to a server: a version byte, then the snapshot packed with deflate,
+its byte arrays raw rather than in base64, and without the rendered picture, which the machine draws again on the first
+frame after it opens; about 2 to 8 KB, LIZA's about 5 KB). `#z=` is the only long-link form: saved `.cloadm` files are unchanged, and a link made by a pre-launch build (which wrote the snapshot file itself after `#s=`) gets the page's clear "This share link couldn't be read." refusal. The embed builder writes the iframe and script for the machine, program and options you pick.
+
+**One link.** The Share screen offers one **Copy link** (with **Share…** beside it where the browser has a share sheet).
+What a tap gives depends on what is on screen:
+
+* **A bundled program nobody has touched since it started** (2048, LIZA, Minesweeper, opened from its page or the menu
+  and not yet played) has nothing of its own to send: the tap copies its **program page** (`cloadm.dev/2048/` and so on)
+  and the line under the picture says "Opens 2048 from the start, for anyone. The snapshot link below keeps this exact
+  moment." — said once, there, not again under the button; the picture's caption reads "2048 · Dragon 64". The program
+  page itself is all that is shared: the tap uploads nothing. Press a key, move the joystick, type a line, load
+  something, or let a tool change memory, and it is a moment from then on.
+* **Otherwise a short link**, made on the tap: `https://s.cloadm.dev/<id>#<key>`, about 50 characters, copied for you,
+  with its field and a QR toggle. It is the moment sealed in your browser (AES-GCM) before it is sent; the key exists
+  only in the part of the link after `#`, which browsers never send to a server, so the server stores bytes it cannot read.
+  Links don't expire; a link reported for abuse can be removed ("Report this link" on the page the link opens first). Only
+  people with the link can open it. The preview picture (**Show a preview picture (public)**, on by default) is public:
+  anyone with the address can see it, even without the key, and turning the switch off leaves it out. The server keeps no
+  addresses and nothing about who made or opened a link: totals only (links made, opened and removed), at
+  s.cloadm.dev/stats/. **Delete this link** removes it (the browser that made it keeps its delete token); copies cached on
+  the way may still open for up to a day.
+* **The long link where a short one can't be made**: offline, a moment on your ROMs, a cartridge or NitrOS-9, or the
+  short-link server unavailable. The tap copies the long link instead, and the note says why ("You're offline, so this is
+  the long link…"). A bundled program that has been played keeps the moment's short link, and **More ways to share** adds
+  **Link to &lt;program&gt; from the start** for its page. **Copy never leaves you with nothing**: if the browser refuses
+  the clipboard, the link is shown selected with "Press Ctrl+C to copy the link".
+
+**Long links.** **More ways to share** always holds the long link — **Long link (works offline; nothing is uploaded)**,
+with its field and Copy, and the note "Holds the whole moment in the address; nothing is uploaded." The checkbox **Always
+use long links (nothing leaves this device)**, remembered in this browser, makes Copy link give the long link and its note
+reads "Long link: nothing is uploaded." The card under the picture says when the moment was captured, relative to now:
+"captured just now", then "3 minutes ago" (hours or days if the screen stays open that long). The picture's caption is
+one line, "What they'll see first · &lt;machine&gt;": a bundled program's page reads "&lt;program&gt; · &lt;machine&gt;"
+instead. It never wraps, and what gives way is the machine name, which ends in "…" — the prefix is never cut.
+
+A moment the page's guardrails keep out of a link at all switches Copy off, with the reason inline (said once, there,
+not also under the picture). A short link is never
+offered for a moment on ROMs, a cartridge or NitrOS-9: the long link works there (whoever opens it adds their own ROMs).
 
 Someone who opens a shared moment that runs without ROMs arrives on that moment, not on the setup: the "Running with no
 ROMs" card and the orange **No BASIC** pill stay out of the way while they look at it, and come back once they leave it

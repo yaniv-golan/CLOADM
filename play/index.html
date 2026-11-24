@@ -553,6 +553,7 @@
   #share .col { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
   #share .mono { font-family: var(--font-mono); font-size: 14px; color: var(--muted); letter-spacing: .06em; }
   #share h1, #share h2 { margin: 0; font-size: clamp(26px, 6vw, 34px); font-weight: 800; font-stretch: 112%; line-height: 1.05; }
+  #share h3.sub { margin: 0; font-size: 15px; font-stretch: 100%; font-weight: 700; color: var(--text-2); }
   #share p { margin: 0; font-size: 16px; line-height: 1.5; color: var(--text-3); }
   #share .preview { margin: 0; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-18); overflow: hidden; }
   #share .frame { aspect-ratio: 1.91; background: #050605; position: relative; display: flex; align-items: center; justify-content: center; }
@@ -566,7 +567,9 @@
   #share figcaption { padding: 14px 16px; display: flex; flex-direction: column; gap: 4px; font-size: 15px; }
   #share figcaption span { font-size: 14px; color: var(--muted); }
   #share .linkrow { display: flex; gap: 8px; }
-  #share .linklabel { font-size: 14px; color: var(--text-2); min-height: 0; margin-bottom: -10px; }
+  /* the negative margin was written for a label directly inside .col (gap 18): it pulled the input up to its heading.
+     Inside .linkset (gap 6, 4 under 860px) the same -10px puts the label's descenders on the input's top edge, so here
+     it is zero and the gap does the spacing. */
   #share .linkrow input { flex: 1; min-width: 0; background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: var(--r-10);
     padding: 12px; font: 14px var(--font-mono); }
   #share .card2 { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-14); padding: 16px; display: flex; flex-direction: column; gap: 8px; font-size: 15px; line-height: 1.45; }
@@ -587,8 +590,51 @@
   #share .romline.warn { color: var(--orange); }
   #share .extra { display: flex; flex-direction: column; gap: 6px; }
   #share .extra p { font-size: 14px; }
-  #share .romline:empty, #share .extra:empty { display: none; }
+  #share .romline:empty, #share .extra:empty, #share #shareNote:empty { display: none; }
   #share .sharebtns button { min-height: 44px; }
+  #share .linkset { display: flex; flex-direction: column; gap: 6px; }
+  /* a short window (861x600 and its neighbours): the first screen keeps "Make a short link" and the long link's Copy
+     visible. Trimmed, not hidden: tighter gaps and the small print a step smaller. Measured need at 861x600: 53px. */
+  @media (min-width: 861px) and (max-height: 640px) {
+    #share { row-gap: 10px; padding: 8px 40px 20px; }
+    #share .col { gap: 8px; }
+    #share h1 { font-size: 24px; }
+    #share .linkset { gap: 4px; }
+    #share p.small, #share .why { font-size: 13px; line-height: 1.35; }
+    /* the preview picture is the tallest thing in the column; a share screen is about the link, so at a short height
+       it takes a smaller share of it (the aspect stays) */
+    #share .frame { max-height: 132px; }
+    /* the caption is positioned against the picture, so the picture must be the containing block: without this it
+       escapes to the viewport's bottom edge and its bar covers the Copy button */
+    #share .preview { position: relative; }
+    /* the caption in one line at the picture's foot, as on a phone: stacked, it covered over half the screen the
+       person is sharing */
+    #share figcaption { position: absolute; left: 0; right: 0; bottom: 0; background: rgba(5, 6, 5, .72);
+      flex-direction: row; flex-wrap: nowrap; justify-content: space-between; align-items: baseline; gap: 8px;
+      padding: 3px 10px; font-size: 12px; }
+    #share figcaption strong, #share figcaption span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  }
+  #share h2.sub { font-size: 14px; font-stretch: 100%; line-height: 1.3; font-weight: 700; color: var(--text-2); }
+  #share .switch { display: flex; gap: 8px; align-items: center; font-size: 14px; color: var(--text); }
+  #share p.small, #share .why { font-size: 13px; line-height: 1.4; }
+  #share .why { color: var(--orange); }
+  #share .why:empty, #share .small:empty { display: none; }
+  /* the caption is one line over the picture, and nothing wraps. What gives way, in that order: the
+     prefix is never cut, so it is its own span that does not shrink; the name after it ends in "…" instead. " · CLOADM"
+     is gone from every mode. The prefix span's own box is what the browser check measures (its right edge inside the
+     caption's, its scrollWidth no wider than its clientWidth), so "the prefix is whole" is checked, not looked at. */
+  #share figcaption strong { display: flex; min-width: 0; flex: 0 1 auto; font-size: inherit; color: inherit; }
+  #share figcaption #sharePrefix, #share figcaption #shareName { font-size: inherit; color: inherit; }
+  #share figcaption #sharePrefix { flex: none; white-space: nowrap; margin-right: .3em; }
+  #share figcaption #shareName { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #share figcaption #sharePrefix[hidden] { display: none; }
+  #share .qrrow { display: flex; gap: 14px; align-items: center; }
+  #share #shareQr { width: 132px; height: 132px; image-rendering: pixelated; background: #fff; border-radius: 6px; flex: none; }
+  #share .qrrow[hidden] { display: none; }
+  /* the QR toggle is a small square beside the field (its label is the visible QR; the title says what it does) */
+  #share .linkrow button.icon { flex: none; min-width: 44px; padding: 0 10px; }
+  /* the program page link (a bundled program already played): a plain button above the long link's set */
+  #share #btnShareProgramPage { align-self: flex-start; }
   #share .disc [hidden] { display: none; }
   #share .disc { border: 1px solid var(--line); border-radius: var(--r-14); padding: 4px 16px; }
   #share .disc > summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; justify-content: space-between; gap: 12px; font-weight: 700; list-style: none; }
@@ -600,17 +646,29 @@
   #share .disc[open] { padding-bottom: 16px; }
   #share .disc[open] > summary { margin-bottom: 8px; }
   @media (max-width: 860px) {
-    #share { grid-template-columns: minmax(0, 1fr); padding: 4px 16px 24px; row-gap: 8px; }
+    /* One declaration per selector: the winners of the rules this block accumulated while the phone layout was being
+       fitted. Computed styles at 375x548 and 861x600 are unchanged by the tidying. */
+    #share { grid-template-columns: minmax(0, 1fr); padding: 2px 16px 12px; row-gap: 2px; }
+    /* A phone's first screen must end with the long link's Copy still visible, with a margin to spare: CI's Linux
+       Chromium wraps #shareNote to one line more than a Mac (+19px), so a fit decided by a few local pixels fails there.
+       The picture keeps its height (the screen must stay recognisable) and its caption is one line at its foot instead
+       of two stacked over the lower half of the screen. */
     #share .frame { height: 20vh; aspect-ratio: auto; }
-    #share .preview { position: relative; }
-    #share figcaption { position: absolute; left: 0; right: 0; bottom: 5px; background: rgba(5, 6, 5, .72); }
     #share .frame canvas { height: 90%; }
-    #share figcaption { padding: 4px 12px; flex-direction: row; justify-content: space-between; font-size: 13px; }
-    #share .col { gap: 6px; }
-    #share h1 { font-size: 20px; }
-    #share p { font-size: 14px; line-height: 1.35; }
-    #share .sharebtns button { min-height: 40px; flex: 1 1 0; }
+    #share .preview { position: relative; }
+    #share figcaption { position: absolute; left: 0; right: 0; bottom: 0; background: rgba(5, 6, 5, .72);
+      flex-direction: row; flex-wrap: nowrap; justify-content: space-between; align-items: baseline; gap: 8px;
+      padding: 3px 10px; font-size: 12px; }
+    #share figcaption strong, #share figcaption span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+    #share .col { gap: 2px; }
+    #share h1 { font-size: 18px; }
+    #share p { font-size: 14px; line-height: 1.25; }
+    #share p.small, #share .why { font-size: 12px; line-height: 1.3; }
+    #share #shortTerms { font-size: 11px; line-height: 1.25; }
+    #share .linkset { gap: 4px; }
     #share .linkrow input { padding: 9px 12px; }
+    #share .sharebtns button { min-height: 38px; flex: 1 1 0; }
+    #share #shareQr { width: 104px; height: 104px; }
   }
 
 
@@ -1717,23 +1775,45 @@ npx serve -l 8000 .</pre>
   <figure class="preview">
     <div class="frame"><canvas id="sharePicture" role="img" aria-label="Captured picture: link preview, rendered from the real frame"></canvas>
       <div class="stripe" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
-    <figcaption><strong id="shareTitle"></strong><span id="shareWhen"></span></figcaption>
+    <figcaption><strong id="shareTitle"><span id="sharePrefix">What they'll see first ·</span><span id="shareName"></span></strong><span id="shareWhen"></span></figcaption>
   </figure>
   <section class="col main" aria-labelledby="shareHeading">
     <h1 id="shareHeading">Share this moment</h1>
     <p id="shareNote"></p>
     <p id="shareRom" class="romline"></p>
     <div id="shareExtra" class="extra"></div>
-    <label for="shareLink" id="shareLinkLabel" class="linklabel">Exact moment (long link)</label>
-    <div class="linkrow"><input id="shareLink" readonly></div>
-    <div class="bar sharebtns"><button id="btnShareNative" class="primary" hidden>Share…</button><button id="btnShareCopy" class="primary">Copy link</button></div>
+    <!-- One link (js/ui/share.js): the primary is Copy link (and Share… where the browser has a sheet). An unchanged
+         bundled program gives its program page instead. A short link is made on the tap; where it can't be, the long
+         link is copied, with the reason beside it. -->
+    <div class="linkset" id="primarySet">
+      <div class="bar sharebtns"><button id="btnShareCopy" class="primary">Copy link</button><button id="btnShareNative" hidden>Share…</button></div>
+      <p id="primaryWhy" class="why"></p>
+      <p id="primaryNote" class="small"></p>
+      <p class="small" id="shortTerms">Stores a sealed copy on cloadm.dev that only people with the link can open; the server can't read it. Links don't expire; a link reported for abuse can be removed.</p>
+      <div id="shortMade" hidden>
+        <div class="linkrow"><label for="shareShort" class="sr-only">Short link</label><input id="shareShort" readonly><button id="btnShortCopy">Copy</button>
+          <button id="btnShortQr" class="icon" aria-pressed="false" aria-controls="shortQrWrap" title="Show the QR code">QR</button></div>
+        <div class="qrrow" id="shortQrWrap" hidden><canvas id="shareQr" role="img" aria-label="QR code of the short link"></canvas>
+          <div class="col"><p id="shortPicNote" class="small"></p></div></div>
+        <button id="btnShortDelete">Delete this link</button>
+      </div>
+    </div>
+    <label class="switch" id="previewSwitch"><input type="checkbox" id="sharePreview" role="switch" checked> Show a preview picture (public)</label>
   </section>
   <details class="disc" id="shareMore">
     <summary><h2 id="moreHeading">More ways to share</h2></summary>
-    <div class="bar" hidden>
-      <button id="btnShareClip">Save 6-second clip (MP4)</button>
-      <button id="btnShareShot">Screenshot (PNG)</button>
-      <button id="btnShareDownload">Download snapshot</button>
+    <div class="col" hidden>
+      <div class="linkset" id="longSet">
+        <h3 class="sub" id="longHeading">Long link (works offline; nothing is uploaded)</h3>
+        <p class="small" id="longNote">Holds the whole moment in the address; nothing is uploaded.</p>
+        <div class="linkrow"><label for="shareLink" class="sr-only">Long link</label><input id="shareLink" readonly><button id="btnShareCopyLong">Copy</button></div>
+        <label class="switch"><input type="checkbox" id="shareAlwaysLong"> Always use long links (nothing leaves this device)</label>
+      </div>
+      <div class="bar">
+        <button id="btnShareClip">Save 6-second clip (MP4)</button>
+        <button id="btnShareShot">Screenshot (PNG)</button>
+        <button id="btnShareDownload">Download snapshot</button>
+      </div>
     </div>
   </details>
   <details class="disc" id="shareEmbed">
@@ -2451,11 +2531,14 @@ npx serve -l 8000 .</pre>
 <link rel="modulepreload" href="js/claude/consent.js">
 <link rel="modulepreload" href="js/roms.js">
 <link rel="modulepreload" href="js/media/zip.js">
+<link rel="modulepreload" href="js/program-pages.js">
+<link rel="modulepreload" href="js/media/link-crypto.js">
+<link rel="modulepreload" href="js/media/png.js">
+<link rel="modulepreload" href="js/video/card.js">
 <link rel="modulepreload" href="js/media/snapshot.js">
 <link rel="modulepreload" href="js/media/romrefs.js">
 <link rel="modulepreload" href="js/config.js">
 <link rel="modulepreload" href="js/session.js">
-<link rel="modulepreload" href="js/video/card.js">
 <link rel="modulepreload" href="js/media/avi.js">
 <link rel="modulepreload" href="js/host/input.js">
 <link rel="modulepreload" href="js/host/audio-worklet.js">
@@ -2467,8 +2550,9 @@ npx serve -l 8000 .</pre>
 <link rel="modulepreload" href="js/claude/brief.js">
 <link rel="modulepreload" href="js/host/example-reader.js">
 <link rel="modulepreload" href="js/video/layout.js">
+<link rel="modulepreload" href="js/host/link-store.js">
 <link rel="modulepreload" href="js/selftest.js">
-<link rel="modulepreload" href="js/media/png.js">
+<link rel="modulepreload" href="js/media/qr.js">
 <link rel="modulepreload" href="js/emu.js">
 <link rel="modulepreload" href="js/host/storage.js">
 <link rel="modulepreload" href="js/host/media-store-opfs.js">

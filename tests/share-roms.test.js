@@ -8,8 +8,8 @@
 // The "ROMs" here are stand-ins made from this project's own firmware (examples/*.bin), never real ROMs. The
 // copies BASIC would make are made here by writing a stand-in into RAM where BASIC puts it.
 //
-// Checked: no 16-byte window of any stand-in image is anywhere in what the link decodes to (every byte array
-// and the JSON text; a run of one repeated byte excepted, as it carries no code); the same ROMs restore the moment
+// Checked: no 16-byte window of any stand-in image is anywhere in what the link decodes to (every byte array,
+// the whole unpacked array area and the JSON text; a run of one repeated byte excepted, as it carries no code); the same ROMs restore the moment
 // exactly (the whole snapshot equal, and the machines run on identically); without them the needs-ROMs message
 // names what is missing; another version of a ROM is refused, not loaded; a cartridge's image is named, not
 // carried, and opens from the recipient's own copy.
@@ -37,17 +37,23 @@ function firstWindow(bytes, set) {
   for (let i = 0; i + W <= bytes.length; i++) if (!uniform(bytes, i) && set.has(Buffer.from(bytes.subarray(i, i + W)).toString('hex'))) return i;
   return -1;
 }
-// Everything a link decodes to, decoded here without the project's own code: the fragment as base64url, gunzip
-// (Node's zlib), JSON.parse, and every base64 field ({ $typed, b64 }) and every plain array of byte values (the
-// printout, DriveWire's buffers) as bytes; the JSON text itself is scanned too.
+// Everything a link decodes to, decoded here without the project's own code: the fragment after '#z=' as base64url,
+// its version byte, inflate-raw (Node's zlib), the container (u32 little-endian skeleton length, the JSON skeleton,
+// then the arrays' bytes), and every array ({ $bin, o, n }: that slice) and every plain array of byte values (the
+// printout, DriveWire's buffers) as bytes; the skeleton's text itself is scanned too, and so is the whole array area.
 function linkContents(link) {
-  const text = zlib.gunzipSync(Buffer.from(new URL(link).hash.slice(3), 'base64url'));
-  const arrays = [];
+  const hash = new URL(link).hash;
+  if (!hash.startsWith('#z=')) throw new Error(`not a #z= link: ${hash.slice(0, 10)}`);
+  const bytes = Buffer.from(hash.slice(3), 'base64url');
+  if (bytes[0] !== 1) throw new Error(`link version ${bytes[0]}`);
+  const box = zlib.inflateRawSync(bytes.subarray(1));
+  const j = box.readUInt32LE(0), text = box.subarray(4, 4 + j), bin = box.subarray(4 + j);
+  const arrays = [new Uint8Array(bin)];
   const walk = (v) => {
     if (Array.isArray(v)) {
       if (v.length && v.every((x) => Number.isInteger(x) && x >= 0 && x <= 255)) arrays.push(Uint8Array.from(v)); else v.forEach(walk);
     } else if (v && typeof v === 'object') {
-      if (typeof v.$typed === 'string' && typeof v.b64 === 'string') arrays.push(new Uint8Array(Buffer.from(v.b64, 'base64')));
+      if (typeof v.$bin === 'string') arrays.push(new Uint8Array(bin.subarray(v.o, v.o + v.n)));
       else Object.values(v).forEach(walk);
     }
   };
@@ -55,6 +61,8 @@ function linkContents(link) {
   return { text, arrays };
 }
 const snapText = (m) => Emu.state.toJSON(m.snapshot());
+// the snapshot but its picture, which a link leaves out (the machine draws it again: tests/long-link.test.js)
+const momentText = (m) => { const s = m.snapshot(); s.state = Object.assign({}, s.state, { frame: null }); return Emu.state.toJSON(s); };
 const run = (m, frames) => { for (let i = 0; i < frames; i++) m.runFrame(); return snapText(m); };
 // a Session with these ROMs stored for the machine, on that machine
 function withRoms(id, roms, config) {
@@ -87,7 +95,7 @@ function withRoms(id, roms, config) {
     check(`${id}: the link holds no 16-byte window of any ROM, in any byte array or the JSON text`, inArrays.length === 0 && firstWindow(text, set) < 0,
       `${arrays.length} byte arrays, ${text.length} bytes of JSON`);
     check(`${id}: before sharing, memory did hold the ROM code (the test sees what it looks for)`, firstWindow(m.memoryArray(), set) >= 0);
-    const snap = await s.readSnapshot(Emu.fromBase64Url(new URL(link).hash.slice(3)));
+    const snap = await s.readSnapshotLink(new URL(link).hash);
     check(`${id}: the link names the ROMs by CRC and refers to their code in memory`, snap.share.images.length === profile.roms.length
       && snap.share.images.every((x) => x.kind === 'rom' && x.crc === Emu.crc32(roms[profile.roms.find((r) => r.label === x.label).id]))
       && snap.share.refs.some((r) => r.path === 'memory' && r.len >= 0x800), JSON.stringify(snap.share.refs.map((r) => [r.path, r.at, r.len])));
@@ -95,7 +103,7 @@ function withRoms(id, roms, config) {
     // the same ROMs: the moment opens exactly
     const r = withRoms(id, roms, config);
     r.openSnapshot(snap);
-    check(`${id}: with the same ROMs it opens exactly (the whole snapshot is equal)`, snapText(r.shownMachine) === snapText(m));
+    check(`${id}: with the same ROMs it opens exactly (the whole snapshot but the picture is equal)`, momentText(r.shownMachine) === momentText(m));
     check(`${id}: and both run on identically`, run(r.shownMachine, 30) === run(m, 30));
 
     // no ROMs: the needs-ROMs message names them
@@ -127,7 +135,7 @@ function withRoms(id, roms, config) {
     const { text, arrays } = linkContents(link);
     const set = windows([pak]);
     check('cartridge: the link holds no 16-byte window of its image', arrays.every((a) => firstWindow(a, set) < 0) && firstWindow(text, set) < 0);
-    const snap = await s.readSnapshot(Emu.fromBase64Url(new URL(link).hash.slice(3)));
+    const snap = await s.readSnapshotLink(new URL(link).hash);
     {
       // the Share screen's ROM line is built from the needs' labels (a fixed "BASIC ROMs" would be wrong for a cartridge)
       const { needsLine } = await import('../js/media/romrefs.js');
@@ -151,7 +159,7 @@ function withRoms(id, roms, config) {
     plain.switchMachine('coco');
     plain.load('my copy.ccc', pak);
     plain.openSnapshot(s.shownMachine.snapshot());
-    check('cartridge: with their own copy it opens exactly as the full snapshot does', snapText(own.shownMachine) === snapText(plain.shownMachine));
+    check('cartridge: with their own copy it opens exactly as the full snapshot does (but the picture)', momentText(own.shownMachine) === momentText(plain.shownMachine));
     check('cartridge: and both run on identically', run(own.shownMachine, 30) === run(plain.shownMachine, 30));
   }
 
@@ -177,7 +185,7 @@ function withRoms(id, roms, config) {
     const left = arrays.map((a) => firstWindow(a, set)).filter((i) => i >= 0);
     check('printout: no 16-byte window of either ROM in the link, in any byte array or plain byte list or the JSON text', !left.length && firstWindow(text, set) < 0,
       `${arrays.length} arrays scanned`);
-    const snap = await s.readSnapshot(Buffer.from(new URL(link).hash.slice(3), 'base64url'));
+    const snap = await s.readSnapshotLink(new URL(link).hash);
     check('printout: the printout, the print buffer and the channel queue travel as references', snap.share.refs.some((r) => r.path === 'printed' && r.len === 0x400)
       && snap.share.refs.some((r) => r.path === 'becker.printBuffer' && r.len === 0x200)
       && snap.share.refs.some((r) => r.path === 'becker.channels.0.queue' && r.len === 0x100), JSON.stringify(snap.share.refs.map((r) => [r.path, r.len])));
@@ -187,14 +195,15 @@ function withRoms(id, roms, config) {
     check('printout: with the same ROMs the printout comes back byte for byte', Buffer.from(r.shownMachine.printed).equals(Buffer.from(m.printed)));
     const full = JSON.parse(before), back = JSON.parse(snapText(r.shownMachine));
     delete full.state.deck.recording; delete back.state.deck.recording;
-    check('printout: and everything else is the moment (all but the recording left out)', JSON.stringify(back) === JSON.stringify(full));
+    delete full.state.frame; delete back.state.frame;
+    check('printout: and everything else is the moment (all but the recording and the picture left out)', JSON.stringify(back) === JSON.stringify(full));
   }
 
   // the stub: nothing to name, opens anywhere, as before
   {
     const s = new Emu.Session({ store: Emu.memoryStore() });
     s.switchMachine('dragon64');
-    const snap = await s.readSnapshot(Emu.fromBase64Url(new URL(await s.snapshotLink('https://cloadm.dev/play/')).hash.slice(3)));
+    const snap = await s.readSnapshotLink(new URL(await s.snapshotLink('https://cloadm.dev/play/')).hash);
     check('stub: a moment without ROMs names nothing and needs nothing', snap.share.images.length === 0 && snap.share.refs.length === 0);
   }
   console.log(sizes.join('\n'));

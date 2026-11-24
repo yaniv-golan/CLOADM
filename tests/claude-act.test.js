@@ -726,7 +726,10 @@ STB     FCB     $FE,$FD,$FB,$F7,$EF,$DF,$BF,$7F
     check('the key is set in the key store (the test would be vacuous otherwise)', s.hasClaudeKey && s.keyStore.get() === KEY);
     check('Session.snapshotFile(): the whole file text has no trace of the key', !bad(await decode(snapFile)));
     check('Session.shareFile(): the whole file text has no trace of the key', !bad(await decode(shared)));
-    check('Session.snapshotLink(): the link has no trace of the key (plain or as base64url)', !bad(link) && !link.includes(Buffer.from(KEY).toString('base64url')));
+    // (the link's moment is compressed: its unpacked container is searched too)
+    const linkBox = require('zlib').inflateRawSync(Buffer.from(Emu.fromBase64Url(new URL(link).hash.slice(3)).subarray(1))).toString('latin1');
+    check('Session.snapshotLink(): the link has no trace of the key (plain, as base64url, or in its unpacked moment)', /^#z=/.test(new URL(link).hash)
+      && !bad(link) && !link.includes(Buffer.from(KEY).toString('base64url')) && !bad(linkBox));
     check('Session.exportSettings(): no trace of the key', !bad(exp), exp.slice(0, 120));
     check('the stored settings hold no trace of the key', !bad(stored));
     check('every restore point holds no trace of the key', chat.undo.every((u) => !bad(Emu.state.toJSON(u))));

@@ -150,6 +150,7 @@ Don't run anything else on the machine while the browser check runs: it is timin
 node tests/all.js            # every suite below in a worker pool (--jobs N to cap it; each regress shard is a slot; started longest first from tests/suite-times.json, which --record-times rewrites after a passing full run), one line each, the regression gate included (exit 0 = all passed, and every suite must also have printed its summary line: one that exits 0 half done is a failure); a failing run ends with FAILED: <the suites>; --only <part>[,...] runs a subset, marked as not the gate
 node tools/browser-check.js  # the real pages in Chromium: the landing page (desktop and phone) and /play/: every model, LIZA end to end, the file:// notice, Share and opening snapshots, the favicon and no missing file requested by any page; the feedback model (toasts on the page the user is on, cleared by the next action, Undo, Details, desktop and phone). Every "← Emulator", Esc and Back return to the emulator, from `/play/` and `?app=claude`, after a reload and from a page loaded on a view (`--only emulatorBack`). `--only feedback,library` runs just those groups (an unknown group is an error); see "What the gates' results mean" below
 node tools/capture-images.js # recapture img/*.png (site and README pictures) from the emulator, with no ROMs
+node tools/program-cards.js  # the program pages 2048/, liza/, minesweeper/ and their 1200x630 cards (img/card-*.png), on the built-in firmware; updates sw.js
 node tools/capture-og.js     # recapture img/og.png, the 1200x630 link preview (og:image), from the welcome menu with no ROMs, through js/video/bezel.js
 node tools/capture-gif.js    # recapture img/readme-demo.gif (the README's looping picture), with no ROMs; tools/gif.js is its encoder
 node tests/cpu.test.js       # 6809 instruction tests, scripted (all tests load js/emu.js via tests/load.js)
@@ -178,6 +179,12 @@ node tests/state-fdc.test.js # the same for floppy controllers mid-transfer, one
 node tests/state-carts.test.js  # the same for cartridges, a Multi-Pak and the Speech/Sound Pak mid-activity
 node tests/state-tape.test.js   # the same for the cassette deck: a recording in progress, a tape being played
 node tests/snapshot.test.js  # snapshot files: format and version, defective files, every model opened elsewhere, ROMs by CRC, switching, slots
+node tests/long-link.test.js # share links' #z= form: hand-built vectors, every model opened from a link, pre-launch #s= links refused, refusals
+node tests/program-pages.test.js # the program pages and cards are what tools/program-cards.js makes; PNG and card vectors
+node tests/short-link.test.js # short links on the page's side: sealing, the store over a mocked fetch, the key never sent, guardrails
+node tests/share-one-link.test.js # the Share screen's "one link": an untouched bundled program gives its page; every way in (a key, a typed line, a poke, an assembled program, a tape, a disk, BREAK) makes it a moment, its own running does not
+node tests/shortlink-worker.test.js # the short-link Worker in Node against an in-memory bucket: every check, limit, kill switch and count
+node tests/qr.test.js         # the QR encoder against ISO 18004's worked example and tables, every symbol read back
 node tests/press-break.test.js # BREAK delivery: our own firmware scans the matrix on dragon64, coco3 and mc10
 node tests/video.test.js     # scanline video: beam position, SAM display counter, mid-line mode splits
 node tests/serial.test.js    # serial line receiver and port devices, PIA output callback, printer paths, the Session's terminal

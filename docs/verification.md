@@ -1823,6 +1823,77 @@ MAME artefacts reproduced only under `config.mameCompat` (the comparisons turn i
   accesses at the instruction's start, the HS start is truncated one clock early, and a write before that start
   freezes the rest of the line (`js/machines/mc10.js`).
 
+## Short links
+
+No MAME oracle (section 4.6): the oracles are the standards and the Worker's own contract. `tests/qr.test.js`: the QR
+encoder against ISO/IEC 18004:2015 Annex I's worked example ("01234567", version 1-M: data and error correction
+codewords), Table C.1's format information and Table D.1's version information, and every symbol at every mask read
+back by a reader in the test (Reed-Solomon checked by syndromes). During development every symbol was also decoded by
+OpenCV 5.1's QR detectors (162 symbols: levels L to H, versions 1 to 10, all masks; two that its default detector
+missed decode with its Aruco detector); that is a manual cross-check, not part of the suite. `tests/short-link.test.js`:
+AES-GCM sealing round trip and tampering, the store's requests over a mocked fetch, every request searched for the key
+(as text, hex, base64, bytes) and for the moment's bytes, a moment opened from `#l=` running on identically, and each
+guardrail (ROMs, cartridge, NitrOS-9, too large) refusing before any request. `tests/shortlink-worker.test.js`: the Worker
+in Node against an in-memory R2 bucket: the three objects, the arrival page's CSP hashes worked out in the test, every
+PNG rule, every limit, the kill switch, delete tokens, concurrent counts, no address stored. The browser check's
+`shortLink` group runs the same Worker behind Playwright routes for s.cloadm.dev and cloadm.dev: one tap on the Share
+screen's Copy link makes it, copies it and shows its field with its QR toggle, opened from its arrival page in another
+profile (s.cloadm.dev asked for the page and the moment only: no ping), deleted, the kill switch (the tap copies the
+long link, the note says short links aren't available), offline (the offline note), and a cartridge moment. The daily
+open count (the Cron Trigger) is tested in Node
+against a mocked GraphQL API: the request, the counted days, a failure and the catch-up after it.
+Not verified here: the deployed Worker on Cloudflare (its bindings, the R2 custom domain, the cache rule and CORS rule);
+docs/shortlink-deploy.md ends with the check to run once it is deployed.
+
+## The Share screen's "one link"
+
+No MAME oracle: the page decides what a tap gives. `tests/share-one-link.test.js` holds `Session.untouchedBundledProgram`
+to its rule: a bundled program's own running (frames, its timers, LIZA's prompt drawing itself) is not a touch,
+and each way in (a key, a typed line, a poke, a program a tool assembled, a tape, a disk, BREAK) makes it a moment; a
+load takes the program away; the colour demo (no program page) is never offered; nothing running is null. The browser
+check's `share` group runs the same at 375x548, 861x600, 1024x640 and 1280x720: an untouched 2048 copies its program
+page, a played one shares the moment and offers "Link to 2048 from the start" under "More ways to share"; the primary
+Copy is inside the viewport, hit-testable, and keeps at least 16px of CI-predicted headroom (the Mac's bottom + 19px
+for a possible extra wrapped line) above the 548px fold; a tap that falls back to the long link shows the field; the
+clarity copy and the caption's prefix are the agreed words; a clipboard that rejects leaves the link selected with its
+note; "Always use long links" survives a reload and does not fall over when storage throws; both notes read "nothing is
+uploaded" with it on.
+
+The program-page rule is checked as it reads: in program-page mode `#shareNote` holds "Opens 2048 from the
+start, for anyone. The snapshot link below keeps this exact moment." and `#primaryNote` is empty (one note, not two);
+the caption is "2048 · Dragon 64" with the prefix span hidden; the picture is 2048's title, waited for by the games
+group's own signal (2048's GETKEY counts each key poll in ENTROPY, so a frame that climbs by hundreds is one spent at
+its key wait — measured at frame 19, and the title then has exactly four colours, read from every pixel of the canvas;
+`render().data` is palette indices, not colours and proves nothing), and compared with the frame itself: the machine is
+paused at the title, the frame is read with `frameToRGBA` (the presenter's own function, one packed Uint32 per pixel),
+and every pixel of the captured picture is compared with it — 0 of 76800 differ, and the same picture with one pixel
+flipped differs in 1, so the check can fail. The caption's prefix is held to its rule where the order can be seen: at
+375 every real name fits, so the check FORCES a squeeze (a long name, a 150px caption) and reads the order from the
+geometry — the prefix keeps all its text (`scrollWidth === clientWidth`, its right edge not past the name's) and the
+NAME is the span that is cut (`scrollWidth > clientWidth`, `text-overflow: ellipsis`); its computed `flex-grow: 0` and
+`flex-shrink: 0` are asserted as the mechanism, and " · CLOADM" is absent in every mode. A guardrail that refuses the
+moment says so once, inline, and Copy carries `disabled` with the page's disabled look (opacity 0.55).
+
+## Long links (`#z=`) and the program pages
+
+No MAME oracle: a link is a container, not hardware. `tests/long-link.test.js` decodes a link built byte by byte
+here (a deflate stored block, RFC 1951 3.2.4, around a hand-written skeleton and arrays) and checks the encoder's
+unpacked container against bytes written out by hand; it opens a `#z=` link made on every model in a fresh Session and
+runs it on identically to the original (instructions, cycles, memory, frames after the first), and refuses damaged,
+cut, oversized and newer links with a message. A pre-launch `#s=` link (base64url of the `.cloadm` file) is no
+snapshot now: the page answers it with its "This share link couldn't be read." refusal, as it does any hash of that
+shape that no reader claims. `tests/state.test.js`
+(section 4.5) takes the moment mid-frame on the Dragon 64, CoCo 3 and MC-10: from the link the machine runs on with the
+same trace, sound and frames, and its first frame is the file's picture except the rows the beam had already drawn,
+still cleared. `tests/share-roms.test.js` decodes the link itself with Node's zlib and finds no 16-byte window of any
+ROM stand-in in it. The browser check (`share`) opens a `#z=` link in another profile, and its deep-link cases put
+`#s=junk` and `#share=junk` beside `#z=junk` (each answered with the refusal and cleared) and check that `#share`,
+`#library`, `#add-roms` and `#debugger` each still open their own view.
+
+The program pages' cards are made on the built-in firmware (`tools/program-cards.js` refuses when a ROM or cartridge is
+loaded); `tests/program-pages.test.js` checks the committed pages and cards are what it makes, decoding the PNGs with
+Node's zlib, and checks the PNG writer against a file worked out by hand from the specification.
+
 ## NitrOS-9 boot test
 
 What the page's **Boot NitrOS-9** ([using.md](using.md#booting-nitros-9)) rests on. `tests/nitros9.test.js` boots the official NitrOS-9

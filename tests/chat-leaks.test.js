@@ -595,6 +595,15 @@ const REQUIRED = require.main !== module;
     'programControls',
     // claudeLink builds the "Ask Claude ↗" link from shareFile and shareUrl (both reads of the shown machine)
     'claudeLink',
+    // programPageUrl makes a program page's address from the page's own (pure)
+    'programPageUrl',
+    // bundledProgram and untouchedBundledProgram read the SHOWN machine's program watch and page (Session.touches too,
+    // which only counts what reached it); the Share screen asks whether its primary may be the program's own page
+    'bundledProgram', 'untouchedBundledProgram', 'touches',
+    // longLinkRefusal and shortLinkRefusal read the SHOWN machine (what the Share screen shares) and change nothing;
+    // shortLink reads it the same way (shareFile) and sends sealed bytes to the store it is given, changing no machine;
+    // readShortLink fetches and decodes a snapshot, which openSnapshot (classified on its own) then opens
+    'longLinkRefusal', 'shortLinkRefusal', 'shortLink', 'readShortLink',
     // menuTicketFor returns the ticket a menu starts with (the Session's menuTicket or the one passed); changes nothing
     'menuTicketFor',
     // bareDiskController and diskRomWaiting read the disk controller of the PERSON's machine (diskMachine); no change

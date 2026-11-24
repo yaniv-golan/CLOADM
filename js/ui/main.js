@@ -48,6 +48,7 @@ import { setupAsk } from './ask.js';
 import { setupCommandBox } from './command-box.js';
 import { MemoryKeyStore, storageKeyStore } from '../host/key-store.js';
 import { setupShare } from './share.js';
+import { ShortLinkStore } from '../host/link-store.js';
 import { setupSlotsPanel } from './slots-panel.js';
 import { setupTapePanel } from './tape-panel.js';
 import { setupNitros9Panel } from './nitros9-panel.js';
@@ -146,7 +147,9 @@ page.touchKeys = setupTouchKeys(page, { input: screen.input });
 setupDisplayPanel(page);
 setupKeyHint(page);
 setupSettingsFile(page);
-const share = setupShare(page);
+// the short links' store: s.cloadm.dev (js/host/link-store.js); the browser check points it at a stand-in server
+const linkStore = new ShortLinkStore();
+const share = setupShare(page, { linkStore });
 const showRoms = () => romSockets.reveal();
 // No Claude chat on a page shown inside someone else's page, whether by the embed flag or by being framed: the chat
 // would put its API key card there. With no controller there is no chat machine, no panel and no key card, and the
@@ -335,19 +338,25 @@ const starting = welcome.start(visit, { fromLink, withMedia: link.roms.length > 
     } catch (e) { page.status(`Could not load ${kind}=${url}: ${linkFetchError(e)}`, true); }
   }
   await starting;
-  // a share link's moment (#s=, Share screen): opened like a dropped snapshot, once the visit has started
-  if (location.hash.startsWith('#s=')) await snapshots.takeLink(location.hash);
+  // a share link's moment (#z=, Share screen): opened like a dropped snapshot, once the visit has started
+  if (/^#z=/.test(location.hash)) await snapshots.takeLink(location.hash);
+  // a short link's moment (#l=<id>.<key>: its arrival page on s.cloadm.dev sends the visitor here): fetched, opened
+  // with its key in this browser, then opened like the rest
+  else if (/^#l=/.test(location.hash)) await snapshots.takeShortLink(location.hash, linkStore);
   // ?nitros9=: NitrOS-9 boots from the user's own DriveWire image (never one in the link)
   if (link.nitros9) await nitros9.fromLink(link.nitros9);
   // ?app=claude: the chat opens once the link's ROMs are in (the BASIC session kept beside it uses them). Not in an
   // embed: there is no controller there (link.embed, above), and the link's app is refused rather than opened.
   if (link.app === 'claude' && claude) await claude.open();
   // started: the visit's program (welcome, LIZA) runs and the link's ROMs, media and moment are in (window.emu.ready:
-  // storage is open); linkDone: the same moment, kept for the link checks
+  // storage is open); linkDone: the same moment, kept for the link checks. It is set after a refused hash is answered
+  // below, so a check can read the toast without a wait that assumes which came last.
   window.emu.started = true;
   share.ready();
-  window.emu.linkDone = true;
   if (link.errors.length) page.status(`This link has ${link.errors.length === 1 ? 'a setting' : 'settings'} CLOADM can't use: ${link.errors.join('; ')}`, true);
-  // "#share=…" (a share link's moment follows #s=): not one the page reads, and it said nothing
-  else if (/^#share./.test(location.hash)) { page.status("This share link couldn't be read.", true); history.replaceState(null, '', location.pathname + location.search); }
+  // a hash in the shape of a share link (#z=, #l=, or the #share= the link's arrival page carried) that no reader
+  // above claimed, or a cut short #l=: said, rather than left silent. A view (#share, #library, #add-roms,
+  // #debugger) holds no '=', so it is never one.
+  else if (/^#[A-Za-z][A-Za-z0-9_-]*=./.test(location.hash)) { page.status("This share link couldn't be read.", true); history.replaceState(null, '', location.pathname + location.search); }
+  window.emu.linkDone = true;
 })();
