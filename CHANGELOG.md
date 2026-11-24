@@ -9,16 +9,27 @@ All notable changes to CLOADM are recorded here. The format follows
 Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.test.js` keeps them in step).
 
 ### Added
+- **One link on the Share screen.** The screen now offers one **Copy link** (+ **Share…**). A bundled program nobody has
+  touched since it started (2048, LIZA, Minesweeper) gives its program page instead — nothing is uploaded; played, the
+  primary shares the moment, and "More ways to share" adds **Link to &lt;program&gt; from the start**. A tap that tries a
+  short link and can't make one (offline, a refusal, the server) copies the long link with the reason in view; a
+  clipboard the browser refuses leaves the link shown and selected. **More ways to share** holds the long link, its Copy,
+  and **Always use long links (nothing leaves this device)**, remembered in the browser
+  (`Session.untouchedBundledProgram`, `Session.touches`).
+- **What a link opens, said plainly.** The line under the Share picture reads "Opens a copy of this &lt;machine&gt;
+  exactly as it is now: the screen, the program and everything in memory, including anything you typed. Changes you make
+  later aren't in it.", and the picture's caption leads with "What they'll see first · ".
 - **Shorter long links.** The Share screen's long link (and "Ask Claude ↗") now carries the moment after `#z=`: a version
   byte, then deflate-raw of the snapshot as a JSON skeleton plus its raw byte arrays, without the rendered picture
   (drawn again on the first frame after opening). LIZA's link goes from about 8,400 to 4,900 characters, 2048's from
   11,900 to 7,900. `.cloadm` files are unchanged.
-- **Short links.** The Share screen's first choice, **Make a short link**, gives `https://s.cloadm.dev/<id>#<key>`
-  (about 50 characters) with a QR code. The moment is sealed with AES-GCM in the browser and only the sealed bytes are
-  stored; the key is the part after `#`, which never reaches the server. "Show a preview picture" (on; the picture is
-  public) adds a 1200x630 card. "Delete this link" removes it. Only for moments without ROMs, cartridges or NitrOS-9,
-  and only online; otherwise the button is switched off with the reason beside it. The long link is labelled "Exact
-  moment · works offline, never expires". The server is a Cloudflare Worker in `shortlink/` (not deployed from here:
+- **Short links.** The Share screen's **Copy link** makes `https://s.cloadm.dev/<id>#<key>` (about 50 characters) on the
+  tap, copies it and shows its field with a QR toggle. The moment is sealed with AES-GCM in the browser and only the
+  sealed bytes are stored; the key is the part after `#`, which never reaches the server. "Show a preview picture"
+  (public; on by default) adds a 1200x630 card. "Delete this link" removes it. Only for moments without ROMs, cartridges
+  or NitrOS-9, and only online; where it can't be made the same tap copies the long link instead, and the note says
+  why. The long link is headed "Long link (works offline; nothing is uploaded)". The server is a Cloudflare Worker in
+  `shortlink/` (not deployed from here:
   `docs/shortlink-deploy.md`): links don't expire; size caps, a picture check down to every pixel, per-address, per-minute and daily limits, a kill switch,
   removal by id, "Report this link", and totals only at `s.cloadm.dev/stats/` (no addresses kept, no pings or beacons: opens are counted once a day from
   Cloudflare's analytics by the Worker's Cron Trigger; program starts are not counted).

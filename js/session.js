@@ -641,6 +641,7 @@ export class Session {
     this.firstVisit = false;        // this page visit began as the browser's first (visit())
     this.welcomeGen = 0;            // bumped by every start: the FIRST start to land wins (a later one is dropped)
     this.menuWatch = null;          // a program that goes back to the welcome menu when left (watchForMenu)
+    this.programStart = null;       // { id, m, at }: the bundled program started on m, and the touch count it began at (untouchedBundledProgram)
     // What runs on the stub firmware and how to restart it, per machine (Reset; see `reset`). Per machine because
     // two can exist at once - the chat machine and the BASIC session beside it - and a load on one must not take
     // away the other's restart record (review probe B: the chat's died with a load on the BASIC session).
@@ -2228,6 +2229,7 @@ export class Session {
   // run: false types a BASIC listing without the RUN after it (the MCP server's load; the page always runs it)
   load(name, bytes, { askAddresses = null, remember = true, run = true } = {}) {
     this.loadStarted = true;
+    this.touch(this.shownMachine);   // a load makes a bundled program a moment (untouchedBundledProgram)
     const msg = this.loadMedia(name, bytes, askAddresses, { run });
     if (remember) { this.library.rememberMedia(name, bytes); this.setLastRun('recent', name, { running: this.loadStarted }); }
     this.emit('loaded');
@@ -2501,6 +2503,7 @@ export class Session {
   // (also while an acting call waits at its gate - a card, an INCLUDE read - before it acts: runTool's re-check then
   // holds the call until Resume)
   personInput(m = this.shownMachine) {
+    this.touch(m);
     if (!this.chat || !(this.claudeBusyActing || this.claudeCall) || this.consent.paused || m !== this.chatTarget().machine) return false;
     return this.pauseClaude();
   }
@@ -2519,10 +2522,10 @@ export class Session {
   // On a ROM-less machine nothing reads it: the stub does not scan the matrix at all - it takes key codes from its
   // own queue (Machine.stubKeys) through POLCAT, and its line editor ignores every control key. The job fails
   // not-consumed at once, so the tool says so instead of claiming a press.
-  pressBreak(m = this.shownMachine) { return m.typist.holdPaced('BREAK'); }
+  pressBreak(m = this.shownMachine) { this.touch(m); return m.typist.holdPaced('BREAK'); }
   // Claude's typing: paced by what the machine consumes (Typist.typePaced), so a busy BASIC drops nothing.
   // Returns the job (job.promise settles when it ends); the caller checks typableText first.
-  typeTextPaced(text, m = this.shownMachine) { return m.typist.typePaced(String(text).replace(/\r\n?/g, '\n')); }
+  typeTextPaced(text, m = this.shownMachine) { this.touch(m); return m.typist.typePaced(String(text).replace(/\r\n?/g, '\n')); }
   // the characters of text this machine cannot type: no key for it on this keyboard (with BASIC), or not 7-bit
   // ASCII (the stub's key codes). [] when all of it can be typed.
   untypable(text, m = this.shownMachine) {
@@ -2556,6 +2559,7 @@ export class Session {
   // all. Machine.poke itself may write the cell beneath (the CoCo 3's loaders patch vectors under the ROM), but a
   // tool that says "not-ram" must not also have changed memory the CPU cannot see and a later map switch would reveal.
   pokeBytes(addr, bytes, m = this.shownMachine) {
+    if (bytes.length) this.touch(m);
     let landed = 0;
     [...bytes].forEach((b, i) => {
       const a = (addr + i) & 0xFFFF;
@@ -3089,6 +3093,7 @@ export class Session {
     const msg = this.load(this.lizaFile, bytes, { remember: false });
     this.setLastRun('liza', 'LIZA');
     this.watchForMenu('liza', this.personMachine);
+    this.markProgramStart('liza', this.personMachine);
     this.emit('program', 'liza');
     return msg;
   }
@@ -3122,6 +3127,7 @@ export class Session {
     this.setLastRun('game', GAMES.list[name].name);
     this.watchForMenu('game', m);
     if (this.menuWatch) this.menuWatch.game = name;
+    this.markProgramStart(name, m);
     this.emit('program', name);   // (after the watch: gameRunning and programControls hold for the listeners)
     return msg;
   }
@@ -3194,6 +3200,7 @@ export class Session {
   insertTape(name, bytes) {
     const m = this.personMachine, d = formats.identify(name, bytes);
     if (d.kind === 'wav') throw new SessionError(d.error ? `${name}: ${d.error}` : `${name}: no tape blocks found in this recording`);
+    this.touch(m);
     m.deck.insert(new Tape(d.kind === 'cas' ? d.bytes : bytes, m.tickHz, name, m.profile.tape));
     this.emit('tape');
     // with no BASIC running (the stub, or BASIC has not printed OK yet) there is nothing to type CLOAD into: the tape
@@ -3409,6 +3416,39 @@ export class Session {
   // one of the bundled games (2048, Minesweeper) is what runs on this machine now: from runGame until it is left
   // (BREAK), or a load, a reset or a switch ends the watch.
   get gameRunning() { const w = this.menuWatch; return !!w && w.kind === 'game' && w.m === this.shownMachine; }
+  // ---------------- an untouched bundled program (the Share screen's "one link") ----------------
+  // A person's input to a machine, counted: every way their hand or a tool reaches it (a key, an on-screen key, a
+  // joystick, a paste, a typed line, a POKE, a load, a disk or a tape going in). A program's OWN running - frames,
+  // its timers, LIZA's prompt drawing itself - goes nowhere near it. `touches`, and `touchedAt` when each machine's
+  // current program started; untouchedBundledProgram compares the two.
+  #touches = new WeakMap();
+  touches(m = this.shownMachine) { return (m && this.#touches.get(m)) || 0; }
+  // count one touch on m's program (called from the Session's own ways in; the page's keyboard and pads go through
+  // personInput, which calls this)
+  touch(m = this.shownMachine) { if (m) this.#touches.set(m, this.touches(m) + 1); return this.touches(m); }
+  // A bundled program started on m: remember the count it started at. Called by runGame and runLiza BEFORE their
+  // own setup pokes and emits ('program'), so those are not touches.
+  markProgramStart(id, m) { if (m) this.#touches.set(m, this.touches(m)); this.programStart = { id, m, at: m ? this.touches(m) : 0 }; return this.programStart; }
+  // The bundled program on screen now and its own page, whoever played it: { id, name, page }, or null (BASIC, a file,
+  // the welcome menu, the colour demo: it has no page). untouchedBundledProgram is this plus "and nobody touched it".
+  bundledProgram(base, m = this.shownMachine) {
+    const c = this.programControls;
+    if (!c || !m || m !== this.personMachine || m !== this.shownMachine) return null;
+    const name = (GAMES.list[c.id] || {}).name || (c.id === 'liza' ? 'LIZA' : null);
+    const page = name && this.programPageUrl(c.id, base);
+    return page ? { id: c.id, name, page } : null;
+  }
+  // The bundled program on screen now, untouched since it started, as the Share screen's primary link would offer it:
+  // bundledProgram, plus the touch count it began at (marks its own start, markProgramStart), or null. "Untouched" is
+  // the rule the owner set: any key or joystick input, a load, a typed line, or a memory change by a tool makes it a
+  // moment, and the primary shares the moment as played.
+  untouchedBundledProgram(base, m = this.shownMachine) {
+    const p = this.bundledProgram(base, m);
+    const start = this.programStart;
+    if (!p || !start || start.m !== m || start.id !== p.id || this.touches(m) !== start.at) return null;
+    return p;
+  }
+
   // the bundled program running now and what it is played with -> { id, input, extra, joystick }, or null (BASIC, a
   // file, the welcome menu: the keyboard). id: a GAMES.list key or 'liza' (the touch panel remembers its mode per
   // program and machine under it)

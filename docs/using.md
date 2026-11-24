@@ -121,7 +121,7 @@ The [README](../README.md#what-works) has the short version of this table.
 | **Games** | 2048 and Minesweeper, written for CLOADM, on every 6809 model with 32K or more, with or without ROMs ([details](#games)) | |
 | **Input** | Keyboard in two modes (translated: the character typed; positional: the physical key), keyboard joystick, gamepads (two joysticks, dead zone), the Tandy and CoCo Max 3 Hi-Res interfaces, the CoCo 3 "The Rat" mouse, the CoCo Max Hi-Res module, mouse as the right joystick; an on-screen keyboard on phones and tablets (split for the thumbs when held sideways) and a touch joystick with FIRE, a tappable welcome menu | |
 | **Tools** | Assembler, Debugger, snapshots, POKE book; a command line, MCP server and Node API for CI and agents ([Automation](automation.md), [MCP](mcp.md)) | Step back (rewind) |
-| **Links, embedding, offline** | Every setting as a URL parameter (machine, RAM, CPU, a program, tape, cartridge or disk to load, display, input); the Share screen: **Make a short link** (`s.cloadm.dev/<id>#<key>`, about 50 characters, sealed in your browser, with a QR code and an optional public preview picture; online and without ROMs) and the long link, "Exact moment · works offline, never expires", with Share… or Copy link, both opening this machine exactly as it is, and under "More ways to share" a 6-second clip, a true-pixel screenshot and the snapshot file, plus the embed code for a blog post; embed mode with a JavaScript API; works offline once visited; **Install CLOADM…** in the app bar, beside Help (behind **Menu** on a phone), runs the browser's own prompt where there is one and shows the steps elsewhere, with a one-time offer once a program has run a minute; settings export and import (never ROMs) | A touch keyboard in embeds |
+| **Links, embedding, offline** | Every setting as a URL parameter (machine, RAM, CPU, a program, tape, cartridge or disk to load, display, input); the Share screen's one **Copy link**: an untouched bundled program gives its page (`cloadm.dev/2048/`), otherwise a short link (`s.cloadm.dev/<id>#<key>`, about 50 characters, sealed in your browser, with a QR code and an optional public preview picture; online and without ROMs), or the long link where a short one can't be made; under "More ways to share" the long link ("Long link (works offline; nothing is uploaded)"), "Always use long links", a 6-second clip, a true-pixel screenshot and the snapshot file, plus the embed code for a blog post; embed mode with a JavaScript API; works offline once visited; **Install CLOADM…** in the app bar, beside Help (behind **Menu** on a phone), runs the browser's own prompt where there is one and shows the steps elsewhere, with a one-time offer once a program has run a minute; settings export and import (never ROMs) | A touch keyboard in embeds |
 
 ### Games
 
@@ -400,19 +400,37 @@ fragment after `#z=`, which browsers never send to a server: a version byte, the
 its byte arrays raw rather than in base64, and without the rendered picture, which the machine draws again on the first
 frame after it opens; about 2 to 8 KB, LIZA's about 5 KB). `#z=` is the only long-link form: saved `.cloadm` files are unchanged, and a link made by a pre-launch build (which wrote the snapshot file itself after `#s=`) gets the page's clear "This share link couldn't be read." refusal. The embed builder writes the iframe and script for the machine, program and options you pick.
 
-**Short links.** "Make a short link" (the Share screen's first choice whenever it can be made) gives
-`https://s.cloadm.dev/<id>#<key>`, about 50 characters, with a QR code of it. Privacy: the moment is sealed in your browser
-with AES-GCM before it is sent, and the key exists only in the part of the link after `#`, which browsers never send to a
-server, so the server stores bytes it cannot read. Links don't expire. A link reported for abuse can be removed ("Report
-this link" on the page the link opens first). Only people with the link can open it; the server can't read it. The
-preview picture ("Show a preview picture", on by default) is public: anyone with the address can see it, even without
-the key, and turning the switch off leaves it out. The server keeps no addresses and nothing about who made or opened a
-link: it counts totals only (links made, opened and removed), shown at s.cloadm.dev/stats/. "Delete this link" removes it
-(the browser that made it keeps its delete token); copies cached on the way may still open for up to a day. A short link
-is offered only for moments without ROMs, cartridges or NitrOS-9, and only online; otherwise the button is switched off
-with the reason beside it, and the long link is there as always.
+**One link.** The Share screen offers one **Copy link** (with **Share…** beside it where the browser has a share sheet).
+What a tap gives depends on what is on screen:
 
-The link's field is labelled **Exact moment (long link)**, and the card under the picture says when the moment was captured, relative to now: "captured just now", then "3 minutes ago" (hours or days if the screen stays open that long).
+* **A bundled program nobody has touched since it started** (2048, LIZA, Minesweeper, opened from its page or the menu
+  and not yet played) has nothing of its own to send: the tap copies its **program page** (`cloadm.dev/2048/` and so on)
+  and the note says "Opens 2048 from the start, for anyone." Nothing is uploaded. Press a key, move the joystick, type a
+  line, load something, or let a tool change memory, and it is a moment from then on.
+* **Otherwise a short link**, made on the tap: `https://s.cloadm.dev/<id>#<key>`, about 50 characters, copied for you,
+  with its field and a QR toggle. It is the moment sealed in your browser (AES-GCM) before it is sent; the key exists
+  only in the part of the link after `#`, which browsers never send to a server, so the server stores bytes it cannot read.
+  Links don't expire; a link reported for abuse can be removed ("Report this link" on the page the link opens first). Only
+  people with the link can open it. The preview picture (**Show a preview picture (public)**, on by default) is public:
+  anyone with the address can see it, even without the key, and turning the switch off leaves it out. The server keeps no
+  addresses and nothing about who made or opened a link: totals only (links made, opened and removed), at
+  s.cloadm.dev/stats/. **Delete this link** removes it (the browser that made it keeps its delete token); copies cached on
+  the way may still open for up to a day.
+* **The long link where a short one can't be made**: offline, a moment on your ROMs, a cartridge or NitrOS-9, or the
+  short-link server unavailable. The tap copies the long link instead, and the note says why ("You're offline, so this is
+  the long link…"). A bundled program that has been played keeps the moment's short link, and **More ways to share** adds
+  **Link to &lt;program&gt; from the start** for its page. **Copy never leaves you with nothing**: if the browser refuses
+  the clipboard, the link is shown selected with "Press Ctrl+C to copy the link".
+
+**Long links.** **More ways to share** always holds the long link — **Long link (works offline; nothing is uploaded)**,
+with its field and Copy, and the note "Holds the whole moment in the address; nothing is uploaded." The checkbox **Always
+use long links (nothing leaves this device)**, remembered in this browser, makes Copy link give the long link and its note
+reads "Long link: nothing is uploaded." The card under the picture says when the moment was captured, relative to now:
+"captured just now", then "3 minutes ago" (hours or days if the screen stays open that long), prefixed "What they'll see
+first · " on the picture's caption.
+
+A moment the page's guardrails keep out of a link at all switches Copy off, with the reason inline. A short link is never
+offered for a moment on ROMs, a cartridge or NitrOS-9: the long link works there (whoever opens it adds their own ROMs).
 
 Someone who opens a shared moment that runs without ROMs arrives on that moment, not on the setup: the "Running with no
 ROMs" card and the orange **No BASIC** pill stay out of the way while they look at it, and come back once they leave it

@@ -549,6 +549,7 @@
   #share .col { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
   #share .mono { font-family: var(--font-mono); font-size: 14px; color: var(--muted); letter-spacing: .06em; }
   #share h1, #share h2 { margin: 0; font-size: clamp(26px, 6vw, 34px); font-weight: 800; font-stretch: 112%; line-height: 1.05; }
+  #share h3.sub { margin: 0; font-size: 15px; font-stretch: 100%; font-weight: 700; color: var(--text-2); }
   #share p { margin: 0; font-size: 16px; line-height: 1.5; color: var(--text-3); }
   #share .preview { margin: 0; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-18); overflow: hidden; }
   #share .frame { aspect-ratio: 1.91; background: #050605; position: relative; display: flex; align-items: center; justify-content: center; }
@@ -565,7 +566,6 @@
   /* the negative margin was written for a label directly inside .col (gap 18): it pulled the input up to its heading.
      Inside .linkset (gap 6, 4 under 860px) the same -10px puts the label's descenders on the input's top edge, so here
      it is zero and the gap does the spacing. */
-  #share .linklabel { font-size: 14px; color: var(--text-2); min-height: 0; margin-bottom: 0; }
   #share .linkrow input { flex: 1; min-width: 0; background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: var(--r-10);
     padding: 12px; font: 14px var(--font-mono); }
   #share .card2 { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-14); padding: 16px; display: flex; flex-direction: column; gap: 8px; font-size: 15px; line-height: 1.45; }
@@ -611,14 +611,17 @@
     #share figcaption strong, #share figcaption span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
   }
   #share h2.sub { font-size: 14px; font-stretch: 100%; line-height: 1.3; font-weight: 700; color: var(--text-2); }
-  #share .shortbar { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; }
-  #share .shortbar button { min-height: 44px; }
   #share .switch { display: flex; gap: 8px; align-items: center; font-size: 14px; color: var(--text); }
   #share p.small, #share .why { font-size: 13px; line-height: 1.4; }
   #share .why { color: var(--orange); }
   #share .why:empty, #share .small:empty { display: none; }
   #share .qrrow { display: flex; gap: 14px; align-items: center; }
   #share #shareQr { width: 132px; height: 132px; image-rendering: pixelated; background: #fff; border-radius: 6px; flex: none; }
+  #share .qrrow[hidden] { display: none; }
+  /* the QR toggle is a small square beside the field (its label is the visible QR; the title says what it does) */
+  #share .linkrow button.icon { flex: none; min-width: 44px; padding: 0 10px; }
+  /* the program page link (a bundled program already played): a plain button above the long link's set */
+  #share #btnShareProgramPage { align-self: flex-start; }
   #share .disc [hidden] { display: none; }
   #share .disc { border: 1px solid var(--line); border-radius: var(--r-14); padding: 4px 16px; }
   #share .disc > summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; justify-content: space-between; gap: 12px; font-weight: 700; list-style: none; }
@@ -652,11 +655,7 @@
     #share .linkset { gap: 4px; }
     #share .linkrow input { padding: 9px 12px; }
     #share .sharebtns button { min-height: 38px; flex: 1 1 0; }
-    #share .shortbar button { min-height: 38px; }
     #share #shareQr { width: 104px; height: 104px; }
-    /* the button says "Make a short link": on a phone its heading is for assistive technology only, so the long link's
-       Copy stays on the first screen */
-    #share #shortHeading { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   }
 
 
@@ -1764,33 +1763,38 @@ npx serve -l 8000 .</pre>
     <p id="shareNote"></p>
     <p id="shareRom" class="romline"></p>
     <div id="shareExtra" class="extra"></div>
-    <!-- the short link (js/ui/share.js): made only when asked, stored sealed on s.cloadm.dev; its reason shows when it can't -->
-    <div class="linkset" id="shortSet">
-      <h2 class="sub" id="shortHeading">Short link</h2>
-      <div class="bar shortbar"><button id="btnShortMake" class="primary">Make a short link</button>
-        <label class="switch"><input type="checkbox" id="sharePreview" role="switch" checked> Show a preview picture</label></div>
-      <p id="shortWhy" class="why"></p>
+    <!-- One link (js/ui/share.js): the primary is Copy link (and Share… where the browser has a sheet). An unchanged
+         bundled program gives its program page instead. A short link is made on the tap; where it can't be, the long
+         link is copied, with the reason beside it. -->
+    <div class="linkset" id="primarySet">
+      <div class="bar sharebtns"><button id="btnShareCopy" class="primary">Copy link</button><button id="btnShareNative" hidden>Share…</button></div>
+      <p id="primaryWhy" class="why"></p>
+      <p id="primaryNote" class="small"></p>
+      <p class="small" id="shortTerms">Stores a sealed copy on cloadm.dev that only people with the link can open; the server can't read it. Links don't expire; a link reported for abuse can be removed.</p>
       <div id="shortMade" hidden>
-        <div class="linkrow"><label for="shareShort" class="sr-only">Short link</label><input id="shareShort" readonly><button id="btnShortCopy" class="primary">Copy</button></div>
-        <div class="qrrow"><canvas id="shareQr" role="img" aria-label="QR code of the short link"></canvas>
-          <div class="col"><p id="shortPicNote" class="small"></p><button id="btnShortDelete">Delete this link</button></div></div>
+        <div class="linkrow"><label for="shareShort" class="sr-only">Short link</label><input id="shareShort" readonly><button id="btnShortCopy">Copy</button>
+          <button id="btnShortQr" class="icon" aria-pressed="false" aria-controls="shortQrWrap" title="Show the QR code">QR</button></div>
+        <div class="qrrow" id="shortQrWrap" hidden><canvas id="shareQr" role="img" aria-label="QR code of the short link"></canvas>
+          <div class="col"><p id="shortPicNote" class="small"></p></div></div>
+        <button id="btnShortDelete">Delete this link</button>
       </div>
-      <p class="small" id="shortTerms">The preview picture is public. Links don't expire. A link reported for abuse can be removed. Only people with the link can open it; the server can't read it.</p>
     </div>
-    <div class="linkset" id="longSet">
-      <h2 class="sub" id="longHeading">Works offline, never expires</h2>
-      <p id="longWhy" class="why"></p>
-      <label for="shareLink" id="shareLinkLabel" class="linklabel">Exact moment (long link)</label>
-      <div class="linkrow"><input id="shareLink" readonly></div>
-      <div class="bar sharebtns"><button id="btnShareNative" class="primary" hidden>Share…</button><button id="btnShareCopy" class="primary">Copy link</button></div>
-    </div>
+    <label class="switch" id="previewSwitch"><input type="checkbox" id="sharePreview" role="switch" checked> Show a preview picture (public)</label>
   </section>
   <details class="disc" id="shareMore">
     <summary><h2 id="moreHeading">More ways to share</h2></summary>
-    <div class="bar" hidden>
-      <button id="btnShareClip">Save 6-second clip (MP4)</button>
-      <button id="btnShareShot">Screenshot (PNG)</button>
-      <button id="btnShareDownload">Download snapshot</button>
+    <div class="col" hidden>
+      <div class="linkset" id="longSet">
+        <h3 class="sub" id="longHeading">Long link (works offline; nothing is uploaded)</h3>
+        <p class="small" id="longNote">Holds the whole moment in the address; nothing is uploaded.</p>
+        <div class="linkrow"><label for="shareLink" class="sr-only">Long link</label><input id="shareLink" readonly><button id="btnShareCopyLong">Copy</button></div>
+        <label class="switch"><input type="checkbox" id="shareAlwaysLong"> Always use long links (nothing leaves this device)</label>
+      </div>
+      <div class="bar">
+        <button id="btnShareClip">Save 6-second clip (MP4)</button>
+        <button id="btnShareShot">Screenshot (PNG)</button>
+        <button id="btnShareDownload">Download snapshot</button>
+      </div>
     </div>
   </details>
   <details class="disc" id="shareEmbed">

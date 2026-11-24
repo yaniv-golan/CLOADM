@@ -1814,12 +1814,28 @@ AES-GCM sealing round trip and tampering, the store's requests over a mocked fet
 guardrail (ROMs, cartridge, NitrOS-9, too large) refusing before any request. `tests/shortlink-worker.test.js`: the Worker
 in Node against an in-memory R2 bucket: the three objects, the arrival page's CSP hashes worked out in the test, every
 PNG rule, every limit, the kill switch, delete tokens, concurrent counts, no address stored. The browser check's
-`shortLink` group runs the same Worker behind Playwright routes for s.cloadm.dev and cloadm.dev: made on the Share
-screen, opened from its arrival page in another profile (s.cloadm.dev asked for the page and the moment only: no
-ping), deleted, the kill switch, offline, a cartridge moment. The daily open count (the Cron Trigger) is tested in Node
+`shortLink` group runs the same Worker behind Playwright routes for s.cloadm.dev and cloadm.dev: one tap on the Share
+screen's Copy link makes it, copies it and shows its field with its QR toggle, opened from its arrival page in another
+profile (s.cloadm.dev asked for the page and the moment only: no ping), deleted, the kill switch (the tap copies the
+long link, the note says short links aren't available), offline (the offline note), and a cartridge moment. The daily
+open count (the Cron Trigger) is tested in Node
 against a mocked GraphQL API: the request, the counted days, a failure and the catch-up after it.
 Not verified here: the deployed Worker on Cloudflare (its bindings, the R2 custom domain, the cache rule and CORS rule);
 docs/shortlink-deploy.md ends with the check to run once it is deployed.
+
+## The Share screen's "one link"
+
+No MAME oracle: the page decides what a tap gives. `tests/share-one-link.test.js` holds `Session.untouchedBundledProgram`
+to the owner's rule: a bundled program's own running (frames, its timers, LIZA's prompt drawing itself) is not a touch,
+and each way in (a key, a typed line, a poke, a program a tool assembled, a tape, a disk, BREAK) makes it a moment; a
+load takes the program away; the colour demo (no program page) is never offered; nothing running is null. The browser
+check's `share` group runs the same at 375x548, 861x600, 1024x640 and 1280x720: an untouched 2048 copies its program
+page, a played one shares the moment and offers "Link to 2048 from the start" under "More ways to share"; the primary
+Copy is inside the viewport, hit-testable, and keeps at least 16px of CI-predicted headroom (the Mac's bottom + 19px
+for a possible extra wrapped line) above the 548px fold; a tap that falls back to the long link shows the field; the
+clarity copy and the caption's prefix are the owner's words; a clipboard that rejects leaves the link selected with its
+note; "Always use long links" survives a reload and does not fall over when storage throws; both notes read "nothing is
+uploaded" with it on.
 
 ## Long links (`#z=`) and the program pages
 

@@ -2,19 +2,23 @@
  * The Share screen: a view of /play/ at #share, like the Library. The app bar's Share button captures the moment (the
  * snapshot and the picture at that instant) and opens it. Its one job: send this exact moment to someone.
  *
- * Top: the picture as a link preview, one line saying what the link does, a ROM line (what the person opening it must add,
- * or that it runs without ROMs: the snapshot holds no byte of a ROM or cartridge, Session.shareFile names them), then
- * the two links:
- *  - the short link (Session.shortLink): made only when asked ("Make a short link"), the moment sealed in this browser
- *    and stored on s.cloadm.dev (js/host/link-store.js), its key only in the link's fragment; with its QR code
- *    (js/media/qr.js), the "Show a preview picture" switch (on by default; the picture is public) and "Delete this link"
- *    (its delete token kept in this browser, localStorage cloadm.shortLinks). Where it can't be made (offline, a moment
- *    on ROMs, a cartridge, NitrOS-9: Session.shortLinkRefusal) the button is switched off and the reason is beside it.
- *  - the long link, headed "Works offline, never expires" and labelled "Exact moment (long link)" (Session.snapshotLink: the snapshot rides in the URL's
- *    fragment, which never reaches a server; js/ui/snapshot-panel.js opens it), with Share... (navigator.share, the URL
- *    only, where canShare allows it) and Copy link.
- * "More ways to share" (collapsed): a 6-second clip of the screen (MediaRecorder: MP4 where the browser records it, WebM
- * otherwise, and the button says which), the screenshot at true pixels, the snapshot file.
+ * Top: the picture as a link preview, one line saying what the link does (the snapshot's clarity copy), a ROM line (what
+ * the person opening it must add, or that it runs without ROMs: the snapshot holds no byte of a ROM or cartridge,
+ * Session.shareFile names them), then ONE primary link, [Copy link] (+ [Share…]) (the "one link" layout):
+ *  - a bundled program nobody has touched since it started (Session.untouchedBundledProgram) has nothing of its own to
+ *    share yet: the primary gives its program page (/2048/ etc.), and nothing is uploaded;
+ *  - otherwise the primary makes the short link on the tap (Session.shortLink: sealed in this browser, stored on
+ *    s.cloadm.dev, js/host/link-store.js, its key only in the link's fragment), copies it, shows the field with a QR
+ *    toggle, and toasts "Short link copied"; "Show a preview picture (public)" is on by default;
+ *  - a bundled program that HAS been played keeps the short-link primary, and "More ways to share" offers "Link to
+ *    <program> from the start" (its program page).
+ * Where the short link can't be made (offline, a moment on ROMs, a cartridge, NitrOS-9, the server's kill switch:
+ * Session.shortLinkRefusal, or the store refusing) the same tap copies the LONG link and the note says why. "Always use
+ * long links" (this browser, localStorage) makes every tap copy the long one. A clipboard write that rejects leaves the
+ * field selected with a press-Ctrl/⌘+C note: Copy never leaves the person with nothing.
+ * "More ways to share" (collapsed): the long link, "Long link (works offline; nothing is uploaded)" with its field,
+ * Copy and the "Always use long links" switch; then a 6-second clip of the screen (MediaRecorder: MP4 where the browser
+ * records it, WebM otherwise, and the button says which), the screenshot at true pixels, the snapshot file.
  * "Embed in a web page" (collapsed): the iframe and script for a blog post, written by js/config.js (buildUrl) from the
  * machine, program and options chosen here ("Offer 'Ask Claude ↗'" adds askclaude=1: the embed's corner chip).
  * (The settings export/import lives on the Machine tab: js/ui/settings-file.js.)
@@ -84,6 +88,8 @@ export function setupShare(page, { linkStore }) {
     d.addEventListener('toggle', () => { body.hidden = !d.open; });
   }
 
+  let fallbackWhy = ''; // a tap that tried the short link and fell back to the long one: why, said under the button
+
   // ---------------- share this moment ----------------
   async function capture() {
     const m = session.shownMachine, frame = m.render();
@@ -98,7 +104,9 @@ export function setupShare(page, { linkStore }) {
     const file = n9 ? null : await session.shareFile();
     const link = n9 ? session.shareUrl(location.href) : await session.snapshotLink(location.href, file);
     const png = await new Promise((ok) => c.toBlob(ok, 'image/png'));
-    captured = { at: Date.now(), file, png, link, base: file ? file.name.replace(/\.cloadm$/, '') : `${m.profile.name.replace(/[^A-Za-z0-9]+/g, '')}-NitrOS-9` };
+    // the bundled program, when it is one nobody has touched: its own page is the primary link (nothing is uploaded)
+    const untouched = n9 ? null : session.untouchedBundledProgram(location.href);
+    captured = { at: Date.now(), file, png, link, untouched, base: file ? file.name.replace(/\.cloadm$/, '') : `${m.profile.name.replace(/[^A-Za-z0-9]+/g, '')}-NitrOS-9` };
     const dl = $('btnShareDownload');
     dl.disabled = !file;
     dl.textContent = file ? `Download snapshot (${(file.bytes.length / 1024).toFixed(0)} KB)` : 'Download snapshot';
@@ -106,15 +114,12 @@ export function setupShare(page, { linkStore }) {
     pic.width = c.width; pic.height = c.height;
     pic.getContext('2d').drawImage(c, 0, 0);
     const name = m.profile.name.replace(/^Tandy /, '');
-    $('shareTitle').textContent = `${name} · CLOADM`;
+    $('shareTitle').textContent = `What they'll see first · ${name} · CLOADM`;
     $('shareWhen').textContent = capturedAgo(captured.at);
     $('shareLink').value = link;
-    $('longWhy').textContent = session.longLinkRefusal(m) || '';
-    short = null; refused = null;
+    short = null; fallbackWhy = '';
     $('shortMade').hidden = true; $('shareShort').value = ''; $('sharePreview').disabled = false;
-    // the snapshot's link holds the whole moment, so it is long; NitrOS-9's only starts NitrOS-9
-    $('shareLinkLabel').textContent = file ? 'Exact moment (long link)' : 'Link';
-    syncShort();   // (it calls syncPrimary() itself, after the short-link bits)
+    syncLongNote();   // (it calls syncPrimary())
     // one line under the picture, what the link does; then, only as needed, what the person opening it needs
     const rom = $('shareRom'), extra = $('shareExtra');
     rom.textContent = ''; rom.classList.remove('warn'); extra.textContent = '';
@@ -125,39 +130,108 @@ export function setupShare(page, { linkStore }) {
       syncEmbed(m.id);
       return;
     }
-    $('shareNote').textContent = `Opens on the ${name} exactly as it is now. A snapshot reopens on the same machine, RAM and ROMs.`;
+    // the snapshot's clarity copy (the owner's wording, exact): what a link opens, and that later changes are not in it
+    $('shareNote').textContent = `Opens a copy of this ${name} exactly as it is now: the screen, the program and everything in memory, including anything you typed. Changes you make later aren't in it.`;
     if (file.needs.length) { rom.textContent = needsLine(file.needs); rom.classList.add('warn'); }
     else rom.textContent = 'Runs without ROMs, so it opens for anyone.';
     // a tape being recorded is not in the link (its pulse timings could carry ROM code: js/media/romrefs.js)
     if (file.dropped.includes('deck.recording')) note('The tape being recorded is not in the link: it opens with the recorder stopped.');
     syncEmbed(m.id);
   }
-  // ---------------- the short link ----------------
-  let short = null;   // { url, id, deleteToken } once made for this capture
-  let refused = null;  // what the server or the Session said the last time a short link couldn't be made
-  // why the short link can't be made now, or null
+
+  // ---------------- the primary link: one link ----------------
+  let short = null;     // { url, id, deleteToken } once made for this capture (its field and Delete under the button)
+  const ALWAYS_LONG = 'cloadm.alwaysLongLinks';   // this browser: every tap copies the long link
+  const alwaysLong = () => { try { return localStorage.getItem(ALWAYS_LONG) === '1'; } catch (e) { return false; } };
+  const setAlwaysLong = (on) => { try { if (on) localStorage.setItem(ALWAYS_LONG, '1'); else localStorage.removeItem(ALWAYS_LONG); } catch (e) { /* no storage: for this visit */ } $('shareAlwaysLong').checked = on; };
+  const OFFLINE_LONG = "You're offline, so this is the long link: it works without any server.";
+  const UNAVAILABLE_LONG = "Short links aren't available right now, so this is the long link: it works without any server.";
+  // why the short link can't be made for this capture, or null: the Session's own refusals (ROMs, a cartridge,
+  // NitrOS-9: Session.shortLinkRefusal), then the browser's office. 'offline' is its own answer, for the note.
   const shortWhy = () => {
-    if (!captured || !captured.file) return session.shortLinkRefusal() || 'Not for this moment.';
-    if (!navigator.onLine) return 'You are offline: a short link needs the internet. The long link below works offline.';
-    return session.shortLinkRefusal();
+    const own = session.shortLinkRefusal();
+    if (own) return own;
+    if (!captured || !captured.file) return 'Not for this moment.';
+    if (!navigator.onLine) return 'offline';
+    return null;
   };
-  function syncShort() {
-    const why = short ? null : shortWhy();
-    $('btnShortMake').disabled = !!why;
-    $('btnShortMake').hidden = !!short;
-    $('shortWhy').textContent = why || refused || '';
+  // what the primary gives now, for this capture: 'program' (an untouched bundled program's page, nothing uploaded),
+  // 'long' (the switch, or the short link can't be made), 'short' (made on the tap), or 'none' (nothing captured)
+  function primaryMode() {
+    if (!captured) return 'none';
+    if (captured.untouched) return 'program';
+    if (alwaysLong() || fallbackWhy) return 'long';
+    return shortWhy() ? 'long' : 'short';
+  }
+  // Share…: the system sheet, the URL only, where the browser can share it (in an embed only if the frame allows
+  // web-share); its URL is what a tap would copy (the program page, the short link once made, else the long link)
+  const canNative = () => {
+    const url = captured && captured.untouched ? captured.untouched.page : short ? short.url : $('shareLink').value || 'https://cloadm.dev/play/';
+    if (typeof navigator.share !== 'function' || !navigator.canShare?.({ url })) return false;
+    return !document.body.classList.contains('embed') || document.featurePolicy?.allowsFeature?.('web-share') === true;
+  };
+
+  // the long link's own note under "More ways to share": what it holds, or, with the switch on, that taps use it
+  function syncLongNote() {
+    $('longNote').textContent = alwaysLong() ? 'Long link: nothing is uploaded.' : 'Holds the whole moment in the address; nothing is uploaded.';
     syncPrimary();
   }
-  function drawQr(url) {
-    const q = qrEncode(url, { ecl: 'M' }), quiet = 4, scale = 4, n = q.size + quiet * 2, c = $('shareQr');
-    c.width = n * scale; c.height = n * scale;
-    const g = c.getContext('2d');
-    g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.fillStyle = '#000';
-    for (let r = 0; r < q.size; r++) for (let k = 0; k < q.size; k++) if (q.modules[r * q.size + k]) g.fillRect((k + quiet) * scale, (r + quiet) * scale, scale, scale);
-    c.dataset.text = url;
+  // the primary button, the line under it, and the disclosures that belong to each form: the yellow reason only where
+  // there is nothing to make a short link of (a refusal, offline, or a fallback a tap already made, `fallbackWhy`);
+  // offline says so in its words.
+  function syncPrimary() {
+    const mode = primaryMode(), why = mode === 'long' && !alwaysLong() ? shortWhy() : null;
+    const native = canNative();
+    // a guardrail that leaves nothing to copy at all (no snapshot and no link: the page's refusal, not a fallback):
+    // Copy goes dark, and the reason is inline. Every guardrail today still leaves the machine's own link (NitrOS-9's
+    // boots NitrOS-9 from the recipient's image), so this is the rule kept real rather than assumed.
+    const nothingToCopy = !!captured && !captured.link && !captured.untouched;
+    $('btnShareCopy').disabled = !captured || nothingToCopy;
+    $('btnShareCopy').classList.toggle('primary', !native);
+    $('btnShareNative').hidden = !native || !captured || nothingToCopy;
+    $('btnShareNative').classList.toggle('primary', native);
+    $('primaryNote').textContent = mode !== 'program' ? (mode === 'long' && alwaysLong() ? 'Long link: nothing is uploaded.' : '') : `Opens ${captured.untouched.name} from the start, for anyone.`;
+    // a tap that fell back (fallbackWhy) has already made the choice, even though primaryMode said 'short' before it;
+    // the reason it fell back is what the person needs to see, not the state before the tap
+    $('primaryWhy').textContent = fallbackWhy || (nothingToCopy ? 'This moment can\'t be put in a link.' : why === 'offline' ? OFFLINE_LONG : why && why !== 'Not for this moment.' ? why : '');
+    $('shortTerms').hidden = mode !== 'short' || !!fallbackWhy;
+    $('previewSwitch').hidden = mode !== 'short' || !!fallbackWhy;
+    syncMore();
   }
-  $('btnShortMake').onclick = async () => {
-    const btn = $('btnShortMake');
+  // "More ways to share" gains "Link to <program> from the start" when a bundled program that HAS been played is on
+  // screen: the primary shares it as a moment, and this offers its page as it was on the program card.
+  function syncMore() {
+    const p = captured && !captured.untouched ? session.bundledProgram(location.href) : null;
+    let item = $('btnShareProgramPage');
+    if (!p) { if (item) item.remove(); return; }
+    if (!item) { item = document.createElement('button'); item.id = 'btnShareProgramPage'; item.onclick = () => copyText(item.dataset.href, 'Link copied'); $('longSet').before(item); }
+    item.textContent = `Link to ${p.name} from the start`;
+    item.dataset.href = p.page;
+  }
+  // a clipboard write that never leaves the person with nothing: a rejection puts the link in its field (shown if it
+  // was folded away), selected, with the note that says how to copy it. -> true when the clipboard took it.
+  async function copyText(url, okText, fieldId) {
+    if (fieldId === 'shareLink') openLongField();   // the copied thing is on the page, in a field the person can see
+    try { await navigator.clipboard.writeText(url); page.toast(okText); return true; }
+    catch (e) {
+      const f = fieldId && $(fieldId);
+      if (f) { f.focus(); f.select(); }
+      page.toast('Press Ctrl+C to copy the link');
+      return false;
+    }
+  }
+  function openLongField() {
+    const d = $('shareMore'), body = d.querySelector(':scope > :not(summary)');
+    d.open = true; body.hidden = false;
+  }
+  // the primary: one tap gives what primaryMode says it gives. The program page and the long link are copied as
+  // they are; the short link is made first (the moment sealed here, stored on s.cloadm.dev) and its address copied.
+  $('btnShareCopy').onclick = async () => {
+    if (!captured) return;
+    const mode = primaryMode();
+    if (mode === 'program') { await copyText(captured.untouched.page, 'Program link copied'); return; }
+    if (mode === 'long') { await copyText(captured.link, 'Long link copied', 'shareLink'); return; }
+    const btn = $('btnShareCopy');
     btn.disabled = true; btn.textContent = 'Making the short link…';
     try {
       short = await session.shortLink(linkStore, { preview: $('sharePreview').checked, file: captured.file });
@@ -167,15 +241,42 @@ export function setupShare(page, { linkStore }) {
       $('shortPicNote').textContent = short.picture ? 'With its preview picture.' : (short.pictureNote || 'Without a preview picture.');
       $('sharePreview').disabled = true;
       $('shortMade').hidden = false;
-      refused = null;
-    } catch (e) { refused = e.message; }
-    btn.textContent = 'Make a short link';
-    syncShort();
-    if (short) $('btnShortCopy').focus();
+      await copyText(short.url, 'Short link copied', 'shareShort');
+    } catch (e) {
+      // the server answered nothing or refused (offline is caught above by shortWhy; a kill switch, a limit, a store
+      // that isn't there land here): the long link instead, and the note says why it is that one, never the server's words
+      const ok = await copyText(captured.link, 'Long link copied', 'shareLink');
+      fallbackWhy = UNAVAILABLE_LONG;
+      if (!ok) page.toast('Press Ctrl+C to copy the link');
+    } finally {
+      btn.textContent = 'Copy link';
+      btn.disabled = false;
+      syncPrimary();
+    }
   };
+  // Share…: the system sheet, the URL only, where the browser can share it (an embed only if its frame allows web-share)
+  $('btnShareNative').onclick = async () => {
+    const url = captured && captured.untouched ? captured.untouched.page : short ? short.url : $('shareLink').value;
+    try { await navigator.share({ url }); }
+    catch (e) { if (e && e.name === 'AbortError') return; page.toast('Could not open the share sheet: copy the link instead'); }
+  };
+  function drawQr(url) {
+    const q = qrEncode(url, { ecl: 'M' }), quiet = 4, scale = 4, n = q.size + quiet * 2, c = $('shareQr');
+    c.width = n * scale; c.height = n * scale;
+    const g = c.getContext('2d');
+    g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.fillStyle = '#000';
+    for (let r = 0; r < q.size; r++) for (let k = 0; k < q.size; k++) if (q.modules[r * q.size + k]) g.fillRect((k + quiet) * scale, (r + quiet) * scale, scale, scale);
+    c.dataset.text = url;
+  }
   $('btnShortCopy').onclick = async () => {
-    try { await navigator.clipboard.writeText($('shareShort').value); page.toast('Short link copied'); }
-    catch (e) { $('shareShort').select(); page.toast('Press Ctrl+C to copy the link'); }
+    const ok = await copyText($('shareShort').value, $('btnShortCopy'), 'shareShort');
+    page.toast(ok ? 'Short link copied' : 'Press Ctrl+C to copy the link');
+  };
+  $('btnShortQr').onclick = () => {
+    const w = $('shortQrWrap'), b = $('btnShortQr');
+    w.hidden = !w.hidden;
+    b.setAttribute('aria-pressed', String(!w.hidden));
+    b.title = w.hidden ? 'Show the QR code' : 'Hide the QR code';
   };
   $('btnShortDelete').onclick = async () => {
     if (!short) return;
@@ -185,37 +286,18 @@ export function setupShare(page, { linkStore }) {
     keepToken(short.id, null);
     short = null;
     $('shortMade').hidden = true; $('shareShort').value = ''; $('sharePreview').disabled = false;
-    syncShort();
+    syncPrimary();
     page.toast('Short link deleted', { details: 'Copies already cached on the way may still open for up to a day.' });
   };
-  window.addEventListener('online', syncShort);
-  window.addEventListener('offline', syncShort);
-
-  // Share… (the system sheet, the URL only) where the browser can share it; in an embed only if the frame allows web-share
-  // (the short link once it is made, else the long link)
-  const sharedUrl = () => $('shareShort').value || $('shareLink').value;
-  const canNative = () => {
-    const url = sharedUrl();
-    if (typeof navigator.share !== 'function' || !navigator.canShare?.({ url })) return false;
-    return !document.body.classList.contains('embed') || document.featurePolicy?.allowsFeature?.('web-share') === true;
+  window.addEventListener('online', syncPrimary);
+  window.addEventListener('offline', syncPrimary);
+  // the long link's own Copy, and "Always use long links"
+  $('btnShareCopyLong').onclick = async () => {
+    const ok = await copyText($('shareLink').value, $('btnShareCopyLong'), 'shareLink');
+    page.toast(ok ? 'Long link copied' : 'Press Ctrl+C to copy the link');
   };
-  // one primary button: Make a short link where it can be made (the default) or its Copy once made, else Share… or Copy link
-  const syncPrimary = () => {
-    // (the short link once made: its Copy is the primary)
-    const native = canNative(), shortFirst = !!short || !$('btnShortMake').disabled;
-    $('btnShareNative').hidden = !native;
-    $('btnShareNative').classList.toggle('primary', native && !shortFirst);
-    $('btnShareCopy').classList.toggle('primary', !native && !shortFirst);
-  };
-  $('btnShareNative').onclick = async () => {
-    try { await navigator.share({ url: sharedUrl() }); }
-    catch (e) { if (e && e.name === 'AbortError') return; page.toast('Could not open the share sheet: copy the link instead'); }
-  };
-  $('btnShareCopy').onclick = async () => {
-    const url = $('shareLink').value;
-    try { await navigator.clipboard.writeText(url); page.toast('Share link copied'); }
-    catch (e) { $('shareLink').select(); page.toast('Press Ctrl+C to copy the link'); }
-  };
+  $('shareAlwaysLong').onchange = () => setAlwaysLong($('shareAlwaysLong').checked);
+  $('shareAlwaysLong').checked = alwaysLong();
   $('btnShareDownload').onclick = () => {
     page.download(captured.file.name, captured.file.bytes, 'application/gzip');
     page.toast(`Saved ${captured.file.name}`, { details: 'Drop it on CLOADM to restore it.' });
