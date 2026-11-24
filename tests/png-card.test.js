@@ -1,5 +1,5 @@
 // The shared indexed-PNG writer and card picture (js/media/png.js, js/video/card.js), taken byte for byte from the
-// short-links work, with their unit tests copied here from its
+// short-links work (png.js as of its newer readPngHeader), with their unit tests copied here from its
 // tests/program-pages.test.js (the PNG and card sections and the decoder they use, unchanged):
 //  * PNG: a hand-built picture whose file bytes are worked out here from the specification (filter Up, 4-bit
 //    packing, chunk CRCs from zlib), 8-bit palettes, and readPngHeader's refusals
@@ -73,6 +73,21 @@ const colours = (d) => Array.from(d.pixels, (i) => d.palette[i].join(','));
     for (const [what, b, re] of [['not a PNG', Uint8Array.from([1, 2, 3]), /not a PNG/], ['a damaged IHDR', crcBad, /IHDR chunk is damaged/], ['cut short', cut, /cut short|IEND/],
       ['IHDR not first', noIhdr, /damaged|first chunk/], ['bytes after IEND', extra, /IEND/]]) {
       const e = throws(() => Emu.readPngHeader(b));
+      check(`readPngHeader refuses: ${what}`, e instanceof Emu.PngError && re.test(e.message), e ? e.message : 'accepted');
+    }
+    // (added here, not copied: the newer readPngHeader's fields and chunk-order refusals, tested upstream only through
+    // the code that uses it) compression, filter and the IDAT data; PLTE after IDAT and IDATs apart are refused
+    const zchunk = (type, data) => { const b = Buffer.alloc(12 + data.length); b.writeUInt32BE(data.length, 0); b.write(type, 4, 'latin1'); Buffer.from(data).copy(b, 8);
+      b.writeUInt32BE(zlib.crc32(b.subarray(4, 8 + data.length)), 8 + data.length); return b; };
+    const sig = Buffer.from(bytes.subarray(0, 8)), ihdrC = zchunk('IHDR', bytes.subarray(16, 29)), plteC = zchunk('PLTE', bytes.subarray(41, 50)), iend = zchunk('IEND', []);
+    const z = zlib.deflateSync(Buffer.from([2, 0x01, 0x20, 2, 0x21, 0xE0]));
+    const split = [zchunk('IDAT', z.subarray(0, 4)), zchunk('IDAT', z.subarray(4))];
+    const two = Emu.readPngHeader(Uint8Array.from(Buffer.concat([sig, ihdrC, plteC, ...split, iend])));
+    check('readPngHeader: compression 0, filter 0, and the IDAT chunks\' data in order', two.compression === 0 && two.filter === 0 && two.idat.length === 2
+      && Buffer.concat(two.idat.map((x) => Buffer.from(x))).equals(z) && head.idat.length === 1, JSON.stringify({ c: two.compression, f: two.filter, n: two.idat.length }));
+    for (const [what, b, re] of [['PLTE after IDAT', Buffer.concat([sig, ihdrC, split[0], plteC, split[1], iend]), /bad PLTE/],
+      ['IDATs apart', Buffer.concat([sig, ihdrC, plteC, split[0], zchunk('tEXt', Buffer.from('a\0b')), split[1], iend]), /not together/]]) {
+      const e = throws(() => Emu.readPngHeader(Uint8Array.from(b)));
       check(`readPngHeader refuses: ${what}`, e instanceof Emu.PngError && re.test(e.message), e ? e.message : 'accepted');
     }
   }

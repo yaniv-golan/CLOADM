@@ -65,13 +65,15 @@ export async function encodeIndexedPng({ width, height, pixels, palette }) {
   return out;
 }
 
-// bytes -> { width, height, depth, colourType, interlace, palette: [[r, g, b], ...] or null, chunks: [type, ...] };
-// PngError when they are not a well-formed PNG (signature, chunk lengths and CRCs, IHDR first, IEND last)
+// bytes -> { width, height, depth, colourType, compression, filter, interlace, palette: [[r, g, b], ...] or null,
+// chunks: [type, ...], idat: [the IDAT chunks' data, in order] }; PngError when they are not a well-formed PNG
+// (signature, chunk lengths and CRCs, IHDR first, PLTE before any IDAT, the IDATs together, IEND last)
 export function readPngHeader(bytes) {
   if (!bytes || bytes.length < 8 || SIGNATURE.some((v, i) => bytes[i] !== v)) throw new PngError('not a PNG file');
   const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const chunks = [];
   let o = 8, head = null, palette = null;
+  const idat = [];
   while (o < bytes.length) {
     if (o + 12 > bytes.length) throw new PngError('a chunk is cut short');
     const len = dv.getUint32(o), end = o + 8 + len;
@@ -82,17 +84,22 @@ export function readPngHeader(bytes) {
     if (!chunks.length && type !== 'IHDR') throw new PngError('the first chunk is not IHDR');
     if (type === 'IHDR') {
       if (len !== 13 || head) throw new PngError('a bad IHDR');
-      head = { width: dv.getUint32(o + 8), height: dv.getUint32(o + 12), depth: bytes[o + 16], colourType: bytes[o + 17], interlace: bytes[o + 20] };
+      head = { width: dv.getUint32(o + 8), height: dv.getUint32(o + 12), depth: bytes[o + 16], colourType: bytes[o + 17],
+        compression: bytes[o + 18], filter: bytes[o + 19], interlace: bytes[o + 20] };
     }
     if (type === 'PLTE') {
-      if (len % 3 || len === 0 || palette) throw new PngError('a bad PLTE');
+      if (len % 3 || len === 0 || palette || idat.length) throw new PngError('a bad PLTE');
       palette = [];
       for (let i = 0; i < len; i += 3) palette.push([bytes[o + 8 + i], bytes[o + 9 + i], bytes[o + 10 + i]]);
+    }
+    if (type === 'IDAT') {
+      if (idat.length && chunks[chunks.length - 1] !== 'IDAT') throw new PngError('the IDAT chunks are not together');
+      idat.push(bytes.subarray(o + 8, end));
     }
     chunks.push(type);
     o = end + 4;
     if (type === 'IEND') break;
   }
   if (chunks[chunks.length - 1] !== 'IEND' || o !== bytes.length) throw new PngError('the file does not end with IEND');
-  return Object.assign(head, { palette, chunks });
+  return Object.assign(head, { palette, chunks, idat });
 }
