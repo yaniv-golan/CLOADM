@@ -26,9 +26,10 @@
  *   - the API key states with the same texts as full screen: no key (the key form replaces the message box),
  *     refused (the form reopens, red), rate limited and offline (Try again; nothing retries by itself);
  *   - three example questions for what is on the machine now (js/claude/prompts.js, from the Session's state, never
- *     pixels), in one place at a time: the empty chat while the panel is open, the strip under the machine while it is
- *     closed. With a key a tap fills the message box (the strip's opens the panel first) and sends nothing; without
- *     one they sit under "You could ask, once Claude is connected:", and a tap selects one (the strip's opens the
+ *     pixels), in one place at a time: the empty chat while the panel is open, the line under the screen (#screenNotes:
+ *     whole questions only, a real note there taking the line; none on a phone) while it is closed. With a key a tap fills the message box (the strip's opens the panel first) and sends nothing; without
+ *     one they sit under "You could ask, once Claude is connected:" ("Once Claude is connected:" leads the line under the
+ *     screen), and a tap selects one (the strip's opens the
  *     panel with it) and offers "I have an API key" (the question fills the message box once the key is saved) and "I
  *     use Claude →" (the question is copied). They follow the Session's events and the machine (500 ms debounce) while
  *     there is no conversation, stay put while the box has text, a pointer is down or a question is selected, and say
@@ -267,6 +268,8 @@ export function setupAsk(page, claude) {
   function where() {
     if (!session.claudeFeatures || session.claudeView === 'full') return null;
     if (open) return panelEmpty ? 'panel' : null;
+    // (the strip is the line under the screen, #screenNotes: none on a phone, which has no room for it)
+    if (phone() || !$('screenNotes').checkVisibility()) return null;
     const chat = session.chat;
     return !(chat && (chat.busy || chat.messages.length)) && !session.claudeStatus ? 'strip' : null;
   }
@@ -276,7 +279,7 @@ export function setupAsk(page, claude) {
     if (!at) {
       // (Off, or nowhere to show them: nothing is drawn, and with Off the machine is not read for them)
       if (!session.claudeFeatures) { shown = null; chosen = null; }
-      if (place) { $('askSuggest').replaceChildren(); $('askStripQs').replaceChildren(); delete $('askSuggest').dataset.set; place = null; }
+      if (place) { $('askSuggest').replaceChildren(); $('askStripQs').replaceChildren($('askOpenLabel')); delete $('askSuggest').dataset.set; place = null; }
       $('askSuggestLabel').hidden = true; $('askOpenLabel').hidden = true; $('askChoose').hidden = true;
       return;
     }
@@ -288,14 +291,15 @@ export function setupAsk(page, claude) {
       if (!shown || (set.id !== shown && !frozen())) { announce = !!shown && set.id !== shown; changed = set.id !== shown; shown = set.id; prompts = set.prompts; }
     }
     if (changed || at !== place || nk !== noKeyShown) {
-      const into = at === 'panel' ? $('askSuggest') : $('askStripQs'), other = at === 'panel' ? $('askStripQs') : $('askSuggest');
-      other.replaceChildren();
-      into.replaceChildren(...prompts.map((q) => {
+      const buttons = prompts.map((q) => {
         const b = el('button', q);
         if (nk && at === 'panel') b.setAttribute('aria-pressed', String(q === chosen));
         b.onclick = () => (at === 'panel' ? pick(q, b) : openWith(q));
         return b;
-      }));
+      });
+      // (one place at a time: the other is emptied; the strip keeps its lead label first)
+      if (at === 'panel') { $('askStripQs').replaceChildren($('askOpenLabel')); $('askSuggest').replaceChildren(...buttons); }
+      else { $('askSuggest').replaceChildren(); $('askStripQs').replaceChildren($('askOpenLabel'), ...buttons); }
       $('askSuggest').dataset.set = shown;
       place = at; noKeyShown = nk;
     }
@@ -303,7 +307,20 @@ export function setupAsk(page, claude) {
     $('askSuggestLabel').hidden = !(at === 'panel' && nk);
     $('askOpenLabel').hidden = !(at === 'strip' && nk);
     $('askChoose').hidden = !(at === 'panel' && nk && chosen != null);
+    if (at === 'strip') fitStrip();
   }
+  // the strip is one line of whole questions: those that do not fit in it whole are left out, never cut or scrolled
+  function fitStrip() {
+    const box = $('askStripQs'), qs = [...box.querySelectorAll('button')];
+    for (const b of qs) b.hidden = false;
+    if (!box.checkVisibility()) return;
+    const right = box.parentElement.getBoundingClientRect().right;
+    let out = false;
+    for (const b of qs) { out = out || b.getBoundingClientRect().right > right + 0.5; b.hidden = out; }
+    // (the lead alone is not a line: with no whole question it goes too)
+    if (qs.length && qs[0].hidden) $('askOpenLabel').hidden = true;
+  }
+  new ResizeObserver(() => { if (place === 'strip') fitStrip(); }).observe($('screenNotesBox'));
   // a question in the open panel: with a key it fills the message box; without one it is selected, and the two
   // choices come forward
   function pick(q, b) {
@@ -526,14 +543,12 @@ export function setupAsk(page, claude) {
     if (float) $('viewClaudeText').textContent = claudeStatusText(status) || text || 'Claude is acting…';
     $('btnViewResume').hidden = !(float && session.consent.paused);
     $('btnViewAnswer').hidden = !(inView && session.consent.pending);
-    // the strip under the machine: the example questions while the panel is closed (drawQuestions), and its note
-    // line; nothing in full screen or with Claude features Off
+    // the example questions (in the panel's empty chat, or on the line under the screen while it is closed:
+    // drawQuestions), and the note line under the machine; nothing in full screen or with Claude features Off
     drawQuestions();
     if (session.claudeView === 'full' || !session.claudeFeatures) { $('askOpeners').hidden = true; return; }
-    // (without a key the label "You could ask, once Claude is connected:" is the strip's first line, in the note's place)
-    const label = !$('askOpenLabel').hidden;
-    $('askMachineNote').textContent = label ? '' : busy ? 'Stop on the screen ends Claude\'s turn.' : open ? 'The emulator keeps running while you ask.' : '';
-    $('askOpeners').hidden = !$('askStripQs').children.length && !$('askMachineNote').textContent;
+    $('askMachineNote').textContent = busy ? 'Stop on the screen ends Claude\'s turn.' : open ? 'The emulator keeps running while you ask.' : '';
+    $('askOpeners').hidden = !$('askMachineNote').textContent;
   }
   claude.onChange(render);
   // back from a page view (the Library, the Debugger…): a card that came up under it is brought into view now

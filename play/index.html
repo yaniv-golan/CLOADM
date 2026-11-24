@@ -218,6 +218,12 @@
   #screenNotes > div { margin-top: 10px; background: rgba(11, 13, 12, .88); color: var(--text); font-size: 14px; line-height: 20px; padding: 6px 12px;
     border-radius: var(--r-14); text-align: center; max-width: 100%; box-sizing: border-box; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
   #screenNotes > div[hidden], #screenNotes:has(#soundHint:not([hidden])) > #keyHint { display: none; }
+  /* the example questions (js/ui/ask.js): one line of whole questions, a real note above taking the line instead */
+  #screenNotes > #askStripQs { display: flex; align-items: center; gap: 8px; margin-top: 6px; padding: 0; background: none; overflow: hidden; white-space: nowrap; pointer-events: auto; }
+  #screenNotes:has(> #soundHint:not([hidden]), > #keyHint:not([hidden])) > #askStripQs, #askStripQs:not(:has(button)) { display: none; }
+  #askStripQs > button { flex: none; height: 32px; min-height: 32px; padding: 0 12px; border-radius: var(--pill); font-size: 14px; }
+  #askStripQs > button[hidden], #askOpenLabel[hidden] { display: none; }
+  #askOpenLabel { color: var(--text-2); font-size: 14px; flex: none; }
   body:is(.touch-keys, .touch-hidden) #screenNotes, body.chat-phone #screenNotes { display: none; }
   /* Narrow notes column: the widest note on one line is the key hint, 358 px wide (14 px text, padding included), so a column
      of 360 px or more holds every note on one line (44 px). Under 360 px the box is a fixed two lines (64 px, wrapping, at most
@@ -1282,10 +1288,6 @@
   #askEmpty p { margin: 0; font-size: 15px; line-height: 1.5; color: var(--text-2); }
   #askSuggest { display: flex; flex-direction: column; gap: 8px; }
   #askSuggest button, #askOpeners button { text-align: left; background: var(--ground); border: 1px solid var(--line); border-radius: var(--r-10); padding: 11px 13px; font-size: 15px; }
-  #askStripQs { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; flex-basis: 100%; }
-  #askOpenLabel { flex-basis: 100%; text-align: center; }
-  #askStripQs:empty, #askOpenLabel[hidden] { display: none; }
-  #askStripQs button { min-height: 44px; }
   #askSuggest button { min-height: 44px; }
   #askSuggest button[aria-pressed="true"] { border-color: var(--green); box-shadow: inset 0 0 0 1px var(--green); }
   #askChoose { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -1849,6 +1851,8 @@ npx serve -l 8000 .</pre>
       <div id="screenNotesBox"><div id="screenNotes">
         <div id="soundHint" hidden>No ROMs needed · click anywhere for sound</div>
         <div id="keyHint" hidden><kbd>Esc</kbd> = BREAK · <kbd>Home</kbd> = CLEAR · <kbd>Backspace</kbd> = ←</div>
+        <!-- the Ask panel's example questions while it is closed (js/ui/ask.js): whole ones only, and a note above takes the line -->
+        <div id="askStripQs" role="group" aria-label="Example questions"><span id="askOpenLabel" hidden>Once Claude is connected:</span></div>
       </div></div>
       <!-- full screen chat: the other machine, live; a strip under the screen on a phone -->
       <div id="claudePip" hidden role="group" aria-label="Your BASIC session, live">
@@ -1859,8 +1863,6 @@ npx serve -l 8000 .</pre>
     </div>
     <!-- context openers: never over the screen -->
     <div class="controls" id="askOpeners" hidden>
-      <span class="muted" id="askOpenLabel" hidden>You could ask, once Claude is connected:</span>
-      <div id="askStripQs" role="group" aria-label="Example questions"></div>
       <span class="muted" id="askMachineNote"></span>
     </div>
 

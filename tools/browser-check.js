@@ -14878,12 +14878,16 @@ async function askPromptsChecks(browser, base, check) {
       await route.fulfill({ status: 200, headers: { ...cors, 'content-type': 'text/event-stream' }, body: reply });
     });
     if (key) await ctx.addInitScript((k) => { try { localStorage.setItem('cloadm.anthropicKey', k); } catch (e) { /* none */ } }, KEY);
+    // (the one-time key hint is done, and a click unlocks the sound: the line under the screen has no note of its own,
+    // which would take it from the questions)
+    await ctx.addInitScript(() => { try { localStorage.setItem('cloadm.keyHintDone', '1'); } catch (e) { /* none */ } });
     const page = await ctx.newPage();
     const errors = [], logs = [];
     page.on('pageerror', (e) => errors.push(e.message));
     page.on('console', (m) => logs.push(m.text()));
     await page.goto(`${base}${url}`);
     await started(page);
+    if (await page.isVisible('#screenNotesBox')) await page.click('#screenNotesBox', { position: { x: 2, y: 2 } });
     return { ctx, page, requests, errors, logs };
   };
   const set = (page) => page.evaluate(() => document.getElementById('askSuggest').dataset.set || null);
@@ -14895,21 +14899,23 @@ async function askPromptsChecks(browser, base, check) {
   {
     const L = 'ask prompts (desktop, key)';
     const { ctx, page, requests, errors, logs } = await open({ width: 1440, height: 900 });
-    // the panel closed: the questions are under the machine, and only there
+    // the panel closed: the questions are on the line under the screen, and only there: whole ones, from the first
     const both = () => run(page, () => ({ strip: [...document.querySelectorAll('#askStripQs button')].filter((b) => b.checkVisibility()).map((b) => b.textContent),
+      whole: [...document.querySelectorAll('#askStripQs button')].filter((b) => b.checkVisibility()).every((b) => b.scrollWidth <= b.clientWidth + 1
+        && b.getBoundingClientRect().right <= document.getElementById('screenNotes').getBoundingClientRect().right + 0.5),
       panel: [...document.querySelectorAll('#askSuggest button')].filter((b) => b.checkVisibility()).map((b) => b.textContent),
-      label: document.getElementById('askOpenLabel').checkVisibility(), note: document.getElementById('askMachineNote').textContent }));
-    check(`${L}: the panel closed: the link's three questions under the machine, not in the panel, with no label (a key is saved)`,
-      await waitFor(page, () => document.querySelectorAll('#askStripQs button').length === 3 && document.getElementById('askSuggest').dataset.set === 'link', null, 15000)
-      && await run(page, () => document.getElementById('askOpeners').checkVisibility())
-      && await (async () => { const b = await both(); return JSON.stringify(b.strip) === JSON.stringify(['What am I looking at?', 'What can I do here?', 'How do I start this from the beginning?']) && !b.panel.length && !b.label; })(),
+      label: document.getElementById('askOpenLabel').checkVisibility(), scroll: document.getElementById('askStripQs').scrollWidth <= document.getElementById('askStripQs').clientWidth + 1 }));
+    const LINK = ['What am I looking at?', 'What can I do here?', 'How do I start this from the beginning?'];
+    check(`${L}: the panel closed: the link's questions on the line under the screen, whole ones in order, not in the panel, no lead (a key is saved)`,
+      await waitFor(page, () => [...document.querySelectorAll('#askStripQs button')].some((b) => b.checkVisibility()) && document.getElementById('askSuggest').dataset.set === 'link', null, 15000)
+      && await (async () => { const b = await both(); return b.strip.length >= 1 && JSON.stringify(b.strip) === JSON.stringify(LINK.slice(0, b.strip.length)) && b.whole && b.scroll && !b.panel.length && !b.label; })(),
       JSON.stringify(await both()));
-    // a tap under the machine opens the panel with the question in the message box, sent nowhere
-    await page.click('#askStripQs button:nth-child(3)');
-    check(`${L}: a question under the machine opens the panel with it in the message box, not sent`, await waitFor(page, () => !document.getElementById('ask').hidden, null, 5000)
-      && await page.inputValue('#askInput') === 'How do I start this from the beginning?' && requests.length === 0
+    // a tap there opens the panel with the question in the message box, sent nowhere
+    await page.click('#askStripQs button');
+    check(`${L}: a question under the screen opens the panel with it in the message box, not sent`, await waitFor(page, () => !document.getElementById('ask').hidden, null, 5000)
+      && await page.inputValue('#askInput') === 'What am I looking at?' && requests.length === 0
       && (await maybeWaitFor('a tap must not send', page, () => !!window.emu.session.chat && window.emu.session.chat.messages.length > 0, null, 1000)) === false);
-    check(`${L}: the panel open: the questions are in it and gone from under the machine (never in both)`, await waitFor(page, () => document.querySelectorAll('#askSuggest button').length === 3
+    check(`${L}: the panel open: the questions are in it and gone from under the screen (never in both)`, await waitFor(page, () => document.querySelectorAll('#askSuggest button').length === 3
       && !document.querySelectorAll('#askStripQs button').length, null, 5000), JSON.stringify(await both()));
     await page.fill('#askInput', '');
     check(`${L}: arrived from a link: the link's questions, three of them, with no label`, await setIs(page, 'link')
@@ -14987,26 +14993,48 @@ async function askPromptsChecks(browser, base, check) {
     await closeCtx(ctx);
   }
 
+  // ---- 1280x720, no key: "Once Claude is connected:" leads the line under the screen, whole questions only, Reset
+  // stays in the window; a tap opens the panel with the question selected and the two choices; the key keeps it ----
+  {
+    const L = 'ask prompts (1280x720, no key)';
+    const { ctx, page, requests, errors } = await open({ width: 1280, height: 720 }, { key: false });
+    const line = await waitFor(page, () => [...document.querySelectorAll('#askStripQs button')].some((b) => b.checkVisibility()) && document.getElementById('askSuggest').dataset.set === 'link', null, 15000)
+      && await run(page, () => {
+        const notes = document.getElementById('screenNotes').getBoundingClientRect(), lead = document.getElementById('askOpenLabel');
+        const qs = [...document.querySelectorAll('#askStripQs button')].filter((b) => b.checkVisibility());
+        return { lead: lead.checkVisibility() ? lead.textContent : null, first: lead.compareDocumentPosition(qs[0]) & Node.DOCUMENT_POSITION_FOLLOWING ? 'lead' : 'question',
+          qs: qs.map((b) => b.textContent), whole: qs.every((b) => b.scrollWidth <= b.clientWidth + 1 && b.getBoundingClientRect().right <= notes.right + 0.5 && b.getBoundingClientRect().left >= notes.left - 0.5),
+          oneLine: qs.every((b) => Math.abs(b.getBoundingClientRect().top - qs[0].getBoundingClientRect().top) < 1), notesH: Math.round(notes.height),
+          reset: document.getElementById('btnReset').getBoundingClientRect().bottom, vh: innerHeight };
+      });
+    check(`${L}: the line under the screen: "Once Claude is connected:" then whole questions on one line, the slot's height kept, Reset inside the window`,
+      !!line && line.lead === 'Once Claude is connected:' && line.first === 'lead' && line.qs.length >= 1 && line.qs[0] === 'What am I looking at?' && line.whole && line.oneLine
+        && line.notesH === 44 && line.reset <= line.vh, JSON.stringify(line));
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, 'ask-prompts-1280x720-nokey.png') });
+    await page.click('#askStripQs button');
+    await waitFor(page, () => !document.getElementById('ask').hidden, null, 10000);
+    const carried = await run(page, () => { const sel = document.querySelector('#askSuggest button[aria-pressed="true"]');
+      return { sel: sel && sel.textContent, choose: document.getElementById('askChoose').checkVisibility(), strip: [...document.querySelectorAll('#askStripQs button')].filter((b) => b.checkVisibility()).length }; });
+    check(`${L}: a tap opens the panel with that question selected and the two choices shown, none under the screen, nothing sent`,
+      carried.sel === 'What am I looking at?' && carried.choose && carried.strip === 0 && requests.length === 0, JSON.stringify(carried));
+    await page.click('#btnAskHaveKey');
+    await page.fill('#askKeyInput', KEY);
+    await page.click('#btnAskKeySave');
+    check(`${L}: the key entered, the question is in the message box, not sent`, await waitFor(page, () => document.getElementById('askInput').value === 'What am I looking at?', null, 5000)
+      && requests.length === 0);
+    check(`${L}: no page errors`, !errors.length, errors.join('; '));
+    await closeCtx(ctx);
+  }
+
   // ---- phones, without a key: the label, select, the two choices; the size of the chips ----
   for (const [label, viewport] of [['393x659', { width: 393, height: 659 }], ['653x280', { width: 653, height: 280 }]]) {
     const L = `ask prompts (phone ${label}, no key)`;
     const { ctx, page, requests, errors, logs } = await open(viewport, { key: false });
-    // the panel closed: under the machine the label is the first line, in the note's place, then the questions
-    // (the link's arrival is marked once the page has started; the questions follow it 500 ms later)
-    await waitFor(page, () => document.querySelectorAll('#askStripQs button').length === 3 && document.getElementById('askSuggest').dataset.set === 'link', null, 15000);
-    const strip = await run(page, () => { const o = document.getElementById('askOpeners'), kids = [...o.children].filter((c) => c.checkVisibility());
-      return { first: kids[0] && kids[0].id, label: document.getElementById('askOpenLabel').textContent, note: document.getElementById('askMachineNote').textContent, panel: document.querySelectorAll('#askSuggest button').length }; });
-    check(`${L}: under the machine: "You could ask, once Claude is connected:" first, the questions under it, no note line, none in the panel`,
-      strip.first === 'askOpenLabel' && strip.label === 'You could ask, once Claude is connected:' && strip.note === '' && strip.panel === 0, JSON.stringify(strip));
-    // a tap there opens the panel with that question selected and the two choices in view
-    await run(page, () => document.querySelector('#askStripQs button:nth-child(2)').scrollIntoView({ block: 'center' }));
-    await page.click('#askStripQs button:nth-child(2)');
+    // a phone has no line of questions under the screen (no room): they are in the panel only
+    check(`${L}: the panel closed: no questions under the screen on a phone`, await maybeWaitFor('a phone shows no questions under the screen', page,
+      () => [...document.querySelectorAll('#askStripQs button')].some((b) => b.checkVisibility()), null, 1500) === false);
+    await page.click('#btnAsk');
     await waitFor(page, () => !document.getElementById('ask').hidden, null, 10000);
-    const carried = await run(page, () => { const sel = document.querySelector('#askSuggest button[aria-pressed="true"]'), c = document.getElementById('askChoose');
-      return { sel: sel && sel.textContent, choose: c.checkVisibility(), strip: document.querySelectorAll('#askStripQs button').length }; });
-    check(`${L}: a question under the machine opens the panel with it selected and the two choices shown, nothing sent`,
-      carried.sel === 'What can I do here?' && carried.choose && carried.strip === 0 && requests.length === 0, JSON.stringify(carried));
-    // (the rest starts from a closed choice: the first question picked in the panel)
     await run(page, () => { const h = document.getElementById('askHandle'); for (let i = 0; i < 3 && document.getElementById('ask').dataset.height !== 'full'; i++) h.click(); });
     check(`${L}: the questions sit under "You could ask, once Claude is connected:", not in a chat box`, await setIs(page, 'link')
       && await page.isVisible('#askSuggestLabel') && await page.textContent('#askSuggestLabel') === 'You could ask, once Claude is connected:' && !(await page.isVisible('#askComposer')));
