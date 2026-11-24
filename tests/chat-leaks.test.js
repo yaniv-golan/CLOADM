@@ -586,6 +586,8 @@ const REQUIRED = require.main !== module;
     'romFiles', 'romsStillRunning',
     // (main 1dd66fa: all four are reads/pure. indexWriteError formats a stored-write error; tapeRunning reads the
     // PERSON's deck motor flag; screenAlternative describes the SHOWN screen's text; welcomeGenNow reads the ticket)
+    // isLastRun compares a recent-list entry with the stored last run (name and bytes): a read of the store, no machine
+    'isLastRun',
     // greetingFor answers which greeting the menu takes from whether the visit began as the first (a flag, no machine)
     'indexWriteError', 'tapeRunning', 'screenAlternative', 'welcomeGenNow', 'greetingFor',
     'pickNitros9Image', 'openMedia', 'downloadMedia', 'drives.download', 'drives.writesDone', 'printoutFile',

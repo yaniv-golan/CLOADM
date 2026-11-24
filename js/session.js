@@ -2043,7 +2043,8 @@ export class Session {
     return { first, machineChosen: this.store.get('machineChosen') !== null, recent: this.library.recentMedia() };
   }
   // What ran last (the returning visit's "Last time" and the menu's "CARRY ON WITH"), kept across visits:
-  // { kind: 'liza' | 'demo' | 'game' | 'recent', name } or null (a game's name is its GAMES.list name). LIZA, the
+  // { kind: 'liza' | 'demo' | 'game' | 'recent', name } or null (a game's name is its GAMES.list name; a file also
+  // has `crc`, the hash of its bytes, which with the name tells it from another file of the same name). LIZA, the
   // demo and the games aren't in the recent list (they are ours, not the user's files), so they are remembered
   // here; a file is the recent list's first item.
   get lastRun() {
@@ -2054,7 +2055,18 @@ export class Session {
   // tab's "Last time") follows this event, not 'loaded', and names what Run again runs
   // running: false for a load that started nothing (data with no execution address): it is what ran last, but nothing
   // on screen runs it, so it is not "on screen now" (lastRunOnScreen)
-  setLastRun(kind, name, { running = true } = {}) { this.store.set('lastRun', JSON.stringify({ kind, name })); this.lastRunOn = running ? this.personMachine : null; this.emit('lastrun'); }
+  // crc: a file's content hash (the recent list's own), the identity a row of the list is told by besides its name
+  setLastRun(kind, name, { running = true, crc = null } = {}) {
+    this.store.set('lastRun', JSON.stringify(crc ? { kind, name, crc } : { kind, name }));
+    this.lastRunOn = running ? this.personMachine : null;
+    this.emit('lastrun');
+  }
+  // Is this recent-list entry the file lastRun names: the same name (the store's own case rule) and the same bytes.
+  // Two files of one name and different content are two entries, and only the one that ran is it.
+  isLastRun(entry) {
+    const last = this.lastRun;
+    return !!last && last.kind === 'recent' && this.library.sameName(entry.name, last.name) && String(entry.crc).toUpperCase() === last.crc;
+  }
   // Is what lastRun names the program on screen now: recorded as it started on the machine in use, and nothing since
   // took the machine from it (a load, a launch, a reset, a switch, the welcome menu, a snapshot), not stopped by the
   // Debugger. The page adds its own Pause. Its panels then show it as running, not as something to Run again.
@@ -2068,7 +2080,7 @@ export class Session {
   get carryOn() {
     const last = this.lastRun, m = this.shownMachine;
     if (!last || !m) return null;
-    if (last.kind === 'recent') { const r = this.library.recentMedia()[0]; return r && r.stored && this.library.sameName(r.name, last.name) && r.machine === m.id ? last : null; }
+    if (last.kind === 'recent') { const r = this.library.recentMedia()[0]; return r && r.stored && this.isLastRun(r) && r.machine === m.id ? last : null; }
     if (last.kind === 'demo') return cpuFamily(m.config.cpu) === '6809' ? last : null;
     if (last.kind === 'game') return cpuFamily(m.config.cpu) === '6809' && gameKey(last.name) ? last : null;
     return last;
@@ -2256,7 +2268,7 @@ export class Session {
     this.loadStarted = true;
     this.touch(this.shownMachine);   // a load makes a bundled program a moment (untouchedBundledProgram)
     const msg = this.loadMedia(name, bytes, askAddresses, { run });
-    if (remember) { this.library.rememberMedia(name, bytes); this.setLastRun('recent', name, { running: this.loadStarted }); }
+    if (remember) { this.library.rememberMedia(name, bytes); this.setLastRun('recent', name, { running: this.loadStarted, crc: crc32(bytes) }); }
     this.emit('loaded');
     return msg;
   }

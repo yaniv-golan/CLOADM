@@ -8,7 +8,15 @@ All notable changes to CLOADM are recorded here. The format follows
 
 Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.test.js` keeps them in step).
 
-### Added
+#### Added
+
+- **Every menu, sheet and view is checked for words run together.** A new `menuWords` group of the browser check opens
+  the app bar (at 1440 and 900 px and on a phone), the machine menu, the drive menu, the command palette, the views behind
+  the app bar (Library, Debugger, Share, Add ROMs), each tab of the settings drawer and of a phone's Settings sheet with
+  their disclosures open, the keys' Menu, and each phone sheet. It fails on a label whose letters run into a capital
+  inside one word ("InstallCLOADM…"; only GitHub and CoCo are written that way), on words the layout draws without
+  their space, and on a check that finds no label to read. The Install label's own fix (the space kept where the Menu
+  lays its items out) came before 0.2.0; this holds it, and every other label, to it.
 - **The arrival card.** A shared moment opened from a long link (`#z=`) or a short link arrives with a card docked at the
   foot of the screen, the machine running above it: "Someone sent you this &lt;machine&gt;, exactly as they left it.
   It's running now. It's your copy: nothing you do changes theirs." **Start from the beginning** starts the bundled
@@ -54,11 +62,62 @@ Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.
   go straight to the start link `/play/?start=<program>`. They work offline like the rest of the site. One entry in
   `js/program-pages.js` makes a page; `Session.programPageUrl(id, base)` gives its address.
 
-### Removed
+#### Changed
+
+- **The plugin's servers are keyed *CLOADM side panel* and *CLOADM on this computer*.** The plugin format has no field
+  for a server's display name (`mcpServers` is "keyed by name"), and Claude's plugin page and chat menu showed the old
+  keys, `cloadm-panel` and `cloadm`. The keys are now the readable names (`claude plugin validate` accepts them, and
+  Claude Code lists them); the servers' own `serverInfo.title` says the same words, and their `serverInfo.name` stays
+  the stable id (`cloadm-panel`, `cloadm-files`). What claude.ai's plugin page and chat menu show for the new keys is
+  not yet confirmed. Claude Code writes the spaces as underscores in tool names,
+  `mcp__plugin_cloadm_CLOADM_on_this_computer__boot`; the longest, the panel's
+  `mcp__plugin_cloadm_CLOADM_side_panel__open_emulator_inline`, is 58 characters, and `tests/plugin.test.js` holds
+  every tool name to the API's 64. An allowlist rule that named `mcp__plugin_cloadm_cloadm__*` needs the new name.
+
+#### Removed
+
 - **The `#s=` long-link form.** A long link is `#z=` only (`Session.readSnapshotLink`, `js/ui/main.js`). A link from a
   pre-launch build, which wrote the snapshot file itself after `#s=`, no longer opens: the page answers it with the
   same "This share link couldn't be read." refusal it gives any share-link hash no reader claims, and clears it from
   the address. `.cloadm` files are unchanged.
+
+#### Fixed
+
+- **Add ROMs offers Files only on an iPhone.** Its file and folder pickers, the side panel's ROM picker and the Library's
+  folder picker had no accept list, so iOS offered the Photo Library and the camera next to Files. They now carry one,
+  as Open… does: the usual dump extensions (`.rom .bin .zip .ccc .dat .a .b .0 .1 .2` and the models' own `.ci24`, `.ic1` and
+  the like) and `application/octet-stream`, one list in `js/roms.js` (`ROM_PICKER_ACCEPT`). The browser check lists every
+  `input[type=file]` on the page and fails on one with no accept list of its purpose, an `image/*` or `video/*` type, or
+  `capture`. How an iPhone treats a ROM whose name is not in the list is to be confirmed on a phone.
+- **Sound starts on the first tap anywhere, and a phone says so.** It started only after a tap on the screen or a key, so a
+  tap on Menu, Open… or Programs left it locked; on an iPhone the file picker's `change` is no user activation either, so a
+  `.cas` chosen from Files loaded silent, with the host's Tape sound on. One listener on the document now unlocks on the
+  events a browser counts as an activation (`pointerup`, `touchend`, `keydown`; not a touch's `pointerdown`, which iOS
+  does not count) and lets go once sound runs, and a touch screen shows a small "Tap for sound" chip on the monitor's
+  bezel until it does. The machine's sound is unchanged.
+
+- **"On screen now" tells two files of one name apart.** The mark on a Recent row matched the file name only, so two
+  files with the same name and different bytes could be told apart by position alone. The last run now records the
+  file's content hash with its name (`Session.lastRun.crc`, `Session.isLastRun(entry)`), and only the row with that
+  name and those bytes is marked and offered as the menu's carry-on. A last run recorded by an earlier build has no
+  hash, so its carry-on line is not offered until a file is run again.
+- **A toast with no free place keeps off Claude's Stop where it can, and the chat's Stop pill no longer flashes.**
+  While a turn ran, a toast that found no free place took the fixed slot at the top of the window, and in some layouts
+  that slot lay over the turn's Stop: a phone held sideways with the touch keys while Claude types (the Stop on the
+  screen), and the full-screen chat at 1280 px and held sideways (the chat's Stop, and held sideways the floating
+  pill's own). The chat's Stop pill then came up for as long as the toast showed and went with it -- the flash
+  `docs/verification.md` recorded as known -- and held sideways no Stop could be clicked at all. `js/ui/feedback.js`
+  now chooses the fallback slot by Claude's Stops that show: the top one where it covers none, else the stylesheet's
+  bottom one where that covers none; where both would cover one, the top one unless it covers every Stop and the
+  bottom one does not, so another Stop stays reachable. A pinned toast chooses again when a Stop appears or moves under
+  it (a turn that starts after the toast, the chat bar's status text growing), and `js/ui/ask.js` has the toast placed
+  from the same page state before it judges whether a Stop can be reached. Both slots cover a Stop often for a long
+  toast: the full-screen chat's own view (the chat on the big screen) at most sizes, a short BASIC view with a long
+  toast, a phone upright with the sheet. On a phone the bottom slot covers the touch keys' bottom row and the PiP's
+  controls, and the top slot the Back and Full-size buttons; neither covers the chat's input, Send or Copy. The browser
+  check's stricter `askEsc` cases (held back until this fix) run 20 toasts in each of these layouts, a toast raised
+  before the turn starts, and the full-screen chat's own view, and require the pill never to move and a Stop always to
+  be reachable.
 
 ### 0.2.0
 

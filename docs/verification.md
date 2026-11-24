@@ -884,7 +884,9 @@ FAIL, and a lone short block PASSES only when the samples played through it step
 worklet's specified dip ("a dip that refills before the fade reaches 0 is not a gap", `js/host/audio-worklet.js`),
 accepted only when provably click-free by the product's own measure (`tests/audio-short.test.js` drives a real
 `SampleQueue` through each verdict on the page's own clock-driven schedule);
-after the unlock an AudioWorkletNode plays and no ScriptProcessorNode is made (no deprecation warning); through
+after the unlock an AudioWorkletNode plays and no ScriptProcessorNode is made (no deprecation warning); the unlock is any
+user activation (a tap on Menu or Open…, not only the screen), a touch screen shows "Tap for sound" on the bezel until sound runs
+(and a pointer shows none), and a tape chosen after a tap on Open… loads with the sound already running; through
 loads, resets, pause, turbo, sound off, machine switches and a 200 ms busy page, every sample the worklet plays at
 full gain equals the one the output stage made (tolerance 0) and no step exceeds 0.01; after an underrun the fade out and
 in is a ramp of at most level / fadeLen (5 ms) a sample, measured on a loud 0.5 block put in through the sink (that
@@ -1208,6 +1210,26 @@ browser check's group `uiModel` drives them with real events at 1280x720 and at 
   900 px (none of the panel's controls covered): the "toast over the Stop" it was written for cannot form under
   the rule for opaque sheets, and in both the pill does not come and go and a Stop can be reached. `tests/feedback-toasts.test.js` checks each
   rule in Node.
+* The fallback slot and Claude's Stop (`askEsc`, `tests/toast-follow.test.js`): a toast with no free place takes the
+  top slot where it covers none of Claude's Stops that show, else the stylesheet's bottom slot where that covers none;
+  where both cover one (common for a long toast: the full-screen chat's own view, a short BASIC view, a phone upright
+  with the sheet), the top slot unless it covers every Stop and the bottom one does not. A pinned toast chooses again
+  when a Stop appears or moves (the pin follows the Stops' rects as it follows the safe area), and `js/ui/ask.js` has
+  the toast placed from the same page state (`feedback.catchUp()`) before it judges whether a Stop can be reached.
+  On a phone the bottom slot covers the touch keys' bottom row (space, SHIFT, BREAK…) and the PiP's controls, and the
+  top slot the Back and Full-size buttons; neither covers the chat's input, Send or Copy. Checked in the page: 20 toasts
+  in a row, long and short, with a turn running -- a phone held sideways (844x390, touch) while Claude types, the
+  full-screen chat over the BASIC session at 1280x800 and held sideways (the long toast in the bottom slot, over no Stop),
+  and the full-screen chat's own view at both sizes (both slots cover a Stop: the long toast over exactly
+  `#btnClaudeStop`, the PiP's Stop reachable). In each the premise (the long toast is in the fallback slot), the Stops
+  under the toast (`elementFromPoint` at each shown Stop's centre), `#viewClaude` never changing visibility, and a Stop
+  that can be clicked for every toast. And the other order, in both full-screen sizes: a toast pinned before the turn,
+  then the turn starts -- the toast moves off the Stop that appears, the pill never shows, a Stop can be clicked. In
+  Node: the slot for a Stop under the top slot, only under the bottom one, under both, a zero-size Stop inside the top
+  slot, a Stop that appears after the pin, a safe-area change while pinned in the bottom slot, and overlapping slots
+  where only the bottom one leaves a Stop uncovered. With the fallback always the top slot (the code before) the page
+  check fails: the toast lies over `#btnAskStop` or `#btnClaudeStop` (held sideways over the pill's own `#btnViewStop`
+  too), the pill comes and goes once per long toast, and held sideways no Stop can be clicked.
 * The phone layout (`phone`, iPhone 15 upright): the four chips in their fixed order under the keyboard panel, each in
   view and at least 44 x 44; each opens its sheet (a modal dialog, the focus inside, its title) and Esc closes it with
   the focus back on the chip; the hardware keyboard does not reach the machine while a sheet is open (the welcome
@@ -2354,24 +2376,6 @@ picture and keeps it the same in every field. The fast-rate picture has no autom
 
 * About one in five 1983 Dragons wouldn't run at the fast rates. We emulate a machine that accepts the POKEs.
 * Nothing persists past a reset or a power cycle: there is no "damage".
-
-## A known flash: the chat's Stop pill and a toast (not fixed here)
-
-When a turn is running and a long toast covers the chat's Stop button, the floating Stop pill (`#viewClaude`) can
-flash on and off once. `js/ui/ask.js` measures whether any Stop is reachable, and `body.claude-float` itself moves
-`#toastRegion` (`play/index.html`: `bottom: 96px` against its natural `8px`), so applying the pill can lift the very
-toast that was covering the Stop. The toast does not then hold still: `js/ui/feedback.js` re-places it as its inputs
-change (a natural toast becomes a placed or top-slot one), so between two `renderActing` samples the state the pill
-reads can change under it.
-
-The browser check measures it: `askEsc` counts how many times `#viewClaude` changes visibility while such a toast
-shows, and requires at most one, with no page errors. It does not currently assert that the toast really covers the
-Stop, nor that a Stop stays reachable — a stricter version of the check that asserts both is held for the release
-that fixes this.
-
-This is recorded rather than fixed: the fix touches the shared root — a toast's placement changing under a reader
-between samples — and is scheduled for the next minor release with that work. The check is left exactly as it was
-before this release, so the release changes no behaviour here.
 
 ---
 

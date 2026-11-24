@@ -10,6 +10,7 @@ const fs = require('fs'), path = require('path');
 const Emu = require('./load')();
 const { MemoryMediaStore } = require('../js/host/media-store-memory.js');
 
+const J = JSON.stringify;
 let fail = 0;
 const check = (name, cond, detail = '') => { if (!cond) { fail++; console.log(`FAIL ${name} ${detail}`); } else console.log(`ok   ${name} ${detail}`); };
 const bin = (file) => new Uint8Array(fs.readFileSync(path.join(__dirname, '..', 'examples', file)));
@@ -120,6 +121,19 @@ const draws = (s) => { for (let i = 0; i < 50 && !s.welcomeOnScreen; i++) run(s)
   s.load('mine.bin', bin('minesweeper.bin'));
   s.load('demo.bin', bin('demo.bin'), { remember: false });
   check('running: a file loaded without being remembered (the colour demo) is not the last run: not on screen as it', !s.lastRunOnScreen);
+  // two files of one name and different content are two entries: only the one that ran is the last run
+  {
+    const t = session();
+    t.load('same.bin', bin('minesweeper.bin'));
+    t.load('same.bin', bin('2048.bin'));
+    const [second, first] = t.library.recentMedia();
+    check('last run: two files of one name and different bytes are two recent entries', first && second && first.name === second.name && first.crc !== second.crc);
+    check('last run: the one loaded last is the last run, and only it (name and bytes)', t.isLastRun(second) && !t.isLastRun(first) && t.lastRun.crc === String(second.crc).toUpperCase(), J(t.lastRun));
+    t.load('same.bin', bin('minesweeper.bin'));
+    const now = t.library.recentMedia().find((r) => r.crc === first.crc);
+    check('last run: loading the older one again moves it: now that one is the last run, and the other is not', t.isLastRun(now) && !t.isLastRun(second), J(t.lastRun));
+    check('last run: a name is not enough: an entry of the same name and other bytes is not it', !t.isLastRun({ name: 'same.bin', crc: 'DEADBEEF' }));
+  }
   // data loaded with no execution address starts nothing: recorded as what ran last, but not on screen now
   s.load('data.raw', new Uint8Array(64), { askAddresses: () => ({ load: 0x4000, exec: null }) });
   check('running: a file loaded with no execution address is recorded but nothing runs: not on screen now', s.lastRun.name === 'data.raw' && !s.lastRunOnScreen);
