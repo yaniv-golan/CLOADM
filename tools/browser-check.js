@@ -5440,8 +5440,8 @@ async function phoneChecks(browser, base, check) {
   // edge at or below the screen's foot; Expand makes it the whole height, Collapse gives that back
   await page.tap('#btnMenu');
   const menuOrder = await page.evaluate(() => [...document.querySelectorAll('#appbar nav > :is(a, button)')].filter((e) => e.checkVisibility()).map((e) => e.innerText.trim()));
-  check('phone: Menu lists Programs…, Add ROMs, Settings…, Share…, Install…, Library, Debugger, Commands…, Help, GitHub, in that order (the focus order too)',
-    menuOrder.join('|') === 'Programs…|Add ROMs (BASIC needs them)|Settings…|Share…|Install…|Library|Debugger|Commands…|Help|GitHub', JSON.stringify(menuOrder));
+  check('phone: Menu lists Programs…, Add ROMs, Settings…, Share…, Take snapshot, Restore snapshot…, Install…, Library, Debugger, Commands…, Help, GitHub, in that order (the focus order too)',
+    menuOrder.join('|') === 'Programs…|Add ROMs (BASIC needs them)|Settings…|Share…|Take snapshot|Restore snapshot…|Install…|Library|Debugger|Commands…|Help|GitHub', JSON.stringify(menuOrder));
   const gluedMenu = await gluedLabels(page, '#appbar nav > :is(a, button)');
   check('phone: no Menu label has words run together (each space between words drawn)', !gluedMenu.length, JSON.stringify(gluedMenu));
   await page.tap('#navSettings');
@@ -15860,7 +15860,9 @@ async function foldChecks(browser, base, check) {
     const vis = (id) => { const e = document.getElementById(id); return !!e && !e.hidden && getComputedStyle(e).display !== 'none' && getComputedStyle(e).visibility !== 'hidden'; };
     const notes = document.getElementById('screenNotes'), r = document.getElementById('btnReset').getBoundingClientRect(), n = notes.getBoundingClientRect(), s = getComputedStyle(notes);
     return { resetY: r.y, resetBottom: r.bottom, vh: innerHeight, notesH: n.height, notesY: n.y, notesShown: s.display !== 'none' && s.visibility !== 'hidden' && n.height > 0,
-      sound: vis('soundHint'), keys: vis('keyHint'), text: [...notes.children].filter((c) => vis(c.id)).map((c) => c.textContent.trim()), boot: vis('bootHelp'),
+      sound: vis('soundHint'), keys: vis('keyHint'), text: [...notes.children].filter((c) => c.id !== 'askStripQs' && vis(c.id)).map((c) => c.textContent.trim()), boot: vis('bootHelp'),
+      // (the Ask panel's example questions take the line when no note is in it: js/ui/ask.js; they are not a note)
+      qs: vis('askStripQs'),
       monitorBottom: document.getElementById('monitor').getBoundingClientRect().bottom };
   });
   const run = async (label, viewport, query) => {
@@ -15894,7 +15896,7 @@ async function foldChecks(browser, base, check) {
     await waitFor(page, () => document.getElementById('keyHint').hidden);
     await emuFrames(page, 2);
     at.done = await probe(page);
-    check(`${L}: the hints done: an empty line that keeps its height (still laid out, nothing in it)`, at.done.notesShown && at.done.text.length === 0 && at.done.notesH === at.load.notesH, JSON.stringify(at.done));
+    check(`${L}: the hints done: no note, the line keeps its height, and the example questions take it (they are not a note); none while a note shows`, at.done.notesShown && at.done.text.length === 0 && at.done.notesH === at.load.notesH && at.done.qs && !at.load.qs && !at.sound.qs, JSON.stringify(at.done));
     const ys = Object.entries(at).map(([k, v]) => [k, v.resetY]), heights = new Set(Object.values(at).map((v) => v.notesH)), tops = new Set(Object.values(at).map((v) => v.notesY));
     check(`${L}: Reset's y is identical (0 px) across load, sound starting, the key hint, the boot help showing and hiding, and the hint finishing`,
       new Set(ys.map(([, y]) => y)).size === 1 && heights.size === 1 && tops.size === 1, JSON.stringify(ys));
@@ -20361,8 +20363,8 @@ async function mobileChecks(browser, base, check) {
     const items = await page.evaluate(() => [...document.querySelectorAll('.appbar nav > *')].filter((e) => e.checkVisibility()).map((e) => e.innerText.replace(/\s+/g, ' ').trim()));
     // the first item says why ROMs, and wears Menu's dot
     const itemDot = await page.evaluate(() => { const d = document.querySelector('#navRoms .dot'); return !!d && d.checkVisibility() && getComputedStyle(d).backgroundColor === getComputedStyle(document.getElementById('btnMenu'), '::after').backgroundColor; });
-    check('mobile (393x659): Menu has a dot while there is no BASIC, and lists Programs… first, then "Add ROMs (BASIC needs them)", with the same dot, Settings…, Share…, Install…, the links, Commands…, Help and GitHub',
-      dot && itemDot && items.join('|') === 'Programs…|Add ROMs (BASIC needs them)|Settings…|Share…|Install…|Library|Debugger|Commands…|Help|GitHub', JSON.stringify({ dot, itemDot, items }));
+    check('mobile (393x659): Menu has a dot while there is no BASIC, and lists Programs… first, then "Add ROMs (BASIC needs them)", with the same dot, Settings…, Share…, Take snapshot, Restore snapshot…, Install…, the links, Commands…, Help and GitHub',
+      dot && itemDot && items.join('|') === 'Programs…|Add ROMs (BASIC needs them)|Settings…|Share…|Take snapshot|Restore snapshot…|Install…|Library|Debugger|Commands…|Help|GitHub', JSON.stringify({ dot, itemDot, items }));
     const glued = await gluedLabels(page, '.appbar nav > *');
     check('mobile (393x659): no Menu label has words run together', !glued.length, JSON.stringify(glued));
     check('mobile (393x659): opening Menu moves nothing in the bar', JSON.stringify(before) === JSON.stringify(await row()));
