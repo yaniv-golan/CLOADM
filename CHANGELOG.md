@@ -35,6 +35,10 @@ Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.
 
 #### Changed
 
+- **Add ROMs says at once when a file isn't a ROM image.** An error toast and a line under the drop zone: "fake.rom isn't
+  a ROM image, so it wasn't added.", or for several "3 files weren't ROM images, so they weren't added. See What you
+  dropped.", which brings the "What you dropped" card into view. Before, only that card, below the fold, said so. The
+  browser check's new `romNotRom` group covers it at a desktop and a phone's size.
 - **One line under the screen, on a computer.** It reads "Click or press a key for sound" until sound starts (the
   "No ROMs needed" is gone), then the one-time key hint, then "Typing goes to the machine · Tab leaves the screen"; the
   bezel's focus pill no longer says the same thing a second time there (it stays on a touch screen, an embed and the

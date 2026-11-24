@@ -73,8 +73,10 @@ and its tests never use them.
   Welcome menu) shows **Your ROMs**: what each one takes (size and usual
   file names), whether it is required, and what it holds or what you miss without it. It lists what each dropped
   file turned out to be, explains a file that loaded but isn't recognised (with its CRC32 to compare), offers to
-  switch to other machines your files set up, and has **Switch on** once BASIC can boot. A dropped ROM that
-  couldn't be used (the wrong size for its name, say) is said beside the list of sockets, where you are looking.
+  switch to other machines your files set up, and has **Switch on** once BASIC can boot. A file that isn't a ROM image at
+  all is said at once, in a toast and on a line under the drop zone ("fake.rom isn't a ROM image, so it wasn't added.";
+  for several, "3 files weren't ROM images, so they weren't added. See What you dropped.", which takes you to the list).
+  A dropped ROM that couldn't be used (a copy of another in the same drop, say) is said beside the list of sockets.
   Only a machine whose required ROMs are **recognised** dumps is listed as *Also ready to run BASIC*: a file that
   was only *loaded, not a known dump* is kept and tried on its machine, but it is not proof of a working BASIC.
 

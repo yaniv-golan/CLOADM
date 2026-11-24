@@ -979,6 +979,9 @@
   #romReady:empty { display: none; }
   #romProblems { background: var(--warn-panel); border: 1px solid var(--orange); border-radius: var(--r-14); padding: 10px 14px; font-size: 13px; line-height: 1.45; margin: 10px 0; }
   #romProblems[hidden] { display: none; }
+  #romDropNote { margin: 8px 0 0; color: var(--orange); font-size: 14px; line-height: 1.45; }
+  #romDropNote[hidden] { display: none; }
+  #romCard .found:focus { outline: none; }
   #romCard .small { font-size: 14px; margin: 0; }
   #romCard #selftestCard { background: var(--panel-deep); border: 1px solid var(--line); border-radius: var(--r-14); padding: 12px 14px; }
   #romCard #selftestCard h2 { font-size: 16px; margin: 0 0 8px; }
@@ -2238,6 +2241,8 @@ npx serve -l 8000 .</pre>
         <div class="bar center"><button id="btnRomFiles" class="primary pill" title="ROMs, ZIPs or a saved ROM pack; several at once">Choose files…</button>
           <button id="btnRomFolder" class="pill" title="A folder of ROMs">Choose folder…</button></div>
       </div>
+      <!-- js/ui/rom-panel.js: files in the last drop that weren't ROM images (the card below has every file's record) -->
+      <p id="romDropNote" role="status" hidden></p>
       <div class="romnotes">
         <p><strong>Don't have them?</strong> Dump them from your own machine, or see <a href="roms/">where to get ROMs</a>.
           ROMs are copyrighted by Microsoft, Tandy, Dragon Data and others. CLOADM doesn't include them and never downloads them.
@@ -2256,7 +2261,7 @@ npx serve -l 8000 .</pre>
       <div id="romNeeds" hidden><span id="romNeedsText"></span>
         <div class="bar"><button id="btnRunStub">Run without ROMs</button></div></div>
       <div id="romStub" hidden>Running without ROMs (machine code only).</div>
-      <div class="found">
+      <div class="found" tabindex="-1">
         <div class="eyebrow">What you dropped</div>
         <div id="romFound" class="muted">Nothing yet. Drop a whole set and every machine it covers is set up at once.</div>
         <div id="romOffers" hidden></div>

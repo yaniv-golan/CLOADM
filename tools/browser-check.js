@@ -20758,6 +20758,58 @@ async function noRomChromeChecks(browser, base, check) {
   }
 }
 
+// ---------------- Add ROMs: files that aren't ROM images (js/ui/rom-panel.js notRoms) ----------------
+// A file that is no ROM image, chosen on Add ROMs: an error toast and a line beside the drop zone say so, in view where
+// the drop was made (the "What you dropped" card further down keeps every file's record). One file is named; several
+// are counted, and "See What you dropped." (the line's and the toast's) brings the card into view. A drop of real ROMs
+// afterwards takes the line down. At a desktop and at a phone's size.
+async function romNotRomChecks(browser, base, check) {
+  for (const [label, viewport] of [['desktop', { width: 1280, height: 800 }], ['phone', { width: 390, height: 844 }]]) {
+    const L = `not a ROM (${label})`;
+    const ctx = await browser.newContext({ viewport, serviceWorkers: 'block' });
+    const page = await ctx.newPage();
+    const errors = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto(`${base}?machine=dragon64`); await started(page);
+    await openRoms(page);
+    const pick = (files) => page.setInputFiles('#fileRom', files.map(([name, bytes]) => ({ name, mimeType: 'application/octet-stream', buffer: Buffer.from(bytes) })));
+    const state = () => page.evaluate(() => {
+      const note = document.getElementById('romDropNote'), r = note.getBoundingClientRect(), t = document.getElementById('toast');
+      return { note: note.checkVisibility() ? note.textContent : null, noteInView: r.top >= 0 && r.bottom <= innerHeight,
+        toast: t.hidden ? null : document.getElementById('toastText').textContent, error: t.classList.contains('error'),
+        action: document.getElementById('toastAction').checkVisibility() ? document.getElementById('toastAction').textContent : null,
+        card: document.getElementById('romFound').textContent };
+    });
+    await pick([['fake.rom', fake(1234, 31)]]);
+    await waitFor(page, () => document.getElementById('romDropNote').checkVisibility());
+    const one = await state();
+    check(`${L}: one file: an error toast and a line by the drop zone, "fake.rom isn't a ROM image, so it wasn't added."`,
+      one.note === "fake.rom isn't a ROM image, so it wasn't added." && one.toast === one.note && one.error && one.action === null && one.noteInView, JSON.stringify(one));
+    check(`${L}: the "What you dropped" card keeps the file's record`, /fake\.rom/.test(one.card), one.card);
+    await pick([['a.rom', fake(1000, 32)], ['b.bin', fake(1001, 33)], ['c.txt', fake(1002, 34)]]);
+    await waitFor(page, () => /^3 files/.test(document.getElementById('romDropNote').textContent));
+    const three = await state();
+    check(`${L}: several files: "3 files weren't ROM images, so they weren't added. See What you dropped." on the line and in the toast`,
+      three.note === "3 files weren't ROM images, so they weren't added. See What you dropped." && three.toast === "3 files weren't ROM images, so they weren't added."
+        && three.action === 'See What you dropped.' && three.error, JSON.stringify(three));
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, `not-a-rom-${label}.png`) });
+    await page.evaluate(() => scrollTo(0, 0));
+    await page.click('#romDropNote button');
+    const cardInView = () => page.evaluate(() => { const r = document.querySelector('#romCard .found').getBoundingClientRect(); return r.top >= 0 && r.top < innerHeight; });
+    check(`${L}: the line's "See What you dropped." brings the card into view`, await waitFor(page, () => { const r = document.querySelector('#romCard .found').getBoundingClientRect(); return r.top >= 0 && r.top < innerHeight; }));
+    await page.evaluate(() => scrollTo(0, 0));
+    await pick([['d.rom', fake(1003, 35)], ['e.rom', fake(1004, 36)]]);
+    await toastSeen(page, /^2 files weren't ROM images/);
+    await page.click('#toastAction');
+    check(`${L}: the toast's "See What you dropped." brings the card into view too`, await waitFor(page, () => { const r = document.querySelector('#romCard .found').getBoundingClientRect(); return r.top >= 0 && r.top < innerHeight; }) && await cardInView());
+    await pick([['d64_1.rom', fake(16384, 37)]]);
+    await waitFor(page, (m) => window.emu.session.machineRoms(m).sockets.some((s) => s.crc), 'dragon64');
+    check(`${L}: a drop of ROM images takes the line down`, await waitFor(page, () => !document.getElementById('romDropNote').checkVisibility()));
+    check(`${L}: no page errors`, !errors.length, errors.join('; '));
+    await closeCtx(ctx);
+  }
+}
+
 const GROUPS = (base, site) => [
   ['models', (b) => modelsChecks(b, base, check)],
   ['reset', (b) => resetChecks(b, base, check)],
@@ -20850,6 +20902,7 @@ const GROUPS = (base, site) => [
   ['menuWords', (b) => menuWordsChecks(b, base, check)],
   ['needsBasic', (b) => needsBasicChecks(b, base, check)],
   ['noRomChrome', (b) => noRomChromeChecks(b, base, check)],
+  ['romNotRom', (b) => romNotRomChecks(b, base, check)],
   // (required when the group runs: the shard planner's copy of this file runs --list-groups without it)
   ['connector', (b) => require('./connector-check').connectorChecks(b, check, { shots: shotDir })],
 ];
@@ -21092,17 +21145,20 @@ const romTruthChecks = async (browser, base, check) => {
     check('rom page: that line sits beside the socket list it is about, not below the scroll',
       r.below > 0 && r.below < 260, `${r.below}px below the list`);
   }
-  // a file CLOADM cannot use: the note goes beside the list, where the thing it is about is
+  // a file CLOADM cannot use because it is no ROM image (no ROM has its size): said where the drop was made, beside the
+  // drop zone, and in an error toast (the romNotRom group has the rest); not repeated in the note by the socket list,
+  // which is for ROM files that could not go in
   await p2.setInputFiles('#fileRom', [{ name: 'bas99.rom', mimeType: 'application/octet-stream', buffer: Buffer.alloc(4096, 7) }]);
   {
-    const r = await waitFor(p2, () => { const b = document.getElementById('romProblems'); return !b.hidden && b.textContent.trim() ? b.textContent.trim() : false; }, null, 10000);
+    await waitFor(p2, () => document.getElementById('romDropNote').checkVisibility(), null, 10000);
+    const r = await p2.evaluate(() => document.getElementById('romDropNote').textContent.trim());
     const where = await p2.evaluate(() => {
-      const pb = document.getElementById('romProblems'), sk = document.getElementById('romSockets');
-      const a = pb.getBoundingClientRect(), b = sk.getBoundingClientRect();
-      return { below: Math.round(a.top - b.bottom), sameColumn: pb.parentElement === sk.parentElement };
+      const nb = document.getElementById('romDropNote'), dz = document.getElementById('romDrop'), pb = document.getElementById('romProblems');
+      const a = nb.getBoundingClientRect(), b = dz.getBoundingClientRect();
+      return { below: Math.round(a.top - b.bottom), problems: pb.hidden ? '' : pb.textContent };
     });
-    check('rom page: a file it could not use is said beside the socket list, not in a toast at the window foot',
-      r !== false && where.sameColumn && where.below > 0 && where.below < 400, `${r || '(no note)'} · ${where.below}px below the list`);
+    check('rom page: a file that is no ROM image is said beside the drop zone (not by the socket list)',
+      r === "bas99.rom isn't a ROM image, so it wasn't added." && where.below >= 0 && where.below < 60 && !/bas99/.test(where.problems), `${r || '(no note)'} · ${where.below}px below the drop zone · ${where.problems}`);
   }
   check('rom page: no page errors', errs2.length === 0, errs2.join(' | '));
   await ctx2.close();

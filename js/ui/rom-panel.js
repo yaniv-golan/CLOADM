@@ -31,8 +31,10 @@ export function setupRomPanel(page) {
     // the only place this said anything, and on a phone (and a 900px desktop) the list it is about can be scrolled
     // past while the note sits below the fold. It stays until the next ROM change.
     if (onRoms) {
+      notRoms(report.files.filter((f) => f.notRom).map((f) => f.name));
       const box = $('romProblems');
-      const lines = report.files.filter((f) => f.result === 'rejected').map((f) => f.message).concat(unrowed);
+      // (files that weren't ROM images are said beside the drop zone instead: notRoms)
+      const lines = report.files.filter((f) => f.result === 'rejected' && !f.notRom).map((f) => f.message).concat(unrowed);
       box.textContent = lines.join(' · ');
       box.hidden = !lines.length;
       return;
@@ -46,6 +48,26 @@ export function setupRomPanel(page) {
     const extra = [report.ignored.length && `Not ROMs: ${report.ignored.join(', ')}`, ...problems].filter(Boolean);
     if (!text) { page.status(extra.length ? `No ROMs could be used. ${extra.join(' · ')}` : 'No ROMs found', true); return; }
     page.toast(text, extra.length ? { details: extra.join(' · '), error: problems.length > 0 } : {});
+  }
+
+  // Files that weren't ROM images at all, dropped on Add ROMs: an error toast and a line beside the drop zone (the
+  // "What you dropped" card, further down, keeps the record of every file). One file is named; several are counted,
+  // and the line and the toast lead to the card.
+  function notRoms(names) {
+    const note = $('romDropNote');
+    if (!names.length) { note.hidden = true; note.replaceChildren(); return; }
+    const one = names.length === 1;
+    const text = one ? `${names[0]} isn't a ROM image, so it wasn't added.` : `${names.length} files weren't ROM images, so they weren't added.`;
+    const toCard = () => { const card = document.querySelector('#romCard .found'); card.scrollIntoView({ block: 'center' }); card.focus({ preventScroll: true }); };
+    note.replaceChildren(document.createTextNode(text));
+    if (!one) {
+      const b = document.createElement('button');
+      b.className = 'link'; b.type = 'button'; b.textContent = 'See What you dropped.';
+      b.onclick = toCard;
+      note.append(' ', b);
+    }
+    note.hidden = false;
+    page.toast(text, { error: true, details: null, ...(one ? {} : { action: { label: 'See What you dropped.', run: toCard } }) });
   }
 
   // gathered files -> ROMs (and loose non-ROM files back to the caller). `all` takes every loose file as a
