@@ -87,9 +87,9 @@ Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.
   sets), and "[No API key yet: add one … Get one at console.anthropic.com.]" comes right after it. The BASIC session
   card says "No BASIC ROMs added, so BASIC programs won't run here. Claude can still read and change the machine's
   memory."
-- **A first visit held sideways shows the name and the two first steps.** At 653x280 with the touch keys the plate
-  under the screen says "CLOADM", and until a program has run or ROMs are added "Open…" sits left of BREAK and "Add
-  ROMs…" right of Menu (the screen's frame is 16 px shorter for the plate; the picture keeps its width).
+- **A first visit held sideways shows the two first steps.** At 653x280 with the touch keys, until a program has run or
+  ROMs are added, "Open…" sits left of BREAK and "Add ROMs…" right of Menu (44 px each); after that they are Menu's
+  and the app bar's again.
 - **A phone's rows are taller.** On an upright phone Menu's rows, the Programs sheet's (the shelf, the Recent list)
   and the machine list's grow toward 52 px with the window's height (`--row-tap`, 44 px at the least), and Menu
   scrolls inside the window instead of running past it. A phone held sideways keeps its rows; every one stays

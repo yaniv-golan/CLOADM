@@ -308,9 +308,9 @@ MC-10 or Alice, not when the right port holds a Hi-Res interface or The Rat, and
 * A program opens in the mode it is played with: 2048 and Minesweeper on Pad, LIZA, BASIC and anything else on Keys.
   The switch's choice is remembered per program and machine, and `?touch=joystick` or `?touch=keys` sets it for the
   visit.
-* Keys mode: held sideways the keyboard splits for your thumbs, BREAK, CLEAR, the switch and Menu sit under it, with
-  "CLOADM" on the plate under the screen (on a first visit, before a program has run or ROMs are added, **Open…** sits
-  left of BREAK and **Add ROMs…** right of Menu) (Menu
+* Keys mode: held sideways the keyboard splits for your thumbs, BREAK, CLEAR, the switch and Menu sit under it (on a
+  first visit, before a program has run or ROMs are added, **Open…** sits left of BREAK and **Add ROMs…** right of
+  Menu) (Menu
   has Programs…, Open…, Ask Claude…, **Share…**, the ports, Machine… — the machine picker —, Settings…, Power…, Commands…
   and **Hide keys**; an embed has no Ask Claude…, Commands… or Share…). `SHIFT` shifts the next key. Input tab →
   On-screen keyboard: Automatic, Always or Never.

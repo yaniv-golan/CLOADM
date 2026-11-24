@@ -5278,9 +5278,10 @@ async function librarySelectChecks(browser, base, check) {
 // itself on its chip; opening a sheet lets go of a held stick; Hide keys, then the floating ⌨, with the chips up
 // throughout; a toast's action button is a full-size target.
 async function phoneLandscapeFirstChecks(browser, base, check) {
-  // A first visit held sideways (653x280, touch): the plate under the screen says "CLOADM" whole; "Open…" sits left of
-  // BREAK and "Add ROMs…" right of Menu, whole, each at least 8 px clear of its neighbour and of the window's edge (the
-  // safe area included), every tap 44 px tall. After the first program has run only "CLOADM" stays.
+  // A first visit held sideways (653x280, touch): "Open…" sits left of BREAK and "Add ROMs…" right of Menu, whole, each
+  // at least 8 px clear of its neighbour and of the window's edge (the safe area included), every tap 44 px tall, with
+  // no title of their own (the welcome screen names CLOADM) and no plate under the screen (it would cost the picture
+  // height). After the first program has run both are gone (Menu's and the app bar's again).
   const L = 'phone sideways first visit (653x280)';
   const c = await browser.newContext({ viewport: { width: 653, height: 280 }, hasTouch: true, isMobile: true, serviceWorkers: 'block' });
   const p = await c.newPage();
@@ -5292,13 +5293,13 @@ async function phoneLandscapeFirstChecks(browser, base, check) {
   const read = () => p.evaluate(() => {
     const box = (id) => { const e = document.getElementById(id); if (!e || !e.checkVisibility()) return null; const r = e.getBoundingClientRect();
       return { l: r.left, r: r.right, t: r.top, b: r.bottom, h: Math.round(r.height), whole: e.scrollWidth <= e.clientWidth + 1, text: e.textContent.trim() }; };
-    const brand = document.querySelector('.plate > .brand'), br = brand.getBoundingClientRect(), tube = document.querySelector('.tube').getBoundingClientRect();
+    const plate = document.querySelector('.plate');
     const st = getComputedStyle(document.documentElement), inset = (n) => parseFloat(st.getPropertyValue(n)) || 0;
     return { open: box('tkOpen'), roms: box('tkRoms'), brk: box('tkBreak'), menu: box('tkMenu'), vw: innerWidth, safeL: inset('--safe-l'), safeR: inset('--safe-r'),
-      brand: brand.checkVisibility() ? { text: brand.textContent, whole: brand.scrollWidth <= brand.clientWidth + 1 && br.width > 0, under: br.top >= tube.bottom - 1, inView: br.bottom <= innerHeight } : null };
+      plate: plate.checkVisibility(), title: [...document.querySelectorAll('#touchKeys *')].some((e) => e.checkVisibility() && e.children.length === 0 && e.textContent.trim() === 'CLOADM') };
   });
   const first = await read();
-  check(`${L}: "CLOADM" is on the plate under the screen, whole`, !!first.brand && first.brand.text === 'CLOADM' && first.brand.whole && first.brand.under && first.brand.inView, JSON.stringify(first.brand));
+  check(`${L}: no plate under the screen and no title beside the controls`, !first.plate && !first.title, JSON.stringify({ plate: first.plate, title: first.title }));
   check(`${L}: "Open…" left of BREAK, whole, 44 px, at least 8 px clear of BREAK and of the window's edge`, !!first.open && !!first.brk && first.open.text === 'Open…' && first.open.whole && first.open.h >= 44
     && first.brk.l - first.open.r >= 8 && first.open.l - first.safeL >= 8, JSON.stringify({ open: first.open, brk: first.brk, safeL: first.safeL }));
   check(`${L}: "Add ROMs…" right of Menu, whole, 44 px, at least 8 px clear of Menu and of the window's edge`, !!first.roms && !!first.menu && first.roms.text === 'Add ROMs…' && first.roms.whole && first.roms.h >= 44
@@ -5309,7 +5310,7 @@ async function phoneLandscapeFirstChecks(browser, base, check) {
   // the first program: LIZA from the menu (key 1)
   await p.evaluate(async () => { const s = window.emu.session; s.runLiza(new Uint8Array(await (await fetch(`examples/${s.lizaFile}`)).arrayBuffer())); });
   const after = await waitFor(p, () => !document.getElementById('tkOpen').checkVisibility() && !document.getElementById('tkRoms').checkVisibility(), null, 10000) && await read();
-  check(`${L}: after the first program only "CLOADM" stays (Open… and Add ROMs… are Menu's and the app bar's again)`, !!after && !after.open && !after.roms && !!after.brand && after.brand.text === 'CLOADM', JSON.stringify(after));
+  check(`${L}: after the first program Open… and Add ROMs… are gone (Menu's and the app bar's again)`, !!after && !after.open && !after.roms && !after.plate, JSON.stringify(after));
   check(`${L}: no page errors`, !errs.length, errs.join('; '));
   await closeCtx(c);
 }
@@ -20535,10 +20536,8 @@ async function mobileChecks(browser, base, check) {
     const { ctx, page, errors } = await open({ width: 734, height: 343 }, '?machine=dragon64');
     const s = await rect(page, '#screen');
     const menus = await page.evaluate(() => [...document.querySelectorAll('button, a')].filter((e) => e.checkVisibility() && e.getBoundingClientRect().width > 0 && (e.getAttribute('aria-label') || e.textContent).trim() === 'Menu').length);
-    // (the picture is v0.1.8's size; it sits 8 px higher since the plate under the tube says "CLOADM" sideways, which
-    // takes 16 px of the tube's height: the picture is held by the tube's width here, so it keeps its size)
-    check('mobile (734x343, sideways): Keys as before (the screen 250x187 at 242,44, between the halves; guards: v0.1.8\'s size), one control named Menu',
-      await mode(page) === 'keys' && Math.round(s.l) === 242 && Math.round(s.t) === 44 && Math.round(s.w) === 250 && Math.round(s.h) === 187 && menus === 1, JSON.stringify({ s, menus }));
+    check('mobile (734x343, sideways): Keys as before (the screen 250x187 at 242,52, between the halves; guards: as v0.1.8), one control named Menu',
+      await mode(page) === 'keys' && Math.round(s.l) === 242 && Math.round(s.t) === 52 && Math.round(s.w) === 250 && Math.round(s.h) === 187 && menus === 1, JSON.stringify({ s, menus }));
     await tap(page, '#tkMenu');
     const items = await page.evaluate(() => [...document.querySelectorAll('#tkMenuSheet button')].filter((e) => e.checkVisibility()).map((e) => e.textContent));
     await tap(page, '#tkMenuSheet [data-item="machine"]');
