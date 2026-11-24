@@ -63,7 +63,11 @@ cloadm.dev is ever proxied by Cloudflare, the same query on `clientRequestPath: 
    ```
 
    Wrangler bundles `worker.js` with the one file it imports from the site (`js/media/png.js`). The route
-   `s.cloadm.dev/api/*` is the only place the Worker runs.
+   `s.cloadm.dev/api/*` is the only place the Worker runs. Besides `/api/new` and `/api/delete` it serves the report page,
+   `GET /api/report/<id>`: the arrival page's "Report this link" (a mailto to the report address naming the id), or
+   "Reporting isn't set up for this server." without one. The play page's arrival card links a short link there (in a
+   new tab, with no key); it reads nothing from the bucket. A Worker deployed before this page existed answers that
+   address with 405, so redeploy after updating.
 6. **Opens.** Make an API token (My Profile → API Tokens → Create Token → Custom) with the one permission **Zone →
    Analytics → Read** on the cloadm.dev zone, and give it to the Worker as a secret (never in `wrangler.toml`):
 
@@ -93,7 +97,8 @@ offers the long link); existing links stay readable, because reads never run the
 
 ## Removing a link (takedown)
 
-A report ("Report this link" on the arrival page) names the id. Remove its three objects:
+A report ("Report this link" on the arrival page, or on the play page's arrival card, which opens `/api/report/<id>`)
+names the id. Remove its three objects:
 
 ```
 npx wrangler r2 object delete <BUCKET_NAME>/<id> --remote

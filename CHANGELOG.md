@@ -14,7 +14,9 @@ Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.
   It's running now. It's your copy: nothing you do changes theirs." **Start from the beginning** starts the bundled
   program the moment is of from its beginning, or power cycles the same machine; **Send it back** opens the Share screen
   on the recipient's moment, exactly as Share does (nothing is uploaded until Copy). A short link's card ends with
-  **Report this link**. It covers at most 40% of the screen, never takes the focus, and goes at the first key, a load or
+  **Report this link**, which opens the short-link Worker's new report page, `GET https://s.cloadm.dev/api/report/<id>`
+  (the arrival page's Report mailto, or "Reporting isn't set up for this server."; no key, no bucket read; the Worker
+  must be redeployed for it). It covers at most 40% of the screen, never takes the focus, and goes at the first key, a load or
   a switch. Program pages show no card. The state is the Session's `arrivedFromLink`, cleared with an `'arrival'` event,
   for prompts that depend on the screen. Snapshots of a bundled program record it (`program`; `Session.momentProgram`).
 - **Start over on the snapshot toast.** "Snapshot opened: …" offers **Start over**: the moment's program from its

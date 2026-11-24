@@ -18,6 +18,8 @@
  *                    limit (RATE_IP, 429), the global limits (RATE_ALL per minute and DAILY_CAP a day, 429), anything
  *                    malformed (400) or too large (413), an origin other than ALLOWED_ORIGINS (403).
  * POST /api/delete   body JSON { id, token } -> 204; 403 when the token's SHA-256 is not the one stored with the link.
+ * GET /api/report/<id>  the report page (reportPage): the arrival page's "Report this link" mailto, or "Reporting isn't
+ *                    set up for this server." without REPORT_EMAIL; 404 for an id of the wrong form. No key, no read.
  * scheduled (a daily Cron Trigger): adds the opens of the UTC days not yet counted (up to yesterday), read from
  *                    Cloudflare's analytics (countOpens):
  *                    the successful GETs of s.cloadm.dev/<id>.bin, cached ones included, as a total. Nothing on the read
@@ -55,13 +57,18 @@ const b64 = (bytes) => btoa(String.fromCharCode(...new Uint8Array(bytes)));
 export const sha256 = async (text) => new Uint8Array(await crypto.subtle.digest('SHA-256', typeof text === 'string' ? new TextEncoder().encode(text) : text));
 const hex = (b) => Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
 
+// (id, report address) -> the "Report this link" paragraph (a mailto naming the id), or '' with no usable address
+export function reportBlock(id, reportTo) {
+  return /^[^@\s"<>]+@[A-Za-z0-9.-]+$/.test(reportTo || '')
+    ? `<p><a href="mailto:${esc(reportTo)}?subject=${encodeURIComponent(`Report CLOADM link ${id}`)}">Report this link</a></p>` : '';
+}
+
 // (id, machine id, has a picture, report address) -> the arrival page's HTML. No text from the request reaches it.
 export async function arrivalPage(id, machine, picture, reportTo) {
   if (!ID.test(id) || !MACHINES[machine]) throw new Error('arrivalPage: not an id or a machine');
   const title = `A moment on a ${MACHINES[machine]}, CLOADM`;
   const image = picture ? `${SHORT}${id}.png` : 'https://cloadm.dev/icons/icon-512.png';
-  const report = /^[^@\s"<>]+@[A-Za-z0-9.-]+$/.test(reportTo || '')
-    ? `<p><a href="mailto:${esc(reportTo)}?subject=${encodeURIComponent(`Report CLOADM link ${id}`)}">Report this link</a></p>` : '';
+  const report = reportBlock(id, reportTo);
   const csp = `default-src 'none'; script-src 'sha256-${b64(await sha256(ARRIVAL_SCRIPT))}'; style-src 'sha256-${b64(await sha256(ARRIVAL_STYLE))}'; `
     + "connect-src 'none'; img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
   return `<!doctype html>
@@ -87,6 +94,32 @@ ${picture ? `<meta property="og:image:width" content="${PNG_WIDTH}">\n<meta prop
 <p id="m">Opening a moment on a ${esc(MACHINES[machine])} in CLOADM…</p>
 ${report}</main>
 <script>${ARRIVAL_SCRIPT}</script>
+</body>
+</html>
+`;
+}
+
+// (id, report address) -> the report page (GET /api/report/<id>, the play page's arrival card links to it): the arrival
+// page's Report block and nothing else, or "Reporting isn't set up for this server." without an address. It needs no
+// key and reads no link: only the id's form is checked (a removed link can still be reported). No script.
+export async function reportPage(id, reportTo) {
+  if (!ID.test(id)) throw new Error('reportPage: not an id');
+  const report = reportBlock(id, reportTo) || '<p>Reporting isn\'t set up for this server.</p>';
+  const csp = `default-src 'none'; style-src 'sha256-${b64(await sha256(ARRIVAL_STYLE))}'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`;
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="${csp}">
+<meta name="referrer" content="no-referrer">
+<meta name="robots" content="noindex">
+<title>Report CLOADM link ${id}</title>
+<style>${ARRIVAL_STYLE}</style>
+</head>
+<body>
+<main>
+${report}</main>
 </body>
 </html>
 `;
@@ -327,6 +360,14 @@ export default {
         if (!origin || !allowed(env).includes(origin)) throw new Refused(403, 'Not from CLOADM.');
         headers.set('Access-Control-Allow-Methods', 'POST'); headers.set('Access-Control-Allow-Headers', 'Content-Type'); headers.set('Access-Control-Max-Age', '86400');
         return new Response(null, { status: 204, headers });
+      }
+      // the report page: GET /api/report/<id> (the Worker runs only on /api/*, so it lives there)
+      if (url.pathname.startsWith('/api/report/')) {
+        if (request.method !== 'GET' && request.method !== 'HEAD') { headers.set('Allow', 'GET'); throw new Refused(405, 'Only GET here.'); }
+        const id = url.pathname.slice('/api/report/'.length);
+        if (!ID.test(id)) return new Response('Not Found', { status: 404, headers: { 'content-type': 'text/plain; charset=utf-8' } });
+        return new Response(request.method === 'HEAD' ? null : await reportPage(id, env.REPORT_EMAIL),
+          { status: 200, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'public, max-age=3600' } });
       }
       if (request.method !== 'POST') { headers.set('Allow', 'POST'); throw new Refused(405, 'Only POST here.'); }
       switch (url.pathname) {

@@ -7,7 +7,7 @@
  * with [Start from the beginning] (startOver: the bundled program the moment is of, from its beginning; else a power
  * cycle into the same machine) and [Send it back] (the Share screen on the recipient's moment as it is now, exactly as
  * Share opens it: nothing is uploaded until they tap Copy). A short link's card ends with a small "Report this link"
- * (reportUrl). The card never takes the focus: the machine keeps running and the first key goes to it, which ends the
+ * (reportUrl: the short-link Worker's report page, GET /api/report/<id>, in a new tab; no key in it). The card never takes the focus: the machine keeps running and the first key goes to it, which ends the
  * arrival (Session.touch), as a load, a switch, a Reset or a power cycle do; the card goes with it ('arrival').
  * A program page (?start=) opens no moment, so it never shows the card.
  */

@@ -16503,7 +16503,8 @@ async function arrivalChecks(browser, base, check) {
     const ix = Math.max(0, Math.min(c.right, t.right) - Math.max(c.left, t.left)), iy = Math.max(0, Math.min(c.bottom, t.bottom) - Math.max(c.top, t.top));
     return { shown: a.checkVisibility(), text: document.getElementById('arrivalText').textContent, state: window.emu.session.arrivedFromLink,
       area: (ix * iy) / (t.width * t.height), height: iy / t.height, inside: c.left >= t.left - 0.5 && c.right <= t.right + 0.5 && c.top >= t.top - 0.5 && c.bottom <= t.bottom + 0.5,
-      report: document.getElementById('arrivalReport').checkVisibility(), focusInCard: a.contains(document.activeElement),
+      report: document.getElementById('arrivalReport').checkVisibility(), reportHref: document.getElementById('arrivalReport').getAttribute('href'),
+      reportTarget: document.getElementById('arrivalReport').target, focusInCard: a.contains(document.activeElement),
       start: document.getElementById('btnArrivalStart').textContent, back: document.getElementById('btnArrivalBack').textContent };
   });
   const gone = (p) => waitFor(p, () => document.getElementById('arrival').hidden && window.emu.session.arrivedFromLink === null, null, 10000);
@@ -16594,8 +16595,9 @@ async function arrivalChecks(browser, base, check) {
     const { ctx, p, asked } = await open(`${base}#l=${game.id}.${game.key}`);
     const c = await card(p);
     if (shotDir) await p.screenshot({ path: path.join(shotDir, 'arrival-short-1280x800.png') });
-    check('arrival: a short link\'s moment arrives with the same card, and only a short link\'s card ends with "Report this link"',
+    check('arrival: a short link\'s moment arrives with the same card, and only a short link\'s card ends with "Report this link": the Worker\'s report page (/api/report/<id>, no key, a new tab)',
       c.shown && c.text === ARRIVAL_TEXT && c.state && c.state.kind === 'short' && c.state.id === game.id && c.report && c.area <= 0.40
+      && c.reportHref === `https://s.cloadm.dev/api/report/${game.id}` && !c.reportHref.includes('#') && c.reportTarget === '_blank'
       && JSON.stringify(asked) === JSON.stringify([`GET /${game.id}.bin`]), JSON.stringify({ c, asked }));
     await closeCtx(ctx);
   }

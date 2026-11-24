@@ -85,6 +85,29 @@ const sealed = (n = 3000, seed = 1) => Uint8Array.from({ length: n }, (_, i) => 
     const noReport = envOf({ REPORT_EMAIL: '' });
     const r3 = await (await call(noReport, req('/api/new', { body: Emu.newLinkBody('coco', sealed()) }))).json();
     check('no report address configured: no Report link (never a broken one)', !/Report this link/.test(noReport.BUCKET.text(r3.id)));
+    // the report page (GET /api/report/<id>, the play page's arrival card links to it): the arrival page's Report block
+    // and nothing else; a 404 for an id of the wrong form; without REPORT_EMAIL it says so with no mailto; it reads no
+    // object (a bucket whose every read throws still serves it) and needs no key (none is sent)
+    {
+      const reads = [], watched = envOf();
+      watched.BUCKET.get = (k) => { reads.push(k); throw new Error('read'); };
+      const rp = await call(watched, req(`/api/report/${out.id}`, { method: 'GET', origin: null }));
+      const html = await rp.text();
+      check('report page: 200 HTML with the arrival page\'s Report mailto for that id, its title, and no script or other copy',
+        rp.status === 200 && /^text\/html/.test(rp.headers.get('content-type')) && html.includes(`<a href="mailto:abuse@example.com?subject=Report%20CLOADM%20link%20${out.id}">Report this link</a>`)
+        && html.includes(`<title>Report CLOADM link ${out.id}</title>`) && !/<script/i.test(html) && html.replace(/<style>[^<]*<\/style>/, '').replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim() === `Report CLOADM link ${out.id} Report this link`, html);
+      check('report page: never reads the bucket (no key, no link needed)', reads.length === 0, reads.join());
+      const removed = await call(envOf(), req('/api/report/Zz9_-xYw', { method: 'GET', origin: null }));
+      check('report page: an id that names no link (removed, say) is served all the same', removed.status === 200);
+      for (const bad of ['short', 'toolongid1', 'ab%3Ccd%3Eef', 'abcd.efg', `${out.id}/x`]) {
+        const r = await call(envOf(), req(`/api/report/${bad}`, { method: 'GET', origin: null }));
+        check(`report page: ${bad} is not an id: 404`, r.status === 404);
+      }
+      const none = await (await call(envOf({ REPORT_EMAIL: '' }), req(`/api/report/${out.id}`, { method: 'GET', origin: null }))).text();
+      check('report page without REPORT_EMAIL: "Reporting isn\'t set up for this server." and no mailto', none.includes("<p>Reporting isn't set up for this server.</p>") && !/mailto:/.test(none), none);
+      const post = await call(envOf(), req(`/api/report/${out.id}`, { body: 'x' }));
+      check('report page: only GET (a POST is 405)', post.status === 405);
+    }
     // an id already taken is never overwritten: another is drawn
     env.BUCKET.failNext.push((k) => k.endsWith('.bin'));
     const r4 = await call(env, req('/api/new', { body: Emu.newLinkBody('coco', sealed(64, 9)) }));

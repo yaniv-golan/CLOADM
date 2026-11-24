@@ -188,7 +188,7 @@ function startOver(program) {
   page.focus();
 }
 // the card a shared moment arrives with (Session.arrivedFromLink); Send it back is the Share screen's own open
-setupArrival(page, { openShare: () => share.open(), startOver, reportUrl: () => null });
+setupArrival(page, { openShare: () => share.open(), startOver, reportUrl: (id) => linkStore.reportUrl(id) });
 const drawer = setupDrawer(page, { showRoms });
 // a phone: the ports and power in sheets, one row of chips under the on-screen panel
 page.sheets = setupPhoneSheets(page, { touchKeys: page.touchKeys, ask });
