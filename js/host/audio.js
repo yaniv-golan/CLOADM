@@ -251,6 +251,15 @@ class Audio {
     if (on) { if (this.ctx.state === 'suspended') this.ctx.resume(); return; }
     this.idleTimer = setTimeout(() => { if (!this.active && this.ctx.state === 'running') this.ctx.suspend(); }, SUSPEND_AFTER_MS);
   }
+  // From a gesture the browser counts as a user activation (a key, a pointer release, touchend: not a touch's pointerdown,
+  // which iOS does not): start the context if it is not made yet, and resume it if it was made earlier by a handler
+  // that ran outside one (it then stands suspended, and start() resumes only while sound is active). The context then
+  // suspends again by itself if the page is paused or hidden (setActive).
+  unlock() {
+    this.start();
+    if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume();
+    if (!this.active) this.setActive(false);
+  }
   // sound is actually playing (browsers only allow it after a click or key press)
   get running() { return !!this.ctx && this.ctx.state === 'running'; }
   buffered() { return this.out ? this.out.buffered() : 0; }

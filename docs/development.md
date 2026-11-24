@@ -43,7 +43,7 @@ names contain one of the parts, and `node tools/browser-check.js --only <group>[
 | `cli/` (the command line and the MCP server) | `cli,mcp,game-guide,starter-game` | none |
 | `connector/` (the side-panel connector) | `connector,mcp,skill` | `connector` |
 | `examples/` (a program or game) | `pwa,starter-game,game-guide,welcome` and the example's own suite | `pwa` (and the group that offers it) |
-| `js/ui/`, `play/`, `css/`, `index.html` | `session,readme,screen-alternative` | the panel's groups and `semantics` (CI attempt 1 runs every group) |
+| `js/ui/`, `play/`, `css/`, `index.html` | `session,readme,screen-alternative` | the panel's groups, `semantics` and `menuWords` (a label's words, in every menu and sheet; CI attempt 1 runs every group) |
 | Docs (`README.md`, `docs/`) | `readme,romdocs,game-guide,dev-docs-headless,disk-read-example` | none |
 | `CHANGELOG.md` | `changelog` | none |
 | The test runner (`tests/all.js`, `suite-verdict.js`, `no-exit.js`) | `allsummary,allsignal,allsched,suite-shards,exitguard,exitcode` | none |
@@ -278,7 +278,7 @@ node tests/privacy-copy.test.js # the ROM privacy copy (README, docs, front, /ro
 node tests/cpu6309-offer.test.js   # the welcome menu is offered on every 6309 model ('menu', 'back'), and the file it fetches is the 6809 build (welcome.bin), as the 6809 gets
 node tests/cpu6309-session.test.js # the HD6309 runs the 6809 builds: welcome menu, LIZA, the demo and the chat firmware on every 6309 model, each ending in the same state as on the 6809
 node tests/returning.test.js # returning visits: greetings, carry-on (option 6; 5 on the 6803 build), what ran last, back to the menu from LIZA (BYE or BREAK) and the demo
-node tests/welcome-on-screen.test.js # "on screen now" (Session.welcomeOnScreen: the menu loaded on the machine shown, not stopped by the Debugger, and its prompt drawn; Session.lastRunOnScreen: the last-run program still the one on screen) and 'lastrun', which "Last time" follows; the page side is the browser check's returning group (onScreenChecks)
+node tests/welcome-on-screen.test.js # "on screen now" (Session.welcomeOnScreen: the menu loaded on the machine shown, not stopped by the Debugger, and its prompt drawn; Session.lastRunOnScreen: the last-run program still the one on screen; Session.isLastRun: a recent entry is the last run by name and bytes) and 'lastrun', which "Last time" follows; the page side is the browser check's returning group (onScreenChecks)
 node tests/debugger-stop.test.js # a Debugger stop in the Session: Reset, a power cycle, a load and a switch release a Debugger stop (breakpoints kept, 'launch' and 'released' emitted), typing while stopped is refused once per stop, the status line says Stopped or Paused; the page side is the browser check's debugger group (debuggerStopChecks)
 node tests/menu-return.test.js # a program's return to the menu survives the chat: BYE in LIZA and the demo's key after the full-screen chat opened and closed, the watch waiting while the chat machine is on screen, Reset restarting what ran on each machine
 node tests/power-on.test.js  # without ROMs: Reset restarts what runs; power-on, a machine switch and a snapshot of the stub's prompt bring the welcome menu (6809 and 6803)
