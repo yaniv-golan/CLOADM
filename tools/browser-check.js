@@ -1852,12 +1852,24 @@ async function audioUnlockChecks(browser, base, check) {
   const block = (type, data) => { let sum = (type + data.length) & 0xFF; for (const v of data) sum = (sum + v) & 0xFF; return [0x55, 0x3C, type, data.length, ...data, sum]; };
   const cas = Buffer.from([...Array(128).fill(0x55), ...block(0, [...Buffer.from('UNLOCK  '), 2, 0, 0, 0x30, 0x00, 0x30, 0x00]), ...Array(16).fill(0x55), ...block(1, [0x20, 0xFE]), ...block(0xFF, [])]);
   const chip = (page) => page.evaluate(() => { const c = document.getElementById('soundChip'), r = c.getBoundingClientRect(); return { hidden: c.hidden, shown: c.checkVisibility(), text: c.textContent, w: Math.round(r.width), h: Math.round(r.height) }; });
+  // which document listeners the unlock handler holds (its name is `unlock`): added and removed, by event type
+  const logListeners = (page) => page.addInitScript(() => {
+    const log = window.__unlockListeners = { added: [], removed: [] };
+    const add = document.addEventListener.bind(document), rem = document.removeEventListener.bind(document);
+    document.addEventListener = (t, f, o) => { if (f && f.name === 'unlock') log.added.push(t); return add(t, f, o); };
+    document.removeEventListener = (t, f, o) => { if (f && f.name === 'unlock') log.removed.push(t); return rem(t, f, o); };
+  });
+  const sameSet = (a, b) => JSON.stringify([...new Set(a)].sort()) === JSON.stringify([...b].sort());
   // touch: the first tap on Menu (not the screen) unlocks, and the chip goes for good
   {
     const ctx = await browser.newContext({ ...devices['iPhone 15'], serviceWorkers: 'block' });
     const page = await ctx.newPage();
     page.on('pageerror', (e) => errors.push(e.message));
+    await logListeners(page);
     await page.goto(`${base}?machine=dragon64`); await started(page);
+    const wired = await page.evaluate(() => window.__unlockListeners.added.slice());
+    check('sound unlock: listens on pointerup, touchend and keydown, not on pointerdown (which iOS does not count)', sameSet(wired, ['keydown', 'pointerup', 'touchend']) && wired.length === 3, JSON.stringify(wired));
+    check('sound unlock (touch): the chip is aria-hidden, so a reader never announces it', await page.evaluate(() => document.getElementById('soundChip').getAttribute('aria-hidden') === 'true'));
     const before = await chip(page);
     check('sound unlock (touch): "Tap for sound" shows on the bezel until sound runs, and sound is not running yet',
       before.shown && before.text === 'Tap for sound' && before.h > 0 && !(await page.evaluate(() => window.emu.audioRunning())), JSON.stringify(before));
@@ -1865,6 +1877,9 @@ async function audioUnlockChecks(browser, base, check) {
     await page.tap('#btnMenu');
     const unlocked = await waitFor(page, () => window.emu.audioRunning() && document.getElementById('soundChip').hidden, null, 5000);
     check('sound unlock (touch): the first tap on Menu, not the screen, starts the sound and the chip goes', unlocked, JSON.stringify(await chip(page)));
+    const gone = await waitFor(page, () => window.__unlockListeners.removed.length >= 3, null, 3000);
+    const removed = await page.evaluate(() => window.__unlockListeners.removed.slice());
+    check('sound unlock: once sound runs the handler removes all three listeners', gone && sameSet(removed, ['keydown', 'pointerup', 'touchend']), JSON.stringify(removed));
     await page.waitForTimeout(1500);   // (the page re-reads the state every second)
     await page.evaluate(() => { const b = document.getElementById('chkSound'); if (b) { b.checked = false; b.dispatchEvent(new Event('change')); b.checked = true; b.dispatchEvent(new Event('change')); } });
     await page.waitForTimeout(1200);
@@ -1886,6 +1901,38 @@ async function audioUnlockChecks(browser, base, check) {
       atPicker.running && atPicker.tape && during.running && during.tape && !!during.tapeName, JSON.stringify({ atPicker, during }));
     await ctx.close();
   }
+  // touch: a tap while the page is paused or hidden still resumes a context made earlier outside a gesture (it stands suspended)
+  {
+    const ctx = await browser.newContext({ ...devices['iPhone 15'], serviceWorkers: 'block' });
+    const page = await ctx.newPage();
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto(`${base}?machine=dragon64`); await started(page);
+    const made = await page.evaluate(async () => {
+      const a = window.emu.audio; a.start(); a.setActive(false);   // (made by a handler outside any gesture; headless Chromium lets it run, so it is suspended as a phone would hold it)
+      await a.ctx.suspend();
+      window.__ran = false; a.ctx.onstatechange = () => { if (a.ctx.state === 'running') window.__ran = true; };
+      return { state: a.ctx.state, active: a.active };
+    });
+    await page.tap('#btnMenu');
+    const ran = await waitFor(page, () => window.__ran, null, 3000);
+    check('sound unlock (touch): a tap while the page is paused or hidden resumes a context that stood suspended', made.state === 'suspended' && !made.active && ran, JSON.stringify({ made, ran }));
+    await ctx.close();
+  }
+  // touch, phones upright and on their side: the chip never lies over the screen's picture
+  for (const [name, opts] of [['375x667', { viewport: { width: 375, height: 667 }, hasTouch: true, isMobile: true }], ['390x844', devices['iPhone 15']], ['320x568', { viewport: { width: 320, height: 568 }, hasTouch: true, isMobile: true }], ['iPhone 15 landscape', devices['iPhone 15 landscape']]]) {
+    const ctx = await browser.newContext({ ...opts, serviceWorkers: 'block' });
+    const page = await ctx.newPage();
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto(`${base}?machine=dragon64`); await started(page);
+    await page.waitForTimeout(500);
+    const g = await page.evaluate(() => {
+      const c = document.getElementById('soundChip'), r = c.getBoundingClientRect(), v = document.getElementById('screen').getBoundingClientRect();
+      return { shown: c.checkVisibility(), chip: [r.left, r.top, r.right, r.bottom].map(Math.round), screen: [v.left, v.top, v.right, v.bottom].map(Math.round),
+        overlap: r.left < v.right && r.right > v.left && r.top < v.bottom && r.bottom > v.top, inside: r.left >= 0 && r.right <= innerWidth && r.bottom <= innerHeight };
+    });
+    check(`sound unlock (${name}): the chip shows, inside the window, and does not touch the screen's picture`, g.shown && !g.overlap && g.inside, JSON.stringify(g));
+    await ctx.close();
+  }
   // a pointer: no chip, and a key press (not on the screen) unlocks
   {
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, serviceWorkers: 'block' });
@@ -1894,8 +1941,10 @@ async function audioUnlockChecks(browser, base, check) {
     await page.goto(`${base}?machine=dragon64`); await started(page);
     const before = await chip(page);
     check('sound unlock (desktop): no "Tap for sound" chip, and sound is not running yet', !before.shown && !(await page.evaluate(() => window.emu.audioRunning())), JSON.stringify(before));
-    await page.keyboard.press('Shift');
-    check('sound unlock (desktop): a key press starts the sound', await waitFor(page, () => window.emu.audioRunning(), null, 5000));
+    await page.focus('#btnPause');   // (a control: the screen's own key handler takes no key from it, so the document's listener is what is tried here)
+    const focus = await page.evaluate(() => document.activeElement && document.activeElement.id);
+    await page.keyboard.press('q');
+    check('sound unlock (desktop): a key press with the focus off the screen starts the sound', focus !== 'screen' && await waitFor(page, () => window.emu.audioRunning(), null, 5000), `focus ${focus}`);
     await ctx.close();
   }
   check('sound unlock: no page errors', !errors.length, errors.join('; '));

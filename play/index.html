@@ -1536,7 +1536,13 @@
     :root.float-bar { --tk-bar: 84px; }
     /* room for the install card's strip under the screen, when the Menu item put it up (js/ui/install.js; the offer
        itself never shows on a phone): the monitor narrows by 4/3 of it (above), so nothing under it moves */
-    body.touch-keys:not(.chat-phone) .layout > main > .monitor { margin-bottom: var(--install-room, 0px); }
+    body:is(.touch-keys, .touch-hidden):not(.chat-phone) .layout > main > .monitor { margin-bottom: calc(var(--install-room, 0px) + var(--chip-room, 0px)); }
+    /* "Tap for sound": the screen fills the monitor here, so the chip has a strip of its own under it until sound runs
+       (touch-keys.js counts the margin in --tk-below, so the screen narrows to fit where the height is tight) */
+    body:is(.touch-keys, .touch-hidden):not(.chat-phone) #soundChip { bottom: auto; top: calc(100% + 2px); }
+    @media (min-height: 521px) { body:is(.touch-keys, .touch-hidden):not(.chat-phone):has(#soundChip:not([hidden])) { --chip-room: 26px; } }
+    /* (a window this short has no room to spare: no chip, and the first tap anywhere still starts the sound) */
+    @media (max-height: 520px) { body:is(.touch-keys, .touch-hidden):not(.chat-phone) #soundChip { display: none; } }
     /* (the keys 40 px: under Apple's 44 pt guideline, which the room upright does not allow with five rows and the
        screen; well over WCAG 2.5.8's 24 px minimum target. The pad's keys are 48 and more, the strip's controls 44.) */
     body.touch-keys:not(.chat-phone) #touchKeys .tk { height: 40px; min-height: 40px; }
