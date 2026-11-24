@@ -208,6 +208,15 @@ whatever image is in DriveWire drive 0 then.
   menu also offers the machine's disk controllers (no image needed: the disk ROM is the one you added), which the drives
   card then uses.
 * **`.BAS` / `.TXT`**: BASIC listings, which are typed in.
+* **A program that needs BASIC, without its ROM.** Most programs call BASIC's ROM for something (clearing the screen,
+  printing a number). Without the ROMs, CLOADM's built-in firmware has only the routines that read the keyboard and
+  print (POLCAT and CHROUT), so such a call returns at once with nothing done and the screen fills with junk. The first
+  time a program you loaded calls BASIC this way, a card at the foot of the screen says so: "*file* needs the
+  *machine*'s BASIC ROM, which isn't added yet.", with **Add ROMs** and **Dismiss** (and, under **Details**, the address
+  it called and when). The machine keeps running under it. Once the ROMs are added the card offers **Run *file* again
+  with ROMs**, which switches the machine off and on with them and loads the file again (if you dismissed the card, a
+  toast offers it instead). It says this once per load, and never for the bundled programs, a cartridge's own code, the
+  all-RAM map, a machine that has its ROMs, or while the Debugger has the machine stopped or is stepping it.
 * **A memory dump**: a `.bin` that is none of the above, a `.raw`, `.ram`, `.dmp` or `.mem` file, or a file with no
   extension loads as raw data at an address you enter.
 * **Any other file** (a photo, a PDF) is not loaded: CLOADM says "*name* isn't a file CLOADM opens.", with the kinds it

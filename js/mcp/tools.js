@@ -692,7 +692,7 @@ export function createToolbox(host, { readOnly = false, maxMachines = MAX_MACHIN
         if (name === 'liza') return { loaded: 'liza', message: await s.startLiza((f) => host.program(f)) };
         if (name === 'demo') {
           if (cpuFamily(s.shownMachine.config.cpu) !== '6809') throw fail('rejected', `the demo is 6809 code; the ${s.shownMachine.profile.name} has a ${s.shownMachine.config.cpu}`);
-          return { loaded: 'demo', message: s.load('demo.bin', host.program('demo.bin'), { remember: false }) };
+          return { loaded: 'demo', message: s.load('demo.bin', host.program('demo.bin'), { remember: false, ours: true }) };
         }
         if (Object.hasOwn(GAMES.list, name)) { s.checkGame(name); return { loaded: name, message: s.runGame(name, host.program(s.gameFile(name))) }; }
         throw fail('bad-argument', `program: ${JSON.stringify(name)} is not ${PROGRAMS.slice(0, -1).join(', ')} or ${PROGRAMS[PROGRAMS.length - 1]}`);

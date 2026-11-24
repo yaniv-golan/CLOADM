@@ -19,6 +19,7 @@ import { setupMachinePanel } from './machine-panel.js';
 import { setupRomPanel } from './rom-panel.js';
 import { setupRomSockets } from './rom-sockets.js';
 import { setupBootHelp } from './boot-help.js';
+import { setupNeedsBasic } from './needs-basic.js';
 import { setupWelcome } from './welcome.js';
 import { setupKeyHint } from './key-hint.js';
 import { setupMediaPanel } from './media-panel.js';
@@ -127,6 +128,17 @@ setupDriveWirePanel(page);
 const romPanel = setupRomPanel(page);
 const romSockets = setupRomSockets(page, romPanel, { confirmSwitch: machinePanel.confirmSwitch });
 setupBootHelp(page, romSockets);
+setupNeedsBasic(page, romSockets);
+// one attention card at a time (play/index.html): the needs-BASIC card over the boot help, either over the no-ROM card
+{
+  const sync = () => {
+    document.body.classList.toggle('card-needs', !$('needsBasic').hidden);
+    document.body.classList.toggle('card-boot', !$('bootHelp').hidden);
+  };
+  const watch = new MutationObserver(sync);
+  for (const id of ['needsBasic', 'bootHelp']) watch.observe($(id), { attributes: true, attributeFilter: ['hidden'] });
+  sync();
+}
 let library = null;
 const snapshots = setupSnapshotPanel(page, { confirmSwitch: machinePanel.confirmSwitch, openRoms: () => romSockets.reveal() });
 const disks = setupDrives(page, { openRoms: () => romSockets.reveal({ to: 'disk' }) });

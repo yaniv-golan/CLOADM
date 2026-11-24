@@ -124,6 +124,7 @@ export class Debugger {
     this.log = [];                 // the trace ring buffer, oldest first
     this.steps = 0;                // instructions executed by step()/run()/stepOver()/runToReturn()
     this.stopped = false;
+    this.commanding = 0;           // a command (step, Over, Out, Run to, run) is running the machine now: not the frame loop
     this.stopReason = null;
     this.onStop = null;            // called with this debugger at every stop (the Session: 'debugger-stopped')
     this.skipBp = null;            // an address whose breakpoint is not to fire again (set by a stop)
@@ -303,7 +304,10 @@ export class Debugger {
   // Run up to `max` instructions, stopping at a breakpoint (before it runs), at an arrival address
   // (step over / run to / run to return) or after an instruction a watchpoint saw.
   // Continuing from a stop does not stop on the same breakpoint again, so Run moves on from a breakpoint.
-  run(max = 1000000) { const n = this._go((i) => i < max, max, HELD_FRAMES.run); this._syncFrames(); return n; }
+  run(max = 1000000) {
+    this.commanding++;
+    try { const n = this._go((i) => i < max, max, HELD_FRAMES.run); this._syncFrames(); return n; } finally { this.commanding--; }
+  }
   // Run until the machine's tick reaches `end` (a frame's end: Machine.runFrame(runTo) passes it), stopping as
   // run() does -> true when it got there, false when it stopped first. A machine waiting for the store
   // (m.stall) gives way too, without a stop: Machine.runFrame sees the stall and keeps the frame open.
@@ -378,6 +382,10 @@ export class Debugger {
   // halted, it waits a frame of machine time (HELD_FRAMES.step) for an instruction to run, then stops with kind
   // 'halted' and returns 0, the PC unchanged (an instruction HALT suspended is still to run from its start).
   step() {
+    this.commanding++;
+    try { return this._step(); } finally { this.commanding--; }
+  }
+  _step() {
     this.stopped = false; this.stopReason = null; this.hit = null;
     let since = -1;
     for (;;) {

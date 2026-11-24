@@ -37,6 +37,7 @@ names contain one of the parts, and `node tools/browser-check.js --only <group>[
 | Debugger | `debugger,debug-session,halt,probes,writewatch` | `debugger,debuggerScreen` |
 | Keyboard and input | `input,keyqueue,keyboard-symbols,touch-joystick,press-break` | `input,inputScreen,touchJoystick,keyboardSymbols,typing` |
 | `js/session.js`, snapshots | `session,snapshot,state,restore-points,writewatch` | `snapshot,state` |
+| The "needs BASIC" detector (`js/needs-basic.js`, `js/ui/needs-basic.js`, the firmware's `implemented`) | `needs-basic,stub,debugger,regress` | `needsBasic,romUi` |
 | `js/drives.js` (the floppy drives) | `session-drives,disks,disks-newdisk,disk-bare,disks-mount-case,disks-mount-race,restore-points` | `disk,driveWire` |
 | `js/library.js` (the media library) | `session-library,storage-move,move-inflight,library-case,recent,store-error-names,media-store,media-index-settled,media-multitab,store-races` | `library,librarySelect,mediaBackend` |
 | The Claude chat and Ask Claude | `claude,chat-firmware` | `claude,ask,commands,chatScreen` |

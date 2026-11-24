@@ -18,6 +18,18 @@ Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.
   their space, and on a check that finds no label to read. The Install label's own fix (the space kept where the Menu
   lays its items out) came before 0.2.0; this holds it, and every other label, to it.
 
+- **"This program needs BASIC".** A program you load on a machine without its BASIC ROM that calls a BASIC routine
+  (the built-in firmware has only POLCAT and CHROUT) now gets a card at the foot of the screen, the first time it does:
+  "*file* needs the *machine*'s BASIC ROM, which isn't added yet. It tried to use BASIC, and there's nothing there yet,
+  so the screen fills with junk.", with **Add ROMs**, **Dismiss** and the address and frame under **Details**. It covers
+  at most about 40% of the screen and the machine keeps running. With the ROMs added it becomes "ROMs added." with
+  **Run *file* again with ROMs** (a switch off and on, then the same load); dismissed, a toast offers that instead. It
+  fires on the first instruction fetched from BASIC's ROM space at an address the firmware does not implement (the
+  firmware now exports what it implements: `stubRom`'s `implemented`, each family's `basicRomAt`), once per load,
+  cleared by a reset, and never for the bundled programs, the all-RAM map, CoCo 3 RAM mode, a cartridge's space with a
+  cartridge in, a machine with BASIC, or while the Debugger is stopped or stepping (`Debugger.commanding`). Tested in
+  `tests/needs-basic.test.js` and the browser check's new `needsBasic` group.
+
 #### Changed
 
 - **The plugin's servers are keyed *CLOADM side panel* and *CLOADM on this computer*.** The plugin format has no field

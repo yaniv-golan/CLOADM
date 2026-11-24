@@ -76,7 +76,7 @@ class Coco3Machine extends Machine {
     this.kbIrqLevel = false;
     this.screenWidth = GIME.WIDTH; this.screenHeight = GIME.HEIGHT; this.screenAspect = 4 / 3;
     this.setupIO();
-    this.installStub(STUB.symbols, new TextConsole(this.ram, 0x400, () => (this.ram[0x88] << 8) | this.ram[0x89],
+    this.installStub(STUB, new TextConsole(this.ram, 0x400, () => (this.ram[0x88] << 8) | this.ram[0x89],
       (pos) => { this.ram[0x88] = pos >> 8; this.ram[0x89] = pos & 0xFF; }), () => this.stubInit());
     // MAME's scheduler-slice timing (only with config.mameCompat, for the comparisons): I/O accesses
     // that change an interrupt output end a slice, and events are seen per slice
@@ -617,6 +617,13 @@ class Coco3Machine extends Machine {
   }
 
   // ---------------- stub firmware ----------------
+  // BASIC's ROM space: $8000-$FDFF while the GIME maps ROM there (not RAM mode, not a RAM block from the MMU), and not
+  // cartridge space ($C000 up) when a cartridge is in the port
+  basicRomAt(pc) {
+    if (pc < 0x8000 || pc >= 0xFE00 || (this.cartPort && pc >= 0xC000)) return false;
+    const g = this.gime;
+    return g.wr[pc >> 13] === g.sink;
+  }
   stubInit() {
     const w = (a, v) => this.write(a, v);
     // GIME: CoCo compatible, MMU on, constant $FExx page, 32K internal ROM; task 0 = blocks $38-$3F

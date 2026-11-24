@@ -20489,6 +20489,108 @@ async function armGuardChecks(browser, base, check) {
   await closeCtx(ctx);
 }
 
+// ---------------- "This program needs BASIC" (js/needs-basic.js, js/ui/needs-basic.js) ----------------
+// A program the person drops, on a machine without its BASIC ROM, calls BASIC at $A176: the card docked at the bottom of
+// the tube says so in the ruling's words, covering at most 40% of the tube, while the machine runs on. Dragon 64: Add
+// ROMs on the card, a stand-in "BASIC ROM" built here dropped (our bytes: a BRA * at its start and, at $A176, INC $0500 ;
+// LDA #$41 ; RTS), "ROMs added." and Run again, which runs the program with them (its call reaches the stand-in's
+// routine). CoCo 1/2: no card while the Debugger steps the call, the card once it runs on, Dismiss, then the ROMs and the
+// toast that offers the run again.
+async function needsBasicChecks(browser, base, check) {
+  const Emu = require('./mame-diff/lib/firmware').loadEmu();
+  const prog = (src, format) => {
+    const r = Emu.assemble(` ORG $3000\n${src}\n END START`, '6809');
+    if (!r.ok) throw new Error(JSON.stringify(r.errors));
+    return { bin: Buffer.from(Emu.toBinary(r, { format })), symbols: r.symbols };
+  };
+  // calls BASIC's $A176 at once, then fills the screen from what it got back (the junk), for ever
+  const JUNK = 'START ORCC #$50\nCALL1 JSR $A176\n LDX #$2000\nD LEAX -1,X\n BNE D\nL0 LDX #$400\nL1 JSR $A176\n STA ,X+\n CMPX #$600\n BNE L1\n BRA L0';
+  // the stand-in BASIC ROM: size bytes at `at`, RTS filler, BRA * at its start, the routine at $A176, reset vector -> start
+  const standIn = (size, at) => {
+    const b = Buffer.alloc(size, 0x39);
+    b[0] = 0x20; b[1] = 0xFE;
+    Buffer.from([0x7C, 0x05, 0x00, 0x86, 0x41, 0x39]).copy(b, 0xA176 - at);
+    b[size - 2] = at >> 8; b[size - 1] = at & 0xFF;
+    return b;
+  };
+  const card = () => {
+    const c = document.getElementById('needsBasic');
+    if (c.hidden) return null;
+    const t = document.querySelector('#monitor .tube').getBoundingClientRect(), r = c.getBoundingClientRect();
+    const w = Math.max(0, Math.min(t.right, r.right) - Math.max(t.left, r.left)), h = Math.max(0, Math.min(t.bottom, r.bottom) - Math.max(t.top, r.top));
+    const shown = (id) => { const e = document.getElementById(id); return !!e && e.checkVisibility(); };
+    return { lead: document.getElementById('needsBasicLead').textContent, body: document.getElementById('needsBasicBody').textContent,
+      details: document.getElementById('needsBasicDetails').textContent, covered: (w * h) / (t.width * t.height), inside: r.top >= t.top && r.bottom <= t.bottom,
+      fits: c.scrollHeight <= c.clientHeight + 1,
+      buttons: [...c.querySelectorAll('button')].filter((b) => b.checkVisibility()).map((b) => b.textContent),
+      boot: shown('bootHelp'), welcome: shown('welcome'), frame: window.emu.machine.frameCount };
+  };
+  for (const [id, name, fmt, rom] of [['dragon64', 'Dragon 64', 'dragondos', ['d64_1.rom', standIn(0x4000, 0x8000)]], ['coco', 'CoCo 1/2', 'decb', ['bas12.rom', standIn(0x2000, 0xA000)]]]) {
+    const L = `needs BASIC (${name})`;
+    const ctx = await guardedContext(browser, []);
+    const page = await ctx.newPage();
+    const errors = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto(`${base}?machine=${id}`); await started(page);
+    const shot = async (what) => { if (shotDir) { await emuFrames(page, 2); await page.screenshot({ path: path.join(shotDir, `needs-basic-${id}-${what}.png`) }); } };
+    const { bin, symbols } = prog(JUNK, fmt);
+    if (id === 'coco') {
+      // the Debugger: a breakpoint on the first call, the program dropped, two Steps through $A176 and back: no card
+      await page.evaluate((a) => window.emu.session.debug.addBreakpoint(a), symbols.get('CALL1'));
+      await dropFiles(page, [['JUNK.BIN', bin]]);
+      check(`${L}: the program stops at the Debugger's breakpoint before its call`, await waitFor(page, (a) => window.emu.session.paused && window.emu.machine.cpu.pc === a, symbols.get('CALL1')));
+      await openDebugger(page);
+      await page.click('#btnDbgStep');
+      const into = await page.evaluate(() => window.emu.machine.cpu.pc);
+      await page.click('#btnDbgStep');
+      await page.waitForTimeout(300);
+      check(`${L}: stepping into $A176 and back in the Debugger shows no card, and finds nothing`, into === 0xA176
+        && await page.evaluate(() => window.emu.machine.cpu.pc !== 0xA176 && !window.emu.session.needsBasic.found && document.getElementById('needsBasic').hidden), `pc ${into.toString(16)}`);
+      await page.evaluate(() => { const S = window.emu.session; S.debug.clearBreakpoints(); });
+      await page.click('#btnDbgRun');
+      await page.evaluate(() => { location.hash = ''; });
+    } else await dropFiles(page, [['JUNK.BIN', bin]]);
+    check(`${L}: the card comes up once the program calls BASIC`, await waitFor(page, () => !document.getElementById('needsBasic').hidden, null, 15000));
+    const c = await page.evaluate(card);
+    check(`${L}: the ruling's words, naming the ${name}`, c && c.lead === `JUNK.BIN needs the ${name}'s BASIC ROM, which isn't added yet.`
+      && c.body === "It tried to use BASIC, and there's nothing there yet, so the screen fills with junk."
+      && /^It called \$A176, in the BASIC ROM's space, at frame \d+\.$/.test(c.details)
+      && JSON.stringify(c.buttons) === JSON.stringify(['Add ROMs', 'Dismiss']), JSON.stringify(c));
+    check(`${L}: docked in the tube, at least 60% of the tube uncovered, all of it in view (nothing scrolled off)`, c && c.inside && c.covered <= 0.4 && c.fits, c && `${c.covered.toFixed(3)} fits ${c.fits}`);
+    check(`${L}: one attention card: no boot help, no no-ROM card beside it`, c && !c.boot && !c.welcome, JSON.stringify(c));
+    await emuFrames(page, 10);
+    check(`${L}: the machine keeps running under the card`, await page.evaluate((f) => window.emu.machine.frameCount > f + 5 && !window.emu.session.paused, c.frame));
+    await shot('card');
+    if (id === 'dragon64') {
+      await page.click('#btnNeedsRoms');
+      check(`${L}: Add ROMs opens Add ROMs`, await waitFor(page, romsOpen));
+      await dropFiles(page, [rom]);
+      await waitFor(page, (m) => window.emu.session.machineRoms(m).bootable, id);
+      await page.click('#btnRomBack');
+      const after = await waitFor(page, () => location.hash === '' && document.getElementById('needsBasic').dataset.state === 'ready') && await page.evaluate(card);
+      check(`${L}: with the ROMs added the card says "ROMs added." and offers the run again`, after && after.lead === 'ROMs added.'
+        && JSON.stringify(after.buttons) === JSON.stringify(['Run JUNK.BIN again with ROMs', 'Not now']), JSON.stringify(after));
+      await shot('ready');
+      await page.click('#btnNeedsAgain');
+    } else {
+      await page.click('#btnNeedsDismiss');
+      check(`${L}: Dismiss takes the card down`, await waitFor(page, () => document.getElementById('needsBasic').hidden));
+      await openRoms(page);
+      await dropFiles(page, [rom]);
+      await waitFor(page, (m) => window.emu.session.machineRoms(m).bootable, id);
+      await page.click('#btnRomBack');
+      check(`${L}: dismissed, the ROMs added: a toast offers the run again, and no card`, await toastSeen(page, /^ROMs added\.$/)
+        && await page.textContent('#toastAction') === 'Run JUNK.BIN again with ROMs' && await page.isHidden('#needsBasic'), await page.textContent('#toastText'));
+      await page.click('#toastAction');
+    }
+    check(`${L}: Run again switches the machine on with its ROMs and runs JUNK.BIN, whose call reaches the stand-in's routine`,
+      await waitFor(page, () => window.emu.machine.hasRom && window.emu.machine.read(0x500) > 0 && document.getElementById('needsBasic').hidden, null, 15000),
+      JSON.stringify(await page.evaluate(() => ({ rom: window.emu.machine.hasRom, marker: window.emu.machine.read(0x500), pc: window.emu.machine.cpu.pc }))));
+    check(`${L}: no page errors`, !errors.length, errors.join('; '));
+    await closeCtx(ctx);
+  }
+}
+
 const GROUPS = (base, site) => [
   ['models', (b) => modelsChecks(b, base, check)],
   ['reset', (b) => resetChecks(b, base, check)],
@@ -20579,6 +20681,7 @@ const GROUPS = (base, site) => [
   ['semantics', (b) => semanticsChecks(b, base, site, check)],
   ['mobile', (b) => mobileChecks(b, base, check)],
   ['menuWords', (b) => menuWordsChecks(b, base, check)],
+  ['needsBasic', (b) => needsBasicChecks(b, base, check)],
   // (required when the group runs: the shard planner's copy of this file runs --list-groups without it)
   ['connector', (b) => require('./connector-check').connectorChecks(b, check, { shots: shotDir })],
 ];

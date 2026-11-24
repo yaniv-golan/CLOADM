@@ -75,7 +75,7 @@ class Mc10Machine extends Machine {
     this.deck.onInsert = () => { this.deck.setMotor(false); this.casReads = 0; };
     this.deck.motorless = true;   // no motor relay: a recording takes everything written to the cassette output
     this.stubCursor = 0x4000;
-    this.installStub(STUB.symbols, new TextConsole(this.ram, 0x4000, () => this.stubCursor, (pos) => { this.stubCursor = pos; }),
+    this.installStub(STUB, new TextConsole(this.ram, 0x4000, () => this.stubCursor, (pos) => { this.stubCursor = pos; }),
       () => this.stubInit());
   }
 
@@ -86,6 +86,9 @@ class Mc10Machine extends Machine {
     const c = this.stubCursor, page = this.profile.textScreen || 0x400;
     return c >= page && c < page + 0x200 ? c : -1;
   }
+
+  // BASIC's ROM space: $E000-$FFFF, which is always ROM on this machine
+  basicRomAt(pc) { return pc >= 0xE000; }
 
   romsChanged() {
     const d = this.roms[this.profile.roms[0].id];

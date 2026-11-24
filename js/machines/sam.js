@@ -148,7 +148,7 @@ class SamMachine extends Machine {
     this.on('line', (line, at) => this.lineStart(line, at));
     this.on('hsFall', (line) => this.hsFall(line));
     this.wireIO();
-    this.installStub(STUB.symbols, new TextConsole(this.ram, 0x400, () => (this.ram[0x88] << 8) | this.ram[0x89],
+    this.installStub(STUB, new TextConsole(this.ram, 0x400, () => (this.ram[0x88] << 8) | this.ram[0x89],
       (pos) => { this.ram[0x88] = pos >> 8; this.ram[0x89] = pos & 0xFF; }), () => this.stubInit());
   }
 
@@ -718,6 +718,8 @@ class SamMachine extends Machine {
 
   // ---------------- no-ROM stub ----------------
   stubActive() { return (this.sam.reg & 0xC000) !== 0xC000; }
+  // BASIC's ROM space is $8000-$BFFF, while the map shows ROM there (map type 0; the all-RAM map, TY=1, shows RAM)
+  basicRomAt(pc) { return pc >= 0x8000 && pc < 0xC000 && this.stubActive(); }
   stubInit() {
     const w = (a, v) => this.write(a, v);
     w(0xFF01, 0x00); w(0xFF00, 0x00); w(0xFF01, 0x34);

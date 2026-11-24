@@ -232,10 +232,22 @@
   #badge { font-weight: 800; font-stretch: 125%; font-size: 15px; letter-spacing: .08em; color: #3A3D3C; }
   .monitor[data-family="dragon"] #badge { color: var(--dragon-badge); }
   .led { width: 10px; height: 10px; border-radius: 50%; background: #FF3B30; box-shadow: 0 0 10px #FF3B30; }
-  #bootHelp { position: absolute; left: 4%; right: 4%; bottom: 4%; background: var(--warn-panel); color: var(--text); border: 1px solid var(--orange);
+  #bootHelp, #needsBasic { position: absolute; left: 4%; right: 4%; bottom: 4%; background: var(--warn-panel); color: var(--text); border: 1px solid var(--orange);
     border-radius: var(--r-14); padding: 12px 14px; font-size: 15px; }
-  #bootHelp strong { color: var(--orange); display: block; margin-bottom: 4px; }
+  #bootHelp strong, #needsBasic strong { color: var(--orange); display: block; margin-bottom: 4px; }
   #bootHelp .bar { margin-top: 8px; }
+  /* the needs-BASIC card covers at most about 40% of the tube: the junk the program makes stays in view above it */
+  #needsBasic { left: 2%; right: 2%; bottom: 2%; max-height: 40%; overflow: auto; padding: 8px 12px; font-size: 14px; line-height: 1.3; }
+  #needsBasic strong { margin-bottom: 2px; }
+  #needsBasic[data-state="ready"] #needsBasicBody { display: none; }
+  #needsBasic .bar { margin-top: 6px; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px 8px; }
+  #needsBasic .bar button { min-height: 36px; padding: 4px 14px; }
+  #needsBasic details { margin-right: auto; color: var(--text-2); }
+  #needsBasic details[open] { flex-basis: 100%; }
+  #needsBasic summary { cursor: pointer; }
+  #needsBasic[hidden], #bootHelp[hidden] { display: none; }
+  /* one attention card at a time (js/ui/needs-basic.js): needs-BASIC, then the boot help, then the no-ROM card */
+  body.card-needs #bootHelp, body:is(.card-needs, .card-boot) #welcome { display: none !important; }
 
   .controls { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
   /* the media slots: one row that wraps, cassette 280px, drives 260px and
@@ -1774,6 +1786,11 @@ npx serve -l 8000 .</pre>
         <div id="bootHelp" hidden role="status"><strong id="bootHelpTitle"></strong><span id="bootHelpText"></span>
           <div class="bar"><button id="btnBootSockets" class="primary">Add ROMs</button>
             <button id="btnBootStub">Run without ROMs</button><button id="btnBootPower" class="primary" hidden>Switch off and on</button><button id="btnBootDismiss">Dismiss</button></div></div>
+        <!-- js/ui/needs-basic.js: a program the person loaded called BASIC, and the machine has no BASIC ROM (the boot
+             help's slot; the machine keeps running) -->
+        <div id="needsBasic" hidden role="status" data-state="needs"><strong id="needsBasicLead"></strong><span id="needsBasicBody"></span>
+          <div class="bar"><details id="needsBasicMore"><summary>Details</summary><span id="needsBasicDetails"></span></details>
+            <button id="btnNeedsRoms" class="primary">Add ROMs</button><button id="btnNeedsAgain" class="primary" hidden></button><button id="btnNeedsDismiss">Dismiss</button></div></div>
       </div>
       <div class="plate"><span id="badge">DRAGON 64</span><span class="led" aria-hidden="true"></span>
         <div id="focusHint" aria-hidden="true"><span class="fh-emu">Typing goes to the machine<span class="fh-tab"> · <kbd>Tab</kbd> leaves the screen</span></span><span class="fh-chat"><kbd>Esc</kbd> stops a reply, clears the line, then leaves the chat</span></div></div>
@@ -2410,6 +2427,7 @@ npx serve -l 8000 .</pre>
 <link rel="modulepreload" href="js/machines/profiles.js">
 <link rel="modulepreload" href="js/chips/sp0256.js">
 <link rel="modulepreload" href="js/machines/ssc.js">
+<link rel="modulepreload" href="js/needs-basic.js">
 <link rel="modulepreload" href="js/hooks.js">
 <link rel="modulepreload" href="js/writewatch.js">
 <link rel="modulepreload" href="js/profiler.js">
@@ -2476,6 +2494,7 @@ npx serve -l 8000 .</pre>
 <link rel="modulepreload" href="js/ui/rom-panel.js">
 <link rel="modulepreload" href="js/ui/rom-sockets.js">
 <link rel="modulepreload" href="js/ui/boot-help.js">
+<link rel="modulepreload" href="js/ui/needs-basic.js">
 <link rel="modulepreload" href="js/ui/welcome.js">
 <link rel="modulepreload" href="js/ui/key-hint.js">
 <link rel="modulepreload" href="js/ui/media-panel.js">

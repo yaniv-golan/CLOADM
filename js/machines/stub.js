@@ -212,7 +212,18 @@ function stubRom(cpu, size, base, opts = {}) {
     const a = s.addr + i - base;
     if (a >= 0 && a < size) rom[a] = s.data[i];
   }
-  const out = { rom, symbols: r.symbols };
+  // What the firmware implements, for the "needs BASIC" detector (js/needs-basic.js): every byte its source
+  // assembles (code, the vector tables) and every named entry point it hooks (POLCAT, CHROUT ... are EQUs onto the
+  // RTS filler, run by the Machine's PC hooks). The rest of the image is filler: a program that executes there
+  // called a BASIC routine the firmware does not have.
+  const mask = new Uint8Array(size);
+  for (const s of r.segments) for (let i = 0; i < s.data.length; i++) {
+    const a = s.addr + i - base;
+    if (a >= 0 && a < size) mask[a] = 1;
+  }
+  for (const a of r.symbols.values()) if (a >= base && a < base + size) mask[a - base] = 1;
+  const implemented = (a) => a >= base && a < base + size && mask[a - base] === 1;
+  const out = { rom, symbols: r.symbols, base, size, implemented };
   cache.set(key, out);
   return out;
 }

@@ -23,6 +23,7 @@ import { cartridgeRoms, createMachine, profiles, resolveConfig, restoreSnapshot 
 import { cpuFamily } from './cpu/cpus.js';
 import { SpeechSoundPak, SSC_ROM_PROFILE } from './machines/ssc.js';
 import { Debugger, codeDisassembly } from './debugger.js';
+import { NeedsBasic } from './needs-basic.js';
 import { HostHooks } from './hooks.js';
 import { WriteWatch } from './writewatch.js';
 import { Profiler } from './profiler.js';
@@ -677,6 +678,10 @@ export class Session {
     // machine in use, or the BASIC session beside a full-screen chat. Host state, never in a snapshot. The developer
     // API is built on them: serial, disk, watchWrites (js/writewatch.js) and profile (js/profiler.js).
     this.hooks = new HostHooks();
+    // a program the person loaded, running without BASIC, called a BASIC routine the built-in firmware lacks
+    // (js/needs-basic.js): 'needs-basic' with what was found, and again with null when that is over (a reset, a
+    // power-on, a switch, another load)
+    this.needsBasic = new NeedsBasic((found) => this.emit('needs-basic', found));
     // the serial port's byte streams and diagnostics (SerialApi), its listeners and traces kept on the machine through hooks
     this.serial = new SerialApi(this);
     this.writeWatch = new WriteWatch(this);
@@ -922,6 +927,7 @@ export class Session {
     // try) and their stub-restart records with them (the record of a Machine that is gone cannot come back)
     for (const [mm] of this.bootFailed) if (mm !== this.shownMachine && mm !== m) this.bootFailed.delete(mm);
     for (const [mm] of this.stubRuns) if (mm !== this.shownMachine && mm !== m) this.stubRuns.delete(mm);
+    if (this.needsBasic.m && this.needsBasic.m !== m) this.clearNeedsBasic();   // (it watched the machine that goes)
     this.store.set('machine', m.id);
     this.install(m);
   }
@@ -933,7 +939,7 @@ export class Session {
     // a restart of the machine Claude acts on, by any path (Reset, a power cycle, a program or cartridge that
     // starts, the welcome menu, LIZA, ROMs cleared), stops Claude: nothing it held or still had to type goes into
     // the machine that starts over, and its next action does not run there
-    m.onReset = () => this.stopClaudeFor('the machine restarted', m);
+    m.onReset = () => { this.stopClaudeFor('the machine restarted', m); this.clearNeedsBasic(m); };
     this.keys.clear();
     if (this.debugger && this.debugger.machine !== m) this.debugger.detach();
     let undelivered = null;
@@ -1488,7 +1494,8 @@ export class Session {
       if (!touched.get(t.machine).includes(r.name)) touched.get(t.machine).push(r.name);
     }
     for (const id of touched.keys()) this.stubChosen.delete(id);
-    if (touched.has(m.id)) { this.loadSavedRoms(m); this.powerCycle({ on: m }); }
+    // (the switch on with them keeps what the "needs BASIC" detector found: its card offers the program again now)
+    if (touched.has(m.id)) { this.loadSavedRoms(m); this.needsBasic.keep(() => this.powerCycle({ on: m })); }
     const ids = [...touched.keys()];
     const machines = ids.filter((id) => profiles[id]).map((id) => this.machineRoms(id));
     const cartridges = ids.filter((id) => cartridgeRoms[id]).map((id) => ({ id, name: cartridgeRoms[id].name, sockets: socketStatus(cartridgeRoms[id], this.roms.get(id)) }));
@@ -2163,12 +2170,35 @@ export class Session {
   // load a file of any supported kind -> message. askAddresses(name, size) -> { load, exec } | null for raw
   // data; remember: false keeps it off the recent list.
   // run: false types a BASIC listing without the RUN after it (the MCP server's load; the page always runs it)
-  load(name, bytes, { askAddresses = null, remember = true, run = true } = {}) {
+  // ours: one of the project's own programs (LIZA, the colour demo, the games), which never need BASIC: the "needs
+  // BASIC" detector is armed only for the person's own (js/needs-basic.js)
+  load(name, bytes, { askAddresses = null, remember = true, run = true, ours = false } = {}) {
     this.loadStarted = true;
+    const m = this.loadTarget().m;
     const msg = this.loadMedia(name, bytes, askAddresses, { run });
+    // a program that started: what the last one found is over, and this one is watched afresh (data only, a tape
+    // in the deck: what runs is still the program that was running)
+    if (this.loadStarted) {
+      this.clearNeedsBasic();
+      if (!ours && m.useStub && !this.machineRoms(m.id).bootable) this.needsBasic.arm(m, name, bytes);
+    }
     if (remember) { this.library.rememberMedia(name, bytes); this.setLastRun('recent', name, { running: this.loadStarted, crc: crc32(bytes) }); }
     this.emit('loaded');
     return msg;
+  }
+  // the detector's finding goes (m: only if it watched m): the page's card with it
+  clearNeedsBasic(m = null) { if (this.needsBasic.clear(m)) this.emit('needs-basic', null); }
+  // The card's "Run <file> again with ROMs", once the machine's ROMs are added: the machine is switched off and on
+  // with them, and the same file loads through the same path as before (load) -> its message
+  runAgainWithRoms() {
+    const f = this.needsBasic.found, m = this.personMachine;
+    if (!f) throw new SessionError('There is no program to run again.');
+    if (m.profile.id !== f.id) throw new SessionError(`${f.file} ran on the ${f.machine}; this is the ${m.profile.name}.`);
+    if (!this.machineRoms(m.id).bootable) throw new SessionError(`The ${m.profile.name}'s BASIC ${f.roms} ${f.plural ? "aren't" : "isn't"} added yet.`);
+    this.stubChosen.delete(m.id);
+    this.loadSavedRoms(m);
+    this.powerCycle({ menu: false, reason: 'you ran the program again with ROMs', on: m });
+    return this.load(f.file, f.bytes);
   }
   // A tape loads through BASIC as on a machine just switched on: power cycled (the deck and the cartridge stay,
   // as with any power cycle), then nothing is typed until BASIC is at its prompt. Whatever ran before - a CLEAR
@@ -3023,7 +3053,7 @@ export class Session {
   // LIZA from its bytes (this.lizaFile's), at once -> the load message
   runLiza(bytes) {
     this.checkLiza();
-    const msg = this.load(this.lizaFile, bytes, { remember: false });
+    const msg = this.load(this.lizaFile, bytes, { remember: false, ours: true });
     this.setLastRun('liza', 'LIZA');
     this.watchForMenu('liza', this.personMachine);
     this.emit('program', 'liza');
@@ -3052,7 +3082,7 @@ export class Session {
   runGame(name, bytes) {
     this.checkGame(name);
     const file = this.gameFile(name), m = this.personMachine;
-    const msg = this.load(file, bytes, { remember: false });
+    const msg = this.load(file, bytes, { remember: false, ours: true });
     // the SAM's memory size as the firmware or BASIC left it, for the game to put back on leaving (the CoCo 3's
     // GIME has no M bits: the header's default stays)
     if (m.sam) m.poke(GAMES.samExit, m.sam.memSize);

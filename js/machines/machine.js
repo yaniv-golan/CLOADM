@@ -27,7 +27,7 @@
  *     $C000-$FEFF / $FF40-$FF5F, and remap in cartridgeChanged(); what the attached devices decide is
  *     settled in devicesAttached(), called whenever one is attached or detached
  *   - for no-ROM operation: map stub firmware (stubRom) and call installStub(); override
- *     stubActive() when the stub ROM can be mapped out
+ *     stubActive() when the stub ROM can be mapped out, and basicRomAt(pc) to say where BASIC's ROM space is
  *   - set Family.BASIC_POINTERS (address of BASIC's TXTTAB) for loadBasicProgram
  *   - call this.processEvents(this.ioTime()) before any I/O access whose result depends on time
  */
@@ -172,9 +172,11 @@ class Machine {
   // No-ROM stub: PC hooks at the stub firmware's entry points (symbols from stubRom):
   // RESET runs init(), POLCAT returns a queued key (A, Z clear) or none (Z set), CHROUT prints A on
   // the console, and the cassette/cursor routines return with carry set (error)
-  installStub(symbols, console, init) {
-    const cpu = this.cpu, { Z, C } = cpu.constructor.FLAGS, h = this.pcHooks;
+  // (firmware: stubRom's result; its symbols name the entry points, and it says what it implements)
+  installStub(firmware, console, init) {
+    const cpu = this.cpu, { Z, C } = cpu.constructor.FLAGS, h = this.pcHooks, symbols = firmware.symbols;
     this.stubConsole = console;
+    this.stubFirmware = firmware;
     h.set(symbols.get('RESET'), init);
     h.set(symbols.get('POLCAT'), () => {
       this.keyScans++;
@@ -187,6 +189,10 @@ class Machine {
     const span = (from, to) => (symbols.has(from) ? [[symbols.get(from), symbols.get(to)]] : []);
     this.stubPromptAt = { spans: [...span('IDLE', 'IDLEE'), ...span('KEY', 'PROMPTE')], calls: [symbols.get('POLCAT'), symbols.get('CHROUT')] };
   }
+  // Is an instruction at pc fetched from the BASIC ROM's space as the CPU sees it now (the built-in firmware mapped
+  // there, not RAM and not a cartridge)? The family says; a machine without such a space says no. Only the "needs
+  // BASIC" detector asks (js/needs-basic.js), and only while the built-in firmware runs.
+  basicRomAt() { return false; }
   // Is the stub firmware's own prompt what runs (its idle loop or line editor, or a POLCAT/CHROUT call made from
   // them), rather than a program? Then the screen is the stub's bare one (or the POKE lines typed at it).
   atStubPrompt() {
