@@ -11662,7 +11662,10 @@ async function uiCopyChecks(browser, base, check) {
     for (const hash of ['#share=junk', '#s=junk', '#z=junk', '#l=junk']) {
       const { ctx, page, errors } = await open({ width: 1280, height: 720 }, `?machine=dragon64${hash}`);
       await started(page);
-      await waitFor(page, () => window.emu.linkDone === true && /share link|snapshot/i.test(document.getElementById('toastText').textContent), null, 15000);
+      // the page's words for each: a hash no reader claimed ("This share link couldn't be read."), a damaged #z=
+      // ("This link's snapshot is damaged…"), and a #l= too short for its id.key ("This short link is damaged…":
+      // readShortLink's own refusal, the generic rule never reached). So the wait names all three, not two.
+      await waitFor(page, () => window.emu.linkDone === true && /share link|short link|snapshot/i.test(document.getElementById('toastText').textContent), null, 15000);
       const t = await toastText(page);
       check(`deep link: ${hash}: says the share link couldn't be read (never silent), and the junk leaves the address`,
         /couldn't be read|is damaged/.test(t) && await page.evaluate(() => location.hash === ''), `${t} | ${await page.evaluate(() => location.hash)}`);
@@ -19508,11 +19511,13 @@ async function uiModelChecks(browser, base, check) {
     // what a snapshot reopens on
     const share = await page.evaluate(() => document.getElementById('shareNote').textContent);   // (the one line under the preview)
     const slots = await page.textContent('#slotNote');
+    // the copy names the machine the page is on (this block runs on the CoCo 1/2, switched to above), not a fixed one
+    const onMachine = await page.evaluate(() => window.emu.machine.profile.name.replace(/^Tandy /, ''));
     check(`copy (${label}): the ROMs row says "Not added · running without ROMs"; Share says what a link opens, verbatim; Snapshots say "A snapshot reopens on the same machine, RAM and ROMs."`,
       none === 'Not added · running without ROMs'
-      && share === 'Opens a copy of this Dragon 64 exactly as it is now: the screen, the program and everything in memory, including anything you typed. Changes you make later aren\'t in it.'
+      && share === `Opens a copy of this ${onMachine} exactly as it is now: the screen, the program and everything in memory, including anything you typed. Changes you make later aren't in it.`
       && slots === 'A snapshot reopens on the same machine, RAM and ROMs.',
-      JSON.stringify({ none, share, slots }));
+      JSON.stringify({ none, share, slots, onMachine }));
     // the .dgn warning, said once, with its two answers
     await closeSheet(page);
     await page.setInputFiles('#fileProgram', { name: 'dgame.dgn', mimeType: 'application/octet-stream', buffer: Buffer.alloc(8192, 0x12) });
