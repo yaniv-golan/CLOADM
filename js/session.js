@@ -1775,7 +1775,9 @@ export class Session {
   // 'userdata': WYRMFIRE runs a level converted from the person's own WAD (id Software's game data, which Claude and
   // the page around an embed never see: not the memory, and not the screen either, ScreenGuard below).
   romCodeIn(m = this.shownMachine) {
-    if (this.userDataIn(m)) return 'userdata';
+    // (the machine's mark, or the disk itself still in a drive: a power cycle clears RAM, not the disk, which a program
+    // the agent loads could read through the bare controller)
+    if (this.userDataIn(m) || this.userDiskIn(m)) return 'userdata';
     if (this.nitros9On(m)) return 'nitros9';   // our loader, and the user's NitrOS-9 in RAM (shareFile)
     if (Object.keys(m.romCrcs()).length) return 'roms';
     if (m.cartPort) return 'cartridge';

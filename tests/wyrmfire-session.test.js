@@ -136,6 +136,21 @@ function toFirstFrame(s) {
   u.powerCycle({ menu: false });
   check('own WAD: switching the machine off and on frees them (the disk out, its RAM cleared)', u.romCodeIn() === 'cartridge' && !(await attempt(() => u.snapshotFile()))
     && (await tbOwn(u).call('peek', { machine_id: 'm1', address: 0x0C00 })).ok === false /* a cartridge is in: the cartridge rule */);
+  // a power cycle with the disk still in drive 0: the disk is the level, readable through the bare controller by a
+  // program an agent loads, so the refusal stays until the disk is out as well
+  {
+    const p = new Emu.Session({ welcomeMenu: false });
+    p.switchMachine('dragon64', {}, { menu: false });
+    p.startWyrmfire(ENGINE, LEVEL.slice(), { level: 'user', name: 'DOOM1.WAD' });
+    p.powerCycle({ menu: false });
+    const tbp = tbOwn(p), r = { peek: await tbp.call('peek', { machine_id: 'm1', address: 0x0C00 }), registers: await tbp.call('registers', { machine_id: 'm1' }), step: await tbp.call('step', { machine_id: 'm1' }) };
+    check('own WAD: a power cycle with the disk still in keeps "userdata": MCP peek, registers and step refuse with the reason; snapshots too',
+      !p.userDataIn() && p.userDiskIn() && p.romCodeIn() === 'userdata' && Object.values(r).every((x) => !x.ok && x.error.detail.includes(USER_READS)) && !!(await attempt(() => p.snapshotFile())),
+      JSON.stringify({ why: p.romCodeIn(), r: Object.fromEntries(Object.entries(r).map(([k, x]) => [k, x.ok])) }));
+    await p.drives.eject(0);
+    p.powerCycle({ menu: false });
+    check('own WAD: the disk out and a power cycle lift the rule', p.romCodeIn() === 'cartridge' && (await tbOwn(p).call('registers', { machine_id: 'm1' })).ok && !(await attempt(() => p.snapshotFile())));
+  }
   // (a new machine is never marked: a switch, or a snapshot opened)
   {
     const v = new Emu.Session({ welcomeMenu: false });
