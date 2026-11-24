@@ -16861,6 +16861,12 @@ async function arrivalChecks(browser, base, check) {
   {
     const { ctx, p, asked } = await open(`${base}#l=${game.id}.${game.key}`);
     const c = await card(p);
+    // opened as a shared moment, as a long link's is: without ROMs no "Running with no ROMs" card and no "No BASIC" pill
+    // beside the arrival card
+    const quiet = await p.evaluate(() => ({ pill: document.getElementById('romPill').checkVisibility(), noRomCard: document.getElementById('welcome').checkVisibility(),
+      shared: window.emu.session.sharedMoment, roms: window.emu.session.hasAnyRoms }));
+    check('arrival: a short link\'s moment without ROMs is a shared moment: the arrival card, and no no-ROM card or "No BASIC" pill',
+      c.shown && quiet.shared && !quiet.pill && !quiet.noRomCard && !quiet.roms, JSON.stringify(quiet));
     if (shotDir) await p.screenshot({ path: path.join(shotDir, 'arrival-short-1280x800.png') });
     check('arrival: a short link\'s moment arrives with the same card, and only a short link\'s card ends with "Report this link": the Worker\'s report page (/api/report/<id>, no key, a new tab)',
       c.shown && c.text === ARRIVAL_TEXT && c.state && c.state.kind === 'short' && c.state.id === game.id && c.report && c.area <= 0.40
