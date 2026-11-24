@@ -13,6 +13,8 @@ const check = (name, cond, detail = '') => { if (!cond) { fail++; console.log(`F
 const fnv = (h, v) => { h ^= v & 0xFFFFFFFF; return Math.imul(h, 0x01000193) >>> 0; };
 const kv = () => { const m = new Map(); return { get: (k) => m.get(k) ?? null, set: (k, v) => m.set(k, v), remove: (k) => m.delete(k), keys: () => [...m.keys()] }; };
 const rejects = async (p) => { try { await p; return null; } catch (e) { return e; } };
+// what a call gave, keeping "resolved to null" apart from "threw" (rejects collapses both to null): { threw, value }
+const outcome = async (p) => { try { return { threw: false, value: await p }; } catch (e) { return { threw: true, value: e }; } };
 const throws = (fn) => { try { fn(); return null; } catch (e) { return e; } };
 const fake = (size, seed) => { const b = new Uint8Array(size); let x = seed >>> 0; for (let i = 0; i < size; i++) { x = (x * 1103515245 + 12345) >>> 0; b[i] = x >>> 24; } return b; };
 // a file's bytes decompressed with Node's zlib, or null when it is not gzip at all (so a snapshot saved uncompressed
@@ -472,7 +474,13 @@ const picture = (m) => { let h = 0x811C9DC5; for (const v of m.render().data) h 
     b.openSnapshot(snap);
     check('share link: read back in a fresh Session, the same machine, config and memory', b.shownMachine.id === 'coco3' && b.shownMachine.config.ram === 128
       && run(b.shownMachine, 0) === ref && b.shownMachine.peek(0x2000) === 0x5A);
-    check('share link: nothing to read in #share, an empty hash or the pre-launch #s=', (await b.readSnapshotLink('#share')) === null && (await b.readSnapshotLink('')) === null && (await b.readSnapshotLink('#s=' + Buffer.from('hello').toString('base64url'))) === null);
+    // a pre-launch #s= link is no snapshot now: readSnapshotLink reads #z= only, and gives null for anything else.
+    // The link's own bytes go in, so a restored reader would open it: resolving to null and throwing must not look
+    // alike (rejects collapses both), or the check passes while the reader is back.
+    const preLaunch = await outcome(b.readSnapshotLink('#s=' + Buffer.from('hello').toString('base64url')));
+    check('share link: nothing to read in #share or an empty hash, and a pre-launch #s= link is never a snapshot',
+      (await b.readSnapshotLink('#share')) === null && (await b.readSnapshotLink('')) === null && !preLaunch.threw && preLaunch.value === null,
+      preLaunch.threw ? `threw: ${preLaunch.value.message}` : JSON.stringify(preLaunch.value && preLaunch.value.machine));
     const cut = await rejects(b.readSnapshotLink(u.hash.slice(0, u.hash.length - 300)));
     const bad = await rejects(b.readSnapshotLink('#z=not*base64!'));
     check('share link: cut short or not base64url: "damaged", as a SessionError', [cut, bad].every((e) => e instanceof Emu.SessionError && /This link's snapshot is damaged/.test(e.message)),

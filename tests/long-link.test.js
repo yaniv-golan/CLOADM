@@ -12,6 +12,8 @@ const Emu = require('./load')();
 let fail = 0;
 const check = (name, cond, detail = '') => { if (!cond) { fail++; console.log(`FAIL ${name} ${detail}`); } else console.log(`ok   ${name} ${detail}`); };
 const rejects = async (p) => { try { await p; return null; } catch (e) { return e; } };
+// what a call gave, keeping "resolved to null" apart from "threw" (rejects collapses both to null): { threw, value }
+const outcome = async (p) => { try { return { threw: false, value: await p }; } catch (e) { return { threw: true, value: e }; } };
 const fnv = (h, v) => { h ^= v & 0xFFFFFFFF; return Math.imul(h, 0x01000193) >>> 0; };
 const same = (a, b) => Buffer.from(a).equals(Buffer.from(b));
 function run(m, frames, pixelsFrom = 0) {
@@ -78,9 +80,11 @@ const link = (box, version = 1) => new Uint8Array(Buffer.concat([Buffer.from([ve
     const u = new URL(url);
     check(`${id}: the link is /play/ with the machine, the moment after #z=`, u.pathname === '/play/' && new URLSearchParams(u.search).get('machine') === id && /^#z=[A-Za-z0-9_-]+$/.test(u.hash), url.slice(0, 80));
     // the form pre-launch builds wrote (base64url of the .cloadm file): not a snapshot now, so the page refuses it
-    // (js/ui/main.js, "#<letters>=" that no reader claimed), and it never opens
-    const older = await s.readSnapshotLink('#s=' + Emu.toBase64Url(file.bytes));
-    check(`${id}: a pre-launch #s= link is no snapshot (readSnapshotLink gives null)`, older === null, JSON.stringify(older && older.machine));
+    // (js/ui/main.js, "#<letters>=" that no reader claimed), and it never opens. A real link's bytes: put the reader
+    // back and this opens, which is what the check must see (resolving to null and throwing must not look alike).
+    const older = await outcome(s.readSnapshotLink('#s=' + Emu.toBase64Url(file.bytes)));
+    check(`${id}: a pre-launch #s= link is no snapshot: readSnapshotLink gives null, it does not open`, !older.threw && older.value === null,
+      older.threw ? `threw: ${older.value.message}` : JSON.stringify(older.value && older.value.machine));
     const want = run(m, 12, 1);
     const b = new Emu.Session();
     b.switchMachine('dragon64');
@@ -143,7 +147,7 @@ const link = (box, version = 1) => new Uint8Array(Buffer.concat([Buffer.from([ve
     const bomb = new Uint8Array(Buffer.concat([Buffer.from([1]), zlib.deflateRawSync(Buffer.alloc(4 << 20))]));
     const big = await rejects(Emu.decodeLongLink(bomb, { maxBytes: 1 << 20 }));
     check('a link that unpacks past the limit is refused', big instanceof Emu.SnapshotError && /far more than any CLOADM snapshot/.test(big.message), `${bomb.length} bytes; ${big && big.message}`);
-    check('no #z= and no #l= is no snapshot', (await s.readSnapshotLink('#zz=1')) === null && (await s.readSnapshotLink('#share')) === null && (await s.readSnapshotLink('')) === null && (await s.readSnapshotLink('#s=x')) === null);
+    check('no #z= and no #l= is no snapshot', (await s.readSnapshotLink('#zz=1')) === null && (await s.readSnapshotLink('#share')) === null && (await s.readSnapshotLink('')) === null);
   }
 
   console.log(fail ? `${fail} FAILED` : 'all passed');
