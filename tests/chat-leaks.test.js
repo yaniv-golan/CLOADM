@@ -32,6 +32,8 @@ const backend = () => new Emu.ClaudeBackend({ fetch: async () => null, apiKey: K
 const block = (t, d) => { let s = (t + d.length) & 255; for (const v of d) s = (s + v) & 255; return [0x3C, t, d.length, ...d, s, 0x55]; };
 const casTape = () => { const nf = [...Buffer.from('TEST    '), 2, 0, 0, 0x40, 0x40, 0x03, 0x00]; return Uint8Array.from([...new Array(128).fill(0x55), ...block(0, nf), ...new Array(128).fill(0x55), ...block(1, [0x20, 0xFE]), ...block(0xFF, [])]); };
 const BIN = Uint8Array.from([0x55, 0x02, 0x08, 0x00, 0x00, 0x02, 0x08, 0x00, 0xAA, 0x20, 0xFE]);
+// ORCC #$50 ; JSR $A176 (BASIC's ROM space, nothing there without the ROM) ; BRA * -- at $3000
+const NEEDS_BIN = Uint8Array.from([0x55, 0x02, 0x30, 0x00, 0x00, 0x07, 0x30, 0x00, 0xAA, 0x1A, 0x50, 0xBD, 0xA1, 0x76, 0x20, 0xFE]);
 const ROM_A = new Uint8Array(16384).fill(0x12), ROM_B = new Uint8Array(16384).fill(0x41);
 
 // a chat on the session, full screen, with the BASIC session set up per `setup`
@@ -130,6 +132,10 @@ const ROWS = [
   ['run without ROMs', withRoms, (s) => s.runWithoutRoms({ menu: false })],
   ['use the stored ROMs again', (s) => { withRoms(s); s.runWithoutRoms({ menu: false }); }, (s) => s.useStoredRoms(s.chatMachines.basic)],
   ['export a ROM pack', withRoms, (s) => s.exportRomPack()],
+  // the needs-BASIC card's Run again: a program on the BASIC session called BASIC with no ROM, the ROMs came, and it
+  // runs again with them (a switch off and on of the PERSON's machine, then the same load there)
+  ['run a program again with ROMs (the needs-BASIC card)', (s) => { s.load('NEEDS.BIN', NEEDS_BIN); for (let i = 0; i < 3; i++) s.advance(21); withRoms(s); },
+    (s) => s.runAgainWithRoms()],
   // machines and power
   // Reset with the chat on screen is DELIBERATE: the screen's Reset button restarts what is on screen, and that is
   // the chat firmware (it comes back running). It must not reach the person's session, and the chat's record must

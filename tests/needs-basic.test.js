@@ -287,5 +287,5 @@ L BRA L
   }
 
   console.log(fail ? `\n${fail} FAILED` : '\nall passed');
-  process.exit(fail ? 1 : 0);
+  process.exitCode = fail ? 1 : 0;
 })();
