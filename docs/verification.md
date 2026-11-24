@@ -884,7 +884,9 @@ FAIL, and a lone short block PASSES only when the samples played through it step
 worklet's specified dip ("a dip that refills before the fade reaches 0 is not a gap", `js/host/audio-worklet.js`),
 accepted only when provably click-free by the product's own measure (`tests/audio-short.test.js` drives a real
 `SampleQueue` through each verdict on the page's own clock-driven schedule);
-after the unlock an AudioWorkletNode plays and no ScriptProcessorNode is made (no deprecation warning); through
+after the unlock an AudioWorkletNode plays and no ScriptProcessorNode is made (no deprecation warning); the unlock is any
+user activation (a tap on Menu or Open…, not only the screen), a touch screen shows "Tap for sound" on the bezel until sound runs
+(and a pointer shows none), and a tape chosen after a tap on Open… loads with the sound already running; through
 loads, resets, pause, turbo, sound off, machine switches and a 200 ms busy page, every sample the worklet plays at
 full gain equals the one the output stage made (tolerance 0) and no step exceeds 0.01; after an underrun the fade out and
 in is a ramp of at most level / fadeLen (5 ms) a sample, measured on a loud 0.5 block put in through the sink (that
