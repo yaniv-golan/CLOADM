@@ -443,6 +443,11 @@ export function setupAsk(page, claude) {
     // so it settles: floated while a toast covers the last Stop (the lift is then part of the fix and it stays), not
     // floated when a Stop is reachable anyway.
     document.body.classList.remove('claude-float');
+    // ... and with the toast placed from this same page state. js/ui/feedback.js keeps its fallback slot off Claude's
+    // Stops, but it places at the next frame, and this runs at once when the turn's status changes: a Stop that has just
+    // appeared under a pinned toast read as covered here, the pill came up, and went 10 frames later when the toast had
+    // moved off it.
+    if (need) page.feedback.catchUp();
     const float = need && (inView || !STOPS.some(reachable));
     $('viewClaude').hidden = !float;
     $('viewClaude').classList.toggle('top', float && !inView && document.body.classList.contains('touch-keys'));
