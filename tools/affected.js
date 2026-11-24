@@ -87,6 +87,7 @@ const AREAS = [
   { paths: ['js/ui/install.js', 'sw.js', 'manifest.webmanifest', 'tools/pwa-files.js'], suites: ['pwa', 'install'], groups: ['pwa', 'install'] },
   { paths: ['js/ui/share.js', 'js/share-text.js'], suites: ['share-roms', 'share-text'], groups: ['share'] },
   { paths: ['js/bugreport.js', 'js/ui/bug-report.js'], suites: ['bugreport'], groups: ['commands'] },
+  { paths: ['js/media/gif.js', 'tools/capture-gif.js'], suites: ['gif', 'share-text'], groups: ['share'] },
   { paths: ['js/version.js', 'js/ui/version-stamp.js', 'tools/version.js'], suites: ['version'], groups: ['reading', 'settings'] },
   { paths: ['faq/', 'about/'], suites: ['site-pages'], groups: ['reading', 'nav', 'pwa'] },
   { paths: ['js/ui/feedback.js'], suites: ['feedback-toasts'], groups: ['feedback', 'feedbackModel'] },

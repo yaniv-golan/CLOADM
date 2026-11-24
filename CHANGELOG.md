@@ -21,7 +21,14 @@ Next version: 0.1.9-pre (the plugin and extension manifests carry it; `tests/plu
 - **The ROM line in Share.** With ROMs in use, the Share screen says "This link holds no part of your ROMs. Whoever
   opens it needs their own: <needs>." above the needs line, and only then (`tests/share-text.test.js`).
 - **Copy for a forum.** Beside "Embed in a web page" on the Share screen: the link with a one-line description as
-  BBCode and as Markdown, text only.
+  BBCode and as Markdown, text only, with the hint to attach the GIF from Save GIF.
+- **Save GIF** on the Share screen, beside the clip: 6 seconds of the machine's own frames at true pixels scaled 2x,
+  no CRT look, looping. Each frame after the first holds only what changed, so typing makes about 11 KB and a moving
+  sprite about 50 KB; a whole screen moving every frame is the worst case, about 1.3 MB. The encoder is plain JS in
+  `js/media/gif.js` (moved from `tools/gif.js`, which tools/capture-gif.js now imports from there), with a comment
+  extension and part-frames (`tests/gif.test.js`: a hand-built file byte for byte, round trips through an independent
+  decoder). The clip and the GIF are refused, the reason on the button, while a WAD of your own is loaded; a Freedoom
+  recording carries the Freedoom credit in its file name and the GIF's comment.
 - **Copy bug report** in the command box and Help (`play/#bug-report`). It shows the report before copying it: the
   version and commit, the machine and its options, the browser, the loaded file's name and SHA-256 and, only when
   ticked, a ROM-free snapshot link. It never holds the Claude key, a WAD, ROM bytes or ROM file names (ROMs appear as

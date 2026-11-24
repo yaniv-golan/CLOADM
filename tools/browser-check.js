@@ -15196,6 +15196,49 @@ async function shareChecks(browser, base, site, check) {
       && ((/MP4/.test(clipLabel) && mp4 && /\.mp4$/.test(clip.suggestedFilename())) || (/WebM/.test(clipLabel) && webm && /\.webm$/.test(clip.suggestedFilename()))),
       `${clipLabel}: ${clip.suggestedFilename()} ${clipBytes.length} bytes`);
 
+    // Save GIF: the machine's own frames at 2x, looping, a comment; its size is printed (the screen here: the welcome menu)
+    const gifInfo = (b) => {   // the GIF89a block structure: size, loop, comment, frames, total delay
+      const r = { head: b.toString('latin1', 0, 6), w: b.readUInt16LE(6), h: b.readUInt16LE(8), loop: null, comment: '', frames: 0, cs: 0, bytes: b.length };
+      let p = 13 + (b[10] & 0x80 ? 3 * (2 << (b[10] & 7)) : 0);
+      while (p < b.length) {
+        const t = b[p++];
+        if (t === 0x3B) { r.trailer = true; break; }
+        if (t === 0x21) {
+          const label = b[p++];
+          if (label === 0xFF && b.toString('latin1', p + 1, p + 12) === 'NETSCAPE2.0') r.loop = b.readUInt16LE(p + 14);
+          if (label === 0xF9) r.cs += b.readUInt16LE(p + 2);
+          if (label === 0xFE) { let q = p; while (b[q]) { r.comment += b.toString('latin1', q + 1, q + 1 + b[q]); q += b[q] + 1; } }
+        } else if (t === 0x2C) { r.frames++; p += 10; } else break;
+        while (b[p]) p += b[p] + 1;
+        p++;
+      }
+      return r;
+    };
+    const [gifDl] = await Promise.all([page.waitForEvent('download', { timeout: 30000 }), page.click('#btnShareGif')]);
+    const gif = gifInfo(fs.readFileSync(await gifDl.path()));
+    const native = await page.evaluate(() => { const f = window.emu.session.shownMachine.render(); return [f.width, f.height]; });
+    check(`share (${label}): "Save 6-second GIF" saves a looping GIF of the screen at twice its true pixels, 6 seconds long, with a comment`,
+      gif.head === 'GIF89a' && gif.w === native[0] * 2 && gif.h === native[1] * 2 && gif.loop === 0 && gif.trailer && gif.frames >= 1 && Math.abs(gif.cs - 600) <= 8
+      && gif.comment === 'Recorded in CLOADM' && /\.gif$/.test(gifDl.suggestedFilename()) && !/Freedoom/.test(gifDl.suggestedFilename()), JSON.stringify(gif));
+    console.log(`   (GIF size, ${label}: ${gif.bytes} bytes, ${gif.frames} frames, ${gif.w}x${gif.h})`);
+    check(`share (${label}): the buttons are back once the GIF is saved`, await waitFor(page, () => !document.getElementById('btnShareGif').disabled && document.getElementById('btnShareGif').textContent === 'Save 6-second GIF'));
+    // a WAD of the person's own loaded: the clip and the GIF are refused, the reason on each button
+    await page.evaluate(() => { const s = window.emu.session; s.lastLoaded = { name: 'MYLEVELS.WAD', bytes: Uint8Array.from([0x50, 0x57, 0x41, 0x44, 0]) }; s.emit('loaded'); });
+    const refused = await page.evaluate(() => ['btnShareClip', 'btnShareGif'].map((id) => [document.getElementById(id).disabled, document.getElementById(id).textContent]));
+    check(`share (${label}): with your own WAD loaded, the clip and the GIF are disabled with the reason shown`,
+      JSON.stringify(refused) === JSON.stringify([[true, 'Clip: A WAD of your own is loaded: CLOADM doesn\'t record it'], [true, 'GIF: A WAD of your own is loaded: CLOADM doesn\'t record it']]), JSON.stringify(refused));
+    if (label === 'desktop') {
+      // Freedoom: recorded, with its credit in the file name and the GIF's comment
+      await page.evaluate(() => { const s = window.emu.session; s.lastLoaded = { name: 'freedoom2.wad', bytes: Uint8Array.from([0x49, 0x57, 0x41, 0x44, 0]) }; s.emit('loaded'); });
+      const [fd] = await Promise.all([page.waitForEvent('download', { timeout: 30000 }), page.click('#btnShareGif')]);
+      const fg = gifInfo(fs.readFileSync(await fd.path()));
+      check('share: a Freedoom GIF carries the Freedoom credit in its file name and its comment', /-Freedoom\.gif$/.test(fd.suggestedFilename()) && /Freedoom \(freedoom\.github\.io\)/.test(fg.comment),
+        `${fd.suggestedFilename()} ${fg.comment}`);
+    }
+    await page.evaluate(() => { const s = window.emu.session; s.lastLoaded = null; s.emit('loaded'); });
+    await openDisc(page, 'shareForum');
+    check(`share (${label}): "Copy for a forum" says to attach the GIF, and still holds no image tag`, await page.textContent('#forumGifHint') === 'Attach the GIF from Save GIF to show it in your post.');
+
     // the embed builder, and the iframe it writes running on another origin
     await openDisc(page, 'shareEmbed');
     await page.selectOption('#embedMachine', 'coco');

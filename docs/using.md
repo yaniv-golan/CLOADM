@@ -380,8 +380,9 @@ Snapshots); loading one works like opening a snapshot file.
 The **Share screen** has one job: send this exact moment to someone. The app bar's **Share** opens it. **Share…** (where the browser has a
 share sheet; it hands over the link only) or **Copy link** is the main button, and Copy link stays beside Share… because a link
 with a snapshot can pass 1000 characters and some share targets cut it short. Under **More ways to share**: a 6-second clip,
-a true-pixel screenshot and the snapshot file (its size is on the button); under **Copy for a forum**: the link with a
-one-line description as BBCode and as Markdown (text only); under **Embed in a web page**: the embed code. A
+a 6-second looping GIF (the machine's own pixels at 2x, no CRT look; refused, with the reason on the button, while a WAD
+of your own is loaded), a true-pixel screenshot and the snapshot file (its size is on the button); under **Copy for a forum**: the link with a
+one-line description as BBCode and as Markdown (text only: attach the GIF to show the picture); under **Embed in a web page**: the embed code. A
 line under the picture says what the link does, and a ROM line says whether the person opening it needs their own ROMs;
 with ROMs in use, a line above it says "This link holds no part of your ROMs. Whoever opens it needs their own: …". While NitrOS-9 runs
 the link starts NitrOS-9 fresh instead (no snapshot file). The link there carries the moment itself (the snapshot rides in the

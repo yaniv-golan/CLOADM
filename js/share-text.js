@@ -20,3 +20,14 @@ export function forumText(link, machineName) {
     markdown: `[${d}](${link.replace(/\)/g, '%29').replace(/ /g, '%20')})`,
   };
 }
+
+// What the clip and the GIF may record, from the file loaded last (Session.lastLoaded): nothing while it is a WAD of
+// the person's own (their game data is not ours to put in a recording), and a Freedoom WAD with its credit: in the
+// file name (suffix) and in the GIF's comment extension. -> { refuse: reason | null, suffix, comment }
+export const FREEDOOM_CREDIT = 'Contains Freedoom (freedoom.github.io), BSD licence.';
+const WAD_RE = /\.wad$/i, isWadFile = (f) => !!f && (WAD_RE.test(f.name || '') || (!!f.bytes && f.bytes.length >= 4 && /^[IP]WAD$/.test(String.fromCharCode(...f.bytes.subarray(0, 4)))));
+export function recordingGuard(last) {
+  if (!isWadFile(last)) return { refuse: null, suffix: '', comment: 'Recorded in CLOADM' };
+  if (/^freedoom\d?\.wad$/i.test(last.name || '')) return { refuse: null, suffix: '-Freedoom', comment: `Recorded in CLOADM. ${FREEDOOM_CREDIT}` };
+  return { refuse: 'A WAD of your own is loaded: CLOADM doesn\'t record it', suffix: '', comment: '' };
+}

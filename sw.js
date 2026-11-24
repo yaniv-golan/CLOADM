@@ -163,6 +163,7 @@ const FILES = [
   'js/media/detect.js',
   'js/media/disk.js',
   'js/media/formats.js',
+  'js/media/gif.js',
   'js/media/includes.js',
   'js/media/library.js',
   'js/media/os9.js',

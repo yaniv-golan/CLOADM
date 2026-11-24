@@ -8,6 +8,9 @@
  * opens it), Share... (navigator.share, the URL only, where canShare allows it) and Copy link.
  * "More ways to share" (collapsed): a 6-second clip of the screen (MediaRecorder: MP4 where the browser records it, WebM
  * otherwise, and the button says which), the screenshot at true pixels, the snapshot file.
+ * "Save GIF" (beside the clip): the machine's own frames at true pixels scaled 2x, no CRT look, GIF_SECONDS long and
+ * looping (js/media/gif.js). The clip and the GIF are both refused, the reason on the button, while a WAD of the
+ * person's own is the file loaded last; a Freedoom WAD's recording carries its credit (js/share-text.js recordingGuard).
  * "Copy for a forum" (collapsed): the link with a one-line description as BBCode and as Markdown (js/share-text.js).
  * "Embed in a web page" (collapsed): the iframe and script for a blog post, written by js/config.js (buildUrl) from the
  * machine, program and options chosen here ("Offer 'Ask Claude ↗'" adds askclaude=1: the embed's corner chip).
@@ -16,12 +19,13 @@
 import { profiles } from '../machines/profiles.js';
 import { buildUrl } from '../config.js';
 import { needsLine } from '../media/romrefs.js';
-import { romFreeLine, forumText } from '../share-text.js';
+import { romFreeLine, forumText, recordingGuard } from '../share-text.js';
+import { gifFromFrames } from '../media/gif.js';
 import { CanvasPresenter } from '../video/canvas.js';
 import { $, showView } from './page.js';
 
 const time = (d) => d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-const CLIP_SECONDS = 6;
+const CLIP_SECONDS = 6, GIF_SECONDS = 6;
 // what the browser can record, best first
 const clipType = () => {
   if (typeof MediaRecorder === 'undefined') return null;
@@ -87,6 +91,7 @@ export function setupShare(page) {
     $('shareWhen').textContent = `captured ${time(new Date())}`;
     $('shareLink').value = link;
     syncForum(link, name);
+    syncRecorders();
     syncPrimary();
     // one line under the picture, what the link does; then, only as needed, what the person opening it needs
     const rom = $('shareRom'), romFree = $('shareRomFree'), extra = $('shareExtra');
@@ -136,9 +141,47 @@ export function setupShare(page) {
 
   // the clip: the screen as it plays (from now), recorded for CLIP_SECONDS
   const kind = clipType();
-  const clipBtn = $('btnShareClip');
-  if (!kind) { clipBtn.disabled = true; clipBtn.textContent = 'Clip: this browser can\'t record video'; }
-  else clipBtn.textContent = `Save ${CLIP_SECONDS}-second clip (${kind.label})`;
+  const clipBtn = $('btnShareClip'), gifBtn = $('btnShareGif');
+  let recording = false;
+  const clipLabel = () => `Save ${CLIP_SECONDS}-second clip (${kind.label})`, gifLabel = () => `Save ${GIF_SECONDS}-second GIF`;
+  // the buttons' state: what the browser can do, and recordingGuard (a WAD of the person's own: refused, with why)
+  function syncRecorders() {
+    if (recording) return;
+    const g = recordingGuard(session.lastLoaded);
+    for (const [btn, label] of [[clipBtn, kind ? clipLabel() : 'Clip: this browser can\'t record video'], [gifBtn, gifLabel()]]) {
+      btn.disabled = !!g.refuse || (btn === clipBtn && !kind);
+      btn.textContent = g.refuse ? `${btn === clipBtn ? 'Clip' : 'GIF'}: ${g.refuse}` : label;
+      btn.title = g.refuse || '';
+    }
+  }
+  syncRecorders();
+  session.on((ev) => { if (ev === 'loaded') syncRecorders(); });
+  gifBtn.onclick = () => {
+    const g = recordingGuard(session.lastLoaded);
+    if (g.refuse) { syncRecorders(); return; }
+    recording = true; gifBtn.disabled = true;
+    const frames = [], t0 = performance.now(), STEP = 40;   // 25 frames a second: a 4 cs delay each
+    let next = t0, left = GIF_SECONDS;
+    gifBtn.textContent = `Recording… ${left} s`;
+    const take = (now) => {
+      while (now >= next && frames.length < GIF_SECONDS * 25) {
+        const f = session.shownMachine.render();
+        frames.push({ width: f.width, height: f.height, data: Uint8Array.from(f.data), table: Uint32Array.from(f.table) });
+        next += STEP;
+      }
+      const s = GIF_SECONDS - Math.floor((now - t0) / 1000);
+      if (s !== left && s > 0) { left = s; gifBtn.textContent = `Recording… ${left} s`; }
+      if (frames.length < GIF_SECONDS * 25) { requestAnimationFrame(take); return; }
+      try {
+        const gif = gifFromFrames(frames, { scale: 2, delay: 4, comment: g.comment });
+        const name = `${captured ? captured.base : 'CLOADM'}${g.suffix}.gif`;
+        page.download(name, new Blob([gif.bytes], { type: 'image/gif' }));
+        page.status(`Saved ${name}: ${GIF_SECONDS} seconds, ${(gif.bytes.length / 1024).toFixed(0)} KB.`);
+      } catch (e) { page.status(`Could not make the GIF: ${e.message}`, true); }
+      recording = false; syncRecorders();
+    };
+    requestAnimationFrame(take);
+  };
   clipBtn.onclick = () => {
     // drawn from the machine's own frames at true pixels (the screen canvas is hidden behind this view)
     const canvas = document.createElement('canvas'), presenter = new CanvasPresenter(canvas);
@@ -152,12 +195,14 @@ export function setupShare(page) {
       drawing = false;
       stream.getTracks().forEach((t) => t.stop());
       const blob = new Blob(parts, { type: kind.type.split(';')[0] });
-      const name = `${captured ? captured.base : 'CLOADM'}.${kind.ext}`;
+      const name = `${captured ? captured.base : 'CLOADM'}${g.suffix}.${kind.ext}`;
       page.download(name, blob);
-      clipBtn.disabled = false; clipBtn.textContent = `Save ${CLIP_SECONDS}-second clip (${kind.label})`;
+      recording = false; syncRecorders();
       page.status(`Saved ${name}: ${CLIP_SECONDS} seconds of the screen.`);
     };
-    clipBtn.disabled = true;
+    const g = recordingGuard(session.lastLoaded);
+    if (g.refuse) { syncRecorders(); return; }
+    recording = true; clipBtn.disabled = true;
     let left = CLIP_SECONDS;
     clipBtn.textContent = `Recording… ${left} s`;
     const tick = setInterval(() => { left--; if (left > 0) clipBtn.textContent = `Recording… ${left} s`; else clearInterval(tick); }, 1000);
