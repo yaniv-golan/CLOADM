@@ -338,9 +338,8 @@ const starting = welcome.start(visit, { fromLink, withMedia: link.roms.length > 
     } catch (e) { page.status(`Could not load ${kind}=${url}: ${linkFetchError(e)}`, true); }
   }
   await starting;
-  // a share link's moment (#z=, Share screen; #s= from earlier versions): opened like a dropped snapshot, once the
-  // visit has started
-  if (/^#[sz]=/.test(location.hash)) await snapshots.takeLink(location.hash);
+  // a share link's moment (#z=, Share screen): opened like a dropped snapshot, once the visit has started
+  if (/^#z=/.test(location.hash)) await snapshots.takeLink(location.hash);
   // a short link's moment (#l=<id>.<key>: its arrival page on s.cloadm.dev sends the visitor here): fetched, opened
   // with its key in this browser, then opened like the rest
   else if (/^#l=/.test(location.hash)) await snapshots.takeShortLink(location.hash, linkStore);
@@ -350,11 +349,14 @@ const starting = welcome.start(visit, { fromLink, withMedia: link.roms.length > 
   // embed: there is no controller there (link.embed, above), and the link's app is refused rather than opened.
   if (link.app === 'claude' && claude) await claude.open();
   // started: the visit's program (welcome, LIZA) runs and the link's ROMs, media and moment are in (window.emu.ready:
-  // storage is open); linkDone: the same moment, kept for the link checks
+  // storage is open); linkDone: the same moment, kept for the link checks. It is set after a refused hash is answered
+  // below, so a check can read the toast without a wait that assumes which came last.
   window.emu.started = true;
   share.ready();
-  window.emu.linkDone = true;
   if (link.errors.length) page.status(`This link has ${link.errors.length === 1 ? 'a setting' : 'settings'} CLOADM can't use: ${link.errors.join('; ')}`, true);
-  // "#share=…" (a share link's moment follows #s=): not one the page reads, and it said nothing
-  else if (/^#share./.test(location.hash)) { page.status("This share link couldn't be read.", true); history.replaceState(null, '', location.pathname + location.search); }
+  // a hash in the shape of a share link (#z=, #l=, or the #share= the link's arrival page carried) that no reader
+  // above claimed, or a cut short #l=: said, rather than left silent. A view (#share, #library, #add-roms,
+  // #debugger) holds no '=', so it is never one.
+  else if (/^#[A-Za-z][A-Za-z0-9_-]*=./.test(location.hash)) { page.status("This share link couldn't be read.", true); history.replaceState(null, '', location.pathname + location.search); }
+  window.emu.linkDone = true;
 })();

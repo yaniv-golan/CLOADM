@@ -11653,7 +11653,11 @@ async function uiCopyChecks(browser, base, check) {
       if (what === 'machine=nosuch') await shot(page, 'link-machine');
       check(`deep link: ${what}: no page errors`, !errors.length, errors.join('; '));
       await closeCtx(ctx);    }
-    for (const hash of ['#share=junk', '#s=junk', '#z=junk']) {
+    // every hash form the page reads, and the junk ones it refuses: a hash of the shape "#<letters>=<anything>" that
+    // no reader claimed (#z= and #l= are read above; #s= is the pre-launch long link, no longer read) gets the same
+    // clear refusal and leaves the address. A view (#share, #library, #add-roms, #debugger) holds no '=', so the rule
+    // never swallows one of them: each is opened here and must show its own view.
+    for (const hash of ['#share=junk', '#s=junk', '#z=junk', '#l=junk']) {
       const { ctx, page, errors } = await open({ width: 1280, height: 720 }, `?machine=dragon64${hash}`);
       await started(page);
       await waitFor(page, () => window.emu.linkDone === true && /share link|snapshot/i.test(document.getElementById('toastText').textContent), null, 15000);
@@ -11661,6 +11665,13 @@ async function uiCopyChecks(browser, base, check) {
       check(`deep link: ${hash}: says the share link couldn't be read (never silent), and the junk leaves the address`,
         /couldn't be read|is damaged/.test(t) && await page.evaluate(() => location.hash === ''), `${t} | ${await page.evaluate(() => location.hash)}`);
       check(`deep link: ${hash}: no page errors`, !errors.length, errors.join('; '));
+      await closeCtx(ctx);    }
+    for (const [hash, view] of [['#share', 'share'], ['#library', 'library'], ['#add-roms', 'romCard'], ['#debugger', 'debugView']]) {
+      const { ctx, page, errors } = await open({ width: 1280, height: 720 }, `?machine=dragon64${hash}`);
+      await started(page);
+      await waitFor(page, () => window.emu.linkDone === true, null, 15000);
+      const r = await page.evaluate(([h, id]) => ({ hash: location.hash, said: document.getElementById('toastText').textContent, own: document.getElementById(id).checkVisibility() }), [hash, view]);
+      check(`deep link: ${hash} still opens its own view (the refusal rule does not swallow it)`, r.hash === hash && !/couldn't be read/.test(r.said) && r.own && !errors.length, JSON.stringify(r));
       await closeCtx(ctx);    }
   }
 
@@ -15991,18 +16002,6 @@ async function shareChecks(browser, base, site, check) {
     await linkIn(p2b);
     check('share: a cut-short link says its snapshot is damaged', await waitFor(p2b, () => window.__said.some((m) => /damaged/.test(m)))
       && await p2b.evaluate(() => !window.__said.some((m) => /Snapshot opened/.test(m))), await said(p2b));
-    // a link in the form earlier versions wrote (#s=, base64url of the .cloadm file) still opens the moment
-    const oldLink = link.split('#')[0] + '#s=' + await page.evaluate(async () => {
-      const f = await window.emu.session.shareFile();
-      let t = ''; for (const b of f.bytes) t += String.fromCharCode(b);
-      return btoa(t).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-    });
-    const p2c = await ctx2.newPage();
-    await p2c.goto(oldLink);
-    await linkIn(p2c);
-    check('share: a link in the earlier form (#s=) still opens that moment', await p2c.evaluate(() => window.emu.machine.ram[1030] === 42 && location.hash === '')
-      && await waitFor(p2c, () => window.__said.some((m) => /^Snapshot opened: Dragon 64/.test(m))) && await p2c.evaluate(() => !window.__said.some((m) => /^ERROR /.test(m))),
-      `${oldLink.length} characters (the #z= link: ${link.length}) · ${await said(p2c)}`);
     await closeCtx(ctx2);
 
     // the clip

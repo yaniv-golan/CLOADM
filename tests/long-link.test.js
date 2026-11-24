@@ -4,7 +4,7 @@
 //    "stored" block assembled byte by byte (RFC 1951 3.2.4), and the exact container the encoder must write
 //  * round trips: the same snapshot back, every typed array and non-finite number, with the picture left out
 //  * through the Session, on every model: the moment opened from a #z= link runs on as the original does
-//  * links from earlier versions (#s=, base64url of a .cloadm file) still open, with their picture
+//  * links from pre-launch builds (#s=, base64url of a .cloadm file) are no snapshot, so the page refuses them
 //  * damaged, cut, oversized and newer links: refused with a message, never a crash
 const zlib = require('zlib');
 const Emu = require('./load')();
@@ -77,18 +77,15 @@ const link = (box, version = 1) => new Uint8Array(Buffer.concat([Buffer.from([ve
     const url = await s.snapshotLink('https://cloadm.dev/play/', file);
     const u = new URL(url);
     check(`${id}: the link is /play/ with the machine, the moment after #z=`, u.pathname === '/play/' && new URLSearchParams(u.search).get('machine') === id && /^#z=[A-Za-z0-9_-]+$/.test(u.hash), url.slice(0, 80));
-    const old = `${url.split('#')[0]}#s=${Emu.toBase64Url(file.bytes)}`;
-    check(`${id}: the #z= link is shorter than the #s= one`, url.length < old.length, `${url.length} vs ${old.length}`);
+    // the form pre-launch builds wrote (base64url of the .cloadm file): not a snapshot now, so the page refuses it
+    // (js/ui/main.js, "#<letters>=" that no reader claimed), and it never opens
+    const older = await s.readSnapshotLink('#s=' + Emu.toBase64Url(file.bytes));
+    check(`${id}: a pre-launch #s= link is no snapshot (readSnapshotLink gives null)`, older === null, JSON.stringify(older && older.machine));
     const want = run(m, 12, 1);
     const b = new Emu.Session();
     b.switchMachine('dragon64');
     b.openSnapshot(await b.readSnapshotLink(u.hash));
     check(`${id}: opened from #z= in another Session, it runs on identically (instructions, cycles, frames after the first, memory)`, b.shownMachine.id === id && run(b.shownMachine, 12, 1) === want);
-    // a link from an earlier version: the .cloadm file in base64url, picture and all
-    const c = new Emu.Session();
-    c.switchMachine('dragon64');
-    c.openSnapshot(await c.readSnapshotLink(new URL(old).hash));
-    check(`${id}: an older #s= link still opens, and runs on identically (its picture included)`, c.shownMachine.id === id && run(c.shownMachine, 12, 0) === run(Emu.restoreSnapshot(await Emu.decodeSnapshot(file.bytes), {}), 12, 0));
   }
 
   // ---------------- what the program pages and the Share screen measure: LIZA and 2048 on the built-in firmware ----------------
@@ -106,7 +103,7 @@ const link = (box, version = 1) => new Uint8Array(Buffer.concat([Buffer.from([ve
       const old = `${s.shareUrl('https://cloadm.dev/play/').split('#')[0]}#s=${Emu.toBase64Url(f.bytes)}`;
       // the design measured 50% (LIZA) and 64% (2048, whose memory compresses less): hold the line at 70% so a regression
       // in the form shows
-      check(`${what}: the #z= link is at most 70% of the #s= one`, z.length <= 0.7 * old.length, `${z.length} vs ${old.length} characters`);
+      check(`${what}: the #z= link is at most 70% of the pre-launch #s= one`, z.length <= 0.7 * old.length, `${z.length} vs ${old.length} characters`);
     }
   }
 
@@ -146,7 +143,7 @@ const link = (box, version = 1) => new Uint8Array(Buffer.concat([Buffer.from([ve
     const bomb = new Uint8Array(Buffer.concat([Buffer.from([1]), zlib.deflateRawSync(Buffer.alloc(4 << 20))]));
     const big = await rejects(Emu.decodeLongLink(bomb, { maxBytes: 1 << 20 }));
     check('a link that unpacks past the limit is refused', big instanceof Emu.SnapshotError && /far more than any CLOADM snapshot/.test(big.message), `${bomb.length} bytes; ${big && big.message}`);
-    check('no #z= or #s= is no snapshot', (await s.readSnapshotLink('#zz=1')) === null && (await s.readSnapshotLink('#share')) === null && (await s.readSnapshotLink('')) === null);
+    check('no #z= and no #l= is no snapshot', (await s.readSnapshotLink('#zz=1')) === null && (await s.readSnapshotLink('#share')) === null && (await s.readSnapshotLink('')) === null && (await s.readSnapshotLink('#s=x')) === null);
   }
 
   console.log(fail ? `${fail} FAILED` : 'all passed');

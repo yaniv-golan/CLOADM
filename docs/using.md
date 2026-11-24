@@ -398,8 +398,7 @@ line under the picture says what the link does, and a ROM line says whether the 
 the link starts NitrOS-9 fresh instead (no snapshot file). The link there, the long link, carries the moment itself (the snapshot rides in the
 fragment after `#z=`, which browsers never send to a server: a version byte, then the snapshot packed with deflate,
 its byte arrays raw rather than in base64, and without the rendered picture, which the machine draws again on the first
-frame after it opens; about 2 to 8 KB, LIZA's about 5 KB). Links made by earlier versions, with `#s=` (the snapshot
-file itself in base64url), still open, and saved `.cloadm` files are unchanged. The embed builder writes the iframe and script for the machine, program and options you pick.
+frame after it opens; about 2 to 8 KB, LIZA's about 5 KB). `#z=` is the only long-link form: saved `.cloadm` files are unchanged, and a link made by a pre-launch build (which wrote the snapshot file itself after `#s=`) gets the page's clear "This share link couldn't be read." refusal. The embed builder writes the iframe and script for the machine, program and options you pick.
 
 **Short links.** "Make a short link" (the Share screen's first choice whenever it can be made) gives
 `https://s.cloadm.dev/<id>#<key>`, about 50 characters, with a QR code of it. Privacy: the moment is sealed in your browser

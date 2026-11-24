@@ -114,7 +114,7 @@ function checked(snap) {
 //                 platform (little-endian, as files' base64 is)
 // The rendered picture (state.frame) is left out (null): it is about half of what is left after compression, and the
 // machine draws it again on the next frame (Machine.loadState clears it). Saved files keep it. A link is about half
-// the length of the older '#s=' form (base64url of the gzip file), which pages still read (Session.readSnapshotLink).
+// the length of the older form (base64url of the gzip file) that pre-release builds wrote, which pages no longer read.
 export const LONG_LINK_VERSION = 1;
 const TYPED_NAMES = new Set(['Uint8Array', 'Int8Array', 'Uint16Array', 'Int16Array', 'Uint32Array', 'Int32Array', 'Float32Array', 'Float64Array']);
 

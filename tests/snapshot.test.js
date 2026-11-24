@@ -472,12 +472,11 @@ const picture = (m) => { let h = 0x811C9DC5; for (const v of m.render().data) h 
     b.openSnapshot(snap);
     check('share link: read back in a fresh Session, the same machine, config and memory', b.shownMachine.id === 'coco3' && b.shownMachine.config.ram === 128
       && run(b.shownMachine, 0) === ref && b.shownMachine.peek(0x2000) === 0x5A);
-    check('share link: no #z= or #s= is no snapshot', (await b.readSnapshotLink('#share')) === null && (await b.readSnapshotLink('')) === null);
+    check('share link: nothing to read in #share, an empty hash or the pre-launch #s=', (await b.readSnapshotLink('#share')) === null && (await b.readSnapshotLink('')) === null && (await b.readSnapshotLink('#s=' + Buffer.from('hello').toString('base64url'))) === null);
     const cut = await rejects(b.readSnapshotLink(u.hash.slice(0, u.hash.length - 300)));
     const bad = await rejects(b.readSnapshotLink('#z=not*base64!'));
-    const junk = await rejects(b.readSnapshotLink('#s=' + Buffer.from('hello').toString('base64url')));
-    check('share link: cut short, changed or not a snapshot: "damaged", as a SessionError', [cut, bad, junk].every((e) => e instanceof Emu.SessionError && /This link's snapshot is damaged/.test(e.message)),
-      [cut, bad, junk].map((e) => e && e.message).join(' | '));
+    check('share link: cut short or not base64url: "damaged", as a SessionError', [cut, bad].every((e) => e instanceof Emu.SessionError && /This link's snapshot is damaged/.test(e.message)),
+      [cut, bad].map((e) => e && e.message).join(' | '));
     // with ROMs or a cartridge the link is made too, without their bytes (tests/share-roms.test.js checks the bytes)
     const r = new Emu.Session();
     r.switchMachine('dragon64');

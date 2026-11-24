@@ -1,6 +1,6 @@
 /*
  * Opening snapshots: a .cloadm file dropped on the screen or picked with Insert…, or the
- * snapshot a long link carries (#z=, or #s= from earlier versions; js/ui/share.js writes them) or a short link's moment
+ * snapshot a long link carries (#z=; js/ui/share.js writes them) or a short link's moment
  * (#l=<id>.<key>, fetched from s.cloadm.dev and opened with its key here). If it needs ROMs this browser doesn't
  * have, a card ("This moment needs Dragon 64 BASIC") offers Add ROMs
  * (and the moment opens as soon as they are added) or a look around that machine without them; if it is of
@@ -61,7 +61,7 @@ export function setupSnapshotPanel(page, { confirmSwitch, openRoms }) {
   // (and a cartridge it names, dropped and loaded: it is then among the recent programs)
   session.on((ev) => { if ((ev === 'roms' || ev === 'loaded') && waiting) { const snap = waiting; try { session.snapshotRoms(snap); open(snap); } catch (e) { /* still missing */ } } });
 
-  // a share link's snapshot (the #s= fragment): opened as a dropped file would be; the fragment is then removed
+  // a share link's snapshot (the #z= fragment): opened as a dropped file would be; the fragment is then removed
   async function takeLink(hash) {
     let snap;
     try { snap = await session.readSnapshotLink(hash); }

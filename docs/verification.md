@@ -1826,12 +1826,16 @@ docs/shortlink-deploy.md ends with the check to run once it is deployed.
 No MAME oracle: a link is a container, not hardware. `tests/long-link.test.js` decodes a link built byte by byte
 here (a deflate stored block, RFC 1951 3.2.4, around a hand-written skeleton and arrays) and checks the encoder's
 unpacked container against bytes written out by hand; it opens a `#z=` link made on every model in a fresh Session and
-runs it on identically to the original (instructions, cycles, memory, frames after the first), opens the `#s=` form
-earlier versions wrote, and refuses damaged, cut, oversized and newer links with a message. `tests/state.test.js`
+runs it on identically to the original (instructions, cycles, memory, frames after the first), and refuses damaged,
+cut, oversized and newer links with a message. A pre-launch `#s=` link (base64url of the `.cloadm` file) is no
+snapshot now: the page answers it with its "This share link couldn't be read." refusal, as it does any hash of that
+shape that no reader claims. `tests/state.test.js`
 (section 4.5) takes the moment mid-frame on the Dragon 64, CoCo 3 and MC-10: from the link the machine runs on with the
 same trace, sound and frames, and its first frame is the file's picture except the rows the beam had already drawn,
 still cleared. `tests/share-roms.test.js` decodes the link itself with Node's zlib and finds no 16-byte window of any
-ROM stand-in in it. The browser check (`share`) opens a `#z=` link and an `#s=` link in another profile.
+ROM stand-in in it. The browser check (`share`) opens a `#z=` link in another profile, and its deep-link cases put
+`#s=junk` and `#share=junk` beside `#z=junk` (each answered with the refusal and cleared) and check that `#share`,
+`#library`, `#add-roms` and `#debugger` each still open their own view.
 
 The program pages' cards are made on the built-in firmware (`tools/program-cards.js` refuses when a ROM or cartridge is
 loaded); `tests/program-pages.test.js` checks the committed pages and cards are what it makes, decoding the PNGs with

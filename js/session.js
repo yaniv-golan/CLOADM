@@ -1850,19 +1850,15 @@ export class Session {
     return null;
   }
   // a URL's fragment -> the snapshot, null when it has none; SessionError when it is damaged. '#z=' is the link form
-  // snapshotLink writes (js/media/snapshot.js decodeLongLink; its picture is drawn again on the next frame);
-  // '#s=' (base64url of a .cloadm file) is what earlier versions wrote, and is read for good.
+  // snapshotLink writes (js/media/snapshot.js decodeLongLink; its picture is drawn again on the next frame).
   async readSnapshotLink(hash) {
-    const m = /^#?([sz])=(.*)$/.exec(hash || '');
+    const m = /^#?z=(.*)$/.exec(hash || '');
     if (!m) return null;
     const damaged = new SessionError('This link\'s snapshot is damaged: it was cut short or changed on the way.');
     let bytes;
-    try { bytes = fromBase64Url(m[2]); } catch (e) { throw damaged; }
-    if (m[1] === 'z') {
-      try { return await decodeLongLink(bytes); }
-      catch (e) { throw e instanceof SnapshotError && /newer CLOADM/.test(e.message) ? new SessionError(e.message) : damaged; }
-    }
-    try { return await this.readSnapshot(bytes); } catch (e) { throw e instanceof SessionError && /newer CLOADM/.test(e.message) ? e : damaged; }
+    try { bytes = fromBase64Url(m[1]); } catch (e) { throw damaged; }
+    try { return await decodeLongLink(bytes); }
+    catch (e) { throw e instanceof SnapshotError && /newer CLOADM/.test(e.message) ? new SessionError(e.message) : damaged; }
   }
   // the moment as a file -> { name, bytes }
   // The moment as a file the person keeps: their machine (personMachine), so with the chat full screen it is the
@@ -1927,7 +1923,7 @@ export class Session {
   // Machine.restore sets), so a program that took the screen -- a game, anything that never printed OK -- is not
   // reported as a boot failure 5 s after it comes back. A later Reset or power-on clears the flag, so the
   // watchdog is armed again for it.
-  // shared: the moment came from a share link (#s=, js/ui/snapshot-panel.js). One that runs without ROMs is the
+  // shared: the moment came from a share link (#z=, js/ui/snapshot-panel.js). One that runs without ROMs is the
   // person's arrival on someone else's moment (sharedMoment): the page holds back its no-ROM card and "No BASIC" pill
   // until they leave it (leaveSharedMoment).
   openSnapshot(snap, { shared = false } = {}) {

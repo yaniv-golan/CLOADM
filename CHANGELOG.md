@@ -12,7 +12,7 @@ Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.
 - **Shorter long links.** The Share screen's long link (and "Ask Claude ↗") now carries the moment after `#z=`: a version
   byte, then deflate-raw of the snapshot as a JSON skeleton plus its raw byte arrays, without the rendered picture
   (drawn again on the first frame after opening). LIZA's link goes from about 8,400 to 4,900 characters, 2048's from
-  11,900 to 7,900. Links with `#s=` from earlier versions still open; `.cloadm` files are unchanged.
+  11,900 to 7,900. `.cloadm` files are unchanged.
 - **Short links.** The Share screen's first choice, **Make a short link**, gives `https://s.cloadm.dev/<id>#<key>`
   (about 50 characters) with a QR code. The moment is sealed with AES-GCM in the browser and only the sealed bytes are
   stored; the key is the part after `#`, which never reaches the server. "Show a preview picture" (on; the picture is
@@ -26,6 +26,12 @@ Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.
   and a 1200x630 picture of the program on the built-in firmware, made by `tools/program-cards.js`), a Play button, and
   go straight to the start link `/play/?start=<program>`. They work offline like the rest of the site. One entry in
   `js/program-pages.js` makes a page; `Session.programPageUrl(id, base)` gives its address.
+
+### Removed
+- **The `#s=` long-link form.** A long link is `#z=` only (`Session.readSnapshotLink`, `js/ui/main.js`). A link from a
+  pre-launch build, which wrote the snapshot file itself after `#s=`, no longer opens: the page answers it with the
+  same "This share link couldn't be read." refusal it gives any share-link hash no reader claims, and clears it from
+  the address. `.cloadm` files are unchanged.
 
 ### 0.2.0
 

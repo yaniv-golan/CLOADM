@@ -179,7 +179,7 @@ node tests/state-fdc.test.js # the same for floppy controllers mid-transfer, one
 node tests/state-carts.test.js  # the same for cartridges, a Multi-Pak and the Speech/Sound Pak mid-activity
 node tests/state-tape.test.js   # the same for the cassette deck: a recording in progress, a tape being played
 node tests/snapshot.test.js  # snapshot files: format and version, defective files, every model opened elsewhere, ROMs by CRC, switching, slots
-node tests/long-link.test.js # share links' #z= form: hand-built vectors, every model opened from a link, old #s= links, refusals
+node tests/long-link.test.js # share links' #z= form: hand-built vectors, every model opened from a link, pre-launch #s= links refused, refusals
 node tests/program-pages.test.js # the program pages and cards are what tools/program-cards.js makes; PNG and card vectors
 node tests/short-link.test.js # short links on the page's side: sealing, the store over a mocked fetch, the key never sent, guardrails
 node tests/shortlink-worker.test.js # the short-link Worker in Node against an in-memory bucket: every check, limit, kill switch and count
