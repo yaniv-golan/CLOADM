@@ -6,9 +6,11 @@ All notable changes to CLOADM are recorded here. The format follows
 
 ## [Unreleased]
 
-Next version: 0.1.9-pre (the plugin and extension manifests carry it; `tests/plugin.test.js` keeps them in step).
+Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.test.js` keeps them in step).
 
-### Added
+### 0.2.0
+
+#### Added
 
 - **Link previews.** `index.html` and `play/index.html` have a meta description ("CLOADM: Dragon and Tandy Color
   Computer emulator in your browser. Runs LIZA and games with no ROMs; add yours for BASIC."), Open Graph tags and a
@@ -231,7 +233,7 @@ Next version: 0.1.9-pre (the plugin and extension manifests carry it; `tests/plu
   into our block-reading firmware and the file's bytes end up in memory, and three breakages of the code (no leader before the second
   file, a wrong checksum, the MC-10 padded).
 
-### Changed
+#### Changed
 
 - **Share… in the landscape keys' Menu.** Held sideways the app bar gives way to the keys, so its Share was out of reach;
   the keys' Menu now has **Share…** right after Ask Claude…, opening the Share screen on this moment. It is there in a
@@ -472,7 +474,7 @@ Next version: 0.1.9-pre (the plugin and extension manifests carry it; `tests/plu
   bytes as they are). The WAV decoder ends a run of bits at a silence and reads up to three damaged bytes (a bit or two off `$55`) at the
   very start of a run, in front of a leader of at least 16 bytes, as `$55`: the first cycle after a silence is the least certain of a recording.
 
-### Fixed
+#### Fixed
 
 - **The page's own panels caught up with the screen a frame late.** The emulator draws a frame, then the page's panels
   (the Media tab's "Runs without ROMs", its "Recent on this machine", the boot box, the tape row) update from what the
