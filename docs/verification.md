@@ -1852,6 +1852,33 @@ NAME is the span that is cut (`scrollWidth > clientWidth`, `text-overflow: ellip
 `flex-shrink: 0` are asserted as the mechanism, and " · CLOADM" is absent in every mode. A guardrail that refuses the
 moment says so once, inline, and Copy carries `disabled` with the page's disabled look (opacity 0.55).
 
+## The Share screen's layouts and the share card
+
+No MAME oracle: this is page layout and a picture the page draws. The share card ("Save picture", and a short link's
+preview picture: one renderer, `js/video/bezel.js` `shareCardPicture`) is held by `tests/share-card.test.js`, which
+decodes its PNG with Node's zlib, not the project's code: 1200 x 630; on a VDG-shaped frame of 40 colours and a
+GIME-shaped one of 64, every pixel in the glass is `frameToRGBA`'s colour for the frame pixel it shows, the place worked
+out in the test from the frame's shape (2x, and 1x with the GIME's lines doubled); the name is read back glyph by glyph
+from the chat font at the largest size that fits (worked out in the test); "cloadm.dev" is on the lip and nothing else is
+drawn beside the monitor; another name changes only the name's place; a long name is cut with "...", "Prológica" drawn
+"Prologica"; at 16 colours a picture whose colours don't all fit is not exact (no preview is sent); and
+`Session.sharePicture` and `Session.previewPicture` give the same card, pixel for pixel. The browser check's `share`
+group then saves the picture through the page (paused at the welcome menu) and compares it with the renderer's card of
+the same frame named "Dragon 64": 0 pixels differ, and all 196,608 picture pixels are `frameToRGBA`'s.
+
+The layouts (`share` group, `shareLayoutChecks`): at 653x280, 568x320, 667x375, 740x360, 844x390 and an upright
+390x844, each with no ROMs and the short link on (a store that answers), ROMs needed (stand-ins made from this project's
+firmware), "Always use long links", and a failing store (the Worker's 503): at scroll 0 Copy and the ROM line's first
+line (a Range's first client rect) are wholly on screen, inside the scrolling column where there is one; no sideways
+scroll; the preview at least 120px wide; Copy and Share… at least 44px tall; the ROM line's one-line form and its title;
+on a short landscape screen the two columns, the picture's share of the width (40%, 30% under 300px), its caption one
+line under it, the column's order read from the tops, the page itself never scrolling; the tab order from the back link
+reaches Copy, then "More ways to share", then "Embed"; after a tap the field it made is focused, on screen and what
+`elementFromPoint` finds (no toast over it), and with the short link made Copy, its field and the ROM line are all on the
+first screen; both disclosures open by a real click on their summary and what they hold can be pressed. On a desktop
+(861x600, 1024x640, 1280x720) Save picture and Save clip are in Copy's row, and the preview's frame and stripe fill its
+width with the picture centred.
+
 ## Long links (`#z=`) and the program pages
 
 No MAME oracle: a link is a container, not hardware. `tests/long-link.test.js` decodes a link built byte by byte

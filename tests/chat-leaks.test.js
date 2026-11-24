@@ -602,6 +602,9 @@ const REQUIRED = require.main !== module;
     // shortLink reads it the same way (shareFile) and sends sealed bytes to the store it is given, changing no machine;
     // readShortLink fetches and decodes a snapshot, which openSnapshot (classified on its own) then opens
     'longLinkRefusal', 'shortLinkRefusal', 'shortLink', 'readShortLink',
+    // sharePicture renders the SHOWN machine's frame into the share card ("Save picture") and shareCardName reads its
+    // program watch or profile for the card's name; both change nothing
+    'sharePicture', 'shareCardName',
     // menuTicketFor returns the ticket a menu starts with (the Session's menuTicket or the one passed); changes nothing
     'menuTicketFor',
     // bareDiskController and diskRomWaiting read the disk controller of the PERSON's machine (diskMachine); no change

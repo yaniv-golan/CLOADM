@@ -5,9 +5,18 @@
  * This adds the monitor around it: the bezel, its darker lip with the caption on it ("cloadm.dev"), and beside it the
  * logo, the name and a few words, in the chat terminal's original font (js/video/chat-font.js). No canvas, no browser,
  * and no pixel but the frame's and these shapes.
- *   bezelPicture(frame, { caption, name, lines }) -> { width, height, pixels, palette }
+ *   bezelPicture(frame, { caption, name, lines, colours }) -> { width, height, pixels, palette, exact }
  *   renderBezelCard(frame, opts) -> Promise of PNG bytes
  * Characters outside the font's ASCII 0x20-0x7E, or text too long for its place, are refused.
+ *
+ * The share card (the Share screen's "Save picture", and a short link's preview picture: one renderer for both) is the
+ * same monitor with the program's or machine's name beside it and no other words:
+ *   shareCardPicture(frame, { name, colours }) -> as bezelPicture; the name in the largest size that fits, any
+ *     letter outside the font taken back to its plain form ("Prológica" -> "Prologica") or "?", a name too long even at
+ *     the smallest size cut to fit with "..."
+ *   renderShareCard(frame, opts) -> Promise of PNG bytes
+ * `colours` is the most the palette may hold (16 for a link preview, 256 for a saved picture); `exact` says whether
+ * every colour of the picture is its own (true) or some were drawn in the nearest kept colour (false).
  */
 import { GLYPHS } from './chat-font.js';
 import { cardPicture, CARD_WIDTH, CARD_HEIGHT } from './card.js';
@@ -32,7 +41,7 @@ const glyph = (ch) => {
 };
 const dist = (a, b) => (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 + (a[2] - b[2]) ** 2;
 
-export function bezelPicture(frame, { caption = 'cloadm.dev', name = 'CLOADM', lines = BEZEL_LINES } = {}) {
+export function bezelPicture(frame, { caption = 'cloadm.dev', name = 'CLOADM', lines = BEZEL_LINES, colours = BEZEL_COLOURS, nameScale = 7 } = {}) {
   const W = CARD_WIDTH, H = CARD_HEIGHT, pixels = new Uint8Array(W * H).fill(GROUND);
   const shot = cardPicture(frame, SCREEN.w, SCREEN.h);
   // the palette: the card's own colours, then the picture's, most used first, to 16; a picture of more colours than fit
@@ -44,8 +53,9 @@ export function bezelPicture(frame, { caption = 'cloadm.dev', name = 'CLOADM', l
   for (const i of order) {
     const c = shot.palette[i], same = palette.findIndex((p) => p.join() === c.join());
     if (same >= 0) map[i] = same;
-    else if (palette.length < BEZEL_COLOURS) { map[i] = palette.length; palette.push(c.slice()); }
+    else if (palette.length < colours) { map[i] = palette.length; palette.push(c.slice()); }
   }
+  const exact = order.every((i) => map[i] !== undefined);
   for (const i of order) if (map[i] === undefined) map[i] = palette.reduce((b, p, k) => (dist(p, shot.palette[i]) < dist(palette[b], shot.palette[i]) ? k : b), 0);
 
   const rect = (x, y, w, h, c) => { for (let j = y; j < y + h; j++) pixels.fill(c, j * W + x, j * W + x + w); };
@@ -75,10 +85,24 @@ export function bezelPicture(frame, { caption = 'cloadm.dev', name = 'CLOADM', l
   const q = 22;
   rect(SIDE, 170, q, q, PHOSPHOR); rect(SIDE + q + 2, 170, q, q, SHADE);
   rect(SIDE, 170 + q + 2, q, q, PHOSPHOR); rect(SIDE + q + 2, 170 + q + 2, q, q, PHOSPHOR);
-  fits(name, 7, W - SIDE - 20, 'name');
-  text(name, SIDE, 236, 7, TEXT);
+  fits(name, nameScale, W - SIDE - 20, 'name');
+  text(name, SIDE, 236, nameScale, TEXT);
   lines.forEach((l, k) => { fits(l, 3, W - SIDE - 20, 'line'); text(l, SIDE, 320 + k * 34, 3, TEXT); });
-  return { width: W, height: H, pixels, palette };
+  return { width: W, height: H, pixels, palette, exact };
 }
 
 export const renderBezelCard = (frame, opts) => encodeIndexedPng(bezelPicture(frame, opts));
+
+// the room beside the monitor for the name, and the sizes it may take (font pixels of 7 card pixels down to 3)
+export const NAME_ROOM = CARD_WIDTH - SIDE - 20;
+const NAME_SCALES = [7, 6, 5, 4, 3];
+// a name the card can draw: letters outside the font taken back to their plain form, or "?"
+export const cardName = (name) => String(name).normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^\x20-\x7E]/g, '?').trim();
+export function shareCardPicture(frame, { name = 'CLOADM', colours = 256 } = {}) {
+  let n = cardName(name) || 'CLOADM';
+  const scale = NAME_SCALES.find((s) => n.length * 6 * s <= NAME_ROOM) || 3;
+  const most = Math.floor(NAME_ROOM / 18);
+  if (n.length > most) n = `${n.slice(0, most - 3).trimEnd()}...`;
+  return bezelPicture(frame, { caption: 'cloadm.dev', name: n, lines: [], colours, nameScale: scale });
+}
+export const renderShareCard = (frame, opts) => encodeIndexedPng(shareCardPicture(frame, opts));

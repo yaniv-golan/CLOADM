@@ -541,12 +541,15 @@
   /* ---- the Share screen (#share): a view of /play/ ---- */
   body.share-open .layout, body.share-open .panels, body.share-open footer, body.share-open #switchConfirm { display: none !important; }
   #share { padding: 8px 48px 48px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: 40px; row-gap: 20px; align-content: start; max-width: 1200px; }
-  #share > header, #share > .disc { grid-column: 1 / -1; }
+  #share > header, #share > .side > .disc { grid-column: 1 / -1; }
   #share > header { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 14px; padding: 4px 0 8px; }
   #share > header a { font-size: 15px; }
   #share > header .back { color: var(--text-2); text-decoration: none; }
   #share > header strong { font-weight: 800; font-stretch: 125%; font-size: 17px; }
   #share .col { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+  #share > .side { display: contents; }
+  /* the ROM line's one-line form is for a short landscape screen only */
+  #share .romline .brief { display: none; }
   #share .mono { font-family: var(--font-mono); font-size: 14px; color: var(--muted); letter-spacing: .06em; }
   #share h1, #share h2 { margin: 0; font-size: clamp(26px, 6vw, 34px); font-weight: 800; font-stretch: 112%; line-height: 1.05; }
   #share h3.sub { margin: 0; font-size: 15px; font-stretch: 100%; font-weight: 700; color: var(--text-2); }
@@ -598,8 +601,9 @@
     #share .linkset { gap: 4px; }
     #share p.small, #share .why { font-size: 13px; line-height: 1.35; }
     /* the preview picture is the tallest thing in the column; a share screen is about the link, so at a short height
-       it takes a smaller share of it (the aspect stays) */
-    #share .frame { max-height: 132px; }
+       it takes a smaller share of it. The frame keeps the column's whole width (with max-height alone, the aspect
+       ratio shrank it to 252 of 363px at 861x600, the picture and its colour stripe in the left 60% of the box) */
+    #share .frame { height: 132px; aspect-ratio: auto; }
     /* the caption is positioned against the picture, so the picture must be the containing block: without this it
        escapes to the viewport's bottom edge and its bar covers the Copy button */
     #share .preview { position: relative; }
@@ -663,8 +667,61 @@
     #share #shortTerms { font-size: 11px; line-height: 1.25; }
     #share .linkset { gap: 4px; }
     #share .linkrow input { padding: 9px 12px; }
-    #share .sharebtns button { min-height: 38px; flex: 1 1 0; }
+    #share .sharebtns button { min-height: 44px; flex: 1 1 0; }
     #share #shareQr { width: 104px; height: 104px; }
+  }
+  /* A short landscape screen (a phone on its side: 653x280, 568x320, 667x375, 844x390): two columns under the header.
+     The picture on the left, at most 40% of the width (30% under 300px of height), its aspect kept and its caption one
+     line under it; it never hides. The right column scrolls on its own, in this order: the heading, Copy (+ Share…), the
+     ROM line in one line, the short link's cloadm.dev note, the picture switch, the made link + QR, the note, then the
+     disclosures. The order is the flex `order` of #primarySet's and the section's children (#primarySet is no box here),
+     so a desktop's and an upright phone's order is not touched. --share-top is where the view starts (under the app
+     bar: js/ui/share.js), so the two columns fill the rest of the screen and the page itself does not scroll. */
+  @media (orientation: landscape) and (max-height: 420px) {
+    #share { height: calc(100dvh - var(--share-top, 0px)); box-sizing: border-box; overflow: hidden; max-width: none;
+      grid-template-columns: auto minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); column-gap: 16px; row-gap: 2px;
+      padding: 0 max(16px, env(safe-area-inset-right)) 0 max(16px, env(safe-area-inset-left)); }
+    #share > header { padding: 0; gap: 10px; min-height: 28px; }
+    #share > header a { font-size: 14px; }
+    #share > header strong { font-size: 15px; }
+    #share > .preview { grid-column: 1; grid-row: 2; width: 40vw; align-self: start; position: static; }
+    #share .frame { height: auto; max-height: none; aspect-ratio: 1.91; }
+    #share .frame canvas { height: 84%; }
+    #share figcaption { position: static; background: none; flex-direction: row; flex-wrap: nowrap; justify-content: space-between;
+      align-items: baseline; gap: 8px; padding: 3px 8px; font-size: 12px; }
+    #share figcaption strong, #share figcaption span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+    /* in a column this narrow the time gives way first (to nothing), then the name ends in "…"; the prefix stays whole */
+    #share figcaption #shareWhen { flex: 0 1000 auto; }
+    /* position: relative, so what is positioned inside it (the fields' visually hidden labels) is held and clipped by the
+       column, not placed against the page, where it made the page itself scroll */
+    #share > .side { grid-column: 2; grid-row: 2; display: flex; flex-direction: column; gap: 8px; min-height: 0; overflow-y: auto;
+      overscroll-behavior: contain; padding-bottom: 12px; position: relative; }
+    #share .side > .col.main { gap: 3px; flex: none; }
+    #share .side > .disc { flex: none; }
+    #share #primarySet { display: contents; }
+    #share h1 { font-size: 16px; order: 1; }
+    #share .sharebtns { order: 2; }
+    #share #primaryWhy { order: 3; }
+    #share #primaryNote { order: 4; }
+    #share #shareRom { order: 5; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 14px; line-height: 1.3; }
+    #share .romline .full { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+    #share .romline .brief { display: inline; }
+    #share #shareExtra { order: 6; }
+    #share #shortTerms { order: 7; font-size: 11px; line-height: 1.25; }
+    #share #previewSwitch { order: 8; }
+    #share #shortMade { order: 9; display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
+    #share #shortMade[hidden] { display: none; }
+    #share #shortMade .linkrow { align-self: stretch; }
+    #share #shareNote { order: 10; font-size: 13px; line-height: 1.3; }
+    #share .sharebtns button { min-height: 44px; flex: 1 1 0; }
+    #share .linkrow input { padding: 9px 12px; }
+    #share #shareQr { width: 104px; height: 104px; }
+    /* a toast ("Short link copied") sits in the left column under the picture, not over the field the tap made */
+    body.share-open #toastRegion { left: max(16px, env(safe-area-inset-left)); right: auto; transform: none; bottom: 8px; width: 40vw; max-width: 40vw; }
+  }
+  @media (orientation: landscape) and (max-height: 299px) {
+    #share > .preview { width: 30vw; }
+    body.share-open #toastRegion { width: 30vw; max-width: 30vw; }
   }
 
 
@@ -1767,16 +1824,23 @@ npx serve -l 8000 .</pre>
       <div class="stripe" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
     <figcaption><strong id="shareTitle"><span id="sharePrefix">What they'll see first ·</span><span id="shareName"></span></strong><span id="shareWhen"></span></figcaption>
   </figure>
+  <!-- the right-hand column: on a short landscape screen it scrolls on its own beside the picture; elsewhere it is no box
+       of its own (display: contents), and the section and the disclosures are the grid's -->
+  <div class="side" id="shareSide">
   <section class="col main" aria-labelledby="shareHeading">
     <h1 id="shareHeading">Share this moment</h1>
     <p id="shareNote"></p>
-    <p id="shareRom" class="romline"></p>
+    <!-- the ROM line: the full sentence, and its one-line form for a short landscape screen (the full one is then read
+         to assistive technology and is the line's title) -->
+    <p id="shareRom" class="romline"><span class="full" id="shareRomFull"></span><span class="brief" id="shareRomBrief" aria-hidden="true"></span></p>
     <div id="shareExtra" class="extra"></div>
     <!-- One link (js/ui/share.js): the primary is Copy link (and Share… where the browser has a sheet). An unchanged
          bundled program gives its program page instead. A short link is made on the tap; where it can't be, the long
          link is copied, with the reason beside it. -->
     <div class="linkset" id="primarySet">
-      <div class="bar sharebtns"><button id="btnShareCopy" class="primary">Copy link</button><button id="btnShareNative" hidden>Share…</button></div>
+      <!-- Save picture and Save clip sit here, beside Copy, on a desktop; on a phone and a short landscape screen they
+           are under "More ways to share" (#shareSaveMore). js/ui/share.js moves them; there is one of each. -->
+      <div class="bar sharebtns" id="shareSaveBeside"><button id="btnShareCopy" class="primary">Copy link</button><button id="btnShareNative" hidden>Share…</button></div>
       <p id="primaryWhy" class="why"></p>
       <p id="primaryNote" class="small"></p>
       <p class="small" id="shortTerms">Stores a sealed copy on cloadm.dev that only people with the link can open; the server can't read it. Links don't expire; a link reported for abuse can be removed.</p>
@@ -1799,9 +1863,9 @@ npx serve -l 8000 .</pre>
         <div class="linkrow"><label for="shareLink" class="sr-only">Long link</label><input id="shareLink" readonly><button id="btnShareCopyLong">Copy</button></div>
         <label class="switch"><input type="checkbox" id="shareAlwaysLong"> Always use long links (nothing leaves this device)</label>
       </div>
-      <div class="bar">
-        <button id="btnShareClip">Save 6-second clip (MP4)</button>
-        <button id="btnShareShot">Screenshot (PNG)</button>
+      <div class="bar" id="shareSaveMore">
+        <button id="btnShareShot">Save picture</button>
+        <button id="btnShareClip">Save clip</button>
         <button id="btnShareDownload">Download snapshot</button>
       </div>
     </div>
@@ -1819,6 +1883,7 @@ npx serve -l 8000 .</pre>
       <div class="snippet"><pre id="embedScript"></pre><div class="bar"><button id="btnEmbedScriptCopy">Copy</button></div></div>
     </div>
   </details>
+  </div>
 </div>
 <div class="layout">
   <main aria-labelledby="emuHeading">

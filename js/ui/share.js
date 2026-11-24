@@ -16,9 +16,18 @@
  * Session.shortLinkRefusal, or the store refusing) the same tap copies the LONG link and the note says why. "Always use
  * long links" (this browser, localStorage) makes every tap copy the long one. A clipboard write that rejects leaves the
  * field selected with a press-Ctrl/⌘+C note: Copy never leaves the person with nothing.
- * "More ways to share" (collapsed): the long link, "Long link (works offline; nothing is uploaded)" with its field,
- * Copy and the "Always use long links" switch; then a 6-second clip of the screen (MediaRecorder: MP4 where the browser
- * records it, WebM otherwise, and the button says which), the screenshot at true pixels, the snapshot file.
+ * After a tap the field it made (the short link's, or the long link's under "More ways to share") is scrolled into view
+ * and focused.
+ * "Save picture" (the share card: the picture at true pixels in a CRT monitor, the program's or machine's name beside
+ * it and "cloadm.dev" on it, 1200 x 630, js/video/bezel.js; the same renderer as the short link's preview picture) and
+ * "Save clip" (6 seconds of the screen: MediaRecorder, MP4 where the browser records it, WebM otherwise, its title says
+ * which) sit beside Copy on a desktop, and under "More ways to share" on a phone and a short landscape screen.
+ * "More ways to share" (collapsed): "Link to <program> from the start" when there is one, the long link, "Long link
+ * (works offline; nothing is uploaded)" with its field, Copy and the "Always use long links" switch; then (phone, short
+ * landscape) Save picture and Save clip, and the snapshot file.
+ * A short landscape screen (a phone on its side, at most 420px tall) has its own layout (play/index.html): the picture
+ * on the left, the right column scrolling on its own, the ROM line in one line (its full sentence the line's title and
+ * what assistive technology reads).
  * "Embed in a web page" (collapsed): the iframe and script for a blog post, written by js/config.js (buildUrl) from the
  * machine, program and options chosen here ("Offer 'Ask Claude ↗'" adds askclaude=1: the embed's corner chip).
  * (The settings export/import lives on the Machine tab: js/ui/settings-file.js.)
@@ -60,7 +69,7 @@ export function setupShare(page, { linkStore }) {
   const { session } = page;
   const view = $('share');
   let started = false;   // the visit has started (ready()): until then there is no machine to capture
-  let captured = null;   // { file: { name, bytes } | null, png: Blob, link | null, base: file name without extension }
+  let captured = null;   // { file: { name, bytes } | null, card: the share card's PNG bytes, cardName, link | null, base: file name without extension, ... }
 
   // ---------------- the view (#share) ----------------
   const isOpen = () => location.hash === '#share';
@@ -72,8 +81,20 @@ export function setupShare(page, { linkStore }) {
     if (open && !captured && started) capture().catch((e) => page.status(e.message, true));
     if (open && captured) $('shareWhen').textContent = capturedAgo(captured.at);   // the time said again, now
     if (open) window.scrollTo(0, 0);
+    place();
   }
   page.onView(show);
+  // where Save picture and Save clip sit (beside Copy on a desktop, under "More ways to share" on a phone and a short
+  // landscape screen), and where the view starts (--share-top: a short landscape screen's two columns fill the rest)
+  const SHORT_LANDSCAPE = matchMedia('(orientation: landscape) and (max-height: 420px)'), DESKTOP = matchMedia('(min-width: 861px)');
+  function place() {
+    const beside = DESKTOP.matches && !SHORT_LANDSCAPE.matches, to = beside ? $('shareSaveBeside') : $('shareSaveMore');
+    const at = beside ? null : $('btnShareDownload');
+    for (const id of ['btnShareShot', 'btnShareClip']) to.insertBefore($(id), at);
+    if (isOpen()) view.style.setProperty('--share-top', `${Math.max(0, Math.round(view.getBoundingClientRect().top + window.scrollY))}px`);
+  }
+  for (const q of [SHORT_LANDSCAPE, DESKTOP]) q.addEventListener('change', place);
+  window.addEventListener('resize', place);
   setInterval(() => { if (captured && isOpen()) $('shareWhen').textContent = capturedAgo(captured.at); }, AGO_MS);
   $('shareBack').onclick = (e) => { e.preventDefault(); page.closeView(); };
   $('btnShare').onclick = async () => {
@@ -105,15 +126,17 @@ export function setupShare(page, { linkStore }) {
     // The SHOWN machine's NitrOS-9, not the person's: the picture above is the shown machine's and shareUrl builds the
     // link for it, so with the chat full screen this must ask about the chat, as shareUrl does.
     const n9 = session.nitros9OnScreen;
+    // the share card ("Save picture") of this same frame, drawn now (sharePicture renders before its first await)
+    const cardName = session.shareCardName(location.href, m);
+    const card = session.sharePicture(cardName, m);
     // A moment a guardrail forbids encoding at all (Session.shareFile refusing): the view still opens, so the person
     // sees why, with Copy dark. NitrOS-9 is not that: its link boots NitrOS-9 from the recipient's own image.
     let file = null, refusal = '';
     if (!n9) { try { file = await session.shareFile(); } catch (e) { refusal = e.message; } }
     const link = refusal ? '' : n9 ? session.shareUrl(location.href) : await session.snapshotLink(location.href, file);
-    const png = await new Promise((ok) => c.toBlob(ok, 'image/png'));
     // the bundled program, when it is one nobody has touched: its own page is the primary link (nothing is uploaded)
     const untouched = n9 || refusal ? null : session.untouchedBundledProgram(location.href);
-    captured = { at: Date.now(), file, png, link, untouched, refusal, machine: name, base: file ? file.name.replace(/\.cloadm$/, '') : `${m.profile.name.replace(/[^A-Za-z0-9]+/g, '')}-${n9 ? 'NitrOS-9' : 'moment'}` };
+    captured = { at: Date.now(), file, card: await card, cardName, link, untouched, refusal, machine: name, base: file ? file.name.replace(/\.cloadm$/, '') : `${m.profile.name.replace(/[^A-Za-z0-9]+/g, '')}-${n9 ? 'NitrOS-9' : 'moment'}` };
     const dl = $('btnShareDownload');
     dl.disabled = !file;
     dl.textContent = file ? `Download snapshot (${(file.bytes.length / 1024).toFixed(0)} KB)` : 'Download snapshot';
@@ -127,7 +150,9 @@ export function setupShare(page, { linkStore }) {
     syncLongNote();   // (it calls syncPrimary())
     // one line under the picture, what the link does; then, only as needed, what the person opening it needs
     const rom = $('shareRom'), extra = $('shareExtra');
-    rom.textContent = ''; rom.classList.remove('warn'); extra.textContent = '';
+    // the ROM line: the full sentence, and its one line for a short landscape screen (play/index.html shows one)
+    const romLine = (full, brief) => { $('shareRomFull').textContent = full; $('shareRomBrief').textContent = brief; if (full) rom.title = full; else rom.removeAttribute('title'); };
+    romLine('', ''); rom.classList.remove('warn'); extra.textContent = '';
     const note = (text) => { const p = document.createElement('p'); p.textContent = text; extra.append(p); };
     if (refusal) {
       // nothing to encode: the reason is said ONCE, inline under Copy (syncPrimary's #primaryWhy, in the guardrail's
@@ -143,8 +168,8 @@ export function setupShare(page, { linkStore }) {
     }
     // (the line under the picture is syncPrimary's: called just above through syncLongNote, it sets the snapshot's
     // clarity copy, or, for an untouched bundled program, the program-page note. One owner, so the two cannot differ.)
-    if (file.needs.length) { rom.textContent = needsLine(file.needs); rom.classList.add('warn'); }
-    else rom.textContent = 'Runs without ROMs, so it opens for anyone.';
+    if (file.needs.length) { romLine(needsLine(file.needs), `Needs your ${name} ROMs to open.`); rom.classList.add('warn'); }
+    else romLine('Runs without ROMs, so it opens for anyone.', 'Runs without ROMs.');
     // a tape being recorded is not in the link (its pulse timings could carry ROM code: js/media/romrefs.js)
     if (file.dropped.includes('deck.recording')) note('The tape being recorded is not in the link: it opens with the recorder stopped.');
     syncEmbed(m.id);
@@ -255,6 +280,15 @@ export function setupShare(page, { linkStore }) {
       return false;
     }
   }
+  // the field a tap made (the short link's, or the long link's): in view and focused, so the person sees what was copied
+  // (in a short landscape screen's own scrolling column, too) and the keyboard is on it
+  function showMade(fieldId) {
+    const f = $(fieldId), side = $('shareSide'), own = getComputedStyle(side).display !== 'contents';
+    const b = f.getBoundingClientRect(), top = own ? side.getBoundingClientRect().top : 0, bottom = own ? Math.min(side.getBoundingClientRect().bottom, innerHeight) : innerHeight;
+    // scrolled only when it is not already wholly on screen, and then to the middle: a toast at the foot stays clear of it
+    if (b.top < top || b.bottom > bottom) f.scrollIntoView({ block: 'center' });
+    f.focus({ preventScroll: true });
+  }
   function openLongField() {
     const d = $('shareMore'), body = d.querySelector(':scope > :not(summary)');
     d.open = true; body.hidden = false;
@@ -265,11 +299,11 @@ export function setupShare(page, { linkStore }) {
     if (!captured) return;
     const mode = primaryMode();
     if (mode === 'program') { await copyText(captured.untouched.page, 'Program link copied'); return; }
-    if (mode === 'long') { await copyText(captured.link, 'Long link copied', 'shareLink'); return; }
+    if (mode === 'long') { await copyText(captured.link, 'Long link copied', 'shareLink'); showMade('shareLink'); return; }
     const btn = $('btnShareCopy');
     btn.disabled = true; btn.textContent = 'Making the short link…';
     try {
-      short = await session.shortLink(linkStore, { preview: $('sharePreview').checked, file: captured.file });
+      short = await session.shortLink(linkStore, { preview: $('sharePreview').checked, file: captured.file, name: captured.cardName });
       keepToken(short.id, short.deleteToken);
       $('shareShort').value = short.url;
       drawQr(short.url);
@@ -277,6 +311,7 @@ export function setupShare(page, { linkStore }) {
       $('sharePreview').disabled = true;
       $('shortMade').hidden = false;
       await copyText(short.url, 'Short link copied', 'shareShort');
+      showMade('shareShort');
     } catch (e) {
       // the server answered nothing or refused (offline is caught above by shortWhy; a kill switch, a limit, a store
       // that isn't there land here): the long link instead, and the note says why it is that one, never the server's words
@@ -288,6 +323,7 @@ export function setupShare(page, { linkStore }) {
       btn.disabled = false;
       syncPrimary();
     }
+    if (!short) showMade('shareLink');
   };
   // Share…: the system sheet, the URL only, where the browser can share it (an embed only if its frame allows web-share)
   $('btnShareNative').onclick = async () => {
@@ -338,13 +374,15 @@ export function setupShare(page, { linkStore }) {
     page.download(captured.file.name, captured.file.bytes, 'application/gzip');
     page.toast(`Saved ${captured.file.name}`, { details: 'Drop it on CLOADM to restore it.' });
   };
-  $('btnShareShot').onclick = () => page.download(`${captured.base}.png`, captured.png);
+  // the share card of the captured frame (capture() drew it)
+  $('btnShareShot').onclick = () => page.download(`${captured.base}.png`, captured.card, 'image/png');
 
   // the clip: the screen as it plays (from now), recorded for CLIP_SECONDS
   const kind = clipType();
   const clipBtn = $('btnShareClip');
+  const clipLabel = () => { clipBtn.textContent = 'Save clip'; clipBtn.title = `Save ${CLIP_SECONDS}-second clip (${kind.label})`; };
   if (!kind) { clipBtn.disabled = true; clipBtn.textContent = 'Clip: this browser can\'t record video'; }
-  else clipBtn.textContent = `Save ${CLIP_SECONDS}-second clip (${kind.label})`;
+  else clipLabel();
   clipBtn.onclick = () => {
     // drawn from the machine's own frames at true pixels (the screen canvas is hidden behind this view)
     const canvas = document.createElement('canvas'), presenter = new CanvasPresenter(canvas);
@@ -360,7 +398,7 @@ export function setupShare(page, { linkStore }) {
       const blob = new Blob(parts, { type: kind.type.split(';')[0] });
       const name = `${captured ? captured.base : 'CLOADM'}.${kind.ext}`;
       page.download(name, blob);
-      clipBtn.disabled = false; clipBtn.textContent = `Save ${CLIP_SECONDS}-second clip (${kind.label})`;
+      clipBtn.disabled = false; clipLabel();
       page.status(`Saved ${name}: ${CLIP_SECONDS} seconds of the screen.`);
     };
     clipBtn.disabled = true;
