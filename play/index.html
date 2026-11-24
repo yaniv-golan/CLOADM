@@ -6,6 +6,21 @@
 <!-- the emulator lives at /play/; every relative URL (scripts, styles, examples, docs) is from the site root -->
 <base href="../">
 <title>CLOADM: play</title>
+<meta name="description" content="CLOADM: Dragon and Tandy Color Computer emulator in your browser. Runs LIZA and games with no ROMs; add yours for BASIC.">
+<!-- link previews (Open Graph, X): the picture is img/og.png, made by tools/capture-og.js from the welcome menu with no ROMs -->
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="CLOADM">
+<meta property="og:title" content="CLOADM: play">
+<meta property="og:description" content="CLOADM: Dragon and Tandy Color Computer emulator in your browser. Runs LIZA and games with no ROMs; add yours for BASIC.">
+<meta property="og:url" content="https://cloadm.dev/play/">
+<meta property="og:image" content="https://cloadm.dev/img/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="The CLOADM welcome menu on a green screen, in a monitor, beside the name CLOADM">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="CLOADM: play">
+<meta name="twitter:description" content="CLOADM: Dragon and Tandy Color Computer emulator in your browser. Runs LIZA and games with no ROMs; add yours for BASIC.">
+<meta name="twitter:image" content="https://cloadm.dev/img/og.png">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#0B0D0C">
@@ -89,6 +104,13 @@
     display: flex; flex-direction: column; max-height: 80vh; overflow: hidden; }
   /* the models scroll in their own box above the footer, which never stands over one */
   #machineMenu .menulist { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 16px; flex: 1 1 auto; min-height: 0; overflow-y: auto; padding-bottom: 12px; }
+  /* A short landscape window (a phone held sideways, the touch panel's Menu -> Machine…): the group DESCRIPTIONS give
+     way -- they only repeat what each row already says (js/machines/menu.js: the same words as each item's
+     aria-description) -- so more machines show in the list at once. (The models scroll in .menulist above the footer,
+     which never stands over one, so the descriptions are the only thing left to give back the rows.) */
+  @media (orientation: landscape) and (max-height: 500px) {
+    #machineMenu .group-sub { display: none; }
+  }
   #machineMenu[hidden] { display: none; }
   /* an empty recent list says "Nothing loaded yet": not under a "Last time" (drawer.js marks it) */
   #lastTime:not([hidden]) ~ .recent-empty { display: none; }
@@ -115,6 +137,16 @@
   #machineMenu .footer { flex: none; display: flex; flex-wrap: wrap; gap: 4px 16px; padding: 12px 0 14px; }
   #machineMenu .footer button { width: auto; flex: 1 1 200px; color: var(--text-2); }
   #machineMenu .footer .legend { align-self: center; margin-left: auto; padding: 0 8px; font-size: 14px; color: var(--text-2); white-space: nowrap; }
+  /* On a very short landscape window (653x280) the list has only ~140 px for the models, so the footer as it stands
+     wraps onto two lines and leaves room for one machine. There the footer is one row: the two buttons side by side,
+     each a full 44 px tall tap target, 8 px padding, and the "✓ = BASIC ready" legend hidden -- each ✓ carries its own
+     title and aria-label ("BASIC ready"), so nothing is lost. It still sits below the list and never over a model.
+     (Scoped to <=320 px height so the taller landscape windows keep the roomier footer.) */
+  @media (orientation: landscape) and (max-height: 320px) {
+    #machineMenu .footer { flex-wrap: nowrap; gap: 4px 10px; padding: 8px; }
+    #machineMenu .footer button { flex: 1 1 0; min-height: 44px; height: 44px; padding: 0 8px; font-size: 13px; white-space: nowrap; }
+    #machineMenu .footer .legend { display: none; }
+  }
   #switchConfirm { position: absolute; top: calc(100% - 6px); left: 20px; z-index: 21; width: min(560px, calc(100vw - 40px)); box-sizing: border-box;
     display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; background: var(--warn-panel);
     border: 1px solid var(--orange); border-radius: var(--r-14); padding: 12px 16px; box-shadow: 0 20px 50px rgba(0, 0, 0, .6); }
@@ -144,6 +176,7 @@
   body.embed .appbar, body.embed #switchConfirm, body.embed .drawer, body.embed footer, body.embed .controls,
   body.embed .slots, body.embed .hint, body.embed .plate, body.embed #welcome,
   body.embed #claude, body.embed #ask, body.embed #askRail { display: none !important; }
+  body.embed #tkMenuSheet [data-item="share"] { display: none !important; }   /* no Share in an embed (js/ui/touch-keys.js) */
   /* a page shown inside another page has no Claude chat: its buttons are hidden, not left dead (js/ui/main.js) */
   body.no-claude #btnAsk, body.no-claude #navCommands, body.no-claude [data-shelf="claude"], body.no-claude #claude, body.no-claude #ask, body.no-claude #askRail { display: none !important; }
   body.embed .layout { padding: 0; display: block; }
@@ -188,8 +221,12 @@
   .views { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
   .views button { padding: 12px; font-weight: 600; }
   .views button[aria-pressed="true"] { background: var(--phosphor); color: #062A06; border-color: var(--phosphor); }
-  .slider { display: flex; flex-direction: column; gap: 6px; }
-  .slider > span { display: flex; justify-content: space-between; }
+  /* A slider's name and its reading are one line, the name left and the value right. The label's own rule centres its
+     children (label { align-items: center }), which left this line at the width of its text: "Curvature" then ran
+     straight into "35%" with space-between distributing nothing (measured: a 0 px gap on the v0.1.9 cold test).
+     Stretching the column's children gives the line the drawer's width, so the two readings sit at its ends. */
+  .slider { display: flex; flex-direction: column; align-items: stretch; gap: 6px; }
+  .slider > span { display: flex; justify-content: space-between; gap: 8px; }
   .slider output { color: var(--text-2); }
   .plate { display: flex; justify-content: space-between; align-items: center; margin-top: 14px; padding: 0 6px; }
   #badge { font-weight: 800; font-stretch: 125%; font-size: 15px; letter-spacing: .08em; color: #3A3D3C; }
@@ -216,6 +253,8 @@
   .slot .name { font-weight: 700; overflow-wrap: anywhere; }
   /* on touch the slots' buttons (Rewind, Eject, Record, Save .WAV) are at least 44 px tall */
   @media (pointer: coarse) { .slot .bar button { min-height: 44px; } }
+  /* a touch-only device has no keyboard keys to name and nothing to drop: the desktop hints go */
+  @media (hover: none) and (pointer: coarse) { .layout .hint, #keyHint { display: none !important; } }
   /* The NitrOS-9 image list: one full-width row in the card, never wider than it (a long release file name would
      push it out past the card's edge); the closed list clips the end with an ellipsis, the open list and the
      title (set with the choice) show the whole name. */
@@ -310,6 +349,8 @@
   .lasttime button { border-radius: var(--pill); flex: none; }
   #welcome, #mediaOffer { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-14); padding: 12px 16px; position: relative; }
   #welcome { background: var(--panel-deep); }
+  /* arrived on a shared moment that runs without ROMs: the card stands back until the person leaves it (js/ui/welcome.js) */
+  #welcome.quiet { display: none !important; }
   #mediaOffer { border-color: var(--phosphor); }
   #welcome .lead { font-weight: 700; padding-right: 80px; }
   #welcome .muted { margin-top: 2px; }
@@ -482,6 +523,11 @@
   #claudeKeyCard label { display: block; font-size: 14px; color: var(--muted); margin-bottom: 4px; }
   .keyget { margin: 6px 0 0; font-size: 13px; line-height: 1.5; color: var(--muted); }
   .keyget a { color: var(--text); }
+  /* no key: "Use with Claude ↗" is the other way in, a full-size button as weighty as the key field above it */
+  .keyget a.usewith { display: flex; align-items: center; justify-content: center; box-sizing: border-box; width: 100%; min-height: 44px;
+    margin-top: 8px; padding: 10px 14px; border: 1px solid var(--line-strong); border-radius: var(--r-10); background: var(--panel);
+    color: var(--text); font: 600 15px var(--font-ui); text-decoration: none; }
+  .keyget a.usewith:hover { border-color: var(--phosphor); }
   #claudeKeyInput { width: 100%; box-sizing: border-box; background: var(--panel-deep); color: var(--text); border: 1px solid var(--line);
     border-radius: var(--r-10); padding: 10px; font: 15px var(--font-mono); margin-bottom: 10px; }
   #claudeKeyMsg, #claudeBasicNote { font-size: 14px; color: var(--muted); }
@@ -516,6 +562,7 @@
   #share figcaption { padding: 14px 16px; display: flex; flex-direction: column; gap: 4px; font-size: 15px; }
   #share figcaption span { font-size: 14px; color: var(--muted); }
   #share .linkrow { display: flex; gap: 8px; }
+  #share .linklabel { font-size: 14px; color: var(--text-2); min-height: 0; margin-bottom: -10px; }
   #share .linkrow input { flex: 1; min-width: 0; background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: var(--r-10);
     padding: 12px; font: 14px var(--font-mono); }
   #share .card2 { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-14); padding: 16px; display: flex; flex-direction: column; gap: 8px; font-size: 15px; line-height: 1.45; }
@@ -719,12 +766,20 @@
   #touchKeys #touchFire { height: 168px; border: 0; border-radius: var(--r-10); background: #B3261E; color: #fff; font-size: 24px; font-weight: 800; box-shadow: 0 3px 0 #000; }
   #touchKeys #touchFire.down { background: #7A1B14; transform: translateY(2px); box-shadow: 0 1px 0 #000; }
   /* the panel's Menu: a short list over the page, never over the screen (its options are about the panel) */
+  /* Never past the top of the window: seven 44 px rows in a 280 px landscape window used to run off the top, so
+     Machine… and Settings… sat above the fold and could not be tapped. The height is capped to the room above its
+     bottom offset (64 px + the home inset, minus an 8 px margin and the notch inset) and it scrolls inside; a row is
+     never shrunk (min-height 44 px stays on the buttons). */
   #tkMenuSheet { position: fixed; z-index: 8; right: calc(16px + var(--safe-r)); bottom: calc(64px + var(--safe-b)); min-width: 180px; padding: 6px; border: 1px solid var(--line); border-radius: var(--r-10);
+    max-height: calc(100vh - 64px - var(--safe-b) - var(--safe-t) - 8px); max-height: calc(100dvh - 64px - var(--safe-b) - var(--safe-t) - 8px);
+    overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch;
     background: #1C201D; box-shadow: 0 8px 24px #000A; }
   #tkMenuSheet[hidden] { display: none; }
   #tkMenuSheet button { display: block; width: 100%; min-height: 44px; margin: 0; border: 0; border-radius: 7px; background: transparent; color: var(--text); text-align: left; font-size: 15px; padding: 0 12px; }
   #tkMenuSheet button:hover { background: #2A302B; }
   #tkMenuSheet button[hidden] { display: none; }
+  /* the rule between the items that act on this machine and the app-level ones: a thin line across the sheet */
+  #tkMenuSheet .tkmenu-sep { display: block; height: 1px; margin: 6px 4px; background: var(--line); pointer-events: none; }
 
   /* ---- a phone held sideways (or any window under 500 px high) ----
      Keys: the split thumb keyboard, the screen between its halves, and one row under it with BREAK, CLEAR, the
@@ -917,6 +972,9 @@
   #romOffers .offer { border: 1px solid var(--phosphor); border-radius: var(--r-10); padding: 10px 12px; margin: 4px 0; color: var(--text); }
   #romOffers .bar { margin-top: 8px; }
   #romReady { color: var(--phosphor); }
+  #romReady:empty { display: none; }
+  #romProblems { background: var(--warn-panel); border: 1px solid var(--orange); border-radius: var(--r-14); padding: 10px 14px; font-size: 13px; line-height: 1.45; margin: 10px 0; }
+  #romProblems[hidden] { display: none; }
   #romCard .small { font-size: 14px; margin: 0; }
   #romCard #selftestCard { background: var(--panel-deep); border: 1px solid var(--line); border-radius: var(--r-14); padding: 12px 14px; }
   #romCard #selftestCard h2 { font-size: 16px; margin: 0 0 8px; }
@@ -1397,6 +1455,18 @@
     #askActing { width: auto; justify-content: space-between; }
     #claudeSame { display: none; }
   }
+  /* held SIDEWAYS (a phone or any short landscape window), the Ask panel is a right-side sheet, not the upright
+     bottom sheet -- the keys' Menu's "Ask Claude…" opens it down the right, and so does the header's button there. It
+     takes a fixed width down the right and the window's height, so the machine stays in view to its left. (Above 700 px
+     the sideways window already uses the right-side rule at ~1360; this covers the narrow landscape window, 653-700 px,
+     where the upright bottom-sheet rule would otherwise apply.) */
+  @media (orientation: landscape) and (max-height: 500px) {
+    #ask { position: fixed; left: auto; right: calc(8px + var(--safe-r)); top: calc(8px + var(--safe-t)); bottom: calc(8px + var(--safe-b));
+      width: min(420px, calc(100vw - 24px)); height: auto; max-height: none; border-radius: var(--r-14); border: 1px solid var(--line-strong); }
+    #ask[data-height] { top: calc(8px + var(--safe-t)); height: auto; }
+    #askHandle { display: none; }
+    body.ask-open .layout { padding-bottom: 20px; }
+  }
 
   /* ---- phone ---- */
   /* ---- the phone's app bar: one row, 48 px, from the first paint ----
@@ -1677,7 +1747,8 @@ npx serve -l 8000 .</pre>
     <div class="linkset" id="longSet">
       <h2 class="sub" id="longHeading">Exact moment · works offline, never expires</h2>
       <p id="longWhy" class="why"></p>
-      <div class="linkrow"><label for="shareLink" class="sr-only">Long link</label><input id="shareLink" readonly></div>
+      <label for="shareLink" id="shareLinkLabel" class="linklabel">Exact moment (long link)</label>
+      <div class="linkrow"><input id="shareLink" readonly></div>
       <div class="bar sharebtns"><button id="btnShareNative" class="primary" hidden>Share…</button><button id="btnShareCopy" class="primary">Copy link</button></div>
     </div>
   </section>
@@ -1943,13 +2014,13 @@ npx serve -l 8000 .</pre>
       <label>Your Anthropic API key<input id="askKeyInput" type="password" autocomplete="off" spellcheck="false" placeholder="sk-ant-…"></label>
       <p class="keyget muted" id="askKeyGet">Get a key at <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a> (API keys). Use is billed to your Anthropic account: see <a href="https://www.anthropic.com/pricing#api" target="_blank" rel="noopener">pricing ↗</a></p>
       <div class="bar"><button id="btnAskKeySave" class="primary">Save key</button><span class="muted" id="askKeyErr" role="status"></span></div>
-      <p class="keyget muted" id="askNoKey">No key? Use CLOADM inside Claude instead: <a href="https://github.com/yaniv-golan/CLOADM/blob/main/docs/mcp.md#use-with-claude" target="_blank" rel="noopener">Use with Claude ↗</a></p>
+      <p class="keyget muted" id="askNoKey">No key? Use CLOADM inside Claude instead: <a class="usewith" href="https://github.com/yaniv-golan/CLOADM/blob/main/docs/mcp.md#use-with-claude" target="_blank" rel="noopener">Use with Claude ↗</a></p>
       <p class="muted"><strong>Your key stays yours.</strong> Stored only in this browser. The emulated machine never sees it, and it's left out of snapshots, share links and exported settings.</p>
     </div>
     <div id="askComposer" hidden>
       <div class="bar"><input id="askInput" aria-label="Message to Claude" autocomplete="off" placeholder="Ask about this machine…"><button id="btnAskSend" class="primary">Send</button></div>
       <div class="askfoot"><label><input type="checkbox" id="chkAskMachine"> Let Claude use the emulator</label>
-        <span class="muted" id="askKeyLine">API key · Saved in this browser. <button class="link" id="btnAskKeyChange">Change</button> <button class="link" id="btnAskKeyForget">Forget</button></span></div>
+        <span class="muted" id="askKeyLine"><span id="askKeyState">API key · Saved in this browser.</span> <button class="link" id="btnAskKeyChange">Change</button> <button class="link" id="btnAskKeyForget">Forget</button></span></div>
       <p class="muted" id="askSendNote">Your messages and what Claude reads from the machine's memory (ROM areas included) go to Anthropic with your key.</p>
     </div>
   </aside>
@@ -1963,7 +2034,7 @@ npx serve -l 8000 .</pre>
       <input id="claudeKeyInput" type="password" autocomplete="off" spellcheck="false" placeholder="sk-ant-…">
       <p class="keyget" id="claudeKeyGet">Get a key at <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a> (API keys). Use is billed to your Anthropic account: see <a href="https://www.anthropic.com/pricing#api" target="_blank" rel="noopener">pricing ↗</a></p>
       <div class="bar"><button id="btnClaudeKeySave" class="primary">Save key</button></div>
-      <p class="keyget" id="claudeNoKey">No key? Use CLOADM inside Claude instead: <a href="https://github.com/yaniv-golan/CLOADM/blob/main/docs/mcp.md#use-with-claude" target="_blank" rel="noopener">Use with Claude ↗</a></p>
+      <p class="keyget" id="claudeNoKey">No key? Use CLOADM inside Claude instead: <a class="usewith" href="https://github.com/yaniv-golan/CLOADM/blob/main/docs/mcp.md#use-with-claude" target="_blank" rel="noopener">Use with Claude ↗</a></p>
       <p><strong>Your key stays yours.</strong> Stored only in this browser. The emulated machine never sees it, and it's left out of snapshots, share links and exported settings.</p>
       <div id="claudeKeyMsg" role="status"></div>
     </section>
@@ -2178,6 +2249,8 @@ npx serve -l 8000 .</pre>
       <div class="eyebrow">Your ROMs</div>
       <div id="romSockets"></div>
       <div id="romOdd"></div>
+      <div id="romReady"></div>
+      <div id="romProblems" role="status" hidden></div>
       <div id="romNeeds" hidden><span id="romNeedsText"></span>
         <div class="bar"><button id="btnRunStub">Run without ROMs</button></div></div>
       <div id="romStub" hidden>Running without ROMs (machine code only).</div>
@@ -2185,7 +2258,6 @@ npx serve -l 8000 .</pre>
         <div class="eyebrow">What you dropped</div>
         <div id="romFound" class="muted">Nothing yet. Drop a whole set and every machine it covers is set up at once.</div>
         <div id="romOffers" hidden></div>
-        <div id="romReady"></div>
       </div>
       <button id="btnRomSwitchOn" class="primary pill big" hidden></button>
       <div class="bar">
@@ -2297,9 +2369,9 @@ npx serve -l 8000 .</pre>
 <!-- the Library's Undo toast ("Deleted chat.bin · Undo", 8 s) -->
 <!-- the media pickers: the extensions they take, and application/octet-stream so a file whose type the phone does not
      know (a .cas, a .vdk) can still be picked; no image/*, so iOS offers Files, not the Photo Library and the camera -->
-<input type="file" id="fileLib" hidden multiple accept=".bin,.cas,.c10,.k7,.wav,.rom,.ccc,.dgn,.vdk,.dsk,.jvc,.dmk,.os9,.img,.bas,.txt,.cloadm,.zip,application/octet-stream">
+<input type="file" id="fileLib" hidden multiple accept=".bin,.cas,.c10,.k7,.wav,.rom,.ccc,.dgn,.vdk,.dsk,.jvc,.dmk,.os9,.bas,.txt,.cloadm,.zip,application/octet-stream">
 <input type="file" id="folderLib" hidden webkitdirectory>
-<input type="file" id="fileProgram" hidden multiple accept=".bin,.cas,.c10,.k7,.wav,.rom,.ccc,.dgn,.vdk,.dsk,.jvc,.dmk,.os9,.img,.bas,.txt,.cloadm,application/octet-stream">
+<input type="file" id="fileProgram" hidden multiple accept=".bin,.cas,.c10,.k7,.wav,.rom,.ccc,.dgn,.vdk,.dsk,.jvc,.dmk,.os9,.bas,.txt,.cloadm,application/octet-stream">
 
 <input type="file" id="fileTape" hidden accept=".cas,.c10,.k7,.wav,application/octet-stream">
 <input type="file" id="fileCart" hidden accept=".rom,.ccc,.dgn,.bin,application/octet-stream">
@@ -2408,6 +2480,7 @@ npx serve -l 8000 .</pre>
 <link rel="modulepreload" href="js/media/romrefs.js">
 <link rel="modulepreload" href="js/config.js">
 <link rel="modulepreload" href="js/session.js">
+<link rel="modulepreload" href="js/video/card.js">
 <link rel="modulepreload" href="js/media/avi.js">
 <link rel="modulepreload" href="js/host/input.js">
 <link rel="modulepreload" href="js/host/audio-worklet.js">
@@ -2422,6 +2495,7 @@ npx serve -l 8000 .</pre>
 <link rel="modulepreload" href="js/host/link-store.js">
 <link rel="modulepreload" href="js/selftest.js">
 <link rel="modulepreload" href="js/media/qr.js">
+<link rel="modulepreload" href="js/media/png.js">
 <link rel="modulepreload" href="js/emu.js">
 <link rel="modulepreload" href="js/host/storage.js">
 <link rel="modulepreload" href="js/host/media-store-opfs.js">

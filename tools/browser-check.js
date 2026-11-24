@@ -151,13 +151,14 @@ async function closeOwnBrowser(browser, ms = BROWSER_CLOSE_MS) {
 async function closeOwnPersistentContext(ctx, profile, ms = BROWSER_CLOSE_MS) {
   const b = await bounded(ctx.close(), ms);
   let after = 'left to the caller\'s outer timeout';   // no belt ran (or none could): the honest remainder
+  let killed = 0;   // (hoisted: the facts returned below name it whether or not a belt ran)
   if (b.outcome !== 'settled') {
     // the profile path is in Chromium's command line (its user-data-dir); mkdtemp made it unique to this run.
     // execFileSync passes the path as one argv element (no shell), and pgrep -f takes a REGEX, so the path is
     // regex-escaped first: without escaping, a path containing regex metacharacters could match OTHER command
     // lines - the match must stay literal to stay this run's.
     const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    let killed = 0, pids = [];
+    let pids = [];
     try {
       const out = child_process.execFileSync('pgrep', ['-f', escapeRe(profile)], { stdio: ['ignore', 'pipe', 'ignore'] });
       pids = String(out).split('\n').map(Number).filter(Boolean);
@@ -181,6 +182,10 @@ async function closeOwnPersistentContext(ctx, profile, ms = BROWSER_CLOSE_MS) {
     }
   }
   lib.reportClose(check, closeLabel('its own profile browser closes'), b, ms, after);
+  // the caller's leak check needs the facts: did the close settle on its own (no belt needed), or did
+  // the belt really kill the process - or could it not say? 'already gone' is the one state where no
+  // kill was needed and the process is known dead (pgrep's own "no match").
+  return { outcome: b.outcome, after, killed };
 }
 
 // a static server like the real host: a folder serves its index.html, and a folder named without its
@@ -2545,7 +2550,12 @@ async function romUiChecks(browser, base, check) {
   await waitFor(page, () => !document.getElementById('romOffers').hidden);
   check('offer: a ROM for another machine offers to switch', /d32\.rom is for the Dragon 32\. The Dragon 32 is now ready too\./.test(await page.textContent('#romOffers'))
     && !(await page.evaluate(() => document.getElementById('toast').classList.contains('error'))), await page.textContent('#romOffers'));
-  check('offer: the ready machines are summarised', /Also ready to run BASIC: Dragon 32/.test(await page.textContent('#romReady')));
+  // d32.rom is a synthetic image matched by NAME only (not a known dump), so the Dragon 32 is loaded but not
+  // verified: "Also ready to run BASIC" claims a verified dump, and must not name it. What the offer above says (it
+  // is "now ready too", an offer to switch and try) is about the drop, not this summary.
+  check('offer: "Also ready to run BASIC" names no machine whose dump is only loaded, not recognised',
+    !/Dragon 32/.test(await page.textContent('#romReady'))
+    && /d32\.rom is for the Dragon 32\./.test(await page.textContent('#romOffers')), await page.textContent('#romReady'));
   await shot('offer');
   await page.click('#romOffers button.primary');
   // (the switch asks first, as the machine menu does: the machine in use may be running something)
@@ -3081,10 +3091,53 @@ async function onScreenChecks(browser, base, check) {
   let st = await state();
   check('open: while it runs there is no "Last time" card, and its recent row says "on screen now"',
     st.card === null && st.rows.length === 1 && st.rows[0][0] === 'minesweeper.bin' && st.rows[0][1] && st.rows[0][2] === 'true', JSON.stringify(st));
-  await page.click('#btnReset');
-  await waitFor(page, () => !document.getElementById('lastTime').hidden);
-  st = await state();
-  check('open: a reset takes it off the screen: "Last time" is back (minesweeper.bin) and no row is marked', /^minesweeper\.bin/.test(st.card) && !st.rows[0][1], JSON.stringify(st));
+  // DETERMINISTIC: Session.reset() emits 'reset' synchronously, so calling it and reading the card AND the rows in ONE
+  // page.evaluate leaves no frame to run between them. A page that waits for the card and reads after a frame cannot pin
+  // the fix -- a frame's reconciler repairs the mark -- so that form was green on a mutated base on another machine.
+  // Read here: the card's name and the recent rows, the instant the reset's handlers have run.
+  const afterReset = await page.evaluate(() => {
+    window.emu.session.reset();
+    const card = document.getElementById('lastTime').hidden ? null : document.getElementById('lastName').textContent;
+    const rows = [...document.querySelectorAll('#recentList .row')].map((r) => [r.firstChild.textContent, !!r.querySelector('.tag.now')]);
+    return { card, rows };
+  });
+  check('open: a reset takes it off the screen: "Last time" is back (minesweeper.bin) and no row is marked (read in the reset\'s own tick)',
+    /^minesweeper\.bin/.test(afterReset.card) && afterReset.rows.length && afterReset.rows[0][0] === 'minesweeper.bin' && !afterReset.rows[0][1], JSON.stringify(afterReset));
+  // and again the deterministic way, for a POWER CYCLE ('firmware', not 'reset'): the same read in the cycle's own tick
+  await page.setInputFiles('#fileProgram', mines);
+  await waitFor(page, () => /minesweeper\.bin loaded/.test(document.getElementById('toastText').textContent));
+  await waitFor(page, () => document.getElementById('lastTime').hidden);
+  const afterPower = await page.evaluate(() => {
+    window.emu.session.powerCycle({ reason: 'you power cycled the machine' });
+    const card = document.getElementById('lastTime').hidden ? null : document.getElementById('lastName').textContent;
+    const rows = [...document.querySelectorAll('#recentList .row')].map((r) => [r.firstChild.textContent, !!r.querySelector('.tag.now')]);
+    return { card, rows };
+  });
+  check('open: a power cycle takes it off the screen too: "Last time" is back and no row is marked (read in the cycle\'s own tick)',
+    /^minesweeper\.bin/.test(afterPower.card) && afterPower.rows.length && afterPower.rows[0][0] === 'minesweeper.bin' && !afterPower.rows[0][1], JSON.stringify(afterPower));
+  // 'recent' (another tab loaded a program) must redraw the "Last time" CARD as well as the list: lastTime() reads the
+  // recent list's head, so without this the card's NAME lags the list it sits above. Deterministic: remember a new file
+  // (as another tab's load would), emit 'recent', and read the card name in the SAME evaluate -- lastTime() must have
+  // run in that tick, so the name already tracks the new head. (read in the event's own tick)
+  const afterRecent = await page.evaluate(() => {
+    window.emu.session.library.rememberMedia('another.bin', new Uint8Array([7, 7, 7, 7]));
+    window.emu.session.emit('recent');
+    return { card: document.getElementById('lastTime').hidden ? null : document.getElementById('lastName').textContent,
+      head: (window.emu.session.library.recentMedia()[0] || {}).name };
+  });
+  check('open: another tab\'s load ("recent") redraws the "Last time" card too -- its name follows the recent head (read in the event\'s own tick)',
+    afterRecent.head === 'another.bin' && /^another\.bin/.test(afterRecent.card), JSON.stringify(afterRecent));
+  // A Reset while a recent row has the keyboard focus must not lose it: the reset redraws the list only when the running
+  // row actually changed (runKey() !== runShown), so on an idle machine (nothing running) a Reset leaves the list, and the
+  // focused row, alone. Deterministic: focus a row, run reset() and read activeElement in ONE evaluate (no frame between).
+  const focusKept = await page.evaluate(() => {
+    const row = document.querySelector('#recentList .row'); if (!row) return { row: false };
+    row.focus(); const was = document.activeElement === row;
+    window.emu.session.reset();
+    return { row: true, was, still: document.activeElement === row, tag: document.activeElement && document.activeElement === row ? 'the row' : (document.activeElement && (document.activeElement.id || document.activeElement.tagName)) };
+  });
+  check('open: a Reset on an idle machine keeps the keyboard focus on the recent row (the list is not redrawn when nothing was running)',
+    focusKept.row && focusKept.was && focusKept.still, JSON.stringify(focusKept));
   await page.setInputFiles('#fileProgram', mines);
   await waitFor(page, () => document.getElementById('lastTime').hidden);
   await shelfClick('welcome');
@@ -3186,14 +3239,60 @@ async function returningChecks(browser, base, check) {
   await shot('back-from-liza');
   // a return visit, no ROMs
   await page.reload(); await ready(page);
-  await waitFor(page, () => window.emu.session.welcomeRunning && window.emu.session.screenText()[12].includes('CARRY ON'));
-  const r = await page.evaluate(() => ({ greet: window.emu.session.screenText()[6].trim(), five: window.emu.session.screenText()[12].trim(), games: window.emu.session.screenText()[11].trim(), press: window.emu.session.screenText()[14].trim(),
-    media: (document.querySelector('[role="tab"][aria-controls="panel-media"]').click(), document.getElementById('panel-media').innerText),
-    card: !document.getElementById('welcome').hidden, last: document.getElementById('lastTime').hidden ? null : document.getElementById('lastName').textContent,
-    shelf: [...document.querySelectorAll('#shelf :is(a, button)')].map((b) => b.textContent).join('|'), pill: getComputedStyle(document.getElementById('romPill')).display !== 'none' && !document.getElementById('romPill').hidden }));
-  check('returning (no ROMs): the menu says WELCOME BACK and offers 6 CARRY ON WITH LIZA under 5 PLAY A GAME; "Last time · LIZA"; the menu on screen now; no card; No BASIC in the header',
+  // DETERMINISTIC, and the GUARD IS THE PRE-MENU SAMPLING. The invariant is `mixed === 0`: no sampled frame shows the menu
+  // drawn (CARRY ON on screen) without the shelf's "on screen now" tag. For that to prove anything, sampling must have
+  // STARTED BEFORE the menu was drawn -- otherwise, with the menu already up on the first sample, `mixed === 0` could
+  // hold on a page that never drew the tag at the moment the frame appeared. So `preMenu > 0` is required: at least one
+  // frame was sampled with the menu NOT yet on screen, before the first one that had it; that is what makes `mixed === 0`
+  // meaningful (a sampler that only began after the draw is caught by `preMenu === 0`).
+  // (A tick counter cannot serve this guard: page.tickUi() advances it every frame whether it runs before or after
+  // advance, so it does NOT distinguish the two orders. The earlier `ticksAdvanced` term was vacuous.)
+  // "CARRY ON on screen" is Session.screenText(), which reads the machine's screen RAM ($0400) for the mode in use;
+  // at this moment the welcome program is on its TEXT screen, so that read is the menu's own text, not a picture.
+  const r = await page.evaluate(() => new Promise((res) => {
+    const out = []; let seenCarry = false, after = 0, samples = 0, sawMenu = 0, preMenu = 0;
+    const read = () => {
+      const rows = window.emu.session.screenText();
+      const carry = !!(rows[12] && rows[12].includes('CARRY ON'));
+      const tag = [...document.querySelectorAll('#shelf .tag.now')].length > 0;
+      return { carry, tag, rows };
+    };
+    const tick = () => {
+      samples++;
+      const st = read();
+      if (st.carry) { seenCarry = true; sawMenu++; out.push(st); after++; }
+      else if (!seenCarry) preMenu++;   // a sample with the menu NOT yet drawn, taken before the first drawn one
+      if (seenCarry && after >= 4) {
+        const last = out[out.length - 1].rows;
+        return res({
+          greet: last[6].trim(), five: last[12].trim(), games: last[11].trim(), press: last[14].trim(),
+          media: (document.querySelector('[role="tab"][aria-controls="panel-media"]').click(), document.getElementById('panel-media').innerText),
+          card: !document.getElementById('welcome').hidden, last: document.getElementById('lastTime').hidden ? null : document.getElementById('lastName').textContent,
+          shelf: [...document.querySelectorAll('#shelf :is(a, button)')].map((b) => b.textContent).join('|'),
+          pill: getComputedStyle(document.getElementById('romPill')).display !== 'none' && !document.getElementById('romPill').hidden,
+          mixed: out.filter((x) => x.carry && !x.tag).length, frames: out.length,
+          samples, sawMenu, preMenu,
+        });
+      }
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  }));
+  check('returning (no ROMs): the menu says WELCOME BACK and offers 6 CARRY ON WITH LIZA under 5 PLAY A GAME; "Last time · LIZA"; the menu on screen now (no frame shows it without the tag); no card; No BASIC in the header',
     r.greet === 'WELCOME BACK' && r.five === '6 CARRY ON WITH LIZA' && r.games === '5 PLAY A GAME' && r.press === 'PRESS 1 TO 6' && !r.card && r.last === 'LIZA'
-    && r.shelf === 'Welcome menu on screen now|LIZA|Colour demo|2048|Minesweeper|Chat with Claude' && r.pill, JSON.stringify(r));
+    && r.shelf === 'Welcome menu on screen now|LIZA|Colour demo|2048|Minesweeper|Chat with Claude' && r.pill && r.mixed === 0
+    && r.preMenu > 0 && r.sawMenu >= 1, JSON.stringify(r));
+  // A PAUSED page still ticks the UI. tickUi() is outside the `if (!paused)` block, so a reconciler whose watched state
+  // changes with no machine frame still redraws. Here: pause the page; the shelf's "on screen now" follows
+  // `welcomeOnScreen && !page.paused`, so pausing must take the tag OFF -- a reconciler change driven with the machine
+  // stopped. (Deterministic: wait for the tag to go, which only a run of tickUi while paused can do.)
+  const beforePause = await page.evaluate(() => [...document.querySelectorAll('#shelf .tag.now')].length > 0);
+  await page.click('#btnPause');
+  const pausedTagGone = await waitFor(page, () => [...document.querySelectorAll('#shelf .tag.now')].length === 0, null, 5000);
+  check(`(d) a paused page still ticks the UI: the shelf's "on screen now" clears on Pause, with the machine stopped`,
+    beforePause && pausedTagGone);
+  await page.click('#btnPause');   // resume, so the checks after run on a running machine
+  await waitFor(page, () => window.emu.session.welcomeOnScreen && [...document.querySelectorAll('#shelf .tag.now')].length > 0, null, 8000);
   // the Media tab as shown says "Last time · LIZA" with no "Nothing loaded yet" contradicting it, and the
   // menu lists 5 PLAY A GAME above the carry-on line (r.games, above)
   check('returning (no ROMs): the Media tab shows "Last time · LIZA" and no "Nothing loaded yet"',
@@ -3291,24 +3390,36 @@ async function cpu6309Checks(browser, base, check) {
   // keys 2 and 4 (demo, chat) come up on the 6309 as on the 6809
   await key('2');
   check('cpu=6309: key 2 runs the colour demo', await waitFor(page, () => /Colour demo: press a key/.test(document.getElementById('toast').textContent) && window.emu.machine.cpu.pc >= 0x4000 && window.emu.machine.cpu.pc < 0x4200, null, 20000), await msg());
-  // the demo is really executing on the 6309: over a short window its program counter is seen in the demo's own
-  // code ($4000-$41FF, where demo.bin loads), the 6309's illegal-opcode trap flag (MD bit 6) is never set, and the
-  // welcome program is no longer in charge. (A single sample is not enough: the demo calls the stub's POLCAT at
-  // $B100 between frames. The trap bit, not a PC at $FFF0, is the signal: a 6309 trap jumps to the vector's
-  // CONTENTS in one instruction, so the PC is never $FFF0 itself.)
+  // The demo is really executing on the 6309: its program counter enters the demo's own code ($4000-$41FF, where
+  // demo.bin loads), and over a SPAN AFTER that entry the 6309's illegal-opcode trap flag (MD bit 6) is never set.
+  // Bounded in EMULATED frames, not wall time: a page slowed by load runs fewer frames a second but the same frames,
+  // so the check holds however slow the runner is (the old sampling of PC every 25 ms of wall clock failed on CI's
+  // starved runners - the window could close before the demo had drawn, and 40 wall-clock samples could all land in
+  // the stub between demo frames).
+  //
+  // The span is the point. Ending the wait as soon as the PC is in the demo window would sample "never trapped" over
+  // the handful of frames between two evaluates (measured: about four), not over the demo running - and a trap that
+  // fires a moment later would be missed. So the condition is "in the demo window AND 100 frames have run since
+  // entry", and MD and the welcome flag are read at the END of that span: 100 frames is two seconds of machine time
+  // at 50 Hz, the window the old wall-clock loop had, and then some.
+  //
+  // (The trap bit, not a PC at $FFF0, is the signal: a 6309 trap jumps to the vector's CONTENTS in one instruction,
+  // so the PC is never $FFF0 itself. It is STICKY - trap() does `md |= bit` (js/cpu/cpu6309.js), and only a reset
+  // clears it - so one read at the end covers every trace of a trap during the span. A single PC sample is not
+  // enough either: the demo calls the stub's POLCAT at $B100 between frames, so "in demo code" is a property of SOME
+  // frame in the span, not of every one.)
+  const DEMO_SPAN = 100;
+  await ev(() => { window.__demo = { f0: null, inDemo: false }; });
+  const inDemo = await waitForFrames(page, (span) => {
+    const m = window.emu.machine, pc = m.cpu.pc, out = window.__demo;
+    if (out.f0 === null && pc >= 0x4000 && pc < 0x4200) out.f0 = m.frameCount;   // the frame the demo's code is first seen on
+    if (pc >= 0x4000 && pc < 0x4200) out.inDemo = true;
+    return out.f0 !== null && m.frameCount - out.f0 >= span;
+  }, DEMO_SPAN, 400);                                       // 400 frames bound: plenty for entry (8 s at 50 Hz) plus the 100-frame span
   {
-    const seen = await ev(async () => {
-      const out = { inDemo: false, trapped: false, welcome: false };
-      for (let i = 0; i < 40; i++) {
-        const m = window.emu.machine, pc = m.cpu.pc;
-        if (pc >= 0x4000 && pc < 0x4200) out.inDemo = true;
-        if ((m.cpu.md & 0x40) !== 0) out.trapped = true;   // illegal-opcode trap taken
-        out.welcome = out.welcome || window.emu.session.welcomeRunning;
-        await new Promise((r) => setTimeout(r, 25));
-      }
-      return out;
-    });
-    check('cpu=6309: the demo executes its own code and takes no illegal-opcode trap', seen.inDemo && !seen.trapped && !seen.welcome, JSON.stringify(seen));
+    // read MD and the welcome flag at the END of the span, not at entry
+    const seen = await ev(() => ({ inDemo: window.__demo.inDemo, trapped: (window.emu.machine.cpu.md & 0x40) !== 0, welcome: window.emu.session.welcomeRunning }));
+    check('cpu=6309: the demo executes its own code and takes no illegal-opcode trap', inDemo && seen.inDemo && !seen.trapped && !seen.welcome, JSON.stringify({ inDemo, seen }));
   }
   // "Back to the menu" starts the menu afresh (greeting 'first', no carry-on option): the same on 6809 and 6309
   await page.click('#btnWelcomeBack');
@@ -3628,6 +3739,69 @@ async function mediaChecks(browser, base, check) {
     // the drawer lists EVERY recent entry for this machine, including ones this group did not load (game.bin
     // above), so the count is not 1; what must hold is that ours is there once.
     check('recent: before the second load there is one row of this name', rowsBefore.filter((t) => t.includes('recent-one.bin')).length === 1, rowsBefore.join(' | '));
+    // a redraw of the Recent list must keep the focus on THE SAME row, by what it names (and its copy
+    // tag), not by place: a new load puts its file at the top and every row shifts down, so a
+    // place-based restore would move the keyboard to a different file - silently. Driven twice:
+    // first the page's own redraw trigger (a session event) with the order unchanged, then a REAL
+    // order change (loading a new file unshifts the list) with a row focused - the identity restore
+    // must find the same file again, whatever moved.
+    const kept = await page.evaluate(async () => {
+      const row = [...document.querySelectorAll('#recentList .row')].find((b) => b.dataset.name === 'recent-one.bin');
+      row.focus({ preventScroll: true });
+      const was = document.activeElement === row;
+      window.emu.session.emit('lastrun');   // the event the page answers with a redraw of the list, synchronously
+      const back = document.activeElement;   // read at once: the redraw ran inside the emit; no frame is given to repair anything
+      return { was, rebuilt: !row.isConnected, isNew: back !== row, name: back.dataset ? back.dataset.name : null, still: back.dataset && back.dataset.name === 'recent-one.bin' && back.dataset.crc === row.dataset.crc };
+    });
+    check('recent: a redraw of the list keeps the focus on the row that had it (a NEW node of the same file)', kept.was && kept.rebuilt && kept.isNew && kept.still, JSON.stringify(kept));
+    // THE ORDER CHANGE, with no launch to hide it: another tab of the same browser loads a program, and
+    // this page's Recent list reorders (Session.mediaElsewhere -> the 'recent' event -> the redraw) while
+    // this page's machine is untouched - no launch here, so nothing refocuses the screen. The focused
+    // row shifts down, and the restore must find it AGAIN BY NAME: a place-based restore lands on the
+    // file that took its place, a silent jump to a program nobody chose. The list's reorder is asserted
+    // first (the new file at the top), so the check cannot pass because nothing happened.
+    {
+      const other = await ctx.newPage();
+      await other.goto(`${base}?machine=dragon64`); await started(other);
+      const focusRow = await page.evaluate(() => {
+        const row = [...document.querySelectorAll('#recentList .row')].find((b) => b.dataset.name === 'recent-one.bin' && !b.querySelector('.copy'));   // the unlabelled copy (this page's newest of the name)
+        row.focus({ preventScroll: true });
+        return { was: document.activeElement === row, name: 'recent-one.bin', at: [...document.querySelectorAll('#recentList .row')].indexOf(row) };
+      });
+      await other.setInputFiles('#fileProgram', { name: 'elsewhere.bin', mimeType: 'application/octet-stream', buffer: A });   // a DragonDOS binary: B loads it at once
+      // A's list reordered: the new file at the top, the focused row one down - asserted, not assumed
+      const reordered = await waitFor(page, () => {
+        const rows = [...document.querySelectorAll('#recentList .row')];
+        return rows.length && (rows[0].dataset.name === 'elsewhere.bin') && rows.some((b) => b.dataset.name === 'recent-one.bin');
+      }, null, 10000);
+      await page.waitForTimeout(100);   // let the redraw (and any restore) settle
+      const after = await page.evaluate(() => ({ name: document.activeElement.dataset ? document.activeElement.dataset.name : null, at: [...document.querySelectorAll('#recentList .row')].indexOf(document.activeElement) }));
+      check('recent: a load in ANOTHER tab reorders this page\'s list (the new file on top) - the precondition for the focus check below', reordered, JSON.stringify(after));
+      check('recent: the reorder by another tab keeps the focus on the file it was on (by name, whatever moved - no launch here to hide a place-based jump)',
+        focusRow.was && reordered && after.name === focusRow.name, JSON.stringify({ focusRow, after }));
+      // the second half: a SAME-NAME load with DIFFERENT bytes in the other tab. The focused file's row
+      // keeps its name but the copy ordinals SHIFT (it becomes "2nd"), and a name-only or name+ordinal
+      // key lands on the OTHER page's file - the reviewer's reproduction. The restore must keep the
+      // keyboard on THIS page's own bytes (the library's own identity: name + content hash), and the
+      // row it is on must be the "2nd" copy. The new row on top is asserted first.
+      await other.setInputFiles('#fileProgram', { name: 'recent-one.bin', mimeType: 'application/octet-stream', buffer: B });
+      const reorded = await waitFor(page, () => {
+        const rows = [...document.querySelectorAll('#recentList .row')];
+        return rows.length && rows[0].dataset.name === 'recent-one.bin' && rows[0].dataset.crc !== (document.activeElement.dataset ? document.activeElement.dataset.crc : '');
+      }, null, 10000);
+      await page.waitForTimeout(100);   // let the redraw (and any restore) settle
+      const sameName = await page.evaluate(() => {
+        const ae = document.activeElement;
+        const row = ae.closest && ae.closest('#recentList .row');
+        return { name: ae.dataset ? ae.dataset.name : null, crc: ae.dataset ? ae.dataset.crc : null, tag: row && row.querySelector('.copy') ? row.querySelector('.copy').textContent : null,
+          onRecent: !!(row && row.closest('#recentList')) };
+      });
+      check('recent: another tab\'s load of the SAME NAME with different bytes puts its copy on top - the precondition for the same-name focus check', reorded, JSON.stringify(sameName));
+      check('recent: a same-name load in another tab keeps the focus on THIS page\'s own bytes (the "2nd" copy, by content hash - a name-only key lands on the other page\'s file)',
+        sameName.onRecent && sameName.name === 'recent-one.bin' && sameName.tag === '2nd',
+        JSON.stringify(sameName));
+      await other.close();
+    }
   }
   check('media: no page errors', !errors.length, errors.join('; '));
   await closeCtx(ctx);
@@ -4082,6 +4256,26 @@ async function hintChecks(browser, base, check) {
   await page.clock.fastForward(2000);
   check('key hint: gone 30 s after typing starts', at29 && await page.isHidden('#keyHint'));
   await closeCtx(ctx);
+  // a touch-only device (no hover, a coarse pointer) has no keys to name and nothing to drop: the desktop hints never
+  // show there, even with the on-screen keyboard off (the drop hint's layout). A desktop shows them (the control).
+  for (const [label, opts, want] of [['desktop', {}, true], ['touch-only', { hasTouch: true, isMobile: true }, false]]) {
+    ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, ...opts });
+    await ctx.addInitScript(() => { try { localStorage.setItem('cloadm.touchKeys', 'off'); } catch (e) { /* none */ } });
+    page = await ctx.newPage();
+    await page.goto(`${base}?machine=dragon64`); await started(page);
+    const h = await page.evaluate(() => {
+      const kh = document.getElementById('keyHint');
+      document.getElementById('soundHint').hidden = true; kh.hidden = false;   // as once sound has started: the key hint's turn
+      const drop = document.querySelector('.layout .hint');
+      const keys = kh.checkVisibility();
+      kh.hidden = true;     // the drop hint's turn (it steps aside while the key hint shows)
+      return { media: matchMedia('(hover: none) and (pointer: coarse)').matches, drop: drop.checkVisibility(), keys, text: drop.textContent };
+    });
+    check(`hints (${label}): "Or drop any file on the screen. Esc is BREAK…" and the key hint ${want ? 'show' : 'never show on a touch-only device'}`,
+      h.media === !want && h.drop === want && h.keys === want && /^Or drop any file on the screen\. Esc is BREAK/.test(h.text), JSON.stringify(h));
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, `hints-${label}.png`) });
+    await closeCtx(ctx);
+  }
 }
 
 // Input: the keyboard modes and the keyboard joystick through the Input tab, and two gamepads through a
@@ -5106,15 +5300,27 @@ async function phoneChecks(browser, base, check) {
   const rank = await page.evaluate(() => ({ sheet: document.getElementById('sheetCart').open, paused: !!window.emu.session.consent.paused }));
   check('phone: a sheet is modal, and with Claude paused by a key Esc closes the sheet first (Claude stays paused)', modal && !rank.sheet && rank.paused, JSON.stringify({ modal, rank }));
   await page.evaluate(() => window.emu.session.consent.endPause());
-  // the hardware keyboard while a sheet is open: the welcome menu's "1" (LIZA) does not reach the machine
+  // the hardware keyboard while a sheet is open: a key must not reach the machine.
+  // The machine's INPUT is the observable, not the screen (a key that got through is taken by the stub's POLCAT at
+  // once, while the welcome program may draw its reaction many frames later, so the screen cannot tell a leak from a
+  // slow draw). The queue alone is not enough either: the menu polls POLCAT, which SHIFTS a key off `stubKeys`, so a
+  // leaked key can leave the queue before it is read (measured: a leaked key went queue -> taken between two reads
+  // three frames apart, leaving queueAfter 0). So the count is the keys HANDED to the machine,
+  // `stubKeysTaken + stubKeys.length`: it only grows while a key is in flight (taken when POLCAT reads it), and the
+  // page opens the sheet with no reset in between, so a key that got through makes it grow by one and nothing can
+  // hide it. Both reads are taken around the press; the screen read follows ~60 EMULATED frames, so the menu's
+  // reaction (if a key had got through) has its chance to draw too.
   await page.tap('#chipPower');
   await waitFor(page, () => document.getElementById('sheetPower').open);
-  const screenBefore = await page.evaluate(() => window.emu.session.screenText().join('\n'));
+  await waitFor(page, () => /PRESS 1 TO 5/.test(window.emu.session.screenText().join('\n')), null, 20000);
+  const handed = () => page.evaluate(() => window.emu.machine.stubKeysTaken + window.emu.machine.stubKeys.length);
+  const handedBefore = await handed();
   await page.keyboard.press('1');
+  const handedAfter = await handed();
   await emuFrames(page, 60);
   const screenAfter = await page.evaluate(() => window.emu.session.screenText().join('\n'));
-  check('phone: typing on the hardware keyboard while a sheet is open does not reach the machine (the welcome menu is still up after "1")',
-    screenBefore === screenAfter && /PRESS 1 TO 5/.test(screenAfter), screenAfter.slice(0, 120));
+  check('phone: typing on the hardware keyboard while a sheet is open does not reach the machine (the keys handed to it do not change, the welcome menu is still up)',
+    handedBefore === handedAfter && /PRESS 1 TO 5/.test(screenAfter), JSON.stringify({ handedBefore, handedAfter, screen: screenAfter.slice(0, 80) }));
   await page.keyboard.press('Escape');
   // a tape mounted from the Tape sheet names itself on the chip
   await page.tap('#chipTape');
@@ -5322,8 +5528,10 @@ async function phoneChecks(browser, base, check) {
     await p.tap('#tkMenu');
     const items = await p.evaluate(() => [...document.querySelectorAll('#tkMenuSheet button')].filter((b) => b.checkVisibility()).map((b) => b.textContent));
     const gluedKeys = await gluedLabels(p, '#tkMenuSheet button');
-    check('phone sideways: the keys\' Menu lists Programs…, Machine…, Settings…, Tape, disks and cartridge…, Power…, Commands…, then Install and Hide keys, no label\'s words run together',
-      items.slice(0, 6).join('|') === 'Programs…|Machine…|Settings…|Tape, disks and cartridge…|Power…|Commands…' && items.includes('Hide keys') && !gluedKeys.length, JSON.stringify({ items, gluedKeys }));
+    // (the order puts what acts on this machine first -- Programs…, Open…, Ask Claude…, Share… -- then the ports and the
+    // machine's own settings, then, under a rule, Commands… and the app-level items.)
+    check('phone sideways: the keys\' Menu lists Programs…, Open…, Ask Claude…, Share…, Tape, disks and cartridge…, Machine…, Settings…, Power…, Commands…, then Install and Hide keys, no label\'s words run together',
+      items.slice(0, 10).join('|') === 'Programs…|Open…|Ask Claude…|Share…|Tape, disks and cartridge…|Machine…|Settings…|Power…|Commands…|Install CLOADM…' && items.includes('Hide keys') && !gluedKeys.length, JSON.stringify({ items, gluedKeys }));
     // "Tape, disks and cartridge…": one side sheet from the right, 360 px wide and the window's height, a 44 px tab each
     // switching in place; every port's controls can be reached; Esc closes it with the focus back on Menu
     await p.tap('#tkMenuSheet [data-item="ports"]');
@@ -5393,6 +5601,58 @@ async function phoneChecks(browser, base, check) {
     check('phone: the ports\' side sheet opens on the tab that holds media; turned with a sheet open it stays open on the same tab as the other shape (Disks upright and sideways, Settings on Display)',
       onMedia && upright && sideAgain && turned, JSON.stringify({ onMedia, upright, sideAgain, turned }));
     await closeCtx(c);
+  }
+  // Item 6: the panel's Menu sheet must never run past the top of the window. #tkMenuSheet is fixed above the panel's
+  // Menu (bottom: 64px) and holds seven 44 px rows; in a short landscape window (653x280) it used to be taller than the
+  // space above it, so Machine… and Settings… sat above the fold (measured at t:-99..-55) and a tap on them did
+  // nothing. Its height is capped to the room above its bottom offset and it scrolls inside; at each size, every row
+  // must be reachable by a REAL tap -- scrolled into view, then the row is what is on top at its own centre -- and the
+  // sheet's top edge must be at or below 0.
+  for (const [label, viewport] of [['653x280', { width: 653, height: 280 }], ['659x343', { width: 659, height: 343 }], ['852x393', { width: 852, height: 393 }], ['844x390', { width: 844, height: 390 }]]) {
+    const sctx = await browser.newContext({ viewport, hasTouch: true, isMobile: true, serviceWorkers: 'block' });
+    const spage = await sctx.newPage();
+    const serrors = [];
+    spage.on('pageerror', (e) => serrors.push(e.message));
+    await spage.goto(`${base}?machine=dragon64`);
+    await ready(spage);
+    await waitFor(spage, () => !document.getElementById('touchKeys').hidden && document.body.classList.contains('touch-keys'));
+    // open it once, scroll it to the end, close it, then open it again: it must come back at its FIRST row. (A fresh
+    // open is already at scrollTop 0, so checking that alone could not tell a reset from no reset -- the mutation
+    // that removes the reset survived it.)
+    await spage.tap('#tkMenu');
+    await waitFor(spage, () => !document.getElementById('tkMenuSheet').hidden, null, 5000);
+    await spage.evaluate(() => { document.getElementById('tkMenuSheet').scrollTop = 1e6; });
+    await spage.tap('#tkMenu');                                   // close
+    await waitFor(spage, () => document.getElementById('tkMenuSheet').hidden, null, 5000);
+    await spage.tap('#tkMenu');                                   // open again
+    await waitFor(spage, () => !document.getElementById('tkMenuSheet').hidden, null, 5000);
+    const sm = await spage.evaluate(() => {
+      const sheet = document.getElementById('tkMenuSheet'), r = sheet.getBoundingClientRect();
+      const rows = [...sheet.querySelectorAll('button')].filter((b) => b.checkVisibility());
+      const onTopAt = (el) => { const b = el.getBoundingClientRect();
+        const at = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2); return !!at && (sheet.contains(at) || el.contains(at)); };
+      // it opens at its FIRST row (the open handler resets scrollTop), and the first row is focused
+      const opens = { scrollTop: sheet.scrollTop, focusFirst: document.activeElement === rows[0] };
+      // the keyboard focus scrolls the focused row into view: focus the last row, the sheet scrolls it in
+      const seenOf = () => { const b = rows[rows.length - 1].getBoundingClientRect(); return b.top >= r.top - 1 && b.bottom <= r.bottom + 1 && b.top >= 0 && b.bottom <= innerHeight; };
+      rows[rows.length - 1].focus();
+      opens.lastFocusInView = seenOf();
+      sheet.scrollTop = 0;
+      // each row scrolled into view inside the sheet, then read: is it inside the sheet's box and topmost at its centre
+      const reach = rows.map((b) => { b.scrollIntoView({ block: 'nearest' }); const rb = b.getBoundingClientRect();
+        return { text: b.textContent.trim().slice(0, 22), inside: rb.top >= r.top - 1 && rb.bottom <= r.bottom + 1 && rb.top >= 0 && rb.bottom <= innerHeight, topmost: onTopAt(b), h: Math.round(rb.height) }; });
+      return { top: Math.round(r.top), bottom: Math.round(r.bottom), h: Math.round(r.height), vh: innerHeight, opens,
+        scrolls: sheet.scrollHeight > sheet.clientHeight + 1, overflowY: getComputedStyle(sheet).overflowY,
+        first: rows[0] && rows[0].textContent.trim().slice(0, 12), reach };
+    });
+    check(`ui qa (landscape ${label}, touch keys): the Menu sheet stays inside the window (its top at or below 0), opens at its first row (focused), and scrolls inside; the focused row is scrolled into view`,
+      sm.top >= 0 && sm.bottom <= sm.vh && sm.opens.scrollTop === 0 && sm.opens.focusFirst && sm.opens.lastFocusInView
+        && (sm.scrolls ? sm.overflowY === 'auto' || sm.overflowY === 'scroll' : true),
+      JSON.stringify({ top: sm.top, bottom: sm.bottom, vh: sm.vh, opens: sm.opens, scrolls: sm.scrolls, overflowY: sm.overflowY }));
+    check(`ui qa (landscape ${label}, touch keys): every Menu row is reachable by a real tap (scrolled into view, topmost at its centre, 44 px tall)`,
+      sm.reach.length >= 6 && sm.reach.every((x) => x.inside && x.topmost && x.h >= 44) && sm.first === 'Programs…', JSON.stringify(sm.reach));
+    check(`ui qa (landscape ${label}, touch keys): no page errors with the Menu sheet open`, !serrors.length, serrors.join('; '));
+    await sctx.close();
   }
 
   // a short phone upright (under 600 px; 375 x 548 and 320 x 460): no chip row (the screen keeps its room, the page does
@@ -5490,6 +5750,44 @@ async function phoneChecks(browser, base, check) {
       && document.activeElement === document.querySelector('#shelf :is(a, button)'));
     const deskState = await p.evaluate(() => ({ media: document.getElementById('tab-media').getAttribute('aria-selected'), focus: document.activeElement.textContent, sheet: !!document.querySelector('dialog[open]') }));
     check('desktop: the palette\'s "Programs" selects the Media tab and puts the focus on the shelf\'s first item (no sheet)', deskProg && !deskState.sheet, JSON.stringify(deskState));
+    // a redraw of the shelf (its "on screen now" marks change, or a session event) must keep the focus where it
+    // was: the redraw rebuilds the row, and without care the focused node is dropped to the body - the palette
+    // had just put the focus on the first item, and the next animation frame (the welcome menu's prompt drawing,
+    // a few dozen frames after the page loads it) took it away. That is the intermittent CI failure this guards:
+    // driven here directly, by the page's own trigger, so it is red on any machine, not only on a loaded one.
+    const redraw = await p.evaluate(async () => {
+      const first = document.querySelector('#shelf :is(a, button)');
+      first.focus({ preventScroll: true });
+      const was = document.activeElement === first;
+      window.emu.session.emit('lastrun');   // the event the page answers with a shelf redraw
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      // the redraw builds new nodes: the focus must be back on the shelf's FIRST item (the same place),
+      // not on the body where a dropped node leaves it
+      const again = document.querySelector('#shelf :is(a, button)');
+      return { was, still: document.activeElement === again, where: document.activeElement === document.body ? 'body' : (document.activeElement.id || document.activeElement.tagName) };
+    });
+    check('desktop: a redraw of the shelf keeps the focus on the item that had it (the palette\'s Programs focus survives the welcome menu\'s "on screen now" flip)', redraw.was && redraw.still, JSON.stringify(redraw));
+    // ... BY IDENTITY. The wrong-row jump a place-based restore would make has no launch-free driver
+    // on the shelf (its contents change only with the machine's CPU family, and a machine switch is a
+    // launch, which focuses the screen by design - overwriting whatever a wrong restore did), so the
+    // Recent list's cross-tab check carries that claim; here the machine switch shows the honest
+    // fallback only: the focused program (the Colour demo) is gone from the switched machine's shelf,
+    // and Chat with Claude took its place - recorded as the geometry, the claim stays what is checked.
+    const gone = await p.evaluate(async (machine) => {
+      const demo = document.querySelector('#shelf [data-shelf="Colour demo"]');
+      demo.focus({ preventScroll: true });
+      const was = document.activeElement === demo;
+      const at = demo.getBoundingClientRect().top;   // the place the focused item sat
+      window.emu.session.switchMachine(machine);
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      await new Promise((r) => setTimeout(r, 100));  // the switch also greets the menu, which focuses the screen
+      const chat = document.querySelector('#shelf [data-shelf="claude"]');
+      return { was, onChat: document.activeElement === chat, chatTookThePlace: !!chat && Math.abs(chat.getBoundingClientRect().top - at) < 2 };
+    }, 'mc10');
+    check('desktop: switching the machine takes the focused shelf item\'s place (Chat with Claude where the Colour demo was) - the geometry the identity restore must not jump to',
+      gone.was && gone.chatTookThePlace, JSON.stringify(gone));
+    // and the machine is switched back for the checks that follow
+    await p.evaluate(() => window.emu.session.switchMachine('dragon64'));
     // the app bar: no Programs… (the drawer's Media tab is in view), and no label with its words run together, at
     // 1440 (Install, the short label) and at 900 ("Install CLOADM…")
     const bar = [];
@@ -5502,7 +5800,8 @@ async function phoneChecks(browser, base, check) {
       bar.every((b) => !b.programs && !b.glued.length) && bar[0].install === 'Install' && bar[1].install === 'Install CLOADM…', JSON.stringify(bar));
     // the file pickers: the extensions each takes, and application/octet-stream so a phone offers a file of a type it
     // does not know (a .cas, a .vdk); no image/* (iOS would offer the Photo Library and the camera)
-    const MEDIA = '.bin,.cas,.c10,.k7,.wav,.rom,.ccc,.dgn,.vdk,.dsk,.jvc,.dmk,.os9,.img,.bas,.txt', OS = 'application/octet-stream';
+    // (.img, NitrOS-9's DriveWire images, only where they open: the NitrOS-9 and DriveWire pickers)
+    const MEDIA = '.bin,.cas,.c10,.k7,.wav,.rom,.ccc,.dgn,.vdk,.dsk,.jvc,.dmk,.os9,.bas,.txt', OS = 'application/octet-stream';
     const want = { fileProgram: `${MEDIA},.cloadm,${OS}`, fileLib: `${MEDIA},.cloadm,.zip,${OS}`, fileTape: `.cas,.c10,.k7,.wav,${OS}`, fileCart: `.rom,.ccc,.dgn,.bin,${OS}`,
       fileMpSlot: `.rom,.ccc,.dgn,.bin,${OS}`, fileDisk: `.vdk,.dsk,.jvc,.dmk,${OS}`, n9File: `.dsk,.os9,.img,${OS}`, dwImport: `.dsk,.os9,.img,${OS}` };
     const accepts = await p.evaluate((ids) => Object.fromEntries(ids.map((id) => [id, document.getElementById(id).getAttribute('accept')])), Object.keys(want));
@@ -6337,6 +6636,46 @@ async function feedbackChecks(browser, base, check) {
     check(`feedback (${label}): no page errors`, !errors.length, errors.join('; '));
     await closeCtx(ctx);
   }
+
+  // a file CLOADM doesn't open (a photo): said in one sentence, the kinds it opens in its Details, and no raw-load
+  // address prompt; a .bin of unknown format still asks where it goes (it may be a memory dump)
+  {
+    const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    const page = await ctx.newPage();
+    const errors = [], dialogs = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    page.on('dialog', (d) => { dialogs.push(d.message()); d.dismiss(); });
+    await page.goto(`${base}?machine=dragon64`);
+    await started(page);
+    await page.setInputFiles('#fileProgram', { name: 'photo.jpg', mimeType: 'image/jpeg', buffer: Buffer.from([0xFF, 0xD8, 0xFF, 0xE0, 1, 2, 3, 4, 5, 6]) });
+    const said = await waitFor(page, () => document.getElementById('toastText').textContent === 'photo.jpg isn\'t a file CLOADM opens.', null, 10000);
+    const t = await page.evaluate(() => ({ error: document.getElementById('toast').classList.contains('error'), action: document.getElementById('toastAction').textContent }));
+    await page.click('#toastAction');
+    const details = await page.evaluate(() => { const d = document.getElementById('toastDetails'); return d.checkVisibility() ? d.textContent : `(hidden) ${d.textContent}`; });
+    check('feedback: a photo dropped or opened: "photo.jpg isn\'t a file CLOADM opens.", its Details list what it opens, and no address prompt',
+      said && t.error && t.action === 'Details' && !dialogs.length
+      && details === 'It opens tapes (.cas, .wav, .c10, .k7), disks (.vdk, .dsk, .jvc, .dmk, .os9), programs (.bin, .bas, .txt), cartridges (.rom, .ccc, .dgn), snapshots (.cloadm), ROM images and ZIPs of these.',
+      `${await page.textContent('#toastText')} ${JSON.stringify(t)} details: ${details} dialogs: ${dialogs}`);
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, 'feedback-unopenable.png') });
+    // its way in all the same: "Load as raw data at an address…" on the toast's second line opens the address prompt
+    // (a .hex: not a memory dump's usual name, so said, not asked about)
+    await page.setInputFiles('#fileProgram', { name: 'prog.hex', mimeType: 'application/octet-stream', buffer: Buffer.from([0xFF, 0xD8, 0xFF, 0xE0, 9, 9, 9]) });
+    await waitFor(page, () => document.getElementById('toastText').textContent === 'prog.hex isn\'t a file CLOADM opens.', null, 10000);
+    const also = await page.evaluate(() => { const a = document.getElementById('toastAlso'); return { shown: a.checkVisibility(), text: a.textContent, button: (a.querySelector('button') || {}).textContent,
+      details: document.getElementById('toastAction').textContent }; });
+    const before = dialogs.length;
+    if (also.button) await page.click('#toastAlso button');   // (none: the check below fails, not the group)
+    for (let i = 0; i < 200 && dialogs.length === before && also.button; i++) await page.waitForTimeout(50);   // (a condition wait: the prompt)
+    check('feedback: an unopenable file\'s toast keeps Details and offers "Load as raw data at an address…", which asks for the address',
+      also.shown && also.text === 'A memory dump?Load as raw data at an address…' && also.button === 'Load as raw data at an address…' && also.details === 'Details'
+      && /^prog\.hex: unknown format \(7 bytes\)/.test(dialogs[before] || ''), `${JSON.stringify(also)} dialogs: ${dialogs.join(' | ')}`);
+    dialogs.length = 0;
+    await page.setInputFiles('#fileProgram', { name: 'dump.bin', mimeType: 'application/octet-stream', buffer: Buffer.from([1, 2, 3, 4, 5, 6, 7]) });
+    for (let i = 0; i < 200 && !dialogs.length; i++) await page.waitForTimeout(50);   // (a condition wait: the prompt)
+    check('feedback: a .bin of unknown format still asks for its load address', /^dump\.bin: unknown format \(7 bytes\)/.test(dialogs[0] || ''), dialogs.join(' | '));
+    check('feedback (unopenable): no page errors', !errors.length, errors.join('; '));
+    await closeCtx(ctx);
+  }
 }
 
 async function libraryChecks(browser, base, check) {
@@ -6540,6 +6879,25 @@ async function slotChecks(browser, base, check) {
   const after = await rows();
   check('snapshots: three empty, then Snapshot 1 holds the Dragon 64', before.join() === 'Snapshot 1 · empty|off,Snapshot 2 · empty|off,Snapshot 3 · empty|off'
     && /^Snapshot 1 · Dragon 64 · .+\|on$/.test(after[0]) && /^Snapshot 1 taken/.test(await page.textContent('#toast')), `${before} / ${after}`);
+  // the panel is rebuilt on the session's events, and a rebuild drops the node that had the focus - to
+  // the body, losing the keyboard. The same rule as the shelf and the Recent list: the button that had
+  // focus gets it back on the new node of the same slot and the same role. Driven by the panel's own
+  // trigger (a session event it redraws on), with the focus on Restore 1 - the remove-mutant goes red.
+  const slotFocus = await page.evaluate(async () => {
+    const load1 = document.querySelector('#slotList [aria-label="Restore snapshot 1"]');
+    load1.focus({ preventScroll: true });
+    const was = document.activeElement === load1;
+    window.emu.session.emit('reset');   // an event the panel answers with a redraw
+    // the rebuild is ASYNC (render() awaits listSlots): wait until it HAPPENED - the old node leaves the
+    // tree - not a fixed time, so a redraw that never comes fails instead of passing on a stale read
+    const deadline = performance.now() + 5000;
+    while (load1.isConnected && performance.now() < deadline) await new Promise((r) => setTimeout(r, 20));
+    const rebuilt = !load1.isConnected;
+    const back = document.activeElement;
+    return { was, rebuilt, isNew: back !== load1, still: back.getAttribute && back.getAttribute('aria-label') === 'Restore snapshot 1', where: back === document.body ? 'body' : (back.getAttribute && back.getAttribute('aria-label')) || back.tagName };
+  });
+  check('snapshots: a redraw of the slots panel keeps the focus on the button that had it (a NEW node of the same slot and role)',
+    slotFocus.was && slotFocus.rebuilt && slotFocus.isNew && slotFocus.still, JSON.stringify(slotFocus));
   await page.reload(); await ready(page);
   await openTab(page, 'Media');
   await waitFor(page, () => /Dragon 64/.test(document.querySelector('#slotList .row').textContent));
@@ -6629,6 +6987,21 @@ async function tapePanelChecks(browser, base, check) {
       if (label === 'phone') await page.tap('#toastText button.inline'); else await page.click('#toastText button.inline');
       const started = await waitFor(page, () => window.emu.machine.read(0x3100) === 0x42 && /started at/.test(document.getElementById('toast').textContent), null, 15000);
       check(`tape, no BASIC (${label}): Load it now loads the program and starts it, and the usual start toast follows`, started, await page.textContent('#toast'));
+      // The person's OWN tape is their file, so the Media tab's "Recent on this machine" must list it once Skip has run
+      // it: a tape put in the deck is not remembered on insert (nothing has run yet), and skipTape() is the load. It
+      // went in with remember: false, the flag LIZA and the games use for programs that are OURS -- so a tape the
+      // person supplied never reached the list, and the Media tab said "Nothing loaded yet".
+      const recentAfterSkip = await page.evaluate(() => {
+        const s = window.emu.session, m = s.personMachine.id;
+        const rows = s.library.recentMedia().filter((r) => r.machine === m);
+        // the drawer's own render, once it has had the 'loaded'/'lastrun' event this load emitted
+        const drawn = [...document.querySelectorAll('#recentList .row')].map((b) => b.textContent);
+        return { names: rows.map((r) => r.name), stored: rows.map((r) => !!r.stored), drawn, lastRun: s.lastRun };
+      });
+      check(`tape, no BASIC (${label}): the tape Skip loaded is in "Recent on this machine", as a row the person can click`,
+        JSON.stringify(recentAfterSkip.names) === JSON.stringify(['nobasic.cas']) && recentAfterSkip.stored.every(Boolean)
+          && recentAfterSkip.drawn.some((t) => t.startsWith('nobasic.cas')) && JSON.stringify(recentAfterSkip.lastRun) === JSON.stringify({ kind: 'recent', name: 'nobasic.cas' }),
+        JSON.stringify(recentAfterSkip));
       check(`tape, no BASIC (${label}): no page errors`, !errors.length, errors.join('; '));
       await closeCtx(ctx);
     }
@@ -7356,13 +7729,21 @@ async function libraryStorageChecks(base, check) {
 } finally {
     // the close is bounded and belted (kill on a hung close, honest after-text), the dir removal retries and
     // warns by name; a finally that threw would bury the group's real result under a cleanup error.
-    if (ctx) await closeOwnPersistentContext(ctx, profile);
+    // the close's own facts: the removal is claimed ok only when the dir is REALLY gone AND the
+    // browser behind it is known dead - a settled close (it closed on its own), a belt that killed,
+    // or pgrep's own 'already gone'. A close that timed out with a belt that could not say (pgrep
+    // missing, or refusing: exit 2) is NOT ok even with the dir gone: nothing shows the process is
+    // dead, and a live one re-creates the dir it is still pointed at. Re-checked AFTER the kill:
+    // the dir must still be there to be removed, and the claim says what it saw.
+    const closeFacts = ctx ? await closeOwnPersistentContext(ctx, profile) : { outcome: 'settled', after: 'no context was opened', killed: 0 };
     const warn = (ok, detail) => check(`library storage: its profile directory is removed${ok ? '' : ' (WARN: a temp dir leaked)'}`, ok, detail);
     let gone = false, last = null;
     for (let i = 0; !gone && i < 20; i++) {
       try { fs.rmSync(profile, { recursive: true, force: true }); gone = true; } catch (e) { last = e.code || e.message; await new Promise((r) => setTimeout(r, 100)); }
     }
-    warn(gone, gone ? '' : `${profile} still there (${last}) - a temp dir leaked, not the browser`);
+    const stillGone = gone && !fs.existsSync(profile);   // re-check: a live browser re-creates the dir it is pointed at
+    const knownDead = closeFacts.outcome === 'settled' || closeFacts.after === 'killed' || closeFacts.after === 'its process was already gone';
+    warn(stillGone && knownDead, !stillGone ? `${profile} still there (${last}) - a temp dir leaked, not the browser` : !knownDead ? `the directory is gone but the close could not say the browser is: ${closeFacts.after}` : '');
   }
 
   // a browser without folder access (no showDirectoryPicker): that choice is offered greyed out with the reason; phone width
@@ -8662,6 +9043,19 @@ async function displayChecks(browser, base, check) {
   await page.fill('#rng-curvature', '100'); await page.fill('#rng-glow', '100'); await redrawn(page);
   check('display: the sliders set curvature and glow, with their values shown', await page.evaluate(() => window.emu.session.display.curvature === 100 && window.emu.session.display.glow === 100)
     && await page.textContent('#val-curvature') === '100%' && await page.textContent('#val-glow') === '100%');
+  // Every slider's label and its value are two readings in one line, and they must not run together: with the span at
+  // its content's width, "Curvature" ended exactly where "35%" began and the Display tab read "Curvature35%" (measured
+  // on the v0.1.9 cold test). A gap in the line is what separates them, at every width the drawer takes.
+  // Measured on every slider there is, whatever tab it lands on, so a slider added later is covered by this check.
+  const sliderGaps = await page.evaluate(() => [...document.querySelectorAll('.slider')].map((lab) => {
+    const span = lab.querySelector('span'), out = lab.querySelector('output'), name = span && span.firstChild;
+    if (!name || name.nodeType !== 3 || !out) return { id: lab.getAttribute('for'), err: 'no name or output' };
+    const r = document.createRange(); r.selectNodeContents(name);
+    const nr = r.getBoundingClientRect(), orr = out.getBoundingClientRect();
+    return { id: lab.getAttribute('for'), name: name.textContent, gap: Math.round(orr.left - nr.right) };
+  }));
+  check('display: every slider\'s label and value are separated by a visible gap (no "Curvature35%")',
+    sliderGaps.length >= 2 && sliderGaps.every((g) => !g.err && g.gap >= 8), JSON.stringify(sliderGaps));
   await shot('crt-max');
   await page.fill('#rng-curvature', '0'); await page.fill('#rng-glow', '0'); await redrawn(page);
   await shot('crt-flat');
@@ -11027,6 +11421,16 @@ async function firstUseChecks(browser, base, check) {
       k.card.shown && k.under && k.card.text === getText && consoleLink(k.card.links) && k.ask.text === getText && consoleLink(k.ask.links), JSON.stringify(k));
     const useWith = (e) => e.text === 'No key? Use CLOADM inside Claude instead: Use with Claude ↗' && e.links.length === 1 && /docs\/mcp\.md#use-with-claude$/.test(e.links[0][1]);
     check(`${L}: "No key? Use CLOADM inside Claude instead: Use with Claude ↗", linking to the install section`, k.none.shown && useWith(k.none) && useWith(k.askNone), JSON.stringify(k));
+    // with no key, "Use with Claude ↗" is a full-size button, as weighty as the key field: as wide, at least as tall
+    const w = await page.evaluate(() => {
+      const r = (e) => e.getBoundingClientRect(), a = document.querySelector('#claudeNoKey a.usewith'), input = document.getElementById('claudeKeyInput');
+      const cs = getComputedStyle(a);
+      return { a: [Math.round(r(a).width), Math.round(r(a).height)], input: [Math.round(r(input).width), Math.round(r(input).height)],
+        border: cs.borderTopStyle !== 'none' && parseFloat(cs.borderTopWidth) >= 1, underline: /underline/.test(cs.textDecorationLine), size: parseFloat(cs.fontSize),
+        askButton: !!document.querySelector('#askNoKey a.usewith') };
+    });
+    check(`${L}: "Use with Claude ↗" is a full-size button, equal in weight to the key field (as wide, as tall or taller, bordered, not an underlined link)`,
+      Math.abs(w.a[0] - w.input[0]) <= 2 && w.a[1] >= Math.max(40, w.input[1]) && w.border && !w.underline && w.size >= 15 && w.askButton, JSON.stringify(w));
     await shot(page, 'key-card');
     check(`${L} (key): no page errors`, !errors.length, errors.join('; '));
     await closeCtx(ctx);
@@ -13670,6 +14074,10 @@ async function askChecks(browser, base, check) {
     const page = await ctx.newPage();
     const errors = [];
     page.on('pageerror', (e) => errors.push(e.message));
+    // every console line this page says, for the key-leak check below (a key must never be logged)
+    const consoleLines = [];
+    page.on('console', (m) => consoleLines.push(m.text()));
+    const consoleText = () => consoleLines.join('\n');
     const requests = [], replies = [];
     let release = null;
     await ctx.route('https://api.anthropic.com/**', async (route) => {
@@ -13954,12 +14362,67 @@ async function askChecks(browser, base, check) {
     check(`${L}: offline: "Could not reach Claude. Check your connection." with Try again`, await waitFor(page, () => /Could not reach Claude\. Check your connection\./.test(document.getElementById('askKeyMsg').textContent))
       && await vis('#btnAskRetry'));
     await shot('key-offline');
+    // ---- the key never leaks: its text is nowhere in the page, the console, or any storage beyond its one home ----
+    // (the key is a dummy made up above; it lives in cloadm.anthropicKey by design -- key-store.js -- and nowhere else
+    // may it appear. Recorded BEFORE the 401, so the check after compares the refusal's effect against a known state
+    // rather than against "none".)
+    const keyPlaces = async () => {
+      const inPage = (await page.textContent('body')).includes(KEY)
+        || await ev((k) => [...document.querySelectorAll('[value],[placeholder],[aria-label],[title]')].some((e) => (e.value || e.getAttribute('placeholder') || e.getAttribute('aria-label') || e.getAttribute('title') || '').includes(k)), KEY);
+      // every web store the page can reach: localStorage and sessionStorage (keys and values), document.cookie
+      // (names and values), and IndexedDB (database, store and key names, and each record's string form). The key's ONE
+      // home is localStorage.cloadm.anthropicKey; anywhere else is a leak. IndexedDB is read for real: the page
+      // already uses it (js/host/folder-handle.js), so a copy could land there; a value that is a handle serialises to
+      // a plain string, and a value that cannot stringify is reported by kind rather than skipped.
+      const stores = await ev(async (k) => {
+        const out = { local: [], session: [], cookie: [], idb: [], idbError: null };
+        const scan = (store, bottle) => { for (let i = 0; i < store.length; i++) { const n = store.key(i); const v = store.getItem(n);
+          if (String(n).includes(k) || String(v).includes(k)) bottle.push(n); } };
+        scan(localStorage, out.local); scan(sessionStorage, out.session);
+        for (const c of String(document.cookie || '').split(';')) if (c.includes(k)) out.cookie.push(c.trim().split('=')[0]);
+        try {
+          const dbs = indexedDB.databases ? await indexedDB.databases() : [];
+          for (const { name, version } of dbs) {
+            if (String(name).includes(k)) { out.idb.push(`db:${name}`); continue; }
+            const db = await new Promise((res, rej) => { const r = indexedDB.open(name, version); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+            for (const storeName of [...db.objectStoreNames]) {
+              if (String(storeName).includes(k)) { out.idb.push(`${name}/${storeName}`); continue; }
+              const rows = await new Promise((res, rej) => { const tx = db.transaction(storeName, 'readonly'); const r = tx.objectStore(storeName).getAllKeys();
+                r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+              for (const key of rows) if (String(key).includes(k)) out.idb.push(`${name}/${storeName}:${key}`);
+            }
+            db.close();
+          }
+        } catch (e) { out.idbError = String(e && e.message || e); }
+        out.local.sort(); out.session.sort(); out.cookie.sort(); out.idb.sort();
+        return out;
+      }, KEY);
+      return { inPage, storage: stores.local, session: stores.session, cookie: stores.cookie, idb: stores.idb, idbError: stores.idbError, inConsole: consoleText().includes(KEY) };
+    };
+    // anywhere but the key's one home counts as a leak (sessionStorage, a cookie, IndexedDB, or a second localStorage key)
+    const onlyHome = (p) => !p.inPage && !p.inConsole && JSON.stringify(p.storage) === JSON.stringify(['cloadm.anthropicKey'])
+      && !p.session.length && !p.cookie.length && !p.idb.length;
+    const leakBefore = await keyPlaces();
+    check(`${L}: (setup) before any refusal: the saved key lives in localStorage.cloadm.anthropicKey ONLY -- nothing in sessionStorage, a cookie or IndexedDB -- and is on neither the page nor the console`,
+      onlyHome(leakBefore), JSON.stringify(leakBefore));
     replies.push({ status: 401, body: JSON.stringify({ type: 'error', error: { type: 'authentication_error', message: 'invalid x-api-key' } }) });
     await ask('and now?');
     await idle();
     check(`${L}: refused: "[The API key was refused: check it and try again.]" and the key form reopens with a red border`,
       await waitFor(page, () => document.getElementById('askKeyMsg').textContent.includes('[The API key was refused: check it and try again.]'))
       && await vis('#askKeyForm') && await ev(() => getComputedStyle(document.getElementById('askKeyInput')).borderTopColor === 'rgb(255, 122, 112)'));
+    // The composer's own key line must agree: it read "API key · Saved in this browser." beside a refusal, which tells
+    // the person the opposite of what just happened. A refused key is still STORED (the person may keep it or replace
+    // it), so the line says it was REFUSED and that it is still saved; the Replace button says what to do about it.
+    check(`${L}: refused: the composer's key line says the key was REFUSED and is still saved, and the button offers Replace`,
+      await waitFor(page, () => { const l = document.getElementById('askKeyLine'); return !l.hidden && /Refused by Anthropic/.test(l.textContent) && /Still saved in this browser/.test(l.textContent); }, null, 5000)
+      && (await page.textContent('#btnAskKeyChange')).trim() === 'Replace' && await vis('#btnAskKeyChange'),
+      `${await page.textContent('#askKeyLine')} | btn=${await page.textContent('#btnAskKeyChange')}`);
+    // the refusal adds no place for the key: still only its one home, still off the page, still out of the console,
+    // and still nothing in sessionStorage, a cookie or IndexedDB
+    const leakAfter = await keyPlaces();
+    check(`${L}: refused: the key's text is nowhere new -- not on the page, not in the console, not in sessionStorage, a cookie, IndexedDB or a second localStorage key`,
+      onlyHome(leakAfter), JSON.stringify({ before: leakBefore, after: leakAfter }));
     await shot('key-refused');
     await page.fill('#askKeyInput', KEY);
     await page.click('#btnAskKeySave');
@@ -15433,6 +15896,24 @@ async function shareChecks(browser, base, site, check) {
     // options are matched as a group rather than pinned one by one (`ssc=none` included): shareUrl (js/session.js)
     // emits every non-LOCAL profile option, so a list here would drift with the next option or default. The
     // machine is pinned; the rest is "whatever options this model has".
+    // the long link is labelled for what it is, and the card says when, relative to now (never a clock time)
+    const card = await page.evaluate(() => ({ label: document.getElementById('shareLinkLabel').textContent, labelShown: document.getElementById('shareLinkLabel').checkVisibility(),
+      forLink: document.getElementById('shareLinkLabel').control === document.getElementById('shareLink'), when: document.getElementById('shareWhen').textContent }));
+    check('share: the link is labelled "Exact moment (long link)", and the card says "captured just now"',
+      card.label === 'Exact moment (long link)' && card.labelShown && card.forLink && card.when === 'captured just now', JSON.stringify(card));
+    // three minutes on (the page's clock moved forward), the screen opened again says so
+    await page.click('#shareBack');
+    await waitFor(page, () => location.hash !== '#share');
+    const later = await page.evaluate(async () => {
+      const now = Date.now;
+      Date.now = () => now() + 3 * 60000 + 5000;
+      try {
+        location.hash = '#share';
+        for (let i = 0; i < 100 && document.getElementById('shareWhen').textContent === 'captured just now'; i++) await new Promise((r) => setTimeout(r, 50));
+        return document.getElementById('shareWhen').textContent;
+      } finally { Date.now = now; }
+    });
+    check('share: three minutes later the card says "captured 3 minutes ago"', later === 'captured 3 minutes ago', later);
     const link = await page.inputValue('#shareLink');
     check('share: the link points at /play/ with this machine, the snapshot in the fragment (#z=)', /\/play\/\?machine=dragon64(&[a-z]+=[^&#]*)*#z=[A-Za-z0-9_-]{1000,}$/.test(link), link.slice(0, 80));
     const ctx2 = await browser.newContext({ serviceWorkers: 'block' });
@@ -15449,6 +15930,16 @@ async function shareChecks(browser, base, site, check) {
     check('share: the link opens exactly that moment in another browser profile', await p2.evaluate(() => window.emu.machine.ram[1030] === 42 && location.hash === '')
       && await waitFor(p2, () => window.__said.some((m) => /^Snapshot opened: Dragon 64/.test(m))) && await p2.evaluate(() => !window.__said.some((m) => /^ERROR /.test(m))),
       `${await said(p2)} · ram[1030] ${await p2.evaluate(() => window.emu.machine.ram[1030])}`);
+    // arriving on that moment without ROMs (a first visit): no "Running with no ROMs" card and no "No BASIC" pill. They
+    // come back once the person leaves the moment: here by Reset (the menu again)
+    const quiet = () => p2.evaluate(() => ({ pill: document.getElementById('romPill').checkVisibility(), card: document.getElementById('welcome').checkVisibility(),
+      cardThere: !document.getElementById('welcome').hidden, menuItem: !document.getElementById('navRoms').hidden, shared: window.emu.session.sharedMoment }));
+    const arrived = await quiet();
+    check('share: arriving on a shared no-ROM moment shows no no-ROM card and no "No BASIC" pill', !arrived.pill && !arrived.card && arrived.cardThere && !arrived.menuItem && arrived.shared, JSON.stringify(arrived));
+    if (shotDir) await p2.screenshot({ path: path.join(shotDir, 'share-arrival.png') });
+    await p2.evaluate(() => document.getElementById('btnReset').click());
+    const left = await waitFor(p2, () => document.getElementById('romPill').checkVisibility() && document.getElementById('welcome').checkVisibility(), null, 10000);
+    check('share: leaving the moment (Reset) brings back the card and the pill', left, JSON.stringify(await quiet()));
     const p2b = await ctx2.newPage();   // a link that differs only after # wouldn't reload the same page
     await p2b.goto(link.slice(0, link.length - 400));
     await linkIn(p2b);
@@ -15693,6 +16184,334 @@ async function uiQaChecks(browser, base, check) {
     check('phone: the last model can be picked', await waitFor(page, (id) => window.emu.machine.id === id, last), last);
     check('phone: no page errors', !errors.length, errors.join(' | '));
     await closeCtx(ctx);
+  }
+  // A phone held sideways with the touch panel: the app bar gives way to the panel, so the machine menu (which lives
+  // in the bar) would be hidden under the panel's control strip. js/ui/touch-keys.js puts the bar back over the panel
+  // while the picker is open (body.machine-pick) and the menu is anchored under it; the menu must therefore be ON TOP
+  // of the strip, and its own bottom buttons (Add or see ROMs…, RAM, CPU and speed…) must be reachable. Measured with
+  // elementFromPoint at the footer buttons' centres, at two landscape sizes, opened the way a person does: the panel's
+  // Menu, then Machine… . Without the app-bar rule (index.html's `body.touch-keys.machine-pick .appbar`) the menu is
+  // 0x0 and the strip is what is on top, so this check fails by name.
+  for (const [label, viewport] of [['852x393', { width: 852, height: 393 }], ['844x390', { width: 844, height: 390 }], ['653x280', { width: 653, height: 280 }]]) {
+    const mctx = await browser.newContext({ viewport, hasTouch: true, isMobile: true, serviceWorkers: 'block' });
+    const mpage = await mctx.newPage();
+    const merrors = [];
+    mpage.on('pageerror', (e) => merrors.push(e.message));
+    await mpage.goto(`${base}?machine=dragon64`);
+    await ready(mpage);
+    await waitFor(mpage, () => !document.getElementById('touchKeys').hidden && document.body.classList.contains('touch-keys'));
+    // the panel's Menu -> Machine…, opened by a REAL tap on the sheet's own row (the sheet must never run past the top
+    // of the window, so every row is tappable at every landscape size; a direct .click() would hide a sheet that had
+    // grown off the top, which is exactly the defect the sheet's height cap fixes).
+    await mpage.tap('#tkMenu');
+    await waitFor(mpage, () => !document.getElementById('tkMenuSheet').hidden, null, 5000);
+    // the tap must NOT throw the group: a sheet that ran off the top makes the row untappable, and that must fail
+    // THIS check by name, not abort every check after it in the group
+    let tapped = null;
+    try { await mpage.tap('#tkMenuSheet [data-item="machine"]', { timeout: 5000 }); tapped = true; }
+    catch (e) { tapped = false; }
+    const opened = tapped ? await waitFor(mpage, () => !document.getElementById('machineMenu').hidden && document.body.classList.contains('machine-pick'), null, 8000) : false;
+    // scroll the menu to its end so the sticky footer sits at its bottom, where the strip overlaps
+    // (read only once the menu opened; a sheet that would not tap leaves it closed, and this reads the closed box)
+    const g = opened ? await mpage.evaluate(() => {
+      const menu = document.getElementById('machineMenu');
+      menu.scrollTop = menu.scrollHeight;
+      return new Promise((res) => setTimeout(() => {
+        const r = menu.getBoundingClientRect();
+        const foot = menu.querySelector('.footer');
+        const strip = document.querySelector('#touchKeys > .tkcenter');
+        const onTop = (el) => { const b = el.getBoundingClientRect(); if (!(b.width && b.height)) return false;
+          const at = document.elementFromPoint(b.left + b.width / 2, b.top + Math.min(b.height / 2, 6)); return !!at && menu.contains(at); };
+        const buttons = [...(foot ? foot.querySelectorAll('button') : [])].map((b) => ({ text: b.textContent.trim().slice(0, 24), topmost: onTop(b) }));
+        res({ open: !menu.hidden, rect: { t: Math.round(r.top), b: Math.round(r.bottom), w: Math.round(r.width) },
+          footer: foot ? Math.round(foot.getBoundingClientRect().bottom) : null,
+          strip: strip ? { t: Math.round(strip.getBoundingClientRect().top), b: Math.round(strip.getBoundingClientRect().bottom) } : null,
+          menuTopmostAtCentre: onTop(menu), machineButtons: menu.querySelectorAll('button[data-machine]').length, buttons, vh: innerHeight });
+      }, 150));
+    }) : null;
+    check(`ui qa (landscape ${label}, touch keys): the machine menu is on top of the touch panel (body.machine-pick) and its footer buttons are clickable`,
+      tapped && opened && !!g && g.open && g.rect.w > 0 && g.rect.b > g.strip.t && g.menuTopmostAtCentre && g.machineButtons >= 13 && g.buttons.length >= 2 && g.buttons.every((b) => b.topmost),
+      JSON.stringify({ tapped, opened, g }));
+    check(`ui qa (landscape ${label}, touch keys): no page errors with the picker open`, !merrors.length, merrors.join('; '));
+    // The machine LIST, between the group subtitles and the sticky footer, on a short landscape window, counted in the
+    // FIRST PAINT (the list scrolled back to the top -- the footer check just above left it at its end). Measured in
+    // Linux Chromium (CI's browser; macOS gives the same): BASE 1 at 653x280, 3 at 844x390 and 852x393; the fix (the
+    // group DESCRIPTIONS hidden in landscape, which only repeat what each row says) 2, 4 and 4. A viewport-height cap
+    // was tried and changed nothing at these sizes (80vh is already about 100dvh less the bar), so the fix is the
+    // description hiding alone. The per-size floor is each size's base + 1, so the base fails at every size and the
+    // mutant that shows the descriptions again goes red at every size.
+    const FLOOR = { '653x280': 2, '844x390': 4, '852x393': 4 };
+    const floor = FLOOR[label];
+    // back to the FIRST PAINT before counting: the footer check above scrolled the list to its end, and counting there
+    // read a scrolled list (the item-6 pattern -- leftover state). The MODELS scroll in `#machineMenu .menulist` where
+    // that box exists (the models scroll above a footer that never stands over one), else in `#machineMenu` itself; scroll
+    // whichever it is to 0 and wait until it reads back 0.
+    const scrollerExpr = "(() => { const m = document.getElementById('machineMenu'); return m.querySelector('.menulist') || m; })()";
+    if (opened) { await mpage.evaluate((sc) => { eval(sc).scrollTop = 0; }, scrollerExpr); await waitFor(mpage, (sc) => eval(sc).scrollTop === 0, scrollerExpr, 5000); }
+    const list = opened ? await mpage.evaluate(() => {
+      const menu = document.getElementById('machineMenu'), r = menu.getBoundingClientRect();
+      const rows = [...menu.querySelectorAll('button[data-machine]')];
+      const foot = menu.querySelector('.footer'), fr = foot ? foot.getBoundingClientRect() : { top: r.bottom };
+      const fullyVisible = rows.filter((b) => { const x = b.getBoundingClientRect(); return x.top >= r.top - 1 && x.bottom <= Math.min(r.bottom, fr.top) + 1; }).length;
+      // each row scrolled to the MIDDLE of the scroller, then read; block:'nearest' leaves a row under the STICKY footer
+      const reach = rows.map((b) => { b.scrollIntoView({ block: 'center' }); const rb = b.getBoundingClientRect();
+        const at = document.elementFromPoint(rb.left + rb.width / 2, Math.min(rb.top + rb.height / 2, rb.bottom - 1));
+        const inside = rb.top >= r.top - 1 && rb.bottom <= r.bottom + 1 && rb.top >= 0 && rb.bottom <= innerHeight;
+        return { id: b.dataset.machine, inside, topmost: !!at && b.contains(at), h: Math.round(rb.height) }; });
+      const footTop = (el) => { const b = el.getBoundingClientRect(); const at = document.elementFromPoint(b.left + b.width / 2, b.top + Math.min(b.height / 2, 6)); return !!at && menu.contains(at); };
+      const sc = menu.querySelector('.menulist') || menu;
+      const listR = sc.getBoundingClientRect();
+      return { top: Math.round(r.top), bottom: Math.round(r.bottom), vh: innerHeight, scrolls: sc.scrollHeight > sc.clientHeight + 1,
+        rows: rows.length, fullyVisible,
+        // every machine row is inside the models' scroller (.menulist), not just the menu
+        rowsInList: fullyVisible, listBottom: Math.round(listR.bottom),
+        reach, foot: foot ? [...foot.querySelectorAll('button')].map((b) => ({ text: b.textContent.trim().slice(0, 20), topmost: footTop(b), h: Math.round(b.getBoundingClientRect().height) })) : [],
+        // the footer never overlays a model: its top is at or below the list's bottom
+        noOverlap: !foot || foot.getBoundingClientRect().top >= listR.bottom - 1 };
+    }) : null;
+    check(`ui qa (landscape ${label}, touch keys): the machine list shows at least ${floor} machines at once (base: ${floor - 1}), scrolls inside the window, and every machine is reachable by a real tap (not shrunk), the footer buttons still on top and >= 44 px, never over a model`,
+      !!list && list.top >= 0 && list.bottom <= list.vh && list.scrolls && list.fullyVisible >= floor && list.rows >= 13 && list.reach.length >= 13
+        && list.reach.every((x) => x.inside && x.topmost && x.h >= 24) && list.foot.length >= 2 && list.foot.every((b) => b.topmost) && list.noOverlap
+        // 44 px tap targets only where the compact rule runs (653x280); the taller windows keep their roomier footer
+        && (label !== '653x280' || list.foot.every((b) => b.h >= 44)),
+      JSON.stringify(list));
+    // 653x280's footer is compact (the short-window rule): the two buttons share one row, each >= 44 px, and the
+    // "BASIC ready" legend is hidden -- each tick then carries its own title and accessible name. The tick only renders
+    // with a ROM-ready machine, so a ready tick is forced here (the same stubbing the ROM tests use).
+    if (label === '653x280') {
+      const tick = await mpage.evaluate(() => {
+        const s = window.emu.session, orig = s.machineRoms.bind(s);
+        s.machineRoms = (id) => (id === 'dragon32' ? { bootable: true, sockets: [] } : orig(id)); s.storedRoms = () => ({ count: 1 });
+        document.getElementById('machineMenu').hidden = true; document.getElementById('machineBtn').click();
+        return new Promise((res) => setTimeout(() => {
+          const menu = document.getElementById('machineMenu');
+          const t = menu.querySelector('button[data-machine] .tag.ready');
+          const legend = menu.querySelector('.footer .legend');
+          const foot = menu.querySelector('.footer');
+          const btns = [...foot.querySelectorAll('button')].map((b) => Math.round(b.getBoundingClientRect().height));
+          const rows = [...new Set([...foot.querySelectorAll('button')].map((b) => Math.round(b.getBoundingClientRect().top)))];
+          res({ tickTitle: t && t.getAttribute('title'), tickAria: t && t.getAttribute('aria-label'), legendShown: !!(legend && legend.checkVisibility()),
+            btnHs: btns, footerRows: rows.length });
+        }, 250));
+      });
+      check('ui qa (landscape 653x280): the compact footer is one row of two buttons, each >= 44 px, the "BASIC ready" legend hidden, and every tick carries title and aria-label "BASIC ready"',
+        tick.footerRows === 1 && tick.btnHs.length === 2 && tick.btnHs.every((h) => h >= 44) && !tick.legendShown && tick.tickTitle === 'BASIC ready' && tick.tickAria === 'BASIC ready',
+        JSON.stringify(tick));
+    }
+    await mctx.close();
+  }
+  // The compact landscape footer is scoped to a window <= 320 px tall: desktop and portrait keep the roomier footer. This
+  // asserts that the rule did NOT leak to them (flex-wrap stays wrap, padding not the compact 8px), measured -- not by eye.
+  for (const [label, viewport, touch] of [['desktop', { width: 1440, height: 900 }, false], ['portrait', { width: 390, height: 844 }, true]]) {
+    const uctx = await browser.newContext({ viewport, hasTouch: touch, isMobile: touch, serviceWorkers: 'block' });
+    const upage = await uctx.newPage();
+    await upage.goto(`${base}?machine=dragon64`);
+    await ready(upage);
+    // open the picker the way each shape does: a landscape touch window has the keys' Menu (#tkMenu); desktop and an
+    // upright phone have the app bar's #machineBtn
+    const landscapeTouch = touch && viewport.width > viewport.height;
+    if (landscapeTouch) { await waitFor(upage, () => !document.getElementById('touchKeys').hidden && document.body.classList.contains('touch-keys')); await upage.tap('#tkMenu'); await waitFor(upage, () => !document.getElementById('tkMenuSheet').hidden, null, 5000); await upage.evaluate(() => document.querySelector('#tkMenuSheet [data-item="machine"]').click()); }
+    else await upage.click('#machineBtn');
+    await waitFor(upage, () => !document.getElementById('machineMenu').hidden, null, 8000);
+    const f = await upage.evaluate(() => { const foot = document.querySelector('#machineMenu .footer'); const cs = getComputedStyle(foot);
+      return { wrap: cs.flexWrap, padding: cs.padding }; });
+    check(`ui qa (${label}): the compact landscape footer did not leak here -- the machine-menu footer keeps its roomier style (wrap, not the compact 8px padding)`,
+      f.wrap === 'wrap' && !/^8px( 8px){0,3}$/.test(f.padding), JSON.stringify(f));
+    await uctx.close();
+  }
+  // The landscape keys' Menu, in its settled order, each of its eleven items reachable by a REAL tap at four landscape
+  // sizes. What acts on this machine comes first (Programs…, Open…, Ask Claude…, Share…), then the ports
+  // and the machine's own settings (Tape…, Machine…, Settings…, Power…), then under a rule Commands…, Install CLOADM…
+  // and Hide keys. js/ui/touch-keys.js builds the sheet; the rule is a .tkmenu-sep span, so the row of BUTTONS is what
+  // is walked.
+  const ORDER8 = ['programs', 'open', 'ask', 'share', 'ports', 'machine', 'settings', 'power', 'commands', 'install', 'hide'];
+  for (const [label, viewport] of [['659x343', { width: 659, height: 343 }], ['852x393', { width: 852, height: 393 }], ['844x390', { width: 844, height: 390 }], ['653x280', { width: 653, height: 280 }]]) {
+    const octx = await browser.newContext({ viewport, hasTouch: true, isMobile: true, serviceWorkers: 'block' });
+    const opage = await octx.newPage();
+    const oerrors = [];
+    opage.on('pageerror', (e) => oerrors.push(e.message));
+    await opage.goto(`${base}?machine=dragon64`);
+    await ready(opage);
+    await waitFor(opage, () => !document.getElementById('touchKeys').hidden && document.body.classList.contains('touch-keys'));
+    await opage.tap('#tkMenu');
+    await waitFor(opage, () => !document.getElementById('tkMenuSheet').hidden, null, 5000);
+    const o = await opage.evaluate((ORDER8) => {
+      const sheet = document.getElementById('tkMenuSheet'), r = sheet.getBoundingClientRect();
+      const items = [...sheet.querySelectorAll('button[data-item]')].filter((b) => b.checkVisibility());
+      const order = items.map((b) => b.dataset.item);
+      // the separator sits between power and commands (its DOM position: after the power button)
+      const sep = sheet.querySelector('.tkmenu-sep');
+      const sepAfterPower = !!sep && sep.previousElementSibling && sep.previousElementSibling.dataset.item === 'power'
+        && sep.nextElementSibling && sep.nextElementSibling.dataset.item === 'commands';
+      // every item scrollable into view inside the sheet and topmost at its own centre, not shrunk
+      const reach = items.map((b) => { b.scrollIntoView({ block: 'center' }); const rb = b.getBoundingClientRect();
+        const at = document.elementFromPoint(rb.left + rb.width / 2, Math.min(rb.top + rb.height / 2, rb.bottom - 1));
+        const inside = rb.top >= r.top - 1 && rb.bottom <= r.bottom + 1 && rb.top >= 0 && rb.bottom <= innerHeight;
+        return { id: b.dataset.item, inside, topmost: !!at && b.contains(at), h: Math.round(rb.height), text: b.textContent.trim() }; });
+      return { top: Math.round(r.top), bottom: Math.round(r.bottom), vh: innerHeight, scrolls: sheet.scrollHeight > sheet.clientHeight + 1,
+        order, sepAfterPower, reach };
+    }, ORDER8);
+    check(`ui qa (landscape ${label}, touch keys): the keys' Menu is in the UX order (Programs…, Open…, Ask Claude…, Share…, Tape…, Machine…, Settings…, Power…, rule, Commands…, Install…, Hide keys) and every item is reachable by a real tap`,
+      JSON.stringify(o.order) === JSON.stringify(ORDER8) && o.sepAfterPower && o.top >= 0 && o.bottom <= o.vh && o.scrolls
+        && o.reach.length === 11 && o.reach.every((x) => x.inside && x.topmost && x.h >= 44),
+      JSON.stringify(o));
+    // Open…: triggers the program file input, whose accept is the desktop's (fileProgram)
+    const acceptOf = (id) => opage.evaluate((id) => document.getElementById(id).getAttribute('accept'), id);
+    const open = await opage.evaluate(() => {
+      const inp = document.getElementById('fileProgram'); let clicked = false;
+      const orig = inp.click.bind(inp); inp.click = () => { clicked = true; };      // do not open a real picker
+      const b = [...document.querySelectorAll('#tkMenuSheet [data-item]')].find((x) => x.dataset.item === 'open');
+      b.scrollIntoView({ block: 'center' }); b.click();
+      inp.click = orig;
+      return { clicked };
+    });
+    // "the same input as desktop's Open…": the check pins that Open… fires #fileProgram -- the very input the app bar's
+    // Open… uses -- and that it still carries a program picker's accept (extensions + octet-stream). It does NOT hard-code
+    // a copy of the list: the list's exact contents belong to the app (the desktop check at mediaBackend pins that), and a
+    // copy here only drifts (it had a stale .img, which broke every size when the picker dropped it).
+    const progAccept = await acceptOf('fileProgram');
+    check(`ui qa (landscape ${label}, touch keys): Open… triggers #fileProgram, the same input desktop's Open… uses, and it takes programs`,
+      open.clicked && /\.(bin|cas|rom)\b/.test(progAccept) && /application\/octet-stream/.test(progAccept) && !/image\//.test(progAccept),
+      JSON.stringify({ open, accept: progAccept }));
+    // Ask Claude…: opens the side panel as a right-side sheet; Esc closes it and returns the focus to Menu
+    // (reopen the sheet first: selecting Open… closes it, as every item does, and the program input's own dialog may
+    //  have taken the page's focus)
+    await opage.evaluate(() => { const d = document.getElementById('tkMenuSheet'); if (d.hidden) document.getElementById('tkMenu').click(); });
+    await waitFor(opage, () => !document.getElementById('tkMenuSheet').hidden, null, 5000);
+    await opage.evaluate(() => { const b = [...document.querySelectorAll('#tkMenuSheet [data-item]')].find((x) => x.dataset.item === 'ask'); b.scrollIntoView({ block: 'center' }); });
+    await opage.tap('#tkMenuSheet [data-item="ask"]');
+    const askUp = await waitFor(opage, () => !document.getElementById('ask').hidden && window.emu.session.claudeView === 'panel', null, 8000);
+    const ap = await opage.evaluate(() => { const a = document.getElementById('ask'), r = a.getBoundingClientRect(); return { left: Math.round(r.left), right: Math.round(r.right), vw: innerWidth }; });
+    await opage.keyboard.press('Escape');
+    const back = await waitFor(opage, () => document.getElementById('ask').hidden && document.activeElement === document.getElementById('tkMenu'), null, 5000);
+    check(`ui qa (landscape ${label}, touch keys): Ask Claude… opens the side panel as a right-side sheet (its right edge at the window's), and Esc closes it with the focus back on Menu`,
+      // a right-side sheet: its right edge near the window's right and it does NOT span the full width (the upright
+      // bottom sheet spanned left 0..right vw). Measured at 653 it is 225..645 -- a 420 px panel down the right --
+      // so the test is "not full width and right-aligned", not a fixed fraction of the width.
+      askUp && ap.right >= ap.vw - 24 && ap.left >= 24 && ap.left > ap.vw * 0.25 && (ap.right - ap.left) < ap.vw - 24 && back, JSON.stringify({ askUp, ap, back }));
+    // Share…: a real tap opens the Share screen on this moment (the app bar's Share, which is out of sight sideways), and
+    // its "← Emulator" comes back to the keys
+    await opage.tap('#tkMenu');
+    await waitFor(opage, () => !document.getElementById('tkMenuSheet').hidden, null, 5000);
+    await opage.evaluate(() => document.querySelector('#tkMenuSheet [data-item="share"]')?.scrollIntoView({ block: 'center' }));
+    await opage.tap('#tkMenuSheet [data-item="share"]', { timeout: 3000 }).catch(() => {});   // (a missing item is a FAIL below, not a throw)
+    const shareUp = await waitFor(opage, () => location.hash === '#share' && document.getElementById('share').checkVisibility()
+      && /^https?:\/\/.+#s=/.test(document.getElementById('shareLink').value) && document.getElementById('tkMenuSheet').hidden, null, 15000);
+    if (shareUp) await opage.tap('#shareBack');
+    const shareBack = shareUp && await waitFor(opage, () => location.hash !== '#share' && !document.getElementById('touchKeys').hidden, null, 5000);
+    check(`ui qa (landscape ${label}, touch keys): Share… opens the Share screen with this moment's link, and ← Emulator comes back to the keys`, shareUp && shareBack,
+      JSON.stringify({ shareUp, shareBack, hash: await opage.evaluate(() => location.hash) }));
+    check(`ui qa (landscape ${label}, touch keys): no page errors with the keys' Menu`, !oerrors.length, oerrors.join('; '));
+    await octx.close();
+  }
+  // Share, Library, Debugger and Help stay reachable through Commands…: the box lists each (the landscape Menu no longer
+  // carries them on their own rows).
+  {
+    const cctx = await browser.newContext({ viewport: { width: 844, height: 390 }, hasTouch: true, isMobile: true, serviceWorkers: 'block' });
+    const cpage = await cctx.newPage();
+    await cpage.goto(`${base}?machine=dragon64`);
+    await ready(cpage);
+    await waitFor(cpage, () => !document.getElementById('touchKeys').hidden && document.body.classList.contains('touch-keys'));
+    await cpage.tap('#tkMenu');
+    await waitFor(cpage, () => !document.getElementById('tkMenuSheet').hidden, null, 5000);
+    await cpage.tap('#tkMenuSheet [data-item="commands"]');
+    const box = await waitFor(cpage, () => !document.getElementById('cmdBox').hidden, null, 8000);
+    // type each name and read the box's own rows (what a person picks from), rather than the module's list
+    const findRow = async (q) => {
+      await cpage.fill('#cmdInput', q);
+      return cpage.evaluate(() => [...document.querySelectorAll('#cmdBox [role="option"]')].map((o) => o.textContent));
+    };
+    const share = await findRow('share'), lib = await findRow('library'), dbg = await findRow('debugger'), help = await findRow('help');
+    check('ui qa (touch keys, sideways): Commands… (from the Menu) opens the box, which still carries Share, the Library, the Debugger and Help',
+      // (the rows' text runs label and description together -- "Helpthe guide..." -- so match at the START, not on a \b)
+      box && share.some((t) => /^Share/.test(t)) && lib.some((t) => /Library/.test(t)) && dbg.some((t) => /^Open the Debugger/.test(t)) && help.some((t) => /^Help/.test(t)),
+      JSON.stringify({ share: share.slice(0, 2), lib: lib.slice(0, 2), dbg: dbg.slice(0, 2), help: help.slice(0, 2) }));
+    await cctx.close();
+  }
+  // With no chat on the page (?embed=1, or framed in another site), the keys' Menu must not offer Ask Claude… or
+  // Commands…: there is nothing for either to open, and tapping Ask Claude… used to call page.openAsk, which does not
+  // exist then, and threw a pageerror. Loaded with no chat, both rows are absent and the Menu opens clean.
+  {
+    const ectx = await browser.newContext({ viewport: { width: 844, height: 390 }, hasTouch: true, isMobile: true, serviceWorkers: 'block' });
+    const epage = await ectx.newPage();
+    const eerrors = [];
+    epage.on('pageerror', (e) => eerrors.push(e.message));
+    await epage.goto(`${base}?machine=dragon64&embed=1`);
+    await ready(epage);
+    const noChat = await epage.evaluate(() => document.body.classList.contains('no-claude'));
+    await epage.tap('#tkMenu');
+    const eup = await waitFor(epage, () => !document.getElementById('tkMenuSheet').hidden, null, 5000);
+    const eitems = await epage.evaluate(() => [...document.querySelectorAll('#tkMenuSheet button[data-item]')].filter((b) => b.checkVisibility()).map((b) => b.dataset.item));
+    check('ui qa (no chat, ?embed=1, sideways): the keys\' Menu is there but offers neither Ask Claude… nor Commands…, nor Share… (an embed has no Share), and nothing throws',
+      noChat && eup && !eitems.includes('ask') && !eitems.includes('commands') && !eitems.includes('share') && eitems.includes('programs') && eitems.includes('hide') && !eerrors.length,
+      JSON.stringify({ noChat, eup, eitems, eerrors }));
+    await ectx.close();
+  }
+  // A page framed in another site that is NOT an embed (body.no-claude, not body.embed): no chat there, but the app bar's
+  // Share is, so the keys' Menu keeps Share… -- and it works: a real tap in the frame opens the Share screen with this
+  // moment's link. (Hiding Share… under no-claude would take it from these pages too: this check is red then.)
+  {
+    const fctx = await browser.newContext({ viewport: { width: 844, height: 390 }, hasTouch: true, isMobile: true, serviceWorkers: 'block' });
+    const fpage = await fctx.newPage();
+    const ferrors = [];
+    fpage.on('pageerror', (e) => ferrors.push(e.message));
+    await fpage.setContent(`<!doctype html><title>a blog</title><style>body{margin:0}iframe{border:0;width:100vw;height:100vh}</style><iframe src="${base}?machine=dragon64"></iframe>`);
+    let frame = null;
+    for (let i = 0; i < 100 && !frame; i++) { frame = fpage.frames().find((f) => f !== fpage.mainFrame() && /\/play\//.test(f.url())) || null; if (!frame) await fpage.waitForTimeout(100); }
+    const inFrame = (fn, ms = 15000) => (async () => { for (let t = 0; t < ms; t += 100) { if (await frame.evaluate(fn).catch(() => false)) return true; await fpage.waitForTimeout(100); } return false; })();
+    const up = !!frame && await inFrame(() => window.emu && window.emu.started && !document.getElementById('touchKeys').hidden && document.body.classList.contains('touch-keys'), 60000);
+    const kind = up ? await frame.evaluate(() => ({ framed: window.top !== window, noChat: document.body.classList.contains('no-claude'), embed: document.body.classList.contains('embed') })) : null;
+    if (up) await frame.tap('#tkMenu');
+    const open = up && await inFrame(() => !document.getElementById('tkMenuSheet').hidden, 5000);
+    const fitems = open ? await frame.evaluate(() => [...document.querySelectorAll('#tkMenuSheet button[data-item]')].filter((b) => b.checkVisibility()).map((b) => b.dataset.item)) : [];
+    if (fitems.includes('share')) {
+      await frame.evaluate(() => document.querySelector('#tkMenuSheet [data-item="share"]').scrollIntoView({ block: 'center' }));
+      await frame.tap('#tkMenuSheet [data-item="share"]');
+    }
+    const shared = fitems.includes('share') && await inFrame(() => location.hash === '#share' && document.getElementById('share').checkVisibility()
+      && /#s=/.test(document.getElementById('shareLink').value));
+    check('ui qa (framed in another site, not an embed, sideways): no chat there, but the keys\' Menu keeps Share… right after Open…, and a real tap opens the Share screen with this moment\'s link',
+      !!kind && kind.framed && kind.noChat && !kind.embed && fitems.indexOf('share') === fitems.indexOf('open') + 1 && !fitems.includes('ask') && shared && !ferrors.length,
+      JSON.stringify({ up, kind, open, fitems, shared, ferrors }));
+    await fctx.close();
+  }
+  // the program, and the toast's job is to say so without hiding what it started. Measured with bounding boxes: the
+  // toast's rect against the title row's, the row taken from the canvas grid (32 x 16 cells) at the row the machine's
+  // own screen text has the title on. A window at phone width found the toast in the fixed top slot, over row 0: with
+  // no free place along the bottom it fell to the slot under the app bar, and the picture's top row is exactly where
+  // LIZA puts its title. Sizes as the cold test used them: a phone-width window and a desktop one.
+  for (const [label, viewport] of [['phone width', { width: 390, height: 844 }], ['desktop', { width: 1440, height: 900 }]]) {
+    const tctx = await browser.newContext({ viewport, serviceWorkers: 'block' });
+    const tpage = await tctx.newPage();
+    const terrors = [];
+    tpage.on('pageerror', (e) => terrors.push(e.message));
+    await tpage.goto(`${base}?machine=dragon64`);
+    await ready(tpage);
+    await tpage.waitForFunction(() => { try { return !!window.emu && window.emu.session && window.emu.session.welcomeRunning && window.emu.session.screenText()[14].includes('PRESS 1 TO'); } catch (e) { return false; } }, null, { timeout: 30000 });
+    await tpage.click('#screen');
+    await tpage.keyboard.press('1');
+    // Wait for BOTH the toast and the LIZA row on the screen: the toast can be up a frame before the program has drawn
+    // its title, and measuring then read titleRow:-1 (no LIZA row yet) -- a race, not a covering. Both conditions are
+    // required, so a page where the title never appears still times out and fails.
+    const up = await waitFor(tpage, () => document.getElementById('toastText').textContent === 'LIZA loaded' && !document.getElementById('toast').hidden
+      && (() => { try { return window.emu.session.screenText().some((r) => /LIZA/.test(r)); } catch (e) { return false; } })(), null, 30000);
+    const m = await tpage.evaluate(() => {
+      const t = document.getElementById('toast'), c = document.getElementById('screen');
+      const tr = t.getBoundingClientRect(), cr = c.getBoundingClientRect();
+      const rows = window.emu.session.screenText();
+      const titleRow = rows.findIndex((r) => /LIZA/.test(r));
+      const cellH = cr.height / 16;
+      const top = cr.top + Math.max(0, titleRow) * cellH, bottom = top + cellH;
+      const meets = (a, b) => !(a.bottom <= b.top || a.top >= b.bottom || a.right <= b.left || a.left >= b.right);
+      return { toast: { l: Math.round(tr.left), t: Math.round(tr.top), r: Math.round(tr.right), b: Math.round(tr.bottom) },
+        screen: { l: Math.round(cr.left), t: Math.round(cr.top), r: Math.round(cr.right), b: Math.round(cr.bottom) },
+        titleRow, row: { t: Math.round(top), b: Math.round(bottom) }, visible: t.checkVisibility() && tr.width > 0 && tr.height > 0,
+        overlapsTitle: meets(tr, { left: cr.left, right: cr.right, top, bottom }) };
+    });
+    check(`ui qa (${label}): "LIZA loaded" is visible and covers no part of the screen's title row`,
+      up && m.visible && m.titleRow >= 0 && !m.overlapsTitle, JSON.stringify(m));
+    check(`ui qa (${label}): no page errors with the toast up`, !terrors.length, terrors.join('; '));
+    await tctx.close();
   }
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   let page = await ctx.newPage();
@@ -18820,8 +19639,11 @@ async function mobileChecks(browser, base, check) {
     const items = await page.evaluate(() => [...document.querySelectorAll('#tkMenuSheet button')].filter((e) => e.checkVisibility()).map((e) => e.textContent));
     await tap(page, '#tkMenuSheet [data-item="machine"]');
     const picker = await page.evaluate(() => { const m = document.getElementById('machineMenu'), r = m.getBoundingClientRect(); return { shown: !m.hidden && m.checkVisibility() && r.width > 0, inView: r.top >= 0 && r.bottom <= innerHeight + 1, first: document.elementFromPoint(r.left + 40, r.top + 40)?.closest('#machineMenu') === m }; });
-    check('mobile (734x343): the panel\'s Menu has Programs…, Machine…, Settings…, Tape, disks and cartridge…, Power…, Commands…, Install CLOADM… and Hide keys; Machine… opens the machine picker, on screen and on top',
-      items.join() === 'Programs…,Machine…,Settings…,Tape, disks and cartridge…,Power…,Commands…,Install CLOADM…,Hide keys' && picker.shown && picker.inView && picker.first, JSON.stringify({ items, picker }));
+    // (the landscape keys' Menu order: what acts on this machine first -- Programs…, Open…, Ask Claude…, Share…, Tape…, Machine…,
+    // Settings…, Power… -- then under a rule Commands…, Install CLOADM… and Hide keys. This page has a chat, so Ask
+    // Claude… and Commands… are both present.)
+    check('mobile (734x343): the panel\'s Menu is Programs…, Open…, Ask Claude…, Share…, Tape, disks and cartridge…, Machine…, Settings…, Power…, Commands…, Install CLOADM… and Hide keys; Machine… opens the machine picker, on screen and on top',
+      items.join() === 'Programs…,Open…,Ask Claude…,Share…,Tape, disks and cartridge…,Machine…,Settings…,Power…,Commands…,Install CLOADM…,Hide keys' && picker.shown && picker.inView && picker.first, JSON.stringify({ items, picker }));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, 'mobile-734x343-machine-picker.png') });
     await page.keyboard.press('Escape');
     check('mobile (734x343): Esc closes the picker, and the app bar gives way to the panel again', picker.shown && await until(page, () => document.getElementById('machineMenu').hidden && !document.body.classList.contains('machine-pick')
@@ -19633,6 +20455,7 @@ const GROUPS = (base, site) => [
   ['snapshot', (b) => snapshotChecks(b, base, check)],
   ['liza6803', (b) => liza6803Checks(b, base, check)],
   ['romInput', (b) => romInputChecks(b, base, check)],
+  ['romTruth', (b) => romTruthChecks(b, base, check)],
   ['design', (b) => designChecks(b, base, check)],
   ['inputScreen', (b) => inputScreenChecks(b, base, check)],
   ['touchJoystick', (b) => touchJoystickChecks(b, base, check)],
@@ -19748,3 +20571,196 @@ const GROUPS = (base, site) => [
     fs.writeFileSync(timingsFile, JSON.stringify({ groups }, null, 2) + '\n');
   }
 })();
+
+// The ROM state tells one story. Three surfaces say what the machine is doing: the side card ("Running with no
+// ROMs."), the screen (the welcome menu's option 3) and, on Your ROMs, the list of other machines that are "Also
+// ready to run BASIC". They used to disagree: with an unrecognised ROM loaded the card still said "no ROMs", and
+// after "Run without ROMs" the menu still offered "3 ADD YOUR ROMS FOR BASIC" when the ROMs were already in the
+// sockets. Measured on our own NOP image (a socket's usual name, the right size, not a known dump), so no real ROM
+// is involved. The whole set is driven on ONE first visit, in order, because the bug is in how the state changes:
+// nothing here reloads.
+const romTruthChecks = async (browser, base, check) => {
+  const archive = [];
+  const ctx = await guardedContext(browser, archive);
+  const page = await ctx.newPage();
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  const NOP = Buffer.alloc(8192, 0x12);          // 8K of NOP: the CoCo BASIC socket's size, no known CRC
+  const card = () => page.evaluate(() => {
+    const b = document.getElementById('welcome');
+    return b && !b.hidden ? { kind: b.dataset.kind || '', text: b.textContent.replace(/\s+/g, ' ').trim() } : null;
+  });
+  const menuRow3 = () => page.evaluate(() => {
+    const rows = window.emu.session.screenText();
+    return (rows.find((r) => /^\s*3\s/.test(r)) || '').trim();
+  });
+  // the menu is drawn by the program a frame after it is loaded: wait for the row rather than race it
+  const menuReady = (re) => waitFor(page, (src) => window.emu.session.screenText().some((r) => new RegExp(src).test(r)), re.source, 15000);
+  // the card must say what the machine IS: its own words, not just "not hidden"
+  await page.goto(`${base}?machine=coco`);
+  await waitFor(page, () => !!(window.emu && window.emu.session && window.emu.started === true), null, 40000);
+  await emuFrames(page, 20);
+  {
+    await menuReady(/^\s*3\s+ADD YOUR ROMS/);
+    const c = await card();
+    check('rom states: with no ROMs the side card says so, and the menu offers to add them',
+      !!c && /^Running with no ROMs\./.test(c.text) && /ADD YOUR ROMS/.test(await menuRow3()),
+      `${c ? c.text.slice(0, 80) : '(no card)'} / menu: ${await menuRow3()}`);
+  }
+  // an unrecognised ROM: the machine now runs it, so the card must stop saying "no ROMs" (the menu is gone with it)
+  await page.setInputFiles('#fileRom', [{ name: 'bas12.rom', mimeType: 'application/octet-stream', buffer: NOP }]);
+  const ran = await waitFor(page, () => !window.emu.session.machineRoms('coco').sockets.find((s) => s.id === 'bas').status.startsWith('missing'), null, 15000);
+  check('rom states: the unrecognised ROM is loaded (the probe of the other checks)', ran, await romStatus(page, 'coco'));
+  await emuFrames(page, 20);
+  // the first visit's own card must SURVIVE the things that fire the same events: a machine picked in its question,
+  // and a Reset. (Regression: refreshCard's 'empty' state hid a 'first' card on 'machine' and 'reset'.)
+  {
+    const ctxF = await guardedContext(browser, archive);
+    const pf = await ctxF.newPage();
+    const errsF = [];
+    pf.on('pageerror', (e) => errsF.push(e.message));
+    const kind = () => pf.evaluate(() => { const b = document.getElementById('welcome'); return b && !b.hidden ? (b.dataset.kind || '') : null; });
+    await pf.goto(base);
+    await waitFor(pf, () => !!(window.emu && window.emu.session && window.emu.started === true), null, 40000);
+    await emuFrames(pf, 15);
+    const before = await kind();
+    await pf.evaluate(() => { const b = document.querySelector('#askMachine [data-machine]'); if (b) b.click(); });
+    await emuFrames(pf, 20);
+    check('rom states: the first visit\'s card survives a machine picked in its own question', before === 'first' && (await kind()) === 'first',
+      `${before} -> ${await kind()}`);
+    await pf.evaluate(() => window.emu.session.personMachine && document.querySelector('[data-action="reset"], #btnReset') && (document.getElementById('btnReset') || { click() {} }).click());
+    await emuFrames(pf, 20);
+    check('rom states: ...and survives a Reset', (await kind()) === 'first', String(await kind()));
+    check('rom states: no page errors (first visit)', errsF.length === 0, errsF.join(' | '));
+    await ctxF.close();
+  }
+  check('rom states: with an unrecognised ROM loaded the card does not say "no ROMs" (the ROM is what runs)',
+    (await card()) === null, JSON.stringify(await card()));
+  // "Run without ROMs" with the ROMs still in the sockets: nothing is missing, so the card says what to do and the
+  // menu stops asking for ROMs it already has
+  await page.evaluate(() => document.getElementById('btnRunStub').click());
+  await waitFor(page, () => window.emu.session.personMachine.useStub && window.emu.session.machineRoms('coco').bootable, null, 15000);
+  await emuFrames(page, 20);
+  {
+    await menuReady(/^\s*3\s+(ADD YOUR|USE YOUR)/);
+    const c = await card();
+    const row = await menuRow3();
+    check('rom states: after "Run without ROMs" the card says the ROMs are yours to use, not that there are none',
+      !!c && /^Running without your ROMs\./.test(c.text) && /Use my ROMs/.test(c.text) && !/^Running with no ROMs/.test(c.text),
+      c ? c.text.slice(0, 110) : '(no card)');
+    check('rom states: ...and the menu offers to USE the ROMs it has, not to add them again',
+      /USE YOUR ROMS FOR BASIC/.test(row) && !/ADD YOUR ROMS/.test(row), `row 3: ${row || '(none)'}`);
+  }
+  // THE CARD'S OWN BUTTON, first, while the card is really up: a test that clicks it after the Dismiss block clicks a
+  // hidden element and is true before the click, so it cannot fail (a mutant that removed both hides still passed).
+  // The card must be VISIBLE, and the click is a person's (page.click on the element), not a JS .click().
+  {
+    const visible = await page.isVisible('#welcome [data-card-switch]');
+    check('rom states: the "off" card is up with its "Use my ROMs" button, before it is clicked', visible && (await card()) !== null,
+      JSON.stringify(await card()));
+    await page.click('#welcome [data-card-switch]');
+    const done = await waitFor(page, () => !window.emu.session.personMachine.useStub, null, 20000);
+    await emuFrames(page, 20);
+    check('rom states: the card\'s "Use my ROMs" runs the ROMs and the card goes', done && (await card()) === null,
+      `useStub ${await page.evaluate(() => window.emu.session.personMachine.useStub)}, card ${JSON.stringify(await card())}`);
+  }
+  // Dismiss sticks: the card stays gone across the events that re-check it (reset, firmware), until a state that
+  // needs a card arrives. (A dismissed card that comes back on the next Reset is a card you cannot get rid of.)
+  // The card is brought genuinely back first -- ROMs off (state 'none'), then the stub chosen again -- so what is
+  // dismissed is a card that was really shown, not one left hidden by the block above.
+  {
+    await page.evaluate(() => { const m = window.emu.session.personMachine; window.emu.session.stubChosen.delete(m.id); window.emu.session.switchMachine(m.id); });
+    await waitFor(page, () => !window.emu.session.personMachine.useStub, null, 20000);
+    await page.evaluate(() => window.emu.session.runWithoutRoms());
+    await waitFor(page, () => { const b = document.getElementById('welcome'); return !!b && !b.hidden && !!b.querySelector('.close'); }, null, 15000);
+    await page.click('#welcome .close');
+    const gone = await page.evaluate(() => { const b = document.getElementById('welcome'); return !b || b.hidden; });
+    await emuFrames(page, 5);
+    await page.evaluate(() => window.emu.session.personMachine && document.getElementById('btnReset').click());
+    await emuFrames(page, 25);
+    const still = await page.evaluate(() => { const b = document.getElementById('welcome'); return !b || b.hidden; });
+    check('rom states: Dismiss on the card sticks across a Reset', gone && still, `dismissed ${gone}, still hidden after Reset ${still}`);
+
+    // AND THE DISMISSAL LIFTS: the card dismissed above must come back when the machine's state changes, or a card
+    // dismissed once can never be seen again. A state change to 'none' (the ROMs running) resets it; the next stub
+    // choice is a new thing to say and the card returns. (Before this ran after a Dismiss, the check exercised
+    // nothing: a mutant that never reset the dismissal still passed.)
+    await page.evaluate(() => { const m = window.emu.session.personMachine; window.emu.session.stubChosen.delete(m.id); window.emu.session.switchMachine(m.id); });
+    await waitFor(page, () => !window.emu.session.personMachine.useStub, null, 20000);
+    await page.evaluate(() => window.emu.session.runWithoutRoms());
+    const cameBack = await waitFor(page, () => { const b = document.getElementById('welcome'); return !!b && !b.hidden && !!b.querySelector('[data-card-switch]'); }, null, 15000);
+    check('rom states: a dismissed card comes back when the ROMs are switched off and on again (the dismissal lifts)',
+      cameBack && (await card()) !== null, JSON.stringify(await card()));
+  }
+  // ...and the card being hidden does NOT mean the person is left with a silent screen: the ROM runs and never
+  // prints OK, so the boot-help overlay comes up on its own, naming the file that was not recognised. (The card
+  // says what the machine has; this says what went wrong, and with ROMs in the machine it is the only one that can.)
+  {
+    // a fresh power-on with the ROMs: the watchdog starts a new run, watches it, and answers 'failed' when OK never
+    // comes. (The boot earlier in this group had already been answered -- 'stub' -- and bootStatus only changes on a
+    // machine, firmware or reset event, all of which this fires.)
+    await page.evaluate(() => { const m = window.emu.session.personMachine; window.emu.session.stubChosen.delete(m.id); window.emu.session.switchMachine(m.id); });
+    await waitFor(page, () => !window.emu.session.personMachine.useStub, null, 20000);
+    await emuFrames(page, 10);
+    const shown = await waitFor(page, () => { const b = document.getElementById('bootHelp'); return !!b && !b.hidden; }, null, 45000);
+    const r = await page.evaluate(() => ({
+      state: window.emu.session.bootStatus(5).state,
+      title: (document.getElementById('bootHelpTitle') || {}).textContent || '',
+      text: (document.getElementById('bootHelpText') || {}).textContent || '',
+      card: (() => { const b = document.getElementById('welcome'); return b && !b.hidden; })(),
+      // the buttons it offers with ROMs in the machine
+      sockets: (() => { const b = document.getElementById('btnBootSockets'); return b ? !b.hidden : null; })(),
+      stub: (() => { const b = document.getElementById('btnBootStub'); return b ? !b.hidden : null; })(),
+    }));
+    check('rom states: an unrecognised ROM that never boots still gets the boot-help overlay, naming the file',
+      shown && r.state === 'failed' && /No OK after 5 seconds/.test(r.title) && /bas12\.rom/.test(r.text) && /isn't recognised/.test(r.text),
+      `${r.state} · ${r.title} · ${r.text.slice(0, 90)}`);
+    check('rom states: ...while the side card stays hidden (the overlay is what explains it)',
+      r.card === false && r.sockets === true && r.stub === true, `card ${r.card}, Add ROMs ${r.sockets}, Run without ROMs ${r.stub}`);
+  }
+  check('rom states: no page errors', errors.length === 0, errors.join(' | '));
+  await ctx.close();
+
+  // ---- Your ROMs: who is "Also ready to run BASIC", and where the note about a file it could not use sits ----
+  // A machine counts only when every REQUIRED socket holds a VERIFIED dump. A file that is merely loaded (right name
+  // or size) is not proof of a working BASIC: it was being listed as ready the moment its socket was filled.
+  const ctx2 = await guardedContext(browser, archive);
+  const p2 = await ctx2.newPage();
+  const errs2 = [];
+  p2.on('pageerror', (e) => errs2.push(e.message));
+  await p2.goto(`${base}?machine=dragon64`);
+  await waitFor(p2, () => !!(window.emu && window.emu.session && window.emu.started === true), null, 40000);
+  await emuFrames(p2, 10);
+  // d64_1.rom is the Dragon 64's first socket AND the Tano Dragon 64's: loaded, not a known dump
+  await p2.setInputFiles('#fileRom', [{ name: 'd64_1.rom', mimeType: 'application/octet-stream', buffer: Buffer.alloc(16384, 0x12) }]);
+  await waitFor(p2, () => window.emu.session.machineRoms('tanodr64').bootable, null, 15000);
+  await openRoms(p2);
+  {
+    const r = await p2.evaluate(() => {
+      const rd = document.getElementById('romReady');
+      const sk = document.getElementById('romSockets');
+      // show the line as it would be if it had a machine to name, so its PLACE can be measured even while empty
+      const was = rd.textContent; rd.textContent = 'Also ready to run BASIC: X.'; const a = rd.getBoundingClientRect();
+      const b = sk.getBoundingClientRect(); rd.textContent = was;
+      return { text: was.trim(), below: Math.round(a.top - b.bottom), gap: Math.round(a.top - b.bottom) > 0 && Math.round(a.top - b.bottom) < 260 };
+    });
+    check('rom page: a file that is only loaded does not make its other machine "Also ready to run BASIC"',
+      !/Tano Dragon 64/.test(r.text), r.text || '(empty)');
+    check('rom page: that line sits beside the socket list it is about, not below the scroll',
+      r.below > 0 && r.below < 260, `${r.below}px below the list`);
+  }
+  // a file CLOADM cannot use: the note goes beside the list, where the thing it is about is
+  await p2.setInputFiles('#fileRom', [{ name: 'bas99.rom', mimeType: 'application/octet-stream', buffer: Buffer.alloc(4096, 7) }]);
+  {
+    const r = await waitFor(p2, () => { const b = document.getElementById('romProblems'); return !b.hidden && b.textContent.trim() ? b.textContent.trim() : false; }, null, 10000);
+    const where = await p2.evaluate(() => {
+      const pb = document.getElementById('romProblems'), sk = document.getElementById('romSockets');
+      const a = pb.getBoundingClientRect(), b = sk.getBoundingClientRect();
+      return { below: Math.round(a.top - b.bottom), sameColumn: pb.parentElement === sk.parentElement };
+    });
+    check('rom page: a file it could not use is said beside the socket list, not in a toast at the window foot',
+      r !== false && where.sameColumn && where.below > 0 && where.below < 400, `${r || '(no note)'} · ${where.below}px below the list`);
+  }
+  check('rom page: no page errors', errs2.length === 0, errs2.join(' | '));
+  await ctx2.close();
+};

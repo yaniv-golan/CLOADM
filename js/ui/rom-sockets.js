@@ -170,9 +170,14 @@ export function setupRomSockets(page, romInput, { confirmSwitch }) {
       return d;
     }));
     box.hidden = !offers.length;
-    // the other machines that are ready
-    const ready = session.machinesWithRoms().filter((x) => x.bootable && x.id !== m.id);
-    $('romReady').textContent = ready.length ? `Also ready to run BASIC: ${ready.map((x) => x.name).join(', ')}.` : '';
+    // the other machines that are ready: every REQUIRED socket holds a verified dump, never a file that is merely
+    // loaded. A "loaded, not a known dump" image may boot (that is the machine's own trial) but it is not something
+    // to tell a person is ready to run BASIC. The line sits under the sockets (play/index.html), not in the
+    // "What you dropped" block further down, which is below the fold on a phone.
+    const verified = new Set(session.machinesVerified());
+    const ready = session.machinesWithRoms().filter((x) => verified.has(x.id) && x.id !== m.id);
+    const line = ready.length ? `Also ready to run BASIC: ${ready.map((x) => x.name).join(', ')}.` : '';
+    $('romReady').textContent = line;
     // BASIC can boot here: after a drop, or while the machine runs the stub, one click switches it on
     const on = $('btnRomSwitchOn');
     on.hidden = !(info.bootable && (m.useStub || (found && found.length)));

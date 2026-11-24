@@ -6,7 +6,7 @@ All notable changes to CLOADM are recorded here. The format follows
 
 ## [Unreleased]
 
-Next version: 0.1.9-pre (the plugin and extension manifests carry it; `tests/plugin.test.js` keeps them in step).
+Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.test.js` keeps them in step).
 
 ### Added
 
@@ -26,6 +26,34 @@ Next version: 0.1.9-pre (the plugin and extension manifests carry it; `tests/plu
 - **Program pages.** cloadm.dev/2048/, /liza/ and /minesweeper/ each have their own link preview (title, description
   and a 1200x630 picture of the program on the built-in firmware, made by `tools/program-cards.js`), a Play button, and
   go straight to the start link `/play/?start=<program>`. They work offline like the rest of the site. One entry in
+
+### 0.2.0
+
+#### Added
+
+- **Link previews.** `index.html` and `play/index.html` have a meta description ("CLOADM: Dragon and Tandy Color
+  Computer emulator in your browser. Runs LIZA and games with no ROMs; add yours for BASIC."), Open Graph tags and a
+  `summary_large_image` X card. The picture, `img/og.png` (1200x630, 16 colours, at https://cloadm.dev/img/og.png
+  and in the offline copy), is the welcome menu in a CRT bezel with "cloadm.dev" on it, beside the name.
+  `js/video/bezel.js` (`renderBezelCard(frame, { caption })` -> PNG bytes; text in the chat terminal's own font, now
+  `js/video/chat-font.js`) adds the bezel on top of the shared, browser-free card code, `js/video/card.js`
+  (`cardPicture`) and `js/media/png.js` (`encodeIndexedPng`, `readPngHeader`), taken byte for byte from the
+  short-links branch with their unit tests (`tests/png-card.test.js`). `tools/capture-og.js` captures the welcome
+  menu from the real page with no ROMs (it refuses to capture with one loaded) and calls it.
+  `tests/link-preview.test.js`, `tests/bezel.test.js`.
+- **Arriving on a shared moment.** A share link's moment that runs without ROMs opens without the "Running with no
+  ROMs" card and the orange **No BASIC** pill: the person came to see that moment. Both come back once they leave it
+  (Reset back to the menu, Switch off and on, or a machine switch). `Session.sharedMoment`, set by
+  `openSnapshot(snap, { shared: true })`, ended with an `'arrival'` event; `tests/shared-moment.test.js`.
+- **A file CLOADM doesn't open says so.** A photo or a PDF dropped or opened says "photo.jpg isn't a file CLOADM
+  opens.", its **Details** listing what it opens: tapes (.cas, .wav, .c10, .k7), disks (.vdk, .dsk, .jvc, .dmk,
+  .os9), programs (.bin, .bas, .txt), cartridges (.rom, .ccc, .dgn), snapshots (.cloadm), ROM images and ZIPs of
+  these, and **Load as raw data at an address…** on its second line for a memory dump under another name. It used to
+  ask for a load address as if every such file were a memory dump; a `.bin` of unknown format, a `.raw`, `.ram`,
+  `.dmp` or `.mem` file, or a file with no extension (in any letter case) still does. Open… and the Library's picker no
+  longer offer `.img` files, which open from the NitrOS-9 and DriveWire panels. `Session.unopenable`;
+  `tests/unopenable.test.js` checks the list against the Open… picker.
+
   `js/program-pages.js` makes a page; `Session.programPageUrl(id, base)` gives its address.
 
 - **Open CLOADM, and the offline copy only when needed.** The side panel's two tools are now **Open CLOADM**
@@ -226,8 +254,27 @@ Next version: 0.1.9-pre (the plugin and extension manifests carry it; `tests/plu
   into our block-reading firmware and the file's bytes end up in memory, and three breakages of the code (no leader before the second
   file, a wrong checksum, the MC-10 padded).
 
-### Changed
+#### Changed
 
+- **Share… in the landscape keys' Menu.** Held sideways the app bar gives way to the keys, so its Share was out of reach;
+  the keys' Menu now has **Share…** right after Ask Claude…, opening the Share screen on this moment. It is there in a
+  page framed in another site too (no chat there, Share all the same), and not in an embed, which has no Share.
+
+- **The Share screen's link and time.** The long snapshot link is labelled **Exact moment (long link)**, and the
+  card under the picture says when it was captured relative to now ("captured just now", "captured 3 minutes ago",
+  then hours or days), not a clock time (`capturedAgo`, `tests/share-ago.test.js`).
+- **"Use with Claude ↗" is a button.** With no API key, the way to use CLOADM inside Claude is a full-size button,
+  as wide as the key field, in the chat's key card and the Ask panel's key form (style only).
+- **No desktop hints on a touch-only device.** "Or drop any file on the screen. Esc is BREAK, Home is CLEAR…" and the
+  key hint under the screen are hidden under `@media (hover: none) and (pointer: coarse)`, also with the on-screen
+  keyboard turned off.
+- **Claude reads everything in the machine on every host, ROM areas included.** The MCP tools no longer refuse to read
+  memory while the user's ROMs, a cartridge or NitrOS-9 are in the machine: `peek`, `find_bytes`, `disassemble`,
+  `screen_text`, `screenshot` and `run_frames` answer the same in the local server, the side panel and the claude.ai
+  connector, as the in-page Claude already did. The toolbox option that refused (`refuseRomReads`) is gone, and with it
+  the `rejected` refusal of memory reads. What CLOADM itself shares is unchanged: snapshots and share links carry no ROM, and `add_roms`
+  keeps its rules. The embedding API's `peek` is not part of this and keeps its own rule. `docs/mcp.md` and the skill
+  say what the tools can read.
 - **A phone's Cassette deck sheet closes when the program starts.** Load it now (the button in the toast after a tape goes
   in with no BASIC to type CLOAD into) and Skip the tape close the sheet, so the screen shows the program starting. In the
   sheet the slot's small deck picture is left out, since the big cassette is right there; the empty line "No tape · Insert
@@ -448,7 +495,66 @@ Next version: 0.1.9-pre (the plugin and extension manifests carry it; `tests/plu
   bytes as they are). The WAV decoder ends a run of bits at a silence and reads up to three damaged bytes (a bit or two off `$55`) at the
   very start of a run, in front of a leader of at least 16 bytes, as `$55`: the first cycle after a silence is the least certain of a recording.
 
-### Fixed
+#### Fixed
+
+- **The page's own panels caught up with the screen a frame late.** The emulator draws a frame, then the page's panels
+  (the Media tab's "Runs without ROMs", its "Recent on this machine", the boot box, the tape row) update from what the
+  screen now shows — but the panels ran BEFORE the frame, so a change that frame made appeared in them one frame later.
+  They now run after the frame: the welcome menu's "on screen now" and the recent row's mark change in the same frame
+  the screen does. A paused page still updates its panels.
+- **A slow Ubuntu mirror no longer fails a browser-check shard.** The CI step that installs chromium's OS packages
+  (`.github/scripts/install-browser-deps.sh`) asked the runner image's mirror twice. On runs 45303943290,
+  45322323380 and 45333139695 that mirror sent ~100 KB/s, both tries ran out of time, no check ran, and attempt 1 went
+  red. Each try now asks a different mirror: `azure.archive.ubuntu.com`, then the image's own, then
+  `archive.ubuntu.com`, a named one through a sources list of its own signed by the Ubuntu archive key. The first CI
+  run measured it: on 5 of 8 shards the image's mirror sent 122 kB/s and hit its limit, then azure.archive installed
+  the same packages in 2 s. A try installs
+  only the packages Playwright's check reports missing (`apt-get install --no-install-recommends`, no translation
+  lists), not Playwright's whole list, which also upgraded 11 MB of mesa. The .deb cache is now restored with a
+  fallback to the newest cache of an earlier runner image, so an image update no longer sends every shard to the
+  mirror at once, and it is saved right after a good install rather than at the end of a successful job. Playwright's
+  check still decides whether the step passes, and an install that fails on every mirror still fails the step
+  loudly. `tests/install-browser-deps.test.js` covers the mirror order, a stalled mirror and the cache steps.
+
+- **Eight things the v0.1.9 cold test found on a phone and in the chat.**
+  A tape put in the deck and loaded with **Skip the tape** (or **Load it now**) now appears in the Media tab's
+  **Recent on this machine**, like any file the person opened: it was loaded with the flag that keeps our own LIZA and
+  games out of the list, so a tape you supplied never got there and the tab said "Nothing loaded yet".
+  Every **Display** slider's name and reading now have a gap: the label's column was only as wide as its text, so it
+  read "Curvature35%" and "Phosphor glow55%" — the line now fills the drawer's width and the two sit at its ends.
+  **"LIZA loaded"** (any status message) no longer covers the top line of the screen at a phone-width window: with no
+  free place along the bottom it took the fixed top slot, and the normal toast there ran onto the picture's title row;
+  the slot now uses the shorter compact form when only that clears the picture, and keeps the normal one where neither
+  fits (a desktop, a phone holding the keys).
+  After Anthropic **refuses the API key** (a 401), the chat's key line now says the key was **refused** and offers
+  **Replace**, instead of still reading "Saved in this browser." beside the refusal; the key is still kept so it can be
+  kept or replaced. The emulator's own layout already keeps the landscape machine menu clear of the bottom touch strip,
+  and a browser check now holds it there.
+  The **machine list** (held sideways, from the touch Menu's Machine…) no longer shows one machine at a time: held
+  landscape it had only `80vh` under the group headings and above its footer, so at 653 x 280 a single machine showed.
+  The group descriptions now give way in landscape (they only repeat what each row says), so 4 machines show at 852 x
+  393 and 844 x 390 and 2 at 653 x 280; every machine is reachable by a scroll, as before.
+  The touch panel's **Menu** no longer runs off the top of a short landscape window: on a 653 x 280 phone the sheet was
+  taller than the room above it, so Machine… and Settings… sat above the fold and could not be tapped. Its height is
+  now capped to the space above it (minus a margin and the safe-area insets) and it scrolls inside; every row keeps its
+  44 px height, and the sheet always opens at its first row, with the keyboard focus scrolling the focused row into view.
+  The landscape touch **Menu is reordered** to put what acts on this machine first — Programs…, Open…, Ask Claude…,
+  Tape, disks and cartridge…, Machine…, Settings…, Power… — then, under a rule, Commands…, Install CLOADM… and Hide
+  keys. Open… uses the same file picker as desktop; Ask Claude… opens the chat as a right-side sheet (its Close and Esc
+  return to Menu); Share, the Library, the Debugger and Help stay reachable through Commands….
+- **The side card, the screen and the ROM page told different stories about ROMs.** With a ROM loaded that CLOADM
+  does not recognise, the machine runs it, but the side card still said *Running with no ROMs.*; and after **Run
+  without ROMs** the ROMs are in the sockets and only switched off, while the card said the same thing and the
+  Welcome menu still offered **3 ADD YOUR ROMS FOR BASIC** — asking for what was already there. The card now
+  follows the machine: *Running with no ROMs.* only when there are none, *Running without your ROMs.*
+  when the required ROMs are in the sockets and the stub was chosen (with a **Use my ROMs** button on the card), and no card
+  once the ROMs run. The Welcome menu's option 3 reads **USE YOUR ROMS FOR BASIC** in that state. On **Your ROMs**, a
+  machine is listed as *Also ready to run BASIC* only when every required socket holds a **recognised** dump, not
+  a file that was merely loaded. The note about a file that could not be used moved from a toast at the foot of
+  the window to beside the socket list it is about, so it is read without scrolling.
+- **A Reset (or a power cycle) no longer shows the "Last time" card beside a row still marked "on screen now".** The
+  card and the recent list both follow what is on screen, but they were redrawn by separate paths: the card in the
+  Reset's own turn, the list a frame later. The list is now redrawn in the same turn, so the two change together.
 
 - **A first visit is not greeted "WELCOME BACK" while nothing has run in it.** Picking a machine in the header menu, or
   the shelf's Welcome menu, on the browser's first visit shows the title screen; once a program has run, or on a later

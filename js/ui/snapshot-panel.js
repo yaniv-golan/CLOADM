@@ -23,14 +23,15 @@ export function setupSnapshotPanel(page, { confirmSwitch, openRoms }) {
     card.hidden = false;
     $('btnSnapRoms').focus();
   }
-  function open(snap) {
+  // shared: from a share link (takeLink): one that runs without ROMs arrives quietly (Session.sharedMoment)
+  function open(snap, { shared = false } = {}) {
     card.hidden = true; waiting = null;
     try { session.snapshotRoms(snap); }
     catch (e) { if (e instanceof SnapshotRomsError) { needsRoms(snap, e); return; } throw e; }
     const sw = session.snapshotSwitch(snap);
     // (its message says what the switch took out, as a switch from the menu does)
-    if (sw) confirmSwitch({ name: sw.text, id: sw.machine, config: sw.config }, (taken, said) => page.attempt(() => session.openSnapshot(snap) + (said ? `.${said}` : '')));
-    else { page.attempt(() => session.openSnapshot(snap)); page.focus(); }
+    if (sw) confirmSwitch({ name: sw.text, id: sw.machine, config: sw.config }, (taken, said) => page.attempt(() => session.openSnapshot(snap, { shared }) + (said ? `.${said}` : '')));
+    else { page.attempt(() => session.openSnapshot(snap, { shared })); page.focus(); }
   }
   // a file that may be a snapshot: opened (true), or false to load it as anything else
   async function take(name, bytes) {
@@ -67,7 +68,7 @@ export function setupSnapshotPanel(page, { confirmSwitch, openRoms }) {
     catch (e) { if (!(e instanceof SessionError)) throw e; page.status(e.message, true); history.replaceState(null, '', location.pathname + location.search); return true; }
     if (!snap) return false;
     history.replaceState(null, '', location.pathname + location.search);
-    open(snap);
+    open(snap, { shared: true });
     return true;
   }
 

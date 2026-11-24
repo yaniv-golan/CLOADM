@@ -836,7 +836,7 @@ fs.writeFileSync(tmp('media', 'plain.bas'), '10 PRINT "HI"\n');
     own.switchMachine('coco3', {}, { menu: false });
     own.startWelcome(programs(own.welcomeFile));
     own.runFrames(40);
-    const tb = T.createToolbox(host, { session: own, refuseRomReads: true });
+    const tb = T.createToolbox(host, { session: own });
     const names = tb.tools().map((t) => t.name);
     {
       const d = (t, n) => t.tools().find((x) => x.name === n).description;
@@ -995,26 +995,26 @@ fs.writeFileSync(tmp('media', 'plain.bas'), '10 PRINT "HI"\n');
     check('load: a game on a machine that cannot run it is refused as the page refuses it', !no6809.ok && no6809.error.code === 'rejected' && /6809 code/.test(no6809.error.detail), J(no6809));
     const badProg = await tb.call('load', { machine_id: 'm1', program: 'tetris' });
     check('load: an unknown program names the bundled ones', !badProg.ok && /welcome, liza, demo, 2048 or minesweeper/.test(badProg.error.detail), J(badProg));
-    // no tool returns ROM memory directly on a host that refuses ROM reads: with the user's ROMs (here bytes standing in for them) peek,
-    // find_bytes and disassemble are refused; without ROMs they read
+    // ROM areas read like any other memory, on every host: with the user's ROMs in (here bytes standing in for them) peek,
+    // find_bytes, disassemble, screen_text, screenshot and run_frames all answer, and peek returns the bytes the machine holds
     await tb.call('boot', { model: 'dragon32', roms: false });
     const free = await tb.call('peek', { machine_id: 'm1', address: 0xA000, length: 4 });
-    own.addRoms([{ name: 'd32.rom', bytes: Uint8Array.from({ length: 16384 }, (_, k) => (k * 7 + 3) & 255) }]);
+    const romImage = Uint8Array.from({ length: 16384 }, (_, k) => (k * 7 + 3) & 255);
+    own.addRoms([{ name: 'd32.rom', bytes: romImage }]);
     const withRoms = own.romCodeIn();
-    const refused = await Promise.all([tb.call('peek', { machine_id: 'm1', address: 0xA000, length: 4 }), tb.call('find_bytes', { machine_id: 'm1', pattern: '03 0A' }), tb.call('disassemble', { machine_id: 'm1', address: 0x8000, count: 4 })]);
-    const shown = await tb.call('screen_text', { machine_id: 'm1' });
-    check('refuseRomReads: peek, find_bytes and disassemble are refused while the user\'s ROMs run; the screen still reads', free.ok && withRoms === 'roms'
-      && refused.every((x) => !x.ok && x.error.code === 'rejected' && /no tool returns ROM memory directly/.test(x.error.detail)) && shown.ok, J(refused).slice(0, 400));
-    // ... and that is all it is: a program run on the machine still reads ROM. The docs say so (a determined agent can
-    // infer ROM contents through execution); this pins the path they name, run_frames waiting for a byte's value
+    const reads = await Promise.all([tb.call('peek', { machine_id: 'm1', address: 0xA000, length: 4 }), tb.call('find_bytes', { machine_id: 'm1', pattern: '03 0A' }), tb.call('disassemble', { machine_id: 'm1', address: 0xA000, count: 4 })]);
+    const shown = await tb.call("screen_text", { machine_id: "m1" }), romShot = await tb.call("screenshot", { machine_id: "m1" });
     const romByte = own.readByte(0xA000);
-    const wrong = await tb.call('run_frames', { machine_id: 'm1', frames: 1, until: { address: 0xA000, value: (romByte + 1) & 255 } });
-    const right = await tb.call('run_frames', { machine_id: 'm1', frames: 1, until: { address: 0xA000, value: romByte } });
-    check('refuseRomReads is not a seal: run_frames until a ROM byte holds a value still answers (as docs/mcp.md says)', wrong.ok && wrong.data.status === 'not-yet' && right.ok && right.data.status === 'met', J([wrong.data && wrong.data.status, right.data && right.data.status]));
+    check('ROM reads: peek, find_bytes, disassemble, screen_text and screenshot answer while the user\'s ROMs run, on the one-machine host',
+      free.ok && withRoms === 'roms' && reads.every((x) => x.ok) && shown.ok && romShot.ok, J(reads.map((x) => x.ok ? 'ok' : x.error)).slice(0, 400));
+    const peeked = J(reads[0].data), hex2 = (v) => v.toString(16).toUpperCase().padStart(2, '0');
+    check('ROM reads: peek returns the byte the machine holds in the ROM area, find_bytes finds a pattern from the ROM image, disassemble reads it',
+      peeked.includes(`$A000: ${hex2(romByte)}`) && J(reads[1].data).includes('matches') && reads[1].data.matches.length > 0 && reads[2].data.machine_output.count === 4, `${peeked.slice(0, 200)} ${J(reads[1].data).slice(0, 120)}`);
+    check('ROM reads: run_frames until a ROM byte holds a value answers too', (await tb.call('run_frames', { machine_id: 'm1', frames: 1, until: { address: 0xA000, value: romByte } })).data.status === 'met');
     const stdio = T.createToolbox(host);
     const boot2 = await stdio.call('boot', { model: 'dragon32' });
     stdio.call('poke', { machine_id: boot2.data.machine.machine_id, address: 0x3000, bytes: [1] });
-    check('refuseRomReads is off by default (the stdio server reads any memory of a machine it booted)', (await stdio.call('find_bytes', { machine_id: boot2.data.machine.machine_id, pattern: '01', from: 0x3000, to: 0x3000 })).ok);
+    check('the stdio server reads memory of a machine it booted', (await stdio.call('find_bytes', { machine_id: boot2.data.machine.machine_id, pattern: '01', from: 0x3000, to: 0x3000 })).ok);
     // mcpResult: one shape for both hosts
     const shot = T.mcpResult({ ok: true, data: { width: 1 }, image: Uint8Array.of(1, 2) }, (b) => Buffer.from(b).toString('base64'));
     const err = T.mcpResult({ ok: false, error: { code: 'rejected', remedy: 'x' } }, null);

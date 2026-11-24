@@ -379,6 +379,12 @@ export function setupAsk(page, claude) {
     $('askComposer').hidden = k === 'none';
     $('btnAskSend').disabled = k === 'refused' || !!(chat && chat.busy);
     $('askKeyLine').hidden = k === 'none';
+    // the key's line says what its state IS, and the button does what it will do: a refused key is still stored (the
+    // person may keep it or replace it), so the line says REFUSED and the button says Replace -- "Saved in this
+    // browser." beside a refusal told the person the opposite of what just happened.
+    const refused = k === 'refused';
+    $('askKeyState').textContent = refused ? 'API key · Refused by Anthropic. Still saved in this browser.' : 'API key · Saved in this browser.';
+    $('btnAskKeyChange').textContent = refused ? 'Replace' : 'Change';
     renderActing();
   }
   // every other Stop of the turn's, and whether the person can click it now: shown, in the window and not under

@@ -99,6 +99,14 @@ t.json`, then `node .github/scripts/browser-check-shards.js --merge t.json`. Eve
 the `browser-check-timings` artifact (merge it to rebalance: `--merge` keeps a smoothed average per group, weighted by the timings file's `"smoothing"`, so one noisy run cannot swing the plan), and `node tests/all.js --record-times` rewrites
 `tests/suite-times.json` from a passing whole run (`--timings FILE` writes one run's or one part's times elsewhere). A green run's `gates` summary (commit SHA, tree hash, each job's counts) is the
 definition of done; see AGENTS.md section 4.
+
+The browser shards install chromium's OS packages with `.github/scripts/install-browser-deps.sh`. The .deb files are
+cached per runner image (`playwright-debs-<playwright>-<ImageOS>-<ImageVersion>`). On a new image the step restores
+the newest cache of an earlier image of the same OS, and it saves the cache right after a good install. On a cache
+miss, each try asks a different apt mirror (azure.archive.ubuntu.com, the image's own, archive.ubuntu.com), each
+under its own time limit, so a stalled mirror costs one try rather than failing the shard. Playwright's
+`install-deps --dry-run` check still decides whether the step passes.
+
 Every action in the workflows is pinned to a commit SHA with its release tag beside it, and `pull_request_target` is
 never used; `node tests/workflows.test.js` holds both, and that an action used in more than one workflow carries the
 same SHA in each (so a bump cannot be applied to one file and not another). `.github/dependabot.yml` proposes the
@@ -143,6 +151,7 @@ node tests/all.js            # every suite below in a worker pool (--jobs N to c
 node tools/browser-check.js  # the real pages in Chromium: the landing page (desktop and phone) and /play/: every model, LIZA end to end, the file:// notice, Share and opening snapshots, the favicon and no missing file requested by any page; the feedback model (toasts on the page the user is on, cleared by the next action, Undo, Details, desktop and phone). Every "← Emulator", Esc and Back return to the emulator, from `/play/` and `?app=claude`, after a reload and from a page loaded on a view (`--only emulatorBack`). `--only feedback,library` runs just those groups (an unknown group is an error); see "What the gates' results mean" below
 node tools/capture-images.js # recapture img/*.png (site and README pictures) from the emulator, with no ROMs
 node tools/program-cards.js  # the program pages 2048/, liza/, minesweeper/ and their 1200x630 cards (img/card-*.png), on the built-in firmware; updates sw.js
+node tools/capture-og.js     # recapture img/og.png, the 1200x630 link preview (og:image), from the welcome menu with no ROMs, through js/video/bezel.js
 node tools/capture-gif.js    # recapture img/readme-demo.gif (the README's looping picture), with no ROMs; tools/gif.js is its encoder
 node tests/cpu.test.js       # 6809 instruction tests, scripted (all tests load js/emu.js via tests/load.js)
 node tests/opcodes.test.js   # 126 instructions table-driven from the MC6809 data sheet: result, flags and cycles
@@ -203,7 +212,7 @@ node tests/mcp.test.js       # the MCP server over stdio: both protocol eras, ev
 node tests/mcp-roms.test.js  # add_roms / remove_roms with stand-in ROMs: a local https server (a CA made for the run), every URL refusal (http, private/loopback/CGNAT/link-local, redirects, size, timeout, not a ROM), data, the media root, consent (elicitation), the store across restarts, --read-only, no ROM bytes in results
 node tests/rom-store.test.js  # the add_roms store: a URL kept as origin + path (no query or fragment), two processes adding at once lose no entry, a stale lock is broken
 node tests/connector.test.js # the side-panel connector (connector/): the Worker over HTTP, both views and their CSP, the folded emulator identical to the plain modules, the panel's tools equal to the server's, the 100k limit, the bridge's protocol in a vm
-node tools/connector-check.js # the connector's two views in Chromium, nested as Claude nests them under the spec's CSP, with a host stub: handshake first, list_changed, the tools, keys, storage, ROMs kept and refused to memory reads, no CORS, out of step, and the view's controls (Details, the screen's fit inline and in the side panel, ⋯'s side-panel item, the menus, sound, Claude's chip), and on a phone (the size it reports inline, the host's insets, the on-screen keys in their three modes and the choice remembered, a host that asks before each call) (the browser check's `connector` group)
+node tools/connector-check.js # the connector's two views in Chromium, nested as Claude nests them under the spec's CSP, with a host stub: handshake first, list_changed, the tools, keys, storage, ROMs kept and read by memory reads, no CORS, out of step, and the view's controls (Details, the screen's fit inline and in the side panel, ⋯'s side-panel item, the menus, sound, Claude's chip), and on a phone (the size it reports inline, the host's insets, the on-screen keys in their three modes and the choice remembered, a host that asks before each call) (the browser check's `connector` group)
 node connector/build.js      # build the connector's views into connector/worker/src/views.gen.js (wrangler deploy runs it; docs/deploy-connector.md)
 node tests/cli-agent.test.js # cli/cloadm.js beyond the basics: --describe, error codes, the debugger steps against the Session's debugger, DriveWire stalls, special keys, script quoting, --view
 node tests/cli-wav.test.js   # --wav: a known DAC pattern's levels and timing, determinism, snapshots mid-sound, the box filter of the level events

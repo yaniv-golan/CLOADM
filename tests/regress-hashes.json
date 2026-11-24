@@ -610,12 +610,12 @@
     "halted": true
   },
   "welcome6803 mc10": {
-    "hash": "b22a29e9",
-    "instructions": 197547,
+    "hash": "1cbb869e",
+    "instructions": 197548,
     "events": 4
   },
   "welcome6803 alice": {
-    "hash": "29de8d13",
+    "hash": "4aeac9d4",
     "instructions": 197545,
     "events": 4
   },
@@ -655,12 +655,12 @@
     "halted": true
   },
   "welcome6803 mc10 back": {
-    "hash": "6b399199",
+    "hash": "5844c3b7",
     "instructions": 197765,
     "events": 5
   },
   "welcome6803 alice back": {
-    "hash": "6b399199",
+    "hash": "5844c3b7",
     "instructions": 197765,
     "events": 5
   },

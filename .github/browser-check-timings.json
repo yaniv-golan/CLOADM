@@ -39,6 +39,7 @@
     "snapshot": 5,
     "liza6803": 20.7,
     "romInput": 3.7,
+    "romTruth": 2.9,
     "design": 0.6,
     "inputScreen": 34.8,
     "touchJoystick": 11,

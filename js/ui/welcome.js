@@ -112,6 +112,9 @@ export function setupWelcome(page, { showRoms, openClaude }) {
   session.on(async (ev, arg) => {
     if (ev === 'machine' || ev === 'loaded') { showBack(false); lastTime(); return; }
     if (ev === 'lastrun') { lastTime(); return; }   // (recorded after 'loaded': the card names what Run again runs)
+    // another tab loaded a program: the recent list changes but not this tab's lastRun. The drawer redraws its list on
+    // 'recent'; the "Last time" card must follow too, or its NAME lags the list it sits above (naming the previous file).
+    if (ev === 'recent') { lastTime(); return; }
     // (what the menu or a program asks for: byMachine, so a key Claude typed does not stop Claude)
     const asked = session.machineTicket();   // (taken now, when the program asks: whose keys they were)
     if (ev === 'welcome:liza') await run(SHELF[0], { byMachine: asked });
@@ -120,7 +123,7 @@ export function setupWelcome(page, { showRoms, openClaude }) {
       showBack(true);
       howTo(touchPanel() ? 'Colour demo: tap a key to start it; another tap goes back to the menu'
         : 'Colour demo: press a key to start it; another key goes back to the menu');
-    } else if (ev === 'welcome:roms') showRoms();
+    } else if (ev === 'welcome:roms') showRoms();   // option 3, in both its readings: add them, or use the ones it has
     else if (ev === 'welcome:claude') await openClaude();
     else if (ev === 'welcome:carryon') await runAgain({ byMachine: asked });
     else if (ev === 'welcome:2048' || ev === 'welcome:minesweeper') await run(gameItem(ev.slice(8)), { byMachine: asked });
@@ -215,13 +218,21 @@ export function setupWelcome(page, { showRoms, openClaude }) {
   };
   function shelf() {
     const row = $('shelf');
+    // the shelf is rebuilt whenever its marks change ("on screen now", what runs), and a rebuild drops
+    // the node that had the focus - to the body, losing the keyboard with it (openPrograms had put it
+    // there). The item that had focus gets it back - BY IDENTITY (its dataset.shelf key), not by place:
+    // a redraw happens because the contents changed, and the item at the same place can be a different
+    // one, which would move the keyboard to it silently. An item that is gone (a program the machine's
+    // CPU does not run, after a switch) leaves the focus where the browser put it, on the body: the
+    // keyboard was on something that no longer exists, and no silent jump to a neighbour is made.
+    const had = document.activeElement && row.contains(document.activeElement) ? document.activeElement.dataset.shelf : null;
     row.replaceChildren();
     const running = page.runningNow();
     // every machine gets the welcome menu and LIZA (the 6809 or 6803 builds); the colour demo is a 6809 program
     // (the 6309 runs it too: it is in the 6809 instruction-set family)
     const cpu = session.personMachine.config.cpu, family = cpuFamily(cpu), need = session.lizaNeeds();
     {
-      const w = entry('Welcome menu', { start: 'welcome' }, () => runWelcome({ greeting: session.greetingFor('back'), carryOn: session.carryOn }, { reason: 'shelf' })); w.dataset.shelf = 'welcome';
+      const w = entry('Welcome menu', { start: 'welcome' }, () => runWelcome({ greeting: session.greetingFor('back'), carryOn: session.carryOn }, { reason: 'shelf' })); w.dataset.shelf = 'welcome';   // the focus key: the redraw restores by it
       w.title = 'The Welcome menu: LIZA, colour and sound, adding ROMs, Claude, games';
       tagged = onScreen();
       shownRun = running ? `${running.kind}:${running.name}` : '';
@@ -230,6 +241,7 @@ export function setupWelcome(page, { showRoms, openClaude }) {
     }
     for (const item of SHELF.filter((x) => !x.cpu || x.cpu === family)) {
       const b = entry(item.name, item.liza ? { start: 'liza' } : item.game ? { start: item.game } : null, () => run(item));
+      b.dataset.shelf = item.name;   // the focus key: the redraw restores by it
       // the LIZA title names the build the machine actually runs (the 6309 runs the 6809 build)
       b.title = item.liza ? `${item.title} (the ${family} build${need ? `; needs the ${need.ram}K RAM option` : ''})` : item.title;
       if (item.liza && need) { const t = el('span', `needs ${need.ram}K`, 'tag'); b.append(' ', t); b.dataset.needs = String(need.ram); }
@@ -238,9 +250,16 @@ export function setupWelcome(page, { showRoms, openClaude }) {
     }
     const c = entry('Chat with Claude', { app: 'claude' }, () => openClaude()); c.dataset.shelf = 'claude';
     row.append(c);
+    const back = had !== null && row.querySelector(`[data-shelf="${CSS.escape(had)}"]`);
+    if (back) back.focus({ preventScroll: true });
     lastTime();   // (the "Last time" card hides while its program runs: it follows what the shelf marks)
   }
-  // the 20K offer belongs to the machine that was on; the welcome menu's "on screen now" follows what runs
+  // the card says what the machine is NOW, so a ROM drop, "Run without ROMs", Remove ROMs and a machine switch all
+  // reach it: 'roms' after every change to the sockets, 'firmware' when the machine starts running its ROMs (or the
+  // stub) again, 'machine' on a switch. (firstVisit above draws the first visit's, with the machine question.)
+  session.on((ev) => { if (['roms', 'firmware', 'machine', 'reset'].includes(ev)) refreshCard(); });
+  // the shelf follows the machine, every load, a Reset, a firmware change and what last ran ('lastrun': its card
+  // names it); the 20K offer belongs to the machine that was on
   session.on((ev) => { if (ev === 'machine') offer.hidden = true; if (['machine', 'loaded', 'reset', 'firmware', 'lastrun'].includes(ev)) shelf(); });
   // "on screen now" is what the screen shows, not what was loaded: the welcome program executing and drawn
   // (Session.welcomeOnScreen) while the page's Pause is off. That changes without an event (the menu's first frame,
@@ -250,6 +269,61 @@ export function setupWelcome(page, { showRoms, openClaude }) {
   // "Last time" card is hidden while it runs; shownRun is what the shelf drew.
   let tagged = false, shownRun = '';
   const onScreen = () => session.welcomeOnScreen && !page.paused;
+  // What the side card says follows the machine, in three states that used to read the same:
+  //   no ROMs at all            -> "Running with no ROMs." + the shelf, and the machine question once
+  //   ROMs in, running the stub -> "Running without your ROMs." (nothing is missing; the way back is what the person
+  //                                needs), and no machine question (they told us the machine by adding them)
+  //   the ROMs running          -> no card at all: BASIC is on screen and there is nothing to explain
+  // The first visit draws it once; `refreshCard` keeps it true as ROMs arrive, the stub is chosen and a machine
+  // switch changes what is in the sockets. It never takes over the box while a machine question waits unanswered.
+  //
+  // The 'empty' state ("no ROMs at all") is the FIRST VISIT's card, and only the first visit draws it: a returning
+  // visitor who chose the stub has the menu and the header pill, and a card over their page would be new. So
+  // refreshCard never DRAWS 'empty' -- but it must also never take a 'first' card away, because a machine picked in
+  // the question, or a Reset, fires the events this listens to while the first visit's card is what should stay.
+  let dismissed = false;   // the person dismissed THIS card; a later state that needs one shows it again
+  const cardState = () => {
+    const m = session.personMachine;
+    if (!m) return 'none';
+    if (!m.useStub) return 'none';                              // the ROMs run: nothing to say
+    return session.romsReadyButOff(m) ? 'off' : 'empty';        // stub by choice with the ROMs in, or nothing to run
+  };
+  function refreshCard() {
+    const wasAsking = !!box.querySelector('#askMachine');
+    const state = cardState();
+    // the first visit's own card stands until the machine's state actually changes: a machine picked in the question
+    // or a Reset must not wipe it ('empty' is what it is already showing)
+    if (box.dataset.kind === 'first' && state === 'empty') return;
+    if (state === 'none') { dismissed = false; box.hidden = true; box.replaceChildren(); return; }
+    if (wasAsking && state === 'empty') return;                 // the question still waits: leave it up as it is
+    if (!box.hidden && box.dataset.kind === state && box.childElementCount && !wasAsking) return;   // already right
+    if (dismissed && state === 'off' && box.dataset.kind === 'off') return;   // dismissed: stays dismissed
+    box.dataset.kind = state;
+    box.replaceChildren();
+    if (state === 'empty') { box.hidden = true; box.replaceChildren(); return; }   // never DRAWN after a first visit
+    if (state === 'off') {
+      box.append(el('div', 'Running without your ROMs.', 'lead'),
+        el('div', `The ${session.personMachine.profile.name}'s ROMs are in the sockets. Use them to get BASIC, or keep running programs that need none.`, 'muted'));
+    } else {
+      box.append(el('div', 'Running with no ROMs.', 'lead'), el('div', 'Programs that run without them are in the Media tab below.', 'muted'));
+    }
+    box.appendChild(switchOnButton());
+    box.appendChild(dismiss());
+    box.hidden = false;
+  }
+  // the way back from "Run without ROMs": the same thing the ROM page's button does, from the card that explains it
+  function switchOnButton() {
+    const b = el('button', 'Use my ROMs', 'primary');
+    b.dataset.cardSwitch = '1';
+    b.onclick = () => {
+      const m = session.personMachine;
+      session.stubChosen.delete(m.id);
+      session.switchMachine(m.id);
+      page.status(`${m.profile.name}: switched on with its ROMs`);
+      box.hidden = true;
+    };
+    return b;
+  }
   const runKey = () => { const r = page.runningNow(); return r ? `${r.kind}:${r.name}` : ''; };
   page.onFrame(() => { if (onScreen() !== tagged || runKey() !== shownRun) shelf(); });
   function firstVisit(askMachine) {
@@ -273,7 +347,11 @@ export function setupWelcome(page, { showRoms, openClaude }) {
     box.append(dismiss());
     box.hidden = false;
   }
-  function dismiss() { const b = el('button', 'Dismiss', 'close'); b.onclick = () => { box.hidden = true; }; return b; }
+  function dismiss() { const b = el('button', 'Dismiss', 'close'); b.onclick = () => { dismissed = true; box.hidden = true; }; return b; }
+  // arriving on a shared moment that runs without ROMs (Session.sharedMoment), the card stands back: the person came
+  // to see that moment. It comes back (unless dismissed) once they leave it: Reset, Switch off and on, a switch.
+  const quiet = () => box.classList.toggle('quiet', session.sharedMoment);
+  session.on((ev) => { if (ev === 'machine' || ev === 'arrival') quiet(); });
 
   // sound: unlock on the first pointer or key event anywhere; the hint shows until then
   const hint = $('soundHint');
