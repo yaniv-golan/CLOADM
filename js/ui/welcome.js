@@ -353,25 +353,30 @@ export function setupWelcome(page, { showRoms, openClaude }) {
   const quiet = () => box.classList.toggle('quiet', session.sharedMoment);
   session.on((ev) => { if (ev === 'machine' || ev === 'arrival') quiet(); });
 
-  // sound: unlock on the first pointer or key event anywhere; the hint shows until then
-  const hint = $('soundHint');
-  const showHint = () => { hint.hidden = audio.running || !audio.enabled; };
+  // sound: unlock on the first user activation anywhere (a tap on Menu or Open… included, not only the screen); the hint
+  // (a pointer) and the chip (a touch screen) show until then. The events are the ones a browser counts as an activation:
+  // pointerup and touchend (a touch's pointerdown is not one on iOS, where the file picker's change is none either),
+  // keydown.
+  const hint = $('soundHint'), chip = $('soundChip'), touch = matchMedia('(pointer: coarse)');
+  let unlocked = false;   // sound has been running: the chip does not come back
+  const showHint = () => {
+    if (audio.running) unlocked = true;
+    hint.hidden = audio.running || !audio.enabled;
+    chip.hidden = unlocked || !touch.matches || !audio.enabled;
+  };
   // Unlocking is a one-time job, so the listeners remove themselves once the audio context is running rather
   // than sitting in the capture phase of every pointer and key event for the life of the page.
-  const stopUnlock = () => {
-    window.removeEventListener('pointerdown', unlock, { capture: true });
-    window.removeEventListener('keydown', unlock, { capture: true });
-  };
+  const UNLOCK_EVENTS = ['pointerup', 'touchend', 'keydown'];
+  const stopUnlock = () => { for (const e of UNLOCK_EVENTS) document.removeEventListener(e, unlock, { capture: true }); };
   const unlock = () => {
-    audio.start();
+    audio.unlock();
     if (audio.enabled) session.welcomeSound();
     setTimeout(showHint, 100);
     // start() may leave the context suspended until the browser allows it (it resumes on the next gesture,
     // which this listener still catches); once it is running, let it go
     if (audio.running) stopUnlock(); else setTimeout(() => { if (audio.running) stopUnlock(); }, 250);
   };
-  window.addEventListener('pointerdown', unlock, { capture: true });
-  window.addEventListener('keydown', unlock, { capture: true });
+  for (const e of UNLOCK_EVENTS) document.addEventListener(e, unlock, { capture: true });
   showHint();
   // The hint hides when sound starts, which happens on the first pointer or key press: unlock() calls
   // showHint() 100 ms later, and again 250 ms later if the context was still suspended. The one thing that can

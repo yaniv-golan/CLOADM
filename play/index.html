@@ -209,6 +209,10 @@
   /* the focus hint comes and goes with the screen's keyboard focus, so it takes no room of its own: it lies over the
      bezel's badge strip under the screen (the badge and the LED give way), never over the picture or the page */
   .plate { position: relative; }
+  /* "Tap for sound": a small chip on the monitor's lower bezel, a state cue (not a toast or a card), shown on touch screens until sound runs */
+  #soundChip { position: absolute; left: 50%; bottom: -9px; transform: translateX(-50%); z-index: 3; pointer-events: none; white-space: nowrap;
+    font-size: 12px; line-height: 16px; padding: 2px 10px; border-radius: 999px; background: rgba(11, 13, 12, .88); color: var(--text); border: 1px solid var(--line-strong); }
+  #soundChip[hidden], body.embed #soundChip { display: none; }
   #focusHint { display: none; position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: max-content; max-width: 100%;
     background: rgba(11, 13, 12, .88); color: var(--text); font-size: 14px; line-height: 1.3; padding: 4px 12px; border-radius: var(--r-14);
     text-align: center; pointer-events: none; }
@@ -1532,7 +1536,13 @@
     :root.float-bar { --tk-bar: 84px; }
     /* room for the install card's strip under the screen, when the Menu item put it up (js/ui/install.js; the offer
        itself never shows on a phone): the monitor narrows by 4/3 of it (above), so nothing under it moves */
-    body.touch-keys:not(.chat-phone) .layout > main > .monitor { margin-bottom: var(--install-room, 0px); }
+    body:is(.touch-keys, .touch-hidden):not(.chat-phone) .layout > main > .monitor { margin-bottom: calc(var(--install-room, 0px) + var(--chip-room, 0px)); }
+    /* "Tap for sound": the screen fills the monitor here, so the chip has a strip of its own under it until sound runs
+       (touch-keys.js counts the margin in --tk-below, so the screen narrows to fit where the height is tight) */
+    body:is(.touch-keys, .touch-hidden):not(.chat-phone) #soundChip { bottom: auto; top: calc(100% + 2px); }
+    @media (min-height: 521px) { body:is(.touch-keys, .touch-hidden):not(.chat-phone):has(#soundChip:not([hidden])) { --chip-room: 26px; } }
+    /* (a window this short has no room to spare: no chip, and the first tap anywhere still starts the sound) */
+    @media (max-height: 520px) { body:is(.touch-keys, .touch-hidden):not(.chat-phone) #soundChip { display: none; } }
     /* (the keys 40 px: under Apple's 44 pt guideline, which the room upright does not allow with five rows and the
        screen; well over WCAG 2.5.8's 24 px minimum target. The pad's keys are 48 and more, the strip's controls 44.) */
     body.touch-keys:not(.chat-phone) #touchKeys .tk { height: 40px; min-height: 40px; }
@@ -1775,6 +1785,9 @@ npx serve -l 8000 .</pre>
           <div class="bar"><button id="btnBootSockets" class="primary">Add ROMs</button>
             <button id="btnBootStub">Run without ROMs</button><button id="btnBootPower" class="primary" hidden>Switch off and on</button><button id="btnBootDismiss">Dismiss</button></div></div>
       </div>
+      <!-- touch screens only (js/ui/welcome.js): a state cue on the bezel until sound runs; a tap anywhere unlocks it. After the
+           screen in the page, so a reading mode starts with the screen's text; the cue is for the eyes, not read out -->
+      <span id="soundChip" hidden aria-hidden="true">Tap for sound</span>
       <div class="plate"><span id="badge">DRAGON 64</span><span class="led" aria-hidden="true"></span>
         <div id="focusHint" aria-hidden="true"><span class="fh-emu">Typing goes to the machine<span class="fh-tab"> · <kbd>Tab</kbd> leaves the screen</span></span><span class="fh-chat"><kbd>Esc</kbd> stops a reply, clears the line, then leaves the chat</span></div></div>
       <!-- the screen's hints, under it: they never lie over what the machine shows -->
