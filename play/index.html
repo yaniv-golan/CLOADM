@@ -44,7 +44,10 @@
   /* the page covers the whole display (viewport-fit=cover), so a phone's notch, rounded corners and home indicator
      are kept clear by these insets (all 0 off such a phone); the browser check overrides them to emulate one */
   :root { --safe-t: env(safe-area-inset-top, 0px); --safe-r: env(safe-area-inset-right, 0px);
-    --safe-b: env(safe-area-inset-bottom, 0px); --safe-l: env(safe-area-inset-left, 0px); }
+    --safe-b: env(safe-area-inset-bottom, 0px); --safe-l: env(safe-area-inset-left, 0px);
+    /* a phone's tappable rows (Menu, Programs, the lists): 44 px at the least, growing toward 52 px with the window's
+       height (52 from about 580 px tall; a short window keeps 44) */
+    --row-tap: clamp(var(--touch), 9vh, 52px); }
   body { font-size: var(--text-body); min-height: 100vh; display: flex; flex-direction: column;
     padding: var(--safe-t) var(--safe-r) var(--safe-b) var(--safe-l); }
   button { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: var(--r-10); padding: 9px 14px;
@@ -340,6 +343,11 @@
   #shelf a:hover { border-color: var(--line-strong); }
   #shelf .tag.now { color: var(--muted); font-weight: 400; }
   #shelf [aria-current="true"] { border-color: var(--phosphor); }
+  /* an upright phone: the Programs sheet's rows (the shelf, what ran last, the Recent list), the quick-save slots and the
+     machine list (after their own rules, which set 40 px) grow toward 52 px (--row-tap); a phone held sideways keeps its rows, which its short window counts on */
+  @media (max-width: 700px) and (min-height: 501px) {
+    #shelf button, #shelf a, #recentList button.row, #slotList .row, #machineMenu button[data-machine] { min-height: var(--row-tap); box-sizing: border-box; }
+  }
   /* the returning visit: what ran last, one click away */
   .lasttime { display: flex; align-items: center; justify-content: space-between; gap: 12px; background: var(--panel-deep); border: 1px solid var(--line);
     border-radius: var(--r-14); padding: 12px 14px; }
@@ -758,7 +766,7 @@
     overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch;
     background: #1C201D; box-shadow: 0 8px 24px #000A; }
   #tkMenuSheet[hidden] { display: none; }
-  #tkMenuSheet button { display: block; width: 100%; min-height: 44px; margin: 0; border: 0; border-radius: 7px; background: transparent; color: var(--text); text-align: left; font-size: 15px; padding: 0 12px; }
+  #tkMenuSheet button { display: block; width: 100%; min-height: var(--row-tap); margin: 0; border: 0; border-radius: 7px; background: transparent; color: var(--text); text-align: left; font-size: 15px; padding: 0 12px; }
   #tkMenuSheet button:hover { background: #2A302B; }
   #tkMenuSheet button[hidden] { display: none; }
   /* the rule between the items that act on this machine and the app-level ones: a thin line across the sheet */
@@ -1482,7 +1490,9 @@
     #navRoms .dot { display: inline-block; width: 8px; height: 8px; margin-left: 8px; border-radius: 50%; background: var(--orange); flex: none; }
     .appbar.menu-open nav { display: flex; position: absolute; z-index: 65; top: 100%; left: 8px; right: 8px; flex-direction: column; align-items: stretch; gap: 0;
       padding: 8px 16px; background: var(--panel); border: 1px solid var(--line-strong); border-top: 0; border-radius: 0 0 12px 12px; box-shadow: 0 20px 40px rgba(0, 0, 0, .6); }
-    .appbar.menu-open nav a, .appbar.menu-open nav button.navlink { min-height: 44px; display: flex; align-items: center; text-align: left; }
+    .appbar.menu-open nav a, .appbar.menu-open nav button.navlink { min-height: var(--row-tap); display: flex; align-items: center; text-align: left; }
+    /* (taller rows must not push Menu's last ones off a short window: it scrolls inside the window instead) */
+    .appbar.menu-open nav { max-height: calc(100dvh - 100% - var(--safe-t) - 8px); overflow-y: auto; overscroll-behavior: contain; }
     /* Menu's order: Add ROMs, Settings…, Share…, Install… (js/ui/main.js moves it up here), Library, Debugger,
        Commands…, then, under a rule, Help and GitHub */
     .appbar.menu-open nav button.twoline { flex-direction: column; align-items: flex-start; justify-content: center; gap: 0; }

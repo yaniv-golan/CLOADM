@@ -318,6 +318,9 @@ MC-10 or Alice, not when the right port holds a Hi-Res interface or The Rat, and
   right brings them back. The app bar is one row: the machine, Open…, Ask Claude and **Menu** (Add ROMs is Menu's
   first item while the machine has no BASIC, and Menu shows a dot then). On a touch screen the hints say "tap a key"
   and "tap BREAK", and the install offer never appears on a phone (Install CLOADM…, in Menu, or in the panel's Menu held sideways, installs).
+  On an upright phone Menu's rows, the Programs sheet's and the machine list's grow toward 52 px with the window's
+  height (44 px at the least; a phone held sideways keeps them at 44 or its own size), and Menu scrolls inside the
+  window rather than run past it.
   A key types when your finger lifts, or once it has rested on the key a moment (so a held key works in
   games); a finger that slides off it first types nothing, so a drag or a scroll that starts on the keyboard never
   presses a key. The joystick strip's keys (SPC, ENT, BRK, 1, 2, Y, N) work the same way, so held

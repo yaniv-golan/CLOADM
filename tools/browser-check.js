@@ -5835,6 +5835,49 @@ async function phoneChecks(browser, base, check) {
     check('desktop: every file picker on the page (' + audit.map((i) => i.id).join(', ') + ') has the accept list of its purpose, none asks for image/* or video/* or has capture',
       audit.length === Object.keys(want).length && Object.keys(want).every((id) => audit.some((i) => i.id === id)) && !bad.length, JSON.stringify({ bad, audit }));
     await closeCtx(c);
+  }  // The phone's tappable rows (Menu, Programs, the machine list) grow toward 52 px with the window's height (--row-tap):
+  // 52 on an upright phone of 393x659, 44 at the least anywhere, and every one stays reachable by a real tap -- scrolled
+  // into view, then the row is what is on top at its own centre -- at 393x659, 375x548 and 653x280 (held sideways).
+  for (const [label, viewport, tall] of [['393x659', { width: 393, height: 659 }, 52], ['375x548', { width: 375, height: 548 }, 49], ['653x280', { width: 653, height: 280 }, 44]]) {
+    const L = `phone rows (${label})`;
+    const c = await browser.newContext({ viewport, hasTouch: true, isMobile: true, serviceWorkers: 'block' });
+    const p = await c.newPage();
+    const errs = [];
+    p.on('pageerror', (e) => errs.push(e.message));
+    await p.goto(`${base}?machine=dragon64`);
+    await started(p);
+    // every visible row of a box: brought into view, then measured and hit at its centre
+    const rows = (sel) => p.evaluate((s) => [...document.querySelectorAll(s)].filter((b) => b.checkVisibility()).map((b) => {
+      b.scrollIntoView({ block: 'center' });
+      const r = b.getBoundingClientRect(), at = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      return { t: b.innerText.trim().split('\n')[0].slice(0, 24), h: Math.round(r.height), hit: !!at && (at === b || b.contains(at)), inView: r.top >= 0 && r.bottom <= innerHeight };
+    }), sel);
+    const ok = (list, min) => list.length > 0 && list.every((x) => x.hit && x.inView && x.h >= min);
+    // Menu: the app bar's (upright), or the touch keys' Menu sheet (sideways, where the keys' Menu holds it)
+    const sideways = await p.evaluate(() => !document.getElementById('btnMenu').checkVisibility());
+    if (sideways) { await waitFor(p, () => !document.getElementById('touchKeys').hidden); await p.tap('#tkMenu'); await waitFor(p, () => !document.getElementById('tkMenuSheet').hidden, null, 5000); }
+    else { await p.tap('#btnMenu'); await waitFor(p, () => document.getElementById('appbar').classList.contains('menu-open'), null, 5000); }
+    const menu = await rows(sideways ? '#tkMenuSheet button' : '#appbar nav > :is(a, button)');
+    check(`${L}: every Menu row is reachable by a tap and ${tall} px tall or more`, ok(menu, tall) && menu.length >= 6, JSON.stringify(menu));
+    // Programs…: the shelf and the lists in its sheet
+    await p.tap(sideways ? '#tkMenuSheet button:first-child' : '#navPrograms');
+    const progOpen = await waitFor(p, () => document.getElementById('sheetPrograms').open, null, 5000);
+    const prog = progOpen ? await rows('#sheetPrograms :is(#shelf button, #shelf a, #recentList button.row)') : [];
+    // (sideways keeps its rows: 40 px buttons there are counted by the short-window checks; upright they grow)
+    check(`${L}: every Programs row is reachable by a tap${sideways ? '' : ` and ${tall} px tall or more`}`, progOpen && ok(prog, sideways ? 0 : tall) && prog.length >= 4, JSON.stringify(prog));
+    await p.tap('#sheetPrograms .sheetdone');
+    await waitFor(p, () => !document.getElementById('sheetPrograms').open, null, 5000);
+    // the machine list
+    if (sideways) {
+      await p.tap('#tkMenu'); await waitFor(p, () => !document.getElementById('tkMenuSheet').hidden, null, 5000);
+      await p.locator('#tkMenuSheet button', { hasText: 'Machine…' }).tap();
+    } else await p.tap('#machineBtn');
+    const pickOpen = await waitFor(p, () => !document.getElementById('machineMenu').hidden, null, 5000);
+    const pick = pickOpen ? await rows('#machineMenu button[data-machine]') : [];
+    check(`${L}: every model in the machine list is reachable by a tap${sideways ? '' : ` and ${tall} px tall or more`}`, pickOpen && ok(pick, sideways ? 0 : tall) && pick.length >= 13, JSON.stringify(pick.filter((x) => !x.hit || !x.inView || x.h < tall)));
+    check(`${L}: no sideways scroll`, await p.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+    check(`${L}: no page errors`, !errs.length, errs.join('; '));
+    await closeCtx(c);
   }
 }
 

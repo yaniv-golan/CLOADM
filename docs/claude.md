@@ -94,6 +94,18 @@ Two ways to talk to Claude, one conversation:
   docking would leave the machine too small to use; on a phone it is a bottom sheet with peek, half
   and full heights (the restore points and the switch are in its ⋯ menu), and it moves up above the phone's own
   keyboard while you type (the visual viewport).
+  An empty chat offers three example questions for what is on the machine now (`js/claude/prompts.js`): the
+  Debugger's stop, a visit that just arrived from a link (until your first key, message, load, Reset, Start over or
+  switch), WYRMFIRE, the welcome menu (one set without ROMs for the machine, another with them), LIZA, 2048,
+  Minesweeper, the colour demo, a machine-code program of yours, BASIC at its prompt with a program or without one,
+  BASIC running a program, and a general set for anything else, in that order of priority. They come from the
+  Session's and the machine's state (BASIC's program pointers and its current line number, CURLIN, on the Dragon and
+  CoCo), never from the picture, and nothing is sent to a model to make them. With a key a tap puts the question in
+  the message box and sends nothing. Without one they sit under "You could ask, once Claude is connected:"; a tap
+  selects one and offers **I have an API key** (the question fills the box once the key is saved) and **I use
+  Claude →** (the question is copied). They follow the machine half a second after it changes while the chat and the
+  box are empty, stay put while the box has text, a finger is down or a question is selected, and go after the first
+  message.
 * **Ctrl+K** opens "Ask Claude or find a command" (`js/ui/command-box.js`): the page's commands that match what you
   type come first (each presses the page's own button and is never sent to Claude), **Ask Claude: "…"** is always
   last. Enter runs the command or asks (a question ending in "?" puts **Ask Claude** first, so "reset?" asks rather than resets, unless it is a command's whole label); asking opens the side panel beside the

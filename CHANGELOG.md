@@ -10,6 +10,16 @@ Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.
 
 #### Added
 
+- **Ask Claude suggests three questions for what is on the machine.** An empty chat offers example questions that fit
+  the moment: the Debugger's stop, a visit that just arrived from a link, WYRMFIRE, the welcome menu (without and with
+  ROMs), LIZA, 2048, Minesweeper, the colour demo, a machine-code program of yours, BASIC with a program, empty or
+  running one, else a general set. They are read from the Session's and the machine's state (`js/claude/prompts.js`,
+  tested in Node), never from pixels or a model. With a key a tap fills the message box and sends nothing; without
+  one they sit under "You could ask, once Claude is connected:", and a tap offers **I have an API key** (the question
+  fills the box once the key is saved) or **I use Claude →** (the question is copied). They follow the machine half a
+  second after it changes while the chat and the box are empty, hold still while you type, press or have one
+  selected, are announced as "Suggestions updated", and go after the first message. With the chat not offered (an
+  embed) there are none.
 - **Every menu, sheet and view is checked for words run together.** A new `menuWords` group of the browser check opens
   the app bar (at 1440 and 900 px and on a phone), the machine menu, the drive menu, the command palette, the views behind
   the app bar (Library, Debugger, Share, Add ROMs), each tab of the settings drawer and of a phone's Settings sheet with
@@ -19,6 +29,11 @@ Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.
   lays its items out) came before 0.2.0; this holds it, and every other label, to it.
 
 #### Changed
+
+- **A phone's rows are taller.** On an upright phone Menu's rows, the Programs sheet's (the shelf, the Recent list)
+  and the machine list's grow toward 52 px with the window's height (`--row-tap`, 44 px at the least), and Menu
+  scrolls inside the window instead of running past it. A phone held sideways keeps its rows; every one stays
+  reachable at 393x659, 375x548 and 653x280 (the browser check's `phone` group).
 
 - **The plugin's servers are keyed *CLOADM side panel* and *CLOADM on this computer*.** The plugin format has no field
   for a server's display name (`mcpServers` is "keyed by name"), and Claude's plugin page and chat menu showed the old
