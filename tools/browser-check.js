@@ -5181,15 +5181,27 @@ async function phoneChecks(browser, base, check) {
   const rank = await page.evaluate(() => ({ sheet: document.getElementById('sheetCart').open, paused: !!window.emu.session.consent.paused }));
   check('phone: a sheet is modal, and with Claude paused by a key Esc closes the sheet first (Claude stays paused)', modal && !rank.sheet && rank.paused, JSON.stringify({ modal, rank }));
   await page.evaluate(() => window.emu.session.consent.endPause());
-  // the hardware keyboard while a sheet is open: the welcome menu's "1" (LIZA) does not reach the machine
+  // the hardware keyboard while a sheet is open: a key must not reach the machine.
+  // The machine's INPUT is the observable, not the screen (a key that got through is taken by the stub's POLCAT at
+  // once, while the welcome program may draw its reaction many frames later, so the screen cannot tell a leak from a
+  // slow draw). The queue alone is not enough either: the menu polls POLCAT, which SHIFTS a key off `stubKeys`, so a
+  // leaked key can leave the queue before it is read (measured: a leaked key went queue -> taken between two reads
+  // three frames apart, leaving queueAfter 0). So the count is the keys HANDED to the machine,
+  // `stubKeysTaken + stubKeys.length`: it only grows while a key is in flight (taken when POLCAT reads it), and the
+  // page opens the sheet with no reset in between, so a key that got through makes it grow by one and nothing can
+  // hide it. Both reads are taken around the press; the screen read follows ~60 EMULATED frames, so the menu's
+  // reaction (if a key had got through) has its chance to draw too.
   await page.tap('#chipPower');
   await waitFor(page, () => document.getElementById('sheetPower').open);
-  const screenBefore = await page.evaluate(() => window.emu.session.screenText().join('\n'));
+  await waitFor(page, () => /PRESS 1 TO 5/.test(window.emu.session.screenText().join('\n')), null, 20000);
+  const handed = () => page.evaluate(() => window.emu.machine.stubKeysTaken + window.emu.machine.stubKeys.length);
+  const handedBefore = await handed();
   await page.keyboard.press('1');
+  const handedAfter = await handed();
   await emuFrames(page, 60);
   const screenAfter = await page.evaluate(() => window.emu.session.screenText().join('\n'));
-  check('phone: typing on the hardware keyboard while a sheet is open does not reach the machine (the welcome menu is still up after "1")',
-    screenBefore === screenAfter && /PRESS 1 TO 5/.test(screenAfter), screenAfter.slice(0, 120));
+  check('phone: typing on the hardware keyboard while a sheet is open does not reach the machine (the keys handed to it do not change, the welcome menu is still up)',
+    handedBefore === handedAfter && /PRESS 1 TO 5/.test(screenAfter), JSON.stringify({ handedBefore, handedAfter, screen: screenAfter.slice(0, 80) }));
   await page.keyboard.press('Escape');
   // a tape mounted from the Tape sheet names itself on the chip
   await page.tap('#chipTape');
