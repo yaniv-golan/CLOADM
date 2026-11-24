@@ -2336,14 +2336,14 @@ npx serve -l 8000 .</pre>
 <!-- the media pickers: the extensions they take, and application/octet-stream so a file whose type the phone does not
      know (a .cas, a .vdk) can still be picked; no image/*, so iOS offers Files, not the Photo Library and the camera -->
 <input type="file" id="fileLib" hidden multiple accept=".bin,.cas,.c10,.k7,.wav,.rom,.ccc,.dgn,.vdk,.dsk,.jvc,.dmk,.os9,.bas,.txt,.cloadm,.zip,application/octet-stream">
-<input type="file" id="folderLib" hidden webkitdirectory>
+<input type="file" id="folderLib" hidden webkitdirectory accept=".bin,.cas,.c10,.k7,.wav,.rom,.ccc,.dgn,.vdk,.dsk,.jvc,.dmk,.os9,.bas,.txt,.cloadm,.zip,application/octet-stream">
 <input type="file" id="fileProgram" hidden multiple accept=".bin,.cas,.c10,.k7,.wav,.rom,.ccc,.dgn,.vdk,.dsk,.jvc,.dmk,.os9,.bas,.txt,.cloadm,application/octet-stream">
 
 <input type="file" id="fileTape" hidden accept=".cas,.c10,.k7,.wav,application/octet-stream">
 <input type="file" id="fileCart" hidden accept=".rom,.ccc,.dgn,.bin,application/octet-stream">
 <input type="file" id="fileMpSlot" hidden accept=".rom,.ccc,.dgn,.bin,application/octet-stream">
-<input type="file" id="fileRom" hidden multiple>
-<input type="file" id="folderRom" hidden webkitdirectory>
+<input type="file" id="fileRom" hidden multiple accept=".rom,.bin,.zip,.ccc,.dat,.a,.b,.0,.1,.2,.ci23,.ci24,.ic1,.ic12,.ic22,.ic34,.ic37,application/zip,application/octet-stream">
+<input type="file" id="folderRom" hidden webkitdirectory accept=".rom,.bin,.zip,.ccc,.dat,.a,.b,.0,.1,.2,.ci23,.ci24,.ic1,.ic12,.ic22,.ic34,.ic37,application/zip,application/octet-stream">
 <div id="dropOverlay" hidden aria-hidden="true"><div>Drop to load<span>ROMs, programs, tapes, cartridges, snapshots, ZIPs or a folder</span></div></div>
 <footer><a href="credits/">Credits</a>: CLOADM stands on the shoulders of MAME, XRoar, VCC, DriveWire and the
   Dragon and CoCo archives. · <a href="roms/">Where to get ROMs</a></footer>

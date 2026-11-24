@@ -32,6 +32,13 @@ Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.
 
 #### Fixed
 
+- **Add ROMs offers Files only on an iPhone.** Its file and folder pickers, the side panel's ROM picker and the Library's
+  folder picker had no accept list, so iOS offered the Photo Library and the camera next to Files. They now carry one,
+  as Open… does: the usual dump extensions (`.rom .bin .zip .ccc .dat .a .b .0 .1 .2` and the models' own `.ci24`, `.ic1` and
+  the like) and `application/octet-stream`, one list in `js/roms.js` (`ROM_PICKER_ACCEPT`). The browser check lists every
+  `input[type=file]` on the page and fails on one with no accept list of its purpose, an `image/*` or `video/*` type, or
+  `capture`. How an iPhone treats a ROM whose name is not in the list is to be confirmed on a phone.
+
 - **"On screen now" tells two files of one name apart.** The mark on a Recent row matched the file name only, so two
   files with the same name and different bytes could be told apart by position alone. The last run now records the
   file's content hash with its name (`Session.lastRun.crc`, `Session.isLastRun(entry)`), and only the row with that
