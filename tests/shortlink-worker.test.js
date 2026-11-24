@@ -225,10 +225,13 @@ const sealed = (n = 3000, seed = 1) => Uint8Array.from({ length: n }, (_, i) => 
         };
       })(),
     };
+    // (the reason, where a case could be refused for another one: a bomb must be stopped by the bound, not after)
+    const because = { 'no IDAT': /no image data/, 'an inflation bomb (32 MB of zeroes in a few KB)': /unpacks to more than its size allows/,
+      'garbage IDAT (not zlib)': /image data is damaged/, 'image data short of its size (one row missing)': /not the size its header says/ };
     for (const [what, p] of Object.entries(pngs)) {
       if (p.length > W.MAX_PNG) { check(`(test) the case fits the size cap: ${what}`, false, `${p.length} bytes`); continue; }
       const [s, m] = await status(req('/api/new', { body: Emu.newLinkBody('dragon64', sealed(), new Uint8Array(p)) }));
-      check(`picture refused (400): ${what}`, s === 400, m);
+      check(`picture refused (400): ${what}`, s === 400 && (!because[what] || because[what].test(m)), m);
     }
     // and one built the same way but right is taken (the cases above fail for their reason, not the builder's)
     {
