@@ -3640,6 +3640,69 @@ async function mediaChecks(browser, base, check) {
     // the drawer lists EVERY recent entry for this machine, including ones this group did not load (game.bin
     // above), so the count is not 1; what must hold is that ours is there once.
     check('recent: before the second load there is one row of this name', rowsBefore.filter((t) => t.includes('recent-one.bin')).length === 1, rowsBefore.join(' | '));
+    // a redraw of the Recent list must keep the focus on THE SAME row, by what it names (and its copy
+    // tag), not by place: a new load puts its file at the top and every row shifts down, so a
+    // place-based restore would move the keyboard to a different file - silently. Driven twice:
+    // first the page's own redraw trigger (a session event) with the order unchanged, then a REAL
+    // order change (loading a new file unshifts the list) with a row focused - the identity restore
+    // must find the same file again, whatever moved.
+    const kept = await page.evaluate(async () => {
+      const row = [...document.querySelectorAll('#recentList .row')].find((b) => b.dataset.name === 'recent-one.bin');
+      row.focus({ preventScroll: true });
+      const was = document.activeElement === row;
+      window.emu.session.emit('lastrun');   // the event the page answers with a redraw of the list, synchronously
+      const back = document.activeElement;   // read at once: the redraw ran inside the emit; no frame is given to repair anything
+      return { was, rebuilt: !row.isConnected, isNew: back !== row, name: back.dataset ? back.dataset.name : null, still: back.dataset && back.dataset.name === 'recent-one.bin' && back.dataset.crc === row.dataset.crc };
+    });
+    check('recent: a redraw of the list keeps the focus on the row that had it (a NEW node of the same file)', kept.was && kept.rebuilt && kept.isNew && kept.still, JSON.stringify(kept));
+    // THE ORDER CHANGE, with no launch to hide it: another tab of the same browser loads a program, and
+    // this page's Recent list reorders (Session.mediaElsewhere -> the 'recent' event -> the redraw) while
+    // this page's machine is untouched - no launch here, so nothing refocuses the screen. The focused
+    // row shifts down, and the restore must find it AGAIN BY NAME: a place-based restore lands on the
+    // file that took its place, a silent jump to a program nobody chose. The list's reorder is asserted
+    // first (the new file at the top), so the check cannot pass because nothing happened.
+    {
+      const other = await ctx.newPage();
+      await other.goto(`${base}?machine=dragon64`); await started(other);
+      const focusRow = await page.evaluate(() => {
+        const row = [...document.querySelectorAll('#recentList .row')].find((b) => b.dataset.name === 'recent-one.bin' && !b.querySelector('.copy'));   // the unlabelled copy (this page's newest of the name)
+        row.focus({ preventScroll: true });
+        return { was: document.activeElement === row, name: 'recent-one.bin', at: [...document.querySelectorAll('#recentList .row')].indexOf(row) };
+      });
+      await other.setInputFiles('#fileProgram', { name: 'elsewhere.bin', mimeType: 'application/octet-stream', buffer: A });   // a DragonDOS binary: B loads it at once
+      // A's list reordered: the new file at the top, the focused row one down - asserted, not assumed
+      const reordered = await waitFor(page, () => {
+        const rows = [...document.querySelectorAll('#recentList .row')];
+        return rows.length && (rows[0].dataset.name === 'elsewhere.bin') && rows.some((b) => b.dataset.name === 'recent-one.bin');
+      }, null, 10000);
+      await page.waitForTimeout(100);   // let the redraw (and any restore) settle
+      const after = await page.evaluate(() => ({ name: document.activeElement.dataset ? document.activeElement.dataset.name : null, at: [...document.querySelectorAll('#recentList .row')].indexOf(document.activeElement) }));
+      check('recent: a load in ANOTHER tab reorders this page\'s list (the new file on top) - the precondition for the focus check below', reordered, JSON.stringify(after));
+      check('recent: the reorder by another tab keeps the focus on the file it was on (by name, whatever moved - no launch here to hide a place-based jump)',
+        focusRow.was && reordered && after.name === focusRow.name, JSON.stringify({ focusRow, after }));
+      // the second half: a SAME-NAME load with DIFFERENT bytes in the other tab. The focused file's row
+      // keeps its name but the copy ordinals SHIFT (it becomes "2nd"), and a name-only or name+ordinal
+      // key lands on the OTHER page's file - the reviewer's reproduction. The restore must keep the
+      // keyboard on THIS page's own bytes (the library's own identity: name + content hash), and the
+      // row it is on must be the "2nd" copy. The new row on top is asserted first.
+      await other.setInputFiles('#fileProgram', { name: 'recent-one.bin', mimeType: 'application/octet-stream', buffer: B });
+      const reorded = await waitFor(page, () => {
+        const rows = [...document.querySelectorAll('#recentList .row')];
+        return rows.length && rows[0].dataset.name === 'recent-one.bin' && rows[0].dataset.crc !== (document.activeElement.dataset ? document.activeElement.dataset.crc : '');
+      }, null, 10000);
+      await page.waitForTimeout(100);   // let the redraw (and any restore) settle
+      const sameName = await page.evaluate(() => {
+        const ae = document.activeElement;
+        const row = ae.closest && ae.closest('#recentList .row');
+        return { name: ae.dataset ? ae.dataset.name : null, crc: ae.dataset ? ae.dataset.crc : null, tag: row && row.querySelector('.copy') ? row.querySelector('.copy').textContent : null,
+          onRecent: !!(row && row.closest('#recentList')) };
+      });
+      check('recent: another tab\'s load of the SAME NAME with different bytes puts its copy on top - the precondition for the same-name focus check', reorded, JSON.stringify(sameName));
+      check('recent: a same-name load in another tab keeps the focus on THIS page\'s own bytes (the "2nd" copy, by content hash - a name-only key lands on the other page\'s file)',
+        sameName.onRecent && sameName.name === 'recent-one.bin' && sameName.tag === '2nd',
+        JSON.stringify(sameName));
+      await other.close();
+    }
   }
   check('media: no page errors', !errors.length, errors.join('; '));
   await closeCtx(ctx);
@@ -5522,6 +5585,44 @@ async function phoneChecks(browser, base, check) {
       && document.activeElement === document.querySelector('#shelf :is(a, button)'));
     const deskState = await p.evaluate(() => ({ media: document.getElementById('tab-media').getAttribute('aria-selected'), focus: document.activeElement.textContent, sheet: !!document.querySelector('dialog[open]') }));
     check('desktop: the palette\'s "Programs" selects the Media tab and puts the focus on the shelf\'s first item (no sheet)', deskProg && !deskState.sheet, JSON.stringify(deskState));
+    // a redraw of the shelf (its "on screen now" marks change, or a session event) must keep the focus where it
+    // was: the redraw rebuilds the row, and without care the focused node is dropped to the body - the palette
+    // had just put the focus on the first item, and the next animation frame (the welcome menu's prompt drawing,
+    // a few dozen frames after the page loads it) took it away. That is the intermittent CI failure this guards:
+    // driven here directly, by the page's own trigger, so it is red on any machine, not only on a loaded one.
+    const redraw = await p.evaluate(async () => {
+      const first = document.querySelector('#shelf :is(a, button)');
+      first.focus({ preventScroll: true });
+      const was = document.activeElement === first;
+      window.emu.session.emit('lastrun');   // the event the page answers with a shelf redraw
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      // the redraw builds new nodes: the focus must be back on the shelf's FIRST item (the same place),
+      // not on the body where a dropped node leaves it
+      const again = document.querySelector('#shelf :is(a, button)');
+      return { was, still: document.activeElement === again, where: document.activeElement === document.body ? 'body' : (document.activeElement.id || document.activeElement.tagName) };
+    });
+    check('desktop: a redraw of the shelf keeps the focus on the item that had it (the palette\'s Programs focus survives the welcome menu\'s "on screen now" flip)', redraw.was && redraw.still, JSON.stringify(redraw));
+    // ... BY IDENTITY. The wrong-row jump a place-based restore would make has no launch-free driver
+    // on the shelf (its contents change only with the machine's CPU family, and a machine switch is a
+    // launch, which focuses the screen by design - overwriting whatever a wrong restore did), so the
+    // Recent list's cross-tab check carries that claim; here the machine switch shows the honest
+    // fallback only: the focused program (the Colour demo) is gone from the switched machine's shelf,
+    // and Chat with Claude took its place - recorded as the geometry, the claim stays what is checked.
+    const gone = await p.evaluate(async (machine) => {
+      const demo = document.querySelector('#shelf [data-shelf="Colour demo"]');
+      demo.focus({ preventScroll: true });
+      const was = document.activeElement === demo;
+      const at = demo.getBoundingClientRect().top;   // the place the focused item sat
+      window.emu.session.switchMachine(machine);
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      await new Promise((r) => setTimeout(r, 100));  // the switch also greets the menu, which focuses the screen
+      const chat = document.querySelector('#shelf [data-shelf="claude"]');
+      return { was, onChat: document.activeElement === chat, chatTookThePlace: !!chat && Math.abs(chat.getBoundingClientRect().top - at) < 2 };
+    }, 'mc10');
+    check('desktop: switching the machine takes the focused shelf item\'s place (Chat with Claude where the Colour demo was) - the geometry the identity restore must not jump to',
+      gone.was && gone.chatTookThePlace, JSON.stringify(gone));
+    // and the machine is switched back for the checks that follow
+    await p.evaluate(() => window.emu.session.switchMachine('dragon64'));
     // the app bar: no Programs… (the drawer's Media tab is in view), and no label with its words run together, at
     // 1440 (Install, the short label) and at 900 ("Install CLOADM…")
     const bar = [];
@@ -6613,6 +6714,25 @@ async function slotChecks(browser, base, check) {
   const after = await rows();
   check('snapshots: three empty, then Snapshot 1 holds the Dragon 64', before.join() === 'Snapshot 1 · empty|off,Snapshot 2 · empty|off,Snapshot 3 · empty|off'
     && /^Snapshot 1 · Dragon 64 · .+\|on$/.test(after[0]) && /^Snapshot 1 taken/.test(await page.textContent('#toast')), `${before} / ${after}`);
+  // the panel is rebuilt on the session's events, and a rebuild drops the node that had the focus - to
+  // the body, losing the keyboard. The same rule as the shelf and the Recent list: the button that had
+  // focus gets it back on the new node of the same slot and the same role. Driven by the panel's own
+  // trigger (a session event it redraws on), with the focus on Restore 1 - the remove-mutant goes red.
+  const slotFocus = await page.evaluate(async () => {
+    const load1 = document.querySelector('#slotList [aria-label="Restore snapshot 1"]');
+    load1.focus({ preventScroll: true });
+    const was = document.activeElement === load1;
+    window.emu.session.emit('reset');   // an event the panel answers with a redraw
+    // the rebuild is ASYNC (render() awaits listSlots): wait until it HAPPENED - the old node leaves the
+    // tree - not a fixed time, so a redraw that never comes fails instead of passing on a stale read
+    const deadline = performance.now() + 5000;
+    while (load1.isConnected && performance.now() < deadline) await new Promise((r) => setTimeout(r, 20));
+    const rebuilt = !load1.isConnected;
+    const back = document.activeElement;
+    return { was, rebuilt, isNew: back !== load1, still: back.getAttribute && back.getAttribute('aria-label') === 'Restore snapshot 1', where: back === document.body ? 'body' : (back.getAttribute && back.getAttribute('aria-label')) || back.tagName };
+  });
+  check('snapshots: a redraw of the slots panel keeps the focus on the button that had it (a NEW node of the same slot and role)',
+    slotFocus.was && slotFocus.rebuilt && slotFocus.isNew && slotFocus.still, JSON.stringify(slotFocus));
   await page.reload(); await ready(page);
   await openTab(page, 'Media');
   await waitFor(page, () => /Dragon 64/.test(document.querySelector('#slotList .row').textContent));

@@ -61,6 +61,18 @@ export function setupDrawer(page, { showRoms }) {
     // is for what is not running (js/ui/welcome.js)
     const running = page.runningNow();
     runShown = running && running.kind === 'recent' ? running.name : null;
+    // the list is rebuilt whenever its marks change, and a rebuild drops the node that had the focus.
+    // The row that had focus gets it back - BY IDENTITY, the library's own (the file it names plus its
+    // content hash, recentKey's rule, js/media/library.js), not by place and not by the copy tag:
+    // a redraw happens because the contents changed (another page's load can put a DIFFERENT file of
+    // the same name on top, which both shifts every row and shifts the copy ordinals - a name+tag key
+    // would land the keyboard on that other page's file), and the row at the same place can be a
+    // different file, which would move the keyboard to it silently. A file that is gone from the
+    // list leaves the focus where the browser put it: the keyboard was on something that no longer
+    // exists. (The wrong-row jump has its driver: the cross-tab check in the media group - another
+    // tab's load reorders this page's list with no launch here.)
+    const active = document.activeElement;
+    const had = active && list.contains(active) ? { name: active.dataset.name, crc: active.dataset.crc } : null;
     list.replaceChildren();
     // empty: hidden while "Last time" shows above it (the CSS), as the two would contradict each other
     for (const el of [list, $('recentHead')]) el.classList.toggle('recent-empty', !items.length);
@@ -77,10 +89,15 @@ export function setupDrawer(page, { showRoms }) {
       // two rows of one name with different bytes: say which is which, or the list shows the same line twice
       if (r.copy) { const c = document.createElement('span'); c.className = 'copy'; c.textContent = r.copy; b.append(n, c, k); }
       else b.append(n, k);
+      b.dataset.name = r.name; b.dataset.crc = String(r.crc).toUpperCase();   // the focus key (recentKey's rule): the redraw restores by it
       if (i === 0 && runShown !== null && session.library.sameName(r.name, runShown)) { n.after(Object.assign(document.createElement('span'), { className: 'tag now', textContent: 'on screen now' })); b.setAttribute('aria-current', 'true'); }
       b.disabled = !r.stored;
       b.onclick = () => { page.attempt(() => loadRow(session, { r, i })); page.focus(); };
       list.append(b);
+    }
+    if (had) {
+      const back = [...list.querySelectorAll('button')].find((b) => b.dataset.name === had.name && b.dataset.crc === had.crc);
+      if (back) back.focus({ preventScroll: true });
     }
   }
 

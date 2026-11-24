@@ -215,13 +215,21 @@ export function setupWelcome(page, { showRoms, openClaude }) {
   };
   function shelf() {
     const row = $('shelf');
+    // the shelf is rebuilt whenever its marks change ("on screen now", what runs), and a rebuild drops
+    // the node that had the focus - to the body, losing the keyboard with it (openPrograms had put it
+    // there). The item that had focus gets it back - BY IDENTITY (its dataset.shelf key), not by place:
+    // a redraw happens because the contents changed, and the item at the same place can be a different
+    // one, which would move the keyboard to it silently. An item that is gone (a program the machine's
+    // CPU does not run, after a switch) leaves the focus where the browser put it, on the body: the
+    // keyboard was on something that no longer exists, and no silent jump to a neighbour is made.
+    const had = document.activeElement && row.contains(document.activeElement) ? document.activeElement.dataset.shelf : null;
     row.replaceChildren();
     const running = page.runningNow();
     // every machine gets the welcome menu and LIZA (the 6809 or 6803 builds); the colour demo is a 6809 program
     // (the 6309 runs it too: it is in the 6809 instruction-set family)
     const cpu = session.personMachine.config.cpu, family = cpuFamily(cpu), need = session.lizaNeeds();
     {
-      const w = entry('Welcome menu', { start: 'welcome' }, () => runWelcome({ greeting: session.greetingFor('back'), carryOn: session.carryOn }, { reason: 'shelf' })); w.dataset.shelf = 'welcome';
+      const w = entry('Welcome menu', { start: 'welcome' }, () => runWelcome({ greeting: session.greetingFor('back'), carryOn: session.carryOn }, { reason: 'shelf' })); w.dataset.shelf = 'welcome';   // the focus key: the redraw restores by it
       w.title = 'The Welcome menu: LIZA, colour and sound, adding ROMs, Claude, games';
       tagged = onScreen();
       shownRun = running ? `${running.kind}:${running.name}` : '';
@@ -230,6 +238,7 @@ export function setupWelcome(page, { showRoms, openClaude }) {
     }
     for (const item of SHELF.filter((x) => !x.cpu || x.cpu === family)) {
       const b = entry(item.name, item.liza ? { start: 'liza' } : item.game ? { start: item.game } : null, () => run(item));
+      b.dataset.shelf = item.name;   // the focus key: the redraw restores by it
       // the LIZA title names the build the machine actually runs (the 6309 runs the 6809 build)
       b.title = item.liza ? `${item.title} (the ${family} build${need ? `; needs the ${need.ram}K RAM option` : ''})` : item.title;
       if (item.liza && need) { const t = el('span', `needs ${need.ram}K`, 'tag'); b.append(' ', t); b.dataset.needs = String(need.ram); }
@@ -238,6 +247,8 @@ export function setupWelcome(page, { showRoms, openClaude }) {
     }
     const c = entry('Chat with Claude', { app: 'claude' }, () => openClaude()); c.dataset.shelf = 'claude';
     row.append(c);
+    const back = had !== null && row.querySelector(`[data-shelf="${CSS.escape(had)}"]`);
+    if (back) back.focus({ preventScroll: true });
     lastTime();   // (the "Last time" card hides while its program runs: it follows what the shelf marks)
   }
   // the 20K offer belongs to the machine that was on; the welcome menu's "on screen now" follows what runs
