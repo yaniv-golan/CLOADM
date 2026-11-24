@@ -33,7 +33,9 @@ Next version: 0.1.9-pre (the plugin and extension manifests carry it; `tests/plu
   linking the verification notes and the deviations), privacy, what a share link holds, whether Claude is needed (the
   Off switch, where the key goes), whether it is a business, offline use and installing, whether AI was used,
   whether WYRMFIRE is Doom and how to report a bug, each in under 80 words; `/about/` has the maker's line, what it
-  is, the credits, the licence and the version with the bug report. Both are kept for offline
+  is, the credits (with the Freedoom credit: BSD 3-Clause, linking its licence), the licence, a trademark notice
+  (`#trademarks`, linked as "Trademarks" from every page's footer and the settings drawer) and the version with the bug
+  report. Both are kept for offline
   use and linked from Help and the settings drawer's credits line (`tests/site-pages.test.js`; the browser check's
   `reading`, `nav` and `pwa` groups).
 - **Every page says who CLOADM is not.** "Not affiliated with Tandy, Dragon Data, Microsoft, id Software or the
