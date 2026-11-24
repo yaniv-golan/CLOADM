@@ -3086,10 +3086,41 @@ async function onScreenChecks(browser, base, check) {
   let st = await state();
   check('open: while it runs there is no "Last time" card, and its recent row says "on screen now"',
     st.card === null && st.rows.length === 1 && st.rows[0][0] === 'minesweeper.bin' && st.rows[0][1] && st.rows[0][2] === 'true', JSON.stringify(st));
-  await page.click('#btnReset');
-  await waitFor(page, () => !document.getElementById('lastTime').hidden);
-  st = await state();
-  check('open: a reset takes it off the screen: "Last time" is back (minesweeper.bin) and no row is marked', /^minesweeper\.bin/.test(st.card) && !st.rows[0][1], JSON.stringify(st));
+  // DETERMINISTIC: Session.reset() emits 'reset' synchronously, so calling it and reading the card AND the rows in ONE
+  // page.evaluate leaves no frame to run between them. A page that waits for the card and reads after a frame cannot pin
+  // the fix -- a frame's reconciler repairs the mark -- so that form was green on a mutated base on another machine.
+  // Read here: the card's name and the recent rows, the instant the reset's handlers have run.
+  const afterReset = await page.evaluate(() => {
+    window.emu.session.reset();
+    const card = document.getElementById('lastTime').hidden ? null : document.getElementById('lastName').textContent;
+    const rows = [...document.querySelectorAll('#recentList .row')].map((r) => [r.firstChild.textContent, !!r.querySelector('.tag.now')]);
+    return { card, rows };
+  });
+  check('open: a reset takes it off the screen: "Last time" is back (minesweeper.bin) and no row is marked (read in the reset\'s own tick)',
+    /^minesweeper\.bin/.test(afterReset.card) && afterReset.rows.length && afterReset.rows[0][0] === 'minesweeper.bin' && !afterReset.rows[0][1], JSON.stringify(afterReset));
+  // and again the deterministic way, for a POWER CYCLE ('firmware', not 'reset'): the same read in the cycle's own tick
+  await page.setInputFiles('#fileProgram', mines);
+  await waitFor(page, () => /minesweeper\.bin loaded/.test(document.getElementById('toastText').textContent));
+  await waitFor(page, () => document.getElementById('lastTime').hidden);
+  const afterPower = await page.evaluate(() => {
+    window.emu.session.powerCycle({ reason: 'you power cycled the machine' });
+    const card = document.getElementById('lastTime').hidden ? null : document.getElementById('lastName').textContent;
+    const rows = [...document.querySelectorAll('#recentList .row')].map((r) => [r.firstChild.textContent, !!r.querySelector('.tag.now')]);
+    return { card, rows };
+  });
+  check('open: a power cycle takes it off the screen too: "Last time" is back and no row is marked (read in the cycle\'s own tick)',
+    /^minesweeper\.bin/.test(afterPower.card) && afterPower.rows.length && afterPower.rows[0][0] === 'minesweeper.bin' && !afterPower.rows[0][1], JSON.stringify(afterPower));
+  // A Reset while a recent row has the keyboard focus must not lose it: the reset redraws the list only when the running
+  // row actually changed (runKey() !== runShown), so on an idle machine (nothing running) a Reset leaves the list, and the
+  // focused row, alone. Deterministic: focus a row, run reset() and read activeElement in ONE evaluate (no frame between).
+  const focusKept = await page.evaluate(() => {
+    const row = document.querySelector('#recentList .row'); if (!row) return { row: false };
+    row.focus(); const was = document.activeElement === row;
+    window.emu.session.reset();
+    return { row: true, was, still: document.activeElement === row, tag: document.activeElement && document.activeElement === row ? 'the row' : (document.activeElement && (document.activeElement.id || document.activeElement.tagName)) };
+  });
+  check('open: a Reset on an idle machine keeps the keyboard focus on the recent row (the list is not redrawn when nothing was running)',
+    focusKept.row && focusKept.was && focusKept.still, JSON.stringify(focusKept));
   await page.setInputFiles('#fileProgram', mines);
   await waitFor(page, () => document.getElementById('lastTime').hidden);
   await shelfClick('welcome');

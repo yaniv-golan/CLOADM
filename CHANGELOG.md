@@ -449,6 +449,10 @@ Next version: 0.1.9-pre (the plugin and extension manifests carry it; `tests/plu
   machine is listed as *Also ready to run BASIC* only when every required socket holds a **recognised** dump, not
   a file that was merely loaded. The note about a file that could not be used moved from a toast at the foot of
   the window to beside the socket list it is about, so it is read without scrolling.
+- **A Reset (or a power cycle) no longer shows the "Last time" card beside a row still marked "on screen now".** The
+  card and the recent list both follow what is on screen, but they were redrawn by separate paths: the card in the
+  Reset's own turn, the list a frame later. The list is now redrawn in the same turn, so the two change together.
+
 - **A first visit is not greeted "WELCOME BACK" while nothing has run in it.** Picking a machine in the header menu, or
   the shelf's Welcome menu, on the browser's first visit shows the title screen; once a program has run, or on a later
   visit, the menu says it. (`Session.greetingFor` is now a method of the session, which knows whether the visit began
