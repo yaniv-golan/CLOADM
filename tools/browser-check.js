@@ -11094,7 +11094,7 @@ const textOverlay = (page) => page.evaluate((OVERLAYS) => {
   for (let y = by; y < by + 8; y++) for (let x = bx; x < bx + 256; x++) if ((px[y * f.width + x] & 0xff00) > 0x8000) lit++;
   const shown = (id) => { const e = document.getElementById(id); return !!e && e.checkVisibility(); };
   return { over, inside, lit, row0: [row0.left, row0.top, row0.right, row0.bottom].map(Math.round),
-    hints: { focus: shown('focusHint'), keys: shown('keyHint'), sound: shown('soundHint') }, romPill: shown('romPill'), noRomsCard: shown('welcome'),
+    hints: { focus: shown('focusHint'), keys: shown('keyHint'), sound: shown('soundHint'), notes: shown('screenNotes') }, romPill: shown('romPill'), noRomsCard: shown('welcome'),
     keyHintLive: !document.getElementById('keyHint').hidden, focused: document.activeElement.id };
 }, OVERLAYS);
 // the screen reached by keyboard (the focus hint's case)
@@ -11128,8 +11128,9 @@ async function welcomeScreenChecks(browser, base, check) {
     // the focus hint lies over the nameplate under the screen; a short window leaves the nameplate out, and with it
     // the hint (the tube's focus ring still shows the keyboard is on the screen)
     const plate = await page.evaluate(() => document.querySelector('.plate').checkVisibility());
-    check(`welcome screen (${label}): on a first visit the sound note shows alone, then the focus hint (where the nameplate shows) and the key hint, and none lies over the menu's text`,
-      !w.hints.keys && w.hints.sound && w.lit > 0 && !w.over.length && wf.focused === 'screen' && wf.hints.focus === plate && wf.hints.keys && !wf.over.length, JSON.stringify({ plate, w, wf }));
+    // (the bezel's focus hint shows only where the line under the screen does not: that line already says how to leave)
+    check(`welcome screen (${label}): on a first visit the sound note shows alone, then the key hint (the bezel's focus hint only where the nameplate shows and the line under the screen does not), and none lies over the menu's text`,
+      !w.hints.keys && w.hints.sound && w.lit > 0 && !w.over.length && wf.focused === 'screen' && wf.hints.focus === (plate && !wf.hints.notes) && wf.hints.keys && !wf.over.length, JSON.stringify({ plate, w, wf }));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, `welcome-screen-${label}.png`) });
     check(`welcome screen (${label}): no page errors`, !errors.length, errors.join('; '));
     await closeCtx(ctx);
