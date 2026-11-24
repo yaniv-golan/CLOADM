@@ -10,7 +10,7 @@
  *    (js/media/qr.js), the "Show a preview picture" switch (on by default; the picture is public) and "Delete this link"
  *    (its delete token kept in this browser, localStorage cloadm.shortLinks). Where it can't be made (offline, a moment
  *    on ROMs, a cartridge, NitrOS-9: Session.shortLinkRefusal) the button is switched off and the reason is beside it.
- *  - the long link, "Exact moment · works offline, never expires" (Session.snapshotLink: the snapshot rides in the URL's
+ *  - the long link, headed "Works offline, never expires" and labelled "Exact moment (long link)" (Session.snapshotLink: the snapshot rides in the URL's
  *    fragment, which never reaches a server; js/ui/snapshot-panel.js opens it), with Share... (navigator.share, the URL
  *    only, where canShare allows it) and Copy link.
  * "More ways to share" (collapsed): a 6-second clip of the screen (MediaRecorder: MP4 where the browser records it, WebM

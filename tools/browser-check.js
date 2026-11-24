@@ -15795,6 +15795,32 @@ async function shareScreenChecks(browser, base, check) {
   check('share screen (375x548): on open "Make a short link", its preview switch, and the long link\'s Share…, Copy link and URL are inside the viewport',
     first.make && first.sw && first.native && first.copy && first.url, JSON.stringify(first));
   check('share screen (375x548): with the disclosures closed the page is at most 1.5 screens tall, the preview at most 30vh', first.closed && first.h <= first.vh * 1.5 && first.pic <= first.vh * 0.3 + 1, JSON.stringify(first));
+  // the long link's Copy button, wholly inside the viewport at the sizes the page supports. A width sweep, because the
+  // share screen is two columns above 860px and one below, and the short-link section made the two-column first screen
+  // taller: at 861x600 the Copy button fell 53px below the fold (main bc0c586 fitted: 506 of 600).
+  // 653x280 is deliberately NOT here: that is a separate layout item (a compact short-landscape Share screen), already
+  // over on main before this branch (363 of 280) and 442 of 280 after it.
+  for (const [label, size] of [['375x548', { width: 375, height: 548 }], ['861x600', { width: 861, height: 600 }],
+    ['1024x640', { width: 1024, height: 640 }], ['1280x720', { width: 1280, height: 720 }]]) {
+    const sc = await browser.newContext({ viewport: size, serviceWorkers: 'block' });
+    const sp = await sc.newPage();
+    await sp.goto(`${base}?machine=dragon64#share`);
+    await waitFor(sp, () => !document.getElementById('share').hidden && !!document.getElementById('shareLink').value);
+    const fit = await sp.evaluate(() => {
+      const b = document.getElementById('btnShareCopy').getBoundingClientRect();
+      const lab = document.getElementById('shareLinkLabel').getBoundingClientRect(), inp = document.getElementById('shareLink').getBoundingClientRect();
+      return { top: Math.round(b.top), bottom: Math.round(b.bottom), vh: innerHeight, shown: document.getElementById('btnShareCopy').checkVisibility(),
+        labelBottom: Math.round(lab.bottom), inputTop: Math.round(inp.top), labelShown: document.getElementById('shareLinkLabel').checkVisibility() };
+    });
+    if (shotDir) await sp.screenshot({ path: path.join(shotDir, `share-copy-${label}.png`) });
+    check(`share screen (${label}): the long link's Copy button is wholly inside the viewport`,
+      fit.shown && fit.top >= 0 && fit.bottom <= fit.vh, JSON.stringify(fit));
+    // the label sits WHOLLY above the input: no descender of "(long link)" on the input's top edge. Main's -10px margin
+    // was written for a label in .col (gap 18); in this branch's .linkset (gap 6) it overlapped by 4-6px, at every size.
+    check(`share screen (${label}): the long link's label sits wholly above its input, not on its edge`,
+      fit.labelShown && fit.labelBottom <= fit.inputTop, JSON.stringify(fit));
+    await sc.close();
+  }
   // the disclosures
   const open = (id) => page.evaluate((i) => document.getElementById(i).open, id);
   const toggles = [];
@@ -20331,7 +20357,7 @@ async function shortLinkChecks(browser, base, site, check) {
     terms: document.getElementById('shortTerms').textContent, long: document.getElementById('longHeading').textContent, why: document.getElementById('shortWhy').textContent }));
   check('shortLink: online and allowed, "Make a short link" is the primary choice, the preview switch is on', before.make && before.copyNotPrimary && before.preview && before.why === '', JSON.stringify(before));
   check('shortLink: the public copy, word for word, and the long link\'s label', before.terms === 'The preview picture is public. Links don\'t expire. A link reported for abuse can be removed. Only people with the link can open it; the server can\'t read it.'
-    && before.long === 'Exact moment · works offline, never expires', JSON.stringify(before));
+    && before.long === 'Works offline, never expires', JSON.stringify(before));
   await page.click('#btnShortMake');
   const made = await waitFor(page, () => !document.getElementById('shortMade').hidden, null, 15000);
   const r = await page.evaluate(() => ({ url: document.getElementById('shareShort').value, qr: document.getElementById('shareQr').dataset.text, qrw: document.getElementById('shareQr').width,

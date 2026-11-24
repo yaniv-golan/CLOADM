@@ -103,7 +103,7 @@ function checked(snap) {
 }
 
 // ---------------- the long link (#z=) ----------------
-// The moment a long link carries (Session.longLink writes '#z=' + base64url of these bytes):
+// The moment a long link carries (Session.snapshotLink writes '#z=' + base64url of these bytes):
 //   byte 0      the link format's version, LONG_LINK_VERSION (1); 2 to 31 are kept for later versions, which a page says are newer
 //   bytes 1...  deflate-raw (RFC 1951, no header or checksum) of the container:
 //     u32 little-endian J, the length of the skeleton
@@ -114,7 +114,7 @@ function checked(snap) {
 //                 platform (little-endian, as files' base64 is)
 // The rendered picture (state.frame) is left out (null): it is about half of what is left after compression, and the
 // machine draws it again on the next frame (Machine.loadState clears it). Saved files keep it. A link is about half
-// the length of the older '#s=' form (base64url of the gzip file), which pages still read (Session.readLongLink).
+// the length of the older '#s=' form (base64url of the gzip file), which pages still read (Session.readSnapshotLink).
 export const LONG_LINK_VERSION = 1;
 const TYPED_NAMES = new Set(['Uint8Array', 'Int8Array', 'Uint16Array', 'Int16Array', 'Uint32Array', 'Int32Array', 'Float32Array', 'Float64Array']);
 

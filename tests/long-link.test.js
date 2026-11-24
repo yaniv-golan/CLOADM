@@ -1,5 +1,5 @@
 // The compact share-link form of a snapshot, '#z=' (js/media/snapshot.js encodeLongLink / decodeLongLink,
-// Session.longLink / readLongLink):
+// Session.snapshotLink / readSnapshotLink):
 //  * hand-built vectors whose bytes are written out here, not made by the code under test: a container in a deflate
 //    "stored" block assembled byte by byte (RFC 1951 3.2.4), and the exact container the encoder must write
 //  * round trips: the same snapshot back, every typed array and non-finite number, with the picture left out
