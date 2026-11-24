@@ -43,6 +43,10 @@ const BLOCKS = { // [ec, [blocks, data], ...] for the versions read here (Table 
   '3L': [15, [1, 55]], '6H': [28, [4, 15]], '4L': [20, [1, 80]], '4Q': [26, [2, 24]], '4H': [16, [4, 9]], '5Q': [18, [2, 15], [2, 16]], '7H': [26, [4, 13], [1, 14]], '10M': [26, [4, 43], [1, 44]],
 };
 const LEVEL = { 1: 'L', 0: 'M', 3: 'Q', 2: 'H' };
+// the data mask patterns, written out from Table 10 (i: row, j: column), not taken from the encoder
+const MASK = [(i, j) => (i + j) % 2 === 0, (i) => i % 2 === 0, (i, j) => j % 3 === 0, (i, j) => (i + j) % 3 === 0,
+  (i, j) => (Math.floor(i / 2) + Math.floor(j / 3)) % 2 === 0, (i, j) => (i * j) % 2 + (i * j) % 3 === 0,
+  (i, j) => ((i * j) % 2 + (i * j) % 3) % 2 === 0, (i, j) => ((i + j) % 2 + (i * j) % 3) % 2 === 0];
 function read(sym) {
   const { size, modules } = sym, at = (r, c) => modules[r * size + c];
   const v = (size - 17) / 4;
@@ -58,7 +62,7 @@ function read(sym) {
   if (!at(size - 8, 8)) throw new Error('no dark module');
   // the modules in placement order, unmasked, skipping the function patterns
   const { fn } = q.qrTemplate(v), bits = [];
-  for (const [r, c] of q.qrDataOrder(v, fn)) bits.push(at(r, c) ^ (q.MASKS[mask](r, c) ? 1 : 0));
+  for (const [r, c] of q.qrDataOrder(v, fn)) bits.push(at(r, c) ^ (MASK[mask](r, c) ? 1 : 0));
   const total = Math.floor(bits.length / 8), cw = [];
   for (let i = 0; i < total; i++) cw.push(bits.slice(i * 8, i * 8 + 8).reduce((a, b) => (a << 1) | b, 0));
   const [ec, ...groups] = BLOCKS[`${v}${ecl}`];

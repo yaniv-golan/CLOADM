@@ -4,7 +4,8 @@
  * conditional headers or { etagMatches }), and a rate limiter with the binding's limit({ key }). Never deployed.
  */
 export class MemoryBucket {
-  constructor() { this.objects = new Map(); this.n = 0; this.failNext = []; }
+  // failNext: tests of a lost race; beforePut(key): a hook run first, where a test writes a concurrent change
+  constructor() { this.objects = new Map(); this.n = 0; this.failNext = []; this.beforePut = null; }
   obj(key, o) {
     return o && { key, etag: o.etag, httpEtag: `"${o.etag}"`, size: o.bytes.length, customMetadata: o.customMetadata, httpMetadata: o.httpMetadata,
       text: async () => new TextDecoder().decode(o.bytes), arrayBuffer: async () => o.bytes.slice().buffer };
@@ -12,6 +13,7 @@ export class MemoryBucket {
   async head(key) { return this.obj(key, this.objects.get(key)); }
   async get(key) { return this.obj(key, this.objects.get(key)); }
   async put(key, value, opts = {}) {
+    if (this.beforePut) await this.beforePut(key);
     const cur = this.objects.get(key), only = opts.onlyIf;
     if (this.failNext.length && this.failNext[0](key)) { this.failNext.shift(); return null; }   // a write that lost a race
     if (only instanceof Headers) { if (only.get('If-None-Match') === '*' && cur) return null; }

@@ -108,10 +108,20 @@ const sealed = (n = 3000, seed = 1) => Uint8Array.from({ length: n }, (_, i) => 
     check('the public totals page (stats/): the totals, nothing per person', /Short links made<\/td><td>3</.test(stats) && /Short links opened<\/td><td>3</.test(stats) && /wyrmfire started from its page<\/td><td>1</.test(stats));
     const everything = [...env.BUCKET.objects.values()].map((o) => new TextDecoder('latin1').decode(o.bytes) + JSON.stringify(o.customMetadata)).join('\n');
     check('no address is stored anywhere', !everything.includes(IP) && !everything.includes('203.0.113'));
-    // a count written by someone else at the same moment is kept: the etag check fails once and the change is redone
-    env.BUCKET.failNext.push((k) => k === 'stats/counts.json');
+    // a count written by someone else between the Worker's read and its write (another open, landing first) is kept:
+    // the etag check refuses the stale write and the change is redone on the new counts
+    let raced = false;
+    env.BUCKET.beforePut = async (k) => {
+      if (k !== 'stats/counts.json' || raced) return;
+      raced = true;
+      const o = env.BUCKET.objects.get(k), c2 = JSON.parse(new TextDecoder().decode(o.bytes));
+      c2.opened++;
+      env.BUCKET.objects.set(k, Object.assign({}, o, { bytes: new TextEncoder().encode(JSON.stringify(c2)), etag: `race${++env.BUCKET.n}` }));
+    };
     await call(env, req('/api/opened'));
-    check('counts: a concurrent write is retried, not lost', JSON.parse(env.BUCKET.text('stats/counts.json')).opened === 4);
+    env.BUCKET.beforePut = null;
+    check('counts: a concurrent write is kept, and this one redone on top of it (4 opens before, the racing one, this one)', raced && JSON.parse(env.BUCKET.text('stats/counts.json')).opened === 5,
+      env.BUCKET.text('stats/counts.json'));
   }
 
   // ---------------- refusals ----------------
