@@ -53,6 +53,8 @@ import { screenRows, screenTextTool } from './claude/readtools.js';
 // the status of a turn paused by the person's key, in every view that shows it with Resume and Stop (Esc is Stop then)
 // (one text for every paused state: whether a call waits, typing is held, or Claude only writes its reply,
 // its next action waits; "Esc stops Claude" is never dropped)
+// what a door to Claude says while Settings -> Claude features is Off (js/ui/claude.js; ?app=claude, the embed chip's tab)
+export const CLAUDE_OFF_TEXT = 'Claude features are off (Settings → Machine).';
 export const CLAUDE_PAUSED_TEXT = 'Paused: you pressed a key · Claude\'s next action waits · Esc stops Claude';
 // the same where it must fit one line (the browser Fullscreen's pill)
 // The Speech/Sound Pak's words for its speech ROM (the SP0256-AL2's allophone data, the user's own and optional):
@@ -81,6 +83,7 @@ export const CLAUDE_PAUSED_SHORT = 'Paused: you pressed a key · Esc stops Claud
 // a message's text: a string, or the text blocks of a content array
 import { RomLibrary, identifyRoms, isBootable, isRomPack, looksLikeRom, makeRomPack, restoreRomPack, socketStatus } from './roms.js';
 import { writeZip } from './media/zip.js';
+import { bugReportText, isWad, sha256Hex } from './bugreport.js';
 import { SNAPSHOT_EXT, SnapshotError, decodeSnapshot, encodeSnapshot } from './media/snapshot.js';
 import { missingImages, restoreRoms, stripRoms } from './media/romrefs.js';
 import { crc32, hex, registry, toBase64Url, fromBase64Url } from './util.js';
@@ -239,6 +242,7 @@ const SETTINGS = {
   keyboardMode: (v) => v === 'translated' || v === 'positional',
   keyboardJoystick: (v) => v === '1' || v === '0',
   tapeSound: (v) => v === '1' || v === '0',
+  claudeFeatures: (v) => v === '1' || v === '0',   // Settings -> Claude features: On ('1', the default) / Off ('0')
   'display.settings': (v) => { const o = parseObject(v); return !!o && Object.entries(o).every(([k, x]) => Object.hasOwn(DISPLAY_VALID, k) && DISPLAY_VALID[k](x)); },
 };
 function validSetting(k, v) {
@@ -582,6 +586,7 @@ export class Session {
     if (mediaShare && mediaShare.channel) mediaShare.channel.onmessage = (e) => { this.mediaElsewhere(e.data).catch(() => {}); };
     this.store = store;
     this.media = media;
+    this.lastLoaded = null;   // the file Session.load loaded last: { name, bytes } (bugReport names it and hashes it)
     // the media library on that store (js/library.js): listing, import, rename and delete, the recent list, the
     // names being made and the store's case rule, and moving it all to another store. Made before anything below
     // that compares names or asks whether the library is moving (the DriveWire server's hooks).
@@ -1687,6 +1692,11 @@ export class Session {
   }
 
   // ---------------- settings and sharing (never ROMs) ----------------
+  // Settings -> "Claude features": On (the default) or Off. Off hides the page's doors to Claude (the Ask button, the
+  // command box's Claude rows and its "Ask Claude" row, the Programs row "Chat with Claude"; js/ui/claude-features.js);
+  // the welcome menu's own item stays, as it is the firmware's. Kept in the store, so it is in a settings export.
+  get claudeFeatures() { return this.store.get('claudeFeatures') !== '0'; }
+  setClaudeFeatures(on) { this.store.set('claudeFeatures', on ? '1' : '0'); this.emit('claudefeatures', !!on); }
   // settings export: every stored setting except ROMs and stored media files
   exportSettings() {
     const keys = (this.store.keys ? this.store.keys() : []).filter((k) => validSetting(k, this.store.get(k))).sort();
@@ -1731,6 +1741,27 @@ export class Session {
     }
     if (!file) return { href: this.shareUrl(base, { app: 'claude', nitros9: null }), carried: false };
     return { href: `${this.shareUrl(base, { app: 'claude' }).split('#')[0]}#s=${toBase64Url(file.bytes)}`, carried: true };
+  }
+
+  // "Copy bug report" (js/bugreport.js): the version, the machine on screen and its options, its ROMs by CRC only, the
+  // browser, the file loaded last (name and SHA-256; a WAD is not named; a cartridge by CRC32 only) and, only with snapshot, the moment as the
+  // Share screen's ROM-free link. Never the Claude key, a ROM's bytes or file name. -> { text, parts }
+  async bugReport({ base = 'https://cloadm.dev/play/', browser = '', snapshot = false } = {}) {
+    const m = this.shownMachine, options = {};
+    for (const [k, v] of Object.entries(m.config)) if (m.profile.options[k]) options[k] = v;
+    const last = this.lastLoaded;
+    // a cartridge (or anything that is a ROM image) is someone's ROM: by its CRC only, never its name or SHA-256
+    let kind = null;
+    if (last) { try { kind = formats.identify(last.name, last.bytes).kind; } catch (e) { kind = null; } }
+    const cart = !!last && !isWad(last.name, last.bytes) && (kind === 'cart' || Session.isRom(last.name, last.bytes));
+    const file = !last ? null : isWad(last.name, last.bytes) ? { wad: true } : cart ? { cartridge: crc32(last.bytes) } : { name: last.name, sha256: await sha256Hex(last.bytes) };
+    let link = null, snapshotNote = '';
+    if (snapshot) {
+      try { link = await this.snapshotLink(base); } catch (e) { if (!(e instanceof SessionError)) throw e; snapshotNote = `not included (${e.message})`; }
+    }
+    const roms = Object.assign({}, m.romCrcs(), cart ? { cartridge: file.cartridge } : {});
+    const parts = { machine: { id: m.id, name: m.profile.name }, options, roms, browser, file, snapshot: link, snapshotNote };
+    return { text: bugReportText(parts), parts };
   }
 
   // ---------------- snapshots ----------------
@@ -2183,6 +2214,7 @@ export class Session {
   // run: false types a BASIC listing without the RUN after it (the MCP server's load; the page always runs it)
   load(name, bytes, { askAddresses = null, remember = true, run = true } = {}) {
     this.loadStarted = true;
+    this.lastLoaded = { name, bytes };   // (bugReport: its name and SHA-256; set first, so a file that fails to load is named too)
     const msg = this.loadMedia(name, bytes, askAddresses, { run });
     if (remember) { this.library.rememberMedia(name, bytes); this.setLastRun('recent', name, { running: this.loadStarted, crc: crc32(bytes) }); }
     this.emit('loaded');

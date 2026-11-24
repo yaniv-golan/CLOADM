@@ -595,6 +595,12 @@ const REQUIRED = require.main !== module;
     'programControls',
     // claudeLink builds the "Ask Claude ↗" link from shareFile and shareUrl (both reads of the shown machine)
     'claudeLink',
+    // bugReport reads the SHOWN machine (its options and ROM CRCs) and, when asked, builds snapshotLink; it changes nothing
+    'bugReport',
+    // lastLoaded: the Share screen reads which file was loaded last (recordingGuard: a WAD of the person's own); a field
+    'lastLoaded',
+    // claudeFeatures reads Settings -> Claude features (a stored flag); setClaudeFeatures stores it and emits, the machine untouched
+    'claudeFeatures', 'setClaudeFeatures',
     // menuTicketFor returns the ticket a menu starts with (the Session's menuTicket or the one passed); changes nothing
     'menuTicketFor',
     // bareDiskController and diskRomWaiting read the disk controller of the PERSON's machine (diskMachine); no change

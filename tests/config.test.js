@@ -151,5 +151,16 @@ check('a failed fetch of a link\'s file: a network or CORS failure (TypeError) g
   check('setDisplay: stored', JSON.parse(store.get('display.settings')).glow === 10);
 }
 
+// record=1: the frame is 4:3, or 16:9 with aspect=16:9 (which nothing else takes); written back by buildUrl
+{
+  const a = parse('?record=1', 'dragon64'), b = parse('?record=1&aspect=16:9', 'dragon64'), c = parse('?aspect=16:9', 'dragon64'), d = parse('?record=0', 'dragon64');
+  check('record=1: a 4:3 frame, no error', a.record === true && a.recordAspect === '4:3' && !a.errors.length);
+  check('record=1&aspect=16:9: a 16:9 frame, no display aspect set, no error', b.record === true && b.recordAspect === '16:9' && b.display.aspect === undefined && !b.errors.length, JSON.stringify(b.errors));
+  check('aspect=16:9 without record=1 is refused, the rest applies', c.record === null && c.recordAspect === null && c.display.aspect === undefined && /aspect=16:9: only with record=1/.test(c.errors.join()));
+  check('record=0: not recording', d.record === false && d.recordAspect === null);
+  check('buildUrl writes record=1 and its 16:9 back', new URL(Emu.buildUrl('https://cloadm.dev/play/', b)).search === '?record=1&aspect=16%3A9'
+    && Emu.parseUrlConfig(new URL(Emu.buildUrl('https://cloadm.dev/play/', b)).search, 'dragon64').recordAspect === '16:9');
+}
+
 console.log(fail ? `${fail} FAILED` : 'all passed');
 process.exitCode = fail ? 1 : 0;

@@ -19,7 +19,7 @@ import { claudeBrief } from '../claude/brief.js';
 import { MemoryChannel } from '../claude/channel.js';
 import { exampleReader } from '../host/example-reader.js';
 import { ACTING_TOOL_NAMES } from '../claude/chat.js';
-import { CLAUDE_PAUSED_TEXT } from '../session.js';
+import { CLAUDE_PAUSED_TEXT, CLAUDE_OFF_TEXT } from '../session.js';
 import { CanvasPresenter } from '../video/canvas.js';
 import { cpuFamily } from '../cpu/cpus.js';
 import { $, ESC, VIEWS, viewOpen, markUndrawn, claudeStatusText, touchPanel, TOUCH_PAUSED_TEXT } from './page.js';
@@ -125,6 +125,9 @@ export function setupClaude(page) {
       notify();
     };
   }
+  // Settings -> Claude features Off (Session.claudeFeatures, js/ui/claude-features.js): no door may start a turn or open a
+  // view; the ones a person used say why. ask() checks too, so no hidden path reaches the API.
+  const featuresOff = () => { if (session.claudeFeatures) return false; page.status(CLAUDE_OFF_TEXT); return true; };
   // the conversation, started in the side panel if there is none yet
   function ensure() {
     if (!session.chat) wire(session.startAsk({ backend: backend(), brief: brief('panel'), include }));
@@ -132,6 +135,7 @@ export function setupClaude(page) {
   }
   // one line to Claude from either view's box (the firmware's own lines come through its channel)
   async function ask(text, { context = null } = {}) {
+    if (!session.claudeFeatures) return null;
     const chat = ensure();
     text = String(text || '').trim();
     if (!text || chat.busy) return null;
@@ -158,6 +162,7 @@ export function setupClaude(page) {
   // the Debugger's opener ("From the Debugger"): the code at the program counter and the
   // registers go with the question, so Claude reads exactly what is there
   function askAboutCode(addr) {
+    if (featuresOff()) return null;
     const code = session.codeAt(addr);
     const hex = (v) => v.toString(16).toUpperCase().padStart(4, '0');
     openPanel();
@@ -203,6 +208,7 @@ export function setupClaude(page) {
   // ---------------- the views ----------------
   let panel = null;   // js/ui/ask.js registers itself: { open, close, shown }
   function openPanel(question) {
+    if (featuresOff()) return;
     ensure();
     if (session.claudeView === 'full') closeFull({ toPanel: true });
     state.view = 'panel';
@@ -212,6 +218,7 @@ export function setupClaude(page) {
   // Chat with Claude, full screen: the chat machine on screen, the conversation (if any) moved to it
   let opening = null;
   async function openFull() {
+    if (featuresOff()) return null;
     if (session.claudeView === 'full') { panelOnReturn = false; session.showChat('chat'); show(true); return session.chat; }
     if (opening) return opening;
     opening = (async () => {

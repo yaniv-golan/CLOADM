@@ -8091,7 +8091,7 @@ async function navChecks(browser, site, check) {
   check('nav: the Library and Add ROMs have one header each (their own "← Emulator" bar, no app bar); the app bar is back on the emulator',
     !lib.appbar && lib.lib && !roms.appbar && roms.roms && back.appbar, JSON.stringify({ lib, roms, back }));
   const ALL = [['Home', '/'], ['Help', '/help/'], ['ROMs', '/roms/'], ['Credits', '/credits/'], ['Report a problem', 'https://github.com/yaniv-golan/cloadm/issues']];
-  for (const [title, at] of [['HELP', 'help/'], ['ROMS', 'roms/'], ['CREDITS', 'credits/']]) {
+  for (const [title, at] of [['HELP', 'help/'], ['ROMS', 'roms/'], ['CREDITS', 'credits/'], ['FAQ', 'faq/'], ['ABOUT', 'about/'], ['DIFFERENCES', 'deviations/']]) {
     await page.goto(site + at);
     const head = await page.evaluate(() => {
       const h = document.querySelector('header.page-head');
@@ -8119,7 +8119,7 @@ async function commandsChecks(browser, site, check) {
     ['Files', ['Take snapshot', 'Open a program, tape, disk or cartridge…', 'Insert a disk…', 'New blank disk', 'Eject disk', 'Insert a tape…', 'Rewind the tape', 'Eject the tape', 'Save the tape as .WAV', 'Record to tape', 'Share']],
     ['Views', ['Programs', 'Open the Library', 'Open the Debugger']],
     ['Settings', ['Your ROMs', 'Display settings', 'Input settings', 'POKEs', 'Machine settings']],   // (Your ROMs first)
-    ['Machine', ['Pause or resume', 'Turbo', 'Fullscreen', 'Reset', 'Switch off and on', 'Switch machine…', 'Help']],
+    ['Machine', ['Pause or resume', 'Turbo', 'Fullscreen', 'Reset', 'Switch off and on', 'Switch machine…', 'Copy bug report', 'Help']],
   ];
   const LABELS = WANT.flatMap(([, l]) => l);
   const CLAUDE_NOTE = "Claude reads this emulated machine's screen text and memory, and acts on it only with your permission.";
@@ -8357,6 +8357,33 @@ async function commandsChecks(browser, site, check) {
     await tab.waitForLoadState();
     check(`${L}: "Help" opens the guide in a new tab`, /\/help\/$/.test(new URL(tab.url()).pathname), tab.url());
     await closePage(tab);
+    // Copy bug report: the report is shown before anything is copied; the snapshot is off by default; Copy copies exactly
+    // what is shown; the Claude key this context saved (sk-ant-COMMANDS-CHECK-KEY-…) is never in it, nor a ROM name
+    await ctx.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: new URL(site).origin });
+    const bugText = () => page.evaluate(() => document.getElementById('bugText').textContent);
+    const bugReady = () => waitFor(page, () => /^CLOADM bug report/.test(document.getElementById('bugText').textContent));
+    await query('bug report');
+    await page.keyboard.press('Enter');
+    const bugOpen = await waitFor(page, () => document.getElementById('bugReport').open) && await bugReady();
+    const plain = await bugText();
+    check(`${L}: "Copy bug report" opens a preview: version stamp, machine, browser, file; no snapshot until asked for`, bugOpen
+      && /^Version: v\d+\.\d+\.\d+\S* · \S+$/m.test(plain) && /^Machine: Dragon 64 \(dragon64\)/m.test(plain) && /^Browser: Mozilla\//m.test(plain) && /^File: /m.test(plain)
+      && !/#s=/.test(plain) && await page.evaluate(() => !document.getElementById('bugSnap').checked), plain);
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, `bugreport-${label}.png`) });
+    await page.click('#bugSnap');
+    await waitFor(page, () => /#s=/.test(document.getElementById('bugText').textContent));
+    const withSnap = await bugText();
+    check(`${L}: ticking the snapshot adds the ROM-free share link`, /^Snapshot \(holds no ROM\): http\S+\/play\/\?machine=dragon64\S*#s=/m.test(withSnap), withSnap.slice(0, 400));
+    check(`${L}: the report never holds the Claude key`, !/COMMANDS-CHECK-KEY|sk-ant/.test(plain + withSnap));
+    await page.click('#btnBugCopy');
+    const copied = await page.evaluate(() => navigator.clipboard.readText());
+    check(`${L}: Copy puts exactly the preview on the clipboard`, copied === withSnap && await page.textContent('#btnBugCopy') === 'Copied', copied.slice(0, 80));
+    await page.keyboard.press('Escape');
+    check(`${L}: Esc closes the report`, await waitFor(page, () => !document.getElementById('bugReport').open && document.getElementById('bugReport').hidden));
+    await page.evaluate(() => { location.hash = '#bug-report'; });
+    check(`${L}: play/#bug-report (Help's link) opens it, unticked, and the address goes back to /play/`, await waitFor(page, () => document.getElementById('bugReport').open && location.hash === '')
+      && await page.evaluate(() => !document.getElementById('bugSnap').checked));
+    await page.keyboard.press('Escape');
     // "eject" with a tape in (no disk): Eject the tape first
     await page.setInputFiles('#fileTape', { name: 't.cas', mimeType: 'application/octet-stream', buffer: Buffer.from([...Array(128).fill(0x55), 0x3C, 0xFF, 0, 0xFF]) });
     await waitFor(page, () => !!window.emu.machine.deck.tape);
@@ -9072,7 +9099,7 @@ async function layoutChecks(browser, base, check) {
 
 // reading pages: /roms at desktop and phone width, and the rule that only /roms links the
 // archive's ROM folder, checked over every page of the site
-const READING = ['roms/', 'help/', 'credits/'];
+const READING = ['roms/', 'help/', 'credits/', 'faq/', 'about/', 'deviations/'];
 // The Display tab: CRT · composite and Sharp · RGB, the NTSC artifact phase, curvature and glow
 // (the WebGL CRT look), integer scaling and the picture's shape, remembered. A 256x192 artifact-colour picture
 // ($AA, $55 and stripes of two widths above, black, buff and two more stripes below, in PMODE 4 CSS 1) is put on the
@@ -9408,6 +9435,25 @@ async function readingChecks(browser, site, check) {
       check('/help: keys, ROMs, quick fixes, and links to /roms, the emulator and GitHub', /Esc\s*BREAK/.test(help) && /Home\s*CLEAR/.test(help) && /Quick fixes/.test(help)
         && await page.$eval('#romsLink', (a) => new URL(a.href).pathname) === '/roms/' && !!(await page.$('a[href="https://github.com/yaniv-golan/cloadm"]'))
         && await page.$eval('a[href="play/"]', (a) => new URL(a.href).pathname) === '/play/');
+      // the version stamp (js/version.js) on Help and About; the affiliation line visible at the foot of every reading page
+      const stamps = {};
+      for (const [p, id] of [['help/', 'helpVersion'], ['about/', 'aboutVersion']]) { await page.goto(site + p); await waitFor(page, (i) => /^v/.test(document.getElementById(i).textContent) && document.getElementById(i).textContent !== 'v?', id); stamps[p] = await page.textContent(`#${id}`); }
+      const { versionStamp } = await import(path.join(ROOT, 'js/version.js'));
+      check('/help and /about show the version stamp "v<version> · <commit>"', Object.values(stamps).every((t) => t === versionStamp()), JSON.stringify(stamps));
+      const FOOT = 'Not affiliated with Tandy, Dragon Data, Microsoft, id Software or the Freedoom project.';
+      const feet = [];
+      for (const p of ['', ...READING]) { await page.goto(site + p); feet.push([p, await page.evaluate((f) => [...document.querySelectorAll('footer')].some((e) => e.checkVisibility() && e.innerText.includes(f)), FOOT)]); }
+      check('every reading page and the landing page show the affiliation line in their footer', feet.every(([, v]) => v), JSON.stringify(feet));
+      // the FAQ's accuracy answer links the known differences; Help links the FAQ, About and the bug report
+      await page.goto(site + 'faq/');
+      check('/faq: seven questions, the accuracy answer links the deviations from MAME', await page.$$eval('h2', (h) => h.length) === 7
+        && await page.getAttribute('#faqDeviations', 'href') === 'deviations/');
+      await page.click('#faqDeviations');
+      check('/faq: the accuracy answer opens the known differences from MAME, a list generated from docs/verification.md', await waitFor(page, () => location.pathname === '/deviations/')
+        && await page.$$eval('main li', (l) => l.length) >= 10 && /Known differences from MAME/.test(await page.textContent('h1')));
+      await page.goto(site + 'help/');
+      await page.click('#helpBugReport');
+      check('/help: "Copy a bug report →" opens the report on the emulator', await waitFor(page, () => !!window.emu && document.getElementById('bugReport').open, null, 30000));
       // Credits: in step with CREDITS.md (every person and project below is on both)
       await page.goto(site + 'credits/');
       const credits = await page.textContent('body'), md = fs.readFileSync(path.join(ROOT, 'CREDITS.md'), 'utf8');
@@ -10899,6 +10945,52 @@ async function urlChecks(browser, base, check) {
   if (shotDir) await page.screenshot({ path: path.join(shotDir, 'link-load-disk.png') });
   await open('?machine=dragon64&disk=');
   check('link: disk= without a link is reported as the other media are', /disk=: not a link to a file/.test(await msg()), await msg());
+  // Claude features Off (stored): ?app=claude does not open the chat, and says why; the same for the link the embed's
+  // "Ask Claude ↗" chip opens (app=claude with the moment)
+  await open('?machine=dragon64');
+  const chipLink = await ev(async () => (await window.emu.session.claudeLink(`${location.origin}${location.pathname}`)).href);
+  await ev(() => localStorage.setItem('cloadm.claudeFeatures', '0'));
+  for (const [what, q] of [['?app=claude', '?machine=dragon64&app=claude'], ["the embed chip's link", chipLink.slice(chipLink.indexOf('?'))]]) {
+    await page.goto('about:blank');
+    await open(q);
+    const r = await ev(() => ({ view: window.emu.session.claudeView, chat: !!window.emu.session.chat, said: document.getElementById('toast').textContent }));
+    check(`link: ${what} with Claude features Off: no chat opens, and the page says "Claude features are off (Settings → Machine)."`, /app=claude/.test(q) && r.view !== 'full' && !r.chat
+      && r.said.includes('Claude features are off (Settings → Machine).'), JSON.stringify(r));
+  }
+  await ev(() => localStorage.removeItem('cloadm.claudeFeatures'));
+  // ?record=1 (URL only): no page chrome; the largest 4:3 frame the window holds, the picture integer-scaled in it;
+  // &aspect=16:9 makes the frame 16:9 with the 4:3 picture pillarboxed. aspect=16:9 without record=1 is refused.
+  const rec = () => ev(() => {
+    const r = (el) => { const b = el.getBoundingClientRect(); return { x: b.x, y: b.y, w: b.width, h: b.height }; };
+    const f = window.emu.session.shownMachine.render(), shown = (sel) => [...document.querySelectorAll(sel)].some((e) => e.checkVisibility());
+    return { tube: r(document.querySelector('.tube')), canvas: r(document.getElementById('screen')), lines: f.height, vw: innerWidth, vh: innerHeight,
+      chrome: ['.appbar', '.drawer', '.controls', '.slots', 'footer', '.plate', '#toastRegion', '#screenNotesBox'].filter(shown),
+      scroll: document.documentElement.scrollWidth <= innerWidth && document.documentElement.scrollHeight <= innerHeight + 1, integer: window.emu.session.display.integer };
+  });
+  // a stored display setting first (not the default, and no integer scaling): record=1 must leave it exactly as it was
+  await open('?machine=dragon64');
+  const seeded = await ev(() => { window.emu.session.setDisplay({ glow: 17, curvature: 5, integer: false }); return window.emu.session.store.get('display.settings'); });
+  for (const [vp, q, aspect] of [[{ width: 1280, height: 720 }, '?record=1&machine=dragon64', 4 / 3], [{ width: 1280, height: 720 }, '?record=1&aspect=16:9&machine=dragon64', 16 / 9],
+    [{ width: 1000, height: 1000 }, '?record=1&machine=coco3', 4 / 3]]) {
+    await page.setViewportSize(vp);
+    await open(q);
+    await page.waitForTimeout(300);
+    const r = await rec();
+    const fits = Math.abs(r.tube.w / r.tube.h - aspect) < 0.01 && (Math.abs(r.tube.w - r.vw) < 1 || Math.abs(r.tube.h - r.vh) < 1);
+    const centred = Math.abs(r.tube.x + r.tube.w / 2 - r.vw / 2) < 1 && Math.abs(r.tube.y + r.tube.h / 2 - r.vh / 2) < 1
+      && Math.abs(r.canvas.x + r.canvas.w / 2 - r.vw / 2) < 1 && Math.abs(r.canvas.y + r.canvas.h / 2 - r.vh / 2) < 1;
+    const k = r.canvas.h / r.lines;
+    check(`link ${q} at ${vp.width}x${vp.height}: no page chrome, a ${aspect > 1.5 ? '16:9' : '4:3'} frame as large as the window allows, the 4:3 picture integer-scaled (x${k}) and centred`,
+      !r.chrome.length && fits && centred && r.scroll && r.integer && Number.isInteger(k) && k >= 1 && Math.abs(r.canvas.w / r.canvas.h - 4 / 3) < 0.01
+      && (aspect > 1.5 ? r.canvas.w < r.tube.w - 100 : true) && !await ev(() => document.getElementById('toast').classList.contains('error')), JSON.stringify(r));
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, `record-${aspect > 1.5 ? '169' : '43'}-${vp.width}x${vp.height}.png`) });
+  }
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await open('?machine=dragon64&aspect=16:9');
+  check('link: aspect=16:9 without record=1 is refused, the page keeps its chrome', /aspect=16:9: only with record=1/.test(await msg()) && await ev(() => document.querySelector('.appbar').checkVisibility()), await msg());
+  const after = await ev(() => ({ stored: window.emu.session.store.get('display.settings'), record: document.body.classList.contains('record'), d: window.emu.session.display }));
+  check('link: record=1 stores nothing: the stored display setting seeded before is byte for byte the same, and the next visit uses it, with its chrome',
+    !!seeded && JSON.parse(seeded).glow === 17 && after.stored === seeded && !after.record && after.d.integer === false && after.d.glow === 17 && after.d.curvature === 5, JSON.stringify({ seeded, after }));
   check('links: no page errors', !errors.length, errors.join('; '));
   await closeCtx(ctx);
 }
@@ -11077,7 +11169,7 @@ async function pwaChecks(browser, site, check) {
   check('PWA offline: sound plays through the AudioWorkletNode (its module kept for offline use)', offlineSound,
     await page.evaluate(() => JSON.stringify({ path: window.emu.audio.path, fallback: window.emu.audio.fallback, removed: window.emu.audio.out && window.emu.audio.out.sink.removed, state: window.emu.audio.ctx && window.emu.audio.ctx.state, ua: navigator.userAgent })));
   check('PWA offline: the fonts came from the kept copy', await page.evaluate(async () => { await document.fonts.ready; return [...document.fonts].some((f) => f.family.replace(/"/g, '') === 'Archivo' && f.status === 'loaded'); }));
-  for (const p of ['', 'help/', 'roms/']) {
+  for (const p of ['', 'help/', 'roms/', 'faq/', 'about/', 'deviations/']) {
     const res = await page.goto(site + p);
     check(`PWA offline: /${p} opens`, res.ok() && /CLOADM/.test(await page.title()), String(res.status()));
   }
@@ -16070,6 +16162,107 @@ async function settingsChecks(browser, base, check) {
   await dropFiles(page, [['coco3.rom', fake(32768, 5)]]);
   await waitFor(page, () => window.emu.session.machineRoms('coco3').sockets.some((s) => s.crc));
   await openTab(page, 'Machine'); await page.waitForSelector('#btnSettingsExport', { state: 'visible' });   // Export… is on the Machine tab (it left the Share screen)
+  // the Machine tab's credits line: the version stamp, the FAQ and About, and the affiliation line, all inside the drawer and none over the screen
+  const credits = await page.evaluate(async () => {
+    const { versionStamp } = await import(new URL('js/version.js', document.baseURI));
+    const v = document.getElementById('drawerVersion'), a = document.getElementById('drawerAffiliation');
+    a.scrollIntoView();
+    const mon = document.getElementById('monitor').getBoundingClientRect();
+    const apart = (e) => { const r = e.getBoundingClientRect(); return r.right <= mon.left || r.left >= mon.right || r.bottom <= mon.top || r.top >= mon.bottom; };
+    return { stamp: v.textContent, want: versionStamp(), affiliation: a.textContent, shown: v.checkVisibility() && a.checkVisibility(), apart: apart(v) && apart(a),
+      inDrawer: !!v.closest('aside.drawer') && !!a.closest('aside.drawer'), links: [...v.parentElement.querySelectorAll('a')].map((x) => x.getAttribute('href')) };
+  });
+  check('settings: the credits line shows "v<version> · <commit>", links Credits, FAQ and About; the affiliation line is in the drawer, not over the screen',
+    credits.stamp === credits.want && credits.affiliation === 'Not affiliated with Tandy, Dragon Data, Microsoft, id Software or the Freedoom project.'
+    && credits.shown && credits.apart && credits.inDrawer && JSON.stringify(credits.links) === JSON.stringify(['credits/', 'faq/', 'about/']), JSON.stringify(credits));
+  // Settings -> Claude features: On by default; Off hides the Ask button, the Programs row "Chat with Claude" and the command
+  // box's Claude rows and "Ask Claude" row; it is kept over a reload and in the settings export; On brings them back
+  {
+    const state = () => page.evaluate(async () => {
+      const vis = (el) => !!el && el.checkVisibility();
+      return { on: document.getElementById('btnClaudeOn').getAttribute('aria-pressed'), off: document.getElementById('btnClaudeOff').getAttribute('aria-pressed'),
+        ask: vis(document.getElementById('btnAsk')), shelf: [...document.querySelectorAll('[data-shelf="claude"]')].map(vis), stored: window.emu.session.store.get('claudeFeatures'),
+        exported: window.emu.session.exportSettings().settings.claudeFeatures ?? null };
+    });
+    const box = async (q) => {
+      await page.click('#screen'); await page.keyboard.press('Control+k');
+      await waitFor(page, () => !document.getElementById('cmdBox').hidden);
+      await page.fill('#cmdInput', q);
+      const r = await page.evaluate(() => ({ rows: [...document.querySelectorAll('#cmdList [role="option"]')].map((o) => o.firstChild.textContent),
+        groups: [...document.querySelectorAll('#cmdList .group')].map((g) => g.textContent), place: document.getElementById('cmdInput').placeholder }));
+      await page.keyboard.press('Escape');
+      return r;
+    };
+    await openTab(page, 'Media');
+    const before = await state(), boxOn = [await box(''), await box('what is this?')];
+    check('settings: Claude features are On by default: the Ask button and the Programs row show, the command box has its Claude rows and Ask row',
+      before.on === 'true' && before.off === 'false' && before.ask && before.shelf.length > 0 && before.shelf.every(Boolean) && boxOn[0].groups.includes('Claude')
+      && boxOn[0].rows.includes('Chat with Claude, full screen') && boxOn[1].rows.some((t) => /^Ask Claude: /.test(t)), JSON.stringify({ before, boxOn }));
+    await openTab(page, 'Machine');
+    await page.click('#btnClaudeOff');
+    const off = await state(), boxOff = [await box(''), await box('what is this?'), await box('chat')];
+    check('settings: Off hides the Ask button and the Programs row, and the command box has no Claude row, no Ask row, and says "Find a command"',
+      off.on === 'false' && off.off === 'true' && !off.ask && off.shelf.every((v) => !v) && !boxOff[0].groups.includes('Claude') && !boxOff[0].rows.some((t) => /Claude|code doing/.test(t))
+      && !boxOff[1].rows.some((t) => /^Ask Claude/.test(t)) && !boxOff[2].rows.some((t) => /Claude/.test(t)) && boxOff[0].place === 'Find a command' && boxOff[0].rows.includes('Copy bug report'),
+      JSON.stringify({ off, boxOff }));
+    check('settings: Off is kept and is in the settings export', off.stored === '0' && off.exported === '0', JSON.stringify(off));
+    await page.reload(); await waitFor(page, () => window.emu && window.emu.linkDone);
+    const reloaded = await state();
+    check('settings: Off survives a reload', reloaded.off === 'true' && !reloaded.ask, JSON.stringify(reloaded));
+    if (shotDir) { await openTab(page, 'Machine'); await page.screenshot({ path: path.join(shotDir, 'settings-claude-off.png') }); }
+    await openTab(page, 'Machine');
+    await page.click('#btnClaudeOn');
+    await openTab(page, 'Media');
+    const back = await state(), boxBack = await box('what is this?');
+    check('settings: On brings everything back', back.on === 'true' && back.ask && back.shelf.every(Boolean) && back.stored === '1' && boxBack.rows.some((t) => /^Ask Claude: /.test(t)), JSON.stringify({ back, boxBack }));
+    // Ask Claude, with a key saved: one line above the input says what is sent, and when
+    await page.evaluate(() => localStorage.setItem('cloadm.anthropicKey', 'sk-ant-SETTINGS-CHECK-KEY-0123456789'));
+    await page.reload(); await waitFor(page, () => window.emu && window.emu.linkDone);
+    await page.click('#btnAsk');
+    await waitFor(page, () => document.getElementById('askInput').checkVisibility());
+    const line = await page.evaluate(() => { const l = document.getElementById('askSendsLine'), i = document.getElementById('askInput');
+      return { text: l.textContent, shown: l.checkVisibility(), above: l.getBoundingClientRect().bottom <= i.getBoundingClientRect().top + 1 }; });
+    check('Ask Claude: "Nothing is sent until you ask. …" shows, above the input', line.shown && line.above
+      && line.text === "Nothing is sent until you ask. Then your question, the machine's facts and the chat so far go to Anthropic with your key (or your Claude account in the plugin), and Claude can read the screen and any memory (ROM areas included) without asking. Only changes to the machine ask you first.", JSON.stringify(line));
+    await page.evaluate(() => localStorage.removeItem('cloadm.anthropicKey'));
+    await page.click('#btnAsk');   // (closes the panel: the settings file's buttons are on the Machine tab beside it)
+    await waitFor(page, () => !document.getElementById('askInput').checkVisibility());
+    await openTab(page, 'Machine');
+  }
+  // Off with a key saved and "?SN ERROR" on the screen: no opener shows, and no door reaches the API - not the opener's
+  // own button clicked anyway, not a question typed in the command box - ZERO requests
+  {
+    const offCtx = await browser.newContext({ serviceWorkers: 'block' });
+    await offCtx.addInitScript(() => { try { localStorage.setItem('cloadm.anthropicKey', 'sk-ant-OFF-CHECK-KEY-0123456789'); localStorage.setItem('cloadm.claudeFeatures', '0'); } catch (e) { /* none */ } });
+    const api = [];
+    await offCtx.route('https://api.anthropic.com/**', (r) => { api.push(r.request().url()); r.fulfill({ status: 500, body: '' }); });
+    const op = await offCtx.newPage();
+    op.on('pageerror', (e) => errors.push(e.message));
+    await op.goto(`${base}?machine=dragon64`);
+    await stubPrompt(op);
+    // the stub's prompt is drawn first (it prints its lines as it starts), then "?SN ERROR" goes on a row below them, and
+    // is seen there, so nothing the stub draws later can overwrite it
+    await waitFor(op, () => window.emu.session.screenText().some((l) => /BASIC/.test(l)), null, 10000);
+    const sn = async () => { await op.evaluate(() => { const m = window.emu.machine, t = '?SN ERROR'; for (let i = 0; i < t.length; i++) m.poke(0x400 + 32 * 12 + i, t.charCodeAt(i) & 0x3F); });
+      return waitFor(op, () => /\?SN ERROR/.test(window.emu.session.screenText()[12]), null, 5000); };
+    await sn();
+    await op.waitForTimeout(600);
+    const off = await op.evaluate(() => ({ text: window.emu.session.screenText()[12], openers: document.getElementById('askOpeners').checkVisibility(), err: document.getElementById('btnOpenErr').checkVisibility() }));
+    await op.evaluate(() => document.getElementById('btnOpenErr').click());
+    const said = await waitFor(op, () => /Claude features are off \(Settings → Machine\)\./.test(document.getElementById('toast').textContent), null, 3000);
+    await op.click('#screen'); await op.keyboard.press('Control+k'); await waitFor(op, () => !document.getElementById('cmdBox').hidden);
+    await op.fill('#cmdInput', 'what does this error mean?'); await op.keyboard.press('Enter'); await op.keyboard.press('Escape');
+    await op.waitForTimeout(800);
+    const after = await op.evaluate(() => ({ view: window.emu.session.claudeView, chat: !!window.emu.session.chat, toast: document.getElementById('toast').textContent }));
+    check('settings: Claude features Off, a key saved, "?SN ERROR" on the screen: no opener shows, nothing opens, and not one request reaches the API',
+      /\?SN ERROR/.test(off.text) && !off.openers && !off.err && api.length === 0 && after.view !== 'panel' && after.view !== 'full' && !after.chat
+      && said, JSON.stringify({ off, after, api, said }));
+    // the test sees what it looks for: On, the same screen shows the opener
+    await op.evaluate(() => window.emu.session.setClaudeFeatures(true));
+    await sn();
+    check('settings: (the same screen with Claude features On shows "Explain this error")', await waitFor(op, () => document.getElementById('btnOpenErr').checkVisibility(), null, 5000) && api.length === 0);
+    await offCtx.close();
+  }
   const [dl] = await Promise.all([page.waitForEvent('download'), page.click('#btnSettingsExport')]);
   const file = path.join(os.tmpdir(), `cloadm-settings-${process.pid}.json`);
   await dl.saveAs(file);
@@ -16213,7 +16406,7 @@ async function shareChecks(browser, base, site, check) {
       return { hash: location.hash, emulatorHidden: getComputedStyle(document.querySelector('.layout')).display === 'none', scrollX: document.documentElement.scrollWidth <= innerWidth,
         side: cols[1].left > cols[0].right - 1, stacked: cols[1].top >= cols[0].bottom - 1,
         heading: document.getElementById('shareHeading').textContent, embed: document.getElementById('embedHeading').textContent,
-        discsFull: discs.length === 2 && discs.every((r) => r.top >= cols[0].bottom - 1 && r.top >= cols[1].bottom - 1 && r.width > innerWidth * 0.6 * (innerWidth > 860 ? 1 : 0.9)) };
+        discsFull: discs.length === 3 && discs.every((r) => r.top >= cols[0].bottom - 1 && r.top >= cols[1].bottom - 1 && r.width > innerWidth * 0.6 * (innerWidth > 860 ? 1 : 0.9)) };
     });
     check(`share (${label}): the Share screen replaces the emulator view, ${label === 'desktop' ? 'two columns' : 'one column'}, no sideways scrolling`,
       lay.hash === '#share' && lay.emulatorHidden && lay.scrollX && (label === 'desktop' ? lay.side : lay.stacked)
@@ -16276,6 +16469,23 @@ async function shareChecks(browser, base, site, check) {
       && await p2b.evaluate(() => !window.__said.some((m) => /Snapshot opened/.test(m))), await said(p2b));
     await closeCtx(ctx2);
 
+    // no ROMs in use: no "holds no part of your ROMs" line (it appears exactly when ROMs are: below, with stand-ins)
+    check(`share (${label}): without ROMs there is no ROM-free line`, await page.evaluate(() => { const e = document.getElementById('shareRomFree'); return e.hidden && e.textContent === '' && !e.checkVisibility(); }));
+    // Copy for a forum: BBCode and Markdown, each the link with one line, text only; Copy puts exactly that on the clipboard
+    await ctx.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: new URL(base).origin });
+    await openDisc(page, 'shareForum');
+    const forum = await page.evaluate(() => ({ link: document.getElementById('shareLink').value, bb: document.getElementById('forumBbcode').textContent,
+      md: document.getElementById('forumMarkdown').textContent, after: !!(document.getElementById('shareEmbed').compareDocumentPosition(document.getElementById('shareForum')) & Node.DOCUMENT_POSITION_PRECEDING),
+      heading: document.getElementById('forumHeading').tagName }));
+    const LINE = 'The Dragon 64 in CLOADM, exactly as I left it. Opens in the browser.';
+    check(`share (${label}): "Copy for a forum" beside "Embed in a web page": BBCode and Markdown of the share link with one line, no image tag`,
+      forum.bb === `[url=${forum.link}]${LINE}[/url]` && forum.md === `[${LINE}](${forum.link})` && !/\[img|!\[/i.test(forum.bb + forum.md) && forum.after && forum.heading === 'H2' && /#s=/.test(forum.link),
+      JSON.stringify(Object.assign({}, forum, { link: forum.link.slice(0, 60) })));
+    const board = [];
+    for (const id of ['btnForumBbcodeCopy', 'btnForumMarkdownCopy']) { await page.click(`#${id}`); board.push(await page.evaluate(() => navigator.clipboard.readText())); }
+    check(`share (${label}): each forum Copy button copies its text exactly`, board[0] === forum.bb && board[1] === forum.md, board.map((c) => c.slice(0, 50)).join(' | '));
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, `share-forum-${label}.png`), fullPage: true });
+
     // the clip
     await openDisc(page, 'shareMore');
     const clipLabel = await page.textContent('#btnShareClip');
@@ -16285,6 +16495,49 @@ async function shareChecks(browser, base, site, check) {
     check('share: "Save 6-second clip" records the screen, in the format the button names', clipBytes.length > 2000
       && ((/MP4/.test(clipLabel) && mp4 && /\.mp4$/.test(clip.suggestedFilename())) || (/WebM/.test(clipLabel) && webm && /\.webm$/.test(clip.suggestedFilename()))),
       `${clipLabel}: ${clip.suggestedFilename()} ${clipBytes.length} bytes`);
+
+    // Save GIF: the machine's own frames at 2x, looping, a comment; its size is printed (the screen here: the welcome menu)
+    const gifInfo = (b) => {   // the GIF89a block structure: size, loop, comment, frames, total delay
+      const r = { head: b.toString('latin1', 0, 6), w: b.readUInt16LE(6), h: b.readUInt16LE(8), loop: null, comment: '', frames: 0, cs: 0, bytes: b.length };
+      let p = 13 + (b[10] & 0x80 ? 3 * (2 << (b[10] & 7)) : 0);
+      while (p < b.length) {
+        const t = b[p++];
+        if (t === 0x3B) { r.trailer = true; break; }
+        if (t === 0x21) {
+          const label = b[p++];
+          if (label === 0xFF && b.toString('latin1', p + 1, p + 12) === 'NETSCAPE2.0') r.loop = b.readUInt16LE(p + 14);
+          if (label === 0xF9) r.cs += b.readUInt16LE(p + 2);
+          if (label === 0xFE) { let q = p; while (b[q]) { r.comment += b.toString('latin1', q + 1, q + 1 + b[q]); q += b[q] + 1; } }
+        } else if (t === 0x2C) { r.frames++; p += 10; } else break;
+        while (b[p]) p += b[p] + 1;
+        p++;
+      }
+      return r;
+    };
+    const [gifDl] = await Promise.all([page.waitForEvent('download', { timeout: 30000 }), page.click('#btnShareGif')]);
+    const gif = gifInfo(fs.readFileSync(await gifDl.path()));
+    const native = await page.evaluate(() => { const f = window.emu.session.shownMachine.render(); return [f.width, f.height]; });
+    check(`share (${label}): "Save 6-second GIF" saves a looping GIF of the screen at twice its true pixels, 6 seconds long, with a comment`,
+      gif.head === 'GIF89a' && gif.w === native[0] * 2 && gif.h === native[1] * 2 && gif.loop === 0 && gif.trailer && gif.frames >= 1 && Math.abs(gif.cs - 600) <= 8
+      && gif.comment === 'Recorded in CLOADM' && /\.gif$/.test(gifDl.suggestedFilename()) && !/Freedoom/.test(gifDl.suggestedFilename()), JSON.stringify(gif));
+    console.log(`   (GIF size, ${label}: ${gif.bytes} bytes, ${gif.frames} frames, ${gif.w}x${gif.h})`);
+    check(`share (${label}): the buttons are back once the GIF is saved`, await waitFor(page, () => !document.getElementById('btnShareGif').disabled && document.getElementById('btnShareGif').textContent === 'Save 6-second GIF'));
+    // a WAD of the person's own loaded: the clip and the GIF are refused, the reason on each button
+    await page.evaluate(() => { const s = window.emu.session; s.lastLoaded = { name: 'MYLEVELS.WAD', bytes: Uint8Array.from([0x50, 0x57, 0x41, 0x44, 0]) }; s.emit('loaded'); });
+    const refused = await page.evaluate(() => ['btnShareClip', 'btnShareGif'].map((id) => [document.getElementById(id).disabled, document.getElementById(id).textContent]));
+    check(`share (${label}): with your own WAD loaded, the clip and the GIF are disabled with the reason shown`,
+      JSON.stringify(refused) === JSON.stringify([[true, 'Clip: A WAD of your own is loaded: CLOADM doesn\'t record it'], [true, 'GIF: A WAD of your own is loaded: CLOADM doesn\'t record it']]), JSON.stringify(refused));
+    if (label === 'desktop') {
+      // Freedoom: recorded, with its credit in the file name and the GIF's comment
+      await page.evaluate(() => { const s = window.emu.session; s.lastLoaded = { name: 'freedoom2.wad', bytes: Uint8Array.from([0x49, 0x57, 0x41, 0x44, 0]) }; s.emit('loaded'); });
+      const [fd] = await Promise.all([page.waitForEvent('download', { timeout: 30000 }), page.click('#btnShareGif')]);
+      const fg = gifInfo(fs.readFileSync(await fd.path()));
+      check('share: a Freedoom GIF carries the Freedoom credit in its file name and its comment', /-Freedoom\.gif$/.test(fd.suggestedFilename()) && /Freedoom \(freedoom\.github\.io\)/.test(fg.comment),
+        `${fd.suggestedFilename()} ${fg.comment}`);
+    }
+    await page.evaluate(() => { const s = window.emu.session; s.lastLoaded = null; s.emit('loaded'); });
+    await openDisc(page, 'shareForum');
+    check(`share (${label}): "Copy for a forum" says to attach the GIF, and still holds no image tag`, await page.textContent('#forumGifHint') === 'Attach the GIF from Save GIF to show it in your post.');
 
     // the embed builder, and the iframe it writes running on another origin
     await openDisc(page, 'shareEmbed');
@@ -16334,7 +16587,11 @@ async function shareChecks(browser, base, site, check) {
     await page.click('#btnShare');
     await page.waitForSelector('#share', { state: 'visible' });
     const shared = await page.evaluate(async () => ({ link: document.getElementById('shareLink').value, recipient: document.getElementById('shareRom').textContent,
-      labels: (await window.emu.session.shareFile()).needs.map((x) => x.label) }));
+      labels: (await window.emu.session.shareFile()).needs.map((x) => x.label), free: document.getElementById('shareRomFree').textContent,
+      freeShown: document.getElementById('shareRomFree').checkVisibility(),
+      above: document.getElementById('shareRomFree').getBoundingClientRect().bottom <= document.getElementById('shareRom').getBoundingClientRect().top + 1 }));
+    check('share: with ROMs in use, "This link holds no part of your ROMs. Whoever opens it needs their own: <needs>." shows, above the needs line',
+      shared.freeShown && shared.above && shared.free === `This link holds no part of your ROMs. Whoever opens it needs their own: ${shared.labels.join(' and ')}.`, JSON.stringify([shared.free, shared.freeShown, shared.above]));
     // the line names what the snapshot itself names (its needs' labels), whatever they are
     check('share: with your own ROMs the moment is shared, and the ROM line names the ROMs the snapshot needs', /#s=/.test(shared.link) && shared.labels.length > 0
       && shared.recipient === `Needs ${shared.labels.join(' and ')}: the person opening it adds their own.` && /32K-mode BASIC and 64K-mode BASIC/.test(shared.recipient), JSON.stringify(shared));

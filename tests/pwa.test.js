@@ -23,7 +23,7 @@ check('sw.js is what --write produces', withList(sw, expected) === sw);
 const missing = files.filter((f) => !fs.existsSync(path.join(ROOT, f)));
 check('every listed file exists', !missing.length, missing.join(' '));
 for (const need of ['./', 'play/', 'play/index.html', 'js/ui/main.js', 'js/emu.js', 'examples/welcome.bin', 'examples/liza.bin', 'examples/liza.asm',
-  'fonts/archivo/archivo-latin-wdth-normal.woff2', 'css/tokens.css', 'embed/cloadm.js', 'manifest.webmanifest', 'help/', 'roms/', 'credits/']) {
+  'fonts/archivo/archivo-latin-wdth-normal.woff2', 'css/tokens.css', 'embed/cloadm.js', 'manifest.webmanifest', 'help/', 'roms/', 'credits/', 'faq/', 'about/', 'deviations/']) {
   if (!files.includes(need)) check(`kept for offline use: ${need}`, false);
 }
 check('the pages, their scripts, the built-in programs and fonts are all kept', ['./', 'play/', 'examples/welcome.bin', 'embed/cloadm.js'].every((f) => files.includes(f)));
@@ -56,7 +56,7 @@ for (const page of ['index.html', 'play/index.html']) {
 {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pwa-build-'));
   try {
-    const DIRS = ['css', 'fonts', 'img', 'icons', 'js', 'examples', 'embed', 'play', 'roms', 'help', 'credits'];
+    const DIRS = ['css', 'fonts', 'img', 'icons', 'js', 'examples', 'embed', 'play', 'roms', 'help', 'credits', 'faq', 'about', 'deviations'];
     for (const d of DIRS) fs.cpSync(path.join(ROOT, d), path.join(dir, d), { recursive: true });
     for (const f of ['index.html', 'favicon.svg', 'favicon.ico', 'manifest.webmanifest', 'sw.js']) fs.copyFileSync(path.join(ROOT, f), path.join(dir, f));
     fs.mkdirSync(path.join(dir, 'tools')); fs.mkdirSync(path.join(dir, 'tests'));

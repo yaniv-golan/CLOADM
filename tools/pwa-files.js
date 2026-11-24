@@ -5,7 +5,7 @@
 // a new example file is in the list without a separate step.
 const fs = require('fs'), path = require('path');
 const ROOT = path.join(__dirname, '..');
-const DIRS = ['css', 'fonts', 'img', 'icons', 'js', 'examples', 'embed', 'play', 'roms', 'help', 'credits'];
+const DIRS = ['css', 'fonts', 'img', 'icons', 'js', 'examples', 'embed', 'play', 'roms', 'help', 'credits', 'faq', 'about', 'deviations'];
 const ROOT_FILES = ['index.html', 'favicon.svg', 'favicon.ico', 'manifest.webmanifest'];
 const SKIP = (rel) => /^img\/readme-/.test(rel) || /\.md$/.test(rel) || /(^|\/)\./.test(rel);
 

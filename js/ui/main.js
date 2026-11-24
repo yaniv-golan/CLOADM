@@ -48,6 +48,10 @@ import { setupAsk } from './ask.js';
 import { setupCommandBox } from './command-box.js';
 import { MemoryKeyStore, storageKeyStore } from '../host/key-store.js';
 import { setupShare } from './share.js';
+import { setupBugReport } from './bug-report.js';
+import { setupClaudeFeatures } from './claude-features.js';
+import { setupRecord } from './record.js';
+import './version-stamp.js';   // the settings drawer's credits line: v<version> · <commit>
 import { setupSlotsPanel } from './slots-panel.js';
 import { setupTapePanel } from './tape-panel.js';
 import { setupNitros9Panel } from './nitros9-panel.js';
@@ -147,6 +151,7 @@ setupDisplayPanel(page);
 setupKeyHint(page);
 setupSettingsFile(page);
 const share = setupShare(page);
+page.bugReport = setupBugReport(page);
 const showRoms = () => romSockets.reveal();
 // No Claude chat on a page shown inside someone else's page, whether by the embed flag or by being framed: the chat
 // would put its API key card there. With no controller there is no chat machine, no panel and no key card, and the
@@ -158,6 +163,7 @@ const ask = claude ? setupAsk(page, claude) : null;
 // header's #btnAsk TOGGLES (a second press closes it), which is wrong for a Menu item that always means "open". The
 // panel is the side panel (claude.openPanel); guarded so a page with no chat has nothing to open.
 if (claude) page.openAsk = () => claude.openPanel();
+setupClaudeFeatures(page, { closeAsk: () => { if (ask && ask.open) ask.hide(); }, claude });
 if (claude) setupCommandBox(page, claude, machinePanel);
 // the controls that hand Claude a key or a say over the machine take no press for their card's first moments on screen
 if (claude) {
@@ -301,6 +307,8 @@ const visit = session.visit();
   session.switchMachine(id, Object.keys(config).length ? Object.assign(session.savedConfig(id), config) : undefined, { menu: false });
 }
 if (Object.keys(link.display).length) session.setDisplay(link.display, { remember: false });
+// ?record=1: the screen alone, integer-scaled in a fixed 4:3 (or 16:9) frame, for recording a video (after the link's display)
+if (link.record) setupRecord(page, link.recordAspect);
 const setCheck = (id, on) => { const c = $(id); if (c.checked !== on) { c.checked = on; c.dispatchEvent(new Event('change')); } };
 if (link.joy) setCheck('chkJoy', link.joy === 'mouse');
 if (link.sound !== null) setCheck('chkSound', link.sound);
@@ -349,6 +357,7 @@ const starting = welcome.start(visit, { fromLink, withMedia: link.roms.length > 
   // the link's prompts until the person acts (Session.arriveByLink)
   if (fromLink || link.start || location.hash.startsWith('#s=')) session.arriveByLink();
   share.ready();
+  page.bugReport.ready();   // play/#bug-report (Help's "Copy a bug report →")
   window.emu.linkDone = true;
   if (link.errors.length) page.status(`This link has ${link.errors.length === 1 ? 'a setting' : 'settings'} CLOADM can't use: ${link.errors.join('; ')}`, true);
   // "#share=…" (a share link's moment follows #s=): not one the page reads, and it said nothing
