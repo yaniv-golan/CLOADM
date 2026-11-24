@@ -1762,8 +1762,6 @@ npx serve -l 8000 .</pre>
     <div id="dbgStrip" role="status" hidden><span id="dbgStripText"></span>
       <button id="btnStripResume" type="button" class="primary">Resume</button><button id="btnStripDebugger" type="button">Open Debugger</button></div>
     <div class="monitor crt" id="monitor" data-family="dragon">
-      <!-- touch screens only (js/ui/welcome.js): a state cue on the bezel until sound runs; a tap anywhere unlocks it -->
-      <span id="soundChip" hidden>Tap for sound</span>
       <div class="tube">
         <div id="screenWrap"><canvas id="screen" tabindex="0" role="application" aria-label="The emulated screen. Click it, then type. Tab leaves it."><pre id="screenAlt">The screen is blank.</pre></canvas>
           <!-- the browser's Fullscreen shows only this wrapper: Claude's status with Stop (and Resume) is in it -->
@@ -1781,6 +1779,9 @@ npx serve -l 8000 .</pre>
           <div class="bar"><button id="btnBootSockets" class="primary">Add ROMs</button>
             <button id="btnBootStub">Run without ROMs</button><button id="btnBootPower" class="primary" hidden>Switch off and on</button><button id="btnBootDismiss">Dismiss</button></div></div>
       </div>
+      <!-- touch screens only (js/ui/welcome.js): a state cue on the bezel until sound runs; a tap anywhere unlocks it. After the
+           screen in the page, so a reading mode starts with the screen's text; the cue is for the eyes, not read out -->
+      <span id="soundChip" hidden aria-hidden="true">Tap for sound</span>
       <div class="plate"><span id="badge">DRAGON 64</span><span class="led" aria-hidden="true"></span>
         <div id="focusHint" aria-hidden="true"><span class="fh-emu">Typing goes to the machine<span class="fh-tab"> · <kbd>Tab</kbd> leaves the screen</span></span><span class="fh-chat"><kbd>Esc</kbd> stops a reply, clears the line, then leaves the chat</span></div></div>
       <!-- the screen's hints, under it: they never lie over what the machine shows -->
