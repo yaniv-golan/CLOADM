@@ -9,6 +9,16 @@ All notable changes to CLOADM are recorded here. The format follows
 Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.test.js` keeps them in step).
 
 ### Added
+- **The arrival card.** A shared moment opened from a long link (`#z=`) or a short link arrives with a card docked at the
+  foot of the screen, the machine running above it: "Someone sent you this &lt;machine&gt;, exactly as they left it.
+  It's running now. It's your copy: nothing you do changes theirs." **Start from the beginning** starts the bundled
+  program the moment is of from its beginning, or power cycles the same machine; **Send it back** opens the Share screen
+  on the recipient's moment, exactly as Share does (nothing is uploaded until Copy). A short link's card ends with
+  **Report this link**. It covers at most 40% of the screen, never takes the focus, and goes at the first key, a load or
+  a switch. Program pages show no card. The state is the Session's `arrivedFromLink`, cleared with an `'arrival'` event,
+  for prompts that depend on the screen. Snapshots of a bundled program record it (`program`; `Session.momentProgram`).
+- **Start over on the snapshot toast.** "Snapshot opened: …" offers **Start over**: the moment's program from its
+  beginning, or a power cycle into the same machine.
 - **One link on the Share screen.** The screen now offers one **Copy link** (+ **Share…**). A bundled program nobody has
   touched since it started (2048, LIZA, Minesweeper) gives its program page instead — nothing is uploaded, and the line
   under the picture says "Opens 2048 from the start, for anyone." once; played, the primary shares the moment, and "More

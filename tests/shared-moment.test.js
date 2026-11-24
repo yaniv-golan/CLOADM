@@ -126,6 +126,87 @@ const arrive = async (link, { shared = true } = {}) => {
     check('a moment with a program running keeps its screen, 60 frames on', b.screenText()[0].replace(/ /g, '').startsWith('AAAA'), b.screenText()[0]);
   }
 
+  // ---- 9. just arrived from a link (Session.arrivedFromLink, the page's arrival card: js/ui/arrival.js) ----
+  // set by openSnapshot({ link }), already at the first 'machine' event; cleared, with one 'arrival' event, by the
+  // person's first input (a key, typed text, a POKE, a load: touch), another snapshot, a switch, a Reset or a power
+  // cycle. Running on is not acting.
+  {
+    const arriveLink = async (l, link) => {
+      const b = session(null), events = [];
+      b.on((ev) => events.push(ev));
+      let seen;
+      b.on((ev) => { if (ev === 'machine' && seen === undefined) seen = b.arrivedFromLink; });
+      b.openSnapshot(await b.readSnapshotLink(new URL(l).hash), { shared: true, link });
+      return { b, events, seen };
+    };
+    {
+      const { b, seen } = await arriveLink(link, { kind: 'long' });
+      check('arrivedFromLink: a long link\'s moment: { kind long, id null, machine, program null }',
+        JSON.stringify(b.arrivedFromLink) === JSON.stringify({ kind: 'long', id: null, machine: 'Dragon 64', program: null }), JSON.stringify(b.arrivedFromLink));
+      check('arrivedFromLink: already set when the page first hears of the machine', !!seen && seen.kind === 'long');
+    }
+    {
+      const { b } = await arriveLink(link, { kind: 'short', id: 'Ab3_-9xZ' });
+      check('arrivedFromLink: a short link\'s moment carries its id', b.arrivedFromLink && b.arrivedFromLink.kind === 'short' && b.arrivedFromLink.id === 'Ab3_-9xZ', JSON.stringify(b.arrivedFromLink));
+    }
+    {
+      const b = session(null);
+      b.openSnapshot(await b.readSnapshotLink(new URL(link).hash), { shared: true });
+      check('arrivedFromLink: a moment opened from no link (a file, a slot) is not an arrival', b.arrivedFromLink === null);
+    }
+    for (const [what, act] of [
+      ['the first key', (b) => b.personInput()],
+      ['typed text', (b) => b.typeText('A')],
+      ['a POKE (a memory change by a tool)', (b) => b.pokeBytes(0x3000, Uint8Array.of(1))],
+      // (a DECB binary of FILL: one segment at $7000, exec $7000)
+      ['a load', (b) => b.load('fill.bin', Uint8Array.from([0, 0, FILL[0].data.length, 0x70, 0, ...FILL[0].data, 0xFF, 0, 0, 0x70, 0]))],
+      ['another snapshot', async (b) => b.openSnapshot(await b.readSnapshotLink(new URL(link).hash))],
+      ['a machine switch', (b) => b.switchMachine('coco')],
+      ['Reset', (b) => b.reset()],
+      ['a power cycle', (b) => b.powerCycle()],
+    ]) {
+      const { b, events } = await arriveLink(link, { kind: 'long' });
+      events.length = 0;
+      try { await act(b); } catch (e) { check(`arrivedFromLink: ${what} ran`, false, e.message); continue; }
+      check(`arrivedFromLink: ${what} ends the arrival, with one 'arrival' event`, b.arrivedFromLink === null && events.filter((e) => e === 'arrival').length === 1, JSON.stringify(events));
+    }
+    {
+      const { b, events } = await arriveLink(link, { kind: 'long' });
+      events.length = 0;
+      frames(b.shownMachine, 60);
+      check('arrivedFromLink: running on is not acting', !!b.arrivedFromLink && !events.includes('arrival'));
+      check('arrivedFromLink: the first key ends the arrival but not the shared moment (only leaving does)', (b.personInput(), b.arrivedFromLink === null && b.sharedMoment === true));
+    }
+  }
+
+  // ---- 10. the moment's program: a bundled program's snapshot records it (shareFile, snapshotFile, the long link),
+  // so whoever opens it can start that program from its beginning; nothing else does, and an unknown one is ignored ----
+  {
+    const fs = require('fs'), path = require('path');
+    const a = new Emu.Session({ store: Emu.memoryStore(), welcomeMenu: true });
+    a.switchMachine('dragon64', undefined, { menu: false });
+    a.runGame('2048', fs.readFileSync(path.join(__dirname, '..', 'examples', a.gameFile('2048'))));
+    frames(a.shownMachine, 20);
+    a.personInput();   // played: a moment of 2048 all the same
+    const gameLink = await a.snapshotLink(BASE);
+    const b = session(null);
+    const snap = await b.readSnapshotLink(new URL(gameLink).hash);
+    b.openSnapshot(snap, { shared: true, link: { kind: 'long' } });
+    check('program: a played 2048 moment\'s link records program 2048, and the arrival says so', snap.program === '2048' && b.arrivedFromLink.program === '2048', `${snap.program} ${JSON.stringify(b.arrivedFromLink)}`);
+    check('program: the snapshot file and the shared file record it too', (await b.readSnapshot((await a.snapshotFile()).bytes)).program === '2048'
+      && (await b.readSnapshot((await a.shareFile()).bytes)).program === '2048');
+    const c = session(null);
+    c.inject(FILL, 0x7000);
+    frames(c.shownMachine, 5);
+    check('program: a moment of no bundled program records none (the field is not written)', !('program' in await c.readSnapshotLink(new URL(await c.snapshotLink(BASE)).hash))
+      && !('program' in await c.readSnapshot((await c.snapshotFile()).bytes)));
+    const odd = Object.assign({}, snap, { program: 'rm -rf' });
+    const d = session(null);
+    d.openSnapshot(odd, { link: { kind: 'long' } });
+    check('program: a program this page does not have is ignored (null)', d.arrivedFromLink.program === null
+      && Emu.Session.momentProgramId('liza') === 'liza' && Emu.Session.momentProgramId('minesweeper') === 'minesweeper' && Emu.Session.momentProgramId('__proto__') === null && Emu.Session.momentProgramId(7) === null);
+  }
+
   console.log(fail ? `\n${fail} FAILED` : '\nall passed');
   process.exitCode = fail ? 1 : 0;
 })().catch((e) => { console.error('test crashed:', e); process.exitCode = 1; });

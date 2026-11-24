@@ -2960,6 +2960,20 @@ async function visitChecks(browser, base, check) {
   check('returning: the machine question is not asked again', !(await page.$('#askMachine')));
   await page.click('#btnRunAgain');
   check('returning: "Run again" loads it', await waitFor(page, () => /mine\.bin/.test(document.getElementById('toast').textContent) && window.emu.machine.cpu.pc >= 0x4000));
+  // a program page's link (?start=, where cloadm.dev/2048/ sends its visitor) opens no moment: no arrival card, and the
+  // Session has not "just arrived from a link" (js/ui/arrival.js), while the program runs
+  {
+    const pctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, serviceWorkers: 'block' });
+    const pp = await pctx.newPage();
+    pp.on('pageerror', (e) => errors.push(e.message));
+    await pp.goto(`${base}?machine=dragon64&start=2048`);
+    await linkIn(pp);
+    const ran = await waitFor(pp, () => window.emu.session.gameRunning, null, 60000);
+    await pp.waitForTimeout(500);
+    const r = await pp.evaluate(() => ({ card: !document.getElementById('arrival').hidden, state: window.emu.session.arrivedFromLink }));
+    check('visit: a program page (?start=2048) runs its program with no arrival card and no arrivedFromLink', ran && !r.card && r.state === null, JSON.stringify(r));
+    await closeCtx(pctx);
+  }
   check('visits: no page errors', !errors.length, errors.join('; '));
   await closeCtx(ctx);
 }
@@ -3315,6 +3329,46 @@ async function returningChecks(browser, base, check) {
   await shot('with-roms');
   await page.click('#shelf :is(a, button)[data-shelf="welcome"]');
   check('returning (with ROMs): "Welcome menu" runs it', await waitFor(page, () => window.emu.session.welcomeRunning && window.emu.session.screenText()[6].trim() === 'WELCOME BACK'));
+  // a restored snapshot's toast offers "Start over": the program the moment is of from its beginning (LIZA here), or,
+  // for a moment of no bundled program, a power cycle into the same machine (Session.powerCycle: 'firmware')
+  {
+    const sctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, serviceWorkers: 'block' });
+    const sp = await sctx.newPage();
+    sp.on('pageerror', (e) => errors.push(e.message));
+    await sp.goto(`${base}?machine=dragon64&start=liza`);
+    await linkIn(sp);
+    await waitFor(sp, () => window.emu.session.screenText().join('').includes('I AM LIZA'), null, 60000);
+    await sp.focus('#screen'); await sp.keyboard.type('HELLO', { delay: 40 }); await sp.keyboard.press('Enter');
+    await waitFor(sp, () => !!document.querySelector('.slot-row[data-slot="1"] button[aria-label="Take snapshot 1"]'));
+    await sp.evaluate(() => document.querySelector('.slot-row[data-slot="1"] button[aria-label="Take snapshot 1"]').click());
+    await waitFor(sp, () => !document.querySelector('.slot-row[data-slot="1"] button[aria-label="Restore snapshot 1"]').disabled && /Snapshot 1 taken/.test(document.getElementById('toastText').textContent));
+    const restore = async () => {
+      await sp.evaluate(() => document.querySelector('.slot-row[data-slot="1"] button[aria-label="Restore snapshot 1"]').click());
+      return waitFor(sp, () => /Snapshot opened: Dragon 64/.test(document.getElementById('toastText').textContent) && document.getElementById('toastAction').textContent === 'Start over');
+    };
+    const offered = await restore();
+    const toast = await sp.evaluate(() => ({ text: document.getElementById('toastText').textContent, action: document.getElementById('toastAction').textContent, card: !document.getElementById('arrival').hidden }));
+    if (shotDir) await sp.screenshot({ path: path.join(shotDir, 'returning-snapshot-start-over.png') });
+    await sp.click('#toastAction');
+    const fresh = await waitFor(sp, () => window.emu.session.programControls && window.emu.session.programControls.id === 'liza'
+      && !!window.emu.session.untouchedBundledProgram(`${location.origin}/play/`), null, 30000);
+    check('returning: a restored snapshot\'s toast offers "Start over" (and no arrival card: it came from no link); on a LIZA moment it starts LIZA from its beginning',
+      offered && !toast.card && fresh, JSON.stringify(toast));
+    // the welcome menu's moment: Start over is a power cycle
+    await sp.goto(`${base}?machine=dragon64`);
+    await linkIn(sp);
+    await waitFor(sp, () => window.emu.session.welcomeRunning, null, 60000);
+    await waitFor(sp, () => !!document.querySelector('.slot-row[data-slot="1"] button[aria-label="Take snapshot 1"]'));
+    await sp.evaluate(() => document.querySelector('.slot-row[data-slot="1"] button[aria-label="Take snapshot 1"]').click());
+    await waitFor(sp, () => !document.querySelector('.slot-row[data-slot="1"] button[aria-label="Restore snapshot 1"]').disabled && /Snapshot 1 taken/.test(document.getElementById('toastText').textContent));
+    await restore();
+    await sp.evaluate(() => { window.__ev = []; window.emu.session.on((e) => window.__ev.push(e)); });
+    await sp.click('#toastAction');
+    const cycled = await waitFor(sp, () => window.__ev.includes('firmware'), null, 10000);
+    check('returning: "Start over" on a moment of no bundled program power cycles the same machine', cycled
+      && await sp.evaluate(() => window.emu.session.shownMachine.id === 'dragon64' && !window.__ev.includes('program')), JSON.stringify(await sp.evaluate(() => window.__ev)));
+    await closeCtx(sctx);
+  }
   check('returning: no page errors', !errors.length, errors.join('; '));
   await closeCtx(ctx);
 }
@@ -16391,6 +16445,161 @@ async function shareChecks(browser, base, site, check) {
     await closeCtx(ctx);
   }
   await shareScreenChecks(browser, base, check);
+  await arrivalChecks(browser, base, check);
+}
+
+// The arrival card (js/ui/arrival.js): a shared moment opened from a long link (#z=) or a short link (#l=, its server
+// mocked here with route.fulfill) arrives with a card docked at the foot of the screen, in its exact words, with
+// "Start from the beginning" and "Send it back", and "Report this link" for a short link only. It covers at most 40% of
+// the tube at 393x659, 653x280 and 1280x800, the machine running above it; the first key, a load or a switch takes it
+// down, and the Session's arrivedFromLink with it. (The program pages open no moment: the visit group checks they show
+// no card.)
+const ARRIVAL_TEXT = "Someone sent you this Dragon 64, exactly as they left it. It's running now. It's your copy: nothing you do changes theirs.";
+async function arrivalChecks(browser, base, check) {
+  const errors = [];
+  // the moments: 2048, played (a bundled program's moment), the welcome menu (no program), each as a long link; and a
+  // short link of the 2048 moment, sealed here (MemoryShortLinkStore) and served below as s.cloadm.dev would
+  const sctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, serviceWorkers: 'block' });
+  const src = await sctx.newPage();
+  src.on('pageerror', (e) => errors.push(e.message));
+  await src.goto(`${base}?machine=dragon64&start=2048`);
+  await linkIn(src);
+  await waitFor(src, () => window.emu.session.gameRunning, null, 60000);
+  await src.focus('#screen'); await src.keyboard.press('Space'); await src.keyboard.press('ArrowLeft');
+  await src.waitForTimeout(300);
+  const game = await src.evaluate(async () => {
+    const s = window.emu.session, base = `${location.origin}/play/`;
+    const { MemoryShortLinkStore } = await import('/js/host/link-store.js');
+    const store = new MemoryShortLinkStore();
+    const short = await s.shortLink(store, { preview: false });
+    return { link: await s.snapshotLink(base), program: s.momentProgram(), id: short.id, key: short.url.split('#')[1], sealed: Array.from(store.links.get(short.id).sealed) };
+  });
+  await src.goto(`${base}?machine=dragon64`);
+  await linkIn(src);
+  await waitFor(src, () => window.emu.session.welcomeRunning && window.emu.session.screenText()[14].includes('PRESS'), null, 60000);
+  const menuLink = await src.evaluate(() => window.emu.session.snapshotLink(`${location.origin}/play/`));
+  await closeCtx(sctx);
+  check('arrival: a played 2048 moment records its program (the moment\'s `program`), and both links are long links', game.program === '2048' && /#z=/.test(game.link) && /#z=/.test(menuLink), game.program);
+
+  // a recipient: the link opened in a fresh profile, every request to s.cloadm.dev recorded (and the short link's
+  // moment served from the sealed bytes made above)
+  const open = async (url, viewport = { width: 1280, height: 800 }) => {
+    const ctx = await browser.newContext({ viewport, serviceWorkers: 'block' });
+    const asked = [];
+    await ctx.route('https://s.cloadm.dev/**', (route) => {
+      const u = new URL(route.request().url());
+      asked.push(`${route.request().method()} ${u.pathname}`);
+      if (u.pathname === `/${game.id}.bin`) return route.fulfill({ status: 200, headers: { 'content-type': 'application/octet-stream', 'access-control-allow-origin': '*' }, body: Buffer.from(game.sealed) });
+      return route.fulfill({ status: 404, headers: { 'access-control-allow-origin': '*' }, body: 'no' });
+    });
+    const p = await ctx.newPage();
+    p.on('pageerror', (e) => errors.push(e.message));
+    await p.goto(url);
+    await linkIn(p);
+    return { ctx, p, asked };
+  };
+  const card = (p) => p.evaluate(() => {
+    const a = document.getElementById('arrival'), t = document.querySelector('#monitor .tube').getBoundingClientRect(), c = a.getBoundingClientRect();
+    const ix = Math.max(0, Math.min(c.right, t.right) - Math.max(c.left, t.left)), iy = Math.max(0, Math.min(c.bottom, t.bottom) - Math.max(c.top, t.top));
+    return { shown: a.checkVisibility(), text: document.getElementById('arrivalText').textContent, state: window.emu.session.arrivedFromLink,
+      area: (ix * iy) / (t.width * t.height), height: iy / t.height, inside: c.left >= t.left - 0.5 && c.right <= t.right + 0.5 && c.top >= t.top - 0.5 && c.bottom <= t.bottom + 0.5,
+      report: document.getElementById('arrivalReport').checkVisibility(), focusInCard: a.contains(document.activeElement),
+      start: document.getElementById('btnArrivalStart').textContent, back: document.getElementById('btnArrivalBack').textContent };
+  });
+  const gone = (p) => waitFor(p, () => document.getElementById('arrival').hidden && window.emu.session.arrivedFromLink === null, null, 10000);
+
+  // the long link: the card, its words, no Report; within 40% at three sizes; the machine runs under it
+  for (const [w, h] of [[1280, 800], [393, 659], [653, 280]]) {
+    const { ctx, p } = await open(game.link, { width: w, height: h });
+    const c = await card(p);
+    const f0 = await p.evaluate(() => window.emu.session.shownMachine.frameCount);
+    const runs = await waitFor(p, (f) => window.emu.session.shownMachine.frameCount > f + 5, f0);
+    if (shotDir) await p.screenshot({ path: path.join(shotDir, `arrival-long-${w}x${h}.png`) });
+    check(`arrival (${w}x${h}): a long link's moment arrives with the card, at most 40% of the tube, inside it, the machine running`,
+      c.shown && c.inside && c.area <= 0.40 && c.height <= 0.40 && runs && !c.focusInCard, JSON.stringify(c));
+    if (w === 1280) {
+      check('arrival: the card\'s exact words, its two buttons, and no "Report this link" on a long link', c.text === ARRIVAL_TEXT && c.start === 'Start from the beginning'
+        && c.back === 'Send it back' && !c.report && c.state && c.state.kind === 'long' && c.state.id === null && c.state.machine === 'Dragon 64' && c.state.program === '2048', JSON.stringify(c));
+      // the snapshot's toast offers Start over too
+      check('arrival: the toast says the snapshot opened and offers "Start over"', await waitFor(p, () => /Snapshot opened: Dragon 64/.test(document.getElementById('toastText').textContent)
+        && document.getElementById('toast').textContent.includes('Start over')));
+    }
+    await closeCtx(ctx);
+  }
+
+  // Send it back: the Share screen on the moment as it is now (a byte changed after arriving is in its link), and
+  // nothing uploaded: no request to s.cloadm.dev at all
+  {
+    const { ctx, p, asked } = await open(game.link);
+    await p.evaluate(() => window.emu.machine.poke(0x7F00, 0x5A));
+    await p.click('#btnArrivalBack');
+    await p.waitForSelector('#share', { state: 'visible' });
+    await waitFor(p, () => !!document.getElementById('shareLink').value);
+    await p.waitForTimeout(1500);   // an upload would have started by now
+    const back = await p.evaluate(async () => {
+      const snap = await window.emu.session.readSnapshotLink(new URL(document.getElementById('shareLink').value).hash);
+      return { view: location.hash, marker: snap.state.memory[0x7F00], made: !document.getElementById('shortMade').hidden };
+    });
+    if (shotDir) await p.screenshot({ path: path.join(shotDir, 'arrival-send-back.png') });
+    check('arrival: "Send it back" opens the Share screen on the recipient\'s moment as it is now, and uploads nothing',
+      back.view === '#share' && back.marker === 0x5A && !back.made && asked.length === 0, JSON.stringify({ back, asked }));
+    await closeCtx(ctx);
+  }
+
+  // Start from the beginning on a bundled program's moment: that program again, fresh (untouched since its start)
+  {
+    const { ctx, p } = await open(game.link);
+    await p.click('#btnArrivalStart');
+    const fresh = await waitFor(p, () => window.emu.session.gameRunning && !!window.emu.session.untouchedBundledProgram(`${location.origin}/play/`), null, 30000);
+    check('arrival: "Start from the beginning" on a 2048 moment starts 2048 again from its beginning, and the card goes', fresh && await gone(p),
+      JSON.stringify(await p.evaluate(() => ({ game: window.emu.session.gameRunning, state: window.emu.session.arrivedFromLink }))));
+    await closeCtx(ctx);
+  }
+  // ...and on any other moment: a power cycle into the same machine
+  {
+    const { ctx, p } = await open(menuLink);
+    const c = await card(p);
+    await p.evaluate(() => { window.__ev = []; window.emu.session.on((e) => window.__ev.push(e)); });
+    await p.click('#btnArrivalStart');
+    const cycled = await waitFor(p, () => window.__ev.includes('firmware'), null, 10000);
+    const after = await p.evaluate(() => ({ ev: window.__ev, machine: window.emu.session.shownMachine.id, program: window.emu.session.momentProgram() }));
+    check('arrival: "Start from the beginning" on a moment of no bundled program power cycles the same machine, and the card goes',
+      c.shown && c.state.program === null && cycled && after.machine === 'dragon64' && !after.ev.includes('program') && await gone(p), JSON.stringify({ c: c.state, after }));
+    await closeCtx(ctx);
+  }
+
+  // what ends an arrival: the first key, a load, a switch (each in a fresh arrival)
+  {
+    const { ctx, p } = await open(game.link);
+    await p.focus('#screen');
+    await p.keyboard.press('ArrowUp');
+    check('arrival: the first key takes the card down, and Session.arrivedFromLink with it', await gone(p));
+    await closeCtx(ctx);
+  }
+  {
+    const { ctx, p } = await open(game.link);
+    await p.evaluate(async () => window.emu.session.load('liza.bin', new Uint8Array(await (await fetch('/examples/liza.bin')).arrayBuffer())));
+    check('arrival: a load takes the card down, and Session.arrivedFromLink with it', await gone(p));
+    await closeCtx(ctx);
+  }
+  {
+    const { ctx, p } = await open(game.link);
+    await p.evaluate(() => window.emu.session.switchMachine('coco'));
+    check('arrival: a switch takes the card down, and Session.arrivedFromLink with it', await gone(p));
+    await closeCtx(ctx);
+  }
+
+  // a short link's moment (#l=<id>.<key>, the moment served by the mocked s.cloadm.dev): the card, and Report
+  {
+    const { ctx, p, asked } = await open(`${base}#l=${game.id}.${game.key}`);
+    const c = await card(p);
+    if (shotDir) await p.screenshot({ path: path.join(shotDir, 'arrival-short-1280x800.png') });
+    check('arrival: a short link\'s moment arrives with the same card, and only a short link\'s card ends with "Report this link"',
+      c.shown && c.text === ARRIVAL_TEXT && c.state && c.state.kind === 'short' && c.state.id === game.id && c.report && c.area <= 0.40
+      && JSON.stringify(asked) === JSON.stringify([`GET /${game.id}.bin`]), JSON.stringify({ c, asked }));
+    await closeCtx(ctx);
+  }
+  check('arrival: no page errors', !errors.length, errors.join('; '));
 }
 
 // the keyboard belongs to the page unless the screen has focus: Tab moves focus, Enter and Space press the

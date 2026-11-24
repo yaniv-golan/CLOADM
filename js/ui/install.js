@@ -484,7 +484,7 @@ export function setupInstall(page, { started = () => true, machineMenu = null } 
   const menuOpen = () => !$('machineMenu').hidden || $('appbar').classList.contains('menu-open');
   // Another card is up. #attention and #switchConfirm are surfaces the user must read too: the card waits for them.
   function otherCard() {
-    return ['welcome', 'mediaOffer', 'lizaOffer', 'snapNeeds', 'bootHelp', 'switchConfirm', 'attention']
+    return ['welcome', 'mediaOffer', 'lizaOffer', 'snapNeeds', 'bootHelp', 'switchConfirm', 'attention', 'arrival']
       .some((id) => { const e = $(id); return e && !e.hidden; });
   }
   // The offer's turn: asked once per frame the page already runs (no timer of its own).

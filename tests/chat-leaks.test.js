@@ -647,8 +647,9 @@ const REQUIRED = require.main !== module;
     'hasArtifactPhase', 'hasTwoScreens', 'welcomeRunning', 'welcomeRunningOn', 'welcomeOnScreen', 'lastRunOnScreen',
     // both default to the person's machine and read only its own sockets: nothing of the chat machine's
     'romsReadyButOff', 'machinesVerified',
-    // sharedMoment: the person arrived on a shared moment and has not left it (a flag, no machine)
-    'sharedMoment']) SESSION.add(n);
+    // sharedMoment: the person arrived on a shared moment and has not left it (a flag, no machine); arrivedFromLink: they
+    // arrived from a link and have not acted yet (plain data: the kind, an id, a name, a program id; no machine)
+    'sharedMoment', 'arrivedFromLink']) SESSION.add(n);
   // Puppets whose reachability is decided where they live (see the note above): debug (the Debugger view closes the
   // chat, claude.js:283-286), chat (the ChatSession, not a machine), store/roms/index/media/keys/machine (the
   // Session's own services).

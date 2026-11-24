@@ -184,6 +184,7 @@ const FILES = [
   'js/selftest.js',
   'js/session.js',
   'js/ui/arm-guard.js',
+  'js/ui/arrival.js',
   'js/ui/ask-popout.js',
   'js/ui/ask.js',
   'js/ui/assembler-panel.js',

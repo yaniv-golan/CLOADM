@@ -188,8 +188,8 @@ export function createFeedback() {
   // when it is first in view, which is now always the frame it appears in. Elsewhere (the Library, Your ROMs, Share)
   // the stylesheet's place holds.
   const region = box.parentNode;
-  // (the install offer too: a toast must never cover it, in any of its layouts)
-  const CONTROLS = 'header, .controls, .slots, aside.drawer, #attention, #touchKeys button, #claudeBar, #installOffer, #tapeHud:not([hidden]), #btnShowKeys:not([hidden])';
+  // (the install offer too: a toast must never cover it, in any of its layouts; nor the arrival card)
+  const CONTROLS = 'header, .controls, .slots, aside.drawer, #attention, #touchKeys button, #claudeBar, #installOffer, #tapeHud:not([hidden]), #btnShowKeys:not([hidden]), #arrival:not([hidden])';
   // Class changes that queue NO mutation when they change nothing. In a real browser `classList.remove('x')` and
   // `add('x')` queue a class-attribute mutation whether or not 'x' was there (measured in Chromium: 10 remove() calls
   // of an absent class on an element that has a class attribute give 10 records; `toggle('x', false)` gives 0), so a

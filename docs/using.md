@@ -121,7 +121,7 @@ The [README](../README.md#what-works) has the short version of this table.
 | **Games** | 2048 and Minesweeper, written for CLOADM, on every 6809 model with 32K or more, with or without ROMs ([details](#games)) | |
 | **Input** | Keyboard in two modes (translated: the character typed; positional: the physical key), keyboard joystick, gamepads (two joysticks, dead zone), the Tandy and CoCo Max 3 Hi-Res interfaces, the CoCo 3 "The Rat" mouse, the CoCo Max Hi-Res module, mouse as the right joystick; an on-screen keyboard on phones and tablets (split for the thumbs when held sideways) and a touch joystick with FIRE, a tappable welcome menu | |
 | **Tools** | Assembler, Debugger, snapshots, POKE book; a command line, MCP server and Node API for CI and agents ([Automation](automation.md), [MCP](mcp.md)) | Step back (rewind) |
-| **Links, embedding, offline** | Every setting as a URL parameter (machine, RAM, CPU, a program, tape, cartridge or disk to load, display, input); the Share screen's one **Copy link**: an untouched bundled program gives its page (`cloadm.dev/2048/`), otherwise a short link (`s.cloadm.dev/<id>#<key>`, about 50 characters, sealed in your browser, with a QR code and an optional public preview picture; online and without ROMs), or the long link where a short one can't be made; under "More ways to share" the long link ("Long link (works offline; nothing is uploaded)"), "Always use long links", a 6-second clip, a true-pixel screenshot and the snapshot file, plus the embed code for a blog post; embed mode with a JavaScript API; works offline once visited; **Install CLOADM…** in the app bar, beside Help (behind **Menu** on a phone), runs the browser's own prompt where there is one and shows the steps elsewhere, with a one-time offer once a program has run a minute; settings export and import (never ROMs) | A touch keyboard in embeds |
+| **Links, embedding, offline** | Every setting as a URL parameter (machine, RAM, CPU, a program, tape, cartridge or disk to load, display, input); the Share screen's one **Copy link**: an untouched bundled program gives its page (`cloadm.dev/2048/`), otherwise a short link (`s.cloadm.dev/<id>#<key>`, about 50 characters, sealed in your browser, with a QR code and an optional public preview picture; online and without ROMs), or the long link where a short one can't be made; under "More ways to share" the long link ("Long link (works offline; nothing is uploaded)"), "Always use long links", a 6-second clip, a true-pixel screenshot and the snapshot file, plus the embed code for a blog post; whoever opens a shared moment gets an arrival card (Start from the beginning, Send it back); embed mode with a JavaScript API; works offline once visited; **Install CLOADM…** in the app bar, beside Help (behind **Menu** on a phone), runs the browser's own prompt where there is one and shows the steps elsewhere, with a one-time offer once a program has run a minute; settings export and import (never ROMs) | A touch keyboard in embeds |
 
 ### Games
 
@@ -439,6 +439,15 @@ offered for a moment on ROMs, a cartridge or NitrOS-9: the long link works there
 Someone who opens a shared moment that runs without ROMs arrives on that moment, not on the setup: the "Running with no
 ROMs" card and the orange **No BASIC** pill stay out of the way while they look at it, and come back once they leave it
 (**Reset** back to the menu, **Switch off and on**, or another machine).
+
+Whoever opens a shared moment (a long or a short link) sees a card at the foot of the screen while the machine runs
+above it: "Someone sent you this Dragon 64, exactly as they left it. It's running now. It's your copy: nothing you do
+changes theirs." **Start from the beginning** starts the program the moment is of (2048, LIZA, Minesweeper) from its
+beginning, or switches the same machine off and on; **Send it back** opens the Share screen on the moment as it is now
+(nothing is uploaded until you tap Copy). A short link's card ends with a small **Report this link**. The card covers at
+most 40% of the screen and goes at your first key, a load or a machine switch. A program page (`cloadm.dev/2048/`)
+opens the program, not a moment, so it has no card. Opening any snapshot (a file, a snapshot slot, a link) says so on a
+toast with **Start over**, which does the same as Start from the beginning.
 
 Pasted in a chat or a post, a link to cloadm.dev shows a preview: the welcome menu in a monitor, the name and one line
 (`img/og.png`, made by `tools/capture-og.js` from the welcome program with no ROMs).
