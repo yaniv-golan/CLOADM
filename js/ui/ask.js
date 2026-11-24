@@ -285,6 +285,13 @@ export function setupAsk(page, claude) {
   const frozen = () => !!$('askInput').value || pointerDown || chosen != null;
   // fresh: the chat has just become empty (opened, or a new conversation); live: the debounced follow-up of a change
   function drawSuggest(noKey, fresh, live = false) {
+    // Claude features Off: no questions, and the machine is not read for them
+    if (!session.claudeFeatures) {
+      shown = null; chosen = null;
+      $('askSuggest').replaceChildren(); delete $('askSuggest').dataset.set;
+      $('askSuggestLabel').hidden = true; $('askChoose').hidden = true;
+      return;
+    }
     if (fresh || noKey !== noKeyShown) { chosen = null; shown = null; }
     const set = !shown || live ? promptsNow(session) : null;
     if (set && (!shown || (set.id !== shown && !frozen()))) {
@@ -318,10 +325,13 @@ export function setupAsk(page, claude) {
   };
   // a change on the machine: the chips follow it after 500 ms of it, while the chat is empty and nothing holds them
   function suggestSoon() {
-    if (sugTimer || !open || $('askEmpty').hidden) return;
+    if (sugTimer || !open || $('askEmpty').hidden || !session.claudeFeatures) return;
     sugTimer = setTimeout(() => { sugTimer = null; if (open && !$('askEmpty').hidden) drawSuggest(claude.keyState() === 'none', false, true); }, 500);
   }
-  session.on((ev) => { if (ev !== 'chat') suggestSoon(); });
+  session.on((ev) => {
+    if (ev === 'claudefeatures') { wasEmpty = false; render(); return; }   // (Off clears them; On reads them afresh)
+    if (ev !== 'chat') suggestSoon();
+  });
 
   // ---------------- drawing ----------------
   let shownPending = null;
@@ -528,7 +538,7 @@ export function setupAsk(page, claude) {
     if (++tick % 10 !== 0) return;
     renderActing();
     // (what the machine does without an event - RUN typed, a program ending - is seen here)
-    if (open && !$('askEmpty').hidden && shown && promptsNow(session).id !== shown) suggestSoon();
+    if (open && session.claudeFeatures && !$('askEmpty').hidden && shown && promptsNow(session).id !== shown) suggestSoon();
   });
   render();
   return { show, hide, get open() { return open; } };

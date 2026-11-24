@@ -188,10 +188,12 @@ const id = (s) => Emu.promptsNow(s).id;
 }
 {
   const s = stub();
-  check('promptsNow: a reader that throws gives the fallback', Emu.promptsNow(s, { read: () => { throw new Error('broken'); } }).id === 'fallback');
+  const safe = (fn) => { try { return fn(); } catch (e) { return { id: `threw: ${e.message}`, prompts: [] }; } };
+  const t = safe(() => Emu.promptsNow(s, { read: () => { throw new Error('broken'); } }));
+  check('promptsNow: a reader that throws gives the fallback', t.id === 'fallback', t.id);
   const b = basic();
   b.shownMachine.peek = () => { throw new Error('no memory'); };
-  const r = Emu.promptsNow(b);
+  const r = safe(() => Emu.promptsNow(b));
   check('promptsNow: a machine that cannot be read gives the fallback, three questions', r.id === 'fallback' && r.prompts.length === 3, r.id);
 }
 
