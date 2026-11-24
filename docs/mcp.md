@@ -425,9 +425,12 @@ in-page Claude, `peek`, `disassemble` and `screenshot` show what the machine hol
 code, so treat what an agent reads as you would treat your ROMs.
 
 **Your own WAD.** While a [WYRMFIRE](using.md#wyrmfire) level converted from your own DOOM WAD is in a drive, every
-host refuses `screenshot`, `screen_text`, `peek`, `disassemble`, `find_bytes` and `run_frames`' screen with
-`rejected`: "Claude can't look at the screen or memory while your own WAD is loaded: it's id Software's game data."
-(`machine_info` still answers.) With WYRMFIRE's Freedoom level, screenshots work and memory reads follow the cartridge
+host refuses `screenshot`, `screen_text`, `peek`, `disassemble`, `find_bytes`, `registers`, `step` and `run_frames`'
+screen and its `until` on a memory byte or the `pc` with `rejected`: "Claude can't look at the screen or memory while
+your own WAD is loaded: it's id Software's game data." (`machine_info` still answers.) `registers` and `step` are refused
+because loading a load instruction, stepping it and reading a register would read memory a byte at a time. The refusal
+belongs to the machine, not the disk: taking the disk out, a Reset or loading something else keeps it; switching the
+machine off and on (`power_cycle`), switching machines or opening a snapshot ends it. With WYRMFIRE's Freedoom level, screenshots work and memory reads follow the cartridge
 rule above.
 
 ### Protocol versions

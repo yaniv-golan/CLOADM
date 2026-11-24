@@ -24,7 +24,8 @@ Next version: 0.1.9-pre (the plugin and extension manifests carry it; `tests/plu
   ("WYRMFIRE · Getting the game… 42%", Cancel, then "Starting…"; straight to Starting… once kept offline); offline and
   not kept, or a failed download, says so with Try again and leaves the machine alone; a tab in the background waits.
   It runs on the Dragon 64 without ROMs, with the DragonDOS controller without its ROM (a disk ROM of yours is neither
-  used nor touched). While it plays the strip shows "WYRMFIRE 0.1.0 · Source ↗ · Level from Freedoom ↗ · Not
+  used nor touched); Dragon 64 ROMs of yours come back when it ends, at the next power-on or switch. A second WAD while
+  one converts is not started, and Cancel stops the conversion. While it plays the strip shows "WYRMFIRE 0.1.0 · Source ↗ · Level from Freedoom ↗ · Not
   affiliated with id Software"; snapshots are off ("Snapshots are off while WYRMFIRE runs."); Share gives
   `?start=wyrmfire` ("Opens WYRMFIRE from the start, with the Freedoom level."); a Freedoom screenshot or clip carries
   "-freedoom" and "Level: Freedoom (BSD)". On a touch screen it opens on Pad with FIRE and USE as two big buttons, and
@@ -39,8 +40,10 @@ Next version: 0.1.9-pre (the plugin and extension manifests carry it; `tests/plu
   in the Library, the recent list, the carry-on, a snapshot, a share link, a drive's Download, `insert_disk` or a
   settings export. Each refusal is said in the strip and a toast ("That isn't a WAD file.", the add-on, no E1M1, too
   big, too much for the Dragon's memory, and a browser that can't keep it). While that level is in a drive,
-  `Session.romCodeIn()` says `userdata`: Claude's `screenshot`, `screen_text`, `peek`, `disassemble`, `find_bytes` and
-  `run_frames`' screen (the page's chat, the side panel, every MCP host) and the embed API's `peek` and `screenText`
+  `Session.romCodeIn()` says `userdata` (a mark on the machine, kept until it is switched off and on: taking the disk
+  out, a Reset or a load keep it): Claude's `screenshot`, `screen_text`, `peek`, `disassemble`, `find_bytes`,
+  `registers`, `step` and `run_frames`' screen and its `until` on memory or the `pc` (the page's chat, the side panel,
+  every MCP host) and the embed API's `peek` and `screenText`
   refuse with "Claude can't look at the screen or memory while your own WAD is loaded: it's id Software's game data."
   (the chat's new code `user-data`), and Share's screenshot and clip are off. No id Software data is in CLOADM or its
   tests: they use synthetic WAD headers and the Freedoom level.

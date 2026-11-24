@@ -554,6 +554,7 @@ export class DiskDrives {
     this.checkDrive(drive);
     const fdc = this.controller;
     if (fdc) fdc.eject(drive);
+    this.session.wyrmfireCheck();   // WYRMFIRE's own disk out: it has ended
     this.session.emit('disks');
     await this.writesDone();
   }

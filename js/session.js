@@ -623,7 +623,12 @@ export class Session {
     this.roms = new RomLibrary(this.index, romOwners);
     this.romsLeft = new WeakMap();   // machine -> CRCs removed from storage that it still runs (removeRom)
     this.stubChosen = new Set();    // machines the user chose to run without ROMs this session
-    this.wyrmfire = null;           // WYRMFIRE running: { m, fdc, media, level, name } (startWyrmfire, wyrmfireLevel)
+    this.wyrmfire = null;           // WYRMFIRE running: { m, fdc, media, level, name, addedStub } (startWyrmfire, wyrmfireLevel)
+    // machines that have run a level converted from the person's own WAD (startWyrmfire, level 'user'): the mark is the
+    // MACHINE's, so taking the disk out, a Reset or a load leaves its RAM (the level, the engine's tables) unreadable.
+    // Only a power cycle clears it (powerCycle); a switch and an opened snapshot are a new machine, never marked.
+    this.userDataMachines = new WeakSet();
+    this.romsBack = null;           // the machine id whose ROMs WYRMFIRE took off, put back at its next power-on (wyrmfireLeft)
     // The stored-ROM CRCs that did not start BASIC, per machine (Map<Machine, Set<crcs>>): a fresh try is a power-on
     // or a switch, which forgets them (poweredOn clears every machine's; adopt forgets the machine left behind), and
     // another set of ROMs is another key (storedRomsWaiting).
@@ -850,6 +855,8 @@ export class Session {
   switchMachine(id, config, { menu = true, offer = null } = {}) {
     this.writeWatch.guard('switchMachine');
     if (!Object.hasOwn(profiles, id)) id = 'dragon64';
+    this.endWyrmfire();   // the machine it ran on goes (its ROMs are back for the next time it is switched to)
+    if (this.romsBack === id) this.romsBack = null;   // (this switch loads them: below)
     let m;
     try {
       m = createMachine(id, config || this.savedConfig(id));
@@ -1378,6 +1385,9 @@ export class Session {
   // (it always passes the chat machine), never from this default.
   powerCycle({ menu = true, reason = 'the machine restarted', on = null } = {}) {
     const m = on || this.personMachine;
+    // switched off: WYRMFIRE is gone from this machine, and so is anything read from the person's own WAD in its RAM
+    this.endWyrmfire(m);
+    this.userDataMachines.delete(m);
     // A load on the BASIC session while the chat is open passes that session, and this stops Claude only when it is
     // the machine Claude acts on (stopClaudeFor's own rule: chatTarget()). In the full-screen chat that IS the BASIC
     // session, so a load there stops Claude (as before); in the side panel the conversation acts on the machine it
@@ -1394,6 +1404,8 @@ export class Session {
     // A socket another tab changed while this machine ran the old ROM (romElsewhere): switching off and on is when
     // it takes what is stored now, as the ROM screen says. Only then: otherwise the ROMs in place are the stored ones.
     if (!this.stubChosen.has(m.id) && m.profile.roms.some((x) => this.romElsewhere(m.id, x.id))) this.loadSavedRoms(m);
+    // the ROMs WYRMFIRE took off this machine (wyrmfireLeft) go back in at this power-on
+    else if (this.romsBack === m.id && !this.stubChosen.has(m.id)) { this.romsBack = null; this.loadSavedRoms(m); this.emit('roms'); }
     this.applySscOption(m);
     this.drives.fitRom(m);
     m.reset(true);
@@ -1740,7 +1752,7 @@ export class Session {
   // images and rebuilds the moment from their own (snapshotRoms, openSnapshot). AGENTS rule 1: no ROM byte leaves.
   async shareFile(now = new Date()) {
     const m = this.shownMachine;
-    if (this.wyrmfireOn(m) || this.userDataIn(m)) throw new SessionError(WYRMFIRE_TEXT.snapshots);
+    if (this.wyrmfireOn(m) || this.userDataIn(m) || this.userDiskIn(m)) throw new SessionError(WYRMFIRE_TEXT.snapshots);
     // NitrOS-9's memory is the user's own NitrOS-9 image: a moment of it is never put in a link. shareUrl's link
     // (nitros9=1) boots NitrOS-9 from the recipient's own image instead.
     if (this.nitros9On(m)) throw new SessionError('A NitrOS-9 moment isn\'t shared as a snapshot: its memory holds your NitrOS-9. The link boots NitrOS-9 from their own DriveWire image instead.');
@@ -1786,7 +1798,7 @@ export class Session {
   async snapshotFile(now = new Date()) {
     this.writeWatch.guard('snapshotFile');
     const m = this.personMachine;
-    if (this.wyrmfireOn(m) || this.userDataIn(m)) throw new SessionError(WYRMFIRE_TEXT.snapshots);
+    if (this.wyrmfireOn(m) || this.userDataIn(m) || this.userDiskIn(m)) throw new SessionError(WYRMFIRE_TEXT.snapshots);
     const bytes = await encodeSnapshot(m.snapshot(), { name: m.profile.name, taken: now.toISOString() });
     const saved = m !== this.shownMachine ? 'your BASIC session' : null;
     return { name: `${m.profile.name.replace(/[^A-Za-z0-9]+/g, '')}-${stamp(now)}${SNAPSHOT_EXT}`, bytes, saved };
@@ -3306,7 +3318,9 @@ export class Session {
     this.endWyrmfire();
     this.switchMachine(want.id, config, { menu: false });
     const m = this.personMachine;
-    // without ROMs: the engine drives the machine itself, as on the stub where it was built and tested
+    // without ROMs: the engine drives the machine itself, as on the stub where it was built and tested. What it takes
+    // off is put back when WYRMFIRE ends (wyrmfireLeft): the "run without ROMs" choice only if WYRMFIRE made it.
+    const addedStub = m.hasRom && !this.stubChosen.has(m.id);
     if (m.hasRom) {
       m.setRoms(Object.fromEntries(m.profile.roms.map((x) => [x.id, null])));
       this.stubChosen.add(m.id);
@@ -3321,7 +3335,8 @@ export class Session {
     fdc.drives[want.drive].media.gameData = level;
     this.emit('disks');
     const msg = this.load('WYRMFIRE.BIN', engine, { remember: false });
-    this.wyrmfire = { m, fdc, media: fdc.drives[want.drive].media, level, name: level === 'user' ? String(name || 'your WAD') : null };
+    this.wyrmfire = { m, fdc, media: fdc.drives[want.drive].media, level, name: level === 'user' ? String(name || 'your WAD') : null, addedStub };
+    if (level === 'user') this.userDataMachines.add(m);
     this.emit('program', 'wyrmfire');
     this.emit('wyrmfire');
     return msg;
@@ -3335,9 +3350,11 @@ export class Session {
     return d && d.loaded && d.media === w.media ? w.level : null;
   }
   wyrmfireOn(m = this.shownMachine) { return !!this.wyrmfireLevel(m); }
-  // a disk converted from the person's own WAD is in one of m's drives (whatever runs: a restore point put back, or a
-  // program loaded over WYRMFIRE, still has it in the drive), so nothing hands the screen or memory out (romCodeIn)
-  userDataIn(m = this.shownMachine) {
+  // m has run a level converted from the person's own WAD since its last power-on (the machine's mark: see
+  // userDataMachines), so nothing hands its screen or memory out (romCodeIn 'userdata')
+  userDataIn(m = this.shownMachine) { return !!m && this.userDataMachines.has(m); }
+  // such a disk is in one of m's drives (a snapshot would carry its bytes; a power cycle does not take it out)
+  userDiskIn(m = this.shownMachine) {
     const fdc = m && this.drives.controllerOf(m);
     return !!fdc && fdc.drives.some((d) => d.loaded && d.media && d.media.gameData === 'user');
   }
@@ -3392,7 +3409,19 @@ export class Session {
     const w = this.wyrmfire;
     if (!w || (m && w.m !== m)) return;
     this.wyrmfire = null;
+    this.wyrmfireLeft(w);
     this.emit('wyrmfire');
+  }
+  // WYRMFIRE stopped running without endWyrmfire (its disk taken out): the same ending
+  wyrmfireCheck() { const w = this.wyrmfire; if (w && !this.wyrmfireLevel(w.m)) this.endWyrmfire(); }
+  // What WYRMFIRE took off goes back: the "run without ROMs" choice it added is dropped, and the person's ROMs go in at
+  // the machine's next power-on (powerCycle) or switch (switchMachine loads them), or now when the machine is on screen
+  // at the firmware's bare prompt, running nothing.
+  wyrmfireLeft(w) {
+    if (!w.addedStub) return;
+    this.stubChosen.delete(w.m.id);
+    this.romsBack = w.m.id;
+    if (w.m === this.shownMachine && w.m === this.personMachine && w.m.atStubPrompt && w.m.atStubPrompt()) this.powerCycle({ menu: false, reason: 'WYRMFIRE ended', on: w.m });
   }
   // the welcome build this machine runs: the 6809 file for every 6809-family model (the 6309 included), the
   // machine's own 6803 build on the MC-10 and the Alice (their subtitles differ). The page fetches it by this name.

@@ -151,6 +151,7 @@ export function setupWyrmfire(page, { confirmSwitch }) {
     if (!job) return;
     job.cancelled = true;
     job.controller.abort();
+    if (job.stop) job.stop();   // a conversion: its worker goes
   }
   // a tab in the background switches only once it is shown again
   const visible = () => new Promise((resolve) => {
@@ -220,16 +221,26 @@ export function setupWyrmfire(page, { confirmSwitch }) {
     page.status(text, true);
   }
   // a File (a drop, the picker): checked, converted, kept, played
+  // One at a time: a second drop while one converts (or WYRMFIRE downloads) is not started; Cancel stops the worker.
   async function takeWad(file) {
     if (job) return;
     const name = String(file.name || 'your WAD').split(/[\\/]/).pop();
     if (file.size > WAD_MAX_MB * 1024 * 1024) { wadError(WAD_TEXT.tooBig()); return; }
-    show(WYRM_TEXT.converting(name), []);
-    let bytes;
-    try { bytes = new Uint8Array(await file.arrayBuffer()); } catch (e) { wadError(WAD_TEXT.failed(e.message)); return; }
-    try { checkWad(bytes); } catch (e) { if (e instanceof WadCheckError) { wadError(e.message); return; } throw e; }
-    let disk;
-    try { disk = await convert(bytes); } catch (e) { wadError(e.message); return; }
+    const mine = job = { controller: new AbortController(), cancelled: false, stop: null };
+    show(WYRM_TEXT.converting(name), [button('Cancel', cancel)]);
+    let bytes, disk;
+    try {
+      bytes = new Uint8Array(await file.arrayBuffer());
+      if (mine.cancelled) throw new DOMException('cancelled', 'AbortError');
+      checkWad(bytes);
+      disk = await convert(bytes, mine);
+    } catch (e) {
+      job = null;
+      if (e && e.name === 'AbortError') { hide(); playing(); page.focus(); return; }
+      wadError(e instanceof WadCheckError || e.fromConverter ? e.message : WAD_TEXT.failed(e.message));
+      return;
+    }
+    job = null;
     bytes = null;   // the WAD itself is let go: only the level is kept
     const kept = await session.saveGameFile(disk, name);
     note = kept.kept ? null : WAD_TEXT.storage;
@@ -237,16 +248,19 @@ export function setupWyrmfire(page, { confirmSwitch }) {
     await start({ own: { disk, name } });
   }
   // WYRMFIRE's converter in a worker (GPL: examples/wyrmfire/converter/) -> the level disk; Error with the page's words
-  function convert(bytes) {
+  // (mine: the job, whose stop() terminates the worker: Cancel)
+  function convert(bytes, mine) {
     return new Promise((resolve, reject) => {
+      const said = (text) => Object.assign(new Error(text), { fromConverter: true });
       let w;
-      try { w = new Worker(abs(PIN.files.worker.path), { type: 'module' }); } catch (e) { reject(new Error(WAD_TEXT.failed(e.message))); return; }
+      try { w = new Worker(abs(PIN.files.worker.path), { type: 'module' }); } catch (e) { reject(said(WAD_TEXT.failed(e.message))); return; }
+      mine.stop = () => { w.terminate(); reject(new DOMException('cancelled', 'AbortError')); };
       w.onmessage = ({ data }) => {
         w.terminate();
         if (data && data.ok) resolve(new Uint8Array(data.disk));
-        else reject(new Error(convertErrorText(data && data.kind, data && data.error)));
+        else reject(said(convertErrorText(data && data.kind, data && data.error)));
       };
-      w.onerror = (e) => { w.terminate(); reject(new Error(WAD_TEXT.failed(e.message || 'the converter stopped'))); };
+      w.onerror = (e) => { w.terminate(); reject(said(WAD_TEXT.failed(e.message || 'the converter stopped'))); };
       const buf = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
       w.postMessage({ id: 1, wad: buf, map: PIN.freedoom.map }, [buf]);
     });

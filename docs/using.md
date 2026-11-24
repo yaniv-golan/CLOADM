@@ -132,7 +132,8 @@ level from a disk, free software under the GNU GPL version 3 or later. CLOADM se
 **WYRMFIRE**, "A 3D game for the Dragon 64 · Freedoom level", "GPL · Freedoom level (BSD)"), Ctrl+K's **WYRMFIRE**
 (it answers to doom, game, 3d, freedoom), or a link, `?start=wyrmfire`.
 
-* It runs on the Dragon 64 (64K, 6809) without ROMs, with the DragonDOS disk controller in the cartridge port without
+* It runs on the Dragon 64 (64K, 6809) without ROMs (Dragon 64 ROMs of yours come back when it ends: at the next
+  switch off and on, or switch of machine), with the DragonDOS disk controller in the cartridge port without
   its ROM and the level write-protected in drive 0. A link switches straight away; from the page, with another machine
   or a program running, the switch question asks first ("Switching to Dragon 64 to play WYRMFIRE resets the …"). A disk
   ROM of yours is not used and stays where it is. `?start=wyrmfire` with `machine=` another model, or with
@@ -158,9 +159,11 @@ level from a disk, free software under the GNU GPL version 3 or later. CLOADM se
   What can go wrong is said in the strip and a toast: "That isn't a WAD file.", "That's an add-on. WYRMFIRE needs the
   main game file (DOOM1.WAD or DOOM.WAD).", "This WAD has no E1M1. WYRMFIRE plays the first level of DOOM's episode 1.",
   "Too big to convert here (over 40 MB).", "E1M1 in this WAD is too much for the Dragon's memory. The Freedoom level
-  still works.", and "Converted, but this browser can't keep it: it will play now and be gone after reload." With your
-  own WAD's level in the drive, clips and screenshots are off, and Claude (the chat, the side panel, the MCP tools) and
-  a page embedding CLOADM can't read the screen or memory: "Claude can't look at the screen or memory while your own
+  still works.", and "Converted, but this browser can't keep it: it will play now and be gone after reload." Once your
+  own WAD's level has run on the machine, until it is switched off and on (taking the disk out, a Reset or loading
+  something else does not end it; switching machines or opening a snapshot does), clips and screenshots are off,
+  snapshots are off, and Claude (the chat, the side panel, the MCP tools, `registers` and `step` included) and a page
+  embedding CLOADM can't read the screen or memory: "Claude can't look at the screen or memory while your own
   WAD is loaded: it's id Software's game data." WYRMFIRE is not affiliated with id Software. DOOM is a trademark of id
   Software LLC.
 

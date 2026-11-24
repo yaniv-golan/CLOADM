@@ -214,6 +214,7 @@ export function createToolbox(host, { readOnly = false, maxMachines = MAX_MACHIN
   };
   // the screen too, never while a level converted from the person's own WAD is loaded (whatever refuseRomReads says:
   // it is id Software's game data, not a ROM). screen_text and run_frames' screen go through runReadOnlyTool's rule.
+  // registers and step too: loading an LDA, stepping it and reading A would read memory a byte at a time
   const userDataGuard = (m) => { if (m.session.romCodeIn() === 'userdata') throw fail('rejected', TOOL_ERRORS['user-data']); };
 
   const get = (args) => {
@@ -578,6 +579,8 @@ export function createToolbox(host, { readOnly = false, maxMachines = MAX_MACHIN
         if (extra.length) throw fail('bad-argument', `until has no ${extra.map((k) => `"${k}"`).join(', ')} (it takes ${Object.keys(UNTIL.properties).join(', ')})`);
         const kinds = [u.text != null, u.address != null || u.value != null, u.pc != null, u.tape != null, u.screen != null].filter(Boolean).length;
         if (kinds !== 1) throw fail('bad-argument', 'until takes one condition: text, address with value, pc, tape, or screen');
+        // a memory byte or the program counter is a read of the machine, refused with the person's own WAD's level
+        if (u.address != null || u.value != null || u.pc != null) userDataGuard(m);
         if (u.ignore_case != null && (u.text == null || typeof u.ignore_case !== 'boolean')) throw fail('bad-argument', 'until.ignore_case is true or false, and goes with until.text');
         // the screen as one string: rows joined by "\n", never more than the screen holds
         const shown = () => { const r = screen(m.chat.target); return r.text ? r.lines.join('\n') : null; };
@@ -629,7 +632,9 @@ export function createToolbox(host, { readOnly = false, maxMachines = MAX_MACHIN
     inputSchema: withMachine(objectSchema({ count: { type: 'integer', minimum: 1, maximum: STEP_MAX, description: 'instructions (default 1)' } })),
     annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
     handler: (args) => {
-      const m = get(args), d = m.session.debug, n = args.count == null ? 1 : intIn(args.count, 1, STEP_MAX, 'count');
+      const m = get(args);
+      userDataGuard(m);
+      const d = m.session.debug, n = args.count == null ? 1 : intIn(args.count, 1, STEP_MAX, 'count');
       let ran = 0, cycles = 0, halted = false;
       // stepping is reading the machine an instruction at a time, as the Debugger's Step: it works on a machine the
       // Debugger has stopped, and leaves it stopped (where the steps ended) rather than resuming what the person
@@ -656,7 +661,7 @@ export function createToolbox(host, { readOnly = false, maxMachines = MAX_MACHIN
     title: 'Read the CPU registers',
     description: 'The CPU\'s registers as decimal numbers (lower-case names: pc, a, b, d, x, y, u, s, dp, cc on the 6809; the 6309\'s e, f, w, v, md too; the 6803\'s a, b, d, x, s, cc), and the CPU.',
     inputSchema: withMachine(objectSchema({})), annotations: { readOnlyHint: true, openWorldHint: false }, readOnlyOk: true,
-    handler: (args) => { const m = get(args); return { cpu: m.session.shownMachine.config.cpu, registers: m.session.debug.registers() }; },
+    handler: (args) => { const m = get(args); userDataGuard(m); return { cpu: m.session.shownMachine.config.cpu, registers: m.session.debug.registers() }; },
   });
   add('screenshot', {
     title: 'Take a screenshot',

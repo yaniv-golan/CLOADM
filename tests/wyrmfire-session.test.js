@@ -102,6 +102,8 @@ function toFirstFrame(s) {
       J(Object.fromEntries(Object.entries(out).map(([n, r]) => [n, r.ok ? 'ok' : r.error.detail]))));
     check(`own WAD (refuseRomReads ${refuse}): run_frames does not hand the screen out either`, !runFrames.ok && J(runFrames.error).includes('user-data'), J(runFrames).slice(0, 200));
   }
+  // the side panel's toolbox on a session (refuseRomReads, as the panel builds it)
+  function tbOwn(sess) { return T.createToolbox(host, { session: sess, refuseRomReads: true, route: 'panel' }); }
   // the embed API
   const api = new Emu.EmbedApi(u, () => {});
   const eRead = (fn) => { try { fn(); return null; } catch (e) { return e.message; } };
@@ -125,7 +127,76 @@ function toFirstFrame(s) {
   u.load('demo.bin', new Uint8Array(fs.readFileSync(path.join(ROOT, 'examples/demo.bin'))), { remember: false });
   check('own WAD: a program loaded over it leaves the disk in, and reads and snapshots stay refused', !u.wyrmfireRunning && u.romCodeIn() === 'userdata' && !!(await attempt(() => u.snapshotFile())));
   await u.drives.eject(0);
-  check('own WAD: once the disk is out, reads and snapshots work again', u.romCodeIn() === 'cartridge' && !(await attempt(() => u.snapshotFile())));
+  // the mark is the MACHINE's: its RAM held the level, so taking the disk out frees nothing
+  const ejected = { why: u.romCodeIn(), snap: await attempt(() => u.snapshotFile()), share: await attempt(() => u.shareFile()), shot: await tbOwn(u).call('screenshot', { machine_id: 'm1' }), peek: await tbOwn(u).call('peek', { machine_id: 'm1', address: 0x0C00 }) };
+  check('own WAD: the disk taken out keeps every refusal (reads, MCP screenshot and peek, snapshots, Share)', ejected.why === 'userdata' && ejected.snap && ejected.snap.message === SNAP_OFF
+    && ejected.share && ejected.share.message === SNAP_OFF && !ejected.shot.ok && !ejected.peek.ok, JSON.stringify({ why: ejected.why, shot: ejected.shot.ok, peek: ejected.peek.ok }));
+  u.reset();
+  check('own WAD: a Reset keeps them refused', u.romCodeIn() === 'userdata' && !!(await attempt(() => u.snapshotFile())));
+  u.powerCycle({ menu: false });
+  check('own WAD: switching the machine off and on frees them (the disk out, its RAM cleared)', u.romCodeIn() === 'cartridge' && !(await attempt(() => u.snapshotFile()))
+    && (await tbOwn(u).call('peek', { machine_id: 'm1', address: 0x0C00 })).ok === false /* a cartridge is in: the cartridge rule */);
+  // (a new machine is never marked: a switch, or a snapshot opened)
+  {
+    const v = new Emu.Session({ welcomeMenu: false });
+    v.switchMachine('dragon64', {}, { menu: false });
+    v.startWyrmfire(ENGINE, LEVEL.slice(), { level: 'user', name: 'DOOM1.WAD' });
+    v.switchMachine('dragon64', {}, { menu: false });
+    check('own WAD: a switch is a new machine, not marked', v.romCodeIn() === null && !v.userDataIn());
+  }
+  // MCP: registers, step and run_frames until a memory byte or pc read the machine: refused with the mark
+  {
+    const w = new Emu.Session({ welcomeMenu: false });
+    w.switchMachine('dragon64', {}, { menu: false });
+    w.startWyrmfire(ENGINE, LEVEL.slice(), { level: 'user', name: 'DOOM1.WAD' });
+    const tbw = tbOwn(w), r = {};
+    r.registers = await tbw.call('registers', { machine_id: 'm1' });
+    r.step = await tbw.call('step', { machine_id: 'm1', count: 1 });
+    r.memory = await tbw.call('run_frames', { machine_id: 'm1', frames: 1, until: { address: 0x0C00, value: 1 } });
+    r.pc = await tbw.call('run_frames', { machine_id: 'm1', frames: 1, until: { pc: 0x0C00 } });
+    const plain = await tbw.call('run_frames', { machine_id: 'm1', frames: 1 });
+    check('own WAD: MCP registers, step and run_frames until a memory byte or the pc refuse with the reason; a plain run_frames runs',
+      Object.values(r).every((x) => !x.ok && x.error.code === 'rejected' && x.error.detail.includes(USER_READS)) && plain.ok, JSON.stringify(Object.fromEntries(Object.entries(r).map(([k, x]) => [k, x.ok]))));
+    const f = new Emu.Session({ welcomeMenu: false });
+    f.switchMachine('dragon64', {}, { menu: false });
+    f.startWyrmfire(ENGINE, LEVEL.slice());
+    check('Freedoom: registers and step answer (no mark)', (await tbOwn(f).call('registers', { machine_id: 'm1' })).ok && (await tbOwn(f).call('step', { machine_id: 'm1' })).ok);
+  }
+
+  // ---------------- the person's ROMs come back when WYRMFIRE ends, on every way out ----------------
+  // (our own bytes stand in for Dragon 64 ROMs: CLOADM recognises them by their file names)
+  const fakeRoms = [{ name: 'd64_1.rom', bytes: Uint8Array.from({ length: 16384 }, (_, i) => (i * 7 + 3) & 255) }, { name: 'd64_2.rom', bytes: Uint8Array.from({ length: 16384 }, (_, i) => (i * 11 + 5) & 255) }];
+  const withRoms = (stub = false) => {
+    const r = new Emu.Session({ welcomeMenu: false });
+    r.switchMachine('dragon64', {}, { menu: false });
+    r.addRoms(fakeRoms);
+    if (stub) r.runWithoutRoms({ menu: false });
+    return r;
+  };
+  const before = withRoms();
+  const snapWithRoms = await before.readSnapshot((await before.snapshotFile()).bytes);
+  const exits = [
+    ['a load over it, then a power cycle', async (r) => { r.load('demo.bin', new Uint8Array(fs.readFileSync(path.join(ROOT, 'examples/demo.bin'))), { remember: false }); r.powerCycle({ menu: false }); }],
+    ['its disk taken out, then a power cycle', async (r) => { await r.drives.eject(0); r.powerCycle({ menu: false }); }],
+    ['a power cycle', async (r) => { r.powerCycle({ menu: false }); }],
+    ['a switch away and back', async (r) => { r.switchMachine('coco3', {}, { menu: false }); r.switchMachine('dragon64', {}, { menu: false }); }],
+    ['a snapshot opened', async (r) => { r.openSnapshot(snapWithRoms); }],
+  ];
+  for (const [how, exit] of exits) {
+    const r = withRoms();
+    const had = r.personMachine.hasRom && !r.stubChosen.has('dragon64');
+    r.startWyrmfire(ENGINE, LEVEL.slice());
+    const during = !r.personMachine.hasRom && r.stubChosen.has('dragon64');
+    await exit(r);
+    check(`ROMs back after WYRMFIRE: ${how}: the Dragon 64 has its ROMs again, and "run without ROMs" is as it was`, had && during && r.personMachine.id === 'dragon64' && r.personMachine.hasRom && !r.stubChosen.has('dragon64') && !r.wyrmfireRunning,
+      JSON.stringify({ had, during, id: r.personMachine.id, hasRom: r.personMachine.hasRom, stub: r.stubChosen.has('dragon64') }));
+  }
+  {
+    const r = withRoms(true);   // the person chose to run without ROMs: WYRMFIRE leaves that choice alone
+    r.startWyrmfire(ENGINE, LEVEL.slice());
+    r.powerCycle({ menu: false });
+    check('ROMs: a "run without ROMs" the person chose stays chosen after WYRMFIRE', r.stubChosen.has('dragon64') && !r.personMachine.hasRom);
+  }
 
   // ---------------- "Your game files" on a store that keeps them ----------------
   class KeptStore extends Emu.MemoryMediaStore { get kind() { return 'opfs'; } get synchronous() { return false; } }

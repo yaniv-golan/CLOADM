@@ -10368,6 +10368,59 @@ async function wyrmfireChecks(browser, site, check) {
     await ctx.close();
   }
 
+  // ---- the pinned hashes: a changed engine or level, from the network or from the cache, is refused ----
+  {
+    const ctx = await browser.newContext({ serviceWorkers: 'block' });
+    const page = await newPage(ctx);
+    await page.goto(`${base}?machine=dragon64`);
+    await started(page);
+    await stubPrompt(page);
+    const changed = (file) => { const b = Buffer.from(fs.readFileSync(path.join(ROOT, file))); b[b.length >> 1] ^= 0x5A; return b; };
+    const attemptWith = async (what) => {
+      await page.evaluate(() => document.querySelector('#shelf [data-shelf="wyrmfire"]').click());
+      if (await page.evaluate(() => !document.getElementById('switchConfirm').hidden)) await page.click('#btnSwitch');
+      await waitFor(page, () => document.getElementById('wyrmStrip').dataset.state === 'error', null, 30000);
+      const st = await strip(page), m = await machine(page);
+      check(`wyrmfire: ${what}: "Couldn't download WYRMFIRE." with Try again, and the machine untouched`, st.text.startsWith('Couldn\'t download WYRMFIRE.') && st.buttons[0] === 'Try again' && !m.wyrm && m.id === 'dragon64', JSON.stringify([st, m]));
+      await page.click('#wyrmBar button:text-is("Close")');
+    };
+    for (const f of [PIN.files.engine, PIN.files.level]) {
+      const route = `**/${f.path}`, body = changed(f.path);
+      await ctx.route(route, (r) => r.fulfill({ status: 200, body, contentType: 'application/octet-stream' }));
+      await attemptWith(`${f.path.split('/').pop()} served with one byte changed (the pinned SHA-256 refuses it)`);
+      await ctx.unroute(route);
+    }
+    // a changed copy kept in the browser's cache (where the service worker keeps the site) is refused too
+    await page.evaluate(async ({ p, bytes }) => { const c = await caches.open('cloadm-v1'); await c.put(new URL(p, document.baseURI).href, new Response(new Uint8Array(bytes))); }, { p: PIN.files.level.path, bytes: [...changed(PIN.files.level.path)] });
+    await page.evaluate(async (p) => { const c = await caches.open('cloadm-v1'); await c.put(new URL(p, document.baseURI).href, new Response(await (await fetch(p)).arrayBuffer())); }, PIN.files.engine.path);
+    await attemptWith('a changed level in the cache (the engine kept too, so nothing is fetched)');
+    await ctx.close();
+  }
+
+  // ---- the person's WAD: one conversion at a time, and Cancel stops it ----
+  {
+    const ctx = await browser.newContext({ serviceWorkers: 'block' });
+    // count the converter workers the page starts
+    await ctx.addInitScript(() => { const W = window.Worker; window.__workers = 0; window.Worker = class extends W { constructor(...a) { super(...a); window.__workers++; } }; });
+    let release = null;
+    await ctx.route(`**/${PIN.files.worker.path}`, async (r) => { await new Promise((ok) => { release = ok; }); await r.continue(); });
+    const page = await newPage(ctx);
+    await page.goto(`${base}?machine=dragon64`);
+    await started(page);
+    await page.setInputFiles('#fileWad', { name: 'FIRST.WAD', mimeType: 'application/octet-stream', buffer: wadBytes('IWAD', WIDE) });
+    await waitFor(page, () => /Converting FIRST\.WAD/.test(document.getElementById('wyrmLine').textContent) && window.__workers === 1);
+    await page.setInputFiles('#fileWad', { name: 'SECOND.WAD', mimeType: 'application/octet-stream', buffer: wadBytes('IWAD', WIDE) });
+    await page.waitForTimeout(400);
+    const busy = await page.evaluate(() => ({ line: document.getElementById('wyrmLine').textContent, workers: window.__workers, buttons: [...document.querySelectorAll('#wyrmBar button')].map((b) => b.textContent) }));
+    check('wyrmfire: a second WAD while one converts starts no second worker; the strip offers Cancel', /Converting FIRST\.WAD/.test(busy.line) && busy.workers === 1 && busy.buttons.join() === 'Cancel', JSON.stringify(busy));
+    await page.click('#wyrmBar button:text-is("Cancel")');
+    if (release) release();
+    await page.waitForTimeout(500);
+    const after = await page.evaluate(() => ({ hidden: document.getElementById('wyrmStrip').hidden, err: document.getElementById('wyrmStrip').dataset.state, wyrm: window.emu.session.wyrmfireState }));
+    check('wyrmfire: Cancel stops the conversion: the strip goes, no error, nothing starts', after.hidden && after.err !== 'error' && !after.wyrm, JSON.stringify(after));
+    await ctx.close();
+  }
+
   // ---- ?start=wyrmfire: no question; the strip's credits; Share; the palette; offline after one visit ----
   {
     const ctx = await browser.newContext();
