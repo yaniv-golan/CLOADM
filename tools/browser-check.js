@@ -16012,12 +16012,14 @@ async function shareScreenChecks(browser, base, check) {
     await sc.close();
   }
 
-  // The caption one line over the picture, and what gives way: " · CLOADM" is gone from every mode,
-  // and the machine name is what ends in "…" — the prefix is never the part that is cut. Checked on the LONGEST case
-  // (a snapshot of a Color Computer 3, the longest machine name) at a phone's 375px, by measuring both spans: the
-  // prefix's own box inside the caption's, and the prefix's scrollWidth not wider than its clientWidth. Not a colour
-  // check: a truncated prefix would still be legible pixels. (The longest real name is "Prológica CP-400"; CoCo 3 is
-  // the machine the requirement names, and its full caption "What they'll see first · CoCo 3" is the case that must fit.)
+  // The caption one line over the picture, and the ORDER in which it gives way: " · CLOADM" is gone from every mode,
+  // then the machine (or program) name ends in "…", and the prefix "What they'll see first · " is never the part cut.
+  // Every REAL name fits at 375 (prefix 121px in a 341px caption), so measuring only a fitting caption proves nothing
+  // about the order: the order is only observable when the caption is too narrow. So the squeeze is forced for real -
+  // the name span is given a long title, and the caption a width far below what prefix+name needs - and the ORDER is
+  // read from the geometry: the prefix keeps its whole text (scrollWidth === clientWidth, its right edge not past the
+  // name's left edge), and the NAME is the span that is cut (scrollWidth > clientWidth, text-overflow: ellipsis).
+  // Then the same check on an unsqueezed 375 CoCo 3 caption, and the "no CLOADM" clause in both modes.
   {
     const sc = await browser.newContext({ viewport: { width: 375, height: 548 }, serviceWorkers: 'block' });
     const sp = await sc.newPage();
@@ -16025,24 +16027,36 @@ async function shareScreenChecks(browser, base, check) {
     await sp.goto(`${base}?machine=coco3#share`);
     await started(sp);
     await waitFor(sp, () => !document.getElementById('share').hidden && !!document.getElementById('shareLink').value, null, 30000);
-    const cap = await sp.evaluate(() => {
-      const box = document.querySelector('#share figcaption').getBoundingClientRect();
-      const pre = document.getElementById('sharePrefix'), p = pre.getBoundingClientRect(), n = document.getElementById('shareName');
-      const cs = getComputedStyle(pre);
+    const fits = await sp.evaluate(() => {
+      const pre = document.getElementById('sharePrefix'), n = document.getElementById('shareName');
       return { text: document.getElementById('shareTitle').innerText.replace(/\s+/g, ' ').trim(), prefix: pre.textContent, name: n.textContent,
-        prefixRight: Math.round(p.right), boxRight: Math.round(box.right), boxLeft: Math.round(box.left),
-        prefixScroll: pre.scrollWidth, prefixClient: pre.clientWidth, nameClips: n.scrollWidth > n.clientWidth,
-        prefixShown: pre.checkVisibility(), boxWidth: Math.round(box.width),
-        // the MECHANISM that keeps the prefix whole: it may not shrink (flex-grow 0, flex-shrink 0) and it does not
-        // overflow. A name alone fitting at 375 is not evidence - every real name fits here - so the rule that makes
-        // the prefix the one part that never gives way is what is checked, not a cut that today never happens.
-        prefixFlexGrow: cs.flexGrow, prefixFlexShrink: cs.flexShrink, prefixOverflow: cs.overflow }; });
+        prefixScroll: pre.scrollWidth, prefixClient: pre.clientWidth, nameScroll: n.scrollWidth, nameClient: n.clientWidth,
+        prefixShown: pre.checkVisibility(), prefixFlexGrow: getComputedStyle(pre).flexGrow, prefixFlexShrink: getComputedStyle(pre).flexShrink };
+    });
     if (shotDir) await sp.screenshot({ path: path.join(shotDir, 'share-caption-375-coco3.png') });
-    check('share screen (375x548, CoCo 3): the caption\'s prefix "What they\'ll see first ·" is whole — inside the caption\'s box, untruncated, and unshrinkable (so it can never be the part cut) — while the name, not the prefix, is what ellipsises',
-      cap.prefixShown && cap.prefix === "What they'll see first · " && /^What they'll see first · CoCo 3$/.test(cap.text)
-      && cap.prefixRight <= cap.boxRight && cap.prefixRight - cap.boxLeft <= cap.boxWidth
-      && cap.prefixScroll <= cap.prefixClient && cap.prefixFlexGrow === '0' && cap.prefixFlexShrink === '0'
-      && cap.prefixOverflow === 'visible', JSON.stringify(cap));
+    check("share screen (375x548, CoCo 3): the caption is \"What they'll see first · CoCo 3\" whole, with no ' · CLOADM', and its prefix is untruncated and unshrinkable",
+      fits.prefixShown && fits.prefix === "What they'll see first · " && /^What they'll see first · CoCo 3$/.test(fits.text)
+      && fits.prefixScroll <= fits.prefixClient && fits.prefixFlexGrow === '0' && fits.prefixFlexShrink === '0', JSON.stringify(fits));
+    // THE SQUEEZE: a long name and a caption too narrow for both. What gives way must be the NAME, in that order.
+    const sq = await sp.evaluate(() => {
+      const n = document.getElementById('shareName'), pre = document.getElementById('sharePrefix'), t = document.getElementById('shareTitle');
+      n.textContent = 'Prológica CP-400 Professional';           // a long, real-looking machine name
+      const cap = document.querySelector('#share figcaption');
+      cap.style.width = '150px'; t.style.width = '150px'; n.style.width = '';   // far below prefix (121px) + this name
+      const nr = n.getBoundingClientRect(), pr = pre.getBoundingClientRect();
+      const cs = getComputedStyle(n);
+      return { prefix: pre.textContent, prefixScroll: pre.scrollWidth, prefixClient: pre.clientWidth,
+        prefixRight: Math.round(pr.right), nameLeft: Math.round(nr.left),
+        nameScroll: n.scrollWidth, nameClient: n.clientWidth, nameEllipsis: cs.textOverflow,
+        text: t.innerText.replace(/\s+/g, ' ').trim(), capWidth: Math.round(document.querySelector('#share figcaption').getBoundingClientRect().width) };
+    });
+    if (shotDir) await sp.screenshot({ path: path.join(shotDir, 'share-caption-squeezed-375.png') });
+    check('share screen (375x548, squeezed to 150px): the prefix keeps ALL its text and the NAME is the span that is cut — the ruling\'s order, observed (not just its style values)',
+      sq.capWidth <= 160 && sq.prefixScroll === sq.prefixClient && sq.prefixRight <= sq.nameLeft + 1
+      && sq.nameScroll > sq.nameClient && sq.nameEllipsis === 'ellipsis' && !/CLOADM/.test(sq.text), JSON.stringify(sq));
+    // the program page's caption names the program and machine, with no prefix and no CLOADM
+    await sp.evaluate(() => { location.hash = ''; });
+    await sp.evaluate(() => document.getElementById('shareBack').click());
     await sc.close();
   }
 
