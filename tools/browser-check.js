@@ -16029,13 +16029,17 @@ async function shareScreenChecks(browser, base, check) {
     await waitFor(sp, () => !document.getElementById('share').hidden && !!document.getElementById('shareLink').value, null, 30000);
     const fits = await sp.evaluate(() => {
       const pre = document.getElementById('sharePrefix'), n = document.getElementById('shareName');
+      const pr = pre.getBoundingClientRect(), nr = n.getBoundingClientRect();
+      // the separator is a MARGIN on the prefix, not a trailing space: a space at the end of a flex item collapses to
+      // nothing and the caption read "first ·CoCo 3". So what is asserted is the rendered GAP between the two spans
+      // (a person's test), not a character in the text.
       return { text: document.getElementById('shareTitle').innerText.replace(/\s+/g, ' ').trim(), prefix: pre.textContent, name: n.textContent,
-        prefixScroll: pre.scrollWidth, prefixClient: pre.clientWidth, nameScroll: n.scrollWidth, nameClient: n.clientWidth,
+        gap: Math.round(nr.left - pr.right), prefixScroll: pre.scrollWidth, prefixClient: pre.clientWidth,
         prefixShown: pre.checkVisibility(), prefixFlexGrow: getComputedStyle(pre).flexGrow, prefixFlexShrink: getComputedStyle(pre).flexShrink };
     });
     if (shotDir) await sp.screenshot({ path: path.join(shotDir, 'share-caption-375-coco3.png') });
-    check("share screen (375x548, CoCo 3): the caption is \"What they'll see first · CoCo 3\" whole, with no ' · CLOADM', and its prefix is untruncated and unshrinkable",
-      fits.prefixShown && fits.prefix === "What they'll see first · " && /^What they'll see first · CoCo 3$/.test(fits.text)
+    check("share screen (375x548, CoCo 3): the caption reads \"What they'll see first · CoCo 3\" whole — the words, the rendered gap between them (>= 3px), no ' · CLOADM', and an untruncated unshrinkable prefix",
+      fits.prefixShown && fits.prefix === "What they'll see first ·" && /^What they'll see first ·\s*CoCo 3$/.test(fits.text) && fits.gap >= 3
       && fits.prefixScroll <= fits.prefixClient && fits.prefixFlexGrow === '0' && fits.prefixFlexShrink === '0', JSON.stringify(fits));
     // THE SQUEEZE: a long name and a caption too narrow for both. What gives way must be the NAME, in that order.
     const sq = await sp.evaluate(() => {
@@ -16046,13 +16050,13 @@ async function shareScreenChecks(browser, base, check) {
       const nr = n.getBoundingClientRect(), pr = pre.getBoundingClientRect();
       const cs = getComputedStyle(n);
       return { prefix: pre.textContent, prefixScroll: pre.scrollWidth, prefixClient: pre.clientWidth,
-        prefixRight: Math.round(pr.right), nameLeft: Math.round(nr.left),
+        prefixRight: Math.round(pr.right), nameLeft: Math.round(nr.left), gap: Math.round(nr.left - pr.right),
         nameScroll: n.scrollWidth, nameClient: n.clientWidth, nameEllipsis: cs.textOverflow,
         text: t.innerText.replace(/\s+/g, ' ').trim(), capWidth: Math.round(document.querySelector('#share figcaption').getBoundingClientRect().width) };
     });
     if (shotDir) await sp.screenshot({ path: path.join(shotDir, 'share-caption-squeezed-375.png') });
     check('share screen (375x548, squeezed to 150px): the prefix keeps ALL its text and the NAME is the span that is cut — the order the caption gives way in, observed (not just its style values)',
-      sq.capWidth <= 160 && sq.prefixScroll === sq.prefixClient && sq.prefixRight <= sq.nameLeft + 1
+      sq.capWidth <= 160 && sq.prefixScroll === sq.prefixClient && sq.prefixRight <= sq.nameLeft + 1 && sq.gap >= 3
       && sq.nameScroll > sq.nameClient && sq.nameEllipsis === 'ellipsis' && !/CLOADM/.test(sq.text), JSON.stringify(sq));
     // the program page's caption names the program and machine, with no prefix and no CLOADM
     await sp.evaluate(() => { location.hash = ''; });
