@@ -15809,17 +15809,27 @@ async function shareScreenChecks(browser, base, check) {
     const fit = await sp.evaluate(() => {
       const b = document.getElementById('btnShareCopy').getBoundingClientRect();
       const lab = document.getElementById('shareLinkLabel').getBoundingClientRect(), inp = document.getElementById('shareLink').getBoundingClientRect();
-      return { top: Math.round(b.top), bottom: Math.round(b.bottom), vh: innerHeight, shown: document.getElementById('btnShareCopy').checkVisibility(),
-        labelBottom: Math.round(lab.bottom), inputTop: Math.round(inp.top), labelShown: document.getElementById('shareLinkLabel').checkVisibility() };
+      // what a person sees, not just a rect: the caption is anchored to the picture (a missing positioned ancestor sent
+      // it to the viewport's bottom edge, where its bar covered the Copy button), and the button itself is hit-testable
+      const frame = document.querySelector('#share .preview').getBoundingClientRect(), cap = document.querySelector('#share figcaption').getBoundingClientRect();
+      const btn = document.getElementById('btnShareCopy'), hit = document.elementFromPoint((b.left + b.right) / 2, (b.top + b.bottom) / 2);
+      return { top: Math.round(b.top), bottom: Math.round(b.bottom), vh: innerHeight, shown: btn.checkVisibility(),
+        labelBottom: Math.round(lab.bottom), inputTop: Math.round(inp.top), labelShown: document.getElementById('shareLinkLabel').checkVisibility(),
+        captionInFrame: cap.top >= frame.top - 1 && cap.bottom <= frame.bottom + 1 && cap.left >= frame.left - 1 && cap.right <= frame.right + 1,
+        onTop: !!hit && (hit === btn || btn.contains(hit)) };
     });
     if (shotDir) await sp.screenshot({ path: path.join(shotDir, `share-copy-${label}.png`) });
     check(`share screen (${label}): the long link's Copy button is wholly inside the viewport`,
       fit.shown && fit.top >= 0 && fit.bottom <= fit.vh, JSON.stringify(fit));
-    // a real margin, not a few pixels: CI's Linux Chromium lays this page out ~19px taller than a Mac's, so a fit that
-    // passes locally by 4px fails there. The mobile first screen keeps 40px of headroom (measured 501 of 548 here,
-    // ~520 of 548 under CI's fonts).
-    if (size.width === 375) check(`share screen (${label}): the Copy button keeps at least 40px of headroom above the fold`,
-      fit.vh - fit.bottom >= 40, JSON.stringify(fit));
+    // A real margin, not a few pixels. CI's Linux Chromium wraps #shareNote to one line more than a Mac (+19px measured
+    // on both a window's scrollHeight and that paragraph), so a fit decided by 4px locally fails there. 16px is chosen
+    // against that delta: the layout before this change had 4px spare on a Mac and -15px in CI (it failed), this one has
+    // 46px on a Mac and ~27px in CI. So the check separates them on a Mac alone, and still passes with room in CI.
+    if (size.width === 375) check(`share screen (${label}): the Copy button keeps at least 16px of headroom above the fold`,
+      fit.vh - fit.bottom >= 16, JSON.stringify(fit));
+    // the caption belongs to the picture, and the button is what the pointer lands on (not a bar over it)
+    check(`share screen (${label}): the caption sits inside the picture, and the Copy button is not covered`,
+      fit.captionInFrame && fit.onTop, JSON.stringify(fit));
     // the label sits WHOLLY above the input: no descender of "(long link)" on the input's top edge. Main's -10px margin
     // was written for a label in .col (gap 18); in this branch's .linkset (gap 6) it overlapped by 4-6px, at every size.
     check(`share screen (${label}): the long link's label sits wholly above its input, not on its edge`,
