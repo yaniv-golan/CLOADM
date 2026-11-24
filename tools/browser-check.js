@@ -15945,25 +15945,44 @@ async function shareScreenChecks(browser, base, check) {
       const a = window.emu.Emu.assemble(src, '6809', { include: (f) => files[f] }); return a.ok ? a.symbols.get('ENTROPY') : null; });
     const wasEnt = await sp.evaluate((e) => window.emu.machine.ram[e] * 256 + window.emu.machine.ram[e + 1], ent);
     const drawn = await waitFor(sp, ([e, b]) => ((window.emu.machine.ram[e] * 256 + window.emu.machine.ram[e + 1] - b) & 0xFFFF) > 200, [ent, wasEnt], 30000);
+    // Pause first, so exactly one frame is the one Share must capture: the RGBA of the title frame is read here, with
+    // frameToRGBA (the function the presenter itself uses), and Share then captures that frame and no other. A count of
+    // colours cannot tell a live picture from a stale one; this compares every pixel of the picture with it.
+    await sp.evaluate(() => document.getElementById('btnPause').click());
+    const framePx = await sp.evaluate(async () => {
+      const { frameToRGBA } = await import(new URL('js/video/frame.js', document.baseURI).href);
+      const px = frameToRGBA(window.emu.machine.render());
+      return { fc: window.emu.machine.frameCount, w: window.emu.machine.render().width, h: window.emu.machine.render().height, data: Array.from(px) };
+    });
     await sp.evaluate(() => { location.hash = '#share'; });
     await waitFor(sp, () => !!document.getElementById('shareLink').value, null, 15000);
-    const ut = await sp.evaluate(() => {
+    const ut = await sp.evaluate((framePx) => {
       const b = document.getElementById('btnShareCopy').getBoundingClientRect(), hit = document.elementFromPoint((b.left + b.right) / 2, (b.top + b.bottom) / 2), btn = document.getElementById('btnShareCopy');
-      // the picture really is 2048's title: every pixel read (no sampling), and a title page carries the four colours
-      // measured on it (ground, name, text, tiles). A blank screen carries one.
+      // the picture IS the frame that was on the screen at the tap: every pixel compared with frameToRGBA's output for
+      // it. frameToRGBA packs one Uint32 per pixel (0xFF000000 | b<<16 | g<<8 | r), so each is unpacked and compared
+      // with the canvas's four bytes. Not a colour count: a stale or earlier frame has a different picture.
       const c = document.getElementById('sharePicture'), d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+      const n = framePx.data.length;
+      let bad = 0;
+      const sized = c.width === framePx.w && c.height === framePx.h && d.length === n * 4;
+      if (sized) for (let p = 0; p < n; p++) { const v = framePx.data[p];
+        if (d[p * 4] !== (v & 255) || d[p * 4 + 1] !== ((v >>> 8) & 255) || d[p * 4 + 2] !== ((v >>> 16) & 255) || d[p * 4 + 3] !== ((v >>> 24) & 255)) bad++; }
       const colours = new Set(); for (let i = 0; i < d.length; i += 4) colours.add(`${d[i]},${d[i + 1]},${d[i + 2]}`);
       return { shown: btn.checkVisibility(), bottom: Math.round(b.bottom), vh: innerHeight, onTop: !!hit && (hit === btn || btn.contains(hit)),
         note: document.getElementById('shareNote').textContent, primaryNote: document.getElementById('primaryNote').textContent,
         // innerText, not textContent: a hidden prefix is not shown, and textContent would still carry its words
         cap: document.getElementById('shareTitle').innerText, prefixShown: document.getElementById('sharePrefix').checkVisibility(),
-        colours: colours.size, terms: document.getElementById('shortTerms').checkVisibility(), sw: document.getElementById('previewSwitch').checkVisibility() };
-    });
+        colours: colours.size, pictureIsThatFrame: sized && bad === 0, badPixels: bad, pixels: n,
+        pictureFrame: window.emu.machine.frameCount, frameCountAtPause: framePx.fc,
+        terms: document.getElementById('shortTerms').checkVisibility(), sw: document.getElementById('previewSwitch').checkVisibility() };
+    }, framePx);
+    await sp.evaluate(() => document.getElementById('btnPause').click());   // (resume: the rest of the block plays on)
     if (shotDir) await sp.screenshot({ path: path.join(shotDir, `share-untouched-${label}.png`) });
     // the program-page note, said once under the picture (the primary's own line stays empty); the caption names the
-    // program and machine with no "What they'll see first" prefix; nothing is uploaded
-    check(`one link (${label}): a bundled program started and untouched: the primary offers its page, with nothing to upload`,
-      ut.shown && ut.bottom <= ut.vh && ut.onTop && drawn && ut.colours === 4 && ut.note === 'Opens 2048 from the start, for anyone. The snapshot link below keeps this exact moment.'
+    // program and machine with no "What they'll see first" prefix; nothing is uploaded; and the picture is that frame
+    check(`one link (${label}): a bundled program started and untouched: the primary offers its page, nothing uploaded, and the picture is the frame at the tap`,
+      ut.shown && ut.bottom <= ut.vh && ut.onTop && drawn && ut.pictureIsThatFrame && ut.colours === 4
+      && ut.note === 'Opens 2048 from the start, for anyone. The snapshot link below keeps this exact moment.'
       && ut.primaryNote === '' && ut.cap === '2048 · Dragon 64' && !ut.prefixShown && !ut.terms && !ut.sw, JSON.stringify(ut));
     // the tap copies the program page, and after it the made field (here: only the program page is a link) is reachable
     await sp.click('#btnShareCopy');
