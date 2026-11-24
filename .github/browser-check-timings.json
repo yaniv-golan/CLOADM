@@ -92,6 +92,7 @@
     "needsBasic": 4.2,
     "noRomChrome": 11.6,
     "romNotRom": 1.7,
+    "toastOffScreen": 2.6,
     "connector": 69.3
   }
 }

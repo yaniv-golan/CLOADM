@@ -6117,7 +6117,8 @@ async function occlusionChecks(browser, base, check) {
       const slots = document.querySelector('.slots').getBoundingClientRect();
       return { ms: Math.round(performance.now() - t0), up: !box.hidden, top: reg.classList.contains('top'), rect: [b.left, b.top, b.right, b.bottom].map(Math.round).join(','),
         onVisibleControl: visible.some((o) => hits(b, o)), onSheetControl: own.some((o) => hits(b, o)), onSheet: !!sheet && hits(b, sheet),
-        onCoveredSlots: !!sheet && hits(b, slots) && hits(b, sheet), sheetOverSlots: !!sheet && hits(sheet, slots) };
+        onCoveredSlots: !!sheet && hits(b, slots) && hits(b, sheet), sheetOverSlots: !!sheet && hits(sheet, slots),
+        onPicture: hits(b, document.getElementById('screen').getBoundingClientRect()) };
     };
     const t0 = performance.now();
     window.emu.feedback.toast(text);
@@ -6132,7 +6133,8 @@ async function occlusionChecks(browser, base, check) {
       const m = /rgba?\(([^)]+)\)/.exec(getComputedStyle(e).backgroundColor), parts = m ? m[1].split(/[,\s/]+/).filter(Boolean).map(Number) : [];
       return { id: e.id, opacity: op, alpha: parts.length === 4 ? parts[3] : parts.length === 3 ? 1 : 0, animating: e.getAnimations().length }; }));
 
-  // ---- a phone with the touch keys, the Ask sheet at peek: the toast in the header band ----
+  // ---- a phone with the touch keys, the Ask sheet at peek: the header band would cover the picture (it starts under the
+  // bar), so the toast docks under the picture, over the keys (the one rule: never over the picture) ----
   {
     const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, serviceWorkers: 'block' });
     const page = await ctx.newPage();
@@ -6148,8 +6150,9 @@ async function occlusionChecks(browser, base, check) {
     const p = await raise(page, long);
     const bar = await page.evaluate(() => Math.round(document.getElementById('appbar').getBoundingClientRect().bottom));
     const last = p.samples[p.samples.length - 1];
-    check('feedback, opaque sheets (phone, touch keys, sheet at peek): the toast is in the header band (top slot under the bar), over neither the sheet nor its controls, and still from 350 ms on',
-      p.first.up && last.top && +last.rect.split(',')[1] === bar + 8 && !last.onSheet && !last.onSheetControl && stable(p), JSON.stringify({ bar, first: p.first, last }));
+    const picBottom = await page.evaluate(() => Math.round(document.getElementById('screen').getBoundingClientRect().bottom));
+    check('feedback, opaque sheets (phone, touch keys, sheet at peek): the toast is docked under the picture (the fixed slot), over neither the picture, the sheet nor its controls, and still from 350 ms on',
+      p.first.up && last.top && +last.rect.split(',')[1] > picBottom && !last.onPicture && !last.onSheet && !last.onSheetControl && stable(p), JSON.stringify({ bar, picBottom, first: p.first, last }));
     const o = await opaque(page);
     check('feedback, opaque sheets: the guard: every opaque overlay shown (the sheet at peek) has opacity 1 and an opaque background', o.length >= 1 && o.every((x) => x.opacity === 1 && x.alpha === 1), JSON.stringify(o));
     check('feedback, opaque sheets (phone): one announcement', JSON.stringify(await page.evaluate(() => window.__ann)) === JSON.stringify([long]), JSON.stringify(await page.evaluate(() => window.__ann)));
@@ -6533,8 +6536,7 @@ async function feedbackChecks(browser, base, check) {
       JSON.stringify(await ev(() => ({ p: window.emu.feedback.pending, y: scrollY, h: document.documentElement.scrollHeight, ih: innerHeight, vis: getComputedStyle(document.getElementById('toastRegion')).visibility, box: document.getElementById('toast').getBoundingClientRect().toJSON(), hash: location.hash }))));
     if (label === 'desktop') {
       // 1440 x 900: the slots run below the window's edge, so bottom centre would cover them; the toast goes where
-      // nothing is under it. The rule: it never covers a control; off the
-      // screen where the bottom edge has a free place, else over the foot of the screen (wholly inside the tube)
+      // nothing is under it. The rule: it never covers a control, and never the picture: docked under the tube
       // measured once the layout has settled: the toast is placed again every frame (feedback.js follow), so a control
       // that moved in this frame is answered in the next
       const settle = () => ev(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(true)))));
@@ -6553,8 +6555,10 @@ async function feedbackChecks(browser, base, check) {
         }
         const met = [...document.querySelectorAll('.controls, .slots, aside.drawer, header')].filter((e) => { const o = e.getBoundingClientRect(); return o.width && o.height && meets(o); }).map((e) => `${e.tagName}.${e.className}#${e.id} ${['left', 'top', 'right', 'bottom'].map((k) => Math.round(e.getBoundingClientRect()[k])).join(',')}`);
         const reg = document.getElementById('toastRegion').style;
-        return { met, region: [reg.left, reg.top, reg.visibility].join('|'), box: [t.left, t.top, t.right, t.bottom].map(Math.round), height: t.height, controls: controls.filter(meets).length, screen: meets(monitor), inTube, edgeFree }; });
-      const placed = (o) => o && o.height > 0 && o.controls === 0 && (!o.screen || (o.inTube && !o.edgeFree));
+        const pic = document.getElementById('screen').getBoundingClientRect();
+        return { met, region: [reg.left, reg.top, reg.visibility].join('|'), box: [t.left, t.top, t.right, t.bottom].map(Math.round), height: t.height, controls: controls.filter(meets).length, screen: meets(monitor), inTube, edgeFree,
+          picture: meets(pic), underTube: t.top >= tube.bottom && Math.abs((t.left + t.right) / 2 - (tube.left + tube.right) / 2) < 2 }; });
+      const placed = (o) => o && o.height > 0 && o.controls === 0 && !o.picture && o.underTube;
       let over = null;
       // (a toast of our own, held up by hovering it: the program's load message may already have run its 4 s on a loaded
       // machine; the rule is the same for any toast. Read for up to 120 frames, not a wall-clock time)
@@ -6562,7 +6566,7 @@ async function feedbackChecks(browser, base, check) {
       await shownWithin(page, /Loaded LOADME from your Library/);
       await page.hover('#toast');
       for (let i = 0; i < 60; i++) { await settle(); over = await measure(); if (placed(over)) break; }
-      check('feedback (desktop): on the emulator the toast covers no control (controls, slots, drawer, header), and the screen only at its foot when the bottom edge has no free place',
+      check('feedback (desktop): on the emulator the toast covers no control (controls, slots, drawer, header) and never the picture: it is docked under the tube',
         placed(over), JSON.stringify(over));
       if (shotDir) await page.screenshot({ path: path.join(shotDir, 'feedback-emulator-desktop.png') });
     }
@@ -20810,6 +20814,41 @@ async function romNotRomChecks(browser, base, check) {
   }
 }
 
+// ---------------- a toast never lies over the screen's picture (js/ui/feedback.js, the one rule) ----------------
+// At a desktop (1280x800: docked under the tube), a phone held sideways (653x280, touch keys: over the wider keys' side)
+// and upright (393x659: under the picture and the "Tap for sound" chip), a short toast and a long one with an action:
+// the toast's rect and the canvas's never intersect, and the toast covers no part of the chip while it shows; it is
+// wholly in the window.
+async function toastOffScreenChecks(browser, base, check) {
+  for (const [w, h, touch] of [[1280, 800, false], [653, 280, true], [393, 659, true]]) {
+    const L = `toast off the screen (${w}x${h}${touch ? ', touch' : ''})`;
+    const ctx = await browser.newContext({ viewport: { width: w, height: h }, hasTouch: touch, isMobile: touch, serviceWorkers: 'block' });
+    const page = await ctx.newPage();
+    const errors = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto(base); await started(page);
+    await emuFrames(page, 10);
+    for (const text of ['LIZA loaded', 'JUNK.BIN loaded and started. DragonDOS binary $3000-$300E, exec $3000']) {
+      await page.evaluate((t) => { window.emu.feedback.clear(); window.emu.feedback.toast(t, { action: { label: 'Undo', run() {} } }); }, text);
+      await toastSeen(page, new RegExp(text.slice(0, 8).replace(/[.$]/g, "\\$&")));
+      await emuFrames(page, 3);
+      const r = await page.evaluate(() => {
+        const rect = (e) => { const b = e.getBoundingClientRect(); return { left: b.left, top: b.top, right: b.right, bottom: b.bottom }; };
+        const hits = (a, o) => !(a.bottom <= o.top || a.top >= o.bottom || a.right <= o.left || a.left >= o.right);
+        const t = rect(document.getElementById('toast')), c = rect(document.getElementById('screen')), chipEl = document.getElementById('soundChip');
+        const chip = chipEl.checkVisibility() ? rect(chipEl) : null;
+        return { toast: Object.values(t).map(Math.round), canvas: Object.values(c).map(Math.round), chip: chip && Object.values(chip).map(Math.round),
+          overCanvas: hits(t, c), overChip: !!chip && hits(t, chip), inView: t.left >= 0 && t.top >= 0 && t.right <= innerWidth && t.bottom <= innerHeight };
+      });
+      check(`${L}: "${text.slice(0, 20)}…": the toast's rect and the canvas's do not intersect, it covers no part of the sound chip, and it is in view`,
+        !r.overCanvas && !r.overChip && r.inView, JSON.stringify(r));
+      if (shotDir) await page.screenshot({ path: path.join(shotDir, `toast-off-screen-${w}x${h}-${text.length}.png`) });
+    }
+    check(`${L}: no page errors`, !errors.length, errors.join('; '));
+    await closeCtx(ctx);
+  }
+}
+
 const GROUPS = (base, site) => [
   ['models', (b) => modelsChecks(b, base, check)],
   ['reset', (b) => resetChecks(b, base, check)],
@@ -20903,6 +20942,7 @@ const GROUPS = (base, site) => [
   ['needsBasic', (b) => needsBasicChecks(b, base, check)],
   ['noRomChrome', (b) => noRomChromeChecks(b, base, check)],
   ['romNotRom', (b) => romNotRomChecks(b, base, check)],
+  ['toastOffScreen', (b) => toastOffScreenChecks(b, base, check)],
   // (required when the group runs: the shard planner's copy of this file runs --list-groups without it)
   ['connector', (b) => require('./connector-check').connectorChecks(b, check, { shots: shotDir })],
 ];

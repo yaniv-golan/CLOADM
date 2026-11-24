@@ -52,7 +52,12 @@ export function decide(I) {
   const rect = (left, top) => ({ left, top, right: left + w, bottom: top + h });
   const inView = (a) => a.left >= area.left && a.right <= area.right && a.top >= area.top && a.bottom <= area.bottom;
   const free = (a, avoid) => inView(a) && avoid.every((o) => !hits(a, o));
-  const tries = [[r.left, r.top, true]];   // [left, top, also avoid the screen?]
+  // ONE RULE above the others: a toast never lies over the screen's picture (the canvas). Every place below keeps off
+  // it; on a desktop the place after the stylesheet's own is docked under the tube (centred on it, on the bezel under
+  // the glass), and where no place is free the fixed slot docks over the keys or under the picture (fallbackSlot).
+  const pic = c && c.width && c.height ? [c] : [];
+  const tries = [[r.left, r.top, true]];   // [left, top, also avoid the screen (the monitor and tube too)?]
+  if (!phone && t && t.width) tries.push([Math.round((t.left + t.right - w) / 2), t.bottom + 8, false]);
   if (!phone) {
     const xs = [];
     for (let x = area.left + 16; x + w <= area.right - 16; x += 8) xs.push(x);
@@ -69,11 +74,12 @@ export function decide(I) {
     const f = (active || '0,0,1,1').split(',').map(Number);
     return { left: c.left + f[0] * c.width, top: c.top + f[1] * c.height, right: c.left + f[2] * c.width, bottom: c.top + f[3] * c.height };
   })() : null;
+  // (the band starts under the picture itself, never on it: the one rule)
   const band = t && t.width && t.height && text ? { left: Math.max(t.left, c.left, area.left) + 8, right: Math.min(t.right, c.right, area.right) - 8,
-    top: text.bottom + 2, bottom: Math.min(t.bottom, sideKeys ? Infinity : c.bottom, area.bottom) - 4 } : null;
+    top: Math.max(text.bottom, c.bottom) + 2, bottom: Math.min(t.bottom, area.bottom) - 4 } : null;
   const offText = controls.concat(text ? [text] : []);
   tries.push([r.left, area.top + (phone ? 8 : 16), true]);
-  const at = tries.find(([x, y, avoidScreen]) => free(rect(x, y), avoidScreen ? controls.concat(screen) : controls));
+  const at = tries.find(([x, y, avoidScreen]) => free(rect(x, y), avoidScreen ? controls.concat(screen) : controls.concat(pic)));
   if (at) {
     if (at[0] === r.left && at[1] === r.top) return { kind: 'natural' };
     // (the width the writer must set is the toast's own on a phone -- recorded here so it can be re-applied)
@@ -273,6 +279,11 @@ export function createFeedback() {
     };
     const covered = () => { const b = box.getBoundingClientRect(); return I.stops.filter((o) => hitsRect(b, o)).length; };
     top();
+    // the one rule: the slot never lies over the picture. Where the top slot would (a phone, whose picture starts under
+    // the bar), it docks over the keys instead: beside the picture on the wider keys' side held sideways, else under the
+    // picture (and the "Tap for sound" chip under it), across the window
+    const pic = I.canvas && I.canvas.width && I.canvas.height ? I.canvas : null;
+    if (pic && hitsRect(box.getBoundingClientRect(), pic)) { dock(I, pic); return 'dock'; }
     if (!I.stops.length) return 'top';
     const onTop = covered();
     if (onTop === 0) return 'top';
@@ -282,6 +293,21 @@ export function createFeedback() {
     if (onBottom === 0 || (onTop === I.stops.length && onBottom < I.stops.length)) return 'bottom';
     top();
     return 'top';
+  }
+  // The fixed slot, docked off the picture (fallbackSlot): held sideways (the keys at both sides) over the wider side's keys,
+  // from the top of the window; otherwise under the picture and the chip, across the window. The class keeps the slot's
+  // place above the page; the inline place is the dock's.
+  function dock(I, pic) {
+    dropClass(box, 'compact');
+    const a = I.area, left = pic.left - a.left, right = a.right - pic.right;
+    if (I.sideKeys || (left >= 160 && right >= 160 && pic.bottom > a.bottom - 40)) {
+      const col = left >= right ? { l: a.left, r: pic.left } : { l: pic.right, r: a.right };
+      placedAt(px(col.l + 8), px(a.top + 8), px(col.r - col.l - 16));
+    } else {
+      const under = Math.max(pic.bottom, I.chip ? I.chip.bottom : 0) + 6;
+      placedAt(px(a.left + 8), px(under), px(a.right - a.left - 16));
+    }
+    addClass(region, 'top');
   }
   // back to the stylesheet's place (a toast that ends, or one placed afresh)
   function unplace() { clearRegion(); }
@@ -309,6 +335,8 @@ export function createFeedback() {
       controls: avoidRects(dialog, phone).map(boxOf),
       screen: dialog ? [] : [...document.querySelectorAll('#monitor, #monitor .tube, #screen')].map((e) => e.getBoundingClientRect()).filter((o) => o.width && o.height).map(boxOf),
       tube: dialog ? null : boxOf(tubeEl && tubeEl.getBoundingClientRect()), canvas: dialog ? null : boxOf(cv && cv.getBoundingClientRect()),
+      // the "Tap for sound" chip under the screen while it shows (a docked toast keeps off it)
+      chip: (() => { const e = document.getElementById('soundChip'); const b = e && !e.hidden && e.getBoundingClientRect(); return b && b.width && b.height ? boxOf(b) : null; })(),
       active: cv ? cv.dataset.active || '0,0,1,1' : '',
       // a phone held sideways with the touch keys (decide's band reaches the tube's foot there)
       sideKeys: !!(document.body && document.body.classList.contains('touch-keys')) && matchMedia('(orientation: landscape) and (max-height: 500px)').matches,
