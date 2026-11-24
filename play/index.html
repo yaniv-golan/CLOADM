@@ -925,6 +925,9 @@
   #romOffers .offer { border: 1px solid var(--phosphor); border-radius: var(--r-10); padding: 10px 12px; margin: 4px 0; color: var(--text); }
   #romOffers .bar { margin-top: 8px; }
   #romReady { color: var(--phosphor); }
+  #romReady:empty { display: none; }
+  #romProblems { background: var(--warn-panel); border: 1px solid var(--orange); border-radius: var(--r-14); padding: 10px 14px; font-size: 13px; line-height: 1.45; margin: 10px 0; }
+  #romProblems[hidden] { display: none; }
   #romCard .small { font-size: 14px; margin: 0; }
   #romCard #selftestCard { background: var(--panel-deep); border: 1px solid var(--line); border-radius: var(--r-14); padding: 12px 14px; }
   #romCard #selftestCard h2 { font-size: 16px; margin: 0 0 8px; }
@@ -2170,6 +2173,8 @@ npx serve -l 8000 .</pre>
       <div class="eyebrow">Your ROMs</div>
       <div id="romSockets"></div>
       <div id="romOdd"></div>
+      <div id="romReady"></div>
+      <div id="romProblems" role="status" hidden></div>
       <div id="romNeeds" hidden><span id="romNeedsText"></span>
         <div class="bar"><button id="btnRunStub">Run without ROMs</button></div></div>
       <div id="romStub" hidden>Running without ROMs (machine code only).</div>
@@ -2177,7 +2182,6 @@ npx serve -l 8000 .</pre>
         <div class="eyebrow">What you dropped</div>
         <div id="romFound" class="muted">Nothing yet. Drop a whole set and every machine it covers is set up at once.</div>
         <div id="romOffers" hidden></div>
-        <div id="romReady"></div>
       </div>
       <button id="btnRomSwitchOn" class="primary pill big" hidden></button>
       <div class="bar">

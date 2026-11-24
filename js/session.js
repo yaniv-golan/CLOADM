@@ -118,8 +118,8 @@ const WELCOME_PROMPT = 'PRESS 1 TO';
 export const WELCOME = Object.freeze({
   // carryMax: the carry-on line's text, 0-terminated (none when the first byte is 0), this long at most (the 6809
   // build's line has the room for "CARRY ON WITH MINESWEEPER")
-  '6809': Object.freeze({ file: 'welcome.bin', start: 0x6000, event: 0x6003, soundOk: 0x6004, played: 0x6005, greet: 0x6006, carry: 0x6007, carryMax: 26 }),
-  '6803': Object.freeze({ file: null, start: 0x5000, event: 0x5003, soundOk: 0x5004, played: 0x5005, greet: 0x5006, carry: 0x5007, carryMax: 24 }),
+  '6809': Object.freeze({ file: 'welcome.bin', start: 0x6000, event: 0x6003, soundOk: 0x6004, played: 0x6005, greet: 0x6006, carry: 0x6007, romsw: 0x6022, carryMax: 26 }),
+  '6803': Object.freeze({ file: null, start: 0x5000, event: 0x5003, soundOk: 0x5004, played: 0x5005, greet: 0x5006, carry: 0x5007, romsw: 0x5020, carryMax: 24 }),
   // the choices 1-7: keys 1-4 of the menu, its carry-on line (key 5 on the 6803 build, 6 on the 6809 one), and the
   // 6809 build's games menu (key 5, then 1 or 2)
   events: Object.freeze(['liza', 'demo', 'roms', 'claude', 'carryon', '2048', 'minesweeper']),
@@ -1985,6 +1985,20 @@ export class Session {
   greetingFor(offer) { return offer === 'none' || (this.firstVisit && !this.lastRun) ? 'first' : 'back'; }
   get hasAnyRoms() { return this.roms.sockets().some((s) => profiles[s.owner]); }
 
+  // This machine has every ROM its BASIC needs, in its sockets, and yet runs the stub by choice (the page's "Run
+  // without ROMs", or a start on the stub): nothing is missing, so nothing is "added". The one state where the page
+  // must offer the way BACK rather than ask again (the welcome menu's option 3, the "no ROMs" card, the ROM page).
+  romsReadyButOff(m = this.personMachine) { return !!m && m.useStub && this.machineRoms(m.id).bootable; }
+  // The machines a ROM drop has really set up: every required socket holds a VERIFIED dump, not merely a filled one.
+  // isBootable() answers "it could try to boot this" (a named, wrong-sized-for-its-CRC file is still a file), which
+  // is right for the machine's own attempt but wrong for telling a person a machine is "ready to run BASIC".
+  machinesVerified() {
+    return Object.keys(profiles).filter((id) => {
+      const { sockets } = this.machineRoms(id);
+      return profiles[id].kind !== 'cartridge' && sockets.every((s) => !s.required || s.status === 'verified');
+    });
+  }
+
   // ---------------- programs and media ----------------
   // ---------------- the Speech/Sound Pak ----------------
   // The Pak is a cartridge-port board, offered where the machine's profile has the `ssc` option: the CoCo 1/2,
@@ -3272,6 +3286,10 @@ export class Session {
     if (rec) rec.welcome = { bytes, greeting, carryOn };
     this.menuWatch = null;
     m.poke(w.greet, g);
+    // Option 3 says "USE YOUR ROMS FOR BASIC" when this machine HAS its required ROMs in the sockets and runs the stub
+    // by choice, because then there is nothing to add: the page's "Run without ROMs" made that state, and the person
+    // needs the way back, not the same request again.
+    m.poke(w.romsw, this.romsReadyButOff(m) ? 1 : 0);
     let carry = carryOn ? `CARRY ON WITH ${carryOn}`.toUpperCase().replace(/[^ -_]/g, '?') : '';
     if (carry.length > w.carryMax) {   // cut at a word if there is one past "CARRY ON WITH", else at the edge
       const cut = carry.lastIndexOf(' ', w.carryMax);

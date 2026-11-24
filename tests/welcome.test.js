@@ -29,6 +29,7 @@ check('the welcome build without its machine flags is an error', !noFlags.ok && 
 const sym = (n) => asm.symbols.get(n);
 check('fixed addresses match Session WELCOME', sym('WELCOME') === Emu.WELCOME['6809'].start && sym('EVENT') === Emu.WELCOME['6809'].event
   && sym('SOUNDOK') === Emu.WELCOME['6809'].soundOk && sym('GREET') === Emu.WELCOME['6809'].greet && sym('CARRY') === Emu.WELCOME['6809'].carry
+  && sym('ROMSW') === Emu.WELCOME['6809'].romsw
   && sym('CARRYN') === Emu.WELCOME['6809'].carryMax && Emu.WELCOME.events.join() === 'liza,demo,roms,claude,carryon,2048,minesweeper');
 
 // SG4 cell: bit 7 set, colour in bits 6-4, quarters upper-left 3, upper-right 2, lower-left 1, lower-right 0
@@ -89,6 +90,26 @@ for (const id of models) {
     && screen[11].trim() === '4 CHAT WITH CLAUDE' && screen[12].trim() === '5 PLAY A GAME' && screen[13].trim() === ''
     && screen[14].trim() === 'PRESS 1 TO 5', JSON.stringify(screen.slice(6, 15)));
   check(`${id}: the menu numbers are in inverse video`, [8, 9, 10, 11, 12].every((r, i) => ram(0x400 + r * 32 + 4) === 0x31 + i));
+  // option 3 with the ROMs in the sockets and the stub chosen: ROMSW is set and the menu says to use them
+  {
+    const t = new Emu.Session(); t.switchMachine(id);
+    // every REQUIRED socket (the 200-E needs its character generator too), each at its own size and name
+    for (const sock of t.shownMachine.profile.roms.filter((x) => x.required)) t.roms.put(id, sock.id, new Uint8Array(sock.size).fill(0x12), sock.files[0]);
+    t.runWithoutRoms();
+    t.startWelcome(bin); runFrames(t, 50);
+    check(`${id}: ROMSW is set with the ROMs in and the stub chosen`, t.shownMachine.ram[sym('ROMSW')] === 1, String(t.shownMachine.ram[sym('ROMSW')]));
+    const row = Array.from({ length: 32 }, (_, i) => t.shownMachine.ram[0x400 + 10 * 32 + i]);
+    // BYTES, not a decoded string: the menu stores a space as $60 and a letter as its ASCII (measured above, and what
+    // the "still asks for them" case shows), with the inverse digit as $33. Sliced from column 4, where the lines start.
+    const want = [0x33, ...[...' USE YOUR ROMS FOR BASIC'].map((ch) => (ch === ' ' ? 0x60 : ch.charCodeAt(0)))];
+    check(`${id}: menu line 3 then reads USE YOUR ROMS FOR BASIC`, row.slice(4, 4 + want.length).join() === want.join(),
+      row.slice(4, 4 + want.length).map((v) => v.toString(16)).join(' '));
+    const plain = new Emu.Session(); plain.switchMachine(id); plain.startWelcome(bin); runFrames(plain, 50);
+    const r0 = Array.from({ length: 32 }, (_, i) => plain.shownMachine.ram[0x400 + 10 * 32 + i]);
+    const want0 = [0x33, ...[...' ADD YOUR ROMS FOR BASIC'].map((ch) => (ch === ' ' ? 0x60 : ch.charCodeAt(0)))];   // the encoding above
+    check(`${id}: ...and with no ROMs it still asks for them`, r0.slice(4, 4 + want0.length).join() === want0.join(),
+      r0.slice(4, 4 + want0.length).map((v) => v.toString(16)).join(' '));
+  }
   // keys
   pressKey(s, '6'); pressKey(s, 'A'); pressKey(s, '0');
   check(`${id}: other keys fire nothing (6 only with a carry-on line)`, !events.length, events.join());

@@ -54,6 +54,9 @@ export function setupDrawer(page, { showRoms }) {
 
   // Media: what was loaded on this machine before
   let runShown = null;   // the running file's name the list was drawn with (the frame loop redraws it when that changes)
+  // the recent row that runs now, by name (null: nothing running, or not a recent file). ONE definition, used by
+  // the frame reconciler below and by the reset/firmware handler in session.on (so the two can never disagree).
+  const runKey = () => { const r = page.runningNow(); return r && r.kind === 'recent' ? r.name : null; };
   function recent() {
     const list = $('recentList');
     const items = recentRows(session.library.recentMedia(), session.personMachine.id);
@@ -162,6 +165,14 @@ export function setupDrawer(page, { showRoms }) {
     if (ev === 'roms') { roms(); recent(); slots(); }   // (slots: the Pak's board label follows its speech ROM)
     if (ev === 'arrival') roms();   // a shared moment left: the pill again, if the machine has no BASIC
     if (ev === 'recent' || ev === 'lastrun') recent();   // another tab loaded a program (Session.mediaElsewhere); a program started: marked
+    // A reset or a power cycle takes what ran off the screen: the "Last time" card comes back AND its recent row loses
+    // the "on screen now" mark. Both follow runningNow(), but the card (welcome.js shelf/lastTime) and the list
+    // (recent()) are separate, and the list's per-frame reconciler (below) ran a frame late -- so for one frame the card
+    // stood next to a row still marked "on screen now". Redraw the list in this same tick, but ONLY when the running row
+    // actually changed: recent() rebuilds the list and drops the focus on a recent row, so an unconditional redraw would
+    // lose the keyboard focus on every Reset. runKey() is the same expression the frame reconciler uses. (A power cycle
+    // reports 'firmware', not 'reset': Session.powerCycle -> poweredOn.)
+    if ((ev === 'reset' || ev === 'firmware') && runKey() !== runShown) recent();
 
     // a tape mounted or ejected starts or stops the per-frame refresh of this row. A power cycle ejects the
     // deck and reports 'firmware' (Session.powerCycle -> poweredOn), not 'reset', so it has to be in this list:
@@ -169,7 +180,7 @@ export function setupDrawer(page, { showRoms }) {
     if (ev === 'tape' || ev === 'machine' || ev === 'loaded' || ev === 'reset' || ev === 'firmware') { slots(); watchTape(); }
   });
   // what is running now changes without an event too (Pause, a Debugger stop, a reset): the list follows
-  page.onFrame(() => { const r = page.runningNow(), k = r && r.kind === 'recent' ? r.name : null; if (k !== runShown) recent(); });
+  page.onFrame(() => { if (runKey() !== runShown) recent(); });
   // slots() shows the tape's motor state and progress, which change while a tape plays, and the cartridge
   // slot, which changes only on an event. So it is refreshed per frame while a tape is mounted (or the deck
   // is moving) and refreshed directly on the events that can change the rest; with no tape, nothing on this

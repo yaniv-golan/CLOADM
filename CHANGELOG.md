@@ -241,6 +241,13 @@ Next version: 0.1.9-pre (the plugin and extension manifests carry it; `tests/plu
 - **No desktop hints on a touch-only device.** "Or drop any file on the screen. Esc is BREAK, Home is CLEAR…" and the
   key hint under the screen are hidden under `@media (hover: none) and (pointer: coarse)`, also with the on-screen
   keyboard turned off.
+- **Claude reads everything in the machine on every host, ROM areas included.** The MCP tools no longer refuse to read
+  memory while the user's ROMs, a cartridge or NitrOS-9 are in the machine: `peek`, `find_bytes`, `disassemble`,
+  `screen_text`, `screenshot` and `run_frames` answer the same in the local server, the side panel and the claude.ai
+  connector, as the in-page Claude already did. The toolbox option that refused (`refuseRomReads`) is gone, and with it
+  the `rejected` refusal of memory reads. What CLOADM itself shares is unchanged: snapshots and share links carry no ROM, and `add_roms`
+  keeps its rules. The embedding API's `peek` is not part of this and keeps its own rule. `docs/mcp.md` and the skill
+  say what the tools can read.
 - **A phone's Cassette deck sheet closes when the program starts.** Load it now (the button in the toast after a tape goes
   in with no BASIC to type CLOAD into) and Skip the tape close the sheet, so the screen shows the program starting. In the
   sheet the slot's small deck picture is left out, since the big cassette is right there; the empty line "No tape · Insert
@@ -462,6 +469,20 @@ Next version: 0.1.9-pre (the plugin and extension manifests carry it; `tests/plu
   very start of a run, in front of a leader of at least 16 bytes, as `$55`: the first cycle after a silence is the least certain of a recording.
 
 ### Fixed
+
+- **The side card, the screen and the ROM page told different stories about ROMs.** With a ROM loaded that CLOADM
+  does not recognise, the machine runs it, but the side card still said *Running with no ROMs.*; and after **Run
+  without ROMs** the ROMs are in the sockets and only switched off, while the card said the same thing and the
+  Welcome menu still offered **3 ADD YOUR ROMS FOR BASIC** — asking for what was already there. The card now
+  follows the machine: *Running with no ROMs.* only when there are none, *Running without your ROMs.*
+  when the required ROMs are in the sockets and the stub was chosen (with a **Use my ROMs** button on the card), and no card
+  once the ROMs run. The Welcome menu's option 3 reads **USE YOUR ROMS FOR BASIC** in that state. On **Your ROMs**, a
+  machine is listed as *Also ready to run BASIC* only when every required socket holds a **recognised** dump, not
+  a file that was merely loaded. The note about a file that could not be used moved from a toast at the foot of
+  the window to beside the socket list it is about, so it is read without scrolling.
+- **A Reset (or a power cycle) no longer shows the "Last time" card beside a row still marked "on screen now".** The
+  card and the recent list both follow what is on screen, but they were redrawn by separate paths: the card in the
+  Reset's own turn, the list a frame later. The list is now redrawn in the same turn, so the two change together.
 
 - **A first visit is not greeted "WELCOME BACK" while nothing has run in it.** Picking a machine in the header menu, or
   the shelf's Welcome menu, on the browser's first visit shows the title screen; once a program has run, or on a later

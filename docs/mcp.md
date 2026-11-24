@@ -419,10 +419,11 @@ which only the server has. The others use these:
 An unknown tool name is the protocol's error `-32602`, as the specification says; everything else is a tool result,
 so the agent can read the remedy and try again.
 
-**ROMs.** The server reads your ROMs; it never returns them as files, and `add_roms` never echoes their bytes. (In Claude's [side panel](#claude-on-the-web-side-panel)
-the rule is stricter: memory reads are refused while your ROMs run.) Reads of memory follow the page's rule: like the
-in-page Claude, `peek`, `disassemble` and `screenshot` show what the machine holds, which with your ROMs includes ROM
-code, so treat what an agent reads as you would treat your ROMs.
+**ROMs.** The server reads your ROMs; it never returns them as files, and `add_roms` never echoes their bytes. Claude
+reads everything in the emulated machine, ROM areas included, on every host (this server, the side panel and the
+claude.ai connector), as the in-page Claude does: `peek`, `find_bytes`, `disassemble`, `screen_text`, `screenshot` and
+`run_frames` show what the machine holds, which with your ROMs includes ROM code, so treat what an agent reads as you
+would treat your ROMs. What CLOADM itself shares stays ROM-free: snapshots and share links carry no ROM.
 
 ### Protocol versions
 
@@ -487,11 +488,8 @@ account or organization has yet.
   are not offered. Claude's views cannot download, so nothing is saved out of the panel either.
 * Your ROM files stay in the panel. Add them with **Add ROMs…** or by dropping the files on the view; they are kept
   in that view's own browser storage, and no tool takes or returns them as files (`add_roms` and `remove_roms` are not
-  offered). While they run, `peek`, `find_bytes`
-  and `disassemble` are refused (`rejected`): memory can then hold ROM code, and no tool returns it directly. That is
-  not a seal: a program run on the machine can read the ROM (BASIC's `PEEK` printed on the screen, machine code from
-  `assemble_and_load` and then `registers`, `run_frames` waiting for a memory byte to hold each value in turn), so a
-  determined agent can infer ROM contents through execution. Each call is still yours to approve. Claude gives each
+  offered). While they run, `peek`, `find_bytes` and `disassemble` read the ROM areas like any other memory, and what Claude
+  reads goes to Anthropic. Each call is still yours to approve. Claude gives each
   conversation's view its own origin, so a new conversation starts without them; reopening the same conversation keeps
   them (in that browser).
 * Claude's limits for app tools: a call may run 45 s, and a result may hold 100,000 characters. A tool that runs the

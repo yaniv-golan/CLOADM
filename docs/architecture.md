@@ -249,8 +249,8 @@ state sets `SNAPSHOT_OLDEST` to itself.
 ## The embed protocol
 
 The calls travel as `postMessage` (`js/embed-api.js` describes the protocol), so the page around the iframe can
-be on any site. `peek` answers only while the machine runs the built-in firmware with no cartridge: with your ROMs
-loaded, memory can hold copies of them, and CLOADM never hands ROM code to another page. Or host your own copy: it is static files with no build step.
+be on any site. `peek` answers only while the machine runs the built-in firmware with no cartridge and no NitrOS-9: with your ROMs
+or your NitrOS-9 image loaded, memory can hold copies of them, and CLOADM never hands ROM code to another page. Or host your own copy: it is static files with no build step.
 
 ---
 

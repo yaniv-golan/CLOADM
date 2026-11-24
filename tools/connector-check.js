@@ -13,7 +13,7 @@
 //   site      (A, open_emulator): the handshake comes before the emulator's module runs; the first list already has
 //             every tool; list_changed follows; screen_text, type_text (LIZA answers), load 2048 and screenshot, peek;
 //             a real click and real keys; storage; ROMs added in the panel persist across a reload, and then memory
-//             reads are refused (no tool returns ROM memory directly)
+//             reads still answer, ROM areas included
 //   inline    (B, open_emulator_inline): the same handshake and tools with nothing fetched
 //   no-cors   A when the site sends no Access-Control-Allow-Origin: the handshake still comes; the import fails, so
 //             the view says it can't reach cloadm.dev, tells Claude by ui/message, and calls answer blocked
@@ -235,7 +235,7 @@ async function scenario(browser, check, name, { uri, cors = true, panelApi = nul
     if (shots) await page.screenshot({ path: path.join(shots, `connector-${name}.png`) });
     if (name === 'site') {
       // ROMs added in the panel (bytes standing in for a user's dump): kept in the panel's storage across a reload,
-      // in another conversation's sandbox origin too (the partition is the chat's site); then no memory read leaves it
+      // in another conversation's sandbox origin too (the partition is the chat's site); memory reads then include the ROM areas
       const fake = (k) => Buffer.from(Uint8Array.from({ length: 16384 }, (_, i) => (i * 13 + k) & 255));
       await v.setInputFiles('#rom', [{ name: 'd64_1.rom', mimeType: 'application/octet-stream', buffer: fake(1) }, { name: 'd64_2.rom', mimeType: 'application/octet-stream', buffer: fake(2) }]);
       const took = await wait(v, () => window.cloadmView.session.shownMachine.hasRom, null, 5000);
@@ -253,7 +253,7 @@ async function scenario(browser, check, name, { uri, cors = true, panelApi = nul
       const withRoms = kept && await v2.evaluate(() => { document.getElementById('machine').click(); const tag = document.querySelector('#machine-menu [data-model="dragon64"] .tag').textContent; document.getElementById('machine').click(); return { tag, status: document.getElementById('status').textContent }; });
       check('connector site: with the ROMs, the Machine menu marks the model "✓ BASIC ready" and the status says BASIC runs', withRoms && withRoms.tag === '✓ BASIC ready' && withRoms.status === 'BASIC is running · Dragon 64 · your ROMs', JSON.stringify(withRoms));
       const reads = await Promise.all([call('peek', { machine_id: 'm1', address: 0x8000, length: 16 }), call('find_bytes', { machine_id: 'm1', pattern: '01 0E' }), call('disassemble', { machine_id: 'm1', address: 0x8000 })]);
-      check('connector site: with the user\'s ROMs, peek, find_bytes and disassemble are refused (no tool returns ROM memory directly)', reads.every((r) => data(r) && data(r).error && data(r).error.code === 'rejected' && /no tool returns ROM memory directly/.test(data(r).error.detail)), JSON.stringify(reads).slice(0, 400));
+      check('connector site: with the user\'s ROMs, peek, find_bytes and disassemble read the ROM areas', reads.every((r) => data(r) && !data(r).error) && /\$8000: 01 0E/.test(JSON.stringify(data(reads[0]))), JSON.stringify(reads).slice(0, 400));
     }
     check(`connector ${name}: no page errors`, !errors.length, errors.join(' | '));
   } finally {

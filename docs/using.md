@@ -52,6 +52,10 @@ and its tests never use them.
 * **Own the machine?** Dumping the ROMs from your own hardware is the cleanest route (an EPROM reader, or a
   program that sends the ROM out of the cassette or serial port). A dump that comes out as one combined file is
   fine: CLOADM splits it.
+* **What the side card says follows the machine.** With no ROMs at all it reads *Running with no ROMs.*, and it
+  goes once the ROMs run. If you keep the ROMs but choose **Run without ROMs** (or the Welcome menu comes up on a
+  machine whose ROMs are stored), it reads *Running without your ROMs.*, with a **[Use my ROMs]** button on it, and the
+  Welcome menu's option 3 says **USE YOUR ROMS FOR BASIC** rather than asking you to add the ROMs it already has.
 * **Looking for the files?** [Where to get ROMs](https://cloadm.dev/roms/) says where the ROM sets XRoar uses are
   kept. That site isn't part of this project, CLOADM never contacts it, and whether you may download from it
   depends on the law where you live and on the copyright holders' terms.
@@ -65,7 +69,9 @@ and its tests never use them.
   file names), whether it is required, and what it holds or what you miss without it. It lists what each dropped
   file turned out to be, explains a file that loaded but isn't recognised (with its CRC32 to compare), offers to
   switch to other machines your files set up, and has **Switch on** once BASIC can boot. A dropped ROM that
-  couldn't be used (the wrong size for its name, say) opens it to say why.
+  couldn't be used (the wrong size for its name, say) is said beside the list of sockets, where you are looking.
+  Only a machine whose required ROMs are **recognised** dumps is listed as *Also ready to run BASIC*: a file that
+  was only *loaded, not a known dump* is kept and tried on its machine, but it is not proof of a working BASIC.
 
 The early CoCo ROMs (`bas10`, `bas11`, `extbas10`) have known bugs, so prefer later revisions. Disk BASIC
 (RS-DOS, DragonDOS) lives in the disk cartridge, not the computer; CLOADM recognises those ROMs and keeps

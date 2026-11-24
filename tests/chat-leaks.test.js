@@ -636,6 +636,8 @@ const REQUIRED = require.main !== module;
     'driveWireChannels', 'hasAnyRoms', 'hasMultiPak', 'claudeBusyActing', 'lizaFile', 'cartBoard', 'paused', 'display', 'debugger', 'stubRun',
     'stubChosen', 'offersSsc', 'tapeRecording', 'personMachine', 'shownMachine', 'nitros9Running', 'nitros9OnScreen',
     'hasArtifactPhase', 'hasTwoScreens', 'welcomeRunning', 'welcomeRunningOn', 'welcomeOnScreen', 'lastRunOnScreen',
+    // both default to the person's machine and read only its own sockets: nothing of the chat machine's
+    'romsReadyButOff', 'machinesVerified',
     // sharedMoment: the person arrived on a shared moment and has not left it (a flag, no machine)
     'sharedMoment']) SESSION.add(n);
   // Puppets whose reachability is decided where they live (see the note above): debug (the Debugger view closes the

@@ -59,6 +59,8 @@ CARRYN  EQU     24              ; the longest option 5 text
 GREET   FCB     0               ; $5006 set by the Session: 0 first visit, 1 back, 2 bye
 CARRY   FCB     0               ; $5007 set by the Session: option 5's text (0 ends; none if 0)
         RMB     CARRYN
+ROMSW   FCB     0               ; set by the Session: 1 when the machine HAS ROMs but runs without them,
+                                ;   so option 3 says to switch them on rather than to add them
 
 START   LDS     #STACK          ; stack just below the program
         CLR     PLAYED
@@ -116,6 +118,14 @@ BIGCEL  LDX     PTRA
         BNE     BIGROW
 
 ; ---- the text lines: (screen address, string) pairs, a 0 address ends the table ----
+; option 3 reads "ADD YOUR ROMS FOR BASIC", or "USE YOUR ROMS FOR BASIC" when the ROMs are in the sockets and the
+; machine runs without them (ROMSW): the table's entry is pointed at the right string before it is drawn.
+        LDX     #TEXTS+10       ; entry 2 (option 3), its string word (4-byte entries: +8, then +2)
+        LDD     #T_3
+        TST     ROMSW
+        BEQ     T3SET
+        LDD     #T_3S
+T3SET   STD     ,X
         LDX     #TEXTS
         STX     PTRA
 TEXT    LDX     PTRA
