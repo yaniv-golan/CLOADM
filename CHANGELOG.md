@@ -10,13 +10,14 @@ Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.
 
 #### Added
 
-- **Ask Claude suggests three questions for what is on the machine,** under the machine while the panel is closed and
-  in its empty chat while it is open (never both), in place of the fixed "Explain this error" and "Help with my
-  program" openers. They fit the moment: the Debugger's stop, a visit that just arrived from a link, WYRMFIRE, the welcome menu (without and with
+- **Ask Claude suggests three questions for what is on the machine,** on the line under the screen while the panel is
+  closed (whole questions only, a note there taking the line; none on a phone) and in its empty chat while it is open
+  (never both), in place of the fixed "Explain this error" and "Help with my program" openers. They fit the moment: the Debugger's stop, a visit that just arrived from a link, WYRMFIRE, the welcome menu (without and with
   ROMs), LIZA, 2048, Minesweeper, the colour demo, a machine-code program of yours, BASIC with a program, empty or
   running one, else a general set. They are read from the Session's and the machine's state (`js/claude/prompts.js`,
   tested in Node), never from pixels or a model. With a key a tap fills the message box (opening the panel from under the machine) and sends
-  nothing; without one they sit under "You could ask, once Claude is connected:", and a tap offers **I have an API key** (the question
+  nothing; without one they sit under "You could ask, once Claude is connected:" ("Once Claude is connected:" on the line under the
+  screen), and a tap offers **I have an API key** (the question
   fills the box once the key is saved) or **I use Claude →** (the question is copied). They follow the machine half a
   second after it changes while the chat and the box are empty, hold still while you type, press or have one
   selected, are announced as "Suggestions updated", and go after the first message. With Claude features Off, or the
@@ -76,6 +77,19 @@ Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.
 
 #### Changed
 
+- **A phone's snapshots are in Menu.** "Take snapshot" (into the first empty quick-save slot, else the one taken
+  longest ago, with Undo) and "Restore snapshot…" (the slots list) sit under Share…. The slots' heading never stands
+  alone: hidden until they are listed, and with none taken it says "No snapshots yet. Take one from Menu → Take
+  snapshot."; the Library's Snapshots filter with none says the same.
+- **Chat with Claude on a phone opens on the chat's screen.** With no key the key card and the BASIC session card fold
+  into one line under it, "No API key yet · Add key…", and the "type on the screen and press ENTER" toast waits for a
+  key. A line typed with no key starts no turn: no "Thinking..." (the chat firmware reads a no-key flag, NOKEY, the page
+  sets), and "[No API key yet: add one … Get one at console.anthropic.com.]" comes right after it. The BASIC session
+  card says "No BASIC ROMs added, so BASIC programs won't run here. Claude can still read and change the machine's
+  memory."
+- **A first visit held sideways shows the name and the two first steps.** At 653x280 with the touch keys the plate
+  under the screen says "CLOADM", and until a program has run or ROMs are added "Open…" sits left of BREAK and "Add
+  ROMs…" right of Menu (the screen's frame is 16 px shorter for the plate; the picture keeps its width).
 - **A phone's rows are taller.** On an upright phone Menu's rows, the Programs sheet's (the shelf, the Recent list)
   and the machine list's grow toward 52 px with the window's height (`--row-tap`, 44 px at the least), and Menu
   scrolls inside the window instead of running past it. A phone held sideways keeps its rows; every one stays

@@ -308,10 +308,13 @@ emulator.
   the whole frame is scaled so that area fills the space and the tube clips the border; the pixels are the
   machine's, scaled, never reflowed). A text row is then 11.2 px tall upright and 11.3 px sideways (7.5 and 7.0
   before). Held sideways the screen between the keyboard's halves is wider and its four buttons sit in one row.
-  Without a key the key card comes first, above the screen upright and beside it held sideways (both fit the
-  height), and the help line says where, measured ("add one above", "on the right"), and the on-screen keyboard stands aside while the phone's own keyboard types the key; once it is
-  saved the screen has the focus. The key card comes first wherever the page stacks the chat under the screen (a
-  tablet too, under about 1020 px). The way out is always there: the chat bar stays at the top as the page scrolls,
+  On a phone the chat's screen comes first and the page opens at it. Without a key the key card and the BASIC
+  session card fold into one line under the screen, "No API key yet · Add key…" (the screen's own no-key line says
+  where, measured: "add one below", "on the right"; no "type on the screen and press ENTER" toast until there is a
+  key); **Add key…** opens the form, and the on-screen keyboard stands aside while the phone's own keyboard types the
+  key; once it is saved the screen has the focus. A line typed with no key starts no turn: the firmware shows no
+  "Thinking..." (the page sets its NOKEY flag, `CHAT_CHANNEL.nokey`) and "[No API key yet: …]" comes right after the
+  line. On a tablet (under about 1020 px, not a phone) the key card comes first. The way out is always there: the chat bar stays at the top as the page scrolls,
   the on-screen keyboard's Menu becomes **← Emulator** (held sideways the keyboard covers the bar), the browser's
   Back leaves the chat (opening it adds one history step), and so does Esc from the chat bar or its cards. On the
   screen Esc escalates: it is BREAK while a reply streams (it stops the reply) or while a line is typed (the firmware

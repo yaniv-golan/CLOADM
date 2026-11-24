@@ -5277,6 +5277,43 @@ async function librarySelectChecks(browser, base, check) {
 // the chip; the hardware keyboard does not reach the machine while a sheet is open; a tape mounted from the sheet names
 // itself on its chip; opening a sheet lets go of a held stick; Hide keys, then the floating ⌨, with the chips up
 // throughout; a toast's action button is a full-size target.
+async function phoneLandscapeFirstChecks(browser, base, check) {
+  // A first visit held sideways (653x280, touch): the plate under the screen says "CLOADM" whole; "Open…" sits left of
+  // BREAK and "Add ROMs…" right of Menu, whole, each at least 8 px clear of its neighbour and of the window's edge (the
+  // safe area included), every tap 44 px tall. After the first program has run only "CLOADM" stays.
+  const L = 'phone sideways first visit (653x280)';
+  const c = await browser.newContext({ viewport: { width: 653, height: 280 }, hasTouch: true, isMobile: true, serviceWorkers: 'block' });
+  const p = await c.newPage();
+  const errs = [];
+  p.on('pageerror', (e) => errs.push(e.message));
+  await p.goto(`${base}?machine=dragon64`);
+  await started(p);
+  await waitFor(p, () => !document.getElementById('touchKeys').hidden && document.body.classList.contains('touch-keys'), null, 10000);
+  const read = () => p.evaluate(() => {
+    const box = (id) => { const e = document.getElementById(id); if (!e || !e.checkVisibility()) return null; const r = e.getBoundingClientRect();
+      return { l: r.left, r: r.right, t: r.top, b: r.bottom, h: Math.round(r.height), whole: e.scrollWidth <= e.clientWidth + 1, text: e.textContent.trim() }; };
+    const brand = document.querySelector('.plate > .brand'), br = brand.getBoundingClientRect(), tube = document.querySelector('.tube').getBoundingClientRect();
+    const st = getComputedStyle(document.documentElement), inset = (n) => parseFloat(st.getPropertyValue(n)) || 0;
+    return { open: box('tkOpen'), roms: box('tkRoms'), brk: box('tkBreak'), menu: box('tkMenu'), vw: innerWidth, safeL: inset('--safe-l'), safeR: inset('--safe-r'),
+      brand: brand.checkVisibility() ? { text: brand.textContent, whole: brand.scrollWidth <= brand.clientWidth + 1 && br.width > 0, under: br.top >= tube.bottom - 1, inView: br.bottom <= innerHeight } : null };
+  });
+  const first = await read();
+  check(`${L}: "CLOADM" is on the plate under the screen, whole`, !!first.brand && first.brand.text === 'CLOADM' && first.brand.whole && first.brand.under && first.brand.inView, JSON.stringify(first.brand));
+  check(`${L}: "Open…" left of BREAK, whole, 44 px, at least 8 px clear of BREAK and of the window's edge`, !!first.open && !!first.brk && first.open.text === 'Open…' && first.open.whole && first.open.h >= 44
+    && first.brk.l - first.open.r >= 8 && first.open.l - first.safeL >= 8, JSON.stringify({ open: first.open, brk: first.brk, safeL: first.safeL }));
+  check(`${L}: "Add ROMs…" right of Menu, whole, 44 px, at least 8 px clear of Menu and of the window's edge`, !!first.roms && !!first.menu && first.roms.text === 'Add ROMs…' && first.roms.whole && first.roms.h >= 44
+    && first.roms.l - first.menu.r >= 8 && first.vw - first.safeR - first.roms.r >= 8, JSON.stringify({ roms: first.roms, menu: first.menu, vw: first.vw }));
+  // Add ROMs… opens Add ROMs; Open… asks for a file (the picker)
+  const [chooser] = await Promise.all([p.waitForEvent('filechooser', { timeout: 10000 }).catch(() => null), p.tap('#tkOpen')]);
+  check(`${L}: "Open…" opens the file picker`, !!chooser);
+  // the first program: LIZA from the menu (key 1)
+  await p.evaluate(async () => { const s = window.emu.session; s.runLiza(new Uint8Array(await (await fetch(`examples/${s.lizaFile}`)).arrayBuffer())); });
+  const after = await waitFor(p, () => !document.getElementById('tkOpen').checkVisibility() && !document.getElementById('tkRoms').checkVisibility(), null, 10000) && await read();
+  check(`${L}: after the first program only "CLOADM" stays (Open… and Add ROMs… are Menu's and the app bar's again)`, !!after && !after.open && !after.roms && !!after.brand && after.brand.text === 'CLOADM', JSON.stringify(after));
+  check(`${L}: no page errors`, !errs.length, errs.join('; '));
+  await closeCtx(c);
+}
+
 async function phoneSnapshotChecks(browser, base, check) {
   // A phone's snapshots: Menu has "Take snapshot" and "Restore snapshot…" right under Share…. The slots' heading never
   // stands alone: with no snapshot, "Restore snapshot…" shows the list with the line "No snapshots yet. Take one from
@@ -5938,6 +5975,7 @@ async function phoneChecks(browser, base, check) {
     await closeCtx(c);
   }
   await phoneSnapshotChecks(browser, base, check);
+  await phoneLandscapeFirstChecks(browser, base, check);
 }
 
 async function feedbackModelChecks(browser, base, check) {

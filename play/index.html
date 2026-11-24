@@ -235,6 +235,8 @@
   /* the focus hint comes and goes with the screen's keyboard focus, so it takes no room of its own: it lies over the
      bezel's badge strip under the screen (the badge and the LED give way), never over the picture or the page */
   .plate { position: relative; }
+  /* the name on the plate: only held sideways with the touch keys, where the plate shows nothing else (below) */
+  .plate > .brand { display: none; }
   #focusHint { display: none; position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: max-content; max-width: 100%;
     background: rgba(11, 13, 12, .88); color: var(--text); font-size: 14px; line-height: 1.3; padding: 4px 12px; border-radius: var(--r-14);
     text-align: center; pointer-events: none; }
@@ -790,6 +792,7 @@
     overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch;
     background: #1C201D; box-shadow: 0 8px 24px #000A; }
   #tkMenuSheet[hidden] { display: none; }
+  #tkOpen, #tkRoms { display: none; }
   #tkMenuSheet button { display: block; width: 100%; min-height: var(--row-tap); margin: 0; border: 0; border-radius: 7px; background: transparent; color: var(--text); text-align: left; font-size: 15px; padding: 0 12px; }
   #tkMenuSheet button:hover { background: #2A302B; }
   #tkMenuSheet button[hidden] { display: none; }
@@ -801,15 +804,20 @@
      switch and Menu. Joystick: the stick's zone left, the strip, FIRE and that row right, the screen between. */
   @media (orientation: landscape) and (max-height: 500px) {
     body.touch-keys .appbar, body.touch-keys .drawer, body.touch-keys .panels, body.touch-keys footer, body.touch-keys .controls,
-    body.touch-keys .slots, body.touch-keys .hint, body.touch-keys #welcome, body.touch-keys .plate { display: none !important; }
+    body.touch-keys .slots, body.touch-keys .hint, body.touch-keys #welcome { display: none !important; }
+    /* the plate is one short line under the tube with the name alone, "CLOADM": the control row beside Menu has no
+       room for it whole next to Open… (a phone's first visit) */
+    body.touch-keys .plate { display: flex !important; justify-content: center; height: 16px; margin: 0; padding: 0; }
+    body.touch-keys .plate > :not(.brand) { display: none !important; }
+    body.touch-keys .plate > .brand { display: block; font: 700 12px/16px var(--font-mono); letter-spacing: .12em; color: var(--phosphor); }
     body.touch-keys .layout { padding: 0; }
     body.touch-keys .layout > main > .monitor { position: fixed; z-index: 6; top: calc(8px + var(--safe-t)); left: 50%; transform: translateX(-50%); width: min(280px, 34vw);
       max-width: none; padding: 0; border-radius: var(--r-8); box-shadow: none; background: #000; }
     /* the tube stops above the control strip under it: the top padding, the tube, a gap, the 44 px row and the
        bottom padding fill the visible height (dvh: the height the browser's toolbars leave, where it knows it) less
        the safe-area insets (a phone's home indicator) */
-    body.touch-keys .tube { border-radius: var(--r-8); height: calc(100vh - 68px - var(--safe-t) - var(--safe-b));
-      height: calc(100dvh - 68px - var(--safe-t) - var(--safe-b)); aspect-ratio: auto; }
+    body.touch-keys .tube { border-radius: var(--r-8); height: calc(100vh - 84px - var(--safe-t) - var(--safe-b));
+      height: calc(100dvh - 84px - var(--safe-t) - var(--safe-b)); aspect-ratio: auto; }
     body.touch-keys #screenWrap { inset: 0; }
     body.touch-keys #touchKeys { position: fixed; top: 0; left: 0; right: 0; width: auto; max-width: none; height: 100vh; height: 100dvh; z-index: 5; display: grid;
       grid-template-columns: minmax(0, 1fr) minmax(0, min(280px, 34vw)) minmax(0, 1fr); grid-template-rows: auto auto 1fr auto; gap: 8px;
@@ -859,6 +867,10 @@
     body.touch-keys #touchKeys > .tkcenter #tkBreak { order: 1; flex: 1 0 auto; padding: 0 12px; }
     body.touch-keys #touchKeys > .tkcenter #tkClear { order: 2; flex: 1 0 auto; padding: 0 12px; }
     body.touch-keys #touchKeys > .tkcenter #tkMenu { order: 4; flex: 1 0 auto; padding: 0 12px; }
+    /* a first visit (no program run yet and no ROMs: js/ui/touch-keys.js): Open… left of BREAK, Add ROMs… right of
+       Menu, 8 px clear of them (the row's 4 px gap and a margin); after that they are Menu's and the app bar's, as before */
+    body.touch-keys #touchKeys > .tkcenter > #tkOpen:not([hidden]) { display: block; order: 0; flex: none; padding: 0 12px; margin-right: 4px; }
+    body.touch-keys #touchKeys > .tkcenter > #tkRoms:not([hidden]) { display: block; order: 5; flex: none; padding: 0 12px; margin-left: 4px; }
     /* joystick mode, sideways: the screen keeps the column the tube is given; the stick's zone is the left of it
        and the strip and FIRE the right, each as wide as the other (the left half the stick, the right
        half FIRE and the key strip); the control row is the keys mode's, under all three */
@@ -1845,7 +1857,7 @@ npx serve -l 8000 .</pre>
           <div class="bar"><button id="btnBootSockets" class="primary">Add ROMs</button>
             <button id="btnBootStub">Run without ROMs</button><button id="btnBootPower" class="primary" hidden>Switch off and on</button><button id="btnBootDismiss">Dismiss</button></div></div>
       </div>
-      <div class="plate"><span id="badge">DRAGON 64</span><span class="led" aria-hidden="true"></span>
+      <div class="plate"><span class="brand">CLOADM</span><span id="badge">DRAGON 64</span><span class="led" aria-hidden="true"></span>
         <div id="focusHint" aria-hidden="true"><span class="fh-emu">Typing goes to the machine<span class="fh-tab"> · <kbd>Tab</kbd> leaves the screen</span></span><span class="fh-chat"><kbd>Esc</kbd> stops a reply, clears the line, then leaves the chat</span></div></div>
       <!-- the screen's hints, under it: they never lie over what the machine shows -->
       <div id="screenNotesBox"><div id="screenNotes">
@@ -1883,7 +1895,8 @@ npx serve -l 8000 .</pre>
           <button type="button" data-touchmode="keys" aria-pressed="true">Keys</button>
           <button type="button" data-touchmode="pad" aria-pressed="false">Pad</button>
           <button type="button" data-touchmode="joystick" aria-pressed="false">Stick</button></div>
-        <div class="tkbtns"><button id="tkBreak"></button><button id="tkClear"></button><button id="tkMenu" type="button" aria-expanded="false" aria-controls="tkMenuSheet">Menu</button></div></div>
+        <div class="tkbtns"><button id="tkBreak"></button><button id="tkClear"></button><button id="tkMenu" type="button" aria-expanded="false" aria-controls="tkMenuSheet">Menu</button></div>
+        <button id="tkOpen" type="button" hidden>Open…</button><button id="tkRoms" type="button" hidden>Add ROMs…</button></div>
       <div id="tkMenuSheet" role="group" aria-label="Keys menu" hidden></div>
     </div>
     <!-- a phone (the on-screen panel on, upright): the machine's ports and power as one row of chips under the panel,
