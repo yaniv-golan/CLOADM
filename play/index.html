@@ -573,6 +573,9 @@
     #share .shortbar button, #share .sharebtns button { min-height: 40px; }
     #share #shareQr { width: 104px; height: 104px; }
     #share .linkset { gap: 4px; }
+    /* the button says "Make a short link": on a phone its heading is for assistive technology only, so the long link's
+       Copy stays on the first screen */
+    #share #shortHeading { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
     #share p.small, #share .why { font-size: 12px; line-height: 1.3; }
   }
 

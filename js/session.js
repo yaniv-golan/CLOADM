@@ -1750,8 +1750,8 @@ export class Session {
     const n9 = this.longLinkRefusal(m);
     if (n9) return n9;
     const why = this.romCodeIn(m);
-    if (why === 'roms') return 'Not for a moment on your own ROMs: short links are only for moments without ROMs. The long link works (whoever opens it adds their own ROMs).';
-    if (why === 'cartridge') return 'Not with a cartridge plugged in: short links are only for moments without ROMs or cartridges. The long link works.';
+    if (why === 'roms') return 'Not for a moment on your own ROMs: short links are only for machines running without ROMs. The long link works (whoever opens it adds their own ROMs).';
+    if (why === 'cartridge') return 'Not with a cartridge plugged in: short links are only for machines running without ROMs or cartridges. The long link works.';
     return null;
   }
   // the preview picture a short link may carry: the screen as a 1200 x 630 card (js/video/card.js), an indexed PNG
