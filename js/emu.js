@@ -66,6 +66,7 @@ export * from './claude/toolerrors.js';
 export * from './claude/history.js';
 export * from './claude/actions.js';
 export * from './claude/consent.js';
+export * from './claude/prompts.js';
 export * from './host/key-store.js';
 export * from './host/example-reader.js';
 export * from './errors.js';

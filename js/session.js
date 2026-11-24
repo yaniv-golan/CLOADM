@@ -624,6 +624,7 @@ export class Session {
     this.romsLeft = new WeakMap();   // machine -> CRCs removed from storage that it still runs (removeRom)
     this.stubChosen = new Set();    // machines the user chose to run without ROMs this session
     this.sharedMoment = false;      // arrived on a shared moment that runs without ROMs, not left yet (openSnapshot)
+    this.linkArrival = false;       // the visit arrived from a link and the person has not acted yet (arriveByLink)
     // The stored-ROM CRCs that did not start BASIC, per machine (Map<Machine, Set<crcs>>): a fresh try is a power-on
     // or a switch, which forgets them (poweredOn clears every machine's; adopt forgets the machine left behind), and
     // another set of ROMs is another key (storedRomsWaiting).
@@ -760,7 +761,7 @@ export class Session {
   }
   on(fn) { this.listeners.add(fn); return () => this.listeners.delete(fn); }
   emit(event, arg) {
-    if (event === 'launch') this.lastRunOn = null;   // (every load, reset, switch, menu start and snapshot is a launch: lastRunOnScreen)
+    if (event === 'launch') { this.lastRunOn = null; this.linkArrival = false; }   // (every load, reset, power cycle, switch, menu start and snapshot is a launch: lastRunOnScreen, arriveByLink)
     for (const fn of this.listeners) fn(event, arg);
   }
 
@@ -1966,6 +1967,23 @@ export class Session {
     const last = this.lastRun;
     return !!last && last.kind === 'recent' && this.library.sameName(entry.name, last.name) && String(entry.crc).toUpperCase() === last.crc;
   }
+  // The visit arrived from a link (its machine, ROMs, media, app or moment): the page marks it once the link's setup is
+  // done. It holds until the person's first key (personInput), their first message to Claude, or a launch (a load, a
+  // reset, Start over, a switch). Emits 'link' when it changes. (js/claude/prompts.js: the Ask panel's prompts)
+  arriveByLink() { if (!this.linkArrival) { this.linkArrival = true; this.emit('link'); } }
+  leaveLinkArrival() { if (this.linkArrival) { this.linkArrival = false; this.emit('link'); } }
+  // The bundled program on the person's machine now: 'welcome' (the menu), 'liza', a GAMES.list key ('2048',
+  // 'minesweeper') or 'demo', from its start until a launch takes the machine (lastRunOn); null for anything else
+  // (BASIC, a file of the person's).
+  get bundledProgram() {
+    const m = this.personMachine;
+    if (!m) return null;
+    if (this.welcome === m) return 'welcome';
+    const last = this.lastRun;
+    if (!last || this.lastRunOn !== m) return null;
+    if (last.kind === 'liza' || last.kind === 'demo') return last.kind;
+    return (last.kind === 'game' && gameKey(last.name)) || null;
+  }
   // Is what lastRun names the program on screen now: recorded as it started on the machine in use, and nothing since
   // took the machine from it (a load, a launch, a reset, a switch, the welcome menu, a snapshot), not stopped by the
   // Debugger. The page adds its own Pause. Its panels then show it as running, not as something to Run again.
@@ -2438,6 +2456,7 @@ export class Session {
   // (also while an acting call waits at its gate - a card, an INCLUDE read - before it acts: runTool's re-check then
   // holds the call until Resume)
   personInput(m = this.shownMachine) {
+    this.leaveLinkArrival();
     if (!this.chat || !(this.claudeBusyActing || this.claudeCall) || this.consent.paused || m !== this.chatTarget().machine) return false;
     return this.pauseClaude();
   }
