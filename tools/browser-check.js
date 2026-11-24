@@ -7017,11 +7017,11 @@ async function tapePanelChecks(browser, base, check) {
         const rows = s.library.recentMedia().filter((r) => r.machine === m);
         // the drawer's own render, once it has had the 'loaded'/'lastrun' event this load emitted
         const drawn = [...document.querySelectorAll('#recentList .row')].map((b) => b.textContent);
-        return { names: rows.map((r) => r.name), stored: rows.map((r) => !!r.stored), drawn, lastRun: s.lastRun };
+        return { names: rows.map((r) => r.name), stored: rows.map((r) => !!r.stored), crcs: rows.map((r) => String(r.crc).toUpperCase()), drawn, lastRun: s.lastRun };
       });
       check(`tape, no BASIC (${label}): the tape Skip loaded is in "Recent on this machine", as a row the person can click`,
         JSON.stringify(recentAfterSkip.names) === JSON.stringify(['nobasic.cas']) && recentAfterSkip.stored.every(Boolean)
-          && recentAfterSkip.drawn.some((t) => t.startsWith('nobasic.cas')) && JSON.stringify(recentAfterSkip.lastRun) === JSON.stringify({ kind: 'recent', name: 'nobasic.cas' }),
+          && recentAfterSkip.drawn.some((t) => t.startsWith('nobasic.cas')) && JSON.stringify(recentAfterSkip.lastRun) === JSON.stringify({ kind: 'recent', name: 'nobasic.cas', crc: recentAfterSkip.crcs[0] }),
         JSON.stringify(recentAfterSkip));
       check(`tape, no BASIC (${label}): no page errors`, !errors.length, errors.join('; '));
       await closeCtx(ctx);
