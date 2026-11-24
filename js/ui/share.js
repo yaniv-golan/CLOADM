@@ -101,12 +101,15 @@ export function setupShare(page, { linkStore }) {
     // The SHOWN machine's NitrOS-9, not the person's: the picture above is the shown machine's and shareUrl builds the
     // link for it, so with the chat full screen this must ask about the chat, as shareUrl does.
     const n9 = session.nitros9OnScreen;
-    const file = n9 ? null : await session.shareFile();
-    const link = n9 ? session.shareUrl(location.href) : await session.snapshotLink(location.href, file);
+    // A moment a guardrail forbids encoding at all (Session.shareFile refusing): the view still opens, so the person
+    // sees why, with Copy dark. NitrOS-9 is not that: its link boots NitrOS-9 from the recipient's own image.
+    let file = null, refusal = '';
+    if (!n9) { try { file = await session.shareFile(); } catch (e) { refusal = e.message; } }
+    const link = refusal ? '' : n9 ? session.shareUrl(location.href) : await session.snapshotLink(location.href, file);
     const png = await new Promise((ok) => c.toBlob(ok, 'image/png'));
     // the bundled program, when it is one nobody has touched: its own page is the primary link (nothing is uploaded)
-    const untouched = n9 ? null : session.untouchedBundledProgram(location.href);
-    captured = { at: Date.now(), file, png, link, untouched, base: file ? file.name.replace(/\.cloadm$/, '') : `${m.profile.name.replace(/[^A-Za-z0-9]+/g, '')}-NitrOS-9` };
+    const untouched = n9 || refusal ? null : session.untouchedBundledProgram(location.href);
+    captured = { at: Date.now(), file, png, link, untouched, refusal, base: file ? file.name.replace(/\.cloadm$/, '') : `${m.profile.name.replace(/[^A-Za-z0-9]+/g, '')}-NitrOS-9` };
     const dl = $('btnShareDownload');
     dl.disabled = !file;
     dl.textContent = file ? `Download snapshot (${(file.bytes.length / 1024).toFixed(0)} KB)` : 'Download snapshot';
@@ -124,6 +127,13 @@ export function setupShare(page, { linkStore }) {
     const rom = $('shareRom'), extra = $('shareExtra');
     rom.textContent = ''; rom.classList.remove('warn'); extra.textContent = '';
     const note = (text) => { const p = document.createElement('p'); p.textContent = text; extra.append(p); };
+    if (refusal) {
+      // nothing to encode: the line under the picture says what the guardrail refused, and Copy stays dark (syncPrimary)
+      $('shareNote').textContent = `This moment can't be put in a link. ${refusal}`;
+      $('shortTerms').hidden = true; $('previewSwitch').hidden = true;
+      syncEmbed(m.id);
+      return;
+    }
     if (!file) {
       $('shareNote').textContent = `The link starts NitrOS-9 fresh on the ${name}; it can't hold this exact moment.`;
       note('They need their own NitrOS-9 DriveWire image in their library: the link boots NitrOS-9 on the CoCo 3 from it, and holds no part of yours.');
@@ -182,10 +192,10 @@ export function setupShare(page, { linkStore }) {
   function syncPrimary() {
     const mode = primaryMode(), why = mode === 'long' && !alwaysLong() ? shortWhy() : null;
     const native = canNative();
-    // a guardrail that leaves nothing to copy at all (no snapshot and no link: the page's refusal, not a fallback):
-    // Copy goes dark, and the reason is inline. Every guardrail today still leaves the machine's own link (NitrOS-9's
-    // boots NitrOS-9 from the recipient's image), so this is the rule kept real rather than assumed.
-    const nothingToCopy = !!captured && !captured.link && !captured.untouched;
+    // a guardrail that leaves nothing to copy at all (Session.shareFile refused the moment: capture() keeps the view
+    // open with `refusal` set): Copy goes dark, and the reason is inline. Every guardrail today still leaves the
+    // machine's own link (NitrOS-9's boots NitrOS-9 from the recipient's image), so this is the rule kept real.
+    const nothingToCopy = !!captured && (!!captured.refusal || (!captured.link && !captured.untouched));
     $('btnShareCopy').disabled = !captured || nothingToCopy;
     $('btnShareCopy').classList.toggle('primary', !native);
     $('btnShareNative').hidden = !native || !captured || nothingToCopy;
@@ -193,7 +203,7 @@ export function setupShare(page, { linkStore }) {
     $('primaryNote').textContent = mode !== 'program' ? (mode === 'long' && alwaysLong() ? 'Long link: nothing is uploaded.' : '') : `Opens ${captured.untouched.name} from the start, for anyone.`;
     // a tap that fell back (fallbackWhy) has already made the choice, even though primaryMode said 'short' before it;
     // the reason it fell back is what the person needs to see, not the state before the tap
-    $('primaryWhy').textContent = fallbackWhy || (nothingToCopy ? 'This moment can\'t be put in a link.' : why === 'offline' ? OFFLINE_LONG : why && why !== 'Not for this moment.' ? why : '');
+    $('primaryWhy').textContent = captured && captured.refusal ? captured.refusal : fallbackWhy || (nothingToCopy ? 'This moment can\'t be put in a link.' : why === 'offline' ? OFFLINE_LONG : why && why !== 'Not for this moment.' ? why : '');
     $('shortTerms').hidden = mode !== 'short' || !!fallbackWhy;
     $('previewSwitch').hidden = mode !== 'short' || !!fallbackWhy;
     syncMore();

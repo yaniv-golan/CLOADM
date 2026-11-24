@@ -15849,6 +15849,27 @@ async function shareScreenChecks(browser, base, check) {
       fit.captionInFrame && fit.onTop, JSON.stringify(fit));
     await sc.close();
   }
+  // a moment a guardrail forbids encoding at all: Session.shareFile refuses, so the Share view opens with Copy dark and
+  // the reason inline (js/ui/share.js, capture's `refusal`). Forced here by making shareFile throw, the way its own
+  // stripRoms refusal does; the real one is NitrOS-9, which offers its own link instead and is checked in the nitros9 group.
+  {
+    const sc = await browser.newContext({ viewport: { width: 1280, height: 800 }, serviceWorkers: 'block' });
+    const sp = await sc.newPage();
+    const serr = [];
+    sp.on('pageerror', (e) => serr.push(e.message));
+    await sp.goto(`${base}?machine=dragon64`);
+    await linkIn(sp);
+    await sp.evaluate(() => { window.emu.session.shareFile = async () => { throw new Error('This snapshot can\'t be shared: a guardrail refused it.'); }; });
+    await sp.evaluate(() => document.getElementById('btnShare').click());
+    await waitFor(sp, () => document.getElementById('share').checkVisibility(), null, 15000);
+    const g = await sp.evaluate(() => ({ disabled: document.getElementById('btnShareCopy').disabled, note: document.getElementById('shareNote').textContent,
+      why: document.getElementById('primaryWhy').textContent, whyShown: document.getElementById('primaryWhy').checkVisibility(),
+      terms: document.getElementById('shortTerms').checkVisibility(), sw: document.getElementById('previewSwitch').checkVisibility(), native: document.getElementById('btnShareNative').hidden }));
+    check('one link: a moment a guardrail forbids encoding: Copy is disabled, the reason is inline, and nothing is uploaded',
+      g.disabled && /^This moment can't be put in a link\./.test(g.note) && /guardrail refused/.test(g.why) && g.whyShown && !g.terms && !g.sw && g.native && !serr.length, JSON.stringify(g));
+    await sc.close();
+  }
+
   // ---- the "one link" layout: a bundled program nobody has touched gives its page; once played, the moment, with its
   // page offered in "More ways to share"; and a tap's field is visible at every size (Documented in js/ui/share.js and
   // Session.untouchedBundledProgram; the server paths are the short-link group's, below) ----
