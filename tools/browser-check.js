@@ -20591,6 +20591,40 @@ async function needsBasicChecks(browser, base, check) {
   }
 }
 
+// ---------------- the no-ROM chrome (js/ui/main.js): the pill and Menu's dot never show together ----------------
+// With no ROMs the app bar shows "No BASIC · Add ROMs" where it has room, and Menu wears an orange dot where the pill is
+// folded into it: at every width from 320 to 1600 px, with a mouse and on a touch screen, upright and short, never
+// both (the UX ruling: no Menu dot while the pill shows).
+async function noRomChromeChecks(browser, base, check) {
+  const look = () => {
+    const pill = document.getElementById('romPill'), menu = document.getElementById('btnMenu');
+    const dot = menu.checkVisibility() && getComputedStyle(menu, '::after').content !== 'none' && menu.classList.contains('dot');
+    return { pill: pill.checkVisibility(), dot };
+  };
+  for (const [kind, opts] of [['mouse', {}], ['touch', { hasTouch: true, isMobile: true }]]) {
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, serviceWorkers: 'block', ...opts });
+    const page = await ctx.newPage();
+    const errors = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto(base); await started(page);
+    const bad = [], seen = { pill: 0, dot: 0 };
+    for (let w = 320; w <= 1600; w += 40) {
+      for (const h of [800, 400]) {
+        await page.setViewportSize({ width: w, height: h });
+        await page.waitForTimeout(60);
+        const l = await page.evaluate(look);
+        if (l.pill && l.dot) bad.push(`${w}x${h}: ${JSON.stringify(l)}`);
+        if (l.pill || l.dot) seen[l.pill ? 'pill' : 'dot']++;
+      }
+    }
+    check(`no-ROM chrome (${kind}): at every width from 320 to 1600 px, upright and short, the pill and Menu's dot never show together`, !bad.length, bad.slice(0, 4).join('; '));
+    // (the sweep is not vacuous: each of the two does show at some width)
+    check(`no-ROM chrome (${kind}): ...and each of them shows somewhere in the sweep`, seen.pill > 0 && seen.dot > 0, JSON.stringify(seen));
+    check(`no-ROM chrome (${kind}): no page errors`, !errors.length, errors.join('; '));
+    await closeCtx(ctx);
+  }
+}
+
 const GROUPS = (base, site) => [
   ['models', (b) => modelsChecks(b, base, check)],
   ['reset', (b) => resetChecks(b, base, check)],
@@ -20682,6 +20716,7 @@ const GROUPS = (base, site) => [
   ['mobile', (b) => mobileChecks(b, base, check)],
   ['menuWords', (b) => menuWordsChecks(b, base, check)],
   ['needsBasic', (b) => needsBasicChecks(b, base, check)],
+  ['noRomChrome', (b) => noRomChromeChecks(b, base, check)],
   // (required when the group runs: the shard planner's copy of this file runs --list-groups without it)
   ['connector', (b) => require('./connector-check').connectorChecks(b, check, { shots: shotDir })],
 ];

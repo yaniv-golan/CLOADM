@@ -30,8 +30,14 @@ Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.
   cartridge in, a machine with BASIC, or while the Debugger is stopped or stepping (`Debugger.commanding`). Tested in
   `tests/needs-basic.test.js` and the browser check's new `needsBasic` group.
 
+- **The colour demo says it runs without ROMs.** It clears the screen (the built-in firmware's banner goes) and prints
+  "RUNS WITHOUT ROMS" and "ADD YOURS FOR BASIC", each centred on the 32 columns (`tests/demo-text.test.js`).
+
 #### Changed
 
+- **Menu never wears its dot while the "No BASIC · Add ROMs" pill shows.** The dot stands for the pill where the app
+  bar has folded it into Menu; the browser check's new `noRomChrome` group sweeps 320 to 1600 px, with a mouse and on a
+  touch screen, and fails on a width where both show.
 - **The plugin's servers are keyed *CLOADM side panel* and *CLOADM on this computer*.** The plugin format has no field
   for a server's display name (`mcpServers` is "keyed by name"), and Claude's plugin page and chat menu showed the old
   keys, `cloadm-panel` and `cloadm`. The keys are now the readable names (`claude plugin validate` accepts them, and

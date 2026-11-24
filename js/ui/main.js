@@ -261,9 +261,11 @@ $('btnMenu').onclick = () => {
   const sync = () => {
     item.hidden = pill.hidden;
     const menu = $('btnMenu'), media = menu.classList.contains('media');
-    menu.classList.toggle('dot', !pill.hidden);
+    // (never both: while the pill itself shows, Menu wears no dot; checkVisibility, as the layout draws it at this width)
+    const dot = !pill.hidden && !pill.checkVisibility();
+    menu.classList.toggle('dot', dot);
     // (both: its one dot is the ROMs', its name says both)
-    if (!pill.hidden) menu.setAttribute('aria-label', media ? 'Menu (ROMs needed, media inserted)' : 'Menu (ROMs needed)');
+    if (dot) menu.setAttribute('aria-label', media ? 'Menu (ROMs needed, media inserted)' : 'Menu (ROMs needed)');
     else if (media) menu.setAttribute('aria-label', 'Menu (media inserted)');
     else menu.removeAttribute('aria-label');
   };
@@ -283,6 +285,9 @@ $('btnMenu').onclick = () => {
     tab.focus({ preventScroll: true });
   };
   new MutationObserver(sync).observe(pill, { attributes: true, attributeFilter: ['hidden'] });
+  // the pill shows or not with the width and the layout (the touch keys, the chat screen): asked again when they change
+  new ResizeObserver(sync).observe(document.body);
+  new MutationObserver(sync).observe(document.body, { attributes: true, attributeFilter: ['class'] });
   sync();
   // Menu's order on a phone: Install… after Share…, before the links; on a wider page it is the app bar's last link
   // (moved, not reordered by the stylesheet, so the focus goes down the list in the order it is drawn)
