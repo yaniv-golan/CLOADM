@@ -17003,32 +17003,37 @@ async function semanticsChecks(browser, base, site, check) {
 
 
 // Words run together in a menu or sheet label's TEXT, whatever the layout draws: a lowercase letter straight into a
-// capital inside one word ("InstallCLOADM…", "OpenClaude") is two words with the space lost, unless the word is a
+// capital inside one word ("InstallCLOADM…", "OpenClaude") is two words with the space lost, unless the whole word is a
 // name written that way. gluedLabels (above) finds the drawn kind (the space is in the text, the layout drops it).
 // -> the visible labels under `sel` with such a word
-const CAMEL_NAMES = ['GitHub', 'DriveWire', 'NitrOS', 'DragonDOS', 'CoCo', 'MacBook', 'iPhone', 'iPad', 'iOS', 'macOS', 'OPFS', 'WebSocket', 'WebGL', 'JavaScript', 'LibreOffice'];
+const CAMEL_NAMES = ['GitHub', 'CoCo'];
 const gluedWords = (page, sel) => page.evaluate(([sel, names]) => {
   const out = [];
   for (const el of document.querySelectorAll(sel)) {
     if (!el.checkVisibility()) continue;
     const text = el.innerText || '';
     for (const word of text.split(/[\s/·,;:()…—–\-"'“”.?!]+/)) {
-      if (/\p{Ll}\p{Lu}/u.test(word) && !names.some((n) => word.includes(n))) out.push(`${el.id || el.tagName}: "${text.trim().replace(/\s+/g, ' ')}" (${word})`);
+      if (/\p{Ll}\p{Lu}/u.test(word) && !names.includes(word)) out.push(`${el.id || el.tagName}: "${text.trim().replace(/\s+/g, ' ')}" (${word})`);
     }
   }
   return out;
 }, [sel, CAMEL_NAMES]);
-// the labels a person reads in a menu or sheet that is open: its buttons, links, tabs, headings, summaries and field labels
-const LABELS = ':is(button, a, [role="menuitem"], [role="tab"], h2, h3, summary, label, legend, .title)';
+// how many labels under `sel` are drawn: a check over none has looked at nothing
+const visibleLabels = (page, sel) => page.evaluate((sel) => [...document.querySelectorAll(sel)].filter((e) => e.checkVisibility() && (e.innerText || '').trim()).length, sel);
+// the labels a person reads in a menu, sheet or view that is open: its buttons, links, tabs, options, headings, summaries and field labels
+const LABELS = ':is(button, a, [role="menuitem"], [role="tab"], [role="option"], h1, h2, h3, summary, label, legend, .title)';
+const openDetails = (page, scope) => page.evaluate((scope) => document.querySelectorAll(`${scope} details`).forEach((d) => { d.open = true; }), scope);
 
-// Every menu and sheet: no label has words run together, in the text or on the screen. The app bar's Menu and its links
-// (1440 and 900 wide, and on a phone), the machine menu, the keys' Menu on a phone sideways, and every sheet of a phone.
+// Every menu, sheet and view: no label has words run together, in the text or on the screen. The app bar's Menu and its
+// links (1440 and 900 wide, and on a phone), the machine menu, the drive menu, the views behind the app bar (Library,
+// Debugger, Share, Add ROMs), the command palette, each tab of the settings drawer with its disclosures open, the keys'
+// Menu on a phone sideways, and every sheet of a phone. A check that finds no label to read is a failure.
 async function menuWordsChecks(browser, base, check) {
   const { devices } = require('playwright');
   const errors = [];
   const both = async (page, name, sel) => {
-    const [drawn, text] = [await gluedLabels(page, sel), await gluedWords(page, sel)];
-    check(`menu words: ${name}: no label has words run together`, !drawn.length && !text.length, JSON.stringify({ drawn, text }));
+    const [n, drawn, text] = [await visibleLabels(page, sel), await gluedLabels(page, sel), await gluedWords(page, sel)];
+    check(`menu words: ${name}: ${n} labels, none with words run together`, n > 0 && !drawn.length && !text.length, JSON.stringify({ n, drawn, text }));
   };
   {
     const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, serviceWorkers: 'block' });
@@ -17039,11 +17044,33 @@ async function menuWordsChecks(browser, base, check) {
       await page.setViewportSize({ width, height: 900 });
       await page.waitForTimeout(100);
       await both(page, `the app bar at ${width}`, `#appbar ${LABELS}`);
+      for (const [name, hash, id] of [['the Library', '#library', 'library'], ['the Debugger', '#debugger', 'debugView'], ['Share', '#share', 'share'], ['Add ROMs', '#add-roms', 'romCard']]) {
+        await page.evaluate((h) => { location.hash = h; }, hash);
+        await waitFor(page, (i) => !document.getElementById(i).hidden && document.getElementById(i).checkVisibility(), id);
+        await openDetails(page, `#${id}`);
+        await both(page, `${name} at ${width}`, `#${id} ${LABELS}`);
+        await page.evaluate(() => { location.hash = ''; });
+        await waitFor(page, () => location.hash === '' || location.hash === '#');
+      }
+      for (const tab of ['media', 'display', 'input', 'pokes', 'machine']) {
+        await page.click(`#tab-${tab}`);
+        await waitFor(page, (t) => document.getElementById('tab-' + t).getAttribute('aria-selected') === 'true', tab);
+        await openDetails(page, `#panel-${tab}`);
+        await both(page, `the ${tab} tab at ${width}`, `#panel-${tab} ${LABELS}, #tab-${tab}`);
+      }
     }
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.click('#machineBtn');
     await waitFor(page, () => !document.getElementById('machineMenu').hidden);
     await both(page, 'the machine menu', `#machineMenu ${LABELS}`);
+    await page.keyboard.press('Escape');
+    await page.click('#drives .drive >> nth=0');
+    await waitFor(page, () => !document.getElementById('driveMenu').hidden);
+    await both(page, 'the drive menu', `#driveMenu ${LABELS}`);
+    await page.click('#driveClose');
+    await page.keyboard.press('Control+k');
+    await waitFor(page, () => !document.getElementById('cmdBox').hidden);
+    await both(page, 'the command palette', `#cmdBox ${LABELS}`);
     await page.keyboard.press('Escape');
     await ctx.close();
   }
@@ -17059,18 +17086,28 @@ async function menuWordsChecks(browser, base, check) {
     for (const chip of ['chipTape', 'chipDisks', 'chipCart', 'chipPower']) {
       await page.tap(`#${chip}`);
       await waitFor(page, () => !!document.querySelector('dialog.sheet[open]'));
+      await openDetails(page, 'dialog.sheet[open]');
       await both(page, `the ${chip.slice(4)} sheet`, `dialog.sheet[open] ${LABELS}`);
       await closeSheet(page);
       await waitFor(page, () => !document.querySelector('dialog.sheet[open]'));
     }
-    for (const item of ['navPrograms', 'navSettings']) {
-      await page.tap('#btnMenu');
-      await page.tap(`#${item}`);
-      await waitFor(page, () => !!document.querySelector('dialog.sheet[open]'));
-      await both(page, `the ${item.slice(3)} sheet`, `dialog.sheet[open] ${LABELS}`);
-      await closeSheet(page);
-      await waitFor(page, () => !document.querySelector('dialog.sheet[open]'));
+    await page.tap('#btnMenu');
+    await page.tap('#navPrograms');
+    await waitFor(page, () => !!document.querySelector('dialog.sheet[open]'));
+    await openDetails(page, 'dialog.sheet[open]');
+    await both(page, 'the Programs sheet', `dialog.sheet[open] ${LABELS}`);
+    await closeSheet(page);
+    await waitFor(page, () => !document.querySelector('dialog.sheet[open]'));
+    await page.tap('#btnMenu');
+    await page.tap('#navSettings');
+    await waitFor(page, () => !!document.querySelector('dialog.sheet[open]'));
+    for (const tab of await page.evaluate(() => [...document.querySelectorAll('#sheetSettings [role="tab"]')].map((t) => t.id))) {
+      await page.tap(`#${tab}`);
+      await waitFor(page, (t) => document.getElementById(t).getAttribute('aria-selected') === 'true', tab);
+      await openDetails(page, '#sheetSettings');
+      await both(page, `the Settings sheet's ${tab} tab`, `#sheetSettings ${LABELS}`);
     }
+    await closeSheet(page);
     await ctx.close();
   }
   {
@@ -17079,6 +17116,7 @@ async function menuWordsChecks(browser, base, check) {
     page.on('pageerror', (e) => errors.push(e.message));
     await page.goto(`${base}?machine=dragon64`); await started(page);
     await page.tap('#tkMenu');
+    await waitFor(page, () => document.getElementById('tkMenuSheet').checkVisibility());
     await both(page, 'the keys\' Menu', `#tkMenuSheet ${LABELS}`);
     await page.tap('#tkMenuSheet [data-item="ports"]');
     await waitFor(page, () => document.getElementById('sheetPorts').open);
