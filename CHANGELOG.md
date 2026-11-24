@@ -8,6 +8,14 @@ All notable changes to CLOADM are recorded here. The format follows
 
 Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.test.js` keeps them in step).
 
+#### Added
+
+- **Every menu and sheet is checked for words run together.** A new `menuWords` group of the browser check opens the
+  app bar (at 1440 and 900 px and on a phone), the machine menu, the keys' Menu, and each phone sheet, and fails on a
+  label whose letters run into a capital inside one word ("InstallCLOADM…"; the names written that way are listed) or
+  whose words the layout draws without their space. The Install label's own fix (the space kept where the Menu lays
+  its items out) came before 0.2.0; this holds it, and every other label, to it.
+
 ### 0.2.0
 
 #### Added

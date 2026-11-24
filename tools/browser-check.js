@@ -17001,6 +17001,93 @@ async function semanticsChecks(browser, base, site, check) {
   }
 }
 
+
+// Words run together in a menu or sheet label's TEXT, whatever the layout draws: a lowercase letter straight into a
+// capital inside one word ("InstallCLOADM…", "OpenClaude") is two words with the space lost, unless the word is a
+// name written that way. gluedLabels (above) finds the drawn kind (the space is in the text, the layout drops it).
+// -> the visible labels under `sel` with such a word
+const CAMEL_NAMES = ['GitHub', 'DriveWire', 'NitrOS', 'DragonDOS', 'CoCo', 'MacBook', 'iPhone', 'iPad', 'iOS', 'macOS', 'OPFS', 'WebSocket', 'WebGL', 'JavaScript', 'LibreOffice'];
+const gluedWords = (page, sel) => page.evaluate(([sel, names]) => {
+  const out = [];
+  for (const el of document.querySelectorAll(sel)) {
+    if (!el.checkVisibility()) continue;
+    const text = el.innerText || '';
+    for (const word of text.split(/[\s/·,;:()…—–\-"'“”.?!]+/)) {
+      if (/\p{Ll}\p{Lu}/u.test(word) && !names.some((n) => word.includes(n))) out.push(`${el.id || el.tagName}: "${text.trim().replace(/\s+/g, ' ')}" (${word})`);
+    }
+  }
+  return out;
+}, [sel, CAMEL_NAMES]);
+// the labels a person reads in a menu or sheet that is open: its buttons, links, tabs, headings, summaries and field labels
+const LABELS = ':is(button, a, [role="menuitem"], [role="tab"], h2, h3, summary, label, legend, .title)';
+
+// Every menu and sheet: no label has words run together, in the text or on the screen. The app bar's Menu and its links
+// (1440 and 900 wide, and on a phone), the machine menu, the keys' Menu on a phone sideways, and every sheet of a phone.
+async function menuWordsChecks(browser, base, check) {
+  const { devices } = require('playwright');
+  const errors = [];
+  const both = async (page, name, sel) => {
+    const [drawn, text] = [await gluedLabels(page, sel), await gluedWords(page, sel)];
+    check(`menu words: ${name}: no label has words run together`, !drawn.length && !text.length, JSON.stringify({ drawn, text }));
+  };
+  {
+    const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, serviceWorkers: 'block' });
+    const page = await ctx.newPage();
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto(`${base}?machine=dragon64`); await started(page);
+    for (const width of [1440, 900]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.waitForTimeout(100);
+      await both(page, `the app bar at ${width}`, `#appbar ${LABELS}`);
+    }
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.click('#machineBtn');
+    await waitFor(page, () => !document.getElementById('machineMenu').hidden);
+    await both(page, 'the machine menu', `#machineMenu ${LABELS}`);
+    await page.keyboard.press('Escape');
+    await ctx.close();
+  }
+  {
+    const ctx = await browser.newContext({ ...devices['iPhone 15'], serviceWorkers: 'block' });
+    const page = await ctx.newPage();
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto(`${base}?machine=dragon64`); await started(page);
+    await page.tap('#btnMenu');
+    await waitFor(page, () => document.getElementById('appbar').classList.contains('menu-open'));
+    await both(page, 'the phone\'s Menu', `#appbar ${LABELS}`);
+    await page.tap('#btnMenu');
+    for (const chip of ['chipTape', 'chipDisks', 'chipCart', 'chipPower']) {
+      await page.tap(`#${chip}`);
+      await waitFor(page, () => !!document.querySelector('dialog.sheet[open]'));
+      await both(page, `the ${chip.slice(4)} sheet`, `dialog.sheet[open] ${LABELS}`);
+      await closeSheet(page);
+      await waitFor(page, () => !document.querySelector('dialog.sheet[open]'));
+    }
+    for (const item of ['navPrograms', 'navSettings']) {
+      await page.tap('#btnMenu');
+      await page.tap(`#${item}`);
+      await waitFor(page, () => !!document.querySelector('dialog.sheet[open]'));
+      await both(page, `the ${item.slice(3)} sheet`, `dialog.sheet[open] ${LABELS}`);
+      await closeSheet(page);
+      await waitFor(page, () => !document.querySelector('dialog.sheet[open]'));
+    }
+    await ctx.close();
+  }
+  {
+    const ctx = await browser.newContext({ ...devices['iPhone 15 landscape'], serviceWorkers: 'block' });
+    const page = await ctx.newPage();
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto(`${base}?machine=dragon64`); await started(page);
+    await page.tap('#tkMenu');
+    await both(page, 'the keys\' Menu', `#tkMenuSheet ${LABELS}`);
+    await page.tap('#tkMenuSheet [data-item="ports"]');
+    await waitFor(page, () => document.getElementById('sheetPorts').open);
+    await both(page, 'the ports sheet', `dialog.sheet[open] ${LABELS}`);
+    await ctx.close();
+  }
+  check('menu words: no page errors', !errors.length, errors.join('; '));
+}
+
 // The groups, in run order: [name, (browser) => the group's checks]. --only takes these names.
 // The install offer (js/ui/install.js): the Menu item and the card, on a synthetic beforeinstallprompt (Chromium's
 // event, with a mocked prompt() and userChoice; no real install can be automated), an iOS user agent, and a
@@ -20293,6 +20380,7 @@ const GROUPS = (base, site) => [
   ['uiModel', (b) => uiModelChecks(b, base, check)],
   ['semantics', (b) => semanticsChecks(b, base, site, check)],
   ['mobile', (b) => mobileChecks(b, base, check)],
+  ['menuWords', (b) => menuWordsChecks(b, base, check)],
   // (required when the group runs: the shard planner's copy of this file runs --list-groups without it)
   ['connector', (b) => require('./connector-check').connectorChecks(b, check, { shots: shotDir })],
 ];
