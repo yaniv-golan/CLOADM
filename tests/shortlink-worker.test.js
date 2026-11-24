@@ -149,7 +149,7 @@ const sealed = (n = 3000, seed = 1) => Uint8Array.from({ length: n }, (_, i) => 
     }
     const stats = env.BUCKET.text('stats/');
     check('the public totals page (stats/): the totals, nothing per person', /Short links made<\/td><td>3</.test(stats) && /Short links opened \(to the end of 2026-11-28\)<\/td><td>15</.test(stats)
-      && /Short links removed<\/td><td>1</.test(stats));
+      && /Short links deleted by whoever made them<\/td><td>1</.test(stats));
     const everything = [...env.BUCKET.objects.values()].map((o) => new TextDecoder('latin1').decode(o.bytes) + JSON.stringify(o.customMetadata)).join('\n');
     check('no address is stored anywhere, nor the analytics token', !everything.includes(IP) && !everything.includes('203.0.113') && !everything.includes('test-analytics-token'));
     // a count written by someone else between the Worker's read and its write (a link made, landing first) is kept:
@@ -203,12 +203,71 @@ const sealed = (n = 3000, seed = 1) => Uint8Array.from({ length: n }, (_, i) => 
       'a damaged CRC': (() => { const p = Buffer.from(png); p[30] ^= 1; return p; })(),
       'interlaced': (() => { const d = Buffer.alloc(13); d.writeUInt32BE(1200, 0); d.writeUInt32BE(630, 4); d[8] = 4; d[9] = 3; d[12] = 1; return Buffer.concat([SIG, chunk('IHDR', d), chunk('PLTE', Buffer.alloc(6)), idat, IEND]); })(),
       'bytes after IEND': Buffer.concat([Buffer.from(png), Buffer.from([0])]),
+      // its pixels: each built here from rows of (stride + 1) bytes, 4 bits a pixel, 600 bytes a row
+      ...(() => {
+        const rows = (fill = 0, filter = 0, h = 630) => { const r = Buffer.alloc(601 * h, fill); for (let y = 0; y < h; y++) r[y * 601] = filter; return r; };
+        const plte = chunk('PLTE', Buffer.from([0, 0, 0, 255, 255, 255]));   // two colours: indices 0 and 1
+        const make = (raw, { depth = 4, comp = 0, filt = 0 } = {}) => { const d = Buffer.alloc(13); d.writeUInt32BE(1200, 0); d.writeUInt32BE(630, 4); d[8] = depth; d[9] = 3; d[10] = comp; d[11] = filt;
+          return Buffer.concat([SIG, chunk('IHDR', d), plte, chunk('IDAT', zlib.deflateSync(raw)), IEND]); };
+        const ihdrOnly = (() => { const d = Buffer.alloc(13); d.writeUInt32BE(1200, 0); d.writeUInt32BE(630, 4); d[8] = 4; d[9] = 3; return chunk('IHDR', d); })();
+        return {
+          'no IDAT': Buffer.concat([SIG, ihdrOnly, plte, IEND]),
+          'IHDR compression method 1': make(rows(), { comp: 1 }),
+          'IHDR filter method 1': make(rows(), { filt: 1 }),
+          'PLTE after IDAT': Buffer.concat([SIG, ihdrOnly, chunk('IDAT', zlib.deflateSync(rows())), plte, IEND]),
+          'IDATs apart (another chunk between them)': Buffer.concat([SIG, ihdrOnly, plte, chunk('IDAT', zlib.deflateSync(rows()).subarray(0, 20)), plte, chunk('IDAT', zlib.deflateSync(rows()).subarray(20)), IEND]),
+          'garbage IDAT (not zlib)': Buffer.concat([SIG, ihdrOnly, plte, chunk('IDAT', Buffer.from('this is not a zlib stream at all')), IEND]),
+          'an inflation bomb (32 MB of zeroes in a few KB)': (() => { const b = make(Buffer.alloc(32 << 20)); return b; })(),
+          'image data short of its size (one row missing)': make(rows(0, 0, 629)),
+          'a row filter of 5': make((() => { const r = rows(); r[601 * 7] = 5; return r; })()),
+          'a pixel past the palette (colour 3 of 2)': make((() => { const r = rows(); r[601 * 300 + 1 + 10] = 0x03; return r; })()),
+          'a pixel past the palette only after unfiltering (Sub: 1 + 1 = 2)': make((() => { const r = rows(); r[601 * 9] = 1; r[601 * 9 + 1] = 0x11; r[601 * 9 + 2] = 0x11; return r; })()),
+        };
+      })(),
     };
     for (const [what, p] of Object.entries(pngs)) {
+      if (p.length > W.MAX_PNG) { check(`(test) the case fits the size cap: ${what}`, false, `${p.length} bytes`); continue; }
       const [s, m] = await status(req('/api/new', { body: Emu.newLinkBody('dragon64', sealed(), new Uint8Array(p)) }));
       check(`picture refused (400): ${what}`, s === 400, m);
     }
-    check('nothing was stored by any refused request', ![...env.BUCKET.objects.keys()].some((k) => k.endsWith('.bin')));
+    // and one built the same way but right is taken (the cases above fail for their reason, not the builder's)
+    {
+      const d = Buffer.alloc(13); d.writeUInt32BE(1200, 0); d.writeUInt32BE(630, 4); d[8] = 4; d[9] = 3;
+      const raw = Buffer.alloc(601 * 630); for (let y = 0; y < 630; y++) { raw[y * 601] = y % 5; raw[y * 601 + 1] = y % 5 === 0 ? 0x10 : 0; }
+      const ok = Buffer.concat([SIG, chunk('IHDR', d), chunk('PLTE', Buffer.from([0, 0, 0, 255, 255, 255])), chunk('IDAT', zlib.deflateSync(raw)), IEND]);
+      const res = await call(env, req('/api/new', { body: Emu.newLinkBody('dragon64', sealed(), new Uint8Array(ok)) }));
+      const made = await res.json();
+      check('a picture built here, every filter 0 to 4, colours 0 and 1: taken', res.status === 201 && env.BUCKET.objects.has(`${made.id}.png`), JSON.stringify(made));
+      await W.removeLink(env, made.id);
+    }
+    check('nothing was stored by any refused request', ![...env.BUCKET.objects.keys()].some((k) => k.endsWith('.bin') || k.endsWith('.png')));
+
+    // the totals can't block making a link: a stream of other writes to stats/counts.json (it changes under every
+    // attempt) leaves /api/new answering 201, the link stored; the daily cap is counted in its own object
+    {
+      const busy = envOf();
+      busy.BUCKET.beforePut = async (k) => {
+        if (k !== 'stats/counts.json') return;
+        const o = busy.BUCKET.objects.get(k);
+        if (o) busy.BUCKET.objects.set(k, Object.assign({}, o, { etag: `other${++busy.BUCKET.n}` }));
+        else busy.BUCKET.objects.set(k, { bytes: new TextEncoder().encode('{"created":0,"opened":0,"removed":0}'), etag: `other${++busy.BUCKET.n}`, customMetadata: {}, httpMetadata: {} });
+      };
+      const r1 = await call(busy, req('/api/new', { body: good() }));
+      const o1 = await r1.json();
+      check('a stream of writes to the totals can\'t block /api/new: 201, the link stored, the day counted apart', r1.status === 201 && busy.BUCKET.objects.has(`${o1.id}.bin`)
+        && JSON.parse(busy.BUCKET.text('limits/today.json')).n === 1, JSON.stringify(o1));
+    }
+    {
+      const fails = envOf();
+      for (let i = 0; i < 5; i++) fails.BUCKET.failNext.push((k) => k.endsWith('.bin'));
+      const [s5] = await status(req('/api/new', { body: good() }), fails);
+      const c5 = fails.BUCKET.text('stats/counts.json');
+      check('a link that could not be stored is not counted as made', s5 === 503 && (!c5 || JSON.parse(c5).created === 0), c5);
+      const delEnv = envOf({ RATE_IP: limiter(1) });
+      const d1 = (await status(req('/api/delete', { body: JSON.stringify({ id: 'AAAAAAAA', token: 'x' }), type: 'application/json' }), delEnv))[0];
+      const d2 = (await status(req('/api/delete', { body: JSON.stringify({ id: 'AAAAAAAA', token: 'x' }), type: 'application/json' }), delEnv))[0];
+      check('delete is rate-limited per address too', d1 === 404 && d2 === 429, `${d1} ${d2}`);
+    }
 
     // the kill switch: no new links, the existing ones stay readable
     const k = envOf();

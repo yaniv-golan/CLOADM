@@ -19459,12 +19459,13 @@ async function shortLinkChecks(browser, base, site, check) {
   const W = await import(pathToFileURL(path.join(__dirname, '../shortlink/worker.js')).href);
   const { MemoryBucket, memoryLimiter } = await import(pathToFileURL(path.join(__dirname, '../shortlink/memory-bucket.js')).href);
   const local = site.replace(/\/$/, '');
-  const env = { seen: [], BUCKET: new MemoryBucket(), RATE_IP: memoryLimiter(100), RATE_ALL: memoryLimiter(1000), DAILY_CAP: '100',
+  const env = { seen: [], requests: [], BUCKET: new MemoryBucket(), RATE_IP: memoryLimiter(100), RATE_ALL: memoryLimiter(1000), DAILY_CAP: '100',
     ALLOWED_ORIGINS: `${local},https://cloadm.dev`, REPORT_EMAIL: 'abuse@example.com' };
   const serve = async (ctx) => {
     await ctx.route('https://s.cloadm.dev/**', async (route) => {
       const r = route.request(), u = new URL(r.url()), origin = r.headers().origin;
       env.seen.push(`${r.method()} ${u.pathname}`);
+      env.requests.push({ url: r.url(), headers: JSON.stringify(r.headers()), body: r.postDataBuffer() || Buffer.alloc(0) });
       if (u.pathname.startsWith('/api/')) {
         const res = await W.default.fetch(new Request(r.url(), { method: r.method(), headers: r.headers(), body: ['GET', 'HEAD'].includes(r.method()) ? null : r.postDataBuffer() }), env, {});
         return route.fulfill({ status: res.status, headers: Object.fromEntries(res.headers), body: Buffer.from(await res.arrayBuffer()) });
@@ -19476,7 +19477,8 @@ async function shortLinkChecks(browser, base, site, check) {
       return route.fulfill({ status: 200, headers: Object.assign({ 'content-type': o.httpMetadata.contentType || 'application/octet-stream' }, cors), body: Buffer.from(o.bytes) });
     });
     await ctx.route('https://cloadm.dev/**', async (route) => {
-      const u = new URL(route.request().url());
+      const r = route.request(), u = new URL(r.url());
+      env.requests.push({ url: r.url(), headers: JSON.stringify(r.headers()), body: r.postDataBuffer() || Buffer.alloc(0) });
       return route.fulfill({ response: await route.fetch({ url: `${local}${u.pathname}${u.search}` }) });
     });
   };
@@ -19531,6 +19533,15 @@ async function shortLinkChecks(browser, base, site, check) {
   // opening asked s.cloadm.dev for the arrival page and the sealed moment, and nothing else: no ping (opens are counted
   // from the zone's analytics by the daily cron, shortlink/worker.js countOpens)
   const seen = env.seen.slice(seenBefore);
+  // every request to s.cloadm.dev and cloadm.dev while the link was made and opened: the key in none (address, headers or
+  // body; as text, hex, base64 or bytes)
+  if (key) {
+    const kb = Buffer.from(key, 'base64url'), forms = [key, kb.toString('hex'), kb.toString('base64'), kb.toString('base64').replace(/=+$/, '')];
+    const leaks = env.requests.filter((q) => forms.some((f) => q.url.includes(f) || q.headers.includes(f) || q.body.toString('latin1').includes(f)) || q.body.includes(kb));
+    check('shortLink: the key is in no request to s.cloadm.dev or cloadm.dev, made or opened (address, headers, body; text, hex, base64, bytes)',
+      env.requests.length >= 3 && env.requests.some((q) => /\/api\/new$/.test(q.url) && q.body.length > 100) && leaks.length === 0,
+      `${env.requests.length} requests; leaks: ${leaks.map((q) => q.url.slice(0, 60)).join(', ')}`);
+  }
   check('shortLink: opened in another profile: that exact moment, the fragment cleared; s.cloadm.dev asked only for the page and the moment',
     opened && await p2.evaluate(() => window.emu.machine.ram[1030] === 42 && location.hash === '') && JSON.stringify(seen) === JSON.stringify([`GET /${id}`, `GET /${id}.bin`]),
     `${JSON.stringify(seen)} · ${await p2.evaluate(() => window.__said.join(' | '))}`);

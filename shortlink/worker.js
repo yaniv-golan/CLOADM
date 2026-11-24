@@ -95,15 +95,57 @@ ${report}</main>
 // ---------------- checks ----------------
 export class Refused extends Error { constructor(status, message) { super(message); this.status = status; } }
 
-// the picture as the Worker takes it, or a Refused saying why not
-export function checkPicture(png) {
+// inflate (zlib, RFC 1950) the concatenated bytes, stopping as soon as more than `max` come out -> bytes, or null when
+// there are more (an inflation bomb is stopped there); throws on a broken stream
+async function inflateAtMost(parts, max) {
+  const reader = new Blob(parts).stream().pipeThrough(new DecompressionStream('deflate')).getReader();
+  const out = new Uint8Array(max);
+  let n = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (n + value.length > max) { await reader.cancel().catch(() => {}); return null; }
+    out.set(value, n); n += value.length;
+  }
+  return out.subarray(0, n);
+}
+
+// the picture as the Worker takes it, or a Refused saying why not. Beyond its chunks (js/media/png.js readPngHeader),
+// its pixels are unpacked: the IDATs inflate to exactly (stride + 1) x 630 bytes (stopped at one more), every row's
+// filter is 0 to 4, and every pixel names a colour the palette has.
+export async function checkPicture(png) {
   if (png.length > MAX_PNG) throw new Refused(413, `The picture is larger than ${MAX_PNG / 1024} KB.`);
   let h;
   try { h = readPngHeader(png); } catch (e) { throw new Refused(400, `The picture is not a well-formed PNG: ${e.message}.`); }
   if (h.width !== PNG_WIDTH || h.height !== PNG_HEIGHT) throw new Refused(400, `The picture must be ${PNG_WIDTH} x ${PNG_HEIGHT}.`);
   if (h.colourType !== 3 || ![1, 2, 4, 8].includes(h.depth) || h.interlace !== 0) throw new Refused(400, 'The picture must be an indexed-colour PNG, not interlaced.');
+  if (h.compression !== 0 || h.filter !== 0) throw new Refused(400, 'The picture names a compression or filter method PNG does not have.');
   if (!h.palette || h.palette.length > PNG_COLOURS) throw new Refused(400, `The picture must have a palette of ${PNG_COLOURS} colours or fewer.`);
   if (h.chunks.some((t) => !['IHDR', 'PLTE', 'IDAT', 'IEND'].includes(t))) throw new Refused(400, 'The picture may hold only IHDR, PLTE, IDAT and IEND chunks.');
+  if (!h.idat.length) throw new Refused(400, 'The picture has no image data (IDAT).');
+  const stride = Math.ceil(h.width * h.depth / 8), want = (stride + 1) * h.height;
+  let raw;
+  try { raw = await inflateAtMost(h.idat, want + 1); } catch (e) { throw new Refused(400, 'The picture\'s image data is damaged.'); }
+  if (!raw) throw new Refused(400, 'The picture\'s image data unpacks to more than its size allows.');
+  if (raw.length !== want) throw new Refused(400, 'The picture\'s image data is not the size its header says.');
+  const n = h.palette.length, per = 8 / h.depth, mask = (1 << h.depth) - 1;
+  let prev = new Uint8Array(stride), line = new Uint8Array(stride);
+  for (let y = 0; y < h.height; y++) {
+    const o = y * (stride + 1), f = raw[o];
+    if (f > 4) throw new Refused(400, `The picture's row ${y} has a filter PNG does not have (${f}).`);
+    for (let i = 0; i < stride; i++) {
+      const x = raw[o + 1 + i], a = i ? line[i - 1] : 0, b = prev[i], c = i ? prev[i - 1] : 0;
+      let p = 0;
+      if (f === 1) p = a; else if (f === 2) p = b; else if (f === 3) p = (a + b) >> 1;
+      else if (f === 4) { const pa = Math.abs(b - c), pb = Math.abs(a - c), pc = Math.abs(a + b - 2 * c); p = pa <= pb && pa <= pc ? a : pb <= pc ? b : c; }
+      line[i] = (x + p) & 0xFF;
+    }
+    for (let x = 0; x < h.width; x++) {
+      const v = (line[Math.floor(x / per)] >> ((per - 1 - (x % per)) * h.depth)) & mask;
+      if (v >= n) throw new Refused(400, `The picture's pixel ${x},${y} names colour ${v}; its palette has ${n}.`);
+    }
+    [prev, line] = [line, prev];
+  }
   return h;
 }
 
@@ -124,25 +166,45 @@ export function readNewLink(body) {
 }
 
 // ---------------- counts ----------------
-const COUNTS = 'stats/counts.json', STATS = 'stats/';
+// the public totals (stats/counts.json and its page) and, apart from them, the day's count the daily cap reads
+// (limits/today.json): nothing that writes the totals can slow down or block making a link
+const COUNTS = 'stats/counts.json', STATS = 'stats/', TODAY = 'limits/today.json';
 const today = (now) => now.toISOString().slice(0, 10);
 // change the counts with `fn` (which may throw a Refused to stop), keeping every concurrent change (etag check, retried)
-export async function bump(env, now, fn) {
+// change the JSON object at `key` with `fn` (which may throw a Refused to stop), keeping every concurrent change (an
+// etag check, retried) -> the object written, or null when it stayed busy
+async function update(env, key, fresh, fn, cacheControl) {
   for (let tries = 0; tries < 8; tries++) {
-    const cur = await env.BUCKET.get(COUNTS);
-    const c = cur ? JSON.parse(await cur.text()) : { created: 0, opened: 0, removed: 0, openedThrough: '', day: '', createdToday: 0 };
-    if (c.day !== today(now)) { c.day = today(now); c.createdToday = 0; }
+    const cur = await env.BUCKET.get(key);
+    const c = cur ? JSON.parse(await cur.text()) : fresh();
     fn(c);
-    const put = await env.BUCKET.put(COUNTS, JSON.stringify(c), {
-      httpMetadata: { contentType: 'application/json', cacheControl: 'public, max-age=60' },
+    const put = await env.BUCKET.put(key, JSON.stringify(c), {
+      httpMetadata: { contentType: 'application/json', cacheControl },
       onlyIf: cur ? { etagMatches: cur.etag } : new Headers({ 'If-None-Match': '*' }),
     });
-    if (put) { await env.BUCKET.put(STATS, statsPage(c), { httpMetadata: { contentType: 'text/html; charset=utf-8', cacheControl: 'public, max-age=300' } }); return c; }
+    if (put) return c;
   }
-  throw new Refused(503, 'The counts are busy: try again in a moment.');
+  return null;
+}
+// the public totals, changed by `fn`, and their page rewritten -> the totals, or null when they stayed busy (a total
+// that couldn't be written is lost; nothing waits on it)
+export async function bump(env, now, fn) {
+  const c = await update(env, COUNTS, () => ({ created: 0, opened: 0, removed: 0, openedThrough: '' }), fn, 'public, max-age=60');
+  if (c) await env.BUCKET.put(STATS, statsPage(c), { httpMetadata: { contentType: 'text/html; charset=utf-8', cacheControl: 'public, max-age=300' } });
+  return c;
+}
+// one more link today, unless the day's cap is reached (Refused 429); 503 when the day's count stayed busy
+async function takeToday(env, now, cap) {
+  const ok = await update(env, TODAY, () => ({ day: '', n: 0 }), (t) => {
+    if (t.day !== today(now)) { t.day = today(now); t.n = 0; }
+    if (t.n >= cap) throw new Refused(429, 'Today\'s short links have all been made: try again tomorrow. The long link still works.');
+    t.n++;
+  }, 'no-store');
+  if (!ok) throw new Refused(503, 'Too many short links are being made right now: try again in a moment.');
 }
 export function statsPage(c) {
-  const rows = [['Short links made', c.created], [`Short links opened${c.openedThrough ? ` (to the end of ${c.openedThrough})` : ''}`, c.opened], ['Short links removed', c.removed]];
+  const rows = [['Short links made', c.created], [`Short links opened${c.openedThrough ? ` (to the end of ${c.openedThrough})` : ''}`, c.opened],
+    ['Short links deleted by whoever made them', c.removed]];
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>CLOADM short links: totals</title>
@@ -177,9 +239,9 @@ async function newLink(request, env, now) {
   if (env.RATE_IP && !(await env.RATE_IP.limit({ key: addr })).success) throw new Refused(429, 'Too many short links from here: wait a minute.');
   if (env.RATE_ALL && !(await env.RATE_ALL.limit({ key: 'all' })).success) throw new Refused(429, 'Too many short links are being made right now: try again soon.');
   const { machine, sealed, png } = readNewLink(await readBody(request, 2 + 255 + 4 + MAX_SEALED + MAX_PNG));
-  if (png) checkPicture(png);
+  if (png) await checkPicture(png);
   const cap = Number(env.DAILY_CAP || 5000);
-  await bump(env, now, (c) => { if (c.createdToday >= cap) throw new Refused(429, 'Today\'s short links have all been made: try again tomorrow. The long link still works.'); c.created++; c.createdToday++; });
+  await takeToday(env, now, cap);
   const token = randomToken(), tokenHash = hex(await sha256(token));
   for (let tries = 0; tries < 5; tries++) {
     const id = randomId();
@@ -191,6 +253,7 @@ async function newLink(request, env, now) {
     if (!put) continue;   // that id is taken: another one
     if (png) await env.BUCKET.put(`${id}.png`, png, { httpMetadata: { contentType: 'image/png', cacheControl: 'public, max-age=86400' } });
     await env.BUCKET.put(id, await arrivalPage(id, machine, !!png, env.REPORT_EMAIL), { httpMetadata: { contentType: 'text/html; charset=utf-8', cacheControl: 'public, max-age=86400' } });
+    await bump(env, now, (c) => { c.created++; });   // counted once it is stored; a busy total never fails the link
     return { id, deleteToken: token };
   }
   throw new Refused(503, 'Could not find a free link name: try again.');
@@ -199,6 +262,8 @@ async function newLink(request, env, now) {
 export async function removeLink(env, id) { await env.BUCKET.delete([`${id}.bin`, `${id}.png`, id]); }
 
 async function deleteLink(request, env, now) {
+  const addr = request.headers.get('CF-Connecting-IP') || 'unknown';   // the limit's key only, never stored
+  if (env.RATE_IP && !(await env.RATE_IP.limit({ key: `delete ${addr}` })).success) throw new Refused(429, 'Too many requests from here: wait a minute.');
   let body;
   try { body = JSON.parse(new TextDecoder().decode(await readBody(request, 1024))); } catch (e) { throw new Refused(400, 'Not a delete request.'); }
   if (!body || !ID.test(body.id) || typeof body.token !== 'string' || body.token.length > 64) throw new Refused(400, 'Not a delete request.');
