@@ -15815,6 +15815,11 @@ async function shareScreenChecks(browser, base, check) {
     if (shotDir) await sp.screenshot({ path: path.join(shotDir, `share-copy-${label}.png`) });
     check(`share screen (${label}): the long link's Copy button is wholly inside the viewport`,
       fit.shown && fit.top >= 0 && fit.bottom <= fit.vh, JSON.stringify(fit));
+    // a real margin, not a few pixels: CI's Linux Chromium lays this page out ~19px taller than a Mac's, so a fit that
+    // passes locally by 4px fails there. The mobile first screen keeps 40px of headroom (measured 501 of 548 here,
+    // ~520 of 548 under CI's fonts).
+    if (size.width === 375) check(`share screen (${label}): the Copy button keeps at least 40px of headroom above the fold`,
+      fit.vh - fit.bottom >= 40, JSON.stringify(fit));
     // the label sits WHOLLY above the input: no descender of "(long link)" on the input's top edge. Main's -10px margin
     // was written for a label in .col (gap 18); in this branch's .linkset (gap 6) it overlapped by 4-6px, at every size.
     check(`share screen (${label}): the long link's label sits wholly above its input, not on its edge`,
