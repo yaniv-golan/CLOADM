@@ -115,7 +115,7 @@ The [README](../README.md#what-works) has the short version of this table.
 | **Games** | 2048 and Minesweeper, written for CLOADM, on every 6809 model with 32K or more, with or without ROMs ([details](#games)) | |
 | **Input** | Keyboard in two modes (translated: the character typed; positional: the physical key), keyboard joystick, gamepads (two joysticks, dead zone), the Tandy and CoCo Max 3 Hi-Res interfaces, the CoCo 3 "The Rat" mouse, the CoCo Max Hi-Res module, mouse as the right joystick; an on-screen keyboard on phones and tablets (split for the thumbs when held sideways) and a touch joystick with FIRE, a tappable welcome menu | |
 | **Tools** | Assembler, Debugger, snapshots, POKE book; a command line, MCP server and Node API for CI and agents ([Automation](automation.md), [MCP](mcp.md)) | Step back (rewind) |
-| **Links, embedding, offline** | Every setting as a URL parameter (machine, RAM, CPU, a program, tape, cartridge or disk to load, display, input); the Share screen: Share… or Copy link for a link that opens this machine exactly as it is, and under "More ways to share" a 6-second clip, a true-pixel screenshot and the snapshot file, plus the embed code for a blog post; embed mode with a JavaScript API; works offline once visited; **Install CLOADM…** in the app bar, beside Help (behind **Menu** on a phone), runs the browser's own prompt where there is one and shows the steps elsewhere, with a one-time offer once a program has run a minute; settings export and import (never ROMs) | A touch keyboard in embeds |
+| **Links, embedding, offline** | Every setting as a URL parameter (machine, RAM, CPU, a program, tape, cartridge or disk to load, display, input); the Share screen: Share… or Copy link for a link that opens this machine exactly as it is, and under "More ways to share" a 6-second clip, a true-pixel screenshot and the snapshot file, plus a forum post's BBCode or Markdown and the embed code for a blog post; **Copy bug report** (a preview first, never your key or ROMs); the FAQ and About pages; embed mode with a JavaScript API; works offline once visited; **Install CLOADM…** in the app bar, beside Help (behind **Menu** on a phone), runs the browser's own prompt where there is one and shows the steps elsewhere, with a one-time offer once a program has run a minute; settings export and import (never ROMs) | A touch keyboard in embeds |
 
 ### Games
 
@@ -380,8 +380,11 @@ Snapshots); loading one works like opening a snapshot file.
 The **Share screen** has one job: send this exact moment to someone. The app bar's **Share** opens it. **Share…** (where the browser has a
 share sheet; it hands over the link only) or **Copy link** is the main button, and Copy link stays beside Share… because a link
 with a snapshot can pass 1000 characters and some share targets cut it short. Under **More ways to share**: a 6-second clip,
-a true-pixel screenshot and the snapshot file (its size is on the button); under **Embed in a web page**: the embed code. A
-line under the picture says what the link does, and a ROM line says whether the person opening it needs their own ROMs. While NitrOS-9 runs
+a 6-second looping GIF (the machine's own pixels at 2x, no CRT look; refused, with the reason on the button, while a WAD
+of your own is loaded), a true-pixel screenshot and the snapshot file (its size is on the button); under **Copy for a forum**: the link with a
+one-line description as BBCode and as Markdown (text only: attach the GIF to show the picture); under **Embed in a web page**: the embed code. A
+line under the picture says what the link does, and a ROM line says whether the person opening it needs their own ROMs;
+with ROMs in use, a line above it says "This link holds no part of your ROMs. Whoever opens it needs their own: …". While NitrOS-9 runs
 the link starts NitrOS-9 fresh instead (no snapshot file). The link there carries the moment itself (the snapshot rides in the
 fragment after `#s=`, which browsers never send to a server, so the link is long: about 4 to 10 KB), and the
 embed builder writes the iframe and script for the machine, program and options you pick.
@@ -538,3 +541,12 @@ The report contains no ROM data, only sizes, CRC32s (matched against known-good 
 ---
 
 See also: [Machines](machines.md) · [LIZA and Claude](claude.md) · [ROM list](roms.md) · [Verification](verification.md) · [Comparison with XRoar, MAME and VCC](comparison.md)
+
+## Reporting a bug
+
+**Copy bug report** (in the command box, <kbd>Ctrl</kbd> <kbd>K</kbd>, and Help's "Copy a bug report →", which opens
+`play/#bug-report`) shows the report before anything is copied: the version stamp (`v<version> · <commit>`, also in
+Help, About and the settings drawer's credits line), the machine and its options, the browser, the file loaded last
+(its name and SHA-256) and, only if you tick **Include a snapshot**, the moment as a share link that holds no part of
+your ROMs. It never holds your Claude key, your ROMs' bytes or file names (ROMs appear as CRCs), or a WAD. Nothing is
+sent: paste it into an issue. The FAQ (`/faq/`) and About (`/about/`) pages are linked from Help and the drawer.

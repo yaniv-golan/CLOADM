@@ -10,6 +10,33 @@ Next version: 0.1.9-pre (the plugin and extension manifests carry it; `tests/plu
 
 ### Added
 
+- **FAQ and About pages.** `/faq/` answers why there are no ROMs, where the firmware comes from, how accurate it is
+  (the MAME comparison, linking the deviations), privacy, whether it is a business, whether AI was used and whether
+  WYRMFIRE is Doom, each in under 80 words; `/about/` has the maker's line and the credits. Both are kept for offline
+  use and linked from Help and the settings drawer's credits line (`tests/site-pages.test.js`; the browser check's
+  `reading`, `nav` and `pwa` groups).
+- **Every page says who CLOADM is not.** "Not affiliated with Tandy, Dragon Data, Microsoft, id Software or the
+  Freedoom project." is in the footer of every served page (the landing page's shorter line replaced) and, on the
+  emulator, in the settings drawer's credits, never over the screen.
+- **The ROM line in Share.** With ROMs in use, the Share screen says "This link holds no part of your ROMs. Whoever
+  opens it needs their own: <needs>." above the needs line, and only then (`tests/share-text.test.js`).
+- **Copy for a forum.** Beside "Embed in a web page" on the Share screen: the link with a one-line description as
+  BBCode and as Markdown, text only, with the hint to attach the GIF from Save GIF.
+- **Save GIF** on the Share screen, beside the clip: 6 seconds of the machine's own frames at true pixels scaled 2x,
+  no CRT look, looping. Each frame after the first holds only what changed, so typing makes about 11 KB and a moving
+  sprite about 50 KB; a whole screen moving every frame is the worst case, about 1.3 MB. The encoder is plain JS in
+  `js/media/gif.js` (moved from `tools/gif.js`, which tools/capture-gif.js now imports from there), with a comment
+  extension and part-frames (`tests/gif.test.js`: a hand-built file byte for byte, round trips through an independent
+  decoder). The clip and the GIF are refused, the reason on the button, while a WAD of your own is loaded; a Freedoom
+  recording carries the Freedoom credit in its file name and the GIF's comment.
+- **Copy bug report** in the command box and Help (`play/#bug-report`). It shows the report before copying it: the
+  version and commit, the machine and its options, the browser, the loaded file's name and SHA-256 and, only when
+  ticked, a ROM-free snapshot link. It never holds the Claude key, a WAD, ROM bytes or ROM file names (ROMs appear as
+  CRCs only): `tests/bugreport.test.js` plants each one and looks for it.
+- **The version stamp** "v<version> · <commit>" in Help, About and the settings drawer's credits line (`js/version.js`).
+  The version is CHANGELOG.md's "Next version" (`node tools/version.js --write`); the commit is written by the Pages
+  deploy into the copy it publishes (`tools/version.js --stamp`), as a file can't hold its own commit and the site has
+  no build step. A copy served straight from the repository says "unstamped" (`tests/version.test.js`).
 - **Open CLOADM, and the offline copy only when needed.** The side panel's two tools are now **Open CLOADM**
   (`open_emulator`, "Opens the CLOADM emulator in a panel beside the chat. Use this first.") and **Open CLOADM
   (offline copy)** (`open_emulator_inline`, for a blank or blocked panel only). The small view watches its own load:

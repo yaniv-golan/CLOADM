@@ -48,6 +48,8 @@ import { setupAsk } from './ask.js';
 import { setupCommandBox } from './command-box.js';
 import { MemoryKeyStore, storageKeyStore } from '../host/key-store.js';
 import { setupShare } from './share.js';
+import { setupBugReport } from './bug-report.js';
+import './version-stamp.js';   // the settings drawer's credits line: v<version> · <commit>
 import { setupSlotsPanel } from './slots-panel.js';
 import { setupTapePanel } from './tape-panel.js';
 import { setupNitros9Panel } from './nitros9-panel.js';
@@ -147,6 +149,7 @@ setupDisplayPanel(page);
 setupKeyHint(page);
 setupSettingsFile(page);
 const share = setupShare(page);
+page.bugReport = setupBugReport(page);
 const showRoms = () => romSockets.reveal();
 // No Claude chat on a page shown inside someone else's page, whether by the embed flag or by being framed: the chat
 // would put its API key card there. With no controller there is no chat machine, no panel and no key card, and the
@@ -342,6 +345,7 @@ const starting = welcome.start(visit, { fromLink, withMedia: link.roms.length > 
   // storage is open); linkDone: the same moment, kept for the link checks
   window.emu.started = true;
   share.ready();
+  page.bugReport.ready();   // play/#bug-report (Help's "Copy a bug report →")
   window.emu.linkDone = true;
   if (link.errors.length) page.status(`This link has ${link.errors.length === 1 ? 'a setting' : 'settings'} CLOADM can't use: ${link.errors.join('; ')}`, true);
   // "#share=…" (a share link's moment follows #s=): not one the page reads, and it said nothing

@@ -20,7 +20,8 @@
 # the group. cancel-in-progress is FALSE because a deploy cancelled half way can leave the site in whatever state it
 # reached; a newer main deploy supersedes an older PENDING one through the queue, killing nothing in flight.
 #
-# Nothing is built: the site is the repository as committed.
+# Nothing is built: the site is the repository as committed, with one line changed: js/version.js is stamped with
+# the published commit (tools/version.js --stamp), so Help, About and bug reports name it.
 #
 # IT DOES NOTHING UNTIL A MAINTAINER SWITCHES PAGES OVER. The guard includes `vars.PAGES_VIA_ACTIONS == 'true'`, a
 # repository variable that does not exist yet, so every run skips and legacy Pages keeps serving main exactly as it
@@ -87,6 +88,8 @@ jobs:
           echo "publish=true" >> "$GITHUB_OUTPUT"
           mkdir site
           git archive HEAD | tar -x -C site
+          # the version stamp names the commit it serves (js/version.js holds none: a file can't name its own commit)
+          node tools/version.js --stamp site/js/version.js "$PUBLISHED_SHA"
           rm -rf site/.github site/.git site/tests site/tools
           test -f site/.nojekyll || { echo ".nojekyll is missing: Pages would run Jekyll over the site"; exit 1; }
           test -f site/CNAME || { echo "CNAME is missing: the custom domain would be lost"; exit 1; }
