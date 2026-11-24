@@ -15509,6 +15509,9 @@ async function phoneChatChecks(browser, base, check) {
     await page.fill('#claudeKeyInput', 'sk-ant-PHONE-CHECK-0123456789');
     await page.tap('#btnClaudeKeySave');
     check(`phone chat (${label}): with the key saved the machine keyboard is back`, await waitFor(page, () => !document.getElementById('touchKeys').hidden && document.getElementById('claudeKeyCard').hidden));
+    check(`phone chat (${label}): the BASIC session card says "No BASIC ROMs added, so BASIC programs won't run here. Claude can still read and change the machine's memory."`,
+      await page.evaluate(() => document.getElementById('claudeBasicNote').textContent) === 'No BASIC ROMs added, so BASIC programs won\'t run here. Claude can still read and change the machine\'s memory.',
+      await page.evaluate(() => document.getElementById('claudeBasicNote').textContent));
     check(`phone chat (${label}): and the screen has the focus, so a keyboard types into the chat at once (PC-M3)`, await page.evaluate(() => document.activeElement.id) === 'screen',
       await page.evaluate(() => document.activeElement.id || document.activeElement.tagName));
     await emuFrames(page, 3);
