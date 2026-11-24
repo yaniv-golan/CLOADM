@@ -624,6 +624,9 @@
        Copy stays on the first screen */
     #share #shortHeading { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
     #share p.small, #share .why { font-size: 12px; line-height: 1.3; }
+    /* narrow: the link's own label ("Exact moment (long link)") says what the heading says, and both would cost the
+       first screen its Copy button on a short phone; the label stays, the heading goes */
+    #share #longHeading { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   }
 
 

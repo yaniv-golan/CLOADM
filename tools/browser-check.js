@@ -10648,12 +10648,17 @@ async function urlChecks(browser, base, check) {
   // the program pages (tools/program-cards.js): each sends the visitor to /play/?start=<program>, and its preview
   // picture is served
   // a long link's moment after a program page's address (/2048/#z=…): the fragment survives the redirect and the moment
-  // opens (made here in Node: a Dragon 64 on the built-in firmware with a marker in memory)
+  // opens (made here in Node: a Dragon 64 on the built-in firmware with a program running and a marker in memory).
+  // A program, not the stub's bare prompt: openSnapshot offers the welcome menu for a moment of the bare prompt
+  // ("nothing running to come back to", js/session.js), and that menu then runs the welcome program over the restored
+  // RAM. The moment this check is about is one with something running, and it must survive.
   {
     const Emu = require('../tests/load')();
     const s = new Emu.Session();
     s.switchMachine('dragon64');
-    for (let i = 0; i < 30; i++) s.shownMachine.runFrame();
+    // fills the text screen with 'A' and loops (the program tests/shared-moment.test.js uses): 14 bytes at $7000
+    s.inject([{ addr: 0x7000, data: Uint8Array.from([0x8E, 0x04, 0x00, 0x86, 0x41, 0xA7, 0x80, 0x8C, 0x06, 0x00, 0x26, 0xF8, 0x20, 0xFE]) }], 0x7000);
+    for (let i = 0; i < 5; i++) s.shownMachine.runFrame();
     s.shownMachine.poke(0x3000, 0xA7);
     const hash = new URL(await s.snapshotLink('https://cloadm.dev/play/')).hash;
     await page.goto(`${new URL('../', base).href}2048/${hash}`);
@@ -16396,7 +16401,7 @@ async function uiQaChecks(browser, base, check) {
     await opage.evaluate(() => document.querySelector('#tkMenuSheet [data-item="share"]')?.scrollIntoView({ block: 'center' }));
     await opage.tap('#tkMenuSheet [data-item="share"]', { timeout: 3000 }).catch(() => {});   // (a missing item is a FAIL below, not a throw)
     const shareUp = await waitFor(opage, () => location.hash === '#share' && document.getElementById('share').checkVisibility()
-      && /^https?:\/\/.+#s=/.test(document.getElementById('shareLink').value) && document.getElementById('tkMenuSheet').hidden, null, 15000);
+      && /^https?:\/\/.+#z=/.test(document.getElementById('shareLink').value) && document.getElementById('tkMenuSheet').hidden, null, 15000);
     if (shareUp) await opage.tap('#shareBack');
     const shareBack = shareUp && await waitFor(opage, () => location.hash !== '#share' && !document.getElementById('touchKeys').hidden, null, 5000);
     check(`ui qa (landscape ${label}, touch keys): Share… opens the Share screen with this moment's link, and ← Emulator comes back to the keys`, shareUp && shareBack,
@@ -16469,7 +16474,7 @@ async function uiQaChecks(browser, base, check) {
       await frame.tap('#tkMenuSheet [data-item="share"]');
     }
     const shared = fitems.includes('share') && await inFrame(() => location.hash === '#share' && document.getElementById('share').checkVisibility()
-      && /#s=/.test(document.getElementById('shareLink').value));
+      && /#z=/.test(document.getElementById('shareLink').value));
     check('ui qa (framed in another site, not an embed, sideways): no chat there, but the keys\' Menu keeps Share… right after Open…, and a real tap opens the Share screen with this moment\'s link',
       !!kind && kind.framed && kind.noChat && !kind.embed && fitems.indexOf('share') === fitems.indexOf('open') + 1 && !fitems.includes('ask') && shared && !ferrors.length,
       JSON.stringify({ up, kind, open, fitems, shared, ferrors }));
