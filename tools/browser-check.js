@@ -20495,7 +20495,7 @@ async function armGuardChecks(browser, base, check) {
 
 // ---------------- "This program needs BASIC" (js/needs-basic.js, js/ui/needs-basic.js) ----------------
 // A program the person drops, on a machine without its BASIC ROM, calls BASIC at $A176: the card docked at the bottom of
-// the tube says so in the ruling's words, covering at most 40% of the tube, while the machine runs on. Dragon 64: Add
+// the tube says so in its agreed words, covering at most 40% of the tube, while the machine runs on. Dragon 64: Add
 // ROMs on the card, a stand-in "BASIC ROM" built here dropped (our bytes: a BRA * at its start and, at $A176, INC $0500 ;
 // LDA #$41 ; RTS), "ROMs added." and Run again, which runs the program with them (its call reaches the stand-in's
 // routine). CoCo 1/2: no card while the Debugger steps the call, the card once it runs on, Dismiss, then the ROMs and the
@@ -20556,7 +20556,7 @@ async function needsBasicChecks(browser, base, check) {
     } else await dropFiles(page, [['JUNK.BIN', bin]]);
     check(`${L}: the card comes up once the program calls BASIC`, await waitFor(page, () => !document.getElementById('needsBasic').hidden, null, 15000));
     const c = await page.evaluate(card);
-    check(`${L}: the ruling's words, naming the ${name}`, c && c.lead === `JUNK.BIN needs the ${name}'s BASIC ROM, which isn't added yet.`
+    check(`${L}: the agreed words, naming the ${name}`, c && c.lead === `JUNK.BIN needs the ${name}'s BASIC ROM, which isn't added yet.`
       && c.body === "It tried to use BASIC, and there's nothing there yet, so the screen fills with junk."
       && /^It called \$A176, in the BASIC ROM's space, at frame \d+\.$/.test(c.details)
       && JSON.stringify(c.buttons) === JSON.stringify(['Add ROMs', 'Dismiss']), JSON.stringify(c));
@@ -20598,7 +20598,7 @@ async function needsBasicChecks(browser, base, check) {
 // ---------------- the no-ROM chrome (js/ui/main.js): the pill and Menu's dot never show together ----------------
 // With no ROMs the app bar shows "No BASIC · Add ROMs" where it has room, and Menu wears an orange dot where the pill is
 // folded into it: at every width from 320 to 1600 px, with a mouse and on a touch screen, upright and short, never
-// both (the UX ruling: no Menu dot while the pill shows).
+// both (no Menu dot while the pill shows).
 async function noRomChromeChecks(browser, base, check) {
   const look = () => {
     const pill = document.getElementById('romPill'), menu = document.getElementById('btnMenu');

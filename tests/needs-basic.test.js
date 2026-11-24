@@ -1,6 +1,6 @@
 // "This program needs BASIC" (js/needs-basic.js, Session.load / runAgainWithRoms): a program the person loaded, on
 // a machine without BASIC's ROM, calls a BASIC routine the built-in firmware does not have. The programs here are our
-// own bytes, written out below (no ROM code); the expected addresses and words come from the programs and the ruling,
+// own bytes, written out below (no ROM code); the expected addresses and words come from the programs and the card's agreed copy,
 // not from the code under test.
 //  - it fires on the first fetch in BASIC's ROM space that the firmware does not implement, once per load, with the
 //    address and the frame; the next load arms it again, a reset clears it; the card's words name the machine from its
@@ -65,7 +65,7 @@ LOOP JSR $A176
     check(`${id}: it fires once, at the first call ($A176), in the first frames; the loop's later calls do not fire it again`,
       said.length === 1 && said[0].address === 0xA176 && said[0].frame <= 1 && said[0].file === 'NEEDS.BIN' && !s.needsBasic.armed, json(said));
     const t = f && needsBasicText(f);
-    check(`${id}: the card says the ruling's words, naming the ${machine}`,
+    check(`${id}: the card says its agreed words, naming the ${machine}`,
       t && t.lead === `NEEDS.BIN needs the ${machine}'s BASIC ROM, which isn't added yet.`
         && t.body === "It tried to use BASIC, and there's nothing there yet, so the screen fills with junk."
         && t.details === `It called $A176, in the BASIC ROM's space, at frame ${f.frame}.`, json(t));

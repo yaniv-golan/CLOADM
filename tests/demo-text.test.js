@@ -1,6 +1,6 @@
 // The colour demo's own words about ROMs (tools/build-demo.js, examples/demo.bin): it clears the screen, so the built-in
 // firmware's banner ("NO ROM LOADED - BUILT-IN STUB") goes, and prints "RUNS WITHOUT ROMS" and "ADD YOURS FOR BASIC" on
-// two lines, each centred on the 32 columns (the UX ruling's words, written out here). The committed binary is the
+// two lines, each centred on the 32 columns (the words written out here). The committed binary is the
 // build's, and every line fits the screen. Checked on a Dragon 64, a CoCo 1/2 and a CoCo 3 running without ROMs.
 // Run: node tests/demo-text.test.js
 const Emu = require('./load')();
@@ -15,7 +15,7 @@ const committed = fs.readFileSync(path.join(__dirname, '../examples/demo.bin'));
 let built = null, error = '';
 try { built = build().bytes; } catch (e) { error = e.message; }
 check('the demo builds (no line wider than the 32 columns), and examples/demo.bin is that build', built && Buffer.compare(built, committed) === 0, error);
-check('the ruling\'s two lines, no middle dot, no hyphen', JSON.stringify(NO_ROM_LINES) === JSON.stringify(['RUNS WITHOUT ROMS', 'ADD YOURS FOR BASIC']));
+check('the two lines, no middle dot, no hyphen', JSON.stringify(NO_ROM_LINES) === JSON.stringify(['RUNS WITHOUT ROMS', 'ADD YOURS FOR BASIC']));
 
 for (const id of ['dragon64', 'coco', 'coco3']) {
   const s = new Emu.Session({});

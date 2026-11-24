@@ -105,7 +105,7 @@ const prog = [
   [0x7E], lbl('main'),                  // JMP main
   'table', [0x00, 0x55, 0xAA, 0xFF],
   // (CHR$(12) first clears the screen, so the built-in firmware's own banner goes: the demo says itself that it runs
-  // without ROMs, in two lines centred on the 32 columns, as the UX ruling wrote them: NO_ROM_LINES)
+  // without ROMs, in two lines centred on the 32 columns, NO_ROM_LINES)
   'msg', str(`\fDRAGON 64 EMULATOR DEMO\r\rTHIS 6809 PROGRAM PRINTS VIA\rTHE CHROUT VECTOR, THEN DRAWS\rCOLOUR BARS IN 128X192 MODE.\r\r${NO_ROM_LINES.map(centre).join('\r')}\r\rPRESS ANY KEY...`), [0],
 ];
 
