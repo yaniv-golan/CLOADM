@@ -13241,6 +13241,71 @@ async function askEscChecks(browser, base, check) {
     check(`${L}: no page errors`, !errors.length, errors.join('; '));
     await closeCtx(ctx);
   }
+  // ... and where the toast HAS no free place, so it takes the fallback slot: the stricter check (held back until this fix:
+  // prove the premise on #toast itself, settle before raising, a Stop reachable). Three layouts where the long toast
+  // finds no free place while a turn runs: a phone held sideways with the touch keys while Claude types (the only Stop
+  // is the screen's own, #askActing, at the tube's top), and the full-screen chat with Claude typing into the BASIC
+  // session, at 1280 px and held sideways (the chat's Stop in #claudeBar and the PiP's). The top slot lay over those
+  // Stops, so the pill came up for as long as each toast showed and went with it -- once per toast, which `flips <= 1`
+  // allowed. js/ui/feedback.js now keeps the fallback slot off every Stop that shows (the stylesheet's bottom slot when
+  // the top one covers one), so here the pill must not move at all, for any of 20 toasts, long and short.
+  // (What turns it red: the fallback always taking the top slot -- `slot === 'bottom'` never chosen in feedback.js. The
+  // premise check then fails on every long toast, and the pill comes and goes once per long toast.)
+  for (const [tag, viewport, opts, full] of [
+    ['held sideways with the touch keys, Claude typing', { width: 844, height: 390 }, { hasTouch: true, isMobile: true }, false],
+    ['the full-screen chat at 1280 px, Claude typing', { width: 1280, height: 800 }, {}, true],
+    ['the full-screen chat held sideways, Claude typing', { width: 844, height: 390 }, { hasTouch: true, isMobile: true }, true]]) {
+    const { ctx, page, errors, replies } = await open(viewport, opts);
+    const L = `askEsc (a toast with no free place while a turn runs, ${tag})`;
+    const ok = await typing(page, replies, { full });
+    if (!full) await page.evaluate(() => document.getElementById('btnAskClose').click());
+    // SETTLE BEFORE RAISING: the rects place() reads, two samples in a row the same
+    await waitFor(page, () => {
+      const sel = 'header, .controls, .slots, aside.drawer, #attention, #touchKeys button, #claudeBar, #installOffer, #tapeHud:not([hidden]), [data-occludes], #askActing, #claudePipActing';
+      const key = [...document.querySelectorAll(sel)].map((e) => { const r = e.getBoundingClientRect();
+        return [r.left, r.top, r.right, r.bottom].map(Math.round).join(','); }).join('|');
+      const same = window.__settleKey === key;
+      window.__settleKey = key;
+      return same;
+    }, null, 5000);
+    const reps = await page.evaluate(async () => {
+      const v = document.getElementById('viewClaude'), frames = (n) => new Promise((done) => { let k = 0; const f = () => (++k >= n ? done() : requestAnimationFrame(f)); f(); });
+      const IDS = ['btnAskStatusStop', 'btnAskStripStop', 'btnAskStop', 'btnAskPeekStop', 'btnFsStop', 'btnClaudeStop', 'btnPipStop', 'btnViewStop'];
+      const words = 'A toast over the bottom of the window, long enough to wrap onto several lines on a phone, so that it lies over the sheet\'s Stop button at the bottom edge of the window for as long as it shows';
+      const box = document.getElementById('toast'), reg = document.getElementById('toastRegion');
+      const out = [];
+      for (let i = 0; i < 20; i++) {
+        window.emu.feedback.clear(); await frames(6);
+        let n = 0, was = v.hidden; const obs = new MutationObserver(() => { if (v.hidden !== was) { n++; was = v.hidden; } });
+        obs.observe(v, { attributes: true });
+        window.emu.feedback.toast(i % 2 ? `Saved (${i}).` : `${words} (${i})`); await frames(90);
+        obs.disconnect();
+        // the Stops that show: which the TOAST lies over (#toast, not #toastRegion, measured at the Stop's centre as
+        // js/ui/ask.js does), and which can be clicked
+        const stops = IDS.map((id) => document.getElementById(id)).filter((e) => e && !e.hidden).map((e) => {
+          const r = e.getBoundingClientRect();
+          if (!r.width || !r.height || r.bottom <= 0 || r.right <= 0 || r.top >= innerHeight || r.left >= innerWidth) return null;
+          const at = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+          return { id: e.id, underToast: !!at && box.contains(at), reachable: !!at && (at === e || e.contains(at)) };
+        }).filter(Boolean);
+        const tr = box.getBoundingClientRect();
+        out.push({ i, n, slot: reg.classList.contains('top'), toast: [tr.left, tr.top, tr.right, tr.bottom].map(Math.round),
+          under: stops.filter((s) => s.underToast).map((s) => s.id), reach: stops.filter((s) => s.reachable).map((s) => s.id) });
+      }
+      window.emu.feedback.clear();
+      return out;
+    });
+    const long = reps.filter((r) => r.i % 2 === 0);
+    check(`${L}: setup: Claude's turn runs, and the long toast has no free place (it takes the fallback slot, the scenario the check names)`,
+      ok && reps.length === 20 && long.every((r) => r.slot), JSON.stringify(long.slice(0, 2)));
+    check(`${L}: no toast lies over a Stop, in the fallback slot or anywhere`, reps.every((r) => !r.under.length), JSON.stringify(reps.filter((r) => r.under.length).slice(0, 3)));
+    check(`${L}: 20 toasts in a row: the pill never shows (a Stop stays reachable without it)`, reps.every((r) => r.n === 0), JSON.stringify(reps.map((r) => r.n)));
+    check(`${L}: a Stop is reachable while every toast shows (the pill's whole reason)`, reps.every((r) => r.reach.length), JSON.stringify(reps.filter((r) => !r.reach.length).slice(0, 3)));
+    await page.evaluate(() => window.emu.session.stopClaude());
+    if (replies.held) replies.held.release();
+    check(`${L}: no page errors`, !errors.length, errors.join('; '));
+    await closeCtx(ctx);
+  }
   // the pill at the bottom of a portrait phone with the touch keyboard (no other Stop in the window): a toast goes above
   // it, so its Stop stays clickable
   {
