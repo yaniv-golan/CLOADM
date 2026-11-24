@@ -22,6 +22,10 @@ const br = (op, name) => (pc, L, pass) => { const t = pass ? L[name] : pc + 2; c
 const ext = (op, a) => [op, a >> 8, a & 0xFF];
 const str = (s) => [...s].map((c) => c.charCodeAt(0));
 
+// the two lines the demo prints about ROMs, each centred on the text screen's 32 columns (left padded with spaces)
+const NO_ROM_LINES = ['RUNS WITHOUT ROMS', 'ADD YOURS FOR BASIC'];
+const centre = (line) => { if (line.length > 32) throw new Error(`"${line}" is wider than 32 columns`); return ' '.repeat((32 - line.length) >> 1) + line; };
+
 const FRAME = 0x7000, ROW = 0x7001, TMP = 0x7002;
 const BRA = 0x20, BNE = 0x26, BEQ = 0x27, BPL = 0x2A;
 
@@ -100,7 +104,9 @@ const prog = [
   // any key returns to text screen? keep animating
   [0x7E], lbl('main'),                  // JMP main
   'table', [0x00, 0x55, 0xAA, 0xFF],
-  'msg', str('DRAGON 64 EMULATOR DEMO\r\rTHIS 6809 PROGRAM PRINTS VIA\rTHE CHROUT VECTOR, THEN DRAWS\rCOLOUR BARS IN 128X192 MODE.\r\rPRESS ANY KEY...'), [0],
+  // (CHR$(12) first clears the screen, so the built-in firmware's own banner goes: the demo says itself that it runs
+  // without ROMs, in two lines centred on the 32 columns, as the UX ruling wrote them: NO_ROM_LINES)
+  'msg', str(`\fDRAGON 64 EMULATOR DEMO\r\rTHIS 6809 PROGRAM PRINTS VIA\rTHE CHROUT VECTOR, THEN DRAWS\rCOLOUR BARS IN 128X192 MODE.\r\r${NO_ROM_LINES.map(centre).join('\r')}\r\rPRESS ANY KEY...`), [0],
 ];
 
 // the DragonDOS binary: header (type $55, load address, length, exec address, $AA) and the code
@@ -109,7 +115,7 @@ function build() {
   const hdr = [0x55, 0x02, ORG >> 8, ORG & 0xFF, code.length >> 8, code.length & 0xFF, ORG >> 8, ORG & 0xFF, 0xAA];
   return { bytes: Buffer.from([...hdr, ...code]), length: code.length };
 }
-module.exports = { build };   // (tests/demo-tone.test.js checks the committed binary is exactly this build)
+module.exports = { build, NO_ROM_LINES };   // (tests/demo-tone.test.js checks the committed binary is exactly this build)
 
 if (require.main === module) {
   const built = build();
