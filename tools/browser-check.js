@@ -8795,7 +8795,7 @@ async function readingChecks(browser, site, check) {
       check('every reading page and the landing page show the affiliation line in their footer', feet.every(([, v]) => v), JSON.stringify(feet));
       // the FAQ's accuracy answer links the known differences; Help links the FAQ, About and the bug report
       await page.goto(site + 'faq/');
-      check('/faq: seven questions, the accuracy answer links the deviations from MAME', await page.$$eval('h2', (h) => h.length) === 7
+      check('/faq: fourteen questions, the accuracy answer links the deviations from MAME', await page.$$eval('h2', (h) => h.length) === 14
         && await page.getAttribute('#faqDeviations', 'href') === 'deviations/');
       await page.click('#faqDeviations');
       check('/faq: the accuracy answer opens the known differences from MAME, a list generated from docs/verification.md', await waitFor(page, () => location.pathname === '/deviations/')

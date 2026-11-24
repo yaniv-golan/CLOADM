@@ -7,7 +7,7 @@
      words (tests/site-pages.test.js counts them). -->
 <base href="../">
 <title>FAQ – CLOADM</title>
-<meta name="description" content="CLOADM's questions answered: why there are no ROMs, where the firmware comes from, how accurate it is, what stays private, and who pays for what.">
+<meta name="description" content="CLOADM's questions answered: what it runs, why there are no ROMs and how to add yours, how accurate it is, what stays private, Claude, offline use and bug reports.">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="css/tokens.css">
 <link rel="stylesheet" href="css/reading.css">
@@ -30,12 +30,36 @@
   </div>
   <div class="cards">
 
+  <section class="card faq" aria-labelledby="q-what">
+    <h2 id="q-what">What is CLOADM?</h2>
+    <p>An emulator of the Dragon, the Tandy Color Computer and the MC-10 that runs in a web page. I named it after the
+      BASIC command that loads machine code from tape. There is nothing to install and no account. It boots straight
+      into a welcome menu, and you can drop tapes, disks, cartridges and programs on the screen. It is pre-release, so
+      expect rough edges.</p>
+  </section>
+
+  <section class="card faq" aria-labelledby="q-machines">
+    <h2 id="q-machines">Which machines does it run?</h2>
+    <p>The Dragon 32, 64, 200, 200-E, 64 Plus, Professional (Alpha) and the Tano Dragon 64; the Tandy Color Computer
+      1, 2, 2B and 3; the MC-10 and Matra Alice; and the clones Prológica CP 400, Dynacom MX-1600, LZ
+      Color64 and Codimex CD-6809. <a href="help/#machines">Help's list of the machines</a> says which ROMs each one
+      takes.</p>
+  </section>
+
   <section class="card faq" aria-labelledby="q-roms">
     <h2 id="q-roms">Why are there no ROMs?</h2>
     <p>The BASIC and DOS ROMs belong to Microsoft, Tandy, Dragon Data and others, and I have no right to hand them out.
-      So CLOADM never ships them, downloads them or fetches them for you. You add your own once, from your own machine or
-      wherever you are entitled to get them, and they stay in your browser. Without them, the welcome menu, LIZA, the
-      games and the demos still run.</p>
+      So CLOADM never ships them, downloads them or fetches them for you. Without them, firmware I wrote still runs:
+      the welcome menu, LIZA, a colour and sound demo, the Claude chat, and the games 2048 and Minesweeper (with 32K or more). So do
+      machine-code programs that don't call BASIC.</p>
+  </section>
+
+  <section class="card faq" aria-labelledby="q-addroms">
+    <h2 id="q-addroms">How do I add my ROMs?</h2>
+    <p>Drop the files on the screen: single files, a folder or a ZIP, with any names. CLOADM recognises each ROM by its
+      CRC32 and puts it in every machine it fits. <strong>Add ROMs</strong> in the header shows what each machine needs
+      and what each file turned out to be. I can't tell you where to download them; <a href="roms/">the ROMs page</a>
+      says what I can. If you own the machine, dumping your own is the cleanest route.</p>
   </section>
 
   <section class="card faq" aria-labelledby="q-legal">
@@ -47,10 +71,11 @@
 
   <section class="card faq" aria-labelledby="q-accuracy">
     <h2 id="q-accuracy">How accurate is it?</h2>
-    <p>I check it against MAME 0.264, the reference emulator: the same firmware runs in both, and every instruction must
-      match in every register and cycle count, and every display mode pixel for pixel. Where I believe MAME is wrong I
-      need a datasheet or a measurement to say so, and each of those is written down: <a id="faqDeviations"
-      href="deviations/">the known differences from MAME</a>.</p>
+    <p>I check it against MAME 0.264, the reference emulator. The same test firmware runs in both, and every instruction
+      must match in every register and cycle count. Display modes are compared pixel for pixel. That holds where MAME
+      has the hardware; the exceptions, such as part of the CoCo 3's video, are in <a
+      href="https://github.com/yaniv-golan/cloadm/blob/main/docs/verification.md">the verification notes</a>. Where I
+      differ from MAME on purpose, I need a source: <a id="faqDeviations" href="deviations/">the known differences</a>.</p>
   </section>
 
   <section class="card faq" aria-labelledby="q-privacy">
@@ -61,10 +86,33 @@
       chat so far; these go to Anthropic with your key. Only changes to the machine ask you first.</p>
   </section>
 
+  <section class="card faq" aria-labelledby="q-share">
+    <h2 id="q-share">What is in a share link?</h2>
+    <p>The machine, its settings and a snapshot of the moment. The snapshot sits after the <code>#</code> in the link,
+      a part browsers never send to a server, so I never see it. It holds no byte of your ROMs: it names them by CRC,
+      and CLOADM refuses to make the link if any ROM code is left in it. Whoever opens it needs their own copies of the
+      same ROMs.</p>
+  </section>
+
+  <section class="card faq" aria-labelledby="q-claude">
+    <h2 id="q-claude">Do I have to use Claude?</h2>
+    <p>No. Nothing goes to Anthropic until you ask it something. To hide it completely, set <strong>Settings → Machine →
+      Claude features</strong> to Off: no button or link can start a chat then. If you do use it, your Anthropic key is
+      kept in your browser and sent only to Anthropic. I never put it in the emulated machine, snapshots, share links
+      or exported settings.</p>
+  </section>
+
   <section class="card faq" aria-labelledby="q-business">
     <h2 id="q-business">Is this a business?</h2>
     <p>CLOADM is free: the emulator, the games, WYRMFIRE and sharing, with no account. The optional Claude chat costs
       tokens: use your own Anthropic key, or use CLOADM inside Claude with your Claude account. I keep nothing.</p>
+  </section>
+
+  <section class="card faq" aria-labelledby="q-offline">
+    <h2 id="q-offline">Does it work offline? Can I install it?</h2>
+    <p>Yes. After one visit it works with no connection, your ROMs and library included, since they live in your
+      browser. <strong>Install CLOADM…</strong> in the app bar, beside Help (behind <strong>Menu</strong> on a phone),
+      makes it an app with its own window. On phones and tablets an on-screen keyboard and a touch joystick appear.</p>
   </section>
 
   <section class="card faq" aria-labelledby="q-ai">
@@ -77,6 +125,14 @@
   <section class="card faq" aria-labelledby="q-doom">
     <h2 id="q-doom">Is it Doom?</h2>
     <p>No. WYRMFIRE is a new engine that reads Doom-format levels; it ships with a Freedoom level.</p>
+  </section>
+
+  <section class="card faq" aria-labelledby="q-bug">
+    <h2 id="q-bug">Something broke. How do I tell you?</h2>
+    <p>In the emulator, <strong>Copy bug report</strong> (in the command box, <kbd>Ctrl</kbd> <kbd>K</kbd>) shows you
+      the report before it copies anything: the version, the machine, the browser and the file you loaded last. It
+      never holds your ROMs or your key. Nothing is sent: paste it into <a
+      href="https://github.com/yaniv-golan/cloadm/issues">a new issue on GitHub</a>.</p>
   </section>
   </div>
 </main>

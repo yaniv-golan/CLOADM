@@ -4,7 +4,7 @@
 //  - every HTML page the site serves (tools/pwa-files.js's list) says, as text a reader sees, "Not affiliated with
 //    Tandy, Dragon Data, Microsoft, id Software or the Freedoom project." (the play page in its settings drawer, not
 //    over the screen), and the landing page's old shorter line is gone;
-//  - /faq/: each question on the list, each answer under 80 words, the decided wording where it was given,
+//  - /faq/: each question on the list (fourteen), each answer under 80 words, the decided wording where it was given,
 //    the accuracy answer linking the known differences from MAME;
 //  - /about/: the maker's line, the credits and a link to all of them;
 //  - Help and the settings drawer's credits line link both pages, and both are kept for offline use.
@@ -37,8 +37,8 @@ check('the landing page\'s old, shorter line is gone', !/Not affiliated with Tan
 const faq = read('faq/index.html');
 const qa = [...faq.matchAll(/<h2 id="(q-[a-z]+)">([\s\S]*?)<\/h2>\s*<p>([\s\S]*?)<\/p>/g)].map((m) => ({ id: m[1], q: textOf(m[2]).trim(), a: textOf(m[3]).trim(), html: m[3] }));
 const byId = Object.fromEntries(qa.map((x) => [x.id, x]));
-const WANT = ['q-roms', 'q-legal', 'q-accuracy', 'q-privacy', 'q-business', 'q-ai', 'q-doom'];
-check('/faq/: the seven questions, in order', JSON.stringify(qa.map((x) => x.id)) === JSON.stringify(WANT), qa.map((x) => x.id).join(' '));
+const WANT = ['q-what', 'q-machines', 'q-roms', 'q-addroms', 'q-legal', 'q-accuracy', 'q-privacy', 'q-share', 'q-claude', 'q-business', 'q-offline', 'q-ai', 'q-doom', 'q-bug'];
+check(`/faq/: the ${WANT.length} questions, in order`, JSON.stringify(qa.map((x) => x.id)) === JSON.stringify(WANT), qa.map((x) => x.id).join(' '));
 for (const x of qa) check(`/faq/ "${x.q}": under 80 words (${words(x.a)})`, words(x.a) < 80);
 check('/faq/: answers in the first person', ['q-roms', 'q-legal', 'q-accuracy', 'q-privacy', 'q-business', 'q-ai'].every((id) => byId[id] && /\bI\b/.test(byId[id].a)));
 check('/faq/ business: the decided wording, with no token provider (that returns when the integration ships)', byId['q-business'] && byId['q-business'].a === 'CLOADM is free: the emulator, the games, WYRMFIRE and sharing, with no account. The optional Claude chat costs tokens: use your own Anthropic key, or use CLOADM inside Claude with your Claude account. I keep nothing.'
@@ -56,12 +56,20 @@ check('/faq/ privacy: the browser, share links and what goes to Anthropic', byId
 check('/faq/ privacy: says plainly that Claude reads the screen and any memory, ROM areas included, without asking, and only changes ask',
   byId['q-privacy'] && /read the screen and any memory \(ROM areas included\) without asking/.test(byId['q-privacy'].a) && /machine's facts and the chat so far/.test(byId['q-privacy'].a)
   && /Only changes to the machine ask you first\./.test(byId['q-privacy'].a) && !/you allow/.test(byId['q-privacy'].a));
+// the questions added in the rewrite: what code and docs say (docs/using.md's Share, Claude features and bug report)
+check('/faq/ share link: the snapshot after the #, no ROM bytes, refused otherwise', byId['q-share'] && /never send to a server/.test(byId['q-share'].a) && /no byte of your ROMs/.test(byId['q-share'].a)
+  && /refuses to make the link/.test(byId['q-share'].a));
+check('/faq/ Claude: optional, the Off switch, the key kept out of the machine, snapshots, share links and exported settings', byId['q-claude']
+  && /Settings → Machine → Claude features/.test(byId['q-claude'].a) && /emulated machine, snapshots, share links or exported settings/.test(byId['q-claude'].a));
+check('/faq/ machines: links Help\'s list of the machines', byId['q-machines'] && /href="help\/#machines"/.test(byId['q-machines'].html));
+check('/faq/ bug: Copy bug report and the issues page', byId['q-bug'] && /Copy bug report/.test(byId['q-bug'].a) && /href="https:\/\/github\.com\/yaniv-golan\/cloadm\/issues"/.test(byId['q-bug'].html));
 check('no press page', !fs.existsSync(path.join(ROOT, 'press')) && !pages.some((p) => /press/.test(p)));
 
 // About
 const about = read('about/index.html');
 check('/about/: the maker\'s line', textOf(about).includes('Made by someone who had a Dragon as a kid. My day job is in venture capital; this has nothing to do with it.'));
 check('/about/: thanks MAME, XRoar and Freedoom, and links Credits', ['MAME', 'XRoar', 'Freedoom', 'VCC', 'DriveWire'].every((n) => textOf(about).includes(n)) && /href="credits\/"/.test(about));
+check('/about/: the MIT License', /MIT License/.test(textOf(about)));
 check('/about/: links the FAQ and the bug report', /href="faq\/"/.test(about) && /href="play\/#bug-report"/.test(about));
 
 // the doors to them

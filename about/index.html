@@ -6,7 +6,7 @@
 <!-- served at /about/; relative URLs are from the site root -->
 <base href="../">
 <title>About – CLOADM</title>
-<meta name="description" content="Who made CLOADM, and the people and projects it thanks.">
+<meta name="description" content="What CLOADM is, who made it, its licence, and the people and projects it thanks.">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="css/tokens.css">
 <link rel="stylesheet" href="css/reading.css">
@@ -34,8 +34,13 @@
   <section class="card" aria-labelledby="what">
     <h2 id="what">What it is</h2>
     <p>CLOADM runs the Dragon 32, 64 and 200, the Tandy Color Computer 1, 2 and 3, the MC-10 and their clones in a
-      browser, checked against MAME instruction by instruction. It is free and open source under the MIT License, with
-      no account and no ROMs included. Questions are answered in the <a href="faq/">FAQ</a>.</p>
+      web page. There is nothing to install, no account and no ROMs included. Without ROMs it still runs the welcome
+      menu, LIZA, the games and firmware written for this project; add your own ROM dumps and you have BASIC. Your
+      ROMs and files stay in your browser. It works offline once visited.</p>
+    <p>I check it against MAME, the reference emulator, instruction by instruction and pixel by pixel, wherever MAME
+      has the hardware. <a href="https://github.com/yaniv-golan/cloadm/blob/main/docs/verification.md">How it is
+      verified</a> lists the results and the exceptions. Talking to Claude is optional, and can be switched off in
+      Settings. Questions are answered in the <a href="faq/">FAQ</a>.</p>
   </section>
 
   <section class="card" aria-labelledby="thanks">
@@ -51,10 +56,18 @@
     <p>Everyone, with sources: <a href="credits/">Credits</a>.</p>
   </section>
 
+  <section class="card" aria-labelledby="licence">
+    <h2 id="licence">Licence</h2>
+    <p>CLOADM is free and open source under the MIT License. The source, the tests and the firmware written for it are
+      on <a href="https://github.com/yaniv-golan/cloadm">GitHub</a>. The ROMs you add are not part of CLOADM and are
+      not covered by it.</p>
+  </section>
+
   <section class="card" aria-labelledby="version">
-    <h2 id="version">Version</h2>
-    <p>This copy is <span id="aboutVersion" data-version-stamp>v?</span>. Found a problem? <a href="play/#bug-report">Copy a bug report</a>
-      and paste it into <a href="https://github.com/yaniv-golan/cloadm/issues">a new issue</a>.</p>
+    <h2 id="version">Version and bug reports</h2>
+    <p>This copy is <span id="aboutVersion" data-version-stamp>v?</span>. Found a problem? <a href="play/#bug-report">Copy a bug report</a>,
+      check what it holds (never your ROMs or your Claude key), and paste it into
+      <a href="https://github.com/yaniv-golan/cloadm/issues">a new issue</a>.</p>
   </section>
   </div>
 </main>
