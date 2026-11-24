@@ -16083,6 +16083,8 @@ async function shareScreenChecks(browser, base, check) {
     await started(sp);
     await waitFor(sp, () => !!document.getElementById('shareLink').value);
     await sp.click('#btnShareCopy');
+    // BOUNDED and failing on timeout, as in the shortLink group: waitFor records its own FAIL when the state never
+    // comes, and `landed` is required below too. Never a skip, never a pass on a state that did not arrive.
     const landed = await waitFor(sp, () => /Short links aren't available right now/.test(document.getElementById('primaryWhy').textContent)
       && document.getElementById('shareMore').open, null, 20000);
     const kill = await sp.evaluate(async () => ({ why: document.getElementById('primaryWhy').textContent,
@@ -20743,13 +20745,17 @@ async function shortLinkChecks(browser, base, site, check) {
   // the tap is ASYNC (it seals the moment and asks the store): the fallback's reason and the opened field appear only
   // when it lands. Reading straight after the click saw an empty reason (CI attempt 1 on 35551b5d failed exactly so),
   // so both are waited for - the copy finished AND the page said why - before anything is read.
-  await waitFor(pk, () => /Short links aren't available right now/.test(document.getElementById('primaryWhy').textContent)
+  // BOUNDED, and a timeout FAILS: waitFor returns false and records its own FAIL (browser-check-lib's
+    // waitTimedOut) when the state never comes, and `landed` is also required by the check below - so a tap that never
+    // falls back cannot pass. Its payload is printed with whatever the page held at that moment.
+  const landed = await waitFor(pk, () => /Short links aren't available right now/.test(document.getElementById('primaryWhy').textContent)
     && document.getElementById('shareMore').open, null, 20000);
   const killClip = await pk.evaluate(() => navigator.clipboard.readText());
   const kill = await pk.evaluate(() => ({ why: document.getElementById('primaryWhy').textContent, whyShown: document.getElementById('primaryWhy').checkVisibility(), field: document.getElementById('shareLink').value,
     longOpen: document.getElementById('shareMore').open, made: !document.getElementById('shortMade').hidden }));
   check('shortLink: the kill switch: the tap copies the LONG link, the field is shown, and the note says short links aren\'t available (not the server\'s words)',
-    killClip === kill.field && /#z=/.test(killClip) && kill.why === "Short links aren't available right now, so this is the long link: it works without any server." && kill.whyShown && kill.longOpen && !kill.made, JSON.stringify(Object.assign({}, kill, { field: kill.field.slice(0, 40) })));
+    landed && killClip === kill.field && /#z=/.test(killClip) && kill.why === "Short links aren't available right now, so this is the long link: it works without any server." && kill.whyShown && kill.longOpen && !kill.made,
+    JSON.stringify(Object.assign({ landed }, kill, { field: kill.field.slice(0, 40) })));
   await closeCtx(ctxk);
   env.NEW_LINKS = 'on';
 
