@@ -1826,14 +1826,14 @@ docs/shortlink-deploy.md ends with the check to run once it is deployed.
 ## The Share screen's "one link"
 
 No MAME oracle: the page decides what a tap gives. `tests/share-one-link.test.js` holds `Session.untouchedBundledProgram`
-to the owner's rule: a bundled program's own running (frames, its timers, LIZA's prompt drawing itself) is not a touch,
+to its rule: a bundled program's own running (frames, its timers, LIZA's prompt drawing itself) is not a touch,
 and each way in (a key, a typed line, a poke, a program a tool assembled, a tape, a disk, BREAK) makes it a moment; a
 load takes the program away; the colour demo (no program page) is never offered; nothing running is null. The browser
 check's `share` group runs the same at 375x548, 861x600, 1024x640 and 1280x720: an untouched 2048 copies its program
 page, a played one shares the moment and offers "Link to 2048 from the start" under "More ways to share"; the primary
 Copy is inside the viewport, hit-testable, and keeps at least 16px of CI-predicted headroom (the Mac's bottom + 19px
 for a possible extra wrapped line) above the 548px fold; a tap that falls back to the long link shows the field; the
-clarity copy and the caption's prefix are the owner's words; a clipboard that rejects leaves the link selected with its
+clarity copy and the caption's prefix are the agreed words; a clipboard that rejects leaves the link selected with its
 note; "Always use long links" survives a reload and does not fall over when storage throws; both notes read "nothing is
 uploaded" with it on.
 

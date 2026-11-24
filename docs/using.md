@@ -405,7 +405,7 @@ What a tap gives depends on what is on screen:
 
 * **A bundled program nobody has touched since it started** (2048, LIZA, Minesweeper, opened from its page or the menu
   and not yet played) has nothing of its own to send: the tap copies its **program page** (`cloadm.dev/2048/` and so on)
-  and the note says "Opens 2048 from the start, for anyone." Nothing is uploaded. Press a key, move the joystick, type a
+  and the note says "Opens 2048 from the start, for anyone."; nothing is uploaded. Press a key, move the joystick, type a
   line, load something, or let a tool change memory, and it is a moment from then on.
 * **Otherwise a short link**, made on the tap: `https://s.cloadm.dev/<id>#<key>`, about 50 characters, copied for you,
   with its field and a QR toggle. It is the moment sealed in your browser (AES-GCM) before it is sent; the key exists

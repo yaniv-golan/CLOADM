@@ -595,6 +595,9 @@ const REQUIRED = require.main !== module;
     'claudeLink',
     // programPageUrl makes a program page's address from the page's own (pure)
     'programPageUrl',
+    // bundledProgram and untouchedBundledProgram read the SHOWN machine's program watch and page (Session.touches too,
+    // which only counts what reached it); the Share screen asks whether its primary may be the program's own page
+    'bundledProgram', 'untouchedBundledProgram', 'touches',
     // longLinkRefusal and shortLinkRefusal read the SHOWN machine (what the Share screen shares) and change nothing;
     // shortLink reads it the same way (shareFile) and sends sealed bytes to the store it is given, changing no machine;
     // readShortLink fetches and decodes a snapshot, which openSnapshot (classified on its own) then opens

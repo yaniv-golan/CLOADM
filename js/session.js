@@ -3440,7 +3440,7 @@ export class Session {
   }
   // The bundled program on screen now, untouched since it started, as the Share screen's primary link would offer it:
   // bundledProgram, plus the touch count it began at (marks its own start, markProgramStart), or null. "Untouched" is
-  // the rule the owner set: any key or joystick input, a load, a typed line, or a memory change by a tool makes it a
+  // The rule: any key or joystick input, a load, a typed line, or a memory change by a tool makes it a
   // moment, and the primary shares the moment as played.
   untouchedBundledProgram(base, m = this.shownMachine) {
     const p = this.bundledProgram(base, m);

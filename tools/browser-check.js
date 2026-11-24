@@ -15809,7 +15809,7 @@ async function shareScreenChecks(browser, base, check) {
   if (shotDir) await page.screenshot({ path: path.join(shotDir, 'share-r33-375x548.png') });
   check('share screen (375x548): on open, the primary Copy link and the preview switch are inside the viewport, the long link is folded away',
     first.copy && first.sw && !first.longOpen && !first.fieldShown, JSON.stringify(first));
-  check('share screen (375x548): the clarity copy is the owner\'s, exactly, and the caption is prefixed "What they\'ll see first · "',
+  check('share screen (375x548): the clarity copy is the fixed wording, exactly, and the caption is prefixed "What they\'ll see first · "',
     first.note === 'Opens a copy of this Dragon 64 exactly as it is now: the screen, the program and everything in memory, including anything you typed. Changes you make later aren\'t in it.'
     && /^What they'll see first · Dragon 64 · CLOADM$/.test(first.cap), JSON.stringify({ note: first.note, cap: first.cap }));
   check('share screen (375x548): with the disclosures closed the page is at most 1.5 screens tall, the preview at most 30vh', first.closed && first.h <= first.vh * 1.5 && first.pic <= first.vh * 0.3 + 1, JSON.stringify(first));
@@ -19427,7 +19427,7 @@ async function uiModelChecks(browser, base, check) {
     // the ROMs row: "Not added · running without ROMs", then "BASIC ready" with (synthetic) ROMs that boot
     await openTab(page, 'Machine');
     const none = await page.textContent('#romState');
-    // the snapshot sentences: Share says what a link opens (the owner's copy, verbatim), and the Snapshots panel says
+    // the snapshot sentences: Share says what a link opens (its fixed copy, verbatim), and the Snapshots panel says
     // what a snapshot reopens on
     const share = await page.evaluate(() => document.getElementById('shareNote').textContent);   // (the one line under the preview)
     const slots = await page.textContent('#slotNote');

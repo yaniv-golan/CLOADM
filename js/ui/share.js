@@ -140,7 +140,7 @@ export function setupShare(page, { linkStore }) {
       syncEmbed(m.id);
       return;
     }
-    // the snapshot's clarity copy (the owner's wording, exact): what a link opens, and that later changes are not in it
+    // the snapshot's clarity copy (fixed wording): what a link opens, and that later changes are not in it
     $('shareNote').textContent = `Opens a copy of this ${name} exactly as it is now: the screen, the program and everything in memory, including anything you typed. Changes you make later aren't in it.`;
     if (file.needs.length) { rom.textContent = needsLine(file.needs); rom.classList.add('warn'); }
     else rom.textContent = 'Runs without ROMs, so it opens for anyone.';
