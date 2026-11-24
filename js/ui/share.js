@@ -209,10 +209,12 @@ export function setupShare(page, { linkStore }) {
     $('btnShareNative').hidden = !native || !captured || nothingToCopy;
     $('btnShareNative').classList.toggle('primary', native);
     const program = mode === 'program' && captured.untouched;
-    // the program-page note, said once, in the line under the picture
+    // the program-page note, said once, in the line under the picture. Its second sentence promises the moment's link,
+    // and in this mode that link always exists: a program page is only the primary when nothing was refused, so
+    // capture() built the long link (the moment's link, under "More ways to share") for it. Said unconditionally:
+    // a "when a link is offered" branch would be dead code.
     if (program) {
-      const moment = !!captured.link && !nothingToCopy;
-      $('shareNote').textContent = `Opens ${captured.untouched.name} from the start, for anyone.${moment ? ' The snapshot link below keeps this exact moment.' : ''}`;
+      $('shareNote').textContent = `Opens ${captured.untouched.name} from the start, for anyone. The snapshot link below keeps this exact moment.`;
       $('primaryNote').textContent = '';
       $('sharePrefix').hidden = true;
       $('shareName').textContent = `${captured.untouched.name} · ${captured.machine}`;

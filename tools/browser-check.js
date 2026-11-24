@@ -16028,16 +16028,21 @@ async function shareScreenChecks(browser, base, check) {
     const cap = await sp.evaluate(() => {
       const box = document.querySelector('#share figcaption').getBoundingClientRect();
       const pre = document.getElementById('sharePrefix'), p = pre.getBoundingClientRect(), n = document.getElementById('shareName');
+      const cs = getComputedStyle(pre);
       return { text: document.getElementById('shareTitle').innerText.replace(/\s+/g, ' ').trim(), prefix: pre.textContent, name: n.textContent,
         prefixRight: Math.round(p.right), boxRight: Math.round(box.right), boxLeft: Math.round(box.left),
         prefixScroll: pre.scrollWidth, prefixClient: pre.clientWidth, nameClips: n.scrollWidth > n.clientWidth,
-        prefixShown: pre.checkVisibility(), boxWidth: Math.round(box.width) };
-    });
+        prefixShown: pre.checkVisibility(), boxWidth: Math.round(box.width),
+        // the MECHANISM that keeps the prefix whole: it may not shrink (flex-grow 0, flex-shrink 0) and it does not
+        // overflow. A name alone fitting at 375 is not evidence - every real name fits here - so the rule that makes
+        // the prefix the one part that never gives way is what is checked, not a cut that today never happens.
+        prefixFlexGrow: cs.flexGrow, prefixFlexShrink: cs.flexShrink, prefixOverflow: cs.overflow }; });
     if (shotDir) await sp.screenshot({ path: path.join(shotDir, 'share-caption-375-coco3.png') });
-    check('share screen (375x548, CoCo 3): the caption\'s prefix "What they\'ll see first ·" is whole — its box inside the caption\'s and untruncated — and the name, not the prefix, is what ends in "…"',
+    check('share screen (375x548, CoCo 3): the caption\'s prefix "What they\'ll see first ·" is whole — inside the caption\'s box, untruncated, and unshrinkable (so it can never be the part cut) — while the name, not the prefix, is what ellipsises',
       cap.prefixShown && cap.prefix === "What they'll see first · " && /^What they'll see first · CoCo 3$/.test(cap.text)
       && cap.prefixRight <= cap.boxRight && cap.prefixRight - cap.boxLeft <= cap.boxWidth
-      && cap.prefixScroll <= cap.prefixClient, JSON.stringify(cap));
+      && cap.prefixScroll <= cap.prefixClient && cap.prefixFlexGrow === '0' && cap.prefixFlexShrink === '0'
+      && cap.prefixOverflow === 'visible', JSON.stringify(cap));
     await sc.close();
   }
 
