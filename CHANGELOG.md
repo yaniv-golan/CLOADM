@@ -10,6 +10,29 @@ Next version: 0.1.9-pre (the plugin and extension manifests carry it; `tests/plu
 
 ### Added
 
+- **Link previews.** `index.html` and `play/index.html` have a meta description ("CLOADM: Dragon and Tandy Color
+  Computer emulator in your browser. Runs LIZA and games with no ROMs; add yours for BASIC."), Open Graph tags and a
+  `summary_large_image` X card. The picture, `img/og.png` (1200x630, 16 colours, at https://cloadm.dev/img/og.png
+  and in the offline copy), is the welcome menu in a CRT bezel with "cloadm.dev" on it, beside the name.
+  `js/video/bezel.js` (`renderBezelCard(frame, { caption })` -> PNG bytes; text in the chat terminal's own font, now
+  `js/video/chat-font.js`) adds the bezel on top of the shared, browser-free card code, `js/video/card.js`
+  (`cardPicture`) and `js/media/png.js` (`encodeIndexedPng`, `readPngHeader`), taken byte for byte from the
+  short-links branch with their unit tests (`tests/png-card.test.js`). `tools/capture-og.js` captures the welcome
+  menu from the real page with no ROMs (it refuses to capture with one loaded) and calls it.
+  `tests/link-preview.test.js`, `tests/bezel.test.js`.
+- **Arriving on a shared moment.** A share link's moment that runs without ROMs opens without the "Running with no
+  ROMs" card and the orange **No BASIC** pill: the person came to see that moment. Both come back once they leave it
+  (Reset back to the menu, Switch off and on, or a machine switch). `Session.sharedMoment`, set by
+  `openSnapshot(snap, { shared: true })`, ended with an `'arrival'` event; `tests/shared-moment.test.js`.
+- **A file CLOADM doesn't open says so.** A photo or a PDF dropped or opened says "photo.jpg isn't a file CLOADM
+  opens.", its **Details** listing what it opens: tapes (.cas, .wav, .c10, .k7), disks (.vdk, .dsk, .jvc, .dmk,
+  .os9), programs (.bin, .bas, .txt), cartridges (.rom, .ccc, .dgn), snapshots (.cloadm), ROM images and ZIPs of
+  these, and **Load as raw data at an address…** on its second line for a memory dump under another name. It used to
+  ask for a load address as if every such file were a memory dump; a `.bin` of unknown format, a `.raw`, `.ram`,
+  `.dmp` or `.mem` file, or a file with no extension (in any letter case) still does. Open… and the Library's picker no
+  longer offer `.img` files, which open from the NitrOS-9 and DriveWire panels. `Session.unopenable`;
+  `tests/unopenable.test.js` checks the list against the Open… picker.
+
 - **Open CLOADM, and the offline copy only when needed.** The side panel's two tools are now **Open CLOADM**
   (`open_emulator`, "Opens the CLOADM emulator in a panel beside the chat. Use this first.") and **Open CLOADM
   (offline copy)** (`open_emulator_inline`, for a blank or blocked panel only). The small view watches its own load:
@@ -210,6 +233,14 @@ Next version: 0.1.9-pre (the plugin and extension manifests carry it; `tests/plu
 
 ### Changed
 
+- **The Share screen's link and time.** The long snapshot link is labelled **Exact moment (long link)**, and the
+  card under the picture says when it was captured relative to now ("captured just now", "captured 3 minutes ago",
+  then hours or days), not a clock time (`capturedAgo`, `tests/share-ago.test.js`).
+- **"Use with Claude ↗" is a button.** With no API key, the way to use CLOADM inside Claude is a full-size button,
+  as wide as the key field, in the chat's key card and the Ask panel's key form (style only).
+- **No desktop hints on a touch-only device.** "Or drop any file on the screen. Esc is BREAK, Home is CLEAR…" and the
+  key hint under the screen are hidden under `@media (hover: none) and (pointer: coarse)`, also with the on-screen
+  keyboard turned off.
 - **Claude reads everything in the machine on every host, ROM areas included.** The MCP tools no longer refuse to read
   memory while the user's ROMs, a cartridge or NitrOS-9 are in the machine: `peek`, `find_bytes`, `disassemble`,
   `screen_text`, `screenshot` and `run_frames` answer the same in the local server, the side panel and the claude.ai

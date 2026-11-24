@@ -253,6 +253,9 @@ export function setupMachinePanel(page, { showRoms }) {
     $('badge').textContent = m.profile.name.replace(/ \(.*\)$/, '').toUpperCase();   // the case badge: no (PAL) or (Alpha)
     $('emuHeading').textContent = m.profile.name;   // the emulator's heading (for assistive technology and reader views)
     document.title = `${m.profile.name} – CLOADM`;
+    // the page's title metas say the same once it runs (a reading mode takes og:title before the document's title, and
+    // drops the heading that matches it); a link preview reads the static ones in play/index.html, before any script
+    for (const meta of document.querySelectorAll('meta[property="og:title"], meta[name="twitter:title"]')) meta.content = document.title;
   });
 
   // a changed option power-cycles the machine with it (remembered for that model)

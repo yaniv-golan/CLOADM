@@ -18,7 +18,17 @@ import { needsLine } from '../media/romrefs.js';
 import { CanvasPresenter } from '../video/canvas.js';
 import { $, showView } from './page.js';
 
-const time = (d) => d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+// when the moment was captured, said relative to now: "captured just now", then minutes, hours or days ago (the card
+// under the picture; refreshed while the Share screen is open)
+export function capturedAgo(then, now = Date.now()) {
+  const s = Math.max(0, Math.floor((now - then) / 1000));
+  const n = (k, unit) => `captured ${k} ${unit}${k === 1 ? '' : 's'} ago`;
+  if (s < 60) return 'captured just now';
+  if (s < 3600) return n(Math.floor(s / 60), 'minute');
+  if (s < 86400) return n(Math.floor(s / 3600), 'hour');
+  return n(Math.floor(s / 86400), 'day');
+}
+const AGO_MS = 15000;   // how often the card's time is said again while the screen is open
 const CLIP_SECONDS = 6;
 // what the browser can record, best first
 const clipType = () => {
@@ -43,9 +53,11 @@ export function setupShare(page) {
     showView(view, open);
     // opened by address (play/#share) the page is still starting: the view shows, and ready() captures once there is a machine
     if (open && !captured && started) capture().catch((e) => page.status(e.message, true));
+    if (open && captured) $('shareWhen').textContent = capturedAgo(captured.at);   // the time said again, now
     if (open) window.scrollTo(0, 0);
   }
   page.onView(show);
+  setInterval(() => { if (captured && isOpen()) $('shareWhen').textContent = capturedAgo(captured.at); }, AGO_MS);
   $('shareBack').onclick = (e) => { e.preventDefault(); page.closeView(); };
   $('btnShare').onclick = async () => {
     try { await capture(); } catch (e) { page.status(e.message, true); return; }
@@ -73,7 +85,7 @@ export function setupShare(page) {
     const file = n9 ? null : await session.shareFile();
     const link = n9 ? session.shareUrl(location.href) : await session.snapshotLink(location.href, file);
     const png = await new Promise((ok) => c.toBlob(ok, 'image/png'));
-    captured = { file, png, link, base: file ? file.name.replace(/\.cloadm$/, '') : `${m.profile.name.replace(/[^A-Za-z0-9]+/g, '')}-NitrOS-9` };
+    captured = { at: Date.now(), file, png, link, base: file ? file.name.replace(/\.cloadm$/, '') : `${m.profile.name.replace(/[^A-Za-z0-9]+/g, '')}-NitrOS-9` };
     const dl = $('btnShareDownload');
     dl.disabled = !file;
     dl.textContent = file ? `Download snapshot (${(file.bytes.length / 1024).toFixed(0)} KB)` : 'Download snapshot';
@@ -82,8 +94,10 @@ export function setupShare(page) {
     pic.getContext('2d').drawImage(c, 0, 0);
     const name = m.profile.name.replace(/^Tandy /, '');
     $('shareTitle').textContent = `${name} · CLOADM`;
-    $('shareWhen').textContent = `captured ${time(new Date())}`;
+    $('shareWhen').textContent = capturedAgo(captured.at);
     $('shareLink').value = link;
+    // the snapshot's link holds the whole moment, so it is long; NitrOS-9's only starts NitrOS-9
+    $('shareLinkLabel').textContent = file ? 'Exact moment (long link)' : 'Link';
     syncPrimary();
     // one line under the picture, what the link does; then, only as needed, what the person opening it needs
     const rom = $('shareRom'), extra = $('shareExtra');

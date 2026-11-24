@@ -121,7 +121,7 @@ The [README](../README.md#what-works) has the short version of this table.
 | **Games** | 2048 and Minesweeper, written for CLOADM, on every 6809 model with 32K or more, with or without ROMs ([details](#games)) | |
 | **Input** | Keyboard in two modes (translated: the character typed; positional: the physical key), keyboard joystick, gamepads (two joysticks, dead zone), the Tandy and CoCo Max 3 Hi-Res interfaces, the CoCo 3 "The Rat" mouse, the CoCo Max Hi-Res module, mouse as the right joystick; an on-screen keyboard on phones and tablets (split for the thumbs when held sideways) and a touch joystick with FIRE, a tappable welcome menu | |
 | **Tools** | Assembler, Debugger, snapshots, POKE book; a command line, MCP server and Node API for CI and agents ([Automation](automation.md), [MCP](mcp.md)) | Step back (rewind) |
-| **Links, embedding, offline** | Every setting as a URL parameter (machine, RAM, CPU, a program, tape, cartridge or disk to load, display, input); the Share screen: Share… or Copy link for a link that opens this machine exactly as it is, and under "More ways to share" a 6-second clip, a true-pixel screenshot and the snapshot file, plus the embed code for a blog post; embed mode with a JavaScript API; works offline once visited; **Install CLOADM…** in the app bar, beside Help (behind **Menu** on a phone), runs the browser's own prompt where there is one and shows the steps elsewhere, with a one-time offer once a program has run a minute; settings export and import (never ROMs) | A touch keyboard in embeds |
+| **Links, embedding, offline** | Every setting as a URL parameter (machine, RAM, CPU, a program, tape, cartridge or disk to load, display, input); the Share screen: Share… or Copy link for a link that opens this machine exactly as it is (pasted in a chat or a post, a cloadm.dev link shows a preview picture), and under "More ways to share" a 6-second clip, a true-pixel screenshot and the snapshot file, plus the embed code for a blog post; embed mode with a JavaScript API; works offline once visited; **Install CLOADM…** in the app bar, beside Help (behind **Menu** on a phone), runs the browser's own prompt where there is one and shows the steps elsewhere, with a one-time offer once a program has run a minute; settings export and import (never ROMs) | A touch keyboard in embeds |
 
 ### Games
 
@@ -203,7 +203,11 @@ whatever image is in DriveWire drive 0 then.
   menu also offers the machine's disk controllers (no image needed: the disk ROM is the one you added), which the drives
   card then uses.
 * **`.BAS` / `.TXT`**: BASIC listings, which are typed in.
-* Any other file loads as raw data at an address you enter.
+* **A memory dump**: a `.bin` that is none of the above, a `.raw`, `.ram`, `.dmp` or `.mem` file, or a file with no
+  extension loads as raw data at an address you enter.
+* **Any other file** (a photo, a PDF) is not loaded: CLOADM says "*name* isn't a file CLOADM opens.", with the kinds it
+  opens under **Details**, and **Load as raw data at an address…** to load it as a memory dump all the same. NitrOS-9
+  DriveWire images (`.img`) open from the DriveWire panel, not here.
 
 ## Library and type-ins
 
@@ -390,7 +394,16 @@ a true-pixel screenshot and the snapshot file (its size is on the button); under
 line under the picture says what the link does, and a ROM line says whether the person opening it needs their own ROMs. While NitrOS-9 runs
 the link starts NitrOS-9 fresh instead (no snapshot file). The link there carries the moment itself (the snapshot rides in the
 fragment after `#s=`, which browsers never send to a server, so the link is long: about 4 to 10 KB), and the
-embed builder writes the iframe and script for the machine, program and options you pick.
+embed builder writes the iframe and script for the machine, program and options you pick. The link's field is labelled
+**Exact moment (long link)**, and the card under the picture says when the moment was captured, relative to now:
+"captured just now", then "3 minutes ago" (hours or days if the screen stays open that long).
+
+Someone who opens a shared moment that runs without ROMs arrives on that moment, not on the setup: the "Running with no
+ROMs" card and the orange **No BASIC** pill stay out of the way while they look at it, and come back once they leave it
+(**Reset** back to the menu, **Switch off and on**, or another machine).
+
+Pasted in a chat or a post, a link to cloadm.dev shows a preview: the welcome menu in a monitor, the name and one line
+(`img/og.png`, made by `tools/capture-og.js` from the welcome program with no ROMs).
 
 A shared moment holds no byte of a ROM or a cartridge (`Session.shareFile`, `js/media/romrefs.js`), even when it ran
 on your own ROMs. It names them by CRC: the machine's ROMs, the cartridge's image, a disk controller's disk ROM. Every

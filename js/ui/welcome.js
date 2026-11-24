@@ -345,6 +345,10 @@ export function setupWelcome(page, { showRoms, openClaude }) {
     box.hidden = false;
   }
   function dismiss() { const b = el('button', 'Dismiss', 'close'); b.onclick = () => { dismissed = true; box.hidden = true; }; return b; }
+  // arriving on a shared moment that runs without ROMs (Session.sharedMoment), the card stands back: the person came
+  // to see that moment. It comes back (unless dismissed) once they leave it: Reset, Switch off and on, a switch.
+  const quiet = () => box.classList.toggle('quiet', session.sharedMoment);
+  session.on((ev) => { if (ev === 'machine' || ev === 'arrival') quiet(); });
 
   // sound: unlock on the first pointer or key event anywhere; the hint shows until then
   const hint = $('soundHint');

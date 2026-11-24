@@ -6,6 +6,21 @@
 <!-- the emulator lives at /play/; every relative URL (scripts, styles, examples, docs) is from the site root -->
 <base href="../">
 <title>CLOADM: play</title>
+<meta name="description" content="CLOADM: Dragon and Tandy Color Computer emulator in your browser. Runs LIZA and games with no ROMs; add yours for BASIC.">
+<!-- link previews (Open Graph, X): the picture is img/og.png, made by tools/capture-og.js from the welcome menu with no ROMs -->
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="CLOADM">
+<meta property="og:title" content="CLOADM: play">
+<meta property="og:description" content="CLOADM: Dragon and Tandy Color Computer emulator in your browser. Runs LIZA and games with no ROMs; add yours for BASIC.">
+<meta property="og:url" content="https://cloadm.dev/play/">
+<meta property="og:image" content="https://cloadm.dev/img/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="The CLOADM welcome menu on a green screen, in a monitor, beside the name CLOADM">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="CLOADM: play">
+<meta name="twitter:description" content="CLOADM: Dragon and Tandy Color Computer emulator in your browser. Runs LIZA and games with no ROMs; add yours for BASIC.">
+<meta name="twitter:image" content="https://cloadm.dev/img/og.png">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#0B0D0C">
@@ -216,6 +231,8 @@
   .slot .name { font-weight: 700; overflow-wrap: anywhere; }
   /* on touch the slots' buttons (Rewind, Eject, Record, Save .WAV) are at least 44 px tall */
   @media (pointer: coarse) { .slot .bar button { min-height: 44px; } }
+  /* a touch-only device has no keyboard keys to name and nothing to drop: the desktop hints go */
+  @media (hover: none) and (pointer: coarse) { .layout .hint, #keyHint { display: none !important; } }
   /* The NitrOS-9 image list: one full-width row in the card, never wider than it (a long release file name would
      push it out past the card's edge); the closed list clips the end with an ellipsis, the open list and the
      title (set with the choice) show the whole name. */
@@ -310,6 +327,8 @@
   .lasttime button { border-radius: var(--pill); flex: none; }
   #welcome, #mediaOffer { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-14); padding: 12px 16px; position: relative; }
   #welcome { background: var(--panel-deep); }
+  /* arrived on a shared moment that runs without ROMs: the card stands back until the person leaves it (js/ui/welcome.js) */
+  #welcome.quiet { display: none !important; }
   #mediaOffer { border-color: var(--phosphor); }
   #welcome .lead { font-weight: 700; padding-right: 80px; }
   #welcome .muted { margin-top: 2px; }
@@ -482,6 +501,11 @@
   #claudeKeyCard label { display: block; font-size: 14px; color: var(--muted); margin-bottom: 4px; }
   .keyget { margin: 6px 0 0; font-size: 13px; line-height: 1.5; color: var(--muted); }
   .keyget a { color: var(--text); }
+  /* no key: "Use with Claude ↗" is the other way in, a full-size button as weighty as the key field above it */
+  .keyget a.usewith { display: flex; align-items: center; justify-content: center; box-sizing: border-box; width: 100%; min-height: 44px;
+    margin-top: 8px; padding: 10px 14px; border: 1px solid var(--line-strong); border-radius: var(--r-10); background: var(--panel);
+    color: var(--text); font: 600 15px var(--font-ui); text-decoration: none; }
+  .keyget a.usewith:hover { border-color: var(--phosphor); }
   #claudeKeyInput { width: 100%; box-sizing: border-box; background: var(--panel-deep); color: var(--text); border: 1px solid var(--line);
     border-radius: var(--r-10); padding: 10px; font: 15px var(--font-mono); margin-bottom: 10px; }
   #claudeKeyMsg, #claudeBasicNote { font-size: 14px; color: var(--muted); }
@@ -516,6 +540,7 @@
   #share figcaption { padding: 14px 16px; display: flex; flex-direction: column; gap: 4px; font-size: 15px; }
   #share figcaption span { font-size: 14px; color: var(--muted); }
   #share .linkrow { display: flex; gap: 8px; }
+  #share .linklabel { font-size: 14px; color: var(--text-2); min-height: 0; margin-bottom: -10px; }
   #share .linkrow input { flex: 1; min-width: 0; background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: var(--r-10);
     padding: 12px; font: 14px var(--font-mono); }
   #share .card2 { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-14); padding: 16px; display: flex; flex-direction: column; gap: 8px; font-size: 15px; line-height: 1.45; }
@@ -1647,7 +1672,8 @@ npx serve -l 8000 .</pre>
     <p id="shareNote"></p>
     <p id="shareRom" class="romline"></p>
     <div id="shareExtra" class="extra"></div>
-    <div class="linkrow"><label for="shareLink" class="sr-only">Share link</label><input id="shareLink" readonly></div>
+    <label for="shareLink" id="shareLinkLabel" class="linklabel">Exact moment (long link)</label>
+    <div class="linkrow"><input id="shareLink" readonly></div>
     <div class="bar sharebtns"><button id="btnShareNative" class="primary" hidden>Share…</button><button id="btnShareCopy" class="primary">Copy link</button></div>
   </section>
   <details class="disc" id="shareMore">
@@ -1912,7 +1938,7 @@ npx serve -l 8000 .</pre>
       <label>Your Anthropic API key<input id="askKeyInput" type="password" autocomplete="off" spellcheck="false" placeholder="sk-ant-…"></label>
       <p class="keyget muted" id="askKeyGet">Get a key at <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a> (API keys). Use is billed to your Anthropic account: see <a href="https://www.anthropic.com/pricing#api" target="_blank" rel="noopener">pricing ↗</a></p>
       <div class="bar"><button id="btnAskKeySave" class="primary">Save key</button><span class="muted" id="askKeyErr" role="status"></span></div>
-      <p class="keyget muted" id="askNoKey">No key? Use CLOADM inside Claude instead: <a href="https://github.com/yaniv-golan/CLOADM/blob/main/docs/mcp.md#use-with-claude" target="_blank" rel="noopener">Use with Claude ↗</a></p>
+      <p class="keyget muted" id="askNoKey">No key? Use CLOADM inside Claude instead: <a class="usewith" href="https://github.com/yaniv-golan/CLOADM/blob/main/docs/mcp.md#use-with-claude" target="_blank" rel="noopener">Use with Claude ↗</a></p>
       <p class="muted"><strong>Your key stays yours.</strong> Stored only in this browser. The emulated machine never sees it, and it's left out of snapshots, share links and exported settings.</p>
     </div>
     <div id="askComposer" hidden>
@@ -1932,7 +1958,7 @@ npx serve -l 8000 .</pre>
       <input id="claudeKeyInput" type="password" autocomplete="off" spellcheck="false" placeholder="sk-ant-…">
       <p class="keyget" id="claudeKeyGet">Get a key at <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a> (API keys). Use is billed to your Anthropic account: see <a href="https://www.anthropic.com/pricing#api" target="_blank" rel="noopener">pricing ↗</a></p>
       <div class="bar"><button id="btnClaudeKeySave" class="primary">Save key</button></div>
-      <p class="keyget" id="claudeNoKey">No key? Use CLOADM inside Claude instead: <a href="https://github.com/yaniv-golan/CLOADM/blob/main/docs/mcp.md#use-with-claude" target="_blank" rel="noopener">Use with Claude ↗</a></p>
+      <p class="keyget" id="claudeNoKey">No key? Use CLOADM inside Claude instead: <a class="usewith" href="https://github.com/yaniv-golan/CLOADM/blob/main/docs/mcp.md#use-with-claude" target="_blank" rel="noopener">Use with Claude ↗</a></p>
       <p><strong>Your key stays yours.</strong> Stored only in this browser. The emulated machine never sees it, and it's left out of snapshots, share links and exported settings.</p>
       <div id="claudeKeyMsg" role="status"></div>
     </section>
@@ -2267,9 +2293,9 @@ npx serve -l 8000 .</pre>
 <!-- the Library's Undo toast ("Deleted chat.bin · Undo", 8 s) -->
 <!-- the media pickers: the extensions they take, and application/octet-stream so a file whose type the phone does not
      know (a .cas, a .vdk) can still be picked; no image/*, so iOS offers Files, not the Photo Library and the camera -->
-<input type="file" id="fileLib" hidden multiple accept=".bin,.cas,.c10,.k7,.wav,.rom,.ccc,.dgn,.vdk,.dsk,.jvc,.dmk,.os9,.img,.bas,.txt,.cloadm,.zip,application/octet-stream">
+<input type="file" id="fileLib" hidden multiple accept=".bin,.cas,.c10,.k7,.wav,.rom,.ccc,.dgn,.vdk,.dsk,.jvc,.dmk,.os9,.bas,.txt,.cloadm,.zip,application/octet-stream">
 <input type="file" id="folderLib" hidden webkitdirectory>
-<input type="file" id="fileProgram" hidden multiple accept=".bin,.cas,.c10,.k7,.wav,.rom,.ccc,.dgn,.vdk,.dsk,.jvc,.dmk,.os9,.img,.bas,.txt,.cloadm,application/octet-stream">
+<input type="file" id="fileProgram" hidden multiple accept=".bin,.cas,.c10,.k7,.wav,.rom,.ccc,.dgn,.vdk,.dsk,.jvc,.dmk,.os9,.bas,.txt,.cloadm,application/octet-stream">
 
 <input type="file" id="fileTape" hidden accept=".cas,.c10,.k7,.wav,application/octet-stream">
 <input type="file" id="fileCart" hidden accept=".rom,.ccc,.dgn,.bin,application/octet-stream">
@@ -2374,6 +2400,7 @@ npx serve -l 8000 .</pre>
 <link rel="modulepreload" href="js/media/romrefs.js">
 <link rel="modulepreload" href="js/config.js">
 <link rel="modulepreload" href="js/session.js">
+<link rel="modulepreload" href="js/video/card.js">
 <link rel="modulepreload" href="js/media/avi.js">
 <link rel="modulepreload" href="js/host/input.js">
 <link rel="modulepreload" href="js/host/audio-worklet.js">
@@ -2386,6 +2413,7 @@ npx serve -l 8000 .</pre>
 <link rel="modulepreload" href="js/host/example-reader.js">
 <link rel="modulepreload" href="js/video/layout.js">
 <link rel="modulepreload" href="js/selftest.js">
+<link rel="modulepreload" href="js/media/png.js">
 <link rel="modulepreload" href="js/emu.js">
 <link rel="modulepreload" href="js/host/storage.js">
 <link rel="modulepreload" href="js/host/media-store-opfs.js">
