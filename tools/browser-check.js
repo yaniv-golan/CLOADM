@@ -16051,7 +16051,7 @@ async function shareScreenChecks(browser, base, check) {
         text: t.innerText.replace(/\s+/g, ' ').trim(), capWidth: Math.round(document.querySelector('#share figcaption').getBoundingClientRect().width) };
     });
     if (shotDir) await sp.screenshot({ path: path.join(shotDir, 'share-caption-squeezed-375.png') });
-    check('share screen (375x548, squeezed to 150px): the prefix keeps ALL its text and the NAME is the span that is cut — the ruling\'s order, observed (not just its style values)',
+    check('share screen (375x548, squeezed to 150px): the prefix keeps ALL its text and the NAME is the span that is cut — the order the caption gives way in, observed (not just its style values)',
       sq.capWidth <= 160 && sq.prefixScroll === sq.prefixClient && sq.prefixRight <= sq.nameLeft + 1
       && sq.nameScroll > sq.nameClient && sq.nameEllipsis === 'ellipsis' && !/CLOADM/.test(sq.text), JSON.stringify(sq));
     // the program page's caption names the program and machine, with no prefix and no CLOADM

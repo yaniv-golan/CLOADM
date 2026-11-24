@@ -1842,11 +1842,15 @@ start, for anyone. The snapshot link below keeps this exact moment." and `#prima
 the caption is "2048 · Dragon 64" with the prefix span hidden; the picture is 2048's title, waited for by the games
 group's own signal (2048's GETKEY counts each key poll in ENTROPY, so a frame that climbs by hundreds is one spent at
 its key wait — measured at frame 19, and the title then has exactly four colours, read from every pixel of the canvas;
-`render().data` is palette indices, not colours and proves nothing). The caption's prefix is held to its own rule at
-375px on the longest case (a CoCo 3 snapshot): "What they'll see first · " is whole — its box inside the caption's and
-its `scrollWidth` no wider than its `clientWidth` — because the prefix span never shrinks and the machine name is what
-ends in "…"; " · CLOADM" is gone from every mode. A guardrail that refuses the moment says so once, inline, and Copy
-carries `disabled` with the page's disabled look (opacity 0.55).
+`render().data` is palette indices, not colours and proves nothing), and compared with the frame itself: the machine is
+paused at the title, the frame is read with `frameToRGBA` (the presenter's own function, one packed Uint32 per pixel),
+and every pixel of the captured picture is compared with it — 0 of 76800 differ, and the same picture with one pixel
+flipped differs in 1, so the check can fail. The caption's prefix is held to its rule where the order can be seen: at
+375 every real name fits, so the check FORCES a squeeze (a long name, a 150px caption) and reads the order from the
+geometry — the prefix keeps all its text (`scrollWidth === clientWidth`, its right edge not past the name's) and the
+NAME is the span that is cut (`scrollWidth > clientWidth`, `text-overflow: ellipsis`); its computed `flex-grow: 0` and
+`flex-shrink: 0` are asserted as the mechanism, and " · CLOADM" is absent in every mode. A guardrail that refuses the
+moment says so once, inline, and Copy carries `disabled` with the page's disabled look (opacity 0.55).
 
 ## Long links (`#z=`) and the program pages
 
