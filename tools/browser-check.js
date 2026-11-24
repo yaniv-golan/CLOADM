@@ -3110,6 +3110,18 @@ async function onScreenChecks(browser, base, check) {
   });
   check('open: a power cycle takes it off the screen too: "Last time" is back and no row is marked (read in the cycle\'s own tick)',
     /^minesweeper\.bin/.test(afterPower.card) && afterPower.rows.length && afterPower.rows[0][0] === 'minesweeper.bin' && !afterPower.rows[0][1], JSON.stringify(afterPower));
+  // 'recent' (another tab loaded a program) must redraw the "Last time" CARD as well as the list: lastTime() reads the
+  // recent list's head, so without this the card's NAME lags the list it sits above. Deterministic: remember a new file
+  // (as another tab's load would), emit 'recent', and read the card name in the SAME evaluate -- lastTime() must have
+  // run in that tick, so the name already tracks the new head. (read in the event's own tick)
+  const afterRecent = await page.evaluate(() => {
+    window.emu.session.library.rememberMedia('another.bin', new Uint8Array([7, 7, 7, 7]));
+    window.emu.session.emit('recent');
+    return { card: document.getElementById('lastTime').hidden ? null : document.getElementById('lastName').textContent,
+      head: (window.emu.session.library.recentMedia()[0] || {}).name };
+  });
+  check('open: another tab\'s load ("recent") redraws the "Last time" card too -- its name follows the recent head (read in the event\'s own tick)',
+    afterRecent.head === 'another.bin' && /^another\.bin/.test(afterRecent.card), JSON.stringify(afterRecent));
   // A Reset while a recent row has the keyboard focus must not lose it: the reset redraws the list only when the running
   // row actually changed (runKey() !== runShown), so on an idle machine (nothing running) a Reset leaves the list, and the
   // focused row, alone. Deterministic: focus a row, run reset() and read activeElement in ONE evaluate (no frame between).
@@ -3222,14 +3234,60 @@ async function returningChecks(browser, base, check) {
   await shot('back-from-liza');
   // a return visit, no ROMs
   await page.reload(); await ready(page);
-  await waitFor(page, () => window.emu.session.welcomeRunning && window.emu.session.screenText()[12].includes('CARRY ON'));
-  const r = await page.evaluate(() => ({ greet: window.emu.session.screenText()[6].trim(), five: window.emu.session.screenText()[12].trim(), games: window.emu.session.screenText()[11].trim(), press: window.emu.session.screenText()[14].trim(),
-    media: (document.querySelector('[role="tab"][aria-controls="panel-media"]').click(), document.getElementById('panel-media').innerText),
-    card: !document.getElementById('welcome').hidden, last: document.getElementById('lastTime').hidden ? null : document.getElementById('lastName').textContent,
-    shelf: [...document.querySelectorAll('#shelf :is(a, button)')].map((b) => b.textContent).join('|'), pill: getComputedStyle(document.getElementById('romPill')).display !== 'none' && !document.getElementById('romPill').hidden }));
-  check('returning (no ROMs): the menu says WELCOME BACK and offers 6 CARRY ON WITH LIZA under 5 PLAY A GAME; "Last time · LIZA"; the menu on screen now; no card; No BASIC in the header',
+  // DETERMINISTIC, and the GUARD IS THE PRE-MENU SAMPLING. The invariant is `mixed === 0`: no sampled frame shows the menu
+  // drawn (CARRY ON on screen) without the shelf's "on screen now" tag. For that to prove anything, sampling must have
+  // STARTED BEFORE the menu was drawn -- otherwise, with the menu already up on the first sample, `mixed === 0` could
+  // hold on a page that never drew the tag at the moment the frame appeared. So `preMenu > 0` is required: at least one
+  // frame was sampled with the menu NOT yet on screen, before the first one that had it; that is what makes `mixed === 0`
+  // meaningful (a sampler that only began after the draw is caught by `preMenu === 0`).
+  // (A tick counter cannot serve this guard: page.tickUi() advances it every frame whether it runs before or after
+  // advance, so it does NOT distinguish the two orders. The earlier `ticksAdvanced` term was vacuous.)
+  // "CARRY ON on screen" is Session.screenText(), which reads the machine's screen RAM ($0400) for the mode in use;
+  // at this moment the welcome program is on its TEXT screen, so that read is the menu's own text, not a picture.
+  const r = await page.evaluate(() => new Promise((res) => {
+    const out = []; let seenCarry = false, after = 0, samples = 0, sawMenu = 0, preMenu = 0;
+    const read = () => {
+      const rows = window.emu.session.screenText();
+      const carry = !!(rows[12] && rows[12].includes('CARRY ON'));
+      const tag = [...document.querySelectorAll('#shelf .tag.now')].length > 0;
+      return { carry, tag, rows };
+    };
+    const tick = () => {
+      samples++;
+      const st = read();
+      if (st.carry) { seenCarry = true; sawMenu++; out.push(st); after++; }
+      else if (!seenCarry) preMenu++;   // a sample with the menu NOT yet drawn, taken before the first drawn one
+      if (seenCarry && after >= 4) {
+        const last = out[out.length - 1].rows;
+        return res({
+          greet: last[6].trim(), five: last[12].trim(), games: last[11].trim(), press: last[14].trim(),
+          media: (document.querySelector('[role="tab"][aria-controls="panel-media"]').click(), document.getElementById('panel-media').innerText),
+          card: !document.getElementById('welcome').hidden, last: document.getElementById('lastTime').hidden ? null : document.getElementById('lastName').textContent,
+          shelf: [...document.querySelectorAll('#shelf :is(a, button)')].map((b) => b.textContent).join('|'),
+          pill: getComputedStyle(document.getElementById('romPill')).display !== 'none' && !document.getElementById('romPill').hidden,
+          mixed: out.filter((x) => x.carry && !x.tag).length, frames: out.length,
+          samples, sawMenu, preMenu,
+        });
+      }
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  }));
+  check('returning (no ROMs): the menu says WELCOME BACK and offers 6 CARRY ON WITH LIZA under 5 PLAY A GAME; "Last time · LIZA"; the menu on screen now (no frame shows it without the tag); no card; No BASIC in the header',
     r.greet === 'WELCOME BACK' && r.five === '6 CARRY ON WITH LIZA' && r.games === '5 PLAY A GAME' && r.press === 'PRESS 1 TO 6' && !r.card && r.last === 'LIZA'
-    && r.shelf === 'Welcome menu on screen now|LIZA|Colour demo|2048|Minesweeper|Chat with Claude' && r.pill, JSON.stringify(r));
+    && r.shelf === 'Welcome menu on screen now|LIZA|Colour demo|2048|Minesweeper|Chat with Claude' && r.pill && r.mixed === 0
+    && r.preMenu > 0 && r.sawMenu >= 1, JSON.stringify(r));
+  // A PAUSED page still ticks the UI. tickUi() is outside the `if (!paused)` block, so a reconciler whose watched state
+  // changes with no machine frame still redraws. Here: pause the page; the shelf's "on screen now" follows
+  // `welcomeOnScreen && !page.paused`, so pausing must take the tag OFF -- a reconciler change driven with the machine
+  // stopped. (Deterministic: wait for the tag to go, which only a run of tickUi while paused can do.)
+  const beforePause = await page.evaluate(() => [...document.querySelectorAll('#shelf .tag.now')].length > 0);
+  await page.click('#btnPause');
+  const pausedTagGone = await waitFor(page, () => [...document.querySelectorAll('#shelf .tag.now')].length === 0, null, 5000);
+  check(`(d) a paused page still ticks the UI: the shelf's "on screen now" clears on Pause, with the machine stopped`,
+    beforePause && pausedTagGone);
+  await page.click('#btnPause');   // resume, so the checks after run on a running machine
+  await waitFor(page, () => window.emu.session.welcomeOnScreen && [...document.querySelectorAll('#shelf .tag.now')].length > 0, null, 8000);
   // the Media tab as shown says "Last time · LIZA" with no "Nothing loaded yet" contradicting it, and the
   // menu lists 5 PLAY A GAME above the carry-on line (r.games, above)
   check('returning (no ROMs): the Media tab shows "Last time · LIZA" and no "Nothing loaded yet"',

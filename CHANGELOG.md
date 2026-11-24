@@ -474,6 +474,12 @@ Next version: 0.1.9-pre (the plugin and extension manifests carry it; `tests/plu
 
 ### Fixed
 
+- **The page's own panels caught up with the screen a frame late.** The emulator draws a frame, then the page's panels
+  (the Media tab's "Runs without ROMs", its "Recent on this machine", the boot box, the tape row) update from what the
+  screen now shows — but the panels ran BEFORE the frame, so a change that frame made appeared in them one frame later.
+  They now run after the frame: the welcome menu's "on screen now" and the recent row's mark change in the same frame
+  the screen does. A paused page still updates its panels.
+
 - **Eight things the v0.1.9 cold test found on a phone and in the chat.**
   A tape put in the deck and loaded with **Skip the tape** (or **Load it now**) now appears in the Media tab's
   **Recent on this machine**, like any file the person opened: it was loaded with the flag that keeps our own LIZA and

@@ -112,6 +112,9 @@ export function setupWelcome(page, { showRoms, openClaude }) {
   session.on(async (ev, arg) => {
     if (ev === 'machine' || ev === 'loaded') { showBack(false); lastTime(); return; }
     if (ev === 'lastrun') { lastTime(); return; }   // (recorded after 'loaded': the card names what Run again runs)
+    // another tab loaded a program: the recent list changes but not this tab's lastRun. The drawer redraws its list on
+    // 'recent'; the "Last time" card must follow too, or its NAME lags the list it sits above (naming the previous file).
+    if (ev === 'recent') { lastTime(); return; }
     // (what the menu or a program asks for: byMachine, so a key Claude typed does not stop Claude)
     const asked = session.machineTicket();   // (taken now, when the program asks: whose keys they were)
     if (ev === 'welcome:liza') await run(SHELF[0], { byMachine: asked });
