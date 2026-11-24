@@ -62,16 +62,16 @@ hardware; the exceptions are listed under [How we know it's right](#how-we-know-
 
 1. Customize → Plugins → Add marketplace → `yaniv-golan/CLOADM` → Add **CLOADM**. In Claude Code:
    `/plugin marketplace add yaniv-golan/CLOADM`, then `/plugin install cloadm@cloadm-marketplace`.
-2. On the web and in desktop chat: open the plugin's Connectors tab and click **Connect** next to *cloadm-panel*, then
+2. On the web and in desktop chat: open the plugin's Connectors tab and click **Connect** next to *CLOADM side panel*, then
    **Continue**. The emulator then opens in Claude's side panel.
 
-   Already added https://mcp.cloadm.dev/mcp as a custom connector? The plugin's cloadm-panel uses that same connector, so you won't have two; you can keep it.
+   Already added https://mcp.cloadm.dev/mcp as a custom connector? The plugin's CLOADM side panel uses that same connector, so you won't have two; you can keep it.
 
    On phones the plugin and connector install, but the side panel can't be used yet. Use claude.ai on a computer or the desktop app. <!-- phones-not-yet: remove once the side panel works on phones (PHONE_VIEW_WORKS in tests/readme.test.js) -->
 
 In Cowork and Claude Code it runs on your computer instead, with your ROM files and the ~/CLOADM folder; nothing to connect.
 
-**The badge next to *cloadm-panel*.** Claude shows this for any connector Anthropic hasn't reviewed. CLOADM's runs at mcp.cloadm.dev, needs no sign-in, and sees only the emulator in that panel. Nothing else of yours. It's open source: [source](https://github.com/yaniv-golan/CLOADM/tree/main/connector).
+**The badge next to *CLOADM side panel*.** Claude shows this for any connector Anthropic hasn't reviewed. CLOADM's runs at mcp.cloadm.dev, needs no sign-in, and sees only the emulator in that panel. Nothing else of yours. It's open source: [source](https://github.com/yaniv-golan/CLOADM/tree/main/connector).
 
 | Where you use Claude | What you get |
 |---|---|
@@ -80,14 +80,15 @@ In Cowork and Claude Code it runs on your computer instead, with your ROM files 
 | Phone | not yet. On phones the plugin and connector install, but the side panel can't be used yet. Use claude.ai on a computer or the desktop app. <!-- phones-not-yet: remove once the side panel works on phones (PHONE_VIEW_WORKS in tests/readme.test.js) --> |
 | Other agents (Cursor, Codex, Gemini CLI, …) | the MCP entry for `node cli/cloadm.js --mcp` ([docs/mcp.md](docs/mcp.md#cursor-gemini-cli-codex-and-other-mcp-clients)) |
 
-The plugin's two servers are *cloadm-panel* (the side panel, at `https://mcp.cloadm.dev/mcp`) and *cloadm* (on your
-computer, `node cli/cloadm.js --mcp`); each Claude app uses the one it can.
-Claude lists the plugin as **CLOADM**. The side panel's server calls itself *CLOADM side panel*, and the one on your
-computer *CLOADM on this computer*, the name the Desktop extension has too.
+The plugin's two servers are *CLOADM side panel* (the side panel, at `https://mcp.cloadm.dev/mcp`) and *CLOADM on this
+computer* (on your computer, `node cli/cloadm.js --mcp`, the name the Desktop extension has too); each Claude app uses
+the one it can. Claude lists the plugin as **CLOADM**. The plugin format has no field for a server's display name: the
+key under `mcpServers` is the name, so the keys are these readable names, which Claude Code lists. How claude.ai's plugin
+page and chat menu show them is to be confirmed by the maintainer after release (they showed the earlier keys).
 
 #### Without the plugin
 
-Add `https://mcp.cloadm.dev/mcp` as a custom connector and name it **CLOADM** (no sign-in). You get the side panel but not the skill that teaches Claude to play it well. Already added https://mcp.cloadm.dev/mcp as a custom connector? The plugin's cloadm-panel uses that same connector, so you won't have two; you can keep it. To add the skill on its own, download `cloadm-skill.zip` from the [Releases](https://github.com/yaniv-golan/CLOADM/releases) page and add it in claude.ai under Settings → Capabilities → Skills (steps not yet verified by the maintainers).
+Add `https://mcp.cloadm.dev/mcp` as a custom connector and name it **CLOADM** (no sign-in). You get the side panel but not the skill that teaches Claude to play it well. Already added https://mcp.cloadm.dev/mcp as a custom connector? The plugin's CLOADM side panel uses that same connector, so you won't have two; you can keep it. To add the skill on its own, download `cloadm-skill.zip` from the [Releases](https://github.com/yaniv-golan/CLOADM/releases) page and add it in claude.ai under Settings → Capabilities → Skills (steps not yet verified by the maintainers).
 
 Every way to install, in full: [docs/mcp.md](docs/mcp.md#which-way-should-i-install-cloadm-for-claude).
 
