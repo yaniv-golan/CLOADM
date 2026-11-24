@@ -5465,10 +5465,10 @@ async function phoneChecks(browser, base, check) {
     await p.tap('#tkMenu');
     const items = await p.evaluate(() => [...document.querySelectorAll('#tkMenuSheet button')].filter((b) => b.checkVisibility()).map((b) => b.textContent));
     const gluedKeys = await gluedLabels(p, '#tkMenuSheet button');
-    // (the order puts what acts on this machine first -- Programs…, Open…, Ask Claude… -- then the ports and the
+    // (the order puts what acts on this machine first -- Programs…, Open…, Ask Claude…, Share… -- then the ports and the
     // machine's own settings, then, under a rule, Commands… and the app-level items.)
-    check('phone sideways: the keys\' Menu lists Programs…, Open…, Ask Claude…, Tape, disks and cartridge…, Machine…, Settings…, Power…, Commands…, then Install and Hide keys, no label\'s words run together',
-      items.slice(0, 9).join('|') === 'Programs…|Open…|Ask Claude…|Tape, disks and cartridge…|Machine…|Settings…|Power…|Commands…|Install CLOADM…' && items.includes('Hide keys') && !gluedKeys.length, JSON.stringify({ items, gluedKeys }));
+    check('phone sideways: the keys\' Menu lists Programs…, Open…, Ask Claude…, Share…, Tape, disks and cartridge…, Machine…, Settings…, Power…, Commands…, then Install and Hide keys, no label\'s words run together',
+      items.slice(0, 10).join('|') === 'Programs…|Open…|Ask Claude…|Share…|Tape, disks and cartridge…|Machine…|Settings…|Power…|Commands…|Install CLOADM…' && items.includes('Hide keys') && !gluedKeys.length, JSON.stringify({ items, gluedKeys }));
     // "Tape, disks and cartridge…": one side sheet from the right, 360 px wide and the window's height, a 44 px tab each
     // switching in place; every port's controls can be reached; Esc closes it with the focus back on Menu
     await p.tap('#tkMenuSheet [data-item="ports"]');
@@ -16184,12 +16184,12 @@ async function uiQaChecks(browser, base, check) {
       f.wrap === 'wrap' && !/^8px( 8px){0,3}$/.test(f.padding), JSON.stringify(f));
     await uctx.close();
   }
-  // The landscape keys' Menu, in its settled order, each of its ten items reachable by a REAL tap at four landscape
-  // sizes. The three that act on this machine come first (Programs…, Open…, Ask Claude…), then the ports
+  // The landscape keys' Menu, in its settled order, each of its eleven items reachable by a REAL tap at four landscape
+  // sizes. What acts on this machine comes first (Programs…, Open…, Ask Claude…, Share…), then the ports
   // and the machine's own settings (Tape…, Machine…, Settings…, Power…), then under a rule Commands…, Install CLOADM…
   // and Hide keys. js/ui/touch-keys.js builds the sheet; the rule is a .tkmenu-sep span, so the row of BUTTONS is what
   // is walked.
-  const ORDER8 = ['programs', 'open', 'ask', 'ports', 'machine', 'settings', 'power', 'commands', 'install', 'hide'];
+  const ORDER8 = ['programs', 'open', 'ask', 'share', 'ports', 'machine', 'settings', 'power', 'commands', 'install', 'hide'];
   for (const [label, viewport] of [['659x343', { width: 659, height: 343 }], ['852x393', { width: 852, height: 393 }], ['844x390', { width: 844, height: 390 }], ['653x280', { width: 653, height: 280 }]]) {
     const octx = await browser.newContext({ viewport, hasTouch: true, isMobile: true, serviceWorkers: 'block' });
     const opage = await octx.newPage();
@@ -16216,9 +16216,9 @@ async function uiQaChecks(browser, base, check) {
       return { top: Math.round(r.top), bottom: Math.round(r.bottom), vh: innerHeight, scrolls: sheet.scrollHeight > sheet.clientHeight + 1,
         order, sepAfterPower, reach };
     }, ORDER8);
-    check(`ui qa (landscape ${label}, touch keys): the keys' Menu is in the UX order (Programs…, Open…, Ask Claude…, Tape…, Machine…, Settings…, Power…, rule, Commands…, Install…, Hide keys) and every item is reachable by a real tap`,
+    check(`ui qa (landscape ${label}, touch keys): the keys' Menu is in the UX order (Programs…, Open…, Ask Claude…, Share…, Tape…, Machine…, Settings…, Power…, rule, Commands…, Install…, Hide keys) and every item is reachable by a real tap`,
       JSON.stringify(o.order) === JSON.stringify(ORDER8) && o.sepAfterPower && o.top >= 0 && o.bottom <= o.vh && o.scrolls
-        && o.reach.length === 10 && o.reach.every((x) => x.inside && x.topmost && x.h >= 44),
+        && o.reach.length === 11 && o.reach.every((x) => x.inside && x.topmost && x.h >= 44),
       JSON.stringify(o));
     // Open…: triggers the program file input, whose accept is the desktop's (fileProgram)
     const acceptOf = (id) => opage.evaluate((id) => document.getElementById(id).getAttribute('accept'), id);
@@ -16254,6 +16254,18 @@ async function uiQaChecks(browser, base, check) {
       // bottom sheet spanned left 0..right vw). Measured at 653 it is 225..645 -- a 420 px panel down the right --
       // so the test is "not full width and right-aligned", not a fixed fraction of the width.
       askUp && ap.right >= ap.vw - 24 && ap.left >= 24 && ap.left > ap.vw * 0.25 && (ap.right - ap.left) < ap.vw - 24 && back, JSON.stringify({ askUp, ap, back }));
+    // Share…: a real tap opens the Share screen on this moment (the app bar's Share, which is out of sight sideways), and
+    // its "← Emulator" comes back to the keys
+    await opage.tap('#tkMenu');
+    await waitFor(opage, () => !document.getElementById('tkMenuSheet').hidden, null, 5000);
+    await opage.evaluate(() => document.querySelector('#tkMenuSheet [data-item="share"]')?.scrollIntoView({ block: 'center' }));
+    await opage.tap('#tkMenuSheet [data-item="share"]', { timeout: 3000 }).catch(() => {});   // (a missing item is a FAIL below, not a throw)
+    const shareUp = await waitFor(opage, () => location.hash === '#share' && document.getElementById('share').checkVisibility()
+      && /^https?:\/\/.+#s=/.test(document.getElementById('shareLink').value) && document.getElementById('tkMenuSheet').hidden, null, 15000);
+    if (shareUp) await opage.tap('#shareBack');
+    const shareBack = shareUp && await waitFor(opage, () => location.hash !== '#share' && !document.getElementById('touchKeys').hidden, null, 5000);
+    check(`ui qa (landscape ${label}, touch keys): Share… opens the Share screen with this moment's link, and ← Emulator comes back to the keys`, shareUp && shareBack,
+      JSON.stringify({ shareUp, shareBack, hash: await opage.evaluate(() => location.hash) }));
     check(`ui qa (landscape ${label}, touch keys): no page errors with the keys' Menu`, !oerrors.length, oerrors.join('; '));
     await octx.close();
   }
@@ -16295,10 +16307,38 @@ async function uiQaChecks(browser, base, check) {
     await epage.tap('#tkMenu');
     const eup = await waitFor(epage, () => !document.getElementById('tkMenuSheet').hidden, null, 5000);
     const eitems = await epage.evaluate(() => [...document.querySelectorAll('#tkMenuSheet button[data-item]')].filter((b) => b.checkVisibility()).map((b) => b.dataset.item));
-    check('ui qa (no chat, ?embed=1, sideways): the keys\' Menu is there but offers neither Ask Claude… nor Commands…, and nothing throws',
-      noChat && eup && !eitems.includes('ask') && !eitems.includes('commands') && eitems.includes('programs') && eitems.includes('hide') && !eerrors.length,
+    check('ui qa (no chat, ?embed=1, sideways): the keys\' Menu is there but offers neither Ask Claude… nor Commands…, nor Share… (an embed has no Share), and nothing throws',
+      noChat && eup && !eitems.includes('ask') && !eitems.includes('commands') && !eitems.includes('share') && eitems.includes('programs') && eitems.includes('hide') && !eerrors.length,
       JSON.stringify({ noChat, eup, eitems, eerrors }));
     await ectx.close();
+  }
+  // A page framed in another site that is NOT an embed (body.no-claude, not body.embed): no chat there, but the app bar's
+  // Share is, so the keys' Menu keeps Share… -- and it works: a real tap in the frame opens the Share screen with this
+  // moment's link. (Hiding Share… under no-claude would take it from these pages too: this check is red then.)
+  {
+    const fctx = await browser.newContext({ viewport: { width: 844, height: 390 }, hasTouch: true, isMobile: true, serviceWorkers: 'block' });
+    const fpage = await fctx.newPage();
+    const ferrors = [];
+    fpage.on('pageerror', (e) => ferrors.push(e.message));
+    await fpage.setContent(`<!doctype html><title>a blog</title><style>body{margin:0}iframe{border:0;width:100vw;height:100vh}</style><iframe src="${base}?machine=dragon64"></iframe>`);
+    let frame = null;
+    for (let i = 0; i < 100 && !frame; i++) { frame = fpage.frames().find((f) => f !== fpage.mainFrame() && /\/play\//.test(f.url())) || null; if (!frame) await fpage.waitForTimeout(100); }
+    const inFrame = (fn, ms = 15000) => (async () => { for (let t = 0; t < ms; t += 100) { if (await frame.evaluate(fn).catch(() => false)) return true; await fpage.waitForTimeout(100); } return false; })();
+    const up = !!frame && await inFrame(() => window.emu && window.emu.started && !document.getElementById('touchKeys').hidden && document.body.classList.contains('touch-keys'), 60000);
+    const kind = up ? await frame.evaluate(() => ({ framed: window.top !== window, noChat: document.body.classList.contains('no-claude'), embed: document.body.classList.contains('embed') })) : null;
+    if (up) await frame.tap('#tkMenu');
+    const open = up && await inFrame(() => !document.getElementById('tkMenuSheet').hidden, 5000);
+    const fitems = open ? await frame.evaluate(() => [...document.querySelectorAll('#tkMenuSheet button[data-item]')].filter((b) => b.checkVisibility()).map((b) => b.dataset.item)) : [];
+    if (fitems.includes('share')) {
+      await frame.evaluate(() => document.querySelector('#tkMenuSheet [data-item="share"]').scrollIntoView({ block: 'center' }));
+      await frame.tap('#tkMenuSheet [data-item="share"]');
+    }
+    const shared = fitems.includes('share') && await inFrame(() => location.hash === '#share' && document.getElementById('share').checkVisibility()
+      && /#s=/.test(document.getElementById('shareLink').value));
+    check('ui qa (framed in another site, not an embed, sideways): no chat there, but the keys\' Menu keeps Share… right after Open…, and a real tap opens the Share screen with this moment\'s link',
+      !!kind && kind.framed && kind.noChat && !kind.embed && fitems.indexOf('share') === fitems.indexOf('open') + 1 && !fitems.includes('ask') && shared && !ferrors.length,
+      JSON.stringify({ up, kind, open, fitems, shared, ferrors }));
+    await fctx.close();
   }
   // the program, and the toast's job is to say so without hiding what it started. Measured with bounding boxes: the
   // toast's rect against the title row's, the row taken from the canvas grid (32 x 16 cells) at the row the machine's
@@ -19464,11 +19504,11 @@ async function mobileChecks(browser, base, check) {
     const items = await page.evaluate(() => [...document.querySelectorAll('#tkMenuSheet button')].filter((e) => e.checkVisibility()).map((e) => e.textContent));
     await tap(page, '#tkMenuSheet [data-item="machine"]');
     const picker = await page.evaluate(() => { const m = document.getElementById('machineMenu'), r = m.getBoundingClientRect(); return { shown: !m.hidden && m.checkVisibility() && r.width > 0, inView: r.top >= 0 && r.bottom <= innerHeight + 1, first: document.elementFromPoint(r.left + 40, r.top + 40)?.closest('#machineMenu') === m }; });
-    // (the landscape keys' Menu order: what acts on this machine first -- Programs…, Open…, Ask Claude…, Tape…, Machine…,
+    // (the landscape keys' Menu order: what acts on this machine first -- Programs…, Open…, Ask Claude…, Share…, Tape…, Machine…,
     // Settings…, Power… -- then under a rule Commands…, Install CLOADM… and Hide keys. This page has a chat, so Ask
     // Claude… and Commands… are both present.)
-    check('mobile (734x343): the panel\'s Menu is Programs…, Open…, Ask Claude…, Tape, disks and cartridge…, Machine…, Settings…, Power…, Commands…, Install CLOADM… and Hide keys; Machine… opens the machine picker, on screen and on top',
-      items.join() === 'Programs…,Open…,Ask Claude…,Tape, disks and cartridge…,Machine…,Settings…,Power…,Commands…,Install CLOADM…,Hide keys' && picker.shown && picker.inView && picker.first, JSON.stringify({ items, picker }));
+    check('mobile (734x343): the panel\'s Menu is Programs…, Open…, Ask Claude…, Share…, Tape, disks and cartridge…, Machine…, Settings…, Power…, Commands…, Install CLOADM… and Hide keys; Machine… opens the machine picker, on screen and on top',
+      items.join() === 'Programs…,Open…,Ask Claude…,Share…,Tape, disks and cartridge…,Machine…,Settings…,Power…,Commands…,Install CLOADM…,Hide keys' && picker.shown && picker.inView && picker.first, JSON.stringify({ items, picker }));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, 'mobile-734x343-machine-picker.png') });
     await page.keyboard.press('Escape');
     check('mobile (734x343): Esc closes the picker, and the app bar gives way to the panel again', picker.shown && await until(page, () => document.getElementById('machineMenu').hidden && !document.body.classList.contains('machine-pick')

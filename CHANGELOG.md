@@ -233,6 +233,10 @@ Next version: 0.1.9-pre (the plugin and extension manifests carry it; `tests/plu
 
 ### Changed
 
+- **Share… in the landscape keys' Menu.** Held sideways the app bar gives way to the keys, so its Share was out of reach;
+  the keys' Menu now has **Share…** right after Ask Claude…, opening the Share screen on this moment. It is there in a
+  page framed in another site too (no chat there, Share all the same), and not in an embed, which has no Share.
+
 - **The Share screen's link and time.** The long snapshot link is labelled **Exact moment (long link)**, and the
   card under the picture says when it was captured relative to now ("captured just now", "captured 3 minutes ago",
   then hours or days), not a clock time (`capturedAgo`, `tests/share-ago.test.js`).
