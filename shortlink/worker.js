@@ -203,7 +203,7 @@ async function takeToday(env, now, cap) {
   if (!ok) throw new Refused(503, 'Too many short links are being made right now: try again in a moment.');
 }
 export function statsPage(c) {
-  const rows = [['Short links made', c.created], [`Short links opened${c.openedThrough ? ` (to the end of ${c.openedThrough})` : ''}`, c.opened],
+  const rows = [['Short links made', c.created], [`Short links opened, approximately${c.openedThrough ? ` (to the end of ${c.openedThrough})` : ''}`, c.opened],
     ['Short links deleted by whoever made them', c.removed]];
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
@@ -211,6 +211,7 @@ export function statsPage(c) {
 <style>body{margin:0;padding:24px;background:#0B0D0C;color:#E8EDE9;font:16px/1.5 system-ui,sans-serif}td{padding:4px 16px 4px 0}td+td{text-align:right}</style></head>
 <body><main><h1>CLOADM short links: totals</h1>
 <table>${rows.map(([k, v]) => `<tr><td>${esc(k)}</td><td>${Number(v) | 0}</td></tr>`).join('')}</table>
+<p>Opens are approximate: they come from Cloudflare's sampled analytics, and a browser revalidating a copy it already has (304) is not counted.</p>
 <p>Totals only: no addresses and nothing about who made or opened a link is kept.</p></main></body></html>
 `;
 }

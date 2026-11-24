@@ -31,7 +31,9 @@ written is skipped rather than holding up the request. No address, user agent or
 a Cron Trigger runs the Worker's `scheduled` handler, which asks Cloudflare's GraphQL Analytics API for the zone's
 successful `GET`s of `s.cloadm.dev/<id>.bin` (the page fetches a link's moment once per open; cached answers are
 counted too, as the zone's HTTP analytics see them) for each UTC day not yet counted, up to yesterday and at most 30
-days back, and adds the total. A failed run adds nothing; the next one counts the same days. The query asks for a count
+days back, and adds the total. A failed run adds nothing; the next one counts the same days. If the cron stops for more than 30 days, the days before
+those 30 are skipped and never counted. The total is approximate: the analytics are sampled, and a browser revalidating
+a copy it already has (a 304) is not counted; the stats page says so. The query asks for a count
 only, nothing about who.
 
 **Program starts are not counted.** A start counter (for WYRMFIRE) would need the zone's analytics to see the program

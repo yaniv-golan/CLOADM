@@ -148,8 +148,9 @@ const sealed = (n = 3000, seed = 1) => Uint8Array.from({ length: n }, (_, i) => 
 
     }
     const stats = env.BUCKET.text('stats/');
-    check('the public totals page (stats/): the totals, nothing per person', /Short links made<\/td><td>3</.test(stats) && /Short links opened \(to the end of 2026-11-28\)<\/td><td>15</.test(stats)
-      && /Short links deleted by whoever made them<\/td><td>1</.test(stats));
+    check('the public totals page (stats/): the totals, nothing per person', /Short links made<\/td><td>3</.test(stats) && /Short links opened, approximately \(to the end of 2026-11-28\)<\/td><td>15</.test(stats)
+      && /Short links deleted by whoever made them<\/td><td>1</.test(stats)
+      && /Opens are approximate: they come from Cloudflare's sampled analytics, and a browser revalidating a copy it already has \(304\) is not counted\./.test(stats));
     const everything = [...env.BUCKET.objects.values()].map((o) => new TextDecoder('latin1').decode(o.bytes) + JSON.stringify(o.customMetadata)).join('\n');
     check('no address is stored anywhere, nor the analytics token', !everything.includes(IP) && !everything.includes('203.0.113') && !everything.includes('test-analytics-token'));
     // a count written by someone else between the Worker's read and its write (a link made, landing first) is kept:
