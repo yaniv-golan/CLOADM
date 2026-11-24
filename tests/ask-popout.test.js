@@ -32,16 +32,16 @@ const BASE = 'https://cloadm.example/play/';
     && u.searchParams.get('machine') === 'dragon64' && u.searchParams.get('app') === 'claude', r.href.slice(0, 120));
   check('carried: never embed=1 (nor any embed parameter)', !u.searchParams.has('embed') && !/embed/.test(u.search), u.search);
   check('carried: the snapshot rides in the fragment (#z=), as the Share screen\'s link does', /^#z=[A-Za-z0-9_-]+$/.test(u.hash), u.hash.slice(0, 20));
-  const snap = await s.readLongLink(u.hash);
+  const snap = await s.readSnapshotLink(u.hash);
   check('carried: the snapshot is this machine (Dragon 64)', snap && snap.machine === 'dragon64', snap && snap.machine);
   // open it in another session: the moment is this one (the bytes poked above are in its RAM)
   const t = new Emu.Session({ store: Emu.memoryStore(), media: new Emu.MemoryMediaStore() });
   await t.ready();
-  await t.openSnapshot(await t.readLongLink(u.hash));
+  await t.openSnapshot(await t.readSnapshotLink(u.hash));
   check('carried: opened elsewhere, the snapshot is this moment (the marker bytes are in RAM)',
     [0, 1, 2].map((i) => t.shownMachine.read(0x3000 + i)).join() === [0xA5, 0x5A, 0x13].join(), [0, 1, 2].map((i) => t.shownMachine.read(0x3000 + i)).join());
   // the same parameters as the Share screen's link, plus app=claude
-  const share = new URL(await s.longLink(BASE));
+  const share = new URL(await s.snapshotLink(BASE));
   share.searchParams.set('app', 'claude');
   check('carried: the same query as the Share screen\'s link, with app=claude added', share.search === u.search, `${share.search} vs ${u.search}`);
   check('carried: the parsed link opens the chat and no embed', (() => { const c = parseUrlConfig(u.search); return c.app === 'claude' && c.embed === null && !c.errors.length; })(),

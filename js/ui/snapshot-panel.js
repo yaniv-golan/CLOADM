@@ -64,7 +64,7 @@ export function setupSnapshotPanel(page, { confirmSwitch, openRoms }) {
   // a share link's snapshot (the #s= fragment): opened as a dropped file would be; the fragment is then removed
   async function takeLink(hash) {
     let snap;
-    try { snap = await session.readLongLink(hash); }
+    try { snap = await session.readSnapshotLink(hash); }
     catch (e) { if (!(e instanceof SessionError)) throw e; page.status(e.message, true); history.replaceState(null, '', location.pathname + location.search); return true; }
     if (!snap) return false;
     history.replaceState(null, '', location.pathname + location.search);

@@ -10655,7 +10655,7 @@ async function urlChecks(browser, base, check) {
     s.switchMachine('dragon64');
     for (let i = 0; i < 30; i++) s.shownMachine.runFrame();
     s.shownMachine.poke(0x3000, 0xA7);
-    const hash = new URL(await s.longLink('https://cloadm.dev/play/')).hash;
+    const hash = new URL(await s.snapshotLink('https://cloadm.dev/play/')).hash;
     await page.goto(`${new URL('../', base).href}2048/${hash}`);
     await page.waitForURL(/\/play\/\?start=2048/, { timeout: 15000 }).catch(() => {});
     const opened = await waitFor(page, () => !!window.emu && window.emu.linkDone === true && window.emu.machine.read(0x3000) === 0xA7, null, 20000);
@@ -16051,7 +16051,7 @@ async function shareChecks(browser, base, site, check) {
       else if (who === 'another version') check('share link, recipient with another version: refused with a clear message, nothing opens', /another version of 32K-mode BASIC/.test(r.needs || r.msg) && r.mem !== held, r.needs || r.msg);
       else {
         // the page opened it; and opened again through the Session, compared before a frame runs, it is the moment
-        const exact = await rp.evaluate(async (link) => { const s = window.emu.session; s.openSnapshot(await s.readLongLink(new URL(link).hash));
+        const exact = await rp.evaluate(async (link) => { const s = window.emu.session; s.openSnapshot(await s.readSnapshotLink(new URL(link).hash));
           return window.emu.Emu.state.toJSON(s.shownMachine.snapshot().state.memory); }, shared.link);
         check('share link, recipient with the same ROMs: it opens, exactly the moment (memory rebuilt from their ROMs)', /Snapshot opened: Dragon 64/.test(r.msg) && exact === held, r.msg);
       }
@@ -19897,7 +19897,7 @@ async function askPopoutChecks(browser, site, check) {
     const a = document.getElementById(id), r = a.getBoundingClientRect(), bar = document.getElementById('appbar').getBoundingClientRect();
     const u = a.href ? new URL(a.href) : null;
     let snap = null;
-    try { snap = u && u.hash ? await window.emu.session.readLongLink(u.hash) : null; } catch (e) { snap = { error: e.message }; }
+    try { snap = u && u.hash ? await window.emu.session.readSnapshotLink(u.hash) : null; } catch (e) { snap = { error: e.message }; }
     return { text: a.textContent.trim(), shown: a.checkVisibility() && r.width > 0 && r.height > 0, inBar: r.top >= bar.top - 1 && r.bottom <= bar.bottom + 1,
       query: u && u.search, target: a.target, rel: a.rel, title: a.title, desc: a.getAttribute('aria-description'), carried: a.dataset.carried,
       app: u && u.searchParams.get('app'), embed: u ? [...u.searchParams.keys()].filter((k) => /embed/.test(k)) : null, machine: u && u.searchParams.get('machine'),

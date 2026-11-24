@@ -461,28 +461,28 @@ const picture = (m) => { let h = 0x811C9DC5; for (const v of m.render().data) h 
     s.switchMachine('coco3', { ram: 128 });
     for (let i = 0; i < 30; i++) s.shownMachine.runFrame();
     s.shownMachine.poke(0x2000, 0x5A);
-    const link = await s.longLink('https://cloadm.dev/play/?start=liza#share');
+    const link = await s.snapshotLink('https://cloadm.dev/play/?start=liza#share');
     const u = new URL(link);
     check('share link: /play/ with the machine and its options, the snapshot after #z= in base64url (tests/long-link.test.js: the form)',
       u.pathname === '/play/' && u.search === '?machine=coco3&cpu=6809&ram=128&becker=0&ssc=none' && /^#z=[A-Za-z0-9_-]+$/.test(u.hash), link.slice(0, 90));
     const ref = run(s.shownMachine, 0);
     const b = new Emu.Session();
     b.switchMachine('dragon64');
-    const snap = await b.readLongLink(u.hash);
+    const snap = await b.readSnapshotLink(u.hash);
     b.openSnapshot(snap);
     check('share link: read back in a fresh Session, the same machine, config and memory', b.shownMachine.id === 'coco3' && b.shownMachine.config.ram === 128
       && run(b.shownMachine, 0) === ref && b.shownMachine.peek(0x2000) === 0x5A);
-    check('share link: no #z= or #s= is no snapshot', (await b.readLongLink('#share')) === null && (await b.readLongLink('')) === null);
-    const cut = await rejects(b.readLongLink(u.hash.slice(0, u.hash.length - 300)));
-    const bad = await rejects(b.readLongLink('#z=not*base64!'));
-    const junk = await rejects(b.readLongLink('#s=' + Buffer.from('hello').toString('base64url')));
+    check('share link: no #z= or #s= is no snapshot', (await b.readSnapshotLink('#share')) === null && (await b.readSnapshotLink('')) === null);
+    const cut = await rejects(b.readSnapshotLink(u.hash.slice(0, u.hash.length - 300)));
+    const bad = await rejects(b.readSnapshotLink('#z=not*base64!'));
+    const junk = await rejects(b.readSnapshotLink('#s=' + Buffer.from('hello').toString('base64url')));
     check('share link: cut short, changed or not a snapshot: "damaged", as a SessionError', [cut, bad, junk].every((e) => e instanceof Emu.SessionError && /This link's snapshot is damaged/.test(e.message)),
       [cut, bad, junk].map((e) => e && e.message).join(' | '));
     // with ROMs or a cartridge the link is made too, without their bytes (tests/share-roms.test.js checks the bytes)
     const r = new Emu.Session();
     r.switchMachine('dragon64');
     r.shownMachine.setRoms({ basic: fake(0x4000, 7) });
-    const withRoms = await r.readLongLink(new URL(await r.longLink('https://cloadm.dev/play/')).hash);
+    const withRoms = await r.readSnapshotLink(new URL(await r.snapshotLink('https://cloadm.dev/play/')).hash);
     check('share link: with your own ROMs, made; it names them by CRC', withRoms.roms.basic === Emu.crc32(fake(0x4000, 7))
       && withRoms.share.images.some((x) => x.kind === 'rom' && x.crc === withRoms.roms.basic));
     check('base64url round trip, every byte value', (() => { const all = Uint8Array.from({ length: 256 * 3 + 1 }, (_, i) => (i * 7) & 0xFF);

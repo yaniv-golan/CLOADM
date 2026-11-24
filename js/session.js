@@ -1734,7 +1734,7 @@ export class Session {
     return new URL(`${/\/play\/$/.test(here.pathname) ? '../' : ''}${id}/`, here).href;
   }
   // The link a page shown inside another site offers in place of the chat ("Ask Claude ↗", js/ui/ask-popout.js): this
-  // moment, as the Share screen's link carries it (longLink), with app=claude, so it opens top-level in a new tab
+  // moment, as the Share screen's link carries it (snapshotLink), with app=claude, so it opens top-level in a new tab
   // with the chat. Never embed=1 (buildUrl writes only what it is given). A moment that cannot be carried (NitrOS-9
   // runs: its memory is the person's own NitrOS-9; or a snapshot that can't be shared) gives a fresh CLOADM on the same
   // machine with app=claude instead. -> { href, carried }
@@ -1753,10 +1753,10 @@ export class Session {
   // openSnapshot (switches if needed, sets the same ROMs from this browser's or the stub, restores).
 
   // the long link (Share): this machine's link with the moment in the fragment (#z=, base64url of
-  // js/media/snapshot.js encodeLongLink, so it never reaches a server). Opening it: readLongLink,
+  // js/media/snapshot.js encodeLongLink, so it never reaches a server). Opening it: readSnapshotLink,
   // then the usual snapshot flow. The snapshot is the shared one (shareFile): no byte of a ROM or cartridge image, only
   // references to them. file: a shareFile already made for this moment (the Share screen offers both), or made here
-  async longLink(base, file = null) {
+  async snapshotLink(base, file = null) {
     const f = file || await this.shareFile();
     return `${this.shareUrl(base).split('#')[0]}#z=${toBase64Url(await encodeLongLink(f.moment.snap, f.moment.meta))}`;
   }
@@ -1831,7 +1831,7 @@ export class Session {
     catch (e) { throw new SessionError(`This snapshot can't be shared: ${e.message}. Share the picture or a clip instead.`); }
     const meta = { name: m.profile.name, taken: now.toISOString() };
     const bytes = await encodeSnapshot(snap, meta);
-    // moment: what the file holds, for longLink to write the same moment in the link's form
+    // moment: what the file holds, for snapshotLink to write the same moment in the link's form
     return { name: `${m.profile.name.replace(/[^A-Za-z0-9]+/g, '')}-${stamp(now)}${SNAPSHOT_EXT}`, bytes, needs: snap.share.images, dropped: snap.share.dropped, moment: { snap, meta } };
   }
   // Can ROM code be in the machine's memory? 'roms' (the user's own ROMs are loaded), 'cartridge' (a cartridge is
@@ -1850,9 +1850,9 @@ export class Session {
     return null;
   }
   // a URL's fragment -> the snapshot, null when it has none; SessionError when it is damaged. '#z=' is the link form
-  // longLink writes (js/media/snapshot.js decodeLongLink; its picture is drawn again on the next frame);
+  // snapshotLink writes (js/media/snapshot.js decodeLongLink; its picture is drawn again on the next frame);
   // '#s=' (base64url of a .cloadm file) is what earlier versions wrote, and is read for good.
-  async readLongLink(hash) {
+  async readSnapshotLink(hash) {
     const m = /^#?([sz])=(.*)$/.exec(hash || '');
     if (!m) return null;
     const damaged = new SessionError('This link\'s snapshot is damaged: it was cut short or changed on the way.');

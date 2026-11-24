@@ -10,7 +10,7 @@
  *    (js/media/qr.js), the "Show a preview picture" switch (on by default; the picture is public) and "Delete this link"
  *    (its delete token kept in this browser, localStorage cloadm.shortLinks). Where it can't be made (offline, a moment
  *    on ROMs, a cartridge, NitrOS-9: Session.shortLinkRefusal) the button is switched off and the reason is beside it.
- *  - the long link, "Exact moment · works offline, never expires" (Session.longLink: the snapshot rides in the URL's
+ *  - the long link, "Exact moment · works offline, never expires" (Session.snapshotLink: the snapshot rides in the URL's
  *    fragment, which never reaches a server; js/ui/snapshot-panel.js opens it), with Share... (navigator.share, the URL
  *    only, where canShare allows it) and Copy link.
  * "More ways to share" (collapsed): a 6-second clip of the screen (MediaRecorder: MP4 where the browser records it, WebM
@@ -96,7 +96,7 @@ export function setupShare(page, { linkStore }) {
     // link for it, so with the chat full screen this must ask about the chat, as shareUrl does.
     const n9 = session.nitros9OnScreen;
     const file = n9 ? null : await session.shareFile();
-    const link = n9 ? session.shareUrl(location.href) : await session.longLink(location.href, file);
+    const link = n9 ? session.shareUrl(location.href) : await session.snapshotLink(location.href, file);
     const png = await new Promise((ok) => c.toBlob(ok, 'image/png'));
     captured = { at: Date.now(), file, png, link, base: file ? file.name.replace(/\.cloadm$/, '') : `${m.profile.name.replace(/[^A-Za-z0-9]+/g, '')}-NitrOS-9` };
     const dl = $('btnShareDownload');

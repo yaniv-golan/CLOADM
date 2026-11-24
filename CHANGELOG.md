@@ -9,7 +9,6 @@ All notable changes to CLOADM are recorded here. The format follows
 Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.test.js` keeps them in step).
 
 ### Added
-
 - **Shorter long links.** The Share screen's long link (and "Ask Claude ↗") now carries the moment after `#z=`: a version
   byte, then deflate-raw of the snapshot as a JSON skeleton plus its raw byte arrays, without the rendered picture
   (drawn again on the first frame after opening). LIZA's link goes from about 8,400 to 4,900 characters, 2048's from
@@ -26,6 +25,7 @@ Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.
 - **Program pages.** cloadm.dev/2048/, /liza/ and /minesweeper/ each have their own link preview (title, description
   and a 1200x630 picture of the program on the built-in firmware, made by `tools/program-cards.js`), a Play button, and
   go straight to the start link `/play/?start=<program>`. They work offline like the rest of the site. One entry in
+  `js/program-pages.js` makes a page; `Session.programPageUrl(id, base)` gives its address.
 
 ### 0.2.0
 
@@ -53,8 +53,6 @@ Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.
   `.dmp` or `.mem` file, or a file with no extension (in any letter case) still does. Open… and the Library's picker no
   longer offer `.img` files, which open from the NitrOS-9 and DriveWire panels. `Session.unopenable`;
   `tests/unopenable.test.js` checks the list against the Open… picker.
-
-  `js/program-pages.js` makes a page; `Session.programPageUrl(id, base)` gives its address.
 
 - **Open CLOADM, and the offline copy only when needed.** The side panel's two tools are now **Open CLOADM**
   (`open_emulator`, "Opens the CLOADM emulator in a panel beside the chat. Use this first.") and **Open CLOADM

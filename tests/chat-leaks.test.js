@@ -577,8 +577,8 @@ const REQUIRED = require.main !== module;
     'drives.checkNotInDrive', 'codeAt', 'cpuRate', 'drives.activity', 'drives.dosChoices', 'drives.status', 'driveWireFile',
     'driveWireImages', 'gameFile', 'inspect', 'unopenable', 'drives.list', 'listMedia', 'listSlots', 'lizaNeeds', 'machineRoms',
     'machineTicket', 'machinesWithRoms', 'nitros9Images', 'nitros9Loader', 'nitros9On', 'printoutFile', 'printoutText',
-    'readSlot', 'readSnapshot', 'readLongLink', 'recentMedia', 'sameName', 'savedConfig', 'screenText',
-    'shareFile', 'shareUrl', 'slotBytes', 'longLink', 'snapshotRoms', 'snapshotSwitch', 'sscRoms', 'statusLine',
+    'readSlot', 'readSnapshot', 'readSnapshotLink', 'recentMedia', 'sameName', 'savedConfig', 'screenText',
+    'shareFile', 'shareUrl', 'slotBytes', 'snapshotLink', 'snapshotRoms', 'snapshotSwitch', 'sscRoms', 'statusLine',
     'takenOut', 'tapeStatus', 'welcomeFile', 'welcomeRunning', 'drives.preferredDos', 'storedRoms',
     // uniqueName lists the library to find a free name (it writes nothing); recordingName names .CAS bytes (pure)
     'uniqueName', 'recordingName',

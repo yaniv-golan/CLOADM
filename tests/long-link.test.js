@@ -74,7 +74,7 @@ const link = (box, version = 1) => new Uint8Array(Buffer.concat([Buffer.from([ve
     m.runCycles(m.frameBase + (m.frameCycles >> 2));
     m.poke(0x4000 & (m.memoryArray().length - 1), 0xA5);
     const file = await s.shareFile(new Date('2026-11-23T10:00:00Z'));
-    const url = await s.longLink('https://cloadm.dev/play/', file);
+    const url = await s.snapshotLink('https://cloadm.dev/play/', file);
     const u = new URL(url);
     check(`${id}: the link is /play/ with the machine, the moment after #z=`, u.pathname === '/play/' && new URLSearchParams(u.search).get('machine') === id && /^#z=[A-Za-z0-9_-]+$/.test(u.hash), url.slice(0, 80));
     const old = `${url.split('#')[0]}#s=${Emu.toBase64Url(file.bytes)}`;
@@ -82,12 +82,12 @@ const link = (box, version = 1) => new Uint8Array(Buffer.concat([Buffer.from([ve
     const want = run(m, 12, 1);
     const b = new Emu.Session();
     b.switchMachine('dragon64');
-    b.openSnapshot(await b.readLongLink(u.hash));
+    b.openSnapshot(await b.readSnapshotLink(u.hash));
     check(`${id}: opened from #z= in another Session, it runs on identically (instructions, cycles, frames after the first, memory)`, b.shownMachine.id === id && run(b.shownMachine, 12, 1) === want);
     // a link from an earlier version: the .cloadm file in base64url, picture and all
     const c = new Emu.Session();
     c.switchMachine('dragon64');
-    c.openSnapshot(await c.readLongLink(new URL(old).hash));
+    c.openSnapshot(await c.readSnapshotLink(new URL(old).hash));
     check(`${id}: an older #s= link still opens, and runs on identically (its picture included)`, c.shownMachine.id === id && run(c.shownMachine, 12, 0) === run(Emu.restoreSnapshot(await Emu.decodeSnapshot(file.bytes), {}), 12, 0));
   }
 
@@ -102,7 +102,7 @@ const link = (box, version = 1) => new Uint8Array(Buffer.concat([Buffer.from([ve
       else s.runGame(what, fs.readFileSync(path.join(__dirname, '../examples', s.gameFile(what))));
       for (let i = 0; i < 120; i++) s.shownMachine.runFrame();
       const f = await s.shareFile();
-      const z = await s.longLink('https://cloadm.dev/play/', f);
+      const z = await s.snapshotLink('https://cloadm.dev/play/', f);
       const old = `${s.shareUrl('https://cloadm.dev/play/').split('#')[0]}#s=${Emu.toBase64Url(f.bytes)}`;
       // the design measured 50% (LIZA) and 64% (2048, whose memory compresses less): hold the line at 70% so a regression
       // in the form shows
@@ -114,7 +114,7 @@ const link = (box, version = 1) => new Uint8Array(Buffer.concat([Buffer.from([ve
   {
     const s = new Emu.Session();
     s.switchMachine('dragon64');
-    const good = new URL(await s.longLink('https://cloadm.dev/play/')).hash;
+    const good = new URL(await s.snapshotLink('https://cloadm.dev/play/')).hash;
     const damaged = (e) => e instanceof Emu.SessionError && /This link's snapshot is damaged/.test(e.message);
     const cases = {
       'cut short': good.slice(0, good.length - 200),
@@ -133,12 +133,12 @@ const link = (box, version = 1) => new Uint8Array(Buffer.concat([Buffer.from([ve
       'bad JSON': '#z=' + Buffer.from(link(container('{"format":', []))).toString('base64url'),
     };
     for (const [what, hash] of Object.entries(cases)) {
-      const e = await rejects(s.readLongLink(hash));
+      const e = await rejects(s.readSnapshotLink(hash));
       check(`refused, as damaged: ${what}`, damaged(e), e ? e.message : 'accepted');
     }
-    const newer = await rejects(s.readLongLink('#z=' + Buffer.from(link(Buffer.from('x'), 2)).toString('base64url')));
+    const newer = await rejects(s.readSnapshotLink('#z=' + Buffer.from(link(Buffer.from('x'), 2)).toString('base64url')));
     check('a link from a newer CLOADM says so, as a SessionError', newer instanceof Emu.SessionError && /newer CLOADM \(link format 2; this page reads 1\)/.test(newer.message), newer && newer.message);
-    const future = await rejects(s.readLongLink('#z=' + Buffer.from(link(container('{"format":"cloadm-state","version":99,"machine":"dragon64","config":{},"roms":{},"state":{}}', []))).toString('base64url')));
+    const future = await rejects(s.readSnapshotLink('#z=' + Buffer.from(link(container('{"format":"cloadm-state","version":99,"machine":"dragon64","config":{},"roms":{},"state":{}}', []))).toString('base64url')));
     check('a snapshot version from a newer CLOADM says so', future instanceof Emu.SessionError && /newer CLOADM \(format version 99/.test(future.message), future && future.message);
     const machine = await rejects(Emu.decodeLongLink(link(container('{"format":"cloadm-state","version":4,"machine":"zx81","config":{},"roms":{},"state":{}}', []))));
     check('a machine this CLOADM lacks: named', machine instanceof Emu.SnapshotError && /\(zx81\)/.test(machine.message), machine && machine.message);
@@ -146,7 +146,7 @@ const link = (box, version = 1) => new Uint8Array(Buffer.concat([Buffer.from([ve
     const bomb = new Uint8Array(Buffer.concat([Buffer.from([1]), zlib.deflateRawSync(Buffer.alloc(4 << 20))]));
     const big = await rejects(Emu.decodeLongLink(bomb, { maxBytes: 1 << 20 }));
     check('a link that unpacks past the limit is refused', big instanceof Emu.SnapshotError && /far more than any CLOADM snapshot/.test(big.message), `${bomb.length} bytes; ${big && big.message}`);
-    check('no #z= or #s= is no snapshot', (await s.readLongLink('#zz=1')) === null && (await s.readLongLink('#share')) === null && (await s.readLongLink('')) === null);
+    check('no #z= or #s= is no snapshot', (await s.readSnapshotLink('#zz=1')) === null && (await s.readSnapshotLink('#share')) === null && (await s.readSnapshotLink('')) === null);
   }
 
   console.log(fail ? `${fail} FAILED` : 'all passed');
