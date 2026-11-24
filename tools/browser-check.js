@@ -8965,7 +8965,7 @@ async function layoutChecks(browser, base, check) {
       && await page.textContent('#btnShare') === 'Share');
     check(`layout (${label}): first visit shows "No BASIC · Add ROMs" (a phone: Menu's first item, a dot on Menu) and the sound pill`,
       (label === 'phone' ? await page.evaluate(() => document.getElementById('btnMenu').classList.contains('dot') && !document.getElementById('navRoms').hidden) : await page.isVisible('#romPill')) && await page.isVisible('#soundHint')
-      && /No ROMs needed · click anywhere for sound/.test(await page.textContent('#soundHint')));
+      && /^Click or press a key for sound$/.test(await page.textContent('#soundHint')));
     if (label === 'desktop') {
       check('layout (desktop): the screen fills the first view', await page.evaluate(() => { const r = document.getElementById('screen').getBoundingClientRect(); return r.bottom <= innerHeight && r.width >= 640; }));
       check('layout (desktop): the drawer is beside the screen', await page.evaluate(() => document.querySelector('.drawer').getBoundingClientRect().left > document.getElementById('monitor').getBoundingClientRect().right));
@@ -15383,11 +15383,11 @@ async function emulatorBackChecks(browser, base, check) {
 }
 
 // The controls under the screen stay put on a first visit. #screenNotes is one line of fixed height with one note
-// in it at a time ("click for sound", then the key hint, then nothing), and the monitor leaves room for it, so Reset is
+// in it at a time ("click for sound", then the key hint, then the typing line), and the monitor leaves room for it, so Reset is
 // inside the window and does not move when a note comes or goes (sound starts, the key hint finishes, the boot help
 // shows and hides).
 async function foldChecks(browser, base, check) {
-  const NOTE_TEXT = { sound: 'No ROMs needed · click anywhere for sound', keys: 'Esc = BREAK · Home = CLEAR · Backspace = ←' };
+  const NOTE_TEXT = { sound: 'Click or press a key for sound', keys: 'Esc = BREAK · Home = CLEAR · Backspace = ←', typing: 'Typing goes to the machine · Tab leaves the screen' };
   const probe = (page) => page.evaluate(() => {
     const vis = (id) => { const e = document.getElementById(id); return !!e && !e.hidden && getComputedStyle(e).display !== 'none' && getComputedStyle(e).visibility !== 'hidden'; };
     const notes = document.getElementById('screenNotes'), r = document.getElementById('btnReset').getBoundingClientRect(), n = notes.getBoundingClientRect(), s = getComputedStyle(notes);
@@ -15417,7 +15417,7 @@ async function foldChecks(browser, base, check) {
     at.sound = await probe(page);
     check(`${L}: sound started: the key hint takes the line (one note, the sound note is gone)`, at.sound.notesShown && at.sound.text.length === 1 && at.sound.text[0] === NOTE_TEXT.keys, JSON.stringify(at.sound));
     await bootToggle(true); at.bootOn2 = await probe(page);
-    check(`${L}: the boot help showing takes the key hint's place (the line stays, empty)`, at.bootOn2.boot && at.bootOn2.notesShown && at.bootOn2.text.length === 0, JSON.stringify(at.bootOn2));
+    check(`${L}: the boot help showing takes the key hint's place (the line stays, with the typing line)`, at.bootOn2.boot && at.bootOn2.notesShown && JSON.stringify(at.bootOn2.text) === JSON.stringify([NOTE_TEXT.typing]), JSON.stringify(at.bootOn2));
     await bootToggle(false); at.bootOff2 = await probe(page);
     await waitFor(page, () => !document.getElementById('keyHint').hidden);
     at.keys = await probe(page);
@@ -15426,7 +15426,7 @@ async function foldChecks(browser, base, check) {
     await waitFor(page, () => document.getElementById('keyHint').hidden);
     await emuFrames(page, 2);
     at.done = await probe(page);
-    check(`${L}: the hints done: an empty line that keeps its height (still laid out, nothing in it)`, at.done.notesShown && at.done.text.length === 0 && at.done.notesH === at.load.notesH, JSON.stringify(at.done));
+    check(`${L}: the hints done: the typing line, alone, at the line's height`, at.done.notesShown && JSON.stringify(at.done.text) === JSON.stringify([NOTE_TEXT.typing]) && at.done.notesH === at.load.notesH, JSON.stringify(at.done));
     const ys = Object.entries(at).map(([k, v]) => [k, v.resetY]), heights = new Set(Object.values(at).map((v) => v.notesH)), tops = new Set(Object.values(at).map((v) => v.notesY));
     check(`${L}: Reset's y is identical (0 px) across load, sound starting, the key hint, the boot help showing and hiding, and the hint finishing`,
       new Set(ys.map(([, y]) => y)).size === 1 && heights.size === 1 && tops.size === 1, JSON.stringify(ys));
@@ -15440,8 +15440,8 @@ async function foldChecks(browser, base, check) {
     await waitFor(page, () => document.getElementById('soundHint').hidden, null, 5000);
     await emuFrames(page, 2);
     const r1 = await probe(page);
-    check(`${L}: a returning visit: the sound note appears, then the empty line; Reset does not move and stays inside the window`,
-      r0.sound && r0.text.length === 1 && r0.text[0] === NOTE_TEXT.sound && r1.text.length === 0 && r1.notesShown && r0.resetY === r1.resetY && r0.resetBottom <= r0.vh, JSON.stringify({ r0, r1 }));
+    check(`${L}: a returning visit: the sound note appears, then the typing line; Reset does not move and stays inside the window`,
+      r0.sound && r0.text.length === 1 && r0.text[0] === NOTE_TEXT.sound && JSON.stringify(r1.text) === JSON.stringify([NOTE_TEXT.typing]) && r1.notesShown && r0.resetY === r1.resetY && r0.resetBottom <= r0.vh, JSON.stringify({ r0, r1 }));
     check(`${L}: no page errors`, !errors.length, errors.join('; '));
     await closeCtx(ctx);
   };
@@ -15559,7 +15559,9 @@ async function escChatChecks(browser, base, check) {
   await page.keyboard.press('Escape');
   check(`${L}: an idle, empty prompt: Esc leaves the chat for the emulator (no app=claude, focus on the screen)`, await left() && (await where()).focus === 'screen', JSON.stringify(await where()));
   const p2 = await pill();
-  check(`${L}: back on the emulator the focus pill is the emulator's`, /^Typing goes to the machine · Tab leaves the screen$/.test(p2.text), JSON.stringify(p2));
+  const line = await page.evaluate(() => { const t = document.getElementById('typingHint'); return t.checkVisibility() ? t.textContent : null; });
+  check(`${L}: back on the emulator the line under the tube says how to leave the screen, and the bezel's pill is not shown (a desktop)`,
+    line === 'Typing goes to the machine · Tab leaves the screen' && !p2.shown, JSON.stringify({ p2, line }));
 
   // 2. a typed line: the first Esc drops it (BREAK) and the chat stays; the second leaves
   await openChat();
@@ -16227,8 +16229,10 @@ async function focusChecks(browser, base, check) {
   let n = 0;
   while (n++ < 60 && await page.evaluate(() => !document.activeElement || document.activeElement.id !== 'screen')) await page.keyboard.press('Shift+Tab');
   const onScreen = await page.evaluate(() => document.activeElement && document.activeElement.id === 'screen');
-  const hint = await page.evaluate(() => getComputedStyle(document.getElementById('focusHint')).display !== 'none');
-  check('keyboard: Shift+Tab reaches the screen, which shows "Tab leaves the screen"', onScreen && hint, `${n} presses, hint shown: ${hint}`);
+  // (on a desktop the line under the tube says it, and the bezel's focus pill stays down: one line, not two)
+  const hint = await page.evaluate(() => ({ line: document.getElementById('typingHint').checkVisibility() && /Tab leaves the screen/.test(document.getElementById('typingHint').textContent),
+    pill: getComputedStyle(document.getElementById('focusHint')).display !== 'none' }));
+  check('keyboard: Shift+Tab reaches the screen; "Tab leaves the screen" is the line under it, with no second pill on the bezel', onScreen && hint.line && !hint.pill, `${n} presses, ${JSON.stringify(hint)}`);
   await page.evaluate(() => { window.reached.length = 0; });
   await page.keyboard.press('Tab');
   const next = await page.evaluate(() => document.activeElement && (document.activeElement.id || document.activeElement.tagName));
@@ -16236,7 +16240,7 @@ async function focusChecks(browser, base, check) {
     `${next}, reached ${await page.evaluate(() => JSON.stringify(window.reached))}`);
   const hintGone = await page.evaluate(() => getComputedStyle(document.getElementById('focusHint')).display === 'none');
   await page.keyboard.press('Shift+Tab');
-  check('keyboard: Shift+Tab comes back to the screen, the machine gets nothing (the hint shows only on the screen)', hintGone && await page.evaluate(() => document.activeElement.id === 'screen') && await reached() === 0,
+  check('keyboard: Shift+Tab comes back to the screen, the machine gets nothing (no bezel pill off the screen either)', hintGone && await page.evaluate(() => document.activeElement.id === 'screen') && await reached() === 0,
     `hint gone ${hintGone}, focus ${await page.evaluate(() => document.activeElement && (document.activeElement.id || document.activeElement.tagName))}, reached ${await page.evaluate(() => JSON.stringify(window.reached))}`);
   await page.keyboard.type('C');
   // the stub takes the key at once (67), the matrix at the next frame start (the KeyQueue): both, before the count
@@ -20620,6 +20624,27 @@ async function noRomChromeChecks(browser, base, check) {
     check(`no-ROM chrome (${kind}): at every width from 320 to 1600 px, upright and short, the pill and Menu's dot never show together`, !bad.length, bad.slice(0, 4).join('; '));
     // (the sweep is not vacuous: each of the two does show at some width)
     check(`no-ROM chrome (${kind}): ...and each of them shows somewhere in the sweep`, seen.pill > 0 && seen.dot > 0, JSON.stringify(seen));
+    // the one line under the tube (desktop only): "Click or press a key for sound" until sound starts, then the typing
+    // line (the key hint first while it is live; Esc ends it); "No ROMs needed" nowhere. A touch screen shows no line.
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto(base); await started(page);
+    const lines = () => page.evaluate(() => ({ notes: [...document.querySelectorAll('#screenNotes > div')].filter((d) => d.checkVisibility()).map((d) => d.textContent),
+      noRomsNeeded: /No ROMs needed/.test(document.body.innerText), pill: getComputedStyle(document.getElementById('focusHint')).display !== 'none' }));
+    const before = await lines();
+    if (kind === 'mouse') {
+      check('no-ROM chrome (mouse): one line under the tube before sound: "Click or press a key for sound"; no "No ROMs needed"',
+        JSON.stringify(before.notes) === JSON.stringify(['Click or press a key for sound']) && !before.noRomsNeeded, JSON.stringify(before));
+      await page.focus('#screen'); await page.keyboard.press('Escape');
+      await waitFor(page, () => window.emu.audioRunning() && document.getElementById('soundHint').hidden && document.getElementById('keyHint').hidden, null, 5000);
+      await page.keyboard.press('Tab'); await page.keyboard.press('Shift+Tab');
+      const after = await lines();
+      check('no-ROM chrome (mouse): sound on and the key hint done, the one line is the typing line, and the bezel shows no second one',
+        JSON.stringify(after.notes) === JSON.stringify(['Typing goes to the machine · Tab leaves the screen']) && !after.pill && await page.evaluate(() => document.activeElement.id === 'screen'), JSON.stringify(after));
+      if (shotDir) await page.screenshot({ path: path.join(shotDir, 'no-rom-chrome-line.png') });
+    } else {
+      check('no-ROM chrome (touch): no line under the tube at all (no sound line, no typing line), no "No ROMs needed"',
+        before.notes.length === 0 && !before.noRomsNeeded && await page.evaluate(() => !document.getElementById('screenNotes').checkVisibility()), JSON.stringify(before));
+    }
     check(`no-ROM chrome (${kind}): no page errors`, !errors.length, errors.join('; '));
     await closeCtx(ctx);
   }

@@ -197,7 +197,12 @@
   #screenNotes { display: flex; justify-content: center; align-items: flex-start; height: 44px; overflow: hidden; }
   #screenNotes > div { margin-top: 10px; background: rgba(11, 13, 12, .88); color: var(--text); font-size: 14px; line-height: 20px; padding: 6px 12px;
     border-radius: var(--r-14); text-align: center; max-width: 100%; box-sizing: border-box; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
-  #screenNotes > div[hidden], #screenNotes:has(#soundHint:not([hidden])) > #keyHint { display: none; }
+  /* one line at a time: "click for sound" until sound starts, then the key hint while it is live, then the typing line */
+  #screenNotes > div[hidden], #screenNotes:has(#soundHint:not([hidden])) > #keyHint,
+    #screenNotes:has(> #soundHint:not([hidden]), > #keyHint:not([hidden])) > #typingHint, body.chat-screen #typingHint { display: none; }
+  /* the line under the tube says how to leave the screen, so the bezel's focus pill says it only where that line is not
+     shown (a touch screen, the phone's chat, an embed); the chat's "Esc stops a reply" pill stays */
+  body:not(:is(.touch-keys, .touch-hidden, .chat-phone, .embed, .chat-screen)):has(#screen:focus-visible) #focusHint { display: none; }
   body:is(.touch-keys, .touch-hidden) #screenNotes, body.chat-phone #screenNotes { display: none; }
   /* Narrow notes column: the widest note on one line is the key hint, 358 px wide (14 px text, padding included), so a column
      of 360 px or more holds every note on one line (44 px). Under 360 px the box is a fixed two lines (64 px, wrapping, at most
@@ -1796,8 +1801,9 @@ npx serve -l 8000 .</pre>
         <div id="focusHint" aria-hidden="true"><span class="fh-emu">Typing goes to the machine<span class="fh-tab"> · <kbd>Tab</kbd> leaves the screen</span></span><span class="fh-chat"><kbd>Esc</kbd> stops a reply, clears the line, then leaves the chat</span></div></div>
       <!-- the screen's hints, under it: they never lie over what the machine shows -->
       <div id="screenNotesBox"><div id="screenNotes">
-        <div id="soundHint" hidden>No ROMs needed · click anywhere for sound</div>
+        <div id="soundHint" hidden>Click or press a key for sound</div>
         <div id="keyHint" hidden><kbd>Esc</kbd> = BREAK · <kbd>Home</kbd> = CLEAR · <kbd>Backspace</kbd> = ←</div>
+        <div id="typingHint">Typing goes to the machine · <kbd>Tab</kbd> leaves the screen</div>
       </div></div>
       <!-- full screen chat: the other machine, live; a strip under the screen on a phone -->
       <div id="claudePip" hidden role="group" aria-label="Your BASIC session, live">

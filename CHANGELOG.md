@@ -35,6 +35,10 @@ Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.
 
 #### Changed
 
+- **One line under the screen, on a computer.** It reads "Click or press a key for sound" until sound starts (the
+  "No ROMs needed" is gone), then the one-time key hint, then "Typing goes to the machine · Tab leaves the screen"; the
+  bezel's focus pill no longer says the same thing a second time there (it stays on a touch screen, an embed and the
+  phone's chat, and the chat's "Esc stops a reply" pill is unchanged). A touch screen shows no line, as before.
 - **Menu never wears its dot while the "No BASIC · Add ROMs" pill shows.** The dot stands for the pill where the app
   bar has folded it into Menu; the browser check's new `noRomChrome` group sweeps 320 to 1600 px, with a mouse and on a
   touch screen, and fails on a width where both show.
