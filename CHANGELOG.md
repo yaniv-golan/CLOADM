@@ -8,6 +8,14 @@ All notable changes to CLOADM are recorded here. The format follows
 
 Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.test.js` keeps them in step).
 
+#### Fixed
+
+- **"On screen now" tells two files of one name apart.** The mark on a Recent row matched the file name only, so two
+  files with the same name and different bytes could be told apart by position alone. The last run now records the
+  file's content hash with its name (`Session.lastRun.crc`, `Session.isLastRun(entry)`), and only the row with that
+  name and those bytes is marked and offered as the menu's carry-on. A last run recorded by an earlier build has no
+  hash, so its carry-on line is not offered once.
+
 ### 0.2.0
 
 #### Added
