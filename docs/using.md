@@ -405,8 +405,10 @@ What a tap gives depends on what is on screen:
 
 * **A bundled program nobody has touched since it started** (2048, LIZA, Minesweeper, opened from its page or the menu
   and not yet played) has nothing of its own to send: the tap copies its **program page** (`cloadm.dev/2048/` and so on)
-  and the note says "Opens 2048 from the start, for anyone."; nothing is uploaded. Press a key, move the joystick, type a
-  line, load something, or let a tool change memory, and it is a moment from then on.
+  and the line under the picture says "Opens 2048 from the start, for anyone. The snapshot link below keeps this exact
+  moment." — said once, there, not again under the button; the picture's caption reads "2048 · Dragon 64". The program
+  page itself is all that is shared: the tap uploads nothing. Press a key, move the joystick, type a line, load
+  something, or let a tool change memory, and it is a moment from then on.
 * **Otherwise a short link**, made on the tap: `https://s.cloadm.dev/<id>#<key>`, about 50 characters, copied for you,
   with its field and a QR toggle. It is the moment sealed in your browser (AES-GCM) before it is sent; the key exists
   only in the part of the link after `#`, which browsers never send to a server, so the server stores bytes it cannot read.
@@ -426,10 +428,12 @@ What a tap gives depends on what is on screen:
 with its field and Copy, and the note "Holds the whole moment in the address; nothing is uploaded." The checkbox **Always
 use long links (nothing leaves this device)**, remembered in this browser, makes Copy link give the long link and its note
 reads "Long link: nothing is uploaded." The card under the picture says when the moment was captured, relative to now:
-"captured just now", then "3 minutes ago" (hours or days if the screen stays open that long), prefixed "What they'll see
-first · " on the picture's caption.
+"captured just now", then "3 minutes ago" (hours or days if the screen stays open that long). The picture's caption is
+one line, "What they'll see first · &lt;machine&gt;": a bundled program's page reads "&lt;program&gt; · &lt;machine&gt;"
+instead. It never wraps, and what gives way is the machine name, which ends in "…" — the prefix is never cut.
 
-A moment the page's guardrails keep out of a link at all switches Copy off, with the reason inline. A short link is never
+A moment the page's guardrails keep out of a link at all switches Copy off, with the reason inline (said once, there,
+not also under the picture). A short link is never
 offered for a moment on ROMs, a cartridge or NitrOS-9: the long link works there (whoever opens it adds their own ROMs).
 
 Someone who opens a shared moment that runs without ROMs arrives on that moment, not on the setup: the "Running with no

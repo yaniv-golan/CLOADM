@@ -1837,6 +1837,17 @@ clarity copy and the caption's prefix are the agreed words; a clipboard that rej
 note; "Always use long links" survives a reload and does not fall over when storage throws; both notes read "nothing is
 uploaded" with it on.
 
+The program-page rule is checked as it reads: in program-page mode `#shareNote` holds "Opens 2048 from the
+start, for anyone. The snapshot link below keeps this exact moment." and `#primaryNote` is empty (one note, not two);
+the caption is "2048 · Dragon 64" with the prefix span hidden; the picture is 2048's title, waited for by the games
+group's own signal (2048's GETKEY counts each key poll in ENTROPY, so a frame that climbs by hundreds is one spent at
+its key wait — measured at frame 19, and the title then has exactly four colours, read from every pixel of the canvas;
+`render().data` is palette indices, not colours and proves nothing). The caption's prefix is held to its own rule at
+375px on the longest case (a CoCo 3 snapshot): "What they'll see first · " is whole — its box inside the caption's and
+its `scrollWidth` no wider than its `clientWidth` — because the prefix span never shrinks and the machine name is what
+ends in "…"; " · CLOADM" is gone from every mode. A guardrail that refuses the moment says so once, inline, and Copy
+carries `disabled` with the page's disabled look (opacity 0.55).
+
 ## Long links (`#z=`) and the program pages
 
 No MAME oracle: a link is a container, not hardware. `tests/long-link.test.js` decodes a link built byte by byte

@@ -15867,7 +15867,7 @@ async function shareScreenChecks(browser, base, check) {
         note: document.getElementById('shareNote').textContent,
         why: document.getElementById('primaryWhy').textContent, whyShown: document.getElementById('primaryWhy').checkVisibility(),
         terms: document.getElementById('shortTerms').checkVisibility(), sw: document.getElementById('previewSwitch').checkVisibility(), native: document.getElementById('btnShareNative').hidden }; });
-    // the reason is said ONCE, inline under Copy (owner's ruling): #shareNote is empty, #primaryWhy holds it, and the
+    // the reason is said ONCE, inline under Copy: #shareNote is empty, #primaryWhy holds it, and the
     // button is really disabled — the attribute, and the page's disabled look (opacity under 1, as every disabled button)
     check('one link: a moment a guardrail forbids encoding: Copy carries `disabled` and a disabled look, and the reason is said once, inline',
       g.disabled && g.hasAttr && g.opacity < 1 && g.cursor === 'default'
@@ -15985,12 +15985,12 @@ async function shareScreenChecks(browser, base, check) {
     await sc.close();
   }
 
-  // The caption one line over the picture, and what gives way (owner's ruling): " · CLOADM" is gone from every mode,
+  // The caption one line over the picture, and what gives way: " · CLOADM" is gone from every mode,
   // and the machine name is what ends in "…" — the prefix is never the part that is cut. Checked on the LONGEST case
   // (a snapshot of a Color Computer 3, the longest machine name) at a phone's 375px, by measuring both spans: the
   // prefix's own box inside the caption's, and the prefix's scrollWidth not wider than its clientWidth. Not a colour
   // check: a truncated prefix would still be legible pixels. (The longest real name is "Prológica CP-400"; CoCo 3 is
-  // the one the owner named, and its full caption "What they'll see first · CoCo 3" is the case that must fit.)
+  // the machine the requirement names, and its full caption "What they'll see first · CoCo 3" is the case that must fit.)
   {
     const sc = await browser.newContext({ viewport: { width: 375, height: 548 }, serviceWorkers: 'block' });
     const sp = await sc.newPage();
@@ -20571,7 +20571,9 @@ async function shortLinkChecks(browser, base, site, check) {
   await page.evaluate(() => window.emu.machine.poke(1030, 42));
   await openShare(page);
   // the primary is one "Copy link" (and Share… beside it): no separate "Make a short link" — a tap makes it. The terms
-  // are the short link's own, the switch is on, and the long link's heading says what it now says (no "never expires")
+  // are the short link's own, the switch is on, and the long link's heading reads "Long link (works offline; nothing is
+  // uploaded)": the long link never claimed a lifetime, and says nothing about one. Only the SHORT link's terms say
+  // "Links don't expire" (shortlink/worker.js and docs/shortlink-deploy.md are about it too).
   const before = await page.evaluate(() => ({ copy: document.getElementById('btnShareCopy').textContent.trim(), copyPrimary: document.getElementById('btnShareCopy').classList.contains('primary'),
     preview: document.getElementById('sharePreview').checked, terms: document.getElementById('shortTerms').textContent, termsShown: document.getElementById('shortTerms').checkVisibility(),
     swShown: document.getElementById('previewSwitch').checkVisibility(), long: document.getElementById('longHeading').textContent, why: document.getElementById('primaryWhy').textContent,

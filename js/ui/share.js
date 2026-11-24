@@ -187,7 +187,7 @@ export function setupShare(page, { linkStore }) {
     $('longNote').textContent = alwaysLong() ? 'Long link: nothing is uploaded.' : 'Holds the whole moment in the address; nothing is uploaded.';
     syncPrimary();
   }
-  // One note per mode (owner's ruling):
+  // One note per mode:
   //  - program-page mode: #shareNote (the line under the picture) holds the program-page note; #primaryNote, the
   //    primary's own second line, is empty, so the same thought is not said twice. The note's second sentence promises
   //    the snapshot link, so it comes only when such a link IS in the view: a moment's link exists (captured.link) and

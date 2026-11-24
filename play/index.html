@@ -615,7 +615,7 @@
   #share p.small, #share .why { font-size: 13px; line-height: 1.4; }
   #share .why { color: var(--orange); }
   #share .why:empty, #share .small:empty { display: none; }
-  /* the caption is one line over the picture, and nothing wraps. What gives way, in that order (owner's ruling): the
+  /* the caption is one line over the picture, and nothing wraps. What gives way, in that order: the
      prefix is never cut, so it is its own span that does not shrink; the name after it ends in "…" instead. " · CLOADM"
      is gone from every mode. The prefix span's own box is what the browser check measures (its right edge inside the
      caption's, its scrollWidth no wider than its clientWidth), so "the prefix is whole" is checked, not looked at. */

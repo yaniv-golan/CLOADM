@@ -10,15 +10,19 @@ Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.
 
 ### Added
 - **One link on the Share screen.** The screen now offers one **Copy link** (+ **Share…**). A bundled program nobody has
-  touched since it started (2048, LIZA, Minesweeper) gives its program page instead — nothing is uploaded; played, the
-  primary shares the moment, and "More ways to share" adds **Link to &lt;program&gt; from the start**. A tap that tries a
+  touched since it started (2048, LIZA, Minesweeper) gives its program page instead — nothing is uploaded, and the line
+  under the picture says "Opens 2048 from the start, for anyone." once; played, the primary shares the moment, and "More
+  ways to share" adds **Link to &lt;program&gt; from the start**. A tap that tries a
   short link and can't make one (offline, a refusal, the server) copies the long link with the reason in view; a
   clipboard the browser refuses leaves the link shown and selected. **More ways to share** holds the long link, its Copy,
   and **Always use long links (nothing leaves this device)**, remembered in the browser
-  (`Session.untouchedBundledProgram`, `Session.touches`).
+  (`Session.untouchedBundledProgram`, `Session.touches`). A moment the page's guardrails keep out of a link at all
+  switches Copy off, saying why once, inline.
 - **What a link opens, said plainly.** The line under the Share picture reads "Opens a copy of this &lt;machine&gt;
   exactly as it is now: the screen, the program and everything in memory, including anything you typed. Changes you make
-  later aren't in it.", and the picture's caption leads with "What they'll see first · ".
+  later aren't in it." The picture's caption is one line, "What they'll see first · &lt;machine&gt;", or the program's
+  page and machine when that is what the link opens. It never wraps: the machine name ends in "…" if it must, and the
+  prefix is never cut.
 - **Shorter long links.** The Share screen's long link (and "Ask Claude ↗") now carries the moment after `#z=`: a version
   byte, then deflate-raw of the snapshot as a JSON skeleton plus its raw byte arrays, without the rendered picture
   (drawn again on the first frame after opening). LIZA's link goes from about 8,400 to 4,900 characters, 2048's from
