@@ -152,7 +152,8 @@ export function setupCommandBox(page, claude, machines) {
   // the commands matching the text: every word (but the little ones: "save my prog") starts a word of the label or
   // of its other words
   // (a command whose button the page lacks is left out; one that doesn't apply now is listed, muted: notNow)
-  const available = ([, , , id]) => !(typeof id === 'string' && !$(id));
+  // (and with Settings -> Claude features Off, no Claude row: js/ui/claude-features.js)
+  const available = ([, , , id, group]) => !(typeof id === 'string' && !$(id)) && !(group === 'Claude' && !session.claudeFeatures);
   // (split as the labels are, so a label typed with its punctuation ("Chat with Claude, full screen") finds it)
   function matches(q) {
     if (!q) return COMMANDS.filter(available).map((c) => ({ c, marks: [], off: c[5] ? c[5](page) : null }));   // the empty box: every command, in place
@@ -202,7 +203,7 @@ export function setupCommandBox(page, claude, machines) {
     // "?" ("What is this code doing?") still runs the command.
     const label = q.toLowerCase();
     const question = /\?\s*$/.test(q) && !COMMANDS.some(([l]) => l.toLowerCase() === label);
-    const cmdRows = cmds.map((m) => ({ kind: 'cmd', c: m.c, marks: m.marks, off: m.off, refused: refused === m.c[0] })), askRow = q ? [{ kind: 'ask', q }] : [];
+    const cmdRows = cmds.map((m) => ({ kind: 'cmd', c: m.c, marks: m.marks, off: m.off, refused: refused === m.c[0] })), askRow = q && session.claudeFeatures ? [{ kind: 'ask', q }] : [];
     options = question ? [...askRow, ...cmdRows] : [...cmdRows, ...askRow];
     selected = Math.min(selected, options.length - 1);   // -1: nothing chosen yet (the empty box)
     const out = [];

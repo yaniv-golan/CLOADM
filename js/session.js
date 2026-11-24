@@ -228,6 +228,7 @@ const SETTINGS = {
   keyboardMode: (v) => v === 'translated' || v === 'positional',
   keyboardJoystick: (v) => v === '1' || v === '0',
   tapeSound: (v) => v === '1' || v === '0',
+  claudeFeatures: (v) => v === '1' || v === '0',   // Settings -> Claude features: On ('1', the default) / Off ('0')
   'display.settings': (v) => { const o = parseObject(v); return !!o && Object.entries(o).every(([k, x]) => Object.hasOwn(DISPLAY_VALID, k) && DISPLAY_VALID[k](x)); },
 };
 function validSetting(k, v) {
@@ -1665,6 +1666,11 @@ export class Session {
   }
 
   // ---------------- settings and sharing (never ROMs) ----------------
+  // Settings -> "Claude features": On (the default) or Off. Off hides the page's doors to Claude (the Ask button, the
+  // command box's Claude rows and its "Ask Claude" row, the Programs row "Chat with Claude"; js/ui/claude-features.js);
+  // the welcome menu's own item stays, as it is the firmware's. Kept in the store, so it is in a settings export.
+  get claudeFeatures() { return this.store.get('claudeFeatures') !== '0'; }
+  setClaudeFeatures(on) { this.store.set('claudeFeatures', on ? '1' : '0'); this.emit('claudefeatures', !!on); }
   // settings export: every stored setting except ROMs and stored media files
   exportSettings() {
     const keys = (this.store.keys ? this.store.keys() : []).filter((k) => validSetting(k, this.store.get(k))).sort();

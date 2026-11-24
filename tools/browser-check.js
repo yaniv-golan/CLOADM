@@ -7451,7 +7451,7 @@ async function navChecks(browser, site, check) {
   check('nav: the Library and Add ROMs have one header each (their own "← Emulator" bar, no app bar); the app bar is back on the emulator',
     !lib.appbar && lib.lib && !roms.appbar && roms.roms && back.appbar, JSON.stringify({ lib, roms, back }));
   const ALL = [['Home', '/'], ['Help', '/help/'], ['ROMs', '/roms/'], ['Credits', '/credits/'], ['Report a problem', 'https://github.com/yaniv-golan/cloadm/issues']];
-  for (const [title, at] of [['HELP', 'help/'], ['ROMS', 'roms/'], ['CREDITS', 'credits/'], ['FAQ', 'faq/'], ['ABOUT', 'about/']]) {
+  for (const [title, at] of [['HELP', 'help/'], ['ROMS', 'roms/'], ['CREDITS', 'credits/'], ['FAQ', 'faq/'], ['ABOUT', 'about/'], ['DIFFERENCES', 'deviations/']]) {
     await page.goto(site + at);
     const head = await page.evaluate(() => {
       const h = document.querySelector('header.page-head');
@@ -8461,7 +8461,7 @@ async function layoutChecks(browser, base, check) {
 
 // reading pages: /roms at desktop and phone width, and the rule that only /roms links the
 // archive's ROM folder, checked over every page of the site
-const READING = ['roms/', 'help/', 'credits/', 'faq/', 'about/'];
+const READING = ['roms/', 'help/', 'credits/', 'faq/', 'about/', 'deviations/'];
 // The Display tab: CRT · composite and Sharp · RGB, the NTSC artifact phase, curvature and glow
 // (the WebGL CRT look), integer scaling and the picture's shape, remembered. A 256x192 artifact-colour picture
 // ($AA, $55 and stripes of two widths above, black, buff and two more stripes below, in PMODE 4 CSS 1) is put on the
@@ -8796,7 +8796,10 @@ async function readingChecks(browser, site, check) {
       // the FAQ's accuracy answer links the known differences; Help links the FAQ, About and the bug report
       await page.goto(site + 'faq/');
       check('/faq: seven questions, the accuracy answer links the deviations from MAME', await page.$$eval('h2', (h) => h.length) === 7
-        && /verification\.md#deviations-from-mame$/.test(await page.getAttribute('#faqDeviations', 'href')));
+        && await page.getAttribute('#faqDeviations', 'href') === 'deviations/');
+      await page.click('#faqDeviations');
+      check('/faq: the accuracy answer opens the known differences from MAME, a list generated from docs/verification.md', await waitFor(page, () => location.pathname === '/deviations/')
+        && await page.$$eval('main li', (l) => l.length) >= 10 && /Known differences from MAME/.test(await page.textContent('h1')));
       await page.goto(site + 'help/');
       await page.click('#helpBugReport');
       check('/help: "Copy a bug report →" opens the report on the emulator', await waitFor(page, () => !!window.emu && document.getElementById('bugReport').open, null, 30000));
@@ -10292,6 +10295,37 @@ async function urlChecks(browser, base, check) {
   if (shotDir) await page.screenshot({ path: path.join(shotDir, 'link-load-disk.png') });
   await open('?machine=dragon64&disk=');
   check('link: disk= without a link is reported as the other media are', /disk=: not a link to a file/.test(await msg()), await msg());
+  // ?record=1 (URL only): no page chrome; the largest 4:3 frame the window holds, the picture integer-scaled in it;
+  // &aspect=16:9 makes the frame 16:9 with the 4:3 picture pillarboxed. aspect=16:9 without record=1 is refused.
+  const rec = () => ev(() => {
+    const r = (el) => { const b = el.getBoundingClientRect(); return { x: b.x, y: b.y, w: b.width, h: b.height }; };
+    const f = window.emu.session.shownMachine.render(), shown = (sel) => [...document.querySelectorAll(sel)].some((e) => e.checkVisibility());
+    return { tube: r(document.querySelector('.tube')), canvas: r(document.getElementById('screen')), lines: f.height, vw: innerWidth, vh: innerHeight,
+      chrome: ['.appbar', '.drawer', '.controls', '.slots', 'footer', '.plate', '#toastRegion', '#screenNotesBox'].filter(shown),
+      scroll: document.documentElement.scrollWidth <= innerWidth && document.documentElement.scrollHeight <= innerHeight + 1, integer: window.emu.session.display.integer };
+  });
+  for (const [vp, q, aspect] of [[{ width: 1280, height: 720 }, '?record=1&machine=dragon64', 4 / 3], [{ width: 1280, height: 720 }, '?record=1&aspect=16:9&machine=dragon64', 16 / 9],
+    [{ width: 1000, height: 1000 }, '?record=1&machine=coco3', 4 / 3]]) {
+    await page.setViewportSize(vp);
+    await open(q);
+    await page.waitForTimeout(300);
+    const r = await rec();
+    const fits = Math.abs(r.tube.w / r.tube.h - aspect) < 0.01 && (Math.abs(r.tube.w - r.vw) < 1 || Math.abs(r.tube.h - r.vh) < 1);
+    const centred = Math.abs(r.tube.x + r.tube.w / 2 - r.vw / 2) < 1 && Math.abs(r.tube.y + r.tube.h / 2 - r.vh / 2) < 1
+      && Math.abs(r.canvas.x + r.canvas.w / 2 - r.vw / 2) < 1 && Math.abs(r.canvas.y + r.canvas.h / 2 - r.vh / 2) < 1;
+    const k = r.canvas.h / r.lines;
+    check(`link ${q} at ${vp.width}x${vp.height}: no page chrome, a ${aspect > 1.5 ? '16:9' : '4:3'} frame as large as the window allows, the 4:3 picture integer-scaled (x${k}) and centred`,
+      !r.chrome.length && fits && centred && r.scroll && r.integer && Number.isInteger(k) && k >= 1 && Math.abs(r.canvas.w / r.canvas.h - 4 / 3) < 0.01
+      && (aspect > 1.5 ? r.canvas.w < r.tube.w - 100 : true) && !await ev(() => document.getElementById('toast').classList.contains('error')), JSON.stringify(r));
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, `record-${aspect > 1.5 ? '169' : '43'}-${vp.width}x${vp.height}.png`) });
+  }
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await open('?machine=dragon64&aspect=16:9');
+  check('link: aspect=16:9 without record=1 is refused, the page keeps its chrome', /aspect=16:9: only with record=1/.test(await msg()) && await ev(() => document.querySelector('.appbar').checkVisibility()), await msg());
+  check('link: record=1 stores nothing: the next visit has its chrome, and the stored display has no integer scaling from it', await ev(() => {
+    const stored = window.emu.session.store.get('display.settings');
+    return !document.body.classList.contains('record') && (stored === null || JSON.parse(stored).integer !== true) && window.emu.session.display.integer === false;
+  }));
   check('links: no page errors', !errors.length, errors.join('; '));
   await ctx.close();
 }
@@ -10470,7 +10504,7 @@ async function pwaChecks(browser, site, check) {
   check('PWA offline: sound plays through the AudioWorkletNode (its module kept for offline use)', offlineSound,
     await page.evaluate(() => JSON.stringify({ path: window.emu.audio.path, fallback: window.emu.audio.fallback, removed: window.emu.audio.out && window.emu.audio.out.sink.removed, state: window.emu.audio.ctx && window.emu.audio.ctx.state, ua: navigator.userAgent })));
   check('PWA offline: the fonts came from the kept copy', await page.evaluate(async () => { await document.fonts.ready; return [...document.fonts].some((f) => f.family.replace(/"/g, '') === 'Archivo' && f.status === 'loaded'); }));
-  for (const p of ['', 'help/', 'roms/', 'faq/', 'about/']) {
+  for (const p of ['', 'help/', 'roms/', 'faq/', 'about/', 'deviations/']) {
     const res = await page.goto(site + p);
     check(`PWA offline: /${p} opens`, res.ok() && /CLOADM/.test(await page.title()), String(res.status()));
   }
@@ -15106,6 +15140,60 @@ async function settingsChecks(browser, base, check) {
   check('settings: the credits line shows "v<version> · <commit>", links Credits, FAQ and About; the affiliation line is in the drawer, not over the screen',
     credits.stamp === credits.want && credits.affiliation === 'Not affiliated with Tandy, Dragon Data, Microsoft, id Software or the Freedoom project.'
     && credits.shown && credits.apart && credits.inDrawer && JSON.stringify(credits.links) === JSON.stringify(['credits/', 'faq/', 'about/']), JSON.stringify(credits));
+  // Settings -> Claude features: On by default; Off hides the Ask button, the Programs row "Chat with Claude" and the command
+  // box's Claude rows and "Ask Claude" row; it is kept over a reload and in the settings export; On brings them back
+  {
+    const state = () => page.evaluate(async () => {
+      const vis = (el) => !!el && el.checkVisibility();
+      return { on: document.getElementById('btnClaudeOn').getAttribute('aria-pressed'), off: document.getElementById('btnClaudeOff').getAttribute('aria-pressed'),
+        ask: vis(document.getElementById('btnAsk')), shelf: [...document.querySelectorAll('[data-shelf="claude"]')].map(vis), stored: window.emu.session.store.get('claudeFeatures'),
+        exported: window.emu.session.exportSettings().settings.claudeFeatures ?? null };
+    });
+    const box = async (q) => {
+      await page.click('#screen'); await page.keyboard.press('Control+k');
+      await waitFor(page, () => !document.getElementById('cmdBox').hidden);
+      await page.fill('#cmdInput', q);
+      const r = await page.evaluate(() => ({ rows: [...document.querySelectorAll('#cmdList [role="option"]')].map((o) => o.firstChild.textContent),
+        groups: [...document.querySelectorAll('#cmdList .group')].map((g) => g.textContent), place: document.getElementById('cmdInput').placeholder }));
+      await page.keyboard.press('Escape');
+      return r;
+    };
+    await openTab(page, 'Media');
+    const before = await state(), boxOn = [await box(''), await box('what is this?')];
+    check('settings: Claude features are On by default: the Ask button and the Programs row show, the command box has its Claude rows and Ask row',
+      before.on === 'true' && before.off === 'false' && before.ask && before.shelf.length > 0 && before.shelf.every(Boolean) && boxOn[0].groups.includes('Claude')
+      && boxOn[0].rows.includes('Chat with Claude, full screen') && boxOn[1].rows.some((t) => /^Ask Claude: /.test(t)), JSON.stringify({ before, boxOn }));
+    await openTab(page, 'Machine');
+    await page.click('#btnClaudeOff');
+    const off = await state(), boxOff = [await box(''), await box('what is this?'), await box('chat')];
+    check('settings: Off hides the Ask button and the Programs row, and the command box has no Claude row, no Ask row, and says "Find a command"',
+      off.on === 'false' && off.off === 'true' && !off.ask && off.shelf.every((v) => !v) && !boxOff[0].groups.includes('Claude') && !boxOff[0].rows.some((t) => /Claude|code doing/.test(t))
+      && !boxOff[1].rows.some((t) => /^Ask Claude/.test(t)) && !boxOff[2].rows.some((t) => /Claude/.test(t)) && boxOff[0].place === 'Find a command' && boxOff[0].rows.includes('Copy bug report'),
+      JSON.stringify({ off, boxOff }));
+    check('settings: Off is kept and is in the settings export', off.stored === '0' && off.exported === '0', JSON.stringify(off));
+    await page.reload(); await waitFor(page, () => window.emu && window.emu.linkDone);
+    const reloaded = await state();
+    check('settings: Off survives a reload', reloaded.off === 'true' && !reloaded.ask, JSON.stringify(reloaded));
+    if (shotDir) { await openTab(page, 'Machine'); await page.screenshot({ path: path.join(shotDir, 'settings-claude-off.png') }); }
+    await openTab(page, 'Machine');
+    await page.click('#btnClaudeOn');
+    await openTab(page, 'Media');
+    const back = await state(), boxBack = await box('what is this?');
+    check('settings: On brings everything back', back.on === 'true' && back.ask && back.shelf.every(Boolean) && back.stored === '1' && boxBack.rows.some((t) => /^Ask Claude: /.test(t)), JSON.stringify({ back, boxBack }));
+    // Ask Claude, with a key saved: one line above the input says what is sent, and when
+    await page.evaluate(() => localStorage.setItem('cloadm.anthropicKey', 'sk-ant-SETTINGS-CHECK-KEY-0123456789'));
+    await page.reload(); await waitFor(page, () => window.emu && window.emu.linkDone);
+    await page.click('#btnAsk');
+    await waitFor(page, () => document.getElementById('askInput').checkVisibility());
+    const line = await page.evaluate(() => { const l = document.getElementById('askSendsLine'), i = document.getElementById('askInput');
+      return { text: l.textContent, shown: l.checkVisibility(), above: l.getBoundingClientRect().bottom <= i.getBoundingClientRect().top + 1 }; });
+    check('Ask Claude: "Nothing is sent until you ask. …" shows, above the input', line.shown && line.above
+      && line.text === 'Nothing is sent until you ask. Then your question, and the screen text and memory Claude reads to answer it, go to Anthropic with your key (or your Claude account in the plugin).', JSON.stringify(line));
+    await page.evaluate(() => localStorage.removeItem('cloadm.anthropicKey'));
+    await page.click('#btnAsk');   // (closes the panel: the settings file's buttons are on the Machine tab beside it)
+    await waitFor(page, () => !document.getElementById('askInput').checkVisibility());
+    await openTab(page, 'Machine');
+  }
   const [dl] = await Promise.all([page.waitForEvent('download'), page.click('#btnSettingsExport')]);
   const file = path.join(os.tmpdir(), `cloadm-settings-${process.pid}.json`);
   await dl.saveAs(file);

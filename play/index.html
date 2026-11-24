@@ -145,8 +145,25 @@
   body.embed .slots, body.embed .hint, body.embed .plate, body.embed #welcome,
   body.embed #claude, body.embed #ask, body.embed #askRail { display: none !important; }
   /* a page shown inside another page has no Claude chat: its buttons are hidden, not left dead (js/ui/main.js) */
+  /* Settings -> Claude features: Off (js/ui/claude-features.js); the command box stays, without its Claude rows */
+  body.claude-off #btnAsk, body.claude-off [data-shelf="claude"], body.claude-off #ask, body.claude-off #askRail { display: none !important; }
+  #claudeFeaturesRow button[aria-pressed="true"] { background: var(--phosphor); border-color: var(--phosphor); color: var(--on-phosphor); }
   body.no-claude #btnAsk, body.no-claude #navCommands, body.no-claude [data-shelf="claude"], body.no-claude #claude, body.no-claude #ask, body.no-claude #askRail { display: none !important; }
   body.embed .layout { padding: 0; display: block; }
+  /* ?record=1 (js/ui/record.js): no page chrome; the largest 4:3 frame (16:9 with aspect=16:9) the window holds, black,
+     centred, the picture integer-scaled inside it (js/ui/screen.js fit, Display's integer scaling) */
+  body.record { background: #000; overflow: hidden; }
+  body.record .appbar, body.record #switchConfirm, body.record .drawer, body.record footer, body.record .controls,
+  body.record .slots, body.record .hint, body.record .plate, body.record #welcome, body.record #claude, body.record #ask,
+  body.record #askRail, body.record #toastRegion, body.record #installOffer, body.record #keyHint, body.record #focusHint,
+  body.record #dbgStrip, body.record #tapeHud, body.record #screenNotesBox, body.record #fsClaude, body.record #askActing, body.record #embedAsk { display: none !important; }
+  body.record .layout { padding: 0; margin: 0; max-width: none; width: 100vw; height: 100vh; display: flex; align-items: center; justify-content: center; }
+  body.record .layout > main { gap: 0; display: block; width: auto; flex: none; }
+  body.record .layout > main > .monitor { max-width: none; border-radius: 0; padding: 0; margin: 0; box-shadow: none; background: #000; }
+  body.record .tube { border-radius: 0; box-shadow: none; aspect-ratio: 4 / 3; width: min(100vw, calc(100vh * 4 / 3)); height: auto; }
+  body.record[data-record-aspect="16:9"] .tube { aspect-ratio: 16 / 9; width: min(100vw, calc(100vh * 16 / 9)); }
+  body.record #screenWrap { inset: 0; }
+  body.record #screen, body.record .crt #screen { border-radius: 0; }
   body.embed .layout > main { gap: 0; }
   body.embed .layout > main > .monitor { max-width: none; border-radius: 0; padding: 0; box-shadow: none; background: #000; }
   body.embed .tube { border-radius: 0; height: 100vh; aspect-ratio: auto; box-shadow: none; }
@@ -1935,6 +1952,7 @@ npx serve -l 8000 .</pre>
       <p class="muted"><strong>Your key stays yours.</strong> Stored only in this browser. The emulated machine never sees it, and it's left out of snapshots, share links and exported settings.</p>
     </div>
     <div id="askComposer" hidden>
+      <p class="muted" id="askSendsLine">Nothing is sent until you ask. Then your question, and the screen text and memory Claude reads to answer it, go to Anthropic with your key (or your Claude account in the plugin).</p>
       <div class="bar"><input id="askInput" aria-label="Message to Claude" autocomplete="off" placeholder="Ask about this machine…"><button id="btnAskSend" class="primary">Send</button></div>
       <div class="askfoot"><label><input type="checkbox" id="chkAskMachine"> Let Claude use the emulator</label>
         <span class="muted" id="askKeyLine">API key · Saved in this browser. <button class="link" id="btnAskKeyChange">Change</button> <button class="link" id="btnAskKeyForget">Forget</button></span></div>
@@ -2080,6 +2098,8 @@ npx serve -l 8000 .</pre>
         <div class="bar" id="dwSerialRow" hidden><select id="dwSerialBaud" aria-label="Serial rate for a real CoCo"></select>
           <button id="btnDwSerial">Serve a real CoCo…</button><span class="muted" id="dwSerialState"></span></div>
       </div>
+      <div class="row" id="claudeFeaturesRow"><span id="claudeFeaturesLabel">Claude features</span><span class="bar" role="group" aria-labelledby="claudeFeaturesLabel"><button id="btnClaudeOn" aria-pressed="true">On</button><button id="btnClaudeOff" aria-pressed="false">Off</button></span></div>
+      <p class="muted" style="margin:0" id="claudeFeaturesNote">Off hides Ask Claude, Claude in the command box and Chat with Claude. Nothing goes to Claude either way until you ask.</p>
       <div class="row" id="settingsFileRow"><span>Settings file</span><span class="bar"><button id="btnSettingsExport">Export…</button><button id="btnSettingsImport">Import…</button></span></div>
       <p class="muted" style="margin:0">Machines and their options, the display and your choices, as a file for another browser. Never ROMs or programs.</p>
       <input type="file" id="fileSettings" accept=".json,application/json" hidden>
@@ -2460,6 +2480,8 @@ npx serve -l 8000 .</pre>
 <link rel="modulepreload" href="js/media/gif.js">
 <link rel="modulepreload" href="js/ui/share.js">
 <link rel="modulepreload" href="js/ui/bug-report.js">
+<link rel="modulepreload" href="js/ui/claude-features.js">
+<link rel="modulepreload" href="js/ui/record.js">
 <link rel="modulepreload" href="js/ui/slots-panel.js">
 <link rel="modulepreload" href="js/ui/tape-panel.js">
 <link rel="modulepreload" href="js/ui/nitros9-panel.js">

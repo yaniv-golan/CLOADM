@@ -49,6 +49,8 @@ import { setupCommandBox } from './command-box.js';
 import { MemoryKeyStore, storageKeyStore } from '../host/key-store.js';
 import { setupShare } from './share.js';
 import { setupBugReport } from './bug-report.js';
+import { setupClaudeFeatures } from './claude-features.js';
+import { setupRecord } from './record.js';
 import './version-stamp.js';   // the settings drawer's credits line: v<version> · <commit>
 import { setupSlotsPanel } from './slots-panel.js';
 import { setupTapePanel } from './tape-panel.js';
@@ -157,6 +159,7 @@ const showRoms = () => romSockets.reveal();
 const claude = chatHere ? setupClaude(page) : null;
 // set up only when there is a controller: both modules drive the chat and would throw on null
 const ask = claude ? setupAsk(page, claude) : null;
+setupClaudeFeatures(page, { closeAsk: () => { if (ask && ask.open) ask.hide(); } });
 if (claude) setupCommandBox(page, claude, machinePanel);
 // the controls that hand Claude a key or a say over the machine take no press for their card's first moments on screen
 if (claude) {
@@ -300,6 +303,8 @@ const visit = session.visit();
   session.switchMachine(id, Object.keys(config).length ? Object.assign(session.savedConfig(id), config) : undefined, { menu: false });
 }
 if (Object.keys(link.display).length) session.setDisplay(link.display, { remember: false });
+// ?record=1: the screen alone, integer-scaled in a fixed 4:3 (or 16:9) frame, for recording a video (after the link's display)
+if (link.record) setupRecord(page, link.recordAspect);
 const setCheck = (id, on) => { const c = $(id); if (c.checked !== on) { c.checked = on; c.dispatchEvent(new Event('change')); } };
 if (link.joy) setCheck('chkJoy', link.joy === 'mouse');
 if (link.sound !== null) setCheck('chkSound', link.sound);

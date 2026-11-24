@@ -3,7 +3,7 @@
  * and written back the same way (share links, the embed snippet). Every link points at /play.
  *
  *   parseUrlConfig(search, fallbackMachine) -> { machine, config, display, media, autorun, roms, start, app, nitros9, embed,
- *                                                askClaude, sound, joy, fastTape, turbo, selftest, errors }
+ *                                                askClaude, sound, joy, fastTape, turbo, selftest, record, recordAspect, errors }
  *   buildUrl(base, cfg) -> the link for cfg (parseUrlConfig of it gives cfg back)
  *
  * Parameters (URL_PARAMS lists them):
@@ -36,6 +36,8 @@
  *   embed=1                 embed mode: the screen only, driven by the page around it (js/embed-api.js)
  *   askclaude=1             with embed=1: draw a small "Ask Claude ↗" chip in the screen's corner, a link that opens
  *                           this moment in a new tab with the chat (js/ui/ask-popout.js). Off by default
+ *   record=1                for recording a video of the screen: no page chrome, the picture integer-scaled in a fixed 4:3
+ *                           frame, or with aspect=16:9 a 16:9 frame with the picture pillarboxed (js/ui/record.js)
  *   storage=opfs|fsa|fallback  where ROMs and programs are kept (js/host/media-store-open.js)
  * Errors are messages for the status line; a bad value is ignored, the rest of the link still applies.
  */
@@ -52,7 +54,7 @@ export const DISPLAY_PARAMS = {
   curvature: { key: 'curvature', range: [0, 100] },
   glow: { key: 'glow', range: [0, 100] },
 };
-const FLAGS = { sound: 'sound', fasttape: 'fastTape', turbo: 'turbo', embed: 'embed', selftest: 'selftest', askclaude: 'askClaude' };
+const FLAGS = { sound: 'sound', fasttape: 'fastTape', turbo: 'turbo', embed: 'embed', selftest: 'selftest', askclaude: 'askClaude', record: 'record' };
 const MEDIA = ['load', 'tape', 'cart', 'disk'];
 export const URL_PARAMS = ['machine', 'start', 'app', 'nitros9', ...MEDIA, 'autorun', 'rom', ...Object.keys(DISPLAY_PARAMS), 'joy', 'touch', ...Object.keys(FLAGS), 'storage'];
 const STORAGE = ['opfs', 'fsa', 'fallback'];
@@ -66,7 +68,7 @@ const isUrl = (v) => { try { return !!new URL(v, 'https://cloadm.dev/'); } catch
 
 export function parseUrlConfig(search, fallbackMachine = 'dragon64') {
   const p = new URLSearchParams(search), errors = [];
-  const cfg = { machine: null, config: {}, display: {}, media: [], autorun: false, roms: [], start: null, app: null, nitros9: null, joy: null, touch: null, storage: null, errors };
+  const cfg = { machine: null, config: {}, display: {}, media: [], autorun: false, roms: [], start: null, app: null, nitros9: null, joy: null, touch: null, storage: null, recordAspect: null, errors };
   for (const k of Object.values(FLAGS)) cfg[k] = null;
 
   // a NitrOS-9 link without a machine means the CoCo 3, where it boots
@@ -118,9 +120,13 @@ export function parseUrlConfig(search, fallbackMachine = 'dragon64') {
   if (p.has('autorun')) { const f = flag(p.get('autorun')); if (f === null) errors.push(`autorun=${p.get('autorun')}: 1 or 0`); else cfg.autorun = f; }
   for (const url of p.getAll('rom')) { if (url && isUrl(url)) cfg.roms.push(url); else errors.push(`rom=${url}: not a link to a file`); }
 
+  // record=1's frame: 4:3, or 16:9 with the picture pillarboxed (aspect=16:9, which only record=1 takes)
+  const recording = flag(p.get('record')) === true;
+  if (recording) cfg.recordAspect = p.get('aspect') === '16:9' ? '16:9' : '4:3';
   for (const [name, d] of Object.entries(DISPLAY_PARAMS)) {
     if (!p.has(name)) continue;
     const raw = p.get(name);
+    if (name === 'aspect' && raw === '16:9') { if (!recording) errors.push('aspect=16:9: only with record=1 (4:3 or fill otherwise)'); continue; }
     let v = null;
     if (d.flag) v = flag(raw);
     else if (d.range) { const n = Number(raw); v = raw !== '' && Number.isInteger(n) && n >= d.range[0] && n <= d.range[1] ? n : null; }
@@ -179,6 +185,7 @@ export function buildUrl(base, cfg) {
   if (cfg.touch) s.set('touch', cfg.touch);
   for (const [name, key] of Object.entries(FLAGS)) if (cfg[key] === true || cfg[key] === false) s.set(name, cfg[key] ? '1' : '0');
   if (cfg.storage) s.set('storage', cfg.storage);
+  if (cfg.record === true && cfg.recordAspect === '16:9') s.set('aspect', '16:9');
   return u.toString();
 }
 
