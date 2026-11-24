@@ -1843,6 +1843,64 @@ async function audioChecks(browser, base, check) {
 // double letters and a shifted character, all within a few milliseconds. On the 6809 machines LIZA (no-ROM stub)
 // must show it exactly; on every family the keyboard matrix, read at each frame start as a program reads it,
 // must spell it (the Session's KeyQueue holds each key for some frames and keeps the order)
+// Sound unlocks on the first user activation ANYWHERE, not only on the screen or a key: a tap on Menu or Open… (the
+// events a browser counts as an activation are pointerup, touchend and keydown; a touch's pointerdown is none on iOS,
+// and neither is a file picker's change), and a touch screen gets a "Tap for sound" chip on the bezel until sound runs.
+async function audioUnlockChecks(browser, base, check) {
+  const { devices } = require('playwright');
+  const errors = [];
+  const block = (type, data) => { let sum = (type + data.length) & 0xFF; for (const v of data) sum = (sum + v) & 0xFF; return [0x55, 0x3C, type, data.length, ...data, sum]; };
+  const cas = Buffer.from([...Array(128).fill(0x55), ...block(0, [...Buffer.from('UNLOCK  '), 2, 0, 0, 0x30, 0x00, 0x30, 0x00]), ...Array(16).fill(0x55), ...block(1, [0x20, 0xFE]), ...block(0xFF, [])]);
+  const chip = (page) => page.evaluate(() => { const c = document.getElementById('soundChip'), r = c.getBoundingClientRect(); return { hidden: c.hidden, shown: c.checkVisibility(), text: c.textContent, w: Math.round(r.width), h: Math.round(r.height) }; });
+  // touch: the first tap on Menu (not the screen) unlocks, and the chip goes for good
+  {
+    const ctx = await browser.newContext({ ...devices['iPhone 15'], serviceWorkers: 'block' });
+    const page = await ctx.newPage();
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto(`${base}?machine=dragon64`); await started(page);
+    const before = await chip(page);
+    check('sound unlock (touch): "Tap for sound" shows on the bezel until sound runs, and sound is not running yet',
+      before.shown && before.text === 'Tap for sound' && before.h > 0 && !(await page.evaluate(() => window.emu.audioRunning())), JSON.stringify(before));
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, 'sound-chip-phone.png') });
+    await page.tap('#btnMenu');
+    const unlocked = await waitFor(page, () => window.emu.audioRunning() && document.getElementById('soundChip').hidden, null, 5000);
+    check('sound unlock (touch): the first tap on Menu, not the screen, starts the sound and the chip goes', unlocked, JSON.stringify(await chip(page)));
+    await page.waitForTimeout(1500);   // (the page re-reads the state every second)
+    await page.evaluate(() => { const b = document.getElementById('chkSound'); if (b) { b.checked = false; b.dispatchEvent(new Event('change')); b.checked = true; b.dispatchEvent(new Event('change')); } });
+    await page.waitForTimeout(1200);
+    check('sound unlock (touch): the chip stays gone, also after the Sound switch is turned off and on', (await chip(page)).hidden, JSON.stringify(await chip(page)));
+    await ctx.close();
+  }
+  // touch: Open…, then a tape chosen from the picker (whose change is no activation): the sound already runs, with Tape sound on
+  {
+    const ctx = await browser.newContext({ ...devices['iPhone 15'], serviceWorkers: 'block' });
+    const page = await ctx.newPage();
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto(`${base}?machine=dragon64`); await started(page);
+    const [chooser] = await Promise.all([page.waitForEvent('filechooser'), page.tap('#btnLoad')]);
+    const atPicker = await page.evaluate(() => ({ running: window.emu.audioRunning(), tape: window.emu.audio.tapeSound }));
+    await chooser.setFiles({ name: 'unlock.cas', mimeType: 'application/octet-stream', buffer: cas });
+    await waitFor(page, () => /unlock\.cas|is in the deck|loaded/.test(document.getElementById('toast').textContent), null, 15000);
+    const during = await page.evaluate(() => ({ running: window.emu.audioRunning(), tape: window.emu.audio.tapeSound, path: window.emu.audio.path, tapeName: window.emu.machine.deck.tape && window.emu.machine.deck.tape.name }));
+    check('sound unlock (touch): a tap on Open… starts the sound before the file is chosen, and it is running, Tape sound on, as the tape loads',
+      atPicker.running && atPicker.tape && during.running && during.tape && !!during.tapeName, JSON.stringify({ atPicker, during }));
+    await ctx.close();
+  }
+  // a pointer: no chip, and a key press (not on the screen) unlocks
+  {
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, serviceWorkers: 'block' });
+    const page = await ctx.newPage();
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto(`${base}?machine=dragon64`); await started(page);
+    const before = await chip(page);
+    check('sound unlock (desktop): no "Tap for sound" chip, and sound is not running yet', !before.shown && !(await page.evaluate(() => window.emu.audioRunning())), JSON.stringify(before));
+    await page.keyboard.press('Shift');
+    check('sound unlock (desktop): a key press starts the sound', await waitFor(page, () => window.emu.audioRunning(), null, 5000));
+    await ctx.close();
+  }
+  check('sound unlock: no page errors', !errors.length, errors.join('; '));
+}
+
 async function typingChecks(browser, base, check) {
   const typed = 'I FEEL GOOD, REALLY! 1122';
   for (const id of ['dragon64', 'coco', 'coco3', 'mc10']) {
@@ -20489,7 +20547,7 @@ const GROUPS = (base, site) => [
   ['reset', (b) => resetChecks(b, base, check)],
   ['romUi', (b) => romUiChecks(b, base, check)],
   ['mediaBackend', (b) => mediaBackendChecks(b, base, check)],
-  ['audio', (b) => audioChecks(b, base, check)],
+  ['audio', async (b) => { await audioChecks(b, base, check); await audioUnlockChecks(b, base, check); }],
   ['cartridge', (b) => cartridgeChecks(b, base, check)],
   ['sscBoard', (b) => sscBoardChecks(b, base, check)],
   ['typing', (b) => typingChecks(b, base, check)],

@@ -32,6 +32,13 @@ Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.
 
 #### Fixed
 
+- **Sound starts on the first tap anywhere, and a phone says so.** It started only after a tap on the screen or a key, so a
+  tap on Menu, Open… or Programs left it locked; on an iPhone the file picker's `change` is no user activation either, so a
+  `.cas` chosen from Files loaded silent, with the host's Tape sound on. One listener on the document now unlocks on the
+  events a browser counts as an activation (`pointerup`, `touchend`, `keydown`; not a touch's `pointerdown`, which iOS
+  does not count) and lets go once sound runs, and a touch screen shows a small "Tap for sound" chip on the monitor's
+  bezel until it does. The machine's sound is unchanged.
+
 - **"On screen now" tells two files of one name apart.** The mark on a Recent row matched the file name only, so two
   files with the same name and different bytes could be told apart by position alone. The last run now records the
   file's content hash with its name (`Session.lastRun.crc`, `Session.isLastRun(entry)`), and only the row with that
