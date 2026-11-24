@@ -25,19 +25,18 @@
  *     changed it the restore line (js/ui/claude-lines.js; the last 10 points);
  *   - the API key states with the same texts as full screen: no key (the key form replaces the message box),
  *     refused (the form reopens, red), rate limited and offline (Try again; nothing retries by itself);
- *   - an empty chat offers three example questions for what is on the machine now (js/claude/prompts.js, from the
- *     Session's state, never pixels): with a key a tap fills the message box and sends nothing; without one they sit
- *     under "You could ask, once Claude is connected:", and a tap selects one and offers "I have an API key" (the
- *     question fills the message box once the key is saved) and "I use Claude →" (the question is copied). They
- *     follow the Session's events and the machine (500 ms debounce) while the chat and the box are empty, stay put
- *     while the box has text, a pointer is down or a question is selected, and say "Suggestions updated" politely;
- *   - context openers under the machine: "Explain this error" (a BASIC error on screen, orange) and "Help with my
- *     program" (a BASIC program in memory); clicking one opens the panel and asks.
+ *   - three example questions for what is on the machine now (js/claude/prompts.js, from the Session's state, never
+ *     pixels), in one place at a time: the empty chat while the panel is open, the strip under the machine while it is
+ *     closed. With a key a tap fills the message box (the strip's opens the panel first) and sends nothing; without
+ *     one they sit under "You could ask, once Claude is connected:", and a tap selects one (the strip's opens the
+ *     panel with it) and offers "I have an API key" (the question fills the message box once the key is saved) and "I
+ *     use Claude →" (the question is copied). They follow the Session's events and the machine (500 ms debounce) while
+ *     there is no conversation, stay put while the box has text, a pointer is down or a question is selected, and say
+ *     "Suggestions updated" politely.
  */
 import { $, ESC, viewOpen, markUndrawn, claudeStatusText, touchPanel, TOUCH_PAUSED_TEXT } from './page.js';
 import { PAUSED_CARD_TEXT, acceptClick, drawAccept, loadCardText } from './claude.js';
 import { CLAUDE_PAUSED_SHORT } from '../session.js';
-import { cpuFamily } from '../cpu/cpus.js';
 import { chatTurns } from '../claude/history.js';
 import { actionLines, restoreLine, syncRows } from './claude-lines.js';
 import { promptsNow } from '../claude/prompts.js';
@@ -48,24 +47,6 @@ const phone = () => matchMedia('(max-width: 700px)').matches;
 // keys that only change other keys (and lock keys): pressed or let go, they are not a key on the machine
 const MODIFIERS = new Set(['Shift', 'Control', 'Alt', 'Meta', 'AltGraph', 'CapsLock', 'Fn', 'FnLock', 'NumLock', 'ScrollLock', 'Hyper', 'Super', 'Symbol', 'SymbolLock', 'OS']);
 const el = (tag, text, cls) => { const e = document.createElement(tag); if (text != null) e.textContent = text; if (cls) e.className = cls; return e; };
-
-// what is on the BASIC screen worth asking about: a BASIC error ("?SN ERROR IN 120"), and the program in memory
-// (Color BASIC and Dragon BASIC keep the program's start at $19 and its end at $1B; each line starts with the
-// address of the next, and a zero link ends it)
-export function machineContext(session, m) {
-  const out = { error: null, lines: 0 };
-  if (!m) return out;                     // (the page has no machine until it starts)
-  let text = [];
-  try { text = session.screenText(m); } catch (e) { /* not a text screen */ }
-  for (const l of text) { const e = /\?([A-Z/]{2}) ERROR(?: IN (\d+))?/.exec(l); if (e) out.error = e[0]; }
-  if (cpuFamily(m.config.cpu) === '6809' && m.hasRom && !m.useStub && !session.nitros9On(m)) {
-    const rd = (a) => (typeof m.peek === 'function' ? m.peek(a) : m.ram[a]);
-    const w = (a) => (rd(a) << 8) | rd(a + 1);
-    let p = w(0x19); const end = w(0x1B);
-    for (let n = 0; n < 2000 && p && p < end; n++) { const next = w(p); if (!next) break; out.lines++; p = next; }
-  }
-  return out;
-}
 
 export function setupAsk(page, claude) {
   const { session } = page;
@@ -81,7 +62,6 @@ export function setupAsk(page, claude) {
     markUndrawn();
     $('askRail').hidden = phone();
     if (phone()) setHeight('half');
-    wasEmpty = false;   // (the example questions are read afresh for what is on the machine now)
     render();
     if (focus && !phone() && !$('askInput').closest('[hidden]')) $('askInput').focus();
   }
@@ -269,52 +249,77 @@ export function setupAsk(page, claude) {
   let editingKey = false;
   $('btnAskKeyChange').onclick = () => { editingKey = true; render(); $('askKeyInput').focus(); };
   $('btnAskKeyForget').onclick = () => claude.forgetKey();
-  // the openers
   // the emulated machine's name ("Dragon 64", "CoCo 1/2"), as the full screen card says it
   const modelName = () => { const m = session.personMachine; return m ? m.profile.name : ''; };
-  const context = () => machineContext(session, session.personMachine);
-  $('btnOpenErr').onclick = () => claude.openPanel(`Explain this error: ${context().error}`);
-  $('btnOpenProg').onclick = () => claude.openPanel('Help with my program');
 
   // ---------------- the example questions ----------------
-  // shown: the set on the chips (its id); chosen: the question selected without a key; pointerDown: a press in the
-  // panel (the chips do not move under a finger)
-  let shown = null, chosen = null, pointerDown = false, sugTimer = null, wasEmpty = false, noKeyShown = null;
-  ask.addEventListener('pointerdown', () => { pointerDown = true; });
+  // One set (js/claude/prompts.js), in one place at a time: the empty chat while the panel is open (#askSuggest), the
+  // strip under the machine while it is closed (#askStripQs). None while a conversation is going, in the full-screen
+  // chat, or with Claude features Off.
+  // shown: the set's id; prompts: its questions; place: 'panel' | 'strip' | null, where they are drawn; chosen: the
+  // question selected without a key (kept through opening the panel and entering the key); pointerDown: a press in the
+  // panel or the strip (the questions do not move under a finger); panelEmpty: the open panel's chat is empty (render)
+  let shown = null, prompts = [], place = null, chosen = null, pointerDown = false, sugTimer = null, noKeyShown = null, panelEmpty = false;
+  for (const box of [ask, $('askOpeners')]) box.addEventListener('pointerdown', () => { pointerDown = true; });
   for (const ev of ['pointerup', 'pointercancel']) addEventListener(ev, () => { pointerDown = false; }, true);
   const frozen = () => !!$('askInput').value || pointerDown || chosen != null;
-  // fresh: the chat has just become empty (opened, or a new conversation); live: the debounced follow-up of a change
-  function drawSuggest(noKey, fresh, live = false) {
-    // Claude features Off: no questions, and the machine is not read for them
-    if (!session.claudeFeatures) {
-      shown = null; chosen = null;
-      $('askSuggest').replaceChildren(); delete $('askSuggest').dataset.set;
-      $('askSuggestLabel').hidden = true; $('askChoose').hidden = true;
+  const noKey = () => claude.keyState() === 'none';
+  function where() {
+    if (!session.claudeFeatures || session.claudeView === 'full') return null;
+    if (open) return panelEmpty ? 'panel' : null;
+    const chat = session.chat;
+    return !(chat && (chat.busy || chat.messages.length)) && !session.claudeStatus ? 'strip' : null;
+  }
+  // fresh: the conversation has just become empty (read the machine again); live: the debounced follow-up of a change
+  function drawQuestions({ fresh = false, live = false } = {}) {
+    const at = where(), nk = noKey();
+    if (!at) {
+      // (Off, or nowhere to show them: nothing is drawn, and with Off the machine is not read for them)
+      if (!session.claudeFeatures) { shown = null; chosen = null; }
+      if (place) { $('askSuggest').replaceChildren(); $('askStripQs').replaceChildren(); delete $('askSuggest').dataset.set; place = null; }
+      $('askSuggestLabel').hidden = true; $('askOpenLabel').hidden = true; $('askChoose').hidden = true;
       return;
     }
-    if (fresh || noKey !== noKeyShown) { chosen = null; shown = null; }
-    const set = !shown || live ? promptsNow(session) : null;
-    if (set && (!shown || (set.id !== shown && !frozen()))) {
-      const announce = !!shown;
-      shown = set.id; noKeyShown = noKey;
-      $('askSuggest').dataset.set = set.id;
-      $('askSuggest').replaceChildren(...set.prompts.map((q) => {
+    if (fresh) { shown = null; chosen = null; }
+    if (noKeyShown && !nk) chosen = null;   // (a key now: the question chosen before it went into the message box)
+    let announce = false, changed = false;
+    if (!shown || live) {
+      const set = promptsNow(session);
+      if (!shown || (set.id !== shown && !frozen())) { announce = !!shown && set.id !== shown; changed = set.id !== shown; shown = set.id; prompts = set.prompts; }
+    }
+    if (changed || at !== place || nk !== noKeyShown) {
+      const into = at === 'panel' ? $('askSuggest') : $('askStripQs'), other = at === 'panel' ? $('askStripQs') : $('askSuggest');
+      other.replaceChildren();
+      into.replaceChildren(...prompts.map((q) => {
         const b = el('button', q);
-        if (noKey) b.setAttribute('aria-pressed', 'false');
-        b.onclick = () => pick(q, b);
+        if (nk && at === 'panel') b.setAttribute('aria-pressed', String(q === chosen));
+        b.onclick = () => (at === 'panel' ? pick(q, b) : openWith(q));
         return b;
       }));
-      if (announce) $('askSuggestNote').textContent = 'Suggestions updated';
+      $('askSuggest').dataset.set = shown;
+      place = at; noKeyShown = nk;
     }
-    $('askSuggestLabel').hidden = !noKey;
-    $('askChoose').hidden = !(noKey && chosen != null);
+    if (announce) $('askSuggestNote').textContent = 'Suggestions updated';
+    $('askSuggestLabel').hidden = !(at === 'panel' && nk);
+    $('askOpenLabel').hidden = !(at === 'strip' && nk);
+    $('askChoose').hidden = !(at === 'panel' && nk && chosen != null);
   }
+  // a question in the open panel: with a key it fills the message box; without one it is selected, and the two
+  // choices come forward
   function pick(q, b) {
-    if (claude.keyState() !== 'none') { $('askInput').value = q; $('askInput').focus(); return; }
+    if (!noKey()) { $('askInput').value = q; $('askInput').focus(); return; }
     chosen = q;
     for (const x of $('askSuggest').children) x.setAttribute('aria-pressed', String(x === b));
     $('askChoose').hidden = false;
     $('askChoose').scrollIntoView({ block: 'nearest' });
+  }
+  // a question in the strip: the panel opens with it, never sent (in the message box with a key; selected, with the two
+  // choices in view, without one)
+  function openWith(q) {
+    if (noKey()) chosen = q;
+    claude.openPanel();
+    if (!noKey()) { $('askInput').value = q; if (!phone()) $('askInput').focus(); }
+    else $('askChoose').scrollIntoView({ block: 'nearest' });
   }
   $('btnAskHaveKey').onclick = () => { $('askKeyForm').scrollIntoView({ block: 'nearest' }); $('askKeyInput').focus(); };
   $('btnAskUseClaude').onclick = async () => {
@@ -323,18 +328,18 @@ export function setupAsk(page, claude) {
     try { await navigator.clipboard.writeText(q); page.toast('Question copied: paste it in Claude after you open CLOADM there.'); }
     catch (e) { page.toast(`The question could not be copied: ${q}`); }
   };
-  // a change on the machine: the chips follow it after 500 ms of it, while the chat is empty and nothing holds them
+  // a change on the machine: the questions follow it after 500 ms of it, while they show and nothing holds them
   function suggestSoon() {
-    if (sugTimer || !open || $('askEmpty').hidden || !session.claudeFeatures) return;
-    sugTimer = setTimeout(() => { sugTimer = null; if (open && !$('askEmpty').hidden) drawSuggest(claude.keyState() === 'none', false, true); }, 500);
+    if (sugTimer || !where()) return;
+    sugTimer = setTimeout(() => { sugTimer = null; drawQuestions({ live: true }); }, 500);
   }
   session.on((ev) => {
-    if (ev === 'claudefeatures') { wasEmpty = false; render(); return; }   // (Off clears them; On reads them afresh)
+    if (ev === 'claudefeatures') { drawQuestions({ fresh: true }); return; }   // (Off clears them; On reads them afresh)
     if (ev !== 'chat') suggestSoon();
   });
 
   // ---------------- drawing ----------------
-  let shownPending = null;
+  let shownPending = null, wasChat = false;
   function render() {
     const chat = session.chat, k = claude.keyState(), st = claude.state;
     $('btnAsk').setAttribute('aria-pressed', String(open || session.claudeView === 'full'));
@@ -387,8 +392,11 @@ export function setupAsk(page, claude) {
     if ([...box.children].map((n) => `${n.dataset.key}:${n.textContent}`).join('\n') !== before) $('askBody').scrollTop = $('askBody').scrollHeight;
     const empty = !rows.length && !busy;
     $('askEmpty').hidden = !empty;
-    if (empty) drawSuggest(k === 'none', !wasEmpty); else { chosen = null; clearTimeout(sugTimer); sugTimer = null; }
-    wasEmpty = empty;
+    panelEmpty = open && empty;
+    // (a conversation that has just ended - a new chat - reads the machine afresh for the questions)
+    const hasChat = !!(chat && chat.messages.length);
+    if (wasChat && !hasChat) { shown = null; chosen = null; }
+    wasChat = hasChat;
     const lastUser = msgs.filter((m) => m.role === 'user').slice(-1)[0];
     $('btnAskFix').hidden = !(chat && !chat.busy && lastUser && /^Explain this error/.test(lastUser.content) && msgs.length && msgs.slice(-1)[0].role === 'assistant' && !session.consent.allowed);
     // consent
@@ -463,7 +471,7 @@ export function setupAsk(page, claude) {
     const k = $('touchKeys').hidden ? null : $('touchKeys').getBoundingClientRect();
     return !(k && x >= k.left && x <= k.right && y >= k.top && y <= k.bottom && !lifted(e));
   }
-  // the openers under the machine, the pill on the screen, the minimised strip and the phone's peek line
+  // the questions under the machine, the pill on the screen, the minimised strip and the phone's peek line
   function renderActing() {
     // (not while a card waits for the person: nothing acts then, and the card needs the sheet open)
     const busy = session.claudeBusyActing && !session.consent.pending && session.claudeView !== 'full';
@@ -518,27 +526,26 @@ export function setupAsk(page, claude) {
     if (float) $('viewClaudeText').textContent = claudeStatusText(status) || text || 'Claude is acting…';
     $('btnViewResume').hidden = !(float && session.consent.paused);
     $('btnViewAnswer').hidden = !(inView && session.consent.pending);
-    // openers: not while acting, not in full screen
-    // (and none with Claude features Off: each one starts a turn)
+    // the strip under the machine: the example questions while the panel is closed (drawQuestions), and its note
+    // line; nothing in full screen or with Claude features Off
+    drawQuestions();
     if (session.claudeView === 'full' || !session.claudeFeatures) { $('askOpeners').hidden = true; return; }
-    const ctx = context();
-    $('btnOpenErr').hidden = !ctx.error || busy;
-    if (ctx.error) $('openErrText').textContent = ctx.error;
-    $('btnOpenProg').hidden = !ctx.lines || busy;
-    $('askMachineNote').textContent = busy ? 'Stop on the screen ends Claude\'s turn.' : open ? 'The emulator keeps running while you ask.' : '';
-    $('askOpeners').hidden = $('btnOpenErr').hidden && $('btnOpenProg').hidden && !$('askMachineNote').textContent;
+    // (without a key the label "You could ask, once Claude is connected:" is the strip's first line, in the note's place)
+    const label = !$('askOpenLabel').hidden;
+    $('askMachineNote').textContent = label ? '' : busy ? 'Stop on the screen ends Claude\'s turn.' : open ? 'The emulator keeps running while you ask.' : '';
+    $('askOpeners').hidden = !$('askStripQs').children.length && !$('askMachineNote').textContent;
   }
   claude.onChange(render);
   // back from a page view (the Library, the Debugger…): a card that came up under it is brought into view now
   // (a page view hides the layout, the rail's tab with it: the tab closes, so no Esc goes to a menu that cannot be seen)
   page.onView(() => { if (viewOpen() && railTab) setRail(null); if (open) render(); else renderActing(); }, { every: true });
-  // the screen changes without an event: the openers and the pill follow it a few times a second
+  // the screen changes without an event: the questions and the pill follow it a few times a second
   let tick = 0;
   page.onFrame(() => {
     if (++tick % 10 !== 0) return;
     renderActing();
     // (what the machine does without an event - RUN typed, a program ending - is seen here)
-    if (open && session.claudeFeatures && !$('askEmpty').hidden && shown && promptsNow(session).id !== shown) suggestSoon();
+    if (shown && where() && promptsNow(session).id !== shown) suggestSoon();
   });
   render();
   return { show, hide, get open() { return open; } };

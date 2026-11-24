@@ -14836,7 +14836,23 @@ async function askPromptsChecks(browser, base, check) {
   {
     const L = 'ask prompts (desktop, key)';
     const { ctx, page, requests, errors, logs } = await open({ width: 1440, height: 900 });
-    await page.click('#btnAsk');
+    // the panel closed: the questions are under the machine, and only there
+    const both = () => run(page, () => ({ strip: [...document.querySelectorAll('#askStripQs button')].filter((b) => b.checkVisibility()).map((b) => b.textContent),
+      panel: [...document.querySelectorAll('#askSuggest button')].filter((b) => b.checkVisibility()).map((b) => b.textContent),
+      label: document.getElementById('askOpenLabel').checkVisibility(), note: document.getElementById('askMachineNote').textContent }));
+    check(`${L}: the panel closed: the link's three questions under the machine, not in the panel, with no label (a key is saved)`,
+      await waitFor(page, () => document.querySelectorAll('#askStripQs button').length === 3 && document.getElementById('askSuggest').dataset.set === 'link', null, 15000)
+      && await run(page, () => document.getElementById('askOpeners').checkVisibility())
+      && await (async () => { const b = await both(); return JSON.stringify(b.strip) === JSON.stringify(['What am I looking at?', 'What can I do here?', 'How do I start this from the beginning?']) && !b.panel.length && !b.label; })(),
+      JSON.stringify(await both()));
+    // a tap under the machine opens the panel with the question in the message box, sent nowhere
+    await page.click('#askStripQs button:nth-child(3)');
+    check(`${L}: a question under the machine opens the panel with it in the message box, not sent`, await waitFor(page, () => !document.getElementById('ask').hidden, null, 5000)
+      && await page.inputValue('#askInput') === 'How do I start this from the beginning?' && requests.length === 0
+      && (await maybeWaitFor('a tap must not send', page, () => !!window.emu.session.chat && window.emu.session.chat.messages.length > 0, null, 1000)) === false);
+    check(`${L}: the panel open: the questions are in it and gone from under the machine (never in both)`, await waitFor(page, () => document.querySelectorAll('#askSuggest button').length === 3
+      && !document.querySelectorAll('#askStripQs button').length, null, 5000), JSON.stringify(await both()));
+    await page.fill('#askInput', '');
     check(`${L}: arrived from a link: the link's questions, three of them, with no label`, await setIs(page, 'link')
       && JSON.stringify(await chips(page)) === JSON.stringify(['What am I looking at?', 'What can I do here?', 'How do I start this from the beginning?'])
       && !(await page.isVisible('#askSuggestLabel')), JSON.stringify(await chips(page)));
@@ -14916,8 +14932,22 @@ async function askPromptsChecks(browser, base, check) {
   for (const [label, viewport] of [['393x659', { width: 393, height: 659 }], ['653x280', { width: 653, height: 280 }]]) {
     const L = `ask prompts (phone ${label}, no key)`;
     const { ctx, page, requests, errors, logs } = await open(viewport, { key: false });
-    await page.click('#btnAsk');
+    // the panel closed: under the machine the label is the first line, in the note's place, then the questions
+    // (the link's arrival is marked once the page has started; the questions follow it 500 ms later)
+    await waitFor(page, () => document.querySelectorAll('#askStripQs button').length === 3 && document.getElementById('askSuggest').dataset.set === 'link', null, 15000);
+    const strip = await run(page, () => { const o = document.getElementById('askOpeners'), kids = [...o.children].filter((c) => c.checkVisibility());
+      return { first: kids[0] && kids[0].id, label: document.getElementById('askOpenLabel').textContent, note: document.getElementById('askMachineNote').textContent, panel: document.querySelectorAll('#askSuggest button').length }; });
+    check(`${L}: under the machine: "You could ask, once Claude is connected:" first, the questions under it, no note line, none in the panel`,
+      strip.first === 'askOpenLabel' && strip.label === 'You could ask, once Claude is connected:' && strip.note === '' && strip.panel === 0, JSON.stringify(strip));
+    // a tap there opens the panel with that question selected and the two choices in view
+    await run(page, () => document.querySelector('#askStripQs button:nth-child(2)').scrollIntoView({ block: 'center' }));
+    await page.click('#askStripQs button:nth-child(2)');
     await waitFor(page, () => !document.getElementById('ask').hidden, null, 10000);
+    const carried = await run(page, () => { const sel = document.querySelector('#askSuggest button[aria-pressed="true"]'), c = document.getElementById('askChoose');
+      return { sel: sel && sel.textContent, choose: c.checkVisibility(), strip: document.querySelectorAll('#askStripQs button').length }; });
+    check(`${L}: a question under the machine opens the panel with it selected and the two choices shown, nothing sent`,
+      carried.sel === 'What can I do here?' && carried.choose && carried.strip === 0 && requests.length === 0, JSON.stringify(carried));
+    // (the rest starts from a closed choice: the first question picked in the panel)
     await run(page, () => { const h = document.getElementById('askHandle'); for (let i = 0; i < 3 && document.getElementById('ask').dataset.height !== 'full'; i++) h.click(); });
     check(`${L}: the questions sit under "You could ask, once Claude is connected:", not in a chat box`, await setIs(page, 'link')
       && await page.isVisible('#askSuggestLabel') && await page.textContent('#askSuggestLabel') === 'You could ask, once Claude is connected:' && !(await page.isVisible('#askComposer')));
@@ -14959,9 +14989,30 @@ async function askPromptsChecks(browser, base, check) {
     await closeCtx(ctx);
   }
 
-  // ---- the Claude features off (a page without the chat: embed=1): no chips, no fetch ----
+  // ---- Claude features Off (Settings -> Machine): no chips, nothing asked of the API, back with On ----
   {
-    const L = 'ask prompts (Claude off)';
+    const L = 'ask prompts (Claude features Off)';
+    const { ctx, page, requests, errors } = await open({ width: 1440, height: 900 });
+    await page.click('#btnAsk');
+    await setIs(page, 'link');
+    await run(page, () => document.getElementById('btnClaudeOff').click());
+    await run(page, () => window.emu.session.debug.halt());
+    // (longer than the 500 ms the chips take to follow a change: none may come)
+    await maybeWaitFor('no chip may come back while Off', page, () => !!document.querySelector('#askSuggest button'), null, 1500);
+    check(`${L}: Off: the panel is closed and no question is left, in it or under the machine, even after the machine changes`, await run(page, () => document.getElementById('ask').hidden
+      && !document.querySelectorAll('#askSuggest button, #askStripQs button').length && !document.getElementById('askOpeners').checkVisibility()
+      && !document.getElementById('askSuggest').dataset.set && document.body.classList.contains('claude-off')));
+    check(`${L}: Off: nothing asked of the API`, requests.length === 0);
+    await run(page, () => { window.emu.session.resume(); document.getElementById('btnClaudeOn').click(); });
+    await page.click('#btnAsk');
+    check(`${L}: On again: the chips are back, read afresh`, await setIs(page, 'link') && (await chips(page)).length === 3);
+    check(`${L}: no page errors`, !errors.length, errors.join('; '));
+    await closeCtx(ctx);
+  }
+
+  // ---- the chat not offered (a page without the chat: embed=1): no chips, no fetch ----
+  {
+    const L = 'ask prompts (no chat: embed)';
     const { ctx, page, requests, errors } = await open({ width: 1024, height: 768 }, { url: '?embed=1&machine=dragon64' });
     await emuFrames(page, 60);
     check(`${L}: no chips anywhere and nothing asked of the API`, await run(page, () => document.body.classList.contains('no-claude') && !document.querySelectorAll('#askSuggest button').length)
@@ -16229,8 +16280,8 @@ async function settingsChecks(browser, base, check) {
     await waitFor(page, () => !document.getElementById('askInput').checkVisibility());
     await openTab(page, 'Machine');
   }
-  // Off with a key saved and "?SN ERROR" on the screen: no opener shows, and no door reaches the API - not the opener's
-  // own button clicked anyway, not a question typed in the command box - ZERO requests
+  // Off with a key saved and "?SN ERROR" on the screen: no question shows under the machine, and no door reaches the API -
+  // not the hidden Ask button pressed anyway, not a question typed in the command box - ZERO requests
   {
     const offCtx = await browser.newContext({ serviceWorkers: 'block' });
     await offCtx.addInitScript(() => { try { localStorage.setItem('cloadm.anthropicKey', 'sk-ant-OFF-CHECK-KEY-0123456789'); localStorage.setItem('cloadm.claudeFeatures', '0'); } catch (e) { /* none */ } });
@@ -16247,20 +16298,21 @@ async function settingsChecks(browser, base, check) {
       return waitFor(op, () => /\?SN ERROR/.test(window.emu.session.screenText()[12]), null, 5000); };
     await sn();
     await op.waitForTimeout(600);
-    const off = await op.evaluate(() => ({ text: window.emu.session.screenText()[12], openers: document.getElementById('askOpeners').checkVisibility(), err: document.getElementById('btnOpenErr').checkVisibility() }));
-    await op.evaluate(() => document.getElementById('btnOpenErr').click());
+    const off = await op.evaluate(() => ({ text: window.emu.session.screenText()[12], openers: document.getElementById('askOpeners').checkVisibility(), err: document.querySelectorAll('#askStripQs button, #askSuggest button').length > 0 }));
+    // (the hidden Ask button is a door too: pressed anyway, it refuses and says why)
+    await op.evaluate(() => document.getElementById('btnAsk').click());
     const said = await waitFor(op, () => /Claude features are off \(Settings → Machine\)\./.test(document.getElementById('toast').textContent), null, 3000);
     await op.click('#screen'); await op.keyboard.press('Control+k'); await waitFor(op, () => !document.getElementById('cmdBox').hidden);
     await op.fill('#cmdInput', 'what does this error mean?'); await op.keyboard.press('Enter'); await op.keyboard.press('Escape');
     await op.waitForTimeout(800);
     const after = await op.evaluate(() => ({ view: window.emu.session.claudeView, chat: !!window.emu.session.chat, toast: document.getElementById('toast').textContent }));
-    check('settings: Claude features Off, a key saved, "?SN ERROR" on the screen: no opener shows, nothing opens, and not one request reaches the API',
+    check('settings: Claude features Off, a key saved, "?SN ERROR" on the screen: no question shows under the machine, nothing opens, and not one request reaches the API',
       /\?SN ERROR/.test(off.text) && !off.openers && !off.err && api.length === 0 && after.view !== 'panel' && after.view !== 'full' && !after.chat
       && said, JSON.stringify({ off, after, api, said }));
     // the test sees what it looks for: On, the same screen shows the opener
     await op.evaluate(() => window.emu.session.setClaudeFeatures(true));
     await sn();
-    check('settings: (the same screen with Claude features On shows "Explain this error")', await waitFor(op, () => document.getElementById('btnOpenErr').checkVisibility(), null, 5000) && api.length === 0);
+    check('settings: (the same screen with Claude features On shows the example questions under the machine)', await waitFor(op, () => document.getElementById('askOpeners').checkVisibility() && document.querySelectorAll('#askStripQs button').length === 3, null, 5000) && api.length === 0);
     await offCtx.close();
   }
   const [dl] = await Promise.all([page.waitForEvent('download'), page.click('#btnSettingsExport')]);

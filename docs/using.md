@@ -576,8 +576,8 @@ See also: [Machines](machines.md) · [LIZA and Claude](claude.md) · [ROM list](
 
 **Settings → Machine → Claude features** is On by default. **Off** hides the app bar's **Ask Claude**, the command
 box's Claude rows and its "Ask Claude" row, and the Programs row **Chat with Claude**; the welcome menu's own Claude
-item stays (it is the firmware's). With Off no door can start a turn: the "Explain this error" and "Help with my
-program" buttons don't show, and a link with `app=claude` (or the tab an embed's **Ask Claude ↗** chip opens) doesn't
+item stays (it is the firmware's). With Off no door can start a turn: the example questions under the machine and
+in the Ask panel don't show, and a link with `app=claude` (or the tab an embed's **Ask Claude ↗** chip opens) doesn't
 open the chat; the page says "Claude features are off (Settings → Machine)." instead, as the welcome menu's item does.
 Turning Off stops a turn that is running and ends the full-screen chat. The choice is kept in this browser and goes
 with an exported settings file.

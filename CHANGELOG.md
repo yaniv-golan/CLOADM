@@ -10,16 +10,17 @@ Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.
 
 #### Added
 
-- **Ask Claude suggests three questions for what is on the machine.** An empty chat offers example questions that fit
-  the moment: the Debugger's stop, a visit that just arrived from a link, WYRMFIRE, the welcome menu (without and with
+- **Ask Claude suggests three questions for what is on the machine,** under the machine while the panel is closed and
+  in its empty chat while it is open (never both), in place of the fixed "Explain this error" and "Help with my
+  program" openers. They fit the moment: the Debugger's stop, a visit that just arrived from a link, WYRMFIRE, the welcome menu (without and with
   ROMs), LIZA, 2048, Minesweeper, the colour demo, a machine-code program of yours, BASIC with a program, empty or
   running one, else a general set. They are read from the Session's and the machine's state (`js/claude/prompts.js`,
-  tested in Node), never from pixels or a model. With a key a tap fills the message box and sends nothing; without
-  one they sit under "You could ask, once Claude is connected:", and a tap offers **I have an API key** (the question
+  tested in Node), never from pixels or a model. With a key a tap fills the message box (opening the panel from under the machine) and sends
+  nothing; without one they sit under "You could ask, once Claude is connected:", and a tap offers **I have an API key** (the question
   fills the box once the key is saved) or **I use Claude →** (the question is copied). They follow the machine half a
   second after it changes while the chat and the box are empty, hold still while you type, press or have one
-  selected, are announced as "Suggestions updated", and go after the first message. With the chat not offered (an
-  embed) there are none.
+  selected, are announced as "Suggestions updated", and go after the first message. With Claude features Off, or the
+  chat not offered (an embed), there are none.
 - **Every menu, sheet and view is checked for words run together.** A new `menuWords` group of the browser check opens
   the app bar (at 1440 and 900 px and on a phone), the machine menu, the drive menu, the command palette, the views behind
   the app bar (Library, Debugger, Share, Add ROMs), each tab of the settings drawer and of a phone's Settings sheet with
@@ -30,7 +31,7 @@ Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.
 - **Claude features: On / Off** (Settings → Machine), On by default. Off hides the Ask button, the command box's Claude
   rows and "Ask Claude" row, and the Programs row "Chat with Claude"; the welcome menu's firmware item stays. Kept,
   and in the settings export (`tests/claude-features.test.js`, the browser check's `settings` group). Off closes every
-  door, not only the visible ones: the "Explain this error" and "Help with my program" openers don't show, every
+  door, not only the visible ones: the example questions under the machine don't show, every
   turn-starter in `js/ui/claude.js` (the panel, the full chat, "What is this code doing?", and the ask itself) refuses,
   `?app=claude` and the embed chip's tab say "Claude features are off (Settings → Machine)." instead of opening the
   chat, and turning Off stops a running turn. The browser check puts "?SN ERROR" on the screen with a key saved and
