@@ -5534,7 +5534,8 @@ async function phoneChecks(browser, base, check) {
       bar.every((b) => !b.programs && !b.glued.length) && bar[0].install === 'Install' && bar[1].install === 'Install CLOADM…', JSON.stringify(bar));
     // the file pickers: the extensions each takes, and application/octet-stream so a phone offers a file of a type it
     // does not know (a .cas, a .vdk); no image/* (iOS would offer the Photo Library and the camera)
-    const MEDIA = '.bin,.cas,.c10,.k7,.wav,.rom,.ccc,.dgn,.vdk,.dsk,.jvc,.dmk,.os9,.img,.bas,.txt', OS = 'application/octet-stream';
+    // (.img, NitrOS-9's DriveWire images, only where they open: the NitrOS-9 and DriveWire pickers)
+    const MEDIA = '.bin,.cas,.c10,.k7,.wav,.rom,.ccc,.dgn,.vdk,.dsk,.jvc,.dmk,.os9,.bas,.txt', OS = 'application/octet-stream';
     const want = { fileProgram: `${MEDIA},.cloadm,${OS}`, fileLib: `${MEDIA},.cloadm,.zip,${OS}`, fileTape: `.cas,.c10,.k7,.wav,${OS}`, fileCart: `.rom,.ccc,.dgn,.bin,${OS}`,
       fileMpSlot: `.rom,.ccc,.dgn,.bin,${OS}`, fileDisk: `.vdk,.dsk,.jvc,.dmk,${OS}`, n9File: `.dsk,.os9,.img,${OS}`, dwImport: `.dsk,.os9,.img,${OS}` };
     const accepts = await p.evaluate((ids) => Object.fromEntries(ids.map((id) => [id, document.getElementById(id).getAttribute('accept')])), Object.keys(want));
@@ -6390,6 +6391,19 @@ async function feedbackChecks(browser, base, check) {
       && details === 'It opens tapes (.cas, .wav, .c10, .k7), disks (.vdk, .dsk, .jvc, .dmk, .os9), programs (.bin, .bas, .txt), cartridges (.rom, .ccc, .dgn), snapshots (.cloadm), ROM images and ZIPs of these.',
       `${await page.textContent('#toastText')} ${JSON.stringify(t)} details: ${details} dialogs: ${dialogs}`);
     if (shotDir) await page.screenshot({ path: path.join(shotDir, 'feedback-unopenable.png') });
+    // its way in all the same: "Load as raw data at an address…" on the toast's second line opens the address prompt
+    // (a .hex: not a memory dump's usual name, so said, not asked about)
+    await page.setInputFiles('#fileProgram', { name: 'prog.hex', mimeType: 'application/octet-stream', buffer: Buffer.from([0xFF, 0xD8, 0xFF, 0xE0, 9, 9, 9]) });
+    await waitFor(page, () => document.getElementById('toastText').textContent === 'prog.hex isn\'t a file CLOADM opens.', null, 10000);
+    const also = await page.evaluate(() => { const a = document.getElementById('toastAlso'); return { shown: a.checkVisibility(), text: a.textContent, button: (a.querySelector('button') || {}).textContent,
+      details: document.getElementById('toastAction').textContent }; });
+    const before = dialogs.length;
+    if (also.button) await page.click('#toastAlso button');   // (none: the check below fails, not the group)
+    for (let i = 0; i < 200 && dialogs.length === before && also.button; i++) await page.waitForTimeout(50);   // (a condition wait: the prompt)
+    check('feedback: an unopenable file\'s toast keeps Details and offers "Load as raw data at an address…", which asks for the address',
+      also.shown && also.text === 'A memory dump?Load as raw data at an address…' && also.button === 'Load as raw data at an address…' && also.details === 'Details'
+      && /^prog\.hex: unknown format \(7 bytes\)/.test(dialogs[before] || ''), `${JSON.stringify(also)} dialogs: ${dialogs.join(' | ')}`);
+    dialogs.length = 0;
     await page.setInputFiles('#fileProgram', { name: 'dump.bin', mimeType: 'application/octet-stream', buffer: Buffer.from([1, 2, 3, 4, 5, 6, 7]) });
     for (let i = 0; i < 200 && !dialogs.length; i++) await page.waitForTimeout(50);   // (a condition wait: the prompt)
     check('feedback: a .bin of unknown format still asks for its load address', /^dump\.bin: unknown format \(7 bytes\)/.test(dialogs[0] || ''), dialogs.join(' | '));

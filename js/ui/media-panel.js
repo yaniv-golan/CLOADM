@@ -31,9 +31,14 @@ export function setupMediaPanel(page, { snapshots, disks, nitros9, keep }) {
     if (await snapshots.take(name, bytes)) return;
     const media = session.inspect(name, bytes), mm = media.mismatch;
     offer.hidden = true;
-    // none of the kinds CLOADM opens: said, with the list in its Details (no raw-load prompt for a photo or a PDF)
+    // none of the kinds CLOADM opens: said, with the list in its Details (no raw-load prompt for a photo or a PDF), and
+    // a way in all the same for a memory dump under another name: the raw-load address prompt
     const no = session.unopenable(name, bytes);
-    if (no) { page.toast(no.text, { error: true, details: no.details }); return; }
+    if (no) {
+      page.toast(no.text, { error: true, details: no.details,
+        also: { text: 'A memory dump?', action: { label: 'Load as raw data at an address…', run: () => doLoad(name, bytes) } } });
+      return;
+    }
     // a NitrOS-9 boot disk (DriveWire or floppy): boot it (on the CoCo 3), or put it in a floppy drive all the same
     const n9 = media.kind === 'disk' ? inspectOs9Disk(bytes) : null;
     if (n9 && !n9.reason) {

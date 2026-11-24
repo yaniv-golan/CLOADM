@@ -197,7 +197,11 @@ whatever image is in DriveWire drive 0 then.
   menu also offers the machine's disk controllers (no image needed: the disk ROM is the one you added), which the drives
   card then uses.
 * **`.BAS` / `.TXT`**: BASIC listings, which are typed in.
-* Any other file loads as raw data at an address you enter.
+* **A memory dump**: a `.bin` that is none of the above, a `.raw`, `.ram`, `.dmp` or `.mem` file, or a file with no
+  extension loads as raw data at an address you enter.
+* **Any other file** (a photo, a PDF) is not loaded: CLOADM says "*name* isn't a file CLOADM opens.", with the kinds it
+  opens under **Details**, and **Load as raw data at an address…** to load it as a memory dump all the same. NitrOS-9
+  DriveWire images (`.img`) open from the DriveWire panel, not here.
 
 ## Library and type-ins
 

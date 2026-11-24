@@ -73,9 +73,10 @@ export const OPENS_TEXT = 'It opens tapes (.cas, .wav, .c10, .k7), disks (.vdk, 
 // the extensions OPENS_TEXT names: a file with one of them that isn't what it says (a damaged tape) is not called a
 // file CLOADM doesn't open
 const OPENS_EXTENSIONS = [...OPENS_TEXT.matchAll(/\.([a-z0-9]+)/g)].map((x) => x[1]).concat('zip');
-// a raw file of unknown format still loads at an address the person gives, when it may be a memory dump: a .bin, or a
-// file with no extension
-const RAW_EXTENSIONS = ['bin', ''];
+// a raw file of unknown format still loads at an address the person gives, when it may be a memory dump: a .bin, a
+// memory dump's usual names (.raw, .ram, .dmp, .mem), or a file with no extension. Any other unopenable file can still be
+// loaded that way from the message's "Load as raw data at an address…" (js/ui/media-panel.js)
+const RAW_EXTENSIONS = ['bin', 'raw', 'ram', 'dmp', 'mem', ''];
 export const CLAUDE_PAUSED_SHORT = 'Paused: you pressed a key · Esc stops Claude';
 // a message's text: a string, or the text blocks of a content array
 import { RomLibrary, identifyRoms, isBootable, isRomPack, looksLikeRom, makeRomPack, restoreRomPack, socketStatus } from './roms.js';

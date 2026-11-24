@@ -27,8 +27,11 @@ Next version: 0.1.9-pre (the plugin and extension manifests carry it; `tests/plu
 - **A file CLOADM doesn't open says so.** A photo or a PDF dropped or opened says "photo.jpg isn't a file CLOADM
   opens.", its **Details** listing what it opens: tapes (.cas, .wav, .c10, .k7), disks (.vdk, .dsk, .jvc, .dmk,
   .os9), programs (.bin, .bas, .txt), cartridges (.rom, .ccc, .dgn), snapshots (.cloadm), ROM images and ZIPs of
-  these. It used to ask for a load address as if the file were a memory dump; a `.bin` of unknown format or a file with
-  no extension still does. `Session.unopenable`; `tests/unopenable.test.js` checks the list against the Open… picker.
+  these, and **Load as raw data at an address…** on its second line for a memory dump under another name. It used to
+  ask for a load address as if every such file were a memory dump; a `.bin` of unknown format, a `.raw`, `.ram`,
+  `.dmp` or `.mem` file, or a file with no extension (in any letter case) still does. Open… and the Library's picker no
+  longer offer `.img` files, which open from the NitrOS-9 and DriveWire panels. `Session.unopenable`;
+  `tests/unopenable.test.js` checks the list against the Open… picker.
 
 - **Open CLOADM, and the offline copy only when needed.** The side panel's two tools are now **Open CLOADM**
   (`open_emulator`, "Opens the CLOADM emulator in a panel beside the chat. Use this first.") and **Open CLOADM
