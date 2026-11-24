@@ -479,6 +479,19 @@ Next version: 0.1.9-pre (the plugin and extension manifests carry it; `tests/plu
   screen now shows — but the panels ran BEFORE the frame, so a change that frame made appeared in them one frame later.
   They now run after the frame: the welcome menu's "on screen now" and the recent row's mark change in the same frame
   the screen does. A paused page still updates its panels.
+- **A slow Ubuntu mirror no longer fails a browser-check shard.** The CI step that installs chromium's OS packages
+  (`.github/scripts/install-browser-deps.sh`) asked the runner image's mirror twice. On runs 45303943290,
+  45322323380 and 45333139695 that mirror sent ~100 KB/s, both tries ran out of time, no check ran, and attempt 1 went
+  red. Each try now asks a different mirror: `azure.archive.ubuntu.com`, then the image's own, then
+  `archive.ubuntu.com`, a named one through a sources list of its own signed by the Ubuntu archive key. The first CI
+  run measured it: on 5 of 8 shards the image's mirror sent 122 kB/s and hit its limit, then azure.archive installed
+  the same packages in 2 s. A try installs
+  only the packages Playwright's check reports missing (`apt-get install --no-install-recommends`, no translation
+  lists), not Playwright's whole list, which also upgraded 11 MB of mesa. The .deb cache is now restored with a
+  fallback to the newest cache of an earlier runner image, so an image update no longer sends every shard to the
+  mirror at once, and it is saved right after a good install rather than at the end of a successful job. Playwright's
+  check still decides whether the step passes, and an install that fails on every mirror still fails the step
+  loudly. `tests/install-browser-deps.test.js` covers the mirror order, a stalled mirror and the cache steps.
 
 - **Eight things the v0.1.9 cold test found on a phone and in the chat.**
   A tape put in the deck and loaded with **Skip the tape** (or **Load it now**) now appears in the Media tab's
