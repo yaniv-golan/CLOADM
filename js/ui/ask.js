@@ -25,6 +25,12 @@
  *     changed it the restore line (js/ui/claude-lines.js; the last 10 points);
  *   - the API key states with the same texts as full screen: no key (the key form replaces the message box),
  *     refused (the form reopens, red), rate limited and offline (Try again; nothing retries by itself);
+ *   - an empty chat offers three example questions for what is on the machine now (js/claude/prompts.js, from the
+ *     Session's state, never pixels): with a key a tap fills the message box and sends nothing; without one they sit
+ *     under "You could ask, once Claude is connected:", and a tap selects one and offers "I have an API key" (the
+ *     question fills the message box once the key is saved) and "I use Claude →" (the question is copied). They
+ *     follow the Session's events and the machine (500 ms debounce) while the chat and the box are empty, stay put
+ *     while the box has text, a pointer is down or a question is selected, and say "Suggestions updated" politely;
  *   - context openers under the machine: "Explain this error" (a BASIC error on screen, orange) and "Help with my
  *     program" (a BASIC program in memory); clicking one opens the panel and asks.
  */
@@ -34,6 +40,7 @@ import { CLAUDE_PAUSED_SHORT } from '../session.js';
 import { cpuFamily } from '../cpu/cpus.js';
 import { chatTurns } from '../claude/history.js';
 import { actionLines, restoreLine, syncRows } from './claude-lines.js';
+import { promptsNow } from '../claude/prompts.js';
 
 const WIDTH_KEY = 'cloadm.askWidth';
 const RAIL = [['Media', 'tab-media'], ['Display', 'tab-display'], ['Input', 'tab-input'], ['POKEs', 'tab-pokes'], ['Machine', 'tab-machine']];
@@ -74,6 +81,7 @@ export function setupAsk(page, claude) {
     markUndrawn();
     $('askRail').hidden = phone();
     if (phone()) setHeight('half');
+    wasEmpty = false;   // (the example questions are read afresh for what is on the machine now)
     render();
     if (focus && !phone() && !$('askInput').closest('[hidden]')) $('askInput').focus();
   }
@@ -248,9 +256,14 @@ export function setupAsk(page, claude) {
   const openTurns = new Set();
   // the key
   $('btnAskKeySave').onclick = () => {
-    try { claude.saveKey($('askKeyInput').value); $('askKeyInput').value = ''; $('askKeyErr').textContent = ''; editingKey = false; }
+    // the question chosen before the key: it fills the message box once the key is saved, not sent (read first: the
+    // save redraws the questions, which lets the selection go)
+    const q = chosen;
+    let saved = false;
+    try { claude.saveKey($('askKeyInput').value); $('askKeyInput').value = ''; $('askKeyErr').textContent = ''; editingKey = false; saved = true; }
     catch (e) { $('askKeyErr').textContent = e.message; }
     render();
+    if (saved && q && !$('askComposer').hidden) { $('askInput').value = q; $('askInput').focus(); }
   };
   $('askKeyInput').onkeydown = (e) => { if (e.key === 'Enter') $('btnAskKeySave').click(); };
   let editingKey = false;
@@ -263,11 +276,57 @@ export function setupAsk(page, claude) {
   $('btnOpenErr').onclick = () => claude.openPanel(`Explain this error: ${context().error}`);
   $('btnOpenProg').onclick = () => claude.openPanel('Help with my program');
 
+  // ---------------- the example questions ----------------
+  // shown: the set on the chips (its id); chosen: the question selected without a key; pointerDown: a press in the
+  // panel (the chips do not move under a finger)
+  let shown = null, chosen = null, pointerDown = false, sugTimer = null, wasEmpty = false, noKeyShown = null;
+  ask.addEventListener('pointerdown', () => { pointerDown = true; });
+  for (const ev of ['pointerup', 'pointercancel']) addEventListener(ev, () => { pointerDown = false; }, true);
+  const frozen = () => !!$('askInput').value || pointerDown || chosen != null;
+  // fresh: the chat has just become empty (opened, or a new conversation); live: the debounced follow-up of a change
+  function drawSuggest(noKey, fresh, live = false) {
+    if (fresh || noKey !== noKeyShown) { chosen = null; shown = null; }
+    const set = !shown || live ? promptsNow(session) : null;
+    if (set && (!shown || (set.id !== shown && !frozen()))) {
+      const announce = !!shown;
+      shown = set.id; noKeyShown = noKey;
+      $('askSuggest').dataset.set = set.id;
+      $('askSuggest').replaceChildren(...set.prompts.map((q) => {
+        const b = el('button', q);
+        if (noKey) b.setAttribute('aria-pressed', 'false');
+        b.onclick = () => pick(q, b);
+        return b;
+      }));
+      if (announce) $('askSuggestNote').textContent = 'Suggestions updated';
+    }
+    $('askSuggestLabel').hidden = !noKey;
+    $('askChoose').hidden = !(noKey && chosen != null);
+  }
+  function pick(q, b) {
+    if (claude.keyState() !== 'none') { $('askInput').value = q; $('askInput').focus(); return; }
+    chosen = q;
+    for (const x of $('askSuggest').children) x.setAttribute('aria-pressed', String(x === b));
+    $('askChoose').hidden = false;
+    $('askChoose').scrollIntoView({ block: 'nearest' });
+  }
+  $('btnAskHaveKey').onclick = () => { $('askKeyForm').scrollIntoView({ block: 'nearest' }); $('askKeyInput').focus(); };
+  $('btnAskUseClaude').onclick = async () => {
+    const q = chosen;
+    if (!q) return;
+    try { await navigator.clipboard.writeText(q); page.toast('Question copied: paste it in Claude after you open CLOADM there.'); }
+    catch (e) { page.toast(`The question could not be copied: ${q}`); }
+  };
+  // a change on the machine: the chips follow it after 500 ms of it, while the chat is empty and nothing holds them
+  function suggestSoon() {
+    if (sugTimer || !open || $('askEmpty').hidden) return;
+    sugTimer = setTimeout(() => { sugTimer = null; if (open && !$('askEmpty').hidden) drawSuggest(claude.keyState() === 'none', false, true); }, 500);
+  }
+  session.on((ev) => { if (ev !== 'chat') suggestSoon(); });
+
   // ---------------- drawing ----------------
-  let lastCtx = '', shownPending = null;
+  let shownPending = null;
   function render() {
     const chat = session.chat, k = claude.keyState(), st = claude.state;
-    const ctx = context();
     $('btnAsk').setAttribute('aria-pressed', String(open || session.claudeView === 'full'));
     $('btnAskSide').setAttribute('aria-pressed', 'true');
     // the strip also stands in for a panel closed while a turn is in progress, so its status and Stop stay on screen
@@ -316,17 +375,10 @@ export function setupAsk(page, claude) {
     const before = [...box.children].map((n) => `${n.dataset.key}:${n.textContent}`).join('\n');
     syncRows(box, rows);
     if ([...box.children].map((n) => `${n.dataset.key}:${n.textContent}`).join('\n') !== before) $('askBody').scrollTop = $('askBody').scrollHeight;
-    const empty = !rows.length && !busy && k !== 'none';
+    const empty = !rows.length && !busy;
     $('askEmpty').hidden = !empty;
-    const sug = JSON.stringify(ctx);
-    if (empty && sug !== lastCtx) {
-      lastCtx = sug;
-      const list = [];
-      if (ctx.error) { const b = el('button', 'Explain this error ', 'err'); b.append(el('span', ctx.error, 'mono')); b.onclick = () => claude.ask(`Explain this error: ${ctx.error}`); list.push(b); }
-      const p = el('button', 'Help with my program '); if (ctx.lines) p.append(el('span', `(${ctx.lines} lines)`, 'muted')); p.onclick = () => claude.ask('Help with my program'); list.push(p);
-      const c = el('button', 'How do I draw in colour?'); c.onclick = () => claude.ask('How do I draw in colour?'); list.push(c);
-      $('askSuggest').replaceChildren(...list);
-    }
+    if (empty) drawSuggest(k === 'none', !wasEmpty); else { chosen = null; clearTimeout(sugTimer); sugTimer = null; }
+    wasEmpty = empty;
     const lastUser = msgs.filter((m) => m.role === 'user').slice(-1)[0];
     $('btnAskFix').hidden = !(chat && !chat.busy && lastUser && /^Explain this error/.test(lastUser.content) && msgs.length && msgs.slice(-1)[0].role === 'assistant' && !session.consent.allowed);
     // consent
@@ -471,7 +523,12 @@ export function setupAsk(page, claude) {
   page.onView(() => { if (viewOpen() && railTab) setRail(null); if (open) render(); else renderActing(); }, { every: true });
   // the screen changes without an event: the openers and the pill follow it a few times a second
   let tick = 0;
-  page.onFrame(() => { if (++tick % 10 === 0) renderActing(); });
+  page.onFrame(() => {
+    if (++tick % 10 !== 0) return;
+    renderActing();
+    // (what the machine does without an event - RUN typed, a program ending - is seen here)
+    if (open && !$('askEmpty').hidden && shown && promptsNow(session).id !== shown) suggestSoon();
+  });
   render();
   return { show, hide, get open() { return open; } };
 }

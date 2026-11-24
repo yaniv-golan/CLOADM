@@ -135,6 +135,7 @@ export function setupClaude(page) {
     const chat = ensure();
     text = String(text || '').trim();
     if (!text || chat.busy) return null;
+    session.leaveLinkArrival();   // (a message is the person acting: the link's arrival prompts give way)
     chat.brief = brief(session.claudeView === 'full' ? 'full' : 'panel');
     Object.assign(state, { text: '', asked: text, failed: null, stopped: false, unanswered: null, context });
     session.claudeActing = null;

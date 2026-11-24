@@ -345,6 +345,9 @@ const starting = welcome.start(visit, { fromLink, withMedia: link.roms.length > 
   // started: the visit's program (welcome, LIZA) runs and the link's ROMs, media and moment are in (window.emu.ready:
   // storage is open); linkDone: the same moment, kept for the link checks
   window.emu.started = true;
+  // a visit that came from a link (its machine, ROMs, media, program, app, NitrOS-9 or moment): the Ask panel offers
+  // the link's prompts until the person acts (Session.arriveByLink)
+  if (fromLink || link.start || location.hash.startsWith('#s=')) session.arriveByLink();
   share.ready();
   window.emu.linkDone = true;
   if (link.errors.length) page.status(`This link has ${link.errors.length === 1 ? 'a setting' : 'settings'} CLOADM can't use: ${link.errors.join('; ')}`, true);

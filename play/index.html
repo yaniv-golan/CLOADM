@@ -1251,8 +1251,13 @@
   #askEmpty p { margin: 0; font-size: 15px; line-height: 1.5; color: var(--text-2); }
   #askSuggest { display: flex; flex-direction: column; gap: 8px; }
   #askSuggest button, #askOpeners button { text-align: left; background: var(--ground); border: 1px solid var(--line); border-radius: var(--r-10); padding: 11px 13px; font-size: 15px; }
-  #askSuggest button.err, #btnOpenErr { background: var(--warn-panel); border-color: var(--orange); }
-  #askSuggest .mono, #askOpeners .mono { font: 13px var(--font-mono); color: var(--orange); margin-left: 6px; }
+  #btnOpenErr { background: var(--warn-panel); border-color: var(--orange); }
+  #askOpeners .mono { font: 13px var(--font-mono); color: var(--orange); margin-left: 6px; }
+  #askSuggest button { min-height: 44px; }
+  #askSuggest button[aria-pressed="true"] { border-color: var(--green); box-shadow: inset 0 0 0 1px var(--green); }
+  #askChoose { display: flex; flex-wrap: wrap; gap: 8px; }
+  #askChoose[hidden], #askSuggestLabel[hidden] { display: none; }
+  #askChoose button { min-height: 44px; padding: 0 14px; }
   #askOpeners .mono { margin: 0 10px 0 0; font-size: 15px; }
   #askOpeners[hidden], #askOpeners button[hidden] { display: none; }
   #askOpeners button { border-radius: var(--pill); padding: 9px 16px; display: inline-flex; align-items: center; }
@@ -1449,6 +1454,10 @@
     #ask[data-height] { top: calc(8px + var(--safe-t)); height: auto; }
     #askHandle { display: none; }
     body.ask-open .layout { padding-bottom: 20px; }
+    /* no key yet: the key form is taller than this window, so the whole panel scrolls and the example questions above
+       it stay reachable */
+    #ask:has(#askKeyForm:not([hidden])) { overflow-y: auto; }
+    #ask:has(#askKeyForm:not([hidden])) #askBody { flex: none; overflow: visible; }
   }
 
   /* ---- phone ---- */
@@ -1953,8 +1962,10 @@ npx serve -l 8000 .</pre>
     <div id="askBody">
       <div id="askEmpty">
         <p id="askEmptyText">Claude reads only this emulated <span id="askEmptyModel"></span> (its screen text and memory), never your computer. It types or changes things only if you allow it.</p>
-        <div class="muted">Start with</div>
-        <div id="askSuggest"></div>
+        <div class="muted" id="askSuggestLabel" hidden>You could ask, once Claude is connected:</div>
+        <div id="askSuggest" role="group" aria-label="Example questions"></div>
+        <div id="askChoose" hidden><button id="btnAskHaveKey">I have an API key</button><button id="btnAskUseClaude">I use Claude →</button></div>
+        <p id="askSuggestNote" class="sr-only" aria-live="polite"></p>
         <p id="askEmptyCmd" class="muted"><kbd id="askEmptyKbd">Ctrl K</kbd>: find a command or ask</p>
       </div>
       <div id="askMessages" aria-live="polite"></div>

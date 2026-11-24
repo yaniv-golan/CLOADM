@@ -14661,6 +14661,179 @@ async function askChecks(browser, base, check) {
   await askGimeTextChecks(browser, base, check);
   await askPlusTextChecks(browser, base, check);
   await askBesideChecks(browser, base, check);
+  await askPromptsChecks(browser, base, check);
+}
+
+// The example questions in an empty Ask chat (js/claude/prompts.js): per situation on the page, the refresh rules, a
+// tap with and without a key, and their size on a phone. The API is mocked (a fake key; no request may be made by a
+// tap), and the real key is never used.
+async function askPromptsChecks(browser, base, check) {
+  const KEY = 'sk-ant-PROMPTS-CHECK-KEY-0123456789';
+  const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': 'POST, OPTIONS' };
+  const reply = 'event: message_start\ndata: {"type":"message_start","message":{"id":"m","type":"message","role":"assistant","model":"x","content":[]}}\n\n'
+    + 'event: content_block_start\ndata: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}\n\n'
+    + 'event: content_block_delta\ndata: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"ok"}}\n\n'
+    + 'event: content_block_stop\ndata: {"type":"content_block_stop","index":0}\n\n'
+    + 'event: message_delta\ndata: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{}}\n\nevent: message_stop\ndata: {"type":"message_stop"}\n\n';
+  const open = async (viewport, { key = true, url = '?machine=dragon64' } = {}) => {
+    const ctx = await browser.newContext({ viewport, serviceWorkers: 'block', permissions: ['clipboard-read', 'clipboard-write'] });
+    const requests = [];
+    await ctx.route('https://api.anthropic.com/**', async (route) => {
+      if (route.request().method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors });
+      requests.push(route.request().url());
+      await route.fulfill({ status: 200, headers: { ...cors, 'content-type': 'text/event-stream' }, body: reply });
+    });
+    if (key) await ctx.addInitScript((k) => { try { localStorage.setItem('cloadm.anthropicKey', k); } catch (e) { /* none */ } }, KEY);
+    const page = await ctx.newPage();
+    const errors = [], logs = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    page.on('console', (m) => logs.push(m.text()));
+    await page.goto(`${base}${url}`);
+    await started(page);
+    return { ctx, page, requests, errors, logs };
+  };
+  const set = (page) => page.evaluate(() => document.getElementById('askSuggest').dataset.set || null);
+  const chips = (page) => page.evaluate(() => [...document.querySelectorAll('#askSuggest button')].map((b) => b.textContent));
+  const setIs = (page, id) => waitFor(page, (i) => !document.getElementById('askEmpty').hidden && document.getElementById('askSuggest').dataset.set === i, id, 15000);
+  const run = (page, fn, arg) => page.evaluate(fn, arg);
+
+  // ---- desktop, with a key: one situation after another ----
+  {
+    const L = 'ask prompts (desktop, key)';
+    const { ctx, page, requests, errors, logs } = await open({ width: 1440, height: 900 });
+    await page.click('#btnAsk');
+    check(`${L}: arrived from a link: the link's questions, three of them, with no label`, await setIs(page, 'link')
+      && JSON.stringify(await chips(page)) === JSON.stringify(['What am I looking at?', 'What can I do here?', 'How do I start this from the beginning?'])
+      && !(await page.isVisible('#askSuggestLabel')), JSON.stringify(await chips(page)));
+    // the person's first key ends the arrival: the welcome menu runs (a ?machine= link with no ROMs)
+    await waitFor(page, () => window.emu.session.welcomeRunning, null, 15000);
+    await run(page, () => window.emu.session.personInput());
+    check(`${L}: the first key ends the arrival: the welcome menu without ROMs`, await setIs(page, 'welcome-norom')
+      && (await chips(page)).includes('How do I add my ROMs?'), await set(page));
+    check(`${L}: the change is announced politely: "Suggestions updated"`, await page.textContent('#askSuggestNote') === 'Suggestions updated'
+      && await page.getAttribute('#askSuggestNote', 'aria-live') === 'polite');
+    await run(page, () => { const s = window.emu.session, real = s.machineRoms.bind(s); s.machineRoms = (id) => Object.assign(real(id), { bootable: true }); s.emit('roms'); });
+    check(`${L}: the welcome menu with ROMs for this machine (the ROM library's answer stood in for)`, await setIs(page, 'welcome-rom')
+      && (await chips(page)).includes('Help me write my first BASIC program'), await set(page));
+    await run(page, () => { delete window.emu.session.machineRoms; });
+    const program = async (name, start) => run(page, async ([n, st]) => {
+      const s = window.emu.session, b = new Uint8Array(await (await fetch(`examples/${n}.bin`)).arrayBuffer());
+      if (st === 'liza') s.runLiza(b); else if (st === 'game') s.runGame(n, b); else { s.load(`${n}.bin`, b, { remember: false }); s.setLastRun('demo', 'Colour demo'); }
+    }, [name, start]);
+    await program('liza', 'liza');
+    check(`${L}: LIZA: LIZA's questions`, await setIs(page, 'liza') && (await chips(page))[0] === 'How does LIZA work?', await set(page));
+    await program('2048', 'game');
+    check(`${L}: 2048: the 2048 questions`, await setIs(page, '2048') && (await chips(page))[0] === 'Give me a strategy for 2048', await set(page));
+    await program('minesweeper', 'game');
+    check(`${L}: Minesweeper: its questions`, await setIs(page, 'minesweeper') && (await chips(page))[1] === 'How does it place the mines?', await set(page));
+    await program('demo', 'demo');
+    check(`${L}: the demo: its questions`, await setIs(page, 'demo') && (await chips(page))[0] === 'What are these colours?', await set(page));
+    // (a power cycle with no menu: a launch, so the demo is over, and the stub's own prompt)
+    await run(page, () => window.emu.session.powerCycle({ menu: false }));
+    check(`${L}: the stub's prompt (no BASIC): the fallback`, await setIs(page, 'fallback') && (await chips(page))[0] === 'What is this machine?', await set(page));
+    await run(page, () => window.emu.session.runAssembled(window.emu.Emu.assemble(' ORG $3000\nL INC $0400\n BRA L\n', '6809')));
+    check(`${L}: a machine-code program of the person's: the code questions`, await setIs(page, 'code') && (await chips(page))[0] === 'What is this program doing?', await set(page));
+    // refresh within 1 s of the change (500 ms debounce): the Debugger stops the machine
+    const took = await run(page, () => new Promise((done) => {
+      const box = document.getElementById('askSuggest'), t0 = performance.now();
+      const ob = new MutationObserver(() => { if (box.dataset.set === 'stopped') { ob.disconnect(); done(performance.now() - t0); } });
+      ob.observe(box, { attributes: true });
+      window.emu.session.debug.halt();
+      setTimeout(() => { ob.disconnect(); done(null); }, 5000);
+    }));
+    check(`${L}: the Debugger stops the machine: the stop's questions, within 1 s`, took != null && took <= 1000 && (await chips(page))[0] === 'Why did it stop here?', String(took));
+    // frozen while the box has text
+    await page.fill('#askInput', 'my own words');
+    await run(page, () => window.emu.session.resume());
+    check(`${L}: with text in the box the chips stay as they are`, await maybeWaitFor('the chips must not change while the box has text', page, () => document.getElementById('askSuggest').dataset.set !== 'stopped', null, 2500) === false
+      && await set(page) === 'stopped');
+    await page.fill('#askInput', '');
+    check(`${L}: the box emptied: they follow the machine again`, await setIs(page, 'code'), await set(page));
+    // frozen while a pointer is down on the panel
+    await page.mouse.move(...await run(page, () => { const r = document.getElementById('askEmptyText').getBoundingClientRect(); return [r.left + 5, r.top + 5]; }));
+    await page.mouse.down();
+    await run(page, () => window.emu.session.debug.halt());
+    check(`${L}: with a pointer down the chips stay as they are`, await maybeWaitFor('the chips must not change under a pointer', page, () => document.getElementById('askSuggest').dataset.set !== 'code', null, 2000) === false);
+    await page.mouse.up();
+    check(`${L}: the pointer up: they follow again`, await setIs(page, 'stopped'));
+    await run(page, () => window.emu.session.resume());
+    await setIs(page, 'code');
+    // a tap fills the box and sends nothing
+    const before = requests.length;
+    await page.click('#askSuggest button:nth-child(2)');
+    check(`${L}: a tap fills the message box with the question and sends nothing`, await page.inputValue('#askInput') === "Show me the code that's running now"
+      && (await maybeWaitFor('a tap must not send', page, () => !!window.emu.session.chat && window.emu.session.chat.messages.length > 0, null, 1500)) === false && requests.length === before);
+    await page.press('#askInput', 'Enter');
+    await waitFor(page, () => window.emu.session.chat && !window.emu.session.chat.busy && window.emu.session.chat.messages.length >= 2, null, 15000);
+    check(`${L}: after the first message no chips show`, !(await page.isVisible('#askEmpty')) && !(await page.isVisible('#askSuggest button')) && requests.length === before + 1);
+    // a new conversation (the stage has no New chat control: the conversation ends as the full-screen chat's close ends
+    // it, Session.endChat): the chips are back
+    await run(page, () => window.emu.session.endChat());
+    await page.click('#btnAskClose');
+    await page.click('#btnAsk');
+    check(`${L}: a new chat: the chips are back`, await setIs(page, 'code'));
+    check(`${L}: the key never reaches the console`, !logs.join('\n').includes(KEY));
+    check(`${L}: no page errors`, !errors.length, errors.join('; '));
+    await closeCtx(ctx);
+  }
+
+  // ---- phones, without a key: the label, select, the two choices; the size of the chips ----
+  for (const [label, viewport] of [['393x659', { width: 393, height: 659 }], ['653x280', { width: 653, height: 280 }]]) {
+    const L = `ask prompts (phone ${label}, no key)`;
+    const { ctx, page, requests, errors, logs } = await open(viewport, { key: false });
+    await page.click('#btnAsk');
+    await waitFor(page, () => !document.getElementById('ask').hidden, null, 10000);
+    await run(page, () => { const h = document.getElementById('askHandle'); for (let i = 0; i < 3 && document.getElementById('ask').dataset.height !== 'full'; i++) h.click(); });
+    check(`${L}: the questions sit under "You could ask, once Claude is connected:", not in a chat box`, await setIs(page, 'link')
+      && await page.isVisible('#askSuggestLabel') && await page.textContent('#askSuggestLabel') === 'You could ask, once Claude is connected:' && !(await page.isVisible('#askComposer')));
+    // every chip can be brought into view and tapped, 44 px tall or more
+    const sizes = await run(page, () => [...document.querySelectorAll('#askSuggest button')].map((b) => {
+      b.scrollIntoView({ block: 'nearest' });
+      const r = b.getBoundingClientRect(), at = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      return { h: Math.round(r.height), w: Math.round(r.width), hit: !!at && (at === b || b.contains(at)), inView: r.top >= 0 && r.bottom <= innerHeight && r.left >= 0 && r.right <= innerWidth };
+    }));
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, `ask-prompts-nokey-${label}.png`) });
+    check(`${L}: every chip is reachable and at least 44 px tall`, sizes.length === 3 && sizes.every((x) => x.h >= 44 && x.hit && x.inView), JSON.stringify(sizes));
+    await run(page, () => document.querySelector('#askSuggest button:nth-child(1)').scrollIntoView({ block: 'nearest' }));
+    await page.click('#askSuggest button:nth-child(1)');
+    const chooseOk = await run(page, () => [...document.querySelectorAll('#askChoose button')].map((b) => {
+      b.scrollIntoView({ block: 'nearest' });
+      const r = b.getBoundingClientRect(), at = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      return { t: b.textContent, h: Math.round(r.height), hit: !!at && (at === b || b.contains(at)) };
+    }));
+    check(`${L}: a tap selects the question and brings the two choices forward`, await page.getAttribute('#askSuggest button:nth-child(1)', 'aria-pressed') === 'true'
+      && JSON.stringify(chooseOk.map((c) => c.t)) === JSON.stringify(['I have an API key', 'I use Claude →']) && chooseOk.every((c) => c.h >= 44 && c.hit), JSON.stringify(chooseOk));
+    // selected: the chips stay (a change on the machine does not take the question away)
+    await run(page, () => window.emu.session.personInput());
+    check(`${L}: while a question is selected the chips stay`, await maybeWaitFor('a selected question must stay', page, () => document.getElementById('askSuggest').dataset.set !== 'link', null, 1500) === false
+      && await page.getAttribute('#askSuggest button:nth-child(1)', 'aria-pressed') === 'true');
+    await page.click('#btnAskUseClaude');
+    check(`${L}: "I use Claude →" copies the question and says so`, await waitFor(page, () => /Question copied: paste it in Claude after you open CLOADM there\./.test(document.getElementById('toast').textContent), null, 5000)
+      && await run(page, () => navigator.clipboard.readText()) === 'What am I looking at?');
+    await page.click('#btnAskHaveKey');
+    check(`${L}: "I have an API key" takes the person to the key`, await run(page, () => document.activeElement && document.activeElement.id === 'askKeyInput'));
+    await page.fill('#askKeyInput', KEY);
+    await page.click('#btnAskKeySave');
+    check(`${L}: once the key is saved the question fills the message box, not sent`, await waitFor(page, () => document.getElementById('askInput').value === 'What am I looking at?', null, 5000)
+      && requests.length === 0);
+    check(`${L}: no request was made by any tap`, requests.length === 0);
+    check(`${L}: the key never reaches the console`, !logs.join('\n').includes(KEY));
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, `ask-prompts-${label}.png`) });
+    check(`${L}: no sideways scroll`, await run(page, () => document.documentElement.scrollWidth <= innerWidth));
+    check(`${L}: no page errors`, !errors.length, errors.join('; '));
+    await closeCtx(ctx);
+  }
+
+  // ---- the Claude features off (a page without the chat: embed=1): no chips, no fetch ----
+  {
+    const L = 'ask prompts (Claude off)';
+    const { ctx, page, requests, errors } = await open({ width: 1024, height: 768 }, { url: '?embed=1&machine=dragon64' });
+    await emuFrames(page, 60);
+    check(`${L}: no chips anywhere and nothing asked of the API`, await run(page, () => document.body.classList.contains('no-claude') && !document.querySelectorAll('#askSuggest button').length)
+      && requests.length === 0);
+    check(`${L}: no page errors`, !errors.length, errors.join('; '));
+    await closeCtx(ctx);
+  }
 }
 
 // Asking Claude opens the side panel (the sheet on a phone) beside the person's own machine, whatever is on it: the
