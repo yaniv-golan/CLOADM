@@ -16312,6 +16312,34 @@ async function uiQaChecks(browser, base, check) {
       JSON.stringify({ noChat, eup, eitems, eerrors }));
     await ectx.close();
   }
+  // A page framed in another site that is NOT an embed (body.no-claude, not body.embed): no chat there, but the app bar's
+  // Share is, so the keys' Menu keeps Share… -- and it works: a real tap in the frame opens the Share screen with this
+  // moment's link. (Hiding Share… under no-claude would take it from these pages too: this check is red then.)
+  {
+    const fctx = await browser.newContext({ viewport: { width: 844, height: 390 }, hasTouch: true, isMobile: true, serviceWorkers: 'block' });
+    const fpage = await fctx.newPage();
+    const ferrors = [];
+    fpage.on('pageerror', (e) => ferrors.push(e.message));
+    await fpage.setContent(`<!doctype html><title>a blog</title><style>body{margin:0}iframe{border:0;width:100vw;height:100vh}</style><iframe src="${base}?machine=dragon64"></iframe>`);
+    let frame = null;
+    for (let i = 0; i < 100 && !frame; i++) { frame = fpage.frames().find((f) => f !== fpage.mainFrame() && /\/play\//.test(f.url())) || null; if (!frame) await fpage.waitForTimeout(100); }
+    const inFrame = (fn, ms = 15000) => (async () => { for (let t = 0; t < ms; t += 100) { if (await frame.evaluate(fn).catch(() => false)) return true; await fpage.waitForTimeout(100); } return false; })();
+    const up = !!frame && await inFrame(() => window.emu && window.emu.started && !document.getElementById('touchKeys').hidden && document.body.classList.contains('touch-keys'), 60000);
+    const kind = up ? await frame.evaluate(() => ({ framed: window.top !== window, noChat: document.body.classList.contains('no-claude'), embed: document.body.classList.contains('embed') })) : null;
+    if (up) await frame.tap('#tkMenu');
+    const open = up && await inFrame(() => !document.getElementById('tkMenuSheet').hidden, 5000);
+    const fitems = open ? await frame.evaluate(() => [...document.querySelectorAll('#tkMenuSheet button[data-item]')].filter((b) => b.checkVisibility()).map((b) => b.dataset.item)) : [];
+    if (fitems.includes('share')) {
+      await frame.evaluate(() => document.querySelector('#tkMenuSheet [data-item="share"]').scrollIntoView({ block: 'center' }));
+      await frame.tap('#tkMenuSheet [data-item="share"]');
+    }
+    const shared = fitems.includes('share') && await inFrame(() => location.hash === '#share' && document.getElementById('share').checkVisibility()
+      && /#s=/.test(document.getElementById('shareLink').value));
+    check('ui qa (framed in another site, not an embed, sideways): no chat there, but the keys\' Menu keeps Share… right after Open…, and a real tap opens the Share screen with this moment\'s link',
+      !!kind && kind.framed && kind.noChat && !kind.embed && fitems.indexOf('share') === fitems.indexOf('open') + 1 && !fitems.includes('ask') && shared && !ferrors.length,
+      JSON.stringify({ up, kind, open, fitems, shared, ferrors }));
+    await fctx.close();
+  }
   // the program, and the toast's job is to say so without hiding what it started. Measured with bounding boxes: the
   // toast's rect against the title row's, the row taken from the canvas grid (32 x 16 cells) at the row the machine's
   // own screen text has the title on. A window at phone width found the toast in the fixed top slot, over row 0: with
