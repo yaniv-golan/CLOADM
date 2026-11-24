@@ -3242,7 +3242,10 @@ export class Session {
     const { bytes } = t, fast = this.fastCas;
     this.powerCycle({ on: m });      // the person's machine (it was this.shownMachine: with the chat on screen, the chat's)
     this.fastCas = true;
-    try { return this.load(name, bytes, { remember: false }); } finally { this.fastCas = fast; }
+    // remembered: this is the person's own tape, loaded at their click (Load it now / Skip the tape), so it belongs in
+    // "Recent on this machine" like any file they opened. It was remember: false -- the flag LIZA and the games use,
+    // which is for the programs that are OURS, not theirs -- so a tape the person supplied never reached the list.
+    try { return this.load(name, bytes); } finally { this.fastCas = fast; }
   }
 
   // ---------------- the welcome program ----------------

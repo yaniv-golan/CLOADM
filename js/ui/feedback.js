@@ -62,7 +62,9 @@ export function decide(I) {
   // the screen's visible text, and the band under it inside what shows of the screen. A phone held sideways with the
   // touch keys (sideKeys): the screen column has the window's height and the picture sits in the middle of its tube, so
   // the band reaches the tube's foot, the black glass under the picture: the one place there that covers neither the
-  // text nor a key
+  // text nor a key. (Held upright the picture fills the tube, so the band stops at the canvas: reaching the tube's foot
+  // there would put the toast ON the picture, over the very title row it must clear -- and the check that a toast with
+  // no place free takes the fixed top slot caught exactly that when it was tried.)
   const text = c && c.width ? (() => {
     const f = (active || '0,0,1,1').split(',').map(Number);
     return { left: c.left + f[0] * c.width, top: c.top + f[1] * c.height, right: c.left + f[2] * c.width, bottom: c.top + f[3] * c.height };
@@ -397,8 +399,19 @@ export function createFeedback() {
       }
       dropClass(box, 'compact');
     }
-    // nowhere it covers no control: the fixed slot at the top of the viewport, kept until the toast goes
+    // nowhere it covers no control: the fixed slot at the top of the viewport, kept until the toast goes.
+    // The slot must clear the picture's top where it can: at a phone-width window it sits under the app bar and the
+    // picture begins just below it, so the normal form's height ran onto the picture's first row -- the title LIZA (and
+    // the welcome menu) write there (measured: "LIZA loaded" over row 0 at 390x844, the slot at 56 and the picture at
+    // 89). The compact form is shorter; the slot takes it when only that fits between the bar and the picture. Where
+    // neither fits it stays the normal form, exactly as before.
     dropClass(box, 'compact');
+    const slotTop = Math.max(I.area.top + (I.phone ? 8 : 16), I.barBottom ? I.barBottom + 8 : 0);
+    const picTop = I.canvas && I.canvas.width ? I.canvas.top : null;
+    if (picTop !== null && slotTop + box.getBoundingClientRect().height > picTop) {
+      box.classList.add('compact');
+      if (slotTop + box.getBoundingClientRect().height > picTop) box.classList.remove('compact');   // neither fits: as before
+    }
     placedTop(I.area, I.phone, I.barBottom);
     decided = { kind: 'top' };
     // NO settle() here, and no `reapply` arm for 'top': a 'top' decision is never re-applied from the cache. Once the

@@ -470,6 +470,32 @@ Next version: 0.1.9-pre (the plugin and extension manifests carry it; `tests/plu
 
 ### Fixed
 
+- **Eight things the v0.1.9 cold test found on a phone and in the chat.**
+  A tape put in the deck and loaded with **Skip the tape** (or **Load it now**) now appears in the Media tab's
+  **Recent on this machine**, like any file the person opened: it was loaded with the flag that keeps our own LIZA and
+  games out of the list, so a tape you supplied never got there and the tab said "Nothing loaded yet".
+  Every **Display** slider's name and reading now have a gap: the label's column was only as wide as its text, so it
+  read "Curvature35%" and "Phosphor glow55%" — the line now fills the drawer's width and the two sit at its ends.
+  **"LIZA loaded"** (any status message) no longer covers the top line of the screen at a phone-width window: with no
+  free place along the bottom it took the fixed top slot, and the normal toast there ran onto the picture's title row;
+  the slot now uses the shorter compact form when only that clears the picture, and keeps the normal one where neither
+  fits (a desktop, a phone holding the keys).
+  After Anthropic **refuses the API key** (a 401), the chat's key line now says the key was **refused** and offers
+  **Replace**, instead of still reading "Saved in this browser." beside the refusal; the key is still kept so it can be
+  kept or replaced. The emulator's own layout already keeps the landscape machine menu clear of the bottom touch strip,
+  and a browser check now holds it there.
+  The **machine list** (held sideways, from the touch Menu's Machine…) no longer shows one machine at a time: held
+  landscape it had only `80vh` under the group headings and above its footer, so at 653 x 280 a single machine showed.
+  The group descriptions now give way in landscape (they only repeat what each row says), so 4 machines show at 852 x
+  393 and 844 x 390 and 2 at 653 x 280; every machine is reachable by a scroll, as before.
+  The touch panel's **Menu** no longer runs off the top of a short landscape window: on a 653 x 280 phone the sheet was
+  taller than the room above it, so Machine… and Settings… sat above the fold and could not be tapped. Its height is
+  now capped to the space above it (minus a margin and the safe-area insets) and it scrolls inside; every row keeps its
+  44 px height, and the sheet always opens at its first row, with the keyboard focus scrolling the focused row into view.
+  The landscape touch **Menu is reordered** to put what acts on this machine first — Programs…, Open…, Ask Claude…,
+  Tape, disks and cartridge…, Machine…, Settings…, Power… — then, under a rule, Commands…, Install CLOADM… and Hide
+  keys. Open… uses the same file picker as desktop; Ask Claude… opens the chat as a right-side sheet (its Close and Esc
+  return to Menu); Share, the Library, the Debugger and Help stay reachable through Commands….
 - **The side card, the screen and the ROM page told different stories about ROMs.** With a ROM loaded that CLOADM
   does not recognise, the machine runs it, but the side card still said *Running with no ROMs.*; and after **Run
   without ROMs** the ROMs are in the sockets and only switched off, while the card said the same thing and the

@@ -5465,8 +5465,10 @@ async function phoneChecks(browser, base, check) {
     await p.tap('#tkMenu');
     const items = await p.evaluate(() => [...document.querySelectorAll('#tkMenuSheet button')].filter((b) => b.checkVisibility()).map((b) => b.textContent));
     const gluedKeys = await gluedLabels(p, '#tkMenuSheet button');
-    check('phone sideways: the keys\' Menu lists Programs…, Machine…, Settings…, Tape, disks and cartridge…, Power…, Commands…, then Install and Hide keys, no label\'s words run together',
-      items.slice(0, 6).join('|') === 'Programs…|Machine…|Settings…|Tape, disks and cartridge…|Power…|Commands…' && items.includes('Hide keys') && !gluedKeys.length, JSON.stringify({ items, gluedKeys }));
+    // (the order puts what acts on this machine first -- Programs…, Open…, Ask Claude… -- then the ports and the
+    // machine's own settings, then, under a rule, Commands… and the app-level items.)
+    check('phone sideways: the keys\' Menu lists Programs…, Open…, Ask Claude…, Tape, disks and cartridge…, Machine…, Settings…, Power…, Commands…, then Install and Hide keys, no label\'s words run together',
+      items.slice(0, 9).join('|') === 'Programs…|Open…|Ask Claude…|Tape, disks and cartridge…|Machine…|Settings…|Power…|Commands…|Install CLOADM…' && items.includes('Hide keys') && !gluedKeys.length, JSON.stringify({ items, gluedKeys }));
     // "Tape, disks and cartridge…": one side sheet from the right, 360 px wide and the window's height, a 44 px tab each
     // switching in place; every port's controls can be reached; Esc closes it with the focus back on Menu
     await p.tap('#tkMenuSheet [data-item="ports"]');
@@ -5536,6 +5538,58 @@ async function phoneChecks(browser, base, check) {
     check('phone: the ports\' side sheet opens on the tab that holds media; turned with a sheet open it stays open on the same tab as the other shape (Disks upright and sideways, Settings on Display)',
       onMedia && upright && sideAgain && turned, JSON.stringify({ onMedia, upright, sideAgain, turned }));
     await closeCtx(c);
+  }
+  // Item 6: the panel's Menu sheet must never run past the top of the window. #tkMenuSheet is fixed above the panel's
+  // Menu (bottom: 64px) and holds seven 44 px rows; in a short landscape window (653x280) it used to be taller than the
+  // space above it, so Machine… and Settings… sat above the fold (measured at t:-99..-55) and a tap on them did
+  // nothing. Its height is capped to the room above its bottom offset and it scrolls inside; at each size, every row
+  // must be reachable by a REAL tap -- scrolled into view, then the row is what is on top at its own centre -- and the
+  // sheet's top edge must be at or below 0.
+  for (const [label, viewport] of [['653x280', { width: 653, height: 280 }], ['659x343', { width: 659, height: 343 }], ['852x393', { width: 852, height: 393 }], ['844x390', { width: 844, height: 390 }]]) {
+    const sctx = await browser.newContext({ viewport, hasTouch: true, isMobile: true, serviceWorkers: 'block' });
+    const spage = await sctx.newPage();
+    const serrors = [];
+    spage.on('pageerror', (e) => serrors.push(e.message));
+    await spage.goto(`${base}?machine=dragon64`);
+    await ready(spage);
+    await waitFor(spage, () => !document.getElementById('touchKeys').hidden && document.body.classList.contains('touch-keys'));
+    // open it once, scroll it to the end, close it, then open it again: it must come back at its FIRST row. (A fresh
+    // open is already at scrollTop 0, so checking that alone could not tell a reset from no reset -- the mutation
+    // that removes the reset survived it.)
+    await spage.tap('#tkMenu');
+    await waitFor(spage, () => !document.getElementById('tkMenuSheet').hidden, null, 5000);
+    await spage.evaluate(() => { document.getElementById('tkMenuSheet').scrollTop = 1e6; });
+    await spage.tap('#tkMenu');                                   // close
+    await waitFor(spage, () => document.getElementById('tkMenuSheet').hidden, null, 5000);
+    await spage.tap('#tkMenu');                                   // open again
+    await waitFor(spage, () => !document.getElementById('tkMenuSheet').hidden, null, 5000);
+    const sm = await spage.evaluate(() => {
+      const sheet = document.getElementById('tkMenuSheet'), r = sheet.getBoundingClientRect();
+      const rows = [...sheet.querySelectorAll('button')].filter((b) => b.checkVisibility());
+      const onTopAt = (el) => { const b = el.getBoundingClientRect();
+        const at = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2); return !!at && (sheet.contains(at) || el.contains(at)); };
+      // it opens at its FIRST row (the open handler resets scrollTop), and the first row is focused
+      const opens = { scrollTop: sheet.scrollTop, focusFirst: document.activeElement === rows[0] };
+      // the keyboard focus scrolls the focused row into view: focus the last row, the sheet scrolls it in
+      const seenOf = () => { const b = rows[rows.length - 1].getBoundingClientRect(); return b.top >= r.top - 1 && b.bottom <= r.bottom + 1 && b.top >= 0 && b.bottom <= innerHeight; };
+      rows[rows.length - 1].focus();
+      opens.lastFocusInView = seenOf();
+      sheet.scrollTop = 0;
+      // each row scrolled into view inside the sheet, then read: is it inside the sheet's box and topmost at its centre
+      const reach = rows.map((b) => { b.scrollIntoView({ block: 'nearest' }); const rb = b.getBoundingClientRect();
+        return { text: b.textContent.trim().slice(0, 22), inside: rb.top >= r.top - 1 && rb.bottom <= r.bottom + 1 && rb.top >= 0 && rb.bottom <= innerHeight, topmost: onTopAt(b), h: Math.round(rb.height) }; });
+      return { top: Math.round(r.top), bottom: Math.round(r.bottom), h: Math.round(r.height), vh: innerHeight, opens,
+        scrolls: sheet.scrollHeight > sheet.clientHeight + 1, overflowY: getComputedStyle(sheet).overflowY,
+        first: rows[0] && rows[0].textContent.trim().slice(0, 12), reach };
+    });
+    check(`ui qa (landscape ${label}, touch keys): the Menu sheet stays inside the window (its top at or below 0), opens at its first row (focused), and scrolls inside; the focused row is scrolled into view`,
+      sm.top >= 0 && sm.bottom <= sm.vh && sm.opens.scrollTop === 0 && sm.opens.focusFirst && sm.opens.lastFocusInView
+        && (sm.scrolls ? sm.overflowY === 'auto' || sm.overflowY === 'scroll' : true),
+      JSON.stringify({ top: sm.top, bottom: sm.bottom, vh: sm.vh, opens: sm.opens, scrolls: sm.scrolls, overflowY: sm.overflowY }));
+    check(`ui qa (landscape ${label}, touch keys): every Menu row is reachable by a real tap (scrolled into view, topmost at its centre, 44 px tall)`,
+      sm.reach.length >= 6 && sm.reach.every((x) => x.inside && x.topmost && x.h >= 44) && sm.first === 'Programs…', JSON.stringify(sm.reach));
+    check(`ui qa (landscape ${label}, touch keys): no page errors with the Menu sheet open`, !serrors.length, serrors.join('; '));
+    await sctx.close();
   }
 
   // a short phone upright (under 600 px; 375 x 548 and 320 x 460): no chip row (the screen keeps its room, the page does
@@ -6870,6 +6924,21 @@ async function tapePanelChecks(browser, base, check) {
       if (label === 'phone') await page.tap('#toastText button.inline'); else await page.click('#toastText button.inline');
       const started = await waitFor(page, () => window.emu.machine.read(0x3100) === 0x42 && /started at/.test(document.getElementById('toast').textContent), null, 15000);
       check(`tape, no BASIC (${label}): Load it now loads the program and starts it, and the usual start toast follows`, started, await page.textContent('#toast'));
+      // The person's OWN tape is their file, so the Media tab's "Recent on this machine" must list it once Skip has run
+      // it: a tape put in the deck is not remembered on insert (nothing has run yet), and skipTape() is the load. It
+      // went in with remember: false, the flag LIZA and the games use for programs that are OURS -- so a tape the
+      // person supplied never reached the list, and the Media tab said "Nothing loaded yet".
+      const recentAfterSkip = await page.evaluate(() => {
+        const s = window.emu.session, m = s.personMachine.id;
+        const rows = s.library.recentMedia().filter((r) => r.machine === m);
+        // the drawer's own render, once it has had the 'loaded'/'lastrun' event this load emitted
+        const drawn = [...document.querySelectorAll('#recentList .row')].map((b) => b.textContent);
+        return { names: rows.map((r) => r.name), stored: rows.map((r) => !!r.stored), drawn, lastRun: s.lastRun };
+      });
+      check(`tape, no BASIC (${label}): the tape Skip loaded is in "Recent on this machine", as a row the person can click`,
+        JSON.stringify(recentAfterSkip.names) === JSON.stringify(['nobasic.cas']) && recentAfterSkip.stored.every(Boolean)
+          && recentAfterSkip.drawn.some((t) => t.startsWith('nobasic.cas')) && JSON.stringify(recentAfterSkip.lastRun) === JSON.stringify({ kind: 'recent', name: 'nobasic.cas' }),
+        JSON.stringify(recentAfterSkip));
       check(`tape, no BASIC (${label}): no page errors`, !errors.length, errors.join('; '));
       await closeCtx(ctx);
     }
@@ -8903,6 +8972,19 @@ async function displayChecks(browser, base, check) {
   await page.fill('#rng-curvature', '100'); await page.fill('#rng-glow', '100'); await redrawn(page);
   check('display: the sliders set curvature and glow, with their values shown', await page.evaluate(() => window.emu.session.display.curvature === 100 && window.emu.session.display.glow === 100)
     && await page.textContent('#val-curvature') === '100%' && await page.textContent('#val-glow') === '100%');
+  // Every slider's label and its value are two readings in one line, and they must not run together: with the span at
+  // its content's width, "Curvature" ended exactly where "35%" began and the Display tab read "Curvature35%" (measured
+  // on the v0.1.9 cold test). A gap in the line is what separates them, at every width the drawer takes.
+  // Measured on every slider there is, whatever tab it lands on, so a slider added later is covered by this check.
+  const sliderGaps = await page.evaluate(() => [...document.querySelectorAll('.slider')].map((lab) => {
+    const span = lab.querySelector('span'), out = lab.querySelector('output'), name = span && span.firstChild;
+    if (!name || name.nodeType !== 3 || !out) return { id: lab.getAttribute('for'), err: 'no name or output' };
+    const r = document.createRange(); r.selectNodeContents(name);
+    const nr = r.getBoundingClientRect(), orr = out.getBoundingClientRect();
+    return { id: lab.getAttribute('for'), name: name.textContent, gap: Math.round(orr.left - nr.right) };
+  }));
+  check('display: every slider\'s label and value are separated by a visible gap (no "Curvature35%")',
+    sliderGaps.length >= 2 && sliderGaps.every((g) => !g.err && g.gap >= 8), JSON.stringify(sliderGaps));
   await shot('crt-max');
   await page.fill('#rng-curvature', '0'); await page.fill('#rng-glow', '0'); await redrawn(page);
   await shot('crt-flat');
@@ -13881,6 +13963,10 @@ async function askChecks(browser, base, check) {
     const page = await ctx.newPage();
     const errors = [];
     page.on('pageerror', (e) => errors.push(e.message));
+    // every console line this page says, for the key-leak check below (a key must never be logged)
+    const consoleLines = [];
+    page.on('console', (m) => consoleLines.push(m.text()));
+    const consoleText = () => consoleLines.join('\n');
     const requests = [], replies = [];
     let release = null;
     await ctx.route('https://api.anthropic.com/**', async (route) => {
@@ -14165,12 +14251,67 @@ async function askChecks(browser, base, check) {
     check(`${L}: offline: "Could not reach Claude. Check your connection." with Try again`, await waitFor(page, () => /Could not reach Claude\. Check your connection\./.test(document.getElementById('askKeyMsg').textContent))
       && await vis('#btnAskRetry'));
     await shot('key-offline');
+    // ---- the key never leaks: its text is nowhere in the page, the console, or any storage beyond its one home ----
+    // (the key is a dummy made up above; it lives in cloadm.anthropicKey by design -- key-store.js -- and nowhere else
+    // may it appear. Recorded BEFORE the 401, so the check after compares the refusal's effect against a known state
+    // rather than against "none".)
+    const keyPlaces = async () => {
+      const inPage = (await page.textContent('body')).includes(KEY)
+        || await ev((k) => [...document.querySelectorAll('[value],[placeholder],[aria-label],[title]')].some((e) => (e.value || e.getAttribute('placeholder') || e.getAttribute('aria-label') || e.getAttribute('title') || '').includes(k)), KEY);
+      // every web store the page can reach: localStorage and sessionStorage (keys and values), document.cookie
+      // (names and values), and IndexedDB (database, store and key names, and each record's string form). The key's ONE
+      // home is localStorage.cloadm.anthropicKey; anywhere else is a leak. IndexedDB is read for real: the page
+      // already uses it (js/host/folder-handle.js), so a copy could land there; a value that is a handle serialises to
+      // a plain string, and a value that cannot stringify is reported by kind rather than skipped.
+      const stores = await ev(async (k) => {
+        const out = { local: [], session: [], cookie: [], idb: [], idbError: null };
+        const scan = (store, bottle) => { for (let i = 0; i < store.length; i++) { const n = store.key(i); const v = store.getItem(n);
+          if (String(n).includes(k) || String(v).includes(k)) bottle.push(n); } };
+        scan(localStorage, out.local); scan(sessionStorage, out.session);
+        for (const c of String(document.cookie || '').split(';')) if (c.includes(k)) out.cookie.push(c.trim().split('=')[0]);
+        try {
+          const dbs = indexedDB.databases ? await indexedDB.databases() : [];
+          for (const { name, version } of dbs) {
+            if (String(name).includes(k)) { out.idb.push(`db:${name}`); continue; }
+            const db = await new Promise((res, rej) => { const r = indexedDB.open(name, version); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+            for (const storeName of [...db.objectStoreNames]) {
+              if (String(storeName).includes(k)) { out.idb.push(`${name}/${storeName}`); continue; }
+              const rows = await new Promise((res, rej) => { const tx = db.transaction(storeName, 'readonly'); const r = tx.objectStore(storeName).getAllKeys();
+                r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+              for (const key of rows) if (String(key).includes(k)) out.idb.push(`${name}/${storeName}:${key}`);
+            }
+            db.close();
+          }
+        } catch (e) { out.idbError = String(e && e.message || e); }
+        out.local.sort(); out.session.sort(); out.cookie.sort(); out.idb.sort();
+        return out;
+      }, KEY);
+      return { inPage, storage: stores.local, session: stores.session, cookie: stores.cookie, idb: stores.idb, idbError: stores.idbError, inConsole: consoleText().includes(KEY) };
+    };
+    // anywhere but the key's one home counts as a leak (sessionStorage, a cookie, IndexedDB, or a second localStorage key)
+    const onlyHome = (p) => !p.inPage && !p.inConsole && JSON.stringify(p.storage) === JSON.stringify(['cloadm.anthropicKey'])
+      && !p.session.length && !p.cookie.length && !p.idb.length;
+    const leakBefore = await keyPlaces();
+    check(`${L}: (setup) before any refusal: the saved key lives in localStorage.cloadm.anthropicKey ONLY -- nothing in sessionStorage, a cookie or IndexedDB -- and is on neither the page nor the console`,
+      onlyHome(leakBefore), JSON.stringify(leakBefore));
     replies.push({ status: 401, body: JSON.stringify({ type: 'error', error: { type: 'authentication_error', message: 'invalid x-api-key' } }) });
     await ask('and now?');
     await idle();
     check(`${L}: refused: "[The API key was refused: check it and try again.]" and the key form reopens with a red border`,
       await waitFor(page, () => document.getElementById('askKeyMsg').textContent.includes('[The API key was refused: check it and try again.]'))
       && await vis('#askKeyForm') && await ev(() => getComputedStyle(document.getElementById('askKeyInput')).borderTopColor === 'rgb(255, 122, 112)'));
+    // The composer's own key line must agree: it read "API key · Saved in this browser." beside a refusal, which tells
+    // the person the opposite of what just happened. A refused key is still STORED (the person may keep it or replace
+    // it), so the line says it was REFUSED and that it is still saved; the Replace button says what to do about it.
+    check(`${L}: refused: the composer's key line says the key was REFUSED and is still saved, and the button offers Replace`,
+      await waitFor(page, () => { const l = document.getElementById('askKeyLine'); return !l.hidden && /Refused by Anthropic/.test(l.textContent) && /Still saved in this browser/.test(l.textContent); }, null, 5000)
+      && (await page.textContent('#btnAskKeyChange')).trim() === 'Replace' && await vis('#btnAskKeyChange'),
+      `${await page.textContent('#askKeyLine')} | btn=${await page.textContent('#btnAskKeyChange')}`);
+    // the refusal adds no place for the key: still only its one home, still off the page, still out of the console,
+    // and still nothing in sessionStorage, a cookie or IndexedDB
+    const leakAfter = await keyPlaces();
+    check(`${L}: refused: the key's text is nowhere new -- not on the page, not in the console, not in sessionStorage, a cookie, IndexedDB or a second localStorage key`,
+      onlyHome(leakAfter), JSON.stringify({ before: leakBefore, after: leakAfter }));
     await shot('key-refused');
     await page.fill('#askKeyInput', KEY);
     await page.click('#btnAskKeySave');
@@ -15908,6 +16049,294 @@ async function uiQaChecks(browser, base, check) {
     check('phone: the last model can be picked', await waitFor(page, (id) => window.emu.machine.id === id, last), last);
     check('phone: no page errors', !errors.length, errors.join(' | '));
     await closeCtx(ctx);
+  }
+  // A phone held sideways with the touch panel: the app bar gives way to the panel, so the machine menu (which lives
+  // in the bar) would be hidden under the panel's control strip. js/ui/touch-keys.js puts the bar back over the panel
+  // while the picker is open (body.machine-pick) and the menu is anchored under it; the menu must therefore be ON TOP
+  // of the strip, and its own bottom buttons (Add or see ROMs…, RAM, CPU and speed…) must be reachable. Measured with
+  // elementFromPoint at the footer buttons' centres, at two landscape sizes, opened the way a person does: the panel's
+  // Menu, then Machine… . Without the app-bar rule (index.html's `body.touch-keys.machine-pick .appbar`) the menu is
+  // 0x0 and the strip is what is on top, so this check fails by name.
+  for (const [label, viewport] of [['852x393', { width: 852, height: 393 }], ['844x390', { width: 844, height: 390 }], ['653x280', { width: 653, height: 280 }]]) {
+    const mctx = await browser.newContext({ viewport, hasTouch: true, isMobile: true, serviceWorkers: 'block' });
+    const mpage = await mctx.newPage();
+    const merrors = [];
+    mpage.on('pageerror', (e) => merrors.push(e.message));
+    await mpage.goto(`${base}?machine=dragon64`);
+    await ready(mpage);
+    await waitFor(mpage, () => !document.getElementById('touchKeys').hidden && document.body.classList.contains('touch-keys'));
+    // the panel's Menu -> Machine…, opened by a REAL tap on the sheet's own row (the sheet must never run past the top
+    // of the window, so every row is tappable at every landscape size; a direct .click() would hide a sheet that had
+    // grown off the top, which is exactly the defect the sheet's height cap fixes).
+    await mpage.tap('#tkMenu');
+    await waitFor(mpage, () => !document.getElementById('tkMenuSheet').hidden, null, 5000);
+    // the tap must NOT throw the group: a sheet that ran off the top makes the row untappable, and that must fail
+    // THIS check by name, not abort every check after it in the group
+    let tapped = null;
+    try { await mpage.tap('#tkMenuSheet [data-item="machine"]', { timeout: 5000 }); tapped = true; }
+    catch (e) { tapped = false; }
+    const opened = tapped ? await waitFor(mpage, () => !document.getElementById('machineMenu').hidden && document.body.classList.contains('machine-pick'), null, 8000) : false;
+    // scroll the menu to its end so the sticky footer sits at its bottom, where the strip overlaps
+    // (read only once the menu opened; a sheet that would not tap leaves it closed, and this reads the closed box)
+    const g = opened ? await mpage.evaluate(() => {
+      const menu = document.getElementById('machineMenu');
+      menu.scrollTop = menu.scrollHeight;
+      return new Promise((res) => setTimeout(() => {
+        const r = menu.getBoundingClientRect();
+        const foot = menu.querySelector('.footer');
+        const strip = document.querySelector('#touchKeys > .tkcenter');
+        const onTop = (el) => { const b = el.getBoundingClientRect(); if (!(b.width && b.height)) return false;
+          const at = document.elementFromPoint(b.left + b.width / 2, b.top + Math.min(b.height / 2, 6)); return !!at && menu.contains(at); };
+        const buttons = [...(foot ? foot.querySelectorAll('button') : [])].map((b) => ({ text: b.textContent.trim().slice(0, 24), topmost: onTop(b) }));
+        res({ open: !menu.hidden, rect: { t: Math.round(r.top), b: Math.round(r.bottom), w: Math.round(r.width) },
+          footer: foot ? Math.round(foot.getBoundingClientRect().bottom) : null,
+          strip: strip ? { t: Math.round(strip.getBoundingClientRect().top), b: Math.round(strip.getBoundingClientRect().bottom) } : null,
+          menuTopmostAtCentre: onTop(menu), machineButtons: menu.querySelectorAll('button[data-machine]').length, buttons, vh: innerHeight });
+      }, 150));
+    }) : null;
+    check(`ui qa (landscape ${label}, touch keys): the machine menu is on top of the touch panel (body.machine-pick) and its footer buttons are clickable`,
+      tapped && opened && !!g && g.open && g.rect.w > 0 && g.rect.b > g.strip.t && g.menuTopmostAtCentre && g.machineButtons >= 13 && g.buttons.length >= 2 && g.buttons.every((b) => b.topmost),
+      JSON.stringify({ tapped, opened, g }));
+    check(`ui qa (landscape ${label}, touch keys): no page errors with the picker open`, !merrors.length, merrors.join('; '));
+    // The machine LIST, between the group subtitles and the sticky footer, on a short landscape window, counted in the
+    // FIRST PAINT (the list scrolled back to the top -- the footer check just above left it at its end). Measured in
+    // Linux Chromium (CI's browser; macOS gives the same): BASE 1 at 653x280, 3 at 844x390 and 852x393; the fix (the
+    // group DESCRIPTIONS hidden in landscape, which only repeat what each row says) 2, 4 and 4. A viewport-height cap
+    // was tried and changed nothing at these sizes (80vh is already about 100dvh less the bar), so the fix is the
+    // description hiding alone. The per-size floor is each size's base + 1, so the base fails at every size and the
+    // mutant that shows the descriptions again goes red at every size.
+    const FLOOR = { '653x280': 2, '844x390': 4, '852x393': 4 };
+    const floor = FLOOR[label];
+    // back to the FIRST PAINT before counting: the footer check above scrolled the list to its end, and counting there
+    // read a scrolled list (the item-6 pattern -- leftover state). The MODELS scroll in `#machineMenu .menulist` where
+    // that box exists (the models scroll above a footer that never stands over one), else in `#machineMenu` itself; scroll
+    // whichever it is to 0 and wait until it reads back 0.
+    const scrollerExpr = "(() => { const m = document.getElementById('machineMenu'); return m.querySelector('.menulist') || m; })()";
+    if (opened) { await mpage.evaluate((sc) => { eval(sc).scrollTop = 0; }, scrollerExpr); await waitFor(mpage, (sc) => eval(sc).scrollTop === 0, scrollerExpr, 5000); }
+    const list = opened ? await mpage.evaluate(() => {
+      const menu = document.getElementById('machineMenu'), r = menu.getBoundingClientRect();
+      const rows = [...menu.querySelectorAll('button[data-machine]')];
+      const foot = menu.querySelector('.footer'), fr = foot ? foot.getBoundingClientRect() : { top: r.bottom };
+      const fullyVisible = rows.filter((b) => { const x = b.getBoundingClientRect(); return x.top >= r.top - 1 && x.bottom <= Math.min(r.bottom, fr.top) + 1; }).length;
+      // each row scrolled to the MIDDLE of the scroller, then read; block:'nearest' leaves a row under the STICKY footer
+      const reach = rows.map((b) => { b.scrollIntoView({ block: 'center' }); const rb = b.getBoundingClientRect();
+        const at = document.elementFromPoint(rb.left + rb.width / 2, Math.min(rb.top + rb.height / 2, rb.bottom - 1));
+        const inside = rb.top >= r.top - 1 && rb.bottom <= r.bottom + 1 && rb.top >= 0 && rb.bottom <= innerHeight;
+        return { id: b.dataset.machine, inside, topmost: !!at && b.contains(at), h: Math.round(rb.height) }; });
+      const footTop = (el) => { const b = el.getBoundingClientRect(); const at = document.elementFromPoint(b.left + b.width / 2, b.top + Math.min(b.height / 2, 6)); return !!at && menu.contains(at); };
+      const sc = menu.querySelector('.menulist') || menu;
+      const listR = sc.getBoundingClientRect();
+      return { top: Math.round(r.top), bottom: Math.round(r.bottom), vh: innerHeight, scrolls: sc.scrollHeight > sc.clientHeight + 1,
+        rows: rows.length, fullyVisible,
+        // every machine row is inside the models' scroller (.menulist), not just the menu
+        rowsInList: fullyVisible, listBottom: Math.round(listR.bottom),
+        reach, foot: foot ? [...foot.querySelectorAll('button')].map((b) => ({ text: b.textContent.trim().slice(0, 20), topmost: footTop(b), h: Math.round(b.getBoundingClientRect().height) })) : [],
+        // the footer never overlays a model: its top is at or below the list's bottom
+        noOverlap: !foot || foot.getBoundingClientRect().top >= listR.bottom - 1 };
+    }) : null;
+    check(`ui qa (landscape ${label}, touch keys): the machine list shows at least ${floor} machines at once (base: ${floor - 1}), scrolls inside the window, and every machine is reachable by a real tap (not shrunk), the footer buttons still on top and >= 44 px, never over a model`,
+      !!list && list.top >= 0 && list.bottom <= list.vh && list.scrolls && list.fullyVisible >= floor && list.rows >= 13 && list.reach.length >= 13
+        && list.reach.every((x) => x.inside && x.topmost && x.h >= 24) && list.foot.length >= 2 && list.foot.every((b) => b.topmost) && list.noOverlap
+        // 44 px tap targets only where the compact rule runs (653x280); the taller windows keep their roomier footer
+        && (label !== '653x280' || list.foot.every((b) => b.h >= 44)),
+      JSON.stringify(list));
+    // 653x280's footer is compact (the short-window rule): the two buttons share one row, each >= 44 px, and the
+    // "BASIC ready" legend is hidden -- each tick then carries its own title and accessible name. The tick only renders
+    // with a ROM-ready machine, so a ready tick is forced here (the same stubbing the ROM tests use).
+    if (label === '653x280') {
+      const tick = await mpage.evaluate(() => {
+        const s = window.emu.session, orig = s.machineRoms.bind(s);
+        s.machineRoms = (id) => (id === 'dragon32' ? { bootable: true, sockets: [] } : orig(id)); s.storedRoms = () => ({ count: 1 });
+        document.getElementById('machineMenu').hidden = true; document.getElementById('machineBtn').click();
+        return new Promise((res) => setTimeout(() => {
+          const menu = document.getElementById('machineMenu');
+          const t = menu.querySelector('button[data-machine] .tag.ready');
+          const legend = menu.querySelector('.footer .legend');
+          const foot = menu.querySelector('.footer');
+          const btns = [...foot.querySelectorAll('button')].map((b) => Math.round(b.getBoundingClientRect().height));
+          const rows = [...new Set([...foot.querySelectorAll('button')].map((b) => Math.round(b.getBoundingClientRect().top)))];
+          res({ tickTitle: t && t.getAttribute('title'), tickAria: t && t.getAttribute('aria-label'), legendShown: !!(legend && legend.checkVisibility()),
+            btnHs: btns, footerRows: rows.length });
+        }, 250));
+      });
+      check('ui qa (landscape 653x280): the compact footer is one row of two buttons, each >= 44 px, the "BASIC ready" legend hidden, and every tick carries title and aria-label "BASIC ready"',
+        tick.footerRows === 1 && tick.btnHs.length === 2 && tick.btnHs.every((h) => h >= 44) && !tick.legendShown && tick.tickTitle === 'BASIC ready' && tick.tickAria === 'BASIC ready',
+        JSON.stringify(tick));
+    }
+    await mctx.close();
+  }
+  // The compact landscape footer is scoped to a window <= 320 px tall: desktop and portrait keep the roomier footer. This
+  // asserts that the rule did NOT leak to them (flex-wrap stays wrap, padding not the compact 8px), measured -- not by eye.
+  for (const [label, viewport, touch] of [['desktop', { width: 1440, height: 900 }, false], ['portrait', { width: 390, height: 844 }, true]]) {
+    const uctx = await browser.newContext({ viewport, hasTouch: touch, isMobile: touch, serviceWorkers: 'block' });
+    const upage = await uctx.newPage();
+    await upage.goto(`${base}?machine=dragon64`);
+    await ready(upage);
+    // open the picker the way each shape does: a landscape touch window has the keys' Menu (#tkMenu); desktop and an
+    // upright phone have the app bar's #machineBtn
+    const landscapeTouch = touch && viewport.width > viewport.height;
+    if (landscapeTouch) { await waitFor(upage, () => !document.getElementById('touchKeys').hidden && document.body.classList.contains('touch-keys')); await upage.tap('#tkMenu'); await waitFor(upage, () => !document.getElementById('tkMenuSheet').hidden, null, 5000); await upage.evaluate(() => document.querySelector('#tkMenuSheet [data-item="machine"]').click()); }
+    else await upage.click('#machineBtn');
+    await waitFor(upage, () => !document.getElementById('machineMenu').hidden, null, 8000);
+    const f = await upage.evaluate(() => { const foot = document.querySelector('#machineMenu .footer'); const cs = getComputedStyle(foot);
+      return { wrap: cs.flexWrap, padding: cs.padding }; });
+    check(`ui qa (${label}): the compact landscape footer did not leak here -- the machine-menu footer keeps its roomier style (wrap, not the compact 8px padding)`,
+      f.wrap === 'wrap' && !/^8px( 8px){0,3}$/.test(f.padding), JSON.stringify(f));
+    await uctx.close();
+  }
+  // The landscape keys' Menu, in its settled order, each of its ten items reachable by a REAL tap at four landscape
+  // sizes. The three that act on this machine come first (Programs…, Open…, Ask Claude…), then the ports
+  // and the machine's own settings (Tape…, Machine…, Settings…, Power…), then under a rule Commands…, Install CLOADM…
+  // and Hide keys. js/ui/touch-keys.js builds the sheet; the rule is a .tkmenu-sep span, so the row of BUTTONS is what
+  // is walked.
+  const ORDER8 = ['programs', 'open', 'ask', 'ports', 'machine', 'settings', 'power', 'commands', 'install', 'hide'];
+  for (const [label, viewport] of [['659x343', { width: 659, height: 343 }], ['852x393', { width: 852, height: 393 }], ['844x390', { width: 844, height: 390 }], ['653x280', { width: 653, height: 280 }]]) {
+    const octx = await browser.newContext({ viewport, hasTouch: true, isMobile: true, serviceWorkers: 'block' });
+    const opage = await octx.newPage();
+    const oerrors = [];
+    opage.on('pageerror', (e) => oerrors.push(e.message));
+    await opage.goto(`${base}?machine=dragon64`);
+    await ready(opage);
+    await waitFor(opage, () => !document.getElementById('touchKeys').hidden && document.body.classList.contains('touch-keys'));
+    await opage.tap('#tkMenu');
+    await waitFor(opage, () => !document.getElementById('tkMenuSheet').hidden, null, 5000);
+    const o = await opage.evaluate((ORDER8) => {
+      const sheet = document.getElementById('tkMenuSheet'), r = sheet.getBoundingClientRect();
+      const items = [...sheet.querySelectorAll('button[data-item]')].filter((b) => b.checkVisibility());
+      const order = items.map((b) => b.dataset.item);
+      // the separator sits between power and commands (its DOM position: after the power button)
+      const sep = sheet.querySelector('.tkmenu-sep');
+      const sepAfterPower = !!sep && sep.previousElementSibling && sep.previousElementSibling.dataset.item === 'power'
+        && sep.nextElementSibling && sep.nextElementSibling.dataset.item === 'commands';
+      // every item scrollable into view inside the sheet and topmost at its own centre, not shrunk
+      const reach = items.map((b) => { b.scrollIntoView({ block: 'center' }); const rb = b.getBoundingClientRect();
+        const at = document.elementFromPoint(rb.left + rb.width / 2, Math.min(rb.top + rb.height / 2, rb.bottom - 1));
+        const inside = rb.top >= r.top - 1 && rb.bottom <= r.bottom + 1 && rb.top >= 0 && rb.bottom <= innerHeight;
+        return { id: b.dataset.item, inside, topmost: !!at && b.contains(at), h: Math.round(rb.height), text: b.textContent.trim() }; });
+      return { top: Math.round(r.top), bottom: Math.round(r.bottom), vh: innerHeight, scrolls: sheet.scrollHeight > sheet.clientHeight + 1,
+        order, sepAfterPower, reach };
+    }, ORDER8);
+    check(`ui qa (landscape ${label}, touch keys): the keys' Menu is in the UX order (Programs…, Open…, Ask Claude…, Tape…, Machine…, Settings…, Power…, rule, Commands…, Install…, Hide keys) and every item is reachable by a real tap`,
+      JSON.stringify(o.order) === JSON.stringify(ORDER8) && o.sepAfterPower && o.top >= 0 && o.bottom <= o.vh && o.scrolls
+        && o.reach.length === 10 && o.reach.every((x) => x.inside && x.topmost && x.h >= 44),
+      JSON.stringify(o));
+    // Open…: triggers the program file input, whose accept is the desktop's (fileProgram)
+    const acceptOf = (id) => opage.evaluate((id) => document.getElementById(id).getAttribute('accept'), id);
+    const open = await opage.evaluate(() => {
+      const inp = document.getElementById('fileProgram'); let clicked = false;
+      const orig = inp.click.bind(inp); inp.click = () => { clicked = true; };      // do not open a real picker
+      const b = [...document.querySelectorAll('#tkMenuSheet [data-item]')].find((x) => x.dataset.item === 'open');
+      b.scrollIntoView({ block: 'center' }); b.click();
+      inp.click = orig;
+      return { clicked };
+    });
+    // "the same input as desktop's Open…": the check pins that Open… fires #fileProgram -- the very input the app bar's
+    // Open… uses -- and that it still carries a program picker's accept (extensions + octet-stream). It does NOT hard-code
+    // a copy of the list: the list's exact contents belong to the app (the desktop check at mediaBackend pins that), and a
+    // copy here only drifts (it had a stale .img, which broke every size when the picker dropped it).
+    const progAccept = await acceptOf('fileProgram');
+    check(`ui qa (landscape ${label}, touch keys): Open… triggers #fileProgram, the same input desktop's Open… uses, and it takes programs`,
+      open.clicked && /\.(bin|cas|rom)\b/.test(progAccept) && /application\/octet-stream/.test(progAccept) && !/image\//.test(progAccept),
+      JSON.stringify({ open, accept: progAccept }));
+    // Ask Claude…: opens the side panel as a right-side sheet; Esc closes it and returns the focus to Menu
+    // (reopen the sheet first: selecting Open… closes it, as every item does, and the program input's own dialog may
+    //  have taken the page's focus)
+    await opage.evaluate(() => { const d = document.getElementById('tkMenuSheet'); if (d.hidden) document.getElementById('tkMenu').click(); });
+    await waitFor(opage, () => !document.getElementById('tkMenuSheet').hidden, null, 5000);
+    await opage.evaluate(() => { const b = [...document.querySelectorAll('#tkMenuSheet [data-item]')].find((x) => x.dataset.item === 'ask'); b.scrollIntoView({ block: 'center' }); });
+    await opage.tap('#tkMenuSheet [data-item="ask"]');
+    const askUp = await waitFor(opage, () => !document.getElementById('ask').hidden && window.emu.session.claudeView === 'panel', null, 8000);
+    const ap = await opage.evaluate(() => { const a = document.getElementById('ask'), r = a.getBoundingClientRect(); return { left: Math.round(r.left), right: Math.round(r.right), vw: innerWidth }; });
+    await opage.keyboard.press('Escape');
+    const back = await waitFor(opage, () => document.getElementById('ask').hidden && document.activeElement === document.getElementById('tkMenu'), null, 5000);
+    check(`ui qa (landscape ${label}, touch keys): Ask Claude… opens the side panel as a right-side sheet (its right edge at the window's), and Esc closes it with the focus back on Menu`,
+      // a right-side sheet: its right edge near the window's right and it does NOT span the full width (the upright
+      // bottom sheet spanned left 0..right vw). Measured at 653 it is 225..645 -- a 420 px panel down the right --
+      // so the test is "not full width and right-aligned", not a fixed fraction of the width.
+      askUp && ap.right >= ap.vw - 24 && ap.left >= 24 && ap.left > ap.vw * 0.25 && (ap.right - ap.left) < ap.vw - 24 && back, JSON.stringify({ askUp, ap, back }));
+    check(`ui qa (landscape ${label}, touch keys): no page errors with the keys' Menu`, !oerrors.length, oerrors.join('; '));
+    await octx.close();
+  }
+  // Share, Library, Debugger and Help stay reachable through Commands…: the box lists each (the landscape Menu no longer
+  // carries them on their own rows).
+  {
+    const cctx = await browser.newContext({ viewport: { width: 844, height: 390 }, hasTouch: true, isMobile: true, serviceWorkers: 'block' });
+    const cpage = await cctx.newPage();
+    await cpage.goto(`${base}?machine=dragon64`);
+    await ready(cpage);
+    await waitFor(cpage, () => !document.getElementById('touchKeys').hidden && document.body.classList.contains('touch-keys'));
+    await cpage.tap('#tkMenu');
+    await waitFor(cpage, () => !document.getElementById('tkMenuSheet').hidden, null, 5000);
+    await cpage.tap('#tkMenuSheet [data-item="commands"]');
+    const box = await waitFor(cpage, () => !document.getElementById('cmdBox').hidden, null, 8000);
+    // type each name and read the box's own rows (what a person picks from), rather than the module's list
+    const findRow = async (q) => {
+      await cpage.fill('#cmdInput', q);
+      return cpage.evaluate(() => [...document.querySelectorAll('#cmdBox [role="option"]')].map((o) => o.textContent));
+    };
+    const share = await findRow('share'), lib = await findRow('library'), dbg = await findRow('debugger'), help = await findRow('help');
+    check('ui qa (touch keys, sideways): Commands… (from the Menu) opens the box, which still carries Share, the Library, the Debugger and Help',
+      // (the rows' text runs label and description together -- "Helpthe guide..." -- so match at the START, not on a \b)
+      box && share.some((t) => /^Share/.test(t)) && lib.some((t) => /Library/.test(t)) && dbg.some((t) => /^Open the Debugger/.test(t)) && help.some((t) => /^Help/.test(t)),
+      JSON.stringify({ share: share.slice(0, 2), lib: lib.slice(0, 2), dbg: dbg.slice(0, 2), help: help.slice(0, 2) }));
+    await cctx.close();
+  }
+  // With no chat on the page (?embed=1, or framed in another site), the keys' Menu must not offer Ask Claude… or
+  // Commands…: there is nothing for either to open, and tapping Ask Claude… used to call page.openAsk, which does not
+  // exist then, and threw a pageerror. Loaded with no chat, both rows are absent and the Menu opens clean.
+  {
+    const ectx = await browser.newContext({ viewport: { width: 844, height: 390 }, hasTouch: true, isMobile: true, serviceWorkers: 'block' });
+    const epage = await ectx.newPage();
+    const eerrors = [];
+    epage.on('pageerror', (e) => eerrors.push(e.message));
+    await epage.goto(`${base}?machine=dragon64&embed=1`);
+    await ready(epage);
+    const noChat = await epage.evaluate(() => document.body.classList.contains('no-claude'));
+    await epage.tap('#tkMenu');
+    const eup = await waitFor(epage, () => !document.getElementById('tkMenuSheet').hidden, null, 5000);
+    const eitems = await epage.evaluate(() => [...document.querySelectorAll('#tkMenuSheet button[data-item]')].filter((b) => b.checkVisibility()).map((b) => b.dataset.item));
+    check('ui qa (no chat, ?embed=1, sideways): the keys\' Menu is there but offers neither Ask Claude… nor Commands…, and nothing throws',
+      noChat && eup && !eitems.includes('ask') && !eitems.includes('commands') && eitems.includes('programs') && eitems.includes('hide') && !eerrors.length,
+      JSON.stringify({ noChat, eup, eitems, eerrors }));
+    await ectx.close();
+  }
+  // the program, and the toast's job is to say so without hiding what it started. Measured with bounding boxes: the
+  // toast's rect against the title row's, the row taken from the canvas grid (32 x 16 cells) at the row the machine's
+  // own screen text has the title on. A window at phone width found the toast in the fixed top slot, over row 0: with
+  // no free place along the bottom it fell to the slot under the app bar, and the picture's top row is exactly where
+  // LIZA puts its title. Sizes as the cold test used them: a phone-width window and a desktop one.
+  for (const [label, viewport] of [['phone width', { width: 390, height: 844 }], ['desktop', { width: 1440, height: 900 }]]) {
+    const tctx = await browser.newContext({ viewport, serviceWorkers: 'block' });
+    const tpage = await tctx.newPage();
+    const terrors = [];
+    tpage.on('pageerror', (e) => terrors.push(e.message));
+    await tpage.goto(`${base}?machine=dragon64`);
+    await ready(tpage);
+    await tpage.waitForFunction(() => { try { return !!window.emu && window.emu.session && window.emu.session.welcomeRunning && window.emu.session.screenText()[14].includes('PRESS 1 TO'); } catch (e) { return false; } }, null, { timeout: 30000 });
+    await tpage.click('#screen');
+    await tpage.keyboard.press('1');
+    // Wait for BOTH the toast and the LIZA row on the screen: the toast can be up a frame before the program has drawn
+    // its title, and measuring then read titleRow:-1 (no LIZA row yet) -- a race, not a covering. Both conditions are
+    // required, so a page where the title never appears still times out and fails.
+    const up = await waitFor(tpage, () => document.getElementById('toastText').textContent === 'LIZA loaded' && !document.getElementById('toast').hidden
+      && (() => { try { return window.emu.session.screenText().some((r) => /LIZA/.test(r)); } catch (e) { return false; } })(), null, 30000);
+    const m = await tpage.evaluate(() => {
+      const t = document.getElementById('toast'), c = document.getElementById('screen');
+      const tr = t.getBoundingClientRect(), cr = c.getBoundingClientRect();
+      const rows = window.emu.session.screenText();
+      const titleRow = rows.findIndex((r) => /LIZA/.test(r));
+      const cellH = cr.height / 16;
+      const top = cr.top + Math.max(0, titleRow) * cellH, bottom = top + cellH;
+      const meets = (a, b) => !(a.bottom <= b.top || a.top >= b.bottom || a.right <= b.left || a.left >= b.right);
+      return { toast: { l: Math.round(tr.left), t: Math.round(tr.top), r: Math.round(tr.right), b: Math.round(tr.bottom) },
+        screen: { l: Math.round(cr.left), t: Math.round(cr.top), r: Math.round(cr.right), b: Math.round(cr.bottom) },
+        titleRow, row: { t: Math.round(top), b: Math.round(bottom) }, visible: t.checkVisibility() && tr.width > 0 && tr.height > 0,
+        overlapsTitle: meets(tr, { left: cr.left, right: cr.right, top, bottom }) };
+    });
+    check(`ui qa (${label}): "LIZA loaded" is visible and covers no part of the screen's title row`,
+      up && m.visible && m.titleRow >= 0 && !m.overlapsTitle, JSON.stringify(m));
+    check(`ui qa (${label}): no page errors with the toast up`, !terrors.length, terrors.join('; '));
+    await tctx.close();
   }
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   let page = await ctx.newPage();
@@ -19035,8 +19464,11 @@ async function mobileChecks(browser, base, check) {
     const items = await page.evaluate(() => [...document.querySelectorAll('#tkMenuSheet button')].filter((e) => e.checkVisibility()).map((e) => e.textContent));
     await tap(page, '#tkMenuSheet [data-item="machine"]');
     const picker = await page.evaluate(() => { const m = document.getElementById('machineMenu'), r = m.getBoundingClientRect(); return { shown: !m.hidden && m.checkVisibility() && r.width > 0, inView: r.top >= 0 && r.bottom <= innerHeight + 1, first: document.elementFromPoint(r.left + 40, r.top + 40)?.closest('#machineMenu') === m }; });
-    check('mobile (734x343): the panel\'s Menu has Programs…, Machine…, Settings…, Tape, disks and cartridge…, Power…, Commands…, Install CLOADM… and Hide keys; Machine… opens the machine picker, on screen and on top',
-      items.join() === 'Programs…,Machine…,Settings…,Tape, disks and cartridge…,Power…,Commands…,Install CLOADM…,Hide keys' && picker.shown && picker.inView && picker.first, JSON.stringify({ items, picker }));
+    // (the landscape keys' Menu order: what acts on this machine first -- Programs…, Open…, Ask Claude…, Tape…, Machine…,
+    // Settings…, Power… -- then under a rule Commands…, Install CLOADM… and Hide keys. This page has a chat, so Ask
+    // Claude… and Commands… are both present.)
+    check('mobile (734x343): the panel\'s Menu is Programs…, Open…, Ask Claude…, Tape, disks and cartridge…, Machine…, Settings…, Power…, Commands…, Install CLOADM… and Hide keys; Machine… opens the machine picker, on screen and on top',
+      items.join() === 'Programs…,Open…,Ask Claude…,Tape, disks and cartridge…,Machine…,Settings…,Power…,Commands…,Install CLOADM…,Hide keys' && picker.shown && picker.inView && picker.first, JSON.stringify({ items, picker }));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, 'mobile-734x343-machine-picker.png') });
     await page.keyboard.press('Escape');
     check('mobile (734x343): Esc closes the picker, and the app bar gives way to the panel again', picker.shown && await until(page, () => document.getElementById('machineMenu').hidden && !document.body.classList.contains('machine-pick')

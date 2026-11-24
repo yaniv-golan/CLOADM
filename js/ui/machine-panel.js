@@ -67,7 +67,7 @@ export function setupMachinePanel(page, { showRoms }) {
         if (!none) {
           const ready = session.machineRoms(p.id).bootable;
           const t = document.createElement('span'); t.className = ready ? 'tag ready' : 'tag'; t.textContent = ready ? '✓' : 'needs ROMs';
-          if (ready) t.setAttribute('aria-label', 'BASIC ready');
+          if (ready) { t.setAttribute('aria-label', 'BASIC ready'); t.setAttribute('title', 'BASIC ready'); }
           b.append(t);
         }
         if (p.id === session.shownMachine.id) b.setAttribute('aria-current', 'true');
@@ -85,6 +85,7 @@ export function setupMachinePanel(page, { showRoms }) {
     // the tick's legend, after the two items: a note, not a menu item (the arrows and Tab pass it by)
     const legend = document.createElement('span'), tick = document.createElement('span');
     legend.className = 'legend'; tick.className = 'tag ready'; tick.textContent = '✓';
+    tick.setAttribute('aria-label', 'BASIC ready'); tick.setAttribute('title', 'BASIC ready');
     legend.append(tick, ' = BASIC ready');
     legend.hidden = none;
     // "Which one is mine? ↗": Help's list of the machines, what each is and the ROMs it needs (a new tab)

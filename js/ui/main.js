@@ -154,6 +154,10 @@ const showRoms = () => romSockets.reveal();
 const claude = chatHere ? setupClaude(page) : null;
 // set up only when there is a controller: both modules drive the chat and would throw on null
 const ask = claude ? setupAsk(page, claude) : null;
+// a non-toggling opener for the Ask panel, for the landscape keys' Menu's "Ask Claude…" (js/ui/touch-keys.js): the
+// header's #btnAsk TOGGLES (a second press closes it), which is wrong for a Menu item that always means "open". The
+// panel is the side panel (claude.openPanel); guarded so a page with no chat has nothing to open.
+if (claude) page.openAsk = () => claude.openPanel();
 if (claude) setupCommandBox(page, claude, machinePanel);
 // the controls that hand Claude a key or a say over the machine take no press for their card's first moments on screen
 if (claude) {
