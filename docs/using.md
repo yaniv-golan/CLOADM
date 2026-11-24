@@ -549,8 +549,9 @@ See also: [Machines](machines.md) · [LIZA and Claude](claude.md) · [ROM list](
 **Settings → Machine → Claude features** is On by default. **Off** hides the app bar's **Ask Claude**, the command
 box's Claude rows and its "Ask Claude" row, and the Programs row **Chat with Claude**; the welcome menu's own Claude
 item stays (it is the firmware's). The choice is kept in this browser and goes with an exported settings file.
-Either way nothing goes to Anthropic until you ask: Ask Claude says so above its input ("Nothing is sent until you
-ask. Then your question, and the screen text and memory Claude reads to answer it, go to Anthropic with your key").
+Either way nothing goes to Anthropic until you ask. Ask Claude says so above its input: then your question, the
+machine's facts and the chat so far go to Anthropic with your key, and Claude can read the screen and any memory (ROM
+areas included) without asking; only changes to the machine ask you first.
 
 ## Known differences from MAME
 

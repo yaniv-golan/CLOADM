@@ -1952,7 +1952,7 @@ npx serve -l 8000 .</pre>
       <p class="muted"><strong>Your key stays yours.</strong> Stored only in this browser. The emulated machine never sees it, and it's left out of snapshots, share links and exported settings.</p>
     </div>
     <div id="askComposer" hidden>
-      <p class="muted" id="askSendsLine">Nothing is sent until you ask. Then your question, and the screen text and memory Claude reads to answer it, go to Anthropic with your key (or your Claude account in the plugin).</p>
+      <p class="muted" id="askSendsLine">Nothing is sent until you ask. Then your question, the machine's facts and the chat so far go to Anthropic with your key (or your Claude account in the plugin), and Claude can read the screen and any memory (ROM areas included) without asking. Only changes to the machine ask you first.</p>
       <div class="bar"><input id="askInput" aria-label="Message to Claude" autocomplete="off" placeholder="Ask about this machine…"><button id="btnAskSend" class="primary">Send</button></div>
       <div class="askfoot"><label><input type="checkbox" id="chkAskMachine"> Let Claude use the emulator</label>
         <span class="muted" id="askKeyLine">API key · Saved in this browser. <button class="link" id="btnAskKeyChange">Change</button> <button class="link" id="btnAskKeyForget">Forget</button></span></div>

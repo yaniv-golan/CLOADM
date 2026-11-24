@@ -41,7 +41,8 @@ const WANT = ['q-roms', 'q-legal', 'q-accuracy', 'q-privacy', 'q-business', 'q-a
 check('/faq/: the seven questions, in order', JSON.stringify(qa.map((x) => x.id)) === JSON.stringify(WANT), qa.map((x) => x.id).join(' '));
 for (const x of qa) check(`/faq/ "${x.q}": under 80 words (${words(x.a)})`, words(x.a) < 80);
 check('/faq/: answers in the first person', ['q-roms', 'q-legal', 'q-accuracy', 'q-privacy', 'q-business', 'q-ai'].every((id) => byId[id] && /\bI\b/.test(byId[id].a)));
-check('/faq/ business: the decided wording, word for word, and no provider named', byId['q-business'] && byId['q-business'].a === 'CLOADM is free: the emulator, the games, WYRMFIRE and sharing, with no account. The optional Claude chat costs tokens: use your own Anthropic key, or buy credit through a token provider at cost. I keep nothing.', byId['q-business'] && byId['q-business'].a);
+check('/faq/ business: the decided wording, with no token provider (that returns when the integration ships)', byId['q-business'] && byId['q-business'].a === 'CLOADM is free: the emulator, the games, WYRMFIRE and sharing, with no account. The optional Claude chat costs tokens: use your own Anthropic key, or use CLOADM inside Claude with your Claude account. I keep nothing.'
+  && !/token provider|buy credit/i.test(faq), byId['q-business'] && byId['q-business'].a);
 check('/faq/ Doom: the decided wording', byId['q-doom'] && byId['q-doom'].a === 'No. WYRMFIRE is a new engine that reads Doom-format levels; it ships with a Freedoom level.');
 check('/faq/ AI: says plainly it was built with Claude, checked independently against MAME with the project\'s own firmware, and links docs/verification.md',
   byId['q-ai'] && /built with Claude/.test(byId['q-ai'].a) && /MAME/.test(byId['q-ai'].a) && /instruction by instruction/.test(byId['q-ai'].a) && /every pixel/.test(byId['q-ai'].a)
@@ -51,6 +52,10 @@ check('/faq/ accuracy: names the MAME comparison and links the known differences
 check('the page it links is served (the known differences, generated from docs/verification.md)', pages.includes('deviations/index.html'));
 check('/faq/ privacy: the browser, share links and what goes to Anthropic', byId['q-privacy'] && /stay in your browser/.test(byId['q-privacy'].a) && /share link/.test(byId['q-privacy'].a)
   && /never your ROMs/.test(byId['q-privacy'].a) && /Anthropic/.test(byId['q-privacy'].a));
+// what the code does (js/claude/brief.js TOOL_CONTRACT, js/claude/chat.js: the read tools run without a card; only acting asks)
+check('/faq/ privacy: says plainly that Claude reads the screen and any memory, ROM areas included, without asking, and only changes ask',
+  byId['q-privacy'] && /read the screen and any memory \(ROM areas included\) without asking/.test(byId['q-privacy'].a) && /machine's facts and the chat so far/.test(byId['q-privacy'].a)
+  && /Only changes to the machine ask you first\./.test(byId['q-privacy'].a) && !/you allow/.test(byId['q-privacy'].a));
 check('no press page', !fs.existsSync(path.join(ROOT, 'press')) && !pages.some((p) => /press/.test(p)));
 
 // About

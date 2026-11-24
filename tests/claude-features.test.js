@@ -45,7 +45,7 @@ const toolReply = (uses) => sse([start, ...uses.flatMap((u, i) => [
 
   // ---- the line above Ask's input, against the code ----
   const html = fs.readFileSync(path.join(ROOT, 'play/index.html'), 'utf8');
-  const LINE = 'Nothing is sent until you ask. Then your question, and the screen text and memory Claude reads to answer it, go to Anthropic with your key (or your Claude account in the plugin).';
+  const LINE = "Nothing is sent until you ask. Then your question, the machine's facts and the chat so far go to Anthropic with your key (or your Claude account in the plugin), and Claude can read the screen and any memory (ROM areas included) without asking. Only changes to the machine ask you first.";
   check('Ask Claude has the line, above its input', html.includes(`<p class="muted" id="askSendsLine">${LINE}</p>`) && html.indexOf('id="askSendsLine"') < html.indexOf('id="askInput"')
     && html.indexOf('id="askSendsLine"') > html.indexOf('id="askComposer"'));
   const KEY = 'sk-ant-FEATURES-TEST-KEY-0123456789';
@@ -54,9 +54,12 @@ const toolReply = (uses) => sse([start, ...uses.flatMap((u, i) => [
   a.setClaudeKey(KEY);
   for (let i = 0; i < 60; i++) a.shownMachine.runFrame();
   const calls = [];
-  const bodies = [toolReply([{ name: 'screen_text' }, { name: 'peek', input: { address: 0x0400, length: 16 } }]), textReply('It says hello.')];
+  const bodies = [toolReply([{ name: 'screen_text' }, { name: 'peek', input: { address: 0x0400, length: 16 } }, { name: 'peek', input: { address: 0xA000, length: 16 } },
+    { name: 'poke', input: { address: 0x3000, bytes: [7] } }]), textReply('It says hello.')];
   const fetch = async (url, init) => { calls.push({ url, body: JSON.parse(init.body), key: init.headers['x-api-key'] }); return new Response(bodies[Math.min(calls.length - 1, 1)], { status: 200, headers: { 'content-type': 'text/event-stream' } }); };
-  const chat = a.startAsk({ backend: new Emu.ClaudeBackend({ fetch, apiKey: KEY }), brief: 'BRIEF' });
+  const asked = [];
+  a.consent.asker = (name) => { asked.push(name); Promise.resolve().then(() => a.consent.answer(false)); };
+  const chat = a.startAsk({ backend: new Emu.ClaudeBackend({ fetch, apiKey: KEY }), brief: 'BRIEF: the machine is a Dragon 64' });
   for (let i = 0; i < 30; i++) a.shownMachine.runFrame();
   check('"Nothing is sent until you ask": a key saved and the conversation started, nothing is fetched', calls.length === 0);
   await chat.sendLine('What does my screen say?');
@@ -65,9 +68,13 @@ const toolReply = (uses) => sse([start, ...uses.flatMap((u, i) => [
   check('asking sends the question to Anthropic, with the key', !!first && /api\.anthropic\.com/.test(first.url) && first.key === KEY && text(first.body.messages[0]).includes('What does my screen say?'), first && first.url);
   const results = second ? second.body.messages.slice(-1)[0].content : [];
   const screen = a.screenText().join('');
-  check('the screen text and memory Claude reads to answer go in the next request, to the same API', calls.length === 2 && /api\.anthropic\.com/.test(second.url)
-    && results.length === 2 && !results[0].is_error && screen.trim().length > 0 && results[0].content.includes(a.screenText().find((l) => l.trim()).trim())
-    && !results[1].is_error && /0400/.test(results[1].content), JSON.stringify(results).slice(0, 300));
+  check('"the machine\'s facts": the brief goes with the question', !!first && JSON.stringify(first.body.system || '').includes('the machine is a Dragon 64'));
+  check('"the chat so far": the next request carries the question and Claude\'s turn before it', !!second && text(second.body.messages[0]).includes('What does my screen say?') && second.body.messages.length >= 3);
+  check('"Claude can read the screen and any memory (ROM areas included) without asking": screen_text and peek (RAM and the ROM area at $A000) answer with no card, to the same API',
+    calls.length === 2 && /api\.anthropic\.com/.test(second.url) && results.length === 4 && !results[0].is_error && screen.trim().length > 0
+    && results[0].content.includes(a.screenText().find((l) => l.trim()).trim()) && !results[1].is_error && /0400/.test(results[1].content)
+    && !results[2].is_error && /A000/.test(results[2].content) && !asked.includes('screen_text') && !asked.includes('peek'), JSON.stringify(results).slice(0, 300));
+  check('"Only changes to the machine ask you first": the poke asked, and declined, changed nothing', asked.includes('poke') && results[3].is_error && a.readByte(0x3000) !== 7, JSON.stringify(asked));
   process.exitCode = fail ? 1 : 0;
   console.log(fail ? `${fail} FAILED` : 'all passed');
 })();

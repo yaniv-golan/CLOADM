@@ -36,7 +36,12 @@ function decode(bytes) {
     let table = [], size = min + 1, bits = 0, nb = 0, di = 0, prev = null;
     const reset = () => { table = []; for (let i = 0; i < clear; i++) table[i] = [i]; table[clear] = null; table[eoi] = null; size = min + 1; prev = null; };
     reset();
+    // bounded: a broken encoder must fail here, fast, not grow px without end (at most the picture's pixels, and no
+    // more codes than the data holds bits for)
+    let codes = 0;
+    const maxCodes = data.length * 8 / (min + 1) + 2;
     for (;;) {
+      if (px.length > w * h || ++codes > maxCodes) throw new Error(`LZW data runs past the picture (${px.length} pixels, ${codes} codes)`);
       while (nb < size && di < data.length) { bits |= data[di++] << nb; nb += 8; }
       const code = bits & ((1 << size) - 1); bits >>>= size; nb -= size;
       if (code === clear) { reset(); continue; }
