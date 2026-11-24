@@ -7,7 +7,7 @@
  */
 import { $ } from './page.js';
 
-export function setupClaudeFeatures(page, { closeAsk = () => {} } = {}) {
+export function setupClaudeFeatures(page, { closeAsk = () => {}, claude = null } = {}) {
   const { session } = page;
   const on = $('btnClaudeOn'), off = $('btnClaudeOff'), input = $('cmdInput'), foot = document.querySelector('#cmdBox .cmdfoot');
   const words = { place: input.placeholder, foot: foot.textContent };   // the box's words with Claude in it
@@ -22,7 +22,13 @@ export function setupClaudeFeatures(page, { closeAsk = () => {} } = {}) {
     off.setAttribute('aria-pressed', String(!yes));
   }
   on.onclick = () => session.setClaudeFeatures(true);
-  off.onclick = () => { session.setClaudeFeatures(false); closeAsk(); };
+  // Off: a turn running is stopped, the full-screen chat ends and the panel closes; no door can start another
+  // (js/ui/claude.js checks session.claudeFeatures on every one)
+  off.onclick = () => {
+    session.setClaudeFeatures(false);
+    if (claude) { if (session.claudeStatus) claude.stop(); if (session.claudeView === 'full') claude.closeFull(); }
+    closeAsk();
+  };
   session.on((ev) => { if (ev === 'claudefeatures') sync(); });
   sync();
   return { sync };

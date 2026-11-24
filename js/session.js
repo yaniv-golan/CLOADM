@@ -53,6 +53,8 @@ import { screenRows, screenTextTool } from './claude/readtools.js';
 // the status of a turn paused by the person's key, in every view that shows it with Resume and Stop (Esc is Stop then)
 // (one text for every paused state: whether a call waits, typing is held, or Claude only writes its reply,
 // its next action waits; "Esc stops Claude" is never dropped)
+// what a door to Claude says while Settings -> Claude features is Off (js/ui/claude.js; ?app=claude, the embed chip's tab)
+export const CLAUDE_OFF_TEXT = 'Claude features are off (Settings → Machine).';
 export const CLAUDE_PAUSED_TEXT = 'Paused: you pressed a key · Claude\'s next action waits · Esc stops Claude';
 // the same where it must fit one line (the browser Fullscreen's pill)
 // The Speech/Sound Pak's words for its speech ROM (the SP0256-AL2's allophone data, the user's own and optional):

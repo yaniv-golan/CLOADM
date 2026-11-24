@@ -446,7 +446,8 @@ export function setupAsk(page, claude) {
     $('btnViewResume').hidden = !(float && session.consent.paused);
     $('btnViewAnswer').hidden = !(inView && session.consent.pending);
     // openers: not while acting, not in full screen
-    if (session.claudeView === 'full') { $('askOpeners').hidden = true; return; }
+    // (and none with Claude features Off: each one starts a turn)
+    if (session.claudeView === 'full' || !session.claudeFeatures) { $('askOpeners').hidden = true; return; }
     const ctx = context();
     $('btnOpenErr').hidden = !ctx.error || busy;
     if (ctx.error) $('openErrText').textContent = ctx.error;

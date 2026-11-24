@@ -10295,6 +10295,19 @@ async function urlChecks(browser, base, check) {
   if (shotDir) await page.screenshot({ path: path.join(shotDir, 'link-load-disk.png') });
   await open('?machine=dragon64&disk=');
   check('link: disk= without a link is reported as the other media are', /disk=: not a link to a file/.test(await msg()), await msg());
+  // Claude features Off (stored): ?app=claude does not open the chat, and says why; the same for the link the embed's
+  // "Ask Claude ↗" chip opens (app=claude with the moment)
+  await open('?machine=dragon64');
+  const chipLink = await ev(async () => (await window.emu.session.claudeLink(`${location.origin}${location.pathname}`)).href);
+  await ev(() => localStorage.setItem('cloadm.claudeFeatures', '0'));
+  for (const [what, q] of [['?app=claude', '?machine=dragon64&app=claude'], ["the embed chip's link", chipLink.slice(chipLink.indexOf('?'))]]) {
+    await page.goto('about:blank');
+    await open(q);
+    const r = await ev(() => ({ view: window.emu.session.claudeView, chat: !!window.emu.session.chat, said: document.getElementById('toast').textContent }));
+    check(`link: ${what} with Claude features Off: no chat opens, and the page says "Claude features are off (Settings → Machine)."`, /app=claude/.test(q) && r.view !== 'full' && !r.chat
+      && r.said.includes('Claude features are off (Settings → Machine).'), JSON.stringify(r));
+  }
+  await ev(() => localStorage.removeItem('cloadm.claudeFeatures'));
   // ?record=1 (URL only): no page chrome; the largest 4:3 frame the window holds, the picture integer-scaled in it;
   // &aspect=16:9 makes the frame 16:9 with the 4:3 picture pillarboxed. aspect=16:9 without record=1 is refused.
   const rec = () => ev(() => {
@@ -10304,6 +10317,9 @@ async function urlChecks(browser, base, check) {
       chrome: ['.appbar', '.drawer', '.controls', '.slots', 'footer', '.plate', '#toastRegion', '#screenNotesBox'].filter(shown),
       scroll: document.documentElement.scrollWidth <= innerWidth && document.documentElement.scrollHeight <= innerHeight + 1, integer: window.emu.session.display.integer };
   });
+  // a stored display setting first (not the default, and no integer scaling): record=1 must leave it exactly as it was
+  await open('?machine=dragon64');
+  const seeded = await ev(() => { window.emu.session.setDisplay({ glow: 17, curvature: 5, integer: false }); return window.emu.session.store.get('display.settings'); });
   for (const [vp, q, aspect] of [[{ width: 1280, height: 720 }, '?record=1&machine=dragon64', 4 / 3], [{ width: 1280, height: 720 }, '?record=1&aspect=16:9&machine=dragon64', 16 / 9],
     [{ width: 1000, height: 1000 }, '?record=1&machine=coco3', 4 / 3]]) {
     await page.setViewportSize(vp);
@@ -10322,10 +10338,9 @@ async function urlChecks(browser, base, check) {
   await page.setViewportSize({ width: 1280, height: 720 });
   await open('?machine=dragon64&aspect=16:9');
   check('link: aspect=16:9 without record=1 is refused, the page keeps its chrome', /aspect=16:9: only with record=1/.test(await msg()) && await ev(() => document.querySelector('.appbar').checkVisibility()), await msg());
-  check('link: record=1 stores nothing: the next visit has its chrome, and the stored display has no integer scaling from it', await ev(() => {
-    const stored = window.emu.session.store.get('display.settings');
-    return !document.body.classList.contains('record') && (stored === null || JSON.parse(stored).integer !== true) && window.emu.session.display.integer === false;
-  }));
+  const after = await ev(() => ({ stored: window.emu.session.store.get('display.settings'), record: document.body.classList.contains('record'), d: window.emu.session.display }));
+  check('link: record=1 stores nothing: the stored display setting seeded before is byte for byte the same, and the next visit uses it, with its chrome',
+    !!seeded && JSON.parse(seeded).glow === 17 && after.stored === seeded && !after.record && after.d.integer === false && after.d.glow === 17 && after.d.curvature === 5, JSON.stringify({ seeded, after }));
   check('links: no page errors', !errors.length, errors.join('; '));
   await ctx.close();
 }
@@ -15193,6 +15208,40 @@ async function settingsChecks(browser, base, check) {
     await page.click('#btnAsk');   // (closes the panel: the settings file's buttons are on the Machine tab beside it)
     await waitFor(page, () => !document.getElementById('askInput').checkVisibility());
     await openTab(page, 'Machine');
+  }
+  // Off with a key saved and "?SN ERROR" on the screen: no opener shows, and no door reaches the API - not the opener's
+  // own button clicked anyway, not a question typed in the command box - ZERO requests
+  {
+    const offCtx = await browser.newContext({ serviceWorkers: 'block' });
+    await offCtx.addInitScript(() => { try { localStorage.setItem('cloadm.anthropicKey', 'sk-ant-OFF-CHECK-KEY-0123456789'); localStorage.setItem('cloadm.claudeFeatures', '0'); } catch (e) { /* none */ } });
+    const api = [];
+    await offCtx.route('https://api.anthropic.com/**', (r) => { api.push(r.request().url()); r.fulfill({ status: 500, body: '' }); });
+    const op = await offCtx.newPage();
+    op.on('pageerror', (e) => errors.push(e.message));
+    await op.goto(`${base}?machine=dragon64`);
+    await stubPrompt(op);
+    // the stub's prompt is drawn first (it prints its lines as it starts), then "?SN ERROR" goes on a row below them, and
+    // is seen there, so nothing the stub draws later can overwrite it
+    await waitFor(op, () => window.emu.session.screenText().some((l) => /BASIC/.test(l)), null, 10000);
+    const sn = async () => { await op.evaluate(() => { const m = window.emu.machine, t = '?SN ERROR'; for (let i = 0; i < t.length; i++) m.poke(0x400 + 32 * 12 + i, t.charCodeAt(i) & 0x3F); });
+      return waitFor(op, () => /\?SN ERROR/.test(window.emu.session.screenText()[12]), null, 5000); };
+    await sn();
+    await op.waitForTimeout(600);
+    const off = await op.evaluate(() => ({ text: window.emu.session.screenText()[12], openers: document.getElementById('askOpeners').checkVisibility(), err: document.getElementById('btnOpenErr').checkVisibility() }));
+    await op.evaluate(() => document.getElementById('btnOpenErr').click());
+    const said = await waitFor(op, () => /Claude features are off \(Settings → Machine\)\./.test(document.getElementById('toast').textContent), null, 3000);
+    await op.click('#screen'); await op.keyboard.press('Control+k'); await waitFor(op, () => !document.getElementById('cmdBox').hidden);
+    await op.fill('#cmdInput', 'what does this error mean?'); await op.keyboard.press('Enter'); await op.keyboard.press('Escape');
+    await op.waitForTimeout(800);
+    const after = await op.evaluate(() => ({ view: window.emu.session.claudeView, chat: !!window.emu.session.chat, toast: document.getElementById('toast').textContent }));
+    check('settings: Claude features Off, a key saved, "?SN ERROR" on the screen: no opener shows, nothing opens, and not one request reaches the API',
+      /\?SN ERROR/.test(off.text) && !off.openers && !off.err && api.length === 0 && after.view !== 'panel' && after.view !== 'full' && !after.chat
+      && said, JSON.stringify({ off, after, api, said }));
+    // the test sees what it looks for: On, the same screen shows the opener
+    await op.evaluate(() => window.emu.session.setClaudeFeatures(true));
+    await sn();
+    check('settings: (the same screen with Claude features On shows "Explain this error")', await waitFor(op, () => document.getElementById('btnOpenErr').checkVisibility(), null, 5000) && api.length === 0);
+    await offCtx.close();
   }
   const [dl] = await Promise.all([page.waitForEvent('download'), page.click('#btnSettingsExport')]);
   const file = path.join(os.tmpdir(), `cloadm-settings-${process.pid}.json`);

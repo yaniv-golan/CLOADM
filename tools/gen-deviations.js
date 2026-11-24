@@ -19,15 +19,16 @@ function section(md = fs.readFileSync(DOC, 'utf8')) {
   const body = md.slice(a + HEADING.length + 2), b = body.search(/^## /m);
   return (b < 0 ? body : body.slice(0, b)).trim();
 }
-const esc = (t) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+const esc = (t) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 // inline Markdown: `code` first (its contents are left alone), then [text](url) (a relative link goes to the docs on
-// GitHub, as the site does not serve them), then *emphasis* and **strong**
+// GitHub, as the site does not serve them), then **strong** and *emphasis*; a " in the text or a link is escaped
 function inline(t) {
   return t.split(/(`[^`]*`)/).map((part) => {
     if (/^`[^`]*`$/.test(part)) return `<code>${esc(part.slice(1, -1))}</code>`;
     return esc(part)
       .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (m, text, url) => `<a href="${/^[a-z]+:/i.test(url) ? url : DOCS + url}">${text}</a>`)
-      .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+      .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+      .replace(/(^|[^*\w])\*([^*\s](?:[^*]*[^*\s])?)\*(?![*\w])/g, '$1<em>$2</em>');
   }).join('');
 }
 // blocks: a bullet ("* " at the line start, continued by indented lines) or a paragraph (lines up to a blank line)

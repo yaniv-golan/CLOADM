@@ -12,7 +12,12 @@ Next version: 0.1.9-pre (the plugin and extension manifests carry it; `tests/plu
 
 - **Claude features: On / Off** (Settings → Machine), On by default. Off hides the Ask button, the command box's Claude
   rows and "Ask Claude" row, and the Programs row "Chat with Claude"; the welcome menu's firmware item stays. Kept,
-  and in the settings export (`tests/claude-features.test.js`, the browser check's `settings` group).
+  and in the settings export (`tests/claude-features.test.js`, the browser check's `settings` group). Off closes every
+  door, not only the visible ones: the "Explain this error" and "Help with my program" openers don't show, every
+  turn-starter in `js/ui/claude.js` (the panel, the full chat, "What is this code doing?", and the ask itself) refuses,
+  `?app=claude` and the embed chip's tab say "Claude features are off (Settings → Machine)." instead of opening the
+  chat, and turning Off stops a running turn. The browser check puts "?SN ERROR" on the screen with a key saved and
+  Off, tries the doors, and counts zero requests to the API.
 - **Ask Claude says what is sent, and when**, above its input: "Nothing is sent until you ask. Then your question,
   the machine's facts and the chat so far go to Anthropic with your key (or your Claude account in the plugin), and
   Claude can read the screen and any memory (ROM areas included) without asking. Only changes to the machine ask you

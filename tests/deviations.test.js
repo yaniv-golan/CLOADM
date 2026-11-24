@@ -15,8 +15,10 @@ const page = fs.readFileSync(PAGE, 'utf8'), md = section();
 check('deviations/index.html is what tools/gen-deviations.js writes from the doc now (after editing the doc run: node tools/gen-deviations.js)', expected() === page);
 // read back independently: the generated part, its <li>s as plain text, against the doc's bullets as plain text
 const part = page.slice(page.indexOf(START) + START.length, page.indexOf(END));
-const unhtml = (t) => t.replace(/<[^>]+>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
-const unmd = (t) => t.replace(/`([^`]*)`/g, '$1').replace(/\[([^\]]+)\]\([^)]+\)/g, '$1').replace(/\*\*([^*]+)\*\*/g, '$1').replace(/\s+/g, ' ').trim();
+const unhtml = (t) => t.replace(/<[^>]+>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
+// (code spans first and left whole, as the generator does: a * inside one is not emphasis)
+const unmd = (t) => t.split(/(`[^`]*`)/).map((x) => (/^`[^`]*`$/.test(x) ? x.slice(1, -1) : x.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1').replace(/\*\*([^*]+)\*\*/g, '$1')
+  .replace(/(^|[^*\w])\*([^*\s](?:[^*]*[^*\s])?)\*(?![*\w])/g, '$1$2'))).join('').replace(/\s+/g, ' ').trim();
 const items = [...part.matchAll(/<li>([\s\S]*?)<\/li>/g)].map((m) => unhtml(m[1]));
 const bullets = md.split(/\n(?=[*-] )/).filter((b) => /^[*-] /.test(b)).map((b) => unmd(b.replace(/^[*-] /, '').split(/\n\n/)[0]));
 check('every bullet of the section is an item on the page, in order, word for word', items.length === bullets.length && items.length >= 10 && items.every((t, i) => t === bullets[i]),
@@ -29,6 +31,9 @@ check('every code span of the section is a <code> on the page', codes.length > 2
 check('the sources the section cites are there (datasheets, schematic, MAME files)', ['MC6809E data sheet', 'SP0250 Applications Manual', 'Eagle schematic', 'gime.cpp', 'cococart.cpp']
   .every((t) => part.includes(t)));
 check('the page escapes the doc\'s text (a < in the doc cannot become markup)', toHtml('* a <b> & `<i>`') === '    <ul>\n      <li>a &lt;b&gt; &amp; <code>&lt;i&gt;</code></li>\n    </ul>');
+check('*emphasis* and **strong**, not inside code, and a " escaped in text and in a link', toHtml('* a *b* **c** `x*y*z` (7*6*8) [l](u.md"x) "q"')
+  === '    <ul>\n      <li>a <em>b</em> <strong>c</strong> <code>x*y*z</code> (7*6*8) <a href="https://github.com/yaniv-golan/cloadm/blob/main/docs/u.md&quot;x">l</a> &quot;q&quot;</li>\n    </ul>');
+check('no attribute on the page is broken by a quote: every href is one quoted value with no stray "', [...part.matchAll(/<a ([^>]*)>/g)].every((m) => /^href="[^"]*"$/.test(m[1])));
 check('a relative link goes to the doc on GitHub (the site does not serve docs)', toHtml('x [using.md](using.md#a) y').includes('<a href="https://github.com/yaniv-golan/cloadm/blob/main/docs/using.md#a">using.md</a>'));
 // the FAQ links it; it is served offline; it has the site's header and the affiliation line
 check('the FAQ\'s accuracy answer links /deviations/', /id="faqDeviations"\s+href="deviations\/"/.test(fs.readFileSync(path.join(ROOT, 'faq/index.html'), 'utf8')));
