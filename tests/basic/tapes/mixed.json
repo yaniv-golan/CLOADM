@@ -1,0 +1,8 @@
+{
+  "provenance": "Written for the black-box cassette cases (2026-11-25): our own content, nothing taken from a ROM. A data file, then machine code (our own six bytes: LDA #42, STA $0400, RTS), then a BASIC program as text, so that CLOAD meets a file of each type.",
+  "files": [
+    { "name": "NOTES", "type": "data", "lines": ["JUST DATA"] },
+    { "name": "CODE", "type": "binary", "load": 28672, "exec": 28672, "data": [134, 42, 183, 4, 0, 57] },
+    { "name": "PROG", "type": "basic", "ascii": true, "lines": ["10 PRINT \"LOADED\""] }
+  ]
+}

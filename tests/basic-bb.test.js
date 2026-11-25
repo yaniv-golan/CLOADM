@@ -12,7 +12,11 @@
 //  * P2 (docs/clean-room-basic-p2.md sections 11 and 12): the graphics lint (pages, points, POKE to a page, the
 //    directives); the sound measures on hand-built DAC events (period, tones split by a gap, sound off or a pitch
 //    change but not by one odd period, a stepped wave, measures only) and compare's tolerances; #wav, #joy and a
-//    graphics mode shown, end to end on our ROM, driven through the PIAs and the SAM with POKE; the typing sheet.
+//    graphics mode shown, end to end on our ROM, driven through the PIAs and the SAM with POKE; the typing sheet;
+//  * the cassette: tape fixtures (tools/basic-bb/tapes.js: well formed, our own, corrupt), the lint's tape rules
+//    (fixtures exist, CLOADM only of a fixture's machine code into memory set aside), #tape, #tape-blank,
+//    #tape-rewind and #tape-blocks end to end on our ROM (the summary's blocks and motor runs, no raw bytes),
+//    compare's tape summaries and the typing sheet's tape steps.
 const { lintCase } = require('../tools/basic-bb/lint.js');
 const { compare, cursorOnly } = require('../tools/basic-bb/compare.js');
 const { buildBasic, tokensInc } = require('../tools/build-basic.js');
@@ -356,6 +360,131 @@ for (const good of ['PCLEAR 1', 'PCLEAR 0', 'PCLEAR 9', 'PMODE 4,1', 'PMODE 0,4'
   const printed = run(['--local', '--only', 'loc']);
   const written2 = fs.readFileSync(path.join(dir, 'o.jsonl'), 'utf8');
   check('local-only with --local: nothing written, only its shape printed', written2 === '' && printed.includes('<text 6>') && !/^\s*SECRET$/m.test(printed), printed);
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
+// ---- the cassette: tape fixtures, #tape, #tape-blank, #tape-rewind, #tape-blocks, the lint's tape rules ----
+{
+  const fs = require('fs'), os = require('os'), path = require('path'), crypto = require('crypto');
+  const { readFixture, fixtureCas } = require('../tools/basic-bb/tapes.js');
+  const { runCase, Emu } = require('./basic/harness.js');
+  const { compareTapes } = require('../tools/basic-bb/compare.js');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bb-tapes-'));
+  const put = (name, o) => fs.writeFileSync(path.join(dir, `${name}.json`), JSON.stringify(o));
+  const P = 'written for this test';
+  put('ok', { provenance: P, files: [{ name: 'A', type: 'basic', ascii: true, lines: ['10 PRINT 1'] }, { name: 'D', type: 'data', data: [72, 73, 13] }] });
+  put('noprov', { files: [{ name: 'A', type: 'basic', ascii: true, lines: ['10 PRINT 1'] }] });
+  put('tokens', { provenance: P, files: [{ name: 'A', type: 'basic', data: [0x1E, 0x07, 0, 10, 0x87, 0, 0, 0] }] });
+  put('longname', { provenance: P, files: [{ name: 'TOOLONGNAME', type: 'data', lines: ['X'] }] });
+  put('noload', { provenance: P, files: [{ name: 'M', type: 'binary', data: [1] }] });
+  put('both', { provenance: P, files: [{ name: 'X', type: 'data', lines: ['A'], data: 'B' }] });
+  put('mclow', { provenance: P, files: [{ name: 'M', type: 'binary', load: 0x6000, exec: 0x6000, data: [1, 2] }] });
+  put('mchigh', { provenance: P, files: [{ name: 'M', type: 'binary', load: 0x7FFF, exec: 0x7FFF, data: [1, 2] }] });
+  put('mcok', { provenance: P, files: [{ name: 'M', type: 'binary', load: 0x7000, exec: 0x7000, data: [1, 2] }] });
+  fs.writeFileSync(path.join(dir, 'broken.json'), '{ not json');
+  const throws = (name) => { try { readFixture(name, dir); return false; } catch { return true; } };
+  check('tape fixture: a good one reads, lines ended by CR', !throws('ok') && readFixture('ok', dir).files[0].data.join() === [...'10 PRINT 1\r'].map((c) => c.charCodeAt(0)).join());
+  for (const bad of ['noprov', 'tokens', 'longname', 'noload', 'both', 'broken', 'missing', 'Bad_Name', '../ok'])
+    check(`tape fixture refused: ${bad}`, throws(bad));
+  // the fixtures in the repository: all read, and build tapes whose blocks decode
+  for (const f of fs.readdirSync(path.join(__dirname, 'basic/tapes'))) {
+    const name = f.replace(/\.json$/, ''), fx = readFixture(name), blocks = [...Emu.casBlocks(fixtureCas(fx, Emu))];
+    check(`tests/basic/tapes/${f}: reads, builds, and ${fx.corrupt.length ? 'has exactly its corrupted block bad' : 'every block is good'}`, blocks.length >= 3 && blocks.filter((k) => !k.ok).length === fx.corrupt.length);
+  }
+  // corrupt: the byte flipped, the checksum left (so that block fails), the rest untouched
+  {
+    const good = fixtureCas({ files: [{ name: 'A', type: 'data', data: [1, 2, 3] }], corrupt: [] }, Emu);
+    const bad = fixtureCas({ files: [{ name: 'A', type: 'data', data: [1, 2, 3] }], corrupt: [{ block: 1, byte: 2, xor: 4 }] }, Emu);
+    const diff = [...good].map((v, i) => (v !== bad[i] ? i : -1)).filter((i) => i >= 0), k = [...Emu.casBlocks(bad)];
+    check('tape fixture corrupt: one byte flipped, that block\'s checksum then wrong', diff.length === 1 && bad[diff[0]] === 7 && !k[1].ok && k[0].ok && k[2].ok, JSON.stringify(diff));
+  }
+  // the CLI writes the fixture as .cas and as a WAV that decodes back to the same blocks
+  {
+    const { execFileSync } = require('child_process');
+    execFileSync(process.execPath, [path.join(__dirname, '../tools/basic-bb/tapes.js'), 'three-progs', '--cas', path.join(dir, 't.cas'), '--wav', path.join(dir, 't.wav')]);
+    const cas = fs.readFileSync(path.join(dir, 't.cas')), back = Emu.wavToCas(fs.readFileSync(path.join(dir, 't.wav'))).bytes;
+    const sig = (b) => [...Emu.casBlocks(b)].map((k) => `${k.type}:${Buffer.from(k.data).toString('hex')}:${k.ok}`).join();
+    check('tapes.js NAME --cas --wav: the fixture\'s tape, and a recording of it that decodes to the same blocks', sig(cas) === sig(fixtureCas(readFixture('three-progs'), Emu)) && sig(back) === sig(cas));
+  }
+
+  // the lint: fixtures must exist and be well formed; #tape-rewind and #tape-blocks need a tape; CLOADM only of a
+  // fixture's machine code, into memory set aside, with no offset; CSAVEM in any spelling refused
+  const lt = (t) => lintCase(t, { tapes: dir });
+  for (const bad of ['#tape missing', '#tape noprov', '#tape tokens', '#tape-rewind', '#tape-blocks x', '#tape-rewind\n#tape ok',
+    '10 CLOADM', 'CLEAR 200,28672\nCLOADM', 'CLEAR 200,28672\n#tape-blank\n#tape mcok\nCLOADM', 'CLEAR 200,28672\n#tape ok\nCLOADM',
+    'CLEAR 200,28672\n#tape mclow\nCLOADM', 'CLEAR 200,28672\n#tape mchigh\nCLOADM', '#tape mcok\nCLOADM', 'CLEAR 200,28672\n#tape mcok\nCLOADM "M",512',
+    'CLEAR 200,28672\n#tape mcok\n#tape ok\nCLOADM', 'CLEAR 200,28672\n#tape-blank\nCLOAD M', 'CLEAR 200,28672\n#tape mcok\n10 X=1:CLOADM:EXEC',
+    '10 CSAVEM "A",1,2,3', '10 CSAVE M', 'CLOAD M$'])
+    check(`lint refuses ${bad.replace(/\n/g, ' / ')}`, lt(bad).length > 0);
+  for (const good of ['#tape ok', '#tape-blank\nCSAVE "X"\n#tape-blocks a\n#tape-rewind\nCLOAD', '#tape ok\n#tape-rewind\n#tape-blocks b',
+    'CLEAR 200,28672\n#tape mcok\nCLOADM\nCLOADM "M"', 'CLEAR 200,28672\n#tape mcok\n10 CLOADM:PRINT 1', 'CLEAR 200,28672\n#tape mcok\nCLOAD M', 'CSAVE "M"', 'CLOAD "M"', '10 PRINT "CLOADM"'])
+    check(`lint accepts ${good.replace(/\n/g, ' / ')}`, lt(good).length === 0, lt(good).join('; '));
+  check('lint: the default fixtures folder is tests/basic/tapes', lintCase('#tape three-progs').length === 0 && lintCase('#tape ok').length > 0);
+
+  // on our ROM: CSAVE onto a blank tape, the summary, rewind, CLOAD back
+  const prog = '10 PRINT "TAPE"\n20 A=1\n';
+  const r = runCase(built.rom, `#tape-blank\n${prog}CSAVE "PROG"\n#tape-blocks saved\n#tape-rewind\nNEW\nCLOAD\nLIST\n#tape-blocks loaded\n`);
+  const [saved, loaded] = r.tapes || [];
+  const bl = saved ? saved.blocks : [];
+  check('#tape-blank / #tape-blocks: the blocks CSAVE wrote: namefile, data, end of file, none bad', r.status === 'ok' && bl.map((k) => k.type).join() === '0,1,255' && bl.every((k) => k.ok) && saved.bad === 0, JSON.stringify(r.tapes));
+  check('#tape-blocks: the namefile\'s fields', !!bl[0] && bl[0].name === 'PROG    ' && bl[0].fileType === 0 && bl[0].ascii === 0 && bl[0].gaps === 0 && bl[0].exec === 0 && bl[0].load === 0 && bl[0].length === 15);
+  check('#tape-blocks: leaders of at least 128 $55 bytes', bl.length === 3 && bl.every((k) => k.leader >= 128), JSON.stringify(bl.map((k) => k.leader)));
+  // the data block's hash is that of the program in RAM, typed the same way into a fresh machine
+  {
+    const b = new Basic(built.rom);
+    b.waitOk({ limit: 600 });
+    b.type(prog); b.run(20);
+    const ram = b.m.ram, start = 0x1E01;
+    let x = start; while (ram[x] | ram[x + 1]) x = (ram[x] << 8) | ram[x + 1];
+    const want = crypto.createHash('sha256').update(ram.slice(start, x + 2)).digest('hex');
+    check('#tape-blocks: a data block is its length and the SHA-256 of its bytes, never the bytes', !!bl[1] && bl[1].sha256 === want && bl[1].length === x + 2 - start && Object.keys(bl[1]).sort().join() === 'leader,length,ok,sha256,type', JSON.stringify(bl[1]));
+  }
+  check('#tape-blocks: nothing but the summary\'s fields', (r.tapes || []).length === 2 && r.tapes.every((t) => Object.keys(t).every((k) => ['name', 'motor', 'blocks', 'bad'].includes(k))));
+  check('#tape-blocks: the motor ran once for CSAVE, for a few seconds', !!saved && saved.motor.length === 1 && saved.motor[0].start === 0 && saved.motor[0].length > 50 && !saved.motor[0].carried, JSON.stringify(saved && saved.motor));
+  check('#tape-rewind: the recording becomes the tape; CLOAD loads the program back', r.transcript.join('|').includes('LIST|10 PRINT "TAPE"|20 A=1|OK'), JSON.stringify(r.transcript));
+  check('#tape-blocks after a rewind: the motor only, no blocks (nothing recorded)', !!loaded && loaded.blocks === undefined && loaded.motor.length >= 1, JSON.stringify(loaded));
+  // a later summary holds only the blocks written since the one before
+  const r2 = runCase(built.rom, '#tape-blank\n10 REM A\nCSAVE "ONE"\n#tape-blocks one\nCSAVE "TWO"\n#tape-blocks two\n#tape-blocks none\n');
+  const names = (t) => t.blocks.filter((k) => k.type === 0).map((k) => k.name.trim()).join();
+  check('#tape-blocks: each summary the blocks since the last', !!r2.tapes && names(r2.tapes[0]) === 'ONE' && names(r2.tapes[1]) === 'TWO' && r2.tapes[2].blocks.length === 0 && r2.tapes[2].motor.length === 0, JSON.stringify(r2.tapes && r2.tapes.map(names)));
+  // a fixture played; #tape-rewind of a fixture plays it again from the start
+  const r3 = runCase(built.rom, '#tape three-progs\nCLOAD "TWO"\n#tape-rewind\nCLOAD "TWO"\nLIST\n');
+  check('#tape NAME: the fixture plays; #tape-rewind plays it again from the start', r3.status === 'ok' && r3.transcript.filter((l) => l === 'SKIP ONE').length === 2 && r3.transcript.includes('10 PRINT "PROGRAM TWO"'), JSON.stringify(r3.transcript));
+  // the motor: one run on one line, left running past OK (length null), then carried into the next summary
+  const r4 = runCase(built.rom, '#tape three-progs\nMOTOR ON:FOR I=1 TO 300:NEXT:MOTOR OFF\n#tape-blocks loop\nMOTOR ON\n#tape-blocks on\nMOTOR OFF\n#tape-blocks off\n');
+  const [loop, on, off] = r4.tapes || [];
+  check('#tape-blocks: a MOTOR ON ... OFF on one line is one run of some fields', !!loop && loop.motor.length === 1 && loop.motor[0].length > 5 && !loop.motor[0].carried, JSON.stringify(loop));
+  check('#tape-blocks: the motor still running: length null', !!on && on.motor.length === 1 && on.motor[0].length === null, JSON.stringify(on));
+  check('#tape-blocks: a run going when the summary window began is marked carried', !!off && off.motor.length === 1 && off.motor[0].carried === true && off.motor[0].length > 0, JSON.stringify(off));
+  check('#tape bad-block: our ROM gives ?IO ERROR', runCase(built.rom, '#tape bad-block\nCLOAD\n').transcript.includes('?IO ERROR'));
+  // directives used wrongly stop the case
+  for (const bad of ['#tape-rewind\n', '#tape-blocks x\n', '#tape no-such-tape\n', '#tape ../tapes/mc\n'])
+    check(`tape directive refused at run time: ${bad.trim()}`, runCase(built.rom, bad).status === 'bad-directive');
+  check('#tape NAME from another folder (runCase\'s tapes)', runCase(built.rom, '#tape ok\nCLOAD\nLIST\n', { tapes: dir }).transcript.includes('10 PRINT 1'));
+
+  // compare: the summaries
+  const T = (o = {}) => ({ name: 't', blocks: [{ type: 0, length: 15, ok: true, leader: 128, name: 'A       ', fileType: 0, ascii: 0, gaps: 0, exec: 0, load: 0 }, { type: 1, length: 3, ok: true, leader: 129, sha256: 'aa' }], bad: 0, motor: [{ start: 0, length: 100 }], ...o });
+  const B = T().blocks;
+  check('compare tapes: identical summaries pass', compareTapes([T()], [T()]).length === 0);
+  check('compare tapes: a data hash differs', compareTapes([T()], [T({ blocks: [B[0], { ...B[1], sha256: 'bb' }] })]).some((l) => /block 2/.test(l)));
+  check('compare tapes: a namefile field differs', compareTapes([T()], [T({ blocks: [{ ...B[0], gaps: 255 }, B[1]] })]).some((l) => /block 1/.test(l)));
+  check('compare tapes: a leader differs', compareTapes([T()], [T({ blocks: [{ ...B[0], leader: 127 }, B[1]] })]).length === 1);
+  check('compare tapes: a missing block, and blocks in only one', compareTapes([T()], [T({ blocks: B.slice(0, 1) })]).some((l) => /2 vs 1 blocks/.test(l)) && compareTapes([T()], [T({ blocks: undefined })]).some((l) => /only one/.test(l)));
+  check('compare tapes: the number of bad blocks', compareTapes([T()], [T({ bad: 1 })]).some((l) => /bad/.test(l)));
+  check('compare tapes: motor times within one field pass, more than one do not', compareTapes([T()], [T({ motor: [{ start: 0.9, length: 100.9 }] })]).length === 0
+    && compareTapes([T()], [T({ motor: [{ start: 0, length: 101.2 }] })]).some((l) => /motor run 1: 100 vs 101.2/.test(l))
+    && compareTapes([T()], [T({ motor: [{ start: 1.5, length: 100 }] })]).some((l) => /starts at/.test(l)));
+  check('compare tapes: the number of motor runs, and still running vs stopped', compareTapes([T()], [T({ motor: [] })]).some((l) => /1 vs 0 motor runs/.test(l)) && compareTapes([T()], [T({ motor: [{ start: 0, length: null }] })]).some((l) => /still running/.test(l)));
+  check('compare tapes: a carried run\'s length is not compared, whether it was carried is', compareTapes([T({ motor: [{ start: 0, length: 5, carried: true }] })], [T({ motor: [{ start: 0, length: 50, carried: true }] })]).length === 0
+    && compareTapes([T({ motor: [{ start: 0, length: 5, carried: true }] })], [T({ motor: [{ start: 0, length: 5 }] })]).some((l) => /carried/.test(l)));
+  check('compare tapes: summaries by name and number', compareTapes([T()], [T({ name: 'u' })]).some((l) => /named u/.test(l)) && compareTapes([T()], []).some((l) => /1 vs 0 tape/.test(l)));
+  const rr = { case: 'k', status: 'ok', transcript: ['OK'], tapes: [T()] };
+  check('compare: a case whose tape summary differs is not identical', compare(new Map([['k', rr]]), new Map([['k', { ...rr, tapes: [T({ bad: 1 })] }]])).same === 0 && compare(new Map([['k', rr]]), new Map([['k', rr]])).same === 1);
+
+  // the typing sheet
+  const { sheet } = require('../tools/basic-bb/sheet.js');
+  const sh = sheet('t', '#tape-blank\nCSAVE "A"\n#tape-blocks a\n#tape-rewind\nCLOAD\n#tape three-progs\n');
+  check('sheet: blank tape, rewind and a fixture as steps; the summaries said to come from run.js only', /run\.js: nothing to write down[^]*blank tape[^]*RECORD and PLAY[^]*CSAVE "A"[^]*rewind the tape[^]*CLOAD[^]*tape three-progs at its start \(tests\/basic\/tapes\/three-progs\.json; node tools\/basic-bb\/tapes\.js three-progs --wav FILE/.test(sh) && (sh.match(/^\d+\./gm) || []).length === 8, sh);
   fs.rmSync(dir, { recursive: true, force: true });
 }
 

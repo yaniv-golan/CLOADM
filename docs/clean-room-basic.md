@@ -247,7 +247,7 @@ node tools/basic-bb/compare.js real.jsonl ours.jsonl [--shots DIR]
   `#nowait` (the next line is not waited for with OK), `#screenshot NAME` (the picture as it is now: a PNG and the SHA-256 of its pixels, which `compare.js` compares, writing both PNGs of a differing one with `--shots DIR`; for graphics, P2; composite colour is off, so the pixels are the VDG's own colours); `# bb-only` marks a probe that only the black-box run uses. A case marked `# local-only` (one whose output on the original holds ROM text, such as the message `CLS` past 8 prints) is never written to a results file: `run.js` runs it only with `--local` and prints its shape (the lines typed, `OK`, blank lines and error codes as they are; any other line as `<text N>`), which the maintainer reports by hand. Nothing of the boot screen is ever recorded (a ROM's banner is ROM text): before a case or a corpus program starts, the harness blanks the text screen's memory from outside, types `CLS`, and requires the screen to hold only the `OK` prompt; otherwise the run stops as `no-clean-start` with nothing recorded (`Basic.cleanStart`). A typed line is judged by what follows it (OK back, the screen settled), never by whether the typist saw every key taken: a BASIC that stops reading the keyboard once it runs the line (PLAY sounding, CLOAD) leaves the typist at `not-consumed`, which is only noted in the result (`typist`).
   For sound and joysticks (P2): `#wav NAME` ... `#wav-stop` records the sound between them as **measures only**
   (below), and `#joy N V` sets joystick axis N (`JOYSTK`'s numbering: 0 right x, 1 right y, 2 left x, 3 left y) to V
-  (0-63) before the next line.
+  (0-63) before the next line. For the cassette: `#tape NAME`, `#tape-blank`, `#tape-rewind` and `#tape-blocks NAME` (below).
   A typed program line is waited for until the screen settles, any other line until `OK` is back. While a graphics
   mode is shown (PIA1 PB7, A/G, high), the text is read from the text screen at `$0400` behind the picture, so a prompt
   or an error is seen whether or not the ROM went back to text.
@@ -265,6 +265,26 @@ node tools/basic-bb/compare.js real.jsonl ours.jsonl [--shots DIR]
   `compare.js` compares the periods within 0.5%, the lengths and the silences between tones within one field (17,784
   cycles), the lowest and highest levels and the end state exactly; the number of levels and writes (the wave's shape,
   which is ours: P2 decision 3) and the hash are not compared.
+* **The cassette** (`tapeDeck` in `tests/basic/harness.js`): `#tape NAME` puts in, at its start, the tape the
+  fixture `tests/basic/tapes/NAME.json` makes (`tools/basic-bb/tapes.js`: the files for `buildCas`, each `lines` of
+  text ended by carriage returns or `data` as a string or bytes, and an optional `corrupt` list that flips a data byte
+  of a block and leaves its checksum, for a read error). **Fixtures are our own content only**: our own BASIC programs
+  as ASCII text (a fixture may not hold a tokenised program), our own data files, a few bytes of our own machine code;
+  never anything from a ROM, and each says so in its `provenance`. `#tape-blank` puts in a blank tape and records what
+  the machine writes; `#tape-rewind` then makes that recording (decoded to `.cas` by the repository's decoder,
+  `recordingToSamples` and `samplesToCas`) the tape, at its start, so a case can `CSAVE` and `CLOAD` back (after
+  `#tape NAME` it plays the fixture again from its start). `#tape-blocks NAME` adds a **tape summary** to the result's
+  `tapes`, never the tape's bytes: while recording, each block written since `#tape-blank` or the last summary, as its
+  type, length, checksum verdict (`ok`), leader (the `$55` bytes between it and the block before), then for a namefile
+  its name, file type, ASCII and gap flags, exec and load addresses, and for a data block only the SHA-256 of its data
+  (data could in principle carry bytes from the ROM; the hash is enough to tell ours from the original's); `bad`, the
+  blocks with a wrong checksum; and the motor's runs since the tape went in or the last summary, `{ start, length }` in
+  fields (17,784 cycles, to 0.01; `start` from the first run's, `length` null while it still runs, `carried` for a run
+  already going when the window began). A case keeps each summary's window to one typed line, so how fast lines are
+  typed never counts. `compare.js` compares the summaries' blocks exactly and the motor runs' number, and their starts
+  and lengths within one field (a carried run's length, which ends when the next line is typed, is not compared). For a
+  real Dragon, `node tools/basic-bb/tapes.js NAME --wav FILE` (or `--cas FILE`) writes the fixture's tape, and the
+  typing sheet says when to put a tape in, record and rewind; the summaries come only from `run.js`.
 * **How it runs:** a fresh machine per case (cold start, then `CLS` typed, so the banner is not compared), the lines
   typed through the keyboard matrix at the typist's pace, so the ROM's own editor and crunching take them, exactly as a person typing.
   Nothing depends on the ROM's internals: no PC hooks, no RAM addresses, no tokenized loading.
@@ -285,7 +305,7 @@ node tools/basic-bb/compare.js real.jsonl ours.jsonl [--shots DIR]
   give the program's start address (`MEM`, and a marker search), the variable and descriptor layouts (`VARPTR`), and
   the RND sequence.
 * **The lint** (`tools/basic-bb/lint.js`, also run by `run.js` and the tests): refuses `EXEC`, `USR`, `DEFUSR`,
-  `CLOADM`, `CSAVEM` and `VARPTR`, and a `PEEK` or `POKE` whose address is not a literal below 32768 or an
+  `CLOADM` (except as the tape rule below allows), `CSAVEM` and `VARPTR`, and a `PEEK` or `POKE` whose address is not a literal below 32768 or an
   expression ending in `AND 32767` with no `OR` (computed addresses included), so a case can neither read the ROM nor
   find a string descriptor to point into it. A line starting with `END:` is not checked (it is never run past the
   `END`); the token probe lists its keywords that way. For graphics (P2 section 12) it also refuses a `PCLEAR` that
@@ -297,7 +317,13 @@ node tools/basic-bb/compare.js real.jsonl ours.jsonl [--shots DIR]
   point off the picture, page 8's start plus 255 rows and 511 points stays below `$8000`, so no picture, `PPOINT`,
   `POINT` or `GET` can show the ROM. `DRAW`'s moves are in strings and are reviewed by hand to stay near the picture
   (the clipping case puts its picture in pages 3-6 of 8, so an unclipped point lands in a reserved page). Every
-  directive must be one the harness knows, and `#joy`, `#frames`, `#timeout` and `#wait-text` well formed.
+  directive must be one the harness knows, and `#joy`, `#frames`, `#timeout` and `#wait-text` well formed. For the
+  tape: a `#tape NAME` fixture must exist under `tests/basic/tapes/` and be well formed (a provenance, BASIC as ASCII
+  text), `#tape-rewind` and `#tape-blocks` need a tape in, and `CSAVEM` is refused in either spelling (`CSAVE M`).
+  `CLOADM` (or `CLOAD M`) is allowed only when every tape the case can read is a fixture (no `#tape-blank`), every
+  file on those fixtures is machine code loading within memory a first line `CLEAR n,top` set aside, and no offset
+  is given: it then loads our own bytes, which `PEEK` may read back, and with `EXEC` refused and the run-time guard
+  nothing runs them (`cas-cloadm`).
 * **The run-time guard** (`tests/basic/harness.js`, always on for the black-box cases): the CPU running any
   instruction from RAM written since the case began (machine code reached through a POKEd vector, say) stops the
   case with status `refused`, and nothing of its screen is recorded. Our own EXEC and USR cases live apart, in

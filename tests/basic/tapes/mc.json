@@ -1,0 +1,7 @@
+{
+  "provenance": "Written for the black-box cassette cases (2026-11-25): our own content, nothing taken from a ROM. Two machine-code files of our own bytes (LDA #42, STA $0400, RTS; then the numbers 1 to 8), loading at $7000 and $7010, for CLOADM. They never run: a case may not EXEC.",
+  "files": [
+    { "name": "MC", "type": "binary", "load": 28672, "exec": 28672, "data": [134, 42, 183, 4, 0, 57] },
+    { "name": "MC2", "type": "binary", "load": 28688, "exec": 28688, "data": [1, 2, 3, 4, 5, 6, 7, 8] }
+  ]
+}

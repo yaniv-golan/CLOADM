@@ -4,7 +4,8 @@
 // Corpus results (tools/basic-bb/corpus.js, one record a program, matched by the tape's sha256): per program the
 // status, whether the listing is identical (or its first differing line), the first RUN sample where the screen's text
 // or pixels part, and the error lines.
-// Sounds (#wav) are compared by their measures (compareSounds, below).
+// Sounds (#wav) are compared by their measures (compareSounds, below), tapes (#tape-blocks) by their summaries
+// (compareTapes).
 // Pictures (#screenshot) are compared by the SHA-256 of their pixels; --shots DIR writes both PNGs of each one that
 // differs. Two text-screen pictures that differ in one 8 x 12 cell only differ in the blinking cursor (cursorOnly):
 // they are listed apart as "cursor only" and count as the same.
@@ -69,6 +70,36 @@ function compareSounds(sx = [], sy = []) {
         if (Math.abs(gap(x, j) - gap(y, j)) > FIELD) out.push(`${t}: silence before it ${gap(x, j)} vs ${gap(y, j)} cycles`);
       }
       if (p.low !== q.low || p.high !== q.high) out.push(`${t}: levels ${p.low}-${p.high} vs ${q.low}-${q.high}`);
+    });
+  });
+  return out;
+}
+
+// Tapes (#tape-blocks: tests/basic/harness.js tapeDeck): the same summaries by name; the blocks exactly (type, length,
+// checksum, leader, the namefile's fields, the data's hash) and the number of bad ones; the motor's runs: as many, each
+// carried or not alike, its start and length within one field (a run still going, length null, only matches another;
+// a carried run's length is not compared: it ends when the next line is typed).
+function compareTapes(tx = [], ty = []) {
+  if (tx.length !== ty.length) return [`${tx.length} vs ${ty.length} tape summaries`];
+  const out = [];
+  tx.forEach((x, i) => {
+    const y = ty[i], at = `tape ${x.name}`;
+    if (x.name !== y.name) { out.push(`${at}: named ${y.name} in the second`); return; }
+    const bx = x.blocks || null, by = y.blocks || null;
+    if ((bx == null) !== (by == null)) out.push(`${at}: blocks recorded in only one`);
+    else if (bx) {
+      if (bx.length !== by.length) out.push(`${at}: ${bx.length} vs ${by.length} blocks`);
+      else bx.forEach((k, j) => { if (JSON.stringify(k) !== JSON.stringify(by[j])) out.push(`${at} block ${j + 1}: ${JSON.stringify(k)} vs ${JSON.stringify(by[j])}`); });
+      if (x.bad !== y.bad) out.push(`${at}: ${x.bad} vs ${y.bad} bad blocks`);
+    }
+    const mx = x.motor || [], my = y.motor || [];
+    if (mx.length !== my.length) { out.push(`${at}: ${mx.length} vs ${my.length} motor runs`); return; }
+    mx.forEach((r, j) => {
+      const q = my[j], t = `${at} motor run ${j + 1}`;
+      if (!!r.carried !== !!q.carried) out.push(`${t}: carried in only one`);
+      if (Math.abs(r.start - q.start) > 1) out.push(`${t}: starts at ${r.start} vs ${q.start} fields`);
+      if ((r.length == null) !== (q.length == null)) out.push(`${t}: ${r.length == null ? 'still running' : `${r.length} fields`} vs ${q.length == null ? 'still running' : `${q.length} fields`}`);
+      else if (r.length != null && !r.carried && Math.abs(r.length - q.length) > 1) out.push(`${t}: ${r.length} vs ${q.length} fields`);
     });
   });
   return out;
@@ -144,9 +175,9 @@ function compare(a, b, shotDir = null) {
       out.push(`${name}: pictures differ: ${badShot}`);
       if (shotDir) sx.forEach((p, i) => { if (sy[i] && p.sha256 !== sy[i].sha256) for (const [tag, q] of [['first', p], ['second', sy[i]]]) fs.writeFileSync(require('path').join(shotDir, `${name}-${q.name}-${tag}.png`), Buffer.from(q.png, 'base64')); });
     }
-    const badSound = compareSounds(x.sounds, y.sounds);
-    for (const l of badSound) out.push(`${name}: ${l}`);
-    if (at < 0 && !badShot && !badSound.length) { same++; continue; }
+    const badSound = compareSounds(x.sounds, y.sounds), badTape = compareTapes(x.tapes, y.tapes);
+    for (const l of [...badSound, ...badTape]) out.push(`${name}: ${l}`);
+    if (at < 0 && !badShot && !badSound.length && !badTape.length) { same++; continue; }
     if (at < 0) continue;
     const show = (t, i) => (i < t.length ? JSON.stringify(t[i]) : '(none)');
     out.push(`${name}: line ${at + 1} differs`);
@@ -155,7 +186,7 @@ function compare(a, b, shotDir = null) {
   for (const name of b.keys()) if (!a.has(name)) out.push(`${name}: missing from the first file`);
   return { same, report: out, cursor };
 }
-module.exports = { compare, compareCorpus, compareSounds, cursorOnly };
+module.exports = { compare, compareCorpus, compareSounds, compareTapes, cursorOnly };
 
 if (require.main === module) {
   const args = process.argv.slice(2), si = args.indexOf('--shots');

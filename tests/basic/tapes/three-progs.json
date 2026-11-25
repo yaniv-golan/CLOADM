@@ -1,0 +1,8 @@
+{
+  "provenance": "Written for the black-box cassette cases (2026-11-25): our own content, nothing taken from a ROM. Three short BASIC programs saved as ASCII text, for SKIPF, CLOAD \"NAME\" and MOTOR.",
+  "files": [
+    { "name": "ONE", "type": "basic", "ascii": true, "lines": ["10 PRINT \"PROGRAM ONE\""] },
+    { "name": "TWO", "type": "basic", "ascii": true, "lines": ["10 PRINT \"PROGRAM TWO\"", "20 PRINT 2*2"] },
+    { "name": "THREE", "type": "basic", "ascii": true, "lines": ["10 REM THE THIRD", "20 PRINT \"PROGRAM THREE\""] }
+  ]
+}

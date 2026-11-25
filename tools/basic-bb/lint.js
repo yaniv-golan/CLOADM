@@ -2,8 +2,9 @@
 // The black-box case lint (docs/clean-room-basic.md section 7): a case may not read the ROM, so no recorded result
 // can carry ROM contents. Only functional results are recorded: what the screen shows. Every line a case types is
 // checked, the #type lines' text included. Refused:
-//   * EXEC, USR, DEFUSR, CLOADM, CSAVEM and VARPTR anywhere, matched as plain text (so EXEC glued to another word is
-//     refused too): machine code could read the ROM, and VARPTR finds string descriptors a POKE could point into it;
+//   * EXEC, USR, DEFUSR, CSAVEM (CSAVE M too) and VARPTR anywhere, matched as plain text (so EXEC glued to another
+//     word is refused too): machine code could read the ROM, and VARPTR finds string descriptors a POKE could point
+//     into it; CLOADM likewise, except as the tape rule below allows;
 //   * PEEK( whose argument is not a literal below 32768 or an expression ending in "AND 32767" with no OR in it (AND
 //     binds after arithmetic and relations, and its result is a 16-bit integer, so that keeps it in RAM);
 //   * POKE except to a literal address on the text screen ($0400-$05FF) or in memory the case set aside above BASIC
@@ -19,7 +20,13 @@
 //     LINE, CIRCLE, PAINT, GET, PUT, PPOINT or POINT, or CIRCLE's radius, that is not a literal (x 0-511, y and the
 //     radius 0-255) or an expression ending in "AND n" with n up to 255. DRAW's moves come from strings and are not
 //     checked: a case's DRAW strings are reviewed by hand to stay on the picture;
-//   * a directive tests/basic/harness.js does not know, or a malformed #joy, #frames, #timeout or #wait-text.
+//   * a directive tests/basic/harness.js does not know, or a malformed #joy, #frames, #timeout or #wait-text;
+//   * the tape: a #tape NAME whose fixture (tests/basic/tapes/NAME.json, tools/basic-bb/tapes.js) is missing or not
+//     well formed (a provenance, BASIC programs as ASCII text only), and a #tape-rewind before any #tape or #tape-blank.
+//     CLOADM (CLOAD M, the same statement, too) is allowed in one case only: every tape it can read is a fixture (no
+//     #tape-blank, so nothing it wrote), every file on those fixtures is machine code loading within the memory a
+//     first line CLEAR n,top set aside, and it is given no offset. It then loads our own bytes into that memory, and
+//     with EXEC still refused (and the run-time guard) nothing runs them.
 // Strings, remarks and DATA are not checked as code, except that REM and ' inside DATA are text (BASIC runs what
 // follows them). A program line that starts with END: is not checked either (a line is only ever entered at its
 // start, so nothing after that END runs; the token probe lists keywords that way), unless the case uses CONT.
@@ -27,6 +34,7 @@
 // and nothing of it is recorded.
 //   node tools/basic-bb/lint.js FILE...      exit 1 if any case is refused
 const fs = require('fs');
+const { TAPES, readFixture } = require('./tapes.js');
 
 // the program text a line runs: string literals blanked, and the remark after REM or ' (outside DATA) dropped
 function code(line) {
@@ -82,7 +90,8 @@ const maskedOk = (a) => /AND\s*32767\s*$/.test(unwrap(a)) && !/OR/.test(a);
 // an expression ending in "AND n" (no OR in it) with n at most `max`: its value is 0..n
 const maskedTo = (a, max) => { const m = /AND\s*(\d+)\s*$/.exec(unwrap(a)); return !!m && Number(m[1]) <= max && !/OR/.test(a); };
 
-const DIRECTIVES = ['type', 'keys', 'break', 'frames', 'wait-text', 'timeout', 'nowait', 'screenshot', 'wav', 'wav-stop', 'joy'];
+const DIRECTIVES = ['type', 'keys', 'break', 'frames', 'wait-text', 'timeout', 'nowait', 'screenshot', 'wav', 'wav-stop', 'joy',
+  'tape', 'tape-blank', 'tape-rewind', 'tape-blocks'];
 
 // ---- P2: graphics (docs/clean-room-basic-p2.md section 12) ----
 const PAGE = 0x600, PAGES_OF_MODE = [1, 2, 2, 4, 4];   // PMODE 0-4's pages [UM]
@@ -141,10 +150,13 @@ function typedLines(text) {
   return out;
 }
 
-// -> [] or a list of problems, each "line N: why"
-function lintCase(text) {
+// -> [] or a list of problems, each "line N: why" (opts.tapes: the folder of tape fixtures)
+function lintCase(text, { tapes = TAPES } = {}) {
   const problems = [], lines = typedLines(text);
   const bbOnly = /^# bb-only\b/m.test(text);
+  // the tape fixtures the case plays: each must exist and be well formed
+  const fixtures = [];
+  let blank = false, tapeIn = false;
   // the directives tests/basic/harness.js knows, well formed, so a case never stops at a bad one on the real ROM
   text.split(/\r?\n/).forEach((raw, i) => {
     const d = /^#(\S*)\s?(.*)$/.exec(raw);
@@ -154,6 +166,12 @@ function lintCase(text) {
     else if (cmd === 'joy' && !(/^([0-3])\s+(\d+)$/.test(arg.trim()) && Number(arg.trim().split(/\s+/)[1]) <= 63)) problems.push(`${at}: #joy N V: N 0-3, V 0-63`);
     else if ((cmd === 'frames' || cmd === 'timeout') && !/^\d+$/.test(arg.trim())) problems.push(`${at}: #${cmd} takes a number`);
     else if (cmd === 'wait-text') { try { new RegExp(arg, 'm'); } catch (e) { problems.push(`${at}: #wait-text: ${e.message}`); } }
+    else if (cmd === 'tape') {
+      tapeIn = true;
+      try { fixtures.push(readFixture(arg.trim(), tapes)); } catch (e) { problems.push(`${at}: #tape: ${e.message}`); }
+    } else if (cmd === 'tape-blank') { blank = true; tapeIn = true; }
+    else if (cmd === 'tape-rewind' && !tapeIn) problems.push(`${at}: #tape-rewind with no tape in (#tape NAME or #tape-blank first)`);
+    else if (cmd === 'tape-blocks' && !tapeIn) problems.push(`${at}: #tape-blocks with no tape in (#tape NAME or #tape-blank first)`);
   });
   const endLine = (s) => /^\s*\d+\s*END\s*:/.test(s);
   const usesCont = lines.some((l) => !endLine(code(l.line)) && code(l.line).includes('CONT'));
@@ -179,6 +197,15 @@ function lintCase(text) {
     if (!m || !ok(literal(m[1])) || !ok(literal(m[2]))) problems.push(`line ${x.at}: PCOPY ${x.args.trim()}: both pages literals within the ${pages} the case reserves`);
   }
   const gfxEnd = pclears.length ? 0 : 0x600 + 4 * PAGE;     // POKE to a graphics page: only with no PCLEAR
+  // CLOADM: only our own machine code from a fixture, into the memory set aside, with no offset
+  const cloadmProblem = (args) => {
+    if (blank || !fixtures.length) return 'only reads a fixture\'s machine code: the case plays #tape fixtures and has no #tape-blank';
+    if (top == null) return 'needs a first line CLEAR n,top: the fixture\'s machine code loads only above top';
+    const outside = fixtures.flatMap((fx) => fx.files).filter((f) => f.type !== 'binary' || f.load < top || f.load + f.data.length > 0x8000);
+    if (outside.length) return `only with fixtures whose every file is machine code loading from ${top} to 32767 (not ${outside.map((f) => f.name).join(', ')})`;
+    if (splitTop(args).length > 1) return 'with an offset: the load address is the fixture\'s own';
+    return null;
+  };
   for (const { line, at } of lines) {
     const s = code(line), where = `line ${at}`;
     if (!usesCont && endLine(s)) continue;
@@ -206,7 +233,11 @@ function lintCase(text) {
       }
     }
     for (const why of pts) problems.push(`${where}: ${why}`);
-    if (/EXEC|USR|CLOADM|CSAVEM|VARPTR/.test(s)) problems.push(`${where}: EXEC, USR, DEFUSR, CLOADM, CSAVEM and VARPTR are not allowed in a black-box case`);
+    if (/EXEC|USR|CSAVE\s*M|VARPTR/.test(s)) problems.push(`${where}: EXEC, USR, DEFUSR, CSAVEM and VARPTR are not allowed in a black-box case`);
+    for (const c of s.matchAll(/CLOAD\s*M/g)) {
+      const why = cloadmProblem(statementAt(s, c.index + c[0].length));
+      if (why) problems.push(`${where}: CLOADM ${why}`);
+    }
     for (let p = s.indexOf('PEEK'); p >= 0; p = s.indexOf('PEEK', p + 4)) {
       const open = s.indexOf('(', p);
       const arg = open >= 0 && /^\s*$/.test(s.slice(p + 4, open)) ? argAt(s, open) : null;

@@ -1,0 +1,6 @@
+{
+  "provenance": "Written for the black-box cassette cases (2026-11-25): our own content, nothing taken from a ROM. A cassette data file of four records, as text ended by carriage returns (the way PRINT #-1 writes them).",
+  "files": [
+    { "name": "DATA", "type": "data", "lines": ["HELLO,42", "SECOND LINE", " 3.5", "LAST"] }
+  ]
+}
