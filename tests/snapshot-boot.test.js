@@ -74,8 +74,10 @@ const fullScreen = (s) => {
     a.inject(PLAIN, 0x7000);
     frames(a.shownMachine, 5);
     check('the program took the screen (no OK, no warm-start vector)', !a.screenText().some((l) => l.trim() === 'OK') && a.shownMachine.ram[0x71] !== 0x55);
-    // the whole screen, not just that OK is gone: a BNE offset one short lands on the STA's operand (NEGA), X never
-    // moves, one cell is rewritten and the rest stays whatever BASIC left, which the check above cannot see
+    // the whole screen, not just that OK is gone: PLAIN's BNE at $700A with offset $F8 (one short) lands on $7004,
+    // which is the LDA's immediate operand. The stream then misdecodes from there ($60 is NEG indexed, so "60 A7"
+    // runs as NEG A,Y), X stops walking the screen and it keeps whatever BASIC left; measured, 420 of the 512 cells
+    // stay $60 and the rest is garbage. The check above cannot see any of that.
     check('the program filled the text screen with $60, 16 rows of 32', fullScreen(a));
     const bytes = (await a.snapshotFile()).bytes;
     const b = await reopen(bytes, roms);

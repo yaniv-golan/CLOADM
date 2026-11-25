@@ -10861,8 +10861,8 @@ async function urlChecks(browser, base, check) {
     for (let i = 0; i < 5; i++) s.shownMachine.runFrame();
     s.shownMachine.poke(0x3000, 0xA7);
     // the moment made here holds the program's whole screen: every cell $0400-$05FF is $41. A BNE offset one short
-    // lands on the STA's operand (NEGA), X never moves and the screen keeps what was there, which the memory marker
-    // at $3000 alone cannot tell from a filled screen.
+    // ($F8) lands on $7004, the LDA's immediate operand, and the stream misdecodes: X still advances but every other
+    // cell gets $BF, so the screen alternates and the memory marker at $3000 alone cannot tell it from a filled one.
     const filled = Array.from({ length: 0x200 }, (_, i) => s.readByte(0x400 + i)).every((b) => b === 0x41);
     check('link: the moment made for the redirect holds the program\'s full screen (every cell $41)', filled);
     const hash = new URL(await s.snapshotLink('https://cloadm.dev/play/')).hash;

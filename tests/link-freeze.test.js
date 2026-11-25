@@ -83,6 +83,19 @@ function programChecks(label, prog) {
       const untouched = Object.entries(GOLDEN).every(([n, h]) => crypto.createHash('sha256').update(fs.readFileSync(path.join(DIR, n))).digest('hex') === h);
       check('tools/gen-link-fixtures.js refuses to overwrite: it keeps every existing fixture, and their bytes are unchanged', kept.length === 4 && same && !/written/.test(out), out.trim().replace(/\n/g, ' | '));
       check('... and the committed fixtures were not touched by the run (they are opened from a temporary copy)', untouched);
+
+      // ...and it really writes into the directory it is given: take one fixture out of the copy and it is written
+      // back there, not into the tracked folder (which the check above would not catch on its own, as every tracked
+      // file is present and so every one is kept)
+      const missing = 'z2-program.json';
+      fs.rmSync(path.join(tmp, missing));
+      const out2 = require('child_process').execFileSync(process.execPath, [path.join(__dirname, '../tools/gen-link-fixtures.js'), tmp], { encoding: 'utf8' });
+      check('tools/gen-link-fixtures.js writes into the directory it is given: a file missing from the copy is written there',
+        new RegExp(`^${missing.replace('.', '\\.')}: written`, 'm').test(out2) && fs.existsSync(path.join(tmp, missing))
+        && Object.keys(GOLDEN).filter((n) => n !== missing).every((n) => new RegExp(`^${n.replace('.', '\\.')}: exists, kept`, 'm').test(out2)),
+        out2.trim().replace(/\n/g, ' | '));
+      check('... and the tracked folder still has all four, with the committed bytes', fs.readdirSync(DIR).sort().join() === Object.keys(GOLDEN).sort().join()
+        && Object.entries(GOLDEN).every(([n, h]) => crypto.createHash('sha256').update(fs.readFileSync(path.join(DIR, n))).digest('hex') === h));
     } finally {
       fs.rmSync(tmp, { recursive: true, force: true });
     }
