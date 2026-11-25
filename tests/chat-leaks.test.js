@@ -207,6 +207,8 @@ const ROWS = [
   ['import a disk image into the library', withDos, (s) => s.drives.importImage('d.vdk', Emu.blankDisk('vdk', 40, 1), 0)],
   ['mount a disk by name', withDos, async (s) => { await s.media.write('disks/m.vdk', Emu.blankDisk('vdk', 40, 1)); return s.drives.mount(0, 'disks/m.vdk'); }],
   ['open a snapshot', () => {}, async (s) => { const snap = await s.readSnapshot((await s.snapshotFile()).bytes); return s.openSnapshot(snap); }, 'closes-chat'],
+  // a shared BASIC program arrives on a fresh machine of its model (switchMachine), as a switch does
+  ['open a shared BASIC program', () => {}, (s) => s.openSharedProgram({ machine: 'dragon64', config: {}, text: '10 PRINT "HI"' }), 'closes-chat'],
   // keepSnapshotDisk is for a disk that came WITH a snapshot (not linked to the Library): unlink the imported one so
   // the row reaches the save, then assert the drive is linked to the Library afterwards.
   // a disk that came WITH a snapshot is not in the Library at all (no stored image, no link): remove the import from
@@ -604,6 +606,10 @@ const REQUIRED = require.main !== module;
     // shortLink reads it the same way (shareFile) and sends sealed bytes to the store it is given, changing no machine;
     // readShortLink fetches and decodes a snapshot, which openSnapshot (classified on its own) then opens
     'longLinkRefusal', 'shortLinkRefusal', 'shortLink', 'readShortLink',
+    // "Share your program": sharedProgram reads the SHOWN machine's BASIC program (readByte); programLink and
+    // programShortLink encode it (the short one sends sealed bytes to the store it is given); readProgramLink decodes a
+    // fragment. None changes a machine: openSharedProgram, which does, has its own row
+    'sharedProgram', 'programLink', 'programShortLink', 'readProgramLink',
     // sharePicture renders the SHOWN machine's frame into the share card ("Save picture") and shareCardName reads its
     // program watch or profile for the card's name; both change nothing
     'sharePicture', 'shareCardName',
