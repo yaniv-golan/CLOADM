@@ -90,6 +90,24 @@ check('build: $8000-$80FF is left free for later fixed entry points', built.rom.
   check('import: compares with our run line for line', compare(new Map(imp.slice(0, 1).map((c) => [c.case, c])), ours).same === 1);
 }
 
+// ---- pictures: #screenshot ----
+{
+  const { runCase } = require('./basic/harness.js');
+  // two screens that read the same as text: a semigraphics block shows only in the picture
+  const a = runCase(built.rom, 'PRINT "ABC"\n#screenshot one\n'), a2 = runCase(built.rom, 'PRINT "ABC"\n#screenshot one\n');
+  const c = runCase(built.rom, 'PRINT "ABC";CHR$(143)\n#screenshot one\n');
+  const s1 = a.shots && a.shots[0], s3 = c.shots && c.shots[0];
+  check('#screenshot: a picture with its name, size and pixel hash', !!s1 && s1.name === 'one' && s1.width > 0 && s1.height > 0 && /^[0-9a-f]{64}$/.test(s1.sha256));
+  check('#screenshot: the same screen gives the same hash', !!s1 && s1.sha256 === a2.shots[0].sha256);
+  check('#screenshot: a block the text reader cannot see changes the hash', !!s3 && s3.sha256 !== s1.sha256 && a.transcript.includes('ABC') && c.transcript.includes('ABC'));
+  const png = s1 ? Buffer.from(s1.png, 'base64') : Buffer.alloc(0);
+  check('#screenshot: a PNG of that size', png.slice(1, 4).toString() === 'PNG' && png.readUInt32BE(16) === s1.width && png.readUInt32BE(20) === s1.height);
+  const rec = (r) => new Map([['g', { case: 'g', status: r.status, transcript: r.transcript, shots: r.shots }]]);
+  const cmp = compare(rec(a), rec(c));
+  check('compare: a differing picture is reported', cmp.same === 0 && cmp.report.some((l) => /pictures differ: one/.test(l)), cmp.report.join(' | '));
+  check('compare: identical pictures pass', compare(rec(a), rec(a2)).same === 1);
+}
+
 // ---- the run-time guard: code the case wrote must never run ----
 {
   const { runCase } = require('./basic/harness.js');

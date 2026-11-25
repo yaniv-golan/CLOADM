@@ -204,7 +204,7 @@ node tools/basic-bb/compare.js real.jsonl ours.jsonl
 * **Input:** the case files (plain text, one line per typed line). Lines starting with `#` are directives or
   comments: `#type TEXT` (keys while a program runs, for `INPUT` and `INKEY$`; `\n` is ENTER), `#keys A+B` (matrix
   keys held together: `SHIFT+LEFT`, `SHIFT+0`, `CLEAR`), `#break`, `#frames N`, `#wait-text REGEX`, `#timeout S`,
-  `#nowait` (the next line is not waited for with OK); `# bb-only` marks a probe that only the black-box run uses.
+  `#nowait` (the next line is not waited for with OK), `#screenshot NAME` (the picture as it is now: a PNG and the SHA-256 of its pixels, which `compare.js` compares, writing both PNGs of a differing one with `--shots DIR`; for graphics, P2); `# bb-only` marks a probe that only the black-box run uses.
   A typed program line is waited for until the screen settles, any other line until `OK` is back.
 * **How it runs:** a fresh machine per case (cold start, then `CLS` typed, so the banner is not compared), the lines
   typed through the keyboard matrix at the typist's pace, so the ROM's own editor and crunching take them, exactly as a person typing.

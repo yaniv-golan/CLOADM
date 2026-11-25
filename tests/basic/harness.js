@@ -2,6 +2,23 @@
 // machine with a given BASIC ROM in the "basic" socket, type into it through the keyboard matrix, and read the
 // screen. Nothing here knows the ROM's internals: it works the same on any Dragon 64 BASIC.
 const Emu = require('../load.js')();
+const zlib = require('zlib'), crypto = require('crypto');
+
+// a PNG of RGBA pixels (8 bits a channel, filter 0 on every row)
+function rgbaPng(w, h, rgba) {
+  const crcTable = Array.from({ length: 256 }, (_, n) => { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; return c >>> 0; });
+  const crc = (buf) => { let c = 0xFFFFFFFF; for (const b of buf) c = crcTable[(c ^ b) & 0xFF] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; };
+  const chunk = (type, data) => {
+    const len = Buffer.alloc(4), body = Buffer.concat([Buffer.from(type, 'ascii'), data]), c = Buffer.alloc(4);
+    len.writeUInt32BE(data.length); c.writeUInt32BE(crc(body));
+    return Buffer.concat([len, body, c]);
+  };
+  const raw = Buffer.alloc((w * 4 + 1) * h);
+  for (let y = 0; y < h; y++) rgba.copy(raw, y * (w * 4 + 1) + 1, y * w * 4, (y + 1) * w * 4);
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(w, 0); ihdr.writeUInt32BE(h, 4); ihdr[8] = 8; ihdr[9] = 6;
+  return Buffer.concat([Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]), chunk('IHDR', ihdr), chunk('IDAT', zlib.deflateSync(raw, { level: 9 })), chunk('IEND', Buffer.alloc(0))]);
+}
 
 // One VDG text cell as text. Normal characters ($40-$7F) as themselves; inverse ones ($00-$3F) as lower case
 // for letters and @ [ \ ] ^ _ (the Dragon shows lower case that way), and as the character followed by U+0332
@@ -22,6 +39,11 @@ class Basic {
     this.frames = 0;
   }
   frame() { this.m.runFrame(); this.frames++; }
+  // the picture now (the last whole frame): { width, height, sha256 of its RGBA pixels, png (base64) }
+  shot(name) {
+    const f = this.m.render(), p = Emu.frameToRGBA(f), rgba = Buffer.from(p.buffer, p.byteOffset, p.byteLength);
+    return { name, width: f.width, height: f.height, sha256: crypto.createHash('sha256').update(rgba).digest('hex'), png: rgbaPng(f.width, f.height, rgba).toString('base64') };
+  }
   // Start recording the transcript: every line that scrolls off the top of the screen, in order. A scroll is
   // recognised by what the CPU does, whatever the ROM: a write to the top row of a byte it has just read from the
   // same column of the row below (a block move). Writes that are not a move and overwrite text in the top row are
@@ -119,6 +141,8 @@ class Basic {
 //   #wait-text RE   run until the screen matches the regular expression
 //   #timeout S      the emulated seconds each wait may take from here on (default 30)
 //   #nowait         the next line is not waited for with OK, only until the screen settles
+//   #screenshot NAME  record the picture as it is now (for graphics: the result's shots, each with a PNG and the
+//                   SHA-256 of its pixels, which tools/basic-bb/compare.js compares)
 // A typed line that starts with a digit is a program line: waited for until the screen settles; any other line
 // is waited for until OK is back. -> { status, transcript, flags, frames }; status 'ok', 'no-boot', 'timeout' (and
 // where), or the typist's status when the machine stopped reading the keyboard.
@@ -130,9 +154,10 @@ class Basic {
 function runCase(rom, text, { machine = 'dragon64', guard = true } = {}) {
   const b = new Basic(rom, { machine });
   let refused = null;
+  const shots = [];
   const out = (status, extra = {}) => (refused
     ? { status: 'refused', why: refused, transcript: [], flags: [], frames: b.frames }
-    : { status, transcript: b.lines ? b.transcript() : b.screen(), flags: b.flags || [], frames: b.frames, ...extra });
+    : { status, transcript: b.lines ? b.transcript() : b.screen(), flags: b.flags || [], frames: b.frames, ...(shots.length ? { shots } : {}), ...extra });
   if (!b.waitOk({ limit: 600, stable: 3 })) return out('no-boot');
   let limit = 30 * 50, nowait = false;
   const settle = () => { let last = null; return b.until(() => { const k = b.rows().join(''); const same = k === last; last = k; return same; }, { limit, stable: 10 }); };
@@ -166,6 +191,7 @@ function runCase(rom, text, { machine = 'dragon64', guard = true } = {}) {
       else if (cmd === 'wait-text') { const re = new RegExp(arg, 'm'); if (!b.until(() => re.test(b.screen().join('\n')), { limit })) return out('timeout', { at: where }); }
       else if (cmd === 'timeout') limit = Math.round(Number(arg) * 50);
       else if (cmd === 'nowait') nowait = true;
+      else if (cmd === 'screenshot') { b.frame(); shots.push(b.shot(arg || `shot${shots.length + 1}`)); }
       else return out('bad-directive', { at: where });
       continue;
     }
