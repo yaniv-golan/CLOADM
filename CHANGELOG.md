@@ -212,8 +212,8 @@ Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.
   alone: hidden until they are listed, and with none taken it says "No snapshots yet. Take one from Menu → Take
   snapshot."; the Library's Snapshots filter with none says the same.
 - **Chat with Claude on a phone opens on the chat's screen.** With no key the key card and the BASIC session card fold
-  into one line under it, "No API key yet · Add key…", and the "type on the screen and press ENTER" toast waits for a
-  key. A line typed with no key starts no turn: no "Thinking..." (the chat firmware reads a no-key flag, NOKEY, the page
+  into one line under it, "No API key yet · Add key…" (the on-screen keyboard stands aside until there is a key, so
+  nothing covers it, upright or sideways), and the "type on the screen and press ENTER" toast waits for a key. A line typed with no key starts no turn: no "Thinking..." (the chat firmware reads a no-key flag, NOKEY, the page
   sets), and "[No API key yet: add one … Get one at console.anthropic.com.]" comes right after it. The BASIC session
   card says "No BASIC ROMs added, so BASIC programs won't run here. Claude can still read and change the machine's
   memory."

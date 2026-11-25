@@ -311,8 +311,8 @@ emulator.
   On a phone the chat's screen comes first and the page opens at it. Without a key the key card and the BASIC
   session card fold into one line under the screen, "No API key yet · Add key…" (the screen's own no-key line says
   where, measured: "add one below", "on the right"; no "type on the screen and press ENTER" toast until there is a
-  key); **Add key…** opens the form, and the on-screen keyboard stands aside while the phone's own keyboard types the
-  key; once it is saved the screen has the focus. A line typed with no key starts no turn: the firmware shows no
+  key); the on-screen keyboard stands aside until there is a key, so nothing covers the line, and **Add key…** opens
+  the form for the phone's own keyboard; once the key is saved the keyboard is back and the screen has the focus. A line typed with no key starts no turn: the firmware shows no
   "Thinking..." (the page sets its NOKEY flag, `CHAT_CHANNEL.nokey`) and "[No API key yet: …]" comes right after the
   line. On a tablet (under about 1020 px, not a phone) the key card comes first. The way out is always there: the chat bar stays at the top as the page scrolls,
   the on-screen keyboard's Menu becomes **← Emulator** (held sideways the keyboard covers the bar), the browser's

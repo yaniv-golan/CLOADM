@@ -408,8 +408,8 @@ export function setupClaude(page) {
     $('claudeKeySaved').hidden = form;
     $('claudeKeyTag').textContent = 'Saved in this browser.';
     // a phone (body.chat-phone, play/index.html): the screen takes the room, its border cut off; without a key the
-    // key card and the BASIC session card fold into one line under the screen, and once "Add key…" opens the form the
-    // machine keyboard stands aside for the phone's own
+    // key card and the BASIC session card fold into one line under the screen ("Add key…" opens the form), and the
+    // machine keyboard stands aside (below)
     const phoneChat = full && phoneLayout();
     document.body.classList.toggle('chat-phone', phoneChat);
     document.body.classList.toggle('claude-nokey', full && form);
@@ -418,9 +418,11 @@ export function setupClaude(page) {
     const folded = phoneChat && form && !document.body.classList.contains('claude-keyform');
     $('claudeFold').hidden = !folded;
     page.cropBorder = phoneChat && session.chatView === 'chat';
-    // (and while a card waits for the person, in any view: held sideways the keyboard covers the whole page, the card
-    // with it; nothing of Claude's types meanwhile)
-    if (page.touchKeys) page.touchKeys.standAside((phoneChat && form && !folded) || !!session.consent.pending);
+    // (the machine keyboard stands aside the whole time there is no key, folded or not: upright the line would come
+    // after the keys, out of sight, and sideways the keys' halves would cover it; without a key a typed line only gets
+    // the no-key line back. And while a card waits for the person, in any view: held sideways the keyboard covers the
+    // whole page, the card with it; nothing of Claude's types meanwhile)
+    if (page.touchKeys) page.touchKeys.standAside((phoneChat && form) || !!session.consent.pending);
     // the panel's offer depends on body.chat-phone (touch-keys.js: a full-screen chat on a phone is not a BASIC
     // machine's screen, and the joystick is not offered there), so a change of it must be applied, not just the
     // class toggled: the stick, FIRE and the switch come and go with it

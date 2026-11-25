@@ -16355,16 +16355,20 @@ async function phoneChatChecks(browser, base, check) {
       const r = (id) => document.getElementById(id).getBoundingClientRect();
       const inView = (b) => b.height > 0 && b.top >= 0 && b.bottom <= innerHeight && b.left >= 0 && b.right <= innerWidth;
       const t = document.getElementById('screen').closest('.tube').getBoundingClientRect(), f = r('claudeFold'), add = r('btnClaudeAddKey');
-      const at = document.elementFromPoint(add.left + add.width / 2, add.top + add.height / 2);
+      // (five points of the button, its middle and near its corners: a key's gap must not pass for "not covered")
+      const btn = document.getElementById('btnClaudeAddKey'), pts = [[0.5, 0.5], [0.1, 0.15], [0.9, 0.15], [0.1, 0.85], [0.9, 0.85]];
+      const covered = pts.filter(([x, y]) => { const at = document.elementFromPoint(add.left + add.width * x, add.top + add.height * y); return !at || !(at === btn || btn.contains(at)); }).length;
       return { scrollY, screenFirst: t.top < f.top || t.right <= f.left, screenTop: Math.round(t.top), screenSeen: t.top >= 0 && t.top < innerHeight / 2,
         fold: document.getElementById('claudeFold').checkVisibility() ? document.getElementById('claudeFold').innerText.replace(/\s+/g, ' ').trim() : null,
-        addH: Math.round(add.height), addOnTop: !!at && (at === document.getElementById('btnClaudeAddKey') || document.getElementById('btnClaudeAddKey').contains(at)),
+        addH: Math.round(add.height), addInView: inView(add), addCovered: covered,
         card: document.getElementById('claudeKeyCard').checkVisibility(), session: document.getElementById('claudeSession').checkVisibility(),
         toast: document.getElementById('toast').textContent, keys: !document.getElementById('touchKeys').hidden,
         help: document.getElementById('claudeHelp').textContent, appbar: getComputedStyle(document.querySelector('.appbar')).display };
     });
     check(`phone chat (${label}): no key: the chat's screen comes first and is in view; under it one line "No API key yet · Add key…" stands for the key card and the BASIC session card`,
       key.scrollY === 0 && key.screenFirst && key.screenSeen && key.fold === 'No API key yet · Add key…' && !key.card && !key.session && key.addH >= 44, JSON.stringify(key));
+    check(`phone chat (${label}): no key: "Add key…" is on screen and nothing lies over it: the machine keyboard stands aside`,
+      key.addInView && key.addCovered === 0 && !key.keys, JSON.stringify({ inView: key.addInView, covered: key.addCovered, keys: key.keys }));
     check(`phone chat (${label}): no key: no "type on the screen and press ENTER" toast`, !/press ENTER/.test(key.toast), key.toast);
     check(`phone chat (${label}): the app bar gives way to the chat bar (its "← Emulator" leads back)`, key.appbar === 'none' && await page.isVisible('#btnClaudeBack'));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, `phone-chat-${label}-nokey.png`) });
