@@ -9597,7 +9597,7 @@ async function readingChecks(browser, site, check) {
       check('every reading page and the landing page show the affiliation line in their footer', feet.every(([, v]) => v), JSON.stringify(feet));
       // the FAQ's accuracy answer links the known differences; Help links the FAQ, About and the bug report
       await page.goto(site + 'faq/');
-      check('/faq: seven questions, the accuracy answer links the deviations from MAME', await page.$$eval('h2', (h) => h.length) === 7
+      check('/faq: fourteen questions, the accuracy answer links the deviations from MAME', await page.$$eval('h2', (h) => h.length) === 14
         && await page.getAttribute('#faqDeviations', 'href') === 'deviations/');
       await page.click('#faqDeviations');
       check('/faq: the accuracy answer opens the known differences from MAME, a list generated from docs/verification.md', await waitFor(page, () => location.pathname === '/deviations/')
@@ -10922,10 +10922,16 @@ async function urlChecks(browser, base, check) {
     const Emu = require('../tests/load')();
     const s = new Emu.Session();
     s.switchMachine('dragon64');
-    // fills the text screen with 'A' and loops (the program tests/shared-moment.test.js uses): 14 bytes at $7000
-    s.inject([{ addr: 0x7000, data: Uint8Array.from([0x8E, 0x04, 0x00, 0x86, 0x41, 0xA7, 0x80, 0x8C, 0x06, 0x00, 0x26, 0xF8, 0x20, 0xFE]) }], 0x7000);
+    // fills the text screen with 'A' and loops (the program tests/shared-moment.test.js uses): 14 bytes at $7000, the
+    // BNE going back to the STA ,X+ ($F9, as in the golden fixtures)
+    s.inject([{ addr: 0x7000, data: Uint8Array.from([0x8E, 0x04, 0x00, 0x86, 0x41, 0xA7, 0x80, 0x8C, 0x06, 0x00, 0x26, 0xF9, 0x20, 0xFE]) }], 0x7000);
     for (let i = 0; i < 5; i++) s.shownMachine.runFrame();
     s.shownMachine.poke(0x3000, 0xA7);
+    // the moment made here holds the program's whole screen: every cell $0400-$05FF is $41. A BNE offset one short
+    // ($F8) lands on $7004, the LDA's immediate operand, and the stream misdecodes: X still advances but every other
+    // cell gets $BF, so the screen alternates and the memory marker at $3000 alone cannot tell it from a filled one.
+    const filled = Array.from({ length: 0x200 }, (_, i) => s.readByte(0x400 + i)).every((b) => b === 0x41);
+    check('link: the moment made for the redirect holds the program\'s full screen (every cell $41)', filled);
     const hash = new URL(await s.snapshotLink('https://cloadm.dev/play/')).hash;
     await page.goto(`${new URL('../', base).href}2048/${hash}`);
     await page.waitForURL(/\/play\/\?start=2048/, { timeout: 15000 }).catch(() => {});
@@ -11339,7 +11345,8 @@ async function embedChecks(browser, site, check) {
 async function wyrmfireChecks(browser, site, check) {
   const base = `${site}play/`;
   const T = {
-    privacy: 'Your WAD stays in this browser: it\'s converted here and never uploaded. WYRMFIRE is not affiliated with id Software.',
+    privacy: 'Your WAD stays in this browser: it\'s converted here and never uploaded.',
+    trademark: 'DOOM is a registered trademark of ZeniMax Media Inc. CLOADM and WYRMFIRE are independent projects, not affiliated with or endorsed by id Software, ZeniMax Media or Microsoft. References to DOOM describe file compatibility only.',
     credits: 'WYRMFIRE 0.1.0 · Source ↗ · Level from Freedoom ↗ · Level data: Freedoom (BSD), modified · Not affiliated with id Software',
     // the same line with the person's own WAD loaded: no Freedoom credit of either kind, since that level is not Freedoom's
     creditsOwn: 'WYRMFIRE 0.1.0 · Source ↗ · Not affiliated with id Software',
@@ -11586,7 +11593,7 @@ async function wyrmfireChecks(browser, site, check) {
     const st = await strip(page);
     check('wyrmfire: the strip while it plays: the credits, the Freedoom line with the own-WAD button, the privacy and trademark lines, what is off',
       st.state === 'playing' && st.text.startsWith(T.credits) && st.text.includes('Playing the Freedoom level. Have DOOM (the 1993 game)? Use your DOOM1.WAD or DOOM.WAD…')
-      && st.text.includes(`${T.privacy} DOOM is a trademark of id Software LLC.`) && st.text.includes(T.guard), st.text);
+      && st.text.includes(`${T.privacy} ${T.trademark}`) && st.text.includes(T.guard), st.text);
     const links = await page.$$eval('#wyrmLine a', (a) => a.map((x) => [x.textContent, x.href]));
     check('wyrmfire: Source ↗ is the pinned commit, Level from Freedoom ↗ is Freedoom\'s site, "Level data: Freedoom (BSD), modified" is the licence file we serve',
       JSON.stringify(links) === JSON.stringify([['Source ↗', `${PIN.repo}/tree/${PIN.tag || PIN.commit}`],
@@ -11736,7 +11743,7 @@ async function wyrmfireChecks(browser, site, check) {
     await started(page);
     await stubPrompt(page);
     check('wyrmfire: Your ROMs -> "Your game files": none yet, the button, the privacy and trademark line', await page.evaluate((t) => document.getElementById('gameFileList').textContent === 'None yet.'
-      && document.getElementById('btnGameWad').textContent === 'Use your DOOM1.WAD or DOOM.WAD…' && document.getElementById('gamePrivacy').textContent === `${t} DOOM is a trademark of id Software LLC.`, T.privacy));
+      && document.getElementById('btnGameWad').textContent === 'Use your DOOM1.WAD or DOOM.WAD…' && document.getElementById('gamePrivacy').textContent === `${t.privacy} ${t.trademark}`, T));
     check('wyrmfire: the drop overlay carries the privacy line too', await page.evaluate((t) => document.getElementById('dropWadPrivacy').textContent.startsWith(t), T.privacy));
     const pick = async (name, buffer) => {
       await page.setInputFiles('#fileWad', { name, mimeType: 'application/octet-stream', buffer });
@@ -11921,7 +11928,7 @@ async function wyrmfireChecks(browser, site, check) {
     }
     check('wyrmfire: Help: the Freedoom credit (one constant), "Untested on real hardware", the facts and where the speed was measured',
       h.credit === require('../js/wyrmfire/pin.js').FREEDOOM_CREDIT && /Untested on real hardware\./.test(h.text) && /It plays one level: map E1M1/.test(h.text)
-      && /measured in CLOADM headless/.test(h.text) && /DOOM is a trademark of id Software LLC\./.test(h.text), h.text.slice(0, 300));
+      && /measured in CLOADM headless/.test(h.text) && h.text.replace(/\s+/g, ' ').includes(T.trademark), h.text.slice(0, 300));
     await ctx.close();
   }
   check('wyrmfire: no page errors', !errors.length, errors.join('; '));

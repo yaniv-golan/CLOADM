@@ -3,13 +3,15 @@
 // .test.js opens each and checks what comes back, and fails if a fixture's bytes change. Never regenerate an existing
 // fixture: a format that changes gets a NEW fixture beside the old ones (the old must still open: AGENTS.md, "Formats
 // are frozen"). No ROMs: the moments run on the built-in firmware, the program is plain text.
-//   node tools/gen-link-fixtures.js            writes the fixtures that are not there yet, and says which exist
+//   node tools/gen-link-fixtures.js [DIR]      writes the fixtures that are not there yet, and says which exist
+// DIR is the committed fixtures' folder by default. tests/link-freeze.test.js passes a temporary copy instead: a test
+// run must never be able to touch the tracked fixtures, whatever state the overwrite guard is in.
 // Each file is JSON: { what, format, machine, ... } with the link's bytes in base64url (a long link's fragment after
 // #z=) or a short link's sealed object and its key (base64url), as the store would serve it.
 const fs = require('fs'), path = require('path');
 const Emu = require('../tests/load')();
 
-const DIR = path.join(__dirname, '../tests/fixtures/links');
+const DIR = process.argv[2] ? path.resolve(process.argv[2]) : path.join(__dirname, '../tests/fixtures/links');
 const BASE = 'https://cloadm.dev/play/';
 // the moment: our own 14-byte program on the Dragon 64's built-in firmware, filling the text screen with "A"
 // (LDX #$0400 / LDA #$41 / STA ,X+ / CMPX #$0600 / BNE back to the STA / BRA *), run until it sits in its last loop

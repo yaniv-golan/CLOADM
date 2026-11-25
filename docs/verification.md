@@ -1946,7 +1946,18 @@ BASIC program (byte 0 = 2), and a short link's sealed object of each kind (versi
 `tests/link-freeze.test.js` checks each file's SHA-256 against the committed value, then opens each in a fresh Session
 and checks it against values worked out by hand from what made it: the moment is a Dragon 64 on the built-in firmware
 whose 14-byte program at `$7000` filled the text screen (`$0400`-`$05FF`) with `$41` and loops at `$700C`; the program,
-opened on our stand-in BASIC, lists as written. No ROM is involved. The sealed object's layout (version, kind, IV,
+opened on our stand-in BASIC, lists as written. Its check that the generator never overwrites runs the generator on a
+temporary copy of the fixtures (`tools/gen-link-fixtures.js DIR`), so a test run cannot rewrite the tracked files
+whatever state that guard is in, and it checks the committed files are untouched as well. No ROM is involved.
+
+What holds the freeze is the committed SHA-256 of each fixture, and the decoded content (what a link opens to), never a
+byte-for-byte regeneration. Deflate output is not guaranteed stable across zlib or platform versions, and a sealed
+object carries a random IV, so fresh output differing from a fixture is no evidence of a broken format; and fresh
+output matching it proves nothing either (measured 2026-11-25: Node 22 regenerates the two long links byte-identically
+to the committed files, Node 25 regenerates neither of them, and both decode to the same snapshots). The generator is
+run only for its overwrite guard, and never to reproduce a fixture.
+
+The sealed object's layout (version, kind, IV,
 ciphertext with the header as AES-GCM additional data) is checked byte by byte in `tests/short-link.test.js`, the
 Worker's reading of it (body version 2, the kind kept, the arrival page's wording per kind, refusals) in
 `tests/shortlink-worker.test.js`, and the snapshot config rule (`Session.checkedSnapshot`) in `tests/link-freeze.test.js`.
