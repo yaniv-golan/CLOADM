@@ -193,16 +193,22 @@ async function closeOwnPersistentContext(ctx, profile, ms = BROWSER_CLOSE_MS) {
 // trailing slash redirects to it (/play -> /play/). Every path it can't serve is recorded: no page may ask for a
 // missing resource (checked at the end of the run)
 const missing = new Set();
-const server = http.createServer((req, res) => {
-  const url = new URL(req.url, 'http://x');
-  let file = path.join(ROOT, decodeURIComponent(url.pathname));
+// what the host answers for a path: { status, headers, file } (the file to send) or { status, headers } (a redirect or a miss).
+// The one place the rules live: the HTTP server below and the routes that stand in for cloadm.dev (shortLinkChecks) both ask it.
+function staticAnswer(pathname) {
+  let file = path.join(ROOT, decodeURIComponent(pathname));
   if (file.startsWith(ROOT) && fs.existsSync(file) && fs.statSync(file).isDirectory()) {
-    if (!url.pathname.endsWith('/')) { res.writeHead(301, { Location: url.pathname + '/' + url.search }); res.end(); return; }
+    if (!pathname.endsWith('/')) return { status: 301, redirect: true, headers: {} };
     file = path.join(file, 'index.html');
   }
-  if (!file.startsWith(ROOT) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) { missing.add(url.pathname); res.writeHead(404); res.end(); return; }
-  res.writeHead(200, { 'Content-Type': TYPES[path.extname(file)] || 'application/octet-stream' });
-  fs.createReadStream(file).pipe(res);
+  if (!file.startsWith(ROOT) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) { missing.add(pathname); return { status: 404, headers: {} }; }
+  return { status: 200, headers: { 'Content-Type': TYPES[path.extname(file)] || 'application/octet-stream' }, file };
+}
+const server = http.createServer((req, res) => {
+  const url = new URL(req.url, 'http://x'), a = staticAnswer(url.pathname);
+  if (a.redirect) { res.writeHead(301, { Location: url.pathname + '/' + url.search }); res.end(); return; }
+  res.writeHead(a.status, a.headers);
+  if (a.file) fs.createReadStream(a.file).pipe(res); else res.end();
 });
 
 // ---------------- ROMs (synthetic images only) ----------------
@@ -22443,7 +22449,12 @@ async function shortLinkChecks(browser, base, site, check) {
     await ctx.route('https://cloadm.dev/**', failing('the local copy of cloadm.dev', async (route) => {
       const r = route.request(), u = new URL(r.url());
       env.requests.push({ url: r.url(), headers: JSON.stringify(r.headers()), body: r.postDataBuffer() || Buffer.alloc(0) });
-      return route.fulfill({ response: await route.fetch({ url: `${local}${u.pathname}${u.search}` }) });
+      // answered from the local files directly (staticAnswer, what the HTTP server above answers), not by route.fetch over a
+      // socket: Playwright pools its fetch connections, the server drops idle ones after its keep-alive timeout, and a request
+      // that reused a socket in that moment failed with ECONNRESET - on a loaded machine often, anywhere sometimes
+      const a = staticAnswer(u.pathname);
+      if (a.redirect) return route.fulfill({ status: 301, headers: { location: `${u.pathname}/${u.search}` } });
+      return route.fulfill({ status: a.status, headers: a.headers, body: a.file ? fs.readFileSync(a.file) : '' });
     }));
   };
   const said = async (ctx) => ctx.addInitScript(() => { window.__said = []; document.addEventListener('DOMContentLoaded', () => { const t = document.getElementById('toastText');

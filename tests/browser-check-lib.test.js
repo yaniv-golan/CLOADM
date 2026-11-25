@@ -325,6 +325,14 @@ check('--only twice: an error', /more than once/.test(parseOnly(['--only', 'shar
     const on = fake.listenerCount('unhandledRejection'); stop();
     check('guardRejections: listens on the process it is given, and stops when told', on === 1 && fake.listenerCount('unhandledRejection') === 0, `${on}`);
   }
+  // No routed request is answered by route.fetch: it goes over a pooled socket to the check's own server, which drops idle
+  // ones, and a request that reused one at that moment failed with "route.fetch: read ECONNRESET" (3 runs in 12 under CPU load).
+  // A route answers from the files (staticAnswer) with route.fulfill.
+  {
+    const src = require('fs').readFileSync(require('path').join(__dirname, '../tools/browser-check.js'), 'utf8');
+    const calls = src.split('\n').map((l, i) => [i + 1, l]).filter(([, l]) => /\broute\.fetch\s*\(/.test(l) && !/^\s*(\/\/|\*)/.test(l));
+    check('browser-check.js answers no routed request with route.fetch (a pooled socket the server may reset)', calls.length === 0, calls.map(([n]) => `line ${n}`).join(', '));
+  }
   // callSite skips the helpers and names the caller's lines
   const stack = ['Error', '    at poll (/x/tools/b.js:10:5)', '    at waitFor (/x/tools/b.js:20:5)', '    at async ready (/x/tools/b.js:30:5)', '    at async romChecks (/x/tools/b.js:400:7)', '    at async main (/x/tools/b.js:900:3)'].join('\n');
   check('callSite: the first frames outside the wait helpers', callSite(stack, '/x/tools/b.js', ['poll', 'waitFor']) === 'b.js:30 < b.js:400', callSite(stack, '/x/tools/b.js', ['poll', 'waitFor']));
