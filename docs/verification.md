@@ -884,7 +884,9 @@ FAIL, and a lone short block PASSES only when the samples played through it step
 worklet's specified dip ("a dip that refills before the fade reaches 0 is not a gap", `js/host/audio-worklet.js`),
 accepted only when provably click-free by the product's own measure (`tests/audio-short.test.js` drives a real
 `SampleQueue` through each verdict on the page's own clock-driven schedule);
-after the unlock an AudioWorkletNode plays and no ScriptProcessorNode is made (no deprecation warning); through
+after the unlock an AudioWorkletNode plays and no ScriptProcessorNode is made (no deprecation warning); the unlock is any
+user activation (a tap on Menu or Open…, not only the screen), a touch screen shows "Tap for sound" on the bezel until sound runs
+(and a pointer shows none), and a tape chosen after a tap on Open… loads with the sound already running; through
 loads, resets, pause, turbo, sound off, machine switches and a 200 ms busy page, every sample the worklet plays at
 full gain equals the one the output stage made (tolerance 0) and no step exceeds 0.01; after an underrun the fade out and
 in is a ramp of at most level / fadeLen (5 ms) a sample, measured on a loud 0.5 block put in through the sink (that
@@ -1117,14 +1119,63 @@ retries until they do, within a stated bound; and it separately measures the mir
 screen, which is what makes a mirror that simply stops updating fail rather than being waited out (a mirror
 refreshing every 2.2 s goes red by name).
 
-**Not verified: a group's own `await ctx.close()`, and the tone measurement's wait.** Every group closes its own
-browser context inside its own body, and those calls are unbounded: a close that hangs there ends only by the
-caller's timeout (the CI job's `timeout-minutes`, or whatever runs the check locally). The same is true of the tone
-measurement in the sound group, which waits for the played blocks to fill an interval and has no bound of its own. What IS bounded and reported is the dump's wait (5 s), the
-`audio` group's own close (10 s, with a named FAIL), the per-group cleanup of any context a group left open (10 s,
-named FAIL) and the final `browser.close()` (15 s, named FAIL). A page wedged in synchronous JavaScript cannot be
-bounded from the host at all - a `Promise.race` bounds the wait, not the work - so that case also ends by the
-caller's timeout. One bounded helper for every group's close is the follow-up work.
+**What a group's own closes and the tone measurement are bounded against, and what still is not.** Every close a
+group's own body performs - a context (299 sites), a page it opened itself (10), the library storage group's own
+browser and its persistent-context profile, the connector module's seven closes (it is a group of the check too,
+and shares the one helper from `tools/browser-check-lib.js`) - goes through `bounded()` (10 s; 15 s for a
+browser), reported by name: a hung close FAILs `"<group>: a context it opened closes"` (deliberately distinct
+from the per-group cleanup's `"<group>: its context closes"`, so the log shows which layer caught it), the run
+goes on with exit 1, and the cleanup catches the still-open context again. A planted close that never resolves
+fails by name twice (once per layer) and leaks no Chromium. The two browsers a group launches OUTSIDE the run's
+own (the library storage group's) are reached by neither the cleanup nor the final `browser.close()`, so their
+closes are raced and their Chromium is killed on a timeout, and the summary is followed by an actual exit with
+the chromium count back at baseline (measured: before the fix a planted hung close left the run idling with 5
+Chromium processes until killed from outside; after it, a named FAIL, exit 1, 19 s, no process left). The belts
+reach only their own processes: the group's own browser launches through `chromium.launchServer()` (whose
+BrowserServer exposes the process handle a directly-launched browser does not in this build) and a hung close is
+followed by exactly that server's `kill()`; a `connect()` that throws closes the server through the same bounded
+report before re-throwing, so the launch itself cannot leak; and the persistent context's belt finds its process
+by its own `mkdtemp` profile path, regex-escaped and passed to `pgrep` as a literal argv element - a bystander
+Chromium from another run survives the planted hung close while the run's own is killed (measured). A belt that
+did not or could not run says so in the FAIL's after-text (`killed` only when a process was found and signalled;
+`its process was already gone`, or `could not look for its process (pgrep not found)` otherwise). After a kill,
+the signalled pids are waited for, bounded (2 s), and the profile directory's removal is retried, bounded; a
+directory that still will not go is a named warning - a leaked temp dir, never a throw burying the group's real
+result. The sound group's tone measurement - a `page.evaluate` polling `window.blocks`
+for a full second of full blocks - is bounded from the Node side (10 s, ~10x the ~1.02 s of audio it needs):
+a starved source FAILs `sound: the tone measurement ran and produced its numbers` AND `sound: the tone
+measurement fills its second of full blocks`, the first naming that the measurement produced nothing at all (it
+holds even if every other line is deleted - a mutant that swallowed the starve branch is red through it, by
+name), the second carrying the probe's own state (blocks so far, full count against the count needed, resampler
+mode, queue depth, the audio clock and the context's own state - every read guarded, and the state read itself
+bounded at 5 s). A starved tone does not stop the group: the tone-dependent checks (frequency, dry) are skipped,
+the fallback contexts - which open their own - and the whole-session equality checks still run. The volume peak
+polls (200 full blocks each) are bounded the same way, with their own probe state, and each has its own named
+ran-check (`sound: the loud/soft volume peak poll ran and produced its number`) - the loud one sits outside the
+guard that skips the volume checks, so a swallowed starve outcome cannot skip its way to green (a mutant with
+both polls starved and the loud starve FAIL deleted is red through it, by name); the mute fade needs only a live
+source, not a peak value, and runs either way. What IS bounded and reported besides these: the dump's wait (5 s)
+and every wait through the lib (`waitFor` and friends, 30 s).
+
+`bounded()` itself is tested for what a caller can observe: its four outcomes, that the timer is unref'd (a child
+process holding only the race exits at once instead of idling out the bound - the property whose absence once
+held runs open 14.9 s after their summary; the unref-removed and the clear-and-unref-removed mutants are red by
+name through it), and that a settle arriving after the bound cannot change the outcome the caller saw. Two of its
+internals are deliberately not asserted because no caller can observe them: the cleared timer (an uncleared
+timer that is unref'd holds nothing open; Node 25.2.1 does not even list an unref'd pending timer in
+`getActiveResourcesInfo`) and the settled flag (a late settle's second outcome lands in a lost `Promise.race`
+branch; every caller awaits the race once). Both stay in the helper as defense-in-depth behind the observable
+property, and their mutants staying green is by design, not a hole.
+
+Still unbounded, honestly: a page wedged in **synchronous** JavaScript cannot be bounded from the host at all - a
+`Promise.race` bounds the wait, not the work - so that case still ends by the caller's timeout (the CI job's
+`timeout-minutes`, or whatever runs the check locally). The same is true of a hung close of the RUN's own browser
+after the finally's bound fires: that browser (the run's one `chromium.launch()`) has no process handle in this
+build, so nothing inside the run can kill it - the FAIL lines and the exit code are always produced first, and
+the caller's timeout is the exit backstop of last resort for it (the groups' own browsers, above, do have
+kill belts; the main browser does not). The `http.Server.close()` calls (the run's server, the groups' local
+servers) are not raced: they are paired with `closeAllConnections()` and unref'd, which is what keeps them from
+holding the process, and a server that ignored that would end by the same caller's timeout.
 
 ### The machine and its ROMs: toasts, switches, the disk ROM, the menu, the Library, the copy
 
@@ -1159,6 +1210,26 @@ browser check's group `uiModel` drives them with real events at 1280x720 and at 
   900 px (none of the panel's controls covered): the "toast over the Stop" it was written for cannot form under
   the rule for opaque sheets, and in both the pill does not come and go and a Stop can be reached. `tests/feedback-toasts.test.js` checks each
   rule in Node.
+* The fallback slot and Claude's Stop (`askEsc`, `tests/toast-follow.test.js`): a toast with no free place takes the
+  top slot where it covers none of Claude's Stops that show, else the stylesheet's bottom slot where that covers none;
+  where both cover one (common for a long toast: the full-screen chat's own view, a short BASIC view, a phone upright
+  with the sheet), the top slot unless it covers every Stop and the bottom one does not. A pinned toast chooses again
+  when a Stop appears or moves (the pin follows the Stops' rects as it follows the safe area), and `js/ui/ask.js` has
+  the toast placed from the same page state (`feedback.catchUp()`) before it judges whether a Stop can be reached.
+  On a phone the bottom slot covers the touch keys' bottom row (space, SHIFT, BREAK…) and the PiP's controls, and the
+  top slot the Back and Full-size buttons; neither covers the chat's input, Send or Copy. Checked in the page: 20 toasts
+  in a row, long and short, with a turn running -- a phone held sideways (844x390, touch) while Claude types, the
+  full-screen chat over the BASIC session at 1280x800 and held sideways (the long toast in the bottom slot, over no Stop),
+  and the full-screen chat's own view at both sizes (both slots cover a Stop: the long toast over exactly
+  `#btnClaudeStop`, the PiP's Stop reachable). In each the premise (the long toast is in the fallback slot), the Stops
+  under the toast (`elementFromPoint` at each shown Stop's centre), `#viewClaude` never changing visibility, and a Stop
+  that can be clicked for every toast. And the other order, in both full-screen sizes: a toast pinned before the turn,
+  then the turn starts -- the toast moves off the Stop that appears, the pill never shows, a Stop can be clicked. In
+  Node: the slot for a Stop under the top slot, only under the bottom one, under both, a zero-size Stop inside the top
+  slot, a Stop that appears after the pin, a safe-area change while pinned in the bottom slot, and overlapping slots
+  where only the bottom one leaves a Stop uncovered. With the fallback always the top slot (the code before) the page
+  check fails: the toast lies over `#btnAskStop` or `#btnClaudeStop` (held sideways over the pill's own `#btnViewStop`
+  too), the pill comes and goes once per long toast, and held sideways no Stop can be clicked.
 * The phone layout (`phone`, iPhone 15 upright): the four chips in their fixed order under the keyboard panel, each in
   view and at least 44 x 44; each opens its sheet (a modal dialog, the focus inside, its title) and Esc closes it with
   the focus back on the chip; the hardware keyboard does not reach the machine while a sheet is open (the welcome
@@ -1196,6 +1267,18 @@ browser check's group `uiModel` drives them with real events at 1280x720 and at 
   its action, ↓ from the last machine to both footer items, Esc, and each footer item's focus.
 * ROMs in the Library: the ROMs chip's card with and without ROMs (the count and the machines worked out from `session.roms`),
   the drop's **Open Your ROMs**, and the card's link. `tests/stored-roms.test.js` checks `Session.storedRoms`.
+* ROM state, one story (browser check `romTruth`, `tools/browser-check.js`): on one first visit, with no
+  reload, the side card, the welcome menu and Your ROMs are checked against each other in three states — no ROMs,
+  an unrecognised ROM loaded (our own NOP image at a socket's name and size, never a real dump), and "Run without
+  ROMs" with the ROMs still in the sockets. The card says "Running with no ROMs." only in the first, is gone in the
+  second, and says "Running without your ROMs." with a working "Use my ROMs" button in the third; menu option 3 reads "ADD YOUR ROMS FOR
+  BASIC" in the first and "USE YOUR ROMS FOR BASIC" in the third. Your ROMs lists a machine under "Also ready to run
+  BASIC" only for a verified dump, and the note about a file that could not be used sits beside the socket list.
+  `tests/roms.test.js` checks the two rules in Node (`Session.machinesVerified`, `Session.romsReadyButOff`), with a
+  mutant that asks "filled" instead of "verified".
+  **Not verified:** no MAME loader sets ROMSW to 1, so the "USE YOUR ROMS FOR BASIC" branch is not MAME-compared.
+  It is the same menu table and a two-way branch on one byte (the same code path that draws "ADD YOUR ROMS FOR
+  BASIC", which is compared), held instead by the Node tests on both welcome builds, which read the drawn cells.
 * ROM tiles: an empty Library shows the ROMs chip and the "No ROMs yet" card; under the ROMs chip (none under All) a
   tile per stored image with its name, size, "Used by" (a shared image names every machine) and a Remove button of at
   least 44 px (one column on the phone); Remove takes the tile away, the toast reads "Removed d64_1.rom." with Undo and
@@ -1740,6 +1823,134 @@ MAME artefacts reproduced only under `config.mameCompat` (the comparisons turn i
   accesses at the instruction's start, the HS start is truncated one clock early, and a write before that start
   freezes the rest of the line (`js/machines/mc10.js`).
 
+## Short links
+
+No MAME oracle (section 4.6): the oracles are the standards and the Worker's own contract. `tests/qr.test.js`: the QR
+encoder against ISO/IEC 18004:2015 Annex I's worked example ("01234567", version 1-M: data and error correction
+codewords), Table C.1's format information and Table D.1's version information, and every symbol at every mask read
+back by a reader in the test (Reed-Solomon checked by syndromes). During development every symbol was also decoded by
+OpenCV 5.1's QR detectors (162 symbols: levels L to H, versions 1 to 10, all masks; two that its default detector
+missed decode with its Aruco detector); that is a manual cross-check, not part of the suite. `tests/short-link.test.js`:
+AES-GCM sealing round trip and tampering, the store's requests over a mocked fetch, every request searched for the key
+(as text, hex, base64, bytes) and for the moment's bytes, a moment opened from `#l=` running on identically, and each
+guardrail (ROMs, cartridge, NitrOS-9, too large) refusing before any request. `tests/shortlink-worker.test.js`: the Worker
+in Node against an in-memory R2 bucket: the three objects, the arrival page's CSP hashes worked out in the test, every
+PNG rule, every limit, the kill switch, delete tokens, concurrent counts, no address stored. The browser check's
+`shortLink` group runs the same Worker behind Playwright routes for s.cloadm.dev and cloadm.dev: one tap on the Share
+screen's Copy link makes it, copies it and shows its field with its QR toggle, opened from its arrival page in another
+profile (s.cloadm.dev asked for the page and the moment only: no ping), deleted, the kill switch (the tap copies the
+long link, the note says short links aren't available), offline (the offline note), and a cartridge moment. The daily
+open count (the Cron Trigger) is tested in Node
+against a mocked GraphQL API: the request, the counted days, a failure and the catch-up after it.
+Not verified here: the deployed Worker on Cloudflare (its bindings, the R2 custom domain, the cache rule and CORS rule);
+docs/shortlink-deploy.md ends with the check to run once it is deployed.
+
+## The Share screen's "one link"
+
+No MAME oracle: the page decides what a tap gives. `tests/share-one-link.test.js` holds `Session.untouchedBundledProgram`
+to its rule: a bundled program's own running (frames, its timers, LIZA's prompt drawing itself) is not a touch,
+and each way in (a key, a typed line, a poke, a program a tool assembled, a tape, a disk, BREAK) makes it a moment; a
+load takes the program away; the colour demo (no program page) is never offered; nothing running is null. The browser
+check's `share` group runs the same at 375x548, 861x600, 1024x640 and 1280x720: an untouched 2048 hides the ROM line ("for anyone" said once) and copies its program
+page, a played one shares the moment and offers "Link to 2048 from the start" under "More ways to share"; the primary
+Copy is inside the viewport, hit-testable, and keeps at least 16px of CI-predicted headroom (the Mac's bottom + 19px
+for a possible extra wrapped line) above the 548px fold; a tap that falls back to the long link shows the field; the
+clarity copy and the caption's prefix are the agreed words; a clipboard that rejects leaves the link selected with its
+note; "Always use long links" survives a reload and does not fall over when storage throws; both notes read "nothing is
+uploaded" with it on.
+
+The program-page rule is checked as it reads: in program-page mode `#shareNote` holds "Opens 2048 from the
+start, for anyone. The snapshot link below keeps this exact moment." and `#primaryNote` is empty (one note, not two);
+the caption is "2048 · Dragon 64" with the prefix span hidden; the picture is 2048's title, waited for by the games
+group's own signal (2048's GETKEY counts each key poll in ENTROPY, so a frame that climbs by hundreds is one spent at
+its key wait — measured at frame 19, and the title then has exactly four colours, read from every pixel of the canvas;
+`render().data` is palette indices, not colours and proves nothing), and compared with the frame itself: the machine is
+paused at the title, the frame is read with `frameToRGBA` (the presenter's own function, one packed Uint32 per pixel),
+and every pixel of the captured picture is compared with it — 0 of 76800 differ, and the same picture with one pixel
+flipped differs in 1, so the check can fail. The caption's prefix is held to its rule where the order can be seen: at
+375 every real name fits, so the check FORCES a squeeze (a long name, a 150px caption) and reads the order from the
+geometry — the prefix keeps all its text (`scrollWidth === clientWidth`, its right edge not past the name's) and the
+NAME is the span that is cut (`scrollWidth > clientWidth`, `text-overflow: ellipsis`); its computed `flex-grow: 0` and
+`flex-shrink: 0` are asserted as the mechanism, and " · CLOADM" is absent in every mode. A guardrail that refuses the
+moment says so once, inline, and Copy carries `disabled` with the page's disabled look (opacity 0.55).
+
+## The Share screen's layouts and the share card
+
+No MAME oracle: this is page layout and a picture the page draws. The share card ("Save picture", and a short link's
+preview picture: one renderer, `js/video/bezel.js` `shareCardPicture`) is held by `tests/share-card.test.js`, which
+decodes its PNG with Node's zlib, not the project's code: 1200 x 630; on a VDG-shaped frame of 40 colours and a
+GIME-shaped one of 64, every pixel in the glass is `frameToRGBA`'s colour for the frame pixel it shows, the place worked
+out in the test from the frame's shape (2x, and 1x with the GIME's lines doubled); the name is read back glyph by glyph
+from the chat font at the largest size that fits (worked out in the test); "cloadm.dev" is on the lip and nothing else is
+drawn beside the monitor; another name changes only the name's place; a long name is cut with "...", "Prológica" drawn
+"Prologica"; at 16 colours a picture whose colours don't all fit is not exact (no preview is sent); and
+`Session.sharePicture` and `Session.previewPicture` give the same card, pixel for pixel. The browser check's `share`
+group then saves the picture through the page (paused at the welcome menu) and compares it with the renderer's card of
+the same frame named "Dragon 64": 0 pixels differ, and all 196,608 picture pixels are `frameToRGBA`'s.
+
+The layouts (`share` group, `shareLayoutChecks`): at 653x280, 568x320, 667x375, 740x360, 844x390 and an upright
+390x844, each with no ROMs and the short link on (a store that answers), ROMs needed (stand-ins made from this project's
+firmware), "Always use long links", and a failing store (the Worker's 503): at scroll 0 Copy and the ROM line's first
+line (a Range's first client rect) are wholly on screen, inside the scrolling column where there is one; no sideways
+scroll; the preview at least 120px wide; Copy and Share… at least 44px tall; the ROM line's one-line form and its title;
+on a short landscape screen the two columns, the picture's share of the width (40%, 30% under 300px), its caption one
+line under it, the column's order read from the tops, the page itself never scrolling; the tab order from the back link
+reaches Copy, then "More ways to share", then "Embed", and after a tap Copy, then the field it made, then the
+disclosures (the picture switch now comes before the made field in the page, as on screen); after a tap the field it made is focused, on screen and what
+`elementFromPoint` finds (no toast over it), and with the short link made Copy, its field and the ROM line are all on the
+first screen; both disclosures open by a real click on their summary and what they hold can be pressed. On a desktop
+(861x600, 1024x640, 1280x720) Save picture and Save clip are in Copy's row, and the preview's frame and stripe fill its
+width with the picture centred.
+
+## Long links (`#z=`) and the program pages
+
+No MAME oracle: a link is a container, not hardware. `tests/long-link.test.js` decodes a link built byte by byte
+here (a deflate stored block, RFC 1951 3.2.4, around a hand-written skeleton and arrays) and checks the encoder's
+unpacked container against bytes written out by hand; it opens a `#z=` link made on every model in a fresh Session and
+runs it on identically to the original (instructions, cycles, memory, frames after the first), and refuses damaged,
+cut, oversized and newer links with a message. A pre-launch `#s=` link (base64url of the `.cloadm` file) is no
+snapshot now: the page answers it with its "This share link couldn't be read." refusal, as it does any hash of that
+shape that no reader claims. `tests/state.test.js`
+(section 4.5) takes the moment mid-frame on the Dragon 64, CoCo 3 and MC-10: from the link the machine runs on with the
+same trace, sound and frames, and its first frame is the file's picture except the rows the beam had already drawn,
+still cleared. `tests/share-roms.test.js` decodes the link itself with Node's zlib and finds no 16-byte window of any
+ROM stand-in in it. The browser check (`share`) opens a `#z=` link in another profile, and its deep-link cases put
+`#s=junk` and `#share=junk` beside `#z=junk` (each answered with the refusal and cleared) and check that `#share`,
+`#library`, `#add-roms` and `#debugger` each still open their own view.
+
+The program pages' cards are made on the built-in firmware (`tools/program-cards.js` refuses when a ROM or cartridge is
+loaded); `tests/program-pages.test.js` checks the committed pages and cards are what it makes, decoding the PNGs with
+Node's zlib, and checks the PNG writer against a file worked out by hand from the specification.
+
+## Share your program (a BASIC program as text)
+
+No MAME oracle: a link is a container, and no BASIC ROM may be used (AGENTS.md 4.6). BASIC is our stand-in
+(`tests/fixtures/basic-standin.js`: BASIC's direct-page pointers for an empty program, as [CBU p.7] describes them, and
+OK on the screen). `tests/basic-share.test.js` checks the card's condition (`Session.sharedProgram`: no ROM, an empty
+program, pointers that describe none), the LIST round trip on the Dragon 64, the CoCo, the CoCo 3 and the MC-10 against
+listings written by hand (the sender's bytes and the recipient's are the same, LIST is typed and RUN never is), the
+short link (no picture stored, the text never in the clear), the arrival without ROMs and after them, the limits (over
+65536 characters, a graphics byte in a string, lower case outside a string) and the link format (byte 0 = 2, a moment's
+reader refusing it, a newer program format, damaged ones). The preview's pixels are checked against the VDG's own glyphs
+by hand. The browser check (`basicShare`) drives the card, program mode (the preview pixel for pixel), the short link
+through the Worker, the forum text and the `.bas` file, the refusal, the 653x280 layout, and both arrivals (no ROM, then
+the ROM dropped; a short link with the ROM stored). What real BASIC does with LIST and RUN after the load is load_basic's
+own behaviour (docs/claude.md).
+
+## The frozen link formats (golden links)
+
+No MAME oracle: a link is a container (AGENTS.md 4.6). Since 0.3.0 every link and sealed object ever written must keep
+opening (AGENTS.md rule 7). `tests/fixtures/links/` holds one golden link per format version, written once by
+`tools/gen-link-fixtures.js` and never regenerated: a long link holding a moment (`#z=`, byte 0 = 1), one holding a
+BASIC program (byte 0 = 2), and a short link's sealed object of each kind (version 1, kind 1 and kind 2, with its key).
+`tests/link-freeze.test.js` checks each file's SHA-256 against the committed value, then opens each in a fresh Session
+and checks it against values worked out by hand from what made it: the moment is a Dragon 64 on the built-in firmware
+whose 14-byte program at `$7000` filled the text screen (`$0400`-`$05FF`) with `$41` and loops at `$700C`; the program,
+opened on our stand-in BASIC, lists as written. No ROM is involved. The sealed object's layout (version, kind, IV,
+ciphertext with the header as AES-GCM additional data) is checked byte by byte in `tests/short-link.test.js`, the
+Worker's reading of it (body version 2, the kind kept, the arrival page's wording per kind, refusals) in
+`tests/shortlink-worker.test.js`, and the snapshot config rule (`Session.checkedSnapshot`) in `tests/link-freeze.test.js`.
+
 ## NitrOS-9 boot test
 
 What the page's **Boot NitrOS-9** ([using.md](using.md#booting-nitros-9)) rests on. `tests/nitros9.test.js` boots the official NitrOS-9
@@ -2114,7 +2325,7 @@ Not hardware behaviour, so MAME is not its oracle (AGENTS.md section 4.6). The e
 * both views nested as Claude nests them (host → sandbox proxy → `srcdoc` view, `allow-scripts allow-same-origin
   allow-forms`) under the CSP the specification builds from the declared `_meta.ui.csp`, with and without CORS on the
   site: typing into LIZA, a game and its screenshot, real keys, storage, ROMs kept in the view's storage and memory
-  reads refused while they run (the browser check's `connector` group, `tools/connector-check.js`).
+  reads that include the ROM areas while they run (the browser check's `connector` group, `tools/connector-check.js`).
 * the view's own controls, in Chromium (the same group): inline, with the host sizing the view from its content, the
   screen 4:3 at the full width and the height stable (no resize loop); in the side panel (a fixed height) the screen
   filling the limiting dimension within 16 px at 400, 600 and 900 px wide and at 900 x 560, the toolbar one row;
@@ -2222,24 +2433,6 @@ picture and keeps it the same in every field. The fast-rate picture has no autom
 
 * About one in five 1983 Dragons wouldn't run at the fast rates. We emulate a machine that accepts the POKEs.
 * Nothing persists past a reset or a power cycle: there is no "damage".
-
-## A known flash: the chat's Stop pill and a toast (not fixed here)
-
-When a turn is running and a long toast covers the chat's Stop button, the floating Stop pill (`#viewClaude`) can
-flash on and off once. `js/ui/ask.js` measures whether any Stop is reachable, and `body.claude-float` itself moves
-`#toastRegion` (`play/index.html`: `bottom: 96px` against its natural `8px`), so applying the pill can lift the very
-toast that was covering the Stop. The toast does not then hold still: `js/ui/feedback.js` re-places it as its inputs
-change (a natural toast becomes a placed or top-slot one), so between two `renderActing` samples the state the pill
-reads can change under it.
-
-The browser check measures it: `askEsc` counts how many times `#viewClaude` changes visibility while such a toast
-shows, and requires at most one, with no page errors. It does not currently assert that the toast really covers the
-Stop, nor that a Stop stays reachable — a stricter version of the check that asserts both is held for the release
-that fixes this.
-
-This is recorded rather than fixed: the fix touches the shared root — a toast's placement changing under a reader
-between samples — and is scheduled for the next minor release with that work. The check is left exactly as it was
-before this release, so the release changes no behaviour here.
 
 ---
 

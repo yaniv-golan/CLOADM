@@ -2,11 +2,12 @@
 // Session, so the names, schemas, refusals and untrusted-output wrapping are the local server's (node cli/cloadm.js
 // --mcp), byte for byte. What the panel cannot do is left out, and its limits are kept:
 //  * one machine, the one on screen (machine_id "m1"): boot and switch_machine change it; close_machine is not offered;
-//  * no tool returns ROM memory directly: peek, find_bytes and disassemble refuse while the user's ROM code can be in
-//    memory (refuseRomReads), and no tool takes or returns a ROM file. This is not a seal: a program the agent runs on
-//    the machine (assemble_and_load and step, BASIC's PEEK, run_frames until a memory byte holds a value) can still
-//    read ROM, so a determined agent can infer its contents through execution; add_roms and remove_roms are left
-//    out (the panel's ROMs are added in the view itself, and the toolbox has no ROM store here);
+//  * Claude reads all of the machine's memory, ROM areas included, as on every host; no tool takes or returns a ROM
+//    file, and add_roms and remove_roms are left out (the panel's ROMs are added in the view itself, and the toolbox
+//    has no ROM store here);
+//  * the ONE refusal left is the person's own WAD: a level converted from it is id Software's game data, not a ROM,
+//    so peek, disassemble, find_bytes, screen_text, screenshot, step, registers and run_frames' memory/pc conditions
+//    are refused while it is loaded (js/mcp/tools.js userDataGuard), on every host; machine_info still answers;
 //  * no files: the panel has no media folder (the host's sandbox has no downloads, and nothing here may reach the
 //    user's disk), so insert_tape, insert_disk, save_snapshot and restore_snapshot are left out, and load runs the
 //    bundled programs only (a path is refused with no-media-root, naming what does work);
@@ -107,7 +108,7 @@ export const compactionRules = () => ({ words: WORDS.map(([at, from]) => `${at}\
 // host: the toolbox's host minus files ({ png, program, now, date, yield }); ROMs are already in the Session's store
 export function panelToolbox(session, host) {
   const noFiles = () => { throw new McpToolError('no-media-root', NO_FILES); };
-  const tb = createToolbox(Object.assign({}, host, { roms: () => [], includeReader: null, readMedia: noFiles, writeMedia: noFiles, checkWritable: noFiles }), { session, refuseRomReads: true, route: 'panel' });
+  const tb = createToolbox(Object.assign({}, host, { roms: () => [], includeReader: null, readMedia: noFiles, writeMedia: noFiles, checkWritable: noFiles }), { session, route: 'panel' });
   const offered = (name) => tb.has(name) && !LEFT_OUT.includes(name);
   return {
     tools: () => tb.tools().filter((t) => offered(t.name)).map(compactTool),

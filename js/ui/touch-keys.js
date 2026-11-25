@@ -120,11 +120,20 @@ export function setupTouchKeys(page, { input }) {
   const padExtra = Object.assign(document.createElement('span'), { className: 'padextra' });
   padKeys.append(...PAD_KEYS.map((l) => key(l)), padExtra);
   $('touchPad').append(padArrows, padKeys);
+  // the program's two big buttons (Session.programControls.big: WYRMFIRE's FIRE and USE), after the keys
+  const padBig = Object.assign(document.createElement('div'), { className: 'padbig' });
+  $('touchPad').append(padBig);
   let extrasFor = '';
-  function padExtras(keys) {
-    if (keys.join() === extrasFor) return;
-    extrasFor = keys.join();
+  function padExtras(keys, big = []) {
+    const sig = `${keys.join()}|${big.map((b) => b.join(':')).join()}`;
+    if (sig === extrasFor) return;
+    extrasFor = sig;
     padExtra.replaceChildren(...keys.map((l) => key(l)));
+    // each big button sends its key and shows what it does: "FIRE" is SPACE, "USE" is E (its name: "FIRE (SPACE)")
+    padBig.replaceChildren(...big.map(([k, label]) => { const b = key(k); b.classList.add('big'); b.textContent = label; b.setAttribute('aria-label', `${label} (${k})`); return b; }));
+    padBig.hidden = !big.length;
+    // a key that has a big button is not repeated among the small ones (FIRE is SPACE)
+    for (const k of padKeys.querySelectorAll(':scope > .tk')) k.hidden = big.some(([b]) => b === k.dataset.key);
   }
   for (const [id, label] of [['tkBreak', 'BREAK'], ['tkClear', 'CLEAR']]) $(id).replaceWith(Object.assign(key(label), { id }));
 
@@ -319,7 +328,7 @@ export function setupTouchKeys(page, { input }) {
     box.classList.toggle('joystick', joyMode);
     box.classList.toggle('pad', padMode);
     box.classList.toggle('keysonce', keysOnce);
-    if (padMode) { const p = program(); padExtras(p ? p.extra : []); }
+    if (padMode) { const p = program(); padExtras(p ? p.extra : [], (p && p.big) || []); }
     box.dataset.mode = m;
     document.body.classList.toggle('touch-keys', on);
     document.body.classList.toggle('touch-stick', joyMode);
@@ -380,16 +389,32 @@ export function setupTouchKeys(page, { input }) {
   noHover.addEventListener('change', apply);
   $('selTouchKeys').onchange = (e) => { session.store.set('touchKeys', e.target.value); hidden = false; apply(); };
   $('btnShowKeys').onclick = () => { hidden = false; apply(); };
-  // The panel's menu button, held sideways only (the app bar's Menu is the only Menu elsewhere): Machine… (the
-  // machine picker), Settings…, Tape, disks and cartridge… (no chips sideways: js/ui/phone-sheets.js), Commands…,
-  // Power… (the machine's controls), Install CLOADM… (the app bar's link, out of sight there) and Hide keys. In a phone's chat (body.chat-phone,
-  // js/ui/claude.js) the app bar gives way to the chat bar, so it is "← Emulator" and leaves the chat in one tap, as it
-  // always has: the way out must not need a second tap.
-  sheet.innerHTML = '<button type="button" data-item="programs">Programs…</button>'
-    + '<button type="button" data-item="machine">Machine…</button><button type="button" data-item="settings">Settings…</button>'
-    + '<button type="button" data-item="ports">Tape, disks and cartridge…</button><button type="button" data-item="power">Power…</button>'
-    + '<button type="button" data-item="commands">Commands…</button>'
-    + '<button type="button" data-item="install">Install CLOADM…</button><button type="button" data-item="hide">Hide keys</button>';
+  // The panel's menu button, held sideways only (the app bar's Menu is the only Menu elsewhere). The order puts what
+  // acts on this machine first: Programs…, Open…, Ask Claude…, Share…, Tape, disks and cartridge…, Machine…, Settings…,
+  // Power…, then under a rule Commands…, Install CLOADM… and Hide keys. The three that open something on this very machine come first;
+  // Commands… (Share, Library, Debugger, Help and the rest) sits below the rule with the app-level items. In a phone's
+  // chat (body.chat-phone, js/ui/claude.js) the app bar gives way to the chat bar, so it is "← Emulator" and leaves the
+  // chat in one tap, as it always has: the way out must not need a second tap.
+  // With no chat on this page (body.no-claude: ?embed=1, or framed in another site's page -- main.js), Ask Claude… and
+  // Commands… are left out: there is nothing for either to open (the app bar hides #btnAsk and #navCommands the same
+  // way), and tapping Ask Claude… called page.openAsk, which does not exist then (a pageerror).
+  const noChat = () => document.body.classList.contains('no-claude');
+  const buildSheet = () => {
+    sheet.innerHTML = '<button type="button" data-item="programs">Programs…</button>'
+      + '<button type="button" data-item="open">Open…</button>'
+      + (noChat() ? '' : '<button type="button" data-item="ask">Ask Claude…</button>')
+      // Share…, the app bar's Share (this moment as a link, js/ui/share.js): wherever the app bar has it, so also in a
+      // page framed in another site (no chat there, Share all the same); not in an embed (?embed=1), which has no app bar
+      // and no Share of its own (play/index.html hides it there: the embed class arrives after this sheet is built)
+      + '<button type="button" data-item="share">Share…</button>'
+      + '<button type="button" data-item="ports">Tape, disks and cartridge…</button>'
+      + '<button type="button" data-item="machine">Machine…</button><button type="button" data-item="settings">Settings…</button>'
+      + '<button type="button" data-item="power">Power…</button>'
+      + '<span class="tkmenu-sep" role="separator"></span>'
+      + (noChat() ? '' : '<button type="button" data-item="commands">Commands…</button>')
+      + '<button type="button" data-item="install">Install CLOADM…</button><button type="button" data-item="hide">Hide keys</button>';
+  };
+  buildSheet();
   // (Install CLOADM… is the app bar's link, which held sideways is out of sight: here too, while it is offered)
   new MutationObserver(apply).observe($('navInstall'), { attributes: true, attributeFilter: ['hidden'] });
   const closeSheet = () => { sheet.hidden = true; $('tkMenu').setAttribute('aria-expanded', 'false'); };
@@ -398,14 +423,23 @@ export function setupTouchKeys(page, { input }) {
     if (document.body.classList.contains('chat-phone')) { $('btnClaudeBack').click(); return; }
     sheet.hidden = !sheet.hidden;
     $('tkMenu').setAttribute('aria-expanded', String(!sheet.hidden));
-    if (!sheet.hidden) sheet.querySelector('button:not([hidden])').focus();
+    if (!sheet.hidden) {
+      // the sheet may be taller than the window and scroll inside (play/index.html, #tkMenuSheet's max-height): it opens
+      // at its FIRST row, not wherever it was left; focus() then scrolls the focused row into view on its own, and a
+      // focus moved down the list (Tab, an arrow) scrolls that row in as the browser does for any scroller.
+      sheet.scrollTop = 0;
+      sheet.querySelector('button:not([hidden])').focus();
+    }
   };
   sheet.onclick = (e) => {
     const b = e.target.closest('[data-item]');
     if (!b) return;
     closeSheet();
-    if (b.dataset.item === 'machine') openMachines();
-    else if (b.dataset.item === 'programs') page.openPrograms($('tkMenu'));
+    if (b.dataset.item === 'programs') page.openPrograms($('tkMenu'));
+    else if (b.dataset.item === 'open') { $('fileProgram').click(); $('tkMenu').focus(); }
+    else if (b.dataset.item === 'ask') openAsk();
+    else if (b.dataset.item === 'share') $('btnShare').click();   // (the Share screen's own "← Emulator" comes back here)
+    else if (b.dataset.item === 'machine') openMachines();
     else if (b.dataset.item === 'settings') page.openSettings(null, $('tkMenu'));
     else if (b.dataset.item === 'ports') page.sheets.openPorts(null, $('tkMenu'));
     else if (b.dataset.item === 'power') page.sheets.open('sheetPower', $('tkMenu'));
@@ -413,6 +447,17 @@ export function setupTouchKeys(page, { input }) {
     else if (b.dataset.item === 'install') $('navInstall').click();
     else if (b.dataset.item === 'hide') { hidden = true; apply(); }
   };
+  // Ask Claude…: the side panel, as a right-side sheet held sideways. js/ui/ask.js owns the panel; here we open it and,
+  // when it closes (Esc, Close), put the focus back on the Menu button the person opened it from. The panel's own Esc
+  // and Close already return focus to their opener; opened from the sheet, that opener is the Menu.
+  function openAsk() {
+    const back = $('tkMenu');
+    page.openAsk();
+    const panel = $('ask');
+    const done = new MutationObserver(() => { if (panel.hidden) { done.disconnect(); back.focus(); } });
+    done.observe(panel, { attributes: true, attributeFilter: ['hidden'] });
+    if (panel.hidden) { done.disconnect(); back.focus(); }
+  }
   // Machine…: the machine picker (#machineMenu), which lives in the app bar; held sideways the bar gives way to the
   // panel, so it comes back over the panel (body.machine-pick, play/index.html) while the picker is open
   function openMachines() {
@@ -432,7 +477,7 @@ export function setupTouchKeys(page, { input }) {
   // a machine switch: the mode is that machine's own; a machine without a joystick port goes back to the keys
   // a program starting or left: the mode follows what runs (Session.programControls)
   session.on((ev) => {
-    if (['program', 'menu', 'loaded', 'reset', 'welcome', 'firmware'].includes(ev)) { apply(); return; }
+    if (['program', 'menu', 'loaded', 'reset', 'welcome', 'firmware', 'wyrmfire'].includes(ev)) { apply(); return; }
     if (ev !== 'machine') return;
     // a stick the OLD machine's panel was driving is let go of, so nothing carries over. Only then: a machine whose
     // joystick the mouse or the keyboard joystick drives is the host's, and this panel must not recentre it.

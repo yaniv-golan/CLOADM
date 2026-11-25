@@ -39,6 +39,7 @@
     "snapshot": 5,
     "liza6803": 20.7,
     "romInput": 3.7,
+    "romTruth": 2.9,
     "design": 0.6,
     "inputScreen": 34.8,
     "touchJoystick": 11,
@@ -64,6 +65,7 @@
     "askPopout": 21.6,
     "armGuard": 13.6,
     "pwa": 1.6,
+    "wyrmfire": 16.5,
     "install": 207.8,
     "settings": 3.6,
     "backFocus": 40.8,
@@ -81,12 +83,15 @@
     "welcomeScreen": 5.3,
     "chatScreen": 108.7,
     "phoneChat": 18.3,
-    "share": 42,
+    "share": 59.1,
+    "shortLink": 11.3,
+    "basicShare": 8.4,
     "favicon": 3.1,
     "closedViews": 36,
     "uiModel": 26.1,
     "semantics": 24.2,
     "mobile": 22.6,
+    "menuWords": 5.3,
     "connector": 69.3
   }
 }

@@ -95,6 +95,36 @@ function unreleasedKinds(text) {
   return kinds;
 }
 
+// ---- what a merge can leave in the file: conflict markers and a stray one-letter line ----
+// A conflict marker left unresolved is never intended: "<<" "==" ">>" at the start of a line, the shape git writes
+// (the seven-character forms, with or without a label). It is checked ANYWHERE in the file, because a marker can
+// land in any section and, unlike prose, no line of this file should ever begin with one.
+const CONFLICT_MARKER = /^(?:<{7}|={7}|>{7}|\|{7})(?: |$)/;   // (<, =, >, and diff3's | base marker)
+function conflictMarkers(text) {
+  const out = [];
+  text.split('\n').forEach((line, i) => { if (CONFLICT_MARKER.test(line)) out.push(`line ${i + 1}: ${line.slice(0, 40)}`); });
+  return out;
+}
+
+// A bare one- to three-letter line inside [Unreleased] ("D", "AB", "xyz"). It is what a merge script or a stray
+// keystroke leaves, and it is never a changelog entry: an entry is a "- " bullet or a "#### " heading, and a line
+// with a letter or two on it alone is nothing a reader should see. Kept to [Unreleased] because a released section
+// is frozen against its tag (changing it fails elsewhere), so a stray line there is already caught; this catches the
+// one a merge is most likely to leave where new work goes, before it reaches a release.
+const BARE_LETTERS = /^[A-Za-z]{1,3}$/;
+function bareLetterLines(text) {
+  const lines = text.split('\n');
+  const out = [];
+  let inUn = false;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (/^## \[Unreleased\]/i.test(line)) { inUn = true; continue; }
+    if (inUn && /^#{1,3} /.test(line)) break;      // a version heading (or another ## heading) ends it
+    if (inUn && BARE_LETTERS.test(line.trim())) out.push({ line: i + 1, text: line.trim() });
+  }
+  return out;
+}
+
 
 // A heading's git tag: "v<version>", unless the table names another. The first release's heading is "0.1.0" and
 // its tag is v0.1.0-pre (the "-pre" came with the tag, the heading kept its name).
@@ -188,4 +218,4 @@ function check({ text, tagText, tags, ci = false, allowed = ALLOWED_CORRECTIONS,
   return { failures, skips, compared };
 }
 
-module.exports = { parse, check, tagOf, TAG_ALIASES, ALLOWED_CORRECTIONS, subsectionKinds, oddSubsections, unreleasedKinds, KEEP_A_CHANGELOG };
+module.exports = { parse, check, tagOf, TAG_ALIASES, ALLOWED_CORRECTIONS, subsectionKinds, oddSubsections, unreleasedKinds, KEEP_A_CHANGELOG, conflictMarkers, bareLetterLines };

@@ -1,6 +1,8 @@
 /*
  * "Copy bug report" (Help, the command box): what someone fixing a problem needs, as text the person sees before it
- * is copied. Session.bugReport gathers it; this module only writes it (tests/bugreport.test.js).
+ * is copied. bugReport(session) gathers it from a Session and bugReportText writes it (tests/bugreport.test.js). It is
+ * a module of its own, outside js/session.js, so the side panel's folded view (connector/fold.js), which never makes a
+ * report, carries none of it.
  *
  * In it: the version stamp, the machine and its options, the browser, the file loaded last (its name and SHA-256)
  * and, only when the person ticks it, the moment as a share link (Session.snapshotLink: ROM-free, AGENTS rule 1).
@@ -8,6 +10,9 @@
  * is the person's own game data: the report says one was loaded, and nothing about it).
  */
 import { versionStamp } from './version.js';
+import { SessionError } from './errors.js';
+import { formats } from './media/formats.js';
+import { crc32 } from './util.js';
 
 export async function sha256Hex(bytes) {
   const d = new Uint8Array(await globalThis.crypto.subtle.digest('SHA-256', bytes));
@@ -34,4 +39,25 @@ export function bugReportText(r) {
   else if (r.snapshotNote) lines.push(`Snapshot: ${r.snapshotNote}`);
   lines.push('', 'What happened, and what you expected:', '');
   return lines.join('\n');
+}
+
+// What the report is made of, from the Session: the machine on screen and its options, its ROMs by CRC only, the
+// browser, the file loaded last (name and SHA-256; a WAD is not named; a cartridge by CRC32 only) and, only with
+// snapshot, the moment as the Share screen's ROM-free link (Session.snapshotLink). -> { text, parts }
+export async function bugReport(session, { base = 'https://cloadm.dev/play/', browser = '', snapshot = false } = {}) {
+  const m = session.shownMachine, options = {};
+  for (const [k, v] of Object.entries(m.config)) if (m.profile.options[k]) options[k] = v;
+  const last = session.lastLoaded;
+  // a cartridge (or anything that is a ROM image) is someone's ROM: by its CRC only, never its name or SHA-256
+  let kind = null;
+  if (last) { try { kind = formats.identify(last.name, last.bytes).kind; } catch (e) { kind = null; } }
+  const cart = !!last && !isWad(last.name, last.bytes) && (kind === 'cart' || session.constructor.isRom(last.name, last.bytes));
+  const file = !last ? null : isWad(last.name, last.bytes) ? { wad: true } : cart ? { cartridge: crc32(last.bytes) } : { name: last.name, sha256: await sha256Hex(last.bytes) };
+  let link = null, snapshotNote = '';
+  if (snapshot) {
+    try { link = await session.snapshotLink(base); } catch (e) { if (!(e instanceof SessionError)) throw e; snapshotNote = `not included (${e.message})`; }
+  }
+  const roms = Object.assign({}, m.romCrcs(), cart ? { cartridge: file.cartridge } : {});
+  const parts = { machine: { id: m.id, name: m.profile.name }, options, roms, browser, file, snapshot: link, snapshotNote };
+  return { text: bugReportText(parts), parts };
 }

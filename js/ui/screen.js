@@ -1,5 +1,6 @@
 /* The screen: the frame loop, host input (keyboard, gamepads, the mouse), drag and drop, and the run controls. */
 import { $ } from './page.js';
+import { wadOf } from './files.js';
 import { CanvasPresenter, GlPresenter } from '../video/canvas.js';
 import { fitPicture, fitActive } from '../video/layout.js';
 import { HostInput } from '../host/input.js';
@@ -97,11 +98,8 @@ export function setupScreen(page, { loadPrograms, roms }) {
   function tick(now) {
     requestAnimationFrame(tick);
     const dt = now - last; last = now;
-    // the UI's per-frame work runs whether or not the machine does: the things it follows (the boot state,
-    // the tape motor, whether audio has been unlocked) change without a frame, and the timers it replaces
-    // ran while paused too. document.hidden is the exception -- nothing needs updating on a hidden page.
+    // A hidden page needs nothing updated: no timer, no draw.
     if (document.hidden) return;
-    page.tickUi();
     const m = session.shownMachine;
     let ran = 0;
     if (!paused) {
@@ -118,6 +116,12 @@ export function setupScreen(page, { loadPrograms, roms }) {
       }
       fpsFrames += ran;
     }
+    // The UI's per-frame work runs AFTER the machine advanced this frame, so a reconciler that follows machine state
+    // (the shelf's "on screen now", the Recent list's mark) sees what THIS frame drew, not the frame before it. Before
+    // advance it read last frame's state, so a thing drawn this frame showed in the UI a frame late. It still runs
+    // whether or not the machine does (the things it follows change without a frame, and the timers it replaces ran
+    // while paused too): it is outside the `if (!paused)` block above. A moved line; no second pass.
+    page.tickUi();
     // frames/cycle: the machine's own generation. render() hands back the SAME buffer each time, refilled by every
     // frame, so its identity says nothing about frames run outside advance() (a tape load's restart, a menu start):
     // any frame or instruction run since the last present, by whatever ran it, presents again.
@@ -233,7 +237,12 @@ export function setupScreen(page, { loadPrograms, roms }) {
     if (e.defaultPrevented) return;
     if (!files(e) && !(e.dataTransfer && e.dataTransfer.items)) return;
     e.preventDefault();
-    try { await roms.take(await roms.droppedFiles(e.dataTransfer), { onPrograms: loadPrograms }); }
+    try {
+      const list = await roms.droppedFiles(e.dataTransfer), wad = wadOf(list);
+      // a .wad is the person's own WAD for WYRMFIRE: converted here, never loaded or stored as a file
+      if (wad && page.takeWad) { await page.takeWad(wad); return; }
+      await roms.take(list, { onPrograms: loadPrograms });
+    }
     catch (err) { page.status(`That drop could not be read: ${err.message}`, true); }
   });
 

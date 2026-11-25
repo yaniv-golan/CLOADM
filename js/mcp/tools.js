@@ -26,16 +26,15 @@
  * Two kinds of host. The stdio server (cli/mcp.js) boots machines of its own, up to MAX_MACHINES. A host that already
  * has a machine on screen (the MCP Apps view in Claude's side panel, connector/view/) passes it as `session`: the
  * tools then serve that one machine, as machine_id "m1", and boot and switch_machine change it in place rather than
- * open another. Such a host can also refuse every read of memory while the user's own ROM code can be in it
- * (`refuseRomReads`, the embed API's rule, js/embed-api.js peek): peek, find_bytes and disassemble, so no byte of a
- * ROM leaves the host. mcpResult() is the MCP content both hosts send for a call's result.
+ * open another. Both hosts read all of the machine's memory, ROM areas included. mcpResult() is the MCP content both
+ * hosts send for a call's result.
  */
 import { Session, GAMES, romOwners } from '../session.js';
 import { SessionError } from '../errors.js';
 import { profiles } from '../machines/profiles.js';
 import { ChatSession, actingTools } from '../claude/chat.js';
 import { readOnlyTools, runReadOnlyTool, ADDRESS_MIN, ADDRESS_MAX } from '../claude/readtools.js';
-import { TOOL_CODES, ToolError, asToolError } from '../claude/toolerrors.js';
+import { TOOL_CODES, TOOL_ERRORS, ToolError, asToolError } from '../claude/toolerrors.js';
 import { detectMedia } from '../media/detect.js';
 import { formats } from '../media/formats.js';
 import { cpuFamily } from '../cpu/cpus.js';
@@ -179,8 +178,7 @@ function withPressKeys(e) {
 // }
 // readOnly: offer and run only the tools that leave the machines' input, memory and files alone (see READ_ONLY_OK).
 // session: the host's own machine (a Session), the only one these tools serve (see the header); close_machine is not
-// offered then. refuseRomReads: peek, find_bytes and disassemble refuse while Session.romCodeIn() says ROM code can
-// be in memory. route: where these tools drive the machine, which machine_info reports so the agent (and the skill)
+// offered then. route: where these tools drive the machine, which machine_info reports so the agent (and the skill)
 // can tell: "local" (the local server, node cli/cloadm.js --mcp, on the person's computer) or "panel" (the side-panel
 // connector's view, connector/view/tools.js).
 export const ROUTES = Object.freeze(['local', 'panel']);
@@ -196,21 +194,20 @@ function pageTitle(name) {
   return PAGE_TITLES[name];
 }
 
-export function createToolbox(host, { readOnly = false, maxMachines = MAX_MACHINES, wallMs = WALL_MS, session: own = null, refuseRomReads = false, route = 'local' } = {}) {
+// THE PERSON'S OWN WAD: a level converted from it is id Software's game data, not a ROM, so it is refused on every
+// host no matter what the tool is allowed to read otherwise (Session.romCodeIn answers 'userdata' while such a level
+// is loaded, or while its disk is still in a drive). This is NOT the ROM rule: reading ROM areas is allowed on every
+// host, deliberately (see 6bc5e6fd), so the test here is 'userdata' alone and never "any code in memory".
+const userDataGuard = (m) => {
+  if (m.session.romCodeIn() === 'userdata') throw fail('rejected', TOOL_ERRORS['user-data']);
+};
+
+export function createToolbox(host, { readOnly = false, maxMachines = MAX_MACHINES, wallMs = WALL_MS, session: own = null, route = 'local' } = {}) {
   if (!ROUTES.includes(route)) throw new Error(`createToolbox: route must be ${ROUTES.join(' or ')}`);
   if (own && !(own instanceof Session && own.shownMachine)) throw new Error('createToolbox: session must be a Session with a machine');
   const machines = new Map();   // machine_id -> { id, session, chat }
   let nextId = 1;
   if (own) maxMachines = 1;
-  // the embed API's refusal (EmbedApi.peek): no tool returns ROM memory directly. It is not a seal: a program run on
-  // the machine (assemble_and_load, BASIC's PEEK, a run_frames until on a memory byte) can still read the ROM, so a
-  // determined agent can infer its contents through execution
-  const romGuard = (m) => {
-    if (!refuseRomReads) return;
-    const why = m.session.romCodeIn();
-    if (why) throw fail('rejected', `memory is not readable here while ${why === 'roms' ? 'the machine runs the user\'s own ROMs' : why === 'nitros9' ? 'NitrOS-9 runs from the user\'s own image' : 'a cartridge is plugged in'}: it can hold copies of ROM code, and no tool returns ROM memory directly. Run without ROMs (boot with roms: false) to read memory`);
-  };
-
   const get = (args) => {
     const id = args && args.machine_id;
     if (typeof id !== 'string' || !machines.has(id)) throw fail('no-machine', id == null ? 'machine_id is missing' : JSON.stringify(id));
@@ -455,7 +452,8 @@ export function createToolbox(host, { readOnly = false, maxMachines = MAX_MACHIN
     handler: async (args, { signal }) => {
       const m = get(args), input = Object.assign({}, args);
       delete input.machine_id;
-      if (spec.name === 'peek' || spec.name === 'disassemble') romGuard(m);
+      // every page tool reads the machine except machine_info, which the refusal's own remedy names as still working
+      if (spec.name !== 'machine_info') userDataGuard(m);
       m.chat.controller = new AbortController();
       if (signal) { if (signal.aborted) m.chat.controller.abort(); else signal.addEventListener('abort', () => m.chat.controller.abort(), { once: true }); }
       let out;
@@ -480,7 +478,7 @@ export function createToolbox(host, { readOnly = false, maxMachines = MAX_MACHIN
     annotations: { readOnlyHint: true, openWorldHint: false }, readOnlyOk: true,
     handler: (args) => {
       const m = get(args);
-      romGuard(m);
+      userDataGuard(m);
       const text = typeof args.pattern === 'string' ? args.pattern.replace(/\s+/g, '') : '';
       if (!/^([0-9A-Fa-f]{2}|\?\?)+$/.test(text)) throw fail('bad-argument', `pattern: whole bytes in hex, ?? for any byte, e.g. "86 ?? 39"; not ${JSON.stringify(args.pattern)}`);
       const pat = text.match(/../g).map((b) => (b === '??' ? -1 : parseInt(b, 16)));
@@ -572,6 +570,10 @@ export function createToolbox(host, { readOnly = false, maxMachines = MAX_MACHIN
         if (extra.length) throw fail('bad-argument', `until has no ${extra.map((k) => `"${k}"`).join(', ')} (it takes ${Object.keys(UNTIL.properties).join(', ')})`);
         const kinds = [u.text != null, u.address != null || u.value != null, u.pc != null, u.tape != null, u.screen != null].filter(Boolean).length;
         if (kinds !== 1) throw fail('bad-argument', 'until takes one condition: text, address with value, pc, tape, or screen');
+        // a memory byte or the program counter reads the machine: refused while the person's own WAD is loaded.
+        // Text and the screen are not refused here -- screen_text is, through the page tools -- but a byte in memory is
+        // the level's data however it is asked for.
+        if (u.address != null || u.value != null || u.pc != null) userDataGuard(m);
         if (u.ignore_case != null && (u.text == null || typeof u.ignore_case !== 'boolean')) throw fail('bad-argument', 'until.ignore_case is true or false, and goes with until.text');
         // the screen as one string: rows joined by "\n", never more than the screen holds
         const shown = () => { const r = screen(m.chat.target); return r.text ? r.lines.join('\n') : null; };
@@ -623,7 +625,9 @@ export function createToolbox(host, { readOnly = false, maxMachines = MAX_MACHIN
     inputSchema: withMachine(objectSchema({ count: { type: 'integer', minimum: 1, maximum: STEP_MAX, description: 'instructions (default 1)' } })),
     annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
     handler: (args) => {
-      const m = get(args), d = m.session.debug, n = args.count == null ? 1 : intIn(args.count, 1, STEP_MAX, 'count');
+      const m = get(args);
+      userDataGuard(m);
+      const d = m.session.debug, n = args.count == null ? 1 : intIn(args.count, 1, STEP_MAX, 'count');
       let ran = 0, cycles = 0, halted = false;
       // stepping is reading the machine an instruction at a time, as the Debugger's Step: it works on a machine the
       // Debugger has stopped, and leaves it stopped (where the steps ended) rather than resuming what the person
@@ -650,7 +654,7 @@ export function createToolbox(host, { readOnly = false, maxMachines = MAX_MACHIN
     title: 'Read the CPU registers',
     description: 'The CPU\'s registers as decimal numbers (lower-case names: pc, a, b, d, x, y, u, s, dp, cc on the 6809; the 6309\'s e, f, w, v, md too; the 6803\'s a, b, d, x, s, cc), and the CPU.',
     inputSchema: withMachine(objectSchema({})), annotations: { readOnlyHint: true, openWorldHint: false }, readOnlyOk: true,
-    handler: (args) => { const m = get(args); return { cpu: m.session.shownMachine.config.cpu, registers: m.session.debug.registers() }; },
+    handler: (args) => { const m = get(args); userDataGuard(m); return { cpu: m.session.shownMachine.config.cpu, registers: m.session.debug.registers() }; },
   });
   add('screenshot', {
     title: 'Take a screenshot',
@@ -659,7 +663,9 @@ export function createToolbox(host, { readOnly = false, maxMachines = MAX_MACHIN
     annotations: { readOnlyHint: true, openWorldHint: false }, readOnlyOk: true, image: true,
     handler: (args) => {
       const scale = args.scale == null ? 1 : intIn(args.scale, 1, SCREENSHOT_SCALE_MAX, 'scale');
-      const m = get(args), mid = midFrame(m), frame = mid ? m.whole.frame : m.session.shownMachine.render();
+      const m = get(args);
+      userDataGuard(m);
+      const mid = midFrame(m), frame = mid ? m.whole.frame : m.session.shownMachine.render();
       return { width: frame.width * scale, height: frame.height * scale, mid_frame: mid, ...(mid ? { note: 'the machine stopped inside a frame: this is the last complete one; run_frames 2 to see a frame drawn entirely after this point' } : {}), image: host.png(frame, scale) };
     },
   });

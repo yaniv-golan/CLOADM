@@ -136,7 +136,7 @@ jobs:
     needs: shards
     # Same pin, same reason - and here it matters more: Playwright's chromium is built per Ubuntu release.
     runs-on: ubuntu-24.04
-    timeout-minutes: 45   # the install step alone may take 35 (its own limit); the browser check ~5
+    timeout-minutes: 50   # the install step alone may take 40 (its own limit); the browser check ~5
     strategy:
       # Every shard runs to the end even when another fails, so one run shows every failing group.
       fail-fast: false
@@ -159,26 +159,38 @@ jobs:
         with:
           path: ~/.cache/ms-playwright
           key: playwright-1.63.0-ubuntu-24.04-chromium
-      # The OS packages chromium needs that the runner image lacks (9 font packages, ~32 MB, measured 2026-11-23) come
+      # The OS packages chromium needs that the runner image lacks (9 font packages, ~21 MB, measured 2026-11-24) come
       # from an Ubuntu mirror, and a slow or hung mirror made this step take 3-30 minutes on some shards. The .deb files
-      # of exactly those packages are cached, keyed on the runner image (ImageOS-ImageVersion, so an image update
-      # starts a fresh cache rather than installing old files over it) and the Playwright version.
+      # of exactly those packages are cached, keyed on the runner image (ImageOS-ImageVersion) and the Playwright
+      # version. A new image (weekly) would start every shard cold on the mirror at once, so a miss restores the newest
+      # cache of an earlier image of the same OS: the script installs a cached file only for a package the image lacks,
+      # and Playwright's check after it decides, so a file that no longer fits sends the step to the mirror instead.
+      # The cache is saved right after a good install, not at the job's end: a failing browser check must not lose it.
       - name: Name the runner image for the cache
         id: image
         run: |
           test -n "${ImageOS:-}" && test -n "${ImageVersion:-}" || { echo "no ImageOS/ImageVersion on this runner"; exit 1; }
           echo "image=$ImageOS-$ImageVersion" >> "$GITHUB_OUTPUT"
-      - name: Cache the browser's OS packages
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+          echo "os=$ImageOS" >> "$GITHUB_OUTPUT"   # (a runner variable, not in the env context)
+      - name: Restore the browser's OS packages
+        id: debs
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: ~/playwright-debs
           key: playwright-debs-1.63.0-${{ steps.image.outputs.image }}
+          restore-keys: playwright-debs-1.63.0-${{ steps.image.outputs.os }}-
       # Its own time limit, under the job's: a hung mirror fails this step loudly instead of running the job into its
       # timeout. Only the install is retried, inside the script; the browser check never is. The script's header has
-      # the decisions and the worst case (2010 s).
+      # the decisions, the mirrors it tries in turn, and the worst case (2330 s).
       - name: Install the browser and its OS packages
-        timeout-minutes: 35
+        timeout-minutes: 40
         run: .github/scripts/install-browser-deps.sh
+      - name: Save the browser's OS packages
+        if: steps.debs.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: ~/playwright-debs
+          key: playwright-debs-1.63.0-${{ steps.image.outputs.image }}
       - name: Run the browser check (${{ matrix.groups }})
         env:
           CHECK_GROUPS: ${{ matrix.groups }}

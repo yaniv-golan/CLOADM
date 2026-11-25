@@ -2,7 +2,7 @@
   "manifest_version": "0.3",
   "name": "cloadm",
   "display_name": "CLOADM on this computer",
-  "version": "0.1.9-pre",
+  "version": "0.2.0",
   "description": "Dragon, Tandy Color Computer and MC-10 emulator: boot machines, run programs, type, read the screen, memory and registers, step the CPU and take screenshots.",
   "long_description": "CLOADM emulates the Dragon 32/64/200, Tandy Color Computer 1/2/3, MC-10 and clones. Without ROMs every machine runs CLOADM's own firmware, which runs machine code and the bundled programs (LIZA, the demo, 2048 and Minesweeper); with your own ROM dumps it runs BASIC and DOS. No ROMs are included. Programs, tapes, disks and snapshots are read from and written to the media folder only.",
   "author": {

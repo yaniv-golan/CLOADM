@@ -34,7 +34,10 @@ every frame (`Session.startWelcome`, events `welcome:liza`, `welcome:demo`, `wel
 key 5, "PLAY A GAME", opens the games menu, where 1 and 2 start 2048 and Minesweeper (events `welcome:2048`,
 `welcome:minesweeper`) and 0 or BREAK go back. A short original tune plays on the DAC once the browser allows sound. It runs on the 6809-family machines
 (the HD6309 included, which runs the 6809 build in emulation mode, and the CoCo 3 in its CoCo 2-compatible text
-mode); the MC-10 and Alice get a 6803 version with LIZA's, which has keys 1 to 4 and no games.
+mode); the MC-10 and Alice get a 6803 version with LIZA's, which has keys 1 to 4 and no games. Option 3 asks for
+ROMs only when there are none: on a machine whose ROMs are stored and switched off (`Run without ROMs`, the side
+card's third state) it reads "3 USE YOUR ROMS FOR BASIC", from a flag byte the Session sets before the menu draws
+(`WELCOME['6809'].romsw`), so the menu never asks for what the machine already has.
 Without ROMs every visit opens on it: a returning visitor reads
 "WELCOME BACK" and, if something ran last time, option 6 "CARRY ON WITH ..." (option 5 on the 6803 build;
 `welcome:carryon`; the Session sets the greeting and the line before the program starts). It offers only what runs
@@ -626,6 +629,7 @@ emulator.
   | `include-unreadable` | an INCLUDE file could not be read (detail names it and why); nothing was written: put the code it holds into the source itself and call again |
   | `tool-failed` | the tool failed inside the emulator (detail says how): read the machine with machine_info or screen_text before going on, and tell the person; do not repeat the call unchanged. (When the detail says the CALL was wrong - it names a tool target, say - fix the call; nothing was read and the machine is fine.) |
   | `not-typable` | the machine cannot take the characters in detail (no key for them on this keyboard, or above $7E, which BASIC cannot store as text): leave them out or use plain ASCII it has (BASIC keywords are uppercase) |
+  | `user-data` | Claude can't look at the screen or memory while your own WAD is loaded: it's id Software's game data. Tell the person so, and do not try to read it another way; machine_info still works |
 * **Not yet:** the chat on a real machine over a serial cable (the firmware's DriveWire is the Becker port's; a
   bit-banger DriveWire driver is not written), the CoCo 3's 80-column screen (the CoCo 3 runs the same 256×192
   screen), the `read_program` tool and the "Type this listing into BASIC" button.

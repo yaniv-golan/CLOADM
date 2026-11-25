@@ -67,7 +67,7 @@ export function setupMachinePanel(page, { showRoms }) {
         if (!none) {
           const ready = session.machineRoms(p.id).bootable;
           const t = document.createElement('span'); t.className = ready ? 'tag ready' : 'tag'; t.textContent = ready ? '✓' : 'needs ROMs';
-          if (ready) t.setAttribute('aria-label', 'BASIC ready');
+          if (ready) { t.setAttribute('aria-label', 'BASIC ready'); t.setAttribute('title', 'BASIC ready'); }
           b.append(t);
         }
         if (p.id === session.shownMachine.id) b.setAttribute('aria-current', 'true');
@@ -85,6 +85,7 @@ export function setupMachinePanel(page, { showRoms }) {
     // the tick's legend, after the two items: a note, not a menu item (the arrows and Tab pass it by)
     const legend = document.createElement('span'), tick = document.createElement('span');
     legend.className = 'legend'; tick.className = 'tag ready'; tick.textContent = '✓';
+    tick.setAttribute('aria-label', 'BASIC ready'); tick.setAttribute('title', 'BASIC ready');
     legend.append(tick, ' = BASIC ready');
     legend.hidden = none;
     // "Which one is mine? ↗": Help's list of the machines, what each is and the ROMs it needs (a new tab)
@@ -128,7 +129,8 @@ export function setupMachinePanel(page, { showRoms }) {
     }
     return items.filter((t) => (t.kind === 'disk' ? t.stored : !!t.name && names.some((n) => session.library.sameName(n, t.name))));
   }
-  // to: { name: what it switches to (null for a RAM change), id, config }; onSwitch(taken, said) does it, taken being
+  // to: { name: what it switches to (null for a RAM change), id, config, purpose (optional words after the name) };
+  // onSwitch(taken, said) does it, taken being
   // what came out and said its " Took out: …." for the message; onCancel: what Cancel undoes. A running machine is
   // switched only after this.
   // It shows at once; which items stay in the Library (a look in the store) is added to it when known.
@@ -141,7 +143,8 @@ export function setupMachinePanel(page, { showRoms }) {
     if (to.name) {
       const n = document.createElement('strong'); n.id = 'switchName'; n.textContent = to.name;
       const f = document.createElement('span'); f.id = 'switchFrom'; f.textContent = from;
-      text.append('Switching to ', n, ' resets the ', f);
+      // to.purpose: why it switches (" to play WYRMFIRE": js/ui/wyrmfire.js)
+      text.append('Switching to ', n, to.purpose || '', ' resets the ', f);
     } else {
       const f = document.createElement('span'); f.id = 'switchFrom'; f.textContent = from;
       text.append('Changing RAM switches the ', f, ' off and on');
@@ -253,6 +256,9 @@ export function setupMachinePanel(page, { showRoms }) {
     $('badge').textContent = m.profile.name.replace(/ \(.*\)$/, '').toUpperCase();   // the case badge: no (PAL) or (Alpha)
     $('emuHeading').textContent = m.profile.name;   // the emulator's heading (for assistive technology and reader views)
     document.title = `${m.profile.name} – CLOADM`;
+    // the page's title metas say the same once it runs (a reading mode takes og:title before the document's title, and
+    // drops the heading that matches it); a link preview reads the static ones in play/index.html, before any script
+    for (const meta of document.querySelectorAll('meta[property="og:title"], meta[name="twitter:title"]')) meta.content = document.title;
   });
 
   // a changed option power-cycles the machine with it (remembered for that model)

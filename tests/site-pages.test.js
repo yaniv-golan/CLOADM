@@ -57,8 +57,10 @@ check('/faq/ privacy: says plainly that Claude reads the screen and any memory, 
   byId['q-privacy'] && /read the screen and any memory \(ROM areas included\) without asking/.test(byId['q-privacy'].a) && /machine's facts and the chat so far/.test(byId['q-privacy'].a)
   && /Only changes to the machine ask you first\./.test(byId['q-privacy'].a) && !/you allow/.test(byId['q-privacy'].a));
 // the questions added in the rewrite: what code and docs say (docs/using.md's Share, Claude features and bug report)
-check('/faq/ share link: the snapshot after the #, no ROM bytes, refused otherwise', byId['q-share'] && /never send to a server/.test(byId['q-share'].a) && /no byte of your ROMs/.test(byId['q-share'].a)
-  && /refuses to make the link/.test(byId['q-share'].a));
+// (js/host/link-store.js, docs/using.md "Otherwise a short link": sealed in the browser, the key after the #, the preview public)
+check('/faq/ share link: program pages, the sealed short link the server can\'t read, the public preview, the long link, no ROM bytes', byId['q-share']
+  && /nothing is uploaded/.test(byId['q-share'].a) && /sealed in your browser/.test(byId['q-share'].a) && /never send to a server/.test(byId['q-share'].a)
+  && /can't read/.test(byId['q-share'].a) && /preview picture is public/.test(byId['q-share'].a) && /long link/.test(byId['q-share'].a) && /byte of your\s+ROMs/.test(byId['q-share'].a));
 check('/faq/ Claude: optional, the Off switch, the key kept out of the machine, snapshots, share links and exported settings', byId['q-claude']
   && /Settings → Machine → Claude features/.test(byId['q-claude'].a) && /emulated machine, snapshots, share links or exported settings/.test(byId['q-claude'].a));
 check('/faq/ machines: links Help\'s list of the machines', byId['q-machines'] && /href="help\/#machines"/.test(byId['q-machines'].html));
@@ -71,9 +73,9 @@ check('/about/: the maker\'s line', textOf(about).includes('Made by someone who 
 check('/about/: thanks MAME, XRoar and Freedoom, and links Credits', ['MAME', 'XRoar', 'Freedoom', 'VCC', 'DriveWire'].every((n) => textOf(about).includes(n)) && /href="credits\/"/.test(about));
 const TM = 'DOOM is a registered trademark of ZeniMax Media Inc. CLOADM and WYRMFIRE are independent projects, not affiliated with or endorsed by id Software, ZeniMax Media or Microsoft. References to DOOM describe file compatibility only.';
 check('/about/: the trademark notice, word for word, under #trademarks', /<h2 id="trademarks">/.test(about) && textOf(about).includes(TM));
-for (const p of pages) check(`${p}: links the trademark notice`, read(p).includes('href="about/#trademarks"'));
-check('/about/: the Freedoom credit, word for word, linking its licence', textOf(about).replace(/\( /g, '(').replace(/ \)/g, ')').includes('WYRMFIRE level data is converted from Freedoom (https://freedoom.github.io), Copyright © 2001-2024 Contributors to the Freedoom project, used under the BSD 3-Clause licence (full text: COPYING.adoc). The data has been modified for the Dragon 64. The Freedoom project does not endorse CLOADM or WYRMFIRE.')
-  && /id="aboutFreedoomLicence"\s+href="[^"]*COPYING\.adoc"/.test(about));
+for (const p of pages) check(`${p}: links the trademark notice`, /href="(\.\.\/)?about\/#trademarks"/.test(read(p)));
+check('/about/: the Freedoom credit, word for word, linking its licence', textOf(about).replace(/\( /g, '(').replace(/ \)/g, ')').includes('WYRMFIRE level data is converted from Freedoom (https://freedoom.github.io), Copyright © 2001-2024 Contributors to the Freedoom project, used under the BSD 3-Clause licence (full text: COPYING.txt). The data has been modified for the Dragon 64. The Freedoom project does not endorse CLOADM or WYRMFIRE.')
+  && /id="aboutFreedoomLicence"\s+href="examples\/wyrmfire\/freedoom\/COPYING\.txt"/.test(about) && pwaFiles().includes('examples/wyrmfire/freedoom/COPYING.txt'));
 check('/about/: the maker signs as Yaniv', textOf(about).includes('this has nothing to do with it. — Yaniv'));
 check('/about/: the MIT License', /MIT License/.test(textOf(about)));
 check('/about/: links the FAQ and the bug report', /href="faq\/"/.test(about) && /href="play\/#bug-report"/.test(about));
@@ -83,5 +85,16 @@ const help = read('help/index.html'), play = read('play/index.html');
 check('Help links the FAQ and About', /id="helpFaq" href="faq\/"/.test(help) && /id="helpAbout" href="about\/"/.test(help));
 check('the settings drawer\'s credits line links the FAQ and About', /<a href="faq\/">FAQ<\/a> ·\s*<a href="about\/">About<\/a>/.test(play));
 check('the reading pages share one stylesheet and the site header', ['faq/index.html', 'about/index.html'].every((f) => read(f).includes('css/reading.css') && /<header class="page-head">/.test(read(f))));
+
+// The FAQ and About speak of WYRMFIRE and its Freedoom level as shipped: they may only say so while it is in the tree.
+// (launch-wave1 was written before WYRMFIRE landed; this guard holds the pages to what is actually served.)
+{
+  const { WYRMFIRE_PIN: PIN } = require('../js/wyrmfire/pin.js');
+  const says = ['faq/index.html', 'about/index.html'].filter((f) => /WYRMFIRE|Freedoom level/.test(textOf(read(f))));
+  const shipped = [PIN.files.engine.path, PIN.files.level.path, PIN.files.freedoomCopying.path].every((f) => fs.existsSync(path.join(ROOT, f)))
+    && /'wyrmfire'/.test(read('js/session.js'));
+  check('the FAQ and About mention WYRMFIRE and its Freedoom level only while WYRMFIRE ships (its engine, level and Freedoom licence are served)',
+    says.length === 2 && shipped, JSON.stringify({ says, shipped }));
+}
 process.exitCode = fail ? 1 : 0;
 console.log(fail ? `${fail} FAILED` : 'all passed');
