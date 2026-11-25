@@ -280,6 +280,7 @@ node tests/importmedia-finally.test.js # the creation landing behind the Library
 node tests/ay8910.test.js    # AY-3-8910/8912 against its data manual: tone, noise, the 16 envelope shapes, mixer, ports
 node tests/alpha.test.js     # the Dragon Alpha's wiring: ROM banks, PIA2, the AY as the drive latch, NMI through PIA2 CA2
 node tools/build-demo.js     # rebuild examples/demo.bin
+node tools/wyrmfire-vendor.js <wyrmfire checkout>   # vendor WYRMFIRE at js/wyrmfire/pin.js's commit into examples/wyrmfire/ and rebuild the Freedoom level (pinned download, SHA-256 checked); tests/wyrmfire-files.test.js checks the result against the pin
 node tools/build-examples.js # rebuild examples/liza.bin, liza6803-{mc10,alice}.bin, welcome.bin, welcome6803-{mc10,alice}.bin, chat.bin and starter-game/catch.bin from their .asm sources, then bring sw.js's offline file list up to date
 node tests/welcome.test.js   # welcome program on every 6809 model: screen, menu keys and events, the tune on the DAC
 node tests/welcome-tune.test.js   # when the welcome tune plays: the visit and Programs play it; a switch, Reset, a power cycle and a return are silent; both builds

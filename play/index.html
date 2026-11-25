@@ -352,6 +352,24 @@
   /* a Debugger stop, directly above the monitor (js/ui/debugger-stop.js); between the header and the screen on a phone */
   #dbgStrip { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; background: var(--panel); border: 1px solid var(--orange); border-radius: var(--r-14); padding: 8px 12px 8px 16px; font-size: 15px; }
   #dbgStrip[hidden] { display: none; }
+  /* WYRMFIRE's strip under the screen (js/ui/wyrmfire.js): not a modal; the credits and the person's own WAD */
+  #wyrmStrip { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-14); padding: 8px 12px 8px 16px; font-size: 15px; margin-top: 8px; }
+  #wyrmStrip[hidden] { display: none; }
+  #wyrmStrip[data-state="error"] { border-color: var(--orange); }
+  #wyrmStrip .wyrmtop { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+  #wyrmStrip #wyrmLine { flex: 1 1 16em; min-width: 0; }
+  #wyrmStrip button { min-height: 44px; border-radius: var(--pill); }
+  #wyrmStrip p { margin: 6px 0 0; }
+  #wyrmStrip a { color: var(--phosphor); }
+  #wyrmLevel { margin-top: 6px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+  #gameFiles { margin-top: 18px; }
+  /* a Share option that is off says why beside it (WYRMFIRE: snapshots; the person's own WAD: picture and clip) */
+  .shareopt { display: inline-flex; flex-direction: column; gap: 2px; max-width: 18em; }
+  .shareopt .why[hidden] { display: none; }
+  #gameFiles .gamefile { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; }
+  #shelf .sub { display: flex; flex-direction: column; font-size: 14px; color: var(--text-2); font-weight: 400; }
+  #shelf .sub .credit { color: var(--muted); font-size: 13px; }
+  #dropOverlay span.wadline { font-size: 14px; max-width: 40em; }
   #dbgStripText { flex: 1 1 16em; min-width: 0; }
   #dbgStrip button { min-height: 44px; border-radius: var(--pill); }
   #lizaOffer .bar { margin-top: 6px; }
@@ -583,6 +601,9 @@
   #share .preview { margin: 0; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-18); overflow: hidden; }
   #share .frame { aspect-ratio: 1.91; background: #050605; position: relative; display: flex; align-items: center; justify-content: center; }
   #share .frame canvas { height: 84%; aspect-ratio: 4 / 3; image-rendering: pixelated; box-shadow: 0 0 50px rgba(61, 245, 90, .4); }
+  /* no picture of its own: the frame says why instead of showing an empty dark box */
+  #share .frame.nopic canvas, #share .frame.nopic .stripe { display: none; }
+  #share .frame .nopic { margin: 0; padding: 16px; max-width: 30ch; text-align: center; color: var(--muted); font-size: 14px; line-height: 1.4; }
   #share .stripe { position: absolute; left: 0; right: 0; bottom: 0; display: flex; height: 5px; }
   #share .stripe i { flex: 1; }
   #share .stripe i:nth-child(1) { background: #30D82B; } #share .stripe i:nth-child(2) { background: #F2EA4A; }
@@ -850,6 +871,10 @@
   #touchKeys #touchPad .padkeys .tk { font-size: 13px; }
   #touchKeys #touchPad .padkeys .tk[data-key="SPACE"] { grid-column: span 2; }
   #touchKeys #touchPad .padextra { display: contents; }
+  #touchKeys #touchPad .padbig { flex: none; display: grid; grid-template-columns: repeat(2, 64px); gap: 6px; align-content: center; }
+  #touchKeys #touchPad .padkeys .tk[hidden] { display: none; }
+  #touchKeys #touchPad .padbig[hidden] { display: none; }
+  #touchKeys #touchPad .padbig .tk.big { min-height: 96px; font-size: 16px; font-weight: 700; border-radius: 32px; }
   #touchKeys #touchPad .tk { height: auto; min-height: 48px; font-size: 15px; }
   #touchKeys #touchPad .tk[aria-label] { font-size: 24px; }
   #touchKeys > .tkhalf { display: none; }
@@ -1878,8 +1903,11 @@ npx serve -l 8000 .</pre>
 <div id="share" role="main" hidden aria-labelledby="shareHeading">
   <header><a href="#" class="back" id="shareBack">← Emulator</a><strong>SHARE</strong><span class="grow" style="flex:1"></span><a href="help/">Help</a></header>
   <figure class="preview">
-    <div class="frame"><canvas id="sharePicture" role="img" aria-label="Captured picture: link preview, rendered from the real frame"></canvas>
-      <div class="stripe" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
+    <div class="frame" id="shareFrame"><canvas id="sharePicture" role="img" aria-label="Captured picture: link preview, rendered from the real frame"></canvas>
+      <div class="stripe" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+      <!-- a moment with no picture of its own (the person's own WAD: id Software's game data) says so here, rather
+           than showing an empty dark box captioned "Captured picture" -->
+      <p class="nopic" id="shareNoPicture" hidden></p></div>
     <figcaption><strong id="shareTitle"><span id="sharePrefix">What they'll see first ·</span><span id="shareName"></span></strong><span id="shareWhen"></span></figcaption>
   </figure>
   <!-- the right-hand column: on a short landscape screen it scrolls on its own beside the picture; elsewhere it is no box
@@ -1937,10 +1965,13 @@ npx serve -l 8000 .</pre>
         <div class="bar"><button id="btnProgramBas">Download .bas</button></div>
       </div>
       <div class="bar" id="shareSaveMore">
-        <button id="btnShareGif" title="Save 6-second GIF">Save GIF</button>
-        <button id="btnShareShot">Save picture</button>
-        <button id="btnShareClip">Save clip</button>
-        <button id="btnShareDownload">Download snapshot</button>
+        <!-- the buttons are direct children: js/ui/share.js's place() moves btnShareShot/btnShareClip to sit beside
+             Copy, using btnShareDownload as the insert point, so all three must share one parent. The reasons are
+             siblings, not wrappers, for the same reason. -->
+        <button id="btnShareGif" title="Save 6-second GIF">Save GIF</button><span class="why muted small" id="shareGifWhy" hidden></span>
+        <button id="btnShareShot">Save picture</button><span class="why muted small" id="shareShotWhy" hidden></span>
+        <button id="btnShareClip">Save clip</button><span class="why muted small" id="shareClipWhy" hidden></span>
+        <button id="btnShareDownload">Download snapshot</button><span class="why muted small" id="shareDownloadWhy" hidden></span>
       </div>
     </div>
   </details>
@@ -2027,6 +2058,16 @@ npx serve -l 8000 .</pre>
           <span class="piplabel"><span id="claudePipLabel">Your BASIC session · live</span><span id="claudePipSub"></span><span class="pipdot" aria-hidden="true">●</span></span></button>
         <button id="btnPipClose" aria-label="Hide your BASIC session">×</button></div>
       <div id="claudePipActing" role="status" hidden><span id="claudePipActingText">Claude is typing in your BASIC session</span><button id="btnPipStop">Stop</button></div>
+    </div>
+    <!-- WYRMFIRE (js/ui/wyrmfire.js): getting the game (Cancel until the switch), then the credits while it plays -->
+    <div id="wyrmStrip" role="region" aria-label="WYRMFIRE" aria-live="polite" hidden>
+      <div class="wyrmtop"><span id="wyrmLine"></span><span class="bar" id="wyrmBar"></span></div>
+      <div id="wyrmMore" hidden>
+        <div id="wyrmLevel"></div>
+        <p class="muted small" id="wyrmPrivacy"></p>
+        <p class="muted small" id="wyrmGuard"></p>
+        <p class="small" id="wyrmNote" hidden></p>
+      </div>
     </div>
     <!-- context openers: never over the screen -->
     <div class="controls" id="askOpeners" hidden>
@@ -2478,6 +2519,13 @@ npx serve -l 8000 .</pre>
           The report contains no ROM data: only sizes, checksums and test results.</p>
         <pre id="selftestOut"></pre>
       </section>
+      <section id="gameFiles" aria-labelledby="gameFilesHead">
+        <div class="eyebrow" id="gameFilesHead">Your game files</div>
+        <div id="gameFileList"></div>
+        <div class="bar"><button id="btnGameWad" type="button">Use your DOOM1.WAD or DOOM.WAD…</button></div>
+        <p class="muted small" id="gamePrivacy"></p>
+        <input type="file" id="fileWad" accept=".wad,.WAD,application/octet-stream" hidden>
+      </section>
       <p class="muted small">ROMs stay in this browser. CLOADM never uploads them and never puts them in share links or exported settings. If you use Claude, what it reads from the machine's memory (ROM areas included) is sent to Anthropic as part of your conversation.</p>
     </section>
   </div>
@@ -2585,7 +2633,7 @@ npx serve -l 8000 .</pre>
 <input type="file" id="fileMpSlot" hidden accept=".rom,.ccc,.dgn,.bin,application/octet-stream">
 <input type="file" id="fileRom" hidden multiple accept=".rom,.bin,.zip,.ccc,.dat,.a,.b,.0,.1,.2,.ci23,.ci24,.ic1,.ic12,.ic22,.ic34,.ic37,application/zip,application/octet-stream">
 <input type="file" id="folderRom" hidden webkitdirectory accept=".rom,.bin,.zip,.ccc,.dat,.a,.b,.0,.1,.2,.ci23,.ci24,.ic1,.ic12,.ic22,.ic34,.ic37,application/zip,application/octet-stream">
-<div id="dropOverlay" hidden aria-hidden="true"><div>Drop to load<span>ROMs, programs, tapes, cartridges, snapshots, ZIPs or a folder</span></div></div>
+<div id="dropOverlay" hidden aria-hidden="true"><div>Drop to load<span>ROMs, programs, tapes, cartridges, snapshots, ZIPs or a folder</span><span class="wadline">A .wad plays in WYRMFIRE. <span id="dropWadPrivacy"></span></span></div></div>
 <footer><a href="credits/">Credits</a>: CLOADM stands on the shoulders of MAME, XRoar, VCC, DriveWire and the
   Dragon and CoCo archives. · <a href="roms/">Where to get ROMs</a></footer>
 <!-- modulepreload:start (generated by tools/gen-page-preload.js; do not edit) -->
@@ -2690,6 +2738,7 @@ npx serve -l 8000 .</pre>
 <link rel="modulepreload" href="js/media/snapshot.js">
 <link rel="modulepreload" href="js/media/romrefs.js">
 <link rel="modulepreload" href="js/config.js">
+<link rel="modulepreload" href="js/wyrmfire/pin.js">
 <link rel="modulepreload" href="js/session.js">
 <link rel="modulepreload" href="js/media/avi.js">
 <link rel="modulepreload" href="js/host/input.js">
@@ -2714,6 +2763,7 @@ npx serve -l 8000 .</pre>
 <link rel="modulepreload" href="js/host/folder-handle.js">
 <link rel="modulepreload" href="js/ui/feedback.js">
 <link rel="modulepreload" href="js/ui/page.js">
+<link rel="modulepreload" href="js/ui/files.js">
 <link rel="modulepreload" href="js/video/canvas.js">
 <link rel="modulepreload" href="js/host/gamepad.js">
 <link rel="modulepreload" href="js/ui/screen.js">
@@ -2721,10 +2771,11 @@ npx serve -l 8000 .</pre>
 <link rel="modulepreload" href="js/ui/touch-keys.js">
 <link rel="modulepreload" href="js/machines/menu.js">
 <link rel="modulepreload" href="js/ui/machine-panel.js">
-<link rel="modulepreload" href="js/ui/files.js">
 <link rel="modulepreload" href="js/ui/rom-panel.js">
 <link rel="modulepreload" href="js/ui/rom-sockets.js">
 <link rel="modulepreload" href="js/ui/boot-help.js">
+<link rel="modulepreload" href="js/wyrmfire/wad-check.js">
+<link rel="modulepreload" href="js/ui/wyrmfire.js">
 <link rel="modulepreload" href="js/ui/welcome.js">
 <link rel="modulepreload" href="js/ui/key-hint.js">
 <link rel="modulepreload" href="js/ui/media-panel.js">

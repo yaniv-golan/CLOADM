@@ -2749,7 +2749,7 @@ async function visitChecks(browser, base, check) {
   const menu = () => waitFor(page, () => window.emu.session.welcomeRunning && window.emu.session.screenText()[14].includes('PRESS 1 TO 5'));
   check('first visit: opens on the welcome program running without ROMs', await menu() && !(await page.evaluate(() => window.emu.machine.hasRom))
     && /1 TALK TO LIZA/.test(await screen()), (await screen()).split('\n')[8]);
-  check('first visit: "Runs without ROMs" is the welcome menu (on screen now), our programs and the Claude chat', (await page.$$eval('#shelf :is(a, button)', (b) => b.map((x) => x.textContent).join())) === 'Welcome menu on screen now,LIZA,Colour demo,2048,Minesweeper,Chat with Claude',
+  check('first visit: "Runs without ROMs" is the welcome menu (on screen now), our programs and the Claude chat', (await page.$$eval('#shelf :is(a, button)', (b) => b.map((x) => x.textContent).join())) === 'Welcome menu on screen now,LIZA,Colour demo,2048,Minesweeper,WYRMFIREA 3D game for the Dragon 64 · Freedoom levelGPL · Freedoom level (BSD),Chat with Claude',
     await page.$$eval('#shelf :is(a, button)', (b) => b.map((x) => x.textContent).join()));
   check('first visit: "No BASIC · Add ROMs" in the header and the machine question', await page.isVisible('#romPill') && await page.isVisible('#askMachine'));
   // The welcome tune plays only when the person asked for the menu. The visit's own menu leaves the firmware's PLAYED flag
@@ -3423,7 +3423,7 @@ async function returningChecks(browser, base, check) {
   }));
   check('returning (no ROMs): the menu says WELCOME BACK and offers 6 CARRY ON WITH LIZA under 5 PLAY A GAME; "Last time · LIZA"; the menu on screen now (no frame shows it without the tag); no card; No BASIC in the header',
     r.greet === 'WELCOME BACK' && r.five === '6 CARRY ON WITH LIZA' && r.games === '5 PLAY A GAME' && r.press === 'PRESS 1 TO 6' && !r.card && r.last === 'LIZA'
-    && r.shelf === 'Welcome menu on screen now|LIZA|Colour demo|2048|Minesweeper|Chat with Claude' && r.pill && r.mixed === 0
+    && r.shelf === 'Welcome menu on screen now|LIZA|Colour demo|2048|Minesweeper|WYRMFIREA 3D game for the Dragon 64 · Freedoom levelGPL · Freedoom level (BSD)|Chat with Claude' && r.pill && r.mixed === 0
     && r.preMenu > 0 && r.sawMenu >= 1, JSON.stringify(r));
   // A PAUSED page still ticks the UI. tickUi() is outside the `if (!paused)` block, so a reconciler whose watched state
   // changes with no machine frame still redraws. Here: pause the page; the shelf's "on screen now" follows
@@ -3454,7 +3454,7 @@ async function returningChecks(browser, base, check) {
   const w = await page.evaluate(() => ({ menu: window.emu.session.welcomeRunning, rom: window.emu.machine.hasRom, card: !document.getElementById('welcome').hidden,
     last: document.getElementById('lastTime').hidden ? null : document.getElementById('lastName').textContent, shelf: [...document.querySelectorAll('#shelf :is(a, button)')].map((b) => b.textContent).join('|') }));
   check('returning (with ROMs): the machine boots its ROMs, not the menu; "Last time · games.bin · Dragon 64"; the welcome menu one click away; no card',
-    !w.menu && w.rom && !w.card && w.last === 'games.bin · Dragon 64' && w.shelf === 'Welcome menu|LIZA|Colour demo|2048|Minesweeper|Chat with Claude', JSON.stringify(w));
+    !w.menu && w.rom && !w.card && w.last === 'games.bin · Dragon 64' && w.shelf === 'Welcome menu|LIZA|Colour demo|2048|Minesweeper|WYRMFIREA 3D game for the Dragon 64 · Freedoom levelGPL · Freedoom level (BSD)|Chat with Claude', JSON.stringify(w));
   await shot('with-roms');
   await page.click('#shelf :is(a, button)[data-shelf="welcome"]');
   check('returning (with ROMs): "Welcome menu" runs it', await waitFor(page, () => window.emu.session.welcomeRunning && window.emu.session.screenText()[6].trim() === 'WELCOME BACK'));
@@ -5639,9 +5639,9 @@ async function phoneChecks(browser, base, check) {
       focus: d.contains(document.activeElement), shelves: document.querySelectorAll('#shelf').length,
       media: [...document.getElementById('panel-media').children].map((e) => (e.querySelector('input') || e).id) };
   });
-  check('phone: Menu → Programs… opens the "Programs" sheet: Runs without ROMs (Welcome menu on screen now, LIZA, Colour demo, 2048, Minesweeper, Chat with Claude), Recent on this machine, Open your library →, the focus in it',
+  check('phone: Menu → Programs… opens the "Programs" sheet: Runs without ROMs (Welcome menu on screen now, LIZA, Colour demo, 2048, Minesweeper, WYRMFIRE, Chat with Claude), Recent on this machine, Open your library →, the focus in it',
     progOpen && prog.title === 'Programs' && prog.heads.join('|') === 'Runs without ROMs|Recent on this machine|Open your library →'
-      && prog.shelf.join('|') === 'Welcome menu on screen now|LIZA|Colour demo|2048|Minesweeper|Chat with Claude' && prog.focus && prog.shelves === 1, JSON.stringify(prog));
+      && prog.shelf.join('|') === 'Welcome menu on screen now|LIZA|Colour demo|2048|Minesweeper|WYRMFIREA 3D game for the Dragon 64 · Freedoom levelGPL · Freedoom level (BSD)|Chat with Claude' && prog.focus && prog.shelves === 1, JSON.stringify(prog));
   check('phone: the Media tab keeps only the tape options (Fast tape loading, Tape sound, Load .CAS straight into memory)', prog.media.join() === 'chkFastTape,chkTapeSound,chkFastCas', JSON.stringify(prog.media));
   // the sheet's order: Last time (Run again) at the top, the no-ROM card, Runs without ROMs, Recent, Snapshots (its
   // heading and note), Open your library →
@@ -5906,7 +5906,8 @@ async function phoneChecks(browser, base, check) {
       controls: [...document.querySelector('.controls[aria-label="Machine controls"]').children].map((e) => e.id),
       drawer: [...document.querySelector('.layout > .drawer').children].map((e) => e.id || e.getAttribute('role')), welcome: document.getElementById('welcome').parentElement.className,
       media: [...document.getElementById('panel-media').children].map((e) => e.id || e.className || e.tagName) }));
-    const baseline = [[71, 849, 900, 254], [1041, 88, 364, 803]];
+    // (the drawer is 90 px taller than it was: the "Runs without ROMs" shelf has WYRMFIRE's two-line row since)
+    const baseline = [[71, 849, 900, 254], [1041, 88, 364, 893]];
     const before = { rects: await rects(), order: await order() };
     const setKeys = (v) => p.evaluate((v) => { const s = document.getElementById('selTouchKeys'); s.value = v; s.dispatchEvent(new Event('change')); }, v);
     await setKeys('on');
@@ -5957,8 +5958,12 @@ async function phoneChecks(browser, base, check) {
     // on the shelf (its contents change only with the machine's CPU family, and a machine switch is a
     // launch, which focuses the screen by design - overwriting whatever a wrong restore did), so the
     // Recent list's cross-tab check carries that claim; here the machine switch shows the honest
-    // fallback only: the focused program (the Colour demo) is gone from the switched machine's shelf,
-    // and Chat with Claude took its place - recorded as the geometry, the claim stays what is checked.
+    // fallback only: the focused program (the Colour demo, 6809-only) is gone from the switched machine's
+    // shelf, and WYRMFIRE takes its place - recorded as the geometry, the claim stays what is checked.
+    // WYRMFIRE is the row that lands there because it is on EVERY machine (js/ui/welcome.js: it switches to
+    // the Dragon 64, asking first) and sits directly after the games, while 2048 and Minesweeper are
+    // 6809-only and go. Named rather than "whatever row is at that top": in a contiguous list some row is
+    // nearly always at any top, so an unnamed search could hardly fail.
     const gone = await p.evaluate(async (machine) => {
       const demo = document.querySelector('#shelf [data-shelf="Colour demo"]');
       demo.focus({ preventScroll: true });
@@ -5967,11 +5972,11 @@ async function phoneChecks(browser, base, check) {
       window.emu.session.switchMachine(machine);
       await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
       await new Promise((r) => setTimeout(r, 100));  // the switch also greets the menu, which focuses the screen
-      const chat = document.querySelector('#shelf [data-shelf="claude"]');
-      return { was, onChat: document.activeElement === chat, chatTookThePlace: !!chat && Math.abs(chat.getBoundingClientRect().top - at) < 2 };
+      const wyrm = document.querySelector('#shelf [data-shelf="wyrmfire"]');
+      return { was, wyrmfireTookThePlace: !!wyrm && Math.abs(wyrm.getBoundingClientRect().top - at) < 2 };
     }, 'mc10');
-    check('desktop: switching the machine takes the focused shelf item\'s place (Chat with Claude where the Colour demo was) - the geometry the identity restore must not jump to',
-      gone.was && gone.chatTookThePlace, JSON.stringify(gone));
+    check('desktop: switching the machine takes the focused shelf item\'s place (WYRMFIRE, on every machine, where the Colour demo was; the 6809-only games are gone on the MC-10) - the geometry the identity restore must not jump to',
+      gone.was && gone.wyrmfireTookThePlace, JSON.stringify(gone));
     // and the machine is switched back for the checks that follow
     await p.evaluate(() => window.emu.session.switchMachine('dragon64'));
     // the app bar: no Programs… (the drawer's Media tab is in view), and no label with its words run together, at
@@ -5993,7 +5998,9 @@ async function phoneChecks(browser, base, check) {
     const MEDIA = '.bin,.cas,.c10,.k7,.wav,.rom,.ccc,.dgn,.vdk,.dsk,.jvc,.dmk,.os9,.bas,.txt', OS = 'application/octet-stream';
     const want = { fileProgram: `${MEDIA},.cloadm,${OS}`, fileLib: `${MEDIA},.cloadm,.zip,${OS}`, folderLib: `${MEDIA},.cloadm,.zip,${OS}`, fileTape: `.cas,.c10,.k7,.wav,${OS}`,
       fileCart: `.rom,.ccc,.dgn,.bin,${OS}`, fileMpSlot: `.rom,.ccc,.dgn,.bin,${OS}`, fileDisk: `.vdk,.dsk,.jvc,.dmk,${OS}`, n9File: `.dsk,.os9,.img,${OS}`,
-      dwImport: `.dsk,.os9,.img,${OS}`, fileRom: ROM_PICKER_ACCEPT, folderRom: ROM_PICKER_ACCEPT, fileSettings: '.json,application/json', fileAsm: '.asm,.s,.txt' };
+      dwImport: `.dsk,.os9,.img,${OS}`, fileRom: ROM_PICKER_ACCEPT, folderRom: ROM_PICKER_ACCEPT, fileSettings: '.json,application/json', fileAsm: '.asm,.s,.txt',
+      // WYRMFIRE's own WAD picker: the one file type it takes, and octet-stream so a phone offers a .WAD it does not know
+      fileWad: `.wad,.WAD,${OS}` };
     const audit = await p.evaluate(() => [...document.querySelectorAll('input[type="file"]')].map((i) => ({ id: i.id, accept: i.getAttribute('accept'), capture: i.hasAttribute('capture') })));
     const bad = audit.filter((i) => i.accept === null || i.capture || /(^|,)\s*(image|video)\//.test(i.accept) || i.accept !== want[i.id]).map((i) => i.id);
     check('desktop: every file picker on the page (' + audit.map((i) => i.id).join(', ') + ') has the accept list of its purpose, none asks for image/* or video/* or has capture',
@@ -6770,6 +6777,8 @@ async function feedbackChecks(browser, base, check) {
       const classRecords = await ev(async () => {
         const region = document.getElementById('toastRegion');
         // pin a toast first: grow the controls the decision avoids until no free place exists, raise, wait for the pin
+        // (from the top of the page: scrolled down to the slots, the window can show the gap above .controls)
+        scrollTo(0, 0);
         const grown = [...document.querySelectorAll('header, .controls, .slots, aside.drawer')];
         const saved = grown.map((e) => e.style.minHeight);
         for (const e of grown) e.style.minHeight = `${innerHeight + 400}px`;
@@ -8238,7 +8247,7 @@ async function commandsChecks(browser, site, check) {
   const WANT = [
     ['Claude', ['Chat with Claude, full screen', 'What is this code doing?']],
     ['Files', ['Take snapshot', 'Open a program, tape, disk or cartridge…', 'Insert a disk…', 'New blank disk', 'Eject disk', 'Insert a tape…', 'Rewind the tape', 'Eject the tape', 'Save the tape as .WAV', 'Record to tape', 'Share']],
-    ['Views', ['Programs', 'Open the Library', 'Open the Debugger']],
+    ['Views', ['Programs', 'WYRMFIRE', 'Open the Library', 'Open the Debugger']],
     ['Settings', ['Your ROMs', 'Display settings', 'Input settings', 'POKEs', 'Machine settings']],   // (Your ROMs first)
     ['Machine', ['Pause or resume', 'Turbo', 'Fullscreen', 'Reset', 'Switch off and on', 'Switch machine…', 'Copy bug report', 'Help']],
   ];
@@ -10933,7 +10942,7 @@ async function urlChecks(browser, base, check) {
   await open('?app=bogus');
   check('link: app=bogus says what CLOADM has', (await msg()).includes("app=bogus isn't an app CLOADM has (claude)") && await ev(() => !!window.emu.machine.id), await msg());
   await open('?start=bogus');
-  check('link: start=bogus says what CLOADM has', (await msg()).includes("start=bogus isn't a start CLOADM has (welcome, liza, 2048, minesweeper)"), await msg());
+  check('link: start=bogus says what CLOADM has', (await msg()).includes("start=bogus isn't a start CLOADM has (welcome, liza, 2048, minesweeper, wyrmfire)"), await msg());
   // a file at a host that doesn't allow other sites (no CORS header) fails in fetch with a TypeError: plain words, not "Failed to fetch"
   await ctx.route('https://nocors.example/**', (route) => route.abort('failed'));   // what the browser's fetch gives for a cross-origin refusal (Playwright's fulfill adds CORS headers itself, so abort stands in): a TypeError
   await open('?machine=dragon64&load=https://nocors.example/demo.bin');
@@ -11038,6 +11047,8 @@ async function urlChecks(browser, base, check) {
     check('direct link: the Media tab\'s welcome menu, LIZA, 2048, Minesweeper and Claude entries are links to them on this machine',
       want({ start: 'welcome' })(hrefs['Welcome menu']) && want({ start: 'liza' })(hrefs.LIZA) && want({ start: '2048' })(hrefs['2048'])
       && want({ start: 'minesweeper' })(hrefs.Minesweeper) && want({ app: 'claude' })(hrefs['Chat with Claude']), JSON.stringify(hrefs));
+    check('direct link: the WYRMFIRE entry is ?start=wyrmfire alone (it names its own machine, the Dragon 64)',
+      hrefs[Object.keys(hrefs).find((k) => k.startsWith('WYRMFIRE'))] === '?start=wyrmfire', JSON.stringify(hrefs));
     const msHref = await dp.evaluate(() => [...document.querySelectorAll('#shelf a')].find((a) => a.textContent === 'Minesweeper').href);
     await dp.goto(msHref); await waitFor(dp, () => window.emu && window.emu.linkDone, null, 15000);
     check('direct link: the Minesweeper entry\'s link, opened, runs Minesweeper with no menu in between', await waitFor(dp, () => JSON.stringify(window.emu.session.lastRun) === '{"kind":"game","name":"Minesweeper"}')
@@ -11245,6 +11256,580 @@ async function embedChecks(browser, site, check) {
 }
 
 // offline: the service worker installs, keeps the site, and with the network gone the page reloads and runs
+// WYRMFIRE (js/ui/wyrmfire.js, js/wyrmfire/): the shelf row and the palette start it, asking first on another machine
+// ("Switching to Dragon 64 to play WYRMFIRE resets the …"); the engine and level are fetched before the switch, with a
+// strip that counts and a Cancel that leaves the machine as it was; offline and not kept, or a failed download, the
+// strip says so with Try again and nothing changes; a tab in the background waits; ?start=wyrmfire boots it offline
+// after one visit; the link's conflicts say so; while it runs the strip carries the credits; Share gives
+// ?start=wyrmfire and the Freedoom credit; a WAD of the person's (synthetic headers built here, never id Software data)
+// is refused in the page's words, by the picker and by a drop; with a level standing for one converted from the
+// person's own WAD (the Freedoom disk started as theirs), Share's screenshot and clip are off, and Claude's reads
+// refuse because it is id Software's game data
+// snapshots are off, and "Your game files" keeps only the level and the file's name.
+async function wyrmfireChecks(browser, site, check) {
+  const base = `${site}play/`;
+  const T = {
+    privacy: 'Your WAD stays in this browser: it\'s converted here and never uploaded. WYRMFIRE is not affiliated with id Software.',
+    credits: 'WYRMFIRE 0.1.0 · Source ↗ · Level from Freedoom ↗ · Level data: Freedoom (BSD), modified · Not affiliated with id Software',
+    // the same line with the person's own WAD loaded: no Freedoom credit of either kind, since that level is not Freedoom's
+    creditsOwn: 'WYRMFIRE 0.1.0 · Source ↗ · Not affiliated with id Software',
+    guard: 'While WYRMFIRE runs: no snapshots. With your own WAD, no clips and no Claude screen reads.',
+    reads: 'Claude can\'t look at the screen or memory while your own WAD is loaded: it\'s id Software\'s game data.',
+    clips: 'Off while your own WAD is loaded: it\'s id Software\'s game data.',
+    // the notice before an own WAD is read, stated HERE as the spec: the page must show exactly these words
+    ownWadNotice: 'Load your own WAD: you can play levels from WAD files you legally own. Your file is converted and played entirely in this browser: it is never uploaded, stored on our servers or shared. Only use files you have the right to use. CLOADM does not include or supply any commercial game data.',
+  };
+  const { WYRMFIRE_PIN: PIN } = require('../js/wyrmfire/pin.js');
+  check('wyrmfire: the version the strip shows is the vendored pin\'s', T.credits.startsWith(`WYRMFIRE ${PIN.version} ·`), PIN.version);
+  const errors = [];
+  const newPage = async (ctx) => { const p = await ctx.newPage(); p.on('pageerror', (e) => errors.push(e.message)); return p; };
+  const strip = (page) => page.evaluate(() => { const st = document.getElementById('wyrmStrip'); return { hidden: st.hidden, state: st.dataset.state || '', text: st.innerText.replace(/\s+/g, ' ').trim(),
+    buttons: [...document.querySelectorAll('#wyrmBar button')].map((b) => b.textContent) }; });
+  const machine = (page) => page.evaluate(() => ({ id: window.emu.session.personMachine.id, frame: window.emu.session.personMachine.frameCount, wyrm: window.emu.session.wyrmfireState }));
+  const playing = (page, ms = 20000) => waitFor(page, () => !!window.emu.session.wyrmfireState && document.getElementById('wyrmStrip').dataset.state === 'playing', null, ms);
+  // a synthetic WAD: magic and lumps [[name, bytes]] (the WAD format; no id Software data anywhere)
+  const wadBytes = (magic, lumps) => {
+    let size = 12; for (const [, d] of lumps) size += d.length;
+    const dir = size, b = Buffer.alloc(size + lumps.length * 16);
+    b.write(magic, 0, 'latin1'); b.writeUInt32LE(lumps.length, 4); b.writeUInt32LE(dir, 8);
+    let at = 12;
+    lumps.forEach(([n, d], i) => { Buffer.from(d).copy(b, at); const e = dir + i * 16; b.writeUInt32LE(at, e); b.writeUInt32LE(d.length, e + 4); b.write(n, e + 8, 'latin1'); at += d.length; });
+    return b;
+  };
+  const i16 = (...v) => { const b = Buffer.alloc(v.length * 2); v.forEach((x, i) => b.writeInt16LE(x, i * 2)); return b; };
+  const WIDE = [['PLAYPAL', Buffer.alloc(768)], ['E1M1', Buffer.alloc(0)], ['THINGS', i16(64, 64, 0, 1, 7)], ['LINEDEFS', i16(0, 1, 1, 0, 0, 0, -1)], ['SIDEDEFS', Buffer.alloc(30)],
+    ['VERTEXES', i16(0, 0, 20000, 0)], ['SEGS', i16(0, 1, 0, 0, 0, 0)], ['SSECTORS', i16(1, 0)], ['NODES', Buffer.alloc(28)], ['SECTORS', Buffer.alloc(26)]];
+
+  // ---- from the shelf on another machine: the question, the download held, its percentage, Cancel ----
+  {
+    const ctx = await browser.newContext({ serviceWorkers: 'block' });
+    let release = null;
+    await ctx.route('**/examples/wyrmfire/freedoom-e1m1.vdk', async (route) => { await new Promise((r) => { release = r; }); await route.continue(); });
+    const page = await newPage(ctx);
+    await page.goto(`${base}?machine=coco3&start=2048`);
+    await started(page);
+    const row = await page.evaluate(() => { const a = document.querySelector('#shelf [data-shelf="wyrmfire"]'); return a && { text: [...a.querySelectorAll('span')].map((x) => x.textContent), href: new URL(a.href).search }; });
+    check('wyrmfire: "Runs without ROMs" has WYRMFIRE, "A 3D game for the Dragon 64 · Freedoom level", "GPL · Freedoom level (BSD)", a link to ?start=wyrmfire',
+      row && row.text[0] === 'WYRMFIRE' && row.text.includes('A 3D game for the Dragon 64 · Freedoom level') && row.text.includes('GPL · Freedoom level (BSD)') && row.href === '?start=wyrmfire', JSON.stringify(row));
+    await page.evaluate(() => document.querySelector('#shelf [data-shelf="wyrmfire"]').click());
+    const q = await waitFor(page, () => !document.getElementById('switchConfirm').hidden) && await page.textContent('#switchText');
+    check('wyrmfire: on the CoCo 3 with a game running, the switch question asks first, in the words asked for',
+      q === 'Switching to Dragon 64 to play WYRMFIRE resets the CoCo 3. The running program will be lost.', q);
+    const before = await machine(page);
+    await page.click('#btnSwitch');
+    const getting = await waitFor(page, () => /^WYRMFIRE · Getting the game… \d+%$/.test(document.getElementById('wyrmLine').textContent));
+    const s1 = await strip(page), during = await machine(page);
+    check('wyrmfire: "WYRMFIRE · Getting the game… N%" with Cancel while it downloads, the CoCo 3 still running its game', getting && s1.buttons.join() === 'Cancel'
+      && during.id === 'coco3' && during.frame > before.frame && !during.wyrm, JSON.stringify([s1, during]));
+    if (shotDir) await page.locator('#wyrmStrip').screenshot({ path: path.join(shotDir, 'wyrmfire-getting.png') });
+    await page.click('#wyrmBar button');
+    await waitFor(page, () => document.getElementById('wyrmStrip').hidden);
+    if (release) release();
+    await page.waitForTimeout(300);
+    const after = await machine(page);
+    check('wyrmfire: Cancel before the switch leaves the machine as it was (the CoCo 3, its game, running on)', after.id === 'coco3' && !after.wyrm && after.frame > during.frame
+      && await page.evaluate(() => JSON.stringify(window.emu.session.lastRun) === '{"kind":"game","name":"2048"}'), JSON.stringify(after));
+    await ctx.close();
+  }
+
+  // ---- offline and not kept; a failed download; Try again; a tab in the background ----
+  {
+    const ctx = await browser.newContext({ serviceWorkers: 'block' });
+    const page = await newPage(ctx);
+    await page.goto(`${base}?machine=dragon64`);
+    await started(page);
+    await stubPrompt(page);
+    await ctx.setOffline(true);
+    await page.evaluate(() => document.querySelector('#shelf [data-shelf="wyrmfire"]').click());
+    // (the Dragon 64 at the firmware's prompt runs nothing to lose: no question; if one shows, it is answered)
+    if (await page.evaluate(() => !document.getElementById('switchConfirm').hidden)) await page.click('#btnSwitch');
+    await waitFor(page, () => document.getElementById('wyrmStrip').dataset.state === 'error');
+    const off = await strip(page);
+    check('wyrmfire: offline and not kept: "WYRMFIRE needs one download the first time, and you\'re offline." with Try again; the machine untouched',
+      off.text.startsWith('WYRMFIRE needs one download the first time, and you\'re offline.') && off.buttons[0] === 'Try again' && !(await machine(page)).wyrm, JSON.stringify(off));
+    await ctx.setOffline(false);
+    let fail = true;
+    await ctx.route('**/examples/wyrmfire/wyrmfire.bin', (route) => (fail ? route.abort() : route.continue()));
+    await page.click('#wyrmBar button:text-is("Try again")');
+    await waitFor(page, () => document.getElementById('wyrmStrip').dataset.state === 'error' && /^Couldn't/.test(document.getElementById('wyrmLine').textContent));
+    const bad = await strip(page);
+    check('wyrmfire: a failed download: "Couldn\'t download WYRMFIRE." with Try again; the machine untouched', bad.text.startsWith('Couldn\'t download WYRMFIRE.') && bad.buttons[0] === 'Try again' && !(await machine(page)).wyrm, JSON.stringify(bad));
+    if (shotDir) await page.locator('#wyrmStrip').screenshot({ path: path.join(shotDir, 'wyrmfire-failed.png') });
+    fail = false;
+    // the tab goes to the background: the files come, and the switch waits until it is shown
+    await page.evaluate(() => { window.__hidden = true; Object.defineProperty(document, 'hidden', { configurable: true, get: () => window.__hidden }); });
+    await page.click('#wyrmBar button:text-is("Try again")');
+    await waitFor(page, () => document.getElementById('wyrmLine').textContent === 'WYRMFIRE · Starting…');
+    await page.waitForTimeout(800);
+    const waiting = await machine(page);
+    check('wyrmfire: a tab in the background: "Starting…" (with Cancel), and the switch waits', !waiting.wyrm && (await strip(page)).buttons.join() === 'Cancel', JSON.stringify(waiting));
+    await page.evaluate(() => { window.__hidden = false; document.dispatchEvent(new Event('visibilitychange')); });
+    check('wyrmfire: shown again, it starts: the Dragon 64, the Freedoom level', await playing(page) && (await machine(page)).wyrm.level === 'freedoom');
+    await ctx.close();
+  }
+
+  // ---- the pinned hashes: a changed engine or level, from the network or from the cache, is refused ----
+  {
+    const ctx = await browser.newContext({ serviceWorkers: 'block' });
+    const page = await newPage(ctx);
+    await page.goto(`${base}?machine=dragon64`);
+    await started(page);
+    await stubPrompt(page);
+    const changed = (file) => { const b = Buffer.from(fs.readFileSync(path.join(ROOT, file))); b[b.length >> 1] ^= 0x5A; return b; };
+    const attemptWith = async (what) => {
+      await page.evaluate(() => document.querySelector('#shelf [data-shelf="wyrmfire"]').click());
+      if (await page.evaluate(() => !document.getElementById('switchConfirm').hidden)) await page.click('#btnSwitch');
+      await waitFor(page, () => document.getElementById('wyrmStrip').dataset.state === 'error', null, 30000);
+      const st = await strip(page), m = await machine(page);
+      check(`wyrmfire: ${what}: "Couldn't download WYRMFIRE." with Try again, and the machine untouched`, st.text.startsWith('Couldn\'t download WYRMFIRE.') && st.buttons[0] === 'Try again' && !m.wyrm && m.id === 'dragon64', JSON.stringify([st, m]));
+      await page.click('#wyrmBar button:text-is("Close")');
+    };
+    for (const f of [PIN.files.engine, PIN.files.level]) {
+      const route = `**/${f.path}`, body = changed(f.path);
+      await ctx.route(route, (r) => r.fulfill({ status: 200, body, contentType: 'application/octet-stream' }));
+      await attemptWith(`${f.path.split('/').pop()} served with one byte changed (the pinned SHA-256 refuses it)`);
+      await ctx.unroute(route);
+    }
+    // a changed copy kept in the browser's cache (where the service worker keeps the site) is refused too
+    await page.evaluate(async ({ p, bytes }) => { const c = await caches.open('cloadm-v1'); await c.put(new URL(p, document.baseURI).href, new Response(new Uint8Array(bytes))); }, { p: PIN.files.level.path, bytes: [...changed(PIN.files.level.path)] });
+    await page.evaluate(async (p) => { const c = await caches.open('cloadm-v1'); await c.put(new URL(p, document.baseURI).href, new Response(await (await fetch(p)).arrayBuffer())); }, PIN.files.engine.path);
+    await attemptWith('a changed level in the cache (the engine kept too, so nothing is fetched)');
+    await ctx.close();
+  }
+
+  // ---- the person's WAD: one conversion at a time, and Cancel stops it ----
+  {
+    const ctx = await browser.newContext({ serviceWorkers: 'block' });
+    // count the converter workers the page starts
+    await ctx.addInitScript(() => { const W = window.Worker; window.__workers = 0; window.Worker = class extends W { constructor(...a) { super(...a); window.__workers++; } }; });
+    let release = null;
+    await ctx.route(`**/${PIN.files.worker.path}`, async (r) => { await new Promise((ok) => { release = ok; }); await r.continue(); });
+    const page = await newPage(ctx);
+    await page.goto(`${base}?machine=dragon64`);
+    await started(page);
+    // Count every way the page could read the File's bytes. A spy on Blob.prototype covers File too (File extends
+    // Blob) and catches arrayBuffer/stream/text/slice; FileReader is wrapped as well in case the page ever goes that
+    // way. Installed BEFORE the file is chosen, so a read before the notice is counted, not missed.
+    await page.evaluate(() => {
+      window.__reads = 0;
+      for (const m of ['arrayBuffer', 'stream', 'text', 'slice']) {
+        const orig = Blob.prototype[m];
+        if (typeof orig !== 'function') continue;
+        Blob.prototype[m] = function (...a) { window.__reads++; return orig.apply(this, a); };
+      }
+      const R = window.FileReader, origRead = R.prototype.readAsArrayBuffer;
+      R.prototype.readAsArrayBuffer = function (...a) { window.__reads++; return origRead.apply(this, a); };
+    });
+    await page.setInputFiles('#fileWad', { name: 'FIRST.WAD', mimeType: 'application/octet-stream', buffer: wadBytes('IWAD', WIDE) });
+    // the notice comes first, before anything is read or a worker starts, with the words fixed by the legal note.
+    // Bounded: fail rather than hang if neither the notice nor an error arrives.
+    const sawNotice = await waitFor(page, () => /^Load your own WAD:/.test(document.getElementById('wyrmLine').textContent)
+      || document.getElementById('wyrmStrip').dataset.state === 'error', null, 15000);
+    const notice = sawNotice && await page.evaluate(() => ({ line: document.getElementById('wyrmLine').textContent, workers: window.__workers,
+      reads: window.__reads, buttons: [...document.querySelectorAll('#wyrmBar button')].map((b) => b.textContent) }));
+    check('wyrmfire: a WAD shows the own-WAD notice first, exactly as written, with Load it and Cancel; nothing is READ and no worker starts before the person agrees',
+      notice && notice.line === T.ownWadNotice && notice.workers === 0 && notice.reads === 0 && notice.buttons.join() === 'Load it,Cancel',
+      JSON.stringify(notice && { reads: notice.reads, workers: notice.workers, buttons: notice.buttons, len: notice.line.length }));
+    // a second file while that question is unanswered is turned away, and the first question still stands
+    await page.setInputFiles('#fileWad', { name: 'SECOND.WAD', mimeType: 'application/octet-stream', buffer: wadBytes('IWAD', WIDE) });
+    await page.waitForTimeout(300);
+    const second = await page.evaluate(() => ({ line: document.getElementById('wyrmLine').textContent, reads: window.__reads,
+      buttons: [...document.querySelectorAll('#wyrmBar button')].map((b) => b.textContent),
+      toast: [document.getElementById('toastText').textContent, document.getElementById('toastDetails').textContent].join(' ').trim() }));
+    check('wyrmfire: a second WAD while the notice is up is turned away by name, reads nothing, and leaves the first question standing',
+      second.line === T.ownWadNotice && second.reads === 0 && second.buttons.join() === 'Load it,Cancel' && /One WAD at a time:.*SECOND\.WAD/.test(second.toast),
+      JSON.stringify({ reads: second.reads, buttons: second.buttons, toast: second.toast }));
+    await page.setInputFiles('#fileWad', { name: 'FIRST.WAD', mimeType: 'application/octet-stream', buffer: wadBytes('IWAD', WIDE) });
+    await waitFor(page, () => /^Load your own WAD:/.test(document.getElementById('wyrmLine').textContent), null, 15000);
+    await page.click('#wyrmBar button:text-is("Load it")');
+    await waitFor(page, () => /Converting FIRST\.WAD/.test(document.getElementById('wyrmLine').textContent) && window.__workers === 1);
+    // after agreeing, the file IS read: at least one read, because the page reads the File once it has consent
+    // (takeWad's file.arrayBuffer()), and the count is only a floor (a browser may read a Blob internally too)
+    const readAfter = await page.evaluate(() => window.__reads);
+    check('wyrmfire: Load it is when the file is first read (at least one File read after consent, none before)',
+      readAfter >= 1, JSON.stringify({ reads: readAfter }));
+    await page.setInputFiles('#fileWad', { name: 'SECOND.WAD', mimeType: 'application/octet-stream', buffer: wadBytes('IWAD', WIDE) });
+    await page.waitForTimeout(400);
+    const busy = await page.evaluate(() => ({ line: document.getElementById('wyrmLine').textContent, workers: window.__workers, buttons: [...document.querySelectorAll('#wyrmBar button')].map((b) => b.textContent) }));
+    check('wyrmfire: a second WAD while one converts starts no second worker; the strip offers Cancel', /Converting FIRST\.WAD/.test(busy.line) && busy.workers === 1 && busy.buttons.join() === 'Cancel', JSON.stringify(busy));
+    await page.click('#wyrmBar button:text-is("Cancel")');
+    if (release) release();
+    await page.waitForTimeout(500);
+    const after = await page.evaluate(() => ({ hidden: document.getElementById('wyrmStrip').hidden, err: document.getElementById('wyrmStrip').dataset.state, wyrm: window.emu.session.wyrmfireState }));
+    check('wyrmfire: Cancel stops the conversion: the strip goes, no error, nothing starts', after.hidden && after.err !== 'error' && !after.wyrm, JSON.stringify(after));
+    await ctx.close();
+  }
+
+  // ---- starting WYRMFIRE while the own-WAD notice is up settles it as a Cancel (its own context: starting the game
+  //      leaves WYRMFIRE running, which the block above must not be given) ----
+  {
+    const ctx = await browser.newContext({ serviceWorkers: 'block' });
+    await ctx.addInitScript(() => { const W = window.Worker; window.__workers = 0; window.Worker = class extends W { constructor(...a) { super(...a); window.__workers++; } }; });
+    const page = await newPage(ctx);
+    await page.goto(`${base}?machine=dragon64`);
+    await started(page);
+    await page.evaluate(() => {
+      window.__reads = 0;
+      for (const m of ['arrayBuffer', 'stream', 'text', 'slice']) {
+        const orig = Blob.prototype[m];
+        if (typeof orig !== 'function') continue;
+        Blob.prototype[m] = function (...a) { window.__reads++; return orig.apply(this, a); };
+      }
+    });
+    await page.setInputFiles('#fileWad', { name: 'P1.WAD', mimeType: 'application/octet-stream', buffer: wadBytes('IWAD', WIDE) });
+    await waitFor(page, () => /^Load your own WAD:/.test(document.getElementById('wyrmLine').textContent), null, 15000);
+    // the shelf starts the game, which replaces the notice; the drop it was asking about must not stick
+    await page.click('#shelf [data-shelf="wyrmfire"]');
+    await page.waitForTimeout(600);
+    await page.evaluate(() => { window.__reads = 0; });
+    await page.setInputFiles('#fileWad', { name: 'P2.WAD', mimeType: 'application/octet-stream', buffer: wadBytes('IWAD', WIDE) });
+    const again = await waitFor(page, () => /^Load your own WAD:/.test(document.getElementById('wyrmLine').textContent)
+      || document.getElementById('wyrmStrip').dataset.state === 'error', null, 15000) && await page.evaluate(() => ({
+      line: document.getElementById('wyrmLine').textContent, reads: window.__reads,
+      buttons: [...document.querySelectorAll('#wyrmBar button')].map((b) => b.textContent),
+      toast: [document.getElementById('toastText').textContent, document.getElementById('toastDetails').textContent].join(' ').trim() }));
+    check('wyrmfire: starting WYRMFIRE while the notice is up settles it as Cancel, so the NEXT WAD shows the notice again (not "One WAD at a time")',
+      again && again.line === T.ownWadNotice && again.reads === 0 && again.buttons.join() === 'Load it,Cancel' && !/One WAD at a time/.test(again.toast),
+      JSON.stringify(again && { reads: again.reads, buttons: again.buttons, toast: again.toast }));
+    await ctx.close();
+  }
+
+  // ---- ?start=wyrmfire: no question; the strip's credits; Share; the palette; offline after one visit ----
+  {
+    const ctx = await browser.newContext();
+    const page = await newPage(ctx);
+    await page.goto(`${base}?start=wyrmfire`);
+    await started(page);
+    check('wyrmfire: ?start=wyrmfire plays at once on the Dragon 64, no question', await playing(page) && await page.evaluate(() => document.getElementById('switchConfirm').hidden)
+      && (await machine(page)).id === 'dragon64');
+    // no arrival card: a ?start= link is a program START, not a shared moment (Session.arrivedFromLink is set only by
+    // openSnapshot). An own-WAD moment cannot be linked at all, so there is no link path to test here.
+    const arrival = await page.evaluate(() => ({ card: document.getElementById('arrival') ? !document.getElementById('arrival').hidden : null,
+      arrived: window.emu.session.arrivedFromLink }));
+    check('wyrmfire: ?start=wyrmfire shows no arrival card (a program start is not a shared moment), and arrivedFromLink is null',
+      arrival.card === false && arrival.arrived === null, JSON.stringify(arrival));
+    // let the engine reach its first in-game picture (Enter skips the title cue)
+    await page.evaluate(() => { const s = window.emu.session; window.__skip = setInterval(() => { s.personMachine.setKey('ENTER', true); setTimeout(() => s.personMachine.setKey('ENTER', false), 200); }, 500); });
+    const ingame = await waitFor(page, () => window.emu.session.readByte(0x200, window.emu.session.personMachine) > 0, null, 30000);
+    await page.evaluate(() => clearInterval(window.__skip));
+    check('wyrmfire: the engine reads the Freedoom level from the disk and draws an in-game picture, health 100', ingame && await page.evaluate(() => window.emu.session.readByte(0x204, window.emu.session.personMachine)) === 100);
+    const st = await strip(page);
+    check('wyrmfire: the strip while it plays: the credits, the Freedoom line with the own-WAD button, the privacy and trademark lines, what is off',
+      st.state === 'playing' && st.text.startsWith(T.credits) && st.text.includes('Playing the Freedoom level. Have DOOM (the 1993 game)? Use your DOOM1.WAD or DOOM.WAD…')
+      && st.text.includes(`${T.privacy} DOOM is a trademark of id Software LLC.`) && st.text.includes(T.guard), st.text);
+    const links = await page.$$eval('#wyrmLine a', (a) => a.map((x) => [x.textContent, x.href]));
+    check('wyrmfire: Source ↗ is the pinned commit, Level from Freedoom ↗ is Freedoom\'s site, "Level data: Freedoom (BSD), modified" is the licence file we serve',
+      JSON.stringify(links) === JSON.stringify([['Source ↗', `${PIN.repo}/tree/${PIN.tag || PIN.commit}`],
+        ['Level from Freedoom ↗', 'https://freedoom.github.io/'],
+        ['Level data: Freedoom (BSD), modified', new URL(PIN.files.freedoomCopying.path, site).href]]), JSON.stringify(links));
+    // the licence file that link points at is served, and is Freedoom's notice (not a 404, not a stub)
+    {
+      const lic = await page.evaluate(async (u) => { const r = await fetch(u); return { ok: r.ok, status: r.status, text: r.ok ? (await r.text()).slice(0, 400) : '' }; },
+        new URL(PIN.files.freedoomCopying.path, site).href);
+      check('wyrmfire: the licence link opens Freedoom\'s BSD notice (served, and the text is Freedoom\'s copyright line)',
+        lic.ok && /Copyright © 2001-2024/.test(lic.text) && /Redistribution and use in source and binary forms/.test(lic.text), JSON.stringify({ ok: lic.ok, status: lic.status }));
+    }
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, 'wyrmfire-playing.png') });
+    check('wyrmfire: the snapshot slots are off, said in their muted line', await page.evaluate(() => document.getElementById('slotNote').textContent === 'Snapshots are off while WYRMFIRE runs.'
+      && [...document.querySelectorAll('#slotList button')].filter((b) => /^Take snapshot/.test(b.getAttribute('aria-label'))).every((b) => b.disabled)));
+    // Share: the link, the note, the Freedoom credit on the files
+    await page.click('#btnShare');
+    await waitFor(page, () => location.hash === '#share' && document.getElementById('shareLink').value !== '');
+    // each option: present, enabled or not, and the reason shown beside it
+    const opts = () => page.evaluate(() => Object.fromEntries([['clip', 'btnShareClip', 'shareClipWhy'], ['shot', 'btnShareShot', 'shareShotWhy'], ['file', 'btnShareDownload', 'shareDownloadWhy']]
+      .map(([k, b, w]) => { const btn = document.getElementById(b), why = document.getElementById(w); return [k, { there: !!btn && btn.isConnected, off: btn.disabled, why: why.hidden ? '' : why.textContent }]; })));
+    const sh = await page.evaluate(() => ({ link: document.getElementById('shareLink').value, note: document.getElementById('shareNote').textContent,
+      when: document.getElementById('shareWhen').textContent, name: document.getElementById('shareName').textContent,
+      prefixHidden: document.getElementById('sharePrefix').hidden, primary: document.getElementById('primaryWhy').textContent,
+      primaryShown: document.getElementById('primaryWhy').checkVisibility(),
+      primaryNote: document.getElementById('primaryNote').textContent, previewShown: !document.getElementById('previewSwitch').hidden }));
+    const o1 = await opts();
+    check('wyrmfire: Share gives ?start=wyrmfire, "Opens WYRMFIRE from the start, with the Freedoom level.", the Freedoom credit',
+      new URL(sh.link).search === '?start=wyrmfire' && !new URL(sh.link).hash && sh.note === 'Opens WYRMFIRE from the start, with the Freedoom level.' && sh.when === 'Level: Freedoom (BSD)', JSON.stringify(sh));
+    // RE-EXPRESSED for the one-link layout: the stage has no #shareLinkLabel. What that label said ("Link", not the
+    // long link) is now carried by the caption ("WYRMFIRE · <machine>", like a program page) and by there being no
+    // short-link switch at all -- this link only starts the game, nothing is uploaded for it.
+    check('wyrmfire: the caption names the game (prefix hidden, "WYRMFIRE · <machine>", as a program page), and there is no short-link switch: this link only starts the game',
+      sh.prefixHidden && /^WYRMFIRE · /.test(sh.name) && !sh.previewShown && sh.primaryNote === '', JSON.stringify({ name: sh.name, prefixHidden: sh.prefixHidden, previewShown: sh.previewShown, primaryNote: sh.primaryNote }));
+    // and no #primaryWhy: a moment shared like a program page shows no reason, and what it WOULD say names a cartridge
+    // nobody plugged in (it is WYRMFIRE's own disk controller). Empty AND not visible: .why is orange and :empty hides
+    // it, so "not visible" is the property that matters, not the string alone.
+    check('wyrmfire: Share shows no #primaryWhy - nothing orange, and no "cartridge plugged in" for a machine nobody put one in',
+      sh.primary === '' && !sh.primaryShown, JSON.stringify({ primary: sh.primary, shown: sh.primaryShown }));
+    // NO PROGRAM MODE for a WYRMFIRE moment: the program card is for a BASIC listing in memory, and WYRMFIRE runs a
+    // binary off a disk. The card is hidden, and no program link (#z= whose first byte is 2) can be produced.
+    const prog1 = await page.evaluate(async () => {
+      let threw = null;
+      try { await window.emu.session.programLink('https://cloadm.dev/play/'); } catch (e) { threw = e.message; }
+      return { card: document.getElementById('programCard') ? !document.getElementById('programCard').hidden : null,
+        heading: document.getElementById('shareHeading').textContent, link: document.getElementById('shareLink').value,
+        shared: window.emu.session.sharedProgram(), threw };
+    });
+    check('wyrmfire: no program mode - the card is absent, the heading says a moment, the link is ?start=wyrmfire, and no program link can be made',
+      prog1.card === false && prog1.heading === 'Share this moment' && /\?start=wyrmfire$/.test(prog1.link)
+      && prog1.shared === null && /no BASIC program/i.test(prog1.threw || ''), JSON.stringify(prog1));
+    // at 375 px, where the reason line and the caption are most likely to wrap or crowd: the state a person sees
+    if (shotDir) {
+      await page.setViewportSize({ width: 375, height: 812 });
+      await page.waitForTimeout(150);
+      await page.screenshot({ path: path.join(shotDir, 'wyrmfire-share-freedoom-375.png') });
+      await page.setViewportSize({ width: 1440, height: 900 });
+    }
+    check('wyrmfire: Share: the snapshot file is still listed, off, with "Snapshots are off while WYRMFIRE runs." beside it; the screenshot and clip are on',
+      o1.file.there && o1.file.off && o1.file.why === 'Snapshots are off while WYRMFIRE runs.' && o1.shot.there && !o1.shot.off && !o1.shot.why && o1.clip.there && !o1.clip.why, JSON.stringify(o1));
+    await page.click('#shareMore summary');
+    const [dl] = await Promise.all([page.waitForEvent('download'), page.click('#btnShareShot')]);
+    const shotPng = fs.readFileSync(await dl.path());
+    check('wyrmfire: the Freedoom screenshot says so: "-freedoom" in its name, "Level: Freedoom (BSD)" in the PNG', /-freedoom\.png$/.test(dl.suggestedFilename())
+      && shotPng.includes(Buffer.from('tEXtComment\0WYRMFIRE Level: Freedoom (BSD)')), dl.suggestedFilename());
+    // Save GIF follows the same rules: on for the Freedoom level, "-freedoom" in its name and the level's credit in its
+    // comment extension (one sub-block, so the text is contiguous in the file)
+    {
+      const gifOn = await page.evaluate(() => ({ off: document.getElementById('btnShareGif').disabled, why: document.getElementById('shareGifWhy').hidden ? '' : document.getElementById('shareGifWhy').textContent }));
+      const [gd] = await Promise.all([page.waitForEvent('download', { timeout: 30000 }), page.click('#btnShareGif')]);
+      const gifBytes = fs.readFileSync(await gd.path());
+      check('wyrmfire: the Freedoom GIF says so: "-freedoom" in its name, "WYRMFIRE Level: Freedoom (BSD)" in its comment',
+        !gifOn.off && !gifOn.why && /-freedoom\.gif$/.test(gd.suggestedFilename()) && gifBytes.subarray(0, 6).toString() === 'GIF89a'
+        && gifBytes.includes(Buffer.from('Recorded in CLOADM. WYRMFIRE Level: Freedoom (BSD)')), `${gd.suggestedFilename()} ${JSON.stringify(gifOn)}`);
+      await waitFor(page, () => !document.getElementById('btnShareGif').disabled);
+      // the forum text: the link starts the game afresh, so it is described as a program page is, never "as I left it"
+      const forum = await page.evaluate(() => ({ md: document.getElementById('forumMarkdown').textContent, bb: document.getElementById('forumBbcode').textContent }));
+      check('wyrmfire: "Copy as text for a forum" carries the ?start=wyrmfire link, "WYRMFIRE in CLOADM, from the start."',
+        /^\[WYRMFIRE in CLOADM, from the start\. Opens in the browser\.\]\([^)]*\?start=wyrmfire\)$/.test(forum.md) && /^\[url=[^\]]*\?start=wyrmfire\]WYRMFIRE in CLOADM, from the start\./.test(forum.bb), JSON.stringify(forum));
+    }
+    await page.goBack();
+    // the palette
+    await page.keyboard.press('Control+k');
+    await waitFor(page, () => !document.getElementById('cmdBox').hidden);
+    await page.keyboard.type('doom');
+    const first = await page.evaluate(() => { const o = document.querySelector('#cmdList [role="option"]'); return o && o.firstChild.textContent; });
+    check('wyrmfire: the palette finds "WYRMFIRE" for "doom"', first === 'WYRMFIRE', first);
+    await page.keyboard.press('Escape');
+    // offline after one visit: the service worker kept everything
+    const kept = await waitFor(page, async () => { const c = await caches.open('cloadm-v1'); const k = (await c.keys()).map((r) => r.url); return k.some((u) => u.endsWith('freedoom-e1m1.vdk')) && k.some((u) => u.endsWith('wyrmfire.bin')); }, null, 30000);
+    check('wyrmfire: the engine and the level are kept for offline use', kept);
+    await ctx.setOffline(true);
+    await page.goto(`${base}?start=wyrmfire`);
+    await started(page);
+    check('wyrmfire: offline after one visit, ?start=wyrmfire boots it from the kept copy', await playing(page) && (await machine(page)).wyrm.level === 'freedoom');
+    await ctx.setOffline(false);
+    await ctx.close();
+  }
+
+  // ---- the link's conflicts ----
+  {
+    const ctx = await browser.newContext({ serviceWorkers: 'block' });
+    const page = await newPage(ctx);
+    await page.goto(`${base}?start=wyrmfire&machine=coco3`);
+    await waitFor(page, () => window.emu && window.emu.linkDone, null, 20000);
+    check('wyrmfire: ?start=wyrmfire&machine=coco3 says so on the status line, and plays on the Dragon 64', /machine=coco3 is ignored: start=wyrmfire runs on the Dragon 64/.test(await page.textContent('#toast'))
+      && await playing(page) && (await machine(page)).id === 'dragon64', await page.textContent('#toast'));
+    await page.goto(`${base}?start=wyrmfire&app=claude`);
+    await waitFor(page, () => window.emu && window.emu.linkDone, null, 20000);
+    check('wyrmfire: ?start=wyrmfire&app=claude says so, and the chat opens instead', /start=wyrmfire is ignored: app=claude opens instead/.test(await page.textContent('#toast'))
+      && !(await machine(page)).wyrm, await page.textContent('#toast'));
+    await ctx.close();
+  }
+
+  // ---- the person's own WAD: refusals in the page's words; a level standing for theirs ----
+  {
+    const ctx = await browser.newContext({ serviceWorkers: 'block' });
+    const page = await newPage(ctx);
+    await page.goto(`${base}?machine=dragon64`);
+    await started(page);
+    await stubPrompt(page);
+    check('wyrmfire: Your ROMs -> "Your game files": none yet, the button, the privacy and trademark line', await page.evaluate((t) => document.getElementById('gameFileList').textContent === 'None yet.'
+      && document.getElementById('btnGameWad').textContent === 'Use your DOOM1.WAD or DOOM.WAD…' && document.getElementById('gamePrivacy').textContent === `${t} DOOM is a trademark of id Software LLC.`, T.privacy));
+    check('wyrmfire: the drop overlay carries the privacy line too', await page.evaluate((t) => document.getElementById('dropWadPrivacy').textContent.startsWith(t), T.privacy));
+    const pick = async (name, buffer) => {
+      await page.setInputFiles('#fileWad', { name, mimeType: 'application/octet-stream', buffer });
+      // Wait for EITHER the notice or an error, bounded: a single read here would race the page's own frame and is
+      // the kind of thing that passes locally and flakes in CI. A big file is refused before the notice shows.
+      await waitFor(page, () => /^Load your own WAD:/.test(document.getElementById('wyrmLine').textContent)
+        || document.getElementById('wyrmStrip').dataset.state === 'error', null, 20000);
+      // a file the size check refuses never reaches the notice; anything else shows it first, so agree to it here
+      const noticed = await page.evaluate(() => /^Load your own WAD:/.test(document.getElementById('wyrmLine').textContent));
+      if (noticed) await page.click('#wyrmBar button:text-is("Load it")');
+      await waitFor(page, () => document.getElementById('wyrmStrip').dataset.state === 'error', null, 20000);
+      // (the toast puts a message's first sentence first and the rest under Details: both are read)
+      return { strip: await page.textContent('#wyrmLine'), toast: await page.evaluate(() => [document.getElementById('toastText').textContent, document.getElementById('toastDetails').textContent].join(' ').trim()) };
+    };
+    const cases = [
+      ['notes.wad', Buffer.from('PK\x03\x04 not a wad at all'), 'That isn\'t a WAD file.'],
+      ['ADDON.WAD', wadBytes('PWAD', [['E1M1', Buffer.alloc(0)]]), 'That\'s an add-on. WYRMFIRE needs the main game file (DOOM1.WAD or DOOM.WAD).'],
+      ['DOOM2.WAD', wadBytes('IWAD', [['PLAYPAL', Buffer.alloc(768)], ['MAP01', Buffer.alloc(0)]]), 'This WAD has no E1M1. WYRMFIRE plays the first level of DOOM\'s episode 1.'],
+      ['WIDE.WAD', wadBytes('IWAD', WIDE), 'E1M1 in this WAD is too much for the Dragon\'s memory. The Freedoom level still works.'],
+    ];
+    for (const [name, buffer, want] of cases) {
+      const r = await pick(name, buffer);
+      check(`wyrmfire: ${name}: "${want}" in the strip and a toast; nothing starts`, r.strip === want && r.toast === want && !(await machine(page)).wyrm, JSON.stringify(r));
+    }
+    // too big: a file over the limit is refused before it is read (a sparse 41 MB of zeros, never a real WAD)
+    const big = await pick('BIG.WAD', Buffer.alloc(41 * 1024 * 1024));
+    check('wyrmfire: a file over 40 MB: "Too big to convert here (over 40 MB)."', big.strip === 'Too big to convert here (over 40 MB).', JSON.stringify(big));
+    // Cancel at the notice converts nothing, starts nothing and READS nothing: no worker, no error, no File read
+    {
+      await page.evaluate(() => {
+        window.__reads = 0;
+        if (!window.__readSpy) {
+          window.__readSpy = true;
+          for (const m of ['arrayBuffer', 'stream', 'text', 'slice']) {
+            const orig = Blob.prototype[m];
+            if (typeof orig !== 'function') continue;
+            Blob.prototype[m] = function (...a) { window.__reads++; return orig.apply(this, a); };
+          }
+        }
+      });
+      await page.setInputFiles('#fileWad', { name: 'MINE.WAD', mimeType: 'application/octet-stream', buffer: wadBytes('IWAD', WIDE) });
+      await waitFor(page, () => /^Load your own WAD:/.test(document.getElementById('wyrmLine').textContent), null, 15000);
+      const before = await page.evaluate(() => ({ workers: window.__workers, reads: window.__reads }));
+      await page.click('#wyrmBar button:text-is("Cancel")');
+      await page.waitForTimeout(300);
+      const after = await page.evaluate(() => ({ workers: window.__workers, reads: window.__reads, state: document.getElementById('wyrmStrip').dataset.state,
+        hidden: document.getElementById('wyrmStrip').hidden, wyrm: !!window.emu.session.wyrmfireState }));
+      check('wyrmfire: Cancel at the own-WAD notice reads nothing, converts nothing: 0 File reads at the notice and 0 after, no worker, no error, nothing playing',
+        before.reads === 0 && after.reads === 0 && after.workers === before.workers && after.state !== 'error' && !after.wyrm && after.hidden,
+        JSON.stringify({ before, after }));
+    }
+    // a drop anywhere: the same path
+    await page.evaluate((bytes) => {
+      const dt = new DataTransfer();
+      dt.items.add(new File([new Uint8Array(bytes)], 'ADDON2.WAD'));
+      window.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }));
+    }, [...wadBytes('PWAD', [['E1M1', Buffer.alloc(0)]])]);
+    await waitFor(page, () => /^Load your own WAD:/.test(document.getElementById('wyrmLine').textContent));
+    await page.click('#wyrmBar button:text-is("Load it")');
+    await waitFor(page, () => /add-on/.test(document.getElementById('wyrmLine').textContent));
+    check('wyrmfire: a .wad dropped on the page goes to WYRMFIRE (an add-on, refused), not to the Library or the recent list',
+      await page.evaluate(async () => !window.emu.session.library.recentMedia().length && !(await window.emu.session.library.listMedia()).length));
+    if (shotDir) await page.locator('#wyrmStrip').screenshot({ path: path.join(shotDir, 'wyrmfire-wad-error.png') });
+
+    // a level standing for one converted from the person's own WAD (the Freedoom disk, started as theirs)
+    await page.evaluate(async () => {
+      const get = async (p) => new Uint8Array(await (await fetch(p)).arrayBuffer());
+      const s = window.emu.session, eng = await get('examples/wyrmfire/wyrmfire.bin'), lvl = await get('examples/wyrmfire/freedoom-e1m1.vdk');
+      window.__kept = await s.saveGameFile(lvl, 'DOOM1.WAD');
+      s.startWyrmfire(eng, lvl, { level: 'user', name: 'DOOM1.WAD' });
+    });
+    await playing(page);
+    const st = await strip(page);
+    check('wyrmfire: own WAD: the strip says whose level it is, with the way back to Freedoom', st.text.includes('Playing E1M1 from your DOOM1.WAD. Play the Freedoom level'), st.text);
+    // neither Freedoom part is in this line: the level loaded is the person's, so naming Freedoom as its source or its
+    // licence would misattribute their data. (Same reason the Share card says nothing there.)
+    check('wyrmfire: own WAD: the strip carries neither Freedoom credit nor its licence link - that level is not Freedoom\'s',
+      st.text.startsWith(T.creditsOwn) && !st.text.includes('Level from Freedoom ↗') && !st.text.includes('Level data: Freedoom (BSD), modified'), st.text);
+    check('wyrmfire: own WAD: kept in "Your game files" (the level and the file\'s name), with Play and Remove; not in the Library or the recent list',
+      await page.evaluate(() => window.__kept.kept) && await waitFor(page, () => /^WYRMFIRE level · from DOOM1\.WAD · 720 KB/.test(document.getElementById('gameFileList').textContent))
+      && await page.evaluate(async () => [...document.querySelectorAll('#gameFileList button')].map((b) => b.textContent).join() === 'Play,Remove'
+        && !(await window.emu.session.library.listMedia()).length && !window.emu.session.library.recentMedia().length));
+    const reads = await page.evaluate(() => ['screen_text', 'peek', 'disassemble'].map((n) => { try { window.emu.Emu.runReadOnlyTool(window.emu.session.chatTarget(), n, { address: 0x0C00 }); return 'read'; } catch (e) { return e.message; } }));
+    check('wyrmfire: own WAD: Claude\'s screen_text, peek and disassemble refuse with the reason', reads.every((r) => r.includes(T.reads)), JSON.stringify(reads));
+    check('wyrmfire: own WAD: the settings export has none of it', await page.evaluate(() => !/WYRMFIRE|DOOM1|games\//.test(JSON.stringify(window.emu.session.exportSettings()))));
+    // the DOWNLOAD ACTION the drives panel calls (Session.drives.download), on the live page's own Session and its own
+    // level disk: the refusal is not only in a Node fixture. (This calls the action, not the button; the button's click
+    // path is the drives group's.)
+    {
+      const dl = await page.evaluate(async () => { try { await window.emu.session.drives.download(0); return 'DOWNLOADED'; } catch (e) { return e.message; } });
+      check('wyrmfire: own WAD: the drives panel\'s Download action refuses the level disk on the live page, and says why',
+        /converted from your own WAD: it stays in this browser's "Your game files"/.test(dl), dl);
+    }
+    await page.click('#btnShare');
+    await waitFor(page, () => location.hash === '#share' && document.getElementById('shareLink').value !== '');
+    const sh = await page.evaluate(() => Object.fromEntries([['clip', 'btnShareClip', 'shareClipWhy'], ['shot', 'btnShareShot', 'shareShotWhy'], ['file', 'btnShareDownload', 'shareDownloadWhy']]
+      .map(([k, b, w]) => { const btn = document.getElementById(b), why = document.getElementById(w); return [k, { there: !!btn && btn.isConnected, off: btn.disabled, why: why.hidden ? '' : why.textContent }]; })));
+    const link = await page.evaluate(() => document.getElementById('shareLink').value);
+    check('wyrmfire: own WAD: Share gives ?start=wyrmfire (the Freedoom level); the clip, screenshot and snapshot file are all listed, off, each with its reason beside it',
+      new URL(link).search === '?start=wyrmfire' && sh.clip.there && sh.clip.off && sh.clip.why === T.clips && sh.shot.there && sh.shot.off && sh.shot.why === T.clips
+      && sh.file.there && sh.file.off && sh.file.why === 'Snapshots are off while WYRMFIRE runs.', JSON.stringify(sh));
+    // Save GIF is off the same way, its reason beside it; clicked anyway it makes nothing; the forum text drops its GIF hint
+    {
+      const g = await page.evaluate(() => ({ off: document.getElementById('btnShareGif').disabled, why: document.getElementById('shareGifWhy').hidden ? '' : document.getElementById('shareGifWhy').textContent,
+        hint: document.getElementById('forumGifHint').hidden }));
+      let made = 0; const count = () => { made++; };
+      page.on('download', count);
+      await page.evaluate(() => document.getElementById('btnShareGif').click());
+      await page.waitForTimeout(7000);
+      page.off('download', count);
+      check('wyrmfire: own WAD: Save GIF is listed, off, with the same reason beside it; clicked anyway it saves nothing; the forum GIF hint is gone',
+        g.off && g.why === T.clips && g.hint && made === 0, JSON.stringify({ g, made }));
+    }
+    // the line under the picture: no credit here. "Level: Freedoom (BSD)" would name a level that is not Freedoom's
+    // (the person's WAD), which is also why there is no picture; and the link only starts the game, so "Link".
+    const own = await page.evaluate(() => { const when = document.getElementById('shareWhen'); return { when: when.textContent, shown: when.checkVisibility(),
+      name: document.getElementById('shareName').textContent, prefixHidden: document.getElementById('sharePrefix').hidden,
+      previewShown: !document.getElementById('previewSwitch').hidden, primary: document.getElementById('primaryWhy').textContent,
+      primaryShown: document.getElementById('primaryWhy').checkVisibility() }; });
+    check('wyrmfire: own WAD: Share shows no Freedoom credit (that level is not Freedoom\'s), and the caption names the game with no short-link switch',
+      own.when === '' && own.prefixHidden && /^WYRMFIRE · /.test(own.name) && !own.previewShown, JSON.stringify(own));
+    check('wyrmfire: own WAD: Share shows no #primaryWhy either - nothing orange, and not the own-WAD refusal sentence',
+      own.primary === '' && !own.primaryShown, JSON.stringify({ primary: own.primary, shown: own.primaryShown }));
+    // the picture area: no picture of the person's level (id Software's game data), and the frame SAYS so rather than
+    // showing an empty dark box under a caption that claims a captured picture
+    const nopic = await page.evaluate(() => { const f = document.getElementById('shareFrame'), n = document.getElementById('shareNoPicture');
+      const c = document.getElementById('sharePicture');
+      return { nopic: f.classList.contains('nopic'), text: n.textContent, shown: !n.hidden && n.checkVisibility(),
+        canvasHidden: !c.checkVisibility(), label: c.getAttribute('aria-label') }; });
+    check('wyrmfire: own WAD: no program mode either - no card, the heading says a moment, the link is still ?start=wyrmfire',
+      await page.evaluate(() => ({ card: document.getElementById('programCard') ? !document.getElementById('programCard').hidden : null,
+        heading: document.getElementById('shareHeading').textContent, link: document.getElementById('shareLink').value }))
+        .then((p) => p.card === false && p.heading === 'Share this moment' && /\?start=wyrmfire$/.test(p.link)), 'program mode');
+    check('wyrmfire: own WAD: the preview says there is no picture (not a blank dark box), and the canvas is not shown to a reader',
+      nopic.nopic && nopic.shown && /No picture: this moment is your own WAD/.test(nopic.text) && nopic.canvasHidden, JSON.stringify(nopic));
+    if (shotDir) {
+      await page.setViewportSize({ width: 375, height: 812 });
+      await page.waitForTimeout(150);
+      await page.screenshot({ path: path.join(shotDir, 'wyrmfire-share-own-375.png') });
+      await page.click('#shareMore summary');
+      await page.screenshot({ path: path.join(shotDir, 'wyrmfire-share-own.png') });
+      await page.setViewportSize({ width: 1440, height: 900 });
+    }
+    await page.goBack();
+    await page.evaluate(() => document.querySelector('#gameFileList button:nth-of-type(2)').click());
+    check('wyrmfire: Remove takes the level out of "Your game files"', await waitFor(page, () => document.getElementById('gameFileList').textContent === 'None yet.'));
+    await ctx.close();
+  }
+
+  // ---- a phone: Pad with FIRE and USE; the one-time hint upright ----
+  {
+    const ctx = await browser.newContext({ serviceWorkers: 'block', viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+    const page = await newPage(ctx);
+    await page.goto(`${base}?start=wyrmfire`);
+    await started(page);
+    await playing(page);
+    const pad = await waitFor(page, () => document.getElementById('touchKeys').dataset.mode === 'pad') && await page.evaluate(() => ({
+      big: [...document.querySelectorAll('#touchPad .padbig .tk')].map((b) => `${b.textContent}:${b.dataset.key}`), extra: [...document.querySelectorAll('#touchPad .padextra .tk')].map((b) => b.dataset.key) }));
+    check('wyrmfire: a phone opens on Pad: FIRE (Space) and USE (E) as the big buttons, Z X 1 2 3 among the keys', pad && pad.big.join() === 'FIRE:SPACE,USE:E' && pad.extra.join() === 'Z,X,1,2,3', JSON.stringify(pad));
+    check('wyrmfire: upright, the one-time hint "Turn sideways for a bigger view"', await waitFor(page, () => /Turn sideways for a bigger view/.test(document.getElementById('toast').textContent)));
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, 'wyrmfire-phone.png') });
+    await ctx.close();
+  }
+  // ---- Help -> WYRMFIRE: the licences, the Freedoom disk to keep (never a level of the person's own), the facts ----
+  {
+    const ctx = await browser.newContext({ serviceWorkers: 'block' });
+    const page = await newPage(ctx);
+    await page.goto(`${site}help/#wyrmfire`);
+    const h = await page.evaluate(() => {
+      const sec = document.getElementById('wyrmfire').closest('section');
+      return { links: [...sec.querySelectorAll('a')].map((a) => [a.textContent, new URL(a.href).pathname, a.getAttribute('download')]), text: sec.innerText.replace(/\s+/g, ' '),
+        credit: document.getElementById('wyrmCredit').textContent };
+    });
+    const has = (p, dl) => h.links.some(([, path, d]) => path === `/${p}` && (dl === undefined || d === dl));
+    check('wyrmfire: Help links the GPL and Freedoom\'s licence and credits', has(PIN.files.licence.path) && has(PIN.files.freedoomCopying.path) && has(PIN.files.freedoomCredits.path) && has(PIN.files.freedoomMusic.path), JSON.stringify(h.links));
+    check('wyrmfire: Help offers the Freedoom disk as .vdk and .dsk downloads, with the engine', has(PIN.files.level.path, 'WYRMFIRE-freedoom-e1m1.vdk') && has(PIN.files.levelDsk.path, 'WYRMFIRE-freedoom-e1m1.dsk') && has(PIN.files.engine.path, 'WYRMFIRE.BIN'));
+    check('wyrmfire: Help\'s downloads are only the pinned files (never a level of the person\'s own WAD, never anything from Your game files)',
+      h.links.filter(([, , d]) => d !== null).every(([, p]) => Object.values(PIN.files).some((f) => `/${f.path}` === p)) && !h.links.some(([, p]) => /games\//.test(p)), JSON.stringify(h.links));
+    for (const f of [PIN.files.level, PIN.files.levelDsk]) {
+      const got = await page.evaluate(async (p) => { const b = new Uint8Array(await (await fetch(`../${p}`)).arrayBuffer()); return [...new Uint8Array(await crypto.subtle.digest('SHA-256', b))].map((x) => x.toString(16).padStart(2, '0')).join(''); }, f.path);
+      check(`wyrmfire: Help's ${f.path.split('.').pop()} download is the pinned file`, got === f.sha256, got);
+    }
+    check('wyrmfire: Help: the Freedoom credit (one constant), "Untested on real hardware", the facts and where the speed was measured',
+      h.credit === require('../js/wyrmfire/pin.js').FREEDOOM_CREDIT && /Untested on real hardware\./.test(h.text) && /It plays one level: map E1M1/.test(h.text)
+      && /measured in CLOADM headless/.test(h.text) && /DOOM is a trademark of id Software LLC\./.test(h.text), h.text.slice(0, 300));
+    await ctx.close();
+  }
+  check('wyrmfire: no page errors', !errors.length, errors.join('; '));
+}
+
 async function pwaChecks(browser, site, check) {
   const ctx = await browser.newContext();
   const page = await ctx.newPage();
@@ -11877,7 +12462,7 @@ async function uiCopyChecks(browser, base, check) {
   // deep links: a short toast, naming what happened
   {
     for (const [url, re, what] of [['?machine=nosuch', /^This link has a setting CLOADM can't use: machine=nosuch: no such machine \(opened Dragon 64 instead\)$/, 'machine=nosuch'],
-      ['?start=bogus', /^This link has a setting CLOADM can't use: start=bogus isn't a start CLOADM has \(welcome, liza, 2048, minesweeper\)$/, 'start=bogus']]) {
+      ['?start=bogus', /^This link has a setting CLOADM can't use: start=bogus isn't a start CLOADM has \(welcome, liza, 2048, minesweeper, wyrmfire\)$/, 'start=bogus']]) {
       const { ctx, page, errors } = await open({ width: 1280, height: 720 }, url);
       await started(page);
       await waitFor(page, () => window.emu.linkDone === true && document.getElementById('toastText').textContent !== '', null, 15000);
@@ -16877,6 +17462,23 @@ async function shareChecks(browser, base, site, check) {
       } finally { Date.now = now; }
     });
     check('share: three minutes later the card says "captured 3 minutes ago"', later === 'captured 3 minutes ago', later);
+    // and with no reopen in between: the 15-second refresh says it again on its own, while the screen stays open.
+    // The hash is NOT touched here, so show() never runs; the setInterval is the only thing that can rewrite this
+    // line. Date.now is frozen past the interval and the wait is longer than one tick, so a passing read means a
+    // tick happened. (If the interval were removed this line would keep whatever it said and the wait would time out.)
+    const ticked = await page.evaluate(async () => {
+      const now = Date.now;
+      Date.now = () => now() + 9 * 60000;
+      try {
+        const until = performance.now() + 25000;
+        while (performance.now() < until && document.getElementById('shareWhen').textContent !== 'captured 9 minutes ago') {
+          await new Promise((r) => setTimeout(r, 100));
+        }
+        return { when: document.getElementById('shareWhen').textContent, open: location.hash };
+      } finally { Date.now = now; }
+    });
+    check('share: with the screen left open, the 15-second refresh alone moves the card to "captured 9 minutes ago" - the interval is what refreshed it, not a reopen',
+      ticked.open === '#share' && ticked.when === 'captured 9 minutes ago', JSON.stringify(ticked));
     const link = await page.inputValue('#shareLink');
     check('share: the link points at /play/ with this machine, the snapshot in the fragment (#z=)', /\/play\/\?machine=dragon64(&[a-z]+=[^&#]*)*#z=[A-Za-z0-9_-]{1000,}$/.test(link), link.slice(0, 80));
     const ctx2 = await browser.newContext({ serviceWorkers: 'block' });
@@ -16992,20 +17594,6 @@ async function shareChecks(browser, base, site, check) {
     console.log(`   (GIF size, ${label}: ${gif.bytes} bytes, ${gif.frames} frames, ${gif.w}x${gif.h})`);
     check(`share (${label}): the buttons are back once the GIF is saved`, await waitFor(page, () => !document.getElementById('btnShareGif').disabled && document.getElementById('btnShareGif').textContent === 'Save GIF'
       && document.getElementById('btnShareGif').title === 'Save 6-second GIF'));
-    // a WAD of the person's own loaded: the clip and the GIF are refused, the reason on each button
-    await page.evaluate(() => { const s = window.emu.session; s.lastLoaded = { name: 'MYLEVELS.WAD', bytes: Uint8Array.from([0x50, 0x57, 0x41, 0x44, 0]) }; s.emit('loaded'); });
-    const refused = await page.evaluate(() => ['btnShareClip', 'btnShareGif'].map((id) => [document.getElementById(id).disabled, document.getElementById(id).textContent]));
-    check(`share (${label}): with your own WAD loaded, the clip and the GIF are disabled with the reason shown`,
-      JSON.stringify(refused) === JSON.stringify([[true, 'Clip: A WAD of your own is loaded: CLOADM doesn\'t record it'], [true, 'GIF: A WAD of your own is loaded: CLOADM doesn\'t record it']]), JSON.stringify(refused));
-    if (label === 'desktop') {
-      // Freedoom: recorded, with its credit in the file name and the GIF's comment
-      await page.evaluate(() => { const s = window.emu.session; s.lastLoaded = { name: 'freedoom2.wad', bytes: Uint8Array.from([0x49, 0x57, 0x41, 0x44, 0]) }; s.emit('loaded'); });
-      const [fd] = await Promise.all([page.waitForEvent('download', { timeout: 30000 }), page.click('#btnShareGif')]);
-      const fg = gifInfo(fs.readFileSync(await fd.path()));
-      check('share: a Freedoom GIF carries the Freedoom credit in its file name and its comment', /-Freedoom\.gif$/.test(fd.suggestedFilename()) && /Freedoom \(freedoom\.github\.io\)/.test(fg.comment),
-        `${fd.suggestedFilename()} ${fg.comment}`);
-    }
-    await page.evaluate(() => { const s = window.emu.session; s.lastLoaded = null; s.emit('loaded'); });
     await openDisc(page, 'shareForum');
     check(`share (${label}): "Copy for a forum" says to attach the GIF, and still holds no image tag`, await page.textContent('#forumGifHint') === 'Attach the GIF from Save GIF to show it in your post.');
 
@@ -22060,6 +22648,7 @@ const GROUPS = (base, site) => [
   ['askPopout', (b) => askPopoutChecks(b, site, check)],
   ['armGuard', (b) => armGuardChecks(b, base, check)],
   ['pwa', (b) => pwaChecks(b, site, check)],
+  ['wyrmfire', (b) => wyrmfireChecks(b, site, check)],
   ['install', (b) => installChecks(b, base, check)],
   ['settings', (b) => settingsChecks(b, base, check)],
   ['backFocus', (b) => backFocusChecks(b, base, check)],

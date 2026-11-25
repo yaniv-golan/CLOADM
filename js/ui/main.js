@@ -20,6 +20,7 @@ import { setupRomPanel } from './rom-panel.js';
 import { setupRomSockets } from './rom-sockets.js';
 import { setupBootHelp } from './boot-help.js';
 import { setupWelcome } from './welcome.js';
+import { setupWyrmfire } from './wyrmfire.js';
 import { setupKeyHint } from './key-hint.js';
 import { setupMediaPanel } from './media-panel.js';
 import { setupDrives } from './drives.js';
@@ -124,6 +125,8 @@ addEventListener('pagehide', () => { session.drives.flush(); session.index.flush
 document.addEventListener('visibilitychange', () => { if (document.hidden) { session.drives.flush(); session.index.flush().catch(() => {}); } });
 window.emu.storageChoices = availableChoices();
 const machinePanel = setupMachinePanel(page, { showRoms: () => romSockets.reveal() });
+// WYRMFIRE (js/ui/wyrmfire.js): the shelf, the palette and ?start=wyrmfire start it through page.wyrmfire
+page.wyrmfire = setupWyrmfire(page, { confirmSwitch: machinePanel.confirmSwitch });
 setupPokePanel(page);
 setupPrinterPanel(page);
 setupSerialPanel(page);

@@ -406,6 +406,9 @@ export class FloppyDrive {
     for (const k of ATTO_STATE) s[k] = toText(this[k]);
     if (this.image) {
       s.media = { bytes: this.media.bytes.slice(), format: this.media.format, name: this.media.name || '', writeProtected: !!this.media.writeProtected };
+      // a game's level disk says whose it is (Session.startWyrmfire: 'freedoom', or 'user' for one converted from the
+      // person's own WAD), so a restore point put back keeps it out of downloads and Claude's reads
+      if (this.media.gameData) s.media.gameData = this.media.gameData;
       const kept = this.mountBytes;
       if (kept) s.mountBytes = kept.slice();
       // The geometry as mounted. It has to be saved rather than derived again on restore: an OS-9 image's geometry
@@ -428,6 +431,7 @@ export class FloppyDrive {
       const from = s.mountBytes || s.media.bytes;
       const bytes = from.slice();
       const media = { bytes, format: s.media.format, name: s.media.name, writeProtected: s.media.writeProtected, onWrite };
+      if (s.media.gameData) media.gameData = s.media.gameData;
       this.media = media;
       // decided when the snapshot was taken: a snapshot carries mountBytes exactly when they are needed
       this.keptBytes = s.mountBytes ? s.mountBytes.slice() : null;

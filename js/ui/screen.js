@@ -1,5 +1,6 @@
 /* The screen: the frame loop, host input (keyboard, gamepads, the mouse), drag and drop, and the run controls. */
 import { $ } from './page.js';
+import { wadOf } from './files.js';
 import { CanvasPresenter, GlPresenter } from '../video/canvas.js';
 import { fitPicture, fitActive } from '../video/layout.js';
 import { HostInput } from '../host/input.js';
@@ -236,7 +237,12 @@ export function setupScreen(page, { loadPrograms, roms }) {
     if (e.defaultPrevented) return;
     if (!files(e) && !(e.dataTransfer && e.dataTransfer.items)) return;
     e.preventDefault();
-    try { await roms.take(await roms.droppedFiles(e.dataTransfer), { onPrograms: loadPrograms }); }
+    try {
+      const list = await roms.droppedFiles(e.dataTransfer), wad = wadOf(list);
+      // a .wad is the person's own WAD for WYRMFIRE: converted here, never loaded or stored as a file
+      if (wad && page.takeWad) { await page.takeWad(wad); return; }
+      await roms.take(list, { onPrograms: loadPrograms });
+    }
     catch (err) { page.status(`That drop could not be read: ${err.message}`, true); }
   });
 

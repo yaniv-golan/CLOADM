@@ -101,6 +101,21 @@ function everything(text) {
   const { bugReportText } = await import('../js/bugreport.js');
   const noted = bugReportText({ stamp: 'v1 · abc1234', machine: { id: 'coco3', name: 'CoCo 3' }, options: {}, roms: {}, browser: 'B', file: null, snapshot: null, snapshotNote: 'not included (NitrOS-9)' });
   check('a snapshot that cannot be included says why', noted.includes('Snapshot: not included (NitrOS-9)') && noted.includes('Version: v1 · abc1234'));
+  // WYRMFIRE with a level converted from the person's own WAD (the Freedoom disk started as level 'user', as
+  // tests/wyrmfire-session.test.js does: no id Software data here): the report, asked for its snapshot, carries none
+  // (Session.shareFile refuses a WYRMFIRE moment), never the WAD's name, and no 16-byte window of the level disk
+  {
+    const { WYRMFIRE_PIN: PIN } = require('../js/wyrmfire/pin.js');
+    const engine = new Uint8Array(fs.readFileSync(path.join(__dirname, '..', PIN.files.engine.path)));
+    const level = new Uint8Array(fs.readFileSync(path.join(__dirname, '..', PIN.files.level.path)));
+    const ws = new Emu.Session({ welcomeMenu: false });
+    ws.startWyrmfire(engine, level, { level: 'user', name: 'MYDOOM-PLANTED.WAD' });
+    ws.runFrames(5);
+    const w = await ws.bugReport({ snapshot: true });
+    check('WYRMFIRE, own WAD: the report says its snapshot is not included, and why', w.parts.snapshot === null && /^not included \(Snapshots are off while WYRMFIRE runs\.\)$/.test(w.parts.snapshotNote), w.parts.snapshotNote);
+    check('WYRMFIRE, own WAD: the report never names the WAD, and holds no part of the level disk',
+      !/MYDOOM|PLANTED/i.test(w.text) && !everything(w.text).some((b) => hasWindow(b, windows([level]))), w.text);
+  }
   process.exitCode = fail ? 1 : 0;
   console.log(fail ? `${fail} FAILED` : 'all passed');
 })();
