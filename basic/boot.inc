@@ -33,8 +33,6 @@ RESET   ORCC    #$50            ; no interrupts while setting up
         STA     PIA1B
         LDA     #$34            ; CB2 (sound) low, data register, CB1 interrupt off
         STA     PIA1CB
-        LDA     #$80            ; the DAC at its middle
-        STA     PIA1A
 * SAM: the text screen at $0400, 64K RAM
         STA     SAMF1S
         STA     SAMM1S

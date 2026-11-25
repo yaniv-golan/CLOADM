@@ -310,33 +310,41 @@ last point (128,96 at cold start).
 |---|---|
 | `A`-`G` | a note, with `#` or `+` (sharp) or `-` (flat) after it |
 | `N n` | note n, 1-12, in the current octave (the `N` may be left out) |
-| `O n` | octave 1-5 (default 2) |
-| `L n` | length: 1/n of a whole note (default 4); `.` after a note or a length makes it half as long again |
+| `O n` | octave 1-5 (the manual: default 2; measured: the first `PLAY`'s notes are octave 3's [BB]); `O+`, `O-` one up or down |
+| `L n` | length: 1/n of a whole note (default 4); `.` after the length makes it half as long again |
 | `T n` | tempo 1-255 (default 2); higher is faster |
 | `V n` | volume 1-31 (default 15) |
 | `P n` | a pause of length 1/n |
 | `X var$;` | run a substring |
 
-The defaults are [UM]; whether they persist from one `PLAY` to the next is BB (ours: they persist until `RUN` or
-cold start).
+The defaults are [UM] (the octave [BB]); they persist from one `PLAY` to the next until `RUN` or cold start [BB bb2
+`snd-play-persist`].
 
-**Pitch** [OWN, BB]: equal temperament, a semitone the twelfth root of 2, anchored on octave 2's A (`NOTEA`, in
-1/100 Hz: 440 Hz until the black-box measure gives the original's). The note table (`NTPER`, 24 bytes) holds the
-periods of octave 5's twelve notes in CPU cycles at the Dragon 64's 888,625 cycles a second (14.218 MHz / 16 [HW: the
-PAL timing in `sam.js`]), each rounded to the cycle by the assembler from `NOTEA` and 2^(k/12) written as a 16-bit
-fraction; an octave down doubles the period (a shift), so octaves are exact and every note is within 0.2% of equal
-temperament (0.5% is the comparison's tolerance). The tone loop plays any period exactly to the cycle (section 7).
+**Pitch** [OWN, BB]: equal temperament from one anchor, rounded on a grid of cycles, which reproduces every one of the
+45 measured periods (`snd-play-pitch`: the seven naturals of octaves 1-5, the sharps of octave 2 and the flats of
+octave 3) to the cycle. The anchor (`NOTEA`) is octave 3's A at 440 Hz for a 894,886 Hz CPU clock (the NTSC
+machines'): its period is 894,886 / 440 = 2,033.8 cycles, 435.0 Hz on the Dragon 64's 888,625 [HW: the PAL timing in
+`sam.js`]; the measures allow 2,033.53 to 2,033.89. The note table (`NTPER`, 24 bytes) holds octave 1's twelve notes as
+4 x the period (`NOTEP` x 2^((9-k)/12) / 4, rounded by the assembler from 2^((9-k)/12) as a 16-bit fraction); octave o
+takes it shifted right o - 1 times, adds `PRND` (10 cycles), divides by 4 and rounds down to its grid, then adds a
+constant: a grid of 20 cycles plus 3 for octaves 3-5 (`NGR3`, `NAD3`), 32 plus 11 for octaves 1-2 (`NGR1`, `NAD1`).
+Every period is within one step of its grid of equal temperament. The measured period of octave 1's C to G is 104 cycles longer than
+the formula's: those periods are longer than half a field, so most of them hold the field interrupt and the median is
+an interrupted one (the original's interrupt takes 104 cycles there, ours 66: ours measures 38 cycles, 0.3-0.4%, under
+the original's, inside the comparison's 0.5%). The tone loop plays any period exactly to the cycle (section 7).
 
-**Length and tempo** [UM, OWN]: a note lasts W / (L x T), with dots adding half, then a quarter, and so on: `PLAYW`
-is W in units of 256 cycles (13,885: 4 s for a whole note at `T1`, so the default `L4 T2` is half a second) until the
-black-box durations fit it. `PLAY` divides `PLAYW` by L x T (a 16-bit restoring division), adds the dots and hands the
-tone loop a count in cycles; the loop takes each period from the count and stops when the next would not fit, so a note
-is exact to within one of its periods, with nothing counted in fields (decision 4: the interim field countdown was
-never built). Whether `TIMER` counts during a note is one equate, `SNDMSK` (section 7).
+**Length and tempo** [UM, BB]: a note lasts `PLAYW` / (L x T) fields, rounded down, a length's dots adding half, then a
+quarter, and so on, and at most 255 fields: `PLAYW` is 256 (a whole note at `T1` 5.12 s on the Dragon's 50 Hz). The
+original counts fields: each measured length falls between n - 1 and n fields for n = 256 / (L x T) (`snd-play-length`
+`L1`-`L64` at `T2`, `T1`-`T255` at `L4`), `TIMER` counts on through notes (`snd-timer`: 128 after four `L4` notes) and
+`T1 L1` lasts 255 fields, not 256 (`snd-timer` `break-play`). `PLAY` divides `PLAYW` by L x T (a 16-bit restoring
+division) and adds the dots; the tone loop stops at the end of the period in which `TIMER` reaches its starting value
+plus the count (section 7). A note of 0 fields (`T255 L4`) still plays three periods (the original about two).
 
-**Volume** [OWN]: the wave swings around the DAC's middle (`VMID`, 32): high 32 + V, low 32 - V on the 6-bit DAC (V 31
-gives 1 to 63). A square wave is the smallest tone loop; the original's wave shape is not known to us and is measured,
-not copied (section 11).
+**Volume** [BB, OWN]: the levels are 31 + V and 31 - V on the 6-bit DAC; the default is 46 and 17 rather than V15's 46
+and 16 (`snd-play-volume`: `V5` 26-36, `V10` 21-41, `V15` 16-46, `V20` 11-51, `V31` 0-62, the default 17-46). A
+square wave is the smallest tone loop; the original's wave has three levels (its middle one is not the comparison's)
+and is measured, not copied (decision 3).
 
 ## 7. SOUND, AUDIO and JOYSTK
 
@@ -345,46 +353,61 @@ speaker when the analogue multiplexer selects it (PIA0 CA2 low and CB2 low) and 
 multiplexer also picks the joystick for the comparator: CB2 the joystick (low right, high left), CA2 the axis (low
 x, high y). The comparator answers on PIA0 PA7: high when the selected axis (0-63) is at or above the DAC's value.
 
-* **`SOUND t,d`** [UM]: a tone with the tone loop at full volume, for d units of about 0.06 s [UM; the exact unit
-  BB]. The pitch rises with t [UM]; the period's dependence on t (we take k = 256 - t until measured) and the end
-  points come from the black-box frequencies of t = 1, 50, 100, 150, 200, 255. `?FC ERROR` for t or d outside 1-255.
-* **Sound on and off** [OWN]: `SOUND` and `PLAY` select the DAC, turn sound on, play, leave the DAC at its middle and
-  sound on. Whether BREAK stops a long `SOUND` or `PLAY` is BB (ours checks BREAK between notes).
-* **`AUDIO ON`** [UM, HW]: the multiplexer to the cassette input (CA2 high, CB2 low), sound on. **`AUDIO OFF`**: the
-  multiplexer back to the DAC.
+* **`SOUND t,d`** [UM; BB]: a tone at full scale (levels 0 and 63), for d units of 4 fields (0.08 s on the Dragon;
+  `snd-sound` `d1`-`d20` last 4d - 1 to 4d fields), of period 100 + 20 x (256 - t) cycles (`snd-sound`: 5,200,
+  4,220, 3,220, 2,220, 1,220 and 120 cycles at t = 1, 50, 100, 150, 200, 255, each exact). `?FC ERROR` for t or d
+  outside 1-255.
+* **Sound on and off** [BB]: `SOUND` and `PLAY` select the DAC, turn sound on, play and turn sound off, the
+  multiplexer left on the DAC (`snd-audio`). The DAC stays where the sound left it, and the next sound starts from
+  there: after `SOUND`, level 0; after `PLAY`, where its last note's wave stopped (`snd-play-volume` `v1`, `v0`: the
+  next `PLAY`'s first level is the last one's high level); at cold start, 0. An error in `PLAY` turns sound off too.
+  BREAK stops neither (`snd-timer`: held during `SOUND 1,255` and `PLAY "T1L1CDEFGAB"`, every note plays).
+* **`AUDIO ON`** [UM, HW]: the multiplexer to the cassette input (CA2 high, CB2 low), sound on. **`AUDIO OFF`**: sound
+  off, the multiplexer left as it is [BB `snd-audio`].
 * **`JOYSTK(n)`** [UM, HW]: n 0-3 (0 right x, 1 right y, 2 left x, 3 left y [UM]); else `?FC ERROR`. `JOYSTK(0)`
-  reads all four axes and keeps them; 1-3 return the kept values [UM; BB]. Each axis is a 6-step successive
-  approximation: for each bit from 32 down, try the value with that bit set on the DAC and keep the bit if PA7 says
-  the axis is at or above it. Sound is turned off while it reads (the DAC steps would be heard) and the multiplexer
-  goes back to the DAC after [OWN]. The keyboard scan already ignores PA7 (P1).
+  reads all four axes and keeps them; 1-3 return the kept values [UM; BB `snd-joystk`]. Each axis is a 6-step
+  successive approximation: for each bit from 32 down, try the value with that bit set on the DAC and keep the bit if
+  PA7 says the axis is at or above it. Sound is turned off while it reads (the DAC steps would be heard) and set back
+  as it was, and the multiplexer goes back to the DAC after [OWN; BB `snd-joystk`: not heard]. The keyboard scan
+  already ignores PA7 (P1).
 
 ### What the sound step implements
 
 `basic/sound.inc` and `basic/play.inc` hold `SOUND`, `PLAY` (every command of section 6), `AUDIO`
-and `JOYSTK`. Every constant the black-box measures are to fix is one equate, marked [OWN, BB pending] in the source:
+and `JOYSTK`. Every constant the black-box measures fix is one equate, fitted to the bb2 batch's `snd-*` cases:
 
-| Equate | Value now | What it sets |
+| Equate | Value | What it sets |
 |---|---|---|
-| `NOTEA` (`play.inc`) | 44000 | octave 2's A, in 1/100 Hz: the note table is assembled from it |
-| `PLAYW` (`play.inc`) | 13885 | W, a whole note at `T1`, in 256 cycles (4.0 s) |
-| `VMID`, the swing V (`sound.inc`) | 32 | the levels 32 - V and 32 + V; `VSND` (31) is `SOUND`'s V |
-| `SNDP0`, `SNDPK` (`sound.inc`) | 150, 20 | `SOUND t`'s period, SNDP0 + SNDPK x (256 - t) cycles (170 at t = 255, 5,250 at t = 1) |
-| `SNDU` (`sound.inc`) | 208 | `SOUND`'s unit in 256 cycles: 53,248 cycles, 0.0599 s |
-| `SNDMSK` (`sound.inc`) | `$10` | `ORCC`'d while a tone plays: `$10` masks the field interrupt (`TIMER` stops, every period exact); 0 lets `TIMER` count, each field then lengthening one period by the interrupt's 66 cycles |
+| `NOTEA`, `NOTEP` (`play.inc`) | 44000; 894886 x 1600 / `NOTEA` | octave 3's A, 440 Hz for the 894,886 Hz clock; 16 x its period in cycles (32,541) |
+| `PRND`, `NGR1`/`NAD1`, `NGR3`/`NAD3` (`play.inc`) | 40; 32, 11; 20, 3 | the period's rounding (in quarter cycles), and each octave group's grid and constant |
+| `PLAYW` (`play.inc`) | 256 | a whole note at `T1`, in fields |
+| `PVDEF` (`play.inc`) | 58 | the default volume: levels 46 and 17 |
+| `VMID` (`sound.inc`) | 124 | level 31, the middle the volume swings around (V n: 31 - n and 31 + n) |
+| `SNDH`, `SNDL` (`sound.inc`) | 252, 0 | `SOUND`'s levels, 63 and 0 |
+| `SNDP0`, `SNDPK` (`sound.inc`) | 100, 20 | `SOUND t`'s period, SNDP0 + SNDPK x (256 - t) cycles |
+| `SNDU` (`sound.inc`) | 4 | `SOUND`'s unit in fields |
 
-* **The tone loop** (`TONE`) [OWN]: a square wave of any period from 163 cycles up, exact to the cycle. A period is
-  72 + 16k + 5(j + 1) cycles: each half waits k passes of an 8-cycle loop, and the high half also j + 1 passes of a
-  5-cycle one, with j (0-15) = 13n AND 15 for n = period - 72, which makes n - 5j a multiple of 16 (13 x 5 = 65 is 1
-  modulo 16); so the halves differ by at most a few dozen cycles. Its length is a 24-bit count of cycles from which
-  each period is taken; the wave starts high and stops low when the next period would not fit. A pause is the same
-  loop with its levels written to RAM, so nothing is heard and the timing is shared.
-* **`PLAY`** [UM; OWN where marked]: the string's commands as section 6 lists them, read with `mini.inc` (`MSCMD`, `MSGET`/`MSBACK`, `MSNUM`; `X var$;` is run by `MSCMD`, and `PLAY` adds the octave's `+`, `-`, `>`, `<`). A letter
-  with `-` below C (`C-`) is the B of the octave below, `B+` the C above; past octave 1 or 5, `?FC ERROR`. Dots after a
-  length (`L4.`) last with it until the next `L`, and add to a note's own dots (`L4.A.` is 1.75 quarters) [OWN; BB].
-  `V0` is accepted and silent (the manual gives 1-31) [OWN; BB]. A pause has its own dots and not the length's. The
-  octave, length, tempo and volume last from one `PLAY` to the next until `CLRVAR` (`RUN`, `NEW`, `CLEAR`, `PCLEAR`,
-  a load, cold start) sets O2, L4, T2, V15 again. BREAK is checked between commands; `SOUND` is not interrupted.
-  After `PLAY` and `SOUND` the DAC is at its middle and sound is on.
+* **The tone loop** (`TONE`) [OWN]: a square wave of any period from 111 cycles up, exact to the cycle. A period is
+  55 + 8 (k1 + k2) + 5 (j + 1) cycles: the first half waits k1 passes of an 8-cycle loop and j + 1 passes of a 5-cycle
+  one, the second k2 passes, with j (0-7) = (5n - 1) AND 7 for n = period - 55, which makes n - 5 (j + 1) a multiple
+  of 8, and k2 half of the rest. The field interrupt runs (`TIMER` counts) and lengthens the period it falls in. The
+  length is counted in fields: the loop compares `TIMER` with its starting value plus the count at the end of each
+  period and stops there once it is reached; the interrupt is held off from that check to the next period's first
+  write, so the period the last field lengthened is never completed (a completed one would split a note's measured
+  tone in two). The first level is written at the start of a period, so a note ends on its second.
+* **`PLAY`** [UM; OWN where marked]: the string's commands as section 6 lists them, read with `mini.inc` (`MSCMD`,
+  `MSGET`/`MSBACK`, `MSNUM`; `X var$;` is run by `MSCMD`, and `PLAY` adds the octave's `+` and `-`). A letter with `-`
+  below C (`C-`) is the B of the octave below, `B+` the C above; past octave 1 or 5, `?FC ERROR`. Dots after a length
+  (`L4.`) last with it until the next `L` [UM]; a dot after a note or a pause, and `>` or `<`, are `?FC ERROR`, after
+  what came before has played [BB `snd-play-length` `dot-note`, `dot-both`, `pause-dot`; `snd-play-persist`
+  `octave-modifiers`]. `V0` is accepted and silent [BB `snd-play-volume`]. A note plays high then low, so it ends low
+  and the field that ends it never completes a period; at the end of `PLAY` (or an error) sound goes off and the DAC
+  is set, unheard, to the volume's high level, where the next sound then starts (the original's next sound starts
+  from whichever of its levels the last wave stopped on, by the field's phase) [OWN; BB `snd-play-volume`]. A pause
+  is a tone of period `PPER` with both halves at the volume's low level: nothing is heard, the sound stays on, and the
+  pause and the note after it are one run, as in the original (`snd-play-length` `pause4`). It takes no dots. The
+  octave, length, tempo and volume last from one `PLAY` to the next until `CLRVAR` (`RUN`, `NEW`, `CLEAR`, `PCLEAR`, a
+  load, cold start) sets O3, L4, T2 and the default volume again. BREAK is not checked.
 * **`JOYSTK`**: `JOYSTK(0)` reads the four axes into `JOYV` (6 DAC steps an axis, sound off meanwhile and back as it
   was); `JOYSTK(1)`-`(3)` give the kept values.
 * **Errors** [OWN; BB]: `?FC ERROR` for `SOUND` t or d 0 or above 255, `O` outside 1-5, `L`, `T` or `P` 0 or above 255,
@@ -393,12 +416,14 @@ and `JOYSTK`. Every constant the black-box measures are to fix is one equate, ma
   for `AUDIO` without `ON` or `OFF`; `?TM ERROR` for a
   number where a string is wanted (`PLAY 5`, `X N;`) and the reverse (`O=A$;`).
 * **RAM:** the system block gives 9 bytes (`JOYV` 4; `PLOCT`, `PLLEN`, `PLDOT`, `PLTMP`, `PLVOL` 5), leaving 26;
-  the direct page gives none. A tone's working values are a 10-byte frame on the stack.
-* **Measured on our ROM** (`node tools/basic-bb/run.js --ours`, the eight `snd-*` cases): every case runs to the end;
-  each note's period is the table's to the cycle, `L`/`T`/dots/pauses give the formula's lengths, `V` gives the
-  levels 32 - V to 32 + V, `TIMER` stops during a note (`SNDMSK`), BREAK stops `PLAY` between notes and not `SOUND`,
-  `JOYSTK` reads back what `#joy` set. The batch's real-ROM results are not merged yet: until they are, each equate
-  above is ours.
+  the direct page gives none. A tone's working values are a 12-byte frame on the stack.
+* **Compared with the original** (bb2, `node tools/basic-bb/compare.js` on the eight `snd-*` cases): `snd-audio`,
+  `snd-joystk` and `snd-play-length` are identical; 151 of the 156 measured periods are equal to the cycle (the other
+  five are octave 1's C to G, above). What remains differs by the field interrupt's phase, which no fit can follow:
+  where the original's last wave stopped (`snd-play-persist` `in-program`, `snd-play-pitch` `edges`: the next sound's
+  first level; `snd-play-volume` `changing`: which levels the measure gives the note before a change of volume), and a
+  field interrupt in the original's first two periods of `SOUND 200,4` that splits its measured tone in two
+  (`snd-sound` `t200`). `snd-timer`'s first line is the interpreter's speed (P1), not sound.
 
 ## 8. GET and PUT
 
@@ -613,9 +638,12 @@ The open questions of this design, answered, each with the decision and why.
    listeners depend on (a program waits while a note plays), and the black-box measures them. The wave's shape only
    changes the timbre, no program can read it back, and recovering a wave table's levels from recordings would bring
    ROM data in by another route: if the original's wave is not square, ours is a similar shape we compute ourselves.
-4. **Note timing: matched to the cycle.** Lengths are cycle-counted (about 40 bytes) to match the black-box measures,
-   since errors add up over a tune and change a game's pace; whether `TIMER` counts during `PLAY` and `SOUND` matches
-   the original too. Field counting is only an interim first version.
+4. **Note timing: matched to the original, which counts fields.** Errors add up over a tune and change a game's pace,
+   so lengths match the black-box measures, and `TIMER` counts during `PLAY` and `SOUND` as in the original. The bb2
+   measures showed the original counting fields, not cycles: every length falls between n - 1 and n fields, `TIMER`
+   reads 80 after `SOUND 100,20` and 128 after four `L4` notes (`snd-sound`, `snd-play-length`, `snd-timer`). Ours
+   counts fields the same way, so a note's length differs from the original's only by where in a field it starts; the
+   periods themselves are exact to the cycle.
 5. **Recordings stay on the maintainer's machine.** Only the measures come back (pitch, length in cycles, the level
    range and count, a hash). A recording repeats every level written to the DAC, so it could carry a wave table, and
    after decision 3 the measures are all that is used. A mismatch the measures cannot explain gets a focused
@@ -664,10 +692,11 @@ Numbering continues P1's log.
 | 42 | `DRAW`: numbers 0-255, digits only; a move's number left out 1, `C`/`A` 0; n x S / 4 rounded down; `M` relative scaled, not turned; `C` sets the foreground; `A` clockwise; angle and scale kept from one `DRAW` to the next and through `RUN`; the errors | [UM for `A`'s direction and that settings last; OWN for the rest, BB pending: `gfx-draw`] |
 | 43 | `GET`/`PUT`: exact to the pixel with or without `G`; `PUT`'s rectangle its own corners; the array's interim byte layout (rows from a new byte, high bit first, padding 0); an array made with 11 elements; `?TM`, `?FC`, `?SN` as section 8 says | [OWN, interim (decision 6), BB pending: `gfx-getput`, `gfx-getarray`] |
 | 44 | `CIRCLE`'s sine table: sin(k/64 turn) x 256 rounded, k = 0-15, generated by `tools/basic-consts.js` (`sine.inc`) | [OWN] (a general mathematical table) |
-| 45 | The tone loop: a period of 72 + 16k + 5(j + 1) cycles, j = 13n AND 15; the 24-bit count of cycles; a pause as the same loop writing RAM | [OWN] |
-| 46 | `NOTEA` 440 Hz (octave 2's A), `PLAYW` 4 s, `SOUND`'s period SNDP0 + SNDPK x (256 - t) and unit 0.0599 s, the levels 32 -/+ V and `SOUND`'s V 31, `TIMER` stopped during a note (`SNDMSK`) | [OWN], each to be fitted [BB] |
-| 47 | `PLAY`'s defaults O2, L4, T2, V15 | [UM]; set again by `CLRVAR` [OWN; BB] |
-| 48 | A length's dots lasting until the next `L` and adding to a note's; dots adding 1/2, 1/4...; `V0` silent; `C-` and `B+` crossing the octave; a pause without the length's dots; the errors of section 7 | [OWN; BB] |
+| 45 | The tone loop: a period of 55 + 8 (k1 + k2) + 5 (j + 1) cycles, j = (5n - 1) AND 7; the interrupt held off from the check to the next first write; the first level at a period's start; at least three periods; a pause as a tone at the low level | [OWN] |
+| 46 | The note periods: octave 3's A at 894,886 / 440 cycles, equal temperament, each octave's period rounded down from 10 cycles above on a grid of 20 cycles plus 3 (octaves 3-5) or 32 plus 11 (octaves 1-2), every measured period to the cycle; octave 1's C-G medians holding the field interrupt | [BB] bb2 `snd-play-pitch` (all 45 periods), `snd-play-persist`, `snd-timer`; the formula's form [OWN] |
+| 47 | Lengths counted in fields: `PLAYW` / (L x T) with `PLAYW` 256, at most 255; `SOUND`'s unit 4 fields; `TIMER` counting during sound; BREAK not stopping `SOUND` or `PLAY` | [BB] bb2 `snd-play-length`, `snd-sound`, `snd-timer` |
+| 48 | `SOUND`'s period 100 + 20 x (256 - t) and levels 0 and 63; `PLAY`'s levels 31 -/+ V, the default 17 and 46, `V0` silent; the DAC 0 at cold start and after `SOUND`; the next `PLAY` starting from the last one's level; sound off after `SOUND`, `PLAY` and an error, and after `AUDIO OFF` with the multiplexer left | [BB] bb2 `snd-sound`, `snd-play-volume`, `snd-audio`, `snd-joystk`; ours ending a `PLAY` on its high level [OWN] |
 | 49 | `JOYSTK(0)` reading all four axes, 1-3 the kept values, the axis order | [UM; BB]; the successive approximation [OWN]; the comparator and multiplexer [HW] `cocopia.js` |
+| 50 | `PLAY`'s default octave 3 (the manual: 2), L4, T2, kept until `CLRVAR`; `O+`, `O-` and no `>`, `<`; a dot after a note or a pause `?FC ERROR` after it plays; a length's dots until the next `L`; `C-` and `B+` crossing the octave; the errors of section 7 | [UM]; [BB] bb2 `snd-play-persist`, `snd-play-pitch`, `snd-play-length`; the rest [OWN] |
 
 Black-box facts are added with the date of the run they came from.
