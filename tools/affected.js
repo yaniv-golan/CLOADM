@@ -91,6 +91,7 @@ const AREAS = [
   { paths: ['js/ui/poke-panel.js'], suites: [], groups: ['poke'] },
   { paths: ['js/ui/display-panel.js'], suites: ['display'], groups: ['display'] },
   { paths: ['js/ui/welcome.js'], suites: ['welcome'], groups: ['welcomeScreen', 'firstVisit'] },
+  { paths: ['js/wyrmfire/', 'js/ui/wyrmfire.js', 'examples/wyrmfire/', 'tools/wyrmfire-vendor.js'], suites: ['wyrmfire'], groups: ['wyrmfire', 'pwa'] },
   { paths: ['js/ui/install.js', 'sw.js', 'manifest.webmanifest', 'tools/pwa-files.js'], suites: ['pwa', 'install'], groups: ['pwa', 'install'] },
   { paths: ['js/ui/share.js'], suites: ['share-roms', 'share-card', 'basic-share'], groups: ['share', 'basicShare'] },
   // the arrival card: a shared moment's (the share group's arrival checks, and the visits a link starts and returns to)

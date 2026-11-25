@@ -120,11 +120,20 @@ export function setupTouchKeys(page, { input }) {
   const padExtra = Object.assign(document.createElement('span'), { className: 'padextra' });
   padKeys.append(...PAD_KEYS.map((l) => key(l)), padExtra);
   $('touchPad').append(padArrows, padKeys);
+  // the program's two big buttons (Session.programControls.big: WYRMFIRE's FIRE and USE), after the keys
+  const padBig = Object.assign(document.createElement('div'), { className: 'padbig' });
+  $('touchPad').append(padBig);
   let extrasFor = '';
-  function padExtras(keys) {
-    if (keys.join() === extrasFor) return;
-    extrasFor = keys.join();
+  function padExtras(keys, big = []) {
+    const sig = `${keys.join()}|${big.map((b) => b.join(':')).join()}`;
+    if (sig === extrasFor) return;
+    extrasFor = sig;
     padExtra.replaceChildren(...keys.map((l) => key(l)));
+    // each big button sends its key and shows what it does: "FIRE" is SPACE, "USE" is E (its name: "FIRE (SPACE)")
+    padBig.replaceChildren(...big.map(([k, label]) => { const b = key(k); b.classList.add('big'); b.textContent = label; b.setAttribute('aria-label', `${label} (${k})`); return b; }));
+    padBig.hidden = !big.length;
+    // a key that has a big button is not repeated among the small ones (FIRE is SPACE)
+    for (const k of padKeys.querySelectorAll(':scope > .tk')) k.hidden = big.some(([b]) => b === k.dataset.key);
   }
   for (const [id, label] of [['tkBreak', 'BREAK'], ['tkClear', 'CLEAR']]) $(id).replaceWith(Object.assign(key(label), { id }));
 
@@ -319,7 +328,7 @@ export function setupTouchKeys(page, { input }) {
     box.classList.toggle('joystick', joyMode);
     box.classList.toggle('pad', padMode);
     box.classList.toggle('keysonce', keysOnce);
-    if (padMode) { const p = program(); padExtras(p ? p.extra : []); }
+    if (padMode) { const p = program(); padExtras(p ? p.extra : [], (p && p.big) || []); }
     box.dataset.mode = m;
     document.body.classList.toggle('touch-keys', on);
     document.body.classList.toggle('touch-stick', joyMode);
@@ -468,7 +477,7 @@ export function setupTouchKeys(page, { input }) {
   // a machine switch: the mode is that machine's own; a machine without a joystick port goes back to the keys
   // a program starting or left: the mode follows what runs (Session.programControls)
   session.on((ev) => {
-    if (['program', 'menu', 'loaded', 'reset', 'welcome', 'firmware'].includes(ev)) { apply(); return; }
+    if (['program', 'menu', 'loaded', 'reset', 'welcome', 'firmware', 'wyrmfire'].includes(ev)) { apply(); return; }
     if (ev !== 'machine') return;
     // a stick the OLD machine's panel was driving is let go of, so nothing carries over. Only then: a machine whose
     // joystick the mouse or the keyboard joystick drives is the host's, and this panel must not recentre it.

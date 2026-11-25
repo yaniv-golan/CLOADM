@@ -93,6 +93,45 @@ Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.
   go straight to the start link `/play/?start=<program>`. They work offline like the rest of the site. One entry in
   `js/program-pages.js` makes a page; `Session.programPageUrl(id, base)` gives its address.
 
+
+- **WYRMFIRE, a 3D game for the Dragon 64, with the Freedoom level.** [WYRMFIRE](https://github.com/yaniv-golan/wyrmfire)
+  (GPL-3.0-or-later) plays a Doom-format level from a disk. Its engine and converter are vendored byte for byte in
+  `examples/wyrmfire/` at one pinned commit (`js/wyrmfire/pin.js`, the one place to update; `tools/wyrmfire-vendor.js`
+  copies them and rebuilds the level), with the GPL text and the source link; the level disk is map E1M1 of Freedoom
+  0.13.0 (BSD-3-Clause), converted by WYRMFIRE's converter from Freedoom's release at its pinned SHA-256, served with
+  Freedoom's licence and credits. `tests/wyrmfire-files.test.js` holds every file to the pin's hashes. It starts from
+  **Programs** ("Runs without ROMs": WYRMFIRE, "A 3D game for the Dragon 64 · Freedoom level", "GPL · Freedoom level
+  (BSD)"), Ctrl+K's **WYRMFIRE** (doom, game, 3d, freedoom) and `?start=wyrmfire`, which opens the Dragon 64 (with
+  `machine=` another model or `app=claude` it is an error on the status line). From the page, on another machine or
+  with a program running, the switch question asks first ("Switching to Dragon 64 to play WYRMFIRE resets the …").
+  The engine and level are fetched before the switch, the machine running on, in a strip under the screen
+  ("WYRMFIRE · Getting the game… 42%", Cancel, then "Starting…"; straight to Starting… once kept offline); offline and
+  not kept, or a failed download, says so with Try again and leaves the machine alone; a tab in the background waits.
+  It runs on the Dragon 64 without ROMs, with the DragonDOS controller without its ROM (a disk ROM of yours is neither
+  used nor touched); Dragon 64 ROMs of yours come back when it ends, at the next power-on or switch. A second WAD while
+  one converts is not started, and Cancel stops the conversion. While it plays the strip shows "WYRMFIRE 0.1.0 · Source ↗ · Level from Freedoom ↗ · Not
+  affiliated with id Software"; snapshots are off ("Snapshots are off while WYRMFIRE runs."); Share gives
+  `?start=wyrmfire` ("Opens WYRMFIRE from the start, with the Freedoom level."); a Freedoom screenshot or clip carries
+  "-freedoom" and "Level: Freedoom (BSD)". On a touch screen it opens on Pad with FIRE and USE as two big buttons, and
+  upright suggests once "Turn sideways for a bigger view". In Share, the options that are off stay listed, each with its
+  reason beside it. Help → WYRMFIRE links the GPL and Freedoom's licence, offers the Freedoom disk as `.vdk` and `.dsk`
+  (JVC) with the engine (real hardware: "Untested on real hardware"), and says what it does and doesn't do, with its
+  speed measured in CLOADM headless (6.4 pictures a second within a part of the level; about 1 s to load the next).
+- **Your own DOOM WAD in WYRMFIRE, converted in the browser.** Have DOOM (the 1993 game)? The strip's **Use your
+  DOOM1.WAD or DOOM.WAD…**, **Your ROMs → Your game files**, or a `.wad` dropped anywhere: the WAD is checked
+  (`js/wyrmfire/wad-check.js`), converted by WYRMFIRE's converter in a worker (the only GPL code the page runs), and
+  never uploaded or kept; only the converted level and the WAD's name are kept, in Your game files (Play, Remove), never
+  in the Library, the recent list, the carry-on, a snapshot, a share link, a drive's Download, `insert_disk` or a
+  settings export. Each refusal is said in the strip and a toast ("That isn't a WAD file.", the add-on, no E1M1, too
+  big, too much for the Dragon's memory, and a browser that can't keep it). While that level is in a drive,
+  `Session.romCodeIn()` says `userdata` (a mark on the machine, kept until it is switched off and on: taking the disk
+  out, a Reset or a load keep it): Claude's `screenshot`, `screen_text`, `peek`, `disassemble`, `find_bytes`,
+  `registers`, `step` and `run_frames`' screen and its `until` on memory or the `pc` (the page's chat, the side panel,
+  every MCP host) and the embed API's `peek` and `screenText`
+  refuse with "Claude can't look at the screen or memory while your own WAD is loaded: it's id Software's game data."
+  (the chat's new code `user-data`), and Share's screenshot and clip are off. No id Software data is in CLOADM or its
+  tests: they use synthetic WAD headers and the Freedoom level.
+
 #### Changed
 
 - **The plugin's servers are keyed *CLOADM side panel* and *CLOADM on this computer*.** The plugin format has no field

@@ -34,7 +34,7 @@ import { SessionError } from '../errors.js';
 import { profiles } from '../machines/profiles.js';
 import { ChatSession, actingTools } from '../claude/chat.js';
 import { readOnlyTools, runReadOnlyTool, ADDRESS_MIN, ADDRESS_MAX } from '../claude/readtools.js';
-import { TOOL_CODES, ToolError, asToolError } from '../claude/toolerrors.js';
+import { TOOL_CODES, TOOL_ERRORS, ToolError, asToolError } from '../claude/toolerrors.js';
 import { detectMedia } from '../media/detect.js';
 import { formats } from '../media/formats.js';
 import { cpuFamily } from '../cpu/cpus.js';
@@ -193,6 +193,14 @@ function pageTitle(name) {
   if (!Object.hasOwn(PAGE_TITLES, name)) throw new Error(`createToolbox: the page tool ${name} has no title in PAGE_TITLES`);
   return PAGE_TITLES[name];
 }
+
+// THE PERSON'S OWN WAD: a level converted from it is id Software's game data, not a ROM, so it is refused on every
+// host no matter what the tool is allowed to read otherwise (Session.romCodeIn answers 'userdata' while such a level
+// is loaded, or while its disk is still in a drive). This is NOT the ROM rule: reading ROM areas is allowed on every
+// host, deliberately (see 6bc5e6fd), so the test here is 'userdata' alone and never "any code in memory".
+const userDataGuard = (m) => {
+  if (m.session.romCodeIn() === 'userdata') throw fail('rejected', TOOL_ERRORS['user-data']);
+};
 
 export function createToolbox(host, { readOnly = false, maxMachines = MAX_MACHINES, wallMs = WALL_MS, session: own = null, route = 'local' } = {}) {
   if (!ROUTES.includes(route)) throw new Error(`createToolbox: route must be ${ROUTES.join(' or ')}`);
@@ -444,6 +452,8 @@ export function createToolbox(host, { readOnly = false, maxMachines = MAX_MACHIN
     handler: async (args, { signal }) => {
       const m = get(args), input = Object.assign({}, args);
       delete input.machine_id;
+      // every page tool reads the machine except machine_info, which the refusal's own remedy names as still working
+      if (spec.name !== 'machine_info') userDataGuard(m);
       m.chat.controller = new AbortController();
       if (signal) { if (signal.aborted) m.chat.controller.abort(); else signal.addEventListener('abort', () => m.chat.controller.abort(), { once: true }); }
       let out;
@@ -468,6 +478,7 @@ export function createToolbox(host, { readOnly = false, maxMachines = MAX_MACHIN
     annotations: { readOnlyHint: true, openWorldHint: false }, readOnlyOk: true,
     handler: (args) => {
       const m = get(args);
+      userDataGuard(m);
       const text = typeof args.pattern === 'string' ? args.pattern.replace(/\s+/g, '') : '';
       if (!/^([0-9A-Fa-f]{2}|\?\?)+$/.test(text)) throw fail('bad-argument', `pattern: whole bytes in hex, ?? for any byte, e.g. "86 ?? 39"; not ${JSON.stringify(args.pattern)}`);
       const pat = text.match(/../g).map((b) => (b === '??' ? -1 : parseInt(b, 16)));
@@ -559,6 +570,10 @@ export function createToolbox(host, { readOnly = false, maxMachines = MAX_MACHIN
         if (extra.length) throw fail('bad-argument', `until has no ${extra.map((k) => `"${k}"`).join(', ')} (it takes ${Object.keys(UNTIL.properties).join(', ')})`);
         const kinds = [u.text != null, u.address != null || u.value != null, u.pc != null, u.tape != null, u.screen != null].filter(Boolean).length;
         if (kinds !== 1) throw fail('bad-argument', 'until takes one condition: text, address with value, pc, tape, or screen');
+        // a memory byte or the program counter reads the machine: refused while the person's own WAD is loaded.
+        // Text and the screen are not refused here -- screen_text is, through the page tools -- but a byte in memory is
+        // the level's data however it is asked for.
+        if (u.address != null || u.value != null || u.pc != null) userDataGuard(m);
         if (u.ignore_case != null && (u.text == null || typeof u.ignore_case !== 'boolean')) throw fail('bad-argument', 'until.ignore_case is true or false, and goes with until.text');
         // the screen as one string: rows joined by "\n", never more than the screen holds
         const shown = () => { const r = screen(m.chat.target); return r.text ? r.lines.join('\n') : null; };
@@ -610,7 +625,9 @@ export function createToolbox(host, { readOnly = false, maxMachines = MAX_MACHIN
     inputSchema: withMachine(objectSchema({ count: { type: 'integer', minimum: 1, maximum: STEP_MAX, description: 'instructions (default 1)' } })),
     annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
     handler: (args) => {
-      const m = get(args), d = m.session.debug, n = args.count == null ? 1 : intIn(args.count, 1, STEP_MAX, 'count');
+      const m = get(args);
+      userDataGuard(m);
+      const d = m.session.debug, n = args.count == null ? 1 : intIn(args.count, 1, STEP_MAX, 'count');
       let ran = 0, cycles = 0, halted = false;
       // stepping is reading the machine an instruction at a time, as the Debugger's Step: it works on a machine the
       // Debugger has stopped, and leaves it stopped (where the steps ended) rather than resuming what the person
@@ -637,7 +654,7 @@ export function createToolbox(host, { readOnly = false, maxMachines = MAX_MACHIN
     title: 'Read the CPU registers',
     description: 'The CPU\'s registers as decimal numbers (lower-case names: pc, a, b, d, x, y, u, s, dp, cc on the 6809; the 6309\'s e, f, w, v, md too; the 6803\'s a, b, d, x, s, cc), and the CPU.',
     inputSchema: withMachine(objectSchema({})), annotations: { readOnlyHint: true, openWorldHint: false }, readOnlyOk: true,
-    handler: (args) => { const m = get(args); return { cpu: m.session.shownMachine.config.cpu, registers: m.session.debug.registers() }; },
+    handler: (args) => { const m = get(args); userDataGuard(m); return { cpu: m.session.shownMachine.config.cpu, registers: m.session.debug.registers() }; },
   });
   add('screenshot', {
     title: 'Take a screenshot',
@@ -646,7 +663,9 @@ export function createToolbox(host, { readOnly = false, maxMachines = MAX_MACHIN
     annotations: { readOnlyHint: true, openWorldHint: false }, readOnlyOk: true, image: true,
     handler: (args) => {
       const scale = args.scale == null ? 1 : intIn(args.scale, 1, SCREENSHOT_SCALE_MAX, 'scale');
-      const m = get(args), mid = midFrame(m), frame = mid ? m.whole.frame : m.session.shownMachine.render();
+      const m = get(args);
+      userDataGuard(m);
+      const mid = midFrame(m), frame = mid ? m.whole.frame : m.session.shownMachine.render();
       return { width: frame.width * scale, height: frame.height * scale, mid_frame: mid, ...(mid ? { note: 'the machine stopped inside a frame: this is the last complete one; run_frames 2 to see a frame drawn entirely after this point' } : {}), image: host.png(frame, scale) };
     },
   });

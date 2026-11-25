@@ -141,6 +141,40 @@ function server({ fail: failWith = null } = {}) {
       check(`guardrail, ${what}: no short link, with its reason, and no request`, re.test(s.shortLinkRefusal() || '') && e instanceof Emu.SessionError && re.test(e.message) && sv.requests.length === 0, e && e.message);
     }
     check('guardrail, NitrOS-9: no long link of the moment either, with its reason', /NitrOS-9/.test(n9.longLinkRefusal() || ''));
+    // A level converted from the person's own WAD: refused ON 'userdata' (romCodeIn), which is what this asserts --
+    // not that the moment happens to have no snapshot file, a separate rule that could change. The store must see
+    // NOTHING: no sealed moment, and above all no preview picture, which is public.
+    {
+      const fs = require('fs'), path2 = require('path');
+      const { WYRMFIRE_PIN: PIN } = require('../js/wyrmfire/pin.js');
+      const own = new Emu.Session();
+      const engine = new Uint8Array(fs.readFileSync(path2.join(__dirname, '..', PIN.files.engine.path)));
+      const level = new Uint8Array(fs.readFileSync(path2.join(__dirname, '..', PIN.files.level.path)));
+      own.startWyrmfire(engine, level.slice(), { level: 'user', name: 'DOOM1.WAD' });
+      // the guard is on romCodeIn itself, so it is true whatever the page's `file` gate does
+      check('guardrail, own WAD: romCodeIn is "userdata", and shortLinkRefusal refuses it by name',
+        own.romCodeIn() === 'userdata' && /Not for a moment with your own WAD loaded/.test(own.shortLinkRefusal() || ''), own.shortLinkRefusal());
+      // One call, with the methods it would have to go through COUNTED. Asserting over an empty `sent` alone (as an
+      // earlier version did) proves nothing: an empty collection satisfies any "no bad entry" test, including one
+      // where previewPicture ran and its result was thrown away.
+      const sent = [];
+      const fakeStore = { create: async (body) => { sent.push(body); return { id: 'abcd1234', deleteToken: 't' }; }, url: (id) => `https://s.cloadm.dev/${id}` };
+      const calls = { preview: 0, shareFile: 0 };
+      const realPreview = own.previewPicture.bind(own), realShareFile = own.shareFile.bind(own);
+      own.previewPicture = async (...a) => { calls.preview++; return realPreview(...a); };
+      own.shareFile = async (...a) => { calls.shareFile++; return realShareFile(...a); };
+      let e2;
+      try { e2 = await rejects(own.shortLink(fakeStore, { preview: true })); }
+      finally { own.previewPicture = realPreview; own.shareFile = realShareFile; }
+      check('guardrail, own WAD: shortLink refuses before the store, with the own-WAD reason',
+        e2 instanceof Emu.SessionError && /own WAD loaded/.test(e2.message), e2 && e2.message);
+      check('guardrail, own WAD: the store was sent nothing - create was never called', sent.length === 0, JSON.stringify(Object.keys(calls)));
+      check('guardrail, own WAD: previewPicture is never CALLED by shortLink (counted on the method, not inferred from an empty store)',
+        calls.preview === 0, JSON.stringify(calls));
+      check('guardrail, own WAD: shareFile is never called either -- the refusal precedes building the moment',
+        calls.shareFile === 0, JSON.stringify(calls));
+      check('guardrail, own WAD: the long link still works, and carries no level bytes', own.longLinkRefusal() === null && own.shareUrl('https://cloadm.dev/play/') === 'https://cloadm.dev/play/?start=wyrmfire');
+    }
     check('guardrail: the ROM and cartridge moments keep their long link', roms.longLinkRefusal() === null && cart.longLinkRefusal() === null);
     // too large: refused before anything is sent
     const big = new Emu.Session(); big.switchMachine('dragon64');

@@ -35,8 +35,11 @@ export const diskFileNameProblem = (base) => {
 };
 // where DriveWire images live in the media store
 export const DW_PREFIX = 'drivewire/';
+// where "Your game files" live in the media store: a WYRMFIRE level converted from the person's own WAD (never the WAD
+// itself), and its source file's name (Session.saveGameFile). Not the Library's: it never lists them.
+export const GAMES_PREFIX = 'games/';
 // everything CLOADM keeps in a media store (what moving the library copies)
-const STORE_PREFIXES = [LIBRARY_PREFIX, DISK_PREFIX, DW_PREFIX, ...INDEX_PREFIXES];
+const STORE_PREFIXES = [LIBRARY_PREFIX, DISK_PREFIX, DW_PREFIX, GAMES_PREFIX, ...INDEX_PREFIXES];
 // how long moveMedia waits for the Library operations under way before it gives up on them. A move never copies
 // the library out from under an import, a rename, a delete or a save it could not settle (see libraryOp); a store
 // that stopped answering would otherwise hang the move for good, so the wait ends with an error and the session
