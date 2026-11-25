@@ -387,8 +387,9 @@ takes it shifted right o - 1 times, adds `PRND` (10 cycles), divides by 4 and ro
 constant: a grid of 20 cycles plus 3 for octaves 3-5 (`NGR3`, `NAD3`), 32 plus 11 for octaves 1-2 (`NGR1`, `NAD1`).
 Every period is within one step of its grid of equal temperament. The measured period of octave 1's C to G is 104 cycles longer than
 the formula's: those periods are longer than half a field, so most of them hold the field interrupt and the median is
-an interrupted one (the original's interrupt takes 104 cycles there, ours 66: ours measures 38 cycles, 0.3-0.4%, under
-the original's, inside the comparison's 0.5%). The tone loop plays any period exactly to the cycle (section 7).
+an interrupted one. The original's interrupt takes 104 cycles there; ours, entry to `RTI`, is padded to the same 104
+(`IRQSRV`, `boot.inc`: it took 66), so those five medians match the measured ones to the cycle too [BB bb2
+`snd-play-pitch` o1]. The tone loop plays any period exactly to the cycle (section 7).
 
 **Length and tempo** [UM, BB]: a note lasts `PLAYW` / (L x T) fields, rounded down, a length's dots adding half, then a
 quarter, and so on, and at most 255 fields: `PLAYW` is 256 (a whole note at `T1` 5.12 s on the Dragon's 50 Hz). The
@@ -475,12 +476,14 @@ and `JOYSTK`. Every constant the black-box measures fix is one equate, fitted to
 * **RAM:** the system block gives 9 bytes (`JOYV` 4; `PLOCT`, `PLLEN`, `PLDOT`, `PLTMP`, `PLVOL` 5), leaving 26;
   the direct page gives none. A tone's working values are a 12-byte frame on the stack.
 * **Compared with the original** (bb2, `node tools/basic-bb/compare.js` on the eight `snd-*` cases): `snd-audio`,
-  `snd-joystk` and `snd-play-length` are identical; 151 of the 156 measured periods are equal to the cycle (the other
-  five are octave 1's C to G, above). What remains differs by the field interrupt's phase, which no fit can follow:
+  `snd-joystk` and `snd-play-length` are identical; all 156 measured periods are equal to the cycle (octave 1's C to G
+  since the field interrupt takes the original's 104 cycles, section 6). What remains differs by the field interrupt's phase, which no fit can follow:
   where the original's last wave stopped (`snd-play-persist` `in-program`, `snd-play-pitch` `edges`: the next sound's
   first level; `snd-play-volume` `changing`: which levels the measure gives the note before a change of volume), and a
   field interrupt in the original's first two periods of `SOUND 200,4` that splits its measured tone in two
-  (`snd-sound` `t200`). `snd-timer`'s first line is the interpreter's speed (P1), not sound.
+  (`snd-sound` `t200`). `snd-timer`'s first line is the interpreter's speed (P1), not sound: `FOR I=1 TO 500:NEXT` reads 36 fields on ours, 29 on the
+  original, with the 104-cycle interrupt as with the 66-cycle one. Its in-program line now matches (80 and 208, was 81
+  and 209); the break test's total reads 3,284 fields, as before (the original 3,279).
 
 ## 8. GET and PUT
 

@@ -154,11 +154,13 @@ check('build: $8000-$80FF is left free for later fixed entry points', built.rom.
 // ---- the run-time guard: code the case wrote must never run ----
 {
   const { runCase } = require('./basic/harness.js');
-  // points the IRQ vector's JMP ($0100 in our ROM) at an RTI it POKEd: the guard stops it whatever the lint says
-  const hook = 'POKE 20000,59:POKE 257,78:POKE 258,32\nPRINT "STILL HERE"\n';
+  // points the IRQ vector's JMP ($0100 in our ROM) at an RTI it POKEd: the guard stops it whatever the lint says.
+  // The RTI goes at $4E00 + the vector's low byte, so one POKE (the high byte) switches the vector: no field
+  // interrupt can fall between two halves of it
+  const hook = 'POKE 19968+PEEK(258),59:POKE 257,78\nPRINT "STILL HERE"\n';
   check('guard: the lint refuses the hooking case too (POKE into BASIC\'s own memory)', lintCase(hook).length > 0);
   const r = runCase(built.rom, hook);
-  check('guard: a case that runs code it wrote is refused, nothing recorded', r.status === 'refused' && r.transcript.length === 0 && /\$4E20/.test(r.why), `${r.status} ${r.why}`);
+  check('guard: a case that runs code it wrote is refused, nothing recorded', r.status === 'refused' && r.transcript.length === 0 && /\$4E[0-9A-F]{2}\b/.test(r.why), `${r.status} ${r.why}`);
   const plain = runCase(built.rom, 'POKE 20000,59\nPRINT PEEK(20000)\n');
   check('guard: writing RAM without running it is fine', plain.status === 'ok' && plain.transcript.includes(' 59'), plain.status);
 }

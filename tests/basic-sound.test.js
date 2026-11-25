@@ -25,6 +25,9 @@ const NOTEA = EQ('NOTEA') / 100, NOTEP = EQ('NOTEP'), PRND = EQ('PRND'), PLAYW =
 const GRID = (o) => (o <= 2 ? [EQ('NGR1'), EQ('NAD1')] : [EQ('NGR3'), EQ('NAD3')]);
 const VMID = EQ('VMID') >> 2, PVDEF = EQ('PVDEF'), SNDH = EQ('SNDH') >> 2, SNDL = EQ('SNDL') >> 2;
 const SNDU = EQ('SNDU'), SNDP0 = EQ('SNDP0'), SNDPK = EQ('SNDPK');
+// the field interrupt, entry to RTI, in cycles: what it lengthens the period it falls in by. The original's octave 1
+// C to G medians are 104 cycles longer than their periods [BB bb2 snd-play-pitch o1]; ours pads its handler to match
+const IRQC = 104;
 
 function boot() {
   const b = new Basic(rom);
@@ -68,11 +71,11 @@ const NOTES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
   const real = new Map(require('fs').readFileSync(require('path').join(__dirname, 'basic/bb/bb2-real.jsonl'), 'utf8').split('\n')
     .filter(Boolean).map((l) => JSON.parse(l)).map((c) => [c.case, c]));
   const snd = (c, name) => real.get(c).sounds.find((s) => s.name === name).tones;
-  // octave 1's C-G: the median is an interrupted period there (section 6), so those five are left out
-  const pitch = [['o1', 0, [9, 11]], ['o2', 12], ['o3', 24], ['o4', 36], ['o5', 48]];
+  // octave 1's C-G: the median is an interrupted period there (section 6), the period and the field interrupt
+  const pitch = [['o1', 0], ['o2', 12], ['o3', 24], ['o4', 36], ['o5', 48]];
   const NAT = [0, 2, 4, 5, 7, 9, 11];
   const want = [], got = [];
-  for (const [name, base, only] of pitch) snd('snd-play-pitch', name).forEach((t, i) => { if (!only || only.includes(NAT[i])) { want.push(t.period); got.push(period(base + NAT[i])); } });
+  for (const [name, base] of pitch) snd('snd-play-pitch', name).forEach((t, i) => { want.push(t.period); got.push(period(base + NAT[i]) + (base === 0 && NAT[i] <= 7 ? IRQC : 0)); });
   snd('snd-play-pitch', 'accidentals').forEach((t, i) => { want.push(t.period); got.push(period(12 + i)); });
   [25, 26, 27, 28, 30, 31, 32, 33, 34, 35].forEach((s, i) => { want.push(snd('snd-play-pitch', 'flats')[i].period); got.push(period(s)); });
   check(`NOTEA and the grids give the ${want.length} measured periods to the cycle`, want.join() === got.join(), got.filter((p, i) => p !== want[i]).join(' '));
@@ -97,6 +100,14 @@ const NOTES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
     const off = per.map((p, k) => Math.abs(p / etPeriod((o - 1) * 12 + k) - 1));
     check(`O${o}: 12 tones, each period exact (${want.join(' ')})`, per.length === 12 && per.every((p, k) => p === want[k]), per.join(' '));
     check(`O${o}: every period within one step of its grid (${GRID(o)[0]} cycles) of equal temperament`, off.length === 12 && off.every((d, k) => d * etPeriod((o - 1) * 12 + k) <= GRID(o)[0]), `worst ${(Math.max(...off) * 100).toFixed(3)}%`);
+    if (o === 1) {
+      // C to G (periods over half a field): the median holds the field interrupt, which takes IRQC cycles as the
+      // original's. G's period is only 51% of a field, so about half its periods hold the interrupt and its median is
+      // the interrupted one or, with exactly half, the mean of the two (the field's phase decides; the real's was 9235)
+      const med = want.map((p, k) => p + (k <= 7 ? IRQC : 0)), got = m.tones.map((t) => t.period);
+      const okG = got[7] === med[7] || got[7] === want[7] + IRQC / 2;
+      check(`O1: the tones' median periods, C to F# holding the field interrupt's ${IRQC} cycles, G it or half of it (${med.join(' ')})`, got.length === 12 && got.every((p, k) => k === 7 ? okG : p === med[k]), got.join(' '));
+    }
     if (o <= 2) continue;
     check(`O${o}: the tones' median periods are the periods (none holds a field interrupt in most periods)`, m.tones.map((t) => t.period).join() === want.join());
   }

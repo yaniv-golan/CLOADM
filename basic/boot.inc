@@ -118,13 +118,18 @@ BANNER  FCC     "CLOADM BASIC"  ; (a placeholder: the wording comes later)
         FCN     ""
 
 * ---------------- interrupts ----------------
-* IRQ: the field sync (50 Hz): count TIMER and acknowledge PIA 0 CB1 by reading port B
+* IRQ: the field sync (50 Hz): count TIMER and acknowledge PIA 0 CB1 by reading port B; 104 cycles in all
 IRQSRV  LDA     PIA0CB
         BPL     IRQ1            ; not the field sync
         LDA     PIA0B           ; acknowledge
         LDX     <TIMER
         LEAX    1,X
         STX     <TIMER
+        MUL                     ; 38 cycles more (11 + 11 + 11 + 3 + 2): the whole interrupt, entry to RTI, takes
+        MUL                     ; the original's 104, which lengthens the period it falls in by as much (octave 1's
+        MUL                     ; C to G, whose median periods hold it) [BB bb2 snd-play-pitch]
+        ABX
+        NOP
 IRQ1    RTI
 * FIRQ: the cartridge line; acknowledge PIA 1 CB1
 FIRQSV  PSHS    A
