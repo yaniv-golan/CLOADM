@@ -193,27 +193,12 @@ SGN     JSR     <ZFNARGN
         LDD     #-1
 SGN1    JMP     GIVABF
 
-* SQR(x): Newton's iteration, y = (y + x/y)/2, six times from a guess with half the exponent
+* SQR(x): x^.5, through ^'s EXP(.5 LOG x) [BB]: the original prints SQR(1E10) as 99999.9999 (bb1, fn-math), so it
+* is not a square root rounded once
 SQR     JSR     <ZFNARGN
-FSQR    TST     <FACEXP
-        BEQ     SQ9
-        TST     <FACSGN
-        LBMI    FCERR
-        JSR     <ZFPRUN
-        FCB     F_STO+1,0
-        LDA     <FACEXP
-        SUBA    #128
-        ASRA
-        ADDA    #128
-        STA     <FACEXP
-        LDA     #6
-        STA     <FPK2
-SQ1     JSR     <ZFPRUN           ; y kept; x / y; + y
-        FCB     F_STO+2,F_DIVX+1,F_ADD+2,0
-        DEC     <FACEXP         ; / 2
-        DEC     <FPK2
-        BNE     SQ1
-SQ9     RTS
+FSQR    JSR     <ZFPRUN
+        FCB     F_STO+6,F_LD+K_HALF,F_STO+5,0
+        JMP     PW5
 
 * LOG(x): x = m 2^e with m in [sqrt 1/2, sqrt 2); t = (m-1)/(m+1); ln m = 2t (1 + t^2/3 + t^4/5 + ...)
 LOG     JSR     <ZFNARGN
@@ -244,8 +229,8 @@ LOG2    JSR     <ZFPRUN
         LDB     <LOGE           ; + e ln 2
         SEX
         JSR     GIVABF
-        JSR     <ZFPRUN
-        FCB     F_MUL+K_LN2,F_ADD+3,0
+        JSR     <ZFPRUN         ; e LN2LO + ln m, + e LN2HI (exact)
+        FCB     F_STO+2,F_MUL+K_L2LO,F_ADD+3,F_STO+3,F_LD+2,F_MUL+K_L2HI,F_ADD+3,0
         RTS
 
 * EXP(x): n = the nearest whole number to x / ln 2, r = x - n ln 2 (|r| <= ln 2 / 2), e^x = 2^n e^r
