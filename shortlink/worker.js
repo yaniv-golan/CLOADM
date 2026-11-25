@@ -72,9 +72,12 @@ export function reportBlock(id, reportTo) {
 export const SEALED_VERSION = 1;
 export const KIND = Object.freeze({ moment: 1, program: 2 });
 const SEAL_OVERHEAD = 2 + 12 + 16;
+// "a" or "an" before a machine's name, by how it is said: the names read letter by letter that start with a vowel sound
+// take "an" ("an MC-10", "an LZ Color64"); the rest "a" ("a Dragon 64", "a CoCo 3", "a Matra Alice")
+export const article = (name) => (/^(MC-|LZ )/.test(name) ? 'an' : 'a');
 // what the arrival page says, per kind (fixed wordings: no text from the request)
 const WORDS = {
-  [KIND.moment]: { title: (name) => `A moment on a ${name}, CLOADM`, opening: (name) => `Opening a moment on a ${name} in CLOADM…`, what: 'this moment' },
+  [KIND.moment]: { title: (name) => `A moment on ${article(name)} ${name}, CLOADM`, opening: (name) => `Opening a moment on ${article(name)} ${name} in CLOADM…`, what: 'this moment' },
   [KIND.program]: { title: (name) => `A BASIC program for the ${name}, CLOADM`, opening: (name) => `Opening a BASIC program for the ${name} in CLOADM…`, what: 'this BASIC program' },
 };
 
@@ -213,7 +216,8 @@ export function readNewLink(body) {
   const sealed = body.slice(start, start + len), rest = body.subarray(start + len);
   if (sealed[0] !== SEALED_VERSION) fail(sealed[0] > SEALED_VERSION && sealed[0] < 32 ? 'This link was made by a newer CLOADM than this server reads.' : 'Not a sealed link this server reads.');
   const kind = sealed[1];
-  if (!WORDS[kind]) fail('Not a kind of link this server reads.');
+  // (3 to 31 are kept for later kinds under version 1: a newer CLOADM's; 0 and 32 up are not kinds)
+  if (!WORDS[kind]) fail(kind > KIND.program && kind < 32 ? 'This link was made by a newer CLOADM than this server reads.' : 'Not a kind of link this server reads.');
   if (kind === KIND.program && rest.length) fail('A program\'s link has no picture.');
   return { machine, sealed, png: rest.length ? rest.slice() : null, kind };
 }

@@ -19,10 +19,10 @@ Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.
   bytes change.
 - **A short link's sealed object has a version and a kind.** The stored object is now `[1][kind][IV][ciphertext+tag]`:
   version 1, and the kind (1 a moment, 2 a BASIC program) in the clear, both authenticated by AES-GCM as additional data.
-  A page refuses a later version as "made by a newer CLOADM". The upload to the short-link Worker is body version 2
+  A page refuses a later version, or a later kind (3 to 31) under version 1, as "made by a newer CLOADM". The upload to the short-link Worker is body version 2
   (version 1, a sealed object without its header, was never deployed and is refused). The Worker keeps the kind and its
   arrival page names what the link opens: "A BASIC program for the Dragon 64" for a program instead of "A moment on a
-  Dragon 64"; a program's link takes no picture. **The Worker changed and must be redeployed** (docs/shortlink-deploy.md).
+  Dragon 64", with the article the machine's name takes ("A moment on an MC-10"); a program's link takes no picture. **The Worker changed and must be redeployed** (docs/shortlink-deploy.md).
 - **Every menu, sheet and view is checked for words run together.** A new `menuWords` group of the browser check opens
   the app bar (at 1440 and 900 px and on a phone), the machine menu, the drive menu, the command palette, the views behind
   the app bar (Library, Debugger, Share, Add ROMs), each tab of the settings drawer and of a phone's Settings sheet with

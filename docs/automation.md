@@ -1056,7 +1056,7 @@ with no preview picture). The stored object (`<id>.bin`) is:
 | Bytes | |
 |---|---|
 | 0 | the sealed format's version, `1`; `2` to `31` are kept for later layouts (refused as "made by a newer CLOADM") |
-| 1 | the kind, in the clear: `1` a moment, `2` a BASIC program (the same numbers as a long link's byte 0). The short-link server reads it to name what the link opens on its arrival page ("A moment on a Dragon 64" or "A BASIC program for the Dragon 64") |
+| 1 | the kind, in the clear: `1` a moment, `2` a BASIC program (the same numbers as a long link's byte 0); `3` to `31` are kept for later kinds under this version (refused as "made by a newer CLOADM"), `0` and `32` up are not kinds. The short-link server reads it to name what the link opens on its arrival page ("A moment on a Dragon 64", "A moment on an MC-10" or "A BASIC program for the Dragon 64") |
 | 2-13 | the AES-GCM IV |
 | the rest | the ciphertext with its 16-byte tag; bytes 0 and 1 are its additional authenticated data, so neither can be changed without the key refusing it |
 
@@ -1072,7 +1072,8 @@ state ships a converter from every older version. Every version has a committed 
 that `tests/link-freeze.test.js` opens (AGENTS.md, rule 7).
 
 A moment's config is checked before it opens (`checkedSnapshot`, for files, slots and links alike): the keys its model
-takes, each with one of its values, and from a link `mameCompat` off; anything else is a damaged snapshot. Only the
+takes, each with one of its values, and from a link `mameCompat` off; anything else is a damaged snapshot. So a model's
+option, or one of its values, is never removed without a converter for the snapshots that hold it. Only the
 model's own options (never `mameCompat` or `hires`) are remembered as its config when a moment switches the machine.
 
 `sharedProgram()` is the BASIC program in memory on the machine on screen: `null` when there is none, else `{ lines,

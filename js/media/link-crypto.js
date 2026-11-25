@@ -9,7 +9,9 @@
  *   byte 0      SEALED_VERSION (1): this layout. 2 to 31 are kept for later layouts, which a page says are from a newer
  *               CLOADM; anything else is not a sealed object
  *   byte 1      the kind, in the clear so the server can say what a link opens: SEALED_KIND.moment (1, a .cloadm file)
- *               or SEALED_KIND.program (2, the BASIC program link's bytes) — the same numbers as a long link's byte 0
+ *               or SEALED_KIND.program (2, the BASIC program link's bytes) — the same numbers as a long link's byte 0.
+ *               3 to 31 are kept for later kinds (under this version), which a page says are from a newer CLOADM;
+ *               0 and 32 up are not kinds
  *   bytes 2-13  the IV
  *   the rest    the AES-GCM ciphertext with its tag (what it holds + 16), the two bytes above its additional
  *               authenticated data, so neither can be changed without the key refusing it
@@ -30,7 +32,11 @@ export function sealedHead(sealed) {
   if (!sealed || sealed.length < SEAL_OVERHEAD) throw new LinkCryptoError('The stored moment is damaged.');
   const version = sealed[0], kind = sealed[1];
   if (version > SEALED_VERSION && version < 32) throw new LinkCryptoError(`This short link was made by a newer CLOADM (sealed format ${version}; this page reads ${SEALED_VERSION}). Reload the page to update it.`);
-  if (version !== SEALED_VERSION || !Object.values(SEALED_KIND).includes(kind)) throw new LinkCryptoError('The stored moment is damaged.');
+  if (version !== SEALED_VERSION) throw new LinkCryptoError('The stored moment is damaged.');
+  // a kind this page doesn't know, in the range kept for later kinds (3 to 31), is a newer CLOADM's: a later kind can
+  // be added under version 1. 0 and 32 up are not kinds at all.
+  if (kind > SEALED_KIND.program && kind < 32) throw new LinkCryptoError(`This short link was made by a newer CLOADM (a kind of link this page doesn't know, ${kind}). Reload the page to update it.`);
+  if (!Object.values(SEALED_KIND).includes(kind)) throw new LinkCryptoError('The stored moment is damaged.');
   return { version, kind };
 }
 

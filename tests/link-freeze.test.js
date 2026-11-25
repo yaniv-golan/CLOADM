@@ -69,6 +69,14 @@ function programChecks(label, prog) {
     check(`${name}: its bytes are the committed ones`, got === hash, got);
   }
 
+  // the generator never overwrites a fixture: run now, it keeps all four and their bytes stay the committed ones
+  {
+    const out = require('child_process').execFileSync(process.execPath, [path.join(__dirname, '../tools/gen-link-fixtures.js')], { encoding: 'utf8' });
+    const kept = Object.keys(GOLDEN).filter((n) => new RegExp(`^${n.replace('.', '\\.')}: exists, kept`, 'm').test(out));
+    const same = Object.entries(GOLDEN).every(([n, h]) => crypto.createHash('sha256').update(fs.readFileSync(path.join(DIR, n))).digest('hex') === h);
+    check('tools/gen-link-fixtures.js refuses to overwrite: it keeps every existing fixture, and their bytes are unchanged', kept.length === 4 && same && !/written/.test(out), out.trim().replace(/\n/g, ' | '));
+  }
+
   // ---- 2. each opens to what it was made from ----
   {
     const f = fixture('z1-moment.json');
@@ -150,6 +158,18 @@ function programChecks(label, prog) {
     const saved = own.savedConfig('coco');
     check('a person\'s own file with mameCompat and a Hi-Res interface opens with them', own.shownMachine.config.mameCompat === true && own.shownMachine.config.hires === 'tandy-right');
     check('... and the model\'s remembered config is its own options only: ram kept, never mameCompat or hires', saved.ram === 32 && !('mameCompat' in saved) && !('hires' in saved), JSON.stringify(saved));
+    // what was remembered before stays, under the moment's own options: the person's own Hi-Res interface for the CoCo
+    // is kept when a link's moment (with none) switches to the CoCo, and the moment's RAM goes over the remembered RAM
+    const kept = new Emu.Session({ store: Emu.memoryStore() });
+    kept.switchMachine('coco', { ram: 16, hires: 'tandy-right' }, { menu: false });
+    kept.switchMachine('coco3', undefined, { menu: false });
+    const sender = fresh('coco');
+    sender.switchMachine('coco', { ram: 64 }, { menu: false });
+    const moment = await kept.readSnapshotLink(new URL(await sender.snapshotLink('https://cloadm.dev/play/')).hash);
+    kept.openSnapshot(moment, { shared: true, link: { kind: 'long' } });
+    const merged = kept.savedConfig('coco');
+    check('a link\'s moment switching to the CoCo keeps the person\'s remembered Hi-Res interface, its RAM over the remembered RAM', kept.shownMachine.id === 'coco'
+      && merged.hires === 'tandy-right' && merged.ram === 64 && !('mameCompat' in merged), JSON.stringify(merged));
   }
 
   console.log(fail ? `${fail} FAILED` : 'all passed');

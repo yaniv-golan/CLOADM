@@ -21820,6 +21820,16 @@ async function basicShareChecks(browser, base, site, check) {
   await p2.waitForTimeout(1000);
   check('basicShare: a second after a program arrives waiting for ROMs, the focus is on the screen', await p2.evaluate(() => document.activeElement.id) === 'screen', await p2.evaluate(() => document.activeElement.id));
   if (shotDir) await p2.screenshot({ path: path.join(shotDir, 'basic-share-arrival-no-roms.png') });
+  // the focus moved elsewhere first (a button in the app bar), then a program arrives waiting for ROMs: arrival.js puts
+  // it on the screen (the arrival before this one could not show that: the page's start focuses the screen anyway)
+  await p2.evaluate(async (z) => {
+    document.getElementById('btnShare').focus();
+    const prog = await window.emu.session.readProgramLink(`#z=${z}`);
+    window.emu.arrival.openProgram(prog, { kind: 'long' });
+  }, mcLink.split('#z=')[1]);
+  await p2.waitForTimeout(1000);
+  check('basicShare: with the focus elsewhere (the Share button), a program arriving waiting for ROMs puts it on the screen', await p2.evaluate(() => document.activeElement.id) === 'screen',
+    await p2.evaluate(() => document.activeElement.id));
   await p2.click('#btnArrivalCopy');
   check('basicShare: "Copy the listing" copies it', await waitFor(p2, (t) => navigator.clipboard.readText().then((x) => x === t), MC, 5000));
   // the ROMs dropped (our stand-in's CRC as a known MC-10 dump, page memory only): it loads and is listed, on its own

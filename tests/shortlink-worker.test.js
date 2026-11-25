@@ -64,6 +64,13 @@ const sealed = (n = 3000, seed = 1, kind = 1) => Uint8Array.from({ length: n }, 
     check('the arrival page: its one script and style allowed by their hashes, and nothing else (default-src none)', csp.includes(`script-src 'sha256-${h(script)}'`) && csp.includes(`style-src 'sha256-${h(style)}'`)
       && /default-src 'none'/.test(csp) && (html.match(/<script/g) || []).length === 1, csp);
     check('the arrival page: the script counts the open and goes to cloadm.dev/play/#l=<id>.<key>, the same for every link', script === W.ARRIVAL_SCRIPT && script.includes("location.replace('https://cloadm.dev/play/#l='+id+'.'+k)") && !script.includes(out.id));
+    // the article by how the name is said (every model checked, the expected ones written out here)
+    const an = new Set(['MC-10', 'LZ Color64']);
+    check('the article before a machine\'s name: "an" for MC-10 and LZ Color64, "a" for every other model', Object.values(W.MACHINES).every((n) => W.article(n) === (an.has(n) ? 'an' : 'a')),
+      Object.values(W.MACHINES).map((n) => `${W.article(n)} ${n}`).join(', '));
+    const mc = envOf(), mr = await (await call(mc, req('/api/new', { body: Emu.newLinkBody('mc10', sealed()) }))).json();
+    check('a moment on an MC-10: the arrival page says "an MC-10"', (mc.BUCKET.text(mr.id) || '').includes('<title>A moment on an MC-10, CLOADM</title>')
+      && (mc.BUCKET.text(mr.id) || '').includes('Opening a moment on an MC-10 in CLOADM…'));
     check('made: the kind is kept with the link (1, a moment)', meta.kind === '1', JSON.stringify(meta));
     check('the arrival page says what it opens: a moment', metaOf('og:description') === 'Open this moment in CLOADM, the Dragon and Color Computer emulator in your browser.'
       && html.includes('<p id="m">Opening a moment on a Dragon 64 in CLOADM…</p>'));
@@ -97,7 +104,7 @@ const sealed = (n = 3000, seed = 1, kind = 1) => Uint8Array.from({ length: n }, 
     // without a picture
     const r2 = await (await call(env, req('/api/new', { body: Emu.newLinkBody('mc10', sealed(500, 2)) }))).json();
     const h2 = env.BUCKET.text(r2.id);
-    check('no picture: no <id>.png, the site icon as og:image, a small card', !b.has(`${r2.id}.png`) && h2.includes('content="https://cloadm.dev/icons/icon-512.png"') && h2.includes('content="summary"') && /A moment on a MC-10, CLOADM/.test(h2));
+    check('no picture: no <id>.png, the site icon as og:image, a small card', !b.has(`${r2.id}.png`) && h2.includes('content="https://cloadm.dev/icons/icon-512.png"') && h2.includes('content="summary"') && /A moment on an MC-10, CLOADM/.test(h2));
     const noReport = envOf({ REPORT_EMAIL: '' });
     const r3 = await (await call(noReport, req('/api/new', { body: Emu.newLinkBody('coco', sealed()) }))).json();
     check('no report address configured: no Report link (never a broken one)', !/Report this link/.test(noReport.BUCKET.text(r3.id)));
@@ -234,12 +241,18 @@ const sealed = (n = 3000, seed = 1, kind = 1) => Uint8Array.from({ length: n }, 
       ['a sealed object of version 2 (a newer CLOADM)', Emu.newLinkBody('dragon64', Uint8Array.from([2, ...sealed().subarray(1)]))],
       ['a sealed object of version 0', Emu.newLinkBody('dragon64', Uint8Array.from([0, ...sealed().subarray(1)]))],
       ['a sealed object of kind 3', Emu.newLinkBody('dragon64', sealed(3000, 1, 3))], ['a sealed object of kind 0', Emu.newLinkBody('dragon64', sealed(3000, 1, 0))],
+      ['a sealed object of kind 32', Emu.newLinkBody('dragon64', sealed(3000, 1, 32))],
       ['a program\'s link with a picture', Emu.newLinkBody('dragon64', sealed(3000, 1, 2), png)]]) {
       const [s, m] = await status(req('/api/new', { body: b }));
       check(`refused (400): ${what}`, s === 400, m);
     }
     const [sn, mn] = await status(req('/api/new', { body: Emu.newLinkBody('dragon64', Uint8Array.from([2, ...sealed().subarray(1)])) }));
     check('a sealed object from a newer CLOADM: refused, saying so', sn === 400 && /newer CLOADM/.test(mn), mn);
+    // under version 1, a kind kept for later (3 to 31) is a newer CLOADM's; 0 and 32 up are not kinds
+    for (const [k, newer] of [[3, true], [31, true], [0, false], [32, false], [255, false]]) {
+      const [sk, mk] = await status(req('/api/new', { body: Emu.newLinkBody('dragon64', sealed(3000, 1, k)) }));
+      check(`a sealed object of kind ${k}: refused, ${newer ? 'as a newer CLOADM\'s' : 'as not a kind'}`, sk === 400 && /newer CLOADM/.test(mk) === newer, mk);
+    }
     // pictures: each check
     const chunk = (type, data) => { const td = Buffer.concat([Buffer.from(type, 'latin1'), Buffer.from(data)]); const l = Buffer.alloc(4); l.writeUInt32BE(data.length); const c = Buffer.alloc(4); c.writeUInt32BE(zlib.crc32(td)); return Buffer.concat([l, td, c]); };
     const ihdr = (w, h, depth, type) => { const d = Buffer.alloc(13); d.writeUInt32BE(w, 0); d.writeUInt32BE(h, 4); d[8] = depth; d[9] = type; return chunk('IHDR', d); };

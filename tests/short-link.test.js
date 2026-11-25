@@ -61,7 +61,13 @@ function server({ fail: failWith = null } = {}) {
     const newer = a.sealed.slice(); newer[0] = 2;
     const ne = await rejects(Emu.openMoment(newer, a.key));
     check('sealing: a later sealed format says it is from a newer CLOADM', ne instanceof Emu.LinkCryptoError && /newer CLOADM \(sealed format 2; this page reads 1\)/.test(ne.message), ne && ne.message);
-    for (const [what, v, k] of [['version 0', 0, 1], ['version 32', 32, 1], ['kind 0', 1, 0], ['kind 3', 1, 3]]) {
+    // under version 1, a kind kept for later (3 to 31) is a newer CLOADM's, so a later kind can be added under version 1
+    for (const k of [3, 31]) {
+      const x = a.sealed.slice(); x[1] = k;
+      const xe = await rejects(Emu.openMoment(x, a.key));
+      check(`sealing: kind ${k} under version 1: from a newer CLOADM, not damaged`, xe instanceof Emu.LinkCryptoError && /newer CLOADM/.test(xe.message) && !/damaged/.test(xe.message), xe && xe.message);
+    }
+    for (const [what, v, k] of [['version 0', 0, 1], ['version 32', 32, 1], ['kind 0', 1, 0], ['kind 32', 1, 32], ['kind 255', 1, 255]]) {
       const x = a.sealed.slice(); x[0] = v; x[1] = k;
       const xe = await rejects(Emu.openMoment(x, a.key));
       check(`sealing: ${what}: damaged, not newer`, xe instanceof Emu.LinkCryptoError && /damaged/.test(xe.message), xe && xe.message);

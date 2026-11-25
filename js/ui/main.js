@@ -134,6 +134,7 @@ let library = null;
 // program's short link
 const arrival = setupArrival(page, { openShare: () => share.open(), startOver, reportUrl: (id) => linkStore.reportUrl(id), openRoms: () => romSockets.reveal() });
 const snapshots = setupSnapshotPanel(page, { confirmSwitch: machinePanel.confirmSwitch, openRoms: () => romSockets.reveal(), startOver: (program) => startOver(program), openProgram: arrival.openProgram });
+window.emu.arrival = arrival;   // (the browser check: a program arriving while the focus is elsewhere)
 const disks = setupDrives(page, { openRoms: () => romSockets.reveal({ to: 'disk' }) });
 const slots = setupSlotsPanel(page, { snapshots });
 const nitros9 = setupNitros9Panel(page);
