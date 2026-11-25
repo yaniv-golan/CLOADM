@@ -30,8 +30,11 @@
 //      no registers, cycles or writes. Every RAM cell ROM code writes during a dirty stretch becomes dirty.
 //   4. Taint is sticky. When a dirty stretch hands control back to program code, the program may now hold ROM-derived
 //      data in its registers, so everything it does from then on may depend on ROM bytes. Recording STOPS: nothing
-//      later is written or counted, not even addresses. The same happens if program code reads a dirty RAM cell (as
-//      data, or as an instruction other than JMP/JSR extended or RTS: the RAM hooks BASIC fills at boot).
+//      later is written with registers, cycles or RAM effects. The same happens if program code reads a dirty RAM
+//      cell (as data, or as an instruction other than JMP/JSR extended or RTS: the RAM hooks BASIC fills at boot).
+//      What is still counted after the stop is directSite's: the program's own direct calls into ROM, from call sites
+//      whose bytes are exactly as loaded, as { program, from, target | slot, kind, count, after: 'stop' } (addresses
+//      and counts only).
 //   5. Before the program starts (BASIC's boot, a loader), ROM code that writes a value it has read from ROM recently
 //      (one of the last RECENT = 16 data reads, 0 and $FF aside) marks that cell dirty: the RAM hooks and tables BASIC
 //      copies out of ROM, through registers or the stack. A value BASIC computes at boot from ROM data is not followed;
@@ -170,6 +173,34 @@ function romRuns(a, { images, w, index }) {
   return runs;
 }
 
+// After the stop (rule 4), what may still be counted: a transfer into ROM made by a direct call or branch whose
+// target is fixed by its own instruction bytes - JSR/JMP extended, BSR/LBSR, a short or long branch - checked to
+// land where those bytes say; or a JSR/JMP [$A00x] through BASIC's call vectors, counted by the vector's address
+// (slot), never its value. Anything else after the stop (through a register or RAM, a return, an interrupt) is not.
+// The caller also requires the instruction's bytes to be exactly as loaded (never written, not dirty): a ROM routine
+// a program copies into RAM and runs has ROM bytes as its operands.
+//   -> null or { target, slot?, kind, len }
+function directSite(peek, from, pc, sDelta) {
+  const op = peek(from), b1 = peek((from + 1) & 0xFFFF), b2 = peek((from + 2) & 0xFFFF), b3 = peek((from + 3) & 0xFFFF);
+  const rel8 = (b) => ((b << 24) >> 24), rel16 = (h, l) => ((((h << 8) | l) << 16) >> 16);
+  const at = (len, off) => (from + len + off) & 0xFFFF;
+  let s = null;
+  if (op === 0xBD || op === 0x7E) s = { target: (b1 << 8) | b2, kind: op === 0xBD ? 'jsr' : 'jmp', len: 3 };
+  else if (op === 0x8D) s = { target: at(2, rel8(b1)), kind: 'bsr', len: 2 };
+  else if (op === 0x17) s = { target: at(3, rel16(b1, b2)), kind: 'lbsr', len: 3 };
+  else if (op === 0x16) s = { target: at(3, rel16(b1, b2)), kind: 'branch', len: 3 };
+  else if (op >= 0x20 && op <= 0x2F) s = { target: at(2, rel8(b1)), kind: 'branch', len: 2 };
+  else if (op === 0x10 && b1 >= 0x21 && b1 <= 0x2F) s = { target: at(4, rel16(b2, b3)), kind: 'branch', len: 4 };
+  else if ((op === 0xAD || op === 0x6E) && b1 === 0x9F) {
+    const slot = (b2 << 8) | b3;
+    if (slot < VEC_LO || slot > VEC_HI - 1 || sDelta !== (op === 0xAD ? -2 : 0)) return null;
+    return { target: null, slot, kind: op === 0xAD ? 'jsr-indirect' : 'jmp-indirect', len: 4 };
+  }
+  if (!s || s.target !== pc) return null;
+  if (sDelta !== ((s.kind === 'jsr' || s.kind === 'bsr' || s.kind === 'lbsr') ? -2 : 0)) return null;
+  return s;
+}
+
 // Trace machine m -> { detach(), finish() -> { records, refused, started, stopped, error } }.
 //   records: the records written in full; refused: the records written as addresses only (a dirty stretch);
 //   started: the census loader started the program; stopped: why recording stopped (sticky taint), or null;
@@ -180,6 +211,8 @@ function trace(m, { program = '', maxWrites = 256, maxTargets = 512, sweepWindow
   const cpu = m.cpu, peek = (a) => m.peek(a & 0xFFFF);
   const records = [], refused = [];
   const loads = [];               // what the census loader put in: [{ segments, exec }] (the static census reads these)
+  const asLoaded = new Uint8Array(0x10000);   // 1: a RAM cell still holding what the census loader put there
+  const afterStop = new Map();    // after the stop: direct calls from clean sites, counted (rule 4, afterStop below)
   const dirtyRam = new Uint8Array(0x10000);   // 1: a RAM cell holding ROM-derived data
   const targets = new Set();
   let started = false, stopped = null, error = null;
@@ -222,6 +255,18 @@ function trace(m, { program = '', maxWrites = 256, maxTargets = 512, sweepWindow
     if (closing) close(false);
     // ROM code hands control to program code: a dirty stretch taints the program for good
     if (from !== null && masked(from) && !masked(pc)) { if (dirtyStretch && started) stop('rom-data-returned'); dirtyStretch = false; }
+    // after the stop: an entry into ROM from a direct call whose instruction bytes are still exactly as loaded
+    if (nowIn && from !== null && !wasIn && !masked(from) && started && stopped) {
+      const site = directSite(peek, from, pc, sDelta);
+      if (site && cleanSite(from, site.len)) {
+        const key = site.slot != null ? site.slot : site.target;
+        targets.add(key);
+        if (targets.size > maxTargets) { error = `scan: more than ${maxTargets} distinct ROM entry points`; return; }
+        const k = `${from}|${key}|${site.kind}`, e = afterStop.get(k);
+        if (e) e.count++;
+        else afterStop.set(k, Object.assign({ program, from, target: site.target, kind: site.kind, count: 1, after: 'stop' }, site.slot != null ? { slot: site.slot } : {}));
+      }
+    }
     if (!closing && !open && nowIn && from !== null && !wasIn && started && !stopped) {
       targets.add(pc);
       if (targets.size > maxTargets) { error = `scan: more than ${maxTargets} distinct ROM entry points`; return; }
@@ -247,8 +292,10 @@ function trace(m, { program = '', maxWrites = 256, maxTargets = 512, sweepWindow
     if (fetch) stepFetchDirty = true;                      // judged at the next instruction (a RAM hook may be fetched)
     else if (started) stop('program-read-rom-data');
   };
+  const cleanSite = (from, len) => { for (let i = 0; i < len; i++) { const a = (from + i) & 0xFFFF; if (!asLoaded[a] || dirtyRam[a]) return false; } return true; };
   const onWrite = (a, v) => {
     if (masked(a)) return;
+    asLoaded[a] = 0;
     const romCode = masked(curPc);
     if (!romCode) dirtyRam[a] = 0;                         // program code writes its own data (until it stops)
     else if (started) dirtyRam[a] = dirtyStretch ? 1 : 0;
@@ -272,7 +319,7 @@ function trace(m, { program = '', maxWrites = 256, maxTargets = 512, sweepWindow
     this.poke = function (a, v) { sweepNow(); return poke.call(this, a, v); };
     try { inject.call(this, segments, exec); } finally { if (ownPoke) this.poke = ownPoke; else delete this.poke; }
     sweepNow();
-    for (const seg of segments) for (let i = 0; i < seg.data.length; i++) dirtyRam[(seg.addr + i) & 0xFFFF] = 0;
+    for (const seg of segments) for (let i = 0; i < seg.data.length; i++) { const a = (seg.addr + i) & 0xFFFF; dirtyRam[a] = 0; asLoaded[a] = 1; }
     if (exec == null) return;
     cpu.a = 0; cpu.b = 0; cpu.x = 0; cpu.y = 0; cpu.u = 0; cpu.dp = 0; cpu.cc &= 0x50;
     // (stopped and error are never cleared: a stop or a discard is final for the run, so a second program loaded over
@@ -305,9 +352,9 @@ function trace(m, { program = '', maxWrites = 256, maxTargets = 512, sweepWindow
       detach();
       if (!error && prevPc !== null && stepReads.length && !masked(prevPc) && started && !stopped) error = 'program-read-rom';
       if (open && !error && !stopped) close(true);
-      return { records, refused, started, stopped, error, loads };
+      return { records, refused, started, stopped, error, loads, afterStop: error ? [] : [...afterStop.values()] };
     },
   };
 }
 
-module.exports = { SWEEP_WINDOW, runIndex, romRuns, ROM_LO, ROM_HI, IO_LO, IO_HI, VEC_LO, VEC_HI, inRom, masked, kindOf, regBytes, valueBytes, romImages, Tripwire, onlyPicksTarget, trace };
+module.exports = { directSite, SWEEP_WINDOW, runIndex, romRuns, ROM_LO, ROM_HI, IO_LO, IO_HI, VEC_LO, VEC_HI, inRom, masked, kindOf, regBytes, valueBytes, romImages, Tripwire, onlyPicksTarget, trace };

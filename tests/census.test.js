@@ -81,7 +81,7 @@ SAVE    FCB     0
         END     START`;
 
 // ---------------- the self-test program against the stub ----------------
-for (const n of ['CHROUT', 'NUM', 'SKIP', 'OKMSG']) check(`calls.asm's ${n} is the stub's ${n} (${hex(sym(n))})`, equ(CALLS, n) === sym(n));
+for (const n of ['CHROUT', 'NUM', 'SKIP', 'OKMSG', 'CSRDON']) check(`calls.asm's ${n} is the stub's ${n} (${hex(sym(n))})`, equ(CALLS, n) === sym(n));
 check('the stub vectors: [$A000] is POLCAT, [$A002] is CHROUT', ((STUB.rom[0x2000] << 8) | STUB.rom[0x2001]) === sym('POLCAT') && ((STUB.rom[0x2002] << 8) | STUB.rom[0x2003]) === sym('CHROUT'));
 
 const base = traced(lib, CALLS);
@@ -109,6 +109,33 @@ const find = (list, target, kind) => list.filter((x) => x.target === target && x
     ![...base.records, ...base.refused].some((x) => x.from === at('RET4') + 6));
   check('the tripwire quiet, no window of the stub ROM in the values', !base.tripped);
 }
+
+// ---------------- after the stop: direct calls counted, addresses only ----------------
+const afterHolds = (r) => {
+  const at = (l) => r.symbols.get(l);
+  const a = r.afterStop || [];
+  const one = (from, target) => a.some((x) => x.from === from && x.target === target && x.kind === 'jsr' && x.count === 1 && x.after === 'stop' &&
+    Object.keys(x).sort().join() === 'after,count,from,kind,program,target');
+  return one(at('RET4') + 6, sym('CHROUT')) && one(at('RET4') + 9, 0xB120) && a.length === 2;
+};
+check('after the stop, the direct calls (JSR CHROUT, JSR CSRDON) are counted as { program, from, target, kind, count, after }, nothing more', afterHolds(base), JSON.stringify(base.afterStop));
+// after the stop: a call through a register is dropped; a direct one counted; a JSR the program wrote into RAM
+// (not as loaded) is dropped
+const AFTER = prog(`        LDX     #OKMSG
+        JSR     SKIP
+        LDX     #CHROUT
+        JSR     ,X
+SITE    JSR     CHROUT
+        LDD     #$BDB1
+        STD     $3100
+        LDD     #$1039
+        STD     $3102
+        JSR     $3100`);
+const afterKinds = (r) => {
+  const a = r.afterStop || [], at = (l) => r.symbols.get(l);
+  return r.stopped === 'rom-data-returned' && a.length === 1 && a[0].from === at('SITE') && a[0].target === sym('CHROUT') && !a.some((x) => x.from === 0x3100);
+};
+check('after the stop, JSR ,X is not counted, a direct JSR is, and a JSR the program wrote into RAM is not (its bytes are not as loaded)', afterKinds(traced(lib, AFTER)), JSON.stringify(traced(lib, AFTER).afterStop));
 
 // ---------------- the leak paths, each on the stub ROM ----------------
 const LEAKS = {
@@ -426,31 +453,35 @@ for (const k of Object.keys(bootScenarios)) { const r = bootScenarios[k](lib); c
 
 // ---------------- the static census: the program file's own references ----------------
 const stat = require(path.join(DIR, 'static.js'));
-const staticOf = (S, src, opts) => { const r = asm(src); return Object.assign(S.staticRefs(r.segments, r.exec, STUB_IMG, opts), { symbols: r.symbols }); };
-const callsStatic = (S, opts) => {
-  const r = staticOf(S, CALLS, opts), st = (n) => r.symbols.get(n), key = (x) => `${x.from - st(x.from >= st('RET4') ? 'RET4' : 'START')}:${x.target != null ? x.target.toString(16) : 'slot' + x.slot.toString(16)}:${x.kind}:${x.source}`;
+const staticOf = (S, src) => { const r = asm(src); return Object.assign(S.staticRefs(r.segments, STUB_IMG), { symbols: r.symbols }); };
+const callsStatic = (S) => {
+  const r = staticOf(S, CALLS), st = (n) => r.symbols.get(n), key = (x) => `${x.from - st(x.from >= st('RET4') ? 'RET4' : 'START')}:${x.target != null ? x.target.toString(16) : 'slot' + x.slot.toString(16)}:${x.kind}`;
   return Object.assign(r, { keys: r.refs.map(key).sort() });
 };
-// by descent: exactly these; as candidates: at least the two calls past RET4 (data after them may decode as more)
-const CALLS_STATIC = ['2:slota002:jsr-indirect:static', '8:b110:jsr:static', '14:b280:jsr:static', '25:slota000:jmp-indirect:static'].sort();
-const CALLS_CAND = ['3:b275:jsr:candidate', '6:b110:jsr:candidate'];
-const staticHolds = (r) => r.keys.filter((k) => k.endsWith(':static')).join() === CALLS_STATIC.join() && CALLS_CAND.every((k) => r.keys.includes(k)) && r.dropped === 0 && !r.candidatesDropped;
-check('static: calls.asm\'s references as loaded: by descent from exec the vector calls (slots $A002, $A000, never their values), CHROUT and NUM; past the JMP [$A000] (code only an LDX # points at) the SKIP and CHROUT calls as candidates',
-  staticHolds(callsStatic(stat)), JSON.stringify(callsStatic(stat).keys));
-// a program file that embeds a copy of ROM code (the stub's KEY routine: PSHS A / JSR [$A002] / ...) and runs into it
+// the linear scan finds every call calls.asm makes (the vector calls as their slots, never the vectors' values),
+// including those past the JMP [$A000] that only an LDX # points at
+const CALLS_STATIC = ['2:slota002:jsr-indirect', '8:b110:jsr', '14:b280:jsr', '25:slota000:jmp-indirect', '3:b275:jsr', '6:b110:jsr', '9:b120:jsr'];
+const staticHolds = (r) => !r.skipped && CALLS_STATIC.every((k) => r.keys.includes(k));
+check('static: a linear scan of calls.asm as loaded finds each of its calls into ROM, the vector calls as their slot addresses', staticHolds(callsStatic(stat)), JSON.stringify(callsStatic(stat).keys));
+// a program file that embeds a copy of ROM code (the stub's KEY routine: PSHS A / JSR [$A002] / ...)
 const EMBED = `
         ORG     $3000
 START   JSR     $B110
-        JMP     EMB
-        FCB     0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+        JMP     START
 EMB     FCB     ${[...STUB.rom.subarray(sym('KEY') - 0x8000, sym('KEY') - 0x8000 + 32)].join(',')}
-        FCB     0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
         END     START`;
-const embedHolds = (r) => { const e = r.symbols.get('EMB'); return r.dropped >= 32 && r.refs.some((x) => x.target === 0xB110 && x.from === r.symbols.get('START')) && !r.refs.some((x) => x.from >= e - 16 && x.from < e + 48); };
-check('static: a ROM copy embedded in the program file (32 bytes of the stub, a JSR [$A002] in it) is left out with a margin: none of its operands is reported, the program\'s own call is',
-  embedHolds(staticOf(stat, EMBED)), JSON.stringify(staticOf(stat, EMBED).refs));
-const capHolds = (r) => r.candidatesDropped && r.refs.every((x) => x.source === 'static') && r.refs.length === CALLS_STATIC.length;
-check('static: more distinct candidate targets than maxCandidates drops them all (flagged), the descent\'s references stay', capHolds(callsStatic(stat, { maxCandidates: 1 })));
+const embedHolds = (r) => r.skipped === 'rom-run-in-image' && r.refs.length === 0;
+check('static: a program file holding a 16+ byte ROM copy is not scanned at all (skipped, no references)', embedHolds(staticOf(stat, EMBED)), JSON.stringify(staticOf(stat, EMBED)));
+// an indirect call through anything but the $A00x vectors is no reference
+const INDIRECT = `
+        ORG     $3000
+START   JSR     [$3010]
+        JSR     ,X
+        JMP     [$B000]
+DONE    BRA     DONE
+        END     START`;
+const indirectHolds = (r) => r.refs.length === 0;
+check('static: JSR [$3010], JSR ,X and JMP [$B000] are not references (only [$A00x] is)', indirectHolds(staticOf(stat, INDIRECT)), JSON.stringify(staticOf(stat, INDIRECT).refs));
 
 // ---------------- the pieces ----------------
 {
@@ -486,14 +517,14 @@ const opts = (o = {}) => Object.assign(census.parse(['--no-roms', '--frames', '5
     const lines = fs.readFileSync(path.join(out, 'census.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
     const agg = JSON.parse(fs.readFileSync(path.join(out, 'census.json'), 'utf8'));
     for (const p of ['calls.cloadm', 'calls.bin']) {
-      const mine = lines.filter((l) => l.program === p && !l.source);
+      const mine = lines.filter((l) => l.program === p && !l.source && !l.after);
       check(`${p}: CHROUT, NUM and POLCAT in census.jsonl, SKIP only as refused, nothing after it`,
         mine.some((l) => l.target === sym('CHROUT') && l.kind === 'jsr-indirect' && l.regsIn) && mine.some((l) => l.target === sym('NUM') && l.regsOut) &&
         mine.some((l) => l.target === sym('POLCAT') && l.kind === 'jmp-indirect') && mine.filter((l) => l.target === sym('SKIP')).length === 1 &&
         mine.filter((l) => l.target === sym('SKIP')).every((l) => l.refused && !l.regsOut) && mine.length === 5, `${mine.length} lines`);
     }
     const keys = ['program', 'target', 'from', 'kind', 'regsIn', 'regsOut', 'cyclesInRom', 'ramWritesOutsideRom'];
-    check('every written record has exactly the record fields (plus writesDropped/open)', lines.filter((l) => !l.refused && !l.source).every((l) => keys.every((k) => k in l) && Object.keys(l).every((k) => keys.includes(k) || k === 'writesDropped' || k === 'open')));
+    check('every written record has exactly the record fields (plus writesDropped/open)', lines.filter((l) => !l.refused && !l.source && !l.after).every((l) => keys.every((k) => k in l) && Object.keys(l).every((k) => keys.includes(k) || k === 'writesDropped' || k === 'open')));
     check('every refused line holds addresses only', lines.filter((l) => l.refused).every((l) => Object.keys(l).sort().join() === 'from,kind,program,refused,target'));
     const chrout = agg.entries.find((e) => e.address === sym('CHROUT'));
     check('census.json: entries sorted by the number of programs using them, with calls, registers and RAM effects; each run says why recording stopped',
@@ -501,12 +532,12 @@ const opts = (o = {}) => Object.assign(census.parse(['--no-roms', '--frames', '5
       chrout && chrout.programs.length === 2 && chrout.calls === 4 && chrout.inRegs.a.values.includes(0x48) &&
       agg.entries.find((e) => e.address === sym('NUM')).ramEffects.some((x) => x.addr === sym('NUMT') + 1 && x.values.includes(123)) &&
       agg.programs.length === 2 && agg.programs.every((p) => p.stopped === 'rom-data-returned'));
-    const vals = Uint8Array.from(lines.filter((l) => !l.refused && !l.source).flatMap((l) => lib.valueBytes(l)));
+    const vals = Uint8Array.from(lines.filter((l) => !l.refused && !l.source && !l.after).flatMap((l) => lib.valueBytes(l)));
     const statLines = lines.filter((l) => l.source);
     check('static lines hold addresses only: { program, from, target, slot?, kind, source }', statLines.length > 0 && statLines.every((l) => Object.keys(l).every((k) => ['program', 'from', 'target', 'slot', 'kind', 'source'].includes(k))));
     const slotA002 = agg.entries.find((e) => e.address === 0xA002);
     check('census.json: a vector slot referred to statically is an entry of its own (vectorSlot, staticPrograms), with no calls of its own',
-      slotA002 && slotA002.vectorSlot && slotA002.staticPrograms.length === 2 && slotA002.calls === 0 && agg.programs.every((p) => p.static >= 4 && p.candidates >= 2));
+      slotA002 && slotA002.vectorSlot && slotA002.staticPrograms.length === 2 && slotA002.calls === 0 && agg.programs.every((p) => p.static >= 7 && !p.staticSkipped && p.callsAfterStop === 2));
     check('no output holds a window of the stub ROM', romWindowIn(vals, STUB_IMG, windowIndex(STUB_IMG)) === null &&
       romWindowIn(Uint8Array.from(JSON.stringify(agg).match(/\d+/g).map(Number).filter((v) => v < 256)), STUB_IMG, windowIndex(STUB_IMG)) === null);
     const rn = node([CENSUS, script]);
@@ -522,14 +553,14 @@ const opts = (o = {}) => Object.assign(census.parse(['--no-roms', '--frames', '5
     const r = await peekRun(census);
     check('a census script with a peek step is refused by the allow-list (that reason), nothing recorded', allowListHolds(r), r.log);
   }
-  // the run-wide limit on distinct ROM entry points: CHROUT, NUM, POLCAT and SKIP called (4), plus the vector slots
-  // $A002 and $A000 the static census finds by descent (6); candidates do not count
+  // the run-wide limit on distinct ROM entry points: CHROUT, NUM, POLCAT and SKIP called (4), plus CSRDON called
+  // after the stop (5); the static census's references do not count (they come from the program file alone)
   const runLimit = async (mod, n) => { const logs = []; const dir = tmp(`out-run-${n}-${Math.random().toString(36).slice(2)}`); const code = await mod.main(['--no-roms', '--frames', '5', '--max-run-targets', String(n), '--out', dir, path.join(TMP, 'calls.cloadm')], { log: (t) => logs.push(t) }); return { code, log: logs.join('\n'), wrote: fs.existsSync(path.join(dir, 'census.jsonl')), partial: fs.existsSync(path.join(dir, 'census.jsonl.partial')) }; };
   const finishedClean = (r) => r.code === 0 && r.wrote && !r.partial;
-  const runLimitHolds = (r) => r.code === 1 && /entered 6 distinct ROM addresses, more than --max-run-targets 5: nothing written/.test(r.log) && !r.wrote && !r.partial;
+  const runLimitHolds = (r) => r.code === 1 && /entered 5 distinct ROM addresses, more than --max-run-targets 4: nothing written/.test(r.log) && !r.wrote && !r.partial;
   {
-    const over = await runLimit(census, 5), under = await runLimit(census, 6);
-    check('a run entering more distinct ROM addresses (static ones included) than --max-run-targets writes nothing, no .partial left; at the limit it writes, no .partial left',
+    const over = await runLimit(census, 4), under = await runLimit(census, 5);
+    check('a run entering more distinct ROM addresses (calls after the stop included) than --max-run-targets writes nothing, no .partial left; at the limit it writes, no .partial left',
       runLimitHolds(over) && finishedClean(under), over.log + under.log);
   }
   // a program started by BASIC (here: typed at the stub), not by the census loader: nothing recorded
@@ -672,7 +703,7 @@ DONE    BRA     DONE
       ['a read at the PC taken as a fetch whoever made it', [['if (fetch && masked(curPc)) return;', 'if (fetch) return;']], ['pcrTop', 'ldTop']],
       ['a stop not final (a second start records again)', [['started = true; dirtyStretch = false; open = null;', 'started = true; stopped = null; error = null; dirtyStretch = false; open = null;']], ['secondStart']],
       ['dirty-stretch writes not marking RAM', [['else if (started) dirtyRam[a] = dirtyStretch ? 1 : 0;', 'else if (started) dirtyRam[a] = 0;']], ['dirtyWrites']],
-      ['the loaded program not cleaned', [['for (const seg of segments) for (let i = 0; i < seg.data.length; i++) dirtyRam[(seg.addr + i) & 0xFFFF] = 0;', '']], ['loadedClean']],
+      ['the loaded program not cleaned', [['dirtyRam[a] = 0; asLoaded[a] = 1;', 'asLoaded[a] = 1;']], ['loadedClean']],
       ['the registers not cleared at the start', [['cpu.a = 0; cpu.b = 0; cpu.x = 0; cpu.y = 0; cpu.u = 0; cpu.dp = 0; cpu.cc &= 0x50;', '']], ['regsCleared']],
       ['a trailing program ROM read not judged by finish()', [["if (!error && prevPc !== null && stepReads.length && !masked(prevPc) && started && !stopped) error = 'program-read-rom';", '']], ['trailingRead']],
       ['the sweep off', [['for (const r of romRuns(below, sweepIndex)) for (let a = r.at; a < r.at + r.len; a++) dirtyRam[a] = 1;', '']], ['loadPath']],
@@ -694,6 +725,14 @@ DONE    BRA     DONE
       ['the scan limit off', [['if (targets.size > maxTargets)', 'if (false)']], ['scan']],
       ['the lib tripwire off', [['return romWindowIn(Uint8Array.from(this.stream.slice(from))', 'return null && romWindowIn(Uint8Array.from(this.stream.slice(from))']], ['tripwire']],
     ];
+    {
+      const A1 = moduleWith(LIB, [['    if (nowIn && from !== null && !wasIn && !masked(from) && started && stopped) {', '    if (false) {']]);
+      check('mutant "nothing counted after the stop" is caught', !afterHolds(traced(A1, CALLS)));
+      const A2 = moduleWith(LIB, [['  if (!s || s.target !== pc) return null;', "  if (!s) return { target: pc, kind: 'jsr', len: 1 };"]]);
+      check('mutant "any transfer counted after the stop" is caught', !afterKinds(traced(A2, AFTER)));
+      const A3 = moduleWith(LIB, [['if (!asLoaded[a] || dirtyRam[a]) return false;', '']]);
+      check('mutant "call sites not checked as loaded" is caught', !afterKinds(traced(A3, AFTER)));
+    }
     for (const [name, pairs, scenarios] of libMutants) {
       const L = moduleWith(LIB, pairs);
       const caught = scenarios.some((k) => {
@@ -707,24 +746,15 @@ DONE    BRA     DONE
       const C = moduleWith(CENSUS, [['for (const x of r.records) if (tw.add(lib.valueBytes(x)))', 'for (const x of r.records) if (false && tw.add(lib.valueBytes(x)))']]);
       check('mutant "census tripwire not applied" is caught', !tripHolds(await C.runProgram(s, opts(), planted)));
       const R2 = moduleWith(CENSUS, [['fs.renameSync(partial, jsonl);', 'fs.copyFileSync(partial, jsonl);']]);
-      check('mutant "the partial file copied, not renamed" is caught (a .partial left after a finished run)', !finishedClean(await runLimit(R2, 6)));
+      check('mutant "the partial file copied, not renamed" is caught (a .partial left after a finished run)', !finishedClean(await runLimit(R2, 5)));
       const R3 = moduleWith(CENSUS, [['      fs.rmSync(partial, { force: true });\n      log(`census: the run entered', '      log(`census: the run entered']]);
-      check('mutant "the partial file kept when the run is refused" is caught', !runLimitHolds(await runLimit(R3, 5)));
-      const R4 = moduleWith(CENSUS, [["    for (const x of r.statics) if (x.source === 'static') next.add(x.target != null ? x.target : x.slot);", '']]);
-      check('mutant "static targets not counted toward --max-run-targets" is caught', !runLimitHolds(await runLimit(R4, 5)));
-      const S1 = moduleWith(path.join(DIR, 'static.js'), [['    if (index) {', '    if (false) {']]);
-      check('mutant "ROM copies in the image not left out" is caught', !embedHolds(staticOf(S1, EMBED)));
-      const S2 = moduleWith(path.join(DIR, 'static.js'), [["Object.assign({ from: at, source: 'candidate' }, ins.ref)", "Object.assign({ from: at, source: 'static' }, ins.ref)"]]);
-      check('mutant "linear-sweep hits tagged static" is caught', !staticHolds(callsStatic(S2)));
-      const S3 = moduleWith(path.join(DIR, 'static.js'), [['const candidatesDropped = candTargets.size > maxCandidates;', 'const candidatesDropped = false;']]);
-      check('mutant "the candidate cap off" is caught', !capHolds(callsStatic(S3, { maxCandidates: 1 })));
-      const S4 = moduleWith(path.join(DIR, 'static.js'), [["if (pb === 0x9F && d.target != null && d.target >= VEC_LO && d.target <= VEC_HI - 1) ref = { slot: d.target, target: null, kind: `${CALLS[m]}-indirect` };", "ref = { slot: d.target, target: null, kind: `${CALLS[m]}-indirect` };"]]);
-      check('mutant "any indirect call a reference" is caught', !staticHolds(callsStatic(S4)) || !embedHolds(staticOf(S4, EMBED)) || (() => { const r = staticOf(S4, `
-        ORG     $3000
-START   JSR     [$3010]
-        JSR     ,X
-DONE    BRA     DONE
-        END     START`); return r.refs.length === 0; })() === false);
+      check('mutant "the partial file kept when the run is refused" is caught', !runLimitHolds(await runLimit(R3, 4)));
+      const R4 = moduleWith(CENSUS, [['    for (const x of r.afterStop) next.add(x.target != null ? x.target : x.slot);', '']]);
+      check('mutant "calls after the stop not counted toward --max-run-targets" is caught', !runLimitHolds(await runLimit(R4, 4)));
+      const S1 = moduleWith(path.join(DIR, 'static.js'), [["if (findRuns(Uint8Array.from(seg.data), images, index).length) return { refs: [], skipped: 'rom-run-in-image' };", '{ }']]);
+      check('mutant "an image holding a ROM copy scanned anyway" is caught', !embedHolds(staticOf(S1, EMBED)));
+      const S4 = moduleWith(path.join(DIR, 'static.js'), [['if (peek(at + 1) === 0x9F && d.target >= VEC_LO && d.target <= VEC_HI - 1) refs.push(', 'if (true) refs.push(']]);
+      check('mutant "any indirect call a reference" is caught', !indirectHolds(staticOf(S4, INDIRECT)));
       const P = moduleWith(CENSUS, [['    for (const x of r.records) records.push(x);', '    records.push(...r.records);']]);
       check('mutant "records spread into push()" is caught (the 150,000-record run)', !bigHolds(await bigRun(P)));
       const R = moduleWith(CENSUS, [['if (next.size > o.maxRunTargets)', 'if (false)']]);
