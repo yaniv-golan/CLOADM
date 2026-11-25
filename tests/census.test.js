@@ -489,12 +489,13 @@ EMB     FCB     ${[...STUB.rom.subarray(sym('KEY') - 0x8000, sym('KEY') - 0x8000
 const embedHolds = (r) => r.skipped === 'rom-run-in-image' && r.refs.length === 0;
 check('static: a program file holding a 16+ byte ROM copy is not scanned at all (skipped, no references)', embedHolds(staticOf(stat, EMBED)), JSON.stringify(staticOf(stat, EMBED)));
 // the same file as 8-byte segments in a row (a tape file's blocks): the ROM copy, split across them, is still found
-const splitOf = (S, src) => {
+const splitOf = (S, src, reversed = false) => {
   const r = asm(src), segs = [];
   for (const g of r.segments) for (let i = 0; i < g.data.length; i += 8) segs.push({ addr: g.addr + i, data: Uint8Array.from(g.data).subarray(i, i + 8) });
-  return S.staticRefs(segs, STUB_IMG);
+  return S.staticRefs(reversed ? segs.reverse() : segs, STUB_IMG);
 };
 check('static: the ROM copy split across contiguous 8-byte segments is still found (skipped)', embedHolds(splitOf(stat, EMBED)), JSON.stringify(splitOf(stat, EMBED)));
+check('static: the same segments listed in reverse order are joined too (skipped)', embedHolds(splitOf(stat, EMBED, true)), JSON.stringify(splitOf(stat, EMBED, true)));
 // an indirect call through anything but the $A00x vectors is no reference
 const INDIRECT = `
         ORG     $3000
@@ -780,6 +781,8 @@ DONE    BRA     DONE
       check('mutant "an image holding a ROM copy scanned anyway" is caught', !embedHolds(staticOf(S1, EMBED)));
       const S5 = moduleWith(path.join(DIR, 'static.js'), [['    if (cur && seg.addr === end) {', '    if (false) {']]);
       check('mutant "segments checked one by one" is caught', !embedHolds(splitOf(S5, EMBED)));
+      const S6 = moduleWith(path.join(DIR, 'static.js'), [['[...segments].sort((a, b) => a.addr - b.addr)', 'segments']]);
+      check('mutant "segments joined in file order only" is caught', !embedHolds(splitOf(S6, EMBED, true)));
       const S4 = moduleWith(path.join(DIR, 'static.js'), [['if (peek(at + 1) === 0x9F && d.target >= VEC_LO && d.target <= VEC_HI - 1) refs.push(', 'if (true) refs.push(']]);
       check('mutant "any indirect call a reference" is caught', !indirectHolds(staticOf(S4, INDIRECT)));
       const P = moduleWith(CENSUS, [['    for (const x of r.records) records.push(x);', '    records.push(...r.records);']]);

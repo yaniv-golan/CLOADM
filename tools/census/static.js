@@ -17,15 +17,15 @@ const { findRuns, windowIndex } = require('../../js/media/romrefs.js');
 const ROM_LO = 0x8000, ROM_HI = 0xBFFF, VEC_LO = 0xA000, VEC_HI = 0xA00F;
 const CALLS = { JSR: 'jsr', JMP: 'jmp', BSR: 'bsr', LBSR: 'lbsr' };
 
-// segments that follow each other in memory joined into one run (a tape file's blocks may each be a segment, and a
+// segments that follow each other in memory (in address order) joined into one run (a tape file's blocks may each be a segment, and a
 // ROM copy split across two of them is still one copy)
 function contiguous(segments) {
   const runs = [];
   let cur = null, end = -1;
-  for (const seg of segments) {
-    if (cur && seg.addr === end) { cur.push(...seg.data); end += seg.data.length; continue; }
+  for (const seg of [...segments].sort((a, b) => a.addr - b.addr)) {
+    if (cur && seg.addr === end) { for (const b of seg.data) cur.push(b); end += seg.data.length; continue; }
     if (cur) runs.push(Uint8Array.from(cur));
-    cur = [...seg.data]; end = seg.addr + seg.data.length;
+    cur = Array.from(seg.data); end = seg.addr + seg.data.length;
   }
   if (cur) runs.push(Uint8Array.from(cur));
   return runs;
