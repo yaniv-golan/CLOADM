@@ -44,10 +44,11 @@ async function pipe(bytes, stream) {
 // may these bytes be a snapshot file? (cheap; decodeSnapshot decides)
 export const looksLikeSnapshot = (name, bytes) => name.toLowerCase().endsWith(SNAPSHOT_EXT) || isJson(bytes) || isPrerelease(bytes) || isGzip(bytes);
 
-// snapshot (from Machine.snapshot()) -> file bytes; meta: { name, taken } for people reading the file
-export async function encodeSnapshot(snap, { name, taken }) {
+// snapshot (from Machine.snapshot()) -> file bytes; meta: { name, taken } for people reading the file, and program:
+// the bundled program it is a moment of ('liza', '2048', 'minesweeper'; Session.momentProgram), written only when set
+export async function encodeSnapshot(snap, { name, taken, program = null }) {
   const { format, version, machine, config, roms, state: s, share } = snap;
-  const text = state.toJSON(Object.assign({ format, version, machine, name, taken, config, roms, state: s }, share ? { share } : {}));
+  const text = state.toJSON(Object.assign({ format, version, machine, name, taken }, program ? { program } : {}, { config, roms, state: s }, share ? { share } : {}));
   return pipe(new TextEncoder().encode(text), new CompressionStream('gzip'));
 }
 
@@ -108,8 +109,8 @@ function checked(snap) {
 //               3 to 31 are kept for later versions, which a page says are newer
 //   bytes 1...  deflate-raw (RFC 1951, no header or checksum) of the container:
 //     u32 little-endian J, the length of the skeleton
-//     J bytes     the skeleton: UTF-8 JSON of the snapshot { format, version, machine, name, taken, config, roms, state,
-//                 share? } as encodeSnapshot writes it, except that each typed array is { "$bin": its type, "o": offset,
+//     J bytes     the skeleton: UTF-8 JSON of the snapshot { format, version, machine, name, taken, program?, config, roms,
+//                 state, share? } as encodeSnapshot writes it, except that each typed array is { "$bin": its type, "o": offset,
 //                 "n": byte length } (non-finite numbers stay { "$num": "Infinity" }, as in files)
 //     the rest    the typed arrays' bytes, each at its offset from the end of the skeleton, in the byte order of the
 //                 platform (little-endian, as files' base64 is)
@@ -120,9 +121,9 @@ export const LONG_LINK_VERSION = 1;
 const TYPED_NAMES = new Set(['Uint8Array', 'Int8Array', 'Uint16Array', 'Int16Array', 'Uint32Array', 'Int32Array', 'Float32Array', 'Float64Array']);
 
 // snapshot (as for encodeSnapshot) -> the link's bytes
-export async function encodeLongLink(snap, { name, taken }) {
+export async function encodeLongLink(snap, { name, taken, program = null }) {
   const { format, version, machine, config, roms, state: s, share } = snap;
-  const value = Object.assign({ format, version, machine, name, taken, config, roms, state: Object.assign({}, s, { frame: null }) }, share ? { share } : {});
+  const value = Object.assign({ format, version, machine, name, taken }, program ? { program } : {}, { config, roms, state: Object.assign({}, s, { frame: null }) }, share ? { share } : {});
   const parts = [];
   let at = 0;
   const skeleton = new TextEncoder().encode(JSON.stringify(value, function (k, v) {

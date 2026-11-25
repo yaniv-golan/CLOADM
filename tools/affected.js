@@ -93,8 +93,9 @@ const AREAS = [
   { paths: ['js/ui/welcome.js'], suites: ['welcome'], groups: ['welcomeScreen', 'firstVisit'] },
   { paths: ['js/ui/install.js', 'sw.js', 'manifest.webmanifest', 'tools/pwa-files.js'], suites: ['pwa', 'install'], groups: ['pwa', 'install'] },
   { paths: ['js/ui/share.js'], suites: ['share-roms', 'share-card', 'basic-share'], groups: ['share', 'basicShare'] },
-  // "Share your program": the arrival of a shared BASIC program (the share screen's program mode is js/ui/share.js)
-  { paths: ['js/ui/program-arrival.js'], suites: ['basic-share'], groups: ['basicShare'] },
+  // the arrival card: a shared moment's (the share group's arrival checks, and the visits a link starts and returns to)
+  // and a shared BASIC program's (basicShare; the share screen's program mode is js/ui/share.js)
+  { paths: ['js/ui/arrival.js'], suites: ['shared-moment', 'basic-share'], groups: ['share', 'visit', 'returning', 'basicShare'] },
   { paths: ['js/ui/feedback.js'], suites: ['feedback-toasts'], groups: ['feedback', 'feedbackModel'] },
   { paths: ['js/ui/machine-panel.js'], suites: ['machine-menu'], groups: ['models', 'powerOn'] },
   { paths: ['js/ui/settings-file.js'], suites: ['settings'], groups: ['settings'] },

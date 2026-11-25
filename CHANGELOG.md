@@ -31,6 +31,21 @@ Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.
   text }`), and the same bytes sealed in a short link (docs/automation.md, "Share links"). `Session.sharedProgram`,
   `programLink`, `programShortLink`, `readProgramLink`, `openSharedProgram`; `tests/basic-share.test.js` and the browser
   check's `basicShare` group, on our stand-in BASIC (`tests/fixtures/basic-standin.js`).
+- **The arrival card.** A shared moment opened from a long link (`#z=`) or a short link arrives with a card docked at the
+  foot of the screen, the machine running above it: "Someone sent you this &lt;machine&gt;, exactly as they left it.
+  It's running now. It's your copy: nothing you do changes theirs." **Start from the beginning** starts the bundled
+  program the moment is of from its beginning, or power cycles the same machine; **Send it back** opens the Share screen
+  on the recipient's moment, exactly as Share does (nothing is uploaded until Copy). A short link's card ends with
+  **Report this link**, which opens the short-link Worker's new report page, `GET https://s.cloadm.dev/api/report/<id>`
+  (the arrival page's Report mailto, or "Reporting isn't set up for this server."; no key, no bucket read; the Worker
+  must be redeployed for it). It covers at most 40% of the screen, never takes the focus, and goes at the first key, a load or
+  a switch. A short link's moment arrives as quietly as a long link's (no no-ROM card or "No BASIC" pill beside the
+  card). Program pages show no card. The state is the Session's `arrivedFromLink`, cleared with an `'arrival'` event,
+  for prompts that depend on the screen. Snapshots of a bundled program record it (`program`; `Session.momentProgram`),
+  and a moment opened from one keeps it until something else runs, so Send it back, a re-share or a slot taken after
+  arriving still start that program from its beginning.
+- **Start over on the snapshot toast.** "Snapshot opened: …" offers **Start over**: the moment's program from its
+  beginning, or a power cycle into the same machine.
 - **One link on the Share screen.** The screen now offers one **Copy link** (+ **Share…**). A bundled program nobody has
   touched since it started (2048, LIZA, Minesweeper) gives its program page instead — nothing is uploaded, and the line
   under the picture says "Opens 2048 from the start, for anyone." once (the ROM line is not shown then: a program page never needs ROMs); played, the primary shares the moment, and "More

@@ -1,6 +1,6 @@
 // Run: node tests/basic-share.test.js
 //
-// "Share your program" (js/ui/share.js's program mode, js/ui/program-arrival.js): a BASIC program in memory shared as
+// "Share your program" (js/ui/share.js's program mode, js/ui/arrival.js): a BASIC program in memory shared as
 // its text, browser-free, no network, no ROMs. BASIC is our stand-in (tests/fixtures/basic-standin.js: BASIC's pointers
 // for an empty program and OK on the screen, our own code), so real BASIC is not the oracle (AGENTS.md 4.6): the
 // expected listings below are written out by hand, in the form LIST shows ([CBU p.B40-B41]: '?' is PRINT, keywords in
@@ -125,6 +125,23 @@ const LISTED = {
     for (const [k, v] of Object.entries(build(Emu, 'mc10'))) b.roms.put('mc10', k, v, `${k}.rom`);
     const again = b.openSharedProgram(prog);
     check('the ROMs added: the same call loads it and lists it', again.state === 'listed' && programOf(b).list === LISTED.mc10 && b.shownMachine.typist.queue.join('') === 'LIST\r', JSON.stringify(again));
+    // the arrival, as the page's arrival card reads it (Session.arrivedFromLink, js/ui/arrival.js)
+    const c = new Emu.Session({ store: Emu.memoryStore() });
+    c.switchMachine('dragon64', undefined, { menu: false });
+    c.openSharedProgram(prog, { kind: 'short', id: 'abcdefgh' });
+    const w = c.arrivedFromLink;
+    check('arrival without ROMs: recorded with the listing, the machine\'s name and the link (a short link\'s id)', w && w.basic && !w.basic.listed && w.basic.text === LISTED.mc10
+      && w.basic.lines === 6 && w.basic.name === 'MC-10' && w.kind === 'short' && w.id === 'abcdefgh', JSON.stringify(w));
+    c.personInput(c.shownMachine);
+    check('a key on the machine while it waits for ROMs does not end the arrival (the card holds the listing)', !!c.arrivedFromLink && !c.arrivedFromLink.basic.listed);
+    for (const [k, v] of Object.entries(build(Emu, 'mc10'))) c.roms.put('mc10', k, v, `${k}.rom`);
+    c.openSharedProgram(prog, { kind: 'long' });
+    const l = c.arrivedFromLink;
+    check('arrival with ROMs: recorded as listed, with no listing text', l && l.basic.listed && l.basic.text === null && l.kind === 'long' && l.id === null, JSON.stringify(l));
+    c.personInput(c.shownMachine);
+    check('then the first key (RUN) ends it, as a moment\'s arrival', c.arrivedFromLink === null);
+    c.openSharedProgram(prog);
+    check('opened with no link (an API caller): no arrival is recorded', c.arrivedFromLink === null);
     const bad = (() => { try { b.openSharedProgram({ machine: 'zx81', config: {}, text: '10 END' }); return null; } catch (e) { return e; } })();
     check('a machine CLOADM doesn\'t have is refused in words', bad instanceof Emu.SessionError && /doesn't have/.test(bad.message), bad && bad.message);
   }
@@ -197,6 +214,12 @@ const LISTED = {
     const before = JSON.stringify(r.savedConfig('dragon64'));
     const e = (() => { try { r.openSharedProgram({ machine: 'dragon64', config: { mameCompat: true }, text: '10 END' }); return null; } catch (x) { return x; } })();
     r.switchMachine('dragon64', undefined, { menu: false });
+    // handed in without a config (or with one that is not an object, or without its text): damaged, not a TypeError
+    for (const [what, prog] of [['no config', { machine: 'dragon64', text: '10 END' }], ['a config that is an array', { machine: 'dragon64', config: [], text: '10 END' }],
+      ['a null config', { machine: 'dragon64', config: null, text: '10 END' }], ['no text', { machine: 'dragon64', config: {} }]]) {
+      const x = (() => { try { r.openSharedProgram(prog); return null; } catch (y) { return y; } })();
+      check(`openSharedProgram with ${what}: refused as damaged (a SessionError), nothing switched`, damaged(x) && r.shownMachine.id === 'dragon64', x && `${x.name}: ${x.message}`);
+    }
     check('openSharedProgram refuses mameCompat; the saved config and the next switch are untouched', damaged(e) && JSON.stringify(r.savedConfig('dragon64')) === before
       && !r.shownMachine.config.mameCompat, e && e.message);
     // and through a short link, as the arrival reads one

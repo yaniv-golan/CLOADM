@@ -38,7 +38,6 @@ import { setupSerialPanel } from './serial-panel.js';
 import { setupDriveWirePanel } from './drivewire-panel.js';
 import { setupDisplayPanel } from './display-panel.js';
 import { setupSnapshotPanel } from './snapshot-panel.js';
-import { setupProgramArrival } from './program-arrival.js';
 import { parseUrlConfig, linkFetchError, claudeOffered } from '../config.js';
 import { setupAskPopout } from './ask-popout.js';
 import { setupArmGuard } from './arm-guard.js';
@@ -49,6 +48,7 @@ import { setupAsk } from './ask.js';
 import { setupCommandBox } from './command-box.js';
 import { MemoryKeyStore, storageKeyStore } from '../host/key-store.js';
 import { setupShare } from './share.js';
+import { setupArrival } from './arrival.js';
 import { ShortLinkStore } from '../host/link-store.js';
 import { setupSlotsPanel } from './slots-panel.js';
 import { setupTapePanel } from './tape-panel.js';
@@ -130,8 +130,10 @@ const romPanel = setupRomPanel(page);
 const romSockets = setupRomSockets(page, romPanel, { confirmSwitch: machinePanel.confirmSwitch });
 setupBootHelp(page, romSockets);
 let library = null;
-const programArrival = setupProgramArrival(page, { openRoms: () => romSockets.reveal() });
-const snapshots = setupSnapshotPanel(page, { confirmSwitch: machinePanel.confirmSwitch, openRoms: () => romSockets.reveal(), openProgram: programArrival.open });
+// the arrival card (a shared moment, or a shared BASIC program, which it opens): before the snapshots, which hand it a
+// program's short link
+const arrival = setupArrival(page, { openShare: () => share.open(), startOver, reportUrl: (id) => linkStore.reportUrl(id), openRoms: () => romSockets.reveal() });
+const snapshots = setupSnapshotPanel(page, { confirmSwitch: machinePanel.confirmSwitch, openRoms: () => romSockets.reveal(), startOver: (program) => startOver(program), openProgram: arrival.openProgram });
 const disks = setupDrives(page, { openRoms: () => romSockets.reveal({ to: 'disk' }) });
 const slots = setupSlotsPanel(page, { snapshots });
 const nitros9 = setupNitros9Panel(page);
@@ -180,6 +182,15 @@ if (claude) {
 // (the framed full page's app bar; an embed's corner chip only with askclaude=1)
 window.emu.askPopout = claude ? null : setupAskPopout(page, { link, framed: framedInPage });
 const welcome = setupWelcome(page, { showRoms, openClaude: () => claude && claude.open() });
+// Start over (the snapshot toast) and Start from the beginning (the arrival card): a moment of a bundled program
+// starts that program again from its beginning, as its program page does; any other moment is a power cycle into the
+// same machine, the screen's own Power route
+function startOver(program) {
+  if (program && welcome.runProgram(program)) return;
+  session.powerCycle({ reason: 'you power cycled the machine' });
+  page.focus();
+}
+// the card a shared moment arrives with (Session.arrivedFromLink); Send it back is the Share screen's own open
 const drawer = setupDrawer(page, { showRoms });
 // a phone: the ports and power in sheets, one row of chips under the on-screen panel
 page.sheets = setupPhoneSheets(page, { touchKeys: page.touchKeys, ask });
@@ -341,8 +352,8 @@ const starting = welcome.start(visit, { fromLink, withMedia: link.roms.length > 
   }
   await starting;
   // a share link's moment (#z=, Share screen): opened like a dropped snapshot, once the visit has started
-  // (a BASIC program's link, Share your program, is a #z= too: its payload says which, js/ui/program-arrival.js)
-  if (/^#z=/.test(location.hash)) { if (!await programArrival.takeLink(location.hash)) await snapshots.takeLink(location.hash); }
+  // (a BASIC program's link, Share your program, is a #z= too: its payload says which, js/ui/arrival.js)
+  if (/^#z=/.test(location.hash)) { if (!await arrival.takeProgramLink(location.hash)) await snapshots.takeLink(location.hash); }
   // a short link's moment (#l=<id>.<key>: its arrival page on s.cloadm.dev sends the visitor here): fetched, opened
   // with its key in this browser, then opened like the rest
   else if (/^#l=/.test(location.hash)) await snapshots.takeShortLink(location.hash, linkStore);
