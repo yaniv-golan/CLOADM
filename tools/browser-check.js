@@ -22470,10 +22470,11 @@ async function shortLinkChecks(browser, base, site, check) {
   {
     const p2 = await ctx.newPage();
     const before = env.requests.length;
-    let got = '', fail = '';
-    try { await p2.goto('https://cloadm.dev/play', { waitUntil: 'domcontentloaded' }); got = await p2.title(); } catch (e) { fail = String(e.message).split('\n')[0]; }
-    const want = (/<title>([^<]*)<\/title>/.exec(fs.readFileSync(path.join(ROOT, 'play/index.html'), 'utf8')) || [])[1];
-    check('shortLink: https://cloadm.dev/play (no slash) is answered with play/index.html, not sent on to the real site', !!want && got === want && env.requests.length > before, `title ${JSON.stringify(got)} want ${JSON.stringify(want)} ${fail}`);
+    let status = 0, body = '', fail = '';
+    try { const resp = await p2.goto('https://cloadm.dev/play', { waitUntil: 'commit' }); status = resp.status(); body = await resp.text(); } catch (e) { fail = String(e.message).split('\n')[0]; }
+    const want = fs.readFileSync(path.join(ROOT, 'play/index.html'), 'utf8');
+    // (the response itself, not the document: the page's own scripts change its title once they run)
+    check('shortLink: https://cloadm.dev/play (no slash) is answered with play/index.html, not sent on to the real site', status === 200 && body === want && env.requests.length > before, `status ${status}, ${body.length} bytes want ${want.length} ${fail}`);
     await p2.close();
   }
   const openShare = async (p) => {
