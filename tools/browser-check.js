@@ -18957,18 +18957,23 @@ async function uiQaChecks(browser, base, check) {
     await tpage.goto(`${base}?machine=dragon64`);
     await ready(tpage);
     await tpage.waitForFunction(() => { try { return !!window.emu && window.emu.session && window.emu.session.welcomeRunning && window.emu.session.screenText()[14].includes('PRESS 1 TO'); } catch (e) { return false; } }, null, { timeout: 30000 });
+    // The welcome menu itself has a row that says LIZA ("1 TALK TO LIZA"), and the screen still shows it for the frame after the
+    // toast comes up, until LIZA clears it and draws its own title ("LIZA - A DRAGON 64 THERAPIST", row 0). A wait on any row with
+    // LIZA in it was satisfied by the menu, and the measurement that followed read the screen after LIZA had cleared it and before it
+    // had drawn the title: titleRow -1 (a failure in CI that did not come in 8 runs under load here). The row measured is LIZA's own.
+    check(`ui qa (${label}): the welcome menu has a LIZA row of its own, so the title is told from it by its own words`,
+      await tpage.evaluate(() => { const r = window.emu.session.screenText(); return r.some((x) => /TALK TO LIZA/.test(x)) && !r.some((x) => /THERAPIST/.test(x)); }));
     await tpage.click('#screen');
     await tpage.keyboard.press('1');
-    // Wait for BOTH the toast and the LIZA row on the screen: the toast can be up a frame before the program has drawn
-    // its title, and measuring then read titleRow:-1 (no LIZA row yet) -- a race, not a covering. Both conditions are
-    // required, so a page where the title never appears still times out and fails.
+    // Wait for BOTH the toast and LIZA's own title row on the screen (not the menu's): both conditions are required, so a page
+    // where the title never appears still times out and fails.
     const up = await waitFor(tpage, () => document.getElementById('toastText').textContent === 'LIZA loaded' && !document.getElementById('toast').hidden
-      && (() => { try { return window.emu.session.screenText().some((r) => /LIZA/.test(r)); } catch (e) { return false; } })(), null, 30000);
+      && (() => { try { return window.emu.session.screenText().some((r) => /LIZA - A .* THERAPIST/.test(r)); } catch (e) { return false; } })(), null, 30000);
     const m = await tpage.evaluate(() => {
       const t = document.getElementById('toast'), c = document.getElementById('screen');
       const tr = t.getBoundingClientRect(), cr = c.getBoundingClientRect();
       const rows = window.emu.session.screenText();
-      const titleRow = rows.findIndex((r) => /LIZA/.test(r));
+      const titleRow = rows.findIndex((r) => /LIZA - A .* THERAPIST/.test(r));
       const cellH = cr.height / 16;
       const top = cr.top + Math.max(0, titleRow) * cellH, bottom = top + cellH;
       const meets = (a, b) => !(a.bottom <= b.top || a.top >= b.bottom || a.right <= b.left || a.left >= b.right);
