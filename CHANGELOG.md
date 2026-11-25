@@ -10,6 +10,19 @@ Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.
 
 #### Added
 
+- **The share-link formats are frozen.** Links and snapshots in people's hands keep opening from now on (AGENTS.md,
+  rule 7): `SNAPSHOT_OLDEST` never rises (a change to the meaning of state ships a converter from every older version), no
+  link or envelope decoder is ever dropped, and a long link's byte 0 is 1 for a moment, 2 for a BASIC program, 3 to 31
+  reserved. Golden links of every format version are committed (`tests/fixtures/links/`, written once by
+  `tools/gen-link-fixtures.js`); `tests/link-freeze.test.js` opens each in a fresh session and checks the screen and
+  memory (a moment on the built-in firmware) or the listing (a program, on our stand-in BASIC), and fails if a fixture's
+  bytes change.
+- **A short link's sealed object has a version and a kind.** The stored object is now `[1][kind][IV][ciphertext+tag]`:
+  version 1, and the kind (1 a moment, 2 a BASIC program) in the clear, both authenticated by AES-GCM as additional data.
+  A page refuses a later version as "made by a newer CLOADM". The upload to the short-link Worker is body version 2
+  (version 1, a sealed object without its header, was never deployed and is refused). The Worker keeps the kind and its
+  arrival page names what the link opens: "A BASIC program for the Dragon 64" for a program instead of "A moment on a
+  Dragon 64"; a program's link takes no picture. **The Worker changed and must be redeployed** (docs/shortlink-deploy.md).
 - **Every menu, sheet and view is checked for words run together.** A new `menuWords` group of the browser check opens
   the app bar (at 1440 and 900 px and on a phone), the machine menu, the drive menu, the command palette, the views behind
   the app bar (Library, Debugger, Share, Add ROMs), each tab of the settings drawer and of a phone's Settings sheet with
@@ -114,6 +127,10 @@ Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.
 
 #### Fixed
 
+- **A snapshot's config is checked, not trusted.** A moment's machine and config (from a file, a slot or a link) must be
+  the keys its model takes, each with one of its values, and a link's has `mameCompat` off; anything else is a damaged
+  snapshot. A moment that switches the machine remembers only the model's own options as its config, never `mameCompat`
+  or `hires` (before, a link could leave `mameCompat` on for later switches).
 - **The Share picture fills its frame at 861x600 and 1024x640.** The preview and its colour stripe filled only about
   60% of the frame's width there; the frame now keeps the column's whole width at its short height.
 - Copy link and Share… on a phone are 44px tall (they were 38).

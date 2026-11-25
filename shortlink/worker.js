@@ -2,18 +2,22 @@
  * The short-link Worker (https://s.cloadm.dev/api/...): it stores short links and counts, and does nothing else. The
  * site's maintainer deploys it (docs/shortlink-deploy.md); nothing in the repository deploys it.
  *
- * A short link is https://s.cloadm.dev/<id>#<key>. The page (js/host/link-store.js) seals the moment with AES-GCM in
- * the browser (js/media/link-crypto.js) and sends only the sealed bytes: the key stays in the link's fragment, which
- * browsers never send, so this server cannot read a moment. Per link, three R2 objects:
- *   <id>.bin  the sealed moment (64 KB at most)
+ * A short link is https://s.cloadm.dev/<id>#<key>. The page (js/host/link-store.js) seals a moment or a BASIC program
+ * with AES-GCM in the browser (js/media/link-crypto.js) and sends only the sealed object: the key stays in the link's
+ * fragment, which browsers never send, so this server cannot read what it holds. The sealed object's first two bytes
+ * are clear: its version (1) and its kind (1 a moment, 2 a BASIC program), which the arrival page names. Per link,
+ * three R2 objects:
+ *   <id>.bin  the sealed object (64 KB at most)
  *   <id>.png  the preview picture, only when the person chose to show one: a 1200 x 630 indexed PNG, 16 colours or
  *             fewer, 32 KB at most, checked chunk by chunk (js/media/png.js readPngHeader)
  *   <id>      the arrival page: a FIXED template (arrivalPage below) whose only variables are the id (8 base64url
- *             characters, made here) and the machine's name (from MACHINES, never from the request); its one script,
+ *             characters, made here), the kind (from the sealed object's byte 1: one of two fixed wordings) and the
+ *             machine's name (from MACHINES, never from the request); its one script,
  *             allowed by its hash, goes on to https://cloadm.dev/play/#l=<id>.<key> and sends nothing anywhere.
  * Reads are R2 through the cache on the s.cloadm.dev custom domain: this Worker runs only on /api/*. Links never expire.
  *
- * POST /api/new      body: [u8 1][u8 n][n bytes machine id][u32 LE sealed length][sealed][png, or nothing]
+ * POST /api/new      body: [u8 2][u8 n][n bytes machine id][u32 LE sealed length][sealed][png, or nothing]; a program's
+ *                    link has no picture
  *                    -> 201 { id, deleteToken }. Refused: NEW_LINKS="off" (the kill switch, 503), the per-address
  *                    limit (RATE_IP, 429), the global limits (RATE_ALL per minute and DAILY_CAP a day, 429), anything
  *                    malformed (400) or too large (413), an origin other than ALLOWED_ORIGINS (403).
@@ -63,10 +67,22 @@ export function reportBlock(id, reportTo) {
     ? `<p><a href="mailto:${esc(reportTo)}?subject=${encodeURIComponent(`Report CLOADM link ${id}`)}">Report this link</a></p>` : '';
 }
 
-// (id, machine id, has a picture, report address) -> the arrival page's HTML. No text from the request reaches it.
-export async function arrivalPage(id, machine, picture, reportTo) {
-  if (!ID.test(id) || !MACHINES[machine]) throw new Error('arrivalPage: not an id or a machine');
-  const title = `A moment on a ${MACHINES[machine]}, CLOADM`;
+// the sealed object (js/media/link-crypto.js): byte 0 its version, byte 1 its kind. FROZEN at 0.3.0: a version this
+// server reads is never dropped, and an unknown one is refused, not stored
+export const SEALED_VERSION = 1;
+export const KIND = Object.freeze({ moment: 1, program: 2 });
+const SEAL_OVERHEAD = 2 + 12 + 16;
+// what the arrival page says, per kind (fixed wordings: no text from the request)
+const WORDS = {
+  [KIND.moment]: { title: (name) => `A moment on a ${name}, CLOADM`, opening: (name) => `Opening a moment on a ${name} in CLOADM…`, what: 'this moment' },
+  [KIND.program]: { title: (name) => `A BASIC program for the ${name}, CLOADM`, opening: (name) => `Opening a BASIC program for the ${name} in CLOADM…`, what: 'this BASIC program' },
+};
+
+// (id, machine id, has a picture, report address, kind) -> the arrival page's HTML. No text from the request reaches it.
+export async function arrivalPage(id, machine, picture, reportTo, kind = KIND.moment) {
+  if (!ID.test(id) || !MACHINES[machine] || !WORDS[kind]) throw new Error('arrivalPage: not an id, a machine or a kind');
+  const words = WORDS[kind];
+  const title = words.title(MACHINES[machine]);
   const image = picture ? `${SHORT}${id}.png` : 'https://cloadm.dev/icons/icon-512.png';
   const report = reportBlock(id, reportTo);
   const csp = `default-src 'none'; script-src 'sha256-${b64(await sha256(ARRIVAL_SCRIPT))}'; style-src 'sha256-${b64(await sha256(ARRIVAL_STYLE))}'; `
@@ -83,7 +99,7 @@ export async function arrivalPage(id, machine, picture, reportTo) {
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="CLOADM">
 <meta property="og:title" content="${esc(title)}">
-<meta property="og:description" content="Open this moment in CLOADM, the Dragon and Color Computer emulator in your browser.">
+<meta property="og:description" content="Open ${words.what} in CLOADM, the Dragon and Color Computer emulator in your browser.">
 <meta property="og:url" content="${SHORT}${id}">
 <meta property="og:image" content="${image}">
 ${picture ? `<meta property="og:image:width" content="${PNG_WIDTH}">\n<meta property="og:image:height" content="${PNG_HEIGHT}">\n` : ''}<meta name="twitter:card" content="${picture ? 'summary_large_image' : 'summary'}">
@@ -91,7 +107,7 @@ ${picture ? `<meta property="og:image:width" content="${PNG_WIDTH}">\n<meta prop
 </head>
 <body>
 <main>
-<p id="m">Opening a moment on a ${esc(MACHINES[machine])} in CLOADM…</p>
+<p id="m">${esc(words.opening(MACHINES[machine]))}</p>
 ${report}</main>
 <script>${ARRIVAL_SCRIPT}</script>
 </body>
@@ -182,10 +198,10 @@ export async function checkPicture(png) {
   return h;
 }
 
-// the /api/new body -> { machine, sealed, png | null }
+// the /api/new body -> { machine, sealed, png | null, kind }
 export function readNewLink(body) {
   const fail = (m) => { throw new Refused(400, m); };
-  if (body.length < 7 || body[0] !== 1) fail('Not a short-link request this server reads.');
+  if (body.length < 7 || body[0] !== 2) fail('Not a short-link request this server reads.');
   const n = body[1];
   if (2 + n + 4 > body.length) fail('The request is cut short.');
   const machine = String.fromCharCode(...body.subarray(2, 2 + n));
@@ -193,9 +209,13 @@ export function readNewLink(body) {
   const len = new DataView(body.buffer, body.byteOffset, body.byteLength).getUint32(2 + n, true);
   const start = 2 + n + 4;
   if (len > MAX_SEALED) throw new Refused(413, `A moment is larger than ${MAX_SEALED / 1024} KB.`);
-  if (len < 28 || start + len > body.length) fail('The request is cut short.');
+  if (len < SEAL_OVERHEAD || start + len > body.length) fail('The request is cut short.');
   const sealed = body.slice(start, start + len), rest = body.subarray(start + len);
-  return { machine, sealed, png: rest.length ? rest.slice() : null };
+  if (sealed[0] !== SEALED_VERSION) fail(sealed[0] > SEALED_VERSION && sealed[0] < 32 ? 'This link was made by a newer CLOADM than this server reads.' : 'Not a sealed link this server reads.');
+  const kind = sealed[1];
+  if (!WORDS[kind]) fail('Not a kind of link this server reads.');
+  if (kind === KIND.program && rest.length) fail('A program\'s link has no picture.');
+  return { machine, sealed, png: rest.length ? rest.slice() : null, kind };
 }
 
 // ---------------- counts ----------------
@@ -272,7 +292,7 @@ async function newLink(request, env, now) {
   const addr = request.headers.get('CF-Connecting-IP') || 'unknown';   // used for the limit only, never stored
   if (env.RATE_IP && !(await env.RATE_IP.limit({ key: addr })).success) throw new Refused(429, 'Too many short links from here: wait a minute.');
   if (env.RATE_ALL && !(await env.RATE_ALL.limit({ key: 'all' })).success) throw new Refused(429, 'Too many short links are being made right now: try again soon.');
-  const { machine, sealed, png } = readNewLink(await readBody(request, 2 + 255 + 4 + MAX_SEALED + MAX_PNG));
+  const { machine, sealed, png, kind } = readNewLink(await readBody(request, 2 + 255 + 4 + MAX_SEALED + MAX_PNG));
   if (png) await checkPicture(png);
   const cap = Number(env.DAILY_CAP || 5000);
   await takeToday(env, now, cap);
@@ -281,12 +301,12 @@ async function newLink(request, env, now) {
     const id = randomId();
     const put = await env.BUCKET.put(`${id}.bin`, sealed, {
       httpMetadata: { contentType: 'application/octet-stream', cacheControl: 'public, max-age=86400' },
-      customMetadata: { tokenHash, machine, created: now.toISOString().slice(0, 10) },
+      customMetadata: { tokenHash, machine, kind: String(kind), created: now.toISOString().slice(0, 10) },
       onlyIf: new Headers({ 'If-None-Match': '*' }),
     });
     if (!put) continue;   // that id is taken: another one
     if (png) await env.BUCKET.put(`${id}.png`, png, { httpMetadata: { contentType: 'image/png', cacheControl: 'public, max-age=86400' } });
-    await env.BUCKET.put(id, await arrivalPage(id, machine, !!png, env.REPORT_EMAIL), { httpMetadata: { contentType: 'text/html; charset=utf-8', cacheControl: 'public, max-age=86400' } });
+    await env.BUCKET.put(id, await arrivalPage(id, machine, !!png, env.REPORT_EMAIL, kind), { httpMetadata: { contentType: 'text/html; charset=utf-8', cacheControl: 'public, max-age=86400' } });
     await bump(env, now, (c) => { c.created++; });   // counted once it is stored; a busy total never fails the link
     return { id, deleteToken: token };
   }

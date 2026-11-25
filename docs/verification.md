@@ -1937,6 +1937,20 @@ through the Worker, the forum text and the `.bas` file, the refusal, the 653x280
 the ROM dropped; a short link with the ROM stored). What real BASIC does with LIST and RUN after the load is load_basic's
 own behaviour (docs/claude.md).
 
+## The frozen link formats (golden links)
+
+No MAME oracle: a link is a container (AGENTS.md 4.6). Since 0.3.0 every link and sealed object ever written must keep
+opening (AGENTS.md rule 7). `tests/fixtures/links/` holds one golden link per format version, written once by
+`tools/gen-link-fixtures.js` and never regenerated: a long link holding a moment (`#z=`, byte 0 = 1), one holding a
+BASIC program (byte 0 = 2), and a short link's sealed object of each kind (version 1, kind 1 and kind 2, with its key).
+`tests/link-freeze.test.js` checks each file's SHA-256 against the committed value, then opens each in a fresh Session
+and checks it against values worked out by hand from what made it: the moment is a Dragon 64 on the built-in firmware
+whose 14-byte program at `$7000` filled the text screen (`$0400`-`$05FF`) with `$41` and loops at `$700C`; the program,
+opened on our stand-in BASIC, lists as written. No ROM is involved. The sealed object's layout (version, kind, IV,
+ciphertext with the header as AES-GCM additional data) is checked byte by byte in `tests/short-link.test.js`, the
+Worker's reading of it (body version 2, the kind kept, the arrival page's wording per kind, refusals) in
+`tests/shortlink-worker.test.js`, and the snapshot config rule (`Session.checkedSnapshot`) in `tests/link-freeze.test.js`.
+
 ## NitrOS-9 boot test
 
 What the page's **Boot NitrOS-9** ([using.md](using.md#booting-nitros-9)) rests on. `tests/nitros9.test.js` boots the official NitrOS-9

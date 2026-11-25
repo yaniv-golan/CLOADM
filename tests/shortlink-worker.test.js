@@ -22,7 +22,9 @@ const ORIGIN = 'https://cloadm.dev', IP = '203.0.113.77';
 const req = (path, { method = 'POST', body = null, origin = ORIGIN, ip = IP, type = 'application/octet-stream' } = {}) => new Request(`https://s.cloadm.dev${path}`, {
   method, body, headers: Object.assign({ 'CF-Connecting-IP': ip, 'Content-Type': type }, origin ? { Origin: origin } : {}) });
 const call = (env, r, now = new Date('2026-11-24T10:00:00Z')) => worker.fetch(r, env, {}, now);
-const sealed = (n = 3000, seed = 1) => Uint8Array.from({ length: n }, (_, i) => (i * 31 + seed) & 0xFF);
+// a sealed object as the page makes one (js/media/link-crypto.js): version 1, the kind (1 a moment, 2 a program), then
+// bytes standing in for the IV, ciphertext and tag (the Worker never reads past the two clear bytes)
+const sealed = (n = 3000, seed = 1, kind = 1) => Uint8Array.from({ length: n }, (_, i) => (i === 0 ? 1 : i === 1 ? kind : (i * 31 + seed) & 0xFF));
 
 (async () => {
   const card = async () => { const f = new Emu.Frame(320, 240, 4 / 3, { x: 32, y: 24, width: 256, height: 192 }); f.table[0] = Emu.rgb(0, 0, 0); f.table[1] = Emu.rgb(40, 200, 40); for (let i = 0; i < f.data.length; i += 7) f.data[i] = 1; return Emu.encodeIndexedPng(Emu.cardPicture(f)); };
@@ -34,7 +36,7 @@ const sealed = (n = 3000, seed = 1) => Uint8Array.from({ length: n }, (_, i) => 
   const body = Emu.newLinkBody('coco3', sealed(100), png);
   const read = W.readNewLink(body);
   check('newLinkBody is what the Worker reads', read.machine === 'coco3' && Buffer.from(read.sealed).equals(Buffer.from(sealed(100))) && Buffer.from(read.png).equals(Buffer.from(png)));
-  check('newLinkBody: [1][n][machine][u32 LE length][sealed][png], bytes as worked out', Buffer.from(body.subarray(0, 12)).toString('hex') === '01' + '05' + Buffer.from('coco3').toString('hex') + '64000000' + Buffer.from([sealed(100)[0]]).toString('hex'),
+  check('newLinkBody: [2][n][machine][u32 LE length][sealed][png], bytes as worked out', Buffer.from(body.subarray(0, 12)).toString('hex') === '02' + '05' + Buffer.from('coco3').toString('hex') + '64000000' + '01',
     Buffer.from(body.subarray(0, 12)).toString('hex'));
 
   // ---------------- making a link ----------------
@@ -62,6 +64,20 @@ const sealed = (n = 3000, seed = 1) => Uint8Array.from({ length: n }, (_, i) => 
     check('the arrival page: its one script and style allowed by their hashes, and nothing else (default-src none)', csp.includes(`script-src 'sha256-${h(script)}'`) && csp.includes(`style-src 'sha256-${h(style)}'`)
       && /default-src 'none'/.test(csp) && (html.match(/<script/g) || []).length === 1, csp);
     check('the arrival page: the script counts the open and goes to cloadm.dev/play/#l=<id>.<key>, the same for every link', script === W.ARRIVAL_SCRIPT && script.includes("location.replace('https://cloadm.dev/play/#l='+id+'.'+k)") && !script.includes(out.id));
+    check('made: the kind is kept with the link (1, a moment)', meta.kind === '1', JSON.stringify(meta));
+    check('the arrival page says what it opens: a moment', metaOf('og:description') === 'Open this moment in CLOADM, the Dragon and Color Computer emulator in your browser.'
+      && html.includes('<p id="m">Opening a moment on a Dragon 64 in CLOADM…</p>'));
+    {
+      // a BASIC program's link (the sealed object's kind 2): no picture, and the page says it is a program
+      const penv = envOf();
+      const pr = await call(penv, req('/api/new', { body: Emu.newLinkBody('mc10', sealed(500, 3, 2)) }));
+      const po = await pr.json(), pb = penv.BUCKET.objects, phtml = penv.BUCKET.text(po.id) || '';
+      const pm = (p) => (new RegExp(`<meta (?:property|name)="${p}" content="([^"]*)">`).exec(phtml) || [])[1];
+      check('a program\'s link: made, its kind kept (2), no picture', pr.status === 201 && pb.get(`${po.id}.bin`).customMetadata.kind === '2' && !pb.has(`${po.id}.png`), JSON.stringify(po));
+      check('a program\'s arrival page: "A BASIC program for the MC-10", never "a moment"', pm('og:title') === 'A BASIC program for the MC-10, CLOADM'
+        && pm('og:description') === 'Open this BASIC program in CLOADM, the Dragon and Color Computer emulator in your browser.'
+        && phtml.includes('<p id="m">Opening a BASIC program for the MC-10 in CLOADM…</p>') && !/moment/i.test(phtml) && pm('twitter:card') === 'summary', pm('og:title'));
+    }
     check('the arrival page: "Report this link" mails the id only', html.includes(`<a href="mailto:abuse@example.com?subject=Report%20CLOADM%20link%20${out.id}">Report this link</a>`));
     // nothing from the request but the machine's id (mapped to our own name) is in the page
     const text = html.replace(/<[^>]*>/g, ' ');
@@ -212,11 +228,18 @@ const sealed = (n = 3000, seed = 1) => Uint8Array.from({ length: n }, (_, i) => 
     check('a moment over 64 KB: 413', s1 === 413, m1);
     const big = new Uint8Array(33 * 1024);
     check('a picture over 32 KB: 413', (await status(req('/api/new', { body: Emu.newLinkBody('dragon64', sealed(), big) })))[0] === 413);
-    for (const [what, b] of [['version 2', Uint8Array.from([2, ...good().subarray(1)])], ['cut short', good().subarray(0, 40)], ['too short to be sealed', Emu.newLinkBody('dragon64', sealed(10))],
-      ['a machine CLOADM lacks', Emu.newLinkBody('zx81', sealed())], ['empty', new Uint8Array(0)]]) {
+    for (const [what, b] of [['body version 1 (a sealed object without its header: never deployed)', Uint8Array.from([1, ...good().subarray(1)])], ['body version 3', Uint8Array.from([3, ...good().subarray(1)])],
+      ['cut short', good().subarray(0, 40)], ['too short to be sealed', Emu.newLinkBody('dragon64', sealed(29))],
+      ['a machine CLOADM lacks', Emu.newLinkBody('zx81', sealed())], ['empty', new Uint8Array(0)],
+      ['a sealed object of version 2 (a newer CLOADM)', Emu.newLinkBody('dragon64', Uint8Array.from([2, ...sealed().subarray(1)]))],
+      ['a sealed object of version 0', Emu.newLinkBody('dragon64', Uint8Array.from([0, ...sealed().subarray(1)]))],
+      ['a sealed object of kind 3', Emu.newLinkBody('dragon64', sealed(3000, 1, 3))], ['a sealed object of kind 0', Emu.newLinkBody('dragon64', sealed(3000, 1, 0))],
+      ['a program\'s link with a picture', Emu.newLinkBody('dragon64', sealed(3000, 1, 2), png)]]) {
       const [s, m] = await status(req('/api/new', { body: b }));
       check(`refused (400): ${what}`, s === 400, m);
     }
+    const [sn, mn] = await status(req('/api/new', { body: Emu.newLinkBody('dragon64', Uint8Array.from([2, ...sealed().subarray(1)])) }));
+    check('a sealed object from a newer CLOADM: refused, saying so', sn === 400 && /newer CLOADM/.test(mn), mn);
     // pictures: each check
     const chunk = (type, data) => { const td = Buffer.concat([Buffer.from(type, 'latin1'), Buffer.from(data)]); const l = Buffer.alloc(4); l.writeUInt32BE(data.length); const c = Buffer.alloc(4); c.writeUInt32BE(zlib.crc32(td)); return Buffer.concat([l, td, c]); };
     const ihdr = (w, h, depth, type) => { const d = Buffer.alloc(13); d.writeUInt32BE(w, 0); d.writeUInt32BE(h, 4); d[8] = depth; d[9] = type; return chunk('IHDR', d); };
