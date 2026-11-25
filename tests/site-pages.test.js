@@ -69,5 +69,16 @@ const help = read('help/index.html'), play = read('play/index.html');
 check('Help links the FAQ and About', /id="helpFaq" href="faq\/"/.test(help) && /id="helpAbout" href="about\/"/.test(help));
 check('the settings drawer\'s credits line links the FAQ and About', /<a href="faq\/">FAQ<\/a> ·\s*<a href="about\/">About<\/a>/.test(play));
 check('the reading pages share one stylesheet and the site header', ['faq/index.html', 'about/index.html'].every((f) => read(f).includes('css/reading.css') && /<header class="page-head">/.test(read(f))));
+
+// The FAQ and About speak of WYRMFIRE and its Freedoom level as shipped: they may only say so while it is in the tree.
+// (launch-wave1 was written before WYRMFIRE landed; this guard holds the pages to what is actually served.)
+{
+  const { WYRMFIRE_PIN: PIN } = require('../js/wyrmfire/pin.js');
+  const says = ['faq/index.html', 'about/index.html'].filter((f) => /WYRMFIRE|Freedoom level/.test(textOf(read(f))));
+  const shipped = [PIN.files.engine.path, PIN.files.level.path, PIN.files.freedoomCopying.path].every((f) => fs.existsSync(path.join(ROOT, f)))
+    && /'wyrmfire'/.test(read('js/session.js'));
+  check('the FAQ and About mention WYRMFIRE and its Freedoom level only while WYRMFIRE ships (its engine, level and Freedoom licence are served)',
+    says.length === 2 && shipped, JSON.stringify({ says, shipped }));
+}
 process.exitCode = fail ? 1 : 0;
 console.log(fail ? `${fail} FAILED` : 'all passed');

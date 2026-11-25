@@ -5,7 +5,9 @@
 // a new example file is in the list without a separate step.
 const fs = require('fs'), path = require('path');
 const ROOT = path.join(__dirname, '..');
-const DIRS = ['css', 'fonts', 'img', 'icons', 'js', 'examples', 'embed', 'play', 'roms', 'help', 'credits', 'faq', 'about', 'deviations'];
+// and every program page's folder (js/program-pages.js; tools/program-cards.js writes them)
+const DIRS = ['css', 'fonts', 'img', 'icons', 'js', 'examples', 'embed', 'play', 'roms', 'help', 'credits', 'faq', 'about', 'deviations',
+  ...require('../js/program-pages.js').PROGRAM_PAGES.map((p) => p.id)];
 const ROOT_FILES = ['index.html', 'favicon.svg', 'favicon.ico', 'manifest.webmanifest'];
 const SKIP = (rel) => /^img\/readme-/.test(rel) || /\.md$/.test(rel) || /(^|\/)\./.test(rel);
 
@@ -35,7 +37,7 @@ function syncSw(root = ROOT) {
   if (next !== cur) fs.writeFileSync(p, next);
   return { changed: next !== cur, count: files.length };
 }
-module.exports = { pwaFiles, withList, syncSw, BEGIN, END };
+module.exports = { pwaFiles, withList, syncSw, BEGIN, END, DIRS };
 
 if (require.main === module) {
   if (process.argv.includes('--write')) {

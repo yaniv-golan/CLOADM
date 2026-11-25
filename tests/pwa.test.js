@@ -56,7 +56,7 @@ for (const page of ['index.html', 'play/index.html']) {
 {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pwa-build-'));
   try {
-    const DIRS = ['css', 'fonts', 'img', 'icons', 'js', 'examples', 'embed', 'play', 'roms', 'help', 'credits', 'faq', 'about', 'deviations'];
+    const { DIRS } = require('../tools/pwa-files.js');   // every folder the site serves
     for (const d of DIRS) fs.cpSync(path.join(ROOT, d), path.join(dir, d), { recursive: true });
     for (const f of ['index.html', 'favicon.svg', 'favicon.ico', 'manifest.webmanifest', 'sw.js']) fs.copyFileSync(path.join(ROOT, f), path.join(dir, f));
     fs.mkdirSync(path.join(dir, 'tools')); fs.mkdirSync(path.join(dir, 'tests'));

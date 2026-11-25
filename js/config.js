@@ -9,10 +9,12 @@
  * Parameters (URL_PARAMS lists them):
  *   machine=ID              a model of profiles.js (unknown: the fallback machine, and an error)
  *   <option>=VALUE          the model's options (profile.options: ram, cpu, ...), each checked against its values
- *   start=welcome|liza|2048|minesweeper
+ *   start=welcome|liza|2048|minesweeper|wyrmfire
  *                           run that program, with no welcome menu first (the games on 6809 machines; elsewhere the
  *                           status line says why); it stays in the address while the program runs and goes once it
- *                           is left, as app=claude does for the chat (js/ui/welcome.js)
+ *                           is left, as app=claude does for the chat (js/ui/welcome.js). wyrmfire (WYRMFIRE with the
+ *                           Freedoom level, js/ui/wyrmfire.js) runs on the Dragon 64 only, so it opens the Dragon 64:
+ *                           machine=<another model> with it is an error and is ignored (WYRMFIRE_MACHINE)
  *   nitros9=1|NAME          CoCo 3: boot NitrOS-9 over DriveWire from the user's own image in the library (1: the
  *                           one in DriveWire drive 0, else the bootable one for the link's CPU; NAME: that image).
  *                           The image itself is never in a link (Session.bootNitros9)
@@ -58,7 +60,9 @@ const FLAGS = { sound: 'sound', fasttape: 'fastTape', turbo: 'turbo', embed: 'em
 const MEDIA = ['load', 'tape', 'cart', 'disk'];
 export const URL_PARAMS = ['machine', 'start', 'app', 'nitros9', ...MEDIA, 'autorun', 'rom', ...Object.keys(DISPLAY_PARAMS), 'joy', 'touch', ...Object.keys(FLAGS), 'storage'];
 const STORAGE = ['opfs', 'fsa', 'fallback'];
-const STARTS = ['welcome', 'liza', '2048', 'minesweeper'];
+const STARTS = ['welcome', 'liza', '2048', 'minesweeper', 'wyrmfire'];
+// the one machine start=wyrmfire runs on (js/wyrmfire/pin.js names it too; tests/wyrmfire-config.test.js holds them equal)
+export const WYRMFIRE_MACHINE = 'dragon64';
 const APPS = ['claude'];
 const TOUCH_MODES = ['joystick', 'keys'];
 
@@ -71,8 +75,12 @@ export function parseUrlConfig(search, fallbackMachine = 'dragon64') {
   const cfg = { machine: null, config: {}, display: {}, media: [], autorun: false, roms: [], start: null, app: null, nitros9: null, joy: null, touch: null, storage: null, recordAspect: null, errors };
   for (const k of Object.values(FLAGS)) cfg[k] = null;
 
+  // start=wyrmfire opens the Dragon 64, whatever machine= says (unless app= takes the screen instead: below)
+  const wyrmfire = p.get('start') === 'wyrmfire' && !APPS.includes(p.get('app'));
+  const asked = p.get('machine');
+  if (wyrmfire && asked !== null && asked !== WYRMFIRE_MACHINE) errors.push(`machine=${asked} is ignored: start=wyrmfire runs on the ${profiles[WYRMFIRE_MACHINE].name}`);
   // a NitrOS-9 link without a machine means the CoCo 3, where it boots
-  const id = p.get('machine') ?? (p.has('nitros9') ? NITROS9_MACHINES[0] : null);
+  const id = wyrmfire ? WYRMFIRE_MACHINE : asked ?? (p.has('nitros9') ? NITROS9_MACHINES[0] : null);
   // (the fallback machine opens, and the message says which: the list of every machine made a toast of a whole paragraph)
   cfg.machine = id !== null && profiles[id] ? id : null;
   const profile = profiles[cfg.machine || fallbackMachine] || profiles.dragon64;
@@ -100,6 +108,8 @@ export function parseUrlConfig(search, fallbackMachine = 'dragon64') {
   if (app !== null) { if (APPS.includes(app)) cfg.app = app; else errors.push(`app=${app} isn't an app CLOADM has (${APPS.join(', ')})`); }
   // both: the app wins (it takes the screen), and start= is not run behind it
   if (cfg.app && cfg.start) { errors.push(`start=${cfg.start} is ignored: app=${cfg.app} opens instead`); cfg.start = null; }
+  // WYRMFIRE is a 6809 program: on the Dragon 64 it opens it runs on the 6809 (Session.startWyrmfire)
+  if (cfg.start === 'wyrmfire' && cfg.config.cpu && cfg.config.cpu !== '6809') { errors.push(`cpu=${cfg.config.cpu} is ignored: WYRMFIRE runs on the 6809`); delete cfg.config.cpu; }
   // nitros9: true (the image the user has) or an image's name; only where NitrOS-9 boots (the CoCo 3)
   if (p.has('nitros9')) {
     const v = p.get('nitros9');

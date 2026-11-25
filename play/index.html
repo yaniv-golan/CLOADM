@@ -183,6 +183,7 @@
   /* a page shown inside another page has no Claude chat: its buttons are hidden, not left dead (js/ui/main.js) */
   /* Settings -> Claude features: Off (js/ui/claude-features.js); the command box stays, without its Claude rows */
   body.claude-off #btnAsk, body.claude-off [data-shelf="claude"], body.claude-off #ask, body.claude-off #askRail { display: none !important; }
+  body.claude-off #tkMenuSheet [data-item="ask"] { display: none !important; }   /* the landscape Menu's Ask Claude… (js/ui/touch-keys.js) */
   #claudeFeaturesRow button[aria-pressed="true"] { background: var(--phosphor); border-color: var(--phosphor); color: var(--on-phosphor); }
   body.no-claude #btnAsk, body.no-claude #navCommands, body.no-claude [data-shelf="claude"], body.no-claude #claude, body.no-claude #ask, body.no-claude #askRail { display: none !important; }
   body.embed .layout { padding: 0; display: block; }
@@ -235,6 +236,10 @@
   /* the focus hint comes and goes with the screen's keyboard focus, so it takes no room of its own: it lies over the
      bezel's badge strip under the screen (the badge and the LED give way), never over the picture or the page */
   .plate { position: relative; }
+  /* "Tap for sound": a small chip on the monitor's lower bezel, a state cue (not a toast or a card), shown on touch screens until sound runs */
+  #soundChip { position: absolute; left: 50%; bottom: -9px; transform: translateX(-50%); z-index: 3; pointer-events: none; white-space: nowrap;
+    font-size: 12px; line-height: 16px; padding: 2px 10px; border-radius: 999px; background: rgba(11, 13, 12, .88); color: var(--text); border: 1px solid var(--line-strong); }
+  #soundChip[hidden], body.embed #soundChip { display: none; }
   #focusHint { display: none; position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: max-content; max-width: 100%;
     background: rgba(11, 13, 12, .88); color: var(--text); font-size: 14px; line-height: 1.3; padding: 4px 12px; border-radius: var(--r-14);
     text-align: center; pointer-events: none; }
@@ -262,6 +267,28 @@
     border-radius: var(--r-14); padding: 12px 14px; font-size: 15px; }
   #bootHelp strong { color: var(--orange); display: block; margin-bottom: 4px; }
   #bootHelp .bar { margin-top: 8px; }
+  /* the arrival card (js/ui/arrival.js): docked at the foot of the tube, never more than 40% of it, the machine running
+     above it; what does not fit scrolls inside it */
+  #arrival { position: absolute; left: 4%; right: 4%; bottom: 4%; max-height: 40%; overflow: auto; box-sizing: border-box; z-index: 2;
+    background: var(--panel); color: var(--text); border: 1px solid var(--phosphor); border-radius: var(--r-14); padding: 10px 14px; font-size: 15px; }
+  #arrival[hidden] { display: none; }
+  /* a shared BASIC program: docked at the top instead (the listing is below it); without the machine's BASIC ROM it holds
+     the listing itself and may take most of the screen (the stub shows nothing) */
+  #arrival.basic { top: 4%; bottom: auto; }
+  #arrival.needs { max-height: 92%; }
+  #arrival [hidden] { display: none; }
+  #arrival pre { margin: 8px 0; padding: 8px; max-height: 40vh; overflow: auto; background: var(--panel-deep); border: 1px solid var(--line); border-radius: var(--r-8);
+    font: 13px/1.4 var(--font-mono); white-space: pre; }
+  #arrival p { margin: 0; }
+  #arrival .bar { display: flex; flex-wrap: wrap; gap: 6px 8px; margin-top: 8px; }
+  #arrival button { border-radius: var(--pill); }
+  #arrivalReport { display: inline-block; margin-top: 6px; font-size: 12px; color: var(--text-2); }
+  #arrivalReport[hidden] { display: none; }
+  @media (max-width: 700px), (max-height: 520px) {
+    #arrival { padding: 6px 10px; font-size: 13px; border-radius: var(--r-8); }
+    #arrival .bar { margin-top: 6px; }
+    #arrival button { min-height: 0; padding: 4px 10px; font-size: 13px; }
+  }
 
   .controls { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
   /* the media slots: one row that wraps, cassette 280px, drives 260px and
@@ -352,6 +379,24 @@
   /* a Debugger stop, directly above the monitor (js/ui/debugger-stop.js); between the header and the screen on a phone */
   #dbgStrip { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; background: var(--panel); border: 1px solid var(--orange); border-radius: var(--r-14); padding: 8px 12px 8px 16px; font-size: 15px; }
   #dbgStrip[hidden] { display: none; }
+  /* WYRMFIRE's strip under the screen (js/ui/wyrmfire.js): not a modal; the credits and the person's own WAD */
+  #wyrmStrip { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-14); padding: 8px 12px 8px 16px; font-size: 15px; margin-top: 8px; }
+  #wyrmStrip[hidden] { display: none; }
+  #wyrmStrip[data-state="error"] { border-color: var(--orange); }
+  #wyrmStrip .wyrmtop { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+  #wyrmStrip #wyrmLine { flex: 1 1 16em; min-width: 0; }
+  #wyrmStrip button { min-height: 44px; border-radius: var(--pill); }
+  #wyrmStrip p { margin: 6px 0 0; }
+  #wyrmStrip a { color: var(--phosphor); }
+  #wyrmLevel { margin-top: 6px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+  #gameFiles { margin-top: 18px; }
+  /* a Share option that is off says why beside it (WYRMFIRE: snapshots; the person's own WAD: picture and clip) */
+  .shareopt { display: inline-flex; flex-direction: column; gap: 2px; max-width: 18em; }
+  .shareopt .why[hidden] { display: none; }
+  #gameFiles .gamefile { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; }
+  #shelf .sub { display: flex; flex-direction: column; font-size: 14px; color: var(--text-2); font-weight: 400; }
+  #shelf .sub .credit { color: var(--muted); font-size: 13px; }
+  #dropOverlay span.wadline { font-size: 14px; max-width: 40em; }
   #dbgStripText { flex: 1 1 16em; min-width: 0; }
   #dbgStrip button { min-height: 44px; border-radius: var(--pill); }
   #lizaOffer .bar { margin-top: 6px; }
@@ -572,18 +617,25 @@
   /* ---- the Share screen (#share): a view of /play/ ---- */
   body.share-open .layout, body.share-open .panels, body.share-open footer, body.share-open #switchConfirm { display: none !important; }
   #share { padding: 8px 48px 48px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: 40px; row-gap: 20px; align-content: start; max-width: 1200px; }
-  #share > header, #share > .disc { grid-column: 1 / -1; }
+  #share > header, #share > .side > .disc { grid-column: 1 / -1; }
   #share > header { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 14px; padding: 4px 0 8px; }
   #share > header a { font-size: 15px; }
   #share > header .back { color: var(--text-2); text-decoration: none; }
   #share > header strong { font-weight: 800; font-stretch: 125%; font-size: 17px; }
   #share .col { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+  #share > .side { display: contents; }
+  /* the ROM line's one-line form is for a short landscape screen only */
+  #share .romline .brief { display: none; }
   #share .mono { font-family: var(--font-mono); font-size: 14px; color: var(--muted); letter-spacing: .06em; }
   #share h1, #share h2 { margin: 0; font-size: clamp(26px, 6vw, 34px); font-weight: 800; font-stretch: 112%; line-height: 1.05; }
+  #share h3.sub { margin: 0; font-size: 15px; font-stretch: 100%; font-weight: 700; color: var(--text-2); }
   #share p { margin: 0; font-size: 16px; line-height: 1.5; color: var(--text-3); }
   #share .preview { margin: 0; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-18); overflow: hidden; }
   #share .frame { aspect-ratio: 1.91; background: #050605; position: relative; display: flex; align-items: center; justify-content: center; }
   #share .frame canvas { height: 84%; aspect-ratio: 4 / 3; image-rendering: pixelated; box-shadow: 0 0 50px rgba(61, 245, 90, .4); }
+  /* no picture of its own: the frame says why instead of showing an empty dark box */
+  #share .frame.nopic canvas, #share .frame.nopic .stripe { display: none; }
+  #share .frame .nopic { margin: 0; padding: 16px; max-width: 30ch; text-align: center; color: var(--muted); font-size: 14px; line-height: 1.4; }
   #share .stripe { position: absolute; left: 0; right: 0; bottom: 0; display: flex; height: 5px; }
   #share .stripe i { flex: 1; }
   #share .stripe i:nth-child(1) { background: #30D82B; } #share .stripe i:nth-child(2) { background: #F2EA4A; }
@@ -593,7 +645,9 @@
   #share figcaption { padding: 14px 16px; display: flex; flex-direction: column; gap: 4px; font-size: 15px; }
   #share figcaption span { font-size: 14px; color: var(--muted); }
   #share .linkrow { display: flex; gap: 8px; }
-  #share .linklabel { font-size: 14px; color: var(--text-2); min-height: 0; margin-bottom: -10px; }
+  /* the negative margin was written for a label directly inside .col (gap 18): it pulled the input up to its heading.
+     Inside .linkset (gap 6, 4 under 860px) the same -10px puts the label's descenders on the input's top edge, so here
+     it is zero and the gap does the spacing. */
   #share .linkrow input { flex: 1; min-width: 0; background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: var(--r-10);
     padding: 12px; font: 14px var(--font-mono); }
   #share .card2 { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-14); padding: 16px; display: flex; flex-direction: column; gap: 8px; font-size: 15px; line-height: 1.45; }
@@ -615,8 +669,63 @@
   #share .romline.warn { color: var(--orange); }
   #share .extra { display: flex; flex-direction: column; gap: 6px; }
   #share .extra p { font-size: 14px; }
-  #share .romline:empty, #share .extra:empty { display: none; }
+  #share .romline:empty, #share .extra:empty, #share #shareNote:empty { display: none; }
   #share .sharebtns button { min-height: 44px; }
+  #share .linkset { display: flex; flex-direction: column; gap: 6px; }
+  /* a short window (861x600 and its neighbours): the first screen keeps "Make a short link" and the long link's Copy
+     visible. Trimmed, not hidden: tighter gaps and the small print a step smaller. Measured need at 861x600: 53px. */
+  @media (min-width: 861px) and (max-height: 640px) {
+    #share { row-gap: 10px; padding: 8px 40px 20px; }
+    #share .col { gap: 8px; }
+    #share h1 { font-size: 24px; }
+    #share .linkset { gap: 4px; }
+    #share p.small, #share .why { font-size: 13px; line-height: 1.35; }
+    /* the preview picture is the tallest thing in the column; a share screen is about the link, so at a short height
+       it takes a smaller share of it. The frame keeps the column's whole width (with max-height alone, the aspect
+       ratio shrank it to 252 of 363px at 861x600, the picture and its colour stripe in the left 60% of the box) */
+    #share .frame { height: 132px; aspect-ratio: auto; }
+    /* the caption is positioned against the picture, so the picture must be the containing block: without this it
+       escapes to the viewport's bottom edge and its bar covers the Copy button */
+    #share .preview { position: relative; }
+    /* the caption in one line at the picture's foot, as on a phone: stacked, it covered over half the screen the
+       person is sharing */
+    #share figcaption { position: absolute; left: 0; right: 0; bottom: 0; background: rgba(5, 6, 5, .72);
+      flex-direction: row; flex-wrap: nowrap; justify-content: space-between; align-items: baseline; gap: 8px;
+      padding: 3px 10px; font-size: 12px; }
+    #share figcaption strong, #share figcaption span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  }
+  #share h2.sub { font-size: 14px; font-stretch: 100%; line-height: 1.3; font-weight: 700; color: var(--text-2); }
+  #share .switch { display: flex; gap: 8px; align-items: center; font-size: 14px; color: var(--text); }
+  #share p.small, #share .why { font-size: 13px; line-height: 1.4; }
+  #share .why { color: var(--orange); }
+  #share .why:empty, #share .small:empty { display: none; }
+  /* the caption is one line over the picture, and nothing wraps. What gives way, in that order: the
+     prefix is never cut, so it is its own span that does not shrink; the name after it ends in "…" instead. " · CLOADM"
+     is gone from every mode. The prefix span's own box is what the browser check measures (its right edge inside the
+     caption's, its scrollWidth no wider than its clientWidth), so "the prefix is whole" is checked, not looked at. */
+  #share figcaption strong { display: flex; min-width: 0; flex: 0 1 auto; font-size: inherit; color: inherit; }
+  #share figcaption #sharePrefix, #share figcaption #shareName { font-size: inherit; color: inherit; }
+  #share figcaption #sharePrefix { flex: none; white-space: nowrap; margin-right: .3em; }
+  #share figcaption #shareName { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #share figcaption #sharePrefix[hidden] { display: none; }
+  #share .qrrow { display: flex; gap: 14px; align-items: center; }
+  #share #shareQr { width: 132px; height: 132px; image-rendering: pixelated; background: #fff; border-radius: 6px; flex: none; }
+  #share .qrrow[hidden] { display: none; }
+  /* the QR toggle is a small square beside the field (its label is the visible QR; the title says what it does) */
+  #share .linkrow button.icon { flex: none; min-width: 44px; padding: 0 10px; }
+  /* the program page link (a bundled program already played): a plain button above the long link's set */
+  #share #btnShareProgramPage { align-self: flex-start; }
+  /* "Share your program": the card above Copy, its switch a link-like button; in program mode the moment's own extras
+     (Save picture, Save clip, the snapshot file, the program page, the picture switch) give way to the program's */
+  #share #programCard { padding: 10px 14px; gap: 4px; }
+  #share #programCard[hidden], #share #programMore[hidden], #share .extra[hidden] { display: none; }
+  #share #programCard p { margin: 0; font-size: 15px; color: var(--text); }
+  #share button.linkish { background: none; border: 0; padding: 0; min-height: 0; color: var(--phosphor); text-decoration: underline; font: inherit; cursor: pointer; }
+  #share .seg { display: inline-flex; gap: 10px; align-items: center; font: 14px var(--font-mono); }
+  #share .seg label { display: flex; gap: 4px; align-items: center; }
+  #share.program-mode #btnShareShot, #share.program-mode #btnShareClip, #share.program-mode #btnShareDownload,
+  #share.program-mode #btnShareProgramPage, #share.program-mode #previewSwitch, #share.program-mode #btnShareGif { display: none; }
+  #share.program-mode .frame canvas { box-shadow: 0 0 50px rgba(61, 245, 90, .25); }
   #share .disc [hidden] { display: none; }
   #share .disc { border: 1px solid var(--line); border-radius: var(--r-14); padding: 4px 16px; }
   #share .disc > summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; justify-content: space-between; gap: 12px; font-weight: 700; list-style: none; }
@@ -628,17 +737,86 @@
   #share .disc[open] { padding-bottom: 16px; }
   #share .disc[open] > summary { margin-bottom: 8px; }
   @media (max-width: 860px) {
-    #share { grid-template-columns: minmax(0, 1fr); padding: 4px 16px 24px; row-gap: 8px; }
+    /* One declaration per selector: the winners of the rules this block accumulated while the phone layout was being
+       fitted. Computed styles at 375x548 and 861x600 are unchanged by the tidying. */
+    #share { grid-template-columns: minmax(0, 1fr); padding: 2px 16px 12px; row-gap: 2px; }
+    /* A phone's first screen must end with the long link's Copy still visible, with a margin to spare: CI's Linux
+       Chromium wraps #shareNote to one line more than a Mac (+19px), so a fit decided by a few local pixels fails there.
+       The picture keeps its height (the screen must stay recognisable) and its caption is one line at its foot instead
+       of two stacked over the lower half of the screen. */
     #share .frame { height: 20vh; aspect-ratio: auto; }
-    #share .preview { position: relative; }
-    #share figcaption { position: absolute; left: 0; right: 0; bottom: 5px; background: rgba(5, 6, 5, .72); }
     #share .frame canvas { height: 90%; }
-    #share figcaption { padding: 4px 12px; flex-direction: row; justify-content: space-between; font-size: 13px; }
-    #share .col { gap: 6px; }
-    #share h1 { font-size: 20px; }
-    #share p { font-size: 14px; line-height: 1.35; }
-    #share .sharebtns button { min-height: 40px; flex: 1 1 0; }
+    #share .preview { position: relative; }
+    #share figcaption { position: absolute; left: 0; right: 0; bottom: 0; background: rgba(5, 6, 5, .72);
+      flex-direction: row; flex-wrap: nowrap; justify-content: space-between; align-items: baseline; gap: 8px;
+      padding: 3px 10px; font-size: 12px; }
+    #share figcaption strong, #share figcaption span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+    #share .col { gap: 2px; }
+    #share h1 { font-size: 18px; }
+    #share p { font-size: 14px; line-height: 1.25; }
+    #share p.small, #share .why { font-size: 12px; line-height: 1.3; }
+    #share #shortTerms { font-size: 11px; line-height: 1.25; }
+    #share .linkset { gap: 4px; }
     #share .linkrow input { padding: 9px 12px; }
+    #share .sharebtns button { min-height: 44px; flex: 1 1 0; }
+    #share #shareQr { width: 104px; height: 104px; }
+  }
+  /* A short landscape screen (a phone on its side: 653x280, 568x320, 667x375, 844x390): two columns under the header.
+     The picture on the left, at most 40% of the width (30% under 300px of height), its aspect kept and its caption one
+     line under it; it never hides. The right column scrolls on its own, in this order: the heading, Copy (+ Share…), the
+     ROM line in one line, the short link's cloadm.dev note, the picture switch, the made link + QR, the note, then the
+     disclosures. The order is the flex `order` of #primarySet's and the section's children (#primarySet is no box here),
+     so a desktop's and an upright phone's order is not touched. --share-top is where the view starts (under the app
+     bar: js/ui/share.js), so the two columns fill the rest of the screen and the page itself does not scroll. */
+  @media (orientation: landscape) and (max-height: 420px) {
+    #share { height: calc(100dvh - var(--share-top, 0px)); box-sizing: border-box; overflow: hidden; max-width: none;
+      grid-template-columns: auto minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); column-gap: 16px; row-gap: 2px;
+      padding: 0 max(16px, env(safe-area-inset-right)) 0 max(16px, env(safe-area-inset-left)); }
+    #share > header { padding: 0; gap: 10px; min-height: 28px; }
+    #share > header a { font-size: 14px; }
+    #share > header strong { font-size: 15px; }
+    #share > .preview { grid-column: 1; grid-row: 2; width: 40vw; align-self: start; position: static; }
+    #share .frame { height: auto; max-height: none; aspect-ratio: 1.91; }
+    #share .frame canvas { height: 84%; }
+    #share figcaption { position: static; background: none; flex-direction: row; flex-wrap: nowrap; justify-content: space-between;
+      align-items: baseline; gap: 8px; padding: 3px 8px; font-size: 12px; }
+    #share figcaption strong, #share figcaption span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+    /* in a column this narrow the time gives way first (to nothing), then the name ends in "…"; the prefix stays whole */
+    #share figcaption #shareWhen { flex: 0 1000 auto; }
+    /* position: relative, so what is positioned inside it (the fields' visually hidden labels) is held and clipped by the
+       column, not placed against the page, where it made the page itself scroll */
+    #share > .side { grid-column: 2; grid-row: 2; display: flex; flex-direction: column; gap: 8px; min-height: 0; overflow-y: auto;
+      overscroll-behavior: contain; padding-bottom: 12px; position: relative; }
+    #share .side > .col.main { gap: 3px; flex: none; }
+    #share .side > .disc { flex: none; }
+    #share #primarySet { display: contents; }
+    #share h1 { font-size: 16px; order: 1; }
+    #share .sharebtns { order: 2; }
+    #share #primaryWhy { order: 3; }
+    #share #primaryNote { order: 4; }
+    #share #shareRom { order: 5; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 14px; line-height: 1.3; }
+    #share .romline .full { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+    #share .romline .brief { display: inline; }
+    /* the ROM line is one line here by design: the ROM-free sentence above it is the long ROM line's, not this one's */
+    #share #shareRomFree { display: none; }
+    #share #shareExtra { order: 6; }
+    #share #programCard { order: 1; padding: 6px 10px; }
+    #share #programCard p { font-size: 14px; line-height: 1.3; }
+    #share #shortTerms { order: 7; font-size: 11px; line-height: 1.25; }
+    #share #previewSwitch { order: 8; }
+    #share #shortMade { order: 9; display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
+    #share #shortMade[hidden] { display: none; }
+    #share #shortMade .linkrow { align-self: stretch; }
+    #share #shareNote { order: 10; font-size: 13px; line-height: 1.3; }
+    #share .sharebtns button { min-height: 44px; flex: 1 1 0; }
+    #share .linkrow input { padding: 9px 12px; }
+    #share #shareQr { width: 104px; height: 104px; }
+    /* a toast ("Short link copied") sits in the left column under the picture, not over the field the tap made */
+    body.share-open #toastRegion { left: max(16px, env(safe-area-inset-left)); right: auto; transform: none; bottom: 8px; width: 40vw; max-width: 40vw; }
+  }
+  @media (orientation: landscape) and (max-height: 299px) {
+    #share > .preview { width: 30vw; }
+    body.share-open #toastRegion { width: 30vw; max-width: 30vw; }
   }
 
 
@@ -725,6 +903,10 @@
   #touchKeys #touchPad .padkeys .tk { font-size: 13px; }
   #touchKeys #touchPad .padkeys .tk[data-key="SPACE"] { grid-column: span 2; }
   #touchKeys #touchPad .padextra { display: contents; }
+  #touchKeys #touchPad .padbig { flex: none; display: grid; grid-template-columns: repeat(2, 64px); gap: 6px; align-content: center; }
+  #touchKeys #touchPad .padkeys .tk[hidden] { display: none; }
+  #touchKeys #touchPad .padbig[hidden] { display: none; }
+  #touchKeys #touchPad .padbig .tk.big { min-height: 96px; font-size: 16px; font-weight: 700; border-radius: 32px; }
   #touchKeys #touchPad .tk { height: auto; min-height: 48px; font-size: 15px; }
   #touchKeys #touchPad .tk[aria-label] { font-size: 24px; }
   #touchKeys > .tkhalf { display: none; }
@@ -1583,7 +1765,13 @@
     :root.float-bar { --tk-bar: 84px; }
     /* room for the install card's strip under the screen, when the Menu item put it up (js/ui/install.js; the offer
        itself never shows on a phone): the monitor narrows by 4/3 of it (above), so nothing under it moves */
-    body.touch-keys:not(.chat-phone) .layout > main > .monitor { margin-bottom: var(--install-room, 0px); }
+    body:is(.touch-keys, .touch-hidden):not(.chat-phone) .layout > main > .monitor { margin-bottom: calc(var(--install-room, 0px) + var(--chip-room, 0px)); }
+    /* "Tap for sound": the screen fills the monitor here, so the chip has a strip of its own under it until sound runs
+       (touch-keys.js counts the margin in --tk-below, so the screen narrows to fit where the height is tight) */
+    body:is(.touch-keys, .touch-hidden):not(.chat-phone) #soundChip { bottom: auto; top: calc(100% + 2px); }
+    @media (min-height: 521px) { body:is(.touch-keys, .touch-hidden):not(.chat-phone):has(#soundChip:not([hidden])) { --chip-room: 26px; } }
+    /* (a window this short has no room to spare: no chip, and the first tap anywhere still starts the sound) */
+    @media (max-height: 520px) { body:is(.touch-keys, .touch-hidden):not(.chat-phone) #soundChip { display: none; } }
     /* (the keys 40 px: under Apple's 44 pt guideline, which the room upright does not allow with five rows and the
        screen; well over WCAG 2.5.8's 24 px minimum target. The pad's keys are 48 and more, the strip's controls 44.) */
     body.touch-keys:not(.chat-phone) #touchKeys .tk { height: 40px; min-height: 40px; }
@@ -1769,33 +1957,82 @@ npx serve -l 8000 .</pre>
 <div id="share" role="main" hidden aria-labelledby="shareHeading">
   <header><a href="#" class="back" id="shareBack">← Emulator</a><strong>SHARE</strong><span class="grow" style="flex:1"></span><a href="help/">Help</a></header>
   <figure class="preview">
-    <div class="frame"><canvas id="sharePicture" role="img" aria-label="Captured picture: link preview, rendered from the real frame"></canvas>
-      <div class="stripe" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
-    <figcaption><strong id="shareTitle"></strong><span id="shareWhen"></span></figcaption>
+    <div class="frame" id="shareFrame"><canvas id="sharePicture" role="img" aria-label="Captured picture: link preview, rendered from the real frame"></canvas>
+      <div class="stripe" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+      <!-- a moment with no picture of its own (the person's own WAD: id Software's game data) says so here, rather
+           than showing an empty dark box captioned "Captured picture" -->
+      <p class="nopic" id="shareNoPicture" hidden></p></div>
+    <figcaption><strong id="shareTitle"><span id="sharePrefix">What they'll see first ·</span><span id="shareName"></span></strong><span id="shareWhen"></span></figcaption>
   </figure>
+  <!-- the right-hand column: on a short landscape screen it scrolls on its own beside the picture; elsewhere it is no box
+       of its own (display: contents), and the section and the disclosures are the grid's -->
+  <div class="side" id="shareSide">
   <section class="col main" aria-labelledby="shareHeading">
     <h1 id="shareHeading">Share this moment</h1>
     <p id="shareNote"></p>
+    <!-- launch prep: with ROMs in use, "This link holds no part of your ROMs…" above the ROM line (js/share-text.js) -->
     <p id="shareRomFree" class="romline" hidden></p>
-    <p id="shareRom" class="romline"></p>
+    <!-- the ROM line: the full sentence, and its one-line form for a short landscape screen (the full one is then read
+         to assistive technology and is the line's title) -->
+    <p id="shareRom" class="romline"><span class="full" id="shareRomFull"></span><span class="brief" id="shareRomBrief" aria-hidden="true"></span></p>
     <div id="shareExtra" class="extra"></div>
-    <label for="shareLink" id="shareLinkLabel" class="linklabel">Exact moment (long link)</label>
-    <div class="linkrow"><input id="shareLink" readonly></div>
-    <div class="bar sharebtns"><button id="btnShareNative" class="primary" hidden>Share…</button><button id="btnShareCopy" class="primary">Copy link</button></div>
+    <!-- "Share your program" (js/ui/share.js): only when a BASIC program is in memory. The moment stays the default; the
+         card's switch shares the program's text instead (and, in program mode, switches back) -->
+    <div id="programCard" class="card2" hidden>
+      <p><strong>Your BASIC program</strong> · <span id="programLines"></span> · <button id="btnProgramMode" type="button" class="linkish">Share the program instead</button></p>
+      <p id="programWhy" class="why"></p>
+    </div>
+    <!-- One link (js/ui/share.js): the primary is Copy link (and Share… where the browser has a sheet). An unchanged
+         bundled program gives its program page instead. A short link is made on the tap; where it can't be, the long
+         link is copied, with the reason beside it. -->
+    <div class="linkset" id="primarySet">
+      <!-- Save picture and Save clip sit here, beside Copy, on a desktop; on a phone and a short landscape screen they
+           are under "More ways to share" (#shareSaveMore). js/ui/share.js moves them; there is one of each. -->
+      <div class="bar sharebtns" id="shareSaveBeside"><button id="btnShareCopy" class="primary">Copy link</button><button id="btnShareNative" hidden>Share…</button></div>
+      <p id="primaryWhy" class="why"></p>
+      <p id="primaryNote" class="small"></p>
+      <p class="small" id="shortTerms">Stores a sealed copy on cloadm.dev that only people with the link can open; the server can't read it. Links don't expire; a link reported for abuse can be removed.</p>
+      <!-- the picture switch before the link a tap makes: what the screen shows and the tab order are the same order -->
+      <label class="switch" id="previewSwitch"><input type="checkbox" id="sharePreview" role="switch" checked> Show a preview picture (public)</label>
+      <div id="shortMade" hidden>
+        <div class="linkrow"><label for="shareShort" class="sr-only">Short link</label><input id="shareShort" readonly><button id="btnShortCopy">Copy</button>
+          <button id="btnShortQr" class="icon" aria-pressed="false" aria-controls="shortQrWrap" title="Show the QR code">QR</button></div>
+        <div class="qrrow" id="shortQrWrap" hidden><canvas id="shareQr" role="img" aria-label="QR code of the short link"></canvas>
+          <div class="col"><p id="shortPicNote" class="small"></p></div></div>
+        <button id="btnShortDelete">Delete this link</button>
+      </div>
+    </div>
   </section>
   <details class="disc" id="shareMore">
     <summary><h2 id="moreHeading">More ways to share</h2></summary>
-    <div class="bar" hidden>
-      <button id="btnShareClip">Save 6-second clip (MP4)</button>
-      <button id="btnShareGif">Save 6-second GIF</button>
-      <button id="btnShareShot">Screenshot (PNG)</button>
-      <button id="btnShareDownload">Download snapshot</button>
+    <div class="col" hidden>
+      <div class="linkset" id="longSet">
+        <h3 class="sub" id="longHeading">Long link (works offline; nothing is uploaded)</h3>
+        <p class="small" id="longNote">Holds the whole moment in the address; nothing is uploaded.</p>
+        <div class="linkrow"><label for="shareLink" class="sr-only">Long link</label><input id="shareLink" readonly><button id="btnShareCopyLong">Copy</button></div>
+        <label class="switch"><input type="checkbox" id="shareAlwaysLong"> Always use long links (nothing leaves this device)</label>
+      </div>
+      <!-- program mode only: the program's text for a forum post (a ``` or [code] block, then the link) and as a .bas file -->
+      <div class="linkset" id="programMore" hidden>
+        <div class="bar"><button id="btnProgramForum">Copy as text for a forum</button>
+          <span class="seg" role="radiogroup" aria-label="Forum text style"><label><input type="radio" name="forumStyle" value="md" checked> ```</label><label><input type="radio" name="forumStyle" value="bb"> [code]</label></span></div>
+        <div class="bar"><button id="btnProgramBas">Download .bas</button></div>
+      </div>
+      <div class="bar" id="shareSaveMore">
+        <!-- the buttons are direct children: js/ui/share.js's place() moves btnShareShot/btnShareClip to sit beside
+             Copy, using btnShareDownload as the insert point, so all three must share one parent. The reasons are
+             siblings, not wrappers, for the same reason. -->
+        <button id="btnShareGif" title="Save 6-second GIF">Save GIF</button><span class="why muted small" id="shareGifWhy" hidden></span>
+        <button id="btnShareShot">Save picture</button><span class="why muted small" id="shareShotWhy" hidden></span>
+        <button id="btnShareClip">Save clip</button><span class="why muted small" id="shareClipWhy" hidden></span>
+        <button id="btnShareDownload">Download snapshot</button><span class="why muted small" id="shareDownloadWhy" hidden></span>
+      </div>
     </div>
   </details>
   <details class="disc" id="shareForum">
-    <summary><h2 id="forumHeading">Copy for a forum</h2></summary>
+    <summary><h2 id="forumHeading">Copy as text for a forum</h2></summary>
     <div class="col" hidden>
-      <p>The link with one line saying what it opens, for a forum post or a README.</p>
+      <p>The link with one line saying what it opens, for a forum post or a README: the short link once Copy link has made one, otherwise the long link (or the program's page). Copying it here sends nothing anywhere.</p>
       <p class="muted" id="forumGifHint">Attach the GIF from Save GIF to show it in your post.</p>
       <div class="snippet"><h3 class="eyebrow">BBCode</h3><pre id="forumBbcode"></pre><div class="bar"><button id="btnForumBbcodeCopy">Copy</button></div></div>
       <div class="snippet"><h3 class="eyebrow">Markdown</h3><pre id="forumMarkdown"></pre><div class="bar"><button id="btnForumMarkdownCopy">Copy</button></div></div>
@@ -1814,6 +2051,7 @@ npx serve -l 8000 .</pre>
       <div class="snippet"><pre id="embedScript"></pre><div class="bar"><button id="btnEmbedScriptCopy">Copy</button></div></div>
     </div>
   </details>
+  </div>
 </div>
 <div class="layout">
   <main aria-labelledby="emuHeading">
@@ -1849,7 +2087,18 @@ npx serve -l 8000 .</pre>
         <div id="bootHelp" hidden role="status"><strong id="bootHelpTitle"></strong><span id="bootHelpText"></span>
           <div class="bar"><button id="btnBootSockets" class="primary">Add ROMs</button>
             <button id="btnBootStub">Run without ROMs</button><button id="btnBootPower" class="primary" hidden>Switch off and on</button><button id="btnBootDismiss">Dismiss</button></div></div>
+        <!-- arriving on a shared moment or a shared BASIC program (a #z= or short link): js/ui/arrival.js. The program's
+             parts (the listing and its ROM line, without the machine's BASIC ROM) are used only for a program -->
+        <div id="arrival" role="status" hidden><p id="arrivalText"></p>
+          <pre id="arrivalListing" hidden></pre>
+          <div id="arrivalRoms" hidden><p id="arrivalNeed"></p>
+            <div class="bar"><button id="btnArrivalRoms" type="button" class="primary">Add ROMs</button><button id="btnArrivalCopy" type="button">Copy the listing</button></div></div>
+          <div class="bar" id="arrivalMoment"><button id="btnArrivalStart" type="button">Start from the beginning</button><button id="btnArrivalBack" type="button" class="primary">Send it back</button></div>
+          <a id="arrivalReport" target="_blank" rel="noopener noreferrer" hidden>Report this link</a></div>
       </div>
+      <!-- touch screens only (js/ui/welcome.js): a state cue on the bezel until sound runs; a tap anywhere unlocks it. After the
+           screen in the page, so a reading mode starts with the screen's text; the cue is for the eyes, not read out -->
+      <span id="soundChip" hidden aria-hidden="true">Tap for sound</span>
       <div class="plate"><span id="badge">DRAGON 64</span><span class="led" aria-hidden="true"></span>
         <div id="focusHint" aria-hidden="true"><span class="fh-emu">Typing goes to the machine<span class="fh-tab"> · <kbd>Tab</kbd> leaves the screen</span></span><span class="fh-chat"><kbd>Esc</kbd> stops a reply, clears the line, then leaves the chat</span></div></div>
       <!-- the screen's hints, under it: they never lie over what the machine shows -->
@@ -1865,6 +2114,16 @@ npx serve -l 8000 .</pre>
           <span class="piplabel"><span id="claudePipLabel">Your BASIC session · live</span><span id="claudePipSub"></span><span class="pipdot" aria-hidden="true">●</span></span></button>
         <button id="btnPipClose" aria-label="Hide your BASIC session">×</button></div>
       <div id="claudePipActing" role="status" hidden><span id="claudePipActingText">Claude is typing in your BASIC session</span><button id="btnPipStop">Stop</button></div>
+    </div>
+    <!-- WYRMFIRE (js/ui/wyrmfire.js): getting the game (Cancel until the switch), then the credits while it plays -->
+    <div id="wyrmStrip" role="region" aria-label="WYRMFIRE" aria-live="polite" hidden>
+      <div class="wyrmtop"><span id="wyrmLine"></span><span class="bar" id="wyrmBar"></span></div>
+      <div id="wyrmMore" hidden>
+        <div id="wyrmLevel"></div>
+        <p class="muted small" id="wyrmPrivacy"></p>
+        <p class="muted small" id="wyrmGuard"></p>
+        <p class="small" id="wyrmNote" hidden></p>
+      </div>
     </div>
     <!-- context openers: never over the screen -->
     <div class="controls" id="askOpeners" hidden>
@@ -2323,6 +2582,13 @@ npx serve -l 8000 .</pre>
           The report contains no ROM data: only sizes, checksums and test results.</p>
         <pre id="selftestOut"></pre>
       </section>
+      <section id="gameFiles" aria-labelledby="gameFilesHead">
+        <div class="eyebrow" id="gameFilesHead">Your game files</div>
+        <div id="gameFileList"></div>
+        <div class="bar"><button id="btnGameWad" type="button">Use your DOOM1.WAD or DOOM.WAD…</button></div>
+        <p class="muted small" id="gamePrivacy"></p>
+        <input type="file" id="fileWad" accept=".wad,.WAD,application/octet-stream" hidden>
+      </section>
       <p class="muted small">ROMs stay in this browser. CLOADM never uploads them and never puts them in share links or exported settings. If you use Claude, what it reads from the machine's memory (ROM areas included) is sent to Anthropic as part of your conversation.</p>
     </section>
   </div>
@@ -2430,7 +2696,7 @@ npx serve -l 8000 .</pre>
 <input type="file" id="fileMpSlot" hidden accept=".rom,.ccc,.dgn,.bin,application/octet-stream">
 <input type="file" id="fileRom" hidden multiple accept=".rom,.bin,.zip,.ccc,.dat,.a,.b,.0,.1,.2,.ci23,.ci24,.ic1,.ic12,.ic22,.ic34,.ic37,application/zip,application/octet-stream">
 <input type="file" id="folderRom" hidden webkitdirectory accept=".rom,.bin,.zip,.ccc,.dat,.a,.b,.0,.1,.2,.ci23,.ci24,.ic1,.ic12,.ic22,.ic34,.ic37,application/zip,application/octet-stream">
-<div id="dropOverlay" hidden aria-hidden="true"><div>Drop to load<span>ROMs, programs, tapes, cartridges, snapshots, ZIPs or a folder</span></div></div>
+<div id="dropOverlay" hidden aria-hidden="true"><div>Drop to load<span>ROMs, programs, tapes, cartridges, snapshots, ZIPs or a folder</span><span class="wadline">A .wad plays in WYRMFIRE. <span id="dropWadPrivacy"></span></span></div></div>
 <footer><a href="credits/">Credits</a>: CLOADM stands on the shoulders of MAME, XRoar, VCC, DriveWire and the
   Dragon and CoCo archives. · <a href="roms/">Where to get ROMs</a></footer>
 <!-- modulepreload:start (generated by tools/gen-page-preload.js; do not edit) -->
@@ -2517,7 +2783,6 @@ npx serve -l 8000 .</pre>
 <link rel="modulepreload" href="js/claude/basicload.js">
 <link rel="modulepreload" href="js/claude/history.js">
 <link rel="modulepreload" href="js/claude/actions.js">
-<link rel="modulepreload" href="js/claude/backend.js">
 <link rel="modulepreload" href="js/claude/chat.js">
 <link rel="modulepreload" href="js/claude/channel.js">
 <link rel="modulepreload" href="js/machines/nitros9.js">
@@ -2525,13 +2790,17 @@ npx serve -l 8000 .</pre>
 <link rel="modulepreload" href="js/claude/consent.js">
 <link rel="modulepreload" href="js/roms.js">
 <link rel="modulepreload" href="js/media/zip.js">
-<link rel="modulepreload" href="js/version.js">
-<link rel="modulepreload" href="js/bugreport.js">
+<link rel="modulepreload" href="js/program-pages.js">
+<link rel="modulepreload" href="js/media/link-crypto.js">
+<link rel="modulepreload" href="js/media/png.js">
+<link rel="modulepreload" href="js/video/chat-font.js">
+<link rel="modulepreload" href="js/video/card.js">
+<link rel="modulepreload" href="js/video/bezel.js">
 <link rel="modulepreload" href="js/media/snapshot.js">
 <link rel="modulepreload" href="js/media/romrefs.js">
 <link rel="modulepreload" href="js/config.js">
+<link rel="modulepreload" href="js/wyrmfire/pin.js">
 <link rel="modulepreload" href="js/session.js">
-<link rel="modulepreload" href="js/video/card.js">
 <link rel="modulepreload" href="js/media/avi.js">
 <link rel="modulepreload" href="js/host/input.js">
 <link rel="modulepreload" href="js/host/audio-worklet.js">
@@ -2539,12 +2808,14 @@ npx serve -l 8000 .</pre>
 <link rel="modulepreload" href="js/host/audio.js">
 <link rel="modulepreload" href="js/embed-api.js">
 <link rel="modulepreload" href="js/asm/symbols.js">
+<link rel="modulepreload" href="js/claude/backend.js">
 <link rel="modulepreload" href="js/claude/brief.js">
 <link rel="modulepreload" href="js/claude/prompts.js">
 <link rel="modulepreload" href="js/host/example-reader.js">
 <link rel="modulepreload" href="js/video/layout.js">
+<link rel="modulepreload" href="js/host/link-store.js">
 <link rel="modulepreload" href="js/selftest.js">
-<link rel="modulepreload" href="js/media/png.js">
+<link rel="modulepreload" href="js/media/qr.js">
 <link rel="modulepreload" href="js/emu.js">
 <link rel="modulepreload" href="js/host/storage.js">
 <link rel="modulepreload" href="js/host/media-store-opfs.js">
@@ -2554,6 +2825,7 @@ npx serve -l 8000 .</pre>
 <link rel="modulepreload" href="js/host/folder-handle.js">
 <link rel="modulepreload" href="js/ui/feedback.js">
 <link rel="modulepreload" href="js/ui/page.js">
+<link rel="modulepreload" href="js/ui/files.js">
 <link rel="modulepreload" href="js/video/canvas.js">
 <link rel="modulepreload" href="js/host/gamepad.js">
 <link rel="modulepreload" href="js/ui/screen.js">
@@ -2561,10 +2833,11 @@ npx serve -l 8000 .</pre>
 <link rel="modulepreload" href="js/ui/touch-keys.js">
 <link rel="modulepreload" href="js/machines/menu.js">
 <link rel="modulepreload" href="js/ui/machine-panel.js">
-<link rel="modulepreload" href="js/ui/files.js">
 <link rel="modulepreload" href="js/ui/rom-panel.js">
 <link rel="modulepreload" href="js/ui/rom-sockets.js">
 <link rel="modulepreload" href="js/ui/boot-help.js">
+<link rel="modulepreload" href="js/wyrmfire/wad-check.js">
+<link rel="modulepreload" href="js/ui/wyrmfire.js">
 <link rel="modulepreload" href="js/ui/welcome.js">
 <link rel="modulepreload" href="js/ui/key-hint.js">
 <link rel="modulepreload" href="js/ui/media-panel.js">
@@ -2596,9 +2869,12 @@ npx serve -l 8000 .</pre>
 <link rel="modulepreload" href="js/share-text.js">
 <link rel="modulepreload" href="js/media/gif.js">
 <link rel="modulepreload" href="js/ui/share.js">
+<link rel="modulepreload" href="js/version.js">
+<link rel="modulepreload" href="js/bugreport.js">
 <link rel="modulepreload" href="js/ui/bug-report.js">
 <link rel="modulepreload" href="js/ui/claude-features.js">
 <link rel="modulepreload" href="js/ui/record.js">
+<link rel="modulepreload" href="js/ui/arrival.js">
 <link rel="modulepreload" href="js/ui/slots-panel.js">
 <link rel="modulepreload" href="js/ui/tape-panel.js">
 <link rel="modulepreload" href="js/ui/nitros9-panel.js">

@@ -51,6 +51,7 @@ export const TOOL_CODES = Object.freeze({
   INCLUDE_UNREADABLE: 'include-unreadable',
   MACHINE_STOPPED: 'machine-stopped',
   TOOL_FAILED: 'tool-failed',
+  USER_DATA: 'user-data',
 });
 
 // code -> the remedy sentence the model is given. Keep each one an instruction: what to do instead.
@@ -84,6 +85,8 @@ export const TOOL_ERRORS = Object.freeze({
   'machine-stopped': 'the Debugger has the machine stopped (detail says where and why): it runs no frames and reads no keys until it is resumed, so nothing more was typed, pressed or run (a call made while it was stopped did nothing; one it stopped part-way says in detail how far it got, and the rest was dropped). Reading still works (screen_text, peek, disassemble, registers, screenshot). Ask the person to press Resume (or Run in the Debugger), then call again; loading a program, Reset or a power cycle also releases the stop, and starts that instead',
   'include-unreadable': 'an INCLUDE file could not be read (detail names it and why); nothing was written: put the code it holds into the source itself and call again',
   'tool-failed': 'the tool failed inside the emulator (detail says how): read the machine with machine_info or screen_text before going on, and tell the person; do not repeat the call unchanged. (When the detail says the CALL was wrong - it names a tool target, say - fix the call; nothing was read and the machine is fine.)',
+  // (the person's own WAD's level runs: Session.romCodeIn 'userdata'; the first sentence is the person-facing reason)
+  'user-data': 'Claude can\'t look at the screen or memory while your own WAD is loaded: it\'s id Software\'s game data. Tell the person so, and do not try to read it another way; machine_info still works',
   'not-typable': 'the machine cannot take the characters in detail (no key for them on this keyboard, or above $7E, which BASIC cannot store as text): leave them out or use plain ASCII it has (BASIC keywords are uppercase)',
 });
 

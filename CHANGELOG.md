@@ -22,13 +22,19 @@ Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.
   second after it changes while the chat and the box are empty, hold still while you type, press or have one
   selected, are announced as "Suggestions updated", and go after the first message. With Claude features Off, or the
   chat not offered (an embed), there are none.
-- **Every menu, sheet and view is checked for words run together.** A new `menuWords` group of the browser check opens
-  the app bar (at 1440 and 900 px and on a phone), the machine menu, the drive menu, the command palette, the views behind
-  the app bar (Library, Debugger, Share, Add ROMs), each tab of the settings drawer and of a phone's Settings sheet with
-  their disclosures open, the keys' Menu, and each phone sheet. It fails on a label whose letters run into a capital
-  inside one word ("InstallCLOADM…"; only GitHub and CoCo are written that way), on words the layout draws without
-  their space, and on a check that finds no label to read. The Install label's own fix (the space kept where the Menu
-  lays its items out) came before 0.2.0; this holds it, and every other label, to it.
+- **The share-link formats are frozen.** Links and snapshots in people's hands keep opening from now on (AGENTS.md,
+  rule 7): `SNAPSHOT_OLDEST` never rises (a change to the meaning of state ships a converter from every older version), no
+  link or envelope decoder is ever dropped, and a long link's byte 0 is 1 for a moment, 2 for a BASIC program, 3 to 31
+  reserved. Golden links of every format version are committed (`tests/fixtures/links/`, written once by
+  `tools/gen-link-fixtures.js`); `tests/link-freeze.test.js` opens each in a fresh session and checks the screen and
+  memory (a moment on the built-in firmware) or the listing (a program, on our stand-in BASIC), and fails if a fixture's
+  bytes change.
+- **A short link's sealed object has a version and a kind.** The stored object is now `[1][kind][IV][ciphertext+tag]`:
+  version 1, and the kind (1 a moment, 2 a BASIC program) in the clear, both authenticated by AES-GCM as additional data.
+  A page refuses a later version, or a later kind (3 to 31) under version 1, as "made by a newer CLOADM". The upload to the short-link Worker is body version 2
+  (version 1, a sealed object without its header, was never deployed and is refused). The Worker keeps the kind and its
+  arrival page names what the link opens: "A BASIC program for the Dragon 64" for a program instead of "A moment on a
+  Dragon 64", with the article the machine's name takes ("A moment on an MC-10"); a program's link takes no picture. **The Worker changed and must be redeployed** (docs/shortlink-deploy.md).
 - **Claude features: On / Off** (Settings → Machine), On by default. Off hides the Ask button, the command box's Claude
   rows and "Ask Claude" row, and the Programs row "Chat with Claude"; the welcome menu's firmware item stays. Kept,
   and in the settings export (`tests/claude-features.test.js`, the browser check's `settings` group). Off closes every
@@ -57,15 +63,18 @@ Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.
   emulator, in the settings drawer's credits, never over the screen.
 - **The ROM line in Share.** With ROMs in use, the Share screen says "This link holds no part of your ROMs. Whoever
   opens it needs their own: <needs>." above the needs line, and only then (`tests/share-text.test.js`).
-- **Copy for a forum.** Beside "Embed in a web page" on the Share screen: the link with a one-line description as
-  BBCode and as Markdown, text only, with the hint to attach the GIF from Save GIF.
-- **Save GIF** on the Share screen, beside the clip: 6 seconds of the machine's own frames at true pixels scaled 2x,
+- **Copy as text for a forum.** Between "More ways to share" and "Embed in a web page" on the Share screen: a link with a
+  one-line description, as BBCode and as Markdown, text only, with the hint to attach the GIF from Save GIF. It never
+  uploads: the short link once Copy link has made one, otherwise an untouched program's page, otherwise the long link
+  (the browser check: zero requests to s.cloadm.dev before a Copy-link tap, the short link after it).
+- **Save GIF** on the Share screen, first in "More ways to share"'s save row: 6 seconds of the machine's own frames at true pixels scaled 2x,
   no CRT look, looping. Each frame after the first holds only what changed, so typing makes about 11 KB and a moving
   sprite about 50 KB; a whole screen moving every frame is the worst case, about 1.3 MB. The encoder is plain JS in
   `js/media/gif.js` (moved from `tools/gif.js`, which tools/capture-gif.js now imports from there), with a comment
   extension and part-frames (`tests/gif.test.js`: a hand-built file byte for byte, round trips through an independent
-  decoder). The clip and the GIF are refused, the reason on the button, while a WAD of your own is loaded; a Freedoom
-  recording carries the Freedoom credit in its file name and the GIF's comment.
+  decoder). WYRMFIRE's rules hold for the GIF as for the picture and the clip: off, with
+  its reason beside it, for a level converted from your own WAD; a GIF of the Freedoom level carries "-freedoom" in its
+  name and "Level: Freedoom (BSD)" in its comment.
 - **Copy bug report** in the command box and Help (`play/#bug-report`). It shows the report before copying it: the
   version and commit, the machine and its options, the browser, the loaded file's name and SHA-256 and, only when
   ticked, a ROM-free snapshot link. It never holds the Claude key, a WAD, ROM bytes or ROM file names (ROMs appear as
@@ -74,6 +83,127 @@ Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.
   The version is CHANGELOG.md's "Next version" (`node tools/version.js --write`); the commit is written by the Pages
   deploy into the copy it publishes (`tools/version.js --stamp`), as a file can't hold its own commit and the site has
   no build step. A copy served straight from the repository says "unstamped" (`tests/version.test.js`).
+- **Every menu, sheet and view is checked for words run together.** A new `menuWords` group of the browser check opens
+  the app bar (at 1440 and 900 px and on a phone), the machine menu, the drive menu, the command palette, the views behind
+  the app bar (Library, Debugger, Share, Add ROMs), each tab of the settings drawer and of a phone's Settings sheet with
+  their disclosures open, the keys' Menu, and each phone sheet. It fails on a label whose letters run into a capital
+  inside one word ("InstallCLOADM…"; only GitHub and CoCo are written that way), on words the layout draws without
+  their space, and on a check that finds no label to read. The Install label's own fix (the space kept where the Menu
+  lays its items out) came before 0.2.0; this holds it, and every other label, to it.
+- **Share your program.** With a BASIC program in memory, the Share screen shows a card above Copy link: "Your BASIC
+  program · N lines · Share the program instead". The moment stays the default; the switch shares only the program's
+  text: the heading "Share your program", the first lines LIST shows in the machine's own font ("What they'll see first ·
+  LIST"), and "Share the whole moment instead" back. The short link holds only the text, sealed, with no preview picture
+  (and works with your ROMs in); the long link carries it. More ways to share: "Copy as text for a forum" (a Markdown code fence or
+  [code], then the link), "Download .bas" and the long link. A program over load_basic's limit or with a byte that
+  wouldn't type back the same says "This program can't be shared as text: share the whole moment instead." Opening one
+  gives a fresh machine of the sender's model with the program loaded as load_basic loads it and listed, not run ("Someone
+  sent you a BASIC program (N lines). It's listed below; type RUN to start it."); without its BASIC ROM, the listing as
+  text with Add ROMs and Copy the listing, then loaded and listed once the ROMs are in. The link is a new payload in the
+  existing formats: `#z=` with byte 0 = 2 (deflate-raw JSON `{ format: 'cloadm-basic', version: 1, machine, config,
+  text }`), and the same bytes sealed in a short link (docs/automation.md, "Share links"). `Session.sharedProgram`,
+  `programLink`, `programShortLink`, `readProgramLink`, `openSharedProgram`; `tests/basic-share.test.js` and the browser
+  check's `basicShare` group, on our stand-in BASIC (`tests/fixtures/basic-standin.js`).
+- **The arrival card.** A shared moment opened from a long link (`#z=`) or a short link arrives with a card docked at the
+  foot of the screen, the machine running above it: "Someone sent you this &lt;machine&gt;, exactly as they left it.
+  It's running now. It's your copy: nothing you do changes theirs." **Start from the beginning** starts the bundled
+  program the moment is of from its beginning, or power cycles the same machine; **Send it back** opens the Share screen
+  on the recipient's moment, exactly as Share does (nothing is uploaded until Copy). A short link's card ends with
+  **Report this link**, which opens the short-link Worker's new report page, `GET https://s.cloadm.dev/api/report/<id>`
+  (the arrival page's Report mailto, or "Reporting isn't set up for this server."; no key, no bucket read; the Worker
+  must be redeployed for it). It covers at most 40% of the screen, never takes the focus, and goes at the first key, a load or
+  a switch. A short link's moment arrives as quietly as a long link's (no no-ROM card or "No BASIC" pill beside the
+  card). Program pages show no card. The state is the Session's `arrivedFromLink`, cleared with an `'arrival'` event,
+  for prompts that depend on the screen. Snapshots of a bundled program record it (`program`; `Session.momentProgram`),
+  and a moment opened from one keeps it until something else runs, so Send it back, a re-share or a slot taken after
+  arriving still start that program from its beginning.
+- **Start over on the snapshot toast.** "Snapshot opened: …" offers **Start over**: the moment's program from its
+  beginning, or a power cycle into the same machine.
+- **One link on the Share screen.** The screen now offers one **Copy link** (+ **Share…**). A bundled program nobody has
+  touched since it started (2048, LIZA, Minesweeper) gives its program page instead — nothing is uploaded, and the line
+  under the picture says "Opens 2048 from the start, for anyone." once (the ROM line is not shown then: a program page never needs ROMs); played, the primary shares the moment, and "More
+  ways to share" adds **Link to &lt;program&gt; from the start**. A tap that tries a
+  short link and can't make one (offline, a refusal, the server) copies the long link with the reason in view; a
+  clipboard the browser refuses leaves the link shown and selected. **More ways to share** holds the long link, its Copy,
+  and **Always use long links (nothing leaves this device)**, remembered in the browser
+  (`Session.untouchedBundledProgram`, `Session.touches`). A moment the page's guardrails keep out of a link at all
+  switches Copy off, saying why once, inline.
+- **What a link opens, said plainly.** The line under the Share picture reads "Opens a copy of this &lt;machine&gt;
+  exactly as it is now: the screen, the program and everything in memory, including anything you typed. Changes you make
+  later aren't in it." The picture's caption is one line, "What they'll see first · &lt;machine&gt;", or the program's
+  page and machine when that is what the link opens. It never wraps: the machine name ends in "…" if it must, and the
+  prefix is never cut.
+- **Shorter long links.** The Share screen's long link (and "Ask Claude ↗") now carries the moment after `#z=`: a version
+  byte, then deflate-raw of the snapshot as a JSON skeleton plus its raw byte arrays, without the rendered picture
+  (drawn again on the first frame after opening). LIZA's link goes from about 8,400 to 4,900 characters, 2048's from
+  11,900 to 7,900. `.cloadm` files are unchanged.
+- **Short links.** The Share screen's **Copy link** makes `https://s.cloadm.dev/<id>#<key>` (about 50 characters) on the
+  tap, copies it and shows its field with a QR toggle. The moment is sealed with AES-GCM in the browser and only the
+  sealed bytes are stored; the key is the part after `#`, which never reaches the server. "Show a preview picture"
+  (public; on by default) adds a 1200x630 card (the share card that **Save picture** saves). "Delete this link" removes it. Only for moments without ROMs, cartridges
+  or NitrOS-9, and only online; where it can't be made the same tap copies the long link instead, and the note says
+  why. The long link is headed "Long link (works offline; nothing is uploaded)". The server is a Cloudflare Worker in
+  `shortlink/` (not deployed from here:
+  `docs/shortlink-deploy.md`): links don't expire; size caps, a picture check down to every pixel, per-address, per-minute and daily limits, a kill switch,
+  removal by id, "Report this link", and totals only at `s.cloadm.dev/stats/` (no addresses kept, no pings or beacons: opens are counted once a day from
+  Cloudflare's analytics by the Worker's Cron Trigger; program starts are not counted).
+- **Save picture and Save clip beside Copy link.** On a desktop the Share screen's **Save picture** and **Save clip**
+  sit next to Copy link; on a phone, upright or sideways, they stay under "More ways to share". **Save picture** saves
+  the share card: the picture at the machine's true pixels in a CRT monitor, the program's or machine's name beside it
+  and "cloadm.dev" on it, a 1200x630 PNG (`js/video/bezel.js` `shareCardPicture` / `renderShareCard`,
+  `Session.sharePicture`, `Session.shareCardName`). A short link's preview picture is the same card, at 16 colours or
+  fewer (`Session.previewPicture`). "Save clip" names its length and format in its tooltip.
+- **The Share screen on a phone held sideways.** At most 420px tall in landscape (653x280, 568x320, 667x375, 844x390):
+  the picture on the left (at most 40% of the width, 30% under 300px of height, its caption one line under it), and a
+  right column that scrolls on its own: the heading, Copy link (+ Share…), the ROM line in one line ("Needs your
+  &lt;machine&gt; ROMs to open." / "Runs without ROMs.", the full sentence as its tooltip and for screen readers), the
+  short link's note, the picture switch, the link a tap made with its QR, the note, then "More ways to share" and "Embed
+  in a web page". The toast sits under the picture there. After any tap, the field the tap made is scrolled into view and
+  focused.
+
+- **Program pages.** cloadm.dev/2048/, /liza/ and /minesweeper/ each have their own link preview (title, description
+  and a 1200x630 picture of the program on the built-in firmware, made by `tools/program-cards.js`), a Play button, and
+  go straight to the start link `/play/?start=<program>`. They work offline like the rest of the site. One entry in
+  `js/program-pages.js` makes a page; `Session.programPageUrl(id, base)` gives its address.
+
+
+- **WYRMFIRE, a 3D game for the Dragon 64, with the Freedoom level.** [WYRMFIRE](https://github.com/yaniv-golan/wyrmfire)
+  (GPL-3.0-or-later) plays a Doom-format level from a disk. Its engine and converter are vendored byte for byte in
+  `examples/wyrmfire/` at one pinned commit (`js/wyrmfire/pin.js`, the one place to update; `tools/wyrmfire-vendor.js`
+  copies them and rebuilds the level), with the GPL text and the source link; the level disk is map E1M1 of Freedoom
+  0.13.0 (BSD-3-Clause), converted by WYRMFIRE's converter from Freedoom's release at its pinned SHA-256, served with
+  Freedoom's licence and credits. `tests/wyrmfire-files.test.js` holds every file to the pin's hashes. It starts from
+  **Programs** ("Runs without ROMs": WYRMFIRE, "A 3D game for the Dragon 64 · Freedoom level", "GPL · Freedoom level
+  (BSD)"), Ctrl+K's **WYRMFIRE** (doom, game, 3d, freedoom) and `?start=wyrmfire`, which opens the Dragon 64 (with
+  `machine=` another model or `app=claude` it is an error on the status line). From the page, on another machine or
+  with a program running, the switch question asks first ("Switching to Dragon 64 to play WYRMFIRE resets the …").
+  The engine and level are fetched before the switch, the machine running on, in a strip under the screen
+  ("WYRMFIRE · Getting the game… 42%", Cancel, then "Starting…"; straight to Starting… once kept offline); offline and
+  not kept, or a failed download, says so with Try again and leaves the machine alone; a tab in the background waits.
+  It runs on the Dragon 64 without ROMs, with the DragonDOS controller without its ROM (a disk ROM of yours is neither
+  used nor touched); Dragon 64 ROMs of yours come back when it ends, at the next power-on or switch. A second WAD while
+  one converts is not started, and Cancel stops the conversion. While it plays the strip shows "WYRMFIRE 0.1.0 · Source ↗ · Level from Freedoom ↗ · Not
+  affiliated with id Software"; snapshots are off ("Snapshots are off while WYRMFIRE runs."); Share gives
+  `?start=wyrmfire` ("Opens WYRMFIRE from the start, with the Freedoom level."); a Freedoom screenshot or clip carries
+  "-freedoom" and "Level: Freedoom (BSD)". On a touch screen it opens on Pad with FIRE and USE as two big buttons, and
+  upright suggests once "Turn sideways for a bigger view". In Share, the options that are off stay listed, each with its
+  reason beside it. Help → WYRMFIRE links the GPL and Freedoom's licence, offers the Freedoom disk as `.vdk` and `.dsk`
+  (JVC) with the engine (real hardware: "Untested on real hardware"), and says what it does and doesn't do, with its
+  speed measured in CLOADM headless (6.4 pictures a second within a part of the level; about 1 s to load the next).
+- **Your own DOOM WAD in WYRMFIRE, converted in the browser.** Have DOOM (the 1993 game)? The strip's **Use your
+  DOOM1.WAD or DOOM.WAD…**, **Your ROMs → Your game files**, or a `.wad` dropped anywhere: the WAD is checked
+  (`js/wyrmfire/wad-check.js`), converted by WYRMFIRE's converter in a worker (the only GPL code the page runs), and
+  never uploaded or kept; only the converted level and the WAD's name are kept, in Your game files (Play, Remove), never
+  in the Library, the recent list, the carry-on, a snapshot, a share link, a drive's Download, `insert_disk` or a
+  settings export. Each refusal is said in the strip and a toast ("That isn't a WAD file.", the add-on, no E1M1, too
+  big, too much for the Dragon's memory, and a browser that can't keep it). While that level is in a drive,
+  `Session.romCodeIn()` says `userdata` (a mark on the machine, kept until it is switched off and on: taking the disk
+  out, a Reset or a load keep it): Claude's `screenshot`, `screen_text`, `peek`, `disassemble`, `find_bytes`,
+  `registers`, `step` and `run_frames`' screen and its `until` on memory or the `pc` (the page's chat, the side panel,
+  every MCP host) and the embed API's `peek` and `screenText`
+  refuse with "Claude can't look at the screen or memory while your own WAD is loaded: it's id Software's game data."
+  (the chat's new code `user-data`), and Share's screenshot and clip are off. No id Software data is in CLOADM or its
+  tests: they use synthetic WAD headers and the Freedoom level.
 
 #### Changed
 
@@ -105,14 +235,38 @@ Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.
   `mcp__plugin_cloadm_CLOADM_side_panel__open_emulator_inline`, is 58 characters, and `tests/plugin.test.js` holds
   every tool name to the API's 64. An allowlist rule that named `mcp__plugin_cloadm_cloadm__*` needs the new name.
 
+#### Removed
+
+- **The `#s=` long-link form.** A long link is `#z=` only (`Session.readSnapshotLink`, `js/ui/main.js`). A link made by
+  v0.2.0 or earlier, which wrote the snapshot file itself after `#s=`, no longer opens: the page answers it with the
+  same "This share link couldn't be read." refusal it gives any share-link hash no reader claims, and clears it from
+  the address. `.cloadm` files are unchanged.
+
 #### Fixed
 
+- **A snapshot's config is checked, not trusted.** A moment's machine and config (from a file, a slot or a link) must be
+  the keys its model takes, each with one of its values, and a link's has `mameCompat` off; anything else is a damaged
+  snapshot. A moment that switches the machine remembers only the model's own options as its config, never `mameCompat`
+  or `hires` (before, a link could leave `mameCompat` on for later switches).
+- **The Share picture fills its frame at 861x600 and 1024x640.** The preview and its colour stripe filled only about
+  60% of the frame's width there; the frame now keeps the column's whole width at its short height.
+- Copy link and Share… on a phone are 44px tall (they were 38).
+- **The browser check no longer dies on a reset connection.** On Node 25 a `route.fetch` the OS reset in the short-link
+  group was an unhandled rejection that ended the whole process, and every group after it. A route handler that fails
+  is now a named FAIL and an aborted request, and a stray rejection anywhere is a FAIL in the group that was running
+  (the run goes on and exits 1). The supported Node range, 22.12 or later, is in `docs/development.md`.
 - **Add ROMs offers Files only on an iPhone.** Its file and folder pickers, the side panel's ROM picker and the Library's
   folder picker had no accept list, so iOS offered the Photo Library and the camera next to Files. They now carry one,
   as Open… does: the usual dump extensions (`.rom .bin .zip .ccc .dat .a .b .0 .1 .2` and the models' own `.ci24`, `.ic1` and
   the like) and `application/octet-stream`, one list in `js/roms.js` (`ROM_PICKER_ACCEPT`). The browser check lists every
   `input[type=file]` on the page and fails on one with no accept list of its purpose, an `image/*` or `video/*` type, or
   `capture`. How an iPhone treats a ROM whose name is not in the list is to be confirmed on a phone.
+- **Sound starts on the first tap anywhere, and a phone says so.** It started only after a tap on the screen or a key, so a
+  tap on Menu, Open… or Programs left it locked; on an iPhone the file picker's `change` is no user activation either, so a
+  `.cas` chosen from Files loaded silent, with the host's Tape sound on. One listener on the document now unlocks on the
+  events a browser counts as an activation (`pointerup`, `touchend`, `keydown`; not a touch's `pointerdown`, which iOS
+  does not count) and lets go once sound runs, and a touch screen shows a small "Tap for sound" chip on the monitor's
+  bezel until it does. The machine's sound is unchanged.
 
 - **"On screen now" tells two files of one name apart.** The mark on a Recent row matched the file name only, so two
   files with the same name and different bytes could be told apart by position alone. The last run now records the

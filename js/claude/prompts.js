@@ -8,7 +8,7 @@
  *
  * Priority, first match wins:
  *   P1 the Debugger has the machine stopped            stopped
- *   P2 the person has just arrived from a link         fromLink (Session.linkArrival)
+ *   P2 the person has just arrived from a link         fromLink (Session.arrivedFromLink: a shared moment's link)
  *   P3 WYRMFIRE                                        program 'wyrmfire'
  *   P4 a bundled program: the welcome menu (without and with ROMs for this machine), LIZA, 2048, Minesweeper, the demo
  *   P5 a machine-code program of the person's          userCode: the CPU runs from RAM
@@ -41,7 +41,7 @@ for (const v of Object.values(PROMPT_SETS)) Object.freeze(v);
 const BUNDLED = new Set(['liza', '2048', 'minesweeper', 'demo']);
 
 // state -> { id, prompts }: id is a PROMPT_SETS key. state's fields (all optional):
-//   stopped, fromLink: booleans; program: Session.bundledProgram ('welcome' | 'liza' | '2048' | 'minesweeper' |
+//   stopped, fromLink: booleans; program: Session.bundledRunning ('wyrmfire' | 'welcome' | 'liza' | '2048' | 'minesweeper' |
 //   'demo' | 'wyrmfire' | null); roms: this machine has ROMs that start BASIC; userCode: the CPU runs from RAM;
 //   basic: 'prompt' | 'busy' | null (no BASIC, or it cannot be told); lines: the BASIC program's line count
 export function promptsFor(state) {
@@ -60,7 +60,7 @@ export function promptsFor(state) {
 
 // Where a family's BASIC ROM sits: the CPU running below it is running from RAM, a program of the person's (the
 // Dragon and CoCo map BASIC at $8000 and up; the CoCo 3 copies it to RAM at $8000 and runs it there; the MC-10's
-// Micro Color BASIC is $E000-$FFFF). Bundled programs also run from RAM; they are told apart first (bundledProgram).
+// Micro Color BASIC is $E000-$FFFF). Bundled programs also run from RAM; they are told apart first (bundledRunning).
 const ROM_FROM = { '6809': 0x8000, '6803': 0xE000 };
 // Color BASIC's CURLIN, the line number BASIC is running: $FFFF in direct mode, at the prompt (Color BASIC Unravelled
 // II, the direct page map: CURLIN at $68). The Dragon keeps Color BASIC's direct page for TXTTAB at $19 and CURPOS
@@ -72,10 +72,10 @@ const CURLIN = { coco: 0x68, dragon: 0x68 };
 export function promptState(session) {
   const m = session.personMachine;
   if (!m) return {};
-  const program = session.bundledProgram;
+  const program = session.bundledRunning;
   const out = {
     stopped: !!(m.debugger && m.debugger.stopped),
-    fromLink: !!session.linkArrival,
+    fromLink: !!session.arrivedFromLink,
     program,
     roms: program === 'welcome' ? !!session.machineRoms(m.id).bootable : false,
     userCode: false,

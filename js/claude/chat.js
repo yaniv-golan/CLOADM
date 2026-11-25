@@ -22,7 +22,7 @@ import { BASIC_LINE_MAX } from '../media/basic.js';
 import { BASIC_PROGRAM_TEXT_MAX, planBasic, writeBasic } from './basicload.js';
 import { opensTurn, wholeTurn } from './history.js';
 import { actionRecord, readKind } from './actions.js';
-import { ClaudeError } from './backend.js';
+import { SessionError } from '../errors.js';
 
 // The acting tools: the ones that change the BASIC session. Each is one entry of ACTING below - its schema, a
 // `check` that refuses with nothing changed, and an `act` that makes the change - and ChatSession.runTool runs
@@ -264,7 +264,9 @@ export class ChatSession {
     // no API key: no turn starts (nothing thinks, no request), and the line right after the typed one is the page's
     // own (noKeyText: "No API key yet: add one …"), or the backend's words where no page gave one
     if (keyless(this.backend)) {
-      this.error = new ClaudeError('no-key', 'No API key: add your Anthropic API key to chat.');
+      // (the backend's own no-key error, as a ClaudeError has it: code 'no-key'; made here so the chat does not pull the
+      // whole backend into what imports it, the connector's folded view included)
+      this.error = Object.assign(new SessionError('No API key: add your Anthropic API key to chat.'), { code: 'no-key' });
       this.emitText(`[${this.noKeyText || this.error.message}]\r\n`);
       if (this.channel) this.channel.send(Uint8Array.of(END_OF_REPLY));
       this.changed();

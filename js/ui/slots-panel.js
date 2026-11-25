@@ -9,6 +9,7 @@
  * under it. A phone's Menu has "Take snapshot" (take) and "Restore snapshot…" (reveal: the list, whatever runs).
  */
 import { $ } from './page.js';
+import { WYRMFIRE_TEXT } from '../session.js';
 
 const el = (tag, text, cls) => { const e = document.createElement(tag); if (text != null) e.textContent = text; if (cls) e.className = cls; return e; };
 const time = (iso) => new Date(iso).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
@@ -26,6 +27,9 @@ export function setupSlotsPanel(page, { snapshots }) {
     const none = slots.every((s) => s.empty);
     $('quickSave').hidden = session.welcomeRunning && none && !asked;
     $('slotEmpty').hidden = !none;
+    // WYRMFIRE: no snapshots (Session.snapshotFile refuses), said in the slots' own muted line
+    const off = session.wyrmfireRunning || session.romCodeIn(session.personMachine) === 'userdata';
+    $('slotNote').textContent = off ? WYRMFIRE_TEXT.snapshots : 'A snapshot reopens on the same machine, RAM and ROMs.';
     // the panel is rebuilt on the session's events, and a rebuild drops the node that had the focus -
     // to the body, losing the keyboard. The button that had focus gets it back on the new node of the
     // SAME slot and the same role (save or restore: the slots are a fixed list, the slot number and
@@ -40,6 +44,7 @@ export function setupSlotsPanel(page, { snapshots }) {
       const save = el('button', 'Take snapshot'), load = el('button', 'Restore');
       save.setAttribute('aria-label', `Take snapshot ${s.n}`); load.setAttribute('aria-label', `Restore snapshot ${s.n}`);
       load.disabled = !!(s.empty || s.error);
+      save.disabled = off;
       save.onclick = () => saveTo(s.n);
       load.onclick = async () => {
         try { snapshots.open(await session.readSlot(s.n)); } catch (e) { page.status(e.message, true); }
@@ -87,7 +92,7 @@ export function setupSlotsPanel(page, { snapshots }) {
   }
   session.on((ev) => {
     if (ev === 'launch') asked = false;
-    if (['welcome', 'machine', 'loaded', 'reset', 'firmware', 'roms'].includes(ev)) render();
+    if (['welcome', 'machine', 'loaded', 'reset', 'firmware', 'roms', 'wyrmfire', 'disks'].includes(ev)) render();
   });
   render();
   return { refresh: render, take, reveal };

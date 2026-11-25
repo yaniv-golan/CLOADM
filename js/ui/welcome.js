@@ -25,6 +25,8 @@ import { profiles } from '../machines/profiles.js';
 import { cpuFamily } from '../cpu/cpus.js';
 import { gameKey, WELCOME } from '../session.js';
 import { buildUrl } from '../config.js';
+import { WYRM_TEXT } from './wyrmfire.js';
+const WYRMFIRE_ROW = { name: WYRM_TEXT.name, subtitle: WYRM_TEXT.subtitle, credit: WYRM_TEXT.credit };
 
 // Programs that run without ROMs: our own only. Third-party homebrew is not bundled: the stub provides only
 // POLCAT and CHROUT, so most homebrew (which calls other ROM routines) wouldn't run, and anything listed here
@@ -248,6 +250,17 @@ export function setupWelcome(page, { showRoms, openClaude }) {
       if (running && running.kind !== 'recent' && running.name === item.name) { b.append(' ', el('span', 'on screen now', 'tag now')); b.setAttribute('aria-current', 'true'); }
       row.append(b);
     }
+    // WYRMFIRE: on every machine (it switches to the Dragon 64, asking first: js/ui/wyrmfire.js); its link is
+    // ?start=wyrmfire alone, which names its machine itself
+    {
+      const a = el('a'); a.href = buildUrl(location.href, { start: 'wyrmfire' }); a.dataset.shelf = 'wyrmfire';
+      a.onclick = (e) => { if (e.button || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return; e.preventDefault(); page.wyrmfire.start(); };
+      const sub = el('span', null, 'sub');
+      sub.append(el('span', WYRMFIRE_ROW.subtitle), el('span', WYRMFIRE_ROW.credit, 'credit'));
+      a.append(el('span', WYRMFIRE_ROW.name, 'name'), sub);
+      a.title = `${WYRMFIRE_ROW.name}: ${WYRMFIRE_ROW.subtitle}`;
+      row.append(a);
+    }
     const c = entry('Chat with Claude', { app: 'claude' }, () => openClaude()); c.dataset.shelf = 'claude';
     row.append(c);
     const back = had !== null && row.querySelector(`[data-shelf="${CSS.escape(had)}"]`);
@@ -353,25 +366,30 @@ export function setupWelcome(page, { showRoms, openClaude }) {
   const quiet = () => box.classList.toggle('quiet', session.sharedMoment);
   session.on((ev) => { if (ev === 'machine' || ev === 'arrival') quiet(); });
 
-  // sound: unlock on the first pointer or key event anywhere; the hint shows until then
-  const hint = $('soundHint');
-  const showHint = () => { hint.hidden = audio.running || !audio.enabled; };
+  // sound: unlock on the first user activation anywhere (a tap on Menu or Open… included, not only the screen); the hint
+  // (a pointer) and the chip (a touch screen) show until then. The events are the ones a browser counts as an activation:
+  // pointerup and touchend (a touch's pointerdown is not one on iOS, where the file picker's change is none either),
+  // keydown.
+  const hint = $('soundHint'), chip = $('soundChip'), touch = matchMedia('(pointer: coarse)');
+  let unlocked = false;   // sound has been running: the chip does not come back
+  const showHint = () => {
+    if (audio.running) unlocked = true;
+    hint.hidden = audio.running || !audio.enabled;
+    chip.hidden = unlocked || !touch.matches || !audio.enabled;
+  };
   // Unlocking is a one-time job, so the listeners remove themselves once the audio context is running rather
   // than sitting in the capture phase of every pointer and key event for the life of the page.
-  const stopUnlock = () => {
-    window.removeEventListener('pointerdown', unlock, { capture: true });
-    window.removeEventListener('keydown', unlock, { capture: true });
-  };
+  const UNLOCK_EVENTS = ['pointerup', 'touchend', 'keydown'];
+  const stopUnlock = () => { for (const e of UNLOCK_EVENTS) document.removeEventListener(e, unlock, { capture: true }); };
   const unlock = () => {
-    audio.start();
+    audio.unlock();
     if (audio.enabled) session.welcomeSound();
     setTimeout(showHint, 100);
     // start() may leave the context suspended until the browser allows it (it resumes on the next gesture,
     // which this listener still catches); once it is running, let it go
     if (audio.running) stopUnlock(); else setTimeout(() => { if (audio.running) stopUnlock(); }, 250);
   };
-  window.addEventListener('pointerdown', unlock, { capture: true });
-  window.addEventListener('keydown', unlock, { capture: true });
+  for (const e of UNLOCK_EVENTS) document.addEventListener(e, unlock, { capture: true });
   showHint();
   // The hint hides when sound starts, which happens on the first pointer or key press: unlock() calls
   // showHint() 100 ms later, and again 250 ms later if the context was still suspended. The one thing that can
@@ -396,6 +414,7 @@ export function setupWelcome(page, { showRoms, openClaude }) {
       // Alice); the Session picks the build for the machine's CPU. The games are 6809 programs: on an MC-10 or
       // Alice the Session refuses and the status line says why.
       if (program === 'liza') await run(SHELF[0]);
+      else if (program === 'wyrmfire') await page.wyrmfire.start({ fromLink: true });   // (js/ui/wyrmfire.js: no question from a link)
       else if (gameItem(program)) await run(gameItem(program));
       else await runWelcome(menu, { reason: 'visit' });
       // As ?app=claude is the address while the chat is open (js/ui/page.js), ?start= is while the program it
@@ -424,5 +443,13 @@ export function setupWelcome(page, { showRoms, openClaude }) {
     if (item.cpu && cpuFamily(session.personMachine.config.cpu) !== item.cpu) { page.status(`${name} needs a Dragon or a CoCo; pick one from the machine menu.`, true); return; }
     run(item);
   }
-  return { start, runShelf };
+  // a bundled program ('liza' or a game) started from its beginning, as its program page starts it (the arrival card's
+  // and the snapshot toast's Start over) -> false when there is no such program (the caller power cycles instead)
+  function runProgram(id) {
+    const item = id === 'liza' ? SHELF[0] : gameItem(id);
+    if (!item) return false;
+    run(item);
+    return true;
+  }
+  return { start, runShelf, runProgram };
 }

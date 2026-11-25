@@ -1,11 +1,12 @@
 /*
  * "Copy bug report" (the command box, and Help's "Copy a bug report →", which opens play/#bug-report): a dialog that
- * shows the report before anything is copied. Session.bugReport writes it (js/bugreport.js): the version stamp, the
+ * shows the report before anything is copied. js/bugreport.js writes it from the Session: the version stamp, the
  * machine and its options, the browser, the file loaded last (name and SHA-256) and, only when "Include a snapshot"
  * is ticked (off by default), the moment as the Share screen's ROM-free link. Never the Claude key, a ROM's bytes or
  * file names, or a WAD. Copy puts exactly the text shown on the clipboard; nothing is sent anywhere.
  */
 import { $ } from './page.js';
+import { bugReport } from '../bugreport.js';
 
 export function setupBugReport(page) {
   const { session } = page;
@@ -15,7 +16,7 @@ export function setupBugReport(page) {
     const n = ++seq;
     text.textContent = 'Writing the report…';
     try {
-      const r = await session.bugReport({ base: new URL('play/', document.baseURI).href, browser: navigator.userAgent, snapshot: snap.checked });
+      const r = await bugReport(session, { base: new URL('play/', document.baseURI).href, browser: navigator.userAgent, snapshot: snap.checked });
       if (n === seq) text.textContent = r.text;
     } catch (e) { if (n === seq) text.textContent = `The report could not be written: ${e.message}`; }
   }

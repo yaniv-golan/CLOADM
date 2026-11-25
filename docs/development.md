@@ -8,6 +8,10 @@ Run it locally with any static server: `python3 -m http.server`, then open `http
 (`http://localhost:8000/` is the landing page). Opening the files straight from disk shows how instead: browsers
 don't load ES modules from `file://`.
 
+The tests, tools and browser check need Node 22.12 or later; CI runs Node 22. On a newer Node an unhandled rejection
+would end the process, so the browser check records one as a FAIL in the group that was running (with its reason) and
+goes on to the next group; the run still exits 1.
+
 ## The command line and the Node API
 
 `node cli/cloadm.js` runs any model headless from a script or CI: load a program, type, wait for text on the screen,
@@ -154,6 +158,7 @@ Don't run anything else on the machine while the browser check runs: it is timin
 node tests/all.js            # every suite below in a worker pool (--jobs N to cap it; each regress shard is a slot; started longest first from tests/suite-times.json, which --record-times rewrites after a passing full run), one line each, the regression gate included (exit 0 = all passed, and every suite must also have printed its summary line: one that exits 0 half done is a failure); a failing run ends with FAILED: <the suites>; --only <part>[,...] runs a subset, marked as not the gate
 node tools/browser-check.js  # the real pages in Chromium: the landing page (desktop and phone) and /play/: every model, LIZA end to end, the file:// notice, Share and opening snapshots, the favicon and no missing file requested by any page; the feedback model (toasts on the page the user is on, cleared by the next action, Undo, Details, desktop and phone). Every "← Emulator", Esc and Back return to the emulator, from `/play/` and `?app=claude`, after a reload and from a page loaded on a view (`--only emulatorBack`). `--only feedback,library` runs just those groups (an unknown group is an error); see "What the gates' results mean" below
 node tools/capture-images.js # recapture img/*.png (site and README pictures) from the emulator, with no ROMs
+node tools/program-cards.js  # the program pages 2048/, liza/, minesweeper/ and their 1200x630 cards (img/card-*.png), on the built-in firmware; updates sw.js
 node tools/capture-og.js     # recapture img/og.png, the 1200x630 link preview (og:image), from the welcome menu with no ROMs, through js/video/bezel.js
 node tools/capture-gif.js    # recapture img/readme-demo.gif (the README's looping picture), with no ROMs; tools/gif.js is its encoder
 node tests/cpu.test.js       # 6809 instruction tests, scripted (all tests load js/emu.js via tests/load.js)
@@ -182,6 +187,15 @@ node tests/state-fdc.test.js # the same for floppy controllers mid-transfer, one
 node tests/state-carts.test.js  # the same for cartridges, a Multi-Pak and the Speech/Sound Pak mid-activity
 node tests/state-tape.test.js   # the same for the cassette deck: a recording in progress, a tape being played
 node tests/snapshot.test.js  # snapshot files: format and version, defective files, every model opened elsewhere, ROMs by CRC, switching, slots
+node tests/long-link.test.js # share links' #z= form: hand-built vectors, every model opened from a link, pre-launch #s= links refused, refusals
+node tests/program-pages.test.js # the program pages and cards are what tools/program-cards.js makes; PNG and card vectors
+node tests/short-link.test.js # short links on the page's side: sealing, the store over a mocked fetch, the key never sent, guardrails
+node tests/share-one-link.test.js # the Share screen's "one link": an untouched bundled program gives its page; every way in (a key, a typed line, a poke, an assembled program, a tape, a disk, BREAK) makes it a moment, its own running does not
+node tests/basic-share.test.js   # "Share your program": the card's condition, the LIST round trip (Dragon, CoCo, MC-10) through long and short links, the arrival with and without ROMs, the limits, the program link format
+node tests/link-freeze.test.js   # the frozen link formats: the golden links of every version open to what made them, and their bytes never change; the snapshot config rule
+node tests/share-card.test.js     # the share card (Save picture, a short link's preview): 1200x630, every picture pixel frameToRGBA's, the name drawn glyph by glyph
+node tests/shortlink-worker.test.js # the short-link Worker in Node against an in-memory bucket: every check, limit, kill switch and count
+node tests/qr.test.js         # the QR encoder against ISO 18004's worked example and tables, every symbol read back
 node tests/press-break.test.js # BREAK delivery: our own firmware scans the matrix on dragon64, coco3 and mc10
 node tests/video.test.js     # scanline video: beam position, SAM display counter, mid-line mode splits
 node tests/serial.test.js    # serial line receiver and port devices, PIA output callback, printer paths, the Session's terminal
@@ -268,6 +282,7 @@ node tests/importmedia-finally.test.js # the creation landing behind the Library
 node tests/ay8910.test.js    # AY-3-8910/8912 against its data manual: tone, noise, the 16 envelope shapes, mixer, ports
 node tests/alpha.test.js     # the Dragon Alpha's wiring: ROM banks, PIA2, the AY as the drive latch, NMI through PIA2 CA2
 node tools/build-demo.js     # rebuild examples/demo.bin
+node tools/wyrmfire-vendor.js <wyrmfire checkout>   # vendor WYRMFIRE at js/wyrmfire/pin.js's commit into examples/wyrmfire/ and rebuild the Freedoom level (pinned download, SHA-256 checked); tests/wyrmfire-files.test.js checks the result against the pin
 node tools/build-examples.js # rebuild examples/liza.bin, liza6803-{mc10,alice}.bin, welcome.bin, welcome6803-{mc10,alice}.bin, chat.bin and starter-game/catch.bin from their .asm sources, then bring sw.js's offline file list up to date
 node tests/welcome.test.js   # welcome program on every 6809 model: screen, menu keys and events, the tune on the DAC
 node tests/welcome-tune.test.js   # when the welcome tune plays: the visit and Programs play it; a switch, Reset, a power cycle and a return are silent; both builds

@@ -105,38 +105,45 @@ const id = (s) => Emu.promptsNow(s).id;
   s.resume();
   check('resumed: the fallback again', id(s) === 'fallback');
 }
-{
+// a shared moment's link (Session.arrivedFromLink): the moment opened as the page opens a #z= link
+const arrive = async (s) => s.openSnapshot(await s.readSnapshot((await s.snapshotFile()).bytes), { shared: true, link: { kind: 'long' } });
+const arrivals = (async () => {
   const s = stub();
   const events = [];
   s.on((e) => events.push(e));
-  s.arriveByLink();
-  check('a link arrival: link, and the Session says so (\'link\')', id(s) === 'link' && events.includes('link'));
+  await arrive(s);
+  check('a link arrival: link, and the Session says so (\'arrival\')', !!s.arrivedFromLink && id(s) === 'link' && events.includes('arrival'), id(s));
   s.personInput();
-  check('the person\'s first key ends it', !s.linkArrival && id(s) === 'fallback');
-  s.arriveByLink();
-  s.leaveLinkArrival();   // (what the chat's ask does with the first message)
-  check('a message ends it', !s.linkArrival);
-  s.arriveByLink();
+  check('the person\'s first key ends it', !s.arrivedFromLink && id(s) !== 'link', id(s));
+  await arrive(s);
+  s.settleArrival(s.personMachine);   // (what the chat's ask does with the first message)
+  check('a message ends it', !s.arrivedFromLink);
+  await arrive(s);
   s.reset();
-  check('a reset (a launch) ends it', !s.linkArrival);
-  s.arriveByLink();
-  s.powerCycle();
-  check('Start over (a launch) ends it', !s.linkArrival);
-  s.arriveByLink();
+  check('a reset ends it', !s.arrivedFromLink);
+  // Start over (the snapshot toast, the arrival card: js/ui/main.js startOver): a moment of no bundled program is a
+  // power cycle; a 2048 moment starts 2048 again from its beginning, a load
+  await arrive(s);
+  s.powerCycle({ reason: 'you power cycled the machine' });
+  check('Start over (a power cycle) ends it', !s.arrivedFromLink);
+  await arrive(s);
+  s.runGame('2048', bin('2048'));
+  check('Start over (the moment\'s program from its beginning) ends it', !s.arrivedFromLink);
+  await arrive(s);
   s.load('liza.bin', bin('liza'), { remember: false });
-  check('a load ends it', !s.linkArrival);
-  s.arriveByLink();
+  check('a load ends it', !s.arrivedFromLink);
+  await arrive(s);
   s.switchMachine('coco2');
-  check('a switch ends it', !s.linkArrival);
-  s.arriveByLink();
+  check('a switch ends it', !s.arrivedFromLink);
+  await arrive(s);
   s.debug.halt();
   check('the Debugger stop outranks the link', id(s) === 'stopped');
-}
+})();
 {
   const s = stub();
   s.startWelcome(bin('welcome'), { greeting: 'back' });
   frames(s, 5);
-  check('the welcome menu, no ROMs for this machine: welcome-norom', s.bundledProgram === 'welcome' && id(s) === 'welcome-norom', id(s));
+  check('the welcome menu, no ROMs for this machine: welcome-norom', s.bundledRunning === 'welcome' && id(s) === 'welcome-norom', id(s));
   // the ROM library says this machine's ROMs would start BASIC (no ROM is used: the library's answer is stood in for)
   const real = s.machineRoms.bind(s);
   s.machineRoms = (mid) => Object.assign(real(mid), { bootable: true });
@@ -144,21 +151,34 @@ const id = (s) => Emu.promptsNow(s).id;
   s.machineRoms = real;
   s.runLiza(bin('liza'));
   frames(s, 5);
-  check('LIZA: liza', s.bundledProgram === 'liza' && id(s) === 'liza', id(s));
+  check('LIZA: liza', s.bundledRunning === 'liza' && id(s) === 'liza', id(s));
   s.runGame('2048', bin('2048'));
   frames(s, 5);
-  check('2048: the 2048 set', s.bundledProgram === '2048' && id(s) === '2048', id(s));
+  check('2048: the 2048 set', s.bundledRunning === '2048' && id(s) === '2048', id(s));
   s.runGame('minesweeper', bin('minesweeper'));
   frames(s, 5);
-  check('Minesweeper: minesweeper', s.bundledProgram === 'minesweeper' && id(s) === 'minesweeper', id(s));
+  check('Minesweeper: minesweeper', s.bundledRunning === 'minesweeper' && id(s) === 'minesweeper', id(s));
   // the demo, as the page starts it (js/ui/welcome.js): a load, then the last run
   s.load('demo.bin', bin('demo'), { remember: false });
   s.setLastRun('demo', 'Colour demo');
   frames(s, 5);
-  check('the demo: demo', s.bundledProgram === 'demo' && id(s) === 'demo', id(s));
+  check('the demo: demo', s.bundledRunning === 'demo' && id(s) === 'demo', id(s));
   s.reset();
   frames(s, 5);
-  check('a reset ends the bundled program', s.bundledProgram === null && id(s) !== 'demo', id(s));
+  check('a reset ends the bundled program', s.bundledRunning === null && id(s) !== 'demo', id(s));
+}
+{
+  // WYRMFIRE (Session.startWyrmfire, its pinned files: js/wyrmfire/pin.js), which outranks the bundled programs and BASIC
+  const { WYRMFIRE_PIN: PIN } = require('../js/wyrmfire/pin.js');
+  const file = (f) => new Uint8Array(fs.readFileSync(path.join(ROOT, f.path)));
+  const s = new Emu.Session({ store: Emu.memoryStore(), welcomeMenu: false });
+  s.switchMachine('dragon64', {}, { menu: false });
+  s.startWyrmfire(file(PIN.files.engine), file(PIN.files.level));
+  frames(s, 5);
+  check('WYRMFIRE: the wyrmfire set', s.bundledRunning === 'wyrmfire' && id(s) === 'wyrmfire'
+    && JSON.stringify(Emu.promptsNow(s).prompts) === JSON.stringify(SPEC.wyrmfire), `${s.bundledRunning} ${id(s)}`);
+  s.debug.halt();
+  check('WYRMFIRE: the Debugger stop outranks it', id(s) === 'stopped');
 }
 {
   const s = stub();
@@ -183,7 +203,8 @@ const id = (s) => Emu.promptsNow(s).id;
   check('stopped in the Debugger outranks BASIC', id(s) === 'stopped');
   s.resume();
   w(CURLIN, 0xFFFF);
-  s.arriveByLink();
+  // (the arrival as openSnapshot({ link }) marks it; a snapshot of the stand-in BASIC would need its ROM in the library)
+  s.arrivedFromLink = { kind: 'long', id: null, machine: s.personMachine.profile.name, program: null };
   check('a link arrival outranks BASIC', id(s) === 'link');
 }
 {
@@ -197,5 +218,7 @@ const id = (s) => Emu.promptsNow(s).id;
   check('promptsNow: a machine that cannot be read gives the fallback, three questions', r.id === 'fallback' && r.prompts.length === 3, r.id);
 }
 
-console.log(`\n${n - fail}/${n} passed`);
-process.exitCode = fail ? 1 : 0;
+arrivals.then(() => {
+  console.log(`\n${n - fail}/${n} passed`);
+  process.exitCode = fail ? 1 : 0;
+});

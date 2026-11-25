@@ -1035,6 +1035,54 @@ reads the same WAVs with the same firmware (`node tools/mame-diff/tape/run-tape.
 used: how a given player and a given cable behave is for the person with the hardware. A tape holds one contiguous range per file,
 as `CLOADM` loads it: a program in pieces more than 256 bytes apart is `bad-media`.
 
+### Share links: a moment, or a BASIC program
+
+The Share screen's links carry one of two payloads after `#z=` (base64url, in the fragment, which browsers never send to
+a server). Byte 0 says which, and is the format's version:
+
+| Byte 0 | Payload | Made by | Read by |
+|---|---|---|---|
+| `1` | a moment: deflate-raw of the snapshot's skeleton and its byte arrays (`js/media/snapshot.js` `encodeLongLink`) | `snapshotLink(base)` | `readSnapshotLink(hash)`, then `openSnapshot(snap)` |
+| `2` | a BASIC program ("Share your program"): deflate-raw of UTF-8 JSON `{ format: 'cloadm-basic', version: 1, machine, config, text }`, `text` the program as LIST shows it (one `NUMBER TEXT` line per program line, `\n` between them, characters `$20`-`$7E` only) | `programLink(base)` | `readProgramLink(hash)`, then `openSharedProgram(prog)` |
+
+`3` to `31` are kept for later versions: a page that doesn't know one says the link was made by a newer CLOADM, which is
+what a page that reads only moments says of a program link. A later change to the program's JSON raises its `version`
+(refused the same way).
+
+A short link (`https://s.cloadm.dev/<id>#<key>`) holds the same payload sealed in the browser (`js/media/link-crypto.js`):
+a moment's short link the `.cloadm` file, a program's short link the program link's bytes above (`programShortLink(store)`,
+with no preview picture). The stored object (`<id>.bin`) is:
+
+| Bytes | |
+|---|---|
+| 0 | the sealed format's version, `1`; `2` to `31` are kept for later layouts (refused as "made by a newer CLOADM") |
+| 1 | the kind, in the clear: `1` a moment, `2` a BASIC program (the same numbers as a long link's byte 0); `3` to `31` are kept for later kinds under this version (refused as "made by a newer CLOADM"), `0` and `32` up are not kinds. The short-link server reads it to name what the link opens on its arrival page ("A moment on a Dragon 64", "A moment on an MC-10" or "A BASIC program for the Dragon 64") |
+| 2-13 | the AES-GCM IV |
+| the rest | the ciphertext with its 16-byte tag; bytes 0 and 1 are its additional authenticated data, so neither can be changed without the key refusing it |
+
+The key (16 bytes, 22 base64url characters) is only in the link's fragment. The upload to `POST /api/new` is
+`[u8 2][u8 n][machine id][u32 LE length][sealed object][preview PNG, or nothing]` (version `2`: a sealed object with its
+header; a program's has no picture). `readShortLink(hash, store)` gives `{ snap, id }` or `{ program, id }`, and refuses
+an object whose kind and contents disagree.
+
+**These formats are frozen (since 0.3.0).** A long link's byte 0, the sealed object's version and kind, and the upload
+body's version only ever gain new numbers; no decoder for a number that was ever written is dropped, and an unknown one is
+refused as "made by a newer CLOADM". Snapshots likewise: `SNAPSHOT_OLDEST` never rises, and a change to the meaning of
+state ships a converter from every older version. Every version has a committed golden link in `tests/fixtures/links/`
+that `tests/link-freeze.test.js` opens (AGENTS.md, rule 7).
+
+A moment's config is checked before it opens (`checkedSnapshot`, for files, slots and links alike): the keys its model
+takes, each with one of its values, and from a link `mameCompat` off; anything else is a damaged snapshot. So a model's
+option, or one of its values, is never removed without a converter for the snapshots that hold it. Only the
+model's own options (never `mameCompat` or `hires`) are remembered as its config when a moment switches the machine.
+
+`sharedProgram()` is the BASIC program in memory on the machine on screen: `null` when there is none, else `{ lines,
+text, refusal }`, where `refusal` (and a `null` text) means it can't be shared as text: its listing is over load_basic's
+65536 characters, or it holds a byte that would not type back the same (a graphics character, a control code, lower case
+outside a string). A program link's `config` must be exactly what `shareConfig` writes: the model's own options (never `mameCompat` or `hires`), each with one of its values; anything else makes the link damaged, refused before any machine is switched. `openSharedProgram(prog)` switches to a fresh machine of the program's model, loads it as load_basic
+does (no typing), types `LIST` and answers `{ state: 'listed', lines }`; without a BASIC ROM for that model it answers
+`{ state: 'needs-roms', name, lines }` and loads nothing (call it again once the ROMs are added).
+
 ### What is stable
 
 | Stable: kept working, changes noted in the CHANGELOG | |
@@ -1055,6 +1103,7 @@ as `CLOADM` loads it: a program in pieces more than 256 bytes apart is `bad-medi
 | `machine.setKey(name, down)`, the key names `Object.keys(machine.keyPos)` | the keyboard matrix, as a finger holds a key; an unknown name does nothing. The `[row, column]` values of `keyPos` are internal |
 | `machine.frameCount`, `machine.now()`, `machine.tickHz`, `machine.cpu.totalCycles` | emulated time: frames run, the machine's clock (see "What 'cycles' counts" above: the GIME's on the CoCo 3), that clock's rate in Hz, and CPU cycles |
 | `await snapshotFile()`, `await readSnapshot(bytes)`, `openSnapshot(snap)` | snapshots |
+| `arrivedFromLink` | the person has just arrived from a link and not acted yet: `{ kind: 'long' \| 'short', id, machine, program }` (`id` the short link's, else `null`; `machine` the model's name; `program` the bundled program the moment is of, else `null`), or `null`. Set by `openSnapshot(snap, { link })`, which the page passes for a `#z=` or `#l=` link; cleared, with an `'arrival'` event, by the person's first input (a key, typed text, a POKE, a load), another snapshot, a switch, a Reset or a power cycle. The page's arrival card shows while it is set; a prompt that depends on what is on screen can read it |
 | `serial` (`device`, `attach`, `send`, `subscribe`, `flush`, `trace`, `status`), `diagnostics()` | the serial port: its device, the bytes both ways and when they are delivered, the trace's event kinds and fields, and where the machine is ([the serial port from Node](#the-serial-port-from-node)) |
 | `disk` (`trace`, `status`), `diagnostics().disk` | the disk controller: the trace's event kinds and fields and the status decoded ([Tracing the disk controller](#tracing-the-disk-controller)) |
 | `debug` (`addBreakpoint`, `step`, `registers`, …) | the debugger, as the page's Debugger screen uses it |
