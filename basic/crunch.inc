@@ -1,7 +1,8 @@
 * ---------------- crunching: keywords to tokens ----------------
 * CRUNCH: LINBUF (0-terminated) to CRNBUF, keywords replaced by their tokens (functions as $FF and the
-* token). Strings in quotes, REM and ' remarks and DATA up to the next ':' are copied as typed; '?' is
-* PRINT [UM]. The longest keyword that matches wins. The result ends with three 0 bytes.
+* token; ELSE and ' as ':' and the token, a ':' that LIST does not show). Strings in quotes, REM and ' remarks
+* and DATA up to the next ':' are copied as typed; '?' is PRINT [UM]. The longest keyword that matches wins.
+* The result ends with three 0 bytes.
 CRUNCH  PSHS    X,Y,U
         LDX     #LINBUF
         LDU     #CRNBUF
@@ -44,10 +45,15 @@ CR3     CMPA    #' '
         BCS     CRTOK
         LDA     ,X
         BRA     CRCOPY
-CRTOK   TST     <KWFN
-        BEQ     CR4
-        LDB     #$FF
-        STB     ,U+
+CRTOK   LDB     #$FF
+        TST     <KWFN
+        BNE     CR3B
+        LDB     #':'            ; ELSE and ' are stored with a ':' before them [BB bb1 probe-tokens]
+        CMPA    #T_ELSE
+        BEQ     CR3B
+        CMPA    #T_APOS
+        BNE     CR4
+CR3B    STB     ,U+
 CR4     STA     ,U+
         LDB     <KWLEN
         ABX

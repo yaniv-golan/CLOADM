@@ -447,6 +447,7 @@ Every behaviour fact the ROM relies on, with its source. A fact without a source
 | 29 | `PRINT USING` E notation: with no `+` or `-` in the field, the first `#` is the sign's place (a space or `-`): `"##.##^^^^";12345` is ` 1.23E+04`. Fields of more than nine digits print garbage on the real (`%1000000000E-10`, then `?SN ERROR IN 0`); ours keep `?FC ERROR` | [BB] bb1, `print-using`, `review-fixes` |
 | 30 | `VAL` puts a 0 after its string while it reads the number and an error leaves it there: after `40 X=VAL("1E99")` overflows, `LIST 40` shows `40 X=VAL("1E99` | [BB] bb1, `review-fixes` |
 | 31 | `PRINT @n, USING ...` | [UM] (both forms documented); found by the corpus programs |
+| 32 | `ELSE` and `'` are stored with a `:` before them (`END:ELSE` is `8A 3A 3A 84`, `PRINT'A` is `87 3A 83 41`, `THEN 10 ELSE 20` ends `30 20 3A 84 20 32 30`); ours does not show that `:` in `LIST` [OWN, case `crunch-else`] | [BB] bb1, `probe-tokens` |
 
 The log grows with every milestone; black-box facts are added with the date of the run they came from.
 

@@ -33,7 +33,7 @@ Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.
   no change in what programs see (shared routines and tables, two-byte calls through the direct page), to make room
   for graphics and sound. The first black-box results from the real ROM brought ours in line: the empty line before `BREAK`, `CONT` at
   the end of a program, `SQR` as `x^.5`, `DEF FN` with a string name, `RESTORE` with no line number, `PRINT USING`'s E
-  notation, `VAL` leaving its 0 after an error, and `PRINT @` with `USING`.
+  notation, `VAL` leaving its 0 after an error, the `:` stored before `ELSE` and `'`, and `PRINT @` with `USING`.
 - **The share-link formats are frozen.** Links and snapshots in people's hands keep opening from now on (AGENTS.md,
   rule 7): `SNAPSHOT_OLDEST` never rises (a change to the meaning of state ships a converter from every older version), no
   link or envelope decoder is ever dropped, and a long link's byte 0 is 1 for a moment, 2 for a BASIC program, 3 to 31

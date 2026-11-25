@@ -203,7 +203,14 @@ LL1     LDA     ,X+
         LDU     #KWFUNC
 LL1A    BSR     PRTKW
         BRA     LL1
-LL2     JSR     <ZCHROUT
+LL2     CMPA    #':'            ; the ':' stored before ELSE and ' is not shown
+        BNE     LL2A
+        LDB     ,X
+        CMPB    #T_ELSE
+        BEQ     LL1
+        CMPB    #T_APOS
+        BEQ     LL1
+LL2A    JSR     <ZCHROUT
         BRA     LL1
 LL3     JSR     CRLF
         PULS    X,PC

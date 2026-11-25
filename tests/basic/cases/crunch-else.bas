@@ -1,0 +1,9 @@
+# ELSE and ' are stored with a ':' before them that LIST does not show [BB bb1 probe-tokens]; the lines still run
+10 IF 1 THEN PRINT "A" ELSE PRINT "B"
+20 IF 0 THEN PRINT "C" ELSE PRINT "D"
+30 PRINT "E":'X
+40 PRINT "F"'Y
+50 FOR I=7000 TO 9000:IF PEEK(I AND 32767)=131 AND PEEK(I+1 AND 32767)=88 THEN PRINT PEEK(I-1 AND 32767);PEEK(I-2 AND 32767):I=9000
+60 NEXT
+LIST
+RUN
