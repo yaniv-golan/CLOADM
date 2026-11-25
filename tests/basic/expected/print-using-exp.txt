@@ -1,12 +1,13 @@
-# [OWN] the bb1 rule (the first # of an E field with no + or - is the sign's place) carried to the other fields; more than nine digits is ?FC ERROR; provisional until the black-box run
+# [BB bb2] the real ROM's transcript but the last line: the sign's place of an E field with no + or - is its first place, 0 for a positive number when it is the last before the point or after the point (where a - does not fit)
+# [OWN] more than nine digit places is ?FC ERROR (the real prints 11 #s and 1 as "  100000000E-09", a value ten times too small)
 OK
 PRINT USING "#.##^^^^";1234;-123
 4
- .12E+04-.12E+04
+0.12E+04-.12E+04
 OK
 PRINT USING ".##^^^^";1234;-1234
 
-.12E+04%-.12E+04
+.01E+05%-.01E+05
 OK
 PRINT USING "+##.##^^^^";12345;-
 12345

@@ -1,4 +1,4 @@
-# [BB bb1] the real ROM's transcript up to RUN 40: VAL overflowing leaves the 0 it put after the number in the program line (LIST 40 shows 40 X=VAL("1E99); [OWN] E notation of more than nine digits is ?FC ERROR (the real prints %1000000000E-10 and then ?SN ERROR IN 0)
+# [BB bb1, bb2] the real ROM's transcript up to RUN 40: VAL overflowing leaves the 0 it put after the number in the program line (LIST 40 shows 40 X=VAL("1E99); [OWN] E notation of more than nine digits is ?FC ERROR (the real prints %1000000000E-10 and then ?SN ERROR IN 0, in bb1 and bb2 alike: a field past its buffer, whose ?SN ERROR IN 0 shows it has run over its own memory; not reproduced)
 OK
 OR
 ?SN ERROR
