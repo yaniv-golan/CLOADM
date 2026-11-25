@@ -606,6 +606,8 @@ export class Session {
     // BroadcastChannel }): the index takes the lock to change its lists and says what it changed on the channel, and
     // what another page says there is read back in (mediaElsewhere). None in Node or for an embedder.
     this.mediaShare = mediaShare;
+    // (mediaElsewhere tells its own failures: a rejection from it is a listener that threw, left unhandled so that it shows in the
+    // console and is not swallowed)
     if (mediaShare && mediaShare.channel) mediaShare.channel.onmessage = (e) => { this.mediaElsewhere(e.data); };
     this.store = store;
     this.media = media;
@@ -790,10 +792,9 @@ export class Session {
     // (what it brings in is reported through mediaForeign.) A read that fails is tried once more, as the other page may still have
     // been writing; a second failure is told ('media-sync-failed', the error) and not swallowed: this page's lists are then
     // older than the store's until the next change arrives
-    try { await this.index.refresh(); }
-    catch (first) {
-      try { await this.index.refresh(); }
-      catch (e) { this.emit('media-sync-failed', e); }
+    for (let attempt = 0; ; attempt++) {
+      try { await this.index.refresh(); return; }
+      catch (e) { if (attempt) { this.emit('media-sync-failed', e); return; } }
     }
   }
   // the index took in another page's change: the panels redraw. 'roms' carries { elsewhere: [{ machine, socket }] }
