@@ -18,6 +18,10 @@ const BASE = 'https://cloadm.dev/play/';
 // space - which the old `replace(/ /g, '').startsWith('AAAA')` checks here could not tell from a filled screen.
 const FILL = [{ addr: 0x7000, data: Uint8Array.from([0x8E, 0x04, 0x00, 0x86, 0x41, 0xA7, 0x80, 0x8C, 0x06, 0x00, 0x26, 0xF9, 0x20, 0xFE]) }];
 
+// the program's whole job is filling the screen, so both screen checks want all 16 rows of 32 'A', not just the top
+// one: a loop that stops early still leaves row 0 perfect.
+const fullScreen = (s) => { const rows = s.screenText(); return rows.length === 16 && rows.every((r) => r.slice(0, 32) === 'A'.repeat(32)); };
+
 const session = (roms) => {
   const s = new Emu.Session({ store: Emu.memoryStore() });
   s.switchMachine('dragon64', undefined, { menu: false });
@@ -50,7 +54,7 @@ const arrive = async (link, { shared = true } = {}) => {
     const { b, seen } = await arrive(link);
     check('arrival: a shared no-ROM moment is a shared moment', b.sharedMoment === true);
     check('arrival: already set when the page first hears of the machine', seen === true, String(seen));
-    check('arrival: the moment itself is back (the program\'s screen)', b.screenText()[0].slice(0, 32) === 'A'.repeat(32), b.screenText()[0]);
+    check('arrival: the moment itself is back (the program\'s screen)', fullScreen(b), b.screenText()[0]);
   }
   // ---- 2. the same snapshot not from a link (a dropped file) is not an arrival ----
   {
@@ -127,7 +131,7 @@ const arrive = async (link, { shared = true } = {}) => {
     check('a moment with a program running is not at the prompt', b.shownMachine.atStubPrompt() === false);
     check('a moment with a program running does not offer the menu', !events.includes('menu'), JSON.stringify(events));
     check('a moment with a program running keeps its memory, 60 frames on', b.shownMachine.read(0x3000) === 0xA7, String(b.shownMachine.read(0x3000)));
-    check('a moment with a program running keeps its screen, 60 frames on', b.screenText()[0].slice(0, 32) === 'A'.repeat(32), b.screenText()[0]);
+    check('a moment with a program running keeps its screen, 60 frames on', fullScreen(b), b.screenText()[0]);
   }
 
   // ---- 9. just arrived from a link (Session.arrivedFromLink, the page's arrival card: js/ui/arrival.js) ----
