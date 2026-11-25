@@ -22,7 +22,7 @@ import { setupBootHelp } from './boot-help.js';
 import { setupNeedsBasic } from './needs-basic.js';
 import { setupWelcome } from './welcome.js';
 import { setupWyrmfire } from './wyrmfire.js';
-import { setupKeyHint } from './key-hint.js';
+import { setupKeyHint, setupTypingLine } from './key-hint.js';
 import { setupMediaPanel } from './media-panel.js';
 import { setupDrives } from './drives.js';
 import { setupAssemblerPanel } from './assembler-panel.js';
@@ -170,6 +170,7 @@ page.linkTouch = link.touch;
 page.touchKeys = setupTouchKeys(page, { input: screen.input });
 setupDisplayPanel(page);
 setupKeyHint(page);
+setupTypingLine(page);
 setupSettingsFile(page);
 // the short links' store: s.cloadm.dev (js/host/link-store.js); the browser check points it at a stand-in server
 const linkStore = new ShortLinkStore();

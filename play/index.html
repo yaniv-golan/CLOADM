@@ -191,7 +191,7 @@
   body.embed #tkMenuSheet [data-item="share"] { display: none !important; }   /* no Share in an embed (js/ui/touch-keys.js) */
   /* a page shown inside another page has no Claude chat: its buttons are hidden, not left dead (js/ui/main.js) */
   /* Settings -> Claude features: Off (js/ui/claude-features.js); the command box stays, without its Claude rows */
-  body.claude-off #btnAsk, body.claude-off [data-shelf="claude"], body.claude-off #ask, body.claude-off #askRail { display: none !important; }
+  body.claude-off #btnAsk, body.claude-off [data-shelf="claude"], body.claude-off #ask, body.claude-off #askRail, body.claude-off #askStripQs { display: none !important; }
   body.claude-off #tkMenuSheet [data-item="ask"] { display: none !important; }   /* the landscape Menu's Ask Claude… (js/ui/touch-keys.js) */
   #claudeFeaturesRow button[aria-pressed="true"] { background: var(--phosphor); border-color: var(--phosphor); color: var(--on-phosphor); }
   body.no-claude #btnAsk, body.no-claude #navCommands, body.no-claude [data-shelf="claude"], body.no-claude #claude, body.no-claude #ask, body.no-claude #askRail { display: none !important; }
@@ -228,17 +228,18 @@
   #screenNotes > div { margin-top: 10px; background: rgba(11, 13, 12, .88); color: var(--text); font-size: 14px; line-height: 20px; padding: 6px 12px;
     border-radius: var(--r-14); text-align: center; max-width: 100%; box-sizing: border-box; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
   /* one line at a time: "click for sound" until sound starts, then the key hint while it is live, then, while the
-     screen has the focus, the typing line, and otherwise the Ask panel's example questions */
+     screen has the focus, the typing line until it is learned (js/ui/key-hint.js: body.typing-learned), and otherwise
+     the Ask panel's example questions */
   #screenNotes > div[hidden], #screenNotes:has(#soundHint:not([hidden])) > #keyHint,
     #screenNotes:has(> #soundHint:not([hidden]), > #keyHint:not([hidden])) > #typingHint, body.chat-screen #typingHint,
-    body:not(:has(#screen:focus)) #typingHint { display: none; }
+    body:not(:has(#screen:focus)) #typingHint, body.typing-learned #typingHint { display: none; }
   /* the line under the tube says how to leave the screen, so the bezel's focus pill says it only where that line is not
      shown (a touch screen, the phone's chat, an embed); the chat's "Esc stops a reply" pill stays */
   body:not(:is(.touch-keys, .touch-hidden, .chat-phone, .embed, .chat-screen)):has(#screen:focus-visible) #focusHint { display: none; }
   /* the example questions (js/ui/ask.js): one line of whole questions, a real note above taking the line instead */
   #screenNotes > #askStripQs { display: flex; align-items: center; gap: 8px; margin-top: 6px; padding: 0; background: none; overflow: hidden; white-space: nowrap; pointer-events: auto; }
   #screenNotes:has(> #soundHint:not([hidden]), > #keyHint:not([hidden])) > #askStripQs, #askStripQs:not(:has(button)),
-    body:not(.chat-screen):has(#screen:focus) #askStripQs { display: none; }
+    body:not(.chat-screen, .typing-learned):has(#screen:focus) #askStripQs { display: none; }
   #askStripQs > button { flex: none; height: 32px; min-height: 32px; padding: 0 12px; border-radius: var(--pill); font-size: 14px; }
   #askStripQs > button[hidden], #askOpenLabel[hidden] { display: none; }
   #askOpenLabel { color: var(--text-2); font-size: 14px; flex: none; }

@@ -256,7 +256,9 @@ Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.
   dropped.", which brings the "What you dropped" card into view. Before, only that card, below the fold, said so. The
   browser check's new `romNotRom` group covers it at a desktop and a phone's size.
 - **One line under the screen, on a computer.** It reads "Click or press a key for sound" until sound starts (the
-  "No ROMs needed" is gone), then the one-time key hint, then "Typing goes to the machine · Tab leaves the screen"; the
+  "No ROMs needed" is gone), then the one-time key hint, then, while the screen has the focus, "Typing goes to the machine · Tab leaves the screen", which
+  retires once learned (one `Tab` out of the screen or 30 s of typing into it, remembered per browser and in no settings
+  export); otherwise the line holds the Ask panel's example questions (none with Claude features Off). The
   bezel's focus pill no longer says the same thing a second time there (it stays on a touch screen, an embed and the
   phone's chat, and the chat's "Esc stops a reply" pill is unchanged). A touch screen shows no line, as before.
 - **Menu never wears its dot while the "No BASIC · Add ROMs" pill shows.** The dot stands for the pill where the app

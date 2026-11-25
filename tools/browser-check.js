@@ -16813,8 +16813,8 @@ async function foldChecks(browser, base, check) {
     at.sound = await probe(page);
     check(`${L}: sound started: the key hint takes the line (one note, the sound note is gone)`, at.sound.notesShown && at.sound.text.length === 1 && at.sound.text[0] === NOTE_TEXT.keys, JSON.stringify(at.sound));
     await bootToggle(true); at.bootOn2 = await probe(page);
-    // (the screen does not have the focus here, so the typing line is not shown either)
-    check(`${L}: the boot help showing takes the key hint's place (the line stays, empty: the screen is not focused)`, at.bootOn2.boot && at.bootOn2.notesShown && at.bootOn2.text.length === 0 && !at.bootOn2.qs, JSON.stringify(at.bootOn2));
+    // (the screen does not have the focus here, so no typing line: the example questions take the line)
+    check(`${L}: the boot help showing takes the key hint's place (the line stays, no note in it, the example questions: the screen is not focused)`, at.bootOn2.boot && at.bootOn2.notesShown && at.bootOn2.text.length === 0 && at.bootOn2.qs, JSON.stringify(at.bootOn2));
     await bootToggle(false); at.bootOff2 = await probe(page);
     await waitFor(page, () => !document.getElementById('keyHint').hidden);
     at.keys = await probe(page);
@@ -16841,8 +16841,9 @@ async function foldChecks(browser, base, check) {
     await waitFor(page, () => document.getElementById('soundHint').hidden, null, 5000);
     await emuFrames(page, 2);
     const r1 = await probe(page);
-    check(`${L}: a returning visit: the sound note appears, then the typing line; Reset does not move and stays inside the window`,
-      r0.sound && r0.text.length === 1 && r0.text[0] === NOTE_TEXT.sound && JSON.stringify(r1.text) === JSON.stringify([NOTE_TEXT.typing]) && r1.notesShown && r0.resetY === r1.resetY && r0.resetBottom <= r0.vh, JSON.stringify({ r0, r1 }));
+    // (the click lands off the screen: no typing line, the example questions)
+    check(`${L}: a returning visit: the sound note appears, then (the screen not focused) the example questions; Reset does not move and stays inside the window`,
+      r0.sound && r0.text.length === 1 && r0.text[0] === NOTE_TEXT.sound && r1.text.length === 0 && r1.qs && r1.notesShown && r0.resetY === r1.resetY && r0.resetBottom <= r0.vh, JSON.stringify({ r0, r1 }));
     check(`${L}: no page errors`, !errors.length, errors.join('; '));
     await closeCtx(ctx);
   };
@@ -23026,7 +23027,7 @@ async function noRomChromeChecks(browser, base, check) {
         JSON.stringify(before.notes) === JSON.stringify(['Click or press a key for sound']) && !before.noRomsNeeded, JSON.stringify(before));
       await page.focus('#screen'); await page.keyboard.press('Escape');
       await waitFor(page, () => window.emu.audioRunning() && document.getElementById('soundHint').hidden && document.getElementById('keyHint').hidden, null, 5000);
-      await page.keyboard.press('Tab'); await page.keyboard.press('Shift+Tab');
+      // (the focus stays on the screen: a Tab out of it would retire the typing line, checked below)
       const after = await lines();
       check('no-ROM chrome (mouse): sound on and the key hint done, the one line is the typing line, and the bezel shows no second one',
         JSON.stringify(after.notes) === JSON.stringify(['Typing goes to the machine · Tab leaves the screen']) && !after.pill && await page.evaluate(() => document.activeElement.id === 'screen'), JSON.stringify(after));
@@ -23093,6 +23094,71 @@ async function noRomChromeChecks(browser, base, check) {
       check(`${L}: with Claude features Off, the bar and More ▾ say nothing of Claude (no Ask Claude)`, !/Claude|Ask/.test(words.replace('Install CLOADM…', '')) && !await page.isVisible('#btnAsk'), words);
       await page.evaluate(() => window.emu.session.setClaudeFeatures(true));
     }
+    check(`${L}: no page errors`, !errors.length, errors.join('; '));
+    await closeCtx(ctx);
+  }
+  // The line under the tube once the hints are done (a desktop): the typing line while the screen has the focus, the Ask
+  // panel's example questions otherwise; the typing line retires once learned (one Tab out of the screen, or 30 s of
+  // typing into it: js/ui/key-hint.js), then the questions show focused or not, a reload keeps that, Claude features Off
+  // leaves the slot empty, and no settings export carries it
+  {
+    const L = 'typing line';
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, serviceWorkers: 'block' });
+    const page = await ctx.newPage();
+    const errors = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto(`${base}?machine=dragon64`); await started(page);
+    const slot = () => page.evaluate(() => ({
+      notes: [...document.querySelectorAll('#screenNotes > div:not(#askStripQs)')].filter((d) => d.checkVisibility()).map((d) => d.textContent),
+      qs: document.getElementById('askStripQs').checkVisibility(), focus: document.activeElement.id, learned: document.body.classList.contains('typing-learned') }));
+    const TYPING = 'Typing goes to the machine · Tab leaves the screen';
+    // sound on and the key hint done (Esc on the screen), the focus on the screen
+    await page.focus('#screen'); await page.keyboard.press('Escape');
+    await waitFor(page, () => window.emu.audioRunning() && document.getElementById('soundHint').hidden && document.getElementById('keyHint').hidden, null, 5000);
+    const focused = await slot();
+    check(`${L}: the screen focused, not yet learned: the typing line, and no example questions`, JSON.stringify(focused.notes) === JSON.stringify([TYPING]) && !focused.qs && focused.focus === 'screen' && !focused.learned, JSON.stringify(focused));
+    await page.evaluate(() => document.getElementById('screen').blur());
+    const away = await slot();
+    check(`${L}: the focus elsewhere: the example questions, no typing line`, away.notes.length === 0 && away.qs, JSON.stringify(away));
+    // one Tab out of the screen: learned
+    await page.focus('#screen'); await page.keyboard.press('Tab');
+    await waitFor(page, () => document.activeElement.id !== 'screen');
+    await page.focus('#screen');
+    const tabbed = await slot();
+    check(`${L}: after one Tab out of the screen the typing line is retired: focused again, the example questions show`, tabbed.notes.length === 0 && tabbed.qs && tabbed.focus === 'screen' && tabbed.learned, JSON.stringify(tabbed));
+    await page.reload(); await started(page);
+    await page.focus('#screen'); await page.keyboard.press('Escape');
+    await waitFor(page, () => document.getElementById('soundHint').hidden && document.getElementById('keyHint').hidden, null, 5000);
+    const reloaded = await slot();
+    check(`${L}: a reload keeps it learned (focused: the example questions, no typing line)`, reloaded.notes.length === 0 && reloaded.qs && reloaded.learned && reloaded.focus === 'screen', JSON.stringify(reloaded));
+    const exported = await page.evaluate(() => Object.keys(window.emu.session.exportSettings().settings));
+    check(`${L}: it is no setting: a settings export does not carry it`, !exported.some((k) => /typing/i.test(k)) && await page.evaluate(() => window.emu.session.store.get('typingLineDone') === '1'), JSON.stringify(exported));
+    await page.evaluate(() => window.emu.session.setClaudeFeatures(false));
+    await page.focus('#screen');
+    const off = await slot();
+    check(`${L}: Claude features Off once learned: the slot is empty (no typing line, no questions)`, off.notes.length === 0 && !off.qs && off.focus === 'screen', JSON.stringify(off));
+    await page.evaluate(() => window.emu.session.setClaudeFeatures(true));
+    check(`${L}: no page errors`, !errors.length, errors.join('; '));
+    await closeCtx(ctx);
+  }
+  // 30 s of typing into the screen retires it too (each second with a key counts once: the page's clock is moved on a
+  // second per key here, so the check does not wait half a minute); 29 do not
+  {
+    const L = 'typing line (30 s typing)';
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, serviceWorkers: 'block' });
+    const page = await ctx.newPage();
+    const errors = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto(`${base}?machine=dragon64`); await started(page);
+    await page.focus('#screen'); await page.keyboard.press('Escape');
+    await waitFor(page, () => document.getElementById('soundHint').hidden && document.getElementById('keyHint').hidden, null, 5000);
+    await page.evaluate(() => { const real = Date.now; window.__shift = 0; Date.now = () => real() + window.__shift; });
+    const typeSecond = async (i) => { await page.evaluate((i) => { window.__shift = i * 1000; }, i); await page.keyboard.press('A'); };
+    for (let i = 0; i < 29; i++) await typeSecond(i);
+    const at29 = await page.evaluate(() => ({ learned: document.body.classList.contains('typing-learned'), line: document.getElementById('typingHint').checkVisibility() }));
+    await typeSecond(29);
+    const at30 = await page.evaluate(() => ({ learned: document.body.classList.contains('typing-learned'), line: document.getElementById('typingHint').checkVisibility(), qs: document.getElementById('askStripQs').checkVisibility() }));
+    check(`${L}: 29 seconds with keys typed into the screen keep the typing line; the 30th retires it (the example questions, focused)`, !at29.learned && at29.line && at30.learned && !at30.line && at30.qs, JSON.stringify({ at29, at30 }));
     check(`${L}: no page errors`, !errors.length, errors.join('; '));
     await closeCtx(ctx);
   }

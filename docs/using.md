@@ -336,8 +336,10 @@ else the page keeps the keys: `Tab` moves between controls, `Enter` and `Space` 
 and `Esc` closes a dialog. `Tab` and `Shift+Tab` never go to the machine, so the screen is never a keyboard trap:
 reached by keyboard it shows a ring (CLEAR is `Home` or `Delete`). On a computer one line under the screen says what to
 do next: "Click or press a key for sound" until the browser lets the page play sound, then the key hint ("Esc = BREAK ·
-Home = CLEAR · Backspace = ←") until your first `Esc` or 30 seconds of typing, then "Typing goes to the machine · Tab
-leaves the screen". A touch screen shows no line there; the same words sit on the bezel while the screen has focus.
+Home = CLEAR · Backspace = ←") until your first `Esc` or 30 seconds of typing, then, while the screen has the
+focus, "Typing goes to the machine · Tab leaves the screen" until you have pressed `Tab` out of the screen once or typed
+into it for 30 seconds (remembered in this browser; it is not a setting). Otherwise the line holds the Ask panel's
+example questions (none with Claude features Off). A touch screen shows no line there; the same words sit on the bezel while the screen has focus.
 
 `Esc` answers "no" to a question waiting above the screen (a confirmation, an offer, a snapshot's "needs ROMs")
 and closes an open menu (the machine menu, Menu's links on a phone, a drive's menu, Ctrl+K, the touch keys' Menu)
