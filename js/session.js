@@ -81,9 +81,8 @@ export const CLAUDE_PAUSED_SHORT = 'Paused: you pressed a key · Esc stops Claud
 // a message's text: a string, or the text blocks of a content array
 import { RomLibrary, identifyRoms, isBootable, isRomPack, looksLikeRom, makeRomPack, restoreRomPack, socketStatus } from './roms.js';
 import { writeZip } from './media/zip.js';
-import { bugReportText, isWad, sha256Hex } from './bugreport.js';
 import { programPage } from './program-pages.js';
-import { sealMoment, openMoment } from './media/link-crypto.js';
+import { SEALED_KIND, sealMoment, openMoment } from './media/link-crypto.js';
 import { encodeIndexedPng } from './media/png.js';
 import { shareCardPicture } from './video/bezel.js';
 import { SNAPSHOT_EXT, SnapshotError, decodeSnapshot, decodeLongLink, encodeSnapshot, encodeLongLink, encodeProgramLink, decodeProgramLink, isProgramLink } from './media/snapshot.js';
@@ -606,7 +605,7 @@ export class Session {
     if (mediaShare && mediaShare.channel) mediaShare.channel.onmessage = (e) => { this.mediaElsewhere(e.data).catch(() => {}); };
     this.store = store;
     this.media = media;
-    this.lastLoaded = null;   // the file Session.load loaded last: { name, bytes } (bugReport names it and hashes it)
+    this.lastLoaded = null;   // the file Session.load loaded last: { name, bytes } (js/bugreport.js names it and hashes it)
     // the media library on that store (js/library.js): listing, import, rename and delete, the recent list, the
     // names being made and the store's case rule, and moving it all to another store. Made before anything below
     // that compares names or asks whether the library is moving (the DriveWire server's hooks).
@@ -1829,27 +1828,6 @@ export class Session {
     return { href: `${this.shareUrl(base, { app: 'claude' }).split('#')[0]}#z=${toBase64Url(await encodeLongLink(file.moment.snap, file.moment.meta))}`, carried: true };
   }
 
-  // "Copy bug report" (js/bugreport.js): the version, the machine on screen and its options, its ROMs by CRC only, the
-  // browser, the file loaded last (name and SHA-256; a WAD is not named; a cartridge by CRC32 only) and, only with snapshot, the moment as the
-  // Share screen's ROM-free link. Never the Claude key, a ROM's bytes or file name. -> { text, parts }
-  async bugReport({ base = 'https://cloadm.dev/play/', browser = '', snapshot = false } = {}) {
-    const m = this.shownMachine, options = {};
-    for (const [k, v] of Object.entries(m.config)) if (m.profile.options[k]) options[k] = v;
-    const last = this.lastLoaded;
-    // a cartridge (or anything that is a ROM image) is someone's ROM: by its CRC only, never its name or SHA-256
-    let kind = null;
-    if (last) { try { kind = formats.identify(last.name, last.bytes).kind; } catch (e) { kind = null; } }
-    const cart = !!last && !isWad(last.name, last.bytes) && (kind === 'cart' || Session.isRom(last.name, last.bytes));
-    const file = !last ? null : isWad(last.name, last.bytes) ? { wad: true } : cart ? { cartridge: crc32(last.bytes) } : { name: last.name, sha256: await sha256Hex(last.bytes) };
-    let link = null, snapshotNote = '';
-    if (snapshot) {
-      try { link = await this.snapshotLink(base); } catch (e) { if (!(e instanceof SessionError)) throw e; snapshotNote = `not included (${e.message})`; }
-    }
-    const roms = Object.assign({}, m.romCrcs(), cart ? { cartridge: file.cartridge } : {});
-    const parts = { machine: { id: m.id, name: m.profile.name }, options, roms, browser, file, snapshot: link, snapshotNote };
-    return { text: bugReportText(parts), parts };
-  }
-
   // ---------------- snapshots ----------------
   // A snapshot holds the machine, its config, its state and the CRCs of the ROMs it ran with (never the ROMs).
   // Opening one: readSnapshot (the file), snapshotSwitch (does the machine in use have to change? ask first),
@@ -1911,7 +1889,7 @@ export class Session {
     const m = this.shownMachine, why = this.shortLinkRefusal(m);
     if (why) throw new SessionError(why);
     const f = file || await this.shareFile(now);
-    const { key, sealed } = await sealMoment(f.bytes);
+    const { key, sealed } = await sealMoment(f.bytes, SEALED_KIND.moment);
     if (sealed.length > Session.SHORT_SEALED_MAX) throw new SessionError(`This moment is too large for a short link (${Math.ceil(sealed.length / 1024)} KB; the most is ${Session.SHORT_SEALED_MAX / 1024} KB). The long link works.`);
     const png = preview ? await this.previewPicture(m, name) : null;
     let r;
@@ -1931,15 +1909,19 @@ export class Session {
     }
     let sealed, bytes;
     try { sealed = await store.load(m[1]); } catch (e) { throw new SessionError(e.message); }
-    try { bytes = await openMoment(sealed, m[2]); } catch (e) { throw new SessionError(`This short link can't be opened: ${e.message}`); }
-    // a program's short link holds the program link's bytes (programShortLink), a moment's a .cloadm file
-    if (isProgramLink(bytes)) {
+    let kind;
+    try { ({ kind, bytes } = await openMoment(sealed, m[2])); }
+    catch (e) { throw new SessionError(/newer CLOADM/.test(e.message) ? e.message : `This short link can't be opened: ${e.message}`); }
+    // the sealed object says what it holds (js/media/link-crypto.js): a program's link bytes (programShortLink), or a
+    // moment's .cloadm file; what it holds must be that
+    if (kind === SEALED_KIND.program) {
+      if (!isProgramLink(bytes)) throw new SessionError('This link\'s program is damaged: it was cut short or changed on the way.');
       let prog;
       try { prog = await decodeProgramLink(bytes); }
       catch (e) { throw e instanceof SnapshotError ? new SessionError(e.message) : e; }
       return { program: this.checkedProgram(prog), id: m[1] };
     }
-    return { snap: await this.readSnapshot(bytes), id: m[1] };
+    return { snap: this.checkedSnapshot(await this.readSnapshot(bytes), { link: true }), id: m[1] };
   }
 
   // ---------------- a BASIC program, shared as its text ----------------
@@ -1983,7 +1965,7 @@ export class Session {
   async programShortLink(store, prog = this.sharedProgram()) {
     if (!prog || prog.refusal) throw new SessionError(prog ? prog.refusal : 'There is no BASIC program to share.');
     const m = this.shownMachine;
-    const { key, sealed } = await sealMoment(await encodeProgramLink({ machine: m.id, config: this.shareConfig(m), text: prog.text }));
+    const { key, sealed } = await sealMoment(await encodeProgramLink({ machine: m.id, config: this.shareConfig(m), text: prog.text }), SEALED_KIND.program);
     if (sealed.length > Session.SHORT_SEALED_MAX) throw new SessionError(`This program is too large for a short link (${Math.ceil(sealed.length / 1024)} KB; the most is ${Session.SHORT_SEALED_MAX / 1024} KB). The long link works.`);
     let r;
     try { r = await store.create({ machine: m.id, sealed, png: null }); }
@@ -2029,7 +2011,8 @@ export class Session {
     try { this.loadBasic(prog.text); }
     catch (e) { throw new SessionError(`The program couldn't be loaded on the ${name}: ${e.message}`); }
     this.queueText('LIST\n', m);
-    // (after the load: loadBasic is the person's input, which would end an arrival already recorded)
+    // Recorded after the load, not before: loadBasic counts as the person's input (personInput, then touch, then
+    // settleArrival), which ends an arrival, so one recorded first would be over at once.
     arrived(true);
     return { state: 'listed', lines: lines.length };
   }
@@ -2081,8 +2064,22 @@ export class Session {
     const damaged = new SessionError('This link\'s snapshot is damaged: it was cut short or changed on the way.');
     let bytes;
     try { bytes = fromBase64Url(m[1]); } catch (e) { throw damaged; }
-    try { return await decodeLongLink(bytes); }
+    let snap;
+    try { snap = await decodeLongLink(bytes); }
     catch (e) { throw e instanceof SnapshotError && /newer CLOADM/.test(e.message) ? new SessionError(e.message) : damaged; }
+    return this.checkedSnapshot(snap, { link: true });
+  }
+  // A snapshot's machine and config, before anything opens it or remembers it (the same rule for files, slots and links;
+  // checkedProgram is a program link's): a model CLOADM has, and a config of the keys that model takes (its options and
+  // mameCompat), each with one of its values. From a link, mameCompat is off as well: a comparison setting never
+  // travels. Anything else is a damaged snapshot. -> the snapshot, or SessionError
+  checkedSnapshot(snap, { link = false } = {}) {
+    const c = snap && snap.config;
+    let ok = !!snap && Object.hasOwn(profiles, snap.machine) && !!c && typeof c === 'object' && !Array.isArray(c);
+    if (ok) { try { resolveConfig(snap.machine, c); } catch (e) { ok = false; } }
+    if (ok && link && c.mameCompat) ok = false;
+    if (!ok) throw new SessionError(link ? 'This link\'s snapshot is damaged: it was cut short or changed on the way.' : 'This snapshot is damaged: its machine or settings are not ones CLOADM has.');
+    return snap;
   }
   // the moment as a file -> { name, bytes }
   // The moment as a file the person keeps: their machine (personMachine), so with the chat full screen it is the
@@ -2099,8 +2096,10 @@ export class Session {
   }
   // file bytes -> the snapshot; SessionError when it isn't one this version reads
   async readSnapshot(bytes) {
-    try { return await decodeSnapshot(bytes); }
+    let snap;
+    try { snap = await decodeSnapshot(bytes); }
     catch (e) { throw e instanceof SnapshotError ? new SessionError(e.message) : e; }
+    return this.checkedSnapshot(snap);
   }
   // what must change before it opens: null (it fits the machine in use) or { machine, name, config, text }
   snapshotSwitch(snap) {
@@ -2155,6 +2154,7 @@ export class Session {
   // arrival card, until the person acts. Any other snapshot opened ends an earlier arrival.
   openSnapshot(snap, { shared = false, link = null } = {}) {
     this.writeWatch.guard('openSnapshot');
+    this.checkedSnapshot(snap, { link: shared || !!link });
     const roms = this.snapshotRoms(snap), p = profiles[snap.machine], program = Session.momentProgramId(snap.program);
     // a shared one: its ROM code rebuilt from this browser's own images (snapshotRoms checked they are all here)
     snap = restoreRoms(snap, (crc) => this.imageByCrc(crc, roms));
@@ -2172,7 +2172,9 @@ export class Session {
       machine: m.profile.name, program } : null;
     if (was || this.arrivedFromLink) this.emit('arrival');
     for (const p of this.profiles) p.clear();      // a profile counts what ran from the moment opened
-    if (switching) this.store.set(`config.${m.id}`, JSON.stringify(snap.config));
+    // remembered as the model's config: only its own options, as a link carries them (shareConfig: never mameCompat or
+    // hires), over what was remembered before. The moment itself opened with all of its config.
+    if (switching) this.store.set(`config.${m.id}`, JSON.stringify(Object.assign(this.savedConfig(m.id), this.shareConfig(m))));
     if (Object.keys(roms).length) { if (!this.nitros9On(m)) this.stubChosen.delete(m.id); } else this.stubChosen.add(m.id);
     this.emit('machine');
     this.poweredOn();
@@ -2473,7 +2475,7 @@ export class Session {
   // run: false types a BASIC listing without the RUN after it (the MCP server's load; the page always runs it)
   load(name, bytes, { askAddresses = null, remember = true, run = true } = {}) {
     this.loadStarted = true;
-    this.lastLoaded = { name, bytes };   // (bugReport: its name and SHA-256; set first, so a file that fails to load is named too)
+    this.lastLoaded = { name, bytes };   // (js/bugreport.js: its name and SHA-256; set first, so a file that fails to load is named too)
     this.touch(this.shownMachine);   // a load makes a bundled program a moment (untouchedBundledProgram)
     const msg = this.loadMedia(name, bytes, askAddresses, { run });
     if (remember) { this.library.rememberMedia(name, bytes); this.setLastRun('recent', name, { running: this.loadStarted, crc: crc32(bytes) }); }

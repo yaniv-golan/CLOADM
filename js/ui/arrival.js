@@ -65,7 +65,9 @@ export function setupArrival(page, { openShare, startOver, reportUrl, openRoms }
     finally { opening = false; }
     waiting = r.state === 'needs-roms' ? { prog, link } : null;
     show();
-    if (r.state === 'listed') page.focus();
+    // the screen has the focus either way, as a moment's arrival leaves it: listed, the first key (RUN) goes to BASIC;
+    // waiting for ROMs, the card's buttons are a Tab away and the machine is the one the program came for
+    page.focus();
   }
   // a #z= fragment that holds a program: opened, the fragment removed -> true; false when it holds none (a moment's)
   async function takeProgramLink(hash) {

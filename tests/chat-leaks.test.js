@@ -605,9 +605,7 @@ const REQUIRED = require.main !== module;
     'wyrmfireRunning', 'wyrmfireState', 'wyrmfireOn', 'romCodeIn', 'gameFiles', 'readGameFile',
     // claudeLink builds the "Ask Claude ↗" link from shareFile and shareUrl (both reads of the shown machine)
     'claudeLink',
-    // bugReport reads the SHOWN machine (its options and ROM CRCs) and, when asked, builds snapshotLink; it changes nothing
-    'bugReport',
-    // lastLoaded: which file was loaded last, which bugReport names by SHA-256 (a WAD unnamed, a cartridge by CRC); a field
+    // lastLoaded: which file was loaded last, which js/bugreport.js names by SHA-256 (a WAD unnamed, a cartridge by CRC); a field
     'lastLoaded',
     // programPageUrl makes a program page's address from the page's own (pure)
     'programPageUrl',

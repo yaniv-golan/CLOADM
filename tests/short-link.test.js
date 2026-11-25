@@ -46,9 +46,32 @@ function server({ fail: failWith = null } = {}) {
   {
     const msg = Uint8Array.from({ length: 5000 }, (_, i) => (i * 7) & 0xFF);
     const a = await Emu.sealMoment(msg), b = await Emu.sealMoment(msg);
-    check('sealing: a 22-character base64url key, IV + ciphertext + tag', Emu.isLinkKey(a.key) && a.sealed.length === msg.length + Emu.SEAL_OVERHEAD);
-    check('sealing: a fresh key and IV each time', a.key !== b.key && !Buffer.from(a.sealed.subarray(0, 12)).equals(Buffer.from(b.sealed.subarray(0, 12))));
-    check('sealing: round trip', Buffer.from(await Emu.openMoment(a.sealed, a.key)).equals(Buffer.from(msg)));
+    // the sealed object: [version 1][kind][IV 12][ciphertext + tag 16] (js/media/link-crypto.js), worked out by hand
+    check('sealing: a 22-character base64url key; version 1, the kind, IV, ciphertext and tag (2 + 12 + 16 bytes more)', Emu.isLinkKey(a.key) && a.sealed.length === msg.length + 30
+      && Emu.SEAL_OVERHEAD === 30 && a.sealed[0] === 1 && a.sealed[1] === 1 && Emu.SEALED_VERSION === 1 && Emu.SEALED_KIND.moment === 1 && Emu.SEALED_KIND.program === 2);
+    check('sealing: a fresh key and IV each time', a.key !== b.key && !Buffer.from(a.sealed.subarray(2, 14)).equals(Buffer.from(b.sealed.subarray(2, 14))));
+    const opened = await Emu.openMoment(a.sealed, a.key);
+    check('sealing: round trip, with its kind', opened.kind === 1 && Buffer.from(opened.bytes).equals(Buffer.from(msg)));
+    const p = await Emu.sealMoment(msg, Emu.SEALED_KIND.program), po = await Emu.openMoment(p.sealed, p.key);
+    check('sealing: a program\'s kind is byte 1 = 2, and comes back', p.sealed[0] === 1 && p.sealed[1] === 2 && po.kind === 2 && Buffer.from(po.bytes).equals(Buffer.from(msg)));
+    check('sealing: an unknown kind is refused before anything is sealed', (await rejects(Emu.sealMoment(msg, 3))) instanceof Emu.LinkCryptoError);
+    // the header is authenticated: a kind swapped in the clear does not open, even with the key
+    const swapped = p.sealed.slice(); swapped[1] = 1;
+    check('sealing: the clear header is authenticated (a program re-labelled a moment does not open)', (await rejects(Emu.openMoment(swapped, p.key))) instanceof Emu.LinkCryptoError);
+    const newer = a.sealed.slice(); newer[0] = 2;
+    const ne = await rejects(Emu.openMoment(newer, a.key));
+    check('sealing: a later sealed format says it is from a newer CLOADM', ne instanceof Emu.LinkCryptoError && /newer CLOADM \(sealed format 2; this page reads 1\)/.test(ne.message), ne && ne.message);
+    // under version 1, a kind kept for later (3 to 31) is a newer CLOADM's, so a later kind can be added under version 1
+    for (const k of [3, 31]) {
+      const x = a.sealed.slice(); x[1] = k;
+      const xe = await rejects(Emu.openMoment(x, a.key));
+      check(`sealing: kind ${k} under version 1: from a newer CLOADM, not damaged`, xe instanceof Emu.LinkCryptoError && /newer CLOADM/.test(xe.message) && !/damaged/.test(xe.message), xe && xe.message);
+    }
+    for (const [what, v, k] of [['version 0', 0, 1], ['version 32', 32, 1], ['kind 0', 1, 0], ['kind 32', 1, 32], ['kind 255', 1, 255]]) {
+      const x = a.sealed.slice(); x[0] = v; x[1] = k;
+      const xe = await rejects(Emu.openMoment(x, a.key));
+      check(`sealing: ${what}: damaged, not newer`, xe instanceof Emu.LinkCryptoError && /damaged/.test(xe.message), xe && xe.message);
+    }
     check('sealing: the moment\'s bytes are not in the sealed bytes', !Buffer.from(a.sealed).includes(Buffer.from(msg.subarray(100, 132))));
     const changed = a.sealed.slice(); changed[40] ^= 1;
     for (const [what, sealed, key] of [['a changed byte', changed, a.key], ['cut short', a.sealed.subarray(0, a.sealed.length - 1), a.key], ['another key', a.sealed, b.key], ['too short to be sealed', a.sealed.subarray(0, 20), a.key]]) {
@@ -206,6 +229,9 @@ function server({ fail: failWith = null } = {}) {
     check('the picture switch: on sends the preview PNG, off sends none (on a screen whose picture fits)',
       withPic.picture && pngIn(on.requests[0].body) > 8 && Buffer.from(on.requests[0].body.slice(-pngIn(on.requests[0].body), -pngIn(on.requests[0].body) + 4)).equals(Buffer.from([137, 80, 78, 71]))
       && !without.picture && without.pictureNote === null && pngIn(off.requests[0].body) === 0, `${pngIn(on.requests[0].body)} / ${pngIn(off.requests[0].body)} bytes of picture`);
+    // what is uploaded: body version 2, and a sealed object of version 1 and kind 1 (a moment)
+    const ob = off.requests[0].body, so = 6 + ob[1];
+    check('a moment\'s upload: body version 2, its sealed object version 1, kind 1 (a moment)', ob[0] === 2 && Emu.NEW_LINK_VERSION === 2 && ob[so] === 1 && ob[so + 1] === 1, `${ob[0]} ${ob[so]} ${ob[so + 1]}`);
   }
 
   console.log(fail ? `${fail} FAILED` : 'all passed');

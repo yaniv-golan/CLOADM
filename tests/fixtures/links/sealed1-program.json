@@ -1,0 +1,11 @@
+{
+ "what": "a short link's sealed object holding a BASIC program",
+ "format": {
+  "sealedVersion": 1,
+  "kind": 2,
+  "programFormat": 1
+ },
+ "machine": "dragon64",
+ "sealed": "AQLQ935i-ELsjk-RUwK4Yn9UjWJitUXs9jh12ooeJuwvPsGORIyKTea50shAhO7Y1PFr-vN6ylpA2-kKMSXsp499dcZogFw326Bg_V5wZKQ4Cj1eZRKJzZq2zQZMaJLWX5c1LN-BYuk_TzJsiverisgeFjRyiA-hcoGmA1Vg_uh5GOY5FMLLXXCGxFo1hWV1S65iyad4ib4nl28sIPBuOkXKZi3GVxDip72YCg8Y1Kh5YlFXHxREsRuJ",
+ "key": "WztLXGVVvgLzk6MtZbFMBg"
+}

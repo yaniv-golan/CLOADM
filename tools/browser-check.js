@@ -22480,7 +22480,11 @@ async function basicShareChecks(browser, base, site, check) {
   const url = await page.inputValue('#shareShort');
   const m = /^https:\/\/s\.cloadm\.dev\/([A-Za-z0-9_-]{8})#([A-Za-z0-9_-]{22})$/.exec(url) || [];
   const sealed = m[1] && env.BUCKET.objects.get(`${m[1]}.bin`);
-  const opened = sealed ? await Emu.decodeProgramLink(await Emu.openMoment(new Uint8Array(sealed.bytes), m[2])).catch((e) => e) : null;
+  const opened = sealed ? await Emu.decodeProgramLink((await Emu.openMoment(new Uint8Array(sealed.bytes), m[2])).bytes).catch((e) => e) : null;
+  const arrivalHtml = m[1] ? env.BUCKET.text(m[1]) || '' : '';
+  check('basicShare: the program\'s short link: sealed object version 1, kind 2, and the Worker\'s arrival page says "A BASIC program for the Dragon 64", not a moment',
+    !!sealed && sealed.bytes[0] === 1 && sealed.bytes[1] === 2 && arrivalHtml.includes('<meta property="og:title" content="A BASIC program for the Dragon 64, CLOADM">') && !/moment/i.test(arrivalHtml),
+    (/<title>([^<]*)<\/title>/.exec(arrivalHtml) || [])[1]);
   check('basicShare: Copy makes the short link and copies it; stored: the program sealed, no preview picture', made && !!m[1] && await clip() === url && opened && opened.text === LISTED
     && opened.machine === 'dragon64' && !env.BUCKET.objects.has(`${m[1]}.png`) && !Buffer.from(sealed.bytes).toString('latin1').includes('SHARED'), url);
   // More ways: the forum text in both styles (with the short link just made), and the .bas file
@@ -22550,7 +22554,20 @@ async function basicShareChecks(browser, base, site, check) {
     need && need.listing === MC && need.shown && need.need === 'To run it, this MC-10 needs its BASIC ROM.' && need.buttons.join() === 'Add ROMs,Copy the listing' && need.machine === 'mc10'
     && need.text === 'Someone sent you a BASIC program (6 lines).' && need.hash === '', JSON.stringify(need));
   check('basicShare: the program arrives on the one arrival card (#arrival), docked at the top, without Start from the beginning or Send it back', need && need.one, JSON.stringify(need));
+  // a second on, the screen has the focus (the card never takes it), while it waits for ROMs as once listed
+  await p2.waitForTimeout(1000);
+  check('basicShare: a second after a program arrives waiting for ROMs, the focus is on the screen', await p2.evaluate(() => document.activeElement.id) === 'screen', await p2.evaluate(() => document.activeElement.id));
   if (shotDir) await p2.screenshot({ path: path.join(shotDir, 'basic-share-arrival-no-roms.png') });
+  // the focus moved elsewhere first (a button in the app bar), then a program arrives waiting for ROMs: arrival.js puts
+  // it on the screen (the arrival before this one could not show that: the page's start focuses the screen anyway)
+  await p2.evaluate(async (z) => {
+    document.getElementById('btnShare').focus();
+    const prog = await window.emu.session.readProgramLink(`#z=${z}`);
+    window.emu.arrival.openProgram(prog, { kind: 'long' });
+  }, mcLink.split('#z=')[1]);
+  await p2.waitForTimeout(1000);
+  check('basicShare: with the focus elsewhere (the Share button), a program arriving waiting for ROMs puts it on the screen', await p2.evaluate(() => document.activeElement.id) === 'screen',
+    await p2.evaluate(() => document.activeElement.id));
   await p2.click('#btnArrivalCopy');
   check('basicShare: "Copy the listing" copies it', await waitFor(p2, (t) => navigator.clipboard.readText().then((x) => x === t), MC, 5000));
   // the ROMs dropped (our stand-in's CRC as a known MC-10 dump, page memory only): it loads and is listed, on its own
@@ -22565,6 +22582,8 @@ async function basicShareChecks(browser, base, site, check) {
     return { list: window.emu.Emu.listProgram((a) => s.readByte(a), w(0x93), 'mc10'), id: m.id, rom: m.hasRom, listing: document.getElementById('arrivalListing').checkVisibility(), roms: document.getElementById('arrivalRoms').checkVisibility() }; });
   check('basicShare: the ROMs added: the program loads (no typing) and the card says "Someone sent you a BASIC program (6 lines). It\'s listed below; type RUN to start it."',
     listed && after.list === MC && after.id === 'mc10' && after.rom && !after.listing && !after.roms, JSON.stringify(after));
+  await p2.waitForTimeout(1000);
+  check('basicShare: a second after the program is listed (the ROMs dropped), the focus is on the screen', await p2.evaluate(() => document.activeElement.id) === 'screen', await p2.evaluate(() => document.activeElement.id));
   if (shotDir) await p2.screenshot({ path: path.join(shotDir, 'basic-share-arrival-listed.png') });
   // the sender's short link, opened where the Dragon 64's BASIC is stored: listed at once on a fresh Dragon 64
   await p2.evaluate(async (roms) => { const s = window.emu.session; for (const [k, v] of Object.entries(roms)) s.roms.put('dragon64', k, new Uint8Array(v), `${k}.rom`); await s.index.settled(); }, romsOf('dragon64'));
@@ -22578,6 +22597,8 @@ async function basicShareChecks(browser, base, site, check) {
     return { list: window.emu.Emu.listProgram((a) => s.readByte(a), w(0x19), 'dragon'), id: s.shownMachine.id, hash: location.hash,
       report: document.getElementById('arrivalReport').checkVisibility() && /\/api\/report\//.test(document.getElementById('arrivalReport').href) };
   });
+  await p2.waitForTimeout(1000);
+  check('basicShare: a second after a short link\'s program arrives listed, the focus is on the screen', await p2.evaluate(() => document.activeElement.id) === 'screen', await p2.evaluate(() => document.activeElement.id));
   check('basicShare: the short link, with the Dragon 64\'s BASIC there: a fresh Dragon 64, the program listed', short && short.list === LISTED && short.id === 'dragon64' && short.hash === '' && short.report, JSON.stringify(short || await p2.evaluate(() => [document.getElementById('arrivalText').textContent, document.getElementById('status').textContent, window.emu.machine.id, window.emu.machine.hasRom])));
   check('basicShare: no page errors', errors.length === 0, errors.join(' | '));
   await ctx.close(); await ctx2.close();
