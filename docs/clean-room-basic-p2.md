@@ -137,11 +137,15 @@ reserved pages), `BLKCPY` / `MOVBLK` (the one block loop: `PCLS` fills by copyin
 Direct page (32 bytes free after P1 and its size pass, which put ten two-byte calls at `$E2-$FF`): only what every
 pixel needs. The first graphics step takes 5 bytes: `GMENT` (the current mode's entry in the mode table), `GBEG` (its
 start page's address) and `GCOLB` (the colour byte `PLOT` writes); the end of the pages and the reserved count are
-computed from the mode table and `TXTTAB` instead of kept. Still to come there: `DRAW`'s angle and scale, `PLAY`'s
-octave, length, tempo and volume, the note countdown and a few scratch bytes for the drawing loops. The system block
-(46 bytes free before P2) takes the rest: the first step uses 11 (`FGCOL`, `BGCOL`, `GCSS` the colour set x 4, the
-last point `LASTX`/`LASTY` 16-bit each, `GXY` a point read), leaving 35 for the four `JOYSTK` values and `CIRCLE`'s
-working values. `PAINT`'s stack is in free memory (section 5).
+computed from the mode table and `TXTTAB` instead of kept. The drawing statements add 2: `DRAW`'s angle and scale
+(`DRANG`, `DRSCL`), which last from one `DRAW` to the next. Everything else the drawing statements work with lives
+only while one statement runs, so it takes no new byte: the scratch words `TMPPTR`, `TMPPT2`, `TMPCNT` and `BINVAL`
+(once the statement's arguments are read) and `PRINT USING`'s bytes, shared as `ON` and `RENUM` share them
+(`d64basic.asm` names each use: the command string's place for `DRAW`, `GET`/`PUT`'s rows and action, `PAINT`'s
+masks), and the 6809 stack (the line routine's axes, `X` substrings, `PAINT`'s seeds). Still to come in the direct
+page: `PLAY`'s octave, length, tempo and volume and the note countdown. The system block (46 bytes free before P2):
+the first step uses 11 (`FGCOL`, `BGCOL`, `GCSS` the colour set x 4, the last point `LASTX`/`LASTY` 16-bit each,
+`GXY` a point read), the drawing statements none, leaving 35 for the four `JOYSTK` values.
 
 ## 4. Modules and size budget
 

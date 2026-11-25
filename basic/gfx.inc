@@ -19,6 +19,8 @@ GINIT   LDD     #128
         STD     LASTX
         LDB     #96
         STD     LASTY
+        LDA     #4
+        STA     <DRSCL          ; DRAW's scale 4/4, angle 0 [UM]
         LDX     #GMTAB+8
         LDA     #6
         BSR     SETPM
@@ -239,7 +241,8 @@ PS1     BSR     RPKEEP
         LDB     LASTY+1
 * PLOT: pixel (A = x 0-255, B = y 0-191) to the colour byte GCOLB: the one routine every drawing statement plots with
 PLOT    BSR     GPIXAD
-        LDB     <GCOLB
+* PLOTM: the pixels of mask A in the byte at X to GCOLB's (keeps X, Y, U)
+PLOTM   LDB     <GCOLB
         EORB    ,X
         PSHS    B
         ANDA    ,S+

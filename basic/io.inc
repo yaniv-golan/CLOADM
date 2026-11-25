@@ -230,8 +230,8 @@ REDOMS  FCC     "?REDO"
 EXTRMS  FCC     "?EXTRA IGNORED"
         FCB     13,0
 
-* LINE: LINE INPUT here; the graphics LINE comes in P2
+* LINE: LINE INPUT when INPUT follows, otherwise the graphics LINE (line.inc)
 LINE    CMPA    #T_INPUT
-        LBNE    UNIMPL
+        LBNE    GLINE
         JSR     <ZCHRGET
         JMP     LNINP
