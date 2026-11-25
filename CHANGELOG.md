@@ -52,6 +52,10 @@ Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.
   `tests/basic-cursor.test.js`. The graphics now match the real ROM's black-box pictures pixel for pixel (lines and
   circles in the mode's own pixels, points clamped to the picture, `GET`/`PUT`'s layout, the return to text at
   `PRINT`), and `compare.js` passes a picture that differs only in the blinking cursor's cell.
+  The black-box cases can now use the cassette (`#tape NAME` plays a tape made from our own fixture in
+  `tests/basic/tapes/`, `#tape-blank` records, `#tape-rewind`, `#tape-blocks` keeps a summary of the blocks written
+  and the motor's runs, a data block only as its hash), and six `cas-*` cases ask the real ROM about `CSAVE`,
+  `CLOAD`, `SKIPF`, `CLOADM`, the errors, cassette data files (`OPEN`, `PRINT #-1`, `INPUT #-1`, `EOF`) and `MOTOR`.
 - **The share-link formats are frozen.** Links and snapshots in people's hands keep opening from now on (AGENTS.md,
   rule 7): `SNAPSHOT_OLDEST` never rises (a change to the meaning of state ships a converter from every older version), no
   link or envelope decoder is ever dropped, and a long link's byte 0 is 1 for a moment, 2 for a BASIC program, 3 to 31

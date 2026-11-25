@@ -94,6 +94,74 @@ function soundMeasures(events, { cycles = 0, end = null } = {}) {
     sha256: crypto.createHash('sha256').update(text).digest('hex'), tones, ...(end ? { end } : {}) };
 }
 
+// ---- The cassette (#tape, #tape-blank, #tape-rewind, #tape-blocks; docs/clean-room-basic.md section 7) ----
+// What a case did with the tape, as a summary only: a block's data could in principle carry bytes from the ROM, so of
+// a data block only its length and a SHA-256 are kept; of a namefile block (15 bytes) its fields. Per block: type,
+// length, ok (its checksum), leader (the $55 bytes the decoder read before its $3C), then the namefile's name (8
+// characters, padded as written), fileType, ascii and gaps (the flag bytes), exec and load, or the data's sha256. The
+// motor: each run of it since the tape went in or the last summary, as { start, length } in fields (17,784 cycles,
+// to 0.01; start from the first run's start, so how fast a line was typed does not count; length null while it is
+// still running; carried: true for a run already going when the window began, whose length then depends on when the
+// next line was typed). Blocks are decoded from the deck's recording by js/media/cassette.js (recordingToSamples,
+// samplesToCas), the repository's own tape decoder.
+const FIELD_CYCLES = 312 * 57;
+function tapeDeck(b) {
+  const m = b.m, d = m.deck, opts = m.profile.tape || {}, log = [];
+  const real = d.setMotor;
+  d.setMotor = function (on) { if (on !== this.motor) log.push([this.now(), on]); return real.call(this, on); };
+  let bytes = null, recording = false, reported = 0, win = null;
+  const window = () => { win = { t0: d.now(), on: d.motor, at: log.length }; };
+  const insert = (cas) => { bytes = cas; d.insert(cas ? new Emu.Tape(cas, m.tickHz, 'case', opts) : null); };
+  const recorded = () => {
+    const ev = (d.recording || []).map((e) => e.slice());
+    if (ev.length && d.motor) ev.push([d.now(), null]);
+    if (!ev.length) return new Uint8Array(0);
+    return Emu.samplesToCas(Emu.recordingToSamples(ev, m.tickHz, 44100), 44100, { zeroHz: opts.zeroHz, oneHz: opts.oneHz }).bytes;
+  };
+  const stopRecording = () => { if (recording) d.stopRecording(); recording = false; };
+  const fields = (c) => Math.round(c / FIELD_CYCLES * 100) / 100;
+  const block = (k, cas, from) => {
+    let p = k.start - 1, leader = 0;
+    while (p >= from && cas[p] === 0x55) { p--; leader++; }
+    const s = { type: k.type, length: k.data.length, ok: k.ok, leader }, x = k.data;
+    if (k.type === 0 && x.length === 15) {
+      Object.assign(s, { name: String.fromCharCode(...x.subarray(0, 8)), fileType: x[8], ascii: x[9], gaps: x[10], exec: (x[11] << 8) | x[12], load: (x[13] << 8) | x[14] });
+    } else if (x.length) s.sha256 = crypto.createHash('sha256').update(x).digest('hex');
+    return s;
+  };
+  return {
+    get inserted() { return win != null; },
+    fixture(name, dir) {
+      const { readFixture, fixtureCas } = require('../../tools/basic-bb/tapes.js');
+      const cas = fixtureCas(dir ? readFixture(name, dir) : readFixture(name), Emu);
+      stopRecording(); insert(cas); window();
+    },
+    blank() { stopRecording(); insert(null); d.startRecording(); recording = true; reported = 0; window(); },
+    // -> false when there is nothing to rewind
+    rewind() {
+      if (recording) { const cas = recorded(); stopRecording(); insert(cas); } else if (bytes) insert(bytes); else return false;
+      window();
+      return true;
+    },
+    summary(name) {
+      const spans = [];
+      let on = win.on ? win.t0 : null;
+      for (const [t, v] of log.slice(win.at)) { if (v) on = t; else if (on != null) { spans.push([on, t]); on = null; } }
+      if (on != null) spans.push([on, null]);
+      const base = spans.length ? spans[0][0] : 0;
+      const out = { name, motor: spans.map(([s, e]) => ({ start: fields(s - base), length: e == null ? null : fields(e - s), ...(s === win.t0 && win.on ? { carried: true } : {}) })) };
+      if (recording) {
+        const cas = recorded(), all = [...Emu.casBlocks(cas)];
+        out.blocks = all.slice(reported).map((k, i) => block(k, cas, reported + i > 0 ? all[reported + i - 1].end : 0));
+        out.bad = out.blocks.filter((k) => !k.ok).length;
+        reported = all.length;
+      }
+      window();
+      return out;
+    },
+  };
+}
+
 class Basic {
   // rom: the 16K image for the "basic" socket; opts.machine (default dragon64)
   constructor(rom, { machine = 'dragon64' } = {}) {
@@ -256,8 +324,14 @@ class Basic {
 //   #wav-stop       stop it: the result's sounds get { name, ...soundMeasures() }, measures only (a #wav still
 //                   recording when the case ends is stopped there)
 //   #joy N V        set joystick axis N (JOYSTK's numbering: 0 right x, 1 right y, 2 left x, 3 left y) to V (0-63)
+//   #tape NAME      put in the tape a fixture makes (tests/basic/tapes/NAME.json: tools/basic-bb/tapes.js), at its start
+//   #tape-blank     put in a blank tape and record what the machine writes to it
+//   #tape-rewind    after #tape-blank: what was recorded (decoded to .CAS by js/media/cassette.js) becomes the tape, at
+//                   its start; after #tape: the same tape again from its start
+//   #tape-blocks NAME  the result's tapes get { name, motor, blocks?, bad? } (tapeSummary, below): the motor's runs and,
+//                   while recording, the blocks written since #tape-blank or the last #tape-blocks; never their bytes
 // A typed line that starts with a digit is a program line: waited for until the screen settles; any other line
-// is waited for until OK is back. -> { status, transcript, flags, frames, shots?, sounds? }; status 'ok', 'no-boot',
+// is waited for until OK is back. -> { status, transcript, flags, frames, shots?, sounds?, tapes? }; status 'ok', 'no-boot',
 // 'no-clean-start', 'timeout' (and where), or the typist's status when the machine stopped reading the keyboard.
 // Nothing of the screen is recorded before the clean start (Basic.cleanStart): the boot screen, a ROM's banner among
 // it, is blanked from outside and CLS must leave only OK, so no case can record the banner, whatever it types first.
@@ -266,10 +340,11 @@ class Basic {
 // status 'refused' and nothing of its screen recorded, if the CPU ever runs an instruction from RAM written since
 // the case began: machine code a case put there (through a vector it POKEd, say) could read the ROM. Our own
 // suite's EXEC and USR cases (tests/basic/own) run without it.
-function runCase(rom, text, { machine = 'dragon64', guard = true } = {}) {
+function runCase(rom, text, { machine = 'dragon64', guard = true, tapes: tapeDir } = {}) {
   const b = new Basic(rom, { machine });
   let refused = null;
-  const shots = [], sounds = [], typistNotes = [];
+  const shots = [], sounds = [], typistNotes = [], tapes = [];
+  const deck = tapeDeck(b);
   let wavName = null, at = 'start';
   const wavStop = () => { sounds.push({ name: wavName, ...b.wavStop() }); wavName = null; };
   let clean = false;   // nothing of the screen is recorded until the clean start (Basic.cleanStart) has held
@@ -278,7 +353,7 @@ function runCase(rom, text, { machine = 'dragon64', guard = true } = {}) {
     if (!clean) return { status, transcript: [], flags: [], frames: b.frames, ...extra };
     return refused
       ? { status: 'refused', why: refused, transcript: [], flags: [], frames: b.frames }
-      : { status, transcript: b.lines ? b.transcript() : b.screen(), flags: b.flags || [], frames: b.frames, ...(shots.length ? { shots } : {}), ...(sounds.length ? { sounds } : {}), ...(typistNotes.length ? { typist: typistNotes } : {}), ...extra };
+      : { status, transcript: b.lines ? b.transcript() : b.screen(), flags: b.flags || [], frames: b.frames, ...(shots.length ? { shots } : {}), ...(sounds.length ? { sounds } : {}), ...(tapes.length ? { tapes } : {}), ...(typistNotes.length ? { typist: typistNotes } : {}), ...extra };
   };
   if (!b.waitOk({ limit: 600, stable: 3 })) return out('no-boot');
   let limit = 30 * 50, nowait = false;
@@ -330,6 +405,10 @@ function runCase(rom, text, { machine = 'dragon64', guard = true } = {}) {
         if (!j || Number(j[2]) > 63) return out('bad-directive', { at: where });
         b.m.joy[j[1] >> 1][j[1] & 1] = Number(j[2]);
       }
+      else if (cmd === 'tape') { try { deck.fixture(arg.trim(), tapeDir); } catch (e) { return out('bad-directive', { at: where, why: e.message }); } }
+      else if (cmd === 'tape-blank') deck.blank();
+      else if (cmd === 'tape-rewind') { if (!deck.rewind()) return out('bad-directive', { at: where, why: 'no tape to rewind' }); }
+      else if (cmd === 'tape-blocks') { if (!deck.inserted) return out('bad-directive', { at: where, why: 'no tape' }); tapes.push(deck.summary(arg.trim() || `tape${tapes.length + 1}`)); }
       else return out('bad-directive', { at: where });
       continue;
     }
@@ -342,4 +421,4 @@ function runCase(rom, text, { machine = 'dragon64', guard = true } = {}) {
   return out('ok');
 }
 
-module.exports = { Basic, cell, runCase, soundMeasures, Emu };
+module.exports = { Basic, cell, runCase, soundMeasures, tapeDeck, Emu };

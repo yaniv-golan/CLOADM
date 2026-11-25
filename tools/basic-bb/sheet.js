@@ -9,6 +9,7 @@ const { lintCase } = require('./lint.js');
 
 function sheet(name, text) {
   const out = [`=== ${name}`, '1. Switch on (or press reset) and wait for OK.', '2. Type CLS and press ENTER. Write down the screen from here on.'];
+  if (/^#tape-blocks\b/m.test(text)) out.push('(Its tape summaries, #tape-blocks, come only from tools/basic-bb/run.js: nothing to write down for them.)');
   let step = 3, nowait = false;
   for (const line of text.split(/\r?\n/)) {
     if (!line.trim()) continue;
@@ -28,8 +29,11 @@ function sheet(name, text) {
     else if (m[1] === 'screenshot') what = `Photograph the screen (picture "${m[2]}").`;
     else if (m[1] === 'wav') what = `Start recording the speaker (sound "${m[2]}").`;
     else if (m[1] === 'wav-stop') what = 'Stop recording the speaker.';
+    else if (m[1] === 'tape') what = `Put in the tape ${m[2].trim()} at its start (tests/basic/tapes/${m[2].trim()}.json; node tools/basic-bb/tapes.js ${m[2].trim()} --wav FILE makes a recording to play or to copy onto a cassette), and press PLAY.`;
+    else if (m[1] === 'tape-blank') what = 'Put in a blank tape at its start, and press RECORD and PLAY.';
+    else if (m[1] === 'tape-rewind') what = 'Press STOP, rewind the tape to its start, and press PLAY.';
     else if (m[1] === 'joy') { const [n, v] = m[2].trim().split(/\s+/); what = `Set the ${n < 2 ? 'right' : 'left'} joystick's ${n % 2 ? 'up-down' : 'left-right'} position so that JOYSTK(${n}) reads ${v} (0-63).`; }
-    else continue;                                   // #timeout: nothing to do by hand
+    else continue;                                   // #timeout, #tape-blocks: nothing to do by hand
     out.push(`${step++}. ${what}`);
   }
   out.push(`${step}. Done: write "=== ${name}" above what you wrote down.`, '');
