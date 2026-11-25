@@ -5,9 +5,11 @@
 // machine, and nothing of a program or the ROM is written but what this file says below.
 //
 //   node tools/basic-bb/corpus.js (--rom FILE | --ours) --corpus DIR --out results.jsonl
-//        [--frames N] [--every N] [--full NAMES] [--only a,b]
+//        [--frames N] [--every N] [--full NAMES] [--only NAME]... [--only-file NAMES]
 //
-// For each DIR/NAME.cas, on a fresh machine: boot to OK; CLOAD (the tape's first program); LIST the whole program
+// --only takes one tape a time (NAME or NAME.cas; repeat it), --only-file a file of them, one a line, so a name may
+// hold commas. For each DIR/NAME.cas, on a fresh machine: boot to OK; CLOAD the tape's first BASIC program (by its
+// name when other files come first; a tape with none is "no-basic"); LIST the whole program
 // (every line that scrolls by is caught: tests/basic/harness.js record()); RUN for --frames frames (default 1500, 30
 // emulated seconds) with no input, or with the keys of an optional DIR/NAME.keys; every --every frames (default 50)
 // a sample of the screen's text and the SHA-256 of its pixels. A run that comes back to OK and stays is "ended".
@@ -17,7 +19,9 @@
 //
 // What is written, one JSON object a program: { program (the file's name), sha256 (of the .cas), machine, rom (the
 // ROM image's CRC-32), status, why, error (the last "?xx ERROR" line), listLines (program lines), list (the listing's
-// screen rows), keywords (how often each keyword is used: counts only), samples: [{ frame, screen, pix }], lint }. By default the text is hashed: list holds one hash a row and a sample's screen one hash, the first
+// screen rows), keywords (how often each keyword is used: counts only), samples: [{ frame, screen, pix }], lint,
+// typist (a step whose keys the typist did not see all taken, which is no error) }. By default the text is hashed:
+// list holds one hash a row and a sample's screen one hash, the first
 // 16 hex digits of a SHA-256, enough to find where two runs part. The programs named in --full NAMES (a file, one name
 // or sha256 a line: the programs whose owners allow it) are written as text.
 //
@@ -142,39 +146,63 @@ const hex = (v) => v.toString(16).toUpperCase().padStart(4, '0');
 
 const ERR = /\?[A-Z0-9/]{2} ERROR/;
 
+// The first BASIC file on a tape: { name, first } (first: it is the tape's first file), or null when there is none.
+// A bare CLOAD loads the first file and gives ?FM ERROR when that is machine code; a tape whose BASIC program comes
+// after other files is loaded by name (CLOAD "NAME"), so BASIC searches past the others.
+function firstBasic(cas) {
+  let n = 0;
+  for (const b of Emu.casBlocks(cas)) {
+    if (b.type !== 0 || !b.data || b.data.length < 9) continue;
+    if (b.data[8] === 0) return { name: String.fromCharCode(...b.data.slice(0, 8)).replace(/\s+$/, ''), first: n === 0 };
+    n++;
+  }
+  return null;
+}
+
 // Run one program. -> the record (without program, sha256, rom).
+// Each step is judged by what it does, never by whether the typist saw every key taken: a BASIC busy with the tape
+// when the ENTER is released, or one that has run the line before the typist's last check, leaves the typist's
+// status at "not-consumed" though the line ran (it is kept in the record as typist, when it is not "done").
 function runProgram(rom, cas, { name = 'PROGRAM', frames = 1500, every = 50, keys = [], full = false, loadFrames = 50 * 600 } = {}) {
   const b = new Basic(rom), m = b.m;
   const text = (rows) => (full ? rows : short(rows.join('\n')));
   const rec = { status: 'ok' };
+  const typist = {};
+  const type = (line, step) => { const st = b.type(line); if (st !== 'done') typist[step] = st; };
   const lastError = (rows) => { for (let i = rows.length - 1; i >= 0; i--) if (ERR.test(rows[i])) return rows[i]; return null; };
+  const done = (r) => (Object.keys(typist).length ? { ...r, typist } : r);
   if (!b.waitOk({ limit: 600, stable: 3 })) return { status: 'no-boot' };
+  const basic = firstBasic(cas);
+  if (!basic) return { status: 'no-basic' };
+  if (!basic.first && /"/.test(basic.name)) return { status: 'no-basic', why: 'the first BASIC file is not first on the tape and its name has a quote' };
   const guard = romGuard(m);
   guard.watch();
   m.deck.insert(new Emu.Tape(cas, m.tickHz, name, m.profile.tape));
   b.record();
-  if (b.type('CLOAD\n') !== 'done') return { status: 'no-keyboard', at: 'CLOAD' };
-  if (!b.waitOk({ limit: loadFrames })) return { status: 'load-timeout' };
+  type(basic.first ? 'CLOAD\n' : `CLOAD "${basic.name}"\n`, 'CLOAD');
+  if (!b.waitOk({ limit: loadFrames })) return done({ status: 'load-timeout' });
   const loadErr = lastError(b.transcript());
-  if (loadErr) return { status: 'load-error', error: loadErr };
+  if (loadErr) return done({ status: 'load-error', error: loadErr });
+  if (!basic.first) rec.loadedByName = true;
   // the listing
-  b.type('CLS\n'); b.waitOk();
+  type('CLS\n', 'CLS'); b.waitOk();
   b.record();
-  if (b.type('LIST\n') !== 'done') return { status: 'no-keyboard', at: 'LIST' };
-  if (!b.waitOk({ limit: 50 * 600, stable: 5 })) return { status: 'list-timeout' };
+  type('LIST\n', 'LIST');
+  if (!b.waitOk({ limit: 50 * 600, stable: 5 })) return done({ status: 'list-timeout' });
   const t = b.transcript(), from = t.indexOf('LIST');
   const rows = t.slice(from + 1, t[t.length - 1] === 'OK' ? -1 : undefined);
+  if (!rows.length) return done({ status: 'empty' });
   const lines = joinListing(rows);
   rec.listLines = lines.length;
   rec.keywords = keywordCounts(lines);
   rec.list = full ? rows : rows.map(short);
   const lint = corpusLint(lines);
-  if (lint.length) return { ...rec, status: 'rom-read-possible', lint };
+  if (lint.length) return done({ ...rec, status: 'rom-read-possible', lint });
   // the run
-  b.type('CLS\n'); b.waitOk();
+  type('CLS\n', 'CLS2'); b.waitOk();
   b.record();
   guard.arm();
-  if (b.type('RUN\n') !== 'done') return { ...rec, status: 'no-keyboard', at: 'RUN' };
+  type('RUN\n', 'RUN');
   const events = keys.slice().sort((x, y) => x.frame - y.frame);
   const held = [];
   rec.samples = [];
@@ -200,7 +228,7 @@ function runProgram(rom, cas, { name = 'PROGRAM', frames = 1500, every = 50, key
   }
   if (rec.status !== 'rom-read' && !rec.error) { const e = lastError(b.transcript()); if (e) rec.error = e; }
   rec.frames = b.frames;
-  return rec;
+  return done(rec);
 }
 
 // NAME.keys -> events
@@ -219,7 +247,7 @@ function parseKeys(text) {
 function main() {
   const args = process.argv.slice(2);
   const opt = (n) => { const i = args.indexOf(n); return i >= 0 ? args[i + 1] : null; };
-  const usage = (msg) => { console.error(`basic-bb corpus: ${msg}\nusage: node tools/basic-bb/corpus.js (--rom FILE | --ours) --corpus DIR --out FILE [--frames N] [--every N] [--full NAMES] [--only a,b]`); process.exitCode = 2; };
+  const usage = (msg) => { console.error(`basic-bb corpus: ${msg}\nusage: node tools/basic-bb/corpus.js (--rom FILE | --ours) --corpus DIR --out FILE [--frames N] [--every N] [--full NAMES] [--only NAME]... [--only-file NAMES]`); process.exitCode = 2; };
   let rom;
   if (args.includes('--ours')) rom = require('../build-basic.js').buildBasic().rom;
   else if (opt('--rom')) rom = new Uint8Array(fs.readFileSync(opt('--rom')));
@@ -229,13 +257,16 @@ function main() {
   if (!dir || !out) return usage('give --corpus DIR and --out FILE');
   const frames = Number(opt('--frames') || 1500), every = Number(opt('--every') || 50);
   const fullSet = new Set(opt('--full') ? fs.readFileSync(opt('--full'), 'utf8').split(/\r?\n/).map((l) => l.trim()).filter(Boolean) : []);
-  const only = opt('--only') ? new Set(opt('--only').split(',')) : null;
+  // --only NAME (repeatable: one tape each, so a name may hold commas) and --only-file FILE (one name a line)
+  const onlyNames = args.flatMap((a, i) => (a === '--only' ? [args[i + 1]] : []));
+  if (opt('--only-file')) onlyNames.push(...fs.readFileSync(opt('--only-file'), 'utf8').split(/\r?\n/).map((l) => l.trim()).filter(Boolean));
+  const only = onlyNames.length ? new Set(onlyNames) : null;
   const crc = Emu.crc32(rom).toString(16).toUpperCase().padStart(8, '0');
   const files = fs.readdirSync(dir).filter((f) => /\.cas$/i.test(f)).sort();
   const fd = fs.openSync(out, 'w');
   for (const f of files) {
     const name = f.replace(/\.cas$/i, '');
-    if (only && !only.has(name)) continue;
+    if (only && !only.has(name) && !only.has(f)) continue;
     const cas = new Uint8Array(fs.readFileSync(path.join(dir, f)));
     const sha256 = crypto.createHash('sha256').update(cas).digest('hex');
     const kf = path.join(dir, `${name}.keys`);
@@ -248,5 +279,5 @@ function main() {
   fs.closeSync(fd);
 }
 
-module.exports = { runProgram, romGuard, corpusLint, joinListing, parseKeys, keywordCounts };
+module.exports = { runProgram, romGuard, corpusLint, joinListing, parseKeys, keywordCounts, firstBasic };
 if (require.main === module) main();

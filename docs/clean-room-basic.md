@@ -293,7 +293,8 @@ node tools/basic-bb/compare.js real.jsonl ours.jsonl [--shots DIR]
   spells out the P2 directives too ("photograph the screen", "start recording the speaker", "set the joystick"):
   those results are compared by eye and ear, not imported.
 * **Corpus mode** (`tools/basic-bb/corpus.js`): real tokenized programs on `.cas` tapes, which stay on the
-  maintainer's machine. Each is CLOADed on a fresh machine, LISTed (every line that scrolls by), then RUN for a fixed
+  maintainer's machine. Each is CLOADed on a fresh machine (the tape's first BASIC program: by its name when machine
+  code comes first; a tape with none is `no-basic`), LISTed (every line that scrolls by), then RUN for a fixed
   number of frames with no input (or the keys of a `NAME.keys` sidecar), the screen sampled every N frames: its text
   and the SHA-256 of its pixels. The text is written as hashes, except for the programs named in `--full` (those whose
   owners allow it); nothing of a program or the ROM is written but these, the tape's SHA-256 and the ROM's CRC. The
@@ -302,12 +303,15 @@ node tools/basic-bb/compare.js real.jsonl ours.jsonl [--shots DIR]
   ```
   node tools/basic-bb/corpus.js --rom d64_1.rom --corpus DIR --out real.jsonl [--frames 1500] [--every 50] [--full NAMES]
   node tools/basic-bb/corpus.js --ours --corpus DIR --out ours.jsonl
+  node tools/basic-bb/corpus.js ... --only 'A Game, The'    # one tape (repeat --only; or --only-file NAMES, one a line)
   node tools/basic-bb/compare.js real.jsonl ours.jsonl
   node tools/basic-bb/corpus-stats.js real.jsonl    # counts over all programs: statuses, lint kinds, keyword use
   ```
   Each record also counts how often the program uses each keyword (counts only, from the listing, found as BASIC
   crunches a line; `CIRCLE` arcs and `PUT` actions apart), so `corpus-stats.js` shows which statements real programs
   depend on, and how many use graphics, sound or machine code.
+  Each step is judged by its result (the OK prompt back, the listing there), never by whether the typist saw every
+  key taken: a BASIC busy with the tape can leave that unseen though the line ran; the record notes it as `typist`.
   Two rules keep the ROM out of the results. The listing is linted first (`EXEC`, `USR`, `DEFUSR`, `CLOADM`,
   `CSAVEM`, `VARPTR`, and a `PEEK` of anything but a literal in RAM or the I/O page `$FF00-$FFDF` or `... AND 32767`):
   such a program is not RUN (status `rom-read-possible`, the kinds and line numbers only). And a guard, after the

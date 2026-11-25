@@ -15,8 +15,13 @@
 //  * end to end on our own ROM, with tapes of programs typed into it (their bytes taken from memory, put on tape by
 //    buildCas): the listing comes back line by line (a line longer than a row joined), the run is sampled until it
 //    ends, the error line is caught, a program the lint refuses is listed but not run, the text is hashed unless
-//    asked for in full, and the CLI's two runs compare as identical.
-const { corpusLint, joinListing, parseKeys, romGuard, runProgram, keywordCounts } = require('../tools/basic-bb/corpus.js');
+//    asked for in full, and the CLI's two runs compare as identical;
+//  * steps are judged by their result: with the typist reporting "not-consumed" for every line (as the real ROM's
+//    CLOAD and LIST leave it) the program still loads, lists and runs, and the typist's status is only noted;
+//  * a tape whose BASIC program comes after machine code is loaded by name; a tape with no BASIC is "no-basic";
+//  * a program in the real token values (hand-encoded from the token probe's map) lists and counts its keywords;
+//  * --only takes one name a time (names with commas) and --only-file a list.
+const { corpusLint, joinListing, parseKeys, romGuard, runProgram, keywordCounts, firstBasic } = require('../tools/basic-bb/corpus.js');
 const { stats } = require('../tools/basic-bb/corpus-stats.js');
 const fs = require('fs'), os = require('os'), path = require('path'), { execFileSync } = require('child_process');
 const { compareCorpus } = require('../tools/basic-bb/compare.js');
@@ -147,6 +152,58 @@ check('run: a program the lint refuses is listed, not run', peeky.status === 'ro
   check('cli: one record, with the tape\'s sha256 and the ROM\'s CRC', r.program === 'DEMO.cas' && /^[0-9a-f]{64}$/.test(r.sha256) && /^[0-9A-F]{8}$/.test(r.rom) && r.full === false);
   const cmp2 = execFileSync(process.execPath, [path.join(__dirname, '../tools/basic-bb/compare.js'), path.join(dir, 'a.jsonl'), path.join(dir, 'b.jsonl')], { encoding: 'utf8' });
   check('cli: two runs compare as identical', /1 programs identical/.test(cmp2), cmp2.trim());
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
+// ---- steps judged by their result ----
+{
+  const real = Basic.prototype.type;
+  Basic.prototype.type = function (t, limit) { real.call(this, t, limit); return 'not-consumed'; };
+  let r;
+  try { r = runProgram(rom, cas, { name: 'DEMO', full: true, frames: 400, every: 25 }); } finally { Basic.prototype.type = real; }
+  check('typist not-consumed: still loads, lists and runs', r.status === 'ended' && r.listLines === 4 && r.error === '?/0 ERROR IN 40', JSON.stringify({ status: r.status, at: r.at }));
+  check('typist not-consumed: noted, not an error', r.typist && r.typist.CLOAD === 'not-consumed' && r.typist.LIST === 'not-consumed' && r.typist.RUN === 'not-consumed', JSON.stringify(r.typist));
+}
+
+// ---- tapes with machine code first, or no BASIC ----
+const progBytes = (lines) => {   // a tokenised program with any link values (CLOAD relinks)
+  const out = [];
+  for (const [num, body] of lines) out.push(0x12, 0x34, num >> 8, num & 255, ...body, 0);
+  return [...out, 0, 0];
+};
+const bin = { name: 'CODE', type: 'binary', load: 0x3000, exec: 0x3000, data: [0x39] };
+{
+  const prog = { name: 'GAME', type: 'basic', data: progBytes([[10, [0x87, 0x20, 0x31]]]) };   // 10 PRINT 1
+  const two = Emu.buildCas([bin, prog]);
+  check('firstBasic: after machine code', JSON.stringify(firstBasic(two)) === JSON.stringify({ name: 'GAME', first: false }));
+  const r = runProgram(rom, two, { name: 'TWO', full: true, frames: 200, every: 25 });
+  check('machine code first: the BASIC file is loaded by name', r.loadedByName === true && same(r.list, ['10 PRINT 1']) && r.status === 'ended', JSON.stringify(r));
+  const none = runProgram(rom, Emu.buildCas([bin]), { name: 'BIN' });
+  check('a tape with no BASIC: no-basic', none.status === 'no-basic' && firstBasic(Emu.buildCas([bin])) === null, JSON.stringify(none));
+}
+
+// ---- the real token values ----
+{
+  // from the token probe's map (tests/basic/bb/bb1-real.jsonl): $80 FOR, $87 PRINT, $BC TO, $8B NEXT, $CB =,
+  // $FF $80 SGN, $FF $84 RND
+  const prog = { name: 'TOK', type: 'basic', data: progBytes([
+    [10, [0x80, 0x49, 0xCB, 0x31, 0x20, 0xBC, 0x20, 0x33]],                    // 10 FORI=1 TO 3
+    [20, [0x87, 0x20, 0xFF, 0x80, 0x28, 0x49, 0x29, 0x3B, 0xFF, 0x84, 0x28, 0x30, 0x29]],   // 20 PRINT SGN(I);RND(0)
+    [30, [0x8B]]]) };                                                        // 30 NEXT
+  const r = runProgram(rom, Emu.buildCas([prog]), { name: 'TOK', full: true, frames: 200, every: 25 });
+  check('real tokens: the listing', same(r.list, ['10 FORI=1 TO 3', '20 PRINT SGN(I);RND(0)', '30 NEXT']), JSON.stringify(r.list));
+  check('real tokens: the keyword counts', JSON.stringify(r.keywords) === JSON.stringify({ FOR: 1, TO: 1, PRINT: 1, SGN: 1, RND: 1, NEXT: 1 }), JSON.stringify(r.keywords));
+}
+
+// ---- --only: one name a time, names with commas ----
+{
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'corpus-only-'));
+  fs.writeFileSync(path.join(dir, 'Game, The.cas'), cas);
+  fs.writeFileSync(path.join(dir, 'Other.cas'), cas);
+  const run = (args) => { execFileSync(process.execPath, [path.join(__dirname, '../tools/basic-bb/corpus.js'), '--ours', '--corpus', dir, '--out', path.join(dir, 'o.jsonl'), '--frames', '50', ...args]); return fs.readFileSync(path.join(dir, 'o.jsonl'), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l).program); };
+  check('--only with a comma in the name', same(run(['--only', 'Game, The']), ['Game, The.cas']));
+  fs.writeFileSync(path.join(dir, 'names.txt'), 'Game, The.cas\nOther\n');
+  check('--only-file', same(run(['--only-file', path.join(dir, 'names.txt')]), ['Game, The.cas', 'Other.cas']));
   fs.rmSync(dir, { recursive: true, force: true });
 }
 
