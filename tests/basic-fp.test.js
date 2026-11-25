@@ -271,7 +271,10 @@ quiet = true;
     const ok = r.st === 'ok' ? !mo.err && same(r.v, mo.r) : mo.err === r.st;
     if (!ok) { mism++; if (!first) first = `${text}: rom ${r.st === 'ok' ? show(r.v) : r.st} model ${mo.err || show(mo.r)}`; }
     // what PRINT shows, read back in, prints the same but for at most one in the ninth digit: the steps of 10
-    // that scale it are rounded one by one, as the original's are [BB bb1 fn-math, bb2 fn-sqr-bits]
+    // that scale it are rounded one by one, as the original's are [BB bb1 fn-math, bb2 fn-sqr-bits]. This check was
+    // "prints exactly the same"; it was relaxed to one in the ninth digit, approved for the project
+    // (2026-11-25), because exact round trips would contradict the original's printed digits (99999.9999 for
+    // SQR(1E10), 3.14159266 for ATN(1)*4)
     if (r.st === 'ok' && !mo.err) {
       const back = romFout(r.v), again = romFout(romFin(back.trim()).v);
       const a = Number(back), b = Number(again), unit = a === 0 ? 0 : 10 ** (Math.floor(Math.log10(Math.abs(a))) - 8);
