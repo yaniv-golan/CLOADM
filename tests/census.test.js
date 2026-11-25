@@ -635,18 +635,30 @@ DONE    BRA     DONE
   }
   // census.js's own tripwire: a tracer that lets a ROM run through (planted) has its program discarded
   const planted = Object.assign({}, lib, {
-    trace: (m) => ({ error: null, finish: () => ({ started: true, stopped: null, error: null, refused: [],
-      records: [{ program: 'p', target: 0xB110, from: 0x3000, kind: 'jsr', regsIn: {}, regsOut: {}, cyclesInRom: 1, ramWritesOutsideRom: [...STUB.rom.subarray(0x3200, 0x3210)].map((v, i) => ({ addr: 0x400 + i, value: v })) }] }) }),
+    trace: (m, o) => ({ error: null, finish: () => {
+      const records = [{ program: 'p', target: 0xB110, from: 0x3000, kind: 'jsr', regsIn: {}, regsOut: {}, cyclesInRom: 1, ramWritesOutsideRom: [...STUB.rom.subarray(0x3200, 0x3210)].map((v, i) => ({ addr: 0x400 + i, value: v })) }];
+      for (const x of records) o.onRecord(x);
+      return { started: true, stopped: null, error: null, refused: [], records, counts: { records: 1, refused: 0 } };
+    } }),
   });
   const tripHolds = (r) => /^tripwire/.test(r.error || '') && !r.records.length;
-  // a program that records very many calls (the field run: 14,085 in one program) must not overflow anything: a
-  // tracer planted with 150,000 records, through main
-  const BIG = 150000;
+  // a program that records very many calls (the field run: ~0.5M in each of five programs, 4M held in memory before
+  // the heap ran out) keeps memory bounded: a tracer planted with 2,000,000 records, handed to onRecord one at a
+  // time as the real one does, through main; the heap after the run (garbage collected) is compared with before
+  require('v8').setFlagsFromString('--expose-gc');
+  const gc = require('vm').runInNewContext('gc');
+  const BIG = 2000000, HEAP_BOUND = 32 * 1024 * 1024;
   const bigLib = Object.assign({}, lib, {
-    trace: () => ({ error: null, finish: () => {
+    trace: (m, o) => ({ error: null, finish: () => {
       const records = [];
-      for (let i = 0; i < BIG; i++) records.push({ program: 'p', target: 0xB110, from: 0x3000 + (i % 4), kind: 'jsr', regsIn: { a: 1 }, regsOut: { a: 1, pc: 0x3003 }, cyclesInRom: 5, ramWritesOutsideRom: [] });
-      return { started: true, stopped: null, error: null, refused: [], records };
+      gc(); const before = process.memoryUsage().heapUsed;
+      for (let i = 0; i < BIG; i++) {
+        const rec = { program: 'p', target: 0xB110, from: 0x3000 + (i % 4), kind: 'jsr', regsIn: { a: 1 }, regsOut: { a: 1, pc: 0x3003 }, cyclesInRom: 5, ramWritesOutsideRom: [{ addr: 0x400 + (i % 4), value: 0x41 }, { addr: 0x88, value: i % 4 }] };
+        o.onRecord(rec);
+        if (i < 4 * o.maxPerSite) records.push(rec);
+      }
+      gc(); bigLib.grew = process.memoryUsage().heapUsed - before;
+      return { started: true, stopped: null, error: null, refused: [], records, counts: { records: BIG, refused: 0 } };
     } }),
   });
   const bigScript = tmp('big.cloadm');
@@ -657,14 +669,43 @@ DONE    BRA     DONE
       const code = await mod.main(['--no-roms', '--out', dir, bigScript], { log: () => {}, lib: bigLib });
       const agg = JSON.parse(fs.readFileSync(path.join(dir, 'census.json'), 'utf8'));
       const lines = fs.readFileSync(path.join(dir, 'census.jsonl'), 'utf8').trim().split('\n');
-      return { code, calls: agg.entries[0].calls, lines: lines.length };
+      const e = agg.entries[0];
+      return { code, calls: e.calls, recorded: agg.programs[0].recorded, writes88: (e.ramEffects.find((x) => x.addr === 0x88) || {}).writes, lines: lines.length, grew: bigLib.grew };
     } catch (e) { return { crash: e.name }; }
   };
-  const bigHolds = (r) => r.code === 0 && r.calls === BIG && r.lines === 4 * 20;
+  const bigHolds = (r) => r.code === 0 && r.calls === BIG && r.recorded === BIG && r.writes88 === BIG && r.lines === 4 * 20 && r.grew < HEAP_BOUND;
   {
     const r = await bigRun(census);
-    check(`a program with ${BIG} records goes through main: all counted in census.json, ${4 * 20} lines (20 per call site) in census.jsonl`, bigHolds(r), JSON.stringify(r));
+    check(`a program with ${BIG} records goes through main in bounded memory (heap grew ${(r.grew / 1048576).toFixed(1)} MB, bound 32): all counted in census.json, ${4 * 20} lines in census.jsonl`, bigHolds(r), JSON.stringify(r));
   }
+  // the real tracer keeps maxPerSite records per call site and counts the rest; the output equals the uncapped
+  // run's, capped: census.jsonl's lines (capped()) and census.json's aggregate (every record)
+  const MANY = 3000;
+  const manyFile = tmp('many.asm');
+  fs.writeFileSync(manyFile, prog(`        LDX     #${MANY}
+LOOP    LDA     #'A
+        JSR     CHROUT
+        LEAX    -1,X
+        BNE     LOOP`));
+  const manyScript = tmp('many.cloadm');
+  fs.writeFileSync(manyScript, `asm ${manyFile}\nframes 150\n`);
+  const manyHolds = async (L) => {
+    const capd = await census.runProgram(manyScript, opts({ maxPerSite: 20 }), L);
+    const full = await census.runProgram(manyScript, opts({ maxPerSite: Infinity }), L);
+    const same = JSON.stringify(census.capped(full.records, full.refused, 20)) === JSON.stringify(census.capped(capd.records, capd.refused, 20)) &&
+      JSON.stringify(census.aggregate(full.records, full.refused)) === JSON.stringify(capd.agg.entries());
+    // (the frame interrupt's RAM hook, $010C, enters ROM once a frame too: a second site)
+    const sites = new Map();
+    for (const x of capd.records) sites.set(`${x.from}|${x.target}`, (sites.get(`${x.from}|${x.target}`) || 0) + 1);
+    const atLoop = full.records.filter((x) => x.target === sym('CHROUT') && PROG(x)).length;
+    return { kept: capd.records.length, sites: [...sites.values()], counted: capd.counts.records, all: full.records.length, atLoop, same,
+      ok: !capd.error && sites.size === 2 && [...sites.values()].every((n) => n === 20) && atLoop === MANY && capd.counts.records === full.records.length && same };
+  };
+  {
+    const r = await manyHolds(lib);
+    check(`the tracer keeps 20 records per call site in memory (${MANY} calls at the loop's) and counts all; census.jsonl and census.json equal the uncapped run's`, r.ok, JSON.stringify(r));
+  }
+  check('Tripwire keeps 15 bytes between calls, however much goes through', (() => { const t = new lib.Tripwire(STUB_IMG); for (let i = 0; i < 1000; i++) t.add([i & 0xFF, 1, 2]); return t.tail.length === 15; })());
   // a crash in the middle of a run (here: right after the first program is done) keeps the programs already done,
   // in census.jsonl.partial
   {
@@ -747,7 +788,7 @@ DONE    BRA     DONE
       ['ROM code reading dirty RAM ignored', [['if (masked(curPc)) { dirtyStretch = true; return; }', 'if (masked(curPc)) { return; }']], ['romReads']],
       ['dirty RAM fetched as any instruction allowed', [["if (!romCode && fetchDirty && !HOOK_OPS.has(peek(from)) && started) stop('program-ran-rom-data');", '']], ['hookLoad']],
       ['the scan limit off', [['if (targets.size > maxTargets)', 'if (false)']], ['scan']],
-      ['the lib tripwire off', [['return romWindowIn(Uint8Array.from(this.stream.slice(from))', 'return null && romWindowIn(Uint8Array.from(this.stream.slice(from))']], ['tripwire']],
+      ['the lib tripwire off', [['return romWindowIn(Uint8Array.from(run)', 'return null && romWindowIn(Uint8Array.from(run)']], ['tripwire']],
     ];
     {
       const A1 = moduleWith(LIB, [['    if (nowIn && from !== null && !wasIn && !masked(from) && started && stopped) {', '    if (false) {']]);
@@ -769,7 +810,7 @@ DONE    BRA     DONE
       check(`mutant "${name}" is caught`, caught);
     }
     {
-      const C = moduleWith(CENSUS, [['for (const x of r.records) if (tw.add(lib.valueBytes(x)))', 'for (const x of r.records) if (false && tw.add(lib.valueBytes(x)))']]);
+      const C = moduleWith(CENSUS, [['if (!x.refused && tw.add(lib.valueBytes(x)))', 'if (false)']]);
       check('mutant "census tripwire not applied" is caught', !tripHolds(await C.runProgram(s, opts(), planted)));
       const R2 = moduleWith(CENSUS, [['fs.renameSync(partial, jsonl);', 'fs.copyFileSync(partial, jsonl);']]);
       check('mutant "the partial file copied, not renamed" is caught (a .partial left after a finished run)', !finishedClean(await runLimit(R2, 5)));
@@ -785,8 +826,13 @@ DONE    BRA     DONE
       check('mutant "segments joined in file order only" is caught', !embedHolds(splitOf(S6, EMBED, true)));
       const S4 = moduleWith(path.join(DIR, 'static.js'), [['if (peek(at + 1) === 0x9F && d.target >= VEC_LO && d.target <= VEC_HI - 1) refs.push(', 'if (true) refs.push(']]);
       check('mutant "any indirect call a reference" is caught', !indirectHolds(staticOf(S4, INDIRECT)));
-      const P = moduleWith(CENSUS, [['    for (const x of r.records) records.push(x);', '    records.push(...r.records);']]);
-      check('mutant "records spread into push()" is caught (the 150,000-record run)', !bigHolds(await bigRun(P)));
+      const P = moduleWith(CENSUS, [['    agg.add(x);\n', '    agg.add(x); (globalThis.censusKept || (globalThis.censusKept = [])).push(x);\n']]);
+      check('mutant "every record kept in memory" is caught (the heap bound, 2,000,000 records)', !bigHolds(await bigRun(P)));
+      delete globalThis.censusKept;
+      const K = moduleWith(LIB, [['      if (n < maxPerSite) records.push(rec);', '      records.push(rec);']]);
+      check('mutant "the tracer keeps every record" is caught', !(await manyHolds(K)).ok);
+      const TW = moduleWith(LIB, [['    this.tail = run.slice(Math.max(0, run.length - (WINDOW - 1)));', '    this.tail = run;']]);
+      check('mutant "the tripwire keeps its whole stream" is caught', (() => { const t = new TW.Tripwire(STUB_IMG); for (let i = 0; i < 1000; i++) t.add([i & 0xFF, 1, 2]); return t.tail.length !== 15; })());
       const R = moduleWith(CENSUS, [['if (next.size > o.maxRunTargets)', 'if (false)']]);
       check('mutant "run-wide target limit off" is caught', !runLimitHolds(await runLimit(R, 3)));
       const A = moduleWith(CENSUS, [['if (!ALLOWED.has(s.name))', 'if (false)']]);

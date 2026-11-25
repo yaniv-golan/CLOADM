@@ -111,14 +111,16 @@ function romImages(m) {
   return imgs.map((bytes) => ({ bytes }));
 }
 
-// The window check over a program's whole output stream of values, as it grows
+// The window check over a program's whole output stream of values, as it grows. Only the last WINDOW - 1 bytes are
+// kept between calls: a window that ends in the new bytes starts no earlier than that.
 class Tripwire {
-  constructor(images) { this.images = images; this.index = windowIndex(images); this.stream = []; }
+  constructor(images) { this.images = images; this.index = windowIndex(images); this.tail = []; }
   // -> null, or { at, image, off } where a WINDOW-byte run of an image appears
   add(bytes) {
-    const from = Math.max(0, this.stream.length - (WINDOW - 1));
-    for (const b of bytes) this.stream.push(b);
-    return romWindowIn(Uint8Array.from(this.stream.slice(from)), this.images, this.index);
+    const run = this.tail.slice();
+    for (const b of bytes) run.push(b);
+    this.tail = run.slice(Math.max(0, run.length - (WINDOW - 1)));
+    return romWindowIn(Uint8Array.from(run), this.images, this.index);
   }
 }
 
@@ -201,15 +203,18 @@ function directSite(peek, from, pc, sDelta) {
   return s;
 }
 
-// Trace machine m -> { detach(), finish() -> { records, refused, started, stopped, error } }.
-//   records: the records written in full; refused: the records written as addresses only (a dirty stretch);
+// Trace machine m -> { detach(), finish() -> { records, refused, counts, started, stopped, error } }.
+//   records: the records written in full; refused: the records written as addresses only (a dirty stretch); of each,
+//   only the first maxPerSite per (from, target, kind) are kept; every one is passed to onRecord(rec) as it closes,
+//   and counted (counts: { records, refused });
 //   started: the census loader started the program; stopped: why recording stopped (sticky taint), or null;
 //   error: why the program is discarded (it read ROM, or scanned it), or null.
-// opts: { program, maxWrites, maxTargets }
-function trace(m, { program = '', maxWrites = 256, maxTargets = 512, sweepWindow = SWEEP_WINDOW } = {}) {
+// opts: { program, maxWrites, maxTargets, sweepWindow, maxPerSite, onRecord }
+function trace(m, { program = '', maxWrites = 256, maxTargets = 512, sweepWindow = SWEEP_WINDOW, maxPerSite = Infinity, onRecord = null } = {}) {
   if (!Number.isInteger(sweepWindow) || sweepWindow < 4 || sweepWindow > 16) throw new RangeError('sweepWindow is 4 to 16 bytes');
   const cpu = m.cpu, peek = (a) => m.peek(a & 0xFFFF);
-  const records = [], refused = [];
+  const records = [], refused = [], counts = { records: 0, refused: 0 };
+  const perSite = new Map();      // (full or refused, from, target, kind) -> records closed there; maxPerSite are kept
   const loads = [];               // what the census loader put in: [{ segments, exec }] (the static census reads these)
   const asLoaded = new Uint8Array(0x10000);   // 1: a RAM cell still holding what the census loader put there
   const afterStop = new Map();    // after the stop: direct calls from clean sites, counted (rule 4, afterStop below)
@@ -225,14 +230,21 @@ function trace(m, { program = '', maxWrites = 256, maxTargets = 512, sweepWindow
 
   const close = (atEnd) => {
     const rec = { program, target: open.target, from: open.from, kind: open.kind };
-    if (dirtyStretch) refused.push(Object.assign(rec, { refused: 'rom-data-read' }));
-    else {
+    const k = `${dirtyStretch ? 'r' : 'c'}|${open.from}|${open.target}|${open.kind}`, n = perSite.get(k) || 0;
+    perSite.set(k, n + 1);
+    if (dirtyStretch) {
+      Object.assign(rec, { refused: 'rom-data-read' });
+      counts.refused++;
+      if (n < maxPerSite) refused.push(rec);
+    } else {
       Object.assign(rec, { regsIn: open.regsIn, regsOut: regs(cpu, true), cyclesInRom: m.cycle - open.cycle, ramWritesOutsideRom: open.writes });
       if (open.dropped) rec.writesDropped = open.dropped;
       if (atEnd) rec.open = true;   // still inside ROM when the program's run ended
-      records.push(rec);
+      counts.records++;
+      if (n < maxPerSite) records.push(rec);
     }
     open = null;
+    if (onRecord) onRecord(rec);
   };
   const stop = (why) => { if (!stopped) stopped = why; if (open) open = null; };
   const probe = (pc) => {
@@ -352,7 +364,7 @@ function trace(m, { program = '', maxWrites = 256, maxTargets = 512, sweepWindow
       detach();
       if (!error && prevPc !== null && stepReads.length && !masked(prevPc) && started && !stopped) error = 'program-read-rom';
       if (open && !error && !stopped) close(true);
-      return { records, refused, started, stopped, error, loads, afterStop: error ? [] : [...afterStop.values()] };
+      return { records, refused, counts, started, stopped, error, loads, afterStop: error ? [] : [...afterStop.values()] };
     },
   };
 }

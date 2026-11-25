@@ -137,7 +137,7 @@ vectors, RTS/RTI/PULS landing in ROM, and interrupts.
 | Option | Meaning |
 |---|---|
 | `--out DIR` | where `census.jsonl` and `census.json` go (default `./census-out`) |
-| `--max-per-site N` | JSONL records per (program, from, target, kind); all are counted in the aggregate (default 20) |
+| `--max-per-site N` | JSONL records per (program, from, target, kind), and all that is kept of them in memory: every record is counted into the aggregate as it closes (and checked by the tripwire), then let go, so a program looping on a ROM routine runs in bounded memory (default 20) |
 | `--max-writes N` | writes kept per record; the rest are counted in `writesDropped` (default 256) |
 | `--max-targets N` | the scan limit per program (default 512) |
 | `--max-run-targets N` | the limit on distinct ROM entry points across the whole run, calls counted after the stop included (static lines, from the linear scan, do not count); more, and nothing is written (default 1024) |
