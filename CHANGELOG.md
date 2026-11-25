@@ -259,7 +259,7 @@ Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.
 
 #### Fixed
 
-- **The Dragon 64's serial port with nothing plugged in reads as MAME's does.** CTS, DSR and DCD idle high there (MAME's `dragon64`
+- **The Dragon 64's (and the Dragon 200, 200-E, Tano, 64 Plus and Alpha's) serial port with nothing plugged in reads as MAME's does.** CTS, DSR and DCD idle high there (MAME's `dragon64`
   fits no RS-232 device), so the 6551's status register reads $60 (DSR and DCD set) and the transmit-empty bit never reads 1: a
   program that sends a byte with no device on the port waits, as it does under MAME. It read $10 before (TDRE
   only), as if a terminal were plugged in. A terminal, a loopback plug and the printer are unchanged.

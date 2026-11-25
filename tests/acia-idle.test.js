@@ -35,6 +35,13 @@ check('no IRQ bit in any status read', [0, 4, 5, 6, 7, 11, 12, 13, 14, 16, 17, 1
 const term = run('terminal');
 check('with a terminal plugged in the same firmware sees DSR and DCD clear and the byte go out (TDRE set)',
   term.done && term.log[0] === TDRE && (term.log[7] & TDRE) !== 0 && ((term.log[8] << 8) | term.log[9]) < 3000, hex(term.log));
+// the Dragon Alpha has the same 6551 and port: its log (the firmware behind the boot ROM pager) is the Dragon 64's
+{
+  const t = require('../tools/mame-diff/alpha/spec.js').aciaIdle('dgnalpha'), m = t.machine();
+  for (let f = 0; f < 600 && m.cpu.pc !== t.haltPc; f++) m.runFrame();
+  const r = t.result(m);
+  check('the Dragon Alpha with nothing in the port: the same log as the Dragon 64\'s ($FF05 reads $60)', r.done && hex(r.log) === hex(idle.log), hex(r.log));
+}
 // the port's line levels, as the chip reads them
 const lines = (kind, opts) => { const m = spec.aciaIdle('dragon64').machine(); m.acia.attachSerial(kind, opts); return [m.acia.port.cts, m.acia.port.dsr, m.acia.port.dcd]; };
 check('lines: none idles high (1,1,1); a terminal asserts them (0,0,0); a plain loopback leaves them high; one that holds them asserted drives 0',

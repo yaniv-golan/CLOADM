@@ -41,6 +41,22 @@ module.exports = {
       instructions: 300000,
     };
   },
+  // the 6551 with nothing in the serial port (run.js dgnalpha --serial-idle): sam/acia-idle.asm in the BASIC socket, behind the pager,
+  // the same firmware and log as the Dragon 64's (sam/spec.js aciaIdle)
+  aciaIdle(profileId, { config = {}, work = `/tmp/mame-diff/${profileId}-acia-idle` } = {}) {
+    const Emu = loadEmu(), profile = Emu.profiles[profileId];
+    const resolved = Emu.resolveConfig(profileId, Object.assign({ mameCompat: true }, config));
+    const asm = assembleFile(path.join(__dirname, '../sam/acia-idle.asm'), '6809');
+    const slots = slotsFor(romImage(asm, 0x8000, 0x4000, 0x12));
+    return {
+      label: `${profileId} ACIA, nothing in the port`, system: profile.mame, work, seconds: 4, args: ['-ext', '', ...mameConfigArgs(resolved)],
+      regs: REGS, waitOps: ['CWAI', 'SYNC'], haltPc: asm.symbols.get('HALT'),
+      install: () => writeRoms(work, profile.mame, filesFor(profile, slots)),
+      machine: () => machine(profileId, slots, config),
+      instructions: 100000,
+      result: (m) => ({ done: m.ram[0x7000] === 0xFF, log: [...m.ram.slice(0x7100, 0x7100 + 22)] }),
+    };
+  },
   // PIA1 port B's input pins (run.js dgnalpha --pia1b): alpha/pia1b.asm, the same 8K at $A000 in both ROM banks
   // (PIA1 PB2 pages them)
   pia1b(profileId, { config = {}, work = `/tmp/mame-diff/${profileId}-pia1b` } = {}) {
