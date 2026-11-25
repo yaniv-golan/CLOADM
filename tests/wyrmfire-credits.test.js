@@ -14,8 +14,11 @@ const Emu = require('./load')();
 const { WYRMFIRE_PIN: PIN } = require('../js/wyrmfire/pin.js');
 
 const ROOT = path.join(__dirname, '..');
-let fail = 0;
-const check = (name, cond, detail = '') => { if (!cond) { fail++; console.log(`FAIL ${name} ${detail}`); } else console.log(`ok   ${name} ${detail}`); };
+let fail = 0, ran = 0;
+const check = (name, cond, detail = '') => {
+  ran++;
+  if (!cond) { fail++; console.log(`FAIL ${name} ${detail}`); } else console.log(`ok   ${name} ${detail}`);
+};
 const J = JSON.stringify;
 
 const FONT = JSON.parse(fs.readFileSync(path.join(ROOT, PIN.files.font.path), 'utf8'));
@@ -52,7 +55,7 @@ function creditsScreen() {
 
 {
   const r = creditsScreen();
-  check('C on the title opens the credits screen (and the game waits for ENTER, it does not start)', !r.started && r.rows && r.waiting, J({ started: r.started, waiting: r.waiting }));
+  check('the C key on the title opens the credits screen (and the game waits for ENTER, it does not start)', !r.started && r.rows && r.waiting, J({ started: r.started, waiting: r.waiting }));
   const shown = (r.rows || []).map((t) => t.trim()).filter(Boolean);
   console.log('  the screen, as decoded:\n' + (r.rows || []).map((t, i) => `    y=${ROWS[i]} |${t.padEnd(32)}|`).join('\n'));
   // The four strings the licence needs on screen. "WYRMFIRE  GPL-3.0" has TWO spaces (src/native.c).
@@ -88,4 +91,6 @@ function creditsScreen() {
     rows && !shown.includes('NOT AFFILIATED WITH ID SOFTWARE') && shown.some((t) => /SOFTWORK/.test(t)), J(shown));
 }
 
-if (fail) { console.log(`${fail} FAILED`); process.exitCode = 1; } else console.log('all credits checks passed');
+// the runner's summary shape: "N/N <what> passed" when every check passed, and the failure count otherwise
+if (fail) { console.log(`${fail}/${ran} credits checks FAILED`); process.exitCode = 1; }
+else console.log(`${ran}/${ran} credits checks passed`);
