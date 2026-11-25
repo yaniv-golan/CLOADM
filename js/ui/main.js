@@ -299,6 +299,10 @@ $('btnMenu').onclick = () => {
   const close = () => { $('appbar').classList.remove('menu-open'); $('btnMenu').setAttribute('aria-expanded', 'false'); };
   item.onclick = () => { close(); pill.click(); };
   $('navShare').onclick = () => { close(); $('btnShare').click(); };
+  // a phone's snapshots, under Share: take one now (into the first empty quick-save slot, else the oldest), or the slots
+  // list to restore one from (js/ui/slots-panel.js)
+  $('navSnapTake').onclick = () => { close(); slots.take(); };
+  $('navSnapRestore').onclick = () => { close(); slots.reveal($('btnMenu')); };
   // Settings…: with the touch keys, the Settings sheet on the tab last used (js/ui/phone-sheets.js); elsewhere the
   // drawer's tabs, far below the screen in a narrow window, brought into view on Display (a person looking for
   // "settings" is most often after the picture: its look, its size, the colours)
@@ -318,7 +322,8 @@ $('btnMenu').onclick = () => {
   // Where the less-used links go (moved, not reordered by the stylesheet, so the focus goes down them in the order they
   // are drawn). On a desktop (wider than 700 px, not held sideways, without the touch keys) Debugger, Commands…, Help,
   // GitHub and Install CLOADM… are More ▾'s list, in that order (Install CLOADM… only while the page can be installed:
-  // js/ui/install.js hides it once it is). Elsewhere they are Menu's, as before: on a phone Install CLOADM… after Share….
+  // js/ui/install.js hides it once it is). Elsewhere they are Menu's, as before: on a phone Install CLOADM… after Share… and its two
+  // snapshot rows.
   const narrow = matchMedia('(max-width: 700px)'), sideways = matchMedia('(orientation: landscape) and (max-height: 500px)');
   const nav = $('appbar').querySelector('nav'), more = $('btnMore'), list = $('moreMenu');
   const MORE = ['navDebugger', 'navCommands', 'navHelp', 'navGithub', 'navInstall'];
@@ -332,7 +337,7 @@ $('btnMenu').onclick = () => {
     openMore(false);
     more.hidden = !d;
     for (const id of MORE) (d ? list.append($(id)) : nav.insertBefore($(id), more));
-    if (!d && narrow.matches) $('navShare').after($('navInstall'));
+    if (!d && narrow.matches) $('navSnapRestore').after($('navInstall'));
   };
   narrow.addEventListener('change', () => { wasDesktop = null; place(); });
   sideways.addEventListener('change', place);

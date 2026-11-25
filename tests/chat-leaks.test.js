@@ -655,7 +655,10 @@ const REQUIRED = require.main !== module;
     'chatNote',
     // refuseTyping reads whether the Debugger stopped the machine on screen and emits the page's toast; it
     // queues and changes nothing on either machine
-    'refuseTyping']);
+    'refuseTyping',
+    // settleArrival ends the "just arrived from a link" mark (a message to Claude is the person acting) and emits
+    // 'arrival'; no machine is touched
+    'settleArrival']);
   // page concerns, not machine actions
   const UI = new Set(['mediaError', 'visit']);
   const rows = rowMethods();

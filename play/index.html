@@ -44,7 +44,10 @@
   /* the page covers the whole display (viewport-fit=cover), so a phone's notch, rounded corners and home indicator
      are kept clear by these insets (all 0 off such a phone); the browser check overrides them to emulate one */
   :root { --safe-t: env(safe-area-inset-top, 0px); --safe-r: env(safe-area-inset-right, 0px);
-    --safe-b: env(safe-area-inset-bottom, 0px); --safe-l: env(safe-area-inset-left, 0px); }
+    --safe-b: env(safe-area-inset-bottom, 0px); --safe-l: env(safe-area-inset-left, 0px);
+    /* a phone's tappable rows (Menu, Programs, the lists): 44 px at the least, growing toward 52 px with the window's
+       height (52 from about 580 px tall; a short window keeps 44) */
+    --row-tap: clamp(var(--touch), 9vh, 52px); }
   body { font-size: var(--text-body); min-height: 100vh; display: flex; flex-direction: column;
     padding: var(--safe-t) var(--safe-r) var(--safe-b) var(--safe-l); }
   button { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: var(--r-10); padding: 9px 14px;
@@ -96,7 +99,7 @@
     .appbar.nostatus > #status { display: none; }
   }
   #btnMenu { display: none; }
-  @media (min-width: 701px) { #navRoms, #navShare, #navSettings { display: none; } }   /* (the app bar's pill and Share button there) */
+  @media (min-width: 701px) { #navRoms, #navShare, #navSettings, #navSnapTake, #navSnapRestore { display: none; } }   /* (the app bar's pill and Share button there) */
   /* (with the touch keys the drawer's tabs are in the Settings sheet at any width: Settings… is the way to them) */
   @media (min-width: 701px) { body:is(.touch-keys, .touch-hidden) :is(#navPrograms, #navSettings) { display: inline-flex; } }
   /* (an author display rule outranks the hidden attribute's, so it is stated: once installed, the link goes) */
@@ -224,12 +227,21 @@
   #screenNotes { display: flex; justify-content: center; align-items: flex-start; height: 44px; overflow: hidden; }
   #screenNotes > div { margin-top: 10px; background: rgba(11, 13, 12, .88); color: var(--text); font-size: 14px; line-height: 20px; padding: 6px 12px;
     border-radius: var(--r-14); text-align: center; max-width: 100%; box-sizing: border-box; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
-  /* one line at a time: "click for sound" until sound starts, then the key hint while it is live, then the typing line */
+  /* one line at a time: "click for sound" until sound starts, then the key hint while it is live, then, while the
+     screen has the focus, the typing line, and otherwise the Ask panel's example questions */
   #screenNotes > div[hidden], #screenNotes:has(#soundHint:not([hidden])) > #keyHint,
-    #screenNotes:has(> #soundHint:not([hidden]), > #keyHint:not([hidden])) > #typingHint, body.chat-screen #typingHint { display: none; }
+    #screenNotes:has(> #soundHint:not([hidden]), > #keyHint:not([hidden])) > #typingHint, body.chat-screen #typingHint,
+    body:not(:has(#screen:focus)) #typingHint { display: none; }
   /* the line under the tube says how to leave the screen, so the bezel's focus pill says it only where that line is not
      shown (a touch screen, the phone's chat, an embed); the chat's "Esc stops a reply" pill stays */
   body:not(:is(.touch-keys, .touch-hidden, .chat-phone, .embed, .chat-screen)):has(#screen:focus-visible) #focusHint { display: none; }
+  /* the example questions (js/ui/ask.js): one line of whole questions, a real note above taking the line instead */
+  #screenNotes > #askStripQs { display: flex; align-items: center; gap: 8px; margin-top: 6px; padding: 0; background: none; overflow: hidden; white-space: nowrap; pointer-events: auto; }
+  #screenNotes:has(> #soundHint:not([hidden]), > #keyHint:not([hidden])) > #askStripQs, #askStripQs:not(:has(button)),
+    body:not(.chat-screen):has(#screen:focus) #askStripQs { display: none; }
+  #askStripQs > button { flex: none; height: 32px; min-height: 32px; padding: 0 12px; border-radius: var(--pill); font-size: 14px; }
+  #askStripQs > button[hidden], #askOpenLabel[hidden] { display: none; }
+  #askOpenLabel { color: var(--text-2); font-size: 14px; flex: none; }
   body:is(.touch-keys, .touch-hidden) #screenNotes, body.chat-phone #screenNotes { display: none; }
   /* Narrow notes column: the widest note on one line is the key hint, 358 px wide (14 px text, padding included), so a column
      of 360 px or more holds every note on one line (44 px). Under 360 px the box is a fixed two lines (64 px, wrapping, at most
@@ -431,6 +443,11 @@
   #shelf a:hover { border-color: var(--line-strong); }
   #shelf .tag.now { color: var(--muted); font-weight: 400; }
   #shelf [aria-current="true"] { border-color: var(--phosphor); }
+  /* an upright phone: the Programs sheet's rows (the shelf, what ran last, the Recent list), the quick-save slots and the
+     machine list (after their own rules, which set 40 px) grow toward 52 px (--row-tap); a phone held sideways keeps its rows, which its short window counts on */
+  @media (max-width: 700px) and (min-height: 501px) {
+    #shelf button, #shelf a, #recentList button.row, #slotList .row, #machineMenu button[data-machine] { min-height: var(--row-tap); box-sizing: border-box; }
+  }
   /* the returning visit: what ran last, one click away */
   .lasttime { display: flex; align-items: center; justify-content: space-between; gap: 12px; background: var(--panel-deep); border: 1px solid var(--line);
     border-radius: var(--r-14); padding: 12px 14px; }
@@ -987,7 +1004,8 @@
     overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch;
     background: #1C201D; box-shadow: 0 8px 24px #000A; }
   #tkMenuSheet[hidden] { display: none; }
-  #tkMenuSheet button { display: block; width: 100%; min-height: 44px; margin: 0; border: 0; border-radius: 7px; background: transparent; color: var(--text); text-align: left; font-size: 15px; padding: 0 12px; }
+  #tkOpen, #tkRoms { display: none; }
+  #tkMenuSheet button { display: block; width: 100%; min-height: var(--row-tap); margin: 0; border: 0; border-radius: 7px; background: transparent; color: var(--text); text-align: left; font-size: 15px; padding: 0 12px; }
   #tkMenuSheet button:hover { background: #2A302B; }
   #tkMenuSheet button[hidden] { display: none; }
   /* the rule between the items that act on this machine and the app-level ones: a thin line across the sheet */
@@ -1056,6 +1074,10 @@
     body.touch-keys #touchKeys > .tkcenter #tkBreak { order: 1; flex: 1 0 auto; padding: 0 12px; }
     body.touch-keys #touchKeys > .tkcenter #tkClear { order: 2; flex: 1 0 auto; padding: 0 12px; }
     body.touch-keys #touchKeys > .tkcenter #tkMenu { order: 4; flex: 1 0 auto; padding: 0 12px; }
+    /* a first visit (no program run yet and no ROMs: js/ui/touch-keys.js): Open… left of BREAK, Add ROMs… right of
+       Menu, 8 px clear of them (the row's 4 px gap and a margin); after that they are Menu's and the app bar's, as before */
+    body.touch-keys #touchKeys > .tkcenter > #tkOpen:not([hidden]) { display: block; order: 0; flex: none; padding: 0 12px; margin-right: 4px; }
+    body.touch-keys #touchKeys > .tkcenter > #tkRoms:not([hidden]) { display: block; order: 5; flex: none; padding: 0 12px; margin-left: 4px; }
     /* joystick mode, sideways: the screen keeps the column the tube is given; the stick's zone is the left of it
        and the strip and FIRE the right, each as wide as the other (the left half the stick, the right
        half FIRE and the key strip); the control row is the keys mode's, under all three */
@@ -1098,8 +1120,13 @@
   body.chat-phone #claudeBar { position: sticky; top: 0; z-index: 7; background: var(--ground); }
   /* without a key the key card comes first wherever the page stacks the chat under the screen (a phone, a tablet:
      under about 1020 px the layout wraps), so it is not a screen or more below */
-  body.chat-phone.claude-nokey #claude { order: -1; }
-  @media (max-width: 1019px) { body.claude-open.claude-nokey #claude { order: -1; } }
+  /* (a phone keeps the chat's screen first: the key card and the BASIC session card fold into one line under it,
+     #claudeFold, until "Add key…" opens the form) */
+  @media (max-width: 1019px) { body.claude-open.claude-nokey:not(.chat-phone) #claude { order: -1; } }
+  #claudeFold[hidden] { display: none; }
+  #claudeFold { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 15px; color: var(--text-2); }
+  #claudeFold button { min-height: 44px; padding: 0 14px; }
+  body.chat-phone.claude-nokey:not(.claude-keyform) :is(#claudeKeyCard, #claudeSession, #claudeHelp) { display: none !important; }
   @media (orientation: landscape) and (max-height: 500px) {
     /* held sideways: a wider screen between the keyboard's halves, its buttons in one row under it (the switch is
        not offered in the chat: there is no BASIC machine's joystick to drive there) */
@@ -1483,9 +1510,11 @@
   #askEmpty p { margin: 0; font-size: 15px; line-height: 1.5; color: var(--text-2); }
   #askSuggest { display: flex; flex-direction: column; gap: 8px; }
   #askSuggest button, #askOpeners button { text-align: left; background: var(--ground); border: 1px solid var(--line); border-radius: var(--r-10); padding: 11px 13px; font-size: 15px; }
-  #askSuggest button.err, #btnOpenErr { background: var(--warn-panel); border-color: var(--orange); }
-  #askSuggest .mono, #askOpeners .mono { font: 13px var(--font-mono); color: var(--orange); margin-left: 6px; }
-  #askOpeners .mono { margin: 0 10px 0 0; font-size: 15px; }
+  #askSuggest button { min-height: 44px; }
+  #askSuggest button[aria-pressed="true"] { border-color: var(--green); box-shadow: inset 0 0 0 1px var(--green); }
+  #askChoose { display: flex; flex-wrap: wrap; gap: 8px; }
+  #askChoose[hidden], #askSuggestLabel[hidden] { display: none; }
+  #askChoose button { min-height: 44px; padding: 0 14px; }
   #askOpeners[hidden], #askOpeners button[hidden] { display: none; }
   #askOpeners button { border-radius: var(--pill); padding: 9px 16px; display: inline-flex; align-items: center; }
   #askMessages { display: flex; flex-direction: column; gap: 12px; }
@@ -1493,8 +1522,7 @@
   #askMessages .msg[data-role="user"] { align-self: flex-end; background: var(--line); }
   #askMessages .msg[data-role="claude"] { align-self: flex-start; background: var(--panel); }
   #askMessages .msg.note { font: 13px var(--font-mono); color: var(--text-3); background: none; border: 0; padding: 0; }
-  #btnAskFix { align-self: flex-start; }
-  #btnAskFix[hidden], #askConsent[hidden], #askLoad[hidden], #claudeLoad[hidden], #askKeyMsg[hidden], #askKeyForm[hidden], #askComposer[hidden] { display: none; }
+  #askConsent[hidden], #askLoad[hidden], #claudeLoad[hidden], #askKeyMsg[hidden], #askKeyForm[hidden], #askComposer[hidden] { display: none; }
   .askcard { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
   #askConsent, #askLoad { border-color: var(--phosphor); padding: 14px; }
   #askLoad p, #claudeLoad p { margin: 0; font-size: 14px; line-height: 1.5; color: var(--text-2); }
@@ -1682,6 +1710,10 @@
     #ask[data-height] { top: calc(8px + var(--safe-t)); height: auto; }
     #askHandle { display: none; }
     body.ask-open .layout { padding-bottom: 20px; }
+    /* no key yet: the key form is taller than this window, so the whole panel scrolls and the example questions above
+       it stay reachable */
+    #ask:has(#askKeyForm:not([hidden])) { overflow-y: auto; }
+    #ask:has(#askKeyForm:not([hidden])) #askBody { flex: none; overflow: visible; }
   }
 
   /* ---- phone ---- */
@@ -1706,7 +1738,9 @@
     #navRoms .dot { display: inline-block; width: 8px; height: 8px; margin-left: 8px; border-radius: 50%; background: var(--orange); flex: none; }
     .appbar.menu-open nav { display: flex; position: absolute; z-index: 65; top: 100%; left: 8px; right: 8px; flex-direction: column; align-items: stretch; gap: 0;
       padding: 8px 16px; background: var(--panel); border: 1px solid var(--line-strong); border-top: 0; border-radius: 0 0 12px 12px; box-shadow: 0 20px 40px rgba(0, 0, 0, .6); }
-    .appbar.menu-open nav a, .appbar.menu-open nav button.navlink { min-height: 44px; display: flex; align-items: center; text-align: left; }
+    .appbar.menu-open nav a, .appbar.menu-open nav button.navlink { min-height: var(--row-tap); display: flex; align-items: center; text-align: left; }
+    /* (taller rows must not push Menu's last ones off a short window: it scrolls inside the window instead) */
+    .appbar.menu-open nav { max-height: calc(100dvh - 100% - var(--safe-t) - 8px); overflow-y: auto; overscroll-behavior: contain; }
     /* Menu's order: Add ROMs, Settings…, Share…, Install CLOADM… (js/ui/main.js moves it up here), Library, Debugger,
        Commands…, then, under a rule, Help and GitHub */
     .appbar.menu-open nav button.twoline { flex-direction: column; align-items: flex-start; justify-content: center; gap: 0; }
@@ -1909,6 +1943,9 @@ npx serve -l 8000 .</pre>
     <button id="navPorts" class="navlink twoline" type="button" hidden><span>Tape, disks and cartridge…</span><span class="sub" id="navPortsState">Empty</span></button>
     <button id="navPower" class="navlink twoline" type="button" hidden><span>Power…</span><span class="sub" id="navPowerState">Running</span></button>
     <button id="navShare" class="navlink" type="button" title="A link that opens this machine as it is, a clip, a screenshot, a snapshot file; and the embed code">Share…</button>
+    <!-- a phone's snapshots: the quick-save slots (js/ui/slots-panel.js), which sit in the Programs sheet there -->
+    <button id="navSnapTake" class="navlink" type="button">Take snapshot</button>
+    <button id="navSnapRestore" class="navlink" type="button">Restore snapshot…</button>
     <a href="play/#library" id="navLibrary">Library</a>
     <a href="play/#debugger" id="navDebugger">Debugger</a>
     <button id="navCommands" class="navlink" type="button">Commands… <kbd id="navCmdKbd">Ctrl K</kbd></button>
@@ -2110,6 +2147,8 @@ npx serve -l 8000 .</pre>
         <div id="soundHint" hidden>Click or press a key for sound</div>
         <div id="keyHint" hidden><kbd>Esc</kbd> = BREAK · <kbd>Home</kbd> = CLEAR · <kbd>Backspace</kbd> = ←</div>
         <div id="typingHint">Typing goes to the machine · <kbd>Tab</kbd> leaves the screen</div>
+        <!-- the Ask panel's example questions while it is closed (js/ui/ask.js): whole ones only, and a note above takes the line -->
+        <div id="askStripQs" role="group" aria-label="Example questions"><span id="askOpenLabel" hidden>Once Claude is connected:</span></div>
       </div></div>
       <!-- full screen chat: the other machine, live; a strip under the screen on a phone -->
       <div id="claudePip" hidden role="group" aria-label="Your BASIC session, live">
@@ -2130,8 +2169,6 @@ npx serve -l 8000 .</pre>
     </div>
     <!-- context openers: never over the screen -->
     <div class="controls" id="askOpeners" hidden>
-      <button id="btnOpenErr" hidden><span class="mono" id="openErrText"></span>Explain this error</button>
-      <button id="btnOpenProg" hidden>Help with my program</button>
       <span class="muted" id="askMachineNote"></span>
     </div>
 
@@ -2152,7 +2189,8 @@ npx serve -l 8000 .</pre>
           <button type="button" data-touchmode="keys" aria-pressed="true">Keys</button>
           <button type="button" data-touchmode="pad" aria-pressed="false">Pad</button>
           <button type="button" data-touchmode="joystick" aria-pressed="false">Stick</button></div>
-        <div class="tkbtns"><button id="tkBreak"></button><button id="tkClear"></button><button id="tkMenu" type="button" aria-expanded="false" aria-controls="tkMenuSheet">Menu</button></div></div>
+        <div class="tkbtns"><button id="tkBreak"></button><button id="tkClear"></button><button id="tkMenu" type="button" aria-expanded="false" aria-controls="tkMenuSheet">Menu</button></div>
+        <button id="tkOpen" type="button" hidden>Open…</button><button id="tkRoms" type="button" hidden>Add ROMs…</button></div>
       <div id="tkMenuSheet" role="group" aria-label="Keys menu" hidden></div>
     </div>
     <!-- a phone (the on-screen panel on, upright): the machine's ports and power as one row of chips under the panel,
@@ -2292,12 +2330,13 @@ npx serve -l 8000 .</pre>
     <div id="askBody">
       <div id="askEmpty">
         <p id="askEmptyText">Claude reads only this emulated <span id="askEmptyModel"></span> (its screen text and memory), never your computer. It types or changes things only if you allow it.</p>
-        <div class="muted">Start with</div>
-        <div id="askSuggest"></div>
+        <div class="muted" id="askSuggestLabel" hidden>You could ask, once Claude is connected:</div>
+        <div id="askSuggest" role="group" aria-label="Example questions"></div>
+        <div id="askChoose" hidden><button id="btnAskHaveKey">I have an API key</button><button id="btnAskUseClaude">I use Claude →</button></div>
+        <p id="askSuggestNote" class="sr-only" aria-live="polite"></p>
         <p id="askEmptyCmd" class="muted"><kbd id="askEmptyKbd">Ctrl K</kbd>: find a command or ask</p>
       </div>
       <div id="askMessages" aria-live="polite"></div>
-      <button id="btnAskFix" class="primary" hidden>Fix it for me</button>
       <div id="askConsent" class="askcard" hidden>
         <strong>Let Claude use the emulator?</strong>
         <p id="askConsentText"></p>
@@ -2335,6 +2374,8 @@ npx serve -l 8000 .</pre>
   <div id="armAnnounce" class="sr-only" role="status" aria-live="polite"></div>
 
   <aside id="claude" aria-label="Chat with Claude" hidden>
+    <!-- a phone's chat with no key: the key card and the BASIC session card folded into one line under the screen -->
+    <div id="claudeFold" hidden><span>No API key yet</span><span aria-hidden="true"> · </span><button id="btnClaudeAddKey">Add key…</button></div>
     <section class="card" id="claudeKeyCard">
       <label for="claudeKeyInput">Your Anthropic API key</label>
       <input id="claudeKeyInput" type="password" autocomplete="off" spellcheck="false" placeholder="sk-ant-…">
@@ -2385,6 +2426,7 @@ npx serve -l 8000 .</pre>
       <div id="recentList"></div>
       <div id="quickSave" hidden><div class="eyebrow">Snapshots</div>
       <p class="muted" id="slotNote" style="margin:0">A snapshot reopens on the same machine, RAM and ROMs.</p>
+      <p class="muted" id="slotEmpty" style="margin:0" hidden>No snapshots yet. Take one from Menu → Take snapshot.</p>
       <div id="slotList"></div></div>
       <a href="play/#library" id="linkLibrary">Open your library →</a>
       <label><input type="checkbox" id="chkFastTape" checked> Fast tape loading</label>
@@ -2813,6 +2855,7 @@ npx serve -l 8000 .</pre>
 <link rel="modulepreload" href="js/asm/symbols.js">
 <link rel="modulepreload" href="js/claude/backend.js">
 <link rel="modulepreload" href="js/claude/brief.js">
+<link rel="modulepreload" href="js/claude/prompts.js">
 <link rel="modulepreload" href="js/host/example-reader.js">
 <link rel="modulepreload" href="js/video/layout.js">
 <link rel="modulepreload" href="js/host/link-store.js">

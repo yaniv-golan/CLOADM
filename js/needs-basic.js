@@ -13,8 +13,7 @@
  * ONCE per load: it fires at most once, the next load arms it again, and a reset or power-on clears it (and what it
  * found). The address and the frame (counted from the load) are kept for the card's details.
  *
- * Host state, like the Session's probes: no snapshot holds it. The side panel (connector/) has no card for it and folds
- * connector/view/needs-basic-off.js in its place.
+ * Host state, like the Session's probes: no snapshot holds it. The side panel (connector/) runs it too, and shows no card.
  */
 import { SessionError } from './errors.js';
 

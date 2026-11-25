@@ -722,8 +722,7 @@ export class Session {
     // a program the person loaded, running without BASIC, called a BASIC routine the built-in firmware lacks
     // (js/needs-basic.js): 'needs-basic' with what was found, and again with null when that is over (a reset, a
     // power-on, a switch, another load)
-    // (null where the detector is not built in: the side panel's fold, connector/view/needs-basic-off.js)
-    this.needsBasic = NeedsBasic && new NeedsBasic(this);
+    this.needsBasic = new NeedsBasic(this);
     // the serial port's byte streams and diagnostics (SerialApi), its listeners and traces kept on the machine through hooks
     this.serial = new SerialApi(this);
     this.writeWatch = new WriteWatch(this);
@@ -973,7 +972,7 @@ export class Session {
     for (const [mm] of this.bootFailed) if (mm !== this.shownMachine && mm !== m) this.bootFailed.delete(mm);
     for (const [mm] of this.stubRuns) if (mm !== this.shownMachine && mm !== m) this.stubRuns.delete(mm);
     // (the "needs BASIC" detector watched the machine that goes)
-    this.needsBasic?.adopted(m);
+    this.needsBasic.adopted(m);
     this.store.set('machine', m.id);
     this.install(m);
   }
@@ -985,7 +984,7 @@ export class Session {
     // a restart of the machine Claude acts on, by any path (Reset, a power cycle, a program or cartridge that
     // starts, the welcome menu, LIZA, ROMs cleared), stops Claude: nothing it held or still had to type goes into
     // the machine that starts over, and its next action does not run there
-    m.onReset = () => { this.stopClaudeFor('the machine restarted', m); this.needsBasic?.clear(m); };
+    m.onReset = () => { this.stopClaudeFor('the machine restarted', m); this.needsBasic.clear(m); };
     this.keys.clear();
     if (this.debugger && this.debugger.machine !== m) this.debugger.detach();
     let undelivered = null;
@@ -1567,7 +1566,7 @@ export class Session {
     }
     for (const id of touched.keys()) this.stubChosen.delete(id);
     // (the switch on with them keeps what the "needs BASIC" detector found: its card offers the program again now)
-    if (touched.has(m.id)) { this.loadSavedRoms(m); const on = () => this.powerCycle({ on: m }); this.needsBasic ? this.needsBasic.keep(on) : on(); }
+    if (touched.has(m.id)) { this.loadSavedRoms(m); this.needsBasic.keep(() => this.powerCycle({ on: m })); }
     const ids = [...touched.keys()];
     const machines = ids.filter((id) => profiles[id]).map((id) => this.machineRoms(id));
     const cartridges = ids.filter((id) => cartridgeRoms[id]).map((id) => ({ id, name: cartridgeRoms[id].name, sockets: socketStatus(cartridgeRoms[id], this.roms.get(id)) }));
@@ -2295,6 +2294,20 @@ export class Session {
     const last = this.lastRun;
     return !!last && last.kind === 'recent' && this.library.sameName(entry.name, last.name) && String(entry.crc).toUpperCase() === last.crc;
   }
+  // What runs on the person's machine now, of the programs CLOADM brings: 'wyrmfire', 'welcome' (the menu), 'liza', a
+  // GAMES.list key ('2048', 'minesweeper') or 'demo', from its start until a launch takes the machine (lastRunOn); null for
+  // anything else (BASIC, a file of the person's). (js/claude/prompts.js: the Ask panel's questions. bundledProgram,
+  // below, is the Share screen's: the programs that have a page of their own.)
+  get bundledRunning() {
+    const m = this.personMachine;
+    if (!m) return null;
+    if (this.wyrmfireOn(m)) return 'wyrmfire';
+    if (this.welcome === m) return 'welcome';
+    const last = this.lastRun;
+    if (!last || this.lastRunOn !== m) return null;
+    if (last.kind === 'liza' || last.kind === 'demo') return last.kind;
+    return (last.kind === 'game' && gameKey(last.name)) || null;
+  }
   // Is what lastRun names the program on screen now: recorded as it started on the machine in use, and nothing since
   // took the machine from it (a load, a launch, a reset, a switch, the welcome menu, a snapshot), not stopped by the
   // Debugger. The page adds its own Pause. Its panels then show it as running, not as something to Run again.
@@ -2502,7 +2515,7 @@ export class Session {
     const msg = this.loadMedia(name, bytes, askAddresses, { run });
     // a program that started: what the last one found is over, and this one is watched afresh (data only, a tape
     // in the deck: what runs is still the program that was running)
-    if (this.loadStarted) this.needsBasic?.loaded(m, name, bytes, ours);
+    if (this.loadStarted) this.needsBasic.loaded(m, name, bytes, ours);
     if (remember) { this.library.rememberMedia(name, bytes); this.setLastRun('recent', name, { running: this.loadStarted, crc: crc32(bytes) }); }
     this.emit('loaded');
     return msg;

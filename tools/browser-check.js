@@ -3956,12 +3956,32 @@ async function mediaChecks(browser, base, check) {
     {
       const other = await ctx.newPage();
       await other.goto(`${base}?machine=dragon64`); await started(other);
+      // Each step is waited for on its own condition, in order, so a failure says which one did not happen (CI once
+      // timed out here with nothing to tell them apart): B's load reaching B's own index, B's index writing the list
+      // (its queue flushed: written under the shared lock, then said on the channel), and only then A's list. Both
+      // pages' store, lists, queue and any storage notice go into the detail.
+      const media = (p) => p.evaluate(() => { const s = window.emu.session, ix = s.index;
+        return { store: s.media.kind, recent: ix.recentMedia().slice(0, 3).map((r) => `${r.name}:${r.crc}`), queued: ix.queued,
+          notice: [...document.querySelectorAll('.attention')].map((e) => e.textContent).join(' | ') || null, heard: window.__elsewhere || null }; }).catch((e) => ({ gone: String(e).slice(0, 120) }));
+      const loadedIn = async (p, name, crc) => (await waitFor(p, ([n, c]) => { const r = window.emu.session.index.recentMedia()[0]; return !!r && r.name === n && (!c || r.crc === c); }, [name, crc], 20000))
+        && (await p.evaluate(() => window.emu.session.index.flush().then(() => true, () => false)));
+      // what A hears and does: every message on its media channel, and every refresh of its index (the lists of its
+      // own still queued when it started, and what it took in, or the error mediaElsewhere would swallow). Test-side
+      // only: a listener beside the page's own and a wrapper on the index's refresh, so a failure says which link broke.
+      await page.evaluate(() => { const s = window.emu.session, log = window.__elsewhere = { messages: [], refreshes: [] };
+        if (s.mediaShare && s.mediaShare.channel) s.mediaShare.channel.addEventListener('message', (e) => log.messages.push(e.data && e.data.what));
+        const refresh = s.index.refresh.bind(s.index);
+        s.index.refresh = async () => { const queued = JSON.stringify(s.index.queued);
+          try { const changed = await refresh(); log.refreshes.push({ queued, changed }); return changed; } catch (e) { log.refreshes.push({ queued, error: String(e) }); throw e; } }; });
+      const shared = [await media(page), await media(other)];
+      check('recent: both tabs keep their media in the browser\'s shared storage (OPFS) - the precondition for the cross-tab checks', shared.every((m) => m.store === 'opfs'), JSON.stringify(shared));
       const focusRow = await page.evaluate(() => {
         const row = [...document.querySelectorAll('#recentList .row')].find((b) => b.dataset.name === 'recent-one.bin' && !b.querySelector('.copy'));   // the unlabelled copy (this page's newest of the name)
         row.focus({ preventScroll: true });
         return { was: document.activeElement === row, name: 'recent-one.bin', at: [...document.querySelectorAll('#recentList .row')].indexOf(row) };
       });
       await other.setInputFiles('#fileProgram', { name: 'elsewhere.bin', mimeType: 'application/octet-stream', buffer: A });   // a DragonDOS binary: B loads it at once
+      check('recent: the other tab loads the file and its index writes the list (B\'s side of the cross-tab check)', await loadedIn(other, 'elsewhere.bin', null), JSON.stringify(await media(other)));
       // A's list reordered: the new file at the top, the focused row one down - asserted, not assumed
       const reordered = await waitFor(page, () => {
         const rows = [...document.querySelectorAll('#recentList .row')];
@@ -3969,7 +3989,7 @@ async function mediaChecks(browser, base, check) {
       }, null, 10000);
       await page.waitForTimeout(100);   // let the redraw (and any restore) settle
       const after = await page.evaluate(() => ({ name: document.activeElement.dataset ? document.activeElement.dataset.name : null, at: [...document.querySelectorAll('#recentList .row')].indexOf(document.activeElement) }));
-      check('recent: a load in ANOTHER tab reorders this page\'s list (the new file on top) - the precondition for the focus check below', reordered, JSON.stringify(after));
+      check('recent: a load in ANOTHER tab reorders this page\'s list (the new file on top) - the precondition for the focus check below', reordered, JSON.stringify(reordered ? after : { after, A: await media(page), B: await media(other) }));
       check('recent: the reorder by another tab keeps the focus on the file it was on (by name, whatever moved - no launch here to hide a place-based jump)',
         focusRow.was && reordered && after.name === focusRow.name, JSON.stringify({ focusRow, after }));
       // the second half: a SAME-NAME load with DIFFERENT bytes in the other tab. The focused file's row
@@ -3978,6 +3998,7 @@ async function mediaChecks(browser, base, check) {
       // keyboard on THIS page's own bytes (the library's own identity: name + content hash), and the
       // row it is on must be the "2nd" copy. The new row on top is asserted first.
       await other.setInputFiles('#fileProgram', { name: 'recent-one.bin', mimeType: 'application/octet-stream', buffer: B });
+      check('recent: the other tab loads the same-name file and its index writes the list (B\'s side)', await loadedIn(other, 'recent-one.bin', null), JSON.stringify(await media(other)));
       const reorded = await waitFor(page, () => {
         const rows = [...document.querySelectorAll('#recentList .row')];
         return rows.length && rows[0].dataset.name === 'recent-one.bin' && rows[0].dataset.crc !== (document.activeElement.dataset ? document.activeElement.dataset.crc : '');
@@ -3989,7 +4010,7 @@ async function mediaChecks(browser, base, check) {
         return { name: ae.dataset ? ae.dataset.name : null, crc: ae.dataset ? ae.dataset.crc : null, tag: row && row.querySelector('.copy') ? row.querySelector('.copy').textContent : null,
           onRecent: !!(row && row.closest('#recentList')) };
       });
-      check('recent: another tab\'s load of the SAME NAME with different bytes puts its copy on top - the precondition for the same-name focus check', reorded, JSON.stringify(sameName));
+      check('recent: another tab\'s load of the SAME NAME with different bytes puts its copy on top - the precondition for the same-name focus check', reorded, JSON.stringify(reorded ? sameName : { sameName, A: await media(page), B: await media(other) }));
       check('recent: a same-name load in another tab keeps the focus on THIS page\'s own bytes (the "2nd" copy, by content hash - a name-only key lands on the other page\'s file)',
         sameName.onRecent && sameName.name === 'recent-one.bin' && sameName.tag === '2nd',
         JSON.stringify(sameName));
@@ -5451,6 +5472,102 @@ async function librarySelectChecks(browser, base, check) {
 // the chip; the hardware keyboard does not reach the machine while a sheet is open; a tape mounted from the sheet names
 // itself on its chip; opening a sheet lets go of a held stick; Hide keys, then the floating ⌨, with the chips up
 // throughout; a toast's action button is a full-size target.
+async function phoneLandscapeFirstChecks(browser, base, check) {
+  // A first visit held sideways (653x280, touch): "Open…" sits left of BREAK and "Add ROMs…" right of Menu, whole, each
+  // at least 8 px clear of its neighbour and of the window's edge (the safe area included), every tap 44 px tall, with
+  // no title of their own (the welcome screen names CLOADM) and no plate under the screen (it would cost the picture
+  // height). After the first program has run both are gone (Menu's and the app bar's again).
+  const L = 'phone sideways first visit (653x280)';
+  const c = await browser.newContext({ viewport: { width: 653, height: 280 }, hasTouch: true, isMobile: true, serviceWorkers: 'block' });
+  const p = await c.newPage();
+  const errs = [];
+  p.on('pageerror', (e) => errs.push(e.message));
+  await p.goto(`${base}?machine=dragon64`);
+  await started(p);
+  await waitFor(p, () => !document.getElementById('touchKeys').hidden && document.body.classList.contains('touch-keys'), null, 10000);
+  const read = () => p.evaluate(() => {
+    const box = (id) => { const e = document.getElementById(id); if (!e || !e.checkVisibility()) return null; const r = e.getBoundingClientRect();
+      return { l: r.left, r: r.right, t: r.top, b: r.bottom, h: Math.round(r.height), whole: e.scrollWidth <= e.clientWidth + 1, text: e.textContent.trim() }; };
+    const plate = document.querySelector('.plate');
+    const st = getComputedStyle(document.documentElement), inset = (n) => parseFloat(st.getPropertyValue(n)) || 0;
+    return { open: box('tkOpen'), roms: box('tkRoms'), brk: box('tkBreak'), menu: box('tkMenu'), vw: innerWidth, safeL: inset('--safe-l'), safeR: inset('--safe-r'),
+      plate: plate.checkVisibility(), title: [...document.querySelectorAll('#touchKeys *')].some((e) => e.checkVisibility() && e.children.length === 0 && e.textContent.trim() === 'CLOADM') };
+  });
+  const first = await read();
+  check(`${L}: no plate under the screen and no title beside the controls`, !first.plate && !first.title, JSON.stringify({ plate: first.plate, title: first.title }));
+  check(`${L}: "Open…" left of BREAK, whole, 44 px, at least 8 px clear of BREAK and of the window's edge`, !!first.open && !!first.brk && first.open.text === 'Open…' && first.open.whole && first.open.h >= 44
+    && first.brk.l - first.open.r >= 8 && first.open.l - first.safeL >= 8, JSON.stringify({ open: first.open, brk: first.brk, safeL: first.safeL }));
+  check(`${L}: "Add ROMs…" right of Menu, whole, 44 px, at least 8 px clear of Menu and of the window's edge`, !!first.roms && !!first.menu && first.roms.text === 'Add ROMs…' && first.roms.whole && first.roms.h >= 44
+    && first.roms.l - first.menu.r >= 8 && first.vw - first.safeR - first.roms.r >= 8, JSON.stringify({ roms: first.roms, menu: first.menu, vw: first.vw }));
+  // Add ROMs… opens Add ROMs; Open… asks for a file (the picker)
+  const [chooser] = await Promise.all([p.waitForEvent('filechooser', { timeout: 10000 }).catch(() => null), p.tap('#tkOpen')]);
+  check(`${L}: "Open…" opens the file picker`, !!chooser);
+  // the first program: LIZA from the menu (key 1)
+  await p.evaluate(async () => { const s = window.emu.session; s.runLiza(new Uint8Array(await (await fetch(`examples/${s.lizaFile}`)).arrayBuffer())); });
+  const after = await waitFor(p, () => !document.getElementById('tkOpen').checkVisibility() && !document.getElementById('tkRoms').checkVisibility(), null, 10000) && await read();
+  check(`${L}: after the first program Open… and Add ROMs… are gone (Menu's and the app bar's again)`, !!after && !after.open && !after.roms && !after.plate, JSON.stringify(after));
+  check(`${L}: no page errors`, !errs.length, errs.join('; '));
+  await closeCtx(c);
+}
+
+async function phoneSnapshotChecks(browser, base, check) {
+  // A phone's snapshots: Menu has "Take snapshot" and "Restore snapshot…" right under Share…. The slots' heading never
+  // stands alone: with no snapshot, "Restore snapshot…" shows the list with the line "No snapshots yet. Take one from
+  // Menu → Take snapshot."; Take snapshot fills slot 1 (the first empty one) and says so; the Library's Snapshots
+  // filter with none says the same line.
+  {
+    const L = 'phone snapshots (393x659)';
+    const c = await browser.newContext({ viewport: { width: 393, height: 659 }, hasTouch: true, isMobile: true, serviceWorkers: 'block' });
+    const p = await c.newPage();
+    const errs = [];
+    p.on('pageerror', (e) => errs.push(e.message));
+    await p.goto(`${base}?machine=dragon64`);
+    await started(p);
+    await p.tap('#btnMenu');
+    await waitFor(p, () => document.getElementById('appbar').classList.contains('menu-open'), null, 5000);
+    const items = await p.evaluate(() => [...document.querySelectorAll('#appbar nav > :is(a, button)')].filter((e) => e.checkVisibility()).map((e) => e.innerText.trim()));
+    const at = items.indexOf('Share…');
+    check(`${L}: Menu has "Take snapshot" and "Restore snapshot…" right under Share…`, at >= 0 && items[at + 1] === 'Take snapshot' && items[at + 2] === 'Restore snapshot…', JSON.stringify(items));
+    // no snapshot yet (the welcome menu runs): the list comes with its line, never a bare heading
+    await p.tap('#navSnapRestore');
+    const empty = await waitFor(p, () => document.getElementById('sheetPrograms').open && document.getElementById('quickSave').checkVisibility(), null, 5000)
+      && await p.evaluate(() => ({ line: document.getElementById('slotEmpty').checkVisibility() ? document.getElementById('slotEmpty').textContent : null,
+        rows: document.querySelectorAll('#slotList .slot-row').length, head: document.querySelector('#quickSave .eyebrow').checkVisibility() }));
+    check(`${L}: no snapshot yet: "Restore snapshot…" opens the slots list with its heading and the line "No snapshots yet. Take one from Menu → Take snapshot."`,
+      !!empty && empty.head && empty.rows === 3 && empty.line === 'No snapshots yet. Take one from Menu → Take snapshot.', JSON.stringify(empty));
+    await p.tap('#sheetPrograms .sheetdone');
+    await waitFor(p, () => !document.getElementById('sheetPrograms').open, null, 5000);
+    // Take snapshot: into slot 1, said by a toast
+    await p.tap('#btnMenu');
+    await waitFor(p, () => document.getElementById('appbar').classList.contains('menu-open'), null, 5000);
+    await p.tap('#navSnapTake');
+    const taken = await waitFor(p, () => /Snapshot 1 taken/.test(document.getElementById('toast').textContent), null, 15000)
+      && await p.evaluate(async () => (await window.emu.session.listSlots()).map((s) => !s.empty));
+    check(`${L}: "Take snapshot" takes one into slot 1, the first empty one, and says "Snapshot 1 taken"`, Array.isArray(taken) && JSON.stringify(taken) === '[true,false,false]', JSON.stringify(taken));
+    await p.tap('#btnMenu');
+    await waitFor(p, () => document.getElementById('appbar').classList.contains('menu-open'), null, 5000);
+    await p.tap('#navSnapRestore');
+    const full = await waitFor(p, () => document.getElementById('sheetPrograms').open && document.activeElement && document.activeElement.getAttribute('aria-label') === 'Restore snapshot 1', null, 5000)
+      && await p.evaluate(() => ({ line: document.getElementById('slotEmpty').checkVisibility(), row: document.querySelector('#slotList .slot-row').innerText }));
+    check(`${L}: "Restore snapshot…" opens the list with the focus on Restore snapshot 1, and the empty line is gone`, !!full && !full.line && /Snapshot 1 · /.test(full.row), JSON.stringify(full));
+    await closeCtx(c);
+    // the Library's Snapshots filter, with none
+    const c2 = await browser.newContext({ viewport: { width: 1280, height: 800 }, serviceWorkers: 'block' });
+    const p2 = await c2.newPage();
+    p2.on('pageerror', (e) => errs.push(e.message));
+    await p2.goto(`${base}?machine=dragon64`);
+    await started(p2);
+    await p2.evaluate(async () => { const b = new Uint8Array(await (await fetch('examples/demo.bin')).arrayBuffer()); await window.emu.session.library.importMedia('demo.bin', b); });
+    await p2.goto(`${base}#library`);
+    await waitFor(p2, () => !!document.querySelector('[data-kind-filter="snapshot"]') && document.querySelector('[data-kind-filter="snapshot"]').checkVisibility(), null, 15000);
+    await p2.click('[data-kind-filter="snapshot"]');
+    check('library: the Snapshots filter with none says "No snapshots yet. Take one from Menu → Take snapshot."',
+      await waitFor(p2, () => document.getElementById('libNone').checkVisibility() && document.getElementById('libNone').textContent === 'No snapshots yet. Take one from Menu → Take snapshot.', null, 10000));
+    await closeCtx(c2);
+    check(`${L}: no page errors`, !errs.length, errs.join('; '));
+  }
+}
+
 async function phoneChecks(browser, base, check) {
   const { devices } = require('playwright');
   const ctx = await browser.newContext({ ...devices['iPhone 15'], serviceWorkers: 'block' });
@@ -5556,8 +5673,8 @@ async function phoneChecks(browser, base, check) {
   // edge at or below the screen's foot; Expand makes it the whole height, Collapse gives that back
   await page.tap('#btnMenu');
   const menuOrder = await page.evaluate(() => [...document.querySelectorAll('#appbar nav > :is(a, button)')].filter((e) => e.checkVisibility()).map((e) => e.innerText.trim()));
-  check('phone: Menu lists Programs…, Add ROMs, Settings…, Share…, Install CLOADM…, Library, Debugger, Commands…, Help, GitHub, in that order (the focus order too)',
-    menuOrder.join('|') === 'Programs…|Add ROMs (BASIC needs them)|Settings…|Share…|Install CLOADM…|Library|Debugger|Commands…|Help|GitHub', JSON.stringify(menuOrder));
+  check('phone: Menu lists Programs…, Add ROMs, Settings…, Share…, Take snapshot, Restore snapshot…, Install CLOADM…, Library, Debugger, Commands…, Help, GitHub, in that order (the focus order too)',
+    menuOrder.join('|') === 'Programs…|Add ROMs (BASIC needs them)|Settings…|Share…|Take snapshot|Restore snapshot…|Install CLOADM…|Library|Debugger|Commands…|Help|GitHub', JSON.stringify(menuOrder));
   const gluedMenu = await gluedLabels(page, '#appbar nav > :is(a, button)');
   check('phone: no Menu label has words run together (each space between words drawn)', !gluedMenu.length, JSON.stringify(gluedMenu));
   await page.tap('#navSettings');
@@ -6016,7 +6133,52 @@ async function phoneChecks(browser, base, check) {
     check('desktop: every file picker on the page (' + audit.map((i) => i.id).join(', ') + ') has the accept list of its purpose, none asks for image/* or video/* or has capture',
       audit.length === Object.keys(want).length && Object.keys(want).every((id) => audit.some((i) => i.id === id)) && !bad.length, JSON.stringify({ bad, audit }));
     await closeCtx(c);
+  }  // The phone's tappable rows (Menu, Programs, the machine list) grow toward 52 px with the window's height (--row-tap):
+  // 52 on an upright phone of 393x659, 44 at the least anywhere, and every one stays reachable by a real tap -- scrolled
+  // into view, then the row is what is on top at its own centre -- at 393x659, 375x548 and 653x280 (held sideways).
+  for (const [label, viewport, tall] of [['393x659', { width: 393, height: 659 }, 52], ['375x548', { width: 375, height: 548 }, 49], ['653x280', { width: 653, height: 280 }, 44]]) {
+    const L = `phone rows (${label})`;
+    const c = await browser.newContext({ viewport, hasTouch: true, isMobile: true, serviceWorkers: 'block' });
+    const p = await c.newPage();
+    const errs = [];
+    p.on('pageerror', (e) => errs.push(e.message));
+    await p.goto(`${base}?machine=dragon64`);
+    await started(p);
+    // every visible row of a box: brought into view, then measured and hit at its centre
+    const rows = (sel) => p.evaluate((s) => [...document.querySelectorAll(s)].filter((b) => b.checkVisibility()).map((b) => {
+      b.scrollIntoView({ block: 'center' });
+      const r = b.getBoundingClientRect(), at = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      return { t: b.innerText.trim().split('\n')[0].slice(0, 24), h: Math.round(r.height), hit: !!at && (at === b || b.contains(at)), inView: r.top >= 0 && r.bottom <= innerHeight };
+    }), sel);
+    const ok = (list, min) => list.length > 0 && list.every((x) => x.hit && x.inView && x.h >= min);
+    // Menu: the app bar's (upright), or the touch keys' Menu sheet (sideways, where the keys' Menu holds it)
+    const sideways = await p.evaluate(() => !document.getElementById('btnMenu').checkVisibility());
+    if (sideways) { await waitFor(p, () => !document.getElementById('touchKeys').hidden); await p.tap('#tkMenu'); await waitFor(p, () => !document.getElementById('tkMenuSheet').hidden, null, 5000); }
+    else { await p.tap('#btnMenu'); await waitFor(p, () => document.getElementById('appbar').classList.contains('menu-open'), null, 5000); }
+    const menu = await rows(sideways ? '#tkMenuSheet button' : '#appbar nav > :is(a, button)');
+    check(`${L}: every Menu row is reachable by a tap and ${tall} px tall or more`, ok(menu, tall) && menu.length >= 6, JSON.stringify(menu));
+    // Programs…: the shelf and the lists in its sheet
+    await p.tap(sideways ? '#tkMenuSheet button:first-child' : '#navPrograms');
+    const progOpen = await waitFor(p, () => document.getElementById('sheetPrograms').open, null, 5000);
+    const prog = progOpen ? await rows('#sheetPrograms :is(#shelf button, #shelf a, #recentList button.row)') : [];
+    // (sideways keeps its rows: 40 px buttons there are counted by the short-window checks; upright they grow)
+    check(`${L}: every Programs row is reachable by a tap${sideways ? '' : ` and ${tall} px tall or more`}`, progOpen && ok(prog, sideways ? 0 : tall) && prog.length >= 4, JSON.stringify(prog));
+    await p.tap('#sheetPrograms .sheetdone');
+    await waitFor(p, () => !document.getElementById('sheetPrograms').open, null, 5000);
+    // the machine list
+    if (sideways) {
+      await p.tap('#tkMenu'); await waitFor(p, () => !document.getElementById('tkMenuSheet').hidden, null, 5000);
+      await p.locator('#tkMenuSheet button', { hasText: 'Machine…' }).tap();
+    } else await p.tap('#machineBtn');
+    const pickOpen = await waitFor(p, () => !document.getElementById('machineMenu').hidden, null, 5000);
+    const pick = pickOpen ? await rows('#machineMenu button[data-machine]') : [];
+    check(`${L}: every model in the machine list is reachable by a tap${sideways ? '' : ` and ${tall} px tall or more`}`, pickOpen && ok(pick, sideways ? 0 : tall) && pick.length >= 13, JSON.stringify(pick.filter((x) => !x.hit || !x.inView || x.h < tall)));
+    check(`${L}: no sideways scroll`, await p.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+    check(`${L}: no page errors`, !errs.length, errs.join('; '));
+    await closeCtx(c);
   }
+  await phoneSnapshotChecks(browser, base, check);
+  await phoneLandscapeFirstChecks(browser, base, check);
 }
 
 async function feedbackModelChecks(browser, base, check) {
@@ -12540,6 +12702,8 @@ async function uiCopyChecks(browser, base, check) {
     const seen = nokey.ok && /^\[No API key yet: add one (above|below|on the right)\. Get one at console\.anthropic\.com\.\]$/.test(help), keyUi = { screen: nokey.rows.join('|'), help };
     check('chat key: with no key, "No API key yet: add one … Get one at console.anthropic.com." is on the chat screen itself and in the note beside it', seen, JSON.stringify(keyUi));
     await shot(page, 'chat-nokey');
+    // (a phone folds the key card into "No API key yet · Add key…" under the screen: the button opens it)
+    if (await page.isVisible('#btnClaudeAddKey')) await page.click('#btnClaudeAddKey');
     await page.fill('#claudeKeyInput', KEY);
     await page.click('#btnClaudeKeySave');
     const savedOnScreen = await screenHas('Key saved. Type below and press ENTER.');
@@ -15610,6 +15774,261 @@ async function askChecks(browser, base, check) {
   await askGimeTextChecks(browser, base, check);
   await askPlusTextChecks(browser, base, check);
   await askBesideChecks(browser, base, check);
+  await askPromptsChecks(browser, base, check);
+}
+
+// The example questions in an empty Ask chat (js/claude/prompts.js): per situation on the page, the refresh rules, a
+// tap with and without a key, and their size on a phone. The API is mocked (a fake key; no request may be made by a
+// tap), and the real key is never used.
+async function askPromptsChecks(browser, base, check) {
+  const KEY = 'sk-ant-PROMPTS-CHECK-KEY-0123456789';
+  const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': 'POST, OPTIONS' };
+  const reply = 'event: message_start\ndata: {"type":"message_start","message":{"id":"m","type":"message","role":"assistant","model":"x","content":[]}}\n\n'
+    + 'event: content_block_start\ndata: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}\n\n'
+    + 'event: content_block_delta\ndata: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"ok"}}\n\n'
+    + 'event: content_block_stop\ndata: {"type":"content_block_stop","index":0}\n\n'
+    + 'event: message_delta\ndata: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{}}\n\nevent: message_stop\ndata: {"type":"message_stop"}\n\n';
+  // arrive: the visit arrives on a shared moment's link (Session.arrivedFromLink: the moment opened as a #z= link opens it)
+  const open = async (viewport, { key = true, url = '?machine=dragon64', arrive = true } = {}) => {
+    const ctx = await browser.newContext({ viewport, serviceWorkers: 'block', permissions: ['clipboard-read', 'clipboard-write'] });
+    const requests = [];
+    await ctx.route('https://api.anthropic.com/**', async (route) => {
+      if (route.request().method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors });
+      requests.push(route.request().url());
+      await route.fulfill({ status: 200, headers: { ...cors, 'content-type': 'text/event-stream' }, body: reply });
+    });
+    if (key) await ctx.addInitScript((k) => { try { localStorage.setItem('cloadm.anthropicKey', k); } catch (e) { /* none */ } }, KEY);
+    // (the one-time key hint is done, and a click unlocks the sound: the line under the screen has no note of its own,
+    // which would take it from the questions)
+    await ctx.addInitScript(() => { try { localStorage.setItem('cloadm.keyHintDone', '1'); } catch (e) { /* none */ } });
+    const page = await ctx.newPage();
+    const errors = [], logs = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    page.on('console', (m) => logs.push(m.text()));
+    await page.goto(`${base}${url}`);
+    await started(page);
+    if (await page.isVisible('#screenNotesBox')) await page.click('#screenNotesBox', { position: { x: 2, y: 2 } });
+    if (arrive) await page.evaluate(async () => { const s = window.emu.session; s.openSnapshot(await s.readSnapshot((await s.snapshotFile()).bytes), { shared: true, link: { kind: 'long' } }); });
+    return { ctx, page, requests, errors, logs };
+  };
+  const set = (page) => page.evaluate(() => document.getElementById('askSuggest').dataset.set || null);
+  const chips = (page) => page.evaluate(() => [...document.querySelectorAll('#askSuggest button')].map((b) => b.textContent));
+  const setIs = (page, id) => waitFor(page, (i) => !document.getElementById('askEmpty').hidden && document.getElementById('askSuggest').dataset.set === i, id, 15000);
+  const run = (page, fn, arg) => page.evaluate(fn, arg);
+
+  // ---- desktop, with a key: one situation after another ----
+  {
+    const L = 'ask prompts (desktop, key)';
+    const { ctx, page, requests, errors, logs } = await open({ width: 1440, height: 900 });
+    // the panel closed: the questions are on the line under the screen, and only there: whole ones, from the first
+    const both = () => run(page, () => ({ strip: [...document.querySelectorAll('#askStripQs button')].filter((b) => b.checkVisibility()).map((b) => b.textContent),
+      whole: [...document.querySelectorAll('#askStripQs button')].filter((b) => b.checkVisibility()).every((b) => b.scrollWidth <= b.clientWidth + 1
+        && b.getBoundingClientRect().right <= document.getElementById('screenNotes').getBoundingClientRect().right + 0.5),
+      panel: [...document.querySelectorAll('#askSuggest button')].filter((b) => b.checkVisibility()).map((b) => b.textContent),
+      label: document.getElementById('askOpenLabel').checkVisibility(), scroll: document.getElementById('askStripQs').scrollWidth <= document.getElementById('askStripQs').clientWidth + 1 }));
+    const LINK = ['What am I looking at?', 'What can I do here?', 'How do I start this from the beginning?'];
+    check(`${L}: the panel closed: the link's questions on the line under the screen, whole ones in order, not in the panel, no lead (a key is saved)`,
+      await waitFor(page, () => [...document.querySelectorAll('#askStripQs button')].some((b) => b.checkVisibility()) && document.getElementById('askSuggest').dataset.set === 'link', null, 15000)
+      && await (async () => { const b = await both(); return b.strip.length >= 1 && JSON.stringify(b.strip) === JSON.stringify(LINK.slice(0, b.strip.length)) && b.whole && b.scroll && !b.panel.length && !b.label; })(),
+      JSON.stringify(await both()));
+    // a tap there opens the panel with the question in the message box, sent nowhere
+    await page.click('#askStripQs button');
+    check(`${L}: a question under the screen opens the panel with it in the message box, not sent`, await waitFor(page, () => !document.getElementById('ask').hidden, null, 5000)
+      && await page.inputValue('#askInput') === 'What am I looking at?' && requests.length === 0
+      && (await maybeWaitFor('a tap must not send', page, () => !!window.emu.session.chat && window.emu.session.chat.messages.length > 0, null, 1000)) === false);
+    check(`${L}: the panel open: the questions are in it and gone from under the screen (never in both)`, await waitFor(page, () => document.querySelectorAll('#askSuggest button').length === 3
+      && !document.querySelectorAll('#askStripQs button').length, null, 5000), JSON.stringify(await both()));
+    await page.fill('#askInput', '');
+    check(`${L}: arrived from a link: the link's questions, three of them, with no label`, await setIs(page, 'link')
+      && JSON.stringify(await chips(page)) === JSON.stringify(['What am I looking at?', 'What can I do here?', 'How do I start this from the beginning?'])
+      && !(await page.isVisible('#askSuggestLabel')), JSON.stringify(await chips(page)));
+    // the person's first key ends the arrival; then the welcome menu (no ROMs here) starts
+    await run(page, () => window.emu.session.personInput());
+    check(`${L}: the first key ends the arrival`, await waitFor(page, () => !window.emu.session.arrivedFromLink && document.getElementById('askSuggest').dataset.set !== 'link', null, 15000), await set(page));
+    await run(page, async () => { const s = window.emu.session; s.startWelcome(new Uint8Array(await (await fetch(`examples/${s.welcomeFile}`)).arrayBuffer())); });
+    check(`${L}: the welcome menu without ROMs`, await setIs(page, 'welcome-norom')
+      && (await chips(page)).includes('How do I add my ROMs?'), await set(page));
+    check(`${L}: the change is announced politely: "Suggestions updated"`, await page.textContent('#askSuggestNote') === 'Suggestions updated'
+      && await page.getAttribute('#askSuggestNote', 'aria-live') === 'polite');
+    await run(page, () => { const s = window.emu.session, real = s.machineRoms.bind(s); s.machineRoms = (id) => Object.assign(real(id), { bootable: true }); s.emit('roms'); });
+    check(`${L}: the welcome menu with ROMs for this machine (the ROM library's answer stood in for)`, await setIs(page, 'welcome-rom')
+      && (await chips(page)).includes('Help me write my first BASIC program'), await set(page));
+    await run(page, () => { delete window.emu.session.machineRoms; });
+    const program = async (name, start) => run(page, async ([n, st]) => {
+      const s = window.emu.session, b = new Uint8Array(await (await fetch(`examples/${n}.bin`)).arrayBuffer());
+      if (st === 'liza') s.runLiza(b); else if (st === 'game') s.runGame(n, b); else { s.load(`${n}.bin`, b, { remember: false }); s.setLastRun('demo', 'Colour demo'); }
+    }, [name, start]);
+    await program('liza', 'liza');
+    check(`${L}: LIZA: LIZA's questions`, await setIs(page, 'liza') && (await chips(page))[0] === 'How does LIZA work?', await set(page));
+    await program('2048', 'game');
+    check(`${L}: 2048: the 2048 questions`, await setIs(page, '2048') && (await chips(page))[0] === 'Give me a strategy for 2048', await set(page));
+    await program('minesweeper', 'game');
+    check(`${L}: Minesweeper: its questions`, await setIs(page, 'minesweeper') && (await chips(page))[1] === 'How does it place the mines?', await set(page));
+    await program('demo', 'demo');
+    check(`${L}: the demo: its questions`, await setIs(page, 'demo') && (await chips(page))[0] === 'What are these colours?', await set(page));
+    // (a power cycle with no menu: a launch, so the demo is over, and the stub's own prompt)
+    await run(page, () => window.emu.session.powerCycle({ menu: false }));
+    check(`${L}: the stub's prompt (no BASIC): the fallback`, await setIs(page, 'fallback') && (await chips(page))[0] === 'What is this machine?', await set(page));
+    await run(page, () => window.emu.session.runAssembled(window.emu.Emu.assemble(' ORG $3000\nL INC $0400\n BRA L\n', '6809')));
+    check(`${L}: a machine-code program of the person's: the code questions`, await setIs(page, 'code') && (await chips(page))[0] === 'What is this program doing?', await set(page));
+    // refresh within 1 s of the change (500 ms debounce): the Debugger stops the machine
+    const took = await run(page, () => new Promise((done) => {
+      const box = document.getElementById('askSuggest'), t0 = performance.now();
+      const ob = new MutationObserver(() => { if (box.dataset.set === 'stopped') { ob.disconnect(); done(performance.now() - t0); } });
+      ob.observe(box, { attributes: true });
+      window.emu.session.debug.halt();
+      setTimeout(() => { ob.disconnect(); done(null); }, 5000);
+    }));
+    check(`${L}: the Debugger stops the machine: the stop's questions, within 1 s`, took != null && took <= 1000 && (await chips(page))[0] === 'Why did it stop here?', String(took));
+    // frozen while the box has text
+    await page.fill('#askInput', 'my own words');
+    await run(page, () => window.emu.session.resume());
+    check(`${L}: with text in the box the chips stay as they are`, await maybeWaitFor('the chips must not change while the box has text', page, () => document.getElementById('askSuggest').dataset.set !== 'stopped', null, 2500) === false
+      && await set(page) === 'stopped');
+    await page.fill('#askInput', '');
+    check(`${L}: the box emptied: they follow the machine again`, await setIs(page, 'code'), await set(page));
+    // frozen while a pointer is down on the panel
+    await page.mouse.move(...await run(page, () => { const r = document.getElementById('askEmptyText').getBoundingClientRect(); return [r.left + 5, r.top + 5]; }));
+    await page.mouse.down();
+    await run(page, () => window.emu.session.debug.halt());
+    check(`${L}: with a pointer down the chips stay as they are`, await maybeWaitFor('the chips must not change under a pointer', page, () => document.getElementById('askSuggest').dataset.set !== 'code', null, 2000) === false);
+    await page.mouse.up();
+    check(`${L}: the pointer up: they follow again`, await setIs(page, 'stopped'));
+    await run(page, () => window.emu.session.resume());
+    await setIs(page, 'code');
+    // a tap fills the box and sends nothing
+    const before = requests.length;
+    await page.click('#askSuggest button:nth-child(2)');
+    check(`${L}: a tap fills the message box with the question and sends nothing`, await page.inputValue('#askInput') === "Show me the code that's running now"
+      && (await maybeWaitFor('a tap must not send', page, () => !!window.emu.session.chat && window.emu.session.chat.messages.length > 0, null, 1500)) === false && requests.length === before);
+    await page.press('#askInput', 'Enter');
+    await waitFor(page, () => window.emu.session.chat && !window.emu.session.chat.busy && window.emu.session.chat.messages.length >= 2, null, 15000);
+    check(`${L}: after the first message no chips show`, !(await page.isVisible('#askEmpty')) && !(await page.isVisible('#askSuggest button')) && requests.length === before + 1);
+    // a new conversation (the stage has no New chat control: the conversation ends as the full-screen chat's close ends
+    // it, Session.endChat): the chips are back
+    await run(page, () => window.emu.session.endChat());
+    await page.click('#btnAskClose');
+    await page.click('#btnAsk');
+    check(`${L}: a new chat: the chips are back`, await setIs(page, 'code'));
+    check(`${L}: the key never reaches the console`, !logs.join('\n').includes(KEY));
+    check(`${L}: no page errors`, !errors.length, errors.join('; '));
+    await closeCtx(ctx);
+  }
+
+  // ---- 1280x720, no key: "Once Claude is connected:" leads the line under the screen, whole questions only, Reset
+  // stays in the window; a tap opens the panel with the question selected and the two choices; the key keeps it ----
+  {
+    const L = 'ask prompts (1280x720, no key)';
+    const { ctx, page, requests, errors } = await open({ width: 1280, height: 720 }, { key: false });
+    const line = await waitFor(page, () => [...document.querySelectorAll('#askStripQs button')].some((b) => b.checkVisibility()) && document.getElementById('askSuggest').dataset.set === 'link', null, 15000)
+      && await run(page, () => {
+        const notes = document.getElementById('screenNotes').getBoundingClientRect(), lead = document.getElementById('askOpenLabel');
+        const qs = [...document.querySelectorAll('#askStripQs button')].filter((b) => b.checkVisibility());
+        return { lead: lead.checkVisibility() ? lead.textContent : null, first: lead.compareDocumentPosition(qs[0]) & Node.DOCUMENT_POSITION_FOLLOWING ? 'lead' : 'question',
+          qs: qs.map((b) => b.textContent), whole: qs.every((b) => b.scrollWidth <= b.clientWidth + 1 && b.getBoundingClientRect().right <= notes.right + 0.5 && b.getBoundingClientRect().left >= notes.left - 0.5),
+          oneLine: qs.every((b) => Math.abs(b.getBoundingClientRect().top - qs[0].getBoundingClientRect().top) < 1), notesH: Math.round(notes.height),
+          reset: document.getElementById('btnReset').getBoundingClientRect().bottom, vh: innerHeight };
+      });
+    check(`${L}: the line under the screen: "Once Claude is connected:" then whole questions on one line, the slot's height kept, Reset inside the window`,
+      !!line && line.lead === 'Once Claude is connected:' && line.first === 'lead' && line.qs.length >= 1 && line.qs[0] === 'What am I looking at?' && line.whole && line.oneLine
+        && line.notesH === 44 && line.reset <= line.vh, JSON.stringify(line));
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, 'ask-prompts-1280x720-nokey.png') });
+    await page.click('#askStripQs button');
+    await waitFor(page, () => !document.getElementById('ask').hidden, null, 10000);
+    const carried = await run(page, () => { const sel = document.querySelector('#askSuggest button[aria-pressed="true"]');
+      return { sel: sel && sel.textContent, choose: document.getElementById('askChoose').checkVisibility(), strip: [...document.querySelectorAll('#askStripQs button')].filter((b) => b.checkVisibility()).length }; });
+    check(`${L}: a tap opens the panel with that question selected and the two choices shown, none under the screen, nothing sent`,
+      carried.sel === 'What am I looking at?' && carried.choose && carried.strip === 0 && requests.length === 0, JSON.stringify(carried));
+    await page.click('#btnAskHaveKey');
+    await page.fill('#askKeyInput', KEY);
+    await page.click('#btnAskKeySave');
+    check(`${L}: the key entered, the question is in the message box, not sent`, await waitFor(page, () => document.getElementById('askInput').value === 'What am I looking at?', null, 5000)
+      && requests.length === 0);
+    check(`${L}: no page errors`, !errors.length, errors.join('; '));
+    await closeCtx(ctx);
+  }
+
+  // ---- phones, without a key: the label, select, the two choices; the size of the chips ----
+  for (const [label, viewport] of [['393x659', { width: 393, height: 659 }], ['653x280', { width: 653, height: 280 }]]) {
+    const L = `ask prompts (phone ${label}, no key)`;
+    const { ctx, page, requests, errors, logs } = await open(viewport, { key: false });
+    // a phone has no line of questions under the screen (no room): they are in the panel only
+    check(`${L}: the panel closed: no questions under the screen on a phone`, await maybeWaitFor('a phone shows no questions under the screen', page,
+      () => [...document.querySelectorAll('#askStripQs button')].some((b) => b.checkVisibility()), null, 1500) === false);
+    await page.click('#btnAsk');
+    await waitFor(page, () => !document.getElementById('ask').hidden, null, 10000);
+    await run(page, () => { const h = document.getElementById('askHandle'); for (let i = 0; i < 3 && document.getElementById('ask').dataset.height !== 'full'; i++) h.click(); });
+    check(`${L}: the questions sit under "You could ask, once Claude is connected:", not in a chat box`, await setIs(page, 'link')
+      && await page.isVisible('#askSuggestLabel') && await page.textContent('#askSuggestLabel') === 'You could ask, once Claude is connected:' && !(await page.isVisible('#askComposer')));
+    // every chip can be brought into view and tapped, 44 px tall or more
+    const sizes = await run(page, () => [...document.querySelectorAll('#askSuggest button')].map((b) => {
+      b.scrollIntoView({ block: 'nearest' });
+      const r = b.getBoundingClientRect(), at = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      return { h: Math.round(r.height), w: Math.round(r.width), hit: !!at && (at === b || b.contains(at)), inView: r.top >= 0 && r.bottom <= innerHeight && r.left >= 0 && r.right <= innerWidth };
+    }));
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, `ask-prompts-nokey-${label}.png`) });
+    check(`${L}: every chip is reachable and at least 44 px tall`, sizes.length === 3 && sizes.every((x) => x.h >= 44 && x.hit && x.inView), JSON.stringify(sizes));
+    await run(page, () => document.querySelector('#askSuggest button:nth-child(1)').scrollIntoView({ block: 'nearest' }));
+    await page.click('#askSuggest button:nth-child(1)');
+    const chooseOk = await run(page, () => [...document.querySelectorAll('#askChoose button')].map((b) => {
+      b.scrollIntoView({ block: 'nearest' });
+      const r = b.getBoundingClientRect(), at = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      return { t: b.textContent, h: Math.round(r.height), hit: !!at && (at === b || b.contains(at)) };
+    }));
+    check(`${L}: a tap selects the question and brings the two choices forward`, await page.getAttribute('#askSuggest button:nth-child(1)', 'aria-pressed') === 'true'
+      && JSON.stringify(chooseOk.map((c) => c.t)) === JSON.stringify(['I have an API key', 'I use Claude →']) && chooseOk.every((c) => c.h >= 44 && c.hit), JSON.stringify(chooseOk));
+    // selected: the chips stay (a change on the machine does not take the question away)
+    await run(page, () => window.emu.session.personInput());
+    check(`${L}: while a question is selected the chips stay`, await maybeWaitFor('a selected question must stay', page, () => document.getElementById('askSuggest').dataset.set !== 'link', null, 1500) === false
+      && await page.getAttribute('#askSuggest button:nth-child(1)', 'aria-pressed') === 'true');
+    await page.click('#btnAskUseClaude');
+    check(`${L}: "I use Claude →" copies the question and says so`, await waitFor(page, () => /Question copied: paste it in Claude after you open CLOADM there\./.test(document.getElementById('toast').textContent), null, 5000)
+      && await run(page, () => navigator.clipboard.readText()) === 'What am I looking at?');
+    await page.click('#btnAskHaveKey');
+    check(`${L}: "I have an API key" takes the person to the key`, await run(page, () => document.activeElement && document.activeElement.id === 'askKeyInput'));
+    await page.fill('#askKeyInput', KEY);
+    await page.click('#btnAskKeySave');
+    check(`${L}: once the key is saved the question fills the message box, not sent`, await waitFor(page, () => document.getElementById('askInput').value === 'What am I looking at?', null, 5000)
+      && requests.length === 0);
+    check(`${L}: no request was made by any tap`, requests.length === 0);
+    check(`${L}: the key never reaches the console`, !logs.join('\n').includes(KEY));
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, `ask-prompts-${label}.png`) });
+    check(`${L}: no sideways scroll`, await run(page, () => document.documentElement.scrollWidth <= innerWidth));
+    check(`${L}: no page errors`, !errors.length, errors.join('; '));
+    await closeCtx(ctx);
+  }
+
+  // ---- Claude features Off (Settings -> Machine): no chips, nothing asked of the API, back with On ----
+  {
+    const L = 'ask prompts (Claude features Off)';
+    const { ctx, page, requests, errors } = await open({ width: 1440, height: 900 });
+    await page.click('#btnAsk');
+    await setIs(page, 'link');
+    await run(page, () => document.getElementById('btnClaudeOff').click());
+    await run(page, () => window.emu.session.debug.halt());
+    // (longer than the 500 ms the chips take to follow a change: none may come)
+    await maybeWaitFor('no chip may come back while Off', page, () => !!document.querySelector('#askSuggest button'), null, 1500);
+    check(`${L}: Off: the panel is closed and no question is left, in it or under the machine, even after the machine changes`, await run(page, () => document.getElementById('ask').hidden
+      && !document.querySelectorAll('#askSuggest button, #askStripQs button').length && !document.getElementById('askOpeners').checkVisibility()
+      && !document.getElementById('askSuggest').dataset.set && document.body.classList.contains('claude-off')));
+    check(`${L}: Off: nothing asked of the API`, requests.length === 0);
+    await run(page, () => { window.emu.session.resume(); document.getElementById('btnClaudeOn').click(); });
+    await page.click('#btnAsk');
+    check(`${L}: On again: the chips are back, read afresh`, await setIs(page, 'link') && (await chips(page)).length === 3);
+    check(`${L}: no page errors`, !errors.length, errors.join('; '));
+    await closeCtx(ctx);
+  }
+
+  // ---- the chat not offered (a page without the chat: embed=1): no chips, no fetch ----
+  {
+    const L = 'ask prompts (no chat: embed)';
+    const { ctx, page, requests, errors } = await open({ width: 1024, height: 768 }, { url: '?embed=1&machine=dragon64' });
+    await emuFrames(page, 60);
+    check(`${L}: no chips anywhere and nothing asked of the API`, await run(page, () => document.body.classList.contains('no-claude') && !document.querySelectorAll('#askSuggest button').length)
+      && requests.length === 0);
+    check(`${L}: no page errors`, !errors.length, errors.join('; '));
+    await closeCtx(ctx);
+  }
 }
 
 // Asking Claude opens the side panel (the sheet on a phone) beside the person's own machine, whatever is on it: the
@@ -15999,28 +16418,54 @@ async function phoneChatChecks(browser, base, check) {
     await page.goto(`${base}?machine=dragon64&app=claude`);
     await waitFor(page, () => window.emu && window.emu.session && window.emu.session.claudeView === 'full' && document.body.classList.contains('chat-phone'), null, 20000);
     await emuFrames(page, 5);
+    // no key: the chat's screen comes first, in view at the top; the key card and the BASIC session card are one line
+    // under it, "No API key yet · Add key…"; no "type on the screen and press ENTER" toast (the screen's own no-key line
+    // is the cue)
     const key = await page.evaluate(() => {
       const r = (id) => document.getElementById(id).getBoundingClientRect();
       const inView = (b) => b.height > 0 && b.top >= 0 && b.bottom <= innerHeight && b.left >= 0 && b.right <= innerWidth;
-      const i = r('claudeKeyInput'), s = r('btnClaudeKeySave');
-      return { scrollY, input: inView(i), save: inView(s), onTop: document.elementFromPoint(i.left + i.width / 2, i.top + i.height / 2) === document.getElementById('claudeKeyInput'),
-        keys: !document.getElementById('touchKeys').hidden, help: document.getElementById('claudeHelp').textContent, appbar: getComputedStyle(document.querySelector('.appbar')).display };
+      const t = document.getElementById('screen').closest('.tube').getBoundingClientRect(), f = r('claudeFold'), add = r('btnClaudeAddKey');
+      // (five points of the button, its middle and near its corners: a key's gap must not pass for "not covered")
+      const btn = document.getElementById('btnClaudeAddKey'), pts = [[0.5, 0.5], [0.1, 0.15], [0.9, 0.15], [0.1, 0.85], [0.9, 0.85]];
+      const covered = pts.filter(([x, y]) => { const at = document.elementFromPoint(add.left + add.width * x, add.top + add.height * y); return !at || !(at === btn || btn.contains(at)); }).length;
+      return { scrollY, screenFirst: t.top < f.top || t.right <= f.left, screenTop: Math.round(t.top), screenSeen: t.top >= 0 && t.top < innerHeight / 2,
+        fold: document.getElementById('claudeFold').checkVisibility() ? document.getElementById('claudeFold').innerText.replace(/\s+/g, ' ').trim() : null,
+        addH: Math.round(add.height), addInView: inView(add), addCovered: covered,
+        card: document.getElementById('claudeKeyCard').checkVisibility(), session: document.getElementById('claudeSession').checkVisibility(),
+        toast: document.getElementById('toast').textContent, keys: !document.getElementById('touchKeys').hidden,
+        help: document.getElementById('claudeHelp').textContent, appbar: getComputedStyle(document.querySelector('.appbar')).display };
     });
-    check(`phone chat (${label}): no key: the key field and Save are on screen as the chat opens, not covered, the machine keyboard stands aside`,
-      key.scrollY === 0 && key.input && key.save && key.onTop && !key.keys, JSON.stringify(key));
-    if (label === 'portrait') check('phone chat (portrait): no key: the help line says the key goes above (the card comes first), not "on the right"', /add one above/.test(key.help) && !/right/.test(key.help), key.help);
-    else {
-      // held sideways the card sits beside the screen, so both fit the height (PC-M2: the screen was a screen and a half down)
-      const side = await page.evaluate(() => { const s = document.getElementById('screen').closest('.tube').getBoundingClientRect(), c = document.getElementById('claudeKeyCard').getBoundingClientRect();
-        return { screen: s.top >= 0 && s.bottom <= innerHeight && s.height > 200, beside: c.left >= s.right }; });
-      check('phone chat (sideways): no key: the key card is beside the screen, both on screen, and the help line says "on the right"', side.screen && side.beside && /add one on the right/.test(key.help),
-        JSON.stringify({ ...side, help: key.help }));
-    }
+    check(`phone chat (${label}): no key: the chat's screen comes first and is in view; under it one line "No API key yet · Add key…" stands for the key card and the BASIC session card`,
+      key.scrollY === 0 && key.screenFirst && key.screenSeen && key.fold === 'No API key yet · Add key…' && !key.card && !key.session && key.addH >= 44, JSON.stringify(key));
+    check(`phone chat (${label}): no key: "Add key…" is on screen and nothing lies over it: the machine keyboard stands aside`,
+      key.addInView && key.addCovered === 0 && !key.keys, JSON.stringify({ inView: key.addInView, covered: key.addCovered, keys: key.keys }));
+    check(`phone chat (${label}): no key: no "type on the screen and press ENTER" toast`, !/press ENTER/.test(key.toast), key.toast);
     check(`phone chat (${label}): the app bar gives way to the chat bar (its "← Emulator" leads back)`, key.appbar === 'none' && await page.isVisible('#btnClaudeBack'));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, `phone-chat-${label}-nokey.png`) });
+    // a line typed with no key: no turn starts (no "Thinking…", no request), and the page's no-key line answers it
+    await page.evaluate(() => window.emu.session.typeText('hello\n'));
+    const typed = await waitFor(page, () => !!window.emu.session.chat.error && window.emu.session.chat.error.code === 'no-key', null, 15000)
+      && await page.evaluate(() => ({ status: window.emu.session.claudeStatus, busy: window.emu.session.chat.busy, nokey: window.emu.session.shownMachine.peek(0x7024) }));
+    check(`phone chat (${label}): a line typed with no key starts no turn: no "Thinking…", no request, and the firmware is told there is no key`,
+      !!typed && typed.status === null && !typed.busy && typed.nokey === 1 && requests.length === 0, JSON.stringify(typed));
+    // "Add key…" opens the form: the key field and Save on screen, not covered, the machine keyboard stands aside
+    await page.evaluate(() => document.getElementById('btnClaudeAddKey').scrollIntoView({ block: 'center' }));
+    await page.tap('#btnClaudeAddKey');
+    const form = await page.evaluate(() => {
+      const r = (id) => document.getElementById(id).getBoundingClientRect();
+      const inView = (b) => b.height > 0 && b.top >= 0 && b.bottom <= innerHeight && b.left >= 0 && b.right <= innerWidth;
+      const i = r('claudeKeyInput'), s = r('btnClaudeKeySave');
+      return { input: inView(i), save: inView(s), onTop: document.elementFromPoint(i.left + i.width / 2, i.top + i.height / 2) === document.getElementById('claudeKeyInput'),
+        focus: document.activeElement.id, fold: document.getElementById('claudeFold').checkVisibility(), keys: !document.getElementById('touchKeys').hidden };
+    });
+    check(`phone chat (${label}): "Add key…" opens the key form, its field focused and on screen with Save, not covered; the machine keyboard stands aside`,
+      form.input && form.save && form.onTop && form.focus === 'claudeKeyInput' && !form.fold && !form.keys, JSON.stringify(form));
     await page.fill('#claudeKeyInput', 'sk-ant-PHONE-CHECK-0123456789');
     await page.tap('#btnClaudeKeySave');
     check(`phone chat (${label}): with the key saved the machine keyboard is back`, await waitFor(page, () => !document.getElementById('touchKeys').hidden && document.getElementById('claudeKeyCard').hidden));
+    check(`phone chat (${label}): the BASIC session card says "No BASIC ROMs added, so BASIC programs won't run here. Claude can still read and change the machine's memory."`,
+      await page.evaluate(() => document.getElementById('claudeBasicNote').textContent) === 'No BASIC ROMs added, so BASIC programs won\'t run here. Claude can still read and change the machine\'s memory.',
+      await page.evaluate(() => document.getElementById('claudeBasicNote').textContent));
     check(`phone chat (${label}): and the screen has the focus, so a keyboard types into the chat at once (PC-M3)`, await page.evaluate(() => document.activeElement.id) === 'screen',
       await page.evaluate(() => document.activeElement.id || document.activeElement.tagName));
     await emuFrames(page, 3);
@@ -16332,7 +16777,7 @@ async function emulatorBackChecks(browser, base, check) {
 }
 
 // The controls under the screen stay put on a first visit. #screenNotes is one line of fixed height with one note
-// in it at a time ("click for sound", then the key hint, then the typing line), and the monitor leaves room for it, so Reset is
+// in it at a time ("click for sound", then the key hint, then the typing line while the screen has the focus), and the monitor leaves room for it, so Reset is
 // inside the window and does not move when a note comes or goes (sound starts, the key hint finishes, the boot help
 // shows and hides).
 async function foldChecks(browser, base, check) {
@@ -16341,7 +16786,9 @@ async function foldChecks(browser, base, check) {
     const vis = (id) => { const e = document.getElementById(id); return !!e && !e.hidden && getComputedStyle(e).display !== 'none' && getComputedStyle(e).visibility !== 'hidden'; };
     const notes = document.getElementById('screenNotes'), r = document.getElementById('btnReset').getBoundingClientRect(), n = notes.getBoundingClientRect(), s = getComputedStyle(notes);
     return { resetY: r.y, resetBottom: r.bottom, vh: innerHeight, notesH: n.height, notesY: n.y, notesShown: s.display !== 'none' && s.visibility !== 'hidden' && n.height > 0,
-      sound: vis('soundHint'), keys: vis('keyHint'), text: [...notes.children].filter((c) => vis(c.id)).map((c) => c.textContent.trim()), boot: vis('bootHelp'),
+      sound: vis('soundHint'), keys: vis('keyHint'), text: [...notes.children].filter((c) => c.id !== 'askStripQs' && vis(c.id)).map((c) => c.textContent.trim()), boot: vis('bootHelp'),
+      // (the Ask panel's example questions take the line when no note is in it: js/ui/ask.js; they are not a note)
+      qs: vis('askStripQs'),
       monitorBottom: document.getElementById('monitor').getBoundingClientRect().bottom };
   });
   const run = async (label, viewport, query) => {
@@ -16366,7 +16813,8 @@ async function foldChecks(browser, base, check) {
     at.sound = await probe(page);
     check(`${L}: sound started: the key hint takes the line (one note, the sound note is gone)`, at.sound.notesShown && at.sound.text.length === 1 && at.sound.text[0] === NOTE_TEXT.keys, JSON.stringify(at.sound));
     await bootToggle(true); at.bootOn2 = await probe(page);
-    check(`${L}: the boot help showing takes the key hint's place (the line stays, with the typing line)`, at.bootOn2.boot && at.bootOn2.notesShown && JSON.stringify(at.bootOn2.text) === JSON.stringify([NOTE_TEXT.typing]), JSON.stringify(at.bootOn2));
+    // (the screen does not have the focus here, so the typing line is not shown either)
+    check(`${L}: the boot help showing takes the key hint's place (the line stays, empty: the screen is not focused)`, at.bootOn2.boot && at.bootOn2.notesShown && at.bootOn2.text.length === 0 && !at.bootOn2.qs, JSON.stringify(at.bootOn2));
     await bootToggle(false); at.bootOff2 = await probe(page);
     await waitFor(page, () => !document.getElementById('keyHint').hidden);
     at.keys = await probe(page);
@@ -16375,7 +16823,11 @@ async function foldChecks(browser, base, check) {
     await waitFor(page, () => document.getElementById('keyHint').hidden);
     await emuFrames(page, 2);
     at.done = await probe(page);
-    check(`${L}: the hints done: the typing line, alone, at the line's height`, at.done.notesShown && JSON.stringify(at.done.text) === JSON.stringify([NOTE_TEXT.typing]) && at.done.notesH === at.load.notesH, JSON.stringify(at.done));
+    check(`${L}: the hints done, the screen focused: the typing line, alone, at the line's height (no example questions: the typing line has the line)`, at.done.notesShown && JSON.stringify(at.done.text) === JSON.stringify([NOTE_TEXT.typing]) && !at.done.qs && at.done.notesH === at.load.notesH && !at.load.qs && !at.sound.qs, JSON.stringify(at.done));
+    // the focus elsewhere: no note, and the example questions take the line (they are not a note), at the same height
+    await page.evaluate(() => document.getElementById('screen').blur()); await emuFrames(page, 2);
+    at.away = await probe(page);
+    check(`${L}: the focus off the screen: no note, the line keeps its height, and the example questions take it`, at.away.notesShown && at.away.text.length === 0 && at.away.qs && at.away.notesH === at.load.notesH, JSON.stringify(at.away));
     const ys = Object.entries(at).map(([k, v]) => [k, v.resetY]), heights = new Set(Object.values(at).map((v) => v.notesH)), tops = new Set(Object.values(at).map((v) => v.notesY));
     check(`${L}: Reset's y is identical (0 px) across load, sound starting, the key hint, the boot help showing and hiding, and the hint finishing`,
       new Set(ys.map(([, y]) => y)).size === 1 && heights.size === 1 && tops.size === 1, JSON.stringify(ys));
@@ -16874,8 +17326,8 @@ async function settingsChecks(browser, base, check) {
     await waitFor(page, () => !document.getElementById('askInput').checkVisibility());
     await openTab(page, 'Machine');
   }
-  // Off with a key saved and "?SN ERROR" on the screen: no opener shows, and no door reaches the API - not the opener's
-  // own button clicked anyway, not a question typed in the command box - ZERO requests
+  // Off with a key saved and "?SN ERROR" on the screen: no question shows under the machine, and no door reaches the API -
+  // not the hidden Ask button pressed anyway, not a question typed in the command box - ZERO requests
   {
     const offCtx = await browser.newContext({ serviceWorkers: 'block' });
     await offCtx.addInitScript(() => { try { localStorage.setItem('cloadm.anthropicKey', 'sk-ant-OFF-CHECK-KEY-0123456789'); localStorage.setItem('cloadm.claudeFeatures', '0'); } catch (e) { /* none */ } });
@@ -16892,14 +17344,15 @@ async function settingsChecks(browser, base, check) {
       return waitFor(op, () => /\?SN ERROR/.test(window.emu.session.screenText()[12]), null, 5000); };
     await sn();
     await op.waitForTimeout(600);
-    const off = await op.evaluate(() => ({ text: window.emu.session.screenText()[12], openers: document.getElementById('askOpeners').checkVisibility(), err: document.getElementById('btnOpenErr').checkVisibility() }));
-    await op.evaluate(() => document.getElementById('btnOpenErr').click());
+    const off = await op.evaluate(() => ({ text: window.emu.session.screenText()[12], openers: document.getElementById('askOpeners').checkVisibility(), err: document.querySelectorAll('#askStripQs button, #askSuggest button').length > 0 }));
+    // (the hidden Ask button is a door too: pressed anyway, it refuses and says why)
+    await op.evaluate(() => document.getElementById('btnAsk').click());
     const said = await waitFor(op, () => /Claude features are off \(Settings → Machine\)\./.test(document.getElementById('toast').textContent), null, 3000);
     await op.click('#screen'); await op.keyboard.press('Control+k'); await waitFor(op, () => !document.getElementById('cmdBox').hidden);
     await op.fill('#cmdInput', 'what does this error mean?'); await op.keyboard.press('Enter'); await op.keyboard.press('Escape');
     await op.waitForTimeout(800);
     const after = await op.evaluate(() => ({ view: window.emu.session.claudeView, chat: !!window.emu.session.chat, toast: document.getElementById('toast').textContent }));
-    check('settings: Claude features Off, a key saved, "?SN ERROR" on the screen: no opener shows, nothing opens, and not one request reaches the API',
+    check('settings: Claude features Off, a key saved, "?SN ERROR" on the screen: no question shows under the machine, nothing opens, and not one request reaches the API',
       /\?SN ERROR/.test(off.text) && !off.openers && !off.err && api.length === 0 && after.view !== 'panel' && after.view !== 'full' && !after.chat
       && said, JSON.stringify({ off, after, api, said }));
     // the landscape keys' Menu (js/ui/touch-keys.js) has no "Ask Claude…" while Off, and its opener (page.openAsk) opens nothing
@@ -16913,7 +17366,8 @@ async function settingsChecks(browser, base, check) {
     // the test sees what it looks for: On, the same screen shows the opener
     await op.evaluate(() => window.emu.session.setClaudeFeatures(true));
     await sn();
-    check('settings: (the same screen with Claude features On shows "Explain this error")', await waitFor(op, () => document.getElementById('btnOpenErr').checkVisibility(), null, 5000) && api.length === 0);
+    // (drawn for the line under the screen; a note there, the sound note, may hold the line meanwhile)
+    check('settings: (the same screen with Claude features On draws the example questions for the line under the screen)', await waitFor(op, () => document.querySelectorAll('#askStripQs button').length === 3, null, 5000) && api.length === 0);
     const menuOn = await menuAsk();
     check('settings: (with Claude features On the landscape Menu has "Ask Claude…")', menuOn !== 'none' && menuOn !== 'missing', menuOn);
     await offCtx.close();
@@ -21640,8 +22094,8 @@ async function mobileChecks(browser, base, check) {
     const items = await page.evaluate(() => [...document.querySelectorAll('.appbar nav > *')].filter((e) => e.checkVisibility()).map((e) => e.innerText.replace(/\s+/g, ' ').trim()));
     // the first item says why ROMs, and wears Menu's dot
     const itemDot = await page.evaluate(() => { const d = document.querySelector('#navRoms .dot'); return !!d && d.checkVisibility() && getComputedStyle(d).backgroundColor === getComputedStyle(document.getElementById('btnMenu'), '::after').backgroundColor; });
-    check('mobile (393x659): Menu has a dot while there is no BASIC, and lists Programs… first, then "Add ROMs (BASIC needs them)", with the same dot, Settings…, Share…, Install CLOADM…, the links, Commands…, Help and GitHub',
-      dot && itemDot && items.join('|') === 'Programs…|Add ROMs (BASIC needs them)|Settings…|Share…|Install CLOADM…|Library|Debugger|Commands…|Help|GitHub', JSON.stringify({ dot, itemDot, items }));
+    check('mobile (393x659): Menu has a dot while there is no BASIC, and lists Programs… first, then "Add ROMs (BASIC needs them)", with the same dot, Settings…, Share…, Take snapshot, Restore snapshot…, Install CLOADM…, the links, Commands…, Help and GitHub',
+      dot && itemDot && items.join('|') === 'Programs…|Add ROMs (BASIC needs them)|Settings…|Share…|Take snapshot|Restore snapshot…|Install CLOADM…|Library|Debugger|Commands…|Help|GitHub', JSON.stringify({ dot, itemDot, items }));
     const glued = await gluedLabels(page, '.appbar nav > *');
     check('mobile (393x659): no Menu label has words run together', !glued.length, JSON.stringify(glued));
     check('mobile (393x659): opening Menu moves nothing in the bar', JSON.stringify(before) === JSON.stringify(await row()));

@@ -10,6 +10,18 @@ Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.
 
 #### Added
 
+- **Ask Claude suggests three questions for what is on the machine,** on the line under the screen while the panel is
+  closed (whole questions only, a note there taking the line; none on a phone) and in its empty chat while it is open
+  (never both), in place of the fixed "Explain this error" and "Help with my program" openers. They fit the moment: the Debugger's stop, a visit that just arrived from a link, WYRMFIRE, the welcome menu (without and with
+  ROMs), LIZA, 2048, Minesweeper, the colour demo, a machine-code program of yours, BASIC with a program, empty or
+  running one, else a general set. They are read from the Session's and the machine's state (`js/claude/prompts.js`,
+  tested in Node), never from pixels or a model. With a key a tap fills the message box (opening the panel from under the machine) and sends
+  nothing; without one they sit under "You could ask, once Claude is connected:" ("Once Claude is connected:" on the line under the
+  screen), and a tap offers **I have an API key** (the question
+  fills the box once the key is saved) or **I use Claude →** (the question is copied). They follow the machine half a
+  second after it changes while the chat and the box are empty, hold still while you type, press or have one
+  selected, are announced as "Suggestions updated", and go after the first message. With Claude features Off, or the
+  chat not offered (an embed), there are none.
 - **WYRMFIRE's credits screen, and Freedoom's notice on the level disk.** WYRMFIRE is re-pinned to a commit
   (775ec6c) whose engine shows a credits screen: **C** on the title shows the level disk's own credit lines and the
   engine's, "LEVEL DATA: FREEDOOM (BSD)", "MODIFIED FOR THE DRAGON 64", "WYRMFIRE  GPL-3.0" and "NOT AFFILIATED
@@ -35,7 +47,7 @@ Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.
 - **Claude features: On / Off** (Settings → Machine), On by default. Off hides the Ask button, the command box's Claude
   rows and "Ask Claude" row, and the Programs row "Chat with Claude"; the welcome menu's firmware item stays. Kept,
   and in the settings export (`tests/claude-features.test.js`, the browser check's `settings` group). Off closes every
-  door, not only the visible ones: the "Explain this error" and "Help with my program" openers don't show, every
+  door, not only the visible ones: the example questions under the machine don't show, every
   turn-starter in `js/ui/claude.js` (the panel, the full chat, "What is this code doing?", and the ask itself) refuses,
   `?app=claude` and the embed chip's tab say "Claude features are off (Settings → Machine)." instead of opening the
   chat, and turning Off stops a running turn. The browser check puts "?SN ERROR" on the screen with a key saved and
@@ -179,9 +191,8 @@ Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.
   firmware now exports what it implements: `stubRom`'s `implemented`, each family's `basicRomAt`), once per load,
   cleared by a reset, and never for the bundled programs, the all-RAM map, CoCo 3 RAM mode, a cartridge's space with a
   cartridge in, a machine with BASIC, WYRMFIRE, or while the Debugger is stopped or stepping (`Debugger.commanding`). Tested in
-  `tests/needs-basic.test.js` and the browser check's new `needsBasic` group. The side panel has no card for it: its
-  folded view leaves the detector out (`connector/view/needs-basic-off.js` in its place; the Session's `needsBasic` is
-  null there, and Run again, `needsBasic.runAgain()`, is the detector's), which keeps the view inside its size budget.
+  `tests/needs-basic.test.js` and the browser check's new `needsBasic` group. The detector is the Session's
+  `needsBasic` (Run again is `needsBasic.runAgain()`); the side panel runs it too, and shows no card.
 
 - **A quieter desktop app bar.** Its links are **Programs…** (the Media tab's programs, now at every width),
   **Library** and **More ▾**, which lists Debugger, Commands…, Help, GitHub and **Install CLOADM…** (only while the
@@ -251,6 +262,24 @@ Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.
 - **Menu never wears its dot while the "No BASIC · Add ROMs" pill shows.** The dot stands for the pill where the app
   bar has folded it into Menu; the browser check's new `noRomChrome` group sweeps 320 to 1600 px, with a mouse and on a
   touch screen, and fails on a width where both show.
+- **A phone's snapshots are in Menu.** "Take snapshot" (into the first empty quick-save slot, else the one taken
+  longest ago, with Undo) and "Restore snapshot…" (the slots list) sit under Share…. The slots' heading never stands
+  alone: hidden until they are listed, and with none taken it says "No snapshots yet. Take one from Menu → Take
+  snapshot."; the Library's Snapshots filter with none says the same.
+- **Chat with Claude on a phone opens on the chat's screen.** With no key the key card and the BASIC session card fold
+  into one line under it, "No API key yet · Add key…" (the on-screen keyboard stands aside until there is a key, so
+  nothing covers it, upright or sideways), and the "type on the screen and press ENTER" toast waits for a key. A line typed with no key starts no turn: no "Thinking..." (the chat firmware reads a no-key flag, NOKEY, the page
+  sets), and "[No API key yet: add one … Get one at console.anthropic.com.]" comes right after it. The BASIC session
+  card says "No BASIC ROMs added, so BASIC programs won't run here. Claude can still read and change the machine's
+  memory."
+- **A first visit held sideways shows the two first steps.** At 653x280 with the touch keys, until a program has run or
+  ROMs are added, "Open…" sits left of BREAK and "Add ROMs…" right of Menu (44 px each); after that they are Menu's
+  and the app bar's again.
+- **A phone's rows are taller.** On an upright phone Menu's rows, the Programs sheet's (the shelf, the Recent list)
+  and the machine list's grow toward 52 px with the window's height (`--row-tap`, 44 px at the least), and Menu
+  scrolls inside the window instead of running past it. A phone held sideways keeps its rows; every one stays
+  reachable at 393x659, 375x548 and 653x280 (the browser check's `phone` group).
+
 - **The plugin's servers are keyed *CLOADM side panel* and *CLOADM on this computer*.** The plugin format has no field
   for a server's display name (`mcpServers` is "keyed by name"), and Claude's plugin page and chat menu showed the old
   keys, `cloadm-panel` and `cloadm`. The keys are now the readable names (`claude plugin validate` accepts them, and

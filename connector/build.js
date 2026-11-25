@@ -181,9 +181,7 @@ export function views({ origin = ORIGIN } = {}) {
   const reach = `<script>\n${fs.readFileSync(path.join(here, 'view/reach.js'), 'utf8').replace('__ORIGIN__', JSON.stringify(origin))}</script>\n`;
   const site = shell(Object.assign({ variant: 'site' }, base),
     `<script type="module">import(${JSON.stringify(`${origin}/connector/view/panel.js`)}).then((m) => { CLOADM_REACH.loaded(); return m.start(); }, (e) => CLOADM_REACH.importFailed(e)).catch((e) => startFailed(e.message));</script>`, reach);
-  // (the "needs BASIC" detector is the page's: the side panel has no card for it, so its module is left out)
-  const { code, modules } = fold(path.join(here, 'view/panel.js'), { tail: '__ENTRY__.start().catch((e) => startFailed(e.message));\n',
-    replace: { 'js/needs-basic.js': 'connector/view/needs-basic-off.js' } });
+  const { code, modules } = fold(path.join(here, 'view/panel.js'), { tail: '__ENTRY__.start().catch((e) => startFailed(e.message));\n' });
   const inline = shell(Object.assign({ variant: 'inline', programs: programs() }, base), `<script type="module">\n${code}</script>`);
   return { site, inline, modules, version: base.version, tools: base.tools, instructions, essentialsHash: essentialsHash(instructions) };
 }
