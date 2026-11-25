@@ -2,7 +2,6 @@
 
 * READY: print OK and take lines
 READY   LDS     <BASESP         ; (above it: the FOR and GOSUB frames CONT needs, or nothing)
-        JSR     TXTSCR          ; back to the text screen (an error comes here too)
         JSR     RSTTMP
         LDD     #$FFFF
         STD     <CURLIN
@@ -203,15 +202,14 @@ STOP0   BSR     DIRCHK
         STD     <OLDLIN
         LDD     <TXTPTR
         STD     <OLDTXT
-STOP1   JSR     NEWLIN
-        LDX     #BRKMSG
+STOP1   LDX     #BRKMSG         ; (no new line first [BB bb2 flow-stop-col, gfx-ppoint])
         JSR     <ZPRTSTR
         BSR     DIRCHK
         BEQ     STOP2
         JSR     PRTIN
 STOP2   JSR     CRLF
         JMP     READY
-BRKMSG  FCB     13              ; an empty line first, after STOP and BREAK alike [BB bb1 flow-cont]
+BRKMSG  FCB     13              ; a carriage return first, after STOP and BREAK alike [BB bb1 flow-cont, bb2 flow-stop-col]
         FCN     "BREAK"
 
 CONT    LBNE    SNERR

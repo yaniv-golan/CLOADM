@@ -5,6 +5,8 @@
 // algorithm as section 5 states it), CIRCLE (the 64-chord polygon), PAINT (a plain breadth-first 4-connected fill,
 // not the scan-line algorithm), DRAW (an interpreter of section 6's commands) and GET / PUT (pixel by pixel).
 // tests/basic-gfx.test.js and tests/basic-drawing.test.js compare the machine's RAM with it byte for byte.
+// The rules marked [BB] were inferred from the original's black-box pictures (tests/basic/bb/bb2-real.jsonl, the case
+// and picture named), each matched pixel for pixel by this model before the 6809 code was changed to them.
 
 // section 3's table: bytes a row, x halved, y halved, bits a pixel, pages; the VDG's GM bits and the SAM's V [HW]
 const MODES = [
@@ -24,8 +26,9 @@ function pixel(m, p, x, y) {
   if (d.bpp === 1) return { addr: row + (xs >> 3), shift: 7 - (xs & 7), mask: 1 };
   return { addr: row + (xs >> 2), shift: 6 - 2 * (xs & 3), mask: 3 };
 }
-// the value colour c (0-8) puts in a pixel: four colours (c - 1) AND 3; two colours 0 for black, 1 for any other
-const value = (m, c) => (MODES[m].bpp === 2 ? (c - 1) & 3 : (c ? 1 : 0));
+// the value colour c (0-8) puts in a pixel: four colours (c - 1) AND 3; two colours 1 for an odd colour, 0 for an
+// even one [BB gfx-modes pmode0/2/4 pictures: colours 0-8 in a row light 1, 3, 5, 7; gfx-color; gfx-ppoint]
+const value = (m, c) => (MODES[m].bpp === 2 ? (c - 1) & 3 : c & 1);
 // what PPOINT returns for pixel value v with colour set s
 const ppoint = (m, s, v) => (MODES[m].bpp === 2 ? v + 1 + 4 * s : (v ? 1 + 4 * s : 0));
 // the default foreground and background after PMODE (and at cold start) with colour set s
@@ -48,7 +51,8 @@ class Picture {
 // right, 1 bottom left, 0 bottom right); SET's character, RESET's, POINT's value [HW, the MC6847 data sheet; OWN for
 // colour 0 and for a cell holding a text character]
 const sgCell = (x, y) => ({ addr: 0x400 + (y >> 1) * 32 + (x >> 1), bit: 8 >> ((x & 1) + 2 * (y & 1)) });
-const sgSet = (old, bit, c) => 0x80 | (((c - 1) & 7) << 4) | (old & 0x80 ? old & 0x0F : 0) | bit;
+// (colour 0 sets green, as 1 [BB gfx-ppoint: SET(10,11,0) leaves POINT(10,11) 1])
+const sgSet = (old, bit, c) => 0x80 | ((Math.max(c - 1, 0) & 7) << 4) | (old & 0x80 ? old & 0x0F : 0) | bit;
 const sgReset = (old, bit) => (old & 0x80 ? old : 0x80) & ~bit;
 const sgPoint = (old, bit) => (!(old & 0x80) ? -1 : old & bit ? ((old >> 4) & 7) + 1 : 0);
 
@@ -57,15 +61,24 @@ const sgPoint = (old, bit) => (!(old & 0x80) ? -1 : old & bit ? ((old >> 4) & 7)
 class Pen {
   constructor(pic, m, p) { Object.assign(this, { pic, m, p }); }
   plot(x, y, c) { if (x >= 0 && x <= 255 && y >= 0 && y <= 191) this.pic.set(this.m, this.p, x, y, c); }
-  // Bresenham's integer line: step along the major axis; the error term starts at half the major delta (rounded
-  // down), loses the minor delta at each step, and when it goes negative gets the major delta back while the minor
-  // axis steps. Both ends drawn.
+  // LINE [BB gfx-line, gfx-defaults, gfx-clip]: both ends clamped to the picture, then halved where the mode halves
+  // the axis, and the line drawn in the mode's own pixels: Bresenham's algorithm stepping along the major axis (x when
+  // the deltas are equal), the minor axis's point at each step rounded to the nearest, a point exactly half way going
+  // to the one further along the major axis's direction of increase (as if the line were drawn from the end where the
+  // major coordinate is smaller: gfx-line pmode3-lines, gfx-circle's chords). Both ends drawn.
   line(x1, y1, x2, y2, c) {
-    const dx = Math.abs(x2 - x1), dy = Math.abs(y2 - y1), sx = x2 < x1 ? -1 : 1, sy = y2 < y1 ? -1 : 1;
-    const xMajor = dx >= dy, major = xMajor ? dx : dy, minor = xMajor ? dy : dx;
-    let x = x1, y = y1, e = Math.floor(major / 2);
+    const d = MODES[this.m], cl = (v, hi) => Math.min(Math.max(v, 0), hi);
+    x1 = cl(x1, 255) >> d.xh; x2 = cl(x2, 255) >> d.xh; y1 = cl(y1, 191) >> d.yh; y2 = cl(y2, 191) >> d.yh;
+    this.mline(x1, y1, x2, y2, c);
+  }
+  // a line in the mode's own pixels (both ends on the picture)
+  mline(x1, y1, x2, y2, c) {
+    const d = MODES[this.m], dx = Math.abs(x2 - x1), dy = Math.abs(y2 - y1), xMajor = dx >= dy;
+    if (xMajor ? x2 < x1 : y2 < y1) [x1, y1, x2, y2] = [x2, y2, x1, y1];
+    const major = xMajor ? dx : dy, minor = xMajor ? dy : dx, sx = x2 < x1 ? -1 : 1, sy = y2 < y1 ? -1 : 1;
+    let x = x1, y = y1, e = (major - 1) >> 1;
     for (let i = 0; ; i++) {
-      this.plot(x, y, c);
+      this.pic.set(this.m, this.p, x << d.xh, y << d.yh, c);
       if (i === major) break;
       e -= minor;
       if (e < 0) { e += major; if (xMajor) y += sy; else x += sx; }
@@ -76,17 +89,19 @@ class Pen {
   boxFill(x1, y1, x2, y2, c) {
     for (let y = Math.min(y1, y2); y <= Math.max(y1, y2); y++) for (let x = Math.min(x1, x2); x <= Math.max(x1, x2); x++) this.plot(x, y, c);
   }
-  // CIRCLE: corners at whole 1/64 turns, x = cx + r cos, y = cy + r h sin (h in 8.8 fixed point, its fraction
-  // dropped), each offset rounded to the nearest whole point with an 8-bit sine table; start and end to the nearest
-  // 1/64 turn; an end at or before the start goes on past 0; the same start and end draw the whole circle
+  // CIRCLE [BB gfx-circle: radii, ratios, arcs, pmode0 and pmode3-colours, every pixel]: a polygon of 64 chords, in
+  // the mode's own pixels: the centre halved where the mode halves each axis, the radius r where it halves x; corner
+  // j (1/64 turns, from the right, clockwise on the screen) is x = r cos j, y = (r sin j) h, each product rounded
+  // towards 0, r sin j before it is multiplied by h; h is taken to 1/256 (its fraction below dropped) and doubled
+  // when the mode halves x alone. Start and end are taken down to their 1/64 turn, mod 64; the same start and end
+  // draw the whole circle. The chords are drawn with the line rule, their ends clamped to the picture.
   circle(cx, cy, r, c, h = 1, s = 0, e = 1) {
-    const sine = (k) => (k === 16 ? 256 : Math.round(256 * Math.sin(k * Math.PI / 32)));
-    const frac = (v, f) => (f === 256 ? v : (v * f + 128) >> 8);
-    const ry = (Math.floor(h * 256) * r + 128) >> 8;
-    // v x sin(j/64 turn), signed: the quarter gives the table index and the sign
-    const off = (v, j) => { j &= 63; const k = j & 15, q = j >> 4, m = frac(v, sine(q & 1 ? 16 - k : k)); return q >= 2 ? -m : m; };
-    const corner = (j) => [cx + off(r, j + 16), cy + off(ry, j)];
-    const turn = (t) => (Math.floor(t * 128) + 1) >> 1;
+    const d = MODES[this.m], sin = (k) => Math.floor(65536 * Math.sin(k * Math.PI / 32));
+    const rr = r >> d.xh, hh = Math.floor(h * 256) * (d.xh && !d.yh ? 2 : 1);
+    // trunc(v x sin(j/64 turn)), signed
+    const off = (v, j) => { j &= 63; const k = j & 15, q = j >> 4, kk = q & 1 ? 16 - k : k, m = kk === 16 ? v : Math.floor(v * sin(kk) / 65536); return q >= 2 ? -m : m; };
+    const corner = (j) => { const t = off(rr, j), a = Math.floor(Math.abs(t) * hh / 256); return [((cx >> d.xh) + off(rr, j + 16)) << d.xh, ((cy >> d.yh) + (t < 0 ? -a : a)) << d.yh]; };
+    const turn = (t) => Math.floor(t * 64) & 63;
     const j0 = turn(s), n = ((turn(e) - j0) & 63) || 64;
     let [x, y] = corner(j0);
     for (let i = 1; i <= n; i++) { const [nx, ny] = corner(j0 + i); this.line(x, y, nx, ny, c); x = nx; y = ny; }
@@ -129,7 +144,8 @@ function draw(pen, st, s, vars = {}) {
   const len = (n) => Math.floor(n * st.scale / 4);
   const move = (x, y) => {
     const ox = st.x, oy = st.y;
-    if (!noDraw) pen.line(st.x, st.y, x, y, st.fg);
+    // a line's ends are clamped to the picture, and the point with them [BB gfx-clip]; a move with B is not [OWN]
+    if (!noDraw) { pen.line(st.x, st.y, x, y, st.fg); x = Math.min(Math.max(x, 0), 255); y = Math.min(Math.max(y, 0), 191); }
     st.x = x; st.y = y;
     if (back) { st.x = ox; st.y = oy; }
     noDraw = back = false;
@@ -158,36 +174,35 @@ function draw(pen, st, s, vars = {}) {
 }
 
 // GET and PUT (section 8): the rectangle in the mode's own pixels; its bits (1 or 2 a pixel, a pixel's high bit
-// first), row by row, each row from a new byte. getRect -> the bytes; putRect applies bytes with an action.
-function rect(m, x1, y1, x2, y2) {
-  const d = MODES[m];
-  return { d, l: Math.min(x1, x2) >> d.xh, r: Math.max(x1, x2) >> d.xh, t: Math.min(y1, y2) >> d.yh, b: Math.max(y1, y2) >> d.yh };
+// first), row by row, the rows running on with no bits left over at a row's end [BB gfx-getput pmode4-coarse: a
+// 10-pixel-wide PUT; gfx-getarray put-numbers: the first element's first byte first]. GET without G (coarse) takes
+// the rectangle widened to the whole bytes its ends are in [BB gfx-getput pmode4-coarse]. getRect -> the bytes;
+// putRect applies bytes with an action.
+function rect(m, x1, y1, x2, y2, coarse = false) {
+  const d = MODES[m], ppb = 8 / d.bpp;
+  let l = Math.min(x1, x2) >> d.xh, r = Math.max(x1, x2) >> d.xh;
+  if (coarse) { l -= l % ppb; r += ppb - 1 - (r % ppb); }
+  return { d, l, r, t: Math.min(y1, y2) >> d.yh, b: Math.max(y1, y2) >> d.yh };
 }
-function getRect(pic, m, p, x1, y1, x2, y2) {
-  const { d, l, r, t, b } = rect(m, x1, y1, x2, y2), rb = (((r - l + 1) * d.bpp) + 7) >> 3, out = [];
-  for (let j = t; j <= b; j++) {
-    const row = new Array(rb).fill(0);
-    let k = 0;
-    for (let i = l; i <= r; i++) {
-      const v = pic.get(m, p, i << d.xh, j << d.yh);
-      for (let q = d.bpp - 1; q >= 0; q--, k++) if ((v >> q) & 1) row[k >> 3] |= 0x80 >> (k & 7);
-    }
-    out.push(...row);
+function getRect(pic, m, p, x1, y1, x2, y2, coarse = false) {
+  const { d, l, r, t, b } = rect(m, x1, y1, x2, y2, coarse), out = new Array((((r - l + 1) * d.bpp * (b - t + 1)) + 7) >> 3).fill(0);
+  let k = 0;
+  for (let j = t; j <= b; j++) for (let i = l; i <= r; i++) {
+    const v = pic.get(m, p, i << d.xh, j << d.yh);
+    for (let q = d.bpp - 1; q >= 0; q--, k++) if ((v >> q) & 1) out[k >> 3] |= 0x80 >> (k & 7);
   }
   return out;
 }
 const ACTIONS = { PSET: (s) => s, PRESET: (s) => 1 - s, AND: (s, d) => s & d, OR: (s, d) => s | d, NOT: (s, d) => 1 - d };
 function putRect(pic, m, p, x1, y1, x2, y2, bytes, action = 'PSET') {
-  const { d, l, r, t, b } = rect(m, x1, y1, x2, y2), rb = (((r - l + 1) * d.bpp) + 7) >> 3, f = ACTIONS[action];
-  for (let j = t; j <= b; j++) {
-    let k = 0;
-    for (let i = l; i <= r; i++) {
-      const old = pic.get(m, p, i << d.xh, j << d.yh);
-      let v = 0;
-      for (let q = d.bpp - 1; q >= 0; q--, k++) v |= f((bytes[(j - t) * rb + (k >> 3)] >> (7 - (k & 7))) & 1, (old >> q) & 1) << q;
-      const at = pixel(m, p, i << d.xh, j << d.yh);
-      pic.ram[at.addr] = (pic.ram[at.addr] & ~(at.mask << at.shift)) | (v << at.shift);
-    }
+  const { d, l, r, t, b } = rect(m, x1, y1, x2, y2), f = ACTIONS[action];
+  let k = 0;
+  for (let j = t; j <= b; j++) for (let i = l; i <= r; i++) {
+    const old = pic.get(m, p, i << d.xh, j << d.yh);
+    let v = 0;
+    for (let q = d.bpp - 1; q >= 0; q--, k++) v |= f((bytes[k >> 3] >> (7 - (k & 7))) & 1, (old >> q) & 1) << q;
+    const at = pixel(m, p, i << d.xh, j << d.yh);
+    pic.ram[at.addr] = (pic.ram[at.addr] & ~(at.mask << at.shift)) | (v << at.shift);
   }
 }
 

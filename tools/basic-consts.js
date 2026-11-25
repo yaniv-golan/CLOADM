@@ -60,10 +60,11 @@ function mathConstsInc() {
   
 }
 // CIRCLE's quarter-wave sine table (basic/circle.inc, docs/clean-room-basic-p2.md section 5): sin(k/64 turn) for k =
-// 0-15 as 8-bit fractions, rounded to nearest; k = 16 (1 exactly) is not stored. Included as "sine.inc".
+// 0-15 as 16-bit fractions, rounded down (a radius times one, rounded down, is the original's corner offset: the
+// gfx-circle black-box pictures); k = 16 (1 exactly) is not stored. Included as "sine.inc".
 function sineInc() {
-  const v = Array.from({ length: 16 }, (_, k) => Math.round(256 * Math.sin(k * Math.PI / 32)));
-  return `SINTAB  FCB     ${v.join(',')}   ; sin(k/64 turn) x 256, k = 0-15\n`;
+  const v = Array.from({ length: 16 }, (_, k) => Math.floor(65536 * Math.sin(k * Math.PI / 32)));
+  return `SINTAB  FDB     ${v.join(',')}   ; sin(k/64 turn) x 65536, k = 0-15\n`;
 }
 module.exports = { mathConstsInc, sineInc };
 if (require.main === module) process.stdout.write(mathConstsInc());

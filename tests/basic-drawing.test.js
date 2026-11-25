@@ -55,6 +55,8 @@ if (part('line')) {
   segs.push([0, 10, 10, 10, 10], [0, 20, 10, 21, 10], [0, 30, 10, 31, 11], [0, 40, 10, 40, 11], [0, 10, 180, 250, 183], [0, 240, 20, 243, 90], [0, 0, 0, 255, 191], [0, 255, 0, 0, 191]);
   segs.push([2, 20, 20, 80, 60], [3, 100, 20, 160, 60], [3, 230, 60, 180, 20], [4, 110, 30, 150, 50], [1, 100, 20, 160, 60], [6, 120, 25, 140, 55], [2, 5, 170, 5, 170], [3, 10, 170, 11, 171]);
   segs.push([5, 0, 0, 200, 100], [5, 0, 0, 200, 150], [5, 0, 0, 0, 191], [5, 0, 0, 255, 0], [3, 0, 185, 255, 191], [2, 0, 0, 255, 191]);
+  // odd ends, each way: in PMODE 0-3 both ends are halved before the line is drawn [BB gfx-line pmode0-lines]
+  segs.push([0, 20, 150, 7, 150], [0, 7, 152, 20, 152], [0, 61, 101, 60, 140], [0, 60, 140, 61, 101], [0, 30, 120, 3, 131], [0, 211, 3, 240, 66]);
   for (let i = 0; i < 24; i++) segs.push([rnd(7), rnd(256), rnd(192), rnd(256), rnd(192)]);
   const plans = [[4, 1, null], [0, 1, [1, 0]], [3, 0, [3, 2]], [1, 1, [7, 6]], [2, 0, null], [3, 1, [0, 8]]];
   for (const [m, s, color] of plans) {
@@ -103,7 +105,7 @@ if (part('circle')) {
     for (const [x, y, r, c = dflt.fg, h, st, e] of list) pen.circle(x, y, r, c, h, st, e);
     const d = diff(b, pic);
     check(`CIRCLE in PMODE ${m}, colour set ${s}: ${list.length} circles, ellipses and arcs (some off the edges) as the model`, !d, d);
-    check(`CIRCLE in PMODE ${m}: the last point is left where PSET put it`, word(b, 'LASTX') === 7 && word(b, 'LASTY') === 9);
+    check(`CIRCLE in PMODE ${m}: the last point is left as it was (the cold start's: PSET does not move it)`, word(b, 'LASTX') === 128 && word(b, 'LASTY') === 96);
   }
 }
 
@@ -180,7 +182,7 @@ if (part('draw')) {
     { name: 'angles A0-A3, and an angle lasting into the next DRAW', lines: ['DRAW "BM40,96A0U20R10D5":DRAW "BM100,96A1U20R10D5":DRAW "BM160,96A2U20R10D5":DRAW "BM220,96A3U20R10D5"', 'DRAW "BM40,170U20R10":DRAW "A0"', 'DRAW "A1":DRAW "BM100,170U20R10E7":DRAW "A0"'] },
     { name: 'scales S1-S62 (S3, S5 rounding down) and a scale lasting', lines: ['DRAW "BM10,40S1U8R8D8L8":DRAW "BM30,40S2U8R8D8L8":DRAW "BM60,40S4U8R8D8L8":DRAW "BM100,40S8U8R8D8L8"', 'DRAW "BM150,40S16U8R8D8L8":DRAW "BM200,40S62U1R1D1L1":DRAW "BM10,100S3U5R5D5L5":DRAW "BM40,100S5U5R5D5L5M+3,+7"', 'DRAW "S8":DRAW "BM80,120U5R5D5L5":DRAW "S4"'] },
     { name: 'X substrings (nested), =var; for lengths and for M, spaces and ;', vars: { A$: 'U10R10D10L10', B$: 'XA$;BR15XA$;', N: 25, X: 200, Y: 100 }, lines: ['A$="U10R10D10L10":B$="XA$;BR15XA$;"', 'DRAW "BM50,150XA$;BM80,150XB$;"', 'N=25:DRAW "BM150,150 R=N; D=N;;":X=200:Y=100:DRAW "BM=X;,=Y;U10M+=N;,-=N;"'] },
-    { name: 'moves off every edge are clipped point by point', lines: ['DRAW "BM240,40R30":DRAW "BM10,60;L30":DRAW "BM60,10;U30":DRAW "BM60,180;D30":DRAW "BM240,180;F30":DRAW "BM5,5H40F80"', 'DRAW "BM250,100S62R100D100L255U255"'] },
+    { name: 'moves off every edge run along it (clamped ends)', lines: ['DRAW "BM240,40R30":DRAW "BM10,60;L30":DRAW "BM60,10;U30":DRAW "BM60,180;D30":DRAW "BM240,180;F30":DRAW "BM5,5H40F80"', 'DRAW "BM250,100S62R100D100L255U255"'] },
   ];
   for (const [m, s] of [[4, 1], [3, 0], [0, 1]]) for (const pr of progs) {
     const b = boot();
@@ -211,7 +213,7 @@ if (part('draw')) {
 function arrayBytes(b, name) {
   const ram = b.m.ram, aryend = word(b, 'ARYEND');
   for (let x = word(b, 'ARYTAB'); x < aryend; x += ram[x + 2] << 8 | ram[x + 3]) {
-    if (ram[x] === name.charCodeAt(0) && ram[x + 1] === 0) { const h = 5 + 2 * ram[x + 4]; return { at: x + h, size: (ram[x + 2] << 8 | ram[x + 3]) - h, dims: ram[x + 4], first: ram[x + 5] << 8 | ram[x + 6] }; }
+    if (ram[x] === name.charCodeAt(0) && ram[x + 1] === 0) { const h = 5 + 2 * (ram[x + 4] & 0x7F); return { at: x + h, size: (ram[x + 2] << 8 | ram[x + 3]) - h, dims: ram[x + 4], first: ram[x + 5] << 8 | ram[x + 6] }; }
   }
   return null;
 }
@@ -225,13 +227,24 @@ if (part('getput')) {
     b.m.ram.set(bytes, 0x600);
     let bad = '';
     for (const [x1, y1, x2, y2] of rects) {
-      const pic = snap(b);
+      const pic = snap(b), a0 = arrayBytes(b, 'A');
+      b.m.ram.fill(0, a0.at, a0.at + a0.size);   // (the bits after the last pixel's are left as they were [OWN])
       typeAll(b, [`GET(${x1},${y1})-(${x2},${y2}),A,G`]);
       const want = G.getRect(pic, m, 1, x1, y1, x2, y2), a = arrayBytes(b, 'A');
       const got = [...b.m.ram.slice(a.at, a.at + want.length)];
       if (!bad && got.join() !== want.join()) bad = `GET(${x1},${y1})-(${x2},${y2}): ours ${got.slice(0, 8)}, model ${want.slice(0, 8)}`;
     }
     check(`GET in PMODE ${m}: the array's bytes as the model (${rects.length} rectangles, one a whole row, one a pixel)`, !bad, bad);
+    bad = '';
+    for (const [x1, y1, x2, y2] of rects) {
+      const pic = snap(b), a0 = arrayBytes(b, 'A');
+      b.m.ram.fill(0, a0.at, a0.at + a0.size);
+      typeAll(b, [`GET(${x1},${y1})-(${x2},${y2}),A`]);
+      const want = G.getRect(pic, m, 1, x1, y1, x2, y2, true), a = arrayBytes(b, 'A');
+      const got = [...b.m.ram.slice(a.at, a.at + want.length)];
+      if (!bad && got.join() !== want.join()) bad = `GET(${x1},${y1})-(${x2},${y2}): ours ${got.slice(0, 8)}, model ${want.slice(0, 8)}`;
+    }
+    check(`GET without G in PMODE ${m}: whole bytes, as the model`, !bad, bad);
     bad = '';
     for (const [x1, y1, x2, y2] of rects) for (const act of ACTS) {
       const a = arrayBytes(b, 'A'), fill = Array.from({ length: 300 }, () => rnd(256));
@@ -244,7 +257,7 @@ if (part('getput')) {
     }
     check(`PUT in PMODE ${m}: every action (and none) on ${rects.length} rectangles, against the bitwise model`, !bad, bad);
     // a round trip: GET a rectangle, PUT it elsewhere at another alignment, GET that back
-    typeAll(b, ['GET(10,10)-(40,30),A,G:PUT(103,121)-(133,141),A,PSET:GET(103,121)-(133,141),B']);
+    typeAll(b, ['GET(10,10)-(40,30),A,G:PUT(103,121)-(133,141),A,PSET:GET(103,121)-(133,141),B,G']);
     const pic = snap(b), A = arrayBytes(b, 'A'), B = arrayBytes(b, 'B'), len = G.getRect(pic, m, 1, 10, 10, 40, 30).length;
     check(`GET / PUT round trip in PMODE ${m} at another alignment: the same bytes back`, A.size >= len && b.m.ram.slice(A.at, A.at + len).join() === b.m.ram.slice(B.at, B.at + len).join() && B.size >= len);
   }
@@ -253,10 +266,14 @@ if (part('getput')) {
   check('GET into an array one byte too small: ?FC ERROR', last(b) === '?FC ERROR', last(b));
   typeAll(b, ['GET(0,0)-(15,4),S,G']);
   check('GET into an array just big enough: no error', b.screen().slice(-1)[0] === 'OK' && !b.screen().slice(-2)[0].includes('ERROR'));
+  // [BB gfx-errors] an array not DIMmed is ?FC ERROR, not made; [BB gfx-getarray] after GET, an element is ?BS ERROR
   typeAll(b, ['GET(0,0)-(7,7),U,G']);
-  const u = arrayBytes(b, 'U');
-  check('GET into an array not DIMmed: made with 11 elements, as any array', u && u.dims === 1 && u.first === 11 && u.size === 55);
-  for (const [line, err] of [['PUT(0,0)-(7,7),S,XOR', 'SN'], ['GET(0,0)-(7,7),S,X', 'SN'], ['GET(0,0)-(7,7),S$', 'TM'], ['PUT(0,0)-(7,7)', 'SN'], ['GET(0,0)-(256,7),S', 'FC'], ['PUT(0,0)-(8,192),S', 'FC'], ['GET(0,0),S', 'SN']]) {
+  check('GET into an array not DIMmed: ?FC ERROR, and no array made', last(b) === '?FC ERROR' && !arrayBytes(b, 'U'), last(b));
+  typeAll(b, ['DIM V(20):V(0)=7:PRINT V(0)']);
+  check('an element before GET: read as any', last(b) === ' 7', last(b));
+  typeAll(b, ['GET(0,0)-(7,0),V,G:PUT(16,0)-(23,0),V:PRINT V(0)']);
+  check('an element after GET: ?BS ERROR (PUT still takes the array)', last(b) === '?BS ERROR' && arrayBytes(b, 'V').dims === 0x81, last(b));
+  for (const [line, err] of [['PUT(0,0)-(7,7),S,XOR', 'SN'], ['GET(0,0)-(7,7),S,X', 'SN'], ['GET(0,0)-(7,7),S$', 'TM'], ['PUT(0,0)-(7,7)', 'SN'], ['GET(0,0)-(255,7),S', 'FC'], ['PUT(0,0)-(8,191),S', 'FC'], ['GET(0,0),S', 'SN']]) {
     typeAll(b, [line]);
     check(`${line}: ?${err} ERROR`, last(b) === `?${err} ERROR`, last(b));
   }
@@ -265,9 +282,10 @@ if (part('getput')) {
 // ---- errors (section 9) ----
 if (part('errors')) {
   const b = boot();
-  const cases = [['LINE(0,0)(10,10),PSET', 'SN'], ['LINE(0,0)-(10,10)', 'SN'], ['LINE(0,0)-(10,10),XSET', 'SN'], ['LINE(0,0)-(10,10),PSET,X', 'SN'], ['LINE(0,0)-(256,10),PSET', 'FC'], ['LINE-(0,192),PSET', 'FC'],
-    ['CIRCLE(128,96)', 'SN'], ['CIRCLE(128,96),10,9', 'FC'], ['CIRCLE(128,96),10,1,5', 'FC'], ['CIRCLE(128,96),10,1,-1', 'FC'], ['CIRCLE(128,96),10,1,1,1.5,.5', 'FC'], ['CIRCLE(128,96),10,1,1,0,1.01', 'FC'], ['CIRCLE(128,96),256', 'FC'], ['CIRCLE(256,96),10', 'FC'],
-    ['PAINT(128,96),9', 'FC'], ['PAINT(128,96),1,9', 'FC'], ['PAINT(128,192),1', 'FC'], ['PAINT 1,1', 'SN'],
+  // (points past the picture are clamped, not errors; a ratio of 5 and a start of 1.5 are no error [BB gfx-errors])
+  const cases = [['LINE(0,0)(10,10),PSET', 'SN'], ['LINE(0,0)-(10,10)', 'SN'], ['LINE(0,0)-(10,10),XSET', 'SN'], ['LINE(0,0)-(10,10),PSET,X', 'SN'], ['LINE(0,0)-(256,10),PSET', 'OK'], ['LINE-(0,192),PSET', 'OK'], ['LINE(0,0)-(65536,0),PSET', 'FC'],
+    ['CIRCLE(128,96)', 'SN'], ['CIRCLE(128,96),10,9', 'FC'], ['CIRCLE(128,96),10,1,5', 'OK'], ['CIRCLE(128,96),10,1,-1', 'FC'], ['CIRCLE(128,96),10,1,1,1.5,.5', 'OK'], ['CIRCLE(128,96),10,1,1,0,1.01', 'OK'], ['CIRCLE(128,96),256', 'FC'], ['CIRCLE(256,96),10', 'OK'],
+    ['PAINT(128,96),9', 'FC'], ['PAINT(128,96),1,9', 'FC'], ['PAINT(128,192),1', 'OK'], ['PAINT 1,1', 'SN'], ['PSET(256,0)', 'OK'], ['PSET(-1,0)', 'FC'], ['SCREEN 2,2', 'OK'],
     ['DRAW "Q"', 'FC'], ['DRAW 5', 'TM'], ['DRAW "A4"', 'FC'], ['DRAW "S63"', 'FC'], ['DRAW "S0"', 'FC'], ['DRAW "C9"', 'FC'], ['DRAW "U256"', 'FC'], ['DRAW "M10"', 'FC'], ['DRAW "M10,"', 'FC'],
     ['DRAW "XZ$"', 'FC'], ['DRAW "X5;"', 'SN'], ['DRAW "U=Z$;"', 'TM'], ['N=300:DRAW "U=N;"', 'FC'], ['N=-1:DRAW "U=N;"', 'FC'], ['DRAW "XN;"', 'TM']];
   for (const [line, err] of cases) {

@@ -1,9 +1,8 @@
-# [OWN] the rule from bb1 flow-cont: a new line if the cursor is not at the start of one, then an empty line, then BREAK; provisional until the black-box run
+# [BB] bb2 flow-stop-col: a carriage return, then BREAK: after X; it only ends X's line, at the start of a line it leaves an empty one
 OK
 10 PRINT "X";:STOP
 RUN
 X
-
 BREAK IN 10
 OK
 STOP

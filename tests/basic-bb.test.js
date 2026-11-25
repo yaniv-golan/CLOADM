@@ -14,7 +14,7 @@
 //    change but not by one odd period, a stepped wave, measures only) and compare's tolerances; #wav, #joy and a
 //    graphics mode shown, end to end on our ROM, driven through the PIAs and the SAM with POKE; the typing sheet.
 const { lintCase } = require('../tools/basic-bb/lint.js');
-const { compare } = require('../tools/basic-bb/compare.js');
+const { compare, cursorOnly } = require('../tools/basic-bb/compare.js');
 const { buildBasic, tokensInc } = require('../tools/build-basic.js');
 const { Basic } = require('./basic/harness.js');
 
@@ -113,6 +113,42 @@ check('build: $8000-$80FF is left free for later fixed entry points', built.rom.
   const cmp = compare(rec(a), rec(c));
   check('compare: a differing picture is reported', cmp.same === 0 && cmp.report.some((l) => /pictures differ: one/.test(l)), cmp.report.join(' | '));
   check('compare: identical pictures pass', compare(rec(a), rec(a2)).same === 1);
+
+  // the cursor (cursorOnly): two text pictures whose only difference is one 8 x 12 cell, a solid block in each, differ
+  // only in the cursor's colour; two cells, a cell that is not one colour, or a difference across a cell's edge do not
+  const pic = (t) => runCase(built.rom, `${t}\n#screenshot one\n`);
+  const blue = pic('CLS:POKE 1100,175'), black = pic('CLS:POKE 1100,128');
+  const two = pic('CLS:POKE 1100,175:POKE 1101,175'), two0 = pic('CLS:POKE 1100,128:POKE 1101,128');
+  const half = pic('CLS:POKE 1100,172');
+  const cur = compare(rec(blue), rec(black));
+  check('compare: one solid cell of difference is the cursor only, and passes', cur.same === 1 && cur.report.length === 0 && cur.cursor.length === 1 && /^g: cursor only: one \(cell 12,2\)$/.test(cur.cursor[0]), JSON.stringify(cur));
+  const cur2 = compare(rec(two), rec(two0));
+  check('compare: two cells of difference still differ', cur2.same === 0 && cur2.report.some((l) => /pictures differ: one/.test(l)) && cur2.cursor.length === 0, JSON.stringify(cur2.report));
+  const cur3 = compare(rec(half), rec(black));
+  check('compare: one cell that is not a solid block still differs', cur3.same === 0 && cur3.report.some((l) => /pictures differ: one/.test(l)), JSON.stringify(cur3.report));
+  // a block of difference the size of a cell but 4 pixels off the grid, drawn into a copy of the picture
+  const zlib = require('zlib'), mkPng = (w, h, px) => {
+    const crcT = Array.from({ length: 256 }, (_, n) => { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; return c >>> 0; });
+    const crc = (b) => { let c = 0xFFFFFFFF; for (const x of b) c = crcT[(c ^ x) & 0xFF] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; };
+    const chunk = (t, d) => { const l = Buffer.alloc(4), body = Buffer.concat([Buffer.from(t), d]), c = Buffer.alloc(4); l.writeUInt32BE(d.length); c.writeUInt32BE(crc(body)); return Buffer.concat([l, body, c]); };
+    const raw = Buffer.alloc((w * 4 + 1) * h), hd = Buffer.alloc(13);
+    for (let y = 0; y < h; y++) px.copy(raw, y * (w * 4 + 1) + 1, y * w * 4, (y + 1) * w * 4);
+    hd.writeUInt32BE(w, 0); hd.writeUInt32BE(h, 4); hd[8] = 8; hd[9] = 6;
+    return Buffer.concat([Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]), chunk('IHDR', hd), chunk('IDAT', zlib.deflateSync(raw)), chunk('IEND', Buffer.alloc(0))]).toString('base64');
+  };
+  const s0 = black.shots[0], b0 = Buffer.from(s0.png, 'base64'), raw0 = zlib.inflateSync(b0.subarray(41, b0.length - 16));  // (one IDAT chunk)
+  const px = Buffer.alloc(s0.width * s0.height * 4);
+  for (let y = 0; y < s0.height; y++) raw0.copy(px, y * s0.width * 4, y * (s0.width * 4 + 1) + 1, (y + 1) * (s0.width * 4 + 1));
+  const shifted = Buffer.from(px), aligned = Buffer.from(px), x0 = (s0.width - 256) / 2, y0 = (s0.height - 192) / 2;
+  for (let y = 0; y < 12; y++) for (let x = 0; x < 8; x++) {
+    shifted.writeUInt32BE(0xFF0000FF, ((y0 + 36 + y) * s0.width + x0 + 44 + x) * 4);
+    aligned.writeUInt32BE(0xFF0000FF, ((y0 + 36 + y) * s0.width + x0 + 40 + x) * 4);
+  }
+  const fake = (b) => ({ name: 'one', sha256: require('crypto').createHash('sha256').update(b).digest('hex'), png: mkPng(s0.width, s0.height, b) });
+  check('compare: a cell-sized difference off the grid is not the cursor', cursorOnly(fake(px), fake(shifted)) === null && cursorOnly(fake(px), fake(aligned)) === '5,3');
+  // the same one-cell difference in a picture whose border is not black (a graphics mode) is not the cursor
+  const border = (b) => { const c = Buffer.from(b); for (let x = 0; x < s0.width; x++) c.writeUInt32BE(0x30D200FF, x * 4); return c; };
+  check('compare: a one-cell difference in a picture that is not of the text screen is not the cursor', cursorOnly(fake(border(px)), fake(border(aligned))) === null);
 }
 
 // ---- the run-time guard: code the case wrote must never run ----

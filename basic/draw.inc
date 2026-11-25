@@ -1,8 +1,8 @@
 * ---------------- DRAW ----------------
 * docs/clean-room-basic-p2.md section 6. DRAW s$ [UM] reads its commands with mini.inc and draws from the last point
-* with LINETO (so moves off the picture are clipped point by point [OWN; BB]):
+* with LINETO (so a move off the picture runs along its edge [BB bb2 gfx-clip]; the bb2 gfx-draw pictures match):
 *   U D L R E F G H n   a move of n (1 when left out) units up, down, left, right, up-right, down-right, down-left,
-*                       up-left; turned by the angle, n x scale / 4 points long (rounded down: ADJUST) [UM; OWN]
+*                       up-left; turned by the angle, n x scale / 4 points long (rounded down) [UM; BB bb2 gfx-draw]
 *   M x,y               to x,y; M +x,-y (either sign on either part) relative, scaled as a move, not turned [OWN; BB]
 *   B, N                prefixes: the next move does not draw; the next move draws, then the point goes back [UM]
 *   C n                 the colour, 0-8: it becomes the foreground colour, so it lasts [UM; OWN BB]
@@ -27,7 +27,7 @@ DRCOL   STB     FGCOL
         STB     <GCOLB
         RTS
 
-* DRSCAL: DRLEN = B x the scale / 4, rounded down (ADJUST)
+* DRSCAL: DRLEN = B x the scale / 4, rounded down
 DRSCAL  LDA     <DRSCL
         MUL
         LSRA

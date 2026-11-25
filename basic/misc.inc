@@ -142,8 +142,9 @@ VARPTR  JSR     LPAREN          ; (a variable that does not exist: ?FC ERROR; ma
         JSR     RPAREN
         PULS    D
         JMP     GIVUNS
-* MEM: the bytes free between the arrays and the stack
-MEM     TFR     S,D
+* MEM: the bytes free between the arrays and the stack, as the original counts them [BB bb2 gfx-pclear: 2 more]
+MEM     LEAX    2,S
+        TFR     X,D
         SUBD    <ARYEND
         JMP     GIVUNS
 * POS(n): the cursor's column (n is not used)

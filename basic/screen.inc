@@ -2,10 +2,13 @@
 * 32 x 16 at $0400 [HW]. VDG codes: $40-$7F normal, $00-$3F inverse; so ASCII $20-$3F shows as $60-$7F,
 * $40-$5F as itself, and lower case ($60-$7F) as the inverse upper-case letter [HW, UM].
 
-* CHROUT: print the character in A. Keeps every register.
+* CHROUT: print the character in A. Keeps every register. Anything printed shows the text screen again [BB bb2
+* gfx-text-return: a picture goes at PRINT and INPUT, not in an INKEY$ loop] (and so at the OK prompt and an error).
 CHROUT  TST     <CASOUT         ; CSAVE ,A: to the tape instead (cassette.inc)
         LBNE    CHRTAP
         PSHS    D,X
+        JSR     TXTSCR
+        LDA     ,S
         LDX     <CURPOS
         CMPA    #13
         BEQ     CHRCR
