@@ -4786,8 +4786,12 @@ async function snapshotChecks(browser, base, check) {
     const wiped = await memHash();
     await dropFiles(page, [[snapName, snapBytes]]);
     await waitFor(page, () => /Snapshot opened/.test(document.getElementById('toast').textContent));
-    check('snapshot: dropped on the same machine, the moment is back (memory identical, still paused)', wiped !== held && (await memHash()) === held
-      && /Snapshot opened: Dragon 64, without ROMs/.test(await page.textContent('#toast')), await page.textContent('#toast'));
+    {
+      // (what failed is said, not only the toast: the memory the power cycle left, the memory the drop gave back, the one held)
+      const back = await memHash(), toast = await page.textContent('#toast');
+      check('snapshot: dropped on the same machine, the moment is back (memory identical, still paused)', wiped !== held && back === held
+        && /Snapshot opened: Dragon 64, without ROMs/.test(toast), JSON.stringify({ held, wiped, back, paused: await page.evaluate(() => document.getElementById('btnPause').textContent), toast }));
+    }
     // another machine: the switch confirmation first (the switch to it is a launch, so it is paused again after it; the
     // snapshot's own switch is a restore, which keeps the Pause)
     await pickMachine(page, 'coco');
