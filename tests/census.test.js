@@ -249,7 +249,7 @@ const bootScenarios = {
 };
 // a ROM image for the self-check: 16 bytes of it at $8200
 const IMG = new Uint8Array(0x4000).fill(0x39);
-for (let i = 0; i < 16; i++) IMG[0x200 + i] = 0x20 + i * 7;
+for (let i = 0; i < 32; i++) IMG[0x200 + i] = 0x20 + i * 7;
 Object.assign(bootScenarios, {
   // ROM code reading BASIC's vector table as data (not jumping through it): its record is refused
   romReadsVector(L) {
@@ -305,26 +305,48 @@ Object.assign(bootScenarios, {
     d.step(0x3000); d.m.cpu.pc = 0x3003; d.mem[0x8200] = 0x42; d.read(0x8200);
     return d.t.finish();
   },
-  // a block copy the boot heuristic misses (16 bytes read, then 16 written): the self-check discards the program
-  bootBlockCopy(L) {
+  // the field report's load path: by the time the program starts, BASIC has left a 22-byte run of the ROM in its RAM
+  // vector area ($0114) and a 16-byte run near the top of RAM ($7F0F, its stack), each copied whole before written
+  // (through registers or the stack, as the heuristic's memory may not hold). The program is not discarded: the sweep
+  // marks both runs. A call into ROM is recorded; reading the vector area afterwards stops recording.
+  loadPath(L) {
     const d = driven(L, { rom: IMG });
-    d.mem.set(IMG.subarray(0x200, 0x210), 0x8200);
+    d.mem.set(IMG.subarray(0x200, 0x220), 0x8200);
     d.step(0x8100); d.fetch(0x8100, 2);
-    for (let i = 0; i < 16; i++) d.read(0x8200 + i);
-    for (let i = 0; i < 16; i++) d.write(0x0700 + i, IMG[0x200 + i]);
-    d.step(0x8102);
-    d.start();
-    return d.t.finish();
-  },
-  // the same bytes copied one by one (read, write): marked, so the program runs
-  bootByteCopy(L) {
-    const d = driven(L, { rom: IMG });
-    d.mem.set(IMG.subarray(0x200, 0x210), 0x8200);
-    d.step(0x8100); d.fetch(0x8100, 2);
-    for (let i = 0; i < 16; i++) { d.read(0x8200 + i); d.write(0x0700 + i, IMG[0x200 + i]); }
-    d.step(0x8102);
+    for (let i = 0; i < 22; i++) d.read(0x8200 + i);
+    for (let i = 0; i < 22; i++) d.write(0x0114 + i, IMG[0x200 + i]);
+    d.step(0x8102); d.fetch(0x8102, 2);
+    for (let i = 0; i < 16; i++) d.read(0x8208 + i);
+    for (let i = 0; i < 16; i++) d.write(0x7F0F + i, IMG[0x208 + i]);
+    d.step(0x8104);
     d.start();
     d.step(0x3000); d.fetch(0x3000, 3); d.step(0xB110); d.step(0x3003);
+    d.fetch(0x3003, 3); d.read(0x0114); d.step(0x3006); d.step(0xB110); d.step(0x3009);
+    return d.t.finish();
+  },
+  // a ROM routine the program calls reads the stack run: its record is refused, and recording stops
+  loadPathRom(L) {
+    const d = driven(L, { rom: IMG });
+    d.mem.set(IMG.subarray(0x200, 0x220), 0x8200);
+    d.step(0x8102); d.fetch(0x8102, 2);
+    for (let i = 0; i < 16; i++) d.read(0x8208 + i);
+    for (let i = 0; i < 16; i++) d.write(0x7F0F + i, IMG[0x208 + i]);
+    d.step(0x8104);
+    d.start();
+    d.step(0x3000); d.fetch(0x3000, 3); d.step(0xB110); d.fetch(0xB110, 2); d.read(0x7F14); d.step(0x3003);
+    return d.t.finish();
+  },
+  // a short copy (8 bytes read, then 8 written: shorter than the sweep sees) is marked by the heuristic's 16 reads
+  shortCopy(L) {
+    const d = driven(L, { rom: IMG });
+    d.mem.set(IMG.subarray(0x200, 0x208), 0x8200);
+    d.step(0x8100); d.fetch(0x8100, 2);
+    for (let i = 0; i < 8; i++) d.read(0x8200 + i);
+    for (let i = 0; i < 8; i++) d.write(0x0700 + i, IMG[0x200 + i]);
+    d.step(0x8102);
+    d.start();
+    d.step(0x3000); d.fetch(0x3000, 3); d.read(0x0700);
+    d.step(0x3003); d.step(0xB110); d.step(0x3006);
     return d.t.finish();
   },
 });
@@ -335,8 +357,9 @@ const bootChecks = {
   loadedClean: (r) => !r.stopped && r.records.length === 1,
   regsCleared: (r) => r.records.length === 1 && ['a', 'b', 'x', 'y', 'u', 'dp'].every((k) => r.records[0].regsIn[k] === 0) && (r.records[0].regsIn.cc & ~0x50) === 0,
   trailingRead: (r) => r.error === 'program-read-rom',
-  bootBlockCopy: (r) => r.error === 'boot-residue-unmarked',
-  bootByteCopy: (r) => !r.error && r.records.length === 1,
+  loadPath: (r) => !r.error && r.records.length === 1 && r.records[0].from === 0x3000 && r.stopped === 'program-read-rom-data',
+  loadPathRom: (r) => !r.error && !r.records.length && r.refused.length === 1 && r.stopped === 'rom-data-returned',
+  shortCopy: (r) => !r.error && r.stopped === 'program-read-rom-data' && !r.records.length,
   programReads: (r) => r.stopped === 'program-read-rom-data' && !r.records.length && !r.refused.length,
   romReads: (r) => r.stopped === 'rom-data-returned' && !r.records.length && r.refused.length === 1 && r.refused[0].target === 0xB110,
   hook: (r) => !r.stopped && r.records.length === 1 && r.records[0].from === 0x010C && r.records[0].kind === 'jmp',
@@ -353,8 +376,9 @@ const bootDescr = {
   loadedClean: 'a cell the boot filled from ROM and the program was then loaded over is the program\'s: it runs and its call is recorded',
   regsCleared: 'the registers are cleared when the program starts (A, B, X, Y, U, DP, CC\'s flags)',
   trailingRead: 'a ROM read by the program\'s last instruction, with nothing after it, still discards the program',
-  bootBlockCopy: 'a boot block copy the heuristic misses (16 reads, then 16 writes) trips the self-check: discarded',
-  bootByteCopy: 'the same bytes copied one by one are marked: the self-check passes and the program runs',
+  loadPath: 'the field report\'s load path (22 ROM bytes at $0114, 16 at $7F0F, each copied whole): not discarded, a call recorded, reading $0114 stops recording',
+  loadPathRom: 'a ROM routine reading that stack run refuses its record and stops recording',
+  shortCopy: 'an 8-byte copy (8 reads, then 8 writes: too short for the sweep) is marked by the heuristic: reading it stops recording',
 };
 for (const k of Object.keys(bootScenarios)) { const r = bootScenarios[k](lib); check(bootDescr[k], bootChecks[k](r), JSON.stringify(r)); }
 
@@ -437,6 +461,15 @@ const opts = (o = {}) => Object.assign(census.parse(['--no-roms', '--frames', '5
     const r = await census.runProgram(s, opts(), lib);
     check('a run the census loader did not start records nothing (discarded: not started)', /^not started/.test(r.error || '') && !r.records.length, JSON.stringify(r.error));
   }
+  // why a program was not started, from the file's format (a BASIC loader tape is the common case)
+  {
+    const basicTape = tmp('loader.cas'), dataTape = tmp('data.cas');
+    fs.writeFileSync(basicTape, Emu.buildCas([{ name: 'LOADER', type: 'basic', data: Uint8Array.from([0x1E, 0x0A, 0x00, 0x0A, 0x80, 0x00, 0x00, 0x00]) }]));
+    fs.writeFileSync(dataTape, Emu.buildCas([{ name: 'DATA', type: 'data', data: Uint8Array.from([0x41, 0x0D]) }]));
+    check('a not-started program says why: a tape that starts with a BASIC loader, a data tape, a script that never loads',
+      /BASIC program \(a BASIC loader/.test(census.notStartedWhy(basicTape)) && /data file/.test(census.notStartedWhy(dataTape)) &&
+      /never started a machine-code program/.test(census.notStartedWhy(tmp('typed.cloadm'))), [census.notStartedWhy(basicTape), census.notStartedWhy(dataTape)].join(' | '));
+  }
   // census.js's own tripwire: a tracer that lets a ROM run through (planted) has its program discarded
   const planted = Object.assign({}, lib, {
     trace: (m) => ({ error: null, finish: () => ({ started: true, stopped: null, error: null, refused: [],
@@ -497,7 +530,8 @@ const opts = (o = {}) => Object.assign(census.parse(['--no-roms', '--frames', '5
       ['the loaded program not cleaned', [['dirtyRam[a] = 0; loaded[a] = 1;', 'loaded[a] = 1;']], ['loadedClean']],
       ['the registers not cleared at the start', [['cpu.a = 0; cpu.b = 0; cpu.x = 0; cpu.y = 0; cpu.u = 0; cpu.dp = 0; cpu.cc &= 0x50;', '']], ['regsCleared']],
       ['a trailing program ROM read not judged by finish()', [["if (!error && prevPc !== null && stepReads.length && !masked(prevPc) && started && !stopped) error = 'program-read-rom';", '']], ['trailingRead']],
-      ['the boot self-check off', [['if (!loaded[a] && !dirtyRam[a]) { error = \'boot-residue-unmarked\'; return; }', '{ }']], ['bootBlockCopy']],
+      ['the sweep off', [['for (const r of findRuns(below, images)) for (let a = r.at; a < r.at + r.len; a++) if (!loaded[a]) dirtyRam[a] = 1;', '']], ['loadPath']],
+      ['the heuristic remembering 4 reads', [['const RECENT = 16;', 'const RECENT = 4;']], ['shortCopy']],
       ['ROM code reading ROM data not making its stretch dirty', [['else dirtyStretch = true;', 'else { }'], ['if (masked(curPc) && !(a >= VEC_LO && a <= VEC_HI) && !(a >= HW_LO && a <= HW_HI)) dirtyStretch = true;', '']], ['roundTrip']],
       ['a ROM data read judged only at the next instruction (its writes slip through)', [['if (masked(curPc) && !(a >= VEC_LO && a <= VEC_HI) && !(a >= HW_LO && a <= HW_HI)) dirtyStretch = true;', '']], ['dirtyWrites']],
       ['ROM code reading the vector table as data not judged', [['else dirtyStretch = true;', 'else { }']], ['romReadsVector']],

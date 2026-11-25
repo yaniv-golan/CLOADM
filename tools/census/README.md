@@ -45,14 +45,15 @@ a mutant for each one:
 4. **Taint is sticky.** When a dirty stretch returns to the program, the program may hold ROM data, so **recording
    stops** for good: nothing later is written or counted. Recording also stops if program code reads dirty RAM, or
    runs dirty RAM as anything but a `JMP`/`JSR` extended or `RTS` (BASIC's RAM hooks).
-5. **Boot data.** Before the program starts, ROM code that writes a value it has just read from ROM marks that RAM
-   cell dirty. That covers the RAM hooks and tables BASIC copies out of ROM.
-   * "Just read" means one of the last four reads, so a block copy that reads more than four bytes before writing
+5. **Boot data.** Before the program starts, ROM code that writes a value it has read from ROM recently marks that
+   RAM cell dirty. That covers the RAM hooks and tables BASIC copies out of ROM, through registers or the stack.
+   * "Recently" means one of the last 16 reads, so a copy that reads more than 16 bytes before it writes them
      escapes it. 0 and $FF are not followed, and neither is anything BASIC *computes* from ROM data.
-   * A **self-check** backs it up. When the program starts, every 16-byte window of the ROM images found in RAM
-     below $8000 must be marked; the program's own image is excluded. If one is not, the run is discarded with
-     `boot-residue-unmarked` and nothing is written. On your ROM this runs silently and only ever answers with that
-     code.
+   * A **sweep** backs it up. When the program starts, every run of 16 or more bytes of the ROM images found in RAM
+     below $8000 is marked dirty, however it got there. The program's own image is excluded.
+   * On a real Dragon 64, BASIC leaves such runs in its RAM vector area and near the top of RAM by the time a
+     program starts. An earlier version discarded the program for them; now they are marked. A program that reads
+     them, or calls a ROM routine that does, stops recording there.
 
 **What is left** is what the census is for: the effects of running ROM code on the program's own inputs.
 
@@ -75,8 +76,8 @@ Three more guards bound what is left:
 
 Two more things these guards do not cover:
 
-* **Short boot residue.** The boot self-check (rule 5) only sees runs of 16 bytes or more. Boot residue the heuristic
-  misses still passes if it is shorter than 16 bytes, or if a changed byte breaks the run. How much of that a real
+* **Short boot residue.** The boot sweep (rule 5) only sees runs of 16 bytes or more. Boot residue the heuristic
+  misses is not marked if it is shorter than 16 bytes, or if a changed byte breaks the run. How much of that a real
   BASIC leaves can't be measured without a real ROM.
 * **ROM bytes inside a program's own file.** ROM code embedded in a program's file is that program's data. Only the
   tripwire guards it, and it is out of scope.
@@ -109,7 +110,9 @@ Runs each program on a Dragon 64 with the ROMs given.
 * A machine-code `.bin` or `.cas` is loaded straight into memory, started, and run for `--frames` frames (default
   3000, a minute).
 * A `.cloadm` script runs its steps. It can mount a `.vdk` with `disk`, but the program must still be started by
-  `load` or `asm` (rule 1). A BASIC program, or one booted from disk, is discarded as "not started".
+  `load` or `asm` (rule 1). A BASIC program, or one booted from disk, is discarded as "not started". The message
+  says why, from the file's format. A common case is a tape that starts with a BASIC loader, which BASIC runs and
+  which then loads the machine code: give the census the machine-code file itself instead.
 
 Every control transfer into $8000-$BFFF from outside it is logged: JSR, JMP, BSR/LBSR, indirect jumps through the
 vectors, RTS/RTI/PULS landing in ROM, and interrupts.
@@ -184,4 +187,10 @@ The test also runs a program for each leak path, on the built-in ROM stub:
 * copying ROM out;
 * scanning the ROM.
 
-It drives a stand-in machine through the cases that need exact timing: a boot that copies ROM into RAM, with and without a block copy the self-check must catch, a second program after a stop, and RAM written by a dirty stretch that never returned. It runs a mutant of every guard.
+It drives a stand-in machine through the cases that need exact timing:
+
+* a boot that copies ROM into RAM;
+* the real ROM's load path: runs left in the RAM vector area and the stack, which the sweep must mark;
+* a short copy that only the 16-read heuristic catches;
+* a second program after a stop;
+* RAM written by a dirty stretch that never returned. It runs a mutant of every guard.

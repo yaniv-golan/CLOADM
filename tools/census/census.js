@@ -12,6 +12,7 @@
 const fs = require('fs');
 const path = require('path');
 const cli = require('../../cli/cloadm.js');
+const Emu = require('../../js/emu.js');
 const defaultLib = require('./lib.js');
 const { ROM_LO } = defaultLib;
 
@@ -75,6 +76,24 @@ function stepsFor(file, o) {
 class CensusError extends Error {}
 const errorText = (e) => (e instanceof CensusError ? e.message : `could not run: ${e.code || 'error'}`);
 
+// Why a program the census ran was never started by its loader (Machine.injectAndRun), from the file itself (its
+// format, never its bytes): a tape that starts with a BASIC program (a BASIC loader: BASIC runs it, then it loads the
+// rest), a file with no exec address, a script that never loads a program.
+function notStartedWhy(file) {
+  if (/\.cloadm$/i.test(file)) return 'the script never started a machine-code program with load or asm';
+  let d;
+  try { d = Emu.formats.identify(path.basename(file), fs.readFileSync(file)); } catch (e) { return 'the file could not be identified'; }
+  if (d.kind === 'cas') {
+    const first = d.files && d.files[0];
+    if (!first) return 'no file found on the tape';
+    if (first.fileType !== 2) return `the tape starts with a ${first.fileType === 0 ? 'BASIC program (a BASIC loader: BASIC runs it, and it loads the rest)' : 'data file'}; only machine code the census loads itself is recorded`;
+    if (first.exec == null) return 'the machine-code file on the tape has no exec address';
+    return 'the tape did not start';
+  }
+  if (d.kind === 'binary') return d.basic ? 'the file is a BASIC program: BASIC runs it' : d.exec == null ? 'the binary has no exec address' : 'the binary did not start';
+  return `a ${d.kind} file is not started by the census loader (a machine-code .bin or .cas, or an asm step)`;
+}
+
 // one program -> { records, refused, stopped, error }. lib: the tracer (tests pass a changed one).
 async function runProgram(file, o, lib = defaultLib) {
   const name = path.basename(file);
@@ -98,7 +117,7 @@ async function runProgram(file, o, lib = defaultLib) {
   } catch (e) { failed = `step failed: ${e.code || 'error'}`; }
   const r = t.finish();
   if (failed || r.error) return { records: [], refused: [], stopped: null, error: failed || r.error };
-  if (!r.started) return { records: [], refused: [], stopped: null, error: 'not started by the census loader (a machine-code .bin or .cas, or an asm step)' };
+  if (!r.started) return { records: [], refused: [], stopped: null, error: `not started by the census loader: ${notStartedWhy(file)}` };
   // the tripwire: no WINDOW-byte run of a ROM image anywhere in the values this program outputs
   const tw = new lib.Tripwire(images);
   for (const x of r.records) if (tw.add(lib.valueBytes(x))) return { records: [], refused: [], stopped: null, error: 'tripwire: ROM bytes in the output values' };
@@ -179,5 +198,5 @@ async function main(argv, { log = (t) => process.stderr.write(t + '\n'), lib = d
   return failed.length ? 1 : 0;
 }
 
-module.exports = { main, parse, aggregate, capped, runProgram, ALLOWED, CensusError };
+module.exports = { main, parse, aggregate, capped, runProgram, notStartedWhy, ALLOWED, CensusError };
 if (require.main === module) main(process.argv.slice(2)).then((c) => { process.exitCode = c; });

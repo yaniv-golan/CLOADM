@@ -32,13 +32,13 @@
 //      data in its registers, so everything it does from then on may depend on ROM bytes. Recording STOPS: nothing
 //      later is written or counted, not even addresses. The same happens if program code reads a dirty RAM cell (as
 //      data, or as an instruction other than JMP/JSR extended or RTS: the RAM hooks BASIC fills at boot).
-//   5. Before the program starts (BASIC's boot, a loader), ROM code that writes a value it has just read from ROM
-//      (one of the last four data reads, 0 and $FF aside) marks that cell dirty: the RAM hooks and tables BASIC copies
-//      out of ROM. A value BASIC computes at boot from ROM data is not followed; BASIC's boot is fixed code, not the
-//      program's. A self-check backs the heuristic up: when the program starts, every 16-byte window of a ROM image
-//      found in RAM below $8000 (but the program's own image) must be marked, or the program is discarded
-//      ('boot-residue-unmarked': a copy the heuristic missed, a longer block copy). The check sees only 16-byte runs:
-//      residue the heuristic misses that is shorter, or broken by a changed byte, passes (README, "What is left").
+//   5. Before the program starts (BASIC's boot, a loader), ROM code that writes a value it has read from ROM recently
+//      (one of the last RECENT = 16 data reads, 0 and $FF aside) marks that cell dirty: the RAM hooks and tables BASIC
+//      copies out of ROM, through registers or the stack. A value BASIC computes at boot from ROM data is not followed;
+//      BASIC's boot is fixed code, not the program's. A sweep backs the heuristic up: when the program starts, every
+//      run of 16 or more bytes of a ROM image found in RAM below $8000 (but the program's own image) is marked dirty,
+//      however it got there. Residue the heuristic misses that is shorter than 16 bytes, or broken by a changed byte,
+//      is not marked (README, "What is left").
 // What is left is what the census is for: the effects of running ROM code (constants in its instructions, its timing)
 // on the program's own inputs. Two more guards bound that: the tripwire (the romrefs window check over a program's
 // output values, against the ROM images: a 16-byte run of any image discards the program) and the scan limit (more than
@@ -50,6 +50,7 @@ const ROM_LO = 0x8000, ROM_HI = 0xBFFF;
 const IO_LO = 0xFF00, IO_HI = 0xFFDF;   // the SAM maps $FFE0-$FFFF from the ROM's last 32 bytes (js/machines/sam.js read)
 const VEC_LO = 0xA000, VEC_HI = 0xA00F;
 const HW_LO = 0xFFF2, HW_HI = 0xFFFF;
+const RECENT = 16;   // the boot heuristic's memory: how many of ROM code's last data reads a write is matched against
 const inRom = (a) => a >= ROM_LO && a <= ROM_HI;
 const masked = (a) => a >= 0x8000 && !(a >= IO_LO && a <= IO_HI);
 const REGS = ['a', 'b', 'x', 'y', 'u', 's', 'dp', 'cc'];
@@ -219,7 +220,7 @@ function trace(m, { program = '', maxWrites = 256, maxTargets = 512 } = {}) {
     else open.dropped++;
   };
   // the boot heuristic's memory of what ROM code last read (5): kept from the read taps
-  const onReadRecent = (a, v) => { if (!started && masked(curPc) && a !== cpu.pc && (masked(a) || dirtyRam[a])) { recent.push(v); if (recent.length > 4) recent.shift(); } };
+  const onReadRecent = (a, v) => { if (!started && masked(curPc) && a !== cpu.pc && (masked(a) || dirtyRam[a])) { recent.push(v); if (recent.length > RECENT) recent.shift(); } };
   // the census loader starting the program (1)
   const inject = m.injectAndRun;
   m.injectAndRun = function (segments, exec) {
@@ -232,13 +233,11 @@ function trace(m, { program = '', maxWrites = 256, maxTargets = 512 } = {}) {
     // RAM the first one's ROM calls filled starts nothing new; RAM is not cleared between loads with ROMs)
     started = true; dirtyStretch = false; open = null;
     stepReads = []; stepFetchDirty = false; prevPc = null;
-    // the boot heuristic's self-check (rule 5): every 16-byte window of a ROM image left in RAM below $8000 (but the
-    // program just loaded) must be marked; one that is not means a copy the heuristic missed, and the run stops here
+    // the sweep (rule 5): every run of 16 or more bytes of a ROM image left in RAM below $8000 (but the program just
+    // loaded) is ROM data, however it got there (a copy the heuristic missed: through the stack, a longer block)
     const below = new Uint8Array(0x8000);
     for (let a = 0; a < 0x8000; a++) below[a] = loaded[a] ? 0 : m.peek(a);
-    for (const r of findRuns(below, images)) {
-      for (let a = r.at; a < r.at + r.len; a++) if (!loaded[a] && !dirtyRam[a]) { error = 'boot-residue-unmarked'; return; }
-    }
+    for (const r of findRuns(below, images)) for (let a = r.at; a < r.at + r.len; a++) if (!loaded[a]) dirtyRam[a] = 1;
   };
   const removers = [
     m.addProbe(probe),
