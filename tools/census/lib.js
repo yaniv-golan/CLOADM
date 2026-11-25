@@ -50,8 +50,8 @@ const ROM_LO = 0x8000, ROM_HI = 0xBFFF;
 const IO_LO = 0xFF00, IO_HI = 0xFFDF;   // the SAM maps $FFE0-$FFFF from the ROM's last 32 bytes (js/machines/sam.js read)
 const VEC_LO = 0xA000, VEC_HI = 0xA00F;
 const HW_LO = 0xFFF2, HW_HI = 0xFFFF;
-const RECENT = 16;
-const SWEEP_WINDOW = 8;   // the sweep's shortest run (rule 5): census.js --sweep-window, 4 to 16   // the boot heuristic's memory: how many of ROM code's last data reads a write is matched against
+const RECENT = 16;         // the boot heuristic's memory: how many of ROM code's last data reads a write is matched against
+const SWEEP_WINDOW = 8;    // the sweep's shortest run (rule 5): census.js --sweep-window, 4 to 16
 const inRom = (a) => a >= ROM_LO && a <= ROM_HI;
 const masked = (a) => a >= 0x8000 && !(a >= IO_LO && a <= IO_HI);
 const REGS = ['a', 'b', 'x', 'y', 'u', 's', 'dp', 'cc'];

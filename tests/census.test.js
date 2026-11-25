@@ -338,6 +338,17 @@ Object.assign(bootScenarios, {
     const image = !d.t.isDirty(0x3000) && !d.t.isDirty(0x3002);
     return Object.assign(d.t.finish(), { outside, image });
   },
+  // a start that pokes nothing (a cartridge: no segments) over planted residue: the sweep still runs, after the start
+  zeroSegments(L) {
+    const d = driven(L, { rom: IMG });
+    d.step(0x8100); d.fetch(0x8100, 2);
+    for (let i = 0; i < 12; i++) d.write(0x0600 + i, IMG[0x200 + i]);
+    d.step(0x8102);
+    d.m.injectAndRun([], 0x3000);
+    d.step(0x3000); d.fetch(0x3000, 3); d.read(0x0605);
+    d.step(0x3003); d.step(0xB110); d.step(0x3006);
+    return d.t.finish();
+  },
   // a 10-byte run: marked with the default window (8), not with 16
   shortRun(L) {
     const d = driven(L, { rom: IMG });
@@ -385,6 +396,7 @@ const bootChecks = {
   loadPath: (r) => r.extent && !r.error && r.records.length === 1 && r.records[0].from === 0x3000 && r.stopped === 'program-read-rom-data',
   straddle: (r) => r.outside && r.image && !r.error,
   shortRun: (r) => r.all,
+  zeroSegments: (r) => r.started && r.stopped === 'program-read-rom-data' && !r.records.length,
   loadPathRom: (r) => !r.error && !r.records.length && r.refused.length === 1 && r.stopped === 'rom-data-returned',
   shortCopy: (r) => !r.error && r.stopped === 'program-read-rom-data' && !r.records.length,
   programReads: (r) => r.stopped === 'program-read-rom-data' && !r.records.length && !r.refused.length,
@@ -406,6 +418,7 @@ const bootDescr = {
   loadPath: 'the field report\'s load path (22 ROM bytes at $0114, 16 at $7F0F, no read the heuristic could match): the sweep marks both runs exactly over their length; not discarded, a call recorded, reading $0114 stops recording',
   straddle: 'a ROM run the program image overlaps ($2FF9-$300F, image at $3000) is swept before the image goes in: the 7 bytes outside it stay marked, the image is clean',
   shortRun: 'a 10-byte ROM run is marked by the sweep\'s default 8-byte window',
+  zeroSegments: 'a start that pokes nothing (a cartridge) still sweeps: reading the planted run stops recording',
   loadPathRom: 'a ROM routine reading that stack run refuses its record and stops recording',
   shortCopy: 'a 6-byte copy (6 reads, then 6 writes: shorter than the sweep\'s window) is marked by the 16-read heuristic: reading it stops recording',
 };
@@ -488,7 +501,8 @@ const opts = (o = {}) => Object.assign(census.parse(['--no-roms', '--frames', '5
     const s = tmp('typed.cloadm');
     fs.writeFileSync(s, 'type "POKE 1024,1\\n"\nframes 5\n');
     const r = await census.runProgram(s, opts(), lib);
-    check('a run the census loader did not start records nothing (discarded: not started)', /^not started/.test(r.error || '') && !r.records.length, JSON.stringify(r.error));
+    check('a run the census loader did not start records nothing, and its error carries the reason notStartedWhy gives',
+      r.error === `not started by the census loader: ${census.notStartedWhy(s)}` && /never started a machine-code program/.test(r.error) && !r.records.length, JSON.stringify(r.error));
   }
   // why a program was not started, from the file's format (a BASIC loader tape is the common case)
   {
@@ -571,6 +585,7 @@ const opts = (o = {}) => Object.assign(census.parse(['--no-roms', '--frames', '5
       ['the sweep looking only below $4000', [['for (let a = 0; a < 0x8000; a++) below[a] = m.peek(a);', 'for (let a = 0; a < 0x4000; a++) below[a] = m.peek(a);']], ['loadPath']],
       ['the sweep run after the image went in', [['this.poke = function (a, v) { sweepNow(); return poke.call(this, a, v); };', 'this.poke = function (a, v) { return poke.call(this, a, v); };']], ['straddle']],
       ['the sweep window back to 16', [['const SWEEP_WINDOW = 8;', 'const SWEEP_WINDOW = 16;']], ['shortRun']],
+      ['no sweep when nothing is poked', [['    sweepNow();\n    for (const seg of segments)', '    for (const seg of segments)']], ['zeroSegments']],
       ['the heuristic remembering 4 reads', [['const RECENT = 16;', 'const RECENT = 4;']], ['shortCopy']],
       ['ROM code reading ROM data not making its stretch dirty', [['else dirtyStretch = true;', 'else { }'], ['if (masked(curPc) && !(a >= VEC_LO && a <= VEC_HI) && !(a >= HW_LO && a <= HW_HI)) dirtyStretch = true;', '']], ['roundTrip']],
       ['a ROM data read judged only at the next instruction (its writes slip through)', [['if (masked(curPc) && !(a >= VEC_LO && a <= VEC_HI) && !(a >= HW_LO && a <= HW_HI)) dirtyStretch = true;', '']], ['dirtyWrites']],
