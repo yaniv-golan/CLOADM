@@ -160,6 +160,15 @@ function server({ fail: failWith = null } = {}) {
     const png = await ok.previewPicture();
     const h = Emu.readPngHeader(png);
     check('previewPicture: a 1200 x 630 indexed PNG of 16 colours or fewer, 32 KB or less', h.width === 1200 && h.height === 630 && h.colourType === 3 && h.palette.length <= 16 && png.length <= 32768, `${png.length} bytes`);
+    // the picture switch, on a screen whose picture fits (so its absence is the switch's doing, not the colours'): on,
+    // the request carries the PNG after the sealed bytes; off, it ends with them
+    const pngIn = (body) => body.length - (6 + body[1] + new DataView(body.buffer, body.byteOffset).getUint32(2 + body[1], true));
+    const on = server(), off = server();
+    const withPic = await ok.shortLink(new Emu.ShortLinkStore({ fetch: on.fetch }), { preview: true });
+    const without = await ok.shortLink(new Emu.ShortLinkStore({ fetch: off.fetch }), { preview: false });
+    check('the picture switch: on sends the preview PNG, off sends none (on a screen whose picture fits)',
+      withPic.picture && pngIn(on.requests[0].body) > 8 && Buffer.from(on.requests[0].body.slice(-pngIn(on.requests[0].body), -pngIn(on.requests[0].body) + 4)).equals(Buffer.from([137, 80, 78, 71]))
+      && !without.picture && without.pictureNote === null && pngIn(off.requests[0].body) === 0, `${pngIn(on.requests[0].body)} / ${pngIn(off.requests[0].body)} bytes of picture`);
   }
 
   console.log(fail ? `${fail} FAILED` : 'all passed');

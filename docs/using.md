@@ -423,7 +423,7 @@ What a tap gives depends on what is on screen:
   only in the part of the link after `#`, which browsers never send to a server, so the server stores bytes it cannot read.
   Links don't expire; a link reported for abuse can be removed ("Report this link" on the page the link opens first). Only
   people with the link can open it. The preview picture (**Show a preview picture (public)**, on by default) is public:
-  anyone with the address can see it, even without the key, and turning the switch off leaves it out. The server keeps no
+  anyone with the address can see it, even without the key, and turning the switch off leaves it out. It is also left out when the screen has more colours than the 16-colour preview can hold exactly (the page says so under the link). The server keeps no
   addresses and nothing about who made or opened a link: totals only (links made, opened and removed), at
   s.cloadm.dev/stats/. **Delete this link** removes it (the browser that made it keeps its delete token); copies cached on
   the way may still open for up to a day.
