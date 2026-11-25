@@ -7,6 +7,7 @@
  *   load(id)                         -> the sealed bytes
  *   remove(id, deleteToken)          -> nothing
  *   url(id, key)                     -> https://s.cloadm.dev/<id>#<key>
+ *   reportUrl(id)                    -> https://s.cloadm.dev/api/report/<id>: the Worker's report page (no key)
  * Every failure is a ShortLinkError with a message for people. The key is never given to a store: it is only in url(),
  * which builds the address on this side.
  *
@@ -32,6 +33,7 @@ export function newLinkBody(machine, sealed, png = null) {
 export class ShortLinkStore {
   constructor({ base = SHORT_LINK_BASE, fetch = (...a) => globalThis.fetch(...a) } = {}) { this.base = base; this.fetch = fetch; }
   url(id, key) { return `${this.base}${id}#${key}`; }
+  reportUrl(id) { return ID.test(id) ? `${this.base}api/report/${id}` : null; }
   async call(path, init, what) {
     let res;
     try { res = await this.fetch(`${this.base}${path}`, init); }
@@ -65,6 +67,7 @@ export class ShortLinkStore {
 export class MemoryShortLinkStore {
   constructor(base = SHORT_LINK_BASE) { this.base = base; this.links = new Map(); this.n = 0; }
   url(id, key) { return `${this.base}${id}#${key}`; }
+  reportUrl(id) { return ID.test(id) ? `${this.base}api/report/${id}` : null; }
   async create({ machine, sealed, png = null }) {
     const id = `mem${String(++this.n).padStart(5, '0')}`, deleteToken = `token-${id}`;
     this.links.set(id, { machine, sealed: sealed.slice(), png: png && png.slice(), deleteToken });

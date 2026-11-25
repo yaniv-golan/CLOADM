@@ -240,6 +240,21 @@
     border-radius: var(--r-14); padding: 12px 14px; font-size: 15px; }
   #bootHelp strong { color: var(--orange); display: block; margin-bottom: 4px; }
   #bootHelp .bar { margin-top: 8px; }
+  /* the arrival card (js/ui/arrival.js): docked at the foot of the tube, never more than 40% of it, the machine running
+     above it; what does not fit scrolls inside it */
+  #arrival { position: absolute; left: 4%; right: 4%; bottom: 4%; max-height: 40%; overflow: auto; box-sizing: border-box; z-index: 2;
+    background: var(--panel); color: var(--text); border: 1px solid var(--phosphor); border-radius: var(--r-14); padding: 10px 14px; font-size: 15px; }
+  #arrival[hidden] { display: none; }
+  #arrival p { margin: 0; }
+  #arrival .bar { display: flex; flex-wrap: wrap; gap: 6px 8px; margin-top: 8px; }
+  #arrival button { border-radius: var(--pill); }
+  #arrivalReport { display: inline-block; margin-top: 6px; font-size: 12px; color: var(--text-2); }
+  #arrivalReport[hidden] { display: none; }
+  @media (max-width: 700px), (max-height: 520px) {
+    #arrival { padding: 6px 10px; font-size: 13px; border-radius: var(--r-8); }
+    #arrival .bar { margin-top: 6px; }
+    #arrival button { min-height: 0; padding: 4px 10px; font-size: 13px; }
+  }
 
   .controls { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
   /* the media slots: one row that wraps, cassette 280px, drives 260px and
@@ -1930,6 +1945,10 @@ npx serve -l 8000 .</pre>
         <div id="bootHelp" hidden role="status"><strong id="bootHelpTitle"></strong><span id="bootHelpText"></span>
           <div class="bar"><button id="btnBootSockets" class="primary">Add ROMs</button>
             <button id="btnBootStub">Run without ROMs</button><button id="btnBootPower" class="primary" hidden>Switch off and on</button><button id="btnBootDismiss">Dismiss</button></div></div>
+        <!-- arriving on a shared moment (a #z= or short link): js/ui/arrival.js -->
+        <div id="arrival" role="status" hidden><p id="arrivalText"></p>
+          <div class="bar"><button id="btnArrivalStart" type="button">Start from the beginning</button><button id="btnArrivalBack" type="button" class="primary">Send it back</button></div>
+          <a id="arrivalReport" target="_blank" rel="noopener noreferrer" hidden>Report this link</a></div>
       </div>
       <!-- touch screens only (js/ui/welcome.js): a state cue on the bezel until sound runs; a tap anywhere unlocks it. After the
            screen in the page, so a reading mode starts with the screen's text; the cue is for the eyes, not read out -->
@@ -2670,6 +2689,7 @@ npx serve -l 8000 .</pre>
 <link rel="modulepreload" href="js/ui/ask.js">
 <link rel="modulepreload" href="js/ui/command-box.js">
 <link rel="modulepreload" href="js/ui/share.js">
+<link rel="modulepreload" href="js/ui/arrival.js">
 <link rel="modulepreload" href="js/ui/slots-panel.js">
 <link rel="modulepreload" href="js/ui/tape-panel.js">
 <link rel="modulepreload" href="js/ui/nitros9-panel.js">

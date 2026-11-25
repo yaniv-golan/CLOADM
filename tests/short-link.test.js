@@ -68,6 +68,9 @@ function server({ fail: failWith = null } = {}) {
     check('create: POST https://s.cloadm.dev/api/new, octet-stream, the body newLinkBody makes', q.url === 'https://s.cloadm.dev/api/new' && q.method === 'POST'
       && /application\/octet-stream/.test(q.headers) && Buffer.from(q.body).equals(Buffer.from(Emu.newLinkBody('coco3', sealed, png))) && r.id === 'id000001');
     check('url(): https://s.cloadm.dev/<id>#<key>, built here', st.url('AbCdEfGh', 'k'.repeat(22)) === `https://s.cloadm.dev/AbCdEfGh#${'k'.repeat(22)}`);
+    check('reportUrl(): the Worker\'s report page https://s.cloadm.dev/api/report/<id>, no key, no request made; null for a bad id',
+      st.reportUrl('AbCdEfGh') === 'https://s.cloadm.dev/api/report/AbCdEfGh' && st.reportUrl('a/b') === null && sv.requests.length === 1
+      && new Emu.MemoryShortLinkStore().reportUrl('mem00001') === 'https://s.cloadm.dev/api/report/mem00001');
     const got = await st.load(r.id);
     check('load: GET https://s.cloadm.dev/<id>.bin, the sealed bytes', sv.requests[1].url === `https://s.cloadm.dev/${r.id}.bin` && sv.requests[1].method === 'GET' && Buffer.from(got).equals(Buffer.from(sealed)));
     await st.remove(r.id, r.deleteToken);

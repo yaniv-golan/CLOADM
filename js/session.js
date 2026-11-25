@@ -628,6 +628,13 @@ export class Session {
     this.romsLeft = new WeakMap();   // machine -> CRCs removed from storage that it still runs (removeRom)
     this.stubChosen = new Set();    // machines the user chose to run without ROMs this session
     this.sharedMoment = false;      // arrived on a shared moment that runs without ROMs, not left yet (openSnapshot)
+    // Just arrived from a link: the moment a long link (#z=) or a short link (#l=) carried was opened, and the person
+    // has not acted yet -> { kind: 'long' | 'short', id (the short link's, else null), machine (the profile's name),
+    // program (the bundled program the moment is of, else null) }, or null. Set by openSnapshot({ link }); cleared
+    // (with an 'arrival' event) by the person's first input to the machine (a key, typed or pasted text, a POKE, a
+    // load: touch), another snapshot, a switch, a Reset or a power cycle (leaveSharedMoment). The page's arrival card
+    // shows while it is set, and screen-aware prompts can read it.
+    this.arrivedFromLink = null;
     // The stored-ROM CRCs that did not start BASIC, per machine (Map<Machine, Set<crcs>>): a fresh try is a power-on
     // or a switch, which forgets them (poweredOn clears every machine's; adopt forgets the machine left behind), and
     // another set of ROMs is another key (storedRomsWaiting).
@@ -1093,6 +1100,9 @@ export class Session {
   static NITROS9_MACHINES = NITROS9_MACHINES;
   // what the short-link server takes (shortlink/worker.js MAX_SEALED, PNG_COLOURS and MAX_PNG; a test keeps them equal)
   static SHORT_SEALED_MAX = 64 * 1024;
+  // a snapshot's `program` (the bundled program it is a moment of: momentProgram) -> that id if it is one this page
+  // has (a GAMES.list key or 'liza'), else null: whatever a file or a link says, only a known program is started
+  static momentProgramId(id) { return typeof id === 'string' && (id === 'liza' || Object.hasOwn(GAMES.list, id)) ? id : null; }
   static SHORT_PNG = Object.freeze({ colours: 16, bytes: 32 * 1024 });
   // which of our loaders is the ROM of machine m: 'drivewire', 'floppy' or null
   nitros9Loader(m = this.shownMachine) { return m && m.roms ? nitros9LoaderKind(m.roms.basic) : null; }
@@ -1372,6 +1382,7 @@ export class Session {
     this.stopClaudeFor('you reset the machine');
     this.launch();
     const m = this.shownMachine, again = this.stubRun && this.stubRun.m === m && m.useStub ? this.stubRun : null;
+    this.forgetOpenedProgram(m);
     this.endWelcome(m);
     this.keys.clear();
     this.drives.fitRom(m);
@@ -1393,6 +1404,7 @@ export class Session {
   powerCycle({ menu = true, reason = 'the machine restarted', on = null } = {}) {
     const m = on || this.personMachine;
     if (m === this.personMachine) this.leaveSharedMoment();
+    this.forgetOpenedProgram(m);
     // A load on the BASIC session while the chat is open passes that session, and this stops Claude only when it is
     // the machine Claude acts on (stopClaudeFor's own rule: chatTarget()). In the full-screen chat that IS the BASIC
     // session, so a load there stops Claude (as before); in the side panel the conversation acts on the machine it
@@ -1444,6 +1456,7 @@ export class Session {
   inject(segments, exec, on = null) {
     const m = on || this.shownMachine;
     this.cancelLoadTyping(m);
+    this.forgetOpenedProgram(m);
     this.stopClaudeFor('you started a program', m);   // (as loadMedia: a program run with ROMs is not a reset)
     m.injectAndRun(segments, exec);
     // (keyed by the machine it ran on, so Reset restarts it only on that machine: Session.reset checks stubRun.m)
@@ -1457,11 +1470,20 @@ export class Session {
     this.setStubRun(this.shownMachine, r);
     if (r.watch) this.watchForMenu(r.watch, r.m);
   }
-  // The person leaves a shared moment they arrived on (openSnapshot's sharedMoment): a Reset, a power cycle (Start
-  // over) or a machine switch. 'arrival' tells the page to show its no-ROM card and pill again.
+  // The person leaves a shared moment they arrived on (openSnapshot's sharedMoment, and arrivedFromLink): a Reset, a
+  // power cycle (Start over) or a machine switch. 'arrival' tells the page to show its no-ROM card and pill again, and
+  // to take its arrival card down.
   leaveSharedMoment() {
-    if (!this.sharedMoment) return;
+    if (!this.sharedMoment && !this.arrivedFromLink) return;
     this.sharedMoment = false;
+    this.arrivedFromLink = null;
+    this.emit('arrival');
+  }
+  // the person acted on the machine they arrived on (touch): no longer "just arrived" (the shared moment itself, which
+  // only a Reset, power cycle or switch leaves, stays)
+  settleArrival(m) {
+    if (!this.arrivedFromLink || m !== this.personMachine) return;
+    this.arrivedFromLink = null;
     this.emit('arrival');
   }
   // after a hard reset: the firmware may have changed (ROMs or the stub) and the SAM rate is back to slow
@@ -1841,7 +1863,7 @@ export class Session {
     let snap;
     try { snap = stripRoms(m.snapshot(), own); }
     catch (e) { throw new SessionError(`This snapshot can't be shared: ${e.message}. Share the picture or a clip instead.`); }
-    const meta = { name: m.profile.name, taken: now.toISOString() };
+    const meta = { name: m.profile.name, taken: now.toISOString(), program: this.momentProgram(m) };
     const bytes = await encodeSnapshot(snap, meta);
     // moment: what the file holds, for snapshotLink to write the same moment in the link's form
     return { name: `${m.profile.name.replace(/[^A-Za-z0-9]+/g, '')}-${stamp(now)}${SNAPSHOT_EXT}`, bytes, needs: snap.share.images, dropped: snap.share.dropped, moment: { snap, meta } };
@@ -1880,7 +1902,7 @@ export class Session {
   async snapshotFile(now = new Date()) {
     this.writeWatch.guard('snapshotFile');
     const m = this.personMachine;
-    const bytes = await encodeSnapshot(m.snapshot(), { name: m.profile.name, taken: now.toISOString() });
+    const bytes = await encodeSnapshot(m.snapshot(), { name: m.profile.name, taken: now.toISOString(), program: this.momentProgram(m) });
     const saved = m !== this.shownMachine ? 'your BASIC session' : null;
     return { name: `${m.profile.name.replace(/[^A-Za-z0-9]+/g, '')}-${stamp(now)}${SNAPSHOT_EXT}`, bytes, saved };
   }
@@ -1938,9 +1960,11 @@ export class Session {
   // shared: the moment came from a share link (#z=, js/ui/snapshot-panel.js). One that runs without ROMs is the
   // person's arrival on someone else's moment (sharedMoment): the page holds back its no-ROM card and "No BASIC" pill
   // until they leave it (leaveSharedMoment).
-  openSnapshot(snap, { shared = false } = {}) {
+  // link: { kind: 'long' | 'short', id } when the moment came from a link (#z= or #l=): arrivedFromLink, the page's
+  // arrival card, until the person acts. Any other snapshot opened ends an earlier arrival.
+  openSnapshot(snap, { shared = false, link = null } = {}) {
     this.writeWatch.guard('openSnapshot');
-    const roms = this.snapshotRoms(snap), p = profiles[snap.machine];
+    const roms = this.snapshotRoms(snap), p = profiles[snap.machine], program = Session.momentProgramId(snap.program);
     // a shared one: its ROM code rebuilt from this browser's own images (snapshotRoms checked they are all here)
     snap = restoreRoms(snap, (crc) => this.imageByCrc(crc, roms));
     const switching = !!this.snapshotSwitch(snap);
@@ -1950,6 +1974,11 @@ export class Session {
     this.adopt(m);
     // (set before the events below, so the page's first look at this machine already knows)
     this.sharedMoment = shared && !Object.keys(roms).length;
+    if (program) this.#openedProgram.set(m, program);
+    const was = this.arrivedFromLink;
+    this.arrivedFromLink = link ? { kind: link.kind === 'short' ? 'short' : 'long', id: link.kind === 'short' ? link.id || null : null,
+      machine: m.profile.name, program } : null;
+    if (was || this.arrivedFromLink) this.emit('arrival');
     for (const p of this.profiles) p.clear();      // a profile counts what ran from the moment opened
     if (switching) this.store.set(`config.${m.id}`, JSON.stringify(snap.config));
     if (Object.keys(roms).length) { if (!this.nitros9On(m)) this.stubChosen.delete(m.id); } else this.stubChosen.add(m.id);
@@ -2319,6 +2348,7 @@ export class Session {
     const takeOver = () => { this.cancelLoadTyping(m); this.stopClaudeFor('you loaded a program', m); };
     this.endWelcome(m);     // this machine's welcome and watch: the chat's start of its own firmware ends neither
     this.setStubRun(m);     // the load starts something on THIS machine; the other machine's record is untouched
+    this.forgetOpenedProgram(m);   // (an opened moment's program: something else runs now)
     const media = detectMedia(name, bytes);
     if (media.kind === 'disk') {
       throw new SessionError(`${name}: ${media.format}${media.family ? ` for a ${FAMILY_NAMES[media.family]}` : ''}. Disk images go in a disk drive, not into memory.`);
@@ -3448,7 +3478,7 @@ export class Session {
   touches(m = this.shownMachine) { return (m && this.#touches.get(m)) || 0; }
   // count one touch on m's program (called from the Session's own ways in; the page's keyboard and pads go through
   // personInput, which calls this)
-  touch(m = this.shownMachine) { if (m) this.#touches.set(m, this.touches(m) + 1); return this.touches(m); }
+  touch(m = this.shownMachine) { if (m) { this.#touches.set(m, this.touches(m) + 1); this.settleArrival(m); } return this.touches(m); }
   // A bundled program started on m: remember the count it started at. Called by runGame and runLiza BEFORE their
   // own setup pokes and emits ('program'), so those are not touches.
   markProgramStart(id, m) { if (m) this.#touches.set(m, this.touches(m)); this.programStart = { id, m, at: m ? this.touches(m) : 0 }; return this.programStart; }
@@ -3472,6 +3502,19 @@ export class Session {
     return p;
   }
 
+  // The bundled program machine m's moment is of (a GAMES.list key or 'liza'), or null: what a snapshot of m records
+  // as its `program` (shareFile, snapshotFile), so whoever opens it can start that program from the beginning
+  // (arrivedFromLink.program, the page's Start over). Touched or not: a played game is still that game.
+  // A moment opened from a snapshot (openSnapshot) has no watch of its own: the program its snapshot named is kept for
+  // that machine (#openedProgram) and answered until something else runs there (a load or a program started, a Reset,
+  // a power cycle), so a moment shared on again, Send it back, a slot or a file taken after arriving keeps it.
+  momentProgram(m = this.shownMachine) {
+    const w = this.menuWatch;
+    if (w && w.m === m) return w.kind === 'game' ? Session.momentProgramId(w.game) : w.kind === 'liza' ? 'liza' : null;
+    return (m && this.#openedProgram.get(m)) || null;
+  }
+  #openedProgram = new WeakMap();   // machine -> the program of the snapshot opened on it, until something else runs
+  forgetOpenedProgram(m) { if (m) this.#openedProgram.delete(m); }
   // the bundled program running now and what it is played with -> { id, input, extra, joystick }, or null (BASIC, a
   // file, the welcome menu: the keyboard). id: a GAMES.list key or 'liza' (the touch panel remembers its mode per
   // program and machine under it)

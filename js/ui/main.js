@@ -48,6 +48,7 @@ import { setupAsk } from './ask.js';
 import { setupCommandBox } from './command-box.js';
 import { MemoryKeyStore, storageKeyStore } from '../host/key-store.js';
 import { setupShare } from './share.js';
+import { setupArrival } from './arrival.js';
 import { ShortLinkStore } from '../host/link-store.js';
 import { setupSlotsPanel } from './slots-panel.js';
 import { setupTapePanel } from './tape-panel.js';
@@ -129,7 +130,7 @@ const romPanel = setupRomPanel(page);
 const romSockets = setupRomSockets(page, romPanel, { confirmSwitch: machinePanel.confirmSwitch });
 setupBootHelp(page, romSockets);
 let library = null;
-const snapshots = setupSnapshotPanel(page, { confirmSwitch: machinePanel.confirmSwitch, openRoms: () => romSockets.reveal() });
+const snapshots = setupSnapshotPanel(page, { confirmSwitch: machinePanel.confirmSwitch, openRoms: () => romSockets.reveal(), startOver: (program) => startOver(program) });
 const disks = setupDrives(page, { openRoms: () => romSockets.reveal({ to: 'disk' }) });
 const slots = setupSlotsPanel(page, { snapshots });
 const nitros9 = setupNitros9Panel(page);
@@ -178,6 +179,16 @@ if (claude) {
 // (the framed full page's app bar; an embed's corner chip only with askclaude=1)
 window.emu.askPopout = claude ? null : setupAskPopout(page, { link, framed: framedInPage });
 const welcome = setupWelcome(page, { showRoms, openClaude: () => claude && claude.open() });
+// Start over (the snapshot toast) and Start from the beginning (the arrival card): a moment of a bundled program
+// starts that program again from its beginning, as its program page does; any other moment is a power cycle into the
+// same machine, the screen's own Power route
+function startOver(program) {
+  if (program && welcome.runProgram(program)) return;
+  session.powerCycle({ reason: 'you power cycled the machine' });
+  page.focus();
+}
+// the card a shared moment arrives with (Session.arrivedFromLink); Send it back is the Share screen's own open
+setupArrival(page, { openShare: () => share.open(), startOver, reportUrl: (id) => linkStore.reportUrl(id) });
 const drawer = setupDrawer(page, { showRoms });
 // a phone: the ports and power in sheets, one row of chips under the on-screen panel
 page.sheets = setupPhoneSheets(page, { touchKeys: page.touchKeys, ask });
