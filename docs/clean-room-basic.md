@@ -192,29 +192,35 @@ node tools/basic-bb/run.js --roms DIR_OR_FILE [--machine dragon64] [--cases test
 node tools/basic-bb/compare.js real.jsonl ours.jsonl
 ```
 
-* **Input:** the case files (plain text, one line per typed line). Directives on `'#` lines say how to run the case:
-  `#wait-ok` (default: run until the `OK` prompt is back and the screen stays unchanged for 25 frames),
-  `#frames N`, `#type TEXT` (keys while the program runs, for `INPUT` and `INKEY$`), `#break` (press BREAK),
-  `#timeout S`.
-* **How it runs:** a fresh machine per case (cold start, the same frames every time), the lines typed through the
-  keyboard matrix at the typist's pace, so the ROM's own editor and crunching take them, exactly as a person typing.
+* **Input:** the case files (plain text, one line per typed line). Lines starting with `#` are directives or
+  comments: `#type TEXT` (keys while a program runs, for `INPUT` and `INKEY$`; `\n` is ENTER), `#keys A+B` (matrix
+  keys held together: `SHIFT+LEFT`, `SHIFT+0`, `CLEAR`), `#break`, `#frames N`, `#wait-text REGEX`, `#timeout S`,
+  `#nowait` (the next line is not waited for with OK); `# bb-only` marks a probe that only the black-box run uses.
+  A typed program line is waited for until the screen settles, any other line until `OK` is back.
+* **How it runs:** a fresh machine per case (cold start, then `CLS` typed, so the banner is not compared), the lines
+  typed through the keyboard matrix at the typist's pace, so the ROM's own editor and crunching take them, exactly as a person typing.
   Nothing depends on the ROM's internals: no PC hooks, no RAM addresses, no tokenized loading.
-* **What it records:** the transcript, every line that reached the screen in order, rebuilt by reading the 32 x 16
-  text screen every frame and following its scrolling (the overlap between consecutive frames' screens; a frame
-  whose screen cannot be matched to the previous one is flagged, so a lost line is never silent), plus the final
-  screen. Characters are written as the screen text reader gives them (`js/claude/readtools.js`), with inverse
-  characters marked.
+* **What it records:** the transcript, every line that reached the screen in order: each line as it scrolls off
+  the top (a scroll is recognised by what the CPU does, whatever the ROM: a write to the top row of a byte it has
+  just read from the same column of the row below), then the final screen. A write over text in the top row that
+  is not a scroll is flagged, so a lost line is never silent. Inverse letters are written in lower case (that is
+  how the Dragon shows lower case), other inverse characters with a combining low line.
 * **Output** (one JSON object per line):
   `{"case":"fp-print-01","machine":"dragon64","rom":"<crc32 of the ROM file>","frames":412,"status":"ok",
   "transcript":["PRINT 1/3"," .333333333","OK"],"screen":["...16 lines..."],"flags":[]}`.
   It holds nothing but screen text and the ROM's CRC (to tell runs apart); no ROM bytes.
-* **The token probe** (`tests/basic/cases/probe-tokens.bas`): a program types one line per keyword, then searches RAM
-  below `$8000` for a marker it placed in a `REM` and prints the bytes that follow each marker in hex. This gives
+* **The token probe** (`tests/basic/cases/probe-tokens.bas`): one program line per keyword (after `END:`, so never
+  run), then a program that searches RAM below `$8000` for a marker it placed in a `REM` and prints each following
+  line's number, bytes in hex and whether its link points at the next line. This gives
   every keyword's token value and confirms the program line layout, without looking at the ROM. Similar probes
   give the program's start address (`MEM`, and a marker search), the variable and descriptor layouts (`VARPTR`), and
   the RND sequence.
-* **The lint** (`tools/basic-bb/lint.js`, also run by `run.js`): refuses a case that `PEEK`s, `EXEC`s or `USR`s an
-  address it cannot prove is below `$8000`, so no result can carry ROM contents.
+* **The lint** (`tools/basic-bb/lint.js`, also run by `run.js` and the tests): refuses `EXEC`, `USR`, `DEFUSR`,
+  `CLOADM` and `CSAVEM`, and a `PEEK` whose argument is not a literal below 32768 or an expression ending in
+  `AND 32767` with no `OR`, so no result can carry ROM contents. A line starting with `END:` is not checked (it is
+  never run past the `END`); the token probe lists its keywords that way.
+* **The keyword probe** (`probe-keywords.bas`): writes every byte value `$80-$FE` (and `$FF` with each) into `REM`
+  lines and `LIST`s them, so `LIST` spells out every token, including keywords we do not know about.
 
 ## 8. P1 test list
 

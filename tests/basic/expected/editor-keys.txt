@@ -1,0 +1,20 @@
+# [UM] the line editor keys and SHIFT-0 lower case; provisional until the black-box run
+OK
+10 REM ABX
+LIST
+10 REM ABX
+OK
+20 REM KEPT
+30 REM DROPPED
+LIST
+10 REM ABX
+20 REM KEPT
+OK
+40 rem lower
+50 REM UPPER
+LIST
+10 REM ABX
+20 REM KEPT
+40 rem lower
+50 REM UPPER
+OK

@@ -1,0 +1,108 @@
+* ---------------- cold and warm start ----------------
+* RESET: set up the PIAs and the SAM [HW]; a warm start (the reset button, with WARMFL intact) keeps the
+* program, a cold start clears everything.
+
+RESET   ORCC    #$50            ; no interrupts while setting up
+        CLRA
+        TFR     A,DP
+        LDS     #LINBUF         ; a temporary stack until the memory pointers are set
+* PIA 0: port A in (keyboard rows), port B out (keyboard columns); CB1 (field sync) interrupts
+        CLR     PIA0CA          ; control register 0: the DDR
+        CLR     PIA0A           ; port A all inputs
+        LDA     #$34            ; CA2 output low, data register, CA1 interrupt off
+        STA     PIA0CA
+        CLR     PIA0CB
+        LDA     #$FF
+        STA     PIA0B           ; port B all outputs
+        LDA     #$35            ; CB2 output low, data register, CB1 interrupt on (falling edge)
+        STA     PIA0CB
+        LDA     #$FF
+        STA     PIA0B           ; no column driven
+* PIA 1: port A bits 1-7 out (DAC), port B bits 1-7 out; PB2 high keeps the 32K-mode ROM selected, so it is
+* written to the data register before port B becomes an output
+        CLR     PIA1CA
+        LDA     #$FE
+        STA     PIA1A
+        LDA     #$34            ; CA2 (motor) low, data register
+        STA     PIA1CA
+        LDA     #$04
+        STA     PIA1CB          ; data register
+        STA     PIA1B           ; PB2 = 1, VDG text mode
+        CLR     PIA1CB          ; the DDR
+        LDA     #$FE
+        STA     PIA1B
+        LDA     #$34            ; CB2 (sound) low, data register, CB1 interrupt off
+        STA     PIA1CB
+        LDA     #$80            ; the DAC at its middle
+        STA     PIA1A
+* SAM: the text screen at $0400, 64K RAM
+        STA     SAMF1S
+        STA     SAMM1S
+        LDA     <WARMFL
+        CMPA    #$55
+        BNE     COLD
+        JMP     WARM
+
+COLD    LDX     #0              ; clear the direct page and the system RAM below the screen
+COLD1   CLR     ,X+
+        CMPX    #SCREEN
+        BNE     COLD1
+        LDX     #VECINI         ; the RAM vectors
+        LDU     #VIRQ
+        LDB     #6*3
+COLD2   LDA     ,X+
+        STA     ,U+
+        DECB
+        BNE     COLD2
+        LDD     #RAMTOP
+        STD     <MEMTOP
+        LDD     #RAMTOP-STRDEF
+        STD     <STRBOT
+        LDX     #PROGST
+        STX     <TXTTAB
+        CLR     -1,X
+        JSR     NEWPRG          ; an empty program, cleared variables, the stack reset
+        LDA     #$55
+        STA     <WARMFL
+        JSR     CLS
+        LDX     #BANNER
+        JSR     PRTSTR
+        JMP     READY
+
+* the reset button with BASIC already running: keep the program and the variables
+WARM    LDS     <STRBOT
+        CLR     <TRCFLG
+        LDX     #SCREEN
+        STX     <CURPOS
+        JSR     CLS
+        JMP     READY
+
+* the RAM vectors' initial contents: JMP handler
+VECINI  JMP     IRQSRV
+        JMP     FIRQSV
+        JMP     NMISRV
+        JMP     NMISRV
+        JMP     NMISRV
+        JMP     NMISRV
+
+BANNER  FCC     "CLOADM BASIC FOR THE DRAGON 64"
+        FCB     13
+        FCC     "CLEAN-ROOM, 32K MODE"
+        FCB     13
+        FCN     ""
+
+* ---------------- interrupts ----------------
+* IRQ: the field sync (50 Hz): count TIMER and acknowledge PIA 0 CB1 by reading port B
+IRQSRV  LDA     PIA0CB
+        BPL     IRQ1            ; not the field sync
+        LDA     PIA0B           ; acknowledge
+        LDX     <TIMER
+        LEAX    1,X
+        STX     <TIMER
+IRQ1    RTI
+* FIRQ: the cartridge line; acknowledge PIA 1 CB1
+FIRQSV  PSHS    A
+        LDA     PIA1B
+        PULS    A
+        RTI
+NMISRV  RTI

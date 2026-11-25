@@ -1,0 +1,14 @@
+# entering, replacing, deleting and listing lines
+30 REM THIRD
+10 REM FIRST
+20 REM SECOND
+LIST
+20 REM REPLACED
+LIST
+20
+LIST
+LIST 30
+LIST -10
+LIST 30-
+NEW
+LIST

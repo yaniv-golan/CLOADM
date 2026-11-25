@@ -13,7 +13,9 @@ Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.
 - **A clean-room BASIC for the Dragon 64, phase 1: the design** ([docs/clean-room-basic.md](docs/clean-room-basic.md)): our own
   BASIC ROM, written from scratch, so a Dragon 64 without a ROM dump still runs BASIC. The document sets the clean-room
   rules, the memory map, the modules, the floating-point approach, the tests and the black-box comparison with the real
-  ROM, and the milestones.
+  ROM, and the milestones. The source is in `basic/` (`node tools/build-basic.js`); the black-box tools are
+  `tools/basic-bb/` (run the same cases on any Dragon 64 BASIC ROM and compare what the screen shows), with the token
+  and keyword probes; the cases and their expected transcripts are in `tests/basic/`.
 - **The share-link formats are frozen.** Links and snapshots in people's hands keep opening from now on (AGENTS.md,
   rule 7): `SNAPSHOT_OLDEST` never rises (a change to the meaning of state ships a converter from every older version), no
   link or envelope decoder is ever dropped, and a long link's byte 0 is 1 for a moment, 2 for a BASIC program, 3 to 31
