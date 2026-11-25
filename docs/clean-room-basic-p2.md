@@ -322,38 +322,86 @@ All run with no ROM but ours, on the image assembled at test time; unlike black-
 As P1 section 7: the maintainer runs the cases on the real ROM on their own machine with `tools/basic-bb/run.js`,
 returns the results file, and `compare.js` reports differences. P2 adds pictures, sound and joysticks.
 
-* **`#screenshot NAME`** (being added to `tools/basic-bb/run.js` and `tests/basic/harness.js`): records the current
-  frame as a PNG (the frame's own pixels, unscaled, as `--screenshot` saves it) and its hash in the results line.
-  Composite colour stays off (the machine's default), so the pixels are the VDG's colours, not a PAL blend. A picture
-  is functional output (what the program drew), so the PNGs may come back with the results. `compare.js` compares the
-  hashes, and for a difference writes a diff picture (`--diff` style: differing pixels red) and counts the pixels.
-* **`#wav NAME` ... `#wav-stop`** [proposed]: records the sound between them as `--wav` does. What goes into the
-  results file is the recording's hash and its **measures**: each tone's start, length, fundamental frequency (from
-  the zero crossings around the mean) and the two levels it swings between; each silence's length. The WAV itself
-  stays on the maintainer's machine (section 1): a wave played from a table would carry the table. `compare.js`
-  compares frequencies within 0.5%, lengths within one field, levels exactly, and reports the hash only for
-  information.
-* **`#joy N V`** [proposed]: sets axis N (0-3, `JOYSTK`'s numbering) to V (0-63) through `m.joy` before the next line.
+* **`#screenshot NAME`** [implemented]: records the current frame as a PNG (the frame's own pixels, unscaled, as
+  `--screenshot` saves it) and the SHA-256 of its pixels in the results line. The harness turns composite colour off,
+  so the pixels are the VDG's colours, not a PAL blend. A picture is functional output (what the program drew), so the
+  PNGs may come back with the results. `compare.js` compares the hashes and, with `--shots DIR`, writes both PNGs of
+  each picture that differs (a diff picture that marks and counts the differing pixels is not written yet).
+* **`#wav NAME` ... `#wav-stop`** [implemented, in place of a WAV recording]: a write tap on the PIAs records every
+  write to the DAC and every change to whether the DAC is heard, with its CPU cycle; what goes into the results file
+  is only their **measures** (decision 5): for each tone its start, length and period in cycles (the median of its full
+  cycles), the number of periods, writes and distinct levels, and its lowest and highest level; for the window its
+  length, the writes, a hash of the events and the sound switch at the end. The exact segmentation into tones (a gap of
+  more than 20,000 cycles or sound off ends a run; a change of period of more than 3% held for two periods splits it)
+  is in P1 section 7 and `soundMeasures` in `tests/basic/harness.js`. No recording or level sequence leaves the
+  machine: a wave played from a table would carry the table. `compare.js` compares periods within 0.5%, lengths and
+  silences within one field, the lowest and highest levels and the end state exactly; the number of levels and writes
+  (the shape, decision 3) and the hash are information only.
+* **`#joy N V`** [implemented]: sets axis N (0-3, `JOYSTK`'s numbering) to V (0-63) through `m.joy` before the next line.
 * **What only a black-box run can settle** (each a case in `tests/basic/cases/`, named `gfx-*` or `snd-*`): every
   item marked BB in sections 3-9, in particular the pixels of lines, circles (several radii, ratios and arcs), `PAINT`
   on the hand-built shapes, `DRAW` at each angle and scale; colours outside the set and `PPOINT`'s values; defaults
   after cold start and `PMODE`; when the screen returns to text; `SOUND`'s frequencies and unit; `PLAY`'s anchor
-  pitch, W and whether settings persist; `GET`'s coarse rectangle; every error case of section 9.
-* **On a real Dragon by hand:** `sheet.js` prints screenshot steps as "photograph the screen" and sound steps as
-  "record the speaker"; those results are compared by eye and ear, and are not imported. Joysticks are set by hand.
+  pitch, W and whether settings persist; `GET`'s coarse rectangle; every error case of section 9. The first batch
+  (all `# bb-only`: our ROM gives `?FC ERROR` for these statements until P2 is written, so our suite only lints them;
+  `node tools/basic-bb/run.js --ours` runs them to the end):
+
+  | Case | What it records |
+  |---|---|
+  | `gfx-modes` | `PMODE` 0-4 with each colour set: corners, neighbouring points, a diagonal, colours 0-8 (10 pictures) |
+  | `gfx-color` | `COLOR`, `PCLS` with and without a colour, `PSET` 0-8 and `PRESET`, colours outside the set, in `PMODE` 1, 3 and 4 |
+  | `gfx-defaults` | the mode, colours and last point at cold start, after `PMODE`, through `RUN`; `SCREEN 1` with no set |
+  | `gfx-ppoint` | `PPOINT` of POKEd bytes in every mode and set, of `PSET` colours 0-8; `SET`, `RESET`, `POINT` on the text screen |
+  | `gfx-line` | lines in every octant both ways, lengths 0 and 1, `B`, `BF`, `PRESET`, `LINE -(x,y)`, in `PMODE` 4, 0 and 3 |
+  | `gfx-circle` | radii 0-95, ratios 0-4, arcs (each quarter, a wrap, start equal to end), colours, `PMODE` 0 and 3 |
+  | `gfx-clip` | circles, `DRAW` moves, `LINE` and `PSET` past each edge (picture in pages 3-6 of 8; pages 2 and 7 shown after) |
+  | `gfx-paint` | a box, a circle, a U, a diagonal-only gap (4- or 8-connected), paint-colour pixels inside, other borders, edges |
+  | `gfx-draw` | the cold-start point, eight directions, `N`, `B`, `M`, `A` and `S` (and whether they last), `C`, `X`, `=var;` |
+  | `gfx-getput` | `GET ... ,G` and each `PUT` action, the coarse rectangle without `G`, colours in `PMODE` 3 |
+  | `gfx-getarray` | the array elements after `GET` of known bytes; chosen numbers `PUT` and shown, then read back (decision 6) |
+  | `gfx-text-return` | a picture after `PRINT`, `INPUT`, an `INKEY$` loop, `CLS`, `END`, `STOP`, BREAK, an error, the last line, the prompt (decision 7) |
+  | `gfx-pclear` | `MEM` after `PCLEAR` 1, 8, 4; a program and its variables through `PCLEAR` typed and in a program; `PCLEAR` 0 and 9 |
+  | `gfx-pcopy` | `PCOPY` with `PCLEAR 8`, pages shown with `PMODE`, drawing on one page while another is shown |
+  | `gfx-errors` | section 9's errors typed directly, and five in a program with a picture of the screen after each |
+  | `snd-sound` | `SOUND` pitch for t = 1, 50, 100, 150, 200, 255; lengths 1-20 units; three in one line |
+  | `snd-play-pitch` | the default octave, octaves 1-5, sharps and flats, `N1`-`N12` (the anchor pitch) |
+  | `snd-play-length` | the default length, `L1`-`L64`, `T1`-`T255`, dots, pauses (W) |
+  | `snd-play-volume` | the default volume, `V0`-`V31`, volume changing in one string (the level range) |
+  | `snd-play-persist` | octave, length, tempo and volume from one `PLAY` to the next, through `RUN`; `O+`, `>`; `X`; `=var;` |
+  | `snd-timer` | `TIMER` across `SOUND` and `PLAY` (decision 4); BREAK during a long `SOUND` and `PLAY` |
+  | `snd-audio` | the sound switch and multiplexer after `AUDIO ON`, `AUDIO OFF`, `SOUND` and `PLAY` |
+  | `snd-joystk` | every axis read back at the ends and middle; whether `JOYSTK(1)`-`(3)` keep what `JOYSTK(0)` read; the DAC during a read |
+
+  Each picture part ends by putting a marker in the text screen's last two cells and looping, so the picture is
+  taken while it is shown; a part that stops on an error goes on too (its `#wait-text` also accepts `ERROR IN`).
+* **On a real Dragon by hand:** `sheet.js` prints screenshot steps as "photograph the screen", sound steps as
+  "start recording the speaker" and joystick steps as "set the joystick"; those results are compared by eye and ear,
+  and are not imported.
 
 ## 12. The lint for graphics and sound cases
 
 P1's rules still apply unchanged: no `EXEC`, `USR`, `VARPTR`, `CLOADM`, `CSAVEM`; `PEEK` only of RAM; `POKE` only to
-the text screen or to memory set aside with `CLEAR`. The run-time guard stays on. Added:
+the text screen or to memory set aside with `CLEAR`. The run-time guard stays on. Added, and implemented in
+`tools/basic-bb/lint.js` (each rule has refused and accepted examples in `tests/basic-bb.test.js`):
 
-* **`POKE` to a graphics page** (`$0600` up to the end of the pages) is allowed only in a case with no `PCLEAR`, so
-  the pages are the cold-start four and cannot overlap the program.
-* **`PCLEAR`, `PMODE`'s page and `PCOPY`'s pages** must be literals in range (1-8), and `PMODE`'s pages must fit in the
-  case's `PCLEAR` count (4 when none is given). The pages then always lie below `$3600`, so a picture can never show
-  ROM bytes, even if the original did not check the range.
-* **`#screenshot` and `#wav`** must be outside a program line and need nothing else: `PPOINT`, `POINT`, `GET`, `PUT`
-  and `JOYSTK` are fine (they read RAM, the text screen or the comparator).
+* **`POKE` to a graphics page** (`$0600-$1DFF`, the cold-start four) is allowed only in a case with no `PCLEAR`, so
+  the pages cannot overlap the program.
+* **`PCLEAR`, `PMODE`'s page and `PCOPY`'s pages** must be literals: `PCLEAR` 0-9 (0 and 9 only to see the error),
+  `PMODE`'s start page 1-8, with the mode's pages (1, 2, 2, 4, 4; 4 when the mode is not a literal 0-4) within the
+  case's reserved pages (its smallest `PCLEAR`, 4 when none is given; a `PMODE` with no page is taken at the highest
+  page any `PMODE` gives), and `PCOPY`'s pages within them too. The pages then always lie below `$3600`, so a picture
+  can never show ROM bytes, even if the original did not check the range.
+* **Points stay small:** every point of `PSET`, `PRESET`, `SET`, `RESET`, `LINE`, `CIRCLE`, `PAINT`, `GET`, `PUT`,
+  `PPOINT` and `POINT`, and `CIRCLE`'s radius, is a literal (x up to 511, y and the radius up to 255) or an expression
+  ending in `AND n` with n up to 255 and no `OR`. Even if the original drew or read a point off the picture without
+  checking, page 8's start (`$2D00`) plus 255 rows of 32 bytes and 511 points stays below `$8000`, so `PPOINT`,
+  `POINT` and `GET` cannot read the ROM. Literals just past the edge are allowed for the error cases.
+* **`DRAW`** takes its moves from a string, which the lint cannot bound: a case's `DRAW` strings are reviewed by hand
+  to stay within 40 points of the picture, and the clipping case draws in pages 3-6 of 8, so a point that is not
+  clipped lands in a reserved page.
+* **Directives:** `#screenshot`, `#wav`, `#wav-stop` and `#joy` are directives, so always outside a program line; the
+  lint refuses a directive the harness does not know and a malformed `#joy`, `#frames`, `#timeout` or `#wait-text`.
+  `JOYSTK` reads the comparator and needs no rule.
 * `SCREEN`, `COLOR`, `PCLS`, `PLAY` and `SOUND` need no rule: none can address memory.
 
 ## 13. P2 test list and milestones
@@ -364,7 +412,7 @@ emulator needs no MAME comparison (4.4: not applicable, no hardware behaviour ch
 
 | # | Milestone | Done when | Estimate |
 |---|---|---|---|
-| G0 | This document; the harness's `#screenshot`, `#wav`, `#joy`; the lint rules; the first batch of black-box cases (modes, colours, defaults, `SOUND` and `PLAY` measures, error cases) | the cases pass the lint and run on our ROM in CI; the batch is with the maintainer | 1 |
+| G0 | This document; the harness's `#screenshot`, `#wav`, `#joy`; the lint rules; the first batch of black-box cases (modes, colours, defaults, `SOUND` and `PLAY` measures, error cases) | the cases pass the lint (in CI, `tests/basic-lang.test.js`) and run to the end on our ROM (`run.js --ours`); the batch is with the maintainer | 1 |
 | G1 | `gfx.inc`, `sgfx.inc`: `PCLEAR`, `PMODE`, `SCREEN`, `COLOR`, `PCLS`, `PSET`, `PRESET`, `PPOINT`, `PCOPY`, `SET`, `RESET`, `POINT` | mode, page and point tests pass | 1-2 |
 | G2 | `line.inc`, `circle.inc` and `gfxmodel.js` | line and circle tests pass | 1 |
 | G3 | `paint.inc` | the `PAINT` shapes pass | 1 |

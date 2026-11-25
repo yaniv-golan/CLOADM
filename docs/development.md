@@ -288,7 +288,7 @@ node tests/basic-lang.test.js [case...]       # the clean-room BASIC: each case 
 node tests/basic-fp.test.js [n]   # the clean-room BASIC's floating point, its routines called on the CPU against the bit-exact model tests/basic/fpmodel.js (n random operand pairs per operation, default 3000)
 node tests/basic-math.test.js [n]   # the clean-room BASIC's SQR, LOG, EXP, SIN, COS, ATN, ^, INT, RND called on the CPU against the exact values (tolerances in units in the last place)
 node tests/basic-cassette.test.js   # the clean-room BASIC's CSAVE, CLOAD, CSAVEM, CLOADM, SKIPF and MOTOR through the emulated deck: what it writes decoded by the repository's .CAS decoder, tapes built by buildCas loaded, the error paths
-node tests/basic-bb.test.js   # the black-box tools: the lint (no case may read the ROM), compare, the transcript recorder, the build and its token tables
+node tests/basic-bb.test.js   # the black-box tools: the lint (no case may read the ROM; graphics pages and points kept in RAM), compare (text, pictures, sound measures), the transcript recorder, #wav and #joy, the build and its token tables
 node tools/basic-bb/run.js --rom d64_1.rom --out real.jsonl   # run the cases on any Dragon 64 BASIC ROM (a maintainer, with the real one); --ours for ours
 node tools/basic-bb/compare.js real.jsonl ours.jsonl          # the differences, case by case
 node tools/basic-bb/corpus.js --rom d64_1.rom --corpus DIR --out real.jsonl   # corpus mode: CLOAD, LIST and RUN real .cas programs (hashed text); --ours for ours

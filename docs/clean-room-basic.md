@@ -205,15 +205,34 @@ screen shows. The maintainer runs it on the real ROM on their own machine and gi
 on ours, and `tools/basic-bb/compare.js` reports the differences.
 
 ```
-node tools/basic-bb/run.js --roms DIR_OR_FILE [--machine dragon64] [--cases tests/basic/cases] --out results.jsonl
-node tools/basic-bb/compare.js real.jsonl ours.jsonl
+node tools/basic-bb/run.js --rom FILE [--cases tests/basic/cases] [--only a,b] --out results.jsonl
+node tools/basic-bb/compare.js real.jsonl ours.jsonl [--shots DIR]
 ```
 
 * **Input:** the case files (plain text, one line per typed line). Lines starting with `#` are directives or
   comments: `#type TEXT` (keys while a program runs, for `INPUT` and `INKEY$`; `\n` is ENTER), `#keys A+B` (matrix
   keys held together: `SHIFT+LEFT`, `SHIFT+0`, `CLEAR`), `#break`, `#frames N`, `#wait-text REGEX`, `#timeout S`,
-  `#nowait` (the next line is not waited for with OK), `#screenshot NAME` (the picture as it is now: a PNG and the SHA-256 of its pixels, which `compare.js` compares, writing both PNGs of a differing one with `--shots DIR`; for graphics, P2); `# bb-only` marks a probe that only the black-box run uses.
-  A typed program line is waited for until the screen settles, any other line until `OK` is back.
+  `#nowait` (the next line is not waited for with OK), `#screenshot NAME` (the picture as it is now: a PNG and the SHA-256 of its pixels, which `compare.js` compares, writing both PNGs of a differing one with `--shots DIR`; for graphics, P2; composite colour is off, so the pixels are the VDG's own colours); `# bb-only` marks a probe that only the black-box run uses.
+  For sound and joysticks (P2): `#wav NAME` ... `#wav-stop` records the sound between them as **measures only**
+  (below), and `#joy N V` sets joystick axis N (`JOYSTK`'s numbering: 0 right x, 1 right y, 2 left x, 3 left y) to V
+  (0-63) before the next line.
+  A typed program line is waited for until the screen settles, any other line until `OK` is back. While a graphics
+  mode is shown (PIA1 PB7, A/G, high), the text is read from the text screen at `$0400` behind the picture, so a prompt
+  or an error is seen whether or not the ROM went back to text.
+* **Sound measures** (`#wav`; `soundMeasures` in `tests/basic/harness.js`; P2 section 14, decision 5): a write tap on
+  the PIAs records each write to the DAC (PIA1 port A's output register, `$FF20` or a mirror: bits 2-7, 0-63) and each
+  change to whether the DAC is heard (sound enabled, PIA1 CB2 high, and the multiplexer on the DAC, PIA0 CA2 and CB2
+  low), with its CPU cycle. Only measures leave the machine, never the levels or their order (a wave played from a
+  table would carry the table). Segmentation: the heard writes make runs, a run ending at a gap of more than 20,000
+  cycles or where sound is not heard; in a run a full cycle starts at each rising crossing of the middle of its
+  lowest and highest level; a run splits into tones where two periods in a row differ by more than 3% from the current
+  tone's median (one odd period, an interrupt in the tone loop, does not split it; the period that spans the change
+  counts in neither tone). For each tone: its start and length in cycles, its period (the median of its periods),
+  how many periods and writes, how many distinct levels, the lowest and highest level. For the window: its length,
+  the DAC writes and those heard, a SHA-256 of every event (to tell runs apart) and the sound switch at `#wav-stop`.
+  `compare.js` compares the periods within 0.5%, the lengths and the silences between tones within one field (17,784
+  cycles), the lowest and highest levels and the end state exactly; the number of levels and writes (the wave's shape,
+  which is ours: P2 decision 3) and the hash are not compared.
 * **How it runs:** a fresh machine per case (cold start, then `CLS` typed, so the banner is not compared), the lines
   typed through the keyboard matrix at the typist's pace, so the ROM's own editor and crunching take them, exactly as a person typing.
   Nothing depends on the ROM's internals: no PC hooks, no RAM addresses, no tokenized loading.
@@ -225,7 +244,8 @@ node tools/basic-bb/compare.js real.jsonl ours.jsonl
 * **Output** (one JSON object per line):
   `{"case":"fp-print-01","machine":"dragon64","rom":"<crc32 of the ROM file>","frames":412,"status":"ok",
   "transcript":["PRINT 1/3"," .333333333","OK"],"screen":["...16 lines..."],"flags":[]}`.
-  It holds nothing but screen text and the ROM's CRC (to tell runs apart); no ROM bytes.
+  It holds nothing but screen text, the pictures (`shots`) and sound measures (`sounds`) a case asked for, and the
+  ROM's CRC (to tell runs apart); no ROM bytes.
 * **The token probe** (`tests/basic/cases/probe-tokens.bas`): one program line per keyword (after `END:`, so never
   run), then a program that searches RAM below `$8000` for a marker it placed in a `REM` and prints each following
   line's number, bytes in hex and whether its link points at the next line. This gives
@@ -236,7 +256,16 @@ node tools/basic-bb/compare.js real.jsonl ours.jsonl
   `CLOADM`, `CSAVEM` and `VARPTR`, and a `PEEK` or `POKE` whose address is not a literal below 32768 or an
   expression ending in `AND 32767` with no `OR` (computed addresses included), so a case can neither read the ROM nor
   find a string descriptor to point into it. A line starting with `END:` is not checked (it is never run past the
-  `END`); the token probe lists its keywords that way.
+  `END`); the token probe lists its keywords that way. For graphics (P2 section 12) it also refuses a `PCLEAR` that
+  is not a literal 0-9, a `PMODE` start page that is not a literal 1-8 or whose mode's pages do not fit in the pages
+  the case reserves (its smallest `PCLEAR`, else 4), a `PCOPY` page outside them, a `POKE` into the cold-start pages
+  (`$0600-$1DFF`, otherwise allowed) in a case that uses `PCLEAR`, and a point of `PSET`, `PRESET`, `SET`, `RESET`,
+  `LINE`, `CIRCLE`, `PAINT`, `GET`, `PUT`, `PPOINT` or `POINT`, or a `CIRCLE` radius, that is not a literal (x up to
+  511, y and the radius up to 255) or an expression ending in `AND n` with n up to 255: whatever the ROM does with a
+  point off the picture, page 8's start plus 255 rows and 511 points stays below `$8000`, so no picture, `PPOINT`,
+  `POINT` or `GET` can show the ROM. `DRAW`'s moves are in strings and are reviewed by hand to stay near the picture
+  (the clipping case puts its picture in pages 3-6 of 8, so an unclipped point lands in a reserved page). Every
+  directive must be one the harness knows, and `#joy`, `#frames`, `#timeout` and `#wait-text` well formed.
 * **The run-time guard** (`tests/basic/harness.js`, always on for the black-box cases): the CPU running any
   instruction from RAM written since the case began (machine code reached through a POKEd vector, say) stops the
   case with status `refused`, and nothing of its screen is recorded. Our own EXEC and USR cases live apart, in
@@ -244,7 +273,9 @@ node tools/basic-bb/compare.js real.jsonl ours.jsonl
 * **By hand on a real Dragon:** `node tools/basic-bb/sheet.js CASE.bas` prints a case as a typing sheet (what to type
   and press, step by step); the screen's lines are written down in order under `=== case`, and
   `node tools/basic-bb/import.js written.txt --out real-hardware.jsonl` turns them into the same JSONL, for
-  `compare.js`. So reference results can come from real hardware as well as from the maintainer's runs.
+  `compare.js`. So reference results can come from real hardware as well as from the maintainer's runs. The sheet
+  spells out the P2 directives too ("photograph the screen", "start recording the speaker", "set the joystick"):
+  those results are compared by eye and ear, not imported.
 * **Corpus mode** (`tools/basic-bb/corpus.js`): real tokenized programs on `.cas` tapes, which stay on the
   maintainer's machine. Each is CLOADed on a fresh machine, LISTed (every line that scrolls by), then RUN for a fixed
   number of frames with no input (or the keys of a `NAME.keys` sidecar), the screen sampled every N frames: its text

@@ -4,6 +4,7 @@
 // Corpus results (tools/basic-bb/corpus.js, one record a program, matched by the tape's sha256): per program the
 // status, whether the listing is identical (or its first differing line), the first RUN sample where the screen's text
 // or pixels part, and the error lines.
+// Sounds (#wav) are compared by their measures (compareSounds, below).
 // Pictures (#screenshot) are compared by the SHA-256 of their pixels; --shots DIR writes both PNGs of each one that
 // differs.
 //   node tools/basic-bb/compare.js real.jsonl ours.jsonl [--shots DIR]     exit 1 if any case or program differs or is missing
@@ -43,6 +44,35 @@ function compareCorpus(a, b) {
   return { same, report: out };
 }
 
+// Sounds (#wav ... #wav-stop: tests/basic/harness.js soundMeasures): the same names, the same number of tones, and
+// for each tone the period within 0.5%, the length and the silence before it (from the end of the tone before;
+// the first tone's start is not compared, as it depends on how fast each ROM takes the typed line) within one field
+// (17,784 cycles: 312 lines of 57 on the Dragon 64), the lowest and highest level exactly, and the sound enable and
+// multiplexer at #wav-stop. The number of distinct levels, writes and periods are the wave's shape, which is ours
+// (docs/clean-room-basic-p2.md section 14, decision 3), and the hash tells runs apart: neither is compared.
+const FIELD = 312 * 57;
+function compareSounds(sx = [], sy = []) {
+  if (sx.length !== sy.length) return [`${sx.length} vs ${sy.length} sounds`];
+  const out = [];
+  sx.forEach((x, i) => {
+    const y = sy[i], at = `sound ${x.name}`;
+    if (x.name !== y.name) { out.push(`${at}: named ${y.name} in the second`); return; }
+    if (JSON.stringify(x.end) !== JSON.stringify(y.end)) out.push(`${at}: at the end ${JSON.stringify(x.end)} vs ${JSON.stringify(y.end)}`);
+    if (x.tones.length !== y.tones.length) { out.push(`${at}: ${x.tones.length} vs ${y.tones.length} tones`); return; }
+    x.tones.forEach((p, j) => {
+      const q = y.tones[j], t = `${at} tone ${j + 1}`;
+      if ((p.period == null) !== (q.period == null) || (p.period != null && Math.abs(p.period - q.period) > 0.005 * p.period)) out.push(`${t}: period ${p.period} vs ${q.period} cycles`);
+      if (Math.abs(p.length - q.length) > FIELD) out.push(`${t}: length ${p.length} vs ${q.length} cycles`);
+      if (j > 0) {
+        const gap = (s, k) => s.tones[k].start - (s.tones[k - 1].start + s.tones[k - 1].length);
+        if (Math.abs(gap(x, j) - gap(y, j)) > FIELD) out.push(`${t}: silence before it ${gap(x, j)} vs ${gap(y, j)} cycles`);
+      }
+      if (p.low !== q.low || p.high !== q.high) out.push(`${t}: levels ${p.low}-${p.high} vs ${q.low}-${q.high}`);
+    });
+  });
+  return out;
+}
+
 function compare(a, b, shotDir = null) {
   const out = [];
   let same = 0;
@@ -60,7 +90,9 @@ function compare(a, b, shotDir = null) {
       out.push(`${name}: pictures differ: ${badShot}`);
       if (shotDir) sx.forEach((p, i) => { if (sy[i] && p.sha256 !== sy[i].sha256) for (const [tag, q] of [['first', p], ['second', sy[i]]]) fs.writeFileSync(require('path').join(shotDir, `${name}-${q.name}-${tag}.png`), Buffer.from(q.png, 'base64')); });
     }
-    if (at < 0 && !badShot) { same++; continue; }
+    const badSound = compareSounds(x.sounds, y.sounds);
+    for (const l of badSound) out.push(`${name}: ${l}`);
+    if (at < 0 && !badShot && !badSound.length) { same++; continue; }
     if (at < 0) continue;
     const show = (t, i) => (i < t.length ? JSON.stringify(t[i]) : '(none)');
     out.push(`${name}: line ${at + 1} differs`);
@@ -69,7 +101,7 @@ function compare(a, b, shotDir = null) {
   for (const name of b.keys()) if (!a.has(name)) out.push(`${name}: missing from the first file`);
   return { same, report: out };
 }
-module.exports = { compare, compareCorpus };
+module.exports = { compare, compareCorpus, compareSounds };
 
 if (require.main === module) {
   const args = process.argv.slice(2), si = args.indexOf('--shots');
