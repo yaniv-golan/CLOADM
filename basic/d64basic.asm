@@ -60,6 +60,13 @@ CFASC   RMB     1               ; $FF: saved as text
 CFGAP   RMB     1               ; $FF: the motor stops between blocks
 CFEXEC  RMB     2               ; the exec address
 CFLOAD  RMB     2               ; the load address
+* graphics (gfx.inc, sgfx.inc)
+FGCOL   RMB     1               ; the foreground and background colours, 0-8 (FGCOL must come just before BGCOL)
+BGCOL   RMB     1
+GCSS    RMB     1               ; the colour set SCREEN last chose, x 4
+LASTX   RMB     2               ; the last point drawn (16-bit x, then y)
+LASTY   RMB     2
+GXY     RMB     4               ; a point read (x, y; 16-bit each)
 SYSEND  RMB     0               ; (must stay at or below LINBUF: tools/build-basic.js checks it)
 
 * ---------------- direct page ----------------
@@ -194,6 +201,9 @@ CEND    RMB     2               ; the end of the data to write; CLOADM's offset
 BASESP  RMB     2               ; the stack the OK prompt and CONT use: frames above it survive a STOP
 FRMSP   RMB     2               ; the stack and the text at the start of the statement running
 STMTXT  RMB     2
+GMENT   RMB     2               ; graphics (gfx.inc): the current mode's GMTAB entry, its start page's address,
+GBEG    RMB     2               ; and the colour byte the plot routine writes
+GCOLB   RMB     1
 DPEND   RMB     0
 
 * Two-byte calls: a JMP to each of the ROM's busiest routines at the top of the direct page, just below the RAM
@@ -230,6 +240,8 @@ ZEVNUM   RMB     3
         INCLUDE "strfunc.inc"
         INCLUDE "mathfn.inc"
         INCLUDE "misc.inc"
+        INCLUDE "gfx.inc"
+        INCLUDE "sgfx.inc"
         INCLUDE "io.inc"
         INCLUDE "using.inc"
         INCLUDE "cassette.inc"

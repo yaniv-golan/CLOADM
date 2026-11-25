@@ -62,6 +62,7 @@ COLD2   LDA     ,X+
         STX     <TXTTAB
         CLR     -1,X
         JSR     NEWPRG          ; an empty program, cleared variables, the stack reset
+        JSR     GINIT           ; the graphics mode, colours and last point
         LDA     #$55
         STA     <WARMFL
         JSR     CLS
