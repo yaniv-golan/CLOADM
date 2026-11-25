@@ -16,9 +16,10 @@ const BASE = 'https://cloadm.dev/play/';
 // At $F8 (one short) it lands on $7004, the LDA's operand $41, which our 6809 core runs as NEGA: opcodes $40-$4F all
 // go to unary(), where low nibble 1 is treated like 0, so A = -A in 2 cycles (our disassembler marks it illegal:
 // "FCB $41"). A then flips $41 <-> $BF on each pass - negation, not COM, which would give $BE - while STA ,X+ still
-// advances X, so the screen alternates $41/$BF and the program parks at $700C with X=$0600. The LDA's $86 at $7003 was
-// consumed as the first BNE's offset and is never fetched again. $BF has bit 7 set, reads as a semigraphics block and
-// shows as a space, which the old `replace(/ /g, '').startsWith('AAAA')` checks could not tell from a filled screen.
+// advances X, so the screen alternates $41/$BF and the program parks at $700C with X=$0600. The LDA at $7003 runs
+// once, on the first pass; the BNE goes back to $7004, so its $86 is never fetched again. $BF has bit 7 set, reads as
+// a semigraphics block and shows as a space, which the old `replace(/ /g, '').startsWith('AAAA')` checks could not
+// tell from a filled screen.
 const FILL = [{ addr: 0x7000, data: Uint8Array.from([0x8E, 0x04, 0x00, 0x86, 0x41, 0xA7, 0x80, 0x8C, 0x06, 0x00, 0x26, 0xF9, 0x20, 0xFE]) }];
 
 // the program's whole job is filling the screen, so both screen checks want all 16 rows of 32 'A', not just the top
