@@ -73,61 +73,39 @@ CLS1    STD     ,X++
 * CRLF: a carriage return
 CRLF    PSHS    A
         LDA     #13
-        JSR     CHROUT
+        JSR     <ZCHROUT
         PULS    A,PC
 
 * NEWLIN: a carriage return unless the cursor is at the start of a line
-NEWLIN  PSHS    D
-        LDD     <CURPOS
-        ANDB    #31
-        PULS    D
-        BEQ     NEWLN1
-        BRA     CRLF
-NEWLN1  RTS
+NEWLIN  PSHS    A
+        LDA     <CURPOS+1
+        ANDA    #31
+        PULS    A               ; (the flags stay)
+        BNE     CRLF
+        RTS
 
 * PRTSTR: print the 0-terminated string at X; X ends past the 0
 PRTSTR  LDA     ,X+
         BEQ     PRTSD
-        JSR     CHROUT
+        JSR     <ZCHROUT
         BRA     PRTSTR
 PRTSD   RTS
 
 * SPACE: print a space
 SPACE   PSHS    A
         LDA     #32
-        JSR     CHROUT
+        JSR     <ZCHROUT
         PULS    A,PC
 
 * LINPRT: print D as an unsigned decimal number, no spaces. Keeps every register.
-LINPRT  PSHS    D,X
+LINPRT  PSHS    D,X,U
         BSR     LINSTR
         JSR     PRTN
-        PULS    D,X,PC
-* LINSTR: D as unsigned decimal digits (no leading zeros) at LNSBUF: X = them, B = how many
-LINSTR  PSHS    Y
-        LDY     #LNSBUF
-        LDX     #DECTAB
-LNP1    CLR     ,-S             ; this place's digit
-LNP2    SUBD    ,X
-        BLO     LNP3
-        INC     ,S
-        BRA     LNP2
-LNP3    ADDD    ,X++
-        PSHS    D
-        LDA     2,S
-        BNE     LNP4
-        CMPY    #LNSBUF         ; leading zeros are skipped
-        BNE     LNP4
-        CMPX    #DECTAB+10      ; the units digit is always written
-        BNE     LNP5
-LNP4    ADDA    #'0'
-        STA     ,Y+
-LNP5    PULS    D
-        LEAS    1,S
-        CMPX    #DECTAB+10
-        BLO     LNP1
-        TFR     Y,D
-        SUBD    #LNSBUF
-        LDX     #LNSBUF
-        PULS    Y,PC
-DECTAB  FDB     10000,1000,100,10,1
+        PULS    D,X,U,PC
+* LINSTR: D as unsigned decimal digits (no leading zeros): X = them (in FBUFFR, the last at FBUFFR+18), B = how
+* many. Uses FACM (a line number is only printed between statements) and U32DEC's work.
+LINSTR  STD     <FACM+2
+        CLRA
+        CLRB
+        STD     <FACM
+        JMP     U32DEC

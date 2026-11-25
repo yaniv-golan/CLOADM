@@ -40,7 +40,7 @@ CR2A    CMPA    #'?'
         BRA     CR1
 CR3     CMPA    #' '
         BEQ     CRCOPY
-        JSR     KWMAT
+        BSR     KWMAT
         BCS     CRTOK
         LDA     ,X
         BRA     CRCOPY
@@ -100,8 +100,10 @@ KWMAT   PSHS    X,U
         PULS    X,U,PC
 KWNO    ANDCC   #$FE
         PULS    X,U,PC
-* KWSCAN: try every entry of the table at U against the text at 2,S's X (B: 1 for the function table)
+* KWSCAN: try every entry of the table at U against the text at 2,S's X (B: 1 for the function table). An entry's
+* token is its place in the table, counted in Y from $80.
 KWSCAN  STB     <KWTMP
+        LDY     #$80
 KS1     LDA     ,U
         BEQ     KSDONE
         LDX     2,S             ; the text (KWMAT's saved X)
@@ -118,11 +120,11 @@ KS2     LDA     ,U+
         CMPB    <KWLEN
         BLS     KSNEXT
         STB     <KWLEN
-        LDA     ,U
-        STA     <KWTOK
+        TFR     Y,D
+        STB     <KWTOK
         LDA     <KWTMP
         STA     <KWFN
-KSNEXT  LEAU    1,U             ; past the token
+KSNEXT  LEAY    1,Y
         BRA     KS1
 KSMISS  TST     ,S+
         BMI     KSNEXT          ; that was the last letter

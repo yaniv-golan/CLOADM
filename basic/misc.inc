@@ -1,34 +1,31 @@
 * ---------------- memory, machine code, user functions ----------------
 
 * PEEK(address)
-PEEK    JSR     FNARGN
+PEEK    JSR     <ZFNARGN
         JSR     GETADR
         TFR     D,X
         LDB     ,X
         CLRA
         JMP     GIVNUM
 * POKE address, value
-POKE    JSR     EVNUM
-        JSR     GETADR
+POKE    JSR     EVADR
         PSHS    D
-        JSR     COMMA
-        JSR     GETBYT
+        JSR     COMBYT
         PULS    X
         STB     ,X
         RTS
 * EXEC [address]: call machine code (it returns with RTS); without an address, the last one given [UM]
 EXEC    BEQ     EXC1
-        JSR     EVNUM
-        JSR     GETADR
+        JSR     EVADR
         STD     <EXECAD
 EXC1    LDX     <EXECAD
         LBEQ    FCERR           ; no address ever given
         JSR     ,X
-        JMP     CHRGOT
+        JMP     <ZCHRGOT
 * USRn(x): call the machine code DEF USRn gave, with x in FAC; it returns its result in FAC [UM]
-USR     JSR     USRNUM
+USR     BSR     USRNUM
         PSHS    X
-        JSR     FNARGN
+        JSR     <ZFNARGN
         PULS    X
         LDX     ,X
         LBEQ    FCERR           ; never defined
@@ -36,12 +33,12 @@ USR     JSR     USRNUM
         CLR     <VALTYP
         RTS
 * USRNUM: an optional digit after USR: X = its entry in USRTAB
-USRNUM  JSR     CHRGOT
+USRNUM  JSR     <ZCHRGOT
         LDB     #0
         BCC     UN1
         SUBA    #'0'
         TFR     A,B
-        JSR     CHRGET
+        JSR     <ZCHRGET
 UN1     ASLB
         LDX     #USRTAB
         ABX
@@ -52,43 +49,36 @@ UN1     ASLB
 * parameter's address.
 DEF     CMPA    #$FF
         BNE     DEF1
-        JSR     CHRGET
+        JSR     <ZCHRGET
         CMPA    #T_USRF
         LBNE    SNERR
-        JSR     CHRGET
-        JSR     USRNUM
+        JSR     <ZCHRGET
+        BSR     USRNUM
         PSHS    X
-        LDB     #T_EQ
-        JSR     SYNCHR
-        JSR     EVNUM
-        JSR     GETADR
+        JSR     SYNEQ
+        JSR     EVADR
         PULS    X
         STD     ,X
         RTS
 DEF1    CMPA    #T_FN
         LBNE    SNERR
-        LDD     <CURLIN
-        CMPD    #$FFFF
+        JSR     DIRCHK
         LBEQ    IDERR           ; only in a program
-        JSR     CHRGET
+        JSR     <ZCHRGET
         JSR     FNNAME
         LDA     #1
         STA     <VARCRE
         JSR     PTRLKP
         PSHS    X
         JSR     LPAREN
-        LDA     #1
-        STA     <VARCRE
-        JSR     PTRGET
-        CLR     <VARCRE
+        JSR     PTRNEW
         TST     <VALTYP
         LBNE    TMERR
         CMPX    <ARYTAB         ; a simple variable only
         LBHS    SNERR
         PSHS    X
         JSR     RPAREN
-        LDB     #T_EQ
-        JSR     SYNCHR
+        JSR     SYNEQ
         PULS    D
         PULS    X
         STD     2,X             ; the parameter
@@ -97,8 +87,8 @@ DEF1    CMPA    #T_FN
         JMP     DATAST          ; the rest of the statement is not run now
 * FN name(argument): the parameter takes the argument while the expression is evaluated, then gets its own
 * value back (?UF ERROR if the function was never defined)
-FNCALL  JSR     CHRGET
-        JSR     FNNAME
+FNCALL  JSR     <ZCHRGET
+        BSR     FNNAME
         LDA     <VALTYP
         PSHS    A               ; the function's type
         CLR     <VARCRE
@@ -108,7 +98,7 @@ FNCALL  JSR     CHRGET
         LDB     #ERR_UF
         JMP     ERROR
 FNC1     PSHS    X               ; the definition, over the type
-        JSR     FNARGN          ; the argument
+        JSR     <ZFNARGN          ; the argument
         LDX     ,S
         LDU     2,X             ; the parameter: its own value kept on the stack
         LEAS    -5,S
@@ -140,30 +130,11 @@ FNC3     LDA     B,S
         LBNE    TMERR
         RTS
 * FNNAME: a function's name at the text pointer into VARNAM (bit 7 of its first letter set) and VALTYP
-FNNAME  JSR     CHRGOT
-        JSR     ISLET
-        LBCC    SNERR
+FNNAME  JSR     VNAME
+        LDA     <VARNAM
         ORA     #$80
         STA     <VARNAM
-        CLR     <VARNAM+1
-        CLR     <VALTYP
-        JSR     CHRGET
-        BCS     FN1
-        JSR     ISLET
-        BCC     FN2
-FN1     STA     <VARNAM+1
-FN1A    JSR     CHRGET
-        BCS     FN1A
-        JSR     ISLET
-        BCS     FN1A
-FN2     CMPA    #'$'
-        BNE     FN3
-        COM     <VALTYP
-        LDA     <VARNAM+1
-        ORA     #$80
-        STA     <VARNAM+1
-        JSR     CHRGET
-FN3     RTS
+        RTS
 
 * VARPTR(variable): the address of its value
 VARPTR  JSR     LPAREN          ; (a variable that does not exist: ?FC ERROR; making it would move the arrays
@@ -180,7 +151,7 @@ MEM     TFR     S,D
         SUBD    <ARYEND
         JMP     GIVUNS
 * POS(n): the cursor's column (n is not used)
-POS     JSR     FNARGN
+POS     JSR     <ZFNARGN
         LDB     <CURPOS+1
         ANDB    #31
         CLRA
@@ -188,9 +159,7 @@ POS     JSR     FNARGN
 * TIMER: the fields counted since it was last set (50 a second); TIMER = n sets it [UM]
 TIMERF  LDD     <TIMER
         JMP     GIVUNS
-TIMERS  LDB     #T_EQ
-        JSR     SYNCHR
-        JSR     EVNUM
-        JSR     GETADR
+TIMERS  JSR     SYNEQ
+        JSR     EVADR
         STD     <TIMER
         RTS

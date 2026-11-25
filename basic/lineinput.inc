@@ -20,18 +20,18 @@ LI1     JSR     KEYWT
         CMPX    #LINBUF+LINMAX
         BHS     LI1             ; full
         STA     ,X+
-        JSR     CHROUT
+        JSR     <ZCHROUT
         BRA     LI1
 LIBS    CMPX    #LINBUF
         BEQ     LI1
         LEAX    -1,X
-        JSR     CHROUT
+        JSR     <ZCHROUT
         BRA     LI1
 LIKILL  CMPX    #LINBUF
         BEQ     LI1
         LEAX    -1,X
         LDA     #8
-        JSR     CHROUT
+        JSR     <ZCHROUT
         BRA     LIKILL
 LICLR   JSR     CLS
         LDX     #LINBUF

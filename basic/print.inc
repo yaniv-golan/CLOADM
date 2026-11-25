@@ -7,17 +7,15 @@ PRINT   BEQ     PRCR
         LBEQ    PRUSNG
         CMPA    #'@'            ; PRINT @n, ...: from screen position n (0-511) [UM]
         BNE     PR1
-        JSR     CHRGET
-        JSR     EVNUM
-        JSR     GETADR
+        JSR     <ZCHRGET
+        JSR     EVADR
         CMPD    #511
         LBHI    FCERR
         ADDD    #SCREEN
         STD     <CURPOS
-        JSR     CHRGOT
-        CMPA    #','
+        JSR     <ZCHKCOM
         BNE     PRNXT
-        JSR     CHRGET
+        JSR     <ZCHRGET
         BEQ     PRCR
 PR1     CMPA    #';'
         BEQ     PRSEMI
@@ -29,15 +27,15 @@ PR1     CMPA    #';'
         TST     <VALTYP
         BNE     PRSTR
         JSR     FOUT
-        JSR     PRTSTR
+        JSR     <ZPRTSTR
         JSR     SPACE
         BRA     PRNXT
 PRSTR   JSR     FRESTR
         BSR     PRTN
-PRNXT   JSR     CHRGOT
+PRNXT   JSR     <ZCHRGOT
         BNE     PR1
 PRCR    JMP     CRLF
-PRSEMI  JSR     CHRGET
+PRSEMI  JSR     <ZCHRGET
         BNE     PR1
         RTS
 PRCOM   LDB     <CURPOS+1
@@ -51,10 +49,10 @@ PRC1    JSR     SPACE
         BLO     PRC1
         BRA     PRC3
 PRC2    JSR     CRLF
-PRC3    JSR     CHRGET
+PRC3    JSR     <ZCHRGET
         BNE     PR1
         RTS
-PRTAB   JSR     CHRGET          ; (TAB( is one token: the argument follows)
+PRTAB   JSR     <ZCHRGET          ; (TAB( is one token: the argument follows)
         JSR     GETBYT
         PSHS    B
         JSR     RPAREN
@@ -72,7 +70,7 @@ PRT1    JSR     SPACE
 PRTN    TSTB
         BEQ     PRTN2
 PRTN1   LDA     ,X+
-        JSR     CHROUT
+        JSR     <ZCHROUT
         DECB
         BNE     PRTN1
 PRTN2   RTS

@@ -1,27 +1,5 @@
 * ---------------- numbers to and from text, and integers ----------------
 
-* constants (packed; tests/basic-fp.test.js checks each against exact values)
-FPHALF  FCB     $80,$00,$00,$00,$00     ; 0.5
-* POWTAB: 10^0 to 10^17, rounded to nearest (exact up to 10^13)
-POWTAB  FCB     $81,$00,$00,$00,$00
-FPTEN   FCB     $84,$20,$00,$00,$00
-        FCB     $87,$48,$00,$00,$00
-        FCB     $8A,$7A,$00,$00,$00
-        FCB     $8E,$1C,$40,$00,$00
-        FCB     $91,$43,$50,$00,$00
-        FCB     $94,$74,$24,$00,$00
-        FCB     $98,$18,$96,$80,$00
-FP1E8   FCB     $9B,$3E,$BC,$20,$00
-FP1E9   FCB     $9E,$6E,$6B,$28,$00
-        FCB     $A2,$15,$02,$F9,$00
-        FCB     $A5,$3A,$43,$B7,$40
-        FCB     $A8,$68,$D4,$A5,$10
-        FCB     $AC,$11,$84,$E7,$2A
-        FCB     $AF,$35,$E6,$20,$F5
-        FCB     $B2,$63,$5F,$A9,$32
-        FCB     $B6,$0E,$1B,$C9,$BF
-        FCB     $B9,$31,$A2,$BC,$2F
-
 * POWX: X = the address of 10^B in POWTAB. Keeps B.
 POWX    PSHS    B
         LDA     #5
@@ -30,17 +8,18 @@ POWX    PSHS    B
         LEAX    D,X
         PULS    B,PC
 * FCMPP: compare 10^B with FAC (A and the flags as FCMP: > 0 when FAC is below it)
+* FCMPM: compare the packed number at X with FAC, as FCMP
 FCMPP   BSR     POWX
-        JSR     MOVAM
-        JMP     FCMP
+FCMPM   JSR     MOVAM
+        BRA     FCMP
 * FMULP: FAC = FAC x 10^B. FDIVP: FAC = FAC / 10^B.
 FMULP   BSR     POWX
-        JSR     MOVAM
-        JMP     FMUL
-FDIVP   PSHS    B
+        JMP     FMULX
+* FDIVR: FAC = FAC / the packed number at X
+FDIVP   BSR     POWX
+FDIVR   PSHS    X
         JSR     MOVAF
-        PULS    B
-        BSR     POWX
+        PULS    X
         JSR     MOVFM
         JMP     FDIV
 * FPE10 + FPK, FPE10 - FPK
@@ -49,6 +28,14 @@ E10ADD  LDB     <FPK
         ADDD    <FPE10
         STD     <FPE10
         RTS
+* E10INC, E10DEC: FPE10 + 1, - 1 (and in D)
+E10INC  LDD     <FPE10
+        ADDD    #1
+        BRA     E10STO
+E10DEC  LDD     <FPE10
+        SUBD    #1
+E10STO  STD     <FPE10
+        RTS
 E10SUB  LDD     <FPE10
         SUBB    <FPK
         SBCA    #0
@@ -56,11 +43,9 @@ E10SUB  LDD     <FPE10
         RTS
 
 * I32FLT: FAC = the unsigned 32-bit integer in FACM, positive
-I32FLT  CLR     <FACEXT
-        CLR     <FACSGN
+I32FLT  CLR     <FACSGN
         LDA     #128+32
-        STA     <FACEXP
-        JMP     NORM
+        BRA     FLT1
 
 * GIVABF: FAC = D, a signed 16-bit integer
 GIVABF  CLR     <FACSGN
@@ -70,12 +55,13 @@ GIVABF  CLR     <FACSGN
         COMA
         COMB
         ADDD    #1
+* GIV1: FAC = the unsigned 16-bit integer in D, with the sign FACSGN already holds
 GIV1    STD     <FACM
         CLR     <FACM+2
         CLR     <FACM+3
-        CLR     <FACEXT
         LDA     #128+16
-        STA     <FACEXP
+FLT1    STA     <FACEXP
+        CLR     <FACEXT
         JMP     NORM
 
 * QINT: FACM = the integer part of |FAC| (truncated), for |FAC| below 2^32. Keeps the sign.
@@ -83,42 +69,21 @@ QINT    JSR     ROUND
         LDB     #128+32
         SUBB    <FACEXP         ; places to shift right
         BLS     QI3             ; (not reached: |FAC| >= 2^32)
-        CMPB    #32
+        CMPB    #40
         BLO     QI1
-        CLR     <FACM           ; below 1: 0
-        CLR     <FACM+1
-        CLR     <FACM+2
-        CLR     <FACM+3
-        RTS
-QI1     CMPB    #8
-        BLO     QI2
-        LDA     <FACM+2
-        STA     <FACM+3
-        LDA     <FACM+1
-        STA     <FACM+2
-        LDA     <FACM
-        STA     <FACM+1
-        CLR     <FACM
-        SUBB    #8
-        BRA     QI1
-QI2     TSTB
-        BEQ     QI3
-        LSR     <FACM
-        ROR     <FACM+1
-        ROR     <FACM+2
-        ROR     <FACM+3
-        DECB
-        BRA     QI2
+        LDB     #40             ; below 1/256: 0 all the same
+QI1     PSHS    X
+        LDX     #FACM
+        JSR     SHFTR
+        CLR     <FACEXT         ; (the bits shifted out of the integer)
+        PULS    X
 QI3     RTS
 
 * MUL10: FAC = FAC x 10. DIV10: FAC = FAC / 10.
 MUL10   LDX     #FPTEN
-        JSR     MOVAM
-        JMP     FMUL
-DIV10   JSR     MOVAF
-        LDX     #FPTEN
-        JSR     MOVFM
-        JMP     FDIV
+        JMP     FMULX
+DIV10   LDX     #FPTEN
+        BRA     FDIVR
 
 * ---------------- FOUT: FAC as text ----------------
 * FBUFFR gets ' ' or '-', then the number: up to nine significant digits, trailing zeros dropped; fixed point
@@ -139,7 +104,8 @@ FO1     STA     FBUFFR
         CLR     ,U
         LDX     #FBUFFR
         RTS
-FO2     LDD     #0
+FO2     CLRA
+        CLRB
         STD     <FPE10
 * scale FAC into [1E8, 1E9) with as few roundings as possible: steps of 1E9 while far, then one product or
 * quotient by an exact power of ten, then single steps if rounding left it a place out
@@ -201,26 +167,19 @@ FOU4    LDB     <FPK
         JSR     E10SUB
 FOFIX
 FO3     LDX     #FP1E8          ; while FAC < 1E8: x 10
-        JSR     MOVAM
-        JSR     FCMP
+        JSR     FCMPM
         BLE     FO4
         JSR     MUL10
-        LDD     <FPE10
-        SUBD    #1
-        STD     <FPE10
+        JSR     E10DEC
         BRA     FO3
 FO4     LDX     #FP1E9          ; while FAC >= 1E9: / 10
-        JSR     MOVAM
-        JSR     FCMP
+        JSR     FCMPM
         BGT     FO5
         JSR     DIV10
-        LDD     <FPE10
-        ADDD    #1
-        STD     <FPE10
+        JSR     E10INC
         BRA     FO4
 FO5     LDX     #FPHALF         ; + 0.5, and the integer part: nine digits
-        JSR     MOVAM
-        JSR     FADD
+        JSR     FADDX
         JSR     QINT
         LDD     <FACM           ; 1000000000 = $3B9ACA00: back to 100000000, one more place
         CMPD    #$3B9A
@@ -233,9 +192,7 @@ FO5A    LDD     #$05F5
         STD     <FACM
         LDD     #$E100
         STD     <FACM+2
-        LDD     <FPE10
-        ADDD    #1
-        STD     <FPE10
+        JSR     E10INC
 * the nine digits into FPDIG
 FO6     LDX     #POW10
         LDY     #FPDIG
@@ -284,25 +241,17 @@ FO11    INCB
         TSTA
         BMI     FOFR            ; E < 0: a fraction
         INCB                    ; E + 1 digits before the point
-        STB     <FPCNT
-FOI1    LDA     ,X+
-        STA     ,U+
-        DEC     <FPCNT
-        BNE     FOI1
+        JSR     CPYXU
         LDB     <FPE10+1
         INCB
         CMPB    <FPND
         BHS     FOEND           ; nothing after the point
         LDA     #'.'
         STA     ,U+
-        LDA     <FPND
-        SUBA    <FPE10+1
-        DECA
-        STA     <FPCNT
-FOI2    LDA     ,X+
-        STA     ,U+
-        DEC     <FPCNT
-        BNE     FOI2
+        LDB     <FPND
+        SUBB    <FPE10+1
+        DECB
+        JSR     CPYXU
         BRA     FOEND
 FOFR    LDA     #'.'
         STA     ,U+
@@ -315,10 +264,7 @@ FOF1    STA     ,U+
         DECB
         BNE     FOF1
 FOF2    LDB     <FPND
-FOF3    LDA     ,X+
-        STA     ,U+
-        DECB
-        BNE     FOF3
+        JSR     CPYXU
         BRA     FOEND
 * d.ddddE+nn
 FOSCI   LDX     #FPDIG
@@ -329,28 +275,28 @@ FOSCI   LDX     #FPDIG
         BEQ     FOS2
         LDA     #'.'
         STA     ,U+
-FOS1    LDA     ,X+
-        STA     ,U+
-        DECB
-        BNE     FOS1
-FOS2    LDA     #'E'
-        STA     ,U+
-        LDA     #'+'
-        LDB     <FPE10+1
-        TST     <FPE10
-        BPL     FOS3
-        LDA     #'-'
-        NEGB
-FOS3    STA     ,U+
-        LDA     #'0'-1
-FOS4    INCA
-        SUBB    #10
-        BHS     FOS4
-        ADDB    #'0'+10
-        STA     ,U+
-        STB     ,U+
+        JSR     CPYXU
+FOS2    LDD     <FPE10
+        BSR     EXPOUT
 FOEND   CLR     ,U
         LDX     #FBUFFR
+        RTS
+* EXPOUT: E, the sign and two digits of the exponent D (-99 to 99) to U on
+EXPOUT  PSHS    A
+        LDA     #'E'
+        STA     ,U+
+        LDA     #'+'
+        TST     ,S+
+        BPL     EXO1
+        LDA     #'-'
+        NEGB
+EXO1    STA     ,U+
+        LDA     #'0'-1
+EXO2    INCA
+        SUBB    #10
+        BHS     EXO2
+        ADDB    #'0'+10
+        STD     ,U++
         RTS
 
 POW10   FDB     $05F5,$E100     ; 100000000
@@ -371,11 +317,12 @@ POW10   FDB     $05F5,$E100     ; 100000000
 FIN     CLR     <FPSGNI
         CLR     <FPDP
         CLR     <FPDROP
-        LDD     #0
+        CLRA
+        CLRB
         STD     <FPE10
         STD     <FPN
         STD     <FPN+2
-        JSR     CHRGOT
+        JSR     <ZCHRGOT
         CMPA    #'-'
         BEQ     FIM
         CMPA    #T_MINUS
@@ -386,16 +333,16 @@ FIP     CMPA    #'+'
         BEQ     FIS
         CMPA    #T_PLUS
         BNE     FI0
-FIS     JSR     CHRGET
+FIS     JSR     <ZCHRGET
         BRA     FI1
-FI0     JSR     CHRGOT
+FI0     JSR     <ZCHRGOT
 FI1     BCS     FIDIG
         CMPA    #'.'
-        LBNE    FI3
+        BNE     FI3
         TST     <FPDP
         LBNE    FIEND
         COM     <FPDP
-        JSR     CHRGET
+        JSR     <ZCHRGET
         BRA     FI1
 FIDIG   SUBA    #'0'
         TST     <FPDROP
@@ -422,9 +369,7 @@ FID1    PSHS    A
         STD     <FPN
         TST     <FPDP
         BEQ     FINX
-        LDD     <FPE10          ; a digit after the point: one place down
-        SUBD    #1
-        STD     <FPE10
+        JSR     E10DEC
         BRA     FINX
 FIDRP   COM     <FPDROP         ; the first digit that does not fit rounds
         CMPA    #5
@@ -442,18 +387,17 @@ FIUND   LDD     #$FFFF
         STD     <FPN+2
 FIIGN   TST     <FPDP           ; a digit not kept is still a place before the point
         BNE     FINX
-        LDD     <FPE10
-        ADDD    #1
-        STD     <FPE10
-FINX    JSR     CHRGET
-        LBRA    FI1
+        JSR     E10INC
+FINX    JSR     <ZCHRGET
+        BRA     FI1
 * the exponent
 FI3     CMPA    #'E'
         BNE     FIEND
         CLR     <FPEXS
-        LDD     #0
+        CLRA
+        CLRB
         STD     <FPEX
-        JSR     CHRGET
+        JSR     <ZCHRGET
         CMPA    #'-'
         BEQ     FIE1
         CMPA    #T_MINUS
@@ -464,9 +408,9 @@ FIE2    CMPA    #'+'
         BEQ     FIE3
         CMPA    #T_PLUS
         BEQ     FIE3
-        JSR     CHRGOT
+        JSR     <ZCHRGOT
         BRA     FIE4
-FIE3    JSR     CHRGET
+FIE3    JSR     <ZCHRGET
 FIE4    BCC     FIE6
         SUBA    #'0'
         PSHS    A
@@ -485,7 +429,7 @@ FIE4    BCC     FIE6
         ADCA    #0
         STD     <FPEX
 FIE5    LEAS    1,S
-        JSR     CHRGET
+        JSR     <ZCHRGET
         BRA     FIE4
 FIE6    LDD     <FPEX
         TST     <FPEXS
@@ -528,7 +472,7 @@ FIE10   LDA     <FPSGNI
         TST     <FACEXP
         BNE     FIE11
         CLR     <FACSGN
-FIE11   JMP     CHRGOT
+FIE11   JMP     <ZCHRGOT
 
 * FPNX10: FPN = FPN x 10 (32 bits)
 FPNX10  LDD     <FPN+2

@@ -4,57 +4,124 @@
 * tests/basic-math.test.js checks them against exact values over many arguments.
 
         INCLUDE "mathconst.inc"
-FPONE   EQU     POWTAB          ; 1
 FPM1    FCB     $81,$80,$00,$00,$00     ; -1
+* (FPM1, FPHALF and POWTAB follow FPCON's block: tests/basic-fp.test.js checks each against exact values)
+FPHALF  FCB     $80,$00,$00,$00,$00     ; 0.5
+* POWTAB: 10^0 to 10^17, rounded to nearest (exact up to 10^13)
+POWTAB  FCB     $81,$00,$00,$00,$00
+FPTEN   FCB     $84,$20,$00,$00,$00
+        FCB     $87,$48,$00,$00,$00
+        FCB     $8A,$7A,$00,$00,$00
+        FCB     $8E,$1C,$40,$00,$00
+        FCB     $91,$43,$50,$00,$00
+        FCB     $94,$74,$24,$00,$00
+        FCB     $98,$18,$96,$80,$00
+FP1E8   FCB     $9B,$3E,$BC,$20,$00
+FP1E9   FCB     $9E,$6E,$6B,$28,$00
+        FCB     $A2,$15,$02,$F9,$00
+        FCB     $A5,$3A,$43,$B7,$40
+        FCB     $A8,$68,$D4,$A5,$10
+        FCB     $AC,$11,$84,$E7,$2A
+        FCB     $AF,$35,$E6,$20,$F5
+        FCB     $B2,$63,$5F,$A9,$32
+        FCB     $B6,$0E,$1B,$C9,$BF
+        FCB     $B9,$31,$A2,$BC,$2F
 
+FPONE   EQU     POWTAB          ; 1
 
 * FNARGN: ( numeric expression )
 FNARGN  JSR     LPAREN
-        JSR     EVNUM
+        JSR     <ZEVNUM
         JMP     RPAREN
-* FSTX, FLDX: FAC to or from the packed number at X. FMULX, FADDX: FAC = [X] x FAC, [X] + FAC.
-FSTX    JMP     MOVMF
-FLDX    JMP     MOVFM
+* FMULX, FADDX: FAC = [X] x FAC, [X] + FAC, for the packed number at X. FDIVX: [X] / FAC. FSUBX: [X] - FAC.
 FMULX   JSR     MOVAM
         JMP     FMUL
 FADDX   JSR     MOVAM
         JMP     FADD
+FDIVX   JSR     MOVAM
+        JMP     FDIV
+FSUBX   JSR     MOVAM
+        JMP     FSUB
+* FPRUN: do the steps that follow the call, a byte each, up to a 0 byte; the code after it then goes on. A step
+* is an operation (bits 7-5) on a packed number (bits 4-0): 1-7 are FPT1-FPT6 and POLYV, 8 and up the constants
+* from FPCON on. Keeps nothing but the stack.
+F_STO   EQU     $20             ; store FAC (rounded)
+F_LD    EQU     $40             ; FAC = it
+F_MUL   EQU     $60             ; FAC = it x FAC
+F_ADD   EQU     $80             ; FAC = it + FAC
+F_RDIV  EQU     $A0             ; FAC = FAC / it
+F_DIVX  EQU     $C0             ; FAC = it / FAC
+F_SUBX  EQU     $E0             ; FAC = it - FAC
+K_P2HI  EQU     (PIO2HI-FPCON)/5+8
+K_P2LO  EQU     (PIO2LO-FPCON)/5+8
+K_2OPI  EQU     (TWOOPI-FPCON)/5+8
+K_L2HI  EQU     (LN2HI-FPCON)/5+8
+K_L2LO  EQU     (LN2LO-FPCON)/5+8
+K_LN2   EQU     (LN2-FPCON)/5+8
+K_ILN2  EQU     (INVLN2-FPCON)/5+8
+K_SQR3  EQU     (SQRT3-FPCON)/5+8
+K_M1    EQU     (FPM1-FPCON)/5+8
+K_HALF  EQU     (FPHALF-FPCON)/5+8
+K_ONE   EQU     (FPONE-FPCON)/5+8
+FPRUN   PULS    U
+FPR1    LDB     ,U+
+        BEQ     FPR3
+        PSHS    B,U
+        ANDB    #$1F
+        LDX     #FPT1-5
+        CMPB    #8
+        BLO     FPR2
+        LDX     #FPCON-40
+FPR2    LDA     #5
+        MUL
+        ABX
+        PULS    B
+        LSRB
+        LSRB
+        LSRB
+        LSRB
+        ANDB    #$0E
+        LDU     #FPOPS-2
+        JSR     [B,U]
+        PULS    U
+        BRA     FPR1
+FPR3    JMP     ,U
+FPOPS   FDB     MOVMF,MOVFM,FMULX,FADDX,FDIVR,FDIVX,FSUBX
 * GIVUNS: D (unsigned) into FAC, a number
-GIVUNS  STD     <FACM
-        CLR     <FACM+2
-        CLR     <FACM+3
-        CLR     <FACEXT
-        CLR     <FACSGN
+GIVUNS  CLR     <FACSGN
         CLR     <VALTYP
-        LDA     #128+16
-        STA     <FACEXP
-        JMP     NORM
+        JMP     GIV1
 
 * POLY: FAC = c0 x^(n-1) + ... + c(n-1) for the variable x in FAC, the B coefficients packed at X (highest first)
-POLY    PSHS    B,X
+* A = the step from one coefficient to the next: 5, or 10 for every other one of the table.
+POLY    PSHS    D,X
         LDX     #POLYV
         JSR     MOVMF
-        PULS    B,X
+        LDX     2,S
         JSR     MOVFM
-        DECB
-PL1     PSHS    B,X
-        LDX     #POLYV
-        JSR     FMULX
-        PULS    B,X
-        LEAX    5,X
-        PSHS    B,X
-        JSR     FADDX
-        PULS    B,X
-        DECB
+        DEC     1,S
+PL1     LDX     #POLYV
+        BSR     FMULX
+        LDX     2,S
+        LDB     ,S
+        ABX
+        STX     2,S
+        BSR     FADDX
+        DEC     1,S
         BNE     PL1
-        RTS
+        PULS    D,X,PC
 * ODDPOL: FAC = x P(x^2), P as POLY
-ODDPOL  PSHS    B,X
+* (A and B as POLY; bit 7 of A set: P(-x^2))
+ODDPOL  PSHS    D,X
         LDX     #FPT4
         JSR     MOVMF
         JSR     FMULX           ; x^2
-        PULS    B,X
-        JSR     POLY
+        PULS    D,X
+        TSTA
+        BPL     OP1
+        ANDA    #$7F
+        JSR     FNEG
+OP1     BSR     POLY
         LDX     #FPT4
         JMP     FMULX
 
@@ -99,7 +166,7 @@ FTR5    PULS    A
         STA     ,X
 FTR9    RTS
 * FINT: FAC rounded down (INT)
-FINT    JSR     FTRUNC
+FINT    BSR     FTRUNC
         TST     <TRSGN
         BPL     FTR9
         TST     <FRACNZ
@@ -108,15 +175,16 @@ FINT    JSR     FTRUNC
         JMP     FADDX
 
 * INT(x), FIX(x), ABS(x), SGN(x)
-INT     JSR     FNARGN
+INT     JSR     <ZFNARGN
         BRA     FINT
-FIX     JSR     FNARGN
+FIX     JSR     <ZFNARGN
         BRA     FTRUNC
-ABS     JSR     FNARGN
+ABS     JSR     <ZFNARGN
         CLR     <FACSGN
         RTS
-SGN     JSR     FNARGN
-        LDD     #0
+SGN     JSR     <ZFNARGN
+        CLRA
+        CLRB
         TST     <FACEXP
         BEQ     SGN1
         LDD     #1
@@ -126,13 +194,13 @@ SGN     JSR     FNARGN
 SGN1    JMP     GIVABF
 
 * SQR(x): Newton's iteration, y = (y + x/y)/2, six times from a guess with half the exponent
-SQR     JSR     FNARGN
+SQR     JSR     <ZFNARGN
 FSQR    TST     <FACEXP
         BEQ     SQ9
         TST     <FACSGN
         LBMI    FCERR
-        LDX     #FPT1
-        JSR     MOVMF
+        JSR     <ZFPRUN
+        FCB     F_STO+1,0
         LDA     <FACEXP
         SUBA    #128
         ASRA
@@ -140,20 +208,15 @@ FSQR    TST     <FACEXP
         STA     <FACEXP
         LDA     #6
         STA     <FPK2
-SQ1     LDX     #FPT2
-        JSR     MOVMF
-        LDX     #FPT1
-        JSR     MOVAM
-        JSR     FDIV            ; x / y
-        LDX     #FPT2
-        JSR     FADDX
+SQ1     JSR     <ZFPRUN           ; y kept; x / y; + y
+        FCB     F_STO+2,F_DIVX+1,F_ADD+2,0
         DEC     <FACEXP         ; / 2
         DEC     <FPK2
         BNE     SQ1
 SQ9     RTS
 
 * LOG(x): x = m 2^e with m in [sqrt 1/2, sqrt 2); t = (m-1)/(m+1); ln m = 2t (1 + t^2/3 + t^4/5 + ...)
-LOG     JSR     FNARGN
+LOG     JSR     <ZFNARGN
 FLOG    TST     <FACSGN
         LBMI    FCERR
         TST     <FACEXP
@@ -164,68 +227,46 @@ FLOG    TST     <FACSGN
         LDA     #128
         STA     <FACEXP
         LDX     #SQRHLF
-        JSR     MOVAM
-        JSR     FCMP
+        JSR     FCMPM
         BLE     LOG1
         INC     <FACEXP         ; below sqrt 1/2: m x 2
         DEC     <LOGE
-LOG1     LDX     #FPT1
-        JSR     MOVMF           ; m
-        LDX     #FPONE
-        JSR     FADDX
-        LDX     #FPT2
-        JSR     MOVMF           ; m + 1
-        LDX     #FPT1
-        JSR     MOVFM
-        LDX     #FPONE
-        JSR     MOVAM
-        JSR     FSUB
-        JSR     FNEG            ; m - 1
-        JSR     MOVAF
-        LDX     #FPT2
-        JSR     MOVFM
-        JSR     FDIV            ; t
-        LDX     #LOGTAB
-        LDB     #8
+LOG1    JSR     <ZFPRUN           ; m; m + 1; m again; m - 1; t
+        FCB     F_STO+1,F_ADD+K_ONE,F_STO+2,F_LD+1,F_ADD+K_M1,F_RDIV+2,0
+        LDX     #ODDTAB+10
+        LDD     #$0508
         JSR     ODDPOL
         TST     <FACEXP
         BEQ     LOG2
         INC     <FACEXP         ; x 2
-LOG2     LDX     #FPT3
-        JSR     MOVMF
+LOG2    JSR     <ZFPRUN
+        FCB     F_STO+3,0
         LDB     <LOGE           ; + e ln 2
         SEX
         JSR     GIVABF
-        LDX     #LN2
-        JSR     FMULX
-        LDX     #FPT3
-        JMP     FADDX
+        JSR     <ZFPRUN
+        FCB     F_MUL+K_LN2,F_ADD+3,0
+        RTS
 
 * EXP(x): n = the nearest whole number to x / ln 2, r = x - n ln 2 (|r| <= ln 2 / 2), e^x = 2^n e^r
-EXP     JSR     FNARGN
+EXP     JSR     <ZFNARGN
 FEXP    LDX     #EXPMAX
-        JSR     MOVAM
-        JSR     FCMP
+        JSR     FCMPM
         LBMI    OVERR           ; above 127 ln 2: ?OV ERROR
         LDX     #EXPMIN
-        JSR     MOVAM
-        JSR     FCMP
+        JSR     FCMPM
         BLE     EXP1
         JMP     FZERO           ; below -129 ln 2: 0
-EXP1     LDX     #FPT1
-        JSR     MOVMF           ; x
-        LDX     #INVLN2
-        JSR     FMULX
-        LDX     #FPHALF
-        JSR     FADDX
+EXP1    JSR     <ZFPRUN           ; x kept; x / ln 2 + .5
+        FCB     F_STO+1,F_MUL+K_ILN2,F_ADD+K_HALF,0
         JSR     FINT
         JSR     INTCNV
         STB     <EXPN
-        LDX     #LN2HI
-        LDU     #LN2LO
-        JSR     REDUCE          ; r
-        LDX     #EXPTAB
-        LDB     #12
+        JSR     GIVABF          ; the argument reduction, r = x - n HI - n LO: n; n HI (exact); x - n HI; n LO
+        JSR     <ZFPRUN
+        FCB     F_STO+2,F_MUL+K_L2HI,F_SUBX+1,F_STO+1,F_LD+2,F_MUL+K_L2LO,F_SUBX+1,0
+        LDX     #FACTAB+15
+        LDD     #$050C
         JSR     POLY
         LDB     <FACEXP         ; x 2^n
         CLRA
@@ -238,121 +279,76 @@ EXP1     LDX     #FPT1
         LBNE    OVERR
         STB     <FACEXP
         RTS
-* REDUCE: FAC = FPT1 - n HI - n LO for n = D (X = HI, U = LO): the argument reduction
-REDUCE  PSHS    X,U
-        JSR     GIVABF
-        LDX     #FPT2
-        JSR     MOVMF           ; n
-        LDX     ,S
-        JSR     FMULX           ; n HI (exact)
-        LDX     #FPT1
-        JSR     MOVAM
-        JSR     FSUB            ; x - n HI
-        LDX     #FPT1
-        JSR     MOVMF
-        LDX     #FPT2
-        JSR     MOVFM
-        LDX     2,S
-        JSR     FMULX           ; n LO
-        LDX     #FPT1
-        JSR     MOVAM
-        PULS    X,U
-        JMP     FSUB
 
 * SIN(x), COS(x): k = the nearest whole number to x / (pi/2), r = x - k pi/2 (|r| <= pi/4); the quarter
 * (k, plus 1 for the cosine) picks sin r, cos r, -sin r or -cos r
-COS     JSR     FNARGN
+COS     JSR     <ZFNARGN
 FCOS    LDA     #1
         BRA     SIN0
-SIN     JSR     FNARGN
+SIN     JSR     <ZFNARGN
 FSIN    CLRA
-SIN0     STA     <QUAD
-        LDX     #FPT1
-        JSR     MOVMF
-        LDX     #TWOOPI
-        JSR     FMULX
-        LDX     #FPHALF
-        JSR     FADDX
+SIN0    STA     <QUAD
+        JSR     <ZFPRUN
+        FCB     F_STO+1,F_MUL+K_2OPI,F_ADD+K_HALF,0
         JSR     FINT
         JSR     INTCNV          ; (?FC ERROR when |x| is beyond about 51000)
         PSHS    B
         ADDB    <QUAD
         STB     <QUAD
         PULS    B
-        LDX     #PIO2HI
-        LDU     #PIO2LO
-        JSR     REDUCE
+        JSR     GIVABF          ; the argument reduction, as EXP's
+        JSR     <ZFPRUN
+        FCB     F_STO+2,F_MUL+K_P2HI,F_SUBX+1,F_STO+1,F_LD+2,F_MUL+K_P2LO,F_SUBX+1,0
         LDA     <QUAD
         BITA    #1
         BNE     SIN1
-        LDX     #SINTAB
-        LDB     #7
+        LDX     #FACTAB+5
+        LDD     #$8A07
         JSR     ODDPOL
         BRA     SIN2
-SIN1     LDX     #FPT4
-        JSR     MOVMF
-        JSR     FMULX           ; r^2
-        LDX     #COSTAB
-        LDB     #8
+SIN1    JSR     <ZFPRUN
+        FCB     F_STO+4,F_MUL+4,0       ; r^2
+        JSR     FNEG
+        LDX     #FACTAB
+        LDD     #$0A08
         JSR     POLY
-SIN2     LDA     <QUAD
+SIN2    LDA     <QUAD
         BITA    #2
         BEQ     SIN3
         JMP     FNEG
-SIN3     RTS
+SIN3    RTS
 * TAN(x) = SIN(x) / COS(x)
-TAN     JSR     FNARGN
-        LDX     #FPT5
-        JSR     MOVMF
-        JSR     FSIN
+TAN     JSR     <ZFNARGN
+FTAN    JSR     <ZFPRUN
+        FCB     F_STO+5,0
+        BSR     FSIN
+        JSR     <ZFPRUN
+        FCB     F_STO+6,F_LD+5,0
+        BSR     FCOS
         LDX     #FPT6
-        JSR     MOVMF
-        LDX     #FPT5
-        JSR     MOVFM
-        JSR     FCOS
-        LDX     #FPT6
-        JSR     MOVAM
-        JMP     FDIV
+        JMP     FDIVX
 
 * ATN(x): |x| > 1 uses pi/2 - ATN(1/x); above tan(pi/12) it uses pi/6 + ATN((x sqrt 3 - 1)/(x + sqrt 3));
 * then x - x^3/3 + x^5/5 - ...
-ATN     JSR     FNARGN
+ATN     JSR     <ZFNARGN
 FATN    LDA     <FACSGN
         STA     <ATSGN
         CLR     <FACSGN
         CLR     <ATINV
         CLR     <ATADD
         LDX     #FPONE
-        JSR     MOVAM
-        JSR     FCMP
+        JSR     FCMPM
         BPL     AT1
         INC     <ATINV          ; 1/x
         JSR     FDIV
 AT1     LDX     #TANP12
-        JSR     MOVAM
-        JSR     FCMP
+        JSR     FCMPM
         BPL     AT2
         INC     <ATADD
-        LDX     #FPT1
-        JSR     MOVMF           ; x
-        LDX     #SQRT3
-        JSR     FADDX
-        LDX     #FPT2
-        JSR     MOVMF           ; x + sqrt 3
-        LDX     #FPT1
-        JSR     MOVFM
-        LDX     #SQRT3
-        JSR     FMULX
-        LDX     #FPONE
-        JSR     MOVAM
-        JSR     FSUB
-        JSR     FNEG            ; x sqrt 3 - 1
-        JSR     MOVAF
-        LDX     #FPT2
-        JSR     MOVFM
-        JSR     FDIV
-AT2     LDX     #ATNTAB
-        LDB     #10
+        JSR     <ZFPRUN           ; x; x + sqrt 3; x again; x sqrt 3; - 1; / (x + sqrt 3)
+        FCB     F_STO+1,F_ADD+K_SQR3,F_STO+2,F_LD+1,F_MUL+K_SQR3,F_ADD+K_M1,F_RDIV+2,0
+AT2     LDX     #ODDTAB
+        LDD     #$850A
         JSR     ODDPOL
         TST     <ATADD
         BEQ     AT3
@@ -361,8 +357,7 @@ AT2     LDX     #ATNTAB
 AT3     TST     <ATINV
         BEQ     AT4
         LDX     #PIO2
-        JSR     MOVAM
-        JSR     FSUB            ; pi/2 - it
+        JSR     FSUBX           ; pi/2 - it
 AT4     TST     <FACEXP
         BEQ     AT5
         LDA     <ATSGN
@@ -371,13 +366,11 @@ AT5     RTS
 
 * FPOWER: FAC = ARG ^ FAC. A whole exponent (below 32768) by repeated squaring; otherwise EXP(e LOG(base)),
 * which needs a base above 0 (?FC ERROR; 0 to a power above 0 is 0)
-FPOWER  LDX     #FPT5
-        JSR     MOVMF           ; the exponent
+FPOWER  JSR     <ZFPRUN
+        FCB     F_STO+5,0       ; the exponent
         JSR     MOVFA
-        LDX     #FPT6
-        JSR     MOVMF           ; the base
-        LDX     #FPT5
-        JSR     MOVFM
+        JSR     <ZFPRUN
+        FCB     F_STO+6,F_LD+5,0        ; the base
         JSR     FTRUNC
         TST     <FRACNZ
         BNE     PW5
@@ -392,38 +385,27 @@ FPOWER  LDX     #FPT5
         COMB
         ADDD    #1
 PW1     STD     <PWN
-        LDX     #FPONE
-        JSR     MOVFM
-        LDX     #FPT1
-        JSR     MOVMF           ; the result: 1
+        JSR     <ZFPRUN
+        FCB     F_LD+K_ONE,F_STO+1,0    ; the result: 1
 PW2     LDD     <PWN
         BEQ     PW4
         LSRA
         RORB
         STD     <PWN
         BCC     PW3
-        LDX     #FPT1           ; result x base
-        JSR     MOVFM
-        LDX     #FPT6
-        JSR     FMULX
-        LDX     #FPT1
-        JSR     MOVMF
+        JSR     <ZFPRUN
+        FCB     F_LD+1,F_MUL+6,F_STO+1,0        ; result x base
 PW3     LDD     <PWN
         BEQ     PW4
-        LDX     #FPT6           ; base x base
-        JSR     MOVFM
-        LDX     #FPT6
-        JSR     FMULX
-        LDX     #FPT6
-        JSR     MOVMF
+        JSR     <ZFPRUN
+        FCB     F_LD+6,F_MUL+6,F_STO+6,0        ; base x base
         BRA     PW2
 PW4     LDX     #FPT1
         JSR     MOVFM
         TST     <PWSGN
         BPL     PW9
         LDX     #FPONE          ; a negative exponent: 1 / it
-        JSR     MOVAM
-        JMP     FDIV
+        JMP     FDIVX
 PW5     LDX     #FPT6
         JSR     MOVFM
         TST     <FACEXP
@@ -441,7 +423,7 @@ PW9     RTS
 * RND(x): the next number of the generator, seed = seed x 1664525 + 1013904223 (mod 2^32) [OWN]. RND(0) gives it
 * as a fraction from 0 to below 1; RND(n) for n of 1 and up a whole number from 1 to n [UM]; a negative argument
 * first makes the seed from its bits.
-RND     JSR     FNARGN
+RND     JSR     <ZFNARGN
         TST     <FACSGN
         BPL     RN1
         LDD     <FACM           ; reseed (LSB first)

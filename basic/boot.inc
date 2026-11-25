@@ -41,15 +41,15 @@ RESET   ORCC    #$50            ; no interrupts while setting up
         LDA     <WARMFL
         CMPA    #$55
         BNE     COLD
-        JMP     WARM
+        BRA     WARM
 
 COLD    LDX     #0              ; clear the direct page and the system RAM below the screen
 COLD1   CLR     ,X+
         CMPX    #SCREEN
         BNE     COLD1
-        LDX     #VECINI         ; the RAM vectors
-        LDU     #VIRQ
-        LDB     #6*3
+        LDX     #ZINIT          ; the two-byte calls and the RAM vectors
+        LDU     #ZTRAMP
+        LDB     #6*3+3*10
 COLD2   LDA     ,X+
         STA     ,U+
         DECB
@@ -66,7 +66,7 @@ COLD2   LDA     ,X+
         STA     <WARMFL
         JSR     CLS
         LDX     #BANNER
-        JSR     PRTSTR
+        JSR     <ZPRTSTR
         JMP     READY
 
 * the reset button with BASIC already running: keep the program and the variables
@@ -77,13 +77,39 @@ WARM    LDS     <STRBOT
         JSR     CLS
         JMP     READY
 
-* the RAM vectors' initial contents: JMP handler
-VECINI  JMP     IRQSRV
-        JMP     FIRQSV
-        JMP     NMISRV
-        JMP     NMISRV
-        JMP     NMISRV
-        JMP     NMISRV
+* the two-byte calls' JMPs (d64basic.asm, ZTRAMP), then the RAM vectors' initial contents: JMP handler
+ZINIT   FCB     $7E
+        FDB     CHRGET
+        FCB     $7E
+        FDB     CHRGOT
+        FCB     $7E
+        FDB     CHROUT
+        FCB     $7E
+        FDB     FNARGN
+        FCB     $7E
+        FDB     FPRUN
+        FCB     $7E
+        FDB     PRTSTR
+        FCB     $7E
+        FDB     LINGET
+        FCB     $7E
+        FDB     CHKCOM
+        FCB     $7E
+        FDB     USCHR
+        FCB     $7E
+        FDB     EVNUM
+VECINI  FCB     $7E             ; (written as data: copied to RAM, so each must be the 3-byte JMP)
+        FDB     IRQSRV
+        FCB     $7E
+        FDB     FIRQSV
+        FCB     $7E
+        FDB     NMISRV
+        FCB     $7E
+        FDB     NMISRV
+        FCB     $7E
+        FDB     NMISRV
+        FCB     $7E
+        FDB     NMISRV
 
 BANNER  FCC     "CLOADM BASIC"  ; (a placeholder: the wording comes later)
         FCB     13

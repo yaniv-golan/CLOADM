@@ -3,15 +3,15 @@
 * IF expression THEN statements | line [ELSE statements | line]; IF expression GO TO / GO SUB line [UM].
 * A number that is not 0 is true. When it is false the line goes on after its ELSE (ELSEs pair with the IFs
 * between, innermost first), or ends.
-IFST    JSR     EVNUM
-        JSR     CHRGOT
+IFST    JSR     <ZEVNUM
+        JSR     <ZCHRGOT
         CMPA    #T_GO
         BEQ     IF1
         LDB     #T_THEN
         JSR     SYNCHR
 IF1     TST     <FACEXP
         BEQ     IFNO
-IFYES   JSR     CHRGOT
+IFYES   JSR     <ZCHRGOT
         BCS     IFLINE
         JMP     EXECST
 IFLINE  JMP     GOTO1
@@ -45,7 +45,7 @@ IFN3A   CMPA    #T_ELSE
         BPL     IFN1
         LEAX    -1,X            ; on the ELSE
         STX     <TXTPTR
-        JSR     CHRGET
+        JSR     <ZCHRGET
         BRA     IFYES
 IFN4    LEAX    -1,X            ; the end of the line
 IFN5    LDA     ,X
@@ -59,23 +59,19 @@ IFN6    STX     <TXTPTR
 * the variable's address, the step and the limit packed, the line and the text pointer after the statement.
 * A FOR of a variable that already has a loop open ends that loop and those inside it [OWN; to confirm].
 * The loop runs once before the limit is first checked, at NEXT [OWN; to confirm].
-FOR     LDA     #1
-        STA     <VARCRE
-        JSR     PTRGET
-        CLR     <VARCRE
+FOR     JSR     PTRNEW
         TST     <VALTYP
         LBNE    TMERR
         CMPX    <ARYTAB         ; a simple variable only: an element's address moves when a variable is made
         LBHS    SNERR
         STX     <FORVAR
-        LDB     #T_EQ
-        JSR     SYNCHR
-        JSR     EVNUM
+        JSR     SYNEQ
+        JSR     <ZEVNUM
         LDX     <FORVAR
         JSR     MOVMF
         LDB     #T_TO
         JSR     SYNCHR
-        JSR     EVNUM
+        JSR     <ZEVNUM
         LDX     #FORLIM
         JSR     MOVMF
         LDD     #$8100          ; STEP 1
@@ -83,15 +79,14 @@ FOR     LDA     #1
         CLR     FORSTP+2
         CLR     FORSTP+3
         CLR     FORSTP+4
-        JSR     CHRGOT
+        JSR     <ZCHRGOT
         CMPA    #T_STEP
         BNE     FOR1
-        JSR     CHRGET
-        JSR     EVNUM
+        JSR     <ZCHRGET
+        JSR     <ZEVNUM
         LDX     #FORSTP
         JSR     MOVMF
-FOR1    JSR     CHRGOT
-        LBNE    SNERR
+FOR1    JSR     ENDCHK
 * drop an open loop of the same variable, and everything above it
         PULS    U               ; NEWSTT's return address
         LEAX    ,S
@@ -128,13 +123,14 @@ FOR5    LDA     ,-X
 * step of 0 or more, below it for a negative one) go round again, else close the loop and go on
 NEXT    PULS    U
         STU     <NXRET
-NXA     JSR     CHRGOT
+NXA     JSR     <ZCHRGOT
         BEQ     NX1             ; no variable: the innermost loop
         CLR     <VARCRE         ; (a variable that does not exist is not any loop's)
         JSR     PTRGET
         STX     <FORVAR
         BRA     NX2
-NX1     LDD     #0
+NX1     CLRA
+        CLRB
         STD     <FORVAR
 NX2     LEAX    ,S
 NX3     CMPX    <STRBOT
@@ -158,8 +154,7 @@ NX4     LEAS    ,X              ; the loops inside are gone
         LDX     <FORVAR
         JSR     MOVMF
         LEAX    8,S             ; against the limit
-        JSR     MOVAM
-        JSR     FCMP            ; A: $FF limit < variable, 0 equal, 1 limit > variable
+        JSR     FCMPM
         TST     4,S             ; the step's sign
         BPL     NX5
         NEGA
@@ -171,10 +166,9 @@ NX5     TSTA
         STD     <TXTPTR
         JMP     [NXRET]
 NXDONE  LEAS    FORSIZ,S
-        JSR     CHRGOT
-        CMPA    #','
+        JSR     <ZCHKCOM
         BNE     NX6
-        JSR     CHRGET
+        JSR     <ZCHRGET
         BRA     NXA
 NX6     JMP     [NXRET]
 NFERR   CLRB                    ; ERR_NF
@@ -184,29 +178,27 @@ NFERR   CLRB                    ; ERR_NF
 ON      JSR     GETBYT
         STB     <ONCNT
         CLR     <ONFND
-        JSR     CHRGOT
+        JSR     <ZCHRGOT
         CMPA    #T_GO
         LBNE    SNERR
-        JSR     CHRGET
+        JSR     <ZCHRGET
         STA     <ONKIND
         CMPA    #T_TO
         BEQ     ON1
         CMPA    #T_SUB
         LBNE    SNERR
-ON1     JSR     CHRGET
-ON2     JSR     LINGET          ; each line number in turn
+ON1     JSR     <ZCHRGET
+ON2     JSR     <ZLINGET          ; each line number in turn
         DEC     <ONCNT
         BNE     ON3
         LDD     <BINVAL
         STD     <ONLINE
         INC     <ONFND
-ON3     JSR     CHRGOT
-        CMPA    #','
+ON3     JSR     <ZCHKCOM
         BNE     ON4
-        JSR     CHRGET
+        JSR     <ZCHRGET
         BRA     ON2
-ON4     JSR     CHRGOT
-        LBNE    SNERR
+ON4     JSR     ENDCHK
         TST     <ONFND
         BEQ     ON6             ; none: go on
         LDD     <ONLINE

@@ -13,21 +13,18 @@ MOVFM   PSHS    D,U
         BRA     MOV1
 MOVAM   PSHS    D,U
         LDU     #ARGEXP
-MOV1    LDA     ,X
+MOV1    LDD     ,X
         STA     ,U              ; the exponent
-        LDA     1,X
-        ORA     #$80
-        STA     1,U
+        SEX
+        STA     6,U             ; the sign: bit 7 of the first mantissa byte
+        ORB     #$80
+        STB     1,U
         LDD     2,X
         STD     2,U
         LDA     4,X
         STA     4,U
         CLR     5,U             ; the guard byte
-        CLR     6,U             ; the sign
-        LDA     1,X
-        BPL     MOV2
-        COM     6,U
-MOV2    PULS    D,U,PC
+        PULS    D,U,PC
 
 * ROUND: FAC rounded to 32 bits (?OV ERROR if that carries out of the largest exponent). Keeps X, Y, U.
 ROUND   TST     <FACEXP
@@ -68,10 +65,9 @@ MMF1    STA     1,X
         LDA     <FACM+3
         STA     4,X
         PULS    D,PC
-MMF2    CLR     1,X
-        CLR     2,X
-        CLR     3,X
-        CLR     4,X
+MMF2    CLRB                    ; (A is 0)
+        STD     1,X
+        STD     3,X
         PULS    D,PC
 
 * MOVAF: ARG = FAC (rounded). MOVFA: FAC = ARG.
@@ -105,7 +101,7 @@ FSUB    BSR     FNEG
 * FADD: FAC = ARG + FAC
 FADD    BSR     ROUND
         TST     <ARGEXP
-        LBEQ    FA9             ; + 0
+        BEQ     FA9             ; + 0
         TST     <FACEXP
         BNE     FA1
         BRA     MOVFA           ; 0 + ARG
@@ -125,36 +121,10 @@ FA2     LDA     ,X
 FA3     LDB     <FACEXP
         SUBB    <ARGEXP         ; how far ARG is shifted right
         CMPB    #40
-        BLO     FA4
-        CLR     <ARGM           ; too far: ARG adds nothing
-        CLR     <ARGM+1
-        CLR     <ARGM+2
-        CLR     <ARGM+3
-        CLR     <ARGEXT
-        BRA     FA6
-FA4     CMPB    #8              ; whole bytes first
-        BLO     FA5
-        LDA     <ARGM+3
-        STA     <ARGEXT
-        LDA     <ARGM+2
-        STA     <ARGM+3
-        LDA     <ARGM+1
-        STA     <ARGM+2
-        LDA     <ARGM
-        STA     <ARGM+1
-        CLR     <ARGM
-        SUBB    #8
-        BRA     FA4
-FA5     TSTB
-        BEQ     FA6
-        LSR     <ARGM
-        ROR     <ARGM+1
-        ROR     <ARGM+2
-        ROR     <ARGM+3
-        ROR     <ARGEXT
-        DECB
-        BRA     FA5
-FA6     LDA     <FACSGN
+        BHS     FA9             ; too far: ARG adds nothing, and FAC (rounded, normal) is the sum
+        LDX     #ARGM
+        JSR     SHFTR
+        LDA     <FACSGN
         CMPA    <ARGSGN
         BNE     FA7
 * the same signs: add
@@ -205,6 +175,7 @@ FA7     LDA     <FACEXT
         ADCB    #0
         ADCA    #0
         STD     <FACM
+* (FADD's subtraction above falls through into NORM: nothing may be placed between them)
 * NORM: normalise FAC's 40-bit mantissa (FACM and FACEXT) so its top bit is set; 0 if it is all 0 or the
 * exponent goes below 1
 NORM    LDA     <FACM
@@ -241,6 +212,31 @@ NORM2   TST     <FACM
 NORMZ   JMP     FZERO
 NORM3   RTS
 
+* SHFTR: the five bytes at X (a mantissa and its guard byte) shifted right B places (B below 48): whole bytes
+* first. Keeps X.
+SHFTR     CMPB    #8
+        BLO     SHFT2
+        LDA     3,X
+        STA     4,X
+        LDA     2,X
+        STA     3,X
+        LDA     1,X
+        STA     2,X
+        LDA     ,X
+        STA     1,X
+        CLR     ,X
+        SUBB    #8
+        BRA     SHFTR
+SHFT1    LSR     ,X
+        ROR     1,X
+        ROR     2,X
+        ROR     3,X
+        ROR     4,X
+        DECB
+SHFT2    TSTB
+        BNE     SHFT1
+        RTS
+
 * FMUL: FAC = ARG x FAC. The top 40 bits of the 64-bit product, normalised.
 FMUL    JSR     ROUND
         TST     <FACEXP
@@ -261,40 +257,31 @@ FMUL    JSR     ROUND
 FM0     CLR     ,X+
         DECB
         BNE     FM0
-        LDA     #3
+        LDU     #ARGM+4         ; ARG's bytes from the last, FPI counting them (4 to 1)
+        LDA     #4
         STA     <FPI
-FM1     LDX     #ARGM           ; a 0 byte adds nothing: its row is skipped
-        LDB     <FPI
-        TST     B,X
+FM1     LDA     ,-U             ; a 0 byte adds nothing: its row is skipped
         BEQ     FM4A
-        LDA     #3
-        STA     <FPJ
-FM2     LDX     #ARGM
+        LDY     #FACM+4
+        LDX     #PROD+3
         LDB     <FPI
-        LDA     B,X
-        LDX     #FACM
-        LDB     <FPJ
-        LDB     B,X
+        ABX                     ; the low byte of this row's first partial product
+FM2     LDA     ,U
+        LDB     ,-Y
         MUL
-        PSHS    D
-        LDB     <FPI
-        ADDB    <FPJ
-        INCB
-        LDX     #PROD
-        ABX                     ; the partial product's low byte goes here
-        PULS    D
-        ADDB    ,X
-        STB     ,X
-        ADCA    ,-X
-        STA     ,X
+        ADDD    -1,X
+        STD     -1,X
         BCC     FM4
-FM3     LEAX    -1,X            ; the carry ripples up
-        INC     ,X
+        PSHS    X
+        LEAX    -1,X
+FM3     INC     ,-X             ; the carry ripples up
         BEQ     FM3
-FM4     DEC     <FPJ
-        BPL     FM2
+        PULS    X
+FM4     LEAX    -1,X
+        CMPY    #FACM
+        BNE     FM2
 FM4A    DEC     <FPI
-        BPL     FM1
+        BNE     FM1
         LDD     <PROD
         STD     <FACM
         LDD     <PROD+2
@@ -403,40 +390,35 @@ FD6     LDD     <PROD+1
 
 * FCMP: compare ARG with FAC (FAC rounded first). A = $FF if ARG < FAC, 0 if equal, 1 if ARG > FAC; the flags
 * as after TSTA.
+* (B holds a sign: negative gives $FF, the less-than answer. Uses X.)
 FCMP    JSR     ROUND
+        LDB     <ARGSGN
         LDA     <ARGEXP
         BNE     FC1
         LDA     <FACEXP         ; ARG is 0: the answer is the opposite of FAC's sign
-        BEQ     FCEQ
-        LDA     <FACSGN
-        BMI     FCGT
-        BRA     FCLT
+        BEQ     FCEQ            ; (both 0: A is 0)
+        LDB     <FACSGN
+        BRA     FCINV
 FC1     LDA     <FACEXP
         BEQ     FCSA            ; FAC is 0: the answer is ARG's sign
-        LDA     <ARGSGN
-        CMPA    <FACSGN
-        BNE     FCSA
+        CMPB    <FACSGN
+        BNE     FCSA            ; different signs: ARG's too
         LDA     <ARGEXP         ; the same sign: compare the magnitudes
         CMPA    <FACEXP
         BNE     FC2
-        LDD     <ARGM
-        CMPD    <FACM
+        LDX     <ARGM
+        CMPX    <FACM
         BNE     FC2
-        LDD     <ARGM+2
-        CMPD    <FACM+2
-        BEQ     FCEQ
-FC2     BLO     FCSMAL
-        LDA     <ARGSGN         ; |ARG| > |FAC|
+        LDX     <ARGM+2
+        CMPX    <FACM+2
+        BEQ     FCEQ0
+FC2     BHI     FCSA            ; |ARG| > |FAC|: ARG's sign; below it, the opposite
+FCINV   COMB
+FCSA    TSTB
         BMI     FCLT
-        BRA     FCGT
-FCSMAL  LDA     <ARGSGN
-        BMI     FCGT
-        BRA     FCLT
-FCSA    LDA     <ARGSGN
-        BMI     FCLT
-FCGT    LDA     #1
+        LDA     #1
         RTS
 FCLT    LDA     #$FF
         RTS
-FCEQ    CLRA
-        RTS
+FCEQ0   CLRA
+FCEQ    RTS

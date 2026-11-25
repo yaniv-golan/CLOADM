@@ -20,19 +20,27 @@ ZEROV   FCB     0,0,0,0,0       ; the value of a variable not yet made: 0, or th
 * the text pointer ends on the character after the name (and its subscripts). A simple variable that does not
 * exist is made only when VARCRE is nonzero (an assignment); otherwise X points at a 0. An array that does not
 * exist is made with 11 elements a dimension, or with the sizes given when DIMFLG is set (DIM).
-PTRGET  JSR     CHRGOT
+* PTRNEW: PTRGET for a variable that is made if it does not exist (an assignment)
+PTRNEW  LDA     #1
+        STA     <VARCRE
+        BSR     PTRGET
+        CLR     <VARCRE
+        RTS
+* VNAME: the name at the text pointer into VARNAM, VALTYP = $FF for a string's ($ after it); the text pointer ends
+* on the character after it, which is in A
+VNAME   JSR     <ZCHRGOT
         BSR     ISLET
         BCS     PG0
         JMP     SNERR
 PG0     STA     <VARNAM
         CLR     <VARNAM+1
         CLR     <VALTYP
-        JSR     CHRGET
+        JSR     <ZCHRGET
         BCS     PG1
         BSR     ISLET
         BCC     PG2
 PG1     STA     <VARNAM+1
-PG1A    JSR     CHRGET          ; further letters and digits do not count
+PG1A    JSR     <ZCHRGET          ; further letters and digits do not count
         BCS     PG1A
         BSR     ISLET
         BCS     PG1A
@@ -42,9 +50,11 @@ PG2     CMPA    #'$'
         LDA     <VARNAM+1
         ORA     #$80
         STA     <VARNAM+1
-        JSR     CHRGET
-PG3     CMPA    #'('
-        LBEQ    ARYGET
+        JSR     <ZCHRGET
+PG3     RTS
+PTRGET  BSR     VNAME
+        CMPA    #'('
+        BEQ     ARYGET
 * PTRLKP: the simple variable VARNAM (made if VARCRE is nonzero)
 PTRLKP  LDX     <VARTAB
 PG4     CMPX    <ARYTAB
@@ -63,7 +73,7 @@ PG5     TST     <VARCRE
 * make it: the arrays move up 7 bytes
 PG7     LDD     <ARYEND
         ADDD    #7
-        JSR     ROOMCK
+        BSR     ROOMCK
         LDU     <ARYEND
         LEAY    7,U
         STY     <ARYEND
@@ -104,20 +114,19 @@ ARYGET  LDD     <VARNAM
         CLR     <DIMFLG         ; (a subscript's own arrays are not being DIMmed)
         CLRB                    ; the number of subscripts
 AG1     PSHS    B
-        JSR     CHRGET
-        JSR     EVNUM
+        JSR     <ZCHRGET
+        JSR     <ZEVNUM
         JSR     GETIDX
         TFR     D,Y
         PULS    B
         PSHS    Y
         INCB
-        JSR     CHRGOT
-        CMPA    #','
+        JSR     <ZCHKCOM
         BEQ     AG1
         CMPA    #')'
         BEQ     AG2
         JMP     SNERR
-AG2     JSR     CHRGET
+AG2     JSR     <ZCHRGET
         STB     <NDIMS
         LEAU    B,S
         LEAU    B,U             ; U: the saved VALTYP and DIMFLG, then the name
@@ -207,17 +216,17 @@ AGELEM  STX     <TMPPTR
         DECB
         ASLB                    ; the last dimension's size is at 5 + 2(n-1),X
         ABX
-        LDD     #0
+        CLRA
+        CLRB
         STD     <TMPPT2         ; the offset so far
         LEAU    ,S              ; the last subscript
         LDB     <NDIMS
         STB     <TMPCNT
-AGE1    LDD     <TMPPT2         ; offset x this size
-        PSHS    X
+AGE1    PSHS    X               ; offset x this size
         LDX     5,X
         PSHS    X
         LDD     <TMPPT2
-        JSR     MUL16
+        BSR     MUL16
         LEAS    2,S
         PULS    X
         STD     <TMPPT2
@@ -251,7 +260,8 @@ AGE1    LDD     <TMPPT2         ; offset x this size
 
 * MUL16: D = D x the word at 2,S (the caller's pushed value); ?OM ERROR past 65535
 MUL16   PSHS    D
-        LDD     #0
+        CLRA
+        CLRB
         PSHS    D               ; the result
         LDA     3,S             ; low x low
         LDB     7,S
@@ -302,24 +312,19 @@ DIM     LDA     #1
         STA     <VARCRE
         JSR     PTRGET
         CLR     <DIMFLG
-        JSR     CHRGOT
-        CMPA    #','
+        JSR     <ZCHKCOM
         BNE     DIM1
-        JSR     CHRGET
+        JSR     <ZCHRGET
         BRA     DIM
 DIM1    RTS
 
 * LET name = expression
-LET     LDA     #1
-        STA     <VARCRE
-        JSR     PTRGET
-        CLR     <VARCRE
+LET     JSR     PTRNEW
         PSHS    X
         LDA     <VALTYP
         PSHS    A
-        LDB     #T_EQ
-        JSR     SYNCHR
-        JSR     EVAL
+        JSR     SYNEQ
+        BSR     EVAL
         PULS    A
         CMPA    <VALTYP
         LBNE    TMERR
