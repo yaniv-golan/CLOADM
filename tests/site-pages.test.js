@@ -51,6 +51,8 @@ check('/faq/ accuracy: names the MAME comparison and links the known differences
   && /id="faqDeviations"\s+href="deviations\/"/.test(byId['q-accuracy'].html));
 check('the page it links is served (the known differences, generated from docs/verification.md)', pages.includes('deviations/index.html'));
 check('/faq/ privacy: the browser, share links and what goes to Anthropic', byId['q-privacy'] && /stay in your browser/.test(byId['q-privacy'].a) && /share link/.test(byId['q-privacy'].a)
+  && /I run no server that can read them\./.test(byId['q-privacy'].a) && /a short link is sealed, so only the link's holder can open it\./.test(byId['q-privacy'].a)
+  && !/no server that sees them/.test(byId['q-privacy'].a)
   && /never your ROMs/.test(byId['q-privacy'].a) && /Anthropic/.test(byId['q-privacy'].a));
 // what the code does (js/claude/brief.js TOOL_CONTRACT, js/claude/chat.js: the read tools run without a card; only acting asks)
 check('/faq/ privacy: says plainly that Claude reads the screen and any memory, ROM areas included, without asking, and only changes ask',
