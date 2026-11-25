@@ -78,7 +78,8 @@ function transform(file, src, idOf) {
 //    an expression may start: after an operator, ( [ , ? : or a keyword that takes one (not else or do), and for a
 //    function or class whose keyword stands there; it opens a block after ) (unless it is a function expression's
 //    parameters), => , ; , } , else, do, a name, and at the start. Known limit: a block after a label or `case x:` reads
-//    as an object; a / right after its } would then divide. tests/fold.test.js checks every module the fold takes in V8.
+//    as an object; a / right after its } would then divide. (export default { … } is an expression; export default
+//    function / class a declaration; the string of import … from 'x' ends its statement.) tests/fold.test.js checks every module the fold takes in V8.
 // A string, regex or template that does not end, or a stray }, throws: the folder fails loudly rather than guess.
 const LT = /[\n\r\u2028\u2029]/;
 const PUNCT = ['>>>=', '...', '===', '!==', '**=', '<<=', '>>=', '>>>', '&&=', '||=', '??=', '=>', '==', '!=', '<=', '>=', '&&', '||', '??',
@@ -89,7 +90,19 @@ export function tokens(src) {
   const out = [], braces = [], parens = [];
   let i = 0, prev = null, prev2 = null;   // the last two significant tokens
   let fn = null, cls = null;   // a function / class keyword whose ( / { is still to come: { expr, depth }
-  const push = (type, end, extra) => { const t = Object.assign({ type, text: src.slice(i, end) }, extra); out.push(t); i = end; if (type !== 'ws' && type !== 'comment') { prev2 = prev; prev = t; } return t; };
+  const push = (type, end, extra) => {
+    const t = Object.assign({ type, text: src.slice(i, end) }, extra); out.push(t); i = end;
+    if (type !== 'ws' && type !== 'comment') {
+      // a pending function / class keyword that this token cannot continue was a property name ({ class: 'x' },
+      // { function: 1 }): it is dropped, so no later ( or { takes it. A function goes on with *, a name or its (; a
+      // class with a name (its own, extends) or its {, and once one of those came, with anything (an extends clause).
+      if (fn && !(t.text === '*' || type === 'name')) fn = null;
+      if (cls && !cls.seen && type !== 'name') cls = null;
+      if (cls) cls.seen++;
+      prev2 = prev; prev = t;
+    }
+    return t;
+  };
   const where = () => `${src.slice(0, i).split('\n').length}`;
   const dotted = () => !!prev2 && (prev2.text === '.' || prev2.text === '?.');   // prev is a property name
   const regexAllowed = () => {
@@ -97,12 +110,14 @@ export function tokens(src) {
     if (prev.type === 'name') return BEFORE_EXPR.has(prev.text) && !dotted();
     if (prev.type === 'punct') return prev.text === ')' ? prev.cond : prev.text === '}' ? !prev.value : !(prev.text === ']' || prev.text === '++' || prev.text === '--');
     if (prev.type === 'tmpl') return prev.text.endsWith('${');   // code starts after ${; a whole template is a value
+    // the module specifier of import … from 'x', import 'x' or export … from 'x' ends its statement
+    if (prev.type === 'str') return !!prev2 && (prev2.text === 'from' || prev2.text === 'import');
     return false;   // num, str, regex
   };
   // may an expression start here (so a { opens an object, a function or class keyword makes an expression)?
   const exprStart = () => {
     if (!prev) return false;
-    if (prev.type === 'name') return BEFORE_EXPR.has(prev.text) && prev.text !== 'else' && prev.text !== 'do' && !dotted();
+    if (prev.type === 'name') return (BEFORE_EXPR.has(prev.text) && prev.text !== 'else' && prev.text !== 'do' && !dotted()) || (prev.text === 'default' && !!prev2 && prev2.text === 'export');
     if (prev.type === 'punct') return !(prev.text === ')' || prev.text === ']' || prev.text === '}' || prev.text === ';' || prev.text === '++' || prev.text === '--' || prev.text === '=>');
     return prev.type === 'tmpl' && prev.text.endsWith('${');
   };
@@ -154,10 +169,12 @@ export function tokens(src) {
       const m = /^(?:0[xXoObB][\da-fA-F_]+|(?:\d[\d_]*\.?[\d_]*|\.\d[\d_]*)(?:[eE][+-]?\d[\d_]*)?)n?/.exec(src.slice(i, i + 64)); push('num', i + m[0].length);
     } else if (/[\p{ID_Start}$_\\#]/u.test(c) || c >= '\ud800') {
       let k = i + 1; while (k < src.length && (/[\p{ID_Continue}$\u200c\u200d\\]/u.test(src[k]) || src[k] >= '\ud800' && src[k] <= '\udfff' || (src[k - 1] === '\\' && src[k] === 'u'))) k++;
-      const word = src.slice(i, k), at = { expr: exprStart(), depth: parens.length };
-      if (word === 'function' && !(prev && (prev.text === '.' || prev.text === '?.'))) fn = at;
-      if (word === 'class' && !(prev && (prev.text === '.' || prev.text === '?.'))) cls = at;
+      const word = src.slice(i, k), dot = !!prev && (prev.text === '.' || prev.text === '?.');
+      // export default function / class: a declaration, whatever the default exports otherwise
+      const at = { expr: exprStart() && !(prev && prev.text === 'default'), depth: parens.length, seen: 0 };
       push('name', k);
+      if (word === 'function' && !dot) fn = at;
+      if (word === 'class' && !dot) cls = at;
     } else if (c === '}') {
       if (!braces.length) throw new Error(`unbalanced } at line ${where()}`);
       const kind = braces.pop();

@@ -62,6 +62,11 @@ const CASES = [
   ['division after the } of a function expression', 'const f = function () {} / 2 // c\n/ 3;\n', 'const f = function () {} / 2\n/ 3;\n'],
   ['division after the } of a class expression', 'const C = class extends B {} / 2 // c\n/ 3;\n', 'const C = class extends B {} / 2\n/ 3;\n'],
   ['a regex after the } of a class declaration and of an arrow body', 'class D {}\n/re\\/\\//.test(s) // c\nconst g = () => {}\n/re\\/\\//.test(s) // d\n', 'class D {}\n/re\\/\\//.test(s)\nconst g = () => {}\n/re\\/\\//.test(s)\n'],
+  ['class as an object key leaves no class pending', 'const o = { class: "x" }\nif (a) {}\n/  a/g.test(s) // c\n', 'const o = { class: "x" }\nif (a) {}\n/  a/g.test(s)\n'],
+  ['function as an object key leaves no function pending', 'const o = { function: 1 }\nif (a) {}\n/  a/g.test(s) // c\n', 'const o = { function: 1 }\nif (a) {}\n/  a/g.test(s)\n'],
+  ['a regex at the start of a statement after import … from "x"', 'import x from "y"\n/  a/g.test(x) // c\n', 'import x from "y"\n/  a/g.test(x)\n'],
+  ['division after export default {}', 'export default {}\n/ 2 // c\n/ 3\n', 'export default {}\n/ 2\n/ 3\n'],
+  ['a regex after export default function () {}', 'export default function () {}\n/  a/g.test(s) // c\n', 'export default function () {}\n/  a/g.test(s)\n'],
   ['a regex after the } of a method body and of else { }', 'const o = { m() {} }; if (a) {} else {}\n/x\\/\\//.test(s) // c\n', 'const o = { m() {} }; if (a) {} else {}\n/x\\/\\//.test(s)\n'],
 ];
 const THROWS = [['an unterminated string', "const s = 'abc\n"], ['an unterminated template', 'const t = `abc ${x}'], ['an unterminated regex', 'x = /abc\n'],
@@ -142,6 +147,10 @@ const MUTANTS = [
   ['a regex class may not hold a /', "if (e === '[') cls = true; else if (e === ']') cls = false; else ", ''],
   ['escapes in strings ignored', "if (src[k] === '\\\\') k += src[k + 1] === '\\r' && src[k + 2] === '\\n' ? 3 : 2;\n        else ", ''],
   ['a regex may not follow ${', "if (prev.type === 'tmpl') return prev.text.endsWith('${');", ''],
+  ['a class keyword used as a key stays pending', "if (cls && !cls.seen && type !== 'name') cls = null;", ''],
+  ['a function keyword used as a key stays pending', "if (fn && !(t.text === '*' || type === 'name')) fn = null;", ''],
+  ['a module specifier does not end its statement', "if (prev.type === 'str') return !!prev2 && (prev2.text === 'from' || prev2.text === 'import');", ''],
+  ['export default { opens a block', " || (prev.text === 'default' && !!prev2 && prev2.text === 'export')", ''],
   ['every } closes a ${', "if (kind === 'tmpl') templ(i + 1);", "if (kind || true) templ(i + 1);"],
 ];
 
