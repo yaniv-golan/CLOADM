@@ -17,7 +17,9 @@ Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.
   `tools/basic-bb/` (run the same cases on any Dragon 64 BASIC ROM and compare what the screen shows), with the token
   and keyword probes, a lint and a run-time guard so no case can read the ROM, and typing sheets for running the
   cases by hand on a real Dragon; the cases and their expected transcripts are in `tests/basic/`. The built image is
-  committed as `basic/cloadm-basic-d64.rom`; it is not offered on the page yet.
+  committed as `basic/cloadm-basic-d64.rom`; it is not offered on the page yet. The cassette statements are in (`basic/cassette.inc`): `CSAVE` (with `,A` for text), `CLOAD`,
+  `CSAVEM`, `CLOADM` (with an offset), `SKIPF` and `MOTOR`, tested through the emulated deck against the repository's own
+  tape encoder and decoder (`tests/basic-cassette.test.js`).
 - **The share-link formats are frozen.** Links and snapshots in people's hands keep opening from now on (AGENTS.md,
   rule 7): `SNAPSHOT_OLDEST` never rises (a change to the meaning of state ships a converter from every older version), no
   link or envelope decoder is ever dropped, and a long link's byte 0 is 1 for a moment, 2 for a BASIC program, 3 to 31

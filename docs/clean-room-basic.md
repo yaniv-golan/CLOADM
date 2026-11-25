@@ -27,6 +27,9 @@ These are hard rules for everyone who works on this ROM.
   * **[MBF]** published descriptions of the Microsoft Binary Format (5-byte floating point);
   * **[BB]** black-box observations: programs run on a real ROM by a separate party (a maintainer, on their own
     machine), of which we only see the recorded screen text ([section 7](#7-black-box-comparison));
+  * **[FMT]** published descriptions of the cassette file format (the bit encoding, the block layout, the
+    namefile's fields), never a ROM's code; the repository's own tape code (`js/media/cassette.js`) may be run as an
+    oracle;
   * **[HW]** the hardware as this repository already models it from data sheets: SAM, VDG, PIAs, the keyboard
     matrix (`js/machines/keyboards.js`);
   * **[OWN]** our own decisions, where nothing visible to a BASIC program depends on them.
@@ -81,7 +84,7 @@ corrupting the image.
 | `$0200-$02FF` | the line input buffer (250 characters + terminator); `VAL` reads its copy of a string here |
 | `$0300-$03FF` | the crunched line |
 | `$0400-$05FF` | the text screen, 32 x 16 [HW: the SAM's reset display offset] |
-| `$0600-$1DFF` | the graphics pages, reserved from P1 on (P2: `PCLEAR 4`, four 1.5 K pages) |
+| `$0600-$1DFF` | the graphics pages, reserved from P1 on (P2: `PCLEAR 4`, four 1.5 K pages); `CLOAD` of a text file reads each block into `$0600-$06FE` before its lines go in [OWN] |
 | `$1E00` | 0 (the byte before the program) |
 | `$1E01-...` | the program, then simple variables, then arrays, then free memory |
 | `...` | the stack (S), growing down from below the string space |
@@ -130,7 +133,7 @@ black-box case (`VARPTR` then `PEEK` of five bytes) and changed to match if it d
 | `fp.inc` | the floating-point core: unpack / pack, add, subtract, multiply, divide, compare, normalise and round |
 | `fpconv.inc` | integers to and from FAC, number to text (`FOUT`) and text to number (`FIN`), the powers of ten |
 | `tokens.inc` | generated from `tokens.json`: the token equates, keyword tables and dispatch tables |
-| `cassette.inc` | (to come, P1b) `CSAVE`, `CLOAD`, `CLOADM`, `CSAVEM`, `SKIPF`, `MOTOR` |
+| `cassette.inc` | `CSAVE` (`,A` for text), `CLOAD`, `CSAVEM`, `CLOADM`, `SKIPF`, `MOTOR`: reading and writing bits, blocks and files on the tape (section 12) |
 
 Statements and functions that belong to P2 (graphics, sound, joysticks) exist in the keyword table from the start, so
 programs crunch and list correctly, and give `?FC ERROR` (to be decided, open question 6) until P2 implements them.
@@ -184,6 +187,11 @@ All of them run with no ROM, on our ROM assembled at test time.
   `OK` prompt, and compares the transcript. Every expected file carries its source on its first line (`# [UM p.45]`,
   `# [BB 2026-12-01]`); a case whose output comes from our own reading of the manual is marked so and is replaced by
   the black-box result when one arrives.
+* **`tests/basic-cassette.test.js`:** the cassette statements typed in through the keyboard with the emulated deck as
+  the tape (section 12). What our ROM writes is decoded from the deck's recording by the repository's own tape code
+  (`samplesToCas`, `formats.parseCas`), and the expected header and data bytes are written out by hand from the
+  program typed; tapes built by `buildCas` from known bytes are loaded with `CLOAD` and `CLOADM`; the error paths
+  (`?IO ERROR` on a bad checksum, `?FM ERROR`, `?DS ERROR`, BREAK) and name search and `SKIPF`.
 * **`tests/basic-editor.test.js`:** the keyboard and screen through the matrix: typing, erasing, SHIFT-0, BREAK during
   a program and during `LIST`, scrolling, `CLS`, the cursor.
 * **Mutants:** each suite is run against deliberately broken builds (a wrong rounding mode, a precedence swap, an
@@ -272,8 +280,9 @@ replaced by black-box output when it arrives.
    `READ` / `RESTORE`, `?OD ERROR`, quoted and unquoted `DATA` strings.
 9. **Errors:** every P1 error code's message, in direct mode and in a program (`IN n`), and the state after it (`CONT`
    refused, variables kept).
-10. **Cassette (P1b):** `CSAVE` then `CLOAD` round trip through the emulated deck, `CSAVEM` / `CLOADM`, and a file
-    our ROM saves read back by the repository's `.CAS` decoder.
+10. **Cassette (P1b, `tests/basic-cassette.test.js`):** `CSAVE` then `CLOAD` round trip through the emulated deck,
+    `CSAVE ,A`, `CSAVEM` / `CLOADM` (with an offset), `SKIPF`, `MOTOR`, a file our ROM saves read back by the
+    repository's `.CAS` decoder, and `.CAS` files built by the repository's encoder loaded by our ROM.
 
 ## 9. Milestones
 
@@ -296,7 +305,7 @@ Each milestone is pushed when it is green, and reported with its head SHA, tree 
 
 ## 10. Open questions
 
-All answered by the project owner; kept here with the decision.
+All answered by the project owner and kept here with the decision, except where marked open.
 
 1. **Shipping the ROM. Decided:** the built image is committed as `basic/cloadm-basic-d64.rom` (a name of its own, never the original's), written by
    `node tools/build-basic.js` as `examples/*.bin` are, and `tests/basic-rom-file.test.js` fails if it is not what the
@@ -318,6 +327,12 @@ All answered by the project owner; kept here with the decision.
 9. **The black-box round trip. Decided:** runs are done on the maintainer's machine, hours per round trip, so cases
    go in batches: a pushed commit whose cases pass the lint, and the command to run. Reference results may also come
    from a real Dragon, by hand (section 7).
+10. **The cassette's visible details. Open:** what the original prints while it searches and finds (ours: `SEARCHING`,
+   `FOUND name`, `SKIP name`, placeholders until a black-box run); the exec and load addresses it writes in a BASIC
+   program's namefile (ours: 0 and 0); whether `CLOADM`'s offset also moves the exec address (ours: yes); whether a
+   `CLOAD` run inside a program returns to `OK` (ours: yes) and `CLOADM` and `SKIPF` go on with the statement (ours:
+   yes); the leader length and the timing around the motor (ours: 128 bytes, half a second); what `SKIPF` does with
+   a bad block (ours: nothing). Each is a single place in `basic/cassette.inc`.
 
 ## 11. Provenance log
 
@@ -340,5 +355,41 @@ Every behaviour fact the ROM relies on, with its source. A fact without a source
 | 14 | The numeric functions: Cody-Waite reduction and Taylor series; the constants (pi, ln 2, sqrt 3 to 36 digits, 1/k!) | [OWN], `tools/basic-consts.js`; measured against the exact values (`tests/basic-math.test.js`: within 2 units in the last place, `^` within 64) |
 | 15 | `RND`: seed x 1664525 + 1013904223 mod 2^32 (a published linear congruential generator) | [OWN]; the original's sequence is unknown (open question 5) |
 | 13 | The floating-point algorithms (rounding, guard bits, division, scaling by powers of ten) | [OWN], [MBF]; tested bit for bit against `tests/basic/fpmodel.js` (`tests/basic-fp.test.js`) |
+| 16 | The cassette statements and their syntax: `CSAVE "name"[,A]`, `CLOAD ["name"]`, `CSAVEM "name",start,end,exec`, `CLOADM ["name"[,offset]]`, `SKIPF ["name"]`, `MOTOR ON` / `OFF`; `?IO ERROR` for a tape that will not read | [UM] |
+| 17 | The tape's bits: one full cycle per bit, 1200 Hz for 0 and 2400 Hz for 1, least significant bit first | [FMT] published descriptions of the Dragon / CoCo cassette format; the same in the repository's tape code (`js/media/cassette.js`, run as the test oracle) |
+| 18 | A block: a leader of `$55` bytes, the sync byte `$3C`, the block type (`$00` namefile, `$01` data, `$FF` end of file), the length, up to 255 data bytes, the checksum (the sum of type, length and data, modulo 256) | [FMT] |
+| 19 | The namefile block's 15 bytes: the name padded with spaces to 8, the file type (0 BASIC, 1 data, 2 machine code), the ASCII flag, the gap flag (`$FF` each for a text file), the exec address and the load address (big-endian) | [FMT] |
+| 20 | A text (ASCII) program is its `LIST` text, lines ended by a carriage return, in gapped blocks (the motor stops between them) | [FMT] |
+| 21 | Our writer: 128 leader bytes before every block and one `$55` after it; a square wave on the DAC; half a second of motor run before the first block | [FMT] for the block layout, which the repository's encoder (`buildCas`) also writes; the counts and the wave are [OWN] constants (`CLEADN`, `CDELAY`), open question 10 |
+| 22 | The cassette hardware: the DAC (PIA 1 port A bits 2-7) drives the output, PA0 reads the input, CA2 runs the motor; the CPU clock is 888625 Hz | [HW] `js/machines/cocopia.js`, the machine's `tickHz` |
 
 The log grows with every milestone; black-box facts are added with the date of the run they came from.
+
+## 12. The cassette (P1b)
+
+`basic/cassette.inc`. A tape is read and written by the CPU alone [HW]: the 50 Hz interrupt is off while it times
+the tape (so `TIMER` does not count then [OWN]), and the motor runs through a file (a text file's gaps aside).
+
+* **Reading a bit:** the time from one rising edge of PA0 to the next, counted in loop passes; fewer than `CTHR` is a
+  short cycle, a 1. While the input is quiet BREAK is looked at, and stops the statement (back to `OK`, the motor off).
+* **Finding a block:** bits are shifted in until the last eight are `$3C` after a leader (`$55`, or `$AA` a bit
+  out) has been heard; then the type, the length, the data and the checksum.
+* **Finding a file:** namefile blocks are read until one has the name asked for (any, without a name); each one met
+  prints `FOUND name` or `SKIP name` [OWN]. Blocks with a bad checksum are passed over while searching; once the
+  file is found, a bad block or a block out of place is `?IO ERROR`.
+* **`CLOAD`:** a tokenised program goes to the start of the program area, its links are rebuilt (it may have been
+  saved at another address), the variables are cleared, then `OK`. There must be room for a whole block below the
+  stack before each one is read, or `?OM ERROR` [OWN]. A text program is read a block at a time, the motor stopped
+  after each (it is gapped), and each line goes in as if typed (`?DS ERROR` for a line without a number). On an
+  error the half-loaded program is cleared. A file of the wrong type: `?FM ERROR` [OWN].
+* **`CLOADM`:** to the load address plus the offset; `EXEC` without an address then runs it from the exec address
+  plus the offset.
+* **Writing:** each bit one cycle of a square wave on the DAC, high then low (`CH0`, `CH1`: delay passes from the
+  888625 Hz clock); before each block a leader of 128 `$55` bytes, after it one `$55`. `CSAVE` writes the program
+  from its start to the end link, `CSAVEM` memory from start to end inclusive, `CSAVE ,A` the `LIST` text (the
+  character output is sent to a 255-byte block buffer at `LINBUF`, written out when full, the motor stopped after
+  each block).
+* **Syntax:** `CSAVEM` and `CLOADM` are not keywords of their own: they crunch as `CSAVE` / `CLOAD` followed by the
+  letter `M` (they `LIST` as typed), so a file name given as an expression cannot start with a variable whose name
+  starts with `M` [OWN]. A name longer than 8 characters is cut to 8 [OWN].
+
