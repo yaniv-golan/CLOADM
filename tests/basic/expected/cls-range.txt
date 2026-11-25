@@ -1,0 +1,16 @@
+# [OWN] CLS 9-255: our own line, MADE WITHOUT PEEKING, then an empty line, no error, in the original's shape [BB bb2, screen-cls-range: one line of text, an empty line, no error; 256 and -1 ?FC ERROR]
+OK
+CLS 9
+MADE WITHOUT PEEKING
+
+OK
+CLS 255
+MADE WITHOUT PEEKING
+
+OK
+CLS 256
+?FC ERROR
+OK
+CLS -1
+?FC ERROR
+OK

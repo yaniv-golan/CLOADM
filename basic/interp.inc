@@ -354,7 +354,7 @@ NEW     BNE     RUNSN
 * CLS [c]: the screen cleared, or filled with colour c's block: 0 black, 1-8 green ... orange [UM]; a block is the
 * semigraphics-4 character with all four elements lit, its colour in bits 4-6 [HW: the MC6847 data sheet]. A colour
 * 9-255 is no error: one line of text, then an empty line [BB bb2, screen-cls-range: the original's shape]; ours
-* prints our own banner there, never the original's text (a deliberate difference). Past 255, ?FC ERROR (GETBYT).
+* prints its own line there, never the original's text (a deliberate difference). Past 255, ?FC ERROR (GETBYT).
 CLSST   JSR     <ZCHRGOT
         BEQ     CLSS1
         JSR     GETBYT
@@ -372,8 +372,10 @@ CLSS0   TFR     A,B
         JMP     <ZCHRGOT
 CLSS1   JSR     CLS
         JMP     <ZCHRGOT
-CLSBIG  LDX     #BANNER
+CLSBIG  LDX     #CLSMSG
         JSR     PRTSTR
-        JSR     CRLF
         JMP     <ZCHRGOT
+CLSMSG  FCC     "MADE WITHOUT PEEKING"  ; [OWN] the line CLS 9-255 prints (chosen for this BASIC)
+        FCB     13,13
+        FCN     ""
 

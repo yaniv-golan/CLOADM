@@ -5,7 +5,7 @@
 //  * CLS c fills every cell with colour c's block [UM]: 0 black ($80, no element lit), 1-8 the semigraphics-4
 //    character with all four elements lit and the colour in bits 4-6 [HW: the MC6847 data sheet], so $8F + 16 x (c-1);
 //    the cursor goes home, and text printed after it starts at the top;
-//  * CLS with a colour 9-255 prints one line of our own text and an empty line, no error (the original's shape from
+//  * CLS with a colour 9-255 prints our own line (MADE WITHOUT PEEKING) and an empty line, no error (the original's shape from
 //    the local-only black-box case screen-cls-range; the text is ours: a deliberate difference); past 255 ?FC ERROR;
 //    CLS with a string ?TM ERROR, and CLS c inside a program line.
 const { Basic } = require('./basic/harness.js');
@@ -41,7 +41,7 @@ for (const c of [9, 10, 255]) {
   b.record();
   run(`CLS ${c}`);
   const t = b.transcript(), at = t.indexOf(`CLS ${c}`);
-  check(`CLS ${c}: our banner line, an empty line, OK`, JSON.stringify(t.slice(at + 1)) === JSON.stringify(['CLOADM BASIC', '', 'OK']), JSON.stringify(t));
+  check(`CLS ${c}: our own line, an empty line, OK`, JSON.stringify(t.slice(at + 1)) === JSON.stringify(['MADE WITHOUT PEEKING', '', 'OK']), JSON.stringify(t));
 }
 for (const c of [256, -1]) {
   b.record();
