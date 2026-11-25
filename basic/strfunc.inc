@@ -119,18 +119,22 @@ STZ1    TST     B,X
         BRA     STZ1
 STZ2    JMP     STRCPY
 
-* VAL(s$): the number at the start of the string (0 if there is none)
-VAL     JSR     STRFN           ; read from a copy with a 0 after it: the string itself is never touched
-        TFR     X,U
-        LDX     #LINBUF
-        JSR     CPYUX
+* VAL(s$): the number at the start of the string (0 if there is none), read in place with a 0 put after it for
+* the while. An error in the number (?OV ERROR) leaves that 0 there: after 40 X=VAL("1E99") the line lists as
+* 40 X=VAL("1E99 [BB bb1 review-fixes]
+VAL     JSR     STRFN
+        LDU     <TXTPTR
+        PSHS    U
+        LEAU    -1,X
+        STU     <TXTPTR
+        ABX
+        LDA     ,X
+        PSHS    X,A
         CLR     ,X
-        LDD     <TXTPTR
-        PSHS    D
-        LDX     #LINBUF-1
-        STX     <TXTPTR
         JSR     <ZCHRGET
         JSR     FIN
+        PULS    A,X
+        STA     ,X
         PULS    D
         STD     <TXTPTR
         CLR     <VALTYP

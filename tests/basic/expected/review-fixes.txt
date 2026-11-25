@@ -1,4 +1,4 @@
-# [OWN] the fixes from the code review: words that are not statements are ?SN ERROR, &H numbers with letters, a space after a quoted DATA item, VAL overflowing leaves the program as it was, DIM with an array in a subscript, FOR needs a simple variable, E notation of more than nine digits is ?FC ERROR; provisional until the black-box run
+# [BB bb1] the real ROM's transcript up to RUN 40: VAL overflowing leaves the 0 it put after the number in the program line (LIST 40 shows 40 X=VAL("1E99); [OWN] E notation of more than nine digits is ?FC ERROR (the real prints %1000000000E-10 and then ?SN ERROR IN 0)
 OK
 OR
 ?SN ERROR
@@ -24,7 +24,7 @@ AB
 ?OV ERROR IN 40
 OK
 LIST 40
-40 X=VAL("1E99")
+40 X=VAL("1E99
 OK
 10 DIM A(2),B(5):B(1)=2
 20 DIM C(B(1)):C(2)=5:PRINT C(2)
