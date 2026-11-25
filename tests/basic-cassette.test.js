@@ -263,6 +263,13 @@ const twoFiles = Emu.buildCas([{ name: 'ONE', type: 'basic', data: ONE }, { name
   const job = b.m.typist.holdPaced('BREAK');
   for (let i = 0; job.status === 'typing' && i < 500; i++) b.frame();
   check('BREAK stops the search: OK, motor off', b.waitOk({ limit: 300 }) && !b.m.deck.motor, JSON.stringify(b.screen()));
+  // SKIPF with no file left to skip searches as CLOAD does, motor on, until BREAK
+  b.type('SKIPF\n');
+  b.run(500);
+  check('SKIPF with no file on the tape: still searching after 10 s, motor on', b.m.deck.motor && b.screen().slice(-1)[0] === 'SEARCHING', JSON.stringify(b.screen().slice(-2)));
+  const job2 = b.m.typist.holdPaced('BREAK');
+  for (let i = 0; job2.status === 'typing' && i < 500; i++) b.frame();
+  check('BREAK stops SKIPF\'s search: OK, motor off', b.waitOk({ limit: 300 }) && !b.m.deck.motor, JSON.stringify(b.screen()));
   line(b, 'MOTOR ON');
   check('MOTOR ON: the motor runs', b.m.deck.motor);
   line(b, 'MOTOR OFF');

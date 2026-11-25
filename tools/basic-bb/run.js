@@ -61,6 +61,10 @@ function main() {
   }
   fs.writeFileSync(out, lines.join('\n') + (lines.length ? '\n' : ''));
   console.log(`${lines.length} cases written to ${out}`);
+  // a record is a result only when its status is ok: one that stopped on a wait (status timeout, with the step it
+  // was at) is written too, so that it can be read, and named here
+  const bad = lines.map((l) => JSON.parse(l)).filter((r) => r.status !== 'ok');
+  console.log(`${lines.length - bad.length} of ${lines.length} ok${bad.length ? `; not results: ${bad.map((r) => `${r.case} (${r.status}${r.at ? ` at ${r.at}` : ''})`).join(', ')}` : ''}`);
   process.exitCode = failed ? 1 : 0;
 }
 

@@ -59,6 +59,9 @@ Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.
   `tests/basic/tapes/`, `#tape-blank` records, `#tape-rewind`, `#tape-blocks` keeps a summary of the blocks written
   and the motor's runs, a data block only as its hash), and six `cas-*` cases ask the real ROM about `CSAVE`,
   `CLOAD`, `SKIPF`, `CLOADM`, the errors, cassette data files (`OPEN`, `PRINT #-1`, `INPUT #-1`, `EOF`) and `MOTOR`.
+  A `PRINT USING` E field with a point and ten places prints its tenth place, a decimal, as `0`, as the original does.
+  `tools/basic-bb/run.js` ends with how many cases are results and names any that stopped on a wait (status
+  `timeout`, with the step), and `SKIPF` on a tape with no file left searches until BREAK (a new test).
 - **The share-link formats are frozen.** Links and snapshots in people's hands keep opening from now on (AGENTS.md,
   rule 7): `SNAPSHOT_OLDEST` never rises (a change to the meaning of state ships a converter from every older version), no
   link or envelope decoder is ever dropped, and a long link's byte 0 is 1 for a moment, 2 for a BASIC program, 3 to 31

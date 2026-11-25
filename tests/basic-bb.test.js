@@ -360,6 +360,13 @@ for (const good of ['PCLEAR 1', 'PCLEAR 0', 'PCLEAR 9', 'PMODE 4,1', 'PMODE 0,4'
   const printed = run(['--local', '--only', 'loc']);
   const written2 = fs.readFileSync(path.join(dir, 'o.jsonl'), 'utf8');
   check('local-only with --local: nothing written, only its shape printed', written2 === '' && printed.includes('<text 6>') && !/^\s*SECRET$/m.test(printed), printed);
+  // a case that stops on a wait is written with status timeout and the step, named in the summary, and the exit is 1
+  fs.writeFileSync(path.join(dir, 'hang.bas'), '#timeout 2\n10 GOTO 10\nRUN\n');
+  let rc = 0, said = '';
+  try { said = run(['--only', 'hang,pub']); } catch (e) { rc = e.status; said = e.stdout; }
+  const recs = fs.readFileSync(path.join(dir, 'o.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+  const hang = recs.find((r) => r.case === 'hang');
+  check('a hung case: status timeout with its step, named in the summary, exit 1', rc === 1 && hang && hang.status === 'timeout' && hang.at === 'line 3' && /1 of 2 ok; not results: hang \(timeout at line 3\)/.test(said), said);
   fs.rmSync(dir, { recursive: true, force: true });
 }
 

@@ -350,9 +350,17 @@ UME8    JSR     CPYUX
         STA     ,X+
         LDB     <USNA
 UME10   JSR     CPYUX
-UME11   CMPU    #FPDIG+9        ; a tenth place shows nothing: the body is one shorter and lies a place further
-        BLS     UME11A          ; right, the exponent still counted for ten ("###########^^^^" prints 1 as
-        LEAX    -1,X            ; "  100000000E-09", ten times too small) [BB bb2 print-using-exp]
+UME11   CMPU    #FPDIG+9        ; a tenth place before the point shows nothing: the body is one shorter and lies
+        BLS     UME11A          ; a place further right, the exponent still counted for ten ("###########^^^^"
+        LDA     <USFLG          ; prints 1 as "  100000000E-09", ten times too small) [BB bb2 print-using-exp];
+        BITA    #1              ; after the point it is a 0 ("#######.####^^^^" prints 12345 as
+        BEQ     UME11B          ; " 123450.0000E-01") [BB bb3 print-using-exp]
+        TST     <USNA           ; (no place after the point: as with none)
+        BEQ     UME11B
+        LDA     #'0'
+        STA     -1,X
+        BRA     UME11A
+UME11B  LEAX    -1,X
 UME11A  TFR     X,U
         LDD     <USEXP
         JSR     EXPOUT

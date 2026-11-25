@@ -1,5 +1,5 @@
 # [BB bb2] the real ROM's transcript for the first eight lines: the sign's place of an E field with no + or - is its first place, 0 for a positive number when it is the last before the point or after the point (where a - does not fit); ten #s print 1 right, eleven a value ten times too small ("  100000000E-09": nine digits, the exponent counted for ten, the tenth place empty)
-# [OWN] the same ten-place rule for 12345, -1, .5 and 1E10, with a + of the field's own and with a point (the last decimal is the empty place): to confirm by the next real run of this case
+# [BB bb3] the same ten-place rule for 12345, -1, .5 and 1E10, and with a + of the field's own, confirmed by the real ROM; with a point the tenth place, after it, is a 0 (" 123450.0000E-01")
 # [OWN] twelve or more places is ?FC ERROR (the real prints garbage there and runs over its own memory, review-fixes; docs/clean-room-basic.md section 13)
 OK
 PRINT USING "#.##^^^^";1234;-123
@@ -47,7 +47,7 @@ PRINT USING "+##########^^^^";-1
 OK
 PRINT USING "#######.####^^^^";1
 2345
-  123450.000E-01
+ 123450.0000E-01
 OK
 PRINT USING "############^^^^";1
 
