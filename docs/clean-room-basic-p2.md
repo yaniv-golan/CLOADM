@@ -48,8 +48,8 @@ tag and is logged in [section 15](#15-provenance-log).
 | `AUDIO ON\|OFF` | route the cassette input to the speaker | yes |
 | `JOYSTK(n)` | a joystick axis, 0-63; n 0-3 | yes |
 
-**Deferred:** nothing of the graphics and sound keywords is planned out, but section 4 lists what is cut, in order,
-if the size budget is not met. Cassette (P1b) and the printer are not part of P2. `LINE` shares its token with
+**Deferred:** nothing. Every graphics and sound keyword ships complete: none is cut to meet the size budget (section
+14, decision 2). Cassette (P1b) and the printer are not part of P2. `LINE` shares its token with
 `LINE INPUT`: the handler in `io.inc` goes on to `LINE INPUT` when `INPUT` follows, otherwise to the graphics `LINE`
 (it gives `?FC ERROR` today).
 
@@ -138,9 +138,8 @@ routine for every pixel; one line routine for `LINE`, `DRAW` and `CIRCLE`; one b
 `BF`; argument readers shared with P1 (`GETBYT`, `SYNCHR`, the comma checks). `basic-size.js` reports each module
 against its budget, and the build fails if the image does not fit.
 
-**If it does not fit**, cut in this order, each cut being a statement that gives `?FC ERROR` until a later phase
-(P2b) brings it back: (1) `CIRCLE`'s start and end (whole circles only); (2) `PUT`'s `AND`, `OR` and `NOT` actions;
-(3) `GET` and `PUT` entirely. The order is to be checked against what programs use (open question 2).
+**If it does not fit**, nothing is cut (section 14, decision 2): the space is found elsewhere in the ROM, by making
+the existing code smaller without changing anything a program can see.
 
 ## 5. The drawing algorithms
 
@@ -230,8 +229,9 @@ is (the anchor) comes from the black-box measurement, not from memory.
 **Length and tempo** [UM, OWN]: a note lasts W / (L x T) seconds, with dots adding half, then a quarter. The constant
 W is fitted to the black-box durations. Our timing counts fields: the field interrupt (P1's `TIMER`, 50 Hz [HW])
 also decrements a 16-bit countdown in 1/256 field, and the tone loop runs until it reaches 0, so a note's length is
-right to within a field (20 ms) [OWN]. If the black-box durations need finer steps than that (short lengths at high
-tempo), the countdown moves into the tone loop as cycle counting (about 40 bytes more; open question 4).
+right to within a field (20 ms) [OWN]. That is an interim first version: the countdown then moves into the tone loop
+as cycle counting (about 40 bytes more), matched to the black-box durations, and `TIMER` counts during a note only if
+the original's does (section 14, decision 4).
 
 **Volume** [OWN]: the wave swings around the DAC's middle (32): high 32 + V, low 32 - V on the 6-bit DAC (V 31 gives
 1 to 63). A square wave is the smallest tone loop; the original's wave shape is not known to us and is measured, not
@@ -374,24 +374,37 @@ emulator needs no MAME comparison (4.4: not applicable, no hardware behaviour ch
 | G7 | `play.inc`, the note table | `PLAY` timing tests pass | 1-2 |
 | G8 | Black-box round: align pixels, timing and errors with the real ROM | the comparison report is clean or every difference is explained | 1-2, depends on the results |
 
-## 14. Open questions
+## 14. Decisions
 
-1. **Pixel exactness.** If the original's circles or `PAINT` differ from ours in some pixels, do we match them (which
-   may need a different algorithm, and bytes) or accept a listed difference, as P1 accepts last-digit differences in
-   `SIN`?
-2. **What to cut if over budget.** Section 4's order is a guess. Is there a corpus of Dragon BASIC listings (the P3
-   census) to count which of `CIRCLE` arcs, `PUT` actions and `GET`/`PUT` programs use?
-3. **The sound wave.** Our tone is a square wave. If the black-box measures show a different shape (levels that are
-   not two), is matching the pitch, length and loudness enough, or must the shape match? Matching it from measures
-   alone, without the samples, may not be possible.
-4. **Note timing resolution.** Field-counted lengths are right to 20 ms. Is that enough, or do the black-box lengths
-   call for cycle counting?
-5. **The WAV files.** Section 11 keeps the real ROM's recordings on the maintainer's machine and returns only
-   measures. Does the project owner agree, or should recordings of `PLAY` (not `SOUND`) come back?
-6. **`GET`'s array layout.** Ours packs bytes five to an element. Does any program read the elements after `GET`,
-   making the layout a P3 compatibility question?
-7. **Text after graphics.** When the original drops back to the text screen (prompt, `PRINT`, error, `INPUT`) is BB;
-   until then ours returns at the `OK` prompt and on an error. Is that the right provisional choice?
+The open questions of this design, answered, each with the decision and why.
+
+1. **Pixel exactness: the target is pixel-exact.** One pixel can change what a program does (a gap in a circle lets
+   `PAINT` leak; games test collisions with `PPOINT` and `POINT`), so as with the floating point, ours ships first,
+   `#screenshot` black-box cases of lines, circles, arcs and fills are compared with the original's, and the
+   algorithms are aligned to them. A difference that remains is listed with its case, and only where matching it would
+   cost bytes the ROM does not have.
+2. **Nothing is cut.** Every statement of section 2 ships complete; a statement that gave an error would break every
+   program using it. If P2 does not fit, the space is found by making the existing code smaller without changing
+   anything a program can see.
+3. **The sound wave: pitch, length and loudness match; the shape is ours.** Those three are what programs and
+   listeners depend on (a program waits while a note plays), and the black-box measures them. The wave's shape only
+   changes the timbre, no program can read it back, and recovering a wave table's levels from recordings would bring
+   ROM data in by another route: if the original's wave is not square, ours is a similar shape we compute ourselves.
+4. **Note timing: matched to the cycle.** Lengths are cycle-counted (about 40 bytes) to match the black-box measures,
+   since errors add up over a tune and change a game's pace; whether `TIMER` counts during `PLAY` and `SOUND` matches
+   the original too. Field counting is only an interim first version.
+5. **Recordings stay on the maintainer's machine.** Only the measures come back (pitch, length in cycles, the level
+   range and count, a hash). A recording repeats every level written to the DAC, so it could carry a wave table, and
+   after decision 3 the measures are all that is used. A mismatch the measures cannot explain gets a focused
+   measurement on that case.
+6. **`GET`'s array layout matches the original's.** Programs build sprites from `DATA` into an array and `PUT` them
+   without `GET`, or print and edit the elements, so the layout is visible to them. It is found black-box (`GET`
+   known patterns and print the elements; fill elements with chosen numbers, `PUT` them and take a screenshot) and
+   matched; our own packing is interim.
+7. **Back to text: at the `OK` prompt and on an error, for now.** Text that `PRINT` and `INPUT` write goes to the
+   text screen behind the picture, so a picture a program shows is never lost and a prompt is always visible.
+   Black-box cases (`PRINT`, `INPUT`, `INKEY$`, `END`, `STOP`, BREAK, an error, the prompt, each with a screenshot)
+   settle it, and ours matches them.
 
 ## 15. Provenance log
 
