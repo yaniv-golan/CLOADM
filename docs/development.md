@@ -8,6 +8,10 @@ Run it locally with any static server: `python3 -m http.server`, then open `http
 (`http://localhost:8000/` is the landing page). Opening the files straight from disk shows how instead: browsers
 don't load ES modules from `file://`.
 
+The tests, tools and browser check need Node 22.12 or later; CI runs Node 22. On a newer Node an unhandled rejection
+would end the process, so the browser check records one as a FAIL in the group that was running (with its reason) and
+goes on to the next group; the run still exits 1.
+
 ## The command line and the Node API
 
 `node cli/cloadm.js` runs any model headless from a script or CI: load a program, type, wait for text on the screen,

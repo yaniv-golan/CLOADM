@@ -75,6 +75,18 @@ function makeRun(log = console.log) {
     run.current = null;
     return g;
   };
+  // A promise nobody handled (a route handler's route.fetch that the OS reset, a page call that outlived its page)
+  // kills the Node process by default (Node 15 and later), and with it every group after the one that was running. A
+  // rejection is a FAIL in the group that was running, with its reason, and the run goes on; the exit code stays 1,
+  // so nothing is hidden. proc: the process (an EventEmitter) to listen on; returns the function that stops listening.
+  run.guardRejections = (proc = process) => {
+    const onRejection = (reason) => {
+      failed(run.current);
+      log(`FAIL unhandled rejection${run.current ? ` in ${run.current.name}` : ''}: ${reason && reason.stack ? reason.stack : reason}`);
+    };
+    proc.on('unhandledRejection', onRejection);
+    return () => proc.off('unhandledRejection', onRejection);
+  };
   // the closing lines; returns the exit code
   run.summary = () => {
     const bad = run.groups.filter((g) => g.fail);

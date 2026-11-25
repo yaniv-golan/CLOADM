@@ -71,6 +71,10 @@ Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.
 
 #### Fixed
 
+- **The browser check no longer dies on a reset connection.** On Node 25 a `route.fetch` the OS reset in the short-link
+  group was an unhandled rejection that ended the whole process, and every group after it. A route handler that fails
+  is now a named FAIL and an aborted request, and a stray rejection anywhere is a FAIL in the group that was running
+  (the run goes on and exits 1). The supported Node range, 22.12 or later, is in `docs/development.md`.
 - **Add ROMs offers Files only on an iPhone.** Its file and folder pickers, the side panel's ROM picker and the Library's
   folder picker had no accept list, so iOS offered the Photo Library and the camera next to Files. They now carry one,
   as Open… does: the usual dump extensions (`.rom .bin .zip .ccc .dat .a .b .0 .1 .2` and the models' own `.ci24`, `.ic1` and

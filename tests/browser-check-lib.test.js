@@ -259,6 +259,32 @@ check('--only twice: an error', /more than once/.test(parseOnly(['--only', 'shar
     check('reportClose: the FAIL is counted against the group that ran it',
       sound.fail === 1 && owner.fail === 0 && /FAIL sound: a context it opened closes/.test(out), `owner=${owner.fail} sound=${sound.fail}`);
   }
+  // guardRejections: a rejection nobody handles (a route.fetch the OS reset) is that group's FAIL with its reason, the next
+  // group still runs, and the exit code is 1; without the guard Node ends the process in the middle of the group.
+  {
+    const lib = JSON.stringify(require.resolve('../tools/browser-check-lib.js'));
+    const child = (guard) => new Promise((res) => {
+      const code = `const { makeRun } = require(${lib}); const run = makeRun(); ${guard ? 'run.guardRejections();' : ''}
+        (async () => {
+          await run.group('one', async () => { Promise.reject(new Error('route.fetch: connect ECONNRESET 127.0.0.1:1')); await new Promise((r) => setTimeout(r, 100)); });
+          await run.group('two', async () => run.check('the second group runs', true));
+          process.exitCode = run.summary();
+        })();`;
+      const c = require('child_process').spawn(process.execPath, ['-e', code], { stdio: ['ignore', 'pipe', 'pipe'] });
+      let out = '', err = '';
+      c.stdout.on('data', (d) => { out += d; }); c.stderr.on('data', (d) => { err += d; });
+      c.on('exit', (exit) => res({ exit, out, err }));
+    });
+    const guarded = await child(true), bare = await child(false);
+    check('guardRejections: the rejection is a FAIL in its group, with its reason', /FAIL unhandled rejection in one: Error: route\.fetch: connect ECONNRESET/.test(guarded.out) && /FAILED group one: 1 failure/.test(guarded.out), guarded.out);
+    check('guardRejections: the next group still runs and the run still exits 1', /ok   the second group runs/.test(guarded.out) && /groups: 2 run, 1 passed, 1 failed/.test(guarded.out) && guarded.exit === 1, `exit=${guarded.exit} ${guarded.out}`);
+    check('guardRejections: without it the process dies in the group (the second never runs, no summary)', bare.exit !== 0 && !/second group runs|groups:/.test(bare.out) && /ECONNRESET/.test(bare.err), `exit=${bare.exit} ${bare.out}`);
+    // stopping the guard puts Node's default back
+    const { EventEmitter } = require('events');
+    const fake = new EventEmitter(), r2 = makeRun(() => {}), stop = r2.guardRejections(fake);
+    const on = fake.listenerCount('unhandledRejection'); stop();
+    check('guardRejections: listens on the process it is given, and stops when told', on === 1 && fake.listenerCount('unhandledRejection') === 0, `${on}`);
+  }
   // callSite skips the helpers and names the caller's lines
   const stack = ['Error', '    at poll (/x/tools/b.js:10:5)', '    at waitFor (/x/tools/b.js:20:5)', '    at async ready (/x/tools/b.js:30:5)', '    at async romChecks (/x/tools/b.js:400:7)', '    at async main (/x/tools/b.js:900:3)'].join('\n');
   check('callSite: the first frames outside the wait helpers', callSite(stack, '/x/tools/b.js', ['poll', 'waitFor']) === 'b.js:30 < b.js:400', callSite(stack, '/x/tools/b.js', ['poll', 'waitFor']));
