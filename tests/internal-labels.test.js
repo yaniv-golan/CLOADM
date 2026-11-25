@@ -1,7 +1,8 @@
 // The maintainers' internal process labels stay out of the tree: review and ruling IDs ("UX R30", "R28b", "(R25)"),
 // review-finding tags used as labels, old internal branch names, private planning references. This suite scans every
 // tracked file for them, line by line, and checks each pattern on cases of its own. It is the one file exempt from the
-// scan (it has to spell the labels out), with tools/vendor/ (third-party code). tests/private-paths.test.js, the
+// scan (it has to spell the labels out), with tools/vendor/ (third-party code) and the recorded black-box results
+// tests/basic/bb/*.jsonl (machine output). tests/private-paths.test.js, the
 // private-reference guard, builds its patterns from parts and is scanned like any other file.
 //
 // The patterns live here and nowhere else: tests/changelog-guard.js requires this file for them and removes their
@@ -30,6 +31,10 @@ const REGISTER_FILES = new RegExp('^(?:' + [
   'tools/mame-diff/d64plus/[^/]+', 'tools/mame-diff/ssc/gen-(?:ay|speak)\\.js', 'tools/mame-diff/sam/(?:fastvid\\.asm|run-fastvid\\.js)', 'tools/mame-diff/coco3/gen-diag\\.js',
   'tests/(?:mc6845|ay8910|tms7000-core|d64plus|d64plus-screen-text|screen-text-readers|samrate|sammem|models|machine)\\.test\\.js',
 ].join('|') + ')$');
+// The recorded black-box results of the clean-room BASIC (tests/basic/bb/*.jsonl, exactly that path pattern): screen
+// text a Dragon printed, recorded as it is and never edited (a DRAW "R10" wrapped onto a screen row reads as a review
+// label). Machine output, so the scan skips those files, as it does tools/vendor/; nothing else under tests/ is skipped.
+const BB_RESULTS = /^tests\/basic\/bb\/[^/]+\.jsonl$/;
 const SEP = '\\s*(?:\\/|,|and|or|to|–|-)\\s*';
 // a list item: "R12", "R9 11" or "R10 $20 (no cursor)" (a register, its value and a note on it)
 const ITEM = 'R\\d{1,2}[a-z]?(?:\\s+\\$?[0-9A-F]{1,4}\\b)?(?:\\s+\\([^()]*\\))?';
@@ -164,7 +169,7 @@ function stripLine(line, file) {
 
 const stripLabels = (text, file) => text.split('\n').map((l) => stripLine(l, file)).join('\n');
 
-module.exports = { PATTERNS, REGISTER_FILES, excusedAt, labelsIn, stripLine, stripLabels };
+module.exports = { PATTERNS, REGISTER_FILES, BB_RESULTS, excusedAt, labelsIn, stripLine, stripLabels };
 if (require.main !== module) return;
 
 let fail = 0;
@@ -260,6 +265,12 @@ check('...and the same lines are labels anywhere else (tools/browser-check.js, j
   inFile('// R1: every cycle fast', 'tools/browser-check.js').includes(12) && inFile('//   amplitude         R10-R12 bits 0-3 level', 'js/ui/page.js').includes(4)
   && inFile('// M1: the phone', 'tools/browser-check.js').includes(13));
 check('...and a register file still fails on every other kind of label', inFile('// UX R30 (the owner)', 'js/chips/mc6845.js').join() === '1,5');
+// the recorded black-box results are skipped (machine output); a label in any other file is still caught
+check('the recorded black-box results (tests/basic/bb/*.jsonl, and only those) are skipped',
+  BB_RESULTS.test('tests/basic/bb/bb2-real.jsonl') && BB_RESULTS.test('tests/basic/bb/anything.jsonl')
+  && !BB_RESULTS.test('tests/basic/bb/notes.md') && !BB_RESULTS.test('tests/basic/bb/sub/x.jsonl') && !BB_RESULTS.test('tests/basic/x.jsonl')
+  && !BB_RESULTS.test('tests/basic/cases/gfx-draw.bas'));
+check('...and the same DRAW row in an ordinary file is still caught', inFile('"BM100,170U20","R10\\":DRAW \\"A0\\"",', 'tests/basic/cases/gfx-draw.bas').includes(4));
 // the register files are named one by one: a machine, a MAME tool or a test that is not about registers is read as
 // any other file, and the words that name particular registers excuse only those registers
 const OUTSIDE = [['// a fix (R24)', 'js/machines/coco3.js', 3], ['// M2: the GIME timer', 'js/machines/coco3.js', 13], ['// R24: a toast', 'tools/mame-diff/run.js', 12],
@@ -309,7 +320,7 @@ check('stripLine: a word changed beside a removed label still differs', stripLin
   // text, Freedoom's level, licence and credits), exempt as tools/vendor/ is: they cannot be edited, and the pin's test
   // checks them. Only the pinned files: examples/wyrmfire/SOURCE.txt is CLOADM's own and is scanned.
   const THIRD_PARTY = new Set(Object.values(require('../js/wyrmfire/pin.js').WYRMFIRE_PIN.files).map((x) => x.path));
-  const EXEMPT = (f) => f === 'tests/internal-labels.test.js' || f.startsWith('tools/vendor/') || THIRD_PARTY.has(f);
+  const EXEMPT = (f) => f === 'tests/internal-labels.test.js' || f.startsWith('tools/vendor/') || THIRD_PARTY.has(f) || BB_RESULTS.test(f);
   let files = [];
   try { files = cp.execFileSync('git', ['ls-files', '-z'], { cwd: root, encoding: 'utf8', maxBuffer: 64 << 20 }).split('\0').filter(Boolean); } catch (e) { /* no git */ }
   check('the tracked files are listed (git ls-files)', files.length > 100, String(files.length));
