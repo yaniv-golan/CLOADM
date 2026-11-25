@@ -19,9 +19,10 @@ import { setupMachinePanel } from './machine-panel.js';
 import { setupRomPanel } from './rom-panel.js';
 import { setupRomSockets } from './rom-sockets.js';
 import { setupBootHelp } from './boot-help.js';
+import { setupNeedsBasic } from './needs-basic.js';
 import { setupWelcome } from './welcome.js';
 import { setupWyrmfire } from './wyrmfire.js';
-import { setupKeyHint } from './key-hint.js';
+import { setupKeyHint, setupTypingLine } from './key-hint.js';
 import { setupMediaPanel } from './media-panel.js';
 import { setupDrives } from './drives.js';
 import { setupAssemblerPanel } from './assembler-panel.js';
@@ -136,6 +137,17 @@ setupDriveWirePanel(page);
 const romPanel = setupRomPanel(page);
 const romSockets = setupRomSockets(page, romPanel, { confirmSwitch: machinePanel.confirmSwitch });
 setupBootHelp(page, romSockets);
+setupNeedsBasic(page, romSockets);
+// one attention card at a time (play/index.html): the needs-BASIC card over the boot help, either over the no-ROM card
+{
+  const sync = () => {
+    document.body.classList.toggle('card-needs', !$('needsBasic').hidden);
+    document.body.classList.toggle('card-boot', !$('bootHelp').hidden);
+  };
+  const watch = new MutationObserver(sync);
+  for (const id of ['needsBasic', 'bootHelp']) watch.observe($(id), { attributes: true, attributeFilter: ['hidden'] });
+  sync();
+}
 let library = null;
 // the arrival card (a shared moment, or a shared BASIC program, which it opens): before the snapshots, which hand it a
 // program's short link
@@ -158,6 +170,7 @@ page.linkTouch = link.touch;
 page.touchKeys = setupTouchKeys(page, { input: screen.input });
 setupDisplayPanel(page);
 setupKeyHint(page);
+setupTypingLine(page);
 setupSettingsFile(page);
 // the short links' store: s.cloadm.dev (js/host/link-store.js); the browser check points it at a stand-in server
 const linkStore = new ShortLinkStore();
@@ -275,9 +288,11 @@ $('btnMenu').onclick = () => {
   const sync = () => {
     item.hidden = pill.hidden;
     const menu = $('btnMenu'), media = menu.classList.contains('media');
-    menu.classList.toggle('dot', !pill.hidden);
+    // (never both: while the pill itself shows, Menu wears no dot; checkVisibility, as the layout draws it at this width)
+    const dot = !pill.hidden && !pill.checkVisibility();
+    menu.classList.toggle('dot', dot);
     // (both: its one dot is the ROMs', its name says both)
-    if (!pill.hidden) menu.setAttribute('aria-label', media ? 'Menu (ROMs needed, media inserted)' : 'Menu (ROMs needed)');
+    if (dot) menu.setAttribute('aria-label', media ? 'Menu (ROMs needed, media inserted)' : 'Menu (ROMs needed)');
     else if (media) menu.setAttribute('aria-label', 'Menu (media inserted)');
     else menu.removeAttribute('aria-label');
   };
@@ -301,13 +316,43 @@ $('btnMenu').onclick = () => {
     tab.focus({ preventScroll: true });
   };
   new MutationObserver(sync).observe(pill, { attributes: true, attributeFilter: ['hidden'] });
+  // the pill shows or not with the width and the layout (the touch keys, the chat screen): asked again when they change
+  new ResizeObserver(sync).observe(document.body);
+  new MutationObserver(sync).observe(document.body, { attributes: true, attributeFilter: ['class'] });
   sync();
-  // Menu's order on a phone: Install… after Share… and its two snapshot rows, before the links; on a wider page it is the app bar's last link
-  // (moved, not reordered by the stylesheet, so the focus goes down the list in the order it is drawn)
-  const narrow = matchMedia('(max-width: 700px)');
-  const installPlace = () => { if (narrow.matches) $('navSnapRestore').after($('navInstall')); else $('navInstall').closest('nav').append($('navInstall')); };
-  narrow.addEventListener('change', installPlace);
-  installPlace();
+  // Where the less-used links go (moved, not reordered by the stylesheet, so the focus goes down them in the order they
+  // are drawn). On a desktop (wider than 700 px, not held sideways, without the touch keys) Debugger, Commands…, Help,
+  // GitHub and Install CLOADM… are More ▾'s list, in that order (Install CLOADM… only while the page can be installed:
+  // js/ui/install.js hides it once it is). Elsewhere they are Menu's, as before: on a phone Install CLOADM… after Share… and its two
+  // snapshot rows.
+  const narrow = matchMedia('(max-width: 700px)'), sideways = matchMedia('(orientation: landscape) and (max-height: 500px)');
+  const nav = $('appbar').querySelector('nav'), more = $('btnMore'), list = $('moreMenu');
+  const MORE = ['navDebugger', 'navCommands', 'navHelp', 'navGithub', 'navInstall'];
+  const desktop = () => !narrow.matches && !sideways.matches && !document.body.classList.contains('touch-keys') && !document.body.classList.contains('touch-hidden');
+  const openMore = (on) => { list.hidden = !on; more.setAttribute('aria-expanded', String(on)); };
+  let wasDesktop = null;
+  const place = () => {
+    const d = desktop();
+    if (d === wasDesktop) return;
+    wasDesktop = d;
+    openMore(false);
+    more.hidden = !d;
+    for (const id of MORE) (d ? list.append($(id)) : nav.insertBefore($(id), more));
+    if (!d && narrow.matches) $('navSnapRestore').after($('navInstall'));
+  };
+  narrow.addEventListener('change', () => { wasDesktop = null; place(); });
+  sideways.addEventListener('change', place);
+  new MutationObserver(place).observe(document.body, { attributes: true, attributeFilter: ['class'] });
+  place();
+  more.onclick = () => openMore(list.hidden);
+  // an item chosen, a click elsewhere, the focus leaving the list and More ▾ (Tab past its last item) or Esc closes the
+  // list (Esc gives the focus back to More ▾)
+  list.addEventListener('click', () => openMore(false));
+  const away = (e) => { if (!list.hidden && !list.contains(e.relatedTarget) && e.relatedTarget !== more) openMore(false); };
+  list.addEventListener('focusout', away);
+  more.addEventListener('focusout', away);
+  addEventListener('pointerdown', (e) => { if (!list.hidden && !list.contains(e.target) && e.target !== more) openMore(false); }, true);
+  page.onEscape(ESC.menu, () => !list.hidden, () => { openMore(false); more.focus(); });
 }
 
 // Esc closes the topmost surface that is open (page.onEscape: confirmations, menus, cards, the views, the chat)

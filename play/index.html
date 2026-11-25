@@ -76,6 +76,9 @@
   #status { font: 14px var(--font-mono); color: var(--muted); font-variant-numeric: tabular-nums; }
   #status::before { content: '●'; color: var(--phosphor); margin-right: 6px; }
   body.paused #status::before { color: var(--orange); }
+  /* running (the green dot) on a desktop: the dot alone, its words in its tooltip and its name (js/ui/screen.js) */
+  body:not(:is(.touch-keys, .touch-hidden)) #status.dot-only { font-size: 0; }
+  body:not(:is(.touch-keys, .touch-hidden)) #status.dot-only::before { font-size: 14px; margin-right: 0; }
   #romPill { background: var(--orange); border-color: var(--orange); color: var(--on-orange); font-weight: 700; border-radius: var(--pill); padding: 4px 12px; min-height: 32px; font-size: 14px; }
   .appbar .grow { flex: 1; }
   .appbar nav { display: flex; flex-wrap: wrap; gap: 4px 18px; align-items: center; }
@@ -92,16 +95,22 @@
     .appbar nav { flex-wrap: nowrap; white-space: nowrap; }
     .appbar.tight { gap: 10px 8px; }
     .appbar.tight nav { gap: 4px 6px; }
-    .appbar.tight #machineSpec, .appbar.tight #askKbd, .appbar.tight #navCmdKbd, .appbar.tight #navInstall .more { display: none; }
+    .appbar.tight #machineSpec, .appbar.tight #askKbd, .appbar.tight nav > #navCommands #navCmdKbd { display: none; }  /* (in More ▾ the key stays) */
     .appbar.nostatus > #status { display: none; }
   }
   #btnMenu { display: none; }
-  @media (min-width: 701px) { #navPrograms, #navRoms, #navShare, #navSettings, #navSnapTake, #navSnapRestore { display: none; } }   /* (the app bar's pill and Share button there) */
+  @media (min-width: 701px) { #navRoms, #navShare, #navSettings, #navSnapTake, #navSnapRestore { display: none; } }   /* (the app bar's pill and Share button there) */
   /* (with the touch keys the drawer's tabs are in the Settings sheet at any width: Settings… is the way to them) */
   @media (min-width: 701px) { body:is(.touch-keys, .touch-hidden) :is(#navPrograms, #navSettings) { display: inline-flex; } }
   /* (an author display rule outranks the hidden attribute's, so it is stated: once installed, the link goes) */
   #navInstall[hidden] { display: none; }
-  #navInstall .ell { display: none; }   /* (Menu's "Install…" on a phone) */
+  /* More ▾'s list (a desktop): under its button, the links one to a row */
+  .appbar nav { position: relative; }
+  #moreMenu { position: absolute; top: calc(100% + 6px); right: 0; z-index: 21; min-width: 190px; display: flex; flex-direction: column; padding: 6px;
+    background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-14); box-shadow: 0 20px 50px rgba(0, 0, 0, .6); }
+  #moreMenu[hidden], #btnMore[hidden] { display: none; }
+  #moreMenu > a, #moreMenu > button.navlink { display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 6px 12px; border-radius: var(--r-8); text-align: left; }
+  #moreMenu > a:hover, #moreMenu > button.navlink:hover, #moreMenu > :focus-visible { background: var(--line); }
   #machineMenu { position: absolute; top: calc(100% - 6px); left: 20px; z-index: 20; width: min(600px, calc(100vw - 40px)); background: var(--panel);
     border: 1px solid var(--line); border-radius: var(--r-14); padding: 14px 14px 0; box-shadow: 0 20px 50px rgba(0, 0, 0, .6);
     display: flex; flex-direction: column; max-height: 80vh; overflow: hidden; }
@@ -182,7 +191,7 @@
   body.embed #tkMenuSheet [data-item="share"] { display: none !important; }   /* no Share in an embed (js/ui/touch-keys.js) */
   /* a page shown inside another page has no Claude chat: its buttons are hidden, not left dead (js/ui/main.js) */
   /* Settings -> Claude features: Off (js/ui/claude-features.js); the command box stays, without its Claude rows */
-  body.claude-off #btnAsk, body.claude-off [data-shelf="claude"], body.claude-off #ask, body.claude-off #askRail { display: none !important; }
+  body.claude-off #btnAsk, body.claude-off [data-shelf="claude"], body.claude-off #ask, body.claude-off #askRail, body.claude-off #askStripQs { display: none !important; }
   body.claude-off #tkMenuSheet [data-item="ask"] { display: none !important; }   /* the landscape Menu's Ask Claude… (js/ui/touch-keys.js) */
   #claudeFeaturesRow button[aria-pressed="true"] { background: var(--phosphor); border-color: var(--phosphor); color: var(--on-phosphor); }
   body.no-claude #btnAsk, body.no-claude #navCommands, body.no-claude [data-shelf="claude"], body.no-claude #claude, body.no-claude #ask, body.no-claude #askRail { display: none !important; }
@@ -218,10 +227,19 @@
   #screenNotes { display: flex; justify-content: center; align-items: flex-start; height: 44px; overflow: hidden; }
   #screenNotes > div { margin-top: 10px; background: rgba(11, 13, 12, .88); color: var(--text); font-size: 14px; line-height: 20px; padding: 6px 12px;
     border-radius: var(--r-14); text-align: center; max-width: 100%; box-sizing: border-box; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
-  #screenNotes > div[hidden], #screenNotes:has(#soundHint:not([hidden])) > #keyHint { display: none; }
+  /* one line at a time: "click for sound" until sound starts, then the key hint while it is live, then, while the
+     screen has the focus, the typing line until it is learned (js/ui/key-hint.js: body.typing-learned), and otherwise
+     the Ask panel's example questions */
+  #screenNotes > div[hidden], #screenNotes:has(#soundHint:not([hidden])) > #keyHint,
+    #screenNotes:has(> #soundHint:not([hidden]), > #keyHint:not([hidden])) > #typingHint, body.chat-screen #typingHint,
+    body:not(:has(#screen:focus)) #typingHint, body.typing-learned #typingHint { display: none; }
+  /* the line under the tube says how to leave the screen, so the bezel's focus pill says it only where that line is not
+     shown (a touch screen, the phone's chat, an embed); the chat's "Esc stops a reply" pill stays */
+  body:not(:is(.touch-keys, .touch-hidden, .chat-phone, .embed, .chat-screen)):has(#screen:focus-visible) #focusHint { display: none; }
   /* the example questions (js/ui/ask.js): one line of whole questions, a real note above taking the line instead */
   #screenNotes > #askStripQs { display: flex; align-items: center; gap: 8px; margin-top: 6px; padding: 0; background: none; overflow: hidden; white-space: nowrap; pointer-events: auto; }
-  #screenNotes:has(> #soundHint:not([hidden]), > #keyHint:not([hidden])) > #askStripQs, #askStripQs:not(:has(button)) { display: none; }
+  #screenNotes:has(> #soundHint:not([hidden]), > #keyHint:not([hidden])) > #askStripQs, #askStripQs:not(:has(button)),
+    body:not(.chat-screen, .typing-learned):has(#screen:focus) #askStripQs { display: none; }
   #askStripQs > button { flex: none; height: 32px; min-height: 32px; padding: 0 12px; border-radius: var(--pill); font-size: 14px; }
   #askStripQs > button[hidden], #askOpenLabel[hidden] { display: none; }
   #askOpenLabel { color: var(--text-2); font-size: 14px; flex: none; }
@@ -263,10 +281,22 @@
   #badge { font-weight: 800; font-stretch: 125%; font-size: 15px; letter-spacing: .08em; color: #3A3D3C; }
   .monitor[data-family="dragon"] #badge { color: var(--dragon-badge); }
   .led { width: 10px; height: 10px; border-radius: 50%; background: #FF3B30; box-shadow: 0 0 10px #FF3B30; }
-  #bootHelp { position: absolute; left: 4%; right: 4%; bottom: 4%; background: var(--warn-panel); color: var(--text); border: 1px solid var(--orange);
+  #bootHelp, #needsBasic { position: absolute; left: 4%; right: 4%; bottom: 4%; background: var(--warn-panel); color: var(--text); border: 1px solid var(--orange);
     border-radius: var(--r-14); padding: 12px 14px; font-size: 15px; }
-  #bootHelp strong { color: var(--orange); display: block; margin-bottom: 4px; }
+  #bootHelp strong, #needsBasic strong { color: var(--orange); display: block; margin-bottom: 4px; }
   #bootHelp .bar { margin-top: 8px; }
+  /* the needs-BASIC card covers at most about 40% of the tube: the junk the program makes stays in view above it */
+  #needsBasic { left: 2%; right: 2%; bottom: 2%; max-height: 40%; overflow: auto; padding: 8px 12px; font-size: 14px; line-height: 1.3; }
+  #needsBasic strong { margin-bottom: 2px; }
+  #needsBasic[data-state="ready"] #needsBasicBody { display: none; }
+  #needsBasic .bar { margin-top: 6px; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px 8px; }
+  #needsBasic .bar button { min-height: 36px; padding: 4px 14px; }
+  #needsBasic details { margin-right: auto; color: var(--text-2); }
+  #needsBasic details[open] { flex-basis: 100%; }
+  #needsBasic summary { cursor: pointer; }
+  #needsBasic[hidden], #bootHelp[hidden] { display: none; }
+  /* one attention card at a time (js/ui/needs-basic.js): needs-BASIC, then the boot help, then the no-ROM card */
+  body.card-needs #bootHelp, body:is(.card-needs, .card-boot) #welcome { display: none !important; }
   /* the arrival card (js/ui/arrival.js): docked at the foot of the tube, never more than 40% of it, the machine running
      above it; what does not fit scrolls inside it */
   #arrival { position: absolute; left: 4%; right: 4%; bottom: 4%; max-height: 40%; overflow: auto; box-sizing: border-box; z-index: 2;
@@ -342,6 +372,9 @@
     display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 10px; box-shadow: 0 8px 24px rgba(0, 0, 0, .45); }
   #toast[hidden] { display: none; }
   /* on the screen's border under its text (js/ui/feedback.js), where room is short */
+  /* docked over the touch keys (js/ui/feedback.js fallbackSlot): taps go through to the keys, but for its own buttons */
+  #toast.passthru, #toastRegion:has(> #toast.passthru) { pointer-events: none; }
+  #toast.passthru button, #toast.passthru a { pointer-events: auto; }
   #toast.compact { font-size: 12px; line-height: 1.25; padding: 2px 8px; gap: 2px 6px; border-radius: 8px; box-shadow: none; }
   #toast.compact #toastAction { padding: 1px 6px; font-size: 12px; }
   /* an error is red: the bar and the edge in --error, 4.76:1 on the toast's paper (css/tokens.css) */
@@ -1182,6 +1215,9 @@
   #romReady:empty { display: none; }
   #romProblems { background: var(--warn-panel); border: 1px solid var(--orange); border-radius: var(--r-14); padding: 10px 14px; font-size: 13px; line-height: 1.45; margin: 10px 0; }
   #romProblems[hidden] { display: none; }
+  #romDropNote { margin: 8px 0 0; color: var(--orange); font-size: 14px; line-height: 1.45; }
+  #romDropNote[hidden] { display: none; }
+  #romCard .found:focus { outline: none; }
   #romCard .small { font-size: 14px; margin: 0; }
   #romCard #selftestCard { background: var(--panel-deep); border: 1px solid var(--line); border-radius: var(--r-14); padding: 12px 14px; }
   #romCard #selftestCard h2 { font-size: 16px; margin: 0 0 8px; }
@@ -1706,14 +1742,12 @@
     .appbar.menu-open nav a, .appbar.menu-open nav button.navlink { min-height: var(--row-tap); display: flex; align-items: center; text-align: left; }
     /* (taller rows must not push Menu's last ones off a short window: it scrolls inside the window instead) */
     .appbar.menu-open nav { max-height: calc(100dvh - 100% - var(--safe-t) - 8px); overflow-y: auto; overscroll-behavior: contain; }
-    /* Menu's order: Add ROMs, Settings…, Share…, Install… (js/ui/main.js moves it up here), Library, Debugger,
+    /* Menu's order: Add ROMs, Settings…, Share…, Install CLOADM… (js/ui/main.js moves it up here), Library, Debugger,
        Commands…, then, under a rule, Help and GitHub */
     .appbar.menu-open nav button.twoline { flex-direction: column; align-items: flex-start; justify-content: center; gap: 0; }
     .appbar.menu-open nav .twoline .sub { font-size: 13px; color: var(--muted); }
     #btnMenu.media:not(.dot)::after { content: ''; position: absolute; top: 7px; right: 5px; width: 8px; height: 8px; border-radius: 50%; background: var(--phosphor); }
     .appbar.menu-open nav #navHelp { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
-    .appbar.menu-open #navInstall .more { display: none; }
-    .appbar.menu-open #navInstall .ell { display: inline; }
     #machineMenu { left: 8px; right: 8px; width: auto; max-height: 70vh; }
     #machineMenu .menulist { grid-template-columns: minmax(0, 1fr); }
     #switchConfirm { top: 100%; left: 8px; right: 8px; width: auto; }
@@ -1920,7 +1954,11 @@ npx serve -l 8000 .</pre>
     <a href="https://github.com/yaniv-golan/cloadm" id="navGithub">GitHub</a>
     <!-- js/ui/install.js: the browser's own install prompt, or the card with the steps that install it, which opens
          under the app bar, near this link (hidden once installed) -->
-    <button id="navInstall" class="navlink" type="button"><span>Install<span class="more"> CLOADM…</span><span class="ell">…</span></span></button>
+    <button id="navInstall" class="navlink" type="button">Install CLOADM…</button>
+    <!-- a desktop's More ▾ (js/ui/main.js): Debugger, Commands…, Help, GitHub and Install CLOADM… move into its list there;
+         elsewhere (a phone, the touch keys, held sideways) they stay Menu's -->
+    <button id="btnMore" class="navlink" type="button" aria-expanded="false" aria-controls="moreMenu" hidden>More ▾</button>
+    <div id="moreMenu" hidden></div>
   </nav>
   <button id="btnMenu" aria-expanded="false" aria-controls="appbar">Menu</button>
   <div id="machineMenu" role="menu" aria-label="Machines" hidden></div>
@@ -2086,6 +2124,11 @@ npx serve -l 8000 .</pre>
         <div id="bootHelp" hidden role="status"><strong id="bootHelpTitle"></strong><span id="bootHelpText"></span>
           <div class="bar"><button id="btnBootSockets" class="primary">Add ROMs</button>
             <button id="btnBootStub">Run without ROMs</button><button id="btnBootPower" class="primary" hidden>Switch off and on</button><button id="btnBootDismiss">Dismiss</button></div></div>
+        <!-- js/ui/needs-basic.js: a program the person loaded called BASIC, and the machine has no BASIC ROM (the boot
+             help's slot; the machine keeps running) -->
+        <div id="needsBasic" hidden role="status" data-state="needs"><strong id="needsBasicLead"></strong><span id="needsBasicBody"></span>
+          <div class="bar"><details id="needsBasicMore"><summary>Details</summary><span id="needsBasicDetails"></span></details>
+            <button id="btnNeedsRoms" class="primary">Add ROMs</button><button id="btnNeedsAgain" class="primary" hidden></button><button id="btnNeedsDismiss">Dismiss</button></div></div>
         <!-- arriving on a shared moment or a shared BASIC program (a #z= or short link): js/ui/arrival.js. The program's
              parts (the listing and its ROM line, without the machine's BASIC ROM) are used only for a program -->
         <div id="arrival" role="status" hidden><p id="arrivalText"></p>
@@ -2102,8 +2145,9 @@ npx serve -l 8000 .</pre>
         <div id="focusHint" aria-hidden="true"><span class="fh-emu">Typing goes to the machine<span class="fh-tab"> · <kbd>Tab</kbd> leaves the screen</span></span><span class="fh-chat"><kbd>Esc</kbd> stops a reply, clears the line, then leaves the chat</span></div></div>
       <!-- the screen's hints, under it: they never lie over what the machine shows -->
       <div id="screenNotesBox"><div id="screenNotes">
-        <div id="soundHint" hidden>No ROMs needed · click anywhere for sound</div>
+        <div id="soundHint" hidden>Click or press a key for sound</div>
         <div id="keyHint" hidden><kbd>Esc</kbd> = BREAK · <kbd>Home</kbd> = CLEAR · <kbd>Backspace</kbd> = ←</div>
+        <div id="typingHint">Typing goes to the machine · <kbd>Tab</kbd> leaves the screen</div>
         <!-- the Ask panel's example questions while it is closed (js/ui/ask.js): whole ones only, and a note above takes the line -->
         <div id="askStripQs" role="group" aria-label="Example questions"><span id="askOpenLabel" hidden>Once Claude is connected:</span></div>
       </div></div>
@@ -2546,6 +2590,8 @@ npx serve -l 8000 .</pre>
         <div class="bar center"><button id="btnRomFiles" class="primary pill" title="ROMs, ZIPs or a saved ROM pack; several at once">Choose files…</button>
           <button id="btnRomFolder" class="pill" title="A folder of ROMs">Choose folder…</button></div>
       </div>
+      <!-- js/ui/rom-panel.js: files in the last drop that weren't ROM images (the card below has every file's record) -->
+      <p id="romDropNote" role="status" hidden></p>
       <div class="romnotes">
         <p><strong>Don't have them?</strong> Dump them from your own machine, or see <a href="roms/">where to get ROMs</a>.
           ROMs are copyrighted by Microsoft, Tandy, Dragon Data and others. CLOADM doesn't include them and never downloads them.
@@ -2564,7 +2610,7 @@ npx serve -l 8000 .</pre>
       <div id="romNeeds" hidden><span id="romNeedsText"></span>
         <div class="bar"><button id="btnRunStub">Run without ROMs</button></div></div>
       <div id="romStub" hidden>Running without ROMs (machine code only).</div>
-      <div class="found">
+      <div class="found" tabindex="-1">
         <div class="eyebrow">What you dropped</div>
         <div id="romFound" class="muted">Nothing yet. Drop a whole set and every machine it covers is set up at once.</div>
         <div id="romOffers" hidden></div>
@@ -2761,6 +2807,7 @@ npx serve -l 8000 .</pre>
 <link rel="modulepreload" href="js/machines/profiles.js">
 <link rel="modulepreload" href="js/chips/sp0256.js">
 <link rel="modulepreload" href="js/machines/ssc.js">
+<link rel="modulepreload" href="js/needs-basic.js">
 <link rel="modulepreload" href="js/hooks.js">
 <link rel="modulepreload" href="js/writewatch.js">
 <link rel="modulepreload" href="js/profiler.js">
@@ -2835,6 +2882,7 @@ npx serve -l 8000 .</pre>
 <link rel="modulepreload" href="js/ui/rom-panel.js">
 <link rel="modulepreload" href="js/ui/rom-sockets.js">
 <link rel="modulepreload" href="js/ui/boot-help.js">
+<link rel="modulepreload" href="js/ui/needs-basic.js">
 <link rel="modulepreload" href="js/wyrmfire/wad-check.js">
 <link rel="modulepreload" href="js/ui/wyrmfire.js">
 <link rel="modulepreload" href="js/ui/welcome.js">

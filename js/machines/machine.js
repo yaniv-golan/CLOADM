@@ -172,9 +172,11 @@ class Machine {
   // No-ROM stub: PC hooks at the stub firmware's entry points (symbols from stubRom):
   // RESET runs init(), POLCAT returns a queued key (A, Z clear) or none (Z set), CHROUT prints A on
   // the console, and the cassette/cursor routines return with carry set (error)
-  installStub(symbols, console, init) {
-    const cpu = this.cpu, { Z, C } = cpu.constructor.FLAGS, h = this.pcHooks;
+  // (firmware: stubRom's result; its symbols name the entry points, and it says what it implements)
+  installStub(firmware, console, init) {
+    const cpu = this.cpu, { Z, C } = cpu.constructor.FLAGS, h = this.pcHooks, symbols = firmware.symbols;
     this.stubConsole = console;
+    this.stubFirmware = firmware;
     h.set(symbols.get('RESET'), init);
     h.set(symbols.get('POLCAT'), () => {
       this.keyScans++;

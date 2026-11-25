@@ -212,7 +212,9 @@ function stubRom(cpu, size, base, opts = {}) {
     const a = s.addr + i - base;
     if (a >= 0 && a < size) rom[a] = s.data[i];
   }
-  const out = { rom, symbols: r.symbols };
+  // (base, size and the assembled segments: what the firmware implements, for the "needs BASIC" detector,
+  // js/needs-basic.js implementedBy)
+  const out = { rom, symbols: r.symbols, base, size, segments: r.segments };
   cache.set(key, out);
   return out;
 }

@@ -23,6 +23,7 @@ import { cartridgeRoms, createMachine, profiles, resolveConfig, restoreSnapshot 
 import { cpuFamily } from './cpu/cpus.js';
 import { SpeechSoundPak, SSC_ROM_PROFILE } from './machines/ssc.js';
 import { Debugger, codeDisassembly } from './debugger.js';
+import { NeedsBasic } from './needs-basic.js';
 import { HostHooks } from './hooks.js';
 import { WriteWatch } from './writewatch.js';
 import { Profiler } from './profiler.js';
@@ -718,6 +719,10 @@ export class Session {
     // machine in use, or the BASIC session beside a full-screen chat. Host state, never in a snapshot. The developer
     // API is built on them: serial, disk, watchWrites (js/writewatch.js) and profile (js/profiler.js).
     this.hooks = new HostHooks();
+    // a program the person loaded, running without BASIC, called a BASIC routine the built-in firmware lacks
+    // (js/needs-basic.js): 'needs-basic' with what was found, and again with null when that is over (a reset, a
+    // power-on, a switch, another load)
+    this.needsBasic = new NeedsBasic(this);
     // the serial port's byte streams and diagnostics (SerialApi), its listeners and traces kept on the machine through hooks
     this.serial = new SerialApi(this);
     this.writeWatch = new WriteWatch(this);
@@ -966,6 +971,8 @@ export class Session {
     // try) and their stub-restart records with them (the record of a Machine that is gone cannot come back)
     for (const [mm] of this.bootFailed) if (mm !== this.shownMachine && mm !== m) this.bootFailed.delete(mm);
     for (const [mm] of this.stubRuns) if (mm !== this.shownMachine && mm !== m) this.stubRuns.delete(mm);
+    // (the "needs BASIC" detector watched the machine that goes)
+    this.needsBasic.adopted(m);
     this.store.set('machine', m.id);
     this.install(m);
   }
@@ -977,7 +984,7 @@ export class Session {
     // a restart of the machine Claude acts on, by any path (Reset, a power cycle, a program or cartridge that
     // starts, the welcome menu, LIZA, ROMs cleared), stops Claude: nothing it held or still had to type goes into
     // the machine that starts over, and its next action does not run there
-    m.onReset = () => this.stopClaudeFor('the machine restarted', m);
+    m.onReset = () => { this.stopClaudeFor('the machine restarted', m); this.needsBasic.clear(m); };
     this.keys.clear();
     if (this.debugger && this.debugger.machine !== m) this.debugger.detach();
     let undelivered = null;
@@ -1558,7 +1565,8 @@ export class Session {
       if (!touched.get(t.machine).includes(r.name)) touched.get(t.machine).push(r.name);
     }
     for (const id of touched.keys()) this.stubChosen.delete(id);
-    if (touched.has(m.id)) { this.loadSavedRoms(m); this.powerCycle({ on: m }); }
+    // (the switch on with them keeps what the "needs BASIC" detector found: its card offers the program again now)
+    if (touched.has(m.id)) { this.loadSavedRoms(m); this.needsBasic.keep(() => this.powerCycle({ on: m })); }
     const ids = [...touched.keys()];
     const machines = ids.filter((id) => profiles[id]).map((id) => this.machineRoms(id));
     const cartridges = ids.filter((id) => cartridgeRoms[id]).map((id) => ({ id, name: cartridgeRoms[id].name, sockets: socketStatus(cartridgeRoms[id], this.roms.get(id)) }));
@@ -2497,11 +2505,17 @@ export class Session {
   // load a file of any supported kind -> message. askAddresses(name, size) -> { load, exec } | null for raw
   // data; remember: false keeps it off the recent list.
   // run: false types a BASIC listing without the RUN after it (the MCP server's load; the page always runs it)
-  load(name, bytes, { askAddresses = null, remember = true, run = true } = {}) {
+  // ours: one of the project's own programs (LIZA, the colour demo, the games), which never need BASIC: the "needs
+  // BASIC" detector is armed only for the person's own (js/needs-basic.js)
+  load(name, bytes, { askAddresses = null, remember = true, run = true, ours = false } = {}) {
     this.loadStarted = true;
+    const m = this.loadTarget().m;
     this.lastLoaded = { name, bytes };   // (js/bugreport.js: its name and SHA-256; set first, so a file that fails to load is named too)
     this.touch(this.shownMachine);   // a load makes a bundled program a moment (untouchedBundledProgram)
     const msg = this.loadMedia(name, bytes, askAddresses, { run });
+    // a program that started: what the last one found is over, and this one is watched afresh (data only, a tape
+    // in the deck: what runs is still the program that was running)
+    if (this.loadStarted) this.needsBasic.loaded(m, name, bytes, ours);
     if (remember) { this.library.rememberMedia(name, bytes); this.setLastRun('recent', name, { running: this.loadStarted, crc: crc32(bytes) }); }
     this.emit('loaded');
     return msg;
@@ -3365,7 +3379,7 @@ export class Session {
   // LIZA from its bytes (this.lizaFile's), at once -> the load message
   runLiza(bytes) {
     this.checkLiza();
-    const msg = this.load(this.lizaFile, bytes, { remember: false });
+    const msg = this.load(this.lizaFile, bytes, { remember: false, ours: true });
     this.setLastRun('liza', 'LIZA');
     this.watchForMenu('liza', this.personMachine);
     this.markProgramStart('liza', this.personMachine);
@@ -3395,7 +3409,7 @@ export class Session {
   runGame(name, bytes) {
     this.checkGame(name);
     const file = this.gameFile(name), m = this.personMachine;
-    const msg = this.load(file, bytes, { remember: false });
+    const msg = this.load(file, bytes, { remember: false, ours: true });
     // the SAM's memory size as the firmware or BASIC left it, for the game to put back on leaving (the CoCo 3's
     // GIME has no M bits: the header's default stays)
     if (m.sam) m.poke(GAMES.samExit, m.sam.memSize);
@@ -3783,7 +3797,8 @@ export class Session {
     // the disk is the game's: never linked to the Library (no onWrite), and it says whose it is
     fdc.drives[want.drive].media.gameData = level;
     this.emit('disks');
-    const msg = this.load('WYRMFIRE.BIN', engine, { remember: false });
+    // (ours: the engine is bundled, and it drives the machine itself: the "needs BASIC" detector is not armed for it)
+    const msg = this.load('WYRMFIRE.BIN', engine, { remember: false, ours: true });
     this.wyrmfire = { m, fdc, media: fdc.drives[want.drive].media, level, name: level === 'user' ? String(name || 'your WAD') : null, addedStub };
     if (level === 'user') this.userDataMachines.add(m);
     this.emit('program', 'wyrmfire');

@@ -148,7 +148,7 @@ class SamMachine extends Machine {
     this.on('line', (line, at) => this.lineStart(line, at));
     this.on('hsFall', (line) => this.hsFall(line));
     this.wireIO();
-    this.installStub(STUB.symbols, new TextConsole(this.ram, 0x400, () => (this.ram[0x88] << 8) | this.ram[0x89],
+    this.installStub(STUB, new TextConsole(this.ram, 0x400, () => (this.ram[0x88] << 8) | this.ram[0x89],
       (pos) => { this.ram[0x88] = pos >> 8; this.ram[0x89] = pos & 0xFF; }), () => this.stubInit());
   }
 

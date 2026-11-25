@@ -76,7 +76,7 @@ class Coco3Machine extends Machine {
     this.kbIrqLevel = false;
     this.screenWidth = GIME.WIDTH; this.screenHeight = GIME.HEIGHT; this.screenAspect = 4 / 3;
     this.setupIO();
-    this.installStub(STUB.symbols, new TextConsole(this.ram, 0x400, () => (this.ram[0x88] << 8) | this.ram[0x89],
+    this.installStub(STUB, new TextConsole(this.ram, 0x400, () => (this.ram[0x88] << 8) | this.ram[0x89],
       (pos) => { this.ram[0x88] = pos >> 8; this.ram[0x89] = pos & 0xFF; }), () => this.stubInit());
     // MAME's scheduler-slice timing (only with config.mameCompat, for the comparisons): I/O accesses
     // that change an interrupt output end a slice, and events are seen per slice

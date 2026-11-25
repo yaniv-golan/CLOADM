@@ -181,6 +181,28 @@ Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.
   go straight to the start link `/play/?start=<program>`. They work offline like the rest of the site. One entry in
   `js/program-pages.js` makes a page; `Session.programPageUrl(id, base)` gives its address.
 
+- **"This program needs BASIC".** A program you load on a machine without its BASIC ROM that calls a BASIC routine
+  (the built-in firmware has only POLCAT and CHROUT) now gets a card at the foot of the screen, the first time it does:
+  "*file* needs the *machine*'s BASIC ROM, which isn't added yet. It tried to use BASIC, and there's nothing there yet,
+  so the screen fills with junk.", with **Add ROMs**, **Dismiss** and the address and frame under **Details**. It covers
+  at most about 40% of the screen and the machine keeps running. With the ROMs added it becomes "ROMs added." with
+  **Run *file* again with ROMs** (a switch off and on, then the same load); dismissed, a toast offers that instead. It
+  fires on the first instruction fetched from BASIC's ROM space at an address the firmware does not implement (the
+  firmware now exports what it implements: `stubRom`'s `implemented`, each family's `basicRomAt`), once per load,
+  cleared by a reset, and never for the bundled programs, the all-RAM map, CoCo 3 RAM mode, a cartridge's space with a
+  cartridge in, a machine with BASIC, WYRMFIRE, or while the Debugger is stopped or stepping (`Debugger.commanding`). Tested in
+  `tests/needs-basic.test.js` and the browser check's new `needsBasic` group. The detector is the Session's
+  `needsBasic` (Run again is `needsBasic.runAgain()`); the side panel runs it too, and shows no card.
+
+- **A quieter desktop app bar.** Its links are **Programs…** (the Media tab's programs, now at every width),
+  **Library** and **More ▾**, which lists Debugger, Commands…, Help, GitHub and **Install CLOADM…** (only while the
+  page can be installed). Install has the one label, "Install CLOADM…", everywhere: More ▾, a phone's Menu and the
+  touch keys' Menu. The running speed is the green dot alone, its words ("49 fps · 98%") its tooltip and its name;
+  paused or stopped, the words show. A phone's and a touch screen's bar are unchanged. Checked in the browser check's
+  `noRomChrome` group.
+
+- **The colour demo says it runs without ROMs.** It clears the screen (the built-in firmware's banner goes) and prints
+  "RUNS WITHOUT ROMS" and "ADD YOURS FOR BASIC", each centred on the 32 columns (`tests/demo-text.test.js`).
 
 - **WYRMFIRE, a 3D game for the Dragon 64, with the Freedoom level.** [WYRMFIRE](https://github.com/yaniv-golan/wyrmfire)
   (GPL-3.0-or-later) plays a Doom-format level from a disk. Its engine and converter are vendored byte for byte in
@@ -222,6 +244,26 @@ Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.
 
 #### Changed
 
+- **A toast never lies over the screen's picture.** One rule in `js/ui/feedback.js` above the others: on a desktop the
+  toast docks under the tube; held sideways (the touch keys at both sides) it docks over the keys' side that covers none
+  of Claude's Stops; upright a one-line toast goes over the app bar and a longer one under the BREAK/CLEAR strip, over
+  the letter rows. A toast over the keys takes no taps but its own buttons: a key under it still types. The band under
+  the screen's text now starts under the picture, never on it. The copy is unchanged. The browser check's new
+  `toastOffScreen` group holds the toast's and the canvas's rects apart at 1280x800, 653x280 and 393x659, and the
+  "Tap for sound" chip uncovered; `mobile` taps a key through a showing toast.
+- **Add ROMs says at once when a file isn't a ROM image.** An error toast and a line under the drop zone: "fake.rom isn't
+  a ROM image, so it wasn't added.", or for several "3 files weren't ROM images, so they weren't added. See What you
+  dropped.", which brings the "What you dropped" card into view. Before, only that card, below the fold, said so. The
+  browser check's new `romNotRom` group covers it at a desktop and a phone's size.
+- **One line under the screen, on a computer.** It reads "Click or press a key for sound" until sound starts (the
+  "No ROMs needed" is gone), then the one-time key hint, then, while the screen has the focus, "Typing goes to the machine · Tab leaves the screen", which
+  retires once learned (one `Tab` out of the screen or 30 s of typing into it, remembered per browser and in no settings
+  export); otherwise the line holds the Ask panel's example questions (none with Claude features Off). The
+  bezel's focus pill no longer says the same thing a second time there (it stays on a touch screen, an embed and the
+  phone's chat, and the chat's "Esc stops a reply" pill is unchanged). A touch screen shows no line, as before.
+- **Menu never wears its dot while the "No BASIC · Add ROMs" pill shows.** The dot stands for the pill where the app
+  bar has folded it into Menu; the browser check's new `noRomChrome` group sweeps 320 to 1600 px, with a mouse and on a
+  touch screen, and fails on a width where both show.
 - **A phone's snapshots are in Menu.** "Take snapshot" (into the first empty quick-save slot, else the one taken
   longest ago, with Undo) and "Restore snapshot…" (the slots list) sit under Share…. The slots' heading never stands
   alone: hidden until they are listed, and with none taken it says "No snapshots yet. Take one from Menu → Take

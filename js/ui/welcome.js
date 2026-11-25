@@ -183,7 +183,7 @@ export function setupWelcome(page, { showRoms, openClaude }) {
           : `${item.name}: press a key to start; BREAK (Esc) goes back to the menu`);
       } else {
         const bytes = await page.fetchBytes(item.url);
-        startAs(byMachine, () => session.load(item.url.split('/').pop(), bytes, { remember: false }));
+        startAs(byMachine, () => session.load(item.url.split('/').pop(), bytes, { remember: false, ours: true }));
         page.status(`${item.name} loaded`);
         session.setLastRun('demo', item.name);
         // the demo runs on the person's machine (the load above goes there, behind the chat): watch THAT machine,

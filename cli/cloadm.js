@@ -630,7 +630,7 @@ class Runner {
       try { message = s.runGame(name, example(s.gameFile(name))); } catch (e) { if (e instanceof Emu.SessionError) throw media(e.message, 'rejected'); throw e; }
     } else {
       if (Emu.cpuFamily(this.m.config.cpu) !== '6809') throw media(`the demo is 6809 code; the ${this.m.profile.name} has a ${this.m.config.cpu}`, 'rejected');
-      message = s.load('demo.bin', example('demo.bin'), { remember: false });
+      message = s.load('demo.bin', example('demo.bin'), { remember: false, ours: true });
     }
     return this.record(step, { program: name, message });
   }
