@@ -16507,6 +16507,8 @@ async function escChatChecks(browser, base, check) {
   // 1. an idle, empty prompt: Esc leaves, exactly as "← Emulator" does (the emulator's address, the focus on the screen)
   await page.keyboard.press('Escape');
   check(`${L}: an idle, empty prompt: Esc leaves the chat for the emulator (no app=claude, focus on the screen)`, await left() && (await where()).focus === 'screen', JSON.stringify(await where()));
+  // (the typing line follows the sound note and the key hint: Esc was a key, and the sound it starts comes a moment later)
+  await waitFor(page, () => document.getElementById('typingHint').checkVisibility(), null, 5000);
   const p2 = await pill();
   const line = await page.evaluate(() => { const t = document.getElementById('typingHint'); return t.checkVisibility() ? t.textContent : null; });
   check(`${L}: back on the emulator the line under the tube says how to leave the screen, and the bezel's pill is not shown (a desktop)`,
