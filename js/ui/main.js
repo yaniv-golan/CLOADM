@@ -50,6 +50,8 @@ import { setupCommandBox } from './command-box.js';
 import { MemoryKeyStore, storageKeyStore } from '../host/key-store.js';
 import { setupShare } from './share.js';
 import { setupBugReport } from './bug-report.js';
+import { setupClaudeFeatures } from './claude-features.js';
+import { setupRecord } from './record.js';
 import './version-stamp.js';   // the settings drawer's credits line: v<version> · <commit>
 import { setupArrival } from './arrival.js';
 import { ShortLinkStore } from '../host/link-store.js';
@@ -168,6 +170,7 @@ const showRoms = () => romSockets.reveal();
 const claude = chatHere ? setupClaude(page) : null;
 // set up only when there is a controller: both modules drive the chat and would throw on null
 const ask = claude ? setupAsk(page, claude) : null;
+setupClaudeFeatures(page, { closeAsk: () => { if (ask && ask.open) ask.hide(); }, claude });
 // a non-toggling opener for the Ask panel, for the landscape keys' Menu's "Ask Claude…" (js/ui/touch-keys.js): the
 // header's #btnAsk TOGGLES (a second press closes it), which is wrong for a Menu item that always means "open". The
 // panel is the side panel (claude.openPanel); guarded so a page with no chat has nothing to open.
@@ -324,6 +327,8 @@ const visit = session.visit();
   session.switchMachine(id, Object.keys(config).length ? Object.assign(session.savedConfig(id), config) : undefined, { menu: false });
 }
 if (Object.keys(link.display).length) session.setDisplay(link.display, { remember: false });
+// ?record=1: the screen alone, integer-scaled in a fixed 4:3 (or 16:9) frame, for recording a video (after the link's display)
+if (link.record) setupRecord(page, link.recordAspect);
 const setCheck = (id, on) => { const c = $(id); if (c.checked !== on) { c.checked = on; c.dispatchEvent(new Event('change')); } };
 if (link.joy) setCheck('chkJoy', link.joy === 'mouse');
 if (link.sound !== null) setCheck('chkSound', link.sound);

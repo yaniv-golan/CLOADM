@@ -6,7 +6,7 @@
 const fs = require('fs'), path = require('path');
 const ROOT = path.join(__dirname, '..');
 // and every program page's folder (js/program-pages.js; tools/program-cards.js writes them)
-const DIRS = ['css', 'fonts', 'img', 'icons', 'js', 'examples', 'embed', 'play', 'roms', 'help', 'credits', 'faq', 'about',
+const DIRS = ['css', 'fonts', 'img', 'icons', 'js', 'examples', 'embed', 'play', 'roms', 'help', 'credits', 'faq', 'about', 'deviations',
   ...require('../js/program-pages.js').PROGRAM_PAGES.map((p) => p.id)];
 const ROOT_FILES = ['index.html', 'favicon.svg', 'favicon.ico', 'manifest.webmanifest'];
 const SKIP = (rel) => /^img\/readme-/.test(rel) || /\.md$/.test(rel) || /(^|\/)\./.test(rel);

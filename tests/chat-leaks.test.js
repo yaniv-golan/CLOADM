@@ -607,6 +607,8 @@ const REQUIRED = require.main !== module;
     'claudeLink',
     // lastLoaded: which file was loaded last, which js/bugreport.js names by SHA-256 (a WAD unnamed, a cartridge by CRC); a field
     'lastLoaded',
+    // claudeFeatures reads Settings -> Claude features (a stored flag); setClaudeFeatures stores it and emits, the machine untouched
+    'claudeFeatures', 'setClaudeFeatures',
     // programPageUrl makes a program page's address from the page's own (pure)
     'programPageUrl',
     // bundledProgram and untouchedBundledProgram read the SHOWN machine's program watch and page (Session.touches too,

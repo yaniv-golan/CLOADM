@@ -48,8 +48,8 @@ check('/faq/ AI: says plainly it was built with Claude, checked independently ag
   byId['q-ai'] && /built with Claude/.test(byId['q-ai'].a) && /MAME/.test(byId['q-ai'].a) && /instruction by instruction/.test(byId['q-ai'].a) && /every pixel/.test(byId['q-ai'].a)
   && /own firmware/.test(byId['q-ai'].a) && /href="https:\/\/github\.com\/yaniv-golan\/cloadm\/blob\/main\/docs\/verification\.md"/.test(byId['q-ai'].html));
 check('/faq/ accuracy: names the MAME comparison and links the known differences', byId['q-accuracy'] && /MAME 0\.264/.test(byId['q-accuracy'].a) && /every instruction/.test(byId['q-accuracy'].a)
-  && /id="faqDeviations"\s+href="https:\/\/github\.com\/yaniv-golan\/cloadm\/blob\/main\/docs\/verification\.md#deviations-from-mame"/.test(byId['q-accuracy'].html));
-check('the anchor it links exists in docs/verification.md', /^## Deviations from MAME$/m.test(read('docs/verification.md')));
+  && /id="faqDeviations"\s+href="deviations\/"/.test(byId['q-accuracy'].html));
+check('the page it links is served (the known differences, generated from docs/verification.md)', pages.includes('deviations/index.html'));
 check('/faq/ privacy: the browser, share links and what goes to Anthropic', byId['q-privacy'] && /stay in your browser/.test(byId['q-privacy'].a) && /share link/.test(byId['q-privacy'].a)
   && /never your ROMs/.test(byId['q-privacy'].a) && /Anthropic/.test(byId['q-privacy'].a));
 // what the code does (js/claude/brief.js TOOL_CONTRACT, js/claude/chat.js: the read tools run without a card; only acting asks)

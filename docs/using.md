@@ -590,6 +590,8 @@ doesn't have is reported in a message (with Details) and the rest of the link st
 | `sound`, `fasttape`, `turbo` | `1`, `0` | |
 | `embed` | `1` | the screen alone, for an iframe |
 | `askclaude` | `1` | with `embed=1`: a small **Ask Claude ↗** chip in the screen's corner, which opens this moment in a new tab with the chat (off by default; the Share screen's **Offer 'Ask Claude ↗'**) |
+| `record` | `1` | for recording a video of the screen: no page chrome (no app bar, drawer, controls, toasts or hints), the picture integer-scaled and centred in the largest 4:3 frame the window holds. URL only: nothing on the page leads here, and nothing is stored |
+| `aspect` | `16:9` | with `record=1` only: a 16:9 frame, the 4:3 picture pillarboxed (black bars beside it); without `record=1` it is refused |
 | `storage` | `opfs`, `fsa`, `fallback` | where ROMs and programs are kept |
 
 Files given by link are fetched by the browser, so their server must allow CORS.
@@ -699,6 +701,26 @@ The report contains no ROM data, only sizes, CRC32s (matched against known-good 
 ---
 
 See also: [Machines](machines.md) · [LIZA and Claude](claude.md) · [ROM list](roms.md) · [Verification](verification.md) · [Comparison with XRoar, MAME and VCC](comparison.md)
+
+## Claude features: On or Off
+
+**Settings → Machine → Claude features** is On by default. **Off** hides the app bar's **Ask Claude**, the command
+box's Claude rows and its "Ask Claude" row, and the Programs row **Chat with Claude**; the welcome menu's own Claude
+item stays (it is the firmware's). With Off no door can start a turn: the "Explain this error" and "Help with my
+program" buttons don't show, and a link with `app=claude` (or the tab an embed's **Ask Claude ↗** chip opens) doesn't
+open the chat; the page says "Claude features are off (Settings → Machine)." instead, as the welcome menu's item does.
+Turning Off stops a turn that is running and ends the full-screen chat. The choice is kept in this browser and goes
+with an exported settings file.
+Either way nothing goes to Anthropic until you ask. Ask Claude says so above its input: then your question, the
+machine's facts and the chat so far go to Anthropic with your key, and Claude can read the screen and any memory (ROM
+areas included) without asking; only changes to the machine ask you first.
+
+## Known differences from MAME
+
+[/deviations/](https://cloadm.dev/deviations/) lists where CLOADM differs from MAME 0.264 on purpose, with each
+difference's source. It is generated from [verification.md's "Deviations from MAME"](verification.md#deviations-from-mame)
+by `node tools/gen-deviations.js` (`tests/deviations.test.js` fails when the two differ); the FAQ's accuracy answer
+links it.
 
 ## Reporting a bug
 
