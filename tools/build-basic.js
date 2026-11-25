@@ -6,7 +6,8 @@
 //   node tools/build-basic.js --out FILE        write it to FILE instead (--out d64_1.rom for --roms, which takes a
 //                                               file by name: the committed one has its own, so it is never taken
 //                                               for a dump of the original)
-// require('./build-basic.js').buildBasic() -> { rom, symbols, listing, used } for the tests (nothing is written).
+// require('./build-basic.js').buildBasic() -> { rom, symbols, listing, used } for the tests (nothing is written);
+// buildBasic({ edit }) builds a mutant: edit(file, text) -> the text assembled for each source file in basic/.
 // The keyword table (basic/tokens.json) becomes the generated include "tokens.inc": the T_ token equates, the two
 // keyword tables the cruncher and LIST use, and the statement and function dispatch tables; tools/basic-consts.js
 // gives the generated includes "mathconst.inc", the mathematical constants, and "sine.inc", CIRCLE's sine table.
@@ -62,12 +63,12 @@ function tokensInc(json) {
   return out.join('\n') + '\n';
 }
 
-function buildBasic({ defines = {} } = {}) {
+function buildBasic({ defines = {}, edit = (file, text) => text } = {}) {
   const Emu = require('../tests/load.js')();
   const json = JSON.parse(fs.readFileSync(path.join(DIR, 'tokens.json'), 'utf8'));
   const gen = { 'tokens.inc': tokensInc(json), 'mathconst.inc': require('./basic-consts.js').mathConstsInc(), 'sine.inc': require('./basic-consts.js').sineInc() };
-  const include = (name) => gen[name] || (fs.existsSync(path.join(DIR, name)) ? fs.readFileSync(path.join(DIR, name), 'utf8') : null);
-  const res = Emu.assemble(fs.readFileSync(path.join(DIR, 'd64basic.asm'), 'utf8'), '6809', { include, defines });
+  const include = (name) => gen[name] || (fs.existsSync(path.join(DIR, name)) ? edit(name, fs.readFileSync(path.join(DIR, name), 'utf8')) : null);
+  const res = Emu.assemble(edit('d64basic.asm', fs.readFileSync(path.join(DIR, 'd64basic.asm'), 'utf8')), '6809', { include, defines });
   if (!res.ok) throw new Error('basic/d64basic.asm:\n' + res.errors.map((e) => (typeof e === 'string' ? e : JSON.stringify(e))).join('\n'));
   const rom = new Uint8Array(ROM_SIZE).fill(0xFF);
   const owner = new Int32Array(ROM_SIZE).fill(-1);
@@ -83,6 +84,10 @@ function buildBasic({ defines = {} } = {}) {
   const used = owner.reduce((n, o) => n + (o >= 0 ? 1 : 0), 0);
   // the system RAM block and the direct page must not run into the buffers after them
   if (res.symbols.get('SYSEND') > res.symbols.get('LINBUF')) throw new Error('basic: the system RAM ($0100 on) runs into LINBUF');
+  // the direct page's regions end at or below the fixed addresses after them (d64basic.asm)
+  for (const [end, at] of [['DPR1', 'CURPOS'], ['DPR2', 'BLINK'], ['DPR3', 'KEYDLY']]) {
+    if (res.symbols.get(end) > res.symbols.get(at)) throw new Error(`basic: the direct-page variables before ${at} run into it (move the split at ${end})`);
+  }
   if (res.symbols.get('DPEND') > res.symbols.get('ZTRAMP')) throw new Error('basic: the direct page is full (its variables reach the two-byte calls at ZTRAMP)');
   return { rom, symbols: res.symbols, listing: res.listing, used };
 }

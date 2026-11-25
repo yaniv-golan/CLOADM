@@ -44,10 +44,9 @@ KI4     PULS    A
         BNE     KI1
         LDB     <KEYTMP
         BMI     KINONE
-* debounce: after a short wait the key must still be down
-        LDX     #300
-KI5     LEAX    -1,X
-        BNE     KI5
+* debounce: after a wait of KEYDLY passes the key must still be down
+        LDX     <KEYDLY
+        BSR     DELAYX
         LDA     <KEYTMP
         ANDA    #7
         LDX     #BITTAB
@@ -108,20 +107,34 @@ KINONE  LDB     #$FF
         CLRA
         PULS    B,X,U,PC
 
+* DELAYX: X passes of a countdown (8 cycles each; X = 0 is 65,536). X ends 0.
+DELAYX  LEAX    -1,X
+        BNE     DELAYX
+        RTS
+
 BITTAB  FCB     $01,$02,$04,$08,$10,$20,$40,$80
 
 * KEYWT: wait for a key with the cursor blinking at CURPOS. A = the key. Keeps the other registers.
+* [OWNER-SPEC, BB; docs/clean-room-basic.md, "The cursor"] The cursor is the screen byte itself: each pass is a
+* cursor update, then a scan. An update counts BLINK down (unsigned: 0 goes to 255); when it reaches 0 it is
+* reloaded with 50 and bit 6 of the byte at the address in CURPOS (read from RAM every time) is toggled; then a
+* fixed delay: 1,064 passes, so that a whole pass takes the 9,177 cycles or so the original's does [BB] (ours scans
+* the keyboard more slowly). A key accepted: $60 is written where the cursor is, and BLINK is left as it is.
 KEYWT   PSHS    B,X
+KW1     DEC     <BLINK
+        BNE     KW2
+        LDA     #50
+        STA     <BLINK
         LDX     <CURPOS
-KW1     LDA     #$60
-        LDB     <TIMER+1
-        BITB    #$10
-        BEQ     KW2
-        LDA     #$AF            ; the cursor: a solid block
-KW2     STA     ,X
+        LDA     ,X
+        EORA    #$40
+        STA     ,X
+KW2     LDX     #1064
+        BSR     DELAYX
         JSR     KEYIN
         BEQ     KW1
         LDB     #$60
+        LDX     <CURPOS
         STB     ,X
         PULS    B,X,PC
 
