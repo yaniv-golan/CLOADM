@@ -67,6 +67,17 @@ check('/faq/ Claude: optional, the Off switch, the key kept out of the machine, 
   && /Settings → Machine → Claude features/.test(byId['q-claude'].a) && /emulated machine, snapshots, share links or exported settings/.test(byId['q-claude'].a));
 check('/faq/ machines: links Help\'s list of the machines', byId['q-machines'] && /href="help\/#machines"/.test(byId['q-machines'].html));
 check('/faq/ bug: Copy bug report and the issues page', byId['q-bug'] && /Copy bug report/.test(byId['q-bug'].a) && /href="https:\/\/github\.com\/yaniv-golan\/cloadm\/issues"/.test(byId['q-bug'].html));
+// the review's corrections, pinned (js/session.js: the chat needs a 6809 and 32K; ?rom=URL loads a ROM from a URL
+// the person gives; js/host/link-store.js: the machine id and the preview travel in clear, the moment sealed;
+// WYRMFIRE is GPL with its source in its own repository)
+check('/faq/ roms: CLOADM only loads ROMs you give it, from a file or a URL; the chat and the games need a 6809 and 32K',
+  byId['q-roms'] && /never ships or finds ROMs; it only loads the ones you give it, from a file or a URL you choose\./.test(byId['q-roms'].a)
+  && /with a 6809 and 32K, the Claude chat, 2048 and Minesweeper/.test(byId['q-roms'].a) && !/fetches them for you/.test(byId['q-roms'].a));
+check('/faq/ legal: MIT for CLOADM\'s own firmware only; WYRMFIRE a separate GPL project, its source on GitHub',
+  byId['q-legal'] && /CLOADM's own firmware .* under the MIT License\./.test(byId['q-legal'].a) && /WYRMFIRE is a separate project under the GNU GPL 3\.0 or later/.test(byId['q-legal'].a)
+  && /href="https:\/\/github\.com\/yaniv-golan\/wyrmfire"/.test(byId['q-legal'].html) && !/the games, all with/.test(byId['q-legal'].a));
+check('/faq/ share: the server stores the moment sealed (not "bytes it can\'t read": the machine and the preview are not sealed)',
+  byId['q-share'] && /stores the moment sealed, so it can't read it\./.test(byId['q-share'].a) && !/bytes it can't read/.test(byId['q-share'].a));
 check('no press page', !fs.existsSync(path.join(ROOT, 'press')) && !pages.some((p) => /press/.test(p)));
 
 // About
@@ -76,9 +87,9 @@ check('/about/: thanks MAME, XRoar and Freedoom, and links Credits', ['MAME', 'X
 const TM = 'DOOM is a registered trademark of ZeniMax Media Inc. CLOADM and WYRMFIRE are independent projects, not affiliated with or endorsed by id Software, ZeniMax Media or Microsoft. References to DOOM describe file compatibility only.';
 // one trademark wording everywhere: the old "DOOM is a trademark of id Software LLC." is gone from every page, the
 // WYRMFIRE strip (js/ui/wyrmfire.js), the credits and the docs, and those that speak of DOOM carry the notice
-for (const f of [...pages, 'CREDITS.md', 'docs/using.md', 'js/ui/wyrmfire.js', 'examples/wyrmfire/SOURCE.txt', 'examples/wyrmfire/freedoom/README.txt', 'tools/wyrmfire-vendor.js'])
+for (const f of [...pages, 'README.md', 'CREDITS.md', 'docs/using.md', 'js/ui/wyrmfire.js', 'examples/wyrmfire/SOURCE.txt', 'examples/wyrmfire/freedoom/README.txt', 'tools/wyrmfire-vendor.js'])
   check(`${f}: no old trademark line`, !/trademark of id Software/.test(read(f)));
-for (const f of ['about/index.html', 'help/index.html', 'credits/index.html', 'CREDITS.md', 'docs/using.md', 'js/ui/wyrmfire.js', 'examples/wyrmfire/SOURCE.txt'])
+for (const f of ['about/index.html', 'help/index.html', 'credits/index.html', 'README.md', 'CREDITS.md', 'docs/using.md', 'js/ui/wyrmfire.js', 'examples/wyrmfire/SOURCE.txt'])
   check(`${f}: the adopted trademark wording`, textOf(read(f)).replace(/['\n]/g, ' ').replace(/\s+/g, ' ').includes(TM));
 check('/about/: the trademark notice, word for word, under #trademarks', /<h2 id="trademarks">/.test(about) && textOf(about).includes(TM));
 for (const p of pages) check(`${p}: links the trademark notice`, /href="(\.\.\/)?about\/#trademarks"/.test(read(p)));

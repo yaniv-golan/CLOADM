@@ -49,9 +49,9 @@
   <section class="card faq" aria-labelledby="q-roms">
     <h2 id="q-roms">Why are there no ROMs?</h2>
     <p>The BASIC and DOS ROMs belong to Microsoft, Tandy, Dragon Data and others, and I have no right to hand them out.
-      So CLOADM never ships them, downloads them or fetches them for you. Without them, firmware I wrote still runs:
-      the welcome menu, LIZA, a colour and sound demo, the Claude chat, 2048 and Minesweeper (with 32K or more) and
-      WYRMFIRE on the Dragon 64. So do machine-code programs that don't call BASIC.</p>
+      So CLOADM never ships or finds ROMs; it only loads the ones you give it, from a file or a URL you choose. Without
+      them, firmware I wrote still runs: the welcome menu, LIZA and a colour and sound demo; with a 6809 and 32K, the
+      Claude chat, 2048 and Minesweeper; and WYRMFIRE on the Dragon 64.</p>
   </section>
 
   <section class="card faq" aria-labelledby="q-addroms">
@@ -65,8 +65,10 @@
   <section class="card faq" aria-labelledby="q-legal">
     <h2 id="q-legal">Is it legal? Where does the firmware come from?</h2>
     <p>Emulating hardware is legal; copying someone else's ROM is not, which is why I don't. What runs when you add no
-      ROMs is firmware I wrote for this project: a small boot program, the welcome menu, LIZA and the games, all with
-      their source in the repository under the MIT License. None of it is copied from a ROM.</p>
+      ROMs is code I wrote. CLOADM's own firmware (a small boot program, the welcome menu, LIZA and the games 2048 and
+      Minesweeper) has its source in this repository under the MIT License. WYRMFIRE is a separate project under the
+      GNU GPL 3.0 or later, with <a href="https://github.com/yaniv-golan/wyrmfire">its source on GitHub</a>. None of it
+      is copied from a ROM.</p>
   </section>
 
   <section class="card faq" aria-labelledby="q-accuracy">
@@ -90,8 +92,8 @@
     <h2 id="q-share">What is in a share link?</h2>
     <p>An unplayed 2048, LIZA or Minesweeper gives its own page; nothing is uploaded. Otherwise Copy link makes a short link,
       sealed in your browser. Its key is only after the <code>#</code>, which browsers never send to a server, so mine
-      stores bytes it can't read. Its preview picture is public unless you turn it off. Offline, or on your ROMs, you
-      get a long link that holds everything. No link holds a byte of your ROMs.</p>
+      stores the moment sealed, so it can't read it. Its preview picture is public unless you turn it off. Offline, or on your ROMs, you
+      get a long link. No link holds a byte of your ROMs.</p>
   </section>
 
   <section class="card faq" aria-labelledby="q-claude">
