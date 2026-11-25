@@ -57,9 +57,12 @@ RUN 700
 #screenshot error
 #nowait
 RUN 800
-#wait-text V1$|ERROR IN \d+
+#wait-text V1$|ERROR IN 8\d\d
 #screenshot cls
-#break
+# after CLS the BREAK message and OK print at the top while the marker stays on the last row: so BREAK as a key, and
+# a CLS to clear the marker before the next part
+#keys BREAK
+CLS
 RUN 900
 #screenshot ran-off-the-end
 PMODE 4,1:PCLS:SCREEN 1,1:LINE(0,0)-(255,191),PSET:CIRCLE(128,96),50
