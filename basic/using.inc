@@ -5,8 +5,7 @@
 * first character; % spaces % a field of that many characters plus 2. Anything else prints as it is. A number
 * too wide for its field prints whole after a %. The format is used again from its start for more items.
 * [OWN, provisional until the black-box run: a 0 before the point when there is room for one; the sign of a
-* number with no + or - in its field takes a digit's place; E notation keeps as many digits before the point as
-* the field has #s.]
+* number with no + or - in its field takes a digit's place.]
 
 * the format character at USPOS (Z set past its end); keeps X
 USCHR   PSHS    X
@@ -269,8 +268,18 @@ UMOV    JSR     FOUT            ; too large for 32 bits: % and the number as PRI
         LDA     #'%'
         JSR     <ZCHROUT
         JMP     <ZPRTSTR
-* E notation: as many digits before the point as the field has #s
-UMEXP   LDA     <USNB           ; at most nine digits: more is ?FC ERROR
+* E notation: with no + or - in the field, its first # is the sign's place (a space or -), so "##.##^^^^" prints
+* 12345 as " 1.23E+04" [BB bb1 print-using]; the other #s before the point are digits
+UMEXP   CLRB
+        LDA     <USFLG
+        BITA    #16+32+64
+        BNE     UMX1
+        LDA     <USNB
+        BEQ     UMX1
+        DEC     <USNB           ; (given back before the field is printed)
+        INCB
+UMX1    PSHS    B
+        LDA     <USNB           ; at most nine digits: more is ?FC ERROR
         ADDA    <USNA
         CMPA    #9
         LBHI    FCERR
@@ -317,9 +326,8 @@ UME5A   STA     ,X+
         CLRA
         CLRB
 UME6    LDB     <USNB
-        BEQ     UME7
         DECB
-UME7    NEGB
+        NEGB
         SEX
         ADDD    <FPE10
         STD     <USEXP
@@ -343,6 +351,9 @@ UME11   TFR     X,U
         LDA     <USFLG
         ANDA    #$FD            ; (no commas in E notation)
         STA     <USFLG
+        PULS    A               ; the sign's place back in the field
+        ADDA    <USNB
+        STA     <USNB
         BRA     UMOUT2
 * the body from the digits (X, B): the integer part, commas, the point and the decimals
 UMBODY  LDU     #FBUFFR+20

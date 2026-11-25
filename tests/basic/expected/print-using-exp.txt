@@ -1,0 +1,31 @@
+# [OWN] the bb1 rule (the first # of an E field with no + or - is the sign's place) carried to the other fields; more than nine digits is ?FC ERROR; provisional until the black-box run
+OK
+PRINT USING "#.##^^^^";1234;-123
+4
+ .12E+04-.12E+04
+OK
+PRINT USING ".##^^^^";1234;-1234
+
+.12E+04%-.12E+04
+OK
+PRINT USING "+##.##^^^^";12345;-
+12345
++12.35E+03-12.35E+03
+OK
+PRINT USING "##.##^^^^-";12345;-
+12345
+12.35E+03 12.35E+03-
+OK
+PRINT USING "##.##^^^^";-12345;0
+
+-1.23E+04 0.00E+00
+OK
+PRINT USING "###^^^^";5
+ 50E-01
+OK
+PRINT USING "##########^^^^";1
+ 100000000E-08
+OK
+PRINT USING "###########^^^^";1
+?FC ERROR
+OK
