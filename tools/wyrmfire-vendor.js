@@ -58,7 +58,9 @@ function freedoomReadme(pin = PIN) {
     'repository on 2024-02-08, after this release (2024-01-29), and has been corrected twice since. Do not copy a',
     'later version\'s CREDITS-LEVELS beside this disk: its authors and level set are not this release\'s.',
     '',
-    'Freedoom is not affiliated with id Software. DOOM is a trademark of id Software LLC.',
+    'Freedoom is not affiliated with id Software.',
+    'DOOM is a registered trademark of ZeniMax Media Inc. CLOADM and WYRMFIRE are independent projects, not affiliated',
+    'with or endorsed by id Software, ZeniMax Media or Microsoft. References to DOOM describe file compatibility only.',
     '',
   ].join('\n');
 }
@@ -84,6 +86,15 @@ async function main() {
     out.set(f.path, bytes);
   };
   for (const key of ['engine', 'licence', 'converter', 'worker']) want(PIN.files[key], fs.readFileSync(path.join(src, PIN.files[key].from)));
+  // The engine's glyph table, as JSON: the credits check decodes the rendered page with it (a test file, never served)
+  {
+    const h = fs.readFileSync(path.join(src, PIN.files.font.from), 'utf8');
+    const m = /static const byte font\[\d+\]=\{([\s\S]*?)\};/.exec(h);
+    if (!m) die(`${PIN.files.font.from}: no font[] table found`);
+    const glyphs = m[1].split(',').map((x) => x.trim()).filter((x) => x && !isNaN(Number(x))).map(Number);
+    if (glyphs.length % 9) die(`${PIN.files.font.from}: ${glyphs.length} bytes, not a whole number of 9-byte glyphs`);
+    want(PIN.files.font, Buffer.from(JSON.stringify({ from: 'src/font.h of the pinned commit', first: 32, bytes: glyphs }, null, 0) + '\n'));
+  }
 
   // Freedoom, at the pinned SHA-256
   let zip = cache && fs.existsSync(path.join(cache, 'freedoom.zip')) ? fs.readFileSync(path.join(cache, 'freedoom.zip')) : null;

@@ -29,4 +29,6 @@ CREDITS-LEVELS is NOT here, deliberately: it does not exist at Freedoom 0.13.0. 
 repository on 2024-02-08, after this release (2024-01-29), and has been corrected twice since. Do not copy a
 later version's CREDITS-LEVELS beside this disk: its authors and level set are not this release's.
 
-Freedoom is not affiliated with id Software. DOOM is a trademark of id Software LLC.
+Freedoom is not affiliated with id Software.
+DOOM is a registered trademark of ZeniMax Media Inc. CLOADM and WYRMFIRE are independent projects, not affiliated
+with or endorsed by id Software, ZeniMax Media or Microsoft. References to DOOM describe file compatibility only.
