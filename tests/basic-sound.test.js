@@ -209,7 +209,7 @@ const NOTES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
   const b = boot();
   const cases = [['SOUND 0,1', 'FC'], ['SOUND 1,0', 'FC'], ['SOUND 256,1', 'FC'], ['SOUND 1', 'SN'], ['PLAY "O0"', 'FC'], ['PLAY "O6"', 'FC'], ['PLAY "O5O+"', 'FC'],
     ['PLAY "O1O-"', 'FC'], ['PLAY "L0"', 'FC'], ['PLAY "L256"', 'FC'], ['PLAY "T0"', 'FC'], ['PLAY "V32"', 'FC'], ['PLAY "N0"', 'FC'], ['PLAY "N13"', 'FC'],
-    ['PLAY "P0"', 'FC'], ['PLAY "O1C-"', 'FC'], ['PLAY "O5B+"', 'FC'], ['PLAY "Z"', 'FC'], ['PLAY "L"', 'FC'], ['PLAY "XA"', 'SN'], ['PLAY "O=Q"', 'SN'],
+    ['PLAY "P0"', 'FC'], ['PLAY "O1C-"', 'FC'], ['PLAY "O5B+"', 'FC'], ['PLAY "Z"', 'FC'], ['PLAY "L"', 'FC'], ['PLAY "XA"', 'FC'], ['PLAY "O=Q"', 'FC'],
     ['PLAY "O=Q;"', 'FC'], ['PLAY 5', 'TM'], ['PLAY "XN;"', 'TM'], ['PLAY "O=A$;"', 'TM']];
   for (const [line, err] of cases) { typeAll(b, [line]); check(`${line}: ?${err} ERROR`, last(b) === `?${err} ERROR`, last(b)); }
   typeAll(b, ['10 PLAY "CDE":PLAY "V40"', '20 PRINT "NOT"']);

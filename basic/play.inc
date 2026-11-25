@@ -38,13 +38,11 @@ PLINIT  LDD     #2*256+4
         CLR     PLDOT
         JMP     RSTTMP
 
-PLAY    JSR     CSTART
+PLAY    JSR     MSSTR
         JSR     SNDDAC
 PY0     JSR     BRKCHK
-PY1     JSR     CSGET
-        BNE     PY2
-        JSR     CSPOP
-        BNE     PY1
+        JSR     MSCMD           ; (X var$; is run there; nothing of ours stays on the stack between commands)
+        BCC     PY2
         JMP     SNDMID
 PY2     LDX     #PYTAB-3
 PY3     LEAX    3,X
@@ -55,10 +53,7 @@ PY3     LEAX    3,X
 PY4     JSR     [1,X]
         BRA     PY0
 * the commands: a character and its routine; the last, for any other character, a note
-* (CSSUB, called from here, puts its frame at the loop's own stack level, as cmdstr.inc requires)
-PYTAB   FCB     'X'
-        FDB     CSSUB
-        FCB     'O'
+PYTAB   FCB     'O'
         FDB     PYO
         FCB     '>'
         FDB     PYUP
@@ -78,13 +73,14 @@ PYTAB   FCB     'X'
         FDB     PYLN
 
 * O n, O+, O-, >, <: the octave 1-5
-PYO     JSR     CSGET
+PYO     JSR     MSGET
+        BCS     PYO1
         CMPA    #'+'
         BEQ     PYUP
         CMPA    #'-'
         BEQ     PYDN
-        JSR     CSUNG
-        BSR     PBYTE
+        JSR     MSBACK
+PYO1    BSR     PBYTE
         BRA     PYO2
 PYUP    LDB     PLOCT
         INCB
@@ -127,10 +123,8 @@ PYP     BSR     PBYTE
         LBRA    PYT2
 
 * PBYTE: a number 0-255 into B, Z set for 0 (?FC ERROR if there is none, or for a value out of range)
-PBYTE   JSR     CSNUM
-        BCC     PFC
-        TSTA
-        BNE     PFC
+PBYTE   JSR     MSNUM
+        BCS     PFC
         TSTB
         RTS
 PFC     JMP     FCERR
@@ -139,8 +133,7 @@ PFC     JMP     FCERR
 PYLN    SUBA    #'A'
         CMPA    #'G'-'A'
         BLS     PYLET
-        ADDA    #'A'
-        JSR     CSUNG
+        JSR     MSBACK
 * N n: note 1-12
 PYN     BSR     PBYTE
         DECB
@@ -150,14 +143,15 @@ PYN     BSR     PBYTE
         BRA     PYNOTE
 PYLET   LDX     #NTLET
         LDB     A,X
-        JSR     CSGET
+        JSR     MSGET
+        BCS     PYNOTE
         CMPA    #'-'
         BEQ     PYFL
         CMPA    #'#'
         BEQ     PYSH
         CMPA    #'+'
         BEQ     PYSH
-        JSR     CSUNG
+        JSR     MSBACK
         BRA     PYNOTE
 PYFL    DECB
         DECB
@@ -201,12 +195,14 @@ PYT2    BSR     PLDUR
 
 * PDOTS: B = the dots that follow
 PDOTS   CLRB
-PDT1    JSR     CSGET
+PDT1    JSR     MSGET           ; (keeps B)
+        BCS     PDT3
         CMPA    #'.'
         BNE     PDT2
         INCB
         BRA     PDT1
-PDT2    JMP     CSUNG
+PDT2    JMP     MSBACK
+PDT3    RTS
 
 * PLDUR: X = the length, in 256 cycles, of 1/B of a note with A dots and those that follow:
 * PLAYW / (B x T) by restoring division, then each dot adds half the last part [OWN]. Keeps Y.

@@ -51,7 +51,7 @@ tag and is logged in [section 15](#15-provenance-log).
 **Deferred:** nothing. Every graphics and sound keyword ships complete: none is cut to meet the size budget (section
 14, decision 2). Cassette (P1b) and the printer are not part of P2. `LINE` shares its token with
 `LINE INPUT`: the handler in `io.inc` goes on to `LINE INPUT` when `INPUT` follows, otherwise to the graphics `LINE`
-(it gives `?FC ERROR` today).
+(`line.inc`).
 
 ## 3. Graphics memory and modes
 
@@ -137,11 +137,16 @@ reserved pages), `BLKCPY` / `MOVBLK` (the one block loop: `PCLS` fills by copyin
 Direct page (32 bytes free after P1 and its size pass, which put ten two-byte calls at `$E2-$FF`): only what every
 pixel needs. The first graphics step takes 5 bytes: `GMENT` (the current mode's entry in the mode table), `GBEG` (its
 start page's address) and `GCOLB` (the colour byte `PLOT` writes); the end of the pages and the reserved count are
-computed from the mode table and `TXTTAB` instead of kept. Still to come there: `DRAW`'s angle and scale and a few
-scratch bytes for the drawing loops (sound needs none: `PLAY`'s settings are in the system block, a note's working
-values on the stack). The system block (46 bytes free before P2) takes the rest: the first step uses 11 (`FGCOL`,
-`BGCOL`, `GCSS` the colour set x 4, the last point `LASTX`/`LASTY` 16-bit each, `GXY` a point read), the sound step 13
-(section 7), leaving 22 for `CIRCLE`'s working values. `PAINT`'s stack is in free memory (section 5).
+computed from the mode table and `TXTTAB` instead of kept. The drawing statements add 2: `DRAW`'s angle and scale
+(`DRANG`, `DRSCL`), which last from one `DRAW` to the next. Everything else the drawing statements work with lives
+only while one statement runs, so it takes no new byte: the scratch words `TMPPTR`, `TMPPT2`, `TMPCNT` and `BINVAL`
+(once the statement's arguments are read) and `PRINT USING`'s bytes, shared as `ON` and `RENUM` share them
+(`d64basic.asm` names each use: the command string's place for `DRAW`, `GET`/`PUT`'s rows and action, `PAINT`'s
+masks), and the 6809 stack (the line routine's axes, `X` substrings, `PAINT`'s seeds). Sound takes none in the direct
+page: `PLAY`'s settings are in the system block and a note's working values in a frame on the stack (no note
+countdown: lengths are cycle-counted). The system block (46 bytes free before P2): the first step uses 11 (`FGCOL`,
+`BGCOL`, `GCSS` the colour set x 4, the last point `LASTX`/`LASTY` 16-bit each, `GXY` a point read), the drawing
+statements none, the sound step 9 (section 7), leaving 26.
 
 ## 4. Modules and size budget
 
@@ -154,7 +159,7 @@ values on the stack). The system block (46 bytes free before P2) takes the rest:
 | `line.inc` | the line routine (shared with `DRAW` and `CIRCLE`), `LINE` with `B` and `BF` | 280 |
 | `circle.inc` | `CIRCLE`, with its sine table (17 bytes) | 300 |
 | `paint.inc` | `PAINT` | 320 |
-| `cmdstr.inc` | the command-string reader shared by `DRAW` and `PLAY` (section 6) | 170 |
+| `mini.inc` | the mini-language reader shared by `DRAW` and `PLAY` (section 6) | 170 |
 | `draw.inc` | `DRAW` | 420 |
 | `getput.inc` | `GET`, `PUT` | 330 |
 | `sound.inc` | the tone loop, `SOUND`, `AUDIO`, `JOYSTK` | 220 |
@@ -170,11 +175,15 @@ come in under its cap).
 
 **Measured so far** (`node tools/basic-size.js`): `gfx.inc` 644 bytes (budget 650, `PCOPY` included), `sgfx.inc` 136
 (budget 160), and 6 bytes of hooks (`GINIT` at cold start, `TXTSCR` at `READY`): 786 of the 3,600, the image 13,195
-bytes. The sound step (section 7, "What the sound step implements") adds `cmdstr.inc` 189 bytes (budget 170, shared
-with `DRAW`, which needs no reader of its own), `sound.inc` 261 (budget 220: the cycle-counted tone loop of decision 4,
-about 40 bytes, is in it) and `play.inc` 424 (budget 450): 874 bytes, against 880 for the three and decision 4's 40. The
-`CLRVAR` hook costs nothing (its call to `RSTTMP` became a call to `PLINIT`, which ends there). The image with the
-graphics step: 14,096 bytes.
+bytes. The drawing statements (sections 5, 6 and 8 as implemented): `line.inc` 353 (budget 280),
+`circle.inc` 271 and its 16-byte sine table (budget 300), `paint.inc` 277 (budget 320), `mini.inc` 211 (budget 170),
+`draw.inc` 315 (budget 420), `getput.inc` 382 (budget 330) and 4 bytes in `gfx.inc` (`DRAW`'s scale at cold start):
+1,829 bytes for a budget of 1,820 (`line.inc` holds the span filler that `BF` and `PAINT` share, and `getput.inc`
+the array lookup that makes a missing array), 2,615 of the 3,600 with the first step; the image 15,051 bytes, 1,077
+free below the vectors for the budget of `sound.inc`, `play.inc` and their hooks (710). The sound step (section 7, "What the sound step implements"): `sound.inc` 261
+(budget 220: the cycle-counted tone loop of decision 4 is in it) and `play.inc` 418 (budget 450), 679 of the 710, reading
+its string with `mini.inc`; the `CLRVAR` hook costs nothing (its call to `RSTTMP` became a call to `PLINIT`, which ends
+there). The image with everything of P2: 15,730 bytes, 398 free below the vectors.
 
 Rules that keep it small [OWN]: size before speed everywhere (no unrolled loops, no per-mode fast paths); one
 routine for every pixel; one line routine for `LINE`, `DRAW` and `CIRCLE`; one block loop for `PCLS`, `PCOPY` and
@@ -217,9 +226,40 @@ black-box question for each (section 11); where they differ, ours is changed to 
   if not, and -1 for a text character [UM; BB].
 * **`PCOPY a TO b`:** 1536 bytes with the block loop; either page above the `PCLEAR` count: `?FC ERROR` [BB].
 
+### What the drawing statements implement
+
+`basic/line.inc`, `circle.inc`, `paint.inc`, `mini.inc`, `draw.inc` and `getput.inc` (implemented; section 6 for
+`DRAW`, section 8 for `GET` and `PUT`). Every choice the manual does not settle is [OWN; BB pending]: the `gfx-*`
+black-box results decide it (decision 1). The places where the pixels can be moved to match them are marked `ADJUST`
+in the source, each a constant or one instruction:
+
+* **`LINETO`** (`line.inc`), the one line routine of `LINE`, `DRAW` and `CIRCLE`: from the last point to a 16-bit
+  signed end, the last point ending there. Bresenham as above, written as: the error term starts at half the major
+  delta rounded down (ADJUST), each step takes the minor delta off it, and when it goes negative it gets the major
+  delta back and the minor axis steps. Every point is checked against the picture and drawn only on it, so `DRAW`
+  and `CIRCLE` can go off any edge (and come back) without an error.
+* **`LINE`**: the corners are read as `PSET`'s (`?FC ERROR` past the picture); `PSET` or `PRESET` must follow
+  (left out, or another word: `?SN ERROR`), then `,B` or `,BF`. The box is the four lines (x1,y1)-(x2,y1)-(x2,y2)-
+  (x1,y2)-(x1,y1); `BF` fills each row from the smaller x to the larger with `HSPAN` (whole bytes between two masked
+  end bytes), so a filled screen takes 0.7 s. The last point is (x2,y2) after every form.
+* **`CIRCLE`** (`circle.inc`): radius 0-255, colour 0-8, ratio 0-4, start and end 0-1, else `?FC ERROR`. The ratio is
+  taken in 8.8 fixed point (its fraction below 1/256 dropped), r h rounded; corner j (whole 1/64 turns) is
+  x = cx + r cos, y = cy + r h sin, y growing downwards (so 0.25 of a turn is at the bottom), each offset
+  r x `SINTAB[k]` / 256 rounded to the nearest (ADJUST), with a quarter turn exactly r. Start and end go to the
+  nearest 1/64 turn (ADJUST); an end at or before the start goes on past 0, and the same start and end draw the whole
+  circle. The chords are drawn from the start corner on; the last point is left as it was.
+* **`PAINT`** (`paint.inc`): the scan-line fill above, working on each pixel's byte and mask rather than its
+  coordinates (a row is the same mask a row's bytes away; a row's ends are where the byte's place in its row is 0),
+  so it is about ten times faster than a fill by coordinates (a whole PMODE 4 picture in 16 s, PMODE 0 in 4 s). A
+  seed is 3 bytes (its byte's address and mask, no direction byte: each run seeds both rows, and a seed whose pixel
+  is already painted is dropped), pushed after `CHKSTK` (`?OM ERROR` when the stack would come within 64 bytes of
+  the arrays). The colour defaults to the foreground, the border to the colour [OWN; BB]. What it fills is the
+  4-connected region of the start whatever the seed order, so only the stopping rule and the connectivity are
+  ADJUST points.
+
 ## 6. DRAW's and PLAY's mini-languages
 
-Both take a string expression and read it one character at a time with `cmdstr.inc`, which does what the two share:
+Both take a string expression and read it one character at a time with `mini.inc`, which does what the two share:
 skip spaces and `;`; read a number; read `=var;` (a numeric variable's value) [UM]; run a substring with `X var$;`
 [UM]; and apply the modifiers `+`, `-`, `>`, `<` where the manual allows them [UM, to be checked against the
 manual for each command and by BB]. The string is evaluated once and its descriptor kept; nothing in either statement
@@ -245,6 +285,24 @@ by the stack check P1 has (`?OM ERROR`). An unknown command or a value out of ra
 A move becomes a (dx, dy) in 256 x 192 coordinates: the direction's unit vector, turned by `A`, times n x S / 4
 (16-bit, rounded down [OWN; BB]), then a line from the last point with the line routine. The angle, scale and colour
 last until changed [UM]; whether `DRAW` resets them at each statement is BB.
+
+**As implemented** (`basic/mini.inc`, `basic/draw.inc`). The reader's interface, which `PLAY` uses too:
+
+| Routine | Does |
+|---|---|
+| `MSSTR` | a string expression at the text pointer becomes the command string (`?TM ERROR` for a number) |
+| `MSCMD` | the next command: A its character, C set at the end of the whole string; spaces and `;` skipped, `X var$;` run here (its outer place on the 6809 stack, so the caller keeps nothing there between two calls) |
+| `MSGET`, `MSBACK` | the next character as it is (C set when there is none), and putting it back |
+| `MSNUM` | a number: `=var;` or decimal digits, 0-255 (`?FC ERROR` beyond, or for a negative variable); D, C set when there is none (D 0) |
+
+`MSPTR`, `MSCNT` and `MSDEP` (the place, the characters left, the substrings open) are `PRINT USING`'s bytes. The
+choices [OWN; BB pending]: numbers are 0-255 and digits only (no sign or point; a sign belongs to `M`); a command's
+number left out is 1 for a move and 0 for `C` and `A` (so `S` alone is `?FC ERROR`); `M`'s relative parts are scaled
+by `S` like a move but not turned by `A`, and its absolute parts are neither; `C` sets the foreground colour, so it
+lasts into the next `DRAW` and into `PSET`; `B` and `N` apply to the next move and are dropped after it; a `;`
+missing after `=var` or `X var$`, or a name that runs past the string's end: `?FC ERROR`. `DRAW` keeps the angle and
+scale from one statement to the next (`DRANG`, `DRSCL`; 0 and 4 at cold start, not reset by `RUN`), and starts from the
+last point (128,96 at cold start).
 
 ### PLAY [UM]
 
@@ -302,7 +360,7 @@ x, high y). The comparator answers on PIA0 PA7: high when the selected axis (0-6
 
 ### What the sound step implements
 
-`basic/cmdstr.inc`, `basic/sound.inc` and `basic/play.inc` hold `SOUND`, `PLAY` (every command of section 6), `AUDIO`
+`basic/sound.inc` and `basic/play.inc` hold `SOUND`, `PLAY` (every command of section 6), `AUDIO`
 and `JOYSTK`. Every constant the black-box measures are to fix is one equate, marked [OWN, BB pending] in the source:
 
 | Equate | Value now | What it sets |
@@ -320,27 +378,22 @@ and `JOYSTK`. Every constant the black-box measures are to fix is one equate, ma
   modulo 16); so the halves differ by at most a few dozen cycles. Its length is a 24-bit count of cycles from which
   each period is taken; the wave starts high and stops low when the next period would not fit. A pause is the same
   loop with its levels written to RAM, so nothing is heard and the timing is shared.
-* **`PLAY`** [UM; OWN where marked]: the string's commands as section 6 lists them, read with `cmdstr.inc`. A letter
+* **`PLAY`** [UM; OWN where marked]: the string's commands as section 6 lists them, read with `mini.inc` (`MSCMD`, `MSGET`/`MSBACK`, `MSNUM`; `X var$;` is run by `MSCMD`, and `PLAY` adds the octave's `+`, `-`, `>`, `<`). A letter
   with `-` below C (`C-`) is the B of the octave below, `B+` the C above; past octave 1 or 5, `?FC ERROR`. Dots after a
   length (`L4.`) last with it until the next `L`, and add to a note's own dots (`L4.A.` is 1.75 quarters) [OWN; BB].
   `V0` is accepted and silent (the manual gives 1-31) [OWN; BB]. A pause has its own dots and not the length's. The
   octave, length, tempo and volume last from one `PLAY` to the next until `CLRVAR` (`RUN`, `NEW`, `CLEAR`, `PCLEAR`,
   a load, cold start) sets O2, L4, T2, V15 again. BREAK is checked between commands; `SOUND` is not interrupted.
   After `PLAY` and `SOUND` the DAC is at its middle and sound is on.
-* **The shared reader** (`cmdstr.inc`), for `DRAW` too: `CSTART` evaluates the string and pushes an end mark;
-  `CSGET` returns the next character, spaces and `;` skipped (0 at the end); `CSUNG` gives it back; `CSNUM` reads
-  digits (0-255, `?FC ERROR` above; read as they are, so `O2;1` is O2 then note 1) or `=var;` (-32768 to 32767);
-  `CSSUB` (`X var$;`) pushes the outer string's place under the caller's return address and `CSPOP` takes it back at
-  a substring's end (`?OM ERROR` when nesting fills the stack). `=var;` and `X` point the text pointer into the
-  string, evaluate, require `;` (`?SN ERROR`) and put it back.
 * **`JOYSTK`**: `JOYSTK(0)` reads the four axes into `JOYV` (6 DAC steps an axis, sound off meanwhile and back as it
   was); `JOYSTK(1)`-`(3)` give the kept values.
 * **Errors** [OWN; BB]: `?FC ERROR` for `SOUND` t or d 0 or above 255, `O` outside 1-5, `L`, `T` or `P` 0 or above 255,
   `V` above 31, `N` outside 1-12, a note past octave 1 or 5, a command letter that is not one, a command with no number,
-  `JOYSTK` above 3; `?SN ERROR` for `=var` or `X var$` without `;` and `AUDIO` without `ON` or `OFF`; `?TM ERROR` for a
+  `JOYSTK` above 3, and from `mini.inc` a `;` missing after `=var` or `X var$` or a value outside 0-255; `?SN ERROR`
+  for `AUDIO` without `ON` or `OFF`; `?TM ERROR` for a
   number where a string is wanted (`PLAY 5`, `X N;`) and the reverse (`O=A$;`).
-* **RAM:** the system block gives 13 bytes (`JOYV` 4; `PLOCT`, `PLLEN`, `PLDOT`, `PLTMP`, `PLVOL` 5; `CSPTR`, `CSEND`
-  4), leaving 22; the direct page gives none. A tone's working values are a 10-byte frame on the stack.
+* **RAM:** the system block gives 9 bytes (`JOYV` 4; `PLOCT`, `PLLEN`, `PLDOT`, `PLTMP`, `PLVOL` 5), leaving 26;
+  the direct page gives none. A tone's working values are a 10-byte frame on the stack.
 * **Measured on our ROM** (`node tools/basic-bb/run.js --ours`, the eight `snd-*` cases): every case runs to the end;
   each note's period is the table's to the cycle, `L`/`T`/dots/pauses give the formula's lengths, `V` gives the
   levels 32 - V to 32 + V, `TIMER` stops during a note (`SNDMSK`), BREAK stops `PLAY` between notes and not `SOUND`,
@@ -357,6 +410,19 @@ and `JOYSTK`. Every constant the black-box measures are to fix is one equate, ma
 * **`PUT`'s actions** [UM]: `PSET` copies, `PRESET` copies inverted, `AND` and `OR` combine with the screen, `NOT`
   inverts the screen (the array unused). Default `PSET` [UM; BB]. Pixel-exact `PUT` with `G` shifts each row's bits to
   the target's position; that shift is the largest part of `getput.inc`.
+* **As implemented** (`basic/getput.inc`) [OWN; BB pending]: both statements work on the rectangle's own pixels
+  (the corners halved where the mode halves them, in either order), always exact to the pixel: `G` is accepted and
+  changes nothing until the black-box pictures give the coarse rule, and `PUT` uses the corners it is given, not a
+  size kept in the array. One bit-copying loop (`BITCPY`) does both: `GET` copies the screen's bits into the array,
+  `PUT` the array's bits onto the screen, each new bit looked up in the action's 4-entry truth table from the old
+  screen bit and the array bit (so `PRESET` and `NOT` invert each bit, which in four colours turns colour value v into
+  3 - v). The interim layout (decision 6): the elements' 5-byte values as one string of bytes from the first element's
+  first byte; each row of the rectangle from a new byte, its pixels' bits from the top bit down (a four-colour pixel
+  its two bits, high first), the bits after a row's last pixel 0. Only `GPBUF`'s start, the row length `GPRB` and the
+  bit order in `BITCPY` decide it, so the original's layout, once known, changes those three. The array is found by
+  its name alone (any number of dimensions), made with 11 elements when it does not exist; a string array is `?TM
+  ERROR`, an array too small for rows x bytes a row `?FC ERROR`, an action other than the five (or anything after
+  `GET`'s comma but `G`) `?SN ERROR`.
 
 ## 9. Errors
 
@@ -392,6 +458,25 @@ All run with no ROM but ours, on the image assembled at test time; unlike black-
   it still lists and runs; `PCOPY` and `PCLS`.
 * **`GET`/`PUT`:** round trips at byte and pixel alignment, each action against the bitwise operation done in
   JavaScript on the page bytes before and after.
+* **As implemented, `tests/basic-drawing.test.js`** (the drawing statements; `node tests/basic-drawing.test.js
+  [part...]`): `LINE` (every octant both ways, lengths 0 and 1, `B`, `BF` with the corners either way, `PRESET`,
+  `-(x,y)`, random lines) in PMODE 0-4 and both colour sets, and the last point after; `CIRCLE` (radii 0-255, ratios
+  0-4, every kind of arc, colours, circles across every edge) in four modes, the last point kept; `PAINT` on ten
+  hand-built shapes put straight into the page (the list above, a diagonal gap that must not leak, a start on the
+  border) in five modes, with paint-colour pixels inside, a border other than the paint colour, the defaults; `?OM
+  ERROR` from a comb of one-pixel teeth (a stretch to seed per tooth), BASIC going on after it, and a whole-picture
+  fill with most memory taken by an array; `DRAW` (every command, `M` both ways, `N`, `B`, `A` and `S` and their
+  lasting, `X` nested, `=var;`, spaces and `;`, moves off every edge) in three modes against the interpreter, with the
+  last point, angle and scale after, and `C` in PMODE 3; `GET`'s bytes in the array and `PUT` with every action on
+  eight rectangles (a whole row, one pixel, corners either way) over random pages in every mode, round trips at another
+  alignment, an array too small or not `DIM`med; the errors of section 9, and a `DRAW` string that runs itself as a
+  substring (`?OM ERROR`, then BASIC goes on). Mutants, each a one-line change to a copy of `basic/`, all turn it
+  red (24 so far): the line's error term starting at the whole delta or stepping at 0, `BF`'s right end unmasked, a
+  box's side missing; the circle's offsets truncated, its turn the other way, its start and end truncated; `PAINT`
+  8-connected, its seeds a byte short, no `?OM ERROR` check, the border not stopping it, the row below not seeded;
+  `DRAW`'s angle an eighth, its scale halved, `N` not coming back, a number's digits dropped, a substring's end not
+  going back, `M` relative unscaled; `PUT`'s `NOT` and `AND` tables wrong, `GET`'s bit order reversed, its padding
+  left, the array's size unchecked, four-colour rows counted as two-colour.
 * **Sound, from the DAC events** (`tests/basic-sound.test.js`, implemented but for the `--wav` check): a write tap on `$FF20` (`busTaps.addWriteTap`) records (time, value) for each DAC
   write. From those the test measures each note's period, length and swing: `PLAY` notes within one loop's time of
   equal temperament, every octave and accidental, lengths and dots within one field of W / (L x T), volume as the
@@ -506,7 +591,7 @@ emulator needs no MAME comparison (4.4: not applicable, no hardware behaviour ch
 | G1 | `gfx.inc`, `sgfx.inc`: `PCLEAR`, `PMODE`, `SCREEN`, `COLOR`, `PCLS`, `PSET`, `PRESET`, `PPOINT`, `PCOPY`, `SET`, `RESET`, `POINT` | mode, page and point tests pass | 1-2 |
 | G2 | `line.inc`, `circle.inc` and `gfxmodel.js` | line and circle tests pass | 1 |
 | G3 | `paint.inc` | the `PAINT` shapes pass | 1 |
-| G4 | `cmdstr.inc`, `draw.inc` | `DRAW` tests pass | 1 |
+| G4 | `mini.inc`, `draw.inc` | `DRAW` tests pass | 1 |
 | G5 | `getput.inc` | `GET`/`PUT` tests pass | 1 |
 | G6 | `sound.inc`: `SOUND`, `AUDIO`, `JOYSTK`, the tone loop | sound, joystick and multiplexer tests pass | 1 |
 | G7 | `play.inc`, the note table | `PLAY` timing tests pass | 1-2 |
@@ -572,12 +657,17 @@ Numbering continues P1's log.
 | 35 | `PCLEAR n` reserves n pages and the program follows them; `PMODE m,p`'s mode and start page; `SCREEN`'s text or graphics and colour set; `COLOR f,b`; `PCLS` with an optional colour; `PSET`'s optional colour; `PPOINT` returns a colour; `PCOPY a TO b` | [UM] |
 | 36 | The PIA1 port B bits written by read-modify-write keeping PB0-PB2; the SAM's V and F bits by their clear and set addresses | [HW] `cocopia.js`, `sam6883.js` |
 | 37 | Cold-start `PMODE 2,1`; `PMODE` not changing what is shown; `SCREEN` with no set giving set 0; CSS 0 on the text screen; `PCLEAR` ending as `CLEAR` and going on, falling back to `PMODE 0,1`; colour 0 in four colours; `SET` with colour 0; `SET`/`RESET` on a text character; `PPOINT`'s values; the error choices of section 3 | [OWN]; each to be confirmed [BB] |
-
-| 38 | The tone loop: a period of 72 + 16k + 5(j + 1) cycles, j = 13n AND 15; the 24-bit count of cycles; a pause as the same loop writing RAM | [OWN] |
-| 39 | `NOTEA` 440 Hz (octave 2's A), `PLAYW` 4 s, `SOUND`'s period SNDP0 + SNDPK x (256 - t) and unit 0.0599 s, the levels 32 -/+ V and `SOUND`'s V 31, `TIMER` stopped during a note (`SNDMSK`) | [OWN], each to be fitted [BB] |
-| 40 | `PLAY`'s defaults O2, L4, T2, V15 | [UM]; set again by `CLRVAR` [OWN; BB] |
-| 41 | A length's dots lasting until the next `L` and adding to a note's; dots adding 1/2, 1/4...; `V0` silent; `C-` and `B+` crossing the octave; a pause without the length's dots; the errors of section 7 | [OWN; BB] |
-| 42 | `JOYSTK(0)` reading all four axes, 1-3 the kept values, the axis order | [UM; BB]; the successive approximation [OWN]; the comparator and multiplexer [HW] `cocopia.js` |
-| 43 | The command-string reader: `;` and spaces skipped between commands, a number's digits read as they are, `=var;` and `X var$;` needing their `;` | [UM] the syntax; [OWN] the reading |
+| 38 | Syntax of `LINE` (`PSET`/`PRESET`, `B`, `BF`, `-(x,y)`), `CIRCLE` (r, c, h, s, e and their ranges), `PAINT` (c, b), `DRAW`'s commands, `GET` (`G`) and `PUT`'s five actions | [UM] |
+| 39 | `LINE`: the error term's start (half the major delta, rounded down), both ends drawn, the box's corner order, `PSET`/`PRESET` required (`?SN ERROR`), the last point (x2,y2) after every form; `DRAW` and `CIRCLE` clipped point by point | [OWN, BB pending: `gfx-line`, `gfx-clip`] |
+| 40 | `CIRCLE`: the 64-chord polygon, offsets rounded to nearest with an 8-bit sine table, the ratio truncated to 1/256, start and end to the nearest 1/64 turn, the turn clockwise on the screen from 3 o'clock, an end at or before the start wrapping, start = end the whole circle, the last point kept | [OWN; the direction from the manual's description, BB pending: `gfx-circle`] |
+| 41 | `PAINT`: stops at the paint colour as well as the border; 4-connected; colour default the foreground, border default the colour; 3-byte seeds on the stack, `?OM ERROR` at `CHKSTK`'s margin | [OWN, BB pending: `gfx-paint`] |
+| 42 | `DRAW`: numbers 0-255, digits only; a move's number left out 1, `C`/`A` 0; n x S / 4 rounded down; `M` relative scaled, not turned; `C` sets the foreground; `A` clockwise; angle and scale kept from one `DRAW` to the next and through `RUN`; the errors | [UM for `A`'s direction and that settings last; OWN for the rest, BB pending: `gfx-draw`] |
+| 43 | `GET`/`PUT`: exact to the pixel with or without `G`; `PUT`'s rectangle its own corners; the array's interim byte layout (rows from a new byte, high bit first, padding 0); an array made with 11 elements; `?TM`, `?FC`, `?SN` as section 8 says | [OWN, interim (decision 6), BB pending: `gfx-getput`, `gfx-getarray`] |
+| 44 | `CIRCLE`'s sine table: sin(k/64 turn) x 256 rounded, k = 0-15, generated by `tools/basic-consts.js` (`sine.inc`) | [OWN] (a general mathematical table) |
+| 45 | The tone loop: a period of 72 + 16k + 5(j + 1) cycles, j = 13n AND 15; the 24-bit count of cycles; a pause as the same loop writing RAM | [OWN] |
+| 46 | `NOTEA` 440 Hz (octave 2's A), `PLAYW` 4 s, `SOUND`'s period SNDP0 + SNDPK x (256 - t) and unit 0.0599 s, the levels 32 -/+ V and `SOUND`'s V 31, `TIMER` stopped during a note (`SNDMSK`) | [OWN], each to be fitted [BB] |
+| 47 | `PLAY`'s defaults O2, L4, T2, V15 | [UM]; set again by `CLRVAR` [OWN; BB] |
+| 48 | A length's dots lasting until the next `L` and adding to a note's; dots adding 1/2, 1/4...; `V0` silent; `C-` and `B+` crossing the octave; a pause without the length's dots; the errors of section 7 | [OWN; BB] |
+| 49 | `JOYSTK(0)` reading all four axes, 1-3 the kept values, the axis order | [UM; BB]; the successive approximation [OWN]; the comparator and multiplexer [HW] `cocopia.js` |
 
 Black-box facts are added with the date of the run they came from.

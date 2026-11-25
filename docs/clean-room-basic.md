@@ -62,9 +62,9 @@ These are hard rules for everyone who works on this ROM.
     `CHKCOM`, `USCHR`, `EVNUM`) each have a `JMP` at the top of the direct page (`ZTRAMP`, `$E2-$FF`), so a call is
     `JSR <ZCHRGET`: two bytes for three, and three cycles more. `tools/build-basic.js` fails if the direct-page
     variables reach them.
-  * **Scratch bytes shared.** `ON`'s and `RENUM`'s work uses `PRINT USING`'s bytes; `LOG`, `EXP`, `SIN` and `ATN`
-    share one byte; `RND`'s product is in `PROD`. Each is used inside one statement or function that finishes
-    before another of them starts (`d64basic.asm` says so at each).
+  * **Scratch bytes shared.** `ON`'s, `RENUM`'s, `DRAW`'s, `PAINT`'s and `GET`/`PUT`'s work uses `PRINT USING`'s
+    bytes; `LOG`, `EXP`, `SIN` and `ATN` share one byte; `RND`'s product is in `PROD`. Each is used inside one
+    statement or function that finishes before another of them starts (`d64basic.asm` says so at each).
   * **`FPRUN`** (`mathfn.inc`) runs a list of one-byte steps (store, load, multiply, add, divide, subtract, each
     with a temporary or a constant), in place of a load and a call for each step. The numeric functions do the same
     operations in the same order as before, so their results are the same bits.
@@ -95,8 +95,8 @@ corrupting the image.
 
 | Range | Use |
 |---|---|
-| `$0000-$00FF` | the direct page: the interpreter's variables (pointers, the two floating-point accumulators, the text pointer, flags, P2's current mode, start page and colour byte) up to `DPEND` (`$C7`), 27 bytes free, then the two-byte calls' `JMP`s at `$E2-$FF` (`ZTRAMP`; section 2, the size budget), copied from the ROM with the RAM vectors at a cold start. DP is 0 throughout |
-| `$0100-$01FF` | the system RAM block, laid out by `RMB` in `d64basic.asm` (so nothing overlaps; the build fails if it reaches `$0200`): the RAM jump vectors (IRQ, FIRQ, NMI, SWI, SWI2, SWI3), so a program can hook an interrupt [OWN; addresses to align in P3]; the `DEF USR` addresses; the keyboard's rollover table; the 8 temporary string descriptors; `FOR`'s step and limit; the numeric functions' temporaries; the number conversion and `PRINT USING` buffer; the cassette's name block; P2's colours, colour set, last point and a point read; the four `JOYSTK` values, `PLAY`'s octave, length and its dots, tempo and volume, and the command string's place |
+| `$0000-$00FF` | the direct page: the interpreter's variables (pointers, the two floating-point accumulators, the text pointer, flags, P2's current mode, start page and colour byte, `DRAW`'s angle and scale) up to `DPEND` (`$C9`), 25 bytes free, then the two-byte calls' `JMP`s at `$E2-$FF` (`ZTRAMP`; section 2, the size budget), copied from the ROM with the RAM vectors at a cold start. DP is 0 throughout |
+| `$0100-$01FF` | the system RAM block, laid out by `RMB` in `d64basic.asm` (so nothing overlaps; the build fails if it reaches `$0200`): the RAM jump vectors (IRQ, FIRQ, NMI, SWI, SWI2, SWI3), so a program can hook an interrupt [OWN; addresses to align in P3]; the `DEF USR` addresses; the keyboard's rollover table; the 8 temporary string descriptors; `FOR`'s step and limit; the numeric functions' temporaries; the number conversion and `PRINT USING` buffer; the cassette's name block; P2's colours, colour set, last point and a point read; the four `JOYSTK` values and `PLAY`'s octave, length and its dots, tempo and volume |
 | `$0200-$02FF` | the line input buffer (250 characters + terminator); `VAL` reads its copy of a string here |
 | `$0300-$03FF` | the crunched line |
 | `$0400-$05FF` | the text screen, 32 x 16 [HW: the SAM's reset display offset] |
@@ -152,7 +152,12 @@ black-box case (`VARPTR` then `PEEK` of five bytes) and changed to match if it d
 | `cassette.inc` | `CSAVE` (`,A` for text), `CLOAD`, `CSAVEM`, `CLOADM`, `SKIPF`, `MOTOR`: reading and writing bits, blocks and files on the tape (section 12) |
 | `gfx.inc` | P2's graphics pages, modes and points: `PCLEAR`, `PMODE`, `SCREEN`, `COLOR`, `PCLS`, `PSET`, `PRESET`, `PPOINT`, `PCOPY`, the mode table, the plot routine and the return to the text screen at `OK` ([clean-room-basic-p2.md](clean-room-basic-p2.md), section 3) |
 | `sgfx.inc` | `SET`, `RESET`, `POINT`: semigraphics points on the text screen |
-| `cmdstr.inc` | the command-string reader `PLAY` and `DRAW` share: characters, numbers, `=var;`, `X var$;` substrings ([clean-room-basic-p2.md](clean-room-basic-p2.md), section 6) |
+| `line.inc` | `LINE` (`B`, `BF`, `-(x,y)`), the line routine `LINETO` that `DRAW` and `CIRCLE` draw with, the span filler of `BF` and `PAINT` ([clean-room-basic-p2.md](clean-room-basic-p2.md), section 5) |
+| `circle.inc` | `CIRCLE`: the 64-chord polygon (its sine table: the generated `sine.inc`) |
+| `paint.inc` | `PAINT`: the scan-line seed fill, its seeds on the 6809 stack |
+| `mini.inc` | the command-string reader `DRAW` and `PLAY` share: characters, numbers, `=var;`, `X var$;` (P2, section 6) |
+| `draw.inc` | `DRAW` |
+| `getput.inc` | `GET`, `PUT` and their actions |
 | `sound.inc` | the tone loop (a cycle-exact square wave, its length counted in cycles), `SOUND`, `AUDIO`, `JOYSTK` (section 7 there) |
 | `play.inc` | `PLAY`: its commands, the note table and the length arithmetic; `PLAY`'s defaults, set by `CLRVAR` |
 
