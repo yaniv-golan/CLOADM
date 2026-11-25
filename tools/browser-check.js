@@ -22452,8 +22452,10 @@ async function shortLinkChecks(browser, base, site, check) {
       // answered from the local files directly (staticAnswer, what the HTTP server above answers), not by route.fetch over a
       // socket: Playwright pools its fetch connections, the server drops idle ones after its keep-alive timeout, and a request
       // that reused a socket in that moment failed with ECONNRESET - on a loaded machine often, anywhere sometimes
-      const a = staticAnswer(u.pathname);
-      if (a.redirect) return route.fulfill({ status: 301, headers: { location: `${u.pathname}/${u.search}` } });
+      // (a folder named without its slash is answered with its index, as route.fetch did by following the redirect itself: a
+      // 301 fulfilled here would be followed by the browser straight to the real network, which Playwright does not route)
+      let a = staticAnswer(u.pathname);
+      if (a.redirect) a = staticAnswer(`${u.pathname}/`);
       return route.fulfill({ status: a.status, headers: a.headers, body: a.file ? fs.readFileSync(a.file) : '' });
     }));
   };
@@ -22464,6 +22466,16 @@ async function shortLinkChecks(browser, base, site, check) {
   const page = await ctx.newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
+  // the stand-in for cloadm.dev answers a folder named without its slash with the folder's index (and nothing goes to the real site)
+  {
+    const p2 = await ctx.newPage();
+    const before = env.requests.length;
+    let got = '', fail = '';
+    try { await p2.goto('https://cloadm.dev/play', { waitUntil: 'domcontentloaded' }); got = await p2.title(); } catch (e) { fail = String(e.message).split('\n')[0]; }
+    const want = (/<title>([^<]*)<\/title>/.exec(fs.readFileSync(path.join(ROOT, 'play/index.html'), 'utf8')) || [])[1];
+    check('shortLink: https://cloadm.dev/play (no slash) is answered with play/index.html, not sent on to the real site', !!want && got === want && env.requests.length > before, `title ${JSON.stringify(got)} want ${JSON.stringify(want)} ${fail}`);
+    await p2.close();
+  }
   const openShare = async (p) => {
     if (await p.evaluate(() => location.hash === '#share')) { await p.click('#shareBack'); await p.waitForSelector('#share', { state: 'hidden' }); }
     await p.click('#btnShare'); await p.waitForSelector('#share', { state: 'visible' });

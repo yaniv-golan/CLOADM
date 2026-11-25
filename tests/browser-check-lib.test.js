@@ -330,8 +330,10 @@ check('--only twice: an error', /more than once/.test(parseOnly(['--only', 'shar
   // A route answers from the files (staticAnswer) with route.fulfill.
   {
     const src = require('fs').readFileSync(require('path').join(__dirname, '../tools/browser-check.js'), 'utf8');
-    const calls = src.split('\n').map((l, i) => [i + 1, l]).filter(([, l]) => /\broute\.fetch\s*\(/.test(l) && !/^\s*(\/\/|\*)/.test(l));
-    check('browser-check.js answers no routed request with route.fetch (a pooled socket the server may reset)', calls.length === 0, calls.map(([n]) => `line ${n}`).join(', '));
+    // (comments out, then any spelling across lines: route.fetch(, route .fetch (, route\n.fetch()
+    const code = src.replace(/\/\*[^]*?\*\//g, '').split('\n').map((l) => l.replace(/(^|[^:])\/\/.*$/, '$1')).join('\n');
+    const calls = [...code.matchAll(/\broute\s*\.\s*fetch\s*\(/g)].map((m) => code.slice(0, m.index).split('\n').length);
+    check('browser-check.js answers no routed request with route.fetch (a pooled socket the server may reset)', calls.length === 0, calls.map((n) => `line ${n}`).join(', '));
   }
   // callSite skips the helpers and names the caller's lines
   const stack = ['Error', '    at poll (/x/tools/b.js:10:5)', '    at waitFor (/x/tools/b.js:20:5)', '    at async ready (/x/tools/b.js:30:5)', '    at async romChecks (/x/tools/b.js:400:7)', '    at async main (/x/tools/b.js:900:3)'].join('\n');
