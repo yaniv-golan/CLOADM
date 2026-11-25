@@ -20,7 +20,8 @@ Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.
   hashes of what the screen shows; the cases and their expected transcripts are in `tests/basic/`. The built image is
   committed as `basic/cloadm-basic-d64.rom`; it is not offered on the page yet. The cassette statements are in (`basic/cassette.inc`): `CSAVE` (with `,A` for text), `CLOAD`,
   `CSAVEM`, `CLOADM` (with an offset), `SKIPF` and `MOTOR`, tested through the emulated deck against the repository's own
-  tape encoder and decoder (`tests/basic-cassette.test.js`). For phase 2, graphics and sound
+  tape encoder and decoder (`tests/basic-cassette.test.js`). `CLS c` fills the screen with a colour, as most of the
+  corpus programs do on their first line. For phase 2, graphics and sound
   ([docs/clean-room-basic-p2.md](docs/clean-room-basic-p2.md)), the black-box cases can now record what a case drew
   and played: `#screenshot` (the VDG's own colours, composite off), `#wav NAME` ... `#wav-stop` (the DAC writes and the
   sound switch, with their cycles, turned into measures only: each tone's period, length and level range, never the

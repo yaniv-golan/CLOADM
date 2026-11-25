@@ -439,6 +439,7 @@ Every behaviour fact the ROM relies on, with its source. A fact without a source
 | 20 | A text (ASCII) program is its `LIST` text, lines ended by a carriage return, in gapped blocks (the motor stops between them) | [FMT] |
 | 21 | Our writer: 128 leader bytes before every block and one `$55` after it; a square wave on the DAC; half a second of motor run before the first block | [FMT] for the block layout, which the repository's encoder (`buildCas`) also writes; the counts and the wave are [OWN] constants (`CLEADN`, `CDELAY`), open question 10 |
 | 22 | The cassette hardware: the DAC (PIA 1 port A bits 2-7) drives the output, PA0 reads the input, CA2 runs the motor; the CPU clock is 888625 Hz | [HW] `js/machines/cocopia.js`, the machine's `tickHz` |
+| 23 | `CLS c` fills the screen with colour c, 0-8; a colour's block is the semigraphics-4 character with all four elements lit and the colour in bits 4-6 (0: black, no element lit); a colour above 8 gives `?FC ERROR` | [UM] for `CLS c`; [HW] the MC6847 data sheet for the character; the error [OWN], provisional (black-box case `screen-cls`) |
 
 The log grows with every milestone; black-box facts are added with the date of the run they came from.
 

@@ -60,11 +60,13 @@ SCRL2   STD     ,U++
         LEAX    -32,X
         PULS    D,U,PC
 
-* CLS: clear the screen and home the cursor
+* CLS: clear the screen and home the cursor; CLSC: the same, filled with D's bytes
+CLSC    PSHS    D,X
+        BRA     CLSF
 CLS     PSHS    D,X
-        LDX     #SCREEN
-        STX     <CURPOS
         LDD     #$6060
+CLSF    LDX     #SCREEN
+        STX     <CURPOS
 CLS1    STD     ,X++
         CMPX    #SCREND
         BLO     CLS1

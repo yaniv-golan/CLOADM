@@ -351,6 +351,24 @@ NEW     BNE     RUNSN
         JSR     NEWPRG
         JMP     READY
 
-CLSST   JSR     CLS
+* CLS [c]: the screen cleared, or filled with colour c's block: 0 black, 1-8 green ... orange [UM]; a block is the
+* semigraphics-4 character with all four elements lit, its colour in bits 4-6 [HW: the MC6847 data sheet]. A colour
+* above 8 gives ?FC ERROR [OWN, provisional: the black-box case screen-cls asks the original].
+CLSST   JSR     <ZCHRGOT
+        BEQ     CLSS1
+        JSR     GETBYT
+        CMPB    #8
+        LBHI    FCERR
+        LDA     #$80            ; 0: black, no element lit
+        DECB
+        BMI     CLSS0
+        LDA     #16
+        MUL
+        ORB     #$8F
+        TFR     B,A
+CLSS0   TFR     A,B
+        JSR     CLSC
+        JMP     <ZCHRGOT
+CLSS1   JSR     CLS
         JMP     <ZCHRGOT
 
