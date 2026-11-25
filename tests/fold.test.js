@@ -52,25 +52,44 @@ const CASES = [
   ['indentation, trailing spaces and blank lines go', '\n\n  if (a) {   \n\t\tb();  \n\n  }\n', 'if (a) {\nb();\n}\n'],
   ['spaces that keep operators apart stay', 'a + +b; c - -d; e = f /* g */ - -h;\n', 'a + +b; c - -d; e = f - -h;\n'],
   ['CRLF line ends', 'a = 1 // c\r\nb = 2\r\n', 'a = 1\nb = 2\n'],
+  ['a string continued over a CRLF line end', "const s = 'a\\\r\n// b'; // c\r\n", "const s = 'a\\\r\n// b';\n"],
+  ['U+2028 and U+2029 end lines (++ ASI) and a comment; U+00A0 and U+FEFF are spaces', 'a = b // c\u2028++d\u2029x\u00a0=\ufeff1; // e\n', 'a = b\n++d\nx = 1;\n'],
+  ['U+2028 inside a string is text', "const s = 'a\u2028// b'; // c\n", "const s = 'a\u2028// b';\n"],
+  ['a regex after the ) of while (…)', 'while (x) /re\\/\\//.test(s) // c\n', 'while (x) /re\\/\\//.test(s)\n'],
+  ['a regex after the ) of for await (…)', 'async function f(y) { for await (const x of y) /re\\/\\//.test(x) // c\n}\n', 'async function f(y) { for await (const x of y) /re\\/\\//.test(x)\n}\n'],
+  ['division after the ) of a call to a property named if', 'o.if(a) / "/" + "  a  " // it"s\n', 'o.if(a) / "/" + "  a  "\n'],
+  ['division after the } of an object literal', 'x = {} / 2 // c\n/ 3;\n', 'x = {} / 2\n/ 3;\n'],
+  ['division after the } of a function expression', 'const f = function () {} / 2 // c\n/ 3;\n', 'const f = function () {} / 2\n/ 3;\n'],
+  ['division after the } of a class expression', 'const C = class extends B {} / 2 // c\n/ 3;\n', 'const C = class extends B {} / 2\n/ 3;\n'],
+  ['a regex after the } of a class declaration and of an arrow body', 'class D {}\n/re\\/\\//.test(s) // c\nconst g = () => {}\n/re\\/\\//.test(s) // d\n', 'class D {}\n/re\\/\\//.test(s)\nconst g = () => {}\n/re\\/\\//.test(s)\n'],
+  ['a regex after the } of a method body and of else { }', 'const o = { m() {} }; if (a) {} else {}\n/x\\/\\//.test(s) // c\n', 'const o = { m() {} }; if (a) {} else {}\n/x\\/\\//.test(s)\n'],
 ];
 const THROWS = [['an unterminated string', "const s = 'abc\n"], ['an unterminated template', 'const t = `abc ${x}'], ['an unterminated regex', 'x = /abc\n'],
   ['an unclosed ${', 'const t = `a ${ b `'], ['a stray }', 'a }'], ['an unterminated comment', 'a /* b']];
 
 // what the checks find wrong with a fold.js module (the real one, or a mutant): [label, ok, detail]
 async function suite(mod, { corpus = true } = {}) {
-  const res = [];
+  const res = [], dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cloadm-fold-test-')), toParse = [];
+  const parseLater = (label, text) => { const p = path.join(dir, `${toParse.length}.mjs`); fs.writeFileSync(p, text); toParse.push([label, p]); };
+  // the module with every literal's inside blanked at the tokenizer's boundaries (a string to "", a regex to /x/, a
+  // template's text to nothing around its ${ }), comments to a space or a line end: V8 parses it only if each boundary
+  // is where V8 puts it (o.if(a) / "/" + "  a  " read with a regex from / to " becomes o.if(a) /x/"" a ""s: refused).
+  // It does not use the stripped output, so it is not the tokenizer checking itself.
+  const skeleton = (src) => mod.tokens(src).map((t) => t.type === 'str' ? '""' : t.type === 'regex' ? '/x/'
+    : t.type === 'tmpl' ? t.text[0] + (t.text.length > 1 && t.text.endsWith('${') ? '${' : t.text.length > 1 ? '`' : '')
+      : t.type === 'comment' ? (/[\n\r\u2028\u2029]/.test(t.text) ? '\n' : ' ') : t.text).join('');
   for (const [name, input, want] of CASES) {
     let got; try { got = mod.strip(input); } catch (e) { got = `threw ${e.message}`; }
     res.push([`case: ${name}`, got === want, J({ got, want })]);
+    parseLater(`case "${name}": the expected output`, want);
+    try { parseLater(`case "${name}": the input's skeleton`, skeleton(input)); } catch (e) { res.push([`case "${name}": the input tokenizes`, false, e.message]); }
   }
   for (const [name, input] of THROWS) {
     let threw = false; try { mod.strip(input); } catch { threw = true; }
     res.push([`throws: ${name}`, threw]);
   }
-  if (!corpus) return res;
-  const { files } = mod.fold(path.join(ROOT, 'connector/view/panel.js'), { stripComments: false });
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cloadm-fold-test-'));
-  const bad = { lossless: [], tokens: [], comments: [], stable: [], threw: [] }, out = [];
+  const { files } = corpus ? mod.fold(path.join(ROOT, 'connector/view/panel.js'), { stripComments: false }) : { files: [] };
+  const bad = { lossless: [], tokens: [], comments: [], stable: [], threw: [] }, firstCase = toParse.length;
   // the significant tokens, each marked with whether a line break came before it (in whitespace or a comment)
   const sig = (src) => { const r = []; let nl = false; for (const t of mod.tokens(src)) { if (t.type === 'ws' || t.type === 'comment') nl = nl || /[\n\r\u2028\u2029]/.test(t.text); else { r.push((nl && r.length ? '\n' : '') + t.text); nl = false; } } return r; };
   let before = 0, after = 0;
@@ -84,20 +103,24 @@ async function suite(mod, { corpus = true } = {}) {
       if (J(sig(src)) !== J(sig(s))) bad.tokens.push(rel);
       if (mod.tokens(s).some((t) => t.type === 'comment')) bad.comments.push(rel);
       if (mod.strip(s) !== s) bad.stable.push(rel);
-      const p = path.join(dir, `${out.length}.mjs`); fs.writeFileSync(p, s); out.push([rel, p]);
+      parseLater(`${rel} stripped`, s); parseLater(`${rel}'s skeleton`, skeleton(src));
     } catch (e) { bad.threw.push(`${rel}: ${e.message}`); }
   }
-  // V8 parses each stripped module (as a module: import, export, import.meta and top-level await allowed)
+  // V8 parses each one as a module (import, export, import.meta and top-level await allowed), in a child process
   const parse = JSON.parse(execFileSync(process.execPath, ['--experimental-vm-modules', '--no-warnings', '-e', `
     const vm = require('vm'), fs = require('fs'), bad = [];
-    for (const [rel, p] of ${J(out)}) { try { new vm.SourceTextModule(fs.readFileSync(p, 'utf8'), { identifier: rel }); } catch (e) { bad.push(rel + ': ' + e.message); } }
+    for (const [label, p] of ${J(toParse)}) { try { new vm.SourceTextModule(fs.readFileSync(p, 'utf8'), { identifier: label }); } catch (e) { bad.push(label + ': ' + e.message); } }
     process.stdout.write(JSON.stringify(bad));`], { encoding: 'utf8', maxBuffer: 1 << 24 }));
   fs.rmSync(dir, { recursive: true, force: true });
+  const badCases = parse.filter((e) => e.startsWith('case "'));
+  res.push([`cases: every expected output, and every input's skeleton, parses in V8 (${firstCase} sources)`, firstCase === CASES.length * 2 && !badCases.length, J(badCases).slice(0, 600)]);
+  if (!corpus) return res;
+  const badCorpus = parse.filter((e) => !/^case "/.test(e));
   res.push([`corpus: ${files.length} modules tokenize without error`, files.length > 50 && !bad.threw.length, J(bad.threw)]);
   res.push(['corpus: tokens(src) gives back every character (lossless)', !bad.lossless.length, J(bad.lossless)]);
   res.push(['corpus: stripped, every module keeps every token and every line break between tokens', !bad.tokens.length, J(bad.tokens)]);
   res.push(['corpus: stripped, no module holds a comment, and stripping again changes nothing', !bad.comments.length && !bad.stable.length, J([bad.comments, bad.stable])]);
-  res.push(['corpus: every stripped module parses as a module in V8', out.length === files.length && !parse.length, J(parse).slice(0, 600)]);
+  res.push(['corpus: every stripped module, and every original module\'s skeleton, parses as a module in V8', toParse.length - firstCase === files.length * 2 && !badCorpus.length, J(badCorpus).slice(0, 600)]);
   res.push([`corpus: stripping saves at least a tenth (${before} -> ${after} characters)`, after > 0 && after < before * 0.9, `${before} -> ${after}`]);
   return res;
 }
@@ -110,11 +133,16 @@ const MUTANTS = [
   ['spaces dropped between tokens', "out += LT.test(gap) ? '\\n' : gap ? ' ' : '';", "out += LT.test(gap) ? '\\n' : '';"],
   ['a / after ) always divides', "prev.text === ')' ? prev.cond :", "prev.text === ')' ? false :"],
   ['no keyword takes a regex', "const BEFORE_EXPR = new Set([", "const BEFORE_EXPR = new Set([]); const UNUSED = (["],
-  ['a property named like a keyword takes a regex', "&& !(prev2 && (prev2.text === '.' || prev2.text === '?.'))", ''],
+  ['a property named like a keyword takes a regex', "if (prev.type === 'name') return BEFORE_EXPR.has(prev.text) && !dotted();", "if (prev.type === 'name') return BEFORE_EXPR.has(prev.text);"],
+  ['o.if(…) counts as if (…)', "(COND.has(prev.text) && !dotted())", "COND.has(prev.text)"],
+  ['for await (…) is not a condition', " || (prev.text === 'await' && !!prev2 && prev2.text === 'for')", ''],
+  ['every } ends a block', "prev.text === '}' ? !prev.value :", "prev.text === '}' ? true :"],
+  ['a function expression\'s body is a block', "fnExpr: !!own && own.expr", "fnExpr: false"],
+  ['a class expression\'s body is a block', "const k = cls.expr ? 'value' : 'block';", "const k = 'block';"],
   ['a regex class may not hold a /', "if (e === '[') cls = true; else if (e === ']') cls = false; else ", ''],
   ['escapes in strings ignored', "if (src[k] === '\\\\') k += src[k + 1] === '\\r' && src[k + 2] === '\\n' ? 3 : 2;\n        else ", ''],
   ['a regex may not follow ${', "if (prev.type === 'tmpl') return prev.text.endsWith('${');", ''],
-  ['every } closes a ${', "if (braces.pop() === 'tmpl') templ(i + 1);", "if (braces.pop() || true) templ(i + 1);"],
+  ['every } closes a ${', "if (kind === 'tmpl') templ(i + 1);", "if (kind || true) templ(i + 1);"],
 ];
 
 (async () => {

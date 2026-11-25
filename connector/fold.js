@@ -68,11 +68,17 @@ function transform(file, src, idOf) {
 // Types: ws (spaces, tabs, line ends), comment (// and /* */), str ('…' "…"), tmpl (a template literal's text
 // pieces: `…` or `…${, }…${, }…`), regex, num, name, punct. The hard parts:
 //  * a template's ${ … } is code, with its own strings, templates and braces: a brace stack tells a } that closes a
-//    ${ (the template text resumes) from one that closes a block or an object;
+//    ${ (the template text resumes) from one that closes a block (a statement ends) or an expression (a value ends);
 //  * a / starts a regex or is a division, decided by the previous significant token: after a value (a name, a number,
-//    a string, a whole template, a regex, ) or ]) it divides, except after the keywords that take an expression (return,
-//    typeof, …) unless they are a property name (x.return), and after the ) of if (…) / while (…) / for (…) / with (…);
-//    after any other punctuator, } included, after a template's ${ and at the start, a regex begins. A regex's [ … ] class may hold a /.
+//    a string, a whole template, a regex, ), ], ++, --, or the } of an expression) it divides, except after the
+//    keywords that take an expression (return, typeof, …) unless they are a property name (x.return), and after the )
+//    of if (…) / while (…) / for (…) / for await (…) / with (…) (not o.if(…)); after any other punctuator, the } of a
+//    block, a template's ${ and at the start, a regex begins. A regex's [ … ] class may hold a /.
+//  * which } is which: a { opens an expression (an object literal, the body of a function or class expression) where
+//    an expression may start: after an operator, ( [ , ? : or a keyword that takes one (not else or do), and for a
+//    function or class whose keyword stands there; it opens a block after ) (unless it is a function expression's
+//    parameters), => , ; , } , else, do, a name, and at the start. Known limit: a block after a label or `case x:` reads
+//    as an object; a / right after its } would then divide. tests/fold.test.js checks every module the fold takes in V8.
 // A string, regex or template that does not end, or a stray }, throws: the folder fails loudly rather than guess.
 const LT = /[\n\r\u2028\u2029]/;
 const PUNCT = ['>>>=', '...', '===', '!==', '**=', '<<=', '>>=', '>>>', '&&=', '||=', '??=', '=>', '==', '!=', '<=', '>=', '&&', '||', '??',
@@ -82,14 +88,28 @@ const COND = new Set(['if', 'while', 'for', 'with']);
 export function tokens(src) {
   const out = [], braces = [], parens = [];
   let i = 0, prev = null, prev2 = null;   // the last two significant tokens
+  let fn = null, cls = null;   // a function / class keyword whose ( / { is still to come: { expr, depth }
   const push = (type, end, extra) => { const t = Object.assign({ type, text: src.slice(i, end) }, extra); out.push(t); i = end; if (type !== 'ws' && type !== 'comment') { prev2 = prev; prev = t; } return t; };
   const where = () => `${src.slice(0, i).split('\n').length}`;
+  const dotted = () => !!prev2 && (prev2.text === '.' || prev2.text === '?.');   // prev is a property name
   const regexAllowed = () => {
     if (!prev) return true;
-    if (prev.type === 'name') return BEFORE_EXPR.has(prev.text) && !(prev2 && (prev2.text === '.' || prev2.text === '?.'));
-    if (prev.type === 'punct') return prev.text === ')' ? prev.cond : !(prev.text === ']' || prev.text === '++' || prev.text === '--');
+    if (prev.type === 'name') return BEFORE_EXPR.has(prev.text) && !dotted();
+    if (prev.type === 'punct') return prev.text === ')' ? prev.cond : prev.text === '}' ? !prev.value : !(prev.text === ']' || prev.text === '++' || prev.text === '--');
     if (prev.type === 'tmpl') return prev.text.endsWith('${');   // code starts after ${; a whole template is a value
     return false;   // num, str, regex
+  };
+  // may an expression start here (so a { opens an object, a function or class keyword makes an expression)?
+  const exprStart = () => {
+    if (!prev) return false;
+    if (prev.type === 'name') return BEFORE_EXPR.has(prev.text) && prev.text !== 'else' && prev.text !== 'do' && !dotted();
+    if (prev.type === 'punct') return !(prev.text === ')' || prev.text === ']' || prev.text === '}' || prev.text === ';' || prev.text === '++' || prev.text === '--' || prev.text === '=>');
+    return prev.type === 'tmpl' && prev.text.endsWith('${');
+  };
+  const braceKind = () => {
+    if (cls && cls.depth === parens.length) { const k = cls.expr ? 'value' : 'block'; cls = null; return k; }
+    if (prev && prev.text === ')') return prev.fnExpr ? 'value' : 'block';
+    return exprStart() ? 'value' : 'block';
   };
   // the text of a template from src[i] (just after ` or }) to its next ` (ends it) or ${ (code follows)
   const templ = (start) => {
@@ -133,15 +153,25 @@ export function tokens(src) {
     } else if (/[0-9]/.test(c) || (c === '.' && /[0-9]/.test(d))) {
       const m = /^(?:0[xXoObB][\da-fA-F_]+|(?:\d[\d_]*\.?[\d_]*|\.\d[\d_]*)(?:[eE][+-]?\d[\d_]*)?)n?/.exec(src.slice(i, i + 64)); push('num', i + m[0].length);
     } else if (/[\p{ID_Start}$_\\#]/u.test(c) || c >= '\ud800') {
-      let k = i + 1; while (k < src.length && (/[\p{ID_Continue}$\u200c\u200d\\]/u.test(src[k]) || src[k] >= '\ud800' && src[k] <= '\udfff' || (src[k - 1] === '\\' && src[k] === 'u'))) k++; push('name', k);
+      let k = i + 1; while (k < src.length && (/[\p{ID_Continue}$\u200c\u200d\\]/u.test(src[k]) || src[k] >= '\ud800' && src[k] <= '\udfff' || (src[k - 1] === '\\' && src[k] === 'u'))) k++;
+      const word = src.slice(i, k), at = { expr: exprStart(), depth: parens.length };
+      if (word === 'function' && !(prev && (prev.text === '.' || prev.text === '?.'))) fn = at;
+      if (word === 'class' && !(prev && (prev.text === '.' || prev.text === '?.'))) cls = at;
+      push('name', k);
     } else if (c === '}') {
       if (!braces.length) throw new Error(`unbalanced } at line ${where()}`);
-      if (braces.pop() === 'tmpl') templ(i + 1); else push('punct', i + 1);
+      const kind = braces.pop();
+      if (kind === 'tmpl') templ(i + 1); else push('punct', i + 1, { value: kind === 'value' });
     } else {
       const p = PUNCT.find((q) => src.startsWith(q, i) && !(q === '?.' && /[0-9]/.test(src[i + 2]))) || c;
-      if (p === '{') braces.push('{');
-      if (p === '(') parens.push(!!(prev && prev.type === 'name' && COND.has(prev.text)));
-      push('punct', i + p.length, p === ')' ? { cond: parens.pop() || false } : undefined);
+      if (p === '{') braces.push(braceKind());
+      if (p === '(') {
+        const cond = !!prev && prev.type === 'name' && ((COND.has(prev.text) && !dotted()) || (prev.text === 'await' && !!prev2 && prev2.text === 'for'));
+        const own = fn && fn.depth === parens.length ? fn : null; if (own) fn = null;   // a function's parameters
+        parens.push({ cond, fnExpr: !!own && own.expr });
+      }
+      const r = p === ')' ? parens.pop() : null;
+      push('punct', i + p.length, r ? { cond: r.cond, fnExpr: r.fnExpr } : p === ')' ? { cond: false } : undefined);
     }
   }
   if (braces.length) throw new Error(`unclosed { or \${ at end`);
