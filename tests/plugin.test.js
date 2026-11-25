@@ -89,18 +89,29 @@ for (const p of J.market.plugins || []) {
 }
 
 // One plugin, two servers (https://code.claude.com/docs/en/plugins-reference: mcpServers is "inline server configs
-// keyed by name", with no per-server display title, so the ids are what people see): cloadm-panel, the side-panel
-// connector, which web and desktop chat offer on the plugin's Connectors tab; cloadm, the local server, which
-// Cowork and Claude Code run on the person's computer. network.hosts declares the host the plugin reaches (the same
-// page: it "doesn't allow or block any host").
+// keyed by name", with no per-server display title, so the key is what claude.ai and Claude Code show): "CLOADM side
+// panel", the side-panel connector, which web and desktop chat offer on the plugin's Connectors tab; "CLOADM on this
+// computer", the local server, which Cowork and Claude Code run on the person's computer. network.hosts declares the
+// host the plugin reaches (the same page: it "doesn't allow or block any host").
 const SERVERS = J.plugin.mcpServers || {};
-check('plugin.json: exactly two servers, cloadm (the local server\'s id since the first release: users\' allowlists name mcp__plugin_cloadm_cloadm__*) and cloadm-panel',
-  JSON.stringify(Object.keys(SERVERS).sort()) === JSON.stringify(['cloadm', 'cloadm-panel']), JSON.stringify(Object.keys(SERVERS)));
-const server = SERVERS.cloadm || {}, panel = SERVERS['cloadm-panel'] || {};
-check('plugin.json: cloadm is node cli/cloadm.js --mcp from the plugin root',
+const PANEL_KEY = 'CLOADM side panel', LOCAL_KEY = 'CLOADM on this computer';
+check('plugin.json: exactly two servers, "CLOADM on this computer" (the local server) and "CLOADM side panel" (the connector)',
+  JSON.stringify(Object.keys(SERVERS).sort()) === JSON.stringify([LOCAL_KEY, PANEL_KEY].sort()), JSON.stringify(Object.keys(SERVERS)));
+const server = SERVERS[LOCAL_KEY] || {}, panel = SERVERS[PANEL_KEY] || {};
+check('plugin.json: "CLOADM on this computer" is node cli/cloadm.js --mcp from the plugin root',
   server.command === 'node' && JSON.stringify(server.args) === JSON.stringify(['${CLAUDE_PLUGIN_ROOT}/cli/cloadm.js', '--mcp']) && Object.keys(server).length === 2, JSON.stringify(server));
-check('plugin.json: cloadm-panel is the connector over HTTP, https://mcp.cloadm.dev/mcp, and nothing else',
+check('plugin.json: "CLOADM side panel" is the connector over HTTP, https://mcp.cloadm.dev/mcp, and nothing else',
   panel.type === 'http' && panel.url === 'https://mcp.cloadm.dev/mcp' && Object.keys(panel).length === 2, JSON.stringify(panel));
+// Each server keeps its stable id in serverInfo.name and announces the display words, the same as its plugin key, in
+// serverInfo.title (cli/mcp.js, connector/worker)
+check('the servers\' serverInfo: stable ids cloadm-files and cloadm-panel as name, the plugin keys\' words as title',
+  /SERVER_INFO = Object\.freeze\(\{ name: 'cloadm-files', title: 'CLOADM on this computer'/.test(fs.readFileSync(rel('cli/mcp.js'), 'utf8'))
+  && /name: 'cloadm-panel', title: 'CLOADM side panel'/.test(fs.readFileSync(rel('connector/worker/src/server.js'), 'utf8')));
+// Claude Code names a plugin server's tools mcp__plugin_<plugin>_<key>__<tool>, each part with anything outside
+// [a-zA-Z0-9_-] written as "_" (the spaces in a key); the API takes tool names of 64 characters at most
+const toolName = (plugin, key, tool) => `mcp__plugin_${plugin.replace(/[^a-zA-Z0-9_-]/g, '_')}_${key.replace(/[^a-zA-Z0-9_-]/g, '_')}__${tool}`;
+check('tool names: plugin "cloadm" with the key "CLOADM on this computer" reads mcp__plugin_cloadm_CLOADM_on_this_computer__boot',
+  toolName('cloadm', LOCAL_KEY, 'boot') === 'mcp__plugin_cloadm_CLOADM_on_this_computer__boot');
 check('plugin.json: network.hosts is exactly the connector\'s host, mcp.cloadm.dev',
   JSON.stringify((J.plugin.network || {}).hosts) === JSON.stringify(['mcp.cloadm.dev']) && new URL(panel.url || 'x:').host === 'mcp.cloadm.dev', JSON.stringify(J.plugin.network));
 const DESCRIPTION = 'Play Dragon and Tandy Color Computer machines with Claude: live in Claude\'s side panel, or on your computer with your own ROMs and files.';
@@ -158,6 +169,19 @@ const serverTools = T.createToolbox(M.nodeHost({ mediaRoot: null, roms: [], png:
 const listed = (J.mcpb.tools || []).map((t) => t.name);
 check('mcpb: the tool list is the server\'s, in its order', JSON.stringify(listed) === JSON.stringify(serverTools.map((t) => t.name)),
   `manifest ${listed.join(',')} | server ${serverTools.map((t) => t.name).join(',')}`);
+// every tool name a host builds from a key stays within the 64 characters the API allows: the local server's tools under
+// "CLOADM on this computer", the connector's (a subset of those, with the two that open the view) under "CLOADM side panel"
+{
+  const local = serverTools.map((t) => t.name), panelNames = [...new Set([...local, 'open_emulator', 'open_emulator_inline'])];
+  check('the Worker serves the two view tools named open_emulator and open_emulator_inline', /open_emulator_inline/.test(fs.readFileSync(rel('connector/worker/src/server.js'), 'utf8')) || /open_emulator_inline/.test(fs.readFileSync(rel('connector/view/tools.js'), 'utf8')));
+  const longest = (key, names) => names.map((n) => toolName('cloadm', key, n)).sort((a, b) => b.length - a.length)[0];
+  // (the keys the manifest really has, whatever they are named: the limit is on what is built from them)
+  const localKey = Object.keys(SERVERS).find((k) => SERVERS[k].command) || '', panelKey = Object.keys(SERVERS).find((k) => SERVERS[k].type === 'http') || '';
+  const l = longest(localKey, local), p = longest(panelKey, panelNames);
+  check(`tool names: the longest of the local server's (${l}, ${l.length} characters) is at most 64`, l.length <= 64);
+  check(`tool names: the longest of the side panel's (${p}, ${p.length} characters) is at most 64`, p.length <= 64);
+  check('tool names: every one is made of letters, digits, underscore and hyphen only', [...local.map((n) => toolName('cloadm', localKey, n)), ...panelNames.map((n) => toolName('cloadm', panelKey, n))].every((n) => /^[a-zA-Z0-9_-]{1,64}$/.test(n)));
+}
 check('mcpb: every listed tool has a description', (J.mcpb.tools || []).every((t) => typeof t.description === 'string' && t.description.length > 0));
 check('mcpb: tools_generated is false (the list is static)', J.mcpb.tools_generated === false);
 

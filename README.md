@@ -62,16 +62,16 @@ hardware; the exceptions are listed under [How we know it's right](#how-we-know-
 
 1. Customize → Plugins → Add marketplace → `yaniv-golan/CLOADM` → Add **CLOADM**. In Claude Code:
    `/plugin marketplace add yaniv-golan/CLOADM`, then `/plugin install cloadm@cloadm-marketplace`.
-2. On the web and in desktop chat: open the plugin's Connectors tab and click **Connect** next to *cloadm-panel*, then
+2. On the web and in desktop chat: open the plugin's Connectors tab and click **Connect** next to *CLOADM side panel*, then
    **Continue**. The emulator then opens in Claude's side panel.
 
-   Already added https://mcp.cloadm.dev/mcp as a custom connector? The plugin's cloadm-panel uses that same connector, so you won't have two; you can keep it.
+   Already added https://mcp.cloadm.dev/mcp as a custom connector? The plugin's CLOADM side panel uses that same connector, so you won't have two; you can keep it.
 
    On phones the plugin and connector install, but the side panel can't be used yet. Use claude.ai on a computer or the desktop app. <!-- phones-not-yet: remove once the side panel works on phones (PHONE_VIEW_WORKS in tests/readme.test.js) -->
 
 In Cowork and Claude Code it runs on your computer instead, with your ROM files and the ~/CLOADM folder; nothing to connect.
 
-**The badge next to *cloadm-panel*.** Claude shows this for any connector Anthropic hasn't reviewed. CLOADM's runs at mcp.cloadm.dev, needs no sign-in, and sees only the emulator in that panel. Nothing else of yours. It's open source: [source](https://github.com/yaniv-golan/CLOADM/tree/main/connector).
+**The badge next to *CLOADM side panel*.** Claude shows this for any connector Anthropic hasn't reviewed. CLOADM's runs at mcp.cloadm.dev, needs no sign-in, and sees only the emulator in that panel. Nothing else of yours. It's open source: [source](https://github.com/yaniv-golan/CLOADM/tree/main/connector).
 
 | Where you use Claude | What you get |
 |---|---|
@@ -80,14 +80,15 @@ In Cowork and Claude Code it runs on your computer instead, with your ROM files 
 | Phone | not yet. On phones the plugin and connector install, but the side panel can't be used yet. Use claude.ai on a computer or the desktop app. <!-- phones-not-yet: remove once the side panel works on phones (PHONE_VIEW_WORKS in tests/readme.test.js) --> |
 | Other agents (Cursor, Codex, Gemini CLI, …) | the MCP entry for `node cli/cloadm.js --mcp` ([docs/mcp.md](docs/mcp.md#cursor-gemini-cli-codex-and-other-mcp-clients)) |
 
-The plugin's two servers are *cloadm-panel* (the side panel, at `https://mcp.cloadm.dev/mcp`) and *cloadm* (on your
-computer, `node cli/cloadm.js --mcp`); each Claude app uses the one it can.
-Claude lists the plugin as **CLOADM**. The side panel's server calls itself *CLOADM side panel*, and the one on your
-computer *CLOADM on this computer*, the name the Desktop extension has too.
+The plugin's two servers are *CLOADM side panel* (the side panel, at `https://mcp.cloadm.dev/mcp`) and *CLOADM on this
+computer* (on your computer, `node cli/cloadm.js --mcp`, the name the Desktop extension has too); each Claude app uses
+the one it can. Claude lists the plugin as **CLOADM**. The plugin format has no field for a server's display name: the
+key under `mcpServers` is the name, so the keys are these readable names, which Claude Code lists. How claude.ai's plugin
+page and chat menu show them is to be confirmed by the maintainer after release (they showed the earlier keys).
 
 #### Without the plugin
 
-Add `https://mcp.cloadm.dev/mcp` as a custom connector and name it **CLOADM** (no sign-in). You get the side panel but not the skill that teaches Claude to play it well. Already added https://mcp.cloadm.dev/mcp as a custom connector? The plugin's cloadm-panel uses that same connector, so you won't have two; you can keep it. To add the skill on its own, download `cloadm-skill.zip` from the [Releases](https://github.com/yaniv-golan/CLOADM/releases) page and add it in claude.ai under Settings → Capabilities → Skills (steps not yet verified by the maintainers).
+Add `https://mcp.cloadm.dev/mcp` as a custom connector and name it **CLOADM** (no sign-in). You get the side panel but not the skill that teaches Claude to play it well. Already added https://mcp.cloadm.dev/mcp as a custom connector? The plugin's CLOADM side panel uses that same connector, so you won't have two; you can keep it. To add the skill on its own, download `cloadm-skill.zip` from the [Releases](https://github.com/yaniv-golan/CLOADM/releases) page and add it in claude.ai under Settings → Capabilities → Skills (steps not yet verified by the maintainers).
 
 Every way to install, in full: [docs/mcp.md](docs/mcp.md#which-way-should-i-install-cloadm-for-claude).
 
@@ -130,11 +131,12 @@ Per-machine notes, RAM options and the chip-by-chip list: [docs/machines.md](doc
 | **Cartridges** | ROM cartridges, banked ROM cartridges up to 128K, Games Master, Orchestra-90, Multi-Pak (with a disk cartridge in slot 4); the Speech/Sound Pak on the CoCo 1/2, CoCo 2B, CoCo 3 and the Dragon 64, music and speech (speech from your own allophone ROM; both compared with MAME) | The Speech/Sound Pak's sound-activity status bit |
 | **Printer, serial, DriveWire** | Printer; bit-banger and the Dragon 64's 6551 with a terminal or loopback plug; a DriveWire 4 server in the browser over the CoCo's Becker port; booting NitrOS-9 Level 2 on the CoCo 3 from your own DriveWire image, no ROM needed ([how](docs/using.md#booting-nitros-9)); serving a real CoCo over Web Serial (untested on hardware) | |
 | **Input** | Translated and positional keyboard, keyboard joystick, gamepads, Hi-Res interfaces, the CoCo 3 mouse; an on-screen keyboard and joystick on phones and tablets | |
-| **Games** | 2048 and Minesweeper, our own, no ROMs needed (32K or more): welcome menu option 5, or [`?start=2048`](https://cloadm.dev/play/?start=2048) / [`?start=minesweeper`](https://cloadm.dev/play/?start=minesweeper) ([details](docs/using.md#games)) | |
+| **Games** | 2048 and Minesweeper, our own, no ROMs needed (32K or more): welcome menu option 5, or [`?start=2048`](https://cloadm.dev/play/?start=2048) / [`?start=minesweeper`](https://cloadm.dev/play/?start=minesweeper); to share, [cloadm.dev/2048/](https://cloadm.dev/2048/), [/minesweeper/](https://cloadm.dev/minesweeper/) and [/liza/](https://cloadm.dev/liza/) have their own previews ([details](docs/using.md#games)) | |
 | **Library** | Every tape, disk, cartridge and program you load, kept for next time, in the browser or a folder on your computer; your ROMs as tiles under the ROMs chip, each removable on its own (with Undo); paste a magazine listing and CLOADM types it in | |
 | **Claude** | Chat with Claude full screen on the green screen (phones included), or Ask Claude in a side panel; Claude reads only the emulated machine (its screen text and memory, never anything else on your computer; it says so when it can't read a screen), and acts on it (POKE, typing, loading a BASIC program, BREAK) only with your permission, with undo | The chat over DriveWire to a real machine; the CoCo 3's 80-column chat screen |
+| **Sharing** | One **Copy link** on the Share screen: an unchanged bundled program gives its program page (nothing uploaded), otherwise a short link (`s.cloadm.dev/<id>#<key>`, sealed in your browser so the server can't read it, with a QR code; for moments without ROMs), or the long link (the whole moment in the address, works offline) where a short one can't be made; program pages for [2048](https://cloadm.dev/2048/), [LIZA](https://cloadm.dev/liza/) and [Minesweeper](https://cloadm.dev/minesweeper/) ([details](docs/using.md)) | |
 | **Tools** | Assembler, Debugger, POKE book, snapshots; a command line, MCP server and Node API for agents, and a claude.ai connector that runs the emulator in Claude's side panel ([automation](docs/automation.md), [MCP](docs/mcp.md), [side panel](docs/mcp.md#claude-on-the-web-side-panel)) | Step back (rewind) |
-| **Sharing** | Every setting as a URL parameter (`?record=1`: the screen alone, integer-scaled, for recording a video); a link that opens exactly this moment, a 6-second clip or looping GIF, a true-pixel screenshot; BBCode and Markdown for a forum post; embed code and a JavaScript API; **Copy bug report**, shown before it is copied; works offline once visited; **Install CLOADM…** in the app bar beside Help (behind **Menu** on a phone), and a one-time offer once a program has run a minute (its own window, offline) | |
+| **Sharing** | Every setting as a URL parameter (`?record=1`: the screen alone, integer-scaled, for recording a video); a link that opens exactly this moment (with a picture and one line where it is pasted), a 6-second clip or looping GIF, a framed picture (the true-pixel screen in a CRT monitor, with its name and cloadm.dev); BBCode and Markdown for a forum post; embed code and a JavaScript API; **Copy bug report**, shown before it is copied; works offline once visited; **Install CLOADM…** in the app bar beside Help (behind **Menu** on a phone), and a one-time offer once a program has run a minute (its own window, offline) | |
 
 How to load each kind of file, the keys, snapshots, sharing and embedding: [docs/using.md](docs/using.md). Running it from scripts and CI (`node cli/cloadm.js`): [docs/automation.md](docs/automation.md). Writing a game and testing it end to end (keys, screen, pictures, sound), with a starter game: [docs/game-development.md](docs/game-development.md).
 

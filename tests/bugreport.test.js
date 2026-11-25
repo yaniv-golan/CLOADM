@@ -16,18 +16,15 @@ const W = 16;
 const uniform = (a, i) => { for (let k = 1; k < W; k++) if (a[i + k] !== a[i]) return false; return true; };
 const windows = (imgs) => { const s = new Set(); for (const im of imgs) for (let i = 0; i + W <= im.length; i++) if (!uniform(im, i)) s.add(Buffer.from(im.subarray(i, i + W)).toString('hex')); return s; };
 const hasWindow = (bytes, set) => { for (let i = 0; i + W <= bytes.length; i++) if (!uniform(bytes, i) && set.has(Buffer.from(bytes.subarray(i, i + W)).toString('hex'))) return true; return false; };
-// every byte the report carries: its text, and its snapshot link's fragment decoded (gunzip, JSON, base64 fields)
+// every byte the report carries: its text, and its snapshot link's fragment decoded without the project's own code: the
+// long link (#z=, js/media/snapshot.js encodeLongLink) is base64url of a version byte, then raw deflate of a u32 JSON
+// length, the JSON and the byte arrays as raw bytes. The whole inflated box is scanned (JSON text and raw arrays alike).
 function everything(text) {
   const out = [Buffer.from(text)];
-  const m = /#s=([A-Za-z0-9_-]+)/.exec(text);
+  const m = /#z=([A-Za-z0-9_-]+)/.exec(text);
   if (m) {
-    const json = zlib.gunzipSync(Buffer.from(m[1], 'base64url'));
-    out.push(json);
-    const walk = (v) => {
-      if (Array.isArray(v)) { if (v.length && v.every((x) => Number.isInteger(x) && x >= 0 && x <= 255)) out.push(Buffer.from(v)); else v.forEach(walk); }
-      else if (v && typeof v === 'object') { if (typeof v.b64 === 'string') out.push(Buffer.from(v.b64, 'base64')); else Object.values(v).forEach(walk); }
-    };
-    walk(JSON.parse(json.toString('utf8')));
+    const bytes = Buffer.from(m[1], 'base64url');
+    out.push(zlib.inflateRawSync(bytes.subarray(1)));
   }
   return out;
 }
@@ -54,10 +51,10 @@ function everything(text) {
     && plain.text.includes('Machine: Dragon 64 (dragon64)') && /ram=64/.test(plain.text) && plain.text.includes('Browser: TestBrowser/1.0')
     && plain.text.includes(`File: MYGAME.BIN, SHA-256 ${sha}`), plain.text);
   check('ROMs by CRC only', p.roms.every((r, k) => plain.text.includes(`${r.id} ${Emu.crc32(roms[k])}`) && /^[0-9A-F]{8}$/.test(Emu.crc32(roms[k])) && Emu.crc32(roms[k]) !== '00000000'));
-  check('no snapshot unless asked for (the checkbox is off by default)', !/#s=/.test(plain.text) && !/^Snapshot/m.test(plain.text) && plain.parts.snapshot === null);
+  check('no snapshot unless asked for (the checkbox is off by default)', !/#[sz]=/.test(plain.text) && !/^Snapshot/m.test(plain.text) && plain.parts.snapshot === null);
 
   const withSnap = await s.bugReport({ browser: 'TestBrowser/1.0', snapshot: true });
-  check('asked for, the snapshot is the ROM-free share link', /^Snapshot \(holds no ROM\): https:\/\/cloadm\.dev\/play\/\?machine=dragon64.*#s=/m.test(withSnap.text));
+  check('asked for, the snapshot is the ROM-free share link', /^Snapshot \(holds no ROM\): https:\/\/cloadm\.dev\/play\/\?machine=dragon64.*#z=/m.test(withSnap.text));
   const decoded = await s.readSnapshotLink(new URL(withSnap.parts.snapshot).hash);
   check('...and that link opens as a shared snapshot (ROMs as references)', !!decoded && !!decoded.share && decoded.share.images.length === p.roms.length);
 
@@ -66,7 +63,7 @@ function everything(text) {
   const has = (needle) => all.some((b) => b.includes(Buffer.from(needle)));
   check('never the Claude key', !has(KEY) && !has('PLANTED-BUGREPORT-KEY'));
   check('never a ROM file name (only CRCs)', !has('PLANTED-my-own-dump') && !has('.rom'));
-  check('never a ROM\'s bytes (no 16-byte window of either ROM anywhere it carries)', all.every((b) => !hasWindow(b, set)), `${all.length} byte blocks scanned`);
+  check('never a ROM\'s bytes (no 16-byte window of either ROM anywhere it carries)', all.length === 2 && all.every((b) => !hasWindow(b, set)), `${all.length} byte blocks scanned`);
   check('the scan sees ROM code where it is (memory did hold it)', hasWindow(s.shownMachine.memoryArray(), set));
 
   // a WAD loaded last: not named, not hashed, no bytes

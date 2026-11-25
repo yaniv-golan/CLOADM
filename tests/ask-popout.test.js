@@ -31,7 +31,7 @@ const BASE = 'https://cloadm.example/play/';
   check('carried: the link opens /play/ with the machine and app=claude', r.carried === true && u.origin + u.pathname === BASE
     && u.searchParams.get('machine') === 'dragon64' && u.searchParams.get('app') === 'claude', r.href.slice(0, 120));
   check('carried: never embed=1 (nor any embed parameter)', !u.searchParams.has('embed') && !/embed/.test(u.search), u.search);
-  check('carried: the snapshot rides in the fragment (#s=), as the Share screen\'s link does', /^#s=[A-Za-z0-9_-]+$/.test(u.hash), u.hash.slice(0, 20));
+  check('carried: the snapshot rides in the fragment (#z=), as the Share screen\'s link does', /^#z=[A-Za-z0-9_-]+$/.test(u.hash), u.hash.slice(0, 20));
   const snap = await s.readSnapshotLink(u.hash);
   check('carried: the snapshot is this machine (Dragon 64)', snap && snap.machine === 'dragon64', snap && snap.machine);
   // open it in another session: the moment is this one (the bytes poked above are in its RAM)

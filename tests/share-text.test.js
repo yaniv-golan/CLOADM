@@ -54,6 +54,8 @@ const standIn = (size, seed) => { const b = new Uint8Array(size); for (let i = 0
   check('forum: the description is one line naming the machine', d === 'The Dragon 64 in CLOADM, exactly as I left it. Opens in the browser.' && !/\n/.test(d));
   check('forum: BBCode is the link with the description', f.bbcode === `[url=${link}]${d}[/url]`, f.bbcode);
   check('forum: Markdown is the link with the description', f.markdown === `[${d}](${link})`, f.markdown);
+  check('forum: a bundled program\'s own page says it opens from the start', forumDescription('2048', { program: true }) === '2048 in CLOADM, from the start. Opens in the browser.'
+    && forumText('https://cloadm.dev/2048/', '2048', { program: true }).markdown === '[2048 in CLOADM, from the start. Opens in the browser.](https://cloadm.dev/2048/)');
   check('forum: text only, no image tag in either', !/\[img\]|!\[/i.test(f.bbcode + f.markdown));
   const odd = forumText('https://x.test/a b)c', 'X [1]');
   check('forum: brackets in the name and ) or spaces in the link cannot break the markup', odd.markdown === '[The X 1 in CLOADM, exactly as I left it. Opens in the browser.](https://x.test/a%20b%29c)'
@@ -72,7 +74,7 @@ const standIn = (size, seed) => { const b = new Uint8Array(size); for (let i = 0
 
   // the Share screen uses these, not copies of them
   const share = fs.readFileSync(path.join(__dirname, '../js/ui/share.js'), 'utf8');
-  check('js/ui/share.js writes the ROM line and the forum text from js/share-text.js', /from '\.\.\/share-text\.js'/.test(share) && /romFreeLine\(file\.needs\)/.test(share) && /forumText\(/.test(share)
+  check('js/ui/share.js writes the ROM line and the forum text from js/share-text.js', /from '\.\.\/share-text\.js'/.test(share) && /romFreeLine\(file\.needs\)/.test(share) && /forumText\(/.test(share) && /const forumUrl = \(\) => \(short \? short\.url : captured\.untouched \? captured\.untouched\.page : captured\.link\)/.test(share)
     && /recordingGuard\(session\.lastLoaded\)/.test(share) && /gifFromFrames\(/.test(share));
   process.exitCode = fail ? 1 : 0;
   console.log(fail ? `${fail} FAILED` : 'all passed');

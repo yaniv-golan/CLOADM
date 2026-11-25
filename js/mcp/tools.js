@@ -26,9 +26,8 @@
  * Two kinds of host. The stdio server (cli/mcp.js) boots machines of its own, up to MAX_MACHINES. A host that already
  * has a machine on screen (the MCP Apps view in Claude's side panel, connector/view/) passes it as `session`: the
  * tools then serve that one machine, as machine_id "m1", and boot and switch_machine change it in place rather than
- * open another. Such a host can also refuse every read of memory while the user's own ROM code can be in it
- * (`refuseRomReads`, the embed API's rule, js/embed-api.js peek): peek, find_bytes and disassemble, so no byte of a
- * ROM leaves the host. mcpResult() is the MCP content both hosts send for a call's result.
+ * open another. Both hosts read all of the machine's memory, ROM areas included. mcpResult() is the MCP content both
+ * hosts send for a call's result.
  */
 import { Session, GAMES, romOwners } from '../session.js';
 import { SessionError } from '../errors.js';
@@ -179,8 +178,7 @@ function withPressKeys(e) {
 // }
 // readOnly: offer and run only the tools that leave the machines' input, memory and files alone (see READ_ONLY_OK).
 // session: the host's own machine (a Session), the only one these tools serve (see the header); close_machine is not
-// offered then. refuseRomReads: peek, find_bytes and disassemble refuse while Session.romCodeIn() says ROM code can
-// be in memory. route: where these tools drive the machine, which machine_info reports so the agent (and the skill)
+// offered then. route: where these tools drive the machine, which machine_info reports so the agent (and the skill)
 // can tell: "local" (the local server, node cli/cloadm.js --mcp, on the person's computer) or "panel" (the side-panel
 // connector's view, connector/view/tools.js).
 export const ROUTES = Object.freeze(['local', 'panel']);
@@ -196,21 +194,12 @@ function pageTitle(name) {
   return PAGE_TITLES[name];
 }
 
-export function createToolbox(host, { readOnly = false, maxMachines = MAX_MACHINES, wallMs = WALL_MS, session: own = null, refuseRomReads = false, route = 'local' } = {}) {
+export function createToolbox(host, { readOnly = false, maxMachines = MAX_MACHINES, wallMs = WALL_MS, session: own = null, route = 'local' } = {}) {
   if (!ROUTES.includes(route)) throw new Error(`createToolbox: route must be ${ROUTES.join(' or ')}`);
   if (own && !(own instanceof Session && own.shownMachine)) throw new Error('createToolbox: session must be a Session with a machine');
   const machines = new Map();   // machine_id -> { id, session, chat }
   let nextId = 1;
   if (own) maxMachines = 1;
-  // the embed API's refusal (EmbedApi.peek): no tool returns ROM memory directly. It is not a seal: a program run on
-  // the machine (assemble_and_load, BASIC's PEEK, a run_frames until on a memory byte) can still read the ROM, so a
-  // determined agent can infer its contents through execution
-  const romGuard = (m) => {
-    if (!refuseRomReads) return;
-    const why = m.session.romCodeIn();
-    if (why) throw fail('rejected', `memory is not readable here while ${why === 'roms' ? 'the machine runs the user\'s own ROMs' : why === 'nitros9' ? 'NitrOS-9 runs from the user\'s own image' : 'a cartridge is plugged in'}: it can hold copies of ROM code, and no tool returns ROM memory directly. Run without ROMs (boot with roms: false) to read memory`);
-  };
-
   const get = (args) => {
     const id = args && args.machine_id;
     if (typeof id !== 'string' || !machines.has(id)) throw fail('no-machine', id == null ? 'machine_id is missing' : JSON.stringify(id));
@@ -455,7 +444,6 @@ export function createToolbox(host, { readOnly = false, maxMachines = MAX_MACHIN
     handler: async (args, { signal }) => {
       const m = get(args), input = Object.assign({}, args);
       delete input.machine_id;
-      if (spec.name === 'peek' || spec.name === 'disassemble') romGuard(m);
       m.chat.controller = new AbortController();
       if (signal) { if (signal.aborted) m.chat.controller.abort(); else signal.addEventListener('abort', () => m.chat.controller.abort(), { once: true }); }
       let out;
@@ -480,7 +468,6 @@ export function createToolbox(host, { readOnly = false, maxMachines = MAX_MACHIN
     annotations: { readOnlyHint: true, openWorldHint: false }, readOnlyOk: true,
     handler: (args) => {
       const m = get(args);
-      romGuard(m);
       const text = typeof args.pattern === 'string' ? args.pattern.replace(/\s+/g, '') : '';
       if (!/^([0-9A-Fa-f]{2}|\?\?)+$/.test(text)) throw fail('bad-argument', `pattern: whole bytes in hex, ?? for any byte, e.g. "86 ?? 39"; not ${JSON.stringify(args.pattern)}`);
       const pat = text.match(/../g).map((b) => (b === '??' ? -1 : parseInt(b, 16)));

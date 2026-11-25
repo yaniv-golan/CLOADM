@@ -1,7 +1,7 @@
 {
   "name": "cloadm",
   "displayName": "CLOADM",
-  "version": "0.1.9-pre",
+  "version": "0.2.0",
   "description": "Play Dragon and Tandy Color Computer machines with Claude: live in Claude's side panel, or on your computer with your own ROMs and files.",
   "author": {
     "name": "Yaniv Golan",
@@ -21,14 +21,14 @@
   ],
   "icon": "./icons/icon-512.png",
   "mcpServers": {
-    "cloadm": {
+    "CLOADM on this computer": {
       "command": "node",
       "args": [
         "${CLAUDE_PLUGIN_ROOT}/cli/cloadm.js",
         "--mcp"
       ]
     },
-    "cloadm-panel": {
+    "CLOADM side panel": {
       "type": "http",
       "url": "https://mcp.cloadm.dev/mcp"
     }

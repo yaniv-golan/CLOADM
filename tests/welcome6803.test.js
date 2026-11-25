@@ -104,6 +104,20 @@ for (const { id, file, sub } of MACHINES) {
   check(`${id}: menu line 3`, line(11, '3', ' ADD YOUR ROMS FOR BASIC'));
   check(`${id}: menu line 4`, line(12, '4', ' CHAT WITH CLAUDE'));
   check(`${id}: "PRESS 1 TO 4" (raw cells)`, row(14).slice(10, 10 + cells('PRESS 1 TO 4').length).join() === cells('PRESS 1 TO 4').join());
+  // option 3 with the ROMs in the sockets and the stub chosen: the Session sets ROMSW and the menu says to switch
+  // them on rather than asking for what the machine already has (the same rule as the 6809 build)
+  {
+    const t = new Emu.Session(); t.switchMachine(id);
+    // the image carries the socket's usual name, so it is loaded (unrecognised) rather than ignored
+    for (const sock of t.shownMachine.profile.roms.filter((x) => x.required)) t.roms.put(id, sock.id, new Uint8Array(sock.size).fill(0x12), sock.files[0]);
+    t.runWithoutRoms();
+    t.startWelcome(bin); runFrames(t, 50);
+    check(`${id}: ROMSW is set with the ROMs in and the stub chosen`, t.shownMachine.ram[Emu.WELCOME['6803'].romsw] === 1, String(t.shownMachine.ram[Emu.WELCOME['6803'].romsw]));
+    const r3 = Array.from({ length: 32 }, (_, i) => t.shownMachine.ram[BASE + 11 * 32 + 4 + i]);
+    const want = menu(11, '3', ' USE YOUR ROMS FOR BASIC');
+    check(`${id}: menu line 3 then reads USE YOUR ROMS FOR BASIC`, r3.slice(0, want.length).join() === want.join(),
+      r3.map((v) => String.fromCharCode(v & 0x7f)).join('').trim());
+  }
   check(`${id}: the menu numbers are in inverse video`, [9, 10, 11, 12].every((r, i) => ram(BASE + r * 32 + 4) === 0x31 + i));
 
   // keys

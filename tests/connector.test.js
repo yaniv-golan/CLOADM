@@ -119,9 +119,9 @@ const J = JSON.stringify;
   check('tools/list: the two server tools, each opening its view, no arguments, read-only',
     J(tools.map((t) => [t.name, t._meta.ui.resourceUri])) === J([['open_emulator', 'ui://cloadm/panel.html'], ['open_emulator_inline', 'ui://cloadm/inline.html']])
     && tools.every((t) => t.inputSchema.type === 'object' && J(t.inputSchema.properties) === '{}' && t.annotations.readOnlyHint), J(tools).slice(0, 300));
-  // what people see: the server is "CLOADM side panel" (cloadm-panel, the plugin's id for it); the tools' titles are
+  // what people see: the server is titled "CLOADM side panel" (also the plugin's key for it; its name stays the id cloadm-panel); the tools' titles are
   // plain verbs; Open CLOADM comes first, the offline copy only after a blocked load
-  check('names: serverInfo is cloadm-panel, "CLOADM side panel"', init.body.result.serverInfo.name === 'cloadm-panel' && init.body.result.serverInfo.title === 'CLOADM side panel', J(init.body.result.serverInfo));
+  check('names: serverInfo is cloadm-panel, titled "CLOADM side panel"', init.body.result.serverInfo.name === 'cloadm-panel' && init.body.result.serverInfo.title === 'CLOADM side panel', J(init.body.result.serverInfo));
   check('names: "Open CLOADM" and "Open CLOADM (offline copy)", each with its description, the title in annotations too',
     J(tools.map((t) => [t.title, t.description, t.annotations.title])) === J([
       ['Open CLOADM', 'Opens the CLOADM emulator in a panel beside the chat. Use this first.', 'Open CLOADM'],
@@ -316,8 +316,13 @@ const J = JSON.stringify;
   const before = await ptb.call('peek', { machine_id: 'm1', address: 0x3000, length: 2 }, { base64: b64 });
   s.addRoms([{ name: 'd64_1.rom', bytes: fake(1) }, { name: 'd64_2.rom', bytes: fake(2) }]);
   const romReads = await Promise.all([ptb.call('peek', { machine_id: 'm1', address: 0x8000, length: 16 }, { base64: b64 }), ptb.call('find_bytes', { machine_id: 'm1', pattern: '01 0E' }, { base64: b64 }), ptb.call('disassemble', { machine_id: 'm1', address: 0x8000 }, { base64: b64 })]);
-  check('panel tools: memory reads work without ROMs, and are refused once the user\'s ROMs are in (no tool returns ROM memory directly)', !before.isError && s.romCodeIn() === 'roms'
-    && romReads.every((r) => r.isError && r.structuredContent.error.code === 'rejected' && /no tool returns ROM memory directly/.test(r.structuredContent.error.detail)), J(romReads).slice(0, 300));
+  // ROM areas read like any other memory, on every host: the bytes come back as the machine holds them
+  const romBytes = (k) => Array.from(fake(k).slice(0, 16), (v) => v.toString(16).toUpperCase().padStart(2, '0')).join(' ');
+  const peekText = (r) => J(r.structuredContent || r);
+  check('panel tools: memory reads work without ROMs, and with the user\'s ROMs in they read the ROM areas too (peek, find_bytes, disassemble)',
+    !before.isError && s.romCodeIn() === 'roms' && romReads.every((r) => !r.isError)
+    && peekText(romReads[0]).includes(romBytes(1)) && romReads[1].structuredContent.matches[0] === '$8000'
+    && romReads[2].structuredContent.machine_output.instructions[0].bytes === '01 0E', J(romReads.map((r) => r.structuredContent)).slice(0, 400));
   await ptb.call('boot', { roms: false }, { base64: b64 });
   await ptb.call('load', { machine_id: 'm1', program: 'liza' }, { base64: b64 });
   const bigText = { content: [{ type: 'text', text: 'x'.repeat(panel.TEXT_MAX + 1) }] }, okText = { content: [{ type: 'text', text: 'x'.repeat(panel.TEXT_MAX) }] };
@@ -695,12 +700,12 @@ const J = JSON.stringify;
   }
 
   // ---------------- what the docs claim about ROMs ----------------
-  // ROM memory is not sealed: a program run on the machine can read it (tests/mcp.test.js pins that). Nothing may claim
-  // that no ROM byte leaves the panel; the guide must say what is true instead.
+  // Claude reads ROM areas like any other memory, so what it reads goes to Anthropic. Nothing may claim that no ROM
+  // byte leaves the panel.
   const claimFiles = ['docs/mcp.md', 'CHANGELOG.md', 'README.md', 'skills/cloadm/SKILL.md', ...['view/tools.js', 'view/panel.js', 'view/bridge.js', 'worker/src/server.js', 'build.js'].map((f) => `connector/${f}`), 'js/mcp/tools.js'];
   const overclaims = claimFiles.filter((f) => /no ROM bytes? (ever )?leaves?|never leaves? (this host|the panel)|ROMs? (never|cannot) leave/i.test(fs.readFileSync(path.join(ROOT, f), 'utf8')));
-  check('no file claims that no ROM byte leaves the panel; the guide says a determined agent can infer ROM contents through execution', !overclaims.length
-    && /a\s+determined agent can infer ROM contents through execution/.test(fs.readFileSync(path.join(ROOT, 'docs/mcp.md'), 'utf8')), overclaims.join(', '));
+  check('no file claims that no ROM byte leaves the panel, and the guide says peek, find_bytes and disassemble read ROM areas', !overclaims.length
+    && /ROM areas/.test(fs.readFileSync(path.join(ROOT, 'docs/mcp.md'), 'utf8')) && !/determined agent can infer ROM/.test(fs.readFileSync(path.join(ROOT, 'docs/mcp.md'), 'utf8')), overclaims.join(', '));
 
   console.log(`${n - fail}/${n} connector checks passed`);
   process.exitCode = fail ? 1 : 0;

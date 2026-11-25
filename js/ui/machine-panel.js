@@ -67,7 +67,7 @@ export function setupMachinePanel(page, { showRoms }) {
         if (!none) {
           const ready = session.machineRoms(p.id).bootable;
           const t = document.createElement('span'); t.className = ready ? 'tag ready' : 'tag'; t.textContent = ready ? '✓' : 'needs ROMs';
-          if (ready) t.setAttribute('aria-label', 'BASIC ready');
+          if (ready) { t.setAttribute('aria-label', 'BASIC ready'); t.setAttribute('title', 'BASIC ready'); }
           b.append(t);
         }
         if (p.id === session.shownMachine.id) b.setAttribute('aria-current', 'true');
@@ -85,6 +85,7 @@ export function setupMachinePanel(page, { showRoms }) {
     // the tick's legend, after the two items: a note, not a menu item (the arrows and Tab pass it by)
     const legend = document.createElement('span'), tick = document.createElement('span');
     legend.className = 'legend'; tick.className = 'tag ready'; tick.textContent = '✓';
+    tick.setAttribute('aria-label', 'BASIC ready'); tick.setAttribute('title', 'BASIC ready');
     legend.append(tick, ' = BASIC ready');
     legend.hidden = none;
     // "Which one is mine? ↗": Help's list of the machines, what each is and the ROMs it needs (a new tab)
@@ -253,6 +254,9 @@ export function setupMachinePanel(page, { showRoms }) {
     $('badge').textContent = m.profile.name.replace(/ \(.*\)$/, '').toUpperCase();   // the case badge: no (PAL) or (Alpha)
     $('emuHeading').textContent = m.profile.name;   // the emulator's heading (for assistive technology and reader views)
     document.title = `${m.profile.name} – CLOADM`;
+    // the page's title metas say the same once it runs (a reading mode takes og:title before the document's title, and
+    // drops the heading that matches it); a link preview reads the static ones in play/index.html, before any script
+    for (const meta of document.querySelectorAll('meta[property="og:title"], meta[name="twitter:title"]')) meta.content = document.title;
   });
 
   // a changed option power-cycles the machine with it (remembered for that model)

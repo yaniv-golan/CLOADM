@@ -26,3 +26,6 @@ node_modules/
 
 # Personal, machine-local instructions for coding agents: never committed.
 CLAUDE.local.md
+
+# the short-link Worker's own configuration, made from shortlink/wrangler.toml.example (docs/shortlink-deploy.md)
+shortlink/wrangler.toml

@@ -21,9 +21,46 @@
 //   --limit N   measure only the first N cases (a quick check that the tool still runs; the full run is minutes)
 //   --only RE   measure only the cases whose name matches RE (as regress.test.js's own --only does; a /.../ form is a
 //               regex, plain words are a substring). The fit needs cases whose cost differs a lot: a handful of the
-//               FIRST cases are nearly identical in cost, and on a loaded machine the slope then comes out negative
-//               because the difference is smaller than the noise. Pick heavy cases from both kinds instead.
+//               FIRST cases are nearly identical in cost, so their times carry no signal. Pick cases SPREAD in cost
+//               from both kinds instead (tests/measure-regress-cost.test.js picks them from the recorded workloads).
+// The fit itself is the median of pairwise slopes (Theil-Sen), which shrugs off noisy points, and each
+// fit prints its NOISE: the share of pairwise slopes that disagree with the median by more than half
+// its magnitude. A machine whose noise is past half says so in its own words ('the machine looks
+// noisy') - the fit is a measurement, and a measurement that cannot trust its machine must not
+// pretend it can; it is still printed (with the noise), for the person to judge.
 const fs = require('fs'), path = require('path'), cp = require('child_process'), os = require('os');
+
+// A ROBUST fit: the median of the pairwise slopes (Theil-Sen), not least squares. Least squares
+// lets one badly-noisy point drag the slope anywhere - on a loaded machine a single case that ran
+// while something else did too can make it negative. The median of C(n,2) pairwise slopes is
+// immune to anything short of half the points being wrong. The intercept is the median of what
+// the points say it should be (a slope through each point's y - slope*x), so one noisy point
+// cannot drag that either. `noise` is the share of pairwise slopes that disagree with the median
+// by more than half its magnitude - printed with the fit, so a machine too noisy to trust says so
+// in numbers rather than by a negative slope. Module scope (exported for the suite's hand-built
+// points), because it needs nothing of main()'s locals.
+const median = (a) => { const s = [...a].sort((x, y) => x - y); return s.length % 2 ? s[(s.length - 1) / 2] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2; };
+const fit = (pts) => {
+  const slopes = [];
+  for (let i = 0; i < pts.length; i++) for (let j = i + 1; j < pts.length; j++) {
+    const dx = pts[j].x - pts[i].x;
+    if (dx > 0) slopes.push((pts[j].y - pts[i].y) / dx);
+  }
+  if (!slopes.length) return { slope: NaN, intercept: NaN, noise: NaN };
+  const slope = median(slopes);
+  const intercept = median(pts.map((p) => p.y - slope * p.x));
+  const noise = slopes.filter((s) => Math.abs(s - slope) > Math.abs(slope) / 2).length / slopes.length;
+  return { slope, intercept, noise };
+};
+
+// the fits, printed - one line each, and the machine too noisy to trust named in its own words (a
+// measurement that cannot trust its machine says so; it never passes silently). A function, so the
+// suite can drive the print path itself on hand-built fits.
+function reportFits(trace, traceN, video, videoN) {
+  console.log(`trace: ${(trace.slope * 1e6).toFixed(2)} us per instruction   (n=${traceN}, noise ${(trace.noise * 100).toFixed(0)}%)  -> TRACE_S = ${trace.slope.toExponential(2)}`);
+  console.log(`video: ${(video.slope * 1e3).toFixed(3)} ms per frame        (n=${videoN}, noise ${(video.noise * 100).toFixed(0)}%)  -> FRAME_S = ${video.slope.toExponential(2)}`);
+  if (trace.noise > 0.5 || video.noise > 0.5) console.log('the machine looks noisy: more than half the pairwise slopes disagree with the median - the fit is a guess');
+}
 
 function main() {
   // this file lives in tools/, so the repository is one level up: the hashes are tests/regress-hashes.json
@@ -73,18 +110,11 @@ function main() {
     // the cost of an empty run, subtracted from each: the process start and the suite's own set-up
     const startup = time([path.join('tests', 'regress.test.js'), '--only', '/^__none_matches_this__$/']);
 
-    const fit = (pts) => {
-      const k = pts.length, sx = pts.reduce((a, p) => a + p.x, 0), sy = pts.reduce((a, p) => a + p.y, 0);
-      const sxx = pts.reduce((a, p) => a + p.x * p.x, 0), sxy = pts.reduce((a, p) => a + p.x * p.y, 0);
-      const slope = (k * sxy - sx * sy) / (k * sxx - sx * sx);
-      return { slope, intercept: (sy - slope * sx) / k };
-    };
     const tr = Object.entries(out).filter(([, v]) => v.instructions != null).map(([, v]) => ({ x: v.instructions, y: v.s - startup }));
     const fr = Object.entries(out).filter(([, v]) => v.frames != null).map(([, v]) => ({ x: v.frames, y: v.s - startup }));
     const ft = fit(tr), ff = fit(fr);
     console.log(`\nstartup (s), subtracted: ${startup.toFixed(2)}`);
-    console.log(`trace: ${(ft.slope * 1e6).toFixed(2)} us per instruction   (n=${tr.length})  -> TRACE_S = ${ft.slope.toExponential(2)}`);
-    console.log(`video: ${(ff.slope * 1e3).toFixed(3)} ms per frame        (n=${fr.length})  -> FRAME_S = ${ff.slope.toExponential(2)}`);
+    reportFits(ft, tr.length, ff, fr.length);
     console.log('\nslowest cases:');
     for (const [n, v] of Object.entries(out).sort((a, b) => b[1].s - a[1].s).slice(0, 12)) console.log(`  ${v.s.toFixed(1).padStart(6)} s  ${n}`);
   } finally {
@@ -92,4 +122,7 @@ function main() {
   }
 }
 
-main();
+// the fit, exported for its own test (tests/measure-regress-cost.test.js drives it on hand-built
+// points): a require of this file must NOT run the measurement, so main() stays behind require.main.
+module.exports = { fit, median, reportFits };
+if (require.main === module) main();

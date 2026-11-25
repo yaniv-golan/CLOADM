@@ -240,6 +240,11 @@ export function makeRomPack(library) {
   return { manifest, entries: [{ name: ROM_PACK_MANIFEST, data: new TextEncoder().encode(JSON.stringify(manifest, null, 1)) }]
     .concat(crcs.map((crc) => ({ name: `roms/${crc}.rom`, data: library.image(crc) }))) };
 }
+// What the ROM pickers (Add ROMs: files and folder; the side panel's) accept: the extensions a dump comes with, the ones
+// the models' own file names carry (the .ci/.ic chips of MAME's names) and a pack's .zip, and the two types that let a phone
+// offer a file whose name it does not know. Never image/* or video/*: iOS then offers the Photo Library and the camera
+// instead of Files only (play/index.html carries this same text; tests/rom-picker.test.js holds them together).
+export const ROM_PICKER_ACCEPT = '.rom,.bin,.zip,.ccc,.dat,.a,.b,.0,.1,.2,.ci23,.ci24,.ic1,.ic12,.ic22,.ic34,.ic37,application/zip,application/octet-stream';
 export const isRomPack = (entries) => entries.some((e) => e.name === ROM_PACK_MANIFEST);
 // restore a pack's sockets into the library -> { restored: [{ machine, socket }], skipped: [message] }
 export function restoreRomPack(entries, library, owners) {

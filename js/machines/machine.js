@@ -564,11 +564,16 @@ class Machine {
     if (!s.interrupts) throw new Error('snapshot: missing "interrupts"');
     this.interrupts.loadState(s.interrupts);
     this.cpu.loadState(s.cpu);
-    // restore the picture (see saveState): the frame the snapshot was taken in the middle of
-    if (!s.frame) throw new Error('snapshot: missing "frame"');
+    // restore the picture (see saveState): the frame the snapshot was taken in the middle of. A share link leaves it
+    // out (null: js/media/snapshot.js encodeLongLink): the picture is cleared and the beam draws it again, all of
+    // it by the end of the next frame. Only the picture: what runs is the same either way.
     const pic = this.snapshotPicture().data;
-    if (s.frame.length !== pic.length) throw new Error('snapshot: picture size does not match this machine');
-    pic.set(s.frame);
+    if (s.frame === null) pic.fill(0);
+    else {
+      if (!s.frame) throw new Error('snapshot: missing "frame"');
+      if (s.frame.length !== pic.length) throw new Error('snapshot: picture size does not match this machine');
+      pic.set(s.frame);
+    }
     if (this.debugger) { if (s.debugger) this.debugger.loadState(s.debugger); else this.debugger.loadState({}); }
     this.clearKeys();
     this.typist.clear(); this.stubKeys = [];

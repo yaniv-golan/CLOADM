@@ -26,6 +26,7 @@ import { fileURLToPath } from 'node:url';
 import { fold } from './fold.js';
 import { PANEL_API, PROGRAM_FILES, panelToolbox } from './view/tools.js';
 import { Session } from '../js/session.js';
+import { ROM_PICKER_ACCEPT } from '../js/roms.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.resolve(here, '..');
@@ -151,7 +152,7 @@ function shell(cfg, module, extra = '') {
 <div id="bar" role="toolbar" aria-label="CLOADM">
 <div class="menu"><button id="programs" aria-haspopup="menu" aria-expanded="false" aria-controls="programs-menu" disabled>Programs ▾</button><div id="programs-menu" role="menu" aria-label="Programs" hidden></div></div>
 <div class="menu"><button id="machine" aria-haspopup="menu" aria-expanded="false" aria-controls="machine-menu" disabled>Machine ▾</button><div id="machine-menu" role="menu" aria-label="Machine" hidden></div></div>
-<button id="sound" aria-pressed="false" disabled><span class="lbl">Sound off</span></button><input id="rom" type="file" multiple hidden>
+<button id="sound" aria-pressed="false" disabled><span class="lbl">Sound off</span></button><input id="rom" type="file" multiple hidden accept="${ROM_PICKER_ACCEPT}">
 <span class="grow"></span>
 <div class="menu"><button id="more" aria-haspopup="menu" aria-expanded="false" aria-controls="more-menu" aria-label="More" disabled>⋯</button><div id="more-menu" role="menu" aria-label="More" hidden>
 <button id="big" role="menuitem" tabindex="-1" hidden>Open in side panel</button><button id="keys-item" role="menuitem" tabindex="-1" hidden>Hide on-screen keys</button><button id="details-item" role="menuitem" tabindex="-1">Details</button><button id="copy" role="menuitem" tabindex="-1">Copy details</button></div></div>
