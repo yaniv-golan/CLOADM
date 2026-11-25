@@ -20,7 +20,9 @@ Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.
   hashes of what the screen shows; the cases and their expected transcripts are in `tests/basic/`. The built image is
   committed as `basic/cloadm-basic-d64.rom`; it is not offered on the page yet. The cassette statements are in (`basic/cassette.inc`): `CSAVE` (with `,A` for text), `CLOAD`,
   `CSAVEM`, `CLOADM` (with an offset), `SKIPF` and `MOTOR`, tested through the emulated deck against the repository's own
-  tape encoder and decoder (`tests/basic-cassette.test.js`).
+  tape encoder and decoder (`tests/basic-cassette.test.js`). A size pass took the ROM from 13,517 to 12,400 bytes with
+  no change in what programs see (shared routines and tables, two-byte calls through the direct page), to make room
+  for graphics and sound.
 - **The share-link formats are frozen.** Links and snapshots in people's hands keep opening from now on (AGENTS.md,
   rule 7): `SNAPSHOT_OLDEST` never rises (a change to the meaning of state ships a converter from every older version), no
   link or envelope decoder is ever dropped, and a long link's byte 0 is 1 for a moment, 2 for a BASIC program, 3 to 31

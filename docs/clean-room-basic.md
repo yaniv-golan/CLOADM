@@ -55,7 +55,23 @@ These are hard rules for everyone who works on this ROM.
   keyword table (`basic/tokens.json`) and the mathematical constants (`tools/basic-consts.js`) become generated
   includes. There is no browser build step: nothing under `js/` changes for P1.
 * **Size budget:** P1 is planned at about 11-12 K of the 16 K, leaving room for P2's graphics and sound (the original
-  fits all of it in 16 K, so ours must be compact) and for P3's fixed addresses.
+  fits all of it in 16 K, so ours must be compact) and for P3's fixed addresses. With the cassette in, and after a
+  size pass that changed no behaviour, it is 12,400 bytes: the code ends at `$B162`, 3,728 bytes below the vectors
+  (`node tools/basic-size.js`). What the size pass relies on [OWN]:
+  * **Two-byte calls.** The ten busiest routines (`CHRGET`, `CHRGOT`, `CHROUT`, `FNARGN`, `FPRUN`, `PRTSTR`, `LINGET`,
+    `CHKCOM`, `USCHR`, `EVNUM`) each have a `JMP` at the top of the direct page (`ZTRAMP`, `$E2-$FF`), so a call is
+    `JSR <ZCHRGET`: two bytes for three, and three cycles more. `tools/build-basic.js` fails if the direct-page
+    variables reach them.
+  * **Scratch bytes shared.** `ON`'s and `RENUM`'s work uses `PRINT USING`'s bytes; `SQR`, `LOG`, `EXP`, `SIN` and
+    `ATN` share one byte; `RND`'s product is in `PROD`. Each is used inside one statement or function that finishes
+    before another of them starts (`d64basic.asm` says so at each).
+  * **`FPRUN`** (`mathfn.inc`) runs a list of one-byte steps (store, load, multiply, add, divide, subtract, each
+    with a temporary or a constant), in place of a load and a call for each step. The numeric functions do the same
+    operations in the same order as before, so their results are the same bits.
+  * **Two tables for five series.** A series with alternating signs is evaluated in -x^2 with unsigned coefficients;
+    every step of Horner's rule then differs from the signed one only in its sign, and the result is the same bits.
+  * A line number is printed by `PRINT USING`'s decimal converter (`U32DEC`), which uses `FACM`: line numbers are
+    only printed between statements.
 * **Running it:** `m.setRoms({ basic: rom, basic64: null })` on a `dragon64` machine (Node), or
   `node tools/build-basic.js --out /tmp/d64_1.rom` then `node cli/cloadm.js --roms /tmp/d64_1.rom --type 'PRINT 2+2\n' --screen`.
 
@@ -79,7 +95,7 @@ corrupting the image.
 
 | Range | Use |
 |---|---|
-| `$0000-$00FF` | the direct page: the interpreter's variables (pointers, the two floating-point accumulators, the text pointer, flags). DP is 0 throughout |
+| `$0000-$00FF` | the direct page: the interpreter's variables (pointers, the two floating-point accumulators, the text pointer, flags) up to `DPEND` (`$C2`), 32 bytes free, then the two-byte calls' `JMP`s at `$E2-$FF` (`ZTRAMP`; section 2, the size budget), copied from the ROM with the RAM vectors at a cold start. DP is 0 throughout |
 | `$0100-$01FF` | the system RAM block, laid out by `RMB` in `d64basic.asm` (so nothing overlaps; the build fails if it reaches `$0200`): the RAM jump vectors (IRQ, FIRQ, NMI, SWI, SWI2, SWI3), so a program can hook an interrupt [OWN; addresses to align in P3]; the `DEF USR` addresses; the keyboard's rollover table; the 8 temporary string descriptors; `FOR`'s step and limit; the numeric functions' temporaries; the number conversion and `PRINT USING` buffer |
 | `$0200-$02FF` | the line input buffer (250 characters + terminator); `VAL` reads its copy of a string here |
 | `$0300-$03FF` | the crunched line |
@@ -132,7 +148,7 @@ black-box case (`VARPTR` then `PEEK` of five bytes) and changed to match if it d
 | `using.inc` | `PRINT USING` |
 | `fp.inc` | the floating-point core: unpack / pack, add, subtract, multiply, divide, compare, normalise and round |
 | `fpconv.inc` | integers to and from FAC, number to text (`FOUT`) and text to number (`FIN`), the powers of ten |
-| `tokens.inc` | generated from `tokens.json`: the token equates, keyword tables and dispatch tables |
+| `tokens.inc` | generated from `tokens.json`: the token equates, keyword tables and dispatch tables. A keyword table is the words in token order from `$80`, each ending in a letter with bit 7 set: a word's token is its place in the table (a token with no word between two others is one `$FF` byte) |
 | `cassette.inc` | `CSAVE` (`,A` for text), `CLOAD`, `CSAVEM`, `CLOADM`, `SKIPF`, `MOTOR`: reading and writing bits, blocks and files on the tape (section 12) |
 
 Statements and functions that belong to P2 (graphics, sound, joysticks) exist in the keyword table from the start, so

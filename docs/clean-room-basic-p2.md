@@ -104,9 +104,9 @@ SAM V, pages and a flags byte (bytes a row, x halved, y halved, bits a pixel).
 
 ### RAM for P2
 
-Direct page (62 bytes free after P1): the mode, the start page's address and its end, the pages reserved, the
+Direct page (32 bytes free after P1 and its size pass, which put ten two-byte calls at `$E2-$FF`): the mode, the start page's address and its end, the pages reserved, the
 foreground and background, the last point, `DRAW`'s angle and scale, `PLAY`'s octave, length, tempo and volume, the
-note countdown, and six scratch bytes the drawing routines share (about 30 bytes). The system block (61 bytes free)
+note countdown, and six scratch bytes the drawing routines share (about 30 bytes). The system block (46 bytes free)
 takes the four `JOYSTK` values and `CIRCLE`'s working values. `PAINT`'s stack is in free memory (section 5).
 
 ## 4. Modules and size budget
@@ -128,10 +128,11 @@ takes the four `JOYSTK` values and `CIRCLE`'s working values. `PAINT`'s stack is
 | changes | the `LINE` dispatch, cold start (`PCLEAR 4`), the field interrupt's note countdown | 40 |
 | **Total** | | **3,340** |
 
-`node tools/basic-size.js` today: 12,087 bytes of code and tables, 4,039 bytes free between `ROMEND` and the vectors.
-P2 may use at most **3,600** of them, leaving at least 400 for P1 fixes and P3. P1's planned size reduction (the 63
-long jumps a short branch reaches, about 65 bytes; the repeated instruction pairs as subroutines) goes to that
-reserve, not to P2.
+`node tools/basic-size.js` today, with the cassette in and after P1's size pass ([clean-room-basic.md](clean-room-basic.md),
+the size budget): 12,400 bytes of code and tables, 3,728 bytes free between `ROMEND` (`$B162`) and the vectors (the
+page at `$8000-$80FF` stays reserved for P3 and is not counted). P2 may use at most **3,600** of them; that leaves
+128 for P1 fixes and P3, short of the 400 wanted, so about 270 more bytes have still to be found in P1 (or P2 has to
+come in under its cap).
 
 Rules that keep it small [OWN]: size before speed everywhere (no unrolled loops, no per-mode fast paths); one
 routine for every pixel; one line routine for `LINE`, `DRAW` and `CIRCLE`; one block loop for `PCLS`, `PCOPY` and
