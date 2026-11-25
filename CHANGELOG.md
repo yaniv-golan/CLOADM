@@ -8,6 +8,14 @@ All notable changes to CLOADM are recorded here. The format follows
 
 Next version: 0.3.0 (the plugin and extension manifests carry it; `tests/plugin.test.js` keeps them in step).
 
+#### Fixed
+
+- **`cloadm --type` no longer loses keys on a busy BASIC.** With ROMs it typed at a fixed rate, so lines typed back to back into
+  a BASIC busy storing the line before lost the first key of the next (typing a listing, line 200 became line 0). It now types as
+  Claude's `type_text` does, holding each key until the machine has read it and waiting for the machine to read the keyboard again
+  after an ENTER; a machine that stops reading fails the step `keys-not-taken`, saying how many keys it took. The built-in firmware
+  (no ROMs) is typed to as before.
+
 ### 0.3.0
 
 #### Added

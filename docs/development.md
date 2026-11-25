@@ -218,6 +218,7 @@ node tests/session.test.js   # Session: model switching, ROM sockets, loading ev
 node tests/reset.test.js     # Reset: never changes the machine, keeps RAM for a program's warm start, the boot watchdog arms only on a power-on, ROM-drop offers
 node tests/snapshot-boot.test.js   # a snapshot opened is not a power-on: no boot failure after it, while a real power-on still has one
 node tests/cli.test.js       # cli/cloadm.js as a child process: exit codes, --json, wait-for, typing, screen text, PNG pixels, snapshots, scripts, the guide's examples
+node tests/cli-type.test.js  # --type with ROMs: lines typed back to back into firmware that is busy after each ENTER all arrive (a listing, repeated keys), a machine that stops reading fails keys-not-taken
 node tests/skill.test.js     # the agent skill: the .agents copy identical, frontmatter, its tool table equal to the server's, its claims and PMODE 4 recipe run on the server
 node tests/skill-evals/run.js # the skill's evals with and without it: real, billed Claude runs (needs the claude CLI), not in tests/all.js; a case with `server: panel` runs on the side panel's stand-in, tests/skill-evals/panel-server.mjs (`panel_state: stopped` starts its machine stopped in the Debugger)
 node tests/plugin.test.js    # the plugin, marketplace and Claude Desktop extension manifests: one version, paths, placeholders, the tool list, the server starting as each starts it
