@@ -15,6 +15,7 @@ const CLI = path.join(__dirname, '..', 'cli', 'cloadm.js');
 const m0 = Emu.createMachine('dragon64');
 const code = (key) => { if (!m0.keyPos[key]) throw new Error(`no key ${key}`); return m0.keyPos[key][1] * 8 + m0.keyPos[key][0]; };
 const ENTER = code('ENTER');
+const made = [];   // the temporary directories, removed when the test ends
 // the ROM files: the firmware at $8000 with the reset vector, in both of the Dragon 64's 16K banks
 function roms(busy) {
   const asm = Emu.assemble(firmware('6809', ENTER, busy) + '\n        ORG     $BFFE\n        FDB     START\n', '6809');
@@ -22,6 +23,7 @@ function roms(busy) {
   const rom = new Uint8Array(0x4000).fill(0xFF);
   for (const seg of asm.segments) rom.set(seg.data, seg.addr - 0x8000);
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cloadm-cli-type-'));
+  made.push(dir);
   fs.writeFileSync(path.join(dir, 'd64_1.rom'), rom); fs.writeFileSync(path.join(dir, 'd64_2.rom'), rom);
   return dir;
 }
@@ -54,5 +56,6 @@ const busy = roms('busy');
   const r = spawnSync(process.execPath, [CLI, '--json', '--machine', 'dragon64', '--program', 'liza', '--type', 'HELLO\n', '--frames', '30', '--screen'], { encoding: 'utf8' });
   check('no ROMs: --type still works on the built-in firmware (a line typed to LIZA is on the screen)', r.status === 0 && /HELLO/.test(r.stdout), r.stderr.slice(0, 200));
 }
+for (const d of made) fs.rmSync(d, { recursive: true, force: true });
 console.log(fail ? `${fail} FAILED` : 'all passed');
 process.exitCode = fail ? 1 : 0;

@@ -40,7 +40,6 @@ const callFrames = async (s, chat, name, input, max = 6000, during = null) => {
   return done ? p : { ok: false, err: { code: 'TEST-TIMEOUT', message: 'the call did not settle' } };
 };
 
-// busy: 'busy' = ten frames without reading the keyboard after ENTER; 'hang' = never read it again after ENTER
 const firmware = require('./typing-firmware');
 const SLOT = { dragon64: 0x4000, coco3: 0x8000, mc10: 0x2000 };
 
