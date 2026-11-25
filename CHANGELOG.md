@@ -102,6 +102,10 @@ Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.
 - **The Share picture fills its frame at 861x600 and 1024x640.** The preview and its colour stripe filled only about
   60% of the frame's width there; the frame now keeps the column's whole width at its short height.
 - Copy link and Share… on a phone are 44px tall (they were 38).
+- **The browser check no longer dies on a reset connection.** On Node 25 a `route.fetch` the OS reset in the short-link
+  group was an unhandled rejection that ended the whole process, and every group after it. A route handler that fails
+  is now a named FAIL and an aborted request, and a stray rejection anywhere is a FAIL in the group that was running
+  (the run goes on and exits 1). The supported Node range, 22.12 or later, is in `docs/development.md`.
 - **Add ROMs offers Files only on an iPhone.** Its file and folder pickers, the side panel's ROM picker and the Library's
   folder picker had no accept list, so iOS offered the Photo Library and the camera next to Files. They now carry one,
   as Open… does: the usual dump extensions (`.rom .bin .zip .ccc .dat .a .b .0 .1 .2` and the models' own `.ci24`, `.ic1` and

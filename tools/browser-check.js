@@ -21258,7 +21258,15 @@ async function shortLinkChecks(browser, base, site, check) {
   const env = { seen: [], requests: [], BUCKET: new MemoryBucket(), RATE_IP: memoryLimiter(100), RATE_ALL: memoryLimiter(1000), DAILY_CAP: '100',
     ALLOWED_ORIGINS: `${local},https://cloadm.dev`, REPORT_EMAIL: 'abuse@example.com' };
   const serve = async (ctx) => {
-    await ctx.route('https://s.cloadm.dev/**', async (route) => {
+    // (a handler whose fetch or fulfil fails - a reset socket, a page that went away - is a named FAIL and an aborted
+    // request: a rejection that escaped it would end the whole run)
+    const failing = (what, handler) => async (route) => {
+      try { return await handler(route); } catch (e) {
+        check(`shortLink: ${what} answers ${route.request().url().replace(/#.*/, '')}`, false, String(e && e.message).split('\n')[0]);
+        return route.abort().catch(() => {});
+      }
+    };
+    await ctx.route('https://s.cloadm.dev/**', failing('the stand-in for s.cloadm.dev', async (route) => {
       const r = route.request(), u = new URL(r.url()), origin = r.headers().origin;
       env.seen.push(`${r.method()} ${u.pathname}`);
       env.requests.push({ url: r.url(), headers: JSON.stringify(r.headers()), body: r.postDataBuffer() || Buffer.alloc(0) });
@@ -21271,12 +21279,12 @@ async function shortLinkChecks(browser, base, site, check) {
       const o = env.BUCKET.objects.get(decodeURIComponent(u.pathname.slice(1)));
       if (!o) return route.fulfill({ status: 404, headers: cors, body: 'Not Found' });
       return route.fulfill({ status: 200, headers: Object.assign({ 'content-type': o.httpMetadata.contentType || 'application/octet-stream' }, cors), body: Buffer.from(o.bytes) });
-    });
-    await ctx.route('https://cloadm.dev/**', async (route) => {
+    }));
+    await ctx.route('https://cloadm.dev/**', failing('the local copy of cloadm.dev', async (route) => {
       const r = route.request(), u = new URL(r.url());
       env.requests.push({ url: r.url(), headers: JSON.stringify(r.headers()), body: r.postDataBuffer() || Buffer.alloc(0) });
       return route.fulfill({ response: await route.fetch({ url: `${local}${u.pathname}${u.search}` }) });
-    });
+    }));
   };
   const said = async (ctx) => ctx.addInitScript(() => { window.__said = []; document.addEventListener('DOMContentLoaded', () => { const t = document.getElementById('toastText');
     if (t) new MutationObserver(() => { if (t.textContent) window.__said.push(`${document.getElementById('toast').classList.contains('error') ? 'ERROR ' : ''}${t.textContent}`); }).observe(t, { childList: true, characterData: true, subtree: true }); }); });
@@ -21706,55 +21714,65 @@ const GROUPS = (base, site) => [
   const names = GROUPS('', '').map(([n]) => n);
   // --list-groups: the group names, one per line, in run order (what --only takes; the CI shard check reads them)
   if (process.argv.includes('--list-groups')) { console.log(names.join('\n')); return; }
+  run.guardRejections();   // (one group's stray rejection is its FAIL, not the end of the run)
   const sel = lib.parseOnly(process.argv, names);
   if (sel.error) { console.error(sel.error); process.exitCode = 2; return; }
-  ({ chromium } = require('playwright'));
-  await new Promise((r) => server.listen(0, '127.0.0.1', r));
-  const site = `http://127.0.0.1:${server.address().port}/`;
-  const base = `${site}play/`;
-  let browser = await chromium.launch();
-  try {
-    for (const [name, fn] of GROUPS(base, site)) {
-      if (sel.only && !sel.only.includes(name)) continue;
-      const before = new Set(browser.contexts());
-      await run.group(name, () => fn(browser), async () => {
-        // what the group left open (all of it, when it threw part-way) is closed, so it can't run on into the next
-        // group; a browser that went away is started again for the next group
-        if (!browser.isConnected()) { browser = await chromium.launch(); return; }
-        // BOUNDED, AND LOUD. A group can leave a page spinning in an abandoned evaluate (a diagnostic that was raced
-        // and given up on), and Playwright's close waits for the page: racing it keeps the group cleanup - and so the
-        // run and the final browser.close() in the finally - from being held open by that page. A close that loses
-        // the race is NOT swallowed: it is reported as a FAIL for this group (so the exit code is nonzero), because
-        // a context the run could not close is a leak in the run, and a silent timer would make that invisible.
-        // browser.close() in the finally is the backstop that still kills the browser process.
-        for (const c of browser.contexts()) {
-          if (before.has(c)) continue;
-          lib.reportClose(run.check, `${name}: its context closes`, await bounded(c.close(), CLOSE_MS), CLOSE_MS, 'left to browser.close()');
-        }
-      });
+  // (anything the run itself throws - a browser that will not launch, a failed listen - is a FAIL and the end of the
+  // groups, never an unhandled rejection: the server is closed in the finally below, so nothing holds the process
+  // open, and the summary and exit code still come out)
+  let site, base;
+  await run.top(async () => {
+    ({ chromium } = require('playwright'));
+    await new Promise((r) => server.listen(0, '127.0.0.1', r));
+    site = `http://127.0.0.1:${server.address().port}/`;
+    base = `${site}play/`;
+    let browser = null;
+    try {
+      browser = await chromium.launch();
+      for (const [name, fn] of GROUPS(base, site)) {
+        if (sel.only && !sel.only.includes(name)) continue;
+        const before = new Set(browser.contexts());
+        await run.group(name, () => fn(browser), async () => {
+          // what the group left open (all of it, when it threw part-way) is closed, so it can't run on into the next
+          // group; a browser that went away is started again for the next group
+          if (!browser.isConnected()) { browser = await chromium.launch(); return; }
+          // BOUNDED, AND LOUD. A group can leave a page spinning in an abandoned evaluate (a diagnostic that was raced
+          // and given up on), and Playwright's close waits for the page: racing it keeps the group cleanup - and so the
+          // run and the final browser.close() in the finally - from being held open by that page. A close that loses
+          // the race is NOT swallowed: it is reported as a FAIL for this group (so the exit code is nonzero), because
+          // a context the run could not close is a leak in the run, and a silent timer would make that invisible.
+          // browser.close() in the finally is the backstop that still kills the browser process.
+          for (const c of browser.contexts()) {
+            if (before.has(c)) continue;
+            lib.reportClose(run.check, `${name}: its context closes`, await bounded(c.close(), CLOSE_MS), CLOSE_MS, 'left to browser.close()');
+          }
+        });
+      }
+      await run.group('missing files', async () => check('no request in the whole run asked for a missing file', !missing.size, [...missing].join(', ')));
+    } finally {
+      // BOUNDED: a page wedged in an abandoned evaluate can make browser.close() wait (Playwright closes the pages
+      // first). The browser's PROCESS is killed either way when this node process exits, so a close that loses the
+      // race is reported as a FAIL rather than allowed to hold the run open - a run that cannot tear its own browser
+      // down is a defect in the run, not something to wait out.
+      if (browser) {
+        const b = await bounded(browser.close(), BROWSER_CLOSE_MS);
+        lib.reportClose(run.check, 'the browser closes at the end of the run', b, BROWSER_CLOSE_MS, 'killed when this process exits');
+      }
+      server.close();
+      server.closeAllConnections();   // (kept-alive connections would hold the run open after its summary)
+      // WHAT THE IN-RUN BOUNDS CAN AND CANNOT DO, stated so nobody reads more into them. Each await above is raced,
+      // so a wedged page cannot stop the summary printing: the FAIL lines and the exit code are always produced.
+      // But a close that lost its race leaves a browser CHILD PROCESS with open pipes, and that keeps Node's event
+      // loop alive - measured: an unref'd server plus one live child still holds the process, so unref'ing the server
+      // (done here) is necessary and NOT sufficient. This Playwright build has no browser.process() to SIGKILL
+      // (checked: undefined), and process.exit() is forbidden in tools/ (tests/exitcode.test.js - forcing the exit
+      // deadlocks Node). So when the browser will not close, this process ends the only way it can: the CALLER's
+      // timeout kills it, and the browser process with it. That is the hard backstop - the CI job's timeout-minutes,
+      // or whatever runs the check locally - and it is why that timeout is the outer bound of last resort rather than
+      // a belt on top of the inner ones.
+      server.unref();   // (the one handle that IS ours to release; same reason as the debugger host at :7578)
     }
-    await run.group('missing files', async () => check('no request in the whole run asked for a missing file', !missing.size, [...missing].join(', ')));
-  } finally {
-    // BOUNDED: a page wedged in an abandoned evaluate can make browser.close() wait (Playwright closes the pages
-    // first). The browser's PROCESS is killed either way when this node process exits, so a close that loses the
-    // race is reported as a FAIL rather than allowed to hold the run open - a run that cannot tear its own browser
-    // down is a defect in the run, not something to wait out.
-    const b = await bounded(browser.close(), BROWSER_CLOSE_MS);
-    lib.reportClose(run.check, 'the browser closes at the end of the run', b, BROWSER_CLOSE_MS, 'killed when this process exits');
-    server.close();
-    server.closeAllConnections();   // (kept-alive connections would hold the run open after its summary)
-    // WHAT THE IN-RUN BOUNDS CAN AND CANNOT DO, stated so nobody reads more into them. Each await above is raced,
-    // so a wedged page cannot stop the summary printing: the FAIL lines and the exit code are always produced.
-    // But a close that lost its race leaves a browser CHILD PROCESS with open pipes, and that keeps Node's event
-    // loop alive - measured: an unref'd server plus one live child still holds the process, so unref'ing the server
-    // (done here) is necessary and NOT sufficient. This Playwright build has no browser.process() to SIGKILL
-    // (checked: undefined), and process.exit() is forbidden in tools/ (tests/exitcode.test.js - forcing the exit
-    // deadlocks Node). So when the browser will not close, this process ends the only way it can: the CALLER's
-    // timeout kills it, and the browser process with it. That is the hard backstop - the CI job's timeout-minutes,
-    // or whatever runs the check locally - and it is why that timeout is the outer bound of last resort rather than
-    // a belt on top of the inner ones.
-    server.unref();   // (the one handle that IS ours to release; same reason as the debugger host at :7578)
-  }
+  });
   process.exitCode = run.summary();
   if (timingsFile) {
     const groups = {};
