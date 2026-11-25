@@ -23061,8 +23061,16 @@ async function noRomChromeChecks(browser, base, check) {
     const want = ['Debugger', 'Commands… Ctrl K', 'Help', 'GitHub', ...(installed ? [] : ['Install CLOADM…'])];
     check(`${L}: More ▾ lists ${want.join(', ')}, in that order${installed ? ' (no Install CLOADM…: it is installed)' : ''}`, JSON.stringify(list) === JSON.stringify(want) && expanded === 'true', JSON.stringify({ list, expanded }));
     if (!installed && shotDir) await page.screenshot({ path: path.join(shotDir, 'app-bar-more.png'), clip: { x: 0, y: 0, width: 1280, height: 320 } });
+    // (the focus in the list first, so the focus coming back to More ▾ is Esc's doing)
+    await page.focus('#navDebugger');
+    const inList = await page.evaluate(() => document.activeElement.id);
     await page.keyboard.press('Escape');
-    check(`${L}: Esc closes More ▾ and gives it the focus`, await waitFor(page, () => document.getElementById('moreMenu').hidden && document.activeElement.id === 'btnMore'));
+    check(`${L}: Esc, with the focus in More ▾'s list, closes it and gives More ▾ the focus`, inList === 'navDebugger' && await waitFor(page, () => document.getElementById('moreMenu').hidden && document.activeElement.id === 'btnMore'), inList);
+    // Tab past its last item: the focus leaves the list, and it closes
+    await page.click('#btnMore');
+    await page.focus(installed ? '#navGithub' : '#navInstall');
+    await page.keyboard.press('Tab');
+    check(`${L}: Tab past More ▾'s last item closes the list`, await waitFor(page, () => document.getElementById('moreMenu').hidden && !document.getElementById('moreMenu').contains(document.activeElement)));
     if (!installed) {
       // a click elsewhere closes it too, and an item chosen closes it and does its work
       await page.click('#btnMore'); await page.mouse.click(640, 400);

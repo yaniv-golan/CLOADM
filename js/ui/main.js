@@ -345,8 +345,12 @@ $('btnMenu').onclick = () => {
   new MutationObserver(place).observe(document.body, { attributes: true, attributeFilter: ['class'] });
   place();
   more.onclick = () => openMore(list.hidden);
-  // an item chosen, a click elsewhere or Esc closes the list (Esc gives the focus back to More ▾)
+  // an item chosen, a click elsewhere, the focus leaving the list and More ▾ (Tab past its last item) or Esc closes the
+  // list (Esc gives the focus back to More ▾)
   list.addEventListener('click', () => openMore(false));
+  const away = (e) => { if (!list.hidden && !list.contains(e.relatedTarget) && e.relatedTarget !== more) openMore(false); };
+  list.addEventListener('focusout', away);
+  more.addEventListener('focusout', away);
   addEventListener('pointerdown', (e) => { if (!list.hidden && !list.contains(e.target) && e.target !== more) openMore(false); }, true);
   page.onEscape(ESC.menu, () => !list.hidden, () => { openMore(false); more.focus(); });
 }
