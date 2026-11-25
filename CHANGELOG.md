@@ -8,6 +8,12 @@ All notable changes to CLOADM are recorded here. The format follows
 
 Next version: 0.3.0 (the plugin and extension manifests carry it; `tests/plugin.test.js` keeps them in step).
 
+#### Changed
+
+- **README and the MCP guide say how to update the plugin.** claude.ai and the desktop app don't pick up a new version on
+  their own: remove the CLOADM marketplace and add it again, then Connect *CLOADM side panel* again; Claude Code has
+  `/plugin marketplace update` and `/plugin install`.
+
 ### 0.3.0
 
 #### Added
