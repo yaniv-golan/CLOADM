@@ -20,7 +20,8 @@
 // What is written, one JSON object a program: { program (the file's name), sha256 (of the .cas), machine, rom (the
 // ROM image's CRC-32), status, why, error (the last "?xx ERROR" line), listLines (program lines), list (the listing's
 // screen rows), keywords (how often each keyword is used: counts only), samples: [{ frame, screen, pix }], lint,
-// typist (a step whose keys the typist did not see all taken, which is no error) }. By default the text is hashed:
+// typist (a step whose keys the typist did not see all taken, which is no error), listFlags (top-row overwrites the
+// recorder could not read as a scroll during LIST: rows may be missing), listFrames (how long LIST took) }. By default the text is hashed:
 // list holds one hash a row and a sample's screen one hash, the first
 // 16 hex digits of a SHA-256, enough to find where two runs part. The programs named in --full NAMES (a file, one name
 // or sha256 a line: the programs whose owners allow it) are written as text.
@@ -189,6 +190,7 @@ function runProgram(rom, cas, { name = 'PROGRAM', frames = 1500, every = 50, key
   // the listing
   type('CLS\n', 'CLS'); b.waitOk();
   b.record();
+  const listStart = b.frames;
   type('LIST\n', 'LIST');
   if (!b.waitOk({ limit: 50 * 600, stable: 5 })) return done({ status: 'list-timeout' });
   const t = b.transcript(), from = t.indexOf('LIST');
@@ -196,6 +198,10 @@ function runProgram(rom, cas, { name = 'PROGRAM', frames = 1500, every = 50, key
   if (!rows.length) return done({ status: 'empty' });
   const lines = joinListing(rows);
   rec.listLines = lines.length;
+  // rows the transcript recorder could not account for while the listing scrolled (a write over the top row that was
+  // not a recognised scroll: a row may be lost there): counts only, so a short listing can be told from a lost one
+  if (b.flags.length) rec.listFlags = b.flags.length;
+  rec.listFrames = b.frames - listStart;
   rec.keywords = keywordCounts(lines);
   rec.list = full ? rows : rows.map(short);
   const lint = corpusLint(lines);

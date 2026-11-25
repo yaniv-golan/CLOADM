@@ -136,6 +136,7 @@ const cas = tape(prog, 'DEMO');
 const full = runProgram(rom, cas, { name: 'DEMO', full: true, frames: 400, every: 25 });
 check('run: the listing, row by row', same(full.list, listed) && full.listLines === 4, JSON.stringify(full.list));
 check('run: keyword counts from the listing', full.keywords.PRINT === 4 && full.keywords.FOR === 1 && full.keywords.CLS === 1, JSON.stringify(full.keywords));
+check('run: the listing took frames and lost no row (no recorder flags)', full.listFrames > 0 && full.listFlags === undefined, JSON.stringify({ f: full.listFrames, l: full.listFlags }));
 check('run: ended, with its error line', full.status === 'ended' && full.error === '?/0 ERROR IN 40', `${full.status} ${full.error}`);
 check('run: the samples show the program\'s output', full.samples.length > 1 && full.samples[0].screen[0] === 'HELLO' && full.samples[0].screen.includes(' 3') && /^[0-9a-f]{16}$/.test(full.samples[0].pix), JSON.stringify(full.samples[0]));
 const hashed = runProgram(rom, cas, { name: 'DEMO', frames: 400, every: 25 });
