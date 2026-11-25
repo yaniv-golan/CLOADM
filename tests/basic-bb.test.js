@@ -261,5 +261,43 @@ for (const good of ['PCLEAR 1', 'PCLEAR 0', 'PCLEAR 9', 'PMODE 4,1', 'PMODE 0,4'
   check('keys really not taken: the wait after them fails', r.status === 'timeout' && r.at === 'line 3', JSON.stringify({ status: r.status, at: r.at }));
 }
 
+// ---- the boot screen is never recorded ----
+// a ROM's banner is ROM text; our own banner ("CLOADM BASIC") stands in for it. A case that starts with CLS, one
+// that never clears and scrolls, and a start whose CLS is lost (a ROM that drops the first key) must record no row
+// of it, in text or in a picture
+{
+  const { runCase } = require('./basic/harness.js');
+  const BANNER = 'CLOADM BASIC';
+  const hasBanner = (r) => JSON.stringify(r).includes(BANNER);
+  const r1 = runCase(built.rom, 'CLS\nPRINT "ONE"\n#screenshot a\n');
+  check('boot banner: a case starting with CLS records none of it', r1.status === 'ok' && !hasBanner(r1.transcript) && r1.transcript.includes('ONE'), JSON.stringify(r1.transcript));
+  const many = Array.from({ length: 20 }, (_, i) => `PRINT ${i}`).join('\n');
+  const r2 = runCase(built.rom, 'PRINT "TWO"\n#screenshot b\n' + many + '\n');
+  check('boot banner: a case that never clears and scrolls records none of it', r2.status === 'ok' && !hasBanner(r2.transcript) && r2.transcript.includes('TWO'), JSON.stringify(r2.transcript.slice(0, 4)));
+  // the pictures: the screen's memory when each was taken held no banner (the picture is drawn from it)
+  const shotHasBanner = (text) => {
+    let seen = false;
+    const real = Basic.prototype.shot;
+    Basic.prototype.shot = function (name) { if (this.rows().join('\n').includes(BANNER)) seen = true; return real.call(this, name); };
+    try { runCase(built.rom, text); } finally { Basic.prototype.shot = real; }
+    return seen;
+  };
+  check('boot banner: no picture is taken with it on the screen', !shotHasBanner('#screenshot first\nPRINT "X"\n#screenshot second\n'));
+  // a ROM that drops the first key of the harness's CLS: "LS" is a syntax error, the screen is not cleared
+  const realType = Basic.prototype.cleanStart;
+  let screenAfter = null;
+  Basic.prototype.cleanStart = function (limit) {
+    const tp = this.m.typist.typePaced.bind(this.m.typist);
+    this.m.typist.typePaced = (t) => { this.m.typist.typePaced = tp; return tp(t.replace(/^C/, '')); };
+    const ok = realType.call(this, limit);
+    screenAfter = this.screen();
+    return ok;
+  };
+  let r3;
+  try { r3 = runCase(built.rom, 'PRINT "THREE"\n'); } finally { Basic.prototype.cleanStart = realType; }
+  check('boot banner: a lost CLS stops the case with nothing recorded', r3.status === 'no-clean-start' && r3.transcript.length === 0, JSON.stringify(r3));
+  check('boot banner: and the screen held none of it even then (blanked from outside first)', screenAfter && !screenAfter.join('\n').includes(BANNER), JSON.stringify(screenAfter));
+}
+
 console.log(`\n${n - fail}/${n} passed`);
 process.exitCode = fail ? 1 : 0;

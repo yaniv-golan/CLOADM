@@ -105,6 +105,18 @@ class Basic {
     const f = this.m.render(), p = Emu.frameToRGBA(f), rgba = Buffer.from(p.buffer, p.byteOffset, p.byteLength);
     return { name, width: f.width, height: f.height, sha256: crypto.createHash('sha256').update(rgba).digest('hex'), png: rgbaPng(f.width, f.height, rgba).toString('base64') };
   }
+  // A clean start, before anything is recorded: the boot screen (a ROM's banner is ROM text) is blanked in the text
+  // screen's memory from outside, then CLS is typed, and the screen must then hold only the OK prompt. -> true, or
+  // false when it does not (nothing that was on the screen may then be recorded).
+  cleanStart(limit = 1500) {
+    this.m.ram.fill(0x60, 0x400, 0x600);
+    const st = this.m.typist.typePaced('CLS\n');
+    let n = 0;
+    while (st.status === 'typing' && n++ < limit * 4) this.frame();
+    if (!this.waitOk({ limit })) return false;
+    const s = this.screen();
+    return s.length === 1 && s[0] === 'OK';
+  }
   // the SHA-256 of the last whole frame's RGBA pixels
   pixHash() {
     const p = Emu.frameToRGBA(this.m.render());
@@ -237,8 +249,10 @@ class Basic {
 //                   recording when the case ends is stopped there)
 //   #joy N V        set joystick axis N (JOYSTK's numbering: 0 right x, 1 right y, 2 left x, 3 left y) to V (0-63)
 // A typed line that starts with a digit is a program line: waited for until the screen settles; any other line
-// is waited for until OK is back. -> { status, transcript, flags, frames, shots?, sounds? }; status 'ok', 'no-boot', 'timeout' (and
-// where), or the typist's status when the machine stopped reading the keyboard.
+// is waited for until OK is back. -> { status, transcript, flags, frames, shots?, sounds? }; status 'ok', 'no-boot',
+// 'no-clean-start', 'timeout' (and where), or the typist's status when the machine stopped reading the keyboard.
+// Nothing of the screen is recorded before the clean start (Basic.cleanStart): the boot screen, a ROM's banner among
+// it, is blanked from outside and CLS must leave only OK, so no case can record the banner, whatever it types first.
 //
 // guard (on by default; tools/basic-bb/run.js and the black-box cases always use it): the case is stopped, with
 // status 'refused' and nothing of its screen recorded, if the CPU ever runs an instruction from RAM written since
@@ -250,8 +264,10 @@ function runCase(rom, text, { machine = 'dragon64', guard = true } = {}) {
   const shots = [], sounds = [], typistNotes = [];
   let wavName = null, at = 'start';
   const wavStop = () => { sounds.push({ name: wavName, ...b.wavStop() }); wavName = null; };
+  let clean = false;   // nothing of the screen is recorded until the clean start (Basic.cleanStart) has held
   const out = (status, extra = {}) => {
     if (wavName != null) wavStop();
+    if (!clean) return { status, transcript: [], flags: [], frames: b.frames, ...extra };
     return refused
       ? { status: 'refused', why: refused, transcript: [], flags: [], frames: b.frames }
       : { status, transcript: b.lines ? b.transcript() : b.screen(), flags: b.flags || [], frames: b.frames, ...(shots.length ? { shots } : {}), ...(sounds.length ? { sounds } : {}), ...(typistNotes.length ? { typist: typistNotes } : {}), ...extra };
@@ -268,9 +284,9 @@ function runCase(rom, text, { machine = 'dragon64', guard = true } = {}) {
     if (st === 'not-consumed') { typistNotes.push({ at, status: st }); return null; }
     return st === 'done' ? null : st;
   };
-  let st = typed('CLS\n');
-  if (st) return out(st, { at: 'CLS' });
-  if (!b.waitOk({ limit })) return out('timeout', { at: 'CLS' });
+  if (!b.cleanStart(limit)) return out('no-clean-start');
+  clean = true;
+  let st;
   b.record();
   if (guard) {
     const written = new Uint8Array(0x8000);

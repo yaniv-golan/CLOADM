@@ -172,6 +172,8 @@ function runProgram(rom, cas, { name = 'PROGRAM', frames = 1500, every = 50, key
   const lastError = (rows) => { for (let i = rows.length - 1; i >= 0; i--) if (ERR.test(rows[i])) return rows[i]; return null; };
   const done = (r) => (Object.keys(typist).length ? { ...r, typist } : r);
   if (!b.waitOk({ limit: 600, stable: 3 })) return { status: 'no-boot' };
+  // the boot screen is ROM text: blanked and cleared before anything is recorded (Basic.cleanStart)
+  if (!b.cleanStart()) return { status: 'no-clean-start' };
   const basic = firstBasic(cas);
   if (!basic) return { status: 'no-basic' };
   if (!basic.first && /"/.test(basic.name)) return { status: 'no-basic', why: 'the first BASIC file is not first on the tape and its name has a quote' };
