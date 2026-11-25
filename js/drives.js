@@ -315,6 +315,7 @@ export class DiskDrives {
     const { writeProtected = false } = opts, held = opts[this.#held] === true;
     this.checkDrive(drive);
     if (!held) this.session.library.checkNotMoving();
+    this.session.touch(this.targetMachine);   // a disk going in makes a bundled program a moment (untouchedBundledProgram)
     const full = this.storedName(name), base = full.slice(DISK_PREFIX.length);
     const holder = this.holder(full, { machine: this.targetMachine, drive });
     if (holder) throw new SessionError(`${holder.name} is already in drive ${holder.drive}${holder.where}.`);

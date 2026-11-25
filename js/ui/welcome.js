@@ -429,5 +429,13 @@ export function setupWelcome(page, { showRoms, openClaude }) {
     if (item.cpu && cpuFamily(session.personMachine.config.cpu) !== item.cpu) { page.status(`${name} needs a Dragon or a CoCo; pick one from the machine menu.`, true); return; }
     run(item);
   }
-  return { start, runShelf };
+  // a bundled program ('liza' or a game) started from its beginning, as its program page starts it (the arrival card's
+  // and the snapshot toast's Start over) -> false when there is no such program (the caller power cycles instead)
+  function runProgram(id) {
+    const item = id === 'liza' ? SHELF[0] : gameItem(id);
+    if (!item) return false;
+    run(item);
+    return true;
+  }
+  return { start, runShelf, runProgram };
 }

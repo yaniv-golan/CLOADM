@@ -195,8 +195,8 @@ export function createFeedback() {
   // when it is first in view, which is now always the frame it appears in. Elsewhere (the Library, Your ROMs, Share)
   // the stylesheet's place holds.
   const region = box.parentNode;
-  // (the install offer too: a toast must never cover it, in any of its layouts)
-  const CONTROLS = 'header, .controls, .slots, aside.drawer, #attention, #touchKeys button, #claudeBar, #installOffer, #tapeHud:not([hidden]), #btnShowKeys:not([hidden])';
+  // (the install offer too: a toast must never cover it, in any of its layouts; nor the arrival card)
+  const CONTROLS = 'header, .controls, .slots, aside.drawer, #attention, #touchKeys button, #claudeBar, #installOffer, #tapeHud:not([hidden]), #btnShowKeys:not([hidden]), #arrival:not([hidden])';
   // Claude's Stop buttons (the same list js/ui/ask.js reads, and the pill's own). The fixed fallback slot covers controls
   // by design ("never invisible" wins), but never the Stop of a running turn: a toast there pulled the chat's pill
   // (#viewClaude) up for exactly as long as it showed, and down again when it went -- the "flash" the pill does for a

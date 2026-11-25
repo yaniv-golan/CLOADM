@@ -19,8 +19,8 @@ const check = (name, cond, detail = '') => { n++; if (!cond) { fail++; console.l
 const PARTS = ['state', 'state-fdc', 'state-carts', 'state-tape'];
 // the checks the unsplit tests/state.test.js ran (its ok lines) when it was split, 224, plus every check added to a
 // slice since, each also named in the manifest: the 6803's two port-2 checks, the Speech/Sound Pak's three
-// mid-speech checks and the five printout checks (state.test.js)
-const BEFORE = 224 + 2 + 3 + 5;
+// mid-speech checks, the five printout checks and the six share-link moment checks (state.test.js)
+const BEFORE = 224 + 2 + 3 + 5 + 6;
 
 const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, 'state-check-names.json'), 'utf8'));
 

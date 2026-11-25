@@ -17,6 +17,67 @@ Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.
   inside one word ("InstallCLOADM…"; only GitHub and CoCo are written that way), on words the layout draws without
   their space, and on a check that finds no label to read. The Install label's own fix (the space kept where the Menu
   lays its items out) came before 0.2.0; this holds it, and every other label, to it.
+- **The arrival card.** A shared moment opened from a long link (`#z=`) or a short link arrives with a card docked at the
+  foot of the screen, the machine running above it: "Someone sent you this &lt;machine&gt;, exactly as they left it.
+  It's running now. It's your copy: nothing you do changes theirs." **Start from the beginning** starts the bundled
+  program the moment is of from its beginning, or power cycles the same machine; **Send it back** opens the Share screen
+  on the recipient's moment, exactly as Share does (nothing is uploaded until Copy). A short link's card ends with
+  **Report this link**, which opens the short-link Worker's new report page, `GET https://s.cloadm.dev/api/report/<id>`
+  (the arrival page's Report mailto, or "Reporting isn't set up for this server."; no key, no bucket read; the Worker
+  must be redeployed for it). It covers at most 40% of the screen, never takes the focus, and goes at the first key, a load or
+  a switch. A short link's moment arrives as quietly as a long link's (no no-ROM card or "No BASIC" pill beside the
+  card). Program pages show no card. The state is the Session's `arrivedFromLink`, cleared with an `'arrival'` event,
+  for prompts that depend on the screen. Snapshots of a bundled program record it (`program`; `Session.momentProgram`),
+  and a moment opened from one keeps it until something else runs, so Send it back, a re-share or a slot taken after
+  arriving still start that program from its beginning.
+- **Start over on the snapshot toast.** "Snapshot opened: …" offers **Start over**: the moment's program from its
+  beginning, or a power cycle into the same machine.
+- **One link on the Share screen.** The screen now offers one **Copy link** (+ **Share…**). A bundled program nobody has
+  touched since it started (2048, LIZA, Minesweeper) gives its program page instead — nothing is uploaded, and the line
+  under the picture says "Opens 2048 from the start, for anyone." once (the ROM line is not shown then: a program page never needs ROMs); played, the primary shares the moment, and "More
+  ways to share" adds **Link to &lt;program&gt; from the start**. A tap that tries a
+  short link and can't make one (offline, a refusal, the server) copies the long link with the reason in view; a
+  clipboard the browser refuses leaves the link shown and selected. **More ways to share** holds the long link, its Copy,
+  and **Always use long links (nothing leaves this device)**, remembered in the browser
+  (`Session.untouchedBundledProgram`, `Session.touches`). A moment the page's guardrails keep out of a link at all
+  switches Copy off, saying why once, inline.
+- **What a link opens, said plainly.** The line under the Share picture reads "Opens a copy of this &lt;machine&gt;
+  exactly as it is now: the screen, the program and everything in memory, including anything you typed. Changes you make
+  later aren't in it." The picture's caption is one line, "What they'll see first · &lt;machine&gt;", or the program's
+  page and machine when that is what the link opens. It never wraps: the machine name ends in "…" if it must, and the
+  prefix is never cut.
+- **Shorter long links.** The Share screen's long link (and "Ask Claude ↗") now carries the moment after `#z=`: a version
+  byte, then deflate-raw of the snapshot as a JSON skeleton plus its raw byte arrays, without the rendered picture
+  (drawn again on the first frame after opening). LIZA's link goes from about 8,400 to 4,900 characters, 2048's from
+  11,900 to 7,900. `.cloadm` files are unchanged.
+- **Short links.** The Share screen's **Copy link** makes `https://s.cloadm.dev/<id>#<key>` (about 50 characters) on the
+  tap, copies it and shows its field with a QR toggle. The moment is sealed with AES-GCM in the browser and only the
+  sealed bytes are stored; the key is the part after `#`, which never reaches the server. "Show a preview picture"
+  (public; on by default) adds a 1200x630 card (the share card that **Save picture** saves). "Delete this link" removes it. Only for moments without ROMs, cartridges
+  or NitrOS-9, and only online; where it can't be made the same tap copies the long link instead, and the note says
+  why. The long link is headed "Long link (works offline; nothing is uploaded)". The server is a Cloudflare Worker in
+  `shortlink/` (not deployed from here:
+  `docs/shortlink-deploy.md`): links don't expire; size caps, a picture check down to every pixel, per-address, per-minute and daily limits, a kill switch,
+  removal by id, "Report this link", and totals only at `s.cloadm.dev/stats/` (no addresses kept, no pings or beacons: opens are counted once a day from
+  Cloudflare's analytics by the Worker's Cron Trigger; program starts are not counted).
+- **Save picture and Save clip beside Copy link.** On a desktop the Share screen's **Save picture** and **Save clip**
+  sit next to Copy link; on a phone, upright or sideways, they stay under "More ways to share". **Save picture** saves
+  the share card: the picture at the machine's true pixels in a CRT monitor, the program's or machine's name beside it
+  and "cloadm.dev" on it, a 1200x630 PNG (`js/video/bezel.js` `shareCardPicture` / `renderShareCard`,
+  `Session.sharePicture`, `Session.shareCardName`). A short link's preview picture is the same card, at 16 colours or
+  fewer (`Session.previewPicture`). "Save clip" names its length and format in its tooltip.
+- **The Share screen on a phone held sideways.** At most 420px tall in landscape (653x280, 568x320, 667x375, 844x390):
+  the picture on the left (at most 40% of the width, 30% under 300px of height, its caption one line under it), and a
+  right column that scrolls on its own: the heading, Copy link (+ Share…), the ROM line in one line ("Needs your
+  &lt;machine&gt; ROMs to open." / "Runs without ROMs.", the full sentence as its tooltip and for screen readers), the
+  short link's note, the picture switch, the link a tap made with its QR, the note, then "More ways to share" and "Embed
+  in a web page". The toast sits under the picture there. After any tap, the field the tap made is scrolled into view and
+  focused.
+
+- **Program pages.** cloadm.dev/2048/, /liza/ and /minesweeper/ each have their own link preview (title, description
+  and a 1200x630 picture of the program on the built-in firmware, made by `tools/program-cards.js`), a Play button, and
+  go straight to the start link `/play/?start=<program>`. They work offline like the rest of the site. One entry in
+  `js/program-pages.js` makes a page; `Session.programPageUrl(id, base)` gives its address.
 
 - **"This program needs BASIC".** A program you load on a machine without its BASIC ROM that calls a BASIC routine
   (the built-in firmware has only POLCAT and CHROUT) now gets a card at the foot of the screen, the first time it does:
@@ -63,8 +124,22 @@ Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.
   `mcp__plugin_cloadm_CLOADM_side_panel__open_emulator_inline`, is 58 characters, and `tests/plugin.test.js` holds
   every tool name to the API's 64. An allowlist rule that named `mcp__plugin_cloadm_cloadm__*` needs the new name.
 
+#### Removed
+
+- **The `#s=` long-link form.** A long link is `#z=` only (`Session.readSnapshotLink`, `js/ui/main.js`). A link made by
+  v0.2.0 or earlier, which wrote the snapshot file itself after `#s=`, no longer opens: the page answers it with the
+  same "This share link couldn't be read." refusal it gives any share-link hash no reader claims, and clears it from
+  the address. `.cloadm` files are unchanged.
+
 #### Fixed
 
+- **The Share picture fills its frame at 861x600 and 1024x640.** The preview and its colour stripe filled only about
+  60% of the frame's width there; the frame now keeps the column's whole width at its short height.
+- Copy link and Share… on a phone are 44px tall (they were 38).
+- **The browser check no longer dies on a reset connection.** On Node 25 a `route.fetch` the OS reset in the short-link
+  group was an unhandled rejection that ended the whole process, and every group after it. A route handler that fails
+  is now a named FAIL and an aborted request, and a stray rejection anywhere is a FAIL in the group that was running
+  (the run goes on and exits 1). The supported Node range, 22.12 or later, is in `docs/development.md`.
 - **Add ROMs offers Files only on an iPhone.** Its file and folder pickers, the side panel's ROM picker and the Library's
   folder picker had no accept list, so iOS offered the Photo Library and the camera next to Files. They now carry one,
   as Open… does: the usual dump extensions (`.rom .bin .zip .ccc .dat .a .b .0 .1 .2` and the models' own `.ci24`, `.ic1` and

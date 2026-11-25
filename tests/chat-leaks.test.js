@@ -601,6 +601,18 @@ const REQUIRED = require.main !== module;
     'programControls',
     // claudeLink builds the "Ask Claude ↗" link from shareFile and shareUrl (both reads of the shown machine)
     'claudeLink',
+    // programPageUrl makes a program page's address from the page's own (pure)
+    'programPageUrl',
+    // bundledProgram and untouchedBundledProgram read the SHOWN machine's program watch and page (Session.touches too,
+    // which only counts what reached it); the Share screen asks whether its primary may be the program's own page
+    'bundledProgram', 'untouchedBundledProgram', 'touches',
+    // longLinkRefusal and shortLinkRefusal read the SHOWN machine (what the Share screen shares) and change nothing;
+    // shortLink reads it the same way (shareFile) and sends sealed bytes to the store it is given, changing no machine;
+    // readShortLink fetches and decodes a snapshot, which openSnapshot (classified on its own) then opens
+    'longLinkRefusal', 'shortLinkRefusal', 'shortLink', 'readShortLink',
+    // sharePicture renders the SHOWN machine's frame into the share card ("Save picture") and shareCardName reads its
+    // program watch or profile for the card's name; both change nothing
+    'sharePicture', 'shareCardName',
     // menuTicketFor returns the ticket a menu starts with (the Session's menuTicket or the one passed); changes nothing
     'menuTicketFor',
     // bareDiskController and diskRomWaiting read the disk controller of the PERSON's machine (diskMachine); no change
@@ -646,8 +658,9 @@ const REQUIRED = require.main !== module;
     'hasArtifactPhase', 'hasTwoScreens', 'welcomeRunning', 'welcomeRunningOn', 'welcomeOnScreen', 'lastRunOnScreen',
     // both default to the person's machine and read only its own sockets: nothing of the chat machine's
     'romsReadyButOff', 'machinesVerified',
-    // sharedMoment: the person arrived on a shared moment and has not left it (a flag, no machine)
-    'sharedMoment']) SESSION.add(n);
+    // sharedMoment: the person arrived on a shared moment and has not left it (a flag, no machine); arrivedFromLink: they
+    // arrived from a link and have not acted yet (plain data: the kind, an id, a name, a program id; no machine)
+    'sharedMoment', 'arrivedFromLink']) SESSION.add(n);
   // Puppets whose reachability is decided where they live (see the note above): debug (the Debugger view closes the
   // chat, claude.js:283-286), chat (the ChatSession, not a machine), store/roms/index/media/keys/machine (the
   // Session's own services).
