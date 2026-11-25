@@ -15,8 +15,9 @@
 // resources/list for its skill:// files beside the two views.
 // Two protocol eras, as a dual-era server may (specification 2026-07-28, basic/versioning):
 //  * the handshake revisions (VERSIONS, initialize): as before; the skills extension is declared in an initialize
-//    result only to a client whose initialize declared it (those revisions define no skills), so any other client sees
-//    the handshake it always saw;
+//    result only to a client whose initialize declared it (those revisions define no skills), so a client that does not
+//    ask sees the same handshake, tools and resources; being stateless, the Worker answers skills/list and skills/get to
+//    any client that calls them;
 //  * 2026-07-28 (MODERN_VERSIONS), stateless: a request whose params._meta names its protocol version. Its HTTP headers
 //    are checked against the body (MCP-Protocol-Version, Mcp-Method, and Mcp-Name for tools/call and resources/read:
 //    400 and HeaderMismatch -32020 when one is missing or differs), an unknown version is 400 with

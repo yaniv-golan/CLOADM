@@ -468,7 +468,7 @@ files of `skills/cloadm/` as they are (`.agents/skills/cloadm/` is the same byte
 
 | What | How |
 |---|---|
-| Declared | in `server/discover` (`2026-07-28`): `capabilities.extensions["io.modelcontextprotocol/skills"]: {}` and `capabilities.resources`. The handshake revisions (`initialize`) define no skills, so the extension is declared there only to a client whose own `initialize` declares it under `capabilities.extensions`; any other client sees the handshake, tools and resources it always saw |
+| Declared | in `server/discover` (`2026-07-28`): `capabilities.extensions["io.modelcontextprotocol/skills"]: {}` and `capabilities.resources`. The handshake revisions (`initialize`) define no skills, so the extension is declared there only to a client whose own `initialize` declares it under `capabilities.extensions`; a client that does not ask sees the same handshake, tools and resources. On stdio the skill methods stay unknown (`-32601`) to such a client; the connector is stateless, so it answers `skills/list` and `skills/get` to any client that calls them |
 | `skills/list` | one skill, `skill://cloadm/SKILL.md`: its frontmatter as `SKILL.md` has it, and the complete manifest, every file with its `size` and `sha256:` digest of the bytes on disk. One page, no cursor |
 | `skills/get` | `{ "uri": "skill://cloadm/SKILL.md" }` gives the same entry; an unknown URI (another skill, or a file that is not a `SKILL.md`) is `-32602` |
 | `resources/read` | each file, e.g. `skill://cloadm/references/debugging.md`, as `text/markdown`, byte for byte; a file not in the manifest is `-32602`. `resources/list` lists them too (on stdio; on the connector to `2026-07-28` clients, beside the two views) |
@@ -486,7 +486,7 @@ a connector is not verified yet. Other clients ignore the extension.
 Claude Code would otherwise list the same skill twice (`cloadm:cloadm` from the plugin and
 `plugin_cloadm_CLOADM_on_this_computer:cloadm` from the server): the extension's specification has a host keep skills from different origins apart, never silently dropping one.
 The plugin's *CLOADM side panel* is the public connector and cannot be told apart, so a Claude Code that connects it
-may still list `plugin_cloadm_CLOADM_side_panel:cloadm` beside the plugin's own: the same text, so either is right.
+may still list `plugin_cloadm_CLOADM_side_panel:cloadm` beside the plugin's own. The two need not match: the connector serves whatever was last deployed, which can be newer or older than the installed plugin.
 Use one way: the plugin, or a server added by hand (`claude mcp add`, a connector) without the plugin.
 
 ## Claude on the web: side panel

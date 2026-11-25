@@ -18,7 +18,8 @@ Next version: 0.3.0 (the plugin and extension manifests carry it; `tests/plugin.
   (`cli/skill-files.js`; `connector/build.js` copies the files into the Worker's views). A client that adds the server
   or the connector, such as Claude Code 2.1.331 or later, gets the skill without the plugin, and it changes with the
   server. On the handshake revisions (`initialize`) the extension is declared only to a client that declares it, so
-  other clients see what they saw before. The connector now also speaks `2026-07-28` (stateless, its HTTP headers
+  clients that don't ask see the same handshake, tools and resources (the stateless connector still answers
+  `skills/list` and `skills/get` to any client that calls them). The connector now also speaks `2026-07-28` (stateless, its HTTP headers
   checked against the body). `--no-skills` serves no skill; the plugin's own local server uses it, since the plugin
   ships the skill. `tests/mcp-skills.test.js`; docs/mcp.md, "The agent skill over MCP".
 
