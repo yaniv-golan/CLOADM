@@ -27,7 +27,9 @@ Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.
   must be redeployed for it). It covers at most 40% of the screen, never takes the focus, and goes at the first key, a load or
   a switch. A short link's moment arrives as quietly as a long link's (no no-ROM card or "No BASIC" pill beside the
   card). Program pages show no card. The state is the Session's `arrivedFromLink`, cleared with an `'arrival'` event,
-  for prompts that depend on the screen. Snapshots of a bundled program record it (`program`; `Session.momentProgram`).
+  for prompts that depend on the screen. Snapshots of a bundled program record it (`program`; `Session.momentProgram`),
+  and a moment opened from one keeps it until something else runs, so Send it back, a re-share or a slot taken after
+  arriving still start that program from its beginning.
 - **Start over on the snapshot toast.** "Snapshot opened: …" offers **Start over**: the moment's program from its
   beginning, or a power cycle into the same machine.
 - **One link on the Share screen.** The screen now offers one **Copy link** (+ **Share…**). A bundled program nobody has

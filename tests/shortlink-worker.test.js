@@ -107,6 +107,10 @@ const sealed = (n = 3000, seed = 1) => Uint8Array.from({ length: n }, (_, i) => 
       check('report page without REPORT_EMAIL: "Reporting isn\'t set up for this server." and no mailto', none.includes("<p>Reporting isn't set up for this server.</p>") && !/mailto:/.test(none), none);
       const post = await call(envOf(), req(`/api/report/${out.id}`, { body: 'x' }));
       check('report page: only GET (a POST is 405)', post.status === 405);
+      const pre = await call(envOf(), new Request(`https://s.cloadm.dev/api/report/${out.id}`, { method: 'OPTIONS',
+        headers: { Origin: ORIGIN, 'Access-Control-Request-Method': 'GET' } }));
+      check('report page: a preflight (OPTIONS, even from CLOADM\'s own origin) is 405 too, with no Allow-Methods: POST', pre.status === 405
+        && pre.headers.get('Allow') === 'GET, HEAD' && !/POST/.test(pre.headers.get('Access-Control-Allow-Methods') || ''), `${pre.status} ${pre.headers.get('Allow')}`);
     }
     // an id already taken is never overwritten: another is drawn
     env.BUCKET.failNext.push((k) => k.endsWith('.bin'));

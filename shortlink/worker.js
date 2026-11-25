@@ -356,6 +356,10 @@ export default {
     const url = new URL(request.url), origin = request.headers.get('Origin');
     const headers = cors(env, origin);
     try {
+      // the report page is a plain GET from a link, never a cross-origin call: no preflight answer either
+      if (url.pathname.startsWith('/api/report/') && request.method !== 'GET' && request.method !== 'HEAD') {
+        headers.set('Allow', 'GET, HEAD'); throw new Refused(405, 'Only GET here.');
+      }
       if (request.method === 'OPTIONS') {
         if (!origin || !allowed(env).includes(origin)) throw new Refused(403, 'Not from CLOADM.');
         headers.set('Access-Control-Allow-Methods', 'POST'); headers.set('Access-Control-Allow-Headers', 'Content-Type'); headers.set('Access-Control-Max-Age', '86400');
@@ -363,7 +367,6 @@ export default {
       }
       // the report page: GET /api/report/<id> (the Worker runs only on /api/*, so it lives there)
       if (url.pathname.startsWith('/api/report/')) {
-        if (request.method !== 'GET' && request.method !== 'HEAD') { headers.set('Allow', 'GET'); throw new Refused(405, 'Only GET here.'); }
         const id = url.pathname.slice('/api/report/'.length);
         if (!ID.test(id)) return new Response('Not Found', { status: 404, headers: { 'content-type': 'text/plain; charset=utf-8' } });
         return new Response(request.method === 'HEAD' ? null : await reportPage(id, env.REPORT_EMAIL),

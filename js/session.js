@@ -1382,6 +1382,7 @@ export class Session {
     this.stopClaudeFor('you reset the machine');
     this.launch();
     const m = this.shownMachine, again = this.stubRun && this.stubRun.m === m && m.useStub ? this.stubRun : null;
+    this.forgetOpenedProgram(m);
     this.endWelcome(m);
     this.keys.clear();
     this.drives.fitRom(m);
@@ -1403,6 +1404,7 @@ export class Session {
   powerCycle({ menu = true, reason = 'the machine restarted', on = null } = {}) {
     const m = on || this.personMachine;
     if (m === this.personMachine) this.leaveSharedMoment();
+    this.forgetOpenedProgram(m);
     // A load on the BASIC session while the chat is open passes that session, and this stops Claude only when it is
     // the machine Claude acts on (stopClaudeFor's own rule: chatTarget()). In the full-screen chat that IS the BASIC
     // session, so a load there stops Claude (as before); in the side panel the conversation acts on the machine it
@@ -1454,6 +1456,7 @@ export class Session {
   inject(segments, exec, on = null) {
     const m = on || this.shownMachine;
     this.cancelLoadTyping(m);
+    this.forgetOpenedProgram(m);
     this.stopClaudeFor('you started a program', m);   // (as loadMedia: a program run with ROMs is not a reset)
     m.injectAndRun(segments, exec);
     // (keyed by the machine it ran on, so Reset restarts it only on that machine: Session.reset checks stubRun.m)
@@ -1960,6 +1963,7 @@ export class Session {
     this.adopt(m);
     // (set before the events below, so the page's first look at this machine already knows)
     this.sharedMoment = shared && !Object.keys(roms).length;
+    if (program) this.#openedProgram.set(m, program);
     const was = this.arrivedFromLink;
     this.arrivedFromLink = link ? { kind: link.kind === 'short' ? 'short' : 'long', id: link.kind === 'short' ? link.id || null : null,
       machine: m.profile.name, program } : null;
@@ -2333,6 +2337,7 @@ export class Session {
     const takeOver = () => { this.cancelLoadTyping(m); this.stopClaudeFor('you loaded a program', m); };
     this.endWelcome(m);     // this machine's welcome and watch: the chat's start of its own firmware ends neither
     this.setStubRun(m);     // the load starts something on THIS machine; the other machine's record is untouched
+    this.forgetOpenedProgram(m);   // (an opened moment's program: something else runs now)
     const media = detectMedia(name, bytes);
     if (media.kind === 'disk') {
       throw new SessionError(`${name}: ${media.format}${media.family ? ` for a ${FAMILY_NAMES[media.family]}` : ''}. Disk images go in a disk drive, not into memory.`);
@@ -3489,11 +3494,16 @@ export class Session {
   // The bundled program machine m's moment is of (a GAMES.list key or 'liza'), or null: what a snapshot of m records
   // as its `program` (shareFile, snapshotFile), so whoever opens it can start that program from the beginning
   // (arrivedFromLink.program, the page's Start over). Touched or not: a played game is still that game.
+  // A moment opened from a snapshot (openSnapshot) has no watch of its own: the program its snapshot named is kept for
+  // that machine (#openedProgram) and answered until something else runs there (a load or a program started, a Reset,
+  // a power cycle), so a moment shared on again, Send it back, a slot or a file taken after arriving keeps it.
   momentProgram(m = this.shownMachine) {
     const w = this.menuWatch;
-    if (!w || w.m !== m) return null;
-    return w.kind === 'game' ? Session.momentProgramId(w.game) : w.kind === 'liza' ? 'liza' : null;
+    if (w && w.m === m) return w.kind === 'game' ? Session.momentProgramId(w.game) : w.kind === 'liza' ? 'liza' : null;
+    return (m && this.#openedProgram.get(m)) || null;
   }
+  #openedProgram = new WeakMap();   // machine -> the program of the snapshot opened on it, until something else runs
+  forgetOpenedProgram(m) { if (m) this.#openedProgram.delete(m); }
   // the bundled program running now and what it is played with -> { id, input, extra, joystick }, or null (BASIC, a
   // file, the welcome menu: the keyboard). id: a GAMES.list key or 'liza' (the touch panel remembers its mode per
   // program and machine under it)

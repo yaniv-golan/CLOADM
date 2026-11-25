@@ -195,6 +195,28 @@ const arrive = async (link, { shared = true } = {}) => {
     check('program: a played 2048 moment\'s link records program 2048, and the arrival says so', snap.program === '2048' && b.arrivedFromLink.program === '2048', `${snap.program} ${JSON.stringify(b.arrivedFromLink)}`);
     check('program: the snapshot file and the shared file record it too', (await b.readSnapshot((await a.snapshotFile()).bytes)).program === '2048'
       && (await b.readSnapshot((await a.shareFile()).bytes)).program === '2048');
+    // shared on again from where it arrived (Send it back, a re-share), and a slot or file taken after arriving: the
+    // program goes with it until something else runs there
+    const back = await b.readSnapshotLink(new URL(await b.snapshotLink(BASE)).hash);
+    check('program: an arrived 2048 moment shared on again (Send it back) still records program 2048', back.program === '2048' && b.momentProgram() === '2048', String(back.program));
+    frames(b.shownMachine, 30); b.personInput();
+    check('program: a snapshot file taken after arriving (and playing on) keeps it', (await b.readSnapshot((await b.snapshotFile()).bytes)).program === '2048');
+    await b.saveSlot(1);
+    check('program: a slot taken after arriving keeps it', (await b.readSlot(1)).program === '2048');
+    const again = session(null);
+    again.openSnapshot(back, { shared: true, link: { kind: 'long' } });
+    check('program: the moment that came back arrives as 2048 again (its Start from the beginning starts 2048)', again.arrivedFromLink.program === '2048');
+    for (const [what, act] of [
+      ['a load', (x) => x.load('fill.bin', Uint8Array.from([0, 0, FILL[0].data.length, 0x70, 0, ...FILL[0].data, 0xFF, 0, 0, 0x70, 0]))],
+      ['a power cycle', (x) => x.powerCycle()],
+      ['Reset', (x) => x.reset()],
+      ['a program injected', (x) => x.inject(FILL, 0x7000)],
+    ]) {
+      const x = session(null);
+      x.openSnapshot(back, { link: { kind: 'long' } });
+      act(x);
+      check(`program: ${what} after arriving ends it (something else runs)`, x.momentProgram() === null && !('program' in await x.readSnapshotLink(new URL(await x.snapshotLink(BASE)).hash)));
+    }
     const c = session(null);
     c.inject(FILL, 0x7000);
     frames(c.shownMachine, 5);

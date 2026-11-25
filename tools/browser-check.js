@@ -16806,11 +16806,12 @@ async function arrivalChecks(browser, base, check) {
     await p.waitForTimeout(1500);   // an upload would have started by now
     const back = await p.evaluate(async () => {
       const snap = await window.emu.session.readSnapshotLink(new URL(document.getElementById('shareLink').value).hash);
-      return { view: location.hash, marker: snap.state.memory[0x7F00], made: !document.getElementById('shortMade').hidden };
+      return { view: location.hash, marker: snap.state.memory[0x7F00], program: snap.program, made: !document.getElementById('shortMade').hidden };
     });
     if (shotDir) await p.screenshot({ path: path.join(shotDir, 'arrival-send-back.png') });
     check('arrival: "Send it back" opens the Share screen on the recipient\'s moment as it is now, and uploads nothing',
       back.view === '#share' && back.marker === 0x5A && !back.made && asked.length === 0, JSON.stringify({ back, asked }));
+    check('arrival: the moment sent back is still a moment of 2048 (its `program`), so its Start from the beginning starts 2048 again', back.program === '2048', String(back.program));
     await closeCtx(ctx);
   }
 
@@ -16837,9 +16838,14 @@ async function arrivalChecks(browser, base, check) {
   }
 
   // what ends an arrival: the first key, a load, a switch (each in a fresh arrival)
+  // ...and the card never takes the focus: a second after arriving the focus is on the screen, not in the card, and a
+  // key pressed with no focus set by this check goes to the machine and takes the card down
   {
     const { ctx, p } = await open(game.link);
-    await p.focus('#screen');
+    await p.waitForTimeout(1000);
+    const f = await p.evaluate(() => ({ inCard: document.getElementById('arrival').contains(document.activeElement), on: document.activeElement && document.activeElement.id,
+      shown: !document.getElementById('arrival').hidden }));
+    check('arrival: a second after arriving the focus is on the screen, never in the card', f.shown && !f.inCard && f.on === 'screen', JSON.stringify(f));
     await p.keyboard.press('ArrowUp');
     check('arrival: the first key takes the card down, and Session.arrivedFromLink with it', await gone(p));
     await closeCtx(ctx);
