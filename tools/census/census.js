@@ -30,11 +30,13 @@ const HELP = `node tools/census/census.js --roms PATH [--roms PATH...] [options]
   --frames N         frames to run a loaded file for (default 3000, a minute)
   --max-per-site N   records written per (program, from, target, kind) (default 20; all are counted)
   --max-targets N    distinct ROM entry points one program may use before it counts as a scan (default 512)
+  --max-run-targets N  distinct ROM entry points all the programs of one run may use together; more, and nothing
+                     is written (default 1024)
   --max-writes N     writes kept per record (default 256; the rest are counted)
   --no-roms          run on the built-in firmware (the self-test)`;
 
 function parse(argv) {
-  const o = { roms: [], out: 'census-out', frames: 3000, maxPerSite: 20, maxTargets: 512, maxWrites: 256, noRoms: false, programs: [] };
+  const o = { roms: [], out: 'census-out', frames: 3000, maxPerSite: 20, maxTargets: 512, maxRunTargets: 1024, maxWrites: 256, noRoms: false, programs: [] };
   const int = (v, what) => { const n = Number(v); if (!Number.isInteger(n) || n < 1) throw new Error(`${what} must be a whole number above 0`); return n; };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i], next = () => { if (i + 1 >= argv.length) throw new Error(`${a} needs a value`); return argv[++i]; };
@@ -44,6 +46,7 @@ function parse(argv) {
     else if (a === '--frames') o.frames = int(next(), '--frames');
     else if (a === '--max-per-site') o.maxPerSite = int(next(), '--max-per-site');
     else if (a === '--max-targets') o.maxTargets = int(next(), '--max-targets');
+    else if (a === '--max-run-targets') o.maxRunTargets = int(next(), '--max-run-targets');
     else if (a === '--max-writes') o.maxWrites = int(next(), '--max-writes');
     else if (a === '--no-roms') o.noRoms = true;
     else if (a.startsWith('-')) throw new Error(`unknown option ${a}`);
@@ -165,6 +168,10 @@ async function main(argv, { log = (t) => process.stderr.write(t + '\n'), lib = d
     runs.push({ program: name, recorded: r.records.length, refused: r.refused.length, stopped: r.stopped });
     log(`census: ${name}: ${r.records.length} calls recorded, ${r.refused.length} refused${r.stopped ? `; recording stopped (${r.stopped})` : ''}`);
   }
+  // the run-wide scan limit: entering ROM is how its constants come out (effects of running ROM code), so the whole
+  // run, not just each program, gets a bound on how many places it may enter
+  const targets = new Set([...records, ...refused].map((r) => r.target));
+  if (targets.size > o.maxRunTargets) { log(`census: the run entered ${targets.size} distinct ROM addresses, more than --max-run-targets ${o.maxRunTargets}: nothing written`); return 1; }
   fs.mkdirSync(o.out, { recursive: true });
   fs.writeFileSync(path.join(o.out, 'census.jsonl'), capped(records, refused, o.maxPerSite).map((r) => JSON.stringify(r)).join('\n') + '\n');
   fs.writeFileSync(path.join(o.out, 'census.json'), JSON.stringify({ range: [ROM_LO, 0xBFFF], programs: runs, failed, entries: aggregate(records, refused) }, null, 1) + '\n');

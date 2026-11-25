@@ -4,8 +4,9 @@
 // Ranges:
 //   ROM      $8000-$BFFF   the BASIC ROM: a control transfer into it from outside it opens a record
 //   MASKED   $8000-$FFFF   everything that holds or may hold ROM bytes (BASIC, its RAM copy in the Dragon 64's 64K mode,
-//                          a cartridge or DOS at $C000, the vectors at $FFF0-$FFFF the SAM maps from ROM), except the
-//                          I/O page $FF00-$FFEF
+//                          a cartridge or DOS at $C000, the 32 bytes at $FFE0-$FFFF the SAM maps from the ROM's last
+//                          32), except the I/O page $FF00-$FFDF. (An I/O read that the machine answers from ROM, the
+//                          floating bus at $FF60-$FFBF, reads it through the bus, so the taps see that read too.)
 //   VECTORS  $A000-$A00F   BASIC's documented call vectors (POLCAT, CHROUT, ...): the one table a program may read
 //
 // A record: { program, target, from, kind, regsIn, regsOut, cyclesInRom, ramWritesOutsideRom: [{ addr, value }] }.
@@ -16,8 +17,10 @@
 //   1. The program starts clean. Recording begins when the census loader starts the program (Machine.injectAndRun:
 //      a .bin, a .cas loaded straight into memory, an asm step). Its registers are cleared then (A, B, X, Y, U, DP and
 //      CC's flags; S is kept), and the RAM it was loaded into is clean. Nothing is recorded for a program started any
-//      other way (by BASIC, from disk): its registers would hold whatever ROM code left in them.
-//   2. Program code may not read ROM. A data read of MASKED by code outside MASKED DISCARDS THE PROGRAM: nothing it
+//      other way (by BASIC, from disk): its registers would hold whatever ROM code left in them. A stop (4) or a
+//      discard (2) is final for the run: a second program loaded later starts nothing new.
+//   2. Program code may not read ROM. Any read of MASKED by an instruction that started outside MASKED (a data read,
+//      or a fetch by an instruction running on past $7FFF) DISCARDS THE PROGRAM: nothing it
 //      did is output. The exceptions are reads that only pick where control goes next: the two bytes of a
 //      JSR/JMP [$A00x] through the VECTORS table, and the CPU fetching an interrupt vector ($FFF2-$FFFF) as it takes
 //      an interrupt.
@@ -32,16 +35,18 @@
 //   5. Before the program starts (BASIC's boot, a loader), ROM code that writes a value it has just read from ROM
 //      (one of the last four data reads, 0 and $FF aside) marks that cell dirty: the RAM hooks and tables BASIC copies
 //      out of ROM. A value BASIC computes at boot from ROM data is not followed; BASIC's boot is fixed code, not the
-//      program's.
+//      program's. A self-check backs the heuristic up: when the program starts, every 16-byte window of a ROM image
+//      found in RAM below $8000 (but the program's own image) must be marked, or the program is discarded
+//      ('boot-residue-unmarked': a copy the heuristic missed, a longer block copy).
 // What is left is what the census is for: the effects of running ROM code (constants in its instructions, its timing)
 // on the program's own inputs. Two more guards bound that: the tripwire (the romrefs window check over a program's
 // output values, against the ROM images: a 16-byte run of any image discards the program) and the scan limit (more than
 // maxTargets distinct ROM entry points discards the program).
 'use strict';
-const { romWindowIn, windowIndex, WINDOW } = require('../../js/media/romrefs.js');
+const { romWindowIn, windowIndex, findRuns, WINDOW } = require('../../js/media/romrefs.js');
 
 const ROM_LO = 0x8000, ROM_HI = 0xBFFF;
-const IO_LO = 0xFF00, IO_HI = 0xFFEF;
+const IO_LO = 0xFF00, IO_HI = 0xFFDF;   // the SAM maps $FFE0-$FFFF from the ROM's last 32 bytes (js/machines/sam.js read)
 const VEC_LO = 0xA000, VEC_HI = 0xA00F;
 const HW_LO = 0xFFF2, HW_HI = 0xFFFF;
 const inRom = (a) => a >= ROM_LO && a <= ROM_HI;
@@ -143,6 +148,7 @@ function trace(m, { program = '', maxWrites = 256, maxTargets = 512 } = {}) {
   let stepReads = [];                         // [address, value] of the data reads from MASKED in the current instruction
   let stepFetchDirty = false;                 // the current instruction was fetched (partly) from a dirty RAM cell
   const recent = [];                          // the last data-read values from MASKED or dirty RAM by ROM code (boot heuristic)
+  const images = romImages(m);
 
   const close = (atEnd) => {
     const rec = { program, target: open.target, from: open.from, kind: open.kind };
@@ -185,7 +191,17 @@ function trace(m, { program = '', maxWrites = 256, maxTargets = 512 } = {}) {
   };
   const onRead = (a, v) => {
     const fetch = a === cpu.pc;   // the CPU fetching the instruction (it reads at its PC); anything else is data
-    if (masked(a)) { if (!fetch) stepReads.push([a, v]); return; }
+    // a read of MASKED is a fetch only for an instruction that started there: program code reading ROM at its PC
+    // (an instruction running on past $7FFF, LDA 0,PCR at the top of RAM) reads ROM data
+    if (masked(a)) {
+      if (fetch && masked(curPc)) return;
+      stepReads.push([a, v]);
+      // ROM code reading ROM data: dirty at once (its writes in this instruction too), but for the reads judged at
+      // the next instruction (a vector, which only picks where control goes: the return address a JSR [$A00x] pushes
+      // after reading it is no ROM data)
+      if (masked(curPc) && !(a >= VEC_LO && a <= VEC_HI) && !(a >= HW_LO && a <= HW_HI)) dirtyStretch = true;
+      return;
+    }
     if (!dirtyRam[a]) return;
     if (masked(curPc)) { dirtyStretch = true; return; }   // ROM code reading ROM-derived data from RAM
     if (fetch) stepFetchDirty = true;                      // judged at the next instruction (a RAM hook may be fetched)
@@ -207,11 +223,21 @@ function trace(m, { program = '', maxWrites = 256, maxTargets = 512 } = {}) {
   const inject = m.injectAndRun;
   m.injectAndRun = function (segments, exec) {
     inject.call(this, segments, exec);
-    for (const seg of segments) for (let i = 0; i < seg.data.length; i++) dirtyRam[(seg.addr + i) & 0xFFFF] = 0;
+    const loaded = new Uint8Array(0x10000);
+    for (const seg of segments) for (let i = 0; i < seg.data.length; i++) { const a = (seg.addr + i) & 0xFFFF; dirtyRam[a] = 0; loaded[a] = 1; }
     if (exec == null) return;
     cpu.a = 0; cpu.b = 0; cpu.x = 0; cpu.y = 0; cpu.u = 0; cpu.dp = 0; cpu.cc &= 0x50;
-    started = true; stopped = null; dirtyStretch = false; open = null;
+    // (stopped and error are never cleared: a stop or a discard is final for the run, so a second program loaded over
+    // RAM the first one's ROM calls filled starts nothing new; RAM is not cleared between loads with ROMs)
+    started = true; dirtyStretch = false; open = null;
     stepReads = []; stepFetchDirty = false; prevPc = null;
+    // the boot heuristic's self-check (rule 5): every 16-byte window of a ROM image left in RAM below $8000 (but the
+    // program just loaded) must be marked; one that is not means a copy the heuristic missed, and the run stops here
+    const below = new Uint8Array(0x8000);
+    for (let a = 0; a < 0x8000; a++) below[a] = loaded[a] ? 0 : m.peek(a);
+    for (const r of findRuns(below, images)) {
+      for (let a = r.at; a < r.at + r.len; a++) if (!loaded[a] && !dirtyRam[a]) { error = 'boot-residue-unmarked'; return; }
+    }
   };
   const removers = [
     m.addProbe(probe),

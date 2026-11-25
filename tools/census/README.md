@@ -18,9 +18,11 @@ The output holds addresses and effects, never ROM bytes:
 * Addresses: a call's `target` (in $8000-$BFFF), its caller `from`, the RAM addresses it wrote.
 * Effects: the registers going in and coming out, the cycles spent in ROM, the values written to RAM outside the
   masked range.
-* The masked range is **$8000-$FFFF**, minus the I/O page $FF00-$FFEF. It covers BASIC, its RAM copy in the 64K
-  mode, a cartridge or DOS at $C000, and the vectors at $FFF0-$FFFF that the SAM maps from ROM. Nothing read from
-  it is output, and writes into it are not recorded.
+* The masked range is **$8000-$FFFF**, minus the I/O page $FF00-$FFDF. It covers BASIC, its RAM copy in the 64K
+  mode, a cartridge or DOS at $C000, and the 32 bytes at $FFE0-$FFFF that the SAM maps from the ROM's last 32.
+  Nothing read from it is output, and writes into it are not recorded.
+* An I/O read the machine answers from ROM goes through the bus, so the guard sees that read too. That covers the
+  floating bus at $FF60-$FFBF.
 
 The guard is **structural**: it never compares values. It follows where data came from, and stops at the first point
 where ROM data could reach the output. The rules are in `lib.js`'s header, and `tests/census.test.js` has a test and
@@ -29,27 +31,46 @@ a mutant for each one:
 1. **The program starts clean.** Recording begins when the census loader starts the program: a machine-code `.bin`,
    a `.cas` loaded straight into memory, or an `asm` step. Its registers A, B, X, Y, U, DP and CC's flags are cleared
    then; S is kept. A program BASIC or a disk starts records nothing, because its registers could hold whatever ROM
-   code left in them.
-2. **Program code may not read ROM.** A data read of the masked range by program code **discards the program**, and
-   nothing it did is written. Two reads are exempt, because they only pick where control goes:
+   code left in them. A stop (rule 4) or a discard (rule 2) is final for the whole run: RAM is not cleared between
+   loads, so a second program loaded later starts nothing new.
+2. **Program code may not read ROM.** Any read of the masked range by an instruction that started outside it
+   **discards the program**, and nothing it did is written. That includes an instruction running on past $7FFF, or
+   `LDA 0,PCR` at the top of RAM. Two reads are exempt, because they only pick where control goes:
    * the two bytes of a `JSR`/`JMP [$A00x]` through BASIC's documented call vectors ($A000-$A00F);
    * the CPU fetching an interrupt vector as it takes an interrupt.
 3. **ROM code that reads ROM data makes its stretch dirty.** A data read of the masked range by ROM code, or of a
-   RAM cell holding ROM data, does this. A call made during a dirty stretch is **refused**: it is written as its
-   addresses only (`{ program, target, from, kind, refused }`), and its RAM writes become dirty.
+   RAM cell holding ROM data, does this, and the instruction's own writes count. A call made during a dirty stretch
+   is **refused**: it is written as its addresses only (`{ program, target, from, kind, refused }`), and its RAM
+   writes become dirty.
 4. **Taint is sticky.** When a dirty stretch returns to the program, the program may hold ROM data, so **recording
    stops** for good: nothing later is written or counted. Recording also stops if program code reads dirty RAM, or
    runs dirty RAM as anything but a `JMP`/`JSR` extended or `RTS` (BASIC's RAM hooks).
 5. **Boot data.** Before the program starts, ROM code that writes a value it has just read from ROM marks that RAM
-   cell dirty. That covers the RAM hooks and tables BASIC copies out of ROM. Two values are not followed: 0 and $FF,
-   and anything BASIC *computes* from ROM data during its boot.
+   cell dirty. That covers the RAM hooks and tables BASIC copies out of ROM.
+   * "Just read" means one of the last four reads, so a block copy that reads more than four bytes before writing
+     escapes it. 0 and $FF are not followed, and neither is anything BASIC *computes* from ROM data.
+   * A **self-check** backs it up. When the program starts, every 16-byte window of the ROM images found in RAM
+     below $8000 must be marked; the program's own image is excluded. If one is not, the run is discarded with
+     `boot-residue-unmarked` and nothing is written. On your ROM this runs silently and only ever answers with that
+     code.
 
-**What is left** is what the census is for: the effects of running ROM code on the program's own inputs. That
-includes constants in ROM instructions and ROM timing. Two more guards bound it:
+**What is left** is what the census is for: the effects of running ROM code on the program's own inputs.
+
+* **Constants and timing.** These effects carry the constants in ROM instructions, and ROM timing. A program that
+  jumps into the middle of ROM code or data and watches what comes out can harvest a few such constants per entry
+  point.
+* **Addresses.** Values that only pick where control goes appear as addresses:
+  * a `JSR [$A002]` record's `target` is the vector's value;
+  * an interrupt's target is the hardware vector's value;
+  * a RAM hook BASIC copied out of ROM (`JMP $xxxx` at $010C) shows its operand as `target`, with `from` the hook.
+
+Three more guards bound what is left:
 
 * **Tripwire.** Each program's output values form one stream. It is checked with `js/media/romrefs.js`'s window
   check against the ROM images. A 16-byte run of any image discards the program.
 * **Scan limit.** More than `--max-targets` (512) distinct ROM entry points discards the program as a scan.
+* **Run-wide limit.** Across every program of one run, more than `--max-run-targets` (1024) distinct ROM entry
+  points writes nothing at all.
 
 Three more rules keep the CLI itself from leaking:
 
@@ -89,7 +110,8 @@ vectors, RTS/RTI/PULS landing in ROM, and interrupts.
 | `--out DIR` | where `census.jsonl` and `census.json` go (default `./census-out`) |
 | `--max-per-site N` | JSONL records per (program, from, target, kind); all are counted in the aggregate (default 20) |
 | `--max-writes N` | writes kept per record; the rest are counted in `writesDropped` (default 256) |
-| `--max-targets N` | the scan limit (default 512) |
+| `--max-targets N` | the scan limit per program (default 512) |
+| `--max-run-targets N` | the limit on distinct ROM entry points across the whole run; more, and nothing is written (default 1024) |
 | `--no-roms` | run on the built-in firmware (the self-test) |
 
 `census.jsonl` holds one record per line:
@@ -147,9 +169,10 @@ The test also runs a program for each leak path, on the built-in ROM stub:
 
 * reading ROM and computing on it;
 * keeping a refused call's ROM byte in RAM and passing it on;
-* the $FFF0-$FFFF vectors;
+* the $FFE0-$FFFF vectors;
+* an instruction reading ROM at its PC from the top of RAM;
 * a `JMP` through a ROM word;
 * copying ROM out;
 * scanning the ROM.
 
-It drives a stand-in machine through a boot that copies ROM into RAM, and runs a mutant of every guard.
+It drives a stand-in machine through the cases that need exact timing: a boot that copies ROM into RAM, with and without a block copy the self-check must catch, a second program after a stop, and RAM written by a dirty stretch that never returned. It runs a mutant of every guard.

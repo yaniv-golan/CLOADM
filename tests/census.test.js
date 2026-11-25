@@ -131,6 +131,18 @@ LP      LDA     ,X+
   vectors: prog(`        LDD     $FFFE
         TFR     D,Y
         JSR     CHROUT`),
+  // $FFE0-$FFEF: ROM bytes through the SAM too, though it sits in the $FFxx page
+  vectorsE0: prog(`        LDD     $FFE0
+        TFR     D,Y
+        JSR     CHROUT`),
+  // an instruction at the top of RAM reading ROM at its PC: LDA 0,PCR at $7FFD reads $8000
+  pcrTop: `        ORG     $7FFD
+START   LDA     0,PCR
+        END     START`,
+  // an instruction running on past $7FFF: LDD # at $7FFE takes its second operand byte from ROM at $8000
+  ldTop: `        ORG     $7FFE
+START   LDD     #$1234
+        END     START`,
   // a JMP through a ROM word that is not one of BASIC's call vectors (rule 2): its target would be a ROM word
   pointer: prog(`        LDX     #BACK
         PSHS    X
@@ -153,6 +165,9 @@ const leakChecks = {
   computed: (r) => r.error === 'program-read-rom' && !r.records.length && !r.refused.length,
   roundTrip: (r) => !r.error && r.stopped === 'rom-data-returned' && r.refused.length === 1 && r.refused[0].target === sym('SKIP') && !r.records.some((x) => x.target === sym('CHROUT') && PROG(x)),
   vectors: (r) => r.error === 'program-read-rom' && !r.records.length,
+  vectorsE0: (r) => r.error === 'program-read-rom' && !r.records.length,
+  pcrTop: (r) => r.error === 'program-read-rom' && !r.records.length,
+  ldTop: (r) => r.error === 'program-read-rom' && !r.records.length,
   pointer: (r) => r.error === 'program-read-rom' && !r.records.some((x) => x.target === ((STUB.rom[0x3FFE] << 8) | STUB.rom[0x3FFF])),
   copy: (r) => r.error === 'program-read-rom' && !r.records.length,
   scan: (r) => /^scan/.test(r.error || ''),
@@ -162,6 +177,9 @@ const descr = {
   computed: 'a program that reads ROM (LDA ,X+), computes on it (EORA) and passes it in B to CHROUT is discarded',
   roundTrip: 'a refused call\'s ROM byte, stored in RAM by the program and passed to CHROUT later: recording stopped before it',
   vectors: 'LDD $FFFE (the reset vector, ROM through the SAM) by the program is a ROM read: discarded',
+  vectorsE0: 'LDD $FFE0 ($FFE0-$FFEF is ROM through the SAM too) by the program is a ROM read: discarded',
+  pcrTop: 'LDA 0,PCR at $7FFD (reading ROM at its PC, $8000) is a ROM read, not a fetch: discarded',
+  ldTop: 'LDD # at $7FFE (its operand runs on into ROM at $8000) is a ROM read, not a fetch: discarded',
   pointer: 'JMP [$BFFE] (a ROM word outside the $A000 vectors as a pointer) is a ROM read: discarded, its target never recorded',
   copy: 'a program copying ROM bytes to CHROUT is discarded',
   scan: 'a program entering more distinct ROM addresses than --max-targets is discarded as a scan',
@@ -171,9 +189,10 @@ for (const k of Object.keys(LEAKS)) { const r = leakRun(lib, k); check(descr[k],
 // ---------------- RAM filled with ROM data before the program starts: a driven machine ----------------
 // A stand-in machine whose probe and taps the test calls itself, instruction by instruction, so the boot can copy a
 // ROM byte into RAM (as BASIC's boot fills its RAM hooks) without any ROM.
-function driven(L) {
+function driven(L, { rom = null } = {}) {
   const mem = new Uint8Array(0x10000), probes = [], reads = [], writes = [];
   const m = {
+    romBanks: rom ? [rom] : undefined,
     cpu: { a: 0, b: 0, x: 0, y: 0, u: 0, s: 0x7F00, dp: 0, cc: 0, pc: 0 }, cycle: 0, peek: (a) => mem[a],
     addProbe(fn) { probes.push(fn); return () => {}; },
     busTaps: { addReadTap(r, fn) { reads.push(fn); return () => {}; }, addWriteTap(r, fn) { writes.push(fn); return () => {}; } },
@@ -228,7 +247,96 @@ const bootScenarios = {
     return d.t.finish();
   },
 };
+// a ROM image for the self-check: 16 bytes of it at $8200
+const IMG = new Uint8Array(0x4000).fill(0x39);
+for (let i = 0; i < 16; i++) IMG[0x200 + i] = 0x20 + i * 7;
+Object.assign(bootScenarios, {
+  // ROM code reading BASIC's vector table as data (not jumping through it): its record is refused
+  romReadsVector(L) {
+    const d = driven(L);
+    d.start();
+    d.step(0x3000); d.fetch(0x3000, 3);
+    d.step(0xB110); d.fetch(0xB110, 3); d.mem[0xA002] = 0xB1; d.mem[0xA003] = 0x10; d.read(0xA002); d.read(0xA003);
+    d.step(0xB113); d.step(0x3003);
+    return d.t.finish();
+  },
+  // a second program loaded after the first was stopped: the stop is final
+  secondStart(L) {
+    const d = driven(L);
+    d.boot(0x0500, 0x42); d.start();
+    d.step(0x3000); d.fetch(0x3000, 3); d.read(0x0500);   // stopped
+    d.m.injectAndRun([{ addr: 0x3100, data: [0x12] }], 0x3100);
+    d.step(0x3100); d.fetch(0x3100, 3); d.step(0xB110); d.step(0x3103);
+    return d.t.finish();
+  },
+  // a dirty stretch that never returns (the program jumps into BASIC for good) fills RAM; the next program loaded
+  // reads it
+  dirtyWrites(L) {
+    const d = driven(L);
+    d.start();
+    d.step(0x3000); d.fetch(0x3000, 3);
+    d.step(0xB110); d.fetch(0xB110, 3); d.mem[0x8200] = 0x42; d.read(0x8200); d.write(0x0600, 0x43);
+    d.step(0xC000);
+    d.m.injectAndRun([{ addr: 0x3100, data: [0x12] }], 0x3100);
+    d.step(0x3100); d.fetch(0x3100, 3); d.read(0x0600);
+    d.step(0x3103); d.step(0xB110); d.step(0x3106);
+    return d.t.finish();
+  },
+  // the program loaded over a cell the boot filled from ROM: that cell is the program's now
+  loadedClean(L) {
+    const d = driven(L);
+    d.boot(0x3000, 0x12); d.start();
+    d.step(0x3000); d.fetch(0x3000, 1);
+    d.step(0x3001); d.fetch(0x3001, 3); d.step(0xB110); d.step(0x3004);
+    return d.t.finish();
+  },
+  // registers holding anything when the program starts are cleared
+  regsCleared(L) {
+    const d = driven(L);
+    Object.assign(d.m.cpu, { a: 0x55, b: 0x66, x: 0x7788, y: 0x99AA, u: 0xBBCC, dp: 0x11, cc: 0xFF });
+    d.start();
+    d.step(0x3000); d.fetch(0x3000, 3); d.step(0xB110); d.step(0x3003);
+    return d.t.finish();
+  },
+  // a ROM read by the program's last instruction, with no instruction after it: still a ROM read
+  trailingRead(L) {
+    const d = driven(L);
+    d.start();
+    d.step(0x3000); d.m.cpu.pc = 0x3003; d.mem[0x8200] = 0x42; d.read(0x8200);
+    return d.t.finish();
+  },
+  // a block copy the boot heuristic misses (16 bytes read, then 16 written): the self-check discards the program
+  bootBlockCopy(L) {
+    const d = driven(L, { rom: IMG });
+    d.mem.set(IMG.subarray(0x200, 0x210), 0x8200);
+    d.step(0x8100); d.fetch(0x8100, 2);
+    for (let i = 0; i < 16; i++) d.read(0x8200 + i);
+    for (let i = 0; i < 16; i++) d.write(0x0700 + i, IMG[0x200 + i]);
+    d.step(0x8102);
+    d.start();
+    return d.t.finish();
+  },
+  // the same bytes copied one by one (read, write): marked, so the program runs
+  bootByteCopy(L) {
+    const d = driven(L, { rom: IMG });
+    d.mem.set(IMG.subarray(0x200, 0x210), 0x8200);
+    d.step(0x8100); d.fetch(0x8100, 2);
+    for (let i = 0; i < 16; i++) { d.read(0x8200 + i); d.write(0x0700 + i, IMG[0x200 + i]); }
+    d.step(0x8102);
+    d.start();
+    d.step(0x3000); d.fetch(0x3000, 3); d.step(0xB110); d.step(0x3003);
+    return d.t.finish();
+  },
+});
 const bootChecks = {
+  romReadsVector: (r) => r.refused.length === 1 && !r.records.length && r.stopped === 'rom-data-returned',
+  secondStart: (r) => r.stopped === 'program-read-rom-data' && !r.records.length,
+  dirtyWrites: (r) => r.stopped === 'program-read-rom-data' && !r.records.some((x) => x.from >= 0x3100),
+  loadedClean: (r) => !r.stopped && r.records.length === 1,
+  regsCleared: (r) => r.records.length === 1 && ['a', 'b', 'x', 'y', 'u', 'dp'].every((k) => r.records[0].regsIn[k] === 0) && (r.records[0].regsIn.cc & ~0x50) === 0,
+  trailingRead: (r) => r.error === 'program-read-rom',
+  bootBlockCopy: (r) => r.error === 'boot-residue-unmarked',
+  bootByteCopy: (r) => !r.error && r.records.length === 1,
   programReads: (r) => r.stopped === 'program-read-rom-data' && !r.records.length && !r.refused.length,
   romReads: (r) => r.stopped === 'rom-data-returned' && !r.records.length && r.refused.length === 1 && r.refused[0].target === 0xB110,
   hook: (r) => !r.stopped && r.records.length === 1 && r.records[0].from === 0x010C && r.records[0].kind === 'jmp',
@@ -239,12 +347,20 @@ const bootDescr = {
   romReads: 'ROM code reading that RAM refuses the record (addresses only) and stops recording on return',
   hook: 'a RAM hook the boot copied from ROM (JMP $B110) runs, and its jump into ROM is recorded',
   hookLoad: 'an instruction other than JMP/JSR/RTS fetched from such RAM (LDA #) stops recording',
+  romReadsVector: 'ROM code reading the $A000 vector table as data (no jump through it) refuses its record',
+  secondStart: 'a second program loaded after a stop records nothing: the stop is final for the run',
+  dirtyWrites: 'RAM a dirty stretch wrote (one that never returned) stops the next program that reads it',
+  loadedClean: 'a cell the boot filled from ROM and the program was then loaded over is the program\'s: it runs and its call is recorded',
+  regsCleared: 'the registers are cleared when the program starts (A, B, X, Y, U, DP, CC\'s flags)',
+  trailingRead: 'a ROM read by the program\'s last instruction, with nothing after it, still discards the program',
+  bootBlockCopy: 'a boot block copy the heuristic misses (16 reads, then 16 writes) trips the self-check: discarded',
+  bootByteCopy: 'the same bytes copied one by one are marked: the self-check passes and the program runs',
 };
 for (const k of Object.keys(bootScenarios)) { const r = bootScenarios[k](lib); check(bootDescr[k], bootChecks[k](r), JSON.stringify(r)); }
 
 // ---------------- the pieces ----------------
 {
-  check('masked: $8000-$FEFF and $FFF0-$FFFF, not the I/O page $FF00-$FFEF, not RAM', lib.masked(0x8000) && lib.masked(0xC000) && lib.masked(0xFEFF) && lib.masked(0xFFF0) && lib.masked(0xFFFF) && !lib.masked(0xFF00) && !lib.masked(0xFFEF) && !lib.masked(0x7FFF));
+  check('masked: $8000-$FEFF and $FFE0-$FFFF (the SAM maps them from ROM), not the I/O page $FF00-$FFDF, not RAM', lib.masked(0x8000) && lib.masked(0xC000) && lib.masked(0xFEFF) && lib.masked(0xFFE0) && lib.masked(0xFFF0) && lib.masked(0xFFFF) && !lib.masked(0xFF00) && !lib.masked(0xFFDF) && !lib.masked(0x7FFF));
   const peek = (img) => (a) => img[a] || 0;
   const jsrVec = { 0x3000: 0xAD, 0x3001: 0x9F, 0x3002: 0xA0, 0x3003: 0x02 };
   check('onlyPicksTarget: JSR [$A002] reading $A002-$A003 and landing there', lib.onlyPicksTarget([[0xA002, 0xB1], [0xA003, 0x10]], peek(jsrVec), 0x3000, 0xB110, -2));
@@ -307,6 +423,13 @@ const opts = (o = {}) => Object.assign(census.parse(['--no-roms', '--frames', '5
     const r = await peekRun(census);
     check('a census script with a peek step is refused by the allow-list (that reason), nothing recorded', allowListHolds(r), r.log);
   }
+  // the run-wide limit on distinct ROM entry points (CHROUT, NUM, POLCAT and SKIP here: 4)
+  const runLimit = async (mod, n) => { const logs = []; const dir = tmp(`out-run-${n}`); const code = await mod.main(['--no-roms', '--frames', '5', '--max-run-targets', String(n), '--out', dir, path.join(TMP, 'calls.cloadm')], { log: (t) => logs.push(t) }); return { code, log: logs.join('\n'), wrote: fs.existsSync(path.join(dir, 'census.jsonl')) }; };
+  const runLimitHolds = (r) => r.code === 1 && /more than --max-run-targets 3: nothing written/.test(r.log) && !r.wrote;
+  {
+    const over = await runLimit(census, 3), under = await runLimit(census, 4);
+    check('a run entering more distinct ROM addresses than --max-run-targets writes nothing; at the limit it writes', runLimitHolds(over) && under.code === 0 && under.wrote, over.log + under.log);
+  }
   // a program started by BASIC (here: typed at the stub), not by the census loader: nothing recorded
   {
     const s = tmp('typed.cloadm');
@@ -367,7 +490,17 @@ const opts = (o = {}) => Object.assign(census.parse(['--no-roms', '--frames', '5
       ['program code reading ROM not discarded (rule 2)', [["if (!romCode) { if (started && !stopped) error = 'program-read-rom'; }", 'if (!romCode) { }']], ['computed', 'vectors', 'copy', 'pointer']],
       ['the vector exemption for any two reads that land where they point', [['if (a0 < VEC_LO || a1 > VEC_HI) return false;', 'return true;']], ['pointer']],
       ['$FFF0-$FFFF not masked', [['const masked = (a) => a >= 0x8000 && !(a >= IO_LO && a <= IO_HI);', 'const masked = (a) => a >= 0x8000 && a < IO_LO;']], ['vectors']],
-      ['ROM code reading ROM data not making its stretch dirty', [['else dirtyStretch = true;', 'else { }']], ['roundTrip']],
+      ['$FFE0-$FFEF taken as I/O', [['IO_HI = 0xFFDF;', 'IO_HI = 0xFFEF;']], ['vectorsE0']],
+      ['a read at the PC taken as a fetch whoever made it', [['if (fetch && masked(curPc)) return;', 'if (fetch) return;']], ['pcrTop', 'ldTop']],
+      ['a stop not final (a second start records again)', [['started = true; dirtyStretch = false; open = null;', 'started = true; stopped = null; error = null; dirtyStretch = false; open = null;']], ['secondStart']],
+      ['dirty-stretch writes not marking RAM', [['else if (started) dirtyRam[a] = dirtyStretch ? 1 : 0;', 'else if (started) dirtyRam[a] = 0;']], ['dirtyWrites']],
+      ['the loaded program not cleaned', [['dirtyRam[a] = 0; loaded[a] = 1;', 'loaded[a] = 1;']], ['loadedClean']],
+      ['the registers not cleared at the start', [['cpu.a = 0; cpu.b = 0; cpu.x = 0; cpu.y = 0; cpu.u = 0; cpu.dp = 0; cpu.cc &= 0x50;', '']], ['regsCleared']],
+      ['a trailing program ROM read not judged by finish()', [["if (!error && prevPc !== null && stepReads.length && !masked(prevPc) && started && !stopped) error = 'program-read-rom';", '']], ['trailingRead']],
+      ['the boot self-check off', [['if (!loaded[a] && !dirtyRam[a]) { error = \'boot-residue-unmarked\'; return; }', '{ }']], ['bootBlockCopy']],
+      ['ROM code reading ROM data not making its stretch dirty', [['else dirtyStretch = true;', 'else { }'], ['if (masked(curPc) && !(a >= VEC_LO && a <= VEC_HI) && !(a >= HW_LO && a <= HW_HI)) dirtyStretch = true;', '']], ['roundTrip']],
+      ['a ROM data read judged only at the next instruction (its writes slip through)', [['if (masked(curPc) && !(a >= VEC_LO && a <= VEC_HI) && !(a >= HW_LO && a <= HW_HI)) dirtyStretch = true;', '']], ['dirtyWrites']],
+      ['ROM code reading the vector table as data not judged', [['else dirtyStretch = true;', 'else { }']], ['romReadsVector']],
       ['taint not sticky (recording goes on after a dirty stretch returns)', [["if (dirtyStretch && started) stop('rom-data-returned');", '']], ['roundTrip']],
       ['the boot not marking RAM it fills from ROM', [['else dirtyRam[a] = v !== 0 && v !== 0xFF && recent.includes(v) ? 1 : 0;', 'else dirtyRam[a] = 0;']], ['programReads', 'romReads']],
       ['program code reading dirty RAM ignored', [["else if (started) stop('program-read-rom-data');", 'else { }']], ['programReads']],
@@ -388,6 +521,8 @@ const opts = (o = {}) => Object.assign(census.parse(['--no-roms', '--frames', '5
     {
       const C = moduleWith(CENSUS, [['for (const x of r.records) if (tw.add(lib.valueBytes(x)))', 'for (const x of r.records) if (false && tw.add(lib.valueBytes(x)))']]);
       check('mutant "census tripwire not applied" is caught', !tripHolds(await C.runProgram(s, opts(), planted)));
+      const R = moduleWith(CENSUS, [['if (targets.size > o.maxRunTargets)', 'if (false)']]);
+      check('mutant "run-wide target limit off" is caught', !runLimitHolds(await runLimit(R, 3)));
       const A = moduleWith(CENSUS, [['if (!ALLOWED.has(s.name))', 'if (false)']]);
       check('mutant "script allow-list off" is caught', !allowListHolds(await peekRun(A)));
       const T = moduleWith(TOKENS, [['if (b < 0x80 && !chars.has(b))', 'if (false)']]);
