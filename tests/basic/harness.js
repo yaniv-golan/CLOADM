@@ -171,7 +171,16 @@ class Basic {
     this.m.reset(true);
     this.frames = 0;
   }
-  frame() { this.m.runFrame(); this.frames++; }
+  // A screen cleared while recording (a frame that leaves at most one row with text after one with two or more: CLS,
+  // or a ROM clearing the screen for its own display) would lose what was on it, as no line scrolled off: the screen
+  // as the frame before showed it is kept in `clears`, with that frame's number.
+  frame() {
+    this.m.runFrame(); this.frames++;
+    if (!this.lines) return;
+    const now = this.screen(), had = this.lastScreen || [], rows = (r) => r.filter((l) => l).length;
+    if (rows(had) >= 2 && rows(now) <= 1) this.clears.push({ frame: this.frames - 1, screen: had });
+    this.lastScreen = now;
+  }
   // the picture now (the last whole frame): { width, height, sha256 of its RGBA pixels, png (base64) }
   shot(name) {
     const f = this.m.render(), p = Emu.frameToRGBA(f), rgba = Buffer.from(p.buffer, p.byteOffset, p.byteLength);
@@ -220,7 +229,7 @@ class Basic {
   record() {
     if (this.taps) for (const remove of this.taps) remove();   // (each tap gives back its remove function)
     const m = this.m, recent = [];
-    this.lines = []; this.flags = [];
+    this.lines = []; this.flags = []; this.clears = []; this.lastScreen = this.screen();
     const SCR = 0x400;
     const cells0 = () => Array.from({ length: 32 }, (_, c) => cell(m.ram[SCR + c]));
     const row0 = () => cells0().join('').replace(/\s+$/, '');
@@ -270,7 +279,7 @@ class Basic {
   // type text through the matrix, paced by what the machine reads (the typist's paced mode), and run until it has
   // all been taken or `limit` frames pass. '\n' is ENTER. Returns the typist job's status.
   type(text, limit = 20000) {
-    const job = this.m.typist.typePaced(text);
+    const job = this.lastJob = this.m.typist.typePaced(text);
     let n = 0;
     while (job.status === 'typing' && n++ < limit) this.frame();
     return job.status;
@@ -331,8 +340,9 @@ class Basic {
 //   #tape-blocks NAME  the result's tapes get { name, motor, blocks?, bad? } (tapeSummary, below): the motor's runs and,
 //                   while recording, the blocks written since #tape-blank or the last #tape-blocks; never their bytes
 // A typed line that starts with a digit is a program line: waited for until the screen settles; any other line
-// is waited for until OK is back. -> { status, transcript, flags, frames, shots?, sounds?, tapes? }; status 'ok', 'no-boot',
-// 'no-clean-start', 'timeout' (and where), or the typist's status when the machine stopped reading the keyboard.
+// is waited for until OK is back. -> { status, transcript, flags, frames, shots?, sounds?, tapes?, clears? }; status 'ok',
+// 'no-boot', 'no-clean-start', 'timeout' (and where), 'stalled' (a typed line of which no key was taken, and where), or
+// the typist's status when the machine stopped reading the keyboard. clears: the screens a clear wiped (Basic.frame).
 // Nothing of the screen is recorded before the clean start (Basic.cleanStart): the boot screen, a ROM's banner among
 // it, is blanked from outside and CLS must leave only OK, so no case can record the banner, whatever it types first.
 //
@@ -353,7 +363,7 @@ function runCase(rom, text, { machine = 'dragon64', guard = true, tapes: tapeDir
     if (!clean) return { status, transcript: [], flags: [], frames: b.frames, ...extra };
     return refused
       ? { status: 'refused', why: refused, transcript: [], flags: [], frames: b.frames }
-      : { status, transcript: b.lines ? b.transcript() : b.screen(), flags: b.flags || [], frames: b.frames, ...(shots.length ? { shots } : {}), ...(sounds.length ? { sounds } : {}), ...(tapes.length ? { tapes } : {}), ...(typistNotes.length ? { typist: typistNotes } : {}), ...extra };
+      : { status, transcript: b.lines ? b.transcript() : b.screen(), flags: b.flags || [], frames: b.frames, ...(shots.length ? { shots } : {}), ...(sounds.length ? { sounds } : {}), ...(tapes.length ? { tapes } : {}), ...(b.clears ? { clears: b.clears } : {}), ...(typistNotes.length ? { typist: typistNotes } : {}), ...extra };
   };
   if (!b.waitOk({ limit: 600, stable: 3 })) return out('no-boot');
   let limit = 30 * 50, nowait = false;
@@ -361,9 +371,12 @@ function runCase(rom, text, { machine = 'dragon64', guard = true, tapes: tapeDir
   // a line is judged by what follows it (OK back, the screen settled), not by whether the typist saw every key
   // taken: a BASIC that runs the line at once and stops reading the keyboard (PLAY sounding, CLOAD) leaves the typist
   // at "not-consumed" though the line ran; that is only noted (the result's typist). Keys that really were not taken
-  // leave BASIC waiting for the line, and the wait after it fails.
+  // leave BASIC waiting for the line, and the wait after it fails. A line of which the machine took no key at all ends
+  // the case, status 'stalled' at that line: the machine stopped reading the keyboard before it (a still screen would
+  // otherwise pass every wait that follows).
   const typed = (t) => {
     const st = b.type(t, limit * 4);
+    if (st === 'not-consumed' && b.lastJob.consumed === 0) return 'stalled';
     if (st === 'not-consumed') { typistNotes.push({ at, status: st }); return null; }
     return st === 'done' ? null : st;
   };

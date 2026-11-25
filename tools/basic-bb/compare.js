@@ -175,9 +175,9 @@ function compare(a, b, shotDir = null) {
       out.push(`${name}: pictures differ: ${badShot}`);
       if (shotDir) sx.forEach((p, i) => { if (sy[i] && p.sha256 !== sy[i].sha256) for (const [tag, q] of [['first', p], ['second', sy[i]]]) fs.writeFileSync(require('path').join(shotDir, `${name}-${q.name}-${tag}.png`), Buffer.from(q.png, 'base64')); });
     }
-    const badSound = compareSounds(x.sounds, y.sounds), badTape = compareTapes(x.tapes, y.tapes);
-    for (const l of [...badSound, ...badTape]) out.push(`${name}: ${l}`);
-    if (at < 0 && !badShot && !badSound.length && !badTape.length) { same++; continue; }
+    const badSound = compareSounds(x.sounds, y.sounds), badTape = compareTapes(x.tapes, y.tapes), badClear = compareClears(x.clears, y.clears);
+    for (const l of [...badSound, ...badTape, ...badClear]) out.push(`${name}: ${l}`);
+    if (at < 0 && !badShot && !badSound.length && !badTape.length && !badClear.length) { same++; continue; }
     if (at < 0) continue;
     const show = (t, i) => (i < t.length ? JSON.stringify(t[i]) : '(none)');
     out.push(`${name}: line ${at + 1} differs`);
@@ -186,7 +186,17 @@ function compare(a, b, shotDir = null) {
   for (const name of b.keys()) if (!a.has(name)) out.push(`${name}: missing from the first file`);
   return { same, report: out, cursor };
 }
-module.exports = { compare, compareCorpus, compareSounds, compareTapes, cursorOnly };
+// the screens clears wiped (runCase's clears): compared only when both records have the field (a record made before
+// it existed has none), screen by screen, their frames not (timing differs) -> lines describing each difference
+function compareClears(p, q) {
+  if (!p || !q) return [];
+  const out = [];
+  if (p.length !== q.length) out.push(`clears: ${p.length} vs ${q.length}`);
+  for (let i = 0; i < Math.min(p.length, q.length); i++)
+    if (JSON.stringify(p[i].screen) !== JSON.stringify(q[i].screen)) out.push(`clear ${i + 1}: the screen before it differs (${JSON.stringify(p[i].screen.slice(-2))} vs ${JSON.stringify(q[i].screen.slice(-2))})`);
+  return out;
+}
+module.exports = { compare, compareCorpus, compareSounds, compareTapes, compareClears, cursorOnly };
 
 if (require.main === module) {
   const args = process.argv.slice(2), si = args.indexOf('--shots');

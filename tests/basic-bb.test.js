@@ -101,6 +101,24 @@ check('build: $8000-$80FF is left free for later fixed entry points', built.rom.
   check('import: compares with our run line for line', compare(new Map(imp.slice(0, 1).map((c) => [c.case, c])), ours).same === 1);
 }
 
+// ---- a machine that stopped reading the keyboard (stalled), and the screens a clear wiped (clears) ----
+{
+  const { runCase } = require('./basic/harness.js');
+  const { compareClears } = require('../tools/basic-bb/compare.js');
+  // SOUND holds the CPU for its whole length without a keyboard scan: the line after it is not taken at all
+  const st = runCase(built.rom, '#nowait\nSOUND 1,255\nPRINT 1\n');
+  check('a typed line of which no key is taken: status stalled at that line, nothing after it run', st.status === 'stalled' && st.at === 'line 3' && !st.transcript.includes('PRINT 1'), JSON.stringify([st.status, st.at, st.transcript]));
+  const ok = runCase(built.rom, 'SOUND 1,20\nPRINT 1\n');
+  check('a line typed once the sound is over is taken: ok', ok.status === 'ok' && ok.transcript.includes(' 1'));
+  const cl = runCase(built.rom, 'PRINT "A"\nPRINT "B"\nCLS\nPRINT "C"\n');
+  check('CLS: the screen it wiped is kept in clears, the transcript as before', cl.status === 'ok' && cl.clears.length === 1 && JSON.stringify(cl.clears[0].screen) === JSON.stringify(['OK', 'PRINT "A"', 'A', 'OK', 'PRINT "B"', 'B', 'OK', 'CLS']) && JSON.stringify(cl.transcript) === JSON.stringify(['OK', 'PRINT "C"', 'C', 'OK']), JSON.stringify(cl.clears));
+  const none = runCase(built.rom, 'PRINT "A"\n');
+  check('no clear: clears is empty', Array.isArray(none.clears) && none.clears.length === 0);
+  check('compareClears: the same screens pass, frames ignored', compareClears([{ frame: 1, screen: ['A', 'B'] }], [{ frame: 9, screen: ['A', 'B'] }]).length === 0);
+  check('compareClears: a different screen or count is reported', compareClears([{ frame: 1, screen: ['A', 'B'] }], [{ frame: 1, screen: ['A', 'C'] }]).length === 1 && compareClears([], [{ frame: 1, screen: ['A'] }]).length === 1);
+  check('compareClears: a record without the field (made before it) is not compared', compareClears(undefined, [{ frame: 1, screen: ['A'] }]).length === 0);
+}
+
 // ---- pictures: #screenshot ----
 {
   const { runCase } = require('./basic/harness.js');

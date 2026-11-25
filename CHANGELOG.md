@@ -62,6 +62,9 @@ Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.
   A `PRINT USING` E field with a point and ten places prints its tenth place, a decimal, as `0`, as the original does.
   `tools/basic-bb/run.js` ends with how many cases are results and names any that stopped on a wait (status
   `timeout`, with the step), and `SKIPF` on a tape with no file left searches until BREAK (a new test).
+  The black-box harness ends a case as `stalled` at a typed line the machine took no key of, keeps each screen a clear
+  wiped (`clears`), and two cassette cases changed: `cas-display` (pictures while `CLOAD` searches, skips and loads)
+  and `cas-errors` (BREAK during a search, with a bounded wait).
 - **The share-link formats are frozen.** Links and snapshots in people's hands keep opening from now on (AGENTS.md,
   rule 7): `SNAPSHOT_OLDEST` never rises (a change to the meaning of state ships a converter from every older version), no
   link or envelope decoder is ever dropped, and a long link's byte 0 is 1 for a moment, 2 for a BASIC program, 3 to 31
