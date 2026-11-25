@@ -1922,6 +1922,21 @@ The program pages' cards are made on the built-in firmware (`tools/program-cards
 loaded); `tests/program-pages.test.js` checks the committed pages and cards are what it makes, decoding the PNGs with
 Node's zlib, and checks the PNG writer against a file worked out by hand from the specification.
 
+## Share your program (a BASIC program as text)
+
+No MAME oracle: a link is a container, and no BASIC ROM may be used (AGENTS.md 4.6). BASIC is our stand-in
+(`tests/fixtures/basic-standin.js`: BASIC's direct-page pointers for an empty program, as [CBU p.7] describes them, and
+OK on the screen). `tests/basic-share.test.js` checks the card's condition (`Session.sharedProgram`: no ROM, an empty
+program, pointers that describe none), the LIST round trip on the Dragon 64, the CoCo, the CoCo 3 and the MC-10 against
+listings written by hand (the sender's bytes and the recipient's are the same, LIST is typed and RUN never is), the
+short link (no picture stored, the text never in the clear), the arrival without ROMs and after them, the limits (over
+65536 characters, a graphics byte in a string, lower case outside a string) and the link format (byte 0 = 2, a moment's
+reader refusing it, a newer program format, damaged ones). The preview's pixels are checked against the VDG's own glyphs
+by hand. The browser check (`basicShare`) drives the card, program mode (the preview pixel for pixel), the short link
+through the Worker, the forum text and the `.bas` file, the refusal, the 653x280 layout, and both arrivals (no ROM, then
+the ROM dropped; a short link with the ROM stored). What real BASIC does with LIST and RUN after the load is load_basic's
+own behaviour (docs/claude.md).
+
 ## NitrOS-9 boot test
 
 What the page's **Boot NitrOS-9** ([using.md](using.md#booting-nitros-9)) rests on. `tests/nitros9.test.js` boots the official NitrOS-9

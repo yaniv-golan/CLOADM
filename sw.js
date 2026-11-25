@@ -212,6 +212,7 @@ const FILES = [
   'js/ui/phone-sheets.js',
   'js/ui/poke-panel.js',
   'js/ui/printer-panel.js',
+  'js/ui/program-arrival.js',
   'js/ui/rom-panel.js',
   'js/ui/rom-sockets.js',
   'js/ui/screen.js',

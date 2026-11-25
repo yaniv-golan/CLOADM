@@ -38,6 +38,7 @@ import { setupSerialPanel } from './serial-panel.js';
 import { setupDriveWirePanel } from './drivewire-panel.js';
 import { setupDisplayPanel } from './display-panel.js';
 import { setupSnapshotPanel } from './snapshot-panel.js';
+import { setupProgramArrival } from './program-arrival.js';
 import { parseUrlConfig, linkFetchError, claudeOffered } from '../config.js';
 import { setupAskPopout } from './ask-popout.js';
 import { setupArmGuard } from './arm-guard.js';
@@ -129,7 +130,8 @@ const romPanel = setupRomPanel(page);
 const romSockets = setupRomSockets(page, romPanel, { confirmSwitch: machinePanel.confirmSwitch });
 setupBootHelp(page, romSockets);
 let library = null;
-const snapshots = setupSnapshotPanel(page, { confirmSwitch: machinePanel.confirmSwitch, openRoms: () => romSockets.reveal() });
+const programArrival = setupProgramArrival(page, { openRoms: () => romSockets.reveal() });
+const snapshots = setupSnapshotPanel(page, { confirmSwitch: machinePanel.confirmSwitch, openRoms: () => romSockets.reveal(), openProgram: programArrival.open });
 const disks = setupDrives(page, { openRoms: () => romSockets.reveal({ to: 'disk' }) });
 const slots = setupSlotsPanel(page, { snapshots });
 const nitros9 = setupNitros9Panel(page);
@@ -339,7 +341,8 @@ const starting = welcome.start(visit, { fromLink, withMedia: link.roms.length > 
   }
   await starting;
   // a share link's moment (#z=, Share screen): opened like a dropped snapshot, once the visit has started
-  if (/^#z=/.test(location.hash)) await snapshots.takeLink(location.hash);
+  // (a BASIC program's link, Share your program, is a #z= too: its payload says which, js/ui/program-arrival.js)
+  if (/^#z=/.test(location.hash)) { if (!await programArrival.takeLink(location.hash)) await snapshots.takeLink(location.hash); }
   // a short link's moment (#l=<id>.<key>: its arrival page on s.cloadm.dev sends the visitor here): fetched, opened
   // with its key in this browser, then opened like the rest
   else if (/^#l=/.test(location.hash)) await snapshots.takeShortLink(location.hash, linkStore);

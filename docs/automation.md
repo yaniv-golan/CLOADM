@@ -1035,6 +1035,29 @@ reads the same WAVs with the same firmware (`node tools/mame-diff/tape/run-tape.
 used: how a given player and a given cable behave is for the person with the hardware. A tape holds one contiguous range per file,
 as `CLOADM` loads it: a program in pieces more than 256 bytes apart is `bad-media`.
 
+### Share links: a moment, or a BASIC program
+
+The Share screen's links carry one of two payloads after `#z=` (base64url, in the fragment, which browsers never send to
+a server). Byte 0 says which, and is the format's version:
+
+| Byte 0 | Payload | Made by | Read by |
+|---|---|---|---|
+| `1` | a moment: deflate-raw of the snapshot's skeleton and its byte arrays (`js/media/snapshot.js` `encodeLongLink`) | `snapshotLink(base)` | `readSnapshotLink(hash)`, then `openSnapshot(snap)` |
+| `2` | a BASIC program ("Share your program"): deflate-raw of UTF-8 JSON `{ format: 'cloadm-basic', version: 1, machine, config, text }`, `text` the program as LIST shows it (one `NUMBER TEXT` line per program line, `\n` between them, characters `$20`-`$7E` only) | `programLink(base)` | `readProgramLink(hash)`, then `openSharedProgram(prog)` |
+
+`3` to `31` are kept for later versions: a page that doesn't know one says the link was made by a newer CLOADM, which is
+what a page that reads only moments says of a program link. A later change to the program's JSON raises its `version`
+(refused the same way). A short link (`https://s.cloadm.dev/<id>#<key>`) holds the same bytes sealed: a moment's short
+link the `.cloadm` file, a program's short link the program link's bytes above (`programShortLink(store)`, with no
+preview picture); `readShortLink(hash, store)` gives `{ snap, id }` or `{ program, id }`.
+
+`sharedProgram()` is the BASIC program in memory on the machine on screen: `null` when there is none, else `{ lines,
+text, refusal }`, where `refusal` (and a `null` text) means it can't be shared as text: its listing is over load_basic's
+65536 characters, or it holds a byte that would not type back the same (a graphics character, a control code, lower case
+outside a string). `openSharedProgram(prog)` switches to a fresh machine of the program's model, loads it as load_basic
+does (no typing), types `LIST` and answers `{ state: 'listed', lines }`; without a BASIC ROM for that model it answers
+`{ state: 'needs-roms', name, lines }` and loads nothing (call it again once the ROMs are added).
+
 ### What is stable
 
 | Stable: kept working, changes noted in the CHANGELOG | |

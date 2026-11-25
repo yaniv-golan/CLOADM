@@ -236,6 +236,22 @@
   #badge { font-weight: 800; font-stretch: 125%; font-size: 15px; letter-spacing: .08em; color: #3A3D3C; }
   .monitor[data-family="dragon"] #badge { color: var(--dragon-badge); }
   .led { width: 10px; height: 10px; border-radius: 50%; background: #FF3B30; box-shadow: 0 0 10px #FF3B30; }
+  /* arriving on a shared BASIC program (js/ui/program-arrival.js): docked at the top of the tube, the listing below it;
+     without the machine's BASIC ROM it holds the listing itself, and may take most of the tube (the stub shows nothing) */
+  #progArrival { position: absolute; left: 4%; right: 4%; top: 4%; max-height: 40%; overflow: auto; box-sizing: border-box; z-index: 2;
+    background: var(--panel); color: var(--text); border: 1px solid var(--phosphor); border-radius: var(--r-14); padding: 10px 14px; font-size: 15px; }
+  #progArrival.needs { max-height: 92%; }
+  #progArrival[hidden], #progArrival [hidden] { display: none; }
+  #progArrival p { margin: 0; }
+  #progArrival pre { margin: 8px 0; padding: 8px; max-height: 40vh; overflow: auto; background: var(--panel-deep); border: 1px solid var(--line); border-radius: var(--r-8);
+    font: 13px/1.4 var(--font-mono); white-space: pre; }
+  #progArrival .bar { display: flex; flex-wrap: wrap; gap: 6px 8px; margin-top: 8px; }
+  #progArrival button { border-radius: var(--pill); }
+  @media (max-width: 700px), (max-height: 520px) {
+    #progArrival { padding: 6px 10px; font-size: 13px; border-radius: var(--r-8); }
+    #progArrival .bar { margin-top: 6px; }
+    #progArrival button { min-height: 0; padding: 4px 10px; font-size: 13px; }
+  }
   #bootHelp { position: absolute; left: 4%; right: 4%; bottom: 4%; background: var(--warn-panel); color: var(--text); border: 1px solid var(--orange);
     border-radius: var(--r-14); padding: 12px 14px; font-size: 15px; }
   #bootHelp strong { color: var(--orange); display: block; margin-bottom: 4px; }
@@ -639,6 +655,17 @@
   #share .linkrow button.icon { flex: none; min-width: 44px; padding: 0 10px; }
   /* the program page link (a bundled program already played): a plain button above the long link's set */
   #share #btnShareProgramPage { align-self: flex-start; }
+  /* "Share your program": the card above Copy, its switch a link-like button; in program mode the moment's own extras
+     (Save picture, Save clip, the snapshot file, the program page, the picture switch) give way to the program's */
+  #share #programCard { padding: 10px 14px; gap: 4px; }
+  #share #programCard[hidden], #share #programMore[hidden], #share .extra[hidden] { display: none; }
+  #share #programCard p { margin: 0; font-size: 15px; color: var(--text); }
+  #share button.linkish { background: none; border: 0; padding: 0; min-height: 0; color: var(--phosphor); text-decoration: underline; font: inherit; cursor: pointer; }
+  #share .seg { display: inline-flex; gap: 10px; align-items: center; font: 14px var(--font-mono); }
+  #share .seg label { display: flex; gap: 4px; align-items: center; }
+  #share.program-mode #btnShareShot, #share.program-mode #btnShareClip, #share.program-mode #btnShareDownload,
+  #share.program-mode #btnShareProgramPage, #share.program-mode #previewSwitch { display: none; }
+  #share.program-mode .frame canvas { box-shadow: 0 0 50px rgba(61, 245, 90, .25); }
   #share .disc [hidden] { display: none; }
   #share .disc { border: 1px solid var(--line); border-radius: var(--r-14); padding: 4px 16px; }
   #share .disc > summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; justify-content: space-between; gap: 12px; font-weight: 700; list-style: none; }
@@ -711,6 +738,8 @@
     #share .romline .full { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
     #share .romline .brief { display: inline; }
     #share #shareExtra { order: 6; }
+    #share #programCard { order: 1; padding: 6px 10px; }
+    #share #programCard p { font-size: 14px; line-height: 1.3; }
     #share #shortTerms { order: 7; font-size: 11px; line-height: 1.25; }
     #share #previewSwitch { order: 8; }
     #share #shortMade { order: 9; display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
@@ -1844,6 +1873,12 @@ npx serve -l 8000 .</pre>
          to assistive technology and is the line's title) -->
     <p id="shareRom" class="romline"><span class="full" id="shareRomFull"></span><span class="brief" id="shareRomBrief" aria-hidden="true"></span></p>
     <div id="shareExtra" class="extra"></div>
+    <!-- "Share your program" (js/ui/share.js): only when a BASIC program is in memory. The moment stays the default; the
+         card's switch shares the program's text instead (and, in program mode, switches back) -->
+    <div id="programCard" class="card2" hidden>
+      <p><strong>Your BASIC program</strong> · <span id="programLines"></span> · <button id="btnProgramMode" type="button" class="linkish">Share the program instead</button></p>
+      <p id="programWhy" class="why"></p>
+    </div>
     <!-- One link (js/ui/share.js): the primary is Copy link (and Share… where the browser has a sheet). An unchanged
          bundled program gives its program page instead. A short link is made on the tap; where it can't be, the long
          link is copied, with the reason beside it. -->
@@ -1873,6 +1908,12 @@ npx serve -l 8000 .</pre>
         <p class="small" id="longNote">Holds the whole moment in the address; nothing is uploaded.</p>
         <div class="linkrow"><label for="shareLink" class="sr-only">Long link</label><input id="shareLink" readonly><button id="btnShareCopyLong">Copy</button></div>
         <label class="switch"><input type="checkbox" id="shareAlwaysLong"> Always use long links (nothing leaves this device)</label>
+      </div>
+      <!-- program mode only: the program's text for a forum post (a ``` or [code] block, then the link) and as a .bas file -->
+      <div class="linkset" id="programMore" hidden>
+        <div class="bar"><button id="btnProgramForum">Copy as text for a forum</button>
+          <span class="seg" role="radiogroup" aria-label="Forum text style"><label><input type="radio" name="forumStyle" value="md" checked> ```</label><label><input type="radio" name="forumStyle" value="bb"> [code]</label></span></div>
+        <div class="bar"><button id="btnProgramBas">Download .bas</button></div>
       </div>
       <div class="bar" id="shareSaveMore">
         <button id="btnShareShot">Save picture</button>
@@ -1930,6 +1971,12 @@ npx serve -l 8000 .</pre>
         <div id="bootHelp" hidden role="status"><strong id="bootHelpTitle"></strong><span id="bootHelpText"></span>
           <div class="bar"><button id="btnBootSockets" class="primary">Add ROMs</button>
             <button id="btnBootStub">Run without ROMs</button><button id="btnBootPower" class="primary" hidden>Switch off and on</button><button id="btnBootDismiss">Dismiss</button></div></div>
+        <!-- arriving on a shared BASIC program (a program link): js/ui/program-arrival.js -->
+        <div id="progArrival" role="status" hidden><p id="progArrivalText"></p>
+          <pre id="progArrivalListing" hidden></pre>
+          <div id="progArrivalRoms" hidden><p id="progArrivalNeed"></p>
+            <div class="bar"><button id="btnProgArrivalRoms" type="button" class="primary">Add ROMs</button><button id="btnProgArrivalCopy" type="button">Copy the listing</button></div></div>
+          <div class="bar"><button id="btnProgArrivalDismiss" type="button">Dismiss</button></div></div>
       </div>
       <!-- touch screens only (js/ui/welcome.js): a state cue on the bezel until sound runs; a tap anywhere unlocks it. After the
            screen in the page, so a reading mode starts with the screen's text; the cue is for the eyes, not read out -->
@@ -2670,6 +2717,7 @@ npx serve -l 8000 .</pre>
 <link rel="modulepreload" href="js/ui/ask.js">
 <link rel="modulepreload" href="js/ui/command-box.js">
 <link rel="modulepreload" href="js/ui/share.js">
+<link rel="modulepreload" href="js/ui/program-arrival.js">
 <link rel="modulepreload" href="js/ui/slots-panel.js">
 <link rel="modulepreload" href="js/ui/tape-panel.js">
 <link rel="modulepreload" href="js/ui/nitros9-panel.js">

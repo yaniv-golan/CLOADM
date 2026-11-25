@@ -1,7 +1,8 @@
 /*
  * Opening snapshots: a .cloadm file dropped on the screen or picked with Insert…, or the
  * snapshot a long link carries (#z=; js/ui/share.js writes them) or a short link's moment
- * (#l=<id>.<key>, fetched from s.cloadm.dev and opened with its key here). If it needs ROMs this browser doesn't
+ * (#l=<id>.<key>, fetched from s.cloadm.dev and opened with its key here; a short link that holds a BASIC program
+ * instead goes to openProgram: js/ui/program-arrival.js). If it needs ROMs this browser doesn't
  * have, a card ("This moment needs Dragon 64 BASIC") offers Add ROMs
  * (and the moment opens as soon as they are added) or a look around that machine without them; if it is of
  * another model or config, the usual switch confirmation asks first.
@@ -10,7 +11,7 @@ import { SessionError, SnapshotRomsError } from '../session.js';
 import { looksLikeSnapshot } from '../media/snapshot.js';
 import { $, ESC } from './page.js';
 
-export function setupSnapshotPanel(page, { confirmSwitch, openRoms }) {
+export function setupSnapshotPanel(page, { confirmSwitch, openRoms, openProgram }) {
   const { session } = page;
   let waiting = null;    // a snapshot waiting for its ROMs
 
@@ -80,6 +81,8 @@ export function setupSnapshotPanel(page, { confirmSwitch, openRoms }) {
     catch (e) { if (!(e instanceof SessionError)) throw e; page.status(e.message, true); history.replaceState(null, '', location.pathname + location.search); return true; }
     if (!got) return false;
     history.replaceState(null, '', location.pathname + location.search);
+    // a program's short link (Share your program): its program arrives as a program link's does
+    if (got.program) { openProgram(got.program); return true; }
     open(got.snap);
     return true;
   }

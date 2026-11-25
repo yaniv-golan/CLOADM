@@ -21426,6 +21426,186 @@ async function shortLinkChecks(browser, base, site, check) {
   await closeCtx(ctx);
 }
 
+// "Share your program" (js/ui/share.js program mode, js/ui/program-arrival.js; tests/basic-share.test.js in Node).
+// BASIC is our stand-in (tests/fixtures/basic-standin.js: BASIC's pointers and OK, our own code), on the sender's
+// Dragon 64 and the recipient's MC-10 and Dragon 64. The card shows only with a program in memory; its switch puts the
+// screen in program mode (heading, the LIST preview in the machine's font, the caption); Copy makes a short link that
+// holds the program sealed and no picture; the forum text (``` and [code]) and the .bas file; a program that can't be
+// shared as text says why with the switch back; a short landscape screen keeps the card between the heading and Copy
+// (653x280). The recipient: a program link with no BASIC ROM shows the listing as text with Add ROMs and Copy the
+// listing, and loads and lists it once the ROMs are dropped; a short link with the ROMs there lists it at once.
+async function basicShareChecks(browser, base, site, check) {
+  const { pathToFileURL } = require('url');
+  const Emu = require('../tests/load')();
+  const { build } = require('../tests/fixtures/basic-standin');
+  const W = await import(pathToFileURL(path.join(__dirname, '../shortlink/worker.js')).href);
+  const { MemoryBucket, memoryLimiter } = await import(pathToFileURL(path.join(__dirname, '../shortlink/memory-bucket.js')).href);
+  const local = site.replace(/\/$/, '');
+  const env = { BUCKET: new MemoryBucket(), RATE_IP: memoryLimiter(100), RATE_ALL: memoryLimiter(1000), DAILY_CAP: '100', ALLOWED_ORIGINS: `${local},https://cloadm.dev`, REPORT_EMAIL: 'abuse@example.com' };
+  const serve = (ctx) => ctx.route('https://s.cloadm.dev/**', async (route) => {
+    const r = route.request(), u = new URL(r.url()), origin = r.headers().origin;
+    if (u.pathname.startsWith('/api/')) {
+      const res = await W.default.fetch(new Request(r.url(), { method: r.method(), headers: r.headers(), body: ['GET', 'HEAD'].includes(r.method()) ? null : r.postDataBuffer() }), env, {});
+      return route.fulfill({ status: res.status, headers: Object.fromEntries(res.headers), body: Buffer.from(await res.arrayBuffer()) });
+    }
+    const cors = origin && env.ALLOWED_ORIGINS.split(',').includes(origin) ? { 'access-control-allow-origin': origin } : {};
+    const o = env.BUCKET.objects.get(decodeURIComponent(u.pathname.slice(1)));
+    if (!o) return route.fulfill({ status: 404, headers: cors, body: 'Not Found' });
+    return route.fulfill({ status: 200, headers: Object.assign({ 'content-type': 'application/octet-stream' }, cors), body: Buffer.from(o.bytes) });
+  });
+  const romsOf = (id) => Object.fromEntries(Object.entries(build(Emu, id)).map(([k, v]) => [k, [...v]]));
+  const PROG = '10 rem shared\n20 for i=1 to 3:? "Hi";i:next\n30 if a=1 then 20 else 40\n40 x=peek(1024):gosub 60\n50 end\n60 return\n';
+  const LISTED = '10 REM SHARED\n20 FOR I=1 TO 3:PRINT "Hi";I:NEXT\n30 IF A=1 THEN 20 ELSE 40\n40 X=PEEK(1024):GOSUB 60\n50 END\n60 RETURN';
+  const REFUSED = 'This program can\'t be shared as text: share the whole moment instead.';
+  const ARRIVED = 'Someone sent you a BASIC program (6 lines). It\'s listed below; type RUN to start it.';
+  const errors = [];
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, serviceWorkers: 'block', acceptDownloads: true, permissions: ['clipboard-read', 'clipboard-write'] });
+  await serve(ctx);
+  const page = await ctx.newPage();
+  page.on('pageerror', (e) => errors.push(e.message));
+  const clip = () => page.evaluate(() => navigator.clipboard.readText());
+  const openShare = async () => {
+    if (await page.evaluate(() => location.hash === '#share')) { await page.click('#shareBack'); await page.waitForSelector('#share', { state: 'hidden' }); }
+    // (the app bar's Share: on a short landscape screen the bar's button is folded into the menu, so it is pressed here)
+    await page.evaluate(() => document.getElementById('btnShare').click()); await page.waitForSelector('#share', { state: 'visible' });
+    await waitFor(page, () => !!document.getElementById('shareLink').value);
+  };
+  const closeShare = async () => { await page.click('#shareBack'); await page.waitForSelector('#share', { state: 'hidden' }); };
+  await page.goto(`${base}?machine=dragon64`);
+  await linkIn(page);
+  // the stand-in in the Dragon 64's sockets: BASIC at its prompt with an empty program
+  await page.evaluate((roms) => { const m = window.emu.session.shownMachine; m.setRoms(Object.fromEntries(Object.entries(roms).map(([k, v]) => [k, new Uint8Array(v)]))); m.reset(true); }, romsOf('dragon64'));
+  check('basicShare: the stand-in BASIC boots to OK', await waitFor(page, () => window.emu.session.bootStatus().state === 'ok'));
+  await openShare();
+  check('basicShare: no program in memory: no program card', await page.isHidden('#programCard'));
+  await closeShare();
+  await page.evaluate((p) => window.emu.session.loadBasic(p), PROG);
+  await openShare();
+  const card = await page.evaluate(() => {
+    const r = (id) => document.getElementById(id).getBoundingClientRect();
+    return { shown: document.getElementById('programCard').checkVisibility(), text: document.getElementById('programCard').innerText.replace(/\s+/g, ' ').trim(),
+      above: r('programCard').bottom <= r('btnShareCopy').top + 1, h1: document.getElementById('shareHeading').textContent, mode: document.getElementById('share').classList.contains('program-mode') };
+  });
+  check('basicShare: a program in memory: the card above Copy, "Your BASIC program · 6 lines · Share the program instead"; the moment stays the default',
+    card.shown && card.text === 'Your BASIC program · 6 lines · Share the program instead' && card.above && card.h1 === 'Share this moment' && !card.mode, JSON.stringify(card));
+  // program mode
+  await page.click('#btnProgramMode');
+  const want = Emu.frameToRGBA(Emu.textScreenFrame(Emu.listingRows(LISTED)));
+  const pm = await page.evaluate(() => {
+    const c = document.getElementById('sharePicture'), px = new Uint32Array(c.getContext('2d').getImageData(0, 0, c.width, c.height).data.buffer);
+    const vis = (id) => document.getElementById(id).checkVisibility();
+    return { h1: document.getElementById('shareHeading').textContent, prefix: document.getElementById('sharePrefix').textContent, name: document.getElementById('shareName').textContent,
+      w: c.width, h: c.height, px: Array.from(px), back: document.getElementById('btnProgramMode').textContent, more: !document.getElementById('programMore').hidden,
+      moment: ['btnShareShot', 'btnShareClip', 'btnShareDownload', 'previewSwitch'].filter(vis), copy: !document.getElementById('btnShareCopy').disabled,
+      long: document.getElementById('shareLink').value, why: document.getElementById('programWhy').textContent };
+  });
+  check('basicShare: program mode: "Share your program", the caption "What they\'ll see first · LIST", and "Share the whole moment instead"',
+    pm.h1 === 'Share your program' && pm.prefix === 'What they\'ll see first ·' && pm.name === 'LIST' && pm.back === 'Share the whole moment instead' && pm.why === '', JSON.stringify(Object.assign({}, pm, { px: undefined })));
+  check('basicShare: the preview is the first lines LIST shows, in the VDG\'s own font, pixel for pixel', pm.w === 256 && pm.h === 192 && pm.px.length === want.length && pm.px.every((v, i) => v === want[i]), `${pm.w}x${pm.h}`);
+  check('basicShare: program mode offers the program\'s ways and not the moment\'s (picture, clip, snapshot file, the picture switch)', pm.more && pm.moment.length === 0 && pm.copy, JSON.stringify(pm.moment));
+  const longProg = await new Emu.Session({ store: Emu.memoryStore() }).readProgramLink(pm.long.slice(pm.long.indexOf('#'))).catch((e) => e);
+  check('basicShare: the long link carries the program (#z=, byte 0 = 2), for this machine', longProg && longProg.machine === 'dragon64' && longProg.text === LISTED && pm.long.startsWith(base), pm.long.slice(0, 90));
+  if (shotDir) await page.screenshot({ path: path.join(shotDir, 'basic-share-program-mode.png'), fullPage: true });
+  // Copy: the short link, holding the program's text sealed, and no picture
+  await page.click('#btnShareCopy');
+  const made = await waitFor(page, () => !document.getElementById('shortMade').hidden, null, 15000);
+  const url = await page.inputValue('#shareShort');
+  const m = /^https:\/\/s\.cloadm\.dev\/([A-Za-z0-9_-]{8})#([A-Za-z0-9_-]{22})$/.exec(url) || [];
+  const sealed = m[1] && env.BUCKET.objects.get(`${m[1]}.bin`);
+  const opened = sealed ? await Emu.decodeProgramLink(await Emu.openMoment(new Uint8Array(sealed.bytes), m[2])).catch((e) => e) : null;
+  check('basicShare: Copy makes the short link and copies it; stored: the program sealed, no preview picture', made && !!m[1] && await clip() === url && opened && opened.text === LISTED
+    && opened.machine === 'dragon64' && !env.BUCKET.objects.has(`${m[1]}.png`) && !Buffer.from(sealed.bytes).toString('latin1').includes('SHARED'), url);
+  // More ways: the forum text in both styles (with the short link just made), and the .bas file
+  await page.click('#shareMore > summary');
+  await page.click('#btnProgramForum');
+  const md = await waitFor(page, (u) => navigator.clipboard.readText().then((t) => t.startsWith('```')), url, 5000) && await clip();
+  await page.check('input[name="forumStyle"][value="bb"]');
+  await page.click('#btnProgramForum');
+  const bb = await waitFor(page, () => navigator.clipboard.readText().then((t) => t.startsWith('[code]')), null, 5000) && await clip();
+  check('basicShare: "Copy as text for a forum": a ``` block, then the link', md === `\`\`\`\n${LISTED}\n\`\`\`\n${url}\n`, JSON.stringify(md));
+  check('basicShare: ... and as [code]', bb === `[code]\n${LISTED}\n[/code]\n${url}\n`, JSON.stringify(bb));
+  const [dl] = await Promise.all([page.waitForEvent('download'), page.click('#btnProgramBas')]);
+  const bas = fs.readFileSync(await dl.path(), 'latin1');
+  check('basicShare: "Download .bas": the listing as text', /\.bas$/.test(dl.suggestedFilename()) && bas === `${LISTED}\n`, dl.suggestedFilename());
+  // back to the moment: its heading, its picture (the machine's frame), its Copy
+  await page.click('#btnProgramMode');
+  const back = await page.evaluate(() => ({ h1: document.getElementById('shareHeading').textContent, w: document.getElementById('sharePicture').width, made: !document.getElementById('shortMade').hidden,
+    btn: document.getElementById('btnProgramMode').textContent, shot: document.getElementById('btnShareShot').checkVisibility(), more: document.getElementById('programMore').checkVisibility() }));
+  check('basicShare: "Share the whole moment instead" switches back: its heading, picture and ways; the program\'s made link is not the moment\'s',
+    back.h1 === 'Share this moment' && back.w !== 256 && !back.made && back.btn === 'Share the program instead' && back.shot && !back.more, JSON.stringify(back));
+  // short landscape: the card between the heading and Copy, in program mode
+  await closeShare();
+  await page.setViewportSize({ width: 653, height: 280 });
+  await openShare();
+  await page.click('#btnProgramMode');
+  const land = await page.evaluate(() => {
+    const r = (id) => document.getElementById(id).getBoundingClientRect(), side = r('shareSide'), h = r('shareHeading'), c = r('programCard'), b = r('btnShareCopy');
+    return { order: h.bottom <= c.top + 1 && c.bottom <= b.top + 1, inside: [h, c, b].every((x) => x.top >= side.top - 1 && x.bottom <= side.bottom + 1), page: document.scrollingElement.scrollHeight <= innerHeight + 1,
+      h1: document.getElementById('shareHeading').textContent, side: [side.top, side.bottom], h: [h.top, h.bottom], c: [c.top, c.bottom], b: [b.top, b.bottom] };
+  });
+  check('basicShare: 653x280 in program mode: the card sits between the heading and Copy, all three in the column\'s first view, and the page does not scroll',
+    land.order && land.inside && land.page && land.h1 === 'Share your program', JSON.stringify(land));
+  if (shotDir) await page.screenshot({ path: path.join(shotDir, 'basic-share-653x280.png') });
+  await closeShare();
+  await page.setViewportSize({ width: 1280, height: 900 });
+  // a byte that can't be typed (a graphics character in a string): the reason, with the switch back, and Copy dark
+  await page.evaluate(() => { const s = window.emu.session; s.loadBasic('10 PRINT "A"'); s.pokeBytes(0x1E01 + 7, [0x8F]); });
+  await openShare();
+  await page.click('#btnProgramMode');
+  const no = await page.evaluate(() => ({ why: document.getElementById('programWhy').textContent, shown: document.getElementById('programWhy').checkVisibility(), copy: document.getElementById('btnShareCopy').disabled,
+    btn: document.getElementById('btnProgramMode').textContent, lines: document.getElementById('programLines').textContent, more: document.getElementById('programMore').checkVisibility() }));
+  check('basicShare: a program that can\'t be shared as text: the reason inline, with "Share the whole moment instead", Copy dark',
+    no.why === REFUSED && no.shown && no.copy && no.btn === 'Share the whole moment instead' && no.lines === '1 line' && !no.more, JSON.stringify(no));
+  await page.click('#btnProgramMode');
+  check('basicShare: ... and the moment can still be shared', await page.evaluate(() => !document.getElementById('btnShareCopy').disabled && document.getElementById('shareHeading').textContent === 'Share this moment'));
+
+  // the recipient, with no BASIC ROM: an MC-10 program link
+  const ctx2 = await browser.newContext({ viewport: { width: 1280, height: 900 }, serviceWorkers: 'block', permissions: ['clipboard-read', 'clipboard-write'] });
+  await serve(ctx2);
+  const p2 = await ctx2.newPage();
+  p2.on('pageerror', (e) => errors.push(e.message));
+  const MC = '10 REM SHARED\n20 FOR I=1 TO 3:PRINT "Hi";I:NEXT\n30 IF A=1 THEN 20\n40 X=PEEK(1024):GOSUB 60\n50 END\n60 RETURN';
+  const mcLink = `${base}?machine=mc10#z=${Buffer.from(await Emu.encodeProgramLink({ machine: 'mc10', config: {}, text: MC })).toString('base64url')}`;
+  await p2.goto(mcLink);
+  await linkIn(p2);
+  const need = await waitFor(p2, () => !document.getElementById('progArrival').hidden) && await p2.evaluate(() => ({ text: document.getElementById('progArrivalText').textContent,
+    listing: document.getElementById('progArrivalListing').textContent, shown: document.getElementById('progArrivalListing').checkVisibility(), need: document.getElementById('progArrivalNeed').textContent,
+    buttons: ['btnProgArrivalRoms', 'btnProgArrivalCopy'].map((id) => document.getElementById(id).checkVisibility() && document.getElementById(id).textContent), machine: window.emu.machine.id, hash: location.hash }));
+  check('basicShare: no BASIC ROM: the listing as text, "To run it, this MC-10 needs its BASIC ROM.", [Add ROMs] [Copy the listing], on an MC-10',
+    need && need.listing === MC && need.shown && need.need === 'To run it, this MC-10 needs its BASIC ROM.' && need.buttons.join() === 'Add ROMs,Copy the listing' && need.machine === 'mc10'
+    && need.text === 'Someone sent you a BASIC program (6 lines).' && need.hash === '', JSON.stringify(need));
+  if (shotDir) await p2.screenshot({ path: path.join(shotDir, 'basic-share-arrival-no-roms.png') });
+  await p2.click('#btnProgArrivalCopy');
+  check('basicShare: "Copy the listing" copies it', await waitFor(p2, (t) => navigator.clipboard.readText().then((x) => x === t), MC, 5000));
+  // the ROMs dropped (our stand-in's CRC as a known MC-10 dump, page memory only): it loads and is listed, on its own
+  const mcRom = build(Emu, 'mc10').basic;
+  await p2.evaluate((b) => {
+    const crc = (bytes) => { let c = -1; for (const v of bytes) { c ^= v; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; } return ((c ^ -1) >>> 0).toString(16).toUpperCase().padStart(8, '0'); };
+    window.emu.profiles.mc10.roms[0].crcs.push(crc(b));
+  }, [...mcRom]);
+  await dropFiles(p2, [['mc10.rom', Buffer.from(mcRom)]]);
+  const listed = await waitFor(p2, (t) => document.getElementById('progArrivalText').textContent === t, ARRIVED, 15000);
+  const after = await p2.evaluate(() => { const s = window.emu.session, m = s.shownMachine, w = (a) => (s.readByte(a) << 8) | s.readByte(a + 1);
+    return { list: window.emu.Emu.listProgram((a) => s.readByte(a), w(0x93), 'mc10'), id: m.id, rom: m.hasRom, listing: document.getElementById('progArrivalListing').checkVisibility(), roms: document.getElementById('progArrivalRoms').checkVisibility() }; });
+  check('basicShare: the ROMs added: the program loads (no typing) and the card says "Someone sent you a BASIC program (6 lines). It\'s listed below; type RUN to start it."',
+    listed && after.list === MC && after.id === 'mc10' && after.rom && !after.listing && !after.roms, JSON.stringify(after));
+  if (shotDir) await p2.screenshot({ path: path.join(shotDir, 'basic-share-arrival-listed.png') });
+  // the sender's short link, opened where the Dragon 64's BASIC is stored: listed at once on a fresh Dragon 64
+  await p2.evaluate(async (roms) => { const s = window.emu.session; for (const [k, v] of Object.entries(roms)) s.roms.put('dragon64', k, new Uint8Array(v), `${k}.rom`); await s.index.settled(); }, romsOf('dragon64'));
+  // (stored: a visit of its own finds them, before the link is opened)
+  await p2.goto(`${base}?machine=mc10`); await linkIn(p2);
+  check('basicShare: (the Dragon 64\'s stand-in BASIC is stored in this browser)', await waitFor(p2, () => window.emu.session.machineRoms('dragon64').bootable, null, 10000));
+  await p2.goto(`${base}#l=${m[1]}.${m[2]}`);
+  await linkIn(p2);
+  const short = await waitFor(p2, (t) => document.getElementById('progArrivalText').textContent === t, ARRIVED, 15000) && await p2.evaluate(() => {
+    const s = window.emu.session, w = (a) => (s.readByte(a) << 8) | s.readByte(a + 1);
+    return { list: window.emu.Emu.listProgram((a) => s.readByte(a), w(0x19), 'dragon'), id: s.shownMachine.id, hash: location.hash };
+  });
+  check('basicShare: the short link, with the Dragon 64\'s BASIC there: a fresh Dragon 64, the program listed', short && short.list === LISTED && short.id === 'dragon64' && short.hash === '', JSON.stringify(short || await p2.evaluate(() => [document.getElementById('progArrivalText').textContent, document.getElementById('status').textContent, window.emu.machine.id, window.emu.machine.hasRom])));
+  check('basicShare: no page errors', errors.length === 0, errors.join(' | '));
+  await ctx.close(); await ctx2.close();
+}
+
 const GROUPS = (base, site) => [
   ['models', (b) => modelsChecks(b, base, check)],
   ['reset', (b) => resetChecks(b, base, check)],
@@ -21511,6 +21691,7 @@ const GROUPS = (base, site) => [
   ['phoneChat', (b) => phoneChatChecks(b, base, check)],
   ['share', (b) => shareChecks(b, base, site, check)],
   ['shortLink', (b) => shortLinkChecks(b, base, site, check)],
+  ['basicShare', (b) => basicShareChecks(b, base, site, check)],
   ['favicon', (b) => faviconChecks(b, site, check)],
   ['closedViews', (b) => closedViewsChecks(b, base, check)],
   ['uiModel', (b) => uiModelChecks(b, base, check)],

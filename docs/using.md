@@ -126,7 +126,7 @@ The [README](../README.md#what-works) has the short version of this table.
 | **Games** | 2048 and Minesweeper, written for CLOADM, on every 6809 model with 32K or more, with or without ROMs ([details](#games)) | |
 | **Input** | Keyboard in two modes (translated: the character typed; positional: the physical key), keyboard joystick, gamepads (two joysticks, dead zone), the Tandy and CoCo Max 3 Hi-Res interfaces, the CoCo 3 "The Rat" mouse, the CoCo Max Hi-Res module, mouse as the right joystick; an on-screen keyboard on phones and tablets (split for the thumbs when held sideways) and a touch joystick with FIRE, a tappable welcome menu | |
 | **Tools** | Assembler, Debugger, snapshots, POKE book; a command line, MCP server and Node API for CI and agents ([Automation](automation.md), [MCP](mcp.md)) | Step back (rewind) |
-| **Links, embedding, offline** | Every setting as a URL parameter (machine, RAM, CPU, a program, tape, cartridge or disk to load, display, input); the Share screen's one **Copy link**: an untouched bundled program gives its page (`cloadm.dev/2048/`), otherwise a short link (`s.cloadm.dev/<id>#<key>`, about 50 characters, sealed in your browser, with a QR code and an optional public preview picture; online and without ROMs), or the long link where a short one can't be made; **Save picture** (the share card: the true-pixel picture in a CRT monitor with its name and cloadm.dev) and **Save clip** (6 seconds) beside Copy link on a desktop; under "More ways to share" the long link ("Long link (works offline; nothing is uploaded)"), "Always use long links" and the snapshot file (and on a phone Save picture and Save clip); a phone held sideways gets a two-column Share screen; plus the embed code for a blog post; embed mode with a JavaScript API; works offline once visited; **Install CLOADM…** in the app bar, beside Help (behind **Menu** on a phone), runs the browser's own prompt where there is one and shows the steps elsewhere, with a one-time offer once a program has run a minute; settings export and import (never ROMs) | A touch keyboard in embeds |
+| **Links, embedding, offline** | Every setting as a URL parameter (machine, RAM, CPU, a program, tape, cartridge or disk to load, display, input); the Share screen's one **Copy link**: an untouched bundled program gives its page (`cloadm.dev/2048/`), otherwise a short link (`s.cloadm.dev/<id>#<key>`, about 50 characters, sealed in your browser, with a QR code and an optional public preview picture; online and without ROMs), or the long link where a short one can't be made; with a BASIC program in memory, **Share the program instead** (the program's text only, listed, not run, on a fresh machine for whoever opens it; a forum post and a `.bas` file too); **Save picture** (the share card: the true-pixel picture in a CRT monitor with its name and cloadm.dev) and **Save clip** (6 seconds) beside Copy link on a desktop; under "More ways to share" the long link ("Long link (works offline; nothing is uploaded)"), "Always use long links" and the snapshot file (and on a phone Save picture and Save clip); a phone held sideways gets a two-column Share screen; plus the embed code for a blog post; embed mode with a JavaScript API; works offline once visited; **Install CLOADM…** in the app bar, beside Help (behind **Menu** on a phone), runs the browser's own prompt where there is one and shows the steps elsewhere, with a one-time offer once a program has run a minute; settings export and import (never ROMs) | A touch keyboard in embeds |
 
 ### Games
 
@@ -451,6 +451,23 @@ instead. It never wraps, and what gives way is the machine name, which ends in "
 A moment the page's guardrails keep out of a link at all switches Copy off, with the reason inline (said once, there,
 not also under the picture). A short link is never
 offered for a moment on ROMs, a cartridge or NitrOS-9: the long link works there (whoever opens it adds their own ROMs).
+
+**Share your program.** With a BASIC program in memory, a card above Copy link says "Your BASIC program · N lines ·
+**Share the program instead**". The moment stays the default; the card's switch shares the program's text instead: the
+heading reads "Share your program", the picture is the first lines LIST shows, in the machine's own font, captioned
+"What they'll see first · LIST", and **Share the whole moment instead** switches back. Copy link makes a short link that
+holds only the program's text, sealed in your browser as a moment's is, with no preview picture, and it works with your
+own ROMs in (the program carries no ROM code); offline, or with "Always use long links", it gives the long link, which
+carries the text. **More ways to share** then offers **Copy as text for a forum** (the listing in a Markdown code fence or a `[code]`
+block, then the link), **Download .bas** (the listing as a text file) and the long link. A program that can't be shared
+as text says "This program can't be shared as text: share the whole moment instead.", with the switch back: one whose
+listing is over load_basic's 65536 characters, or one with a byte that would not type back the same (a graphics
+character in a string, a control code, lower case outside a string). Whoever opens the link gets a fresh machine of the
+same model, the program loaded as Claude's load_basic loads it (nothing is typed) and listed, not run: a card at the top
+of the screen says "Someone sent you a BASIC program (N lines). It's listed below; type RUN to start it." Without that
+machine's BASIC ROM, the card shows the listing as text with "To run it, this &lt;machine&gt; needs its BASIC ROM.",
+**Add ROMs** and **Copy the listing**; once the ROMs are added, the program loads and is listed by itself. The link's
+format: [Share links](automation.md#share-links-a-moment-or-a-basic-program).
 
 Someone who opens a shared moment that runs without ROMs arrives on that moment, not on the setup: the "Running with no
 ROMs" card and the orange **No BASIC** pill stay out of the way while they look at it, and come back once they leave it

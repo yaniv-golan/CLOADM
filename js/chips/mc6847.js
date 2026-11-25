@@ -325,4 +325,31 @@ MC6847.MIX = MIX;
 MC6847.PAL_BLEND = PAL_BLEND;
 MC6847.PAL_CODE0 = 40;
 
-export { MC6847 };
+// Text as the VDG shows it in its alphanumeric mode with CSS 0, for the Share screen's program preview (the first
+// lines LIST shows: js/ui/share.js): a 256 x 192 Frame (no border) of 16 rows of 32 cells, in the chip's internal
+// font and colours. Each character is stored as BASIC stores it on the screen: upper case and punctuation in inverse
+// video (dark on green), lower case as its upper-case glyph in normal video (green on dark), as the VDG has no lower
+// case; a character outside $20-$7E is a blank cell. rows: strings, already cut to the screen (at most 16 of 32).
+function textScreenFrame(rows) {
+  const frame = new Frame(256, 192, 4 / 3);
+  frame.table.set(TABLE);
+  const on = 0, off = 9;   // green and the alphanumeric dark green (TABLE: GREEN, and CSS 0's background)
+  for (let r = 0; r < 16; r++) {
+    const text = rows[r] || '';
+    for (let c = 0; c < 32; c++) {
+      const a = c < text.length ? text.charCodeAt(c) : 0x20;
+      const printable = a >= 0x20 && a <= 0x7E;
+      const lower = a >= 0x60 && a <= 0x7E;
+      const code = printable ? (lower ? a - 0x20 : a) & 0x3F : 0x20;
+      const inverse = !lower;
+      for (let line = 0; line < 12; line++) {
+        const bits = inverse ? ~FONT[code * 12 + line] & 0xFF : FONT[code * 12 + line];
+        const at = (r * 12 + line) * 256 + c * 8;
+        for (let x = 0; x < 8; x++) frame.data[at + x] = bits & (0x80 >> x) ? on : off;
+      }
+    }
+  }
+  return frame;
+}
+
+export { MC6847, textScreenFrame };

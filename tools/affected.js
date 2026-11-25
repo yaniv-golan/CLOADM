@@ -78,7 +78,7 @@ const AREAS = [
   { paths: ['js/config.js'], suites: ['config'], groups: ['url'] },
   // the program pages and their cards, and the long link (#z=) and the share pictures
   { paths: ['js/program-pages.js', 'js/media/png.js', 'js/video/card.js', 'tools/program-cards.js'], suites: ['program-pages', 'pwa'], groups: ['url', 'pwa'] },
-  { paths: ['js/media/snapshot.js'], suites: ['long-link', 'share-roms'], groups: ['share', 'askPopout'] },
+  { paths: ['js/media/snapshot.js'], suites: ['long-link', 'share-roms', 'basic-share'], groups: ['share', 'askPopout', 'basicShare'] },
   // the share card: Save picture and a short link's preview picture (one renderer)
   { paths: ['js/video/bezel.js'], suites: ['bezel', 'share-card', 'short-link'], groups: ['share', 'shortLink'] },
   // short links: the sealing, the store, the QR code (the Worker itself is shortlink/, tests/shortlink-worker.test.js)
@@ -92,7 +92,9 @@ const AREAS = [
   { paths: ['js/ui/display-panel.js'], suites: ['display'], groups: ['display'] },
   { paths: ['js/ui/welcome.js'], suites: ['welcome'], groups: ['welcomeScreen', 'firstVisit'] },
   { paths: ['js/ui/install.js', 'sw.js', 'manifest.webmanifest', 'tools/pwa-files.js'], suites: ['pwa', 'install'], groups: ['pwa', 'install'] },
-  { paths: ['js/ui/share.js'], suites: ['share-roms', 'share-card'], groups: ['share'] },
+  { paths: ['js/ui/share.js'], suites: ['share-roms', 'share-card', 'basic-share'], groups: ['share', 'basicShare'] },
+  // "Share your program": the arrival of a shared BASIC program (the share screen's program mode is js/ui/share.js)
+  { paths: ['js/ui/program-arrival.js'], suites: ['basic-share'], groups: ['basicShare'] },
   { paths: ['js/ui/feedback.js'], suites: ['feedback-toasts'], groups: ['feedback', 'feedbackModel'] },
   { paths: ['js/ui/machine-panel.js'], suites: ['machine-menu'], groups: ['models', 'powerOn'] },
   { paths: ['js/ui/settings-file.js'], suites: ['settings'], groups: ['settings'] },
