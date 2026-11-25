@@ -73,6 +73,20 @@ ED7     LDA     ,Y+
 EDDONE  BSR     RELINK
         BRA     CLRVAR
 
+* RELNKE: a program just loaded: it ends at the first line whose link is 0, the end marker, and anything loaded
+* after that is not part of it (VARTAB moves down to just past the marker) [BB corpus: the original lists no line
+* past it]; then RELINK
+RELNKE  LDX     <TXTTAB
+RE1     CMPX    <VARTAB
+        BHS     RELINK          ; no end marker: the program is all that was loaded
+        LDD     ,X
+        BEQ     RE3
+        LEAX    4,X
+RE2     TST     ,X+
+        BNE     RE2
+        BRA     RE1
+RE3     LEAX    2,X
+        STX     <VARTAB
 * RELINK: rewrite every line's link from the line's own length
 RELINK  PSHS    D,X,U
         LDX     <TXTTAB
@@ -187,11 +201,14 @@ DL4     STU     <VARTAB
         JSR     CLRVAR
         JMP     READY
 
-* LSTLIN: print the line at X: its number, a space, the text with its keywords spelt out
+* LSTLIN: print the line at X: its number, a space, the text with its keywords spelt out. At most 249 characters
+* of the text are shown (a longer line comes only from a tape), and a line that ends at the right edge of the
+* screen is followed by no carriage return of its own (no empty row) [BB corpus: the real records of 36 programs]
 LSTLIN  PSHS    X
         LDD     2,X
         JSR     LINPRT
         JSR     SPACE
+        CLR     <LSTCNT
         LEAX    4,X
 LL1     LDA     ,X+
         BEQ     LL3
@@ -210,10 +227,23 @@ LL2     CMPA    #':'            ; the ':' stored before ELSE and ' is not shown
         BEQ     LL1
         CMPB    #T_APOS
         BEQ     LL1
-LL2A    JSR     <ZCHROUT
+LL2A    BSR     LSTCH
         BRA     LL1
-LL3     JSR     CRLF
-        PULS    X,PC
+LL3     TST     <CASOUT         ; (to the tape, CSAVE ,A: every line ends with its carriage return)
+        BNE     LL3A
+        LDA     <CURPOS+1
+        BITA    #31
+        BEQ     LL4
+LL3A    JSR     CRLF
+LL4     PULS    X,PC
+* LSTCH: A to the screen, unless 249 characters of the line are out already. Keeps X, U.
+LSTCH   LDB     <LSTCNT
+        CMPB    #249
+        BHS     LSTC1
+        INCB
+        STB     <LSTCNT
+        JMP     <ZCHROUT
+LSTC1   RTS
 
 * PRTKW: print the keyword of token A from the table at U (the words in token order from $80, each one's last
 * letter with bit 7 set). Keeps X.
@@ -228,12 +258,12 @@ PK2     TST     ,U+
 PK3     LDA     ,U+
         PSHS    A
         ANDA    #$7F
-        JSR     <ZCHROUT
+        BSR     LSTCH
         TST     ,S+
         BPL     PK3
         RTS
 PKNONE  LDA     #'!'            ; a token with no keyword (cannot be typed)
-        JMP     <ZCHROUT
+        BRA     LSTCH
 
 * ---------------- RENUM ----------------
 * RENUM [new [, old [, step]]]: the lines from old on (all, by default) are numbered from new (10) in steps of step

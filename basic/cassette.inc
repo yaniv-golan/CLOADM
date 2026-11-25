@@ -210,7 +210,7 @@ CLOAD   CMPA    #'M'
         LDX     <TXTTAB
         BSR     CLDATA
         STX     <VARTAB
-        JSR     RELINK
+        JSR     RELNKE
 CLDONE  CLR     <CLDBAS
         JSR     CASOFF
         JSR     CLRVAR

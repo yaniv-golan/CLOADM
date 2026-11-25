@@ -67,6 +67,8 @@ MSFC    JMP     FCERR
 * MSNUM: a number (see above)
 MSNUM   BSR     MSGET
         BCS     MN8
+        CMPA    #' '            ; spaces before it are passed over (DRAW "C"+STR$(5): "C 5") [BB corpus]
+        BEQ     MSNUM
         CMPA    #'='
         BNE     MN2
         BSR     MSVAR

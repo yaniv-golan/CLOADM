@@ -235,6 +235,7 @@ GBEG    RMB     2               ; and the colour byte the plot routine writes
 GCOLB   RMB     1
 DRANG   RMB     1               ; DRAW's angle (0-3 quarter turns) and scale (1-62, in quarters), kept from one DRAW
 DRSCL   RMB     1               ; to the next (draw.inc)
+LSTCNT  RMB     1               ; LIST: the characters of the line's text shown so far
 DPEND   RMB     0
 
 * Two-byte calls: a JMP to each of the ROM's busiest routines at the top of the direct page, just below the RAM

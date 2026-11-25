@@ -67,6 +67,9 @@ Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.
   and `cas-errors` (BREAK during a search, with a bounded wait).
   Printing no longer counts the cursor's countdown (`$008F`) down: on the original only the keyboard wait does.
   BREAK no longer ends a cassette search, as on the original; a black-box case can expect a timeout (`#expect-timeout`).
+  `LIST` prints no empty row after a line that fills its last row and shows at most 249 characters of a line, a
+  loaded program ends at its end marker, and `DRAW` passes over spaces before a number: with these, the listings of
+  all 33 listed programs in the 36-program corpus match the original's.
   `CLOAD`, `CLOADM` and `SKIPF` show what the original shows while they read: the screen cleared, `S` at the top left
   changing between normal and inverse once a block, a file passed over as `S NAME` and the screen cleared again at
   its end, the file wanted as `F NAME`, and the prompt or the error on the next row. `CLOAD` of a data file is

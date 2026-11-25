@@ -350,5 +350,30 @@ const twoFiles = Emu.buildCas([{ name: 'ONE', type: 'basic', data: ONE }, { name
   check('the cassette statements LIST as typed', eq(listing(b), st), JSON.stringify(listing(b)));
 }
 
+// ---------------- LIST and CLOAD as the corpus records show them [BB corpus] ----------------
+{
+  // a line that ends at the right edge of the screen (32 or 64 characters) is followed by no empty row
+  const b = boot();
+  line(b, '10 REM ' + 'X'.repeat(25));
+  line(b, '20 REM ' + 'Y'.repeat(57));
+  line(b, '30 REM Z');
+  const l = listing(b);
+  check('LIST: no empty row after a line that fills its last row (32 and 64 characters)', eq(l, ['10 REM ' + 'X'.repeat(25), '20 REM ' + 'Y'.repeat(25), 'Y'.repeat(32), '30 REM Z']), JSON.stringify(l));
+  line(b, 'NEW');
+  line(b, '10 REM ' + 'X'.repeat(24));
+  check('LIST: a line one short of the edge ends with its carriage return as before', eq(listing(b), ['10 REM ' + 'X'.repeat(24)]));
+}
+{
+  // a program on tape with a line of 304 characters' text, then its end marker, then bytes that look like more lines
+  const text = [tok('T_REM'), ...bytes('A'.repeat(300))];
+  const prog = [0x1E, 0x07, 0x00, 0x0A, ...text, 0, 0x1F, 0x00, 0x00, 0x14, tok('T_REM'), ...bytes('B'), 0, 0, 0, 0x12, 0x34, 0x00, 0x00, ...bytes('!!!'), 0, 0, 0];
+  const b = boot();
+  insert(b, Emu.buildCas([{ name: 'LONG', type: 'basic', data: prog }]));
+  line(b, 'CLOAD');
+  line(b, 'CLS');
+  const rows = listing(b), joined = rows.slice(0, -1).join('');
+  check('LIST: at most 249 characters of a line\'s text', joined === '10 ' + ('REM' + 'A'.repeat(300)).slice(0, 249) && rows[rows.length - 1] === '20 REMB', JSON.stringify(rows.map((r) => r.length)));
+  check('CLOAD: the program ends at its end marker; what was loaded after it is no line', eq(rows.slice(-1), ['20 REMB']) && program(b).length === text.length + 5 + 4 + 2 + 1 + 2, JSON.stringify(rows.slice(-2)));
+}
 console.log(`\n${n - fail}/${n} passed`);
 process.exitCode = fail ? 1 : 0;

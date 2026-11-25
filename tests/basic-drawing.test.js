@@ -299,5 +299,12 @@ if (part('errors')) {
   check('and BASIC goes on after it', last(b) === ' 2');
 }
 
+// [BB corpus] a space before a number is passed over: DRAW "C"+STR$(2) ("C 2", STR$'s leading space) runs on the
+// original (a program in the corpus records does); the picture is the one "C2" draws
+{
+  const pic = (cmd) => { const b = boot(); typeAll(b, ['PMODE 3,1:SCREEN 1,0:PCLS', cmd]); return { err: b.screen().join().includes('ERROR'), ram: b.m.ram.slice(0x600, 0x1E00).join() }; };
+  const a = pic('DRAW "C2S8BM20,30R10D5"'), sp = pic('DRAW "C"+STR$(2)+"S 8BM 20,30R 10D 5"');
+  check('DRAW: spaces before numbers are passed over, the same picture as without them', !a.err && !sp.err && a.ram === sp.ram);
+}
 console.log(`\n${n - fail}/${n} passed`);
 process.exitCode = fail ? 1 : 0;
