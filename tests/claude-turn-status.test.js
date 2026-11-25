@@ -191,15 +191,20 @@ function scripted(replies) {
       const { fetch, calls } = scripted(replies);
       const b = new Emu.ClaudeBackend({ fetch, apiKey: KEY, stallMs });
       const ctl = new AbortController();
-      const t = Date.now();
+      // timed on the monotonic clock the timers run on (performance.now), not the wall clock (Date.now, which NTP can
+      // slew): CI once measured a stall at 79 ms against an 80 ms limit with Date.now
+      const t = performance.now();
       const p = b.send({ system: 'S', messages: [{ role: 'user', content: 'hi' }], signal: ctl.signal });
       if (onStart) onStart(ctl);
-      try { const out = await p; return { out, ms: Date.now() - t, calls }; } catch (e) { return { err: e, ms: Date.now() - t, calls }; }
+      try { const out = await p; return { out, ms: performance.now() - t, calls }; } catch (e) { return { err: e, ms: performance.now() - t, calls }; }
     };
     check('the limit is 60 s unless set', Emu.STALL_MS === 60000 && new Emu.ClaudeBackend({ fetch: () => null }).stallMs === 60000);
     let r = await run({ stall: true, chunks: [sse([start])] }, 80);
     check('a stream that goes quiet ends as stalled, with a message saying so, and the request is aborted', r.err && r.err.code === 'stalled' && /stopped answering/.test(r.err.message)
-      && r.calls[0].signal.aborted && r.ms >= 80, `${r.err && r.err.code} ${r.ms} ms`);
+      // (>= 79: Node arms a timer from the event loop's cached time, uv_now, which libuv takes once at the start of
+      // each loop iteration and in whole milliseconds, so it can trail the clock by up to 1 ms when the timer is set:
+      // libuv's documentation of uv_now and uv_timer_start. A stall that did not wait for the limit is 0 to a few ms)
+      && r.calls[0].signal.aborted && r.ms >= 79, `${r.err && r.err.code} ${r.ms.toFixed(1)} ms`);
     r = await run({ never: true }, 80);
     check('a response that never comes stalls too', r.err && r.err.code === 'stalled' && r.calls[0].signal.aborted, `${r.err && r.err.code}`);
     r = await run({ stall: true, deaf: true, chunks: [sse([start])] }, 80);
@@ -210,7 +215,7 @@ function scripted(replies) {
       ...words.map((w) => sse([{ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: w } }])),
       sse([{ type: 'content_block_stop', index: 0 }, { type: 'message_delta', delta: { stop_reason: 'end_turn' } }])];
     r = await run({ gapMs: 20, chunks: pieces }, 250);
-    check('a slow stream that keeps sending is not a stall', r.out && r.out.text === words.join('') && r.ms > 250, r.err ? r.err.message : `${r.ms} ms`);
+    check('a slow stream that keeps sending is not a stall', r.out && r.out.text === words.join('') && r.ms > 250, r.err ? r.err.message : `${r.ms.toFixed(1)} ms`);
     r = await run({ stall: true, chunks: [sse([start])] }, 5000, (ctl) => setTimeout(() => ctl.abort(), 30));
     check('Stop before the limit is a stop, not a stall', r.err && r.err.code === 'aborted' && r.ms < 1000, `${r.err && r.err.code} ${r.ms} ms`);
     // Stop while an HTTP error's body is still coming: a stop, not a raw error
