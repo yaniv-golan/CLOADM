@@ -1,0 +1,30 @@
+# [UM] INPUT (? and ?? prompts, ?REDO, ?EXTRA IGNORED, ?ID ERROR in direct mode) and LINE INPUT; provisional until the black-box run
+OK
+10 INPUT A:PRINT A*2
+20 INPUT "TWO";B,C$:PRINT B;C$
+30 INPUT D,E:PRINT D;E
+40 INPUT F:PRINT F
+50 LINE INPUT "LINE ";L$:PRINT "
+[";L$;"]"
+60 INPUT G:PRINT G
+RUN
+? 21
+ 42
+TWO? 3,HI THERE
+ 3 HI THERE
+? 4
+?? 5
+ 4  5
+? ABC
+?REDO
+? 6
+ 6
+LINE HELLO, WORLD: X
+[HELLO, WORLD: X]
+? 7,8
+?EXTRA IGNORED
+ 7
+OK
+INPUT X
+?ID ERROR
+OK

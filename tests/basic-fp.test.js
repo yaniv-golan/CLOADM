@@ -84,7 +84,7 @@ const P = {
   three: [0x82, 0x40, 0, 0, 0],          // 3 = 0.11b x 2^2
   half: [0x80, 0x00, 0, 0, 0],           // 0.5
   quarter: [0x7F, 0x00, 0, 0, 0],        // 0.25
-  m5: [0x83, 0xA0, 0, 0, 0],             // -5 = -0.101b x 2^3
+  minus5: [0x83, 0xA0, 0, 0, 0],             // -5 = -0.101b x 2^3
   ten: [0x84, 0x20, 0, 0, 0],            // 10 = 0.1010b x 2^4
   four: [0x83, 0x00, 0, 0, 0],           // 4
   max: [0xFF, 0x7F, 0xFF, 0xFF, 0xFF],   // the largest number
@@ -94,20 +94,20 @@ const P = {
 const HAND = [
   ['FADD', P.one, P.one, [0x82, 0, 0, 0, 0]],                 // 1 + 1 = 2
   ['FADD', P.half, P.quarter, [0x80, 0x40, 0, 0, 0]],         // .5 + .25 = .75 = 0.11b x 2^0
-  ['FADD', P.m5, P.three, [0x82, 0x80, 0, 0, 0]],             // -5 + 3 = -2
-  ['FADD', P.three, P.m5, [0x82, 0x80, 0, 0, 0]],             // 3 + -5 = -2
+  ['FADD', P.minus5, P.three, [0x82, 0x80, 0, 0, 0]],             // -5 + 3 = -2
+  ['FADD', P.three, P.minus5, [0x82, 0x80, 0, 0, 0]],             // 3 + -5 = -2
   ['FADD', P.three, [0x82, 0xC0, 0, 0, 0], P.zero],           // 3 + -3 = 0
   ['FSUB', P.one, P.ten, [0x84, 0x90, 0, 0, 0]],              // 1 - 10 = -9 = -0.1001b x 2^4
   ['FADD', P.max, P.max, 'OV'],                               // largest + largest overflows
   ['FMUL', P.three, P.half, [0x81, 0x40, 0, 0, 0]],           // 3 x .5 = 1.5
-  ['FMUL', P.m5, P.m5, [0x85, 0x48, 0, 0, 0]],                // -5 x -5 = 25 = 0.11001b x 2^5
+  ['FMUL', P.minus5, P.minus5, [0x85, 0x48, 0, 0, 0]],                // -5 x -5 = 25 = 0.11001b x 2^5
   ['FMUL', P.max, P.two, 'OV'],                               // largest x 2 overflows
   ['FMUL', P.min, P.half, P.zero],                            // smallest x .5 underflows to 0
-  ['FMUL', P.zero, P.m5, P.zero],
+  ['FMUL', P.zero, P.minus5, P.zero],
   ['FDIV', P.one, P.three, [0x7F, 0x2A, 0xAA, 0xAA, 0xAB]],   // 1/3 = 0.1010...b x 2^-1: $AAAAAAAA, guard $AA rounds up
   ['FDIV', P.two, P.three, [0x80, 0x2A, 0xAA, 0xAA, 0xAB]],   // 2/3 = 0.1010...b x 2^0
   ['FDIV', P.ten, P.four, [0x82, 0x20, 0, 0, 0]],             // 10/4 = 2.5 = 0.101b x 2^2
-  ['FDIV', P.m5, P.ten, [0x80, 0x80, 0, 0, 0]],               // -5/10 = -.5
+  ['FDIV', P.minus5, P.ten, [0x80, 0x80, 0, 0, 0]],               // -5/10 = -.5
   ['FDIV', P.one, P.zero, '/0'],
   ['FDIV', P.zero, P.three, P.zero],
   ['FDIV', P.max, P.half, 'OV'],                              // largest / .5 overflows
@@ -203,7 +203,7 @@ function romFin(text) {
   const st = call('FIN');
   return { st, v: get(FAC), rest: (ram[T] << 8 | ram[T + 1]) - at };
 }
-for (const [d, want] of [[0, [0, 0, 0, 0, 0]], [1, P.one], [-5, P.m5], [10, P.ten], [-32768, [0x90, 0x80, 0, 0, 0]], [32767, [0x8F, 0x7F, 0xFE, 0, 0]]]) {
+for (const [d, want] of [[0, [0, 0, 0, 0, 0]], [1, P.one], [-5, P.minus5], [10, P.ten], [-32768, [0x90, 0x80, 0, 0, 0]], [32767, [0x8F, 0x7F, 0xFE, 0, 0]]]) {
   cpu.a = (d >> 8) & 0xFF; cpu.b = d & 0xFF;
   call('GIVABF');
   check(`GIVABF ${d}`, hex(romPack(get(FAC))) === hex(want), hex(romPack(get(FAC))));
@@ -214,7 +214,7 @@ for (const [u, want] of [[1, P.one], [1000000000, F.POWBYTES[9]], [0xFFFFFFFF, [
   call('I32FLT');
   check(`I32FLT ${u}`, hex(romPack(get(FAC))) === hex(want), hex(romPack(get(FAC))));
 }
-for (const [packed, want] of [[P.three, 3], [[0x82, 0x60, 0, 0, 0], 3], [P.half, 0], [[0x9E, 0x6E, 0x6B, 0x28, 0], 1000000000], [P.m5, 5]]) {
+for (const [packed, want] of [[P.three, 3], [[0x82, 0x60, 0, 0, 0], 3], [P.half, 0], [[0x9E, 0x6E, 0x6B, 0x28, 0], 1000000000], [P.minus5, 5]]) {
   put(FAC, F.unpack(packed));
   call('QINT');
   const fm = sym('FACM'), got = ((ram[fm] << 24) | (ram[fm + 1] << 16) | (ram[fm + 2] << 8) | ram[fm + 3]) >>> 0;
@@ -246,7 +246,7 @@ quiet = true;
 }
 // FIN: hand-worked values
 const FINS = [
-  ['1', P.one, 1], ['10', P.ten, 2], ['.5', P.half, 2], ['-5', P.m5, 2], ['1E1', P.ten, 3], ['100E-1', P.ten, 6],
+  ['1', P.one, 1], ['10', P.ten, 2], ['.5', P.half, 2], ['-5', P.minus5, 2], ['1E1', P.ten, 3], ['100E-1', P.ten, 6],
   ['0.25', exactPacked(1n, 4n), 4], ['1 0', P.ten, 3], ['1000000000', F.POWBYTES[9], 10], ['12345678912', exactPacked(12345678910n), 11], ['4294967296', exactPacked(4294967300n), 10], ['42949672951', exactPacked(42949672950n), 11],
   ['3:', P.three, 1], ['1E', P.one, 2], ['1.5.5', exactPacked(3n, 2n), 3], ['0', P.zero, 1],
 ];

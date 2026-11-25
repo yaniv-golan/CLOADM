@@ -3,6 +3,20 @@
 * zone) [UM]; TAB(n) moves to column n if the cursor is left of it. A number prints with a space or - before it
 * and a space after it. Without ; or , at the end, the line ends.
 PRINT   BEQ     PRCR
+        CMPA    #'@'            ; PRINT @n, ...: from screen position n (0-511) [UM]
+        BNE     PR1
+        JSR     CHRGET
+        JSR     EVNUM
+        JSR     GETADR
+        CMPD    #511
+        LBHI    FCERR
+        ADDD    #SCREEN
+        STD     <CURPOS
+        JSR     CHRGOT
+        CMPA    #','
+        BNE     PRNXT
+        JSR     CHRGET
+        BEQ     PRCR
 PR1     CMPA    #';'
         BEQ     PRSEMI
         CMPA    #','

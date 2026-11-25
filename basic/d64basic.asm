@@ -140,6 +140,11 @@ PWN     RMB     2
 SEED    RMB     4               ; RND's seed, low byte first
 RNDR    RMB     4
 EXECAD  RMB     2               ; EXEC's address
+ITMCOL  RMB     1               ; GETITM: ':' ends an item (DATA)
+INPKND  RMB     1               ; INPUT 1, LINE INPUT 0
+INPVAR  RMB     2               ; INPUT: the text pointer in the variable list, its start
+INPST   RMB     2
+INPPTR  RMB     2               ; INPUT: the pointer in the typed line
 DPEND   RMB     0
 
 * ---------------- the ROM ----------------
@@ -160,6 +165,7 @@ DPEND   RMB     0
         INCLUDE "strfunc.inc"
         INCLUDE "mathfn.inc"
         INCLUDE "misc.inc"
+        INCLUDE "io.inc"
         INCLUDE "fp.inc"
         INCLUDE "fpconv.inc"
         INCLUDE "tokens.inc"
