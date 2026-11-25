@@ -1,0 +1,9 @@
+{
+ "what": "a long link (#z=) holding a BASIC program",
+ "format": {
+  "linkByte0": 2,
+  "programFormat": 1
+ },
+ "machine": "dragon64",
+ "z": "AhXNzQqCQBQG0Fe5fOsJxhSpG-0yE8oJcdHCzTT-NJAzoRaB-O7ReYEzo_VDrycwzNPrul_d9WgNBD7NMFrvwIFAr83DugaMetCdd3EEAeNdazvwDPN6gxFv5BYCg-7BcSQwjgYM512DRWBqvv8kkFQkF0rV-ZDklVtLOqqCsn1ApaKQr0WWl1ThZCvsMs6TW1m5UFKqSkVrieUH"
+}

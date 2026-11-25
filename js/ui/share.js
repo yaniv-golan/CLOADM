@@ -31,9 +31,9 @@
  * Launch-prep additions: with ROMs in use, "This link holds no part of your ROMs. Whoever opens it needs their own:
  * <needs>." above the ROM line (js/share-text.js romFreeLine; hidden in the short-landscape layout, whose ROM line is
  * one line by design). "Save GIF" (the machine's own frames at true pixels scaled 2x, no CRT look, GIF_SECONDS long,
- * looping: js/media/gif.js) is first in "More ways to share"'s save row. The clip and the GIF are both refused, the
- * reason on the button, while a WAD of the person's own is the file loaded last; a Freedoom WAD's recording carries its
- * credit (js/share-text.js recordingGuard). "Copy as text for a forum" (collapsed, before "Embed in a web page"): the
+ * looping: js/media/gif.js) is first in "More ways to share"'s save row. The GIF follows the stage's WYRMFIRE rules as the
+ * picture and the clip do (setShots): off, its reason beside it, for the person's own WAD's level; a GIF of the Freedoom
+ * level carries "-freedoom" in its name and the level's credit in its comment. "Copy as text for a forum" (collapsed, before "Embed in a web page"): the
  * link with a one-line description as BBCode and as Markdown (js/share-text.js forumText), text only; its link never
  * uploads (forumUrl): the short link a Copy-link tap made, else an untouched program's page, else the long link.
  * "Embed in a web page" (collapsed): the iframe and script for a blog post, written by js/config.js (buildUrl) from the
@@ -53,13 +53,28 @@
 import { profiles } from '../machines/profiles.js';
 import { buildUrl } from '../config.js';
 import { needsLine } from '../media/romrefs.js';
-import { romFreeLine, forumText, recordingGuard } from '../share-text.js';
+import { romFreeLine, forumText } from '../share-text.js';
 import { gifFromFrames } from '../media/gif.js';
 import { CanvasPresenter } from '../video/canvas.js';
 import { textScreenFrame } from '../chips/mc6847.js';
 import { listingRows } from '../media/basic.js';
 import { qrEncode } from '../media/qr.js';
 import { $, showView } from './page.js';
+import { WYRMFIRE_TEXT } from '../session.js';
+import { WYRM_TEXT } from './wyrmfire.js';
+import { crc32 } from '../util.js';
+
+// a PNG with a tEXt chunk (keyword, text) put in after its header chunk: the picture's own credit line (PNG 1.2, 4.2.3.1)
+async function pngWithText(blob, keyword, text) {
+  const png = new Uint8Array(await blob.arrayBuffer());
+  const data = new TextEncoder().encode(`${keyword}\0${text}`), type = new TextEncoder().encode('tEXt');
+  const chunk = new Uint8Array(12 + data.length), dv = new DataView(chunk.buffer);
+  dv.setUint32(0, data.length);
+  chunk.set(type, 4); chunk.set(data, 8);
+  dv.setUint32(8 + data.length, crc32(new Uint8Array([...type, ...data])) >>> 0);
+  const at = 8 + 25;   // the signature and IHDR (13 bytes of data)
+  return new Blob([png.subarray(0, at), chunk, png.subarray(at)], { type: 'image/png' });
+}
 
 // when the moment was captured, said relative to now: "captured just now", then minutes, hours or days ago (the card
 // under the picture; refreshed while the Share screen is open)
@@ -102,10 +117,16 @@ export function setupShare(page, { linkStore }) {
     showView(view, open);
     // opened by address (play/#share) the page is still starting: the view shows, and ready() captures once there is a machine
     if (open && !captured && started) capture().catch((e) => page.status(e.message, true));
-    if (open && captured) $('shareWhen').textContent = capturedAgo(captured.at);   // the time said again, now
+    if (open && captured) $('shareWhen').textContent = whenText(captured);   // the time said again, now (a WYRMFIRE moment keeps its credit)
     if (open) window.scrollTo(0, 0);
     place();
   }
+  // what the line under the picture says: a WYRMFIRE moment names its level (the credit the branch's card carries),
+  // every other moment says how long ago it was captured (the stage's card). One element, two meanings, decided by
+  // what was captured -- and the periodic refresh below must not overwrite the credit with a time.
+  // The person's OWN WAD says nothing here: the credit names Freedoom, and that level is not Freedoom's (id Software's
+  // game data, which is also why it carries no picture). `wyrmfire` is the level kind, so 'user' is not the credit.
+  const whenText = (c) => (c && c.wyrmfire === 'freedoom' ? WYRM_TEXT.level : c && !c.wyrmfire ? capturedAgo(c.at) : '');
   page.onView(show);
   // where Save picture and Save clip sit (beside Copy on a desktop, under "More ways to share" on a phone and a short
   // landscape screen), and where the view starts (--share-top: a short landscape screen's two columns fill the rest)
@@ -113,13 +134,22 @@ export function setupShare(page, { linkStore }) {
   function place() {
     const beside = DESKTOP.matches && !SHORT_LANDSCAPE.matches, to = beside ? $('shareSaveBeside') : $('shareSaveMore');
     const at = beside ? null : $('btnShareDownload');
-    for (const id of ['btnShareShot', 'btnShareClip']) to.insertBefore($(id), at);
+    // each control moves WITH its reason (the .why span beside it), so a reason is never left under a bar its button
+    // has left. The reason is a sibling of the button, not a wrapper: an insert point -- btnShareDownload -- has to be
+    // a sibling of what is inserted, and a wrapper would also put the button out of reach of place()'s own lookup.
+    for (const [id, whyId] of [['btnShareShot', 'shareShotWhy'], ['btnShareClip', 'shareClipWhy']]) {
+      const b = $(id), w = $(whyId);
+      to.insertBefore(b, at);
+      if (w) to.insertBefore(w, at);
+    }
     fitCaption();
     if (isOpen()) view.style.setProperty('--share-top', `${Math.max(0, Math.round(view.getBoundingClientRect().top + window.scrollY))}px`);
   }
   for (const q of [SHORT_LANDSCAPE, DESKTOP]) q.addEventListener('change', place);
   window.addEventListener('resize', place);
-  setInterval(() => { if (captured && isOpen()) $('shareWhen').textContent = capturedAgo(captured.at); }, AGO_MS);
+  // the stage says the moment's age here; a WYRMFIRE moment says its level's credit instead (whenText), so the refresh
+  // must go through whenText on both sides rather than writing capturedAgo itself
+  setInterval(() => { if (captured && isOpen()) $('shareWhen').textContent = whenText(captured); }, AGO_MS);
   $('shareBack').onclick = (e) => { e.preventDefault(); page.closeView(); };
   $('btnShare').onclick = async () => {
     try { await capture(); } catch (e) { page.status(e.message, true); return; }
@@ -141,6 +171,14 @@ export function setupShare(page, { linkStore }) {
   // ---------------- share this moment ----------------
   async function capture() {
     const m = session.shownMachine, frame = m.render();
+    // WYRMFIRE: the link starts it afresh with the Freedoom level (Session.shareUrl), never this moment; with the
+    // person's own WAD, no picture and no clip (id Software's game data)
+    const wyrm = session.wyrmfireOn(m) || session.romCodeIn(m) === 'userdata';
+    const own = session.romCodeIn(m) === 'userdata';
+    // (the ROM-free sentence belongs to a snapshot link with ROMs in use: cleared first, so no capture keeps an old one)
+    const romFree = $('shareRomFree');
+    romFree.textContent = ''; romFree.hidden = true;
+    if (wyrm) { await captureWyrmfire(m, frame, own); return; }
     const name = m.profile.name.replace(/^Tandy /, '');
     // the picture at true pixels, captured with the snapshot so both show the same instant
     const c = document.createElement('canvas');
@@ -158,6 +196,9 @@ export function setupShare(page, { linkStore }) {
     let file = null, refusal = '';
     if (!n9) { try { file = await session.shareFile(); } catch (e) { refusal = e.message; } }
     const link = refusal ? '' : n9 ? session.shareUrl(location.href) : await session.snapshotLink(location.href, file);
+    // WYRMFIRE's own buttons are handled in captureWyrmfire; for every other moment all three are live
+    setShots(false);
+    why('shareDownloadWhy', '');
     // the bundled program, when it is one nobody has touched: its own page is the primary link (nothing is uploaded)
     const untouched = n9 || refusal ? null : session.untouchedBundledProgram(location.href);
     // the BASIC program in memory, when there is one: shared as its text in program mode (the default stays the moment)
@@ -171,19 +212,17 @@ export function setupShare(page, { linkStore }) {
     const pic = $('sharePicture');
     pic.width = c.width; pic.height = c.height;
     pic.getContext('2d').drawImage(c, 0, 0);
-    $('shareWhen').textContent = capturedAgo(captured.at);
+    setPicture('');
+    $('shareWhen').textContent = whenText(captured);
     $('shareLink').value = link;
     short = null; fallbackWhy = '';
     $('shortMade').hidden = true; $('shareShort').value = ''; $('sharePreview').disabled = false;
     syncProgram();    // (the program card, and the moment's heading and picture; it calls syncLongNote, then syncPrimary)
-    syncRecorders();
     // one line under the picture, what the link does; then, only as needed, what the person opening it needs
     const rom = $('shareRom'), extra = $('shareExtra');
     // the ROM line: the full sentence, and its one line for a short landscape screen (play/index.html shows one)
     const romLine = (full, brief) => { $('shareRomFull').textContent = full; $('shareRomBrief').textContent = brief; if (full) rom.title = full; else rom.removeAttribute('title'); };
     romLine('', ''); rom.classList.remove('warn'); extra.textContent = '';
-    const romFree = $('shareRomFree');
-    romFree.textContent = ''; romFree.hidden = true;
     const note = (text) => { const p = document.createElement('p'); p.textContent = text; extra.append(p); };
     if (refusal) {
       // nothing to encode: the reason is said ONCE, inline under Copy (syncPrimary's #primaryWhy, in the guardrail's
@@ -204,6 +243,61 @@ export function setupShare(page, { linkStore }) {
     else romLine('Runs without ROMs, so it opens for anyone.', 'Runs without ROMs.');
     // a tape being recorded is not in the link (its pulse timings could carry ROM code: js/media/romrefs.js)
     if (file.dropped.includes('deck.recording')) note('The tape being recorded is not in the link: it opens with the recorder stopped.');
+    syncEmbed(m.id);
+  }
+  // An option that is off stays listed, disabled, with its reason beside it (never hidden)
+  function why(id, text) { const w = $(id); w.textContent = text || ''; w.hidden = !text; }
+  // the picture area: a moment with no picture of its own (the person's own WAD) says so in the frame, and the frame
+  // stops showing an empty dark box under a caption that claims a captured picture. Every other capture clears it.
+  function setPicture(note = '') {
+    const f = $('shareFrame'), n = $('shareNoPicture');
+    if (!f || !n) return;
+    f.classList.toggle('nopic', !!note);
+    n.textContent = note;
+    n.hidden = !note;
+    if (note) $('sharePicture').setAttribute('aria-hidden', 'true');
+    else $('sharePicture').removeAttribute('aria-hidden');
+  }
+  function setShots(off, reason = '') {
+    $('btnShareShot').disabled = off;
+    why('shareShotWhy', off ? reason : '');
+    if (kind) { clipBtn.disabled = off; why('shareClipWhy', off ? reason : ''); }
+    gifBtn.disabled = off; why('shareGifWhy', off ? reason : '');
+    $('forumGifHint').hidden = off;   // (the forum disclosure's "Attach the GIF from Save GIF": not while there is none)
+  }
+  // A WYRMFIRE moment, on the ONE-LINK layout (js/ui/share.js's primary is Copy link): its link only starts the
+  // game from the start with the Freedoom level (Session.shareUrl), never this moment, so there is no short link to
+  // make and no snapshot in it -- the primary says what it gives, in #primaryWhy, and #shareWhen carries the level's
+  // credit (Freedoom's) or nothing at all (the person's own WAD: that level is not Freedoom's).
+  async function captureWyrmfire(m, frame, own) {
+    const c = document.createElement('canvas');
+    if (!own) new CanvasPresenter(c).present(frame);
+    else { c.width = frame.width; c.height = frame.height; }
+    // the stage's screenshot button downloads captured.CARD (the one-link layout's name for the moment's picture), so a
+    // WYRMFIRE moment sets it too: null for the person's own WAD (no picture of their game data), the credited PNG
+    // otherwise
+    const card = own ? null : await pngWithText(await new Promise((ok) => c.toBlob(ok, 'image/png')), 'Comment', `WYRMFIRE ${WYRM_TEXT.level}`);
+    const link = session.shareUrl(location.href);
+    // the files say whose level it is: "-freedoom" on the name, and the PNG carries the credit line
+    captured = { at: Date.now(), file: null, card, cardName: null, link, refusal: '', machine: m.profile.name.replace(/^Tandy /, ''),
+      base: `WYRMFIRE-${m.profile.name.replace(/[^A-Za-z0-9]+/g, '')}-freedoom`, wyrmfire: own ? 'user' : 'freedoom' };
+    short = null; fallbackWhy = '';
+    $('shortMade').hidden = true; $('shareShort').value = ''; $('sharePreview').disabled = false;
+    const dl = $('btnShareDownload');
+    dl.disabled = true; dl.textContent = 'Download snapshot';
+    why('shareDownloadWhy', WYRMFIRE_TEXT.snapshots);
+    const pic = $('sharePicture');
+    pic.width = c.width; pic.height = c.height;
+    // the person's own WAD has no picture of its own (id Software's game data): the frame says so rather than showing
+    // an empty dark rectangle under a caption that claims a captured picture
+    setPicture(own ? WYRMFIRE_TEXT.userPicture : '');
+    if (!own) pic.getContext('2d').drawImage(c, 0, 0);
+    $('shareLink').value = link;
+    $('shareWhen').textContent = whenText(captured);
+    syncLongNote();   // (it calls syncPrimary(), which sets the primary's own note)
+    const rom = $('shareRom'), extra = $('shareExtra');
+    rom.textContent = ''; rom.classList.remove('warn'); extra.textContent = '';
+    setShots(own, WYRMFIRE_TEXT.userClips);
     syncEmbed(m.id);
   }
 
@@ -287,6 +381,14 @@ export function setupShare(page, { linkStore }) {
       $('primaryNote').textContent = '';
       $('sharePrefix').hidden = true;
       $('shareName').textContent = `${captured.untouched.name} · ${captured.machine}`;
+    } else if (captured && captured.wyrmfire) {
+      // a WYRMFIRE moment: its link starts the game from the start with the Freedoom level, so it is said the way a
+      // program page's is. No short link (Session.shortLinkRefusal refuses 'userdata', and this moment has no snapshot
+      // file for any other), so #primaryNote is empty and the switch is hidden by mode !== 'short' below.
+      $('shareNote').textContent = WYRM_TEXT.share;
+      $('primaryNote').textContent = '';
+      $('sharePrefix').hidden = true;
+      $('shareName').textContent = `WYRMFIRE · ${captured.machine}`;
     } else {
       // the line under the picture, one owner for every capture: a refusal says nothing there (its reason is the
       // inline #primaryWhy, said once); NitrOS-9 says its own sentence; a file says the snapshot's clarity copy
@@ -298,8 +400,15 @@ export function setupShare(page, { linkStore }) {
     }
     // a tap that fell back (fallbackWhy) has already made the choice, even though primaryMode said 'short' before it;
     // the reason it fell back is what the person needs to see, not the state before the tap
-    // (a program that can't be shared as text says so in its card, #programWhy, with the switch back: not twice)
-    $('primaryWhy').textContent = programMode ? fallbackWhy || (why === 'offline' ? OFFLINE_LONG : '') : captured && captured.refusal ? captured.refusal : fallbackWhy || (nothingToCopy ? 'This moment can\'t be put in a link.' : why === 'offline' ? OFFLINE_LONG : why && why !== 'Not for this moment.' ? why : '');
+    // A WYRMFIRE moment says NOTHING here, because a moment shared like a program page (its ?start= link) shows no
+    // reason: the Session's refusal still guards the short link (Session.shortLinkRefusal, 'userdata' and all), but
+    // what it would say is wrong on screen -- "not with a cartridge plugged in" names a cartridge nobody plugged in
+    // (it is WYRMFIRE's own disk controller), and the own-WAD sentence explains a choice this view never offers.
+    // (the stage's program mode says its own reason in #programWhy; a WYRMFIRE moment is never in program mode --
+    // captureWyrmfire returns before any program text exists -- so the two rules cannot both apply.)
+    $('primaryWhy').textContent = captured && captured.wyrmfire ? ''
+      : programMode ? fallbackWhy || (why === 'offline' ? OFFLINE_LONG : '')
+      : captured && captured.refusal ? captured.refusal : fallbackWhy || (nothingToCopy ? 'This moment can\'t be put in a link.' : why === 'offline' ? OFFLINE_LONG : why && why !== 'Not for this moment.' ? why : '');
     $('shortTerms').hidden = mode !== 'short' || !!fallbackWhy;
     $('previewSwitch').hidden = mode !== 'short' || !!fallbackWhy;
     syncMore();
@@ -434,28 +543,50 @@ export function setupShare(page, { linkStore }) {
 
   // the clip: the screen as it plays (from now), recorded for CLIP_SECONDS
   const kind = clipType();
-  const clipBtn = $('btnShareClip'), gifBtn = $('btnShareGif');
-  let recording = false;
+  const clipBtn = $('btnShareClip');
   const clipLabel = () => { clipBtn.textContent = 'Save clip'; clipBtn.title = `Save ${CLIP_SECONDS}-second clip (${kind.label})`; };
+  if (!kind) { clipBtn.disabled = true; clipBtn.textContent = 'Clip: this browser can\'t record video'; }
+  else clipLabel();
+  clipBtn.onclick = () => {
+    // never of the person's own WAD's level (id Software's game data): the button is off then, and so is this
+    if (session.romCodeIn(session.shownMachine) === 'userdata') { page.status(WYRMFIRE_TEXT.userClips, true); return; }
+    // drawn from the machine's own frames at true pixels (the screen canvas is hidden behind this view)
+    const canvas = document.createElement('canvas'), presenter = new CanvasPresenter(canvas);
+    presenter.present(session.shownMachine.render());
+    let drawing = true;
+    const draw = () => { if (!drawing) return; presenter.present(session.shownMachine.render()); requestAnimationFrame(draw); };
+    requestAnimationFrame(draw);
+    const stream = canvas.captureStream(30), rec = new MediaRecorder(stream, { mimeType: kind.type }), parts = [];
+    rec.ondataavailable = (e) => { if (e.data.size) parts.push(e.data); };
+    rec.onstop = () => {
+      drawing = false;
+      stream.getTracks().forEach((t) => t.stop());
+      const blob = new Blob(parts, { type: kind.type.split(';')[0] });
+      const name = `${captured ? captured.base : 'CLOADM'}.${kind.ext}`;
+      page.download(name, blob);
+      clipBtn.disabled = false; clipLabel();
+      // a clip of the Freedoom level says so in its name and here; the person's own WAD's clip is never made (the
+      // button is off), so the own case cannot reach this line
+      page.status(`Saved ${name}: ${CLIP_SECONDS} seconds of the screen.${captured && captured.wyrmfire === 'freedoom' ? ` ${WYRM_TEXT.level}.` : ''}`);
+    };
+    clipBtn.disabled = true;
+    let left = CLIP_SECONDS;
+    clipBtn.textContent = `Recording… ${left} s`;
+    const tick = setInterval(() => { left--; if (left > 0) clipBtn.textContent = `Recording… ${left} s`; else clearInterval(tick); }, 1000);
+    rec.start(500);
+    setTimeout(() => rec.stop(), CLIP_SECONDS * 1000);
+  };
+
+  // Save GIF: the machine's own frames at true pixels, scaled 2x, no CRT look, GIF_SECONDS long and looping
+  // (js/media/gif.js). The stage's WYRMFIRE rules hold for it as for the clip: never of the person's own WAD's level
+  // (setShots turns it off, its reason beside it), and the Freedoom level's GIF says so in its name and its comment.
+  const gifBtn = $('btnShareGif');
   const gifLabel = () => { gifBtn.textContent = 'Save GIF'; gifBtn.title = `Save ${GIF_SECONDS}-second GIF`; };
-  // the clip's and the GIF's state: what the browser can do, and recordingGuard (a WAD of the person's own: refused, with why)
-  function syncRecorders() {
-    if (recording) return;
-    const g = recordingGuard(session.lastLoaded);
-    if (g.refuse) {
-      for (const [btn, what] of [[clipBtn, 'Clip'], [gifBtn, 'GIF']]) { btn.disabled = true; btn.textContent = `${what}: ${g.refuse}`; btn.title = g.refuse; }
-      return;
-    }
-    gifBtn.disabled = false; gifLabel();
-    if (!kind) { clipBtn.disabled = true; clipBtn.textContent = 'Clip: this browser can\'t record video'; clipBtn.title = ''; }
-    else { clipBtn.disabled = false; clipLabel(); }
-  }
-  syncRecorders();
-  session.on((ev) => { if (ev === 'loaded') syncRecorders(); });
+  gifLabel();
   gifBtn.onclick = () => {
-    const g = recordingGuard(session.lastLoaded);
-    if (g.refuse) { syncRecorders(); return; }
-    recording = true; gifBtn.disabled = true;
+    if (session.romCodeIn(session.shownMachine) === 'userdata') { page.status(WYRMFIRE_TEXT.userClips, true); return; }
+    const freedoom = !!captured && captured.wyrmfire === 'freedoom';
+    gifBtn.disabled = true;
     const frames = [], t0 = performance.now(), STEP = 40;   // 25 frames a second: a 4 cs delay each
     let next = t0, left = GIF_SECONDS;
     gifBtn.textContent = `Recording… ${left} s`;
@@ -469,41 +600,15 @@ export function setupShare(page, { linkStore }) {
       if (sec !== left && sec > 0) { left = sec; gifBtn.textContent = `Recording… ${left} s`; }
       if (frames.length < GIF_SECONDS * 25) { requestAnimationFrame(take); return; }
       try {
-        const gif = gifFromFrames(frames, { scale: 2, delay: 4, comment: g.comment });
-        const name = `${captured ? captured.base : 'CLOADM'}${g.suffix}.gif`;
+        // the comment: CLOADM's, and for the Freedoom level the same credit line its PNG carries
+        const gif = gifFromFrames(frames, { scale: 2, delay: 4, comment: freedoom ? `Recorded in CLOADM. WYRMFIRE ${WYRM_TEXT.level}` : 'Recorded in CLOADM' });
+        const name = `${captured ? captured.base : 'CLOADM'}.gif`;
         page.download(name, new Blob([gif.bytes], { type: 'image/gif' }));
-        page.status(`Saved ${name}: ${GIF_SECONDS} seconds, ${(gif.bytes.length / 1024).toFixed(0)} KB.`);
+        page.status(`Saved ${name}: ${GIF_SECONDS} seconds, ${(gif.bytes.length / 1024).toFixed(0)} KB.${freedoom ? ` ${WYRM_TEXT.level}.` : ''}`);
       } catch (e) { page.status(`Could not make the GIF: ${e.message}`, true); }
-      recording = false; syncRecorders();
+      gifBtn.disabled = false; gifLabel();
     };
     requestAnimationFrame(take);
-  };
-  clipBtn.onclick = () => {
-    const g = recordingGuard(session.lastLoaded);
-    if (g.refuse) { syncRecorders(); return; }
-    // drawn from the machine's own frames at true pixels (the screen canvas is hidden behind this view)
-    const canvas = document.createElement('canvas'), presenter = new CanvasPresenter(canvas);
-    presenter.present(session.shownMachine.render());
-    let drawing = true;
-    const draw = () => { if (!drawing) return; presenter.present(session.shownMachine.render()); requestAnimationFrame(draw); };
-    requestAnimationFrame(draw);
-    const stream = canvas.captureStream(30), rec = new MediaRecorder(stream, { mimeType: kind.type }), parts = [];
-    rec.ondataavailable = (e) => { if (e.data.size) parts.push(e.data); };
-    rec.onstop = () => {
-      drawing = false;
-      stream.getTracks().forEach((t) => t.stop());
-      const blob = new Blob(parts, { type: kind.type.split(';')[0] });
-      const name = `${captured ? captured.base : 'CLOADM'}${g.suffix}.${kind.ext}`;
-      page.download(name, blob);
-      recording = false; syncRecorders();
-      page.status(`Saved ${name}: ${CLIP_SECONDS} seconds of the screen.`);
-    };
-    recording = true; clipBtn.disabled = true;
-    let left = CLIP_SECONDS;
-    clipBtn.textContent = `Recording… ${left} s`;
-    const tick = setInterval(() => { left--; if (left > 0) clipBtn.textContent = `Recording… ${left} s`; else clearInterval(tick); }, 1000);
-    rec.start(500);
-    setTimeout(() => rec.stop(), CLIP_SECONDS * 1000);
   };
 
   // ---------------- copy as text for a forum ----------------
@@ -518,7 +623,9 @@ export function setupShare(page, { linkStore }) {
       for (const id of ['btnForumBbcodeCopy', 'btnForumMarkdownCopy']) $(id).disabled = true;
       return;
     }
-    const url = forumUrl(), program = !short && !!captured.untouched, name = program ? captured.untouched.name : captured.machine;
+    // a WYRMFIRE moment's link starts the game afresh (Session.shareUrl), so it is described the way a program page is
+    const wyrm = !!captured.wyrmfire, program = wyrm || (!short && !!captured.untouched);
+    const url = forumUrl(), name = wyrm ? 'WYRMFIRE' : program ? captured.untouched.name : captured.machine;
     const f = forumText(url, name, { program });
     $('forumBbcode').textContent = f.bbcode; $('forumMarkdown').textContent = f.markdown;
     for (const id of ['btnForumBbcodeCopy', 'btnForumMarkdownCopy']) $(id).disabled = false;

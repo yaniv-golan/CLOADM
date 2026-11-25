@@ -61,21 +61,16 @@ const standIn = (size, seed) => { const b = new Uint8Array(size); for (let i = 0
   check('forum: brackets in the name and ) or spaces in the link cannot break the markup', odd.markdown === '[The X 1 in CLOADM, exactly as I left it. Opens in the browser.](https://x.test/a%20b%29c)'
     && odd.bbcode.startsWith('[url=https://x.test/a b)c]The X 1 in'), JSON.stringify(odd));
 
-  // the clip and the GIF: refused while a WAD of the person's own is loaded; Freedoom records with its credit
-  const { recordingGuard, FREEDOOM_CREDIT } = await import('../js/share-text.js');
-  const wadBytes = Uint8Array.from([0x50, 0x57, 0x41, 0x44, 1, 2, 3, 4]);   // "PWAD"
-  const none = recordingGuard(null), prog = recordingGuard({ name: 'GAME.BIN', bytes: Uint8Array.from([1, 2, 3, 4]) });
-  check('recording: nothing or a program loaded: allowed, no suffix', !none.refuse && !prog.refuse && none.suffix === '' && prog.suffix === '' && /CLOADM/.test(prog.comment));
-  const own = recordingGuard({ name: 'MYLEVELS.WAD', bytes: wadBytes }), magic = recordingGuard({ name: 'levels.dat', bytes: wadBytes });
-  check('recording: a WAD of your own (by name or by its magic) is refused, with the reason', own.refuse === 'A WAD of your own is loaded: CLOADM doesn\'t record it' && magic.refuse === own.refuse);
-  const free = recordingGuard({ name: 'freedoom2.wad', bytes: Uint8Array.from([0x49, 0x57, 0x41, 0x44]) });
-  check('recording: Freedoom records, its credit in the file name and the comment', !free.refuse && free.suffix === '-Freedoom' && free.comment.includes(FREEDOOM_CREDIT) && /freedoom\.github\.io/.test(FREEDOOM_CREDIT));
-  check('recording: a WAD only named like Freedoom elsewhere in its name is still the person\'s own', !!recordingGuard({ name: 'not-freedoom-mine.wad', bytes: wadBytes }).refuse);
-
   // the Share screen uses these, not copies of them
   const share = fs.readFileSync(path.join(__dirname, '../js/ui/share.js'), 'utf8');
   check('js/ui/share.js writes the ROM line and the forum text from js/share-text.js', /from '\.\.\/share-text\.js'/.test(share) && /romFreeLine\(file\.needs\)/.test(share) && /forumText\(/.test(share) && /const forumUrl = \(\) => \(short \? short\.url : captured\.untouched \? captured\.untouched\.page : captured\.link\)/.test(share)
-    && /recordingGuard\(session\.lastLoaded\)/.test(share) && /gifFromFrames\(/.test(share));
+    && /gifFromFrames\(/.test(share));
+  // Save GIF follows the stage's WYRMFIRE rules (no recordingGuard of its own): setShots turns it off with the picture and
+  // the clip, its click refuses the person's own WAD's level, and the Freedoom level's GIF carries the level's credit
+  check('js/ui/share.js: Save GIF is off with the picture and the clip (setShots), refuses \'userdata\', and credits the Freedoom level',
+    /gifBtn\.disabled = off; why\('shareGifWhy', off \? reason : ''\)/.test(share)
+    && /gifBtn\.onclick = \(\) => \{\n    if \(session\.romCodeIn\(session\.shownMachine\) === 'userdata'\)/.test(share)
+    && /freedoom \? `Recorded in CLOADM\. WYRMFIRE \$\{WYRM_TEXT\.level\}`/.test(share) && !/recordingGuard/.test(share));
   process.exitCode = fail ? 1 : 0;
   console.log(fail ? `${fail} FAILED` : 'all passed');
 })();

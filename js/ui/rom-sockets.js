@@ -16,6 +16,7 @@
  * anywhere that could not be used (wrong size for its name, a socket already filled) opens this screen to say why.
  */
 import { $, showView } from './page.js';
+import { wadOf } from './files.js';
 import { SSC_TEXT } from '../session.js';
 
 const kb = (n) => `${n / 1024} KB`;
@@ -194,7 +195,13 @@ export function setupRomSockets(page, romInput, { confirmSwitch }) {
   const zone = $('romDrop');
   view.addEventListener('dragover', (e) => { e.preventDefault(); zone.classList.add('drop'); });
   view.addEventListener('dragleave', () => zone.classList.remove('drop'));
-  view.addEventListener('drop', async (e) => { e.preventDefault(); zone.classList.remove('drop'); await romInput.take(await romInput.droppedFiles(e.dataTransfer), { all: true }); });
+  view.addEventListener('drop', async (e) => {
+    e.preventDefault(); zone.classList.remove('drop');
+    const list = await romInput.droppedFiles(e.dataTransfer), wad = wadOf(list);
+    // a .wad here is for "Your game files" (WYRMFIRE), not a ROM
+    if (wad && page.takeWad) { await page.takeWad(wad); return; }
+    await romInput.take(list, { all: true });
+  });
 
   romInput.onChange((report) => {
     if (report && report.offers) offers = report.offers;

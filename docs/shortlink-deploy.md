@@ -14,7 +14,7 @@ Per link, three objects in the bucket:
 
 | Key | What | Who reads it |
 |---|---|---|
-| `<id>.bin` | the moment, sealed with AES-GCM in the person's browser (≤ 64 KB) | the page, `GET https://s.cloadm.dev/<id>.bin` |
+| `<id>.bin` | the moment or BASIC program, sealed with AES-GCM in the person's browser (≤ 64 KB): version and kind in its first two bytes, the rest ciphertext (docs/automation.md, "Share links") | the page, `GET https://s.cloadm.dev/<id>.bin` |
 | `<id>.png` | the preview picture, only if the person left "Show a preview picture" on: 1200 × 630, indexed, ≤ 16 colours, ≤ 32 KB, only IHDR/PLTE/IDAT/IEND (PLTE first, the IDATs together), and its pixels unpacked to check them: exactly 1200 × 630 of them, filters 0 to 4, every colour in the palette (an inflation bomb is stopped one byte past the size) | link unfurlers |
 | `<id>` | the arrival page, from a fixed template (machine name and id only), which goes straight to `https://cloadm.dev/play/#l=<id>.<key>` and sends nothing | people and unfurlers |
 

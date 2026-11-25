@@ -106,7 +106,7 @@ const LISTED = {
     const plain = Buffer.from(bytes.subarray(1)), stored = Buffer.from(kept ? kept.sealed : []);
     check(`${id}: the short link stores the sealed program, no preview picture, the machine's id; neither the text nor the link's deflate payload is in it`,
       kept && kept.png === null && kept.machine === id && !stored.toString('latin1').includes('SHARED') && stored.indexOf(plain) < 0 && stored.indexOf(plain.subarray(0, 16)) < 0
-      && stored.length === bytes.length + Emu.SEAL_OVERHEAD, short.url);
+      && stored.length === bytes.length + Emu.SEAL_OVERHEAD && stored[0] === 1 && stored[1] === 2, short.url);
     // (#l=<id>.<key>: where the arrival page sends https://s.cloadm.dev/<id>#<key>)
     const opened = await b.readShortLink(`#l=${short.id}.${short.url.split('#')[1]}`, store);
     check(`${id}: readShortLink gives { program } for a program's short link`, opened && opened.program && !opened.snap && opened.program.text === LISTED[family] && opened.program.machine === id, JSON.stringify(opened && opened.program));
@@ -223,8 +223,16 @@ const LISTED = {
     check('openSharedProgram refuses mameCompat; the saved config and the next switch are untouched', damaged(e) && JSON.stringify(r.savedConfig('dragon64')) === before
       && !r.shownMachine.config.mameCompat, e && e.message);
     // and through a short link, as the arrival reads one
-    const st = new Emu.MemoryShortLinkStore(), sealed = await Emu.sealMoment(await cfg('dragon64', { mameCompat: true }));
+    const st = new Emu.MemoryShortLinkStore(), sealed = await Emu.sealMoment(await cfg('dragon64', { mameCompat: true }), Emu.SEALED_KIND.program);
     const made = await st.create({ machine: 'dragon64', sealed: sealed.sealed });
+    // the kind and what it holds must agree: a moment's kind holding a program link, a program's kind holding a .cloadm
+    const mixed = async (bytes, kind) => { const x = await Emu.sealMoment(bytes, kind), mm = await st.create({ machine: 'dragon64', sealed: x.sealed }); return rejects(s.readShortLink(`#l=${mm.id}.${x.key}`, st)); };
+    const ok1 = new Emu.Session({ store: Emu.memoryStore() });
+    ok1.switchMachine('dragon64', undefined, { menu: false });
+    const momentFile = (await ok1.snapshotFile()).bytes;
+    check('a short link labelled a program that holds a moment: damaged', damaged(await mixed(momentFile, Emu.SEALED_KIND.program)));
+    const asMoment = await mixed(await cfg('dragon64', {}), Emu.SEALED_KIND.moment);
+    check('a short link labelled a moment that holds a program link: refused (not a snapshot)', asMoment instanceof Emu.SessionError, asMoment && asMoment.message);
     check('a short link whose program config has mameCompat: damaged', damaged(await rejects(s.readShortLink(`#l=${made.id}.${sealed.key}`, st))));
     check('a moment\'s #z= is not a program link (null: the moment\'s reader takes it)', await s.readProgramLink(`#z=${Buffer.from([1, 2, 3]).toString('base64url')}`) === null && await s.readProgramLink('#share') === null);
   }

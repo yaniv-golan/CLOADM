@@ -24,6 +24,8 @@ const MOUNT_READ_RETRIES = 3;
 // the disk cartridges each family can take (js/machines/profiles.js cartridgeRoms), the usual one first
 const DISK_DOS = { dragon: ['dragondos', 'deltados'], coco: ['rsdos'] };
 // what a disk mounted without a disk ROM is good for (the end of the mount's message: "level.vdk is in drive 0, ...")
+// a disk converted from the person's own WAD (Session.startWyrmfire): the same words as WYRMFIRE_TEXT.userDisk
+export const WYRMFIRE_USER_DISK = 'This disk is converted from your own WAD: it stays in this browser\'s "Your game files" and is not saved or downloaded anywhere else.';
 export const BARE_NOTE = 'on the disk controller only (no disk ROM). Programs that read the disk directly can use it; DIR and other disk commands need your disk ROM.';
 
 export class DiskDrives {
@@ -109,7 +111,8 @@ export class DiskDrives {
   // board (the Delta DOS cartridge for a Dragon controller) replaces it, with the disks moved across. Not while
   // NitrOS-9 runs: its floppy boot uses the controller without a ROM on purpose. -> the disk system put in, or null
   fitRom(m = this.targetMachine) {
-    if (m !== this.targetMachine || this.session.nitros9Running) return null;
+    // (nor while WYRMFIRE runs: it drives the controller itself, and the person's disk ROM stays where it is)
+    if (m !== this.targetMachine || this.session.nitros9Running || this.session.wyrmfireOn(m)) return null;
     const fdc = this.bareController, dos = fdc && this.preferredDos();
     if (!dos) return null;
     const rom = this.session.roms.get(dos.id).rom;
@@ -128,7 +131,7 @@ export class DiskDrives {
     return dos;
   }
   // a disk ROM stored for the board in use, waiting for the next reset or power cycle to go in (the page says so)
-  get romWaiting() { return !!this.bareController && !this.session.nitros9Running && !!this.preferredDos(); }
+  get romWaiting() { return !!this.bareController && !this.session.nitros9Running && !this.session.wyrmfireRunning && !!this.preferredDos(); }
   // plug a disk cartridge in (whatever was in the port comes out) and power the machine up with it
   // ---------------- blank disks (Session.newDisk) ----------------
   // The sizes offered for a new disk: the usual ones of the disk system in use (or the one a mount would plug in),
@@ -552,6 +555,7 @@ export class DiskDrives {
     this.checkDrive(drive);
     const fdc = this.controller;
     if (fdc) fdc.eject(drive);
+    this.session.wyrmfireCheck();   // WYRMFIRE's own disk out: it has ended
     this.session.emit('disks');
     await this.writesDone();
   }
@@ -575,7 +579,8 @@ export class DiskDrives {
     return {
       dos: { id, name: id === 'builtin' ? fdc.name : bare ? fdc.plainName : cartridgeRoms[id].name, bare },
       count: fdc.fitted,
-      drives: fdc.drives.map((d, i) => (d.loaded ? { drive: i, name: d.media.name, file: d.media.name.split('/').pop(), writeProtected: !!d.wpt, size: d.media.bytes.length, stored: !!d.media.onWrite, unsaved: (d.media.onWrite && this.unsaved.get(d.media.name)) || null } : null)).filter(Boolean),
+      // gameData, only on WYRMFIRE's level disk: 'freedoom', or 'user' (converted from the person's own WAD); never linked to the Library
+      drives: fdc.drives.map((d, i) => (d.loaded ? Object.assign({ drive: i, name: d.media.name, file: d.media.name.split('/').pop(), writeProtected: !!d.wpt, size: d.media.bytes.length, stored: !!d.media.onWrite, unsaved: (d.media.onWrite && this.unsaved.get(d.media.name)) || null }, d.media.gameData ? { gameData: d.media.gameData } : {}) : null)).filter(Boolean),
     };
   }
   // the drive lights: [lit, ...] per drive. A drive's light is on while it is selected, its motor runs and the
@@ -597,6 +602,7 @@ export class DiskDrives {
     // build made of 'disks/ ') has nothing to be stored under, and one whose name is not a disk image's file name
     // ('disks/sub/x.vdk') must not be stored as it is: each says so, and what to do, rather than the bare "needs a
     // name" of a name the person was asked for
+    if (d.media.gameData) throw new SessionError(`The disk in drive ${drive} is WYRMFIRE's level: it is not kept in the Library.`);
     const named = typeof d.media.name === 'string' ? d.media.name : '';
     const base = named.startsWith(DISK_PREFIX) ? named.slice(DISK_PREFIX.length) : named.split(/[\\/]/).pop();
     if (!base.trim()) throw new SessionError(`The disk in drive ${drive} has no file name to save it under: download it, then add it to your Library under a name.`);
@@ -632,6 +638,8 @@ export class DiskDrives {
     this.checkDrive(drive);
     const fdc = this.controller;
     if (!fdc || !fdc.drives[drive].loaded) throw new SessionError(`Drive ${drive} is empty.`);
+    // a level converted from the person's own WAD is never handed out as a file (WYRMFIRE_TEXT.userDisk)
+    if (fdc.drives[drive].media.gameData === 'user') throw new SessionError(WYRMFIRE_USER_DISK);
     fdc.drives[drive].flush();
     await this.writesDone();
     const m = fdc.drives[drive].media;
