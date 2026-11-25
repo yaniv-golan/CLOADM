@@ -1,0 +1,10 @@
+# relations give -1 or 0; NOT, AND, OR on 16-bit integers [UM]
+PRINT 1<2;1>2;2=2;2<>2;3<=3;3>=4
+PRINT 1=<2;2=>1;1><2
+PRINT NOT 0;NOT -1;NOT 5
+PRINT 5 AND 3;5 OR 2;-1 AND 255;12 AND 10 OR 1
+PRINT 1<2 AND 2<3;NOT 1=1
+PRINT 2+3=5;1+1<1+2
+PRINT 40000 AND 1
+PRINT "A"<"B";"B"<"A";"AB"="AB";"AB"<"ABC";"Z">"AZ"
+PRINT "A"+1

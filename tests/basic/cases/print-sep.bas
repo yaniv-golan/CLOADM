@@ -1,0 +1,11 @@
+# PRINT: semicolons, commas (16-column zones), TAB, strings [UM]
+PRINT "A";"B";1;"C"
+PRINT "A","B","C"
+PRINT 1,2,3,4
+PRINT "ABCDEFGHIJKLMNOPQRS","X"
+PRINT TAB(5);"X";TAB(2);"Y";TAB(12)"Z"
+PRINT "A";
+PRINT "B"
+PRINT
+?"QUESTION"
+PRINT "UNCLOSED

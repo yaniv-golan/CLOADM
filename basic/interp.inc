@@ -41,7 +41,11 @@ NEWSTT  LDX     <TXTPTR
         BEQ     NEWEOL
         CMPA    #':'
         BEQ     NEWST1
-        JMP     SNERR           ; something after a complete statement
+        CMPA    #T_ELSE         ; the end of a THEN part: the rest of the line is skipped
+        BNE     NEWSN
+        JSR     REM
+        BRA     NEWSTT
+NEWSN   JMP     SNERR           ; something after a complete statement
 NEWEOL  LDD     <CURLIN
         CMPD    #$FFFF
         BEQ     DIREND          ; the end of a direct line
@@ -53,7 +57,8 @@ NEWEOL  LDD     <CURLIN
         STX     <TXTPTR
         BSR     TRCLIN
 NEWST1  JSR     BRKCHK
-NEWST2  JSR     CHRGET
+NEWST2  JSR     RSTTMP
+        JSR     CHRGET
         BSR     EXECST
         TST     <JMPFLG
         BEQ     NEWSTT
@@ -111,7 +116,9 @@ CHRGOT  PSHS    X
         LDX     <TXTPTR
         LDA     ,X
         PULS    X
-CGFLAG  CMPA    #':'
+CGFLAG  CMPA    #T_ELSE         ; ELSE ends a statement too
+        BEQ     CG2
+        CMPA    #':'
         BHS     CG2             ; ':' and above: no digit; Z set for ':'
         SUBA    #'0'
         SUBA    #-'0'           ; C set for '0'-'9', Z set for 0; A unchanged
@@ -325,7 +332,3 @@ NEW     BNE     RUNSN
 CLSST   JSR     CLS
         JMP     CHRGOT
 
-* LET: a variable is assigned (M4)
-LET     JMP     SNERR
-* RSTTMP: free the string temporaries (M5)
-RSTTMP  RTS

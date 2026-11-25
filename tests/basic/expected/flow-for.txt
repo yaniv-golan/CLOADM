@@ -1,0 +1,39 @@
+# [UM] as the manuals describe the language; reviewed by hand; provisional until the black-box run. [OWN] a FOR loop runs once before its limit is checked
+OK
+FOR I=1 TO 3:PRINT I;:NEXT:PRINT
+
+ 1  2  3
+OK
+FOR I=5 TO 1 STEP -2:PRINT I;:NE
+XT I:PRINT
+ 5  3  1
+OK
+FOR I=0 TO 1 STEP .25:PRINT I;:N
+EXT:PRINT
+ 0  .25  .5  .75  1
+OK
+FOR I=1 TO 2:FOR J=1 TO 2:PRINT
+I*10+J;:NEXT J,I:PRINT
+ 11  12  21  22
+OK
+FOR I=1 TO 0:PRINT "ONCE";I:NEXT
+:PRINT I
+ONCE 1
+ 2
+OK
+FOR I=1 TO 3:NEXT:PRINT I
+ 4
+OK
+NEXT
+?NF ERROR
+OK
+10 FOR K=1 TO 3
+20 PRINT "K";K
+30 NEXT K
+40 PRINT "DONE";K
+RUN
+K 1
+K 2
+K 3
+DONE 4
+OK

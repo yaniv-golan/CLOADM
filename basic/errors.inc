@@ -73,6 +73,8 @@ ERRMSG  FCN     " ERROR"
 INMSG   FCN     " IN "
 
 * PRTIN: print " IN " and the line number in D
-PRTIN   LDX     #INMSG
+PRTIN   PSHS    D
+        LDX     #INMSG
         JSR     PRTSTR
+        PULS    D
         JMP     LINPRT

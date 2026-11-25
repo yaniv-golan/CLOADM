@@ -40,6 +40,9 @@ VSWI2   EQU     $010C
 VSWI3   EQU     $010F
 USRTAB  EQU     $0112           ; DEFUSR0-9 addresses (20 bytes, to $0125)
 ROLLTB  EQU     $0126           ; keys down per column at the last scan (8 bytes)
+* $0130-$0157: the temporary string descriptors (strings.inc)
+FORSTP  EQU     $0158           ; FOR: the step and the limit, packed, before they go on the stack
+FORLIM  EQU     $015D
 
 * ---------------- direct page ----------------
         ORG     $0000
@@ -98,6 +101,23 @@ FPEX    RMB     2               ; FIN's exponent, and its sign
 FPEXS   RMB     1
 FPSGNI  RMB     1               ; FIN's sign
 FPDP    RMB     1               ; FIN: a point seen
+VALTYP  RMB     1               ; the value just evaluated: 0 a number, $FF a string
+STRPTR  RMB     2               ; a string value: its descriptor
+ARGSTR  RMB     2               ; the left operand when it is a string
+LEFTTY  RMB     1               ; the left operand's type
+TEMPPT  RMB     2               ; the next free temporary descriptor
+DSCTMP  RMB     5               ; a descriptor being built
+VARNAM  RMB     2               ; PTRGET: the name
+VARCRE  RMB     1               ; PTRGET: make a simple variable that does not exist
+DIMFLG  RMB     1               ; PTRGET: DIM
+NDIMS   RMB     1               ; the subscripts of an array reference
+INTVAL  RMB     2               ; an integer operand
+FORVAR  RMB     2               ; FOR, NEXT: the variable's address
+NXRET   RMB     2               ; NEXT: its return address
+ONCNT   RMB     1               ; ON
+ONKIND  RMB     1
+ONFND   RMB     1
+ONLINE  RMB     2
 DPEND   RMB     0
 
 * ---------------- the ROM ----------------
@@ -110,6 +130,11 @@ DPEND   RMB     0
         INCLUDE "interp.inc"
         INCLUDE "program.inc"
         INCLUDE "crunch.inc"
+        INCLUDE "vars.inc"
+        INCLUDE "expr.inc"
+        INCLUDE "strings.inc"
+        INCLUDE "print.inc"
+        INCLUDE "flow.inc"
         INCLUDE "fp.inc"
         INCLUDE "fpconv.inc"
         INCLUDE "tokens.inc"

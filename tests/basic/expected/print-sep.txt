@@ -1,0 +1,36 @@
+# [UM] as the manuals describe the language; reviewed by hand; provisional until the black-box run. [OWN] a FOR loop runs once before its limit is checked
+OK
+PRINT "A";"B";1;"C"
+AB 1 C
+OK
+PRINT "A","B","C"
+A               B
+C
+OK
+PRINT 1,2,3,4
+ 1               2
+ 3               4
+OK
+PRINT "ABCDEFGHIJKLMNOPQRS","X"
+ABCDEFGHIJKLMNOPQRS
+X
+OK
+PRINT TAB(5);"X";TAB(2);"Y";TAB(
+12)"Z"
+     XY     Z
+OK
+PRINT "A";
+A
+OK
+PRINT "B"
+B
+OK
+PRINT
+
+OK
+?"QUESTION"
+QUESTION
+OK
+PRINT "UNCLOSED
+UNCLOSED
+OK

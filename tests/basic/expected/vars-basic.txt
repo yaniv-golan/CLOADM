@@ -1,0 +1,41 @@
+# [UM] as the manuals describe the language; reviewed by hand; provisional until the black-box run. [OWN] a FOR loop runs once before its limit is checked
+OK
+A=1:AB=2:ABC=3:PRINT A;AB;ABC
+ 1  3  3
+OK
+A$="X":PRINT A;A$
+ 1 X
+OK
+PRINT Q;"["Q$"]"
+ 0 []
+OK
+X1=5:X2=6:PRINT X1+X2
+ 11
+OK
+DIM N(3),S$(2):N(0)=1:N(3)=4:S$(
+2)="TWO":PRINT N(0);N(1);N(3);S$
+(2)
+ 1  0  4 TWO
+OK
+DIM M(2,3):M(1,2)=12:M(2,3)=23:P
+RINT M(1,2);M(2,3);M(0,0)
+ 12  23  0
+OK
+Z(10)=1:PRINT Z(10)
+ 1
+OK
+Z(11)=1
+?BS ERROR
+OK
+DIM N(5)
+?DD ERROR
+OK
+PRINT M(1)
+?BS ERROR
+OK
+N(-1)=0
+?FC ERROR
+OK
+A=
+?SN ERROR
+OK
