@@ -67,6 +67,15 @@ GCSS    RMB     1               ; the colour set SCREEN last chose, x 4
 LASTX   RMB     2               ; the last point drawn (16-bit x, then y)
 LASTY   RMB     2
 GXY     RMB     4               ; a point read (x, y; 16-bit each)
+* sound (sound.inc, play.inc) and the command strings DRAW and PLAY read (cmdstr.inc)
+JOYV    RMB     4               ; JOYSTK(0)-(3) as JOYSTK(0) last read them
+PLOCT   RMB     1               ; PLAY: the octave and the length (PLOCT must come just before PLLEN)
+PLLEN   RMB     1
+PLTMP   RMB     1               ; the tempo, and the volume x 4 (PLTMP must come just before PLVOL)
+PLVOL   RMB     1
+PLDOT   RMB     1               ; the length's dots
+CSPTR   RMB     2               ; the command string: the next character, and one past the last
+CSEND   RMB     2
 SYSEND  RMB     0               ; (must stay at or below LINBUF: tools/build-basic.js checks it)
 
 * ---------------- direct page ----------------
@@ -247,6 +256,9 @@ ZEVNUM   RMB     3
         INCLUDE "cassette.inc"
         INCLUDE "fp.inc"
         INCLUDE "fpconv.inc"
+        INCLUDE "cmdstr.inc"
+        INCLUDE "sound.inc"
+        INCLUDE "play.inc"
         INCLUDE "tokens.inc"
 ROMEND  RMB     0
 

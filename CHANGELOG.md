@@ -33,7 +33,10 @@ Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.
   `JOYSTK`, for a run on the real ROM before the phase 2 code is written. The first graphics statements are in
   (`basic/gfx.inc`, `basic/sgfx.inc`): `PCLEAR`, `PMODE`, `SCREEN`, `COLOR`, `PCLS`, `PSET`, `PRESET`, `PPOINT`,
   `PCOPY` and the text screen's `SET`, `RESET` and `POINT`, checked byte for byte against a reference model of the
-  pages (`tests/basic-gfx.test.js`). A size pass took the ROM from 13,517 to 12,400 bytes with
+  pages (`tests/basic-gfx.test.js`). Sound and the joysticks are in (`basic/sound.inc`, `basic/play.inc` and the
+  command-string reader `basic/cmdstr.inc` that `DRAW` is to share): `SOUND`, `PLAY` with all its commands, `AUDIO` and
+  `JOYSTK`, with a square wave of our own whose every period is exact to the cycle and note lengths counted in cycles,
+  measured from the DAC writes in `tests/basic-sound.test.js`. A size pass took the ROM from 13,517 to 12,400 bytes with
   no change in what programs see (shared routines and tables, two-byte calls through the direct page), to make room
   for graphics and sound. The first black-box results from the real ROM brought ours in line: the empty line before `BREAK`, `CONT` at
   the end of a program, `SQR` as `x^.5`, `DEF FN` with a string name, `RESTORE` with no line number, `PRINT USING`'s E

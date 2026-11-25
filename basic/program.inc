@@ -97,7 +97,7 @@ NEWPRG  LDX     <TXTTAB
         CLR     ,X+
         CLR     ,X+
         STX     <VARTAB
-* CLRVAR: no variables, all string space free, DATA from the start, CONT impossible
+* CLRVAR: no variables, all string space free, DATA from the start, CONT impossible, PLAY's defaults
 CLRVAR  PSHS    D
         LDD     <VARTAB
         STD     <ARYTAB
@@ -112,7 +112,7 @@ CLRVAR  PSHS    D
         STD     <OLDTXT
         LDD     <STRBOT         ; CONT impossible: no frames kept
         STD     <BASESP
-        JSR     RSTTMP
+        JSR     PLINIT          ; PLAY's defaults, then the temporary strings freed (play.inc)
         PULS    D,PC
 
 * ---------------- LIST ----------------
