@@ -167,7 +167,7 @@ function aggregate(records, refused) {
 // the records written to census.jsonl: at most maxPerSite per (program, from, target, kind)
 function capped(records, refused, maxPerSite) {
   const seen = new Map(), out = [];
-  for (const r of [...records, ...refused]) {
+  for (const r of records.concat(refused)) {
     const k = `${r.program}|${r.from}|${r.target}|${r.kind}`;
     const n = seen.get(k) || 0;
     if (n < maxPerSite) out.push(r);
@@ -181,23 +181,41 @@ async function main(argv, { log = (t) => process.stderr.write(t + '\n'), lib = d
   try { o = parse(argv); } catch (e) { log(`census: ${e.message}\n\n${HELP}`); return 2; }
   if (o.help) { log(HELP); return 0; }
   const records = [], refused = [], failed = [], runs = [];
+  // census.jsonl is written as each program finishes, to census.jsonl.partial, renamed when the run is done: a crash
+  // later in the run keeps the programs already done (in the .partial file), and a run that ends refused leaves none
+  const jsonl = path.join(o.out, 'census.jsonl'), partial = `${jsonl}.partial`, summary = path.join(o.out, 'census.json');
+  fs.mkdirSync(o.out, { recursive: true });
+  for (const f of [jsonl, summary]) fs.rmSync(f, { force: true });
+  fs.writeFileSync(partial, '');
+  let targets = new Set();
   for (const file of o.programs) {
     const name = path.basename(file);
     let r;
     try { r = await runProgram(file, o, lib); } catch (e) { r = { error: errorText(e) }; }
     if (r.error) { failed.push({ program: name, error: r.error }); log(`census: ${name}: discarded (${r.error})`); continue; }
-    records.push(...r.records); refused.push(...r.refused);
+    // the run-wide scan limit, checked before this program's lines are written: entering ROM is how its constants
+    // come out (effects of running ROM code), so the whole run, not just each program, has a bound on how many
+    // places it may enter, and nothing on disk ever goes past it
+    const next = new Set(targets);
+    for (const x of r.records) next.add(x.target);
+    for (const x of r.refused) next.add(x.target);
+    if (next.size > o.maxRunTargets) {
+      fs.rmSync(partial, { force: true });
+      log(`census: the run entered ${next.size} distinct ROM addresses, more than --max-run-targets ${o.maxRunTargets}: nothing written`);
+      return 1;
+    }
+    targets = next;
+    // (one at a time: a spread of thousands of records into push() overflows the call stack)
+    for (const x of r.records) records.push(x);
+    for (const x of r.refused) refused.push(x);
+    const lines = capped(r.records, r.refused, o.maxPerSite);
+    if (lines.length) fs.appendFileSync(partial, lines.map((x) => JSON.stringify(x)).join('\n') + '\n');
     runs.push({ program: name, recorded: r.records.length, refused: r.refused.length, stopped: r.stopped });
     log(`census: ${name}: ${r.records.length} calls recorded, ${r.refused.length} refused${r.stopped ? `; recording stopped (${r.stopped})` : ''}`);
   }
-  // the run-wide scan limit: entering ROM is how its constants come out (effects of running ROM code), so the whole
-  // run, not just each program, gets a bound on how many places it may enter
-  const targets = new Set([...records, ...refused].map((r) => r.target));
-  if (targets.size > o.maxRunTargets) { log(`census: the run entered ${targets.size} distinct ROM addresses, more than --max-run-targets ${o.maxRunTargets}: nothing written`); return 1; }
-  fs.mkdirSync(o.out, { recursive: true });
-  fs.writeFileSync(path.join(o.out, 'census.jsonl'), capped(records, refused, o.maxPerSite).map((r) => JSON.stringify(r)).join('\n') + '\n');
-  fs.writeFileSync(path.join(o.out, 'census.json'), JSON.stringify({ range: [ROM_LO, 0xBFFF], programs: runs, failed, entries: aggregate(records, refused) }, null, 1) + '\n');
-  log(`census: wrote ${path.join(o.out, 'census.jsonl')} and census.json`);
+  fs.renameSync(partial, jsonl);
+  fs.writeFileSync(summary, JSON.stringify({ range: [ROM_LO, 0xBFFF], programs: runs, failed, entries: aggregate(records, refused) }, null, 1) + '\n');
+  log(`census: wrote ${jsonl} and census.json`);
   return failed.length ? 1 : 0;
 }
 

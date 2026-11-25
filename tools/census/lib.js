@@ -114,7 +114,7 @@ class Tripwire {
   // -> null, or { at, image, off } where a WINDOW-byte run of an image appears
   add(bytes) {
     const from = Math.max(0, this.stream.length - (WINDOW - 1));
-    this.stream.push(...bytes);
+    for (const b of bytes) this.stream.push(b);
     return romWindowIn(Uint8Array.from(this.stream.slice(from)), this.images, this.index);
   }
 }

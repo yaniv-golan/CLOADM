@@ -525,6 +525,43 @@ const opts = (o = {}) => Object.assign(census.parse(['--no-roms', '--frames', '5
       records: [{ program: 'p', target: 0xB110, from: 0x3000, kind: 'jsr', regsIn: {}, regsOut: {}, cyclesInRom: 1, ramWritesOutsideRom: [...STUB.rom.subarray(0x3200, 0x3210)].map((v, i) => ({ addr: 0x400 + i, value: v })) }] }) }),
   });
   const tripHolds = (r) => /^tripwire/.test(r.error || '') && !r.records.length;
+  // a program that records very many calls (the field run: 14,085 in one program) must not overflow anything: a
+  // tracer planted with 150,000 records, through main
+  const BIG = 150000;
+  const bigLib = Object.assign({}, lib, {
+    trace: () => ({ error: null, finish: () => {
+      const records = [];
+      for (let i = 0; i < BIG; i++) records.push({ program: 'p', target: 0xB110, from: 0x3000 + (i % 4), kind: 'jsr', regsIn: { a: 1 }, regsOut: { a: 1, pc: 0x3003 }, cyclesInRom: 5, ramWritesOutsideRom: [] });
+      return { started: true, stopped: null, error: null, refused: [], records };
+    } }),
+  });
+  const bigScript = tmp('big.cloadm');
+  fs.writeFileSync(bigScript, `asm ${path.join(DIR, 'selftest', 'calls.asm')}\nframes 1\n`);
+  const bigRun = async (mod) => {
+    const dir = tmp(`out-big-${Math.random().toString(36).slice(2)}`);
+    try {
+      const code = await mod.main(['--no-roms', '--out', dir, bigScript], { log: () => {}, lib: bigLib });
+      const agg = JSON.parse(fs.readFileSync(path.join(dir, 'census.json'), 'utf8'));
+      const lines = fs.readFileSync(path.join(dir, 'census.jsonl'), 'utf8').trim().split('\n');
+      return { code, calls: agg.entries[0].calls, lines: lines.length };
+    } catch (e) { return { crash: e.name }; }
+  };
+  const bigHolds = (r) => r.code === 0 && r.calls === BIG && r.lines === 4 * 20;
+  {
+    const r = await bigRun(census);
+    check(`a program with ${BIG} records goes through main: all counted in census.json, ${4 * 20} lines (20 per call site) in census.jsonl`, bigHolds(r), JSON.stringify(r));
+  }
+  // a crash in the middle of a run (here: right after the first program is done) keeps the programs already done,
+  // in census.jsonl.partial
+  {
+    const dir = tmp('out-crash'), two = [tmp('one.cloadm'), tmp('two.cloadm')];
+    for (const f of two) fs.writeFileSync(f, `asm ${path.join(DIR, 'selftest', 'calls.asm')}\nframes 5\n`);
+    let crashed = false;
+    try { await census.main(['--no-roms', '--frames', '5', '--out', dir, ...two], { log: (t) => { if (/one\.cloadm: \d+ calls/.test(t)) throw new Error('boom'); } }); } catch (e) { crashed = true; }
+    const part = fs.existsSync(path.join(dir, 'census.jsonl.partial')) ? fs.readFileSync(path.join(dir, 'census.jsonl.partial'), 'utf8').trim().split('\n').map((l) => JSON.parse(l)) : [];
+    check('a crash after one program keeps that program\'s lines (census.jsonl.partial), and no finished census.jsonl', crashed && part.length > 0 && part.every((l) => l.program === 'one.cloadm') && !fs.existsSync(path.join(dir, 'census.jsonl')), `${crashed} ${part.length}`);
+  }
+
   {
     const s = tmp('calls2.cloadm');
     fs.writeFileSync(s, `asm ${path.join(DIR, 'selftest', 'calls.asm')}\nframes 1\n`);
@@ -610,7 +647,9 @@ const opts = (o = {}) => Object.assign(census.parse(['--no-roms', '--frames', '5
     {
       const C = moduleWith(CENSUS, [['for (const x of r.records) if (tw.add(lib.valueBytes(x)))', 'for (const x of r.records) if (false && tw.add(lib.valueBytes(x)))']]);
       check('mutant "census tripwire not applied" is caught', !tripHolds(await C.runProgram(s, opts(), planted)));
-      const R = moduleWith(CENSUS, [['if (targets.size > o.maxRunTargets)', 'if (false)']]);
+      const P = moduleWith(CENSUS, [['    for (const x of r.records) records.push(x);', '    records.push(...r.records);']]);
+      check('mutant "records spread into push()" is caught (the 150,000-record run)', !bigHolds(await bigRun(P)));
+      const R = moduleWith(CENSUS, [['if (next.size > o.maxRunTargets)', 'if (false)']]);
       check('mutant "run-wide target limit off" is caught', !runLimitHolds(await runLimit(R, 3)));
       const A = moduleWith(CENSUS, [['if (!ALLOWED.has(s.name))', 'if (false)']]);
       check('mutant "script allow-list off" is caught', !allowListHolds(await peekRun(A)));
