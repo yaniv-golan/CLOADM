@@ -108,7 +108,7 @@ function lintCase(text) {
   }
   return problems;
 }
-module.exports = { lintCase };
+module.exports = { lintCase, code, argAt, literal, unwrap, maskedOk };
 
 if (require.main === module) {
   let bad = 0;

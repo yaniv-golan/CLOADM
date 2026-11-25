@@ -44,6 +44,11 @@ class Basic {
     const f = this.m.render(), p = Emu.frameToRGBA(f), rgba = Buffer.from(p.buffer, p.byteOffset, p.byteLength);
     return { name, width: f.width, height: f.height, sha256: crypto.createHash('sha256').update(rgba).digest('hex'), png: rgbaPng(f.width, f.height, rgba).toString('base64') };
   }
+  // the SHA-256 of the last whole frame's RGBA pixels
+  pixHash() {
+    const p = Emu.frameToRGBA(this.m.render());
+    return crypto.createHash('sha256').update(Buffer.from(p.buffer, p.byteOffset, p.byteLength)).digest('hex');
+  }
   // Start recording the transcript: every line that scrolls off the top of the screen, in order. A scroll is
   // recognised by what the CPU does, whatever the ROM: a write to the top row of a byte it has just read from the
   // same column of the row below (a block move). Writes that are not a move and overwrite text in the top row are

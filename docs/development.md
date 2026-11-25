@@ -290,6 +290,8 @@ node tests/basic-math.test.js [n]   # the clean-room BASIC's SQR, LOG, EXP, SIN,
 node tests/basic-bb.test.js   # the black-box tools: the lint (no case may read the ROM), compare, the transcript recorder, the build and its token tables
 node tools/basic-bb/run.js --rom d64_1.rom --out real.jsonl   # run the cases on any Dragon 64 BASIC ROM (a maintainer, with the real one); --ours for ours
 node tools/basic-bb/compare.js real.jsonl ours.jsonl          # the differences, case by case
+node tools/basic-bb/corpus.js --rom d64_1.rom --corpus DIR --out real.jsonl   # corpus mode: CLOAD, LIST and RUN real .cas programs (hashed text); --ours for ours
+node tests/basic-corpus.test.js   # corpus mode: its lint, the ROM-read guard, the listing, the .keys sidecar, compareCorpus
 node tools/basic-bb/sheet.js CASE.bas    # a case as a typing sheet, to run it by hand on a real Dragon; tools/basic-bb/import.js turns the written transcripts into JSONL
 node tools/wyrmfire-vendor.js <wyrmfire checkout>   # vendor WYRMFIRE at js/wyrmfire/pin.js's commit into examples/wyrmfire/ and rebuild the Freedoom level (pinned download, SHA-256 checked); tests/wyrmfire-files.test.js checks the result against the pin
 node tools/build-examples.js # rebuild examples/liza.bin, liza6803-{mc10,alice}.bin, welcome.bin, welcome6803-{mc10,alice}.bin, chat.bin and starter-game/catch.bin from their .asm sources, then bring sw.js's offline file list up to date

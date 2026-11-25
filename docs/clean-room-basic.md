@@ -237,6 +237,27 @@ node tools/basic-bb/compare.js real.jsonl ours.jsonl
   and press, step by step); the screen's lines are written down in order under `=== case`, and
   `node tools/basic-bb/import.js written.txt --out real-hardware.jsonl` turns them into the same JSONL, for
   `compare.js`. So reference results can come from real hardware as well as from the maintainer's runs.
+* **Corpus mode** (`tools/basic-bb/corpus.js`): real tokenized programs on `.cas` tapes, which stay on the
+  maintainer's machine. Each is CLOADed on a fresh machine, LISTed (every line that scrolls by), then RUN for a fixed
+  number of frames with no input (or the keys of a `NAME.keys` sidecar), the screen sampled every N frames: its text
+  and the SHA-256 of its pixels. The text is written as hashes, except for the programs named in `--full` (those whose
+  owners allow it); nothing of a program or the ROM is written but these, the tape's SHA-256 and the ROM's CRC. The
+  maintainer runs it with the real ROM and with ours, and `compare.js` reports per program whether the listing is
+  identical, the first RUN sample where the two part, and the error lines.
+  ```
+  node tools/basic-bb/corpus.js --rom d64_1.rom --corpus DIR --out real.jsonl [--frames 1500] [--every 50] [--full NAMES]
+  node tools/basic-bb/corpus.js --ours --corpus DIR --out ours.jsonl
+  node tools/basic-bb/compare.js real.jsonl ours.jsonl
+  ```
+  Two rules keep the ROM out of the results. The listing is linted first (`EXEC`, `USR`, `DEFUSR`, `CLOADM`,
+  `CSAVEM`, `VARPTR`, and a `PEEK` of anything but a literal in RAM or the I/O page `$FF00-$FFDF` or `... AND 32767`):
+  such a program is not RUN (status `rom-read-possible`, the kinds and line numbers only). And a guard, after the
+  census tool's structural rule, watches the RUN: program code (machine code the program put in RAM, not code BASIC
+  itself ran in RAM while it booted, loaded and listed) reading `$8000-$FFFF` outside the I/O page, or ROM code it
+  called reading ROM data and returning to it, stops the recording there (status `rom-read`). Two consecutive bytes
+  whose value is where control goes next (an interrupt vector, a jump through a table) only pick a target and are
+  allowed. What the lint cannot see: a program that `POKE`s BASIC's own pointers to show the ROM; corpus programs
+  `POKE` freely, so this is a stated residual risk, not a check.
 * **The keyword probe** (`probe-keywords.bas`): writes every byte value `$80-$FE` (and `$FF` with each) into `REM`
   lines and `LIST`s them, so `LIST` spells out every token, including keywords we do not know about.
 
