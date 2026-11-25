@@ -1,7 +1,7 @@
 * ---------------- the main loop and the statement runner ----------------
 
 * READY: print OK and take lines
-READY   LDS     <STRBOT
+READY   LDS     <BASESP         ; (above it: the FOR and GOSUB frames CONT needs, or nothing)
         JSR     RSTTMP
         LDD     #$FFFF
         STD     <CURLIN
@@ -9,7 +9,7 @@ READY   LDS     <STRBOT
         LDX     #OKMSG
         JSR     PRTSTR
 * MAIN: one typed line: a numbered line goes into the program, anything else runs at once
-MAIN    LDS     <STRBOT
+MAIN    LDS     <BASESP
         CLR     <JMPFLG
         LDD     #$FFFF
         STD     <CURLIN
@@ -24,9 +24,7 @@ MAIN    LDS     <STRBOT
         JSR     LINGET          ; a line number: BINVAL
         JSR     EDLINE          ; store, replace or delete the line
         BRA     MAIN
-DIRECT  LDA     #1
-        STA     <DIRFLG
-        LDX     <TXTPTR
+DIRECT  LDX     <TXTPTR
         LEAX    -1,X
         STX     <TXTPTR
         BRA     NEWST1
@@ -58,6 +56,9 @@ NEWEOL  LDD     <CURLIN
         BSR     TRCLIN
 NEWST1  JSR     BRKCHK
 NEWST2  JSR     RSTTMP
+        STS     <FRMSP          ; the stack and the text where this statement starts (BREAK in INPUT)
+        LDX     <TXTPTR
+        STX     <STMTXT
         JSR     CHRGET
         BSR     EXECST
         TST     <JMPFLG
@@ -65,9 +66,10 @@ NEWST2  JSR     RSTTMP
 NEWJMP  CLR     <JMPFLG
         BSR     TRCLIN
         BRA     NEWST1
-DIREND  CLR     <DIRFLG
+DIREND  JMP     READY
+PRGEND  CLR     <OLDTXT         ; the end of the program: nothing to CONT
+        CLR     <OLDTXT+1
         JMP     READY
-PRGEND  JMP     ENDRUN
 * TRON: each line's number in brackets as it starts [UM]
 TRCLIN  TST     <TRCFLG
         BEQ     TRC1
@@ -85,14 +87,15 @@ EXECST  BEQ     EXRTS           ; an empty statement
         BPL     EXLET           ; a variable: LET
         CMPA    #$FF
         BEQ     EXFUNC
-        CMPA    #T_LAST
+        CMPA    #T_SLAST        ; the words that are not statements (TO, THEN, the operators): ?SN ERROR
         BHI     EXSN
         SUBA    #$80
+        TFR     A,B
+        CLRA
+        ASLB
+        ROLA
         LDX     #STMTDS
-        LSLA
-        BCC     EX1
-        LEAX    256,X           ; (tokens $C0 and up)
-EX1     LDX     A,X
+        LDX     D,X
         JSR     CHRGET          ; past the token
         JMP     ,X
 EXLET   JMP     LET
@@ -109,20 +112,15 @@ UNIMPL  JMP     FCERR
 
 * CHRGET: the next character after spaces. A = it; Z set at the end of a statement (0 or ':');
 * C set for a digit. Keeps every other register.
-CHRGET  PSHS    X
-        LDX     <TXTPTR
-CG1     LEAX    1,X
-        LDA     ,X
+CHRGET  INC     <TXTPTR+1
+        BNE     CG1
+        INC     <TXTPTR
+CG1     LDA     [TXTPTR]
         CMPA    #' '
-        BEQ     CG1
-        STX     <TXTPTR
-        PULS    X
+        BEQ     CHRGET
         BRA     CGFLAG
 * CHRGOT: the character at the text pointer again, with the same flags
-CHRGOT  PSHS    X
-        LDX     <TXTPTR
-        LDA     ,X
-        PULS    X
+CHRGOT  LDA     [TXTPTR]
 CGFLAG  CMPA    #T_ELSE         ; ELSE ends a statement too
         BEQ     CG2
         CMPA    #':'
@@ -166,7 +164,7 @@ LGERR   JMP     SNERR
 
 * ---------------- END, STOP, CONT, REM, TRON, TROFF ----------------
 * CONTMD: 0 = CONT goes on after the statement at OLDTXT (STOP, END); 1 = OLDTXT is just before a statement
-* (BREAK between statements)
+* (BREAK). BASESP keeps the stack as it was, so the FOR and GOSUB frames are there for CONT.
 END     BNE     SYNERR
         CLR     <CONTMD
         LDD     <CURLIN
@@ -176,14 +174,22 @@ END     BNE     SYNERR
         STD     <OLDTXT
         LDD     <CURLIN
         STD     <OLDLIN
-ENDRUN  CLR     <DIRFLG
-        JMP     READY
+        LEAX    2,S             ; (under NEWSTT's return address: the frames)
+        STX     <BASESP
+ENDRUN  JMP     READY
 
 STOP    BNE     SYNERR
         CLR     <CONTMD
-        BRA     STOP0
-STOPBK  LDA     #1              ; BREAK, from BRKCHK at NEWST1
+        LEAX    2,S
+        BRA     STOP0X
+STOPIN  LDD     <STMTXT         ; BREAK while INPUT waits: CONT runs the INPUT again
+        STD     <TXTPTR
+        LDX     <FRMSP
+        BRA     STOPB1
+STOPBK  LEAX    2,S             ; BREAK, from BRKCHK at NEWST1
+STOPB1  LDA     #1
         STA     <CONTMD
+STOP0X  STX     <BASESP
 STOP0   LDD     <CURLIN
         CMPD    #$FFFF
         BEQ     STOP1
@@ -208,7 +214,7 @@ CONT    LBNE    SNERR
 CONT1   STD     <TXTPTR
         LDD     <OLDLIN
         STD     <CURLIN
-        LDS     <STRBOT
+        LDS     <BASESP
         TST     <CONTMD
         BEQ     CONT2
         JMP     NEWST2
@@ -318,9 +324,10 @@ FORSIZ  EQU     17
 * ---------------- RUN, NEW, CLS ----------------
 RUN     BEQ     RUN1
         BCC     RUNSN
-        JSR     CLRVAR          ; RUN n
+        JSR     LINGET          ; RUN n
+        JSR     CLRVAR
         LDS     <STRBOT
-        JSR     GOTO1
+        JSR     JUMPTO
         JMP     NEWJMP
 RUN1    JSR     CLRVAR
         LDS     <STRBOT

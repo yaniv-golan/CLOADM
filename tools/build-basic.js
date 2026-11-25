@@ -34,7 +34,10 @@ function tokensInc(json) {
   for (const e of st) out.push(`${symName(e.word).padEnd(8)} EQU     ${hex(e.t)}`);
   for (const e of fn) out.push(`${(symName(e.word) + 'F').padEnd(8)} EQU     ${hex(e.t)}`);
   const last = (l) => Math.max(...l.map((e) => e.t));
-  out.push(`T_LAST   EQU     ${hex(last(st))}`, `TF_LAST  EQU     ${hex(last(fn))}`);
+  // T_SLAST: the last statement token; the words that are not statements ("stmt": false) have no dispatch entry,
+  // and one inside the statements' range runs UNIMPL
+  const stmts = st.filter((e) => e.stmt !== false);
+  out.push(`T_LAST   EQU     ${hex(last(st))}`, `T_SLAST  EQU     ${hex(last(stmts))}`, `TF_LAST  EQU     ${hex(last(fn))}`);
   const table = (label, list) => {
     out.push(label);
     for (const e of list) out.push(`        FCS     "${e.word}"`, `        FCB     ${hex(e.t)}`);
@@ -49,7 +52,7 @@ function tokensInc(json) {
       out.push(`        FDB     ${(e && e.handler) || 'UNIMPL'}`);
     }
   };
-  dispatch('STMTDS', st);
+  dispatch('STMTDS', stmts);
   dispatch('FUNCDS', fn);
   return out.join('\n') + '\n';
 }
@@ -73,6 +76,9 @@ function buildBasic({ defines = {} } = {}) {
     }
   });
   const used = owner.reduce((n, o) => n + (o >= 0 ? 1 : 0), 0);
+  // the system RAM block and the direct page must not run into the buffers after them
+  if (res.symbols.get('SYSEND') > res.symbols.get('LINBUF')) throw new Error('basic: the system RAM ($0100 on) runs into LINBUF');
+  if (res.symbols.get('DPEND') > 0x100) throw new Error('basic: the direct page is full');
   return { rom, symbols: res.symbols, listing: res.listing, used };
 }
 module.exports = { buildBasic, tokensInc, ROM_FILE };

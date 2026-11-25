@@ -35,7 +35,7 @@ PRUSNG  JSR     CHRGET          ; (on USING)
         TST     ,X
         LBEQ    FCERR
         LDB     #';'
-        JSR     SYNCHR0
+        JSR     SYNCHR
         CLR     <USPOS
         CLR     <USANY
 * one item: literal characters up to a field, then the field
@@ -271,7 +271,11 @@ UMOV    JSR     FOUT            ; too large for 32 bits: % and the number as PRI
         JSR     CHROUT
         JMP     PRTSTR
 * E notation: as many digits before the point as the field has #s
-UMEXP   JSR     FOUT            ; nine digits in FPDIG, the exponent of the first in FPE10
+UMEXP   LDA     <USNB           ; at most nine digits: more is ?FC ERROR
+        ADDA    <USNA
+        CMPA    #9
+        LBHI    FCERR
+        JSR     FOUT            ; nine digits in FPDIG, the exponent of the first in FPE10
         LDA     <USNB
         ADDA    <USNA
         BNE     UME1

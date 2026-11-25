@@ -49,6 +49,7 @@ IDERR   LDB     #ERR_ID
 CNERR   LDB     #ERR_CN
 
 ERROR   LDS     <STRBOT         ; drop everything the program had on the stack
+        STS     <BASESP
         JSR     RSTTMP          ; and the string temporaries
         JSR     NEWLIN
         LDA     #'?'

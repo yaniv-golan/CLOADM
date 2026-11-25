@@ -85,9 +85,7 @@ VECINI  JMP     IRQSRV
         JMP     NMISRV
         JMP     NMISRV
 
-BANNER  FCC     "CLOADM BASIC FOR THE DRAGON 64"
-        FCB     13
-        FCC     "CLEAN-ROOM, 32K MODE"
+BANNER  FCC     "CLOADM BASIC"  ; (a placeholder: the wording comes later)
         FCB     13
         FCN     ""
 

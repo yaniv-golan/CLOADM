@@ -29,20 +29,31 @@ STRDEF  EQU     200             ; the default string space
 LINBUF  EQU     $0200           ; the typed line (250 characters and a 0)
 LINMAX  EQU     250
 CRNBUF  EQU     $0300           ; the crunched line
-FBUFFR  EQU     $0180           ; number to text conversion (40 bytes)
 
+* ---------------- system RAM, $0100-$01FF: laid out one after another, so nothing overlaps ----------------
+        ORG     $0100
 * RAM jump vectors: each a JMP to the handler, so a program can take over an interrupt
-VIRQ    EQU     $0100
-VFIRQ   EQU     $0103
-VNMI    EQU     $0106
-VSWI    EQU     $0109
-VSWI2   EQU     $010C
-VSWI3   EQU     $010F
-USRTAB  EQU     $0112           ; DEFUSR0-9 addresses (20 bytes, to $0125)
-ROLLTB  EQU     $0126           ; keys down per column at the last scan (8 bytes)
-* $0130-$0157: the temporary string descriptors (strings.inc)
-FORSTP  EQU     $0158           ; FOR: the step and the limit, packed, before they go on the stack
-FORLIM  EQU     $015D
+VIRQ    RMB     3
+VFIRQ   RMB     3
+VNMI    RMB     3
+VSWI    RMB     3
+VSWI2   RMB     3
+VSWI3   RMB     3
+USRTAB  RMB     20              ; DEF USR0-9 addresses
+ROLLTB  RMB     8               ; keys down per column at the last scan
+TMPDSC  RMB     8*5             ; the temporary string descriptors (strings.inc)
+TMPEND  RMB     0
+FORSTP  RMB     5               ; FOR: the step and the limit, packed, before they go on the stack
+FORLIM  RMB     5               ; (FOR pushes them as one: FORSTP must come just before FORLIM)
+FPT1    RMB     5               ; packed temporaries of the numeric functions (mathfn.inc)
+FPT2    RMB     5
+FPT3    RMB     5
+FPT4    RMB     5
+FPT5    RMB     5
+FPT6    RMB     5
+POLYV   RMB     5               ; POLY's variable
+FBUFFR  RMB     64              ; number to text (FOUT) and PRINT USING's work (FBUFFR+20 on)
+SYSEND  RMB     0               ; (must stay at or below LINBUF: tools/build-basic.js checks it)
 
 * ---------------- direct page ----------------
         ORG     $0000
@@ -70,7 +81,6 @@ TMPPTR  RMB     2               ; scratch pointers
 TMPPT2  RMB     2
 TMPCNT  RMB     2
 INQUOT  RMB     1               ; crunch: inside quotes / DATA
-DIRFLG  RMB     1               ; nonzero while a direct-mode line runs
 JMPFLG  RMB     1               ; a statement jumped: TXTPTR is the byte before a line's text
 CONTMD  RMB     1               ; how CONT goes on (interp.inc)
 KWLEN   RMB     1               ; crunch: the best keyword's length, token, table
@@ -156,6 +166,9 @@ USNEG   RMB     1
 USK     RMB     1
 USW     RMB     1
 USEXP   RMB     2
+BASESP  RMB     2               ; the stack the OK prompt and CONT use: frames above it survive a STOP
+FRMSP   RMB     2               ; the stack and the text at the start of the statement running
+STMTXT  RMB     2
 DPEND   RMB     0
 
 * ---------------- the ROM ----------------

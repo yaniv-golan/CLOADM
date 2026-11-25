@@ -7,7 +7,7 @@ CRUNCH  PSHS    X,Y,U
         LDU     #CRNBUF
         CLR     <INQUOT
 CR1     LDA     ,X
-        BEQ     CRDONE
+        LBEQ    CRDONE
         CMPA    #'"'
         BEQ     CRQUOT
         TST     <INQUOT
@@ -16,7 +16,23 @@ CR1     LDA     ,X
         BNE     CRCOPY
         CLR     <INQUOT
         BRA     CRCOPY
-CR2     CMPA    #'?'
+CR2     CMPA    #'&'            ; &H and &O numbers: their digits and letters as typed
+        BNE     CR2A
+        STA     ,U+
+        LEAX    1,X
+CRH1    LDA     ,X
+        CMPA    #'0'
+        BLO     CR1
+        CMPA    #'9'
+        BLS     CRH2
+        CMPA    #'A'
+        BLO     CR1
+        CMPA    #'Z'
+        BHI     CR1
+CRH2    STA     ,U+
+        LEAX    1,X
+        BRA     CRH1
+CR2A    CMPA    #'?'
         BNE     CR3
         LDA     #T_PRINT
         STA     ,U+
@@ -56,7 +72,7 @@ CRQ1    LDA     ,X
         LEAX    1,X
         CMPA    #'"'
         BNE     CRQ1
-        BRA     CR1
+        LBRA    CR1
 CRREST  LDA     ,X+
         STA     ,U+
         BNE     CRREST

@@ -7,13 +7,6 @@
 FPONE   EQU     POWTAB          ; 1
 FPM1    FCB     $81,$80,$00,$00,$00     ; -1
 
-FPT1    EQU     $0162           ; packed temporaries
-FPT2    EQU     $0167
-FPT3    EQU     $016C
-FPT4    EQU     $0171
-FPT5    EQU     $0176
-FPT6    EQU     $017B
-POLYV   EQU     FBUFFR+30       ; POLY's variable (FOUT does not reach it)
 
 * FNARGN: ( numeric expression )
 FNARGN  JSR     LPAREN

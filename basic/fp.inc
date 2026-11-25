@@ -263,7 +263,11 @@ FM0     CLR     ,X+
         BNE     FM0
         LDA     #3
         STA     <FPI
-FM1     LDA     #3
+FM1     LDX     #ARGM           ; a 0 byte adds nothing: its row is skipped
+        LDB     <FPI
+        TST     B,X
+        BEQ     FM4A
+        LDA     #3
         STA     <FPJ
 FM2     LDX     #ARGM
         LDB     <FPI
@@ -289,7 +293,7 @@ FM3     LEAX    -1,X            ; the carry ripples up
         BEQ     FM3
 FM4     DEC     <FPJ
         BPL     FM2
-        DEC     <FPI
+FM4A    DEC     <FPI
         BPL     FM1
         LDD     <PROD
         STD     <FACM

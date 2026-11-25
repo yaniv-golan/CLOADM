@@ -1,10 +1,12 @@
-# [UM] PEEK, POKE, DEF FN, MEM, POS, TIMER, RND; [OWN] MEM checked only for its range; provisional until the black-box run
+# [UM] PEEK, POKE (into memory set aside with CLEAR), DEF FN, MEM, POS, TIMER, RND; [OWN] MEM checked only for its range; provisional until the black-box run
 OK
-POKE 20000,123:PRINT PEEK(20000)
+CLEAR 200,30000
+OK
+POKE 30000,123:PRINT PEEK(30000)
 
  123
 OK
-POKE 20000,256
+POKE 30000,256
 ?FC ERROR
 OK
 10 DEF FN SQ(X)=X*X

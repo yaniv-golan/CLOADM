@@ -101,6 +101,7 @@ ARYGET  LDD     <VARNAM
         LDA     <VALTYP
         LDB     <DIMFLG
         PSHS    D
+        CLR     <DIMFLG         ; (a subscript's own arrays are not being DIMmed)
         CLRB                    ; the number of subscripts
 AG1     PSHS    B
         JSR     CHRGET

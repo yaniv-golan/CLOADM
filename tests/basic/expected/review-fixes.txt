@@ -1,0 +1,41 @@
+# [OWN] the fixes from the code review: words that are not statements are ?SN ERROR, &H numbers with letters, a space after a quoted DATA item, VAL overflowing leaves the program as it was, DIM with an array in a subscript, FOR needs a simple variable, E notation of more than nine digits is ?FC ERROR; provisional until the black-box run
+OK
+OR
+?SN ERROR
+OK
+=5
+?SN ERROR
+OK
+THEN
+?SN ERROR
+OK
+TO 3
+?SN ERROR
+OK
+PRINT &HDEF;&HA0
+ 3567  160
+OK
+10 DATA "A" ,"B"
+20 DATA "D"
+30 READ A$,B$:PRINT A$;B$
+40 X=VAL("1E99")
+RUN
+AB
+?OV ERROR IN 40
+OK
+LIST 40
+40 X=VAL("1E99")
+OK
+10 DIM A(2),B(5):B(1)=2
+20 DIM C(B(1)):C(2)=5:PRINT C(2)
+
+30 FOR A(1)=1 TO 3:NEXT
+40 PRINT USING "############^^^^
+";1
+RUN
+ 5
+?SN ERROR IN 30
+OK
+RUN 40
+?FC ERROR IN 40
+OK

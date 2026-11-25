@@ -391,7 +391,7 @@ FIS     JSR     CHRGET
 FI0     JSR     CHRGOT
 FI1     BCS     FIDIG
         CMPA    #'.'
-        BNE     FI3
+        LBNE    FI3
         TST     <FPDP
         LBNE    FIEND
         COM     <FPDP
@@ -446,7 +446,7 @@ FIIGN   TST     <FPDP           ; a digit not kept is still a place before the p
         ADDD    #1
         STD     <FPE10
 FINX    JSR     CHRGET
-        BRA     FI1
+        LBRA    FI1
 * the exponent
 FI3     CMPA    #'E'
         BNE     FIEND

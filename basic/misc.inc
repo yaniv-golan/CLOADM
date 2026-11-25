@@ -21,7 +21,9 @@ EXEC    BEQ     EXC1
         JSR     EVNUM
         JSR     GETADR
         STD     <EXECAD
-EXC1    JSR     [EXECAD]
+EXC1    LDX     <EXECAD
+        LBEQ    FCERR           ; no address ever given
+        JSR     ,X
         JMP     CHRGOT
 * USRn(x): call the machine code DEF USRn gave, with x in FAC; it returns its result in FAC [UM]
 USR     JSR     USRNUM
@@ -81,10 +83,12 @@ DEF1    CMPA    #T_FN
         CLR     <VARCRE
         TST     <VALTYP
         LBNE    TMERR
+        CMPX    <ARYTAB         ; a simple variable only
+        LBHS    SNERR
         PSHS    X
         JSR     RPAREN
         LDB     #T_EQ
-        JSR     SYNCHR0
+        JSR     SYNCHR
         PULS    D
         PULS    X
         STD     2,X             ; the parameter
@@ -161,12 +165,12 @@ FN2     CMPA    #'$'
         JSR     CHRGET
 FN3     RTS
 
-* VARPTR(variable): the address of its value (the variable is made if it does not exist)
-VARPTR  JSR     LPAREN
-        LDA     #1
-        STA     <VARCRE
+* VARPTR(variable): the address of its value
+VARPTR  JSR     LPAREN          ; (a variable that does not exist: ?FC ERROR; making it would move the arrays
+        CLR     <VARCRE         ; under an element address the expression may hold)
         JSR     PTRGET
-        CLR     <VARCRE
+        CMPX    #ZEROV
+        LBEQ    FCERR
         PSHS    X
         JSR     RPAREN
         PULS    D
@@ -185,7 +189,7 @@ POS     JSR     FNARGN
 TIMERF  LDD     <TIMER
         JMP     GIVUNS
 TIMERS  LDB     #T_EQ
-        JSR     SYNCHR0
+        JSR     SYNCHR
         JSR     EVNUM
         JSR     GETADR
         STD     <TIMER

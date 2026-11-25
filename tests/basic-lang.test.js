@@ -44,6 +44,7 @@ for (const [dir, f] of files.sort((a, b) => a[1].localeCompare(b[1]))) {
   check(`${name}: transcript as expected (${expected.length} lines)`, at < 0,
     at < 0 ? '' : `line ${at + 1}: expected ${JSON.stringify(expected[at])}, got ${JSON.stringify(r.transcript[at])}`);
 }
+for (const name of only) check(`case ${name} exists`, files.some(([, f]) => f === `${name}.bas`));
 console.log(`(${bbOnly} black-box-only cases linted)`);
 console.log(`\n${n - fail}/${n} passed`);
 process.exitCode = fail ? 1 : 0;

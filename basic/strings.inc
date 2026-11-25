@@ -4,8 +4,6 @@
 * worked on is a descriptor pointed at by STRPTR: a variable's, or one of the temporary descriptors at TMPDSC
 * (used and freed like a stack; ?ST ERROR when they run out).
 
-TMPDSC  EQU     $0130           ; 8 temporary descriptors
-TMPEND  EQU     TMPDSC+8*5
 
 * RSTTMP: no temporaries in use
 RSTTMP  PSHS    X               ; (and PTRGET's modes: a new statement starts)
@@ -79,6 +77,8 @@ GS1     TST     <GCDONE
 GS2     LDB     #ERR_OS
         JMP     ERROR
 
+* Invariant: no two descriptors share a string in the string space (STRKEEP copies a variable's string rather than
+* share it), so moving a string updates its one descriptor.
 * GARBAG: the garbage collector. Every string in use (the variables', the arrays', the temporaries') is moved up
 * to the top of the string space, the highest first, so the free space below them is all in one piece.
 GARBAG  PSHS    D,X,Y,U

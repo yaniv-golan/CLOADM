@@ -33,6 +33,11 @@ GI3     LDA     ,X
         LEAX    1,X
         BRA     GI3
 GI3B    LEAX    1,X
+GI3C    LDA     ,X              ; spaces after the closing quote
+        CMPA    #' '
+        BNE     GI3A
+        LEAX    1,X
+        BRA     GI3C
 GI3A    STX     <TXTPTR
         PULS    X
         JSR     MKTMP
@@ -154,7 +159,7 @@ INP0    STB     <INPKND
         BNE     INP1
         JSR     STRLIT          ; the prompt
         LDB     #';'
-        JSR     SYNCHR0
+        JSR     SYNCHR
         JSR     FRESTR
         JSR     PRTN
 INP1    LDD     <TXTPTR         ; where the variables are listed
@@ -234,7 +239,7 @@ LNI3    JSR     MKTMP           ; (STRKEEP copies it: a typed line is not progra
         JMP     ASSIGN
 * INLINE: a line typed for INPUT; BREAK stops the program
 INLINE  JSR     LINEIN
-        LBCS    STOPBK
+        LBCS    STOPIN
         RTS
 QMSG    FCN     "? "
 QQMSG   FCN     "?? "

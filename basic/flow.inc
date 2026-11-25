@@ -8,7 +8,7 @@ IFST    JSR     EVNUM
         CMPA    #T_GO
         BEQ     IF1
         LDB     #T_THEN
-        JSR     SYNCHR0
+        JSR     SYNCHR
 IF1     TST     <FACEXP
         BEQ     IFNO
 IFYES   JSR     CHRGOT
@@ -54,10 +54,6 @@ IFN5    LDA     ,X
         BRA     IFN5
 IFN6    STX     <TXTPTR
         RTS
-* SYNCHR0: like SYNCHR (the character must be B, then the next one), from CHRGOT
-SYNCHR0 CMPB    [TXTPTR]
-        LBNE    SNERR
-        JMP     CHRGET
 
 * FOR variable = start TO limit [STEP step]: a frame on the stack (interp.inc, FORSIZ bytes): the marker,
 * the variable's address, the step and the limit packed, the line and the text pointer after the statement.
@@ -69,14 +65,16 @@ FOR     LDA     #1
         CLR     <VARCRE
         TST     <VALTYP
         LBNE    TMERR
+        CMPX    <ARYTAB         ; a simple variable only: an element's address moves when a variable is made
+        LBHS    SNERR
         STX     <FORVAR
         LDB     #T_EQ
-        JSR     SYNCHR0
+        JSR     SYNCHR
         JSR     EVNUM
         LDX     <FORVAR
         JSR     MOVMF
         LDB     #T_TO
-        JSR     SYNCHR0
+        JSR     SYNCHR
         JSR     EVNUM
         LDX     #FORLIM
         JSR     MOVMF

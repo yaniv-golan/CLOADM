@@ -21,11 +21,14 @@ const check = (name, cond, detail = '') => { n++; if (!cond) { fail++; console.l
 const refused = (line) => lintCase(line).length > 0;
 for (const bad of ['10 X=PEEK(40000)', '10 X=PEEK(A)', '10 X=PEEK(A+1 OR 0 AND 32767)', '10 EXEC 32000', '10 X=USR(0)',
   '10 DEFUSR0=1000', '10 CLOADM', '10 CSAVEM "A",1,2,3', '10 X=PEEK (&HC000)', '10 X=PEEK(32768)', 'PRINT PEEK(49152)', '10 X=PEEK',
-  '10 A=VARPTR(B$)', '10 POKE A,192', '10 POKE A+1 OR 0 AND 32767,1', '10 POKE 40000,1', '10 POKE'])
+  '10 A=VARPTR(B$)', '10 POKE A,192', '10 POKE A+1 OR 0 AND 32767,1', '10 POKE 40000,1', '10 POKE',
+  '#type PRINT PEEK(40000)\\n', '10 DATA REM:PRINT PEEK(40000)', '10 END:PRINT PEEK(40000)\nCONT', '10 POKE 4,129', '10 POKE 20000,1',
+  'IF 1 THENEXEC 40000', 'PRINTUSR0(1)', 'X=PEEK(AOR 0 AND 32767)', '10 POKE P+5 AND 32767,T', 'CLEAR 200,20000\n10 POKE 19999,1'])
   check(`lint refuses ${bad}`, refused(bad));
 for (const good of ['10 X=PEEK(1024)', '10 X=PEEK(&H7FFF)', '10 X=PEEK(A+1 AND 32767)', '10 PRINT "EXEC PEEK(49152)"',
   '10 REM EXEC USR PEEK(40000)', "10 PRINT 1:' EXEC", '2000 END:EXEC', '# EXEC in a directive line', '10 PRINT X',
-  '10 POKE 20000,123', '10 POKE P+5 AND 32767,T', '10 POKE (A AND 32767),PEEK(1)'])
+  '10 POKE 1100,65', 'CLEAR 200,20000\n10 POKE 20000,123\nPOKE 32767,1', '# bb-only\n10 POKE P+5 AND 32767,T',
+  '# bb-only\n10 POKE (A AND 32767),PEEK(1)', '2000 END:CONT', '10 DATA 1,2:PRINT 3'])
   check(`lint accepts ${good}`, !refused(good));
 
 // ---- compare ----
@@ -90,9 +93,9 @@ check('build: $8000-$80FF is left free for later fixed entry points', built.rom.
 // ---- the run-time guard: code the case wrote must never run ----
 {
   const { runCase } = require('./basic/harness.js');
-  // passes the lint (literal RAM addresses), but points the IRQ vector's JMP ($0100 in our ROM) at an RTS it POKEd
+  // points the IRQ vector's JMP ($0100 in our ROM) at an RTI it POKEd: the guard stops it whatever the lint says
   const hook = 'POKE 20000,59:POKE 257,78:POKE 258,32\nPRINT "STILL HERE"\n';
-  check('guard: the hooking case passes the lint (the guard is what stops it)', lintCase(hook).length === 0);
+  check('guard: the lint refuses the hooking case too (POKE into BASIC\'s own memory)', lintCase(hook).length > 0);
   const r = runCase(built.rom, hook);
   check('guard: a case that runs code it wrote is refused, nothing recorded', r.status === 'refused' && r.transcript.length === 0 && /\$4E20/.test(r.why), `${r.status} ${r.why}`);
   const plain = runCase(built.rom, 'POKE 20000,59\nPRINT PEEK(20000)\n');

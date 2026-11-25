@@ -77,10 +77,9 @@ corrupting the image.
 | Range | Use |
 |---|---|
 | `$0000-$00FF` | the direct page: the interpreter's variables (pointers, the two floating-point accumulators, the text pointer, flags). DP is 0 throughout |
-| `$0100-$011F` | RAM jump vectors (IRQ, FIRQ, NMI, SWI, SWI2, SWI3, `USR`), so a program can hook an interrupt [OWN; addresses to align in P3] |
-| `$0120-$01FF` | `DEFUSR` addresses (10 x 2 bytes), keyboard state (rollover table, debounce), cassette buffer pointer, misc |
-| `$0200-$02FF` | the line input buffer (250 characters + terminator) and the crunch buffer |
-| `$0300-$03FF` | string temporaries and the `PRINT USING` / number conversion buffer |
+| `$0100-$01FF` | the system RAM block, laid out by `RMB` in `d64basic.asm` (so nothing overlaps; the build fails if it reaches `$0200`): the RAM jump vectors (IRQ, FIRQ, NMI, SWI, SWI2, SWI3), so a program can hook an interrupt [OWN; addresses to align in P3]; the `DEF USR` addresses; the keyboard's rollover table; the 8 temporary string descriptors; `FOR`'s step and limit; the numeric functions' temporaries; the number conversion and `PRINT USING` buffer |
+| `$0200-$02FF` | the line input buffer (250 characters + terminator); `VAL` reads its copy of a string here |
+| `$0300-$03FF` | the crunched line |
 | `$0400-$05FF` | the text screen, 32 x 16 [HW: the SAM's reset display offset] |
 | `$0600-$1DFF` | the graphics pages, reserved from P1 on (P2: `PCLEAR 4`, four 1.5 K pages) |
 | `$1E00` | 0 (the byte before the program) |
@@ -109,27 +108,29 @@ black-box case (`VARPTR` then `PEEK` of five bytes) and changed to match if it d
 
 | File | Contents |
 |---|---|
-| `d64basic.asm` | equates (direct page, RAM layout, hardware registers), `INCLUDE`s, the vectors |
-| `boot.inc` | cold start (PIAs, SAM, RAM size, pointers, banner), warm start (reset with a valid flag), the RAM vectors |
-| `screen.inc` | character output: the 32 x 16 screen, scrolling, `CLS`, the cursor, `POS`, `TAB` columns, lower case shown inverse [HW] |
-| `keyboard.inc` | the matrix scan through PIA 0, debounce, SHIFT, SHIFT-0 lower-case toggle, BREAK, SHIFT-@ pause, `INKEY$` [UM, HW] |
-| `irq.inc` | the 50 Hz field interrupt: `TIMER`, the cursor blink |
+| `d64basic.asm` | equates (hardware registers, the RAM layout), the direct page and the system RAM block, `INCLUDE`s, the vectors |
+| `boot.inc` | cold start (PIAs, SAM, pointers, banner), warm start (reset with a valid flag), the RAM vectors, the 50 Hz field interrupt (`TIMER`) |
+| `screen.inc` | character output: the 32 x 16 screen, scrolling, `CLS`, lower case shown inverse [HW]; printing line numbers |
+| `keyboard.inc` | the matrix scan through PIA 0, debounce, SHIFT, SHIFT-0 lower-case toggle, the blinking cursor, BREAK and SHIFT-@ between statements [UM, HW] |
 | `lineinput.inc` | the input line editor: typing, left arrow erases, SHIFT-left arrow erases the line, BREAK, CLEAR [UM] |
-| `tokens.inc` | the keyword table and token values (one data table; values from the token probe, section 7) |
-| `crunch.inc` | crunching a typed line to tokens, uncrunching for `LIST` |
-| `program.inc` | inserting, replacing and deleting lines; finding a line; `NEW`, `LIST`, `CLEAR`, `DEL`, `RENUM` (if it fits P1) |
-| `interp.inc` | the main loop: direct mode and `RUN`, statement dispatch, `END`, `STOP`, `CONT`, `REM`, `GOTO`, `GOSUB` / `RETURN`, `ON ... GOTO/GOSUB`, `IF ... THEN ... ELSE`, `FOR` / `NEXT`, `TRON` / `TROFF` |
-| `errors.inc` | the error codes and messages, `?XX ERROR` / `?XX ERROR IN n`, `BREAK IN n` [UM] |
-| `vars.inc` | finding and creating variables, `DIM`, array element addressing, `LET` |
-| `expr.inc` | the expression evaluator: operator precedence, relational and logical operators, function dispatch, type checking (`TM` errors) |
-| `fp.inc` | the floating-point core: unpack / pack, add, subtract, multiply, divide, compare, normalise and round, integer conversion |
-| `fpconv.inc` | number to text (Dragon print format) and text to number |
-| `fpfunc.inc` | `SGN`, `INT`, `ABS`, `FIX`, `SQR`, `LOG`, `EXP`, `SIN`, `COS`, `TAN`, `ATN`, `RND`, `^` |
-| `strings.inc` | string space, garbage collection, concatenation, comparison, `LEFT$`, `RIGHT$`, `MID$`, `LEN`, `STR$`, `VAL`, `ASC`, `CHR$`, `INSTR`, `STRING$`, `HEX$`, `INKEY$` |
-| `print.inc` | `PRINT` (`;`, `,`, `TAB(`), `PRINT USING`, `?` |
-| `input.inc` | `INPUT` (prompt, `?REDO`, `??`, extra ignored), `LINE INPUT` if the dialect has it, `DATA` / `READ` / `RESTORE` |
-| `misc.inc` | `PEEK`, `POKE`, `EXEC`, `USR` / `DEFUSR`, `VARPTR`, `MEM`, `DEF FN`, `CLS`, `SOUND`-free stubs |
-| `cassette.inc` | P1b: `CSAVE`, `CLOAD`, `CLOADM`, `CSAVEM`, `SKIPF`, `MOTOR` |
+| `errors.inc` | the error codes and messages, `?XX ERROR` / `?XX ERROR IN n` [UM] |
+| `interp.inc` | the main loop: direct mode, statement dispatch, `CHRGET`, `END`, `STOP`, `CONT`, `REM`, `DATA` when run, `TRON` / `TROFF`, `GOTO`, `GOSUB` / `RETURN`, `RUN`, `NEW`, `CLS` |
+| `program.inc` | finding, storing, replacing and deleting lines; `NEW`; `LIST` and `DEL` (and their range); uncrunching keywords |
+| `crunch.inc` | crunching a typed line to tokens |
+| `vars.inc` | finding and creating variables, arrays, `DIM`, `LET` |
+| `expr.inc` | the expression evaluator: precedence, relations, `NOT` / `AND` / `OR`, `&H` / `&O`, function dispatch, type checks, integer conversions |
+| `strings.inc` | temporary descriptors, string space allocation and garbage collection, literals, joining, comparison |
+| `print.inc` | `PRINT` (`;`, `,`, `TAB(`, `@`), `?` |
+| `flow.inc` | `IF` / `THEN` / `ELSE`, `FOR` / `NEXT`, `ON ... GOTO/GOSUB` |
+| `strfunc.inc` | `LEN`, `ASC`, `CHR$`, `LEFT$`, `RIGHT$`, `MID$`, `STR$`, `VAL`, `INSTR`, `STRING$`, `HEX$`, `INKEY$`, `CLEAR` |
+| `mathfn.inc` | `INT`, `FIX`, `ABS`, `SGN`, `SQR`, `LOG`, `EXP`, `SIN`, `COS`, `TAN`, `ATN`, `^`, `RND` (constants: the generated `mathconst.inc`) |
+| `misc.inc` | `PEEK`, `POKE`, `EXEC`, `USR` / `DEF USR`, `DEF FN` / `FN`, `VARPTR`, `MEM`, `POS`, `TIMER` |
+| `io.inc` | `READ` / `DATA` / `RESTORE`, `INPUT`, `LINE INPUT` |
+| `using.inc` | `PRINT USING` |
+| `fp.inc` | the floating-point core: unpack / pack, add, subtract, multiply, divide, compare, normalise and round |
+| `fpconv.inc` | integers to and from FAC, number to text (`FOUT`) and text to number (`FIN`), the powers of ten |
+| `tokens.inc` | generated from `tokens.json`: the token equates, keyword tables and dispatch tables |
+| `cassette.inc` | (to come, P1b) `CSAVE`, `CLOAD`, `CLOADM`, `CSAVEM`, `SKIPF`, `MOTOR` |
 
 Statements and functions that belong to P2 (graphics, sound, joysticks) exist in the keyword table from the start, so
 programs crunch and list correctly, and give `?FC ERROR` (to be decided, open question 6) until P2 implements them.

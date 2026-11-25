@@ -212,11 +212,12 @@ EVFUNC  JSR     CHRGET
         BHI     EVFSN
         SUBA    #$80
         BLO     EVFSN
+        TFR     A,B
+        CLRA
+        ASLB
+        ROLA
         LDX     #FUNCDS
-        LSLA
-        BCC     EVF1
-        LEAX    256,X
-EVF1    LDX     A,X
+        LDX     D,X
         JSR     CHRGET
         JMP     ,X
 EVFSN   JMP     SNERR

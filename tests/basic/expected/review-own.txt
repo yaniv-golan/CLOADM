@@ -1,0 +1,13 @@
+# [OWN] VARPTR of a variable that does not exist is ?FC ERROR; EXEC with no address ever given is ?FC ERROR
+OK
+10 DIM A(3):A(1)=7
+20 A(0)=VARPTR(Z)
+RUN
+?FC ERROR IN 20
+OK
+PRINT A(1)
+ 7
+OK
+EXEC
+?FC ERROR
+OK

@@ -48,6 +48,7 @@ ED3     ADDD    #1
         CMPD    ,S++
         BHI     ED4
         JSR     RELINK          ; (the deletion is kept)
+        JSR     CLRVAR
         JMP     OMERR
 * open a gap at X: copy from the top down
 ED4     LDU     <VARTAB
@@ -107,6 +108,8 @@ CLRVAR  PSHS    D
         STD     <DATPTR
         LDD     #0
         STD     <OLDTXT
+        LDD     <STRBOT         ; CONT impossible: no frames kept
+        STD     <BASESP
         JSR     RSTTMP
         PULS    D,PC
 

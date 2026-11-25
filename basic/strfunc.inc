@@ -136,22 +136,23 @@ STZ2    JMP     STRCPY
 VAL     JSR     LPAREN
         JSR     EVSTR
         JSR     RPAREN
-        JSR     FRESTR
-        CLRA
-        LEAU    D,X             ; the byte after the string: 0 while it is read
-        LDA     ,U
-        PSHS    A,U
-        CLR     ,U
+        JSR     FRESTR          ; read from a copy with a 0 after it: the string itself is never touched
+        LDU     #LINBUF
+        TSTB
+        BEQ     VAL2
+VAL1    LDA     ,X+
+        STA     ,U+
+        DECB
+        BNE     VAL1
+VAL2    CLR     ,U
         LDD     <TXTPTR
         PSHS    D
-        LEAX    -1,X
+        LDX     #LINBUF-1
         STX     <TXTPTR
         JSR     CHRGET
         JSR     FIN
         PULS    D
         STD     <TXTPTR
-        PULS    A,U
-        STA     ,U
         CLR     <VALTYP
         RTS
 
