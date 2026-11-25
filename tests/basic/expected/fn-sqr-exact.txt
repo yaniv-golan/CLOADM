@@ -1,0 +1,19 @@
+# [BB typed-in, 2026-11-25] the real ROM: only 1 4 9 16 64 81 121 256 exact, all twenty through VAL(STR$()), SQR(25)-5 1.86264515E-09; [OWN] SQR(16)-4 and SQR(64)-8 (0 on ours, as both are exact on the original)
+OK
+10 FOR N=1 TO 400:S=SQR(N):IF S=
+INT(S) THEN PRINT N;
+20 NEXT:PRINT
+RUN
+ 1  4  9  16  64  81  121  256
+OK
+10 FOR N=1 TO 400:S=VAL(STR$(SQR
+(N))):IF S=INT(S) THEN PRINT N;
+RUN
+ 1  4  9  16  25  36  49  64  81
+  100  121  144  169  196  225
+256  289  324  361  400
+OK
+PRINT SQR(25)-5;SQR(16)-4;SQR(64
+)-8
+ 1.86264515E-09  0  0
+OK
