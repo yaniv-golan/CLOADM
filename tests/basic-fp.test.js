@@ -260,7 +260,7 @@ check('FIN 1E39 overflows', romFin('1E39').st === 'OV');
 check('FIN 1E-50 is 0', romFin('1E-50').v.e === 0);
 quiet = true;
 {
-  let mism = 0, round = 0, first = '', firstRound = '';
+  let mism = 0, round = 0, moved = 0, first = '', firstRound = '';
   for (let i = 0; i < COUNT / 3; i++) {
     const digits = String(rnd() % 1000000000).replace(/^0+/, '') || '0';
     const dot = rnd() % (digits.length + 1), e = (rnd() % 60) - 30;
@@ -270,15 +270,18 @@ quiet = true;
     const mo = model(() => F.fin(text).value);
     const ok = r.st === 'ok' ? !mo.err && same(r.v, mo.r) : mo.err === r.st;
     if (!ok) { mism++; if (!first) first = `${text}: rom ${r.st === 'ok' ? show(r.v) : r.st} model ${mo.err || show(mo.r)}`; }
-    // what PRINT shows, read back in, prints the same (nine digits do not always pick the same 32-bit number)
+    // what PRINT shows, read back in, prints the same but for at most one in the ninth digit: the steps of 10
+    // that scale it are rounded one by one, as the original's are [BB bb1 fn-math, bb2 fn-sqr-bits]
     if (r.st === 'ok' && !mo.err) {
       const back = romFout(r.v), again = romFout(romFin(back.trim()).v);
-      if (again !== back) { round++; if (!firstRound) firstRound = `${text} -> ${back} -> ${again}`; }
+      const a = Number(back), b = Number(again), unit = a === 0 ? 0 : 10 ** (Math.floor(Math.log10(Math.abs(a))) - 8);
+      if (again !== back) moved++;
+      if (Math.abs(a - b) > unit * 1.0001) { round++; if (!firstRound) firstRound = `${text} -> ${back} -> ${again}`; }
     }
   }
   quiet = false;
   check(`random FIN: ${Math.floor(COUNT / 3)} texts as the model reads them`, mism === 0, first);
-  check('a number printed, read back and printed again prints the same', round === 0, `${round} differ, first ${firstRound}`);
+  check('a number printed, read back and printed again moves by at most one in the ninth digit', round === 0, `${round} beyond (${moved} moved), first ${firstRound}`);
 }
 
 console.log(`\n${n - fail}/${n} passed`);

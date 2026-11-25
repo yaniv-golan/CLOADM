@@ -1,7 +1,7 @@
 // The clean-room BASIC's mathematical constants (basic/mathfn.inc), computed here from the constants' decimal
 // expansions and exact rationals (BigInt), rounded to nearest in the 5-byte format: pi, ln 2 and sqrt 3 to 36
-// digits, Taylor coefficients 1/k!, 1/(2k+1). PIO2HI and LN2HI keep 20 bits, so a multiple up to 4095 of them is
-// exact, and PIO2LO and LN2LO are the remainders (Cody and Waite's argument reduction). tools/build-basic.js
+// digits, Taylor coefficients 1/k!, 1/(2k+1). PIO2HI keeps 20 bits, so a multiple up to 4095 of it is exact, and
+// PIO2LO is the remainder (Cody and Waite's argument reduction, for SIN and COS). tools/build-basic.js
 // includes the result as "mathconst.inc"; the two tables are the series' coefficients, highest power first (which
 // ones a series takes is given where basic/mathfn.inc calls POLY).
 function mathConstsInc() {
@@ -45,9 +45,6 @@ function mathConstsInc() {
   out.push(fcb('PIO2', packed(pio2.num,pio2.den), 'pi/2'));
   out.push(fcb('TWOOPI', packed(pio2.den, pio2.num), '2/pi'));
   let l=r(LN2);
-  const lhi=packed(l.num,l.den,20); out.push(fcb('LN2HI', lhi, 'ln 2, 20 bits'));
-  const lhm=(BigInt(lhi[1]|0x80)<<24n)|(BigInt(lhi[2])<<16n)|(BigInt(lhi[3])<<8n)|BigInt(lhi[4]); const le=-(lhi[0]-160);
-  out.push(fcb('LN2LO', packed(l.num*(1n<<BigInt(le)) - lhm*l.den, l.den*(1n<<BigInt(le))), 'ln 2 - LN2HI'));
   out.push(fcb('LN2', packed(l.num,l.den), 'ln 2'));
   out.push(fcb('INVLN2', packed(l.den,l.num), '1/ln 2'));
   let s3=r(SQ3); out.push(fcb('SQRT3', packed(s3.num,s3.den), 'sqrt 3'));

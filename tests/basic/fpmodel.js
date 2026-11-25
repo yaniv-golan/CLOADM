@@ -136,22 +136,12 @@ function fout(a0) {
   if (a.e === 0) return sign + '0';
   a = { ...a, s: false };
   let e10 = 0;
-  if (cmp(a, E9) >= 0) {                      // 1E9 and up: big steps of 1E9, then one division by 10^j
-    while (cmp(a, P[17]) >= 0) { a = div(a, P[9]); e10 += 9; }
-    if (cmp(a, E9) >= 0) {
-      let j = 1;
-      while (j < 8 && cmp(a, P[9 + j]) >= 0) j++;
-      a = div(a, P[j]); e10 += j;
-    }
-  } else if (cmp(a, E8) < 0) {                // below 1E8: big steps of 1E9 below 1, then one product by 10^j
-    while (cmp(a, P[0]) < 0) { a = mul(P[9], a); e10 -= 9; }
-    if (cmp(a, E8) < 0) {
-      let j = 1;
-      while (j < 8 && cmp(a, P[8 - j]) < 0) j++;
-      a = mul(P[j], a); e10 -= j;
-    }
-  }
-  while (cmp(a, E8) < 0) { a = mul10(a); e10--; }   // (rounding can leave it one place out)
+  // big steps of 1E9 from 1E17 down and from below 1 up, then single steps of 10, each rounded: the real ROM prints
+  // 1E5 - 6 x 2^-15 (its SQR(1E10)) as 99999.9999, which four rounded steps give and one product by 1E4 does not
+  // [BB bb1 fn-math, bb2 fn-sqr-bits]
+  while (cmp(a, P[17]) >= 0) { a = div(a, P[9]); e10 += 9; }
+  while (cmp(a, P[0]) < 0) { a = mul(P[9], a); e10 -= 9; }
+  while (cmp(a, E8) < 0) { a = mul10(a); e10--; }
   while (cmp(a, E9) >= 0) { a = div10(a); e10++; }
   let n = qint(add(HALF, a));
   if (n >= 1000000000n) { n = 100000000n; e10++; }

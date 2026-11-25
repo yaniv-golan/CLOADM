@@ -156,8 +156,8 @@ SBCNT   RMB     1
 FRACNZ  RMB     1               ; FTRUNC: a fraction was dropped; the sign
 TRSGN   RMB     1
 FPK2    RMB     1
-LOGE    EQU     FPK2            ; LOG's power of 2 (LOG, EXP, SIN and ATN each finish before another starts:
-EXPN    EQU     FPK2            ; EXP's power of 2  one byte serves them all)
+LOGE    EQU     FPK2            ; LOG's power of 2 (LOG, SIN and ATN each finish before another starts:
+*                                 one byte serves them all)
 QUAD    EQU     FPK2            ; SIN's quarter
 ATSGN   EQU     FPK2            ; ATN
 ATINV   RMB     1

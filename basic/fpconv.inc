@@ -107,64 +107,31 @@ FO1     STA     FBUFFR
 FO2     CLRA
         CLRB
         STD     <FPE10
-* scale FAC into [1E8, 1E9) with as few roundings as possible: steps of 1E9 while far, then one product or
-* quotient by an exact power of ten, then single steps if rounding left it a place out
+* scale FAC into [1E8, 1E9): steps of 1E9 from 1E17 down and from below 1 up, then single steps of 10, each one
+* rounded: the original prints 1E5 - 6 x 2^-15 (its SQR(1E10)) as 99999.9999, as four such steps do and one
+* product by 1E4 does not [BB bb1 fn-math, bb2 fn-sqr-bits]
         LDB     #9
         JSR     FCMPP
         BGT     FOU0            ; below 1E9
 FOD1    LDB     #17             ; 1E17 and up: / 1E9
         JSR     FCMPP
-        BGT     FOD2
+        BGT     FOFIX
         LDB     #9
         STB     <FPK
         JSR     FDIVP
         JSR     E10ADD
         BRA     FOD1
-FOD2    LDB     #9
-        JSR     FCMPP
-        BGT     FOFIX
-        LDB     #1              ; the smallest j with FAC < 10^(9+j)
-        STB     <FPK
-FOD3    LDB     <FPK
-        CMPB    #8
-        BHS     FOD4
-        ADDB    #9
-        JSR     FCMPP
-        BGT     FOD4
-        INC     <FPK
-        BRA     FOD3
-FOD4    LDB     <FPK
-        JSR     FDIVP
-        JSR     E10ADD
-        BRA     FOFIX
 FOU0    LDB     #8
         JSR     FCMPP
         BLE     FOFIX           ; already in range
 FOU1    CLRB                    ; below 1: x 1E9
         JSR     FCMPP
-        BLE     FOU2
+        BLE     FOFIX
         LDB     #9
         STB     <FPK
         JSR     FMULP
         JSR     E10SUB
         BRA     FOU1
-FOU2    LDB     #8
-        JSR     FCMPP
-        BLE     FOFIX
-        LDB     #1              ; the smallest j with FAC >= 10^(8-j)
-        STB     <FPK
-FOU3    LDB     <FPK
-        CMPB    #8
-        BHS     FOU4
-        LDB     #8
-        SUBB    <FPK
-        JSR     FCMPP
-        BLE     FOU4
-        INC     <FPK
-        BRA     FOU3
-FOU4    LDB     <FPK
-        JSR     FMULP
-        JSR     E10SUB
 FOFIX
 FO3     LDX     #FP1E8          ; while FAC < 1E8: x 10
         JSR     FCMPM

@@ -3,8 +3,8 @@
 // The clean-room BASIC's numeric functions (basic/mathfn.inc) against the exact values: each routine is called on
 // the Dragon 64's CPU (as in tests/basic-fp.test.js) with a packed argument, and the packed result is compared
 // with JavaScript's Math on that same argument's exact value. Our approximations are our own (Taylor series after
-// a Cody-Waite reduction), so the oracle is the mathematical value, not another BASIC; the tolerances say how
-// close they come, as a multiple of the 5-byte format's unit in the last place (2^-31 relative), and are the
+// a reduction, LOG and EXP's in base 2 as the original's), so the oracle is the mathematical value, not another
+// BASIC; the tolerances say how close they come, as a multiple of the 5-byte format's unit in the last place (2^-31 relative), and are the
 // project's accuracy claim for these functions. Also: exact results where the format can hold them (SQR of
 // squares, whole powers, INT and FIX), the error cases (?FC ERROR, ?OV ERROR, ?/0 ERROR), RND's generator against
 // its formula, and the constants of tools/basic-consts.js against Math.
@@ -55,23 +55,29 @@ function err(got, want, absScale = 0) {
 let seed = 99;
 const rnd = () => { seed = (seed * 1103515245 + 12345) & 0x7FFFFFFF; return seed / 0x80000000; };
 
+// tol: units in the last place, or [units, more, what]: units + more(x) for the argument x, more described by what
+// (EXP's error grows with its argument, below)
 function sweep(name, fnName, argGen, exact, { tol, absScale = 0 }) {
+  const [t0, more, what] = Array.isArray(tol) ? tol : [tol, () => 0, ''];
   let worst = 0, at = null, bad = null;
   for (let i = 0; i < COUNT; i++) {
     const a = packedOf(argGen(i));
     const r = rom1(fnName, a);
     if (r.st !== 'ok') { bad = bad || `${num(a)}: ${r.st}`; continue; }
-    const e = err(r.v, exact(num(a)), absScale);
+    const e = err(r.v, exact(num(a)), absScale) - more(num(a));
     if (e > worst) { worst = e; at = num(a); }
   }
-  check(`${name}: ${COUNT} arguments within ${tol} units in the last place`, !bad && worst <= tol, `worst ${worst.toFixed(2)} at ${at}${bad ? `; ${bad}` : ''}`);
+  check(`${name}: ${COUNT} arguments within ${t0}${what ? ` + ${what}` : ''} units in the last place`, !bad && worst <= t0, `worst ${worst.toFixed(2)}${what ? ` beyond ${what}` : ''} at ${at}${bad ? `; ${bad}` : ''}`);
 }
 // SQR is x^.5, EXP(.5 LOG x) [BB bb1 fn-math: the original's SQR(1E10) is 99999.9999]: .5 LOG x, up to 23 here, is
-// rounded to 32 bits (up to 2^-28 absolute, 8 units of the result's last place), plus EXP's own 2
-sweep('SQR', 'FSQR', (i) => 10 ** (rnd() * 40 - 20), Math.sqrt, { tol: 10 });
+// rounded to 32 bits (up to 2^-28 absolute, 8 units of the result's last place), plus EXP's own (below) for .5 LOG x
+sweep('SQR', 'FSQR', (i) => 10 ** (rnd() * 40 - 20), Math.sqrt, { tol: [10, (x) => Math.abs(Math.log(x) / 2), '|.5 LOG x|'] });
 sweep('LOG', 'FLOG', (i) => 10 ** (rnd() * 60 - 30), Math.log, { tol: 2, absScale: 1 });
 sweep('LOG near 1', 'FLOG', (i) => 0.5 + rnd(), Math.log, { tol: 3, absScale: 0.05 });
-sweep('EXP', 'FEXP', (i) => rnd() * 170 - 85, Math.exp, { tol: 2 });
+// EXP works in base 2 as the original does [BB bb2 fn-sqr-bits]: t = x / ln 2 rounded to 32 bits is off by up to
+// |t| 2^-32, and 1/ln 2's own rounding adds as much again, so e^x is off by up to ln 2 |t| 2^-31 = |x| units, plus
+// the series' 3
+sweep('EXP', 'FEXP', (i) => rnd() * 170 - 85, Math.exp, { tol: [3, Math.abs, '|x|'] });
 sweep('SIN', 'FSIN', (i) => rnd() * 200 - 100, Math.sin, { tol: 2, absScale: 1 });
 sweep('COS', 'FCOS', (i) => rnd() * 200 - 100, Math.cos, { tol: 2, absScale: 1 });
 sweep('SIN of small arguments', 'FSIN', (i) => (rnd() - 0.5) * 1e-3, Math.sin, { tol: 2 });
@@ -100,6 +106,11 @@ for (const k of [1, 4, 9, 16, 0.25, 0.0625]) ex(`SQR(${k}) is exact`, 'FSQR', k,
   }
   check('SQR(x) is x^.5 [BB bb1 fn-math]', same, at);
 }
+// the original's own values, bit for bit [BB bb2 fn-sqr-bits]
+ex('SQR(1E10) is 100000 - 6 x 2^-15 [BB bb2]', 'FSQR', 1e10, 1e5 - 6 * 2 ** -15);
+ex('SQR(144) is 12 - 3 x 2^-28 [BB bb2]', 'FSQR', 144, 12 - 3 * 2 ** -28);
+ex('SQR(65536) is 256 [BB bb2]', 'FSQR', 65536, 256);
+ex('EXP(11.5129255) is 100000 + 113 x 2^-15 [BB bb2]', 'FEXP', 11.5129255, 1e5 + 113 * 2 ** -15);
 ex('SQR(0) = 0', 'FSQR', 0, 0);
 ex('LOG(1) = 0', 'FLOG', 1, 0);
 ex('EXP(0) = 1', 'FEXP', 0, 1);
@@ -123,6 +134,8 @@ check('SQR(-1) is ?FC ERROR', errOf('FSQR', -1) === 'FC');
 check('LOG(0) and LOG(-1) are ?FC ERROR', errOf('FLOG', 0) === 'FC' && errOf('FLOG', -1) === 'FC');
 check('EXP(89) is ?OV ERROR', errOf('FEXP', 89) === 'OV');
 check('EXP(-90) is 0', rom1('FEXP', packedOf(-90)).v === 0);
+check('EXP(-89) is 0 (its power of 2, -129, is below a byte\'s)', rom1('FEXP', packedOf(-89)).v === 0);
+check('EXP(-88.7) is e^-88.7, near the smallest number', Math.abs(rom1('FEXP', packedOf(-88.7)).v / Math.exp(-88.7) - 1) < 1e-7);
 check('(-8)^(1/3) is ?FC ERROR', errOf('FPOWER', -8, 1 / 3) === 'FC');
 check('0^-1 is ?/0 ERROR', errOf('FPOWER', 0, -1) === '/0');
 check('2^200 is ?OV ERROR', errOf('FPOWER', 2, 200) === 'OV');
