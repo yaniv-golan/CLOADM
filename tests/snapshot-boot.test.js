@@ -38,10 +38,17 @@ const PLAIN = [{
     0x86, 0x60,         // LDA  #$60
     0xA7, 0x80,         // STA  ,X+
     0x8C, 0x06, 0x00,   // CMPX #$0600
-    0x26, 0xF8,         // BNE  clear
+    0x26, 0xF9,         // BNE  clear
     0x20, 0xFE,         // BRA  *
   ]),
 }];
+
+// the text screen is exactly what PLAIN writes: 16 rows of 32 $60 (the VDG shows them as spaces, so this is read
+// from memory, not from screenText)
+const fullScreen = (s) => {
+  for (let r = 0; r < 16; r++) for (let c = 0; c < 32; c++) if (s.readByte(0x400 + r * 32 + c) !== 0x60) return false;
+  return true;
+};
 
 (async () => {
   // ---- 1. a game that holds the warm-start vector: restored, no 'failed' after 5 s of emulated time ----
@@ -67,6 +74,9 @@ const PLAIN = [{
     a.inject(PLAIN, 0x7000);
     frames(a.shownMachine, 5);
     check('the program took the screen (no OK, no warm-start vector)', !a.screenText().some((l) => l.trim() === 'OK') && a.shownMachine.ram[0x71] !== 0x55);
+    // the whole screen, not just that OK is gone: a BNE offset one short lands on the STA's operand (NEGA), X never
+    // moves, one cell is rewritten and the rest stays whatever BASIC left, which the check above cannot see
+    check('the program filled the text screen with $60, 16 rows of 32', fullScreen(a));
     const bytes = (await a.snapshotFile()).bytes;
     const b = await reopen(bytes, roms);
     frames(b.shownMachine, past(b.shownMachine));

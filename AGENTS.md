@@ -71,7 +71,8 @@ Which proof levels apply to your kind of change: [section 4, "Which levels apply
      and an unknown number is refused as "made by a newer CLOADM".
    * Every format version has a golden fixture in `tests/fixtures/links/` (`tools/gen-link-fixtures.js`, run once per
      new version; an existing fixture is never regenerated), opened by `tests/link-freeze.test.js`, which also fails if a
-     fixture's bytes change.
+     fixture's bytes change. The freeze is held by those committed bytes and by what each link opens to, not by
+     regenerating: the compressor and a sealed object's random IV mean fresh output differs by design.
 
 ## 2. Where things go
 
