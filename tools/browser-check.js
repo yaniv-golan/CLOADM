@@ -55,7 +55,8 @@
 // resolve, "Try it now" opens the welcome program, the machine cards and "Talk to LIZA" open the emulator.
 //
 //   node tools/browser-check.js [--only g1,g2] [--screenshots DIR] [--timings FILE]
-const http = require('http'), fs = require('fs'), path = require('path'), os = require('os'), zlib = require('zlib');
+const http = require('http'), fs = require('fs'), path = require('path'), os = require('os'), zlib = require('zlib'), child_process = require('child_process');
+const { pathToFileURL } = require('url');
 // the snapshot format this tree writes (the version checks build a newer file from it)
 const { SNAPSHOT_VERSION } = require('../tests/load')();
 // the settle bound is the audio module's own derivation, never a literal here (see SETTLE_MS in js/host/audio.js)
@@ -79,36 +80,113 @@ const shotDir = (() => { const i = process.argv.indexOf('--screenshots'); return
 // --write plans the CI shards
 const timingsFile = (() => { const i = process.argv.indexOf('--timings'); return i > 0 ? process.argv[i + 1] : null; })();
 
-// bounded(promise, ms): { outcome, value, error }, outcome being 'settled', 'rejected' or 'timeout'.
-//
-// The TIMER IS CLEARED when the promise settles and UNREF'd as a belt, because an uncleared setTimeout keeps Node's
-// event loop alive: a run would idle up to `ms` AFTER printing its summary (measured: 14.9 s on every --only run
-// before this helper existed). The settled flag makes the losing side a no-op, so an abandoned promise cannot report
-// into a check that belongs to a later group.
-//
-// IT DOES NOT RETURN A BOOLEAN, deliberately. An earlier version returned true for both "settled" and "rejected",
-// so a caller testing `!won` treated a failed evaluate as a success and went on to read a value that was never set.
-//
-// NODE SIDE ONLY: it uses unref(), which the browser page does not have. Code inside page.evaluate() must not call
-// it (a setTimeout there is the browser's event loop, which nothing here can hold open).
-// the close bounds, one place each: a context close may take a moment; the browser itself, longer
+// bounded() lives in the lib now (one implementation, shared with tools/connector-check.js); the close bounds stay
+// here: a context close may take a moment, the browser itself, longer.
 const CLOSE_MS = 10000;
 const BROWSER_CLOSE_MS = 15000;
+const bounded = lib.bounded;
 
-async function bounded(promise, ms) {
-  let settled = false;
-  let timer = null;
-  const timeout = new Promise((resolve) => {
-    timer = setTimeout(() => { if (!settled) { settled = true; resolve({ outcome: 'timeout' }); } }, ms);
-    timer.unref();          // belt: even a throw before clearTimeout cannot hold the loop open
-  });
-  return Promise.race([
-    // (a late settle cannot win the race - `timeout` has resolved by then - so there is no 'late' outcome to report;
-    // the settled flag's job here is only to stop the loser from touching a check)
-    promise.then((value) => { if (settled) return; settled = true; clearTimeout(timer); return { outcome: 'settled', value }; },
-      (error) => { if (settled) return; settled = true; clearTimeout(timer); return { outcome: 'rejected', error }; }),
-    timeout,
-  ]);
+// Every close a group's own body performs goes through these, never a bare `await x.close()`. A group can leave a
+// page wedged in an abandoned evaluate, and Playwright's close waits for its pages: a bare await can hang the run
+// there until the caller's outer timeout kills it, silently. Bounded, the wait costs at most its bound; the outcome
+// is reported through lib.reportClose so the FAIL names the group that owns the close ("<group>: a context it opened
+// closes" - deliberately distinct from the per-group cleanup's "<group>: its context closes", so the log shows WHICH
+// layer caught a stuck close) and the run goes on to the next group with exit code 1. The context a hung close left
+// open is caught a second time by the per-group cleanup. That covers every close INSIDE the run's browser: its
+// contexts and pages are all the run's, and browser.close() in the finally is the backstop that still kills its
+// process. A browser a GROUP launched itself is not inside it - see closeOwnBrowser below for how those are kept
+// from leaking Chromium.
+//
+// closePage() exists because a bare page.close() has the same hang (Playwright waits for the page) as a context
+// close; a context's OWN pages are closed by closeCtx() through Playwright, and a page a group closes directly is
+// the group's to bound the same way.
+const closeLabel = (what) => `${run.current && run.current.name ? run.current.name : 'the run'}: ${what}`;
+async function closeCtx(ctx, ms = CLOSE_MS) {
+  lib.reportClose(check, closeLabel('a context it opened closes'), await bounded(ctx.close(), ms), ms, 'left to the per-group cleanup and browser.close()');
+}
+async function closePage(page, ms = CLOSE_MS) {
+  lib.reportClose(check, closeLabel('a page it opened closes'), await bounded(page.close(), ms), ms, 'left to the per-group cleanup and browser.close()');
+}
+// A browser THIS GROUP launched itself (libraryStorage's second browser, the persistent-context profile) is
+// outside the run's browser: no per-group cleanup and no final browser.close() will ever reach it, so a hung close
+// there leaks a Chromium process that keeps Node's event loop open - the run would print its summary and then idle
+// until the caller's outer timeout, with the leak invisible. Chromium launched directly (chromium.launch()) and
+// a connected browser expose no process handle in this Playwright build (checked: browser.process === undefined on
+// both), but chromium.launchServer()'s BrowserServer does (server.process(), verified on 1.65.1): the group's own
+// browser goes through a server it owns, and a close that outlives its bound is followed by that server's kill()
+// - exactly that process, never another run's (several browser checks run on this machine at once). A persistent
+// context has no server path (launchPersistentContext is a direct launch; verified: no such method on a connected
+// browser), so its belt finds the process by the one thing unique to this run: the mkdtemp profile path, which is
+// in Chromium's own command line. Both belts make the FAIL (still named, exit still 1) be followed by an actual
+// exit with nothing left behind.
+async function launchOwnBrowser() {
+  // the server is launched first and the connect after it is the one step that can throw (a port refusing, a
+  // slow start): without the try/finally a throw there would leak the server's Chromium, the very leak this
+  // path exists to prevent. On a throw the server is closed through bounded() and the failure re-thrown as the
+  // group's own error - the group's catch reports it, the run goes on, nothing is left behind.
+  const ownedServer = await chromium.launchServer();
+  try {
+    const browser = await chromium.connect(ownedServer.wsEndpoint());
+    browser.ownedServer = ownedServer;
+    return browser;
+  } catch (e) {
+    lib.reportClose(check, closeLabel('its own browser connect fails, so its server closes'), await bounded(ownedServer.close(), BROWSER_CLOSE_MS), BROWSER_CLOSE_MS);
+    throw e;
+  }
+}
+async function closeOwnBrowser(browser, ms = BROWSER_CLOSE_MS) {
+  const b = await bounded(browser.close(), ms);
+  // the server this group launched goes down with its browser, either way: kill() on a hung close (the belt,
+  // below), close() on a clean one - an open launchServer holds this process open past the summary otherwise.
+  // The close is bounded and reported too: a server that will not close is a defect in the run like any other
+  // stuck close, not something to wait out (and its unref'd world means the report is all the run can do).
+  if (b.outcome !== 'settled' && browser.ownedServer) browser.ownedServer.kill();
+  else if (browser.ownedServer) lib.reportClose(check, closeLabel('its own server closes'), await bounded(browser.ownedServer.close(), ms), ms);
+  lib.reportClose(check, closeLabel('its own browser closes'), b, ms, b.outcome !== 'settled' ? 'killed' : '');
+}
+// a persistent context is its own browser process (the profile's), so it gets the same treatment: raced, and on
+// a timeout its Chromium - found by this run's profile path, unique by construction - is killed, not leaked.
+// The after-text says what actually happened: 'killed' only when the process was found and signalled, and the
+// exact reason otherwise (pgrep missing, no match, the signal failing) - a belt that claims a kill it did not
+// make would hide the one thing the FAIL exists to say.
+async function closeOwnPersistentContext(ctx, profile, ms = BROWSER_CLOSE_MS) {
+  const b = await bounded(ctx.close(), ms);
+  let after = 'left to the caller\'s outer timeout';   // no belt ran (or none could): the honest remainder
+  let killed = 0;   // (hoisted: the facts returned below name it whether or not a belt ran)
+  if (b.outcome !== 'settled') {
+    // the profile path is in Chromium's command line (its user-data-dir); mkdtemp made it unique to this run.
+    // execFileSync passes the path as one argv element (no shell), and pgrep -f takes a REGEX, so the path is
+    // regex-escaped first: without escaping, a path containing regex metacharacters could match OTHER command
+    // lines - the match must stay literal to stay this run's.
+    const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    let pids = [];
+    try {
+      const out = child_process.execFileSync('pgrep', ['-f', escapeRe(profile)], { stdio: ['ignore', 'pipe', 'ignore'] });
+      pids = String(out).split('\n').map(Number).filter(Boolean);
+      for (const pid of pids) { try { process.kill(pid, 'SIGKILL'); killed++; } catch (e) { /* already gone */ } }
+      after = killed ? 'killed' : 'its process was already gone';
+    } catch (e) {
+      // pgrep's own exit statuses: 1 is its documented "no process matched" (the belt's work is already done);
+      // anything else is the lookup itself failing, and says so - ENOENT is the binary missing from the PATH,
+      // any other status (a bad flag, a stub that exits 2, whatever a future pgrep objects to) is named, never
+      // dressed up as "already gone".
+      if (e.code === 'ENOENT') after = 'could not look for its process (pgrep not found)';
+      else if (e.status === 1) after = 'its process was already gone';
+      else after = `could not look for its process (pgrep ${e.code || 'exit ' + e.status})`;
+    }
+    if (killed) {
+      // Chromium needs a moment to die: wait for the signalled pids to be gone (bounded - 2 s - because a
+      // process that ignores SIGKILL is the caller's timeout's problem, not a reason to wait here) so the
+      // profile dir is not torn out from under a dying process's writes.
+      const until = Date.now() + 2000;
+      while (Date.now() < until && pids.some((pid) => { try { process.kill(pid, 0); return true; } catch (e) { return false; } })) await new Promise((r) => setTimeout(r, 50));
+    }
+  }
+  lib.reportClose(check, closeLabel('its own profile browser closes'), b, ms, after);
+  // the caller's leak check needs the facts: did the close settle on its own (no belt needed), or did
+  // the belt really kill the process - or could it not say? 'already gone' is the one state where no
+  // kill was needed and the process is known dead (pgrep's own "no match").
+  return { outcome: b.outcome, after, killed };
 }
 
 // a static server like the real host: a folder serves its index.html, and a folder named without its
@@ -456,7 +534,7 @@ async function diskChecks(browser, base, check) {
   await pickMachine(page, 'mc10');
   check('disks: no drives card on the MC-10', !(await page.isVisible('#driveSlot')));
   check('disks: no page errors', !errors.length, errors.join('; '));
-  await ctx.close();
+  await closeCtx(ctx);
 }
 
 // Service workers are blocked here: the routes below and the checks' own must see every request, and with the
@@ -675,7 +753,7 @@ async function romInputChecks(browser, base, check) {
   check('ROM pack: restored in a fresh browser profile, socket for socket', restored && sameCrcs);
   check('ROM pack: the machine in use boots its restored ROMs', await page2.evaluate(() => window.emu.machine.hasRom));
   fs.rmSync(packFile);
-  await ctx2.close();
+  await closeCtx(ctx2);
   // URL configuration as share links write it
   await page.goto(`${base}?machine=coco3&ram=128`); await started(page);
   check('URL configuration: machine and options', await page.evaluate(() => window.emu.machine.id === 'coco3' && window.emu.machine.config.ram === 128));
@@ -695,7 +773,7 @@ async function romInputChecks(browser, base, check) {
   check('?rom= that redirects: refused, saying so, the redirect not followed', movedAsked === 1 && /redirect/i.test(await page.textContent('#toast')) && archive.length === 0,
     `${movedAsked} ${await page.textContent('#toast')} ${archive.join(' ')}`);
   check('ROM input: no page errors', !errors.length, errors.join('; '));
-  await ctx.close();
+  await closeCtx(ctx);
 }
 
 // no pop from the speaker: with sound unlocked and a program holding the DAC high (raised in single DAC steps,
@@ -838,7 +916,7 @@ async function cartridgeChecks(browser, base, check) {
   const disk200e = await page.textContent('#romDiskCard strong');
   check('Dragon 200-E: the Add ROMs disk card offers DragonDOS or Delta DOS, as on the Dragon 64', disk200e === 'Disk drives: DragonDOS or Delta DOS', disk200e);
   check('cartridges: no page errors', errors.length === 0, errors.join('; '));
-  await ctx.close();
+  await closeCtx(ctx);
 }
 
 // The Speech/Sound Pak as a BOARD on the page (stage 3): the board menu offers it on the four models whose
@@ -1055,7 +1133,7 @@ async function sscBoardChecks(browser, base, check) {
     spoken.msg === 'Speech/Sound Pak inserted (music and speech)' && spoken.sp === 2048 && speaks,
     JSON.stringify({ ...spoken, levels: heard }));
   check('Speech/Sound Pak: no page errors', errors.length === 0, errors.join('; '));
-  await ctx.close();
+  await closeCtx(ctx);
 }
 
 // the same set-up as DAC_HIGH, then a square wave on the DAC (two levels, a delay loop each): a steady tone
@@ -1144,7 +1222,7 @@ async function audioChecks(browser, base, check) {
       return { blobRealtime: await tryIt(rt, blob), oursRealtime: await tryIt(rt, ours), blobOffline: await tryIt(off, blob), oursOffline: await tryIt(off, ours) };
     });
     check('sound: after the unlock an AudioWorkletNode plays it', false, JSON.stringify({ ...await audioState(), probe }));
-    await ctx.close();
+    await closeCtx(ctx);
     return;
   }
   const made = await page.evaluate(() => {
@@ -1495,11 +1573,22 @@ async function audioChecks(browser, base, check) {
   const settled = await waitFor(page, () => window.emu.audio && window.emu.audio.out && window.emu.audio.out.mode === 0, null, SETTLE_MS);
   check('sound: the resampler settles (ratio exactly 1) before the tone is measured', settled,
     await page.evaluate(() => JSON.stringify({ mode: window.emu.audio && window.emu.audio.out ? window.emu.audio.out.mode : null })));
-  const tone = await page.evaluate(() => {
+  // THE TONE MEASUREMENT IS BOUNDED, from the Node side (bounded() is Node-only - never inside a page.evaluate body).
+  // The probe waits for a full second of full blocks (~1.02 s of audio at 44.1/48 kHz); a starved source (a suspended
+  // context, a sink that stops pulling) makes its interval poll never fire and a bare await would hang the run. The
+  // bound is 10 s: the audio clock runs in real time once the machine is loaded and the resampler settled (checked
+  // above), so the wait needs ~1 s even on a loaded runner; 10 s is the same order as the close bound, ~10x the
+  // audio needed. On a non-settled outcome the FAIL carries the PROBE'S OWN STATE - read by a second bounded
+  // evaluate from the page (blocks so far, how many full, the resampler's mode, the queue's depth, the context
+  // clock): a starved wait must name what the probe saw, not just that it waited. Every read in that dump is
+  // guarded separately (a sink that throws on one getter costs that field, not the dump - the dump's own pattern).
+  const TONE_MS = 10000, TONE_STATE_MS = 5000;
+  const toneB = await bounded(page.evaluate(() => {
     const m = window.emu.machine, ev = m.audioEvents, ts = [];
     for (let i = 2; i < ev.length; i += 2) if (ev[i + 1] !== ev[i - 1]) ts.push(ev[i]);
     const period = 2 * (ts[ts.length - 1] - ts[0]) / (ts.length - 1), expected = m.frameCycles * m.fps / period;
     const rate = window.emu.audio.ctx.sampleRate, from = window.blocks.length;
+    window.__toneProbeFrom = from;   // the starve dump reads the blocks AFTER the probe started, or it proves nothing
     return new Promise((res) => {
       const done = () => {
         const bs = window.blocks.slice(from).filter((b) => b.full).slice(0, Math.ceil(rate / 128));
@@ -1511,7 +1600,44 @@ async function audioChecks(browser, base, check) {
       };
       const t = setInterval(() => { if (window.blocks.slice(from).filter((b) => b.full).length >= rate / 128) { clearInterval(t); done(); } }, 20);
     });
-  });
+  }), TONE_MS);
+  let tone = null, toneWhy = null;
+  if (toneB.outcome === 'settled') tone = toneB.value;
+  else if (toneB.outcome === 'timeout') toneWhy = `starved: no full second of blocks within ${TONE_MS} ms`;
+  else toneWhy = `the probe rejected: ${(toneB.error && toneB.error.message) || String(toneB.error)}`;
+  // NAMED, AND SEPARATE FROM THE POLL'S OWN RESULT: this check holds even if everything after the bound is
+  // swallowed, because it asserts the measurement PRODUCED its numbers - a deleted FAIL line or a dropped
+  // outcome cannot turn a starved run green (a mutant that only removed the FAIL above stays red HERE, by name).
+  check('sound: the tone measurement ran and produced its numbers', !!tone,
+    toneWhy || 'the probe settled with no value');
+  if (toneWhy) {
+    // the probe's state, every read guarded (see the dump above); the state read is bounded too - a page whose
+    // thread is gone cannot be read, and that must cost the detail line, not the run
+    let probe = null, probeErr = null;
+    try {
+      const st = await bounded(page.evaluate(() => {
+        const a = window.emu.audio, errs = [];
+        const safe = (what, fn) => { try { return fn(); } catch (e) { errs.push(`${what}: ${(e && e.message) || e}`); return null; } };
+        // since the probe started - the whole session's blocks would read as plenty on a source starved only now
+        const blocks = (window.blocks || []).slice(window.__toneProbeFrom || 0), rate = safe('rate', () => a.ctx.sampleRate);
+        const full = blocks.filter((b) => b.full).length;
+        return { needed: rate ? Math.ceil(rate / 128) : null, rate, full, blocks: blocks.length,
+          mode: safe('mode', () => a.out && a.out.mode), path: safe('path', () => a.path),
+          buffered: safe('buffered', () => (a.out && a.out.sink && typeof a.out.sink.buffered === 'function') ? a.out.sink.buffered() : null),
+          ctxTime: safe('ctxTime', () => (a.ctx ? +a.ctx.currentTime.toFixed(4) : null)),
+          ctxState: safe('ctxState', () => (a.ctx ? a.ctx.state : null)),
+          running: safe('running', () => window.emu.running), readErrors: errs };
+      }), TONE_STATE_MS);
+      if (st.outcome === 'settled') probe = st.value;
+      else probeErr = st.outcome === 'timeout' ? `its state read timed out after ${TONE_STATE_MS} ms` : String((st.error && st.error.message) || st.error);
+    } catch (e) { probeErr = (e && e.message) || String(e); }
+    check('sound: the tone measurement fills its second of full blocks', false,
+      `${toneWhy} | probe: ${probe ? JSON.stringify(probe) : `unreadable (${probeErr})`}`);
+    // the source is starved, so the checks that measure the tone (its frequency, the queue staying wet, the volume
+    // peaks, the mute fade) cannot run; each is skipped here and named by the ran-checks above and below. The rest
+    // of the group goes on - the fallback contexts at the end open their own and do not need this tone.
+  }
+  if (tone) {
   check('sound: the square wave plays at the frequency the machine makes it',
     tone.edges > 4 && tone.nS >= tone.rate * 0.99 && Math.abs(tone.heard - tone.expected) <= tone.expected * 0.006 + 2,
     `machine ${tone.expected.toFixed(2)} Hz, played ${tone.heard.toFixed(2)} Hz over ${tone.nS} samples`);
@@ -1522,26 +1648,70 @@ async function audioChecks(browser, base, check) {
     `${tone.dry} of ${tone.blocks} blocks short`);
   // volume: the output stage's volume scales what the worklet plays (the page has no volume control; Audio.volume
   // is 0.5): at 0.25, the tone's peak is half what it was
-  const peakNow = () => page.evaluate(() => new Promise((res) => {
-    const from = window.blocks.length;
-    const t = setInterval(() => {
-      const bs = window.blocks.slice(from + 40).filter((b) => b.full);   // (after what was queued at the old volume)
-      if (bs.length >= 200) { clearInterval(t); res(Math.max(...bs.map((b) => Math.max(...b.out.map(Math.abs))))); }
-    }, 20);
-  }));
-  const loud = await peakNow();
-  await page.evaluate(() => { window.emu.audio.out.volume = 0.25; });
-  const soft = await peakNow();
-  await page.evaluate(() => { window.emu.audio.out.volume = window.emu.audio.volume; });
-  check('sound: the volume scales the output (0.25 plays the tone at half the peak of 0.5)', loud > 0.1 && Math.abs(soft / loud - 0.5) < 0.02,
-    `peak ${loud.toFixed(4)} at 0.5, ${soft.toFixed(4)} at 0.25`);
-  // mute: the output fades to exact silence (no frames are sent), and the tone comes back when sound is on again
+  // the volume polls are the same shape as the tone probe (a page-side interval on window.blocks), so the same
+  // bound and the same rule: a source too starved to fill 200 full blocks is a FAIL with its own state, never a
+  // hang. The needed count (200 full blocks after the 40 queued at the old volume) is ~1.2 s of audio.
+  const PEAK_MS = 10000, PEAK_STATE_MS = 5000;
+  const peakState = () => {
+    const st = window.emu.audio, errs = [];
+    const safe = (what, fn) => { try { return fn(); } catch (e) { errs.push(`${what}: ${(e && e.message) || e}`); return null; } };
+    // since this poll started - the whole session's blocks would read as plenty on a source starved only now
+    const blocks = (window.blocks || []).slice(window.__peakFrom || 0);
+    return { full: blocks.filter((b) => b.full).length, blocks: blocks.length,
+      volume: safe('volume', () => st.out && st.out.volume), mode: safe('mode', () => st.out && st.out.mode),
+      ctxState: safe('ctxState', () => (st.ctx ? st.ctx.state : null)),
+      ctxTime: safe('ctxTime', () => (st.ctx ? +st.ctx.currentTime.toFixed(4) : null)), readErrors: errs };
+  };
+  const peakNow = async (which) => {
+    const b = await bounded(page.evaluate(() => new Promise((res) => {
+      const from = window.blocks.length;
+      window.__peakFrom = from;   // the starve dump reads the blocks after THIS poll started, not the session's
+      const t = setInterval(() => {
+        const bs = window.blocks.slice(from + 40).filter((b) => b.full);   // (after what was queued at the old volume)
+        if (bs.length >= 200) { clearInterval(t); res(Math.max(...bs.map((b) => Math.max(...b.out.map(Math.abs))))); }
+      }, 20);
+    })), PEAK_MS);
+    if (b.outcome === 'settled') return { value: b.value };
+    const why = b.outcome === 'timeout' ? `starved: fewer than 200 full blocks within ${PEAK_MS} ms` : `the poll rejected: ${(b.error && b.error.message) || String(b.error)}`;
+    let probe = null, probeErr = null;
+    try {
+      const st = await bounded(page.evaluate(peakState), PEAK_STATE_MS);
+      if (st.outcome === 'settled') probe = st.value;
+      else probeErr = st.outcome === 'timeout' ? `its state read timed out after ${PEAK_STATE_MS} ms` : String((st.error && st.error.message) || st.error);
+    } catch (e) { probeErr = (e && e.message) || String(e); }
+    return { fail: `${which}: ${why} | probe: ${probe ? JSON.stringify(probe) : `unreadable (${probeErr})`}` };
+  };
+  const loudP = await peakNow('the 0.5 volume peak');
+  const loudOk = !loudP.fail;
+  const loud = loudOk ? loudP.value : null;
+  // NAMED, AND OUTSIDE THE GUARD: this asserts the loud peak poll PRODUCED its number - a swallowed starve
+  // outcome here (the FAIL below deleted, or dropped) would otherwise leave the volume, mute and soft checks
+  // all silently skipped inside `if (loudOk)` and the group green. The mutant that deletes both stays red here.
+  check('sound: the loud volume peak poll ran and produced its number', loudOk,
+    loudP.fail || 'the poll settled with no value');
+  if (!loudOk) check('sound: the volume peak poll fills its 200 full blocks', false, loudP.fail);
+  if (loudOk) {
+    await page.evaluate(() => { window.emu.audio.out.volume = 0.25; });
+    const softP = await peakNow('the 0.25 volume peak');
+    const softOk = !softP.fail;
+    const soft = softOk ? softP.value : null;
+    await page.evaluate(() => { window.emu.audio.out.volume = window.emu.audio.volume; });
+    // NAMED, AND SEPARATE FROM THE POLL'S OWN RESULT: a swallowed soft-peak starve stays red here, by name
+    check('sound: the soft volume peak poll ran and produced its number', softOk,
+      softP.fail || 'the poll settled with no value');
+    if (!softOk) check('sound: the volume peak poll fills its 200 full blocks', false, softP.fail);
+    check('sound: the volume scales the output (0.25 plays the tone at half the peak of 0.5)', loud > 0.1 && soft !== null && Math.abs(soft / loud - 0.5) < 0.02,
+      soft !== null ? `peak ${loud.toFixed(4)} at 0.5, ${soft.toFixed(4)} at 0.25` : 'the soft peak never came');
+  }   // (the frequency, dry and both peak checks need a live tone; the mute check below needs only a live source)
+  // mute: the output fades to exact silence (no frames are sent), and the tone comes back when sound is on again.
+  // Not inside the loud-peak guard: a missing peak value skips the volume RATIO, not the mute behaviour.
   await page.$eval('#chkSound', (c) => c.click());
   const silent = await waitFor(page, () => window.played.length > 8192 && window.played.slice(-8192).every((v) => v === 0));
   const writesMuted = await page.evaluate(() => { const n = window.made.length; return new Promise((res) => setTimeout(() => res(window.made.length - n), 300)); });
   await page.$eval('#chkSound', (c) => c.click());
   const back = await waitFor(page, () => window.played.slice(-4096).some((v) => Math.abs(v) > 0.05));
   check('sound: sound off fades to exact silence with nothing sent, and sound on plays again', silent && writesMuted === 0 && back, `${writesMuted} chunks sent while off`);
+  }   // (the fallback contexts below open their own; the eq/kept checks compare the whole session and run either way)
 
   // what the worklet played equals what the emulator made, over everything above
   const eq = await page.evaluate(() => {
@@ -1590,7 +1760,17 @@ async function audioChecks(browser, base, check) {
     const t = performance.now(); while (performance.now() - t < 400);
     sink.write(new Float32Array(Math.round(rate * 0.1)).fill(L));      // 100 ms, queued before any frame can run
   }, LEVEL);
-  await page.evaluate((n0) => new Promise((res) => { const t = setInterval(() => { if (window.played.length >= n0 + 0.9 * window.emu.audio.ctx.sampleRate) { clearInterval(t); res(); } }, 20); }), n0);
+  // the poll below waits for ~0.9 s of played samples - the same shape as the tone and peak polls: a page-side
+  // interval on the played stream. Bounded like they are (10 s, ~10x the audio needed): a starved source (the
+  // context suspended, the queue never drained) FAILs by name instead of hanging the run, and the check that
+  // needed the samples is skipped with its own named ran-check.
+  const FADE_MS = 10000;
+  const fadeB = await bounded(page.evaluate((n0) => new Promise((res) => { const t = setInterval(() => { if (window.played.length >= n0 + 0.9 * window.emu.audio.ctx.sampleRate) { clearInterval(t); res(true); } }, 20); }), n0), FADE_MS);
+  const fadeOk = fadeB.outcome === 'settled';
+  check('sound: the fade measurement ran and produced its numbers', fadeOk,
+    fadeB.outcome === 'timeout' ? `starved: fewer than 0.9 s of played samples within ${FADE_MS} ms`
+      : `the poll rejected: ${(fadeB.error && fadeB.error.message) || String(fadeB.error)}`);
+  if (fadeOk) {
   const ramp = await page.evaluate(({ n0, L, ms }) => {
     const p = window.played, rate = window.emu.audio.ctx.sampleRate, len = Math.round(rate * ms / 1000);
     const at = (i) => Math.fround(p[i]);
@@ -1609,6 +1789,7 @@ async function audioChecks(browser, base, check) {
   check('sound: the fade after an underrun ramps: out from 0.5 to silence and back in, at most level/fadeLen (5 ms) a sample, no step',
     ramp.found && ramp.plateauLen >= 1000 && ramp.fadeOut >= ramp.fadeLen && ramp.down <= ramp.bound + slack && ramp.up <= ramp.bound + slack && ramp.mono && ramp.top === Math.fround(LEVEL),
     JSON.stringify(ramp));
+  }   // (fadeOk: the ramp check needed its 0.9 s of played samples; the console and error checks below run either way)
   check('sound: no ScriptProcessorNode deprecation warning in the console', warnings.length === 0, warnings.join(' | '));
   check('sound: no page errors', !errors.length, errors.join('; '));
   // the close is raced: a page still spinning in an abandoned dump evaluate must not hold the group open (see DUMP_MS
@@ -1617,9 +1798,7 @@ async function audioChecks(browser, base, check) {
   {
     // bounded(): its timer is cleared when the close wins (an uncleared one held the process open 15 s after the
     // summary), and a rejection arriving after the bound fired is swallowed rather than reported into a later group.
-    const b = await bounded(ctx.close(), CLOSE_MS);
-    if (b.outcome === 'rejected') run.check('sound: its audio context closes', false, (b.error && b.error.message) || String(b.error));
-    else if (b.outcome !== 'settled') run.check('sound: its audio context closes', false, `still open after ${CLOSE_MS} ms (left to the per-group cleanup and browser.close())`);
+    lib.reportClose(run.check, 'sound: its audio context closes', await bounded(ctx.close(), CLOSE_MS), CLOSE_MS, 'left to the per-group cleanup and browser.close()');
   }
 
   // Fallback: without AudioWorklet (or when its module fails to load) the ScriptProcessorNode plays the same
@@ -1657,7 +1836,7 @@ async function audioChecks(browser, base, check) {
       check('sound fallback: a worklet module that loads after the fallback took over is ignored (no worklet node, the fallback plays on)',
         late.nodes.worklet === 0 && late.nodes.script === 1 && late.path === 'script' && late.isScript, JSON.stringify(late));
     }
-    await fctx.close();
+    await closeCtx(fctx);
   }
 }
 
@@ -1665,6 +1844,113 @@ async function audioChecks(browser, base, check) {
 // double letters and a shifted character, all within a few milliseconds. On the 6809 machines LIZA (no-ROM stub)
 // must show it exactly; on every family the keyboard matrix, read at each frame start as a program reads it,
 // must spell it (the Session's KeyQueue holds each key for some frames and keeps the order)
+// Sound unlocks on the first user activation ANYWHERE, not only on the screen or a key: a tap on Menu or Open… (the
+// events a browser counts as an activation are pointerup, touchend and keydown; a touch's pointerdown is none on iOS,
+// and neither is a file picker's change), and a touch screen gets a "Tap for sound" chip on the bezel until sound runs.
+async function audioUnlockChecks(browser, base, check) {
+  const { devices } = require('playwright');
+  const errors = [];
+  const block = (type, data) => { let sum = (type + data.length) & 0xFF; for (const v of data) sum = (sum + v) & 0xFF; return [0x55, 0x3C, type, data.length, ...data, sum]; };
+  const cas = Buffer.from([...Array(128).fill(0x55), ...block(0, [...Buffer.from('UNLOCK  '), 2, 0, 0, 0x30, 0x00, 0x30, 0x00]), ...Array(16).fill(0x55), ...block(1, [0x20, 0xFE]), ...block(0xFF, [])]);
+  const chip = (page) => page.evaluate(() => { const c = document.getElementById('soundChip'), r = c.getBoundingClientRect(); return { hidden: c.hidden, shown: c.checkVisibility(), text: c.textContent, w: Math.round(r.width), h: Math.round(r.height) }; });
+  // which document listeners the unlock handler holds (its name is `unlock`): added and removed, by event type
+  const logListeners = (page) => page.addInitScript(() => {
+    const log = window.__unlockListeners = { added: [], removed: [] };
+    const add = document.addEventListener.bind(document), rem = document.removeEventListener.bind(document);
+    document.addEventListener = (t, f, o) => { if (f && f.name === 'unlock') log.added.push(t); return add(t, f, o); };
+    document.removeEventListener = (t, f, o) => { if (f && f.name === 'unlock') log.removed.push(t); return rem(t, f, o); };
+  });
+  const sameSet = (a, b) => JSON.stringify([...new Set(a)].sort()) === JSON.stringify([...b].sort());
+  // touch: the first tap on Menu (not the screen) unlocks, and the chip goes for good
+  {
+    const ctx = await browser.newContext({ ...devices['iPhone 15'], serviceWorkers: 'block' });
+    const page = await ctx.newPage();
+    page.on('pageerror', (e) => errors.push(e.message));
+    await logListeners(page);
+    await page.goto(`${base}?machine=dragon64`); await started(page);
+    const wired = await page.evaluate(() => window.__unlockListeners.added.slice());
+    check('sound unlock: listens on pointerup, touchend and keydown, not on pointerdown (which iOS does not count)', sameSet(wired, ['keydown', 'pointerup', 'touchend']) && wired.length === 3, JSON.stringify(wired));
+    check('sound unlock (touch): the chip is aria-hidden, so a reader never announces it', await page.evaluate(() => document.getElementById('soundChip').getAttribute('aria-hidden') === 'true'));
+    const before = await chip(page);
+    check('sound unlock (touch): "Tap for sound" shows on the bezel until sound runs, and sound is not running yet',
+      before.shown && before.text === 'Tap for sound' && before.h > 0 && !(await page.evaluate(() => window.emu.audioRunning())), JSON.stringify(before));
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, 'sound-chip-phone.png') });
+    await page.tap('#btnMenu');
+    const unlocked = await waitFor(page, () => window.emu.audioRunning() && document.getElementById('soundChip').hidden, null, 5000);
+    check('sound unlock (touch): the first tap on Menu, not the screen, starts the sound and the chip goes', unlocked, JSON.stringify(await chip(page)));
+    const gone = await waitFor(page, () => window.__unlockListeners.removed.length >= 3, null, 3000);
+    const removed = await page.evaluate(() => window.__unlockListeners.removed.slice());
+    check('sound unlock: once sound runs the handler removes all three listeners', gone && sameSet(removed, ['keydown', 'pointerup', 'touchend']), JSON.stringify(removed));
+    await page.waitForTimeout(1500);   // (the page re-reads the state every second)
+    await page.evaluate(() => { const b = document.getElementById('chkSound'); if (b) { b.checked = false; b.dispatchEvent(new Event('change')); b.checked = true; b.dispatchEvent(new Event('change')); } });
+    await page.waitForTimeout(1200);
+    check('sound unlock (touch): the chip stays gone, also after the Sound switch is turned off and on', (await chip(page)).hidden, JSON.stringify(await chip(page)));
+    await ctx.close();
+  }
+  // touch: Open…, then a tape chosen from the picker (whose change is no activation): the sound already runs, with Tape sound on
+  {
+    const ctx = await browser.newContext({ ...devices['iPhone 15'], serviceWorkers: 'block' });
+    const page = await ctx.newPage();
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto(`${base}?machine=dragon64`); await started(page);
+    const [chooser] = await Promise.all([page.waitForEvent('filechooser'), page.tap('#btnLoad')]);
+    const atPicker = await page.evaluate(() => ({ running: window.emu.audioRunning(), tape: window.emu.audio.tapeSound }));
+    await chooser.setFiles({ name: 'unlock.cas', mimeType: 'application/octet-stream', buffer: cas });
+    await waitFor(page, () => /unlock\.cas|is in the deck|loaded/.test(document.getElementById('toast').textContent), null, 15000);
+    const during = await page.evaluate(() => ({ running: window.emu.audioRunning(), tape: window.emu.audio.tapeSound, path: window.emu.audio.path, tapeName: window.emu.machine.deck.tape && window.emu.machine.deck.tape.name }));
+    check('sound unlock (touch): a tap on Open… starts the sound before the file is chosen, and it is running, Tape sound on, as the tape loads',
+      atPicker.running && atPicker.tape && during.running && during.tape && !!during.tapeName, JSON.stringify({ atPicker, during }));
+    await ctx.close();
+  }
+  // touch: a tap while the page is paused or hidden still resumes a context made earlier outside a gesture (it stands suspended)
+  {
+    const ctx = await browser.newContext({ ...devices['iPhone 15'], serviceWorkers: 'block' });
+    const page = await ctx.newPage();
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto(`${base}?machine=dragon64`); await started(page);
+    const made = await page.evaluate(async () => {
+      const a = window.emu.audio; a.start(); a.setActive(false);   // (made by a handler outside any gesture; headless Chromium lets it run, so it is suspended as a phone would hold it)
+      await a.ctx.suspend();
+      window.__ran = false; a.ctx.onstatechange = () => { if (a.ctx.state === 'running') window.__ran = true; };
+      return { state: a.ctx.state, active: a.active };
+    });
+    await page.tap('#btnMenu');
+    const ran = await waitFor(page, () => window.__ran, null, 3000);
+    check('sound unlock (touch): a tap while the page is paused or hidden resumes a context that stood suspended', made.state === 'suspended' && !made.active && ran, JSON.stringify({ made, ran }));
+    await ctx.close();
+  }
+  // touch, phones upright and on their side: the chip never lies over the screen's picture
+  for (const [name, opts] of [['375x667', { viewport: { width: 375, height: 667 }, hasTouch: true, isMobile: true }], ['390x844', devices['iPhone 15']], ['320x568', { viewport: { width: 320, height: 568 }, hasTouch: true, isMobile: true }], ['iPhone 15 landscape', devices['iPhone 15 landscape']]]) {
+    const ctx = await browser.newContext({ ...opts, serviceWorkers: 'block' });
+    const page = await ctx.newPage();
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto(`${base}?machine=dragon64`); await started(page);
+    await page.waitForTimeout(500);
+    const g = await page.evaluate(() => {
+      const c = document.getElementById('soundChip'), r = c.getBoundingClientRect(), v = document.getElementById('screen').getBoundingClientRect();
+      return { shown: c.checkVisibility(), chip: [r.left, r.top, r.right, r.bottom].map(Math.round), screen: [v.left, v.top, v.right, v.bottom].map(Math.round),
+        overlap: r.left < v.right && r.right > v.left && r.top < v.bottom && r.bottom > v.top, inside: r.left >= 0 && r.right <= innerWidth && r.bottom <= innerHeight };
+    });
+    check(`sound unlock (${name}): the chip shows, inside the window, and does not touch the screen's picture`, g.shown && !g.overlap && g.inside, JSON.stringify(g));
+    await ctx.close();
+  }
+  // a pointer: no chip, and a key press (not on the screen) unlocks
+  {
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, serviceWorkers: 'block' });
+    const page = await ctx.newPage();
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto(`${base}?machine=dragon64`); await started(page);
+    const before = await chip(page);
+    check('sound unlock (desktop): no "Tap for sound" chip, and sound is not running yet', !before.shown && !(await page.evaluate(() => window.emu.audioRunning())), JSON.stringify(before));
+    await page.focus('#btnPause');   // (a control: the screen's own key handler takes no key from it, so the document's listener is what is tried here)
+    const focus = await page.evaluate(() => document.activeElement && document.activeElement.id);
+    await page.keyboard.press('q');
+    check('sound unlock (desktop): a key press with the focus off the screen starts the sound', focus !== 'screen' && await waitFor(page, () => window.emu.audioRunning(), null, 5000), `focus ${focus}`);
+    await ctx.close();
+  }
+  check('sound unlock: no page errors', !errors.length, errors.join('; '));
+}
+
 async function typingChecks(browser, base, check) {
   const typed = 'I FEEL GOOD, REALLY! 1122';
   for (const id of ['dragon64', 'coco', 'coco3', 'mc10']) {
@@ -1709,7 +1995,7 @@ async function typingChecks(browser, base, check) {
       detail += ` LIZA ${JSON.stringify(line.trim())}`;
     }
     check(`${id}: a fast typed burst reaches the machine exactly${lizaMachine ? ' (matrix and LIZA)' : ' (matrix)'}`, ok && !errors.length, errors.length ? errors.join('; ') : detail);
-    await ctx.close();
+    await closeCtx(ctx);
   }
 }
 
@@ -1851,7 +2137,7 @@ async function printerChecks(browser, base, check) {
   await waitFor(page, () => document.getElementById('printout').textContent.includes('Z'), null, 3000);
   check('printer: the BASIC session\'s printout is there when it comes back on screen', (await page.textContent('#printout')).endsWith('Z'));
   check('printer: no page errors', !errors.length, errors.join('; '));
-  await page.close();
+  await closePage(page);
 }
 
 // DriveWire: the Becker port option from the URL, an image added through the page (into the page's
@@ -1977,7 +2263,7 @@ async function driveWireChecks(browser, base, check) {
   check('drivewire: Save drive 0 with no image says to add one first',
     await waitFor(page, () => /No DriveWire image to save: add one first\./.test(document.getElementById('toast').textContent), null, 3000), await page.textContent('#toast'));
   check('drivewire: no page errors', !errors.length, errors.join('; '));
-  await ctx.close();
+  await closeCtx(ctx);
 }
 
 // NitrOS-9 from the page, without a ROM (Session.bootNitros9; js/ui/nitros9-panel.js): the slot under the screen on
@@ -2043,7 +2329,7 @@ async function nitros9Checks(browser, base, check) {
   await waitFor(page, () => !document.getElementById('share').hidden && !!document.getElementById('shareLink').value);
   const link = await page.inputValue('#shareLink');
   check('nitros9: Share gives a link with nitros9=1 and no snapshot or image name; the snapshot download is off',
-    /nitros9=1/.test(link) && /machine=coco3/.test(link) && !/#s=/.test(link) && !/myboot/.test(link) && await page.isDisabled('#btnShareDownload') &&
+    /nitros9=1/.test(link) && /machine=coco3/.test(link) && !/#[sz]=/.test(link) && !/myboot/.test(link) && await page.isDisabled('#btnShareDownload') &&
     /^The link starts NitrOS-9 fresh on the CoCo 3; it can't hold this exact moment\.$/.test(await page.textContent('#shareNote')) && !/\d KB/.test(await page.textContent('#btnShareDownload')) &&
     /their own NitrOS-9 DriveWire image/.test(await page.textContent('#shareExtra')), link);
   await page.click('#shareBack');
@@ -2122,7 +2408,7 @@ async function nitros9Checks(browser, base, check) {
     if (shotDir) await page.screenshot({ path: path.join(shotDir, `nitros9-${cpu}-floppy-dir.png`) });
   }
   check('nitros9: no page errors', !errors.length, errors.join('; '));
-  await ctx.close();
+  await closeCtx(ctx);
 
   // ---- a release file name is long (33 characters): the image list stays inside its card, the drive tile stays short,
   // at every width. Measured with getBoundingClientRect. The old CSS let the list stick out of the card (400 px wide) and
@@ -2150,7 +2436,7 @@ async function nitros9Checks(browser, base, check) {
       m.tailText === LONG.slice(-15) && m.tailRight <= m.tileRight && !m.tailClipped, JSON.stringify(m));
     check(`nitros9 layout ${w}x${h}: the closed list's title is the whole name`, m.selTitle === m.selText && m.selText.startsWith(LONG), JSON.stringify(m));
     check(`nitros9 layout ${w}x${h}: no page errors`, !errs.length, errs.join('; '));
-    await c2.close();
+    await closeCtx(c2);
   }
 }
 
@@ -2189,7 +2475,7 @@ async function webSerialChecks(browser, base, check) {
   await waitFor(page, () => window.mockPort.closed, null, 3000);
   check('web serial: Stop closes the port', await page.evaluate(() => window.mockPort.closed));
   check('web serial: no page errors', !errors.length, errors.join('; '));
-  await ctx.close();
+  await closeCtx(ctx);
 }
 
 // Reset (tests/reset.test.js in Node): our BASIC stand-in as the Dragon 64's ROMs (recognised, as a real dump is, so
@@ -2258,7 +2544,7 @@ async function resetChecks(browser, base, check) {
   check('reset: the offers are gone when Add ROMs is opened again', await page.isHidden('#romOffers'), await page.textContent('#romOffers'));
   await page.click('#btnRomBack');
   check('reset: no page errors', !errors.length, errors.join(' | '));
-  await ctx.close();
+  await closeCtx(ctx);
   // A moment opened from a snapshot is not a power-on: the same game, restored from its own snapshot, must show
   // no boot box at all after 5 s of emulated time. It is made inside the page (as the reset group makes the game)
   // and opened there, because a moment taken on a game holds the game's memory and is opened the same way by a
@@ -2296,7 +2582,7 @@ async function resetChecks(browser, base, check) {
     && !/No OK|problem in CLOADM|took over Reset/.test(restoredBox.text), JSON.stringify(restoredBox));
   if (shotDir) await p2.locator('#screenWrap').screenshot({ path: path.join(shotDir, 'snapshot-boot.png') });
   check('snapshot boot: no page errors', !errors2.length, errors2.join(' | '));
-  await ctx2.close();
+  await closeCtx(ctx2);
 }
 
 async function romUiChecks(browser, base, check) {
@@ -2372,7 +2658,12 @@ async function romUiChecks(browser, base, check) {
   await waitFor(page, () => !document.getElementById('romOffers').hidden);
   check('offer: a ROM for another machine offers to switch', /d32\.rom is for the Dragon 32\. The Dragon 32 is now ready too\./.test(await page.textContent('#romOffers'))
     && !(await page.evaluate(() => document.getElementById('toast').classList.contains('error'))), await page.textContent('#romOffers'));
-  check('offer: the ready machines are summarised', /Also ready to run BASIC: Dragon 32/.test(await page.textContent('#romReady')));
+  // d32.rom is a synthetic image matched by NAME only (not a known dump), so the Dragon 32 is loaded but not
+  // verified: "Also ready to run BASIC" claims a verified dump, and must not name it. What the offer above says (it
+  // is "now ready too", an offer to switch and try) is about the drop, not this summary.
+  check('offer: "Also ready to run BASIC" names no machine whose dump is only loaded, not recognised',
+    !/Dragon 32/.test(await page.textContent('#romReady'))
+    && /d32\.rom is for the Dragon 32\./.test(await page.textContent('#romOffers')), await page.textContent('#romReady'));
   await shot('offer');
   await page.click('#romOffers button.primary');
   // (the switch asks first, as the machine menu does: the machine in use may be running something)
@@ -2429,7 +2720,7 @@ async function romUiChecks(browser, base, check) {
   check('reload: ROMs survive, statuses intact', await rows() === 'bas:verified extbas:verified' && await page.evaluate(() => window.emu.machine.hasRom && window.emu.session.machineRoms('dragon32').bootable));
   check('ROMs card: no request ever went to colorcomputerarchive.com', archive.length === 0, archive.join(' '));
   check('ROMs card: no page errors', !errors.length, errors.join('; '));
-  await ctx.close();
+  await closeCtx(ctx);
 }
 
 // The welcome tune's DAC edges, counted on the page: the welcome tune drives the DAC to its high level ($FC), which no
@@ -2777,8 +3068,22 @@ async function visitChecks(browser, base, check) {
   check('returning: the machine question is not asked again', !(await page.$('#askMachine')));
   await page.click('#btnRunAgain');
   check('returning: "Run again" loads it', await waitFor(page, () => /mine\.bin/.test(document.getElementById('toast').textContent) && window.emu.machine.cpu.pc >= 0x4000));
+  // a program page's link (?start=, where cloadm.dev/2048/ sends its visitor) opens no moment: no arrival card, and the
+  // Session has not "just arrived from a link" (js/ui/arrival.js), while the program runs
+  {
+    const pctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, serviceWorkers: 'block' });
+    const pp = await pctx.newPage();
+    pp.on('pageerror', (e) => errors.push(e.message));
+    await pp.goto(`${base}?machine=dragon64&start=2048`);
+    await linkIn(pp);
+    const ran = await waitFor(pp, () => window.emu.session.gameRunning, null, 60000);
+    await pp.waitForTimeout(500);
+    const r = await pp.evaluate(() => ({ card: !document.getElementById('arrival').hidden, state: window.emu.session.arrivedFromLink }));
+    check('visit: a program page (?start=2048) runs its program with no arrival card and no arrivedFromLink', ran && !r.card && r.state === null, JSON.stringify(r));
+    await closeCtx(pctx);
+  }
   check('visits: no page errors', !errors.length, errors.join('; '));
-  await ctx.close();
+  await closeCtx(ctx);
 }
 
 // What the page says is on screen is what is on screen. Three ways it was not (all on the stub, no ROMs; the tape's
@@ -2811,19 +3116,23 @@ async function onScreenChecks(browser, base, check) {
       const tag = () => !!document.querySelector('#shelf [data-shelf="welcome"] .tag.now');
       const a = { tag: tag(), drawn: drawn(), frames: m.frameCount };
       await new Promise((r) => { let k = 0; const f = () => (++k >= 20 ? r() : requestAnimationFrame(f)); requestAnimationFrame(f); });
-      const executing = s.welcomeRunning && s.welcome === m && m.frameCount > a.frames;
+      // (executing: the menu program runs; it is "on screen" once its prompt is drawn, which takes it a good number of frames)
+      const executing = s.welcomeRunning && s.welcome === m && m.frameCount > a.frames && s.screenText(m).some((r) => r.includes('PRESS 1 TO'));
       const b = { tag: tag(), drawn: drawn() };
       return { ok: a.tag === b.tag && b.tag === (executing && a.drawn && b.drawn), tag: b.tag, executing, drawn: a.drawn && b.drawn, paused: s.paused };
     });
   };
   const invariant = async (step, want) => {
+    // (the menu draws itself some frames after it starts, and the tag waits for that: sample once it is drawn)
+    if (want) await waitFor(page, () => window.emu.session.welcomeOnScreen, null, 20000);
     const r = await atRest();
     check(`on screen (${step}): "on screen now" ${want ? 'shown' : 'not shown'}, exactly when the menu runs and the canvas shows the machine's frame`,
       r.ok && r.tag === want && r.drawn, JSON.stringify(r));
   };
   const shelfClick = (key) => page.evaluate((k) => document.querySelector(`#shelf :is(a, button)[data-shelf="${k}"], #shelf a[href*="start=${k}"]`).click(), key);
   const last = () => page.evaluate(() => ({ card: document.getElementById('lastTime').hidden ? null : document.getElementById('lastName').textContent,
-    lastRun: window.emu.session.lastRun && window.emu.session.lastRun.name }));
+    lastRun: window.emu.session.lastRun && window.emu.session.lastRun.name,
+    marked: [...document.querySelectorAll('#shelf [aria-current="true"], #recentList [aria-current="true"]')].map((e) => e.textContent.replace(/\s*on screen now$/, '').replace(/load again$/, '').trim()) }));
   await invariant('the menu at the visit', true);
 
   // (1) a Debugger stop, back to the emulator, the shelf's Welcome menu
@@ -2852,16 +3161,20 @@ async function onScreenChecks(browser, base, check) {
   await shelfClick('2048');
   await waitFor(page, () => window.emu.session.gameRunning);
   let l = await last();
-  check('on screen: 2048 from the shelf: "Last time" names 2048', l.card === '2048' && l.lastRun === '2048', JSON.stringify(l));
+  check('on screen: 2048 from the shelf: recorded as what ran last, marked "on screen now" on the shelf, and no "Last time" card while it runs',
+    l.card === null && l.lastRun === '2048' && l.marked.join() === '2048', JSON.stringify(l));
   await invariant('2048 from the shelf', false);
   await shelfClick('liza');
   await waitFor(page, () => window.emu.session.screenText().join('').includes('I AM LIZA'));
   l = await last();
-  check('on screen: LIZA from the shelf: "Last time" names LIZA', l.card === 'LIZA' && l.lastRun === 'LIZA', JSON.stringify(l));
+  check('on screen: LIZA from the shelf: recorded, marked "on screen now" on the shelf, and no "Last time" card while it runs',
+    l.card === null && l.lastRun === 'LIZA' && l.marked.join() === 'LIZA', JSON.stringify(l));
   await invariant('LIZA from the shelf', false);
   await shelfClick('welcome');
   await waitFor(page, () => window.emu.session.welcomeOnScreen);
   await invariant('the shelf\'s Welcome menu after LIZA', true);
+  l = await last();
+  check('on screen: back on the menu, "Last time" is back and names LIZA, and only the menu is marked', l.card === 'LIZA' && l.marked.join() === 'Welcome menu', JSON.stringify(l));
   // the menu's keys: 5 PLAY A GAME, then 1 (2048)
   await page.mouse.click(5, 5);
   await waitFor(page, () => window.emu.machine.ram[0x6005] === 1, null, 20000);   // the tune played: keys are read
@@ -2871,16 +3184,103 @@ async function onScreenChecks(browser, base, check) {
   await page.keyboard.press('1');
   await waitFor(page, () => window.emu.session.gameRunning);
   l = await last();
-  check('on screen: 2048 from the menu\'s keys: "Last time" names 2048', l.card === '2048' && l.lastRun === '2048', JSON.stringify(l));
+  check('on screen: 2048 from the menu\'s keys: recorded, marked on the shelf, no "Last time" card', l.card === null && l.lastRun === '2048' && l.marked.join() === '2048', JSON.stringify(l));
   await invariant('2048 from the menu\'s keys', false);
   // Run again runs what the card names
   await shelfClick('liza');
   await waitFor(page, () => window.emu.session.screenText().join('').includes('I AM LIZA'));
+  await shelfClick('welcome');
+  await waitFor(page, () => window.emu.session.welcomeOnScreen);
   const named = (await last()).card;
   await page.evaluate(() => document.getElementById('btnRunAgain').click());
   const again = await waitFor(page, () => window.emu.session.programControls && window.emu.session.programControls.id === 'liza' && window.emu.session.screenText().join('').includes('I AM LIZA'));
   check('on screen: Run again runs what "Last time" names (LIZA)', named === 'LIZA' && again, String(named));
   await invariant('Run again', false);
+
+  // (4) Open… a program file (minesweeper.bin): the toast leads with what happened, "Last time" hides while it runs, its
+  // row in "Recent on this machine" says "on screen now"; each way out brings "Last time" back and takes the mark off
+  const mines = path.join(ROOT, 'examples', 'minesweeper.bin');
+  const state = () => page.evaluate(() => ({ card: document.getElementById('lastTime').hidden ? null : document.getElementById('lastName').textContent,
+    rows: [...document.querySelectorAll('#recentList .row')].map((r) => [r.firstChild.textContent, !!r.querySelector('.tag.now'), r.getAttribute('aria-current')]),
+    shelf: [...document.querySelectorAll('#shelf [aria-current="true"]')].map((e) => e.textContent.replace(/\s*on screen now$/, '')) }));
+  await shelfClick('welcome');
+  await waitFor(page, () => window.emu.session.welcomeOnScreen);
+  await page.setInputFiles('#fileProgram', mines);
+  await waitFor(page, () => /minesweeper\.bin loaded/.test(document.getElementById('toastText').textContent));
+  const open = await page.evaluate(() => ({ text: document.getElementById('toastText').textContent, more: document.getElementById('toastDetails').textContent }));
+  check('open: the toast leads with "minesweeper.bin loaded and started.", the format and addresses second (under Details)',
+    open.text === 'minesweeper.bin loaded and started.' && open.more === 'DragonDOS binary $3000-$3FE6, exec $3000', JSON.stringify(open));
+  let st = await state();
+  check('open: while it runs there is no "Last time" card, and its recent row says "on screen now"',
+    st.card === null && st.rows.length === 1 && st.rows[0][0] === 'minesweeper.bin' && st.rows[0][1] && st.rows[0][2] === 'true', JSON.stringify(st));
+  // DETERMINISTIC: Session.reset() emits 'reset' synchronously, so calling it and reading the card AND the rows in ONE
+  // page.evaluate leaves no frame to run between them. A page that waits for the card and reads after a frame cannot pin
+  // the fix -- a frame's reconciler repairs the mark -- so that form was green on a mutated base on another machine.
+  // Read here: the card's name and the recent rows, the instant the reset's handlers have run.
+  const afterReset = await page.evaluate(() => {
+    window.emu.session.reset();
+    const card = document.getElementById('lastTime').hidden ? null : document.getElementById('lastName').textContent;
+    const rows = [...document.querySelectorAll('#recentList .row')].map((r) => [r.firstChild.textContent, !!r.querySelector('.tag.now')]);
+    return { card, rows };
+  });
+  check('open: a reset takes it off the screen: "Last time" is back (minesweeper.bin) and no row is marked (read in the reset\'s own tick)',
+    /^minesweeper\.bin/.test(afterReset.card) && afterReset.rows.length && afterReset.rows[0][0] === 'minesweeper.bin' && !afterReset.rows[0][1], JSON.stringify(afterReset));
+  // and again the deterministic way, for a POWER CYCLE ('firmware', not 'reset'): the same read in the cycle's own tick
+  await page.setInputFiles('#fileProgram', mines);
+  await waitFor(page, () => /minesweeper\.bin loaded/.test(document.getElementById('toastText').textContent));
+  await waitFor(page, () => document.getElementById('lastTime').hidden);
+  const afterPower = await page.evaluate(() => {
+    window.emu.session.powerCycle({ reason: 'you power cycled the machine' });
+    const card = document.getElementById('lastTime').hidden ? null : document.getElementById('lastName').textContent;
+    const rows = [...document.querySelectorAll('#recentList .row')].map((r) => [r.firstChild.textContent, !!r.querySelector('.tag.now')]);
+    return { card, rows };
+  });
+  check('open: a power cycle takes it off the screen too: "Last time" is back and no row is marked (read in the cycle\'s own tick)',
+    /^minesweeper\.bin/.test(afterPower.card) && afterPower.rows.length && afterPower.rows[0][0] === 'minesweeper.bin' && !afterPower.rows[0][1], JSON.stringify(afterPower));
+  // 'recent' (another tab loaded a program) must redraw the "Last time" CARD as well as the list: lastTime() reads the
+  // recent list's head, so without this the card's NAME lags the list it sits above. Deterministic: remember a new file
+  // (as another tab's load would), emit 'recent', and read the card name in the SAME evaluate -- lastTime() must have
+  // run in that tick, so the name already tracks the new head. (read in the event's own tick)
+  const afterRecent = await page.evaluate(() => {
+    window.emu.session.library.rememberMedia('another.bin', new Uint8Array([7, 7, 7, 7]));
+    window.emu.session.emit('recent');
+    return { card: document.getElementById('lastTime').hidden ? null : document.getElementById('lastName').textContent,
+      head: (window.emu.session.library.recentMedia()[0] || {}).name };
+  });
+  check('open: another tab\'s load ("recent") redraws the "Last time" card too -- its name follows the recent head (read in the event\'s own tick)',
+    afterRecent.head === 'another.bin' && /^another\.bin/.test(afterRecent.card), JSON.stringify(afterRecent));
+  // A Reset while a recent row has the keyboard focus must not lose it: the reset redraws the list only when the running
+  // row actually changed (runKey() !== runShown), so on an idle machine (nothing running) a Reset leaves the list, and the
+  // focused row, alone. Deterministic: focus a row, run reset() and read activeElement in ONE evaluate (no frame between).
+  const focusKept = await page.evaluate(() => {
+    const row = document.querySelector('#recentList .row'); if (!row) return { row: false };
+    row.focus(); const was = document.activeElement === row;
+    window.emu.session.reset();
+    return { row: true, was, still: document.activeElement === row, tag: document.activeElement && document.activeElement === row ? 'the row' : (document.activeElement && (document.activeElement.id || document.activeElement.tagName)) };
+  });
+  check('open: a Reset on an idle machine keeps the keyboard focus on the recent row (the list is not redrawn when nothing was running)',
+    focusKept.row && focusKept.was && focusKept.still, JSON.stringify(focusKept));
+  await page.setInputFiles('#fileProgram', mines);
+  await waitFor(page, () => document.getElementById('lastTime').hidden);
+  await shelfClick('welcome');
+  await waitFor(page, () => window.emu.session.welcomeOnScreen && !document.getElementById('lastTime').hidden);
+  st = await state();
+  check('open: the welcome menu takes it off the screen: "Last time" is back and no row is marked', !st.rows[0][1] && /^minesweeper\.bin/.test(st.card), JSON.stringify(st));
+  await page.setInputFiles('#fileProgram', mines);
+  await waitFor(page, () => document.getElementById('lastTime').hidden);
+  await shelfClick('2048');
+  await waitFor(page, () => window.emu.session.gameRunning);
+  st = await state();
+  check('open: another program (2048) takes it over: its recent row is not marked, 2048 is marked on the shelf, no card', !st.rows[0][1] && st.shelf.join() === '2048' && st.card === null, JSON.stringify(st));
+  await page.setInputFiles('#fileProgram', mines);
+  await waitFor(page, () => document.getElementById('lastTime').hidden);
+  await page.click('#btnPause');
+  await waitFor(page, () => !document.getElementById('lastTime').hidden);
+  st = await state();
+  check('open: Pause: the program is not running, "Last time" is back and the row is not marked', !st.rows[0][1] && /^minesweeper\.bin/.test(st.card), JSON.stringify(st));
+  await page.click('#btnPause');
+  await waitFor(page, () => document.getElementById('lastTime').hidden);
+  check('open: resumed, it is on screen again: no card, row marked', (await state()).rows[0][1] && (await state()).card === null);
 
   // (2) a tape load's restart while the frame loop runs no frames (Pause): the canvas shows the machine's frame
   await page.evaluate(async () => {
@@ -2908,8 +3308,49 @@ async function onScreenChecks(browser, base, check) {
   await page.click('#btnPause');
   await invariant('resumed after the tape load', false);
   if (shotDir) await page.locator('#screenWrap').screenshot({ path: path.join(shotDir, 'on-screen-tape.png') });
+  // (4b) two files of one name and different content: only the one that runs is marked "on screen now"
+  {
+    const twin = (data) => ({ name: 'twin.bin', mimeType: 'application/octet-stream', buffer: Buffer.from([0x55, 0x02, 0x30, 0x00, 0x00, data.length, 0x30, 0x00, 0xAA, ...data]) });
+    const A = twin([0x20, 0xFE]), B = twin([0x12, 0x20, 0xFE]);
+    const marked = () => page.evaluate(() => [...document.querySelectorAll('#recentList .row')].filter((r) => r.dataset.name === 'twin.bin').map((r) => [r.dataset.crc, !!r.querySelector('.tag.now')]));
+    await page.setInputFiles('#fileProgram', A);
+    await waitFor(page, () => document.getElementById('lastTime').hidden && window.emu.session.lastRunOnScreen);
+    const afterA = await marked();
+    await page.setInputFiles('#fileProgram', B);
+    await waitFor(page, () => document.querySelectorAll('#recentList .row[data-name="twin.bin"]').length === 2 && window.emu.session.lastRunOnScreen);
+    const afterB = await marked();
+    const crcB = await page.evaluate(() => window.emu.session.lastRun.crc);
+    check('open: two files of one name and different bytes: with the first running only its row is marked; with the second, only the second\'s',
+      afterA.length === 1 && afterA[0][1] && afterB.length === 2 && afterB.filter((r) => r[1]).length === 1 && afterB.find((r) => r[1])[0] === crcB, JSON.stringify({ afterA, afterB, crcB }));
+    await page.setInputFiles('#fileProgram', A);
+    await waitFor(page, (c) => window.emu.session.lastRun.crc !== c, crcB);
+    await waitFor(page, () => document.querySelectorAll('#recentList .row[data-name="twin.bin"] .tag.now').length === 1);
+    const afterA2 = await marked(), crcA = await page.evaluate(() => window.emu.session.lastRun.crc);
+    check('open: loading the first again moves the mark to its row', afterA2.filter((r) => r[1]).length === 1 && afterA2.find((r) => r[1])[0] === crcA && crcA !== crcB, JSON.stringify({ afterA2, crcA, crcB }));
+  }
+
+  // (5) a machine switch on a first visit: the new machine's menu is not "on screen now" while its screen has no menu
+  // on it, and the visit is never greeted "WELCOME BACK"
+  {
+    const c2 = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    const p2 = await c2.newPage();
+    p2.on('pageerror', (e) => errors.push(e.message));
+    await p2.goto(`${base}`); await started(p2);
+    await waitFor(p2, () => window.emu.session.welcomeOnScreen);
+    await p2.evaluate(() => { window.__viol = 0; window.__watch = true; const f = () => { const t = !!document.querySelector('#shelf [data-shelf="welcome"] .tag.now'); if (t && !window.emu.session.screenText().some((r) => r.includes('PRESS 1 TO'))) window.__viol++; if (window.__watch) requestAnimationFrame(f); }; f(); });
+    await p2.click('#machineBtn');
+    await p2.click('#machineMenu [data-machine="coco3"]');
+    await waitFor(p2, () => !document.getElementById('switchConfirm').hidden);
+    await p2.click('#btnSwitch');
+    await waitFor(p2, () => window.emu.machine.id === 'coco3' && window.emu.session.welcomeOnScreen, null, 20000);
+    const viol = await p2.evaluate(() => { window.__watch = false; return window.__viol; });
+    check('switch: "Welcome menu · on screen now" never showed while the new machine\'s screen had no menu on it', viol === 0, String(viol));
+    const rows = await p2.evaluate(() => window.emu.session.screenText().map((r) => r.trim()).filter(Boolean));
+    check('first visit: a machine picked in the header menu is greeted with the title, not "WELCOME BACK"', rows.includes('DRAGON AND COLOR COMPUTER') && !rows.includes('WELCOME BACK'), JSON.stringify(rows));
+    await closeCtx(c2);
+  }
   check('on screen: no page errors', !errors.length, errors.join('; '));
-  await ctx.close();
+  await closeCtx(ctx);
 }
 
 // Returning visits: leaving LIZA with BYE brings the menu back ("BYE FOR NOW.
@@ -2941,14 +3382,60 @@ async function returningChecks(browser, base, check) {
   await shot('back-from-liza');
   // a return visit, no ROMs
   await page.reload(); await ready(page);
-  await waitFor(page, () => window.emu.session.welcomeRunning && window.emu.session.screenText()[12].includes('CARRY ON'));
-  const r = await page.evaluate(() => ({ greet: window.emu.session.screenText()[6].trim(), five: window.emu.session.screenText()[12].trim(), games: window.emu.session.screenText()[11].trim(), press: window.emu.session.screenText()[14].trim(),
-    media: (document.querySelector('[role="tab"][aria-controls="panel-media"]').click(), document.getElementById('panel-media').innerText),
-    card: !document.getElementById('welcome').hidden, last: document.getElementById('lastTime').hidden ? null : document.getElementById('lastName').textContent,
-    shelf: [...document.querySelectorAll('#shelf :is(a, button)')].map((b) => b.textContent).join('|'), pill: getComputedStyle(document.getElementById('romPill')).display !== 'none' && !document.getElementById('romPill').hidden }));
-  check('returning (no ROMs): the menu says WELCOME BACK and offers 6 CARRY ON WITH LIZA under 5 PLAY A GAME; "Last time · LIZA"; the menu on screen now; no card; No BASIC in the header',
+  // DETERMINISTIC, and the GUARD IS THE PRE-MENU SAMPLING. The invariant is `mixed === 0`: no sampled frame shows the menu
+  // drawn (CARRY ON on screen) without the shelf's "on screen now" tag. For that to prove anything, sampling must have
+  // STARTED BEFORE the menu was drawn -- otherwise, with the menu already up on the first sample, `mixed === 0` could
+  // hold on a page that never drew the tag at the moment the frame appeared. So `preMenu > 0` is required: at least one
+  // frame was sampled with the menu NOT yet on screen, before the first one that had it; that is what makes `mixed === 0`
+  // meaningful (a sampler that only began after the draw is caught by `preMenu === 0`).
+  // (A tick counter cannot serve this guard: page.tickUi() advances it every frame whether it runs before or after
+  // advance, so it does NOT distinguish the two orders. The earlier `ticksAdvanced` term was vacuous.)
+  // "CARRY ON on screen" is Session.screenText(), which reads the machine's screen RAM ($0400) for the mode in use;
+  // at this moment the welcome program is on its TEXT screen, so that read is the menu's own text, not a picture.
+  const r = await page.evaluate(() => new Promise((res) => {
+    const out = []; let seenCarry = false, after = 0, samples = 0, sawMenu = 0, preMenu = 0;
+    const read = () => {
+      const rows = window.emu.session.screenText();
+      const carry = !!(rows[12] && rows[12].includes('CARRY ON'));
+      const tag = [...document.querySelectorAll('#shelf .tag.now')].length > 0;
+      return { carry, tag, rows };
+    };
+    const tick = () => {
+      samples++;
+      const st = read();
+      if (st.carry) { seenCarry = true; sawMenu++; out.push(st); after++; }
+      else if (!seenCarry) preMenu++;   // a sample with the menu NOT yet drawn, taken before the first drawn one
+      if (seenCarry && after >= 4) {
+        const last = out[out.length - 1].rows;
+        return res({
+          greet: last[6].trim(), five: last[12].trim(), games: last[11].trim(), press: last[14].trim(),
+          media: (document.querySelector('[role="tab"][aria-controls="panel-media"]').click(), document.getElementById('panel-media').innerText),
+          card: !document.getElementById('welcome').hidden, last: document.getElementById('lastTime').hidden ? null : document.getElementById('lastName').textContent,
+          shelf: [...document.querySelectorAll('#shelf :is(a, button)')].map((b) => b.textContent).join('|'),
+          pill: getComputedStyle(document.getElementById('romPill')).display !== 'none' && !document.getElementById('romPill').hidden,
+          mixed: out.filter((x) => x.carry && !x.tag).length, frames: out.length,
+          samples, sawMenu, preMenu,
+        });
+      }
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  }));
+  check('returning (no ROMs): the menu says WELCOME BACK and offers 6 CARRY ON WITH LIZA under 5 PLAY A GAME; "Last time · LIZA"; the menu on screen now (no frame shows it without the tag); no card; No BASIC in the header',
     r.greet === 'WELCOME BACK' && r.five === '6 CARRY ON WITH LIZA' && r.games === '5 PLAY A GAME' && r.press === 'PRESS 1 TO 6' && !r.card && r.last === 'LIZA'
-    && r.shelf === 'Welcome menu on screen now|LIZA|Colour demo|2048|Minesweeper|Chat with Claude' && r.pill, JSON.stringify(r));
+    && r.shelf === 'Welcome menu on screen now|LIZA|Colour demo|2048|Minesweeper|Chat with Claude' && r.pill && r.mixed === 0
+    && r.preMenu > 0 && r.sawMenu >= 1, JSON.stringify(r));
+  // A PAUSED page still ticks the UI. tickUi() is outside the `if (!paused)` block, so a reconciler whose watched state
+  // changes with no machine frame still redraws. Here: pause the page; the shelf's "on screen now" follows
+  // `welcomeOnScreen && !page.paused`, so pausing must take the tag OFF -- a reconciler change driven with the machine
+  // stopped. (Deterministic: wait for the tag to go, which only a run of tickUi while paused can do.)
+  const beforePause = await page.evaluate(() => [...document.querySelectorAll('#shelf .tag.now')].length > 0);
+  await page.click('#btnPause');
+  const pausedTagGone = await waitFor(page, () => [...document.querySelectorAll('#shelf .tag.now')].length === 0, null, 5000);
+  check(`(d) a paused page still ticks the UI: the shelf's "on screen now" clears on Pause, with the machine stopped`,
+    beforePause && pausedTagGone);
+  await page.click('#btnPause');   // resume, so the checks after run on a running machine
+  await waitFor(page, () => window.emu.session.welcomeOnScreen && [...document.querySelectorAll('#shelf .tag.now')].length > 0, null, 8000);
   // the Media tab as shown says "Last time · LIZA" with no "Nothing loaded yet" contradicting it, and the
   // menu lists 5 PLAY A GAME above the carry-on line (r.games, above)
   check('returning (no ROMs): the Media tab shows "Last time · LIZA" and no "Nothing loaded yet"',
@@ -2971,8 +3458,48 @@ async function returningChecks(browser, base, check) {
   await shot('with-roms');
   await page.click('#shelf :is(a, button)[data-shelf="welcome"]');
   check('returning (with ROMs): "Welcome menu" runs it', await waitFor(page, () => window.emu.session.welcomeRunning && window.emu.session.screenText()[6].trim() === 'WELCOME BACK'));
+  // a restored snapshot's toast offers "Start over": the program the moment is of from its beginning (LIZA here), or,
+  // for a moment of no bundled program, a power cycle into the same machine (Session.powerCycle: 'firmware')
+  {
+    const sctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, serviceWorkers: 'block' });
+    const sp = await sctx.newPage();
+    sp.on('pageerror', (e) => errors.push(e.message));
+    await sp.goto(`${base}?machine=dragon64&start=liza`);
+    await linkIn(sp);
+    await waitFor(sp, () => window.emu.session.screenText().join('').includes('I AM LIZA'), null, 60000);
+    await sp.focus('#screen'); await sp.keyboard.type('HELLO', { delay: 40 }); await sp.keyboard.press('Enter');
+    await waitFor(sp, () => !!document.querySelector('.slot-row[data-slot="1"] button[aria-label="Take snapshot 1"]'));
+    await sp.evaluate(() => document.querySelector('.slot-row[data-slot="1"] button[aria-label="Take snapshot 1"]').click());
+    await waitFor(sp, () => !document.querySelector('.slot-row[data-slot="1"] button[aria-label="Restore snapshot 1"]').disabled && /Snapshot 1 taken/.test(document.getElementById('toastText').textContent));
+    const restore = async () => {
+      await sp.evaluate(() => document.querySelector('.slot-row[data-slot="1"] button[aria-label="Restore snapshot 1"]').click());
+      return waitFor(sp, () => /Snapshot opened: Dragon 64/.test(document.getElementById('toastText').textContent) && document.getElementById('toastAction').textContent === 'Start over');
+    };
+    const offered = await restore();
+    const toast = await sp.evaluate(() => ({ text: document.getElementById('toastText').textContent, action: document.getElementById('toastAction').textContent, card: !document.getElementById('arrival').hidden }));
+    if (shotDir) await sp.screenshot({ path: path.join(shotDir, 'returning-snapshot-start-over.png') });
+    await sp.click('#toastAction');
+    const fresh = await waitFor(sp, () => window.emu.session.programControls && window.emu.session.programControls.id === 'liza'
+      && !!window.emu.session.untouchedBundledProgram(`${location.origin}/play/`), null, 30000);
+    check('returning: a restored snapshot\'s toast offers "Start over" (and no arrival card: it came from no link); on a LIZA moment it starts LIZA from its beginning',
+      offered && !toast.card && fresh, JSON.stringify(toast));
+    // the welcome menu's moment: Start over is a power cycle
+    await sp.goto(`${base}?machine=dragon64`);
+    await linkIn(sp);
+    await waitFor(sp, () => window.emu.session.welcomeRunning, null, 60000);
+    await waitFor(sp, () => !!document.querySelector('.slot-row[data-slot="1"] button[aria-label="Take snapshot 1"]'));
+    await sp.evaluate(() => document.querySelector('.slot-row[data-slot="1"] button[aria-label="Take snapshot 1"]').click());
+    await waitFor(sp, () => !document.querySelector('.slot-row[data-slot="1"] button[aria-label="Restore snapshot 1"]').disabled && /Snapshot 1 taken/.test(document.getElementById('toastText').textContent));
+    await restore();
+    await sp.evaluate(() => { window.__ev = []; window.emu.session.on((e) => window.__ev.push(e)); });
+    await sp.click('#toastAction');
+    const cycled = await waitFor(sp, () => window.__ev.includes('firmware'), null, 10000);
+    check('returning: "Start over" on a moment of no bundled program power cycles the same machine', cycled
+      && await sp.evaluate(() => window.emu.session.shownMachine.id === 'dragon64' && !window.__ev.includes('program')), JSON.stringify(await sp.evaluate(() => window.__ev)));
+    await closeCtx(sctx);
+  }
   check('returning: no page errors', !errors.length, errors.join('; '));
-  await ctx.close();
+  await closeCtx(ctx);
 }
 
 // The HD6309 runs the 6809 programs. `?machine=dragon64&cpu=6309` (the Machine tab's choice, or a link)
@@ -3046,24 +3573,36 @@ async function cpu6309Checks(browser, base, check) {
   // keys 2 and 4 (demo, chat) come up on the 6309 as on the 6809
   await key('2');
   check('cpu=6309: key 2 runs the colour demo', await waitFor(page, () => /Colour demo: press a key/.test(document.getElementById('toast').textContent) && window.emu.machine.cpu.pc >= 0x4000 && window.emu.machine.cpu.pc < 0x4200, null, 20000), await msg());
-  // the demo is really executing on the 6309: over a short window its program counter is seen in the demo's own
-  // code ($4000-$41FF, where demo.bin loads), the 6309's illegal-opcode trap flag (MD bit 6) is never set, and the
-  // welcome program is no longer in charge. (A single sample is not enough: the demo calls the stub's POLCAT at
-  // $B100 between frames. The trap bit, not a PC at $FFF0, is the signal: a 6309 trap jumps to the vector's
-  // CONTENTS in one instruction, so the PC is never $FFF0 itself.)
+  // The demo is really executing on the 6309: its program counter enters the demo's own code ($4000-$41FF, where
+  // demo.bin loads), and over a SPAN AFTER that entry the 6309's illegal-opcode trap flag (MD bit 6) is never set.
+  // Bounded in EMULATED frames, not wall time: a page slowed by load runs fewer frames a second but the same frames,
+  // so the check holds however slow the runner is (the old sampling of PC every 25 ms of wall clock failed on CI's
+  // starved runners - the window could close before the demo had drawn, and 40 wall-clock samples could all land in
+  // the stub between demo frames).
+  //
+  // The span is the point. Ending the wait as soon as the PC is in the demo window would sample "never trapped" over
+  // the handful of frames between two evaluates (measured: about four), not over the demo running - and a trap that
+  // fires a moment later would be missed. So the condition is "in the demo window AND 100 frames have run since
+  // entry", and MD and the welcome flag are read at the END of that span: 100 frames is two seconds of machine time
+  // at 50 Hz, the window the old wall-clock loop had, and then some.
+  //
+  // (The trap bit, not a PC at $FFF0, is the signal: a 6309 trap jumps to the vector's CONTENTS in one instruction,
+  // so the PC is never $FFF0 itself. It is STICKY - trap() does `md |= bit` (js/cpu/cpu6309.js), and only a reset
+  // clears it - so one read at the end covers every trace of a trap during the span. A single PC sample is not
+  // enough either: the demo calls the stub's POLCAT at $B100 between frames, so "in demo code" is a property of SOME
+  // frame in the span, not of every one.)
+  const DEMO_SPAN = 100;
+  await ev(() => { window.__demo = { f0: null, inDemo: false }; });
+  const inDemo = await waitForFrames(page, (span) => {
+    const m = window.emu.machine, pc = m.cpu.pc, out = window.__demo;
+    if (out.f0 === null && pc >= 0x4000 && pc < 0x4200) out.f0 = m.frameCount;   // the frame the demo's code is first seen on
+    if (pc >= 0x4000 && pc < 0x4200) out.inDemo = true;
+    return out.f0 !== null && m.frameCount - out.f0 >= span;
+  }, DEMO_SPAN, 400);                                       // 400 frames bound: plenty for entry (8 s at 50 Hz) plus the 100-frame span
   {
-    const seen = await ev(async () => {
-      const out = { inDemo: false, trapped: false, welcome: false };
-      for (let i = 0; i < 40; i++) {
-        const m = window.emu.machine, pc = m.cpu.pc;
-        if (pc >= 0x4000 && pc < 0x4200) out.inDemo = true;
-        if ((m.cpu.md & 0x40) !== 0) out.trapped = true;   // illegal-opcode trap taken
-        out.welcome = out.welcome || window.emu.session.welcomeRunning;
-        await new Promise((r) => setTimeout(r, 25));
-      }
-      return out;
-    });
-    check('cpu=6309: the demo executes its own code and takes no illegal-opcode trap', seen.inDemo && !seen.trapped && !seen.welcome, JSON.stringify(seen));
+    // read MD and the welcome flag at the END of the span, not at entry
+    const seen = await ev(() => ({ inDemo: window.__demo.inDemo, trapped: (window.emu.machine.cpu.md & 0x40) !== 0, welcome: window.emu.session.welcomeRunning }));
+    check('cpu=6309: the demo executes its own code and takes no illegal-opcode trap', inDemo && seen.inDemo && !seen.trapped && !seen.welcome, JSON.stringify({ inDemo, seen }));
   }
   // "Back to the menu" starts the menu afresh (greeting 'first', no carry-on option): the same on 6809 and 6309
   await page.click('#btnWelcomeBack');
@@ -3122,7 +3661,7 @@ async function cpu6309Checks(browser, base, check) {
   check('cpu=6309: "Colour demo" is still on the shelf (the new visit\'s Media tab keeps it)', /Colour demo/.test(await page.$$eval('#shelf :is(a, button)', (b) => b.map((x) => x.textContent).join('|'))),
     await page.$$eval('#shelf :is(a, button)', (b) => b.map((x) => x.textContent).join('|')));
   check('cpu=6309: no page errors in the whole case', !errors.length, errors.join('; '));
-  await ctx.close();
+  await closeCtx(ctx);
 
   // one more model, by keyboard on the Machine tab: the CoCo 1/2 switches to the 6309 and the menu starts
   const ctx2 = await browser.newContext({ viewport: { width: 1440, height: 1060 } });
@@ -3141,7 +3680,7 @@ async function cpu6309Checks(browser, base, check) {
   check('cpu=6309 (Machine tab, CoCo 1/2): the welcome menu starts', await waitFor(p2, () => window.emu.session.welcomeRunning && /PRESS 1 TO [56]/.test(window.emu.session.screenText()[14]), null, 15000),
     await p2.evaluate(() => window.emu.session.screenText().join('\n')));
   check('cpu=6309 (Machine tab, CoCo 1/2): no page errors', !errors2.length, errors2.join('; '));
-  await ctx2.close();
+  await closeCtx(ctx2);
 
   // the literal link `?machine=coco3&cpu=6309` (the link that once ended on "Welcome: examples/undefined: HTTP 404"): the
   // menu is offered and runs, nothing is missing, nothing throws, and the Debugger of that machine shows the 6309's
@@ -3178,7 +3717,7 @@ async function cpu6309Checks(browser, base, check) {
   check('?machine=coco3&cpu=6309: the Debugger shows the 6309 registers (E, F, W, Q, V, MD) of that machine',
     dbg3.cls === 'CPU6309' && ['e', 'f', 'w', 'q', 'v', 'md'].every((r) => dbg3.fields.includes(r)), `${dbg3.cls} ${dbg3.fields.join()}`);
   check('?machine=coco3&cpu=6309: no page errors', !errors3.length, errors3.join('; '));
-  await ctx3.close();
+  await closeCtx(ctx3);
 }
 
 // Reset and power without ROMs (like a real computer, never a dead end), through
@@ -3299,7 +3838,7 @@ async function powerOnChecks(browser, base, check) {
     JSON.stringify(poked));
   await page.click('#pokeBook button[data-poke="POKE 65494,0"]');
   check('reset and power without ROMs: no page errors', !errors.length, errors.join('; '));
-  await ctx.close();
+  await closeCtx(ctx);
 }
 
 async function mediaChecks(browser, base, check) {
@@ -3383,9 +3922,72 @@ async function mediaChecks(browser, base, check) {
     // the drawer lists EVERY recent entry for this machine, including ones this group did not load (game.bin
     // above), so the count is not 1; what must hold is that ours is there once.
     check('recent: before the second load there is one row of this name', rowsBefore.filter((t) => t.includes('recent-one.bin')).length === 1, rowsBefore.join(' | '));
+    // a redraw of the Recent list must keep the focus on THE SAME row, by what it names (and its copy
+    // tag), not by place: a new load puts its file at the top and every row shifts down, so a
+    // place-based restore would move the keyboard to a different file - silently. Driven twice:
+    // first the page's own redraw trigger (a session event) with the order unchanged, then a REAL
+    // order change (loading a new file unshifts the list) with a row focused - the identity restore
+    // must find the same file again, whatever moved.
+    const kept = await page.evaluate(async () => {
+      const row = [...document.querySelectorAll('#recentList .row')].find((b) => b.dataset.name === 'recent-one.bin');
+      row.focus({ preventScroll: true });
+      const was = document.activeElement === row;
+      window.emu.session.emit('lastrun');   // the event the page answers with a redraw of the list, synchronously
+      const back = document.activeElement;   // read at once: the redraw ran inside the emit; no frame is given to repair anything
+      return { was, rebuilt: !row.isConnected, isNew: back !== row, name: back.dataset ? back.dataset.name : null, still: back.dataset && back.dataset.name === 'recent-one.bin' && back.dataset.crc === row.dataset.crc };
+    });
+    check('recent: a redraw of the list keeps the focus on the row that had it (a NEW node of the same file)', kept.was && kept.rebuilt && kept.isNew && kept.still, JSON.stringify(kept));
+    // THE ORDER CHANGE, with no launch to hide it: another tab of the same browser loads a program, and
+    // this page's Recent list reorders (Session.mediaElsewhere -> the 'recent' event -> the redraw) while
+    // this page's machine is untouched - no launch here, so nothing refocuses the screen. The focused
+    // row shifts down, and the restore must find it AGAIN BY NAME: a place-based restore lands on the
+    // file that took its place, a silent jump to a program nobody chose. The list's reorder is asserted
+    // first (the new file at the top), so the check cannot pass because nothing happened.
+    {
+      const other = await ctx.newPage();
+      await other.goto(`${base}?machine=dragon64`); await started(other);
+      const focusRow = await page.evaluate(() => {
+        const row = [...document.querySelectorAll('#recentList .row')].find((b) => b.dataset.name === 'recent-one.bin' && !b.querySelector('.copy'));   // the unlabelled copy (this page's newest of the name)
+        row.focus({ preventScroll: true });
+        return { was: document.activeElement === row, name: 'recent-one.bin', at: [...document.querySelectorAll('#recentList .row')].indexOf(row) };
+      });
+      await other.setInputFiles('#fileProgram', { name: 'elsewhere.bin', mimeType: 'application/octet-stream', buffer: A });   // a DragonDOS binary: B loads it at once
+      // A's list reordered: the new file at the top, the focused row one down - asserted, not assumed
+      const reordered = await waitFor(page, () => {
+        const rows = [...document.querySelectorAll('#recentList .row')];
+        return rows.length && (rows[0].dataset.name === 'elsewhere.bin') && rows.some((b) => b.dataset.name === 'recent-one.bin');
+      }, null, 10000);
+      await page.waitForTimeout(100);   // let the redraw (and any restore) settle
+      const after = await page.evaluate(() => ({ name: document.activeElement.dataset ? document.activeElement.dataset.name : null, at: [...document.querySelectorAll('#recentList .row')].indexOf(document.activeElement) }));
+      check('recent: a load in ANOTHER tab reorders this page\'s list (the new file on top) - the precondition for the focus check below', reordered, JSON.stringify(after));
+      check('recent: the reorder by another tab keeps the focus on the file it was on (by name, whatever moved - no launch here to hide a place-based jump)',
+        focusRow.was && reordered && after.name === focusRow.name, JSON.stringify({ focusRow, after }));
+      // the second half: a SAME-NAME load with DIFFERENT bytes in the other tab. The focused file's row
+      // keeps its name but the copy ordinals SHIFT (it becomes "2nd"), and a name-only or name+ordinal
+      // key lands on the OTHER page's file - the reviewer's reproduction. The restore must keep the
+      // keyboard on THIS page's own bytes (the library's own identity: name + content hash), and the
+      // row it is on must be the "2nd" copy. The new row on top is asserted first.
+      await other.setInputFiles('#fileProgram', { name: 'recent-one.bin', mimeType: 'application/octet-stream', buffer: B });
+      const reorded = await waitFor(page, () => {
+        const rows = [...document.querySelectorAll('#recentList .row')];
+        return rows.length && rows[0].dataset.name === 'recent-one.bin' && rows[0].dataset.crc !== (document.activeElement.dataset ? document.activeElement.dataset.crc : '');
+      }, null, 10000);
+      await page.waitForTimeout(100);   // let the redraw (and any restore) settle
+      const sameName = await page.evaluate(() => {
+        const ae = document.activeElement;
+        const row = ae.closest && ae.closest('#recentList .row');
+        return { name: ae.dataset ? ae.dataset.name : null, crc: ae.dataset ? ae.dataset.crc : null, tag: row && row.querySelector('.copy') ? row.querySelector('.copy').textContent : null,
+          onRecent: !!(row && row.closest('#recentList')) };
+      });
+      check('recent: another tab\'s load of the SAME NAME with different bytes puts its copy on top - the precondition for the same-name focus check', reorded, JSON.stringify(sameName));
+      check('recent: a same-name load in another tab keeps the focus on THIS page\'s own bytes (the "2nd" copy, by content hash - a name-only key lands on the other page\'s file)',
+        sameName.onRecent && sameName.name === 'recent-one.bin' && sameName.tag === '2nd',
+        JSON.stringify(sameName));
+      await other.close();
+    }
   }
   check('media: no page errors', !errors.length, errors.join('; '));
-  await ctx.close();
+  await closeCtx(ctx);
 }
 
 async function mediaBackendChecks(browser, base, check) {
@@ -3471,7 +4073,7 @@ async function mediaBackendChecks(browser, base, check) {
     check('migration: small settings stay in localStorage', await mp.evaluate(() => localStorage.getItem('cloadm.machine') === 'coco' && localStorage.getItem('cloadm.visited') === '1'));
     await mp.reload(); await ready(mp);
     check('migration: a second load keeps the ROM (it does not run again)', await mp.evaluate(() => !!window.emu.session.machineRoms('coco').sockets.find((s) => s.id === 'bas').crc));
-    await mctx.close();
+    await closeCtx(mctx);
   }
 
   // ---- the import/download fallback, with OPFS disabled for the page ----
@@ -3513,7 +4115,7 @@ async function mediaBackendChecks(browser, base, check) {
       return Array.from(await window.emu.session.library.openMedia('picked/tiny.bin'));
     });
     check('fallback: a picked file is imported under its name', imported.join() === '1,2,3,4,5', imported.join());
-    await fctx.close();
+    await closeCtx(fctx);
   }
 
   // ---- the File System Access path, through a mocked directory handle ----
@@ -3552,7 +4154,7 @@ async function mediaBackendChecks(browser, base, check) {
       return { listed: (await s.library.listMedia()).map((f) => f.name), opened: Array.from(await s.library.openMedia('mine.bin')).slice(0, 2) };
     });
     check('File System Access (mocked handle): a Session lists and opens its media', sessionOk.listed.includes('library/mine.bin') && sessionOk.opened.join() === '66,66', JSON.stringify(sessionOk));
-    await fsaCtx.close();
+    await closeCtx(fsaCtx);
 
     // ---- disk names that differ only in case, through a folder that does not tell them apart ----
     // The mock is the folder here (stated as mocked: a real APFS folder is what it imitates), and it is the only
@@ -3605,7 +4207,7 @@ async function mediaBackendChecks(browser, base, check) {
       const want = 'disks/GAME.DSK';
       check(`disk names (${fold ? 'case-insensitive' : 'case-sensitive'} folder): list() of a prefix in another case shows the folder's name`,
         names.plain === want && names.flipped === (fold ? want : ''), JSON.stringify(names));
-      await c.close();
+      await closeCtx(c);
     }
 
     // ---- the drives card's own list ("Disks in your library"), through the page, on a store that folds names ----
@@ -3646,7 +4248,7 @@ async function mediaBackendChecks(browser, base, check) {
       check(`drives card (${fold ? 'case-insensitive' : 'case-sensitive'} store): the library never offers a disk a drive already holds`,
         r.measured === fold && r.offered.slice().sort().join() === want.slice().sort().join(),
         JSON.stringify(r));
-      await c.close();
+      await closeCtx(c);
     }
   }
 
@@ -3675,7 +4277,7 @@ async function mediaBackendChecks(browser, base, check) {
     const FB2 = fake(16384, 61);
     await dropFiles(broken, [['d64_1.rom', FB2]]);
     check('a store that will not open: media still loads for the visit', await waitFor(broken, () => window.emu.session.machineRoms('dragon64').sockets.some((s) => s.status !== 'missing-required')));
-    await brokenCtx.close();
+    await closeCtx(brokenCtx);
   }
 
   // ---- the Library's namespace: its methods never touch the index's own blobs ----
@@ -3696,7 +4298,7 @@ async function mediaBackendChecks(browser, base, check) {
     });
     check('library: importing an index-looking name leaves the socket map untouched', NS.same, JSON.stringify(NS));
     check('library: listMedia shows only the user\'s media (library/ and disks/), not the index\'s names', !NS.hasIndex && NS.listed.every((n) => n.startsWith('library/')), JSON.stringify(NS.listed));
-    await libCtx.close();
+    await closeCtx(libCtx);
   }
 
   // ---- ?storage= picks the backend for that page load (the testing switch docs/development.md documents) ----
@@ -3722,7 +4324,7 @@ async function mediaBackendChecks(browser, base, check) {
   }
 
   check('media backend: no page errors', !errors.length, errors.join('; '));
-  await ctx.close();
+  await closeCtx(ctx);
 }
 // a stand-in for a File System Access directory handle: enough of the API for FsaMediaStore, backed by a
 // Map. Installed into the page by addInitScript, because the mock has to live where the store runs.
@@ -3824,7 +4426,7 @@ async function hintChecks(browser, base, check) {
   const credits = await page.$eval('footer a[href="credits/"]', (a) => a.href);   // resolved against <base>
   const res = await page.request.get(credits);
   check('credits: linked from the page and served', res.ok() && /On the shoulders of giants/.test(await res.text()));
-  await ctx.close();
+  await closeCtx(ctx);
   // gone 30 s after the first key typed (time fast-forwarded)
   ctx = await browser.newContext();
   page = await ctx.newPage();
@@ -3836,7 +4438,27 @@ async function hintChecks(browser, base, check) {
   const at29 = await page.isVisible('#keyHint');
   await page.clock.fastForward(2000);
   check('key hint: gone 30 s after typing starts', at29 && await page.isHidden('#keyHint'));
-  await ctx.close();
+  await closeCtx(ctx);
+  // a touch-only device (no hover, a coarse pointer) has no keys to name and nothing to drop: the desktop hints never
+  // show there, even with the on-screen keyboard off (the drop hint's layout). A desktop shows them (the control).
+  for (const [label, opts, want] of [['desktop', {}, true], ['touch-only', { hasTouch: true, isMobile: true }, false]]) {
+    ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, ...opts });
+    await ctx.addInitScript(() => { try { localStorage.setItem('cloadm.touchKeys', 'off'); } catch (e) { /* none */ } });
+    page = await ctx.newPage();
+    await page.goto(`${base}?machine=dragon64`); await started(page);
+    const h = await page.evaluate(() => {
+      const kh = document.getElementById('keyHint');
+      document.getElementById('soundHint').hidden = true; kh.hidden = false;   // as once sound has started: the key hint's turn
+      const drop = document.querySelector('.layout .hint');
+      const keys = kh.checkVisibility();
+      kh.hidden = true;     // the drop hint's turn (it steps aside while the key hint shows)
+      return { media: matchMedia('(hover: none) and (pointer: coarse)').matches, drop: drop.checkVisibility(), keys, text: drop.textContent };
+    });
+    check(`hints (${label}): "Or drop any file on the screen. Esc is BREAK…" and the key hint ${want ? 'show' : 'never show on a touch-only device'}`,
+      h.media === !want && h.drop === want && h.keys === want && /^Or drop any file on the screen\. Esc is BREAK/.test(h.text), JSON.stringify(h));
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, `hints-${label}.png`) });
+    await closeCtx(ctx);
+  }
 }
 
 // Input: the keyboard modes and the keyboard joystick through the Input tab, and two gamepads through a
@@ -3945,7 +4567,7 @@ async function inputChecks(browser, base, check) {
   await waitFor(page, () => { const m = window.emu.machine; return m.joy[0][0] === 32 && m.joy[1][0] === 32 && !m.fire[0] && !m.fire[1]; });
   check('input: a stick inside the dead zone centres again', (await joyOf(0))[0] === 32 && (await joyOf(1))[0] === 32 && !(await fireOf(0)) && !(await fireOf(1)));
   check('input: no page errors', errors.length === 0, errors.join('; '));
-  await ctx.close();
+  await closeCtx(ctx);
 
   // positional mode on the Dragon 200-E, through the Input tab and the real key events: its layout is the Dragon's with
   // the N-tilde key at the physical ; (MAME's dragon200e ports, tests/input.test.js). Without a layout every physical
@@ -3965,7 +4587,7 @@ async function inputChecks(browser, base, check) {
   const typed200 = await waitFor(p2, () => window.emu.session.screenText().some((l) => l.startsWith('> HI ;1')), null, 5000);
   const line200 = await p2.evaluate(() => window.emu.session.screenText().find((l) => l.startsWith('>')) || '');
   check('input: positional mode types on the Dragon 200-E (physical H I Space ; 1 -> "HI ;1" in LIZA)', typed200 && !errs2.length, `${JSON.stringify(line200.trim())} ${errs2.join('; ')}`);
-  await c2.close();
+  await closeCtx(c2);
 }
 
 async function pokeChecks(browser, base, check) {
@@ -4065,7 +4687,7 @@ async function pokeChecks(browser, base, check) {
   await openTab(page, 'POKEs');
   check('MC-10 POKEs tab: no SAM, says so', /no SAM/.test(await page.textContent('#pokeNone')) && !(await page.$$('#pokeBook button')).length);
   check('SAM rate: no page errors', !errors.length, errors.join('; '));
-  await ctx.close();
+  await closeCtx(ctx);
 }
 
 // snapshots: Capture & share (its share part), the snapshot file and screenshot it hands
@@ -4094,13 +4716,15 @@ async function snapshotChecks(browser, base, check) {
       const c = document.getElementById('sharePicture'), d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data, f = window.emu.machine.render();
       let colours = new Set(); for (let i = 0; i < d.length; i += 4 * 97) colours.add(`${d[i]},${d[i + 1]},${d[i + 2]}`);
       const box = document.getElementById('share').getBoundingClientRect();
-      return { w: c.width, h: c.height, fw: f.width, fh: f.height, colours: colours.size, title: document.getElementById('shareTitle').textContent,
-        link: document.getElementById('shareLink').value, recipient: document.getElementById('shareRom').textContent, note: document.getElementById('shareNote').textContent, kb: document.getElementById('btnShareDownload').textContent,
+      return { w: c.width, h: c.height, fw: f.width, fh: f.height, colours: colours.size,
+        // (whitespace runs collapsed: innerText puts a newline between the caption's two flex-item spans)
+        title: document.getElementById('shareTitle').innerText.replace(/\s+/g, ' ').trim(),
+        link: document.getElementById('shareLink').value, recipient: document.getElementById('shareRomFull').textContent, note: document.getElementById('shareNote').textContent, kb: document.getElementById('btnShareDownload').textContent,
         fits: box.left >= 0 && box.right <= innerWidth, scrollX: document.documentElement.scrollWidth <= innerWidth };
     });
     check(`snapshot (${label}): Share shows the captured picture at true size, the title, a link, what it does and what a recipient needs`,
-      view.w === view.fw && view.h === view.fh && view.colours > 1 && view.title === 'Dragon 64 · CLOADM' && /\/play\/\?machine=dragon64/.test(view.link)
-      && view.recipient === 'Runs without ROMs, so it opens for anyone.' && /^Opens on the Dragon 64 exactly as it is now\./.test(view.note) && /^Download snapshot \(\d+ KB\)$/.test(view.kb) && view.fits && view.scrollX, JSON.stringify(Object.assign({}, view, { link: view.link.slice(0, 80) + '…' })));
+      view.w === view.fw && view.h === view.fh && view.colours > 1 && view.title === "What they'll see first · Dragon 64" && /\/play\/\?machine=dragon64/.test(view.link)
+      && view.recipient === 'Runs without ROMs, so it opens for anyone.' && view.note === 'Opens a copy of this Dragon 64 exactly as it is now: the screen, the program and everything in memory, including anything you typed. Changes you make later aren\'t in it.' && /^Download snapshot \(\d+ KB\)$/.test(view.kb) && view.fits && view.scrollX, JSON.stringify(Object.assign({}, view, { link: view.link.slice(0, 80) + '…' })));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, `share-${label}.png`) });
     // the screen area is hidden behind the share view and the page loop keeps running (paused): the screen keeps
     // its size, so it is there again the moment the view closes (it was shrunk to nothing, review of 4050c58)
@@ -4117,14 +4741,15 @@ async function snapshotChecks(browser, base, check) {
       && json.state.memory && Buffer.from(json.state.memory.b64, 'base64')[1030] === 42, `${snapName} ${snapBytes.length} bytes`);
     const [shot] = await Promise.all([page.waitForEvent('download'), page.click('#btnShareShot')]);
     const png = fs.readFileSync(await shot.path());
-    check(`snapshot (${label}): the screenshot is a PNG at the machine's true pixels`, png.subarray(1, 4).toString() === 'PNG'
-      && png.readUInt32BE(16) === view.fw && png.readUInt32BE(20) === view.fh, `${shot.suggestedFilename()} ${png.readUInt32BE(16)}x${png.readUInt32BE(20)}`);
+    // (the card's every pixel is checked in the share group; here: it is the 1200 x 630 card, named for the moment)
+    check(`snapshot (${label}): "Save picture" is the share card, a 1200 x 630 PNG`, png.subarray(1, 4).toString() === 'PNG'
+      && png.readUInt32BE(16) === 1200 && png.readUInt32BE(20) === 630 && /^Dragon64-\d{8}-\d{6}\.png$/.test(shot.suggestedFilename()), `${shot.suggestedFilename()} ${png.readUInt32BE(16)}x${png.readUInt32BE(20)}`);
     await page.click('#shareBack');
     check(`snapshot (${label}): "← Emulator" goes back to the machine`, await waitFor(page, () => document.getElementById('share').hidden && location.hash === '')
       // (the screen is waited for, not read once: the view closing and the page laying the screen out again are
       // separate steps, so one read straight after the click could land between them)
       && await page.waitForSelector('#screen', { state: 'visible', timeout: 5000 }).then(() => true, () => false) && await screenBox() === screenBefore);
-    if (label === 'phone') { await ctx.close(); check(`snapshot (${label}): no page errors`, !errors.length, errors.join('; ')); continue; }
+    if (label === 'phone') { await closeCtx(ctx); check(`snapshot (${label}): no page errors`, !errors.length, errors.join('; ')); continue; }
 
     // the same machine, after a power cycle: dropping the file brings the moment back. Switch off and on is a launch:
     // it ends the page's Pause, so the machine is paused again before the moment is compared
@@ -4196,7 +4821,7 @@ async function snapshotChecks(browser, base, check) {
     check('snapshot: "Look around without them" opens that machine without the moment', await waitFor(page, () => document.getElementById('snapNeeds').hidden
       && window.emu.machine.id === 'dragon32' && window.emu.machine.useStub));
     check('snapshot: no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // the Share screen opened by address (play/#share): the page is still starting when its view is shown, so the
   // capture waits for the visit to start; no error toast, no page error, a running screen and a filled-in view
@@ -4215,7 +4840,7 @@ async function snapshotChecks(browser, base, check) {
     await emuFrames(page, 5);
     check('share: opened by address, the screen is running', await page.evaluate((f) => window.emu.machine.frameCount > f, f0));
     check('share: opened by address, no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 }
 
@@ -4282,7 +4907,7 @@ async function liza6803Checks(browser, base, check) {
     const menu = await waitForFrames(page, () => window.emu.session.welcomeRunning && window.emu.session.screenText()[7].trim() === 'BYE FOR NOW. PICK ANOTHER?', null, 400);
     check(`${id}: BREAK (Esc) in LIZA says goodbye and brings the menu back, as BYE does`, bye && menu, (await screenOf(page)).split('\n').slice(6, 9).join(' | '));
     check(`${id}: no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // a 4K MC-10: the shelf's LIZA says it needs 20K; choosing it brings the one-click offer above the screen;
   // "Not now" leaves the machine alone; taking it fits 20K and LIZA runs
@@ -4306,7 +4931,7 @@ async function liza6803Checks(browser, base, check) {
       && !(await page.$('#shelf :is(a, button)[data-needs]')), `${await page.evaluate(() => window.emu.machine.config.ram)}K`);
     check('4K MC-10: no page errors', !errors.length, errors.join('; '));
     if (shotDir) await page.locator('#screenWrap').screenshot({ path: path.join(shotDir, 'liza6803-4k-switch.png') });
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // the landing page's "Talk to LIZA" link on a 4K Alice, at phone width: the same offer, then LIZA
   {
@@ -4322,7 +4947,7 @@ async function liza6803Checks(browser, base, check) {
     const ran = await waitFor(page, () => window.emu.machine.config.ram === 20 && window.emu.session.screenText().join('').includes('I AM LIZA'), null, 8000);
     check('?start=liza on a 4K Alice (phone): the 20K offer fits the screen, then LIZA runs', offered && fits && ran && (await page.textContent('#lizaOfferText')) === 'LIZA needs the 20K RAM option. This Matra Alice has 4K.'
       && !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // the on-screen keys on a phone (Dragon 64, the 6809 build): CLEAR mid-line clears to the title and a fresh
   // prompt, and BREAK leaves as BYE does, back to the welcome menu
@@ -4346,7 +4971,7 @@ async function liza6803Checks(browser, base, check) {
     const menu = await waitForFrames(page, () => window.emu.session.welcomeRunning && window.emu.session.screenText()[6].trim() === 'BYE FOR NOW. PICK ANOTHER?', null, 400);
     check('Dragon 64 (touch keys): BREAK leaves LIZA as BYE does, back to the welcome menu', bye && menu, (await screenOf(page)).split('\n').slice(6, 9).join(' | '));
     check('Dragon 64 (touch keys): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // a 6809 machine: LIZA comes from the welcome menu's key 1, and the status names it too
   {
@@ -4363,7 +4988,7 @@ async function liza6803Checks(browser, base, check) {
     check('Dragon 64: the status says LIZA loaded, not a Promise', await waitFor(page, () => document.getElementById('toast').textContent === 'LIZA loaded'),
       await page.textContent('#toast'));
     check('Dragon 64: no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 }
 
@@ -4383,7 +5008,7 @@ async function faviconChecks(browser, site, check) {
       return `${r.status} ${r.headers.get('content-type')} ${new URL(l.href).pathname}`;
     });
     check(`/${route}: favicon linked and served, no failed request`, icon === '200 image/svg+xml /favicon.svg' && !failed.length, `${icon}; ${failed.join(', ')}`);
-    await ctx.close();
+    await closeCtx(ctx);
   }
   const ico = await fetch(site + 'favicon.ico'), bytes = Buffer.from(await ico.arrayBuffer());
   check('/favicon.ico: an ICO holding a 32x32 PNG', ico.status === 200 && bytes.readUInt16LE(2) === 1 && bytes[6] === 32 && bytes[7] === 32
@@ -4431,7 +5056,7 @@ async function debuggerScreenChecks(browser, base, check) {
       layoutHidden && /exec {2}KLOOP/.test(listed) && hit && /^● Stopped at breakpoint · KLOOP · cycle [\d,]+$/.test(at.status)
       && at.pc === `$${kloop.toString(16).toUpperCase()}` && /KLOOP/.test(at.line) && /TST/.test(at.line) && at.run === 'Run F5' && at.trace > 0 && at.fits, JSON.stringify(at));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, `debugger-${label}.png`), fullPage: true });
-    if (label === 'phone') { check(`debugger screen (${label}): no page errors`, !errors.length, errors.join('; ')); await ctx.close(); continue; }
+    if (label === 'phone') { check(`debugger screen (${label}): no page errors`, !errors.length, errors.join('; ')); await closeCtx(ctx); continue; }
     // Step (button) and Step by F11: one instruction each, still stopped, the trace grows
     const pc = () => page.evaluate(() => window.emu.session.debug.pc);
     const p0 = await pc();
@@ -4538,7 +5163,7 @@ async function debuggerScreenChecks(browser, base, check) {
     const closed = await waitFor(page, () => document.getElementById('debugView').hidden && document.getElementById('screen').getClientRects().length > 0
       && getComputedStyle(document.getElementById('appbar')).display !== 'none');
     check('debugger screen: "← Emulator" closes it and the app bar is back; no page errors', closed && !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 }
 
@@ -4696,7 +5321,7 @@ async function librarySelectChecks(browser, base, check) {
     check(`${L}: after select mode a click loads again`, await page.isHidden('#library') && await page.evaluate(() => window.emu.machine.ram[0x3000] === 0x12));
     check(`${L}: no sideways scroll`, s.fits);
     check(`${L}: no page errors and no dialog boxes`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // Two tabs on one origin share the Library (real OPFS; Session.mediaShare: one lock, a BroadcastChannel). What one
@@ -4785,7 +5410,7 @@ async function librarySelectChecks(browser, base, check) {
     check(`${L}: a program loaded in one tab is in the other's recent programs, with its bytes, within about a second, with no toast`,
       recent && tookRecent < 2000 && await b.isHidden('#toast'), `${tookRecent} ms`);
     check(`${L}: no page errors and no dialog boxes`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   fs.rmSync(tmp, { recursive: true });
 }
@@ -4861,15 +5486,27 @@ async function phoneChecks(browser, base, check) {
   const rank = await page.evaluate(() => ({ sheet: document.getElementById('sheetCart').open, paused: !!window.emu.session.consent.paused }));
   check('phone: a sheet is modal, and with Claude paused by a key Esc closes the sheet first (Claude stays paused)', modal && !rank.sheet && rank.paused, JSON.stringify({ modal, rank }));
   await page.evaluate(() => window.emu.session.consent.endPause());
-  // the hardware keyboard while a sheet is open: the welcome menu's "1" (LIZA) does not reach the machine
+  // the hardware keyboard while a sheet is open: a key must not reach the machine.
+  // The machine's INPUT is the observable, not the screen (a key that got through is taken by the stub's POLCAT at
+  // once, while the welcome program may draw its reaction many frames later, so the screen cannot tell a leak from a
+  // slow draw). The queue alone is not enough either: the menu polls POLCAT, which SHIFTS a key off `stubKeys`, so a
+  // leaked key can leave the queue before it is read (measured: a leaked key went queue -> taken between two reads
+  // three frames apart, leaving queueAfter 0). So the count is the keys HANDED to the machine,
+  // `stubKeysTaken + stubKeys.length`: it only grows while a key is in flight (taken when POLCAT reads it), and the
+  // page opens the sheet with no reset in between, so a key that got through makes it grow by one and nothing can
+  // hide it. Both reads are taken around the press; the screen read follows ~60 EMULATED frames, so the menu's
+  // reaction (if a key had got through) has its chance to draw too.
   await page.tap('#chipPower');
   await waitFor(page, () => document.getElementById('sheetPower').open);
-  const screenBefore = await page.evaluate(() => window.emu.session.screenText().join('\n'));
+  await waitFor(page, () => /PRESS 1 TO 5/.test(window.emu.session.screenText().join('\n')), null, 20000);
+  const handed = () => page.evaluate(() => window.emu.machine.stubKeysTaken + window.emu.machine.stubKeys.length);
+  const handedBefore = await handed();
   await page.keyboard.press('1');
+  const handedAfter = await handed();
   await emuFrames(page, 60);
   const screenAfter = await page.evaluate(() => window.emu.session.screenText().join('\n'));
-  check('phone: typing on the hardware keyboard while a sheet is open does not reach the machine (the welcome menu is still up after "1")',
-    screenBefore === screenAfter && /PRESS 1 TO 5/.test(screenAfter), screenAfter.slice(0, 120));
+  check('phone: typing on the hardware keyboard while a sheet is open does not reach the machine (the keys handed to it do not change, the welcome menu is still up)',
+    handedBefore === handedAfter && /PRESS 1 TO 5/.test(screenAfter), JSON.stringify({ handedBefore, handedAfter, screen: screenAfter.slice(0, 80) }));
   await page.keyboard.press('Escape');
   // a tape mounted from the Tape sheet names itself on the chip
   await page.tap('#chipTape');
@@ -5037,11 +5674,16 @@ async function phoneChecks(browser, base, check) {
   await page.keyboard.type('programs');
   await page.keyboard.press('Enter');
   const palProg = await waitFor(page, () => document.getElementById('sheetPrograms').open);
-  // after 2048, Last time shows, the first thing in the sheet
+  // while 2048 runs there is no Last time card (it is marked on the shelf instead), so the sheet starts at the shelf's
+  // heading or the no-ROM card; once the machine is reset, Last time (2048) is back as the sheet's first item
+  const runningTop = await page.evaluate(() => { const d = document.getElementById('sheetPrograms'), first = [...d.querySelectorAll('.sheetbody > *')].find((e) => e.checkVisibility());
+    return { first: first && first.id, card: !document.getElementById('lastTime').checkVisibility(), marked: [...d.querySelectorAll('#shelf [aria-current="true"]')].map((e) => e.textContent) }; });
+  await page.evaluate(() => window.emu.session.reset());
+  await waitFor(page, () => document.getElementById('lastTime').checkVisibility());
   const lastTop = await page.evaluate(() => { const d = document.getElementById('sheetPrograms'), first = [...d.querySelectorAll('.sheetbody > *')].find((e) => e.checkVisibility());
     return { first: first && first.id, name: document.getElementById('lastName').textContent, top: Math.round(first.getBoundingClientRect().top - d.querySelector('.sheetbody').getBoundingClientRect().top) }; });
-  check('phone: the palette\'s "Programs" (found by programs, games, demos, liza, run) opens the Programs sheet, Last time (2048) at its top',
-    palProg && viaPalette.every((x) => x[1]) && lastTop.first === 'lastTime' && lastTop.name === '2048', JSON.stringify({ viaPalette, lastTop }));
+  check('phone: the palette\'s "Programs" (found by programs, games, demos, liza, run) opens the Programs sheet: 2048 marked "on screen now" and no Last time while it runs, Last time (2048) at the top after a reset',
+    palProg && viaPalette.every((x) => x[1]) && runningTop.first !== 'lastTime' && runningTop.card && runningTop.marked.join() === '2048 on screen now' && lastTop.first === 'lastTime' && lastTop.name === '2048', JSON.stringify({ viaPalette, runningTop, lastTop }));
   // the full-screen chat opened from a sheet (the Programs sheet's "Chat with Claude") closes the sheet (a key stored,
   // so the chat needs no key form and the keys stay up: the sheet closes because the chat opened)
   await page.evaluate(() => localStorage.setItem('cloadm.anthropicKey', 'sk-ant-PHONE-CHECK-0123456789'));
@@ -5057,7 +5699,7 @@ async function phoneChecks(browser, base, check) {
   check('phone: a toast\'s action button is at least 44 px tall on a touch screen', act >= 44, `${act} px`);
   await page.evaluate(() => window.emu.feedback.clear());
   check('phone: no page errors', !errors.length, errors.join('; '));
-  await ctx.close();
+  await closeCtx(ctx);
 
   // sideways: the chips are not there (the keys stand around the screen), and nothing of the sheets is drawn
   {
@@ -5072,18 +5714,20 @@ async function phoneChecks(browser, base, check) {
     await p.tap('#tkMenu');
     const items = await p.evaluate(() => [...document.querySelectorAll('#tkMenuSheet button')].filter((b) => b.checkVisibility()).map((b) => b.textContent));
     const gluedKeys = await gluedLabels(p, '#tkMenuSheet button');
-    check('phone sideways: the keys\' Menu lists Programs…, Machine…, Settings…, Tape, disks and cartridge…, Power…, Commands…, then Install and Hide keys, no label\'s words run together',
-      items.slice(0, 6).join('|') === 'Programs…|Machine…|Settings…|Tape, disks and cartridge…|Power…|Commands…' && items.includes('Hide keys') && !gluedKeys.length, JSON.stringify({ items, gluedKeys }));
+    // (the order puts what acts on this machine first -- Programs…, Open…, Ask Claude…, Share… -- then the ports and the
+    // machine's own settings, then, under a rule, Commands… and the app-level items.)
+    check('phone sideways: the keys\' Menu lists Programs…, Open…, Ask Claude…, Share…, Tape, disks and cartridge…, Machine…, Settings…, Power…, Commands…, then Install and Hide keys, no label\'s words run together',
+      items.slice(0, 10).join('|') === 'Programs…|Open…|Ask Claude…|Share…|Tape, disks and cartridge…|Machine…|Settings…|Power…|Commands…|Install CLOADM…' && items.includes('Hide keys') && !gluedKeys.length, JSON.stringify({ items, gluedKeys }));
     // "Tape, disks and cartridge…": one side sheet from the right, 360 px wide and the window's height, a 44 px tab each
     // switching in place; every port's controls can be reached; Esc closes it with the focus back on Menu
     await p.tap('#tkMenuSheet [data-item="ports"]');
     await waitFor(p, () => document.getElementById('sheetPorts').open);
     const ports = await p.evaluate(() => { const d = document.getElementById('sheetPorts'), r = d.getBoundingClientRect();
       return { title: d.querySelector('h2').textContent, r: [r.left, r.top, r.width, r.height].map(Math.round), vw: innerWidth, vh: innerHeight, focus: document.activeElement.id,
-        tabs: [...d.querySelectorAll('[role="tab"]')].map((t) => [t.textContent, Math.round(t.getBoundingClientRect().height)]), tape: document.getElementById('btnTape').checkVisibility() }; });
+        tabs: [...d.querySelectorAll('[role="tab"]')].map((t) => [t.textContent, Math.round(t.getBoundingClientRect().height)]), tape: document.getElementById('btnTapeName').checkVisibility() }; });
     if (shotDir) await p.screenshot({ path: path.join(shotDir, 'phone-sideways-ports.png') });
     await p.tap('#portTabDisks');
-    const disks = await p.evaluate(() => ({ drives: document.getElementById('driveSlot').checkVisibility(), tape: document.getElementById('btnTape').checkVisibility(), open: document.getElementById('sheetPorts').open }));
+    const disks = await p.evaluate(() => ({ drives: document.getElementById('driveSlot').checkVisibility(), tape: document.getElementById('btnTapeName').checkVisibility(), open: document.getElementById('sheetPorts').open }));
     await p.tap('#portTabCart');
     const cart = await p.evaluate(() => document.getElementById('cartSlot').checkVisibility() && document.getElementById('btnCart').checkVisibility());
     await p.keyboard.press('Escape');
@@ -5142,7 +5786,59 @@ async function phoneChecks(browser, base, check) {
     await p.keyboard.press('Escape');
     check('phone: the ports\' side sheet opens on the tab that holds media; turned with a sheet open it stays open on the same tab as the other shape (Disks upright and sideways, Settings on Display)',
       onMedia && upright && sideAgain && turned, JSON.stringify({ onMedia, upright, sideAgain, turned }));
-    await c.close();
+    await closeCtx(c);
+  }
+  // Item 6: the panel's Menu sheet must never run past the top of the window. #tkMenuSheet is fixed above the panel's
+  // Menu (bottom: 64px) and holds seven 44 px rows; in a short landscape window (653x280) it used to be taller than the
+  // space above it, so Machine… and Settings… sat above the fold (measured at t:-99..-55) and a tap on them did
+  // nothing. Its height is capped to the room above its bottom offset and it scrolls inside; at each size, every row
+  // must be reachable by a REAL tap -- scrolled into view, then the row is what is on top at its own centre -- and the
+  // sheet's top edge must be at or below 0.
+  for (const [label, viewport] of [['653x280', { width: 653, height: 280 }], ['659x343', { width: 659, height: 343 }], ['852x393', { width: 852, height: 393 }], ['844x390', { width: 844, height: 390 }]]) {
+    const sctx = await browser.newContext({ viewport, hasTouch: true, isMobile: true, serviceWorkers: 'block' });
+    const spage = await sctx.newPage();
+    const serrors = [];
+    spage.on('pageerror', (e) => serrors.push(e.message));
+    await spage.goto(`${base}?machine=dragon64`);
+    await ready(spage);
+    await waitFor(spage, () => !document.getElementById('touchKeys').hidden && document.body.classList.contains('touch-keys'));
+    // open it once, scroll it to the end, close it, then open it again: it must come back at its FIRST row. (A fresh
+    // open is already at scrollTop 0, so checking that alone could not tell a reset from no reset -- the mutation
+    // that removes the reset survived it.)
+    await spage.tap('#tkMenu');
+    await waitFor(spage, () => !document.getElementById('tkMenuSheet').hidden, null, 5000);
+    await spage.evaluate(() => { document.getElementById('tkMenuSheet').scrollTop = 1e6; });
+    await spage.tap('#tkMenu');                                   // close
+    await waitFor(spage, () => document.getElementById('tkMenuSheet').hidden, null, 5000);
+    await spage.tap('#tkMenu');                                   // open again
+    await waitFor(spage, () => !document.getElementById('tkMenuSheet').hidden, null, 5000);
+    const sm = await spage.evaluate(() => {
+      const sheet = document.getElementById('tkMenuSheet'), r = sheet.getBoundingClientRect();
+      const rows = [...sheet.querySelectorAll('button')].filter((b) => b.checkVisibility());
+      const onTopAt = (el) => { const b = el.getBoundingClientRect();
+        const at = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2); return !!at && (sheet.contains(at) || el.contains(at)); };
+      // it opens at its FIRST row (the open handler resets scrollTop), and the first row is focused
+      const opens = { scrollTop: sheet.scrollTop, focusFirst: document.activeElement === rows[0] };
+      // the keyboard focus scrolls the focused row into view: focus the last row, the sheet scrolls it in
+      const seenOf = () => { const b = rows[rows.length - 1].getBoundingClientRect(); return b.top >= r.top - 1 && b.bottom <= r.bottom + 1 && b.top >= 0 && b.bottom <= innerHeight; };
+      rows[rows.length - 1].focus();
+      opens.lastFocusInView = seenOf();
+      sheet.scrollTop = 0;
+      // each row scrolled into view inside the sheet, then read: is it inside the sheet's box and topmost at its centre
+      const reach = rows.map((b) => { b.scrollIntoView({ block: 'nearest' }); const rb = b.getBoundingClientRect();
+        return { text: b.textContent.trim().slice(0, 22), inside: rb.top >= r.top - 1 && rb.bottom <= r.bottom + 1 && rb.top >= 0 && rb.bottom <= innerHeight, topmost: onTopAt(b), h: Math.round(rb.height) }; });
+      return { top: Math.round(r.top), bottom: Math.round(r.bottom), h: Math.round(r.height), vh: innerHeight, opens,
+        scrolls: sheet.scrollHeight > sheet.clientHeight + 1, overflowY: getComputedStyle(sheet).overflowY,
+        first: rows[0] && rows[0].textContent.trim().slice(0, 12), reach };
+    });
+    check(`ui qa (landscape ${label}, touch keys): the Menu sheet stays inside the window (its top at or below 0), opens at its first row (focused), and scrolls inside; the focused row is scrolled into view`,
+      sm.top >= 0 && sm.bottom <= sm.vh && sm.opens.scrollTop === 0 && sm.opens.focusFirst && sm.opens.lastFocusInView
+        && (sm.scrolls ? sm.overflowY === 'auto' || sm.overflowY === 'scroll' : true),
+      JSON.stringify({ top: sm.top, bottom: sm.bottom, vh: sm.vh, opens: sm.opens, scrolls: sm.scrolls, overflowY: sm.overflowY }));
+    check(`ui qa (landscape ${label}, touch keys): every Menu row is reachable by a real tap (scrolled into view, topmost at its centre, 44 px tall)`,
+      sm.reach.length >= 6 && sm.reach.every((x) => x.inside && x.topmost && x.h >= 44) && sm.first === 'Programs…', JSON.stringify(sm.reach));
+    check(`ui qa (landscape ${label}, touch keys): no page errors with the Menu sheet open`, !serrors.length, serrors.join('; '));
+    await sctx.close();
   }
 
   // a short phone upright (under 600 px; 375 x 548 and 320 x 460): no chip row (the screen keeps its room, the page does
@@ -5194,7 +5890,7 @@ async function phoneChecks(browser, base, check) {
     check(`${L}: "Tape, disks and cartridge…" opens the tabbed sheet from the bottom, the whole width, on Tape (media in); Esc closes it, the focus on Menu`,
       sheet && box.bottom === box.vh && box.w === box.vw && back, JSON.stringify({ sheet, box, back }));
     check(`${L}: no page errors`, !errs.length, errs.join('; '));
-    await c.close();
+    await closeCtx(c);
   }
 
   // a desktop: the ports and the drawer exactly where they were before the phone layout (measured at 1440 x 900 on
@@ -5240,6 +5936,44 @@ async function phoneChecks(browser, base, check) {
       && document.activeElement === document.querySelector('#shelf :is(a, button)'));
     const deskState = await p.evaluate(() => ({ media: document.getElementById('tab-media').getAttribute('aria-selected'), focus: document.activeElement.textContent, sheet: !!document.querySelector('dialog[open]') }));
     check('desktop: the palette\'s "Programs" selects the Media tab and puts the focus on the shelf\'s first item (no sheet)', deskProg && !deskState.sheet, JSON.stringify(deskState));
+    // a redraw of the shelf (its "on screen now" marks change, or a session event) must keep the focus where it
+    // was: the redraw rebuilds the row, and without care the focused node is dropped to the body - the palette
+    // had just put the focus on the first item, and the next animation frame (the welcome menu's prompt drawing,
+    // a few dozen frames after the page loads it) took it away. That is the intermittent CI failure this guards:
+    // driven here directly, by the page's own trigger, so it is red on any machine, not only on a loaded one.
+    const redraw = await p.evaluate(async () => {
+      const first = document.querySelector('#shelf :is(a, button)');
+      first.focus({ preventScroll: true });
+      const was = document.activeElement === first;
+      window.emu.session.emit('lastrun');   // the event the page answers with a shelf redraw
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      // the redraw builds new nodes: the focus must be back on the shelf's FIRST item (the same place),
+      // not on the body where a dropped node leaves it
+      const again = document.querySelector('#shelf :is(a, button)');
+      return { was, still: document.activeElement === again, where: document.activeElement === document.body ? 'body' : (document.activeElement.id || document.activeElement.tagName) };
+    });
+    check('desktop: a redraw of the shelf keeps the focus on the item that had it (the palette\'s Programs focus survives the welcome menu\'s "on screen now" flip)', redraw.was && redraw.still, JSON.stringify(redraw));
+    // ... BY IDENTITY. The wrong-row jump a place-based restore would make has no launch-free driver
+    // on the shelf (its contents change only with the machine's CPU family, and a machine switch is a
+    // launch, which focuses the screen by design - overwriting whatever a wrong restore did), so the
+    // Recent list's cross-tab check carries that claim; here the machine switch shows the honest
+    // fallback only: the focused program (the Colour demo) is gone from the switched machine's shelf,
+    // and Chat with Claude took its place - recorded as the geometry, the claim stays what is checked.
+    const gone = await p.evaluate(async (machine) => {
+      const demo = document.querySelector('#shelf [data-shelf="Colour demo"]');
+      demo.focus({ preventScroll: true });
+      const was = document.activeElement === demo;
+      const at = demo.getBoundingClientRect().top;   // the place the focused item sat
+      window.emu.session.switchMachine(machine);
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      await new Promise((r) => setTimeout(r, 100));  // the switch also greets the menu, which focuses the screen
+      const chat = document.querySelector('#shelf [data-shelf="claude"]');
+      return { was, onChat: document.activeElement === chat, chatTookThePlace: !!chat && Math.abs(chat.getBoundingClientRect().top - at) < 2 };
+    }, 'mc10');
+    check('desktop: switching the machine takes the focused shelf item\'s place (Chat with Claude where the Colour demo was) - the geometry the identity restore must not jump to',
+      gone.was && gone.chatTookThePlace, JSON.stringify(gone));
+    // and the machine is switched back for the checks that follow
+    await p.evaluate(() => window.emu.session.switchMachine('dragon64'));
     // the app bar: no Programs… (the drawer's Media tab is in view), and no label with its words run together, at
     // 1440 (Install, the short label) and at 900 ("Install CLOADM…")
     const bar = [];
@@ -5250,16 +5984,21 @@ async function phoneChecks(browser, base, check) {
     }
     check('desktop: the app bar has no Programs…, and no label with its words run together ("Install", then "Install CLOADM…" at 900 px)',
       bar.every((b) => !b.programs && !b.glued.length) && bar[0].install === 'Install' && bar[1].install === 'Install CLOADM…', JSON.stringify(bar));
-    // the file pickers: the extensions each takes, and application/octet-stream so a phone offers a file of a type it
-    // does not know (a .cas, a .vdk); no image/* (iOS would offer the Photo Library and the camera)
-    const MEDIA = '.bin,.cas,.c10,.k7,.wav,.rom,.ccc,.dgn,.vdk,.dsk,.jvc,.dmk,.os9,.img,.bas,.txt', OS = 'application/octet-stream';
-    const want = { fileProgram: `${MEDIA},.cloadm,${OS}`, fileLib: `${MEDIA},.cloadm,.zip,${OS}`, fileTape: `.cas,.c10,.k7,.wav,${OS}`, fileCart: `.rom,.ccc,.dgn,.bin,${OS}`,
-      fileMpSlot: `.rom,.ccc,.dgn,.bin,${OS}`, fileDisk: `.vdk,.dsk,.jvc,.dmk,${OS}`, n9File: `.dsk,.os9,.img,${OS}`, dwImport: `.dsk,.os9,.img,${OS}` };
-    const accepts = await p.evaluate((ids) => Object.fromEntries(ids.map((id) => [id, document.getElementById(id).getAttribute('accept')])), Object.keys(want));
-    const images = await p.evaluate(() => [...document.querySelectorAll('input[type="file"]')].filter((i) => /image\//.test(i.accept || '')).map((i) => i.id));
-    check('desktop: the media file pickers accept their extensions and application/octet-stream, and no picker asks for image/*',
-      Object.entries(want).every(([id, v]) => accepts[id] === v) && !images.length, JSON.stringify({ accepts, images }));
-    await c.close();
+    // the audit of every file picker on the page: each has an accept list of its own purpose (the extensions it takes, and
+    // application/octet-stream so a phone offers a file of a type it does not know, a .cas, a .vdk), none asks for image/*
+    // or video/* (iOS would offer the Photo Library and the camera next to Files) or carries `capture`, and a picker
+    // that is not in this table fails the check
+    // (.img, NitrOS-9's DriveWire images, only where they open: the NitrOS-9 and DriveWire pickers)
+    const { ROM_PICKER_ACCEPT } = await import(pathToFileURL(path.join(ROOT, 'js', 'roms.js')).href);
+    const MEDIA = '.bin,.cas,.c10,.k7,.wav,.rom,.ccc,.dgn,.vdk,.dsk,.jvc,.dmk,.os9,.bas,.txt', OS = 'application/octet-stream';
+    const want = { fileProgram: `${MEDIA},.cloadm,${OS}`, fileLib: `${MEDIA},.cloadm,.zip,${OS}`, folderLib: `${MEDIA},.cloadm,.zip,${OS}`, fileTape: `.cas,.c10,.k7,.wav,${OS}`,
+      fileCart: `.rom,.ccc,.dgn,.bin,${OS}`, fileMpSlot: `.rom,.ccc,.dgn,.bin,${OS}`, fileDisk: `.vdk,.dsk,.jvc,.dmk,${OS}`, n9File: `.dsk,.os9,.img,${OS}`,
+      dwImport: `.dsk,.os9,.img,${OS}`, fileRom: ROM_PICKER_ACCEPT, folderRom: ROM_PICKER_ACCEPT, fileSettings: '.json,application/json', fileAsm: '.asm,.s,.txt' };
+    const audit = await p.evaluate(() => [...document.querySelectorAll('input[type="file"]')].map((i) => ({ id: i.id, accept: i.getAttribute('accept'), capture: i.hasAttribute('capture') })));
+    const bad = audit.filter((i) => i.accept === null || i.capture || /(^|,)\s*(image|video)\//.test(i.accept) || i.accept !== want[i.id]).map((i) => i.id);
+    check('desktop: every file picker on the page (' + audit.map((i) => i.id).join(', ') + ') has the accept list of its purpose, none asks for image/* or video/* or has capture',
+      audit.length === Object.keys(want).length && Object.keys(want).every((id) => audit.some((i) => i.id === id)) && !bad.length, JSON.stringify({ bad, audit }));
+    await closeCtx(c);
   }
 }
 
@@ -5320,7 +6059,7 @@ async function feedbackModelChecks(browser, base, check) {
     check(`feedback model (${label} phone, keys showing): a toast is delivered: in view covering none of the keys, or kept (past its 4 s) and shown once the keys hide`,
       k.up && k.text === 'Delivered while the keys show' && k.keys === 0
       && (k.seen || (after.waiting.up && !after.waiting.seen && after.waiting.text === k.text && after.shown.seen && after.shown.text === k.text)), JSON.stringify({ k, after }));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- the phone chat's sticky bar: with the screen out of the way and a row of controls along the bottom edge (set
@@ -5344,7 +6083,7 @@ async function feedbackModelChecks(browser, base, check) {
     const c = await state(page);
     check('feedback model (phone chat): with no other place free the toast is not held back: it is in view, in the fixed top slot',
       c.up && c.seen && await page.evaluate(() => document.getElementById('toastRegion').classList.contains('top')), JSON.stringify(c));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- pointer gestures (on a desktop, where a toast has room) ----
@@ -5371,7 +6110,7 @@ async function feedbackModelChecks(browser, base, check) {
     check('feedback model: a pointer gesture is the next action from its pointer-down (the old toast is gone before its handler runs)', g.oldGoneAtDown === true, JSON.stringify(g));
     check('feedback model: the gesture\'s own click does not clear the toast it raised', g.up && g.text === 'Raised at pointer-down', JSON.stringify(g));
     await page.evaluate(() => { document.getElementById('fbProbe').remove(); window.emu.feedback.clear(); });
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // ---- a toast with no place free: the top of a phone's emulator page (no place covers neither a control nor the
   // screen's text) ----
@@ -5400,7 +6139,7 @@ async function feedbackModelChecks(browser, base, check) {
     await page.evaluate(() => window.emu.feedback.clear());
     check('feedback model: a newer toast replaces the one shown; the top slot goes with it',
       order.join('|') === 'Second, newer' && !await page.evaluate(() => document.getElementById('toastRegion').classList.contains('top')), JSON.stringify(order));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   await toastReplaceChecks(browser, base, check, state, frames);
   await provisionalPinChecks(browser, base, check, state, frames);
@@ -5484,7 +6223,7 @@ async function occlusionChecks(browser, base, check) {
     }));
     check('feedback, opaque sheets (phone): the toast never goes over an opaque sheet, even one that hides a control and has no button',
       ph.up && !ph.overOverlay, JSON.stringify(ph));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- 900 px: the side panel over part of the slots: a free place that may meet the covered part, never a control
@@ -5512,7 +6251,7 @@ async function occlusionChecks(browser, base, check) {
       o.length === 2 && o.every((x) => x.opacity === 1 && x.alpha === 1), JSON.stringify(o));
     await page.evaluate(() => window.emu.feedback.resolve());
     check('feedback, opaque sheets (900 px): one announcement', JSON.stringify(await page.evaluate(() => window.__ann)) === '["Saved to the Library."]');
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- no occlusion mid-transition; a modal dialog (a test page: the page's own sheets are not dialogs yet) ----
@@ -5585,7 +6324,7 @@ async function occlusionChecks(browser, base, check) {
     const ann = await page.evaluate(() => window.__ann);
     check('feedback, opaque sheets: one announcement per toast (sliding sheet, the probe left up, before the dialog, under it; the probe measured and cleared in one task is never shown)', ann.join('|') === 'Over a sliding sheet|Probe, again|Up before the dialog|Raised under the dialog', JSON.stringify(ann));
     await page.evaluate(() => { window.emu.feedback.clear(); document.getElementById('fbDialog').remove(); });
-    await ctx.close();
+    await closeCtx(ctx);
   }
 }
 
@@ -5678,7 +6417,7 @@ async function toastReplaceChecks(browser, base, check, state, frames) {
   const ann = await page.evaluate(() => window.__ann);
   check('feedback, toast replacement: one announcement per toast (the live region\'s text changes once for each)',
     ann.join('|') === 'Deleted a.bin|Deleted b.bin|Deleted c.bin|Deleted c.bin and d.bin|Deleted e.bin|Saved.|Hovered toast A|Hovered toast B', JSON.stringify(ann));
-  await ctx.close();
+  await closeCtx(ctx);
 }
 
 // The top slot is a provisional pin. A toast raised while a sheet (a control) is still opening, with no place
@@ -5750,7 +6489,7 @@ async function provisionalPinChecks(browser, base, check, state, frames) {
   check('feedback, provisional pin: a toast that lands in the top slot while focused stays there past 300 ms, and once let go takes the place that opened meanwhile',
     held.first && held.focus === 'toast' && held.heldAfter400 && !held.afterRelease && held.up, JSON.stringify(held));
   await page.evaluate(() => { window.emu.feedback.clear(); document.getElementById('fbSheet').remove(); });
-  await ctx.close();
+  await closeCtx(ctx);
 }
 
 async function feedbackChecks(browser, base, check) {
@@ -6085,7 +6824,47 @@ async function feedbackChecks(browser, base, check) {
         && (wasPinned ? (pinnedNow && atTopSlot) : (Math.abs(dy) > 20 || Math.abs(dx) > 20)),
       `moved by (${dx}, ${dy}), pinned before ${pinnedBefore}, now ${pinnedNow}, atTopSlot ${atTopSlot}: ${JSON.stringify(moved.box)} -> ${JSON.stringify(afterMove.box)}`);
     check(`feedback (${label}): no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
+  }
+
+  // a file CLOADM doesn't open (a photo): said in one sentence, the kinds it opens in its Details, and no raw-load
+  // address prompt; a .bin of unknown format still asks where it goes (it may be a memory dump)
+  {
+    const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    const page = await ctx.newPage();
+    const errors = [], dialogs = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    page.on('dialog', (d) => { dialogs.push(d.message()); d.dismiss(); });
+    await page.goto(`${base}?machine=dragon64`);
+    await started(page);
+    await page.setInputFiles('#fileProgram', { name: 'photo.jpg', mimeType: 'image/jpeg', buffer: Buffer.from([0xFF, 0xD8, 0xFF, 0xE0, 1, 2, 3, 4, 5, 6]) });
+    const said = await waitFor(page, () => document.getElementById('toastText').textContent === 'photo.jpg isn\'t a file CLOADM opens.', null, 10000);
+    const t = await page.evaluate(() => ({ error: document.getElementById('toast').classList.contains('error'), action: document.getElementById('toastAction').textContent }));
+    await page.click('#toastAction');
+    const details = await page.evaluate(() => { const d = document.getElementById('toastDetails'); return d.checkVisibility() ? d.textContent : `(hidden) ${d.textContent}`; });
+    check('feedback: a photo dropped or opened: "photo.jpg isn\'t a file CLOADM opens.", its Details list what it opens, and no address prompt',
+      said && t.error && t.action === 'Details' && !dialogs.length
+      && details === 'It opens tapes (.cas, .wav, .c10, .k7), disks (.vdk, .dsk, .jvc, .dmk, .os9), programs (.bin, .bas, .txt), cartridges (.rom, .ccc, .dgn), snapshots (.cloadm), ROM images and ZIPs of these.',
+      `${await page.textContent('#toastText')} ${JSON.stringify(t)} details: ${details} dialogs: ${dialogs}`);
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, 'feedback-unopenable.png') });
+    // its way in all the same: "Load as raw data at an address…" on the toast's second line opens the address prompt
+    // (a .hex: not a memory dump's usual name, so said, not asked about)
+    await page.setInputFiles('#fileProgram', { name: 'prog.hex', mimeType: 'application/octet-stream', buffer: Buffer.from([0xFF, 0xD8, 0xFF, 0xE0, 9, 9, 9]) });
+    await waitFor(page, () => document.getElementById('toastText').textContent === 'prog.hex isn\'t a file CLOADM opens.', null, 10000);
+    const also = await page.evaluate(() => { const a = document.getElementById('toastAlso'); return { shown: a.checkVisibility(), text: a.textContent, button: (a.querySelector('button') || {}).textContent,
+      details: document.getElementById('toastAction').textContent }; });
+    const before = dialogs.length;
+    if (also.button) await page.click('#toastAlso button');   // (none: the check below fails, not the group)
+    for (let i = 0; i < 200 && dialogs.length === before && also.button; i++) await page.waitForTimeout(50);   // (a condition wait: the prompt)
+    check('feedback: an unopenable file\'s toast keeps Details and offers "Load as raw data at an address…", which asks for the address',
+      also.shown && also.text === 'A memory dump?Load as raw data at an address…' && also.button === 'Load as raw data at an address…' && also.details === 'Details'
+      && /^prog\.hex: unknown format \(7 bytes\)/.test(dialogs[before] || ''), `${JSON.stringify(also)} dialogs: ${dialogs.join(' | ')}`);
+    dialogs.length = 0;
+    await page.setInputFiles('#fileProgram', { name: 'dump.bin', mimeType: 'application/octet-stream', buffer: Buffer.from([1, 2, 3, 4, 5, 6, 7]) });
+    for (let i = 0; i < 200 && !dialogs.length; i++) await page.waitForTimeout(50);   // (a condition wait: the prompt)
+    check('feedback: a .bin of unknown format still asks for its load address', /^dump\.bin: unknown format \(7 bytes\)/.test(dialogs[0] || ''), dialogs.join(' | '));
+    check('feedback (unopenable): no page errors', !errors.length, errors.join('; '));
+    await closeCtx(ctx);
   }
 }
 
@@ -6125,7 +6904,7 @@ async function libraryChecks(browser, base, check) {
       await waitFor(page, () => document.getElementById('library').hidden && /liza/i.test(document.getElementById('toast').textContent));
       check('library (phone): the empty state\'s LIZA closes the Library and runs LIZA', await page.isHidden('#library') && /liza/i.test(await page.textContent('#toast')), await page.textContent('#toast'));
       check('library (phone): no page errors', !errors.length, errors.join('; '));
-      await ctx.close();
+      await closeCtx(ctx);
       continue;
     }
 
@@ -6259,7 +7038,7 @@ async function libraryChecks(browser, base, check) {
     await page.fill('#typeinSource', '20 A=1\n10 B=2\nPRINT');
     check('type-in: the line check names what is wrong', /Line check: 10 comes after 20; line 3 has no line number/.test(await page.textContent('#typeinCheck')), await page.textContent('#typeinCheck'));
     check('library: no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   fs.rmSync(tmp, { recursive: true, force: true });
 }
@@ -6290,6 +7069,25 @@ async function slotChecks(browser, base, check) {
   const after = await rows();
   check('snapshots: three empty, then Snapshot 1 holds the Dragon 64', before.join() === 'Snapshot 1 · empty|off,Snapshot 2 · empty|off,Snapshot 3 · empty|off'
     && /^Snapshot 1 · Dragon 64 · .+\|on$/.test(after[0]) && /^Snapshot 1 taken/.test(await page.textContent('#toast')), `${before} / ${after}`);
+  // the panel is rebuilt on the session's events, and a rebuild drops the node that had the focus - to
+  // the body, losing the keyboard. The same rule as the shelf and the Recent list: the button that had
+  // focus gets it back on the new node of the same slot and the same role. Driven by the panel's own
+  // trigger (a session event it redraws on), with the focus on Restore 1 - the remove-mutant goes red.
+  const slotFocus = await page.evaluate(async () => {
+    const load1 = document.querySelector('#slotList [aria-label="Restore snapshot 1"]');
+    load1.focus({ preventScroll: true });
+    const was = document.activeElement === load1;
+    window.emu.session.emit('reset');   // an event the panel answers with a redraw
+    // the rebuild is ASYNC (render() awaits listSlots): wait until it HAPPENED - the old node leaves the
+    // tree - not a fixed time, so a redraw that never comes fails instead of passing on a stale read
+    const deadline = performance.now() + 5000;
+    while (load1.isConnected && performance.now() < deadline) await new Promise((r) => setTimeout(r, 20));
+    const rebuilt = !load1.isConnected;
+    const back = document.activeElement;
+    return { was, rebuilt, isNew: back !== load1, still: back.getAttribute && back.getAttribute('aria-label') === 'Restore snapshot 1', where: back === document.body ? 'body' : (back.getAttribute && back.getAttribute('aria-label')) || back.tagName };
+  });
+  check('snapshots: a redraw of the slots panel keeps the focus on the button that had it (a NEW node of the same slot and role)',
+    slotFocus.was && slotFocus.rebuilt && slotFocus.isNew && slotFocus.still, JSON.stringify(slotFocus));
   await page.reload(); await ready(page);
   await openTab(page, 'Media');
   await waitFor(page, () => /Dragon 64/.test(document.querySelector('#slotList .row').textContent));
@@ -6325,7 +7123,7 @@ async function slotChecks(browser, base, check) {
     preRow.text === 'Snapshot 2 · unreadable' && /pre-release build of CLOADM, whose snapshots this version does not read/.test(preRow.title) && preRow.off,
     JSON.stringify(preRow));
   check('slots: no page errors', !errors.length, errors.join('; '));
-  await ctx.close();
+  await closeCtx(ctx);
 }
 
 // the cassette panel: hidden without a tape; a tape inserted through the deck shows
@@ -6379,8 +7177,62 @@ async function tapePanelChecks(browser, base, check) {
       if (label === 'phone') await page.tap('#toastText button.inline'); else await page.click('#toastText button.inline');
       const started = await waitFor(page, () => window.emu.machine.read(0x3100) === 0x42 && /started at/.test(document.getElementById('toast').textContent), null, 15000);
       check(`tape, no BASIC (${label}): Load it now loads the program and starts it, and the usual start toast follows`, started, await page.textContent('#toast'));
+      // The person's OWN tape is their file, so the Media tab's "Recent on this machine" must list it once Skip has run
+      // it: a tape put in the deck is not remembered on insert (nothing has run yet), and skipTape() is the load. It
+      // went in with remember: false, the flag LIZA and the games use for programs that are OURS -- so a tape the
+      // person supplied never reached the list, and the Media tab said "Nothing loaded yet".
+      const recentAfterSkip = await page.evaluate(() => {
+        const s = window.emu.session, m = s.personMachine.id;
+        const rows = s.library.recentMedia().filter((r) => r.machine === m);
+        // the drawer's own render, once it has had the 'loaded'/'lastrun' event this load emitted
+        const drawn = [...document.querySelectorAll('#recentList .row')].map((b) => b.textContent);
+        return { names: rows.map((r) => r.name), stored: rows.map((r) => !!r.stored), crcs: rows.map((r) => String(r.crc).toUpperCase()), drawn, lastRun: s.lastRun };
+      });
+      check(`tape, no BASIC (${label}): the tape Skip loaded is in "Recent on this machine", as a row the person can click`,
+        JSON.stringify(recentAfterSkip.names) === JSON.stringify(['nobasic.cas']) && recentAfterSkip.stored.every(Boolean)
+          && recentAfterSkip.drawn.some((t) => t.startsWith('nobasic.cas')) && JSON.stringify(recentAfterSkip.lastRun) === JSON.stringify({ kind: 'recent', name: 'nobasic.cas', crc: recentAfterSkip.crcs[0] }),
+        JSON.stringify(recentAfterSkip));
       check(`tape, no BASIC (${label}): no page errors`, !errors.length, errors.join('; '));
-      await ctx.close();
+      await closeCtx(ctx);
+    }
+    // phone portrait: the Cassette deck sheet has the big cassette only (no small reel icon), its empty line is a real
+    // button, the hint says "tap"; Load it now and Skip the tape close the sheet so the program's start is seen
+    {
+      const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+      const page = await ctx.newPage();
+      const errors = [];
+      page.on('pageerror', (e) => errors.push(e.message));
+      await page.goto(`${base}?machine=dragon64`);
+      await ready(page);
+      await stubPrompt(page);
+      await page.tap('#chipTape');
+      await waitFor(page, () => document.getElementById('sheetTape').open);
+      const empty = await page.evaluate(() => { const b = document.getElementById('btnTapeName'), r = b.getBoundingClientRect();
+        return { tag: b.tagName, text: b.textContent, h: Math.round(r.height), vis: b.checkVisibility(), reels: document.getElementById('btnTape').checkVisibility(),
+          hint: document.getElementById('tapeState').textContent, inSheet: document.getElementById('sheetTape').contains(b) }; });
+      check('tape sheet (phone): "No tape · Insert tape…" is a button in the sheet, at least 44 px tall, and the hint says "tap the deck"',
+        empty.tag === 'BUTTON' && empty.text === 'No tape · Insert tape…' && empty.vis && empty.inSheet && empty.h >= 44 && /^tap the deck to insert$/.test(empty.hint), JSON.stringify(empty));
+      check('tape sheet (phone): the slot\'s small deck picture (the reels) is not shown in the sheet', !empty.reels, JSON.stringify(empty));
+      const [chooser] = await Promise.all([page.waitForEvent('filechooser'), page.tap('#btnTapeName')]);
+      await chooser.setFiles(path.join(small, 'nobasic.cas'));
+      await waitFor(page, () => /is in the deck/.test(document.getElementById('toast').textContent));
+      const cassette = await page.evaluate(() => { const c = document.querySelector('#sheetTape #tapePanel .cassette'); return !!c && c.checkVisibility(); });
+      check('tape sheet (phone): the big cassette stays in the sheet; the line then names the tape', cassette && await page.evaluate(() => document.getElementById('tapeName').textContent === 'nobasic.cas'));
+      if (shotDir) await page.screenshot({ path: path.join(shotDir, 'tape-sheet-phone.png') });
+      await page.tap('#toastText button.inline');
+      check('tape sheet (phone): Load it now closes the sheet, and the program has started', await waitFor(page, () => !document.getElementById('sheetTape').open && window.emu.machine.read(0x3100) === 0x42, null, 15000), await page.textContent('#toast'));
+      // Skip the tape (a second tape, no BASIC still): from inside the sheet
+      await page.evaluate(() => window.emu.session.switchMachine('dragon64'));
+      await stubPrompt(page);
+      await page.tap('#chipTape');
+      await waitFor(page, () => document.getElementById('sheetTape').open);
+      await page.evaluate(async (b) => { window.emu.session.insertTape('again.cas', new Uint8Array(b)); }, [...fs.readFileSync(path.join(small, 'nobasic.cas'))]);
+      await waitFor(page, () => !document.getElementById('btnSkipTape').hidden && document.getElementById('btnSkipTape').checkVisibility());
+      await page.tap('#btnSkipTape');
+      check('tape sheet (phone): Skip the tape closes the sheet, and the program has started', await waitFor(page, () => !document.getElementById('sheetTape').open && window.emu.machine.read(0x3100) === 0x42, null, 15000));
+      // Rewind (and every other control) leaves the sheet open
+      check('tape sheet (phone): no page errors', !errors.length, errors.join('; '));
+      await closeCtx(ctx);
     }
     {
       const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
@@ -6403,7 +7255,7 @@ async function tapePanelChecks(browser, base, check) {
       await waitFor(page, () => !document.getElementById('tapePanel').hidden);
       check("tape, BASIC running: the deck's line about BASIC's own S and F is shown", await page.isVisible('#tapeBasicNote') && /BASIC's own S and F/.test(await page.textContent('#tapeBasicNote')));
       check('tape, BASIC running: no page errors', !errors.length, errors.join('; '));
-      await ctx.close();
+      await closeCtx(ctx);
     }
     fs.rmSync(small, { recursive: true, force: true });
   }
@@ -6426,7 +7278,7 @@ async function tapePanelChecks(browser, base, check) {
     if (label === 'phone') {
       if (shotDir) { await (await page.$('#tapePanel')).screenshot({ path: path.join(shotDir, 'tape-panel-phone.png') }); }
       check(`tape panel (${label}): no page errors`, !errors.length, errors.join('; '));
-      await ctx.close();
+      await closeCtx(ctx);
       continue;
     }
     // the motor on, fast tape (the default): loading, counting, fast-forward
@@ -6544,7 +7396,7 @@ async function tapePanelChecks(browser, base, check) {
       && /^RECORDING/.test(await text('tapeEyebrow')), await text('tapeEyebrow'));
     await page.click('#btnRecord');
     check('tape panel: no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   fs.rmSync(tmp, { recursive: true, force: true });
   await tapeExtrasChecks(browser, base, check);
@@ -6673,12 +7525,12 @@ async function tapeExtrasChecks(browser, base, check) {
       check(`tape extras (${label}, touch): the slot's Rewind, Eject, Record and Save .WAV are at least 44 px tall`, heights.length === 4 && heights.every(([, h]) => h >= 44), JSON.stringify(heights));
     }
     await page.click('#btnEjectTape');
-    check(`tape extras (${label}): the slot's Eject (next to Rewind, disabled with no tape) ejects: deck hidden, toast, focus on the deck button`,
+    check(`tape extras (${label}): the slot's Eject (next to Rewind, disabled with no tape) ejects: deck hidden, toast, focus on the deck button (in the phone's sheet, where the deck picture is left out, the "Insert tape…" button)`,
       disabled && Math.abs(box.b.top - box.r.top) < 4 && box.b.left > box.r.left
       && await waitFor(page, () => !window.emu.machine.deck.tape && document.getElementById('tapePanel').hidden && /^Tape ejected\.$/.test(document.getElementById('toastText').textContent)
-        && document.activeElement === document.getElementById('btnTape') && document.getElementById('tapeName').textContent === 'No tape · Insert tape…'), JSON.stringify(box));
+        && document.activeElement === document.getElementById(document.getElementById('btnTape').checkVisibility() ? 'btnTape' : 'btnTapeName') && document.getElementById('tapeName').textContent === 'No tape · Insert tape…'), JSON.stringify(box));
     check(`tape extras (${label}): no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 }
 
@@ -6849,7 +7701,7 @@ async function tapeHudChecks(browser, base, check) {
     const gone = await waitFor(page, () => document.getElementById('tapeHud').hidden, null, 15000);
     check(`tape HUD (${label}): it goes a few seconds after the end`, gone);
     check(`tape HUD (${label}): no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // The Claude chat view and the browser's Fullscreen, at the phone and desktop sizes: wherever the HUD shows it is in
   // view, on top and off the picture's text; where there is no such place (the phone chat shows its text edge to edge)
@@ -6897,7 +7749,7 @@ async function tapeHudChecks(browser, base, check) {
     if (shotDir) await page.screenshot({ path: path.join(shotDir, `tape-hud-${label}-fullscreen.png`) });
     await page.evaluate(() => { clearInterval(window.__motor); return document.exitFullscreen && document.fullscreenElement ? document.exitFullscreen() : null; });
     check(`tape HUD (${label}, chat and Fullscreen): no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 }
 
@@ -6921,7 +7773,14 @@ async function libraryStorageChecks(base, check) {
   const cas = Buffer.from([...Array(128).fill(0x55), ...block(0, [...Buffer.from('HELLO   '), 2, 0, 0, 0x30, 0x00, 0x30, 0x00]), ...Array(64).fill(0x55), ...block(1, [0x39, 1, 2, 3]), ...block(0xFF, [])]);
   const dsk = fs.readFileSync(path.join(ROOT, 'tests/fixtures/disks/rsdos.dsk'));
   const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'cloadm-profile-'));
-  const ctx = await chromium.launchPersistentContext(profile, { viewport: { width: 1440, height: 900 }, acceptDownloads: true });
+  // the whole persistent-context body runs under try/finally, like the launchServer browser below: any throw
+  // in the checks (a selector that never appears, a download that fails) must still close the context and
+  // remove the profile, or it leaks a Chromium process that holds this process open past the summary and a
+  // cloadm-profile dir under the OS temp - the close and the removal are the finally, not the happy path.
+  let ctx = null;
+  try {
+  const launched = await chromium.launchPersistentContext(profile, { viewport: { width: 1440, height: 900 }, acceptDownloads: true });
+  ctx = launched;
   // the folder picker returns a folder inside OPFS; a test flag makes the browser "forget" the folder's permission
   await ctx.addInitScript(() => {
     window.showDirectoryPicker = async () => (await navigator.storage.getDirectory()).getDirectoryHandle('my-folder', { create: true });
@@ -7057,19 +7916,37 @@ async function libraryStorageChecks(base, check) {
   await settled(/^Your library is now kept inside this browser/);
   check('storage: back to this browser, the library it kept is there', /library\/HELLO\.BIN/.test(await names()), await names());
   check('library storage: no page errors', !errors.length, errors.join('; '));
-  await ctx.close();
-  fs.rmSync(profile, { recursive: true, force: true });
+} finally {
+    // the close is bounded and belted (kill on a hung close, honest after-text), the dir removal retries and
+    // warns by name; a finally that threw would bury the group's real result under a cleanup error.
+    // the close's own facts: the removal is claimed ok only when the dir is REALLY gone AND the
+    // browser behind it is known dead - a settled close (it closed on its own), a belt that killed,
+    // or pgrep's own 'already gone'. A close that timed out with a belt that could not say (pgrep
+    // missing, or refusing: exit 2) is NOT ok even with the dir gone: nothing shows the process is
+    // dead, and a live one re-creates the dir it is still pointed at. Re-checked AFTER the kill:
+    // the dir must still be there to be removed, and the claim says what it saw.
+    const closeFacts = ctx ? await closeOwnPersistentContext(ctx, profile) : { outcome: 'settled', after: 'no context was opened', killed: 0 };
+    const warn = (ok, detail) => check(`library storage: its profile directory is removed${ok ? '' : ' (WARN: a temp dir leaked)'}`, ok, detail);
+    let gone = false, last = null;
+    for (let i = 0; !gone && i < 20; i++) {
+      try { fs.rmSync(profile, { recursive: true, force: true }); gone = true; } catch (e) { last = e.code || e.message; await new Promise((r) => setTimeout(r, 100)); }
+    }
+    const stillGone = gone && !fs.existsSync(profile);   // re-check: a live browser re-creates the dir it is pointed at
+    const knownDead = closeFacts.outcome === 'settled' || closeFacts.after === 'killed' || closeFacts.after === 'its process was already gone';
+    warn(stillGone && knownDead, !stillGone ? `${profile} still there (${last}) - a temp dir leaked, not the browser` : !knownDead ? `the directory is gone but the close could not say the browser is: ${closeFacts.after}` : '');
+  }
 
   // a browser without folder access (no showDirectoryPicker): that choice is offered greyed out with the reason; phone width
-  const browser = await chromium.launch();
-  const ctx2 = await browser.newContext({ viewport: { width: 390, height: 844 } });
-  await ctx2.addInitScript(() => { delete window.showDirectoryPicker; });
-  const p2 = await ctx2.newPage();
-  await p2.goto(`${base}?machine=dragon64#library`); await ready(p2);
-  const no = await p2.evaluate(() => { const b = document.querySelector('#libStorageChoices .choice[data-storage="fsa"]'); return { disabled: b.disabled, text: b.textContent, fits: document.documentElement.scrollWidth <= innerWidth }; });
-  check('storage: without folder access the folder choice is greyed out and says why; fits a phone', no.disabled && /can't open a folder for CLOADM \(Chrome and Edge can\)/.test(no.text) && no.fits, JSON.stringify(no));
-  if (shotDir) await p2.locator('#libStorage').screenshot({ path: path.join(shotDir, 'library-storage-phone.png') });
-  await browser.close();
+  const browser = await launchOwnBrowser();
+  try {
+    const ctx2 = await browser.newContext({ viewport: { width: 390, height: 844 } });
+    await ctx2.addInitScript(() => { delete window.showDirectoryPicker; });
+    const p2 = await ctx2.newPage();
+    await p2.goto(`${base}?machine=dragon64#library`); await ready(p2);
+    const no = await p2.evaluate(() => { const b = document.querySelector('#libStorageChoices .choice[data-storage="fsa"]'); return { disabled: b.disabled, text: b.textContent, fits: document.documentElement.scrollWidth <= innerWidth }; });
+    check('storage: without folder access the folder choice is greyed out and says why; fits a phone', no.disabled && /can't open a folder for CLOADM \(Chrome and Edge can\)/.test(no.text) && no.fits, JSON.stringify(no));
+    if (shotDir) await p2.locator('#libStorage').screenshot({ path: path.join(shotDir, 'library-storage-phone.png') });
+  } finally { await closeOwnBrowser(browser); }
 }
 
 // A quieter first visit: one call to add ROMs outside the emulated screen (the header's "No BASIC · Add ROMs"; the welcome
@@ -7113,7 +7990,7 @@ async function firstVisitChecks(browser, base, check) {
       await waitFor(lp, () => window.emu && window.emu.session.welcomeRunning && !document.getElementById('welcome').hidden);
       const qs = await lp.evaluate(() => { const el = document.getElementById('quickSave'); return el.getClientRects().length > 0 && getComputedStyle(el).display !== 'none'; });
       check('first visit, the welcome program arriving late: no quick-save slots yet', !qs, `quick-save shown: ${qs}`);
-      await late.close();
+      await closeCtx(late);
     }
     if (label === 'desktop') {
       // the card dismissed: the header pill takes over; Esc ends the one-time hint: the line under the slots shows
@@ -7129,7 +8006,7 @@ async function firstVisitChecks(browser, base, check) {
       }));
     }
     check(`first visit (${label}): no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 }
 
@@ -7166,7 +8043,7 @@ async function typeinScreenChecks(browser, base, check) {
       const after = await measure(page);
       check('type-in screen: re-sized to whole device pixels when the window narrows', ok(after, 'whole'), JSON.stringify(after));
     }
-    await ctx.close();
+    await closeCtx(ctx);
   }
 }
 
@@ -7282,7 +8159,7 @@ async function glossaryChecks(browser, site, check) {
   await waitFor(page, () => !document.getElementById('romCard').hidden);
   await scan('/play/ Add ROMs with ROMs');
   check('glossary: no retired word on any page or view', !found.length && !errors.length, `\n  ${[...new Set(found)].join('\n  ')}${errors.length ? `\n  errors: ${errors.join('; ')}` : ''}`);
-  await ctx.close();
+  await closeCtx(ctx);
 }
 
 
@@ -7309,7 +8186,7 @@ async function stateChecks(browser, site, check) {
   check('state: Help\'s install section says "as an app on this device" and links to Use with Claude', /Install CLOADM as an app on this device/.test(help)
     && await page.evaluate(() => [...document.querySelectorAll('a')].some((a) => /docs\/mcp\.md#use-with-claude$/.test(a.href))));
   check('state: no page errors', !errors.length, errors.join('; '));
-  await ctx.close();
+  await closeCtx(ctx);
 }
 
 // One header per screen, the same links on every reading page, and deep links that land: the Library and Add ROMs views replace the app bar
@@ -7351,7 +8228,7 @@ async function navChecks(browser, site, check) {
   check('nav: Help\'s "Add ROMs →" opens Add ROMs', await waitFor(page, () => !!window.emu && location.hash === '#add-roms' && !document.getElementById('romCard').hidden),
     page.url());
   check('nav: no page errors', !errors.length, errors.join('; '));
-  await ctx.close();
+  await closeCtx(ctx);
 }
 
 // the command box (Ctrl/Cmd+K) lists every command, grouped, when nothing is typed; its other doors; the Help page; the Ask hint
@@ -7423,7 +8300,7 @@ async function commandsChecks(browser, site, check) {
     await page.keyboard.type('turbo');
     const typed = await page.evaluate(() => [...document.querySelectorAll('#cmdList [role="option"]')].map((o) => [o.firstChild.textContent, o.getAttribute('aria-selected')]));
     check(`${L}: typing filters the list, selects the first match and puts "Ask Claude" last`, typed[0][0] === 'Turbo' && typed[0][1] === 'true' && /^Ask Claude: "turbo"/.test(typed[typed.length - 1][0]), JSON.stringify(typed));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // the app bar's "Commands…": desktop, a Mac, a phone behind Menu, and the touch keys' Menu
   {
@@ -7443,7 +8320,7 @@ async function commandsChecks(browser, site, check) {
     await waitFor(page, () => !document.getElementById('ask').hidden && document.getElementById('askEmpty').getClientRects().length > 0);
     const ask = await page.evaluate(() => { const e = document.getElementById('askEmptyCmd'); return { shown: e.getClientRects().length > 0 && getComputedStyle(e).display !== 'none', text: e.innerText.trim(), emptyShown: !document.getElementById('askEmpty').hidden }; });
     check('commands (desktop): the Ask panel\'s empty state says "Ctrl K: find a command or ask"', ask.emptyShown && ask.shown && ask.text === 'Ctrl K: find a command or ask', JSON.stringify(ask));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // tight mode hides the RAM size: the machine button's title and aria-label still name the machine and its RAM
   {
@@ -7458,13 +8335,13 @@ async function commandsChecks(browser, site, check) {
     check('commands (app bar): the machine button\'s title and aria-label are "<name> <ram>K" (e.g. "Dragon 64 64K"), also in tight mode where the RAM size is hidden',
       plain.title === plain.want && plain.aria === plain.want && /\d+K$/.test(plain.want)
       && tight.tight && !tight.specShown && tight.title === tight.want && tight.aria === tight.want, JSON.stringify({ plain, tight }));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   {
     const { ctx, page } = await open({ viewport: { width: 1280, height: 720 } }, () => Object.defineProperty(navigator, 'platform', { get: () => 'MacIntel' }));
     const mac = await page.evaluate(() => [document.getElementById('navCommands').textContent.replace(/\s+/g, ' ').trim(), document.getElementById('askKbd').textContent, document.getElementById('askEmptyKbd').textContent]);
     check('commands (Mac): ⌘K in the app bar, the Ask button and the empty state', JSON.stringify(mac) === JSON.stringify(['Commands… ⌘K', '⌘K', '⌘K']), JSON.stringify(mac));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // the platform -> hint mapping itself, each platform pinned before the page loads and asserted against the literal
   // hint: the page's own test (js/ui/command-box.js: /Mac|iPhone|iPad/) is exercised on every branch it has, iPhone and
@@ -7474,7 +8351,7 @@ async function commandsChecks(browser, site, check) {
     const got = await page.evaluate(() => [document.getElementById('navCmdKbd').textContent, document.getElementById('askKbd').textContent, document.getElementById('askEmptyKbd').textContent]);
     check(`commands: navigator.platform "${platform}" shows the ${K} hint in the app bar, the Ask button and the empty state`,
       JSON.stringify(got) === JSON.stringify([K, K, K]), JSON.stringify(got));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   {
     const { ctx, page } = await open({ viewport: { width: 390, height: 844 } });
@@ -7490,7 +8367,7 @@ async function commandsChecks(browser, site, check) {
     await waitFor(page, () => !document.getElementById('ask').hidden && document.getElementById('askEmpty').getClientRects().length > 0);
     const ask = await page.evaluate(() => { const e = document.getElementById('askEmptyCmd'); return { shown: e.getClientRects().length > 0, emptyShown: !document.getElementById('askEmpty').hidden }; });
     check('commands (phone): the Ask empty-state key hint is hidden on a narrow screen', ask.emptyShown && !ask.shown, JSON.stringify(ask));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   {
     // (held sideways, where the app bar gives way to the panel; upright Commands… is in the app bar's Menu: the
@@ -7502,7 +8379,7 @@ async function commandsChecks(browser, site, check) {
     await page.tap('#tkMenuSheet [data-item="commands"]', { timeout: 3000 }).catch(() => {});   // (a missing item is a FAIL below, not a throw)
     check('commands (touch keys, sideways): the keys\' Menu has "Commands…", which opens the box', item === 'Commands…'
       && await waitFor(page, () => !document.getElementById('cmdBox').hidden && document.activeElement === document.getElementById('cmdInput') && document.getElementById('tkMenuSheet').hidden), String(item));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // Help: every command's label, verbatim, and the two sections
   {
@@ -7518,7 +8395,7 @@ async function commandsChecks(browser, site, check) {
         'A restore point is made first.', 'What Claude reads goes to Anthropic with your key.'].every((t) => help.text.includes(t)) && !/Every action is listed in the chat/.test(help.text),
       help.h2.join('|'));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, 'help-commands.png'), fullPage: true });
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // typo tolerance, ranking, the models, Help, the synonyms, the wrap keys and the marks, at the desktop and phone sizes
   for (const [label, viewport] of [['1280x720', { width: 1280, height: 720 }], ['phone', { width: 390, height: 844 }]]) {
@@ -7600,7 +8477,7 @@ async function commandsChecks(browser, site, check) {
     const [tab] = await Promise.all([ctx.waitForEvent('page'), page.keyboard.press('Enter')]);
     await tab.waitForLoadState();
     check(`${L}: "Help" opens the guide in a new tab`, /\/help\/$/.test(new URL(tab.url()).pathname), tab.url());
-    await tab.close();
+    await closePage(tab);
     // Copy bug report: the report is shown before anything is copied; the snapshot is off by default; Copy copies exactly
     // what is shown; the Claude key this context saved (sk-ant-COMMANDS-CHECK-KEY-…) is never in it, nor a ROM name
     await ctx.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: new URL(site).origin });
@@ -7612,12 +8489,12 @@ async function commandsChecks(browser, site, check) {
     const plain = await bugText();
     check(`${L}: "Copy bug report" opens a preview: version stamp, machine, browser, file; no snapshot until asked for`, bugOpen
       && /^Version: v\d+\.\d+\.\d+\S* · \S+$/m.test(plain) && /^Machine: Dragon 64 \(dragon64\)/m.test(plain) && /^Browser: Mozilla\//m.test(plain) && /^File: /m.test(plain)
-      && !/#s=/.test(plain) && await page.evaluate(() => !document.getElementById('bugSnap').checked), plain);
+      && !/#[sz]=/.test(plain) && await page.evaluate(() => !document.getElementById('bugSnap').checked), plain);
     if (shotDir) await page.screenshot({ path: path.join(shotDir, `bugreport-${label}.png`) });
     await page.click('#bugSnap');
-    await waitFor(page, () => /#s=/.test(document.getElementById('bugText').textContent));
+    await waitFor(page, () => /#z=/.test(document.getElementById('bugText').textContent));
     const withSnap = await bugText();
-    check(`${L}: ticking the snapshot adds the ROM-free share link`, /^Snapshot \(holds no ROM\): http\S+\/play\/\?machine=dragon64\S*#s=/m.test(withSnap), withSnap.slice(0, 400));
+    check(`${L}: ticking the snapshot adds the ROM-free share link`, /^Snapshot \(holds no ROM\): http\S+\/play\/\?machine=dragon64\S*#z=/m.test(withSnap), withSnap.slice(0, 400));
     check(`${L}: the report never holds the Claude key`, !/COMMANDS-CHECK-KEY|sk-ant/.test(plain + withSnap));
     await page.click('#btnBugCopy');
     const copied = await page.evaluate(() => navigator.clipboard.readText());
@@ -7642,7 +8519,7 @@ async function commandsChecks(browser, site, check) {
     for (let i = 0; i < total; i++) { await page.keyboard.press('ArrowDown'); if (offRows.includes(await page.evaluate(() => document.getElementById('cmdInput').getAttribute('aria-activedescendant')))) reached++; }
     check(`${L}: in the empty box the muted rows (Eject disk: no disk) are aria-disabled and each is reached by the arrows`, offRows.length >= 1 && reached === offRows.length, JSON.stringify({ offRows, reached }));
     await page.keyboard.press('Escape');
-    await ctx.close();
+    await closeCtx(ctx);
   }
   check('commands: no page errors', !errors.length, errors.join('; '));
 }
@@ -7718,7 +8595,7 @@ async function landingChecks(browser, site, check) {
       const r = await page.request.get(`${site}play`, { maxRedirects: 0 });
       check('/play redirects to /play/', r.status() === 301 && r.headers().location === '/play/');
     }
-    await ctx.close();
+    await closeCtx(ctx);
   }
 }
 
@@ -7917,8 +8794,7 @@ async function debuggerStopChecks(browser, base, check) {
     JSON.stringify({ ti, tT }));
   await page.evaluate(() => { location.hash = ''; window.emu.session.resume(); });
   check('debugger stop: no page errors', !errors.length, errors.join('; '));
-  await ctx.close();
-
+  await closeCtx(ctx);
   // a phone: the strip between the header and the screen, its buttons at least 44 px tall
   const pctx = await browser.newContext({ viewport: { width: 393, height: 659 }, hasTouch: true, isMobile: true, serviceWorkers: 'block' });
   const pp = await pctx.newPage();
@@ -7938,8 +8814,7 @@ async function debuggerStopChecks(browser, base, check) {
       && /^Stopped in the Debugger at \$[0-9A-F]{4}\.$/.test(geo.text), JSON.stringify(geo));
   if (shotDir) await pp.screenshot({ path: path.join(shotDir, 'debugger-stop-phone.png') });
   check('debugger stop: no page errors on the phone', !perr.length, perr.join('; '));
-  await pctx.close();
-}
+  await closeCtx(pctx);}
 
 
 // The debugger through the real page and the Session, with no new screen: assemble a
@@ -8070,7 +8945,7 @@ SUB     INCA
   check('debugger: switching back to a Dragon turns Save on and hides the note', !backSave.disabled && backSave.hidden && backSave.note === '', JSON.stringify(backSave));
   check('debugger: no page errors switching the MC-10, Alice and Dragon', !mcErrors.length, mcErrors.join('; '));
   check('debugger: no page errors', !errors.length, errors.join('; '));
-  await ctx.close();
+  await closeCtx(ctx);
 
   // the 6309 option: a machine switched to the 6309 shows 6309 mnemonics and its own registers through the
   // same page and Session, with no new screen
@@ -8098,7 +8973,7 @@ SUB     INCA
     JSON.stringify(r9.dis));
   check('debugger: the 6309 registers are in the page', r9.regs);
   check('debugger: no page errors on the 6309', !errors9.length, errors9.join('; '));
-  await ctx9.close();
+  await closeCtx(ctx9);
 
   // The Debugger SCREEN on a 6309: opening it must not throw (a screen used to have no register set for a 6309
   // and threw "ORDER[cpu] is not iterable"), it must show the full 6309 set, and an edit through a register field
@@ -8188,7 +9063,7 @@ SUB     INCA
   });
   check('debugger screen 6309: typing a label into a byte register (DP) sets it', dpLabel === 0x46, '$' + Number(dpLabel).toString(16));
   check('debugger screen 6309: no page errors', !errorsS.length, errorsS.join('; '));
-  await ctxS.close();
+  await closeCtx(ctxS);
 
   // The same label entry on a 6809, so the rule is not only exercised on the 6309 path.
   const ctx8 = await browser.newContext();
@@ -8212,7 +9087,7 @@ SUB     INCA
   check('debugger screen 6809: typing a label into PC sets it from the symbols too',
     label6809.cpu === '6809' && label6809.pc === 0x3000, JSON.stringify(label6809));
   check('debugger screen 6809: no page errors', !errors8.length, errors8.join('; '));
-  await ctx8.close();
+  await closeCtx(ctx8);
 }
 
 // the emulator layout at desktop and phone width: header, grouped
@@ -8256,7 +9131,7 @@ async function layoutChecks(browser, base, check) {
     // (the status: whole, or not shown where the bar has no room, never cut to a stub: the v0.1.8 review's m4)
     const m3 = await measure(), st3 = await page.evaluate(() => { const e = document.getElementById('status'); return { w: e.getBoundingClientRect().width, shown: e.checkVisibility(), whole: e.scrollWidth <= e.clientWidth + 0.5 }; });
     check('layout (1200 x 720, wide font): one row, and the status whole or not shown (no stub)', oneRow(m3) && (st3.shown ? st3.whole && st3.w >= 16 : true), `${JSON.stringify(m3)} status ${JSON.stringify(st3)}`);
-    await ctx.close();
+    await closeCtx(ctx);
   }
   for (const [label, viewport] of [['desktop', { width: 1440, height: 1000 }], ['phone', { width: 390, height: 844 }]]) {
     const ctx = await browser.newContext({ viewport });
@@ -8339,7 +9214,7 @@ async function layoutChecks(browser, base, check) {
     await page.setInputFiles('#fileTape', { name: 'game.cas', mimeType: 'application/octet-stream', buffer: Buffer.alloc(300, 0x55) });
     check(`layout (${label}): the cassette slot shows the tape`, await waitFor(page, () => document.getElementById('tapeName').textContent === 'game.cas'));
     check(`layout (${label}): no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 }
 
@@ -8385,6 +9260,19 @@ async function displayChecks(browser, base, check) {
   await page.fill('#rng-curvature', '100'); await page.fill('#rng-glow', '100'); await redrawn(page);
   check('display: the sliders set curvature and glow, with their values shown', await page.evaluate(() => window.emu.session.display.curvature === 100 && window.emu.session.display.glow === 100)
     && await page.textContent('#val-curvature') === '100%' && await page.textContent('#val-glow') === '100%');
+  // Every slider's label and its value are two readings in one line, and they must not run together: with the span at
+  // its content's width, "Curvature" ended exactly where "35%" began and the Display tab read "Curvature35%" (measured
+  // on the v0.1.9 cold test). A gap in the line is what separates them, at every width the drawer takes.
+  // Measured on every slider there is, whatever tab it lands on, so a slider added later is covered by this check.
+  const sliderGaps = await page.evaluate(() => [...document.querySelectorAll('.slider')].map((lab) => {
+    const span = lab.querySelector('span'), out = lab.querySelector('output'), name = span && span.firstChild;
+    if (!name || name.nodeType !== 3 || !out) return { id: lab.getAttribute('for'), err: 'no name or output' };
+    const r = document.createRange(); r.selectNodeContents(name);
+    const nr = r.getBoundingClientRect(), orr = out.getBoundingClientRect();
+    return { id: lab.getAttribute('for'), name: name.textContent, gap: Math.round(orr.left - nr.right) };
+  }));
+  check('display: every slider\'s label and value are separated by a visible gap (no "Curvature35%")',
+    sliderGaps.length >= 2 && sliderGaps.every((g) => !g.err && g.gap >= 8), JSON.stringify(sliderGaps));
   await shot('crt-max');
   await page.fill('#rng-curvature', '0'); await page.fill('#rng-glow', '0'); await redrawn(page);
   await shot('crt-flat');
@@ -8463,7 +9351,7 @@ async function displayChecks(browser, base, check) {
   check('display: the screen choice is remembered', await page.evaluate(() => window.emu.session.display.screen) === 'main'
     && await page.inputValue('#selScreen') === 'main');
   check('display: no page errors', !errors.length, errors.join('; '));
-  await ctx.close();
+  await closeCtx(ctx);
 
   // Without WebGL (headless Chromium has it, so the page's canvas is denied it here): the 2D presenter draws the
   // pixels, the tab says the CRT look is off and disables its sliders, and composite colour still follows the view.
@@ -8496,7 +9384,7 @@ async function displayChecks(browser, base, check) {
   check('display, no WebGL: Sharp · RGB turns it off', await p2.evaluate(() => window.emu.machine.vdg.artifact) === 0);
   if (shotDir) await p2.locator('#monitor').screenshot({ path: path.join(shotDir, 'display-no-webgl.png') });
   check('display, no WebGL: no page errors', !errors2.length, errors2.join('; '));
-  await ctx2.close();
+  await closeCtx(ctx2);
 }
 
 // WebGL context loss (GPU reset, tab evicted on mobile, laptop sleep): forced through
@@ -8536,7 +9424,7 @@ async function glLossChecks(browser, base, check) {
   check('WebGL loss: restored, the screen shows the machine again', before > 1 && after > 1, `(${before} colours before, ${after} after)`);
   check('WebGL loss: no page errors', !errors.length, errors.join('; '));
   if (shotDir) await page.locator('#monitor').screenshot({ path: path.join(shotDir, 'webgl-restored.png') });
-  await ctx.close();
+  await closeCtx(ctx);
 }
 
 // The frame loop (4.5): it uploads a picture to the GPU only when one changed (a frame ran, or the
@@ -8610,7 +9498,7 @@ async function pageLoopChecks(browser, base, check) {
   await page.evaluate(() => window.emu.session.setDisplay({ view: 'crt' }));
   await page.click('#btnPause');
   check('page loop: no page errors', !errors.length, errors.join('; '));
-  await ctx.close();
+  await closeCtx(ctx);
   // no Fullscreen API (iPhone Safari): the button is hidden, nothing throws
   const ctx2 = await browser.newContext();
   await ctx2.addInitScript(() => { delete Element.prototype.requestFullscreen; delete Element.prototype.webkitRequestFullscreen; });
@@ -8620,7 +9508,7 @@ async function pageLoopChecks(browser, base, check) {
   await p2.goto(`${base}?machine=coco`);
   await started(p2);
   check('no Fullscreen API: the button is hidden, no page errors', await p2.isHidden('#btnFull') && !errors2.length, errors2.join('; '));
-  await ctx2.close();
+  await closeCtx(ctx2);
 }
 
 async function readingChecks(browser, site, check) {
@@ -8704,7 +9592,7 @@ async function readingChecks(browser, site, check) {
       check('landing: "Where do I get ROMs?" opens /roms', await waitFor(page, () => location.pathname === '/roms/'));
     }
     check(`reading pages (${label}): nothing requested from other hosts, no page errors`, !foreign.length && !archive.length && !errors.length, foreign.concat(errors, archive).join(' '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 }
 
@@ -8731,14 +9619,14 @@ async function lightChecks(browser, site, check) {
     await page.goto(site + 'play/');
     check(`light (${label}): the emulator stays dark`, await page.evaluate(() => getComputedStyle(document.body).backgroundColor) === 'rgb(11, 13, 12)');
     check(`light (${label}): no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // and dark stays dark when the system asks for dark
   const ctx = await browser.newContext({ colorScheme: 'dark' });
   const page = await ctx.newPage();
   await page.goto(site + 'help/');
   check('dark system setting: reading pages are dark', await page.evaluate(() => getComputedStyle(document.body).backgroundColor) === 'rgb(11, 13, 12)');
-  await ctx.close();
+  await closeCtx(ctx);
 }
 
 // cassette media: Record captures what our writer firmware (tools/mame-diff/tape/csave.asm, installed as
@@ -8811,7 +9699,7 @@ async function tapeChecks(browser, base, check) {
   check('tape: the recordings are in the Library after a reload', await waitFor(p2, () => {
     const names = [...document.querySelectorAll('#libTapes [data-name]')].map((b) => b.dataset.name.split('/').pop());
     return names.includes('CLOADM.CAS') && names.includes('CLOADM (2).CAS'); }), await p2.evaluate(() => [...document.querySelectorAll('#libTapes [data-name]')].map((b) => b.dataset.name).join()));
-  await p2.close();
+  await closePage(p2);
   // A machine-code tape dropped on the page with ROMs in: the machine is restarted, CLOADM is typed, and EXEC on a
   // line of its own once BASIC is back at its prompt. BASIC is our stand-in (tape/standin.asm: a line per ENTER,
   // CLOADM, then a jump to the exec address), installed in the CoCo's BASIC sockets in the page; the tape's
@@ -8855,7 +9743,7 @@ async function tapeChecks(browser, base, check) {
   check('tape: ...and it loads through BASIC and runs', ranAgain,
     await page.evaluate(() => `rom ${window.emu.machine.hasRom}, stage ${String.fromCharCode(window.emu.machine.ram[0x80])}, pc ${window.emu.machine.cpu.pc.toString(16)}`));
   check('tape: no page errors', !errors.length, errors.join('; '));
-  await ctx.close();
+  await closeCtx(ctx);
   await tapeRecordingNameChecks(browser, base, check);
 }
 
@@ -8901,7 +9789,7 @@ async function tapeRecordingNameChecks(browser, base, check) {
     await waitFor(page, () => document.getElementById('toastText').textContent === 'Saved CLOADM.CAS to your Library (2 files).'),
     await page.textContent('#toastText'));
   // "Download and open files": the recording is downloaded under its CSAVE name, not kept
-  await page.close();
+  await closePage(page);
   await open('&storage=fallback');
   const kind = await page.evaluate(() => window.emu.session.media.kind);
   await record(1);
@@ -8910,8 +9798,7 @@ async function tapeRecordingNameChecks(browser, base, check) {
     kind === 'fallback' && dl.suggestedFilename() === 'CLOADM.CAS' && await page.evaluate(async () => !(await window.emu.session.library.listMedia()).some((x) => /CLOADM/.test(x.name))),
     JSON.stringify({ kind, name: dl.suggestedFilename() }));
   check('tape: recording names, no page errors', !errors.length, errors.join('; '));
-  await ctx.close();
-}
+  await closeCtx(ctx);}
 
 // Touch joystick: the on-screen panel's Joystick mode (js/ui/touch-keys.js, js/host/input.js) on a phone held
 // sideways, upright and on a tablet. It drives the right joystick (the machine's joy[0]) and its FIRE the
@@ -8957,7 +9844,7 @@ async function keyboardSymbolsChecks(browser, base, check) {
       got.join() === [...want, 0x60].join(), `got ${show(got)}`);
     if (shotDir && id === 'coco3') await page.screenshot({ path: path.join(shotDir, 'keyboard-symbols-coco3.png') });
     check(`keyboard symbols (${tag}): no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 }
 
@@ -9175,7 +10062,7 @@ async function touchJoystickChecks(browser, base, check) {
     await endTouch(cdp, page);
     await page.evaluate(() => { document.getElementById('chkJoy').checked = false; document.getElementById('chkJoy').dispatchEvent(new Event('change')); });
     check('touch joystick (sideways): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- upright: the switch, then the strip, the stick and FIRE, then the buttons, all under the screen ----
@@ -9229,7 +10116,7 @@ async function touchJoystickChecks(browser, base, check) {
       await waitFor(page, () => window.pressed.includes('Q+') && window.pressed.includes('Q-')) && (await state(page)).stick,
       await page.evaluate(() => window.pressed.join()));
     check('touch joystick (upright): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- a tablet: the same arrangement, the switch offered, nothing over the screen ----
@@ -9280,7 +10167,7 @@ async function touchJoystickChecks(browser, base, check) {
     await page.locator('#btnShowKeys').click();
     check('touch joystick (tablet): nothing lies over #screen', s.clipped.length === 0, JSON.stringify({ clipped: s.clipped, screen: s.screen }));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, 'touch-joystick-tablet.png'), fullPage: true });
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- a mouse and ABC (MED): a mouse is ALWAYS pointer id 1, so an ABC guard that remembers the ABC press's
@@ -9311,7 +10198,7 @@ async function touchJoystickChecks(browser, base, check) {
       abcUp && mouse.pressed.includes('Q+') && mouse.pressed.includes('Q-') && mouse.keysOnce === false && mouse.stick === true,
       JSON.stringify({ abcUp, mouse }));
     check('touch joystick (mouse): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // ---- the machine-swap release (LOW): only a stick the panel was showing is let go of; a joystick the mouse or
   // the keyboard joystick drives is the host's and must not be recentred by a switch ----
@@ -9346,7 +10233,7 @@ async function touchJoystickChecks(browser, base, check) {
     });
     check('touch joystick: a machine event with the stick up lets go of it',
       releasedSwap.joy[0] === 32 && releasedSwap.joy[1] === 32 && releasedSwap.fire === false, JSON.stringify(releasedSwap));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // ---- FIRE's window fallback (LOW): if the capture is refused and the finger lifts outside the button, no
   // pointerup reaches FIRE; the window's own release is the way out, and only FIRE's pointer may use it ----
@@ -9370,7 +10257,7 @@ async function touchJoystickChecks(browser, base, check) {
     await page.waitForTimeout(120);
     const up = await page.evaluate(() => window.emu.machine.fire[0]);
     check('touch joystick: FIRE lets go when its capture is refused and the button is released away from it', down === true && up === false, JSON.stringify({ down, up }));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // ---- the MC-10: no Stick (no joystick port) ----
   {
@@ -9383,7 +10270,7 @@ async function touchJoystickChecks(browser, base, check) {
     const stickTab = await page.evaluate(() => document.querySelector('#tkModeSwitch [data-touchmode="joystick"]').checkVisibility());
     check('touch joystick: the MC-10\'s switch is Keys | Pad, no Stick, and no stick (no joystick port)', s.switchShown && !stickTab && !s.stick && s.at.touchStick[2] === 0,
       JSON.stringify({ switchShown: s.switchShown, stickTab, stick: s.stick }));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // and ?touch= is not for embeds (js/config.js): an embedded page has no panel to set
   {
@@ -9396,7 +10283,7 @@ async function touchJoystickChecks(browser, base, check) {
     const msg = await page.evaluate(() => window.emu.feedback.pending.map((m) => m.text).join('\n') + '\n' + document.getElementById('toastText').textContent);
     said.push(msg);
     check('touch joystick: an embed is told touch= does not apply', /touch=joystick: an embedded page has no on-screen panel/.test(said.join('\n')), said.join('|').slice(0, 300));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 }
 
@@ -9453,7 +10340,7 @@ async function inputScreenChecks(browser, base, check) {
     await page.tap('#btnShowKeys');
     check('touch keys: Keys brings them back', await page.isVisible('#touchKeys'));
     check('touch keys (sideways): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // ---- short landscape: the control row under the screen (BREAK, CLEAR, Keys|Joystick, Menu) whole and in view ----
   // An iPhone held sideways in Safari is about 1000x461 or less, with the notch's and home indicator's safe-area
@@ -9529,7 +10416,7 @@ async function inputScreenChecks(browser, base, check) {
           want.every((n) => lay.names.includes(n)) && (mode === 'keys' ? lay.keys >= 40 : lay.names.includes('Fire') && lay.names.includes('SPACE (SPC)')) && !lay.bad.length && lay.fits, JSON.stringify(lay));
         if (shotDir) await page.screenshot({ path: path.join(shotDir, `touch-landscape-${mode}-${label.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}.png`) });
         check(`${L}: no page errors`, !errors.length, errors.join('; '));
-        await ctx.close();
+        await closeCtx(ctx);
       }
     }
   }
@@ -9571,7 +10458,7 @@ async function inputScreenChecks(browser, base, check) {
         // 3c: and it is position:fixed, the thing that makes an inset a meaningful test (a flow box inside the
         // safe area scrolls away; the status is an overlay)
         check(`${L}: the chat's turn status beside the screen is fixed and lies inside the safe area`, s.shown && s.fixed && s.ok, JSON.stringify(s));
-        await ctx.close();
+        await closeCtx(ctx);
       }
       // a pointer and a keyboard: a toast, the install card, the command box, Ask Claude and the page view's status pill
       {
@@ -9642,7 +10529,7 @@ async function inputScreenChecks(browser, base, check) {
         const top = sideways ? await inside(page, '#viewClaude', ins, { ids: ['viewClaude'], classes: [['viewClaude', 'top']] }) : null;
         check(`${L}: the status pill is fixed and lies inside the safe area${sideways ? ', at the bottom and at the top' : ''}`,
           pill.shown && pill.fixed && pill.ok && (!sideways || (top.shown && top.fixed && top.ok)), JSON.stringify(sideways ? [pill, top] : [pill]));
-        await ctx.close();
+        await closeCtx(ctx);
       }
     }
     // the install card opened from the app bar's link (under the bar; the offer's gutter place is checked in the install group)
@@ -9663,7 +10550,7 @@ async function inputScreenChecks(browser, base, check) {
       // placement cannot add to that - at every width where it is placed, the screen stays centred and the gutter it
       // takes is far wider than the inset with or without safeArea() - and a check that cannot fail is worse than
       // none, so there is deliberately no separate card check here.
-      await ctx.close();
+      await closeCtx(ctx);
     }
   }
   // ---- portrait: ten columns; LIZA by taps ----
@@ -9693,7 +10580,7 @@ async function inputScreenChecks(browser, base, check) {
     await page.tap('#touchFull [data-key="ENTER"]');
     check('touch keys: LIZA answers what was tapped', await waitFor(page, () => /HOW LONG HAVE YOU BEEN SAD/.test(window.emu.session.screenText().join('\n'))), (await stubText(page)).split('\n').slice(4, 9).join('|'));
     check('touch keys (portrait): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // ---- portrait phones: the whole panel on screen at load, the row with ENTER included, no scrolling to type ----
   // A report from a phone (iPhone, Chrome for iOS, portrait): ENTER's row was under the browser's bottom toolbar. Each
@@ -9753,7 +10640,7 @@ async function inputScreenChecks(browser, base, check) {
           want && !lay.bad.length && lay.scrolled === 0 && !lay.sideways, JSON.stringify(lay));
         if (shotDir) await page.screenshot({ path: path.join(shotDir, `touch-portrait-${mode}-${label.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}.png`) });
         check(`${L}: no page errors`, !errors.length, errors.join('; '));
-        await ctx.close();
+        await closeCtx(ctx);
       }
     }
   }
@@ -9851,7 +10738,7 @@ async function inputScreenChecks(browser, base, check) {
     check('touch keys (portrait): a long hold holds (W down in the matrix for as long as the finger is, a wobble after the commit included, then let go)',
       held.pressed === 'W+' && await waitFor(page, () => window.pressed.join() === 'W+,W-'), JSON.stringify({ held, after: await typed() }));
     check('touch keys (portrait, drag and hold): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // ---- desktop: hidden unless asked; the setting is remembered ----
   {
@@ -9869,7 +10756,7 @@ async function inputScreenChecks(browser, base, check) {
     await openTab(page, 'Input');
     await page.selectOption('#selTouchKeys', 'off');
     check('touch keys: Never hides them', await page.isHidden('#touchKeys') && await page.isHidden('#btnShowKeys'));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // ---- the welcome menu by taps ----
   {
@@ -9885,7 +10772,7 @@ async function inputScreenChecks(browser, base, check) {
     // (said: shown, or on a phone waiting for room in the toast's queue: a toast never covers the screen's text)
     check('welcome: tapping a menu line chooses it (2: the colour demo)', await waitFor(page, () => window.emu.feedback.pending.some((m) => /Colour demo/.test(m.text)) && !window.emu.session.welcomeRunning),
       JSON.stringify(await page.evaluate(() => window.emu.feedback.pending)));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // ---- on a 390 px phone the welcome menu is answered by typing: the
   // keyboard is there on a first visit with nothing to press, no hint covers the screen, and a typed 2 takes effect ----
@@ -9921,7 +10808,7 @@ async function inputScreenChecks(browser, base, check) {
       || window.emu.feedback.pending.some((m) => /Colour demo/.test(m.text))) && !window.emu.session.welcomeRunning), JSON.stringify(await page.evaluate(() => [window.__said, window.emu.feedback.pending])));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, 'phone-welcome.png') });
     check('PHONE-1: no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // ---- the whole page is the drop target; the browser keeps the ROMs ----
   for (const granted of [true, false]) {
@@ -9958,7 +10845,7 @@ async function inputScreenChecks(browser, base, check) {
     check(`ROMs: the browser is asked to keep them, once, and the page says it ${granted ? 'will' : 'may not'}`, await waitFor(page, (s) => window.__said.concat(window.emu.feedback.pending.map((m) => m.text)).some((m) => new RegExp(s).test(m)), said.source)
       && await page.evaluate(() => window.persistAsked) === 1, JSON.stringify(await page.evaluate(() => [window.__said, window.emu.feedback.pending])));
     check('drop and ROMs: no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 }
 
@@ -9991,6 +10878,41 @@ async function urlChecks(browser, base, check) {
   const msg = () => page.textContent('#toast');
   const ev = (fn, arg) => page.evaluate(fn, arg);
 
+  // the program pages (tools/program-cards.js): each sends the visitor to /play/?start=<program>, and its preview
+  // picture is served
+  // a long link's moment after a program page's address (/2048/#z=…): the fragment survives the redirect and the moment
+  // opens (made here in Node: a Dragon 64 on the built-in firmware with a program running and a marker in memory).
+  // A program, not the stub's bare prompt: openSnapshot offers the welcome menu for a moment of the bare prompt
+  // ("nothing running to come back to", js/session.js), and that menu then runs the welcome program over the restored
+  // RAM. The moment this check is about is one with something running, and it must survive.
+  {
+    const Emu = require('../tests/load')();
+    const s = new Emu.Session();
+    s.switchMachine('dragon64');
+    // fills the text screen with 'A' and loops (the program tests/shared-moment.test.js uses): 14 bytes at $7000
+    s.inject([{ addr: 0x7000, data: Uint8Array.from([0x8E, 0x04, 0x00, 0x86, 0x41, 0xA7, 0x80, 0x8C, 0x06, 0x00, 0x26, 0xF8, 0x20, 0xFE]) }], 0x7000);
+    for (let i = 0; i < 5; i++) s.shownMachine.runFrame();
+    s.shownMachine.poke(0x3000, 0xA7);
+    const hash = new URL(await s.snapshotLink('https://cloadm.dev/play/')).hash;
+    await page.goto(`${new URL('../', base).href}2048/${hash}`);
+    await page.waitForURL(/\/play\/\?start=2048/, { timeout: 15000 }).catch(() => {});
+    const opened = await waitFor(page, () => !!window.emu && window.emu.linkDone === true && window.emu.machine.read(0x3000) === 0xA7, null, 20000);
+    check('link: /2048/#z=… keeps the fragment through the redirect, and the moment opens on /play/', opened && await ev(() => location.pathname === '/play/' && location.hash === ''),
+      `${hash.length} characters after #`);
+  }
+  for (const name of ['2048', 'liza', 'minesweeper']) {
+    const root = new URL('../', base).href;
+    await page.goto(`${root}${name}/`);
+    await page.waitForURL(/\/play\/\?start=/, { timeout: 15000 }).catch(() => {});   // the redirect, before the page is polled
+    const arrived = await waitFor(page, () => /\/play\/$/.test(location.pathname) && !!window.emu && window.emu.linkDone === true, null, 15000);
+    const where = await ev(() => location.pathname + location.search);
+    // (what the Session records once a program runs: LIZA, or the game by name)
+    const ran = arrived && await waitFor(page, (n) => { const r = window.emu.session.lastRun; return !!r && (n === 'liza' ? r.kind === 'liza' : r.kind === 'game' && r.name.toLowerCase() === n); }, name, 15000);
+    const card = await page.request.get(`${root}img/card-${name}.png`);
+    const png = card.ok() ? await card.body() : Buffer.alloc(0);
+    check(`link: the ${name} page opens /play/?start=${name}, the program runs, and its 1200x630 card is served`,
+      arrived && where === `/play/?start=${name}` && ran && png.length > 24 && png.readUInt32BE(16) === 1200 && png.readUInt32BE(20) === 630, `${where} ${png.length} bytes`);
+  }
   await open('?machine=coco3&cpu=6809&ram=512');
   check('link: machine=, cpu= and ram= (profile.options)', await ev(() => window.emu.machine.id === 'coco3' && window.emu.machine.config.ram === 512 && window.emu.machine.config.cpu === '6809'));
   await open('?machine=coco3&ram=48&foo=1');
@@ -10121,7 +11043,7 @@ async function urlChecks(browser, base, check) {
     check('direct link: the Minesweeper entry\'s link, opened, runs Minesweeper with no menu in between', await waitFor(dp, () => JSON.stringify(window.emu.session.lastRun) === '{"kind":"game","name":"Minesweeper"}')
       && await graphics() && await dp.evaluate(() => window.__welcomeStarts) === 0);
     check('direct links: no page errors', !derr.length, derr.join('; '));
-    await dctx.close();
+    await closeCtx(dctx);
   }
   // both app= and start=: the chat opens, the game does not start, and the link says start= was ignored
   await open('?machine=dragon64&app=claude&start=2048');
@@ -10177,7 +11099,7 @@ async function urlChecks(browser, base, check) {
   await open('?machine=dragon64&disk=');
   check('link: disk= without a link is reported as the other media are', /disk=: not a link to a file/.test(await msg()), await msg());
   check('links: no page errors', !errors.length, errors.join('; '));
-  await ctx.close();
+  await closeCtx(ctx);
 }
 
 // the embed API: a page on another origin puts /play/?embed=1 in an iframe and drives it with embed/cloadm.js
@@ -10318,7 +11240,7 @@ async function embedChecks(browser, site, check) {
   check('sandboxed frame (no allow-same-origin): the page cannot start there, so there is no chat',
     sbState && !sbState.evalFailed && sbState.started === false && sbState.chat === false, JSON.stringify(sbState));
   check('embed: no page errors', !errors.length, errors.join('; '));
-  await ctx.close();
+  await closeCtx(ctx);
   host.close();
 }
 
@@ -10358,9 +11280,19 @@ async function pwaChecks(browser, site, check) {
     const res = await page.goto(site + p);
     check(`PWA offline: /${p} opens`, res.ok() && /CLOADM/.test(await page.title()), String(res.status()));
   }
+  // the program pages (js/program-pages.js), never visited before but kept since the first visit: offline, each
+  // opens, its card is there, and it starts its program on /play/
+  for (const { id, name } of require('../js/program-pages.js').PROGRAM_PAGES) {
+    const res = await page.goto(`${site}${id}/`);
+    await page.waitForURL(/\/play\/\?start=/, { timeout: 15000 }).catch(() => {});
+    const ran = await waitFor(page, (n) => { const r = window.emu && window.emu.session.lastRun; return !!r && (n === 'liza' ? r.kind === 'liza' : r.kind === 'game' && r.name.toLowerCase() === n); }, id, 15000);
+    const card = await page.evaluate(async (u) => { const r = await fetch(u); return r.ok ? (await r.arrayBuffer()).byteLength : 0; }, `${site}img/card-${id}.png`);
+    check(`PWA offline: the ${name} page opens, its card is kept, and Play's start link runs it`, res.ok() && ran && card > 1000
+      && await page.evaluate(() => location.pathname + location.search) === `/play/?start=${id}`, `${card} bytes`);
+  }
   await ctx.setOffline(false);
   check('PWA: no page errors', !errors.length, errors.join('; '));
-  await ctx.close();
+  await closeCtx(ctx);
 }
 
 // Consent in the full screen chat (?app=claude): "Let Claude use the emulator"
@@ -10452,7 +11384,7 @@ async function welcomeScreenChecks(browser, base, check) {
       !w.hints.keys && w.hints.sound && w.lit > 0 && !w.over.length && wf.focused === 'screen' && wf.hints.focus === plate && wf.hints.keys && !wf.over.length, JSON.stringify({ plate, w, wf }));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, `welcome-screen-${label}.png`) });
     check(`welcome screen (${label}): no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 }
 
@@ -10523,7 +11455,7 @@ async function chatScreenChecks(browser, base, check) {
       pipUp && await page.isVisible('#claudePip') && !pip.over.length, JSON.stringify(pip));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, `chat-screen-pip-${label}.png`) });
     check(`chat screen (${label}): no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 }
 
@@ -10549,7 +11481,7 @@ async function chatRamChecks(browser, base, check) {
   check(`${L}: no chat screen opens and the machine is left as it was`, !state.full && !state.chat && state.id === 'coco' && state.ram === 16, JSON.stringify(state));
   if (shotDir) await page.screenshot({ path: path.join(shotDir, 'chat-ram-refused.png') });
   check(`${L}: no page errors`, !errors.length, errors.join('; '));
-  await ctx.close();
+  await closeCtx(ctx);
 }
 
 // Long lines typed on the chat screen through the keyboard reach the API byte for byte: a 300-character line typed at
@@ -10648,7 +11580,7 @@ async function chatLongLineChecks(browser, base, check) {
   }
   if (shotDir) await page.screenshot({ path: path.join(shotDir, 'chat-screen-long-lines.png') });   // (settled: no scroll part way)
   check(`${L}: no page errors`, !errors.length, errors.join('; '));
-  await ctx.close();
+  await closeCtx(ctx);
 }
 
 // The copy and small UX fixes made after v0.1.8 (LIZA's load toast, the chat key states, deep-link toasts, the
@@ -10709,7 +11641,7 @@ async function firstUseChecks(browser, base, check) {
     await page.click('#toastText button.inline');
     check(`${L}: the note's Add ROMs opens Add ROMs`, await waitFor(page, () => location.hash === '#add-roms', null, 5000));
     check(`${L} (welcome): no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- the API key: where to get one, what it costs, and Claude without one ----
@@ -10727,9 +11659,19 @@ async function firstUseChecks(browser, base, check) {
       k.card.shown && k.under && k.card.text === getText && consoleLink(k.card.links) && k.ask.text === getText && consoleLink(k.ask.links), JSON.stringify(k));
     const useWith = (e) => e.text === 'No key? Use CLOADM inside Claude instead: Use with Claude ↗' && e.links.length === 1 && /docs\/mcp\.md#use-with-claude$/.test(e.links[0][1]);
     check(`${L}: "No key? Use CLOADM inside Claude instead: Use with Claude ↗", linking to the install section`, k.none.shown && useWith(k.none) && useWith(k.askNone), JSON.stringify(k));
+    // with no key, "Use with Claude ↗" is a full-size button, as weighty as the key field: as wide, at least as tall
+    const w = await page.evaluate(() => {
+      const r = (e) => e.getBoundingClientRect(), a = document.querySelector('#claudeNoKey a.usewith'), input = document.getElementById('claudeKeyInput');
+      const cs = getComputedStyle(a);
+      return { a: [Math.round(r(a).width), Math.round(r(a).height)], input: [Math.round(r(input).width), Math.round(r(input).height)],
+        border: cs.borderTopStyle !== 'none' && parseFloat(cs.borderTopWidth) >= 1, underline: /underline/.test(cs.textDecorationLine), size: parseFloat(cs.fontSize),
+        askButton: !!document.querySelector('#askNoKey a.usewith') };
+    });
+    check(`${L}: "Use with Claude ↗" is a full-size button, equal in weight to the key field (as wide, as tall or taller, bordered, not an underlined link)`,
+      Math.abs(w.a[0] - w.input[0]) <= 2 && w.a[1] >= Math.max(40, w.input[1]) && w.border && !w.underline && w.size >= 15 && w.askButton, JSON.stringify(w));
     await shot(page, 'key-card');
     check(`${L} (key): no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- a machine-code tape that loads and starts: where it went and where it started ----
@@ -10748,7 +11690,7 @@ async function firstUseChecks(browser, base, check) {
       said && st.toast === 'HI.CAS loaded ($3000–$30FF) and started at $3000.' && st.eyebrow === 'LOADED · STARTED $3000' && st.pc === 0x3000, JSON.stringify(st));
     await shot(page, 'tape-started');
     check(`${L} (tape): no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- the switch question, under the machine button (and directly under the bar on a phone); Esc cancels ----
@@ -10771,7 +11713,7 @@ async function firstUseChecks(browser, base, check) {
     const after = await page.evaluate(() => ({ hidden: document.getElementById('switchConfirm').hidden, machine: window.emu.machine.id }));
     check(`${L} (${label}): Esc cancels the switch`, after.hidden && after.machine === 'dragon64', JSON.stringify(after));
     check(`${L} (switch ${label}): no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- a gamepad: which joystick it drives, said once ----
@@ -10792,7 +11734,7 @@ async function firstUseChecks(browser, base, check) {
     check(`${L}: a gamepad connecting says "Gamepad connected: it drives the right joystick.", once`,
       said && first === 'Gamepad connected: it drives the right joystick.' && second === '', JSON.stringify({ first, second }));
     check(`${L} (gamepad): no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- a game's "how to play" toast goes at its first key; the colour demo's after 4 s, even hovered ----
@@ -10805,7 +11747,7 @@ async function firstUseChecks(browser, base, check) {
     const left = await toastText(page);
     check(`${L}: 2048's toast is gone after the first arrow key`, up && left === '', left);
     check(`${L} (2048): no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   {
     const { ctx, page, errors } = await open('?machine=dragon64');
@@ -10819,7 +11761,7 @@ async function firstUseChecks(browser, base, check) {
     const ms = Date.now() - t0;
     check(`${L}: the colour demo's toast goes after 4 s with no key, even while hovered`, up && gone && ms >= 2500, `${ms} ms`);
     check(`${L} (demo): no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- installing: Safari on a Mac has its own line, iOS its Share step ----
@@ -10836,7 +11778,7 @@ async function firstUseChecks(browser, base, check) {
     check(`${L}: the install card with ${label}'s user agent says ${want.source.replace(/\\/g, '')}`, ok, JSON.stringify(r));
     await shot(page, `install-${label.replace(/\W+/g, '-').toLowerCase()}`);
     check(`${L} (install ${label}): no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 }
 
@@ -10868,10 +11810,11 @@ async function uiCopyChecks(browser, base, check) {
     await page.setInputFiles('#fileProgram', { name: 'mine.bin', mimeType: 'application/octet-stream', buffer: Buffer.from([0x55, 0x02, 0x30, 0x00, 0x00, 0x02, 0x30, 0x00, 0xAA, 0x20, 0xFE]) });
     await waitFor(page, () => /mine\.bin/.test(document.getElementById('toastText').textContent), null, 15000);
     const mine = await toastText(page);
-    check('load toast: a file the visitor brings keeps its format and addresses in the toast', /mine\.bin: DragonDOS binary \$3000-\$3001, exec \$3000/.test(mine), mine);
+    const mineMore = await page.evaluate(() => document.getElementById('toastDetails').textContent);
+    check('load toast: a file the visitor brings leads with "mine.bin loaded and started.", its format and addresses second (under Details)',
+      mine === 'mine.bin loaded and started.' && mineMore === 'DragonDOS binary $3000-$3001, exec $3000', `${mine} | ${mineMore}`);
     check('load toast: no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
-  }
+    await closeCtx(ctx);  }
 
   // chat key: the Claude chat without a key says so ON the screen; after Save key, the key card reads "Key saved ✓ · Forget"
   {
@@ -10929,8 +11872,7 @@ async function uiCopyChecks(browser, base, check) {
     leak.screen = rowsNow.join('').includes(KEY) || rowsNow.join('').includes(KEY.slice(0, 12));
     check('chat key: the key is in no machine memory, no settings export and not drawn on the chat screen', !leak.ram && !leak.settings && !leak.screen, JSON.stringify(leak));
     check('chat key: no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
-  }
+    await closeCtx(ctx);  }
 
   // deep links: a short toast, naming what happened
   {
@@ -10943,18 +11885,30 @@ async function uiCopyChecks(browser, base, check) {
       check(`deep link: ${what}: one short toast (under 130 characters, no list of machines)`, re.test(t) && t.length < 130, `${t.length}: ${t}`);
       if (what === 'machine=nosuch') await shot(page, 'link-machine');
       check(`deep link: ${what}: no page errors`, !errors.length, errors.join('; '));
-      await ctx.close();
-    }
-    for (const hash of ['#share=junk', '#s=junk']) {
+      await closeCtx(ctx);    }
+    // every hash form the page reads, and the junk ones it refuses: a hash of the shape "#<letters>=<anything>" that
+    // no reader claimed (#z= and #l= are read above; #s= is the pre-launch long link, no longer read) gets the same
+    // clear refusal and leaves the address. A view (#share, #library, #add-roms, #debugger) holds no '=', so the rule
+    // never swallows one of them: each is opened here and must show its own view.
+    for (const hash of ['#share=junk', '#s=junk', '#z=junk', '#l=junk']) {
       const { ctx, page, errors } = await open({ width: 1280, height: 720 }, `?machine=dragon64${hash}`);
       await started(page);
-      await waitFor(page, () => window.emu.linkDone === true && /share link|snapshot/i.test(document.getElementById('toastText').textContent), null, 15000);
+      // the page's words for each: a hash no reader claimed ("This share link couldn't be read."), a damaged #z=
+      // ("This link's snapshot is damaged…"), and a #l= too short for its id.key ("This short link is damaged…":
+      // readShortLink's own refusal, the generic rule never reached). So the wait names all three, not two.
+      await waitFor(page, () => window.emu.linkDone === true && /share link|short link|snapshot/i.test(document.getElementById('toastText').textContent), null, 15000);
       const t = await toastText(page);
       check(`deep link: ${hash}: says the share link couldn't be read (never silent), and the junk leaves the address`,
         /couldn't be read|is damaged/.test(t) && await page.evaluate(() => location.hash === ''), `${t} | ${await page.evaluate(() => location.hash)}`);
       check(`deep link: ${hash}: no page errors`, !errors.length, errors.join('; '));
-      await ctx.close();
-    }
+      await closeCtx(ctx);    }
+    for (const [hash, view] of [['#share', 'share'], ['#library', 'library'], ['#add-roms', 'romCard'], ['#debugger', 'debugView']]) {
+      const { ctx, page, errors } = await open({ width: 1280, height: 720 }, `?machine=dragon64${hash}`);
+      await started(page);
+      await waitFor(page, () => window.emu.linkDone === true, null, 15000);
+      const r = await page.evaluate(([h, id]) => ({ hash: location.hash, said: document.getElementById('toastText').textContent, own: document.getElementById(id).checkVisibility() }), [hash, view]);
+      check(`deep link: ${hash} still opens its own view (the refusal rule does not swallow it)`, r.hash === hash && !/couldn't be read/.test(r.said) && r.own && !errors.length, JSON.stringify(r));
+      await closeCtx(ctx);    }
   }
 
   // Add ROMs: the "optional" tag stays beside the title (no wrapping under it), and the Pak's title does not repeat it
@@ -10976,7 +11930,7 @@ async function uiCopyChecks(browser, base, check) {
       optional.every((c) => !/optional/i.test(c.title)) && cards.findIndex((c) => c.id.startsWith('ssc-')) > cards.findLastIndex((c) => c.req || c.id === 'disk' || !c.id.startsWith('ssc-')), JSON.stringify(cards.map((c) => [c.id, c.title])));
     await shot(page, `roms-${label.replace(/ /g, '-')}`);
     check(`Add ROMs (${label}): no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // Install CLOADM… is in the app bar beside Help (behind Menu on a phone), not at the foot of the machine menu, and
@@ -10996,7 +11950,7 @@ async function uiCopyChecks(browser, base, check) {
       near.visible && near.cardTop >= near.barBottom - 1 && near.cardTop - near.barBottom < 40, JSON.stringify(near));
     await shot(page, `install-${label}`);
     check(`install (${label}): no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // the Welcome Back menu: option 6 does not push "PRESS 1 TO 6" against the colour bar (a blank row between them)
@@ -11012,8 +11966,7 @@ async function uiCopyChecks(browser, base, check) {
       t[6] === 'WELCOME BACK' && t[7] === '1 TALK TO LIZA' && t[11] === '5 PLAY A GAME' && t[12] === '6 CARRY ON WITH LIZA' && t[13] === '' && t[14] === 'PRESS 1 TO 6', JSON.stringify(t.slice(5, 16)));
     await shot(page, 'welcome-back');
     check('Welcome Back menu: no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
-  }
+    await closeCtx(ctx);  }
 }
 
 async function consentFullscreenChecks(browser, base, check) {
@@ -11146,7 +12099,7 @@ async function consentFullscreenChecks(browser, base, check) {
   await waitFor(page, () => window.emu.session.claudeView === 'full', null, 15000);
   check(`${L}: after a reload the switch is off again`, !(await page.isChecked('#chkClaudeTools')) && await page.evaluate(() => !window.emu.session.consent.allowed));
   check(`${L}: no page errors`, !errors.length, errors.join('; '));
-  await ctx.close();
+  await closeCtx(ctx);
 }
 
 // Ask Claude follow-ups: a key pressed on the machine while Claude types
@@ -11221,7 +12174,7 @@ async function askFollowupChecks(browser, base, check) {
       && document.getElementById('askActing').hidden) && (await emuFrames(page, 30), await page.evaluate(() => window.emu.machine.stubKeys.length === 0 && window.emu.machine.typist.queue.length === 0)));
     if (replies.held) replies.held.release();
     check('ask (keys): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- (1a) the Debugger stops the machine while Claude's keys go in (its Pause makes this same call, Debugger.halt):
@@ -11261,7 +12214,7 @@ async function askFollowupChecks(browser, base, check) {
     check('ask (Debugger stop): after Resume nothing more of the listing is typed', !resumed.paused && resumed.queued === 0 && resumed.stub === 0, JSON.stringify(resumed));
     if (replies.held) replies.held.release();
     check('ask (Debugger stop): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- (1b) a pause belongs to its turn: a key pressed while Claude thinks after acting pauses it; the reply
@@ -11307,7 +12260,7 @@ async function askFollowupChecks(browser, base, check) {
     check('ask (pause scope): a later text-only turn is not paused by a key: Thinking…, no Resume, no pill, and the reply comes',
       !textOnly.paused && !textOnly.acting && textOnly.status === 'Thinking…' && !textOnly.resume && !textOnly.pill && replied, JSON.stringify(textOnly));
     check('ask (pause scope): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- (1d) a pause in the full-screen chat has its Resume beside Stop in the bar (the side panel's Resume is on
@@ -11385,7 +12338,7 @@ async function askFollowupChecks(browser, base, check) {
     const done = await waitFor(page, () => !window.emu.session.chat.busy, null, 8000);
     check(`${L}: a later text-only turn is not paused by a key (Thinking…, no Resume) and ends`, !textOnly.paused && textOnly.status === 'Thinking…' && !textOnly.resume && done, JSON.stringify(textOnly));
     check(`${L}: no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- (1f) where the open side panel lies over the screen (701-959 px wide) it covers the pill: the panel's own
@@ -11425,7 +12378,7 @@ async function askFollowupChecks(browser, base, check) {
     check(`${L}: Resume carries on, and Stop ends the turn`, resumed && stopped);
     if (replies.held) replies.held.release();
     check(`${L}: no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- (1e) a phone held sideways with its keyboard, full-screen chat: the keyboard covers the page, but the
@@ -11464,7 +12417,7 @@ async function askFollowupChecks(browser, base, check) {
     check(`${L}: Resume carries on, and Stop ends the turn`, resumed && stopped);
     if (replies.held) replies.held.release();
     check(`${L}: no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- (1c) Stop while assemble_and_load waits for an INCLUDE file that never arrives (side panel) ----
@@ -11503,7 +12456,7 @@ async function askFollowupChecks(browser, base, check) {
       declined && !JSON.stringify(last).includes('Something refused') && last[last.length - 1].content === 'Something else'
       && await page.evaluate(() => [...document.querySelectorAll('#askMessages .msg')].every((m) => m.textContent.trim())), JSON.stringify(last));
     check('ask (include): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- (2) the Debugger's opener in the Ctrl K box ----
@@ -11527,7 +12480,7 @@ async function askFollowupChecks(browser, base, check) {
     check('ask (debugger): none of the old wording is on the page', !(await oldCopy(page)).length, (await oldCopy(page)).join());
     if (shotDir) await page.screenshot({ path: path.join(shotDir, 'ask-debugger-desktop.png') });
     check('ask (debugger): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- (3) the phone's own keyboard never covers the sheet ----
@@ -11551,7 +12504,7 @@ async function askFollowupChecks(browser, base, check) {
     await page.evaluate(() => { window.__vv.height = 844; window.__vv.dispatchEvent(new Event('resize')); });
     check('ask (phone keyboard): when it goes, the sheet goes back to the bottom edge', await waitFor(page, () => Math.abs(document.getElementById('ask').getBoundingClientRect().bottom - innerHeight) <= 1));
     check('ask (phone keyboard): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- (5) full screen: the BASIC session's corner window starts hidden; Claude acting or
@@ -11615,7 +12568,7 @@ async function askFollowupChecks(browser, base, check) {
         !!asked && asked.basic && !asked.chat && asked.pcLine === q.match(/\(([0-9A-F]{4})–/)[1], JSON.stringify([asked, q.slice(0, 120)]));
     }
     check(`${L}: no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- (4) docking: from 960 px the panel docks beside the machine, which narrows but keeps at least 480 px;
@@ -11632,7 +12585,7 @@ async function askFollowupChecks(browser, base, check) {
     await page.fill('#askInput', 'hello');
     check('ask (1000 px): the message box is usable', await page.inputValue('#askInput') === 'hello');
     check('ask (1000 px): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   {
     const { ctx, page, errors } = await open({ width: 900, height: 800 });
@@ -11645,7 +12598,7 @@ async function askFollowupChecks(browser, base, check) {
       o.pos === 'fixed' && o.right <= o.w && o.left >= 0 && o.bottom <= o.h && o.width >= 320 && Math.abs(o.monitor - before) < 1 && o.fits, JSON.stringify(Object.assign(o, { before })));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, 'ask-overlay-900.png') });
     check('ask (900 px): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- (6) load_basic's own card: on every call, even with "Let Claude use the emulator" on, with "Don't ask again
@@ -11789,7 +12742,7 @@ async function askFollowupChecks(browser, base, check) {
     res = await t.settle();
     check('full screen: Don\'t load with the switch off: load-declined, nothing loaded', res.out.error && res.out.error.code === 'load-declined' && (await listing()) === '10 PRINT "NINE"', JSON.stringify(res));
     check('load card: no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 }
 
@@ -11909,7 +12862,7 @@ async function askEscChecks(browser, base, check) {
       going && paused && /Esc stops Claude/.test(status) && !breakSent && after.ok, JSON.stringify({ going, paused, status, breakSent, after }));
     if (replies.held) replies.held.release();
     check(`${L}: no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- (1a) the pausing key and the Esc in one task (a busy page: no timer has run between them): Esc still stops ----
@@ -11926,7 +12879,7 @@ async function askEscChecks(browser, base, check) {
     check(`askEsc (Esc right after the pausing key, ${tag}): Esc stops Claude, no BREAK, Resume afterwards types nothing`, r.paused && !r.breakSent && after.ok, JSON.stringify({ r, after }));
     if (replies.held) replies.held.release();
     check(`askEsc (Esc right after the pausing key, ${tag}): no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- (1b) Esc when not paused is unchanged: an Esc that pauses Claude is the person's BREAK (the pause goes on) ----
@@ -11942,7 +12895,7 @@ async function askEscChecks(browser, base, check) {
     check('askEsc (Esc not paused): Stop then ends it', (await stoppedForGood(page)).ok);
     if (replies.held) replies.held.release();
     check('askEsc (Esc not paused): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- (1b') Esc held down (autorepeat) while Claude types: the first press pauses and is BREAK; its repeats are the
@@ -11961,7 +12914,7 @@ async function askEscChecks(browser, base, check) {
     check('askEsc (Esc held): the next Esc press stops Claude', (await stoppedForGood(page)).ok);
     if (replies.held) replies.held.release();
     check('askEsc (Esc held): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // a modifier let go while Esc is held does not end the press: Shift down, Esc down, Shift up, Esc repeats
@@ -11980,7 +12933,7 @@ async function askEscChecks(browser, base, check) {
     check('askEsc (Esc held, Shift let go): the next Esc press stops Claude', (await stoppedForGood(page)).ok);
     if (replies.held) replies.held.release();
     check('askEsc (Esc held, Shift let go): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // and a modifier pressed while Esc is held: Esc down, Shift down, Esc repeats
@@ -11999,7 +12952,7 @@ async function askEscChecks(browser, base, check) {
     check('askEsc (Esc held, Shift pressed): the next Esc press stops Claude', (await stoppedForGood(page)).ok);
     if (replies.held) replies.held.release();
     check('askEsc (Esc held, Shift pressed): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // AltGr (AltGraph) and CapsLock pressed and let go while Esc is held: the same press
@@ -12017,7 +12970,7 @@ async function askEscChecks(browser, base, check) {
     await page.click('#btnAskStop');
     if (replies.held) replies.held.release();
     check(`askEsc (Esc held, ${key}): no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // an Esc that only closes a card above the screen while Claude types (not paused) is not a key on the machine:
   // no BREAK, and it does not pause Claude
@@ -12032,7 +12985,7 @@ async function askEscChecks(browser, base, check) {
     await page.click('#btnAskStop');
     if (replies.held) replies.held.release();
     check('askEsc (card, not paused): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- (1c) Esc order: a menu (the command box) or a card open during the pause takes the first Esc; the next stops ----
@@ -12050,7 +13003,7 @@ async function askEscChecks(browser, base, check) {
       boxOpen && first.closed && first.paused && after.ok, JSON.stringify({ boxOpen, first, after }));
     if (replies.held) replies.held.release();
     check('askEsc (order): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // a card above the screen (the media offer, page.onEscape rank card) with the focus on the screen: the same order
@@ -12069,7 +13022,7 @@ async function askEscChecks(browser, base, check) {
       first.closed && first.paused && !first.breakSent && after.ok, JSON.stringify({ first, after }));
     if (replies.held) replies.held.release();
     check('askEsc (order, card): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- (2) the browser's Fullscreen: Claude's status with Stop (and Resume while paused) inside it ----
@@ -12104,7 +13057,7 @@ async function askEscChecks(browser, base, check) {
     check(`${L}: Resume carries on; Stop ends the turn and nothing is typed later`, resumed && after.ok, JSON.stringify({ resumed, after }));
     if (replies.held) replies.held.release();
     check(`${L}: no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // leaving Fullscreen while paused (the browser's Esc there) stops Claude
   {
@@ -12118,7 +13071,7 @@ async function askEscChecks(browser, base, check) {
     check('askEsc (browser Fullscreen): leaving it while paused (Esc there) stops Claude; Resume afterwards types nothing', after.ok, JSON.stringify(after));
     if (replies.held) replies.held.release();
     check('askEsc (browser Fullscreen, leave): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- (2b) what the program on the machine asks for itself is not the person's doing: Claude typing 1 on the
@@ -12140,7 +13093,7 @@ async function askEscChecks(browser, base, check) {
       up && r.busy && !r.err && !/stopped/.test(r.note), JSON.stringify({ up, ...r, note: r.note.slice(-80) }));
     if (replies.held) replies.held.release();
     check('askEsc (welcome menu): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ... but only the start itself is the machine's: the person's Reset while the page fetches what the machine
@@ -12162,7 +13115,7 @@ async function askEscChecks(browser, base, check) {
       !!release && stopped && /\[stopped: you reset the machine\]/.test(note) && after && driven === null, JSON.stringify({ fetched: !!release, stopped, after, driven, note: note.slice(-60) }));
     if (replies.held) replies.held.release();
     check('askEsc (welcome menu, Reset meanwhile): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- (3) a Reset, a power cycle, a snapshot load or a machine switch during a pause stops Claude ----
@@ -12193,7 +13146,7 @@ async function askEscChecks(browser, base, check) {
     if (keeps && !full) check(`${L}: the conversation says why`, /\[stopped: you (reset|power cycled) the machine\]/.test(note[0]), note[0].slice(-120));
     if (replies.held) replies.held.release();
     check(`${L}: no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- (4) F1: the page views (Share, the Library, Add ROMs, the Debugger) hide the emulator and the panel: Claude's
@@ -12234,7 +13187,7 @@ async function askEscChecks(browser, base, check) {
         check(`${L}: Stop ends the turn (nothing typed afterwards) and the pill goes`, after.ok && gone, JSON.stringify(after));
         if (replies.held) replies.held.release();
         check(`${L}: no page errors`, !errors.length, errors.join('; '));
-        await ctx.close();
+        await closeCtx(ctx);
       }
     }
   }
@@ -12256,7 +13209,7 @@ async function askEscChecks(browser, base, check) {
       up && r.busy && !!r.text && stop === 'ok' && after, JSON.stringify({ up, ...r, stop, after }));
     if (replies.held) replies.held.release();
     check(`askEsc (F1 Claude's own 3, ${tag}): no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // a card raised while a view is up closes the view (back to the emulator, the panel open on the card), where it is
   // seen and answered; a card already waiting when the person opens a view: the pill says so, and Answer goes to it
@@ -12303,7 +13256,7 @@ async function askEscChecks(browser, base, check) {
         waiting && answer === 'ok' && shownCard && tell === 'ok' && answered, JSON.stringify({ waiting, answer, shownCard, tell, answered }));
       if (replies.held) replies.held.release();
       check(`${L}: no page errors`, !errors.length, errors.join('; '));
-      await ctx.close();
+      await closeCtx(ctx);
     }
   }
 
@@ -12347,7 +13300,7 @@ async function askEscChecks(browser, base, check) {
         after.ok && !res.pending && res.call === null && res.undo === 0 && gone, JSON.stringify({ after, ...res, gone }));
       if (replies.held) replies.held.release();
       check(`${L}: no page errors`, !errors.length, errors.join('; '));
-      await ctx.close();
+      await closeCtx(ctx);
     }
   }
 
@@ -12378,7 +13331,7 @@ async function askEscChecks(browser, base, check) {
     check(`${L}: Stop then ends it`, (await stoppedForGood(page)).ok);
     if (replies.held) replies.held.release();
     check(`${L}: no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // the repro: Claude acting at the welcome menu (it has poked, its next reply is on the way), the person types "1"
   // (on the page's body, an on-screen key, a tap on the menu line): LIZA starts and Claude's turn stops, not Claude's
@@ -12405,7 +13358,7 @@ async function askEscChecks(browser, base, check) {
     check(`askEsc (F2 the welcome-menu repro, ${tag}): the person's "1" while Claude acts pauses Claude, and LIZA it starts stops Claude's turn`, acting && up && stopped, JSON.stringify({ acting, up, stopped }));
     if (replies.held) replies.held.release();
     check(`askEsc (F2 the welcome-menu repro, ${tag}): no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- (5b) the Ask rail's open tab is a menu: Esc on the screen closes it and is neither BREAK nor a pause; Shift
@@ -12426,7 +13379,7 @@ async function askEscChecks(browser, base, check) {
     check('askEsc (rail): Stop then ends it', (await stoppedForGood(page)).ok);
     if (replies.held) replies.held.release();
     check('askEsc (rail): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   {
     const { ctx, page, errors, replies } = await open({ width: 1440, height: 900 });
@@ -12440,7 +13393,7 @@ async function askEscChecks(browser, base, check) {
     check('askEsc (Shift): Stop then ends it', (await stoppedForGood(page)).ok);
     if (replies.held) replies.held.release();
     check('askEsc (Shift): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- (5c) where no other Stop can be reached: a phone held sideways with its touch keyboard (the drawer's strip is
@@ -12460,7 +13413,7 @@ async function askEscChecks(browser, base, check) {
     check(`${L}: Claude's status with a clickable Stop shows, and Stop ends the turn`, keys && shown && stop === 'ok' && ended, JSON.stringify({ keys, shown, stop, ended }));
     if (replies.held) replies.held.release();
     check(`${L}: no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // ... and in the full-screen chat held sideways, a card is not left under the touch keyboard: it stands aside
   {
@@ -12479,7 +13432,7 @@ async function askEscChecks(browser, base, check) {
     check(`${L}: the touch keyboard stands aside while the card waits, Allow can be clicked, and the keyboard comes back`, pending && allow === 'ok' && back, JSON.stringify({ pending, allow, back }));
     if (replies.held) replies.held.release();
     check(`${L}: no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- (5d) from a second review: a toast raised while a turn runs and the sheet's Stop shows does not make the
@@ -12578,7 +13531,141 @@ async function askEscChecks(browser, base, check) {
     await page.evaluate(() => window.emu.session.stopClaude());
     if (replies.held) replies.held.release();
     check(`${L}: no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
+  }
+  // ... and where the toast HAS no free place, so it takes the fallback slot: the stricter check (held back until this fix:
+  // prove the premise on #toast itself, settle before raising, a Stop reachable). Three layouts where the long toast
+  // finds no free place while a turn runs: a phone held sideways with the touch keys while Claude types (the only Stop
+  // is the screen's own, #askActing, at the tube's top), and the full-screen chat with Claude typing into the BASIC
+  // session, at 1280 px and held sideways (the chat's Stop in #claudeBar and the PiP's). The top slot lay over those
+  // Stops, so the pill came up for as long as each toast showed and went with it -- once per toast, which `flips <= 1`
+  // allowed. js/ui/feedback.js now keeps the fallback slot off every Stop that shows (the stylesheet's bottom slot when
+  // the top one covers one), so here the pill must not move at all, for any of 20 toasts, long and short.
+  // (What turns it red: the fallback always taking the top slot -- `slot === 'bottom'` never chosen in feedback.js. The
+  // premise check then fails on every long toast, and the pill comes and goes once per long toast.)
+  // The full-screen chat's own view (the chat on the big screen, the BASIC session in the PiP) is where BOTH slots
+  // cover a Stop for a long toast: the top one #claudeBar's, the bottom one the PiP's. Each leaves the other reachable,
+  // so the fallback keeps the top slot, and `under` is exactly #btnClaudeStop, the pill never shows and the PiP's Stop
+  // can be clicked. (What turns these red: preferring the bottom slot when both cover one -- `under` becomes the PiP's
+  // Stop. The guard for a slot that covers EVERY Stop is checked in tests/toast-follow.test.js, where the slots overlap.)
+  const UNDER_CHAT = { 1280: ['btnClaudeStop'], 844: ['btnClaudeStop'] };
+  for (const [tag, viewport, opts, full, chatView] of [
+    ['held sideways with the touch keys, Claude typing', { width: 844, height: 390 }, { hasTouch: true, isMobile: true }, false, false],
+    ['the full-screen chat at 1280 px, Claude typing', { width: 1280, height: 800 }, {}, true, false],
+    ['the full-screen chat held sideways, Claude typing', { width: 844, height: 390 }, { hasTouch: true, isMobile: true }, true, false],
+    ['the full-screen chat\'s own view at 1280 px, Claude typing', { width: 1280, height: 800 }, {}, true, true],
+    ['the full-screen chat\'s own view held sideways, Claude typing', { width: 844, height: 390 }, { hasTouch: true, isMobile: true }, true, true]]) {
+    const { ctx, page, errors, replies } = await open(viewport, opts);
+    const L = `askEsc (a toast with no free place while a turn runs, ${tag})`;
+    const ok = await typing(page, replies, { full, basicView: !chatView });
+    if (!full) await page.evaluate(() => document.getElementById('btnAskClose').click());
+    // SETTLE BEFORE RAISING: the rects place() reads, two samples in a row the same
+    await waitFor(page, () => {
+      const sel = 'header, .controls, .slots, aside.drawer, #attention, #touchKeys button, #claudeBar, #installOffer, #tapeHud:not([hidden]), [data-occludes], #askActing, #claudePipActing';
+      const key = [...document.querySelectorAll(sel)].map((e) => { const r = e.getBoundingClientRect();
+        return [r.left, r.top, r.right, r.bottom].map(Math.round).join(','); }).join('|');
+      const same = window.__settleKey === key;
+      window.__settleKey = key;
+      return same;
+    }, null, 5000);
+    const reps = await page.evaluate(async () => {
+      const v = document.getElementById('viewClaude'), frames = (n) => new Promise((done) => { let k = 0; const f = () => (++k >= n ? done() : requestAnimationFrame(f)); f(); });
+      const IDS = ['btnAskStatusStop', 'btnAskStripStop', 'btnAskStop', 'btnAskPeekStop', 'btnFsStop', 'btnClaudeStop', 'btnPipStop', 'btnViewStop'];
+      const words = 'A toast over the bottom of the window, long enough to wrap onto several lines on a phone, so that it lies over the sheet\'s Stop button at the bottom edge of the window for as long as it shows';
+      const box = document.getElementById('toast'), reg = document.getElementById('toastRegion');
+      const out = [];
+      for (let i = 0; i < 20; i++) {
+        window.emu.feedback.clear(); await frames(6);
+        let n = 0, was = v.hidden; const obs = new MutationObserver(() => { if (v.hidden !== was) { n++; was = v.hidden; } });
+        obs.observe(v, { attributes: true });
+        window.emu.feedback.toast(i % 2 ? `Saved (${i}).` : `${words} (${i})`); await frames(90);
+        obs.disconnect();
+        // the Stops that show: which the TOAST lies over (#toast, not #toastRegion, measured at the Stop's centre as
+        // js/ui/ask.js does), and which can be clicked
+        const stops = IDS.map((id) => document.getElementById(id)).filter((e) => e && !e.hidden).map((e) => {
+          const r = e.getBoundingClientRect();
+          if (!r.width || !r.height || r.bottom <= 0 || r.right <= 0 || r.top >= innerHeight || r.left >= innerWidth) return null;
+          const at = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+          return { id: e.id, underToast: !!at && box.contains(at), reachable: !!at && (at === e || e.contains(at)) };
+        }).filter(Boolean);
+        const tr = box.getBoundingClientRect();
+        out.push({ i, n, slot: reg.classList.contains('top'), toast: [tr.left, tr.top, tr.right, tr.bottom].map(Math.round),
+          under: stops.filter((s) => s.underToast).map((s) => s.id), reach: stops.filter((s) => s.reachable).map((s) => s.id) });
+      }
+      window.emu.feedback.clear();
+      return out;
+    });
+    const long = reps.filter((r) => r.i % 2 === 0);
+    check(`${L}: setup: Claude's turn runs, and the long toast has no free place (it takes the fallback slot, the scenario the check names)`,
+      ok && reps.length === 20 && long.every((r) => r.slot), JSON.stringify(long.slice(0, 2)));
+    if (!chatView) check(`${L}: no toast lies over a Stop, in the fallback slot or anywhere`, reps.every((r) => !r.under.length), JSON.stringify(reps.filter((r) => r.under.length).slice(0, 3)));
+    else {
+      const want = JSON.stringify(UNDER_CHAT[viewport.width]);
+      check(`${L}: both slots cover a Stop: each long toast lies over exactly ${want} (the slot that leaves another uncovered), a short one over none`,
+        long.every((r) => JSON.stringify(r.under) === want) && reps.filter((r) => r.i % 2).every((r) => !r.under.length),
+        JSON.stringify(reps.slice(0, 4).map((r) => ({ i: r.i, under: r.under, toast: r.toast }))));
+    }
+    check(`${L}: 20 toasts in a row: the pill never shows (a Stop stays reachable without it)`, reps.every((r) => r.n === 0), JSON.stringify(reps.map((r) => r.n)));
+    check(`${L}: a Stop is reachable while every toast shows (the pill's whole reason)`, reps.every((r) => r.reach.length), JSON.stringify(reps.filter((r) => !r.reach.length).slice(0, 3)));
+    if (shotDir) {
+      // the long toast in its fallback slot, the turn's Stop beside it
+      await page.evaluate(() => window.emu.feedback.toast('A toast over the bottom of the window, long enough to wrap onto several lines on a phone, so that it lies over the sheet\'s Stop button at the bottom edge of the window for as long as it shows'));
+      await emuFrames(page, 30);
+      await page.screenshot({ path: path.join(shotDir, `askesc-fallback-slot-${viewport.width}x${viewport.height}${full ? (chatView ? '-chat' : '-full') : ''}.png`) });
+    }
+    await page.evaluate(() => window.emu.session.stopClaude());
+    if (replies.held) replies.held.release();
+    check(`${L}: no page errors`, !errors.length, errors.join('; '));
+    await closeCtx(ctx);
+  }
+  // ... and the other order: the toast first, pinned in its slot with no turn running, THEN the turn starts (its Stop
+  // appears, and #claudeBar's status text changes as it goes). A pinned toast is not placed again, except that the slot is
+  // chosen again when Claude's Stops change: here the Stop that appears under it moves it off. Both full-screen layouts,
+  // the BASIC session on the big screen. (What turns it red: the pinned toast not following the Stops -- the pin key
+  // without them -- the toast stays over #btnClaudeStop, the pill comes up, and held sideways no Stop can be clicked.)
+  for (const [tag, viewport, opts] of [
+    ['1280 px', { width: 1280, height: 800 }, {}],
+    ['held sideways', { width: 844, height: 390 }, { hasTouch: true, isMobile: true }]]) {
+    const { ctx, page, errors, replies } = await open(viewport, opts);
+    const L = `askEsc (the full-screen chat, ${tag}: a toast first, then Claude's turn starts)`;
+    await page.evaluate(() => document.getElementById('btnAsk').click());
+    await page.evaluate(() => window.emu.session.consent.setAllowed(true));
+    await page.evaluate(() => document.getElementById('btnAskFull').click());
+    await waitFor(page, () => window.emu.session.claudeView === 'full' && !!window.emu.session.chatMachines, null, 15000);
+    await page.evaluate(() => document.getElementById('btnClaudeView').click());
+    await waitFor(page, () => window.emu.session.chatView === 'basic');
+    await emuFrames(page, 30);
+    // (an action keeps the toast up 8 s: the turn starts inside that)
+    await page.evaluate(() => { const v = document.getElementById('viewClaude'); window.__flips = 0; let was = v.hidden;
+      window.__obs = new MutationObserver(() => { if (v.hidden !== was) { window.__flips++; was = v.hidden; } }); window.__obs.observe(v, { attributes: true });
+      window.emu.feedback.toast('A toast over the bottom of the window, long enough to wrap onto several lines on a phone, so that it lies over the sheet\'s Stop button at the bottom edge of the window for as long as it shows', { action: { label: 'Undo', run() {} } }); });
+    await emuFrames(page, 30);
+    const before = await page.evaluate(() => ({ slot: document.getElementById('toastRegion').classList.contains('top'), up: !document.getElementById('toast').hidden, busy: !!window.emu.session.claudeStatus }));
+    replies.push({ body: tools([{ name: 'type_text', input: { text: LISTING } }]) }, { hold: true, body: text('Typed.') });
+    await page.evaluate(() => { window.emu.session.chat.sendLine('Type a long listing for me'); });
+    const acting = await waitFor(page, () => window.emu.session.chatTarget().machine.typist.queue.length > 100 && window.emu.session.claudeBusyActing, null, 8000);
+    await emuFrames(page, 90);
+    const after = await page.evaluate(() => {
+      const IDS = ['btnAskStatusStop', 'btnAskStripStop', 'btnAskStop', 'btnAskPeekStop', 'btnFsStop', 'btnClaudeStop', 'btnPipStop', 'btnViewStop'];
+      const box = document.getElementById('toast');
+      const stops = IDS.map((id) => document.getElementById(id)).filter((e) => e && !e.hidden).map((e) => {
+        const r = e.getBoundingClientRect();
+        if (!r.width || !r.height || r.bottom <= 0 || r.right <= 0 || r.top >= innerHeight || r.left >= innerWidth) return null;
+        const at = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+        return { id: e.id, underToast: !!at && box.contains(at), reachable: !!at && (at === e || e.contains(at)) };
+      }).filter(Boolean);
+      window.__obs.disconnect();
+      return { up: !box.hidden, flips: window.__flips, under: stops.filter((s) => s.underToast).map((s) => s.id), reach: stops.filter((s) => s.reachable).map((s) => s.id) };
+    });
+    check(`${L}: setup: the toast is pinned in the fallback slot before the turn, and is still up once Claude types`,
+      before.slot && before.up && !before.busy && acting && after.up, JSON.stringify({ before, acting, up: after.up }));
+    check(`${L}: the toast moves off the Stop that appears under it (no Stop under the toast)`, !after.under.length, JSON.stringify(after));
+    check(`${L}: the pill never shows (0 changes)`, after.flips === 0, `flips ${after.flips}`);
+    check(`${L}: a Stop can be clicked`, after.reach.length > 0, JSON.stringify(after.reach));
+    await page.evaluate(() => window.emu.session.stopClaude());
+    if (replies.held) replies.held.release();
+    check(`${L}: no page errors`, !errors.length, errors.join('; '));
+    await closeCtx(ctx);
   }
   // the pill at the bottom of a portrait phone with the touch keyboard (no other Stop in the window): a toast goes above
   // it, so its Stop stays clickable
@@ -12601,7 +13688,7 @@ async function askEscChecks(browser, base, check) {
     await page.evaluate(() => window.emu.session.stopClaude());
     if (replies.held) replies.held.release();
     check(`${L}: no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   {
     const { ctx, page, errors, replies } = await open({ width: 1440, height: 900 });
@@ -12616,7 +13703,7 @@ async function askEscChecks(browser, base, check) {
     check('askEsc (a modifier let go in another window): the next Esc stops Claude', paused && after.ok, JSON.stringify({ paused, after }));
     if (replies.held) replies.held.release();
     check('askEsc (a modifier let go in another window): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   {
     const { ctx, page, errors } = await open({ width: 1440, height: 900 });
@@ -12627,7 +13714,7 @@ async function askEscChecks(browser, base, check) {
     const closed = await waitFor(page, () => location.hash === '#library' && !document.body.classList.contains('ask-rail-drawer'), null, 5000);
     check('askEsc (rail and a page view): the rail\'s tab closes when a page view opens', was && closed);
     check('askEsc (rail and a page view): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   {
     const { ctx, page, errors, replies } = await open({ width: 1200, height: 450 }, { hasTouch: true });
@@ -12654,7 +13741,7 @@ async function askEscChecks(browser, base, check) {
     await page.evaluate(() => window.emu.session.stopClaude());
     if (replies.held) replies.held.release();
     check(`${L}: no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- (6) M2: a "[stopped]" note is the stopped turn's: a turn the full-screen chat starts (its own line, through
@@ -12672,8 +13759,7 @@ async function askEscChecks(browser, base, check) {
     const note = await page.textContent('#askMessages');
     check('askEsc (turn note): a turn started outside the panel\'s box clears the last turn\'s "[stopped]" note', cleared && !/\[stopped/.test(note), note.slice(-80));
     check('askEsc (turn note): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
-  }
+    await closeCtx(ctx);  }
 
   // ---- (7) Allow and resume: while Claude is paused a card's accept button is "Allow and resume" (one click: consent and Resume);
   // a no never resumes; the switch off while a call waits paused refuses it; Esc while paused with a card up is Stop.
@@ -12728,7 +13814,7 @@ async function askEscChecks(browser, base, check) {
       check(`${L}: no longer paused: the button is plain "Allow" again`, label === 'Allow', label);
       if (replies.held) replies.held.release();
       check(`${L}: no page errors`, !errors.length, errors.join('; '));
-      await ctx.close();
+      await closeCtx(ctx);
     }
     // (c) decline while paused: nothing acts, the pause stays
     {
@@ -12744,7 +13830,7 @@ async function askEscChecks(browser, base, check) {
       await page.evaluate(() => window.emu.session.stopClaude());
       if (replies.held) replies.held.release();
       check(`${L}: no page errors`, !errors.length, errors.join('; '));
-      await ctx.close();
+      await closeCtx(ctx);
     }
     // (d) a key after the click and before the act (during the INCLUDE read): it waits at the re-check, Resume shown;
     // (e) the same with the switch turned off while paused: Resume then refuses the call
@@ -12794,7 +13880,7 @@ async function askEscChecks(browser, base, check) {
       }
       if (replies.held) replies.held.release();
       check(`${L}: no page errors`, !errors.length, errors.join('; '));
-      await ctx.close();
+      await closeCtx(ctx);
     }
     // (g) a card ends the browser's Fullscreen by itself; a key that pauses Claude before the browser reports the leave
     // must not turn the page's own leave into Stop (only a leave the person makes stops Claude). The leave is held
@@ -12833,7 +13919,7 @@ async function askEscChecks(browser, base, check) {
       check(`${L}: afterwards, a Fullscreen leave the person makes while Claude is paused stops Claude`, full2 && paused2 && after.ok, JSON.stringify({ full2, paused2, after }));
       if (replies.held) replies.held.release();
       check(`${L}: no page errors`, !errors.length, errors.join('; '));
-      await ctx.close();
+      await closeCtx(ctx);
     }
     // (f) Esc while paused with a card up: Stop (the card answered stopped, the turn ends), not a no
     {
@@ -12848,7 +13934,7 @@ async function askEscChecks(browser, base, check) {
         ended && r.err === 'aborted' && r.undo === 0 && !replies.held && await at(page, 0x3000, 1) === '0', JSON.stringify({ ended, ...r, held: !!replies.held }));
       if (replies.held) replies.held.release();
       check(`${L}: no page errors`, !errors.length, errors.join('; '));
-      await ctx.close();
+      await closeCtx(ctx);
     }
     // (h) F1: the click does what the button said when it was drawn: a stale plain "Allow" (data-resume empty) clicked
     // while paused answers yes only (no resume: nothing acts, still paused); a stale "Allow and resume" clicked after
@@ -12870,7 +13956,7 @@ async function askEscChecks(browser, base, check) {
       await page.evaluate(() => window.emu.session.stopClaude());
       if (replies.held) replies.held.release();
       check(`${L}: no page errors`, !errors.length, errors.join('; '));
-      await ctx.close();
+      await closeCtx(ctx);
     }
   }
 
@@ -12915,7 +14001,7 @@ async function askEscChecks(browser, base, check) {
     await page.evaluate(() => window.emu.session.stopClaude());
     if (replies.held) replies.held.release();
     check(`${L}: no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- (9) F5: the joystick hook per source, with hysteresis. The mouse as joystick pauses Claude once per deflection
@@ -12971,7 +14057,7 @@ async function askEscChecks(browser, base, check) {
     await page.evaluate(() => window.emu.session.stopClaude());
     if (replies.held) replies.held.release();
     check(`${L}: no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- (10) the touch stick and its FIRE (js/ui/touch-keys.js) go through the joystick hook as the source 'touch':
@@ -13019,7 +14105,7 @@ async function askEscChecks(browser, base, check) {
     await page.evaluate(() => window.emu.session.stopClaude());
     if (replies.held) replies.held.release();
     check(`${L}: no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 }
 
@@ -13341,7 +14427,7 @@ async function askStatusChecks(browser, base, check) {
     const shown = await page.evaluate(() => document.body.innerText);
     check(`ask status (${tag}): the API key is in no console log and nowhere on the page`, !logs.some((l) => l.includes(KEY)) && !shown.includes(KEY));
     check(`ask status (${tag}): no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 }
 
@@ -13374,6 +14460,10 @@ async function askChecks(browser, base, check) {
     const page = await ctx.newPage();
     const errors = [];
     page.on('pageerror', (e) => errors.push(e.message));
+    // every console line this page says, for the key-leak check below (a key must never be logged)
+    const consoleLines = [];
+    page.on('console', (m) => consoleLines.push(m.text()));
+    const consoleText = () => consoleLines.join('\n');
     const requests = [], replies = [];
     let release = null;
     await ctx.route('https://api.anthropic.com/**', async (route) => {
@@ -13658,12 +14748,67 @@ async function askChecks(browser, base, check) {
     check(`${L}: offline: "Could not reach Claude. Check your connection." with Try again`, await waitFor(page, () => /Could not reach Claude\. Check your connection\./.test(document.getElementById('askKeyMsg').textContent))
       && await vis('#btnAskRetry'));
     await shot('key-offline');
+    // ---- the key never leaks: its text is nowhere in the page, the console, or any storage beyond its one home ----
+    // (the key is a dummy made up above; it lives in cloadm.anthropicKey by design -- key-store.js -- and nowhere else
+    // may it appear. Recorded BEFORE the 401, so the check after compares the refusal's effect against a known state
+    // rather than against "none".)
+    const keyPlaces = async () => {
+      const inPage = (await page.textContent('body')).includes(KEY)
+        || await ev((k) => [...document.querySelectorAll('[value],[placeholder],[aria-label],[title]')].some((e) => (e.value || e.getAttribute('placeholder') || e.getAttribute('aria-label') || e.getAttribute('title') || '').includes(k)), KEY);
+      // every web store the page can reach: localStorage and sessionStorage (keys and values), document.cookie
+      // (names and values), and IndexedDB (database, store and key names, and each record's string form). The key's ONE
+      // home is localStorage.cloadm.anthropicKey; anywhere else is a leak. IndexedDB is read for real: the page
+      // already uses it (js/host/folder-handle.js), so a copy could land there; a value that is a handle serialises to
+      // a plain string, and a value that cannot stringify is reported by kind rather than skipped.
+      const stores = await ev(async (k) => {
+        const out = { local: [], session: [], cookie: [], idb: [], idbError: null };
+        const scan = (store, bottle) => { for (let i = 0; i < store.length; i++) { const n = store.key(i); const v = store.getItem(n);
+          if (String(n).includes(k) || String(v).includes(k)) bottle.push(n); } };
+        scan(localStorage, out.local); scan(sessionStorage, out.session);
+        for (const c of String(document.cookie || '').split(';')) if (c.includes(k)) out.cookie.push(c.trim().split('=')[0]);
+        try {
+          const dbs = indexedDB.databases ? await indexedDB.databases() : [];
+          for (const { name, version } of dbs) {
+            if (String(name).includes(k)) { out.idb.push(`db:${name}`); continue; }
+            const db = await new Promise((res, rej) => { const r = indexedDB.open(name, version); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+            for (const storeName of [...db.objectStoreNames]) {
+              if (String(storeName).includes(k)) { out.idb.push(`${name}/${storeName}`); continue; }
+              const rows = await new Promise((res, rej) => { const tx = db.transaction(storeName, 'readonly'); const r = tx.objectStore(storeName).getAllKeys();
+                r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+              for (const key of rows) if (String(key).includes(k)) out.idb.push(`${name}/${storeName}:${key}`);
+            }
+            db.close();
+          }
+        } catch (e) { out.idbError = String(e && e.message || e); }
+        out.local.sort(); out.session.sort(); out.cookie.sort(); out.idb.sort();
+        return out;
+      }, KEY);
+      return { inPage, storage: stores.local, session: stores.session, cookie: stores.cookie, idb: stores.idb, idbError: stores.idbError, inConsole: consoleText().includes(KEY) };
+    };
+    // anywhere but the key's one home counts as a leak (sessionStorage, a cookie, IndexedDB, or a second localStorage key)
+    const onlyHome = (p) => !p.inPage && !p.inConsole && JSON.stringify(p.storage) === JSON.stringify(['cloadm.anthropicKey'])
+      && !p.session.length && !p.cookie.length && !p.idb.length;
+    const leakBefore = await keyPlaces();
+    check(`${L}: (setup) before any refusal: the saved key lives in localStorage.cloadm.anthropicKey ONLY -- nothing in sessionStorage, a cookie or IndexedDB -- and is on neither the page nor the console`,
+      onlyHome(leakBefore), JSON.stringify(leakBefore));
     replies.push({ status: 401, body: JSON.stringify({ type: 'error', error: { type: 'authentication_error', message: 'invalid x-api-key' } }) });
     await ask('and now?');
     await idle();
     check(`${L}: refused: "[The API key was refused: check it and try again.]" and the key form reopens with a red border`,
       await waitFor(page, () => document.getElementById('askKeyMsg').textContent.includes('[The API key was refused: check it and try again.]'))
       && await vis('#askKeyForm') && await ev(() => getComputedStyle(document.getElementById('askKeyInput')).borderTopColor === 'rgb(255, 122, 112)'));
+    // The composer's own key line must agree: it read "API key · Saved in this browser." beside a refusal, which tells
+    // the person the opposite of what just happened. A refused key is still STORED (the person may keep it or replace
+    // it), so the line says it was REFUSED and that it is still saved; the Replace button says what to do about it.
+    check(`${L}: refused: the composer's key line says the key was REFUSED and is still saved, and the button offers Replace`,
+      await waitFor(page, () => { const l = document.getElementById('askKeyLine'); return !l.hidden && /Refused by Anthropic/.test(l.textContent) && /Still saved in this browser/.test(l.textContent); }, null, 5000)
+      && (await page.textContent('#btnAskKeyChange')).trim() === 'Replace' && await vis('#btnAskKeyChange'),
+      `${await page.textContent('#askKeyLine')} | btn=${await page.textContent('#btnAskKeyChange')}`);
+    // the refusal adds no place for the key: still only its one home, still off the page, still out of the console,
+    // and still nothing in sessionStorage, a cookie or IndexedDB
+    const leakAfter = await keyPlaces();
+    check(`${L}: refused: the key's text is nowhere new -- not on the page, not in the console, not in sessionStorage, a cookie, IndexedDB or a second localStorage key`,
+      onlyHome(leakAfter), JSON.stringify({ before: leakBefore, after: leakAfter }));
     await shot('key-refused');
     await page.fill('#askKeyInput', KEY);
     await page.click('#btnAskKeySave');
@@ -13777,7 +14922,7 @@ async function askChecks(browser, base, check) {
       && (await emuFrames(page, 30), await ev(() => { const m = window.emu.session.shownMachine; return m.typist.queue.length === 0 && m.stubKeys.length === 0 && !window.emu.session.chat.busy; })));
     check(`${L}: no sideways scroll`, await ev(() => document.documentElement.scrollWidth <= innerWidth));
     check(`${L}: no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   await askGimeTextChecks(browser, base, check);
   await askPlusTextChecks(browser, base, check);
@@ -13886,7 +15031,7 @@ async function askBesideChecks(browser, base, check) {
         check(`${L}: "Just tell me the fix" refuses the poke, which changes nothing`, declined && pokeRes[0] && pokeRes[0].is_error && /consent-declined/.test(pokeRes[0].content)
           && await page.evaluate(() => window.emu.session.consent.allowed === false), JSON.stringify(pokeRes).slice(0, 300));
         check(`${L}: no page errors`, !errors.length, errors.join('; '));
-        await ctx.close();
+        await closeCtx(ctx);
       }
     }
     // the full-screen chat entry still goes full screen, from the welcome menu too
@@ -13914,7 +15059,7 @@ async function askBesideChecks(browser, base, check) {
       check(`${L}: opens the full-screen chat on its own chat machine`, await waitFor(page, () => window.emu.session.claudeView === 'full' && !!window.emu.session.chatMachines
         && window.emu.session.chatView === 'chat' && document.body.classList.contains('claude-open'), null, 15000));
       check(`${L}: no page errors`, !errors.length, errors.join('; '));
-      await ctx.close();
+      await closeCtx(ctx);
     }
   }
   // Ctrl K: a question (ending in "?") goes to Claude even when it matches a command, which is listed beneath; a
@@ -13977,7 +15122,7 @@ async function askBesideChecks(browser, base, check) {
         && await page.evaluate(() => !window.__pressed.length));
     }
     check(`${L}: no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 }
 
@@ -14044,7 +15189,7 @@ async function askGimeTextChecks(browser, base, check) {
     JSON.stringify(res && res.attributes && res.attributes[2]));
   check(`${L}: Claude's answer shows in the panel`, /Your directory listing\./.test(await page.textContent('#askMessages')));
   check(`${L}: no page errors`, !errors.length, errors.join('; '));
-  await ctx.close();
+  await closeCtx(ctx);
 }
 
 // Ask Claude on a Dragon 64 Plus showing its 80-column board (the Display tab's Plus screen): Claude's screen_text (the
@@ -14110,7 +15255,7 @@ async function askPlusTextChecks(browser, base, check) {
     && res.startAddress === 0x50 && res.base === null && /no character generator/.test(res.note || ''), JSON.stringify(res && { mode: res.mode, base: res.base, startAddress: res.startAddress, note: res.note }));
   check(`${L}: Claude's answer shows in the panel`, /Your 80-column screen\./.test(await page.textContent('#askMessages')));
   check(`${L}: no page errors`, !errors.length, errors.join('; '));
-  await ctx.close();
+  await closeCtx(ctx);
 }
 
 // settings to a file and back into another browser profile; ROMs never go along
@@ -14226,7 +15371,7 @@ async function phoneChatChecks(browser, base, check) {
     check(`phone chat (${label}): and leaves the chat for the emulator`, await waitFor(page, () => !document.body.classList.contains('claude-open') && !/app=claude/.test(location.search)
       && (innerHeight > innerWidth ? !document.getElementById('tkMenu').checkVisibility() : document.getElementById('tkMenu').textContent === 'Menu')));
     check(`phone chat (${label}): no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // The phone's full-screen chat is not a BASIC machine's screen, so a remembered Joystick mode must not put
   // the stick, FIRE or the switch there. The path that shows it needs no machine event: the full-screen chat on a
@@ -14265,7 +15410,7 @@ async function phoneChatChecks(browser, base, check) {
     check('phone chat (joystick mode remembered): leaving the phone breakpoint gives the stick back',
       back.stick > 0 && back.fire > 0 && back.sw > 0 && back.mode === 'joystick', JSON.stringify(back));
     check('phone chat (joystick mode remembered): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // PC-M1: the browser's Back leaves the chat, and so does Esc from the chat bar (on the screen Esc is BREAK)
   {
@@ -14284,7 +15429,7 @@ async function phoneChatChecks(browser, base, check) {
     await page.focus('#btnFullSide');
     await page.keyboard.press('Escape');
     check('phone chat: Esc from the chat bar leaves the chat', await waitFor(page, () => !document.body.classList.contains('claude-open')));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // PC-M4: a tablet (820 x 1180) stacks the chat under the screen too: without a key the card comes first, on screen
   {
@@ -14298,7 +15443,7 @@ async function phoneChatChecks(browser, base, check) {
       return { input: i.top >= 0 && i.bottom <= innerHeight, above: i.bottom <= s.top, help: document.getElementById('claudeHelp').textContent };
     });
     check('tablet chat (820 x 1180): no key: the key field is on screen, above the screen, and the help line says "above"', tab.input && tab.above && /add one above/.test(tab.help), JSON.stringify(tab));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // A phone held sideways without the on-screen keyboard (or any window under 500 px high): the app bar is one
   // row, Capture & share and the links behind Menu, and the screen takes the height (it was 181 px under two rows)
@@ -14315,7 +15460,7 @@ async function phoneChatChecks(browser, base, check) {
     const open = await page.evaluate(() => ({ links: [...document.querySelectorAll('.appbar nav a')].every((a) => a.getBoundingClientRect().height > 0), share: getComputedStyle(document.getElementById('btnShare')).display !== 'none' }));
     check('sideways, 844 x 390: the app bar is one row and the screen takes the height; the links and Capture & share are behind Menu',
       bar.bar <= 64 && bar.screen >= 220 && bar.fits && bar.links === 'none' && !bar.scrollX && open.links && open.share, JSON.stringify({ ...bar, open }));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // on a phone the Ctrl K box opened over the app bar's Ask Claude and Menu. It opens under the bar,
   // on screen, and both buttons stay uncovered (the button itself is what is at its centre)
@@ -14335,7 +15480,7 @@ async function phoneChatChecks(browser, base, check) {
     });
     check(`Ctrl K box on a phone (${label}): it opens on screen, under the app bar: Ask Claude and Menu are not covered`,
       box.open && box.inView && box.ask !== 'covered' && box.menu !== 'covered' && box.focus === 'cmdInput', JSON.stringify(box));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // a wide page keeps its layout: the card on the right, the bezel and the whole picture
   {
@@ -14347,7 +15492,7 @@ async function phoneChatChecks(browser, base, check) {
     const wide = await page.evaluate(() => ({ phone: document.body.classList.contains('chat-phone'), help: document.getElementById('claudeHelp').textContent,
       crop: document.getElementById('screen').getBoundingClientRect().width > document.querySelector('.tube').getBoundingClientRect().width }));
     check('phone chat: on a wide page none of it applies: the help line says "on the right", the whole picture shows', !wide.phone && /add one on the right/.test(wide.help) && !wide.crop, JSON.stringify(wide));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 }
 
@@ -14500,7 +15645,7 @@ async function emulatorBackChecks(browser, base, check) {
     }
   }
   check('emulator back: no page errors', !errors.length, errors.join('; '));
-  await ctx.close();
+  await closeCtx(ctx);
 }
 
 // The controls under the screen stay put on a first visit. #screenNotes is one line of fixed height with one note
@@ -14564,7 +15709,7 @@ async function foldChecks(browser, base, check) {
     check(`${L}: a returning visit: the sound note appears, then the empty line; Reset does not move and stays inside the window`,
       r0.sound && r0.text.length === 1 && r0.text[0] === NOTE_TEXT.sound && r1.text.length === 0 && r1.notesShown && r0.resetY === r1.resetY && r0.resetBottom <= r0.vh, JSON.stringify({ r0, r1 }));
     check(`${L}: no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   };
   for (const [w, h] of [[1280, 720], [1366, 768], [1440, 900]]) await run(`${w}x${h}`, { width: w, height: h }, '');
   // any model: the same on each family at one size
@@ -14605,7 +15750,7 @@ async function noteFitChecks(browser, base, check) {
     if (shotDir) await page.screenshot({ path: path.join(shotDir, `note-fit-${w}x${h}.png`) });
     check(`${L}: Reset's y is the same for both notes`, a.resetY === b.resetY, `${a.resetY} vs ${b.resetY}`);
     check(`${L}: no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // the chat's focus pill fits on its line at the desktop sizes
   for (const [w, h] of [[1280, 720], [1366, 657], [1440, 900]]) {
@@ -14617,7 +15762,7 @@ async function noteFitChecks(browser, base, check) {
     await page.focus('#screen');
     const p = await page.evaluate(() => { const e = document.getElementById('focusHint'); return { shown: getComputedStyle(e).display !== 'none', sw: e.scrollWidth, cw: e.clientWidth, sh: e.scrollHeight, ch: e.clientHeight }; });
     check(`note fit (${w}x${h}): the chat focus pill fits whole`, p.shown && p.sw <= p.cw && p.sh <= p.ch && p.ch <= 28, JSON.stringify(p));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // a touch screen: no notes line
   const tctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, serviceWorkers: 'block' });
@@ -14626,7 +15771,7 @@ async function noteFitChecks(browser, base, check) {
   await emuFrames(tpage, 3);
   const th = await tpage.evaluate(() => ({ display: getComputedStyle(document.getElementById('screenNotes')).display, h: document.getElementById('screenNotes').getBoundingClientRect().height }));
   check('note fit (390x844 touch): #screenNotes is hidden', th.display === 'none' && th.h === 0, JSON.stringify(th));
-  await tctx.close();
+  await closeCtx(tctx);
 }
 
 // Esc in the full-screen chat escalates. On the chat screen it is BREAK while a reply streams (it stops the reply)
@@ -14715,7 +15860,7 @@ async function escChatChecks(browser, base, check) {
   await page.keyboard.press('Escape');
   check(`${L}: on the emulator, Esc on the screen is still the machine's BREAK`, await waitFor(page, () => window.__reached.length > 0));
   check(`${L}: no page errors`, !errors.length, errors.join('; '));
-  await ctx.close();
+  await closeCtx(ctx);
 }
 
 // The browser's Back from a view is the same as "← Emulator" and Esc: the focus lands on the screen (also when the Ask
@@ -14787,7 +15932,7 @@ async function backFocusChecks(browser, base, check) {
   check('back focus: …and closing the view still reopens the Ask panel on the conversation (the pending reopen was kept)', await onEmulator() && await waitFor(page, (mark) => { const a = document.getElementById('ask'); return !a.hidden
     && window.emu.session.claudeView === 'panel' && document.getElementById('askMessages').textContent.includes(mark); }, MARK), await focusId());
   check('back focus: no page errors', !errors.length, errors.join('; '));
-  await ctx.close();
+  await closeCtx(ctx);
 }
 
 async function claudeChecks(browser, base, check) {
@@ -14961,7 +16106,7 @@ async function claudeChecks(browser, base, check) {
   await page.click('#btnClaudeKeyForget');
   check('claude: Forget key removes it from this browser; the key form comes back', await page.evaluate(() => !localStorage.getItem('cloadm.anthropicKey') && !document.getElementById('claudeKeyCard').hidden));
   check('claude: no page errors', !errors.length, errors.join('; '));
-  await ctx.close();
+  await closeCtx(ctx);
 }
 
 async function settingsChecks(browser, base, check) {
@@ -15013,8 +16158,8 @@ async function settingsChecks(browser, base, check) {
   check('settings: a file that isn\'t CLOADM settings is refused', await waitFor(p2, () => /not a CLOADM settings file/.test(document.getElementById('toast').textContent)));
   fs.rmSync(file);
   check('settings: no page errors', !errors.length, errors.join('; '));
-  await ctx2.close();
-  await ctx.close();
+  await closeCtx(ctx2);
+  await closeCtx(ctx);
 }
 
 // The Share screen's job (send this exact moment): on a 375x548 phone the primary action and the link are on
@@ -15036,12 +16181,318 @@ async function shareScreenChecks(browser, base, check) {
   await waitFor(page, () => !document.getElementById('share').hidden && !!document.getElementById('shareLink').value);
   const first = await page.evaluate(() => {
     const r = (id) => document.getElementById(id).getBoundingClientRect(), vis = (b) => b.top >= 0 && b.bottom <= innerHeight && b.left >= 0 && b.right <= innerWidth && b.width > 0;
-    return { tops: ['shareHeading', 'sharePicture', 'shareTitle', 'shareNote', 'shareRom', 'shareLink', 'btnShareCopy'].map((i) => `${i}:${Math.round(r(i).top)}-${Math.round(r(i).bottom)}`).join(' '), bottom: Math.round(r('btnShareCopy').bottom), native: vis(r('btnShareNative')), copy: vis(r('btnShareCopy')), url: vis(r('shareLink')), h: document.documentElement.scrollHeight, vh: innerHeight,
-      pic: r('sharePicture').height, closed: ['shareMore', 'shareEmbed'].every((id) => !document.getElementById(id).open) };
+    // the first screen is the whole moment and one Copy: the picture, what the link opens, and the primary button (with
+    // the long link one tap away, not shown until taps fall back or "More ways to share" opens)
+    return { tops: ['shareHeading', 'sharePicture', 'shareTitle', 'shareNote', 'shareRom', 'btnShareCopy', 'previewSwitch'].map((i) => `${i}:${Math.round(r(i).top)}-${Math.round(r(i).bottom)}`).join(' '), bottom: Math.round(r('btnShareCopy').bottom), native: vis(r('btnShareNative')), copy: vis(r('btnShareCopy')),
+      note: document.getElementById('shareNote').textContent,
+      // innerText, not textContent: a hidden prefix is not shown. The caption's two spans are flex items (blockified),
+      // so innerText puts a newline between them; whitespace runs are collapsed to the one space a person sees.
+      cap: document.getElementById('shareTitle').innerText.replace(/\s+/g, ' ').trim(), sw: vis(r('previewSwitch')),
+      h: document.documentElement.scrollHeight, vh: innerHeight,
+      pic: r('sharePicture').height, closed: ['shareMore', 'shareEmbed'].every((id) => !document.getElementById(id).open),
+      longOpen: document.getElementById('shareMore').open, fieldShown: vis(r('shareLink')) };
   });
   if (shotDir) await page.screenshot({ path: path.join(shotDir, 'share-r33-375x548.png') });
-  check('share screen (375x548): on open the Share… button, Copy link and the URL are inside the viewport', first.native && first.copy && first.url, JSON.stringify(first));
+  check('share screen (375x548): on open, the primary Copy link and the preview switch are inside the viewport, the long link is folded away',
+    first.copy && first.sw && !first.longOpen && !first.fieldShown, JSON.stringify(first));
+  check('share screen (375x548): the clarity copy is the fixed wording, exactly, and the caption is prefixed "What they\'ll see first · " with no " · CLOADM"',
+    first.note === 'Opens a copy of this Dragon 64 exactly as it is now: the screen, the program and everything in memory, including anything you typed. Changes you make later aren\'t in it.'
+    && first.cap === "What they'll see first · Dragon 64", JSON.stringify({ note: first.note, cap: first.cap }));
   check('share screen (375x548): with the disclosures closed the page is at most 1.5 screens tall, the preview at most 30vh', first.closed && first.h <= first.vh * 1.5 && first.pic <= first.vh * 0.3 + 1, JSON.stringify(first));
+  // the long link's Copy button, wholly inside the viewport at the sizes the page supports. A width sweep, because the
+  // share screen is two columns above 860px and one below, and the short-link section made the two-column first screen
+  // taller: at 861x600 the Copy button fell 53px below the fold (main bc0c586 fitted: 506 of 600).
+  // 653x280 is deliberately NOT here: that is a separate layout item (a compact short-landscape Share screen), already
+  // over on main before this branch (363 of 280) and 442 of 280 after it.
+  for (const [label, size] of [['375x548', { width: 375, height: 548 }], ['861x600', { width: 861, height: 600 }],
+    ['1024x640', { width: 1024, height: 640 }], ['1280x720', { width: 1280, height: 720 }]]) {
+    const sc = await browser.newContext({ viewport: size, serviceWorkers: 'block' });
+    const sp = await sc.newPage();
+    await sp.goto(`${base}?machine=dragon64#share`);
+    await waitFor(sp, () => !document.getElementById('share').hidden && !!document.getElementById('shareLink').value);
+    const fit = await sp.evaluate(() => {
+      const b = document.getElementById('btnShareCopy').getBoundingClientRect();
+      // what a person sees, not just a rect: the caption is anchored to the picture (a missing positioned ancestor sent
+      // it to the viewport's bottom edge, where its bar covered the Copy button), and the button itself is hit-testable
+      const frame = document.querySelector('#share .preview').getBoundingClientRect(), cap = document.querySelector('#share figcaption').getBoundingClientRect();
+      const btn = document.getElementById('btnShareCopy'), hit = document.elementFromPoint((b.left + b.right) / 2, (b.top + b.bottom) / 2);
+      return { top: Math.round(b.top), bottom: Math.round(b.bottom), vh: innerHeight, shown: btn.checkVisibility(),
+        label: btn.textContent.trim(), disabled: btn.disabled,
+        captionInFrame: cap.top >= frame.top - 1 && cap.bottom <= frame.bottom + 1 && cap.left >= frame.left - 1 && cap.right <= frame.right + 1,
+        onTop: !!hit && (hit === btn || btn.contains(hit)) };
+    });
+    if (shotDir) await sp.screenshot({ path: path.join(shotDir, `share-copy-${label}.png`) });
+    check(`share screen (${label}): the primary Copy link is wholly inside the viewport, enabled, and named for what it does`,
+      fit.shown && fit.top >= 0 && fit.bottom <= fit.vh && !fit.disabled && fit.label === 'Copy link', JSON.stringify(fit));
+    // A real margin, not a few pixels. CI's Linux Chromium wraps #shareNote one line more than a Mac (+19px measured
+    // on both a window's scrollHeight and that paragraph). The note is 4 lines on a Mac here, so CI may wrap it to 5:
+    // the allowance below is the Mac bottom + 19, and the check is that CI-PREDICTED headroom (549 - (bottom + 19)) is
+    // at least 16px, so this holds on the Mac and in CI. (docs/development.md: "Measuring a check's failure rate".)
+    if (size.width === 375) check(`share screen (${label}): Copy keeps at least 16px of CI-predicted headroom above the fold`,
+      fit.vh - (fit.bottom + 19) >= 16, JSON.stringify(Object.assign({ predicted: fit.bottom + 19 }, fit)));
+    // the caption belongs to the picture, and the button is what the pointer lands on (not a bar over it)
+    check(`share screen (${label}): the caption sits inside the picture, and the Copy button is not covered`,
+      fit.captionInFrame && fit.onTop, JSON.stringify(fit));
+    await sc.close();
+  }
+  // a moment a guardrail forbids encoding at all: Session.shareFile refuses, so the Share view opens with Copy dark and
+  // the reason inline (js/ui/share.js, capture's `refusal`). Forced here by making shareFile throw, the way its own
+  // stripRoms refusal does; the real one is NitrOS-9, which offers its own link instead and is checked in the nitros9 group.
+  {
+    const sc = await browser.newContext({ viewport: { width: 1280, height: 800 }, serviceWorkers: 'block' });
+    const sp = await sc.newPage();
+    const serr = [];
+    sp.on('pageerror', (e) => serr.push(e.message));
+    await sp.goto(`${base}?machine=dragon64`);
+    await linkIn(sp);
+    await sp.evaluate(() => { window.emu.session.shareFile = async () => { throw new Error('This snapshot can\'t be shared: a guardrail refused it.'); }; });
+    await sp.evaluate(() => document.getElementById('btnShare').click());
+    await waitFor(sp, () => document.getElementById('share').checkVisibility(), null, 15000);
+    const g = await sp.evaluate(() => { const b = document.getElementById('btnShareCopy'), cs = getComputedStyle(b);
+      return { disabled: b.disabled, hasAttr: b.hasAttribute('disabled'), opacity: parseFloat(cs.opacity), cursor: cs.cursor,
+        note: document.getElementById('shareNote').textContent,
+        why: document.getElementById('primaryWhy').textContent, whyShown: document.getElementById('primaryWhy').checkVisibility(),
+        terms: document.getElementById('shortTerms').checkVisibility(), sw: document.getElementById('previewSwitch').checkVisibility(), native: document.getElementById('btnShareNative').hidden }; });
+    // the reason is said ONCE, inline under Copy: #shareNote is empty, #primaryWhy holds it, and the
+    // button is really disabled — the attribute, and the page's disabled look (opacity under 1, as every disabled button)
+    check('one link: a moment a guardrail forbids encoding: Copy carries `disabled` and a disabled look, and the reason is said once, inline',
+      g.disabled && g.hasAttr && g.opacity < 1 && g.cursor === 'default'
+      && g.note === '' && /guardrail refused/.test(g.why) && g.whyShown && !g.terms && !g.sw && g.native && !serr.length, JSON.stringify(g));
+    await sc.close();
+  }
+
+  // "Always use long links": remembered in this browser; with it on, the tap copies the long link and the note says so,
+  // and it survives a reload
+  const al = await browser.newContext({ viewport: { width: 1280, height: 800 }, serviceWorkers: 'block', permissions: ['clipboard-read', 'clipboard-write'] });
+  const alp = await al.newPage();
+  alp.on('pageerror', (e) => errors.push(e.message));
+  await alp.goto(`${base}?machine=dragon64#share`);
+  await started(alp);
+  await waitFor(alp, () => !!document.getElementById('shareLink').value);
+  const openMore = (pp) => pp.evaluate(() => { const d = document.getElementById('shareMore'); d.open = true; d.querySelector(':scope > :not(summary)').hidden = false; });
+  await openMore(alp);
+  await alp.check('#shareAlwaysLong');
+  await alp.click('#btnShareCopy');
+  const alwaysClip = await alp.evaluate(() => navigator.clipboard.readText().catch(() => ''));
+  const alwaysNote = await alp.evaluate(() => ({ long: document.getElementById('longNote').textContent, note: document.getElementById('primaryNote').textContent, field: document.getElementById('shareLink').value }));
+  check('one link: "Always use long links": the tap copies the short link never, the long one, and both notes say nothing is uploaded',
+    /#z=/.test(alwaysClip) && alwaysClip === alwaysNote.field && alwaysNote.long === 'Long link: nothing is uploaded.' && alwaysNote.note === 'Long link: nothing is uploaded.', JSON.stringify(Object.assign({}, alwaysNote, { field: alwaysNote.field.slice(0, 30) })));
+  await alp.reload();
+  await started(alp);
+  await waitFor(alp, () => !!document.getElementById('shareLink').value);
+  const afterReload = await alp.evaluate(() => ({ checked: document.getElementById('shareAlwaysLong').checked, long: document.getElementById('longNote').textContent, mode: document.getElementById('previewSwitch').checkVisibility() }));
+  check('one link: "Always use long links" survives a reload: the switch is still on, the note still says long, the short link\'s switch is not offered', afterReload.checked && afterReload.long === 'Long link: nothing is uploaded.' && !afterReload.mode, JSON.stringify(afterReload));
+  await openMore(alp);
+  await alp.uncheck('#shareAlwaysLong');
+  check('one link: "Always use long links" off again: the short link is offered once more', await waitFor(alp, () => document.getElementById('previewSwitch').checkVisibility()));
+  await closeCtx(al);
+
+  // storage that throws: the switch still works for the visit, and a tap does not fall over
+  const ctxs = await browser.newContext({ viewport: { width: 1280, height: 900 }, serviceWorkers: 'block' });
+  await ctxs.addInitScript(() => { const g = Storage.prototype.getItem, s = Storage.prototype.setItem; Storage.prototype.getItem = function (k) { if (k === 'cloadm.alwaysLongLinks') throw new Error('denied'); return g.call(this, k); }; Storage.prototype.setItem = function (k) { if (k === 'cloadm.alwaysLongLinks') throw new Error('denied'); return s.call(this, k); }; });
+  const ps = await ctxs.newPage();
+  const serrors = [];
+  ps.on('pageerror', (e) => serrors.push(e.message));
+  await ps.goto(`${base}?machine=dragon64#share`);
+  await linkIn(ps);
+  await waitFor(ps, () => !!document.getElementById('shareLink').value);
+  check('one link: localStorage that throws on the always-long key: the page still opens, and the switch reads off', await ps.evaluate(() => document.getElementById('shareAlwaysLong').checked === false && !!document.getElementById('shareLink').value) && !serrors.length, serrors.join('; '));
+  await closeCtx(ctxs);
+
+  // a clipboard that rejects: the field is shown with the link in it and selected, and the note says press Ctrl/⌘+C
+  const ctxr = await browser.newContext({ viewport: { width: 1280, height: 900 }, serviceWorkers: 'block', permissions: ['clipboard-read', 'clipboard-write'] });
+  const pr = await ctxr.newPage();
+  pr.on('pageerror', (e) => errors.push(e.message));
+  await pr.goto(`${base}?machine=dragon64#share`);
+  await linkIn(pr);
+  await waitFor(pr, () => !!document.getElementById('shareLink').value);
+  await pr.evaluate(() => { navigator.clipboard.writeText = () => Promise.reject(new Error('denied')); });
+  await pr.click('#btnShareCopy');
+  const rej = await waitFor(pr, () => /Press Ctrl\+C to copy the link/.test(document.getElementById('toastRegion').textContent), null, 10000)
+    && await pr.evaluate(() => { const f = document.getElementById('shareLink'); return f.checkVisibility() && f.selectionEnd > 0 && !f.hidden; });
+  check('one link: a clipboard that rejects: the link is shown, selected, and the note says press Ctrl/⌘+C (Copy never leaves nothing)', rej);
+  await closeCtx(ctxr);
+  // ---- the "one link" layout: a bundled program nobody has touched gives its page; once played, the moment, with its
+  // page offered in "More ways to share"; and a tap's field is visible at every size (Documented in js/ui/share.js and
+  // Session.untouchedBundledProgram; the server paths are the short-link group's, below) ----
+  for (const [label, size] of [['375x548', { width: 375, height: 548 }], ['861x600', { width: 861, height: 600 }],
+    ['1024x640', { width: 1024, height: 640 }], ['1280x720', { width: 1280, height: 720 }]]) {
+    const sc = await browser.newContext({ viewport: size, serviceWorkers: 'block', permissions: ['clipboard-read', 'clipboard-write'] });
+    const sp = await sc.newPage();
+    await sp.goto(`${base}?machine=dragon64&start=2048`);
+    await linkIn(sp);
+    await waitFor(sp, () => window.emu.session && window.emu.session.gameRunning, null, 30000);
+    // 2048 has STARTED, not drawn: the check must wait for its TITLE, or the picture (the frame at the tap) is the blank
+    // screen the first version photographed. The signal is the games group's: 2048's GETKEY counts every key poll in
+    // ENTROPY, so a frame whose count climbs by hundreds is one spent at its key wait, the title complete. Measured on
+    // this machine: reached at frame 19 (375 wide) and frame 17 (1280), and the title then carries EXACTLY four colours.
+    const ent = await sp.evaluate(async () => { const src = await (await fetch('examples/2048.asm')).text(); const files = {};
+      for (const m of src.matchAll(/^\s*INCLUDE\s+"([^"]+)"/gm)) files[m[1]] = await (await fetch(`examples/${m[1]}`)).text();
+      const a = window.emu.Emu.assemble(src, '6809', { include: (f) => files[f] }); return a.ok ? a.symbols.get('ENTROPY') : null; });
+    const wasEnt = await sp.evaluate((e) => window.emu.machine.ram[e] * 256 + window.emu.machine.ram[e + 1], ent);
+    const drawn = await waitFor(sp, ([e, b]) => ((window.emu.machine.ram[e] * 256 + window.emu.machine.ram[e + 1] - b) & 0xFFFF) > 200, [ent, wasEnt], 30000);
+    // Pause first, so exactly one frame is the one Share must capture: the RGBA of the title frame is read here, with
+    // frameToRGBA (the function the presenter itself uses), and Share then captures that frame and no other. A count of
+    // colours cannot tell a live picture from a stale one; this compares every pixel of the picture with it.
+    await sp.evaluate(() => document.getElementById('btnPause').click());
+    const framePx = await sp.evaluate(async () => {
+      const { frameToRGBA } = await import(new URL('js/video/frame.js', document.baseURI).href);
+      const px = frameToRGBA(window.emu.machine.render());
+      return { fc: window.emu.machine.frameCount, w: window.emu.machine.render().width, h: window.emu.machine.render().height, data: Array.from(px) };
+    });
+    await sp.evaluate(() => { location.hash = '#share'; });
+    await waitFor(sp, () => !!document.getElementById('shareLink').value, null, 15000);
+    const ut = await sp.evaluate((framePx) => {
+      const b = document.getElementById('btnShareCopy').getBoundingClientRect(), hit = document.elementFromPoint((b.left + b.right) / 2, (b.top + b.bottom) / 2), btn = document.getElementById('btnShareCopy');
+      // the picture IS the frame that was on the screen at the tap: every pixel compared with frameToRGBA's output for
+      // it. frameToRGBA packs one Uint32 per pixel (0xFF000000 | b<<16 | g<<8 | r), so each is unpacked and compared
+      // with the canvas's four bytes. Not a colour count: a stale or earlier frame has a different picture.
+      const c = document.getElementById('sharePicture'), d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+      const n = framePx.data.length;
+      let bad = 0;
+      const sized = c.width === framePx.w && c.height === framePx.h && d.length === n * 4;
+      if (sized) for (let p = 0; p < n; p++) { const v = framePx.data[p];
+        if (d[p * 4] !== (v & 255) || d[p * 4 + 1] !== ((v >>> 8) & 255) || d[p * 4 + 2] !== ((v >>> 16) & 255) || d[p * 4 + 3] !== ((v >>> 24) & 255)) bad++; }
+      const colours = new Set(); for (let i = 0; i < d.length; i += 4) colours.add(`${d[i]},${d[i + 1]},${d[i + 2]}`);
+      return { shown: btn.checkVisibility(), bottom: Math.round(b.bottom), vh: innerHeight, onTop: !!hit && (hit === btn || btn.contains(hit)),
+        note: document.getElementById('shareNote').textContent, primaryNote: document.getElementById('primaryNote').textContent,
+        // innerText, not textContent: a hidden prefix is not shown, and textContent would still carry its words
+        cap: document.getElementById('shareTitle').innerText.replace(/\s+/g, ' ').trim(), prefixShown: document.getElementById('sharePrefix').checkVisibility(),
+        colours: colours.size, pictureIsThatFrame: sized && bad === 0, badPixels: bad, pixels: n,
+        pictureFrame: window.emu.machine.frameCount, frameCountAtPause: framePx.fc,
+        terms: document.getElementById('shortTerms').checkVisibility(), sw: document.getElementById('previewSwitch').checkVisibility(),
+        // a program page never needs ROMs: the ROM line is hidden, so "for anyone" is said once
+        rom: document.getElementById('shareRom').checkVisibility(), anyone: (document.getElementById('share').innerText.match(/for anyone/g) || []).length };
+    }, framePx);
+    await sp.evaluate(() => document.getElementById('btnPause').click());   // (resume: the rest of the block plays on)
+    if (shotDir) await sp.screenshot({ path: path.join(shotDir, `share-untouched-${label}.png`) });
+    // the program-page note, said once under the picture (the primary's own line stays empty); the caption names the
+    // program and machine with no "What they'll see first" prefix; nothing is uploaded; and the picture is that frame
+    check(`one link (${label}): a bundled program started and untouched: the primary offers its page, nothing uploaded, the picture is the frame at the tap, and the ROM line is hidden ("for anyone" said once)`,
+      ut.shown && ut.bottom <= ut.vh && ut.onTop && drawn && ut.pictureIsThatFrame && ut.colours === 4
+      && ut.note === 'Opens 2048 from the start, for anyone. The snapshot link below keeps this exact moment.'
+      && ut.primaryNote === '' && ut.cap === '2048 · Dragon 64' && !ut.prefixShown && !ut.terms && !ut.sw && !ut.rom && ut.anyone === 1, JSON.stringify(ut));
+    // the tap copies the program page, and after it the made field (here: only the program page is a link) is reachable
+    await sp.click('#btnShareCopy');
+    check(`one link (${label}): the tap copies /2048/ (the program page), nothing uploaded`,
+      /\/2048\/$/.test(await sp.evaluate(() => navigator.clipboard.readText().catch(() => ''))));
+    // played: one key, then the Share view again: the primary shares the moment, and "More ways to share" offers the page
+    await sp.evaluate(() => { location.hash = ''; });
+    await sp.waitForTimeout(200);
+    await sp.evaluate(() => window.emu.session.personInput());
+    await sp.evaluate(() => document.getElementById('btnShare').click());
+    await sp.waitForTimeout(600);
+    const played = await sp.evaluate(() => ({ terms: document.getElementById('shortTerms').checkVisibility(), note: document.getElementById('primaryNote').textContent,
+      rom: document.getElementById('shareRom').checkVisibility() && document.getElementById('shareRomFull').textContent === 'Runs without ROMs, so it opens for anyone.' }));
+    await openDisc(sp, 'shareMore');
+    await waitFor(sp, () => !document.querySelector('#shareMore > .col').hidden);   // (the toggle listener unhides the body)
+    const item = await sp.evaluate(() => { const b = document.getElementById('btnShareProgramPage'); return b ? { text: b.textContent, shown: b.checkVisibility(), href: b.dataset.href } : null; });
+    if (shotDir) await sp.screenshot({ path: path.join(shotDir, `share-played-${label}.png`) });
+    check(`one link (${label}): played (one key): the primary shares the moment, and "Link to 2048 from the start" is in More ways`,
+      played.terms && played.note === '' && played.rom && !!item && item.text === 'Link to 2048 from the start' && item.shown && /\/2048\/$/.test(item.href), JSON.stringify({ played, item }));
+    await sc.close();
+  }
+
+  // The caption one line over the picture, and the ORDER in which it gives way: " · CLOADM" is gone from every mode,
+  // then the machine (or program) name ends in "…", and the prefix "What they'll see first · " is never the part cut.
+  // Every REAL name fits at 375 (prefix 121px in a 341px caption), so measuring only a fitting caption proves nothing
+  // about the order: the order is only observable when the caption is too narrow. So the squeeze is forced for real -
+  // the name span is given a long title, and the caption a width far below what prefix+name needs - and the ORDER is
+  // read from the geometry: the prefix keeps its whole text (scrollWidth === clientWidth, its right edge not past the
+  // name's left edge), and the NAME is the span that is cut (scrollWidth > clientWidth, text-overflow: ellipsis).
+  // Then the same check on an unsqueezed 375 CoCo 3 caption, and the "no CLOADM" clause in both modes.
+  {
+    const sc = await browser.newContext({ viewport: { width: 375, height: 548 }, serviceWorkers: 'block' });
+    const sp = await sc.newPage();
+    sp.on('pageerror', (e) => errors.push(e.message));
+    await sp.goto(`${base}?machine=coco3#share`);
+    await started(sp);
+    await waitFor(sp, () => !document.getElementById('share').hidden && !!document.getElementById('shareLink').value, null, 30000);
+    const fits = await sp.evaluate(() => {
+      const pre = document.getElementById('sharePrefix'), n = document.getElementById('shareName');
+      const pr = pre.getBoundingClientRect(), nr = n.getBoundingClientRect();
+      // the separator is a MARGIN on the prefix, not a trailing space: a space at the end of a flex item collapses to
+      // nothing and the caption read "first ·CoCo 3". So what is asserted is the rendered GAP between the two spans
+      // (a person's test), not a character in the text.
+      return { text: document.getElementById('shareTitle').innerText.replace(/\s+/g, ' ').trim(), prefix: pre.textContent, name: n.textContent,
+        gap: Math.round(nr.left - pr.right), prefixScroll: pre.scrollWidth, prefixClient: pre.clientWidth,
+        prefixShown: pre.checkVisibility(), prefixFlexGrow: getComputedStyle(pre).flexGrow, prefixFlexShrink: getComputedStyle(pre).flexShrink };
+    });
+    if (shotDir) await sp.screenshot({ path: path.join(shotDir, 'share-caption-375-coco3.png') });
+    check("share screen (375x548, CoCo 3): the caption reads \"What they'll see first · CoCo 3\" whole — the words, the rendered gap between them (>= 3px), no ' · CLOADM', and an untruncated unshrinkable prefix",
+      fits.prefixShown && fits.prefix === "What they'll see first ·" && /^What they'll see first ·\s*CoCo 3$/.test(fits.text) && fits.gap >= 3
+      && fits.prefixScroll <= fits.prefixClient && fits.prefixFlexGrow === '0' && fits.prefixFlexShrink === '0', JSON.stringify(fits));
+    // THE SQUEEZE: a long name and a caption too narrow for both. What gives way must be the NAME, in that order.
+    const sq = await sp.evaluate(() => {
+      const n = document.getElementById('shareName'), pre = document.getElementById('sharePrefix'), t = document.getElementById('shareTitle');
+      n.textContent = 'Prológica CP-400 Professional';           // a long, real-looking machine name
+      const cap = document.querySelector('#share figcaption');
+      cap.style.width = '150px'; t.style.width = '150px'; n.style.width = '';   // far below prefix (121px) + this name
+      const nr = n.getBoundingClientRect(), pr = pre.getBoundingClientRect();
+      const cs = getComputedStyle(n);
+      return { prefix: pre.textContent, prefixScroll: pre.scrollWidth, prefixClient: pre.clientWidth,
+        prefixRight: Math.round(pr.right), nameLeft: Math.round(nr.left), gap: Math.round(nr.left - pr.right),
+        nameScroll: n.scrollWidth, nameClient: n.clientWidth, nameEllipsis: cs.textOverflow,
+        text: t.innerText.replace(/\s+/g, ' ').trim(), capWidth: Math.round(document.querySelector('#share figcaption').getBoundingClientRect().width) };
+    });
+    if (shotDir) await sp.screenshot({ path: path.join(shotDir, 'share-caption-squeezed-375.png') });
+    check('share screen (375x548, squeezed to 150px): the prefix keeps ALL its text and the NAME is the span that is cut — the order the caption gives way in, observed (not just its style values)',
+      sq.capWidth <= 160 && sq.prefixScroll === sq.prefixClient && sq.prefixRight <= sq.nameLeft + 1 && sq.gap >= 3
+      && sq.nameScroll > sq.nameClient && sq.nameEllipsis === 'ellipsis' && !/CLOADM/.test(sq.text), JSON.stringify(sq));
+    // the program page's caption names the program and machine, with no prefix and no CLOADM
+    await sp.evaluate(() => { location.hash = ''; });
+    await sp.evaluate(() => document.getElementById('shareBack').click());
+    await sc.close();
+  }
+
+  // The KILL SWITCH, locally: s.cloadm.dev answers /api/new with the Worker's own 503 (its exact status and JSON
+  // error), fulfilled here with route.fulfill - never route.fetch, which is what makes the shortLink group unrunnable
+  // on a host that cannot reach the real Worker. The spec's behaviour is the same as any failure: the tap copies the
+  // LONG link, its field opens, and the reason says short links aren't available in the page's own words (never the
+  // server's). A tap is async, so the finished state is waited for, not read straight after the click.
+  {
+    const sc = await browser.newContext({ viewport: { width: 1280, height: 900 }, serviceWorkers: 'block', permissions: ['clipboard-read', 'clipboard-write'] });
+    await sc.route('https://s.cloadm.dev/**', (route) => {
+      const u = new URL(route.request().url());
+      if (u.pathname === '/api/new') return route.fulfill({ status: 503, headers: { 'content-type': 'application/json', 'access-control-allow-origin': '*' },
+        body: JSON.stringify({ error: 'New short links are switched off for now. The long link still works.' }) });
+      return route.fulfill({ status: 404, headers: { 'access-control-allow-origin': '*' }, body: 'no' });
+    });
+    const sp = await sc.newPage();
+    sp.on('pageerror', (e) => errors.push(e.message));
+    await sp.goto(`${base}?machine=dragon64#share`);
+    await started(sp);
+    await waitFor(sp, () => !!document.getElementById('shareLink').value);
+    await sp.click('#btnShareCopy');
+    // BOUNDED and failing on timeout, as in the shortLink group: waitFor records its own FAIL when the state never
+    // comes, and `landed` is required below too. Never a skip, never a pass on a state that did not arrive.
+    const landed = await waitFor(sp, () => /Short links aren't available right now/.test(document.getElementById('primaryWhy').textContent)
+      && document.getElementById('shareMore').open, null, 20000);
+    const kill = await sp.evaluate(async () => ({ why: document.getElementById('primaryWhy').textContent,
+      whyShown: document.getElementById('primaryWhy').checkVisibility(), longOpen: document.getElementById('shareMore').open,
+      made: !document.getElementById('shortMade').hidden, field: document.getElementById('shareLink').value,
+      clip: await navigator.clipboard.readText().catch(() => ''), toast: document.getElementById('toastRegion').textContent.trim() }));
+    if (shotDir) await sp.screenshot({ path: path.join(shotDir, 'share-kill-switch.png') });
+    check('share screen: the kill switch (a 503 from s.cloadm.dev): the tap copies the LONG link, its field opens, and the reason is the page\'s, not the server\'s',
+      landed && /#z=/.test(kill.clip) && kill.clip === kill.field && kill.why === "Short links aren't available right now, so this is the long link: it works without any server."
+      && kill.whyShown && kill.longOpen && !kill.made && !/switched off/i.test(kill.why + kill.toast), JSON.stringify(Object.assign({}, kill, { clip: kill.clip.slice(0, 40), field: kill.field.slice(0, 40) })));
+    await closeCtx(sc);
+  }
+
+  // a tap whose short-link server is unreachable (no route here): the field it copied into is shown, at 375 where it matters
+  {
+    const sc = await browser.newContext({ viewport: { width: 375, height: 548 }, serviceWorkers: 'block', permissions: ['clipboard-read', 'clipboard-write'] });
+    const sp = await sc.newPage();
+    await sp.goto(`${base}?machine=dragon64#share`);
+    await linkIn(sp);
+    await waitFor(sp, () => !!document.getElementById('shareLink').value);
+    await sp.click('#btnShareCopy');
+    const fv = await waitFor(sp, () => document.getElementById('shareMore').open && !document.querySelector('#shareMore > .col').hidden, null, 15000)
+      && await sp.evaluate(() => { const f = document.getElementById('shareLink').getBoundingClientRect(); return { shown: document.getElementById('shareLink').checkVisibility(), top: Math.round(f.top), w: Math.round(f.width) }; });
+    check('one link (375x548): after a tap that fell back, the made field (the long link) is visible', !!fv && fv.shown && fv.w > 100, JSON.stringify(fv));
+    await sc.close();
+  }
+
   // the disclosures
   const open = (id) => page.evaluate((i) => document.getElementById(i).open, id);
   const toggles = [];
@@ -15065,17 +16516,20 @@ async function shareScreenChecks(browser, base, check) {
   await page.click('#btnEmbedFrameCopy'); await page.click('#btnEmbedScriptCopy');
   check('share screen: both embed Copy buttons are reachable (and the embed heading stays in the outline)', await page.isVisible('#btnEmbedFrameCopy') && await page.isVisible('#btnEmbedScriptCopy')
     && await page.evaluate(() => document.querySelector('#embedHeading').tagName === 'H2'));
-  // Share…: the URL only; a cancelled sheet is not an error
+  // Share…: the URL only (with no short link made and nothing untouched, that is the long link); a cancelled sheet is not an error
   const link = await page.inputValue('#shareLink');
   await page.click('#btnShareNative');
   const shared = await page.evaluate(() => window.__shared.slice());
-  check('share screen: Share… calls navigator.share with { url } and nothing else', shared.length === 1 && JSON.stringify(Object.keys(shared[0])) === '["url"]' && shared[0].url === link, JSON.stringify(shared).slice(0, 120));
+  check('share screen: Share… calls navigator.share with { url } and nothing else, the long link', shared.length === 1 && JSON.stringify(Object.keys(shared[0])) === '["url"]' && shared[0].url === link, JSON.stringify(shared).slice(0, 120));
   await page.evaluate(() => { window.__abort = true; });
   await page.click('#btnShareNative');
   await painted(page);
   check('share screen: cancelling the share sheet (AbortError) shows no error', (await page.evaluate(() => window.__shared.length)) === 2 && !(await page.textContent('#toastText')).trim() && !errors.length, errors.join('; '));
-  await ctx.close();
-  // Copy link, the primary action: the clipboard holds exactly the link in the field, and the page says so
+  await closeCtx(ctx);
+  // Copy link, the primary action, where a tap can make the short link: the clipboard holds exactly the short link in
+  // the field, and the page says "Short link copied". (No server is reachable from this page, so the store's own answer
+  // is the failure the fallback covers; here the moment is a long-link moment only if the short link can't be made.
+  // The short-link group below runs the real Worker in Node for the successful path.)
   const ctxc = await browser.newContext({ viewport: { width: 375, height: 548 }, serviceWorkers: 'block', permissions: ['clipboard-read', 'clipboard-write'] });
   const pc = await ctxc.newPage();
   const cerrors = [];
@@ -15084,12 +16538,23 @@ async function shareScreenChecks(browser, base, check) {
   await started(pc);
   await waitFor(pc, () => !!document.getElementById('shareLink').value);
   await pc.click('#btnShareCopy');
+  // the tap is async (a short link is sealed and stored): wait for its toast, then read what it copied. (waitFor
+  // returns true/false, not the predicate's value: the text is read separately, or every branch would see `true`.)
+  await waitFor(pc, () => /Short link copied|Long link copied|Press Ctrl\+C/.test(document.getElementById('toastRegion').textContent), null, 20000);
+  const toast = (await pc.textContent('#toastRegion')).trim();
   const copied = await pc.evaluate(() => navigator.clipboard.readText());
-  check('share screen: Copy link puts exactly the link in the field on the clipboard, and says "Share link copied"',
-    copied.length > 20 && copied === await pc.inputValue('#shareLink') && await waitFor(pc, () => /Share link copied/.test(document.getElementById('toastRegion').textContent)), `${copied.length} chars`);
+  if (/Long link copied|Press Ctrl\+C/.test(toast || '')) {
+    // no short-link server is reachable from this context: the tap copied the long link, and the note says why
+    check('share screen: the primary Copy link falls back to the long link when the short link can\'t be made, and the note says why',
+      /^Short links aren't available right now/.test(await pc.textContent('#primaryWhy')) && copied === await pc.inputValue('#shareLink') && /#z=/.test(copied)
+      && await pc.evaluate(() => document.getElementById('shareMore').open), `${toast} · ${copied.length} chars`);
+  } else {
+    check('share screen: the primary Copy link puts the short link in the field on the clipboard, and says "Short link copied"',
+      copied.length > 20 && copied === await pc.inputValue('#shareShort') && /Short link copied/.test(toast),
+      `toast=${JSON.stringify(toast)} clip=${copied.length} shortField=${(await pc.inputValue('#shareShort')).length} longField=${(await pc.inputValue('#shareLink')).length} why=${JSON.stringify((await pc.textContent('#primaryWhy')).slice(0, 40))}`);
+  }
   check('share screen: Copy link: no page errors', !cerrors.length, cerrors.join('; '));
-  await ctxc.close();
-  // without canShare: Copy link is the primary button, Share… is absent
+  await closeCtx(ctxc);  // without canShare: Copy link is the primary button, Share… is absent
   const ctx2 = await browser.newContext({ viewport: { width: 375, height: 548 }, serviceWorkers: 'block' });
   await ctx2.addInitScript(() => { navigator.canShare = () => false; });
   const p2 = await ctx2.newPage();
@@ -15098,14 +16563,261 @@ async function shareScreenChecks(browser, base, check) {
   await p2.goto(`${base}?machine=dragon64#share`);
   await started(p2);
   await waitFor(p2, () => !!document.getElementById('shareLink').value);
-  check('share screen: where canShare is false, Copy link is the primary button and Share… is not shown', await p2.isHidden('#btnShareNative') && await p2.evaluate(() => document.getElementById('btnShareCopy').classList.contains('primary')));
+  // where canShare says no, Share… is absent and the primary Copy link is still there (the moment's own form, whichever
+  // it is: a short link it will make, or the long link offline). Offline, the note says the long link is what taps give.
+  const shortPrimary = await p2.evaluate(() => document.getElementById('btnShareCopy').classList.contains('primary') && !document.getElementById('btnShareNative').hidden === false);
+  await ctx2.setOffline(true);
+  await p2.evaluate(() => window.dispatchEvent(new Event('offline')));
+  const offlineLong = await waitFor(p2, () => /^You're offline, so this is the long link/.test(document.getElementById('primaryWhy').textContent));
+  await ctx2.setOffline(false);
+  check('share screen: where canShare is false, Share… is not shown and Copy link is the primary; offline the note says the tap gives the long link',
+    await p2.isHidden('#btnShareNative') && shortPrimary && offlineLong, JSON.stringify({ offline: await p2.textContent('#primaryWhy') }));
   // the settings file lives on the Machine tab now
   await p2.click('#shareBack');
   await openTab(p2, 'Machine');
   check('share screen: Export… and Import… are on the Machine tab, in a "Settings file" row', await p2.isVisible('#btnSettingsExport') && await p2.isVisible('#btnSettingsImport')
     && /^Settings file/.test(await p2.textContent('#settingsFileRow')));
   check('share screen: no page errors', !errors.length && !p2errors.length, errors.concat(p2errors).join('; '));
-  await ctx2.close();
+  await closeCtx(ctx2);}
+
+// an indexed PNG (colour type 3, 4 or 8 bits, filters 0 and 2: what js/media/png.js writes) decoded with Node's zlib,
+// not the project's code -> { width, height, rgb: [r, g, b] strings, one per pixel }
+function decodeIndexedPng(buf) {
+  let o = 8, ihdr, plte; const idat = [];
+  while (o < buf.length) {
+    const len = buf.readUInt32BE(o), type = buf.toString('latin1', o + 4, o + 8), data = buf.subarray(o + 8, o + 8 + len);
+    if (type === 'IHDR') ihdr = data; else if (type === 'PLTE') plte = data; else if (type === 'IDAT') idat.push(data);
+    o += 12 + len;
+  }
+  const width = ihdr.readUInt32BE(0), height = ihdr.readUInt32BE(4), depth = ihdr[8], stride = Math.ceil(width * depth / 8);
+  const raw = zlib.inflateSync(Buffer.concat(idat)), rgb = new Array(width * height);
+  let prev = Buffer.alloc(stride);
+  for (let y = 0; y < height; y++) {
+    const f = raw[y * (stride + 1)], line = Buffer.from(raw.subarray(y * (stride + 1) + 1, (y + 1) * (stride + 1)));
+    if (f === 2) for (let i = 0; i < stride; i++) line[i] = (line[i] + prev[i]) & 0xFF;
+    else if (f !== 0) throw new Error(`PNG filter ${f}`);
+    for (let x = 0; x < width; x++) { const v = depth === 8 ? line[x] : (line[x >> 1] >> (x & 1 ? 0 : 4)) & 0xF; rgb[y * width + x] = `${plte[v * 3]},${plte[v * 3 + 1]},${plte[v * 3 + 2]}`; }
+    prev = line;
+  }
+  return { width, height, rgb };
+}
+
+// The Share screen's layouts (the share group). A short landscape screen (a phone on its side, at most 420px tall) has
+// its own: two columns under the header, the picture on the left (at most 40% of the width, 30% under 300px of
+// height, never hidden, its caption one line under it) and a right column that scrolls on its own: the heading, Copy
+// (+ Share…), the ROM line in one line, the cloadm.dev note, the picture switch, the made link + QR, the note, then
+// "More ways to share" and "Embed in a web page". Checked at the four short landscape sizes, 740x360, and an upright
+// phone (390x844), each in four states: no ROMs with the short link on (a store that answers), ROMs needed (the long
+// link), short links off ("Always use long links") and failing (the server's 503). In each: at scroll 0, Copy and the
+// ROM line's first line are wholly on screen; no sideways scroll; the preview at least 120px wide; Copy and Share… at
+// least 44px tall; the tab order goes the back link -> Copy -> the disclosures; after a tap the field it made is on
+// screen, focused and not covered (with the short link on, Copy, that field and the ROM line are all on the first
+// screen); every disclosure is reachable and opens. Then on a desktop: Save picture and Save clip beside Copy (under
+// "More ways to share" elsewhere), the picture filling its frame at 861x600 and 1024x640, and "Save picture" is the
+// share card of the captured frame, pixel for pixel.
+async function shareLayoutChecks(browser, base, check) {
+  const ours = Buffer.concat(['liza.bin', 'welcome.bin', 'demo.bin', 'chat.bin'].map((f) => fs.readFileSync(path.join(ROOT, 'examples', f))));
+  // stand-ins for the person's own ROMs, made from this project's firmware (never real ROMs)
+  const standIn = (seed) => [...Array(0x4000)].map((_, i) => ours[(i * 3 + seed) % ours.length] ^ ((i >> 8) + seed) & 0xFF);
+  const roms = { basic: standIn(101), basic64: standIn(138) };
+  const SIZES = [[653, 280], [568, 320], [667, 375], [740, 360], [844, 390], [390, 844]];
+  const STATES = ['no ROMs, short on', 'ROMs needed', 'short off', 'short failing'];
+  for (const [w, h] of SIZES) for (const state of STATES) {
+    const label = `${w}x${h}, ${state}`, errors = [];
+    const ctx = await browser.newContext({ viewport: { width: w, height: h }, serviceWorkers: 'block', acceptDownloads: true, permissions: ['clipboard-read', 'clipboard-write'] });
+    await ctx.addInitScript((off) => {
+      // a browser with a share sheet (so Share… is shown beside Copy), and "Always use long links" for the off state
+      navigator.canShare = (d) => !!d && typeof d.url === 'string';
+      navigator.share = async () => {};
+      if (off) try { localStorage.setItem('cloadm.alwaysLongLinks', '1'); } catch (e) { /* (the check below would say) */ }
+    }, state === 'short off');
+    await ctx.route('https://s.cloadm.dev/**', (route) => {
+      const u = new URL(route.request().url()), cors = { 'access-control-allow-origin': '*', 'content-type': 'application/json' };
+      if (u.pathname === '/api/new' && state === 'no ROMs, short on') return route.fulfill({ status: 200, headers: cors, body: JSON.stringify({ id: 'Ab3dEf7h', deleteToken: 'token' }) });
+      if (u.pathname === '/api/new') return route.fulfill({ status: 503, headers: cors, body: JSON.stringify({ error: 'New short links are switched off for now. The long link still works.' }) });
+      return route.fulfill({ status: 404, headers: cors, body: '{}' });
+    });
+    const page = await ctx.newPage();
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto(`${base}?machine=dragon64`);
+    await linkIn(page);
+    await waitFor(page, () => window.emu.session.welcomeRunning && window.emu.session.screenText()[14].includes('PRESS'), null, 60000);
+    if (state === 'ROMs needed') await page.evaluate(async (r) => { const s = window.emu.session; for (const [k, v] of Object.entries(r)) s.roms.put('dragon64', k, Uint8Array.from(v), `${k}.rom`); s.switchMachine('dragon64'); await s.index.settled(); }, roms);
+    await page.evaluate(() => document.getElementById('btnShare').click());
+    await waitFor(page, () => document.getElementById('share').checkVisibility() && !!document.getElementById('shareLink').value, null, 30000);
+    await page.evaluate(() => document.fonts.ready);
+    await painted(page);
+    const first = await page.evaluate(() => {
+      const side = document.getElementById('shareSide'), sb = side.getBoundingClientRect(), own = getComputedStyle(side).display !== 'contents';
+      // wholly on screen: in the viewport and, where the right column scrolls on its own, inside it
+      const whole = (b) => b.width > 0 && b.top >= (own ? sb.top : 0) - 0.5 && b.bottom <= (own ? Math.min(sb.bottom, innerHeight) : innerHeight) + 0.5 && b.left >= 0 && b.right <= innerWidth + 0.5;
+      const rom = document.getElementById('shareRom'), brief = document.getElementById('shareRomBrief'), full = document.getElementById('shareRomFull');
+      const shown = getComputedStyle(brief).display !== 'none' ? brief : full, range = document.createRange();
+      range.selectNodeContents(shown);
+      const line = range.getClientRects()[0];
+      const copy = document.getElementById('btnShareCopy'), native = document.getElementById('btnShareNative'), pre = document.querySelector('#share > .preview');
+      const short = innerWidth > innerHeight && innerHeight <= 420;
+      return { short, scroll0: scrollY === 0 && side.scrollTop === 0, copy: whole(copy.getBoundingClientRect()), romLine: !!line && whole(line),
+        copyH: Math.round(copy.getBoundingClientRect().height), nativeShown: native.checkVisibility(), nativeH: Math.round(native.getBoundingClientRect().height),
+        preview: Math.round(pre.getBoundingClientRect().width), previewShown: document.getElementById('sharePicture').checkVisibility() && pre.getBoundingClientRect().height > 50,
+        previewTop: Math.round(pre.getBoundingClientRect().top), previewOfWidth: pre.getBoundingClientRect().width / innerWidth,
+        sideBySide: pre.getBoundingClientRect().right <= document.querySelector('#share .col.main').getBoundingClientRect().left,
+        captionUnder: document.querySelector('#share figcaption').getBoundingClientRect().top >= document.querySelector('#share .frame').getBoundingClientRect().bottom - 0.5,
+        // one line: the caption's name and time on one row, its title no taller than one line of its text
+        captionOneLine: (() => { const t = document.getElementById('shareTitle'), lh = parseFloat(getComputedStyle(t).fontSize) * 1.6;
+          return t.getBoundingClientRect().height <= lh && Math.abs(t.getBoundingClientRect().top - document.getElementById('shareWhen').getBoundingClientRect().top) < lh; })(),
+        noSideways: document.documentElement.scrollWidth <= innerWidth && (!own || side.scrollWidth <= side.clientWidth),
+        brief: brief.textContent, briefShown: getComputedStyle(brief).display !== 'none', full: full.textContent, title: rom.title,
+        saveIn: document.getElementById('btnShareShot').parentElement.id + '/' + document.getElementById('btnShareClip').parentElement.id,
+        pageScrolls: document.documentElement.scrollHeight > innerHeight + 1, sideScrolls: own && getComputedStyle(side).overflowY === 'auto' };
+    });
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, `share-${w}x${h}-${state.replace(/[^a-z]+/gi, '-')}.png`) });
+    check(`share layout (${label}): at scroll 0, Copy and the ROM line's first line are wholly on screen; no sideways scroll`,
+      first.scroll0 && first.copy && first.romLine && first.noSideways, JSON.stringify(first));
+    check(`share layout (${label}): the preview is at least 120px wide and shown; Copy and Share… are at least 44px tall`,
+      first.preview >= 120 && first.previewShown && first.copyH >= 44 && first.nativeShown && first.nativeH >= 44, JSON.stringify(first));
+    const needs = state === 'ROMs needed';
+    check(`share layout (${label}): the ROM line says ${needs ? 'what to add' : 'it runs without ROMs'}${first.short ? ', in one line, the full sentence its title' : ''}`,
+      (needs ? /^Needs 32K-mode BASIC and 64K-mode BASIC: the person opening it adds their own\.$/.test(first.full) && first.brief === 'Needs your Dragon 64 ROMs to open.'
+        : first.full === 'Runs without ROMs, so it opens for anyone.' && first.brief === 'Runs without ROMs.') && first.title === first.full && first.briefShown === first.short,
+      JSON.stringify(first));
+    if (first.short) {
+      check(`share layout (${label}): two columns under the header, the picture on the left at most ${h < 300 ? 30 : 40}% of the width with its caption one line under it, the right column scrolling on its own, the page not`,
+        first.sideBySide && first.previewOfWidth <= (h < 300 ? 0.3 : 0.4) + 0.005 && first.captionUnder && first.captionOneLine && first.sideScrolls && !first.pageScrolls
+        && first.saveIn === 'shareSaveMore/shareSaveMore', JSON.stringify(first));
+    } else check(`share layout (${label}): an upright phone keeps one column, Save picture and Save clip under "More ways to share"`, !first.sideBySide && first.saveIn === 'shareSaveMore/shareSaveMore', JSON.stringify(first));
+    // the right column's order on a short landscape screen
+    if (first.short) {
+      const order = await page.evaluate(() => ['shareHeading', 'btnShareCopy', 'shareRom', 'shortTerms', 'previewSwitch', 'shareNote', 'shareMore', 'shareEmbed']
+        .filter((id) => document.getElementById(id).checkVisibility()).map((id) => [id, Math.round(document.getElementById(id).getBoundingClientRect().top)]));
+      check(`share layout (${label}): the right column's order: heading, Copy, ROM line, the cloadm.dev note, the picture switch, the note, More ways to share, Embed`,
+        order.every((x, i) => i === 0 || x[1] > order[i - 1][1]) && order[0][0] === 'shareHeading' && order[order.length - 1][0] === 'shareEmbed', JSON.stringify(order));
+    }
+    // the tab order, from the back link
+    const tabs = [];
+    await page.focus('#shareBack');
+    for (let i = 0; i < 30; i++) {
+      tabs.push(await page.evaluate(() => { const a = document.activeElement; return a.tagName === 'SUMMARY' ? `${a.parentElement.id}>summary` : a.id || a.tagName; }));
+      if (tabs[tabs.length - 1] === 'shareEmbed>summary') break;
+      await page.keyboard.press('Tab');
+    }
+    const at = (id) => tabs.indexOf(id);
+    check(`share layout (${label}): the tab order is the back link -> Copy -> More ways to share -> Embed`,
+      at('shareBack') === 0 && at('btnShareCopy') > 0 && at('shareMore>summary') > at('btnShareCopy') && at('shareEmbed>summary') > at('shareMore>summary'), tabs.join(' '));
+    // the tap: the field it made is on screen, focused, and what the pointer would land on (no toast over it)
+    await page.evaluate(() => { document.getElementById('shareSide').scrollTop = 0; window.scrollTo(0, 0); });
+    await page.click('#btnShareCopy');
+    const field = state === 'no ROMs, short on' ? 'shareShort' : 'shareLink';
+    const landed = await waitFor(page, (f) => document.activeElement && document.activeElement.id === f && !!document.getElementById(f).value
+      && (f === 'shareLink' || !document.getElementById('shortMade').hidden), field, 20000);
+    await painted(page);
+    const after = await page.evaluate((f) => {
+      const side = document.getElementById('shareSide'), sb = side.getBoundingClientRect(), own = getComputedStyle(side).display !== 'contents';
+      const whole = (b) => b.width > 0 && b.top >= (own ? sb.top : 0) - 0.5 && b.bottom <= (own ? Math.min(sb.bottom, innerHeight) : innerHeight) + 0.5 && b.left >= 0 && b.right <= innerWidth + 0.5;
+      const el = document.getElementById(f), b = el.getBoundingClientRect(), hit = document.elementFromPoint((b.left + b.right) / 2, (b.top + b.bottom) / 2);
+      const range = document.createRange(), brief = document.getElementById('shareRomBrief');
+      range.selectNodeContents(getComputedStyle(brief).display !== 'none' ? brief : document.getElementById('shareRomFull'));
+      return { focused: document.activeElement === el, shown: whole(b), onTop: hit === el, value: el.value, short: /^https:\/\/s\.cloadm\.dev\/Ab3dEf7h#/.test(el.value), long: /#z=[A-Za-z0-9_-]{100,}$/.test(el.value),
+        copy: whole(document.getElementById('btnShareCopy').getBoundingClientRect()), rom: whole(range.getClientRects()[0]),
+        // a short landscape screen's page never scrolls, a tap included (the column does): what is positioned inside the
+        // column (a field's visually hidden label) once made the page taller than the screen
+        pageStill: !own || (scrollY === 0 && document.documentElement.scrollHeight <= innerHeight + 1) };
+    }, field);
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, `share-${w}x${h}-${state.replace(/[^a-z]+/gi, '-')}-tapped.png`) });
+    check(`share layout (${label}): after the tap the field it made (${field === 'shareShort' ? 'the short link' : 'the long link'}) is on screen, focused and not covered, and the page itself did not scroll`,
+      landed && after.focused && after.shown && after.onTop && after.pageStill && (field === 'shareShort' ? after.short : after.long), JSON.stringify(Object.assign({}, after, { value: after.value.slice(0, 40) })));
+    // the tab order after the tap follows what the screen shows: the back link -> Copy -> the field it made -> the
+    // disclosures (the long link's field is inside "More ways to share", so after its summary and before Embed's)
+    const tabs2 = [];
+    await page.focus('#shareBack');
+    for (let i = 0; i < 40; i++) {
+      tabs2.push(await page.evaluate(() => { const a = document.activeElement; return a.tagName === 'SUMMARY' ? `${a.parentElement.id}>summary` : a.id || a.tagName; }));
+      if (tabs2[tabs2.length - 1] === 'shareEmbed>summary') break;
+      await page.keyboard.press('Tab');
+    }
+    const at2 = (id) => tabs2.indexOf(id);
+    check(`share layout (${label}): after the tap the tab order is the back link -> Copy -> the field it made -> the disclosures`,
+      at2('shareBack') === 0 && at2('btnShareCopy') > 0 && at2(field) > at2('btnShareCopy') && at2('shareEmbed>summary') > at2(field)
+      && (field === 'shareShort' ? at2('shareMore>summary') > at2(field) : at2('shareMore>summary') < at2(field)), tabs2.join(' '));
+    await page.evaluate((f) => { document.getElementById('shareSide').scrollTop = 0; window.scrollTo(0, 0); document.getElementById(f).focus(); }, field);
+    if (field === 'shareShort') check(`share layout (${label}): with the short link made, Copy, its field and the ROM line are all on the first screen`, after.copy && after.shown && after.rom, JSON.stringify(Object.assign({}, after, { value: after.value.slice(0, 40) })));
+    // every disclosure is reachable and opens (a click that lands on its summary: Playwright scrolls to it and refuses a
+    // covered target)
+    const opened = [];
+    for (const id of ['shareMore', 'shareEmbed']) {
+      if (await page.evaluate((i) => document.getElementById(i).open, id)) { await page.click(`#${id} > summary`); await waitFor(page, (i) => !document.getElementById(i).open, id); }
+      await page.click(`#${id} > summary`, { timeout: 5000 }).catch((e) => opened.push(`${id}: ${e.message.split('\n')[0]}`));
+      opened.push(`${id}:${await waitFor(page, (i) => document.getElementById(i).open && document.querySelector(`#${i} > .col`).checkVisibility(), id, 5000)}`);
+    }
+    const reach = await Promise.all(['btnShareDownload', 'btnShareShot', 'btnEmbedFrameCopy'].map((id) => page.click(`#${id}`, { trial: true, timeout: 5000 }).then(() => true, () => false)));
+    check(`share layout (${label}): More ways to share and Embed are reachable and open, and what they hold can be pressed`,
+      opened.join(' ') === 'shareMore:true shareEmbed:true' && reach.every(Boolean), `${opened.join(' ')} ${JSON.stringify(reach)}`);
+    check(`share layout (${label}): no page errors`, !errors.length, errors.join('; '));
+    await closeCtx(ctx);
+  }
+
+  // a desktop: Save picture and Save clip beside Copy, in its row; and at 861x600 and 1024x640 the picture and its colour
+  // stripe fill the preview's frame (they had filled only ~60% of its width)
+  for (const [w, h] of [[861, 600], [1024, 640], [1280, 720]]) {
+    const ctx = await browser.newContext({ viewport: { width: w, height: h }, serviceWorkers: 'block' });
+    const page = await ctx.newPage();
+    await page.goto(`${base}?machine=dragon64#share`);
+    await waitFor(page, () => !document.getElementById('share').hidden && !!document.getElementById('shareLink').value, null, 30000);
+    await painted(page);
+    const d = await page.evaluate(() => {
+      const r = (q) => document.querySelector(q).getBoundingClientRect(), copy = r('#btnShareCopy'), shot = r('#btnShareShot'), clip = r('#btnShareClip');
+      const fig = document.querySelector('#share .preview'), frame = r('#share .frame'), stripe = r('#share .stripe'), pic = r('#sharePicture');
+      return { saveIn: document.getElementById('btnShareShot').parentElement.id + '/' + document.getElementById('btnShareClip').parentElement.id,
+        row: Math.abs(shot.top - copy.top) < 2 && Math.abs(clip.top - copy.top) < 2 && shot.left > copy.right && clip.left > shot.right,
+        shown: document.getElementById('btnShareShot').checkVisibility() && document.getElementById('btnShareClip').checkVisibility(),
+        labels: `${document.getElementById('btnShareShot').textContent}/${document.getElementById('btnShareClip').textContent}`,
+        figInner: fig.clientWidth, frame: Math.round(frame.width), stripe: Math.round(stripe.width),
+        picCentred: Math.abs((pic.left + pic.right) / 2 - (frame.left + frame.right) / 2) < 2 && pic.width > 100 };
+    });
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, `share-desktop-${w}x${h}.png`) });
+    check(`share layout (${w}x${h}): "Save picture" and "Save clip" sit beside Copy, in its row`, d.saveIn === 'shareSaveBeside/shareSaveBeside' && d.row && d.shown && d.labels === 'Save picture/Save clip', JSON.stringify(d));
+    check(`share layout (${w}x${h}): the preview's frame and its colour stripe fill the preview's width, the picture centred in it`,
+      d.frame >= d.figInner - 1 && d.stripe === d.frame && d.picCentred, JSON.stringify(d));
+    await closeCtx(ctx);
+  }
+
+  // "Save picture": the share card of the captured frame (js/video/bezel.js renderShareCard, the short link's preview
+  // picture's renderer): 1200 x 630, named for the moment ("Dragon 64"), and the picture in the glass is frameToRGBA's
+  // colour for every pixel of the frame at the tap, at true pixels
+  {
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, serviceWorkers: 'block', acceptDownloads: true });
+    const page = await ctx.newPage();
+    await page.goto(`${base}?machine=dragon64`);
+    await linkIn(page);
+    await waitFor(page, () => window.emu.session.welcomeRunning && window.emu.session.screenText()[14].includes('PRESS'), null, 60000);
+    await page.evaluate(() => document.getElementById('btnPause').click());
+    const f = await page.evaluate(async () => {
+      const { frameToRGBA } = await import(new URL('js/video/frame.js', document.baseURI).href);
+      const fr = window.emu.machine.render();
+      return { width: fr.width, height: fr.height, aspect: fr.aspect, active: fr.active, data: [...fr.data], table: [...fr.table], rgba: [...frameToRGBA(fr)] };
+    });
+    await page.evaluate(() => document.getElementById('btnShare').click());
+    await waitFor(page, () => document.getElementById('share').checkVisibility() && !!document.getElementById('shareLink').value, null, 30000);
+    const [dl] = await Promise.all([page.waitForEvent('download'), page.click('#btnShareShot')]);
+    const card = decodeIndexedPng(fs.readFileSync(await dl.path()));
+    const { renderShareCard, SCREEN } = await import(require('url').pathToFileURL(path.join(ROOT, 'js/video/bezel.js')).href);
+    const { Frame } = require('../js/video/frame.js');
+    const frame = new Frame(f.width, f.height, f.aspect, f.active);
+    frame.data.set(f.data); frame.table.set(f.table);
+    const want = decodeIndexedPng(Buffer.from(await renderShareCard(frame, { name: 'Dragon 64' })));
+    let differ = 0, wrong = 0, n = 0;
+    for (let i = 0; i < card.rgb.length; i++) if (card.rgb[i] !== want.rgb[i]) differ++;
+    // the glass: the 256 x 192 picture area at 2x, centred in SCREEN; each pixel against frameToRGBA's colour
+    const a = f.active, k = 2, x0 = SCREEN.x + ((SCREEN.w - a.width * k) >> 1), y0 = SCREEN.y + ((SCREEN.h - a.height * k) >> 1);
+    for (let y = 0; y < a.height * k; y++) for (let x = 0; x < a.width * k; x++) {
+      const v = f.rgba[(a.y + (y >> 1)) * f.width + a.x + (x >> 1)];
+      n++; if (card.rgb[(y0 + y) * card.width + x0 + x] !== `${v & 255},${(v >>> 8) & 255},${(v >>> 16) & 255}`) wrong++;
+    }
+    check('share: "Save picture" is the share card of the frame at the tap: 1200 x 630, the renderer\'s card named "Dragon 64" pixel for pixel, and every picture pixel frameToRGBA\'s',
+      card.width === 1200 && card.height === 630 && differ === 0 && wrong === 0 && n === 512 * 384 && /\.png$/.test(dl.suggestedFilename()),
+      `${card.width}x${card.height} ${differ} differ from the renderer, ${wrong} of ${n} picture pixels wrong, ${dl.suggestedFilename()}`);
+    await closeCtx(ctx);
+  }
 }
 
 // the Share screen: layout at desktop and phone width; the link that carries the moment
@@ -15129,8 +16841,8 @@ async function shareChecks(browser, base, site, check) {
     await page.waitForSelector('#share', { state: 'visible' });
     await page.evaluate(() => document.fonts.ready);
     const lay = await page.evaluate(() => {
-      const cols = [document.querySelector('#share > .preview'), document.querySelector('#share > .col.main')].map((c) => c.getBoundingClientRect());
-      const discs = [...document.querySelectorAll('#share > .disc')].map((c) => c.getBoundingClientRect());
+      const cols = [document.querySelector('#share > .preview'), document.querySelector('#share .col.main')].map((c) => c.getBoundingClientRect());
+      const discs = [...document.querySelectorAll('#share .disc')].map((c) => c.getBoundingClientRect());
       return { hash: location.hash, emulatorHidden: getComputedStyle(document.querySelector('.layout')).display === 'none', scrollX: document.documentElement.scrollWidth <= innerWidth,
         side: cols[1].left > cols[0].right - 1, stacked: cols[1].top >= cols[0].bottom - 1,
         heading: document.getElementById('shareHeading').textContent, embed: document.getElementById('embedHeading').textContent,
@@ -15140,14 +16852,33 @@ async function shareChecks(browser, base, site, check) {
       lay.hash === '#share' && lay.emulatorHidden && lay.scrollX && (label === 'desktop' ? lay.side : lay.stacked)
       && lay.heading === 'Share this moment' && lay.embed === 'Embed in a web page' && lay.discsFull, JSON.stringify(lay));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, `share-screen-${label}.png`), fullPage: true });
-    if (label === 'phone') { check('share (phone): no page errors', !errors.length, errors.join('; ')); await ctx.close(); continue; }
+    if (label === 'phone') { check('share (phone): no page errors', !errors.length, errors.join('; ')); await closeCtx(ctx); continue; }
 
     // the link carries the moment: a fresh profile opens it, POKE included, and the fragment is cleared. The
     // options are matched as a group rather than pinned one by one (`ssc=none` included): shareUrl (js/session.js)
     // emits every non-LOCAL profile option, so a list here would drift with the next option or default. The
     // machine is pinned; the rest is "whatever options this model has".
+    // the long link is a link, held in the long link's own field under "More ways to share" (its heading and note are
+    // read whether or not the disclosure is open: they are in the DOM), and the card says when, relative to now (never
+    // a clock time); the note names what it holds and that nothing is uploaded
+    const card = await page.evaluate(() => ({ label: document.getElementById('longHeading').textContent, note: document.getElementById('longNote').textContent, when: document.getElementById('shareWhen').textContent }));
+    check('share: the long link is headed "Long link (works offline; nothing is uploaded)", its note says nothing is uploaded, and the card says "captured just now"',
+      card.label === 'Long link (works offline; nothing is uploaded)' && card.note === 'Holds the whole moment in the address; nothing is uploaded.' && card.when === 'captured just now', JSON.stringify(card));
+    // three minutes on (the page's clock moved forward), the screen opened again says so
+    await page.click('#shareBack');
+    await waitFor(page, () => location.hash !== '#share');
+    const later = await page.evaluate(async () => {
+      const now = Date.now;
+      Date.now = () => now() + 3 * 60000 + 5000;
+      try {
+        location.hash = '#share';
+        for (let i = 0; i < 100 && document.getElementById('shareWhen').textContent === 'captured just now'; i++) await new Promise((r) => setTimeout(r, 50));
+        return document.getElementById('shareWhen').textContent;
+      } finally { Date.now = now; }
+    });
+    check('share: three minutes later the card says "captured 3 minutes ago"', later === 'captured 3 minutes ago', later);
     const link = await page.inputValue('#shareLink');
-    check('share: the link points at /play/ with this machine, the snapshot in the fragment', /\/play\/\?machine=dragon64(&[a-z]+=[^&#]*)*#s=[A-Za-z0-9_-]{1000,}$/.test(link), link.slice(0, 80));
+    check('share: the link points at /play/ with this machine, the snapshot in the fragment (#z=)', /\/play\/\?machine=dragon64(&[a-z]+=[^&#]*)*#z=[A-Za-z0-9_-]{1000,}$/.test(link), link.slice(0, 80));
     const ctx2 = await browser.newContext({ serviceWorkers: 'block' });
     // every message the page says, recorded from its start: a 4 s toast can end before a loaded machine reads it
     await ctx2.addInitScript(() => { window.__said = []; document.addEventListener('DOMContentLoaded', () => { const t = document.getElementById('toastText');
@@ -15162,37 +16893,66 @@ async function shareChecks(browser, base, site, check) {
     check('share: the link opens exactly that moment in another browser profile', await p2.evaluate(() => window.emu.machine.ram[1030] === 42 && location.hash === '')
       && await waitFor(p2, () => window.__said.some((m) => /^Snapshot opened: Dragon 64/.test(m))) && await p2.evaluate(() => !window.__said.some((m) => /^ERROR /.test(m))),
       `${await said(p2)} · ram[1030] ${await p2.evaluate(() => window.emu.machine.ram[1030])}`);
+    // arriving on that moment without ROMs (a first visit): no "Running with no ROMs" card and no "No BASIC" pill. They
+    // come back once the person leaves the moment: here by Reset (the menu again)
+    const quiet = () => p2.evaluate(() => ({ pill: document.getElementById('romPill').checkVisibility(), card: document.getElementById('welcome').checkVisibility(),
+      cardThere: !document.getElementById('welcome').hidden, menuItem: !document.getElementById('navRoms').hidden, shared: window.emu.session.sharedMoment }));
+    const arrived = await quiet();
+    check('share: arriving on a shared no-ROM moment shows no no-ROM card and no "No BASIC" pill', !arrived.pill && !arrived.card && arrived.cardThere && !arrived.menuItem && arrived.shared, JSON.stringify(arrived));
+    if (shotDir) await p2.screenshot({ path: path.join(shotDir, 'share-arrival.png') });
+    await p2.evaluate(() => document.getElementById('btnReset').click());
+    const left = await waitFor(p2, () => document.getElementById('romPill').checkVisibility() && document.getElementById('welcome').checkVisibility(), null, 10000);
+    check('share: leaving the moment (Reset) brings back the card and the pill', left, JSON.stringify(await quiet()));
     const p2b = await ctx2.newPage();   // a link that differs only after # wouldn't reload the same page
     await p2b.goto(link.slice(0, link.length - 400));
     await linkIn(p2b);
     check('share: a cut-short link says its snapshot is damaged', await waitFor(p2b, () => window.__said.some((m) => /damaged/.test(m)))
       && await p2b.evaluate(() => !window.__said.some((m) => /Snapshot opened/.test(m))), await said(p2b));
-    await ctx2.close();
+    await closeCtx(ctx2);
 
     // no ROMs in use: no "holds no part of your ROMs" line (it appears exactly when ROMs are: below, with stand-ins)
     check(`share (${label}): without ROMs there is no ROM-free line`, await page.evaluate(() => { const e = document.getElementById('shareRomFree'); return e.hidden && e.textContent === '' && !e.checkVisibility(); }));
-    // Copy for a forum: BBCode and Markdown, each the link with one line, text only; Copy puts exactly that on the clipboard
+    // Copy as text for a forum: BBCode and Markdown, each with the link a Copy-link tap gives and one line, text only. On
+    // this moment (not an untouched program, online, no ROMs) that is the short link: the preview says it is made on the
+    // copy, the first Copy makes it (one request to the store, a stand-in here) and both texts carry that one link.
     await ctx.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: new URL(base).origin });
+    const made = [];
+    await ctx.route('https://s.cloadm.dev/**', (route) => {
+      const u = new URL(route.request().url()), cors = { 'access-control-allow-origin': '*', 'content-type': 'application/json' };
+      if (u.pathname === '/api/new') { made.push(u.pathname); return route.fulfill({ status: 200, headers: cors, body: JSON.stringify({ id: `Fm${made.length}xYz9a`, deleteToken: 'token' }) }); }
+      return route.fulfill({ status: 404, headers: cors, body: '{}' });
+    });
     await openDisc(page, 'shareForum');
-    const forum = await page.evaluate(() => ({ link: document.getElementById('shareLink').value, bb: document.getElementById('forumBbcode').textContent,
-      md: document.getElementById('forumMarkdown').textContent, after: !!(document.getElementById('shareEmbed').compareDocumentPosition(document.getElementById('shareForum')) & Node.DOCUMENT_POSITION_PRECEDING),
-      heading: document.getElementById('forumHeading').tagName }));
+    const forum = await page.evaluate(() => ({ bb: document.getElementById('forumBbcode').textContent, md: document.getElementById('forumMarkdown').textContent,
+      pending: !document.getElementById('forumPending').hidden, short: document.getElementById('shareShort').value,
+      afterMore: !!(document.getElementById('shareMore').compareDocumentPosition(document.getElementById('shareForum')) & Node.DOCUMENT_POSITION_FOLLOWING),
+      beforeEmbed: !!(document.getElementById('shareEmbed').compareDocumentPosition(document.getElementById('shareForum')) & Node.DOCUMENT_POSITION_PRECEDING),
+      heading: document.getElementById('forumHeading').textContent }));
     const LINE = 'The Dragon 64 in CLOADM, exactly as I left it. Opens in the browser.';
-    check(`share (${label}): "Copy for a forum" beside "Embed in a web page": BBCode and Markdown of the share link with one line, no image tag`,
-      forum.bb === `[url=${forum.link}]${LINE}[/url]` && forum.md === `[${LINE}](${forum.link})` && !/\[img|!\[/i.test(forum.bb + forum.md) && forum.after && forum.heading === 'H2' && /#s=/.test(forum.link),
-      JSON.stringify(Object.assign({}, forum, { link: forum.link.slice(0, 60) })));
+    check(`share (${label}): "Copy as text for a forum" sits between "More ways to share" and "Embed", no image tag; before a copy it says the short link is made on the copy`,
+      forum.heading === 'Copy as text for a forum' && forum.afterMore && forum.beforeEmbed && forum.pending && forum.short === '' && made.length === 0
+      && forum.bb === `[url=https://s.cloadm.dev/…]${LINE}[/url]` && !/\[img|!\[/i.test(forum.bb + forum.md), JSON.stringify(forum));
     const board = [];
-    for (const id of ['btnForumBbcodeCopy', 'btnForumMarkdownCopy']) { await page.click(`#${id}`); board.push(await page.evaluate(() => navigator.clipboard.readText())); }
-    check(`share (${label}): each forum Copy button copies its text exactly`, board[0] === forum.bb && board[1] === forum.md, board.map((c) => c.slice(0, 50)).join(' | '));
+    for (const id of ['btnForumBbcodeCopy', 'btnForumMarkdownCopy']) {
+      await page.click(`#${id}`);
+      await waitFor(page, (b) => document.getElementById(b).textContent !== 'Copy', id, 10000);
+      board.push(await page.evaluate(() => navigator.clipboard.readText()));
+    }
+    const shortUrl = await page.inputValue('#shareShort');
+    check(`share (${label}): the forum Copy makes the short link once, as Copy link would, and both texts carry it`,
+      made.length === 1 && /^https:\/\/s\.cloadm\.dev\/Fm1xYz9a#/.test(shortUrl) && board[0] === `[url=${shortUrl}]${LINE}[/url]` && board[1] === `[${LINE}](${shortUrl})`
+      && await page.evaluate(() => document.getElementById('forumPending').hidden && !document.getElementById('shortMade').hidden), JSON.stringify({ made, shortUrl, board }));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, `share-forum-${label}.png`), fullPage: true });
 
     // the clip
     await openDisc(page, 'shareMore');
-    const clipLabel = await page.textContent('#btnShareClip');
+    // the button says "Save clip"; its title names the length and the format it records
+    const clipLabel = await page.getAttribute('#btnShareClip', 'title');
     const [clip] = await Promise.all([page.waitForEvent('download', { timeout: 30000 }), page.click('#btnShareClip')]);
     const clipBytes = fs.readFileSync(await clip.path());
     const mp4 = clipBytes.toString('latin1', 4, 8) === 'ftyp', webm = clipBytes.readUInt32BE(0) === 0x1A45DFA3;
-    check('share: "Save 6-second clip" records the screen, in the format the button names', clipBytes.length > 2000
+    check('share: "Save clip" records the screen, in the format its title names ("Save 6-second clip (MP4)")', clipBytes.length > 2000 && await page.textContent('#btnShareClip') === 'Save clip'
+      && /^Save 6-second clip \((MP4|WebM)\)$/.test(clipLabel || '')
       && ((/MP4/.test(clipLabel) && mp4 && /\.mp4$/.test(clip.suggestedFilename())) || (/WebM/.test(clipLabel) && webm && /\.webm$/.test(clip.suggestedFilename()))),
       `${clipLabel}: ${clip.suggestedFilename()} ${clipBytes.length} bytes`);
 
@@ -15221,7 +16981,8 @@ async function shareChecks(browser, base, site, check) {
       gif.head === 'GIF89a' && gif.w === native[0] * 2 && gif.h === native[1] * 2 && gif.loop === 0 && gif.trailer && gif.frames >= 1 && Math.abs(gif.cs - 600) <= 8
       && gif.comment === 'Recorded in CLOADM' && /\.gif$/.test(gifDl.suggestedFilename()) && !/Freedoom/.test(gifDl.suggestedFilename()), JSON.stringify(gif));
     console.log(`   (GIF size, ${label}: ${gif.bytes} bytes, ${gif.frames} frames, ${gif.w}x${gif.h})`);
-    check(`share (${label}): the buttons are back once the GIF is saved`, await waitFor(page, () => !document.getElementById('btnShareGif').disabled && document.getElementById('btnShareGif').textContent === 'Save 6-second GIF'));
+    check(`share (${label}): the buttons are back once the GIF is saved`, await waitFor(page, () => !document.getElementById('btnShareGif').disabled && document.getElementById('btnShareGif').textContent === 'Save GIF'
+      && document.getElementById('btnShareGif').title === 'Save 6-second GIF'));
     // a WAD of the person's own loaded: the clip and the GIF are refused, the reason on each button
     await page.evaluate(() => { const s = window.emu.session; s.lastLoaded = { name: 'MYLEVELS.WAD', bytes: Uint8Array.from([0x50, 0x57, 0x41, 0x44, 0]) }; s.emit('loaded'); });
     const refused = await page.evaluate(() => ['btnShareClip', 'btnShareGif'].map((id) => [document.getElementById(id).disabled, document.getElementById(id).textContent]));
@@ -15271,7 +17032,7 @@ async function shareChecks(browser, base, site, check) {
     }, [tapeFile.load, want]);
     check('share: the written iframe, on another origin, runs that machine and loads the tape into memory', got.info.machine === 'coco' && tapeFile.load === 0x3000
       && JSON.stringify(got.mem) === JSON.stringify(want), JSON.stringify(got));
-    await ctx3.close(); host.close();
+    await closeCtx(ctx3); host.close();
 
     // with the user's own ROMs (stand-ins made from this project's firmware, never real ROMs): the link names them
     // and carries none of their bytes, not even BASIC's copy of itself in RAM (the Dragon 64 in its 64K mode)
@@ -15286,19 +17047,24 @@ async function shareChecks(browser, base, site, check) {
     await page.click('#btnPause');                                      // hold the moment still
     await page.click('#btnShare');
     await page.waitForSelector('#share', { state: 'visible' });
-    const shared = await page.evaluate(async () => ({ link: document.getElementById('shareLink').value, recipient: document.getElementById('shareRom').textContent,
+    const shared = await page.evaluate(async () => ({ link: document.getElementById('shareLink').value, recipient: document.getElementById('shareRomFull').textContent,
       labels: (await window.emu.session.shareFile()).needs.map((x) => x.label), free: document.getElementById('shareRomFree').textContent,
       freeShown: document.getElementById('shareRomFree').checkVisibility(),
       above: document.getElementById('shareRomFree').getBoundingClientRect().bottom <= document.getElementById('shareRom').getBoundingClientRect().top + 1 }));
     check('share: with ROMs in use, "This link holds no part of your ROMs. Whoever opens it needs their own: <needs>." shows, above the needs line',
       shared.freeShown && shared.above && shared.free === `This link holds no part of your ROMs. Whoever opens it needs their own: ${shared.labels.join(' and ')}.`, JSON.stringify([shared.free, shared.freeShown, shared.above]));
     // the line names what the snapshot itself names (its needs' labels), whatever they are
-    check('share: with your own ROMs the moment is shared, and the ROM line names the ROMs the snapshot needs', /#s=/.test(shared.link) && shared.labels.length > 0
+    check('share: with your own ROMs the moment is shared, and the ROM line names the ROMs the snapshot needs', /#z=/.test(shared.link) && shared.labels.length > 0
       && shared.recipient === `Needs ${shared.labels.join(' and ')}: the person opening it adds their own.` && /32K-mode BASIC and 64K-mode BASIC/.test(shared.recipient), JSON.stringify(shared));
     const W = 16, uni = (a, k) => a.slice(k, k + W).every((v) => v === a[k]);
     const romWindows = new Set();
     for (const r of Object.values(roms)) for (let k = 0; k + W <= r.length; k++) if (!uni(r, k)) romWindows.add(Buffer.from(r.slice(k, k + W)).toString('hex'));
-    const decoded = Emu.state.fromJSON(zlib.gunzipSync(Buffer.from(new URL(shared.link).hash.slice(3), 'base64url')).toString('utf8'));
+    // the #z= link unpacked here with Node's zlib (a version byte, then deflate-raw of: u32 skeleton length, the JSON
+    // skeleton, the arrays' bytes), each { $bin, o, n } back as its bytes
+    const zbytes = Buffer.from(new URL(shared.link).hash.slice(3), 'base64url'), zbox = zlib.inflateRawSync(zbytes.subarray(1));
+    const zj = zbox.readUInt32LE(0), zbin = zbox.subarray(4 + zj);
+    const decoded = JSON.parse(zbox.subarray(4, 4 + zj).toString('utf8'), (k, v) => (v && typeof v === 'object' && typeof v.$bin === 'string' ? new Uint8Array(zbin.subarray(v.o, v.o + v.n)) : v));
+    decoded.$whole = new Uint8Array(zbin);   // and every byte of the array area, whatever names it
     const leaks = [];
     const scan = (v, at) => { if (ArrayBuffer.isView(v)) { const a = [...new Uint8Array(v.buffer, v.byteOffset, v.byteLength)]; for (let k = 0; k + W <= a.length; k++) if (!uni(a, k) && romWindows.has(Buffer.from(a.slice(k, k + W)).toString('hex'))) { leaks.push(`${at}@${k}`); break; } }
       else if (v && typeof v === 'object') for (const [key, x] of Object.entries(v)) scan(x, `${at}.${key}`); };
@@ -15324,12 +17090,182 @@ async function shareChecks(browser, base, site, check) {
           return window.emu.Emu.state.toJSON(s.shownMachine.snapshot().state.memory); }, shared.link);
         check('share link, recipient with the same ROMs: it opens, exactly the moment (memory rebuilt from their ROMs)', /Snapshot opened: Dragon 64/.test(r.msg) && exact === held, r.msg);
       }
-      await rctx.close();
+      await closeCtx(rctx);
     }
     check('share: no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   await shareScreenChecks(browser, base, check);
+  await arrivalChecks(browser, base, check);
+  await shareLayoutChecks(browser, base, check);
+}
+
+// The arrival card (js/ui/arrival.js): a shared moment opened from a long link (#z=) or a short link (#l=, its server
+// mocked here with route.fulfill) arrives with a card docked at the foot of the screen, in its exact words, with
+// "Start from the beginning" and "Send it back", and "Report this link" for a short link only. It covers at most 40% of
+// the tube at 393x659, 653x280 and 1280x800, the machine running above it; the first key, a load or a switch takes it
+// down, and the Session's arrivedFromLink with it. (The program pages open no moment: the visit group checks they show
+// no card.)
+const ARRIVAL_TEXT = "Someone sent you this Dragon 64, exactly as they left it. It's running now. It's your copy: nothing you do changes theirs.";
+async function arrivalChecks(browser, base, check) {
+  const errors = [];
+  // the moments: 2048, played (a bundled program's moment), the welcome menu (no program), each as a long link; and a
+  // short link of the 2048 moment, sealed here (MemoryShortLinkStore) and served below as s.cloadm.dev would
+  const sctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, serviceWorkers: 'block' });
+  const src = await sctx.newPage();
+  src.on('pageerror', (e) => errors.push(e.message));
+  await src.goto(`${base}?machine=dragon64&start=2048`);
+  await linkIn(src);
+  await waitFor(src, () => window.emu.session.gameRunning, null, 60000);
+  await src.focus('#screen'); await src.keyboard.press('Space'); await src.keyboard.press('ArrowLeft');
+  await src.waitForTimeout(300);
+  const game = await src.evaluate(async () => {
+    const s = window.emu.session, base = `${location.origin}/play/`;
+    const { MemoryShortLinkStore } = await import('/js/host/link-store.js');
+    const store = new MemoryShortLinkStore();
+    const short = await s.shortLink(store, { preview: false });
+    return { link: await s.snapshotLink(base), program: s.momentProgram(), id: short.id, key: short.url.split('#')[1], sealed: Array.from(store.links.get(short.id).sealed) };
+  });
+  await src.goto(`${base}?machine=dragon64`);
+  await linkIn(src);
+  await waitFor(src, () => window.emu.session.welcomeRunning && window.emu.session.screenText()[14].includes('PRESS'), null, 60000);
+  const menuLink = await src.evaluate(() => window.emu.session.snapshotLink(`${location.origin}/play/`));
+  await closeCtx(sctx);
+  check('arrival: a played 2048 moment records its program (the moment\'s `program`), and both links are long links', game.program === '2048' && /#z=/.test(game.link) && /#z=/.test(menuLink), game.program);
+
+  // a recipient: the link opened in a fresh profile, every request to s.cloadm.dev recorded (and the short link's
+  // moment served from the sealed bytes made above)
+  const open = async (url, viewport = { width: 1280, height: 800 }) => {
+    const ctx = await browser.newContext({ viewport, serviceWorkers: 'block' });
+    const asked = [];
+    await ctx.route('https://s.cloadm.dev/**', (route) => {
+      const u = new URL(route.request().url());
+      asked.push(`${route.request().method()} ${u.pathname}`);
+      if (u.pathname === `/${game.id}.bin`) return route.fulfill({ status: 200, headers: { 'content-type': 'application/octet-stream', 'access-control-allow-origin': '*' }, body: Buffer.from(game.sealed) });
+      return route.fulfill({ status: 404, headers: { 'access-control-allow-origin': '*' }, body: 'no' });
+    });
+    const p = await ctx.newPage();
+    p.on('pageerror', (e) => errors.push(e.message));
+    await p.goto(url);
+    await linkIn(p);
+    return { ctx, p, asked };
+  };
+  const card = (p) => p.evaluate(() => {
+    const a = document.getElementById('arrival'), t = document.querySelector('#monitor .tube').getBoundingClientRect(), c = a.getBoundingClientRect();
+    const ix = Math.max(0, Math.min(c.right, t.right) - Math.max(c.left, t.left)), iy = Math.max(0, Math.min(c.bottom, t.bottom) - Math.max(c.top, t.top));
+    return { shown: a.checkVisibility(), text: document.getElementById('arrivalText').textContent, state: window.emu.session.arrivedFromLink,
+      area: (ix * iy) / (t.width * t.height), height: iy / t.height, inside: c.left >= t.left - 0.5 && c.right <= t.right + 0.5 && c.top >= t.top - 0.5 && c.bottom <= t.bottom + 0.5,
+      report: document.getElementById('arrivalReport').checkVisibility(), reportHref: document.getElementById('arrivalReport').getAttribute('href'),
+      reportTarget: document.getElementById('arrivalReport').target, focusInCard: a.contains(document.activeElement),
+      start: document.getElementById('btnArrivalStart').textContent, back: document.getElementById('btnArrivalBack').textContent };
+  });
+  const gone = (p) => waitFor(p, () => document.getElementById('arrival').hidden && window.emu.session.arrivedFromLink === null, null, 10000);
+
+  // the long link: the card, its words, no Report; within 40% at three sizes; the machine runs under it
+  for (const [w, h] of [[1280, 800], [393, 659], [653, 280]]) {
+    const { ctx, p } = await open(game.link, { width: w, height: h });
+    const c = await card(p);
+    const f0 = await p.evaluate(() => window.emu.session.shownMachine.frameCount);
+    const runs = await waitFor(p, (f) => window.emu.session.shownMachine.frameCount > f + 5, f0);
+    if (shotDir) await p.screenshot({ path: path.join(shotDir, `arrival-long-${w}x${h}.png`) });
+    check(`arrival (${w}x${h}): a long link's moment arrives with the card, at most 40% of the tube, inside it, the machine running`,
+      c.shown && c.inside && c.area <= 0.40 && c.height <= 0.40 && runs && !c.focusInCard, JSON.stringify(c));
+    if (w === 1280) {
+      check('arrival: the card\'s exact words, its two buttons, and no "Report this link" on a long link', c.text === ARRIVAL_TEXT && c.start === 'Start from the beginning'
+        && c.back === 'Send it back' && !c.report && c.state && c.state.kind === 'long' && c.state.id === null && c.state.machine === 'Dragon 64' && c.state.program === '2048', JSON.stringify(c));
+      // the snapshot's toast offers Start over too
+      check('arrival: the toast says the snapshot opened and offers "Start over"', await waitFor(p, () => /Snapshot opened: Dragon 64/.test(document.getElementById('toastText').textContent)
+        && document.getElementById('toast').textContent.includes('Start over')));
+    }
+    await closeCtx(ctx);
+  }
+
+  // Send it back: the Share screen on the moment as it is now (a byte changed after arriving is in its link), and
+  // nothing uploaded: no request to s.cloadm.dev at all
+  {
+    const { ctx, p, asked } = await open(game.link);
+    await p.evaluate(() => window.emu.machine.poke(0x7F00, 0x5A));
+    await p.click('#btnArrivalBack');
+    await p.waitForSelector('#share', { state: 'visible' });
+    await waitFor(p, () => !!document.getElementById('shareLink').value);
+    await p.waitForTimeout(1500);   // an upload would have started by now
+    const back = await p.evaluate(async () => {
+      const snap = await window.emu.session.readSnapshotLink(new URL(document.getElementById('shareLink').value).hash);
+      return { view: location.hash, marker: snap.state.memory[0x7F00], program: snap.program, made: !document.getElementById('shortMade').hidden };
+    });
+    if (shotDir) await p.screenshot({ path: path.join(shotDir, 'arrival-send-back.png') });
+    check('arrival: "Send it back" opens the Share screen on the recipient\'s moment as it is now, and uploads nothing',
+      back.view === '#share' && back.marker === 0x5A && !back.made && asked.length === 0, JSON.stringify({ back, asked }));
+    check('arrival: the moment sent back is still a moment of 2048 (its `program`), so its Start from the beginning starts 2048 again', back.program === '2048', String(back.program));
+    await closeCtx(ctx);
+  }
+
+  // Start from the beginning on a bundled program's moment: that program again, fresh (untouched since its start)
+  {
+    const { ctx, p } = await open(game.link);
+    await p.click('#btnArrivalStart');
+    const fresh = await waitFor(p, () => window.emu.session.gameRunning && !!window.emu.session.untouchedBundledProgram(`${location.origin}/play/`), null, 30000);
+    check('arrival: "Start from the beginning" on a 2048 moment starts 2048 again from its beginning, and the card goes', fresh && await gone(p),
+      JSON.stringify(await p.evaluate(() => ({ game: window.emu.session.gameRunning, state: window.emu.session.arrivedFromLink }))));
+    await closeCtx(ctx);
+  }
+  // ...and on any other moment: a power cycle into the same machine
+  {
+    const { ctx, p } = await open(menuLink);
+    const c = await card(p);
+    await p.evaluate(() => { window.__ev = []; window.emu.session.on((e) => window.__ev.push(e)); });
+    await p.click('#btnArrivalStart');
+    const cycled = await waitFor(p, () => window.__ev.includes('firmware'), null, 10000);
+    const after = await p.evaluate(() => ({ ev: window.__ev, machine: window.emu.session.shownMachine.id, program: window.emu.session.momentProgram() }));
+    check('arrival: "Start from the beginning" on a moment of no bundled program power cycles the same machine, and the card goes',
+      c.shown && c.state.program === null && cycled && after.machine === 'dragon64' && !after.ev.includes('program') && await gone(p), JSON.stringify({ c: c.state, after }));
+    await closeCtx(ctx);
+  }
+
+  // what ends an arrival: the first key, a load, a switch (each in a fresh arrival)
+  // ...and the card never takes the focus: a second after arriving the focus is on the screen, not in the card, and a
+  // key pressed with no focus set by this check goes to the machine and takes the card down
+  {
+    const { ctx, p } = await open(game.link);
+    await p.waitForTimeout(1000);
+    const f = await p.evaluate(() => ({ inCard: document.getElementById('arrival').contains(document.activeElement), on: document.activeElement && document.activeElement.id,
+      shown: !document.getElementById('arrival').hidden }));
+    check('arrival: a second after arriving the focus is on the screen, never in the card', f.shown && !f.inCard && f.on === 'screen', JSON.stringify(f));
+    await p.keyboard.press('ArrowUp');
+    check('arrival: the first key takes the card down, and Session.arrivedFromLink with it', await gone(p));
+    await closeCtx(ctx);
+  }
+  {
+    const { ctx, p } = await open(game.link);
+    await p.evaluate(async () => window.emu.session.load('liza.bin', new Uint8Array(await (await fetch('/examples/liza.bin')).arrayBuffer())));
+    check('arrival: a load takes the card down, and Session.arrivedFromLink with it', await gone(p));
+    await closeCtx(ctx);
+  }
+  {
+    const { ctx, p } = await open(game.link);
+    await p.evaluate(() => window.emu.session.switchMachine('coco'));
+    check('arrival: a switch takes the card down, and Session.arrivedFromLink with it', await gone(p));
+    await closeCtx(ctx);
+  }
+
+  // a short link's moment (#l=<id>.<key>, the moment served by the mocked s.cloadm.dev): the card, and Report
+  {
+    const { ctx, p, asked } = await open(`${base}#l=${game.id}.${game.key}`);
+    const c = await card(p);
+    // opened as a shared moment, as a long link's is: without ROMs no "Running with no ROMs" card and no "No BASIC" pill
+    // beside the arrival card
+    const quiet = await p.evaluate(() => ({ pill: document.getElementById('romPill').checkVisibility(), noRomCard: document.getElementById('welcome').checkVisibility(),
+      shared: window.emu.session.sharedMoment, roms: window.emu.session.hasAnyRoms }));
+    check('arrival: a short link\'s moment without ROMs is a shared moment: the arrival card, and no no-ROM card or "No BASIC" pill',
+      c.shown && quiet.shared && !quiet.pill && !quiet.noRomCard && !quiet.roms, JSON.stringify(quiet));
+    if (shotDir) await p.screenshot({ path: path.join(shotDir, 'arrival-short-1280x800.png') });
+    check('arrival: a short link\'s moment arrives with the same card, and only a short link\'s card ends with "Report this link": the Worker\'s report page (/api/report/<id>, no key, a new tab)',
+      c.shown && c.text === ARRIVAL_TEXT && c.state && c.state.kind === 'short' && c.state.id === game.id && c.report && c.area <= 0.40
+      && c.reportHref === `https://s.cloadm.dev/api/report/${game.id}` && !c.reportHref.includes('#') && c.reportTarget === '_blank'
+      && JSON.stringify(asked) === JSON.stringify([`GET /${game.id}.bin`]), JSON.stringify({ c, asked }));
+    await closeCtx(ctx);
+  }
+  check('arrival: no page errors', !errors.length, errors.join('; '));
 }
 
 // the keyboard belongs to the page unless the screen has focus: Tab moves focus, Enter and Space press the
@@ -15421,7 +17357,7 @@ async function focusChecks(browser, base, check) {
   const first = await page.evaluate(() => document.activeElement && (document.activeElement.id || document.activeElement.tagName));
   check('keyboard: with nothing focused, Tab moves onto the page, the machine gets nothing', first !== 'BODY' && await reached() === 0, first);
   check('keyboard: no page errors', !errors.length, errors.join('; '));
-  await ctx.close();
+  await closeCtx(ctx);
 }
 
 // the phone's machine menu reaches the window's bottom and fades while more models are
@@ -15437,14 +17373,14 @@ async function uiQaChecks(browser, base, check) {
     await page.goto(`${base}?machine=dragon64`); await ready(page);
     await page.click('#machineBtn');
     await waitFor(page, () => !document.getElementById('machineMenu').hidden);
-    const m = await page.evaluate(() => { const el = document.getElementById('machineMenu'), r = el.getBoundingClientRect();
-      return { bottom: r.bottom, vh: innerHeight, scrolls: el.scrollHeight > el.clientHeight, fade: el.classList.contains('more-below') }; });
+    const m = await page.evaluate(() => { const el = document.getElementById('machineMenu'), r = el.getBoundingClientRect(), box = el.querySelector('.menulist');
+      return { bottom: r.bottom, vh: innerHeight, scrolls: box.scrollHeight > box.clientHeight, fade: el.classList.contains('more-below') }; });
     check('phone: the machine menu reaches the bottom of the window and fades while more models are below',
       m.scrolls && m.fade && m.bottom > m.vh - 24 && m.bottom <= m.vh, JSON.stringify(m));
-    const last = await page.evaluate(() => { const el = document.getElementById('machineMenu'); el.scrollTop = el.scrollHeight;
+    const last = await page.evaluate(() => { const el = document.getElementById('machineMenu'), box = el.querySelector('.menulist'); box.scrollTop = box.scrollHeight;
       const b = [...el.querySelectorAll('button[data-machine]')].pop(); return b.dataset.machine; });
     await waitFor(page, () => !document.getElementById('machineMenu').classList.contains('more-below'));
-    const end = await page.evaluate((id) => { const el = document.getElementById('machineMenu'), r = el.getBoundingClientRect(),
+    const end = await page.evaluate((id) => { const el = document.getElementById('machineMenu'), r = el.querySelector('.menulist').getBoundingClientRect(),
       b = el.querySelector(`button[data-machine="${id}"]`).getBoundingClientRect();
       return { inside: b.top >= r.top && b.bottom <= r.bottom + 1, fade: el.classList.contains('more-below') }; }, last);
     check('phone: scrolled to the end, the last model is in view and the fade is gone', end.inside && !end.fade, JSON.stringify(end));
@@ -15452,7 +17388,335 @@ async function uiQaChecks(browser, base, check) {
     if (await page.isVisible('#switchConfirm')) await page.click('#btnSwitch');
     check('phone: the last model can be picked', await waitFor(page, (id) => window.emu.machine.id === id, last), last);
     check('phone: no page errors', !errors.length, errors.join(' | '));
-    await ctx.close();
+    await closeCtx(ctx);
+  }
+  // A phone held sideways with the touch panel: the app bar gives way to the panel, so the machine menu (which lives
+  // in the bar) would be hidden under the panel's control strip. js/ui/touch-keys.js puts the bar back over the panel
+  // while the picker is open (body.machine-pick) and the menu is anchored under it; the menu must therefore be ON TOP
+  // of the strip, and its own bottom buttons (Add or see ROMs…, RAM, CPU and speed…) must be reachable. Measured with
+  // elementFromPoint at the footer buttons' centres, at two landscape sizes, opened the way a person does: the panel's
+  // Menu, then Machine… . Without the app-bar rule (index.html's `body.touch-keys.machine-pick .appbar`) the menu is
+  // 0x0 and the strip is what is on top, so this check fails by name.
+  for (const [label, viewport] of [['852x393', { width: 852, height: 393 }], ['844x390', { width: 844, height: 390 }], ['653x280', { width: 653, height: 280 }]]) {
+    const mctx = await browser.newContext({ viewport, hasTouch: true, isMobile: true, serviceWorkers: 'block' });
+    const mpage = await mctx.newPage();
+    const merrors = [];
+    mpage.on('pageerror', (e) => merrors.push(e.message));
+    await mpage.goto(`${base}?machine=dragon64`);
+    await ready(mpage);
+    await waitFor(mpage, () => !document.getElementById('touchKeys').hidden && document.body.classList.contains('touch-keys'));
+    // the panel's Menu -> Machine…, opened by a REAL tap on the sheet's own row (the sheet must never run past the top
+    // of the window, so every row is tappable at every landscape size; a direct .click() would hide a sheet that had
+    // grown off the top, which is exactly the defect the sheet's height cap fixes).
+    await mpage.tap('#tkMenu');
+    await waitFor(mpage, () => !document.getElementById('tkMenuSheet').hidden, null, 5000);
+    // the tap must NOT throw the group: a sheet that ran off the top makes the row untappable, and that must fail
+    // THIS check by name, not abort every check after it in the group
+    let tapped = null;
+    try { await mpage.tap('#tkMenuSheet [data-item="machine"]', { timeout: 5000 }); tapped = true; }
+    catch (e) { tapped = false; }
+    const opened = tapped ? await waitFor(mpage, () => !document.getElementById('machineMenu').hidden && document.body.classList.contains('machine-pick'), null, 8000) : false;
+    // scroll the menu to its end so the sticky footer sits at its bottom, where the strip overlaps
+    // (read only once the menu opened; a sheet that would not tap leaves it closed, and this reads the closed box)
+    const g = opened ? await mpage.evaluate(() => {
+      const menu = document.getElementById('machineMenu');
+      menu.scrollTop = menu.scrollHeight;
+      return new Promise((res) => setTimeout(() => {
+        const r = menu.getBoundingClientRect();
+        const foot = menu.querySelector('.footer');
+        const strip = document.querySelector('#touchKeys > .tkcenter');
+        const onTop = (el) => { const b = el.getBoundingClientRect(); if (!(b.width && b.height)) return false;
+          const at = document.elementFromPoint(b.left + b.width / 2, b.top + Math.min(b.height / 2, 6)); return !!at && menu.contains(at); };
+        const buttons = [...(foot ? foot.querySelectorAll('button') : [])].map((b) => ({ text: b.textContent.trim().slice(0, 24), topmost: onTop(b) }));
+        res({ open: !menu.hidden, rect: { t: Math.round(r.top), b: Math.round(r.bottom), w: Math.round(r.width) },
+          footer: foot ? Math.round(foot.getBoundingClientRect().bottom) : null,
+          strip: strip ? { t: Math.round(strip.getBoundingClientRect().top), b: Math.round(strip.getBoundingClientRect().bottom) } : null,
+          menuTopmostAtCentre: onTop(menu), machineButtons: menu.querySelectorAll('button[data-machine]').length, buttons, vh: innerHeight });
+      }, 150));
+    }) : null;
+    check(`ui qa (landscape ${label}, touch keys): the machine menu is on top of the touch panel (body.machine-pick) and its footer buttons are clickable`,
+      tapped && opened && !!g && g.open && g.rect.w > 0 && g.rect.b > g.strip.t && g.menuTopmostAtCentre && g.machineButtons >= 13 && g.buttons.length >= 2 && g.buttons.every((b) => b.topmost),
+      JSON.stringify({ tapped, opened, g }));
+    check(`ui qa (landscape ${label}, touch keys): no page errors with the picker open`, !merrors.length, merrors.join('; '));
+    // The machine LIST, between the group subtitles and the sticky footer, on a short landscape window, counted in the
+    // FIRST PAINT (the list scrolled back to the top -- the footer check just above left it at its end). Measured in
+    // Linux Chromium (CI's browser; macOS gives the same): BASE 1 at 653x280, 3 at 844x390 and 852x393; the fix (the
+    // group DESCRIPTIONS hidden in landscape, which only repeat what each row says) 2, 4 and 4. A viewport-height cap
+    // was tried and changed nothing at these sizes (80vh is already about 100dvh less the bar), so the fix is the
+    // description hiding alone. The per-size floor is each size's base + 1, so the base fails at every size and the
+    // mutant that shows the descriptions again goes red at every size.
+    const FLOOR = { '653x280': 2, '844x390': 4, '852x393': 4 };
+    const floor = FLOOR[label];
+    // back to the FIRST PAINT before counting: the footer check above scrolled the list to its end, and counting there
+    // read a scrolled list (the item-6 pattern -- leftover state). The MODELS scroll in `#machineMenu .menulist` where
+    // that box exists (the models scroll above a footer that never stands over one), else in `#machineMenu` itself; scroll
+    // whichever it is to 0 and wait until it reads back 0.
+    const scrollerExpr = "(() => { const m = document.getElementById('machineMenu'); return m.querySelector('.menulist') || m; })()";
+    if (opened) { await mpage.evaluate((sc) => { eval(sc).scrollTop = 0; }, scrollerExpr); await waitFor(mpage, (sc) => eval(sc).scrollTop === 0, scrollerExpr, 5000); }
+    const list = opened ? await mpage.evaluate(() => {
+      const menu = document.getElementById('machineMenu'), r = menu.getBoundingClientRect();
+      const rows = [...menu.querySelectorAll('button[data-machine]')];
+      const foot = menu.querySelector('.footer'), fr = foot ? foot.getBoundingClientRect() : { top: r.bottom };
+      const fullyVisible = rows.filter((b) => { const x = b.getBoundingClientRect(); return x.top >= r.top - 1 && x.bottom <= Math.min(r.bottom, fr.top) + 1; }).length;
+      // each row scrolled to the MIDDLE of the scroller, then read; block:'nearest' leaves a row under the STICKY footer
+      const reach = rows.map((b) => { b.scrollIntoView({ block: 'center' }); const rb = b.getBoundingClientRect();
+        const at = document.elementFromPoint(rb.left + rb.width / 2, Math.min(rb.top + rb.height / 2, rb.bottom - 1));
+        const inside = rb.top >= r.top - 1 && rb.bottom <= r.bottom + 1 && rb.top >= 0 && rb.bottom <= innerHeight;
+        return { id: b.dataset.machine, inside, topmost: !!at && b.contains(at), h: Math.round(rb.height) }; });
+      const footTop = (el) => { const b = el.getBoundingClientRect(); const at = document.elementFromPoint(b.left + b.width / 2, b.top + Math.min(b.height / 2, 6)); return !!at && menu.contains(at); };
+      const sc = menu.querySelector('.menulist') || menu;
+      const listR = sc.getBoundingClientRect();
+      return { top: Math.round(r.top), bottom: Math.round(r.bottom), vh: innerHeight, scrolls: sc.scrollHeight > sc.clientHeight + 1,
+        rows: rows.length, fullyVisible,
+        // every machine row is inside the models' scroller (.menulist), not just the menu
+        rowsInList: fullyVisible, listBottom: Math.round(listR.bottom),
+        reach, foot: foot ? [...foot.querySelectorAll('button')].map((b) => ({ text: b.textContent.trim().slice(0, 20), topmost: footTop(b), h: Math.round(b.getBoundingClientRect().height) })) : [],
+        // the footer never overlays a model: its top is at or below the list's bottom
+        noOverlap: !foot || foot.getBoundingClientRect().top >= listR.bottom - 1 };
+    }) : null;
+    check(`ui qa (landscape ${label}, touch keys): the machine list shows at least ${floor} machines at once (base: ${floor - 1}), scrolls inside the window, and every machine is reachable by a real tap (not shrunk), the footer buttons still on top and >= 44 px, never over a model`,
+      !!list && list.top >= 0 && list.bottom <= list.vh && list.scrolls && list.fullyVisible >= floor && list.rows >= 13 && list.reach.length >= 13
+        && list.reach.every((x) => x.inside && x.topmost && x.h >= 24) && list.foot.length >= 2 && list.foot.every((b) => b.topmost) && list.noOverlap
+        // 44 px tap targets only where the compact rule runs (653x280); the taller windows keep their roomier footer
+        && (label !== '653x280' || list.foot.every((b) => b.h >= 44)),
+      JSON.stringify(list));
+    // 653x280's footer is compact (the short-window rule): the two buttons share one row, each >= 44 px, and the
+    // "BASIC ready" legend is hidden -- each tick then carries its own title and accessible name. The tick only renders
+    // with a ROM-ready machine, so a ready tick is forced here (the same stubbing the ROM tests use).
+    if (label === '653x280') {
+      const tick = await mpage.evaluate(() => {
+        const s = window.emu.session, orig = s.machineRoms.bind(s);
+        s.machineRoms = (id) => (id === 'dragon32' ? { bootable: true, sockets: [] } : orig(id)); s.storedRoms = () => ({ count: 1 });
+        document.getElementById('machineMenu').hidden = true; document.getElementById('machineBtn').click();
+        return new Promise((res) => setTimeout(() => {
+          const menu = document.getElementById('machineMenu');
+          const t = menu.querySelector('button[data-machine] .tag.ready');
+          const legend = menu.querySelector('.footer .legend');
+          const foot = menu.querySelector('.footer');
+          const btns = [...foot.querySelectorAll('button')].map((b) => Math.round(b.getBoundingClientRect().height));
+          const rows = [...new Set([...foot.querySelectorAll('button')].map((b) => Math.round(b.getBoundingClientRect().top)))];
+          res({ tickTitle: t && t.getAttribute('title'), tickAria: t && t.getAttribute('aria-label'), legendShown: !!(legend && legend.checkVisibility()),
+            btnHs: btns, footerRows: rows.length });
+        }, 250));
+      });
+      check('ui qa (landscape 653x280): the compact footer is one row of two buttons, each >= 44 px, the "BASIC ready" legend hidden, and every tick carries title and aria-label "BASIC ready"',
+        tick.footerRows === 1 && tick.btnHs.length === 2 && tick.btnHs.every((h) => h >= 44) && !tick.legendShown && tick.tickTitle === 'BASIC ready' && tick.tickAria === 'BASIC ready',
+        JSON.stringify(tick));
+    }
+    await mctx.close();
+  }
+  // The compact landscape footer is scoped to a window <= 320 px tall: desktop and portrait keep the roomier footer. This
+  // asserts that the rule did NOT leak to them (flex-wrap stays wrap, padding not the compact 8px), measured -- not by eye.
+  for (const [label, viewport, touch] of [['desktop', { width: 1440, height: 900 }, false], ['portrait', { width: 390, height: 844 }, true]]) {
+    const uctx = await browser.newContext({ viewport, hasTouch: touch, isMobile: touch, serviceWorkers: 'block' });
+    const upage = await uctx.newPage();
+    await upage.goto(`${base}?machine=dragon64`);
+    await ready(upage);
+    // open the picker the way each shape does: a landscape touch window has the keys' Menu (#tkMenu); desktop and an
+    // upright phone have the app bar's #machineBtn
+    const landscapeTouch = touch && viewport.width > viewport.height;
+    if (landscapeTouch) { await waitFor(upage, () => !document.getElementById('touchKeys').hidden && document.body.classList.contains('touch-keys')); await upage.tap('#tkMenu'); await waitFor(upage, () => !document.getElementById('tkMenuSheet').hidden, null, 5000); await upage.evaluate(() => document.querySelector('#tkMenuSheet [data-item="machine"]').click()); }
+    else await upage.click('#machineBtn');
+    await waitFor(upage, () => !document.getElementById('machineMenu').hidden, null, 8000);
+    const f = await upage.evaluate(() => { const foot = document.querySelector('#machineMenu .footer'); const cs = getComputedStyle(foot);
+      return { wrap: cs.flexWrap, padding: cs.padding }; });
+    check(`ui qa (${label}): the compact landscape footer did not leak here -- the machine-menu footer keeps its roomier style (wrap, not the compact 8px padding)`,
+      f.wrap === 'wrap' && !/^8px( 8px){0,3}$/.test(f.padding), JSON.stringify(f));
+    await uctx.close();
+  }
+  // The landscape keys' Menu, in its settled order, each of its eleven items reachable by a REAL tap at four landscape
+  // sizes. What acts on this machine comes first (Programs…, Open…, Ask Claude…, Share…), then the ports
+  // and the machine's own settings (Tape…, Machine…, Settings…, Power…), then under a rule Commands…, Install CLOADM…
+  // and Hide keys. js/ui/touch-keys.js builds the sheet; the rule is a .tkmenu-sep span, so the row of BUTTONS is what
+  // is walked.
+  const ORDER8 = ['programs', 'open', 'ask', 'share', 'ports', 'machine', 'settings', 'power', 'commands', 'install', 'hide'];
+  for (const [label, viewport] of [['659x343', { width: 659, height: 343 }], ['852x393', { width: 852, height: 393 }], ['844x390', { width: 844, height: 390 }], ['653x280', { width: 653, height: 280 }]]) {
+    const octx = await browser.newContext({ viewport, hasTouch: true, isMobile: true, serviceWorkers: 'block' });
+    const opage = await octx.newPage();
+    const oerrors = [];
+    opage.on('pageerror', (e) => oerrors.push(e.message));
+    await opage.goto(`${base}?machine=dragon64`);
+    await ready(opage);
+    await waitFor(opage, () => !document.getElementById('touchKeys').hidden && document.body.classList.contains('touch-keys'));
+    await opage.tap('#tkMenu');
+    await waitFor(opage, () => !document.getElementById('tkMenuSheet').hidden, null, 5000);
+    const o = await opage.evaluate((ORDER8) => {
+      const sheet = document.getElementById('tkMenuSheet'), r = sheet.getBoundingClientRect();
+      const items = [...sheet.querySelectorAll('button[data-item]')].filter((b) => b.checkVisibility());
+      const order = items.map((b) => b.dataset.item);
+      // the separator sits between power and commands (its DOM position: after the power button)
+      const sep = sheet.querySelector('.tkmenu-sep');
+      const sepAfterPower = !!sep && sep.previousElementSibling && sep.previousElementSibling.dataset.item === 'power'
+        && sep.nextElementSibling && sep.nextElementSibling.dataset.item === 'commands';
+      // every item scrollable into view inside the sheet and topmost at its own centre, not shrunk
+      const reach = items.map((b) => { b.scrollIntoView({ block: 'center' }); const rb = b.getBoundingClientRect();
+        const at = document.elementFromPoint(rb.left + rb.width / 2, Math.min(rb.top + rb.height / 2, rb.bottom - 1));
+        const inside = rb.top >= r.top - 1 && rb.bottom <= r.bottom + 1 && rb.top >= 0 && rb.bottom <= innerHeight;
+        return { id: b.dataset.item, inside, topmost: !!at && b.contains(at), h: Math.round(rb.height), text: b.textContent.trim() }; });
+      return { top: Math.round(r.top), bottom: Math.round(r.bottom), vh: innerHeight, scrolls: sheet.scrollHeight > sheet.clientHeight + 1,
+        order, sepAfterPower, reach };
+    }, ORDER8);
+    check(`ui qa (landscape ${label}, touch keys): the keys' Menu is in the UX order (Programs…, Open…, Ask Claude…, Share…, Tape…, Machine…, Settings…, Power…, rule, Commands…, Install…, Hide keys) and every item is reachable by a real tap`,
+      JSON.stringify(o.order) === JSON.stringify(ORDER8) && o.sepAfterPower && o.top >= 0 && o.bottom <= o.vh && o.scrolls
+        && o.reach.length === 11 && o.reach.every((x) => x.inside && x.topmost && x.h >= 44),
+      JSON.stringify(o));
+    // Open…: triggers the program file input, whose accept is the desktop's (fileProgram)
+    const acceptOf = (id) => opage.evaluate((id) => document.getElementById(id).getAttribute('accept'), id);
+    const open = await opage.evaluate(() => {
+      const inp = document.getElementById('fileProgram'); let clicked = false;
+      const orig = inp.click.bind(inp); inp.click = () => { clicked = true; };      // do not open a real picker
+      const b = [...document.querySelectorAll('#tkMenuSheet [data-item]')].find((x) => x.dataset.item === 'open');
+      b.scrollIntoView({ block: 'center' }); b.click();
+      inp.click = orig;
+      return { clicked };
+    });
+    // "the same input as desktop's Open…": the check pins that Open… fires #fileProgram -- the very input the app bar's
+    // Open… uses -- and that it still carries a program picker's accept (extensions + octet-stream). It does NOT hard-code
+    // a copy of the list: the list's exact contents belong to the app (the desktop check at mediaBackend pins that), and a
+    // copy here only drifts (it had a stale .img, which broke every size when the picker dropped it).
+    const progAccept = await acceptOf('fileProgram');
+    check(`ui qa (landscape ${label}, touch keys): Open… triggers #fileProgram, the same input desktop's Open… uses, and it takes programs`,
+      open.clicked && /\.(bin|cas|rom)\b/.test(progAccept) && /application\/octet-stream/.test(progAccept) && !/image\//.test(progAccept),
+      JSON.stringify({ open, accept: progAccept }));
+    // Ask Claude…: opens the side panel as a right-side sheet; Esc closes it and returns the focus to Menu
+    // (reopen the sheet first: selecting Open… closes it, as every item does, and the program input's own dialog may
+    //  have taken the page's focus)
+    await opage.evaluate(() => { const d = document.getElementById('tkMenuSheet'); if (d.hidden) document.getElementById('tkMenu').click(); });
+    await waitFor(opage, () => !document.getElementById('tkMenuSheet').hidden, null, 5000);
+    await opage.evaluate(() => { const b = [...document.querySelectorAll('#tkMenuSheet [data-item]')].find((x) => x.dataset.item === 'ask'); b.scrollIntoView({ block: 'center' }); });
+    await opage.tap('#tkMenuSheet [data-item="ask"]');
+    const askUp = await waitFor(opage, () => !document.getElementById('ask').hidden && window.emu.session.claudeView === 'panel', null, 8000);
+    const ap = await opage.evaluate(() => { const a = document.getElementById('ask'), r = a.getBoundingClientRect(); return { left: Math.round(r.left), right: Math.round(r.right), vw: innerWidth }; });
+    await opage.keyboard.press('Escape');
+    const back = await waitFor(opage, () => document.getElementById('ask').hidden && document.activeElement === document.getElementById('tkMenu'), null, 5000);
+    check(`ui qa (landscape ${label}, touch keys): Ask Claude… opens the side panel as a right-side sheet (its right edge at the window's), and Esc closes it with the focus back on Menu`,
+      // a right-side sheet: its right edge near the window's right and it does NOT span the full width (the upright
+      // bottom sheet spanned left 0..right vw). Measured at 653 it is 225..645 -- a 420 px panel down the right --
+      // so the test is "not full width and right-aligned", not a fixed fraction of the width.
+      askUp && ap.right >= ap.vw - 24 && ap.left >= 24 && ap.left > ap.vw * 0.25 && (ap.right - ap.left) < ap.vw - 24 && back, JSON.stringify({ askUp, ap, back }));
+    // Share…: a real tap opens the Share screen on this moment (the app bar's Share, which is out of sight sideways), and
+    // its "← Emulator" comes back to the keys
+    await opage.tap('#tkMenu');
+    await waitFor(opage, () => !document.getElementById('tkMenuSheet').hidden, null, 5000);
+    await opage.evaluate(() => document.querySelector('#tkMenuSheet [data-item="share"]')?.scrollIntoView({ block: 'center' }));
+    await opage.tap('#tkMenuSheet [data-item="share"]', { timeout: 3000 }).catch(() => {});   // (a missing item is a FAIL below, not a throw)
+    const shareUp = await waitFor(opage, () => location.hash === '#share' && document.getElementById('share').checkVisibility()
+      && /^https?:\/\/.+#z=/.test(document.getElementById('shareLink').value) && document.getElementById('tkMenuSheet').hidden, null, 15000);
+    if (shareUp) await opage.tap('#shareBack');
+    const shareBack = shareUp && await waitFor(opage, () => location.hash !== '#share' && !document.getElementById('touchKeys').hidden, null, 5000);
+    check(`ui qa (landscape ${label}, touch keys): Share… opens the Share screen with this moment's link, and ← Emulator comes back to the keys`, shareUp && shareBack,
+      JSON.stringify({ shareUp, shareBack, hash: await opage.evaluate(() => location.hash) }));
+    check(`ui qa (landscape ${label}, touch keys): no page errors with the keys' Menu`, !oerrors.length, oerrors.join('; '));
+    await octx.close();
+  }
+  // Share, Library, Debugger and Help stay reachable through Commands…: the box lists each (the landscape Menu no longer
+  // carries them on their own rows).
+  {
+    const cctx = await browser.newContext({ viewport: { width: 844, height: 390 }, hasTouch: true, isMobile: true, serviceWorkers: 'block' });
+    const cpage = await cctx.newPage();
+    await cpage.goto(`${base}?machine=dragon64`);
+    await ready(cpage);
+    await waitFor(cpage, () => !document.getElementById('touchKeys').hidden && document.body.classList.contains('touch-keys'));
+    await cpage.tap('#tkMenu');
+    await waitFor(cpage, () => !document.getElementById('tkMenuSheet').hidden, null, 5000);
+    await cpage.tap('#tkMenuSheet [data-item="commands"]');
+    const box = await waitFor(cpage, () => !document.getElementById('cmdBox').hidden, null, 8000);
+    // type each name and read the box's own rows (what a person picks from), rather than the module's list
+    const findRow = async (q) => {
+      await cpage.fill('#cmdInput', q);
+      return cpage.evaluate(() => [...document.querySelectorAll('#cmdBox [role="option"]')].map((o) => o.textContent));
+    };
+    const share = await findRow('share'), lib = await findRow('library'), dbg = await findRow('debugger'), help = await findRow('help');
+    check('ui qa (touch keys, sideways): Commands… (from the Menu) opens the box, which still carries Share, the Library, the Debugger and Help',
+      // (the rows' text runs label and description together -- "Helpthe guide..." -- so match at the START, not on a \b)
+      box && share.some((t) => /^Share/.test(t)) && lib.some((t) => /Library/.test(t)) && dbg.some((t) => /^Open the Debugger/.test(t)) && help.some((t) => /^Help/.test(t)),
+      JSON.stringify({ share: share.slice(0, 2), lib: lib.slice(0, 2), dbg: dbg.slice(0, 2), help: help.slice(0, 2) }));
+    await cctx.close();
+  }
+  // With no chat on the page (?embed=1, or framed in another site), the keys' Menu must not offer Ask Claude… or
+  // Commands…: there is nothing for either to open, and tapping Ask Claude… used to call page.openAsk, which does not
+  // exist then, and threw a pageerror. Loaded with no chat, both rows are absent and the Menu opens clean.
+  {
+    const ectx = await browser.newContext({ viewport: { width: 844, height: 390 }, hasTouch: true, isMobile: true, serviceWorkers: 'block' });
+    const epage = await ectx.newPage();
+    const eerrors = [];
+    epage.on('pageerror', (e) => eerrors.push(e.message));
+    await epage.goto(`${base}?machine=dragon64&embed=1`);
+    await ready(epage);
+    const noChat = await epage.evaluate(() => document.body.classList.contains('no-claude'));
+    await epage.tap('#tkMenu');
+    const eup = await waitFor(epage, () => !document.getElementById('tkMenuSheet').hidden, null, 5000);
+    const eitems = await epage.evaluate(() => [...document.querySelectorAll('#tkMenuSheet button[data-item]')].filter((b) => b.checkVisibility()).map((b) => b.dataset.item));
+    check('ui qa (no chat, ?embed=1, sideways): the keys\' Menu is there but offers neither Ask Claude… nor Commands…, nor Share… (an embed has no Share), and nothing throws',
+      noChat && eup && !eitems.includes('ask') && !eitems.includes('commands') && !eitems.includes('share') && eitems.includes('programs') && eitems.includes('hide') && !eerrors.length,
+      JSON.stringify({ noChat, eup, eitems, eerrors }));
+    await ectx.close();
+  }
+  // A page framed in another site that is NOT an embed (body.no-claude, not body.embed): no chat there, but the app bar's
+  // Share is, so the keys' Menu keeps Share… -- and it works: a real tap in the frame opens the Share screen with this
+  // moment's link. (Hiding Share… under no-claude would take it from these pages too: this check is red then.)
+  {
+    const fctx = await browser.newContext({ viewport: { width: 844, height: 390 }, hasTouch: true, isMobile: true, serviceWorkers: 'block' });
+    const fpage = await fctx.newPage();
+    const ferrors = [];
+    fpage.on('pageerror', (e) => ferrors.push(e.message));
+    await fpage.setContent(`<!doctype html><title>a blog</title><style>body{margin:0}iframe{border:0;width:100vw;height:100vh}</style><iframe src="${base}?machine=dragon64"></iframe>`);
+    let frame = null;
+    for (let i = 0; i < 100 && !frame; i++) { frame = fpage.frames().find((f) => f !== fpage.mainFrame() && /\/play\//.test(f.url())) || null; if (!frame) await fpage.waitForTimeout(100); }
+    const inFrame = (fn, ms = 15000) => (async () => { for (let t = 0; t < ms; t += 100) { if (await frame.evaluate(fn).catch(() => false)) return true; await fpage.waitForTimeout(100); } return false; })();
+    const up = !!frame && await inFrame(() => window.emu && window.emu.started && !document.getElementById('touchKeys').hidden && document.body.classList.contains('touch-keys'), 60000);
+    const kind = up ? await frame.evaluate(() => ({ framed: window.top !== window, noChat: document.body.classList.contains('no-claude'), embed: document.body.classList.contains('embed') })) : null;
+    if (up) await frame.tap('#tkMenu');
+    const open = up && await inFrame(() => !document.getElementById('tkMenuSheet').hidden, 5000);
+    const fitems = open ? await frame.evaluate(() => [...document.querySelectorAll('#tkMenuSheet button[data-item]')].filter((b) => b.checkVisibility()).map((b) => b.dataset.item)) : [];
+    if (fitems.includes('share')) {
+      await frame.evaluate(() => document.querySelector('#tkMenuSheet [data-item="share"]').scrollIntoView({ block: 'center' }));
+      await frame.tap('#tkMenuSheet [data-item="share"]');
+    }
+    const shared = fitems.includes('share') && await inFrame(() => location.hash === '#share' && document.getElementById('share').checkVisibility()
+      && /#z=/.test(document.getElementById('shareLink').value));
+    check('ui qa (framed in another site, not an embed, sideways): no chat there, but the keys\' Menu keeps Share… right after Open…, and a real tap opens the Share screen with this moment\'s link',
+      !!kind && kind.framed && kind.noChat && !kind.embed && fitems.indexOf('share') === fitems.indexOf('open') + 1 && !fitems.includes('ask') && shared && !ferrors.length,
+      JSON.stringify({ up, kind, open, fitems, shared, ferrors }));
+    await fctx.close();
+  }
+  // the program, and the toast's job is to say so without hiding what it started. Measured with bounding boxes: the
+  // toast's rect against the title row's, the row taken from the canvas grid (32 x 16 cells) at the row the machine's
+  // own screen text has the title on. A window at phone width found the toast in the fixed top slot, over row 0: with
+  // no free place along the bottom it fell to the slot under the app bar, and the picture's top row is exactly where
+  // LIZA puts its title. Sizes as the cold test used them: a phone-width window and a desktop one.
+  for (const [label, viewport] of [['phone width', { width: 390, height: 844 }], ['desktop', { width: 1440, height: 900 }]]) {
+    const tctx = await browser.newContext({ viewport, serviceWorkers: 'block' });
+    const tpage = await tctx.newPage();
+    const terrors = [];
+    tpage.on('pageerror', (e) => terrors.push(e.message));
+    await tpage.goto(`${base}?machine=dragon64`);
+    await ready(tpage);
+    await tpage.waitForFunction(() => { try { return !!window.emu && window.emu.session && window.emu.session.welcomeRunning && window.emu.session.screenText()[14].includes('PRESS 1 TO'); } catch (e) { return false; } }, null, { timeout: 30000 });
+    await tpage.click('#screen');
+    await tpage.keyboard.press('1');
+    // Wait for BOTH the toast and the LIZA row on the screen: the toast can be up a frame before the program has drawn
+    // its title, and measuring then read titleRow:-1 (no LIZA row yet) -- a race, not a covering. Both conditions are
+    // required, so a page where the title never appears still times out and fails.
+    const up = await waitFor(tpage, () => document.getElementById('toastText').textContent === 'LIZA loaded' && !document.getElementById('toast').hidden
+      && (() => { try { return window.emu.session.screenText().some((r) => /LIZA/.test(r)); } catch (e) { return false; } })(), null, 30000);
+    const m = await tpage.evaluate(() => {
+      const t = document.getElementById('toast'), c = document.getElementById('screen');
+      const tr = t.getBoundingClientRect(), cr = c.getBoundingClientRect();
+      const rows = window.emu.session.screenText();
+      const titleRow = rows.findIndex((r) => /LIZA/.test(r));
+      const cellH = cr.height / 16;
+      const top = cr.top + Math.max(0, titleRow) * cellH, bottom = top + cellH;
+      const meets = (a, b) => !(a.bottom <= b.top || a.top >= b.bottom || a.right <= b.left || a.left >= b.right);
+      return { toast: { l: Math.round(tr.left), t: Math.round(tr.top), r: Math.round(tr.right), b: Math.round(tr.bottom) },
+        screen: { l: Math.round(cr.left), t: Math.round(cr.top), r: Math.round(cr.right), b: Math.round(cr.bottom) },
+        titleRow, row: { t: Math.round(top), b: Math.round(bottom) }, visible: t.checkVisibility() && tr.width > 0 && tr.height > 0,
+        overlapsTitle: meets(tr, { left: cr.left, right: cr.right, top, bottom }) };
+    });
+    check(`ui qa (${label}): "LIZA loaded" is visible and covers no part of the screen's title row`,
+      up && m.visible && m.titleRow >= 0 && !m.overlapsTitle, JSON.stringify(m));
+    check(`ui qa (${label}): no page errors with the toast up`, !terrors.length, terrors.join('; '));
+    await tctx.close();
   }
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   let page = await ctx.newPage();
@@ -15504,7 +17768,7 @@ async function uiQaChecks(browser, base, check) {
   // Every view adds one history entry: Back from it returns to the emulator, and so does "← Emulator" from a
   // view opened over another view (one entry above the emulator, not two)
   // (in a new tab: history.length stops counting at 50, and the surfaces' openers follow the variable \`page\`)
-  await page.close();
+  await closePage(page);
   page = await ctx.newPage();
   page.on('pageerror', (e) => errors.push(e.message));
   await page.goto(`${base}?machine=dragon64`); await ready(page);
@@ -15579,7 +17843,7 @@ async function uiQaChecks(browser, base, check) {
   check('Esc with the focus on the screen closes the LIZA RAM offer too, and is not BREAK', await waitFor(page, () => document.getElementById('lizaOffer').hidden)
     && await page.evaluate(() => window.emu.machine.config.ram === 4 && window.reached.length === 0), await page.evaluate(() => window.reached.join()));
   check('desktop: no page errors', !errors.length, errors.join(' | '));
-  await ctx.close();
+  await closeCtx(ctx);
 }
 
 async function designChecks(browser, base, check) {
@@ -15605,7 +17869,7 @@ async function designChecks(browser, base, check) {
   check('tokens: code in JetBrains Mono, primary buttons phosphor green', /^"?JetBrains Mono/.test(styles.mono) && styles.primary === 'rgb(61, 245, 90)');
   check('tokens: nothing is requested from another host', !foreign.length, foreign.join(' '));
   check('tokens: no page errors', !errors.length, errors.join('; '));
-  await ctx.close();
+  await closeCtx(ctx);
 }
 
 // every model runs (its welcome menu, a screenshot), LIZA assembled and run from the Debugger and answering typed
@@ -15871,7 +18135,7 @@ async function semanticsChecks(browser, base, site, check) {
 
     // the views: each its own main landmark with one h1, the emulator behind it inert and out of a reading mode
     for (const [hash, name, own, backBtn] of [['#library', 'Library', 'Your tapes, disks and cartridges', '#btnLibBack'],
-      ['#share', 'Share this moment', 'Opens on the', '#shareBack'], ['#debugger', 'DEBUGGER', 'Breakpoints', '#btnDbgBack'],
+      ['#share', 'Share this moment', 'everything in memory', '#shareBack'], ['#debugger', 'DEBUGGER', 'Breakpoints', '#btnDbgBack'],
       ['#add-roms', 'Give it a BASIC to boot', 'Drop your ROM files here', '#btnRomBack']]) {
       if (label !== 'desktop' && hash !== '#library') continue;   // (the views do not change with the size; the Library stands for them)
       await page.evaluate((h) => { location.hash = h; }, hash);
@@ -15950,7 +18214,7 @@ async function semanticsChecks(browser, base, site, check) {
       await closedOk(page, `${L}, Ask Claude opened and closed`);
     }
     check(`${L}: no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // the full-screen chat: its bar is a region with the one h1; one main
@@ -15966,7 +18230,7 @@ async function semanticsChecks(browser, base, site, check) {
       o.landmarks.filter((x) => x.startsWith('main')).length === 1 && o.landmarks.includes('region "CHAT WITH CLAUDE"') && inOrder(o.headings) && o.headings[0][1] === 'CHAT WITH CLAUDE',
       JSON.stringify({ landmarks: o.landmarks, headings: o.headings }));
     await closedOk(page, 'semantics (chat)');
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // a Color Computer: the Multi-Pak's slots are hidden while it is folded, and only then
@@ -15987,7 +18251,7 @@ async function semanticsChecks(browser, base, site, check) {
     check('semantics (coco): the Multi-Pak\'s slots are hidden while it is folded, shown while it is open',
       !folded.open && folded.hidden && opened.open && !opened.hidden && slot1 && !again.open && again.hidden, JSON.stringify({ folded, opened, slot1, again }));
     await closedOk(page, 'semantics (coco), the Multi-Pak folded again');
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // the landing page
@@ -16002,8 +18266,133 @@ async function semanticsChecks(browser, base, site, check) {
       JSON.stringify(o.landmarks.filter((x) => !x.startsWith('region'))) === JSON.stringify(['banner', 'navigation "Site"', 'main', 'contentinfo'])
       && regions.length >= 4 && o.landmarks.indexOf(regions[0]) === 3 && o.landmarks.indexOf('contentinfo') === 3 + regions.length
       && await page.evaluate(() => document.querySelectorAll('main').length) === 1 && inOrder(o.headings), JSON.stringify({ landmarks: o.landmarks, headings: o.headings }));
+    await closeCtx(ctx);
+  }
+}
+
+
+// Words run together in a menu or sheet label's TEXT, whatever the layout draws: a lowercase letter straight into a
+// capital inside one word ("InstallCLOADM…", "OpenClaude") is two words with the space lost, unless the whole word is a
+// name written that way. gluedLabels (above) finds the drawn kind (the space is in the text, the layout drops it).
+// -> the visible labels under `sel` with such a word
+const CAMEL_NAMES = ['GitHub', 'CoCo'];
+const gluedWords = (page, sel) => page.evaluate(([sel, names]) => {
+  const out = [];
+  for (const el of document.querySelectorAll(sel)) {
+    if (!el.checkVisibility()) continue;
+    const text = el.innerText || '';
+    for (const word of text.split(/[\s/·,;:()…—–\-"'“”.?!]+/)) {
+      if (/\p{Ll}\p{Lu}/u.test(word) && !names.includes(word)) out.push(`${el.id || el.tagName}: "${text.trim().replace(/\s+/g, ' ')}" (${word})`);
+    }
+  }
+  return out;
+}, [sel, CAMEL_NAMES]);
+// how many labels under `sel` are drawn: a check over none has looked at nothing
+const visibleLabels = (page, sel) => page.evaluate((sel) => [...document.querySelectorAll(sel)].filter((e) => e.checkVisibility() && (e.innerText || '').trim()).length, sel);
+// the labels a person reads in a menu, sheet or view that is open: its buttons, links, tabs, options, headings, summaries and field labels
+const LABELS = ':is(button, a, [role="menuitem"], [role="tab"], [role="option"], h1, h2, h3, summary, label, legend, .title)';
+const openDetails = (page, scope) => page.evaluate((scope) => document.querySelectorAll(`${scope} details`).forEach((d) => { d.open = true; }), scope);
+
+// Every menu, sheet and view: no label has words run together, in the text or on the screen. The app bar's Menu and its
+// links (1440 and 900 wide, and on a phone), the machine menu, the drive menu, the views behind the app bar (Library,
+// Debugger, Share, Add ROMs), the command palette, each tab of the settings drawer with its disclosures open, the keys'
+// Menu on a phone sideways, and every sheet of a phone. A check that finds no label to read is a failure.
+async function menuWordsChecks(browser, base, check) {
+  const { devices } = require('playwright');
+  const errors = [];
+  const both = async (page, name, sel) => {
+    const [n, drawn, text] = [await visibleLabels(page, sel), await gluedLabels(page, sel), await gluedWords(page, sel)];
+    check(`menu words: ${name}: ${n} labels, none with words run together`, n > 0 && !drawn.length && !text.length, JSON.stringify({ n, drawn, text }));
+  };
+  {
+    const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, serviceWorkers: 'block' });
+    const page = await ctx.newPage();
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto(`${base}?machine=dragon64`); await started(page);
+    for (const width of [1440, 900]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.waitForTimeout(100);
+      await both(page, `the app bar at ${width}`, `#appbar ${LABELS}`);
+      for (const [name, hash, id] of [['the Library', '#library', 'library'], ['the Debugger', '#debugger', 'debugView'], ['Share', '#share', 'share'], ['Add ROMs', '#add-roms', 'romCard']]) {
+        await page.evaluate((h) => { location.hash = h; }, hash);
+        await waitFor(page, (i) => !document.getElementById(i).hidden && document.getElementById(i).checkVisibility(), id);
+        await openDetails(page, `#${id}`);
+        await both(page, `${name} at ${width}`, `#${id} ${LABELS}`);
+        await page.evaluate(() => { location.hash = ''; });
+        await waitFor(page, () => location.hash === '' || location.hash === '#');
+      }
+      for (const tab of ['media', 'display', 'input', 'pokes', 'machine']) {
+        await page.click(`#tab-${tab}`);
+        await waitFor(page, (t) => document.getElementById('tab-' + t).getAttribute('aria-selected') === 'true', tab);
+        await openDetails(page, `#panel-${tab}`);
+        await both(page, `the ${tab} tab at ${width}`, `#panel-${tab} ${LABELS}, #tab-${tab}`);
+      }
+    }
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.click('#machineBtn');
+    await waitFor(page, () => !document.getElementById('machineMenu').hidden);
+    await both(page, 'the machine menu', `#machineMenu ${LABELS}`);
+    await page.keyboard.press('Escape');
+    await page.click('#drives .drive >> nth=0');
+    await waitFor(page, () => !document.getElementById('driveMenu').hidden);
+    await both(page, 'the drive menu', `#driveMenu ${LABELS}`);
+    await page.click('#driveClose');
+    await page.keyboard.press('Control+k');
+    await waitFor(page, () => !document.getElementById('cmdBox').hidden);
+    await both(page, 'the command palette', `#cmdBox ${LABELS}`);
+    await page.keyboard.press('Escape');
     await ctx.close();
   }
+  {
+    const ctx = await browser.newContext({ ...devices['iPhone 15'], serviceWorkers: 'block' });
+    const page = await ctx.newPage();
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto(`${base}?machine=dragon64`); await started(page);
+    await page.tap('#btnMenu');
+    await waitFor(page, () => document.getElementById('appbar').classList.contains('menu-open'));
+    await both(page, 'the phone\'s Menu', `#appbar ${LABELS}`);
+    await page.tap('#btnMenu');
+    for (const chip of ['chipTape', 'chipDisks', 'chipCart', 'chipPower']) {
+      await page.tap(`#${chip}`);
+      await waitFor(page, () => !!document.querySelector('dialog.sheet[open]'));
+      await openDetails(page, 'dialog.sheet[open]');
+      await both(page, `the ${chip.slice(4)} sheet`, `dialog.sheet[open] ${LABELS}`);
+      await closeSheet(page);
+      await waitFor(page, () => !document.querySelector('dialog.sheet[open]'));
+    }
+    await page.tap('#btnMenu');
+    await page.tap('#navPrograms');
+    await waitFor(page, () => !!document.querySelector('dialog.sheet[open]'));
+    await openDetails(page, 'dialog.sheet[open]');
+    await both(page, 'the Programs sheet', `dialog.sheet[open] ${LABELS}`);
+    await closeSheet(page);
+    await waitFor(page, () => !document.querySelector('dialog.sheet[open]'));
+    await page.tap('#btnMenu');
+    await page.tap('#navSettings');
+    await waitFor(page, () => !!document.querySelector('dialog.sheet[open]'));
+    for (const tab of await page.evaluate(() => [...document.querySelectorAll('#sheetSettings [role="tab"]')].map((t) => t.id))) {
+      await page.tap(`#${tab}`);
+      await waitFor(page, (t) => document.getElementById(t).getAttribute('aria-selected') === 'true', tab);
+      await openDetails(page, '#sheetSettings');
+      await both(page, `the Settings sheet's ${tab} tab`, `#sheetSettings ${LABELS}`);
+    }
+    await closeSheet(page);
+    await ctx.close();
+  }
+  {
+    const ctx = await browser.newContext({ ...devices['iPhone 15 landscape'], serviceWorkers: 'block' });
+    const page = await ctx.newPage();
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto(`${base}?machine=dragon64`); await started(page);
+    await page.tap('#tkMenu');
+    await waitFor(page, () => document.getElementById('tkMenuSheet').checkVisibility());
+    await both(page, 'the keys\' Menu', `#tkMenuSheet ${LABELS}`);
+    await page.tap('#tkMenuSheet [data-item="ports"]');
+    await waitFor(page, () => document.getElementById('sheetPorts').open);
+    await both(page, 'the ports sheet', `dialog.sheet[open] ${LABELS}`);
+    await ctx.close();
+  }
+  check('menu words: no page errors', !errors.length, errors.join('; '));
 }
 
 // The groups, in run order: [name, (browser) => the group's checks]. --only takes these names.
@@ -16102,7 +18491,7 @@ async function installChecks(browser, base, check) {
     check('install: "Got it" closes it, and stores no answer', await waitFor(page, () => document.getElementById('installOffer').hidden)
       && await page.evaluate(() => localStorage.getItem('cloadm.installAsk')) === null);
     check('install: no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- 2. the offer with a held prompt: every condition, broken one at a time ----
@@ -16127,7 +18516,7 @@ async function installChecks(browser, base, check) {
     await skipTo(page, 200);
     check('install: at most once a visit (the stored answer wiped, still no second card in this visit)', !(await cardUp(page)));
     check('install: no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // Each condition, broken alone, on its own page: the card's turn comes after 90 s of LIZA, and the one thing
   // that is wrong is set just before. (A condition set after the card is up would prove nothing.)
@@ -16158,7 +18547,7 @@ async function installChecks(browser, base, check) {
     await emuFrames(page, 3);
     check(`install: with ${name} cleared, the card comes`, await waitFor(page, () => !document.getElementById('installOffer').hidden));
     check('install: no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // the welcome menu is never offered over: a visit that only opens it never gets the card, however long
   {
@@ -16171,7 +18560,7 @@ async function installChecks(browser, base, check) {
     await skipTo(page, 200);
     check('install: no card over the welcome menu (the program clock does not run on it)', !(await cardUp(page))
       && (await page.evaluate(() => window.emu.install.clock.seconds())) === 0, String(await page.evaluate(() => window.emu.install.clock.seconds())));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // a disk in a drive is something to come back to, even at the bare prompt with nothing running (programRunning:
   // asked through the drives; a Machine has no disk controller of its own, and asking it for one never found a disk)
@@ -16191,7 +18580,7 @@ async function installChecks(browser, base, check) {
       bare === false && withDisk.running === true && withDisk.prompt === true && withDisk.drives === 1 && ejected === false,
       JSON.stringify({ bare, withDisk, ejected }));
     check('install: no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // ---- 2a. a background tab runs no program: the clock settles when the page is hidden ----
   {
@@ -16225,7 +18614,7 @@ async function installChecks(browser, base, check) {
     await skipTo(page, 90);
     check('install: after the real minute, the card comes', await waitFor(page, () => !document.getElementById('installOffer').hidden));
     check('install: no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- 2b. Esc is "Not now" on the Chromium offer and on the iOS one, and the card is never a history entry ----
@@ -16250,7 +18639,7 @@ async function installChecks(browser, base, check) {
       await waitFor(page, () => document.getElementById('installOffer').hidden)
       && await page.evaluate(() => { const v = JSON.parse(localStorage.getItem('cloadm.installAsk') || 'null'); return !!v && v.until > Date.now(); }));
     check(`install (${label}): no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- 2b''. Esc with the focus on nothing (the page's body: a first visit before any click) is "Not now": the
@@ -16268,7 +18657,7 @@ async function installChecks(browser, base, check) {
       && await page.evaluate(() => { const v = JSON.parse(localStorage.getItem('cloadm.installAsk') || 'null'); return !!v && v.n === 1 && v.until > Date.now(); }),
       String(active));
     check('install (Esc on the body): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- 2b'. Esc with the focus on the screen is the machine's BREAK, even with the offer up: someone typing at the
@@ -16295,7 +18684,7 @@ async function installChecks(browser, base, check) {
     check('install (Esc on the screen): Esc is the machine\'s BREAK; the card stays up and nothing is stored',
       after.breakSent && after.card && after.stored === null, JSON.stringify(after));
     check('install (Esc on the screen): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- 2c. the automatic offer does not take the keyboard from the machine ----
@@ -16311,7 +18700,7 @@ async function installChecks(browser, base, check) {
       await page.evaluate(() => document.activeElement.id || document.activeElement.tagName));
     await page.evaluate(() => window.emu.feedback.clear());
     check('install: no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- 2c'. typing at the machine while the card appears loses no key: half a line typed, the minute passed, the
@@ -16335,7 +18724,7 @@ async function installChecks(browser, base, check) {
       JSON.stringify(await page.evaluate(() => window.emu.session.screenText().filter((l) => l.startsWith('>')))));
     check(`install (typing, ${label}): the screen kept the focus`, await page.evaluate(() => document.activeElement === document.getElementById('screen')));
     check(`install (typing, ${label}): no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- 2d. A view open under the card: the card closes and stores nothing; Esc there closes the view ----
@@ -16358,7 +18747,7 @@ async function installChecks(browser, base, check) {
       await waitFor(page, () => !document.getElementById('installOffer').hidden, null, 5000)
       && await page.evaluate(() => localStorage.getItem('cloadm.installAsk')) === null);
     check('install: no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   {
     // Case B: with the card up, a view is opened and Esc is pressed. Esc belongs to the view (the card closed with
@@ -16384,7 +18773,7 @@ async function installChecks(browser, base, check) {
     check('install: Esc in a view closes the view and writes no answer (it was the view\'s Esc, not the card\'s "Not now")',
       after.hash === '' && after.ask === null, JSON.stringify(after));
     check('install: no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- 2e. focus after the card: back to the screen with no view; left alone with one ----
@@ -16401,7 +18790,7 @@ async function installChecks(browser, base, check) {
       await page.evaluate(() => document.activeElement === document.getElementById('screen')),
       await page.evaluate(() => document.activeElement.id || document.activeElement.tagName));
     check('install: no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   {
     // "always refocus" must fail: with a view open, the card's close() must not run page.focus() at all. The view's
@@ -16426,7 +18815,7 @@ async function installChecks(browser, base, check) {
     check('install: closing the card for a view does not focus the screen (the view is what is shown)',
       after.calls === 0 && !after.card, JSON.stringify(after));
     check('install: no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- 3. "Not now" twice, the 14 days, and "Don't ask again" across reloads ----
@@ -16481,7 +18870,7 @@ async function installChecks(browser, base, check) {
     await chooseInstall(page);
     check('install: "Don\'t ask again" ends the offers, not the Menu item (which runs the browser\'s prompt)', await waitFor(page, () => window.__prompted === 1) && !(await cardUp(page)));
     check('install: no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- 4. Install accepted: the prompt runs once, appinstalled says so and ends the offers ----
@@ -16505,7 +18894,7 @@ async function installChecks(browser, base, check) {
     check('install: what appinstalled stored ends the offers after a reload (a tab cannot report itself standalone, so the answer carries it)',
       await page.evaluate(() => !!(window.emu.install.answer() && window.emu.install.answer().no === true)) && !(await cardUp(page)));
     check('install: no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- 5. a dismissed prompt waits 14 days but is not a Not now ----
@@ -16521,7 +18910,7 @@ async function installChecks(browser, base, check) {
         return !!v && v.until > Date.now() && v.no !== true && v.n === undefined; }),
       await page.evaluate(() => localStorage.getItem('cloadm.installAsk')));
     check('install: no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- 6. standalone (an installed app): no card and no Menu item ----
@@ -16543,7 +18932,7 @@ async function installChecks(browser, base, check) {
     check('install (standalone): read from the display mode: the Menu item is hidden and no card comes',
       await page.evaluate(() => window.emu.install.installed) && await itemHidden(page) && !(await cardUp(page)));
     check('install (standalone): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- 7. iOS (an iPad: a phone has no automatic offer): no event at all, and the card is the Share steps ----
@@ -16568,7 +18957,7 @@ async function installChecks(browser, base, check) {
       return /Install CLOADM as an app on this device/.test(html) && ['Chrome or Edge on a computer', 'Chrome on Android', 'Samsung Internet', 'Firefox on Android', 'iOS Safari', 'Chrome or Edge on iOS 16.4'].every((t) => html.includes(t));
     }));
     check('install (iOS): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- 8. embed=1: no card ----
@@ -16581,7 +18970,7 @@ async function installChecks(browser, base, check) {
     await skipTo(page, 120);
     check('install: no card in an embed (?embed=1), and no Menu item shown', !(await cardUp(page))
       && await page.evaluate(() => { const b = document.getElementById('navInstall'); return !b || !b.checkVisibility(); }));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // The Install CLOADM… link adds no row to the app bar. It is a link of the nav, and an earlier placement there
@@ -16607,7 +18996,7 @@ async function installChecks(browser, base, check) {
     check(`install (${label} ${viewport.width}x${viewport.height}): the item costs the app bar no row (${bar.withItem.h} px with it, ${bar.without.h} px without) and sits in the app bar's nav`,
       bar.withItem.where && bar.withItem.h === bar.without.h && Math.abs(bar.withItem.screen - bar.without.screen) < 0.5, JSON.stringify(bar));
     check(`install (${label}): no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- 9. the placement: the card does not move the page, and covers neither the screen nor Reset ----
@@ -16691,7 +19080,7 @@ async function installChecks(browser, base, check) {
       !after.card && Math.abs(after.reset - before.reset) < 0.5 && Math.abs(after.screen - before.screen) < 0.5 && after.pageH === before.pageH,
       JSON.stringify({ before, after }));
     check(`install (${label}): no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- 10. a phone with the on-screen keyboard, held sideways and then upright: no automatic offer there at all, and none
@@ -16724,7 +19113,7 @@ async function installChecks(browser, base, check) {
     check('install (tablet): the card is clear of the screen and of every key (real boxes and what is seen)', tab.shown && clearOrOwed(tab), JSON.stringify(tab));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, 'install-tablet.png') });
     check('install (phone): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- 10b. short landscape windows, with and without the on-screen keyboard: the card is clear of the screen,
@@ -16778,7 +19167,7 @@ async function installChecks(browser, base, check) {
       check(`install (${w}x${h}): the offer was deferred, not spent — a roomier window brings the card`, await waitFor(page, () => !document.getElementById('installOffer').hidden, null, 10000));
     }
     check(`install (${w}x${h}${touch ? ' touch' : ''}): no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- 10c. the sweep: at every size the card is fully clear of everything, or not shown and the offer still owed ----
@@ -16822,7 +19211,7 @@ async function installChecks(browser, base, check) {
       if (lay.shown) shownSomewhere.push(`${w}x${h}`);
       if (lay.shown && phone) shownPhone.push(`${w}x${h}`);
       if (lay.shown && touch && !phone) shownTablet.push(`${w}x${h}`);
-      await ctx.close();
+      await closeCtx(ctx);
     }
     // The "not shown" branch above is a legitimate answer at a size with no room, but by itself it would let a
     // regression that NEVER shows the card pass every size. Most of the grid has room, so most of it must show: 36 of
@@ -16852,7 +19241,7 @@ async function installChecks(browser, base, check) {
     await emuFrames(page, 3);
     check('install resize: back at 1440x900 the card returns', await waitFor(page, () => !document.getElementById('installOffer').hidden, null, 5000));
     check('install resize: no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- 10m. a live resize, measured once the layout has settled: the screen is re-sized after the resize event (its
@@ -16880,7 +19269,7 @@ async function installChecks(browser, base, check) {
     check(`install resize ${w0}x${h0} -> ${w1}x${h1}: on the settled layout the card is clear of the screen and everything else, or not up and still owed`,
       clearOrOwed(L), JSON.stringify(L));
     check(`install resize ${w0}x${h0} -> ${w1}x${h1}: no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- 10n. a deferred offer comes back on the resize itself, not on the once-a-second retry: the throttle's clock
@@ -16921,7 +19310,7 @@ async function installChecks(browser, base, check) {
     check('install (forced retry): and it is clear of everything', L.shown && clearOrOwed(L), JSON.stringify(L));
     await page.evaluate(() => window.emu.install.holdRetryClock(false));
     check('install (forced retry): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- 10p. a layout change with no resize: on a tablet with its touch keys (a phone has no offer); Hide keys (⌄)
@@ -16959,7 +19348,7 @@ async function installChecks(browser, base, check) {
       clearOrOwed(shown), JSON.stringify(shown));
     await page.evaluate(() => window.emu.install.holdRetryClock(false));
     check('install (keys toggled): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- 10o. the card that is up is re-checked from the frame loop, at most once a second: a change under it that
@@ -16994,7 +19383,7 @@ async function installChecks(browser, base, check) {
     const L = await clearReport(page);
     check('install (frame re-check): and it is clear of everything, nothing stored', clearOrOwed(L) && L.stored === null, JSON.stringify(L));
     check('install (frame re-check): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- 10e. a size where the gutter is the answer ----
@@ -17010,7 +19399,7 @@ async function installChecks(browser, base, check) {
     check('install (1000x420): the card is up, in the gutter, clear of everything',
       g.up && g.where === 'gutter' && g.covered.length === 0, JSON.stringify(g));
     check('install (1000x420): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- 10f. a pending offer is not re-tried on every frame ----
@@ -17033,7 +19422,7 @@ async function installChecks(browser, base, check) {
     const calls = await page.evaluate(() => window.emu.install.state().placements()) - before;
     check('install: a pending offer is not re-placed on every frame (30 frames, at most one retry)', calls <= 1, String(calls));
     check('install (pending): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- 10g. the Menu's own card at a size with no clear place: it stays up (the user asked for it) but must still
@@ -17068,7 +19457,7 @@ async function installChecks(browser, base, check) {
     await painted(page);
     check('install (900x480, Menu card): "Got it" closes it', await waitFor(page, () => document.getElementById('installOffer').hidden));
     check('install (900x480, Menu card): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // ---- 10l. a menu opening over the card: the card is an offer over the emulator, never over a menu the user is
   //      reading (the card sits above the menus, z-index 61 vs 20).
@@ -17110,7 +19499,7 @@ async function installChecks(browser, base, check) {
     const back = await clearReport(page);
     check('install (menu opens): back, it is clear of everything', clearOrOwed(back), JSON.stringify(back));
     check('install (menu opens): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // ---- 10h. a toast while the card is up: the two never overlap, and neither the card nor the page moves for it.
   //      (The toast does the moving: feedback.js keeps it off #installOffer — it is in its CONTROLS list.) ----
@@ -17145,7 +19534,7 @@ async function installChecks(browser, base, check) {
     const gone = await page.evaluate(() => document.getElementById('installOffer').getBoundingClientRect().bottom);
     check('install (toast gone): the card is where it always was', gone === before.card, String(gone));
     check('install (toast up): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // ---- 10i. the wide gutter rules belong to widths above the phone layout: at 700 px the .gutter class must not
   //      shrink the card into a 260 px column (an unguarded gutter rule outranks the phone's full-width strip). The
@@ -17179,7 +19568,7 @@ async function installChecks(browser, base, check) {
     check('install (700x800, no touch keys): the gutter classes do not apply at the phone width (neither shrinks the card)',
       strip.gutter === strip.width && strip.gutterLeft === strip.width, JSON.stringify(strip));
     check('install (700x800, no touch keys): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // ---- 10j. the card through state changes and input types: rotate, open/close a view, hide/show the tab and
   //      reload, with the card up or pending; then dismiss it with touch, mouse, pen and the keyboard (Enter/Space on
@@ -17238,7 +19627,7 @@ async function installChecks(browser, base, check) {
     });
     check('install (states): a pen pointer dismisses the card with "Not now" and stores the answer', pen.hidden && pen.stored, JSON.stringify(pen));
     check('install (states): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // ---- 10k. input types on the card's buttons: mouse, touch and keyboard each really reach it. The card is the
   //      Menu item's (the user asked), so no prompt is needed and it is not a once-a-visit offer. ----
@@ -17256,7 +19645,7 @@ async function installChecks(browser, base, check) {
     await fire(page);
     check(`install (${label}): the click closes the Menu card`, await waitFor(page, () => document.getElementById('installOffer').hidden));
     check(`install (${label}): no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   {
     // keyboard: the Menu card focuses its button; Enter and then (a fresh card) Space dismiss it. Esc is "not now" on
@@ -17275,7 +19664,7 @@ async function installChecks(browser, base, check) {
     await page.keyboard.press('Escape');
     check('install (keyboard): Esc closes the Menu card too', await waitFor(page, () => document.getElementById('installOffer').hidden));
     check('install (keyboard): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- 11. localStorage unavailable: no card, the Menu item still works ----
@@ -17296,7 +19685,7 @@ async function installChecks(browser, base, check) {
     check('install: with localStorage unavailable, the Menu item still runs the prompt',
       await waitFor(page, () => window.__prompted === 1) && !(await cardUp(page)));
     check('install: no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- 12. the link in the app bar, on a phone and on a desktop, and that opening its card moves nothing ----
@@ -17336,7 +19725,7 @@ async function installChecks(browser, base, check) {
       JSON.stringify({ withCard, without }));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, `install-menu-${label}.png`) });
     check(`install (${label}): no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- 13. the Menu item on Chromium runs the deferred prompt ----
@@ -17347,7 +19736,7 @@ async function installChecks(browser, base, check) {
     await pressInstall(page);
     check('install: the Menu item runs the browser\'s own prompt (no card in its way)', await waitFor(page, () => window.__prompted === 1) && !(await cardUp(page)));
     check('install: no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 }
 
@@ -17523,7 +19912,7 @@ async function menuFocusChecks(browser, base, check) {
     await page.keyboard.press('Escape');
     check(`${L}: Esc on the screen with nothing open is still BREAK`, await waitFor(page, () => window.reached.includes('BREAK')));
     check(`${L}: no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- phone, 390 x 844, touch ----
@@ -17609,7 +19998,7 @@ async function menuFocusChecks(browser, base, check) {
       await page.keyboard.press('Escape');
     }
     check(`${L}: no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- the Library's selection count, said politely and written only when it changes ----
@@ -17643,7 +20032,7 @@ async function menuFocusChecks(browser, base, check) {
     check(`${L}: select mode, two items toggled, then the shelf redrawn: the polite region (outside the selection bar) says "2 selected", written only twice`,
       region.polite === 'polite' && region.outside && region.text === '' && after.text === '2 selected' && after.writes === 2, `${JSON.stringify(region)} ${JSON.stringify(after)}`);
     check(`${L}: no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   fs.rmSync(tmp, { recursive: true, force: true });
 }
@@ -17728,7 +20117,7 @@ async function uiModelChecks(browser, base, check) {
     await page.click('#btnSwitch');
     check(`switch takes out (${label}): the CoCo 3 switch asks with nothing to take out, and its toast shows`, asked3 === 'Switching to CoCo 3 resets the Dragon 32. The running program will be lost.'
       && await toastSeen(page, /^Switched to CoCo 3\. It needs ROMs for BASIC\.$/), `${asked3} / ${await page.textContent('#toastText')}`);
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- switch takes out, on a desktop: a disk, a RAM change, a snapshot's own disk, DriveWire ----
@@ -17840,7 +20229,7 @@ async function uiModelChecks(browser, base, check) {
     check('switch takes out: a DriveWire disk is not listed, and stays mounted after the switch', asked === 'Switching to CoCo 1/2 resets the CoCo 3. The running program will be lost.'
       && await waitFor(page, () => window.emu.machine.id === 'coco') && await page.evaluate(() => window.emu.session.driveWireMounts.some((d) => d.drive === 0 && /dw\.dsk$/.test(d.name))),
       `${asked} / ${JSON.stringify(await page.evaluate(() => window.emu.session.driveWireMounts))}`);
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // ---- disk ROM card: the disk ROM is findable: a card in Your ROMs for a machine with a disk option, and a drive's Add ROMs…
   // lands on it; the machine's socket counts are unchanged ----
@@ -17883,7 +20272,7 @@ async function uiModelChecks(browser, base, check) {
       return !!at && c.contains(at);
     }), JSON.stringify(await page.evaluate(() => ({ hash: location.hash, active: document.activeElement && document.activeElement.id, box: document.getElementById('romDiskCard') && document.getElementById('romDiskCard').getBoundingClientRect().toJSON() }))));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, `r26-disk-card-${label}.png`) });
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // ---- the machine menu's footer, the palette's "Your ROMs", the ROMs row first in Machine settings ----
   for (const [label, opts] of SIZES) {
@@ -17985,7 +20374,7 @@ async function uiModelChecks(browser, base, check) {
           && document.activeElement === h && b.top >= 0 && b.bottom <= innerHeight; }),
       JSON.stringify(await page.evaluate(() => ({ active: document.activeElement.id, box: document.getElementById('machineHeading').getBoundingClientRect().toJSON() }))));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, `r28-ram-cpu-speed-${label}.png`) });
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // ---- the ROMs in the Library: a "ROMs" chip after Snapshots, one card; a ROM dropped on the Library says
   // so with "Open Your ROMs" ----
@@ -18023,7 +20412,7 @@ async function uiModelChecks(browser, base, check) {
     await page.click('#libRomsLink');
     check(`ROMs in the Library (${label}): the card's link opens Your ROMs (the same view), focus on its heading`, await waitFor(page, () => location.hash === '#add-roms' && !document.getElementById('romCard').hidden
       && document.activeElement === document.getElementById('romHeading')));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // ---- ROMs in the Library with an empty Library: the ROMs chip and its card are there when ROMs are stored ----
   for (const [label, opts] of SIZES) {
@@ -18041,7 +20430,7 @@ async function uiModelChecks(browser, base, check) {
     check(`ROMs in the Library (${label}): ROMs stored and an empty Library: the ROMs chip is there and its card counts them`, chip
       && await waitFor(page, () => /^Your ROMs: 1 stored, used by .*Dragon 64.*\. Manage them in Your ROMs →$/.test(document.getElementById('libRomsCard').textContent) && document.getElementById('libRomsCard').checkVisibility()),
       JSON.stringify(await page.evaluate(() => ({ filters: document.getElementById('libFilters').hidden, filled: document.getElementById('libFilled').hidden, card: document.getElementById('libRomsCard').textContent }))));
-    await ctx.close();
+    await closeCtx(ctx);
     // a ROM dropped on an empty Library: the chip appears with it
     const ctx2 = await browser.newContext(Object.assign({ serviceWorkers: 'block' }, opts));
     const p2 = await ctx2.newPage();
@@ -18057,8 +20446,7 @@ async function uiModelChecks(browser, base, check) {
     await dropFiles(p2, [['d64_1.rom', fake(16384, 62)]], null, 'library');
     check(`ROMs in the Library (${label}): a ROM dropped on an empty Library: the card counts it`,
       await waitFor(p2, () => /^Your ROMs: 1 stored, used by .*Dragon 64.*\. Manage them in Your ROMs →$/.test(document.getElementById('libRomsCard').textContent) && document.getElementById('libRomsCard').checkVisibility()));
-    await ctx2.close();
-  }
+    await closeCtx(ctx2);  }
   // ---- ROM tiles: under the ROMs chip a tile per stored image (name, size, used by, Remove); Remove at once with
   // Undo; a ROM the running machine uses stays in it until a switch off and on ----
   for (const [label, opts] of SIZES) {
@@ -18142,7 +20530,7 @@ async function uiModelChecks(browser, base, check) {
     await page.reload(); await started(page);
     check(`ROM tiles (${label}): after a reload the removed ROMs are gone`, await waitFor(page, () => window.emu.session.romFiles().length === 0),
       JSON.stringify(await page.evaluate(() => window.emu.session.romFiles().map((f) => f.name))));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- the copy: no "stub" on the page, one term ("disk ROM"), the .dgn warning said once, the snapshot sentence ----
@@ -18176,12 +20564,17 @@ async function uiModelChecks(browser, base, check) {
     // the ROMs row: "Not added · running without ROMs", then "BASIC ready" with (synthetic) ROMs that boot
     await openTab(page, 'Machine');
     const none = await page.textContent('#romState');
-    // the snapshot sentence, on Share and by the Snapshots
+    // the snapshot sentences: Share says what a link opens (its fixed copy, verbatim), and the Snapshots panel says
+    // what a snapshot reopens on
     const share = await page.evaluate(() => document.getElementById('shareNote').textContent);   // (the one line under the preview)
     const slots = await page.textContent('#slotNote');
-    check(`copy (${label}): the ROMs row says "Not added · running without ROMs"; Share and Snapshots say "A snapshot reopens on the same machine, RAM and ROMs."`,
-      none === 'Not added · running without ROMs' && share.includes('A snapshot reopens on the same machine, RAM and ROMs.') && slots === 'A snapshot reopens on the same machine, RAM and ROMs.',
-      JSON.stringify({ none, share, slots }));
+    // the copy names the machine the page is on (this block runs on the CoCo 1/2, switched to above), not a fixed one
+    const onMachine = await page.evaluate(() => window.emu.machine.profile.name.replace(/^Tandy /, ''));
+    check(`copy (${label}): the ROMs row says "Not added · running without ROMs"; Share says what a link opens, verbatim; Snapshots say "A snapshot reopens on the same machine, RAM and ROMs."`,
+      none === 'Not added · running without ROMs'
+      && share === `Opens a copy of this ${onMachine} exactly as it is now: the screen, the program and everything in memory, including anything you typed. Changes you make later aren't in it.`
+      && slots === 'A snapshot reopens on the same machine, RAM and ROMs.',
+      JSON.stringify({ none, share, slots, onMachine }));
     // the .dgn warning, said once, with its two answers
     await closeSheet(page);
     await page.setInputFiles('#fileProgram', { name: 'dgame.dgn', mimeType: 'application/octet-stream', buffer: Buffer.alloc(8192, 0x12) });
@@ -18208,10 +20601,10 @@ async function uiModelChecks(browser, base, check) {
     await page.evaluate(() => { if (window.emu.machine.useStub) { window.emu.session.stubChosen.delete('coco'); window.emu.session.switchMachine('coco'); } location.hash = ''; });
     await openTab(page, 'Machine');
     check(`copy (${label}): with BASIC in use the ROMs row says "BASIC ready"`, await waitFor(page, () => document.getElementById('romState').textContent === 'BASIC ready'), await page.textContent('#romState'));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // ---- the machine menu: one "No ROMs yet" line instead of 17 tags, a subtitle per section, the footer's line for the
-  // model under the focus or the pointer (each item's aria-description), "Which one is mine? →" to Help's list ----
+  // model under the focus or the pointer (each item's aria-description), "Which one is mine? ↗" to Help's list ----
   for (const [label, opts] of SIZES) {
     const ctx = await browser.newContext(Object.assign({ serviceWorkers: 'block' }, opts));
     const page = await ctx.newPage();
@@ -18231,7 +20624,7 @@ async function uiModelChecks(browser, base, check) {
         about: (() => { const a = document.getElementById('menuAbout'); return { shown: a.checkVisibility(), text: a.textContent, hidden: a.getAttribute('aria-hidden') }; })(),
         describedBy: (() => { const id = m.getAttribute('aria-describedby'), d = id && document.getElementById(id); return d ? d.textContent : null; })(),
         // the fade above the footer: into the panel's colour (the footer's ::before), never a mask showing the page through
-        fade: (() => { const f = getComputedStyle(m.querySelector('.footer'), '::before'), panel = getComputedStyle(m).backgroundColor;
+        fade: (() => { const f = getComputedStyle(m.querySelector('.sep'), '::before'), panel = getComputedStyle(m).backgroundColor;
           return { mask: getComputedStyle(m).maskImage || getComputedStyle(m).webkitMaskImage || 'none', image: f.backgroundImage, panel }; })(),
         live: !!m.querySelector('[aria-live]') };
     });
@@ -18247,7 +20640,19 @@ async function uiModelChecks(browser, base, check) {
       none.describedBy === 'No ROMs yet: every machine needs its own ROMs for BASIC.', String(none.describedBy));
     check(`machine menu (${label}): the band above the footer fades into the panel's colour, with no mask over the page`,
       none.fade.mask === 'none' && none.fade.image.includes(none.fade.panel.replace(/\)$/, '')), JSON.stringify(none.fade));
-    check(`machine menu (${label}): the footer has "Which one is mine? →" to help/#machines, a menu item`, none.which === 'Which one is mine? →|help/#machines|menuitem', String(none.which));
+    check(`machine menu (${label}): the footer has "Which one is mine? ↗" to help/#machines, a menu item`, none.which === 'Which one is mine? ↗|help/#machines|menuitem', String(none.which));
+    // the footer never stands over a model: it sits below the models' own scrolling box, and scrolled to the end the
+    // last model (the CP-400, under KITS) is whole, and what is on top at its centre
+    const reach = await page.evaluate(() => {
+      const m = document.getElementById('machineMenu'), box = m.querySelector('.menulist'), f = m.querySelector('.footer');
+      box.scrollTop = box.scrollHeight;
+      const b = [...m.querySelectorAll('button[data-machine]')].pop(), r = b.getBoundingClientRect(), at = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      const out = { last: b.dataset.machine, boxBottom: box.getBoundingClientRect().bottom, footTop: f.getBoundingClientRect().top, bottom: r.bottom, top: r.top, boxTop: box.getBoundingClientRect().top, onTop: !!at && b.contains(at) };
+      box.scrollTop = 0;
+      return out;
+    });
+    check(`machine menu (${label}): the footer stands below the models, and scrolled to the end the last one (CP-400) is whole and not behind it`,
+      reach.last === 'cp400' && reach.boxBottom <= reach.footTop + 1 && reach.bottom <= reach.boxBottom + 1 && reach.top >= reach.boxTop && reach.onTop, JSON.stringify(reach));
     // arrow focus: the footer line follows (visual only), and it matches the focused item's description
     await page.keyboard.press('ArrowDown');
     const f1 = await page.evaluate(() => [document.activeElement.getAttribute('aria-description'), document.getElementById('menuAbout').textContent]);
@@ -18283,10 +20688,11 @@ async function uiModelChecks(browser, base, check) {
     // the link: Help's list of the machines, in a new tab
     const [help] = await Promise.all([ctx.waitForEvent('page'), page.click('#menuWhich')]);
     await help.waitForLoadState();
+    check(`machine menu (${label}): using "Which one is mine? ↗" closes the menu behind the new tab`, await page.evaluate(() => document.getElementById('machineMenu').hidden && document.getElementById('machineBtn').getAttribute('aria-expanded') === 'false'));
     const listed = await help.evaluate(() => ({ hash: location.hash, models: document.querySelectorAll('#machines ~ dl dt[id^="machine-"]').length, head: !!document.getElementById('machines') }));
-    check(`machine menu (${label}): "Which one is mine? →" opens Help at #machines, which lists all 17 models`, listed.hash === '#machines' && listed.head && listed.models === 17, JSON.stringify(listed));
+    check(`machine menu (${label}): "Which one is mine? ↗" opens Help at #machines, which lists all 17 models`, listed.hash === '#machines' && listed.head && listed.models === 17, JSON.stringify(listed));
     if (shotDir) await help.screenshot({ path: path.join(shotDir, `help-machines-${label}.png`) });
-    await ctx.close();
+    await closeCtx(ctx);
   }
   check('ui model: no page errors', !errors.length, errors.join('; '));
 }
@@ -18377,7 +20783,7 @@ async function mobileChecks(browser, base, check) {
       check(`${L}: ⌨ brings the keys back`, hid.mode === 'hidden' && await until(page, () => !document.getElementById('touchKeys').hidden));
       if (shotDir) await page.screenshot({ path: path.join(shotDir, `mobile-${w}x${h}-keys.png`) });
       check(`${L}: no page errors`, !errors.length, errors.join('; '));
-      await ctx.close();
+      await closeCtx(ctx);
     }
     // Pad (2048 opens on it): the screen takes the page's width
     {
@@ -18404,7 +20810,7 @@ async function mobileChecks(browser, base, check) {
       }
       if (shotDir) await page.screenshot({ path: path.join(shotDir, `mobile-${w}x${h}-2048-pad.png`) });
       check(`${L}, 2048: no page errors`, !errors.length, errors.join('; '));
-      await ctx.close();
+      await closeCtx(ctx);
     }
   }
 
@@ -18419,7 +20825,7 @@ async function mobileChecks(browser, base, check) {
     await page.waitForTimeout(2000);
     const r = await page.evaluate(() => ({ first: window.__bar0, touch0: window.__touch0, now: document.getElementById('appbar').getBoundingClientRect().height }));
     check('mobile (375x548): the app bar is 48 px at its first paint and 2 s later, the touch layout on from that paint', r.first === 48 && r.now === 48 && r.touch0 === true, JSON.stringify(r));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- Menu: one list, Add ROMs first (the machine has no BASIC) and a dot on Menu; Share and Commands… in it ----
@@ -18448,7 +20854,7 @@ async function mobileChecks(browser, base, check) {
     await tap(page, '#navRoms');
     check('mobile (393x659): Menu\'s Add ROMs opens Add ROMs', await until(page, () => location.hash === '#add-roms'));
     check('mobile (Menu): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // ---- Menu's Settings… at 390x844 with the touch keys: the Settings sheet on the tab last used (Media at first),
   // the focus on it, in view, Menu closed ----
@@ -18467,7 +20873,7 @@ async function mobileChecks(browser, base, check) {
       st.sheet && st.focus === 'tab-media' && st.selected === 'true' && st.panel && st.inView && !st.menu, JSON.stringify(st));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, 'mobile-settings-menu.png') });
     check('mobile (Settings…): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- what each program opens on; the pad's keys; the choice remembered per program and machine ----
@@ -18506,13 +20912,13 @@ async function mobileChecks(browser, base, check) {
     check('mobile: Keys chosen in Minesweeper is remembered for Minesweeper on this machine; 2048 still opens on Pad; LIZA opens on Keys',
       again === 'keys' && other === 'pad' && liza === 'keys', JSON.stringify({ again, other, liza }));
     check('mobile (programs): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   {
     const { ctx, page } = await open({ width: 375, height: 548 }, '?machine=mc10');
     const tabs = await page.evaluate(() => [...document.querySelectorAll('#tkModeSwitch button')].filter((e) => e.checkVisibility()).map((e) => e.textContent));
     check('mobile (MC-10): the switch is Keys | Pad, no Stick (no joystick port)', tabs.join() === 'Keys,Pad', tabs.join());
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- touch words: the games' toast says tap (no Esc, no press); Claude's paused text on touch ----
@@ -18530,7 +20936,7 @@ async function mobileChecks(browser, base, check) {
     check(`mobile (${w}x${h}, 2048): the toast says tap (no "Esc", no "press"), lies under the app bar and over no key`,
       /tap a key/.test(t.text) && /BREAK/.test(t.text) && !/Esc|press/.test(t.text) && t.underBar && !t.keys.length && t.inView, JSON.stringify(t));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, `mobile-${w}x${h}-toast.png`) });
-    await ctx.close();
+    await closeCtx(ctx);
   }
   {
     const { ctx, page } = await open({ width: 375, height: 548 }, '?machine=dragon64');
@@ -18546,7 +20952,7 @@ async function mobileChecks(browser, base, check) {
     });
     check('mobile: Claude\'s paused status on touch says "Paused: you tapped a key · Stop ends Claude\'s turn" (the keyboard\'s text, with Esc, elsewhere)',
       r.touch === 'Paused: you tapped a key · Stop ends Claude\'s turn' && /Esc stops Claude/.test(r.desk), JSON.stringify(r));
-    await ctx.close();
+    await closeCtx(ctx);
   }
   // a computer (no touch): the toast keeps the keyboard's words
   {
@@ -18554,7 +20960,7 @@ async function mobileChecks(browser, base, check) {
     await until(page, () => /2048/.test(document.getElementById('toastText').textContent));
     const text = await page.evaluate(() => document.getElementById('toastText').textContent);
     check('mobile (desktop, ?start=2048): the toast still says press a key and BREAK (Esc) (guards: as v0.1.8)', /press a key/.test(text) && /BREAK \(Esc\)/.test(text), text);
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- sideways (734x343): the screen as v0.1.8 had it; one Menu; Machine… opens the machine picker ----
@@ -18568,14 +20974,17 @@ async function mobileChecks(browser, base, check) {
     const items = await page.evaluate(() => [...document.querySelectorAll('#tkMenuSheet button')].filter((e) => e.checkVisibility()).map((e) => e.textContent));
     await tap(page, '#tkMenuSheet [data-item="machine"]');
     const picker = await page.evaluate(() => { const m = document.getElementById('machineMenu'), r = m.getBoundingClientRect(); return { shown: !m.hidden && m.checkVisibility() && r.width > 0, inView: r.top >= 0 && r.bottom <= innerHeight + 1, first: document.elementFromPoint(r.left + 40, r.top + 40)?.closest('#machineMenu') === m }; });
-    check('mobile (734x343): the panel\'s Menu has Programs…, Machine…, Settings…, Tape, disks and cartridge…, Power…, Commands…, Install CLOADM… and Hide keys; Machine… opens the machine picker, on screen and on top',
-      items.join() === 'Programs…,Machine…,Settings…,Tape, disks and cartridge…,Power…,Commands…,Install CLOADM…,Hide keys' && picker.shown && picker.inView && picker.first, JSON.stringify({ items, picker }));
+    // (the landscape keys' Menu order: what acts on this machine first -- Programs…, Open…, Ask Claude…, Share…, Tape…, Machine…,
+    // Settings…, Power… -- then under a rule Commands…, Install CLOADM… and Hide keys. This page has a chat, so Ask
+    // Claude… and Commands… are both present.)
+    check('mobile (734x343): the panel\'s Menu is Programs…, Open…, Ask Claude…, Share…, Tape, disks and cartridge…, Machine…, Settings…, Power…, Commands…, Install CLOADM… and Hide keys; Machine… opens the machine picker, on screen and on top',
+      items.join() === 'Programs…,Open…,Ask Claude…,Share…,Tape, disks and cartridge…,Machine…,Settings…,Power…,Commands…,Install CLOADM…,Hide keys' && picker.shown && picker.inView && picker.first, JSON.stringify({ items, picker }));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, 'mobile-734x343-machine-picker.png') });
     await page.keyboard.press('Escape');
     check('mobile (734x343): Esc closes the picker, and the app bar gives way to the panel again', picker.shown && await until(page, () => document.getElementById('machineMenu').hidden && !document.body.classList.contains('machine-pick')
       && !document.getElementById('appbar').checkVisibility()));
     check('mobile (734x343): no page errors', !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- no automatic install offer on a phone: its conditions met, on a second visit too; the
@@ -18603,7 +21012,7 @@ async function mobileChecks(browser, base, check) {
     // (upright a guard: v0.1.8's item, in the machine menu, worked too; sideways it had no way in)
     check(`mobile (${w}x${h}): the Install CLOADM… item still opens the browser's install dialog`, await until(page, () => window.__prompted >= 1));
     check(`mobile (${w}x${h}, install): no page errors`, !errors.length, errors.join('; '));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 
   // ---- the desktop's status shows the speed only (the machine's name is on the button beside it), whole ----
@@ -18614,7 +21023,7 @@ async function mobileChecks(browser, base, check) {
     // (in the page font, shown and whole at every one of these widths; "whole or not shown" is only for 1200 px in a wide
     // fallback font: the layout group)
     check(`mobile (desktop ${width} px): the status shows fps and speed, shown and whole, without the machine's name`, r.shown && !r.clipped && !/Dragon/.test(r.text) && /^\d+ fps · \d+%/.test(r.text), JSON.stringify(r));
-    await ctx.close();
+    await closeCtx(ctx);
   }
 }
 
@@ -18666,7 +21075,7 @@ async function closedViewsChecks(browser, base, check) {
     }
     const stray = stops.filter((x) => x.root);
     check(`closed views (${label}): Tab never lands inside a closed view or hidden panel`, stops.length > 5 && !stray.length, `${stops.length} stops; in a closed view: ${stray.map((x) => `${x.root} ${x.id}`).join(', ')}`);
-    await c2.close();
+    await closeCtx(c2);
   }
   const closed = await lap();
   const strays = closed.filter((x) => x.root);
@@ -18717,7 +21126,7 @@ async function closedViewsChecks(browser, base, check) {
     const inside = [];
     for (let i = 0; i < 80; i++) { await p3.keyboard.press('Tab'); const r = await p3.evaluate(() => { const e = document.activeElement; return e && e.closest('#share') ? e.id || e.tagName : ''; }); if (r) inside.push(r); }
     check('closed views: a page loaded on #share, then closed: Tab never lands inside Share', !inside.length, inside.join(', '));
-    await c3.close();
+    await closeCtx(c3);
   }
   // focus goes back to the screen when a view closes, by Esc or by Back, and a view opened and closed in quick succession ends closed
   for (const [sel, hash] of VIEWS.slice(0, 2).concat([VIEWS[3]])) {
@@ -18769,7 +21178,7 @@ async function closedViewsChecks(browser, base, check) {
   const again = await lap();
   check('closed views: closed again, Tab is back to the emulator\'s controls only', again.length > 10 && !again.some((x) => x.root), again.filter((x) => x.root).map((x) => `${x.root} ${x.id}`).join(', '));
   check('closed views: no page errors', !errors.length, errors.join('; '));
-  await ctx.close();
+  await closeCtx(ctx);
 }
 
 // "Ask Claude ↗" (js/ui/ask-popout.js): CLOADM inside another site's page has no chat, and offers a link that opens this
@@ -18807,7 +21216,7 @@ async function askPopoutChecks(browser, site, check) {
   await own.goto(`${site}play/?machine=dragon64`);
   await started(own);
   await own.evaluate((k) => localStorage.setItem('cloadm.anthropicKey', k), KEY);
-  await own.close();
+  await closePage(own);
 
   const frameOf = async (page) => {
     for (let i = 0; i < 400; i++) {
@@ -18837,13 +21246,13 @@ async function askPopoutChecks(browser, site, check) {
   await page.goto(hostAt('machine=dragon64'));
   const frame = await frameOf(page);
   check(`${L}: (the framed page started)`, !!frame);
-  if (!frame) { await ctx.close(); host.close(); return; }
+  if (!frame) { await closeCtx(ctx); host.close(); return; }
   // a moment of our own: bytes in RAM the new tab must have too
   await frame.evaluate(() => { [0xA5, 0x5A, 0x13].forEach((v, i) => window.emu.session.personMachine.poke(0x3000 + i, v)); });
   const a = await linkOf(frame, 'btnAskPop');
   check(`${L}: framed: the app bar's button reads "Ask Claude ↗", in the bar, and the chat's own Ask button is gone`, a.text === 'Ask Claude ↗' && a.shown && a.inBar && a.ask === false, JSON.stringify(a));
-  check(`${L}: framed: the href has app=claude, no embed parameter, and the moment's snapshot (#s=) for this machine`,
-    a.app === 'claude' && a.embed && a.embed.length === 0 && a.hash === '#s=' && a.machine === 'dragon64' && a.snapMachine === 'dragon64', JSON.stringify(a));
+  check(`${L}: framed: the href has app=claude, no embed parameter, and the moment's snapshot (#z=) for this machine`,
+    a.app === 'claude' && a.embed && a.embed.length === 0 && a.hash === '#z=' && a.machine === 'dragon64' && a.snapMachine === 'dragon64', JSON.stringify(a));
   check(`${L}: framed: a new tab with no opener or referrer (target=_blank, rel="noopener noreferrer")`,
     a.target === '_blank' && a.rel.split(/\s+/).includes('noopener') && a.rel.split(/\s+/).includes('noreferrer'), JSON.stringify({ target: a.target, rel: a.rel }));
   check(`${L}: framed: its tooltip and description say it opens this machine as it is now, and why`, a.title === CARRIED && a.desc === CARRIED && a.carried === '1', JSON.stringify({ title: a.title, desc: a.desc }));
@@ -18877,7 +21286,7 @@ async function askPopoutChecks(browser, site, check) {
   const after = await framedKey();
   check(`${L}: the frame never writes the key to its storage, before or after the new tab, and its session (an in-memory store) sees none`,
     before.writes.length === 0 && before.seen === null && after.writes.length === 0 && after.seen === null && after.memory === 'MemoryKeyStore', JSON.stringify({ before, after }));
-  await popup.close();
+  await closePage(popup);
   // the context menu and a middle click take the moment as it is now: after the machine has moved on, either event makes a new link
   // (ctrl-click, middle-click and "Open in new tab" read the href after them, so a stale one would open an old moment)
   for (const ev of ['contextmenu', 'auxclick']) {
@@ -18895,7 +21304,6 @@ async function askPopoutChecks(browser, site, check) {
     }, ev);
     check(`${L}: framed: a ${ev} event on the link after the machine moved on makes a new link (not the old moment)`, moved.stale && moved.changed && moved.frames >= 5, JSON.stringify(moved));
   }
-
   // ---- the same at phone width: the link stands where Ask does, in the one-row bar beside Menu ----
   const phone = await ctx.newPage();
   await phone.setViewportSize({ width: 420, height: 900 });
@@ -18905,10 +21313,10 @@ async function askPopoutChecks(browser, site, check) {
   const menu = pf ? await pf.evaluate(() => { const r = (id) => document.getElementById(id).getBoundingClientRect(), a = r('btnAskPop'), m = r('btnMenu');
     return { aRight: a.right, mLeft: m.left, h: a.height, menuShown: document.getElementById('btnMenu').checkVisibility() }; }) : null;
   check(`${L}: framed at phone width: "Ask Claude ↗" is in the bar beside Menu (44 px high), with the same link`,
-    pa && pa.shown && pa.inBar && pa.text === 'Ask Claude ↗' && pa.app === 'claude' && pa.hash === '#s=' && menu.menuShown && menu.aRight <= menu.mLeft + 1 && menu.h >= 44,
+    pa && pa.shown && pa.inBar && pa.text === 'Ask Claude ↗' && pa.app === 'claude' && pa.hash === '#z=' && menu.menuShown && menu.aRight <= menu.mLeft + 1 && menu.h >= 44,
     JSON.stringify({ pa, menu }));
   if (shotDir) await phone.screenshot({ path: path.join(shotDir, 'ask-popout-phone.png') });
-  await phone.close();
+  await closePage(phone);
 
   // ---- NitrOS-9 in the frame: nothing to carry, a fresh CLOADM ----
   const Emu = require('../tests/load')();
@@ -18919,10 +21327,10 @@ async function askPopoutChecks(browser, site, check) {
   if (nf) await nf.setInputFiles('#n9File', { name: 'myboot.dsk', mimeType: 'application/octet-stream', buffer: Buffer.from(makeOs9Disk(Emu, { cpu: '6309' })) });
   const running = nf && await waitFor(nf, () => window.emu.session.nitros9Running, null, 30000);
   const na = running ? await linkOf(nf, 'btnAskPop') : null;
-  check(`${L}: NitrOS-9 framed: no snapshot in the link (no #s=), app=claude on the CoCo 3, no nitros9= and no embed`,
+  check(`${L}: NitrOS-9 framed: no snapshot in the link (no #z=), app=claude on the CoCo 3, no nitros9= and no embed`,
     na && na.hash === '' && na.app === 'claude' && na.machine === 'coco3' && !na.nitros9 && na.embed.length === 0, JSON.stringify(na));
   check(`${L}: NitrOS-9 framed: the "fresh" tooltip and description`, na && na.title === FRESH && na.desc === FRESH && na.carried === '0', JSON.stringify(na && { title: na.title, desc: na.desc }));
-  await n9.close();
+  await closePage(n9);
 
   // ---- embeds: no chip unless the snippet asks (askclaude=1) ----
   const plain = await ctx.newPage();
@@ -18930,7 +21338,7 @@ async function askPopoutChecks(browser, site, check) {
   const ef = await frameOf(plain);
   const noChip = ef ? await ef.evaluate(() => { const c = document.getElementById('embedAsk'); return { shown: c.checkVisibility(), href: c.getAttribute('href'), cls: document.body.classList.contains('ask-chip'), handle: window.emu.askPopout }; }) : null;
   check(`${L}: ?embed=1 without askclaude: no chip (nothing drawn, no link)`, noChip && !noChip.shown && noChip.href === null && !noChip.cls && noChip.handle === null, JSON.stringify(noChip));
-  await plain.close();
+  await closePage(plain);
   const opted = await ctx.newPage();
   await opted.goto(hostAt('embed=1&askclaude=1&machine=dragon64', 640, 480));
   const of = await frameOf(opted);
@@ -18939,14 +21347,14 @@ async function askPopoutChecks(browser, site, check) {
     return { right: s.right - c.right, bottom: s.bottom - c.bottom, w: c.width }; }) : null;
   check(`${L}: ?embed=1&askclaude=1: a chip "Ask Claude ↗" in the screen's bottom-right corner`, chip && chip.shown && chip.text === 'Ask Claude ↗' && corner.right >= 0 && corner.right < 40 && corner.bottom >= 0 && corner.bottom < 40, JSON.stringify({ chip, corner }));
   check(`${L}: the chip's link follows the same rules (app=claude, no embed, the snapshot, a new tab with noopener)`,
-    chip && chip.app === 'claude' && chip.embed.length === 0 && chip.hash === '#s=' && chip.snapMachine === 'dragon64' && chip.target === '_blank' && /\bnoopener\b/.test(chip.rel) && chip.title === CARRIED, JSON.stringify(chip));
+    chip && chip.app === 'claude' && chip.embed.length === 0 && chip.hash === '#z=' && chip.snapMachine === 'dragon64' && chip.target === '_blank' && /\bnoopener\b/.test(chip.rel) && chip.title === CARRIED, JSON.stringify(chip));
   if (shotDir) await opted.screenshot({ path: path.join(shotDir, 'ask-popout-embed-chip.png') });
   const [chipPop] = await Promise.all([ctx.waitForEvent('page', { timeout: 15000 }), of.click('#embedAsk')]);
   const okChip = await waitFor(chipPop, () => !!window.emu && window.emu.started === true, null, 60000);
   const cp = okChip ? await chipPop.evaluate(() => ({ top: window.self === window.top, opener: window.opener === null, embed: document.body.classList.contains('embed'), view: window.emu.session.claudeView })) : null;
   check(`${L}: the chip opens a top-level page with the chat, not an embed`, cp && cp.top && cp.opener && !cp.embed && cp.view === 'full', JSON.stringify(cp));
-  await chipPop.close();
-  await opted.close();
+  await closePage(chipPop);
+  await closePage(opted);
   check(`${L}: still no Claude request after both new tabs`, api.length === 0, api.join());
 
   // ---- the Share screen's embed builder: the checkbox puts askclaude=1 in the snippet ----
@@ -18961,9 +21369,9 @@ async function askPopoutChecks(browser, site, check) {
   const withIt = await sh.textContent('#embedFrame');
   check(`${L}: Share → Embed: "Offer 'Ask Claude ↗'" is off by default; checked, the snippet's iframe carries askclaude=1 (with embed=1)`,
     !/askclaude/.test(without) && /[?&]embed=1/.test(withIt) && /[?&;]askclaude=1/.test(withIt) && /Offer 'Ask Claude ↗'/.test(await sh.textContent('#shareEmbed')), `${without} | ${withIt}`);
-  await sh.close();
+  await closePage(sh);
   check(`${L}: no page errors`, !errors.length, errors.join('; '));
-  await ctx.close();
+  await closeCtx(ctx);
   host.close();
 }
 
@@ -19192,7 +21600,199 @@ async function armGuardChecks(browser, base, check) {
   const fsForget = await pressAt('claudeKeySaved', 'btnClaudeKeyForget', 600, 'click', () => !window.emu.session.keyStore.get());
   check(`${L}: full screen: Forget at 600 ms forgets it`, fsForget.done === true, JSON.stringify(fsForget));
   check(`${L}: no page errors`, !errors.length, errors.join('; '));
-  await ctx.close();
+  await closeCtx(ctx);
+}
+
+
+// Short links end to end (js/ui/share.js, Session.shortLink, shortlink/worker.js): the real Worker, run here in Node
+// with an in-memory bucket (shortlink/memory-bucket.js), stands in for s.cloadm.dev; Playwright routes the browser's
+// requests to it (/api/* to the Worker, everything else read from the bucket, as R2's custom domain serves it), and
+// routes https://cloadm.dev/ to this run's own site, so the arrival page's redirect lands on this build. Nothing reaches
+// Cloudflare. Made on the Share screen (QR, preview switch, the public-copy lines), opened from the arrival page in
+// another profile (the moment; nothing but the link's own files fetched from s.cloadm.dev), deleted, made without a picture, refused by the kill switch, and
+// switched off with its reason for a cartridge moment and offline.
+async function shortLinkChecks(browser, base, site, check) {
+  const { pathToFileURL } = require('url');
+  const W = await import(pathToFileURL(path.join(__dirname, '../shortlink/worker.js')).href);
+  const { MemoryBucket, memoryLimiter } = await import(pathToFileURL(path.join(__dirname, '../shortlink/memory-bucket.js')).href);
+  const local = site.replace(/\/$/, '');
+  const env = { seen: [], requests: [], BUCKET: new MemoryBucket(), RATE_IP: memoryLimiter(100), RATE_ALL: memoryLimiter(1000), DAILY_CAP: '100',
+    ALLOWED_ORIGINS: `${local},https://cloadm.dev`, REPORT_EMAIL: 'abuse@example.com' };
+  const serve = async (ctx) => {
+    // (a handler whose fetch or fulfil fails - a reset socket, a page that went away - is a named FAIL and an aborted
+    // request: a rejection that escaped it would end the whole run)
+    const failing = (what, handler) => async (route) => {
+      try { return await handler(route); } catch (e) {
+        check(`shortLink: ${what} answers ${route.request().url().replace(/#.*/, '')}`, false, String(e && e.message).split('\n')[0]);
+        return route.abort().catch(() => {});
+      }
+    };
+    await ctx.route('https://s.cloadm.dev/**', failing('the stand-in for s.cloadm.dev', async (route) => {
+      const r = route.request(), u = new URL(r.url()), origin = r.headers().origin;
+      env.seen.push(`${r.method()} ${u.pathname}`);
+      env.requests.push({ url: r.url(), headers: JSON.stringify(r.headers()), body: r.postDataBuffer() || Buffer.alloc(0) });
+      if (u.pathname.startsWith('/api/')) {
+        const res = await W.default.fetch(new Request(r.url(), { method: r.method(), headers: r.headers(), body: ['GET', 'HEAD'].includes(r.method()) ? null : r.postDataBuffer() }), env, {});
+        return route.fulfill({ status: res.status, headers: Object.fromEntries(res.headers), body: Buffer.from(await res.arrayBuffer()) });
+      }
+      // the bucket on its custom domain, with the CORS rule docs/shortlink-deploy.md sets (GET from CLOADM's origin)
+      const cors = origin && env.ALLOWED_ORIGINS.split(',').includes(origin) ? { 'access-control-allow-origin': origin } : {};
+      const o = env.BUCKET.objects.get(decodeURIComponent(u.pathname.slice(1)));
+      if (!o) return route.fulfill({ status: 404, headers: cors, body: 'Not Found' });
+      return route.fulfill({ status: 200, headers: Object.assign({ 'content-type': o.httpMetadata.contentType || 'application/octet-stream' }, cors), body: Buffer.from(o.bytes) });
+    }));
+    await ctx.route('https://cloadm.dev/**', failing('the local copy of cloadm.dev', async (route) => {
+      const r = route.request(), u = new URL(r.url());
+      env.requests.push({ url: r.url(), headers: JSON.stringify(r.headers()), body: r.postDataBuffer() || Buffer.alloc(0) });
+      return route.fulfill({ response: await route.fetch({ url: `${local}${u.pathname}${u.search}` }) });
+    }));
+  };
+  const said = async (ctx) => ctx.addInitScript(() => { window.__said = []; document.addEventListener('DOMContentLoaded', () => { const t = document.getElementById('toastText');
+    if (t) new MutationObserver(() => { if (t.textContent) window.__said.push(`${document.getElementById('toast').classList.contains('error') ? 'ERROR ' : ''}${t.textContent}`); }).observe(t, { childList: true, characterData: true, subtree: true }); }); });
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, serviceWorkers: 'block', permissions: ['clipboard-read', 'clipboard-write'] });
+  await serve(ctx);
+  const page = await ctx.newPage();
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  const openShare = async (p) => {
+    if (await p.evaluate(() => location.hash === '#share')) { await p.click('#shareBack'); await p.waitForSelector('#share', { state: 'hidden' }); }
+    await p.click('#btnShare'); await p.waitForSelector('#share', { state: 'visible' });
+    await waitFor(p, () => !!document.getElementById('shareLink').value);
+  };
+  await page.goto(`${base}?machine=dragon64`);
+  await linkIn(page);
+  await waitFor(page, () => window.emu.session.welcomeRunning && window.emu.session.screenText()[14].includes('PRESS'), null, 60000);
+  await page.evaluate(() => window.emu.machine.poke(1030, 42));
+  await openShare(page);
+  // the primary is one "Copy link" (and Share… beside it): no separate "Make a short link" — a tap makes it. The terms
+  // are the short link's own, the switch is on, and the long link's heading reads "Long link (works offline; nothing is
+  // uploaded)": the long link never claimed a lifetime, and says nothing about one. Only the SHORT link's terms say
+  // "Links don't expire" (shortlink/worker.js and docs/shortlink-deploy.md are about it too).
+  const before = await page.evaluate(() => ({ copy: document.getElementById('btnShareCopy').textContent.trim(), copyPrimary: document.getElementById('btnShareCopy').classList.contains('primary'),
+    preview: document.getElementById('sharePreview').checked, terms: document.getElementById('shortTerms').textContent, termsShown: document.getElementById('shortTerms').checkVisibility(),
+    swShown: document.getElementById('previewSwitch').checkVisibility(), long: document.getElementById('longHeading').textContent, why: document.getElementById('primaryWhy').textContent,
+    note: document.getElementById('primaryNote').textContent }));
+  check('shortLink: online and allowed, one primary "Copy link", the preview switch on, the short link\'s terms shown',
+    before.copy === 'Copy link' && before.copyPrimary && before.preview && before.termsShown && before.swShown && before.why === '' && before.note === '', JSON.stringify(before));
+  check('shortLink: the public copy, word for word, and the long link\'s heading', before.terms === 'Stores a sealed copy on cloadm.dev that only people with the link can open; the server can\'t read it. Links don\'t expire; a link reported for abuse can be removed.'
+    && before.long === 'Long link (works offline; nothing is uploaded)', JSON.stringify(before));
+  // one tap: the short link is made, copied, its field and QR shown, and the page says "Short link copied"
+  await page.click('#btnShareCopy');
+  const made = await waitFor(page, () => !document.getElementById('shortMade').hidden, null, 15000);
+  const r = await page.evaluate(async () => ({ url: document.getElementById('shareShort').value, qr: document.getElementById('shareQr').dataset.text, qrw: document.getElementById('shareQr').width,
+    note: document.getElementById('shortPicNote').textContent, tokens: JSON.parse(localStorage.getItem('cloadm.shortLinks') || '{}'), clip: await navigator.clipboard.readText().catch(() => ''),
+    qrHidden: document.getElementById('shortQrWrap').hidden, toast: document.getElementById('toastRegion').textContent.trim() }));
+  const m = /^https:\/\/s\.cloadm\.dev\/([A-Za-z0-9_-]{8})#([A-Za-z0-9_-]{22})$/.exec(r.url || '');
+  const id = m && m[1], key = m && m[2];
+  check('shortLink: one tap makes https://s.cloadm.dev/<id>#<key>, copies it, toasts "Short link copied", and gives its field with a QR toggle (folded until asked)',
+    made && !!m && r.qr === r.url && r.qrw > 100 && r.qrHidden && !!r.tokens[id] && /preview picture/.test(r.note) && r.clip === r.url && /Short link copied/.test(r.toast), JSON.stringify(Object.assign({}, r, { clip: r.clip.slice(0, 40) })));
+  check('shortLink: stored: the sealed moment, the picture and the arrival page; the key nowhere on the server', !!id && env.BUCKET.objects.has(`${id}.bin`) && env.BUCKET.objects.has(`${id}.png`) && env.BUCKET.objects.has(id)
+    && ![...env.BUCKET.objects.values()].some((o) => Buffer.from(o.bytes).toString('latin1').includes(key) || JSON.stringify(o.customMetadata).includes(key)));
+  // the QR toggle shows and folds the code
+  await page.click('#btnShortQr');
+  check('shortLink: the QR toggle shows the code, and folds it again', await waitFor(page, () => !document.getElementById('shortQrWrap').hidden)
+    && await page.evaluate(() => document.getElementById('btnShortQr').getAttribute('aria-pressed') === 'true')
+    && (await page.click('#btnShortQr'), await waitFor(page, () => document.getElementById('shortQrWrap').hidden)));
+  if (shotDir) await page.screenshot({ path: path.join(shotDir, 'short-link-made.png'), fullPage: true });
+
+  // opened from the arrival page in another profile: the page counts the open and goes on to cloadm.dev/play/#l=
+  const ctx2 = await browser.newContext({ serviceWorkers: 'block' });
+  await serve(ctx2); await said(ctx2);
+  const p2 = await ctx2.newPage();
+  p2.on('pageerror', (e) => errors.push(e.message));
+  const arrival = id ? env.BUCKET.text(id) || '' : '';
+  check('shortLink: the arrival page\'s preview: "A moment on a Dragon 64, CLOADM" and its picture', /<meta property="og:title" content="A moment on a Dragon 64, CLOADM">/.test(arrival)
+    && arrival.includes(`<meta property="og:image" content="https://s.cloadm.dev/${id}.png">`));
+  const seenBefore = env.seen.length;
+  if (id) await p2.goto(r.url);
+  await p2.waitForURL(/^https:\/\/cloadm\.dev\/play\//, { timeout: 15000 }).catch(() => {});
+  await linkIn(p2);
+  const opened = await waitFor(p2, () => window.__said.some((x) => /^Snapshot opened: Dragon 64/.test(x)), null, 15000);
+  const seen = env.seen.slice(seenBefore);
+  if (key) {
+    const kb = Buffer.from(key, 'base64url'), forms = [key, kb.toString('hex'), kb.toString('base64'), kb.toString('base64').replace(/=+$/, '')];
+    const leaks = env.requests.filter((q) => forms.some((f) => q.url.includes(f) || q.headers.includes(f) || q.body.toString('latin1').includes(f)) || q.body.includes(kb));
+    check('shortLink: the key is in no request to s.cloadm.dev or cloadm.dev, made or opened (address, headers, body; text, hex, base64, bytes)',
+      env.requests.length >= 3 && env.requests.some((q) => /\/api\/new$/.test(q.url) && q.body.length > 100) && leaks.length === 0,
+      `${env.requests.length} requests; leaks: ${leaks.map((q) => q.url.slice(0, 60)).join(', ')}`);
+  }
+  check('shortLink: opened in another profile: that exact moment, the fragment cleared; s.cloadm.dev asked only for the page and the moment',
+    opened && await p2.evaluate(() => window.emu.machine.ram[1030] === 42 && location.hash === '') && JSON.stringify(seen) === JSON.stringify([`GET /${id}`, `GET /${id}.bin`]),
+    `${JSON.stringify(seen)} · ${await p2.evaluate(() => window.__said.join(' | '))}`);
+
+  // delete: all three objects gone; opening it again says so
+  await page.click('#btnShortDelete');
+  const deleted = await waitFor(page, () => document.getElementById('shortMade').hidden && !JSON.parse(localStorage.getItem('cloadm.shortLinks') || '{}')[Object.keys(JSON.parse(localStorage.getItem('cloadm.shortLinks') || '{}'))[0]], null, 10000);
+  check('shortLink: "Delete this link": the objects gone, the token forgotten, the page says cached copies may live a day', deleted && !env.BUCKET.objects.has(`${id}.bin`) && !env.BUCKET.objects.has(id)
+    && await waitFor(page, () => /Short link deleted/.test(document.getElementById('toastRegion').textContent)));
+  const p3 = await ctx2.newPage();
+  if (id) await p3.goto(`https://cloadm.dev/play/#l=${id}.${key}`);
+  await linkIn(p3);
+  check('shortLink: a deleted link, opened: "removed, or never existed", and the page runs', await waitFor(p3, () => window.__said.some((x) => /removed, or never existed/.test(x)), null, 15000)
+    && await p3.evaluate(() => location.hash === '' && !!window.emu.machine));
+
+  // the switch off before a tap: no picture stored, and the page says so
+  await openShare(page);
+  await page.uncheck('#sharePreview');
+  await page.click('#btnShareCopy');
+  await waitFor(page, () => !document.getElementById('shortMade').hidden, null, 15000);
+  const id2 = (/s\.cloadm\.dev\/([A-Za-z0-9_-]{8})#/.exec(await page.inputValue('#shareShort')) || [])[1];
+  check('shortLink: the switch off, a tap: no picture stored, and the page says so', !!id2 && env.BUCKET.objects.has(`${id2}.bin`) && !env.BUCKET.objects.has(`${id2}.png`)
+    && /Without a preview picture/.test(await page.textContent('#shortPicNote')) && /content="summary"/.test(env.BUCKET.text(id2)));
+
+  // the kill switch: the tap falls back to the long link, and the note says why (the server's own words are not shown)
+  env.NEW_LINKS = 'off';
+  const ctxk = await browser.newContext({ viewport: { width: 1280, height: 900 }, serviceWorkers: 'block', permissions: ['clipboard-read', 'clipboard-write'] });
+  await serve(ctxk);
+  const pk = await ctxk.newPage();
+  pk.on('pageerror', (e) => errors.push(e.message));
+  await pk.goto(`${base}?machine=dragon64#share`);
+  await linkIn(pk);
+  await waitFor(pk, () => !!document.getElementById('shareLink').value);
+  await pk.click('#btnShareCopy');
+  // the tap is ASYNC (it seals the moment and asks the store): the fallback's reason and the opened field appear only
+  // when it lands. Reading straight after the click saw an empty reason (CI attempt 1 on 35551b5d failed exactly so),
+  // so both are waited for - the copy finished AND the page said why - before anything is read.
+  // BOUNDED, and a timeout FAILS: waitFor returns false and records its own FAIL (browser-check-lib's
+  // waitTimedOut) when the state never comes, and `landed` is also required by the check below - so a tap that never
+  // falls back cannot pass. Its payload is printed with whatever the page held at that moment.
+  const landed = await waitFor(pk, () => /Short links aren't available right now/.test(document.getElementById('primaryWhy').textContent)
+    && document.getElementById('shareMore').open, null, 20000);
+  const killClip = await pk.evaluate(() => navigator.clipboard.readText());
+  const kill = await pk.evaluate(() => ({ why: document.getElementById('primaryWhy').textContent, whyShown: document.getElementById('primaryWhy').checkVisibility(), field: document.getElementById('shareLink').value,
+    longOpen: document.getElementById('shareMore').open, made: !document.getElementById('shortMade').hidden }));
+  check('shortLink: the kill switch: the tap copies the LONG link, the field is shown, and the note says short links aren\'t available (not the server\'s words)',
+    landed && killClip === kill.field && /#z=/.test(killClip) && kill.why === "Short links aren't available right now, so this is the long link: it works without any server." && kill.whyShown && kill.longOpen && !kill.made,
+    JSON.stringify(Object.assign({ landed }, kill, { field: kill.field.slice(0, 40) })));
+  await closeCtx(ctxk);
+  env.NEW_LINKS = 'on';
+
+  // offline: the tap copies the long link and the note says it is the offline one
+  await openShare(page);
+  await ctx.setOffline(true);
+  await page.evaluate(() => window.dispatchEvent(new Event('offline')));
+  const offReason = await waitFor(page, () => /^You're offline, so this is the long link/.test(document.getElementById('primaryWhy').textContent));
+  await page.click('#btnShareCopy');
+  const offClip = await page.evaluate(() => navigator.clipboard.readText().catch(() => ''));
+  await ctx.setOffline(false);
+  await page.evaluate(() => window.dispatchEvent(new Event('online')));
+  check('shortLink: offline the tap copies the LONG link, the note says so (it works without any server), and online it goes back', offReason && /#z=/.test(offClip)
+    && await waitFor(page, () => document.getElementById('primaryWhy').textContent === ''), offClip.slice(0, 30));
+
+
+  // a cartridge moment: no short link, so the tap copies the long link and its reason is shown (never hidden)
+  await page.click('#shareBack');
+  await page.evaluate(() => window.emu.session.load('stand-in.ccc', new Uint8Array(0x2000).fill(0x39)));
+  await openShare(page);
+  const cart = await page.evaluate(() => ({ why: document.getElementById('primaryWhy').textContent, whyShown: document.getElementById('primaryWhy').checkVisibility(),
+    swShown: document.getElementById('previewSwitch').checkVisibility(), terms: document.getElementById('shortTerms').checkVisibility(), long: /#z=/.test(document.getElementById('shareLink').value),
+    copyEnabled: !document.getElementById('btnShareCopy').disabled }));
+  await page.evaluate(() => { const d = document.getElementById('shareMore'); d.open = true; d.querySelector(':scope > :not(summary)').hidden = false; });
+  check('shortLink: a cartridge moment: no short-link terms or switch, the reason in view, the long link offered', cart.whyShown && /Not with a cartridge plugged in/.test(cart.why) && !cart.swShown && !cart.terms && cart.long && cart.copyEnabled, JSON.stringify(cart));
+  if (shotDir) await page.screenshot({ path: path.join(shotDir, 'short-link-cartridge.png'), fullPage: true });
+  check('shortLink: no page errors', !errors.length, errors.join('; '));
+  await closeCtx(ctx2);
+  await closeCtx(ctx);
 }
 
 const GROUPS = (base, site) => [
@@ -19200,7 +21800,7 @@ const GROUPS = (base, site) => [
   ['reset', (b) => resetChecks(b, base, check)],
   ['romUi', (b) => romUiChecks(b, base, check)],
   ['mediaBackend', (b) => mediaBackendChecks(b, base, check)],
-  ['audio', (b) => audioChecks(b, base, check)],
+  ['audio', async (b) => { await audioChecks(b, base, check); await audioUnlockChecks(b, base, check); }],
   ['cartridge', (b) => cartridgeChecks(b, base, check)],
   ['sscBoard', (b) => sscBoardChecks(b, base, check)],
   ['typing', (b) => typingChecks(b, base, check)],
@@ -19233,6 +21833,7 @@ const GROUPS = (base, site) => [
   ['snapshot', (b) => snapshotChecks(b, base, check)],
   ['liza6803', (b) => liza6803Checks(b, base, check)],
   ['romInput', (b) => romInputChecks(b, base, check)],
+  ['romTruth', (b) => romTruthChecks(b, base, check)],
   ['design', (b) => designChecks(b, base, check)],
   ['inputScreen', (b) => inputScreenChecks(b, base, check)],
   ['touchJoystick', (b) => touchJoystickChecks(b, base, check)],
@@ -19278,11 +21879,13 @@ const GROUPS = (base, site) => [
   ['chatScreen', async (b) => { await chatScreenChecks(b, base, check); await chatLongLineChecks(b, base, check); await chatRamChecks(b, base, check); }],
   ['phoneChat', (b) => phoneChatChecks(b, base, check)],
   ['share', (b) => shareChecks(b, base, site, check)],
+  ['shortLink', (b) => shortLinkChecks(b, base, site, check)],
   ['favicon', (b) => faviconChecks(b, site, check)],
   ['closedViews', (b) => closedViewsChecks(b, base, check)],
   ['uiModel', (b) => uiModelChecks(b, base, check)],
   ['semantics', (b) => semanticsChecks(b, base, site, check)],
   ['mobile', (b) => mobileChecks(b, base, check)],
+  ['menuWords', (b) => menuWordsChecks(b, base, check)],
   // (required when the group runs: the shard planner's copy of this file runs --list-groups without it)
   ['connector', (b) => require('./connector-check').connectorChecks(b, check, { shots: shotDir })],
 ];
@@ -19291,58 +21894,65 @@ const GROUPS = (base, site) => [
   const names = GROUPS('', '').map(([n]) => n);
   // --list-groups: the group names, one per line, in run order (what --only takes; the CI shard check reads them)
   if (process.argv.includes('--list-groups')) { console.log(names.join('\n')); return; }
+  run.guardRejections();   // (one group's stray rejection is its FAIL, not the end of the run)
   const sel = lib.parseOnly(process.argv, names);
   if (sel.error) { console.error(sel.error); process.exitCode = 2; return; }
-  ({ chromium } = require('playwright'));
-  await new Promise((r) => server.listen(0, '127.0.0.1', r));
-  const site = `http://127.0.0.1:${server.address().port}/`;
-  const base = `${site}play/`;
-  let browser = await chromium.launch();
-  try {
-    for (const [name, fn] of GROUPS(base, site)) {
-      if (sel.only && !sel.only.includes(name)) continue;
-      const before = new Set(browser.contexts());
-      await run.group(name, () => fn(browser), async () => {
-        // what the group left open (all of it, when it threw part-way) is closed, so it can't run on into the next
-        // group; a browser that went away is started again for the next group
-        if (!browser.isConnected()) { browser = await chromium.launch(); return; }
-        // BOUNDED, AND LOUD. A group can leave a page spinning in an abandoned evaluate (a diagnostic that was raced
-        // and given up on), and Playwright's close waits for the page: racing it keeps the group cleanup - and so the
-        // run and the final browser.close() in the finally - from being held open by that page. A close that loses
-        // the race is NOT swallowed: it is reported as a FAIL for this group (so the exit code is nonzero), because
-        // a context the run could not close is a leak in the run, and a silent timer would make that invisible.
-        // browser.close() in the finally is the backstop that still kills the browser process.
-        for (const c of browser.contexts()) {
-          if (before.has(c)) continue;
-          const b = await bounded(c.close(), CLOSE_MS);
-          if (b.outcome === 'rejected') run.check(`${name}: its context closes`, false, (b.error && b.error.message) || String(b.error));
-          else if (b.outcome !== 'settled') run.check(`${name}: its context closes`, false, `still open after ${CLOSE_MS} ms (left to browser.close())`);
-        }
-      });
+  // (anything the run itself throws - a browser that will not launch, a failed listen - is a FAIL and the end of the
+  // groups, never an unhandled rejection: the server is closed in the finally below, so nothing holds the process
+  // open, and the summary and exit code still come out)
+  let site, base;
+  await run.top(async () => {
+    ({ chromium } = require('playwright'));
+    await new Promise((r) => server.listen(0, '127.0.0.1', r));
+    site = `http://127.0.0.1:${server.address().port}/`;
+    base = `${site}play/`;
+    let browser = null;
+    try {
+      browser = await chromium.launch();
+      for (const [name, fn] of GROUPS(base, site)) {
+        if (sel.only && !sel.only.includes(name)) continue;
+        const before = new Set(browser.contexts());
+        await run.group(name, () => fn(browser), async () => {
+          // what the group left open (all of it, when it threw part-way) is closed, so it can't run on into the next
+          // group; a browser that went away is started again for the next group
+          if (!browser.isConnected()) { browser = await chromium.launch(); return; }
+          // BOUNDED, AND LOUD. A group can leave a page spinning in an abandoned evaluate (a diagnostic that was raced
+          // and given up on), and Playwright's close waits for the page: racing it keeps the group cleanup - and so the
+          // run and the final browser.close() in the finally - from being held open by that page. A close that loses
+          // the race is NOT swallowed: it is reported as a FAIL for this group (so the exit code is nonzero), because
+          // a context the run could not close is a leak in the run, and a silent timer would make that invisible.
+          // browser.close() in the finally is the backstop that still kills the browser process.
+          for (const c of browser.contexts()) {
+            if (before.has(c)) continue;
+            lib.reportClose(run.check, `${name}: its context closes`, await bounded(c.close(), CLOSE_MS), CLOSE_MS, 'left to browser.close()');
+          }
+        });
+      }
+      await run.group('missing files', async () => check('no request in the whole run asked for a missing file', !missing.size, [...missing].join(', ')));
+    } finally {
+      // BOUNDED: a page wedged in an abandoned evaluate can make browser.close() wait (Playwright closes the pages
+      // first). The browser's PROCESS is killed either way when this node process exits, so a close that loses the
+      // race is reported as a FAIL rather than allowed to hold the run open - a run that cannot tear its own browser
+      // down is a defect in the run, not something to wait out.
+      if (browser) {
+        const b = await bounded(browser.close(), BROWSER_CLOSE_MS);
+        lib.reportClose(run.check, 'the browser closes at the end of the run', b, BROWSER_CLOSE_MS, 'killed when this process exits');
+      }
+      server.close();
+      server.closeAllConnections();   // (kept-alive connections would hold the run open after its summary)
+      // WHAT THE IN-RUN BOUNDS CAN AND CANNOT DO, stated so nobody reads more into them. Each await above is raced,
+      // so a wedged page cannot stop the summary printing: the FAIL lines and the exit code are always produced.
+      // But a close that lost its race leaves a browser CHILD PROCESS with open pipes, and that keeps Node's event
+      // loop alive - measured: an unref'd server plus one live child still holds the process, so unref'ing the server
+      // (done here) is necessary and NOT sufficient. This Playwright build has no browser.process() to SIGKILL
+      // (checked: undefined), and process.exit() is forbidden in tools/ (tests/exitcode.test.js - forcing the exit
+      // deadlocks Node). So when the browser will not close, this process ends the only way it can: the CALLER's
+      // timeout kills it, and the browser process with it. That is the hard backstop - the CI job's timeout-minutes,
+      // or whatever runs the check locally - and it is why that timeout is the outer bound of last resort rather than
+      // a belt on top of the inner ones.
+      server.unref();   // (the one handle that IS ours to release; same reason as the debugger host at :7578)
     }
-    await run.group('missing files', async () => check('no request in the whole run asked for a missing file', !missing.size, [...missing].join(', ')));
-  } finally {
-    // BOUNDED: a page wedged in an abandoned evaluate can make browser.close() wait (Playwright closes the pages
-    // first). The browser's PROCESS is killed either way when this node process exits, so a close that loses the
-    // race is reported as a FAIL rather than allowed to hold the run open - a run that cannot tear its own browser
-    // down is a defect in the run, not something to wait out.
-    const b = await bounded(browser.close(), BROWSER_CLOSE_MS);
-    if (b.outcome === 'rejected') run.check('the browser closes at the end of the run', false, (b.error && b.error.message) || String(b.error));
-    else if (b.outcome !== 'settled') run.check('the browser closes at the end of the run', false, `still open after ${BROWSER_CLOSE_MS} ms (killed when this process exits)`);
-    server.close();
-    server.closeAllConnections();   // (kept-alive connections would hold the run open after its summary)
-    // WHAT THE IN-RUN BOUNDS CAN AND CANNOT DO, stated so nobody reads more into them. Each await above is raced,
-    // so a wedged page cannot stop the summary printing: the FAIL lines and the exit code are always produced.
-    // But a close that lost its race leaves a browser CHILD PROCESS with open pipes, and that keeps Node's event
-    // loop alive - measured: an unref'd server plus one live child still holds the process, so unref'ing the server
-    // (done here) is necessary and NOT sufficient. This Playwright build has no browser.process() to SIGKILL
-    // (checked: undefined), and process.exit() is forbidden in tools/ (tests/exitcode.test.js - forcing the exit
-    // deadlocks Node). So when the browser will not close, this process ends the only way it can: the CALLER's
-    // timeout kills it, and the browser process with it. That is the hard backstop - the CI job's timeout-minutes,
-    // or whatever runs the check locally - and it is why that timeout is the outer bound of last resort rather than
-    // a belt on top of the inner ones.
-    server.unref();   // (the one handle that IS ours to release; same reason as the debugger host at :7578)
-  }
+  });
   process.exitCode = run.summary();
   if (timingsFile) {
     const groups = {};
@@ -19350,3 +21960,196 @@ const GROUPS = (base, site) => [
     fs.writeFileSync(timingsFile, JSON.stringify({ groups }, null, 2) + '\n');
   }
 })();
+
+// The ROM state tells one story. Three surfaces say what the machine is doing: the side card ("Running with no
+// ROMs."), the screen (the welcome menu's option 3) and, on Your ROMs, the list of other machines that are "Also
+// ready to run BASIC". They used to disagree: with an unrecognised ROM loaded the card still said "no ROMs", and
+// after "Run without ROMs" the menu still offered "3 ADD YOUR ROMS FOR BASIC" when the ROMs were already in the
+// sockets. Measured on our own NOP image (a socket's usual name, the right size, not a known dump), so no real ROM
+// is involved. The whole set is driven on ONE first visit, in order, because the bug is in how the state changes:
+// nothing here reloads.
+const romTruthChecks = async (browser, base, check) => {
+  const archive = [];
+  const ctx = await guardedContext(browser, archive);
+  const page = await ctx.newPage();
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  const NOP = Buffer.alloc(8192, 0x12);          // 8K of NOP: the CoCo BASIC socket's size, no known CRC
+  const card = () => page.evaluate(() => {
+    const b = document.getElementById('welcome');
+    return b && !b.hidden ? { kind: b.dataset.kind || '', text: b.textContent.replace(/\s+/g, ' ').trim() } : null;
+  });
+  const menuRow3 = () => page.evaluate(() => {
+    const rows = window.emu.session.screenText();
+    return (rows.find((r) => /^\s*3\s/.test(r)) || '').trim();
+  });
+  // the menu is drawn by the program a frame after it is loaded: wait for the row rather than race it
+  const menuReady = (re) => waitFor(page, (src) => window.emu.session.screenText().some((r) => new RegExp(src).test(r)), re.source, 15000);
+  // the card must say what the machine IS: its own words, not just "not hidden"
+  await page.goto(`${base}?machine=coco`);
+  await waitFor(page, () => !!(window.emu && window.emu.session && window.emu.started === true), null, 40000);
+  await emuFrames(page, 20);
+  {
+    await menuReady(/^\s*3\s+ADD YOUR ROMS/);
+    const c = await card();
+    check('rom states: with no ROMs the side card says so, and the menu offers to add them',
+      !!c && /^Running with no ROMs\./.test(c.text) && /ADD YOUR ROMS/.test(await menuRow3()),
+      `${c ? c.text.slice(0, 80) : '(no card)'} / menu: ${await menuRow3()}`);
+  }
+  // an unrecognised ROM: the machine now runs it, so the card must stop saying "no ROMs" (the menu is gone with it)
+  await page.setInputFiles('#fileRom', [{ name: 'bas12.rom', mimeType: 'application/octet-stream', buffer: NOP }]);
+  const ran = await waitFor(page, () => !window.emu.session.machineRoms('coco').sockets.find((s) => s.id === 'bas').status.startsWith('missing'), null, 15000);
+  check('rom states: the unrecognised ROM is loaded (the probe of the other checks)', ran, await romStatus(page, 'coco'));
+  await emuFrames(page, 20);
+  // the first visit's own card must SURVIVE the things that fire the same events: a machine picked in its question,
+  // and a Reset. (Regression: refreshCard's 'empty' state hid a 'first' card on 'machine' and 'reset'.)
+  {
+    const ctxF = await guardedContext(browser, archive);
+    const pf = await ctxF.newPage();
+    const errsF = [];
+    pf.on('pageerror', (e) => errsF.push(e.message));
+    const kind = () => pf.evaluate(() => { const b = document.getElementById('welcome'); return b && !b.hidden ? (b.dataset.kind || '') : null; });
+    await pf.goto(base);
+    await waitFor(pf, () => !!(window.emu && window.emu.session && window.emu.started === true), null, 40000);
+    await emuFrames(pf, 15);
+    const before = await kind();
+    await pf.evaluate(() => { const b = document.querySelector('#askMachine [data-machine]'); if (b) b.click(); });
+    await emuFrames(pf, 20);
+    check('rom states: the first visit\'s card survives a machine picked in its own question', before === 'first' && (await kind()) === 'first',
+      `${before} -> ${await kind()}`);
+    await pf.evaluate(() => window.emu.session.personMachine && document.querySelector('[data-action="reset"], #btnReset') && (document.getElementById('btnReset') || { click() {} }).click());
+    await emuFrames(pf, 20);
+    check('rom states: ...and survives a Reset', (await kind()) === 'first', String(await kind()));
+    check('rom states: no page errors (first visit)', errsF.length === 0, errsF.join(' | '));
+    await ctxF.close();
+  }
+  check('rom states: with an unrecognised ROM loaded the card does not say "no ROMs" (the ROM is what runs)',
+    (await card()) === null, JSON.stringify(await card()));
+  // "Run without ROMs" with the ROMs still in the sockets: nothing is missing, so the card says what to do and the
+  // menu stops asking for ROMs it already has
+  await page.evaluate(() => document.getElementById('btnRunStub').click());
+  await waitFor(page, () => window.emu.session.personMachine.useStub && window.emu.session.machineRoms('coco').bootable, null, 15000);
+  await emuFrames(page, 20);
+  {
+    await menuReady(/^\s*3\s+(ADD YOUR|USE YOUR)/);
+    const c = await card();
+    const row = await menuRow3();
+    check('rom states: after "Run without ROMs" the card says the ROMs are yours to use, not that there are none',
+      !!c && /^Running without your ROMs\./.test(c.text) && /Use my ROMs/.test(c.text) && !/^Running with no ROMs/.test(c.text),
+      c ? c.text.slice(0, 110) : '(no card)');
+    check('rom states: ...and the menu offers to USE the ROMs it has, not to add them again',
+      /USE YOUR ROMS FOR BASIC/.test(row) && !/ADD YOUR ROMS/.test(row), `row 3: ${row || '(none)'}`);
+  }
+  // THE CARD'S OWN BUTTON, first, while the card is really up: a test that clicks it after the Dismiss block clicks a
+  // hidden element and is true before the click, so it cannot fail (a mutant that removed both hides still passed).
+  // The card must be VISIBLE, and the click is a person's (page.click on the element), not a JS .click().
+  {
+    const visible = await page.isVisible('#welcome [data-card-switch]');
+    check('rom states: the "off" card is up with its "Use my ROMs" button, before it is clicked', visible && (await card()) !== null,
+      JSON.stringify(await card()));
+    await page.click('#welcome [data-card-switch]');
+    const done = await waitFor(page, () => !window.emu.session.personMachine.useStub, null, 20000);
+    await emuFrames(page, 20);
+    check('rom states: the card\'s "Use my ROMs" runs the ROMs and the card goes', done && (await card()) === null,
+      `useStub ${await page.evaluate(() => window.emu.session.personMachine.useStub)}, card ${JSON.stringify(await card())}`);
+  }
+  // Dismiss sticks: the card stays gone across the events that re-check it (reset, firmware), until a state that
+  // needs a card arrives. (A dismissed card that comes back on the next Reset is a card you cannot get rid of.)
+  // The card is brought genuinely back first -- ROMs off (state 'none'), then the stub chosen again -- so what is
+  // dismissed is a card that was really shown, not one left hidden by the block above.
+  {
+    await page.evaluate(() => { const m = window.emu.session.personMachine; window.emu.session.stubChosen.delete(m.id); window.emu.session.switchMachine(m.id); });
+    await waitFor(page, () => !window.emu.session.personMachine.useStub, null, 20000);
+    await page.evaluate(() => window.emu.session.runWithoutRoms());
+    await waitFor(page, () => { const b = document.getElementById('welcome'); return !!b && !b.hidden && !!b.querySelector('.close'); }, null, 15000);
+    await page.click('#welcome .close');
+    const gone = await page.evaluate(() => { const b = document.getElementById('welcome'); return !b || b.hidden; });
+    await emuFrames(page, 5);
+    await page.evaluate(() => window.emu.session.personMachine && document.getElementById('btnReset').click());
+    await emuFrames(page, 25);
+    const still = await page.evaluate(() => { const b = document.getElementById('welcome'); return !b || b.hidden; });
+    check('rom states: Dismiss on the card sticks across a Reset', gone && still, `dismissed ${gone}, still hidden after Reset ${still}`);
+
+    // AND THE DISMISSAL LIFTS: the card dismissed above must come back when the machine's state changes, or a card
+    // dismissed once can never be seen again. A state change to 'none' (the ROMs running) resets it; the next stub
+    // choice is a new thing to say and the card returns. (Before this ran after a Dismiss, the check exercised
+    // nothing: a mutant that never reset the dismissal still passed.)
+    await page.evaluate(() => { const m = window.emu.session.personMachine; window.emu.session.stubChosen.delete(m.id); window.emu.session.switchMachine(m.id); });
+    await waitFor(page, () => !window.emu.session.personMachine.useStub, null, 20000);
+    await page.evaluate(() => window.emu.session.runWithoutRoms());
+    const cameBack = await waitFor(page, () => { const b = document.getElementById('welcome'); return !!b && !b.hidden && !!b.querySelector('[data-card-switch]'); }, null, 15000);
+    check('rom states: a dismissed card comes back when the ROMs are switched off and on again (the dismissal lifts)',
+      cameBack && (await card()) !== null, JSON.stringify(await card()));
+  }
+  // ...and the card being hidden does NOT mean the person is left with a silent screen: the ROM runs and never
+  // prints OK, so the boot-help overlay comes up on its own, naming the file that was not recognised. (The card
+  // says what the machine has; this says what went wrong, and with ROMs in the machine it is the only one that can.)
+  {
+    // a fresh power-on with the ROMs: the watchdog starts a new run, watches it, and answers 'failed' when OK never
+    // comes. (The boot earlier in this group had already been answered -- 'stub' -- and bootStatus only changes on a
+    // machine, firmware or reset event, all of which this fires.)
+    await page.evaluate(() => { const m = window.emu.session.personMachine; window.emu.session.stubChosen.delete(m.id); window.emu.session.switchMachine(m.id); });
+    await waitFor(page, () => !window.emu.session.personMachine.useStub, null, 20000);
+    await emuFrames(page, 10);
+    const shown = await waitFor(page, () => { const b = document.getElementById('bootHelp'); return !!b && !b.hidden; }, null, 45000);
+    const r = await page.evaluate(() => ({
+      state: window.emu.session.bootStatus(5).state,
+      title: (document.getElementById('bootHelpTitle') || {}).textContent || '',
+      text: (document.getElementById('bootHelpText') || {}).textContent || '',
+      card: (() => { const b = document.getElementById('welcome'); return b && !b.hidden; })(),
+      // the buttons it offers with ROMs in the machine
+      sockets: (() => { const b = document.getElementById('btnBootSockets'); return b ? !b.hidden : null; })(),
+      stub: (() => { const b = document.getElementById('btnBootStub'); return b ? !b.hidden : null; })(),
+    }));
+    check('rom states: an unrecognised ROM that never boots still gets the boot-help overlay, naming the file',
+      shown && r.state === 'failed' && /No OK after 5 seconds/.test(r.title) && /bas12\.rom/.test(r.text) && /isn't recognised/.test(r.text),
+      `${r.state} · ${r.title} · ${r.text.slice(0, 90)}`);
+    check('rom states: ...while the side card stays hidden (the overlay is what explains it)',
+      r.card === false && r.sockets === true && r.stub === true, `card ${r.card}, Add ROMs ${r.sockets}, Run without ROMs ${r.stub}`);
+  }
+  check('rom states: no page errors', errors.length === 0, errors.join(' | '));
+  await ctx.close();
+
+  // ---- Your ROMs: who is "Also ready to run BASIC", and where the note about a file it could not use sits ----
+  // A machine counts only when every REQUIRED socket holds a VERIFIED dump. A file that is merely loaded (right name
+  // or size) is not proof of a working BASIC: it was being listed as ready the moment its socket was filled.
+  const ctx2 = await guardedContext(browser, archive);
+  const p2 = await ctx2.newPage();
+  const errs2 = [];
+  p2.on('pageerror', (e) => errs2.push(e.message));
+  await p2.goto(`${base}?machine=dragon64`);
+  await waitFor(p2, () => !!(window.emu && window.emu.session && window.emu.started === true), null, 40000);
+  await emuFrames(p2, 10);
+  // d64_1.rom is the Dragon 64's first socket AND the Tano Dragon 64's: loaded, not a known dump
+  await p2.setInputFiles('#fileRom', [{ name: 'd64_1.rom', mimeType: 'application/octet-stream', buffer: Buffer.alloc(16384, 0x12) }]);
+  await waitFor(p2, () => window.emu.session.machineRoms('tanodr64').bootable, null, 15000);
+  await openRoms(p2);
+  {
+    const r = await p2.evaluate(() => {
+      const rd = document.getElementById('romReady');
+      const sk = document.getElementById('romSockets');
+      // show the line as it would be if it had a machine to name, so its PLACE can be measured even while empty
+      const was = rd.textContent; rd.textContent = 'Also ready to run BASIC: X.'; const a = rd.getBoundingClientRect();
+      const b = sk.getBoundingClientRect(); rd.textContent = was;
+      return { text: was.trim(), below: Math.round(a.top - b.bottom), gap: Math.round(a.top - b.bottom) > 0 && Math.round(a.top - b.bottom) < 260 };
+    });
+    check('rom page: a file that is only loaded does not make its other machine "Also ready to run BASIC"',
+      !/Tano Dragon 64/.test(r.text), r.text || '(empty)');
+    check('rom page: that line sits beside the socket list it is about, not below the scroll',
+      r.below > 0 && r.below < 260, `${r.below}px below the list`);
+  }
+  // a file CLOADM cannot use: the note goes beside the list, where the thing it is about is
+  await p2.setInputFiles('#fileRom', [{ name: 'bas99.rom', mimeType: 'application/octet-stream', buffer: Buffer.alloc(4096, 7) }]);
+  {
+    const r = await waitFor(p2, () => { const b = document.getElementById('romProblems'); return !b.hidden && b.textContent.trim() ? b.textContent.trim() : false; }, null, 10000);
+    const where = await p2.evaluate(() => {
+      const pb = document.getElementById('romProblems'), sk = document.getElementById('romSockets');
+      const a = pb.getBoundingClientRect(), b = sk.getBoundingClientRect();
+      return { below: Math.round(a.top - b.bottom), sameColumn: pb.parentElement === sk.parentElement };
+    });
+    check('rom page: a file it could not use is said beside the socket list, not in a toast at the window foot',
+      r !== false && where.sameColumn && where.below > 0 && where.below < 400, `${r || '(no note)'} · ${where.below}px below the list`);
+  }
+  check('rom page: no page errors', errs2.length === 0, errs2.join(' | '));
+  await ctx2.close();
+};

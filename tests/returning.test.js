@@ -69,7 +69,7 @@ const store = () => { const m = new Map(); return { get: (k) => (m.has(k) ? m.ge
   s.switchMachine('dragon64');
   check('nothing ran yet: no last run, no option 5', s.lastRun === null && s.carryOn === null);
   s.load('hello.bin', new Uint8Array([0x55, 2, 0x30, 0x00, 0x00, 0x01, 0x30, 0x00, 0xAA, 0x39]));
-  check('a file loaded is the last run', JSON.stringify(s.lastRun) === '{"kind":"recent","name":"hello.bin"}', JSON.stringify(s.lastRun));
+  check('a file loaded is the last run, with its name and the hash of its bytes', JSON.stringify(s.lastRun) === `{"kind":"recent","name":"hello.bin","crc":"${s.library.recentMedia()[0].crc}"}`, JSON.stringify(s.lastRun));
   s.load('demo.bin', demo, { remember: false });
   check('a program that isn\'t remembered (the demo, loaded so) leaves it as it was', s.lastRun.kind === 'recent');
   s.setLastRun('demo', 'Colour demo');
@@ -85,7 +85,7 @@ const store = () => { const m = new Map(); return { get: (k) => (m.has(k) ? m.ge
   const s = new Emu.Session({ store: store(), media: new MemoryMediaStore({ caseInsensitive: true }) });
   s.switchMachine('dragon64');
   s.load('loop.bin', new Uint8Array([0x55, 2, 0x30, 0x00, 0x00, 0x01, 0x30, 0x00, 0xAA, 0x39]));
-  check('carry on: a file, on the machine it was loaded on', JSON.stringify(s.carryOn) === '{"kind":"recent","name":"loop.bin"}', JSON.stringify(s.carryOn));
+  check('carry on: a file, on the machine it was loaded on', JSON.stringify(s.carryOn) === `{"kind":"recent","name":"loop.bin","crc":"${s.library.recentMedia()[0].crc}"}`, JSON.stringify(s.carryOn));
   s.switchMachine('mc10');
   check('carry on: not on another machine', s.carryOn === null && s.lastRun.name === 'loop.bin', JSON.stringify(s.carryOn));
   s.switchMachine('coco');
@@ -95,23 +95,25 @@ const store = () => { const m = new Map(); return { get: (k) => (m.has(k) ? m.ge
   // the name the last run was recorded under and the recent list's row are compared by the store's case rule, not with ===: on a
   // store that does not tell cases apart (a Mac's or Windows' folder) a name that differs only in case is the same file
   for (const [what, name] of [['a name that differs only in case', 'LOOP.bin'], ['an extension that differs only in case', 'loop.BIN'], ['both', 'Loop.Bin']]) {
-    s.setLastRun('recent', name);
+    s.setLastRun('recent', name, { crc: s.library.recentMedia()[0].crc });
     check(`carry on: ${what} (${name} for loop.bin) still carries on`, s.carryOn && s.carryOn.name === name && s.carryOn.kind === 'recent', JSON.stringify(s.carryOn));
   }
-  s.setLastRun('recent', 'other.bin');
+  s.setLastRun('recent', 'other.bin', { crc: s.library.recentMedia()[0].crc });
   check('carry on: another name does not', s.carryOn === null);
+  s.setLastRun('recent', 'loop.bin', { crc: 'DEADBEEF' });
+  check('carry on: the same name with other bytes does not (a file of that name that is not the one that ran)', s.carryOn === null);
   for (const name of ['LOOP.CAS', 'loop.cas', 'loop']) {
-    s.setLastRun('recent', name);
+    s.setLastRun('recent', name, { crc: s.library.recentMedia()[0].crc });
     check(`carry on: the same base name with another extension (${name} for loop.bin) does not`, s.carryOn === null, JSON.stringify(s.carryOn));
   }
   {
     const t = new Emu.Session({ store: store(), media: new MemoryMediaStore({ caseInsensitive: false }) });
     t.switchMachine('dragon64');
     t.load('loop.bin', new Uint8Array([0x55, 2, 0x30, 0x00, 0x00, 0x01, 0x30, 0x00, 0xAA, 0x39]));
-    t.setLastRun('recent', 'LOOP.bin');
+    t.setLastRun('recent', 'LOOP.bin', { crc: t.library.recentMedia()[0].crc });
     check('carry on: on a store that tells cases apart, LOOP.bin is not loop.bin', t.carryOn === null);
   }
-  s.setLastRun('recent', 'loop.bin');
+  s.setLastRun('recent', 'loop.bin', { crc: s.library.recentMedia()[0].crc });
   s.setLastRun('demo', 'Colour demo');
   s.switchMachine('mc10');
   check('carry on: the colour demo not on the MC-10 (no 6803 build)', s.carryOn === null);

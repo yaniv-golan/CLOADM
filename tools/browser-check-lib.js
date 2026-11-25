@@ -75,6 +75,31 @@ function makeRun(log = console.log) {
     run.current = null;
     return g;
   };
+  // A promise nobody handled (a route handler's route.fetch that the OS reset, a page call that outlived its page)
+  // kills the Node process by default (Node 15 and later), and with it every group after the one that was running. A
+  // rejection is a FAIL, with its reason, and the run goes on. It is counted against whatever group is current when
+  // it surfaces - not necessarily the one that caused it - or against no group when none is running (during setup,
+  // between groups, after the last one). The exit code is set to 1 at once: a rejection that surfaces after the
+  // summary has been printed must not leave a run that said "passed" exiting 0. proc: the process (an EventEmitter)
+  // to listen on; returns the function that stops listening.
+  run.guardRejections = (proc = process) => {
+    const onRejection = (reason) => {
+      failed(run.current);
+      proc.exitCode = 1;
+      log(`FAIL unhandled rejection${run.current ? ` in ${run.current.name}` : ''}: ${reason && reason.stack ? reason.stack : reason}`);
+    };
+    proc.on('unhandledRejection', onRejection);
+    return () => proc.off('unhandledRejection', onRejection);
+  };
+  // The run's own body (starting the server and the browser, then the groups). Whatever it throws is a FAIL and the end
+  // of the groups, not an escaped rejection: the caller goes on to close what it opened and print the summary, so the
+  // exit code is 1.
+  run.top = async (body) => {
+    try { await body(); } catch (e) {
+      failed(run.current);
+      log(`FAIL the browser check itself threw, the groups after this did not run\n${e && e.stack ? e.stack : e}`);
+    }
+  };
   // the closing lines; returns the exit code
   run.summary = () => {
     const bad = run.groups.filter((g) => g.fail);
@@ -192,4 +217,47 @@ function makeWaits(run, file) {
   return { waitFor, maybeWaitFor, waitForFrames };
 }
 
-module.exports = { parseOnly, makeRun, makeWaits, callSite, pageGone };
+// bounded(promise, ms): { outcome, value, error }, outcome being 'settled', 'rejected' or 'timeout'.
+//
+// The TIMER IS CLEARED when the promise settles and UNREF'd as a belt, because an uncleared setTimeout keeps Node's
+// event loop alive: a run would idle up to `ms` AFTER printing its summary (measured: 14.9 s on every --only run
+// before this helper existed). The settled flag makes the losing side a no-op, so an abandoned promise cannot report
+// into a check that belongs to a later group.
+//
+// IT DOES NOT RETURN A BOOLEAN, deliberately. An earlier version returned true for both "settled" and "rejected",
+// so a caller testing `!won` treated a failed evaluate as a success and went on to read a value that was never set.
+//
+// NODE SIDE ONLY: it uses unref(), which the browser page does not have. Code inside page.evaluate() must not call
+// it (a setTimeout there is the browser's event loop, which nothing here can hold open). It lived in
+// tools/browser-check.js before every group's closes were routed through it; the connector module needs it too, and
+// a second copy is how two copies drift, so it lives here with the rest of the shared bookkeeping.
+async function bounded(promise, ms) {
+  let settled = false;
+  let timer = null;
+  const timeout = new Promise((resolve) => {
+    timer = setTimeout(() => { if (!settled) { settled = true; resolve({ outcome: 'timeout' }); } }, ms);
+    timer.unref();          // belt: even a throw before clearTimeout cannot hold the loop open
+  });
+  return Promise.race([
+    // (a late settle cannot win the race - `timeout` has resolved by then - so there is no 'late' outcome to report;
+    // the settled flag's job here is only to stop the loser from touching a check)
+    promise.then((value) => { if (settled) return; settled = true; clearTimeout(timer); return { outcome: 'settled', value }; },
+      (error) => { if (settled) return; settled = true; clearTimeout(timer); return { outcome: 'rejected', error }; }),
+    timeout,
+  ]);
+}
+
+// The outcome of a bounded() close (tools/browser-check.js), reported into the group that owns the close: a close
+// that settled is silent; a rejected or timed-out close is a FAIL naming the close and carrying the reason (an Error's
+// message, a non-Error's String), so an unclosable context is a defect in the run rather than a silent hang. The
+// `label` is the whole check name ("<group>: a context it opened closes", or the run's own for the final browser);
+// the ms is echoed in the timeout's detail so the bound is the one that fired, not a guess, and `after` (optional)
+// says what still tears the object down when the bound fires ("left to browser.close()", "killed when this process
+// exits") - a FAIL that hides the backstop would read as a leak with no way out.
+function reportClose(check, label, b, ms, after = '') {
+  if (b.outcome === 'settled') return;
+  if (b.outcome === 'rejected') check(label, false, String((b.error && b.error.message !== undefined && b.error.message !== null) ? b.error.message : b.error));
+  else check(label, false, `still open after ${ms} ms${after ? ` (${after})` : ''}`);
+}
+
+module.exports = { parseOnly, makeRun, makeWaits, callSite, pageGone, bounded, reportClose };

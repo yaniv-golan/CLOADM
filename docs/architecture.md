@@ -237,7 +237,11 @@ The file is gzip-compressed JSON (`js/media/snapshot.js`; an unpacked file is re
 `format` (`"cloadm-state"`), `version`, `machine` (the model's id), `name` (the model's name), `taken` (ISO 8601 time),
 `config` (the model's options), `roms` (the CRC of each ROM it ran with, never the ROM) and `state` (what every
 component's `saveState()` wrote, byte arrays as base64). A shared moment also has `share` (the ROM and cartridge images
-it names). The layout is `SNAPSHOT_VERSION` in `js/machines/machine.js`.
+it names), and a moment of a bundled program has `program` (`"liza"`, `"2048"` or `"minesweeper"`:
+`Session.momentProgram`), which Start over and the arrival card's Start from the beginning use to start that program
+from its beginning; a page ignores a `program` it does not have. A moment opened from such a snapshot keeps its `program`
+(for its next snapshot or link) until something else runs on that machine: a load, a program started, a Reset or a
+power cycle. The layout is `SNAPSHOT_VERSION` in `js/machines/machine.js`.
 
 A page reads `SNAPSHOT_OLDEST` to `SNAPSHOT_VERSION` (now 1 to 4) and says so when a file is newer or older. Files from
 pre-release builds carry the identifier `"cloadm-snapshot"` and another layout; a page recognises them and says it does
@@ -249,8 +253,8 @@ state sets `SNAPSHOT_OLDEST` to itself.
 ## The embed protocol
 
 The calls travel as `postMessage` (`js/embed-api.js` describes the protocol), so the page around the iframe can
-be on any site. `peek` answers only while the machine runs the built-in firmware with no cartridge: with your ROMs
-loaded, memory can hold copies of them, and CLOADM never hands ROM code to another page. Or host your own copy: it is static files with no build step.
+be on any site. `peek` answers only while the machine runs the built-in firmware with no cartridge and no NitrOS-9: with your ROMs
+or your NitrOS-9 image loaded, memory can hold copies of them, and CLOADM never hands ROM code to another page. Or host your own copy: it is static files with no build step.
 
 ---
 

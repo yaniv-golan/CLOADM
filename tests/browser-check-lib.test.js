@@ -1,7 +1,7 @@
 // tools/browser-check-lib.js: the browser check's bookkeeping, tested with fake groups and fake pages (no browser).
 // Each hole it closes is shown failing the way it used to pass: an unknown --only group, a group that throws, a
 // wait that times out, a skipped check.
-const { parseOnly, makeRun, makeWaits, callSite } = require('../tools/browser-check-lib.js');
+const { parseOnly, makeRun, makeWaits, callSite, bounded, reportClose } = require('../tools/browser-check-lib.js');
 
 let fail = 0;
 const check = (name, cond, detail = '') => { detail = String(detail).replace(/\n/g, ' | '); if (!cond) { fail++; console.log(`FAIL ${name} ${detail}`); } else console.log(`ok   ${name} ${detail}`); };
@@ -171,6 +171,159 @@ check('--only twice: an error', /more than once/.test(parseOnly(['--only', 'shar
     const hung = { async evaluate(fn) { return String(fn).includes('frameCount') ? 0 : false; }, async waitForTimeout() { await new Promise((ok) => setTimeout(ok, 5)); } };
     await run2.group('hung', async () => { r = await w2.waitForFrames(hung, () => false, null, 30, 40); });
     check('waitForFrames: a page that stops running frames fails on the wall-clock limit', r === false && /FAIL wait timed out \(40 ms \(wall clock\) before 30 frames ran\)/.test(lines2.join('\n')), lines2.join(' | '));
+  }
+  // ---- bounded: the race every group's closes and the tone measurement wait on. What is OBSERVED here is what a
+  // caller can actually see: the four outcomes, and that the timer is UNREF'd - the property the base comment
+  // measures with (a run idled 14.9 s after its summary before it), observed as a child process holding only the
+  // race exiting at once instead of idling out the bound. Two of the helper's other internals are deliberately
+  // NOT asserted because no caller can observe them: the cleared timer (an uncleared timer that is unref'd holds
+  // nothing open - probes: Node 25.2.1 does not even list an unref'd pending timer in getActiveResourcesInfo, and
+  // the clearTimeout-mutant alone changes nothing observable), and the settled flag (a late settle's second
+  // outcome goes into a lost Promise.race branch; every caller awaits the race once, so nothing can see it).
+  // Both are defense-in-depth behind the observable property, and the unref test kills their combination
+  // (unref removed - with or without the clear - by name below).
+  {
+    // bounded()'s timer is unref'd by design, so a test whose only pending work is the race would let Node exit
+    // before the bound fires: hold a REF'd timer for the test's duration, which is exactly what a real run has
+    // (its server, its browser pipes) and keeps the check honest.
+    const hold = setTimeout(() => {}, 2000);
+    const settled = await bounded(Promise.resolve(42), 100);
+    check('bounded: a settled promise carries its value', settled.outcome === 'settled' && settled.value === 42, JSON.stringify(settled));
+    const rejected = await bounded(Promise.reject(new Error('no')), 100);
+    check('bounded: a rejection is an outcome with the error, never a truthy "won"', rejected.outcome === 'rejected' && rejected.error.message === 'no', JSON.stringify(rejected));
+    const hung = await bounded(new Promise(() => {}), 20);
+    check('bounded: a promise that never settles is a timeout after ms, not a hang', hung.outcome === 'timeout', JSON.stringify(hung));
+    // THE TIMER IS UNREF'D: a child process whose ONLY pending work is a bounded never-settling promise exits
+    // AT ONCE with nothing printed - the empty loop does not wait for the bound. With the unref removed the child
+    // idles out the 5 s bound and then prints the timeout (exactly what held real runs open 14.9 s; the parent
+    // test process holds its own ref'd timer, so this needs the child to see the difference).
+    {
+      const child = await new Promise((res) => {
+        const code = 'const { bounded } = require(' + JSON.stringify(require.resolve('../tools/browser-check-lib.js')) + ');'
+          + ' bounded(new Promise(() => {}), 5000).then((b) => { console.log(b.outcome); });';
+        const c = require('child_process').spawn(process.execPath, ['-e', code], { stdio: ['ignore', 'pipe', 'pipe'] });
+        let out = '';
+        c.stdout.on('data', (d) => { out += d; });
+        const t0 = Date.now();
+        c.on('exit', (code2, signal) => res({ ms: Date.now() - t0, code: code2, signal, out }));
+        setTimeout(() => { try { c.kill('SIGKILL'); } catch (e) {} res({ ms: Date.now() - t0, code: 'still-running-at-2s', out }); }, 2000);
+      });
+      check('bounded: the timer is unref\'d (a process holding only the race exits at once, before the bound)',
+        child.out === '' && child.ms < 2000 && child.code === 0, `code=${child.code} ms=${child.ms} out=${JSON.stringify(child.out.trim())}`);
+    }
+    // THE OUTCOME THE CALLER SAW CANNOT CHANGE: a settle arriving long after the bound fired is invisible to the
+    // caller - the same race promise, awaited again, is the same timeout with no value. That immutability is the
+    // contract every caller relies on (a late settle must never turn into a second outcome or a value).
+    {
+      const raced = bounded(new Promise((r2) => setTimeout(() => r2('early'), 120)), 20);
+      const first = await raced;
+      await new Promise((r) => setTimeout(r, 250));   // (the late settle has landed by now)
+      const again = await raced;
+      check('bounded: a settle after the bound fired cannot change the outcome the caller saw',
+        first.outcome === 'timeout' && again.outcome === 'timeout' && first.value === undefined && again.value === undefined,
+        `first=${JSON.stringify(first)} again=${JSON.stringify(again)}`);
+    }
+    clearTimeout(hold);
+  }
+  // ---- reportClose: the outcome of bounded() on a close, reported into the group that owns the close.
+  // A close that settles is silent; a close that rejected or timed out is that group's FAIL, by name.
+  {
+    const lines = [], run = makeRun((l) => lines.push(l));
+    await run.group('disk', async () => {
+      run.check('a passing check, to see the quiet close add nothing', true);
+      reportClose(run.check, 'disk: a context it opened closes', { outcome: 'settled' }, 10000);
+      reportClose(run.check, 'disk: a context it opened closes', { outcome: 'timeout' }, 10000);
+      reportClose(run.check, 'disk: a context it opened closes', { outcome: 'rejected', error: new Error('Target crashed') }, 10000);
+      reportClose(run.check, 'disk: a context it opened closes', { outcome: 'rejected', error: 'a plain string' }, 10000);
+      reportClose(run.check, 'disk: a context it opened closes', { outcome: 'rejected', error: null }, 10000);
+    });
+    const code = run.summary(), out = lines.join('\n');
+    check('reportClose: a settled close reports nothing (exactly the one ok line before the FAILs)',
+      run.ok === 1 && !/settled/.test(out) && /^ok {2,4}a passing check/.test(out.split('\n')[1]), out.split('\n').slice(0, 2).join(' | '));
+    check('reportClose: a timeout is a FAIL that names the close and the bound',
+      /FAIL disk: a context it opened closes still open after 10000 ms/.test(out), out);
+    check('reportClose: a rejection is a FAIL carrying the error message', /FAIL disk: a context it opened closes Target crashed/.test(out), out);
+    check('reportClose: a non-Error rejection and a null one are FAILs too, never crashes',
+      /a plain string/.test(out) && /String\(null\)|null/.test(out), out);
+    check('reportClose: every non-settled outcome failed the run (exit 1)', code === 1 && run.fail === 4, `fail=${run.fail} code=${code}`);
+  }
+  // the FAIL lands in the group that owns the close even when the outcome came from elsewhere
+  {
+    const lines = [], run = makeRun((l) => lines.push(l));
+    await run.group('owner', async () => { run.ownsClose = true; });
+    await run.group('sound', async () => {
+      reportClose(run.check, 'sound: a context it opened closes', { outcome: 'timeout' }, 10000);
+    });
+    const out = lines.join('\n');
+    const owner = run.groups.find((g) => g.name === 'owner'), sound = run.groups.find((g) => g.name === 'sound');
+    check('reportClose: the FAIL is counted against the group that ran it',
+      sound.fail === 1 && owner.fail === 0 && /FAIL sound: a context it opened closes/.test(out), `owner=${owner.fail} sound=${sound.fail}`);
+  }
+  // guardRejections: a rejection nobody handles (a route.fetch the OS reset) is that group's FAIL with its reason, the next
+  // group still runs, and the exit code is 1; without the guard Node ends the process in the middle of the group.
+  {
+    const lib = JSON.stringify(require.resolve('../tools/browser-check-lib.js'));
+    const child = (guard) => new Promise((res) => {
+      const code = `const { makeRun } = require(${lib}); const run = makeRun(); ${guard ? 'run.guardRejections();' : ''}
+        (async () => {
+          await run.group('one', async () => { Promise.reject(new Error('route.fetch: connect ECONNRESET 127.0.0.1:1')); await new Promise((r) => setTimeout(r, 100)); });
+          await run.group('two', async () => run.check('the second group runs', true));
+          process.exitCode = run.summary();
+        })();`;
+      const c = require('child_process').spawn(process.execPath, ['-e', code], { stdio: ['ignore', 'pipe', 'pipe'] });
+      let out = '', err = '';
+      c.stdout.on('data', (d) => { out += d; }); c.stderr.on('data', (d) => { err += d; });
+      c.on('exit', (exit) => res({ exit, out, err }));
+    });
+    const guarded = await child(true), bare = await child(false);
+    check('guardRejections: the rejection is a FAIL in its group, with its reason', /FAIL unhandled rejection in one: Error: route\.fetch: connect ECONNRESET/.test(guarded.out) && /FAILED group one: 1 failure/.test(guarded.out), guarded.out);
+    check('guardRejections: the next group still runs and the run still exits 1', /ok   the second group runs/.test(guarded.out) && /groups: 2 run, 1 passed, 1 failed/.test(guarded.out) && guarded.exit === 1, `exit=${guarded.exit} ${guarded.out}`);
+    check('guardRejections: without it the process dies in the group (the second never runs, no summary)', bare.exit !== 0 && !/second group runs|groups:/.test(bare.out) && /ECONNRESET/.test(bare.err), `exit=${bare.exit} ${bare.out}`);
+    // a rejection that surfaces after the summary was printed ("passed") still ends the process with exit 1
+    const lateOut = await new Promise((res) => {
+      const code = `const { makeRun } = require(${lib}); const run = makeRun(); run.guardRejections();
+        (async () => {
+          await run.group('one', async () => run.check('fine', true));
+          process.exitCode = run.summary();
+          Promise.reject(new Error('late: connect ECONNRESET'));
+        })();`;
+      const c = require('child_process').spawn(process.execPath, ['-e', code], { stdio: ['ignore', 'pipe', 'pipe'] });
+      let out = '';
+      c.stdout.on('data', (d) => { out += d; });
+      c.on('exit', (exit) => res({ exit, out }));
+    });
+    check('guardRejections: a rejection after the summary says "passed" still exits 1, with its FAIL line',
+      /browser check passed/.test(lateOut.out) && /FAIL unhandled rejection: Error: late: connect ECONNRESET/.test(lateOut.out) && lateOut.exit === 1, `exit=${lateOut.exit} ${lateOut.out}`);
+    // run.top: the run's own body throwing (a browser that will not launch) is a FAIL, the closing code still runs, exit 1
+    const topOut = await new Promise((res) => {
+      const code = `const { makeRun } = require(${lib}); const run = makeRun(); run.guardRejections();
+        (async () => {
+          await run.top(async () => { try { throw new Error('browserType.launch: Executable does not exist'); } finally { console.log('cleanup ran'); } });
+          process.exitCode = run.summary();
+        })();`;
+      const c = require('child_process').spawn(process.execPath, ['-e', code], { stdio: ['ignore', 'pipe', 'pipe'] });
+      let out = '';
+      c.stdout.on('data', (d) => { out += d; });
+      c.on('exit', (exit) => res({ exit, out }));
+    });
+    check('top: a throw before the summary is a FAIL naming it, the cleanup ran, the summary printed and the exit code is 1',
+      /cleanup ran/.test(topOut.out) && /FAIL the browser check itself threw[^]*Executable does not exist/.test(topOut.out) && /browser check FAILED \(1 failure\)/.test(topOut.out) && topOut.exit === 1, `exit=${topOut.exit} ${topOut.out}`);
+    // the real tool with a browser that cannot launch: it ends by itself with exit 1 (it used to hang, the server open)
+    const launch = await new Promise((res) => {
+      const c = require('child_process').spawn(process.execPath, [require('path').join(__dirname, '../tools/browser-check.js'), '--only', 'audio'],
+        { stdio: ['ignore', 'pipe', 'pipe'], env: Object.assign({}, process.env, { PLAYWRIGHT_BROWSERS_PATH: '/nonexistent-browsers' }) });
+      let out = '', killed = false;
+      c.stdout.on('data', (d) => { out += d; });
+      const t = setTimeout(() => { killed = true; c.kill('SIGKILL'); }, 60000);
+      c.on('exit', (exit) => { clearTimeout(t); res({ exit, out, killed }); });
+    });
+    check('a browser that cannot launch ends the run by itself (no hang), with a FAIL line and exit 1',
+      !launch.killed && launch.exit === 1 && /FAIL the browser check itself threw/.test(launch.out) && /browser check FAILED/.test(launch.out), `exit=${launch.exit} killed=${launch.killed} ${launch.out.slice(-300)}`);
+    // stopping the guard puts Node's default back
+    const { EventEmitter } = require('events');
+    const fake = new EventEmitter(), r2 = makeRun(() => {}), stop = r2.guardRejections(fake);
+    const on = fake.listenerCount('unhandledRejection'); stop();
+    check('guardRejections: listens on the process it is given, and stops when told', on === 1 && fake.listenerCount('unhandledRejection') === 0, `${on}`);
   }
   // callSite skips the helpers and names the caller's lines
   const stack = ['Error', '    at poll (/x/tools/b.js:10:5)', '    at waitFor (/x/tools/b.js:20:5)', '    at async ready (/x/tools/b.js:30:5)', '    at async romChecks (/x/tools/b.js:400:7)', '    at async main (/x/tools/b.js:900:3)'].join('\n');

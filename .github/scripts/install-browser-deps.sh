@@ -8,11 +8,21 @@
 #
 #   1. Nothing missing: nothing to do.
 #   2. A cache of the missing packages' .deb files (restored by actions/cache into $DEBS_DIR, keyed on the runner
-#      image): dpkg -i of ONLY the cached files of packages the check reports missing, from disk (apt-get install of
-#      the same files fetched them from the mirror again), then the check again. A package the image already has is
-#      never touched, so nothing on the image is downgraded.
-#   3. Otherwise the mirror, at most twice: apt-get update, then install-deps. The .deb files of the packages that
-#      were missing (Playwright's list only, not whatever else apt upgraded) are kept in $DEBS_DIR for the cache.
+#      image, or failing that the newest cache of an earlier image of the same OS): dpkg -i of ONLY the cached files of
+#      packages the check reports missing, from disk, then the check again. A package the image already has is never
+#      touched, so nothing on the image is downgraded; a file from an earlier image that no longer fits (a dependency
+#      dpkg refuses) fails the check, and the mirror takes over after apt-get install -f.
+#   3. Otherwise a mirror, one per try, in $MIRRORS order: azure.archive.ubuntu.com, then the image's own sources
+#      ("default"), then archive.ubuntu.com; a named one through a sources list of its own (main and universe of the
+#      release, -updates and -security, signed by the Ubuntu archive key). A mirror that stalls or trickles is not
+#      retried: the next try asks the next mirror. CI 45333139695 needed that (the image's us-east-2.ec2 mirror sent
+#      100 KB/s and both tries waited on it), and CI 45337281354 measured it: on 5 of 8 shards the image's mirror
+#      sent 122 kB/s and hit its limit, then azure.archive installed the same packages in 2 s. That is why azure.archive
+#      comes first, and the image's mirror is still tried after it. Each try runs
+#      apt-get update without translation lists, then apt-get install --no-install-recommends of exactly the packages
+#      the check reported missing (what `playwright install-deps` would install, without upgrading packages the image
+#      already has: it re-installed its whole list and pulled 11 MB of mesa upgrades), then the check. The .deb files
+#      of the packages that were missing are kept in $DEBS_DIR for the cache.
 #
 # Time limits. Every command that can wait on the network or on dpkg runs through `bounded`: in a process group of its
 # own (setsid), and when its limit passes the WHOLE group gets TERM, then KILL $KILL_AFTER s later. That is why the
@@ -31,20 +41,23 @@
 #
 # Worst case by design, every limit reached (each bounded command can add KILL_AFTER; a lock scan is a few `find`s
 # over /proc, well under a second, and the waits are deadlines, so a scan adds at most its own length to a wait):
-#   wait_locks at most 20 + 10 + 20 + (30+10 repair) = 90 s, called at most 5 times (cache, and per try before the
-#   try and before its repair) = 450
+#   wait_locks at most 20 + 10 + 20 + (30+10 repair) = 90 s, called at most 7 times (cache, and per try before the
+#   try and before its repair) = 630
 #   + 300+10 (chromium) + 2 x (60+10) (check before and after the cache) + 60+10 (dpkg -i) + 30+10 (apt-get -f)
-#   + 2 tries x (60+10 update + 300+10 install-deps + 60+10 check + 30+10 dpkg --configure + PAUSE 10) = 1560
-#   = 2010 s, 33.5 minutes: under the step's 35-minute limit and the job's 45.
+#   + 3 tries x (60+10 update + 180+10 install + 60+10 check + 30+10 dpkg --configure + PAUSE 10) = 1140
+#   = 2330 s, 38.8 minutes: under the step's 40-minute limit and the job's 50.
 set -u
 DEBS_DIR="${DEBS_DIR:-$HOME/playwright-debs}"
 APT_CONF="${APT_CONF:-/etc/apt/apt.conf.d/99ci-apt}"
 APT_ARCHIVES="${APT_ARCHIVES:-/var/cache/apt/archives}"
+MIRRORS="${MIRRORS:-http://azure.archive.ubuntu.com/ubuntu default http://archive.ubuntu.com/ubuntu}"
+SOURCES="${SOURCES:-/etc/apt/ci-mirror.list}"
+KEYRING="${KEYRING:-/usr/share/keyrings/ubuntu-archive-keyring.gpg}"
 LOCKS="${LOCKS:-/var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/lib/apt/lists/lock /var/cache/apt/archives/lock}"
 PAUSE="${PAUSE:-10}" KILL_AFTER="${KILL_AFTER:-10}" LOCK_WAIT="${LOCK_WAIT:-20}"
 T_CHROMIUM="${T_CHROMIUM:-300}" T_CHECK="${T_CHECK:-60}" T_DPKG="${T_DPKG:-60}" T_FIX="${T_FIX:-30}"
-T_UPDATE="${T_UPDATE:-60}" T_INSTALL="${T_INSTALL:-300}" T_CONFIGURE="${T_CONFIGURE:-30}"
-export DEBS_DIR APT_CONF APT_ARCHIVES LOCKS PAUSE KILL_AFTER LOCK_WAIT T_CHROMIUM T_CHECK T_DPKG T_FIX T_UPDATE T_INSTALL T_CONFIGURE
+T_UPDATE="${T_UPDATE:-60}" T_INSTALL="${T_INSTALL:-180}" T_CONFIGURE="${T_CONFIGURE:-30}"
+export MIRRORS SOURCES KEYRING DEBS_DIR APT_CONF APT_ARCHIVES LOCKS PAUSE KILL_AFTER LOCK_WAIT T_CHROMIUM T_CHECK T_DPKG T_FIX T_UPDATE T_INSTALL T_CONFIGURE
 
 now_ms() { local t=${EPOCHREALTIME/./}; echo $(( 10#$t / 1000 )); }   # wall clock in ms (bash 5)
 
@@ -140,20 +153,33 @@ if [ -n "$need" ] && [ "${#debs[@]}" -gt 0 ]; then
   bounded "$T_FIX" apt-get install -f -y || true   # repair whatever dpkg left half-installed
 fi
 
-# 3. from the mirror
-for try in 1 2; do
+# 3. from a mirror, a different one each try
+codename=$( . /etc/os-release 2>/dev/null; echo "${VERSION_CODENAME:-noble}")
+try=0
+for mirror in $MIRRORS; do
+  try=$((try + 1))
+  # apt's options for this try: no translation lists (the 30 s "Ign: Translation-en" stall of CI 45333139695), and,
+  # for a named mirror, its sources list in place of the image's
+  opts=(-o Acquire::Languages=none)
+  if [ "$mirror" != default ]; then
+    printf 'deb [signed-by=%s] %s %s main universe\n' "$KEYRING" "$mirror" "$codename" "$KEYRING" "$mirror" "$codename-updates" \
+      "$KEYRING" "$mirror" "$codename-security" > "$SOURCES"
+    opts+=(-o "Dir::Etc::SourceList=$SOURCES" -o Dir::Etc::SourceParts=-)
+  fi
+  echo "OS packages: try $try, mirror: $mirror"
   wait_locks
-  if bounded "$T_UPDATE" apt-get update && bounded "$T_INSTALL" npx playwright install-deps chromium && check "$out"; then
+  # shellcheck disable=SC2086   # $need: one package per word
+  if bounded "$T_UPDATE" apt-get "${opts[@]}" update && bounded "$T_INSTALL" apt-get "${opts[@]}" install -y --no-install-recommends $need && check "$out"; then
     mkdir -p "$DEBS_DIR"
     kept=0
     for p in $need; do for f in "$APT_ARCHIVES/${p}"_*.deb; do [ -e "$f" ] && cp "$f" "$DEBS_DIR/" && kept=$((kept + 1)); done; done
     chmod -R a+rX "$DEBS_DIR" 2>/dev/null || true   # the cache step saves it as the runner's user
-    echo "OS packages: installed from the mirror; $kept .deb files kept for the cache"
+    echo "OS packages: installed from the mirror ($mirror); $kept .deb files kept for the cache"
     exit 0
   fi
-  echo "OS packages: try $try failed or timed out"
-  wait_locks   # dpkg ignores DPkg::Lock::Timeout: run against a held lock, the repair would fail and try 2 with it
+  echo "OS packages: try $try ($mirror) failed or timed out"
+  wait_locks   # dpkg ignores DPkg::Lock::Timeout: run against a held lock, the repair would fail and the next try with it
   bounded "$T_CONFIGURE" dpkg --configure -a || true; sleep "$PAUSE"
 done
-echo "OS packages: could not be installed in 2 tries (see above); the browser check did not run"
+echo "OS packages: could not be installed in $try tries, from $try mirrors (see above); the browser check did not run"
 exit 1

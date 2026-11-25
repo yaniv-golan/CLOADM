@@ -16,18 +16,29 @@ const askAddresses = (name, size) => {
 
 // snapshots: the snapshot panel (snapshot files open there); disks: the disk panel (disk images go into a drive);
 // keep(name, bytes): a file the user loaded, to keep in the Library
+// "name loaded and started. DragonDOS binary $3000-$3FE6, exec $3000" -> the sentence for the toast, the rest for Details
+const loadedParts = (msg) => { const m = /^(.+? loaded(?: and started)?\.) (.+)$/.exec(msg); return m && [m[1], m[2]]; };
+
 export function setupMediaPanel(page, { snapshots, disks, nitros9, keep }) {
   const { session, audio } = page;
   session.fastCas = $('chkFastCas').checked;
   $('chkFastCas').onchange = (e) => { session.fastCas = e.target.checked; };
 
-  const doLoad = (name, bytes) => { audio.start(); if (page.attempt(() => session.load(name, bytes, { askAddresses }))) keep(name, bytes); };
+  const doLoad = (name, bytes) => { audio.start(); if (page.attempt(() => session.load(name, bytes, { askAddresses }), { split: loadedParts })) keep(name, bytes); };
   // media for another machine: offer to open it there or load it anyway; disk images go into a drive
   const offer = $('mediaOffer');
   async function loadProgram(name, bytes) {
     if (await snapshots.take(name, bytes)) return;
     const media = session.inspect(name, bytes), mm = media.mismatch;
     offer.hidden = true;
+    // none of the kinds CLOADM opens: said, with the list in its Details (no raw-load prompt for a photo or a PDF), and
+    // a way in all the same for a memory dump under another name: the raw-load address prompt
+    const no = session.unopenable(name, bytes);
+    if (no) {
+      page.toast(no.text, { error: true, details: no.details,
+        also: { text: 'A memory dump?', action: { label: 'Load as raw data at an address…', run: () => doLoad(name, bytes) } } });
+      return;
+    }
     // a NitrOS-9 boot disk (DriveWire or floppy): boot it (on the CoCo 3), or put it in a floppy drive all the same
     const n9 = media.kind === 'disk' ? inspectOs9Disk(bytes) : null;
     if (n9 && !n9.reason) {
@@ -70,7 +81,7 @@ export function setupMediaPanel(page, { snapshots, disks, nitros9, keep }) {
     const files = [...e.target.files]; e.target.value = '';
     loadPrograms(await Promise.all(files.map(async (f) => ({ name: f.name, bytes: await page.readFile(f) }))));
   };
-  $('btnTape').onclick = () => $('fileTape').click();
+  $('btnTape').onclick = $('btnTapeName').onclick = () => $('fileTape').click();
   $('fileTape').onchange = async (e) => {
     const f = e.target.files[0]; e.target.value = '';
     if (!f) return;
@@ -84,7 +95,7 @@ export function setupMediaPanel(page, { snapshots, disks, nitros9, keep }) {
   // on a phone with its Tape sheet closed (Eject from the palette), to the Tape chip that opens it
   $('btnEjectTape').onclick = () => {
     if (!session.ejectTape()) return;
-    const to = [$('btnTape'), $('chipTape')].find((e) => e.checkVisibility());
+    const to = [$('btnTape'), $('btnTapeName'), $('chipTape')].find((e) => e.checkVisibility());
     if (to) to.focus(); else page.focus();
     page.status('Tape ejected.');
   };

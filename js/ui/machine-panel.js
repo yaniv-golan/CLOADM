@@ -35,10 +35,12 @@ export function setupMachinePanel(page, { showRoms }) {
 
   // the footer's line for the model under the pointer or the focus: visual only (the item carries the same words as its
   // aria-description, so a screen reader hears them once, with the item)
-  let about = null;
+  let about = null, list = null;   // list: the models' box, which scrolls above the footer
   const say = (p) => { if (about) about.textContent = p ? describe(p) : ''; };
   function buildMenu() {
     menu.replaceChildren();
+    list = document.createElement('div'); list.className = 'menulist';
+    menu.append(list);
     // With no ROMs stored at all, one line at the top instead of a "needs ROMs" tag on every row; the tags (and the
     // ✓ legend) once any are stored
     const none = session.storedRoms().count === 0;
@@ -47,15 +49,15 @@ export function setupMachinePanel(page, { showRoms }) {
     if (none) {
       const top = document.createElement('p'); top.id = 'menuNoRoms'; top.setAttribute('role', 'none');
       top.textContent = 'No ROMs yet: every machine needs its own ROMs for BASIC.';
-      menu.append(top);
+      list.append(top);
     }
     // every profile is in exactly one section (groupProfiles is exhaustive; a new model cannot go missing)
-    for (const [name, list] of groupProfiles(availableProfiles())) {
+    for (const [name, members] of groupProfiles(availableProfiles())) {
       const g = document.createElement('div'); g.className = 'machines';
       const h = document.createElement('div'); h.className = 'group-name'; h.textContent = name;
       const sub = document.createElement('div'); sub.className = 'group-sub'; sub.textContent = SUBTITLES[name];
       g.append(h, sub);
-      for (const p of list) {
+      for (const p of members) {
         const b = document.createElement('button');
         b.setAttribute('role', 'menuitem');
         b.dataset.machine = p.id;
@@ -65,7 +67,7 @@ export function setupMachinePanel(page, { showRoms }) {
         if (!none) {
           const ready = session.machineRoms(p.id).bootable;
           const t = document.createElement('span'); t.className = ready ? 'tag ready' : 'tag'; t.textContent = ready ? '✓' : 'needs ROMs';
-          if (ready) t.setAttribute('aria-label', 'BASIC ready');
+          if (ready) { t.setAttribute('aria-label', 'BASIC ready'); t.setAttribute('title', 'BASIC ready'); }
           b.append(t);
         }
         if (p.id === session.shownMachine.id) b.setAttribute('aria-current', 'true');
@@ -74,7 +76,7 @@ export function setupMachinePanel(page, { showRoms }) {
         b.addEventListener('pointerenter', () => say(p));
         g.append(b);
       }
-      menu.append(g);
+      list.append(g);
     }
     // the footer: two menu items after a separator, in the menu's arrow and Tab order like the machines
     const sep = document.createElement('div'); sep.className = 'sep machines'; sep.setAttribute('role', 'separator');
@@ -83,17 +85,19 @@ export function setupMachinePanel(page, { showRoms }) {
     // the tick's legend, after the two items: a note, not a menu item (the arrows and Tab pass it by)
     const legend = document.createElement('span'), tick = document.createElement('span');
     legend.className = 'legend'; tick.className = 'tag ready'; tick.textContent = '✓';
+    tick.setAttribute('aria-label', 'BASIC ready'); tick.setAttribute('title', 'BASIC ready');
     legend.append(tick, ' = BASIC ready');
     legend.hidden = none;
-    // "Which one is mine? →": Help's list of the machines, what each is and the ROMs it needs (a new tab)
+    // "Which one is mine? ↗": Help's list of the machines, what each is and the ROMs it needs (a new tab)
     const mine = document.createElement('a');
     mine.id = 'menuWhich'; mine.setAttribute('role', 'menuitem'); mine.href = 'help/#machines'; mine.target = '_blank'; mine.rel = 'noopener';
-    mine.textContent = 'Which one is mine? →';
+    mine.textContent = 'Which one is mine? ↗';
     mine.onclick = () => openMenu(false);
     about = document.createElement('p'); about.id = 'menuAbout'; about.setAttribute('aria-hidden', 'true');
     foot.append(item('menuRoms', 'Add or see ROMs…', () => { openMenu(false); showRoms(); }),
       item('menuSettings', 'RAM, CPU and speed…', () => { openMenu(false); machineSettings(); }), mine, legend, about);
     menu.append(sep, foot);
+    list.addEventListener('scroll', moreBelow);
   }
   function openMenu(open) {
     if (open) buildMenu();
@@ -107,8 +111,7 @@ export function setupMachinePanel(page, { showRoms }) {
       const cur = menu.querySelector('[aria-current="true"]') || menu.querySelector('button'); cur.focus();
     }
   }
-  const moreBelow = () => menu.classList.toggle('more-below', menu.scrollTop + menu.clientHeight < menu.scrollHeight - 2);
-  menu.addEventListener('scroll', moreBelow);
+  const moreBelow = () => menu.classList.toggle('more-below', list.scrollTop + list.clientHeight < list.scrollHeight - 2);
   // ---- the switch confirmation: it names what the switch takes out, built from the old machine before the
   // switch (Session.takenOut), says which of those stay in the Library, and offers to save a snapshot's own disk ----
   let cancelled = null;   // what Cancel does besides closing (a RAM change puts the select back)
@@ -251,6 +254,9 @@ export function setupMachinePanel(page, { showRoms }) {
     $('badge').textContent = m.profile.name.replace(/ \(.*\)$/, '').toUpperCase();   // the case badge: no (PAL) or (Alpha)
     $('emuHeading').textContent = m.profile.name;   // the emulator's heading (for assistive technology and reader views)
     document.title = `${m.profile.name} – CLOADM`;
+    // the page's title metas say the same once it runs (a reading mode takes og:title before the document's title, and
+    // drops the heading that matches it); a link preview reads the static ones in play/index.html, before any script
+    for (const meta of document.querySelectorAll('meta[property="og:title"], meta[name="twitter:title"]')) meta.content = document.title;
   });
 
   // a changed option power-cycles the machine with it (remembered for that model)

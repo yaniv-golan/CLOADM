@@ -65,12 +65,28 @@ export const SSC_TEXT = Object.freeze({
   romLoaded: 'SP0256-AL2 speech ROM ✓ · the Pak speaks.',
   speechNoRom: 'This program is speaking, but there\'s no speech ROM: add your own SP0256-AL2 ROM in Your ROMs.',
 });
+// What CLOADM opens, said when a file is none of them (Session.unopenable): every kind the drop, Open… and the Library
+// take. Tapes: identify (js/media/formats.js) and detectMedia (.c10/.k7); disks: detectMedia's extensions; programs:
+// DragonDOS/DECB binaries and BASIC (tokenised in a binary, or a listing as text); cartridges: identify's .rom/.ccc/.dgn;
+// snapshots: js/ui/snapshot-panel.js; ROM images: js/roms.js; ZIPs: js/ui/files.js opens them.
+export const OPENS_TEXT = 'It opens tapes (.cas, .wav, .c10, .k7), disks (.vdk, .dsk, .jvc, .dmk, .os9), programs (.bin, .bas, .txt), cartridges (.rom, .ccc, .dgn), snapshots (.cloadm), ROM images and ZIPs of these.';
+// the extensions OPENS_TEXT names: a file with one of them that isn't what it says (a damaged tape) is not called a
+// file CLOADM doesn't open
+const OPENS_EXTENSIONS = [...OPENS_TEXT.matchAll(/\.([a-z0-9]+)/g)].map((x) => x[1]).concat('zip');
+// a raw file of unknown format still loads at an address the person gives, when it may be a memory dump: a .bin, a
+// memory dump's usual names (.raw, .ram, .dmp, .mem), or a file with no extension. Any other unopenable file can still be
+// loaded that way from the message's "Load as raw data at an address…" (js/ui/media-panel.js)
+const RAW_EXTENSIONS = ['bin', 'raw', 'ram', 'dmp', 'mem', ''];
 export const CLAUDE_PAUSED_SHORT = 'Paused: you pressed a key · Esc stops Claude';
 // a message's text: a string, or the text blocks of a content array
 import { RomLibrary, identifyRoms, isBootable, isRomPack, looksLikeRom, makeRomPack, restoreRomPack, socketStatus } from './roms.js';
 import { writeZip } from './media/zip.js';
 import { bugReportText, isWad, sha256Hex } from './bugreport.js';
-import { SNAPSHOT_EXT, SnapshotError, decodeSnapshot, encodeSnapshot } from './media/snapshot.js';
+import { programPage } from './program-pages.js';
+import { sealMoment, openMoment } from './media/link-crypto.js';
+import { encodeIndexedPng } from './media/png.js';
+import { shareCardPicture } from './video/bezel.js';
+import { SNAPSHOT_EXT, SnapshotError, decodeSnapshot, decodeLongLink, encodeSnapshot, encodeLongLink } from './media/snapshot.js';
 import { missingImages, restoreRoms, stripRoms } from './media/romrefs.js';
 import { crc32, hex, registry, toBase64Url, fromBase64Url } from './util.js';
 import { buildUrl, NITROS9_MACHINES } from './config.js';
@@ -102,11 +118,13 @@ export const romOwners = () => Object.assign({}, profiles, cartridgeRoms, { ssc:
 // PLAYED flag itself (`played`, below), so the tune is spent before anything can unlock it.
 export const WELCOME_REASONS = Object.freeze(['visit', 'shelf', 'switch', 'reset', 'return']);
 const WELCOME_QUIET = Object.freeze(new Set(['switch', 'reset', 'return']));
+// the menu's prompt line, drawn once its program has set the screen up: the sign that the menu is on screen
+const WELCOME_PROMPT = 'PRESS 1 TO';
 export const WELCOME = Object.freeze({
   // carryMax: the carry-on line's text, 0-terminated (none when the first byte is 0), this long at most (the 6809
   // build's line has the room for "CARRY ON WITH MINESWEEPER")
-  '6809': Object.freeze({ file: 'welcome.bin', start: 0x6000, event: 0x6003, soundOk: 0x6004, played: 0x6005, greet: 0x6006, carry: 0x6007, carryMax: 26 }),
-  '6803': Object.freeze({ file: null, start: 0x5000, event: 0x5003, soundOk: 0x5004, played: 0x5005, greet: 0x5006, carry: 0x5007, carryMax: 24 }),
+  '6809': Object.freeze({ file: 'welcome.bin', start: 0x6000, event: 0x6003, soundOk: 0x6004, played: 0x6005, greet: 0x6006, carry: 0x6007, romsw: 0x6022, carryMax: 26 }),
+  '6803': Object.freeze({ file: null, start: 0x5000, event: 0x5003, soundOk: 0x5004, played: 0x5005, greet: 0x5006, carry: 0x5007, romsw: 0x5020, carryMax: 24 }),
   // the choices 1-7: keys 1-4 of the menu, its carry-on line (key 5 on the 6803 build, 6 on the 6809 one), and the
   // 6809 build's games menu (key 5, then 1 or 2)
   events: Object.freeze(['liza', 'demo', 'roms', 'claude', 'carryon', '2048', 'minesweeper']),
@@ -600,6 +618,8 @@ export class Session {
     this.fastCas = false;       // load .cas files straight into memory instead of through BASIC
     this.cartFiles = new WeakMap();   // a cartridge image's device -> the file it came from (takenOut names it)
     this._cartBoard = 'auto';   // the board a loaded cartridge image goes on (js/machines/carts.js CART_BOARDS)
+    this.loadStarted = true;        // the load in progress started a program (load() reads it for the last run)
+    this.lastRunOn = null;          // the machine the last-run program started on, until something takes it over (lastRunOnScreen)
     this.listeners = new Set(); // (event) => void: 'machine' after a switch, 'loaded' after a program, tape or
                                 // cartridge is loaded or assembled, 'roms' when stored ROMs or the stub choice change,
                                 // 'firmware' after a power cycle, 'reset' after a reset, 'rate' (SAM rate), 'welcome:<choice>' (startWelcome),
@@ -609,6 +629,14 @@ export class Session {
     this.roms = new RomLibrary(this.index, romOwners);
     this.romsLeft = new WeakMap();   // machine -> CRCs removed from storage that it still runs (removeRom)
     this.stubChosen = new Set();    // machines the user chose to run without ROMs this session
+    this.sharedMoment = false;      // arrived on a shared moment that runs without ROMs, not left yet (openSnapshot)
+    // Just arrived from a link: the moment a long link (#z=) or a short link (#l=) carried was opened, and the person
+    // has not acted yet -> { kind: 'long' | 'short', id (the short link's, else null), machine (the profile's name),
+    // program (the bundled program the moment is of, else null) }, or null. Set by openSnapshot({ link }); cleared
+    // (with an 'arrival' event) by the person's first input to the machine (a key, typed or pasted text, a POKE, a
+    // load: touch), another snapshot, a switch, a Reset or a power cycle (leaveSharedMoment). The page's arrival card
+    // shows while it is set, and screen-aware prompts can read it.
+    this.arrivedFromLink = null;
     // The stored-ROM CRCs that did not start BASIC, per machine (Map<Machine, Set<crcs>>): a fresh try is a power-on
     // or a switch, which forgets them (poweredOn clears every machine's; adopt forgets the machine left behind), and
     // another set of ROMs is another key (storedRomsWaiting).
@@ -618,8 +646,11 @@ export class Session {
     this.welcome = null;            // the machine running the welcome program
     this.typingRefusedFor = null;   // the Debugger stop the person was last told typing is refused for (refuseTyping)
     this.welcomeFrom = 0;           // its frameCount when the welcome program was loaded (welcomeOnScreen)
+    this.welcomeDrawn = false;      // its menu has been seen on the screen since (welcomeOnScreen)
+    this.firstVisit = false;        // this page visit began as the browser's first (visit())
     this.welcomeGen = 0;            // bumped by every start: the FIRST start to land wins (a later one is dropped)
     this.menuWatch = null;          // a program that goes back to the welcome menu when left (watchForMenu)
+    this.programStart = null;       // { id, m, at }: the bundled program started on m, and the touch count it began at (untouchedBundledProgram)
     // What runs on the stub firmware and how to restart it, per machine (Reset; see `reset`). Per machine because
     // two can exist at once - the chat machine and the BASIC session beside it - and a load on one must not take
     // away the other's restart record (review probe B: the chat's died with a load on the BASIC session).
@@ -742,7 +773,10 @@ export class Session {
     return stored ? 'replaced' : 'removed';
   }
   on(fn) { this.listeners.add(fn); return () => this.listeners.delete(fn); }
-  emit(event, arg) { for (const fn of this.listeners) fn(event, arg); }
+  emit(event, arg) {
+    if (event === 'launch') this.lastRunOn = null;   // (every load, reset, switch, menu start and snapshot is a launch: lastRunOnScreen)
+    for (const fn of this.listeners) fn(event, arg);
+  }
 
   // ---------------- the debugger ----------------
   // One debugger per machine, made on first use and thrown away with the machine. A front end talks to
@@ -833,6 +867,7 @@ export class Session {
   // won was an accident).
   switchMachine(id, config, { menu = true, offer = null } = {}) {
     this.writeWatch.guard('switchMachine');
+    this.leaveSharedMoment();
     if (!Object.hasOwn(profiles, id)) id = 'dragon64';
     let m;
     try {
@@ -1065,6 +1100,12 @@ export class Session {
   // (store 'drivewire' or 'disk').
   // the machines it boots on (the NTSC CoCo 3: the release's images are 60 Hz builds, but for the _50hz floppies)
   static NITROS9_MACHINES = NITROS9_MACHINES;
+  // what the short-link server takes (shortlink/worker.js MAX_SEALED, PNG_COLOURS and MAX_PNG; a test keeps them equal)
+  static SHORT_SEALED_MAX = 64 * 1024;
+  // a snapshot's `program` (the bundled program it is a moment of: momentProgram) -> that id if it is one this page
+  // has (a GAMES.list key or 'liza'), else null: whatever a file or a link says, only a known program is started
+  static momentProgramId(id) { return typeof id === 'string' && (id === 'liza' || Object.hasOwn(GAMES.list, id)) ? id : null; }
+  static SHORT_PNG = Object.freeze({ colours: 16, bytes: 32 * 1024 });
   // which of our loaders is the ROM of machine m: 'drivewire', 'floppy' or null
   nitros9Loader(m = this.shownMachine) { return m && m.roms ? nitros9LoaderKind(m.roms.basic) : null; }
   nitros9On(m = this.shownMachine) { return !!this.nitros9Loader(m); }
@@ -1339,9 +1380,11 @@ export class Session {
   // the physical switch is the person's machine's (powerCycle defaults to personMachine), because switching off would
   // wipe the chat firmware rather than restart it.
   reset() {
+    this.leaveSharedMoment();
     this.stopClaudeFor('you reset the machine');
     this.launch();
     const m = this.shownMachine, again = this.stubRun && this.stubRun.m === m && m.useStub ? this.stubRun : null;
+    this.forgetOpenedProgram(m);
     this.endWelcome(m);
     this.keys.clear();
     this.drives.fitRom(m);
@@ -1362,6 +1405,8 @@ export class Session {
   // (it always passes the chat machine), never from this default.
   powerCycle({ menu = true, reason = 'the machine restarted', on = null } = {}) {
     const m = on || this.personMachine;
+    if (m === this.personMachine) this.leaveSharedMoment();
+    this.forgetOpenedProgram(m);
     // A load on the BASIC session while the chat is open passes that session, and this stops Claude only when it is
     // the machine Claude acts on (stopClaudeFor's own rule: chatTarget()). In the full-screen chat that IS the BASIC
     // session, so a load there stops Claude (as before); in the side panel the conversation acts on the machine it
@@ -1413,6 +1458,7 @@ export class Session {
   inject(segments, exec, on = null) {
     const m = on || this.shownMachine;
     this.cancelLoadTyping(m);
+    this.forgetOpenedProgram(m);
     this.stopClaudeFor('you started a program', m);   // (as loadMedia: a program run with ROMs is not a reset)
     m.injectAndRun(segments, exec);
     // (keyed by the machine it ran on, so Reset restarts it only on that machine: Session.reset checks stubRun.m)
@@ -1425,6 +1471,22 @@ export class Session {
     this.shownMachine.injectAndRun(r.segments, r.exec);
     this.setStubRun(this.shownMachine, r);
     if (r.watch) this.watchForMenu(r.watch, r.m);
+  }
+  // The person leaves a shared moment they arrived on (openSnapshot's sharedMoment, and arrivedFromLink): a Reset, a
+  // power cycle (Start over) or a machine switch. 'arrival' tells the page to show its no-ROM card and pill again, and
+  // to take its arrival card down.
+  leaveSharedMoment() {
+    if (!this.sharedMoment && !this.arrivedFromLink) return;
+    this.sharedMoment = false;
+    this.arrivedFromLink = null;
+    this.emit('arrival');
+  }
+  // the person acted on the machine they arrived on (touch): no longer "just arrived" (the shared moment itself, which
+  // only a Reset, power cycle or switch leaves, stays)
+  settleArrival(m) {
+    if (!this.arrivedFromLink || m !== this.personMachine) return;
+    this.arrivedFromLink = null;
+    this.emit('arrival');
   }
   // after a hard reset: the firmware may have changed (ROMs or the stub) and the SAM rate is back to slow
   poweredOn() {
@@ -1688,6 +1750,14 @@ export class Session {
     // NitrOS-9 running: the link boots it from the recipient's own image (never ours, never its name)
     return buildUrl(base, { machine: m.id, config, nitros9: this.nitros9On(m), ...extra });
   }
+  // A program's page (js/program-pages.js: cloadm.dev/<id>/, with its own link preview and a Play button for its start
+  // link) -> its address, from `base` (the page's own address: the site's root, or /play/ under it); null when the
+  // program has no page
+  programPageUrl(id, base) {
+    if (!programPage(id)) return null;
+    const here = new URL('./', base);
+    return new URL(`${/\/play\/$/.test(here.pathname) ? '../' : ''}${id}/`, here).href;
+  }
   // The link a page shown inside another site offers in place of the chat ("Ask Claude ↗", js/ui/ask-popout.js): this
   // moment, as the Share screen's link carries it (snapshotLink), with app=claude, so it opens top-level in a new tab
   // with the chat. Never embed=1 (buildUrl writes only what it is given). A moment that cannot be carried (NitrOS-9
@@ -1699,7 +1769,7 @@ export class Session {
       try { file = await this.shareFile(); } catch (e) { if (!(e instanceof SessionError)) throw e; }
     }
     if (!file) return { href: this.shareUrl(base, { app: 'claude', nitros9: null }), carried: false };
-    return { href: `${this.shareUrl(base, { app: 'claude' }).split('#')[0]}#s=${toBase64Url(file.bytes)}`, carried: true };
+    return { href: `${this.shareUrl(base, { app: 'claude' }).split('#')[0]}#z=${toBase64Url(await encodeLongLink(file.moment.snap, file.moment.meta))}`, carried: true };
   }
 
   // "Copy bug report" (js/bugreport.js): the version, the machine on screen and its options, its ROMs by CRC only, the
@@ -1728,14 +1798,81 @@ export class Session {
   // Opening one: readSnapshot (the file), snapshotSwitch (does the machine in use have to change? ask first),
   // openSnapshot (switches if needed, sets the same ROMs from this browser's or the stub, restores).
 
-  // the moment as a link (Share): this machine's link with the snapshot in the fragment (#s=, base64url of the
-  // .cloadm file, so it never reaches a server). Opening it: readSnapshotLink, then the usual snapshot flow.
-  // The snapshot is the shared one (shareFile): no byte of a ROM or cartridge image, only references to them.
-  // file: a shareFile already made for this moment (the Share screen offers both), or made here
+  // the long link (Share): this machine's link with the moment in the fragment (#z=, base64url of
+  // js/media/snapshot.js encodeLongLink, so it never reaches a server). Opening it: readSnapshotLink,
+  // then the usual snapshot flow. The snapshot is the shared one (shareFile): no byte of a ROM or cartridge image, only
+  // references to them. file: a shareFile already made for this moment (the Share screen offers both), or made here
   async snapshotLink(base, file = null) {
     const f = file || await this.shareFile();
-    return `${this.shareUrl(base).split('#')[0]}#s=${toBase64Url(f.bytes)}`;
+    return `${this.shareUrl(base).split('#')[0]}#z=${toBase64Url(await encodeLongLink(f.moment.snap, f.moment.meta))}`;
   }
+  // ---------------- short links ----------------
+  // Why the moment on screen can't be put in a long link, or null when it can (the Share screen shows the reason beside
+  // the switched-off choice): NitrOS-9's memory is the person's own NitrOS-9 (shareFile).
+  longLinkRefusal(m = this.shownMachine) {
+    return this.nitros9On(m) ? 'Not for a NitrOS-9 moment: its memory holds your own NitrOS-9. The link below boots NitrOS-9 from their image instead.' : null;
+  }
+  // Why the moment on screen can't have a short link, or null when it can. A short link is stored on a server, so it is
+  // only for moments with no code from anyone's ROM or cartridge in them at all (romCodeIn null): a long link of such a
+  // moment carries references, not the code, but a short link is offered only where there is nothing to refer to.
+  shortLinkRefusal(m = this.shownMachine) {
+    const n9 = this.longLinkRefusal(m);
+    if (n9) return n9;
+    const why = this.romCodeIn(m);
+    if (why === 'roms') return 'Not for a moment on your own ROMs: short links are only for machines running without ROMs. The long link works (whoever opens it adds their own ROMs).';
+    if (why === 'cartridge') return 'Not with a cartridge plugged in: short links are only for machines running without ROMs or cartridges. The long link works.';
+    return null;
+  }
+  // The share card (js/video/bezel.js shareCardPicture): the machine's picture at true pixels in the CRT frame, the
+  // program's or machine's name beside it and "cloadm.dev" on its lip, 1200 x 630. One renderer for both of its uses:
+  //  - sharePicture: the Share screen's "Save picture", every colour the frame's own -> PNG bytes;
+  //  - previewPicture: the preview a short link may carry, an indexed PNG of at most SHORT_PNG.colours colours and
+  //    SHORT_PNG.bytes -> bytes, or null when this picture can't be one (its colours don't all fit, or it is too large).
+  // name: what the card says beside the monitor (shareCardName)
+  shareCardName(base, m = this.shownMachine) {
+    const p = base ? this.bundledProgram(base, m) : null;
+    return p ? p.name : m.profile.name.replace(/^Tandy /, '');
+  }
+  async sharePicture(name, m = this.shownMachine) {
+    return encodeIndexedPng(shareCardPicture(m.render(), { name: name || this.shareCardName(null, m) }));
+  }
+  async previewPicture(m = this.shownMachine, name = null) {
+    const card = shareCardPicture(m.render(), { name: name || this.shareCardName(null, m), colours: Session.SHORT_PNG.colours });
+    if (!card.exact) return null;
+    const png = await encodeIndexedPng(card);
+    return png.length <= Session.SHORT_PNG.bytes ? png : null;
+  }
+  // The moment on screen as a short link (Share): sealed in this browser (js/media/link-crypto.js), stored by `store`
+  // (js/host/link-store.js), its key only in the link's fragment; name: the share card's (shareCardName) -> { url, id, deleteToken, picture: whether the
+  // preview went with it, pictureNote: why not when it was asked for and couldn't }. SessionError when this moment
+  // can't have one (shortLinkRefusal), is too large, or the store refused (its message).
+  async shortLink(store, { preview = true, now = new Date(), file = null, name = null } = {}) {
+    const m = this.shownMachine, why = this.shortLinkRefusal(m);
+    if (why) throw new SessionError(why);
+    const f = file || await this.shareFile(now);
+    const { key, sealed } = await sealMoment(f.bytes);
+    if (sealed.length > Session.SHORT_SEALED_MAX) throw new SessionError(`This moment is too large for a short link (${Math.ceil(sealed.length / 1024)} KB; the most is ${Session.SHORT_SEALED_MAX / 1024} KB). The long link works.`);
+    const png = preview ? await this.previewPicture(m, name) : null;
+    let r;
+    try { r = await store.create({ machine: m.id, sealed, png }); }
+    catch (e) { throw new SessionError(e.message); }
+    return { url: store.url(r.id, key), id: r.id, deleteToken: r.deleteToken, picture: !!png,
+      pictureNote: preview && !png ? 'This screen has too many colours for a preview picture, so the link has none.' : null };
+  }
+  // a URL's fragment ('#l=<id>.<key>', where a short link's arrival page sends it) -> { snap, id }, null when it has
+  // none; SessionError saying why it can't open (removed, damaged, not reachable)
+  async readShortLink(hash, store) {
+    const m = /^#?l=([A-Za-z0-9_-]{8})\.([A-Za-z0-9_-]+)$/.exec(hash || '');
+    if (!m) {
+      if (/^#?l=/.test(hash || '')) throw new SessionError('This short link is damaged: copy the whole link, with the part after #.');
+      return null;
+    }
+    let sealed, bytes;
+    try { sealed = await store.load(m[1]); } catch (e) { throw new SessionError(e.message); }
+    try { bytes = await openMoment(sealed, m[2]); } catch (e) { throw new SessionError(`This short link can't be opened: ${e.message}`); }
+    return { snap: await this.readSnapshot(bytes), id: m[1] };
+  }
+
   // The moment as a file to give to someone (the Share screen's link and snapshot file): the snapshot with its ROM
   // code taken out (js/media/romrefs.js). The machine's ROMs, a cartridge's image and a disk controller's DOS ROM
   // are named by CRC, and every copy of their code in memory becomes a reference; whoever opens it needs the same
@@ -1749,8 +1886,10 @@ export class Session {
     let snap;
     try { snap = stripRoms(m.snapshot(), own); }
     catch (e) { throw new SessionError(`This snapshot can't be shared: ${e.message}. Share the picture or a clip instead.`); }
-    const bytes = await encodeSnapshot(snap, { name: m.profile.name, taken: now.toISOString() });
-    return { name: `${m.profile.name.replace(/[^A-Za-z0-9]+/g, '')}-${stamp(now)}${SNAPSHOT_EXT}`, bytes, needs: snap.share.images, dropped: snap.share.dropped };
+    const meta = { name: m.profile.name, taken: now.toISOString(), program: this.momentProgram(m) };
+    const bytes = await encodeSnapshot(snap, meta);
+    // moment: what the file holds, for snapshotLink to write the same moment in the link's form
+    return { name: `${m.profile.name.replace(/[^A-Za-z0-9]+/g, '')}-${stamp(now)}${SNAPSHOT_EXT}`, bytes, needs: snap.share.images, dropped: snap.share.dropped, moment: { snap, meta } };
   }
   // Can ROM code be in the machine's memory? 'roms' (the user's own ROMs are loaded), 'cartridge' (a cartridge is
   // plugged in), 'nitros9' (NitrOS-9 from the user's own image runs: bootNitros9) or null (the built-in stub, no
@@ -1767,14 +1906,16 @@ export class Session {
     if (m.cartPort) return 'cartridge';
     return null;
   }
-  // a URL's fragment ('#s=...') -> the snapshot, null when it has none; SessionError when it is damaged
+  // a URL's fragment -> the snapshot, null when it has none; SessionError when it is damaged. '#z=' is the link form
+  // snapshotLink writes (js/media/snapshot.js decodeLongLink; its picture is drawn again on the next frame).
   async readSnapshotLink(hash) {
-    const m = /^#?s=(.*)$/.exec(hash || '');
+    const m = /^#?z=(.*)$/.exec(hash || '');
     if (!m) return null;
     const damaged = new SessionError('This link\'s snapshot is damaged: it was cut short or changed on the way.');
     let bytes;
     try { bytes = fromBase64Url(m[1]); } catch (e) { throw damaged; }
-    try { return await this.readSnapshot(bytes); } catch (e) { throw e instanceof SessionError && /newer CLOADM/.test(e.message) ? e : damaged; }
+    try { return await decodeLongLink(bytes); }
+    catch (e) { throw e instanceof SnapshotError && /newer CLOADM/.test(e.message) ? new SessionError(e.message) : damaged; }
   }
   // the moment as a file -> { name, bytes }
   // The moment as a file the person keeps: their machine (personMachine), so with the chat full screen it is the
@@ -1784,7 +1925,7 @@ export class Session {
   async snapshotFile(now = new Date()) {
     this.writeWatch.guard('snapshotFile');
     const m = this.personMachine;
-    const bytes = await encodeSnapshot(m.snapshot(), { name: m.profile.name, taken: now.toISOString() });
+    const bytes = await encodeSnapshot(m.snapshot(), { name: m.profile.name, taken: now.toISOString(), program: this.momentProgram(m) });
     const saved = m !== this.shownMachine ? 'your BASIC session' : null;
     return { name: `${m.profile.name.replace(/[^A-Za-z0-9]+/g, '')}-${stamp(now)}${SNAPSHOT_EXT}`, bytes, saved };
   }
@@ -1839,9 +1980,14 @@ export class Session {
   // Machine.restore sets), so a program that took the screen -- a game, anything that never printed OK -- is not
   // reported as a boot failure 5 s after it comes back. A later Reset or power-on clears the flag, so the
   // watchdog is armed again for it.
-  openSnapshot(snap) {
+  // shared: the moment came from a share link (#z=, js/ui/snapshot-panel.js). One that runs without ROMs is the
+  // person's arrival on someone else's moment (sharedMoment): the page holds back its no-ROM card and "No BASIC" pill
+  // until they leave it (leaveSharedMoment).
+  // link: { kind: 'long' | 'short', id } when the moment came from a link (#z= or #l=): arrivedFromLink, the page's
+  // arrival card, until the person acts. Any other snapshot opened ends an earlier arrival.
+  openSnapshot(snap, { shared = false, link = null } = {}) {
     this.writeWatch.guard('openSnapshot');
-    const roms = this.snapshotRoms(snap), p = profiles[snap.machine];
+    const roms = this.snapshotRoms(snap), p = profiles[snap.machine], program = Session.momentProgramId(snap.program);
     // a shared one: its ROM code rebuilt from this browser's own images (snapshotRoms checked they are all here)
     snap = restoreRoms(snap, (crc) => this.imageByCrc(crc, roms));
     const switching = !!this.snapshotSwitch(snap);
@@ -1849,6 +1995,13 @@ export class Session {
     try { m = restoreSnapshot(snap, Object.fromEntries(p.roms.map((x) => [x.id, roms[x.id] || null]))); }
     catch (e) { throw new SessionError(`This snapshot can't be opened: ${e.message}.`); }
     this.adopt(m);
+    // (set before the events below, so the page's first look at this machine already knows)
+    this.sharedMoment = shared && !Object.keys(roms).length;
+    if (program) this.#openedProgram.set(m, program);
+    const was = this.arrivedFromLink;
+    this.arrivedFromLink = link ? { kind: link.kind === 'short' ? 'short' : 'long', id: link.kind === 'short' ? link.id || null : null,
+      machine: m.profile.name, program } : null;
+    if (was || this.arrivedFromLink) this.emit('arrival');
     for (const p of this.profiles) p.clear();      // a profile counts what ran from the moment opened
     if (switching) this.store.set(`config.${m.id}`, JSON.stringify(snap.config));
     if (Object.keys(roms).length) { if (!this.nitros9On(m)) this.stubChosen.delete(m.id); } else this.stubChosen.add(m.id);
@@ -1924,10 +2077,12 @@ export class Session {
   visit() {
     const first = this.store.get('visited') === null;
     this.store.set('visited', '1');
+    this.firstVisit = first;
     return { first, machineChosen: this.store.get('machineChosen') !== null, recent: this.library.recentMedia() };
   }
   // What ran last (the returning visit's "Last time" and the menu's "CARRY ON WITH"), kept across visits:
-  // { kind: 'liza' | 'demo' | 'game' | 'recent', name } or null (a game's name is its GAMES.list name). LIZA, the
+  // { kind: 'liza' | 'demo' | 'game' | 'recent', name } or null (a game's name is its GAMES.list name; a file also
+  // has `crc`, the hash of its bytes, which with the name tells it from another file of the same name). LIZA, the
   // demo and the games aren't in the recent list (they are ours, not the user's files), so they are remembered
   // here; a file is the recent list's first item.
   get lastRun() {
@@ -1936,14 +2091,34 @@ export class Session {
   }
   // emits 'lastrun': a program records itself AFTER its load has emitted 'loaded', so a view of lastRun (the Media
   // tab's "Last time") follows this event, not 'loaded', and names what Run again runs
-  setLastRun(kind, name) { this.store.set('lastRun', JSON.stringify({ kind, name })); this.emit('lastrun'); }
+  // running: false for a load that started nothing (data with no execution address): it is what ran last, but nothing
+  // on screen runs it, so it is not "on screen now" (lastRunOnScreen)
+  // crc: a file's content hash (the recent list's own), the identity a row of the list is told by besides its name
+  setLastRun(kind, name, { running = true, crc = null } = {}) {
+    this.store.set('lastRun', JSON.stringify(crc ? { kind, name, crc } : { kind, name }));
+    this.lastRunOn = running ? this.personMachine : null;
+    this.emit('lastrun');
+  }
+  // Is this recent-list entry the file lastRun names: the same name (the store's own case rule) and the same bytes.
+  // Two files of one name and different content are two entries, and only the one that ran is it.
+  isLastRun(entry) {
+    const last = this.lastRun;
+    return !!last && last.kind === 'recent' && this.library.sameName(entry.name, last.name) && String(entry.crc).toUpperCase() === last.crc;
+  }
+  // Is what lastRun names the program on screen now: recorded as it started on the machine in use, and nothing since
+  // took the machine from it (a load, a launch, a reset, a switch, the welcome menu, a snapshot), not stopped by the
+  // Debugger. The page adds its own Pause. Its panels then show it as running, not as something to Run again.
+  get lastRunOnScreen() {
+    const m = this.lastRunOn;
+    return !!m && m === this.personMachine && m === this.shownMachine && !this.paused;
+  }
   // What the welcome menu's carry-on line offers on the machine in use: what ran last, if it runs here. A file only
   // on the machine it was loaded on (and only while its bytes are kept), the colour demo and the games only on a
   // 6809-family CPU, LIZA on every machine (its 6809 or 6803 build). null: no carry-on line.
   get carryOn() {
     const last = this.lastRun, m = this.shownMachine;
     if (!last || !m) return null;
-    if (last.kind === 'recent') { const r = this.library.recentMedia()[0]; return r && r.stored && this.library.sameName(r.name, last.name) && r.machine === m.id ? last : null; }
+    if (last.kind === 'recent') { const r = this.library.recentMedia()[0]; return r && r.stored && this.isLastRun(r) && r.machine === m.id ? last : null; }
     if (last.kind === 'demo') return cpuFamily(m.config.cpu) === '6809' ? last : null;
     if (last.kind === 'game') return cpuFamily(m.config.cpu) === '6809' && gameKey(last.name) ? last : null;
     return last;
@@ -1956,8 +2131,24 @@ export class Session {
   // The greeting the menu takes when it is offered by a switch: a machine question ('none') is asked on a FIRST
   // visit only, so it greets a first-time visitor ('first', the title screen); every other offer is a returning
   // visitor's ('back') -- the page used to decide this itself, and once got it wrong. One place decides it now.
-  static greetingFor(offer) { return offer === 'none' ? 'first' : 'back'; }
+  // A visit that began as the browser's first stays "first" until something has run in it: with nothing to come back
+  // to, "WELCOME BACK" would greet a visitor who has only just arrived (a machine picked in the header menu).
+  greetingFor(offer) { return offer === 'none' || (this.firstVisit && !this.lastRun) ? 'first' : 'back'; }
   get hasAnyRoms() { return this.roms.sockets().some((s) => profiles[s.owner]); }
+
+  // This machine has every ROM its BASIC needs, in its sockets, and yet runs the stub by choice (the page's "Run
+  // without ROMs", or a start on the stub): nothing is missing, so nothing is "added". The one state where the page
+  // must offer the way BACK rather than ask again (the welcome menu's option 3, the "no ROMs" card, the ROM page).
+  romsReadyButOff(m = this.personMachine) { return !!m && m.useStub && this.machineRoms(m.id).bootable; }
+  // The machines a ROM drop has really set up: every required socket holds a VERIFIED dump, not merely a filled one.
+  // isBootable() answers "it could try to boot this" (a named, wrong-sized-for-its-CRC file is still a file), which
+  // is right for the machine's own attempt but wrong for telling a person a machine is "ready to run BASIC".
+  machinesVerified() {
+    return Object.keys(profiles).filter((id) => {
+      const { sockets } = this.machineRoms(id);
+      return profiles[id].kind !== 'cartridge' && sockets.every((s) => !s.required || s.status === 'verified');
+    });
+  }
 
   // ---------------- programs and media ----------------
   // ---------------- the Speech/Sound Pak ----------------
@@ -2112,9 +2303,11 @@ export class Session {
   // data; remember: false keeps it off the recent list.
   // run: false types a BASIC listing without the RUN after it (the MCP server's load; the page always runs it)
   load(name, bytes, { askAddresses = null, remember = true, run = true } = {}) {
+    this.loadStarted = true;
     this.lastLoaded = { name, bytes };   // (bugReport: its name and SHA-256; set first, so a file that fails to load is named too)
+    this.touch(this.shownMachine);   // a load makes a bundled program a moment (untouchedBundledProgram)
     const msg = this.loadMedia(name, bytes, askAddresses, { run });
-    if (remember) { this.library.rememberMedia(name, bytes); this.setLastRun('recent', name); }
+    if (remember) { this.library.rememberMedia(name, bytes); this.setLastRun('recent', name, { running: this.loadStarted, crc: crc32(bytes) }); }
     this.emit('loaded');
     return msg;
   }
@@ -2179,6 +2372,7 @@ export class Session {
     const takeOver = () => { this.cancelLoadTyping(m); this.stopClaudeFor('you loaded a program', m); };
     this.endWelcome(m);     // this machine's welcome and watch: the chat's start of its own firmware ends neither
     this.setStubRun(m);     // the load starts something on THIS machine; the other machine's record is untouched
+    this.forgetOpenedProgram(m);   // (an opened moment's program: something else runs now)
     const media = detectMedia(name, bytes);
     if (media.kind === 'disk') {
       throw new SessionError(`${name}: ${media.format}${media.family ? ` for a ${FAMILY_NAMES[media.family]}` : ''}. Disk images go in a disk drive, not into memory.`);
@@ -2199,7 +2393,9 @@ export class Session {
         }
         go();
         this.inject(d.segments, d.exec, m);
-        return where(`${name}: ${d.format} ${describeSegments(d.segments, d.exec)}`);
+        if (d.exec == null) this.loadStarted = false;   // (data only: nothing runs)
+        // what happened first, the format and the addresses after it (the page shows the rest under Details)
+        return where(`${name} loaded${d.exec != null ? ' and started' : ''}. ${d.format} ${describeSegments(d.segments, d.exec)}`);
 
       case 'wav':
         throw new SessionError(d.error ? `${name}: ${d.error}` : `${name}: no tape blocks found in this recording${d.wav && d.wav.badBlocks ? ` (${d.wav.badBlocks} damaged)` : ''}`);
@@ -2258,6 +2454,7 @@ export class Session {
           const seg = { addr: first.load, data: first.data };
           go();
           this.inject([seg], first.exec, m);
+          if (first.exec == null) this.loadStarted = false;
           const range = `${hex(first.load)}–${hex((first.load + first.data.length - 1) & 0xFFFF)}`;
           msg = first.exec != null ? `${name} loaded (${range}) and started at ${hex(first.exec)}.` : `${name} loaded (${range}).`;
         }
@@ -2292,6 +2489,7 @@ export class Session {
         go();
         const seg = { addr: a.load, data: bytes };
         this.inject([seg], a.exec, m);
+        if (a.exec == null) this.loadStarted = false;
         return where(`${name}: raw ${describeSegments([seg], a.exec)}`);
       }
     }
@@ -2347,6 +2545,14 @@ export class Session {
   // What is this media, and is it for the machine in use? -> detectMedia's result plus `mismatch`:
   // { family, suggest: machine id to open it on, suggestName } when it is for another family (or needs a
   // cartridge port this machine doesn't have).
+  // A file that is none of the kinds CLOADM opens (OPENS_TEXT): { text, details } for the page to say, or null when it
+  // opens (or may be a raw memory dump: loadMedia asks where it goes)
+  unopenable(name, bytes) {
+    if (detectMedia(name, bytes).kind !== 'raw') return null;
+    const ext = (name.match(/\.([^./]+)$/) || [])[1]?.toLowerCase() || '';
+    if (RAW_EXTENSIONS.includes(ext) || OPENS_EXTENSIONS.includes(ext)) return null;
+    return { text: `${name} isn't a file CLOADM opens.`, details: OPENS_TEXT };
+  }
   inspect(name, bytes) {
     const media = detectMedia(name, bytes), m = this.shownMachine;
     let family = media.family;
@@ -2374,6 +2580,7 @@ export class Session {
   // (also while an acting call waits at its gate - a card, an INCLUDE read - before it acts: runTool's re-check then
   // holds the call until Resume)
   personInput(m = this.shownMachine) {
+    this.touch(m);
     if (!this.chat || !(this.claudeBusyActing || this.claudeCall) || this.consent.paused || m !== this.chatTarget().machine) return false;
     return this.pauseClaude();
   }
@@ -2392,10 +2599,10 @@ export class Session {
   // On a ROM-less machine nothing reads it: the stub does not scan the matrix at all - it takes key codes from its
   // own queue (Machine.stubKeys) through POLCAT, and its line editor ignores every control key. The job fails
   // not-consumed at once, so the tool says so instead of claiming a press.
-  pressBreak(m = this.shownMachine) { return m.typist.holdPaced('BREAK'); }
+  pressBreak(m = this.shownMachine) { this.touch(m); return m.typist.holdPaced('BREAK'); }
   // Claude's typing: paced by what the machine consumes (Typist.typePaced), so a busy BASIC drops nothing.
   // Returns the job (job.promise settles when it ends); the caller checks typableText first.
-  typeTextPaced(text, m = this.shownMachine) { return m.typist.typePaced(String(text).replace(/\r\n?/g, '\n')); }
+  typeTextPaced(text, m = this.shownMachine) { this.touch(m); return m.typist.typePaced(String(text).replace(/\r\n?/g, '\n')); }
   // the characters of text this machine cannot type: no key for it on this keyboard (with BASIC), or not 7-bit
   // ASCII (the stub's key codes). [] when all of it can be typed.
   untypable(text, m = this.shownMachine) {
@@ -2429,6 +2636,7 @@ export class Session {
   // all. Machine.poke itself may write the cell beneath (the CoCo 3's loaders patch vectors under the ROM), but a
   // tool that says "not-ram" must not also have changed memory the CPU cannot see and a later map switch would reveal.
   pokeBytes(addr, bytes, m = this.shownMachine) {
+    if (bytes.length) this.touch(m);
     let landed = 0;
     [...bytes].forEach((b, i) => {
       const a = (addr + i) & 0xFFFF;
@@ -2962,6 +3170,7 @@ export class Session {
     const msg = this.load(this.lizaFile, bytes, { remember: false });
     this.setLastRun('liza', 'LIZA');
     this.watchForMenu('liza', this.personMachine);
+    this.markProgramStart('liza', this.personMachine);
     this.emit('program', 'liza');
     return msg;
   }
@@ -2995,6 +3204,7 @@ export class Session {
     this.setLastRun('game', GAMES.list[name].name);
     this.watchForMenu('game', m);
     if (this.menuWatch) this.menuWatch.game = name;
+    this.markProgramStart(name, m);
     this.emit('program', name);   // (after the watch: gameRunning and programControls hold for the listeners)
     return msg;
   }
@@ -3067,6 +3277,7 @@ export class Session {
   insertTape(name, bytes) {
     const m = this.personMachine, d = formats.identify(name, bytes);
     if (d.kind === 'wav') throw new SessionError(d.error ? `${name}: ${d.error}` : `${name}: no tape blocks found in this recording`);
+    this.touch(m);
     m.deck.insert(new Tape(d.kind === 'cas' ? d.bytes : bytes, m.tickHz, name, m.profile.tape));
     this.emit('tape');
     // with no BASIC running (the stub, or BASIC has not printed OK yet) there is nothing to type CLOAD into: the tape
@@ -3190,7 +3401,10 @@ export class Session {
     const { bytes } = t, fast = this.fastCas;
     this.powerCycle({ on: m });      // the person's machine (it was this.shownMachine: with the chat on screen, the chat's)
     this.fastCas = true;
-    try { return this.load(name, bytes, { remember: false }); } finally { this.fastCas = fast; }
+    // remembered: this is the person's own tape, loaded at their click (Load it now / Skip the tape), so it belongs in
+    // "Recent on this machine" like any file they opened. It was remember: false -- the flag LIZA and the games use,
+    // which is for the programs that are OURS, not theirs -- so a tape the person supplied never reached the list.
+    try { return this.load(name, bytes); } finally { this.fastCas = fast; }
   }
 
   // ---------------- the welcome program ----------------
@@ -3234,6 +3448,10 @@ export class Session {
     if (rec) rec.welcome = { bytes, greeting, carryOn };
     this.menuWatch = null;
     m.poke(w.greet, g);
+    // Option 3 says "USE YOUR ROMS FOR BASIC" when this machine HAS its required ROMs in the sockets and runs the stub
+    // by choice, because then there is nothing to add: the page's "Run without ROMs" made that state, and the person
+    // needs the way back, not the same request again.
+    m.poke(w.romsw, this.romsReadyButOff(m) ? 1 : 0);
     let carry = carryOn ? `CARRY ON WITH ${carryOn}`.toUpperCase().replace(/[^ -_]/g, '?') : '';
     if (carry.length > w.carryMax) {   // cut at a word if there is one past "CARRY ON WITH", else at the edge
       const cut = carry.lastIndexOf(' ', w.carryMax);
@@ -3243,6 +3461,7 @@ export class Session {
     this.welcome = m;
     this.welcomeBuild = w;
     this.welcomeFrom = m.frameCount;   // (welcomeOnScreen: the menu is drawn once a frame has run after this one)
+    this.welcomeDrawn = false;
 
     this.emit('welcome');   // (the page's parts that depend on whether the welcome program runs: the quick-save slots)
     this.welcomeQuiet = WELCOME_QUIET.has(why) ? { m, at: m.frameCount } : null;
@@ -3265,11 +3484,61 @@ export class Session {
   // of its own (the page's Pause button) adds it. Cheap: three comparisons, read once per animation frame.
   get welcomeOnScreen() {
     const m = this.welcome;
-    return !!m && m === this.personMachine && m === this.shownMachine && !this.paused && m.frameCount > this.welcomeFrom;
+    if (!m || m !== this.personMachine || m !== this.shownMachine || this.paused || m.frameCount <= this.welcomeFrom) return false;
+    // a frame having run is not the menu being there: the program sets the screen up first (the CoCo 3 takes a few
+    // dozen frames, and until then the screen shows what was there before): "on screen" once its prompt is drawn;
+    // read until then, a latch after
+    return this.welcomeDrawn || (this.welcomeDrawn = this.screenText(m).some((row) => row.includes(WELCOME_PROMPT)));
   }
   // one of the bundled games (2048, Minesweeper) is what runs on this machine now: from runGame until it is left
   // (BREAK), or a load, a reset or a switch ends the watch.
   get gameRunning() { const w = this.menuWatch; return !!w && w.kind === 'game' && w.m === this.shownMachine; }
+  // ---------------- an untouched bundled program (the Share screen's "one link") ----------------
+  // A person's input to a machine, counted: every way their hand or a tool reaches it (a key, an on-screen key, a
+  // joystick, a paste, a typed line, a POKE, a load, a disk or a tape going in). A program's OWN running - frames,
+  // its timers, LIZA's prompt drawing itself - goes nowhere near it. `touches`, and `touchedAt` when each machine's
+  // current program started; untouchedBundledProgram compares the two.
+  #touches = new WeakMap();
+  touches(m = this.shownMachine) { return (m && this.#touches.get(m)) || 0; }
+  // count one touch on m's program (called from the Session's own ways in; the page's keyboard and pads go through
+  // personInput, which calls this)
+  touch(m = this.shownMachine) { if (m) { this.#touches.set(m, this.touches(m) + 1); this.settleArrival(m); } return this.touches(m); }
+  // A bundled program started on m: remember the count it started at. Called by runGame and runLiza BEFORE their
+  // own setup pokes and emits ('program'), so those are not touches.
+  markProgramStart(id, m) { if (m) this.#touches.set(m, this.touches(m)); this.programStart = { id, m, at: m ? this.touches(m) : 0 }; return this.programStart; }
+  // The bundled program on screen now and its own page, whoever played it: { id, name, page }, or null (BASIC, a file,
+  // the welcome menu, the colour demo: it has no page). untouchedBundledProgram is this plus "and nobody touched it".
+  bundledProgram(base, m = this.shownMachine) {
+    const c = this.programControls;
+    if (!c || !m || m !== this.personMachine || m !== this.shownMachine) return null;
+    const name = (GAMES.list[c.id] || {}).name || (c.id === 'liza' ? 'LIZA' : null);
+    const page = name && this.programPageUrl(c.id, base);
+    return page ? { id: c.id, name, page } : null;
+  }
+  // The bundled program on screen now, untouched since it started, as the Share screen's primary link would offer it:
+  // bundledProgram, plus the touch count it began at (marks its own start, markProgramStart), or null. "Untouched" is
+  // The rule: any key or joystick input, a load, a typed line, or a memory change by a tool makes it a
+  // moment, and the primary shares the moment as played.
+  untouchedBundledProgram(base, m = this.shownMachine) {
+    const p = this.bundledProgram(base, m);
+    const start = this.programStart;
+    if (!p || !start || start.m !== m || start.id !== p.id || this.touches(m) !== start.at) return null;
+    return p;
+  }
+
+  // The bundled program machine m's moment is of (a GAMES.list key or 'liza'), or null: what a snapshot of m records
+  // as its `program` (shareFile, snapshotFile), so whoever opens it can start that program from the beginning
+  // (arrivedFromLink.program, the page's Start over). Touched or not: a played game is still that game.
+  // A moment opened from a snapshot (openSnapshot) has no watch of its own: the program its snapshot named is kept for
+  // that machine (#openedProgram) and answered until something else runs there (a load or a program started, a Reset,
+  // a power cycle), so a moment shared on again, Send it back, a slot or a file taken after arriving keeps it.
+  momentProgram(m = this.shownMachine) {
+    const w = this.menuWatch;
+    if (w && w.m === m) return w.kind === 'game' ? Session.momentProgramId(w.game) : w.kind === 'liza' ? 'liza' : null;
+    return (m && this.#openedProgram.get(m)) || null;
+  }
+  #openedProgram = new WeakMap();   // machine -> the program of the snapshot opened on it, until something else runs
+  forgetOpenedProgram(m) { if (m) this.#openedProgram.delete(m); }
   // the bundled program running now and what it is played with -> { id, input, extra, joystick }, or null (BASIC, a
   // file, the welcome menu: the keyboard). id: a GAMES.list key or 'liza' (the touch panel remembers its mode per
   // program and machine under it)

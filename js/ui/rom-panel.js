@@ -27,7 +27,16 @@ export function setupRomPanel(page) {
     // other page: a toast, "BASIC added · Dragon 64 ready" (with Details for what could not be used)
     const onRoms = currentView() === 'roms';
     const unrowed = report.errors.concat(report.skipped);
-    if (onRoms) { if (unrowed.length) page.status(unrowed.join(' · '), true); return; }
+    // On Your ROMs the note goes NEXT TO the socket list, not in a toast: a toast at the bottom of the window was
+    // the only place this said anything, and on a phone (and a 900px desktop) the list it is about can be scrolled
+    // past while the note sits below the fold. It stays until the next ROM change.
+    if (onRoms) {
+      const box = $('romProblems');
+      const lines = report.files.filter((f) => f.result === 'rejected').map((f) => f.message).concat(unrowed);
+      box.textContent = lines.join(' · ');
+      box.hidden = !lines.length;
+      return;
+    }
     const n = report.restored || loaded.length;
     const what = report.restored ? `${n} ${n === 1 ? 'ROM' : 'ROMs'} restored from your ROM pack` : n ? `${n === 1 ? 'ROM' : `${n} ROMs`} added` : '';
     // a disk ROM for the disk controller in use, which went in without one: it goes in at the next reset or power cycle

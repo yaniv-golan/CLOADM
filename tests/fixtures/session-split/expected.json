@@ -51,7 +51,7 @@
    true,
    true
   ],
-  "load": "loop.bin: DragonDOS binary $3000-$3002, exec $3000",
+  "load": "loop.bin loaded and started. DragonDOS binary $3000-$3002, exec $3000",
   "recent": [
    {
     "name": "loop.bin",

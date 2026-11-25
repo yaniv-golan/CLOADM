@@ -5,7 +5,7 @@
 // Run: node tests/prepush.test.js
 const fs = require('fs'), os = require('os'), path = require('path'), cp = require('child_process');
 const { withoutUnreleased, changelogOutsideUnreleased } = require('../tools/prepush.js');
-const { pwaFiles, withList, BEGIN, END } = require('../tools/pwa-files.js');
+const { pwaFiles, withList, BEGIN, END, DIRS } = require('../tools/pwa-files.js');
 
 let fail = 0;
 const check = (name, cond, detail = '') => { if (!cond) { fail++; console.log(`FAIL ${name} ${detail}`); } else console.log(`ok   ${name} ${detail}`); };
@@ -31,7 +31,7 @@ function fixture({ tag = true } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'prepush-'));
   dirs.push(dir);
   const w = (rel, text) => { fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true }); fs.writeFileSync(path.join(dir, rel), text); };
-  for (const d of ['css', 'fonts', 'img', 'icons', 'js', 'examples', 'embed', 'play', 'roms', 'help', 'credits', 'faq', 'about']) w(`${d}/x.txt`, d);
+  for (const d of DIRS) w(`${d}/x.txt`, d);
   w('sw.js', withList(`${BEGIN}\n${END}\n`, pwaFiles(dir)));
   w('CHANGELOG.md', CHANGELOG);
   w('skills/cloadm/SKILL.md', 'skill\n'); w('.agents/skills/cloadm/SKILL.md', 'skill\n');

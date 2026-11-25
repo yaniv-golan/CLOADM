@@ -8,6 +8,10 @@ Run it locally with any static server: `python3 -m http.server`, then open `http
 (`http://localhost:8000/` is the landing page). Opening the files straight from disk shows how instead: browsers
 don't load ES modules from `file://`.
 
+The tests, tools and browser check need Node 22.12 or later; CI runs Node 22. On a newer Node an unhandled rejection
+would end the process, so the browser check records one as a FAIL in the group that was running (with its reason) and
+goes on to the next group; the run still exits 1.
+
 ## The command line and the Node API
 
 `node cli/cloadm.js` runs any model headless from a script or CI: load a program, type, wait for text on the screen,
@@ -43,7 +47,7 @@ names contain one of the parts, and `node tools/browser-check.js --only <group>[
 | `cli/` (the command line and the MCP server) | `cli,mcp,game-guide,starter-game` | none |
 | `connector/` (the side-panel connector) | `connector,mcp,skill` | `connector` |
 | `examples/` (a program or game) | `pwa,starter-game,game-guide,welcome` and the example's own suite | `pwa` (and the group that offers it) |
-| `js/ui/`, `play/`, `css/`, `index.html` | `session,readme,screen-alternative` | the panel's groups and `semantics` (CI attempt 1 runs every group) |
+| `js/ui/`, `play/`, `css/`, `index.html` | `session,readme,screen-alternative` | the panel's groups, `semantics` and `menuWords` (a label's words, in every menu and sheet; CI attempt 1 runs every group) |
 | Docs (`README.md`, `docs/`) | `readme,romdocs,game-guide,dev-docs-headless,disk-read-example` | none |
 | `CHANGELOG.md` | `changelog` | none |
 | The test runner (`tests/all.js`, `suite-verdict.js`, `no-exit.js`) | `allsummary,allsignal,allsched,suite-shards,exitguard,exitcode` | none |
@@ -99,6 +103,14 @@ t.json`, then `node .github/scripts/browser-check-shards.js --merge t.json`. Eve
 the `browser-check-timings` artifact (merge it to rebalance: `--merge` keeps a smoothed average per group, weighted by the timings file's `"smoothing"`, so one noisy run cannot swing the plan), and `node tests/all.js --record-times` rewrites
 `tests/suite-times.json` from a passing whole run (`--timings FILE` writes one run's or one part's times elsewhere). A green run's `gates` summary (commit SHA, tree hash, each job's counts) is the
 definition of done; see AGENTS.md section 4.
+
+The browser shards install chromium's OS packages with `.github/scripts/install-browser-deps.sh`. The .deb files are
+cached per runner image (`playwright-debs-<playwright>-<ImageOS>-<ImageVersion>`). On a new image the step restores
+the newest cache of an earlier image of the same OS, and it saves the cache right after a good install. On a cache
+miss, each try asks a different apt mirror (azure.archive.ubuntu.com, the image's own, archive.ubuntu.com), each
+under its own time limit, so a stalled mirror costs one try rather than failing the shard. Playwright's
+`install-deps --dry-run` check still decides whether the step passes.
+
 Every action in the workflows is pinned to a commit SHA with its release tag beside it, and `pull_request_target` is
 never used; `node tests/workflows.test.js` holds both, and that an action used in more than one workflow carries the
 same SHA in each (so a bump cannot be applied to one file and not another). `.github/dependabot.yml` proposes the
@@ -146,6 +158,8 @@ Don't run anything else on the machine while the browser check runs: it is timin
 node tests/all.js            # every suite below in a worker pool (--jobs N to cap it; each regress shard is a slot; started longest first from tests/suite-times.json, which --record-times rewrites after a passing full run), one line each, the regression gate included (exit 0 = all passed, and every suite must also have printed its summary line: one that exits 0 half done is a failure); a failing run ends with FAILED: <the suites>; --only <part>[,...] runs a subset, marked as not the gate
 node tools/browser-check.js  # the real pages in Chromium: the landing page (desktop and phone) and /play/: every model, LIZA end to end, the file:// notice, Share and opening snapshots, the favicon and no missing file requested by any page; the feedback model (toasts on the page the user is on, cleared by the next action, Undo, Details, desktop and phone). Every "← Emulator", Esc and Back return to the emulator, from `/play/` and `?app=claude`, after a reload and from a page loaded on a view (`--only emulatorBack`). `--only feedback,library` runs just those groups (an unknown group is an error); see "What the gates' results mean" below
 node tools/capture-images.js # recapture img/*.png (site and README pictures) from the emulator, with no ROMs
+node tools/program-cards.js  # the program pages 2048/, liza/, minesweeper/ and their 1200x630 cards (img/card-*.png), on the built-in firmware; updates sw.js
+node tools/capture-og.js     # recapture img/og.png, the 1200x630 link preview (og:image), from the welcome menu with no ROMs, through js/video/bezel.js
 node tools/capture-gif.js    # recapture img/readme-demo.gif (the README's looping picture), with no ROMs; tools/gif.js is its encoder
 node tests/cpu.test.js       # 6809 instruction tests, scripted (all tests load js/emu.js via tests/load.js)
 node tests/opcodes.test.js   # 126 instructions table-driven from the MC6809 data sheet: result, flags and cycles
@@ -173,6 +187,13 @@ node tests/state-fdc.test.js # the same for floppy controllers mid-transfer, one
 node tests/state-carts.test.js  # the same for cartridges, a Multi-Pak and the Speech/Sound Pak mid-activity
 node tests/state-tape.test.js   # the same for the cassette deck: a recording in progress, a tape being played
 node tests/snapshot.test.js  # snapshot files: format and version, defective files, every model opened elsewhere, ROMs by CRC, switching, slots
+node tests/long-link.test.js # share links' #z= form: hand-built vectors, every model opened from a link, pre-launch #s= links refused, refusals
+node tests/program-pages.test.js # the program pages and cards are what tools/program-cards.js makes; PNG and card vectors
+node tests/short-link.test.js # short links on the page's side: sealing, the store over a mocked fetch, the key never sent, guardrails
+node tests/share-one-link.test.js # the Share screen's "one link": an untouched bundled program gives its page; every way in (a key, a typed line, a poke, an assembled program, a tape, a disk, BREAK) makes it a moment, its own running does not
+node tests/share-card.test.js     # the share card (Save picture, a short link's preview): 1200x630, every picture pixel frameToRGBA's, the name drawn glyph by glyph
+node tests/shortlink-worker.test.js # the short-link Worker in Node against an in-memory bucket: every check, limit, kill switch and count
+node tests/qr.test.js         # the QR encoder against ISO 18004's worked example and tables, every symbol read back
 node tests/press-break.test.js # BREAK delivery: our own firmware scans the matrix on dragon64, coco3 and mc10
 node tests/video.test.js     # scanline video: beam position, SAM display counter, mid-line mode splits
 node tests/serial.test.js    # serial line receiver and port devices, PIA output callback, printer paths, the Session's terminal
@@ -201,7 +222,7 @@ node tests/mcp.test.js       # the MCP server over stdio: both protocol eras, ev
 node tests/mcp-roms.test.js  # add_roms / remove_roms with stand-in ROMs: a local https server (a CA made for the run), every URL refusal (http, private/loopback/CGNAT/link-local, redirects, size, timeout, not a ROM), data, the media root, consent (elicitation), the store across restarts, --read-only, no ROM bytes in results
 node tests/rom-store.test.js  # the add_roms store: a URL kept as origin + path (no query or fragment), two processes adding at once lose no entry, a stale lock is broken
 node tests/connector.test.js # the side-panel connector (connector/): the Worker over HTTP, both views and their CSP, the folded emulator identical to the plain modules, the panel's tools equal to the server's, the 100k limit, the bridge's protocol in a vm
-node tools/connector-check.js # the connector's two views in Chromium, nested as Claude nests them under the spec's CSP, with a host stub: handshake first, list_changed, the tools, keys, storage, ROMs kept and refused to memory reads, no CORS, out of step, and the view's controls (Details, the screen's fit inline and in the side panel, ⋯'s side-panel item, the menus, sound, Claude's chip), and on a phone (the size it reports inline, the host's insets, the on-screen keys in their three modes and the choice remembered, a host that asks before each call) (the browser check's `connector` group)
+node tools/connector-check.js # the connector's two views in Chromium, nested as Claude nests them under the spec's CSP, with a host stub: handshake first, list_changed, the tools, keys, storage, ROMs kept and read by memory reads, no CORS, out of step, and the view's controls (Details, the screen's fit inline and in the side panel, ⋯'s side-panel item, the menus, sound, Claude's chip), and on a phone (the size it reports inline, the host's insets, the on-screen keys in their three modes and the choice remembered, a host that asks before each call) (the browser check's `connector` group)
 node connector/build.js      # build the connector's views into connector/worker/src/views.gen.js (wrangler deploy runs it; docs/deploy-connector.md)
 node tests/cli-agent.test.js # cli/cloadm.js beyond the basics: --describe, error codes, the debugger steps against the Session's debugger, DriveWire stalls, special keys, script quoting, --view
 node tests/cli-wav.test.js   # --wav: a known DAC pattern's levels and timing, determinism, snapshots mid-sound, the box filter of the level events
@@ -266,7 +287,7 @@ node tests/privacy-copy.test.js # the ROM privacy copy (README, docs, front, /ro
 node tests/cpu6309-offer.test.js   # the welcome menu is offered on every 6309 model ('menu', 'back'), and the file it fetches is the 6809 build (welcome.bin), as the 6809 gets
 node tests/cpu6309-session.test.js # the HD6309 runs the 6809 builds: welcome menu, LIZA, the demo and the chat firmware on every 6309 model, each ending in the same state as on the 6809
 node tests/returning.test.js # returning visits: greetings, carry-on (option 6; 5 on the 6803 build), what ran last, back to the menu from LIZA (BYE or BREAK) and the demo
-node tests/welcome-on-screen.test.js # "on screen now" (Session.welcomeOnScreen: the menu loaded on the machine shown, not stopped by the Debugger, and drawn) and 'lastrun', which "Last time" follows; the page side is the browser check's returning group (onScreenChecks)
+node tests/welcome-on-screen.test.js # "on screen now" (Session.welcomeOnScreen: the menu loaded on the machine shown, not stopped by the Debugger, and its prompt drawn; Session.lastRunOnScreen: the last-run program still the one on screen; Session.isLastRun: a recent entry is the last run by name and bytes) and 'lastrun', which "Last time" follows; the page side is the browser check's returning group (onScreenChecks)
 node tests/debugger-stop.test.js # a Debugger stop in the Session: Reset, a power cycle, a load and a switch release a Debugger stop (breakpoints kept, 'launch' and 'released' emitted), typing while stopped is refused once per stop, the status line says Stopped or Paused; the page side is the browser check's debugger group (debuggerStopChecks)
 node tests/menu-return.test.js # a program's return to the menu survives the chat: BYE in LIZA and the demo's key after the full-screen chat opened and closed, the watch waiting while the chat machine is on screen, Reset restarting what ran on each machine
 node tests/power-on.test.js  # without ROMs: Reset restarts what runs; power-on, a machine switch and a snapshot of the stub's prompt bring the welcome menu (6809 and 6803)

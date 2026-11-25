@@ -82,6 +82,9 @@ T_2     FCB     '2+$80
         FCN     " COLOUR AND SOUND"
 T_3     FCB     '3+$80
         FCN     " ADD YOUR ROMS FOR BASIC"
+; option 3's other text: the ROMs are already in the sockets and the machine runs without them (ROMSW)
+T_3S    FCB     '3+$80
+        FCN     " USE YOUR ROMS FOR BASIC"
 T_4     FCB     '4+$80
         FCN     " CHAT WITH CLAUDE"
 T_PRESS FCN     "PRESS 1 TO 4"

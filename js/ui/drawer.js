@@ -31,6 +31,8 @@ export const loadRow = (session, row) => {
 };
 
 export function setupDrawer(page, { showRoms }) {
+  // the cassette slot's empty line, a button (taken out of the page while a tape's name stands there), and the pointer the hint is worded for
+  const insertTape = $('btnTapeName'), touch = matchMedia('(pointer: coarse)');
   const { session } = page;
   const tabs = [...document.querySelectorAll('.drawer [role="tab"]')];   // (the settings' own: not a sheet's)
   function select(tab, focus = false) {
@@ -51,9 +53,29 @@ export function setupDrawer(page, { showRoms }) {
   select(tabs[0]);
 
   // Media: what was loaded on this machine before
+  let runShown = null;   // the running file (name and content hash) the list was drawn with (the frame loop redraws it when that changes)
+  // the recent row that runs now, by name and content hash (null: nothing running, or not a recent file). ONE definition,
+  // used by the frame reconciler below and by the reset/firmware handler in session.on (so the two can never disagree).
+  const runKey = () => { const r = page.runningNow(); return r && r.kind === 'recent' ? `${r.name}\0${r.crc}` : null; };
   function recent() {
     const list = $('recentList');
     const items = recentRows(session.library.recentMedia(), session.personMachine.id);
+    // the file that runs now (the list's first, which is what was loaded last) says so; the Media tab's "Last time" card
+    // is for what is not running (js/ui/welcome.js)
+    const running = page.runningNow();
+    runShown = running && running.kind === 'recent' ? `${running.name}\0${running.crc}` : null;
+    // the list is rebuilt whenever its marks change, and a rebuild drops the node that had the focus.
+    // The row that had focus gets it back - BY IDENTITY, the library's own (the file it names plus its
+    // content hash, recentKey's rule, js/media/library.js), not by place and not by the copy tag:
+    // a redraw happens because the contents changed (another page's load can put a DIFFERENT file of
+    // the same name on top, which both shifts every row and shifts the copy ordinals - a name+tag key
+    // would land the keyboard on that other page's file), and the row at the same place can be a
+    // different file, which would move the keyboard to it silently. A file that is gone from the
+    // list leaves the focus where the browser put it: the keyboard was on something that no longer
+    // exists. (The wrong-row jump has its driver: the cross-tab check in the media group - another
+    // tab's load reorders this page's list with no launch here.)
+    const active = document.activeElement;
+    const had = active && list.contains(active) ? { name: active.dataset.name, crc: active.dataset.crc } : null;
     list.replaceChildren();
     // empty: hidden while "Last time" shows above it (the CSS), as the two would contradict each other
     for (const el of [list, $('recentHead')]) el.classList.toggle('recent-empty', !items.length);
@@ -70,9 +92,15 @@ export function setupDrawer(page, { showRoms }) {
       // two rows of one name with different bytes: say which is which, or the list shows the same line twice
       if (r.copy) { const c = document.createElement('span'); c.className = 'copy'; c.textContent = r.copy; b.append(n, c, k); }
       else b.append(n, k);
+      b.dataset.name = r.name; b.dataset.crc = String(r.crc).toUpperCase();   // the focus key (recentKey's rule): the redraw restores by it
+      if (runShown !== null && session.isLastRun(r)) { n.after(Object.assign(document.createElement('span'), { className: 'tag now', textContent: 'on screen now' })); b.setAttribute('aria-current', 'true'); }
       b.disabled = !r.stored;
       b.onclick = () => { page.attempt(() => loadRow(session, { r, i })); page.focus(); };
       list.append(b);
+    }
+    if (had) {
+      const back = [...list.querySelectorAll('button')].find((b) => b.dataset.name === had.name && b.dataset.crc === had.crc);
+      if (back) back.focus({ preventScroll: true });
     }
   }
 
@@ -82,7 +110,8 @@ export function setupDrawer(page, { showRoms }) {
     const r = session.machineRoms(), m = session.personMachine;   // the person's machine (the BASIC session while the chat is on screen)
     $('romState').textContent = session.nitros9Running ? 'Not used · NitrOS-9 runs on CLOADM\'s own loader' : !m.useStub ? 'BASIC ready' : r.bootable ? 'Loaded · running without ROMs for now' : 'Not added · running without ROMs';
     $('btnManageRoms').textContent = r.bootable ? 'See or add ROMs →' : 'Add ROMs →';
-    $('romPill').hidden = r.bootable || session.nitros9Running;   // NitrOS-9 needs no ROM
+    // NitrOS-9 needs no ROM; a shared moment that runs without ROMs, just arrived on, doesn't ask for them until left
+    $('romPill').hidden = r.bootable || session.nitros9Running || session.sharedMoment;
   }
   $('romPill').onclick = showRoms;
   $('btnManageRoms').onclick = showRoms;
@@ -92,13 +121,15 @@ export function setupDrawer(page, { showRoms }) {
   function slots() {
     const m = session.personMachine, t = m.deck.tape;
     // (refreshed every frame while a tape is in: each part is written only when it changes, put/putClass)
-    put($('tapeName'), 'textContent', t ? t.name : 'No tape · Insert tape…');
+    // (no tape: the line is a button that opens the file picker; a tape in: its name)
+    if (t) put($('tapeName'), 'textContent', t.name);
+    else if (!$('tapeName').contains(insertTape)) $('tapeName').replaceChildren(insertTape);
     // a button that can't work is disabled with the reason, not clicked and complained about
     put($('btnRewind'), 'disabled', !t);
     put($('btnRewind'), 'title', t ? 'Back to the start of the tape' : 'No tape inserted');
     put($('btnEjectTape'), 'disabled', !t);
     put($('btnEjectTape'), 'title', t ? 'Take the tape out of the deck' : 'No tape inserted');
-    put($('tapeState'), 'textContent', !t ? 'click the deck to insert' : m.deck.motor ? `motor on · ${(t.progress() * 100).toFixed(0)}%` : `stopped · ${(t.progress() * 100).toFixed(0)}%`);
+    put($('tapeState'), 'textContent', !t ? `${touch.matches ? 'tap' : 'click'} the deck to insert` : m.deck.motor ? `motor on · ${(t.progress() * 100).toFixed(0)}%` : `stopped · ${(t.progress() * 100).toFixed(0)}%`);
     put($('cartSlot'), 'hidden', !m.hasCartridgePort);
     const loaded = !!(m.hasCartridgePort && m.cartPort);
     putClass($('btnCart'), 'loaded', loaded);
@@ -132,12 +163,24 @@ export function setupDrawer(page, { showRoms }) {
     if (ev === 'machine' || ev === 'loaded') { if (ev === 'machine') cartName = null; recent(); roms(); slots(); }
     if (ev === 'disks') slots();   // a disk mounted without a disk ROM plugs the controller in, and a reset gives it its ROM
     if (ev === 'roms') { roms(); recent(); slots(); }   // (slots: the Pak's board label follows its speech ROM)
-    if (ev === 'recent') recent();   // another tab loaded a program (Session.mediaElsewhere)
+    if (ev === 'arrival') roms();   // a shared moment left: the pill again, if the machine has no BASIC
+    if (ev === 'recent' || ev === 'lastrun') recent();   // another tab loaded a program (Session.mediaElsewhere); a program started: marked
+    // A reset or a power cycle takes what ran off the screen: the "Last time" card comes back AND its recent row loses
+    // the "on screen now" mark. Both follow runningNow(), but the card (welcome.js shelf/lastTime) and the list
+    // (recent()) are separate, and the list's per-frame reconciler (below) ran a frame late -- so for one frame the card
+    // stood next to a row still marked "on screen now". Redraw the list in this same tick, but ONLY when the running row
+    // actually changed: recent() rebuilds the list and drops the focus on a recent row, so an unconditional redraw would
+    // lose the keyboard focus on every Reset. runKey() is the same expression the frame reconciler uses. (A power cycle
+    // reports 'firmware', not 'reset': Session.powerCycle -> poweredOn.)
+    if ((ev === 'reset' || ev === 'firmware') && runKey() !== runShown) recent();
+
     // a tape mounted or ejected starts or stops the per-frame refresh of this row. A power cycle ejects the
     // deck and reports 'firmware' (Session.powerCycle -> poweredOn), not 'reset', so it has to be in this list:
     // without it the watcher outlived the tape and redrew the row every frame for the life of the page.
     if (ev === 'tape' || ev === 'machine' || ev === 'loaded' || ev === 'reset' || ev === 'firmware') { slots(); watchTape(); }
   });
+  // what is running now changes without an event too (Pause, a Debugger stop, a reset): the list follows
+  page.onFrame(() => { if (runKey() !== runShown) recent(); });
   // slots() shows the tape's motor state and progress, which change while a tape plays, and the cartridge
   // slot, which changes only on an event. So it is refreshed per frame while a tape is mounted (or the deck
   // is moving) and refreshed directly on the events that can change the rest; with no tape, nothing on this

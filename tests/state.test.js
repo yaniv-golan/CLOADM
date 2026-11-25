@@ -46,6 +46,44 @@ for (const [name, t, at] of cases) {
   }
 }
 
+// A share link's moment (#z=, js/media/snapshot.js encodeLongLink) leaves the picture out: taken mid-frame and
+// opened from the link's bytes, the machine runs on with the same instructions, cycles, sound and frames as the
+// uninterrupted one, and its first frame is the same picture restored from the file (which keeps the picture) except
+// for the rows the beam had already drawn when the moment was taken: those are cleared until the next frame.
+async function linkMoments() {
+  for (const [name, t, at] of cases.filter(([n]) => ['dragon64', 'coco3', 'mc10'].includes(n))) {
+    const a = t.machine();
+    for (let f = 0; f < at; f++) a.runFrame();
+    a.runCycles(a.frameBase + (a.frameCycles >> 1));
+    const snap = a.snapshot(), meta = { name: a.profile.name, taken: '2026-11-23T00:00:00.000Z' };
+    const fromLink = await Emu.decodeLongLink(await Emu.encodeLongLink(snap, meta));
+    const fromFile = Emu.state.fromJSON(Emu.state.toJSON(snap));
+    const continued = run(a, t.regs, 40);
+    const b = Emu.restoreSnapshot(fromLink, a.roms), c = Emu.restoreSnapshot(fromFile, a.roms);
+    for (const k of t.keys || []) { b.setKey(k, true); c.setKey(k, true); }
+    // restored in place over a machine showing a picture (the file's moment, its frame drawn): the link's clears it
+    const shown = Emu.restoreSnapshot(Emu.state.fromJSON(Emu.state.toJSON(snap)), a.roms);
+    const hadPicture = shown.render().data.some((v) => v !== 0);
+    shown.restore(await Emu.decodeLongLink(await Emu.encodeLongLink(snap, meta)));
+    const blank = hadPicture && b.render().data.every((v) => v === 0) && shown.render().data.every((v) => v === 0);
+    b.runFrame(); c.runFrame();
+    const { width, height } = b.render(), pb = b.render().data, pc = c.render().data;
+    // the last row that differs: every row down to it is still cleared (all 0: the beam had passed it when the moment
+    // was taken), every row below it the same as the picture restored from the file
+    const rowSame = (y) => pb.subarray(y * width, (y + 1) * width).every((v, i) => v === pc[y * width + i]);
+    let k = height;
+    while (k > 0 && rowSame(k - 1)) k--;
+    const cleared = pb.subarray(0, k * width).every((v) => v === 0);
+    check(`${name}: a share link's moment (#z=) leaves the picture out and the beam draws it again`, blank && k > 0 && k < height && cleared,
+      `(the top ${k} of ${height} rows still cleared after the first frame)`);
+    // and from the moment on: every instruction and cycle, the sound, and every frame's pixels from the second on (run();
+    // the first frame is the check above)
+    const b2 = Emu.restoreSnapshot(await Emu.decodeLongLink(await Emu.encodeLongLink(snap, meta)), a.roms);
+    for (const k2 of t.keys || []) b2.setKey(k2, true);
+    check(`${name}: a share link's moment (#z=) runs on identically`, run(b2, t.regs, 40) === continued);
+  }
+}
+
 // The 6803's port 2 drives nothing until its data register has been written (p2Written, saved in the 6803's state; a
 // 6809/6309/7000 snapshot is unchanged, so this needs no SNAPSHOT_VERSION bump). Snapshot at power-on of the glitch
 // firmware (tools/mame-diff/mc10/printer-glitch.asm), which sets port 2's DDR before its data: the field is false,
@@ -67,6 +105,7 @@ for (const [name, t, at] of cases) {
 }
 
 (async () => {
+  await linkMoments();
   const dw = require('../tools/mame-diff/drivewire/spec.js');
   const { MemoryMediaStore } = require('../js/host/media-store-memory.js');
   const fw = dw.firmware('coco');

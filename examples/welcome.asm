@@ -39,6 +39,8 @@ CARRYN  EQU     26              ; the longest option 6 text ("CARRY ON WITH MINE
 GREET   FCB     0               ; $6006 set by the Session: 0 first visit, 1 back, 2 bye
 CARRY   FCB     0               ; $6007 set by the Session: option 6's text (0 ends; none if 0)
         RMB     CARRYN
+ROMSW   FCB     0               ; set by the Session: 1 when the machine HAS ROMs but runs without them,
+                                ;   so option 3 says to switch them on rather than to add them
 
 START   ORCC    #$50            ; no interrupts: frame timing from the FS flag
         LDS     #$6000          ; stack just below the program
@@ -154,6 +156,15 @@ TOMAIN  JSR     MAINMENU
 MAINMENU
         CLR     INGAMES
         JSR     CLRMENU
+; option 3: "ADD YOUR ROMS FOR BASIC", or "USE YOUR ROMS FOR BASIC" when the ROMs are already in the sockets and the
+; machine runs without them (ROMSW). The table's entry is pointed at the right string before it is drawn, so the
+; rest of the table, the clearing above and the key handling are the same either way.
+        LDX     #MENU9+10       ; entry 2 (option 3), its string word
+        LDD     #T_3
+        TST     ROMSW
+        BEQ     MMSET
+        LDD     #T_3S
+MMSET   STD     ,X
         LDU     #MENU9
         JSR     TEXTS9
 ; the greeting, chosen by GREET (its table's rows are the 6803 build's: one row higher here)

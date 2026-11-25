@@ -150,6 +150,23 @@ const targets = (r) => r.targets.map((t) => `${t.machine}/${t.socket}`).sort().j
     again.clearRoms();
     check('clearRoms forgets only the machine in use', !again.shownMachine.hasRom && again.machineRoms('t64').bootable);
     check('machinesWithRoms lists set-up machines', again.machinesWithRoms().map((x) => x.id).sort().join(',') === 't64,tcoco');
+    // "Also ready to run BASIC" means a VERIFIED dump, not a file that happens to have the right name and size: a
+    // machine with only an unrecognised image in its required socket can be tried but is not claimed as ready.
+    {
+      const odd = new Emu.Session({ store: Emu.memoryStore(), media: new Emu.MemoryMediaStore() });
+      odd.switchMachine('t64');
+      odd.addRoms([{ name: 't64_1.rom', bytes: fake(16 * K, 91) }]);   // right name and size, not a known dump
+      const st = odd.machineRoms('t64').sockets[0].status;
+      check('an unrecognised image in the required socket is loaded but not verified', st === 'loaded-unrecognised', st);
+      check('...so the machine is bootable by trial yet is not listed among the verified machines',
+        odd.machineRoms('t64').bootable && !odd.machinesVerified().includes('t64'), odd.machinesVerified().join(',') || '(none)');
+      // the other side of the same rule: a real verified dump does put it in the list
+      odd.addRoms([{ name: 't64_1.rom', bytes: D64_1 }]);
+      check('...and a verified one is listed', odd.machinesVerified().includes('t64'), odd.machinesVerified().join(','));
+      // romsReadyButOff: the ROMs are in the sockets and the stub was chosen, which is the card's third state
+      check('romsReadyButOff is true only with the required ROMs in and the stub chosen',
+        !odd.romsReadyButOff() && (odd.runWithoutRoms(), odd.romsReadyButOff()), `${odd.shownMachine.useStub}`);
+    }
   } finally { delete base.t64; delete base.ttano; delete base.tcoco; }
 }
 

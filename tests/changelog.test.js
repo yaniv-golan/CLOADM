@@ -6,7 +6,7 @@
 // On CI the tags must be there (the workflow checks out with fetch-depth: 0) and a missing one is a failure. On a
 // checkout without them this prints one SKIP line per tag naming it and does not pretend to have compared.
 const cp = require('child_process'), fs = require('fs'), path = require('path');
-const { check: guard, parse, tagOf, ALLOWED_CORRECTIONS, subsectionKinds, oddSubsections, unreleasedKinds, KEEP_A_CHANGELOG } = require('./changelog-guard.js');
+const { check: guard, parse, tagOf, ALLOWED_CORRECTIONS, subsectionKinds, oddSubsections, unreleasedKinds, KEEP_A_CHANGELOG, conflictMarkers, bareLetterLines } = require('./changelog-guard.js');
 
 let fail = 0;
 const check = (name, cond, detail = '') => { if (!cond) { fail++; console.log(`FAIL ${name} ${detail}`); } else console.log('ok   ', name, detail); };
@@ -58,6 +58,26 @@ const git = (...args) => cp.execFileSync('git', args, { cwd: root, encoding: 'ut
   check('...and an invented [Unreleased] heading is reported',
     unreleasedKinds('## [Unreleased]\n\nNext version: 1.0.0\n\n#### Upgrading\n\n- x\n\n### 0.9.0\n').join() === 'Upgrading',
     unreleasedKinds('## [Unreleased]\n\n#### Upgrading\n\n- x\n\n### 0.9.0\n').join());
+
+  // A merge can leave an unresolved conflict marker, or a stray one- to three-letter line, and a changelog with
+  // either reads as broken to everyone after. Both are checked on the real file, and each rule is proven to bite on a
+  // fixture built here (so neither check can pass by its pattern never matching anything).
+  check('CHANGELOG.md: no conflict marker ("<<<<<<<", "=======", ">>>>>>>") anywhere in the file',
+    conflictMarkers(text).length === 0, conflictMarkers(text).slice(0, 3).join(' | '));
+  check('...and a marker in any section and any of the four shapes is reported (diff3 adds "|||||||")',
+    conflictMarkers('## [Unreleased]\n<<<<<<< HEAD\n- a\n||||||| base\n- old\n=======\n- b\n>>>>>>> branch\n\n### 0.9.0\n#### Added\n- c\n').length === 4,
+    JSON.stringify(conflictMarkers('## [Unreleased]\n<<<<<<< HEAD\n- a\n||||||| base\n- old\n=======\n- b\n>>>>>>> branch\n'))); 
+  check('...and a line that merely starts with "=" as prose is not a marker (seven of them, then a space or the end)',
+    conflictMarkers('## [Unreleased]\n===== a five-sign rule\n= a one-sign line\n- an = sign inside a bullet\n').length === 0);
+  check('CHANGELOG.md: [Unreleased] carries no bare one- to three-letter line (what a merge script leaves: "D")',
+    bareLetterLines(text).length === 0, bareLetterLines(text).slice(0, 3).map((x) => JSON.stringify(x)).join(' | '));
+  {
+    const found = bareLetterLines('## [Unreleased]\n\n#### Fixed\n\n- a real entry\n\nD\nAB\nxyz\n\nadded\n\n### 0.9.0\n\nD\n');
+    check('...and a bare letter in [Unreleased] is reported, two and three letters too, and a word is not',
+      found.map((x) => x.text).join() === 'D,AB,xyz', JSON.stringify(found));
+  }
+  check('...and a bare letter in a RELEASED section is not this rule\'s (frozen against its tag, caught there)',
+    bareLetterLines('## [Unreleased]\n\n#### Fixed\n\n- x\n\n### 0.9.0\n\nD\n').length === 0);
 }
 
 // ---------------- the fixtures for the tail-of-section gap ----------------

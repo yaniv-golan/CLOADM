@@ -240,7 +240,7 @@ export function setupTapePanel(page) {
     box.dispatchEvent(new Event('change'));
     update();
   };
-  $('btnSkipTape').onclick = () => { page.attempt(() => session.skipTape()); update(); page.focus(); };
+  $('btnSkipTape').onclick = () => { page.attempt(() => session.skipTape()); update(); page.sheets.closeTape(); page.focus(); };
   $('btnTapeRetry').onclick = () => { session.rewindTape(); page.status('Tape rewound: type CLOAD (or CLOADM) again'); update(); page.focus(); };
   session.on((ev) => {
     if (ev === 'machine' || ev === 'loaded' || ev === 'tape') update();

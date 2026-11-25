@@ -575,7 +575,7 @@ const REQUIRED = require.main !== module;
   // (names verified to be reads/pure by reading their bodies; a name that is wrong here shows as an unknown method)
   const READ = new Set(['advance', 'basicRunning', 'besideMachine', 'drives.blankChoices', 'bootStatus', 'checkGame', 'checkLiza',
     'drives.checkNotInDrive', 'codeAt', 'cpuRate', 'drives.activity', 'drives.dosChoices', 'drives.status', 'driveWireFile',
-    'driveWireImages', 'gameFile', 'inspect', 'drives.list', 'listMedia', 'listSlots', 'lizaNeeds', 'machineRoms',
+    'driveWireImages', 'gameFile', 'inspect', 'unopenable', 'drives.list', 'listMedia', 'listSlots', 'lizaNeeds', 'machineRoms',
     'machineTicket', 'machinesWithRoms', 'nitros9Images', 'nitros9Loader', 'nitros9On', 'printoutFile', 'printoutText',
     'readSlot', 'readSnapshot', 'readSnapshotLink', 'recentMedia', 'sameName', 'savedConfig', 'screenText',
     'shareFile', 'shareUrl', 'slotBytes', 'snapshotLink', 'snapshotRoms', 'snapshotSwitch', 'sscRoms', 'statusLine',
@@ -586,7 +586,10 @@ const REQUIRED = require.main !== module;
     'romFiles', 'romsStillRunning',
     // (main 1dd66fa: all four are reads/pure. indexWriteError formats a stored-write error; tapeRunning reads the
     // PERSON's deck motor flag; screenAlternative describes the SHOWN screen's text; welcomeGenNow reads the ticket)
-    'indexWriteError', 'tapeRunning', 'screenAlternative', 'welcomeGenNow',
+    // isLastRun compares a recent-list entry with the stored last run (name and bytes): a read of the store, no machine
+    'isLastRun',
+    // greetingFor answers which greeting the menu takes from whether the visit began as the first (a flag, no machine)
+    'indexWriteError', 'tapeRunning', 'screenAlternative', 'welcomeGenNow', 'greetingFor',
     'pickNitros9Image', 'openMedia', 'downloadMedia', 'drives.download', 'drives.writesDone', 'printoutFile',
     // programControls reads the menu watch of the SHOWN machine: the touch panel it answers drives what is on screen
     'programControls',
@@ -596,6 +599,18 @@ const REQUIRED = require.main !== module;
     'bugReport',
     // lastLoaded: the Share screen reads which file was loaded last (recordingGuard: a WAD of the person's own); a field
     'lastLoaded',
+    // programPageUrl makes a program page's address from the page's own (pure)
+    'programPageUrl',
+    // bundledProgram and untouchedBundledProgram read the SHOWN machine's program watch and page (Session.touches too,
+    // which only counts what reached it); the Share screen asks whether its primary may be the program's own page
+    'bundledProgram', 'untouchedBundledProgram', 'touches',
+    // longLinkRefusal and shortLinkRefusal read the SHOWN machine (what the Share screen shares) and change nothing;
+    // shortLink reads it the same way (shareFile) and sends sealed bytes to the store it is given, changing no machine;
+    // readShortLink fetches and decodes a snapshot, which openSnapshot (classified on its own) then opens
+    'longLinkRefusal', 'shortLinkRefusal', 'shortLink', 'readShortLink',
+    // sharePicture renders the SHOWN machine's frame into the share card ("Save picture") and shareCardName reads its
+    // program watch or profile for the card's name; both change nothing
+    'sharePicture', 'shareCardName',
     // menuTicketFor returns the ticket a menu starts with (the Session's menuTicket or the one passed); changes nothing
     'menuTicketFor',
     // bareDiskController and diskRomWaiting read the disk controller of the PERSON's machine (diskMachine); no change
@@ -638,7 +653,12 @@ const REQUIRED = require.main !== module;
     'lastRun', 'welcomeMenu', 'startMachine', 'caseInsensitive', 'webSerialAvailable', 'realCoco', 'driveWireMounts',
     'driveWireChannels', 'hasAnyRoms', 'hasMultiPak', 'claudeBusyActing', 'lizaFile', 'cartBoard', 'paused', 'display', 'debugger', 'stubRun',
     'stubChosen', 'offersSsc', 'tapeRecording', 'personMachine', 'shownMachine', 'nitros9Running', 'nitros9OnScreen',
-    'hasArtifactPhase', 'hasTwoScreens', 'welcomeRunning', 'welcomeRunningOn', 'welcomeOnScreen']) SESSION.add(n);
+    'hasArtifactPhase', 'hasTwoScreens', 'welcomeRunning', 'welcomeRunningOn', 'welcomeOnScreen', 'lastRunOnScreen',
+    // both default to the person's machine and read only its own sockets: nothing of the chat machine's
+    'romsReadyButOff', 'machinesVerified',
+    // sharedMoment: the person arrived on a shared moment and has not left it (a flag, no machine); arrivedFromLink: they
+    // arrived from a link and have not acted yet (plain data: the kind, an id, a name, a program id; no machine)
+    'sharedMoment', 'arrivedFromLink']) SESSION.add(n);
   // Puppets whose reachability is decided where they live (see the note above): debug (the Debugger view closes the
   // chat, claude.js:283-286), chat (the ChatSession, not a machine), store/roms/index/media/keys/machine (the
   // Session's own services).

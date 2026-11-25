@@ -39,6 +39,7 @@
     "snapshot": 5,
     "liza6803": 20.7,
     "romInput": 3.7,
+    "romTruth": 2.9,
     "design": 0.6,
     "inputScreen": 34.8,
     "touchJoystick": 11,
@@ -81,12 +82,14 @@
     "welcomeScreen": 5.3,
     "chatScreen": 108.7,
     "phoneChat": 18.3,
-    "share": 42,
+    "share": 59.1,
+    "shortLink": 11.3,
     "favicon": 3.1,
     "closedViews": 36,
     "uiModel": 26.1,
     "semantics": 24.2,
     "mobile": 22.6,
+    "menuWords": 5.3,
     "connector": 69.3
   }
 }
