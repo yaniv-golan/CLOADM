@@ -365,7 +365,9 @@ MC-10 or Alice, not when the right port holds a Hi-Res interface or The Rat, and
 * A program opens in the mode it is played with: 2048 and Minesweeper on Pad, LIZA, BASIC and anything else on Keys.
   The switch's choice is remembered per program and machine, and `?touch=joystick` or `?touch=keys` sets it for the
   visit.
-* Keys mode: held sideways the keyboard splits for your thumbs, BREAK, CLEAR, the switch and Menu sit under it (Menu
+* Keys mode: held sideways the keyboard splits for your thumbs, BREAK, CLEAR, the switch and Menu sit under it (on a
+  first visit, before a program has run or ROMs are added, **Open…** sits left of BREAK and **Add ROMs…** right of
+  Menu) (Menu
   has Programs…, Open…, Ask Claude…, **Share…**, the ports, Machine… — the machine picker —, Settings…, Power…, Commands…
   and **Hide keys**; an embed has no Ask Claude…, Commands… or Share…). `SHIFT` shifts the next key. Input tab →
   On-screen keyboard: Automatic, Always or Never.
@@ -375,6 +377,9 @@ MC-10 or Alice, not when the right port holds a Hi-Res interface or The Rat, and
   right brings them back. The app bar is one row: the machine, Open…, Ask Claude and **Menu** (Add ROMs is Menu's
   first item while the machine has no BASIC, and Menu shows a dot then). On a touch screen the hints say "tap a key"
   and "tap BREAK", and the install offer never appears on a phone (Install CLOADM…, in Menu, or in the panel's Menu held sideways, installs).
+  On an upright phone Menu's rows, the Programs sheet's and the machine list's grow toward 52 px with the window's
+  height (44 px at the least; a phone held sideways keeps them at 44 or its own size), and Menu scrolls inside the
+  window rather than run past it.
   A key types when your finger lifts, or once it has rested on the key a moment (so a held key works in
   games); a finger that slides off it first types nothing, so a drag or a scroll that starts on the keyboard never
   presses a key. The joystick strip's keys (SPC, ENT, BRK, 1, 2, Y, N) work the same way, so held
@@ -429,6 +434,12 @@ reload, when the chat ends or when you switch machine. See [claude.md](claude.md
 the cartridge, and the picture. **Download snapshot** saves it as a `.cloadm` file; drop the file on the screen
 (or pick it with **Open…**) to restore it. **Save picture** saves the share card: the picture at the machine's true
 pixels in a CRT monitor, the program's or machine's name beside it and "cloadm.dev" on it (1200x630 PNG).
+
+Three quick-save slots (**Snapshot 1–3**) keep a snapshot in this browser: **Take snapshot** and **Restore** on each
+slot, in the Media tab (in **Programs…** on a phone). On a phone, **Menu** has **Take snapshot** (into the first empty
+slot, else the one taken longest ago; the toast's **Undo** puts back what it held) and **Restore snapshot…** (the slots
+list) under **Share…**. The slots' heading never stands alone: hidden until they are listed, and with all three empty
+it says "No snapshots yet. Take one from Menu → Take snapshot."; so does the Library's **Snapshots** filter with none.
 
 A snapshot never contains ROMs, only the CRC of each ROM it ran with. Opening one needs exactly those ROMs in this
 browser (or none, if it ran without ROMs); otherwise CLOADM says which ROM it needs and opens the snapshot as
@@ -708,8 +719,8 @@ See also: [Machines](machines.md) · [LIZA and Claude](claude.md) · [ROM list](
 
 **Settings → Machine → Claude features** is On by default. **Off** hides the app bar's **Ask Claude**, the command
 box's Claude rows and its "Ask Claude" row, and the Programs row **Chat with Claude**; the welcome menu's own Claude
-item stays (it is the firmware's). With Off no door can start a turn: the "Explain this error" and "Help with my
-program" buttons don't show, and a link with `app=claude` (or the tab an embed's **Ask Claude ↗** chip opens) doesn't
+item stays (it is the firmware's). With Off no door can start a turn: the example questions under the machine and
+in the Ask panel don't show, and a link with `app=claude` (or the tab an embed's **Ask Claude ↗** chip opens) doesn't
 open the chat; the page says "Claude features are off (Settings → Machine)." instead, as the welcome menu's item does.
 Turning Off stops a turn that is running and ends the full-screen chat. The choice is kept in this browser and goes
 with an exported settings file.

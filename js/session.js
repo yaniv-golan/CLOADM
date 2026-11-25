@@ -2286,6 +2286,20 @@ export class Session {
     const last = this.lastRun;
     return !!last && last.kind === 'recent' && this.library.sameName(entry.name, last.name) && String(entry.crc).toUpperCase() === last.crc;
   }
+  // What runs on the person's machine now, of the programs CLOADM brings: 'wyrmfire', 'welcome' (the menu), 'liza', a
+  // GAMES.list key ('2048', 'minesweeper') or 'demo', from its start until a launch takes the machine (lastRunOn); null for
+  // anything else (BASIC, a file of the person's). (js/claude/prompts.js: the Ask panel's questions. bundledProgram,
+  // below, is the Share screen's: the programs that have a page of their own.)
+  get bundledRunning() {
+    const m = this.personMachine;
+    if (!m) return null;
+    if (this.wyrmfireOn(m)) return 'wyrmfire';
+    if (this.welcome === m) return 'welcome';
+    const last = this.lastRun;
+    if (!last || this.lastRunOn !== m) return null;
+    if (last.kind === 'liza' || last.kind === 'demo') return last.kind;
+    return (last.kind === 'game' && gameKey(last.name)) || null;
+  }
   // Is what lastRun names the program on screen now: recorded as it started on the machine in use, and nothing since
   // took the machine from it (a load, a launch, a reset, a switch, the welcome menu, a snapshot), not stopped by the
   // Debugger. The page adds its own Pause. Its panels then show it as running, not as something to Run again.

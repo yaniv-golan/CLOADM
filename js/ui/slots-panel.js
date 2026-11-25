@@ -4,7 +4,9 @@
  * says what the slot holds and offers Save and Load; loading goes through the snapshot panel, so another machine
  * asks first and missing ROMs show the same card as a snapshot file. No separate design: built
  * after the drawer's recent list. Hidden while the welcome program is still what runs and no slot holds anything
- *; running anything else, a reset or a switch shows them.
+ *; running anything else, a reset or a switch shows them. The heading never shows without its list: hidden until the
+ * slots are listed, and with every slot empty the line "No snapshots yet. Take one from Menu → Take snapshot." is
+ * under it. A phone's Menu has "Take snapshot" (take) and "Restore snapshot…" (reveal: the list, whatever runs).
  */
 import { $ } from './page.js';
 import { WYRMFIRE_TEXT } from '../session.js';
@@ -15,13 +17,16 @@ const time = (iso) => new Date(iso).toLocaleString([], { day: 'numeric', month: 
 export function setupSlotsPanel(page, { snapshots }) {
   const { session } = page;
   const box = $('slotList');
+  let asked = false;   // Menu's "Restore snapshot…" asked for the list: it shows whatever runs (until a launch)
   async function render() {
-    // while the welcome program runs, the slots stay hidden until the listing shows one holds something (the store
-    // can take a while to answer: shown meanwhile, they flashed up on a first visit)
-    if (session.welcomeRunning) $('quickSave').hidden = true;
+    // the slots stay hidden until the listing answers (the store can take a while: shown meanwhile, the heading stood
+    // alone, and on a first visit they flashed up), and while the welcome program runs with nothing in them
+    if (!box.children.length || session.welcomeRunning) $('quickSave').hidden = true;
     let slots;
-    try { slots = await session.listSlots(); } catch (e) { page.status(session.library.mediaError(e, 'the snapshots').message, true); return; }
-    $('quickSave').hidden = session.welcomeRunning && slots.every((s) => s.empty);
+    try { slots = await session.listSlots(); } catch (e) { $('quickSave').hidden = true; page.status(session.library.mediaError(e, 'the snapshots').message, true); return; }
+    const none = slots.every((s) => s.empty);
+    $('quickSave').hidden = session.welcomeRunning && none && !asked;
+    $('slotEmpty').hidden = !none;
     // WYRMFIRE: no snapshots (Session.snapshotFile refuses), said in the slots' own muted line
     const off = session.wyrmfireRunning || session.romCodeIn(session.personMachine) === 'userdata';
     $('slotNote').textContent = off ? WYRMFIRE_TEXT.snapshots : 'A snapshot reopens on the same machine, RAM and ROMs.';
@@ -40,17 +45,7 @@ export function setupSlotsPanel(page, { snapshots }) {
       save.setAttribute('aria-label', `Take snapshot ${s.n}`); load.setAttribute('aria-label', `Restore snapshot ${s.n}`);
       load.disabled = !!(s.empty || s.error);
       save.disabled = off;
-      // the row shows the new time; a toast says so, with Undo (what the slot held before goes back)
-      save.onclick = async () => {
-        let before;
-        try { before = await session.slotBytes(s.n); await session.saveSlot(s.n); }
-        catch (e) { page.status(e.message, true); return; }
-        await render(); page.focus();
-        page.toast(`Snapshot ${s.n} taken`, { action: { label: 'Undo', run: async () => {
-          try { await session.restoreSlot(s.n, before); } catch (e) { page.status(e.message, true); }
-          render();
-        } } });
-      };
+      save.onclick = () => saveTo(s.n);
       load.onclick = async () => {
         try { snapshots.open(await session.readSlot(s.n)); } catch (e) { page.status(e.message, true); }
       };
@@ -66,7 +61,39 @@ export function setupSlotsPanel(page, { snapshots }) {
   }
   // the welcome program starts ('welcome': its file is fetched first, so it can start after the first render has
   // already listed the slots) and ends on a load, a reset or a switch
-  session.on((ev) => { if (['welcome', 'machine', 'loaded', 'reset', 'firmware', 'roms', 'wyrmfire', 'disks'].includes(ev)) render(); });
+  // the row shows the new time; a toast says so, with Undo (what the slot held before goes back)
+  async function saveTo(n) {
+    let before;
+    try { before = await session.slotBytes(n); await session.saveSlot(n); }
+    catch (e) { page.status(e.message, true); return; }
+    await render(); page.focus();
+    page.toast(`Snapshot ${n} taken`, { action: { label: 'Undo', run: async () => {
+      try { await session.restoreSlot(n, before); } catch (e) { page.status(e.message, true); }
+      render();
+    } } });
+  }
+  // Menu's "Take snapshot": the first empty slot, else the one taken longest ago (Undo puts it back)
+  async function take() {
+    let slots;
+    try { slots = await session.listSlots(); } catch (e) { page.status(session.library.mediaError(e, 'the snapshots').message, true); return; }
+    const free = slots.find((s) => s.empty) || slots.find((s) => s.error)
+      || slots.slice().sort((a, b) => new Date(a.taken) - new Date(b.taken))[0];
+    await saveTo(free.n);
+  }
+  // Menu's "Restore snapshot…": the slots list (the Programs sheet on a phone), brought into view with the focus on the
+  // first slot that can be restored, else on the list's first button
+  async function reveal(from = null) {
+    asked = true;
+    await render();
+    page.openPrograms(from);
+    $('quickSave').scrollIntoView({ block: 'nearest' });
+    const first = box.querySelector('button[aria-label^="Restore"]:not(:disabled)') || box.querySelector('button');
+    if (first) first.focus({ preventScroll: true });
+  }
+  session.on((ev) => {
+    if (ev === 'launch') asked = false;
+    if (['welcome', 'machine', 'loaded', 'reset', 'firmware', 'roms', 'wyrmfire', 'disks'].includes(ev)) render();
+  });
   render();
-  return { refresh: render };
+  return { refresh: render, take, reveal };
 }

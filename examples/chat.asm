@@ -113,6 +113,7 @@ TBACK   FDB     0               ; BACK/DRAWROW: the index taken back
 TCHR    FCB     0               ; the key being typed
 NOTE    FCB     0               ; the "full" notice is on the screen, on row NOTER
 NOTER   FCB     0
+NOKEY   FCB     0               ; set by the page while there is no API key: ENTER shows no "Thinking..." (the page's line comes)
         ORG     $7100
 RXBUF   RMB     256
         ORG     $7200
@@ -377,9 +378,12 @@ ENTER   LDD     BLEN
         LDA     #1
         STA     WAIT
         CLR     ECOL
+        TST     NOKEY           ; no API key: nothing will think, and the page's own line comes right after the typed one
+        BNE     ENTQ
         LDX     #THINK
         JSR     PUTC
         JSR     NEWLINE         ; and the reply starts below it
+ENTQ
         ; queue the line's bytes and the CR: SPOS = next byte to send, SPEND = something is queued
         LDD     #0
         STD     SPOS

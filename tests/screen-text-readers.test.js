@@ -682,7 +682,6 @@ const samWant = range(0, 16).map((r) => MOVED.slice(r * 32, r * 32 + 32).map(vdg
 const frameOf = (m) => J(Array.from(m.render().data));
 
 (async () => {
-  const { machineContext } = await import('../js/ui/ask.js');
   for (const id of ['dragon32', 'coco2b']) {
     const m = samMachine(id, { pageAt: 0x0C00, fBits: 6, okAt: 0x0400 });
     const control = samMachine(id, { pageAt: 0x0400, fBits: 2, okAt: null });
@@ -694,14 +693,8 @@ const frameOf = (m) => J(Array.from(m.render().data));
       got.text === true && J(got.lines) === J(trim(samWant)) && got.base === 0x0C00, J({ base: got.base, line0: got.lines && got.lines[0] }));
     check(`${id} SAM page: Session.screenText reads the same 16 rows`, J(sess) === J(samWant), J(sess[0]));
     check(`${id} SAM page: the control (F = 2) reads the same rows at base $0400`, J(tool(control).lines) === J(trim(samWant)) && tool(control).base === 0x0400);
-    // the readers see only the displayed page: OK at $0400 is not on screen, and the Ask panel's ?ERROR check
-    // (js/ui/ask.js machineContext) finds an error only where it is displayed
-    for (let i = 0; i < 9; i++) m.ram[0x400 + 64 + i] = '?SN ERROR'.charCodeAt(i) & 0x3F | 0x40;
-    check(`${id} SAM page: no row reads OK, and the Ask panel finds no error, while both are only at $0400`,
-      !sessionOn(m).screenText({ main: true }).some((l) => l.trim() === 'OK') && machineContext({ screenText: (mm) => sessionOn(mm).screenText(), nitros9On: () => false }, m).error === null);
-    for (let i = 0; i < 9; i++) m.ram[0xC00 + 64 + i] = '?SN ERROR'.charCodeAt(i) & 0x3F | 0x40;
-    check(`${id} SAM page: the Ask panel finds ?SN ERROR once it is on the displayed page`,
-      machineContext({ screenText: (mm) => sessionOn(mm).screenText(), nitros9On: () => false }, m).error === '?SN ERROR');
+    // the readers see only the displayed page: OK at $0400 is not on screen
+    check(`${id} SAM page: no row reads OK while it is only at $0400`, !sessionOn(m).screenText({ main: true }).some((l) => l.trim() === 'OK'));
     // the SAM's video counter is sized by M (MC6883 data sheet, "Memory Size"): under a 4K counter (M = 00) an offset
     // of $1000 (F = 8) wraps to $0000, which is what the VDG shows; the page is not where the CPU sees $1000: base null
     for (let i = 0; i < 32; i++) m.ram[i] = 'WRAPPED TO $0000 UNDER A 4K SAM '.charCodeAt(i) & 0x3F | 0x40;

@@ -285,6 +285,10 @@ $('btnMenu').onclick = () => {
   const close = () => { $('appbar').classList.remove('menu-open'); $('btnMenu').setAttribute('aria-expanded', 'false'); };
   item.onclick = () => { close(); pill.click(); };
   $('navShare').onclick = () => { close(); $('btnShare').click(); };
+  // a phone's snapshots, under Share: take one now (into the first empty quick-save slot, else the oldest), or the slots
+  // list to restore one from (js/ui/slots-panel.js)
+  $('navSnapTake').onclick = () => { close(); slots.take(); };
+  $('navSnapRestore').onclick = () => { close(); slots.reveal($('btnMenu')); };
   // Settings…: with the touch keys, the Settings sheet on the tab last used (js/ui/phone-sheets.js); elsewhere the
   // drawer's tabs, far below the screen in a narrow window, brought into view on Display (a person looking for
   // "settings" is most often after the picture: its look, its size, the colours)
@@ -298,10 +302,10 @@ $('btnMenu').onclick = () => {
   };
   new MutationObserver(sync).observe(pill, { attributes: true, attributeFilter: ['hidden'] });
   sync();
-  // Menu's order on a phone: Install… after Share…, before the links; on a wider page it is the app bar's last link
+  // Menu's order on a phone: Install… after Share… and its two snapshot rows, before the links; on a wider page it is the app bar's last link
   // (moved, not reordered by the stylesheet, so the focus goes down the list in the order it is drawn)
   const narrow = matchMedia('(max-width: 700px)');
-  const installPlace = () => { if (narrow.matches) $('navShare').after($('navInstall')); else $('navInstall').closest('nav').append($('navInstall')); };
+  const installPlace = () => { if (narrow.matches) $('navSnapRestore').after($('navInstall')); else $('navInstall').closest('nav').append($('navInstall')); };
   narrow.addEventListener('change', installPlace);
   installPlace();
 }

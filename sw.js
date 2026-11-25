@@ -117,6 +117,7 @@ const FILES = [
   'js/claude/chat.js',
   'js/claude/consent.js',
   'js/claude/history.js',
+  'js/claude/prompts.js',
   'js/claude/readtools.js',
   'js/claude/toolerrors.js',
   'js/config.js',
