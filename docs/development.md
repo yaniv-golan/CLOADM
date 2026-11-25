@@ -284,6 +284,7 @@ node tests/alpha.test.js     # the Dragon Alpha's wiring: ROM banks, PIA2, the A
 node tools/build-demo.js     # rebuild examples/demo.bin
 node tools/build-basic.js [--out d64_1.rom]   # assemble the clean-room Dragon 64 BASIC (basic/, docs/clean-room-basic.md) into a 16K image; nothing is committed
 node tests/basic-lang.test.js [case...]       # the clean-room BASIC: each case in tests/basic/cases typed in through the keyboard, its transcript against tests/basic/expected
+node tests/basic-fp.test.js [n]   # the clean-room BASIC's floating point, its routines called on the CPU against the bit-exact model tests/basic/fpmodel.js (n random operand pairs per operation, default 3000)
 node tests/basic-bb.test.js   # the black-box tools: the lint (no case may read the ROM), compare, the transcript recorder, the build and its token tables
 node tools/basic-bb/run.js --rom d64_1.rom --out real.jsonl   # run the cases on any Dragon 64 BASIC ROM (a maintainer, with the real one); --ours for ours
 node tools/basic-bb/compare.js real.jsonl ours.jsonl          # the differences, case by case

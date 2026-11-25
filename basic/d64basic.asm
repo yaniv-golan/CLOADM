@@ -74,6 +74,30 @@ KWLEN   RMB     1               ; crunch: the best keyword's length, token, tabl
 KWTOK   RMB     1
 KWFN    RMB     1
 KWTMP   RMB     1
+* the floating-point accumulators (fp.inc): exponent, mantissa (4), guard byte, sign; ARG laid out as FAC
+FACEXP  RMB     1
+FACM    RMB     4
+FACEXT  RMB     1
+FACSGN  RMB     1
+ARGEXP  RMB     1
+ARGM    RMB     4
+ARGEXT  RMB     1
+ARGSGN  RMB     1
+FPEXP   RMB     2               ; a result's exponent, in 16 bits
+FPI     RMB     1               ; loop counters
+FPJ     RMB     1
+PROD    RMB     8               ; the product; the quotient
+DVR     RMB     5               ; the remainder
+FPE10   RMB     2               ; decimal exponent (FOUT, FIN)
+FPDIG   RMB     9               ; FOUT's nine digits
+FPND    RMB     1               ; FOUT's significant digits
+FPCNT   RMB     1
+FPK     RMB     1               ; FOUT's power of ten
+FPN     RMB     4               ; FIN's integer
+FPEX    RMB     2               ; FIN's exponent, and its sign
+FPEXS   RMB     1
+FPSGNI  RMB     1               ; FIN's sign
+FPDP    RMB     1               ; FIN: a point seen
 DPEND   RMB     0
 
 * ---------------- the ROM ----------------
@@ -86,6 +110,8 @@ DPEND   RMB     0
         INCLUDE "interp.inc"
         INCLUDE "program.inc"
         INCLUDE "crunch.inc"
+        INCLUDE "fp.inc"
+        INCLUDE "fpconv.inc"
         INCLUDE "tokens.inc"
 ROMEND  RMB     0
 

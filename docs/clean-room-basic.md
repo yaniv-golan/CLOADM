@@ -149,6 +149,10 @@ programs crunch and list correctly, and give `?FC ERROR` (to be decided, open qu
   is matched through black-box results: printed values of chosen expressions (`1/3`, `2/3`, `10/3*3`, `.1+.2`,
   `1E38*10`, `SQR(2)`, the boundaries of nine-digit printing and of E notation, rounding ties, `-0`, very small numbers).
   Where the model and the original differ in an arithmetic result, the model is changed first, then the ROM.
+* **Scaling by powers of ten:** printing scales the number into `[1E8, 1E9)` and reading a number scales its
+  digits by its decimal exponent, each in steps of `1E9` while far off and then one product or quotient by an exact
+  power of ten (`10^0`-`10^13` are exact in 32 bits), so most numbers see one rounding; repeated steps of 10 printed
+  `1/3` as `.333333334`.
 * **Printing** [UM, BB]: up to nine significant digits, a leading space for a positive number and `-` for a negative
   one, a trailing space after a number in `PRINT`, E notation outside a range (to be pinned by black-box cases:
   `PRINT 1E8, 1E9, .01, .001, 123456789, 1234567890`), the exponent as `E+nn` / `E-nn`.
@@ -318,5 +322,6 @@ Every behaviour fact the ROM relies on, with its source. A fact without a source
 | 10 | Keyword list (statements and functions) | [UM]; token values from the probe [BB] |
 | 11 | SHIFT-0 toggles lower case, shown as inverse; SHIFT-@ pauses; BREAK stops; CLEAR clears the screen; left arrow erases | [UM] |
 | 12 | Number printing: leading space or `-`, trailing space, nine digits, E notation | [UM]; the exact boundaries from [BB] |
+| 13 | The floating-point algorithms (rounding, guard bits, division, scaling by powers of ten) | [OWN], [MBF]; tested bit for bit against `tests/basic/fpmodel.js` (`tests/basic-fp.test.js`) |
 
 The log grows with every milestone; black-box facts are added with the date of the run they came from.
