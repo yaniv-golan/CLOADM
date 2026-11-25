@@ -1,0 +1,12 @@
+# [OWN] the rule from bb1 flow-cont: a new line if the cursor is not at the start of one, then an empty line, then BREAK; provisional until the black-box run
+OK
+10 PRINT "X";:STOP
+RUN
+X
+
+BREAK IN 10
+OK
+STOP
+
+BREAK
+OK

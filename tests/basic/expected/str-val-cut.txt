@@ -1,0 +1,17 @@
+# [OWN] VAL's 0 after the number, left there by an error (the bb1 rule) on a string in string space; provisional until the black-box run
+OK
+10 A$="1E99"+"":B$=A$+"7"
+20 X=VAL(B$)
+RUN
+?OV ERROR IN 20
+OK
+PRINT B$;LEN(B$)
+1E997 5
+OK
+PRINT VAL("12");VAL("1E99")
+ 12
+?OV ERROR
+OK
+PRINT "AFTER"
+AFTER
+OK

@@ -1,4 +1,4 @@
-# [UM] the numeric functions; the values printed are the mathematical ones to nine digits (tests/basic-math.test.js measures the routines); provisional until the black-box run
+# [UM] the numeric functions, [BB bb1] for all but two values; ours differ in the last digit: SQR(1E10) (real 99999.9999: SQR is x^.5, EXP(.5 LOG x), and the real's EXP and LOG err differently), TAN(1) (real 1.55740772) and ATN(1)*4 (real 3.14159266)
 OK
 PRINT SQR(2);SQR(16);SQR(.25);SQ
 R(1E10)

@@ -1,4 +1,4 @@
-# [UM] READ, DATA and RESTORE; [OWN] a bad number in DATA is ?SN ERROR in the DATA's line; provisional until the black-box run
+# [BB bb1] the real ROM's transcript: RESTORE takes no line number (RESTORE 20 is ?SN ERROR); a bad number in DATA is ?SN ERROR in the DATA's line
 OK
 10 DATA 1,2.5,-3E2
 20 DATA HELLO,"A, B",  SPACES  ,
@@ -13,8 +13,7 @@ RUN
  1  2.5 -300
 HELLO/A, B/SPACES  //
  1
-HELLO
-?OD ERROR IN 70
+?SN ERROR IN 60
 OK
 10 DATA 1,X
 20 READ A,B

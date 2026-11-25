@@ -1,4 +1,4 @@
-# [UM] PRINT USING's format characters; [OWN] a 0 before the point when there is room, a - taking a digit's place, E notation's digits; provisional until the black-box run
+# [BB bb1] the real ROM's transcript: in E notation with no + or - in the field, the first # is the sign's place
 OK
 PRINT USING "###.##";3.14159
   3.14
@@ -28,7 +28,7 @@ PRINT USING "###-";5;-5
   5   5-
 OK
 PRINT USING "##.##^^^^";12345
-12.35E+03
+ 1.23E+04
 OK
 PRINT USING "!";"HELLO"
 H

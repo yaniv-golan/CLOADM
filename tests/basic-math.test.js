@@ -66,7 +66,9 @@ function sweep(name, fnName, argGen, exact, { tol, absScale = 0 }) {
   }
   check(`${name}: ${COUNT} arguments within ${tol} units in the last place`, !bad && worst <= tol, `worst ${worst.toFixed(2)} at ${at}${bad ? `; ${bad}` : ''}`);
 }
-sweep('SQR', 'FSQR', (i) => 10 ** (rnd() * 40 - 20), Math.sqrt, { tol: 1 });
+// SQR is x^.5, EXP(.5 LOG x) [BB bb1 fn-math: the original's SQR(1E10) is 99999.9999]: .5 LOG x, up to 23 here, is
+// rounded to 32 bits (up to 2^-28 absolute, 8 units of the result's last place), plus EXP's own 2
+sweep('SQR', 'FSQR', (i) => 10 ** (rnd() * 40 - 20), Math.sqrt, { tol: 10 });
 sweep('LOG', 'FLOG', (i) => 10 ** (rnd() * 60 - 30), Math.log, { tol: 2, absScale: 1 });
 sweep('LOG near 1', 'FLOG', (i) => 0.5 + rnd(), Math.log, { tol: 3, absScale: 0.05 });
 sweep('EXP', 'FEXP', (i) => rnd() * 170 - 85, Math.exp, { tol: 2 });
@@ -87,7 +89,17 @@ sweep('ATN', 'FATN', (i) => Math.tan((rnd() - 0.5) * 3.1), Math.atan, { tol: 4 }
 }
 // exact cases
 const ex = (name, fnName, a, want, b) => { const r = rom1(fnName, packedOf(a), b === undefined ? undefined : packedOf(b)); check(`${name}`, r.st === 'ok' && r.v === want, `${r.st} ${r.v}`); };
-for (const k of [1, 4, 9, 16, 144, 65536, 1e8, 0.25, 0.0625]) ex(`SQR(${k}) is exact`, 'FSQR', k, Math.sqrt(k));
+for (const k of [1, 4, 9, 16, 0.25, 0.0625]) ex(`SQR(${k}) is exact`, 'FSQR', k, Math.sqrt(k));
+{
+  const r = rom1('FSQR', packedOf(1e10));
+  check('SQR(1E10) is not exact: below 100000 by under 5E-9 of it [BB bb1 fn-math]', r.st === 'ok' && r.v < 1e5 && r.v > 1e5 * (1 - 5e-9), `${r.v}`);
+  let same = true, at = '';
+  for (let i = 0; i < 40 && same; i++) {
+    const a = packedOf(10 ** (rnd() * 40 - 20)), s = rom1('FSQR', a), p = rom1('FPOWER', a, packedOf(0.5));
+    if (s.v !== p.v) { same = false; at = `${num(a)}: ${s.v} ${p.v}`; }
+  }
+  check('SQR(x) is x^.5 [BB bb1 fn-math]', same, at);
+}
 ex('SQR(0) = 0', 'FSQR', 0, 0);
 ex('LOG(1) = 0', 'FLOG', 1, 0);
 ex('EXP(0) = 1', 'FEXP', 0, 1);

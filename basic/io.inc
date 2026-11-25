@@ -126,15 +126,9 @@ RD5     LDD     <TXTPTR
         BRA     RD1
 RD6     RTS
 
-* RESTORE [line]: READ starts again from the first DATA (of the program, or from that line on) [UM]
-RESTOR  BEQ     RS9
-        JSR     <ZLINGET
-        JSR     FNDLIN
-        LBCC    ULERR
-        LEAX    -1,X            ; (the 0 at the end of the line before)
-        STX     <DATPTR
-        RTS
-RS9     LDD     <TXTTAB
+* RESTORE: READ starts again from the program's first DATA [UM]. It takes no line number: RESTORE 20 is
+* ?SN ERROR (what follows it is left for the statement runner) [BB bb1 io-data]
+RESTOR  LDD     <TXTTAB
         SUBD    #1
         STD     <DATPTR
         RTS
