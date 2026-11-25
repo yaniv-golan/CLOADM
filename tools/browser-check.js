@@ -10901,10 +10901,16 @@ async function urlChecks(browser, base, check) {
     const Emu = require('../tests/load')();
     const s = new Emu.Session();
     s.switchMachine('dragon64');
-    // fills the text screen with 'A' and loops (the program tests/shared-moment.test.js uses): 14 bytes at $7000
-    s.inject([{ addr: 0x7000, data: Uint8Array.from([0x8E, 0x04, 0x00, 0x86, 0x41, 0xA7, 0x80, 0x8C, 0x06, 0x00, 0x26, 0xF8, 0x20, 0xFE]) }], 0x7000);
+    // fills the text screen with 'A' and loops (the program tests/shared-moment.test.js uses): 14 bytes at $7000, the
+    // BNE going back to the STA ,X+ ($F9, as in the golden fixtures)
+    s.inject([{ addr: 0x7000, data: Uint8Array.from([0x8E, 0x04, 0x00, 0x86, 0x41, 0xA7, 0x80, 0x8C, 0x06, 0x00, 0x26, 0xF9, 0x20, 0xFE]) }], 0x7000);
     for (let i = 0; i < 5; i++) s.shownMachine.runFrame();
     s.shownMachine.poke(0x3000, 0xA7);
+    // the moment made here holds the program's whole screen: every cell $0400-$05FF is $41. A BNE offset one short
+    // ($F8) lands on $7004, the LDA's immediate operand, and the stream misdecodes: X still advances but every other
+    // cell gets $BF, so the screen alternates and the memory marker at $3000 alone cannot tell it from a filled one.
+    const filled = Array.from({ length: 0x200 }, (_, i) => s.readByte(0x400 + i)).every((b) => b === 0x41);
+    check('link: the moment made for the redirect holds the program\'s full screen (every cell $41)', filled);
     const hash = new URL(await s.snapshotLink('https://cloadm.dev/play/')).hash;
     await page.goto(`${new URL('../', base).href}2048/${hash}`);
     await page.waitForURL(/\/play\/\?start=2048/, { timeout: 15000 }).catch(() => {});
