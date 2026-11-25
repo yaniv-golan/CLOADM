@@ -307,7 +307,9 @@ node tools/basic-bb/compare.js real.jsonl ours.jsonl [--shots DIR]
 * **The lint** (`tools/basic-bb/lint.js`, also run by `run.js` and the tests): refuses `EXEC`, `USR`, `DEFUSR`,
   `CLOADM` (except as the tape rule below allows), `CSAVEM` and `VARPTR`, and a `PEEK` or `POKE` whose address is not a literal below 32768 or an
   expression ending in `AND 32767` with no `OR` (computed addresses included), so a case can neither read the ROM nor
-  find a string descriptor to point into it. A line starting with `END:` is not checked (it is never run past the
+  find a string descriptor to point into it. A `# bb-only` probe may also `POKE` the literal addresses 65494-65497
+  (`$FFD6-$FFD9`), the SAM's CPU-rate bits, which change the speed but not the memory map (MC6883 data sheet; the
+  map-type bits `$FFDE-$FFDF` stay refused): the `famous-pokes` probe times a loop at each rate. A line starting with `END:` is not checked (it is never run past the
   `END`); the token probe lists its keywords that way. For graphics (P2 section 12) it also refuses a `PCLEAR` that
   is not a literal 0-9, a `PMODE` start page that is not a literal 1-8 or whose mode's pages do not fit in the pages
   the case reserves (its smallest `PCLEAR`, else 4), a `PCOPY` page outside them, a `POKE` into the cold-start pages

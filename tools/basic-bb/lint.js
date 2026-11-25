@@ -11,7 +11,10 @@
 //     with CLEAR n,top as its first line (top and up): a POKE anywhere else could change BASIC's own pointers, a
 //     string descriptor or the program, and make BASIC show the ROM. A probe file marked "# bb-only" may also POKE to
 //     a "... AND 32767" address: its POKEs are reviewed by hand. In a case with no PCLEAR, a POKE may also write a
-//     literal address in the cold-start graphics pages ($0600-$1DFF), which cannot then overlap the program;
+//     literal address in the cold-start graphics pages ($0600-$1DFF), which cannot then overlap the program. A
+//     "# bb-only" probe may also POKE the literal addresses 65494-65497 ($FFD6-$FFD9): the SAM's CPU rate bits R0
+//     and R1, which set the speed and leave the memory map as it is (MC6883 data sheet: the rate and map-type bits
+//     are separate registers; the map type, $FFDE-$FFDF, stays refused);
 //   * graphics (docs/clean-room-basic-p2.md section 12), so that no picture, PPOINT, POINT or GET can show memory
 //     above $7FFF, whether or not the ROM checks its ranges: PCLEAR's argument not a literal 0-9; PMODE's start page
 //     not a literal 1-8, or the mode's pages (1, 2, 2, 4, 4; 4 for a mode that is not a literal 0-4) not within the
@@ -245,7 +248,7 @@ function lintCase(text, { tapes = TAPES } = {}) {
     }
     for (let p = s.indexOf('POKE'); p >= 0; p = s.indexOf('POKE', p + 4)) {
       const addr = addrArg(s, p + 4), v = addr == null ? null : literal(addr);
-      const ok = v != null ? (v >= 0x400 && v < 0x600) || (v >= 0x600 && v < gfxEnd) || (top != null && v >= top && v < 0x8000) : bbOnly && addr != null && maskedOk(addr);
+      const ok = v != null ? (v >= 0x400 && v < 0x600) || (v >= 0x600 && v < gfxEnd) || (top != null && v >= top && v < 0x8000) || (bbOnly && v >= 0xFFD6 && v <= 0xFFD9) : bbOnly && addr != null && maskedOk(addr);
       if (!ok) problems.push(`${where}: POKE ${addr == null ? '?' : addr}: only to the text screen ($0400-$05FF), the cold-start graphics pages ($0600-$1DFF) in a case with no PCLEAR, or above the top a first line CLEAR n,top set aside`);
     }
   }
