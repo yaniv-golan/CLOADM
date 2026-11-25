@@ -1881,6 +1881,8 @@ export class Session {
     return p ? p.name : m.profile.name.replace(/^Tandy /, '');
   }
   async sharePicture(name, m = this.shownMachine) {
+    // a level converted from the person's own WAD is id Software's game data: its picture is not handed out
+    if (this.romCodeIn(m) === 'userdata') throw new SessionError(WYRMFIRE_TEXT.userPicture);
     return encodeIndexedPng(shareCardPicture(m.render(), { name: name || this.shareCardName(null, m) }));
   }
   async previewPicture(m = this.shownMachine, name = null) {
