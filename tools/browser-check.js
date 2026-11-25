@@ -697,6 +697,8 @@ const keysTaken = async (page) => { await waitFor(page, () => window.emu.machine
 // an app-bar item that may be folded away: behind Menu (a phone, a narrow window) or in More ▾ (a desktop: Debugger,
 // Commands…, Help, GitHub, Install CLOADM…). Press it, opening whichever holds it first
 const pressNav = async (page, sel) => {
+  // (the page has placed its links: the item, Menu or More ▾ is drawn)
+  await page.waitForFunction((sel) => [sel, '#btnMenu', '#btnMore'].some((q) => document.querySelector(q)?.checkVisibility()), sel);
   if (!await page.isVisible(sel)) {
     if (await page.isVisible('#btnMenu')) await page.click('#btnMenu');
     else if (await page.isVisible('#btnMore')) await page.click('#btnMore');
@@ -9615,7 +9617,7 @@ async function readingChecks(browser, site, check) {
         return pages.every((t) => t.includes('css/reading.css') && (t.match(/ style="/g) || []).length <= 4);
       }));
       await page.goto(site + 'play/');
-      await page.click('nav a[href="help/"]');
+      await pressNav(page, '#navHelp');
       check('the emulator\'s header links Help', await waitFor(page, () => location.pathname === '/help/'));
       await page.goto(site); await page.click('text=Where do I get ROMs?');
       check('landing: "Where do I get ROMs?" opens /roms', await waitFor(page, () => location.pathname === '/roms/'));
@@ -16543,12 +16545,12 @@ async function backFocusChecks(browser, base, check) {
   for (const [name, id, back, open] of VIEWS) {
     for (const [how, close] of Object.entries(closeBy)) {
       await load('?machine=dragon64');
-      await page.click(open); await waitFor(page, (id) => !document.getElementById(id).hidden, id);
+      await pressNav(page, open); await waitFor(page, (id) => !document.getElementById(id).hidden, id);
       await close(back);
       check(`back focus: emulator → ${name} → ${how}: the focus is on the screen`, await onEmulator() && await waitFor(page, () => document.activeElement.id === 'screen'), await focusId());
       await load('?machine=dragon64');
       await openChat(); await tag();
-      await page.click(open); await waitFor(page, (id) => !document.getElementById(id).hidden, id);
+      await pressNav(page, open); await waitFor(page, (id) => !document.getElementById(id).hidden, id);
       await close(back);
       const shown = await onEmulator() && await waitFor(page, (mark) => { const a = document.getElementById('ask'); return !a.hidden && document.body.classList.contains('ask-open') && window.emu.session.chat === window.__focusChat
         && document.getElementById('askMessages').textContent.includes(mark); }, MARK);
@@ -16560,7 +16562,7 @@ async function backFocusChecks(browser, base, check) {
     for (const query of ['?machine=dragon64', '?machine=dragon64&app=claude']) {
       await load(query);
       if (!/app=claude/.test(query)) await openChat();
-      await page.click(open); await waitFor(page, (id) => !document.getElementById(id).hidden, id);
+      await pressNav(page, open); await waitFor(page, (id) => !document.getElementById(id).hidden, id);
       await page.reload(); await started(page);
       const reloaded = await waitFor(page, (id) => !document.getElementById(id).hidden, id);
       await page.goBack();
