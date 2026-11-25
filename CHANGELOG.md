@@ -259,6 +259,11 @@ Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.
 
 #### Fixed
 
+- **`cloadm --type` no longer loses keys on a busy BASIC.** With ROMs it typed at a fixed rate, so lines typed back to back into
+  a BASIC busy storing the line before lost the first key of the next (typing a listing, line 200 became line 0). It now types as
+  Claude's `type_text` does, holding each key until the machine has read it and waiting for the machine to read the keyboard again
+  after an ENTER; a machine that stops reading fails the step `keys-not-taken`, saying how many keys it took. The built-in firmware
+  (no ROMs) is typed to as before.
 - **The Dragon 64's (and the Dragon 200, 200-E, Tano, 64 Plus and Alpha's) serial port with nothing plugged in reads as MAME's does.** CTS, DSR and DCD idle high there (MAME's `dragon64`
   fits no RS-232 device), so the 6551's status register reads $60 (DSR and DCD set) and the transmit-empty bit never reads 1: a
   program that sends a byte with no device on the port waits, as it does under MAME. It read $10 before (TDRE
