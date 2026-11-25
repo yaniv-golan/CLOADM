@@ -280,7 +280,9 @@ export function setupShare(page, { linkStore }) {
     $('shareWhen').textContent = whenText(captured);
     syncLongNote();   // (it calls syncPrimary(), which sets the primary's own note)
     const rom = $('shareRom'), extra = $('shareExtra');
-    rom.textContent = ''; rom.classList.remove('warn'); extra.textContent = '';
+    // (the ROM line's two spans are cleared, not the line: the next ordinary capture writes into them)
+    $('shareRomFull').textContent = ''; $('shareRomBrief').textContent = ''; rom.removeAttribute('title');
+    rom.classList.remove('warn'); extra.textContent = '';
     setShots(own, WYRMFIRE_TEXT.userClips);
     syncEmbed(m.id);
   }
@@ -517,7 +519,7 @@ export function setupShare(page, { linkStore }) {
     page.toast(`Saved ${captured.file.name}`, { details: 'Drop it on CLOADM to restore it.' });
   };
   // the share card of the captured frame (capture() drew it)
-  $('btnShareShot').onclick = () => page.download(`${captured.base}.png`, captured.card, 'image/png');
+  $('btnShareShot').onclick = () => { if (captured && captured.card) page.download(`${captured.base}.png`, captured.card, 'image/png'); };
 
   // the clip: the screen as it plays (from now), recorded for CLIP_SECONDS
   const kind = clipType();

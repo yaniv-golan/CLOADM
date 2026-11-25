@@ -166,6 +166,10 @@ Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.
 
 #### Fixed
 
+- **Share works again after WYRMFIRE.** Sharing during WYRMFIRE, going back and sharing another moment threw on the ROM
+  line, and the Share screen stayed blank. The WYRMFIRE capture now clears the line's text and leaves the line itself.
+  "Save picture" does nothing before a moment has been captured, and the picture of a level from your own WAD is refused
+  at the Session as well as on the page.
 - **A snapshot's config is checked, not trusted.** A moment's machine and config (from a file, a slot or a link) must be
   the keys its model takes, each with one of its values, and a link's has `mameCompat` off; anything else is a damaged
   snapshot. A moment that switches the machine remembers only the model's own options as its config, never `mameCompat`

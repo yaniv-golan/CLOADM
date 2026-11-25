@@ -11489,6 +11489,15 @@ async function wyrmfireChecks(browser, site, check) {
     if (shotDir) await page.screenshot({ path: path.join(shotDir, 'wyrmfire-playing.png') });
     check('wyrmfire: the snapshot slots are off, said in their muted line', await page.evaluate(() => document.getElementById('slotNote').textContent === 'Snapshots are off while WYRMFIRE runs.'
       && [...document.querySelectorAll('#slotList button')].filter((b) => /^Take snapshot/.test(b.getAttribute('aria-label'))).every((b) => b.disabled)));
+    // "Save picture" before anything is captured (Share never opened): nothing to save, nothing thrown
+    {
+      const before = errors.length;
+      let saved = false; const onDownload = () => { saved = true; }; page.on('download', onDownload);
+      await page.evaluate(() => document.getElementById('btnShareShot').click());
+      await page.waitForTimeout(400);
+      page.off('download', onDownload);
+      check('wyrmfire: "Save picture" before Share has captured anything saves nothing and throws nothing', !saved && errors.length === before, JSON.stringify({ saved, errors: errors.slice(before) }));
+    }
     // Share: the link, the note, the Freedoom credit on the files
     await page.click('#btnShare');
     await waitFor(page, () => location.hash === '#share' && document.getElementById('shareLink').value !== '');
@@ -11540,6 +11549,24 @@ async function wyrmfireChecks(browser, site, check) {
     check('wyrmfire: the Freedoom screenshot says so: "-freedoom" in its name, "Level: Freedoom (BSD)" in the PNG', /-freedoom\.png$/.test(dl.suggestedFilename())
       && shotPng.includes(Buffer.from('tEXtComment\0WYRMFIRE Level: Freedoom (BSD)')), dl.suggestedFilename());
     await page.goBack();
+    // Share during WYRMFIRE, back, a program loaded over it, Share again: the second capture writes the ROM line's two
+    // spans, which the WYRMFIRE capture must have cleared and not removed (it once wiped their parent, and the next
+    // Share threw on the missing span)
+    {
+      const before = errors.length;
+      await page.evaluate(() => window.emu.session.switchMachine('coco', {}, { menu: false }));   // (anything else: the game is gone, an ordinary machine is shared)
+      await emuFrames(page, 5);
+      await page.evaluate(() => window.emu.session.shownMachine.poke(1030, 42));   // (no longer an untouched program: an ordinary moment)
+      await page.click('#btnShare');
+      await waitFor(page, () => location.hash === '#share' && document.getElementById('shareLink').value !== '', null, 8000);
+      const rom = await page.evaluate(() => ({ spans: !!document.getElementById('shareRomFull') && !!document.getElementById('shareRomBrief'),
+        full: (document.getElementById('shareRomFull') || {}).textContent, brief: (document.getElementById('shareRomBrief') || {}).textContent, shown: document.getElementById('shareRom').checkVisibility(),
+        name: document.getElementById('shareName').textContent, why: document.getElementById('primaryWhy').textContent, link: document.getElementById('shareLink').value.slice(0, 40), hash: location.hash }));
+      check('wyrmfire: Share again after WYRMFIRE, on another machine, throws nothing and says "Runs without ROMs, so it opens for anyone." on the ROM line',
+        errors.length === before && rom.spans && rom.full === 'Runs without ROMs, so it opens for anyone.' && rom.brief === 'Runs without ROMs.' && !/^WYRMFIRE/.test(rom.name),
+        JSON.stringify({ errors: errors.slice(before), rom }));
+      await page.click('#shareBack');
+    }
     // the palette
     await page.keyboard.press('Control+k');
     await waitFor(page, () => !document.getElementById('cmdBox').hidden);
