@@ -1,6 +1,6 @@
-# bb-only: CLS with a colour [UM: CLS c, c 0-8], found in most corpus programs. A picture of each colour; text
-# printed after a coloured CLS (does a carriage return blank the rest of its line, or keep the colour?); and
-# colours past 8, which the manual does not give (our provisional answer is ?FC ERROR).
+# bb-only: CLS with a colour [UM: CLS c, c 0-8], found in most corpus programs. A picture of each colour; and text
+# printed after a coloured CLS (does a carriage return blank the rest of its line, or keep the colour?). Colours
+# past 8 are in screen-cls-range, a local-only case: on the original they print ROM text.
 CLS
 #screenshot cls
 CLS 0
@@ -24,8 +24,4 @@ CLS 8
 CLS 3:PRINT "HI":PRINT "THERE";
 #screenshot cls3-text
 CLS
-CLS 9
-CLS 255
-CLS 256
-CLS -1
 PRINT "DONE"

@@ -299,5 +299,27 @@ for (const good of ['PCLEAR 1', 'PCLEAR 0', 'PCLEAR 9', 'PMODE 4,1', 'PMODE 0,4'
   check('boot banner: and the screen held none of it even then (blanked from outside first)', screenAfter && !screenAfter.join('\n').includes(BANNER), JSON.stringify(screenAfter));
 }
 
+// ---- local-only cases: never written to a results file ----
+// a case whose output may hold ROM text (CLS past 8 prints the original's hidden message) runs only with --local,
+// and only its shape is printed: the lines typed, OK, blank lines and error codes; any other line as <text N>
+{
+  const { localShape } = require('../tools/basic-bb/run.js');
+  const caseText = '# local-only\nCLS 9\nPRINT "DONE"\n';
+  const shape = localShape(['OK', 'CLS 9', '(C) SOME ROM TEXT', '', 'OK', 'PRINT "DONE"', 'DONE', '?FC ERROR IN 20', 'OK'], caseText);
+  check('localShape: ROM text hidden, the rest kept', JSON.stringify(shape) === JSON.stringify(['OK', 'CLS 9', '<text 17>', '', 'OK', 'PRINT "DONE"', '<text 4>', '?FC ERROR IN 20', 'OK']), JSON.stringify(shape));
+  const fs = require('fs'), os = require('os'), path = require('path'), { execFileSync } = require('child_process');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bb-local-'));
+  fs.writeFileSync(path.join(dir, 'loc.bas'), '# bb-only\n# local-only\nPRINT "SECRET"\n');
+  fs.writeFileSync(path.join(dir, 'pub.bas'), 'PRINT "PUBLIC"\n');
+  const run = (extra) => execFileSync(process.execPath, [path.join(__dirname, '../tools/basic-bb/run.js'), '--ours', '--cases', dir, '--out', path.join(dir, 'o.jsonl'), ...extra], { encoding: 'utf8' });
+  run([]);
+  const written = fs.readFileSync(path.join(dir, 'o.jsonl'), 'utf8');
+  check('local-only: skipped without --local, the others written', !written.includes('SECRET') && written.includes('PUBLIC') && written.split('\n').filter(Boolean).length === 1);
+  const printed = run(['--local', '--only', 'loc']);
+  const written2 = fs.readFileSync(path.join(dir, 'o.jsonl'), 'utf8');
+  check('local-only with --local: nothing written, only its shape printed', written2 === '' && printed.includes('<text 6>') && !/^\s*SECRET$/m.test(printed), printed);
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
 console.log(`\n${n - fail}/${n} passed`);
 process.exitCode = fail ? 1 : 0;

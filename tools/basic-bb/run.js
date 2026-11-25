@@ -5,6 +5,7 @@
 //
 //   node tools/basic-bb/run.js --rom FILE [--cases DIR] [--only a,b] --out results.jsonl
 //   node tools/basic-bb/run.js --ours ...          our clean-room BASIC, assembled from basic/
+//   ... --local --only NAME                       also run a local-only case: its shape is printed, never written
 //
 // --rom is the 16K image for the Dragon 64's "basic" socket (the 32K-mode BASIC, d64_1). --cases is a folder of
 // .bas case files (default tests/basic/cases); every case is linted first (tools/basic-bb/lint.js) and a case that
@@ -40,6 +41,15 @@ function main() {
     const name = f.replace(/\.bas$/, '');
     if (only && !only.has(name)) continue;
     const text = fs.readFileSync(path.join(dir, f), 'utf8');
+    // a local-only case (its output may hold ROM text, such as a hidden message) is never written to the results
+    // file: it runs only with --local, and its transcript is printed as its shape (localShape)
+    if (/^# local-only\b/m.test(text)) {
+      if (!args.includes('--local')) { if (only) console.log(`skipped  ${name} (local-only: run it with --local; its shape is printed, never written)`); continue; }
+      const r = runCase(rom, text);
+      console.log(`${r.status.padEnd(8)} ${name} (local-only, not written to ${out}):`);
+      for (const l of localShape(r.transcript, text)) console.log(`  ${l}`);
+      continue;
+    }
     const problems = lintCase(text);
     if (problems.length) { console.error(`${name}: refused by the lint:\n  ${problems.join('\n  ')}`); failed++; continue; }
     const r = runCase(rom, text);
@@ -51,4 +61,17 @@ function main() {
   console.log(`${lines.length} cases written to ${out}`);
   process.exitCode = failed ? 1 : 0;
 }
-main();
+
+// A local-only case's transcript reduced to its shape, with no text that BASIC printed: the lines the case typed
+// (its own text), OK, an empty line and an error line's code stay; any other line becomes <text N> (its length).
+function localShape(transcript, caseText) {
+  const typed = new Set(caseText.split(/\r?\n/).filter((l) => l && !l.startsWith('#')).map((l) => l.trim()));
+  return transcript.map((l) => {
+    if (l === '' || l === 'OK' || typed.has(l.trim())) return l;
+    const e = /^\?([A-Z0-9/]{2}) ERROR( IN \d+)?$/.exec(l);
+    if (e) return l;
+    return `<text ${l.length}>`;
+  });
+}
+module.exports = { localShape };
+if (require.main === module) main();
