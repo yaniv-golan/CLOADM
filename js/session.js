@@ -84,7 +84,7 @@ import { writeZip } from './media/zip.js';
 import { programPage } from './program-pages.js';
 import { sealMoment, openMoment } from './media/link-crypto.js';
 import { encodeIndexedPng } from './media/png.js';
-import { cardPicture } from './video/card.js';
+import { shareCardPicture } from './video/bezel.js';
 import { SNAPSHOT_EXT, SnapshotError, decodeSnapshot, decodeLongLink, encodeSnapshot, encodeLongLink } from './media/snapshot.js';
 import { missingImages, restoreRoms, stripRoms } from './media/romrefs.js';
 import { crc32, hex, registry, toBase64Url, fromBase64Url } from './util.js';
@@ -1800,25 +1800,36 @@ export class Session {
     if (why === 'cartridge') return 'Not with a cartridge plugged in: short links are only for machines running without ROMs or cartridges. The long link works.';
     return null;
   }
-  // the preview picture a short link may carry: the screen as a 1200 x 630 card (js/video/card.js), an indexed PNG
-  // -> bytes, or null when this picture can't be one (more than SHORT_PNG.colours colours, or larger than SHORT_PNG.bytes)
-  async previewPicture(m = this.shownMachine) {
-    const card = cardPicture(m.render());
-    if (card.palette.length > Session.SHORT_PNG.colours) return null;
+  // The share card (js/video/bezel.js shareCardPicture): the machine's picture at true pixels in the CRT frame, the
+  // program's or machine's name beside it and "cloadm.dev" on its lip, 1200 x 630. One renderer for both of its uses:
+  //  - sharePicture: the Share screen's "Save picture", every colour the frame's own -> PNG bytes;
+  //  - previewPicture: the preview a short link may carry, an indexed PNG of at most SHORT_PNG.colours colours and
+  //    SHORT_PNG.bytes -> bytes, or null when this picture can't be one (its colours don't all fit, or it is too large).
+  // name: what the card says beside the monitor (shareCardName)
+  shareCardName(base, m = this.shownMachine) {
+    const p = base ? this.bundledProgram(base, m) : null;
+    return p ? p.name : m.profile.name.replace(/^Tandy /, '');
+  }
+  async sharePicture(name, m = this.shownMachine) {
+    return encodeIndexedPng(shareCardPicture(m.render(), { name: name || this.shareCardName(null, m) }));
+  }
+  async previewPicture(m = this.shownMachine, name = null) {
+    const card = shareCardPicture(m.render(), { name: name || this.shareCardName(null, m), colours: Session.SHORT_PNG.colours });
+    if (!card.exact) return null;
     const png = await encodeIndexedPng(card);
     return png.length <= Session.SHORT_PNG.bytes ? png : null;
   }
   // The moment on screen as a short link (Share): sealed in this browser (js/media/link-crypto.js), stored by `store`
-  // (js/host/link-store.js), its key only in the link's fragment -> { url, id, deleteToken, picture: whether the
+  // (js/host/link-store.js), its key only in the link's fragment; name: the share card's (shareCardName) -> { url, id, deleteToken, picture: whether the
   // preview went with it, pictureNote: why not when it was asked for and couldn't }. SessionError when this moment
   // can't have one (shortLinkRefusal), is too large, or the store refused (its message).
-  async shortLink(store, { preview = true, now = new Date(), file = null } = {}) {
+  async shortLink(store, { preview = true, now = new Date(), file = null, name = null } = {}) {
     const m = this.shownMachine, why = this.shortLinkRefusal(m);
     if (why) throw new SessionError(why);
     const f = file || await this.shareFile(now);
     const { key, sealed } = await sealMoment(f.bytes);
     if (sealed.length > Session.SHORT_SEALED_MAX) throw new SessionError(`This moment is too large for a short link (${Math.ceil(sealed.length / 1024)} KB; the most is ${Session.SHORT_SEALED_MAX / 1024} KB). The long link works.`);
-    const png = preview ? await this.previewPicture(m) : null;
+    const png = preview ? await this.previewPicture(m, name) : null;
     let r;
     try { r = await store.create({ machine: m.id, sealed, png }); }
     catch (e) { throw new SessionError(e.message); }

@@ -183,6 +183,7 @@ node tests/long-link.test.js # share links' #z= form: hand-built vectors, every 
 node tests/program-pages.test.js # the program pages and cards are what tools/program-cards.js makes; PNG and card vectors
 node tests/short-link.test.js # short links on the page's side: sealing, the store over a mocked fetch, the key never sent, guardrails
 node tests/share-one-link.test.js # the Share screen's "one link": an untouched bundled program gives its page; every way in (a key, a typed line, a poke, an assembled program, a tape, a disk, BREAK) makes it a moment, its own running does not
+node tests/share-card.test.js     # the share card (Save picture, a short link's preview): 1200x630, every picture pixel frameToRGBA's, the name drawn glyph by glyph
 node tests/shortlink-worker.test.js # the short-link Worker in Node against an in-memory bucket: every check, limit, kill switch and count
 node tests/qr.test.js         # the QR encoder against ISO 18004's worked example and tables, every symbol read back
 node tests/press-break.test.js # BREAK delivery: our own firmware scans the matrix on dragon64, coco3 and mc10

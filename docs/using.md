@@ -126,7 +126,7 @@ The [README](../README.md#what-works) has the short version of this table.
 | **Games** | 2048 and Minesweeper, written for CLOADM, on every 6809 model with 32K or more, with or without ROMs ([details](#games)) | |
 | **Input** | Keyboard in two modes (translated: the character typed; positional: the physical key), keyboard joystick, gamepads (two joysticks, dead zone), the Tandy and CoCo Max 3 Hi-Res interfaces, the CoCo 3 "The Rat" mouse, the CoCo Max Hi-Res module, mouse as the right joystick; an on-screen keyboard on phones and tablets (split for the thumbs when held sideways) and a touch joystick with FIRE, a tappable welcome menu | |
 | **Tools** | Assembler, Debugger, snapshots, POKE book; a command line, MCP server and Node API for CI and agents ([Automation](automation.md), [MCP](mcp.md)) | Step back (rewind) |
-| **Links, embedding, offline** | Every setting as a URL parameter (machine, RAM, CPU, a program, tape, cartridge or disk to load, display, input); the Share screen's one **Copy link**: an untouched bundled program gives its page (`cloadm.dev/2048/`), otherwise a short link (`s.cloadm.dev/<id>#<key>`, about 50 characters, sealed in your browser, with a QR code and an optional public preview picture; online and without ROMs), or the long link where a short one can't be made; under "More ways to share" the long link ("Long link (works offline; nothing is uploaded)"), "Always use long links", a 6-second clip, a true-pixel screenshot and the snapshot file, plus the embed code for a blog post; whoever opens a shared moment gets an arrival card (Start from the beginning, Send it back); embed mode with a JavaScript API; works offline once visited; **Install CLOADM…** in the app bar, beside Help (behind **Menu** on a phone), runs the browser's own prompt where there is one and shows the steps elsewhere, with a one-time offer once a program has run a minute; settings export and import (never ROMs) | A touch keyboard in embeds |
+| **Links, embedding, offline** | Every setting as a URL parameter (machine, RAM, CPU, a program, tape, cartridge or disk to load, display, input); the Share screen's one **Copy link**: an untouched bundled program gives its page (`cloadm.dev/2048/`), otherwise a short link (`s.cloadm.dev/<id>#<key>`, about 50 characters, sealed in your browser, with a QR code and an optional public preview picture; online and without ROMs), or the long link where a short one can't be made; **Save picture** (the share card: the true-pixel picture in a CRT monitor with its name and cloadm.dev) and **Save clip** (6 seconds) beside Copy link on a desktop; under "More ways to share" the long link ("Long link (works offline; nothing is uploaded)"), "Always use long links" and the snapshot file (and on a phone Save picture and Save clip); a phone held sideways gets a two-column Share screen; plus the embed code for a blog post; whoever opens a shared moment gets an arrival card (Start from the beginning, Send it back); embed mode with a JavaScript API; works offline once visited; **Install CLOADM…** in the app bar, beside Help (behind **Menu** on a phone), runs the browser's own prompt where there is one and shows the steps elsewhere, with a one-time offer once a program has run a minute; settings export and import (never ROMs) | A touch keyboard in embeds |
 
 ### Games
 
@@ -372,8 +372,8 @@ reload, when the chat ends or when you switch machine. See [claude.md](claude.md
 
 **Share** in the header takes a snapshot: the machine, its RAM, CPU, chips, the tape in the deck and
 the cartridge, and the picture. **Download snapshot** saves it as a `.cloadm` file; drop the file on the screen
-(or pick it with **Open…**) to restore it. **Screenshot** saves the picture at the machine's true
-pixels.
+(or pick it with **Open…**) to restore it. **Save picture** saves the share card: the picture at the machine's true
+pixels in a CRT monitor, the program's or machine's name beside it and "cloadm.dev" on it (1200x630 PNG).
 
 A snapshot never contains ROMs, only the CRC of each ROM it ran with. Opening one needs exactly those ROMs in this
 browser (or none, if it ran without ROMs); otherwise CLOADM says which ROM it needs and opens the snapshot as
@@ -397,13 +397,17 @@ Snapshots); loading one works like opening a snapshot file.
 
 The **Share screen** has one job: send this exact moment to someone. The app bar's **Share** opens it. **Share…** (where the browser has a
 share sheet; it hands over the link only) or **Copy link** is the main button, and Copy link stays beside Share… because a link
-with a snapshot can pass 1000 characters and some share targets cut it short. Under **More ways to share**: a 6-second clip,
-a true-pixel screenshot and the snapshot file (its size is on the button); under **Embed in a web page**: the embed code. A
+with a snapshot can pass 1000 characters and some share targets cut it short. **Save picture** (the share card: the
+picture at true pixels in a CRT monitor, the program's or machine's name and "cloadm.dev", 1200x630, the same picture a
+short link's preview shows) and **Save clip** (6 seconds of the screen) sit beside Copy link on a desktop; on a phone, and
+on a phone held sideways, they are under **More ways to share**, with the snapshot file (its size is on the button). Under
+**Embed in a web page**: the embed code. After a tap, the field the tap made (the short link, or the long link) is
+scrolled into view and focused. A
 line under the picture says what the link does, and a ROM line says whether the person opening it needs their own ROMs. While NitrOS-9 runs
 the link starts NitrOS-9 fresh instead (no snapshot file). The link there, the long link, carries the moment itself (the snapshot rides in the
 fragment after `#z=`, which browsers never send to a server: a version byte, then the snapshot packed with deflate,
 its byte arrays raw rather than in base64, and without the rendered picture, which the machine draws again on the first
-frame after it opens; about 2 to 8 KB, LIZA's about 5 KB). `#z=` is the only long-link form: saved `.cloadm` files are unchanged, and a link made by a pre-launch build (which wrote the snapshot file itself after `#s=`) gets the page's clear "This share link couldn't be read." refusal. The embed builder writes the iframe and script for the machine, program and options you pick.
+frame after it opens; about 2 to 8 KB, LIZA's about 5 KB). `#z=` is the only long-link form: saved `.cloadm` files are unchanged, and a link made by v0.2.0 or earlier (which wrote the snapshot file itself after `#s=`) gets the page's clear "This share link couldn't be read." refusal. The embed builder writes the iframe and script for the machine, program and options you pick.
 
 **One link.** The Share screen offers one **Copy link** (with **Share…** beside it where the browser has a share sheet).
 What a tap gives depends on what is on screen:
@@ -411,7 +415,7 @@ What a tap gives depends on what is on screen:
 * **A bundled program nobody has touched since it started** (2048, LIZA, Minesweeper, opened from its page or the menu
   and not yet played) has nothing of its own to send: the tap copies its **program page** (`cloadm.dev/2048/` and so on)
   and the line under the picture says "Opens 2048 from the start, for anyone. The snapshot link below keeps this exact
-  moment." — said once, there, not again under the button; the picture's caption reads "2048 · Dragon 64". The program
+  moment." — said once, there, not again under the button, and with no ROM line (a program page never needs ROMs); the picture's caption reads "2048 · Dragon 64". The program
   page itself is all that is shared: the tap uploads nothing. Press a key, move the joystick, type a line, load
   something, or let a tool change memory, and it is a moment from then on.
 * **Otherwise a short link**, made on the tap: `https://s.cloadm.dev/<id>#<key>`, about 50 characters, copied for you,
@@ -428,6 +432,13 @@ What a tap gives depends on what is on screen:
   the long link…"). A bundled program that has been played keeps the moment's short link, and **More ways to share** adds
   **Link to &lt;program&gt; from the start** for its page. **Copy never leaves you with nothing**: if the browser refuses
   the clipboard, the link is shown selected with "Press Ctrl+C to copy the link".
+
+**A phone held sideways** (a screen at most 420px tall in landscape) gets its own Share layout: the picture on the left
+(at most 40% of the width, 30% under 300px of height, with its caption one line under it), and on the right a column that
+scrolls on its own: the heading, Copy link (+ Share…), the ROM line in one line ("Needs your Dragon 64 ROMs to open." or
+"Runs without ROMs."; the full sentence is its tooltip and what a screen reader reads), the short link's cloadm.dev note,
+the preview-picture switch, the link a tap made with its QR, the line saying what the link opens, then **More ways to
+share** and **Embed in a web page**. A desktop and a phone held upright keep their layout.
 
 **Long links.** **More ways to share** always holds the long link — **Long link (works offline; nothing is uploaded)**,
 with its field and Copy, and the note "Holds the whole moment in the address; nothing is uploaded." The checkbox **Always
