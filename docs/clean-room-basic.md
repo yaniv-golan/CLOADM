@@ -62,8 +62,8 @@ These are hard rules for everyone who works on this ROM.
     `CHKCOM`, `USCHR`, `EVNUM`) each have a `JMP` at the top of the direct page (`ZTRAMP`, `$E2-$FF`), so a call is
     `JSR <ZCHRGET`: two bytes for three, and three cycles more. `tools/build-basic.js` fails if the direct-page
     variables reach them.
-  * **Scratch bytes shared.** `ON`'s and `RENUM`'s work uses `PRINT USING`'s bytes; `SQR`, `LOG`, `EXP`, `SIN` and
-    `ATN` share one byte; `RND`'s product is in `PROD`. Each is used inside one statement or function that finishes
+  * **Scratch bytes shared.** `ON`'s and `RENUM`'s work uses `PRINT USING`'s bytes; `LOG`, `EXP`, `SIN` and `ATN`
+    share one byte; `RND`'s product is in `PROD`. Each is used inside one statement or function that finishes
     before another of them starts (`d64basic.asm` says so at each).
   * **`FPRUN`** (`mathfn.inc`) runs a list of one-byte steps (store, load, multiply, add, divide, subtract, each
     with a temporary or a constant), in place of a load and a call for each step. The numeric functions do the same
@@ -439,6 +439,14 @@ Every behaviour fact the ROM relies on, with its source. A fact without a source
 | 20 | A text (ASCII) program is its `LIST` text, lines ended by a carriage return, in gapped blocks (the motor stops between them) | [FMT] |
 | 21 | Our writer: 128 leader bytes before every block and one `$55` after it; a square wave on the DAC; half a second of motor run before the first block | [FMT] for the block layout, which the repository's encoder (`buildCas`) also writes; the counts and the wave are [OWN] constants (`CLEADN`, `CDELAY`), open question 10 |
 | 22 | The cassette hardware: the DAC (PIA 1 port A bits 2-7) drives the output, PA0 reads the input, CA2 runs the motor; the CPU clock is 888625 Hz | [HW] `js/machines/cocopia.js`, the machine's `tickHz` |
+| 24 | `BREAK IN n` follows an empty line, after `STOP` and after BREAK (in a program and in `INPUT`); an error message does not. Ours: a new line if the cursor is not at the start of one, then an empty line (whether the real prints one empty line or two after output that leaves the cursor mid-line is open: case `flow-stop-col`) | [BB] bb1, `flow-cont` (and `io-data`, `review-fixes` for errors) |
+| 25 | `CONT` after a program ran off its end is no error: it ends again (`OK`) | [BB] bb1, `flow-cont` |
+| 26 | `SQR(x)` is not a square root rounded once: `SQR(1E10)` prints `99999.9999`; ours is `x^.5`, `EXP(.5 LOG x)`, which prints the other observed values as the real does (`SQR(2)`, `SQR(16)`, `SQR(.25)`, `2^.5`, `9^.5`). The real's own `LOG` and `EXP` err differently in the last bits (ours prints `100000`; case `fn-sqr-bits` reads the low digits) | [BB] bb1, `fn-math` |
+| 27 | `DEF FN` with a string name (`DEF FN A$(X)=...`) is `?TM ERROR` when the `DEF` runs | [BB] bb1, `fn-misc` |
+| 28 | `RESTORE` takes no line number: `RESTORE 20` is `?SN ERROR`; a bad number in `DATA` is `?SN ERROR` in the `DATA`'s line | [BB] bb1, `io-data` |
+| 29 | `PRINT USING` E notation: with no `+` or `-` in the field, the first `#` is the sign's place (a space or `-`): `"##.##^^^^";12345` is ` 1.23E+04`. Fields of more than nine digits print garbage on the real (`%1000000000E-10`, then `?SN ERROR IN 0`); ours keep `?FC ERROR` | [BB] bb1, `print-using`, `review-fixes` |
+| 30 | `VAL` puts a 0 after its string while it reads the number and an error leaves it there: after `40 X=VAL("1E99")` overflows, `LIST 40` shows `40 X=VAL("1E99` | [BB] bb1, `review-fixes` |
+| 31 | `PRINT @n, USING ...` | [UM] (both forms documented); found by the corpus programs |
 
 The log grows with every milestone; black-box facts are added with the date of the run they came from.
 
