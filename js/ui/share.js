@@ -28,6 +28,14 @@
  * A short landscape screen (a phone on its side, at most 420px tall) has its own layout (play/index.html): the picture
  * on the left, the right column scrolling on its own, the ROM line in one line (its full sentence the line's title and
  * what assistive technology reads).
+ * Launch-prep additions: with ROMs in use, "This link holds no part of your ROMs. Whoever opens it needs their own:
+ * <needs>." above the ROM line (js/share-text.js romFreeLine; hidden in the short-landscape layout, whose ROM line is
+ * one line by design). "Save GIF" (the machine's own frames at true pixels scaled 2x, no CRT look, GIF_SECONDS long,
+ * looping: js/media/gif.js) is first in "More ways to share"'s save row. The GIF follows the stage's WYRMFIRE rules as the
+ * picture and the clip do (setShots): off, its reason beside it, for the person's own WAD's level; a GIF of the Freedoom
+ * level carries "-freedoom" in its name and the level's credit in its comment. "Copy as text for a forum" (collapsed, before "Embed in a web page"): the
+ * link with a one-line description as BBCode and as Markdown (js/share-text.js forumText), text only; its link never
+ * uploads (forumUrl): the short link a Copy-link tap made, else an untouched program's page, else the long link.
  * "Embed in a web page" (collapsed): the iframe and script for a blog post, written by js/config.js (buildUrl) from the
  * machine, program and options chosen here ("Offer 'Ask Claude ↗'" adds askclaude=1: the embed's corner chip).
  * (The settings export/import lives on the Machine tab: js/ui/settings-file.js.)
@@ -45,6 +53,8 @@
 import { profiles } from '../machines/profiles.js';
 import { buildUrl } from '../config.js';
 import { needsLine } from '../media/romrefs.js';
+import { romFreeLine, forumText } from '../share-text.js';
+import { gifFromFrames } from '../media/gif.js';
 import { CanvasPresenter } from '../video/canvas.js';
 import { textScreenFrame } from '../chips/mc6847.js';
 import { listingRows } from '../media/basic.js';
@@ -77,7 +87,7 @@ export function capturedAgo(then, now = Date.now()) {
   return n(Math.floor(s / 86400), 'day');
 }
 const AGO_MS = 15000;   // how often the card's time is said again while the screen is open
-const CLIP_SECONDS = 6;
+const CLIP_SECONDS = 6, GIF_SECONDS = 6;
 // what the browser can record, best first
 const clipType = () => {
   if (typeof MediaRecorder === 'undefined') return null;
@@ -165,6 +175,9 @@ export function setupShare(page, { linkStore }) {
     // person's own WAD, no picture and no clip (id Software's game data)
     const wyrm = session.wyrmfireOn(m) || session.romCodeIn(m) === 'userdata';
     const own = session.romCodeIn(m) === 'userdata';
+    // (the ROM-free sentence belongs to a snapshot link with ROMs in use: cleared first, so no capture keeps an old one)
+    const romFree = $('shareRomFree');
+    romFree.textContent = ''; romFree.hidden = true;
     if (wyrm) { await captureWyrmfire(m, frame, own); return; }
     const name = m.profile.name.replace(/^Tandy /, '');
     // the picture at true pixels, captured with the snapshot so both show the same instant
@@ -225,7 +238,8 @@ export function setupShare(page, { linkStore }) {
     }
     // (the line under the picture is syncPrimary's: called just above through syncLongNote, it sets the snapshot's
     // clarity copy, or, for an untouched bundled program, the program-page note. One owner, so the two cannot differ.)
-    if (file.needs.length) { romLine(needsLine(file.needs), `Needs your ${name} ROMs to open.`); rom.classList.add('warn'); }
+    // with ROMs in use: first that the link holds none of them (Session.shareFile takes every byte out), then what to add
+    if (file.needs.length) { romFree.textContent = romFreeLine(file.needs); romFree.hidden = false; romLine(needsLine(file.needs), `Needs your ${name} ROMs to open.`); rom.classList.add('warn'); }
     else romLine('Runs without ROMs, so it opens for anyone.', 'Runs without ROMs.');
     // a tape being recorded is not in the link (its pulse timings could carry ROM code: js/media/romrefs.js)
     if (file.dropped.includes('deck.recording')) note('The tape being recorded is not in the link: it opens with the recorder stopped.');
@@ -248,6 +262,8 @@ export function setupShare(page, { linkStore }) {
     $('btnShareShot').disabled = off;
     why('shareShotWhy', off ? reason : '');
     if (kind) { clipBtn.disabled = off; why('shareClipWhy', off ? reason : ''); }
+    gifBtn.disabled = off; why('shareGifWhy', off ? reason : '');
+    $('forumGifHint').hidden = off;   // (the forum disclosure's "Attach the GIF from Save GIF": not while there is none)
   }
   // A WYRMFIRE moment, on the ONE-LINK layout (js/ui/share.js's primary is Copy link): its link only starts the
   // game from the start with the Freedoom level (Session.shareUrl), never this moment, so there is no short link to
@@ -280,7 +296,9 @@ export function setupShare(page, { linkStore }) {
     $('shareWhen').textContent = whenText(captured);
     syncLongNote();   // (it calls syncPrimary(), which sets the primary's own note)
     const rom = $('shareRom'), extra = $('shareExtra');
-    rom.textContent = ''; rom.classList.remove('warn'); extra.textContent = '';
+    // (the ROM line's two spans are cleared, not the line: the next ordinary capture writes into them)
+    $('shareRomFull').textContent = ''; $('shareRomBrief').textContent = ''; rom.removeAttribute('title');
+    rom.classList.remove('warn'); extra.textContent = '';
     setShots(own, WYRMFIRE_TEXT.userClips);
     syncEmbed(m.id);
   }
@@ -396,6 +414,7 @@ export function setupShare(page, { linkStore }) {
     $('shortTerms').hidden = mode !== 'short' || !!fallbackWhy;
     $('previewSwitch').hidden = mode !== 'short' || !!fallbackWhy;
     syncMore();
+    syncForum();
   }
   // "More ways to share" gains "Link to <program> from the start" when a bundled program that HAS been played is on
   // screen: the primary shares it as a moment, and this offers its page as it was on the program card.
@@ -467,6 +486,10 @@ export function setupShare(page, { linkStore }) {
     }
     if (!short) showMade('shareLink');
   };
+  // the link "Copy as text for a forum" carries, and it never uploads: the short link if a Copy-link tap has made one, else
+  // an untouched bundled program's page, else the long link. The upload, and its consent next to the cloadm.dev note, stay
+  // on Copy link alone.
+  const forumUrl = () => (short ? short.url : captured.untouched ? captured.untouched.page : captured.link);
   // Share…: the system sheet, the URL only, where the browser can share it (an embed only if its frame allows web-share)
   $('btnShareNative').onclick = async () => {
     const url = captured && captured.untouched && !programMode ? captured.untouched.page : short ? short.url : $('shareLink').value;
@@ -500,6 +523,7 @@ export function setupShare(page, { linkStore }) {
     short = null;
     $('shortMade').hidden = true; $('shareShort').value = ''; $('sharePreview').disabled = false;
     syncPrimary();
+    syncForum();
     page.toast('Short link deleted', { details: 'Copies already cached on the way may still open for up to a day.' });
   };
   window.addEventListener('online', syncPrimary);
@@ -517,7 +541,7 @@ export function setupShare(page, { linkStore }) {
     page.toast(`Saved ${captured.file.name}`, { details: 'Drop it on CLOADM to restore it.' });
   };
   // the share card of the captured frame (capture() drew it)
-  $('btnShareShot').onclick = () => page.download(`${captured.base}.png`, captured.card, 'image/png');
+  $('btnShareShot').onclick = () => { if (captured && captured.card) page.download(`${captured.base}.png`, captured.card, 'image/png'); };
 
   // the clip: the screen as it plays (from now), recorded for CLIP_SECONDS
   const kind = clipType();
@@ -555,6 +579,70 @@ export function setupShare(page, { linkStore }) {
     setTimeout(() => rec.stop(), CLIP_SECONDS * 1000);
   };
 
+  // Save GIF: the machine's own frames at true pixels, scaled 2x, no CRT look, GIF_SECONDS long and looping
+  // (js/media/gif.js). The stage's WYRMFIRE rules hold for it as for the clip: never of the person's own WAD's level
+  // (setShots turns it off, its reason beside it), and the Freedoom level's GIF says so in its name and its comment.
+  const gifBtn = $('btnShareGif');
+  const gifLabel = () => { gifBtn.textContent = 'Save GIF'; gifBtn.title = `Save ${GIF_SECONDS}-second GIF`; };
+  gifLabel();
+  gifBtn.onclick = () => {
+    if (session.romCodeIn(session.shownMachine) === 'userdata') { page.status(WYRMFIRE_TEXT.userClips, true); return; }
+    const freedoom = !!captured && captured.wyrmfire === 'freedoom';
+    gifBtn.disabled = true;
+    const frames = [], t0 = performance.now(), STEP = 40;   // 25 frames a second: a 4 cs delay each
+    let next = t0, left = GIF_SECONDS;
+    gifBtn.textContent = `Recording… ${left} s`;
+    const take = (now) => {
+      while (now >= next && frames.length < GIF_SECONDS * 25) {
+        const f = session.shownMachine.render();
+        frames.push({ width: f.width, height: f.height, data: Uint8Array.from(f.data), table: Uint32Array.from(f.table) });
+        next += STEP;
+      }
+      const sec = GIF_SECONDS - Math.floor((now - t0) / 1000);
+      if (sec !== left && sec > 0) { left = sec; gifBtn.textContent = `Recording… ${left} s`; }
+      if (frames.length < GIF_SECONDS * 25) { requestAnimationFrame(take); return; }
+      try {
+        // the comment: CLOADM's, and for the Freedoom level the same credit line its PNG carries
+        const gif = gifFromFrames(frames, { scale: 2, delay: 4, comment: freedoom ? `Recorded in CLOADM. WYRMFIRE ${WYRM_TEXT.level}` : 'Recorded in CLOADM' });
+        const name = `${captured ? captured.base : 'CLOADM'}.gif`;
+        page.download(name, new Blob([gif.bytes], { type: 'image/gif' }));
+        page.status(`Saved ${name}: ${GIF_SECONDS} seconds, ${(gif.bytes.length / 1024).toFixed(0)} KB.${freedoom ? ` ${WYRM_TEXT.level}.` : ''}`);
+      } catch (e) { page.status(`Could not make the GIF: ${e.message}`, true); }
+      gifBtn.disabled = false; gifLabel();
+    };
+    requestAnimationFrame(take);
+  };
+
+  // ---------------- copy as text for a forum ----------------
+  // the link with a one-line description, as BBCode and as Markdown (js/share-text.js forumText); text only, no image tag.
+  // Its link is forumUrl(): what the preview shows is exactly what its Copy copies.
+  // (in program mode the stage's own "Copy as text for a forum", the program's text in a code block, is the forum text:
+  // this disclosure, the moment's link, steps aside)
+  function syncForum() {
+    $('shareForum').hidden = programMode;
+    if (!captured || captured.refusal || (!captured.link && !captured.untouched)) {
+      for (const id of ['forumBbcode', 'forumMarkdown']) $(id).textContent = '';
+      for (const id of ['btnForumBbcodeCopy', 'btnForumMarkdownCopy']) $(id).disabled = true;
+      return;
+    }
+    // a WYRMFIRE moment's link starts the game afresh (Session.shareUrl), so it is described the way a program page is
+    const wyrm = !!captured.wyrmfire, program = wyrm || (!short && !!captured.untouched);
+    const url = forumUrl(), name = wyrm ? 'WYRMFIRE' : program ? captured.untouched.name : captured.machine;
+    const f = forumText(url, name, { program });
+    $('forumBbcode').textContent = f.bbcode; $('forumMarkdown').textContent = f.markdown;
+    for (const id of ['btnForumBbcodeCopy', 'btnForumMarkdownCopy']) $(id).disabled = false;
+  }
+  const forumCopy = (which, btn) => async () => {
+    if (!captured) return;
+    const b = $(btn);
+    syncForum();
+    const text = $(which === 'bbcode' ? 'forumBbcode' : 'forumMarkdown').textContent;
+    try { await navigator.clipboard.writeText(text); b.textContent = 'Copied'; }
+    catch (e) { getSelection().selectAllChildren($(which === 'bbcode' ? 'forumBbcode' : 'forumMarkdown')); b.textContent = 'Press Ctrl+C'; }
+    setTimeout(() => { b.textContent = 'Copy'; }, 2000);
+  };
+  $('btnForumBbcodeCopy').onclick = forumCopy('bbcode', 'btnForumBbcodeCopy');
+  $('btnForumMarkdownCopy').onclick = forumCopy('markdown', 'btnForumMarkdownCopy');
   // ---------------- share your program ----------------
   // In program mode the caption's name is "LIST", which is never cut: where the prefix and it don't both fit (a short
   // landscape screen's narrow column), the prefix gives way, as a program page's caption has none. Measured on the laid

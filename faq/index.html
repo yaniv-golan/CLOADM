@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en" class="reading">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- served at /faq/; relative URLs are from the site root. The answers are in the maker's own voice, each under 80
+     words (tests/site-pages.test.js counts them). -->
+<base href="../">
+<title>FAQ – CLOADM</title>
+<meta name="description" content="CLOADM's questions answered: why there are no ROMs, where the firmware comes from, how accurate it is, what stays private, and who pays for what.">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="css/tokens.css">
+<link rel="stylesheet" href="css/reading.css">
+</head>
+<body>
+<header class="page-head">
+  <a class="back" href="play/">← Emulator</a>
+  <span class="title">FAQ</span>
+  <span class="grow"></span>
+  <a href="./">Home</a>
+  <a href="help/">Help</a>
+  <a href="roms/">ROMs</a>
+  <a href="credits/">Credits</a>
+  <a href="https://github.com/yaniv-golan/cloadm/issues">Report a problem</a>
+</header>
+
+<main>
+  <div class="page-intro">
+    <h1>Questions people ask</h1>
+  </div>
+  <div class="cards">
+
+  <section class="card faq" aria-labelledby="q-roms">
+    <h2 id="q-roms">Why are there no ROMs?</h2>
+    <p>The BASIC and DOS ROMs belong to Microsoft, Tandy, Dragon Data and others, and I have no right to hand them out.
+      So CLOADM never ships them, downloads them or fetches them for you. You add your own once, from your own machine or
+      wherever you are entitled to get them, and they stay in your browser. Without them, the welcome menu, LIZA, the
+      games and the demos still run.</p>
+  </section>
+
+  <section class="card faq" aria-labelledby="q-legal">
+    <h2 id="q-legal">Is it legal? Where does the firmware come from?</h2>
+    <p>Emulating hardware is legal; copying someone else's ROM is not, which is why I don't. What runs when you add no
+      ROMs is firmware I wrote for this project: a small boot program, the welcome menu, LIZA and the games, all with
+      their source in the repository under the MIT License. None of it is copied from a ROM.</p>
+  </section>
+
+  <section class="card faq" aria-labelledby="q-accuracy">
+    <h2 id="q-accuracy">How accurate is it?</h2>
+    <p>I check it against MAME 0.264, the reference emulator: the same firmware runs in both, and every instruction must
+      match in every register and cycle count, and every display mode pixel for pixel. Where I believe MAME is wrong I
+      need a datasheet or a measurement to say so, and each of those is written down: <a id="faqDeviations"
+      href="deviations/">the known differences from MAME</a>.</p>
+  </section>
+
+  <section class="card faq" aria-labelledby="q-privacy">
+    <h2 id="q-privacy">What about privacy?</h2>
+    <p>Your ROMs, programs, disks and settings stay in your browser: there is no account, and I run no server that
+      sees them. A share link holds the machine and the moment, never your ROMs. Once you ask Claude something, it can
+      read the screen and any memory (ROM areas included) without asking, and it also gets the machine's facts and the
+      chat so far; these go to Anthropic with your key. Only changes to the machine ask you first.</p>
+  </section>
+
+  <section class="card faq" aria-labelledby="q-business">
+    <h2 id="q-business">Is this a business?</h2>
+    <p>CLOADM is free: the emulator, the games, WYRMFIRE and sharing, with no account. The optional Claude chat costs
+      tokens: use your own Anthropic key, or use CLOADM inside Claude with your Claude account. I keep nothing.</p>
+  </section>
+
+  <section class="card faq" aria-labelledby="q-ai">
+    <h2 id="q-ai">Was AI used?</h2>
+    <p>Yes. CLOADM was built with Claude. I don't take its word for correctness: every chip is checked independently
+      against MAME, instruction by instruction and every pixel, using the project's own firmware, so a mistake shows up
+      as a difference whoever made it. <a href="https://github.com/yaniv-golan/cloadm/blob/main/docs/verification.md">How it is verified</a>.</p>
+  </section>
+
+  <section class="card faq" aria-labelledby="q-doom">
+    <h2 id="q-doom">Is it Doom?</h2>
+    <p>No. WYRMFIRE is a new engine that reads Doom-format levels; it ships with a Freedoom level.</p>
+  </section>
+  </div>
+</main>
+
+<footer class="page-foot">
+  <span>Not affiliated with Tandy, Dragon Data, Microsoft, id Software or the Freedoom project.</span>
+  <nav aria-label="Site"><a href="about/">About</a><a href="play/">Emulator</a><a href="https://github.com/yaniv-golan/cloadm">GitHub</a></nav>
+</footer>
+</body>
+</html>

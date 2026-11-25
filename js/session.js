@@ -53,6 +53,8 @@ import { screenRows, screenTextTool } from './claude/readtools.js';
 // the status of a turn paused by the person's key, in every view that shows it with Resume and Stop (Esc is Stop then)
 // (one text for every paused state: whether a call waits, typing is held, or Claude only writes its reply,
 // its next action waits; "Esc stops Claude" is never dropped)
+// what a door to Claude says while Settings -> Claude features is Off (js/ui/claude.js; ?app=claude, the embed chip's tab)
+export const CLAUDE_OFF_TEXT = 'Claude features are off (Settings → Machine).';
 export const CLAUDE_PAUSED_TEXT = 'Paused: you pressed a key · Claude\'s next action waits · Esc stops Claude';
 // the same where it must fit one line (the browser Fullscreen's pill)
 // The Speech/Sound Pak's words for its speech ROM (the SP0256-AL2's allophone data, the user's own and optional):
@@ -262,6 +264,7 @@ const SETTINGS = {
   keyboardMode: (v) => v === 'translated' || v === 'positional',
   keyboardJoystick: (v) => v === '1' || v === '0',
   tapeSound: (v) => v === '1' || v === '0',
+  claudeFeatures: (v) => v === '1' || v === '0',   // Settings -> Claude features: On ('1', the default) / Off ('0')
   'display.settings': (v) => { const o = parseObject(v); return !!o && Object.entries(o).every(([k, x]) => Object.hasOwn(DISPLAY_VALID, k) && DISPLAY_VALID[k](x)); },
 };
 function validSetting(k, v) {
@@ -605,6 +608,7 @@ export class Session {
     if (mediaShare && mediaShare.channel) mediaShare.channel.onmessage = (e) => { this.mediaElsewhere(e.data).catch(() => {}); };
     this.store = store;
     this.media = media;
+    this.lastLoaded = null;   // the file Session.load loaded last: { name, bytes } (js/bugreport.js names it and hashes it)
     // the media library on that store (js/library.js): listing, import, rename and delete, the recent list, the
     // names being made and the store's case rule, and moving it all to another store. Made before anything below
     // that compares names or asks whether the library is moving (the DriveWire server's hooks).
@@ -1752,6 +1756,11 @@ export class Session {
   }
 
   // ---------------- settings and sharing (never ROMs) ----------------
+  // Settings -> "Claude features": On (the default) or Off. Off hides the page's doors to Claude (the Ask button, the
+  // command box's Claude rows and its "Ask Claude" row, the Programs row "Chat with Claude"; js/ui/claude-features.js);
+  // the welcome menu's own item stays, as it is the firmware's. Kept in the store, so it is in a settings export.
+  get claudeFeatures() { return this.store.get('claudeFeatures') !== '0'; }
+  setClaudeFeatures(on) { this.store.set('claudeFeatures', on ? '1' : '0'); this.emit('claudefeatures', !!on); }
   // settings export: every stored setting except ROMs and stored media files
   exportSettings() {
     const keys = (this.store.keys ? this.store.keys() : []).filter((k) => validSetting(k, this.store.get(k))).sort();
@@ -1872,6 +1881,8 @@ export class Session {
     return p ? p.name : m.profile.name.replace(/^Tandy /, '');
   }
   async sharePicture(name, m = this.shownMachine) {
+    // a level converted from the person's own WAD is id Software's game data: its picture is not handed out
+    if (this.romCodeIn(m) === 'userdata') throw new SessionError(WYRMFIRE_TEXT.userPicture);
     return encodeIndexedPng(shareCardPicture(m.render(), { name: name || this.shareCardName(null, m) }));
   }
   async previewPicture(m = this.shownMachine, name = null) {
@@ -2474,6 +2485,7 @@ export class Session {
   // run: false types a BASIC listing without the RUN after it (the MCP server's load; the page always runs it)
   load(name, bytes, { askAddresses = null, remember = true, run = true } = {}) {
     this.loadStarted = true;
+    this.lastLoaded = { name, bytes };   // (js/bugreport.js: its name and SHA-256; set first, so a file that fails to load is named too)
     this.touch(this.shownMachine);   // a load makes a bundled program a moment (untouchedBundledProgram)
     const msg = this.loadMedia(name, bytes, askAddresses, { run });
     if (remember) { this.library.rememberMedia(name, bytes); this.setLastRun('recent', name, { running: this.loadStarted, crc: crc32(bytes) }); }

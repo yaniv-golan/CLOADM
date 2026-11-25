@@ -151,11 +151,18 @@ function toFirstFrame(s) {
     && ejected.share && ejected.share.message === SNAP_OFF && !ejected.shot.ok && !ejected.peek.ok, JSON.stringify({ why: ejected.why, shot: ejected.shot.ok, peek: ejected.peek.ok }));
   u.reset();
   check('own WAD: a Reset keeps them refused', u.romCodeIn() === 'userdata' && !!(await attempt(() => u.snapshotFile())));
+  {
+    const USER_PICTURE = 'No picture: this moment is your own WAD\'s level, which is id Software\'s game data. The picture and the clip stay off.';
+    const refused = await attempt(() => u.sharePicture('WYRMFIRE'));
+    check('own WAD: the Share card\'s picture is refused by name, with the picture\'s own reason', !!refused && refused instanceof Emu.SessionError && refused.message === USER_PICTURE, refused && refused.message);
+  }
   u.powerCycle({ menu: false });
   // a power cycle with the disk out frees the own-WAD mark, and with it every refusal: the bare controller is still in
   // the port, and reading a machine with a cartridge fitted is allowed (6bc5e6fd), so the peek now reads.
   {
     const peeked = await tbOwn(u).call('peek', { machine_id: 'm1', address: 0x0C00 });
+    const card = await u.sharePicture('WYRMFIRE');
+    check('own WAD: with the mark freed the Share card\'s picture is made again (a PNG)', card[0] === 0x89 && card[1] === 0x50 && card[2] === 0x4E && card[3] === 0x47, `${card.length} bytes`);
     check('own WAD: switching the machine off and on frees them (the disk out, its RAM cleared)', u.romCodeIn() !== 'userdata' && !(await attempt(() => u.snapshotFile()))
       && peeked.ok === true /* a cartridge is in, and reading is allowed */, JSON.stringify({ why: u.romCodeIn(), peek: peeked.ok }));
   }

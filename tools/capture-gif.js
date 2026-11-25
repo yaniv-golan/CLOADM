@@ -1,11 +1,10 @@
 #!/usr/bin/env node
 // Captures img/readme-demo.gif for the README: the welcome menu, then LIZA answering, from the real page in
 // Chromium with no ROMs loaded (the built-in firmware runs both, so no ROM screen is ever published). Frames are the
-// emulator's own picture at 2x with square pixels, encoded by tools/gif.js.
+// emulator's own picture at 2x with square pixels, encoded by js/media/gif.js.
 //   node tools/capture-gif.js
 const http = require('http'), fs = require('fs'), path = require('path');
 const { chromium } = require('playwright');
-const { encodeGif } = require('./gif');
 
 const ROOT = path.join(__dirname, '..'), OUT = path.join(ROOT, 'img', 'readme-demo.gif'), K = 2;
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.woff2': 'font/woff2', '.bin': 'application/octet-stream' };
@@ -25,6 +24,7 @@ const grab = (page) => page.evaluate(() => {
 });
 
 (async () => {
+  const { encodeGif } = await import('../js/media/gif.js');
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   const base = `http://127.0.0.1:${server.address().port}/play/`;
   const browser = await chromium.launch();
