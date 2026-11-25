@@ -491,12 +491,23 @@ function videoMode(m, { main = false } = {}) {
     const ag = !!(mode & 0x80);
     if (ag) return { text: false, name: `MC6847 graphics, ${graphicsName(mode)}` };
     // Text is the alphanumeric/semigraphics-4 mode: A/G low and INT/EXT low. On the Dragon and CoCo 1/2 INT/EXT is
-    // PIA1 PB4 (bit 4 of the mode byte; MC6847 data sheet, "Alphanumeric/Semigraphic" mode table: INT/EXT high selects
-    // the external character inputs for AS low and semigraphics-6 for AS high), and those machines fit no external
-    // character generator, so a cell shows the stripe pattern of its byte (js/chips/mc6847.js stripe), not a
-    // character: no characters to read. Not on the CoCo 2B's MC6847T1 (INT/EXT selects its lowercase set) nor on a VDG
-    // whose INT/EXT comes from the fetched byte (the Dragon 200-E: extIntFromData), where every text byte is drawn
-    // from a character set. The MC-10 keeps its own wiring (it has no SAM).
+    // PIA1 PB4 (bit 4 of the mode byte). Sources:
+    //  * Motorola, "MC6847/MC6847Y Video Display Generator (VDG)" data sheet, its table of the alphanumeric and
+    //    semigraphics modes by A/G, A/S and INT/EXT: with A/G low, INT/EXT high selects the external character inputs
+    //    for A/S low and semigraphics-6 for A/S high (the table's number and page are not cited here: the data sheet
+    //    could not be read from where this was written, see docs/verification.md);
+    //  * MAME 0.264 src/devices/video/mc6847.cpp, which draws those modes (its "stripes" for the unfitted external
+    //    inputs), and `node tools/mame-diff/run.js <dragon64|coco> --video --movedtext` phase 4: our picture of
+    //    INT/EXT high (js/chips/mc6847.js stripe) is MAME's, every pixel, and it holds no characters.
+    // The Dragon and CoCo 1/2 fit no external character generator, so there are no characters to read. Two VDGs are
+    // exempt, because every text byte is drawn from a character set there:
+    //  * the CoCo 2B's MC6847T1 (vdg.t1): Motorola, "MC6847T1 Video Display Generator (VDG)" data sheet (1985), the
+    //    INT/EXT pin's description: in the T1's alphanumeric mode INT/EXT selects its lowercase character set, not
+    //    external characters or semigraphics-6 (same caveat on the page number); MAME's mc6847t1 device draws it so,
+    //    and run.js coco2b --video --movedtext phase 4 is MAME's picture, still text;
+    //  * the Dragon 200-E (vdg.extIntFromData): INT/EXT comes from each fetched byte's bit 7 inverted and PIA1 PB4 is
+    //    the character generator's bank input (MAME dragon.cpp dragon200e_state::sam_read; js/chips/mc6847.js).
+    // The MC-10 keeps its own wiring (it has no SAM).
     if (m.sam && (mode & 0x10) && !vdg.t1 && !vdg.extIntFromData) {
       return { text: false, name: 'MC6847 semigraphics-6 / external characters (INT/EXT high)',
         reason: 'the VDG\'s INT/EXT input is high (PIA1 PB4), so its cells show semigraphics-6 blocks and the external-character input, which this machine leaves unfitted: there are no characters to read' };

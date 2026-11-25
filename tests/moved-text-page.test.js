@@ -8,7 +8,8 @@
 // The firmware is our own (tools/mame-diff/sam/movedtext.js, assembled from movedtext.asm): known text on the pages at
 // $0400, $0E00 and $1C00, shown in turn (phases 1-3), then INT/EXT high over $1C00 (phase 4: semigraphics-6 and the
 // external-character input on the Dragon and the CoCo 1; the CoCo 2B's MC6847T1 shows its lowercase set there, still
-// text) and RG6 graphics over it (phase 5). The pictures of phases 1-4 are MAME's
+// text) and RG6 graphics over it (phase 5). On the Dragon 200-E PB4 is the character generator's bank input, not
+// INT/EXT (which comes from each byte's bit 7), so its phase 4 is still text. The pictures of phases 1-4 are MAME's
 // (`node tools/mame-diff/run.js <profile> --video --movedtext`, sam/run-movedtext.js); here, on the same firmware:
 //  1. each reader returns exactly the text the firmware wrote on the page the SAM shows, derived from the firmware's
 //     text through a VDG character table written out by hand (never by running a reader);
@@ -25,6 +26,7 @@
 //   1. the base ignored: vdgPage's `const at = m.sam.displayBase` -> `const at = m.profile.textScreen || 0x400`
 //   2. the mode ignored: videoMode's `if (m.sam && (mode & 0x10) && !vdg.t1 && !vdg.extIntFromData)` -> `if (false)`
 //   3. the T1 not exempted: drop `&& !vdg.t1` (the CoCo 2B's phase 4 is declined)
+//   3b. the 200-E not exempted: drop `&& !vdg.extIntFromData` (the Dragon 200-E's phase 4 is declined)
 //   4. textCell without the mode check: drop `!screenReadable(mode).readable ||`
 //  js/selftest.js
 //   5. the self-test at the profile's page: `page.byte(r * 32 + c)` -> `this.m.ram[0x400 + r * 32 + c]`
@@ -78,7 +80,7 @@ function at(id, phase) {
 // the committed firmware is the generator's
 check('movedtext.asm is what movedtext.js --write writes', fs.readFileSync(MT.ASM, 'utf8') === MT.source());
 
-for (const id of ['dragon64', 'coco2b', 'coco']) {
+for (const id of ['dragon64', 'coco2b', 'coco', 'dragon200e']) {
   // ---- phases 1-3: the default page and the moved pages ----
   let defaultFrame = null;
   MT.PAGES.forEach((page, k) => {
@@ -110,6 +112,14 @@ for (const id of ['dragon64', 'coco2b', 'coco']) {
     if (id === 'coco2b') {
       // the MC6847T1: INT/EXT selects its lowercase set for codes $00-$1F; the page has none, so its text is unchanged
       check(`${where}: the CoCo 2B's MC6847T1 still shows text: screen_text reads it`, got.text === true && J(got.lines) === J(trim(wantRows(page))) && got.base === page.at, J(got));
+    } else if (id === 'dragon200e') {
+      // the Dragon 200-E: the VDG's INT/EXT comes from each fetched byte (its bit 7 inverted, so every text byte is
+      // drawn by the character generator) and PIA1 PB4 is the generator's bank input, not INT/EXT: $FF22 = $10 picks
+      // the other bank of a text screen, which stays text
+      check(`${where}: (setup) the 200-E's INT/EXT comes from the data, and PB4 is high (the bank input)`, m.vdg.extIntFromData === true && (m.vdg.firstMode[0] & 0x10) !== 0);
+      check(`${where}: the 200-E's PB4 is its character bank, not INT/EXT: screen_text still reads the page`, got.text === true && J(got.lines) === J(trim(wantRows(page))) && got.base === page.at, J(got));
+      const info = Emu.runReadOnlyTool({ machine: m, readByte: (a) => m.peek(a) }, 'machine_info', {});
+      check(`${where}: machine_info says readable text, and textCell gives the page's bytes`, info.video.readable === true && info.video.kind === 'text' && Emu.textCell(m, 0, 0) === m.ram[page.at], J(info.video));
     } else {
       check(`${where}: semigraphics-6 / external characters: screen_text declines with the reason`, got.text === false && /semigraphics-6/.test(got.mode) && /INT\/EXT/.test(got.reason) && got.lines.length === 0, J(got));
       const info = Emu.runReadOnlyTool({ machine: m, readByte: (a) => m.peek(a) }, 'machine_info', {});
