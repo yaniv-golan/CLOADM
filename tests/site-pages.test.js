@@ -72,6 +72,12 @@ const about = read('about/index.html');
 check('/about/: the maker\'s line', textOf(about).includes('Made by someone who had a Dragon as a kid. My day job is in venture capital; this has nothing to do with it.'));
 check('/about/: thanks MAME, XRoar and Freedoom, and links Credits', ['MAME', 'XRoar', 'Freedoom', 'VCC', 'DriveWire'].every((n) => textOf(about).includes(n)) && /href="credits\/"/.test(about));
 const TM = 'DOOM is a registered trademark of ZeniMax Media Inc. CLOADM and WYRMFIRE are independent projects, not affiliated with or endorsed by id Software, ZeniMax Media or Microsoft. References to DOOM describe file compatibility only.';
+// one trademark wording everywhere: the old "DOOM is a trademark of id Software LLC." is gone from every page, the
+// WYRMFIRE strip (js/ui/wyrmfire.js), the credits and the docs, and those that speak of DOOM carry the notice
+for (const f of [...pages, 'CREDITS.md', 'docs/using.md', 'js/ui/wyrmfire.js', 'examples/wyrmfire/SOURCE.txt', 'examples/wyrmfire/freedoom/README.txt', 'tools/wyrmfire-vendor.js'])
+  check(`${f}: no old trademark line`, !/trademark of id Software/.test(read(f)));
+for (const f of ['about/index.html', 'help/index.html', 'credits/index.html', 'CREDITS.md', 'docs/using.md', 'js/ui/wyrmfire.js', 'examples/wyrmfire/SOURCE.txt'])
+  check(`${f}: the adopted trademark wording`, textOf(read(f)).replace(/['\n]/g, ' ').replace(/\s+/g, ' ').includes(TM));
 check('/about/: the trademark notice, word for word, under #trademarks', /<h2 id="trademarks">/.test(about) && textOf(about).includes(TM));
 for (const p of pages) check(`${p}: links the trademark notice`, /href="(\.\.\/)?about\/#trademarks"/.test(read(p)));
 check('/about/: the Freedoom credit, word for word, linking its licence', textOf(about).replace(/\( /g, '(').replace(/ \)/g, ')').includes('WYRMFIRE level data is converted from Freedoom (https://freedoom.github.io), Copyright © 2001-2024 Contributors to the Freedoom project, used under the BSD 3-Clause licence (full text: COPYING.txt). The data has been modified for the Dragon 64. The Freedoom project does not endorse CLOADM or WYRMFIRE.')
