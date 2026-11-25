@@ -459,6 +459,7 @@ Every behaviour fact the ROM relies on, with its source. A fact without a source
 | 30 | `VAL` puts a 0 after its string while it reads the number and an error leaves it there: after `40 X=VAL("1E99")` overflows, `LIST 40` shows `40 X=VAL("1E99` | [BB] bb1, `review-fixes` |
 | 31 | `PRINT @n, USING ...` | [UM] (both forms documented); found by the corpus programs |
 | 32 | `ELSE` and `'` are stored with a `:` before them (`END:ELSE` is `8A 3A 3A 84`, `PRINT'A` is `87 3A 83 41`, `THEN 10 ELSE 20` ends `30 20 3A 84 20 32 30`); ours does not show that `:` in `LIST` [OWN, case `crunch-else`] | [BB] bb1, `probe-tokens` |
+| 33 | `RENUM` follows the line numbers after `GO TO`, `GO SUB`, `THEN`, `ELSE` and in `ON`'s lists; a number after `RUN` or `RESTORE` is left as it is | [BB] bb2, `renum` |
 
 The log grows with every milestone; black-box facts are added with the date of the run they came from.
 

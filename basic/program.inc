@@ -237,8 +237,9 @@ PKNONE  LDA     #'!'            ; a token with no keyword (cannot be typed)
 
 * ---------------- RENUM ----------------
 * RENUM [new [, old [, step]]]: the lines from old on (all, by default) are numbered from new (10) in steps of step
-* (10), and every reference to them after GO TO, GO SUB, THEN, ELSE, RUN and RESTORE (and in ON's lists) follows
-* [UM]. ?FC ERROR when the new numbers would run into the lines before old or past 63999, or the step is 0.
+* (10), and every reference to them after GO TO, GO SUB, THEN and ELSE (and in ON's lists) follows [UM]; a number
+* after RUN or RESTORE is left as it is [BB bb2 renum]. ?FC ERROR when the new numbers would run into the lines
+* before old or past 63999, or the step is 0.
 * A reference to a line that does not exist is left as it is [OWN].
 RENUM   LDD     #10
         STD     <RNNEW
@@ -343,10 +344,6 @@ RNBL    BSR     RNREF           ; a list: ON ... GO TO a, b, c
 RNB7    CMPA    #T_THEN
         BEQ     RNB8
         CMPA    #T_ELSE
-        BEQ     RNB8
-        CMPA    #T_RUN
-        BEQ     RNB8
-        CMPA    #T_RESTORE
         BNE     RNB2
 RNB8    BSR     RNREF
         BRA     RNB2
