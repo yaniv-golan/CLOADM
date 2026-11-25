@@ -38,8 +38,8 @@ Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.
   `DRAW` with every command and `GET` and `PUT` with every action, checked byte for byte against reference
   rasterisers written from the design (`tests/basic-drawing.test.js`). Sound and the joysticks are in
   (`basic/sound.inc`, `basic/play.inc`, `PLAY` reading its string with `mini.inc`): `SOUND`, `PLAY` with all its
-  commands, `AUDIO` and `JOYSTK`, with a square wave of our own whose every period is exact to the cycle and note
-  lengths counted in cycles, measured from the DAC writes in `tests/basic-sound.test.js`. A size pass took the ROM from 13,517 to 12,400 bytes with
+  commands, `AUDIO` and `JOYSTK`, with a square wave of our own whose every period is exact to the cycle,
+  measured from the DAC writes in `tests/basic-sound.test.js`. Sound now matches the real ROM's black-box measures: every note's period to the cycle (440 Hz at the NTSC clock, rounded on each octave's grid), lengths counted in fields with `TIMER` running, `SOUND`'s period, unit and full-scale levels, `PLAY`'s volume levels and default octave 3, and sound off after `SOUND`, `PLAY` and `AUDIO OFF`. A size pass took the ROM from 13,517 to 12,400 bytes with
   no change in what programs see (shared routines and tables, two-byte calls through the direct page), to make room
   for graphics and sound. The first black-box results from the real ROM brought ours in line: the empty line before `BREAK`, `CONT` at
   the end of a program, `SQR` as `x^.5`, `DEF FN` with a string name, `RESTORE` with no line number, `PRINT USING`'s E

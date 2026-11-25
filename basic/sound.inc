@@ -5,35 +5,37 @@
 * the right one), CA2 the axis (low x). The wave is our own square wave [OWN, decision 3]; its pitch, length and
 * loudness are what must match the original, and each is one equate here (the PLAY ones in play.inc).
 
-VMID    EQU     32              ; the DAC level the wave swings around [OWN]
-VSND    EQU     31              ; SOUND's swing: full volume [UM; the level OWN, BB pending]
-SNDU    EQU     208             ; SOUND's unit, in 256 cycles: 53,248 cycles, 0.06 s [UM about 0.06 s; OWN, BB pending]
-SNDP0   EQU     150             ; SOUND t's period: SNDP0 + SNDPK x (256 - t) cycles [OWN, BB pending]
-SNDPK   EQU     20
-SNDMSK  EQU     $10             ; ORCC'd during a tone: $10 masks the field interrupt, so a note's every period is
-*                                 exact and TIMER stops while it plays; 0 would let TIMER count, each field then
-*                                 adding the interrupt's cycles to one period [OWN, BB pending: decision 4]
-TOVH    EQU     72              ; the tone loop's cycles a period outside its delay loops (counted below)
+VMID    EQU     124             ; the DAC byte at the wave's middle: level 31, a pause's level [OWN]
+SNDH    EQU     252             ; SOUND's levels: 63 and 0, full scale [BB bb2 snd-sound, snd-audio, snd-timer]
+SNDL    EQU     0
+SNDU    EQU     4               ; SOUND's unit: 4 fields (0.08 s) [BB bb2 snd-sound d1-d20: 4d-1 to 4d fields]
+SNDP0   EQU     100             ; SOUND t's period: SNDP0 + SNDPK x (256 - t) cycles [BB bb2 snd-sound: 5,200 at t = 1,
+SNDPK   EQU     20              ;   4,220, 3,220, 2,220, 1,220, 120 at 50, 100, 150, 200, 255; exact]
+TOVH    EQU     55              ; the tone loop's cycles a period outside its delay loops (counted below)
 
-* AUDIO ON: the cassette input to the speaker (the multiplexer: CA2 high, CB2 low), sound on; AUDIO OFF: the
-* multiplexer back to the DAC [UM; HW]
-AUDIO   LDB     #$3C            ; PIA 0 control A: CA2 output high
-        CMPA    #T_ON
+* AUDIO ON: the cassette input to the speaker (the multiplexer: CA2 high, CB2 low), sound on [UM; HW]; AUDIO OFF:
+* sound off, the multiplexer as it is [BB bb2 snd-audio: off with the multiplexer still on the cassette]
+AUDIO   CMPA    #T_ON
         BEQ     AU1
-        LDB     #$34            ; CA2 low
         CMPA    #T_OFF
         LBNE    SNERR
-AU1     BSR     SNDSEL
-        JMP     <ZCHRGET
+        BSR     SNDOFF
+        BRA     AU2
+AU1     LDB     #$3C            ; PIA 0 control A: CA2 output high
+        BSR     SNDSEL
+AU2     JMP     <ZCHRGET
 * SNDDAC: the multiplexer to the DAC and sound on; SNDSEL: the same with B as PIA 0's control A (CB2, the other
-* half of the multiplexer, is always low outside JOYSTK). Keep A, X, Y, U.
+* half of the multiplexer, is always low outside JOYSTK); SNDOFF: sound off. Keep A, X, Y, U.
 SNDDAC  LDB     #$34
 SNDSEL  STB     PIA0CA
         LDB     #$3C            ; PIA 1 CB2 high: sound on
+        FCB     $8C             ; (CMPX #: skips the LDB)
+SNDOFF  LDB     #$34            ; PIA 1 CB2 low: sound off
         STB     PIA1CB
         RTS
 
-* SOUND t,d: tone t (1-255, higher is higher) for d (1-255) units [UM]
+* SOUND t,d: tone t (1-255, higher is higher) for d (1-255) units [UM]; it ends with the DAC low and sound off, the
+* multiplexer on the DAC [BB bb2 snd-audio, snd-timer: the next sound starts from level 0]
 SOUND   JSR     GETBYT
         TSTB
         BEQ     SNFC
@@ -50,13 +52,9 @@ SOUND   JSR     GETBYT
         LDA     #SNDPK
         MUL
         ADDD    #SNDP0
-        LDU     #(VMID+VSND)*1024+(VMID-VSND)*4
-        LDY     #PIA1A
+        LDU     #SNDH*256+SNDL
         BSR     TONE
-* SNDMID: the DAC back to its middle
-SNDMID  LDA     #VMID*4
-        STA     PIA1A
-        RTS
+        BRA     SNDOFF
 SNFC    JMP     FCERR
 
 * JOYSTK(n): axis n (0 right x, 1 right y, 2 left x, 3 left y), 0-63 [UM]. JOYSTK(0) reads all four and keeps them;
@@ -110,59 +108,82 @@ JY4     LDX     #JOYV
         CLRA
         JMP     GIVNUM
 
-* TONE: a square wave of period D cycles (163 or more) for X x 256 cycles, rounded down to whole periods: the high
-* port value (U's high byte) then the low one (U's low byte), each written to Y (PIA1A; a pause writes RAM instead,
-* so it is not heard). A period is TOVH + 16 k + 5 (j + 1) cycles: each half k 8-cycle passes, and j 0-15 5-cycle
-* passes in the high half, so every period is exact to the cycle [OWN]: with n = D - TOVH, j = 13n AND 15 (so that
-* n - 5j is a multiple of 16; 13 x 5 = 65 = 1 modulo 16) and k = (n - 5j) / 16. The length is counted in cycles: each
-* period takes D from the 24-bit count, and the wave stops, low, when the count runs out [OWN, decision 4].
-* The frame on the stack, at U: k (0-1), the levels (2-3), j (4), the period (5-6), the count (7-9).
-TONE    ORCC    #SNDMSK
-        CLR     ,-S             ; the count's low byte
-        PSHS    X,D
+* TONE: a square wave of period D cycles (111 or more) for X fields: the first level (U's high byte), then the
+* second (U's low byte), each written to the DAC. A period is TOVH + 8 (k1 + k2) + 5 (j + 1) cycles: the first
+* half k1 passes of an 8-cycle loop and j + 1 of a 5-cycle one, the second half k2 passes; with n = D - TOVH,
+* j = (5n - 1) AND 7 (so that n - 5 (j + 1) is a multiple of 8; 5 x 5 = 25 = 1 modulo 8), k1 + k2 = (n - 5 (j + 1)) / 8,
+* k2 half of that rounded down, so every period is exact to the cycle; the field interrupt, which TIMER counts,
+* lengthens the period it falls in [OWN]. The length is counted in fields, as the original's is [BB bb2 snd-sound,
+* snd-play-length: each length falls between X - 1 and X fields; snd-timer: TIMER counts during a note]: the wave
+* stops at the end of the first period in which TIMER reached its value at the start plus X, so the period the
+* interrupt lengthened is never completed [OWN], and a note of 0 fields plays 3 periods (it still has a pitch) [OWN;
+* BB snd-play-length t255]. The wave ends on its second level.
+* The frame on the stack, at U: k1 (0-1), k2 (2-3), the levels (4-5), j (6), the periods still to play once TIMER is
+* reached (7), TIMER's value to stop at (8-9), the period (10-11).
+TONE    PSHS    D
+        TFR     X,D
+        ADDD    <TIMER
+        PSHS    D               ; the end
+        CLRA
+        LEAX    ,X
+        BNE     TN0
+        LDD     2,S             ; a note of 0 fields: its first two periods each end 10 cycles later (DEC, BPL)
+        SUBD    #10
+        STD     2,S
+        LDA     #2
+TN0     PSHS    A
+        LDD     3,S
         SUBD    #TOVH
         TFR     D,X             ; n
-        LDA     #13
-        MUL
-        ANDB    #15             ; j
-        PSHS    B
         LDA     #5
         MUL
+        DECB
+        ANDB    #7              ; j
+        PSHS    B
+        INCB
+        LDA     #5
+        MUL
+        PSHS    D               ; 5 (j + 1)
+        TFR     X,D
+        SUBD    ,S++
+        LSRA
+        RORB
+        LSRA
+        RORB
+        LSRA
+        RORB                    ; k1 + k2
+        PSHS    U               ; the levels
+        TFR     D,X
+        LSRA
+        RORB                    ; k2
         PSHS    D
         TFR     X,D
-        SUBD    ,S++            ; 16k
-        LSRA
-        RORB
-        LSRA
-        RORB
-        LSRA
-        RORB
-        LSRA
-        RORB
-        PSHS    U,D             ; the levels, k
+        SUBD    ,S              ; k1
+        PSHS    D
         TFR     S,U
-        BRA     TN3
-* one period: 14 + 5 + 14 + 34 = 67 cycles; the delay loops' passes, and the 5 of j's last pass, make TOVH
-TN1     LDA     2,U             ; 5  the high half
+        LDY     #PIA1A
+* one period: 17 + 5 + 15 + 18 = 55 cycles, TOVH, besides the delay loops' passes. The interrupt is held off from
+* reading TIMER to the first level's write, so a field that ends the note never lengthens a period that is completed.
+TN1     LDA     4,U             ; 5  the first level
         STA     ,Y              ; 4
+        ANDCC   #$EF            ; 3
         LDX     ,U              ; 5
 TN1A    LEAX    -1,X            ; 5
         BNE     TN1A            ; 3
-        LDB     4,U             ; 5
+        LDB     6,U             ; 5
 TN1B    DECB                    ; 2  (j + 1 passes)
         BPL     TN1B            ; 3
-        LDA     3,U             ; 5  the low half
+        LDA     5,U             ; 5  the second level
         STA     ,Y              ; 4
-        LDX     ,U              ; 5
+        LDX     2,U             ; 6
 TN2     LEAX    -1,X            ; 5
         BNE     TN2             ; 3
-TN3     LDD     8,U             ; 6  the count less a period
-        SUBD    5,U             ; 7
-        STD     8,U             ; 6
-        LDA     7,U             ; 5
-        SBCA    #0              ; 2
-        STA     7,U             ; 5
-        BCC     TN1             ; 3
-        LEAS    10,S
+        ORCC    #$10            ; 3
+        LDD     <TIMER          ; 5
+        SUBD    8,U             ; 7
+        BMI     TN1             ; 3
+        DEC     7,U             ; (only once TIMER is reached)
+        BPL     TN1
+        LEAS    12,S
         ANDCC   #$EF
         RTS
