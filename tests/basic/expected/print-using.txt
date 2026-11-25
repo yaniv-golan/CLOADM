@@ -1,0 +1,48 @@
+# [UM] PRINT USING's format characters; [OWN] a 0 before the point when there is room, a - taking a digit's place, E notation's digits; provisional until the black-box run
+OK
+PRINT USING "###.##";3.14159
+  3.14
+OK
+PRINT USING "###.##";-3.14159
+ -3.14
+OK
+PRINT USING "#####";12345;1
+12345    1
+OK
+PRINT USING "##";123
+%123
+OK
+PRINT USING "#,###,###";1234567
+1,234,567
+OK
+PRINT USING "**####";42
+****42
+OK
+PRINT USING "$$###.##";12.5
+  $12.50
+OK
+PRINT USING "+###";5;-5
+  +5  -5
+OK
+PRINT USING "###-";5;-5
+  5   5-
+OK
+PRINT USING "##.##^^^^";12345
+12.35E+03
+OK
+PRINT USING "!";"HELLO"
+H
+OK
+PRINT USING "%   %";"HELLO";"AB"
+
+HELLOAB
+OK
+PRINT USING "X=## Y=##";1,2
+X= 1 Y= 2
+OK
+PRINT USING ".##";.256
+.26
+OK
+PRINT USING "";1
+?FC ERROR
+OK

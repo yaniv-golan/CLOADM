@@ -145,6 +145,17 @@ INPKND  RMB     1               ; INPUT 1, LINE INPUT 0
 INPVAR  RMB     2               ; INPUT: the text pointer in the variable list, its start
 INPST   RMB     2
 INPPTR  RMB     2               ; INPUT: the pointer in the typed line
+USDSC   RMB     2               ; PRINT USING: the format's descriptor, the place in it
+USPOS   RMB     1
+USANY   RMB     1               ; a field was met
+USKIND  RMB     1               ; the field: 0 a number, 1 !, 2 %..%
+USNB    RMB     1               ; digits before and after the point
+USNA    RMB     1
+USFLG   RMB     1
+USNEG   RMB     1
+USK     RMB     1
+USW     RMB     1
+USEXP   RMB     2
 DPEND   RMB     0
 
 * ---------------- the ROM ----------------
@@ -166,6 +177,7 @@ DPEND   RMB     0
         INCLUDE "mathfn.inc"
         INCLUDE "misc.inc"
         INCLUDE "io.inc"
+        INCLUDE "using.inc"
         INCLUDE "fp.inc"
         INCLUDE "fpconv.inc"
         INCLUDE "tokens.inc"
