@@ -186,6 +186,18 @@ RNNEW   EQU     USDSC           ; RENUM: the first new number, the first old one
 RNOLD   EQU     USPOS
 RNINC   EQU     USKIND
 RNLEN   EQU     USNA            ; RENUM: a reference's digits
+* and so does the work of DRAW and its command string (mini.inc, draw.inc) and of GET and PUT (getput.inc): each
+* inside its one statement; the expressions they evaluate (=var; in a command string, the corners) run no PRINT
+MSPTR   EQU     USDSC           ; the command string: the next character, the characters left, the X substrings
+MSCNT   EQU     USPOS           ; open (their places are on the stack)
+MSDEP   EQU     USANY
+DRFLG   EQU     USKIND          ; DRAW: the prefixes for the next move (1: B, 2: N), a move's length
+DRLEN   EQU     USEXP
+GPDIR   EQU     USNB            ; GET ($FF) or PUT (0); PUT's action (a truth table); the rows' step, count and bytes
+GPLUT   EQU     USNA
+GPSTEP  EQU     USFLG
+GPROWS  EQU     USNEG
+GPRB    EQU     USK
 CNLEN   RMB     1               ; the cassette (cassette.inc): the name's length, 0 for any file
 CBTYP   RMB     1               ; a block's type and length (CBLEN must follow CBTYP)
 CBLEN   RMB     1
@@ -204,6 +216,8 @@ STMTXT  RMB     2
 GMENT   RMB     2               ; graphics (gfx.inc): the current mode's GMTAB entry, its start page's address,
 GBEG    RMB     2               ; and the colour byte the plot routine writes
 GCOLB   RMB     1
+DRANG   RMB     1               ; DRAW's angle (0-3 quarter turns) and scale (1-62, in quarters), kept from one DRAW
+DRSCL   RMB     1               ; to the next (draw.inc)
 DPEND   RMB     0
 
 * Two-byte calls: a JMP to each of the ROM's busiest routines at the top of the direct page, just below the RAM
@@ -242,6 +256,12 @@ ZEVNUM   RMB     3
         INCLUDE "misc.inc"
         INCLUDE "gfx.inc"
         INCLUDE "sgfx.inc"
+        INCLUDE "line.inc"
+        INCLUDE "circle.inc"
+        INCLUDE "paint.inc"
+        INCLUDE "mini.inc"
+        INCLUDE "draw.inc"
+        INCLUDE "getput.inc"
         INCLUDE "io.inc"
         INCLUDE "using.inc"
         INCLUDE "cassette.inc"

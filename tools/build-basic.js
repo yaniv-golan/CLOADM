@@ -9,7 +9,7 @@
 // require('./build-basic.js').buildBasic() -> { rom, symbols, listing, used } for the tests (nothing is written).
 // The keyword table (basic/tokens.json) becomes the generated include "tokens.inc": the T_ token equates, the two
 // keyword tables the cruncher and LIST use, and the statement and function dispatch tables; tools/basic-consts.js
-// gives the generated include "mathconst.inc", the mathematical constants.
+// gives the generated includes "mathconst.inc", the mathematical constants, and "sine.inc", CIRCLE's sine table.
 const fs = require('fs'), path = require('path');
 const DIR = path.join(__dirname, '..', 'basic');
 const ROM_AT = 0x8000, ROM_SIZE = 0x4000;
@@ -65,7 +65,7 @@ function tokensInc(json) {
 function buildBasic({ defines = {} } = {}) {
   const Emu = require('../tests/load.js')();
   const json = JSON.parse(fs.readFileSync(path.join(DIR, 'tokens.json'), 'utf8'));
-  const gen = { 'tokens.inc': tokensInc(json), 'mathconst.inc': require('./basic-consts.js').mathConstsInc() };
+  const gen = { 'tokens.inc': tokensInc(json), 'mathconst.inc': require('./basic-consts.js').mathConstsInc(), 'sine.inc': require('./basic-consts.js').sineInc() };
   const include = (name) => gen[name] || (fs.existsSync(path.join(DIR, name)) ? fs.readFileSync(path.join(DIR, name), 'utf8') : null);
   const res = Emu.assemble(fs.readFileSync(path.join(DIR, 'd64basic.asm'), 'utf8'), '6809', { include, defines });
   if (!res.ok) throw new Error('basic/d64basic.asm:\n' + res.errors.map((e) => (typeof e === 'string' ? e : JSON.stringify(e))).join('\n'));

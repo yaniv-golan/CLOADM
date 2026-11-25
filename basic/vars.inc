@@ -127,7 +127,8 @@ AG1     PSHS    B
         BEQ     AG2
         JMP     SNERR
 AG2     JSR     <ZCHRGET
-        STB     <NDIMS
+* AGLOOK: (B subscripts, the frame on the stack as above) find or make the array (GET and PUT make theirs here)
+AGLOOK  STB     <NDIMS
         LEAU    B,S
         LEAU    B,U             ; U: the saved VALTYP and DIMFLG, then the name
         LDD     ,U
