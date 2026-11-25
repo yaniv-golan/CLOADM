@@ -1619,7 +1619,9 @@ names it.
   `$FF05 = $60` at the BASIC prompt. The firmware reads every register after reset and a while later, the status after each control and command write, a
   transmit attempt with its poll counted to the cycle, the transmitter and receiver interrupts enabled, DTR off and on, and a programmed reset.
   `tests/acia-idle.test.js` runs it in Node against the values worked out from the 6551's status bits. (A terminal plugged in, MAME's null modem, asserts
-  the lines instead: TDRE reads 1, as `--serial`'s patch box does.)
+  the lines instead: TDRE reads 1, as `--serial`'s patch box does.) Current results: dragon64, dragon200, dragon200e, tanodr64 and d64plus **identical to
+  HALT** (1,186,720 instructions on the first three, 1,193,940 on the Tano, 1,174,864 on the 64 Plus; the firmware's HALT at instruction 30,062). Before the
+  empty port idled high the comparison diverged at the 5th instruction: MAME read $60 where we read $10.
 * `node tools/mame-diff/drivewire/run-dw.js [profile ...]` runs `drivewire/dw.asm`, a DriveWire client that plays a
   script of transactions over the Becker port and logs every byte the server sends: RESET, INIT, NOP, DWINIT, TIME;
   Read, ReRead, Read Extended (a right and a wrong checksum), ReRead Extended, Write (a wrong checksum, a
