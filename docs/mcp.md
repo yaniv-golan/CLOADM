@@ -23,7 +23,7 @@ and nothing else: no npm packages and no build.
 
 In Cowork and Claude Code it runs on your computer instead, with your ROM files and the ~/CLOADM folder; nothing to connect.
 
-**Updating the plugin.** claude.ai and the desktop app don't pick up a new version on their own. Go to Plugins → Add → Manage marketplace, remove the `yaniv-golan/CLOADM` marketplace and add it again, then **Connect** *CLOADM side panel* again (in 0.3.0 the server was renamed from *cloadm-panel*). In Claude Code, run `/plugin marketplace update cloadm-marketplace`, then `/plugin install cloadm@cloadm-marketplace`.
+**Updating the plugin.** New versions arrive automatically when auto-update is on for the marketplace ([Claude Code plugin docs](https://code.claude.com/docs/en/plugins/install.md), [loading](https://code.claude.com/docs/en/plugins/loading.md)). To get one at once in Claude Code: `/plugin` → Marketplaces → cloadm-marketplace → Update marketplace (or `claude plugin update cloadm@cloadm-marketplace`), then `/reload-plugins`. In claude.ai and the desktop app, if it hasn't arrived: Plugins → Add → Manage marketplace, remove `yaniv-golan/CLOADM` and add it again, then **Connect** *CLOADM side panel* (in 0.3.0 the server was renamed from *cloadm-panel*).
 
 **The badge next to *CLOADM side panel*.** Claude shows this for any connector Anthropic hasn't reviewed. CLOADM's runs at mcp.cloadm.dev, needs no sign-in, and sees only the emulator in that panel. Nothing else of yours. It's open source: [source](https://github.com/yaniv-golan/CLOADM/tree/main/connector).
 

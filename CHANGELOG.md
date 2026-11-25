@@ -10,9 +10,9 @@ Next version: 0.3.0 (the plugin and extension manifests carry it; `tests/plugin.
 
 #### Changed
 
-- **README and the MCP guide say how to update the plugin.** claude.ai and the desktop app don't pick up a new version on
-  their own: remove the CLOADM marketplace and add it again, then Connect *CLOADM side panel* again; Claude Code has
-  `/plugin marketplace update` and `/plugin install`.
+- **README and the MCP guide say how to update the plugin.** New versions arrive by themselves when auto-update is on;
+  to get one at once, Claude Code has Update marketplace (or `claude plugin update`) and `/reload-plugins`, and in
+  claude.ai and the desktop app you remove the CLOADM marketplace, add it again and Connect *CLOADM side panel* again.
 
 ### 0.3.0
 
