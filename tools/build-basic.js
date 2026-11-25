@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 // Build CLOADM's clean-room BASIC for the Dragon 64 (docs/clean-room-basic.md): assemble basic/d64basic.asm with
 // the repository's own assembler into a 16K image for $8000-$BFFF.
-//   node tools/build-basic.js [--out FILE]      write the image (name it d64_1.rom for --roms); prints its size
+//   node tools/build-basic.js                   write the image to basic/d64_1.rom (committed: tests/basic-rom-file.test.js
+//                                               checks it is what the source builds) and print its size
+//   node tools/build-basic.js --out FILE        write it to FILE instead
 // require('./build-basic.js').buildBasic() -> { rom, symbols, listing, used } for the tests (nothing is written).
 // The keyword table (basic/tokens.json) becomes the generated include "tokens.inc": the T_ token equates, the two
 // keyword tables the cruncher and LIST use, and the statement and function dispatch tables; tools/basic-consts.js
@@ -9,6 +11,7 @@
 const fs = require('fs'), path = require('path');
 const DIR = path.join(__dirname, '..', 'basic');
 const ROM_AT = 0x8000, ROM_SIZE = 0x4000;
+const ROM_FILE = path.join(DIR, 'd64_1.rom');
 
 // "STR$" -> T_STRS, "TAB(" -> T_TAB, operators by name; a function's symbol ends in F (T_STRSF)
 const OPS = { "'": 'APOS', '+': 'PLUS', '-': 'MINUS', '*': 'MUL', '/': 'DIV', '^': 'POW', '>': 'GT', '=': 'EQ', '<': 'LT' };
@@ -70,15 +73,14 @@ function buildBasic({ defines = {} } = {}) {
   const used = owner.reduce((n, o) => n + (o >= 0 ? 1 : 0), 0);
   return { rom, symbols: res.symbols, listing: res.listing, used };
 }
-module.exports = { buildBasic, tokensInc };
+module.exports = { buildBasic, tokensInc, ROM_FILE };
 
 if (require.main === module) {
   const i = process.argv.indexOf('--out');
   const b = buildBasic();
   const end = b.symbols.get('ROMEND');
   console.log(`basic: ${b.used} bytes used of ${ROM_SIZE}${end != null ? `, code ends at $${end.toString(16).toUpperCase()}` : ''}`);
-  if (i > 0) {
-    fs.writeFileSync(process.argv[i + 1], b.rom);
-    console.log(`written ${process.argv[i + 1]}`);
-  }
+  const out = i > 0 ? process.argv[i + 1] : ROM_FILE;
+  fs.writeFileSync(out, b.rom);
+  console.log(`written ${path.relative(process.cwd(), out) || out}`);
 }

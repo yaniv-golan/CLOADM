@@ -1,7 +1,8 @@
 // Run: node tests/basic-bb.test.js
 //
 // The black-box tools for the clean-room BASIC (docs/clean-room-basic.md section 7) and its build:
-//  * the lint refuses every way a case could read the ROM (EXEC, USR, DEFUSR, CLOADM, CSAVEM, an unbounded PEEK),
+//  * the lint refuses every way a case could read the ROM (EXEC, USR, DEFUSR, CLOADM, CSAVEM, VARPTR, a PEEK or a POKE
+//    address not kept in RAM),
 //    and accepts PEEK of a literal in RAM, "... AND 32767", strings and remarks, and lines that start with END:;
 //  * compare() finds a differing line, a differing status and a missing case, and passes identical files;
 //  * the transcript keeps a line that scrolls off even when every line on the screen is the same, and a write over
@@ -19,10 +20,12 @@ const check = (name, cond, detail = '') => { n++; if (!cond) { fail++; console.l
 // ---- the lint ----
 const refused = (line) => lintCase(line).length > 0;
 for (const bad of ['10 X=PEEK(40000)', '10 X=PEEK(A)', '10 X=PEEK(A+1 OR 0 AND 32767)', '10 EXEC 32000', '10 X=USR(0)',
-  '10 DEFUSR0=1000', '10 CLOADM', '10 CSAVEM "A",1,2,3', '10 X=PEEK (&HC000)', '10 X=PEEK(32768)', 'PRINT PEEK(49152)', '10 X=PEEK'])
+  '10 DEFUSR0=1000', '10 CLOADM', '10 CSAVEM "A",1,2,3', '10 X=PEEK (&HC000)', '10 X=PEEK(32768)', 'PRINT PEEK(49152)', '10 X=PEEK',
+  '10 A=VARPTR(B$)', '10 POKE A,192', '10 POKE A+1 OR 0 AND 32767,1', '10 POKE 40000,1', '10 POKE'])
   check(`lint refuses ${bad}`, refused(bad));
 for (const good of ['10 X=PEEK(1024)', '10 X=PEEK(&H7FFF)', '10 X=PEEK(A+1 AND 32767)', '10 PRINT "EXEC PEEK(49152)"',
-  '10 REM EXEC USR PEEK(40000)', "10 PRINT 1:' EXEC", '2000 END:EXEC', '# EXEC in a directive line', '10 PRINT X'])
+  '10 REM EXEC USR PEEK(40000)', "10 PRINT 1:' EXEC", '2000 END:EXEC', '# EXEC in a directive line', '10 PRINT X',
+  '10 POKE 20000,123', '10 POKE P+5 AND 32767,T', '10 POKE (A AND 32767),PEEK(1)'])
   check(`lint accepts ${good}`, !refused(good));
 
 // ---- compare ----
@@ -69,6 +72,31 @@ check('build: $8000-$80FF is left free for later fixed entry points', built.rom.
   check('transcript: nothing flagged by scrolling', b.flags.length === 0);
   b.m.write(0x400, 0x41);          // a write over the top row's text that is not a scroll
   check('transcript: a write over text in the top row is flagged', b.flags.length === 1 && b.flags[0].kind === 'top-row-overwritten');
+}
+
+// ---- by hand on a real Dragon: the typing sheet, and the written transcript imported ----
+{
+  const { sheet } = require('../tools/basic-bb/sheet.js');
+  const { importText } = require('../tools/basic-bb/import.js');
+  const sh = sheet('demo', '# a comment\n10 PRINT 1\nRUN\n#type 5\\n\n#keys SHIFT+0\n#break\n');
+  check('sheet: every step in order, directives spelt out', /Type:  10 PRINT 1 .*cursor is back[^]*Type:  RUN .*OK is shown[^]*Type:  5  ENTER[^]*Press SHIFT and 0 together[^]*Press BREAK/.test(sh) && !/comment/.test(sh), sh);
+  const imp = importText('=== a\nOK\nPRINT 1  \n 1\nOK\n\n=== b\nOK\n');
+  check('import: cases and their lines, trailing spaces and blank lines at the end dropped',
+    imp.length === 2 && imp[0].case === 'a' && imp[0].transcript.join('|') === 'OK|PRINT 1| 1|OK' && imp[1].transcript.join('|') === 'OK' && imp[0].status === 'ok');
+  const ours = new Map([['a', { case: 'a', status: 'ok', transcript: ['OK', 'PRINT 1', ' 1', 'OK'] }]]);
+  check('import: compares with our run line for line', compare(new Map(imp.slice(0, 1).map((c) => [c.case, c])), ours).same === 1);
+}
+
+// ---- the run-time guard: code the case wrote must never run ----
+{
+  const { runCase } = require('./basic/harness.js');
+  // passes the lint (literal RAM addresses), but points the IRQ vector's JMP ($0100 in our ROM) at an RTS it POKEd
+  const hook = 'POKE 20000,59:POKE 257,78:POKE 258,32\nPRINT "STILL HERE"\n';
+  check('guard: the hooking case passes the lint (the guard is what stops it)', lintCase(hook).length === 0);
+  const r = runCase(built.rom, hook);
+  check('guard: a case that runs code it wrote is refused, nothing recorded', r.status === 'refused' && r.transcript.length === 0 && /\$4E20/.test(r.why), `${r.status} ${r.why}`);
+  const plain = runCase(built.rom, 'POKE 20000,59\nPRINT PEEK(20000)\n');
+  check('guard: writing RAM without running it is fine', plain.status === 'ok' && plain.transcript.includes(' 59'), plain.status);
 }
 
 console.log(`\n${n - fail}/${n} passed`);

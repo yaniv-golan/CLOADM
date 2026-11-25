@@ -122,9 +122,17 @@ class Basic {
 // A typed line that starts with a digit is a program line: waited for until the screen settles; any other line
 // is waited for until OK is back. -> { status, transcript, flags, frames }; status 'ok', 'no-boot', 'timeout' (and
 // where), or the typist's status when the machine stopped reading the keyboard.
-function runCase(rom, text, { machine = 'dragon64' } = {}) {
+//
+// guard (on by default; tools/basic-bb/run.js and the black-box cases always use it): the case is stopped, with
+// status 'refused' and nothing of its screen recorded, if the CPU ever runs an instruction from RAM written since
+// the case began: machine code a case put there (through a vector it POKEd, say) could read the ROM. Our own
+// suite's EXEC and USR cases (tests/basic/own) run without it.
+function runCase(rom, text, { machine = 'dragon64', guard = true } = {}) {
   const b = new Basic(rom, { machine });
-  const out = (status, extra = {}) => ({ status, transcript: b.lines ? b.transcript() : b.screen(), flags: b.flags || [], frames: b.frames, ...extra });
+  let refused = null;
+  const out = (status, extra = {}) => (refused
+    ? { status: 'refused', why: refused, transcript: [], flags: [], frames: b.frames }
+    : { status, transcript: b.lines ? b.transcript() : b.screen(), flags: b.flags || [], frames: b.frames, ...extra });
   if (!b.waitOk({ limit: 600, stable: 3 })) return out('no-boot');
   let limit = 30 * 50, nowait = false;
   const settle = () => { let last = null; return b.until(() => { const k = b.rows().join(''); const same = k === last; last = k; return same; }, { limit, stable: 10 }); };
@@ -133,8 +141,16 @@ function runCase(rom, text, { machine = 'dragon64' } = {}) {
   if (st) return out(st, { at: 'CLS' });
   if (!b.waitOk({ limit })) return out('timeout', { at: 'CLS' });
   b.record();
+  if (guard) {
+    const written = new Uint8Array(0x8000);
+    b.m.busTaps.addWriteTap({ start: 0, end: 0x7FFF }, (a) => { written[a] = 1; });
+    b.m.addProbe((pc) => {
+      if (pc < 0x8000 && written[pc] && !refused) refused = `ran code at $${pc.toString(16).toUpperCase()} written during the case`;
+    });
+  }
   const lines = text.split(/\r?\n/);
   for (let i = 0; i < lines.length; i++) {
+    if (refused) return out('refused');
     const line = lines[i], where = `line ${i + 1}`;
     if (line.startsWith('#')) {
       const m = /^#(\S*)\s?(.*)$/.exec(line), cmd = m[1], arg = m[2];

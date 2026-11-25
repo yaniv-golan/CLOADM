@@ -1,0 +1,14 @@
+# [OWN] VARPTR: the address of a value; a string's descriptor starts with its length and a 0; array elements are 5 bytes apart
+OK
+A=1:PRINT VARPTR(A)>7680;VARPTR(
+A)<32768
+-1 -1
+OK
+B$="XY":V=VARPTR(B$):PRINT PEEK(
+V);PEEK(V+1)
+ 2  0
+OK
+DIM C(3):PRINT VARPTR(C(1))-VARP
+TR(C(0))
+ 5
+OK

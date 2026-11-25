@@ -30,11 +30,12 @@ These are hard rules for everyone who works on this ROM.
   * **[HW]** the hardware as this repository already models it from data sheets: SAM, VDG, PIAs, the keyboard
     matrix (`js/machines/keyboards.js`);
   * **[OWN]** our own decisions, where nothing visible to a BASIC program depends on them.
-* **No ROM of any kind** in the repository, CI or tests. The ROM is assembled from source at test time; no binary of
-  it is committed in P1 ([open question 1](#10-open-questions)). The public suite passes with no ROM.
-* **Black-box cases never read ROM.** A case must not `PEEK`, `EXEC` or `USR` into `$8000-$FEFF`, nor print anything
-  computed from ROM bytes, so the recorded outputs we receive never carry ROM contents. The harness refuses a case
-  that does (`tools/basic-bb/lint.js`).
+* **No ROM of any kind** in the repository, CI or tests other than our own: the image this source builds is
+  committed as `basic/d64_1.rom` ([open question 1](#10-open-questions)). The public suite passes with no other ROM.
+* **Only functional results are recorded.** Expected results in the repository are what our test programs print,
+  their error messages, and bytes our programs write to RAM; never a value read from the original ROM's addresses
+  (`$8000-$FEFF`). A black-box case must not read the ROM in any way: `tools/basic-bb/lint.js` refuses one that could,
+  and the harness stops one that runs code it wrote (section 7), so the outputs we receive never carry ROM contents.
 
 ## 2. Source and build
 
@@ -43,14 +44,15 @@ These are hard rules for everyone who works on this ROM.
   (`js/asm/`), no macros, no conditional assembly beyond the assembler's `IF` on defines.
 * **Build:** `tools/build-basic.js` assembles it with `Emu.assemble(src, '6809', { include })`, lays the segments into
   a 16 K image for `$8000-$BFFF` (unused bytes `$FF`), and fails if any segment falls outside that range or two
-  segments overlap. It exports `buildBasic() -> { rom, symbols, listing }` for the tests, and with `--out FILE`
-  writes the image (for the maintainer, or `cli/cloadm.js --roms FILE`; the file is named `d64_1.rom` so the
-  socket takes it by name, and shows as "loaded, unrecognised"). There is no browser build step: nothing under `js/`
-  changes for P1.
+  segments overlap. It exports `buildBasic() -> { rom, symbols, listing }` for the tests, and run on its own writes
+  the image to `basic/d64_1.rom` (committed; `--out FILE` writes elsewhere). The file is named `d64_1.rom` so the
+  socket takes it by name (`cli/cloadm.js --roms basic/d64_1.rom`), where it shows as "loaded, unrecognised". The
+  keyword table (`basic/tokens.json`) and the mathematical constants (`tools/basic-consts.js`) become generated
+  includes. There is no browser build step: nothing under `js/` changes for P1.
 * **Size budget:** P1 is planned at about 11-12 K of the 16 K, leaving room for P2's graphics and sound (the original
   fits all of it in 16 K, so ours must be compact) and for P3's fixed addresses.
 * **Running it:** `m.setRoms({ basic: rom, basic64: null })` on a `dragon64` machine (Node), or
-  `node cli/cloadm.js --roms build/d64_1.rom --type 'PRINT 2+2\n' --screen`.
+  `node cli/cloadm.js --roms basic/d64_1.rom --type 'PRINT 2+2\n' --screen`.
 
 ## 3. Memory map
 
@@ -220,9 +222,18 @@ node tools/basic-bb/compare.js real.jsonl ours.jsonl
   give the program's start address (`MEM`, and a marker search), the variable and descriptor layouts (`VARPTR`), and
   the RND sequence.
 * **The lint** (`tools/basic-bb/lint.js`, also run by `run.js` and the tests): refuses `EXEC`, `USR`, `DEFUSR`,
-  `CLOADM` and `CSAVEM`, and a `PEEK` whose argument is not a literal below 32768 or an expression ending in
-  `AND 32767` with no `OR`, so no result can carry ROM contents. A line starting with `END:` is not checked (it is
-  never run past the `END`); the token probe lists its keywords that way.
+  `CLOADM`, `CSAVEM` and `VARPTR`, and a `PEEK` or `POKE` whose address is not a literal below 32768 or an
+  expression ending in `AND 32767` with no `OR` (computed addresses included), so a case can neither read the ROM nor
+  find a string descriptor to point into it. A line starting with `END:` is not checked (it is never run past the
+  `END`); the token probe lists its keywords that way.
+* **The run-time guard** (`tests/basic/harness.js`, always on for the black-box cases): the CPU running any
+  instruction from RAM written since the case began (machine code reached through a POKEd vector, say) stops the
+  case with status `refused`, and nothing of its screen is recorded. Our own EXEC and USR cases live apart, in
+  `tests/basic/own/`, and are never run on the real ROM.
+* **By hand on a real Dragon:** `node tools/basic-bb/sheet.js CASE.bas` prints a case as a typing sheet (what to type
+  and press, step by step); the screen's lines are written down in order under `=== case`, and
+  `node tools/basic-bb/import.js written.txt --out real-hardware.jsonl` turns them into the same JSONL, for
+  `compare.js`. So reference results can come from real hardware as well as from the maintainer's runs.
 * **The keyword probe** (`probe-keywords.bas`): writes every byte value `$80-$FE` (and `$FF` with each) into `REM`
   lines and `LIST`s them, so `LIST` spells out every token, including keywords we do not know about.
 
@@ -282,27 +293,28 @@ Each milestone is pushed when it is green, and reported with its head SHA, tree 
 
 ## 10. Open questions
 
-1. **Shipping the ROM.** P1 commits no binary: tests assemble it. To give people BASIC without a dump, the page needs
-   it: commit a built `basic/d64_1.rom` (and serve it), or assemble it in the browser at boot (the assembler is
-   already in `js/`)? And is it offered automatically when no ROM is present, or as a choice? (P1 proposes: not wired
-   into the page; decided before the release that ships it.)
-2. **The banner.** Ours says what it is (e.g. `CLOADM BASIC 0.1` and a short line), never the original's copyright
-   text. The black-box comparison ignores the boot screen's first lines. Agreed?
-3. **RAM layout facts** to confirm by black-box: the program start (`$1E01`?) and the default string space, which set
-   `MEM` at cold start; whether `load_basic` and the share links (`js/claude/basicload.js`, which read BASIC's pointers at
-   addresses taken from the cited books) should work with our ROM in P1. Making them work means putting our pointers at
-   those addresses; we can only do that from a black-box probe or a P3 census result, not from the files that cite the
-   books. Proposed: P3.
-4. **Transcendental functions:** is "same printed value for the manual's examples, last-digit differences elsewhere
-   documented" acceptable for P1, with a closer match later if the black-box results show a pattern?
-5. **`RND`:** exact sequence required, or only "same distribution, same seeding behaviour" (`RND(0)`, negative
-   arguments)?
-6. **P2 keywords in P1:** `?FC ERROR`, `?SN ERROR`, or silently do nothing until P2?
-7. **The 64K-mode BASIC** (`d64_2`, `EXEC 48000` from 32K mode) is out of P1 scope; with only our ROM in socket
-   `basic`, the 64K mode switch is a `?FC ERROR`. Agreed?
-8. **The serial port** (the Dragon 64's 6551, `PRINT #-2` to the printer through it): P1 or later?
-9. **What the separate party needs from us:** the case list and the harness command; turnaround time decides
-   whether M8 is one round or several.
+All answered by the project owner; kept here with the decision.
+
+1. **Shipping the ROM. Decided:** the built image is committed as `basic/d64_1.rom`, written by
+   `node tools/build-basic.js` as `examples/*.bin` are, and `tests/basic-rom-file.test.js` fails if it is not what the
+   source builds (`basic/` is not served, so `sw.js` is unaffected until it is). On the page, later and not in P1:
+   the machine starts on the built-in firmware as now and switches to our BASIC only when something needs BASIC (a
+   BASIC program or shared BASIC link, typing BASIC), plus a "Use CLOADM BASIC" choice in the ROM panel; the person's
+   own ROM always wins. How the page offers it is decided before any wiring.
+2. **The banner. Decided:** our own plain placeholder; the final wording comes later through UX. The boot lines are
+   excluded from the comparison (each case starts with `CLS`).
+3. **RAM layout facts. Decided:** deferred to P3 and the probes.
+4. **Transcendental functions. Decided:** last-digit differences are acceptable for now; the target is bit-exact after
+   the black-box alignment, and every remaining difference is listed with the case that shows it.
+5. **`RND`. Decided:** not required in P1; recovering the exact sequence from black-box output in M8 is a goal, since
+   games depend on it.
+6. **P2 keywords in P1. Decided:** they crunch, `LIST` and save correctly; at run time they give whatever error the
+   black-box shows, `?FC ERROR` until then.
+7. **The 64K-mode BASIC. Decided:** out of scope (32K mode only).
+8. **The serial port. Decided:** later.
+9. **The black-box round trip. Decided:** runs are done on the maintainer's machine, hours per round trip, so cases
+   go in batches: a pushed commit whose cases pass the lint, and the command to run. Reference results may also come
+   from a real Dragon, by hand (section 7).
 
 ## 11. Provenance log
 

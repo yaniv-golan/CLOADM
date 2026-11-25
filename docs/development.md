@@ -282,13 +282,14 @@ node tests/importmedia-finally.test.js # the creation landing behind the Library
 node tests/ay8910.test.js    # AY-3-8910/8912 against its data manual: tone, noise, the 16 envelope shapes, mixer, ports
 node tests/alpha.test.js     # the Dragon Alpha's wiring: ROM banks, PIA2, the AY as the drive latch, NMI through PIA2 CA2
 node tools/build-demo.js     # rebuild examples/demo.bin
-node tools/build-basic.js [--out d64_1.rom]   # assemble the clean-room Dragon 64 BASIC (basic/, docs/clean-room-basic.md) into a 16K image; nothing is committed
+node tools/build-basic.js     # assemble the clean-room Dragon 64 BASIC (basic/, docs/clean-room-basic.md) into basic/d64_1.rom (committed; tests/basic-rom-file.test.js checks it); --out FILE writes elsewhere
 node tests/basic-lang.test.js [case...]       # the clean-room BASIC: each case in tests/basic/cases typed in through the keyboard, its transcript against tests/basic/expected
 node tests/basic-fp.test.js [n]   # the clean-room BASIC's floating point, its routines called on the CPU against the bit-exact model tests/basic/fpmodel.js (n random operand pairs per operation, default 3000)
 node tests/basic-math.test.js [n]   # the clean-room BASIC's SQR, LOG, EXP, SIN, COS, ATN, ^, INT, RND called on the CPU against the exact values (tolerances in units in the last place)
 node tests/basic-bb.test.js   # the black-box tools: the lint (no case may read the ROM), compare, the transcript recorder, the build and its token tables
 node tools/basic-bb/run.js --rom d64_1.rom --out real.jsonl   # run the cases on any Dragon 64 BASIC ROM (a maintainer, with the real one); --ours for ours
 node tools/basic-bb/compare.js real.jsonl ours.jsonl          # the differences, case by case
+node tools/basic-bb/sheet.js CASE.bas    # a case as a typing sheet, to run it by hand on a real Dragon; tools/basic-bb/import.js turns the written transcripts into JSONL
 node tools/wyrmfire-vendor.js <wyrmfire checkout>   # vendor WYRMFIRE at js/wyrmfire/pin.js's commit into examples/wyrmfire/ and rebuild the Freedoom level (pinned download, SHA-256 checked); tests/wyrmfire-files.test.js checks the result against the pin
 node tools/build-examples.js # rebuild examples/liza.bin, liza6803-{mc10,alice}.bin, welcome.bin, welcome6803-{mc10,alice}.bin, chat.bin and starter-game/catch.bin from their .asm sources, then bring sw.js's offline file list up to date
 node tests/welcome.test.js   # welcome program on every 6809 model: screen, menu keys and events, the tune on the DAC

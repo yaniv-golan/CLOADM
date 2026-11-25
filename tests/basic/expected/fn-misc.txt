@@ -1,4 +1,4 @@
-# [UM] PEEK, POKE, DEF FN, VARPTR, MEM, POS, TIMER, RND; [OWN] VARPTR and MEM checked only for their ranges; provisional until the black-box run
+# [UM] PEEK, POKE, DEF FN, MEM, POS, TIMER, RND; [OWN] MEM checked only for its range; provisional until the black-box run
 OK
 POKE 20000,123:PRINT PEEK(20000)
 
@@ -24,10 +24,6 @@ PRINT FN Q(1)
 OK
 DEF FN Z(X)=X
 ?ID ERROR
-OK
-A=1:PRINT VARPTR(A)>7680;VARPTR(
-A)<32768
--1 -1
 OK
 PRINT MEM>20000;MEM<32768
 -1 -1

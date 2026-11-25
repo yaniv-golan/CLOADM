@@ -36,7 +36,7 @@ for (const [dir, f] of files.sort((a, b) => a[1].localeCompare(b[1]))) {
   const source = raw.filter((l) => l.startsWith('#'));
   const expected = raw.filter((l) => !l.startsWith('#'));
   check(`${name}: the expected transcript says where it comes from`, source.some((l) => /\[(UM|BB|OWN|HW|MBF)/.test(l)));
-  const r = runCase(rom, text);
+  const r = runCase(rom, text, { guard: dir === CASES });
   check(`${name}: runs to the end`, r.status === 'ok', `${r.status}${r.at ? ` at ${r.at}` : ''}`);
   check(`${name}: nothing flagged`, !r.flags.length, JSON.stringify(r.flags));
   let at = -1;
