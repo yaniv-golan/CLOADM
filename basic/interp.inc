@@ -353,12 +353,13 @@ NEW     BNE     RUNSN
 
 * CLS [c]: the screen cleared, or filled with colour c's block: 0 black, 1-8 green ... orange [UM]; a block is the
 * semigraphics-4 character with all four elements lit, its colour in bits 4-6 [HW: the MC6847 data sheet]. A colour
-* above 8 gives ?FC ERROR [OWN, provisional: the black-box case screen-cls asks the original].
+* 9-255 is no error: one line of text, then an empty line [BB bb2, screen-cls-range: the original's shape]; ours
+* prints our own banner there, never the original's text (a deliberate difference). Past 255, ?FC ERROR (GETBYT).
 CLSST   JSR     <ZCHRGOT
         BEQ     CLSS1
         JSR     GETBYT
         CMPB    #8
-        LBHI    FCERR
+        BHI     CLSBIG
         LDA     #$80            ; 0: black, no element lit
         DECB
         BMI     CLSS0
@@ -370,5 +371,9 @@ CLSS0   TFR     A,B
         JSR     CLSC
         JMP     <ZCHRGOT
 CLSS1   JSR     CLS
+        JMP     <ZCHRGOT
+CLSBIG  LDX     #BANNER
+        JSR     PRTSTR
+        JSR     CRLF
         JMP     <ZCHRGOT
 

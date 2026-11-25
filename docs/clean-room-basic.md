@@ -449,7 +449,7 @@ Every behaviour fact the ROM relies on, with its source. A fact without a source
 | 20 | A text (ASCII) program is its `LIST` text, lines ended by a carriage return, in gapped blocks (the motor stops between them) | [FMT] |
 | 21 | Our writer: 128 leader bytes before every block and one `$55` after it; a square wave on the DAC; half a second of motor run before the first block | [FMT] for the block layout, which the repository's encoder (`buildCas`) also writes; the counts and the wave are [OWN] constants (`CLEADN`, `CDELAY`), open question 10 |
 | 22 | The cassette hardware: the DAC (PIA 1 port A bits 2-7) drives the output, PA0 reads the input, CA2 runs the motor; the CPU clock is 888625 Hz | [HW] `js/machines/cocopia.js`, the machine's `tickHz` |
-| 23 | `CLS c` fills the screen with colour c, 0-8; a colour's block is the semigraphics-4 character with all four elements lit and the colour in bits 4-6 (0: black, no element lit); a colour above 8 gives `?FC ERROR` | [UM] for `CLS c`; [HW] the MC6847 data sheet for the character; [BB] bb2, `screen-cls`, for 0-8; past 8 the original prints ROM text and no error (the local-only case `screen-cls-range` gives its shape); ours gives `?FC ERROR` until that shape is in, then a line of our own text in the same shape, never the original's message (a deliberate difference) |
+| 23 | `CLS c` fills the screen with colour c, 0-8; a colour's block is the semigraphics-4 character with all four elements lit and the colour in bits 4-6 (0: black, no element lit). A colour 9-255 is no error: the screen is not cleared, one line of text is printed, then an empty line; past 255 (and below 0), `?FC ERROR` | [UM] for `CLS c`; [HW] the MC6847 data sheet for the character; [BB] bb2, `screen-cls` for 0-8 and the local-only `screen-cls-range` for the shape past 8 (on the original that line is ROM text, 21 characters); ours prints our own banner there, never the original's text: a deliberate difference (section 13) |
 | 24 | `BREAK IN n` follows an empty line, after `STOP` and after BREAK (in a program and in `INPUT`); an error message does not. Ours: a new line if the cursor is not at the start of one, then an empty line (whether the real prints one empty line or two after output that leaves the cursor mid-line is open: case `flow-stop-col`) | [BB] bb1, `flow-cont` (and `io-data`, `review-fixes` for errors) |
 | 25 | `CONT` after a program ran off its end is no error: it ends again (`OK`) | [BB] bb1, `flow-cont` |
 | 26 | `SQR(x)` is not a square root rounded once: `SQR(1E10)` prints `99999.9999`; ours is `x^.5`, `EXP(.5 LOG x)`, which prints the other observed values as the real does (`SQR(2)`, `SQR(16)`, `SQR(.25)`, `2^.5`, `9^.5`). The real's own `LOG` and `EXP` err differently in the last bits (ours prints `100000`; case `fn-sqr-bits` reads the low digits) | [BB] bb1, `fn-math` |
@@ -492,3 +492,12 @@ the tape (so `TIMER` does not count then [OWN]), and the motor runs through a fi
   letter `M` (they `LIST` as typed), so a file name given as an expression cannot start with a variable whose name
   starts with `M` [OWN]. A name longer than 8 characters is cut to 8 [OWN].
 
+
+## 13. Deliberate differences from the original
+
+Behaviour where ours matches the original's shape on purpose but not its content, because the content is the
+original's own text or data. Each is recorded with its black-box case.
+
+| Where | The original | Ours | Case |
+|---|---|---|---|
+| `CLS` with a colour 9-255 | prints a line of its own text (21 characters), then an empty line | prints our banner (`CLOADM BASIC`), then an empty line; no error in either | `screen-cls-range` (local-only: its results are never written, only their shape) |

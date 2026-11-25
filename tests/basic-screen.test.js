@@ -5,7 +5,8 @@
 //  * CLS c fills every cell with colour c's block [UM]: 0 black ($80, no element lit), 1-8 the semigraphics-4
 //    character with all four elements lit and the colour in bits 4-6 [HW: the MC6847 data sheet], so $8F + 16 x (c-1);
 //    the cursor goes home, and text printed after it starts at the top;
-//  * CLS with a colour above 8 gives ?FC ERROR (provisional [OWN]: the black-box case screen-cls asks the original),
+//  * CLS with a colour 9-255 prints one line of our own text and an empty line, no error (the original's shape from
+//    the local-only black-box case screen-cls-range; the text is ours: a deliberate difference); past 255 ?FC ERROR;
 //    CLS with a string ?TM ERROR, and CLS c inside a program line.
 const { Basic } = require('./basic/harness.js');
 const { buildBasic } = require('../tools/build-basic.js');
@@ -34,9 +35,19 @@ check('CLS 3 then PRINT: the text at the top', b.screen()[0] === 'HI');
 check('... and the fill kept below it', cells().slice(4 * 32).every((v) => v === 0xAF));
 run('CLS');
 check('CLS: all spaces but the prompt', cells().slice(2 * 32).every((v) => v === 0x60) && b.screen()[0] === 'OK');
-b.record();
-run('CLS 9');
-check('CLS 9: ?FC ERROR', b.transcript().includes('?FC ERROR'), JSON.stringify(b.transcript()));
+// a colour 9-255: no error, one line of our own text and an empty line (the original's shape, bb2 screen-cls-range;
+// the text is ours, never the original's); past 255 ?FC ERROR
+for (const c of [9, 10, 255]) {
+  b.record();
+  run(`CLS ${c}`);
+  const t = b.transcript(), at = t.indexOf(`CLS ${c}`);
+  check(`CLS ${c}: our banner line, an empty line, OK`, JSON.stringify(t.slice(at + 1)) === JSON.stringify(['CLOADM BASIC', '', 'OK']), JSON.stringify(t));
+}
+for (const c of [256, -1]) {
+  b.record();
+  run(`CLS ${c}`);
+  check(`CLS ${c}: ?FC ERROR`, b.transcript().includes('?FC ERROR'), JSON.stringify(b.transcript()));
+}
 b.record();
 run('CLS "A"');
 check('CLS "A": ?TM ERROR', b.transcript().includes('?TM ERROR'), JSON.stringify(b.transcript()));
