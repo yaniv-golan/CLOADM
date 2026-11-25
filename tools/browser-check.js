@@ -15718,7 +15718,8 @@ async function askPromptsChecks(browser, base, check) {
     + 'event: content_block_delta\ndata: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"ok"}}\n\n'
     + 'event: content_block_stop\ndata: {"type":"content_block_stop","index":0}\n\n'
     + 'event: message_delta\ndata: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{}}\n\nevent: message_stop\ndata: {"type":"message_stop"}\n\n';
-  const open = async (viewport, { key = true, url = '?machine=dragon64' } = {}) => {
+  // arrive: the visit arrives on a shared moment's link (Session.arrivedFromLink: the moment opened as a #z= link opens it)
+  const open = async (viewport, { key = true, url = '?machine=dragon64', arrive = true } = {}) => {
     const ctx = await browser.newContext({ viewport, serviceWorkers: 'block', permissions: ['clipboard-read', 'clipboard-write'] });
     const requests = [];
     await ctx.route('https://api.anthropic.com/**', async (route) => {
@@ -15737,6 +15738,7 @@ async function askPromptsChecks(browser, base, check) {
     await page.goto(`${base}${url}`);
     await started(page);
     if (await page.isVisible('#screenNotesBox')) await page.click('#screenNotesBox', { position: { x: 2, y: 2 } });
+    if (arrive) await page.evaluate(async () => { const s = window.emu.session; s.openSnapshot(await s.readSnapshot((await s.snapshotFile()).bytes), { shared: true, link: { kind: 'long' } }); });
     return { ctx, page, requests, errors, logs };
   };
   const set = (page) => page.evaluate(() => document.getElementById('askSuggest').dataset.set || null);
@@ -15770,10 +15772,11 @@ async function askPromptsChecks(browser, base, check) {
     check(`${L}: arrived from a link: the link's questions, three of them, with no label`, await setIs(page, 'link')
       && JSON.stringify(await chips(page)) === JSON.stringify(['What am I looking at?', 'What can I do here?', 'How do I start this from the beginning?'])
       && !(await page.isVisible('#askSuggestLabel')), JSON.stringify(await chips(page)));
-    // the person's first key ends the arrival: the welcome menu runs (a ?machine= link with no ROMs)
-    await waitFor(page, () => window.emu.session.welcomeRunning, null, 15000);
+    // the person's first key ends the arrival; then the welcome menu (no ROMs here) starts
     await run(page, () => window.emu.session.personInput());
-    check(`${L}: the first key ends the arrival: the welcome menu without ROMs`, await setIs(page, 'welcome-norom')
+    check(`${L}: the first key ends the arrival`, await waitFor(page, () => !window.emu.session.arrivedFromLink && document.getElementById('askSuggest').dataset.set !== 'link', null, 15000), await set(page));
+    await run(page, async () => { const s = window.emu.session; s.startWelcome(new Uint8Array(await (await fetch(`examples/${s.welcomeFile}`)).arrayBuffer())); });
+    check(`${L}: the welcome menu without ROMs`, await setIs(page, 'welcome-norom')
       && (await chips(page)).includes('How do I add my ROMs?'), await set(page));
     check(`${L}: the change is announced politely: "Suggestions updated"`, await page.textContent('#askSuggestNote') === 'Suggestions updated'
       && await page.getAttribute('#askSuggestNote', 'aria-live') === 'polite');

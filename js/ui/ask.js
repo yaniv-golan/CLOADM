@@ -330,7 +330,11 @@ export function setupAsk(page, claude) {
     // (the lead alone is not a line: with no whole question it goes too)
     if (lead && qs.length && qs[0].hidden) reveal(label, false);
   }
-  new ResizeObserver(() => { if (place === 'strip') fitStrip(); }).observe($('screenNotesBox'));
+  // (the slot's width, and the line itself showing: a note above it going away shows it, and it is fitted before it
+  // is drawn)
+  const fitWatch = new ResizeObserver(() => { if (place === 'strip') fitStrip(); });
+  fitWatch.observe($('screenNotesBox'));
+  fitWatch.observe($('askStripQs'));
   // a question in the open panel: with a key it fills the message box; without one it is selected, and the two
   // choices come forward
   function pick(q, b) {
