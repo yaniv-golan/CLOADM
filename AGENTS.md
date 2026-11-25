@@ -64,9 +64,9 @@ Which proof levels apply to your kind of change: [section 4, "Which levels apply
      converter from every older version (`js/machines/machine.js`, its versioning comment). That includes a model's
      options: a snapshot's config is checked against them (`Session.checkedSnapshot`), so an option key or value is
      never removed without a converter for the snapshots that hold it.
-   * No link or envelope decoder is ever dropped: a long link's byte 0 (1 = a moment, 2 = a BASIC program, 3-31
-     reserved), a short link's sealed object version and kind (kind 1 or 2; 3-31 reserved for later kinds under the same
-     version), and the short-link upload body's version
+   * No link or envelope decoder is ever dropped: a long link's byte 0 (1 = a moment, 2 = a BASIC program, 3 = a LIZA
+     postcard, 4 = a program's source, 5-31 reserved), a short link's sealed object version and kind (kind 1 to 4, the
+     same numbers; 5-31 reserved for later kinds under the same version), and the short-link upload body's version
      (`docs/automation.md`, "Share links"). A changed layout takes a new number, with its decoder beside the old ones,
      and an unknown number is refused as "made by a newer CLOADM".
    * Every format version has a golden fixture in `tests/fixtures/links/` (`tools/gen-link-fixtures.js`, run once per

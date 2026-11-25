@@ -1044,27 +1044,29 @@ a server). Byte 0 says which, and is the format's version:
 |---|---|---|---|
 | `1` | a moment: deflate-raw of the snapshot's skeleton and its byte arrays (`js/media/snapshot.js` `encodeLongLink`) | `snapshotLink(base)` | `readSnapshotLink(hash)`, then `openSnapshot(snap)` |
 | `2` | a BASIC program ("Share your program"): deflate-raw of UTF-8 JSON `{ format: 'cloadm-basic', version: 1, machine, config, text }`, `text` the program as LIST shows it (one `NUMBER TEXT` line per program line, `\n` between them, characters `$20`-`$7E` only) | `programLink(base)` | `readProgramLink(hash)`, then `openSharedProgram(prog)` |
+| `4` (0.4) | a program's source ("Share your program and its source", the Assembler's Share…): deflate-raw of UTF-8 JSON `{ format: 'cloadm-asm', version: 1, machine, config, name, source, crc }`, `source` at most 64 KB of UTF-8, `name` its file name (1 to 64 characters, no `/` or `\`), `crc` the CRC-32 of what it builds to (`sourceCrc(segments, exec)`: each segment's address and length, 16 bits big-endian, and its bytes, then the start address and `1`, or `FF FF 0`); no built bytes | `sources.link(base, card)` | `sources.read(hash)`, then `sources.open(card, link, include)` and `sources.run(card, include)` |
 | `3` (0.4) | a LIZA postcard ("Send it as a postcard"): deflate-raw of UTF-8 JSON `{ format: 'cloadm-liza', version: 1, machine, lines }`, `lines` 1 to 20 strings as LIZA's READLN keeps a line (characters `$20`-`$60` and `$7B`-`$7E`: upper case, at most 60) | `postcards.link(base)` | `postcards.read(hash)`, then `postcards.open(card, link, lizaBytes)` |
 
-`4` to `31` are kept for later versions: a page that doesn't know one says the link was made by a newer CLOADM, which is
+`5` to `31` are kept for later versions: a page that doesn't know one says the link was made by a newer CLOADM, which is
 what a page that reads only moments says of a program link. A later change to the program's JSON raises its `version`
 (refused the same way).
 
 A short link (`https://s.cloadm.dev/<id>#<key>`) holds the same payload sealed in the browser (`js/media/link-crypto.js`):
 a moment's short link the `.cloadm` file, a program's short link the program link's bytes above (`programShortLink(store)`,
-with no preview picture), a postcard's the postcard link's bytes (`postcards.shortLink(store)`, no picture either). The stored object (`<id>.bin`) is:
+with no preview picture), a postcard's the postcard link's bytes (`postcards.shortLink(store)`, no picture either), a source's the source link's bytes
+(`sources.shortLink(store, card)`, no picture). The stored object (`<id>.bin`) is:
 
 | Bytes | |
 |---|---|
 | 0 | the sealed format's version, `1`; `2` to `31` are kept for later layouts (refused as "made by a newer CLOADM") |
-| 1 | the kind, in the clear: `1` a moment, `2` a BASIC program, `3` a LIZA postcard (0.4) (the same numbers as a long link's byte 0); `4` to `31` are kept for later kinds under this version (refused as "made by a newer CLOADM"), `0` and `32` up are not kinds. The short-link server reads it to name what the link opens on its arrival page ("A moment on a Dragon 64", "A moment on an MC-10", "A BASIC program for the Dragon 64" or "A postcard from LIZA on a Dragon 64") |
+| 1 | the kind, in the clear: `1` a moment, `2` a BASIC program, `3` a LIZA postcard, `4` a program's source (both 0.4) (the same numbers as a long link's byte 0); `5` to `31` are kept for later kinds under this version (refused as "made by a newer CLOADM"), `0` and `32` up are not kinds. The short-link server reads it to name what the link opens on its arrival page ("A moment on a Dragon 64", "A moment on an MC-10", "A BASIC program for the Dragon 64", "A postcard from LIZA on a Dragon 64" or "A program and its source for the Dragon 64") |
 | 2-13 | the AES-GCM IV |
 | the rest | the ciphertext with its 16-byte tag; bytes 0 and 1 are its additional authenticated data, so neither can be changed without the key refusing it |
 
 The key (16 bytes, 22 base64url characters) is only in the link's fragment. The upload to `POST /api/new` is
 `[u8 2][u8 n][machine id][u32 LE length][sealed object][preview PNG, or nothing]` (version `2`: a sealed object with its
-header; a program's and a postcard's have no picture). `readShortLink(hash, store)` gives `{ snap, id }`, `{ program, id }`
-or `{ postcard, id }`, and refuses an object whose kind and contents disagree.
+header; a program's, a postcard's and a source's have no picture). `readShortLink(hash, store)` gives `{ snap, id }`,
+`{ program, id }`, `{ postcard, id }` or `{ source, id }`, and refuses an object whose kind and contents disagree.
 
 **These formats are frozen (since 0.3.0).** A long link's byte 0, the sealed object's version and kind, and the upload
 body's version only ever gain new numbers; no decoder for a number that was ever written is dropped, and an unknown one is
@@ -1089,6 +1091,15 @@ family }`, `NAME.CAS` (`NAME.C10` on the MC-10 family) as `buildCas` writes one 
 from TXTTAB to VARTAB, `basicProgramBytes()`), or with `wav` that tape as `casToWav` plays it (`NAME.WAV`). The name is
 cleaned by `Session.programTapeName` (upper case letters and digits, 8 at most, else `PROGRAM`). It refuses when there is
 no BASIC program, and when the program holds a 16-byte run of the machine's ROMs or a cartridge's.
+
+`sources` (`js/source-share.js`) is a program shared with its source. `sources.card({ source, name, res })` makes the
+card from an `assemble` result on the machine on screen, refusing a source over 64 KB and a build holding a 16-byte run of
+the machine's ROMs or a cartridge's ("Not shared: the built program contains bytes of your ROMs."). `sources.open(card,
+link, include)` switches to a fresh machine of the card's model and runs nothing; `arrivedFromLink.source` is `{ name,
+lines, state }`, `state` `'ready'` when the source builds here to the card's `crc` (with `include`, the INCLUDE reader:
+the page reads `examples/` only) and `'mismatch'` otherwise. `sources.run(card, include)` builds it again and starts it
+only when it builds to that `crc` (a SessionError, "This source builds differently in this CLOADM, so it won't run here.
+The code is in the Assembler to read.", otherwise).
 
 `postcards` (`js/postcard.js`) is the LIZA postcard. `postcards.current()` is the chat that can be sent now: `null`, or
 `{ machine, lines, all, from, trimmed, ended }`, the last 20 of the `all` lines LIZA answered since `runLiza` started it

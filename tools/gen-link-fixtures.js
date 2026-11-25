@@ -20,6 +20,8 @@ const FILL = [{ addr: 0x7000, data: Uint8Array.from([0x8E, 0x04, 0x00, 0x86, 0x4
 const PROGRAM = '10 REM GOLDEN\n20 FOR I=1 TO 3:PRINT "Hi";I:NEXT\n30 GOTO 20';
 // the LIZA postcard (0.4): three lines typed to LIZA on a Dragon 64, as READLN keeps them
 const POSTCARD = { machine: 'dragon64', lines: ['I MISS MY DRAGON', 'BECAUSE IT WAS MAGIC', 'YOU ARE A COMPUTER'] };
+// a program's source (0.4): the same fill as the moment's, as assembly, and the crc of what it builds to
+const SOURCE = '        ORG     $7000\nSTART   LDX     #$0400\n        LDA     #$41\nLOOP    STA     ,X+\n        CMPX    #$0600\n        BNE     LOOP\nDONE    BRA     DONE\n        END     START\n';
 
 async function main() {
   const s = new Emu.Session({ store: Emu.memoryStore() });
@@ -33,6 +35,9 @@ async function main() {
   const sealedProgram = await Emu.sealMoment(program, Emu.SEALED_KIND.program);
   const postcard = await Emu.encodePostcardLink(POSTCARD);
   const sealedPostcard = await Emu.sealMoment(postcard, Emu.SEALED_KIND.postcard);
+  const built = Emu.assemble(SOURCE, '6809');
+  const source = await Emu.encodeSourceLink({ machine: 'dragon64', config: { cpu: '6809', ram: 64, ssc: 'none' }, name: 'fill.asm', source: SOURCE, crc: Emu.sourceCrc(built.segments, built.exec) });
+  const sealedSource = await Emu.sealMoment(source, Emu.SEALED_KIND.source);
   const b64 = (u8) => Buffer.from(u8).toString('base64url');
   const fixtures = {
     'z1-moment.json': { what: 'a long link (#z=) holding a moment', format: { linkByte0: Emu.LONG_LINK_VERSION, snapshotVersion: file.moment.snap.version }, machine: 'dragon64', z: b64(long) },
@@ -44,6 +49,9 @@ async function main() {
     'z3-postcard.json': { what: 'a long link (#z=) holding a LIZA postcard', format: { linkByte0: Emu.POSTCARD_LINK_VERSION, postcardFormat: 1 }, machine: 'dragon64', z: b64(postcard) },
     'sealed1-postcard.json': { what: 'a short link\'s sealed object holding a LIZA postcard', format: { sealedVersion: Emu.SEALED_VERSION, kind: Emu.SEALED_KIND.postcard, postcardFormat: 1 },
       machine: 'dragon64', sealed: b64(sealedPostcard.sealed), key: sealedPostcard.key },
+    'z4-source.json': { what: 'a long link (#z=) holding a program\'s source', format: { linkByte0: Emu.SOURCE_LINK_VERSION, sourceFormat: 1 }, machine: 'dragon64', z: b64(source) },
+    'sealed1-source.json': { what: 'a short link\'s sealed object holding a program\'s source', format: { sealedVersion: Emu.SEALED_VERSION, kind: Emu.SEALED_KIND.source, sourceFormat: 1 },
+      machine: 'dragon64', sealed: b64(sealedSource.sealed), key: sealedSource.key },
   };
   fs.mkdirSync(DIR, { recursive: true });
   for (const [name, value] of Object.entries(fixtures)) {

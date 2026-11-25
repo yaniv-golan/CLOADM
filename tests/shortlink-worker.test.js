@@ -86,6 +86,13 @@ const sealed = (n = 3000, seed = 1, kind = 1) => Uint8Array.from({ length: n }, 
         && phtml.includes('<p id="m">Opening a BASIC program for the MC-10 in CLOADM…</p>') && !/moment/i.test(phtml) && pm('twitter:card') === 'summary', pm('og:title'));
     }
     {
+      // a program's source (kind 4): no picture, and the page says so
+      const senv = envOf();
+      const sr = await call(senv, req('/api/new', { body: Emu.newLinkBody('coco3', sealed(400, 6, 4)) }));
+      const so = await sr.json(), shtml = senv.BUCKET.text(so.id) || '';
+      check('a source\'s link: made, its kind kept (4), no picture; its page says "A program and its source for the CoCo 3"', sr.status === 201 && senv.BUCKET.objects.get(`${so.id}.bin`).customMetadata.kind === '4'
+        && !senv.BUCKET.objects.has(`${so.id}.png`) && shtml.includes('<meta property="og:title" content="A program and its source for the CoCo 3, CLOADM">')
+        && shtml.includes('<p id="m">Opening a program and its source for the CoCo 3 in CLOADM…</p>') && !/moment/i.test(shtml), JSON.stringify(so));
       // a LIZA postcard's link (kind 3): no picture, and the page says it is a postcard
       const cenv = envOf();
       const cr = await call(cenv, req('/api/new', { body: Emu.newLinkBody('mc10', sealed(400, 5, 3)) }));
@@ -254,7 +261,8 @@ const sealed = (n = 3000, seed = 1, kind = 1) => Uint8Array.from({ length: n }, 
       ['a sealed object of kind 5', Emu.newLinkBody('dragon64', sealed(3000, 1, 5))], ['a sealed object of kind 0', Emu.newLinkBody('dragon64', sealed(3000, 1, 0))],
       ['a sealed object of kind 32', Emu.newLinkBody('dragon64', sealed(3000, 1, 32))],
       ['a program\'s link with a picture', Emu.newLinkBody('dragon64', sealed(3000, 1, 2), png)],
-      ['a postcard\'s link with a picture', Emu.newLinkBody('dragon64', sealed(3000, 1, 3), png)]]) {
+      ['a postcard\'s link with a picture', Emu.newLinkBody('dragon64', sealed(3000, 1, 3), png)],
+      ['a source\'s link with a picture', Emu.newLinkBody('dragon64', sealed(3000, 1, 4), png)]]) {
       const [s, m] = await status(req('/api/new', { body: b }));
       check(`refused (400): ${what}`, s === 400, m);
     }

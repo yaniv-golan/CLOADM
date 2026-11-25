@@ -14,6 +14,8 @@
 //        written;
 //      - (0.4) a long link (#z=, byte 0 = 3) and a sealed object (version 1, kind 3) holding a LIZA postcard: three
 //        lines, which LIZA, started afresh on a Dragon 64, answers one by one;
+//      - (0.4) a long link (#z=, byte 0 = 4) and a sealed object (version 1, kind 4) holding a program's source: the
+//        moment's fill program as 9 lines of assembly, which builds to its crc here, waits for Run, then fills the screen;
 //  * the snapshot config rule (Session.checkedSnapshot): a moment's config is the keys its model takes, each with one
 //    of its values, and from a link mameCompat is off; anything else is damaged; what is remembered as the model's
 //    config is only its own options, never mameCompat or hires.
@@ -34,6 +36,9 @@ const GOLDEN = {
   // 0.4: the LIZA postcard (byte 0 = 3; sealed kind 3)
   'z3-postcard.json': '4ff7fdf9b739adf8413626c66ef33720cd2060acdfb844bd2a10250a152c5dc3',
   'sealed1-postcard.json': '494fdebd07e25156db78e30e11164a3052ae4e8f2cdd39c777021c0d34c92b41',
+  // 0.4: a program's source (byte 0 = 4; sealed kind 4)
+  'z4-source.json': '616d5a43d9e160a2bfd1a06b270eda3fdbdefc03c1ed2942402fa25a0bbb7252',
+  'sealed1-source.json': '1e308a579a07903a5cfffeb6ff2d5ebb69b74c938618b29c791721a187317f3f',
 };
 const POSTCARD = ['I MISS MY DRAGON', 'BECAUSE IT WAS MAGIC', 'YOU ARE A COMPUTER'];
 const FILL = [0x8E, 0x04, 0x00, 0x86, 0x41, 0xA7, 0x80, 0x8C, 0x06, 0x00, 0x26, 0xF9, 0x20, 0xFE];
@@ -74,6 +79,20 @@ function postcardChecks(label, s, pc) {
   const text = s.screenText().join('\n');
   check(`${label}: LIZA on a Dragon 64 replays it to the end, each line answered`, s.shownMachine.id === 'dragon64' && s.arrivedFromLink.postcard.state === 'done'
     && POSTCARD.every((l) => text.includes(`> ${l}`)), text.replace(/\s+/g, ' ').slice(-120));
+}
+
+// the source as made: fill.asm for the Dragon 64, 9 lines; opened, nothing runs; Run builds it to its crc and fills the
+// screen with "A" ($0400-$05FF), the program's 14 bytes at $7000
+function sourceChecks(label, s, card) {
+  check(`${label}: fill.asm for a Dragon 64, 9 lines`, card.machine === 'dragon64' && card.name === 'fill.asm' && card.source.split('\n').length === 9, JSON.stringify(Object.assign({}, card, { source: undefined })));
+  const a = s.sources.open(card, { kind: 'long' });
+  s.runFrames(3);
+  const screenA = () => Array.from({ length: 0x200 }, (_, i) => s.readByte(0x400 + i)).every((b) => b === 0x41);
+  check(`${label}: it builds to its crc here, and nothing runs until Run`, a.state === 'ready' && s.shownMachine.id === 'dragon64' && !screenA());
+  s.sources.run(card);
+  s.runFrames(3);
+  const prog = Array.from({ length: FILL.length }, (_, i) => s.readByte(0x7000 + i));
+  check(`${label}: Run fills the screen with "A", the program at $7000 in its last loop`, screenA() && prog.join() === FILL.join() && s.shownMachine.cpu.pc === 0x700C, s.shownMachine.cpu.pc.toString(16));
 }
 
 (async () => {
@@ -171,6 +190,22 @@ function postcardChecks(label, s, pc) {
     const got = await s.readShortLink(`#l=golden01.${f.key}`, storeWith(f.sealed));
     check('sealed1-postcard: opens as a postcard', !!got.postcard && !got.snap && !got.program && JSON.stringify(got.postcard.lines) === JSON.stringify(POSTCARD), JSON.stringify(got.postcard));
     postcardChecks('sealed1-postcard', s, got.postcard);
+  }
+
+  {
+    const f = fixture('z4-source.json');
+    check('z4-source: a long link whose byte 0 is 4 (a program\'s source)', Buffer.from(f.z, 'base64url')[0] === 4 && f.format.linkByte0 === 4);
+    const s = fresh();
+    sourceChecks('z4-source', s, await s.sources.read(`#z=${f.z}`));
+  }
+  {
+    const f = fixture('sealed1-source.json');
+    const sealed = Buffer.from(f.sealed, 'base64url');
+    check('sealed1-source: a sealed object of version 1, kind 4 (a program\'s source)', sealed[0] === 1 && sealed[1] === 4);
+    const s = fresh();
+    const got = await s.readShortLink(`#l=golden01.${f.key}`, storeWith(f.sealed));
+    check('sealed1-source: opens as a source', !!got.source && !got.snap && !got.program && !got.postcard);
+    sourceChecks('sealed1-source', s, got.source);
   }
 
   // ---- 3. the snapshot config rule ----

@@ -736,7 +736,13 @@
   #share.program-mode .frame canvas { box-shadow: 0 0 50px rgba(61, 245, 90, .25); }
   /* "Send it as a postcard" (a chat with LIZA): only the lines travel, so the moment's extras give way, all but Save
      picture (the postcard replayed: liza-postcard.png) */
-  #share #postcardCard { padding: 10px 14px; gap: 4px; }
+  #share #postcardCard, #share #sourceCard { padding: 10px 14px; gap: 4px; }
+  #share #sourceCard[hidden] { display: none; }
+  #share #sourceCard p { margin: 0; font-size: 15px; color: var(--text); }
+  /* "Share your program and its source": only the source travels; the moment's extras give way */
+  #share.source-mode #btnShareClip, #share.source-mode #btnShareDownload, #share.source-mode #btnShareProgramPage, #share.source-mode #btnShareShot,
+  #share.source-mode #previewSwitch, #share.source-mode #btnShareGif, #share.source-mode #shareForum, #share.source-mode #shareShotWhy,
+  #share.source-mode #shareClipWhy, #share.source-mode #shareGifWhy, #share.source-mode #shareDownloadWhy, #share.source-mode #programCard { display: none; }
   #share #postcardCard[hidden], #share #postcardTrim[hidden] { display: none; }
   #share #postcardCard p { margin: 0; font-size: 15px; color: var(--text); }
   #share.postcard-mode #btnShareClip, #share.postcard-mode #btnShareDownload, #share.postcard-mode #btnShareProgramPage,
@@ -1996,6 +2002,10 @@ npx serve -l 8000 .</pre>
          card's switch shares the program's text instead (and, in program mode, switches back) -->
     <!-- "Send it as a postcard" (js/ui/share.js): only while LIZA runs (or has just said goodbye) with a line typed to it.
          The moment stays the default; the card's switch sends the chat's lines instead, replayed by whoever opens it -->
+    <!-- the Assembler's Share… (js/ui/share.js): the source and what it builds to, built by whoever opens it -->
+    <div id="sourceCard" class="card2" hidden>
+      <p><strong>Your program and its source</strong> · <span id="sourceLines"></span> · <button id="btnSourceMode" type="button" class="linkish">Share the whole moment instead</button></p>
+    </div>
     <div id="postcardCard" class="card2" hidden>
       <p><strong>Your chat with LIZA</strong> · <span id="postcardLines"></span> · <button id="btnPostcardMode" type="button" class="linkish">Send it as a postcard instead</button></p>
     </div>
@@ -2118,6 +2128,7 @@ npx serve -l 8000 .</pre>
           <pre id="arrivalListing" hidden></pre>
           <div id="arrivalRoms" hidden><p id="arrivalNeed"></p>
             <div class="bar"><button id="btnArrivalRoms" type="button" class="primary">Add ROMs</button><button id="btnArrivalCopy" type="button">Copy the listing</button></div></div>
+          <div class="bar" id="arrivalSource" hidden><button id="btnSourceRun" type="button" class="primary">Run</button><button id="btnSourceShow" type="button">Show source</button></div>
           <div class="bar" id="arrivalPostcard" hidden><button id="btnPostcardReplay" type="button" class="primary">Replay</button><button id="btnPostcardSkip" type="button">Skip to the end</button></div>
           <div class="bar" id="arrivalMoment"><button id="btnArrivalStart" type="button">Start from the beginning</button><button id="btnArrivalBack" type="button" class="primary">Send it back</button></div>
           <a id="arrivalReport" target="_blank" rel="noopener noreferrer" hidden>Report this link</a></div>
@@ -2528,6 +2539,7 @@ npx serve -l 8000 .</pre>
         <button id="btnAsmOpen">Open .asm…</button>
         <button id="btnAsmRun" class="primary">Assemble &amp; run</button>
         <button id="btnAsmSave" title="Download the assembled program as a .BIN the open machine loads" aria-describedby="asmSaveNote">Save .BIN</button>
+        <button id="btnAsmShare" title="Share the program with its source: they build it themselves" disabled>Share…</button>
       </div>
       <div id="asmSaveNote" hidden></div>
       <textarea id="asmSource" spellcheck="false" aria-label="Assembly source" placeholder="; write 6809 assembly here, then Assemble &amp; run&#10;        ORG     $3000&#10;START   ...&#10;        END     START"></textarea>
@@ -2822,11 +2834,12 @@ npx serve -l 8000 .</pre>
 <link rel="modulepreload" href="js/media/snapshot.js">
 <link rel="modulepreload" href="js/config.js">
 <link rel="modulepreload" href="js/postcard.js">
+<link rel="modulepreload" href="js/media/romrefs.js">
+<link rel="modulepreload" href="js/source-share.js">
 <link rel="modulepreload" href="js/media/png.js">
 <link rel="modulepreload" href="js/video/chat-font.js">
 <link rel="modulepreload" href="js/video/card.js">
 <link rel="modulepreload" href="js/video/bezel.js">
-<link rel="modulepreload" href="js/media/romrefs.js">
 <link rel="modulepreload" href="js/wyrmfire/pin.js">
 <link rel="modulepreload" href="js/session.js">
 <link rel="modulepreload" href="js/media/avi.js">

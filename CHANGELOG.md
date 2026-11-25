@@ -10,6 +10,14 @@ Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.
 
 #### Added
 
+- **Share a program with its source.** The Assembler's **Share…** (after a successful assemble) opens the Share screen on
+  "Share your program and its source": the link holds the source (64 KB at most), its name, the machine and the CRC-32
+  of what it built to, never the built bytes. Whoever opens it gets a fresh machine, the source in the Assembler and a
+  card with **Run** and **Show source**; nothing runs until Run, which builds it and starts it only if it builds to the
+  same CRC ("This source builds differently in this CLOADM, so it won't run here. The code is in the Assembler to
+  read." otherwise). A build holding bytes of your ROMs is not shared. A new link kind: a long link's byte 0 = 4 and a
+  short link's sealed kind 4, with golden fixtures; the short-link Worker names it ("A program and its source for the
+  Dragon 64").
 - **The BASIC program in memory as a tape.** Share's program mode, under "More ways to share", has **Download .CAS**
   and **Download .WAV** beside Download .bas (and the command box "Save program as .CAS/.WAV"): the program as CSAVE
   writes it (one tokenised BASIC file), as `NAME.CAS` on a Dragon or CoCo, `NAME.C10` on the MC-10 family, and that tape

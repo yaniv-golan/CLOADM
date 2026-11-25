@@ -9,8 +9,8 @@
  *   byte 0      SEALED_VERSION (1): this layout. 2 to 31 are kept for later layouts, which a page says are from a newer
  *               CLOADM; anything else is not a sealed object
  *   byte 1      the kind, in the clear so the server can say what a link opens: SEALED_KIND.moment (1, a .cloadm file),
- *               SEALED_KIND.program (2, the BASIC program link's bytes) or SEALED_KIND.postcard (3, the LIZA postcard
- *               link's bytes) — the same numbers as a long link's byte 0. Kinds past the last of these, to 31, are kept for
+ *               SEALED_KIND.program (2, the BASIC program link's bytes), SEALED_KIND.postcard (3, the LIZA postcard
+ *               link's bytes) or SEALED_KIND.source (4, a program's source link's bytes) — the same numbers as a long link's byte 0. Kinds past the last of these, to 31, are kept for
  *               later kinds (under this version), which a page says are from a newer CLOADM;
  *               0 and 32 up are not kinds
  *   bytes 2-13  the IV
@@ -25,7 +25,7 @@ import { fromBase64Url, toBase64Url } from '../util.js';
 export const KEY_CHARS = 22;
 const IV_BYTES = 12, TAG_BYTES = 16, HEAD = 2;
 export const SEALED_VERSION = 1;
-export const SEALED_KIND = Object.freeze({ moment: 1, program: 2, postcard: 3 });
+export const SEALED_KIND = Object.freeze({ moment: 1, program: 2, postcard: 3, source: 4 });
 const KIND_MAX = Math.max(...Object.values(SEALED_KIND));
 export const SEAL_OVERHEAD = HEAD + IV_BYTES + TAG_BYTES;
 // the sealed object's clear header -> { version, kind }, or a LinkCryptoError naming what is wrong (a newer CLOADM's

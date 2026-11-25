@@ -5,7 +5,8 @@
  * A short link is https://s.cloadm.dev/<id>#<key>. The page (js/host/link-store.js) seals a moment or a BASIC program
  * with AES-GCM in the browser (js/media/link-crypto.js) and sends only the sealed object: the key stays in the link's
  * fragment, which browsers never send, so this server cannot read what it holds. The sealed object's first two bytes
- * are clear: its version (1) and its kind (1 a moment, 2 a BASIC program, 3 a LIZA postcard), which the arrival page names. Per link,
+ * are clear: its version (1) and its kind (1 a moment, 2 a BASIC program, 3 a LIZA postcard, 4 a program's
+ * source), which the arrival page names. Per link,
  * three R2 objects:
  *   <id>.bin  the sealed object (64 KB at most)
  *   <id>.png  the preview picture, only when the person chose to show one: a 1200 x 630 indexed PNG, 16 colours or
@@ -17,7 +18,7 @@
  * Reads are R2 through the cache on the s.cloadm.dev custom domain: this Worker runs only on /api/*. Links never expire.
  *
  * POST /api/new      body: [u8 2][u8 n][n bytes machine id][u32 LE sealed length][sealed][png, or nothing]; a program's
- *                    link and a postcard's have no picture
+ *                    link, a postcard's and a source's have no picture
  *                    -> 201 { id, deleteToken }. Refused: NEW_LINKS="off" (the kill switch, 503), the per-address
  *                    limit (RATE_IP, 429), the global limits (RATE_ALL per minute and DAILY_CAP a day, 429), anything
  *                    malformed (400) or too large (413), an origin other than ALLOWED_ORIGINS (403).
@@ -70,7 +71,7 @@ export function reportBlock(id, reportTo) {
 // the sealed object (js/media/link-crypto.js): byte 0 its version, byte 1 its kind. FROZEN at 0.3.0: a version this
 // server reads is never dropped, and an unknown one is refused, not stored
 export const SEALED_VERSION = 1;
-export const KIND = Object.freeze({ moment: 1, program: 2, postcard: 3 });
+export const KIND = Object.freeze({ moment: 1, program: 2, postcard: 3, source: 4 });
 const KIND_MAX = Math.max(...Object.values(KIND));
 const SEAL_OVERHEAD = 2 + 12 + 16;
 // "a" or "an" before a machine's name, by how it is said: the names read letter by letter that start with a vowel sound
@@ -80,6 +81,7 @@ export const article = (name) => (/^(MC-|LZ )/.test(name) ? 'an' : 'a');
 const WORDS = {
   [KIND.moment]: { title: (name) => `A moment on ${article(name)} ${name}, CLOADM`, opening: (name) => `Opening a moment on ${article(name)} ${name} in CLOADM…`, what: 'this moment' },
   [KIND.program]: { title: (name) => `A BASIC program for the ${name}, CLOADM`, opening: (name) => `Opening a BASIC program for the ${name} in CLOADM…`, what: 'this BASIC program' },
+  [KIND.source]: { title: (name) => `A program and its source for the ${name}, CLOADM`, opening: (name) => `Opening a program and its source for the ${name} in CLOADM…`, what: 'this program and its source' },
   [KIND.postcard]: { title: (name) => `A postcard from LIZA on ${article(name)} ${name}, CLOADM`, opening: (name) => `Opening a postcard from LIZA on ${article(name)} ${name} in CLOADM…`, what: 'this postcard from LIZA' },
 };
 
@@ -222,6 +224,7 @@ export function readNewLink(body) {
   if (!WORDS[kind]) fail(kind > KIND_MAX && kind < 32 ? 'This link was made by a newer CLOADM than this server reads.' : 'Not a kind of link this server reads.');
   if (kind === KIND.program && rest.length) fail('A program\'s link has no picture.');
   if (kind === KIND.postcard && rest.length) fail('A postcard\'s link has no picture.');
+  if (kind === KIND.source && rest.length) fail('A source\'s link has no picture.');
   return { machine, sealed, png: rest.length ? rest.slice() : null, kind };
 }
 

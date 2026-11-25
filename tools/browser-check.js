@@ -23507,6 +23507,124 @@ async function programTapeChecks(browser, base, check) {
   await ctx.close();
 }
 
+// "Share your program and its source" (js/source-share.js; the Assembler's Share…, js/ui/share.js's source mode,
+// js/ui/arrival.js): Share… only after a successful assemble; the Share screen's source mode (heading, caption, note, its
+// screen or its first lines); the short link sealed as kind 4 through the Worker; the recipient's card, nothing run until
+// Run, Show source, Run building and starting it; a tampered link never run; a newer one refused.
+async function sourceShareChecks(browser, base, site, check) {
+  const { pathToFileURL } = require('url');
+  const Emu = require('../tests/load')();
+  const W = await import(pathToFileURL(path.join(__dirname, '../shortlink/worker.js')).href);
+  const { MemoryBucket, memoryLimiter } = await import(pathToFileURL(path.join(__dirname, '../shortlink/memory-bucket.js')).href);
+  const local = site.replace(/\/$/, '');
+  const env = { BUCKET: new MemoryBucket(), RATE_IP: memoryLimiter(100), RATE_ALL: memoryLimiter(1000), DAILY_CAP: '100', ALLOWED_ORIGINS: `${local},https://cloadm.dev`, REPORT_EMAIL: 'abuse@example.com' };
+  const serve = (ctx) => ctx.route('https://s.cloadm.dev/**', async (route) => {
+    const r = route.request(), u = new URL(r.url()), origin = r.headers().origin;
+    if (u.pathname.startsWith('/api/')) {
+      const res = await W.default.fetch(new Request(r.url(), { method: r.method(), headers: r.headers(), body: ['GET', 'HEAD'].includes(r.method()) ? null : r.postDataBuffer() }), env, {});
+      return route.fulfill({ status: res.status, headers: Object.fromEntries(res.headers), body: Buffer.from(await res.arrayBuffer()) });
+    }
+    const cors = origin && env.ALLOWED_ORIGINS.split(',').includes(origin) ? { 'access-control-allow-origin': origin } : {};
+    const o = env.BUCKET.objects.get(decodeURIComponent(u.pathname.slice(1)));
+    if (!o) return route.fulfill({ status: 404, headers: cors, body: 'Not Found' });
+    return route.fulfill({ status: 200, headers: Object.assign({ 'content-type': 'application/octet-stream' }, cors), body: Buffer.from(o.bytes) });
+  });
+  const FILL = '        ORG     $7000\nSTART   LDX     #$0400\n        LDA     #$41\nLOOP    STA     ,X+\n        CMPX    #$0600\n        BNE     LOOP\nDONE    BRA     DONE\n        END     START\n';
+  const ARRIVED = 'Someone sent you a program with its source: fill.asm, 9 lines. It\'s open in the Assembler; press Run to build and start it.';
+  const errors = [];
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, serviceWorkers: 'block', acceptDownloads: true, permissions: ['clipboard-read', 'clipboard-write'] });
+  await serve(ctx);
+  const page = await ctx.newPage();
+  page.on('pageerror', (e) => errors.push(e.message));
+  const screenA = (p) => p.evaluate(() => Array.from({ length: 0x200 }, (_, i) => window.emu.session.readByte(0x400 + i)).every((b) => b === 0x41));
+  await page.goto(`${base}?machine=dragon64`);
+  await linkIn(page);
+  await page.evaluate(() => document.getElementById('navDebugger').click());
+  await page.waitForSelector('#asmSource', { state: 'visible' });
+  await page.fill('#asmSource', FILL);
+  await page.evaluate(() => { document.getElementById('asmName').textContent = 'fill.asm'; });
+  check('sourceShare: Share… is off until the source has assembled', await page.isDisabled('#btnAsmShare'));
+  // Save .BIN assembles without running: Share… comes on, and its picture is the first lines
+  const [bin] = await Promise.all([page.waitForEvent('download'), page.click('#btnAsmSave')]);
+  check('sourceShare: ... and on once it has (Save .BIN assembled it)', !!bin && await page.isEnabled('#btnAsmShare'));
+  await page.click('#btnAsmShare');
+  await page.waitForSelector('#share', { state: 'visible' });
+  await waitFor(page, () => document.getElementById('share').classList.contains('source-mode'), null, 10000);
+  const want = Emu.frameToRGBA(Emu.textScreenFrame(Emu.listingRows(FILL.toUpperCase())));
+  const sm = await page.evaluate(() => {
+    const c = document.getElementById('sharePicture'), px = new Uint32Array(c.getContext('2d').getImageData(0, 0, c.width, c.height).data.buffer);
+    const vis = (id) => document.getElementById(id).checkVisibility();
+    return { h1: document.getElementById('shareHeading').textContent, note: document.getElementById('shareNote').textContent, caption: document.getElementById('shareName').textContent,
+      prefix: vis('sharePrefix'), card: document.getElementById('sourceCard').innerText.replace(/\s+/g, ' ').trim(), copy: !document.getElementById('btnShareCopy').disabled,
+      px: Array.from(px), w: c.width, h: c.height, hidden: ['btnShareShot', 'btnShareClip', 'btnShareGif', 'btnShareDownload', 'previewSwitch', 'shareForum', 'shareRom'].filter(vis),
+      long: document.getElementById('shareLink').value };
+  });
+  check('sourceShare: source mode: "Share your program and its source", the caption "fill.asm · 9 lines of 6809 source", the note, Copy on',
+    sm.h1 === 'Share your program and its source' && sm.caption === 'fill.asm · 9 lines of 6809 source' && !sm.prefix && sm.copy
+    && sm.note === 'They get the source and build it themselves; nothing runs until they press Run.' && sm.card === 'Your program and its source · 9 lines · Share the whole moment instead',
+    JSON.stringify(Object.assign({}, sm, { px: undefined, long: undefined })));
+  check('sourceShare: not run: the picture is its first lines in the machine\'s font, pixel for pixel', sm.w === 256 && sm.h === 192 && sm.px.every((v, i) => v === want[i]), `${sm.w}x${sm.h}`);
+  check('sourceShare: the moment\'s other ways give way', sm.hidden.length === 0, sm.hidden.join());
+  const longCard = await new Emu.Session({ welcomeMenu: false }).sources.read(sm.long.slice(sm.long.indexOf('#'))).catch((e) => e);
+  check('sourceShare: the long link holds the source (#z=, byte 0 = 4)', longCard && longCard.source === FILL && longCard.name === 'fill.asm', sm.long.slice(0, 80));
+  if (shotDir) await page.screenshot({ path: path.join(shotDir, 'source-share.png'), fullPage: true });
+  await page.click('#btnShareCopy');
+  const made = await waitFor(page, () => !document.getElementById('shortMade').hidden, null, 15000);
+  const url = await page.inputValue('#shareShort');
+  const m = /^https:\/\/s\.cloadm\.dev\/([A-Za-z0-9_-]{8})#([A-Za-z0-9_-]{22})$/.exec(url) || [];
+  const sealed = m[1] && env.BUCKET.objects.get(`${m[1]}.bin`);
+  const html = m[1] ? env.BUCKET.text(m[1]) || '' : '';
+  check('sourceShare: Copy makes the short link: sealed (version 1, kind 4), no picture; the arrival page says "A program and its source for the Dragon 64"',
+    made && !!sealed && sealed.bytes[0] === 1 && sealed.bytes[1] === 4 && !env.BUCKET.objects.has(`${m[1]}.png`) && html.includes('A program and its source for the Dragon 64, CLOADM'), url);
+  // run, then Share…: its picture is its screen now
+  await page.click('#shareBack'); await page.waitForSelector('#share', { state: 'hidden' });
+  await page.evaluate(() => document.getElementById('navDebugger').click());
+  await page.waitForSelector('#btnAsmRun', { state: 'visible' });
+  await page.click('#btnAsmRun');
+  await waitFor(page, () => window.emu.session.readByte(0x5FF) === 0x41, null, 10000);
+  await page.click('#btnAsmShare');
+  await waitFor(page, () => document.getElementById('share').classList.contains('source-mode'), null, 10000);
+  check('sourceShare: run first: the picture is its screen (the machine\'s frame)', await page.evaluate(() => document.getElementById('sharePicture').width) === 320);
+
+  // the recipient: the short link
+  const ctx2 = await browser.newContext({ viewport: { width: 1280, height: 900 }, serviceWorkers: 'block' });
+  await serve(ctx2);
+  const p2 = await ctx2.newPage();
+  p2.on('pageerror', (e) => errors.push(e.message));
+  await p2.goto(`${base}?machine=coco#l=${m[1]}.${m[2]}`);
+  await linkIn(p2);
+  const arr = await waitFor(p2, () => !document.getElementById('arrival').hidden, null, 15000) && await p2.evaluate(() => ({ text: document.getElementById('arrivalText').textContent,
+    buttons: ['btnSourceRun', 'btnSourceShow', 'btnArrivalStart', 'btnArrivalBack', 'btnPostcardReplay'].filter((id) => document.getElementById(id).checkVisibility()).map((id) => document.getElementById(id).textContent),
+    machine: window.emu.machine.id, source: document.getElementById('asmSource').value, name: document.getElementById('asmName').textContent, hash: location.hash }));
+  await p2.waitForTimeout(500);
+  check('sourceShare: the recipient: the card (exact words), [Run] [Show source], a Dragon 64, the source in the Assembler', arr && arr.text === ARRIVED && arr.buttons.join() === 'Run,Show source'
+    && arr.machine === 'dragon64' && arr.source === await Promise.resolve(arr.source) && arr.source.replace(/\r/g, '') === FILL && arr.name === 'fill.asm' && arr.hash === '', JSON.stringify(Object.assign({}, arr, { source: arr && arr.source.length })));
+  check('sourceShare: nothing runs until Run', !await screenA(p2) && await p2.evaluate(() => window.emu.session.readByte(0x7000) !== 0x8E));
+  if (shotDir) await p2.screenshot({ path: path.join(shotDir, 'source-arrival.png') });
+  await p2.click('#btnSourceShow');
+  check('sourceShare: Show source opens the Assembler with it', await waitFor(p2, () => location.hash === '#debugger' && document.getElementById('asmSource').checkVisibility(), null, 5000));
+  await p2.evaluate(() => history.back());
+  await waitFor(p2, () => location.hash === '', null, 5000);
+  await p2.click('#btnSourceRun');
+  check('sourceShare: Run builds it and starts it: the screen fills; the card goes', await waitFor(p2, () => Array.from({ length: 0x200 }, (_, i) => window.emu.session.readByte(0x400 + i)).every((b) => b === 0x41)
+    && document.getElementById('arrival').hidden, null, 10000));
+  // a tampered link (the crc changed): never run
+  const tampered = Object.assign({}, longCard, { crc: (longCard.crc ^ 1) >>> 0 });
+  await p2.goto(`${base}?machine=coco3#z=${Buffer.from(await Emu.encodeSourceLink(tampered)).toString('base64url')}`);
+  await linkIn(p2);
+  const bad = await waitFor(p2, () => !document.getElementById('arrival').hidden, null, 15000) && await p2.evaluate(() => ({ text: document.getElementById('arrivalText').textContent,
+    buttons: ['btnSourceRun', 'btnSourceShow'].filter((id) => document.getElementById(id).checkVisibility()), source: document.getElementById('asmSource').value.length }));
+  check('sourceShare: a tampered link: "This source builds differently in this CLOADM, so it won\'t run here. The code is in the Assembler to read.", Show source alone',
+    bad && bad.text === 'This source builds differently in this CLOADM, so it won\'t run here. The code is in the Assembler to read.' && bad.buttons.join() === 'btnSourceShow' && bad.source === FILL.length && !await screenA(p2), JSON.stringify(bad));
+  // a newer source format: refused, said
+  const z = `#z=${Buffer.concat([Buffer.from([4]), require('zlib').deflateRawSync(Buffer.from(JSON.stringify({ format: 'cloadm-asm', version: 2, machine: 'dragon64', config: {}, name: 'a.asm', source: 'X', crc: 1 })))]).toString('base64url')}`;
+  await p2.goto(`${base}?machine=dragon32${z}`);
+  await linkIn(p2);
+  check('sourceShare: a newer source format: refused, "made by a newer CLOADM"', await waitFor(p2, () => /made by a newer CLOADM/.test(document.getElementById('toast').textContent), null, 10000));
+  check('sourceShare: no page errors', errors.length === 0, errors.join(' | '));
+  await ctx.close(); await ctx2.close();
+}
+
 const GROUPS = (base, site) => [
   ['models', (b) => modelsChecks(b, base, check)],
   ['reset', (b) => resetChecks(b, base, check)],
@@ -23596,6 +23714,7 @@ const GROUPS = (base, site) => [
   ['basicShare', (b) => basicShareChecks(b, base, site, check)],
   ['postcard', (b) => postcardChecks(b, base, site, check)],
   ['programTape', (b) => programTapeChecks(b, base, check)],
+  ['sourceShare', (b) => sourceShareChecks(b, base, site, check)],
   ['favicon', (b) => faviconChecks(b, site, check)],
   ['closedViews', (b) => closedViewsChecks(b, base, check)],
   ['uiModel', (b) => uiModelChecks(b, base, check)],

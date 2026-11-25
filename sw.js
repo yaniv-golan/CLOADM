@@ -205,6 +205,7 @@ const FILES = [
   'js/selftest.js',
   'js/session.js',
   'js/share-text.js',
+  'js/source-share.js',
   'js/ui/arm-guard.js',
   'js/ui/arrival.js',
   'js/ui/ask-popout.js',
