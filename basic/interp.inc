@@ -203,15 +203,15 @@ STOP0   BSR     DIRCHK
         STD     <OLDLIN
         LDD     <TXTPTR
         STD     <OLDTXT
-STOP1   JSR     NEWLIN
-        LDX     #BRKMSG
+STOP1   LDX     #BRKMSG
         JSR     <ZPRTSTR
         BSR     DIRCHK
         BEQ     STOP2
         JSR     PRTIN
 STOP2   JSR     CRLF
         JMP     READY
-BRKMSG  FCB     13              ; an empty line first, after STOP and BREAK alike [BB bb1 flow-cont]
+BRKMSG  FCB     13              ; one CR whatever the column: an empty line at the start of a line, else it ends
+*                                 the line [BB bb1 flow-cont, bb2 flow-stop-col]
         FCN     "BREAK"
 
 CONT    LBNE    SNERR
