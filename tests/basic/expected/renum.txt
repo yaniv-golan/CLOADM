@@ -1,4 +1,5 @@
-# [UM] RENUM and its references after GO TO, GO SUB, THEN, ELSE, RUN, RESTORE and in ON's lists; [OWN] DATA and remarks are left alone, ?FC ERROR for overlaps, a 0 step and numbers past 63999; provisional until the black-box run
+# [BB bb2] the real ROM's transcript: references after GO TO, GO SUB, THEN, ELSE and in ON's lists follow; a number after RUN or RESTORE is left as it is
+# [OWN] DATA and remarks are left alone (as the real), ?FC ERROR for overlaps, a 0 step and numbers past 63999 (as the real)
 OK
 5 REM START
 7 IF A THEN 9 ELSE 1000
@@ -13,10 +14,10 @@ LIST
 10 REM START
 20 IF A THEN 30 ELSE 50
 30 ON B GOSUB 10,20,40,50
-40 GOTO 10:RESTORE 50:PRINT "GOT
-O 5"
+40 GOTO 10:RESTORE 1000:PRINT "G
+OTO 5"
 50 DATA 9,GOTO 5:REM GOTO 7
-60 RUN 20
+60 RUN 7
 OK
 RENUM 1000,30,5
 OK
@@ -24,10 +25,10 @@ LIST
 10 REM START
 20 IF A THEN 1000 ELSE 1010
 1000 ON B GOSUB 10,20,1005,1010
-1005 GOTO 10:RESTORE 1010:PRINT
+1005 GOTO 10:RESTORE 1000:PRINT
 "GOTO 5"
 1010 DATA 9,GOTO 5:REM GOTO 7
-1015 RUN 20
+1015 RUN 7
 OK
 RENUM 1,1000
 ?FC ERROR

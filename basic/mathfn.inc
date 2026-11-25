@@ -1,6 +1,7 @@
 * ---------------- numeric functions ----------------
-* Our own approximations [OWN]: arguments reduced (Cody and Waite: the multiple of pi/2 or ln 2 taken off in two
-* parts), then Taylor series evaluated by Horner's rule; the constants come from tools/basic-consts.js.
+* Our own approximations [OWN]: arguments reduced (SIN and COS by Cody and Waite: the multiple of pi/2 taken off in
+* two parts; LOG and EXP in base 2, as the original's low digits show [BB bb2 fn-sqr-bits]), then Taylor series
+* evaluated by Horner's rule; the constants come from tools/basic-consts.js.
 * tests/basic-math.test.js checks them against exact values over many arguments.
 
         INCLUDE "mathconst.inc"
@@ -55,8 +56,6 @@ F_SUBX  EQU     $E0             ; FAC = it - FAC
 K_P2HI  EQU     (PIO2HI-FPCON)/5+8
 K_P2LO  EQU     (PIO2LO-FPCON)/5+8
 K_2OPI  EQU     (TWOOPI-FPCON)/5+8
-K_L2HI  EQU     (LN2HI-FPCON)/5+8
-K_L2LO  EQU     (LN2LO-FPCON)/5+8
 K_LN2   EQU     (LN2-FPCON)/5+8
 K_ILN2  EQU     (INVLN2-FPCON)/5+8
 K_SQR3  EQU     (SQRT3-FPCON)/5+8
@@ -200,7 +199,9 @@ FSQR    JSR     <ZFPRUN
         FCB     F_STO+6,F_LD+K_HALF,F_STO+5,0
         JMP     PW5
 
-* LOG(x): x = m 2^e with m in [sqrt 1/2, sqrt 2); t = (m-1)/(m+1); ln m = 2t (1 + t^2/3 + t^4/5 + ...)
+* LOG(x): x = m 2^e with m in [sqrt 1/2, sqrt 2); t = (m-1)/(m+1); ln m = 2t (1 + t^2/3 + t^4/5 + ...); then
+* (ln m / ln 2 + e) ln 2, each step rounded: base 2, as the original (its SQR(144) is 12 - 3 x 2^-28 and SQR(65536)
+* 256 exactly, with EXP's base 2 below) [BB bb2 fn-sqr-bits]
 LOG     JSR     <ZFNARGN
 FLOG    TST     <FACSGN
         LBMI    FCERR
@@ -224,16 +225,17 @@ LOG1    JSR     <ZFPRUN           ; m; m + 1; m again; m - 1; t
         TST     <FACEXP
         BEQ     LOG2
         INC     <FACEXP         ; x 2
-LOG2    JSR     <ZFPRUN
-        FCB     F_STO+3,0
-        LDB     <LOGE           ; + e ln 2
+LOG2    JSR     <ZFPRUN         ; log2 m; + e; x ln 2
+        FCB     F_MUL+K_ILN2,F_STO+3,0
+        LDB     <LOGE
         SEX
         JSR     GIVABF
-        JSR     <ZFPRUN         ; e LN2LO + ln m, + e LN2HI (exact)
-        FCB     F_STO+2,F_MUL+K_L2LO,F_ADD+3,F_STO+3,F_LD+2,F_MUL+K_L2HI,F_ADD+3,0
+        JSR     <ZFPRUN
+        FCB     F_ADD+3,F_MUL+K_LN2,0
         RTS
 
-* EXP(x): n = the nearest whole number to x / ln 2, r = x - n ln 2 (|r| <= ln 2 / 2), e^x = 2^n e^r
+* EXP(x): t = x / ln 2 (rounded), n = INT(t), r = (t - n) ln 2, e^x = 2^n e^r: base 2, as the original (its
+* EXP(11.5129255) is 100000.00344849, the rounding of t showing in the low digits) [BB bb2 fn-sqr-bits]
 EXP     JSR     <ZFNARGN
 FEXP    LDX     #EXPMAX
         JSR     FCMPM
@@ -242,22 +244,19 @@ FEXP    LDX     #EXPMAX
         JSR     FCMPM
         BLE     EXP1
         JMP     FZERO           ; below -129 ln 2: 0
-EXP1    JSR     <ZFPRUN           ; x kept; x / ln 2 + .5
-        FCB     F_STO+1,F_MUL+K_ILN2,F_ADD+K_HALF,0
+EXP1    JSR     <ZFPRUN           ; t = x / ln 2, kept
+        FCB     F_MUL+K_ILN2,F_STO+1,0
         JSR     FINT
         JSR     INTCNV
-        STB     <EXPN
-        JSR     GIVABF          ; the argument reduction, r = x - n HI - n LO: n; n HI (exact); x - n HI; n LO
+        PSHS    D               ; n, kept to the end (below -128 when x is near EXPMIN)
+        JSR     GIVABF          ; r = (t - n) ln 2
         JSR     <ZFPRUN
-        FCB     F_STO+2,F_MUL+K_L2HI,F_SUBX+1,F_STO+1,F_LD+2,F_MUL+K_L2LO,F_SUBX+1,0
+        FCB     F_SUBX+1,F_MUL+K_LN2,0
         LDX     #FACTAB+15
         LDD     #$050C
         JSR     POLY
         LDB     <FACEXP         ; x 2^n
         CLRA
-        PSHS    D
-        LDB     <EXPN
-        SEX
         ADDD    ,S++
         LBLE    FZERO
         TSTA

@@ -1,9 +1,8 @@
-# [OWN] VAL's 0 after the number, left there by an error (the bb1 rule) on a string in string space; provisional until the black-box run
+# [BB bb2] the real ROM's transcript: VAL("1E997") is no error (the exponent is kept in a byte that wraps, so 1E997 is 1E-27: the inference, the transcript shows only that no error is given)
 OK
 10 A$="1E99"+"":B$=A$+"7"
 20 X=VAL(B$)
 RUN
-?OV ERROR IN 20
 OK
 PRINT B$;LEN(B$)
 1E997 5

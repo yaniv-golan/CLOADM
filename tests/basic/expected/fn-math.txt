@@ -1,8 +1,8 @@
-# [UM] the numeric functions, [BB bb1] for all but two values; ours differ in the last digit: SQR(1E10) (real 99999.9999: SQR is x^.5, EXP(.5 LOG x), and the real's EXP and LOG err differently), TAN(1) (real 1.55740772) and ATN(1)*4 (real 3.14159266)
+# [UM] the numeric functions, [BB bb1, bb2] for all but one value: TAN(1), ours 1.55740773, the real's 1.55740772 (SIN and COS are our own series)
 OK
 PRINT SQR(2);SQR(16);SQR(.25);SQ
 R(1E10)
- 1.41421356  4  .5  100000
+ 1.41421356  4  .5  99999.9999
 OK
 PRINT LOG(10);LOG(2.718281828);E
 XP(1);EXP(-1)
@@ -12,7 +12,7 @@ OK
 PRINT SIN(1);COS(1);TAN(1);ATN(1
 )*4
  .841470985  .540302306  1.55740
-773  3.14159265
+773  3.14159266
 OK
 PRINT 2^10;2^.5;10^-2;(-2)^3;9^.
 5

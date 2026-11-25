@@ -268,15 +268,15 @@ UMOV    JSR     FOUT            ; too large for 32 bits: % and the number as PRI
         LDA     #'%'
         JSR     <ZCHROUT
         JMP     <ZPRTSTR
-* E notation: with no + or - in the field, its first # is the sign's place (a space or -), so "##.##^^^^" prints
-* 12345 as " 1.23E+04" [BB bb1 print-using]; the other #s before the point are digits
+* E notation: with no + or - in the field, its first place is the sign's, so "##.##^^^^" prints 12345 as
+* " 1.23E+04" [BB bb1 print-using]. When that place is the last before the point it shows 0 for a positive number
+* ("#.##^^^^": 0.12E+04, -.12E+04); with no # before the point it is the first after it, always 0, and a - does
+* not fit (".##^^^^": .01E+05, %-.01E+05) [BB bb2 print-using-exp]
 UMEXP   CLRB
         LDA     <USFLG
         BITA    #16+32+64
         BNE     UMX1
-        LDA     <USNB
-        BEQ     UMX1
-        DEC     <USNB           ; (given back before the field is printed)
+        DEC     <USNB           ; (given back before the field is printed; -1 with no # before the point)
         INCB
 UMX1    PSHS    B
         LDA     <USNB           ; at most nine digits: more is ?FC ERROR
@@ -334,14 +334,22 @@ UME6    LDB     <USNB
         LDX     #FBUFFR+20      ; build: digits, point, E+nn
         LDU     #FPDIG
         LDB     <USNB
-        JSR     CPYUX
+        BMI     UME9            ; the sign's place after the point
+        BNE     UME8
+        LDA     ,S              ; the sign's place last before the point: 0 for a positive number (1 + 0)
+        ADDA    <USNEG
+        DECA
+        BNE     UME8
+        LDA     #'0'
+        STA     ,X+
+UME8    JSR     CPYUX
         LDA     <USFLG
         BITA    #1
         BEQ     UME11
         LDA     #'.'
         STA     ,X+
         LDB     <USNA
-        JSR     CPYUX
+UME10   JSR     CPYUX
 UME11   TFR     X,U
         LDD     <USEXP
         JSR     EXPOUT
@@ -355,6 +363,11 @@ UME11   TFR     X,U
         ADDA    <USNB
         STA     <USNB
         BRA     UMOUT2
+UME9    LDD     #$2E30          ; .0 and the other places
+        STD     ,X++
+        LDB     <USNA
+        DECB
+        BRA     UME10
 * the body from the digits (X, B): the integer part, commas, the point and the decimals
 UMBODY  LDU     #FBUFFR+20
         PSHS    B
