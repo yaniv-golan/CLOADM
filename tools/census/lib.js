@@ -3,34 +3,53 @@
 //
 // Ranges:
 //   ROM      $8000-$BFFF   the BASIC ROM: a control transfer into it from outside it opens a record
-//   MASKED   $8000-$FEFF   everything that holds or may hold ROM code (BASIC, its RAM copy in the Dragon 64's 64K
-//                          mode, a cartridge or DOS at $C000): no byte read from here is ever output
+//   MASKED   $8000-$FFFF   everything that holds or may hold ROM bytes (BASIC, its RAM copy in the Dragon 64's 64K mode,
+//                          a cartridge or DOS at $C000, the vectors at $FFF0-$FFFF the SAM maps from ROM), except the
+//                          I/O page $FF00-$FFEF
+//   VECTORS  $A000-$A00F   BASIC's documented call vectors (POLCAT, CHROUT, ...): the one table a program may read
 //
 // A record: { program, target, from, kind, regsIn, regsOut, cyclesInRom, ramWritesOutsideRom: [{ addr, value }] }.
-// It is open from the instruction at `target` (the first one inside ROM after one outside it, at `from`) to the
-// first instruction outside ROM again; regsOut and cyclesInRom are taken there.
+// It is open from the instruction at `target` (the first one inside ROM after one outside it, at `from`) to the first
+// instruction outside ROM again; regsOut and cyclesInRom are taken there.
 //
-// The guard (guardRecord, and the tripwire in Tripwire) stands between the tracer and any output:
-//   1. taint: every byte read from MASKED as data (any read that is not the CPU fetching the instruction at its PC)
-//      is a tainted value; so is every byte read from a RAM cell that holds a tainted value written by ROM code.
-//      A record whose register values or written values include a tainted value is refused: it is not written,
-//      only counted (its addresses alone). Taint is followed per stretch of ROM code, with the registers ROM
-//      leaves behind carried over (trace); 0 and $FF are never tainted (BLANK). A value ROM code computes from
-//      a ROM byte (rather than copying it) is not followed: the tripwire and the scan limit bound that.
-//   2. tripwire: the stream of every value byte a program's records output, checked with js/media/romrefs.js's
-//      window check against the ROM images: a run of WINDOW (16) bytes of any image aborts that program and
-//      discards everything it produced.
-//   3. scan limit: a program that enters more than maxTargets distinct ROM addresses is treated as a scan of the
-//      ROM (entering every address and watching what comes out) and is aborted, everything discarded.
+// The guard is structural: it does not look at values, it follows where data came from.
+//   1. The program starts clean. Recording begins when the census loader starts the program (Machine.injectAndRun:
+//      a .bin, a .cas loaded straight into memory, an asm step). Its registers are cleared then (A, B, X, Y, U, DP and
+//      CC's flags; S is kept), and the RAM it was loaded into is clean. Nothing is recorded for a program started any
+//      other way (by BASIC, from disk): its registers would hold whatever ROM code left in them.
+//   2. Program code may not read ROM. A data read of MASKED by code outside MASKED DISCARDS THE PROGRAM: nothing it
+//      did is output. The exceptions are reads that only pick where control goes next: the two bytes of a
+//      JSR/JMP [$A00x] through the VECTORS table, and the CPU fetching an interrupt vector ($FFF2-$FFFF) as it takes
+//      an interrupt.
+//   3. ROM code that reads ROM data makes its stretch dirty. A data read of MASKED by ROM code (other than an
+//      interrupt vector fetch), or of a dirty RAM cell, makes the current stretch of ROM code dirty. A record open
+//      during a dirty stretch is REFUSED: written as its addresses only ({ program, target, from, kind, refused }),
+//      no registers, cycles or writes. Every RAM cell ROM code writes during a dirty stretch becomes dirty.
+//   4. Taint is sticky. When a dirty stretch hands control back to program code, the program may now hold ROM-derived
+//      data in its registers, so everything it does from then on may depend on ROM bytes. Recording STOPS: nothing
+//      later is written or counted, not even addresses. The same happens if program code reads a dirty RAM cell (as
+//      data, or as an instruction other than JMP/JSR extended or RTS: the RAM hooks BASIC fills at boot).
+//   5. Before the program starts (BASIC's boot, a loader), ROM code that writes a value it has just read from ROM
+//      (one of the last four data reads, 0 and $FF aside) marks that cell dirty: the RAM hooks and tables BASIC copies
+//      out of ROM. A value BASIC computes at boot from ROM data is not followed; BASIC's boot is fixed code, not the
+//      program's.
+// What is left is what the census is for: the effects of running ROM code (constants in its instructions, its timing)
+// on the program's own inputs. Two more guards bound that: the tripwire (the romrefs window check over a program's
+// output values, against the ROM images: a 16-byte run of any image discards the program) and the scan limit (more than
+// maxTargets distinct ROM entry points discards the program).
 'use strict';
 const { romWindowIn, windowIndex, WINDOW } = require('../../js/media/romrefs.js');
 
 const ROM_LO = 0x8000, ROM_HI = 0xBFFF;
-const MASK_LO = 0x8000, MASK_HI = 0xFEFF;
+const IO_LO = 0xFF00, IO_HI = 0xFFEF;
+const VEC_LO = 0xA000, VEC_HI = 0xA00F;
+const HW_LO = 0xFFF2, HW_HI = 0xFFFF;
 const inRom = (a) => a >= ROM_LO && a <= ROM_HI;
-const masked = (a) => a >= MASK_LO && a <= MASK_HI;
+const masked = (a) => a >= 0x8000 && !(a >= IO_LO && a <= IO_HI);
 const REGS = ['a', 'b', 'x', 'y', 'u', 's', 'dp', 'cc'];
 const WIDE = new Set(['x', 'y', 'u', 's', 'pc']);
+// instructions program code may fetch from a dirty RAM cell: they only pick where control goes (BASIC's RAM hooks)
+const HOOK_OPS = new Set([0x7E, 0xBD, 0x39]);   // JMP extended, JSR extended, RTS
 
 const regs = (cpu, withPc) => {
   const r = {};
@@ -45,11 +64,12 @@ const regBytes = (r) => {
   return out;
 };
 // the bytes a record outputs as values (addresses - target, from, write addresses - are not values)
-const valueBytes = (rec) => [...regBytes(rec.regsIn), ...regBytes(rec.regsOut), ...rec.ramWritesOutsideRom.map((w) => w.value)];
+const valueBytes = (rec) => (rec.regsIn ? [...regBytes(rec.regsIn), ...regBytes(rec.regsOut), ...rec.ramWritesOutsideRom.map((w) => w.value)] : []);
 
-// What took control into ROM, from the instruction at `from` (a RAM or cartridge address; read here, never output)
-// and how far S moved (an interrupt stacks 12 bytes, a FIRQ 3, a JSR/BSR 2).
+// What took control into ROM, from the instruction at `from` and how far S moved (an interrupt stacks 12 bytes, a FIRQ
+// 3, a JSR/BSR 2). `from` is program code here; an instruction inside MASKED (a cartridge calling BASIC) is never read.
 function kindOf(peek, from, sDelta) {
+  if (masked(from)) return 'from-rom';
   const op = peek(from), pb = peek((from + 1) & 0xFFFF);
   const stacked = sDelta === -12 || sDelta === -3;
   let k = null;
@@ -62,7 +82,7 @@ function kindOf(peek, from, sDelta) {
   else if (op === 0x39) k = 'rts';
   else if (op === 0x3B) k = 'rti';
   else if ((op === 0x35 || op === 0x37) && (pb & 0x80)) k = 'pul';
-  else if (op === 0x16 || (op >= 0x20 && op <= 0x2F) || (op === 0x10 && peek((from + 1) & 0xFFFF) >= 0x21 && peek((from + 1) & 0xFFFF) <= 0x2F)) k = 'branch';
+  else if (op === 0x16 || (op >= 0x20 && op <= 0x2F) || (op === 0x10 && pb >= 0x21 && pb <= 0x2F)) k = 'branch';
   else if (op === 0x1E || op === 0x1F) k = 'tfr';
   else if (op === 0x3F || ((op === 0x10 || op === 0x11) && pb === 0x3F)) k = 'swi';
   // an interrupt taken in place of the instruction at `from` (it runs later)
@@ -87,114 +107,131 @@ class Tripwire {
   add(bytes) {
     const from = Math.max(0, this.stream.length - (WINDOW - 1));
     this.stream.push(...bytes);
-    return romWindowIn(Uint8Array.from(this.stream.slice(from)), this.images, this.index) || romWindowIn(Uint8Array.from(bytes), this.images, this.index);
+    return romWindowIn(Uint8Array.from(this.stream.slice(from)), this.images, this.index);
   }
 }
 
-// Values that carry no information on their own: 0 and $FF, the fill of empty ROM and RAM and the commonest
-// constants (romrefs.js skips runs of one repeated byte for the same reason). They are never tainted; the tripwire
-// still sees them.
-const BLANK = (v) => v === 0x00 || v === 0xFF;
-const taintedReg = (k, v, taint) => (WIDE.has(k) ? [(v >> 8) & 0xFF, v & 0xFF] : [v & 0xFF]).some((b) => taint.has(b));
-
-// -> null when the record may be written, else the reason it may not. taint: the tainted values of the record's
-// ROM segment; rec.inTainted: the registers found tainted when it was opened (trace).
-function guardRecord(rec, taint) {
-  if (rec.inTainted && rec.inTainted.length) return 'tainted-register-in';
-  for (const [k, v] of Object.entries(rec.regsIn)) if (taintedReg(k, v, taint)) return 'tainted-register-in';
-  for (const [k, v] of Object.entries(rec.regsOut)) if (taintedReg(k, v, taint)) return 'tainted-register-out';
-  for (const w of rec.ramWritesOutsideRom) {
-    if (masked(w.addr)) return 'write-in-masked-range';
-    if (taint.has(w.value)) return 'tainted-write';
-  }
-  return null;
+// The reads one instruction made that only pick where control goes, and may therefore come from MASKED:
+//   - a JSR/JMP [$A00x] (opcode $AD or $6E, postbyte $9F, an address in VECTORS) reading its two address bytes there,
+//     landing where they point;
+//   - the CPU fetching an interrupt vector ($FFF2-$FFFF) as it takes an interrupt (S down by 12, or 3 for a FIRQ),
+//     landing where it points.
+// reads: [address, value] of the instruction's data reads from MASKED -> true when all of them are one of those.
+function onlyPicksTarget(reads, peek, from, newPc, sDelta) {
+  if (reads.length !== 2) return false;
+  const [[a0, v0], [a1, v1]] = reads;
+  if (a1 !== ((a0 + 1) & 0xFFFF) || ((v0 << 8) | v1) !== newPc) return false;
+  if (a0 >= HW_LO && a1 <= HW_HI) return sDelta === -12 || sDelta === -3;
+  if (a0 < VEC_LO || a1 > VEC_HI) return false;
+  const op = peek(from), pb = peek((from + 1) & 0xFFFF), at = (peek((from + 2) & 0xFFFF) << 8) | peek((from + 3) & 0xFFFF);
+  return (op === 0xAD || op === 0x6E) && pb === 0x9F && at === a0;
 }
 
-// Trace machine m -> { detach(), error, finish() -> { records, refused, error } }.
-// Refused records are kept as { program, target, from, kind, refused: reason } (addresses only).
+// Trace machine m -> { detach(), finish() -> { records, refused, started, stopped, error } }.
+//   records: the records written in full; refused: the records written as addresses only (a dirty stretch);
+//   started: the census loader started the program; stopped: why recording stopped (sticky taint), or null;
+//   error: why the program is discarded (it read ROM, or scanned it), or null.
 // opts: { program, maxWrites, maxTargets }
-//
-// Taint (see the header) is followed per stretch of code: `taint` holds the values read since control last left
-// ROM. When it leaves ROM, the registers holding a tainted value are noted (leftTainted, with their values) and the
-// set starts afresh. When control comes back, a register is tainted if it still holds what ROM left in it and that
-// was tainted, or if it holds a value read since (RAM code reading ROM, or a RAM cell ROM code filled with a
-// tainted value).
 function trace(m, { program = '', maxWrites = 256, maxTargets = 512 } = {}) {
   const cpu = m.cpu, peek = (a) => m.peek(a & 0xFFFF);
   const records = [], refused = [];
-  const taint = new Set();          // tainted values read since control last left ROM
-  const taintedRam = new Set();     // RAM cells holding a tainted value written by ROM code
+  const dirtyRam = new Uint8Array(0x10000);   // 1: a RAM cell holding ROM-derived data
   const targets = new Set();
-  let stepReads = [];               // [address, value] of the data reads from MASKED made by the last instruction
-  let leftVals = null, leftTainted = new Set();
-  let open = null, prevPc = null, prevS = 0, error = null;
-  const addTaint = (v) => { if (!BLANK(v)) taint.add(v); };
+  let started = false, stopped = null, error = null;
+  let dirtyStretch = false;                   // the current stretch of ROM code has read ROM data
+  let open = null, prevPc = null, prevS = 0, curPc = 0;
+  let stepReads = [];                         // [address, value] of the data reads from MASKED in the current instruction
+  let stepFetchDirty = false;                 // the current instruction was fetched (partly) from a dirty RAM cell
+  const recent = [];                          // the last data-read values from MASKED or dirty RAM by ROM code (boot heuristic)
 
-  const close = (exitAtEnd) => {
-    const rec = {
-      program, target: open.target, from: open.from, kind: open.kind,
-      regsIn: open.regsIn, regsOut: regs(cpu, true), cyclesInRom: m.cycle - open.cycle,
-      ramWritesOutsideRom: open.writes,
-    };
-    if (open.dropped) rec.writesDropped = open.dropped;
-    if (exitAtEnd) rec.open = true;     // still inside ROM when the program's run ended
-    const why = guardRecord(Object.assign({ inTainted: open.inTainted }, rec), taint);
+  const close = (atEnd) => {
+    const rec = { program, target: open.target, from: open.from, kind: open.kind };
+    if (dirtyStretch) refused.push(Object.assign(rec, { refused: 'rom-data-read' }));
+    else {
+      Object.assign(rec, { regsIn: open.regsIn, regsOut: regs(cpu, true), cyclesInRom: m.cycle - open.cycle, ramWritesOutsideRom: open.writes });
+      if (open.dropped) rec.writesDropped = open.dropped;
+      if (atEnd) rec.open = true;   // still inside ROM when the program's run ended
+      records.push(rec);
+    }
     open = null;
-    if (why) refused.push({ program, target: rec.target, from: rec.from, kind: rec.kind, refused: why });
-    else records.push(rec);
   };
+  const stop = (why) => { if (!stopped) stopped = why; if (open) open = null; };
   const probe = (pc) => {
     if (error) return;
-    const wasIn = prevPc !== null && inRom(prevPc), here = inRom(pc);
-    const entering = prevPc !== null && !wasIn && here;
-    // the last instruction's data reads from ROM. A JSR or JMP through a vector in ROM reads the target's address
-    // there: that is the target, which is output anyway, so those two reads are not taint.
-    const r = stepReads;
-    stepReads = [];
-    const vector = entering && r.length === 2 && r[1][0] === ((r[0][0] + 1) & 0xFFFF) && ((r[0][1] << 8) | r[1][1]) === pc;
-    if (!vector) for (const [, v] of r) addTaint(v);
-    if (wasIn && !here) {
-      if (open) close(false);
-      leftVals = regs(cpu, false);
-      leftTainted = new Set(Object.keys(leftVals).filter((k) => taintedReg(k, leftVals[k], taint)));
-      taint.clear();
-    } else if (entering) {
+    const from = prevPc, sDelta = ((cpu.s - prevS) << 16) >> 16;
+    // the instruction just done (at `from`): judge its reads
+    const reads = stepReads, fetchDirty = stepFetchDirty;
+    stepReads = []; stepFetchDirty = false;
+    if (from !== null) {
+      const romCode = masked(from);
+      if (reads.length && !onlyPicksTarget(reads, peek, from, pc, sDelta)) {
+        if (!romCode) { if (started && !stopped) error = 'program-read-rom'; }
+        else dirtyStretch = true;
+      }
+      if (!romCode && fetchDirty && !HOOK_OPS.has(peek(from)) && started) stop('program-ran-rom-data');
+    }
+    if (error) return;
+    const wasIn = from !== null && inRom(from), nowIn = inRom(pc);
+    const closing = open && !nowIn;
+    if (closing) close(false);
+    // ROM code hands control to program code: a dirty stretch taints the program for good
+    if (from !== null && masked(from) && !masked(pc)) { if (dirtyStretch && started) stop('rom-data-returned'); dirtyStretch = false; }
+    if (!closing && !open && nowIn && from !== null && !wasIn && started && !stopped) {
       targets.add(pc);
       if (targets.size > maxTargets) { error = `scan: more than ${maxTargets} distinct ROM entry points`; return; }
-      const regsIn = regs(cpu, false);
-      const inTainted = Object.keys(regsIn).filter((k) => (leftVals && leftVals[k] === regsIn[k] && leftTainted.has(k)) || taintedReg(k, regsIn[k], taint));
-      open = { target: pc, from: prevPc, kind: kindOf(peek, prevPc, ((cpu.s - prevS) << 16) >> 16), regsIn, inTainted, cycle: m.cycle, writes: [], dropped: 0 };
+      open = { target: pc, from, kind: kindOf(peek, from, sDelta), regsIn: regs(cpu, false), cycle: m.cycle, writes: [], dropped: 0 };
     }
-    prevPc = pc; prevS = cpu.s;
+    prevPc = pc; prevS = cpu.s; curPc = pc;
   };
   const onRead = (a, v) => {
-    if (masked(a)) { if (a !== cpu.pc) stepReads.push([a, v]); }   // a data read (an instruction fetch reads at the PC)
-    else if (taintedRam.has(a)) addTaint(v);
+    const fetch = a === cpu.pc;   // the CPU fetching the instruction (it reads at its PC); anything else is data
+    if (masked(a)) { if (!fetch) stepReads.push([a, v]); return; }
+    if (!dirtyRam[a]) return;
+    if (masked(curPc)) { dirtyStretch = true; return; }   // ROM code reading ROM-derived data from RAM
+    if (fetch) stepFetchDirty = true;                      // judged at the next instruction (a RAM hook may be fetched)
+    else if (started) stop('program-read-rom-data');
   };
   const onWrite = (a, v) => {
     if (masked(a)) return;
-    if (masked(cpu.pc) && taint.has(v)) taintedRam.add(a); else taintedRam.delete(a);
+    const romCode = masked(curPc);
+    if (!romCode) dirtyRam[a] = 0;                         // program code writes its own data (until it stops)
+    else if (started) dirtyRam[a] = dirtyStretch ? 1 : 0;
+    else dirtyRam[a] = v !== 0 && v !== 0xFF && recent.includes(v) ? 1 : 0;
     if (!open) return;
     if (open.writes.length < maxWrites) open.writes.push({ addr: a, value: v });
     else open.dropped++;
   };
+  // the boot heuristic's memory of what ROM code last read (5): kept from the read taps
+  const onReadRecent = (a, v) => { if (!started && masked(curPc) && a !== cpu.pc && (masked(a) || dirtyRam[a])) { recent.push(v); if (recent.length > 4) recent.shift(); } };
+  // the census loader starting the program (1)
+  const inject = m.injectAndRun;
+  m.injectAndRun = function (segments, exec) {
+    inject.call(this, segments, exec);
+    for (const seg of segments) for (let i = 0; i < seg.data.length; i++) dirtyRam[(seg.addr + i) & 0xFFFF] = 0;
+    if (exec == null) return;
+    cpu.a = 0; cpu.b = 0; cpu.x = 0; cpu.y = 0; cpu.u = 0; cpu.dp = 0; cpu.cc &= 0x50;
+    started = true; stopped = null; dirtyStretch = false; open = null;
+    stepReads = []; stepFetchDirty = false; prevPc = null;
+  };
   const removers = [
     m.addProbe(probe),
-    m.busTaps.addReadTap({ start: 0, end: 0xFFFF }, onRead),
+    m.busTaps.addReadTap({ start: 0, end: 0xFFFF }, (a, v) => { onReadRecent(a, v); onRead(a, v); }),
     m.busTaps.addWriteTap({ start: 0, end: 0xFFFF }, onWrite),
+    () => { m.injectAndRun = inject; if (m.injectAndRun === Object.getPrototypeOf(m).injectAndRun) delete m.injectAndRun; },
   ];
   const detach = () => { while (removers.length) removers.pop()(); };
   return {
     detach,
     get error() { return error; },
+    get stopped() { return stopped; },
+    get started() { return started; },
     finish() {
       detach();
-      for (const [, v] of stepReads) addTaint(v);
-      stepReads = [];
-      if (open && !error) close(true);
-      return { records, refused, error };
+      if (!error && prevPc !== null && stepReads.length && !masked(prevPc) && started && !stopped) error = 'program-read-rom';
+      if (open && !error && !stopped) close(true);
+      return { records, refused, started, stopped, error };
     },
   };
 }
 
-module.exports = { ROM_LO, ROM_HI, MASK_LO, MASK_HI, BLANK, inRom, masked, kindOf, regBytes, valueBytes, romImages, Tripwire, guardRecord, trace };
+module.exports = { ROM_LO, ROM_HI, IO_LO, IO_HI, VEC_LO, VEC_HI, inRom, masked, kindOf, regBytes, valueBytes, romImages, Tripwire, onlyPicksTarget, trace };

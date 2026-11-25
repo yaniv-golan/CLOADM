@@ -16,31 +16,53 @@ their own machine, with their own ROM dump, as a **black box**: they report **wh
 The output holds addresses and effects, never ROM bytes:
 
 * Addresses: a call's `target` (in $8000-$BFFF), its caller `from`, the RAM addresses it wrote.
-* Effects: the registers going in and coming out, the cycles spent in ROM, the values written to RAM outside
-  $8000-$FEFF.
-* Nothing read from **$8000-$FEFF** is output. That range covers BASIC, its RAM copy in the 64K mode, and a
-  cartridge or DOS at $C000. Writes into it are not recorded.
+* Effects: the registers going in and coming out, the cycles spent in ROM, the values written to RAM outside the
+  masked range.
+* The masked range is **$8000-$FFFF**, minus the I/O page $FF00-$FFEF. It covers BASIC, its RAM copy in the 64K
+  mode, a cartridge or DOS at $C000, and the vectors at $FFF0-$FFFF that the SAM maps from ROM. Nothing read from
+  it is output, and writes into it are not recorded.
 
-Four guards enforce this, in `lib.js`. Each one has a test and a mutant that the test catches:
+The guard is **structural**: it never compares values. It follows where data came from, and stops at the first point
+where ROM data could reach the output. The rules are in `lib.js`'s header, and `tests/census.test.js` has a test and
+a mutant for each one:
 
-1. **Taint.** Every byte read from $8000-$FEFF as data is tainted. Instruction fetches at the PC are not, apart
-   from the two bytes of a ROM vector that a `JSR [$A002]` reads to find its target. So is every byte read from a
-   RAM cell that ROM code filled with a tainted value. Taint follows each stretch of ROM code, and the registers ROM
-   leaves behind are carried to the next call. A record whose registers in or out, or whose written values, hold a
-   tainted value is **refused**. It is counted (`refused` in the aggregate) and written as addresses only:
-   `{ program, target, from, kind, refused }`.
-   * 0 and $FF are never tainted: they are the fill of empty memory and the commonest constants.
-   * A value ROM computes *from* a ROM byte, rather than copying it, is not followed; guards 2 and 3 bound that.
-   * The rule is conservative by design. A refused call is lost detail; a leaked byte would be a breach.
-2. **Tripwire.** Each program's output values form one stream. It is checked with `js/media/romrefs.js`'s window
-   check (the one shared snapshots use) against the ROM images. A 16-byte run of any image discards everything
-   that program produced.
-3. **Scan limit.** A program that enters more than `--max-targets` (512) distinct ROM addresses counts as a scan of
-   the ROM and is discarded.
-4. **No read-out steps.** A `.cloadm` script given to the census may only feed the machine and let time pass: load,
-   type, wait-for, frames, and so on. `peek`, `disasm`, `registers`, `screen`, `screenshot`, `save-snapshot`,
-   recordings and traces are refused. The census sets the machine and the ROMs itself. A failing step is reported
-   by its error code only, since a message could quote the screen.
+1. **The program starts clean.** Recording begins when the census loader starts the program: a machine-code `.bin`,
+   a `.cas` loaded straight into memory, or an `asm` step. Its registers A, B, X, Y, U, DP and CC's flags are cleared
+   then; S is kept. A program BASIC or a disk starts records nothing, because its registers could hold whatever ROM
+   code left in them.
+2. **Program code may not read ROM.** A data read of the masked range by program code **discards the program**, and
+   nothing it did is written. Two reads are exempt, because they only pick where control goes:
+   * the two bytes of a `JSR`/`JMP [$A00x]` through BASIC's documented call vectors ($A000-$A00F);
+   * the CPU fetching an interrupt vector as it takes an interrupt.
+3. **ROM code that reads ROM data makes its stretch dirty.** A data read of the masked range by ROM code, or of a
+   RAM cell holding ROM data, does this. A call made during a dirty stretch is **refused**: it is written as its
+   addresses only (`{ program, target, from, kind, refused }`), and its RAM writes become dirty.
+4. **Taint is sticky.** When a dirty stretch returns to the program, the program may hold ROM data, so **recording
+   stops** for good: nothing later is written or counted. Recording also stops if program code reads dirty RAM, or
+   runs dirty RAM as anything but a `JMP`/`JSR` extended or `RTS` (BASIC's RAM hooks).
+5. **Boot data.** Before the program starts, ROM code that writes a value it has just read from ROM marks that RAM
+   cell dirty. That covers the RAM hooks and tables BASIC copies out of ROM. Two values are not followed: 0 and $FF,
+   and anything BASIC *computes* from ROM data during its boot.
+
+**What is left** is what the census is for: the effects of running ROM code on the program's own inputs. That
+includes constants in ROM instructions and ROM timing. Two more guards bound it:
+
+* **Tripwire.** Each program's output values form one stream. It is checked with `js/media/romrefs.js`'s window
+  check against the ROM images. A 16-byte run of any image discards the program.
+* **Scan limit.** More than `--max-targets` (512) distinct ROM entry points discards the program as a scan.
+
+Three more rules keep the CLI itself from leaking:
+
+* A `.cloadm` script given to the census may only feed the machine and let time pass: load, asm, type, wait-for,
+  frames, and so on. `peek`, `disasm`, `registers`, `screen`, `screenshot`, `save-snapshot`, recordings and traces
+  are refused. The census sets the machine and the ROMs itself.
+* A failing step is reported by its error code only, since a message could quote the screen.
+* `kindOf` never reads an instruction inside the masked range. A call from a cartridge into BASIC is of kind
+  `from-rom`.
+
+**In practice**, a program's census covers its calls up to the first ROM routine that reads ROM data. That call is
+refused, and recording stops there. Calls to routines that work only on the program's own data and RAM are recorded
+in full.
 
 The token probe's guard: a keyword must be a word of letters, digits and `$`, or one operator character. The line
 is typed as `10 KEYWORD`, never run. Its stored bytes are written only if each is a token (bit 7 set) or a character
@@ -49,14 +71,15 @@ of the typed line, and there are no more of them than characters typed. The same
 ## census.js
 
 ```
-node tools/census/census.js --roms ~/roms [--out DIR] [--frames N] game.cas tool.bin disk.vdk session.cloadm
+node tools/census/census.js --roms ~/roms [--out DIR] [--frames N] game.cas tool.bin session.cloadm
 ```
 
 Runs each program on a Dragon 64 with the ROMs given.
 
-* A `.cas`, `.bin`, `.vdk` or any other file the CLI's `--load` takes is loaded and run for `--frames` frames
-  (default 3000, a minute).
-* A `.cloadm` script runs its steps.
+* A machine-code `.bin` or `.cas` is loaded straight into memory, started, and run for `--frames` frames (default
+  3000, a minute).
+* A `.cloadm` script runs its steps. It can mount a `.vdk` with `disk`, but the program must still be started by
+  `load` or `asm` (rule 1). A BASIC program, or one booted from disk, is discarded as "not started".
 
 Every control transfer into $8000-$BFFF from outside it is logged: JSR, JMP, BSR/LBSR, indirect jumps through the
 vectors, RTS/RTI/PULS landing in ROM, and interrupts.
@@ -78,12 +101,14 @@ vectors, RTS/RTI/PULS landing in ROM, and interrupts.
  "cyclesInRom":5,"ramWritesOutsideRom":[{"addr":1024,"value":72}]}
 ```
 
-* A record runs from the first instruction in ROM to the first one outside it again.
+* A record runs from the first instruction in ROM to the first one outside it again. A refused record holds only
+  `{ program, target, from, kind, refused }`.
 * `regsOut.pc` is where control left.
 * `"open": true` marks a call still in ROM when the run ended.
 * When ROM calls a RAM hook, the hook's return into ROM starts a new record of kind `rts`.
 
-`census.json` holds `{ range, programs, failed, entries }`. Each entry is `{ address, hex, programs, calls,
+`census.json` holds `{ range, programs, failed, entries }`. Each `programs` item gives the calls `recorded` and
+`refused`, and why recording `stopped` (null when it didn't). Each entry is `{ address, hex, programs, calls,
 refused, kinds, inRegs, outRegs, ramEffects }`, sorted by the number of programs using the address, then by calls.
 
 * `inRegs` and `outRegs` list up to 8 distinct values per register (`more` when there were others). `outRegs`
@@ -115,7 +140,16 @@ The output is `{ line: 10, results: [{ keyword, bytes }], failed: [{ keyword, er
 `node tests/census.test.js` runs both tools on the built-in firmware with programs written for this project:
 
 * `selftest/calls.asm` calls the ROM stub's vectors and routines, including one that returns a ROM byte, which the
-  guard must refuse.
+  guard must refuse; after it, recording stops.
 * `selftest/fakebasic.asm` is a stand-in line editor with made-up keywords and tokens.
 
-The test plants ROM values and checks that the guards stop them, and runs mutants of the guards.
+The test also runs a program for each leak path, on the built-in ROM stub:
+
+* reading ROM and computing on it;
+* keeping a refused call's ROM byte in RAM and passing it on;
+* the $FFF0-$FFFF vectors;
+* a `JMP` through a ROM word;
+* copying ROM out;
+* scanning the ROM.
+
+It drives a stand-in machine through a boot that copies ROM into RAM, and runs a mutant of every guard.

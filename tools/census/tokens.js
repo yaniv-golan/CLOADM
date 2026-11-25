@@ -21,6 +21,8 @@ const path = require('path');
 const cli = require('../../cli/cloadm.js');
 const { romImages, Tripwire } = require('./lib.js');
 
+// an error whose message the probe wrote itself (safe to print); any other is printed by its code only
+class ProbeError extends Error {}
 const BOOT_ALLOWED = new Set(['option', 'timeout', 'asm', 'load', 'type', 'frames', 'seconds', 'wait-for']);
 const KEYWORD = /^(?:[A-Z][A-Z0-9]*\$?|[-+*/^<>=&'])$/;
 const LINE = 10;
@@ -102,12 +104,12 @@ async function main(argv, { log = (t) => process.stderr.write(t + '\n'), out = (
   try {
     if (o.boot) {
       boot = cli.parseArgs(['--script', o.boot]).steps;
-      for (const s of boot) if (!BOOT_ALLOWED.has(s.name)) throw new Error(`${s.where}: a boot script may not use the step "${s.name}"`);
+      for (const s of boot) if (!BOOT_ALLOWED.has(s.name)) throw new ProbeError(`${s.where}: a boot script may not use the step "${s.name}"`);
     }
     for (const s of boot.filter((x) => cli.STEPS[x.name].setup)) await runner.run(s);
     runner.start();
     for (const s of boot.filter((x) => !cli.STEPS[x.name].setup)) await runner.run(s);
-  } catch (e) { log(`tokens: could not boot: ${e.code || e.message}`); return 1; }
+  } catch (e) { log(`tokens: could not boot: ${e instanceof ProbeError ? e.message : e.code || 'error'}`); return 1; }
   const m = runner.m, booted = m.saveState();
   const tw = new Tripwire(romImages(m));
   const results = [], failed = [];
