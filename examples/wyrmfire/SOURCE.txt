@@ -3,7 +3,9 @@ WYRMFIRE, served by CLOADM
 
 The files in this folder come from WYRMFIRE, a game engine for the Dragon 64 that plays Doom-format levels.
 WYRMFIRE is free software under the GNU General Public License, version 3 or later (COPYING-GPL-3.0.txt).
-WYRMFIRE is not affiliated with id Software or the Freedoom project. DOOM is a trademark of id Software LLC.
+WYRMFIRE is not affiliated with the Freedoom project.
+DOOM is a registered trademark of ZeniMax Media Inc. CLOADM and WYRMFIRE are independent projects, not affiliated
+with or endorsed by id Software, ZeniMax Media or Microsoft. References to DOOM describe file compatibility only.
 
 Version:  0.1.0
 Source:   https://github.com/yaniv-golan/wyrmfire/tree/775ec6c8167dd576c63a2869c500ecb706f41456

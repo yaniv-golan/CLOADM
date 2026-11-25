@@ -179,8 +179,9 @@ the title screen shows them (Enter goes on). Start it from **Programs** ("Runs w
   something else does not end it; switching machines or opening a snapshot does), clips and screenshots are off,
   snapshots are off, and Claude (the chat, the side panel, the MCP tools, `registers` and `step` included) and a page
   embedding CLOADM can't read the screen or memory: "Claude can't look at the screen or memory while your own
-  WAD is loaded: it's id Software's game data." WYRMFIRE is not affiliated with id Software. DOOM is a trademark of id
-  Software LLC.
+  WAD is loaded: it's id Software's game data." DOOM is a registered trademark of ZeniMax Media
+  Inc. CLOADM and WYRMFIRE are independent projects, not affiliated with or endorsed by id Software, ZeniMax Media or
+  Microsoft. References to DOOM describe file compatibility only.
 
 Help → WYRMFIRE also says what it does and doesn't do (E1M1 only; 6.4 pictures a second within a part of the level and
 about a second to load the next, measured in CLOADM headless), and offers the Freedoom disk to keep as `.vdk` or `.dsk`
