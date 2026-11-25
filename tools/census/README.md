@@ -70,7 +70,16 @@ Three more guards bound what is left:
   check against the ROM images. A 16-byte run of any image discards the program.
 * **Scan limit.** More than `--max-targets` (512) distinct ROM entry points discards the program as a scan.
 * **Run-wide limit.** Across every program of one run, more than `--max-run-targets` (1024) distinct ROM entry
-  points writes nothing at all.
+  points writes nothing at all. The limit holds per invocation of `census.js`, so the maintainer's process keeps
+  one run per study: one invocation, one `census.json`.
+
+Two more things these guards do not cover:
+
+* **Short boot residue.** The boot self-check (rule 5) only sees runs of 16 bytes or more. Boot residue the heuristic
+  misses still passes if it is shorter than 16 bytes, or if a changed byte breaks the run. How much of that a real
+  BASIC leaves can't be measured without a real ROM.
+* **ROM bytes inside a program's own file.** ROM code embedded in a program's file is that program's data. Only the
+  tripwire guards it, and it is out of scope.
 
 Three more rules keep the CLI itself from leaking:
 

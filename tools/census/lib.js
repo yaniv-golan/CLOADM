@@ -37,7 +37,8 @@
 //      out of ROM. A value BASIC computes at boot from ROM data is not followed; BASIC's boot is fixed code, not the
 //      program's. A self-check backs the heuristic up: when the program starts, every 16-byte window of a ROM image
 //      found in RAM below $8000 (but the program's own image) must be marked, or the program is discarded
-//      ('boot-residue-unmarked': a copy the heuristic missed, a longer block copy).
+//      ('boot-residue-unmarked': a copy the heuristic missed, a longer block copy). The check sees only 16-byte runs:
+//      residue the heuristic misses that is shorter, or broken by a changed byte, passes (README, "What is left").
 // What is left is what the census is for: the effects of running ROM code (constants in its instructions, its timing)
 // on the program's own inputs. Two more guards bound that: the tripwire (the romrefs window check over a program's
 // output values, against the ROM images: a 16-byte run of any image discards the program) and the scan limit (more than
