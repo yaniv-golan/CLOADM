@@ -136,6 +136,22 @@ const afterKinds = (r) => {
   return r.stopped === 'rom-data-returned' && a.length === 1 && a[0].from === at('SITE') && a[0].target === sym('CHROUT') && !a.some((x) => x.from === 0x3100);
 };
 check('after the stop, JSR ,X is not counted, a direct JSR is, and a JSR the program wrote into RAM is not (its bytes are not as loaded)', afterKinds(traced(lib, AFTER)), JSON.stringify(traced(lib, AFTER).afterStop));
+// after the stop: the program overwrites a call site INSIDE its own loaded image (an overlay, a patched operand) with
+// a JSR CHROUT from immediate values (clean data) and runs it: the site is no longer as loaded, so not counted
+const PATCHED = prog(`        LDX     #OKMSG
+        JSR     SKIP
+        LDD     #$BDB1
+        STD     PATCH
+        LDA     #$10
+        STA     PATCH+2
+        JSR     PATCH
+        BRA     DONE
+PATCH   NOP
+        NOP
+        NOP
+        RTS`);
+const patchedHolds = (r) => r.stopped === 'rom-data-returned' && (r.afterStop || []).length === 0 && !r.records.some((x) => x.from === r.symbols.get('PATCH'));
+check('after the stop, a JSR the program writes over its own loaded image (clean values) is not counted', patchedHolds(traced(lib, PATCHED)), JSON.stringify(traced(lib, PATCHED).afterStop));
 
 // ---------------- the leak paths, each on the stub ROM ----------------
 const LEAKS = {
@@ -472,6 +488,13 @@ EMB     FCB     ${[...STUB.rom.subarray(sym('KEY') - 0x8000, sym('KEY') - 0x8000
         END     START`;
 const embedHolds = (r) => r.skipped === 'rom-run-in-image' && r.refs.length === 0;
 check('static: a program file holding a 16+ byte ROM copy is not scanned at all (skipped, no references)', embedHolds(staticOf(stat, EMBED)), JSON.stringify(staticOf(stat, EMBED)));
+// the same file as 8-byte segments in a row (a tape file's blocks): the ROM copy, split across them, is still found
+const splitOf = (S, src) => {
+  const r = asm(src), segs = [];
+  for (const g of r.segments) for (let i = 0; i < g.data.length; i += 8) segs.push({ addr: g.addr + i, data: Uint8Array.from(g.data).subarray(i, i + 8) });
+  return S.staticRefs(segs, STUB_IMG);
+};
+check('static: the ROM copy split across contiguous 8-byte segments is still found (skipped)', embedHolds(splitOf(stat, EMBED)), JSON.stringify(splitOf(stat, EMBED)));
 // an indirect call through anything but the $A00x vectors is no reference
 const INDIRECT = `
         ORG     $3000
@@ -732,6 +755,8 @@ DONE    BRA     DONE
       check('mutant "any transfer counted after the stop" is caught', !afterKinds(traced(A2, AFTER)));
       const A3 = moduleWith(LIB, [['if (!asLoaded[a] || dirtyRam[a]) return false;', '']]);
       check('mutant "call sites not checked as loaded" is caught', !afterKinds(traced(A3, AFTER)));
+      const A4 = moduleWith(LIB, [['    asLoaded[a] = 0;\n', '']]);
+      check('mutant "writes don\'t clear asLoaded" is caught', !patchedHolds(traced(A4, PATCHED)));
     }
     for (const [name, pairs, scenarios] of libMutants) {
       const L = moduleWith(LIB, pairs);
@@ -751,8 +776,10 @@ DONE    BRA     DONE
       check('mutant "the partial file kept when the run is refused" is caught', !runLimitHolds(await runLimit(R3, 4)));
       const R4 = moduleWith(CENSUS, [['    for (const x of r.afterStop) next.add(x.target != null ? x.target : x.slot);', '']]);
       check('mutant "calls after the stop not counted toward --max-run-targets" is caught', !runLimitHolds(await runLimit(R4, 4)));
-      const S1 = moduleWith(path.join(DIR, 'static.js'), [["if (findRuns(Uint8Array.from(seg.data), images, index).length) return { refs: [], skipped: 'rom-run-in-image' };", '{ }']]);
+      const S1 = moduleWith(path.join(DIR, 'static.js'), [["if (findRuns(run, images, index).length) return { refs: [], skipped: 'rom-run-in-image' };", '{ }']]);
       check('mutant "an image holding a ROM copy scanned anyway" is caught', !embedHolds(staticOf(S1, EMBED)));
+      const S5 = moduleWith(path.join(DIR, 'static.js'), [['    if (cur && seg.addr === end) {', '    if (false) {']]);
+      check('mutant "segments checked one by one" is caught', !embedHolds(splitOf(S5, EMBED)));
       const S4 = moduleWith(path.join(DIR, 'static.js'), [['if (peek(at + 1) === 0x9F && d.target >= VEC_LO && d.target <= VEC_HI - 1) refs.push(', 'if (true) refs.push(']]);
       check('mutant "any indirect call a reference" is caught', !indirectHolds(staticOf(S4, INDIRECT)));
       const P = moduleWith(CENSUS, [['    for (const x of r.records) records.push(x);', '    records.push(...r.records);']]);

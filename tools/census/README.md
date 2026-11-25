@@ -140,7 +140,7 @@ vectors, RTS/RTI/PULS landing in ROM, and interrupts.
 | `--max-per-site N` | JSONL records per (program, from, target, kind); all are counted in the aggregate (default 20) |
 | `--max-writes N` | writes kept per record; the rest are counted in `writesDropped` (default 256) |
 | `--max-targets N` | the scan limit per program (default 512) |
-| `--max-run-targets N` | the limit on distinct ROM entry points across the whole run, static references (by descent) included; more, and nothing is written (default 1024) |
+| `--max-run-targets N` | the limit on distinct ROM entry points across the whole run, calls counted after the stop included (static lines, from the linear scan, do not count); more, and nothing is written (default 1024) |
 | `--sweep-window N` | the boot sweep's shortest ROM run, 4 to 16 bytes (default 8); shorter marks more, which costs recording, not safety |
 | `--no-roms` | run on the built-in firmware (the self-test) |
 
@@ -196,7 +196,8 @@ is in `static.js`:
     `target` null); its value is ROM data and is never read.
   * Direct-page `JSR`/`JMP` are skipped, since DP isn't known statically.
 * **ROM copied into the file.** A program file holding a run of 16 or more bytes of a ROM image, such as a copied
-  routine or table, is not scanned at all (`staticSkipped`).
+  routine or table, is not scanned at all (`staticSkipped`). Segments that follow each other in memory (a tape
+  file's blocks) are checked as one run, so a copy split across them is still found.
 * **Lines in `census.jsonl`:** `{ program, from, target, slot?, kind, source: "static" }`, addresses only.
 * **The target limits.** These lines don't count toward them: they come from the program file alone, not from
   running ROM code.
