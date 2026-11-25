@@ -66,9 +66,7 @@ NEWJMP  CLR     <JMPFLG
         BSR     TRCLIN
         BRA     NEWST1
 DIREND  JMP     READY
-PRGEND  CLR     <OLDTXT         ; the end of the program: nothing to CONT
-        CLR     <OLDTXT+1
-        JMP     READY
+PRGEND  JSR     END1            ; the end of the program is an END: CONT there ends again [BB bb1 flow-cont]
 * TRON: each line's number in brackets as it starts [UM]
 TRCLIN  TST     <TRCFLG
         BEQ     TRC1
@@ -176,7 +174,7 @@ LGERR   JMP     SNERR
 * CONTMD: 0 = CONT goes on after the statement at OLDTXT (STOP, END); 1 = OLDTXT is just before a statement
 * (BREAK). BASESP keeps the stack as it was, so the FOR and GOSUB frames are there for CONT.
 END     BNE     SYNERR
-        CLR     <CONTMD
+END1    CLR     <CONTMD
         BSR     DIRCHK
         BEQ     ENDRUN
         LDD     <TXTPTR
@@ -212,7 +210,8 @@ STOP1   JSR     NEWLIN
         JSR     PRTIN
 STOP2   JSR     CRLF
         JMP     READY
-BRKMSG  FCN     "BREAK"
+BRKMSG  FCB     13              ; an empty line first, after STOP and BREAK alike [BB bb1 flow-cont]
+        FCN     "BREAK"
 
 CONT    LBNE    SNERR
         LDD     <OLDTXT
