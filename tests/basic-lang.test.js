@@ -15,16 +15,20 @@ const { lintCase } = require('../tools/basic-bb/lint.js');
 let fail = 0, n = 0;
 const check = (name, cond, detail = '') => { n++; if (!cond) { fail++; console.log(`FAIL ${name} ${detail}`); } else console.log(`ok   ${name} ${detail}`); };
 
-const CASES = path.join(__dirname, 'basic/cases'), EXPECTED = path.join(__dirname, 'basic/expected');
+// tests/basic/own: cases for our suite alone, never run on the real ROM (EXEC and USR, which the lint refuses)
+const CASES = path.join(__dirname, 'basic/cases'), OWN = path.join(__dirname, 'basic/own'), EXPECTED = path.join(__dirname, 'basic/expected');
 const only = process.argv.slice(2);
 const { rom } = buildBasic();
 let bbOnly = 0;
-for (const f of fs.readdirSync(CASES).filter((x) => x.endsWith('.bas')).sort()) {
+const files = [...fs.readdirSync(CASES).map((f) => [CASES, f]), ...fs.readdirSync(OWN).map((f) => [OWN, f])].filter(([, f]) => f.endsWith('.bas'));
+for (const [dir, f] of files.sort((a, b) => a[1].localeCompare(b[1]))) {
   const name = f.replace(/\.bas$/, '');
   if (only.length && !only.includes(name)) continue;
-  const text = fs.readFileSync(path.join(CASES, f), 'utf8');
-  const problems = lintCase(text);
-  check(`${name}: passes the black-box lint`, !problems.length, problems.join('; '));
+  const text = fs.readFileSync(path.join(dir, f), 'utf8');
+  if (dir === CASES) {
+    const problems = lintCase(text);
+    check(`${name}: passes the black-box lint`, !problems.length, problems.join('; '));
+  }
   if (/^# bb-only\b/m.test(text)) { bbOnly++; continue; }
   const expFile = path.join(EXPECTED, `${name}.txt`);
   if (!fs.existsSync(expFile)) { check(`${name}: has an expected transcript`, false, expFile); continue; }

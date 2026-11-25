@@ -372,7 +372,3 @@ HXEND   LDD     <FPN
         JSR     NORM
         JMP     CHRGOT
 
-* FPOWER: FAC = ARG ^ FAC (M6)
-FPOWER  JMP     FCERR
-* FNCALL: FN name(argument) (M6)
-FNCALL  JMP     UNIMPL

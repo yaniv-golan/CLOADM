@@ -45,7 +45,8 @@ PG2     CMPA    #'$'
         JSR     CHRGET
 PG3     CMPA    #'('
         LBEQ    ARYGET
-        LDX     <VARTAB
+* PTRLKP: the simple variable VARNAM (made if VARCRE is nonzero)
+PTRLKP  LDX     <VARTAB
 PG4     CMPX    <ARYTAB
         BHS     PG5
         LDD     ,X

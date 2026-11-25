@@ -101,6 +101,7 @@ FPEX    RMB     2               ; FIN's exponent, and its sign
 FPEXS   RMB     1
 FPSGNI  RMB     1               ; FIN's sign
 FPDP    RMB     1               ; FIN: a point seen
+FPDROP  RMB     1               ; FIN: a digit dropped
 VALTYP  RMB     1               ; the value just evaluated: 0 a number, $FF a string
 STRPTR  RMB     2               ; a string value: its descriptor
 ARGSTR  RMB     2               ; the left operand when it is a string
@@ -125,6 +126,20 @@ GCADR   RMB     2
 GCDONE  RMB     1
 SBSTRT  RMB     1               ; LEFT$, RIGHT$, MID$: the start and the count
 SBCNT   RMB     1
+FRACNZ  RMB     1               ; FTRUNC: a fraction was dropped; the sign
+TRSGN   RMB     1
+FPK2    RMB     1               ; SQR's count
+LOGE    RMB     1               ; LOG's power of 2
+EXPN    RMB     1               ; EXP's power of 2
+QUAD    RMB     1               ; SIN's quarter
+ATSGN   RMB     1               ; ATN
+ATINV   RMB     1
+ATADD   RMB     1
+PWSGN   RMB     1               ; ^ by a whole number
+PWN     RMB     2
+SEED    RMB     4               ; RND's seed, low byte first
+RNDR    RMB     4
+EXECAD  RMB     2               ; EXEC's address
 DPEND   RMB     0
 
 * ---------------- the ROM ----------------
@@ -143,6 +158,8 @@ DPEND   RMB     0
         INCLUDE "print.inc"
         INCLUDE "flow.inc"
         INCLUDE "strfunc.inc"
+        INCLUDE "mathfn.inc"
+        INCLUDE "misc.inc"
         INCLUDE "fp.inc"
         INCLUDE "fpconv.inc"
         INCLUDE "tokens.inc"

@@ -365,11 +365,12 @@ POW10   FDB     $05F5,$E100     ; 100000000
 
 * ---------------- FIN: text to a number ----------------
 * FIN: the number at the text pointer (CHRGOT's character first) into FAC: an optional sign, digits with
-* an optional point, an optional exponent E[+|-]digits; spaces between are skipped (CHRGET). The first nine
-* digits are kept exactly; later ones only count as places. Leaves the text pointer on the first character
+* an optional point, an optional exponent E[+|-]digits; spaces between are skipped (CHRGET). The digits are
+* kept exactly while they fit in 32 bits; the first that does not rounds, and later ones only count as places. Leaves the text pointer on the first character
 * after the number.
 FIN     CLR     <FPSGNI
         CLR     <FPDP
+        CLR     <FPDROP
         LDD     #0
         STD     <FPE10
         STD     <FPN
@@ -397,13 +398,18 @@ FI1     BCS     FIDIG
         JSR     CHRGET
         BRA     FI1
 FIDIG   SUBA    #'0'
-        LDX     <FPN            ; room for another digit: below 100000000 ($05F5E100)?
-        CMPX    #$05F5
-        BHI     FIIGN
+        TST     <FPDROP
+        BNE     FIIGN
+        LDX     <FPN            ; room for another digit within 32 bits: below 429496729 ($19999999), or
+        CMPX    #$1999          ; equal to it with a digit up to 5
+        BHI     FIDRP
         BLO     FID1
         LDX     <FPN+2
-        CMPX    #$E100
-        BHS     FIIGN
+        CMPX    #$9999
+        BLO     FID1
+        BHI     FIDRP
+        CMPA    #5
+        BHI     FIDRP
 FID1    PSHS    A
         JSR     FPNX10
         PULS    B
@@ -420,7 +426,21 @@ FID1    PSHS    A
         SUBD    #1
         STD     <FPE10
         BRA     FINX
-FIIGN   TST     <FPDP           ; a digit past the ninth: kept only as a place before the point
+FIDRP   COM     <FPDROP         ; the first digit that does not fit rounds
+        CMPA    #5
+        BLO     FIIGN
+        LDD     <FPN+2
+        ADDD    #1
+        STD     <FPN+2
+        BCC     FIIGN
+        LDD     <FPN
+        ADDD    #1
+        BCS     FIUND           ; (it was $FFFFFFFF: left as it was)
+        STD     <FPN
+        BRA     FIIGN
+FIUND   LDD     #$FFFF
+        STD     <FPN+2
+FIIGN   TST     <FPDP           ; a digit not kept is still a place before the point
         BNE     FINX
         LDD     <FPE10
         ADDD    #1

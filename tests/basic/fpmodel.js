@@ -169,16 +169,21 @@ function fout(a0) {
   return out;
 }
 
-// FIN: text to a number, as the ROM reads it (spaces skipped; '+' and '-' may be the tokens, passed as such)
+// FIN: text to a number, as the ROM reads it: digits kept while they fit in 32 bits, the first one dropped rounding (spaces skipped; '+' and '-' may be the tokens, passed as such)
 function fin(text, { plus = '+', minus = '-' } = {}) {
   const t = text.replace(/ /g, '');
-  let i = 0, neg = false, dp = false, e10 = 0, n = 0n;
+  let i = 0, neg = false, dp = false, e10 = 0, n = 0n, dropped = false;
   if (t[i] === '-' || t[i] === minus) { neg = true; i++; } else if (t[i] === '+' || t[i] === plus) i++;
   for (;;) {
     const c = t[i];
     if (c >= '0' && c <= '9') {
-      if (n < 100000000n) { n = n * 10n + BigInt(c.charCodeAt(0) - 48); if (dp) e10--; }
-      else if (!dp) e10++;
+      const d = BigInt(c.charCodeAt(0) - 48);
+      if (!dropped && (n < 429496729n || (n === 429496729n && d <= 5n))) { n = n * 10n + d; if (dp) e10--; }
+      else {                                       // past 32 bits: the first digit dropped rounds
+        if (!dropped && d >= 5n && n < 0xFFFFFFFFn) n += 1n;
+        dropped = true;
+        if (!dp) e10++;
+      }
       i++;
     } else if (c === '.' && !dp) { dp = true; i++; }
     else break;

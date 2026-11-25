@@ -247,7 +247,7 @@ quiet = true;
 // FIN: hand-worked values
 const FINS = [
   ['1', P.one, 1], ['10', P.ten, 2], ['.5', P.half, 2], ['-5', P.m5, 2], ['1E1', P.ten, 3], ['100E-1', P.ten, 6],
-  ['0.25', exactPacked(1n, 4n), 4], ['1 0', P.ten, 3], ['1000000000', F.POWBYTES[9], 10], ['12345678912', exactPacked(12345678900n), 11],
+  ['0.25', exactPacked(1n, 4n), 4], ['1 0', P.ten, 3], ['1000000000', F.POWBYTES[9], 10], ['12345678912', exactPacked(12345678910n), 11], ['4294967296', exactPacked(4294967300n), 10], ['42949672951', exactPacked(42949672950n), 11],
   ['3:', P.three, 1], ['1E', P.one, 2], ['1.5.5', exactPacked(3n, 2n), 3], ['0', P.zero, 1],
 ];
 quiet = false;

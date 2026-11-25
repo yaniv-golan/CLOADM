@@ -322,6 +322,8 @@ Every behaviour fact the ROM relies on, with its source. A fact without a source
 | 10 | Keyword list (statements and functions) | [UM]; token values from the probe [BB] |
 | 11 | SHIFT-0 toggles lower case, shown as inverse; SHIFT-@ pauses; BREAK stops; CLEAR clears the screen; left arrow erases | [UM] |
 | 12 | Number printing: leading space or `-`, trailing space, nine digits, E notation | [UM]; the exact boundaries from [BB] |
+| 14 | The numeric functions: Cody-Waite reduction and Taylor series; the constants (pi, ln 2, sqrt 3 to 36 digits, 1/k!) | [OWN], `tools/basic-consts.js`; measured against the exact values (`tests/basic-math.test.js`: within 2 units in the last place, `^` within 64) |
+| 15 | `RND`: seed x 1664525 + 1013904223 mod 2^32 (a published linear congruential generator) | [OWN]; the original's sequence is unknown (open question 5) |
 | 13 | The floating-point algorithms (rounding, guard bits, division, scaling by powers of ten) | [OWN], [MBF]; tested bit for bit against `tests/basic/fpmodel.js` (`tests/basic-fp.test.js`) |
 
 The log grows with every milestone; black-box facts are added with the date of the run they came from.

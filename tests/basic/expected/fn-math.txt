@@ -1,0 +1,37 @@
+# [UM] the numeric functions; the values printed are the mathematical ones to nine digits (tests/basic-math.test.js measures the routines); provisional until the black-box run
+OK
+PRINT SQR(2);SQR(16);SQR(.25);SQ
+R(1E10)
+ 1.41421356  4  .5  100000
+OK
+PRINT LOG(10);LOG(2.718281828);E
+XP(1);EXP(-1)
+ 2.30258509  1  2.71828183  .367
+879441
+OK
+PRINT SIN(1);COS(1);TAN(1);ATN(1
+)*4
+ .841470985  .540302306  1.55740
+773  3.14159265
+OK
+PRINT 2^10;2^.5;10^-2;(-2)^3;9^.
+5
+ 1024  1.41421356  .01 -8  3
+OK
+PRINT INT(3.7);INT(-3.7);FIX(-3.
+7);ABS(-2);SGN(-5);SGN(0);SGN(7)
+
+ 3 -4 -3  2 -1  0  1
+OK
+PRINT SQR(-1)
+?FC ERROR
+OK
+PRINT LOG(0)
+?FC ERROR
+OK
+PRINT EXP(100)
+?OV ERROR
+OK
+PRINT (-8)^(1/3)
+?FC ERROR
+OK

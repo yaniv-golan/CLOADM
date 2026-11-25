@@ -83,6 +83,8 @@ TRC1    RTS
 EXECST  BEQ     EXRTS           ; an empty statement
         TSTA
         BPL     EXLET           ; a variable: LET
+        CMPA    #$FF
+        BEQ     EXFUNC
         CMPA    #T_LAST
         BHI     EXSN
         SUBA    #$80
@@ -94,6 +96,11 @@ EX1     LDX     A,X
         JSR     CHRGET          ; past the token
         JMP     ,X
 EXLET   JMP     LET
+EXFUNC  JSR     CHRGET          ; a function name as a statement: TIMER = n
+        CMPA    #T_TIMERF
+        BNE     EXSN
+        JSR     CHRGET
+        JMP     TIMERS
 EXSN    JMP     SNERR
 EXRTS   RTS
 
