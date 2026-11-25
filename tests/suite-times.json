@@ -16,6 +16,7 @@
     "basic-bb.test.js": 15.3,
     "basic-cassette.test.js": 38.7,
     "basic-corpus.test.js": 15.9,
+    "basic-cursor.test.js": 55,
     "basic-drawing.test.js": 138.3,
     "basic-fp.test.js": 1.7,
     "basic-gfx.test.js": 59.8,

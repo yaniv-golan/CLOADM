@@ -2,7 +2,7 @@
 * LINEIN: read a line into LINBUF, echoed on the screen [UM]: left arrow erases a character, SHIFT-left
 * arrow the whole line, CLEAR clears the screen, BREAK abandons the line, ENTER ends it.
 * Returns X = LINBUF, B = the length, the line 0-terminated; carry set if BREAK was pressed.
-LINEIN  ANDCC   #$EF            ; the cursor blinks on the field interrupt
+LINEIN  ANDCC   #$EF            ; interrupts on: TIMER counts while a line is typed
         LDX     #LINBUF
 LI1     JSR     KEYWT
         CMPA    #13

@@ -77,6 +77,12 @@ PLDOT   RMB     1               ; the length's dots
 SYSEND  RMB     0               ; (must stay at or below LINBUF: tools/build-basic.js checks it)
 
 * ---------------- direct page ----------------
+* Fixed addresses that programs read and write [BB, OWNER-SPEC; docs/clean-room-basic.md, "The cursor"]. The
+* variables below are laid out around them in regions; tools/build-basic.js fails if a region (DPR1-DPR3) runs into
+* the fixed address after it. A variable added before SEED may have to move a region's split.
+CURPOS  EQU     $0088           ; the cursor's screen address (16 bits)
+BLINK   EQU     $008F           ; the cursor's blink countdown
+KEYDLY  EQU     $0097           ; the keyboard's debounce delay, in passes (16 bits)
         ORG     $0000
 TXTPTR  RMB     2               ; text pointer: the last character taken
 CURLIN  RMB     2               ; the line running; $FFFF in direct mode
@@ -91,7 +97,6 @@ OLDLIN  RMB     2               ; CONT: the line and text pointer to go on from;
 OLDTXT  RMB     2
 DATLIN  RMB     2               ; READ: the line of the DATA being read, and the pointer into it
 DATPTR  RMB     2
-CURPOS  RMB     2               ; the cursor's screen address
 TIMER   RMB     2               ; counts fields (50 Hz)
 WARMFL  RMB     1               ; $55 after a cold start: the reset button keeps the program
 CASEFL  RMB     1               ; 0 upper case, $FF lower case (SHIFT-0)
@@ -151,11 +156,15 @@ GCLIM   RMB     2
 GCBEST  RMB     2
 GCADR   RMB     2
 GCDONE  RMB     1
+DPR1    RMB     0               ; (at or below CURPOS)
+        ORG     CURPOS+2
 SBSTRT  RMB     1               ; LEFT$, RIGHT$, MID$: the start and the count
 SBCNT   RMB     1
 FRACNZ  RMB     1               ; FTRUNC: a fraction was dropped; the sign
 TRSGN   RMB     1
 FPK2    RMB     1
+DPR2    RMB     0               ; (at or below BLINK)
+        ORG     BLINK+1
 LOGE    EQU     FPK2            ; LOG's power of 2 (LOG, SIN and ATN each finish before another starts:
 *                                 one byte serves them all)
 QUAD    EQU     FPK2            ; SIN's quarter
@@ -164,9 +173,11 @@ ATINV   RMB     1
 ATADD   RMB     1
 PWSGN   RMB     1               ; ^ by a whole number
 PWN     RMB     2
+EXECAD  RMB     2               ; EXEC's address
+DPR3    RMB     0               ; (at or below KEYDLY)
+        ORG     KEYDLY+2
 SEED    RMB     4               ; RND's seed, low byte first
 RNDR    EQU     PROD            ; (RND's product is in the seed before its arithmetic uses PROD)
-EXECAD  RMB     2               ; EXEC's address
 ITMCOL  RMB     1               ; GETITM: ':' ends an item (DATA)
 INPKND  RMB     1               ; INPUT 1, LINE INPUT 0
 INPVAR  RMB     2               ; INPUT: the text pointer in the variable list, its start

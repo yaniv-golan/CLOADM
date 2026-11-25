@@ -1,6 +1,7 @@
 // The clean-room BASIC (docs/clean-room-basic.md) on a Dragon 64, for the tests and for tools/basic-bb: boot a
 // machine with a given BASIC ROM in the "basic" socket, type into it through the keyboard matrix, and read the
-// screen. Nothing here knows the ROM's internals: it works the same on any Dragon 64 BASIC.
+// screen. Nothing here knows the ROM's internals: it works the same on any Dragon 64 BASIC (the one RAM address it
+// reads, the cursor's at $0088-$0089, is a black-box fact of the real ROMs).
 const Emu = require('../load.js')();
 const zlib = require('zlib'), crypto = require('crypto');
 
@@ -22,7 +23,10 @@ function rgbaPng(w, h, rgba) {
 
 // One VDG text cell as text. Normal characters ($40-$7F) as themselves; inverse ones ($00-$3F) as lower case
 // for letters and @ [ \ ] ^ _ (the Dragon shows lower case that way), and as the character followed by U+0332
-// (a combining low line) otherwise; a semigraphics cell (bit 7: blocks, the cursor) as a space.
+// (a combining low line) otherwise; a semigraphics cell (bit 7: blocks) as a space. The cursor is a screen byte that
+// blinks between $60 and $20 at the address in $0088-$0089 [BB, 2026-11-25, the real ROMs]: rows() reads that cell as
+// a space in both phases, so what is read does not depend on when (an inverse space a program put there reads as a
+// space too).
 function cell(v) {
   if (v & 0x80) return ' ';
   const c = v & 0x3F, ch = String.fromCharCode(c < 32 ? c + 64 : c);
@@ -162,7 +166,8 @@ class Basic {
           moved.add(c);
           if (moved.size === 32) { this.lines.push(snap); moved = new Set(); }
         } else {
-          if (old !== v && old !== 0x60 && !(old & 0x80)) this.flags.push({ frame: this.frames, kind: 'top-row-overwritten', row: row0() });
+          const cursor = old === 0x20 && a === ((m.ram[0x88] << 8) | m.ram[0x89]);   // (the cursor blinking)
+          if (old !== v && old !== 0x60 && !(old & 0x80) && !cursor) this.flags.push({ frame: this.frames, kind: 'top-row-overwritten', row: row0() });
           moved = new Set();
         }
       }, { old: true }),
@@ -177,10 +182,13 @@ class Basic {
   // mode is shown, from the text screen at $0400 behind it (where BASIC still writes its text), so a prompt or an
   // error is read whether or not the ROM went back to text
   rows() {
-    const m = this.m, at = this.graphicsShown() ? 0x400 : m.sam.displayBase, rows = [];
+    const m = this.m, at = this.graphicsShown() ? 0x400 : m.sam.displayBase, rows = [], cur = (m.ram[0x88] << 8) | m.ram[0x89];
     for (let r = 0; r < 16; r++) {
       let s = '';
-      for (let c = 0; c < 32; c++) s += cell(m.displayByte((at + r * 32 + c) & m.sam.counterMask));
+      for (let c = 0; c < 32; c++) {
+        const a = (at + r * 32 + c) & m.sam.counterMask, v = m.displayByte(a);
+        s += cell(a === cur && v === 0x20 ? 0x60 : v);
+      }
       rows.push(s);
     }
     return rows;

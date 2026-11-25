@@ -225,7 +225,8 @@ function runProgram(rom, cas, { name = 'PROGRAM', frames = 1500, every = 50, key
     for (let i = held.length - 1; i >= 0; i--) if (held[i].until <= f) { for (const k of held[i].keys) m.setKey(k, false); held.splice(i, 1); }
     if (guard.tripped) { rec.status = 'rom-read'; rec.why = guard.tripped; rec.at = f; rec.samples = rec.samples.filter((s) => s.frame < f); break; }
     if (f % every === 0) {
-      const s = b.screen(), pix = b.pixHash().slice(0, 16), key = s.join('\n') + pix;
+      // (the key is the text alone: the pixels change with the cursor's blink while BASIC waits at OK)
+      const s = b.screen(), pix = b.pixHash().slice(0, 16), key = s.join('\n');
       rec.samples.push({ frame: f, screen: text(s), pix });
       const e = lastError(s);
       if (e) rec.error = e;

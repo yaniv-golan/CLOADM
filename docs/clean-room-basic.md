@@ -32,6 +32,9 @@ These are hard rules for everyone who works on this ROM.
     oracle;
   * **[HW]** the hardware as this repository already models it from data sheets: SAM, VDG, PIAs, the keyboard
     matrix (`js/machines/keyboards.js`);
+  * **[OWNER-SPEC]** a functional specification supplied by the maintainer (2026-11-25): a description of
+    behaviour written by a separate party (the firewall of a two-team clean room), used where black-box
+    observations say nothing. The facts this ROM takes from it are in [section 14](#14-the-cursor);
   * **[OWN]** our own decisions, where nothing visible to a BASIC program depends on them.
 * **No ROM of any kind** in the repository, CI or tests other than our own: the image this source builds is
   committed as `basic/cloadm-basic-d64.rom` ([open question 1](#10-open-questions)). The public suite passes with no other ROM.
@@ -95,7 +98,7 @@ corrupting the image.
 
 | Range | Use |
 |---|---|
-| `$0000-$00FF` | the direct page: the interpreter's variables (pointers, the two floating-point accumulators, the text pointer, flags, P2's current mode, start page and colour byte, `DRAW`'s angle and scale) up to `DPEND` (`$C9`), 25 bytes free, then the two-byte calls' `JMP`s at `$E2-$FF` (`ZTRAMP`; section 2, the size budget), copied from the ROM with the RAM vectors at a cold start. DP is 0 throughout |
+| `$0000-$00FF` | the direct page: the interpreter's variables (pointers, the two floating-point accumulators, the text pointer, flags, P2's current mode, start page and colour byte, `DRAW`'s angle and scale) up to `DPEND` (`$CC`), 22 bytes free, laid out around three fixed addresses programs use: `$0088-$0089` the cursor's address (`CURPOS`), `$008F` its blink countdown (`BLINK`), `$0097-$0098` the debounce delay (`KEYDLY`) ([section 14](#14-the-cursor)), then the two-byte calls' `JMP`s at `$E2-$FF` (`ZTRAMP`; section 2, the size budget), copied from the ROM with the RAM vectors at a cold start. DP is 0 throughout |
 | `$0100-$01FF` | the system RAM block, laid out by `RMB` in `d64basic.asm` (so nothing overlaps; the build fails if it reaches `$0200`): the RAM jump vectors (IRQ, FIRQ, NMI, SWI, SWI2, SWI3), so a program can hook an interrupt [OWN; addresses to align in P3]; the `DEF USR` addresses; the keyboard's rollover table; the 8 temporary string descriptors; `FOR`'s step and limit; the numeric functions' temporaries; the number conversion and `PRINT USING` buffer; the cassette's name block; P2's colours, colour set, last point and a point read; the four `JOYSTK` values and `PLAY`'s octave, length and its dots, tempo and volume |
 | `$0200-$02FF` | the line input buffer (250 characters + terminator); `VAL` reads its copy of a string here |
 | `$0300-$03FF` | the crunched line |
@@ -218,6 +221,9 @@ All of them run with no ROM, on our ROM assembled at test time.
   (`samplesToCas`, `formats.parseCas`), and the expected header and data bytes are written out by hand from the
   program typed; tapes built by `buildCas` from known bytes are loaded with `CLOAD` and `CLOADM`; the error paths
   (`?IO ERROR` on a bad checksum, `?FM ERROR`, `?DS ERROR`, BREAK) and name search and `SKIPF`.
+* **`tests/basic-cursor.test.js`:** the cursor ([section 14](#14-the-cursor)): the countdown, the transformation of
+  every byte, the RAM it reads (address, countdown, the byte under it, the debounce delay), the keyboard, the delay
+  in cycles, on the Dragon 64 and the Dragon 32, with mutants of the ROM that must fail it.
 * **`tests/basic-editor.test.js`:** the keyboard and screen through the matrix: typing, erasing, SHIFT-0, BREAK during
   a program and during `LIST`, scrolling, `CLS`, the cursor.
 * **Mutants:** each suite is run against deliberately broken builds (a wrong rounding mode, a precedence swap, an
@@ -461,6 +467,13 @@ Every behaviour fact the ROM relies on, with its source. A fact without a source
 | 32 | `ELSE` and `'` are stored with a `:` before them (`END:ELSE` is `8A 3A 3A 84`, `PRINT'A` is `87 3A 83 41`, `THEN 10 ELSE 20` ends `30 20 3A 84 20 32 30`); ours does not show that `:` in `LIST` [OWN, case `crunch-else`] | [BB] bb1, `probe-tokens` |
 | 33 | `RENUM` follows the line numbers after `GO TO`, `GO SUB`, `THEN`, `ELSE` and in `ON`'s lists; a number after `RUN` or `RESTORE` is left as it is | [BB] bb2, `renum` |
 | 34 | A number's exponent is read into one byte that wraps: `VAL("1E997")` is no error (997 is 229 in a byte, -27 as a signed one: ours reads 1E-27), where `VAL("1E99")` is `?OV ERROR` | [BB] bb2, `str-val-cut` (no error; the value is our inference, not yet observed) |
+| 35 | The cursor's state is in RAM: `$0088-$0089` the address of the cell it is at (big-endian; poking it moves the blinking cell), `$008F` the blink countdown; `$0097-$0098` the keyboard's debounce delay (big-endian) | [BB] black-box observation (2026-11-25) for `$0088-$0089` and `$008F`; [OWNER-SPEC] for `$0097-$0098` |
+| 36 | While BASIC waits for a key the countdown is decremented (unsigned: 0 goes to 255 with no blink); the decrement that reaches 0 transforms the cell and the countdown is reloaded with 50, so a countdown of 2 blinks on its second decrement and a transition takes 51 writes of `$008F` (the reload and 50 decrements). About 9,177 cycles per decrement and 456,471 per transition (513 ms) in 32K mode | [BB] black-box observation (2026-11-25) |
+| 37 | In 32K mode (the Dragon 32 and the Dragon 64's 32K mode alike) a transition toggles bit 6 of the byte and keeps the others: $20 and $60, $41 and $01, $FF and $BF | [BB] black-box observation (2026-11-25); that the Dragon 32 is the same, [OWNER-SPEC] |
+| 38 | A key accepted: the first write to the cursor's cell is `$60`, and `$008F` is not touched | [BB] black-box observation (2026-11-25) |
+| 39 | A running program that writes nothing to the screen (`GOTO` loops, `PEEK`, `INKEY$`, an empty `FOR` loop) leaves `$008F` alone; one that writes to the screen counts it down | [BB] black-box observation (2026-11-25) (the specification said only the keyboard wait does: corrected) |
+| 40 | The cursor is updated by the keyboard wait, not by a timer, with a fixed delay after each update; the address is read from RAM at each transition; no copy of the byte under the cursor is kept; moving the cursor does not restart the blink | [OWNER-SPEC] |
+| 41 | Native 64K mode (not built): a transition writes `$8F` over `$AF` and `$AF` over anything else; about 9,885 cycles per decrement, 475,692 per transition | [BB] black-box observation (2026-11-25) |
 
 The log grows with every milestone; black-box facts are added with the date of the run they came from.
 
@@ -503,3 +516,82 @@ original's own text or data. Each is recorded with its black-box case.
 | Where | The original | Ours | Case |
 |---|---|---|---|
 | `CLS` with a colour 9-255 | prints a line of its own text (21 characters), then an empty line | prints our own line, `MADE WITHOUT PEEKING` (20 characters, chosen for this BASIC), then an empty line; no error in either | `screen-cls-range` (local-only: its results are never written, only their shape); ours: the own case `cls-range` |
+
+## 14. The cursor
+
+The cursor of the 32K configuration. Sources: black-box observations of the real Dragon 64 ROMs, RAM values and
+cycle counts only ([BB] black-box observation (2026-11-25)), and, where those say nothing, the [OWNER-SPEC]
+functional specification supplied by the maintainer (2026-11-25). Code: `KEYWT` and `DELAYX` in `basic/keyboard.inc`,
+`CHROUT` in `basic/screen.inc`, the cold start's two settings in `basic/boot.inc`, the fixed addresses in
+`basic/d64basic.asm`. Tests: `tests/basic-cursor.test.js`; the open questions: the black-box case
+`tests/basic/cases/cursor-print.bas` (bb-only).
+
+**How ours works.** While `LINEIN` waits for a key (`KEYWT`), each pass is one cursor update and then one keyboard
+scan (`KEYIN`). An update decrements `BLINK` (`$008F`); when the result is 0 it stores 50 there, reads the address in
+`CURPOS` (`$0088-$0089`) and toggles bit 6 of the byte at that address; then it runs `DELAYX` with X = 1,064 (`LEAX
+-1,X` / `BNE`, 8 cycles a pass). With our scan and the field interrupt a pass averages about 9,150 cycles and a
+transition about 457,500, each within 1% of the real ROM's (the specification gives the delay as 1,118 passes; ours
+is shorter because our scan is slower than the original's, and it is the whole pass that is measured). When a key
+is accepted, `KEYWT` writes `$60` at the address in `CURPOS` and returns; `BLINK` is not touched. `CHROUT` moves the
+cursor by writing `CURPOS` only, and each character it puts on the screen decrements `BLINK` (at 0 it is reloaded
+with 50, the cell not transformed). `INKEY$`, `BREAK` and `SHIFT-@` between statements scan without updates. The
+debounce in `KEYIN` waits `KEYDLY` (`$0097-$0098`) passes of `DELAYX` before it looks at a new key again.
+
+**Native 64K mode** (not built: the 64K-mode BASIC is out of scope, open question 7): a transition writes `$8F` if
+the byte is `$AF` and `$AF` otherwise, chosen by the BASIC configuration running, not by the machine or its RAM;
+about 9,885 cycles per decrement and 475,692 per transition [BB].
+
+| Verified requirements (tested by `tests/basic-cursor.test.js` on our ROM) | Source |
+|---|---|
+| The countdown: 2: the first decrement changes nothing, the second toggles; a transition reloads 50; 51 writes of `$008F` per transition (the reload, then 50 decrements, the last to 0); 0: the next value is 255, no transition | [BB] |
+| The transformation: `$60`/`$20`, `$41`/`$01`, `$FF`/`$BF`, both ways | [BB] |
+| Every byte 0-255: one transition toggles bit 6 only, two give the byte back | [OWNER-SPEC] |
+| A new address in `$0088-$0089` moves the blinking cell | [BB] |
+| The countdown's value sets when the next transition comes; a byte written under the cursor is the one transformed; screen memory and the display show the cursor byte; `PEEK(&H88)`, `PEEK(&H89)` and `POKE 143,0` from BASIC | [OWNER-SPEC] |
+| An accepted key: the first write to the cell is `$60`; `$008F` untouched | [BB] |
+| Moving the cursor does not reset the countdown | [OWNER-SPEC] |
+| A running program that prints nothing (`GOTO`, `PEEK`, `INKEY$`, an empty `FOR`) leaves `$008F` alone; one that prints counts it down | [BB] |
+| Cycles per decrement and per transition within 1% of 9,177 and 456,471 | [BB] |
+| The same on the Dragon 32 and the Dragon 64 in 32K mode. Not applicable: the native 64K items (our ROM has no 64K mode) | [OWNER-SPEC] |
+
+| Chosen by us [OWN] | |
+|---|---|
+| The order in a pass | the update first, then the scan; the delay follows every update, a transition's or not |
+| The delay | 1,064 passes of `LEAX -1,X` / `BNE` (8 cycles), in a subroutine (`DELAYX`) shared with the debounce, chosen so the whole pass matches the measured cycles; the tolerance, 1%, covers where the field interrupt falls |
+| Output | one decrement per character `CHROUT` puts on the screen (text and semigraphics; not a carriage return, a backspace, `CLS` or `PRINT @`'s move); at 0, a reload to 50 and no transformation, so output never leaves an inverted cell behind |
+| The debounce delay | ours is the wait in `KEYIN` before a newly pressed key is read again (a bounce forgets the key): `KEYDLY` passes of `DELAYX`, 300 at a cold start (2,400 cycles, as before), 0 meaning 65,536; we have no auto-repeat |
+| Cold start | the direct page is cleared, then `BLINK` is set to 1 (the banner's first character takes it to 0 and it is reloaded); a warm start keeps both values |
+| RAM layout | the direct-page variables are three regions around the fixed addresses (`DPR1`-`DPR3`); `tools/build-basic.js` fails if a region reaches the fixed address after it |
+
+| Assumptions to validate (black-box cases wanted) | |
+|---|---|
+| Output | how many decrements a character takes; whether a carriage return, `CLS`, `PRINT @` or a semigraphics block count; what happens at 0 during output (wrap, reload, transformation): `cursor-print.bas` |
+| The editor's echo | whether the characters the line editor echoes count too (ours: yes, as any output) |
+| Update or scan first | whether a key already down when the wait starts is accepted before the first update |
+| Cold-start values | `PEEK(143)` and `PEEK(151)*256+PEEK(152)` right after power-on and after the reset button |
+| The debounce | what the original's delay at `$0097-$0098` times, and its value |
+| Where else updates run | whether any other wait (a cassette prompt, `EDIT`, the `SHIFT-@` pause) updates the cursor; ours: only the line editor's wait |
+
+**Entry points (input for P3, not built).** Where ROM-call compatibility is in scope, the specification names these
+addresses as interfaces, not as places in the original's code. Register, condition-code and stack effects, and the
+native-64K addresses, need black-box verification before any machine-code compatibility is claimed:
+
+| Address | Interface |
+|---|---|
+| `$8006` | keyboard polling |
+| `$8009` | cursor update |
+| `$B538` | blocking keyboard input (32K) |
+| `$BBB5` | cursor update (32K) |
+| `$BBC5` | the fixed delay (32K) |
+| `$BBC8` | the delay's countdown loop (32K) |
+| `$BBE5` | keyboard polling (32K) |
+**The direct page, toward P3's RAM layout.** This step fixed three addresses and moved: `CURPOS` from `$1A` to
+`$88`; every variable from `TIMER` (`$1C`) to `GCDONE` (`$89`) two bytes down (`TIMER` is now `$1A`); `SBSTRT`-`FPK2`
+unchanged (`$8A-$8E`); `ATINV`-`PWN` one up (`$90-$94`); `EXECAD` from `$98` to `$95` (moved before `SEED`, so the
+region below `$97` is full); `SEED` from `$94` to `$99`; everything after `EXECAD`'s old place three up (`DPEND`
+`$C9` to `$CC`). No byte is left unused between the regions. What may have to move later, once
+P3's census says which addresses programs use: the program and memory pointers (`TXTTAB`, `VARTAB`, `ARYTAB`,
+`ARYEND`, `FRETOP`, `STRBOT`, `MEMTOP`), `TXTPTR` and `CURLIN`, `TIMER`, `CASEFL`, the floating-point accumulators
+(`FACEXP`-`ARGSGN`), `EXECAD`, `SEED`, the two-byte calls at `$E2-$FF` (whatever the original keeps there), and in the
+system block at `$0100` the RAM vectors, the `DEF USR` table and the cassette's name block. Each new fixed address adds
+a region split in `d64basic.asm` and a check in `tools/build-basic.js`, as these three did.

@@ -56,6 +56,9 @@ COLD2   LDA     ,X+
         STD     <MEMTOP
         LDD     #RAMTOP-STRDEF
         STD     <STRBOT
+        LDD     #300            ; the debounce delay [OWN]
+        STD     <KEYDLY
+        INC     <BLINK          ; the countdown at 1: the banner's first character takes it to 0 and it is reloaded
         LDX     #PROGST
         STX     <TXTTAB
         CLR     -1,X

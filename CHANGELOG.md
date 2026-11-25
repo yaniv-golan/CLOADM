@@ -47,6 +47,9 @@ Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.
   second batch brought in one carriage return before `BREAK` at any column, `PRINT USING`'s E-notation sign place with
   no `#` or one before the point, `RENUM` leaving `RUN` and `RESTORE` alone, an exponent read into a wrapping byte,
   `LOG` and `EXP` in base 2 and printing scaled by rounded steps of 10 (which give the real's `SQR` bits).
+  The cursor now blinks the way the original's does, as the screen byte itself with its state in RAM that programs
+  read and write (`$0088` its address, `$008F` its countdown, `$0097` the debounce delay), checked by
+  `tests/basic-cursor.test.js`.
 - **The share-link formats are frozen.** Links and snapshots in people's hands keep opening from now on (AGENTS.md,
   rule 7): `SNAPSHOT_OLDEST` never rises (a change to the meaning of state ships a converter from every older version), no
   link or envelope decoder is ever dropped, and a long link's byte 0 is 1 for a moment, 2 for a BASIC program, 3 to 31

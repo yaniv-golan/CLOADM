@@ -23,6 +23,10 @@ CHRUP   CMPA    #$40
         BHS     CHRPUT
         ADDA    #$40
 CHRPUT  STA     ,X+
+        DEC     <BLINK          ; [BB] output counts the cursor's countdown down (one per character [OWN]); at 0 it
+        BNE     CHRCHK          ; is reloaded, the cell never transformed [OWN] (docs/clean-room-basic.md, "The cursor")
+        LDB     #50
+        STB     <BLINK
 CHRCHK  CMPX    #SCREND
         BLO     CHRDON
         BSR     SCROLL
