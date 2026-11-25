@@ -1,10 +1,10 @@
 # bb-only: the cursor's countdown at $008F (decimal 143) while a program writes to the screen (docs/clean-room-basic.md,
-# "The cursor"; a black-box run of 2026-11-25 saw it count down then, and stay put in loops that print nothing). Each
+# "The cursor"; an earlier reading, taken between frames from outside the machine, said it counted down then). Each
 # test reads PEEK(143) before and after one kind of output and prints how far it counted down: CLS, ten characters, a
 # carriage return, PRINT @, a semigraphics block, an empty PRINT; then from 3, ten characters (does it wrap to 255,
 # or reload at 0, and to what) and three characters (CELL: the byte at the cursor's address, $0088-$0089, after it
-# reached 0: 96 if untouched, 32 if bit 6 was toggled). Ours: one per character put on the screen, none for a
-# carriage return, CLS or PRINT @'s move, reloaded with 50 at 0 and the cell never toggled. Syntax [UM]; results [BB].
+# reached 0: 96 if untouched, 32 if bit 6 was toggled). The original (bb3, re-checked 2026-11-25): no change in any
+# of them, so ours leaves the countdown alone in output too. Syntax [UM]; results [BB].
 10 T$="CLS":A=PEEK(143):CLS:B=PEEK(143):GOSUB 900
 20 T$="TEN CHARACTERS":A=PEEK(143):PRINT "ABCDEFGHIJ";:B=PEEK(143):GOSUB 900
 30 T$="A CARRIAGE RETURN":A=PEEK(143):PRINT:B=PEEK(143):GOSUB 900

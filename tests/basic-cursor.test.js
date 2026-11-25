@@ -220,16 +220,12 @@ function suite(rom, { machine = 'dragon64', quick = false, tag = '' } = {}) {
     r.b.waitOk();
     return { w, still, v, after };
   };
-  for (const line of ['10 GOTO 10', '10 A=PEEK(1024):GOTO 10', '10 A$=INKEY$:GOTO 10', '10 FOR I=1 TO 30000:NEXT']) {
+  // [BB] (reconcile, 2026-11-25): no statement of a running program ever sees $008F change, printing included (each form
+  // measured three times on the original: printing with and without a scroll, PRINT @, empty FOR loops, INKEY$)
+  for (const line of ['10 GOTO 10', '10 A=PEEK(1024):GOTO 10', '10 A$=INKEY$:GOTO 10', '10 FOR I=1 TO 30000:NEXT',
+    '10 PRINT "X":GOTO 10', '10 PRINT "X";:GOTO 10', '10 PRINT @480,"X":PRINT "Y":GOTO 10', '10 PRINT CHR$(143);:GOTO 10']) {
     const x = runFor(line, 50);
-    check(T(`a running program that prints nothing leaves the countdown alone: ${line}`), x.still && !x.w.length && x.after === x.v, `${x.w.length} writes`);
-  }
-  // [BB] a running program that writes to the screen does count it down; ours: one decrement per character put on the
-  // screen, reloaded at 0 like an update but never transforming the cell [OWN] (open: tests/basic/cases/cursor-print.bas)
-  {
-    const x = runFor('10 FOR J=1 TO 300:NEXT:FOR I=1 TO 20:PRINT "AB";:NEXT:FOR I=1 TO 30000:NEXT', 80);   // (a pause first, so the count starts before the output)
-    const d = x.w.filter((e) => e.kind === 'dec').length;
-    check(T('printing counts the countdown down: one decrement per character (40), reloads only at 0'), x.still && d === 40 && x.w.every((e) => e.kind !== 'other'), `${d} decrements, ${x.w.length} writes`);
+    check(T(`a running program leaves the countdown alone: ${line}`), x.still && !x.w.length && x.after === x.v, `${x.w.length} writes`);
   }
   // POKE and PEEK from BASIC: the cursor's address at $0088, the countdown at $008F
   r.type('CLS:PRINT PEEK(&H88)*256+PEEK(&H89)');
@@ -275,8 +271,8 @@ suite(rom);
   const b = new Basic(rom), w = [];
   b.m.busTaps.addWriteTap({ start: BLINK, end: BLINK }, (a, v) => w.push(v));
   b.waitOk({ limit: 600, stable: 3 });
-  // (cleared, set to 1, then the banner's first character takes it to 0 and it is reloaded)
-  check('cold start: the countdown is cleared, set to 1, and reloaded at the first character (writes 0, 1, 0, 50)', w.slice(0, 4).join() === '0,1,0,50', w.slice(0, 4).join());
+  // (cleared, set to 1, then the first update at the prompt takes it to 0 and reloads it)
+  check('cold start: the countdown is cleared, set to 1, and reloaded at the first update (writes 0, 1, 0, 50)', w.slice(0, 4).join() === '0,1,0,50', w.slice(0, 4).join());
   check('cold start: the debounce delay is 300', ((b.m.ram[KEYDLY] << 8) | b.m.ram[KEYDLY + 1]) === 300);
 }
 suite(rom, { machine: 'dragon32', tag: 'Dragon 32: ' });   // (every byte 0-255 on the Dragon 64 only: the same code)
@@ -293,7 +289,7 @@ const MUTANTS = [
   ['the cursor address not read from RAM', 'keyboard.inc', '        LDX     <CURPOS\n        LDA     ,X', '        LDX     #SCREEN\n        LDA     ,X'],
   ['a 0 countdown toggles at once', 'keyboard.inc', 'KW1     DEC     <BLINK\n        BNE     KW2', 'KW1     DEC     <BLINK\n        BGT     KW2'],
   ['debounce delay not from KEYDLY', 'keyboard.inc', 'LDX     <KEYDLY', 'LDX     #300'],
-  ['printing leaves the countdown alone', 'screen.inc', 'DEC     <BLINK', 'TST     <BLINK'],
+  ['printing counts the countdown down', 'screen.inc', 'CHRPUT  STA     ,X+', 'CHRPUT  STA     ,X+\n        DEC     <BLINK'],
   ['the delay 10% longer', 'keyboard.inc', 'LDX     #1065', 'LDX     #1170'],
 ];
 for (const [name, file, from, to] of MUTANTS) {

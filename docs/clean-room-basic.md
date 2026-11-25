@@ -497,7 +497,7 @@ Every behaviour fact the ROM relies on, with its source. A fact without a source
 | 36 | While BASIC waits for a key the countdown is decremented (unsigned: 0 goes to 255 with no blink); the decrement that reaches 0 transforms the cell and the countdown is reloaded with 50, so a countdown of 2 blinks on its second decrement and a transition takes 51 writes of `$008F` (the reload and 50 decrements). About 9,177 cycles per decrement and 456,471 per transition (513 ms) in 32K mode | [BB] black-box observation (2026-11-25) |
 | 37 | In 32K mode (the Dragon 32 and the Dragon 64's 32K mode alike) a transition toggles bit 6 of the byte and keeps the others: $20 and $60, $41 and $01, $FF and $BF | [BB] black-box observation (2026-11-25); that the Dragon 32 is the same, [OWNER-SPEC] |
 | 38 | A key accepted: the first write to the cursor's cell is `$60`, and `$008F` is not touched | [BB] black-box observation (2026-11-25) |
-| 39 | A running program that writes nothing to the screen (`GOTO` loops, `PEEK`, `INKEY$`, an empty `FOR` loop) leaves `$008F` alone; one that writes to the screen counts it down | [BB] black-box observation (2026-11-25) (the specification said only the keyboard wait does: corrected) |
+| 39 | No statement of a running program sees `$008F` change, printing included: `GOTO` loops, `PEEK`, `INKEY$`, empty `FOR` loops, `PRINT` with and without a scroll, `PRINT @`, `CLS`, a semigraphics block; it counts only in the keyboard wait (at the prompt and in `INPUT`) | [BB] black-box observation (2026-11-25): `cursor-print` (bb3) and its re-check (reconcile, 2026-11-25), which replaced an earlier reading made between frames from outside the machine |
 | 40 | The cursor is updated by the keyboard wait, not by a timer, with a fixed delay after each update; the address is read from RAM at each transition; no copy of the byte under the cursor is kept; moving the cursor does not restart the blink | [OWNER-SPEC] |
 | 41 | Native 64K mode (not built): a transition writes `$8F` over `$AF` and `$AF` over anything else; about 9,885 cycles per decrement, 475,692 per transition | [BB] black-box observation (2026-11-25) |
 | 42 | The field interrupt, from its entry to its `RTI`, takes 104 cycles: it lengthens the period it falls in by that much (octave 1's C to G medians are 104 cycles over their periods); ours pads `IRQSRV` to the same (it took 66) | [BB] bb2, `snd-play-pitch` (docs/clean-room-basic-p2.md section 6) |
@@ -580,7 +580,7 @@ about 9,885 cycles per decrement and 475,692 per transition [BB].
 | The countdown's value sets when the next transition comes; a byte written under the cursor is the one transformed; screen memory and the display show the cursor byte; `PEEK(&H88)`, `PEEK(&H89)` and `POKE 143,0` from BASIC | [OWNER-SPEC] |
 | An accepted key: the first write to the cell is `$60`; `$008F` untouched | [BB] |
 | Moving the cursor does not reset the countdown | [OWNER-SPEC] |
-| A running program that prints nothing (`GOTO`, `PEEK`, `INKEY$`, an empty `FOR`) leaves `$008F` alone; one that prints counts it down | [BB] |
+| A running program leaves `$008F` alone, printing included (`GOTO`, `PEEK`, `INKEY$`, an empty `FOR`, `PRINT` with and without a scroll, `PRINT @`, a semigraphics block) | [BB] |
 | Cycles per decrement and per transition within 1% of 9,177 and 456,471 | [BB] |
 | The same on the Dragon 32 and the Dragon 64 in 32K mode. Not applicable: the native 64K items (our ROM has no 64K mode) | [OWNER-SPEC] |
 
@@ -588,15 +588,13 @@ about 9,885 cycles per decrement and 475,692 per transition [BB].
 |---|---|
 | The order in a pass | the update first, then the scan; the delay follows every update, a transition's or not |
 | The delay | 1,065 passes of `LEAX -1,X` / `BNE` (8 cycles), in a subroutine (`DELAYX`) shared with the debounce, chosen so the whole pass matches the measured cycles; the tolerance, 1%, covers where the field interrupt falls |
-| Output | one decrement per character `CHROUT` puts on the screen (text and semigraphics; not a carriage return, a backspace, `CLS` or `PRINT @`'s move); at 0, a reload to 50 and no transformation, so output never leaves an inverted cell behind |
 | The debounce delay | ours is the wait in `KEYIN` before a newly pressed key is read again (a bounce forgets the key): `KEYDLY` passes of `DELAYX`, 300 at a cold start (2,400 cycles, as before), 0 meaning 65,536; we have no auto-repeat |
-| Cold start | the direct page is cleared, then `BLINK` is set to 1 (the banner's first character takes it to 0 and it is reloaded); a warm start keeps both values |
+| Cold start | the direct page is cleared, then `BLINK` is set to 1 (the first update at the prompt takes it to 0, shows the cursor and reloads it); a warm start keeps both values |
 | RAM layout | the direct-page variables are three regions around the fixed addresses (`DPR1`-`DPR3`); `tools/build-basic.js` fails if a region reaches the fixed address after it |
 
 | Assumptions to validate (black-box cases wanted) | |
 |---|---|
-| Output | how many decrements a character takes; whether a carriage return, `CLS`, `PRINT @` or a semigraphics block count; what happens at 0 during output (wrap, reload, transformation): `cursor-print.bas` |
-| The editor's echo | whether the characters the line editor echoes count too (ours: yes, as any output) |
+| The editor's echo | whether the characters the line editor echoes count too (ours: no, as no output does) |
 | Update or scan first | whether a key already down when the wait starts is accepted before the first update |
 | Cold-start values | `PEEK(143)` and `PEEK(151)*256+PEEK(152)` right after power-on and after the reset button |
 | The debounce | what the original's delay at `$0097-$0098` times, and its value |
