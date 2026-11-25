@@ -95,14 +95,14 @@ corrupting the image.
 
 | Range | Use |
 |---|---|
-| `$0000-$00FF` | the direct page: the interpreter's variables (pointers, the two floating-point accumulators, the text pointer, flags) up to `DPEND` (`$C2`), 32 bytes free, then the two-byte calls' `JMP`s at `$E2-$FF` (`ZTRAMP`; section 2, the size budget), copied from the ROM with the RAM vectors at a cold start. DP is 0 throughout |
-| `$0100-$01FF` | the system RAM block, laid out by `RMB` in `d64basic.asm` (so nothing overlaps; the build fails if it reaches `$0200`): the RAM jump vectors (IRQ, FIRQ, NMI, SWI, SWI2, SWI3), so a program can hook an interrupt [OWN; addresses to align in P3]; the `DEF USR` addresses; the keyboard's rollover table; the 8 temporary string descriptors; `FOR`'s step and limit; the numeric functions' temporaries; the number conversion and `PRINT USING` buffer |
+| `$0000-$00FF` | the direct page: the interpreter's variables (pointers, the two floating-point accumulators, the text pointer, flags, P2's current mode, start page and colour byte) up to `DPEND` (`$C7`), 27 bytes free, then the two-byte calls' `JMP`s at `$E2-$FF` (`ZTRAMP`; section 2, the size budget), copied from the ROM with the RAM vectors at a cold start. DP is 0 throughout |
+| `$0100-$01FF` | the system RAM block, laid out by `RMB` in `d64basic.asm` (so nothing overlaps; the build fails if it reaches `$0200`): the RAM jump vectors (IRQ, FIRQ, NMI, SWI, SWI2, SWI3), so a program can hook an interrupt [OWN; addresses to align in P3]; the `DEF USR` addresses; the keyboard's rollover table; the 8 temporary string descriptors; `FOR`'s step and limit; the numeric functions' temporaries; the number conversion and `PRINT USING` buffer; the cassette's name block; P2's colours, colour set, last point and a point read |
 | `$0200-$02FF` | the line input buffer (250 characters + terminator); `VAL` reads its copy of a string here |
 | `$0300-$03FF` | the crunched line |
 | `$0400-$05FF` | the text screen, 32 x 16 [HW: the SAM's reset display offset] |
-| `$0600-$1DFF` | the graphics pages, reserved from P1 on (P2: `PCLEAR 4`, four 1.5 K pages); `CLOAD` of a text file reads each block into `$0600-$06FE` before its lines go in [OWN] |
-| `$1E00` | 0 (the byte before the program) |
-| `$1E01-...` | the program, then simple variables, then arrays, then free memory |
+| `$0600-$1DFF` | the graphics pages: `PCLEAR n` reserves n 1.5 K pages from `$0600` (1-8; 4 at cold start) and the program follows them; `CLOAD` of a text file reads each block into `$0600-$06FE` before its lines go in [OWN] |
+| `$1E00` | 0 (the byte before the program; after `PCLEAR n`, `$0600 + n x $600`) |
+| `$1E01-...` | the program (`TXTTAB`; `$0601 + n x $600` after `PCLEAR n`), then simple variables, then arrays, then free memory |
 | `...` | the stack (S), growing down from below the string space |
 | string space | `CLEAR` sets its size (default 200 bytes), at the top of RAM up to `$7FFF` |
 
@@ -150,6 +150,8 @@ black-box case (`VARPTR` then `PEEK` of five bytes) and changed to match if it d
 | `fpconv.inc` | integers to and from FAC, number to text (`FOUT`) and text to number (`FIN`), the powers of ten |
 | `tokens.inc` | generated from `tokens.json`: the token equates, keyword tables and dispatch tables. A keyword table is the words in token order from `$80`, each ending in a letter with bit 7 set: a word's token is its place in the table (a token with no word between two others is one `$FF` byte) |
 | `cassette.inc` | `CSAVE` (`,A` for text), `CLOAD`, `CSAVEM`, `CLOADM`, `SKIPF`, `MOTOR`: reading and writing bits, blocks and files on the tape (section 12) |
+| `gfx.inc` | P2's graphics pages, modes and points: `PCLEAR`, `PMODE`, `SCREEN`, `COLOR`, `PCLS`, `PSET`, `PRESET`, `PPOINT`, `PCOPY`, the mode table, the plot routine and the return to the text screen at `OK` ([clean-room-basic-p2.md](clean-room-basic-p2.md), section 3) |
+| `sgfx.inc` | `SET`, `RESET`, `POINT`: semigraphics points on the text screen |
 
 Statements and functions that belong to P2 (graphics, sound, joysticks) exist in the keyword table from the start, so
 programs crunch and list correctly, and give `?FC ERROR` (to be decided, open question 6) until P2 implements them.

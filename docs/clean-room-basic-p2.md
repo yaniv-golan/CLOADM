@@ -99,15 +99,49 @@ SAM V, pages and a flags byte (bytes a row, x halved, y halved, bits a pixel).
   set (1-4 or 5-8; 0 or the set's colour in two colours).
 * **`COLOR f,b`** sets both (0-8, else `?FC ERROR` [BB]). The defaults after cold start and after `PMODE` are BB;
   [OWN] until then: foreground the set's last colour, background its first.
-* **The last point** (the start of `LINE -(x,y)` and of `DRAW`) is a direct-page pair, set by `PSET`, `PRESET`,
-  `LINE` and `DRAW`; its value after cold start (the centre, 128,96 [UM for `DRAW`]) is confirmed by BB.
+* **The last point** (the start of `LINE -(x,y)` and of `DRAW`) is a pair of 16-bit values in the system block
+  (`LASTX`, `LASTY`, so `DRAW` can follow a point off the picture), set by `PSET`, `PRESET`, `LINE` and `DRAW` (not by
+  `PPOINT`); its value after cold start (the centre, 128,96 [UM for `DRAW`]) is confirmed by BB.
+
+### What the first graphics step implements
+
+`basic/gfx.inc` and `basic/sgfx.inc` hold `PCLEAR`, `PMODE`, `SCREEN`, `COLOR`, `PCLS`, `PSET`, `PRESET`, `PPOINT`,
+`PCOPY`, `SET`, `RESET` and `POINT`, with the routines the later statements share: `GETXY` (a point `(x,y` with its
+range checks, into 4 bytes), `PLOT` (one pixel in the colour byte `GCOLB`), `GPIXAD` (a pixel's byte and mask),
+`COLVAL` (a colour number as a byte of that colour in every pixel), `PGADR` (a page's address, checked against the
+reserved pages), `BLKCPY` / `MOVBLK` (the one block loop: `PCLS` fills by copying each byte to the next) and `GSHOW` /
+`TXTSCR`. Where the manual is silent the choices are ours, each to be replaced by the black-box result [OWN; BB]:
+
+* **Cold start:** `PCLEAR 4` (the program at `$1E01`, as in P1), `PMODE 2,1`, colour set 0, the default colours, the
+  last point 128,96.
+* **Reserved pages and the program:** the pages end at `TXTTAB - 1`, so no separate count is kept: a mode's pages fit
+  when the high byte of their end is at most `TXTTAB`'s. `PCLEAR` moves the program (up or down) and relinks it,
+  checks room as `CLEAR` does (`?OM ERROR`), then ends as `CLEAR` does: variables cleared and the stack emptied (so
+  `FOR` and `GOSUB` frames do not survive it), and a program goes on from the next statement, its text pointer moved
+  with it. If the current mode's pages are no longer all reserved, the mode becomes `PMODE 0,1`.
+* **`PMODE`** only chooses the mode and pages drawn on; what is shown changes at the next `SCREEN 1` (the `gfx-pcopy`
+  case draws on page 5 while page 1 is shown). It sets the default colours of the mode and the current colour set.
+* **`SCREEN t,c`:** t and c each 0 or 1 (`?FC ERROR` otherwise); c left out is 0. The set is remembered (for
+  `PPOINT`, the default colours and the next `SCREEN 1`). Back on the text screen CSS is 0 (green text).
+* **Back to text** happens at the `OK` prompt (`READY` calls `TXTSCR`, and an error ends there too); `PRINT`,
+  `INPUT` and `CLS` write the text screen behind a picture that stays shown (decision 7).
+* **Colours:** a colour number is kept and turned into pixels when a statement draws, so it means the same in any
+  mode: four colours (c - 1) AND 3 (so 0 draws as 4 or 8), two colours black for 0 and the foreground for any other.
+* **Semigraphics:** `SET`'s colour is (c - 1) AND 7 (0 gives orange, 8); `SET` and `RESET` on a cell holding a text
+  character start from no element lit; `RESET` keeps the cell's colour.
+* **Errors:** `?FC ERROR` for x above 255, y above 191, a colour above 8, a mode above 4, a page not reserved (or
+  above 8, or 0), `PCLEAR` 0 or above 8, `SET`/`RESET`/`POINT` past 63 by 31; `?SN ERROR` from the shared readers.
 
 ### RAM for P2
 
-Direct page (32 bytes free after P1 and its size pass, which put ten two-byte calls at `$E2-$FF`): the mode, the start page's address and its end, the pages reserved, the
-foreground and background, the last point, `DRAW`'s angle and scale, `PLAY`'s octave, length, tempo and volume, the
-note countdown, and six scratch bytes the drawing routines share (about 30 bytes). The system block (46 bytes free)
-takes the four `JOYSTK` values and `CIRCLE`'s working values. `PAINT`'s stack is in free memory (section 5).
+Direct page (32 bytes free after P1 and its size pass, which put ten two-byte calls at `$E2-$FF`): only what every
+pixel needs. The first graphics step takes 5 bytes: `GMENT` (the current mode's entry in the mode table), `GBEG` (its
+start page's address) and `GCOLB` (the colour byte `PLOT` writes); the end of the pages and the reserved count are
+computed from the mode table and `TXTTAB` instead of kept. Still to come there: `DRAW`'s angle and scale, `PLAY`'s
+octave, length, tempo and volume, the note countdown and a few scratch bytes for the drawing loops. The system block
+(46 bytes free before P2) takes the rest: the first step uses 11 (`FGCOL`, `BGCOL`, `GCSS` the colour set x 4, the
+last point `LASTX`/`LASTY` 16-bit each, `GXY` a point read), leaving 35 for the four `JOYSTK` values and `CIRCLE`'s
+working values. `PAINT`'s stack is in free memory (section 5).
 
 ## 4. Modules and size budget
 
@@ -133,6 +167,10 @@ the size budget): 12,400 bytes of code and tables, 3,728 bytes free between `ROM
 page at `$8000-$80FF` stays reserved for P3 and is not counted). P2 may use at most **3,600** of them; that leaves
 128 for P1 fixes and P3, short of the 400 wanted, so about 270 more bytes have still to be found in P1 (or P2 has to
 come in under its cap).
+
+**Measured so far** (`node tools/basic-size.js`): `gfx.inc` 644 bytes (budget 650, `PCOPY` included), `sgfx.inc` 136
+(budget 160), and 6 bytes of hooks (`GINIT` at cold start, `TXTSCR` at `READY`): 786 of the 3,600, the image 13,195
+bytes.
 
 Rules that keep it small [OWN]: size before speed everywhere (no unrolled loops, no per-mode fast paths); one
 routine for every pixel; one line routine for `LINE`, `DRAW` and `CIRCLE`; one block loop for `PCLS`, `PCOPY` and
@@ -344,8 +382,8 @@ returns the results file, and `compare.js` reports differences. P2 adds pictures
   on the hand-built shapes, `DRAW` at each angle and scale; colours outside the set and `PPOINT`'s values; defaults
   after cold start and `PMODE`; when the screen returns to text; `SOUND`'s frequencies and unit; `PLAY`'s anchor
   pitch, W and whether settings persist; `GET`'s coarse rectangle; every error case of section 9. The first batch
-  (all `# bb-only`: our ROM gives `?FC ERROR` for these statements until P2 is written, so our suite only lints them;
-  `node tools/basic-bb/run.js --ours` runs them to the end):
+  (all `# bb-only`: our suite only lints them, and `node tools/basic-bb/run.js --ours` runs them to the end; ours
+  gives `?FC ERROR` for the statements not written yet):
 
   | Case | What it records |
   |---|---|
@@ -480,5 +518,8 @@ Numbering continues P1's log.
 | 32 | The CPU clock 14.218 MHz / 16 and the 50 Hz field on the Dragon 64 | [HW] `sam.js` PAL timing, `profiles.js` |
 | 33 | Bresenham lines, polygon circles, scan-line seed fill, successive approximation, equal temperament | [OWN], general published algorithms |
 | 34 | The sine table, the note table, the tone loop, the length formula's form, the volume swing, the `GET` array layout | [OWN]; the constants that must match (anchor pitch, W) from [BB] |
+| 35 | `PCLEAR n` reserves n pages and the program follows them; `PMODE m,p`'s mode and start page; `SCREEN`'s text or graphics and colour set; `COLOR f,b`; `PCLS` with an optional colour; `PSET`'s optional colour; `PPOINT` returns a colour; `PCOPY a TO b` | [UM] |
+| 36 | The PIA1 port B bits written by read-modify-write keeping PB0-PB2; the SAM's V and F bits by their clear and set addresses | [HW] `cocopia.js`, `sam6883.js` |
+| 37 | Cold-start `PMODE 2,1`; `PMODE` not changing what is shown; `SCREEN` with no set giving set 0; CSS 0 on the text screen; `PCLEAR` ending as `CLEAR` and going on, falling back to `PMODE 0,1`; colour 0 in four colours; `SET` with colour 0; `SET`/`RESET` on a text character; `PPOINT`'s values; the error choices of section 3 | [OWN]; each to be confirmed [BB] |
 
 Black-box facts are added with the date of the run they came from.

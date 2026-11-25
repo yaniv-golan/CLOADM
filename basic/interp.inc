@@ -2,6 +2,7 @@
 
 * READY: print OK and take lines
 READY   LDS     <BASESP         ; (above it: the FOR and GOSUB frames CONT needs, or nothing)
+        JSR     TXTSCR          ; back to the text screen (an error comes here too)
         JSR     RSTTMP
         LDD     #$FFFF
         STD     <CURLIN
