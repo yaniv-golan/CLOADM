@@ -174,7 +174,12 @@ come in under its cap).
 
 **Measured so far** (`node tools/basic-size.js`): `gfx.inc` 644 bytes (budget 650, `PCOPY` included), `sgfx.inc` 136
 (budget 160), and 6 bytes of hooks (`GINIT` at cold start, `TXTSCR` at `READY`): 786 of the 3,600, the image 13,195
-bytes.
+bytes. The drawing statements (sections 5, 6 and 8 as implemented): `line.inc` 353 (budget 280),
+`circle.inc` 271 and its 16-byte sine table (budget 300), `paint.inc` 277 (budget 320), `mini.inc` 211 (budget 170),
+`draw.inc` 315 (budget 420), `getput.inc` 382 (budget 330) and 4 bytes in `gfx.inc` (`DRAW`'s scale at cold start):
+1,829 bytes for a budget of 1,820 (`line.inc` holds the span filler that `BF` and `PAINT` share, and `getput.inc`
+the array lookup that makes a missing array), 2,615 of the 3,600 with the first step; the image 15,051 bytes, 1,077
+free below the vectors for the budget of `sound.inc`, `play.inc` and their hooks (710).
 
 Rules that keep it small [OWN]: size before speed everywhere (no unrolled loops, no per-mode fast paths); one
 routine for every pixel; one line routine for `LINE`, `DRAW` and `CIRCLE`; one block loop for `PCLS`, `PCOPY` and
@@ -217,6 +222,37 @@ black-box question for each (section 11); where they differ, ours is changed to 
   if not, and -1 for a text character [UM; BB].
 * **`PCOPY a TO b`:** 1536 bytes with the block loop; either page above the `PCLEAR` count: `?FC ERROR` [BB].
 
+### What the drawing statements implement
+
+`basic/line.inc`, `circle.inc`, `paint.inc`, `mini.inc`, `draw.inc` and `getput.inc` (implemented; section 6 for
+`DRAW`, section 8 for `GET` and `PUT`). Every choice the manual does not settle is [OWN; BB pending]: the `gfx-*`
+black-box results decide it (decision 1). The places where the pixels can be moved to match them are marked `ADJUST`
+in the source, each a constant or one instruction:
+
+* **`LINETO`** (`line.inc`), the one line routine of `LINE`, `DRAW` and `CIRCLE`: from the last point to a 16-bit
+  signed end, the last point ending there. Bresenham as above, written as: the error term starts at half the major
+  delta rounded down (ADJUST), each step takes the minor delta off it, and when it goes negative it gets the major
+  delta back and the minor axis steps. Every point is checked against the picture and drawn only on it, so `DRAW`
+  and `CIRCLE` can go off any edge (and come back) without an error.
+* **`LINE`**: the corners are read as `PSET`'s (`?FC ERROR` past the picture); `PSET` or `PRESET` must follow
+  (left out, or another word: `?SN ERROR`), then `,B` or `,BF`. The box is the four lines (x1,y1)-(x2,y1)-(x2,y2)-
+  (x1,y2)-(x1,y1); `BF` fills each row from the smaller x to the larger with `HSPAN` (whole bytes between two masked
+  end bytes), so a filled screen takes 0.7 s. The last point is (x2,y2) after every form.
+* **`CIRCLE`** (`circle.inc`): radius 0-255, colour 0-8, ratio 0-4, start and end 0-1, else `?FC ERROR`. The ratio is
+  taken in 8.8 fixed point (its fraction below 1/256 dropped), r h rounded; corner j (whole 1/64 turns) is
+  x = cx + r cos, y = cy + r h sin, y growing downwards (so 0.25 of a turn is at the bottom), each offset
+  r x `SINTAB[k]` / 256 rounded to the nearest (ADJUST), with a quarter turn exactly r. Start and end go to the
+  nearest 1/64 turn (ADJUST); an end at or before the start goes on past 0, and the same start and end draw the whole
+  circle. The chords are drawn from the start corner on; the last point is left as it was.
+* **`PAINT`** (`paint.inc`): the scan-line fill above, working on each pixel's byte and mask rather than its
+  coordinates (a row is the same mask a row's bytes away; a row's ends are where the byte's place in its row is 0),
+  so it is about ten times faster than a fill by coordinates (a whole PMODE 4 picture in 16 s, PMODE 0 in 4 s). A
+  seed is 3 bytes (its byte's address and mask, no direction byte: each run seeds both rows, and a seed whose pixel
+  is already painted is dropped), pushed after `CHKSTK` (`?OM ERROR` when the stack would come within 64 bytes of
+  the arrays). The colour defaults to the foreground, the border to the colour [OWN; BB]. What it fills is the
+  4-connected region of the start whatever the seed order, so only the stopping rule and the connectivity are
+  ADJUST points.
+
 ## 6. DRAW's and PLAY's mini-languages
 
 Both take a string expression and read it one character at a time with `mini.inc`, which does what the two share:
@@ -245,6 +281,24 @@ by the stack check P1 has (`?OM ERROR`). An unknown command or a value out of ra
 A move becomes a (dx, dy) in 256 x 192 coordinates: the direction's unit vector, turned by `A`, times n x S / 4
 (16-bit, rounded down [OWN; BB]), then a line from the last point with the line routine. The angle, scale and colour
 last until changed [UM]; whether `DRAW` resets them at each statement is BB.
+
+**As implemented** (`basic/mini.inc`, `basic/draw.inc`). The reader's interface, which `PLAY` uses too:
+
+| Routine | Does |
+|---|---|
+| `MSSTR` | a string expression at the text pointer becomes the command string (`?TM ERROR` for a number) |
+| `MSCMD` | the next command: A its character, C set at the end of the whole string; spaces and `;` skipped, `X var$;` run here (its outer place on the 6809 stack, so the caller keeps nothing there between two calls) |
+| `MSGET`, `MSBACK` | the next character as it is (C set when there is none), and putting it back |
+| `MSNUM` | a number: `=var;` or decimal digits, 0-255 (`?FC ERROR` beyond, or for a negative variable); D, C set when there is none (D 0) |
+
+`MSPTR`, `MSCNT` and `MSDEP` (the place, the characters left, the substrings open) are `PRINT USING`'s bytes. The
+choices [OWN; BB pending]: numbers are 0-255 and digits only (no sign or point; a sign belongs to `M`); a command's
+number left out is 1 for a move and 0 for `C` and `A` (so `S` alone is `?FC ERROR`); `M`'s relative parts are scaled
+by `S` like a move but not turned by `A`, and its absolute parts are neither; `C` sets the foreground colour, so it
+lasts into the next `DRAW` and into `PSET`; `B` and `N` apply to the next move and are dropped after it; a `;`
+missing after `=var` or `X var$`, or a name that runs past the string's end: `?FC ERROR`. `DRAW` keeps the angle and
+scale from one statement to the next (`DRANG`, `DRSCL`; 0 and 4 at cold start, not reset by `RUN`), and starts from the
+last point (128,96 at cold start).
 
 ### PLAY [UM]
 
@@ -310,6 +364,19 @@ x, high y). The comparator answers on PIA0 PA7: high when the selected axis (0-6
 * **`PUT`'s actions** [UM]: `PSET` copies, `PRESET` copies inverted, `AND` and `OR` combine with the screen, `NOT`
   inverts the screen (the array unused). Default `PSET` [UM; BB]. Pixel-exact `PUT` with `G` shifts each row's bits to
   the target's position; that shift is the largest part of `getput.inc`.
+* **As implemented** (`basic/getput.inc`) [OWN; BB pending]: both statements work on the rectangle's own pixels
+  (the corners halved where the mode halves them, in either order), always exact to the pixel: `G` is accepted and
+  changes nothing until the black-box pictures give the coarse rule, and `PUT` uses the corners it is given, not a
+  size kept in the array. One bit-copying loop (`BITCPY`) does both: `GET` copies the screen's bits into the array,
+  `PUT` the array's bits onto the screen, each new bit looked up in the action's 4-entry truth table from the old
+  screen bit and the array bit (so `PRESET` and `NOT` invert each bit, which in four colours turns colour value v into
+  3 - v). The interim layout (decision 6): the elements' 5-byte values as one string of bytes from the first element's
+  first byte; each row of the rectangle from a new byte, its pixels' bits from the top bit down (a four-colour pixel
+  its two bits, high first), the bits after a row's last pixel 0. Only `GPBUF`'s start, the row length `GPRB` and the
+  bit order in `BITCPY` decide it, so the original's layout, once known, changes those three. The array is found by
+  its name alone (any number of dimensions), made with 11 elements when it does not exist; a string array is `?TM
+  ERROR`, an array too small for rows x bytes a row `?FC ERROR`, an action other than the five (or anything after
+  `GET`'s comma but `G`) `?SN ERROR`.
 
 ## 9. Errors
 
@@ -345,6 +412,25 @@ All run with no ROM but ours, on the image assembled at test time; unlike black-
   it still lists and runs; `PCOPY` and `PCLS`.
 * **`GET`/`PUT`:** round trips at byte and pixel alignment, each action against the bitwise operation done in
   JavaScript on the page bytes before and after.
+* **As implemented, `tests/basic-drawing.test.js`** (the drawing statements; `node tests/basic-drawing.test.js
+  [part...]`): `LINE` (every octant both ways, lengths 0 and 1, `B`, `BF` with the corners either way, `PRESET`,
+  `-(x,y)`, random lines) in PMODE 0-4 and both colour sets, and the last point after; `CIRCLE` (radii 0-255, ratios
+  0-4, every kind of arc, colours, circles across every edge) in four modes, the last point kept; `PAINT` on ten
+  hand-built shapes put straight into the page (the list above, a diagonal gap that must not leak, a start on the
+  border) in five modes, with paint-colour pixels inside, a border other than the paint colour, the defaults; `?OM
+  ERROR` from a comb of one-pixel teeth (a stretch to seed per tooth), BASIC going on after it, and a whole-picture
+  fill with most memory taken by an array; `DRAW` (every command, `M` both ways, `N`, `B`, `A` and `S` and their
+  lasting, `X` nested, `=var;`, spaces and `;`, moves off every edge) in three modes against the interpreter, with the
+  last point, angle and scale after, and `C` in PMODE 3; `GET`'s bytes in the array and `PUT` with every action on
+  eight rectangles (a whole row, one pixel, corners either way) over random pages in every mode, round trips at another
+  alignment, an array too small or not `DIM`med; the errors of section 9, and a `DRAW` string that runs itself as a
+  substring (`?OM ERROR`, then BASIC goes on). Mutants, each a one-line change to a copy of `basic/`, all turn it
+  red (24 so far): the line's error term starting at the whole delta or stepping at 0, `BF`'s right end unmasked, a
+  box's side missing; the circle's offsets truncated, its turn the other way, its start and end truncated; `PAINT`
+  8-connected, its seeds a byte short, no `?OM ERROR` check, the border not stopping it, the row below not seeded;
+  `DRAW`'s angle an eighth, its scale halved, `N` not coming back, a number's digits dropped, a substring's end not
+  going back, `M` relative unscaled; `PUT`'s `NOT` and `AND` tables wrong, `GET`'s bit order reversed, its padding
+  left, the array's size unchecked, four-colour rows counted as two-colour.
 * **Sound, from the DAC events:** a write tap on `$FF20` (`busTaps.addWriteTap`) records (time, value) for each DAC
   write. From those the test measures each note's period, length and swing: `PLAY` notes within one loop's time of
   equal temperament, every octave and accidental, lengths and dots within one field of W / (L x T), volume as the
@@ -525,5 +611,12 @@ Numbering continues P1's log.
 | 35 | `PCLEAR n` reserves n pages and the program follows them; `PMODE m,p`'s mode and start page; `SCREEN`'s text or graphics and colour set; `COLOR f,b`; `PCLS` with an optional colour; `PSET`'s optional colour; `PPOINT` returns a colour; `PCOPY a TO b` | [UM] |
 | 36 | The PIA1 port B bits written by read-modify-write keeping PB0-PB2; the SAM's V and F bits by their clear and set addresses | [HW] `cocopia.js`, `sam6883.js` |
 | 37 | Cold-start `PMODE 2,1`; `PMODE` not changing what is shown; `SCREEN` with no set giving set 0; CSS 0 on the text screen; `PCLEAR` ending as `CLEAR` and going on, falling back to `PMODE 0,1`; colour 0 in four colours; `SET` with colour 0; `SET`/`RESET` on a text character; `PPOINT`'s values; the error choices of section 3 | [OWN]; each to be confirmed [BB] |
+| 38 | Syntax of `LINE` (`PSET`/`PRESET`, `B`, `BF`, `-(x,y)`), `CIRCLE` (r, c, h, s, e and their ranges), `PAINT` (c, b), `DRAW`'s commands, `GET` (`G`) and `PUT`'s five actions | [UM] |
+| 39 | `LINE`: the error term's start (half the major delta, rounded down), both ends drawn, the box's corner order, `PSET`/`PRESET` required (`?SN ERROR`), the last point (x2,y2) after every form; `DRAW` and `CIRCLE` clipped point by point | [OWN, BB pending: `gfx-line`, `gfx-clip`] |
+| 40 | `CIRCLE`: the 64-chord polygon, offsets rounded to nearest with an 8-bit sine table, the ratio truncated to 1/256, start and end to the nearest 1/64 turn, the turn clockwise on the screen from 3 o'clock, an end at or before the start wrapping, start = end the whole circle, the last point kept | [OWN; the direction from the manual's description, BB pending: `gfx-circle`] |
+| 41 | `PAINT`: stops at the paint colour as well as the border; 4-connected; colour default the foreground, border default the colour; 3-byte seeds on the stack, `?OM ERROR` at `CHKSTK`'s margin | [OWN, BB pending: `gfx-paint`] |
+| 42 | `DRAW`: numbers 0-255, digits only; a move's number left out 1, `C`/`A` 0; n x S / 4 rounded down; `M` relative scaled, not turned; `C` sets the foreground; `A` clockwise; angle and scale kept from one `DRAW` to the next and through `RUN`; the errors | [UM for `A`'s direction and that settings last; OWN for the rest, BB pending: `gfx-draw`] |
+| 43 | `GET`/`PUT`: exact to the pixel with or without `G`; `PUT`'s rectangle its own corners; the array's interim byte layout (rows from a new byte, high bit first, padding 0); an array made with 11 elements; `?TM`, `?FC`, `?SN` as section 8 says | [OWN, interim (decision 6), BB pending: `gfx-getput`, `gfx-getarray`] |
+| 44 | `CIRCLE`'s sine table: sin(k/64 turn) x 256 rounded, k = 0-15, generated by `tools/basic-consts.js` (`sine.inc`) | [OWN] (a general mathematical table) |
 
 Black-box facts are added with the date of the run they came from.

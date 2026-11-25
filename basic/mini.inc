@@ -22,11 +22,11 @@ MSSTR   JSR     EVSTR
         CLR     <MSDEP
         RTS
 
-* MSGET: the next character into A; C set if there is none
-MSGET   LDB     <MSCNT
-        SUBB    #1
+* MSGET: the next character into A; C set if there is none (keeps B)
+MSGET   LDA     <MSCNT
+        SUBA    #1
         BCS     MG1
-        STB     <MSCNT
+        STA     <MSCNT
         LDX     <MSPTR
         LDA     ,X+
         STX     <MSPTR
@@ -73,32 +73,29 @@ MSNUM   BSR     MSGET
         JSR     CHKNUM
         JSR     MOVFM
         JSR     CNVBYT
-        BRA     MN7
-MN2     CLR     ,-S             ; the value so far
+        BRA     MN5
+MN2     CLRB                    ; the value so far
         SUBA    #'0'
         CMPA    #9
         BHI     MN6             ; not a digit: no number
 MN3     PSHS    A
-        LDA     1,S
-        LDB     #10
+        LDA     #10
         MUL
         ADDB    ,S+
         ADCA    #0
         BNE     MSFC
-        STB     ,S
         BSR     MSGET
         BCS     MN5
         SUBA    #'0'
         CMPA    #9
         BLS     MN3
         BSR     MSBACK
-MN5     PULS    B
-MN7     CLRA                    ; (C clear: a number)
+MN5     CLRA                    ; (C clear: a number)
         RTS
-MN6     LEAS    1,S
-        BSR     MSBACK
+MN6     BSR     MSBACK
+MN8     CLRA
+        CLRB
         ORCC    #1              ; (C set: none)
-MN8     LDD     #0
         RTS
 
 * MSCMD: the next command character (see above). The return address is kept in Y while substrings go on the stack.

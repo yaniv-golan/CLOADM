@@ -16,7 +16,7 @@ DRAW    JSR     MSSTR
         LDB     FGCOL
         BSR     DRCOL
         CLR     <DRFLG
-DR0     JSR     MSCMD
+DR0     BSR     MSCMD
         BCS     DS9
         BSR     DRONE
         BRA     DR0

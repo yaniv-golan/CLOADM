@@ -33,7 +33,10 @@ Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.
   `JOYSTK`, for a run on the real ROM before the phase 2 code is written. The first graphics statements are in
   (`basic/gfx.inc`, `basic/sgfx.inc`): `PCLEAR`, `PMODE`, `SCREEN`, `COLOR`, `PCLS`, `PSET`, `PRESET`, `PPOINT`,
   `PCOPY` and the text screen's `SET`, `RESET` and `POINT`, checked byte for byte against a reference model of the
-  pages (`tests/basic-gfx.test.js`). A size pass took the ROM from 13,517 to 12,400 bytes with
+  pages (`tests/basic-gfx.test.js`); then the drawing statements (`basic/line.inc`, `circle.inc`, `paint.inc`,
+  `mini.inc`, `draw.inc`, `getput.inc`): `LINE` with boxes and filled boxes, `CIRCLE` with ratios and arcs, `PAINT`,
+  `DRAW` with every command and `GET` and `PUT` with every action, checked byte for byte against reference
+  rasterisers written from the design (`tests/basic-drawing.test.js`). A size pass took the ROM from 13,517 to 12,400 bytes with
   no change in what programs see (shared routines and tables, two-byte calls through the direct page), to make room
   for graphics and sound. The first black-box results from the real ROM brought ours in line: the empty line before `BREAK`, `CONT` at
   the end of a program, `SQR` as `x^.5`, `DEF FN` with a string name, `RESTORE` with no line number, `PRINT USING`'s E

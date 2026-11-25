@@ -1,4 +1,4 @@
-// Run: node tests/basic-drawing.test.js
+// Run: node tests/basic-drawing.test.js [part...]   (parts: line, circle, paint, paint-om, draw, getput, errors; all by default)
 //
 // The clean-room BASIC's drawing statements (docs/clean-room-basic-p2.md sections 5, 6, 8 and 9): LINE (with B, BF,
 // PSET / PRESET and -(x,y) from the last point), CIRCLE (radius, colour, ratio, start and end), PAINT, DRAW (every
@@ -17,6 +17,7 @@ let fail = 0, n = 0;
 const check = (name, cond, detail = '') => { n++; if (!cond) { fail++; console.log(`FAIL ${name} ${detail}`); } else console.log(`ok   ${name} ${detail}`); };
 
 const { rom, symbols } = buildBasic();
+const parts = process.argv.slice(2), part = (name) => !parts.length || parts.includes(name);
 let seed = 4242;
 const rnd = (k) => { seed = (seed * 1103515245 + 12345) & 0x7FFFFFFF; return seed % k; };
 
@@ -47,7 +48,7 @@ const snap = (b) => new G.Picture(b.m.ram.slice(0, 0x8000));
 
 // ---- LINE in every mode: every octant both ways, lengths 0 and 1, B, BF (corners either way), PRESET, -(x,y) ----
 // DATA: kind (0 PSET, 1 PRESET, 2 PSET B, 3 PSET BF, 4 PRESET BF, 5 -(x,y) PSET, 6 PRESET B), x1, y1, x2, y2
-{
+if (part('line')) {
   const segs = [];
   const ends = [[200, 96], [200, 120], [200, 168], [160, 168], [128, 168], [96, 168], [56, 168], [56, 120], [56, 96], [56, 72], [56, 24], [96, 24], [128, 24], [160, 24], [200, 24], [200, 72]];
   for (const [x, y] of ends) segs.push([0, 128, 96, x, y], [0, x, y, 128, 96]);
@@ -81,7 +82,7 @@ const snap = (b) => new G.Picture(b.m.ram.slice(0, 0x8000));
 }
 
 // ---- CIRCLE: radii, ratios, arcs, colours, edges ----
-{
+if (part('circle')) {
   const circles = [];
   for (const r of [0, 1, 2, 3, 5, 10, 20, 40, 70, 95, 100]) circles.push([128, 96, r]);
   circles.push([20, 20, 1], [40, 20, 2], [60, 20, 4], [20, 170, 6], [128, 96, 255], [0, 0, 30], [255, 191, 40], [5, 96, 30], [250, 96, 30], [128, 5, 30], [128, 186, 30]);
@@ -107,7 +108,7 @@ const snap = (b) => new G.Picture(b.m.ram.slice(0, 0x8000));
 }
 
 // ---- PAINT on hand-built shapes (the pixels put straight into the page), against a breadth-first fill ----
-{
+if (part('paint')) {
   // each shape: a function drawing its border with pen.plot / line in colour c, and the start point
   // a square spiral, its corridor 8 points wide
   const spiral = (pen, c) => {
@@ -157,7 +158,7 @@ const snap = (b) => new G.Picture(b.m.ram.slice(0, 0x8000));
 }
 
 // ---- PAINT runs out of memory: a comb of one-pixel teeth leaves a stretch per tooth to be seeded ----
-{
+if (part('paint-om')) {
   const b = boot();
   typeAll(b, ['PMODE 4,1:PCLS']);
   const pic = snap(b), pen = new G.Pen(pic, 4, 1);
@@ -172,7 +173,7 @@ const snap = (b) => new G.Picture(b.m.ram.slice(0, 0x8000));
 }
 
 // ---- DRAW against the interpreter of section 6 ----
-{
+if (part('draw')) {
   const progs = [
     { name: 'the cold-start point, the eight directions with N, moves without a length', lines: ['DRAW "U20L20D20"', 'DRAW "BM128,96NU40NE40NR40NF40ND40NG40NL40NH40"', 'DRAW "BM20,20RRRRDDDDLLLLUUUU":DRAW "BM20,40R10BR10R10":DRAW "BM20,60E5F5G5H5"'] },
     { name: 'M absolute and relative, B, N', lines: ['DRAW "BM20,100M60,140M+20,-20M-10,+30BM+10,+10D10"', 'DRAW "NM200,10NM+30,+60;M-5,-5"'] },
@@ -214,7 +215,7 @@ function arrayBytes(b, name) {
   }
   return null;
 }
-{
+if (part('getput')) {
   const rects = [[16, 16, 31, 31], [19, 17, 28, 30], [0, 0, 7, 0], [0, 0, 255, 0], [3, 5, 3, 5], [250, 180, 255, 191], [100, 60, 60, 20], [1, 2, 6, 3]];
   const ACTS = ['PSET', 'PRESET', 'AND', 'OR', 'NOT', ''];
   for (const m of [4, 3, 0, 1, 2]) {
@@ -262,7 +263,7 @@ function arrayBytes(b, name) {
 }
 
 // ---- errors (section 9) ----
-{
+if (part('errors')) {
   const b = boot();
   const cases = [['LINE(0,0)(10,10),PSET', 'SN'], ['LINE(0,0)-(10,10)', 'SN'], ['LINE(0,0)-(10,10),XSET', 'SN'], ['LINE(0,0)-(10,10),PSET,X', 'SN'], ['LINE(0,0)-(256,10),PSET', 'FC'], ['LINE-(0,192),PSET', 'FC'],
     ['CIRCLE(128,96)', 'SN'], ['CIRCLE(128,96),10,9', 'FC'], ['CIRCLE(128,96),10,1,5', 'FC'], ['CIRCLE(128,96),10,1,-1', 'FC'], ['CIRCLE(128,96),10,1,1,1.5,.5', 'FC'], ['CIRCLE(128,96),10,1,1,0,1.01', 'FC'], ['CIRCLE(128,96),256', 'FC'], ['CIRCLE(256,96),10', 'FC'],
