@@ -4665,7 +4665,7 @@ async function snapshotChecks(browser, base, check) {
       return { w: c.width, h: c.height, fw: f.width, fh: f.height, colours: colours.size,
         // (whitespace runs collapsed: innerText puts a newline between the caption's two flex-item spans)
         title: document.getElementById('shareTitle').innerText.replace(/\s+/g, ' ').trim(),
-        link: document.getElementById('shareLink').value, recipient: document.getElementById('shareRom').textContent, note: document.getElementById('shareNote').textContent, kb: document.getElementById('btnShareDownload').textContent,
+        link: document.getElementById('shareLink').value, recipient: document.getElementById('shareRomFull').textContent, note: document.getElementById('shareNote').textContent, kb: document.getElementById('btnShareDownload').textContent,
         fits: box.left >= 0 && box.right <= innerWidth, scrollX: document.documentElement.scrollWidth <= innerWidth };
     });
     check(`snapshot (${label}): Share shows the captured picture at true size, the title, a link, what it does and what a recipient needs`,
@@ -4687,8 +4687,9 @@ async function snapshotChecks(browser, base, check) {
       && json.state.memory && Buffer.from(json.state.memory.b64, 'base64')[1030] === 42, `${snapName} ${snapBytes.length} bytes`);
     const [shot] = await Promise.all([page.waitForEvent('download'), page.click('#btnShareShot')]);
     const png = fs.readFileSync(await shot.path());
-    check(`snapshot (${label}): the screenshot is a PNG at the machine's true pixels`, png.subarray(1, 4).toString() === 'PNG'
-      && png.readUInt32BE(16) === view.fw && png.readUInt32BE(20) === view.fh, `${shot.suggestedFilename()} ${png.readUInt32BE(16)}x${png.readUInt32BE(20)}`);
+    // (the card's every pixel is checked in the share group; here: it is the 1200 x 630 card, named for the moment)
+    check(`snapshot (${label}): "Save picture" is the share card, a 1200 x 630 PNG`, png.subarray(1, 4).toString() === 'PNG'
+      && png.readUInt32BE(16) === 1200 && png.readUInt32BE(20) === 630 && /^Dragon64-\d{8}-\d{6}\.png$/.test(shot.suggestedFilename()), `${shot.suggestedFilename()} ${png.readUInt32BE(16)}x${png.readUInt32BE(20)}`);
     await page.click('#shareBack');
     check(`snapshot (${label}): "← Emulator" goes back to the machine`, await waitFor(page, () => document.getElementById('share').hidden && location.hash === '')
       // (the screen is waited for, not read once: the view closing and the page laying the screen out again are
@@ -16249,16 +16250,18 @@ async function shareScreenChecks(browser, base, check) {
         cap: document.getElementById('shareTitle').innerText.replace(/\s+/g, ' ').trim(), prefixShown: document.getElementById('sharePrefix').checkVisibility(),
         colours: colours.size, pictureIsThatFrame: sized && bad === 0, badPixels: bad, pixels: n,
         pictureFrame: window.emu.machine.frameCount, frameCountAtPause: framePx.fc,
-        terms: document.getElementById('shortTerms').checkVisibility(), sw: document.getElementById('previewSwitch').checkVisibility() };
+        terms: document.getElementById('shortTerms').checkVisibility(), sw: document.getElementById('previewSwitch').checkVisibility(),
+        // a program page never needs ROMs: the ROM line is hidden, so "for anyone" is said once
+        rom: document.getElementById('shareRom').checkVisibility(), anyone: (document.getElementById('share').innerText.match(/for anyone/g) || []).length };
     }, framePx);
     await sp.evaluate(() => document.getElementById('btnPause').click());   // (resume: the rest of the block plays on)
     if (shotDir) await sp.screenshot({ path: path.join(shotDir, `share-untouched-${label}.png`) });
     // the program-page note, said once under the picture (the primary's own line stays empty); the caption names the
     // program and machine with no "What they'll see first" prefix; nothing is uploaded; and the picture is that frame
-    check(`one link (${label}): a bundled program started and untouched: the primary offers its page, nothing uploaded, and the picture is the frame at the tap`,
+    check(`one link (${label}): a bundled program started and untouched: the primary offers its page, nothing uploaded, the picture is the frame at the tap, and the ROM line is hidden ("for anyone" said once)`,
       ut.shown && ut.bottom <= ut.vh && ut.onTop && drawn && ut.pictureIsThatFrame && ut.colours === 4
       && ut.note === 'Opens 2048 from the start, for anyone. The snapshot link below keeps this exact moment.'
-      && ut.primaryNote === '' && ut.cap === '2048 · Dragon 64' && !ut.prefixShown && !ut.terms && !ut.sw, JSON.stringify(ut));
+      && ut.primaryNote === '' && ut.cap === '2048 · Dragon 64' && !ut.prefixShown && !ut.terms && !ut.sw && !ut.rom && ut.anyone === 1, JSON.stringify(ut));
     // the tap copies the program page, and after it the made field (here: only the program page is a link) is reachable
     await sp.click('#btnShareCopy');
     check(`one link (${label}): the tap copies /2048/ (the program page), nothing uploaded`,
@@ -16269,13 +16272,14 @@ async function shareScreenChecks(browser, base, check) {
     await sp.evaluate(() => window.emu.session.personInput());
     await sp.evaluate(() => document.getElementById('btnShare').click());
     await sp.waitForTimeout(600);
-    const played = await sp.evaluate(() => ({ terms: document.getElementById('shortTerms').checkVisibility(), note: document.getElementById('primaryNote').textContent }));
+    const played = await sp.evaluate(() => ({ terms: document.getElementById('shortTerms').checkVisibility(), note: document.getElementById('primaryNote').textContent,
+      rom: document.getElementById('shareRom').checkVisibility() && document.getElementById('shareRomFull').textContent === 'Runs without ROMs, so it opens for anyone.' }));
     await openDisc(sp, 'shareMore');
     await waitFor(sp, () => !document.querySelector('#shareMore > .col').hidden);   // (the toggle listener unhides the body)
     const item = await sp.evaluate(() => { const b = document.getElementById('btnShareProgramPage'); return b ? { text: b.textContent, shown: b.checkVisibility(), href: b.dataset.href } : null; });
     if (shotDir) await sp.screenshot({ path: path.join(shotDir, `share-played-${label}.png`) });
     check(`one link (${label}): played (one key): the primary shares the moment, and "Link to 2048 from the start" is in More ways`,
-      played.terms && played.note === '' && !!item && item.text === 'Link to 2048 from the start' && item.shown && /\/2048\/$/.test(item.href), JSON.stringify({ played, item }));
+      played.terms && played.note === '' && played.rom && !!item && item.text === 'Link to 2048 from the start' && item.shown && /\/2048\/$/.test(item.href), JSON.stringify({ played, item }));
     await sc.close();
   }
 
@@ -16466,6 +16470,246 @@ async function shareScreenChecks(browser, base, check) {
   check('share screen: no page errors', !errors.length && !p2errors.length, errors.concat(p2errors).join('; '));
   await closeCtx(ctx2);}
 
+// an indexed PNG (colour type 3, 4 or 8 bits, filters 0 and 2: what js/media/png.js writes) decoded with Node's zlib,
+// not the project's code -> { width, height, rgb: [r, g, b] strings, one per pixel }
+function decodeIndexedPng(buf) {
+  let o = 8, ihdr, plte; const idat = [];
+  while (o < buf.length) {
+    const len = buf.readUInt32BE(o), type = buf.toString('latin1', o + 4, o + 8), data = buf.subarray(o + 8, o + 8 + len);
+    if (type === 'IHDR') ihdr = data; else if (type === 'PLTE') plte = data; else if (type === 'IDAT') idat.push(data);
+    o += 12 + len;
+  }
+  const width = ihdr.readUInt32BE(0), height = ihdr.readUInt32BE(4), depth = ihdr[8], stride = Math.ceil(width * depth / 8);
+  const raw = zlib.inflateSync(Buffer.concat(idat)), rgb = new Array(width * height);
+  let prev = Buffer.alloc(stride);
+  for (let y = 0; y < height; y++) {
+    const f = raw[y * (stride + 1)], line = Buffer.from(raw.subarray(y * (stride + 1) + 1, (y + 1) * (stride + 1)));
+    if (f === 2) for (let i = 0; i < stride; i++) line[i] = (line[i] + prev[i]) & 0xFF;
+    else if (f !== 0) throw new Error(`PNG filter ${f}`);
+    for (let x = 0; x < width; x++) { const v = depth === 8 ? line[x] : (line[x >> 1] >> (x & 1 ? 0 : 4)) & 0xF; rgb[y * width + x] = `${plte[v * 3]},${plte[v * 3 + 1]},${plte[v * 3 + 2]}`; }
+    prev = line;
+  }
+  return { width, height, rgb };
+}
+
+// The Share screen's layouts (the share group). A short landscape screen (a phone on its side, at most 420px tall) has
+// its own: two columns under the header, the picture on the left (at most 40% of the width, 30% under 300px of
+// height, never hidden, its caption one line under it) and a right column that scrolls on its own: the heading, Copy
+// (+ Share…), the ROM line in one line, the cloadm.dev note, the picture switch, the made link + QR, the note, then
+// "More ways to share" and "Embed in a web page". Checked at the four short landscape sizes, 740x360, and an upright
+// phone (390x844), each in four states: no ROMs with the short link on (a store that answers), ROMs needed (the long
+// link), short links off ("Always use long links") and failing (the server's 503). In each: at scroll 0, Copy and the
+// ROM line's first line are wholly on screen; no sideways scroll; the preview at least 120px wide; Copy and Share… at
+// least 44px tall; the tab order goes the back link -> Copy -> the disclosures; after a tap the field it made is on
+// screen, focused and not covered (with the short link on, Copy, that field and the ROM line are all on the first
+// screen); every disclosure is reachable and opens. Then on a desktop: Save picture and Save clip beside Copy (under
+// "More ways to share" elsewhere), the picture filling its frame at 861x600 and 1024x640, and "Save picture" is the
+// share card of the captured frame, pixel for pixel.
+async function shareLayoutChecks(browser, base, check) {
+  const ours = Buffer.concat(['liza.bin', 'welcome.bin', 'demo.bin', 'chat.bin'].map((f) => fs.readFileSync(path.join(ROOT, 'examples', f))));
+  // stand-ins for the person's own ROMs, made from this project's firmware (never real ROMs)
+  const standIn = (seed) => [...Array(0x4000)].map((_, i) => ours[(i * 3 + seed) % ours.length] ^ ((i >> 8) + seed) & 0xFF);
+  const roms = { basic: standIn(101), basic64: standIn(138) };
+  const SIZES = [[653, 280], [568, 320], [667, 375], [740, 360], [844, 390], [390, 844]];
+  const STATES = ['no ROMs, short on', 'ROMs needed', 'short off', 'short failing'];
+  for (const [w, h] of SIZES) for (const state of STATES) {
+    const label = `${w}x${h}, ${state}`, errors = [];
+    const ctx = await browser.newContext({ viewport: { width: w, height: h }, serviceWorkers: 'block', acceptDownloads: true, permissions: ['clipboard-read', 'clipboard-write'] });
+    await ctx.addInitScript((off) => {
+      // a browser with a share sheet (so Share… is shown beside Copy), and "Always use long links" for the off state
+      navigator.canShare = (d) => !!d && typeof d.url === 'string';
+      navigator.share = async () => {};
+      if (off) try { localStorage.setItem('cloadm.alwaysLongLinks', '1'); } catch (e) { /* (the check below would say) */ }
+    }, state === 'short off');
+    await ctx.route('https://s.cloadm.dev/**', (route) => {
+      const u = new URL(route.request().url()), cors = { 'access-control-allow-origin': '*', 'content-type': 'application/json' };
+      if (u.pathname === '/api/new' && state === 'no ROMs, short on') return route.fulfill({ status: 200, headers: cors, body: JSON.stringify({ id: 'Ab3dEf7h', deleteToken: 'token' }) });
+      if (u.pathname === '/api/new') return route.fulfill({ status: 503, headers: cors, body: JSON.stringify({ error: 'New short links are switched off for now. The long link still works.' }) });
+      return route.fulfill({ status: 404, headers: cors, body: '{}' });
+    });
+    const page = await ctx.newPage();
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto(`${base}?machine=dragon64`);
+    await linkIn(page);
+    await waitFor(page, () => window.emu.session.welcomeRunning && window.emu.session.screenText()[14].includes('PRESS'), null, 60000);
+    if (state === 'ROMs needed') await page.evaluate(async (r) => { const s = window.emu.session; for (const [k, v] of Object.entries(r)) s.roms.put('dragon64', k, Uint8Array.from(v), `${k}.rom`); s.switchMachine('dragon64'); await s.index.settled(); }, roms);
+    await page.evaluate(() => document.getElementById('btnShare').click());
+    await waitFor(page, () => document.getElementById('share').checkVisibility() && !!document.getElementById('shareLink').value, null, 30000);
+    await page.evaluate(() => document.fonts.ready);
+    await painted(page);
+    const first = await page.evaluate(() => {
+      const side = document.getElementById('shareSide'), sb = side.getBoundingClientRect(), own = getComputedStyle(side).display !== 'contents';
+      // wholly on screen: in the viewport and, where the right column scrolls on its own, inside it
+      const whole = (b) => b.width > 0 && b.top >= (own ? sb.top : 0) - 0.5 && b.bottom <= (own ? Math.min(sb.bottom, innerHeight) : innerHeight) + 0.5 && b.left >= 0 && b.right <= innerWidth + 0.5;
+      const rom = document.getElementById('shareRom'), brief = document.getElementById('shareRomBrief'), full = document.getElementById('shareRomFull');
+      const shown = getComputedStyle(brief).display !== 'none' ? brief : full, range = document.createRange();
+      range.selectNodeContents(shown);
+      const line = range.getClientRects()[0];
+      const copy = document.getElementById('btnShareCopy'), native = document.getElementById('btnShareNative'), pre = document.querySelector('#share > .preview');
+      const short = innerWidth > innerHeight && innerHeight <= 420;
+      return { short, scroll0: scrollY === 0 && side.scrollTop === 0, copy: whole(copy.getBoundingClientRect()), romLine: !!line && whole(line),
+        copyH: Math.round(copy.getBoundingClientRect().height), nativeShown: native.checkVisibility(), nativeH: Math.round(native.getBoundingClientRect().height),
+        preview: Math.round(pre.getBoundingClientRect().width), previewShown: document.getElementById('sharePicture').checkVisibility() && pre.getBoundingClientRect().height > 50,
+        previewTop: Math.round(pre.getBoundingClientRect().top), previewOfWidth: pre.getBoundingClientRect().width / innerWidth,
+        sideBySide: pre.getBoundingClientRect().right <= document.querySelector('#share .col.main').getBoundingClientRect().left,
+        captionUnder: document.querySelector('#share figcaption').getBoundingClientRect().top >= document.querySelector('#share .frame').getBoundingClientRect().bottom - 0.5,
+        // one line: the caption's name and time on one row, its title no taller than one line of its text
+        captionOneLine: (() => { const t = document.getElementById('shareTitle'), lh = parseFloat(getComputedStyle(t).fontSize) * 1.6;
+          return t.getBoundingClientRect().height <= lh && Math.abs(t.getBoundingClientRect().top - document.getElementById('shareWhen').getBoundingClientRect().top) < lh; })(),
+        noSideways: document.documentElement.scrollWidth <= innerWidth && (!own || side.scrollWidth <= side.clientWidth),
+        brief: brief.textContent, briefShown: getComputedStyle(brief).display !== 'none', full: full.textContent, title: rom.title,
+        saveIn: document.getElementById('btnShareShot').parentElement.id + '/' + document.getElementById('btnShareClip').parentElement.id,
+        pageScrolls: document.documentElement.scrollHeight > innerHeight + 1, sideScrolls: own && getComputedStyle(side).overflowY === 'auto' };
+    });
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, `share-${w}x${h}-${state.replace(/[^a-z]+/gi, '-')}.png`) });
+    check(`share layout (${label}): at scroll 0, Copy and the ROM line's first line are wholly on screen; no sideways scroll`,
+      first.scroll0 && first.copy && first.romLine && first.noSideways, JSON.stringify(first));
+    check(`share layout (${label}): the preview is at least 120px wide and shown; Copy and Share… are at least 44px tall`,
+      first.preview >= 120 && first.previewShown && first.copyH >= 44 && first.nativeShown && first.nativeH >= 44, JSON.stringify(first));
+    const needs = state === 'ROMs needed';
+    check(`share layout (${label}): the ROM line says ${needs ? 'what to add' : 'it runs without ROMs'}${first.short ? ', in one line, the full sentence its title' : ''}`,
+      (needs ? /^Needs 32K-mode BASIC and 64K-mode BASIC: the person opening it adds their own\.$/.test(first.full) && first.brief === 'Needs your Dragon 64 ROMs to open.'
+        : first.full === 'Runs without ROMs, so it opens for anyone.' && first.brief === 'Runs without ROMs.') && first.title === first.full && first.briefShown === first.short,
+      JSON.stringify(first));
+    if (first.short) {
+      check(`share layout (${label}): two columns under the header, the picture on the left at most ${h < 300 ? 30 : 40}% of the width with its caption one line under it, the right column scrolling on its own, the page not`,
+        first.sideBySide && first.previewOfWidth <= (h < 300 ? 0.3 : 0.4) + 0.005 && first.captionUnder && first.captionOneLine && first.sideScrolls && !first.pageScrolls
+        && first.saveIn === 'shareSaveMore/shareSaveMore', JSON.stringify(first));
+    } else check(`share layout (${label}): an upright phone keeps one column, Save picture and Save clip under "More ways to share"`, !first.sideBySide && first.saveIn === 'shareSaveMore/shareSaveMore', JSON.stringify(first));
+    // the right column's order on a short landscape screen
+    if (first.short) {
+      const order = await page.evaluate(() => ['shareHeading', 'btnShareCopy', 'shareRom', 'shortTerms', 'previewSwitch', 'shareNote', 'shareMore', 'shareEmbed']
+        .filter((id) => document.getElementById(id).checkVisibility()).map((id) => [id, Math.round(document.getElementById(id).getBoundingClientRect().top)]));
+      check(`share layout (${label}): the right column's order: heading, Copy, ROM line, the cloadm.dev note, the picture switch, the note, More ways to share, Embed`,
+        order.every((x, i) => i === 0 || x[1] > order[i - 1][1]) && order[0][0] === 'shareHeading' && order[order.length - 1][0] === 'shareEmbed', JSON.stringify(order));
+    }
+    // the tab order, from the back link
+    const tabs = [];
+    await page.focus('#shareBack');
+    for (let i = 0; i < 30; i++) {
+      tabs.push(await page.evaluate(() => { const a = document.activeElement; return a.tagName === 'SUMMARY' ? `${a.parentElement.id}>summary` : a.id || a.tagName; }));
+      if (tabs[tabs.length - 1] === 'shareEmbed>summary') break;
+      await page.keyboard.press('Tab');
+    }
+    const at = (id) => tabs.indexOf(id);
+    check(`share layout (${label}): the tab order is the back link -> Copy -> More ways to share -> Embed`,
+      at('shareBack') === 0 && at('btnShareCopy') > 0 && at('shareMore>summary') > at('btnShareCopy') && at('shareEmbed>summary') > at('shareMore>summary'), tabs.join(' '));
+    // the tap: the field it made is on screen, focused, and what the pointer would land on (no toast over it)
+    await page.evaluate(() => { document.getElementById('shareSide').scrollTop = 0; window.scrollTo(0, 0); });
+    await page.click('#btnShareCopy');
+    const field = state === 'no ROMs, short on' ? 'shareShort' : 'shareLink';
+    const landed = await waitFor(page, (f) => document.activeElement && document.activeElement.id === f && !!document.getElementById(f).value
+      && (f === 'shareLink' || !document.getElementById('shortMade').hidden), field, 20000);
+    await painted(page);
+    const after = await page.evaluate((f) => {
+      const side = document.getElementById('shareSide'), sb = side.getBoundingClientRect(), own = getComputedStyle(side).display !== 'contents';
+      const whole = (b) => b.width > 0 && b.top >= (own ? sb.top : 0) - 0.5 && b.bottom <= (own ? Math.min(sb.bottom, innerHeight) : innerHeight) + 0.5 && b.left >= 0 && b.right <= innerWidth + 0.5;
+      const el = document.getElementById(f), b = el.getBoundingClientRect(), hit = document.elementFromPoint((b.left + b.right) / 2, (b.top + b.bottom) / 2);
+      const range = document.createRange(), brief = document.getElementById('shareRomBrief');
+      range.selectNodeContents(getComputedStyle(brief).display !== 'none' ? brief : document.getElementById('shareRomFull'));
+      return { focused: document.activeElement === el, shown: whole(b), onTop: hit === el, value: el.value, short: /^https:\/\/s\.cloadm\.dev\/Ab3dEf7h#/.test(el.value), long: /#z=[A-Za-z0-9_-]{100,}$/.test(el.value),
+        copy: whole(document.getElementById('btnShareCopy').getBoundingClientRect()), rom: whole(range.getClientRects()[0]),
+        // a short landscape screen's page never scrolls, a tap included (the column does): what is positioned inside the
+        // column (a field's visually hidden label) once made the page taller than the screen
+        pageStill: !own || (scrollY === 0 && document.documentElement.scrollHeight <= innerHeight + 1) };
+    }, field);
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, `share-${w}x${h}-${state.replace(/[^a-z]+/gi, '-')}-tapped.png`) });
+    check(`share layout (${label}): after the tap the field it made (${field === 'shareShort' ? 'the short link' : 'the long link'}) is on screen, focused and not covered, and the page itself did not scroll`,
+      landed && after.focused && after.shown && after.onTop && after.pageStill && (field === 'shareShort' ? after.short : after.long), JSON.stringify(Object.assign({}, after, { value: after.value.slice(0, 40) })));
+    // the tab order after the tap follows what the screen shows: the back link -> Copy -> the field it made -> the
+    // disclosures (the long link's field is inside "More ways to share", so after its summary and before Embed's)
+    const tabs2 = [];
+    await page.focus('#shareBack');
+    for (let i = 0; i < 40; i++) {
+      tabs2.push(await page.evaluate(() => { const a = document.activeElement; return a.tagName === 'SUMMARY' ? `${a.parentElement.id}>summary` : a.id || a.tagName; }));
+      if (tabs2[tabs2.length - 1] === 'shareEmbed>summary') break;
+      await page.keyboard.press('Tab');
+    }
+    const at2 = (id) => tabs2.indexOf(id);
+    check(`share layout (${label}): after the tap the tab order is the back link -> Copy -> the field it made -> the disclosures`,
+      at2('shareBack') === 0 && at2('btnShareCopy') > 0 && at2(field) > at2('btnShareCopy') && at2('shareEmbed>summary') > at2(field)
+      && (field === 'shareShort' ? at2('shareMore>summary') > at2(field) : at2('shareMore>summary') < at2(field)), tabs2.join(' '));
+    await page.evaluate((f) => { document.getElementById('shareSide').scrollTop = 0; window.scrollTo(0, 0); document.getElementById(f).focus(); }, field);
+    if (field === 'shareShort') check(`share layout (${label}): with the short link made, Copy, its field and the ROM line are all on the first screen`, after.copy && after.shown && after.rom, JSON.stringify(Object.assign({}, after, { value: after.value.slice(0, 40) })));
+    // every disclosure is reachable and opens (a click that lands on its summary: Playwright scrolls to it and refuses a
+    // covered target)
+    const opened = [];
+    for (const id of ['shareMore', 'shareEmbed']) {
+      if (await page.evaluate((i) => document.getElementById(i).open, id)) { await page.click(`#${id} > summary`); await waitFor(page, (i) => !document.getElementById(i).open, id); }
+      await page.click(`#${id} > summary`, { timeout: 5000 }).catch((e) => opened.push(`${id}: ${e.message.split('\n')[0]}`));
+      opened.push(`${id}:${await waitFor(page, (i) => document.getElementById(i).open && document.querySelector(`#${i} > .col`).checkVisibility(), id, 5000)}`);
+    }
+    const reach = await Promise.all(['btnShareDownload', 'btnShareShot', 'btnEmbedFrameCopy'].map((id) => page.click(`#${id}`, { trial: true, timeout: 5000 }).then(() => true, () => false)));
+    check(`share layout (${label}): More ways to share and Embed are reachable and open, and what they hold can be pressed`,
+      opened.join(' ') === 'shareMore:true shareEmbed:true' && reach.every(Boolean), `${opened.join(' ')} ${JSON.stringify(reach)}`);
+    check(`share layout (${label}): no page errors`, !errors.length, errors.join('; '));
+    await closeCtx(ctx);
+  }
+
+  // a desktop: Save picture and Save clip beside Copy, in its row; and at 861x600 and 1024x640 the picture and its colour
+  // stripe fill the preview's frame (they had filled only ~60% of its width)
+  for (const [w, h] of [[861, 600], [1024, 640], [1280, 720]]) {
+    const ctx = await browser.newContext({ viewport: { width: w, height: h }, serviceWorkers: 'block' });
+    const page = await ctx.newPage();
+    await page.goto(`${base}?machine=dragon64#share`);
+    await waitFor(page, () => !document.getElementById('share').hidden && !!document.getElementById('shareLink').value, null, 30000);
+    await painted(page);
+    const d = await page.evaluate(() => {
+      const r = (q) => document.querySelector(q).getBoundingClientRect(), copy = r('#btnShareCopy'), shot = r('#btnShareShot'), clip = r('#btnShareClip');
+      const fig = document.querySelector('#share .preview'), frame = r('#share .frame'), stripe = r('#share .stripe'), pic = r('#sharePicture');
+      return { saveIn: document.getElementById('btnShareShot').parentElement.id + '/' + document.getElementById('btnShareClip').parentElement.id,
+        row: Math.abs(shot.top - copy.top) < 2 && Math.abs(clip.top - copy.top) < 2 && shot.left > copy.right && clip.left > shot.right,
+        shown: document.getElementById('btnShareShot').checkVisibility() && document.getElementById('btnShareClip').checkVisibility(),
+        labels: `${document.getElementById('btnShareShot').textContent}/${document.getElementById('btnShareClip').textContent}`,
+        figInner: fig.clientWidth, frame: Math.round(frame.width), stripe: Math.round(stripe.width),
+        picCentred: Math.abs((pic.left + pic.right) / 2 - (frame.left + frame.right) / 2) < 2 && pic.width > 100 };
+    });
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, `share-desktop-${w}x${h}.png`) });
+    check(`share layout (${w}x${h}): "Save picture" and "Save clip" sit beside Copy, in its row`, d.saveIn === 'shareSaveBeside/shareSaveBeside' && d.row && d.shown && d.labels === 'Save picture/Save clip', JSON.stringify(d));
+    check(`share layout (${w}x${h}): the preview's frame and its colour stripe fill the preview's width, the picture centred in it`,
+      d.frame >= d.figInner - 1 && d.stripe === d.frame && d.picCentred, JSON.stringify(d));
+    await closeCtx(ctx);
+  }
+
+  // "Save picture": the share card of the captured frame (js/video/bezel.js renderShareCard, the short link's preview
+  // picture's renderer): 1200 x 630, named for the moment ("Dragon 64"), and the picture in the glass is frameToRGBA's
+  // colour for every pixel of the frame at the tap, at true pixels
+  {
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, serviceWorkers: 'block', acceptDownloads: true });
+    const page = await ctx.newPage();
+    await page.goto(`${base}?machine=dragon64`);
+    await linkIn(page);
+    await waitFor(page, () => window.emu.session.welcomeRunning && window.emu.session.screenText()[14].includes('PRESS'), null, 60000);
+    await page.evaluate(() => document.getElementById('btnPause').click());
+    const f = await page.evaluate(async () => {
+      const { frameToRGBA } = await import(new URL('js/video/frame.js', document.baseURI).href);
+      const fr = window.emu.machine.render();
+      return { width: fr.width, height: fr.height, aspect: fr.aspect, active: fr.active, data: [...fr.data], table: [...fr.table], rgba: [...frameToRGBA(fr)] };
+    });
+    await page.evaluate(() => document.getElementById('btnShare').click());
+    await waitFor(page, () => document.getElementById('share').checkVisibility() && !!document.getElementById('shareLink').value, null, 30000);
+    const [dl] = await Promise.all([page.waitForEvent('download'), page.click('#btnShareShot')]);
+    const card = decodeIndexedPng(fs.readFileSync(await dl.path()));
+    const { renderShareCard, SCREEN } = await import(require('url').pathToFileURL(path.join(ROOT, 'js/video/bezel.js')).href);
+    const { Frame } = require('../js/video/frame.js');
+    const frame = new Frame(f.width, f.height, f.aspect, f.active);
+    frame.data.set(f.data); frame.table.set(f.table);
+    const want = decodeIndexedPng(Buffer.from(await renderShareCard(frame, { name: 'Dragon 64' })));
+    let differ = 0, wrong = 0, n = 0;
+    for (let i = 0; i < card.rgb.length; i++) if (card.rgb[i] !== want.rgb[i]) differ++;
+    // the glass: the 256 x 192 picture area at 2x, centred in SCREEN; each pixel against frameToRGBA's colour
+    const a = f.active, k = 2, x0 = SCREEN.x + ((SCREEN.w - a.width * k) >> 1), y0 = SCREEN.y + ((SCREEN.h - a.height * k) >> 1);
+    for (let y = 0; y < a.height * k; y++) for (let x = 0; x < a.width * k; x++) {
+      const v = f.rgba[(a.y + (y >> 1)) * f.width + a.x + (x >> 1)];
+      n++; if (card.rgb[(y0 + y) * card.width + x0 + x] !== `${v & 255},${(v >>> 8) & 255},${(v >>> 16) & 255}`) wrong++;
+    }
+    check('share: "Save picture" is the share card of the frame at the tap: 1200 x 630, the renderer\'s card named "Dragon 64" pixel for pixel, and every picture pixel frameToRGBA\'s',
+      card.width === 1200 && card.height === 630 && differ === 0 && wrong === 0 && n === 512 * 384 && /\.png$/.test(dl.suggestedFilename()),
+      `${card.width}x${card.height} ${differ} differ from the renderer, ${wrong} of ${n} picture pixels wrong, ${dl.suggestedFilename()}`);
+    await closeCtx(ctx);
+  }
+}
+
 // the Share screen: layout at desktop and phone width; the link that carries the moment
 // opens it in a fresh browser profile (and a damaged one says so); the clip is a video of the screen; the embed
 // builder writes an iframe that, put in a page on another origin, runs the chosen machine and program
@@ -16487,8 +16731,8 @@ async function shareChecks(browser, base, site, check) {
     await page.waitForSelector('#share', { state: 'visible' });
     await page.evaluate(() => document.fonts.ready);
     const lay = await page.evaluate(() => {
-      const cols = [document.querySelector('#share > .preview'), document.querySelector('#share > .col.main')].map((c) => c.getBoundingClientRect());
-      const discs = [...document.querySelectorAll('#share > .disc')].map((c) => c.getBoundingClientRect());
+      const cols = [document.querySelector('#share > .preview'), document.querySelector('#share .col.main')].map((c) => c.getBoundingClientRect());
+      const discs = [...document.querySelectorAll('#share .disc')].map((c) => c.getBoundingClientRect());
       return { hash: location.hash, emulatorHidden: getComputedStyle(document.querySelector('.layout')).display === 'none', scrollX: document.documentElement.scrollWidth <= innerWidth,
         side: cols[1].left > cols[0].right - 1, stacked: cols[1].top >= cols[0].bottom - 1,
         heading: document.getElementById('shareHeading').textContent, embed: document.getElementById('embedHeading').textContent,
@@ -16558,11 +16802,13 @@ async function shareChecks(browser, base, site, check) {
 
     // the clip
     await openDisc(page, 'shareMore');
-    const clipLabel = await page.textContent('#btnShareClip');
+    // the button says "Save clip"; its title names the length and the format it records
+    const clipLabel = await page.getAttribute('#btnShareClip', 'title');
     const [clip] = await Promise.all([page.waitForEvent('download', { timeout: 30000 }), page.click('#btnShareClip')]);
     const clipBytes = fs.readFileSync(await clip.path());
     const mp4 = clipBytes.toString('latin1', 4, 8) === 'ftyp', webm = clipBytes.readUInt32BE(0) === 0x1A45DFA3;
-    check('share: "Save 6-second clip" records the screen, in the format the button names', clipBytes.length > 2000
+    check('share: "Save clip" records the screen, in the format its title names ("Save 6-second clip (MP4)")', clipBytes.length > 2000 && await page.textContent('#btnShareClip') === 'Save clip'
+      && /^Save 6-second clip \((MP4|WebM)\)$/.test(clipLabel || '')
       && ((/MP4/.test(clipLabel) && mp4 && /\.mp4$/.test(clip.suggestedFilename())) || (/WebM/.test(clipLabel) && webm && /\.webm$/.test(clip.suggestedFilename()))),
       `${clipLabel}: ${clip.suggestedFilename()} ${clipBytes.length} bytes`);
 
@@ -16613,7 +16859,7 @@ async function shareChecks(browser, base, site, check) {
     await page.click('#btnPause');                                      // hold the moment still
     await page.click('#btnShare');
     await page.waitForSelector('#share', { state: 'visible' });
-    const shared = await page.evaluate(async () => ({ link: document.getElementById('shareLink').value, recipient: document.getElementById('shareRom').textContent,
+    const shared = await page.evaluate(async () => ({ link: document.getElementById('shareLink').value, recipient: document.getElementById('shareRomFull').textContent,
       labels: (await window.emu.session.shareFile()).needs.map((x) => x.label) }));
     // the line names what the snapshot itself names (its needs' labels), whatever they are
     check('share: with your own ROMs the moment is shared, and the ROM line names the ROMs the snapshot needs', /#z=/.test(shared.link) && shared.labels.length > 0
@@ -16658,6 +16904,7 @@ async function shareChecks(browser, base, site, check) {
     await closeCtx(ctx);
   }
   await shareScreenChecks(browser, base, check);
+  await shareLayoutChecks(browser, base, check);
 }
 
 // the keyboard belongs to the page unless the screen has focus: Tab moves focus, Enter and Space press the
@@ -21138,8 +21385,8 @@ async function shortLinkChecks(browser, base, site, check) {
   // when it lands. Reading straight after the click saw an empty reason (CI attempt 1 on 35551b5d failed exactly so),
   // so both are waited for - the copy finished AND the page said why - before anything is read.
   // BOUNDED, and a timeout FAILS: waitFor returns false and records its own FAIL (browser-check-lib's
-    // waitTimedOut) when the state never comes, and `landed` is also required by the check below - so a tap that never
-    // falls back cannot pass. Its payload is printed with whatever the page held at that moment.
+  // waitTimedOut) when the state never comes, and `landed` is also required by the check below - so a tap that never
+  // falls back cannot pass. Its payload is printed with whatever the page held at that moment.
   const landed = await waitFor(pk, () => /Short links aren't available right now/.test(document.getElementById('primaryWhy').textContent)
     && document.getElementById('shareMore').open, null, 20000);
   const killClip = await pk.evaluate(() => navigator.clipboard.readText());

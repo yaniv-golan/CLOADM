@@ -19,7 +19,7 @@ Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.
   lays its items out) came before 0.2.0; this holds it, and every other label, to it.
 - **One link on the Share screen.** The screen now offers one **Copy link** (+ **Share…**). A bundled program nobody has
   touched since it started (2048, LIZA, Minesweeper) gives its program page instead — nothing is uploaded, and the line
-  under the picture says "Opens 2048 from the start, for anyone." once; played, the primary shares the moment, and "More
+  under the picture says "Opens 2048 from the start, for anyone." once (the ROM line is not shown then: a program page never needs ROMs); played, the primary shares the moment, and "More
   ways to share" adds **Link to &lt;program&gt; from the start**. A tap that tries a
   short link and can't make one (offline, a refusal, the server) copies the long link with the reason in view; a
   clipboard the browser refuses leaves the link shown and selected. **More ways to share** holds the long link, its Copy,
@@ -38,13 +38,27 @@ Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.
 - **Short links.** The Share screen's **Copy link** makes `https://s.cloadm.dev/<id>#<key>` (about 50 characters) on the
   tap, copies it and shows its field with a QR toggle. The moment is sealed with AES-GCM in the browser and only the
   sealed bytes are stored; the key is the part after `#`, which never reaches the server. "Show a preview picture"
-  (public; on by default) adds a 1200x630 card. "Delete this link" removes it. Only for moments without ROMs, cartridges
+  (public; on by default) adds a 1200x630 card (the share card that **Save picture** saves). "Delete this link" removes it. Only for moments without ROMs, cartridges
   or NitrOS-9, and only online; where it can't be made the same tap copies the long link instead, and the note says
   why. The long link is headed "Long link (works offline; nothing is uploaded)". The server is a Cloudflare Worker in
   `shortlink/` (not deployed from here:
   `docs/shortlink-deploy.md`): links don't expire; size caps, a picture check down to every pixel, per-address, per-minute and daily limits, a kill switch,
   removal by id, "Report this link", and totals only at `s.cloadm.dev/stats/` (no addresses kept, no pings or beacons: opens are counted once a day from
   Cloudflare's analytics by the Worker's Cron Trigger; program starts are not counted).
+- **Save picture and Save clip beside Copy link.** On a desktop the Share screen's **Save picture** and **Save clip**
+  sit next to Copy link; on a phone, upright or sideways, they stay under "More ways to share". **Save picture** saves
+  the share card: the picture at the machine's true pixels in a CRT monitor, the program's or machine's name beside it
+  and "cloadm.dev" on it, a 1200x630 PNG (`js/video/bezel.js` `shareCardPicture` / `renderShareCard`,
+  `Session.sharePicture`, `Session.shareCardName`). A short link's preview picture is the same card, at 16 colours or
+  fewer (`Session.previewPicture`). "Save clip" names its length and format in its tooltip.
+- **The Share screen on a phone held sideways.** At most 420px tall in landscape (653x280, 568x320, 667x375, 844x390):
+  the picture on the left (at most 40% of the width, 30% under 300px of height, its caption one line under it), and a
+  right column that scrolls on its own: the heading, Copy link (+ Share…), the ROM line in one line ("Needs your
+  &lt;machine&gt; ROMs to open." / "Runs without ROMs.", the full sentence as its tooltip and for screen readers), the
+  short link's note, the picture switch, the link a tap made with its QR, the note, then "More ways to share" and "Embed
+  in a web page". The toast sits under the picture there. After any tap, the field the tap made is scrolled into view and
+  focused.
+
 - **Program pages.** cloadm.dev/2048/, /liza/ and /minesweeper/ each have their own link preview (title, description
   and a 1200x630 picture of the program on the built-in firmware, made by `tools/program-cards.js`), a Play button, and
   go straight to the start link `/play/?start=<program>`. They work offline like the rest of the site. One entry in
@@ -64,13 +78,16 @@ Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.
 
 #### Removed
 
-- **The `#s=` long-link form.** A long link is `#z=` only (`Session.readSnapshotLink`, `js/ui/main.js`). A link from a
-  pre-launch build, which wrote the snapshot file itself after `#s=`, no longer opens: the page answers it with the
+- **The `#s=` long-link form.** A long link is `#z=` only (`Session.readSnapshotLink`, `js/ui/main.js`). A link made by
+  v0.2.0 or earlier, which wrote the snapshot file itself after `#s=`, no longer opens: the page answers it with the
   same "This share link couldn't be read." refusal it gives any share-link hash no reader claims, and clears it from
   the address. `.cloadm` files are unchanged.
 
 #### Fixed
 
+- **The Share picture fills its frame at 861x600 and 1024x640.** The preview and its colour stripe filled only about
+  60% of the frame's width there; the frame now keeps the column's whole width at its short height.
+- Copy link and Share… on a phone are 44px tall (they were 38).
 - **Add ROMs offers Files only on an iPhone.** Its file and folder pickers, the side panel's ROM picker and the Library's
   folder picker had no accept list, so iOS offered the Photo Library and the camera next to Files. They now carry one,
   as Open… does: the usual dump extensions (`.rom .bin .zip .ccc .dat .a .b .0 .1 .2` and the models' own `.ci24`, `.ic1` and
