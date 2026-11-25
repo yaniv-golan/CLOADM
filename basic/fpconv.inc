@@ -394,9 +394,7 @@ FINX    JSR     <ZCHRGET
 FI3     CMPA    #'E'
         BNE     FIEND
         CLR     <FPEXS
-        CLRA
-        CLRB
-        STD     <FPEX
+        CLR     <FPEX
         JSR     <ZCHRGET
         CMPA    #'-'
         BEQ     FIE1
@@ -412,26 +410,17 @@ FIE2    CMPA    #'+'
         BRA     FIE4
 FIE3    JSR     <ZCHRGET
 FIE4    BCC     FIE6
-        SUBA    #'0'
-        PSHS    A
-        LDD     <FPEX
-        CMPD    #1000
-        BHS     FIE5            ; large enough already
-        LSLB                    ; x 10
-        ROLA
-        PSHS    D
-        LSLB
-        ROLA
-        LSLB
-        ROLA
-        ADDD    ,S++
-        ADDB    ,S
-        ADCA    #0
-        STD     <FPEX
-FIE5    LEAS    1,S
+        SUBA    #'0'            ; x 10 + the digit, in a byte that wraps: "1E997" is 1E-27, no ?OV ERROR
+        PSHS    A               ; [BB bb2 str-val-cut]
+        LDA     <FPEX
+        LDB     #10
+        MUL
+        ADDB    ,S+
+        STB     <FPEX
         JSR     <ZCHRGET
         BRA     FIE4
-FIE6    LDD     <FPEX
+FIE6    LDB     <FPEX           ; a signed byte
+        SEX
         TST     <FPEXS
         BEQ     FIE7
         COMA
