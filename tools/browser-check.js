@@ -23158,15 +23158,18 @@ async function noRomChromeChecks(browser, base, check) {
     const errors = [];
     page.on('pageerror', (e) => errors.push(e.message));
     await page.goto(`${base}?machine=dragon64`); await started(page);
+    // (the page's clock is held from before the first key, so every key is in the second the check says: the Esc that
+    // ends the key hint is a key typed into the screen too, in second 0 with the first A)
+    await page.evaluate(() => { const real = Date.now, t0 = real(); window.__realNow = real; window.__shift = 0; Date.now = () => t0 + window.__shift; });
     await page.focus('#screen'); await page.keyboard.press('Escape');
     await waitFor(page, () => document.getElementById('soundHint').hidden && document.getElementById('keyHint').hidden, null, 5000);
-    await page.evaluate(() => { const real = Date.now; window.__shift = 0; Date.now = () => real() + window.__shift; });
     const typeSecond = async (i) => { await page.evaluate((i) => { window.__shift = i * 1000; }, i); await page.keyboard.press('A'); };
     for (let i = 0; i < 29; i++) await typeSecond(i);
     const at29 = await page.evaluate(() => ({ learned: document.body.classList.contains('typing-learned'), line: document.getElementById('typingHint').checkVisibility() }));
     await typeSecond(29);
     const at30 = await page.evaluate(() => ({ learned: document.body.classList.contains('typing-learned'), line: document.getElementById('typingHint').checkVisibility(), qs: document.getElementById('askStripQs').checkVisibility() }));
     check(`${L}: 29 seconds with keys typed into the screen keep the typing line; the 30th retires it (the example questions, focused)`, !at29.learned && at29.line && at30.learned && !at30.line && at30.qs, JSON.stringify({ at29, at30 }));
+    await page.evaluate(() => { Date.now = window.__realNow; });
     check(`${L}: no page errors`, !errors.length, errors.join('; '));
     await closeCtx(ctx);
   }
