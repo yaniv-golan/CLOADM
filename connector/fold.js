@@ -63,9 +63,105 @@ function transform(file, src, idOf) {
   return { out, exports, stars, deps };
 }
 
-// whole-line comments only (a line that is just `// …`, or a block comment that starts and ends a line run):
-// safe for CLOADM's sources, whose template literals hold no such lines (tests/connector.test.js runs the result)
-const strip = (s) => s.replace(/^[ \t]*\/\*[\s\S]*?\*\/[ \t]*\n/gm, '').replace(/^[ \t]*\/\/.*\n/gm, '');
+// ---- comments and layout: a small JavaScript tokenizer (no dependencies, rule 1.2) ----
+// tokens(src) splits a module into tokens; every character belongs to exactly one, so joining their text gives src back.
+// Types: ws (spaces, tabs, line ends), comment (// and /* */), str ('…' "…"), tmpl (a template literal's text
+// pieces: `…` or `…${, }…${, }…`), regex, num, name, punct. The hard parts:
+//  * a template's ${ … } is code, with its own strings, templates and braces: a brace stack tells a } that closes a
+//    ${ (the template text resumes) from one that closes a block or an object;
+//  * a / starts a regex or is a division, decided by the previous significant token: after a value (a name, a number,
+//    a string, a whole template, a regex, ) or ]) it divides, except after the keywords that take an expression (return,
+//    typeof, …) unless they are a property name (x.return), and after the ) of if (…) / while (…) / for (…) / with (…);
+//    after any other punctuator, } included, after a template's ${ and at the start, a regex begins. A regex's [ … ] class may hold a /.
+// A string, regex or template that does not end, or a stray }, throws: the folder fails loudly rather than guess.
+const LT = /[\n\r\u2028\u2029]/;
+const PUNCT = ['>>>=', '...', '===', '!==', '**=', '<<=', '>>=', '>>>', '&&=', '||=', '??=', '=>', '==', '!=', '<=', '>=', '&&', '||', '??',
+  '?.', '++', '--', '+=', '-=', '*=', '%=', '&=', '|=', '^=', '/=', '**', '<<', '>>'];
+const BEFORE_EXPR = new Set(['return', 'typeof', 'instanceof', 'in', 'of', 'new', 'delete', 'void', 'throw', 'case', 'do', 'else', 'yield', 'await', 'extends']);
+const COND = new Set(['if', 'while', 'for', 'with']);
+export function tokens(src) {
+  const out = [], braces = [], parens = [];
+  let i = 0, prev = null, prev2 = null;   // the last two significant tokens
+  const push = (type, end, extra) => { const t = Object.assign({ type, text: src.slice(i, end) }, extra); out.push(t); i = end; if (type !== 'ws' && type !== 'comment') { prev2 = prev; prev = t; } return t; };
+  const where = () => `${src.slice(0, i).split('\n').length}`;
+  const regexAllowed = () => {
+    if (!prev) return true;
+    if (prev.type === 'name') return BEFORE_EXPR.has(prev.text) && !(prev2 && (prev2.text === '.' || prev2.text === '?.'));
+    if (prev.type === 'punct') return prev.text === ')' ? prev.cond : !(prev.text === ']' || prev.text === '++' || prev.text === '--');
+    if (prev.type === 'tmpl') return prev.text.endsWith('${');   // code starts after ${; a whole template is a value
+    return false;   // num, str, regex
+  };
+  // the text of a template from src[i] (just after ` or }) to its next ` (ends it) or ${ (code follows)
+  const templ = (start) => {
+    let k = start;
+    for (;;) {
+      if (k >= src.length) throw new Error(`unterminated template literal at line ${where()}`);
+      const c = src[k];
+      if (c === '\\') k += 2;
+      else if (c === '`') return push('tmpl', k + 1);
+      else if (c === '$' && src[k + 1] === '{') { braces.push('tmpl'); return push('tmpl', k + 2); }
+      else k++;
+    }
+  };
+  while (i < src.length) {
+    const c = src[i], d = src[i + 1];
+    if (c === ' ' || c === '\t' || c === '\v' || c === '\f' || c === '\ufeff' || c === '\u00a0' || LT.test(c)) {
+      let k = i + 1; while (k < src.length && /[ \t\v\f\ufeff\u00a0\n\r\u2028\u2029]/.test(src[k])) k++; push('ws', k);
+    } else if (c === '/' && d === '/') {
+      let k = i + 2; while (k < src.length && !LT.test(src[k])) k++; push('comment', k);
+    } else if (c === '/' && d === '*') {
+      const k = src.indexOf('*/', i + 2); if (k < 0) throw new Error(`unterminated comment at line ${where()}`); push('comment', k + 2);
+    } else if (c === '"' || c === "'") {
+      let k = i + 1;
+      for (;;) {
+        if (k >= src.length || src[k] === '\n' || src[k] === '\r') throw new Error(`unterminated string at line ${where()}`);
+        if (src[k] === '\\') k += src[k + 1] === '\r' && src[k + 2] === '\n' ? 3 : 2;
+        else if (src[k++] === c) break;
+      }
+      push('str', k);
+    } else if (c === '`') templ(i + 1);
+    else if (c === '/' && regexAllowed()) {
+      let k = i + 1, cls = false;
+      for (;;) {
+        if (k >= src.length || LT.test(src[k])) throw new Error(`unterminated regex at line ${where()}`);
+        const e = src[k];
+        if (e === '\\') k += 2;
+        else { k++; if (e === '[') cls = true; else if (e === ']') cls = false; else if (e === '/' && !cls) break; }
+      }
+      while (k < src.length && /[\w$]/.test(src[k])) k++;
+      push('regex', k);
+    } else if (/[0-9]/.test(c) || (c === '.' && /[0-9]/.test(d))) {
+      const m = /^(?:0[xXoObB][\da-fA-F_]+|(?:\d[\d_]*\.?[\d_]*|\.\d[\d_]*)(?:[eE][+-]?\d[\d_]*)?)n?/.exec(src.slice(i, i + 64)); push('num', i + m[0].length);
+    } else if (/[\p{ID_Start}$_\\#]/u.test(c) || c >= '\ud800') {
+      let k = i + 1; while (k < src.length && (/[\p{ID_Continue}$\u200c\u200d\\]/u.test(src[k]) || src[k] >= '\ud800' && src[k] <= '\udfff' || (src[k - 1] === '\\' && src[k] === 'u'))) k++; push('name', k);
+    } else if (c === '}') {
+      if (!braces.length) throw new Error(`unbalanced } at line ${where()}`);
+      if (braces.pop() === 'tmpl') templ(i + 1); else push('punct', i + 1);
+    } else {
+      const p = PUNCT.find((q) => src.startsWith(q, i) && !(q === '?.' && /[0-9]/.test(src[i + 2]))) || c;
+      if (p === '{') braces.push('{');
+      if (p === '(') parens.push(!!(prev && prev.type === 'name' && COND.has(prev.text)));
+      push('punct', i + p.length, p === ')' ? { cond: parens.pop() || false } : undefined);
+    }
+  }
+  if (braces.length) throw new Error(`unclosed { or \${ at end`);
+  return out;
+}
+
+// the module without its comments and with its layout squeezed: every token kept, byte for byte, in order; between
+// two tokens a line end where the original had one (in whitespace or inside a removed /* */ comment), so automatic
+// semicolon insertion sees the same lines; else one space where the original had any gap (a + +b stays apart), else
+// nothing. Indentation, trailing spaces, blank lines and comments go. Strings, templates and regexes are tokens, so
+// nothing inside them is touched. tests/fold.test.js proves it on hand-built cases and on every module the fold takes.
+export function strip(src) {
+  let out = '', gap = '';
+  for (const t of tokens(src)) {
+    if (t.type === 'ws' || t.type === 'comment') { gap += t.text; continue; }
+    if (out) out += LT.test(gap) ? '\n' : gap ? ' ' : '';
+    out += t.text; gap = '';
+  }
+  return out && `${out}\n`;
+}
 
 export function fold(entry, { stripComments = true, tail = '' } = {}) {
   const order = [], ids = new Map(), state = new Map();
@@ -92,5 +188,5 @@ export function fold(entry, { stripComments = true, tail = '' } = {}) {
   }
   code += tail.replaceAll('__ENTRY__', idOf(path.resolve(entry)));
   if (/<!--|<script/i.test(code)) code = code.replace(/<\/script/gi, '<\\/script').replace(/<!--/g, '<\\!--');
-  return { code, modules: order.length };
+  return { code, modules: order.length, files: order };
 }
