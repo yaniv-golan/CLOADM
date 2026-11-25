@@ -1,4 +1,4 @@
-# [UM] entering, replacing and deleting lines, and LIST ranges; provisional until the black-box run
+# [UM] entering, replacing and deleting lines, LIST ranges and DEL; provisional until the black-box run
 OK
 30 REM THIRD
 10 REM FIRST
@@ -31,4 +31,27 @@ OK
 NEW
 OK
 LIST
+OK
+10 REM A
+20 REM B
+30 REM C
+40 REM D
+50 REM E
+DEL 20-30
+OK
+LIST
+10 REM A
+40 REM D
+50 REM E
+OK
+DEL -10
+OK
+LIST
+40 REM D
+50 REM E
+OK
+DEL 50-
+OK
+LIST
+40 REM D
 OK

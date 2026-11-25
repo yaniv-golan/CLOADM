@@ -112,31 +112,7 @@ CLRVAR  PSHS    D
 
 * ---------------- LIST ----------------
 * LIST, LIST n, LIST n-, LIST -n, LIST n-m [UM]
-LIST    LDX     #0
-        STX     <TMPPT2         ; from
-        LDX     #$FFFF
-        STX     <TMPCNT         ; to
-        JSR     CHRGOT
-        BEQ     LS3
-        BCC     LS1
-        JSR     LINGET
-        STD     <TMPPT2
-        STD     <TMPCNT
-        JSR     CHRGOT
-        CMPA    #T_MINUS
-        BNE     LS3
-LS1     CMPA    #T_MINUS
-        BNE     LSSN
-        JSR     CHRGET
-        BEQ     LS2             ; LIST n-
-        BCC     LSSN
-        JSR     LINGET
-        STD     <TMPCNT
-        BRA     LS3
-LS2     LDD     #$FFFF
-        STD     <TMPCNT
-LS3     JSR     CHRGOT
-        BNE     LSSN
+LIST    BSR     RANGE
         LDD     <TMPPT2
         STD     <BINVAL
         JSR     FNDLIN
@@ -153,6 +129,58 @@ LS4     LDD     ,X
 LSDONE  RTS
 LSBRK   JMP     READY
 LSSN    JMP     SNERR
+* RANGE: n, n-, -n, n-m or nothing at the text pointer: from TMPPT2 to TMPCNT (0-65535 when not given)
+RANGE   LDX     #0
+        STX     <TMPPT2         ; from
+        LDX     #$FFFF
+        STX     <TMPCNT         ; to
+        JSR     CHRGOT
+        BEQ     RG3
+        BCC     RG1
+        JSR     LINGET
+        STD     <TMPPT2
+        STD     <TMPCNT
+        JSR     CHRGOT
+        CMPA    #T_MINUS
+        BNE     RG3
+RG1     CMPA    #T_MINUS
+        BNE     LSSN
+        JSR     CHRGET
+        BEQ     RG2             ; n-
+        BCC     LSSN
+        JSR     LINGET
+        STD     <TMPCNT
+        BRA     RG3
+RG2     LDD     #$FFFF
+        STD     <TMPCNT
+RG3     JSR     CHRGOT
+        BNE     LSSN
+        RTS
+
+* DEL n, DEL n-m, DEL -m, DEL n-: the lines in the range go [UM]
+DEL     BEQ     LSSN            ; (a range is needed)
+        BSR     RANGE
+        LDD     <TMPPT2
+        STD     <BINVAL
+        JSR     FNDLIN
+        STX     <TMPPTR         ; the first to go
+DL1     LDD     ,X
+        BEQ     DL2
+        LDD     2,X
+        CMPD    <TMPCNT
+        BHI     DL2
+        LDX     ,X
+        BRA     DL1
+DL2     LDU     <TMPPTR         ; X: the first to stay; move the rest down over the gap
+DL3     CMPX    <VARTAB
+        BHS     DL4
+        LDA     ,X+
+        STA     ,U+
+        BRA     DL3
+DL4     STU     <VARTAB
+        JSR     RELINK
+        JSR     CLRVAR
+        JMP     READY
 
 * LSTLIN: print the line at X: its number, a space, the text with its keywords spelt out
 LSTLIN  PSHS    X
