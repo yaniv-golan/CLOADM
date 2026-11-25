@@ -66,8 +66,8 @@ and its tests never use them.
 * **Choose the files.** Add ROMs' **Choose files…** and **Choose folder…** list the usual dump extensions (`.rom .bin .zip .ccc .dat .a .b
   .0 .1 .2`, and the models' own names such as `.ci24` and `.ic1`) and `application/octet-stream`, never images or video:
   on an iPhone they open the Files app, not the Photo Library or the camera. A dump with a name outside the list is
-  still offered through `application/octet-stream`; if a phone hides one anyway, drop it on the page or add it from a
-  computer.
+  still offered through `application/octet-stream`; how an iPhone treats such a file is to be confirmed on a phone;
+  until then, drop it on the page or add it from a computer if a phone hides it.
 * **See what went where.** **Add ROMs** (the orange **No BASIC · Add ROMs** in the header, **Add or see ROMs…** at
   the foot of the machine menu, the ROMs row at the top of Machine settings, **Your ROMs** in Ctrl+K, or key 3 on the
   Welcome menu) shows **Your ROMs**: what each one takes (size and usual
@@ -143,7 +143,8 @@ Sources: `examples/2048.asm`, `examples/minesweeper.asm`, `examples/games.inc`
 [WYRMFIRE](https://github.com/yaniv-golan/wyrmfire) is a 3D game engine for the Dragon 64 that plays a Doom-format
 level from a disk, free software under the GNU GPL version 3 or later. CLOADM serves its engine unchanged
 (`examples/wyrmfire/`, pinned in `js/wyrmfire/pin.js`) and a level disk made by WYRMFIRE's converter from map E1M1 of
-[Freedoom](https://freedoom.github.io) 0.13.0 (BSD 3-Clause). Start it from **Programs** ("Runs without ROMs":
+[Freedoom](https://freedoom.github.io) 0.13.0 (BSD 3-Clause); the disk carries the credit and the licence, and **C** on
+the title screen shows them (Enter goes on). Start it from **Programs** ("Runs without ROMs":
 **WYRMFIRE**, "A 3D game for the Dragon 64 · Freedoom level", "GPL · Freedoom level (BSD)"), Ctrl+K's **WYRMFIRE**
 (it answers to doom, game, 3d, freedoom), or a link, `?start=wyrmfire`.
 
@@ -180,8 +181,9 @@ level from a disk, free software under the GNU GPL version 3 or later. CLOADM se
   something else does not end it; switching machines or opening a snapshot does), clips and screenshots are off,
   snapshots are off, and Claude (the chat, the side panel, the MCP tools, `registers` and `step` included) and a page
   embedding CLOADM can't read the screen or memory: "Claude can't look at the screen or memory while your own
-  WAD is loaded: it's id Software's game data." WYRMFIRE is not affiliated with id Software. DOOM is a trademark of id
-  Software LLC.
+  WAD is loaded: it's id Software's game data." DOOM is a registered trademark of ZeniMax Media
+  Inc. CLOADM and WYRMFIRE are independent projects, not affiliated with or endorsed by id Software, ZeniMax Media or
+  Microsoft. References to DOOM describe file compatibility only.
 
 Help → WYRMFIRE also says what it does and doesn't do (E1M1 only; 6.4 pictures a second within a part of the level and
 about a second to load the next, measured in CLOADM headless), and offers the Freedoom disk to keep as `.vdk` or `.dsk`

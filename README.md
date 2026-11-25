@@ -280,5 +280,7 @@ full list is in [CREDITS.md](CREDITS.md). Missing someone? Please open a pull re
 [MIT](LICENSE). It covers the emulator's own code and firmware, not the machines' ROMs, which belong to their
 copyright holders and are never included. "Dragon", "Tandy", "TRS-80", "Color Computer", "MC-10", "Matra Alice",
 "Prológica CP-400" and the other product names used here are trademarks of their respective owners. CLOADM is an
-independent project, not affiliated with or endorsed by any of them. Changes: [CHANGELOG.md](CHANGELOG.md).
+independent project, not affiliated with or endorsed by any of them. DOOM is a registered trademark of ZeniMax
+Media Inc. CLOADM and WYRMFIRE are independent projects, not affiliated with or endorsed by id Software, ZeniMax
+Media or Microsoft. References to DOOM describe file compatibility only. Changes: [CHANGELOG.md](CHANGELOG.md).
 Security: [SECURITY.md](SECURITY.md).
