@@ -744,6 +744,13 @@ written, as our own capture of the same firmware does. MAME then reads, with our
 pair unchanged in its 32K BASIC socket. Tape images and WAVs are compared by the bytes they hold, not sample by
 sample: MAME pads `.CAS` playback with silence and writes its own sample timing. The WAVs `buildCas` and `casToWav` make for the same program (a sine and a square wave, with a player's gaps: the layout `tapeGaps` shares with the deck) are read the same way (`run-tape.js` builds them and checks that `buildCas` writes exactly the stream the writer firmware writes).
 
+**The BASIC program as a tape** (`tools/mame-diff/tape/run-program-tape.js`, on the Dragon 64, the CoCo 1/2 and the
+MC-10): Share's Download .CAS and .WAV (`Session.programTape`) for a program made on our stand-in BASIC, padded to
+exactly 255 tokenised bytes (one data block). MAME 0.264 reads the `.CAS` (`.C10` on the MC-10) and the WAV with our
+reader firmware (`cload.asm`, `cload6803.asm`) in place of the BASIC ROM, and so does our machine: 255 bytes, their sum,
+3 blocks, no bad checksum, the same in both. Not covered automatically: a real BASIC ROM's CLOAD of these tapes (a
+maintainer step with their own ROM: insert the WAV in MAME, CLOAD, LIST).
+
 **Playing a `.CAS` file** (`tools/mame-diff/tape/run-playback.js`, on the Dragon 64 and the CoCo): a `.CAS` file has
 no silence and often shortened leaders, and BASIC waits about half a second after starting the motor before it
 looks for a block, so how the file is played decides what loads. Two firmwares of ours, installed as the BASIC ROM,
