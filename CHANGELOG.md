@@ -29,7 +29,9 @@ Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.
   checks each case's directives. A first batch of 23 black-box cases (`gfx-*`, `snd-*`) covers the modes, colours,
   defaults, lines, circles, fills, `DRAW`, `GET`/`PUT` and `GET`'s array layout, clipping, pages, errors, when the
   screen returns to text, `SOUND`, `PLAY`'s pitch, lengths, volume and settings, `TIMER` during sound, `AUDIO` and
-  `JOYSTK`, for a run on the real ROM before the phase 2 code is written.
+  `JOYSTK`, for a run on the real ROM before the phase 2 code is written. A size pass took the ROM from 13,517 to 12,400 bytes with
+  no change in what programs see (shared routines and tables, two-byte calls through the direct page), to make room
+  for graphics and sound.
 - **The share-link formats are frozen.** Links and snapshots in people's hands keep opening from now on (AGENTS.md,
   rule 7): `SNAPSHOT_OLDEST` never rises (a change to the meaning of state ships a converter from every older version), no
   link or envelope decoder is ever dropped, and a long link's byte 0 is 1 for a moment, 2 for a BASIC program, 3 to 31

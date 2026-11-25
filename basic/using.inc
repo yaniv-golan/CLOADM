@@ -23,12 +23,12 @@ UC1     CLRA
         PULS    X,PC
 * the format character after it, without moving (A; Z set past the end)
 USNEXT  INC     <USPOS
-        JSR     USCHR
+        BSR     USCHR
         DEC     <USPOS
         TSTA
         RTS
 
-PRUSNG  JSR     CHRGET          ; (on USING)
+PRUSNG  JSR     <ZCHRGET          ; (on USING)
         JSR     EVSTR
         LDX     <STRPTR         ; the format stays a temporary until the end (read through its descriptor)
         STX     <USDSC
@@ -39,15 +39,15 @@ PRUSNG  JSR     CHRGET          ; (on USING)
         CLR     <USPOS
         CLR     <USANY
 * one item: literal characters up to a field, then the field
-US1     JSR     USCHR
+US1     BSR     USCHR
         BNE     US2
         TST     <USANY          ; the end of the format: again from its start (?FC ERROR if it has no field)
         LBEQ    FCERR
         CLR     <USPOS
         BRA     US1
-US2     JSR     USFLD
+US2     BSR     USFLD
         BCC     US3
-        JSR     CHROUT          ; a literal
+        JSR     <ZCHROUT          ; a literal
         INC     <USPOS
         BRA     US1
 US3     INC     <USANY
@@ -58,21 +58,21 @@ US3     INC     <USANY
         JSR     USNUM
         BRA     US5
 USS     JSR     CHKSTR
-        JSR     USSTR
-US5     JSR     CHRGOT          ; ; or , : another item, or the end with no new line
+        BSR     USSTR
+US5     JSR     <ZCHRGOT          ; ; or , : another item, or the end with no new line
         BEQ     US7
         CMPA    #';'
         BEQ     US6
         CMPA    #','
         BNE     US1
-US6     JSR     CHRGET
+US6     JSR     <ZCHRGET
         BNE     US1
         BRA     US9
-US7     JSR     USCHR           ; the end: the literals up to the next field, then a new line
+US7     BSR     USCHR           ; the end: the literals up to the next field, then a new line
         BEQ     US8
-        JSR     USFLD
+        BSR     USFLD
         BCC     US8
-        JSR     CHROUT
+        JSR     <ZCHROUT
         INC     <USPOS
         BRA     US7
 US8     JSR     CRLF
@@ -81,7 +81,7 @@ US9     LDX     <USDSC
 
 * USFLD: does a field start at USPOS? C clear if so (USKIND: 0 a number, 1 !, 2 %...%), A = the character;
 * C set for a literal
-USFLD   JSR     USCHR
+USFLD   JSR     <ZUSCHR
         CLR     <USKIND
         CMPA    #'#'
         BEQ     UFY
@@ -108,10 +108,10 @@ UF3     INC     <USKIND
         INC     <USKIND
         CMPA    #'%'
         BEQ     UFY
-UFN0    JSR     USCHR
+UFN0    JSR     <ZUSCHR
         ORCC    #1
         RTS
-UFY0    JSR     USCHR
+UFY0    JSR     <ZUSCHR
 UFY     ANDCC   #$FE
         RTS
 
@@ -128,7 +128,7 @@ USS1    CLRB                    ; % ... %: the width
 USS2    INCB
         INC     <USPOS
         PSHS    B
-        JSR     USCHR
+        JSR     <ZUSCHR
         PULS    B
         BEQ     USS3            ; (no closing %: to the end)
         CMPA    #'%'
@@ -157,13 +157,13 @@ USS6    RTS
 USNUM   CLR     <USNB
         CLR     <USNA
         CLR     <USFLG          ; bits: 1 a point, 2 commas, 4 *, 8 $, 16 + first, 32 + last, 64 - last, 128 ^^^^
-        JSR     USCHR
+        JSR     <ZUSCHR
         CMPA    #'+'
         BNE     USN1
         LDA     #16
         STA     <USFLG
         INC     <USPOS
-USN1     JSR     USCHR
+USN1     JSR     <ZUSCHR
         CMPA    #'*'
         BNE     USN2
         LDA     #4              ; ** (and **$)
@@ -172,7 +172,7 @@ USN1     JSR     USCHR
         STA     <USNB
         INC     <USPOS
         INC     <USPOS
-        JSR     USCHR
+        JSR     <ZUSCHR
         CMPA    #'$'
         BNE     USN3
         LDA     #8
@@ -183,27 +183,27 @@ USN1     JSR     USCHR
 USN2     CMPA    #'$'
         BNE     USN3
         LDA     #8              ; $$
-        JSR     USFSET
+        BSR     USFSET
         LDA     #2
         STA     <USNB
         INC     <USPOS
         INC     <USPOS
-USN3     JSR     USCHR           ; # and , before the point
+USN3     JSR     <ZUSCHR           ; # and , before the point
         CMPA    #'#'
         BEQ     USN4
         CMPA    #','
         BNE     USN5
         LDA     #2
-        JSR     USFSET
+        BSR     USFSET
 USN4     INC     <USNB
         INC     <USPOS
         BRA     USN3
 USN5     CMPA    #'.'
         BNE     USN7
         LDA     #1
-        JSR     USFSET
+        BSR     USFSET
         INC     <USPOS
-USN6     JSR     USCHR           ; # after it
+USN6     JSR     <ZUSCHR           ; # after it
         CMPA    #'#'
         BNE     USN7
         INC     <USNA
@@ -213,20 +213,20 @@ USN7     LDB     #4              ; ^^^^
         PSHS    B
         LDB     <USPOS
         PSHS    B
-UN7A    JSR     USCHR
+UN7A    JSR     <ZUSCHR
         CMPA    #'^'
         BNE     UN7B
         INC     <USPOS
         DEC     1,S
         BNE     UN7A
         LDA     #128
-        JSR     USFSET
+        BSR     USFSET
         LEAS    2,S
         BRA     USN8
 UN7B    PULS    B               ; not four: they are literals
         STB     <USPOS
         LEAS    1,S
-USN8     JSR     USCHR           ; a + or - at the end
+USN8     JSR     <ZUSCHR           ; a + or - at the end
         CMPA    #'+'
         BNE     USN9
         LDA     <USFLG
@@ -237,9 +237,9 @@ USN8     JSR     USCHR           ; a + or - at the end
 USN9     CMPA    #'-'
         BNE     USN10
         LDA     #64
-UN9A    JSR     USFSET
+UN9A    BSR     USFSET
         INC     <USPOS
-USN10    JMP     USFMT
+USN10    BRA     USFMT
 USFSET  ORA     <USFLG
         STA     <USFLG
         RTS
@@ -257,8 +257,7 @@ UM1     LDA     <USFLG
         LBHI    FCERR
         JSR     FMULP
         LDX     #FPHALF
-        JSR     MOVAM
-        JSR     FADD
+        JSR     FADDX
         JSR     FTRUNC
         LDA     <FACEXP
         CMPA    #160
@@ -268,8 +267,8 @@ UM1     LDA     <USFLG
         LBRA    UMBODY
 UMOV    JSR     FOUT            ; too large for 32 bits: % and the number as PRINT has it
         LDA     #'%'
-        JSR     CHROUT
-        JMP     PRTSTR
+        JSR     <ZCHROUT
+        JMP     <ZPRTSTR
 * E notation: as many digits before the point as the field has #s
 UMEXP   LDA     <USNB           ; at most nine digits: more is ?FC ERROR
         ADDA    <USNA
@@ -303,20 +302,20 @@ UME3    DECB                    ; round up: carry along
         BRA     UME3
 UME4    LDA     #'1'            ; it carried out: 1000... and one place more
         STA     ,X
-        LDD     <FPE10
-        ADDD    #1
-        STD     <FPE10
+        JSR     E10INC
 UME5    LDD     <FPE10          ; the exponent shown: E - (digits before the point - 1)
         TST     <FACEXP
         BNE     UME6
-        LDD     #0
+        CLRA
+        CLRB
         STD     <FPE10
         LDA     #'0'            ; (0: zeros)
         LDB     #9
 UME5A   STA     ,X+
         DECB
         BNE     UME5A
-        LDD     #0
+        CLRA
+        CLRB
 UME6    LDB     <USNB
         BEQ     UME7
         DECB
@@ -327,39 +326,18 @@ UME7    NEGB
         LDX     #FBUFFR+20      ; build: digits, point, E+nn
         LDU     #FPDIG
         LDB     <USNB
-        BEQ     UME9
-UME8    LDA     ,U+
-        STA     ,X+
-        DECB
-        BNE     UME8
-UME9    LDA     <USFLG
+        JSR     CPYUX
+        LDA     <USFLG
         BITA    #1
         BEQ     UME11
         LDA     #'.'
         STA     ,X+
         LDB     <USNA
-        BEQ     UME11
-UME10   LDA     ,U+
-        STA     ,X+
-        DECB
-        BNE     UME10
-UME11   LDA     #'E'
-        STA     ,X+
-        LDA     #'+'
-        LDB     <USEXP+1
-        TST     <USEXP
-        BPL     UME12
-        LDA     #'-'
-        NEGB
-UME12   STA     ,X+
-        LDA     #'0'-1
-UME13   INCA
-        SUBB    #10
-        BHS     UME13
-        ADDB    #'0'+10
-        STA     ,X+
-        STB     ,X+
-        TFR     X,D
+        JSR     CPYUX
+UME11   TFR     X,U
+        LDD     <USEXP
+        JSR     EXPOUT
+        TFR     U,D
         SUBD    #FBUFFR+20
         LDX     #FBUFFR+20
         LDA     <USFLG
@@ -415,10 +393,7 @@ UMB4    TSTB
         CMPB    <USNA
         BLS     UMB4A
         LDB     <USNA
-UMB4A   LDA     ,X+
-        STA     ,U+
-        DECB
-        BNE     UMB4A
+UMB4A   JSR     CPYXU
 UMB5    LEAS    1,S
         TFR     U,D
         SUBD    #FBUFFR+20
@@ -457,7 +432,7 @@ UMO6    CMPA    <USW
         BLS     UMO7
         PSHS    A
         LDA     #'%'            ; too wide
-        JSR     CHROUT
+        JSR     <ZCHROUT
         PULS    A
         STA     <USW
 UMO7    NEGA
@@ -468,66 +443,74 @@ UMO8    LDA     #' '
         BITB    #4
         BEQ     UMO8A
         LDA     #'*'
-UMO8A   JSR     CHROUT
+UMO8A   JSR     <ZCHROUT
         DEC     ,S
         BNE     UMO8
         LEAS    1,S
 UMO9    BITB    #16             ; + first
         BEQ     UMO10
-        JSR     USSIGN
+        BSR     USSIGN
 UMO10   BITB    #16+32+64
         BNE     UMO11
         TST     <USNEG
         BEQ     UMO11
         LDA     #'-'
-        JSR     CHROUT
+        JSR     <ZCHROUT
 UMO11   BITB    #8
         BEQ     UMO12
         LDA     #'$'
-        JSR     CHROUT
+        JSR     <ZCHROUT
 UMO12   PSHS    B
         LDB     <USK
         JSR     PRTN
         PULS    B
         BITB    #32             ; + last
         BEQ     UMO13
-        JSR     USSIGN
+        BSR     USSIGN
 UMO13   BITB    #64             ; - last
         BEQ     UMO14
         LDA     #' '
         TST     <USNEG
         BEQ     UMO13A
         LDA     #'-'
-UMO13A  JSR     CHROUT
+UMO13A  JSR     <ZCHROUT
 UMO14   RTS
 USSIGN  LDA     #'+'
         TST     <USNEG
         BEQ     USG1
         LDA     #'-'
-USG1    JMP     CHROUT
+USG1    JMP     <ZCHROUT
 
-* U32DEC: FACM (32 bits) in decimal: X = the digits (no leading zeros, at least one), B = how many
-U32DEC  LDX     #FBUFFR+19      ; the digits, from the last backwards
+* U32DEC: FACM (32 bits) in decimal: X = the digits (no leading zeros, at least one; the last at FBUFFR+18),
+* B = how many. Each digit is the remainder of FACM / 10, a byte of FACM at a time. Uses U and USK.
+U32DEC  LDU     #FBUFFR+19      ; the digits, from the last backwards
         CLR     <USK
-UD1     LDB     #32             ; FACM / 10: the remainder is the digit
-        CLRA
-UD2     ASL     <FACM+3
-        ROL     <FACM+2
-        ROL     <FACM+1
-        ROL     <FACM
+UD1     LDX     #FACM-1
+UD0     LEAX    1,X             ; the leading bytes that are 0 are skipped (the last is always divided)
+        CMPX    #FACM+3
+        BEQ     UD1A
+        TST     ,X
+        BEQ     UD0
+UD1A    CLRA                    ; the remainder
+UD2     LDB     #8
+UD3     ASL     ,X
         ROLA
         CMPA    #10
-        BLO     UD3
+        BLO     UD4
         SUBA    #10
-        INC     <FACM+3
-UD3     DECB
+        INC     ,X
+UD4     DECB
+        BNE     UD3
+        LEAX    1,X
+        CMPX    #FACM+4
         BNE     UD2
         ADDA    #'0'
-        STA     ,-X
+        STA     ,-U
         INC     <USK
         LDD     <FACM
         BNE     UD1
         LDD     <FACM+2
         BNE     UD1
         LDB     <USK
+        TFR     U,X
         RTS

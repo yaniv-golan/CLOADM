@@ -61,7 +61,10 @@ check('build: $8000-$80FF is left free for later fixed entry points', built.rom.
   // $80 FORST, $81 TAB( (no handler), $82-$8F (a gap), $90 + (no handler): 16 UNIMPLs, and FORST first
   const st = inc.split('STMTDS')[1].split('FUNCDS')[0];
   check('tokens: a gap in the dispatch table and a missing handler run UNIMPL', (st.match(/FDB\s+UNIMPL/g) || []).length === 16 && /^\s+FDB\s+FORST/.test(st));
-  check('tokens: keyword table entries are the word and its token', /FCS\s+"TAB\("\n\s+FCB\s+\$81/.test(inc));
+  // the keyword table: the words in token order, a word's place its token, so the gap is 14 $FF bytes
+  const kw = inc.split('KWSTMT')[1].split('KWFUNC')[0].trim().split('\n').map((l) => l.trim().replace(/\s+/g, ' '));
+  check('tokens: keyword table entries are the words in token order, $FF for a token without one', kw.length === 18 && kw[0] === 'FCS "FOR"' && kw[1] === 'FCS "TAB("'
+    && kw.slice(2, 16).every((l) => l === 'FCB $FF') && kw[16] === 'FCS "+"' && kw[17] === 'FCB 0');
   let threw = false;
   try { tokensInc({ statements: [{ word: 'A' }, { word: 'B', token: 0x80 }], functions: [] }); } catch (e) { threw = /repeated/.test(e.message); }
   check('tokens: a repeated token is refused', threw);

@@ -71,7 +71,7 @@ GS0     CLRA
 GS1     TST     <GCDONE
         BNE     GS2
         INC     <GCDONE
-        JSR     GARBAG
+        BSR     GARBAG
         LDB     ,S
         BRA     GS0
 GS2     LDB     #ERR_OS
@@ -85,7 +85,8 @@ GARBAG  PSHS    D,X,Y,U
         LDD     <MEMTOP
         STD     <GCTOP          ; where the strings kept so far begin
         STD     <GCLIM          ; strings below this are still to do
-GC1     LDD     #0
+GC1     CLRA
+        CLRB
         STD     <GCBEST
         LDD     <FRETOP
         STD     <GCADR
@@ -201,17 +202,11 @@ SKCOPY  LDB     ,X
         STX     <DSCTMP+2
         CLR     <DSCTMP+4
         LDU     2,U             ; (read after GETSPA: the string may have moved)
-        TSTB
-        BEQ     SK5
-SK4     LDA     ,U+
-        STA     ,X+
-        DECB
-        BNE     SK4
-SK5     LDX     #DSCTMP
+        BSR     CPYUX
+        LDX     #DSCTMP
 SKKEEP  RTS
 * INPROG: C set if the string of the descriptor at X is in a running program's text. Keeps X.
-INPROG  LDD     <CURLIN
-        CMPD    #$FFFF
+INPROG  JSR     DIRCHK
         BEQ     IP1
         LDD     2,X
         CMPD    <TXTTAB
@@ -241,8 +236,8 @@ SL2     STX     <TXTPTR
         JSR     MKTMP
         LDA     [TXTPTR]
         BEQ     SL3
-        JMP     CHRGET
-SL3     JMP     CHRGOT
+        JMP     <ZCHRGET
+SL3     JMP     <ZCHRGOT
 
 * CONCAT: the left string (ARGSTR) and the right one (STRPTR) joined: ?LS ERROR past 255 characters
 CONCAT  LDX     <ARGSTR
@@ -265,9 +260,17 @@ CC1     JSR     GETSPA
         PULS    B,X
         JMP     MKTMP
 * CCOPY: copy the string of the descriptor at U to X, X ending past it
+* CPYXU: copy B bytes (at least one) from X to U; both end past them, B = 0
+CPYXU   LDA     ,X+
+        STA     ,U+
+        DECB
+        BNE     CPYXU
+        RTS
+* CPYUX: copy B bytes (0 for none) from U to X; both end past them, B = 0
 CCOPY   LDB     ,U
-        BEQ     CCP2
         LDU     2,U
+CPYUX   TSTB
+        BEQ     CCP2
 CCP1    LDA     ,U+
         STA     ,X+
         DECB

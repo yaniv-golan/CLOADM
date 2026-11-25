@@ -53,7 +53,6 @@ FPT5    RMB     5
 FPT6    RMB     5
 POLYV   RMB     5               ; POLY's variable
 FBUFFR  RMB     64              ; number to text (FOUT) and PRINT USING's work (FBUFFR+20 on)
-LNSBUF  RMB     6               ; a line number as digits (LINSTR)
 * the cassette (cassette.inc): a namefile block's contents, in its order [FMT]
 CNAME   RMB     8               ; the file name, padded with spaces
 CFTYP   RMB     1               ; the file type: 0 BASIC, 2 machine code
@@ -133,10 +132,6 @@ NDIMS   RMB     1               ; the subscripts of an array reference
 INTVAL  RMB     2               ; an integer operand
 FORVAR  RMB     2               ; FOR, NEXT: the variable's address
 NXRET   RMB     2               ; NEXT: its return address
-ONCNT   RMB     1               ; ON
-ONKIND  RMB     1
-ONFND   RMB     1
-ONLINE  RMB     2
 GCTOP   RMB     2               ; the garbage collector
 GCLIM   RMB     2
 GCBEST  RMB     2
@@ -147,16 +142,16 @@ SBCNT   RMB     1
 FRACNZ  RMB     1               ; FTRUNC: a fraction was dropped; the sign
 TRSGN   RMB     1
 FPK2    RMB     1               ; SQR's count
-LOGE    RMB     1               ; LOG's power of 2
-EXPN    RMB     1               ; EXP's power of 2
-QUAD    RMB     1               ; SIN's quarter
-ATSGN   RMB     1               ; ATN
+LOGE    EQU     FPK2            ; LOG's power of 2 (SQR, LOG, EXP, SIN and ATN each finish before another starts:
+EXPN    EQU     FPK2            ; EXP's power of 2  one byte serves them all)
+QUAD    EQU     FPK2            ; SIN's quarter
+ATSGN   EQU     FPK2            ; ATN
 ATINV   RMB     1
 ATADD   RMB     1
 PWSGN   RMB     1               ; ^ by a whole number
 PWN     RMB     2
 SEED    RMB     4               ; RND's seed, low byte first
-RNDR    RMB     4
+RNDR    EQU     PROD            ; (RND's product is in the seed before its arithmetic uses PROD)
 EXECAD  RMB     2               ; EXEC's address
 ITMCOL  RMB     1               ; GETITM: ':' ends an item (DATA)
 INPKND  RMB     1               ; INPUT 1, LINE INPUT 0
@@ -174,6 +169,16 @@ USNEG   RMB     1
 USK     RMB     1
 USW     RMB     1
 USEXP   RMB     2
+* ON's and RENUM's work shares PRINT USING's bytes: each is used inside its one statement only, after its
+* expressions are evaluated (ON) or with none (RENUM), and no expression runs a statement
+ONCNT   EQU     USDSC           ; ON
+ONKIND  EQU     USDSC+1
+ONFND   EQU     USPOS
+ONLINE  EQU     USANY           ; (2 bytes)
+RNNEW   EQU     USDSC           ; RENUM: the first new number, the first old one, the step
+RNOLD   EQU     USPOS
+RNINC   EQU     USKIND
+RNLEN   EQU     USNA            ; RENUM: a reference's digits
 CNLEN   RMB     1               ; the cassette (cassette.inc): the name's length, 0 for any file
 CBTYP   RMB     1               ; a block's type and length (CBLEN must follow CBTYP)
 CBLEN   RMB     1
@@ -189,11 +194,23 @@ CEND    RMB     2               ; the end of the data to write; CLOADM's offset
 BASESP  RMB     2               ; the stack the OK prompt and CONT use: frames above it survive a STOP
 FRMSP   RMB     2               ; the stack and the text at the start of the statement running
 STMTXT  RMB     2
-RNNEW   RMB     2               ; RENUM: the first new number, the first old one, the step
-RNOLD   RMB     2
-RNINC   RMB     2
-RNLEN   RMB     1               ; RENUM: a reference's digits
 DPEND   RMB     0
+
+* Two-byte calls: a JMP to each of the ROM's busiest routines at the top of the direct page, just below the RAM
+* vectors and copied with them at a cold start (boot.inc), so "JSR <ZCHRGET" does for "JSR CHRGET"
+* (tools/build-basic.js checks the direct-page variables end below them)
+        ORG     $0100-3*10
+ZTRAMP  RMB     0
+ZCHRGET  RMB     3
+ZCHRGOT  RMB     3
+ZCHROUT  RMB     3
+ZFNARGN  RMB     3
+ZFPRUN   RMB     3
+ZPRTSTR  RMB     3
+ZLINGET  RMB     3
+ZCHKCOM  RMB     3
+ZUSCHR   RMB     3
+ZEVNUM   RMB     3
 
 * ---------------- the ROM ----------------
         ORG     $8100

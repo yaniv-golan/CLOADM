@@ -3,11 +3,11 @@
 * GETITM: the next item of a list (DATA, or a typed INPUT line) for a variable of type VALTYP, the text pointer on
 * the character before it. A number by FIN; a string in quotes, or up to the next ',' (and ':' when ITMCOL is
 * set) or the end. The text pointer ends on the character after the item. C set if a number was badly formed.
-GETITM  JSR     CHRGET
+GETITM  JSR     <ZCHRGET
         TST     <VALTYP
         BNE     GI2
         JSR     FIN
-        JSR     CHRGOT          ; a number must end the item
+        JSR     <ZCHRGOT          ; a number must end the item
         BEQ     GIOK0
         CMPA    #','
         BEQ     GIOK
@@ -41,7 +41,7 @@ GI3C    LDA     ,X              ; spaces after the closing quote
 GI3A    STX     <TXTPTR
         PULS    X
         JSR     MKTMP
-        JSR     CHRGOT
+        JSR     <ZCHRGOT
         BRA     GIOK
 GI4     PSHS    X               ; to the next ',' (or ':')
         CLRB
@@ -65,10 +65,7 @@ GIOK    ANDCC   #$FE
 * READ variable, ...: each takes the next DATA item (?OD ERROR when there are no more)
 READ    LDA     #1
         STA     <ITMCOL
-RD1     LDA     #1
-        STA     <VARCRE
-        JSR     PTRGET
-        CLR     <VARCRE
+RD1     JSR     PTRNEW
         PSHS    X
         LDD     <TXTPTR         ; the program's text pointer kept; the DATA pointer used instead
         PSHS    D
@@ -123,16 +120,15 @@ RD5     LDD     <TXTPTR
         STD     <TXTPTR
         PULS    X
         JSR     ASSIGN
-        JSR     CHRGOT
-        CMPA    #','
+        JSR     <ZCHKCOM
         BNE     RD6
-        JSR     CHRGET
-        LBRA    RD1
+        JSR     <ZCHRGET
+        BRA     RD1
 RD6     RTS
 
 * RESTORE [line]: READ starts again from the first DATA (of the program, or from that line on) [UM]
 RESTOR  BEQ     RS9
-        JSR     LINGET
+        JSR     <ZLINGET
         JSR     FNDLIN
         LBCC    ULERR
         LEAX    -1,X            ; (the 0 at the end of the line before)
@@ -150,11 +146,10 @@ INPUT   LDB     #1
         BRA     INP0
 LNINP   CLRB                    ; LINE INPUT: the whole line into one string
 INP0    STB     <INPKND
-        LDD     <CURLIN
-        CMPD    #$FFFF
+        JSR     DIRCHK
         LBEQ    IDERR
         CLR     <ITMCOL
-        JSR     CHRGOT
+        JSR     <ZCHRGOT
         CMPA    #'"'
         BNE     INP1
         JSR     STRLIT          ; the prompt
@@ -168,7 +163,7 @@ INP1    LDD     <TXTPTR         ; where the variables are listed
 INP2    TST     <INPKND
         BEQ     INP2A
         LDX     #QMSG
-        JSR     PRTSTR
+        JSR     <ZPRTSTR
 INP2A   JSR     INLINE
         LDX     #LINBUF-1
         STX     <INPPTR
@@ -177,10 +172,7 @@ INP2A   JSR     INLINE
         TST     <INPKND
         BEQ     LNI1
 * each variable takes the next item
-INP3    LDA     #1
-        STA     <VARCRE
-        JSR     PTRGET
-        CLR     <VARCRE
+INP3    JSR     PTRNEW
         PSHS    X
         LDD     <TXTPTR
         STD     <INPVAR
@@ -192,15 +184,15 @@ INP3    LDA     #1
         CMPA    #','
         BEQ     INP3B
 INP3A   LDX     #QQMSG
-        JSR     PRTSTR
-        JSR     INLINE
+        JSR     <ZPRTSTR
+        BSR     INLINE
         LDX     #LINBUF-1
         STX     <TXTPTR
 INP3B   JSR     GETITM
         BCC     INP4
         LEAS    2,S             ; ?REDO: the whole INPUT again
         LDX     #REDOMS
-        JSR     PRTSTR
+        JSR     <ZPRTSTR
         LDD     <INPST
         STD     <INPVAR
         BRA     INP2
@@ -210,22 +202,18 @@ INP4    LDD     <TXTPTR
         STD     <TXTPTR
         PULS    X
         JSR     ASSIGN
-        JSR     CHRGOT
-        CMPA    #','
+        JSR     <ZCHKCOM
         BNE     INP5
-        JSR     CHRGET
+        JSR     <ZCHRGET
         BRA     INP3
 INP5    LDX     <INPPTR         ; anything left over?
         LDA     ,X
         BEQ     INP6
         LDX     #EXTRMS
-        JSR     PRTSTR
+        JSR     <ZPRTSTR
 INP6    RTS
 * LINE INPUT: the whole line, as typed
-LNI1    LDA     #1
-        STA     <VARCRE
-        JSR     PTRGET
-        CLR     <VARCRE
+LNI1    JSR     PTRNEW
         JSR     CHKSTR
         PSHS    X
         LDX     #LINBUF
@@ -251,5 +239,5 @@ EXTRMS  FCC     "?EXTRA IGNORED"
 * LINE: LINE INPUT here; the graphics LINE comes in P2
 LINE    CMPA    #T_INPUT
         LBNE    UNIMPL
-        JSR     CHRGET
+        JSR     <ZCHRGET
         JMP     LNINP

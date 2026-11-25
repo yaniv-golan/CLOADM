@@ -7,6 +7,14 @@ GIVNUM  CLR     <VALTYP
 * COMMA: the character must be ','; take it
 COMMA   LDB     #','
         JMP     SYNCHR
+* COMBYT: a ',' and an expression 0-255 into B
+COMBYT  BSR     COMMA
+        JMP     GETBYT
+* STRFN: ( string expression ): X = the string, B = its length (FRESTR)
+STRFN   JSR     LPAREN
+STRFN1  JSR     EVSTR
+        JSR     RPAREN
+        JMP     FRESTR
 * STRARG: ( string expression : STRPTR, and the descriptor pushed under the caller's return address
 STRARG  JSR     LPAREN
         JSR     EVSTR
@@ -19,27 +27,16 @@ STRCPY  PSHS    X
         JSR     GETSPA
         PULS    U
         PSHS    B,X
-        TSTB
-        BEQ     SCP2
-SCP1    LDA     ,U+
-        STA     ,X+
-        DECB
-        BNE     SCP1
-SCP2    PULS    B,X
+        JSR     CPYUX
+        PULS    B,X
         JMP     MKTMP
 
 * LEN(s$)
-LEN     JSR     LPAREN
-        JSR     EVSTR
-        JSR     RPAREN
-        JSR     FRESTR
+LEN     BSR     STRFN
         CLRA
         BRA     GIVNUM
 * ASC(s$): the first character's code (?FC ERROR for an empty string)
-ASC     JSR     LPAREN
-        JSR     EVSTR
-        JSR     RPAREN
-        JSR     FRESTR
+ASC     BSR     STRFN
         TSTB
         LBEQ    FCERR
         LDB     ,X
@@ -50,21 +47,19 @@ CHRS    JSR     LPAREN
         JSR     GETBYT
         PSHS    B
         JSR     RPAREN
-        LDX     #FBUFFR
         PULS    A
+CHR1    LDX     #FBUFFR         ; a string of the one character A
         STA     ,X
         LDB     #1
         BRA     STRCPY
 * LEFT$(s$, n), RIGHT$(s$, n), MID$(s$, m [, n])
-LEFTS   JSR     STRARG
-        JSR     COMMA
-        JSR     GETBYT
+LEFTS   BSR     STRARG
+        BSR     COMBYT
         STB     <SBCNT
         CLR     <SBSTRT
         BRA     SUBEND
 RIGHTS  BSR     STRARG
-        JSR     COMMA
-        JSR     GETBYT
+        BSR     COMBYT
         STB     <SBCNT
         LDX     ,S
         LDB     ,X              ; the start: length - n, or 0
@@ -73,19 +68,17 @@ RIGHTS  BSR     STRARG
         CLRB
 RS1     STB     <SBSTRT
         BRA     SUBEND
-MIDS    JSR     STRARG
-        JSR     COMMA
-        JSR     GETBYT
+MIDS    BSR     STRARG
+        BSR     COMBYT
         TSTB
         LBEQ    FCERR           ; the first character is 1
         DECB
         STB     <SBSTRT
         LDB     #255
         STB     <SBCNT
-        JSR     CHRGOT
-        CMPA    #','
+        JSR     <ZCHKCOM
         BNE     SUBEND
-        JSR     CHRGET
+        JSR     <ZCHRGET
         JSR     GETBYT
         STB     <SBCNT
 SUBEND  JSR     RPAREN
@@ -108,12 +101,8 @@ SS2     LDB     <SBCNT
         CLRA
         LEAU    D,U
         LDB     ,S
-        BEQ     SS4
-SS3     LDA     ,U+
-        STA     ,X+
-        DECB
-        BNE     SS3
-SS4     PULS    B,U
+        JSR     CPYUX
+        PULS    B,U
         PULS    X
         PSHS    B,U
         JSR     FRETMP          ; the argument's temporary
@@ -121,9 +110,7 @@ SS4     PULS    B,U
         JMP     MKTMP
 
 * STR$(n): the number as PRINT shows it, without the space after
-STRS    JSR     LPAREN
-        JSR     EVNUM
-        JSR     RPAREN
+STRS    JSR     <ZFNARGN
         JSR     FOUT
 STRZ    CLRB                    ; the 0-terminated text at X as a string
 STZ1    TST     B,X
@@ -133,23 +120,16 @@ STZ1    TST     B,X
 STZ2    JMP     STRCPY
 
 * VAL(s$): the number at the start of the string (0 if there is none)
-VAL     JSR     LPAREN
-        JSR     EVSTR
-        JSR     RPAREN
-        JSR     FRESTR          ; read from a copy with a 0 after it: the string itself is never touched
-        LDU     #LINBUF
-        TSTB
-        BEQ     VAL2
-VAL1    LDA     ,X+
-        STA     ,U+
-        DECB
-        BNE     VAL1
-VAL2    CLR     ,U
+VAL     JSR     STRFN           ; read from a copy with a 0 after it: the string itself is never touched
+        TFR     X,U
+        LDX     #LINBUF
+        JSR     CPYUX
+        CLR     ,X
         LDD     <TXTPTR
         PSHS    D
         LDX     #LINBUF-1
         STX     <TXTPTR
-        JSR     CHRGET
+        JSR     <ZCHRGET
         JSR     FIN
         PULS    D
         STD     <TXTPTR
@@ -172,9 +152,7 @@ INSTR   JSR     LPAREN
 IN1     LDX     <STRPTR
         PSHS    X
         JSR     COMMA
-        JSR     EVSTR
-        JSR     RPAREN
-        JSR     FRESTR          ; t$: X, B
+        JSR     STRFN1          ; t$: X, B
         STX     <TMPPTR
         STB     <SBCNT
         PULS    X
@@ -210,7 +188,8 @@ INYES   LDB     <TMPCNT+1
         INCB
         CLRA
         JMP     GIVNUM
-INNO    LDD     #0
+INNO    CLRA
+        CLRB
         JMP     GIVNUM
 
 * STRING$(n, c) or STRING$(n, c$): n of the character
@@ -243,9 +222,7 @@ SG4     PULS    X
         JMP     MKTMP
 
 * HEX$(n): n (0-65535) in hexadecimal, no leading zeros
-HEXS    JSR     LPAREN
-        JSR     EVNUM
-        JSR     RPAREN
+HEXS    JSR     <ZFNARGN
         JSR     GETADR
         LDX     #FBUFFR
         PSHS    D
@@ -285,37 +262,29 @@ HXS3    DEC     <TMPCNT
         CLR     ,X
         LEAS    2,S
         LDX     #FBUFFR
-        BRA     STZ0
-STZ0    JMP     STRZ
+        JMP     STRZ
 
 * INKEY$: the key pressed since the last look, or an empty string
 INKEY   JSR     KEYIN
         BEQ     IK1
-        LDX     #FBUFFR
-        STA     ,X
-        LDB     #1
-        JMP     STRCPY
+        JMP     CHR1
 IK1     CLRB
         JMP     MKTMP
 
 * CLEAR [string space [, top of memory]]: no variables, the string space set, the stack emptied [UM]
 CLEAR   BEQ     CL3
-        JSR     EVNUM
-        JSR     GETADR
+        JSR     EVADR
         STD     <TMPCNT
         LDD     <MEMTOP
         STD     <TMPPT2
-        JSR     CHRGOT
-        CMPA    #','
+        JSR     <ZCHKCOM
         BNE     CL1
-        JSR     CHRGET
-        JSR     EVNUM
-        JSR     GETADR
+        JSR     <ZCHRGET
+        JSR     EVADR
         CMPD    #RAMTOP
         LBHI    FCERR
         STD     <TMPPT2
-CL1     JSR     CHRGOT
-        LBNE    SNERR
+CL1     JSR     ENDCHK
         LDD     <TMPPT2         ; the new bottom of the string space: top - size, above the variables
         SUBD    <TMPCNT
         LBLO    OMERR

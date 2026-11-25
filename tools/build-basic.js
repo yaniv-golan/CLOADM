@@ -38,9 +38,14 @@ function tokensInc(json) {
   // and one inside the statements' range runs UNIMPL
   const stmts = st.filter((e) => e.stmt !== false);
   out.push(`T_LAST   EQU     ${hex(last(st))}`, `T_SLAST  EQU     ${hex(last(stmts))}`, `TF_LAST  EQU     ${hex(last(fn))}`);
+  // a keyword table: the words in token order from $80, each ending in a letter with bit 7 set (FCS); a word's
+  // token is its place in the table, so a token with no word between two others is one $FF byte (never typed)
   const table = (label, list) => {
     out.push(label);
-    for (const e of list) out.push(`        FCS     "${e.word}"`, `        FCB     ${hex(e.t)}`);
+    for (let t = 0x80; t <= last(list); t++) {
+      const e = list.find((x) => x.t === t);
+      out.push(e ? `        FCS     "${e.word}"` : '        FCB     $FF');
+    }
     out.push('        FCB     0');
   };
   table('KWSTMT', st);
@@ -78,7 +83,7 @@ function buildBasic({ defines = {} } = {}) {
   const used = owner.reduce((n, o) => n + (o >= 0 ? 1 : 0), 0);
   // the system RAM block and the direct page must not run into the buffers after them
   if (res.symbols.get('SYSEND') > res.symbols.get('LINBUF')) throw new Error('basic: the system RAM ($0100 on) runs into LINBUF');
-  if (res.symbols.get('DPEND') > 0x100) throw new Error('basic: the direct page is full');
+  if (res.symbols.get('DPEND') > res.symbols.get('ZTRAMP')) throw new Error('basic: the direct page is full (its variables reach the two-byte calls at ZTRAMP)');
   return { rom, symbols: res.symbols, listing: res.listing, used };
 }
 module.exports = { buildBasic, tokensInc, ROM_FILE };

@@ -7,11 +7,11 @@
 EVAL    JSR     CHKSP
 * OR
 EVOR    BSR     EVAND
-EO1     JSR     CHRGOT
+EO1     JSR     <ZCHRGOT
         CMPA    #T_OR
         BNE     EVRTS
         JSR     PSHINT
-        JSR     CHRGET
+        JSR     <ZCHRGET
         BSR     EVAND
         JSR     POPINT          ; D: the left operand, INTVAL: the right
         ORA     <INTVAL
@@ -20,11 +20,11 @@ EO1     JSR     CHRGOT
         BRA     EO1
 * AND
 EVAND   BSR     EVNOT
-EA1     JSR     CHRGOT
+EA1     JSR     <ZCHRGOT
         CMPA    #T_AND
         BNE     EVRTS
         JSR     PSHINT
-        JSR     CHRGET
+        JSR     <ZCHRGET
         BSR     EVNOT
         JSR     POPINT
         ANDA    <INTVAL
@@ -33,10 +33,10 @@ EA1     JSR     CHRGOT
         BRA     EA1
 EVRTS   RTS
 * NOT: applies to a relation
-EVNOT   JSR     CHRGOT
+EVNOT   JSR     <ZCHRGOT
         CMPA    #T_NOT
         BNE     EVREL
-        JSR     CHRGET
+        JSR     <ZCHRGET
         BSR     EVNOT
         JSR     INTCNV
         COMA
@@ -44,7 +44,7 @@ EVNOT   JSR     CHRGOT
         JMP     GIVABF
 * relations: one or more of < = > make the operator; the result is -1 (true) or 0 (false)
 EVREL   BSR     EVADD
-ER1     JSR     CHRGOT
+ER1     JSR     <ZCHRGOT
         CLRB
 ER2     CMPA    #T_LT
         BNE     ER3
@@ -57,7 +57,7 @@ ER3     CMPA    #T_EQ
 ER4     CMPA    #T_GT
         BNE     ER6
         ORB     #4
-ER5     JSR     CHRGET
+ER5     JSR     <ZCHRGET
         BRA     ER2
 ER6     TSTB
         BEQ     EVRTS
@@ -81,22 +81,21 @@ ER9     DECA
         BRA     ER9
 ER10    ANDB    ,S+
         BEQ     ER11
-        LDD     #-1
-        BRA     ER12
-ER11    LDD     #0
-ER12    CLR     <VALTYP
+        LDB     #$FF
+ER11    SEX                     ; D = -1 or 0
+        CLR     <VALTYP
         JSR     GIVABF
         BRA     ER1
 * + and -; + also joins strings
 EVADD   BSR     EVMUL
-EAD1     JSR     CHRGOT
+EAD1     JSR     <ZCHRGOT
         CMPA    #T_PLUS
         BEQ     EAD2
         CMPA    #T_MINUS
         BNE     EVRTS2
 EAD2     PSHS    A
         JSR     PUSHV
-        JSR     CHRGET
+        JSR     <ZCHRGET
         BSR     EVMUL
         JSR     POPARG
         PULS    A
@@ -118,7 +117,7 @@ EAD4     JSR     FSUB
 EVRTS2  RTS
 * * and /
 EVMUL   BSR     EVNEG
-EM1     JSR     CHRGOT
+EM1     JSR     <ZCHRGOT
         CMPA    #T_MUL
         BEQ     EM2
         CMPA    #T_DIV
@@ -126,7 +125,7 @@ EM1     JSR     CHRGOT
 EM2     PSHS    A
         JSR     CHKNUM
         JSR     PUSHV
-        JSR     CHRGET
+        JSR     <ZCHRGET
         BSR     EVNEG
         JSR     CHKNUM
         JSR     POPARG
@@ -138,25 +137,25 @@ EM2     PSHS    A
 EM3     JSR     FDIV
         BRA     EM1
 * unary minus and plus
-EVNEG   JSR     CHRGOT
+EVNEG   JSR     <ZCHRGOT
         CMPA    #T_MINUS
         BEQ     EN1
         CMPA    #T_PLUS
         BNE     EVPOW
-        JSR     CHRGET
+        JSR     <ZCHRGET
         BRA     EVNEG
-EN1     JSR     CHRGET
+EN1     JSR     <ZCHRGET
         BSR     EVNEG
         JSR     CHKNUM
         JMP     FNEG
 * ^ (its right operand may have a sign)
 EVPOW   BSR     EVATOM
-EP1     JSR     CHRGOT
+EP1     JSR     <ZCHRGOT
         CMPA    #T_POW
         BNE     EVRTS2
         JSR     CHKNUM
         JSR     PUSHV
-        JSR     CHRGET
+        JSR     <ZCHRGET
         BSR     EVPWR
         JSR     CHKNUM
         JSR     POPARG
@@ -164,18 +163,18 @@ EP1     JSR     CHRGOT
         BRA     EP1
 EVPWR   CMPA    #T_MINUS
         BNE     EVPW1
-        JSR     CHRGET
+        JSR     <ZCHRGET
         BSR     EVPWR
-        JSR     CHKNUM
+        BSR     CHKNUM
         JMP     FNEG
 EVPW1   CMPA    #T_PLUS
         BNE     EVATOM
-        JSR     CHRGET
+        JSR     <ZCHRGET
         BRA     EVPWR
 
 * an operand: a number, a string in quotes, ( expression ), a variable, a function
 EVATOM  CLR     <VALTYP
-        JSR     CHRGOT
+        JSR     <ZCHRGOT
         BCS     EVNUMB
         CMPA    #'.'
         BEQ     EVNUMB
@@ -193,7 +192,7 @@ EVATOM  CLR     <VALTYP
         BCS     EVVAR
         JMP     SNERR
 EVNUMB  JMP     FIN
-EVPAR   JSR     CHRGET
+EVPAR   JSR     <ZCHRGET
         JSR     EVAL
 RPAREN  LDB     #')'
         JMP     SYNCHR
@@ -207,18 +206,16 @@ EVVAR   CLR     <VARCRE
 EVV1    STX     <STRPTR
         RTS
 * a function: $FF and its token; the routine starts on the character after the token
-EVFUNC  JSR     CHRGET
+EVFUNC  JSR     <ZCHRGET
         CMPA    #TF_LAST
         BHI     EVFSN
-        SUBA    #$80
-        BLO     EVFSN
         TFR     A,B
-        CLRA
-        ASLB
-        ROLA
+        ASLB                    ; (the token's bit 7 goes: twice its place in the table)
+        BCC     EVFSN
         LDX     #FUNCDS
-        LDX     D,X
-        JSR     CHRGET
+        ABX
+        LDX     ,X
+        JSR     <ZCHRGET
         JMP     ,X
 EVFSN   JMP     SNERR
 
@@ -284,7 +281,7 @@ POPINT  BSR     INTCNV
         JMP     ,U
 
 * INTCNV: FAC (a number) as a signed 16-bit integer in D, its fraction dropped: -32768 to 32767, or ?FC ERROR
-INTCNV  JSR     CHKNUM
+INTCNV  BSR     CHKNUM
         JSR     QINT
         LDD     <FACM
         BNE     ICFC
@@ -302,6 +299,8 @@ IC1     CMPD    #$8000
         RTS
 ICFC    JMP     FCERR
 * GETADR: FAC as an address, 0-65535, in D (?FC ERROR otherwise)
+* EVADR: an expression as an address
+EVADR   JSR     <ZEVNUM
 GETADR  JSR     CHKNUM
         TST     <FACSGN
         BMI     ICFC
@@ -311,28 +310,28 @@ GETADR  JSR     CHKNUM
         LDD     <FACM+2
         RTS
 * GETBYT: an expression 0-255 into B (and D)
-GETBYT  JSR     EVNUM
+GETBYT  JSR     <ZEVNUM
 CNVBYT  BSR     GETADR
         TSTA
         BNE     ICFC
         RTS
 * GETNUM: an expression as an integer -32768 to 32767 into D
-GETNUM  JSR     EVNUM
+GETNUM  JSR     <ZEVNUM
         BRA     INTCNV
 
 * &H hexadecimal and &O octal numbers (&nn is octal) [UM]
 HEXLIT  CLR     <FPN
         CLR     <FPN+1
         LDB     #4              ; bits a digit: &H
-        JSR     CHRGET
+        JSR     <ZCHRGET
         CMPA    #'H'
         BEQ     HX1
         LDB     #3
         CMPA    #'O'
         BNE     HX2
-HX1     JSR     CHRGET
+HX1     JSR     <ZCHRGET
 HX2     STB     <TMPCNT
-HX3     JSR     CHRGOT
+HX3     JSR     <ZCHRGOT
         SUBA    #'0'
         BLO     HXEND
         CMPA    #9
@@ -359,17 +358,11 @@ HX6     ASL     <FPN+1
         PULS    A
         ORA     <FPN+1
         STA     <FPN+1
-        JSR     CHRGET
+        JSR     <ZCHRGET
         BRA     HX3
 HXOV    JMP     OVERR
 HXEND   LDD     <FPN
-        STD     <FACM
-        CLR     <FACM+2
-        CLR     <FACM+3
-        CLR     <FACEXT
         CLR     <FACSGN
-        LDA     #128+16
-        STA     <FACEXP
-        JSR     NORM
-        JMP     CHRGOT
+        JSR     GIV1
+        JMP     <ZCHRGOT
 

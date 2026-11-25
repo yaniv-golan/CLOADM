@@ -25,7 +25,7 @@ MOTOR   LDB     #MOTONV
         CMPA    #T_OFF
         LBNE    SNERR
 MOT1    STB     PIA1CA
-        JMP     CHRGET
+        JMP     <ZCHRGET
 
 * ---------------- reading ----------------
 * CRBIT: one bit: the time from this rising edge of the input to the next, in loop passes; C set for a short
@@ -114,7 +114,7 @@ CE1     CMPB    #$FF
 * CFIND: read namefile blocks until one has the name in CNAME (any, when CNLEN is 0), printing each one met;
 * its block stays at LINBUF. Messages [OWN, placeholders until a black-box run]
 CFIND   LDX     #SRCMSG
-        JSR     PRTSTR
+        JSR     <ZPRTSTR
 CF1     LDX     #LINBUF
         BSR     CRBLK
         BNE     CF1             ; a bad block, or another file's data: not what we look for
@@ -135,11 +135,11 @@ CF3     LDX     #FNDMSG
 CF4     LDX     #SKPMSG
         BSR     CFNAME
         BRA     CF1
-CFNAME  JSR     PRTSTR
+CFNAME  JSR     <ZPRTSTR
         LDX     #LINBUF
         LDB     #8
 CFN1    LDA     ,X+
-        JSR     CHROUT
+        JSR     <ZCHROUT
         DECB
         BNE     CFN1
         JMP     CRLF
@@ -219,21 +219,22 @@ CLLINE  CLR     ,U
         JSR     CRUNCH
         LDX     #CRNBUF-1
         STX     <TXTPTR
-        JSR     CHRGET
+        JSR     <ZCHRGET
         BEQ     CLL1
         LBCC    CLDS
-        JSR     LINGET
+        JSR     <ZLINGET
         JSR     EDLINE
 CLL1    LDU     #LINBUF
         PULS    B,X,PC
 
 * CLOADM ["NAME"][,offset]: a machine-code file to its load address plus the offset; EXEC with no address then
 * runs it from its exec address, plus the offset too [UM; the offset on the exec address: OWN]
-CLOADM  JSR     CHRGET
+CLOADM  JSR     <ZCHRGET
         BSR     GETNAM
-        LDD     #0
+        CLRA
+        CLRB
         STD     <CEND
-        JSR     CHRGOT
+        JSR     <ZCHRGOT
         BEQ     CLM1
         BSR     CADDR
         STD     <CEND
@@ -277,7 +278,7 @@ GN1     STA     ,X+
         DECB
         BNE     GN1
         CLR     <CNLEN
-        JSR     CHRGOT
+        JSR     <ZCHRGOT
         BEQ     GN3
         CMPA    #','
         BEQ     GN3
@@ -296,7 +297,7 @@ GN2A    LDA     ,X+
 GN3     RTS
 
 CADDR   JSR     COMMA
-        JSR     EVNUM
+        JSR     <ZEVNUM
         JMP     GETADR
 
 
@@ -397,12 +398,12 @@ CSAVE   CMPA    #'M'
 CS0     CLR     ,X+
         DECB
         BNE     CS0
-        JSR     CHRGOT
+        JSR     <ZCHRGOT
         BEQ     CS2
         JSR     COMMA
         CMPA    #'A'
         LBNE    SNERR
-        JSR     CHRGET
+        JSR     <ZCHRGET
         LDD     #$FFFF
         STD     CFASC           ; and CFGAP
         BSR     CWHEAD
@@ -424,7 +425,7 @@ CS2     BSR     CWHEAD
         STX     <CEND
         LDX     <TXTTAB
         BRA     CWDATA
-CSAVEM  JSR     CHRGET
+CSAVEM  JSR     <ZCHRGET
         JSR     GETNAM
         JSR     CADDR
         PSHS    D

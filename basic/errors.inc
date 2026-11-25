@@ -53,29 +53,28 @@ ERROR   LDS     <STRBOT         ; drop everything the program had on the stack
         JSR     RSTTMP          ; and the string temporaries
         JSR     NEWLIN
         LDA     #'?'
-        JSR     CHROUT
+        JSR     <ZCHROUT
         LDX     #ERRTAB
         ABX
         LDA     ,X
-        JSR     CHROUT
+        JSR     <ZCHROUT
         LDA     1,X
-        JSR     CHROUT
+        JSR     <ZCHROUT
         LDX     #ERRMSG
-        JSR     PRTSTR
+        JSR     <ZPRTSTR
         CLR     <OLDTXT         ; an error cannot be continued
         CLR     <OLDTXT+1
-        LDD     <CURLIN
-        CMPD    #$FFFF
+        JSR     DIRCHK
         BEQ     ERR1
-        JSR     PRTIN
+        BSR     PRTIN
 ERR1    JSR     CRLF
-        JMP     READY
+        BRA     READY
 ERRMSG  FCN     " ERROR"
 INMSG   FCN     " IN "
 
 * PRTIN: print " IN " and the line number in D
 PRTIN   PSHS    D
         LDX     #INMSG
-        JSR     PRTSTR
+        JSR     <ZPRTSTR
         PULS    D
         JMP     LINPRT

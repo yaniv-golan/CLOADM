@@ -21,7 +21,7 @@ FLNO    ANDCC   #$FE
 
 * EDLINE: a typed line BINVAL with its text at TXTPTR (crunched, 0-terminated): store it, replace the line
 * with that number, or delete it when the text is empty.
-EDLINE  JSR     FNDLIN
+EDLINE  BSR     FNDLIN
         BCC     ED2
 * delete the old line: move everything after it down
         PSHS    X
@@ -47,8 +47,8 @@ ED3     ADDD    #1
         TFR     S,D
         CMPD    ,S++
         BHI     ED4
-        JSR     RELINK          ; (the deletion is kept)
-        JSR     CLRVAR
+        BSR     RELINK          ; (the deletion is kept)
+        BSR     CLRVAR
         JMP     OMERR
 * open a gap at X: copy from the top down
 ED4     LDU     <VARTAB
@@ -70,8 +70,8 @@ ED6     PULS    X
 ED7     LDA     ,Y+
         STA     ,U+
         BNE     ED7
-EDDONE  JSR     RELINK
-        JMP     CLRVAR
+EDDONE  BSR     RELINK
+        BRA     CLRVAR
 
 * RELINK: rewrite every line's link from the line's own length
 RELINK  PSHS    D,X,U
@@ -87,7 +87,8 @@ RL2     TST     ,U+
         STU     ,X
         TFR     U,X
         BRA     RL1
-RL3     LDD     #0
+RL3     CLRA
+        CLRB
         STD     ,X
         PULS    D,X,U,PC
 
@@ -106,7 +107,8 @@ CLRVAR  PSHS    D
         LDD     <TXTTAB
         SUBD    #1
         STD     <DATPTR
-        LDD     #0
+        CLRA
+        CLRB
         STD     <OLDTXT
         LDD     <STRBOT         ; CONT impossible: no frames kept
         STD     <BASESP
@@ -137,26 +139,26 @@ RANGE   LDX     #0
         STX     <TMPPT2         ; from
         LDX     #$FFFF
         STX     <TMPCNT         ; to
-        JSR     CHRGOT
+        JSR     <ZCHRGOT
         BEQ     RG3
         BCC     RG1
-        JSR     LINGET
+        JSR     <ZLINGET
         STD     <TMPPT2
         STD     <TMPCNT
-        JSR     CHRGOT
+        JSR     <ZCHRGOT
         CMPA    #T_MINUS
         BNE     RG3
 RG1     CMPA    #T_MINUS
         BNE     LSSN
-        JSR     CHRGET
+        JSR     <ZCHRGET
         BEQ     RG2             ; n-
         BCC     LSSN
-        JSR     LINGET
+        JSR     <ZLINGET
         STD     <TMPCNT
         BRA     RG3
 RG2     LDD     #$FFFF
         STD     <TMPCNT
-RG3     JSR     CHRGOT
+RG3     JSR     <ZCHRGOT
         BNE     LSSN
         RTS
 
@@ -199,33 +201,32 @@ LL1     LDA     ,X+
         BNE     LL1A
         LDA     ,X+
         LDU     #KWFUNC
-LL1A    JSR     PRTKW
+LL1A    BSR     PRTKW
         BRA     LL1
-LL2     JSR     CHROUT
+LL2     JSR     <ZCHROUT
         BRA     LL1
 LL3     JSR     CRLF
         PULS    X,PC
 
-* PRTKW: print the keyword of token A from the table at U (each entry: the word, its last letter with
-* bit 7 set, then its token)
-PRTKW   PSHS    X
+* PRTKW: print the keyword of token A from the table at U (the words in token order from $80, each one's last
+* letter with bit 7 set). Keeps X.
+PRTKW   SUBA    #$80
 PK1     TST     ,U
         BEQ     PKNONE
-        TFR     U,X
+        DECA
+        BMI     PK3
 PK2     TST     ,U+
         BPL     PK2
-        CMPA    ,U+
-        BNE     PK1
-PK3     LDA     ,X+
+        BRA     PK1
+PK3     LDA     ,U+
         PSHS    A
         ANDA    #$7F
-        JSR     CHROUT
+        JSR     <ZCHROUT
         TST     ,S+
         BPL     PK3
-        PULS    X,PC
+        RTS
 PKNONE  LDA     #'!'            ; a token with no keyword (cannot be typed)
-        JSR     CHROUT
-        PULS    X,PC
+        JMP     <ZCHROUT
 
 * ---------------- RENUM ----------------
 * RENUM [new [, old [, step]]]: the lines from old on (all, by default) are numbered from new (10) in steps of step
@@ -235,32 +236,31 @@ PKNONE  LDA     #'!'            ; a token with no keyword (cannot be typed)
 RENUM   LDD     #10
         STD     <RNNEW
         STD     <RNINC
-        LDD     #0
+        CLRA
+        CLRB
         STD     <RNOLD
-        JSR     CHRGOT
+        JSR     <ZCHRGOT
         BEQ     RNA3
         BCC     RNA1
-        JSR     LINGET
+        JSR     <ZLINGET
         STD     <RNNEW
-RNA1    JSR     CHRGOT
-        CMPA    #','
+RNA1    JSR     <ZCHKCOM
         BNE     RNA3
-        JSR     CHRGET
+        JSR     <ZCHRGET
         BCC     RNA2
-        JSR     LINGET
+        JSR     <ZLINGET
         STD     <RNOLD
-RNA2    JSR     CHRGOT
-        CMPA    #','
+RNA2    JSR     <ZCHKCOM
         BNE     RNA3
-        JSR     CHRGET
-        JSR     LINGET
+        JSR     <ZCHRGET
+        JSR     <ZLINGET
         STD     <RNINC
-RNA3    JSR     CHRGOT
-        LBNE    SNERR
+RNA3    JSR     ENDCHK
         LDD     <RNINC
         LBEQ    FCERR
 * the lines before old must stay below new; count the lines to renumber
-        LDD     #0
+        CLRA
+        CLRB
         STD     <TMPCNT
         LDX     <TXTTAB
 RNC1    LDD     ,X
@@ -376,7 +376,8 @@ RNS1    RTS
 * RNREF: a line number at X (after spaces), if any, rewritten as its line's new number; X ends after it
 RNREF   BSR     RNSPC
         PSHS    X               ; where the digits start
-        LDD     #0
+        CLRA
+        CLRB
         STD     <BINVAL
 RNR1    LDA     ,X
         SUBA    #'0'
@@ -461,10 +462,10 @@ RNR7A   CMPY    <VARTAB
 RNR7B   STU     <VARTAB
 RNR8    PULS    B
         LDU     ,S++            ; the digits' start: the new digits go there
-        LDX     #LNSBUF
-RNR9    LDA     ,X+
-        STA     ,U+
-        DECB
-        BNE     RNR9
+        LDX     #FBUFFR+19      ; (the digits end at FBUFFR+18: LINSTR)
+        NEGB
+        LEAX    B,X
+        NEGB
+        JSR     CPYXU
         TFR     U,X
         JMP     RELINK          ; (the links again: the text moved)
