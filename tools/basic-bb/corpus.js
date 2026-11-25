@@ -16,8 +16,8 @@
 // "FRAME type TEXT" (\n is ENTER); FRAME counts from the RUN. # starts a comment.
 //
 // What is written, one JSON object a program: { program (the file's name), sha256 (of the .cas), machine, rom (the
-// ROM image's CRC-32), status, why, error (the last "?xx ERROR" line), listLines, list, samples: [{ frame, screen,
-// pix }], lint }. By default the text is hashed: list holds one hash a line and a sample's screen one hash, the first
+// ROM image's CRC-32), status, why, error (the last "?xx ERROR" line), listLines (program lines), list (the listing's
+// screen rows), samples: [{ frame, screen, pix }], lint }. By default the text is hashed: list holds one hash a row and a sample's screen one hash, the first
 // 16 hex digits of a SHA-256, enough to find where two runs part. The programs named in --full NAMES (a file, one name
 // or sha256 a line: the programs whose owners allow it) are written as text.
 //
@@ -36,15 +36,16 @@ const IO_LO = 0xFF00, IO_HI = 0xFFDF;
 const masked = (a) => a >= 0x8000 && !(a >= IO_LO && a <= IO_HI);
 const short = (s) => crypto.createHash('sha256').update(s).digest('hex').slice(0, 16);
 
-// The listing's screen rows joined into program lines: a row 32 characters long runs on into the next one.
+// The listing's screen rows joined into program lines, for the lint: a row starts a new line when it starts with a
+// line number (digits and a space) above the last one; any other row runs on from the row before. (Trailing spaces
+// are gone from the rows, so a row's length cannot say whether it wrapped.)
 function joinListing(rows) {
   const out = [];
-  let cur = null;
+  let last = -1;
   for (const r of rows) {
-    cur = cur == null ? r : cur + r;
-    if (r.length < 32) { out.push(cur); cur = null; }
+    const m = /^(\d+) /.exec(r), num = m ? Number(m[1]) : -1;
+    if (m && num > last || !out.length) { out.push(r); if (m) last = num; } else out[out.length - 1] += r;
   }
-  if (cur != null) out.push(cur);
   return out;
 }
 
@@ -107,7 +108,7 @@ function romGuard(m) {
 }
 const hex = (v) => v.toString(16).toUpperCase().padStart(4, '0');
 
-const ERR = /\?[A-Z/]{2} ERROR/;
+const ERR = /\?[A-Z0-9/]{2} ERROR/;
 
 // Run one program. -> the record (without program, sha256, rom).
 function runProgram(rom, cas, { name = 'PROGRAM', frames = 1500, every = 50, keys = [], full = false, loadFrames = 50 * 600 } = {}) {
@@ -129,12 +130,12 @@ function runProgram(rom, cas, { name = 'PROGRAM', frames = 1500, every = 50, key
   b.record();
   if (b.type('LIST\n') !== 'done') return { status: 'no-keyboard', at: 'LIST' };
   if (!b.waitOk({ limit: 50 * 600, stable: 5 })) return { status: 'list-timeout' };
-  const t = b.transcript();
-  const rows = t.slice(t[0] === 'LIST' ? 1 : 0, t[t.length - 1] === 'OK' ? -1 : undefined);
-  const list = joinListing(rows);
-  rec.listLines = list.length;
-  rec.list = full ? list : list.map(short);
-  const lint = corpusLint(list);
+  const t = b.transcript(), from = t.indexOf('LIST');
+  const rows = t.slice(from + 1, t[t.length - 1] === 'OK' ? -1 : undefined);
+  const lines = joinListing(rows);
+  rec.listLines = lines.length;
+  rec.list = full ? rows : rows.map(short);
+  const lint = corpusLint(lines);
   if (lint.length) return { ...rec, status: 'rom-read-possible', lint };
   // the run
   b.type('CLS\n'); b.waitOk();

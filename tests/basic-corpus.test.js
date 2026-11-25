@@ -3,17 +3,22 @@
 // Corpus mode of the black-box harness (tools/basic-bb/corpus.js):
 //  * the corpus lint finds EXEC, USR, DEFUSR, CLOADM, CSAVEM, VARPTR and every PEEK that might read the ROM, by kind
 //    and line number, and passes PEEK of RAM, of the I/O page and "... AND 32767", strings and remarks;
-//  * listing rows of 32 characters run on into the next row;
+//  * listing rows join into program lines by their line numbers;
 //  * the .keys sidecar parses, and a bad line is refused;
 //  * the guard, on our own ROM, trips on machine code that reads the ROM and on a ROM routine that reads ROM data and
 //    returns to machine code, and not on machine code that reads the I/O page or calls a routine that reads no ROM
 //    data, nor on a BASIC program that runs no machine code, nor on code in RAM that ran before it was armed;
 //  * compareCorpus reports a differing listing, the first RUN sample that parts, a differing status and error, and
-//    missing programs, and passes identical records.
-const { corpusLint, joinListing, parseKeys, romGuard } = require('../tools/basic-bb/corpus.js');
+//    missing programs, and passes identical records;
+//  * end to end on our own ROM, with tapes of programs typed into it (their bytes taken from memory, put on tape by
+//    buildCas): the listing comes back line by line (a line longer than a row joined), the run is sampled until it
+//    ends, the error line is caught, a program the lint refuses is listed but not run, the text is hashed unless
+//    asked for in full, and the CLI's two runs compare as identical.
+const { corpusLint, joinListing, parseKeys, romGuard, runProgram } = require('../tools/basic-bb/corpus.js');
+const fs = require('fs'), os = require('os'), path = require('path'), { execFileSync } = require('child_process');
 const { compareCorpus } = require('../tools/basic-bb/compare.js');
 const { buildBasic } = require('../tools/build-basic.js');
-const { Basic } = require('./basic/harness.js');
+const { Basic, Emu } = require('./basic/harness.js');
 
 let fail = 0, n = 0;
 const check = (name, cond, detail = '') => { n++; if (!cond) { fail++; console.log(`FAIL ${name} ${detail}`); } else console.log(`ok   ${name} ${detail}`); };
@@ -30,9 +35,10 @@ for (const line of ['10 X=PEEK(1024)', '10 IF PEEK(65280)=127 THEN 10', '10 X=PE
   check(`corpus lint passes: ${line}`, corpusLint([line]).length === 0);
 
 // ---- listing rows ----
-const long = '10 PRINT "' + 'A'.repeat(22);   // exactly 32 characters
-check('a 32-character row runs on', JSON.stringify(joinListing([long, 'B"', '20 END'])) === JSON.stringify([long + 'B"', '20 END']));
-check('short rows stay lines', JSON.stringify(joinListing(['10 A=1', '20 B=2'])) === JSON.stringify(['10 A=1', '20 B=2']));
+const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+check('rows without a line number run on', same(joinListing(['10 PRINT "A', 'B"', '20 END']), ['10 PRINT "A' + 'B"', '20 END']));
+check('a row starting with a lower number runs on', same(joinListing(['10 A=1', '20 PRINT "', '15 POINTS"', '30 B=2']), ['10 A=1', '20 PRINT "15 POINTS"', '30 B=2']));
+check('numbered rows are lines', same(joinListing(['10 A=1', '20 B=2']), ['10 A=1', '20 B=2']));
 
 // ---- the .keys sidecar ----
 const ev = parseKeys('# a comment\n100 keys SPACE\n200 keys SHIFT+UP 10\n300 type YES\\n\n');
@@ -95,6 +101,39 @@ check('compareCorpus: shorter run', /after frame 50 \(2 vs 1 samples\)/.test(cmp
 check('compareCorpus: status and error', /status ok vs rom-read.*error null vs "\?SN ERROR IN 20"/.test(cmp(rec(), rec({ status: 'rom-read', error: '?SN ERROR IN 20' })).report[0] || ''));
 check('compareCorpus: full text shown', /"10 A=1" vs "10 A=2"/.test(cmp(rec({ full: true, list: ['10 A=1'] }), rec({ full: true, list: ['10 A=2'] })).report[0] || ''));
 check('compareCorpus: missing', /missing from the second file/.test(cmp(rec(), null).report[0] || ''));
+
+// ---- end to end on our own ROM ----
+function tape(lines, name) {
+  const b = new Basic(rom);
+  b.waitOk({ limit: 600, stable: 3 });
+  for (const l of lines) b.type(l + '\n');
+  b.run(20);
+  const w = (a) => (b.m.ram[a] << 8) | b.m.ram[a + 1], start = w(s('TXTTAB')), end = w(s('VARTAB'));
+  return Emu.buildCas([{ name, type: 'basic', data: b.m.ram.slice(start, end) }]);
+}
+const prog = ['10 CLS:PRINT "HELLO"', '20 FOR I=1 TO 3:PRINT I:NEXT', '30 PRINT "A LINE THAT IS LONGER THAN ONE ROW OF THE SCREEN"', '40 PRINT 1/0'];
+const listed = ['10 CLS:PRINT "HELLO"', '20 FOR I=1 TO 3:PRINT I:NEXT', '30 PRINT "A LINE THAT IS LONGER', 'THAN ONE ROW OF THE SCREEN"', '40 PRINT 1/0'];
+const cas = tape(prog, 'DEMO');
+const full = runProgram(rom, cas, { name: 'DEMO', full: true, frames: 400, every: 25 });
+check('run: the listing, row by row', same(full.list, listed) && full.listLines === 4, JSON.stringify(full.list));
+check('run: ended, with its error line', full.status === 'ended' && full.error === '?/0 ERROR IN 40', `${full.status} ${full.error}`);
+check('run: the samples show the program\'s output', full.samples.length > 1 && full.samples[0].screen[0] === 'HELLO' && full.samples[0].screen.includes(' 3') && /^[0-9a-f]{16}$/.test(full.samples[0].pix), JSON.stringify(full.samples[0]));
+const hashed = runProgram(rom, cas, { name: 'DEMO', frames: 400, every: 25 });
+check('run: hashed by default', hashed.list.length === 5 && hashed.list.every((h) => /^[0-9a-f]{16}$/.test(h)) && typeof hashed.samples[0].screen === 'string' && !JSON.stringify(hashed).includes('HELLO'));
+const peeky = runProgram(rom, tape(['10 PRINT PEEK(40000)', '20 PRINT "NEVER"'], 'PEEKY'), { name: 'PEEKY', full: true });
+check('run: a program the lint refuses is listed, not run', peeky.status === 'rom-read-possible' && !peeky.samples && peeky.lint.length === 1 && peeky.lint[0].line === '10' && peeky.listLines === 2, JSON.stringify(peeky));
+{
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'corpus-'));
+  fs.writeFileSync(path.join(dir, 'DEMO.cas'), cas);
+  fs.writeFileSync(path.join(dir, 'DEMO.keys'), '# no keys are read: the run must still match\n30 keys SPACE\n');
+  const cli = (out, extra = []) => execFileSync(process.execPath, [path.join(__dirname, '../tools/basic-bb/corpus.js'), '--ours', '--corpus', dir, '--out', path.join(dir, out), '--frames', '300', ...extra], { encoding: 'utf8' });
+  cli('a.jsonl'); cli('b.jsonl');
+  const r = JSON.parse(fs.readFileSync(path.join(dir, 'a.jsonl'), 'utf8'));
+  check('cli: one record, with the tape\'s sha256 and the ROM\'s CRC', r.program === 'DEMO.cas' && /^[0-9a-f]{64}$/.test(r.sha256) && /^[0-9A-F]{8}$/.test(r.rom) && r.full === false);
+  const cmp2 = execFileSync(process.execPath, [path.join(__dirname, '../tools/basic-bb/compare.js'), path.join(dir, 'a.jsonl'), path.join(dir, 'b.jsonl')], { encoding: 'utf8' });
+  check('cli: two runs compare as identical', /1 programs identical/.test(cmp2), cmp2.trim());
+  fs.rmSync(dir, { recursive: true, force: true });
+}
 
 console.log(`\n${n - fail}/${n} passed`);
 process.exitCode = fail ? 1 : 0;
