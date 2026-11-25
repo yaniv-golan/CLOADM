@@ -11,7 +11,8 @@
 // might read the ROM is refused. Each case runs on a fresh machine typed through the keyboard; the output is one
 // JSON object a line: { case, machine, rom (the CRC-32 of the ROM image, to tell runs apart), status, frames,
 // transcript (the lines that reached the screen, in order), flags, and shots (each #screenshot: the picture as a PNG
-// and the SHA-256 of its pixels) }. Nothing of the ROM but its CRC is written.
+// and the SHA-256 of its pixels), and sounds (each #wav ... #wav-stop: measures only, tests/basic/harness.js
+// soundMeasures) }. Nothing of the ROM but its CRC is written, and no sound but its measures.
 const fs = require('fs'), path = require('path');
 const { runCase, Emu } = require('../../tests/basic/harness.js');
 const { lintCase } = require('./lint.js');
@@ -42,7 +43,7 @@ function main() {
     const problems = lintCase(text);
     if (problems.length) { console.error(`${name}: refused by the lint:\n  ${problems.join('\n  ')}`); failed++; continue; }
     const r = runCase(rom, text);
-    lines.push(JSON.stringify({ case: name, machine: 'dragon64', rom: crc, status: r.status, ...(r.at ? { at: r.at } : {}), ...(r.why ? { why: r.why } : {}), frames: r.frames, transcript: r.transcript, flags: r.flags, ...(r.shots ? { shots: r.shots } : {}) }));
+    lines.push(JSON.stringify({ case: name, machine: 'dragon64', rom: crc, status: r.status, ...(r.at ? { at: r.at } : {}), ...(r.why ? { why: r.why } : {}), frames: r.frames, transcript: r.transcript, flags: r.flags, ...(r.shots ? { shots: r.shots } : {}), ...(r.sounds ? { sounds: r.sounds } : {}) }));
     console.log(`${r.status.padEnd(8)} ${name} (${r.frames} frames${r.flags.length ? `, ${r.flags.length} flags` : ''})`);
     if (r.status !== 'ok') failed++;
   }

@@ -25,6 +25,10 @@ function sheet(name, text) {
     else if (m[1] === 'frames') what = `Wait ${(Number(m[2]) / 50).toFixed(1)} seconds.`;
     else if (m[1] === 'wait-text') what = `Wait until the screen shows ${m[2]}.`;
     else if (m[1] === 'nowait') { nowait = true; continue; }
+    else if (m[1] === 'screenshot') what = `Photograph the screen (picture "${m[2]}").`;
+    else if (m[1] === 'wav') what = `Start recording the speaker (sound "${m[2]}").`;
+    else if (m[1] === 'wav-stop') what = 'Stop recording the speaker.';
+    else if (m[1] === 'joy') { const [n, v] = m[2].trim().split(/\s+/); what = `Set the ${n < 2 ? 'right' : 'left'} joystick's ${n % 2 ? 'up-down' : 'left-right'} position so that JOYSTK(${n}) reads ${v} (0-63).`; }
     else continue;                                   // #timeout: nothing to do by hand
     out.push(`${step++}. ${what}`);
   }

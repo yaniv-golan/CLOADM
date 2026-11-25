@@ -8,7 +8,11 @@
 //  * the transcript keeps a line that scrolls off even when every line on the screen is the same, and a write over
 //    the top row that is not a scroll is flagged;
 //  * the build: tokens.json becomes equates, keyword tables and dispatch tables; a repeated token is refused; the
-//    image is 16K with the reset vector pointing at RESET.
+//    image is 16K with the reset vector pointing at RESET;
+//  * P2 (docs/clean-room-basic-p2.md sections 11 and 12): the graphics lint (pages, points, POKE to a page, the
+//    directives); the sound measures on hand-built DAC events (period, tones split by a gap, sound off or a pitch
+//    change but not by one odd period, a stepped wave, measures only) and compare's tolerances; #wav, #joy and a
+//    graphics mode shown, end to end on our ROM, driven through the PIAs and the SAM with POKE; the typing sheet.
 const { lintCase } = require('../tools/basic-bb/lint.js');
 const { compare } = require('../tools/basic-bb/compare.js');
 const { buildBasic, tokensInc } = require('../tools/build-basic.js');
@@ -118,6 +122,118 @@ check('build: $8000-$80FF is left free for later fixed entry points', built.rom.
   check('guard: a case that runs code it wrote is refused, nothing recorded', r.status === 'refused' && r.transcript.length === 0 && /\$4E20/.test(r.why), `${r.status} ${r.why}`);
   const plain = runCase(built.rom, 'POKE 20000,59\nPRINT PEEK(20000)\n');
   check('guard: writing RAM without running it is fine', plain.status === 'ok' && plain.transcript.includes(' 59'), plain.status);
+}
+
+// ---- P2 (docs/clean-room-basic-p2.md sections 11 and 12) ----
+
+// the lint for graphics: pages within what the case reserves, points kept small, POKE to a page only with no PCLEAR
+for (const bad of ['PCLEAR A', 'PCLEAR 10', 'PMODE 4,2', 'PMODE 3,3', 'PMODE 0,9', 'PMODE 0,P', 'PCLEAR 2\nPMODE 3,1',
+  'PCLEAR 8\nPCLEAR 1\nPMODE 1,1', 'PMODE M,2', 'PMODE 0,4\nPMODE 4', 'PCOPY 1 TO 5', 'PCOPY A TO 2', 'PCLEAR 2\nPCOPY 1 TO 3',
+  'PCLEAR 4\n10 POKE 1536,255', '10 POKE 7680,1', '10 PSET(X,Y)', '10 PSET(600,0)', '10 PSET(0,256)', '10 PSET(-1,0)',
+  '10 PRESET(X AND 511,1)', '10 LINE(0,0)-(X,Y),PSET', '10 LINE -(0,A),PSET', '10 PRINT PPOINT(X,Y)', '10 A=POINT(I,0)',
+  '10 CIRCLE(128,96),R', '10 CIRCLE(128,96),300', '10 PAINT(X,1),2,3', '10 GET(0,0)-(X,7),A,G', '10 PUT(0,Y)-(7,7),A,PSET',
+  '10 SET(A,1,3)', '10 RESET(1,B)', '10 PSET(A(1),2)', '10 PSET(X AND 255 OR 4096,1)', '10 IF 1 THEN PSET(1,2) ELSE PSET(Y,2)',
+  '#bogus', '#joy 4 1', '#joy 0 64', '#joy 0', '#frames x', '#wait-text (', '#wav-start a'])
+  check(`lint refuses ${bad.replace(/\n/g, ' / ')}`, refused(bad));
+for (const good of ['PCLEAR 1', 'PCLEAR 0', 'PCLEAR 9', 'PMODE 4,1', 'PMODE 0,4', 'PMODE 1,3', 'PCLEAR 8\nPMODE 4,5', 'PMODE M,1',
+  'PMODE 0,4\nPMODE 0', 'PCOPY 1 TO 4', 'PCLEAR 8\nPCOPY 1 TO 8', '10 POKE 1536,255', '10 POKE 7679,1', '10 PSET(255,191)',
+  '10 PSET(X AND 255,Y AND 127,3)', '10 PRESET((X+1) AND 255,0)', '10 LINE(0,0)-(255,191),PSET,BF', '10 LINE-(10,20),PRESET',
+  '10 PRINT PPOINT(I AND 255,J AND 127)+A(I)', '10 A=POINT(63,31)', '10 CIRCLE(128,96),R AND 127,2,.5,.25,.75',
+  '10 CIRCLE(128,96),255', '10 PAINT(128,96),2,3', '10 GET(0,0)-(15,7),A,G', '10 PUT(8,8)-(23,15),A,NOT', '10 SET(63,31,3)',
+  '10 INPUT A(I)', '10 LINE INPUT A$', '10 PSET(300,200)', '10 DRAW "BM128,96R10"', '10 PRINT "PSET(X,Y)"', '10 COLOR C,0:SCREEN 1,S',
+  '#wav a\nSOUND 1,1\n#wav-stop', '#joy 3 63', '#screenshot x', '#wait-text Q1$|ERROR IN 1\\d\\d', '#frames 10\n#timeout 60'])
+  check(`lint accepts ${good.replace(/\n/g, ' / ')}`, !refused(good));
+
+// sound measures, on hand-built DAC events: a square wave of a given period, written every half period
+{
+  const { soundMeasures } = require('./basic/harness.js');
+  const square = (t0, period, n, lo = 0, hi = 63) => Array.from({ length: n }, (_, i) => ({ t: t0 + i * period / 2, v: i & 1 ? hi : lo, on: true, dac: true }));
+  const one = soundMeasures(square(100, 1000, 40), { cycles: 50000 });
+  const t1 = one.tones[0] || {};
+  check('sound: one square tone: its period, periods, length, levels', one.tones.length === 1 && t1.period === 1000 && t1.periods === 19 && t1.length === 19500 && t1.start === 100 && t1.levels === 2 && t1.low === 0 && t1.high === 63 && t1.writes === 40, JSON.stringify(one.tones));
+  check('sound: the window\'s writes, heard writes and length', one.writes === 40 && one.heard === 40 && one.cycles === 50000);
+  // an interrupt stretches one period by 300 cycles: still one tone, and the median ignores it
+  const ev = square(0, 1000, 40).map((e, i) => (i >= 21 ? { ...e, t: e.t + 300 } : e));
+  const st = soundMeasures(ev);
+  check('sound: one stretched period neither splits the tone nor moves its period', st.tones.length === 1 && st.tones[0].period === 1000, JSON.stringify(st.tones.map((t) => t.period)));
+  // two pitches back to back, no gap: split where the pitch changes
+  const a = square(0, 1000, 20), b = square(20 * 500, 800, 20);
+  const two = soundMeasures([...a, ...b]);
+  check('sound: a pitch change with no gap makes two tones', two.tones.length === 2 && two.tones[0].period === 1000 && two.tones[1].period === 800, JSON.stringify(two.tones.map((t) => [t.period, t.periods])));
+  // the same pitch twice: a gap over 20,000 cycles splits it, a shorter one does not
+  const gap = (g) => soundMeasures([...square(0, 1000, 20), ...square(19 * 500 + g, 1000, 20)]).tones.length;
+  check('sound: a gap of more than 20,000 cycles ends a tone', gap(25000) === 2 && gap(15000) === 1, `${gap(25000)} ${gap(15000)}`);
+  // sound turned off between two notes: two tones; writes while off are counted but are no tone
+  const offOn = [...square(0, 1000, 10), { t: 5000, v: 0, on: false, dac: false }, ...square(6000, 1000, 6).map((e) => ({ ...e, on: false })), { t: 9500, v: 0, on: true, dac: false }, ...square(10000, 1000, 10)];
+  const oo = soundMeasures(offOn);
+  check('sound: sound off between two notes splits them, and silent writes make no tone', oo.tones.length === 2 && oo.writes === 26 && oo.heard === 20, JSON.stringify({ t: oo.tones.length, w: oo.writes, h: oo.heard }));
+  // a stepped wave (four levels a half period): the period is still the rising crossings' spacing
+  const stair = [0, 21, 42, 63, 42, 21];
+  const sw = soundMeasures(Array.from({ length: 60 }, (_, i) => ({ t: i * 200, v: stair[i % 6], on: true, dac: true })));
+  check('sound: a stepped wave: its period, and four distinct levels', sw.tones.length === 1 && sw.tones[0].period === 1200 && sw.tones[0].levels === 4 && sw.tones[0].low === 0 && sw.tones[0].high === 63, JSON.stringify(sw.tones));
+  // measures only: no list of levels or times ever leaves (decision 5)
+  const keys = (o) => Object.keys(o).sort().join(',');
+  check('sound: the window holds measures only', keys(soundMeasures(square(0, 1000, 8), { end: { enabled: true, mux: 0 } })) === 'cycles,end,heard,sha256,tones,writes');
+  check('sound: a tone holds measures only', keys(t1) === 'high,length,levels,low,period,periods,start,writes');
+  const ev2 = square(0, 1000, 40); ev2[10] = { ...ev2[10], v: 62 };
+  check('sound: the hash tells apart two runs the measures do not', soundMeasures(ev2).sha256 !== one.sha256 && soundMeasures(square(100, 1000, 40)).sha256 === one.sha256);
+
+  // compare: tolerances
+  const { compareSounds } = require('../tools/basic-bb/compare.js');
+  const win = (tones, end = { enabled: true, mux: 0 }) => [{ name: 'w', end, tones }];
+  const tone = (o) => ({ start: 0, length: 20000, period: 1000, periods: 19, writes: 40, levels: 2, low: 0, high: 63, ...o });
+  check('compare sounds: identical measures pass', compareSounds(win([tone()]), win([tone()])).length === 0);
+  check('compare sounds: period within 0.5%, length within a field, levels count and writes ignored', compareSounds(win([tone()]), win([tone({ period: 1004, length: 37000, levels: 7, writes: 90, start: 900000 })])).length === 0);
+  check('compare sounds: a period 0.6% off is reported', compareSounds(win([tone()]), win([tone({ period: 1006 })])).some((l) => /period/.test(l)));
+  check('compare sounds: a length more than a field off is reported', compareSounds(win([tone()]), win([tone({ length: 40000 })])).some((l) => /length/.test(l)));
+  check('compare sounds: a different swing is reported', compareSounds(win([tone()]), win([tone({ low: 1, high: 62 })])).some((l) => /levels/.test(l)));
+  check('compare sounds: a different number of tones is reported', compareSounds(win([tone()]), win([tone(), tone({ start: 50000 })])).some((l) => /tones/.test(l)));
+  check('compare sounds: a longer silence between tones is reported', compareSounds(win([tone(), tone({ start: 30000 })]), win([tone(), tone({ start: 60000 })])).some((l) => /silence/.test(l)));
+  check('compare sounds: the state at the end is compared', compareSounds(win([tone()]), win([tone()], { enabled: true, mux: 1 })).some((l) => /end/.test(l)));
+  const r1 = { case: 'q', status: 'ok', transcript: ['OK'], sounds: win([tone()]) }, r2 = { ...r1, sounds: win([tone({ period: 1100 })]) };
+  check('compare: a case whose sound differs is not identical', compare(new Map([['q', r1]]), new Map([['q', r2]])).same === 0 && compare(new Map([['q', r1]]), new Map([['q', r1]])).same === 1);
+}
+
+// #wav, #joy and graphics on our ROM, driven through the PIAs and the SAM with POKE (these cases are not linted:
+// they are the harness's own tests, never run on the real ROM)
+{
+  const { runCase } = require('./basic/harness.js');
+  // sound on (PIA1 CB2 high), then 20 cycles of a square wave from a BASIC loop, a pause of about a second, 20 more
+  const prog = '10 POKE 65315,PEEK(65315) OR 8\n20 FOR I=1 TO 20:POKE 65312,0:POKE 65312,252:NEXT\n30 FOR I=1 TO 300:NEXT\n40 FOR I=1 TO 20:POKE 65312,0:POKE 65312,252:NEXT\n';
+  const r = runCase(built.rom, `${prog}#wav loop\nRUN\n#wav-stop\n`);
+  const s = r.sounds && r.sounds[0], tn = s ? s.tones : [];
+  check('#wav: a run with its sound measured', r.status === 'ok' && !!s && s.name === 'loop', r.status);
+  check('#wav: the two loops are two tones, the pause between them', tn.length === 2 && tn.every((t) => t.periods === 19 && t.low === 0 && t.high === 63) && tn[1].levels === 2 && tn[1].start - tn[0].start - tn[0].length > 20000, JSON.stringify(tn));
+  check('#wav: the same loop gives the same period', tn.length === 2 && Math.abs(tn[0].period - tn[1].period) < 0.01 * tn[0].period && tn[0].period > 1000, JSON.stringify(tn.map((t) => t.period)));
+  check('#wav: 80 DAC writes, all heard; sound left on with the DAC selected', !!s && s.writes === 80 && s.heard === 80 && s.end.enabled === true && s.end.mux === 0, JSON.stringify(s && { w: s.writes, h: s.heard, e: s.end }));
+  const again = runCase(built.rom, `${prog}#wav loop\nRUN\n#wav-stop\n`);
+  check('#wav: the same run gives the same hash', !!s && again.sounds[0].sha256 === s.sha256);
+  const quiet = runCase(built.rom, `${prog.replace('OR 8', 'AND 247')}#wav off\nRUN\n#wav-stop\n`);
+  check('#wav: with sound off, writes but no tones', quiet.sounds && quiet.sounds[0].writes === 80 && quiet.sounds[0].heard === 0 && quiet.sounds[0].tones.length === 0, JSON.stringify(quiet.sounds));
+  check('#wav: left recording at the end of a case, it is stopped there', (runCase(built.rom, '#wav open\nPRINT 1\n').sounds || []).map((x) => x.name).join() === 'open');
+  for (const bad of ['#wav a\n#wav b\n', '#wav-stop\n', '#joy 4 10\n', '#joy 0 64\n', '#joy 1\n'])
+    check(`directive refused: ${bad.trim().replace(/\n/g, ' / ')}`, runCase(built.rom, bad).status === 'bad-directive');
+  // #joy: the comparator (PIA0 PA7) against the DAC for the right joystick's x (the multiplexer's reset setting)
+  const joy = runCase(built.rom, '#joy 0 40\nPOKE 65312,156:PRINT PEEK(65280) AND 128\nPOKE 65312,164:PRINT PEEK(65280) AND 128\n#joy 0 41\nPOKE 65312,164:PRINT PEEK(65280) AND 128\n');
+  const answers = joy.transcript.filter((l) => /^ \d+$/.test(l)).join();
+  check('#joy: sets the axis the comparator reads (40 >= 39, 40 < 41, 41 >= 41)', joy.status === 'ok' && answers === ' 128, 0, 128', answers);
+  // the right joystick's y (the multiplexer's CA2 high: PIA0 CRA bit 3) and the left one's x (CB2 high: CRB bit 3)
+  const sel = (reg, dac) => `POKE ${reg},PEEK(${reg}) OR 8:POKE 65312,${dac * 4}:A=PEEK(65280) AND 128:POKE ${reg},PEEK(${reg}) AND 247:PRINT A\n`;
+  const axes = runCase(built.rom, `#joy 1 50\n#joy 2 10\n${sel(65281, 49)}${sel(65281, 51)}${sel(65283, 9)}${sel(65283, 11)}`);
+  const got = axes.transcript.filter((l) => /^ \d+$/.test(l)).join();
+  check('#joy: axis 1 is the right joystick\'s y, axis 2 the left one\'s x (50 >= 49, 50 < 51, 10 >= 9, 10 < 11)', axes.status === 'ok' && got === ' 128, 0, 128, 0', got);
+  // a graphics mode shown with the SAM's offset moved off the text screen: the text behind it is still read
+  const g = runCase(built.rom, 'POKE 65314,PEEK(65314) OR 128:POKE 65479,0:PRINT "HI"\nPRINT "AGAIN"\n#screenshot g\n');
+  check('graphics shown: the OK prompt and the text behind the picture are read', g.status === 'ok' && g.transcript.includes('HI') && g.transcript.includes('AGAIN'), `${g.status} ${g.at || ''}`);
+  const t = runCase(built.rom, 'PRINT "HI"\nPRINT "AGAIN"\n#screenshot g\n');
+  check('graphics shown: the picture is not the text screen\'s', t.shots && g.shots && t.shots[0].sha256 !== g.shots[0].sha256);
+}
+
+// the typing sheet spells out the P2 directives
+{
+  const { sheet } = require('../tools/basic-bb/sheet.js');
+  const sh = sheet('p2', '#joy 3 10\n#wav tune\nSOUND 100,5\n#wav-stop\n#screenshot pic\n');
+  check('sheet: #joy, #wav, #wav-stop and #screenshot as steps', /left joystick's up-down position so that JOYSTK\(3\) reads 10[^]*Start recording the speaker \(sound "tune"\)[^]*Type:  SOUND 100,5[^]*Stop recording[^]*Photograph the screen \(picture "pic"\)/.test(sh), sh);
 }
 
 console.log(`\n${n - fail}/${n} passed`);

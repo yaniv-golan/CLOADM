@@ -5,8 +5,9 @@
 // line that reached the screen, tests/basic/harness.js) must be exactly tests/basic/expected/<case>.txt, with the
 // case ending normally and nothing flagged. Each expected file's first lines (#) give where its output comes from:
 // [UM] the user manuals, [BB] a black-box run on the real ROM, [OWN] our own decision. Cases marked "# bb-only"
-// are for the black-box run alone (the probes) and are only linted here. Every case passes the lint
-// (tools/basic-bb/lint.js), so the same files can be run on the real ROM.
+// are for the black-box run alone (the probes, and the P2 graphics and sound cases, gfx-* and snd-*, whose statements
+// our ROM does not have yet: tools/basic-bb/run.js --ours runs them to the end) and are only linted here. Every case
+// passes the lint (tools/basic-bb/lint.js), so the same files can be run on the real ROM.
 const fs = require('fs'), path = require('path');
 const { buildBasic } = require('../tools/build-basic.js');
 const { runCase } = require('./basic/harness.js');
