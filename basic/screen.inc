@@ -3,7 +3,9 @@
 * $40-$5F as itself, and lower case ($60-$7F) as the inverse upper-case letter [HW, UM].
 
 * CHROUT: print the character in A. Keeps every register.
-CHROUT  PSHS    D,X
+CHROUT  TST     <CASOUT         ; CSAVE ,A: to the tape instead (cassette.inc)
+        LBNE    CHRTAP
+        PSHS    D,X
         LDX     <CURPOS
         CMPA    #13
         BEQ     CHRCR

@@ -54,6 +54,13 @@ FPT6    RMB     5
 POLYV   RMB     5               ; POLY's variable
 FBUFFR  RMB     64              ; number to text (FOUT) and PRINT USING's work (FBUFFR+20 on)
 LNSBUF  RMB     6               ; a line number as digits (LINSTR)
+* the cassette (cassette.inc): a namefile block's contents, in its order [FMT]
+CNAME   RMB     8               ; the file name, padded with spaces
+CFTYP   RMB     1               ; the file type: 0 BASIC, 2 machine code
+CFASC   RMB     1               ; $FF: saved as text
+CFGAP   RMB     1               ; $FF: the motor stops between blocks
+CFEXEC  RMB     2               ; the exec address
+CFLOAD  RMB     2               ; the load address
 SYSEND  RMB     0               ; (must stay at or below LINBUF: tools/build-basic.js checks it)
 
 * ---------------- direct page ----------------
@@ -167,6 +174,18 @@ USNEG   RMB     1
 USK     RMB     1
 USW     RMB     1
 USEXP   RMB     2
+CNLEN   RMB     1               ; the cassette (cassette.inc): the name's length, 0 for any file
+CBTYP   RMB     1               ; a block's type and length (CBLEN must follow CBTYP)
+CBLEN   RMB     1
+CBCNT   RMB     1               ; the bytes still to read
+CSUM    RMB     1               ; the checksum
+CBYTE   RMB     1               ; the byte being read
+CCNT    RMB     1               ; its bits still to read
+CLEAD   RMB     1               ; a leader has been heard
+CLDBAS  RMB     1               ; a program is being loaded (cleared on an error)
+CASOUT  RMB     1               ; CHROUT goes to the tape (CSAVE ,A)
+CBIDX   RMB     1               ; the bytes in the text block
+CEND    RMB     2               ; the end of the data to write; CLOADM's offset
 BASESP  RMB     2               ; the stack the OK prompt and CONT use: frames above it survive a STOP
 FRMSP   RMB     2               ; the stack and the text at the start of the statement running
 STMTXT  RMB     2
@@ -196,6 +215,7 @@ DPEND   RMB     0
         INCLUDE "misc.inc"
         INCLUDE "io.inc"
         INCLUDE "using.inc"
+        INCLUDE "cassette.inc"
         INCLUDE "fp.inc"
         INCLUDE "fpconv.inc"
         INCLUDE "tokens.inc"

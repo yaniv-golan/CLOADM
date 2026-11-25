@@ -54,7 +54,7 @@ class Basic {
   // same column of the row below (a block move). Writes that are not a move and overwrite text in the top row are
   // flagged, so a line is never lost silently. transcript() adds the screen as it is now.
   record() {
-    if (this.taps) for (const t of this.taps) t.remove();
+    if (this.taps) for (const remove of this.taps) remove();   // (each tap gives back its remove function)
     const m = this.m, recent = [];
     this.lines = []; this.flags = [];
     const SCR = 0x400;
