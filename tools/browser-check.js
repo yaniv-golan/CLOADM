@@ -18979,7 +18979,7 @@ async function uiQaChecks(browser, base, check) {
       const meets = (a, b) => !(a.bottom <= b.top || a.top >= b.bottom || a.right <= b.left || a.left >= b.right);
       return { toast: { l: Math.round(tr.left), t: Math.round(tr.top), r: Math.round(tr.right), b: Math.round(tr.bottom) },
         screen: { l: Math.round(cr.left), t: Math.round(cr.top), r: Math.round(cr.right), b: Math.round(cr.bottom) },
-        titleRow, row: { t: Math.round(top), b: Math.round(bottom) }, visible: t.checkVisibility() && tr.width > 0 && tr.height > 0,
+        titleRow, row: { t: Math.round(top), b: Math.round(bottom) }, visible: t.checkVisibility({ visibilityProperty: true, opacityProperty: true }) && tr.width > 0 && tr.height > 0,
         overlapsTitle: meets(tr, { left: cr.left, right: cr.right, top, bottom }) };
     });
     check(`ui qa (${label}): "LIZA loaded" is visible and covers no part of the screen's title row`,
