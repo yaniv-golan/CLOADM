@@ -9,6 +9,7 @@
 * the motor. Interrupts are off while the tape is timed.
 
 CTHR    EQU     42              ; CRBIT: fewer loop passes than this make a short cycle, a 1 [OWN]
+CTHRH   EQU     23              ; the same for a high half alone (its loop is the first, 12 cycles a pass) [OWN]
 CH0     EQU     66              ; CWBYTE: delay passes for a 1200 Hz cycle and a 2400 Hz one [OWN, from the
 CH1     EQU     29              ; CPU's 888625 Hz clock and the loops' cycle counts]
 CLEADN  EQU     128             ; leader bytes before every block written [FMT]
@@ -29,22 +30,28 @@ MOT1    STB     PIA1CA
 
 * ---------------- reading ----------------
 * CRBIT: one bit: the time from this rising edge of the input to the next, in loop passes; C set for a short
-* cycle (a 1). While the input is quiet, BREAK stops the cassette statement. Uses A, B.
+* cycle (a 1). While the input is quiet, BREAK stops the cassette statement; a quiet input after a bit's high half (a
+* tape that ends with its last bit, with no $55 after the block) decides the bit by that half alone [OWN]. Uses A, B.
 CRBIT   CLRB
 CRB1    INCB
         LDA     PIA1A
         LSRA
         BCS     CRB1
+        PSHS    B               ; the high half's passes
 CRB2    INCB
-        BEQ     CRBRK
-CRB3    LDA     PIA1A
+        BEQ     CRQ
+        LDA     PIA1A
         LSRA
         BCC     CRB2
+        LEAS    1,S
         CMPB    #CTHR
         RTS
-CRBRK   JSR     BRKTST
-        BCC     CRB3
-        LDB     #$FF
+CRQ     JSR     BRKTST
+        BCS     CRBRK
+        PULS    B
+        CMPB    #CTHRH
+        RTS
+CRBRK   LDB     #$FF
         BRA     CASERR
 
 * CRBYTE: a byte, least significant bit first, into A (and CBYTE)

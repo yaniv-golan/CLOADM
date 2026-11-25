@@ -190,6 +190,20 @@ const mcTape = Emu.buildCas([{ name: 'MC', type: 'binary', load: 0x3000, exec: 0
   insert(b, Emu.buildCas([{ name: 'TOK', type: 'basic', data }]));
   check('CLOADM of a program: ?FM ERROR', after(b, 'CLOADM').includes('?FM ERROR'));
 }
+// a tape that ends right after the last block's checksum, with no $55 after it (archive .cas files often lack it):
+// the last bit has no edge after it, and the load must still finish
+{
+  const l1 = [0x00, 0x0A, tok('T_PRINT'), ...bytes('"END"'), 0], a2 = PROGST + 2 + l1.length;
+  const data = [a2 >> 8, a2 & 0xFF, ...l1, 0, 0];
+  const tape = Emu.buildCas([{ name: 'CUT', type: 'basic', data }]);
+  check('a tape built normally ends with $55 (the cut below is real)', tape[tape.length - 1] === 0x55 && tape[tape.length - 2] === 0xFF);
+  const b = boot();
+  insert(b, tape.slice(0, -1));
+  let s, err = null;
+  try { s = after(b, 'CLOAD', 3000); } catch (e) { err = e.message; }
+  check('CLOAD of a tape with no $55 after its last block: it finishes', !err && s[s.length - 1] === 'OK' && eq(listing(b), ['10 PRINT"END"']), err || JSON.stringify(s));
+  check('... and the motor is off', !err && !b.m.deck.motor);
+}
 // a program as text, in two blocks; a text line without a number
 {
   const text = [];

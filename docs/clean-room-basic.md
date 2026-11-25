@@ -444,7 +444,9 @@ The log grows with every milestone; black-box facts are added with the date of t
 the tape (so `TIMER` does not count then [OWN]), and the motor runs through a file (a text file's gaps aside).
 
 * **Reading a bit:** the time from one rising edge of PA0 to the next, counted in loop passes; fewer than `CTHR` is a
-  short cycle, a 1. While the input is quiet BREAK is looked at, and stops the statement (back to `OK`, the motor off).
+  short cycle, a 1. While the input is quiet BREAK is looked at, and stops the statement (back to `OK`, the motor off);
+  if it stays quiet after a bit's high half, that half alone decides the bit (`CTHRH`), so a tape that ends right
+  after its last block's checksum, with no `$55` after it (as many archived `.cas` files do), still loads.
 * **Finding a block:** bits are shifted in until the last eight are `$3C` after a leader (`$55`, or `$AA` a bit
   out) has been heard; then the type, the length, the data and the checksum.
 * **Finding a file:** namefile blocks are read until one has the name asked for (any, without a name); each one met
