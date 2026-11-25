@@ -1,4 +1,4 @@
-# [UM] PEEK, POKE (into memory set aside with CLEAR), DEF FN, MEM, POS, TIMER, RND; [OWN] MEM checked only for its range; provisional until the black-box run
+# [BB bb1] the real ROM's transcript: DEF FN with a string name is ?TM ERROR
 OK
 CLEAR 200,30000
 OK
@@ -16,7 +16,7 @@ OK
 50 PRINT FN A$(3)
 RUN
  9  6  5
-***
+?TM ERROR IN 40
 OK
 PRINT FN SQ(4)
  16

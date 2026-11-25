@@ -89,15 +89,13 @@ DEF1    CMPA    #T_FN
 * value back (?UF ERROR if the function was never defined)
 FNCALL  JSR     <ZCHRGET
         BSR     FNNAME
-        LDA     <VALTYP
-        PSHS    A               ; the function's type
         CLR     <VARCRE
         JSR     PTRLKP
         CMPX    #ZEROV
         BNE     FNC1
         LDB     #ERR_UF
         JMP     ERROR
-FNC1     PSHS    X               ; the definition, over the type
+FNC1     PSHS    X               ; the definition
         JSR     <ZFNARGN          ; the argument
         LDX     ,S
         LDU     2,X             ; the parameter: its own value kept on the stack
@@ -125,16 +123,14 @@ FNC3     LDA     B,S
         DECB
         BPL     FNC3
         LEAS    7,S             ; the saved value and the definition
-        PULS    A
-        CMPA    <VALTYP
-        LBNE    TMERR
-        RTS
-* FNNAME: a function's name at the text pointer into VARNAM (bit 7 of its first letter set) and VALTYP
+        JMP     CHKNUM          ; (a function is numeric: its value too)
+* FNNAME: a function's name at the text pointer into VARNAM (bit 7 of its first letter set); a string name is
+* ?TM ERROR, in DEF too [BB bb1 fn-misc: DEF FN A$(X)=... is ?TM ERROR]
 FNNAME  JSR     VNAME
         LDA     <VARNAM
         ORA     #$80
         STA     <VARNAM
-        RTS
+        JMP     CHKNUM
 
 * VARPTR(variable): the address of its value
 VARPTR  JSR     LPAREN          ; (a variable that does not exist: ?FC ERROR; making it would move the arrays
