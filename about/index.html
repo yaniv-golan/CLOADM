@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en" class="reading">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- served at /about/; relative URLs are from the site root -->
+<base href="../">
+<title>About – CLOADM</title>
+<meta name="description" content="Who made CLOADM, and the people and projects it thanks.">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="css/tokens.css">
+<link rel="stylesheet" href="css/reading.css">
+<script type="module" src="js/ui/version-stamp.js"></script>
+</head>
+<body>
+<header class="page-head">
+  <a class="back" href="play/">← Emulator</a>
+  <span class="title">ABOUT</span>
+  <span class="grow"></span>
+  <a href="./">Home</a>
+  <a href="help/">Help</a>
+  <a href="roms/">ROMs</a>
+  <a href="credits/">Credits</a>
+  <a href="https://github.com/yaniv-golan/cloadm/issues">Report a problem</a>
+</header>
+
+<main>
+  <div class="page-intro">
+    <h1>About CLOADM</h1>
+    <p id="maker">Made by someone who had a Dragon as a kid. My day job is in venture capital; this has nothing to do with it.</p>
+  </div>
+  <div class="cards">
+
+  <section class="card" aria-labelledby="what">
+    <h2 id="what">What it is</h2>
+    <p>CLOADM runs the Dragon 32, 64 and 200, the Tandy Color Computer 1, 2 and 3, the MC-10 and their clones in a
+      browser, checked against MAME instruction by instruction. It is free and open source under the MIT License, with
+      no account and no ROMs included. Questions are answered in the <a href="faq/">FAQ</a>.</p>
+  </section>
+
+  <section class="card" aria-labelledby="thanks">
+    <h2 id="thanks">Credits and thanks</h2>
+    <ul>
+      <li><strong>MAME</strong>, our reference: every instruction and every pixel is compared against MAME 0.264.</li>
+      <li><strong>XRoar</strong> by Ciaran Anscomb, our benchmark and second opinion.</li>
+      <li><strong>VCC</strong>, the Virtual Color Computer, and the VCCE community.</li>
+      <li><strong>Freedoom</strong>, whose level ships with WYRMFIRE.</li>
+      <li><strong>DriveWire</strong>, by Boisy Pitre and Aaron Wolfe.</li>
+      <li>The <strong>Color Computer Archive</strong>, <strong>The Dragon Archive</strong>, the hardware documenters and the magazines.</li>
+    </ul>
+    <p>Everyone, with sources: <a href="credits/">Credits</a>.</p>
+  </section>
+
+  <section class="card" aria-labelledby="version">
+    <h2 id="version">Version</h2>
+    <p>This copy is <span id="aboutVersion" data-version-stamp>v?</span>. Found a problem? <a href="play/#bug-report">Copy a bug report</a>
+      and paste it into <a href="https://github.com/yaniv-golan/cloadm/issues">a new issue</a>.</p>
+  </section>
+  </div>
+</main>
+
+<footer class="page-foot">
+  <span>Not affiliated with Tandy, Dragon Data, Microsoft, id Software or the Freedoom project.</span>
+  <nav aria-label="Site"><a href="faq/">FAQ</a><a href="play/">Emulator</a><a href="https://github.com/yaniv-golan/cloadm">GitHub</a></nav>
+</footer>
+</body>
+</html>

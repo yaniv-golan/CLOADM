@@ -10,6 +10,7 @@
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="css/tokens.css">
 <link rel="stylesheet" href="css/reading.css">
+<script type="module" src="js/ui/version-stamp.js"></script>
 </head>
 <body>
 <header class="page-head">
@@ -82,6 +83,7 @@
       <li>Reset</li>
       <li>Switch off and on</li>
       <li>Switch machine… (and, when you type a model's name, Switch to that model: it asks first)</li>
+      <li>Copy bug report</li>
       <li>Help</li>
     </ul>
     <p>Typing finds a command by the start of a word of its name, then by other words it answers to ("delete rom"
@@ -275,6 +277,23 @@
     <div><strong>ROMs gone in a new browser.</strong> <span>Use Save ROM pack in the old one and drop the file on CLOADM in the new one.</span></div>
   </section>
 
+  <section class="card qa" aria-labelledby="bug">
+    <h2 id="bug">Reporting a bug</h2>
+    <div><strong>Copy bug report.</strong> <span>It shows you the report first: the version, the machine and its options,
+      your browser, the file you loaded (its name and a SHA-256 fingerprint) and, only if you tick it, a snapshot that
+      holds no part of your ROMs. It never holds your Claude key or your ROMs' file names. In the emulator it is also in
+      the command box (<kbd>Ctrl</kbd> <kbd>K</kbd>).</span></div>
+    <div><strong>This copy.</strong> <span id="helpVersion" data-version-stamp>v?</span></div>
+    <a id="helpBugReport" href="play/#bug-report">Copy a bug report →</a>
+  </section>
+
+  <section class="card" aria-labelledby="about-links">
+    <h2 id="about-links">About CLOADM</h2>
+    <p>Why there are no ROMs, how accurate it is, what stays private, and who made it.</p>
+    <a id="helpFaq" href="faq/">FAQ</a>
+    <a id="helpAbout" href="about/">About</a>
+  </section>
+
   <section class="card" aria-labelledby="more">
     <h2 id="more">Still stuck?</h2>
     <p>CLOADM is open source. Read how it works, or tell us what went wrong:</p>
@@ -283,5 +302,10 @@
     <a href="https://github.com/yaniv-golan/cloadm/issues">Report a problem →</a>
   </section>
 </main>
+
+<footer class="page-foot">
+  <span>Not affiliated with Tandy, Dragon Data, Microsoft, id Software or the Freedoom project.</span>
+  <nav aria-label="Site"><a href="faq/">FAQ</a><a href="about/">About</a><a href="https://github.com/yaniv-golan/cloadm">GitHub</a></nav>
+</footer>
 </body>
 </html>

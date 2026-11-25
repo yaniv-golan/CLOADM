@@ -23,6 +23,36 @@ Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.
   (version 1, a sealed object without its header, was never deployed and is refused). The Worker keeps the kind and its
   arrival page names what the link opens: "A BASIC program for the Dragon 64" for a program instead of "A moment on a
   Dragon 64", with the article the machine's name takes ("A moment on an MC-10"); a program's link takes no picture. **The Worker changed and must be redeployed** (docs/shortlink-deploy.md).
+- **FAQ and About pages.** `/faq/` answers why there are no ROMs, where the firmware comes from, how accurate it is
+  (the MAME comparison, linking the deviations), privacy, whether it is a business, whether AI was used and whether
+  WYRMFIRE is Doom, each in under 80 words; `/about/` has the maker's line and the credits. Both are kept for offline
+  use and linked from Help and the settings drawer's credits line (`tests/site-pages.test.js`; the browser check's
+  `reading`, `nav` and `pwa` groups).
+- **Every page says who CLOADM is not.** "Not affiliated with Tandy, Dragon Data, Microsoft, id Software or the
+  Freedoom project." is in the footer of every served page (the landing page's shorter line replaced) and, on the
+  emulator, in the settings drawer's credits, never over the screen.
+- **The ROM line in Share.** With ROMs in use, the Share screen says "This link holds no part of your ROMs. Whoever
+  opens it needs their own: <needs>." above the needs line, and only then (`tests/share-text.test.js`).
+- **Copy as text for a forum.** Between "More ways to share" and "Embed in a web page" on the Share screen: a link with a
+  one-line description, as BBCode and as Markdown, text only, with the hint to attach the GIF from Save GIF. It never
+  uploads: the short link once Copy link has made one, otherwise an untouched program's page, otherwise the long link
+  (the browser check: zero requests to s.cloadm.dev before a Copy-link tap, the short link after it).
+- **Save GIF** on the Share screen, first in "More ways to share"'s save row: 6 seconds of the machine's own frames at true pixels scaled 2x,
+  no CRT look, looping. Each frame after the first holds only what changed, so typing makes about 11 KB and a moving
+  sprite about 50 KB; a whole screen moving every frame is the worst case, about 1.3 MB. The encoder is plain JS in
+  `js/media/gif.js` (moved from `tools/gif.js`, which tools/capture-gif.js now imports from there), with a comment
+  extension and part-frames (`tests/gif.test.js`: a hand-built file byte for byte, round trips through an independent
+  decoder). WYRMFIRE's rules hold for the GIF as for the picture and the clip: off, with
+  its reason beside it, for a level converted from your own WAD; a GIF of the Freedoom level carries "-freedoom" in its
+  name and "Level: Freedoom (BSD)" in its comment.
+- **Copy bug report** in the command box and Help (`play/#bug-report`). It shows the report before copying it: the
+  version and commit, the machine and its options, the browser, the loaded file's name and SHA-256 and, only when
+  ticked, a ROM-free snapshot link. It never holds the Claude key, a WAD, ROM bytes or ROM file names (ROMs appear as
+  CRCs only): `tests/bugreport.test.js` plants each one and looks for it.
+- **The version stamp** "v<version> · <commit>" in Help, About and the settings drawer's credits line (`js/version.js`).
+  The version is CHANGELOG.md's "Next version" (`node tools/version.js --write`); the commit is written by the Pages
+  deploy into the copy it publishes (`tools/version.js --stamp`), as a file can't hold its own commit and the site has
+  no build step. A copy served straight from the repository says "unstamped" (`tests/version.test.js`).
 - **Every menu, sheet and view is checked for words run together.** A new `menuWords` group of the browser check opens
   the app bar (at 1440 and 900 px and on a phone), the machine menu, the drive menu, the command palette, the views behind
   the app bar (Library, Debugger, Share, Add ROMs), each tab of the settings drawer and of a phone's Settings sheet with

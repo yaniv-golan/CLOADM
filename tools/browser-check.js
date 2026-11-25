@@ -8221,7 +8221,7 @@ async function navChecks(browser, site, check) {
   check('nav: the Library and Add ROMs have one header each (their own "← Emulator" bar, no app bar); the app bar is back on the emulator',
     !lib.appbar && lib.lib && !roms.appbar && roms.roms && back.appbar, JSON.stringify({ lib, roms, back }));
   const ALL = [['Home', '/'], ['Help', '/help/'], ['ROMs', '/roms/'], ['Credits', '/credits/'], ['Report a problem', 'https://github.com/yaniv-golan/cloadm/issues']];
-  for (const [title, at] of [['HELP', 'help/'], ['ROMS', 'roms/'], ['CREDITS', 'credits/']]) {
+  for (const [title, at] of [['HELP', 'help/'], ['ROMS', 'roms/'], ['CREDITS', 'credits/'], ['FAQ', 'faq/'], ['ABOUT', 'about/']]) {
     await page.goto(site + at);
     const head = await page.evaluate(() => {
       const h = document.querySelector('header.page-head');
@@ -8249,7 +8249,7 @@ async function commandsChecks(browser, site, check) {
     ['Files', ['Take snapshot', 'Open a program, tape, disk or cartridge…', 'Insert a disk…', 'New blank disk', 'Eject disk', 'Insert a tape…', 'Rewind the tape', 'Eject the tape', 'Save the tape as .WAV', 'Record to tape', 'Share']],
     ['Views', ['Programs', 'WYRMFIRE', 'Open the Library', 'Open the Debugger']],
     ['Settings', ['Your ROMs', 'Display settings', 'Input settings', 'POKEs', 'Machine settings']],   // (Your ROMs first)
-    ['Machine', ['Pause or resume', 'Turbo', 'Fullscreen', 'Reset', 'Switch off and on', 'Switch machine…', 'Help']],
+    ['Machine', ['Pause or resume', 'Turbo', 'Fullscreen', 'Reset', 'Switch off and on', 'Switch machine…', 'Copy bug report', 'Help']],
   ];
   const LABELS = WANT.flatMap(([, l]) => l);
   const CLAUDE_NOTE = "Claude reads this emulated machine's screen text and memory, and acts on it only with your permission.";
@@ -8487,6 +8487,33 @@ async function commandsChecks(browser, site, check) {
     await tab.waitForLoadState();
     check(`${L}: "Help" opens the guide in a new tab`, /\/help\/$/.test(new URL(tab.url()).pathname), tab.url());
     await closePage(tab);
+    // Copy bug report: the report is shown before anything is copied; the snapshot is off by default; Copy copies exactly
+    // what is shown; the Claude key this context saved (sk-ant-COMMANDS-CHECK-KEY-…) is never in it, nor a ROM name
+    await ctx.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: new URL(site).origin });
+    const bugText = () => page.evaluate(() => document.getElementById('bugText').textContent);
+    const bugReady = () => waitFor(page, () => /^CLOADM bug report/.test(document.getElementById('bugText').textContent));
+    await query('bug report');
+    await page.keyboard.press('Enter');
+    const bugOpen = await waitFor(page, () => document.getElementById('bugReport').open) && await bugReady();
+    const plain = await bugText();
+    check(`${L}: "Copy bug report" opens a preview: version stamp, machine, browser, file; no snapshot until asked for`, bugOpen
+      && /^Version: v\d+\.\d+\.\d+\S* · \S+$/m.test(plain) && /^Machine: Dragon 64 \(dragon64\)/m.test(plain) && /^Browser: Mozilla\//m.test(plain) && /^File: /m.test(plain)
+      && !/#[sz]=/.test(plain) && await page.evaluate(() => !document.getElementById('bugSnap').checked), plain);
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, `bugreport-${label}.png`) });
+    await page.click('#bugSnap');
+    await waitFor(page, () => /#z=/.test(document.getElementById('bugText').textContent));
+    const withSnap = await bugText();
+    check(`${L}: ticking the snapshot adds the ROM-free share link`, /^Snapshot \(holds no ROM\): http\S+\/play\/\?machine=dragon64\S*#z=/m.test(withSnap), withSnap.slice(0, 400));
+    check(`${L}: the report never holds the Claude key`, !/COMMANDS-CHECK-KEY|sk-ant/.test(plain + withSnap));
+    await page.click('#btnBugCopy');
+    const copied = await page.evaluate(() => navigator.clipboard.readText());
+    check(`${L}: Copy puts exactly the preview on the clipboard`, copied === withSnap && await page.textContent('#btnBugCopy') === 'Copied', copied.slice(0, 80));
+    await page.keyboard.press('Escape');
+    check(`${L}: Esc closes the report`, await waitFor(page, () => !document.getElementById('bugReport').open && document.getElementById('bugReport').hidden));
+    await page.evaluate(() => { location.hash = '#bug-report'; });
+    check(`${L}: play/#bug-report (Help's link) opens it, unticked, and the address goes back to /play/`, await waitFor(page, () => document.getElementById('bugReport').open && location.hash === '')
+      && await page.evaluate(() => !document.getElementById('bugSnap').checked));
+    await page.keyboard.press('Escape');
     // "eject" with a tape in (no disk): Eject the tape first
     await page.setInputFiles('#fileTape', { name: 't.cas', mimeType: 'application/octet-stream', buffer: Buffer.from([...Array(128).fill(0x55), 0x3C, 0xFF, 0, 0xFF]) });
     await waitFor(page, () => !!window.emu.machine.deck.tape);
@@ -9202,7 +9229,7 @@ async function layoutChecks(browser, base, check) {
 
 // reading pages: /roms at desktop and phone width, and the rule that only /roms links the
 // archive's ROM folder, checked over every page of the site
-const READING = ['roms/', 'help/', 'credits/'];
+const READING = ['roms/', 'help/', 'credits/', 'faq/', 'about/'];
 // The Display tab: CRT · composite and Sharp · RGB, the NTSC artifact phase, curvature and glow
 // (the WebGL CRT look), integer scaling and the picture's shape, remembered. A 256x192 artifact-colour picture
 // ($AA, $55 and stripes of two widths above, black, buff and two more stripes below, in PMODE 4 CSS 1) is put on the
@@ -9538,6 +9565,22 @@ async function readingChecks(browser, site, check) {
       check('/help: keys, ROMs, quick fixes, and links to /roms, the emulator and GitHub', /Esc\s*BREAK/.test(help) && /Home\s*CLEAR/.test(help) && /Quick fixes/.test(help)
         && await page.$eval('#romsLink', (a) => new URL(a.href).pathname) === '/roms/' && !!(await page.$('a[href="https://github.com/yaniv-golan/cloadm"]'))
         && await page.$eval('a[href="play/"]', (a) => new URL(a.href).pathname) === '/play/');
+      // the version stamp (js/version.js) on Help and About; the affiliation line visible at the foot of every reading page
+      const stamps = {};
+      for (const [p, id] of [['help/', 'helpVersion'], ['about/', 'aboutVersion']]) { await page.goto(site + p); await waitFor(page, (i) => /^v/.test(document.getElementById(i).textContent) && document.getElementById(i).textContent !== 'v?', id); stamps[p] = await page.textContent(`#${id}`); }
+      const { versionStamp } = await import(path.join(ROOT, 'js/version.js'));
+      check('/help and /about show the version stamp "v<version> · <commit>"', Object.values(stamps).every((t) => t === versionStamp()), JSON.stringify(stamps));
+      const FOOT = 'Not affiliated with Tandy, Dragon Data, Microsoft, id Software or the Freedoom project.';
+      const feet = [];
+      for (const p of ['', ...READING]) { await page.goto(site + p); feet.push([p, await page.evaluate((f) => [...document.querySelectorAll('footer')].some((e) => e.checkVisibility() && e.innerText.includes(f)), FOOT)]); }
+      check('every reading page and the landing page show the affiliation line in their footer', feet.every(([, v]) => v), JSON.stringify(feet));
+      // the FAQ's accuracy answer links the known differences; Help links the FAQ, About and the bug report
+      await page.goto(site + 'faq/');
+      check('/faq: seven questions, the accuracy answer links the deviations from MAME', await page.$$eval('h2', (h) => h.length) === 7
+        && /verification\.md#deviations-from-mame$/.test(await page.getAttribute('#faqDeviations', 'href')));
+      await page.goto(site + 'help/');
+      await page.click('#helpBugReport');
+      check('/help: "Copy a bug report →" opens the report on the emulator', await waitFor(page, () => !!window.emu && document.getElementById('bugReport').open, null, 30000));
       // Credits: in step with CREDITS.md (every person and project below is on both)
       await page.goto(site + 'credits/');
       const credits = await page.textContent('body'), md = fs.readFileSync(path.join(ROOT, 'CREDITS.md'), 'utf8');
@@ -11539,6 +11582,21 @@ async function wyrmfireChecks(browser, site, check) {
     const shotPng = fs.readFileSync(await dl.path());
     check('wyrmfire: the Freedoom screenshot says so: "-freedoom" in its name, "Level: Freedoom (BSD)" in the PNG', /-freedoom\.png$/.test(dl.suggestedFilename())
       && shotPng.includes(Buffer.from('tEXtComment\0WYRMFIRE Level: Freedoom (BSD)')), dl.suggestedFilename());
+    // Save GIF follows the same rules: on for the Freedoom level, "-freedoom" in its name and the level's credit in its
+    // comment extension (one sub-block, so the text is contiguous in the file)
+    {
+      const gifOn = await page.evaluate(() => ({ off: document.getElementById('btnShareGif').disabled, why: document.getElementById('shareGifWhy').hidden ? '' : document.getElementById('shareGifWhy').textContent }));
+      const [gd] = await Promise.all([page.waitForEvent('download', { timeout: 30000 }), page.click('#btnShareGif')]);
+      const gifBytes = fs.readFileSync(await gd.path());
+      check('wyrmfire: the Freedoom GIF says so: "-freedoom" in its name, "WYRMFIRE Level: Freedoom (BSD)" in its comment',
+        !gifOn.off && !gifOn.why && /-freedoom\.gif$/.test(gd.suggestedFilename()) && gifBytes.subarray(0, 6).toString() === 'GIF89a'
+        && gifBytes.includes(Buffer.from('Recorded in CLOADM. WYRMFIRE Level: Freedoom (BSD)')), `${gd.suggestedFilename()} ${JSON.stringify(gifOn)}`);
+      await waitFor(page, () => !document.getElementById('btnShareGif').disabled);
+      // the forum text: the link starts the game afresh, so it is described as a program page is, never "as I left it"
+      const forum = await page.evaluate(() => ({ md: document.getElementById('forumMarkdown').textContent, bb: document.getElementById('forumBbcode').textContent }));
+      check('wyrmfire: "Copy as text for a forum" carries the ?start=wyrmfire link, "WYRMFIRE in CLOADM, from the start."',
+        /^\[WYRMFIRE in CLOADM, from the start\. Opens in the browser\.\]\([^)]*\?start=wyrmfire\)$/.test(forum.md) && /^\[url=[^\]]*\?start=wyrmfire\]WYRMFIRE in CLOADM, from the start\./.test(forum.bb), JSON.stringify(forum));
+    }
     await page.goBack();
     // the palette
     await page.keyboard.press('Control+k');
@@ -11683,6 +11741,18 @@ async function wyrmfireChecks(browser, site, check) {
     check('wyrmfire: own WAD: Share gives ?start=wyrmfire (the Freedoom level); the clip, screenshot and snapshot file are all listed, off, each with its reason beside it',
       new URL(link).search === '?start=wyrmfire' && sh.clip.there && sh.clip.off && sh.clip.why === T.clips && sh.shot.there && sh.shot.off && sh.shot.why === T.clips
       && sh.file.there && sh.file.off && sh.file.why === 'Snapshots are off while WYRMFIRE runs.', JSON.stringify(sh));
+    // Save GIF is off the same way, its reason beside it; clicked anyway it makes nothing; the forum text drops its GIF hint
+    {
+      const g = await page.evaluate(() => ({ off: document.getElementById('btnShareGif').disabled, why: document.getElementById('shareGifWhy').hidden ? '' : document.getElementById('shareGifWhy').textContent,
+        hint: document.getElementById('forumGifHint').hidden }));
+      let made = 0; const count = () => { made++; };
+      page.on('download', count);
+      await page.evaluate(() => document.getElementById('btnShareGif').click());
+      await page.waitForTimeout(7000);
+      page.off('download', count);
+      check('wyrmfire: own WAD: Save GIF is listed, off, with the same reason beside it; clicked anyway it saves nothing; the forum GIF hint is gone',
+        g.off && g.why === T.clips && g.hint && made === 0, JSON.stringify({ g, made }));
+    }
     // the line under the picture: no credit here. "Level: Freedoom (BSD)" would name a level that is not Freedoom's
     // (the person's WAD), which is also why there is no picture; and the link only starts the game, so "Link".
     const own = await page.evaluate(() => { const when = document.getElementById('shareWhen'); return { when: when.textContent, shown: when.checkVisibility(),
@@ -11791,7 +11861,7 @@ async function pwaChecks(browser, site, check) {
   check('PWA offline: sound plays through the AudioWorkletNode (its module kept for offline use)', offlineSound,
     await page.evaluate(() => JSON.stringify({ path: window.emu.audio.path, fallback: window.emu.audio.fallback, removed: window.emu.audio.out && window.emu.audio.out.sink.removed, state: window.emu.audio.ctx && window.emu.audio.ctx.state, ua: navigator.userAgent })));
   check('PWA offline: the fonts came from the kept copy', await page.evaluate(async () => { await document.fonts.ready; return [...document.fonts].some((f) => f.family.replace(/"/g, '') === 'Archivo' && f.status === 'loaded'); }));
-  for (const p of ['', 'help/', 'roms/']) {
+  for (const p of ['', 'help/', 'roms/', 'faq/', 'about/']) {
     const res = await page.goto(site + p);
     check(`PWA offline: /${p} opens`, res.ok() && /CLOADM/.test(await page.title()), String(res.status()));
   }
@@ -16635,6 +16705,19 @@ async function settingsChecks(browser, base, check) {
   await dropFiles(page, [['coco3.rom', fake(32768, 5)]]);
   await waitFor(page, () => window.emu.session.machineRoms('coco3').sockets.some((s) => s.crc));
   await openTab(page, 'Machine'); await page.waitForSelector('#btnSettingsExport', { state: 'visible' });   // Export… is on the Machine tab (it left the Share screen)
+  // the Machine tab's credits line: the version stamp, the FAQ and About, and the affiliation line, all inside the drawer and none over the screen
+  const credits = await page.evaluate(async () => {
+    const { versionStamp } = await import(new URL('js/version.js', document.baseURI));
+    const v = document.getElementById('drawerVersion'), a = document.getElementById('drawerAffiliation');
+    a.scrollIntoView();
+    const mon = document.getElementById('monitor').getBoundingClientRect();
+    const apart = (e) => { const r = e.getBoundingClientRect(); return r.right <= mon.left || r.left >= mon.right || r.bottom <= mon.top || r.top >= mon.bottom; };
+    return { stamp: v.textContent, want: versionStamp(), affiliation: a.textContent, shown: v.checkVisibility() && a.checkVisibility(), apart: apart(v) && apart(a),
+      inDrawer: !!v.closest('aside.drawer') && !!a.closest('aside.drawer'), links: [...v.parentElement.querySelectorAll('a')].map((x) => x.getAttribute('href')) };
+  });
+  check('settings: the credits line shows "v<version> · <commit>", links Credits, FAQ and About; the affiliation line is in the drawer, not over the screen',
+    credits.stamp === credits.want && credits.affiliation === 'Not affiliated with Tandy, Dragon Data, Microsoft, id Software or the Freedoom project.'
+    && credits.shown && credits.apart && credits.inDrawer && JSON.stringify(credits.links) === JSON.stringify(['credits/', 'faq/', 'about/']), JSON.stringify(credits));
   const [dl] = await Promise.all([page.waitForEvent('download'), page.click('#btnSettingsExport')]);
   const file = path.join(os.tmpdir(), `cloadm-settings-${process.pid}.json`);
   await dl.saveAs(file);
@@ -17348,7 +17431,7 @@ async function shareChecks(browser, base, site, check) {
       return { hash: location.hash, emulatorHidden: getComputedStyle(document.querySelector('.layout')).display === 'none', scrollX: document.documentElement.scrollWidth <= innerWidth,
         side: cols[1].left > cols[0].right - 1, stacked: cols[1].top >= cols[0].bottom - 1,
         heading: document.getElementById('shareHeading').textContent, embed: document.getElementById('embedHeading').textContent,
-        discsFull: discs.length === 2 && discs.every((r) => r.top >= cols[0].bottom - 1 && r.top >= cols[1].bottom - 1 && r.width > innerWidth * 0.6 * (innerWidth > 860 ? 1 : 0.9)) };
+        discsFull: discs.length === 3 && discs.every((r) => r.top >= cols[0].bottom - 1 && r.top >= cols[1].bottom - 1 && r.width > innerWidth * 0.6 * (innerWidth > 860 ? 1 : 0.9)) };
     });
     check(`share (${label}): the Share screen replaces the emulator view, ${label === 'desktop' ? 'two columns' : 'one column'}, no sideways scrolling`,
       lay.hash === '#share' && lay.emulatorHidden && lay.scrollX && (label === 'desktop' ? lay.side : lay.stacked)
@@ -17429,6 +17512,49 @@ async function shareChecks(browser, base, site, check) {
       && await p2b.evaluate(() => !window.__said.some((m) => /Snapshot opened/.test(m))), await said(p2b));
     await closeCtx(ctx2);
 
+    // no ROMs in use: no "holds no part of your ROMs" line (it appears exactly when ROMs are: below, with stand-ins)
+    check(`share (${label}): without ROMs there is no ROM-free line`, await page.evaluate(() => { const e = document.getElementById('shareRomFree'); return e.hidden && e.textContent === '' && !e.checkVisibility(); }));
+    // Copy as text for a forum: BBCode and Markdown, each the link with one line, text only; it never uploads. With no
+    // Copy-link tap yet it carries the long link and makes ZERO requests to s.cloadm.dev; once Copy link has made the
+    // short link (a stand-in store here), the forum text carries that short link, and nothing more is uploaded.
+    await ctx.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: new URL(base).origin });
+    const made = [];
+    await ctx.route('https://s.cloadm.dev/**', (route) => {
+      const u = new URL(route.request().url()), cors = { 'access-control-allow-origin': '*', 'content-type': 'application/json' };
+      made.push(`${route.request().method()} ${u.pathname}`);
+      if (u.pathname === '/api/new') return route.fulfill({ status: 200, headers: cors, body: JSON.stringify({ id: 'Fm1xYz9a', deleteToken: 'token' }) });
+      return route.fulfill({ status: 404, headers: cors, body: '{}' });
+    });
+    await openDisc(page, 'shareForum');
+    const LINE = 'The Dragon 64 in CLOADM, exactly as I left it. Opens in the browser.';
+    const forumCopies = async () => {
+      const out = [];
+      for (const id of ['btnForumBbcodeCopy', 'btnForumMarkdownCopy']) {
+        await page.click(`#${id}`);
+        await waitFor(page, (b) => document.getElementById(b).textContent !== 'Copy', id, 10000);
+        out.push(await page.evaluate(() => navigator.clipboard.readText()));
+      }
+      return out;
+    };
+    const forum = await page.evaluate(() => ({ long: document.getElementById('shareLink').value, bb: document.getElementById('forumBbcode').textContent,
+      md: document.getElementById('forumMarkdown').textContent,
+      afterMore: !!(document.getElementById('shareMore').compareDocumentPosition(document.getElementById('shareForum')) & Node.DOCUMENT_POSITION_FOLLOWING),
+      beforeEmbed: !!(document.getElementById('shareEmbed').compareDocumentPosition(document.getElementById('shareForum')) & Node.DOCUMENT_POSITION_PRECEDING),
+      heading: document.getElementById('forumHeading').textContent }));
+    const before = await forumCopies();
+    check(`share (${label}): "Copy as text for a forum" (between "More ways to share" and "Embed", no image tag): with no Copy-link tap yet it carries the long link, and its Copy uploads nothing`,
+      forum.heading === 'Copy as text for a forum' && forum.afterMore && forum.beforeEmbed && /#z=/.test(forum.long) && forum.bb === `[url=${forum.long}]${LINE}[/url]`
+      && forum.md === `[${LINE}](${forum.long})` && before[0] === forum.bb && before[1] === forum.md && made.length === 0 && !/\[img|!\[/i.test(forum.bb + forum.md),
+      JSON.stringify({ made, heading: forum.heading, bb: forum.bb.slice(0, 80) }));
+    await page.click('#btnShareCopy');
+    await waitFor(page, () => !document.getElementById('shortMade').hidden, null, 10000);
+    const shortUrl = await page.inputValue('#shareShort'), afterTap = made.length;
+    const after = await forumCopies();
+    check(`share (${label}): after Copy link made the short link, the forum text carries it, and the forum's Copy uploads nothing more`,
+      afterTap === 1 && made.length === 1 && /^https:\/\/s\.cloadm\.dev\/Fm1xYz9a#/.test(shortUrl) && after[0] === `[url=${shortUrl}]${LINE}[/url]` && after[1] === `[${LINE}](${shortUrl})`,
+      JSON.stringify({ made, shortUrl, after }));
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, `share-forum-${label}.png`), fullPage: true });
+
     // the clip
     await openDisc(page, 'shareMore');
     // the button says "Save clip"; its title names the length and the format it records
@@ -17440,6 +17566,36 @@ async function shareChecks(browser, base, site, check) {
       && /^Save 6-second clip \((MP4|WebM)\)$/.test(clipLabel || '')
       && ((/MP4/.test(clipLabel) && mp4 && /\.mp4$/.test(clip.suggestedFilename())) || (/WebM/.test(clipLabel) && webm && /\.webm$/.test(clip.suggestedFilename()))),
       `${clipLabel}: ${clip.suggestedFilename()} ${clipBytes.length} bytes`);
+
+    // Save GIF: the machine's own frames at 2x, looping, a comment; its size is printed (the screen here: the welcome menu)
+    const gifInfo = (b) => {   // the GIF89a block structure: size, loop, comment, frames, total delay
+      const r = { head: b.toString('latin1', 0, 6), w: b.readUInt16LE(6), h: b.readUInt16LE(8), loop: null, comment: '', frames: 0, cs: 0, bytes: b.length };
+      let p = 13 + (b[10] & 0x80 ? 3 * (2 << (b[10] & 7)) : 0);
+      while (p < b.length) {
+        const t = b[p++];
+        if (t === 0x3B) { r.trailer = true; break; }
+        if (t === 0x21) {
+          const label = b[p++];
+          if (label === 0xFF && b.toString('latin1', p + 1, p + 12) === 'NETSCAPE2.0') r.loop = b.readUInt16LE(p + 14);
+          if (label === 0xF9) r.cs += b.readUInt16LE(p + 2);
+          if (label === 0xFE) { let q = p; while (b[q]) { r.comment += b.toString('latin1', q + 1, q + 1 + b[q]); q += b[q] + 1; } }
+        } else if (t === 0x2C) { r.frames++; p += 10; } else break;
+        while (b[p]) p += b[p] + 1;
+        p++;
+      }
+      return r;
+    };
+    const [gifDl] = await Promise.all([page.waitForEvent('download', { timeout: 30000 }), page.click('#btnShareGif')]);
+    const gif = gifInfo(fs.readFileSync(await gifDl.path()));
+    const native = await page.evaluate(() => { const f = window.emu.session.shownMachine.render(); return [f.width, f.height]; });
+    check(`share (${label}): "Save 6-second GIF" saves a looping GIF of the screen at twice its true pixels, 6 seconds long, with a comment`,
+      gif.head === 'GIF89a' && gif.w === native[0] * 2 && gif.h === native[1] * 2 && gif.loop === 0 && gif.trailer && gif.frames >= 1 && Math.abs(gif.cs - 600) <= 8
+      && gif.comment === 'Recorded in CLOADM' && /\.gif$/.test(gifDl.suggestedFilename()) && !/Freedoom/.test(gifDl.suggestedFilename()), JSON.stringify(gif));
+    console.log(`   (GIF size, ${label}: ${gif.bytes} bytes, ${gif.frames} frames, ${gif.w}x${gif.h})`);
+    check(`share (${label}): the buttons are back once the GIF is saved`, await waitFor(page, () => !document.getElementById('btnShareGif').disabled && document.getElementById('btnShareGif').textContent === 'Save GIF'
+      && document.getElementById('btnShareGif').title === 'Save 6-second GIF'));
+    await openDisc(page, 'shareForum');
+    check(`share (${label}): "Copy for a forum" says to attach the GIF, and still holds no image tag`, await page.textContent('#forumGifHint') === 'Attach the GIF from Save GIF to show it in your post.');
 
     // the embed builder, and the iframe it writes running on another origin
     await openDisc(page, 'shareEmbed');
@@ -17489,7 +17645,11 @@ async function shareChecks(browser, base, site, check) {
     await page.click('#btnShare');
     await page.waitForSelector('#share', { state: 'visible' });
     const shared = await page.evaluate(async () => ({ link: document.getElementById('shareLink').value, recipient: document.getElementById('shareRomFull').textContent,
-      labels: (await window.emu.session.shareFile()).needs.map((x) => x.label) }));
+      labels: (await window.emu.session.shareFile()).needs.map((x) => x.label), free: document.getElementById('shareRomFree').textContent,
+      freeShown: document.getElementById('shareRomFree').checkVisibility(),
+      above: document.getElementById('shareRomFree').getBoundingClientRect().bottom <= document.getElementById('shareRom').getBoundingClientRect().top + 1 }));
+    check('share: with ROMs in use, "This link holds no part of your ROMs. Whoever opens it needs their own: <needs>." shows, above the needs line',
+      shared.freeShown && shared.above && shared.free === `This link holds no part of your ROMs. Whoever opens it needs their own: ${shared.labels.join(' and ')}.`, JSON.stringify([shared.free, shared.freeShown, shared.above]));
     // the line names what the snapshot itself names (its needs' labels), whatever they are
     check('share: with your own ROMs the moment is shared, and the ROM line names the ROMs the snapshot needs', /#z=/.test(shared.link) && shared.labels.length > 0
       && shared.recipient === `Needs ${shared.labels.join(' and ')}: the person opening it adds their own.` && /32K-mode BASIC and 64K-mode BASIC/.test(shared.recipient), JSON.stringify(shared));
@@ -22302,13 +22462,15 @@ async function basicShareChecks(browser, base, site, check) {
     const vis = (id) => document.getElementById(id).checkVisibility();
     return { h1: document.getElementById('shareHeading').textContent, prefix: document.getElementById('sharePrefix').checkVisibility() && document.getElementById('sharePrefix').textContent, name: document.getElementById('shareName').textContent,
       w: c.width, h: c.height, px: Array.from(px), back: document.getElementById('btnProgramMode').textContent, more: !document.getElementById('programMore').hidden,
-      moment: ['btnShareShot', 'btnShareClip', 'btnShareDownload', 'previewSwitch'].filter(vis), copy: !document.getElementById('btnShareCopy').disabled,
+      moment: ['btnShareShot', 'btnShareClip', 'btnShareDownload', 'previewSwitch', 'btnShareGif'].filter(vis), copy: !document.getElementById('btnShareCopy').disabled,
+      momentForum: !document.getElementById('shareForum').hidden,
       long: document.getElementById('shareLink').value, why: document.getElementById('programWhy').textContent };
   });
   check('basicShare: program mode: "Share your program", the caption "What they\'ll see first · LIST", and "Share the whole moment instead"',
     pm.h1 === 'Share your program' && pm.prefix === 'What they\'ll see first ·' && pm.name === 'LIST' && pm.back === 'Share the whole moment instead' && pm.why === '', JSON.stringify(Object.assign({}, pm, { px: undefined })));
   check('basicShare: the preview is the first lines LIST shows, in the VDG\'s own font, pixel for pixel', pm.w === 256 && pm.h === 192 && pm.px.length === want.length && pm.px.every((v, i) => v === want[i]), `${pm.w}x${pm.h}`);
-  check('basicShare: program mode offers the program\'s ways and not the moment\'s (picture, clip, snapshot file, the picture switch)', pm.more && pm.moment.length === 0 && pm.copy, JSON.stringify(pm.moment));
+  check('basicShare: program mode offers the program\'s ways and not the moment\'s (picture, clip, GIF, snapshot file, the picture switch, the moment\'s forum text)',
+    pm.more && pm.moment.length === 0 && pm.copy && !pm.momentForum, JSON.stringify([pm.moment, pm.momentForum]));
   const longProg = await new Emu.Session({ store: Emu.memoryStore() }).readProgramLink(pm.long.slice(pm.long.indexOf('#'))).catch((e) => e);
   check('basicShare: the long link carries the program (#z=, byte 0 = 2), for this machine', longProg && longProg.machine === 'dragon64' && longProg.text === LISTED && pm.long.startsWith(base), pm.long.slice(0, 90));
   if (shotDir) await page.screenshot({ path: path.join(shotDir, 'basic-share-program-mode.png'), fullPage: true });
@@ -22340,9 +22502,10 @@ async function basicShareChecks(browser, base, site, check) {
   // back to the moment: its heading, its picture (the machine's frame), its Copy
   await page.click('#btnProgramMode');
   const back = await page.evaluate(() => ({ h1: document.getElementById('shareHeading').textContent, w: document.getElementById('sharePicture').width, made: !document.getElementById('shortMade').hidden,
-    btn: document.getElementById('btnProgramMode').textContent, shot: document.getElementById('btnShareShot').checkVisibility(), more: document.getElementById('programMore').checkVisibility() }));
-  check('basicShare: "Share the whole moment instead" switches back: its heading, picture and ways; the program\'s made link is not the moment\'s',
-    back.h1 === 'Share this moment' && back.w !== 256 && !back.made && back.btn === 'Share the program instead' && back.shot && !back.more, JSON.stringify(back));
+    btn: document.getElementById('btnProgramMode').textContent, shot: document.getElementById('btnShareShot').checkVisibility(), more: document.getElementById('programMore').checkVisibility(),
+    forum: !document.getElementById('shareForum').hidden }));
+  check('basicShare: "Share the whole moment instead" switches back: its heading, picture and ways (the moment\'s forum text too); the program\'s made link is not the moment\'s',
+    back.h1 === 'Share this moment' && back.w !== 256 && !back.made && back.btn === 'Share the program instead' && back.shot && !back.more && back.forum, JSON.stringify(back));
   // short landscape: the card between the heading and Copy, in program mode
   await closeShare();
   await page.setViewportSize({ width: 653, height: 280 });

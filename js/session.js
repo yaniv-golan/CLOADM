@@ -605,6 +605,7 @@ export class Session {
     if (mediaShare && mediaShare.channel) mediaShare.channel.onmessage = (e) => { this.mediaElsewhere(e.data).catch(() => {}); };
     this.store = store;
     this.media = media;
+    this.lastLoaded = null;   // the file Session.load loaded last: { name, bytes } (js/bugreport.js names it and hashes it)
     // the media library on that store (js/library.js): listing, import, rename and delete, the recent list, the
     // names being made and the store's case rule, and moving it all to another store. Made before anything below
     // that compares names or asks whether the library is moving (the DriveWire server's hooks).
@@ -2474,6 +2475,7 @@ export class Session {
   // run: false types a BASIC listing without the RUN after it (the MCP server's load; the page always runs it)
   load(name, bytes, { askAddresses = null, remember = true, run = true } = {}) {
     this.loadStarted = true;
+    this.lastLoaded = { name, bytes };   // (js/bugreport.js: its name and SHA-256; set first, so a file that fails to load is named too)
     this.touch(this.shownMachine);   // a load makes a bundled program a moment (untouchedBundledProgram)
     const msg = this.loadMedia(name, bytes, askAddresses, { run });
     if (remember) { this.library.rememberMedia(name, bytes); this.setLastRun('recent', name, { running: this.loadStarted, crc: crc32(bytes) }); }

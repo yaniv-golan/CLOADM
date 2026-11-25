@@ -49,6 +49,8 @@ import { setupAsk } from './ask.js';
 import { setupCommandBox } from './command-box.js';
 import { MemoryKeyStore, storageKeyStore } from '../host/key-store.js';
 import { setupShare } from './share.js';
+import { setupBugReport } from './bug-report.js';
+import './version-stamp.js';   // the settings drawer's credits line: v<version> · <commit>
 import { setupArrival } from './arrival.js';
 import { ShortLinkStore } from '../host/link-store.js';
 import { setupSlotsPanel } from './slots-panel.js';
@@ -158,6 +160,7 @@ setupSettingsFile(page);
 // the short links' store: s.cloadm.dev (js/host/link-store.js); the browser check points it at a stand-in server
 const linkStore = new ShortLinkStore();
 const share = setupShare(page, { linkStore });
+page.bugReport = setupBugReport(page);
 const showRoms = () => romSockets.reveal();
 // No Claude chat on a page shown inside someone else's page, whether by the embed flag or by being framed: the chat
 // would put its API key card there. With no controller there is no chat machine, no panel and no key card, and the
@@ -371,6 +374,7 @@ const starting = welcome.start(visit, { fromLink, withMedia: link.roms.length > 
   // below, so a check can read the toast without a wait that assumes which came last.
   window.emu.started = true;
   share.ready();
+  page.bugReport.ready();   // play/#bug-report (Help's "Copy a bug report →")
   if (link.errors.length) page.status(`This link has ${link.errors.length === 1 ? 'a setting' : 'settings'} CLOADM can't use: ${link.errors.join('; ')}`, true);
   // a hash in the shape of a share link (#z=, #l=, or the #share= the link's arrival page carried) that no reader
   // above claimed, or a cut short #l=: said, rather than left silent. A view (#share, #library, #add-roms,

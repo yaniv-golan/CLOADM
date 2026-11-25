@@ -126,7 +126,7 @@ The [README](../README.md#what-works) has the short version of this table.
 | **Games** | 2048 and Minesweeper, written for CLOADM, on every 6809 model with 32K or more, with or without ROMs ([details](#games)); WYRMFIRE, a GPL 3D game for the Dragon 64 with the Freedoom level, or E1M1 of your own DOOM WAD converted in the browser ([details](#wyrmfire)) | |
 | **Input** | Keyboard in two modes (translated: the character typed; positional: the physical key), keyboard joystick, gamepads (two joysticks, dead zone), the Tandy and CoCo Max 3 Hi-Res interfaces, the CoCo 3 "The Rat" mouse, the CoCo Max Hi-Res module, mouse as the right joystick; an on-screen keyboard on phones and tablets (split for the thumbs when held sideways) and a touch joystick with FIRE, a tappable welcome menu | |
 | **Tools** | Assembler, Debugger, snapshots, POKE book; a command line, MCP server and Node API for CI and agents ([Automation](automation.md), [MCP](mcp.md)) | Step back (rewind) |
-| **Links, embedding, offline** | Every setting as a URL parameter (machine, RAM, CPU, a program, tape, cartridge or disk to load, display, input); the Share screen's one **Copy link**: an untouched bundled program gives its page (`cloadm.dev/2048/`), otherwise a short link (`s.cloadm.dev/<id>#<key>`, about 50 characters, sealed in your browser, with a QR code and an optional public preview picture; online and without ROMs), or the long link where a short one can't be made; with a BASIC program in memory, **Share the program instead** (the program's text only, listed, not run, on a fresh machine for whoever opens it; a forum post and a `.bas` file too); **Save picture** (the share card: the true-pixel picture in a CRT monitor with its name and cloadm.dev) and **Save clip** (6 seconds) beside Copy link on a desktop; under "More ways to share" the long link ("Long link (works offline; nothing is uploaded)"), "Always use long links" and the snapshot file (and on a phone Save picture and Save clip); a phone held sideways gets a two-column Share screen; plus the embed code for a blog post; whoever opens a shared moment gets an arrival card (Start from the beginning, Send it back); embed mode with a JavaScript API; works offline once visited; **Install CLOADM…** in the app bar, beside Help (behind **Menu** on a phone), runs the browser's own prompt where there is one and shows the steps elsewhere, with a one-time offer once a program has run a minute; settings export and import (never ROMs) | A touch keyboard in embeds |
+| **Links, embedding, offline** | Every setting as a URL parameter (machine, RAM, CPU, a program, tape, cartridge or disk to load, display, input); the Share screen's one **Copy link**: an untouched bundled program gives its page (`cloadm.dev/2048/`), otherwise a short link (`s.cloadm.dev/<id>#<key>`, about 50 characters, sealed in your browser, with a QR code and an optional public preview picture; online and without ROMs), or the long link where a short one can't be made; with a BASIC program in memory, **Share the program instead** (the program's text only, listed, not run, on a fresh machine for whoever opens it; **Save picture** (the share card: the true-pixel picture in a CRT monitor with its name and cloadm.dev) and **Save clip** (6 seconds) beside Copy link on a desktop; under "More ways to share" the long link ("Long link (works offline; nothing is uploaded)"), "Always use long links", **Save GIF** (6 seconds, looping, the machine's own pixels at 2x) and the snapshot file (and on a phone Save picture and Save clip); **Copy as text for a forum** (BBCode or Markdown; it never uploads: the short link once Copy link has made one, else the program's page or the long link); **Copy bug report** (a preview first, never your key or ROMs); the FAQ and About pages; a phone held sideways gets a two-column Share screen; plus the embed code for a blog post; whoever opens a shared moment gets an arrival card (Start from the beginning, Send it back); embed mode with a JavaScript API; works offline once visited; **Install CLOADM…** in the app bar, beside Help (behind **Menu** on a phone), runs the browser's own prompt where there is one and shows the steps elsewhere, with a one-time offer once a program has run a minute; settings export and import (never ROMs) | A touch keyboard in embeds |
 
 ### Games
 
@@ -453,10 +453,18 @@ share sheet; it hands over the link only) or **Copy link** is the main button, a
 with a snapshot can pass 1000 characters and some share targets cut it short. **Save picture** (the share card: the
 picture at true pixels in a CRT monitor, the program's or machine's name and "cloadm.dev", 1200x630, the same picture a
 short link's preview shows) and **Save clip** (6 seconds of the screen) sit beside Copy link on a desktop; on a phone, and
-on a phone held sideways, they are under **More ways to share**, with the snapshot file (its size is on the button). Under
+on a phone held sideways, they are under **More ways to share**, with the snapshot file (its size is on the button).
+**Save GIF** is first in that row everywhere: 6 seconds of the machine's own pixels at 2x, no CRT look, looping (WYRMFIRE's rules
+hold for it as for the picture and the clip: off for your own WAD's level, and "-freedoom" with the level's credit for
+the Freedoom level). Under **Copy as text for a
+forum**: a link with a one-line description, as BBCode and as Markdown (text only: attach the GIF to show the picture).
+It never uploads anything: it carries the short link once Copy link has made one, otherwise an untouched program's page,
+otherwise the long link. Under
 **Embed in a web page**: the embed code. After a tap, the field the tap made (the short link, or the long link) is
 scrolled into view and focused. A
-line under the picture says what the link does, and a ROM line says whether the person opening it needs their own ROMs. While NitrOS-9 runs
+line under the picture says what the link does, and a ROM line says whether the person opening it needs their own ROMs;
+with ROMs in use, a line above it says "This link holds no part of your ROMs. Whoever opens it needs their own: …" (not in
+the sideways-phone layout, whose ROM line is one line). While NitrOS-9 runs
 the link starts NitrOS-9 fresh instead (no snapshot file). The link there, the long link, carries the moment itself (the snapshot rides in the
 fragment after `#z=`, which browsers never send to a server: a version byte, then the snapshot packed with deflate,
 its byte arrays raw rather than in base64, and without the rendered picture, which the machine draws again on the first
@@ -691,3 +699,12 @@ The report contains no ROM data, only sizes, CRC32s (matched against known-good 
 ---
 
 See also: [Machines](machines.md) · [LIZA and Claude](claude.md) · [ROM list](roms.md) · [Verification](verification.md) · [Comparison with XRoar, MAME and VCC](comparison.md)
+
+## Reporting a bug
+
+**Copy bug report** (in the command box, <kbd>Ctrl</kbd> <kbd>K</kbd>, and Help's "Copy a bug report →", which opens
+`play/#bug-report`) shows the report before anything is copied: the version stamp (`v<version> · <commit>`, also in
+Help, About and the settings drawer's credits line), the machine and its options, the browser, the file loaded last
+(its name and SHA-256) and, only if you tick **Include a snapshot**, the moment as a share link that holds no part of
+your ROMs. It never holds your Claude key, your ROMs' bytes or file names (ROMs appear as CRCs), or a WAD. Nothing is
+sent: paste it into an issue. The FAQ (`/faq/`) and About (`/about/`) pages are linked from Help and the drawer.

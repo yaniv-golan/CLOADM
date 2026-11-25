@@ -52,6 +52,7 @@ export const COMMANDS = [
   ['Reset', 'like the reset button', 'reset restart', 'btnReset', 'Machine'],
   ['Switch off and on', 'clears memory; the tape and cartridge stay in', 'switch off on power cycle hard reset clear', 'btnHardReset', 'Machine'],
   ['Switch machine…', 'the machine menu: another model', 'switch machine computer model', (page, claude, machines) => machines.open(), 'Machine'],
+  ['Copy bug report', 'the version, machine and browser, shown before copying', 'bug report problem issue copy version', (page) => page.bugReport.open(), 'Machine'],
   ['Help', 'the guide, in a new tab', 'help guide how', () => { window.open(new URL('help/', document.baseURI).href, '_blank', 'noopener'); }, 'Machine'],
 ];
 // "Switch to <model>": one per model (built when the box draws: the models are the page's), each through the machine
