@@ -330,9 +330,9 @@ check('--only twice: an error', /more than once/.test(parseOnly(['--only', 'shar
   // A route answers from the files (staticAnswer) with route.fulfill.
   {
     const src = require('fs').readFileSync(require('path').join(__dirname, '../tools/browser-check.js'), 'utf8');
-    // (comments out, then any spelling across lines: route.fetch(, route .fetch (, route\n.fetch()
-    const code = src.replace(/\/\*[^]*?\*\//g, '').split('\n').map((l) => l.replace(/(^|[^:])\/\/.*$/, '$1')).join('\n');
-    const calls = [...code.matchAll(/\broute\s*\.\s*fetch\s*\(/g)].map((m) => code.slice(0, m.index).split('\n').length);
+    // the raw source, any spelling across lines (route.fetch(, route .fetch (, route<newline>.fetch(): no comment in the file holds the call
+    // with its paren, and stripping comments would need a tokenizer (a route glob like 'https://x/**' is not a comment), so line numbers stay true
+    const calls = [...src.matchAll(/\broute\s*\.\s*fetch\s*\(/g)].map((m) => src.slice(0, m.index).split('\n').length);
     check('browser-check.js answers no routed request with route.fetch (a pooled socket the server may reset)', calls.length === 0, calls.map((n) => `line ${n}`).join(', '));
   }
   // callSite skips the helpers and names the caller's lines
