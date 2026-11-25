@@ -494,8 +494,8 @@ function videoMode(m, { main = false } = {}) {
     // PIA1 PB4 (bit 4 of the mode byte). Sources:
     //  * Motorola, "MC6847/MC6847Y Video Display Generator (VDG)" data sheet, its table of the alphanumeric and
     //    semigraphics modes by A/G, A/S and INT/EXT: with A/G low, INT/EXT high selects the external character inputs
-    //    for A/S low and semigraphics-6 for A/S high (the table's number and page are not cited here: the data sheet
-    //    could not be read from where this was written, see docs/verification.md);
+    //    for A/S low and semigraphics-6 for A/S high. The table's number and page were not checked against the
+    //    document;
     //  * MAME 0.264 src/devices/video/mc6847.cpp, which draws those modes (its "stripes" for the unfitted external
     //    inputs), and `node tools/mame-diff/run.js <dragon64|coco> --video --movedtext` phase 4: our picture of
     //    INT/EXT high (js/chips/mc6847.js stripe) is MAME's, every pixel, and it holds no characters.
@@ -503,8 +503,8 @@ function videoMode(m, { main = false } = {}) {
     // exempt, because every text byte is drawn from a character set there:
     //  * the CoCo 2B's MC6847T1 (vdg.t1): Motorola, "MC6847T1 Video Display Generator (VDG)" data sheet (1985), the
     //    INT/EXT pin's description: in the T1's alphanumeric mode INT/EXT selects its lowercase character set, not
-    //    external characters or semigraphics-6 (same caveat on the page number); MAME's mc6847t1 device draws it so,
-    //    and run.js coco2b --video --movedtext phase 4 is MAME's picture, still text;
+    //    external characters or semigraphics-6 (the page was not checked against the document); MAME's mc6847t1
+    //    device draws it so, and run.js coco2b --video --movedtext phase 4 is MAME's picture, still text;
     //  * the Dragon 200-E (vdg.extIntFromData): INT/EXT comes from each fetched byte's bit 7 inverted and PIA1 PB4 is
     //    the character generator's bank input (MAME dragon.cpp dragon200e_state::sam_read; js/chips/mc6847.js).
     // The MC-10 keeps its own wiring (it has no SAM).

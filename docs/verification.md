@@ -552,8 +552,7 @@ CoCo 2B's MC6847T1 shows its lowercase set there (Motorola, "MC6847T1 Video Disp
 the INT/EXT pin's description; `run.js coco2b --video --movedtext` phase 4 is MAME's picture) and is still read; on the
 Dragon 200-E PIA1 PB4 is the character generator's bank input and INT/EXT comes from each byte's bit 7 (MAME
 `dragon.cpp` `dragon200e_state::sam_read`), so `$FF22` = `$10` leaves its text screen text. The data sheets' table
-and page numbers are not given: they could not be read from the environment this was written in (no network), and
-are to be added from the documents. The MCP server's `screen_text` reads a page a program moved
+and page numbers were not checked against the documents. The MCP server's `screen_text` reads a page a program moved
 and declines INT/EXT high. Mutants: the base ignored, the mode ignored, the T1 not exempted, the 200-E not exempted,
 `textCell` without the mode check, the self-test at the profile's page. Reading changes no emulation: no regress hash changes. Not covered: a compatibility-mode text row other than 12 lines (`$FF9C` other than `$0F`), where the
 GIME shows more than 16 rows of 32 bytes; the reader reads the first 16.
