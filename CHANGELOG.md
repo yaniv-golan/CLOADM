@@ -259,6 +259,10 @@ Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.
 
 #### Fixed
 
+- **The Dragon 64's serial port with nothing plugged in reads as MAME's does.** CTS, DSR and DCD idle high there (MAME's `dragon64`
+  fits no RS-232 device), so the 6551's status register reads $60 (DSR and DCD set) and the transmit-empty bit never reads 1: a
+  program that sends a byte with no device on the port waits, as it does under MAME. It read $10 before (TDRE
+  only), as if a terminal were plugged in. A terminal, a loopback plug and the printer are unchanged.
 - **Share works again after WYRMFIRE.** Sharing during WYRMFIRE, going back and sharing another moment threw on the ROM
   line, and the Share screen stayed blank. The WYRMFIRE capture now clears the line's text and leaves the line itself.
   "Save picture" does nothing before a moment has been captured, and the picture of a level from your own WAD is refused

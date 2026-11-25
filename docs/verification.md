@@ -1613,6 +1613,13 @@ names it.
   and 12 pushes; MAME `base6x09.lst`), not 20: no earlier firmware had an interrupt arrive that soon.
   The 64 Plus has the same 6551 and port because MAME's `d64plus()` starts from `dragon64(config)`
   (`src/mame/trs/dragon.cpp`); its run (`d64plus/spec.js` `serial`) is the same firmware on its own ROM files.
+* With nothing in the Dragon 64's serial port, `node tools/mame-diff/run.js dragon64 --serial-idle` runs `sam/acia-idle.asm` in lockstep with
+  MAME's default (its `dragon64` fits no RS-232 device, so nothing drives CTS, DSR or DCD and all three idle high). The 6551's status then reads
+  $60 (DSR and DCD set), TDRE never reads 1 because CTS masks it, a byte written goes nowhere and no interrupt is raised: MAME 0.264 reads
+  `$FF05 = $60` at the BASIC prompt. The firmware reads every register after reset and a while later, the status after each control and command write, a
+  transmit attempt with its poll counted to the cycle, the transmitter and receiver interrupts enabled, DTR off and on, and a programmed reset.
+  `tests/acia-idle.test.js` runs it in Node against the values worked out from the 6551's status bits. (A terminal plugged in, MAME's null modem, asserts
+  the lines instead: TDRE reads 1, as `--serial`'s patch box does.)
 * `node tools/mame-diff/drivewire/run-dw.js [profile ...]` runs `drivewire/dw.asm`, a DriveWire client that plays a
   script of transactions over the Becker port and logs every byte the server sends: RESET, INIT, NOP, DWINIT, TIME;
   Read, ReRead, Read Extended (a right and a wrong checksum), ReRead Extended, Write (a wrong checksum, a

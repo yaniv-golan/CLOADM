@@ -353,6 +353,33 @@ ${[conf(1, 1, 0), conf(3, 3, 13), conf(4, 4, 13), conf(6, 6, 13)].join('\n')}
       },
     };
   },
+  // the Dragon 64's 6551 ACIA with nothing in the serial port (acia-idle.asm; MAME fits no RS-232 device by default): lockstep.
+  // The handshake inputs are idle (CTS, DSR and DCD not asserted), so the status register has DSR and DCD set and the transmitter
+  // data register empty bit masked. result(m) reads what the firmware logged from $7100: the same bytes MAME should log.
+  aciaIdle(profileId, { config = {}, work = `/tmp/mame-diff/${profileId}-acia-idle` } = {}) {
+    const Emu = loadEmu(), profile = Emu.profiles[profileId];
+    if (!profile.acia) throw new Error(`${profileId}: no 6551 serial port`);
+    const resolved = Emu.resolveConfig(profileId, Object.assign({ mameCompat: true }, config));
+    const { asm, bank0, bank1 } = images('acia-idle.asm');
+    const slots = withChip(profile, slotData(profile, bank0, bank1));
+    return {
+      label: `${profileId} ACIA, nothing in the port`, system: profile.mame, work, seconds: 4,
+      args: ['-ext', '', ...mameConfigArgs(resolved)],
+      regs: REGS, waitOps: ['CWAI', 'SYNC'], haltPc: asm.symbols.get('HALT'),
+      install: () => writeProfileRoms(work, profile, slots),
+      machine: () => {
+        const m = loadEmu().createMachine(profileId, Object.assign({ mameCompat: true }, config));
+        m.setRoms(slots); m.reset(true);
+        return m;
+      },
+      instructions: 100000,
+      // the log, from $7100: status, command, control, data after reset; status a while later; status after the control and the
+      // command write; status, the passes of the transmit poll (two bytes), the data register; the transmitter interrupt
+      // enabled: status twice; the receiver interrupt: status twice, command; DTR off: status; on: status; after the
+      // programmed reset: status, command, control
+      result: (m) => ({ done: m.ram[0x7000] === 0xFF, log: [...m.ram.slice(0x7100, 0x7100 + 22)] }),
+    };
+  },
   // video firmware for the regression test: every display mode, phase counter at $7000
   video(profileId) {
     const Emu = loadEmu(), profile = Emu.profiles[profileId];

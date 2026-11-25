@@ -409,6 +409,8 @@ for (const [id, family] of [['coco', 'sam'], ['coco3', 'coco3'], ['mc10', 'mc10'
 }
 // the Dragon 64's 6551 ACIA with a loopback plug (run.js dragon64 --serial)
 cases.push(['acia dragon64', () => traceHash(spec('sam').serial('dragon64'))]);
+// the same chip with nothing in the port (run.js dragon64 --serial-idle): CTS, DSR and DCD idle high
+cases.push(['acia idle dragon64', () => traceHash(spec('sam').aciaIdle('dragon64'))]);
 
 // LIZA for the 6803: the scripted conversation on the MC-10 and the Alice, hashed the
 // same way - every instruction's registers and cycle count, and every frame of the conversation. It has
