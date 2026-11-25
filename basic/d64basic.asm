@@ -53,6 +53,7 @@ FPT5    RMB     5
 FPT6    RMB     5
 POLYV   RMB     5               ; POLY's variable
 FBUFFR  RMB     64              ; number to text (FOUT) and PRINT USING's work (FBUFFR+20 on)
+LNSBUF  RMB     6               ; a line number as digits (LINSTR)
 SYSEND  RMB     0               ; (must stay at or below LINBUF: tools/build-basic.js checks it)
 
 * ---------------- direct page ----------------
@@ -169,6 +170,10 @@ USEXP   RMB     2
 BASESP  RMB     2               ; the stack the OK prompt and CONT use: frames above it survive a STOP
 FRMSP   RMB     2               ; the stack and the text at the start of the statement running
 STMTXT  RMB     2
+RNNEW   RMB     2               ; RENUM: the first new number, the first old one, the step
+RNOLD   RMB     2
+RNINC   RMB     2
+RNLEN   RMB     1               ; RENUM: a reference's digits
 DPEND   RMB     0
 
 * ---------------- the ROM ----------------

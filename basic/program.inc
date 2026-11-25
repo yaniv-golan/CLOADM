@@ -226,3 +226,245 @@ PK3     LDA     ,X+
 PKNONE  LDA     #'!'            ; a token with no keyword (cannot be typed)
         JSR     CHROUT
         PULS    X,PC
+
+* ---------------- RENUM ----------------
+* RENUM [new [, old [, step]]]: the lines from old on (all, by default) are numbered from new (10) in steps of step
+* (10), and every reference to them after GO TO, GO SUB, THEN, ELSE, RUN and RESTORE (and in ON's lists) follows
+* [UM]. ?FC ERROR when the new numbers would run into the lines before old or past 63999, or the step is 0.
+* A reference to a line that does not exist is left as it is [OWN].
+RENUM   LDD     #10
+        STD     <RNNEW
+        STD     <RNINC
+        LDD     #0
+        STD     <RNOLD
+        JSR     CHRGOT
+        BEQ     RNA3
+        BCC     RNA1
+        JSR     LINGET
+        STD     <RNNEW
+RNA1    JSR     CHRGOT
+        CMPA    #','
+        BNE     RNA3
+        JSR     CHRGET
+        BCC     RNA2
+        JSR     LINGET
+        STD     <RNOLD
+RNA2    JSR     CHRGOT
+        CMPA    #','
+        BNE     RNA3
+        JSR     CHRGET
+        JSR     LINGET
+        STD     <RNINC
+RNA3    JSR     CHRGOT
+        LBNE    SNERR
+        LDD     <RNINC
+        LBEQ    FCERR
+* the lines before old must stay below new; count the lines to renumber
+        LDD     #0
+        STD     <TMPCNT
+        LDX     <TXTTAB
+RNC1    LDD     ,X
+        BEQ     RNC3
+        LDD     2,X
+        CMPD    <RNOLD
+        BHS     RNC2
+        CMPD    <RNNEW
+        LBHS    FCERR
+        BRA     RNC2A
+RNC2    LDD     <TMPCNT
+        ADDD    #1
+        STD     <TMPCNT
+RNC2A   LDX     ,X
+        BRA     RNC1
+RNC3    LDD     <TMPCNT
+        LBEQ    RNEND           ; nothing to renumber
+        SUBD    #1              ; the last new number: new + (count - 1) x step, up to 63999
+        JSR     RNMUL
+        ADDD    <RNNEW
+        LBCS    FCERR
+        CMPD    #63999
+        LBHI    FCERR
+* the references, by the old numbers (the lines keep them until the end)
+        LDX     <TXTTAB
+RNB1    LDD     ,X
+        BEQ     RNB9
+        LEAX    4,X
+RNB2    LDA     ,X+
+        BEQ     RNB1
+        CMPA    #'"'
+        BNE     RNB3
+RNBQ    LDA     ,X+             ; a string
+        BEQ     RNB1
+        CMPA    #'"'
+        BNE     RNBQ
+        BRA     RNB2
+RNB3    CMPA    #$FF            ; a function: its byte
+        BNE     RNB4
+        LEAX    1,X
+        BRA     RNB2
+RNB4    CMPA    #T_REM
+        BEQ     RNBR
+        CMPA    #T_APOS
+        BNE     RNB5
+RNBR    LDA     ,X+             ; a remark: the rest of the line
+        BNE     RNBR
+        BRA     RNB1
+RNB5    CMPA    #T_DATA
+        BNE     RNB6
+RNBD    LDA     ,X              ; DATA: up to the next ':'
+        BEQ     RNB2
+        LEAX    1,X
+        CMPA    #':'
+        BNE     RNBD
+        BRA     RNB2
+RNB6    CMPA    #T_GO
+        BNE     RNB7
+        BSR     RNSPC
+        LDA     ,X
+        CMPA    #T_TO
+        BEQ     RNB6A
+        CMPA    #T_SUB
+        BNE     RNB2
+RNB6A   LEAX    1,X
+RNBL    BSR     RNREF           ; a list: ON ... GO TO a, b, c
+        BSR     RNSPC
+        LDA     ,X
+        CMPA    #','
+        BNE     RNB2
+        LEAX    1,X
+        BRA     RNBL
+RNB7    CMPA    #T_THEN
+        BEQ     RNB8
+        CMPA    #T_ELSE
+        BEQ     RNB8
+        CMPA    #T_RUN
+        BEQ     RNB8
+        CMPA    #T_RESTORE
+        BNE     RNB2
+RNB8    BSR     RNREF
+        BRA     RNB2
+* the new numbers
+RNB9    LDX     <TXTTAB
+        LDD     <RNNEW
+        STD     <TMPPT2
+RNN1    LDD     ,X
+        BEQ     RNEND
+        LDD     2,X
+        CMPD    <RNOLD
+        BLO     RNN2
+        LDD     <TMPPT2
+        STD     2,X
+        ADDD    <RNINC
+        STD     <TMPPT2
+RNN2    LDX     ,X
+        BRA     RNN1
+RNEND   JSR     CLRVAR
+        JMP     READY
+* RNMUL: D = D x step
+RNMUL   LDX     <RNINC
+        PSHS    X
+        JSR     MUL16
+        LEAS    2,S
+        RTS
+* RNSPC: X past spaces
+RNSPC   LDA     ,X
+        CMPA    #' '
+        BNE     RNS1
+        LEAX    1,X
+        BRA     RNSPC
+RNS1    RTS
+* RNREF: a line number at X (after spaces), if any, rewritten as its line's new number; X ends after it
+RNREF   BSR     RNSPC
+        PSHS    X               ; where the digits start
+        LDD     #0
+        STD     <BINVAL
+RNR1    LDA     ,X
+        SUBA    #'0'
+        BLO     RNR2
+        CMPA    #9
+        BHI     RNR2
+        LEAX    1,X
+        PSHS    A
+        LDD     <BINVAL         ; x 10 + the digit (a number too big for a line just finds none)
+        LSLB
+        ROLA
+        PSHS    D
+        LSLB
+        ROLA
+        LSLB
+        ROLA
+        ADDD    ,S++
+        ADDB    ,S+
+        ADCA    #0
+        STD     <BINVAL
+        BRA     RNR1
+RNR2    TFR     X,D
+        SUBD    ,S              ; the old digits' length
+        STB     <RNLEN
+        BEQ     RNRNO           ; no number here
+        LDD     <BINVAL         ; its line's new number
+        CMPD    <RNOLD
+        BLO     RNRNO
+        LDX     <TXTTAB
+        LDU     #0              ; the index among the lines renumbered
+RNR3    LDD     ,X
+        BEQ     RNRNO           ; no such line: left as it is
+        LDD     2,X
+        CMPD    <RNOLD
+        BLO     RNR4
+        CMPD    <BINVAL
+        BEQ     RNR5
+        LEAU    1,U
+RNR4    LDX     ,X
+        BRA     RNR3
+RNRNO   PULS    D               ; (X is past the digits again below)
+        TFR     D,X
+        LDB     <RNLEN
+        ABX
+        RTS
+RNR5    TFR     U,D
+        BSR     RNMUL
+        ADDD    <RNNEW
+        JSR     LINSTR          ; X: the new digits, B: how many
+        PSHS    B
+        SUBB    <RNLEN          ; the change in length
+        BEQ     RNR8
+        SEX
+        PSHS    D
+        ADDD    <VARTAB         ; room for it
+        JSR     ROOMCK
+        PULS    D
+        PSHS    D
+        LDY     3,S             ; the digits' start
+        LDB     <RNLEN
+        LEAY    B,Y             ; the text after the old digits
+        PULS    D
+        TSTA
+        BMI     RNR7
+        LDU     <VARTAB         ; longer: move the rest up, from the top down
+        PSHS    Y
+        LEAY    D,U
+        STY     <VARTAB
+RNR6    CMPU    ,S
+        BLS     RNR6A
+        LDA     ,-U
+        STA     ,-Y
+        BRA     RNR6
+RNR6A   LEAS    2,S
+        BRA     RNR8
+RNR7    LEAU    D,Y             ; shorter: move the rest down
+RNR7A   CMPY    <VARTAB
+        BHS     RNR7B
+        LDA     ,Y+
+        STA     ,U+
+        BRA     RNR7A
+RNR7B   STU     <VARTAB
+RNR8    PULS    B
+        LDU     ,S++            ; the digits' start: the new digits go there
+        LDX     #LNSBUF
+RNR9    LDA     ,X+
+        STA     ,U+
+        DECB
+        BNE     RNR9
+        TFR     U,X
+        JMP     RELINK          ; (the links again: the text moved)

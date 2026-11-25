@@ -96,10 +96,15 @@ SPACE   PSHS    A
         JSR     CHROUT
         PULS    A,PC
 
-* LINPRT: print D as an unsigned decimal number, no spaces
-LINPRT  PSHS    D,X,Y
+* LINPRT: print D as an unsigned decimal number, no spaces. Keeps every register.
+LINPRT  PSHS    D,X
+        BSR     LINSTR
+        JSR     PRTN
+        PULS    D,X,PC
+* LINSTR: D as unsigned decimal digits (no leading zeros) at LNSBUF: X = them, B = how many
+LINSTR  PSHS    Y
+        LDY     #LNSBUF
         LDX     #DECTAB
-        LDY     #0              ; nonzero once a digit has been printed (leading zeros are skipped)
 LNP1    CLR     ,-S             ; this place's digit
 LNP2    SUBD    ,X
         BLO     LNP3
@@ -109,16 +114,18 @@ LNP3    ADDD    ,X++
         PSHS    D
         LDA     2,S
         BNE     LNP4
-        CMPY    #0
+        CMPY    #LNSBUF         ; leading zeros are skipped
         BNE     LNP4
-        CMPX    #DECTAB+10      ; the units digit is always printed
+        CMPX    #DECTAB+10      ; the units digit is always written
         BNE     LNP5
 LNP4    ADDA    #'0'
-        JSR     CHROUT
-        LEAY    1,Y
+        STA     ,Y+
 LNP5    PULS    D
         LEAS    1,S
         CMPX    #DECTAB+10
         BLO     LNP1
-        PULS    D,X,Y,PC
+        TFR     Y,D
+        SUBD    #LNSBUF
+        LDX     #LNSBUF
+        PULS    Y,PC
 DECTAB  FDB     10000,1000,100,10,1

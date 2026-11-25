@@ -115,7 +115,7 @@ black-box case (`VARPTR` then `PEEK` of five bytes) and changed to match if it d
 | `lineinput.inc` | the input line editor: typing, left arrow erases, SHIFT-left arrow erases the line, BREAK, CLEAR [UM] |
 | `errors.inc` | the error codes and messages, `?XX ERROR` / `?XX ERROR IN n` [UM] |
 | `interp.inc` | the main loop: direct mode, statement dispatch, `CHRGET`, `END`, `STOP`, `CONT`, `REM`, `DATA` when run, `TRON` / `TROFF`, `GOTO`, `GOSUB` / `RETURN`, `RUN`, `NEW`, `CLS` |
-| `program.inc` | finding, storing, replacing and deleting lines; `NEW`; `LIST` and `DEL` (and their range); uncrunching keywords |
+| `program.inc` | finding, storing, replacing and deleting lines; `NEW`; `LIST` and `DEL` (and their range); `RENUM`; uncrunching keywords |
 | `crunch.inc` | crunching a typed line to tokens |
 | `vars.inc` | finding and creating variables, arrays, `DIM`, `LET` |
 | `expr.inc` | the expression evaluator: precedence, relations, `NOT` / `AND` / `OR`, `&H` / `&O`, function dispatch, type checks, integer conversions |
