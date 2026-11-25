@@ -78,7 +78,7 @@ const AREAS = [
   { paths: ['js/config.js'], suites: ['config'], groups: ['url'] },
   // the program pages and their cards, and the long link (#z=) and the share pictures
   { paths: ['js/program-pages.js', 'js/media/png.js', 'js/video/card.js', 'tools/program-cards.js'], suites: ['program-pages', 'pwa'], groups: ['url', 'pwa'] },
-  { paths: ['js/media/snapshot.js'], suites: ['long-link', 'share-roms'], groups: ['share', 'askPopout'] },
+  { paths: ['js/media/snapshot.js'], suites: ['long-link', 'share-roms', 'basic-share'], groups: ['share', 'askPopout', 'basicShare'] },
   // the share card: Save picture and a short link's preview picture (one renderer)
   { paths: ['js/video/bezel.js'], suites: ['bezel', 'share-card', 'short-link'], groups: ['share', 'shortLink'] },
   // short links: the sealing, the store, the QR code (the Worker itself is shortlink/, tests/shortlink-worker.test.js)
@@ -92,7 +92,10 @@ const AREAS = [
   { paths: ['js/ui/display-panel.js'], suites: ['display'], groups: ['display'] },
   { paths: ['js/ui/welcome.js'], suites: ['welcome'], groups: ['welcomeScreen', 'firstVisit'] },
   { paths: ['js/ui/install.js', 'sw.js', 'manifest.webmanifest', 'tools/pwa-files.js'], suites: ['pwa', 'install'], groups: ['pwa', 'install'] },
-  { paths: ['js/ui/share.js', 'js/share-text.js'], suites: ['share-roms', 'share-card', 'share-text'], groups: ['share'] },
+  { paths: ['js/ui/share.js', 'js/share-text.js'], suites: ['share-roms', 'share-card', 'basic-share', 'share-text'], groups: ['share', 'basicShare'] },
+  // the arrival card: a shared moment's (the share group's arrival checks, and the visits a link starts and returns to)
+  // and a shared BASIC program's (basicShare; the share screen's program mode is js/ui/share.js)
+  { paths: ['js/ui/arrival.js'], suites: ['shared-moment', 'basic-share'], groups: ['share', 'visit', 'returning', 'basicShare'] },
   { paths: ['js/bugreport.js', 'js/ui/bug-report.js'], suites: ['bugreport'], groups: ['commands'] },
   { paths: ['js/media/gif.js', 'tools/capture-gif.js'], suites: ['gif', 'share-text'], groups: ['share'] },
   { paths: ['js/version.js', 'js/ui/version-stamp.js', 'tools/version.js'], suites: ['version'], groups: ['reading', 'settings'] },

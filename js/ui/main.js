@@ -132,7 +132,10 @@ const romPanel = setupRomPanel(page);
 const romSockets = setupRomSockets(page, romPanel, { confirmSwitch: machinePanel.confirmSwitch });
 setupBootHelp(page, romSockets);
 let library = null;
-const snapshots = setupSnapshotPanel(page, { confirmSwitch: machinePanel.confirmSwitch, openRoms: () => romSockets.reveal(), startOver: (program) => startOver(program) });
+// the arrival card (a shared moment, or a shared BASIC program, which it opens): before the snapshots, which hand it a
+// program's short link
+const arrival = setupArrival(page, { openShare: () => share.open(), startOver, reportUrl: (id) => linkStore.reportUrl(id), openRoms: () => romSockets.reveal() });
+const snapshots = setupSnapshotPanel(page, { confirmSwitch: machinePanel.confirmSwitch, openRoms: () => romSockets.reveal(), startOver: (program) => startOver(program), openProgram: arrival.openProgram });
 const disks = setupDrives(page, { openRoms: () => romSockets.reveal({ to: 'disk' }) });
 const slots = setupSlotsPanel(page, { snapshots });
 const nitros9 = setupNitros9Panel(page);
@@ -191,7 +194,6 @@ function startOver(program) {
   page.focus();
 }
 // the card a shared moment arrives with (Session.arrivedFromLink); Send it back is the Share screen's own open
-setupArrival(page, { openShare: () => share.open(), startOver, reportUrl: (id) => linkStore.reportUrl(id) });
 const drawer = setupDrawer(page, { showRoms });
 // a phone: the ports and power in sheets, one row of chips under the on-screen panel
 page.sheets = setupPhoneSheets(page, { touchKeys: page.touchKeys, ask });
@@ -353,7 +355,8 @@ const starting = welcome.start(visit, { fromLink, withMedia: link.roms.length > 
   }
   await starting;
   // a share link's moment (#z=, Share screen): opened like a dropped snapshot, once the visit has started
-  if (/^#z=/.test(location.hash)) await snapshots.takeLink(location.hash);
+  // (a BASIC program's link, Share your program, is a #z= too: its payload says which, js/ui/arrival.js)
+  if (/^#z=/.test(location.hash)) { if (!await arrival.takeProgramLink(location.hash)) await snapshots.takeLink(location.hash); }
   // a short link's moment (#l=<id>.<key>: its arrival page on s.cloadm.dev sends the visitor here): fetched, opened
   // with its key in this browser, then opened like the rest
   else if (/^#l=/.test(location.hash)) await snapshots.takeShortLink(location.hash, linkStore);

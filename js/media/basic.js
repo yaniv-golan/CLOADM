@@ -244,3 +244,14 @@ export function listProgram(peek, start, dialect) {
   const p = readProgram(peek, start);
   return p ? p.lines.map((l) => `${l.number} ${uncrunch(l.bytes, dialect)}`).join('\n') : null;
 }
+
+// What LIST shows first of a listing on a 32-column text screen: each line wrapped at `cols` characters, as BASIC
+// wraps it, and the first `rows` screen rows of that (the Share screen's program preview, js/ui/share.js).
+export function listingRows(text, cols = 32, rows = 16) {
+  const out = [];
+  for (const line of String(text).split('\n')) {
+    for (let i = 0; i < Math.max(1, line.length) && out.length < rows; i += cols) out.push(line.slice(i, i + cols));
+    if (out.length >= rows) break;
+  }
+  return out;
+}
