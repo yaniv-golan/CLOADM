@@ -278,6 +278,9 @@ node tests/alpha.test.js     # the Dragon Alpha's wiring: ROM banks, PIA2, the A
 node tools/build-demo.js     # rebuild examples/demo.bin
 node tools/wyrmfire-vendor.js <wyrmfire checkout>   # vendor WYRMFIRE at js/wyrmfire/pin.js's commit into examples/wyrmfire/ and rebuild the Freedoom level (pinned download, SHA-256 checked); tests/wyrmfire-files.test.js checks the result against the pin
 node tools/build-examples.js # rebuild examples/liza.bin, liza6803-{mc10,alice}.bin, welcome.bin, welcome6803-{mc10,alice}.bin, chat.bin and starter-game/catch.bin from their .asm sources, then bring sw.js's offline file list up to date
+node tests/census.test.js    # the clean-room ROM call census and token probe (tools/census/, local-only tools: README there) on the built-in firmware: records, the guard refusing planted ROM values, the romrefs tripwire, mutants
+node tools/census/census.js --roms PATH PROGRAM...   # LOCAL ONLY, your own ROM dump: every call into $8000-$BFFF as addresses and effects, never ROM bytes (tools/census/README.md)
+node tools/census/tokens.js --roms PATH --keywords FILE   # LOCAL ONLY: how BASIC stores each keyword (read from the user's program in RAM; the list comes from the public manual)
 node tests/welcome.test.js   # welcome program on every 6809 model: screen, menu keys and events, the tune on the DAC
 node tests/welcome-tune.test.js   # when the welcome tune plays: the visit and Programs play it; a switch, Reset, a power cycle and a return are silent; both builds
 node tests/demo-tone.test.js # the welcome demo plays one short clean tone (440-880 Hz, 0.3-0.5 s, $80 +/- amp), then nothing on the DAC; the bars are as defined (Dragon 64, CoCo, CoCo 3)

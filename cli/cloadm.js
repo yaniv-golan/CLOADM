@@ -1344,5 +1344,5 @@ async function main(argv, { out = (t) => process.stdout.write(t + '\n'), err = (
   }
 }
 
-module.exports = { main, parseArgs, framePng, decodePng, describe, EXIT, ERROR_CODES, STEPS };
+module.exports = { main, parseArgs, framePng, decodePng, describe, EXIT, ERROR_CODES, STEPS, Runner };
 if (require.main === module) main(process.argv.slice(2)).then((code) => { process.exitCode = code; });
