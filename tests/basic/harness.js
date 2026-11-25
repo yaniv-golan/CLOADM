@@ -247,19 +247,27 @@ class Basic {
 function runCase(rom, text, { machine = 'dragon64', guard = true } = {}) {
   const b = new Basic(rom, { machine });
   let refused = null;
-  const shots = [], sounds = [];
-  let wavName = null;
+  const shots = [], sounds = [], typistNotes = [];
+  let wavName = null, at = 'start';
   const wavStop = () => { sounds.push({ name: wavName, ...b.wavStop() }); wavName = null; };
   const out = (status, extra = {}) => {
     if (wavName != null) wavStop();
     return refused
       ? { status: 'refused', why: refused, transcript: [], flags: [], frames: b.frames }
-      : { status, transcript: b.lines ? b.transcript() : b.screen(), flags: b.flags || [], frames: b.frames, ...(shots.length ? { shots } : {}), ...(sounds.length ? { sounds } : {}), ...extra };
+      : { status, transcript: b.lines ? b.transcript() : b.screen(), flags: b.flags || [], frames: b.frames, ...(shots.length ? { shots } : {}), ...(sounds.length ? { sounds } : {}), ...(typistNotes.length ? { typist: typistNotes } : {}), ...extra };
   };
   if (!b.waitOk({ limit: 600, stable: 3 })) return out('no-boot');
   let limit = 30 * 50, nowait = false;
   const settle = () => { let last = null; return b.until(() => { const k = b.rows().join(''); const same = k === last; last = k; return same; }, { limit, stable: 10 }); };
-  const typed = (t) => { const st = b.type(t, limit * 4); return st === 'done' ? null : st; };
+  // a line is judged by what follows it (OK back, the screen settled), not by whether the typist saw every key
+  // taken: a BASIC that runs the line at once and stops reading the keyboard (PLAY sounding, CLOAD) leaves the typist
+  // at "not-consumed" though the line ran; that is only noted (the result's typist). Keys that really were not taken
+  // leave BASIC waiting for the line, and the wait after it fails.
+  const typed = (t) => {
+    const st = b.type(t, limit * 4);
+    if (st === 'not-consumed') { typistNotes.push({ at, status: st }); return null; }
+    return st === 'done' ? null : st;
+  };
   let st = typed('CLS\n');
   if (st) return out(st, { at: 'CLS' });
   if (!b.waitOk({ limit })) return out('timeout', { at: 'CLS' });
@@ -275,6 +283,7 @@ function runCase(rom, text, { machine = 'dragon64', guard = true } = {}) {
   for (let i = 0; i < lines.length; i++) {
     if (refused) return out('refused');
     const line = lines[i], where = `line ${i + 1}`;
+    at = where;
     if (line.startsWith('#')) {
       const m = /^#(\S*)\s?(.*)$/.exec(line), cmd = m[1], arg = m[2];
       if (cmd === '') continue;

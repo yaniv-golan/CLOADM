@@ -239,5 +239,27 @@ for (const good of ['PCLEAR 1', 'PCLEAR 0', 'PCLEAR 9', 'PMODE 4,1', 'PMODE 0,4'
   check('sheet: #joy, #wav, #wav-stop and #screenshot as steps', /left joystick's up-down position so that JOYSTK\(3\) reads 10[^]*Start recording the speaker \(sound "tune"\)[^]*Type:  SOUND 100,5[^]*Stop recording[^]*Photograph the screen \(picture "pic"\)/.test(sh), sh);
 }
 
+// ---- a line judged by what follows it, not by the typist ----
+// the real ROM stops reading the keyboard while PLAY sounds, so the typist reports "not-consumed" for a line that ran:
+// the case goes on, with the note in its result; keys that were really not taken still fail the wait after them
+{
+  const { runCase } = require('./basic/harness.js');
+  const real = Basic.prototype.type;
+  const text = 'PRINT "A"\nPRINT "B"\n';
+  const plain = runCase(built.rom, text);
+  let r;
+  try {
+    Basic.prototype.type = function (t, limit) { real.call(this, t, limit); return /B/.test(t) ? 'not-consumed' : 'done'; };
+    r = runCase(built.rom, text);
+  } finally { Basic.prototype.type = real; }
+  check('typist not-consumed: the case goes on', r.status === 'ok' && JSON.stringify(r.transcript) === JSON.stringify(plain.transcript), JSON.stringify(r));
+  check('typist not-consumed: noted with its line', JSON.stringify(r.typist) === JSON.stringify([{ at: 'line 2', status: 'not-consumed' }]), JSON.stringify(r.typist));
+  try {
+    Basic.prototype.type = function (t, limit) { if (!/B/.test(t)) return real.call(this, t, limit); this.m.typist.typePaced(t.slice(0, 3)); return 'not-consumed'; };
+    r = runCase(built.rom, '#timeout 3\n' + text);
+  } finally { Basic.prototype.type = real; }
+  check('keys really not taken: the wait after them fails', r.status === 'timeout' && r.at === 'line 3', JSON.stringify({ status: r.status, at: r.at }));
+}
+
 console.log(`\n${n - fail}/${n} passed`);
 process.exitCode = fail ? 1 : 0;
