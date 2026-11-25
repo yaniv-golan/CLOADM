@@ -73,6 +73,7 @@ function page(name) {
 <p>${esc(p.description)}</p>
 <p><a href="${to}">Play ${esc(p.name)}</a></p>
 </main>
+<footer><p>Not affiliated with Tandy, Dragon Data, Microsoft, id Software or the Freedoom project.</p></footer>
 </body>
 </html>
 `;

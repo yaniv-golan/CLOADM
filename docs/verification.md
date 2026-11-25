@@ -1922,6 +1922,35 @@ The program pages' cards are made on the built-in firmware (`tools/program-cards
 loaded); `tests/program-pages.test.js` checks the committed pages and cards are what it makes, decoding the PNGs with
 Node's zlib, and checks the PNG writer against a file worked out by hand from the specification.
 
+## Share your program (a BASIC program as text)
+
+No MAME oracle: a link is a container, and no BASIC ROM may be used (AGENTS.md 4.6). BASIC is our stand-in
+(`tests/fixtures/basic-standin.js`: BASIC's direct-page pointers for an empty program, as [CBU p.7] describes them, and
+OK on the screen). `tests/basic-share.test.js` checks the card's condition (`Session.sharedProgram`: no ROM, an empty
+program, pointers that describe none), the LIST round trip on the Dragon 64, the CoCo, the CoCo 3 and the MC-10 against
+listings written by hand (the sender's bytes and the recipient's are the same, LIST is typed and RUN never is), the
+short link (no picture stored, the text never in the clear), the arrival without ROMs and after them, the limits (over
+65536 characters, a graphics byte in a string, lower case outside a string) and the link format (byte 0 = 2, a moment's
+reader refusing it, a newer program format, damaged ones). The preview's pixels are checked against the VDG's own glyphs
+by hand. The browser check (`basicShare`) drives the card, program mode (the preview pixel for pixel), the short link
+through the Worker, the forum text and the `.bas` file, the refusal, the 653x280 layout, and both arrivals (no ROM, then
+the ROM dropped; a short link with the ROM stored). What real BASIC does with LIST and RUN after the load is load_basic's
+own behaviour (docs/claude.md).
+
+## The frozen link formats (golden links)
+
+No MAME oracle: a link is a container (AGENTS.md 4.6). Since 0.3.0 every link and sealed object ever written must keep
+opening (AGENTS.md rule 7). `tests/fixtures/links/` holds one golden link per format version, written once by
+`tools/gen-link-fixtures.js` and never regenerated: a long link holding a moment (`#z=`, byte 0 = 1), one holding a
+BASIC program (byte 0 = 2), and a short link's sealed object of each kind (version 1, kind 1 and kind 2, with its key).
+`tests/link-freeze.test.js` checks each file's SHA-256 against the committed value, then opens each in a fresh Session
+and checks it against values worked out by hand from what made it: the moment is a Dragon 64 on the built-in firmware
+whose 14-byte program at `$7000` filled the text screen (`$0400`-`$05FF`) with `$41` and loops at `$700C`; the program,
+opened on our stand-in BASIC, lists as written. No ROM is involved. The sealed object's layout (version, kind, IV,
+ciphertext with the header as AES-GCM additional data) is checked byte by byte in `tests/short-link.test.js`, the
+Worker's reading of it (body version 2, the kind kept, the arrival page's wording per kind, refusals) in
+`tests/shortlink-worker.test.js`, and the snapshot config rule (`Session.checkedSnapshot`) in `tests/link-freeze.test.js`.
+
 ## NitrOS-9 boot test
 
 What the page's **Boot NitrOS-9** ([using.md](using.md#booting-nitros-9)) rests on. `tests/nitros9.test.js` boots the official NitrOS-9

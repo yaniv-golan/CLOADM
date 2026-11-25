@@ -124,7 +124,8 @@ export class Debugger {
     this.log = [];                 // the trace ring buffer, oldest first
     this.steps = 0;                // instructions executed by step()/run()/stepOver()/runToReturn()
     this.stopped = false;
-    this.commanding = 0;           // a command (step, Over, Out, Run to, run) is running the machine now: not the frame loop
+    // a command (step, Over, Out, Run to, run) is running the machine now, not the frame loop
+    this.commanding = 0;
     this.stopReason = null;
     this.onStop = null;            // called with this debugger at every stop (the Session: 'debugger-stopped')
     this.skipBp = null;            // an address whose breakpoint is not to fire again (set by a stop)

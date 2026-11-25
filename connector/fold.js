@@ -67,7 +67,10 @@ function transform(file, src, idOf) {
 // safe for CLOADM's sources, whose template literals hold no such lines (tests/connector.test.js runs the result)
 const strip = (s) => s.replace(/^[ \t]*\/\*[\s\S]*?\*\/[ \t]*\n/gm, '').replace(/^[ \t]*\/\/.*\n/gm, '');
 
-export function fold(entry, { stripComments = true, tail = '' } = {}) {
+// replace: { 'js/x.js': 'connector/view/y.js' } (repository paths): a module folded in place of another, wherever it is
+// imported (the side panel leaves out what it has no use for: connector/build.js)
+export function fold(entry, { stripComments = true, tail = '', replace = {} } = {}) {
+  const swap = new Map(Object.entries(replace).map(([a, b]) => [path.join(repo, a), path.join(repo, b)]));
   const order = [], ids = new Map(), state = new Map();
   const idOf = (f) => { if (!ids.has(f)) ids.set(f, `__m${ids.size}`); return ids.get(f); };
   const mods = new Map();
@@ -75,9 +78,10 @@ export function fold(entry, { stripComments = true, tail = '' } = {}) {
     if (state.get(f) === 'done') return;
     if (state.get(f) === 'busy') throw new Error(`import cycle through ${path.relative(repo, f)}`);
     state.set(f, 'busy');
-    let src = fs.readFileSync(f, 'utf8');
+    const read = swap.get(f) || f;
+    let src = fs.readFileSync(read, 'utf8');
     if (stripComments) src = strip(src);
-    const t = transform(f, src, idOf);
+    const t = transform(read, src, idOf);
     mods.set(f, t);
     for (const d of t.deps) visit(d);
     state.set(f, 'done'); order.push(f);

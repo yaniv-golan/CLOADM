@@ -27,7 +27,7 @@
  *     $C000-$FEFF / $FF40-$FF5F, and remap in cartridgeChanged(); what the attached devices decide is
  *     settled in devicesAttached(), called whenever one is attached or detached
  *   - for no-ROM operation: map stub firmware (stubRom) and call installStub(); override
- *     stubActive() when the stub ROM can be mapped out, and basicRomAt(pc) to say where BASIC's ROM space is
+ *     stubActive() when the stub ROM can be mapped out
  *   - set Family.BASIC_POINTERS (address of BASIC's TXTTAB) for loadBasicProgram
  *   - call this.processEvents(this.ioTime()) before any I/O access whose result depends on time
  */
@@ -189,10 +189,6 @@ class Machine {
     const span = (from, to) => (symbols.has(from) ? [[symbols.get(from), symbols.get(to)]] : []);
     this.stubPromptAt = { spans: [...span('IDLE', 'IDLEE'), ...span('KEY', 'PROMPTE')], calls: [symbols.get('POLCAT'), symbols.get('CHROUT')] };
   }
-  // Is an instruction at pc fetched from the BASIC ROM's space as the CPU sees it now (the built-in firmware mapped
-  // there, not RAM and not a cartridge)? The family says; a machine without such a space says no. Only the "needs
-  // BASIC" detector asks (js/needs-basic.js), and only while the built-in firmware runs.
-  basicRomAt() { return false; }
   // Is the stub firmware's own prompt what runs (its idle loop or line editor, or a POLCAT/CHROUT call made from
   // them), rather than a program? Then the screen is the stub's bare one (or the POKE lines typed at it).
   atStubPrompt() {
@@ -676,12 +672,18 @@ class Machine {
 }
 
 // The snapshot layout. Bump SNAPSHOT_VERSION whenever any saveState() changes what it writes, and record here what
-// changed. A page reads SNAPSHOT_OLDEST to SNAPSHOT_VERSION:
-//   * a bump that only ADDS state keeps SNAPSHOT_OLDEST. A key an older file lacks must then keep the restored
-//     machine's power-on value: restore() records the file's version (restoringVersion), the loader of the new key
-//     takes its absence in an older file as that value, and a test shows an older file restoring while the same
-//     file at the current version is refused;
-//   * a bump that renames, removes or changes the meaning of state sets SNAPSHOT_OLDEST to the new version.
+// changed. FROZEN since 0.3.0 (AGENTS.md, "Formats are frozen"): files, slots and share links in people's hands must
+// keep opening, so a page reads every version from SNAPSHOT_OLDEST to SNAPSHOT_VERSION, and SNAPSHOT_OLDEST NEVER
+// rises:
+//   * a bump that only ADDS state: a key an older file lacks keeps the restored machine's power-on value. restore()
+//     records the file's version (restoringVersion), the loader of the new key takes its absence in an older file as
+//     that value, and a test shows an older file restoring while the same file at the current version is refused;
+//   * a bump that renames, removes or changes the meaning of state ships a CONVERTER from every older version to the
+//     new layout (restore() runs it on an older file before loadState), with a test per older version; it never
+//     raises SNAPSHOT_OLDEST instead. tests/link-freeze.test.js opens the committed golden links of every version.
+//   * the config is state too: Session.checkedSnapshot refuses a snapshot whose config has a key or value its model's
+//     options (js/machines/profiles.js) don't have, so removing an option or one of its values needs a converter for the
+//     snapshots that hold it.
 // Files from pre-release builds carry a different `format` identifier; js/media/snapshot.js refuses them by it.
 //   1: the first layout.
 //   2: the CoCo 3 adds `haltDefer`, an instruction HALT suspended (js/machines/halt-replay.js haltSuspend, with its bus

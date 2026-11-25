@@ -142,6 +142,10 @@ so once a deploy does run, a `main` push's deploy is accepted.)
    Expect a short gap between steps 1 and 3 -- from the source switch until the first deploy lands, nothing publishes
    the site -- so do steps 1 and 3 back to back.
 
+The version stamp (Help, About, the settings drawer, bug reports) names the commit only on a site published this way:
+the deploy stamps it into its staged `js/version.js` (`node tools/version.js --stamp`). Until the switch above, the
+legacy build serves the repository as committed, and the stamp reads "v<version> · unstamped".
+
 **A dry run of the release, after this lands on `main`**: GitHub -> Actions -> **release** -> *Run workflow* -> branch
 **main**, leave `dry_run` **checked** (it is the default) -> *Run workflow*. Dispatching it from a TAG with `dry_run`
 unchecked PUBLISHES that tag -- the dry run is only a dry run because it is started from a branch with the box on.
@@ -188,6 +192,8 @@ node tests/long-link.test.js # share links' #z= form: hand-built vectors, every 
 node tests/program-pages.test.js # the program pages and cards are what tools/program-cards.js makes; PNG and card vectors
 node tests/short-link.test.js # short links on the page's side: sealing, the store over a mocked fetch, the key never sent, guardrails
 node tests/share-one-link.test.js # the Share screen's "one link": an untouched bundled program gives its page; every way in (a key, a typed line, a poke, an assembled program, a tape, a disk, BREAK) makes it a moment, its own running does not
+node tests/basic-share.test.js   # "Share your program": the card's condition, the LIST round trip (Dragon, CoCo, MC-10) through long and short links, the arrival with and without ROMs, the limits, the program link format
+node tests/link-freeze.test.js   # the frozen link formats: the golden links of every version open to what made them, and their bytes never change; the snapshot config rule
 node tests/share-card.test.js     # the share card (Save picture, a short link's preview): 1200x630, every picture pixel frameToRGBA's, the name drawn glyph by glyph
 node tests/shortlink-worker.test.js # the short-link Worker in Node against an in-memory bucket: every check, limit, kill switch and count
 node tests/qr.test.js         # the QR encoder against ISO 18004's worked example and tables, every symbol read back
@@ -246,6 +252,8 @@ node tests/keyqueue.test.js  # fast typing: bursts read back from the keyboard m
 node tests/roms.test.js      # ROM identification across machines (synthetic images only), library, offers
 node tools/gen-rom-docs.js   # regenerate docs/roms.md from the profiles (tests/romdocs.test.js checks it)
 node tools/gen-machine-help.js   # regenerate Help's list of machines from the menu data (tests/machine-menu.test.js checks it)
+node tools/gen-deviations.js     # regenerate /deviations/ from verification.md's "Deviations from MAME" (tests/deviations.test.js checks it)
+node tools/version.js --write    # copy CHANGELOG.md's "Next version" into js/version.js, the version stamp (tests/version.test.js checks it)
 node tools/gen-page-preload.js  # regenerate the <link rel="modulepreload"> list in play/index.html (tests/pagepreload.test.js checks it)
 node tools/page-load.js      # how long /play/ takes to start over a throttled link: modulepreload's effect (see below)
 node tools/flicker-measure.js # a .cas dropped on stored ROMs, first visit vs repeat: DOM mutations, layout shifts, canvas
@@ -275,6 +283,7 @@ node tests/importmedia-finally.test.js # the creation landing behind the Library
 node tests/ay8910.test.js    # AY-3-8910/8912 against its data manual: tone, noise, the 16 envelope shapes, mixer, ports
 node tests/alpha.test.js     # the Dragon Alpha's wiring: ROM banks, PIA2, the AY as the drive latch, NMI through PIA2 CA2
 node tools/build-demo.js     # rebuild examples/demo.bin
+node tools/wyrmfire-vendor.js <wyrmfire checkout>   # vendor WYRMFIRE at js/wyrmfire/pin.js's commit into examples/wyrmfire/ and rebuild the Freedoom level (pinned download, SHA-256 checked); tests/wyrmfire-files.test.js checks the result against the pin
 node tools/build-examples.js # rebuild examples/liza.bin, liza6803-{mc10,alice}.bin, welcome.bin, welcome6803-{mc10,alice}.bin, chat.bin and starter-game/catch.bin from their .asm sources, then bring sw.js's offline file list up to date
 node tests/welcome.test.js   # welcome program on every 6809 model: screen, menu keys and events, the tune on the DAC
 node tests/welcome-tune.test.js   # when the welcome tune plays: the visit and Programs play it; a switch, Reset, a power cycle and a return are silent; both builds

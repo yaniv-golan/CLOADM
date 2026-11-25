@@ -217,6 +217,26 @@ const J = JSON.stringify;
   fs2.switchMachine('dragon64', undefined, { menu: false });
   check('fold: the folded panel toolbox is the plain one (PANEL_API, every tool and schema)', fp.PANEL_API === panel.PANEL_API && fp.Session !== Session
     && J(fp.panelToolbox(fs2, {}).tools()) === J(build.panelTools()));
+  // The side panel has no card for the "needs BASIC" detector: the inline view folds connector/view/needs-basic-off.js in
+  // place of js/needs-basic.js (connector/build.js). The view carries none of the detector's code, and its Session has
+  // no detector: a program loaded without BASIC is not watched, and Run again refuses, saying it is not available.
+  // (the fold labels a module by the path it is imported as: the slot of js/needs-basic.js holds the side panel's module)
+  check('fold: the inline view leaves the "needs BASIC" detector out (none of its code; js/needs-basic.js\'s slot holds NeedsBasic = null)',
+    !/callsMissingBasic|implementedBy|needsBasicWords|class NeedsBasic/.test(views.inline) && /\/\/ ---- js\/needs-basic\.js\nconst NeedsBasic = null;/.test(views.inline));
+  {
+    const off = await import('data:text/javascript;base64,' + Buffer.from(fold(path.resolve(ROOT, entry), {
+      tail: 'export const { Session } = __ENTRY__;\n', replace: { 'js/needs-basic.js': 'connector/view/needs-basic-off.js' } }).code).toString('base64'));
+    const s = new off.Session({ welcomeMenu: false });
+    s.switchMachine('dragon64', undefined, { menu: false });
+    // ORCC #$50 ; JSR $A176 (BASIC's ROM space, empty without the ROM) ; BRA * -- at $3000
+    const said = []; s.on((ev, a) => { if (ev === 'needs-basic') said.push(a); });
+    s.load('NEEDS.BIN', Uint8Array.from([0x55, 0x02, 0x30, 0x00, 0x00, 0x07, 0x30, 0x00, 0xAA, 0x1A, 0x50, 0xBD, 0xA1, 0x76, 0x20, 0xFE]));
+    s.runFrames(5);
+    let refusedAgain = '';
+    try { s.runAgainWithRoms(); } catch (e) { refusedAgain = e.message; }
+    check('fold: the side panel\'s Session has no detector: a load without BASIC is not watched, nothing is said, and Run again refuses, saying so',
+      s.needsBasic === null && said.length === 0 && refusedAgain === 'Running a program again with ROMs is not available here.', J({ said, refusedAgain }));
+  }
   let refused = null;
   try { fold(path.join(ROOT, 'connector/fold.js')); } catch (e) { refused = e.message; }
   check('fold: a form it does not know fails loudly (node: imports are not relative files)', refused !== null, refused);

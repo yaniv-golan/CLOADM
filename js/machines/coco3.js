@@ -617,13 +617,6 @@ class Coco3Machine extends Machine {
   }
 
   // ---------------- stub firmware ----------------
-  // BASIC's ROM space: $8000-$FDFF while the GIME maps ROM there (not RAM mode, not a RAM block from the MMU), and not
-  // cartridge space ($C000 up) when a cartridge is in the port
-  basicRomAt(pc) {
-    if (pc < 0x8000 || pc >= 0xFE00 || (this.cartPort && pc >= 0xC000)) return false;
-    const g = this.gime;
-    return g.wr[pc >> 13] === g.sink;
-  }
   stubInit() {
     const w = (a, v) => this.write(a, v);
     // GIME: CoCo compatible, MMU on, constant $FExx page, 32K internal ROM; task 0 = blocks $38-$3F

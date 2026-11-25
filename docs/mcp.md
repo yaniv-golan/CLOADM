@@ -429,6 +429,16 @@ claude.ai connector), as the in-page Claude does: `peek`, `find_bytes`, `disasse
 `run_frames` show what the machine holds, which with your ROMs includes ROM code, so treat what an agent reads as you
 would treat your ROMs. What CLOADM itself shares stays ROM-free: snapshots and share links carry no ROM.
 
+**Your own WAD.** While a [WYRMFIRE](using.md#wyrmfire) level converted from your own DOOM WAD is in a drive, every
+host refuses `screenshot`, `screen_text`, `peek`, `disassemble`, `find_bytes`, `registers`, `step` and `run_frames`'
+screen and its `until` on a memory byte or the `pc` with `rejected`: "Claude can't look at the screen or memory while
+your own WAD is loaded: it's id Software's game data." (`machine_info` still answers.) `registers` and `step` are refused
+because loading a load instruction, stepping it and reading a register would read memory a byte at a time. The refusal
+belongs to the machine and to the disk: taking the disk out, a Reset or loading something else keeps it; it ends once
+the disk is out and the machine has been switched off and on (`power_cycle`), or on switching machines or opening a
+snapshot (a power cycle with the disk still in keeps it: a program could read the disk through the controller). With WYRMFIRE's Freedoom level, screenshots work and memory reads follow the cartridge
+rule above.
+
 ### Protocol versions
 
 The server speaks both eras of the protocol on stdio. A client that opens with `initialize` is served by the

@@ -23,7 +23,8 @@ export const GROUPS = ['Claude', 'Files', 'Views', 'Settings', 'Machine'];
 export const COMMANDS = [
   ['Chat with Claude, full screen', 'the machine becomes Claude', 'chat claude full screen', null, 'Claude'],
   ['What is this code doing?', 'asks Claude about the code at the program counter', 'debugger disassembly code explain routine', (page, claude) => claude.askAboutCode(), 'Claude'],
-  ['Take snapshot', 'saves everything, including your program, as a file', 'snapshot save state program keep', takeSnapshot, 'Files'],
+  ['Take snapshot', 'saves everything, including your program, as a file', 'snapshot save state program keep', takeSnapshot, 'Files',
+    (page) => (page.session.wyrmfireRunning || page.session.romCodeIn(page.session.personMachine) === 'userdata' ? { state: 'Off while WYRMFIRE runs', why: 'Snapshots are off while WYRMFIRE runs.' } : null)],
   ['Open a program, tape, disk or cartridge…', 'opens a file', 'load open file insert program tape disk cartridge cas bin', 'btnLoad', 'Files'],
   ['Insert a disk…', 'a disk image into the first free drive', 'disk drive mount vdk dsk floppy', (page) => page.drives.pick(), 'Files'],
   ['New blank disk', 'an empty disk in the first free drive', 'disk drive new blank empty format floppy', (page) => page.drives.blank(), 'Files'],
@@ -37,6 +38,7 @@ export const COMMANDS = [
   ['Record to tape', 'CSAVE becomes a .CAS file', 'record tape cas csave save', 'btnRecord', 'Files'],
   ['Share', 'a share link, a clip, a screenshot', 'share link clip screenshot capture embed', 'btnShare', 'Files'],
   ['Programs', 'the welcome menu, LIZA, the games; what ran here before', 'programs games demos liza run', (page) => page.openPrograms(), 'Views'],
+  ['WYRMFIRE', 'a 3D game for the Dragon 64, with the Freedoom level', 'doom game 3d freedoom wyrmfire', (page) => page.wyrmfire.start(), 'Views'],
   ['Open the Library', 'your tapes, disks and programs', 'library tapes disks programs files', 'navLibrary', 'Views'],
   ['Open the Debugger', 'assembler and disassembly', 'debugger assembler disassemble debug', 'navDebugger', 'Views'],
   ['Your ROMs', 'see, add or remove ROMs', 'basic firmware add delete remove forget', 'btnManageRoms', 'Settings'],
@@ -50,6 +52,7 @@ export const COMMANDS = [
   ['Reset', 'like the reset button', 'reset restart', 'btnReset', 'Machine'],
   ['Switch off and on', 'clears memory; the tape and cartridge stay in', 'switch off on power cycle hard reset clear', 'btnHardReset', 'Machine'],
   ['Switch machine…', 'the machine menu: another model', 'switch machine computer model', (page, claude, machines) => machines.open(), 'Machine'],
+  ['Copy bug report', 'the version, machine and browser, shown before copying', 'bug report problem issue copy version', (page) => page.bugReport.open(), 'Machine'],
   ['Help', 'the guide, in a new tab', 'help guide how', () => { window.open(new URL('help/', document.baseURI).href, '_blank', 'noopener'); }, 'Machine'],
 ];
 // "Switch to <model>": one per model (built when the box draws: the models are the page's), each through the machine
@@ -151,7 +154,8 @@ export function setupCommandBox(page, claude, machines) {
   // the commands matching the text: every word (but the little ones: "save my prog") starts a word of the label or
   // of its other words
   // (a command whose button the page lacks is left out; one that doesn't apply now is listed, muted: notNow)
-  const available = ([, , , id]) => !(typeof id === 'string' && !$(id));
+  // (and with Settings -> Claude features Off, no Claude row: js/ui/claude-features.js)
+  const available = ([, , , id, group]) => !(typeof id === 'string' && !$(id)) && !(group === 'Claude' && !session.claudeFeatures);
   // (split as the labels are, so a label typed with its punctuation ("Chat with Claude, full screen") finds it)
   function matches(q) {
     if (!q) return COMMANDS.filter(available).map((c) => ({ c, marks: [], off: c[5] ? c[5](page) : null }));   // the empty box: every command, in place
@@ -201,7 +205,7 @@ export function setupCommandBox(page, claude, machines) {
     // "?" ("What is this code doing?") still runs the command.
     const label = q.toLowerCase();
     const question = /\?\s*$/.test(q) && !COMMANDS.some(([l]) => l.toLowerCase() === label);
-    const cmdRows = cmds.map((m) => ({ kind: 'cmd', c: m.c, marks: m.marks, off: m.off, refused: refused === m.c[0] })), askRow = q ? [{ kind: 'ask', q }] : [];
+    const cmdRows = cmds.map((m) => ({ kind: 'cmd', c: m.c, marks: m.marks, off: m.off, refused: refused === m.c[0] })), askRow = q && session.claudeFeatures ? [{ kind: 'ask', q }] : [];
     options = question ? [...askRow, ...cmdRows] : [...cmdRows, ...askRow];
     selected = Math.min(selected, options.length - 1);   // -1: nothing chosen yet (the empty box)
     const out = [];

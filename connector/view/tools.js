@@ -5,6 +5,9 @@
 //  * Claude reads all of the machine's memory, ROM areas included, as on every host; no tool takes or returns a ROM
 //    file, and add_roms and remove_roms are left out (the panel's ROMs are added in the view itself, and the toolbox
 //    has no ROM store here);
+//  * the ONE refusal left is the person's own WAD: a level converted from it is id Software's game data, not a ROM,
+//    so peek, disassemble, find_bytes, screen_text, screenshot, step, registers and run_frames' memory/pc conditions
+//    are refused while it is loaded (js/mcp/tools.js userDataGuard), on every host; machine_info still answers;
 //  * no files: the panel has no media folder (the host's sandbox has no downloads, and nothing here may reach the
 //    user's disk), so insert_tape, insert_disk, save_snapshot and restore_snapshot are left out, and load runs the
 //    bundled programs only (a path is refused with no-media-root, naming what does work);

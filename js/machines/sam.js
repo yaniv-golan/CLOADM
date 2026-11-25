@@ -718,8 +718,6 @@ class SamMachine extends Machine {
 
   // ---------------- no-ROM stub ----------------
   stubActive() { return (this.sam.reg & 0xC000) !== 0xC000; }
-  // BASIC's ROM space is $8000-$BFFF, while the map shows ROM there (map type 0; the all-RAM map, TY=1, shows RAM)
-  basicRomAt(pc) { return pc >= 0x8000 && pc < 0xC000 && this.stubActive(); }
   stubInit() {
     const w = (a, v) => this.write(a, v);
     w(0xFF01, 0x00); w(0xFF00, 0x00); w(0xFF01, 0x34);

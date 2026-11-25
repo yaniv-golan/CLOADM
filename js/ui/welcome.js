@@ -25,6 +25,8 @@ import { profiles } from '../machines/profiles.js';
 import { cpuFamily } from '../cpu/cpus.js';
 import { gameKey, WELCOME } from '../session.js';
 import { buildUrl } from '../config.js';
+import { WYRM_TEXT } from './wyrmfire.js';
+const WYRMFIRE_ROW = { name: WYRM_TEXT.name, subtitle: WYRM_TEXT.subtitle, credit: WYRM_TEXT.credit };
 
 // Programs that run without ROMs: our own only. Third-party homebrew is not bundled: the stub provides only
 // POLCAT and CHROUT, so most homebrew (which calls other ROM routines) wouldn't run, and anything listed here
@@ -248,6 +250,17 @@ export function setupWelcome(page, { showRoms, openClaude }) {
       if (running && running.kind !== 'recent' && running.name === item.name) { b.append(' ', el('span', 'on screen now', 'tag now')); b.setAttribute('aria-current', 'true'); }
       row.append(b);
     }
+    // WYRMFIRE: on every machine (it switches to the Dragon 64, asking first: js/ui/wyrmfire.js); its link is
+    // ?start=wyrmfire alone, which names its machine itself
+    {
+      const a = el('a'); a.href = buildUrl(location.href, { start: 'wyrmfire' }); a.dataset.shelf = 'wyrmfire';
+      a.onclick = (e) => { if (e.button || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return; e.preventDefault(); page.wyrmfire.start(); };
+      const sub = el('span', null, 'sub');
+      sub.append(el('span', WYRMFIRE_ROW.subtitle), el('span', WYRMFIRE_ROW.credit, 'credit'));
+      a.append(el('span', WYRMFIRE_ROW.name, 'name'), sub);
+      a.title = `${WYRMFIRE_ROW.name}: ${WYRMFIRE_ROW.subtitle}`;
+      row.append(a);
+    }
     const c = entry('Chat with Claude', { app: 'claude' }, () => openClaude()); c.dataset.shelf = 'claude';
     row.append(c);
     const back = had !== null && row.querySelector(`[data-shelf="${CSS.escape(had)}"]`);
@@ -401,6 +414,7 @@ export function setupWelcome(page, { showRoms, openClaude }) {
       // Alice); the Session picks the build for the machine's CPU. The games are 6809 programs: on an MC-10 or
       // Alice the Session refuses and the status line says why.
       if (program === 'liza') await run(SHELF[0]);
+      else if (program === 'wyrmfire') await page.wyrmfire.start({ fromLink: true });   // (js/ui/wyrmfire.js: no question from a link)
       else if (gameItem(program)) await run(gameItem(program));
       else await runWelcome(menu, { reason: 'visit' });
       // As ?app=claude is the address while the chat is open (js/ui/page.js), ?start= is while the program it

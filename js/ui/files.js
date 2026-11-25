@@ -21,6 +21,9 @@ async function walk(entry, from, out) {
   else if (entry.isDirectory) for (const e of await readDir(entry)) await walk(e, from || entry.name + '/', out);
 }
 
+// A drop or a pick of one .wad: the person's own WAD for WYRMFIRE (js/ui/wyrmfire.js, page.takeWad), never a program,
+// a ROM or a Library file. -> the File, or null. (Only its name is looked at here; WYRMFIRE checks what it is.)
+export const wadOf = (list) => (list.length === 1 && !list[0].from && /\.wad$/i.test(list[0].file.name) ? list[0].file : null);
 // files of a drop: folders walked, everything else as given
 export async function droppedFiles(dataTransfer) {
   const items = [...(dataTransfer.items || [])].filter((i) => i.kind === 'file');

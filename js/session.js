@@ -33,8 +33,8 @@ import { Tape } from './media/tape.js';
 import { casBlocks, casToWav, recordingToSamples, samplesToCas, writeWav } from './media/cassette.js';
 import { FAMILY_NAMES, detectMedia } from './media/detect.js';
 import { MediaIndex, LIBRARY_PREFIX, migrateLocalStorage } from './media/library.js';
-import { MediaLibrary, DISK_PREFIX, DW_PREFIX, MEDIA_MOVE_WAIT_MS } from './library.js';
-import { DiskDrives } from './drives.js';
+import { MediaLibrary, DISK_PREFIX, DW_PREFIX, GAMES_PREFIX, MEDIA_MOVE_WAIT_MS } from './library.js';
+import { DiskDrives, WYRMFIRE_USER_DISK } from './drives.js';
 import { DriveWireServer, CHANNELS as DW_CHANNELS, WINDOW_BASE as DW_WINDOW_BASE, WINDOW_COUNT as DW_WINDOW_COUNT } from './drivewire/server.js';
 import { DriveWireSocket } from './host/drivewire-ws.js';
 import { SerialDriveWireLink, webSerialAvailable } from './host/web-serial.js';
@@ -46,7 +46,7 @@ import { DriveWireChatChannel, CHAT_DW_CHANNEL } from './claude/channel.js';
 import { nitros9LoaderRom, nitros9LoaderKind, nitros9LoaderByCrc } from './machines/nitros9.js';
 import { inspectOs9Disk, NITROS9_IMAGES_URL } from './media/os9.js';
 import { END_OF_REPLY } from './claude/chat.js';
-import { loadBasic as loadBasicInto, planBasic } from './claude/basicload.js';
+import { BASIC_PROGRAM_TEXT_MAX, loadBasic as loadBasicInto, planBasic } from './claude/basicload.js';
 import { transcript } from './claude/history.js';
 import { Consent, STOPPED } from './claude/consent.js';
 import { screenRows, screenTextTool } from './claude/readtools.js';
@@ -54,6 +54,8 @@ import { screenRows, screenTextTool } from './claude/readtools.js';
 // the status of a turn paused by the person's key, in every view that shows it with Resume and Stop (Esc is Stop then)
 // (one text for every paused state: whether a call waits, typing is held, or Claude only writes its reply,
 // its next action waits; "Esc stops Claude" is never dropped)
+// what a door to Claude says while Settings -> Claude features is Off (js/ui/claude.js; ?app=claude, the embed chip's tab)
+export const CLAUDE_OFF_TEXT = 'Claude features are off (Settings → Machine).';
 export const CLAUDE_PAUSED_TEXT = 'Paused: you pressed a key · Claude\'s next action waits · Esc stops Claude';
 // the same where it must fit one line (the browser Fullscreen's pill)
 // The Speech/Sound Pak's words for its speech ROM (the SP0256-AL2's allophone data, the user's own and optional):
@@ -83,13 +85,15 @@ export const CLAUDE_PAUSED_SHORT = 'Paused: you pressed a key · Esc stops Claud
 import { RomLibrary, identifyRoms, isBootable, isRomPack, looksLikeRom, makeRomPack, restoreRomPack, socketStatus } from './roms.js';
 import { writeZip } from './media/zip.js';
 import { programPage } from './program-pages.js';
-import { sealMoment, openMoment } from './media/link-crypto.js';
+import { SEALED_KIND, sealMoment, openMoment } from './media/link-crypto.js';
 import { encodeIndexedPng } from './media/png.js';
 import { shareCardPicture } from './video/bezel.js';
-import { SNAPSHOT_EXT, SnapshotError, decodeSnapshot, decodeLongLink, encodeSnapshot, encodeLongLink } from './media/snapshot.js';
+import { SNAPSHOT_EXT, SnapshotError, decodeSnapshot, decodeLongLink, encodeSnapshot, encodeLongLink, encodeProgramLink, decodeProgramLink, isProgramLink } from './media/snapshot.js';
+import { DIALECTS, buildProgram, parseProgram, readProgram, uncrunch } from './media/basic.js';
 import { missingImages, restoreRoms, stripRoms } from './media/romrefs.js';
 import { crc32, hex, registry, toBase64Url, fromBase64Url } from './util.js';
 import { buildUrl, NITROS9_MACHINES } from './config.js';
+import { WYRMFIRE_PIN } from './wyrmfire/pin.js';
 // an error meant for the user (bad file, missing ROM, ...); shared with the parts the Session drives
 import { SessionError } from './errors.js';
 export { SessionError };
@@ -146,7 +150,24 @@ const BASIC_RSTFLG = 0x71;
 // beside the arrows it reads (Minesweeper's F flags a mine); `joystick`, whether it reads a joystick too. The page's
 // touch panel opens on what it says (arrows: the pad) and offers the stick only where the machine has the port.
 // The games' own entries are in GAMES.list; a program not listed is played on the keyboard.
-export const PROGRAM_CONTROLS = Object.freeze({ liza: Object.freeze({ input: 'keyboard', extra: Object.freeze([]), joystick: false }) });
+export const PROGRAM_CONTROLS = Object.freeze({
+  liza: Object.freeze({ input: 'keyboard', extra: Object.freeze([]), joystick: false }),
+  // WYRMFIRE's keys (its README, and src/native.c's key scan): the arrows move and turn, Z and X strafe, SPACE fires,
+  // E opens a door or uses the exit, 1 to 3 pick a weapon, ENTER skips a cue or restarts. `big`: the two keys the
+  // touch pad gives its big buttons (FIRE and USE)
+  wyrmfire: Object.freeze({ input: 'arrows', extra: Object.freeze(['Z', 'X', '1', '2', '3']), joystick: false, big: Object.freeze([['SPACE', 'FIRE'], ['E', 'USE']]) }),
+});
+// "Your game files" in the media store (Session.saveGameFile): the converted level and what it was converted from
+export const GAME_FILE = Object.freeze({ disk: `${GAMES_PREFIX}wyrmfire-own.vdk`, meta: `${GAMES_PREFIX}wyrmfire-own.json` });
+// What the Session says while WYRMFIRE runs (js/ui/wyrmfire.js shows the same words)
+export const WYRMFIRE_TEXT = Object.freeze({
+  snapshots: 'Snapshots are off while WYRMFIRE runs.',
+  userReads: 'Claude can\'t look at the screen or memory while your own WAD is loaded: it\'s id Software\'s game data.',
+  userClips: 'Off while your own WAD is loaded: it\'s id Software\'s game data.',
+  userShort: 'Not for a moment with your own WAD loaded: a short link is stored on a server, and that level is id Software\'s game data. The long link works, and it only starts WYRMFIRE with the Freedoom level.',
+  userPicture: 'No picture: this moment is your own WAD\'s level, which is id Software\'s game data. The picture and the clip stay off.',
+  userDisk: WYRMFIRE_USER_DISK,
+});
 // a game's GAMES.list key from its name ('Minesweeper' -> 'minesweeper'), or undefined
 export const gameKey = (name) => Object.keys(GAMES.list).find((k) => GAMES.list[k].name === name);
 // the 6803 welcome's files, per profile: the build's subtitle names the machine it runs on
@@ -244,6 +265,7 @@ const SETTINGS = {
   keyboardMode: (v) => v === 'translated' || v === 'positional',
   keyboardJoystick: (v) => v === '1' || v === '0',
   tapeSound: (v) => v === '1' || v === '0',
+  claudeFeatures: (v) => v === '1' || v === '0',   // Settings -> Claude features: On ('1', the default) / Off ('0')
   'display.settings': (v) => { const o = parseObject(v); return !!o && Object.entries(o).every(([k, x]) => Object.hasOwn(DISPLAY_VALID, k) && DISPLAY_VALID[k](x)); },
 };
 function validSetting(k, v) {
@@ -587,6 +609,7 @@ export class Session {
     if (mediaShare && mediaShare.channel) mediaShare.channel.onmessage = (e) => { this.mediaElsewhere(e.data).catch(() => {}); };
     this.store = store;
     this.media = media;
+    this.lastLoaded = null;   // the file Session.load loaded last: { name, bytes } (js/bugreport.js names it and hashes it)
     // the media library on that store (js/library.js): listing, import, rename and delete, the recent list, the
     // names being made and the store's case rule, and moving it all to another store. Made before anything below
     // that compares names or asks whether the library is moving (the DriveWire server's hooks).
@@ -628,6 +651,12 @@ export class Session {
     this.roms = new RomLibrary(this.index, romOwners);
     this.romsLeft = new WeakMap();   // machine -> CRCs removed from storage that it still runs (removeRom)
     this.stubChosen = new Set();    // machines the user chose to run without ROMs this session
+    this.wyrmfire = null;           // WYRMFIRE running: { m, fdc, media, level, name, addedStub } (startWyrmfire, wyrmfireLevel)
+    // machines that have run a level converted from the person's own WAD (startWyrmfire, level 'user'): the mark is the
+    // MACHINE's, so taking the disk out, a Reset or a load leaves its RAM (the level, the engine's tables) unreadable.
+    // Only a power cycle clears it (powerCycle); a switch and an opened snapshot are a new machine, never marked.
+    this.userDataMachines = new WeakSet();
+    this.romsBack = null;           // the machine id whose ROMs WYRMFIRE took off, put back at its next power-on (wyrmfireLeft)
     this.sharedMoment = false;      // arrived on a shared moment that runs without ROMs, not left yet (openSnapshot)
     // Just arrived from a link: the moment a long link (#z=) or a short link (#l=) carried was opened, and the person
     // has not acted yet -> { kind: 'long' | 'short', id (the short link's, else null), machine (the profile's name),
@@ -693,7 +722,8 @@ export class Session {
     // a program the person loaded, running without BASIC, called a BASIC routine the built-in firmware lacks
     // (js/needs-basic.js): 'needs-basic' with what was found, and again with null when that is over (a reset, a
     // power-on, a switch, another load)
-    this.needsBasic = new NeedsBasic((found) => this.emit('needs-basic', found));
+    // (null where the detector is not built in: the side panel's fold, connector/view/needs-basic-off.js)
+    this.needsBasic = NeedsBasic && new NeedsBasic((found) => this.emit('needs-basic', found));
     // the serial port's byte streams and diagnostics (SerialApi), its listeners and traces kept on the machine through hooks
     this.serial = new SerialApi(this);
     this.writeWatch = new WriteWatch(this);
@@ -757,6 +787,7 @@ export class Session {
   async mediaElsewhere(msg) {
     if (!msg || msg.store !== this.media.kind || this.media.synchronous) return;
     if (msg.what === 'library') { this.emit('library'); return; }
+    if (msg.what === 'games') { this.emit('gamefiles'); return; }
     await this.index.refresh();   // what it brings in is reported through mediaForeign
   }
   // the index took in another page's change: the panels redraw. 'roms' carries { elsewhere: [{ machine, socket }] }
@@ -872,6 +903,8 @@ export class Session {
     this.writeWatch.guard('switchMachine');
     this.leaveSharedMoment();
     if (!Object.hasOwn(profiles, id)) id = 'dragon64';
+    this.endWyrmfire();   // the machine it ran on goes (its ROMs are back for the next time it is switched to)
+    if (this.romsBack === id) this.romsBack = null;   // (this switch loads them: below)
     let m;
     try {
       m = createMachine(id, config || this.savedConfig(id));
@@ -939,7 +972,8 @@ export class Session {
     // try) and their stub-restart records with them (the record of a Machine that is gone cannot come back)
     for (const [mm] of this.bootFailed) if (mm !== this.shownMachine && mm !== m) this.bootFailed.delete(mm);
     for (const [mm] of this.stubRuns) if (mm !== this.shownMachine && mm !== m) this.stubRuns.delete(mm);
-    if (this.needsBasic.m && this.needsBasic.m !== m) this.clearNeedsBasic();   // (it watched the machine that goes)
+    // (the "needs BASIC" detector watched the machine that goes)
+    if (this.needsBasic?.m !== m) this.needsBasic?.clear();
     this.store.set('machine', m.id);
     this.install(m);
   }
@@ -951,7 +985,7 @@ export class Session {
     // a restart of the machine Claude acts on, by any path (Reset, a power cycle, a program or cartridge that
     // starts, the welcome menu, LIZA, ROMs cleared), stops Claude: nothing it held or still had to type goes into
     // the machine that starts over, and its next action does not run there
-    m.onReset = () => { this.stopClaudeFor('the machine restarted', m); this.clearNeedsBasic(m); };
+    m.onReset = () => { this.stopClaudeFor('the machine restarted', m); this.needsBasic?.clear(m); };
     this.keys.clear();
     if (this.debugger && this.debugger.machine !== m) this.debugger.detach();
     let undelivered = null;
@@ -1409,6 +1443,9 @@ export class Session {
   // (it always passes the chat machine), never from this default.
   powerCycle({ menu = true, reason = 'the machine restarted', on = null } = {}) {
     const m = on || this.personMachine;
+    // switched off: WYRMFIRE is gone from this machine, and so is anything read from the person's own WAD in its RAM
+    this.endWyrmfire(m);
+    this.userDataMachines.delete(m);
     if (m === this.personMachine) this.leaveSharedMoment();
     this.forgetOpenedProgram(m);
     // A load on the BASIC session while the chat is open passes that session, and this stops Claude only when it is
@@ -1427,6 +1464,8 @@ export class Session {
     // A socket another tab changed while this machine ran the old ROM (romElsewhere): switching off and on is when
     // it takes what is stored now, as the ROM screen says. Only then: otherwise the ROMs in place are the stored ones.
     if (!this.stubChosen.has(m.id) && m.profile.roms.some((x) => this.romElsewhere(m.id, x.id))) this.loadSavedRoms(m);
+    // the ROMs WYRMFIRE took off this machine (wyrmfireLeft) go back in at this power-on
+    else if (this.romsBack === m.id && !this.stubChosen.has(m.id)) { this.romsBack = null; this.loadSavedRoms(m); this.emit('roms'); }
     this.applySscOption(m);
     this.drives.fitRom(m);
     m.reset(true);
@@ -1487,8 +1526,11 @@ export class Session {
   }
   // the person acted on the machine they arrived on (touch): no longer "just arrived" (the shared moment itself, which
   // only a Reset, power cycle or switch leaves, stays)
+  // A shared program still waiting for its BASIC ROM is not settled by a key on the machine (it runs without ROMs, and
+  // the card holding the listing is what the person came for): only the ROMs, a switch, a Reset or a power cycle end it.
   settleArrival(m) {
     if (!this.arrivedFromLink || m !== this.personMachine) return;
+    if (this.arrivedFromLink.basic && !this.arrivedFromLink.basic.listed) return;
     this.arrivedFromLink = null;
     this.emit('arrival');
   }
@@ -1525,7 +1567,7 @@ export class Session {
     }
     for (const id of touched.keys()) this.stubChosen.delete(id);
     // (the switch on with them keeps what the "needs BASIC" detector found: its card offers the program again now)
-    if (touched.has(m.id)) { this.loadSavedRoms(m); this.needsBasic.keep(() => this.powerCycle({ on: m })); }
+    if (touched.has(m.id)) { this.loadSavedRoms(m); const on = () => this.powerCycle({ on: m }); if (this.needsBasic) this.needsBasic.keep(on); else on(); }
     const ids = [...touched.keys()];
     const machines = ids.filter((id) => profiles[id]).map((id) => this.machineRoms(id));
     const cartridges = ids.filter((id) => cartridgeRoms[id]).map((id) => ({ id, name: cartridgeRoms[id].name, sockets: socketStatus(cartridgeRoms[id], this.roms.get(id)) }));
@@ -1723,6 +1765,11 @@ export class Session {
   }
 
   // ---------------- settings and sharing (never ROMs) ----------------
+  // Settings -> "Claude features": On (the default) or Off. Off hides the page's doors to Claude (the Ask button, the
+  // command box's Claude rows and its "Ask Claude" row, the Programs row "Chat with Claude"; js/ui/claude-features.js);
+  // the welcome menu's own item stays, as it is the firmware's. Kept in the store, so it is in a settings export.
+  get claudeFeatures() { return this.store.get('claudeFeatures') !== '0'; }
+  setClaudeFeatures(on) { this.store.set('claudeFeatures', on ? '1' : '0'); this.emit('claudefeatures', !!on); }
   // settings export: every stored setting except ROMs and stored media files
   exportSettings() {
     const keys = (this.store.keys ? this.store.keys() : []).filter((k) => validSetting(k, this.store.get(k))).sort();
@@ -1747,13 +1794,34 @@ export class Session {
   // share link: the machine and its options as URL parameters (js/config.js), nothing else
   // extra: more of the link's settings (claudeLink's app=claude), which override the machine's own
   shareUrl(base, extra = {}) {
-    const m = this.shownMachine, config = {};
-    // the machine's options, except the ones that describe the comparison or a device in a port rather than
-    // the machine: a link opens the model, not the contents of its cartridge slot
-    const LOCAL = new Set(['mameCompat', 'hires']);
-    for (const [k, v] of Object.entries(m.config)) if (!LOCAL.has(k) && m.profile.options[k]) config[k] = v;
+    const m = this.shownMachine;
+    // WYRMFIRE running: the link starts WYRMFIRE afresh with the Freedoom level (start=wyrmfire names the machine
+    // itself; never the game's state, never the person's own level). Not with app= (the chat), which start= conflicts
+    // with. This is also why a WYRMFIRE moment is never offered in the stage's PROGRAM mode: a program link (#z= with
+    // its first byte 2) would carry a BASIC listing, and there is none here -- captureWyrmfire never sets one, and
+    // this branch returns before any program link is built.
+    if (this.wyrmfireOn(m) && !extra.app) return buildUrl(base, { start: 'wyrmfire', ...extra });
     // NitrOS-9 running: the link boots it from the recipient's own image (never ours, never its name)
-    return buildUrl(base, { machine: m.id, config, nitros9: this.nitros9On(m), ...extra });
+    return buildUrl(base, { machine: m.id, config: this.shareConfig(m), nitros9: this.nitros9On(m), ...extra });
+  }
+  // the machine's options a link carries: all of them except the ones that describe the comparison or a device in a
+  // port rather than the machine (a link opens the model, not the contents of its cartridge slot)
+  shareConfig(m = this.shownMachine) {
+    const config = {};
+    for (const [k, v] of Object.entries(m.config)) if (!Session.SHARE_LOCAL.has(k) && m.profile.options[k]) config[k] = v;
+    return config;
+  }
+  static SHARE_LOCAL = new Set(['mameCompat', 'hires']);
+  // A program link's machine and config, exactly as shareConfig writes them: a model CLOADM has, and only that model's
+  // own options (never mameCompat or hires), each with one of its values. Anything else is a damaged link, refused
+  // before it can switch a machine or be remembered as that model's config. -> the program, or SessionError
+  checkedProgram(prog) {
+    const p = prog && Object.hasOwn(profiles, prog.machine) ? profiles[prog.machine] : null;
+    if (!p) throw new SessionError('This program link names a machine CLOADM doesn\'t have.');
+    const c = prog.config;
+    const ok = !!c && typeof c === 'object' && !Array.isArray(c) && typeof prog.text === 'string' && Object.entries(c).every(([k, v]) => !Session.SHARE_LOCAL.has(k) && Object.hasOwn(p.options, k) && p.options[k].values.includes(v));
+    if (!ok) throw new SessionError('This link\'s program is damaged: it was cut short or changed on the way.');
+    return prog;
   }
   // A program's page (js/program-pages.js: cloadm.dev/<id>/, with its own link preview and a Play button for its start
   // link) -> its address, from `base` (the page's own address: the site's root, or /play/ under it); null when the
@@ -1805,6 +1873,10 @@ export class Session {
     const why = this.romCodeIn(m);
     if (why === 'roms') return 'Not for a moment on your own ROMs: short links are only for machines running without ROMs. The long link works (whoever opens it adds their own ROMs).';
     if (why === 'cartridge') return 'Not with a cartridge plugged in: short links are only for machines running without ROMs or cartridges. The long link works.';
+    // A level converted from the person's own WAD is id Software's game data: a short link would put it on a server,
+    // and the preview picture is public. Refused on 'userdata' itself -- not on whether this moment happens to have a
+    // snapshot file, which is a separate rule that could change -- so the own-WAD case cannot be reopened by accident.
+    if (why === 'userdata') return WYRMFIRE_TEXT.userShort;
     return null;
   }
   // The share card (js/video/bezel.js shareCardPicture): the machine's picture at true pixels in the CRT frame, the
@@ -1834,7 +1906,7 @@ export class Session {
     const m = this.shownMachine, why = this.shortLinkRefusal(m);
     if (why) throw new SessionError(why);
     const f = file || await this.shareFile(now);
-    const { key, sealed } = await sealMoment(f.bytes);
+    const { key, sealed } = await sealMoment(f.bytes, SEALED_KIND.moment);
     if (sealed.length > Session.SHORT_SEALED_MAX) throw new SessionError(`This moment is too large for a short link (${Math.ceil(sealed.length / 1024)} KB; the most is ${Session.SHORT_SEALED_MAX / 1024} KB). The long link works.`);
     const png = preview ? await this.previewPicture(m, name) : null;
     let r;
@@ -1843,7 +1915,8 @@ export class Session {
     return { url: store.url(r.id, key), id: r.id, deleteToken: r.deleteToken, picture: !!png,
       pictureNote: preview && !png ? 'This screen has too many colours for a preview picture, so the link has none.' : null };
   }
-  // a URL's fragment ('#l=<id>.<key>', where a short link's arrival page sends it) -> { snap, id }, null when it has
+  // a URL's fragment ('#l=<id>.<key>', where a short link's arrival page sends it) -> { snap, id } (or { program, id }
+  // for a program's short link: programShortLink), null when it has
   // none; SessionError saying why it can't open (removed, damaged, not reachable)
   async readShortLink(hash, store) {
     const m = /^#?l=([A-Za-z0-9_-]{8})\.([A-Za-z0-9_-]+)$/.exec(hash || '');
@@ -1853,8 +1926,112 @@ export class Session {
     }
     let sealed, bytes;
     try { sealed = await store.load(m[1]); } catch (e) { throw new SessionError(e.message); }
-    try { bytes = await openMoment(sealed, m[2]); } catch (e) { throw new SessionError(`This short link can't be opened: ${e.message}`); }
-    return { snap: await this.readSnapshot(bytes), id: m[1] };
+    let kind;
+    try { ({ kind, bytes } = await openMoment(sealed, m[2])); }
+    catch (e) { throw new SessionError(/newer CLOADM/.test(e.message) ? e.message : `This short link can't be opened: ${e.message}`); }
+    // the sealed object says what it holds (js/media/link-crypto.js): a program's link bytes (programShortLink), or a
+    // moment's .cloadm file; what it holds must be that
+    if (kind === SEALED_KIND.program) {
+      if (!isProgramLink(bytes)) throw new SessionError('This link\'s program is damaged: it was cut short or changed on the way.');
+      let prog;
+      try { prog = await decodeProgramLink(bytes); }
+      catch (e) { throw e instanceof SnapshotError ? new SessionError(e.message) : e; }
+      return { program: this.checkedProgram(prog), id: m[1] };
+    }
+    return { snap: this.checkedSnapshot(await this.readSnapshot(bytes), { link: true }), id: m[1] };
+  }
+
+  // ---------------- a BASIC program, shared as its text ----------------
+  // The BASIC program in memory on the machine on screen, for "Share your program" (js/ui/share.js) -> null when there
+  // is none (no BASIC ROM, a machine without a BASIC dialect, NitrOS-9, BASIC's pointers not describing a program, or
+  // no lines), else { lines: how many, text: as LIST shows it ("NUMBER TEXT" lines joined with "\n"), refusal: why it
+  // can't be shared as text, or null }. It can be shared as text only when that text, loaded as load_basic loads it
+  // (js/claude/basicload.js), gives back exactly the bytes in memory: within load_basic's limit, and every byte
+  // typable (a graphics character, a control code or lower case outside a string would come back different).
+  sharedProgram(m = this.shownMachine) {
+    const dialect = DIALECTS[m.profile.lineage];
+    if (!dialect || !m.hasRom || this.nitros9On(m)) return null;
+    const rd = (a) => this.readByte(a & 0xFFFF, m), word = (a) => (rd(a) << 8) | rd(a + 1);
+    const p = dialect.pointers, start = word(p.txttab), vartab = word(p.vartab);
+    if (!(start > 0 && start < 0xFFFF)) return null;
+    const prog = readProgram(rd, start, Math.min(0x10000, vartab + 1));
+    if (!prog || !prog.lines.length || prog.end + 1 !== vartab) return null;
+    const text = prog.lines.map((l) => `${l.number} ${uncrunch(l.bytes, dialect)}`).join('\n');
+    const refusal = 'This program can\'t be shared as text: share the whole moment instead.';
+    if (text.length > BASIC_PROGRAM_TEXT_MAX) return { lines: prog.lines.length, text: null, refusal };
+    let same = /^[\x20-\x7E\n]*$/.test(text);
+    if (same) {
+      try {
+        const again = buildProgram(parseProgram(text, dialect), start), have = Array.from({ length: prog.end + 1 - start }, (_, i) => rd(start + i));
+        same = again.length === have.length && again.every((b, i) => b === have[i]);
+      } catch (e) { same = false; }
+    }
+    return same ? { lines: prog.lines.length, text, refusal: null } : { lines: prog.lines.length, text: null, refusal };
+  }
+  // The program as a long link (Share's program mode): this machine's link with the program in the fragment (#z=,
+  // js/media/snapshot.js encodeProgramLink: byte 0 is 2, the program link) -> the URL. prog: sharedProgram()'s.
+  async programLink(base, prog = this.sharedProgram()) {
+    if (!prog || prog.refusal) throw new SessionError(prog ? prog.refusal : 'There is no BASIC program to share.');
+    const m = this.shownMachine;
+    const bytes = await encodeProgramLink({ machine: m.id, config: this.shareConfig(m), text: prog.text });
+    return `${buildUrl(base, { machine: m.id, config: this.shareConfig(m) }).split('#')[0]}#z=${toBase64Url(bytes)}`;
+  }
+  // The program as a short link: the same bytes as the long link's, sealed here (js/media/link-crypto.js) and stored by
+  // `store`, with no preview picture: the link holds the program's text and nothing else. A program holds no ROM code,
+  // so a machine on the person's own ROMs may have one (shortLinkRefusal is about moments). -> { url, id, deleteToken }
+  async programShortLink(store, prog = this.sharedProgram()) {
+    if (!prog || prog.refusal) throw new SessionError(prog ? prog.refusal : 'There is no BASIC program to share.');
+    const m = this.shownMachine;
+    const { key, sealed } = await sealMoment(await encodeProgramLink({ machine: m.id, config: this.shareConfig(m), text: prog.text }), SEALED_KIND.program);
+    if (sealed.length > Session.SHORT_SEALED_MAX) throw new SessionError(`This program is too large for a short link (${Math.ceil(sealed.length / 1024)} KB; the most is ${Session.SHORT_SEALED_MAX / 1024} KB). The long link works.`);
+    let r;
+    try { r = await store.create({ machine: m.id, sealed, png: null }); }
+    catch (e) { throw new SessionError(e.message); }
+    return { url: store.url(r.id, key), id: r.id, deleteToken: r.deleteToken };
+  }
+  // a URL's fragment -> the program a program link (#z= whose byte 0 is 2) carries, { machine, config, text }; null
+  // when it holds no program (no #z=, or a moment's); SessionError when it is damaged or from a newer CLOADM
+  async readProgramLink(hash) {
+    const m = /^#?z=(.*)$/.exec(hash || '');
+    if (!m) return null;
+    let bytes;
+    try { bytes = fromBase64Url(m[1]); } catch (e) { return null; }   // (readSnapshotLink says it is damaged)
+    if (!isProgramLink(bytes)) return null;
+    let prog;
+    try { prog = await decodeProgramLink(bytes); }
+    catch (e) { throw e instanceof SnapshotError ? new SessionError(e.message) : e; }
+    return this.checkedProgram(prog);
+  }
+  // A shared program arrives: a fresh machine of the sender's model, and the program loaded as load_basic loads it
+  // (no typing), then LIST typed. -> { state: 'listed', lines } or, when this browser has no BASIC ROM for the
+  // machine, { state: 'needs-roms', name, lines } (the machine is switched to, running without ROMs: the page shows
+  // the listing as text and loads it once the ROMs are added: call this again). SessionError when it can't load.
+  // link: { kind: 'long' | 'short', id } when it came from a link: arrivedFromLink then holds the arrival, as a shared
+  // moment's does, with `basic`: { lines, listed, text (the listing, while it waits for ROMs), name }, for the page's
+  // arrival card (js/ui/arrival.js)
+  openSharedProgram(prog, link = null) {
+    this.checkedProgram(prog);   // (also here: a caller may hand one in that no reader checked)
+    const dialect = DIALECTS[profiles[prog.machine].lineage];
+    let lines;
+    try { lines = parseProgram(prog.text, dialect); } catch (e) { throw new SessionError(`This program link's program can't be loaded: ${e.message}.`); }
+    const m = this.switchMachine(prog.machine, Object.keys(prog.config).length ? Object.assign(this.savedConfig(prog.machine), prog.config) : undefined, { menu: false });
+    const name = m.profile.name.replace(/^Tandy /, '');
+    const arrived = (listed) => {
+      if (!link) return;
+      this.arrivedFromLink = { kind: link.kind === 'short' ? 'short' : 'long', id: link.kind === 'short' ? link.id || null : null, machine: m.profile.name, program: null,
+        basic: { lines: lines.length, listed, text: listed ? null : prog.text, name } };
+      this.emit('arrival');
+    };
+    if (!m.hasRom) { arrived(false); return { state: 'needs-roms', name, lines: lines.length }; }
+    m.ensureBooted();
+    for (let i = 0; i < 5 * m.fps && this._bootStatusOf(m).state !== 'ok' && m.runFrame(); i++);
+    try { this.loadBasic(prog.text); }
+    catch (e) { throw new SessionError(`The program couldn't be loaded on the ${name}: ${e.message}`); }
+    this.queueText('LIST\n', m);
+    // Recorded after the load, not before: loadBasic counts as the person's input (personInput, then touch, then
+    // settleArrival), which ends an arrival, so one recorded first would be over at once.
+    arrived(true);
+    return { state: 'listed', lines: lines.length };
   }
 
   // The moment as a file to give to someone (the Share screen's link and snapshot file): the snapshot with its ROM
@@ -1863,6 +2040,7 @@ export class Session {
   // images and rebuilds the moment from their own (snapshotRoms, openSnapshot). AGENTS rule 1: no ROM byte leaves.
   async shareFile(now = new Date()) {
     const m = this.shownMachine;
+    if (this.wyrmfireOn(m) || this.userDataIn(m) || this.userDiskIn(m)) throw new SessionError(WYRMFIRE_TEXT.snapshots);
     // NitrOS-9's memory is the user's own NitrOS-9 image: a moment of it is never put in a link. shareUrl's link
     // (nitros9=1) boots NitrOS-9 from the recipient's own image instead.
     if (this.nitros9On(m)) throw new SessionError('A NitrOS-9 moment isn\'t shared as a snapshot: its memory holds your NitrOS-9. The link boots NitrOS-9 from their own DriveWire image instead.');
@@ -1884,7 +2062,12 @@ export class Session {
   // `m` is the machine the caller is about to read: the ROM guard must ask the SAME machine as the read, or it passes
   // for the wrong one (the embed API asks it about the person's machine and reads that one). The default stays the
   // machine on screen, which is what every existing caller means.
+  // 'userdata': WYRMFIRE runs a level converted from the person's own WAD (id Software's game data, which Claude and
+  // the page around an embed never see: not the memory, and not the screen either, ScreenGuard below).
   romCodeIn(m = this.shownMachine) {
+    // (the machine's mark, or the disk itself still in a drive: a power cycle clears RAM, not the disk, which a program
+    // the agent loads could read through the bare controller)
+    if (this.userDataIn(m) || this.userDiskIn(m)) return 'userdata';
     if (this.nitros9On(m)) return 'nitros9';   // our loader, and the user's NitrOS-9 in RAM (shareFile)
     if (Object.keys(m.romCrcs()).length) return 'roms';
     if (m.cartPort) return 'cartridge';
@@ -1898,8 +2081,22 @@ export class Session {
     const damaged = new SessionError('This link\'s snapshot is damaged: it was cut short or changed on the way.');
     let bytes;
     try { bytes = fromBase64Url(m[1]); } catch (e) { throw damaged; }
-    try { return await decodeLongLink(bytes); }
+    let snap;
+    try { snap = await decodeLongLink(bytes); }
     catch (e) { throw e instanceof SnapshotError && /newer CLOADM/.test(e.message) ? new SessionError(e.message) : damaged; }
+    return this.checkedSnapshot(snap, { link: true });
+  }
+  // A snapshot's machine and config, before anything opens it or remembers it (the same rule for files, slots and links;
+  // checkedProgram is a program link's): a model CLOADM has, and a config of the keys that model takes (its options and
+  // mameCompat), each with one of its values. From a link, mameCompat is off as well: a comparison setting never
+  // travels. Anything else is a damaged snapshot. -> the snapshot, or SessionError
+  checkedSnapshot(snap, { link = false } = {}) {
+    const c = snap && snap.config;
+    let ok = !!snap && Object.hasOwn(profiles, snap.machine) && !!c && typeof c === 'object' && !Array.isArray(c);
+    if (ok) { try { resolveConfig(snap.machine, c); } catch (e) { ok = false; } }
+    if (ok && link && c.mameCompat) ok = false;
+    if (!ok) throw new SessionError(link ? 'This link\'s snapshot is damaged: it was cut short or changed on the way.' : 'This snapshot is damaged: its machine or settings are not ones CLOADM has.');
+    return snap;
   }
   // the moment as a file -> { name, bytes }
   // The moment as a file the person keeps: their machine (personMachine), so with the chat full screen it is the
@@ -1909,14 +2106,17 @@ export class Session {
   async snapshotFile(now = new Date()) {
     this.writeWatch.guard('snapshotFile');
     const m = this.personMachine;
+    if (this.wyrmfireOn(m) || this.userDataIn(m) || this.userDiskIn(m)) throw new SessionError(WYRMFIRE_TEXT.snapshots);
     const bytes = await encodeSnapshot(m.snapshot(), { name: m.profile.name, taken: now.toISOString(), program: this.momentProgram(m) });
     const saved = m !== this.shownMachine ? 'your BASIC session' : null;
     return { name: `${m.profile.name.replace(/[^A-Za-z0-9]+/g, '')}-${stamp(now)}${SNAPSHOT_EXT}`, bytes, saved };
   }
   // file bytes -> the snapshot; SessionError when it isn't one this version reads
   async readSnapshot(bytes) {
-    try { return await decodeSnapshot(bytes); }
+    let snap;
+    try { snap = await decodeSnapshot(bytes); }
     catch (e) { throw e instanceof SnapshotError ? new SessionError(e.message) : e; }
+    return this.checkedSnapshot(snap);
   }
   // what must change before it opens: null (it fits the machine in use) or { machine, name, config, text }
   snapshotSwitch(snap) {
@@ -1971,6 +2171,7 @@ export class Session {
   // arrival card, until the person acts. Any other snapshot opened ends an earlier arrival.
   openSnapshot(snap, { shared = false, link = null } = {}) {
     this.writeWatch.guard('openSnapshot');
+    this.checkedSnapshot(snap, { link: shared || !!link });
     const roms = this.snapshotRoms(snap), p = profiles[snap.machine], program = Session.momentProgramId(snap.program);
     // a shared one: its ROM code rebuilt from this browser's own images (snapshotRoms checked they are all here)
     snap = restoreRoms(snap, (crc) => this.imageByCrc(crc, roms));
@@ -1978,6 +2179,7 @@ export class Session {
     let m;
     try { m = restoreSnapshot(snap, Object.fromEntries(p.roms.map((x) => [x.id, roms[x.id] || null]))); }
     catch (e) { throw new SessionError(`This snapshot can't be opened: ${e.message}.`); }
+    this.endWyrmfire();
     this.adopt(m);
     // (set before the events below, so the page's first look at this machine already knows)
     this.sharedMoment = shared && !Object.keys(roms).length;
@@ -1987,7 +2189,9 @@ export class Session {
       machine: m.profile.name, program } : null;
     if (was || this.arrivedFromLink) this.emit('arrival');
     for (const p of this.profiles) p.clear();      // a profile counts what ran from the moment opened
-    if (switching) this.store.set(`config.${m.id}`, JSON.stringify(snap.config));
+    // remembered as the model's config: only its own options, as a link carries them (shareConfig: never mameCompat or
+    // hires), over what was remembered before. The moment itself opened with all of its config.
+    if (switching) this.store.set(`config.${m.id}`, JSON.stringify(Object.assign(this.savedConfig(m.id), this.shareConfig(m))));
     if (Object.keys(roms).length) { if (!this.nitros9On(m)) this.stubChosen.delete(m.id); } else this.stubChosen.add(m.id);
     this.emit('machine');
     this.poweredOn();
@@ -2291,31 +2495,21 @@ export class Session {
   load(name, bytes, { askAddresses = null, remember = true, run = true, ours = false } = {}) {
     this.loadStarted = true;
     const m = this.loadTarget().m;
+    this.lastLoaded = { name, bytes };   // (js/bugreport.js: its name and SHA-256; set first, so a file that fails to load is named too)
     this.touch(this.shownMachine);   // a load makes a bundled program a moment (untouchedBundledProgram)
     const msg = this.loadMedia(name, bytes, askAddresses, { run });
     // a program that started: what the last one found is over, and this one is watched afresh (data only, a tape
     // in the deck: what runs is still the program that was running)
-    if (this.loadStarted) {
-      this.clearNeedsBasic();
-      if (!ours && m.useStub && !this.machineRoms(m.id).bootable) this.needsBasic.arm(m, name, bytes);
-    }
+    if (this.loadStarted) this.needsBasic?.loaded(this, m, name, bytes, ours);
     if (remember) { this.library.rememberMedia(name, bytes); this.setLastRun('recent', name, { running: this.loadStarted, crc: crc32(bytes) }); }
     this.emit('loaded');
     return msg;
   }
-  // the detector's finding goes (m: only if it watched m): the page's card with it
-  clearNeedsBasic(m = null) { if (this.needsBasic.clear(m)) this.emit('needs-basic', null); }
   // The card's "Run <file> again with ROMs", once the machine's ROMs are added: the machine is switched off and on
   // with them, and the same file loads through the same path as before (load) -> its message
   runAgainWithRoms() {
-    const f = this.needsBasic.found, m = this.personMachine;
-    if (!f) throw new SessionError('There is no program to run again.');
-    if (m.profile.id !== f.id) throw new SessionError(`${f.file} ran on the ${f.machine}; this is the ${m.profile.name}.`);
-    if (!this.machineRoms(m.id).bootable) throw new SessionError(`The ${m.profile.name}'s BASIC ${f.roms} ${f.plural ? "aren't" : "isn't"} added yet.`);
-    this.stubChosen.delete(m.id);
-    this.loadSavedRoms(m);
-    this.powerCycle({ menu: false, reason: 'you ran the program again with ROMs', on: m });
-    return this.load(f.file, f.bytes);
+    if (!this.needsBasic) throw new SessionError('Running a program again with ROMs is not available here.');
+    return this.needsBasic.runAgain(this);
   }
   // A tape loads through BASIC as on a machine just switched on: power cycled (the deck and the cartridge stay,
   // as with any power cycle), then nothing is typed until BASIC is at its prompt. Whatever ran before - a CLEAR
@@ -2377,6 +2571,7 @@ export class Session {
     // held is typed into the program; a load that is refused or cancelled leaves Claude alone
     const takeOver = () => { this.cancelLoadTyping(m); this.stopClaudeFor('you loaded a program', m); };
     this.endWelcome(m);     // this machine's welcome and watch: the chat's start of its own firmware ends neither
+    this.endWyrmfire(m);    // anything loaded over WYRMFIRE ends it (startWyrmfire sets it again after its own load)
     this.setStubRun(m);     // the load starts something on THIS machine; the other machine's record is untouched
     this.forgetOpenedProgram(m);   // (an opened moment's program: something else runs now)
     const media = detectMedia(name, bytes);
@@ -3074,6 +3269,8 @@ export class Session {
       show: () => {},
       screenText: () => this.screenText(basic()),
       readByte: (addr) => this.readByte(addr, basic()),
+      // a level converted from the person's own WAD is in its drives: the screen and memory are not read (runReadOnlyTool)
+      userData: () => this.romCodeIn(basic()) === 'userdata',
       // What the read-only tools ask about the machine they act on: whether BASIC has printed OK. bootStatus()
       // answers about the shown machine, which is the chat while a chat is open, so this asks the SAME
       // question of the BASIC session - and answers it the same way, through the one implementation below, so the
@@ -3549,11 +3746,136 @@ export class Session {
   // file, the welcome menu: the keyboard). id: a GAMES.list key or 'liza' (the touch panel remembers its mode per
   // program and machine under it)
   get programControls() {
+    if (this.wyrmfireOn(this.shownMachine)) return { id: 'wyrmfire', ...PROGRAM_CONTROLS.wyrmfire };
     const w = this.menuWatch;
     if (!w || w.m !== this.shownMachine) return null;
     if (w.kind === 'game' && GAMES.list[w.game]) return { id: w.game, ...GAMES.list[w.game].controls };
     if (w.kind === 'liza') return { id: 'liza', ...PROGRAM_CONTROLS.liza };
     return null;
+  }
+  // ---------------- WYRMFIRE (js/wyrmfire/pin.js; the page: js/ui/wyrmfire.js) ----------------
+  // WYRMFIRE, a GPL game engine for the Dragon 64 that plays a Doom-format level from a disk. It runs as its README
+  // says (wyrmfire docs/RELEASE.md, manifest.run): a Dragon 64 (64K, 6809) without ROMs, the DragonDOS disk
+  // controller WITHOUT its ROM in the cartridge port (a fresh one: a disk ROM the person has added is neither used nor
+  // touched: drives.fitRom leaves the controller bare while WYRMFIRE runs), the level disk write-protected in drive 0,
+  // kept mounted (the engine streams regions from it), and the engine binary loaded and started.
+  // engine, disk: the bytes (the page checks them against the pin first). level: 'freedoom' (the bundled level) or
+  // 'user' (converted in this browser from the person's own WAD: romCodeIn says 'userdata' while it runs).
+  // name: the WAD's file name for 'user'. -> the load message
+  startWyrmfire(engine, disk, { level = 'freedoom', name = null } = {}) {
+    this.writeWatch.guard('startWyrmfire');
+    if (level !== 'freedoom' && level !== 'user') throw new SessionError(`startWyrmfire: level is 'freedoom' or 'user', not ${JSON.stringify(level)}`);
+    if (!(engine instanceof Uint8Array) || !(disk instanceof Uint8Array)) throw new SessionError('startWyrmfire: the engine and the disk are bytes');
+    const want = WYRMFIRE_PIN.machine;
+    // a fresh machine: what ran is lost (the page asked first when something was running: js/ui/wyrmfire.js)
+    const config = Object.assign(this.savedConfig(want.id), want.config, { cpu: '6809' });
+    this.endWyrmfire();
+    this.switchMachine(want.id, config, { menu: false });
+    const m = this.personMachine;
+    // without ROMs: the engine drives the machine itself, as on the stub where it was built and tested. What it takes
+    // off is put back when WYRMFIRE ends (wyrmfireLeft): the "run without ROMs" choice only if WYRMFIRE made it.
+    const addedStub = m.hasRom && !this.stubChosen.has(m.id);
+    if (m.hasRom) {
+      m.setRoms(Object.fromEntries(m.profile.roms.map((x) => [x.id, null])));
+      this.stubChosen.add(m.id);
+      m.reset(true);
+      this.emit('roms');
+    }
+    const fdc = new devices[want.controller]({});
+    m.insertCartridge(fdc);
+    try { fdc.mount(want.drive, { bytes: disk, format: 'vdk', name: level === 'user' ? 'WYRMFIRE (your WAD).vdk' : 'WYRMFIRE (Freedoom).vdk', writeProtected: true }); }
+    catch (e) { throw new SessionError(`The WYRMFIRE level disk can't be read: ${e.message}`); }
+    // the disk is the game's: never linked to the Library (no onWrite), and it says whose it is
+    fdc.drives[want.drive].media.gameData = level;
+    this.emit('disks');
+    const msg = this.load('WYRMFIRE.BIN', engine, { remember: false });
+    this.wyrmfire = { m, fdc, media: fdc.drives[want.drive].media, level, name: level === 'user' ? String(name || 'your WAD') : null, addedStub };
+    if (level === 'user') this.userDataMachines.add(m);
+    this.emit('program', 'wyrmfire');
+    this.emit('wyrmfire');
+    return msg;
+  }
+  // WYRMFIRE's level on machine m: 'freedoom', 'user' or null (not running). It runs while its controller is in the
+  // port with its disk in drive 0 and nothing has been loaded over it, on the machine it started on.
+  wyrmfireLevel(m = this.shownMachine) {
+    const w = this.wyrmfire;
+    if (!w || w.m !== m || m.cartPort !== w.fdc) return null;
+    const d = w.fdc.drives[WYRMFIRE_PIN.machine.drive];
+    return d && d.loaded && d.media === w.media ? w.level : null;
+  }
+  wyrmfireOn(m = this.shownMachine) { return !!this.wyrmfireLevel(m); }
+  // m has run a level converted from the person's own WAD since its last power-on (the machine's mark: see
+  // userDataMachines), so nothing hands its screen or memory out (romCodeIn 'userdata')
+  userDataIn(m = this.shownMachine) { return !!m && this.userDataMachines.has(m); }
+  // such a disk is in one of m's drives (a snapshot would carry its bytes; a power cycle does not take it out)
+  userDiskIn(m = this.shownMachine) {
+    const fdc = m && this.drives.controllerOf(m);
+    return !!fdc && fdc.drives.some((d) => d.loaded && d.media && d.media.gameData === 'user');
+  }
+  // the person's machine runs it (the page's strip, the snapshot panel, the touch panel)
+  get wyrmfireRunning() { return this.wyrmfireOn(this.personMachine); }
+  // what is running, for the page: { level, name } or null
+  get wyrmfireState() { const l = this.wyrmfireLevel(this.personMachine); return l ? { level: l, name: this.wyrmfire.name } : null; }
+  // ---- "Your game files": the WYRMFIRE level converted from the person's own WAD ----
+  // Only the converted disk and the WAD's file name are kept (never the WAD), in the media store under GAMES_PREFIX: not
+  // in the Library, the recent list, the carry-on, a snapshot, a share link or a settings export. One at a time: a new
+  // one replaces it. Written as a Library operation (a move waits for it, and copies it), and other pages on the same
+  // store are told ('games'), as the multi-tab rules have it for the Library's files.
+  // -> { kept: true } or { kept: false, why } when the store refused it or keeps nothing past this visit (the page says
+  // the level plays now and is gone after a reload)
+  async saveGameFile(disk, source) {
+    if (!(disk instanceof Uint8Array)) throw new SessionError('saveGameFile: the disk is bytes');
+    const meta = JSON.stringify({ source: String(source || 'your WAD').slice(0, 200), size: disk.length, version: WYRMFIRE_PIN.version, converter: WYRMFIRE_PIN.converterVersion });
+    if (this.media.kind === 'memory') return { kept: false, why: 'memory' };
+    try {
+      await this.library.libraryOp(async () => {
+        await this.media.write(GAME_FILE.disk, disk);
+        await this.media.write(GAME_FILE.meta, new TextEncoder().encode(meta));
+      });
+    } catch (e) { return { kept: false, why: e && e.message ? e.message : String(e) }; }
+    this.mediaPost('games');
+    this.emit('gamefiles');
+    return { kept: true };
+  }
+  // what "Your game files" holds: [{ id: 'wyrmfire', source, size }] (empty when nothing is kept)
+  async gameFiles() {
+    try {
+      if (!(await this.media.stat(GAME_FILE.disk)) || !(await this.media.stat(GAME_FILE.meta))) return [];
+      const meta = JSON.parse(new TextDecoder().decode(await this.media.read(GAME_FILE.meta)));
+      return [{ id: 'wyrmfire', source: String(meta.source), size: Number(meta.size) || 0 }];
+    } catch (e) { return []; }
+  }
+  // the kept level's bytes and source name -> { disk, source } or null
+  async readGameFile() {
+    const [f] = await this.gameFiles();
+    if (!f) return null;
+    return { disk: await this.media.read(GAME_FILE.disk), source: f.source };
+  }
+  async removeGameFile() {
+    await this.library.libraryOp(async () => {
+      for (const n of [GAME_FILE.disk, GAME_FILE.meta]) if (await this.media.stat(n)) await this.media.remove(n);
+    });
+    this.mediaPost('games');
+    this.emit('gamefiles');
+  }
+  // WYRMFIRE is left (a load over it, a snapshot opened, another start): m, when given, only if it ran there
+  endWyrmfire(m = null) {
+    const w = this.wyrmfire;
+    if (!w || (m && w.m !== m)) return;
+    this.wyrmfire = null;
+    this.wyrmfireLeft(w);
+    this.emit('wyrmfire');
+  }
+  // WYRMFIRE stopped running without endWyrmfire (its disk taken out): the same ending
+  wyrmfireCheck() { const w = this.wyrmfire; if (w && !this.wyrmfireLevel(w.m)) this.endWyrmfire(); }
+  // What WYRMFIRE took off goes back: the "run without ROMs" choice it added is dropped, and the person's ROMs go in at
+  // the machine's next power-on (powerCycle) or switch (switchMachine loads them), or now when the machine is on screen
+  // at the firmware's bare prompt, running nothing.
+  wyrmfireLeft(w) {
+    if (!w.addedStub) return;
+    this.stubChosen.delete(w.m.id);
+    this.romsBack = w.m.id;
+    if (w.m === this.shownMachine && w.m === this.personMachine && w.m.atStubPrompt && w.m.atStubPrompt()) this.powerCycle({ menu: false, reason: 'WYRMFIRE ended', on: w.m });
   }
   // the welcome build this machine runs: the 6809 file for every 6809-family model (the 6309 included), the
   // machine's own 6803 build on the MC-10 and the Alice (their subtitles differ). The page fetches it by this name.

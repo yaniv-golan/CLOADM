@@ -57,11 +57,11 @@ const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
   check('autorun=0 is off', parse('?autorun=0').autorun === false);
   check('autorun=maybe: error', /autorun=maybe: 1 or 0/.test(parse('?autorun=maybe').errors[0]));
   check('an empty media link: error', /tape=: not a link/.test(parse('?tape=').errors[0]));
-  check('start=welcome, liza, 2048 and minesweeper; anything else is an error', parse('?start=welcome').start === 'welcome' && parse('?start=liza').start === 'liza'
+  check('start=welcome, liza, 2048, minesweeper and wyrmfire; anything else is an error', parse('?start=welcome').start === 'welcome' && parse('?start=liza').start === 'liza'
     && parse('?start=2048').start === '2048' && parse('?start=minesweeper').start === 'minesweeper'
     && parse('?app=claude&start=2048').start === null && parse('?app=claude&start=2048').app === 'claude'
     && parse('?app=claude&start=2048').errors[0] === 'start=2048 is ignored: app=claude opens instead'
-    && parse('?start=game').start === null && parse('?start=game').errors[0] === "start=game isn't a start CLOADM has (welcome, liza, 2048, minesweeper)", parse('?start=game').errors[0]);
+    && parse('?start=game').start === null && parse('?start=game').errors[0] === "start=game isn't a start CLOADM has (welcome, liza, 2048, minesweeper, wyrmfire)", parse('?start=game').errors[0]);
   check('app=claude; anything else is an error', parse('?app=claude').app === 'claude' && !parse('?app=claude').errors.length
     && parse('?app=bogus').app === null && parse('?app=bogus').errors[0] === "app=bogus isn't an app CLOADM has (claude)", parse('?app=bogus').errors[0]);
 check('a failed fetch of a link\'s file: a network or CORS failure (TypeError) gets a plain sentence, an HTTP status keeps its words',
@@ -149,6 +149,17 @@ check('a failed fetch of a link\'s file: a network or CORS failure (TypeError) g
   check('setDisplay(remember: false): in force, not stored', s.display.view === 'sharp' && !store.has('display.settings'));
   s.setDisplay({ glow: 10 });
   check('setDisplay: stored', JSON.parse(store.get('display.settings')).glow === 10);
+}
+
+// record=1: the frame is 4:3, or 16:9 with aspect=16:9 (which nothing else takes); written back by buildUrl
+{
+  const a = parse('?record=1', 'dragon64'), b = parse('?record=1&aspect=16:9', 'dragon64'), c = parse('?aspect=16:9', 'dragon64'), d = parse('?record=0', 'dragon64');
+  check('record=1: a 4:3 frame, no error', a.record === true && a.recordAspect === '4:3' && !a.errors.length);
+  check('record=1&aspect=16:9: a 16:9 frame, no display aspect set, no error', b.record === true && b.recordAspect === '16:9' && b.display.aspect === undefined && !b.errors.length, JSON.stringify(b.errors));
+  check('aspect=16:9 without record=1 is refused, the rest applies', c.record === null && c.recordAspect === null && c.display.aspect === undefined && /aspect=16:9: only with record=1/.test(c.errors.join()));
+  check('record=0: not recording', d.record === false && d.recordAspect === null);
+  check('buildUrl writes record=1 and its 16:9 back', new URL(Emu.buildUrl('https://cloadm.dev/play/', b)).search === '?record=1&aspect=16%3A9'
+    && Emu.parseUrlConfig(new URL(Emu.buildUrl('https://cloadm.dev/play/', b)).search, 'dragon64').recordAspect === '16:9');
 }
 
 console.log(fail ? `${fail} FAILED` : 'all passed');

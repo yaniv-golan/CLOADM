@@ -95,6 +95,7 @@ function checked(snap) {
   if (!snap || typeof snap !== 'object') throw new SnapshotError('This CLOADM snapshot is incomplete.');
   if (typeof snap.version !== 'number') throw new SnapshotError('This CLOADM snapshot has no format version.');
   if (snap.version > SNAPSHOT_VERSION) throw new SnapshotError(`This snapshot was saved by a newer CLOADM (format version ${snap.version}; this page reads version ${SNAPSHOT_VERSION}). Reload the page to update it.`);
+  // (SNAPSHOT_OLDEST never rises: js/machines/machine.js. This is for a file damaged into a version below 1.)
   if (snap.version < SNAPSHOT_OLDEST) throw new SnapshotError(`This snapshot was saved by an older CLOADM (format version ${snap.version}), which this version no longer reads.`);
   if (!profiles[snap.machine]) throw new SnapshotError(`This snapshot is of a machine this CLOADM doesn't have (${snap.machine}).`);
   if (!snap.config || typeof snap.config !== 'object' || !snap.roms || typeof snap.roms !== 'object' || !snap.state || typeof snap.state !== 'object') {
@@ -104,8 +105,13 @@ function checked(snap) {
 }
 
 // ---------------- the long link (#z=) ----------------
+// FROZEN since 0.3.0 (AGENTS.md, "Formats are frozen"; docs/automation.md, "Share links"): byte 0 says what the link
+// holds and in which layout. 1 = a moment (this layout), 2 = a BASIC program (PROGRAM_LINK_VERSION, below), 3 to 31
+// reserved for later layouts, which a page refuses as "made by a newer CLOADM". A decoder for a byte 0 that was ever
+// written is never dropped; a changed layout takes a new byte 0, with its own decoder beside the old one.
 // The moment a long link carries (Session.snapshotLink writes '#z=' + base64url of these bytes):
-//   byte 0      the link format's version, LONG_LINK_VERSION (1); 2 to 31 are kept for later versions, which a page says are newer
+//   byte 0      the link format's version, LONG_LINK_VERSION (1); 2 is the BASIC program link (PROGRAM_LINK_VERSION, below);
+//               3 to 31 are kept for later versions, which a page says are newer
 //   bytes 1...  deflate-raw (RFC 1951, no header or checksum) of the container:
 //     u32 little-endian J, the length of the skeleton
 //     J bytes     the skeleton: UTF-8 JSON of the snapshot { format, version, machine, name, taken, program?, config, roms,
@@ -155,6 +161,7 @@ export async function decodeLongLink(bytes, { maxBytes = SNAPSHOT_MAX_BYTES } = 
   const damaged = () => new SnapshotError('This link\'s snapshot is damaged: it was cut short or changed on the way.');
   if (!bytes || bytes.length < 2) throw damaged();
   // a version byte a little past ours is a newer CLOADM's; anything else is not a link this page wrote
+  if (bytes[0] === PROGRAM_LINK_VERSION) throw new SnapshotError('This link holds a BASIC program, not a moment.');
   if (bytes[0] > LONG_LINK_VERSION && bytes[0] < 32) throw new SnapshotError(`This link was made by a newer CLOADM (link format ${bytes[0]}; this page reads ${LONG_LINK_VERSION}). Reload the page to update it.`);
   if (bytes[0] !== LONG_LINK_VERSION) throw damaged();
   let box;
@@ -180,4 +187,48 @@ export async function decodeLongLink(bytes, { maxBytes = SNAPSHOT_MAX_BYTES } = 
   } catch (e) { throw damaged(); }
   if (!snap || snap.format !== SNAPSHOT_FORMAT) throw damaged();
   return checked(snap);
+}
+
+// ---------------- the BASIC program link (#z=, and a short link's sealed bytes) ----------------
+// "Share your program" (js/ui/share.js): only the program's text, as LIST shows it, and the machine to run it on. No
+// memory, no picture, no ROM byte. The same bytes travel in a long link (Session.programLink writes '#z=' + their
+// base64url) and, sealed, in a short link (Session.programShortLink; its moment is these bytes, not a .cloadm file):
+//   byte 0      PROGRAM_LINK_VERSION (2): the payload kind and its version, in the long link's version byte, so a page
+//               that reads only moments (byte 0 = 1) says the link is from a newer CLOADM rather than misreading it
+//   bytes 1...  deflate-raw (RFC 1951) of UTF-8 JSON { format: 'cloadm-basic', version: 1, machine, config, text }
+//               machine: a profile id (js/machines/profiles.js); config: its options, as a share link's (Session
+//               .shareUrl); text: the program, one "NUMBER TEXT" line per program line, joined with "\n", only
+//               characters $20-$7E (js/media/basic.js parseProgram takes it as it is)
+// A later change to the JSON raises its version (a page refuses a version it doesn't know, saying it is newer); a
+// change to the bytes around it takes a new byte 0.
+export const PROGRAM_LINK_VERSION = 2;
+export const PROGRAM_FORMAT = 'cloadm-basic';
+export const PROGRAM_FORMAT_VERSION = 1;
+export const PROGRAM_TEXT_MAX = 65536;   // characters (js/claude/basicload.js BASIC_PROGRAM_TEXT_MAX: load_basic's limit)
+
+// { machine, config, text } -> the link's bytes
+export async function encodeProgramLink({ machine, config = {}, text }) {
+  const json = JSON.stringify({ format: PROGRAM_FORMAT, version: PROGRAM_FORMAT_VERSION, machine, config, text });
+  const packed = await pipe(new TextEncoder().encode(json), new CompressionStream('deflate-raw'));
+  const out = new Uint8Array(1 + packed.length);
+  out[0] = PROGRAM_LINK_VERSION;
+  out.set(packed, 1);
+  return out;
+}
+// is this the BASIC program link's payload (byte 0)?
+export const isProgramLink = (bytes) => !!bytes && bytes.length > 1 && bytes[0] === PROGRAM_LINK_VERSION;
+// the link's bytes -> { machine, config, text }; SnapshotError when they are not one this page reads
+export async function decodeProgramLink(bytes) {
+  const damaged = () => new SnapshotError('This link\'s program is damaged: it was cut short or changed on the way.');
+  if (!isProgramLink(bytes)) throw damaged();
+  let box, v;
+  // (a program's text is at most PROGRAM_TEXT_MAX characters: its JSON a little more)
+  try { box = await gunzipAtMost(bytes.subarray(1), PROGRAM_TEXT_MAX * 2 + 4096, 'deflate-raw'); } catch (e) { throw damaged(); }
+  if (!box) throw damaged();
+  try { v = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(box)); } catch (e) { throw damaged(); }
+  if (!v || v.format !== PROGRAM_FORMAT || typeof v.version !== 'number') throw damaged();
+  if (v.version > PROGRAM_FORMAT_VERSION) throw new SnapshotError(`This program link was made by a newer CLOADM (program format ${v.version}; this page reads ${PROGRAM_FORMAT_VERSION}). Reload the page to update it.`);
+  if (v.version !== PROGRAM_FORMAT_VERSION || typeof v.machine !== 'string' || typeof v.text !== 'string' || !v.config || typeof v.config !== 'object' || Array.isArray(v.config)
+    || v.text.length > PROGRAM_TEXT_MAX || /[^\x20-\x7E\n]/.test(v.text)) throw damaged();
+  return { machine: v.machine, config: v.config, text: v.text };
 }

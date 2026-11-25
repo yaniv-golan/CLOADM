@@ -87,9 +87,6 @@ class Mc10Machine extends Machine {
     return c >= page && c < page + 0x200 ? c : -1;
   }
 
-  // BASIC's ROM space: $E000-$FFFF, which is always ROM on this machine
-  basicRomAt(pc) { return pc >= 0xE000; }
-
   romsChanged() {
     const d = this.roms[this.profile.roms[0].id];
     if (!d) { this.rom = null; return; }

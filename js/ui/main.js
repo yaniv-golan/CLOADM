@@ -21,6 +21,7 @@ import { setupRomSockets } from './rom-sockets.js';
 import { setupBootHelp } from './boot-help.js';
 import { setupNeedsBasic } from './needs-basic.js';
 import { setupWelcome } from './welcome.js';
+import { setupWyrmfire } from './wyrmfire.js';
 import { setupKeyHint } from './key-hint.js';
 import { setupMediaPanel } from './media-panel.js';
 import { setupDrives } from './drives.js';
@@ -49,6 +50,10 @@ import { setupAsk } from './ask.js';
 import { setupCommandBox } from './command-box.js';
 import { MemoryKeyStore, storageKeyStore } from '../host/key-store.js';
 import { setupShare } from './share.js';
+import { setupBugReport } from './bug-report.js';
+import { setupClaudeFeatures } from './claude-features.js';
+import { setupRecord } from './record.js';
+import './version-stamp.js';   // the settings drawer's credits line: v<version> · <commit>
 import { setupArrival } from './arrival.js';
 import { ShortLinkStore } from '../host/link-store.js';
 import { setupSlotsPanel } from './slots-panel.js';
@@ -123,6 +128,8 @@ addEventListener('pagehide', () => { session.drives.flush(); session.index.flush
 document.addEventListener('visibilitychange', () => { if (document.hidden) { session.drives.flush(); session.index.flush().catch(() => {}); } });
 window.emu.storageChoices = availableChoices();
 const machinePanel = setupMachinePanel(page, { showRoms: () => romSockets.reveal() });
+// WYRMFIRE (js/ui/wyrmfire.js): the shelf, the palette and ?start=wyrmfire start it through page.wyrmfire
+page.wyrmfire = setupWyrmfire(page, { confirmSwitch: machinePanel.confirmSwitch });
 setupPokePanel(page);
 setupPrinterPanel(page);
 setupSerialPanel(page);
@@ -142,7 +149,11 @@ setupNeedsBasic(page, romSockets);
   sync();
 }
 let library = null;
-const snapshots = setupSnapshotPanel(page, { confirmSwitch: machinePanel.confirmSwitch, openRoms: () => romSockets.reveal(), startOver: (program) => startOver(program) });
+// the arrival card (a shared moment, or a shared BASIC program, which it opens): before the snapshots, which hand it a
+// program's short link
+const arrival = setupArrival(page, { openShare: () => share.open(), startOver, reportUrl: (id) => linkStore.reportUrl(id), openRoms: () => romSockets.reveal() });
+const snapshots = setupSnapshotPanel(page, { confirmSwitch: machinePanel.confirmSwitch, openRoms: () => romSockets.reveal(), startOver: (program) => startOver(program), openProgram: arrival.openProgram });
+window.emu.arrival = arrival;   // (the browser check: a program arriving while the focus is elsewhere)
 const disks = setupDrives(page, { openRoms: () => romSockets.reveal({ to: 'disk' }) });
 const slots = setupSlotsPanel(page, { snapshots });
 const nitros9 = setupNitros9Panel(page);
@@ -163,6 +174,7 @@ setupSettingsFile(page);
 // the short links' store: s.cloadm.dev (js/host/link-store.js); the browser check points it at a stand-in server
 const linkStore = new ShortLinkStore();
 const share = setupShare(page, { linkStore });
+page.bugReport = setupBugReport(page);
 const showRoms = () => romSockets.reveal();
 // No Claude chat on a page shown inside someone else's page, whether by the embed flag or by being framed: the chat
 // would put its API key card there. With no controller there is no chat machine, no panel and no key card, and the
@@ -170,6 +182,7 @@ const showRoms = () => romSockets.reveal();
 const claude = chatHere ? setupClaude(page) : null;
 // set up only when there is a controller: both modules drive the chat and would throw on null
 const ask = claude ? setupAsk(page, claude) : null;
+setupClaudeFeatures(page, { closeAsk: () => { if (ask && ask.open) ask.hide(); }, claude });
 // a non-toggling opener for the Ask panel, for the landscape keys' Menu's "Ask Claude…" (js/ui/touch-keys.js): the
 // header's #btnAsk TOGGLES (a second press closes it), which is wrong for a Menu item that always means "open". The
 // panel is the side panel (claude.openPanel); guarded so a page with no chat has nothing to open.
@@ -200,7 +213,6 @@ function startOver(program) {
   page.focus();
 }
 // the card a shared moment arrives with (Session.arrivedFromLink); Send it back is the Share screen's own open
-setupArrival(page, { openShare: () => share.open(), startOver, reportUrl: (id) => linkStore.reportUrl(id) });
 const drawer = setupDrawer(page, { showRoms });
 // a phone: the ports and power in sheets, one row of chips under the on-screen panel
 page.sheets = setupPhoneSheets(page, { touchKeys: page.touchKeys, ask });
@@ -332,6 +344,8 @@ const visit = session.visit();
   session.switchMachine(id, Object.keys(config).length ? Object.assign(session.savedConfig(id), config) : undefined, { menu: false });
 }
 if (Object.keys(link.display).length) session.setDisplay(link.display, { remember: false });
+// ?record=1: the screen alone, integer-scaled in a fixed 4:3 (or 16:9) frame, for recording a video (after the link's display)
+if (link.record) setupRecord(page, link.recordAspect);
 const setCheck = (id, on) => { const c = $(id); if (c.checked !== on) { c.checked = on; c.dispatchEvent(new Event('change')); } };
 if (link.joy) setCheck('chkJoy', link.joy === 'mouse');
 if (link.sound !== null) setCheck('chkSound', link.sound);
@@ -367,7 +381,8 @@ const starting = welcome.start(visit, { fromLink, withMedia: link.roms.length > 
   }
   await starting;
   // a share link's moment (#z=, Share screen): opened like a dropped snapshot, once the visit has started
-  if (/^#z=/.test(location.hash)) await snapshots.takeLink(location.hash);
+  // (a BASIC program's link, Share your program, is a #z= too: its payload says which, js/ui/arrival.js)
+  if (/^#z=/.test(location.hash)) { if (!await arrival.takeProgramLink(location.hash)) await snapshots.takeLink(location.hash); }
   // a short link's moment (#l=<id>.<key>: its arrival page on s.cloadm.dev sends the visitor here): fetched, opened
   // with its key in this browser, then opened like the rest
   else if (/^#l=/.test(location.hash)) await snapshots.takeShortLink(location.hash, linkStore);
@@ -381,6 +396,7 @@ const starting = welcome.start(visit, { fromLink, withMedia: link.roms.length > 
   // below, so a check can read the toast without a wait that assumes which came last.
   window.emu.started = true;
   share.ready();
+  page.bugReport.ready();   // play/#bug-report (Help's "Copy a bug report →")
   if (link.errors.length) page.status(`This link has ${link.errors.length === 1 ? 'a setting' : 'settings'} CLOADM can't use: ${link.errors.join('; ')}`, true);
   // a hash in the shape of a share link (#z=, #l=, or the #share= the link's arrival page carried) that no reader
   // above claimed, or a cut short #l=: said, rather than left silent. A view (#share, #library, #add-roms,
