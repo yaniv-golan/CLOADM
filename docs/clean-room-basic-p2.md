@@ -89,19 +89,18 @@ SAM V, pages and a flags byte (bytes a row, x halved, y halved, bits a pixel).
 * **`SCREEN 1,c`** writes the VDG bits to PIA1 port B (A/G = PB7, GM2-0 = PB6-4, CSS = PB3 = c) by read-modify-write,
   keeping PB0-PB2 (PB2 must stay high in 32K mode, PB1 is the single-bit sound) [HW], then the SAM's V bits and F bits
   for the start page through the set/clear pairs at `$FFC0-$FFD3` [HW]. **`SCREEN 0`** restores text: A/G low, V 0,
-  F at `$0400`. When BASIC goes back to text by itself (the `OK` prompt, `PRINT`, an error, `INPUT`) is BB; ours
-  goes back at the `OK` prompt and on an error until the black-box result says otherwise.
+  F at `$0400`. BASIC goes back to text by itself whenever anything is printed (`PRINT`, `INPUT`'s prompt, an
+  error, the `OK` prompt), not in a loop that prints nothing [BB bb2 `gfx-text-return`].
 * **Colours** [UM, HW]: 0 black, 1 green, 2 yellow, 3 blue, 4 red, 5 buff, 6 cyan, 7 magenta, 8 orange (the VDG's own
   order after black [HW: `mc6847.js`]). In a 4-colour mode, colour set 0 gives 1-4 and set 1 gives 5-8; colour c is
   the 2-bit value (c - 1) AND 3. In a 2-colour mode, set 0 is black and green, set 1 black and buff; a pixel is 1
-  for a foreground colour, 0 for black. What a colour outside the shown set draws, and what `PPOINT` returns for
-  each pixel value, are BB; until then [OWN] the rule above, and `PPOINT` returns the colour number in the current
-  set (1-4 or 5-8; 0 or the set's colour in two colours).
+  for an odd colour number and 0 for an even one [BB bb2 `gfx-modes`, `gfx-color`, `gfx-ppoint`]; `PPOINT` returns
+  the colour number in the current set (1-4 or 5-8; 0 or the set's colour in two colours) [BB bb2 `gfx-ppoint`].
 * **`COLOR f,b`** sets both (0-8, else `?FC ERROR` [BB]). The defaults after cold start and after `PMODE` are BB;
   [OWN] until then: foreground the set's last colour, background its first.
 * **The last point** (the start of `LINE -(x,y)` and of `DRAW`) is a pair of 16-bit values in the system block
-  (`LASTX`, `LASTY`, so `DRAW` can follow a point off the picture), set by `PSET`, `PRESET`, `LINE` and `DRAW` (not by
-  `PPOINT`); its value after cold start (the centre, 128,96 [UM for `DRAW`]) is confirmed by BB.
+  (`LASTX`, `LASTY`, so `DRAW` can follow a point off the picture), set by `LINE` and `DRAW`, not by `PSET`, `PRESET`
+  or `PPOINT` [BB bb2 `gfx-line` pmode4-boxes]; 128,96 after cold start [UM for `DRAW`; BB bb2 `gfx-draw`].
 
 ### What the first graphics step implements
 
@@ -112,8 +111,8 @@ range checks, into 4 bytes), `PLOT` (one pixel in the colour byte `GCOLB`), `GPI
 reserved pages), `BLKCPY` / `MOVBLK` (the one block loop: `PCLS` fills by copying each byte to the next) and `GSHOW` /
 `TXTSCR`. Where the manual is silent the choices are ours, each to be replaced by the black-box result [OWN; BB]:
 
-* **Cold start:** `PCLEAR 4` (the program at `$1E01`, as in P1), `PMODE 2,1`, colour set 0, the default colours, the
-  last point 128,96.
+* **Cold start:** `PCLEAR 4` (the program at `$1E01`, as in P1), `PMODE 0,1` [BB bb2 `gfx-defaults` cold-start: a
+  line drawn before any `PMODE` is drawn at 128 x 96], colour set 0, the default colours, the last point 128,96.
 * **Reserved pages and the program:** the pages end at `TXTTAB - 1`, so no separate count is kept: a mode's pages fit
   when the high byte of their end is at most `TXTTAB`'s. `PCLEAR` moves the program (up or down) and relinks it,
   checks room as `CLEAR` does (`?OM ERROR`), then ends as `CLEAR` does: variables cleared and the stack emptied (so
@@ -121,16 +120,22 @@ reserved pages), `BLKCPY` / `MOVBLK` (the one block loop: `PCLS` fills by copyin
   with it. If the current mode's pages are no longer all reserved, the mode becomes `PMODE 0,1`.
 * **`PMODE`** only chooses the mode and pages drawn on; what is shown changes at the next `SCREEN 1` (the `gfx-pcopy`
   case draws on page 5 while page 1 is shown). It sets the default colours of the mode and the current colour set.
-* **`SCREEN t,c`:** t and c each 0 or 1 (`?FC ERROR` otherwise); c left out is 0. The set is remembered (for
+* **`SCREEN t,c`:** t and c each 0-255, any value but 0 meaning graphics and set 1 [BB bb2 `gfx-errors`: `SCREEN 2`
+  and `SCREEN 1,2` are no error; what 2 means is ours]; c left out is 0. The set is remembered (for
   `PPOINT`, the default colours and the next `SCREEN 1`). Back on the text screen CSS is 0 (green text).
-* **Back to text** happens at the `OK` prompt (`READY` calls `TXTSCR`, and an error ends there too); `PRINT`,
-  `INPUT` and `CLS` write the text screen behind a picture that stays shown (decision 7).
+* **Back to text** happens whenever a character is printed on the screen (`CHROUT` calls `TXTSCR`: `PRINT`,
+  `INPUT`, an error, the `OK` prompt) [BB bb2 `gfx-text-return`; decision 7].
 * **Colours:** a colour number is kept and turned into pixels when a statement draws, so it means the same in any
-  mode: four colours (c - 1) AND 3 (so 0 draws as 4 or 8), two colours black for 0 and the foreground for any other.
-* **Semigraphics:** `SET`'s colour is (c - 1) AND 7 (0 gives orange, 8); `SET` and `RESET` on a cell holding a text
+  mode: four colours (c - 1) AND 3 (so 0 draws as 4 or 8), two colours the foreground for an odd colour and black
+  for an even one [BB bb2].
+* **Semigraphics:** `SET`'s colour is c - 1, colour 0 green as 1 [BB bb2 `gfx-ppoint`: `SET(10,11,0)` leaves
+  `POINT` 1; whether 0 keeps the cell's colour instead is not shown]; `SET` and `RESET` on a cell holding a text
   character start from no element lit; `RESET` keeps the cell's colour.
-* **Errors:** `?FC ERROR` for x above 255, y above 191, a colour above 8, a mode above 4, a page not reserved (or
-  above 8, or 0), `PCLEAR` 0 or above 8, `SET`/`RESET`/`POINT` past 63 by 31; `?SN ERROR` from the shared readers.
+* **Points:** x and y are read as 0-65535 (`?FC ERROR` otherwise), x above 255 taken as 255 and y above 191 as 191,
+  by `PSET`, `PRESET`, `PPOINT` and every corner and centre [BB bb2 `gfx-errors`, `gfx-clip`: `PSET(256,0)` is no
+  error and `PPOINT(256,0)` then reads the point at the edge; nothing appears in the pages around the picture].
+* **Errors:** `?FC ERROR` for a colour above 8, a mode above 4, a page not reserved (or above 8, or 0), `PCLEAR` 0 or
+  above 8, `SET`/`RESET`/`POINT` past 63 by 31; `?SN ERROR` from the shared readers.
 
 ### RAM for P2
 
@@ -184,6 +189,11 @@ free below the vectors for the budget of `sound.inc`, `play.inc` and their hooks
 (budget 220: the cycle-counted tone loop of decision 4 is in it) and `play.inc` 418 (budget 450), 679 of the 710, reading
 its string with `mini.inc`; the `CLRVAR` hook costs nothing (its call to `RSTTMP` became a call to `PLINIT`, which ends
 there). The image with everything of P2: 15,730 bytes, 398 free below the vectors.
+The black-box alignment of the graphics (section 5, "Aligned with the black-box pictures") added 150 bytes, from
+15,739 to 15,889: the line routine in the mode's pixels with clamped ends (`line.inc` 353 to 427), the circle in the
+mode's pixels with a 16-bit sine table (`circle.inc` 271 to 290, `sine.inc` 16 to 32), the clamped points and
+`GPIXM` (`gfx.inc` 648 to 672), the running bit layout and coarse `GET` (`getput.inc` 382 to 395), `SET`'s colour
+0, and the text screen shown by `CHROUT` (5 bytes, less `READY`'s call and the line before `BREAK`).
 
 Rules that keep it small [OWN]: size before speed everywhere (no unrolled loops, no per-mode fast paths); one
 routine for every pixel; one line routine for `LINE`, `DRAW` and `CIRCLE`; one block loop for `PCLS`, `PCOPY` and
@@ -229,25 +239,28 @@ black-box question for each (section 11); where they differ, ours is changed to 
 ### What the drawing statements implement
 
 `basic/line.inc`, `circle.inc`, `paint.inc`, `mini.inc`, `draw.inc` and `getput.inc` (implemented; section 6 for
-`DRAW`, section 8 for `GET` and `PUT`). Every choice the manual does not settle is [OWN; BB pending]: the `gfx-*`
-black-box results decide it (decision 1). The places where the pixels can be moved to match them are marked `ADJUST`
-in the source, each a constant or one instruction:
+`DRAW`, section 8 for `GET` and `PUT`). Every choice the manual does not settle was [OWN; BB pending] until the
+`gfx-*` black-box results decided it (decision 1); "Aligned with the black-box pictures", below, gives the rules
+they showed, which the bullets here now describe.
 
 * **`LINETO`** (`line.inc`), the one line routine of `LINE`, `DRAW` and `CIRCLE`: from the last point to a 16-bit
-  signed end, the last point ending there. Bresenham as above, written as: the error term starts at half the major
-  delta rounded down (ADJUST), each step takes the minor delta off it, and when it goes negative it gets the major
-  delta back and the minor axis steps. Every point is checked against the picture and drawn only on it, so `DRAW`
-  and `CIRCLE` can go off any edge (and come back) without an error.
-* **`LINE`**: the corners are read as `PSET`'s (`?FC ERROR` past the picture); `PSET` or `PRESET` must follow
+  signed end. Both ends are clamped to the picture first (the last point ends at the clamped end), then the line is
+  drawn in the mode's own pixels: a halved axis runs on even values in steps of 2 from its ends with their low bits
+  cleared. Bresenham as above, written as: the error term starts at half the major delta, less a half when the
+  major axis runs forwards (towards larger values), each step takes the minor delta off it, and when it goes
+  negative it gets the major delta back and the minor axis steps.
+* **`LINE`**: the corners are read as `PSET`'s (clamped to the picture); `PSET` or `PRESET` must follow
   (left out, or another word: `?SN ERROR`), then `,B` or `,BF`. The box is the four lines (x1,y1)-(x2,y1)-(x2,y2)-
   (x1,y2)-(x1,y1); `BF` fills each row from the smaller x to the larger with `HSPAN` (whole bytes between two masked
   end bytes), so a filled screen takes 0.7 s. The last point is (x2,y2) after every form.
-* **`CIRCLE`** (`circle.inc`): radius 0-255, colour 0-8, ratio 0-4, start and end 0-1, else `?FC ERROR`. The ratio is
-  taken in 8.8 fixed point (its fraction below 1/256 dropped), r h rounded; corner j (whole 1/64 turns) is
-  x = cx + r cos, y = cy + r h sin, y growing downwards (so 0.25 of a turn is at the bottom), each offset
-  r x `SINTAB[k]` / 256 rounded to the nearest (ADJUST), with a quarter turn exactly r. Start and end go to the
-  nearest 1/64 turn (ADJUST); an end at or before the start goes on past 0, and the same start and end draw the whole
-  circle. The chords are drawn from the start corner on; the last point is left as it was.
+* **`CIRCLE`** (`circle.inc`): radius 0-255, colour 0-8 (else `?FC ERROR`), the ratio below 256 and start and end
+  below 1024 (any other number: `?FC ERROR` [OWN]). In the mode's own pixels: the centre halved as the mode halves
+  each axis, the radius r halved where it halves x; the ratio h in 8.8 fixed point (its fraction below 1/256
+  dropped), doubled where the mode halves x alone; corner j (whole 1/64 turns) is x = cx + r cos, y = cy + (r sin) h,
+  y growing downwards (so 0.25 of a turn is at the bottom), each product rounded towards 0 (r sin before it is
+  multiplied by h), with the 16-bit `SINTAB` (rounded down) and a quarter turn exactly r. Start and end are taken
+  down to their 1/64 turn, mod 64; an end at or before the start goes on past 0, and the same start and end draw the
+  whole circle. The chords are drawn from the start corner on; the last point is left as it was.
 * **`PAINT`** (`paint.inc`): the scan-line fill above, working on each pixel's byte and mask rather than its
   coordinates (a row is the same mask a row's bytes away; a row's ends are where the byte's place in its row is 0),
   so it is about ten times faster than a fill by coordinates (a whole PMODE 4 picture in 16 s, PMODE 0 in 4 s). A
@@ -256,6 +269,50 @@ in the source, each a constant or one instruction:
   the arrays). The colour defaults to the foreground, the border to the colour [OWN; BB]. What it fills is the
   4-connected region of the start whatever the seed order, so only the stopping rule and the connectivity are
   ADJUST points.
+
+### Aligned with the black-box pictures
+
+The original's results (`tests/basic/bb/bb2-real.jsonl`) were compared picture by picture with ours
+(`tools/basic-bb/compare.js --shots`), and each rule was inferred from the original's pixels alone: a model of the
+rule (`tests/basic/gfxmodel.js`, and scratch variants of it) was drawn and compared with the original's picture
+pixel by pixel, and a rule was taken only when it matched every pixel of every picture of its case. Then the 6809
+code was changed to it. What was found (each also a [BB] row in section 15):
+
+* **Lines** (`gfx-line`, all five pictures; `gfx-defaults`): drawn in the mode's own pixels, the ends halved first (in
+  PMODE 0 a line is a 128 x 96 line, not a 256 x 192 one shown at half size). A point half way between two pixels
+  of the minor axis goes to the one further along the major axis's direction of increase, whichever way the line is
+  given: the lines from the centre and to the centre are the same pixels, and the PMODE 3 lines with ties (major 72,
+  minor 36) only match with that rule.
+* **Circles** (`gfx-circle`, five pictures; `gfx-pcopy`, `gfx-paint`, `gfx-text-return`): the 64-chord polygon was
+  right; its corners are rounded towards 0, not to the nearest (radius 1 is a plus sign with its centre lit; radius 6
+  has single pixels at the four ends), with a sine of more than 8 bits (8-bit tables, rounded or not, leave 200-600
+  pixels different; 10 bits or more match), the ratio applied to the rounded r sin (r 15, h 4: the top is a
+  1-pixel stub, then a run of 4), the ratio taken to 1/256 (h 1.2, r 15 is 17 high, not 18), start and end taken
+  down to the 1/64 turn (.01 draws the whole circle, .9 starts at corner 57), and in PMODE 0-3 the polygon in the
+  mode's pixels with the radius halved and, in PMODE 2 and 3, the ratio doubled (the pmode0 and pmode3-colours
+  pictures).
+* **Edges** (`gfx-clip`, `gfx-errors`): a point past the picture is clamped to its edge, for `PSET` (no `?FC ERROR`)
+  as for a line's or chord's end, so a circle past an edge draws along it and `DRAW "F30"` from 240,180 ends at
+  255,191.
+* **Colours** (`gfx-modes`, `gfx-color`, `gfx-ppoint`): in two colours an odd colour number draws the foreground and
+  an even one black.
+* **`GET` and `PUT`** (`gfx-getput`, `gfx-getarray`, `gfx-errors`): `PUT` of numbers set into an array shows their
+  bytes from the first element's first byte, the rows running on with no bits left at a row's end (a 10-pixel-wide
+  `PUT` of a coarse `GET` lines up only that way); `GET` without `G` takes whole bytes; after `GET` an element is
+  `?BS ERROR`; `GET` into an array not `DIM`med is `?FC ERROR`.
+* **Text** (`gfx-text-return`): `PRINT` and `INPUT` show the text screen. **Defaults** (`gfx-defaults`): cold start
+  is `PMODE 0,1`; `PSET` and `PRESET` do not move the last point (`gfx-line` pmode4-boxes).
+* **The cursor** (`screen-cls`, `gfx-text-return`, `gfx-errors`): the original's cursor is a solid 8 x 12 block whose
+  colour changes as it blinks: the pictures at a prompt catch it green, buff, yellow, magenta, red, cyan, orange and
+  black (or not shown). Which colour a picture catches is timing, so `compare.js` lists a difference confined to one
+  solid cell of a text picture as "cursor only" and counts the case as matching (`cursorOnly`, tested in
+  `tests/basic-bb.test.js`).
+
+What still differs, and why: `gfx-getarray` put-numbers, 2 pixels: the last byte of 1E30's mantissa (ours $CD, the
+original's $CF), which is P1's decimal conversion, not graphics; `gfx-text-return` cls: the case's
+`#wait-text V1$|ERROR IN \d+` matches the previous part's `?/0 ERROR IN 700` at once, so the picture is taken while
+line 10 is still drawing the circle (both runs show `BREAK IN 10`) and shows how far each ROM had got: a fault of
+the case, which needs a new black-box run once mended.
 
 ## 6. DRAW's and PLAY's mini-languages
 
@@ -435,31 +492,35 @@ and `JOYSTK`. Every constant the black-box measures fix is one equate, fitted to
 * **`PUT`'s actions** [UM]: `PSET` copies, `PRESET` copies inverted, `AND` and `OR` combine with the screen, `NOT`
   inverts the screen (the array unused). Default `PSET` [UM; BB]. Pixel-exact `PUT` with `G` shifts each row's bits to
   the target's position; that shift is the largest part of `getput.inc`.
-* **As implemented** (`basic/getput.inc`) [OWN; BB pending]: both statements work on the rectangle's own pixels
-  (the corners halved where the mode halves them, in either order), always exact to the pixel: `G` is accepted and
-  changes nothing until the black-box pictures give the coarse rule, and `PUT` uses the corners it is given, not a
-  size kept in the array. One bit-copying loop (`BITCPY`) does both: `GET` copies the screen's bits into the array,
-  `PUT` the array's bits onto the screen, each new bit looked up in the action's 4-entry truth table from the old
-  screen bit and the array bit (so `PRESET` and `NOT` invert each bit, which in four colours turns colour value v into
-  3 - v). The interim layout (decision 6): the elements' 5-byte values as one string of bytes from the first element's
-  first byte; each row of the rectangle from a new byte, its pixels' bits from the top bit down (a four-colour pixel
-  its two bits, high first), the bits after a row's last pixel 0. Only `GPBUF`'s start, the row length `GPRB` and the
-  bit order in `BITCPY` decide it, so the original's layout, once known, changes those three. The array is found by
-  its name alone (any number of dimensions), made with 11 elements when it does not exist; a string array is `?TM
-  ERROR`, an array too small for rows x bytes a row `?FC ERROR`, an action other than the five (or anything after
+* **As implemented** (`basic/getput.inc`), aligned with the black-box results [BB bb2 `gfx-getput`, `gfx-getarray`,
+  `gfx-errors`]: both statements work on the rectangle's own pixels (the corners clamped to the picture, halved
+  where the mode halves them, in either order). With `G`, `GET` is exact to the pixel; without it, the rectangle is
+  widened to the whole bytes its ends are in. `PUT` is always exact and uses the corners it is given, not a size
+  kept in the array. One bit-copying loop (`BITCPY`) does both: `GET` copies the screen's bits into the array, `PUT`
+  the array's bits onto the screen, each new bit looked up in the action's 4-entry truth table from the old screen
+  bit and the array bit (so `PRESET` and `NOT` invert each bit, which in four colours turns colour value v into
+  3 - v). The layout (decision 6, now the original's as far as the pictures show it): the elements' 5-byte values as
+  one string of bytes from the first element's first byte; the rectangle's pixels row by row, the rows running on
+  with no bits left over at a row's end, each pixel's bits from the top bit down (a four-colour pixel its two bits,
+  high first); the bits after the last pixel's are left as they were [OWN]. After `GET` the array's elements are
+  `?BS ERROR` (the original's `PRINT A(0)` after `GET`): `GET` sets bit 7 of the array's count of dimensions, which
+  no subscripted reference matches, and the header's length is computed from the other seven bits [OWN, the way of
+  it]. The array is found by its name alone (any number of dimensions); none: `?FC ERROR`; a string array `?TM
+  ERROR`; too small for rows x whole bytes a row `?FC ERROR` [OWN]; an action other than the five (or anything after
   `GET`'s comma but `G`) `?SN ERROR`.
 
 ## 9. Errors
 
-Every P2 error is one of P1's codes; P2 adds no message. Until the black-box results arrive [OWN]:
+Every P2 error is one of P1's codes; P2 adds no message. [OWN] first, then checked against the `gfx-errors` black-box
+results (bb2):
 
 | Error | When |
 |---|---|
-| `?FC ERROR` | an argument out of its range (mode, page, colour, coordinate, tone, volume, `JOYSTK` index); `PMODE` past the reserved pages; a bad `DRAW` or `PLAY` command; an array too small for `GET` |
+| `?FC ERROR` | an argument out of its range (mode, page, colour, a coordinate above 65535 or negative (past the picture it is clamped [BB bb2]), tone, volume, `JOYSTK` index); `PMODE` past the reserved pages; a bad `DRAW` or `PLAY` command; an array too small for `GET`, or not `DIM`med [BB bb2] |
 | `?SN ERROR` | a missing `(`, `,`, `)` or `-`; an unknown `PUT` action |
 | `?OM ERROR` | `PCLEAR` with no room for the program; `PAINT`'s seeds or `X`'s nesting out of memory |
 | `?TM ERROR` | a number where `DRAW`/`PLAY` want a string, or the reverse |
-| `?BS ERROR`, `?UL`... | as P1, from the shared readers (an undimensioned `GET` array is created with 10 elements, as any array) |
+| `?BS ERROR`, `?UL`... | as P1, from the shared readers; an element of an array `GET` has used [BB bb2 `gfx-getarray`] |
 
 Each line of this table gets a black-box case (section 11), in direct mode and in a program; the screen mode after an
 error (text or graphics) is in the same cases.
@@ -526,7 +587,9 @@ returns the results file, and `compare.js` reports differences. P2 adds pictures
   `--screenshot` saves it) and the SHA-256 of its pixels in the results line. The harness turns composite colour off,
   so the pixels are the VDG's colours, not a PAL blend. A picture is functional output (what the program drew), so the
   PNGs may come back with the results. `compare.js` compares the hashes and, with `--shots DIR`, writes both PNGs of
-  each picture that differs (a diff picture that marks and counts the differing pixels is not written yet).
+  each picture that differs (a diff picture that marks and counts the differing pixels is not written yet). Two
+  text pictures that differ only in one cell, a solid block in each, differ only in the blinking cursor: they are
+  listed as "cursor only" and count as the same (section 5, "Aligned with the black-box pictures").
 * **`#wav NAME` ... `#wav-stop`** [implemented, in place of a WAV recording]: a write tap on the PIAs records every
   write to the DAC and every change to whether the DAC is heard, with its CPU cycle; what goes into the results file
   is only their **measures** (decision 5): for each tone its start, length and period in cycles (the median of its full
@@ -652,10 +715,11 @@ The open questions of this design, answered, each with the decision and why.
    without `GET`, or print and edit the elements, so the layout is visible to them. It is found black-box (`GET`
    known patterns and print the elements; fill elements with chosen numbers, `PUT` them and take a screenshot) and
    matched; our own packing is interim.
-7. **Back to text: at the `OK` prompt and on an error, for now.** Text that `PRINT` and `INPUT` write goes to the
-   text screen behind the picture, so a picture a program shows is never lost and a prompt is always visible.
-   Black-box cases (`PRINT`, `INPUT`, `INKEY$`, `END`, `STOP`, BREAK, an error, the prompt, each with a screenshot)
-   settle it, and ours matches them.
+7. **Back to text: as the original.** The first choice was to go back only at the `OK` prompt and on an error, so
+   that a picture stayed shown while `PRINT` wrote the text screen behind it. The black-box cases (`PRINT`, `INPUT`,
+   `INKEY$`, `END`, `STOP`, BREAK, an error, the prompt, each with a screenshot) showed the original going back to
+   text at `PRINT` and `INPUT` too and keeping the picture in a loop that prints nothing (`gfx-text-return`), and
+   ours now matches: anything printed on the screen shows the text screen.
 
 ## 15. Provenance log
 
@@ -684,7 +748,7 @@ Numbering continues P1's log.
 | 34 | The sine table, the note table, the tone loop, the length formula's form, the volume swing, the `GET` array layout | [OWN]; the constants that must match (anchor pitch, W) from [BB] |
 | 35 | `PCLEAR n` reserves n pages and the program follows them; `PMODE m,p`'s mode and start page; `SCREEN`'s text or graphics and colour set; `COLOR f,b`; `PCLS` with an optional colour; `PSET`'s optional colour; `PPOINT` returns a colour; `PCOPY a TO b` | [UM] |
 | 36 | The PIA1 port B bits written by read-modify-write keeping PB0-PB2; the SAM's V and F bits by their clear and set addresses | [HW] `cocopia.js`, `sam6883.js` |
-| 37 | Cold-start `PMODE 2,1`; `PMODE` not changing what is shown; `SCREEN` with no set giving set 0; CSS 0 on the text screen; `PCLEAR` ending as `CLEAR` and going on, falling back to `PMODE 0,1`; colour 0 in four colours; `SET` with colour 0; `SET`/`RESET` on a text character; `PPOINT`'s values; the error choices of section 3 | [OWN]; each to be confirmed [BB] |
+| 37 | Cold-start `PMODE 2,1` (now `PMODE 0,1`, row 51); `PMODE` not changing what is shown; `SCREEN` with no set giving set 0; CSS 0 on the text screen; `PCLEAR` ending as `CLEAR` and going on, falling back to `PMODE 0,1`; colour 0 in four colours; `SET` with colour 0; `SET`/`RESET` on a text character; `PPOINT`'s values; the error choices of section 3 | [OWN]; each to be confirmed [BB] |
 | 38 | Syntax of `LINE` (`PSET`/`PRESET`, `B`, `BF`, `-(x,y)`), `CIRCLE` (r, c, h, s, e and their ranges), `PAINT` (c, b), `DRAW`'s commands, `GET` (`G`) and `PUT`'s five actions | [UM] |
 | 39 | `LINE`: the error term's start (half the major delta, rounded down), both ends drawn, the box's corner order, `PSET`/`PRESET` required (`?SN ERROR`), the last point (x2,y2) after every form; `DRAW` and `CIRCLE` clipped point by point | [OWN, BB pending: `gfx-line`, `gfx-clip`] |
 | 40 | `CIRCLE`: the 64-chord polygon, offsets rounded to nearest with an 8-bit sine table, the ratio truncated to 1/256, start and end to the nearest 1/64 turn, the turn clockwise on the screen from 3 o'clock, an end at or before the start wrapping, start = end the whole circle, the last point kept | [OWN; the direction from the manual's description, BB pending: `gfx-circle`] |
@@ -698,5 +762,20 @@ Numbering continues P1's log.
 | 48 | `SOUND`'s period 100 + 20 x (256 - t) and levels 0 and 63; `PLAY`'s levels 31 -/+ V, the default 17 and 46, `V0` silent; the DAC 0 at cold start and after `SOUND`; the next `PLAY` starting from the last one's level; sound off after `SOUND`, `PLAY` and an error, and after `AUDIO OFF` with the multiplexer left | [BB] bb2 `snd-sound`, `snd-play-volume`, `snd-audio`, `snd-joystk`; ours ending a `PLAY` on its high level [OWN] |
 | 49 | `JOYSTK(0)` reading all four axes, 1-3 the kept values, the axis order | [UM; BB]; the successive approximation [OWN]; the comparator and multiplexer [HW] `cocopia.js` |
 | 50 | `PLAY`'s default octave 3 (the manual: 2), L4, T2, kept until `CLRVAR`; `O+`, `O-` and no `>`, `<`; a dot after a note or a pause `?FC ERROR` after it plays; a length's dots until the next `L`; `C-` and `B+` crossing the octave; the errors of section 7 | [UM]; [BB] bb2 `snd-play-persist`, `snd-play-pitch`, `snd-play-length`; the rest [OWN] |
+| 51 | Cold start `PMODE 0,1` (a line before any `PMODE` drawn at 128 x 96) | [BB] bb2 `gfx-defaults` cold-start |
+| 52 | Lines in the mode's own pixels, the ends halved; a tie goes to the pixel further along the major axis's increase, the same both ways | [BB] bb2 `gfx-line` (all five pictures), `gfx-defaults` |
+| 53 | `CIRCLE`: 64 chords, corners rounded towards 0 with a sine of 10 bits or more, y = (r sin) h, h to 1/256, start and end down to 1/64 turn mod 64; in PMODE 0-3 in the mode's pixels, r halved, h doubled where x alone is halved | [BB] bb2 `gfx-circle` (radii, ratios, arcs, pmode0, pmode3-colours) |
+| 54 | `CIRCLE` takes ratio 5 and start 1.5 without an error | [BB] bb2 `gfx-errors` |
+| 55 | Points past the picture clamped to its edge (`PSET`, `PPOINT`, corners, chord and `DRAW` ends); no `?FC ERROR` | [BB] bb2 `gfx-errors`, `gfx-clip` |
+| 56 | Two colours: an odd colour draws the foreground, an even one black; `PPOINT` reads it back so | [BB] bb2 `gfx-modes`, `gfx-color`, `gfx-ppoint` |
+| 57 | `SCREEN 2` and `SCREEN 1,2` are no error | [BB] bb2 `gfx-errors`; what 2 means [OWN] |
+| 58 | `LINE` with neither `PSET` nor `PRESET`: `?SN ERROR` | [BB] bb2 `gfx-errors` |
+| 59 | `PSET` and `PRESET` do not move the last point | [BB] bb2 `gfx-line` pmode4-boxes |
+| 60 | `PRINT` and `INPUT` show the text screen; an `INKEY$` loop keeps the picture | [BB] bb2 `gfx-text-return` |
+| 61 | `SET` with colour 0 leaves the element green (`POINT` 1) | [BB] bb2 `gfx-ppoint` |
+| 62 | `PUT` shows an array's bytes from the first element's first byte, rows running on with no bits left over; `GET` without `G` takes whole bytes | [BB] bb2 `gfx-getarray` put-numbers, `gfx-getput` pmode4-coarse |
+| 63 | After `GET` an element of the array is `?BS ERROR`; `GET` into an array not `DIM`med is `?FC ERROR` | [BB] bb2 `gfx-getarray`, `gfx-errors`; the bit-7 mark [OWN] |
+| 64 | `MEM` 2 more than S minus the arrays' end; no extra line before `BREAK` after a `PRINT` ending in `;` | [BB] bb2 `gfx-pclear`, `gfx-ppoint`, `flow-stop-col` |
+| 65 | The cursor a solid 8 x 12 block that changes colour as it blinks | [BB] bb2 `screen-cls`, `gfx-text-return` |
 
 Black-box facts are added with the date of the run they came from.

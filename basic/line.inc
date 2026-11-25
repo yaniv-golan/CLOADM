@@ -1,8 +1,7 @@
 * ---------------- LINE: lines, boxes and filled boxes ----------------
-* docs/clean-room-basic-p2.md section 5. One line routine (LINETO) draws for LINE, DRAW and CIRCLE, in 256 x 192
-* coordinates whatever the mode (a low-resolution mode plots some pixels twice); one span filler (HSPAN) fills for
-* BF and PAINT. The algorithms are [OWN] (general published ones); the points where the pixels can be moved to
-* match the black-box pictures are marked ADJUST.
+* docs/clean-room-basic-p2.md section 5. One line routine (LINETO) draws for LINE, DRAW and CIRCLE, in the mode's
+* own pixels; one span filler (HSPAN) fills for BF and PAINT. The algorithms are general published ones, their
+* details aligned with the original's black-box pictures (bb2 gfx-line, gfx-circle, gfx-clip).
 
 * SORT: A = the smaller of A and B, B the larger
 SORT    PSHS    B
@@ -72,8 +71,8 @@ BF0     STX     LASTX
 
 * LINE [(x1,y1)]-(x2,y2),PSET|PRESET[,B|BF] [UM]: from the last point when the start is left out; PSET draws in
 * the foreground colour, PRESET in the background. B draws the box with those corners, BF fills it. The corners
-* are checked as PSET's (?FC ERROR); PSET or PRESET left out, or another word: ?SN ERROR [UM; BB]. The last point
-* ends at (x2,y2) [OWN; BB].
+* are read as PSET's (clamped to the picture); PSET or PRESET left out, or another word, or anything but B or BF
+* after its ',': ?SN ERROR [UM; BB bb2 gfx-errors]. The last point ends at (x2,y2) [OWN; BB].
 GLINE   CMPA    #'('
         BNE     GL1
         JSR     LSTXY
@@ -120,32 +119,69 @@ GL2     JSR     COLVAL
         BRA     BF0
 GLSN    JMP     SNERR
 
+* CLMPU: the signed word at U clamped to 0-X (keeps X)
+CLMPU   LDD     ,U
+        BPL     CU1
+        CLRA
+        CLRB
+CU1     PSHS    X
+        CMPD    ,S++
+        BLE     CU2
+        TFR     X,D
+CU2     STD     ,U
+        RTS
+
 * LINETO: a line from the last point to (X, Y), 16-bit signed, in the colour byte GCOLB; the last point ends at
-* (X, Y). Points off the picture are not drawn (clipped point by point) [OWN; BB]. Bresenham's integer algorithm:
-* step along the major axis; the error term starts at half the major delta (ADJUST: rounded down), loses the minor
-* delta at each step, and when it goes negative gets the major delta back and the minor axis steps. Both ends are
-* drawn.
+* (X, Y). Both ends are first clamped to the picture (x 0-255, y 0-191), so a line to a point off the picture runs
+* along its edge and the last point ends on it [BB bb2 gfx-clip: circles past each edge draw along it, DRAW "F30"
+* from 240,180 ends at 255,191]. The line is drawn in the mode's own pixels [BB bb2 gfx-line, gfx-defaults: in
+* PMODE 0-3 the ends are halved as the mode halves each axis, and the steps are whole pixels of the mode]: a halved
+* axis runs on even values in steps of 2, from its ends with their low bits cleared. Bresenham's integer algorithm:
+* step along the major axis (x when the deltas are equal); the error term starts at half the major delta, less one
+* half when the major axis runs forwards (so a point exactly half way between two rows or columns goes to the one
+* further along, as if the line were always drawn towards the major axis's larger end [BB bb2 gfx-line pmode3-lines
+* and the chords of gfx-circle]), loses the minor delta at each step, and when it goes negative gets the major delta
+* back and the minor axis steps. Both ends are drawn.
 LINETO  PSHS    X,Y             ; (12,S and 14,S once the frame is made)
-        LEAS    -12,S           ; two axes, 6 bytes each: |delta|, the step (1 or -1), the coordinate's address
-        LEAY    ,S
-        LDU     #LASTY
-        LDD     14,S
-        BSR     LNAXIS
-        LEAY    6,S
+        LDX     #255
+        LEAU    ,S
+        BSR     CLMPU
         LDU     #LASTX
-        LDD     12,S
+        BSR     CLMPU
+        LDX     #191
+        LEAU    2,S
+        BSR     CLMPU
+        LDU     #LASTY
+        BSR     CLMPU
+        LDX     <GMENT
+        LDB     2,X             ; bit 0: x is halved, bit 1: y is halved
+        LEAS    -12,S           ; two axes, 6 bytes each: |delta|, the step, the coordinate's address
+        PSHS    B
+        LEAY    1,S
+        LDU     #LASTX
+        LDD     13,S
         BSR     LNAXIS
+        LEAY    7,S
+        LDU     #LASTY
+        LDD     15,S
+        BSR     LNAXIS
+        LEAS    1,S
         LEAU    ,S              ; U: the minor axis, Y: the major one
         LDD     ,Y
         CMPD    ,U
-        BHS     LT1
+        BHI     LT1
         EXG     U,Y
         LDD     ,Y
 LT1     PSHS    D               ; the steps still to take
-        LSRA                    ; the error term (ADJUST)
+        TST     2,Y
+        BMI     LT1A            ; the major axis runs downwards
+        SUBD    #1
+LT1A    LSRA                    ; the error term
         RORB
         PSHS    D
-LT2     BSR     PLOTL
+LT2     LDA     LASTX+1
+        LDB     LASTY+1
+        JSR     PLOT            ; (keeps Y and U)
         LDD     2,S
         SUBD    #1
         BCS     LT4
@@ -164,30 +200,37 @@ LT3     LDD     [4,Y]
         STD     [4,Y]
         BRA     LT2
 LT4     LEAS    16,S
-        PULS    X,Y,PC
+        PULS    X,Y
+        JMP     BF0
 
-* LNAXIS: the axis entry at Y for the end D of the coordinate at U
+* LNAXIS: the axis entry at Y for the end D of the coordinate at U, the axis halved if bit 0 of the byte above the
+* return address is set (which it shifts out)
 LNAXIS  STU     4,Y
         LDX     #1
-        SUBD    ,U
-        BPL     LA1
+        LSR     2,S
+        PSHS    CC
+        BCC     LA1
+        ANDB    #$FE            ; both ends on even values
+        PSHS    B
+        LDB     1,U
+        ANDB    #$FE
+        STB     1,U
+        PULS    B
+LA1     SUBD    ,U
+        BPL     LA2
         LEAX    -2,X
         BSR     NEGD
-LA1     STD     ,Y
-        STX     2,Y
+LA2     STX     2,Y
+        PULS    CC
+        BCC     LA3
+        LSRA                    ; the delta in the mode's pixels, the step 2
+        RORB
+        ASL     3,Y
+        ROL     2,Y
+LA3     STD     ,Y
         RTS
 * NEGD: D = -D
 NEGD    COMA
         COMB
         ADDD    #1
         RTS
-
-* PLOTL: plot the last point if it is on the picture (keeps Y, U)
-PLOTL   LDD     LASTY
-        CMPD    #191
-        BHI     PL9
-        LDA     LASTX
-        BNE     PL9
-        LDA     LASTX+1
-        JMP     PLOT
-PL9     RTS

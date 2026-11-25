@@ -4,7 +4,7 @@
 * the run it lies in is found (left, then right, to a pixel that stops the fill or the picture's edge) and filled
 * with HSPAN; along the run, the rows above and below get a seed at the left end of each stretch of pixels that do
 * not stop the fill. A pixel stops the fill if it has the border colour [UM] or the paint colour [OWN: otherwise the
-* fill would not end; BB]. What is filled is the 4-connected region of the start [OWN; BB], whatever the order the
+* fill would not end]. What is filled is the 4-connected region of the start [BB bb2 gfx-paint], whatever the order the
 * seeds are taken in. The seeds (a byte's address and a mask, 3 bytes) go on the 6809 stack, into the free memory
 * above the arrays; when it is down to CHKSTK's margin: ?OM ERROR [OWN].
 * Work (direct page, PAINT's alone while it runs): the run's ends, a row's end, the mode's masks and row length,
@@ -24,7 +24,7 @@ PBPRM   EQU     USNB            ; the bytes a row - 1
 PEND    EQU     USNA            ; the high byte of the end of the pages
 
 * PAINT (x,y)[,c[,b]] [UM]: from the point, in colour c (the foreground by default) up to the border colour b (c by
-* default) [OWN; BB]. ?FC ERROR for a point off the picture or a colour above 8 [BB].
+* default) [BB bb2 gfx-paint]. The point is clamped to the picture as PSET's; ?FC ERROR for a colour above 8 [BB].
 PAINT   LDU     #GXY
         JSR     GETXY
         JSR     RPAREN

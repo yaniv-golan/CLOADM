@@ -14,14 +14,14 @@ GMTAB   FCB     $58,6*8+3,$13,$80       ; PMODE 0: 128 x 96, 2 colours, 1 page (
         FCB     $70,24*8+6,$21,$C0      ; PMODE 3: 128 x 192, 4 colours, 4 pages (CG6)
         FCB     $78,24*8+6,$20,$80      ; PMODE 4: 256 x 192, 2 colours, 4 pages (RG6)
 
-* GINIT: the cold start's graphics [UM: PCLEAR 4, done by PROGST; OWN: PMODE 2,1, the last point 128,96]
+* GINIT: the cold start's graphics [UM: PCLEAR 4, done by PROGST; BB: PMODE 0,1; OWN: the last point 128,96]
 GINIT   LDD     #128
         STD     LASTX
         LDB     #96
         STD     LASTY
         LDA     #4
         STA     <DRSCL          ; DRAW's scale 4/4, angle 0 [UM]
-        LDX     #GMTAB+8
+        LDX     #GMTAB          ; PMODE 0,1 [BB bb2 gfx-defaults cold-start: a line drawn at 128 x 96]
         LDA     #6
         BSR     SETPM
 * PMDEF: the default colours of the mode and set [OWN; BB]: two colours, foreground the set's (1 or 5) and
@@ -208,37 +208,41 @@ GETCL0  JSR     GETBYT
         CMPB    #8
         BHI     GFC2
         RTS
+GFC2    JMP     FCERR
 
-* COLVAL: colour B -> B = that colour in every pixel of a byte of the current mode [OWN; BB]: two colours, 0 black
-* and any other the foreground (all ones); four colours, the 2-bit value (c - 1) AND 3 four times
+* COLVAL: colour B -> B = that colour in every pixel of a byte of the current mode: two colours, the foreground (all
+* ones) for an odd colour and black for an even one [BB bb2 gfx-modes, gfx-color, gfx-ppoint]; four colours, the
+* 2-bit value (c - 1) AND 3 four times
 COLVAL  LDX     <GMENT
         LDA     3,X
         ASLA
         BMI     CV4
-        TSTB
-        BEQ     CV1
-        LDB     #$FF
-CV1     RTS
+        ANDB    #1
+        NEGB
+        RTS
 CV4     DECB
         ANDB    #3
         LDA     #$55
         MUL
         RTS
 
-* PSET (x,y[,c]): the point in colour c, the foreground by default; PRESET (x,y): in the background [UM]
-PSET    BSR     LSTXY
+* PSET (x,y[,c]): the point in colour c, the foreground by default; PRESET (x,y): in the background [UM]. Neither
+* moves the last point [BB bb2 gfx-line pmode4-boxes: LINE -(x,y) after PSET starts from the last LINE's end].
+PSET    LDU     #GXY
+        BSR     GETXY
         LDB     FGCOL
         JSR     <ZCHKCOM
         BNE     PS1
         BSR     GETCOL
         BRA     PS1
-PRESET  BSR     LSTXY
+PRESET  LDU     #GXY
+        BSR     GETXY
         LDB     BGCOL
 PS1     BSR     RPKEEP
         BSR     COLVAL
         STB     <GCOLB
-        LDA     LASTX+1
-        LDB     LASTY+1
+        LDA     GXY+1
+        LDB     GXY+3
 * PLOT: pixel (A = x 0-255, B = y 0-191) to the colour byte GCOLB: the one routine every drawing statement plots with
 PLOT    BSR     GPIXAD
 * PLOTM: the pixels of mask A in the byte at X to GCOLB's (keeps X, Y, U)
@@ -251,7 +255,11 @@ PLOTM   LDB     <GCOLB
         RTS
 
 * GPIXAD: pixel (A = x, B = y) -> X = its byte, A = its mask [HW: 8 pixels a byte, or 4 of two bits, the leftmost
-* in the top bits]. x and y are halved where the mode halves them; in four colours x' x 2 is the pixel's bit offset.
+* in the top bits]. x and y are halved where the mode halves them (GPIXM: x and y already in the mode's pixels); in
+* four colours x' x 2 is the pixel's bit offset.
+GPIXM   PSHS    D
+        LDX     <GMENT
+        BRA     GP2
 GPIXAD  PSHS    D               ; x, y
         LDX     <GMENT
         LDA     2,X
@@ -287,27 +295,36 @@ GP5     DECB
         LEAS    2,S
         RTS
 
-GFC2    JMP     FCERR
-
 * RPKEEP: the ')' at the text pointer, keeping D (and X)
 RPKEEP  PSHS    D
         JSR     RPAREN
         PULS    D,PC
 
-* LSTXY: a point (x,y into the last point; GETXY: (x,y into the 4 bytes at U, each 16-bit: x 0-255, y 0-191
-* (?FC ERROR) [UM; BB]), up to the ')' or the ',' after y. A = x, B = y.
+* LSTXY: a point (x,y into the last point; GETXY: (x,y into the 4 bytes at U, each 16-bit, up to the ')' or the
+* ',' after y. A = x, B = y. Each is 0-65535 (?FC ERROR otherwise), x above 255 taken as 255 and y above 191 as
+* 191 [BB bb2 gfx-errors, gfx-clip: PSET(256,0), PSET(0,192) and LINE to x 300 are no error, nothing is drawn
+* outside the picture, and PPOINT(256,0) and PPOINT(0,192) then read the points set at the edge].
 LSTXY   LDU     #LASTX
 GETXY   PSHS    U
         JSR     LPAREN
-        JSR     GETBYT
+        LDX     #255
+        BSR     GXYPT
         STD     [,S]
-        JSR     COMBYT
-        CMPB    #191
-        BHI     GFC2
+        JSR     COMMA
+        LDX     #191
+        BSR     GXYPT
         PULS    U
         STD     2,U
         LDA     1,U
         RTS
+* GXYPT: a number 0-65535, at most X
+GXYPT   PSHS    X
+        JSR     <ZEVNUM
+        JSR     GETADR
+        CMPD    ,S
+        BLS     GXY1
+        LDD     ,S
+GXY1    PULS    X,PC
 
 * PPOINT (x,y): the colour of a point [UM]: in four colours 1-4 or 5-8 by the colour set; in two, 0 for black,
 * else the set's colour (1 or 5) [OWN; BB]
@@ -331,19 +348,17 @@ PP3     TSTB
 PP4     CLRA
         JMP     GIVNUM
 
-* SCREEN t[,c]: text (0) or graphics (1) with colour set c (0 or 1, default 0) [UM; the default OWN, BB]
+* SCREEN t[,c]: text (0) or graphics (any other) with colour set c (0, or 1 for any other; default 0) [UM; BB bb2
+* gfx-errors: SCREEN 2 and SCREEN 1,2 are no error]
 SCRNST  JSR     GETBYT
-        CMPB    #1
-        BHI     GFC2
         PSHS    B
         CLRB
         JSR     <ZCHKCOM
         BNE     SCR1
         JSR     COMBYT
-        CMPB    #1
-        BHI     GFC2
-        ASLB
-        ASLB
+        TSTB
+        BEQ     SCR1
+        LDB     #4
 SCR1     STB     GCSS
         PULS    B
         TSTB

@@ -6,7 +6,8 @@
 // or pixels part, and the error lines.
 // Sounds (#wav) are compared by their measures (compareSounds, below).
 // Pictures (#screenshot) are compared by the SHA-256 of their pixels; --shots DIR writes both PNGs of each one that
-// differs.
+// differs. Two text-screen pictures that differ in one 8 x 12 cell only differ in the blinking cursor (cursorOnly):
+// they are listed apart as "cursor only" and count as the same.
 //   node tools/basic-bb/compare.js real.jsonl ours.jsonl [--shots DIR]     exit 1 if any case or program differs or is missing
 const fs = require('fs');
 
@@ -73,8 +74,53 @@ function compareSounds(sx = [], sy = []) {
   return out;
 }
 
+// A picture's pixels from its PNG (8-bit RGBA, as tests/basic/harness.js writes it: no filter on any row) -> { w, h,
+// at(x, y) } or null for any other PNG.
+function pngPixels(b64) {
+  const buf = Buffer.from(b64, 'base64'), idat = [];
+  let w = 0, h = 0;
+  for (let p = 8; p + 8 <= buf.length;) {
+    const len = buf.readUInt32BE(p), type = buf.toString('ascii', p + 4, p + 8), d = buf.subarray(p + 8, p + 8 + len);
+    if (type === 'IHDR') { w = d.readUInt32BE(0); h = d.readUInt32BE(4); if (d[8] !== 8 || d[9] !== 6) return null; }
+    if (type === 'IDAT') idat.push(d);
+    p += 12 + len;
+  }
+  let raw;
+  try { raw = require('zlib').inflateSync(Buffer.concat(idat)); } catch { return null; }
+  if (!w || raw.length !== (w * 4 + 1) * h) return null;
+  for (let y = 0; y < h; y++) if (raw[y * (w * 4 + 1)] !== 0) return null;
+  return { w, h, at: (x, y) => raw.readUInt32BE(y * (w * 4 + 1) + 1 + x * 4) };
+}
+
+// The cursor: a picture taken at a prompt shows the cursor's cell, and the original's cursor changes colour as it
+// blinks, so which colour a picture catches is timing luck (docs/clean-room-basic-p2.md section 11). Two pictures of
+// the text screen (both borders black, as the VDG shows text) whose differing pixels all lie in one 8 x 12 cell of
+// the 32 x 16 grid (the picture's 256 x 192 area centred in the frame), that cell a solid block of one colour in
+// each (as the cursor is), differ only in the cursor: -> 'col,row' of that cell, or null.
+function cursorOnly(p, q) {
+  const A = pngPixels(p.png || ''), B = pngPixels(q.png || '');
+  if (!A || !B || A.w !== B.w || A.h !== B.h || A.w < 256 || A.h < 192) return null;
+  const x0 = (A.w - 256) >> 1, y0 = (A.h - 192) >> 1, black = (v) => (v >>> 8) === 0x0A0A0A;
+  if (!black(A.at(0, 0)) || !black(B.at(0, 0))) return null;
+  let cell = null;
+  for (let y = 0; y < A.h; y++) for (let x = 0; x < A.w; x++) {
+    if (A.at(x, y) === B.at(x, y)) continue;
+    const cx = x - x0, cy = y - y0;
+    if (cx < 0 || cy < 0 || cx >= 256 || cy >= 192) return null;
+    const c = [cx >> 3, Math.floor(cy / 12)];
+    if (cell && (cell[0] !== c[0] || cell[1] !== c[1])) return null;
+    cell = c;
+  }
+  if (!cell) return null;
+  for (const P of [A, B]) {
+    const at = (i) => P.at(x0 + cell[0] * 8 + (i & 7), y0 + cell[1] * 12 + (i >> 3));
+    for (let i = 1; i < 96; i++) if (at(i) !== at(0)) return null;
+  }
+  return cell.join(',');
+}
+
 function compare(a, b, shotDir = null) {
-  const out = [];
+  const out = [], cursor = [];
   let same = 0;
   for (const [name, x] of a) {
     const y = b.get(name);
@@ -84,8 +130,16 @@ function compare(a, b, shotDir = null) {
     let at = -1;
     for (let i = 0; i < n; i++) if (x.transcript[i] !== y.transcript[i]) { at = i; break; }
     // the pictures: the same names, the same pixels (with --shots DIR, both PNGs of a differing one are written there)
-    const sx = x.shots || [], sy = y.shots || [];
-    const badShot = sx.length !== sy.length ? `${sx.length} vs ${sy.length} pictures` : sx.map((p, i) => (p.name !== sy[i].name || p.sha256 !== sy[i].sha256 ? p.name : null)).filter(Boolean).join(', ');
+    // (a picture that differs only in the cursor's cell is listed apart, as "cursor only", and is not a difference)
+    const sx = x.shots || [], sy = y.shots || [], onlyCursor = [];
+    const badShot = sx.length !== sy.length ? `${sx.length} vs ${sy.length} pictures` : sx.map((p, i) => {
+      if (p.name !== sy[i].name) return p.name;
+      if (p.sha256 === sy[i].sha256) return null;
+      const cell = cursorOnly(p, sy[i]);
+      if (cell) { onlyCursor.push(`${p.name} (cell ${cell})`); return null; }
+      return p.name;
+    }).filter(Boolean).join(', ');
+    if (onlyCursor.length) cursor.push(`${name}: cursor only: ${onlyCursor.join(', ')}`);
     if (badShot) {
       out.push(`${name}: pictures differ: ${badShot}`);
       if (shotDir) sx.forEach((p, i) => { if (sy[i] && p.sha256 !== sy[i].sha256) for (const [tag, q] of [['first', p], ['second', sy[i]]]) fs.writeFileSync(require('path').join(shotDir, `${name}-${q.name}-${tag}.png`), Buffer.from(q.png, 'base64')); });
@@ -99,9 +153,9 @@ function compare(a, b, shotDir = null) {
     for (let i = Math.max(0, at - 2); i <= Math.min(n - 1, at + 2); i++) out.push(`  ${i === at ? '>' : ' '} ${show(x.transcript, i).padEnd(36)} ${show(y.transcript, i)}`);
   }
   for (const name of b.keys()) if (!a.has(name)) out.push(`${name}: missing from the first file`);
-  return { same, report: out };
+  return { same, report: out, cursor };
 }
-module.exports = { compare, compareCorpus, compareSounds };
+module.exports = { compare, compareCorpus, compareSounds, cursorOnly };
 
 if (require.main === module) {
   const args = process.argv.slice(2), si = args.indexOf('--shots');
@@ -112,9 +166,10 @@ if (require.main === module) {
     process.exitCode = 2;
   } else {
     const a = read(f1), b = read(f2), corpus = [...a.values()].some((r) => r.program != null);
-    const { same, report } = corpus ? compareCorpus(a, b) : compare(a, b, shotDir);
+    const { same, report, cursor = [] } = corpus ? compareCorpus(a, b) : compare(a, b, shotDir);
     for (const l of report) console.log(l);
-    console.log(`${same} ${corpus ? 'programs' : 'cases'} identical`);
+    for (const l of cursor) console.log(l);
+    console.log(`${same} ${corpus ? 'programs' : 'cases'} identical${cursor.length ? ` (${cursor.length} with pictures that differ only in the cursor)` : ''}`);
     process.exitCode = report.length ? 1 : 0;
   }
 }

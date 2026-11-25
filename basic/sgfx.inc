@@ -33,12 +33,15 @@ SGX2     PSHS    A
         RTS
 SGFC    JMP     FCERR
 
-* SET (x,y,c): light the element in colour c (0-8; the cell's colour is (c - 1) AND 7) [UM; c 0 OWN, BB]
+* SET (x,y,c): light the element in colour c (1-8; the cell's colour is c - 1); colour 0 lights it green, as 1
+* [UM; BB bb2 gfx-ppoint: SET(10,11,0) leaves POINT 1]
 SET     BSR     SGXY
         PSHS    A,X
         JSR     GETCOL
         DECB
-        ASLB
+        BPL     ST0
+        CLRB
+ST0     ASLB
         ASLB
         ASLB
         ASLB

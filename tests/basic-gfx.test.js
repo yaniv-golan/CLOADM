@@ -6,7 +6,7 @@
 // are compared byte for byte with tests/basic/gfxmodel.js, a reference model written from the document's tables, not
 // from the 6809 code. Also: PPOINT and POINT read back, SCREEN's PIA1 and SAM settings against the document's table
 // written out by hand, PCLEAR moving a program (it still lists and runs, MEM changes by the pages), the return to the
-// text screen at OK and after an error (decision 7), and the ?FC ERROR and ?SN ERROR cases.
+// text screen when anything is printed (the original's, gfx-text-return), and the ?FC ERROR and ?SN ERROR cases.
 const { buildBasic } = require('../tools/build-basic.js');
 const { Basic } = require('./basic/harness.js');
 const G = require('./basic/gfxmodel.js');
@@ -92,7 +92,8 @@ for (const pl of plans) {
   typeAll(b, ['PMODE 3,1:SCREEN 1,0:PCLS:FOR C=0 TO 8:PSET(C*4,20,C):POKE &H7100+C,PPOINT(C*4,20):NEXT', 'PMODE 4,1:SCREEN 1,1:PCLS:FOR C=0 TO 8:PSET(C*4,20,C):POKE &H7110+C,PPOINT(C*4,20):NEXT']);
   const p3 = [...b.m.ram.slice(0x7100, 0x7109)], p4 = [...b.m.ram.slice(0x7110, 0x7119)];
   check('PSET colours 0-8 read back in PMODE 3, set 0 (0 and 4 both 4, 5-8 as 1-4)', p3.join() === [4, 1, 2, 3, 4, 1, 2, 3, 4].join(), p3.join());
-  check('PSET colours 0-8 read back in PMODE 4, set 1 (0 black, every other the set\'s colour 5)', p4.join() === [0, 5, 5, 5, 5, 5, 5, 5, 5].join(), p4.join());
+  // [BB gfx-ppoint: the original's PSET 0-8 IN PMODE 4,1 reads back 0 5 0 5 0 5 0 5 0: an even colour is black]
+  check('PSET colours 0-8 read back in PMODE 4, set 1 (odd colours the set\'s colour 5, even ones black)', p4.join() === [0, 5, 0, 5, 0, 5, 0, 5, 0].join(), p4.join());
 }
 
 // ---- SCREEN: PIA1 port B and the SAM, against the document's table written out by hand ----
@@ -115,7 +116,12 @@ for (const pl of plans) {
   check('an error in a program with a picture shown: the text screen at OK', !b.graphicsShown() && b.screen().includes('?/0 ERROR IN 10'), b.screen().slice(-3).join('|'));
   typeAll(b, ['20 PMODE 4,1:SCREEN 1,0:PRINT "SHOWN"', '30 GOTO 30']);
   b.type('RUN 20\n'); b.run(20);
-  check('PRINT while a picture is shown writes the text screen behind it and the picture stays', b.graphicsShown() && b.screen().includes('SHOWN'));
+  // [BB gfx-text-return: the original shows the text screen again at PRINT and INPUT, not in an INKEY$ loop]
+  check('PRINT while a picture is shown: the text screen is shown again', !b.graphicsShown() && b.screen().includes('SHOWN'));
+  b.m.typist.holdPaced('BREAK'); b.waitOk({ limit: 600 });
+  typeAll(b, ['20 PMODE 4,1:SCREEN 1,0:IF INKEY$="" THEN 20']);
+  b.type('RUN 20\n'); b.run(20);
+  check('a loop that prints nothing keeps the picture shown', b.graphicsShown());
   b.m.typist.holdPaced('BREAK'); b.waitOk({ limit: 600 });
   typeAll(b, ['SCREEN 1,1']);
   check('SCREEN 1 typed directly: back to text at the OK that follows', !b.graphicsShown());
@@ -210,16 +216,21 @@ for (const pl of plans) {
 // ---- errors ----
 {
   const b = boot();
-  const cases = [['PSET(256,0)', 'FC'], ['PSET(0,192)', 'FC'], ['PSET(-1,0)', 'FC'], ['PRESET(300,10)', 'FC'], ['PRINT PPOINT(256,0)', 'FC'], ['PRINT PPOINT(0,192)', 'FC'],
+  const cases = [['PSET(-1,0)', 'FC'], ['PSET(65536,0)', 'FC'],
     ['PSET(0,0,9)', 'FC'], ['COLOR 9', 'FC'], ['COLOR 1,9', 'FC'], ['PCLS 9', 'FC'], ['PMODE 5,1', 'FC'], ['PMODE 0,0', 'FC'], ['PMODE 0,5', 'FC'], ['PMODE 3,2', 'FC'],
-    ['SCREEN 2', 'FC'], ['SCREEN 1,2', 'FC'], ['PSET(1,2', 'SN'], ['PSET 1,2', 'SN'], ['PSET(1)', 'SN'], ['PRINT PPOINT(1,2', 'SN'], ['PSET("A",1)', 'TM']];
+    ['SCREEN 256', 'FC'], ['PSET(1,2', 'SN'], ['PSET 1,2', 'SN'], ['PSET(1)', 'SN'], ['PRINT PPOINT(1,2', 'SN'], ['PSET("A",1)', 'TM']];
   for (const [line, err] of cases) { typeAll(b, [line]); check(`${line}: ?${err} ERROR`, last(b) === `?${err} ERROR`, last(b)); }
+  // [BB gfx-errors: PSET(256,0), PSET(0,192), PRESET(300,10), SCREEN 2 and SCREEN 1,2 are no error, and PPOINT(256,0)
+  // and PPOINT(0,192) then read 1: a point past the picture is taken at its edge]
+  typeAll(b, ['PMODE 4,1:PCLS:PSET(256,0):PSET(0,192):PSET(300,191):PRESET(255,191)', 'PRINT PPOINT(256,0);PPOINT(0,192);PPOINT(300,1000);PPOINT(254,191)']);
+  check('points past the picture are clamped to its edge', last(b) === ' 1  1  0  0' && (b.m.ram[0x61F] & 1) === 1 && b.m.ram[0x600 + 191 * 32] === 0x80, last(b));
+  for (const line of ['SCREEN 2', 'SCREEN 1,2']) { typeAll(b, [line]); check(`${line}: no error`, b.screen().slice(-1)[0] === 'OK' && !last(b).includes('ERROR'), last(b)); }
   typeAll(b, ['PMODE 4,1:PCLS:SCREEN 1,1:PSET(0,0):PSET(1,0):PRESET(0,0)']);
   const lp = (o) => b.m.ram[symbols.get('LASTX') + o] << 8 | b.m.ram[symbols.get('LASTX') + o + 1];
   check('PMODE 4,1:PSET(0,0):PSET(1,0):PRESET(0,0): $0600 is $40', b.m.ram[0x600] === 0x40, b.m.ram[0x600].toString(16));
-  check('the last point is the PRESET\'s, 0,0', lp(0) === 0 && lp(2) === 0);
-  typeAll(b, ['PSET(200,150,1):PRINT PPOINT(7,9)']);
-  check('PSET sets the last point (200,150), PPOINT does not', lp(0) === 200 && lp(2) === 150);
+  // [BB gfx-line pmode4-boxes: LINE -(x,y) after PSET starts from the previous LINE's end]
+  typeAll(b, ['LINE(10,20)-(30,40),PSET:PSET(200,150,1):PRESET(5,5):PRINT PPOINT(7,9)']);
+  check('PSET, PRESET and PPOINT leave the last point (the LINE\'s end, 30,40)', lp(0) === 30 && lp(2) === 40, `${lp(0)},${lp(2)}`);
 }
 
 console.log(`\n${n - fail}/${n} passed`);

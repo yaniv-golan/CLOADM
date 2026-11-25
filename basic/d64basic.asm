@@ -211,9 +211,8 @@ MSCNT   EQU     USPOS           ; open (their places are on the stack)
 MSDEP   EQU     USANY
 DRFLG   EQU     USKIND          ; DRAW: the prefixes for the next move (1: B, 2: N), a move's length
 DRLEN   EQU     USEXP
-GPDIR   EQU     USNB            ; GET ($FF) or PUT (0); PUT's action (a truth table); the rows' step, count and bytes
+GPDIR   EQU     USNB            ; GET ($FF) or PUT (0); the action (a truth table); the rows; the array's next bit
 GPLUT   EQU     USNA
-GPSTEP  EQU     USFLG
 GPROWS  EQU     USNEG
 GPRB    EQU     USK
 CNLEN   RMB     1               ; the cassette (cassette.inc): the name's length, 0 for any file
