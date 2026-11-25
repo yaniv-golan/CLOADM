@@ -141,6 +141,10 @@ so once a deploy does run, a `main` push's deploy is accepted.)
    Expect a short gap between steps 1 and 3 -- from the source switch until the first deploy lands, nothing publishes
    the site -- so do steps 1 and 3 back to back.
 
+The version stamp (Help, About, the settings drawer, bug reports) names the commit only on a site published this way:
+the deploy stamps it into its staged `js/version.js` (`node tools/version.js --stamp`). Until the switch above, the
+legacy build serves the repository as committed, and the stamp reads "v<version> · unstamped".
+
 **A dry run of the release, after this lands on `main`**: GitHub -> Actions -> **release** -> *Run workflow* -> branch
 **main**, leave `dry_run` **checked** (it is the default) -> *Run workflow*. Dispatching it from a TAG with `dry_run`
 unchecked PUBLISHES that tag -- the dry run is only a dry run because it is started from a branch with the box on.
@@ -247,6 +251,8 @@ node tests/keyqueue.test.js  # fast typing: bursts read back from the keyboard m
 node tests/roms.test.js      # ROM identification across machines (synthetic images only), library, offers
 node tools/gen-rom-docs.js   # regenerate docs/roms.md from the profiles (tests/romdocs.test.js checks it)
 node tools/gen-machine-help.js   # regenerate Help's list of machines from the menu data (tests/machine-menu.test.js checks it)
+node tools/gen-deviations.js     # regenerate /deviations/ from verification.md's "Deviations from MAME" (tests/deviations.test.js checks it)
+node tools/version.js --write    # copy CHANGELOG.md's "Next version" into js/version.js, the version stamp (tests/version.test.js checks it)
 node tools/gen-page-preload.js  # regenerate the <link rel="modulepreload"> list in play/index.html (tests/pagepreload.test.js checks it)
 node tools/page-load.js      # how long /play/ takes to start over a throttled link: modulepreload's effect (see below)
 node tools/flicker-measure.js # a .cas dropped on stored ROMs, first visit vs repeat: DOM mutations, layout shifts, canvas

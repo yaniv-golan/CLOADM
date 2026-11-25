@@ -178,8 +178,26 @@
   body.embed #claude, body.embed #ask, body.embed #askRail { display: none !important; }
   body.embed #tkMenuSheet [data-item="share"] { display: none !important; }   /* no Share in an embed (js/ui/touch-keys.js) */
   /* a page shown inside another page has no Claude chat: its buttons are hidden, not left dead (js/ui/main.js) */
+  /* Settings -> Claude features: Off (js/ui/claude-features.js); the command box stays, without its Claude rows */
+  body.claude-off #btnAsk, body.claude-off [data-shelf="claude"], body.claude-off #ask, body.claude-off #askRail { display: none !important; }
+  body.claude-off #tkMenuSheet [data-item="ask"] { display: none !important; }   /* the landscape Menu's Ask Claude… (js/ui/touch-keys.js) */
+  #claudeFeaturesRow button[aria-pressed="true"] { background: var(--phosphor); border-color: var(--phosphor); color: var(--on-phosphor); }
   body.no-claude #btnAsk, body.no-claude #navCommands, body.no-claude [data-shelf="claude"], body.no-claude #claude, body.no-claude #ask, body.no-claude #askRail { display: none !important; }
   body.embed .layout { padding: 0; display: block; }
+  /* ?record=1 (js/ui/record.js): no page chrome; the largest 4:3 frame (16:9 with aspect=16:9) the window holds, black,
+     centred, the picture integer-scaled inside it (js/ui/screen.js fit, Display's integer scaling) */
+  body.record { background: #000; overflow: hidden; }
+  body.record .appbar, body.record #switchConfirm, body.record .drawer, body.record footer, body.record .controls,
+  body.record .slots, body.record .hint, body.record .plate, body.record #welcome, body.record #claude, body.record #ask,
+  body.record #askRail, body.record #toastRegion, body.record #installOffer, body.record #keyHint, body.record #focusHint,
+  body.record #dbgStrip, body.record #tapeHud, body.record #screenNotesBox, body.record #fsClaude, body.record #askActing, body.record #embedAsk { display: none !important; }
+  body.record .layout { padding: 0; margin: 0; max-width: none; width: 100vw; height: 100vh; display: flex; align-items: center; justify-content: center; }
+  body.record .layout > main { gap: 0; display: block; width: auto; flex: none; }
+  body.record .layout > main > .monitor { max-width: none; border-radius: 0; padding: 0; margin: 0; box-shadow: none; background: #000; }
+  body.record .tube { border-radius: 0; box-shadow: none; aspect-ratio: 4 / 3; width: min(100vw, calc(100vh * 4 / 3)); height: auto; }
+  body.record[data-record-aspect="16:9"] .tube { aspect-ratio: 16 / 9; width: min(100vw, calc(100vh * 16 / 9)); }
+  body.record #screenWrap { inset: 0; }
+  body.record #screen, body.record .crt #screen { border-radius: 0; }
   body.embed .layout > main { gap: 0; }
   body.embed .layout > main > .monitor { max-width: none; border-radius: 0; padding: 0; box-shadow: none; background: #000; }
   body.embed .tube { border-radius: 0; height: 100vh; aspect-ratio: auto; box-shadow: none; }
@@ -632,6 +650,7 @@
     color: var(--text-2); white-space: pre-wrap; overflow-wrap: anywhere; }
   #share .snippet { display: flex; flex-direction: column; gap: 6px; }
   #share .snippet .bar { justify-content: flex-end; }
+  #share .snippet h3 { margin: 0; font-weight: 400; }
   #share > .preview { align-self: start; }
   #share .romline.warn { color: var(--orange); }
   #share .extra { display: flex; flex-direction: column; gap: 6px; }
@@ -691,7 +710,7 @@
   #share .seg { display: inline-flex; gap: 10px; align-items: center; font: 14px var(--font-mono); }
   #share .seg label { display: flex; gap: 4px; align-items: center; }
   #share.program-mode #btnShareShot, #share.program-mode #btnShareClip, #share.program-mode #btnShareDownload,
-  #share.program-mode #btnShareProgramPage, #share.program-mode #previewSwitch { display: none; }
+  #share.program-mode #btnShareProgramPage, #share.program-mode #previewSwitch, #share.program-mode #btnShareGif { display: none; }
   #share.program-mode .frame canvas { box-shadow: 0 0 50px rgba(61, 245, 90, .25); }
   #share .disc [hidden] { display: none; }
   #share .disc { border: 1px solid var(--line); border-radius: var(--r-14); padding: 4px 16px; }
@@ -764,6 +783,8 @@
     #share #shareRom { order: 5; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 14px; line-height: 1.3; }
     #share .romline .full { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
     #share .romline .brief { display: inline; }
+    /* the ROM line is one line here by design: the ROM-free sentence above it is the long ROM line's, not this one's */
+    #share #shareRomFree { display: none; }
     #share #shareExtra { order: 6; }
     #share #programCard { order: 1; padding: 6px 10px; }
     #share #programCard p { font-size: 14px; line-height: 1.3; }
@@ -1487,6 +1508,7 @@
   .askfoot label { display: flex; align-items: center; gap: 8px; color: var(--text-2); }
   #askKeyLine { font-size: 13px; }
   #askSendNote { margin: 6px 0 0; font-size: 12px; }
+  #askSendsLine { margin: 0 0 6px; font-size: 12px; line-height: 1.35; }
   #askRail { flex: none; width: 64px; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 12px 0; position: sticky; top: 12px; }
   #askRail button { width: 52px; height: 52px; min-height: 52px; padding: 0; background: transparent; border: 1px solid var(--line); border-radius: var(--r-10); color: var(--text-2); font-size: 11px; }
   #askRail button[aria-pressed="true"] { border-color: var(--phosphor); color: var(--text); }
@@ -1768,6 +1790,16 @@
     width: 100%; max-width: none; max-height: 85dvh; inset: auto 0 0 0; border-radius: 16px 16px 0 0; overflow: auto; overscroll-behavior: contain;
     padding-bottom: var(--safe-b); }
   dialog.sheet::backdrop { background: rgba(0, 0, 0, .55); }
+  #bugReport { box-sizing: border-box; width: min(640px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); padding: 20px; border: 1px solid var(--line-strong);
+    border-radius: var(--r-14, 14px); color: var(--text); background: var(--panel); display: flex; flex-direction: column; gap: 12px; }
+  #bugReport:not([open]) { display: none; }
+  #bugReport::backdrop { background: rgba(0, 0, 0, .55); }
+  #bugReport h2 { margin: 0; font-size: 20px; }
+  #bugReport p { margin: 0; }
+  #bugText { margin: 0; overflow: auto; min-height: 120px; background: var(--panel-deep); border: 1px solid var(--line); border-radius: 12px; padding: 12px;
+    font: 13px/1.5 var(--font-mono); color: var(--text-2); white-space: pre-wrap; overflow-wrap: anywhere; }
+  #bugReport .check { display: flex; gap: 8px; align-items: center; }
+  #bugReport .bar { justify-content: flex-end; }
   .sheethead { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; gap: 8px; padding: 8px 12px 8px 16px; background: var(--panel); border-bottom: 1px solid var(--line); }
   .sheethead h2 { flex: 1; margin: 0; font-size: 17px; }
   .sheethead button { height: 44px; min-height: 44px; }
@@ -1903,6 +1935,8 @@ npx serve -l 8000 .</pre>
   <section class="col main" aria-labelledby="shareHeading">
     <h1 id="shareHeading">Share this moment</h1>
     <p id="shareNote"></p>
+    <!-- launch prep: with ROMs in use, "This link holds no part of your ROMs…" above the ROM line (js/share-text.js) -->
+    <p id="shareRomFree" class="romline" hidden></p>
     <!-- the ROM line: the full sentence, and its one-line form for a short landscape screen (the full one is then read
          to assistive technology and is the line's title) -->
     <p id="shareRom" class="romline"><span class="full" id="shareRomFull"></span><span class="brief" id="shareRomBrief" aria-hidden="true"></span></p>
@@ -1953,10 +1987,20 @@ npx serve -l 8000 .</pre>
         <!-- the buttons are direct children: js/ui/share.js's place() moves btnShareShot/btnShareClip to sit beside
              Copy, using btnShareDownload as the insert point, so all three must share one parent. The reasons are
              siblings, not wrappers, for the same reason. -->
+        <button id="btnShareGif" title="Save 6-second GIF">Save GIF</button><span class="why muted small" id="shareGifWhy" hidden></span>
         <button id="btnShareShot">Save picture</button><span class="why muted small" id="shareShotWhy" hidden></span>
         <button id="btnShareClip">Save clip</button><span class="why muted small" id="shareClipWhy" hidden></span>
         <button id="btnShareDownload">Download snapshot</button><span class="why muted small" id="shareDownloadWhy" hidden></span>
       </div>
+    </div>
+  </details>
+  <details class="disc" id="shareForum">
+    <summary><h2 id="forumHeading">Copy as text for a forum</h2></summary>
+    <div class="col" hidden>
+      <p>The link with one line saying what it opens, for a forum post or a README: the short link once Copy link has made one, otherwise the long link (or the program's page). Copying it here sends nothing anywhere.</p>
+      <p class="muted" id="forumGifHint">Attach the GIF from Save GIF to show it in your post.</p>
+      <div class="snippet"><h3 class="eyebrow">BBCode</h3><pre id="forumBbcode"></pre><div class="bar"><button id="btnForumBbcodeCopy">Copy</button></div></div>
+      <div class="snippet"><h3 class="eyebrow">Markdown</h3><pre id="forumMarkdown"></pre><div class="bar"><button id="btnForumMarkdownCopy">Copy</button></div></div>
     </div>
   </details>
   <details class="disc" id="shareEmbed">
@@ -2239,6 +2283,7 @@ npx serve -l 8000 .</pre>
       <p class="muted"><strong>Your key stays yours.</strong> Stored only in this browser. The emulated machine never sees it, and it's left out of snapshots, share links and exported settings.</p>
     </div>
     <div id="askComposer" hidden>
+      <p class="muted" id="askSendsLine">Nothing is sent until you ask. Then your question, the machine's facts and the chat so far go to Anthropic with your key (or your Claude account in the plugin), and Claude can read the screen and any memory (ROM areas included) without asking. Only changes to the machine ask you first.</p>
       <div class="bar"><input id="askInput" aria-label="Message to Claude" autocomplete="off" placeholder="Ask about this machine…"><button id="btnAskSend" class="primary">Send</button></div>
       <div class="askfoot"><label><input type="checkbox" id="chkAskMachine"> Let Claude use the emulator</label>
         <span class="muted" id="askKeyLine"><span id="askKeyState">API key · Saved in this browser.</span> <button class="link" id="btnAskKeyChange">Change</button> <button class="link" id="btnAskKeyForget">Forget</button></span></div>
@@ -2384,11 +2429,15 @@ npx serve -l 8000 .</pre>
         <div class="bar" id="dwSerialRow" hidden><select id="dwSerialBaud" aria-label="Serial rate for a real CoCo"></select>
           <button id="btnDwSerial">Serve a real CoCo…</button><span class="muted" id="dwSerialState"></span></div>
       </div>
+      <div class="row" id="claudeFeaturesRow"><span id="claudeFeaturesLabel">Claude features</span><span class="bar" role="group" aria-labelledby="claudeFeaturesLabel"><button id="btnClaudeOn" aria-pressed="true">On</button><button id="btnClaudeOff" aria-pressed="false">Off</button></span></div>
+      <p class="muted" style="margin:0" id="claudeFeaturesNote">Off hides Ask Claude, Claude in the command box and Chat with Claude. Nothing goes to Claude either way until you ask.</p>
       <div class="row" id="settingsFileRow"><span>Settings file</span><span class="bar"><button id="btnSettingsExport">Export…</button><button id="btnSettingsImport">Import…</button></span></div>
       <p class="muted" style="margin:0">Machines and their options, the display and your choices, as a file for another browser. Never ROMs or programs.</p>
       <input type="file" id="fileSettings" accept=".json,application/json" hidden>
       <p class="muted note">ROMs are copyrighted by Microsoft, Tandy, Dragon Data and others. CLOADM doesn't include them and
-        never downloads them. Verified against MAME, benchmarked against XRoar: <a href="credits/">credits</a>.</p>
+        never downloads them. Verified against MAME, benchmarked against XRoar: <a href="credits/">credits</a> · <a href="faq/">FAQ</a> ·
+        <a href="about/">About</a> · <span id="drawerVersion" data-version-stamp></span></p>
+      <p class="muted note" id="drawerAffiliation">Not affiliated with Tandy, Dragon Data, Microsoft, id Software or the Freedoom project.</p>
     </div>
   </aside>
 </div>
@@ -2775,7 +2824,14 @@ npx serve -l 8000 .</pre>
 <link rel="modulepreload" href="js/ui/claude.js">
 <link rel="modulepreload" href="js/ui/ask.js">
 <link rel="modulepreload" href="js/ui/command-box.js">
+<link rel="modulepreload" href="js/share-text.js">
+<link rel="modulepreload" href="js/media/gif.js">
 <link rel="modulepreload" href="js/ui/share.js">
+<link rel="modulepreload" href="js/version.js">
+<link rel="modulepreload" href="js/bugreport.js">
+<link rel="modulepreload" href="js/ui/bug-report.js">
+<link rel="modulepreload" href="js/ui/claude-features.js">
+<link rel="modulepreload" href="js/ui/record.js">
 <link rel="modulepreload" href="js/ui/arrival.js">
 <link rel="modulepreload" href="js/ui/slots-panel.js">
 <link rel="modulepreload" href="js/ui/tape-panel.js">
@@ -2784,6 +2840,14 @@ npx serve -l 8000 .</pre>
 <!-- modulepreload:end -->
 <!-- a phone's sheets (js/ui/phone-sheets.js): the page's own controls move into them while the on-screen panel is on,
      and back when it is off; each is a modal dialog -->
+<!-- "Copy bug report" (js/ui/bug-report.js): the report, shown before it is copied -->
+<dialog id="bugReport" hidden aria-labelledby="bugReportTitle" aria-describedby="bugReportNote">
+  <h2 id="bugReportTitle">Copy bug report</h2>
+  <p id="bugReportNote" class="muted">This is everything that will be copied. Nothing is sent: paste it into an issue yourself. It never holds your Claude key, your ROMs or their file names (only their CRCs).</p>
+  <pre id="bugText" tabindex="0" aria-label="The bug report"></pre>
+  <label class="check"><input type="checkbox" id="bugSnap"> Include a snapshot of this moment (holds no part of your ROMs)</label>
+  <div class="bar"><button id="btnBugCopy" class="primary">Copy</button><button id="btnBugClose">Close</button></div>
+</dialog>
 <dialog id="sheetTape" class="sheet" hidden aria-labelledby="sheetTapeTitle"><div class="sheethead"><h2 id="sheetTapeTitle">Cassette deck</h2><button type="button" class="sheetdone">Done</button></div><div class="sheetbody" data-body="sheetTape"></div></dialog>
 <dialog id="sheetDisks" class="sheet" hidden aria-labelledby="sheetDisksTitle"><div class="sheethead"><h2 id="sheetDisksTitle">Disk drives</h2><button type="button" class="sheetdone">Done</button></div><div class="sheetbody" data-body="sheetDisks"><p class="muted sheetnote" hidden></p></div></dialog>
 <dialog id="sheetCart" class="sheet" hidden aria-labelledby="sheetCartTitle"><div class="sheethead"><h2 id="sheetCartTitle">Cartridge port</h2><button type="button" class="sheetdone">Done</button></div><div class="sheetbody" data-body="sheetCart"><p class="muted sheetnote" hidden></p></div></dialog>

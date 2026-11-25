@@ -95,10 +95,17 @@ const AREAS = [
   { paths: ['js/ui/welcome.js'], suites: ['welcome'], groups: ['welcomeScreen', 'firstVisit'] },
   { paths: ['js/wyrmfire/', 'js/ui/wyrmfire.js', 'examples/wyrmfire/', 'tools/wyrmfire-vendor.js'], suites: ['wyrmfire'], groups: ['wyrmfire', 'pwa'] },
   { paths: ['js/ui/install.js', 'sw.js', 'manifest.webmanifest', 'tools/pwa-files.js'], suites: ['pwa', 'install'], groups: ['pwa', 'install'] },
-  { paths: ['js/ui/share.js'], suites: ['share-roms', 'share-card', 'basic-share'], groups: ['share', 'basicShare'] },
+  { paths: ['js/ui/share.js', 'js/share-text.js'], suites: ['share-roms', 'share-card', 'basic-share', 'share-text'], groups: ['share', 'basicShare'] },
   // the arrival card: a shared moment's (the share group's arrival checks, and the visits a link starts and returns to)
   // and a shared BASIC program's (basicShare; the share screen's program mode is js/ui/share.js)
   { paths: ['js/ui/arrival.js'], suites: ['shared-moment', 'basic-share'], groups: ['share', 'visit', 'returning', 'basicShare'] },
+  { paths: ['js/bugreport.js', 'js/ui/bug-report.js'], suites: ['bugreport'], groups: ['commands'] },
+  { paths: ['js/media/gif.js', 'tools/capture-gif.js'], suites: ['gif', 'share-text'], groups: ['share'] },
+  { paths: ['js/version.js', 'js/ui/version-stamp.js', 'tools/version.js'], suites: ['version'], groups: ['reading', 'settings'] },
+  { paths: ['faq/', 'about/'], suites: ['site-pages'], groups: ['reading', 'nav', 'pwa'] },
+  { paths: ['deviations/', 'tools/gen-deviations.js'], suites: ['deviations', 'site-pages'], groups: ['reading', 'nav', 'pwa'] },
+  { paths: ['js/ui/claude-features.js'], suites: ['claude-features'], groups: ['settings', 'commands'] },
+  { paths: ['js/ui/record.js'], suites: ['config'], groups: ['url'] },
   { paths: ['js/ui/feedback.js'], suites: ['feedback-toasts'], groups: ['feedback', 'feedbackModel'] },
   { paths: ['js/ui/machine-panel.js'], suites: ['machine-menu'], groups: ['models', 'powerOn'] },
   { paths: ['js/ui/settings-file.js'], suites: ['settings'], groups: ['settings'] },
