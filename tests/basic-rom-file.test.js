@@ -1,6 +1,6 @@
 // Run: node tests/basic-rom-file.test.js
 //
-// The committed image of the clean-room BASIC, basic/d64_1.rom, is exactly what its source builds
+// The committed image of the clean-room BASIC, basic/cloadm-basic-d64.rom, is exactly what its source builds
 // (node tools/build-basic.js writes it): a change to basic/ without rebuilding the image fails here.
 const fs = require('fs');
 const { buildBasic, ROM_FILE } = require('../tools/build-basic.js');
@@ -10,7 +10,7 @@ const check = (name, cond, detail = '') => { n++; if (!cond) { fail++; console.l
 
 const built = buildBasic().rom;
 const file = fs.existsSync(ROM_FILE) ? new Uint8Array(fs.readFileSync(ROM_FILE)) : null;
-check('basic/d64_1.rom is committed', !!file);
+check('basic/cloadm-basic-d64.rom is committed', !!file);
 if (file) {
   check('it is 16K', file.length === 0x4000, String(file.length));
   let at = -1;

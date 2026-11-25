@@ -31,7 +31,7 @@ These are hard rules for everyone who works on this ROM.
     matrix (`js/machines/keyboards.js`);
   * **[OWN]** our own decisions, where nothing visible to a BASIC program depends on them.
 * **No ROM of any kind** in the repository, CI or tests other than our own: the image this source builds is
-  committed as `basic/d64_1.rom` ([open question 1](#10-open-questions)). The public suite passes with no other ROM.
+  committed as `basic/cloadm-basic-d64.rom` ([open question 1](#10-open-questions)). The public suite passes with no other ROM.
 * **Only functional results are recorded.** Expected results in the repository are what our test programs print,
   their error messages, and bytes our programs write to RAM; never a value read from the original ROM's addresses
   (`$8000-$FEFF`). A black-box case must not read the ROM in any way: `tools/basic-bb/lint.js` refuses one that could,
@@ -45,14 +45,16 @@ These are hard rules for everyone who works on this ROM.
 * **Build:** `tools/build-basic.js` assembles it with `Emu.assemble(src, '6809', { include })`, lays the segments into
   a 16 K image for `$8000-$BFFF` (unused bytes `$FF`), and fails if any segment falls outside that range or two
   segments overlap. It exports `buildBasic() -> { rom, symbols, listing }` for the tests, and run on its own writes
-  the image to `basic/d64_1.rom` (committed; `--out FILE` writes elsewhere). The file is named `d64_1.rom` so the
-  socket takes it by name (`cli/cloadm.js --roms basic/d64_1.rom`), where it shows as "loaded, unrecognised". The
+  the image to `basic/cloadm-basic-d64.rom` (committed; `--out FILE` writes elsewhere). The committed file has a name
+  of its own, never the original ROM's (`d64_1.rom`): it must not be taken for a dump of the original, and a folder of
+  ROMs given to `--roms` must not have it claim the socket by name beside the person's own dump. To run it there, write
+  a copy under the socket's name (`--out d64_1.rom`), where it shows as "loaded, unrecognised". The
   keyword table (`basic/tokens.json`) and the mathematical constants (`tools/basic-consts.js`) become generated
   includes. There is no browser build step: nothing under `js/` changes for P1.
 * **Size budget:** P1 is planned at about 11-12 K of the 16 K, leaving room for P2's graphics and sound (the original
   fits all of it in 16 K, so ours must be compact) and for P3's fixed addresses.
 * **Running it:** `m.setRoms({ basic: rom, basic64: null })` on a `dragon64` machine (Node), or
-  `node cli/cloadm.js --roms basic/d64_1.rom --type 'PRINT 2+2\n' --screen`.
+  `node tools/build-basic.js --out /tmp/d64_1.rom` then `node cli/cloadm.js --roms /tmp/d64_1.rom --type 'PRINT 2+2\n' --screen`.
 
 ## 3. Memory map
 
@@ -295,7 +297,7 @@ Each milestone is pushed when it is green, and reported with its head SHA, tree 
 
 All answered by the project owner; kept here with the decision.
 
-1. **Shipping the ROM. Decided:** the built image is committed as `basic/d64_1.rom`, written by
+1. **Shipping the ROM. Decided:** the built image is committed as `basic/cloadm-basic-d64.rom` (a name of its own, never the original's), written by
    `node tools/build-basic.js` as `examples/*.bin` are, and `tests/basic-rom-file.test.js` fails if it is not what the
    source builds (`basic/` is not served, so `sw.js` is unaffected until it is). On the page, later and not in P1:
    the machine starts on the built-in firmware as now and switches to our BASIC only when something needs BASIC (a
