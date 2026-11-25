@@ -20,10 +20,10 @@ Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.
   emulator, in the settings drawer's credits, never over the screen.
 - **The ROM line in Share.** With ROMs in use, the Share screen says "This link holds no part of your ROMs. Whoever
   opens it needs their own: <needs>." above the needs line, and only then (`tests/share-text.test.js`).
-- **Copy as text for a forum.** Between "More ways to share" and "Embed in a web page" on the Share screen: the link a
-  Copy-link tap gives (an untouched program's page, the short link, made on that copy if it isn't yet, or the long link
-  where a short one can't be made) with a one-line description, as BBCode and as Markdown, text only, with the hint to
-  attach the GIF from Save GIF.
+- **Copy as text for a forum.** Between "More ways to share" and "Embed in a web page" on the Share screen: a link with a
+  one-line description, as BBCode and as Markdown, text only, with the hint to attach the GIF from Save GIF. It never
+  uploads: the short link once Copy link has made one, otherwise an untouched program's page, otherwise the long link
+  (the browser check: zero requests to s.cloadm.dev before a Copy-link tap, the short link after it).
 - **Save GIF** on the Share screen, first in "More ways to share"'s save row: 6 seconds of the machine's own frames at true pixels scaled 2x,
   no CRT look, looping. Each frame after the first holds only what changed, so typing makes about 11 KB and a moving
   sprite about 50 KB; a whole screen moving every frame is the worst case, about 1.3 MB. The encoder is plain JS in

@@ -16912,36 +16912,45 @@ async function shareChecks(browser, base, site, check) {
 
     // no ROMs in use: no "holds no part of your ROMs" line (it appears exactly when ROMs are: below, with stand-ins)
     check(`share (${label}): without ROMs there is no ROM-free line`, await page.evaluate(() => { const e = document.getElementById('shareRomFree'); return e.hidden && e.textContent === '' && !e.checkVisibility(); }));
-    // Copy as text for a forum: BBCode and Markdown, each with the link a Copy-link tap gives and one line, text only. On
-    // this moment (not an untouched program, online, no ROMs) that is the short link: the preview says it is made on the
-    // copy, the first Copy makes it (one request to the store, a stand-in here) and both texts carry that one link.
+    // Copy as text for a forum: BBCode and Markdown, each the link with one line, text only; it never uploads. With no
+    // Copy-link tap yet it carries the long link and makes ZERO requests to s.cloadm.dev; once Copy link has made the
+    // short link (a stand-in store here), the forum text carries that short link, and nothing more is uploaded.
     await ctx.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: new URL(base).origin });
     const made = [];
     await ctx.route('https://s.cloadm.dev/**', (route) => {
       const u = new URL(route.request().url()), cors = { 'access-control-allow-origin': '*', 'content-type': 'application/json' };
-      if (u.pathname === '/api/new') { made.push(u.pathname); return route.fulfill({ status: 200, headers: cors, body: JSON.stringify({ id: `Fm${made.length}xYz9a`, deleteToken: 'token' }) }); }
+      made.push(`${route.request().method()} ${u.pathname}`);
+      if (u.pathname === '/api/new') return route.fulfill({ status: 200, headers: cors, body: JSON.stringify({ id: 'Fm1xYz9a', deleteToken: 'token' }) });
       return route.fulfill({ status: 404, headers: cors, body: '{}' });
     });
     await openDisc(page, 'shareForum');
-    const forum = await page.evaluate(() => ({ bb: document.getElementById('forumBbcode').textContent, md: document.getElementById('forumMarkdown').textContent,
-      pending: !document.getElementById('forumPending').hidden, short: document.getElementById('shareShort').value,
+    const LINE = 'The Dragon 64 in CLOADM, exactly as I left it. Opens in the browser.';
+    const forumCopies = async () => {
+      const out = [];
+      for (const id of ['btnForumBbcodeCopy', 'btnForumMarkdownCopy']) {
+        await page.click(`#${id}`);
+        await waitFor(page, (b) => document.getElementById(b).textContent !== 'Copy', id, 10000);
+        out.push(await page.evaluate(() => navigator.clipboard.readText()));
+      }
+      return out;
+    };
+    const forum = await page.evaluate(() => ({ long: document.getElementById('shareLink').value, bb: document.getElementById('forumBbcode').textContent,
+      md: document.getElementById('forumMarkdown').textContent,
       afterMore: !!(document.getElementById('shareMore').compareDocumentPosition(document.getElementById('shareForum')) & Node.DOCUMENT_POSITION_FOLLOWING),
       beforeEmbed: !!(document.getElementById('shareEmbed').compareDocumentPosition(document.getElementById('shareForum')) & Node.DOCUMENT_POSITION_PRECEDING),
       heading: document.getElementById('forumHeading').textContent }));
-    const LINE = 'The Dragon 64 in CLOADM, exactly as I left it. Opens in the browser.';
-    check(`share (${label}): "Copy as text for a forum" sits between "More ways to share" and "Embed", no image tag; before a copy it says the short link is made on the copy`,
-      forum.heading === 'Copy as text for a forum' && forum.afterMore && forum.beforeEmbed && forum.pending && forum.short === '' && made.length === 0
-      && forum.bb === `[url=https://s.cloadm.dev/…]${LINE}[/url]` && !/\[img|!\[/i.test(forum.bb + forum.md), JSON.stringify(forum));
-    const board = [];
-    for (const id of ['btnForumBbcodeCopy', 'btnForumMarkdownCopy']) {
-      await page.click(`#${id}`);
-      await waitFor(page, (b) => document.getElementById(b).textContent !== 'Copy', id, 10000);
-      board.push(await page.evaluate(() => navigator.clipboard.readText()));
-    }
-    const shortUrl = await page.inputValue('#shareShort');
-    check(`share (${label}): the forum Copy makes the short link once, as Copy link would, and both texts carry it`,
-      made.length === 1 && /^https:\/\/s\.cloadm\.dev\/Fm1xYz9a#/.test(shortUrl) && board[0] === `[url=${shortUrl}]${LINE}[/url]` && board[1] === `[${LINE}](${shortUrl})`
-      && await page.evaluate(() => document.getElementById('forumPending').hidden && !document.getElementById('shortMade').hidden), JSON.stringify({ made, shortUrl, board }));
+    const before = await forumCopies();
+    check(`share (${label}): "Copy as text for a forum" (between "More ways to share" and "Embed", no image tag): with no Copy-link tap yet it carries the long link, and its Copy uploads nothing`,
+      forum.heading === 'Copy as text for a forum' && forum.afterMore && forum.beforeEmbed && /#z=/.test(forum.long) && forum.bb === `[url=${forum.long}]${LINE}[/url]`
+      && forum.md === `[${LINE}](${forum.long})` && before[0] === forum.bb && before[1] === forum.md && made.length === 0 && !/\[img|!\[/i.test(forum.bb + forum.md),
+      JSON.stringify({ made, heading: forum.heading, bb: forum.bb.slice(0, 80) }));
+    await page.click('#btnShareCopy');
+    await waitFor(page, () => !document.getElementById('shortMade').hidden, null, 10000);
+    const shortUrl = await page.inputValue('#shareShort'), afterTap = made.length;
+    const after = await forumCopies();
+    check(`share (${label}): after Copy link made the short link, the forum text carries it, and the forum's Copy uploads nothing more`,
+      afterTap === 1 && made.length === 1 && /^https:\/\/s\.cloadm\.dev\/Fm1xYz9a#/.test(shortUrl) && after[0] === `[url=${shortUrl}]${LINE}[/url]` && after[1] === `[${LINE}](${shortUrl})`,
+      JSON.stringify({ made, shortUrl, after }));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, `share-forum-${label}.png`), fullPage: true });
 
     // the clip

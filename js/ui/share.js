@@ -34,8 +34,8 @@
  * looping: js/media/gif.js) is first in "More ways to share"'s save row. The clip and the GIF are both refused, the
  * reason on the button, while a WAD of the person's own is the file loaded last; a Freedoom WAD's recording carries its
  * credit (js/share-text.js recordingGuard). "Copy as text for a forum" (collapsed, before "Embed in a web page"): the
- * link with a one-line description as BBCode and as Markdown (js/share-text.js forumText), text only; its link is the
- * one a Copy-link tap gives (primaryUrl: the program page, the short link, made on the tap if need be, or the long one).
+ * link with a one-line description as BBCode and as Markdown (js/share-text.js forumText), text only; its link never
+ * uploads (forumUrl): the short link a Copy-link tap made, else an untouched program's page, else the long link.
  * "Embed in a web page" (collapsed): the iframe and script for a blog post, written by js/config.js (buildUrl) from the
  * machine, program and options chosen here ("Offer 'Ask Claude ↗'" adds askclaude=1: the embed's corner chip).
  * (The settings export/import lives on the Machine tab: js/ui/settings-file.js.)
@@ -351,15 +351,10 @@ export function setupShare(page, { linkStore }) {
     syncForum();
     return short;
   }
-  // the link a Copy-link tap gives, for "Copy as text for a forum": the program page, the long link, or the short link
-  // (made now if it isn't yet, exactly as the tap makes it; where it can't be, the long link, and the note says why)
-  async function primaryUrl() {
-    const mode = primaryMode();
-    if (mode === 'program') return captured.untouched.page;
-    if (mode === 'long') return captured.link;
-    try { return (await ensureShort()).url; }
-    catch (e) { fallbackWhy = UNAVAILABLE_LONG; syncPrimary(); return captured.link; }
-  }
+  // the link "Copy as text for a forum" carries, and it never uploads: the short link if a Copy-link tap has made one, else
+  // an untouched bundled program's page, else the long link. The upload, and its consent next to the cloadm.dev note, stay
+  // on Copy link alone.
+  const forumUrl = () => (short ? short.url : captured.untouched ? captured.untouched.page : captured.link);
   // Share…: the system sheet, the URL only, where the browser can share it (an embed only if its frame allows web-share)
   $('btnShareNative').onclick = async () => {
     const url = captured && captured.untouched ? captured.untouched.page : short ? short.url : $('shareLink').value;
@@ -489,32 +484,25 @@ export function setupShare(page, { linkStore }) {
 
   // ---------------- copy as text for a forum ----------------
   // the link with a one-line description, as BBCode and as Markdown (js/share-text.js forumText); text only, no image tag.
-  // The preview shows the link a Copy-link tap gives when it is known now (the program page, the long link, or the short
-  // link already made); a short link not made yet is made by the forum's own Copy, as Copy link would make it.
-  const PENDING = 'https://s.cloadm.dev/…';
+  // Its link is forumUrl(): what the preview shows is exactly what its Copy copies.
   function syncForum() {
     if (!captured || captured.refusal || (!captured.link && !captured.untouched)) {
       for (const id of ['forumBbcode', 'forumMarkdown']) $(id).textContent = '';
       for (const id of ['btnForumBbcodeCopy', 'btnForumMarkdownCopy']) $(id).disabled = true;
       return;
     }
-    const mode = primaryMode(), name = captured.untouched ? captured.untouched.name : captured.machine;
-    const url = mode === 'program' ? captured.untouched.page : mode === 'long' ? captured.link : short ? short.url : PENDING;
-    const f = forumText(url, name, { program: mode === 'program' });
+    const url = forumUrl(), program = !short && !!captured.untouched, name = program ? captured.untouched.name : captured.machine;
+    const f = forumText(url, name, { program });
     $('forumBbcode').textContent = f.bbcode; $('forumMarkdown').textContent = f.markdown;
-    $('forumPending').hidden = url !== PENDING;
     for (const id of ['btnForumBbcodeCopy', 'btnForumMarkdownCopy']) $(id).disabled = false;
   }
   const forumCopy = (which, btn) => async () => {
     if (!captured) return;
     const b = $(btn);
-    b.disabled = true;
-    const url = await primaryUrl();
-    const name = captured.untouched ? captured.untouched.name : captured.machine, text = forumText(url, name, { program: primaryMode() === 'program' })[which];
     syncForum();
+    const text = $(which === 'bbcode' ? 'forumBbcode' : 'forumMarkdown').textContent;
     try { await navigator.clipboard.writeText(text); b.textContent = 'Copied'; }
     catch (e) { getSelection().selectAllChildren($(which === 'bbcode' ? 'forumBbcode' : 'forumMarkdown')); b.textContent = 'Press Ctrl+C'; }
-    b.disabled = false;
     setTimeout(() => { b.textContent = 'Copy'; }, 2000);
   };
   $('btnForumBbcodeCopy').onclick = forumCopy('bbcode', 'btnForumBbcodeCopy');

@@ -74,7 +74,7 @@ const standIn = (size, seed) => { const b = new Uint8Array(size); for (let i = 0
 
   // the Share screen uses these, not copies of them
   const share = fs.readFileSync(path.join(__dirname, '../js/ui/share.js'), 'utf8');
-  check('js/ui/share.js writes the ROM line and the forum text from js/share-text.js', /from '\.\.\/share-text\.js'/.test(share) && /romFreeLine\(file\.needs\)/.test(share) && /forumText\(/.test(share) && /primaryUrl\(\)/.test(share)
+  check('js/ui/share.js writes the ROM line and the forum text from js/share-text.js', /from '\.\.\/share-text\.js'/.test(share) && /romFreeLine\(file\.needs\)/.test(share) && /forumText\(/.test(share) && /const forumUrl = \(\) => \(short \? short\.url : captured\.untouched \? captured\.untouched\.page : captured\.link\)/.test(share)
     && /recordingGuard\(session\.lastLoaded\)/.test(share) && /gifFromFrames\(/.test(share));
   process.exitCode = fail ? 1 : 0;
   console.log(fail ? `${fail} FAILED` : 'all passed');
