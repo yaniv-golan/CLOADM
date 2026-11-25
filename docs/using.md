@@ -455,7 +455,7 @@ offered for a moment on ROMs, a cartridge or NitrOS-9: the long link works there
 **Share your program.** With a BASIC program in memory, a card above Copy link says "Your BASIC program · N lines ·
 **Share the program instead**". The moment stays the default; the card's switch shares the program's text instead: the
 heading reads "Share your program", the picture is the first lines LIST shows, in the machine's own font, captioned
-"What they'll see first · LIST", and **Share the whole moment instead** switches back. Copy link makes a short link that
+"What they'll see first · LIST" ("LIST" is never cut: on a narrow column the prefix gives way), and **Share the whole moment instead** switches back. Copy link makes a short link that
 holds only the program's text, sealed in your browser as a moment's is, with no preview picture, and it works with your
 own ROMs in (the program carries no ROM code); offline, or with "Always use long links", it gives the long link, which
 carries the text. **More ways to share** then offers **Copy as text for a forum** (the listing in a Markdown code fence or a `[code]`

@@ -104,6 +104,7 @@ export function setupShare(page, { linkStore }) {
     const beside = DESKTOP.matches && !SHORT_LANDSCAPE.matches, to = beside ? $('shareSaveBeside') : $('shareSaveMore');
     const at = beside ? null : $('btnShareDownload');
     for (const id of ['btnShareShot', 'btnShareClip']) to.insertBefore($(id), at);
+    fitCaption();
     if (isOpen()) view.style.setProperty('--share-top', `${Math.max(0, Math.round(view.getBoundingClientRect().top + window.scrollY))}px`);
   }
   for (const q of [SHORT_LANDSCAPE, DESKTOP]) q.addEventListener('change', place);
@@ -263,8 +264,8 @@ export function setupShare(page, { linkStore }) {
       $('shareNote').textContent = '';
       $('shareRom').hidden = true;
       $('primaryNote').textContent = mode === 'long' && alwaysLong() ? 'Long link: nothing is uploaded.' : '';
-      $('sharePrefix').hidden = false;
       $('shareName').textContent = captured.programLink ? 'LIST' : captured.machine;
+      fitCaption();
     } else if (program) {
       $('shareNote').textContent = `Opens ${captured.untouched.name} from the start, for anyone. The snapshot link below keeps this exact moment.`;
       // a program page never needs ROMs, and "for anyone" is said once (in the note above), not again in the ROM line
@@ -444,6 +445,15 @@ export function setupShare(page, { linkStore }) {
   };
 
   // ---------------- share your program ----------------
+  // In program mode the caption's name is "LIST", which is never cut: where the prefix and it don't both fit (a short
+  // landscape screen's narrow column), the prefix gives way, as a program page's caption has none. Measured on the laid
+  // out caption, so it is decided again whenever the layout can change (place(): a resize, the view opening).
+  function fitCaption() {
+    if (!programMode || !captured || !captured.programLink) return;
+    const prefix = $('sharePrefix'), name = $('shareName');
+    prefix.hidden = false;
+    if (name.scrollWidth > name.clientWidth + 0.5) prefix.hidden = true;
+  }
   // The program card (only with a BASIC program in memory) and what program mode changes: the heading, the picture
   // (the first lines LIST shows, in the machine's font), the long link's field, and "More ways to share". One owner for
   // all of it, so a capture and the switch cannot leave the screen half in one mode.

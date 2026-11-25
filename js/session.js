@@ -1726,9 +1726,20 @@ export class Session {
   // the machine's options a link carries: all of them except the ones that describe the comparison or a device in a
   // port rather than the machine (a link opens the model, not the contents of its cartridge slot)
   shareConfig(m = this.shownMachine) {
-    const LOCAL = new Set(['mameCompat', 'hires']), config = {};
-    for (const [k, v] of Object.entries(m.config)) if (!LOCAL.has(k) && m.profile.options[k]) config[k] = v;
+    const config = {};
+    for (const [k, v] of Object.entries(m.config)) if (!Session.SHARE_LOCAL.has(k) && m.profile.options[k]) config[k] = v;
     return config;
+  }
+  static SHARE_LOCAL = new Set(['mameCompat', 'hires']);
+  // A program link's machine and config, exactly as shareConfig writes them: a model CLOADM has, and only that model's
+  // own options (never mameCompat or hires), each with one of its values. Anything else is a damaged link, refused
+  // before it can switch a machine or be remembered as that model's config. -> the program, or SessionError
+  checkedProgram(prog) {
+    const p = prog && Object.hasOwn(profiles, prog.machine) ? profiles[prog.machine] : null;
+    if (!p) throw new SessionError('This program link names a machine CLOADM doesn\'t have.');
+    const ok = Object.entries(prog.config).every(([k, v]) => !Session.SHARE_LOCAL.has(k) && Object.hasOwn(p.options, k) && p.options[k].values.includes(v));
+    if (!ok) throw new SessionError('This link\'s program is damaged: it was cut short or changed on the way.');
+    return prog;
   }
   // A program's page (js/program-pages.js: cloadm.dev/<id>/, with its own link preview and a Play button for its start
   // link) -> its address, from `base` (the page's own address: the site's root, or /play/ under it); null when the
@@ -1832,8 +1843,10 @@ export class Session {
     try { bytes = await openMoment(sealed, m[2]); } catch (e) { throw new SessionError(`This short link can't be opened: ${e.message}`); }
     // a program's short link holds the program link's bytes (programShortLink), a moment's a .cloadm file
     if (isProgramLink(bytes)) {
-      try { return { program: await decodeProgramLink(bytes), id: m[1] }; }
+      let prog;
+      try { prog = await decodeProgramLink(bytes); }
       catch (e) { throw e instanceof SnapshotError ? new SessionError(e.message) : e; }
+      return { program: this.checkedProgram(prog), id: m[1] };
     }
     return { snap: await this.readSnapshot(bytes), id: m[1] };
   }
@@ -1894,15 +1907,17 @@ export class Session {
     let bytes;
     try { bytes = fromBase64Url(m[1]); } catch (e) { return null; }   // (readSnapshotLink says it is damaged)
     if (!isProgramLink(bytes)) return null;
-    try { return await decodeProgramLink(bytes); }
+    let prog;
+    try { prog = await decodeProgramLink(bytes); }
     catch (e) { throw e instanceof SnapshotError ? new SessionError(e.message) : e; }
+    return this.checkedProgram(prog);
   }
   // A shared program arrives: a fresh machine of the sender's model, and the program loaded as load_basic loads it
   // (no typing), then LIST typed. -> { state: 'listed', lines } or, when this browser has no BASIC ROM for the
   // machine, { state: 'needs-roms', name, lines } (the machine is switched to, running without ROMs: the page shows
   // the listing as text and loads it once the ROMs are added: call this again). SessionError when it can't load.
   openSharedProgram(prog) {
-    if (!prog || !Object.hasOwn(profiles, prog.machine)) throw new SessionError('This program link names a machine CLOADM doesn\'t have.');
+    this.checkedProgram(prog);   // (also here: a caller may hand one in that no reader checked)
     const dialect = DIALECTS[profiles[prog.machine].lineage];
     let lines;
     try { lines = parseProgram(prog.text, dialect); } catch (e) { throw new SessionError(`This program link's program can't be loaded: ${e.message}.`); }

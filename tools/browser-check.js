@@ -21502,7 +21502,7 @@ async function basicShareChecks(browser, base, site, check) {
   const pm = await page.evaluate(() => {
     const c = document.getElementById('sharePicture'), px = new Uint32Array(c.getContext('2d').getImageData(0, 0, c.width, c.height).data.buffer);
     const vis = (id) => document.getElementById(id).checkVisibility();
-    return { h1: document.getElementById('shareHeading').textContent, prefix: document.getElementById('sharePrefix').textContent, name: document.getElementById('shareName').textContent,
+    return { h1: document.getElementById('shareHeading').textContent, prefix: document.getElementById('sharePrefix').checkVisibility() && document.getElementById('sharePrefix').textContent, name: document.getElementById('shareName').textContent,
       w: c.width, h: c.height, px: Array.from(px), back: document.getElementById('btnProgramMode').textContent, more: !document.getElementById('programMore').hidden,
       moment: ['btnShareShot', 'btnShareClip', 'btnShareDownload', 'previewSwitch'].filter(vis), copy: !document.getElementById('btnShareCopy').disabled,
       long: document.getElementById('shareLink').value, why: document.getElementById('programWhy').textContent };
@@ -21548,11 +21548,14 @@ async function basicShareChecks(browser, base, site, check) {
   await page.click('#btnProgramMode');
   const land = await page.evaluate(() => {
     const r = (id) => document.getElementById(id).getBoundingClientRect(), side = r('shareSide'), h = r('shareHeading'), c = r('programCard'), b = r('btnShareCopy');
-    return { order: h.bottom <= c.top + 1 && c.bottom <= b.top + 1, inside: [h, c, b].every((x) => x.top >= side.top - 1 && x.bottom <= side.bottom + 1), page: document.scrollingElement.scrollHeight <= innerHeight + 1,
+    const n = document.getElementById('shareName');
+    return { order: h.bottom <= c.top + 1 && c.bottom <= b.top + 1, list: n.textContent === 'LIST' && n.checkVisibility() && n.scrollWidth <= n.clientWidth,
+      prefix: document.getElementById('sharePrefix').checkVisibility(), inside: [h, c, b].every((x) => x.top >= side.top - 1 && x.bottom <= side.bottom + 1), page: document.scrollingElement.scrollHeight <= innerHeight + 1,
       h1: document.getElementById('shareHeading').textContent, side: [side.top, side.bottom], h: [h.top, h.bottom], c: [c.top, c.bottom], b: [b.top, b.bottom] };
   });
   check('basicShare: 653x280 in program mode: the card sits between the heading and Copy, all three in the column\'s first view, and the page does not scroll',
     land.order && land.inside && land.page && land.h1 === 'Share your program', JSON.stringify(land));
+  check('basicShare: 653x280 in program mode: the caption\'s "LIST" is whole, never cut (the prefix gives way where both don\'t fit)', land.list, JSON.stringify(land));
   if (shotDir) await page.screenshot({ path: path.join(shotDir, 'basic-share-653x280.png') });
   await closeShare();
   await page.setViewportSize({ width: 1280, height: 900 });

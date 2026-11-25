@@ -199,12 +199,13 @@ function scripted(replies) {
       try { const out = await p; return { out, ms: performance.now() - t, calls }; } catch (e) { return { err: e, ms: performance.now() - t, calls }; }
     };
     check('the limit is 60 s unless set', Emu.STALL_MS === 60000 && new Emu.ClaudeBackend({ fetch: () => null }).stallMs === 60000);
-    let r = await run({ stall: true, chunks: [sse([start])] }, 80);
+    let r = await run({ stall: true, chunks: [sse([start])] }, 200);
     check('a stream that goes quiet ends as stalled, with a message saying so, and the request is aborted', r.err && r.err.code === 'stalled' && /stopped answering/.test(r.err.message)
-      // (>= 79: Node arms a timer from the event loop's cached time, uv_now, which libuv takes once at the start of
-      // each loop iteration and in whole milliseconds, so it can trail the clock by up to 1 ms when the timer is set:
-      // libuv's documentation of uv_now and uv_timer_start. A stall that did not wait for the limit is 0 to a few ms)
-      && r.calls[0].signal.aborted && r.ms >= 79, `${r.err && r.err.code} ${r.ms.toFixed(1)} ms`);
+      // (>= 199 against a 200 ms limit: Node arms a timer from the event loop's cached time, uv_now, which libuv takes
+      // once at the start of each loop iteration and in whole milliseconds, so it typically trails the clock by under
+      // 1 ms when the timer is set: libuv's documentation of uv_now and uv_timer_start. A stall that did not wait for
+      // the limit comes far short of it)
+      && r.calls[0].signal.aborted && r.ms >= 199, `${r.err && r.err.code} ${r.ms.toFixed(1)} ms`);
     r = await run({ never: true }, 80);
     check('a response that never comes stalls too', r.err && r.err.code === 'stalled' && r.calls[0].signal.aborted, `${r.err && r.err.code}`);
     r = await run({ stall: true, deaf: true, chunks: [sse([start])] }, 80);

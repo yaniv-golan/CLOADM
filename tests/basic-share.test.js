@@ -102,8 +102,11 @@ const LISTED = {
     const store = new Emu.MemoryShortLinkStore();
     const short = await a.programShortLink(store, p);
     const kept = store.links.get(short.id);
-    check(`${id}: the short link stores the sealed program, no preview picture, the machine's id`, kept && kept.png === null && kept.machine === id
-      && !Buffer.from(kept.sealed).toString('latin1').includes('SHARED'), short.url);
+    // never in the clear: neither the text nor the program link's own bytes (its deflate payload) are in what is stored
+    const plain = Buffer.from(bytes.subarray(1)), stored = Buffer.from(kept ? kept.sealed : []);
+    check(`${id}: the short link stores the sealed program, no preview picture, the machine's id; neither the text nor the link's deflate payload is in it`,
+      kept && kept.png === null && kept.machine === id && !stored.toString('latin1').includes('SHARED') && stored.indexOf(plain) < 0 && stored.indexOf(plain.subarray(0, 16)) < 0
+      && stored.length === bytes.length + Emu.SEAL_OVERHEAD, short.url);
     // (#l=<id>.<key>: where the arrival page sends https://s.cloadm.dev/<id>#<key>)
     const opened = await b.readShortLink(`#l=${short.id}.${short.url.split('#')[1]}`, store);
     check(`${id}: readShortLink gives { program } for a program's short link`, opened && opened.program && !opened.snap && opened.program.text === LISTED[family] && opened.program.machine === id, JSON.stringify(opened && opened.program));
@@ -177,6 +180,29 @@ const LISTED = {
     check('another format: damaged', damaged(await read(await pack({ format: 'cloadm-state', version: 1, machine: 'dragon64', config: {}, text: '10 END' }))));
     check('a character outside $20-$7E in the text: damaged', damaged(await read(await pack({ format: 'cloadm-basic', version: 1, machine: 'dragon64', config: {}, text: '10 PRINT "é"' }))));
     check('no config object: damaged', damaged(await read(await pack({ format: 'cloadm-basic', version: 1, machine: 'dragon64', config: [], text: '10 END' }))));
+    // the config: exactly what shareConfig writes (the model's own options, never mameCompat or hires, each with one of
+    // its values), or the link is damaged and nothing is switched or remembered
+    const cfg = (machine, config) => pack({ format: 'cloadm-basic', version: 1, machine, config, text: '10 END' });
+    for (const [what, machine, config] of [['mameCompat', 'dragon64', { mameCompat: true }], ['hires (a device in a port)', 'coco', { hires: 'tandy-right' }],
+      ['an option the model doesn\'t have (becker on a Dragon 64)', 'dragon64', { becker: true }], ['a value the option doesn\'t take (48K)', 'coco', { ram: 48 }],
+      ['a value of the wrong type ("64")', 'dragon64', { ram: '64' }]]) {
+      check(`a config with ${what}: damaged`, damaged(await read(await cfg(machine, config))));
+    }
+    const fine = await s.readProgramLink(`#z=${Buffer.from(await cfg('coco', { cpu: '6309', ram: 32, becker: true, ssc: 'none' })).toString('base64url')}`);
+    check('a config as shareConfig writes it is read', fine && fine.machine === 'coco' && fine.config.ram === 32 && fine.config.becker === true);
+    // the review's repro: handed straight to openSharedProgram, mameCompat is refused, and the model's saved config and
+    // a later switch are untouched
+    const r = new Emu.Session({ store: Emu.memoryStore() });
+    r.switchMachine('dragon64', undefined, { menu: false });
+    const before = JSON.stringify(r.savedConfig('dragon64'));
+    const e = (() => { try { r.openSharedProgram({ machine: 'dragon64', config: { mameCompat: true }, text: '10 END' }); return null; } catch (x) { return x; } })();
+    r.switchMachine('dragon64', undefined, { menu: false });
+    check('openSharedProgram refuses mameCompat; the saved config and the next switch are untouched', damaged(e) && JSON.stringify(r.savedConfig('dragon64')) === before
+      && !r.shownMachine.config.mameCompat, e && e.message);
+    // and through a short link, as the arrival reads one
+    const st = new Emu.MemoryShortLinkStore(), sealed = await Emu.sealMoment(await cfg('dragon64', { mameCompat: true }));
+    const made = await st.create({ machine: 'dragon64', sealed: sealed.sealed });
+    check('a short link whose program config has mameCompat: damaged', damaged(await rejects(s.readShortLink(`#l=${made.id}.${sealed.key}`, st))));
     check('a moment\'s #z= is not a program link (null: the moment\'s reader takes it)', await s.readProgramLink(`#z=${Buffer.from([1, 2, 3]).toString('base64url')}`) === null && await s.readProgramLink('#share') === null);
   }
 

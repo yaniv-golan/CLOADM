@@ -1054,7 +1054,7 @@ preview picture); `readShortLink(hash, store)` gives `{ snap, id }` or `{ progra
 `sharedProgram()` is the BASIC program in memory on the machine on screen: `null` when there is none, else `{ lines,
 text, refusal }`, where `refusal` (and a `null` text) means it can't be shared as text: its listing is over load_basic's
 65536 characters, or it holds a byte that would not type back the same (a graphics character, a control code, lower case
-outside a string). `openSharedProgram(prog)` switches to a fresh machine of the program's model, loads it as load_basic
+outside a string). A program link's `config` must be exactly what `shareConfig` writes: the model's own options (never `mameCompat` or `hires`), each with one of its values; anything else makes the link damaged, refused before any machine is switched. `openSharedProgram(prog)` switches to a fresh machine of the program's model, loads it as load_basic
 does (no typing), types `LIST` and answers `{ state: 'listed', lines }`; without a BASIC ROM for that model it answers
 `{ state: 'needs-roms', name, lines }` and loads nothing (call it again once the ROMs are added).
 
