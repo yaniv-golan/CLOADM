@@ -51,7 +51,7 @@ tag and is logged in [section 15](#15-provenance-log).
 **Deferred:** nothing. Every graphics and sound keyword ships complete: none is cut to meet the size budget (section
 14, decision 2). Cassette (P1b) and the printer are not part of P2. `LINE` shares its token with
 `LINE INPUT`: the handler in `io.inc` goes on to `LINE INPUT` when `INPUT` follows, otherwise to the graphics `LINE`
-(it gives `?FC ERROR` today).
+(`line.inc`).
 
 ## 3. Graphics memory and modes
 
