@@ -306,6 +306,7 @@ node tools/mame-diff/run.js <profile>     # lockstep trace comparison with MAME 
 node tools/mame-diff/run.js <profile> --video [--artifact N]   # pixel comparison of every display mode with MAME
 node tools/mame-diff/run.js coco3 --video --attr   # the GIME's text attributes, exactly (blank glyphs, so the fonts never show)
 node tools/mame-diff/run.js coco3 --video --text [--cpu 6309]   # the GIME text screens, and Claude's screen_text on them
+node tools/mame-diff/run.js dragon64 --video --movedtext        # a text page moved by the SAM ($0E00, $1C00) and INT/EXT high (also coco2b, coco)
 node tools/mame-diff/run.js d64plus --video      # the Dragon 64 Plus's 80-column screen, every pixel (d64plus/run-video.js)
 node tools/mame-diff/run.js d64plus --plustext [--video]   # the Dragon 64 Plus's 80-column text screens (lockstep; --video: every pixel)
 node tools/mame-diff/run.js d64plus --paging [--video]   # the Dragon 64 Plus's $FFE2 paging: $04 is the motherboard RAM, the VDG never sees a bank (lockstep; --video: every pixel)

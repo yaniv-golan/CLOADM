@@ -87,7 +87,7 @@ export function readOnlyTools() {
 const CELL_COLS = 32;
 // The description Claude sees. It names the machines and modes the reader covers, and how non-ASCII characters and
 // attributes come back, so a model knows what to expect before it calls.
-export const SCREEN_TEXT_DESCRIPTION = "The text on the machine's screen, one string per row with trailing spaces trimmed (trailing blank rows are left out, so `rows` counts the rows returned, not the rows the screen has). Reads the MC6847 VDG 32x16 text screen (MC-10, Dragon 32/64/200, CoCo 1/2, and the CoCo 3 in its CoCo-compatible mode), from the page the VDG shows (on the Dragon and CoCo 1/2 the SAM's display offset, so a page a program has moved is read where it is) and every CoCo 3 GIME text mode, 6809 or 6309: 32, 40, 64 or 80 columns, with or without attribute bytes (as NitrOS-9 and BASIC's WIDTH 40/80 use); on a GIME text mode `screenRows` is how many rows the screen shows. GIME characters $20-$7E are ASCII; the GIME's international characters $00-$1F come back as the Unicode letters they show (Ç ü é â ä à å ç ê ë è ï î ß Ä Å ó æ Æ ô ö ø û ù Ø Ö Ü § £ ± ° ƒ) and $7F as ▒. Attribute bytes are never shown as characters: with attributes on, `attributes` gives each row's runs of fg, bg, underline and blink, where fg and bg are palette slots, not colours (the foreground is palette register 8+fg, the background palette register bg). On the VDG's text screen a cell with bit 7 set is a semigraphics block: it reads as a space, and `semigraphics` counts those cells (with a `note`), so a picture made of blocks is not mistaken for an empty screen - leaving out the cursor's own block (the cell the machine's cursor variable names, where a program printing through CHROUT sits), so a screen whose only block is the cursor has no `note` at all; screenshot shows it. Returned with the mode's name, `cols`, and where the screen was read from: `base`, the CPU address of the whole screen, given only when the memory map shows all of it to the CPU in one contiguous run (otherwise null: an MMU that splits or hides it, or 256-byte virtual rows), and on a CoCo 3 `physicalBase`, its address in the CoCo 3's physical RAM. The CoCo 3's compatibility-mode page is read where the display reads it, in physical RAM (`physicalBase`), also when the memory map (MMU) shows it to the CPU elsewhere or not at all (`base` is then that other address, or null). Declined with text:false and a reason: a graphics mode; a GIME text mode whose rows are too short to show a character (1 or 2 scanlines per row) or that shows no rows ($FF99 lines per field 2); and, on the Dragon 64 Plus's 80-column screen, a 6845 set-up the board cannot show whole (no rows or columns, R1 or R6 not less than the totals R0+1 or R4+1, wider than 80 columns or taller than the 264-line picture, fewer than 10 raster lines a row, an interlace mode, R8's display skew set to non-output). The Dragon 64 Plus's 80-column screen (its HD6845S, while the Display tab shows it) is read from the board's 2K video RAM as the CRTC walks it (start address R12/R13 as `startAddress`, R1 columns, R6 rows as `screenRows`, the 2K wrapping), as the next frame draws it; codes $20-$7E are read as ASCII (P. Mooney's IC22 EPROM dump and the Dragon Archive's Compusense character ROM dump both put 'A' at offset $0410, so code c's glyph is at c*16); the board's other codes ($00-$1F other symbols, $7F a solid block, $80-$FF mostly underlined forms of $00-$7F) are not mapped to characters here: such a cell reads as a space and `unknown` counts them (with a `note`); `base` is its CPU address only while $FFE2 maps the video RAM over $0000-$07FF and the screen does not wrap. Takes no parameters.";
+export const SCREEN_TEXT_DESCRIPTION = "The text on the machine's screen, one string per row with trailing spaces trimmed (trailing blank rows are left out, so `rows` counts the rows returned, not the rows the screen has). Reads the MC6847 VDG 32x16 text screen (MC-10, Dragon 32/64/200, CoCo 1/2, and the CoCo 3 in its CoCo-compatible mode), from the page the VDG shows (on the Dragon and CoCo 1/2 the SAM's display offset, so a page a program has moved is read where it is) and every CoCo 3 GIME text mode, 6809 or 6309: 32, 40, 64 or 80 columns, with or without attribute bytes (as NitrOS-9 and BASIC's WIDTH 40/80 use); on a GIME text mode `screenRows` is how many rows the screen shows. GIME characters $20-$7E are ASCII; the GIME's international characters $00-$1F come back as the Unicode letters they show (Ç ü é â ä à å ç ê ë è ï î ß Ä Å ó æ Æ ô ö ø û ù Ø Ö Ü § £ ± ° ƒ) and $7F as ▒. Attribute bytes are never shown as characters: with attributes on, `attributes` gives each row's runs of fg, bg, underline and blink, where fg and bg are palette slots, not colours (the foreground is palette register 8+fg, the background palette register bg). On the VDG's text screen a cell with bit 7 set is a semigraphics block: it reads as a space, and `semigraphics` counts those cells (with a `note`), so a picture made of blocks is not mistaken for an empty screen - leaving out the cursor's own block (the cell the machine's cursor variable names, where a program printing through CHROUT sits), so a screen whose only block is the cursor has no `note` at all; screenshot shows it. Returned with the mode's name, `cols`, and where the screen was read from: `base`, the CPU address of the whole screen, given only when the memory map shows all of it to the CPU in one contiguous run (otherwise null: an MMU that splits or hides it, or 256-byte virtual rows), and on a CoCo 3 `physicalBase`, its address in the CoCo 3's physical RAM. The CoCo 3's compatibility-mode page is read where the display reads it, in physical RAM (`physicalBase`), also when the memory map (MMU) shows it to the CPU elsewhere or not at all (`base` is then that other address, or null). Declined with text:false and a reason: a graphics mode; on the Dragon and CoCo 1/2, the VDG's INT/EXT input high (semigraphics-6 and the unfitted external characters: only the alphanumeric / semigraphics-4 mode is read as text; the CoCo 2B's MC6847T1 shows its lowercase set there and is read); a GIME text mode whose rows are too short to show a character (1 or 2 scanlines per row) or that shows no rows ($FF99 lines per field 2); and, on the Dragon 64 Plus's 80-column screen, a 6845 set-up the board cannot show whole (no rows or columns, R1 or R6 not less than the totals R0+1 or R4+1, wider than 80 columns or taller than the 264-line picture, fewer than 10 raster lines a row, an interlace mode, R8's display skew set to non-output). The Dragon 64 Plus's 80-column screen (its HD6845S, while the Display tab shows it) is read from the board's 2K video RAM as the CRTC walks it (start address R12/R13 as `startAddress`, R1 columns, R6 rows as `screenRows`, the 2K wrapping), as the next frame draws it; codes $20-$7E are read as ASCII (P. Mooney's IC22 EPROM dump and the Dragon Archive's Compusense character ROM dump both put 'A' at offset $0410, so code c's glyph is at c*16); the board's other codes ($00-$1F other symbols, $7F a solid block, $80-$FF mostly underlined forms of $00-$7F) are not mapped to characters here: such a cell reads as a space and `unknown` counts them (with a `note`); `base` is its CPU address only while $FFE2 maps the video RAM over $0000-$07FF and the screen does not wrap. Takes no parameters.";
 
 // Whether screen_text can read the screen faithfully, and if not, why. ONE rule, used by screen_text to decide
 // what to answer and by machine_info to report `video.readable`, so the two cannot disagree: `readable === false`
@@ -161,6 +161,17 @@ export function screenRows(m, readByte, { main = false } = {}) {
   const page = vdgPage(m);
   return vdgRows(page.byte).rows;
 }
+// The byte of one character cell (row, col) of the text screen the VDG shows, or null when the screen shows no VDG
+// text there: a graphics mode, semigraphics-6, a GIME native text mode, the Dragon 64 Plus's 80 columns, a cell off
+// the page. For a caller that looks at a cell's own byte (the welcome menu's taps, js/ui/screen.js, test the number
+// in inverse video at column 4). The page is the one the reader reads: the SAM's display offset on the SAM machines,
+// the GIME's own walk in the CoCo 3's compatibility mode, the profile's page on the MC-10.
+export function textCell(m, row, col) {
+  const mode = videoMode(m);
+  if (!screenReadable(mode).readable || mode.gimeText || mode.plusText || col < 0 || col >= CELL_COLS || row < 0) return null;
+  if (mode.legacyBase != null) { const c = m.gime.legacyTextScreen().chars[row]; return c ? c[col] : null; }
+  return row < VDG_ROWS ? vdgPage(m).byte(row * CELL_COLS + col) : null;
+}
 // The VDG's text page: where it starts and how the VDG fetches its bytes - the video hardware's own read, never the
 // CPU's map.
 //  * The SAM machines (Dragon 32/64/200, the Dragon 64 Plus and Alpha, CoCo 1/2): the page starts at the SAM's display
@@ -170,8 +181,9 @@ export function screenRows(m, readByte, { main = false } = {}) {
 //    for the CPU: js/machines/d64plus.js).
 //  * The MC-10's VDG and a CoCo 3 whose compatibility base is not latched yet: the profile's page, from `ram`, the
 //    address-space view of the RAM the display uses (on the CoCo 3, physical $70000-$7FFFF, the power-on page).
-// Returns { at, addr(i), byte(i) } for the page's bytes i = 0..511.
-function vdgPage(m) {
+// Returns { at, addr(i), byte(i) } for the page's bytes i = 0..511. Exported for the readers that look at the page's
+// bytes themselves (the ROM self-test's screen, js/selftest.js), so they read where the VDG does.
+export function vdgPage(m) {
   if (m.sam && typeof m.displayByte === 'function') {
     const at = m.sam.displayBase, mask = m.sam.counterMask;
     const addr = (i) => (at + i) & mask;
@@ -477,8 +489,19 @@ function videoMode(m, { main = false } = {}) {
   if (vdg && vdg.firstMode) {
     const mode = vdg.firstMode[0];     // the mode of the first active line
     const ag = !!(mode & 0x80);
-    if (!ag) return { text: true, cols: 32, name: 'MC6847 text' };
-    return { text: false, name: `MC6847 graphics, ${graphicsName(mode)}` };
+    if (ag) return { text: false, name: `MC6847 graphics, ${graphicsName(mode)}` };
+    // Text is the alphanumeric/semigraphics-4 mode: A/G low and INT/EXT low. On the Dragon and CoCo 1/2 INT/EXT is
+    // PIA1 PB4 (bit 4 of the mode byte; MC6847 data sheet, "Alphanumeric/Semigraphic" mode table: INT/EXT high selects
+    // the external character inputs for AS low and semigraphics-6 for AS high), and those machines fit no external
+    // character generator, so a cell shows the stripe pattern of its byte (js/chips/mc6847.js stripe), not a
+    // character: no characters to read. Not on the CoCo 2B's MC6847T1 (INT/EXT selects its lowercase set) nor on a VDG
+    // whose INT/EXT comes from the fetched byte (the Dragon 200-E: extIntFromData), where every text byte is drawn
+    // from a character set. The MC-10 keeps its own wiring (it has no SAM).
+    if (m.sam && (mode & 0x10) && !vdg.t1 && !vdg.extIntFromData) {
+      return { text: false, name: 'MC6847 semigraphics-6 / external characters (INT/EXT high)',
+        reason: 'the VDG\'s INT/EXT input is high (PIA1 PB4), so its cells show semigraphics-6 blocks and the external-character input, which this machine leaves unfitted: there are no characters to read' };
+    }
+    return { text: true, cols: 32, name: 'MC6847 text' };
   }
   return { text: true, cols: 32, name: 'text' };
 }

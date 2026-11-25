@@ -247,6 +247,18 @@ end)`,
     return { files, args: mameArgs(profile, resolved), inverse: profile.charGen ? resolved.inverseVideo : null,
       machine: () => machine(profileId, slots, config), frames: 80 };
   },
+  // the moved text page (movedtext.js / movedtext.asm, run-movedtext.js): known text on three VDG pages shown in turn
+  // through the SAM's display offset, then INT/EXT high and a graphics mode over the last
+  movedtext(profileId, { config = {} } = {}) {
+    const Emu = loadEmu(), profile = Emu.profiles[profileId];
+    const resolved = Emu.resolveConfig(profileId, Object.assign({ mameCompat: true }, config));
+    const { asm, bank0 } = images('movedtext.asm');
+    const slots = withChip(profile, slotData(profile, bank0, bank0));
+    const files = {};
+    for (const sl of profile.roms) for (const f of sl.files) files[f] = slots[sl.id];
+    return { files, args: mameArgs(profile, resolved), halt: asm.symbols.get('HALT'),
+      machine: () => machine(profileId, slots, config) };
+  },
   // printer firmware (lib/printer.js): the Dragons' parallel port, or the bit-banger's serial printer on the others
   // stubInit: printer-stubinit.asm instead of printer-serial.asm (the bit-banger set up as CLOADM's no-ROM stub sets it
   // up: the printer must receive nothing from that start; CoCo 1/2)

@@ -5,6 +5,7 @@ import { fitPicture, fitActive } from '../video/layout.js';
 import { HostInput } from '../host/input.js';
 import { Gamepads } from '../host/gamepad.js';
 import { TapeListener } from '../host/tape-sound.js';
+import { textCell } from '../claude/readtools.js';
 
 const MODIFIER_KEYS = new Set(['Shift', 'Control', 'Alt', 'Meta', 'CapsLock', 'AltGraph']);
 
@@ -251,8 +252,8 @@ export function setupScreen(page, { loadPrograms, roms }) {
     const m = session.shownMachine, r = canvas.getBoundingClientRect(), f = m.render();
     const row = Math.floor(((e.clientY - r.top) / r.height * f.height - 24) / 12);
     if (row < 0 || row > 15) return;
-    const cell = m.peek((m.profile.textScreen || 0x400) + row * 32 + 4);
-    if (cell >= 0x30 && cell <= 0x39) { audio.start(); session.typeText(String.fromCharCode(cell)); }
+    const cell = textCell(m, row, 4);   // the page the VDG shows, in a text mode only
+    if (cell != null && cell >= 0x30 && cell <= 0x39) { audio.start(); session.typeText(String.fromCharCode(cell)); }
   });
 
   // ---- run controls ----

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Compare one machine against MAME. Needs MAME (e.g. `apt install mame`); uses only our own firmware.
 //
-//   node tools/mame-diff/run.js <profile> [--ram <K>] [--video [--artifact N] [--attr] [--composite] [--text]] [--raster [--no-trace] [--keep]] [--vsc [--no-trace] [--keep]] [--printer [--stub-init|--glitch] [--no-trace]] [--serial] [--reset] [--rate|--ops] [--plus] [--plustext [--video]] [--paging [--video]] [--keep-firmware]
+//   node tools/mame-diff/run.js <profile> [--ram <K>] [--video [--artifact N] [--attr] [--composite] [--text] [--movedtext]] [--raster [--no-trace] [--keep]] [--vsc [--no-trace] [--keep]] [--printer [--stub-init|--glitch] [--no-trace]] [--serial] [--reset] [--rate|--ops] [--plus] [--plustext [--video]] [--paging [--video]] [--keep-firmware]
 //   node tools/mame-diff/run.js <dragon64|dragon200e|coco|coco3|dgnalpha> --fdc [dragonfdc|premierfdc|cocofdc|multifdc|alphafdc] [--images|--write|--nmi|--multi|--blank <fmt>:<T>x<H>|--halt [--empty]|--nitros9|--bare] [--keep-firmware]
 //   node tools/mame-diff/run.js <coco|coco3|dragon64|dragon32> --cart <setup> [--audio]
 //
@@ -9,6 +9,8 @@
 // --video: the family's pixel comparison of every display mode (d64plus: its 80-column screen, d64plus/run-video.js); --artifact N sets MAME's and our composite
 // colour option (0 off, 1 Standard, 2 Reverse; default 1, MAME's default). --video --text (coco3, --cpu 6309 for
 // coco3h): the GIME text screens of coco3/text-screens.js, pixels and MAME's glyphs, and the screen-text reader.
+// --video --movedtext (Dragon, CoCo 1/2): the text page moved by the SAM's display offset to $0E00 and $1C00, and
+// INT/EXT high over it (sam/movedtext.asm, sam/run-movedtext.js), every pixel against MAME.
 // --video --compat (coco3): the compatibility-mode text screen at $FF9C values other than BASIC's $0F (vdg-compat.asm).
 // --raster: mid-line video changes swept across every beam position (<family>/raster.asm, lib/raster.js):
 // lockstep to HALT, then every pixel of a swept field per case; --no-trace skips the lockstep part,
@@ -125,6 +127,12 @@ async function main() {
     // the Dragon 64 Plus's VDG under every $FFE2 paging, pixel by pixel (d64plus/run-paging.js)
     if (profile.family !== 'd64plus') { console.error('--paging: the bank register is a Dragon 64 Plus comparison'); return 2; }
     const r = cp.spawnSync('node', [path.join(__dirname, 'd64plus', 'run-paging.js'), profileId], { stdio: 'inherit' });
+    return r.status === null ? 1 : r.status;
+  }
+  if (args.includes('--video') && args.includes('--movedtext')) {
+    // the text page moved by the SAM's display offset, and INT/EXT high over it (sam/run-movedtext.js)
+    if (profile.family !== 'sam') { console.error('--movedtext: the SAM display offset is a Dragon / CoCo 1/2 comparison'); return 2; }
+    const r = cp.spawnSync('node', [path.join(__dirname, 'sam', 'run-movedtext.js'), profileId], { stdio: 'inherit' });
     return r.status === null ? 1 : r.status;
   }
   if (args.includes('--video') && args.includes('--text')) {
