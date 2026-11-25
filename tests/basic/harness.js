@@ -326,6 +326,8 @@ class Basic {
 //   #frames N       run N frames
 //   #wait-text RE   run until the screen matches the regular expression
 //   #timeout S      the emulated seconds each wait may take from here on (default 30)
+//   #expect-timeout from here on a wait that times out is the case's result, not a failure: the case ends there with
+//                   status ok and ended { at, as: 'timeout' } (the original ignoring BREAK in a search, say)
 //   #nowait         the next line is not waited for with OK, only until the screen settles
 //   #screenshot NAME  record the picture as it is now (for graphics: the result's shots, each with a PNG and the
 //                   SHA-256 of its pixels, which tools/basic-bb/compare.js compares)
@@ -358,7 +360,10 @@ function runCase(rom, text, { machine = 'dragon64', guard = true, tapes: tapeDir
   let wavName = null, at = 'start';
   const wavStop = () => { sounds.push({ name: wavName, ...b.wavStop() }); wavName = null; };
   let clean = false;   // nothing of the screen is recorded until the clean start (Basic.cleanStart) has held
+  let expectTimeout = false;
   const out = (status, extra = {}) => {
+    // after #expect-timeout a step that times out is the case's result: status ok, ended { at, as: 'timeout' }
+    if (status === 'timeout' && expectTimeout) { status = 'ok'; extra = { ...extra, ended: { at: extra.at, as: 'timeout' } }; delete extra.at; }
     if (wavName != null) wavStop();
     if (!clean) return { status, transcript: [], flags: [], frames: b.frames, ...extra };
     return refused
@@ -409,6 +414,7 @@ function runCase(rom, text, { machine = 'dragon64', guard = true, tapes: tapeDir
       else if (cmd === 'frames') b.run(Number(arg));
       else if (cmd === 'wait-text') { const re = new RegExp(arg, 'm'); if (!b.until(() => re.test(b.screen().join('\n')), { limit })) return out('timeout', { at: where }); }
       else if (cmd === 'timeout') limit = Math.round(Number(arg) * 50);
+      else if (cmd === 'expect-timeout') expectTimeout = true;
       else if (cmd === 'nowait') nowait = true;
       else if (cmd === 'screenshot') { b.frame(); shots.push(b.shot(arg || `shot${shots.length + 1}`)); }
       else if (cmd === 'wav') { if (wavName != null) return out('bad-directive', { at: where }); wavName = arg || `sound${sounds.length + 1}`; b.wavStart(); }

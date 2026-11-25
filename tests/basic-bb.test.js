@@ -114,6 +114,16 @@ check('build: $8000-$80FF is left free for later fixed entry points', built.rom.
   check('CLS: the screen it wiped is kept in clears, the transcript as before', cl.status === 'ok' && cl.clears.length === 1 && JSON.stringify(cl.clears[0].screen) === JSON.stringify(['OK', 'PRINT "A"', 'A', 'OK', 'PRINT "B"', 'B', 'OK', 'CLS']) && JSON.stringify(cl.transcript) === JSON.stringify(['OK', 'PRINT "C"', 'C', 'OK']), JSON.stringify(cl.clears));
   const none = runCase(built.rom, 'PRINT "A"\n');
   check('no clear: clears is empty', Array.isArray(none.clears) && none.clears.length === 0);
+  // #expect-timeout: a wait that times out after it ends the case as a result
+  const et = runCase(built.rom, '10 GOTO 10\n#timeout 2\n#expect-timeout\nRUN\nPRINT "NEVER"\n');
+  check('#expect-timeout: a timeout after it ends the case: status ok, ended at that step, nothing after it run', et.status === 'ok' && et.ended && et.ended.as === 'timeout' && et.ended.at === 'line 4' && !et.at && !et.transcript.includes('NEVER'), JSON.stringify([et.status, et.ended, et.at]));
+  const et2 = runCase(built.rom, '#timeout 2\n#expect-timeout\nPRINT 1\n');
+  check('#expect-timeout: a case that never times out ends normally, with no ended', et2.status === 'ok' && !et2.ended && et2.transcript.includes(' 1'));
+  const nt = runCase(built.rom, '10 GOTO 10\n#timeout 2\nRUN\n');
+  check('without #expect-timeout a timeout is still status timeout', nt.status === 'timeout' && nt.at === 'line 3');
+  const { compare: cmpEnd } = require('../tools/basic-bb/compare.js');
+  const rec = (ended) => new Map([['c', { case: 'c', status: 'ok', transcript: ['OK'], ...(ended ? { ended } : {}) }]]);
+  check('compare: an expected timeout on one side only is a difference', cmpEnd(rec({ at: 'line 4', as: 'timeout' }), rec(null)).same === 0 && cmpEnd(rec({ at: 'line 4', as: 'timeout' }), rec({ at: 'line 4', as: 'timeout' })).same === 1);
   check('compareClears: the same screens pass, frames ignored', compareClears([{ frame: 1, screen: ['A', 'B'] }], [{ frame: 9, screen: ['A', 'B'] }]).length === 0);
   check('compareClears: a different screen or count is reported', compareClears([{ frame: 1, screen: ['A', 'B'] }], [{ frame: 1, screen: ['A', 'C'] }]).length === 1 && compareClears([], [{ frame: 1, screen: ['A'] }]).length === 1);
   check('compareClears: a record without the field (made before it) is not compared', compareClears(undefined, [{ frame: 1, screen: ['A'] }]).length === 0);

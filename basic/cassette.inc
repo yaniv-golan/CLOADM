@@ -30,8 +30,9 @@ MOT1    STB     PIA1CA
 
 * ---------------- reading ----------------
 * CRBIT: one bit: the time from this rising edge of the input to the next, in loop passes; C set for a short
-* cycle (a 1). While the input is quiet, BREAK stops the cassette statement; a quiet input after a bit's high half (a
-* tape that ends with its last bit, with no $55 after the block) decides the bit by that half alone [OWN]. Uses A, B.
+* cycle (a 1). BREAK is not looked at: a search on a tape with no such file goes on until a reset [BB bb5 cas-errors].
+* A quiet input after a bit's high half (a tape that ends with its last bit, with no $55 after the block) decides the
+* bit by that half alone [OWN]. Uses A, B.
 CRBIT   CLRB
 CRB1    INCB
         LDA     PIA1A
@@ -46,13 +47,9 @@ CRB2    INCB
         LEAS    1,S
         CMPB    #CTHR
         RTS
-CRQ     JSR     BRKTST
-        BCS     CRBRK
-        PULS    B
+CRQ     PULS    B
         CMPB    #CTHRH
         RTS
-CRBRK   LDB     #$FF
-        BRA     CASERR
 
 * CRBYTE: a byte, least significant bit first, into A (and CBYTE)
 CRBYTE  LDA     #8
@@ -101,7 +98,7 @@ CRS4    BSR     CRBYTE
 CRS2    STA     <CLEAD
         BRA     CRS1
 
-* the cassette's errors: the motor stops; a program half loaded is cleared. B = the error, $FF for BREAK
+* the cassette's errors: the motor stops; a program half loaded is cleared. B = the error
 CLFM    LDB     #ERR_FM
         BRA     CASERR
 CLOM    LDB     #ERR_OM
@@ -114,9 +111,7 @@ CASERR  JSR     CASOFF
         BEQ     CE1
         CLR     <CLDBAS
         JSR     NEWPRG
-CE1     CMPB    #$FF
-        LBNE    ERROR
-        JMP     READY
+CE1     JMP     ERROR
 
 * CFIND: read namefile blocks until one has the name in CNAME (any, when CNLEN is 0), printing each one met;
 * its block stays at LINBUF. Messages [OWN, placeholders until a black-box run]

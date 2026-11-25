@@ -260,16 +260,25 @@ const twoFiles = Emu.buildCas([{ name: 'ONE', type: 'basic', data: ONE }, { name
   b.type('CLOAD\n');
   b.run(100);
   check('CLOAD with no tape: the motor runs while it searches', b.m.deck.motor && !b.screen().includes('OK', 2));
+  // [BB bb5 cas-errors] BREAK does not stop a search: the original searched on after BREAK with OK awaited 10 s
   const job = b.m.typist.holdPaced('BREAK');
-  for (let i = 0; job.status === 'typing' && i < 500; i++) b.frame();
-  check('BREAK stops the search: OK, motor off', b.waitOk({ limit: 300 }) && !b.m.deck.motor, JSON.stringify(b.screen()));
-  // SKIPF with no file left to skip searches as CLOAD does, motor on, until BREAK
+  for (let i = 0; job.status === 'typing' && i < 300; i++) b.frame();
+  b.run(500);
+  check('BREAK does not stop CLOAD\'s search: still searching 10 s later, motor on', b.m.deck.motor && b.screen().slice(-1)[0] === 'SEARCHING' && !b.screen().includes('OK', 2), JSON.stringify(b.screen().slice(-2)));
+}
+{
+  // SKIPF with no file on the tape searches as CLOAD does, motor on, and BREAK does not stop it either
+  const b = boot();
   b.type('SKIPF\n');
   b.run(500);
   check('SKIPF with no file on the tape: still searching after 10 s, motor on', b.m.deck.motor && b.screen().slice(-1)[0] === 'SEARCHING', JSON.stringify(b.screen().slice(-2)));
-  const job2 = b.m.typist.holdPaced('BREAK');
-  for (let i = 0; job2.status === 'typing' && i < 500; i++) b.frame();
-  check('BREAK stops SKIPF\'s search: OK, motor off', b.waitOk({ limit: 300 }) && !b.m.deck.motor, JSON.stringify(b.screen()));
+  const job = b.m.typist.holdPaced('BREAK');
+  for (let i = 0; job.status === 'typing' && i < 300; i++) b.frame();
+  b.run(500);
+  check('BREAK does not stop SKIPF\'s search', b.m.deck.motor && b.screen().slice(-1)[0] === 'SEARCHING', JSON.stringify(b.screen().slice(-2)));
+}
+{
+  const b = boot();
   line(b, 'MOTOR ON');
   check('MOTOR ON: the motor runs', b.m.deck.motor);
   line(b, 'MOTOR OFF');

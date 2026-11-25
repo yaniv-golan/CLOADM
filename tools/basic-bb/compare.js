@@ -157,6 +157,9 @@ function compare(a, b, shotDir = null) {
     const y = b.get(name);
     if (!y) { out.push(`${name}: missing from the second file`); continue; }
     if (x.status !== y.status) { out.push(`${name}: status ${x.status} vs ${y.status}`); continue; }
+    // (a case that ended at an expected timeout: where, on both)
+    const endA = x.ended ? `${x.ended.as} at ${x.ended.at}` : 'the end', endB = y.ended ? `${y.ended.as} at ${y.ended.at}` : 'the end';
+    if (endA !== endB) { out.push(`${name}: ended at ${endA} vs ${endB}`); continue; }
     const n = Math.max(x.transcript.length, y.transcript.length);
     let at = -1;
     for (let i = 0; i < n; i++) if (x.transcript[i] !== y.transcript[i]) { at = i; break; }

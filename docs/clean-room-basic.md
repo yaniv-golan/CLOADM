@@ -220,7 +220,7 @@ All of them run with no ROM, on our ROM assembled at test time.
   the tape (section 12). What our ROM writes is decoded from the deck's recording by the repository's own tape code
   (`samplesToCas`, `formats.parseCas`), and the expected header and data bytes are written out by hand from the
   program typed; tapes built by `buildCas` from known bytes are loaded with `CLOAD` and `CLOADM`; the error paths
-  (`?IO ERROR` on a bad checksum, `?FM ERROR`, `?DS ERROR`, BREAK) and name search and `SKIPF`.
+  (`?IO ERROR` on a bad checksum, `?FM ERROR`, `?DS ERROR`; BREAK not ending a search) and name search and `SKIPF`.
 * **`tests/basic-cursor.test.js`:** the cursor ([section 14](#14-the-cursor)): the countdown, the transformation of
   every byte, the RAM it reads (address, countdown, the byte under it, the debounce delay), the keyboard, the delay
   in cycles, on the Dragon 64 and the Dragon 32, with mutants of the ROM that must fail it.
@@ -243,7 +243,7 @@ node tools/basic-bb/compare.js real.jsonl ours.jsonl [--shots DIR]
 
 * **Input:** the case files (plain text, one line per typed line). Lines starting with `#` are directives or
   comments: `#type TEXT` (keys while a program runs, for `INPUT` and `INKEY$`; `\n` is ENTER), `#keys A+B` (matrix
-  keys held together: `SHIFT+LEFT`, `SHIFT+0`, `CLEAR`), `#break`, `#frames N`, `#wait-text REGEX`, `#timeout S`,
+  keys held together: `SHIFT+LEFT`, `SHIFT+0`, `CLEAR`), `#break`, `#frames N`, `#wait-text REGEX`, `#timeout S`, `#expect-timeout` (from there on a wait that times out ends the case as its result: status `ok`, with `ended` giving the step),
   `#nowait` (the next line is not waited for with OK), `#screenshot NAME` (the picture as it is now: a PNG and the SHA-256 of its pixels, which `compare.js` compares, writing both PNGs of a differing one with `--shots DIR`; for graphics, P2; composite colour is off, so the pixels are the VDG's own colours); `# bb-only` marks a probe that only the black-box run uses. A case marked `# local-only` (one whose output on the original holds ROM text, such as the message `CLS` past 8 prints) is never written to a results file: `run.js` runs it only with `--local` and prints its shape (the lines typed, `OK`, blank lines and error codes as they are; any other line as `<text N>`), which the maintainer reports by hand. Nothing of the boot screen is ever recorded (a ROM's banner is ROM text): before a case or a corpus program starts, the harness blanks the text screen's memory from outside, types `CLS`, and requires the screen to hold only the `OK` prompt; otherwise the run stops as `no-clean-start` with nothing recorded (`Basic.cleanStart`). A typed line is judged by what follows it (OK back, the screen settled), never by whether the typist saw every key taken: a BASIC that stops reading the keyboard once it runs the line (PLAY sounding, CLOAD) leaves the typist at `not-consumed`, which is only noted in the result (`typist`). A line of which the machine took no key at all ends the case as `stalled` at that line: the machine had stopped reading the keyboard before it, and a still screen would otherwise pass every wait after it. A screen cleared while recording (a frame that leaves at most one row with text after one with two or more: `CLS`, or a cassette operation clearing the screen for its own display) is kept: the screen as it was just before goes into the result's `clears`, which `compare.js` compares when both records have the field. `run.js` ends with how many cases are results, naming any that stopped (`timeout` or `stalled`, with the step).
   For sound and joysticks (P2): `#wav NAME` ... `#wav-stop` records the sound between them as **measures only**
   (below), and `#joy N V` sets joystick axis N (`JOYSTK`'s numbering: 0 right x, 1 right y, 2 left x, 3 left y) to V
@@ -510,8 +510,8 @@ The log grows with every milestone; black-box facts are added with the date of t
 the tape (so `TIMER` does not count then [OWN]), and the motor runs through a file (a text file's gaps aside).
 
 * **Reading a bit:** the time from one rising edge of PA0 to the next, counted in loop passes; fewer than `CTHR` is a
-  short cycle, a 1. While the input is quiet BREAK is looked at, and stops the statement (back to `OK`, the motor off);
-  if it stays quiet after a bit's high half, that half alone decides the bit (`CTHRH`), so a tape that ends right
+  short cycle, a 1. BREAK is not looked at while the cassette reads: a search on a tape with no such file goes on, motor
+  running, until a reset, as on the original ([BB] bb5, `cas-errors`: BREAK held, then no `OK` in 10 s); if the input stays quiet after a bit's high half, that half alone decides the bit (`CTHRH`), so a tape that ends right
   after its last block's checksum, with no `$55` after it (as many archived `.cas` files do), still loads.
 * **Finding a block:** bits are shifted in until the last eight are `$3C` after a leader (`$55`, or `$AA` a bit
   out) has been heard; then the type, the length, the data and the checksum.

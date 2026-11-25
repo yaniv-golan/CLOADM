@@ -55,7 +55,7 @@ function main() {
     const problems = lintCase(text);
     if (problems.length) { console.error(`${name}: refused by the lint:\n  ${problems.join('\n  ')}`); failed++; continue; }
     const r = runCase(rom, text);
-    lines.push(JSON.stringify({ case: name, machine: 'dragon64', rom: crc, status: r.status, ...(r.at ? { at: r.at } : {}), ...(r.why ? { why: r.why } : {}), frames: r.frames, transcript: r.transcript, flags: r.flags, ...(r.shots ? { shots: r.shots } : {}), ...(r.typist ? { typist: r.typist } : {}), ...(r.sounds ? { sounds: r.sounds } : {}), ...(r.tapes ? { tapes: r.tapes } : {}), ...(r.clears ? { clears: r.clears } : {}) }));
+    lines.push(JSON.stringify({ case: name, machine: 'dragon64', rom: crc, status: r.status, ...(r.at ? { at: r.at } : {}), ...(r.ended ? { ended: r.ended } : {}), ...(r.why ? { why: r.why } : {}), frames: r.frames, transcript: r.transcript, flags: r.flags, ...(r.shots ? { shots: r.shots } : {}), ...(r.typist ? { typist: r.typist } : {}), ...(r.sounds ? { sounds: r.sounds } : {}), ...(r.tapes ? { tapes: r.tapes } : {}), ...(r.clears ? { clears: r.clears } : {}) }));
     console.log(`${r.status.padEnd(8)} ${name} (${r.frames} frames${r.flags.length ? `, ${r.flags.length} flags` : ''})`);
     if (r.status !== 'ok') failed++;
   }
