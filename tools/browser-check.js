@@ -8408,7 +8408,7 @@ async function commandsChecks(browser, site, check) {
   // written out here rather than read from COMMANDS (the page's own list is checked against them)
   const WANT = [
     ['Claude', ['Chat with Claude, full screen', 'What is this code doing?']],
-    ['Files', ['Take snapshot', 'Open a program, tape, disk or cartridge…', 'Insert a disk…', 'New blank disk', 'Eject disk', 'Insert a tape…', 'Rewind the tape', 'Eject the tape', 'Save the tape as .WAV', 'Record to tape', 'Share']],
+    ['Files', ['Take snapshot', 'Open a program, tape, disk or cartridge…', 'Insert a disk…', 'New blank disk', 'Eject disk', 'Insert a tape…', 'Rewind the tape', 'Eject the tape', 'Save the tape as .WAV', 'Record to tape', 'Save program as .CAS/.WAV', 'Share']],
     ['Views', ['Programs', 'WYRMFIRE', 'Open the Library', 'Open the Debugger']],
     ['Settings', ['Your ROMs', 'Display settings', 'Input settings', 'POKEs', 'Machine settings']],   // (Your ROMs first)
     ['Machine', ['Pause or resume', 'Turbo', 'Fullscreen', 'Reset', 'Switch off and on', 'Switch machine…', 'Copy bug report', 'Help']],
@@ -23160,8 +23160,10 @@ async function basicShareChecks(browser, base, site, check) {
   await page.click('#btnProgramMode');
   const no = await page.evaluate(() => ({ why: document.getElementById('programWhy').textContent, shown: document.getElementById('programWhy').checkVisibility(), copy: document.getElementById('btnShareCopy').disabled,
     btn: document.getElementById('btnProgramMode').textContent, lines: document.getElementById('programLines').textContent, more: document.getElementById('programMore').checkVisibility() }));
-  check('basicShare: a program that can\'t be shared as text: the reason inline, with "Share the whole moment instead", Copy dark',
-    no.why === REFUSED && no.shown && no.copy && no.btn === 'Share the whole moment instead' && no.lines === '1 line' && !no.more, JSON.stringify(no));
+  // (its tape needs no text: "More ways to share" keeps Download .CAS and .WAV, and only those)
+  const tapeOnly = await page.evaluate(() => ['btnProgramForum', 'btnProgramBas', 'btnProgramCas', 'btnProgramWav'].filter((id) => !document.getElementById(id).hidden));
+  check('basicShare: a program that can\'t be shared as text: the reason inline, with "Share the whole moment instead", Copy dark; only its tape is offered',
+    no.why === REFUSED && no.shown && no.copy && no.btn === 'Share the whole moment instead' && no.lines === '1 line' && tapeOnly.join() === 'btnProgramCas,btnProgramWav', JSON.stringify([no, tapeOnly]));
   await page.click('#btnProgramMode');
   check('basicShare: ... and the moment can still be shared', await page.evaluate(() => !document.getElementById('btnShareCopy').disabled && document.getElementById('shareHeading').textContent === 'Share this moment'));
 
@@ -23422,6 +23424,89 @@ async function postcardChecks(browser, base, site, check) {
   await ctx.close(); await ctx2.close(); await phone.close();
 }
 
+// The BASIC program as a tape (Session.programTape; Share's program mode, "More ways to share"): Download .CAS and
+// .WAV beside Download .bas, the name on tape (cleaned as it is typed), the note per family, the files' names (.C10 on
+// the MC-10), what they hold, the snapshot mode without them, and the command box's "Save program as .CAS/.WAV".
+async function programTapeChecks(browser, base, check) {
+  const Emu = require('../tests/load')();
+  const { build } = require('../tests/fixtures/basic-standin');
+  const romsOf = (id) => Object.fromEntries(Object.entries(build(Emu, id)).map(([k, v]) => [k, [...v]]));
+  const PROG = '10 PRINT "TAPE"\n20 GOTO 10';
+  const errors = [];
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, serviceWorkers: 'block', acceptDownloads: true });
+  const page = await ctx.newPage();
+  page.on('pageerror', (e) => errors.push(e.message));
+  const boot = async (id) => {
+    await page.goto(`${base}?machine=${id}`);
+    await linkIn(page);
+    await page.evaluate((roms) => { const m = window.emu.session.shownMachine; m.setRoms(Object.fromEntries(Object.entries(roms).map(([k, v]) => [k, new Uint8Array(v)]))); m.reset(true); }, romsOf(id));
+    return waitFor(page, () => window.emu.session.bootStatus().state === 'ok', null, 20000);
+  };
+  const openShare = async () => {
+    await page.evaluate(() => document.getElementById('btnShare').click()); await page.waitForSelector('#share', { state: 'visible' });
+    await waitFor(page, () => !!document.getElementById('shareLink').value);
+  };
+  const vis = (ids) => page.evaluate((list) => list.filter((id) => document.getElementById(id).checkVisibility()), ids);
+  check('programTape: the stand-in BASIC boots on a Dragon 64', await boot('dragon64'));
+  await page.evaluate((p) => window.emu.session.loadBasic(p), PROG);
+  await openShare();
+  await page.click('#shareMore > summary');
+  check('programTape: the moment (snapshot mode) offers no tape', (await vis(['btnProgramCas', 'btnProgramWav', 'programTapeName'])).length === 0);
+  await page.click('#btnProgramMode');
+  const ui = await page.evaluate(() => {
+    const bar = document.getElementById('btnProgramBas').parentElement;
+    return { row: [...bar.children].filter((b) => b.checkVisibility()).map((b) => b.textContent), name: document.getElementById('programTapeName').value,
+      note: document.getElementById('programTapeNote').textContent, label: document.querySelector('label[for="programTapeName"]').textContent };
+  });
+  check('programTape: program mode, More ways: "Download .CAS" and "Download .WAV" beside "Download .bas"; the name on tape starts as PROGRAM; the note for Dragon BASIC',
+    ui.row.join() === 'Download .bas,Download .CAS,Download .WAV' && ui.name === 'PROGRAM' && ui.label === 'Name on tape'
+    && ui.note === 'For Dragon BASIC: CLOAD it in another emulator, or play the WAV into a real machine\'s cassette port.', JSON.stringify(ui));
+  await page.fill('#programTapeName', '');
+  await page.type('#programTapeName', 'my game!x');
+  check('programTape: the name is cleaned as it is typed (upper case, letters and digits, 8 at most)', await page.inputValue('#programTapeName') === 'MYGAMEX');
+  const [cas] = await Promise.all([page.waitForEvent('download'), page.click('#btnProgramCas')]);
+  const casBytes = new Uint8Array(fs.readFileSync(await cas.path()));
+  const d = Emu.formats.identify(cas.suggestedFilename(), casBytes);
+  const want = await page.evaluate(() => Array.from(window.emu.session.basicProgramBytes()));
+  check('programTape: Download .CAS: MYGAMEX.CAS, one tokenised BASIC file holding the program', cas.suggestedFilename() === 'MYGAMEX.CAS' && d.kind === 'cas' && d.files.length === 1
+    && d.files[0].name === 'MYGAMEX' && d.files[0].fileType === 0 && Buffer.from(d.files[0].data).equals(Buffer.from(want)), cas.suggestedFilename());
+  const [wav] = await Promise.all([page.waitForEvent('download'), page.click('#btnProgramWav')]);
+  const back = Emu.wavToCas(new Uint8Array(fs.readFileSync(await wav.path())));
+  check('programTape: Download .WAV: MYGAMEX.WAV, which decodes to the same tape', wav.suggestedFilename() === 'MYGAMEX.WAV' && back.badBlocks === 0 && Buffer.from(back.bytes).equals(Buffer.from(casBytes)), wav.suggestedFilename());
+  if (shotDir) await page.screenshot({ path: path.join(shotDir, 'program-tape.png'), fullPage: true });
+  // the command box: "Save program as .CAS/.WAV" opens the Share screen in program mode at the name
+  await page.click('#shareBack'); await page.waitForSelector('#share', { state: 'hidden' });
+  await page.keyboard.press('Control+k');
+  await waitFor(page, () => !document.getElementById('cmdBox').hidden);
+  await page.keyboard.type('save program');
+  await page.keyboard.press('Enter');
+  check('programTape: the command box\'s "Save program as .CAS/.WAV": the Share screen in program mode, at the name on tape',
+    await waitFor(page, () => document.getElementById('share').classList.contains('program-mode') && document.activeElement.id === 'programTapeName', null, 10000));
+  await page.click('#shareBack'); await page.waitForSelector('#share', { state: 'hidden' });
+  // the MC-10: a .C10, and its note
+  check('programTape: the stand-in BASIC boots on an MC-10', await boot('mc10'));
+  await page.evaluate((p) => window.emu.session.loadBasic(p), PROG);
+  await openShare();
+  await page.click('#btnProgramMode');
+  await page.click('#shareMore > summary');
+  const [c10] = await Promise.all([page.waitForEvent('download'), page.click('#btnProgramCas')]);
+  const dm = Emu.formats.identify(c10.suggestedFilename(), new Uint8Array(fs.readFileSync(await c10.path())));
+  check('programTape: an MC-10: PROGRAM.C10, a BASIC file, and the note for MC-10 BASIC', c10.suggestedFilename() === 'PROGRAM.C10' && dm.kind === 'cas' && dm.files[0].fileType === 0
+    && await page.textContent('#programTapeNote') === 'For MC-10 BASIC: CLOAD it in another emulator, or play the WAV into a real machine\'s cassette port.', c10.suggestedFilename());
+  // no program: the command is muted, saying why
+  await page.click('#shareBack'); await page.waitForSelector('#share', { state: 'hidden' });
+  await boot('dragon64');
+  check('programTape: (a fresh Dragon 64 at OK: no program in memory)', await page.evaluate(() => !window.emu.session.basicProgramBytes()));
+  await page.keyboard.press('Control+k');
+  await waitFor(page, () => !document.getElementById('cmdBox').hidden);
+  await page.keyboard.type('save program');
+  const muted = await waitFor(page, () => [...document.querySelectorAll('#cmdList [aria-disabled="true"]')].some((r) => /Save program as \.CAS\/\.WAV/.test(r.textContent) && /No BASIC program/.test(r.textContent)), null, 5000);
+  check('programTape: no program in memory: the command is listed muted, "No BASIC program"', muted);
+  await page.keyboard.press('Escape');
+  check('programTape: no page errors', errors.length === 0, errors.join(' | '));
+  await ctx.close();
+}
+
 const GROUPS = (base, site) => [
   ['models', (b) => modelsChecks(b, base, check)],
   ['reset', (b) => resetChecks(b, base, check)],
@@ -23510,6 +23595,7 @@ const GROUPS = (base, site) => [
   ['shortLink', (b) => shortLinkChecks(b, base, site, check)],
   ['basicShare', (b) => basicShareChecks(b, base, site, check)],
   ['postcard', (b) => postcardChecks(b, base, site, check)],
+  ['programTape', (b) => programTapeChecks(b, base, check)],
   ['favicon', (b) => faviconChecks(b, site, check)],
   ['closedViews', (b) => closedViewsChecks(b, base, check)],
   ['uiModel', (b) => uiModelChecks(b, base, check)],

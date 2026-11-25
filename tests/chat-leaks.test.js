@@ -626,6 +626,10 @@ const REQUIRED = require.main !== module;
     // chat (never the chat machine's: current() refuses it) or replay in a Session of their own; open, play and skip
     // start LIZA afresh on a postcard's model, as openSharedProgram does a program, for an arrival from a link
     'postcards',
+    // the BASIC program as a tape (Share's program mode, the command box): basicProgramBytes and programTape read the
+    // SHOWN machine's program (readByte) and its ROMs for the guard; programTapeDefault reads the last loaded name. None
+    // changes a machine
+    'basicProgramBytes', 'programTape', 'programTapeDefault',
     // sharePicture renders the SHOWN machine's frame into the share card ("Save picture") and shareCardName reads its
     // program watch or profile for the card's name; both change nothing
     'sharePicture', 'shareCardName',

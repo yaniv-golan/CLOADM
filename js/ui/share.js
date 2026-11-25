@@ -60,7 +60,7 @@ import { textScreenFrame } from '../chips/mc6847.js';
 import { listingRows } from '../media/basic.js';
 import { qrEncode } from '../media/qr.js';
 import { $, showView } from './page.js';
-import { WYRMFIRE_TEXT } from '../session.js';
+import { Session, WYRMFIRE_TEXT } from '../session.js';
 import { WYRM_TEXT } from './wyrmfire.js';
 import { crc32 } from '../util.js';
 import { POSTCARD_TEXT, POSTCARD_FILE } from '../postcard.js';
@@ -207,6 +207,9 @@ export function setupShare(page, { linkStore }) {
     const untouched = n9 || refusal ? null : session.untouchedBundledProgram(location.href);
     // the BASIC program in memory, when there is one: shared as its text in program mode (the default stays the moment)
     const program = session.sharedProgram(m);
+    // (a BASIC program in memory also saves as a tape, its family's: Session.programTape)
+    if (program) program.tape = session.basicProgramBytes(m) ? { family: m.profile.lineage } : null;
+    $('programTapeName').value = session.programTapeDefault();
     const programLink = program && !program.refusal ? await session.programLink(location.href, program) : '';
     // the chat with LIZA, when there is one to send: its link, and its picture replayed from that link
     const postcard = await postcardOf(session.postcards.current());
@@ -713,7 +716,11 @@ export function setupShare(page, { linkStore }) {
     $('postcardTrim').hidden = !(pon && pc.card.trimmed);
     view.classList.toggle('postcard-mode', pon);
     $('shareHeading').textContent = pon ? 'Send a postcard from LIZA' : on ? 'Share your program' : 'Share this moment';
-    $('programMore').hidden = !on || !captured.programLink;
+    // (the tape needs no text: a program that can't be shared as text still saves as a .CAS and a .WAV)
+    $('programMore').hidden = !on || (!captured.programLink && !p.tape);
+    for (const id of ['btnProgramForum', 'btnProgramBas']) $(id).hidden = !captured || !captured.programLink;
+    $('programMore').querySelector('.seg').hidden = !captured || !captured.programLink;
+    if (on && p.tape) $('programTapeNote').textContent = Session.programTapeNote(p.tape.family);
     $('shareExtra').hidden = on || pon;
     $('shareRomFree').hidden = pon || !$('shareRomFree').textContent;
     $('shareLink').value = !captured ? '' : pon ? pc.link : on ? captured.programLink : captured.link;
@@ -752,6 +759,23 @@ export function setupShare(page, { linkStore }) {
     const bb = view.querySelector('input[name="forumStyle"]:checked').value === 'bb';
     copyText(bb ? `[code]\n${text}\n[/code]\n${link}\n` : `\`\`\`\n${text}\n\`\`\`\n${link}\n`, 'Program text copied');
   };
+  // the program as a tape: .CAS (.C10 on the MC-10 family) and .WAV (Session.programTape), named as the field says. The
+  // field keeps what a tape's name can be (upper case, letters and digits, 8 at most) as it is typed
+  $('programTapeName').addEventListener('input', () => {
+    const f = $('programTapeName'), v = f.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8);
+    if (v !== f.value) f.value = v;
+  });
+  const saveTape = (wav) => {
+    if (!captured || !captured.program || !captured.program.tape) return;
+    let t;
+    try { t = session.programTape($('programTapeName').value, { wav }); }
+    catch (e) { page.status(e.message, true); return; }
+    $('programTapeName').value = t.name.replace(/\.[A-Z0-9]+$/, '');
+    page.download(t.name, t.bytes, wav ? 'audio/wav' : 'application/octet-stream');
+    page.toast(`Saved ${t.name}`);
+  };
+  $('btnProgramCas').onclick = () => saveTape(false);
+  $('btnProgramWav').onclick = () => saveTape(true);
   // the listing as a text file (one "NUMBER TEXT" line per program line), which CLOADM and BASIC's own loaders read
   $('btnProgramBas').onclick = () => {
     if (!captured || !captured.programLink) return;
@@ -815,6 +839,14 @@ export function setupShare(page, { linkStore }) {
       try { await capture(); } catch (e) { page.status(e.message, true); return; }
       if (captured && captured.postcard) setPostcardMode(true);
       page.openView('#share');
+    },
+    // "Save program as .CAS/.WAV" (the command box): the Share screen in program mode, "More ways to share" open at
+    // the tape's name
+    async openProgramTape() {
+      try { await capture(); } catch (e) { page.status(e.message, true); return; }
+      if (captured && captured.program) { programMode = true; postcardMode = false; syncProgram(); }
+      page.openView('#share');
+      if (captured && captured.program && captured.program.tape) { openLongField(); $('programTapeName').focus(); $('programTapeName').select(); }
     },
     // the visit has started (main.js): a page opened at #share captures its moment now
     ready() { started = true; if (isOpen() && !captured) show(); },

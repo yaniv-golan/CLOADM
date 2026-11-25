@@ -724,7 +724,9 @@
   /* "Share your program": the card above Copy, its switch a link-like button; in program mode the moment's own extras
      (Save picture, Save clip, the snapshot file, the program page, the picture switch) give way to the program's */
   #share #programCard { padding: 10px 14px; gap: 4px; }
-  #share #programCard[hidden], #share #programMore[hidden], #share .extra[hidden] { display: none; }
+  #share #programCard[hidden], #share #programMore[hidden], #share .extra[hidden], #share #programMore [hidden] { display: none; }
+  #share .tapename label { flex: none; align-self: center; font-size: 14px; color: var(--text-2); }
+  #share .tapename input { flex: none; width: 10ch; font-family: var(--font-mono); text-transform: uppercase; }
   #share #programCard p { margin: 0; font-size: 15px; color: var(--text); }
   #share button.linkish { background: none; border: 0; padding: 0; min-height: 0; color: var(--phosphor); text-decoration: underline; font: inherit; cursor: pointer; }
   #share .seg { display: inline-flex; gap: 10px; align-items: center; font: 14px var(--font-mono); }
@@ -2036,7 +2038,10 @@ npx serve -l 8000 .</pre>
       <div class="linkset" id="programMore" hidden>
         <div class="bar"><button id="btnProgramForum">Copy as text for a forum</button>
           <span class="seg" role="radiogroup" aria-label="Forum text style"><label><input type="radio" name="forumStyle" value="md" checked> ```</label><label><input type="radio" name="forumStyle" value="bb"> [code]</label></span></div>
-        <div class="bar"><button id="btnProgramBas">Download .bas</button></div>
+        <div class="bar"><button id="btnProgramBas">Download .bas</button><button id="btnProgramCas">Download .CAS</button><button id="btnProgramWav">Download .WAV</button></div>
+        <!-- the program as a tape (Session.programTape): its name on the tape, and what the files are for -->
+        <div class="linkrow tapename"><label for="programTapeName">Name on tape</label><input id="programTapeName" maxlength="8" autocapitalize="characters" autocomplete="off" spellcheck="false"></div>
+        <p class="small" id="programTapeNote"></p>
       </div>
       <div class="bar" id="shareSaveMore">
         <!-- the buttons are direct children: js/ui/share.js's place() moves btnShareShot/btnShareClip to sit beside

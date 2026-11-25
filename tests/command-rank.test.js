@@ -10,7 +10,8 @@ const check = (name, cond, detail = '') => { if (!cond) { fail++; console.log(`F
   const { COMMANDS, rankCommands, listCommands, switchCommands, MAX_ROWS } = await import('../js/ui/command-box.js');
   const { availableProfiles } = await import('../js/machines/profiles.js');
   // a page as the commands see it: a tape in or not, a disk in or not, a recording or not
-  const pageWith = ({ tape = false, disk = false, recorded = false } = {}) => ({ session: { personMachine: { deck: { tape: tape ? {} : null } },
+  const pageWith = ({ tape = false, disk = false, recorded = false, program = false } = {}) => ({ session: { personMachine: { deck: { tape: tape ? {} : null } },
+    basicProgramBytes: () => (program ? new Uint8Array(4) : null), romCodeIn: () => null, wyrmfireRunning: false,
     drives: { status: () => ({ drives: disk ? [{ drive: 0 }] : [] }) } }, tape: { recorded: () => recorded } });
   const rowsFor = (q, opts = {}) => listCommands(COMMANDS.concat(switchCommands(availableProfiles(), opts.running || 'dragon64')), q, pageWith(opts));
   const top = (q, opts) => rowsFor(q, opts).map((r) => r.c[0]);
@@ -38,6 +39,10 @@ const check = (name, cond, detail = '') => { if (!cond) { fail++; console.log(`F
   const wav = rowsFor('wav'), wavR = rowsFor('wav', { recorded: true });
   check('Save the tape as .WAV: muted with no tape and nothing recorded ("No tape in and nothing recorded yet."), not with a recording',
     wav.find((r) => r.c[0] === 'Save the tape as .WAV').off.why === 'No tape in and nothing recorded yet.' && !wavR.find((r) => r.c[0] === 'Save the tape as .WAV').off);
+  const sp = rowsFor('save program'), spOn = rowsFor('save program', { program: true });
+  check('"save program" -> Save program as .CAS/.WAV first with a BASIC program in memory; listed muted without one ("There is no BASIC program in memory."), not with one',
+    !!sp.find((r) => r.c[0] === 'Save program as .CAS/.WAV' && r.off && r.off.why === 'There is no BASIC program in memory.') && spOn[0].c[0] === 'Save program as .CAS/.WAV' && !spOn[0].off,
+    JSON.stringify(sp.map((r) => [r.c[0], r.off])));
   const rw = rowsFor('rewind');
   check('Rewind the tape with no tape: "No tape in. Insert one with "Insert a tape…"."', rw[0].c[0] === 'Rewind the tape' && rw[0].off.why === 'No tape in. Insert one with "Insert a tape…".');
   check('"xyzzy" matches no command', top('xyzzy').length === 0);

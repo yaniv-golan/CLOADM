@@ -97,7 +97,7 @@ const AREAS = [
   { paths: ['js/ui/welcome.js'], suites: ['welcome'], groups: ['welcomeScreen', 'firstVisit'] },
   { paths: ['js/wyrmfire/', 'js/ui/wyrmfire.js', 'examples/wyrmfire/', 'tools/wyrmfire-vendor.js'], suites: ['wyrmfire'], groups: ['wyrmfire', 'pwa'] },
   { paths: ['js/ui/install.js', 'sw.js', 'manifest.webmanifest', 'tools/pwa-files.js'], suites: ['pwa', 'install'], groups: ['pwa', 'install'] },
-  { paths: ['js/ui/share.js', 'js/share-text.js'], suites: ['share-roms', 'share-card', 'basic-share', 'share-text'], groups: ['share', 'basicShare', 'postcard'] },
+  { paths: ['js/ui/share.js', 'js/share-text.js'], suites: ['share-roms', 'share-card', 'basic-share', 'share-text', 'program-tape'], groups: ['share', 'basicShare', 'postcard', 'programTape'] },
   // the arrival card: a shared moment's (the share group's arrival checks, and the visits a link starts and returns to)
   // and a shared BASIC program's (basicShare; the share screen's program mode is js/ui/share.js)
   { paths: ['js/ui/arrival.js'], suites: ['shared-moment', 'basic-share', 'liza-postcard'], groups: ['share', 'visit', 'returning', 'basicShare', 'postcard'] },

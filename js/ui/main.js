@@ -162,6 +162,7 @@ setupSettingsFile(page);
 // the short links' store: s.cloadm.dev (js/host/link-store.js); the browser check points it at a stand-in server
 const linkStore = new ShortLinkStore();
 const share = setupShare(page, { linkStore });
+page.share = share;   // (the command box's "Save program as .CAS/.WAV")
 page.bugReport = setupBugReport(page);
 const showRoms = () => romSockets.reveal();
 // No Claude chat on a page shown inside someone else's page, whether by the embed flag or by being framed: the chat

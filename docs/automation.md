@@ -1084,6 +1084,12 @@ outside a string). A program link's `config` must be exactly what `shareConfig` 
 does (no typing), types `LIST` and answers `{ state: 'listed', lines }`; without a BASIC ROM for that model it answers
 `{ state: 'needs-roms', name, lines }` and loads nothing (call it again once the ROMs are added).
 
+`programTape(name, { wav })` is the BASIC program in memory on the machine on screen as a tape: `{ name, bytes,
+family }`, `NAME.CAS` (`NAME.C10` on the MC-10 family) as `buildCas` writes one tokenised BASIC file (the program's bytes
+from TXTTAB to VARTAB, `basicProgramBytes()`), or with `wav` that tape as `casToWav` plays it (`NAME.WAV`). The name is
+cleaned by `Session.programTapeName` (upper case letters and digits, 8 at most, else `PROGRAM`). It refuses when there is
+no BASIC program, and when the program holds a 16-byte run of the machine's ROMs or a cartridge's.
+
 `postcards` (`js/postcard.js`) is the LIZA postcard. `postcards.current()` is the chat that can be sent now: `null`, or
 `{ machine, lines, all, from, trimmed, ended }`, the last 20 of the `all` lines LIZA answered since `runLiza` started it
 (`from` the first one's number), on the machine on screen, while LIZA runs there or just after its BYE or BREAK (until

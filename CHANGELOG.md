@@ -10,6 +10,12 @@ Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.
 
 #### Added
 
+- **The BASIC program in memory as a tape.** Share's program mode, under "More ways to share", has **Download .CAS**
+  and **Download .WAV** beside Download .bas (and the command box "Save program as .CAS/.WAV"): the program as CSAVE
+  writes it (one tokenised BASIC file), as `NAME.CAS` on a Dragon or CoCo, `NAME.C10` on the MC-10 family, and that tape
+  as a WAV for a real machine's cassette port. "Name on tape" (8 at most, upper case letters and digits) starts as the
+  loaded file's name, cleaned, else PROGRAM; the note says which BASIC it is for. A program holding bytes of your ROMs
+  is not saved ("Not saved: the program contains bytes of your ROMs."). `Session.programTape(name, { wav })`.
 - **Send a chat with LIZA as a postcard.** While LIZA runs (and just after its goodbye), the Share screen offers "Your
   chat with LIZA · N lines · Send it as a postcard instead": the link holds only the lines typed (the last 20), and
   whoever opens it gets LIZA started afresh with a card, "A postcard from LIZA · N lines", **Replay** (about 25
