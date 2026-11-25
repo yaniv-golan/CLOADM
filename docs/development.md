@@ -327,6 +327,7 @@ node tools/mame-diff/run.js coco --printer --stub-init # the same, with PIA1 set
 node tools/mame-diff/run.js mc10 --printer --stub-init # the MC-10 (or alice) the same way: port 2 set up as its stub sets it up
 node tools/mame-diff/run.js mc10 --printer --glitch     # a glitch on the printer line (coco, mc10, alice): the one $FF MAME prints for it, then the print
 node tools/mame-diff/run.js <profile> --serial  # the bit-banger (or the Dragon 64's 6551) in lockstep with MAME's loopback plug
+node tools/mame-diff/run.js dragon64 --serial-idle  # the Dragon 64's 6551 with nothing in the serial port, in lockstep with MAME's default (no RS-232 device)
 node tools/mame-diff/drivewire/run-dw.js [profile ...] [--no-trace]  # DriveWire over the Becker port: lockstep with MAME (TCP to our server), and byte for byte
 node tools/nitros9/fetch.js && node tests/nitros9.test.js   # NitrOS-9 boot test (images fetched to a cache, never committed; tests/os9.test.js, tests/nitros9-session.test.js and the browser check's nitros9 group use them too, and skip without them)
 node tools/nitros9/boot-floppy-mame.js <_40d_1.dsk> --cpu 6809 --record tests/fixtures/nitros9/coco3-6809-floppy.json   # the floppy boot's MAME reference (controller register writes)

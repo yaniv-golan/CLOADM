@@ -193,16 +193,22 @@ async function closeOwnPersistentContext(ctx, profile, ms = BROWSER_CLOSE_MS) {
 // trailing slash redirects to it (/play -> /play/). Every path it can't serve is recorded: no page may ask for a
 // missing resource (checked at the end of the run)
 const missing = new Set();
-const server = http.createServer((req, res) => {
-  const url = new URL(req.url, 'http://x');
-  let file = path.join(ROOT, decodeURIComponent(url.pathname));
+// what the host answers for a path: { status, headers, file } (the file to send) or { status, headers } (a redirect or a miss).
+// The one place the rules live: the HTTP server below and the routes that stand in for cloadm.dev (shortLinkChecks) both ask it.
+function staticAnswer(pathname) {
+  let file = path.join(ROOT, decodeURIComponent(pathname));
   if (file.startsWith(ROOT) && fs.existsSync(file) && fs.statSync(file).isDirectory()) {
-    if (!url.pathname.endsWith('/')) { res.writeHead(301, { Location: url.pathname + '/' + url.search }); res.end(); return; }
+    if (!pathname.endsWith('/')) return { status: 301, redirect: true, headers: {} };
     file = path.join(file, 'index.html');
   }
-  if (!file.startsWith(ROOT) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) { missing.add(url.pathname); res.writeHead(404); res.end(); return; }
-  res.writeHead(200, { 'Content-Type': TYPES[path.extname(file)] || 'application/octet-stream' });
-  fs.createReadStream(file).pipe(res);
+  if (!file.startsWith(ROOT) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) { missing.add(pathname); return { status: 404, headers: {} }; }
+  return { status: 200, headers: { 'Content-Type': TYPES[path.extname(file)] || 'application/octet-stream' }, file };
+}
+const server = http.createServer((req, res) => {
+  const url = new URL(req.url, 'http://x'), a = staticAnswer(url.pathname);
+  if (a.redirect) { res.writeHead(301, { Location: url.pathname + '/' + url.search }); res.end(); return; }
+  res.writeHead(a.status, a.headers);
+  if (a.file) fs.createReadStream(a.file).pipe(res); else res.end();
 });
 
 // ---------------- ROMs (synthetic images only) ----------------
@@ -4790,8 +4796,12 @@ async function snapshotChecks(browser, base, check) {
     const wiped = await memHash();
     await dropFiles(page, [[snapName, snapBytes]]);
     await waitFor(page, () => /Snapshot opened/.test(document.getElementById('toast').textContent));
-    check('snapshot: dropped on the same machine, the moment is back (memory identical, still paused)', wiped !== held && (await memHash()) === held
-      && /Snapshot opened: Dragon 64, without ROMs/.test(await page.textContent('#toast')), await page.textContent('#toast'));
+    {
+      // (what failed is said, not only the toast: the memory the power cycle left, the memory the drop gave back, the one held)
+      const back = await memHash(), toast = await page.textContent('#toast');
+      check('snapshot: dropped on the same machine, the moment is back (memory identical, still paused)', wiped !== held && back === held
+        && /Snapshot opened: Dragon 64, without ROMs/.test(toast), JSON.stringify({ held, wiped, back, paused: await page.evaluate(() => document.getElementById('btnPause').textContent), toast }));
+    }
     // another machine: the switch confirmation first (the switch to it is a launch, so it is paused again after it; the
     // snapshot's own switch is a restore, which keeps the Pause)
     await pickMachine(page, 'coco');
@@ -23303,7 +23313,14 @@ async function shortLinkChecks(browser, base, site, check) {
     await ctx.route('https://cloadm.dev/**', failing('the local copy of cloadm.dev', async (route) => {
       const r = route.request(), u = new URL(r.url());
       env.requests.push({ url: r.url(), headers: JSON.stringify(r.headers()), body: r.postDataBuffer() || Buffer.alloc(0) });
-      return route.fulfill({ response: await route.fetch({ url: `${local}${u.pathname}${u.search}` }) });
+      // answered from the local files directly (staticAnswer, what the HTTP server above answers), not by route.fetch over a
+      // socket: Playwright pools its fetch connections, the server drops idle ones after its keep-alive timeout, and a request
+      // that reused a socket in that moment failed with ECONNRESET - on a loaded machine often, anywhere sometimes
+      // (a folder named without its slash is answered with its index, as route.fetch did by following the redirect itself: a
+      // 301 fulfilled here would be followed by the browser straight to the real network, which Playwright does not route)
+      let a = staticAnswer(u.pathname);
+      if (a.redirect) a = staticAnswer(`${u.pathname}/`);
+      return route.fulfill({ status: a.status, headers: a.headers, body: a.file ? fs.readFileSync(a.file) : '' });
     }));
   };
   const said = async (ctx) => ctx.addInitScript(() => { window.__said = []; document.addEventListener('DOMContentLoaded', () => { const t = document.getElementById('toastText');
@@ -23313,6 +23330,17 @@ async function shortLinkChecks(browser, base, site, check) {
   const page = await ctx.newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
+  // the stand-in for cloadm.dev answers a folder named without its slash with the folder's index (and nothing goes to the real site)
+  {
+    const p2 = await ctx.newPage();
+    const before = env.requests.length;
+    let status = 0, body = '', fail = '';
+    try { const resp = await p2.goto('https://cloadm.dev/play', { waitUntil: 'commit' }); status = resp.status(); body = await resp.text(); } catch (e) { fail = String(e.message).split('\n')[0]; }
+    const want = fs.readFileSync(path.join(ROOT, 'play/index.html'), 'utf8');
+    // (the response itself, not the document: the page's own scripts change its title once they run)
+    check('shortLink: https://cloadm.dev/play (no slash) is answered with play/index.html, not sent on to the real site', status === 200 && body === want && env.requests.length > before, `status ${status}, ${body.length} bytes want ${want.length} ${fail}`);
+    await p2.close();
+  }
   const openShare = async (p) => {
     if (await p.evaluate(() => location.hash === '#share')) { await p.click('#shareBack'); await p.waitForSelector('#share', { state: 'hidden' }); }
     await p.click('#btnShare'); await p.waitForSelector('#share', { state: 'visible' });
