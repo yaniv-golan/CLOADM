@@ -158,7 +158,6 @@ export function setupAsk(page, claude) {
   const send = () => { const v = $('askInput').value; if (!v.trim()) return; $('askInput').value = ''; claude.ask(v); };
   $('btnAskSend').onclick = send;
   $('askInput').onkeydown = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } };
-  $('btnAskFix').onclick = () => claude.ask('Fix it for me');
   $('btnAskRetry').onclick = () => claude.retry();
   $('btnAskAllow').onclick = () => acceptClick(session, $('btnAskAllow'));
   $('btnAskTell').onclick = () => session.consent.answer(false);
@@ -392,9 +391,8 @@ export function setupAsk(page, claude) {
     const turns = chat ? chatTurns(chat.messages) : [];
     const points = session.claudePoints, busy = !!(chat && chat.busy);
     const current = busy && chat.line ? chat.line.turn : null;
-    const rows = [], msgs = [];
+    const rows = [];
     const bubble = (key, role, text) => {
-      msgs.push({ role: role === 'user' ? 'user' : 'assistant', content: text });
       rows.push({ key, make: () => { const d = el('div', null, role === 'note' ? 'msg note' : 'msg'); d.dataset.role = role; return d; }, update: (d) => { if (d.textContent !== text) d.textContent = text; } });
     };
     const restoreRow = () => rows.push({ key: 'restore', make: () => el('div', null, 'restorebox'), update: (d) => restoreLine(d, { points, busy, restore, id: 'ask' }) });
@@ -428,8 +426,6 @@ export function setupAsk(page, claude) {
     const hasChat = !!(chat && chat.messages.length);
     if (wasChat && !hasChat) { shown = null; chosen = null; }
     wasChat = hasChat;
-    const lastUser = msgs.filter((m) => m.role === 'user').slice(-1)[0];
-    $('btnAskFix').hidden = !(chat && !chat.busy && lastUser && /^Explain this error/.test(lastUser.content) && msgs.length && msgs.slice(-1)[0].role === 'assistant' && !session.consent.allowed);
     // consent
     const pending = session.consent.pending;
     const loading = !!(pending && pending.kind === 'load');

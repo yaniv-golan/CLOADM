@@ -42,7 +42,7 @@ const BUNDLED = new Set(['liza', '2048', 'minesweeper', 'demo']);
 
 // state -> { id, prompts }: id is a PROMPT_SETS key. state's fields (all optional):
 //   stopped, fromLink: booleans; program: Session.bundledRunning ('wyrmfire' | 'welcome' | 'liza' | '2048' | 'minesweeper' |
-//   'demo' | 'wyrmfire' | null); roms: this machine has ROMs that start BASIC; userCode: the CPU runs from RAM;
+//   'demo' | null); roms: this machine has ROMs that start BASIC; userCode: the CPU runs from RAM;
 //   basic: 'prompt' | 'busy' | null (no BASIC, or it cannot be told); lines: the BASIC program's line count
 export function promptsFor(state) {
   const s = state || {};

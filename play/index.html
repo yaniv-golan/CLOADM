@@ -1487,8 +1487,7 @@
   #askMessages .msg[data-role="user"] { align-self: flex-end; background: var(--line); }
   #askMessages .msg[data-role="claude"] { align-self: flex-start; background: var(--panel); }
   #askMessages .msg.note { font: 13px var(--font-mono); color: var(--text-3); background: none; border: 0; padding: 0; }
-  #btnAskFix { align-self: flex-start; }
-  #btnAskFix[hidden], #askConsent[hidden], #askLoad[hidden], #claudeLoad[hidden], #askKeyMsg[hidden], #askKeyForm[hidden], #askComposer[hidden] { display: none; }
+  #askConsent[hidden], #askLoad[hidden], #claudeLoad[hidden], #askKeyMsg[hidden], #askKeyForm[hidden], #askComposer[hidden] { display: none; }
   .askcard { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
   #askConsent, #askLoad { border-color: var(--phosphor); padding: 14px; }
   #askLoad p, #claudeLoad p { margin: 0; font-size: 14px; line-height: 1.5; color: var(--text-2); }
@@ -2295,7 +2294,6 @@ npx serve -l 8000 .</pre>
         <p id="askEmptyCmd" class="muted"><kbd id="askEmptyKbd">Ctrl K</kbd>: find a command or ask</p>
       </div>
       <div id="askMessages" aria-live="polite"></div>
-      <button id="btnAskFix" class="primary" hidden>Fix it for me</button>
       <div id="askConsent" class="askcard" hidden>
         <strong>Let Claude use the emulator?</strong>
         <p id="askConsentText"></p>
