@@ -45,7 +45,7 @@ import { DriveWireChatChannel, CHAT_DW_CHANNEL } from './claude/channel.js';
 import { nitros9LoaderRom, nitros9LoaderKind, nitros9LoaderByCrc } from './machines/nitros9.js';
 import { inspectOs9Disk, NITROS9_IMAGES_URL } from './media/os9.js';
 import { END_OF_REPLY } from './claude/chat.js';
-import { loadBasic as loadBasicInto, planBasic } from './claude/basicload.js';
+import { BASIC_PROGRAM_TEXT_MAX, loadBasic as loadBasicInto, planBasic } from './claude/basicload.js';
 import { transcript } from './claude/history.js';
 import { Consent, STOPPED } from './claude/consent.js';
 import { screenRows, screenTextTool } from './claude/readtools.js';
@@ -85,7 +85,8 @@ import { programPage } from './program-pages.js';
 import { sealMoment, openMoment } from './media/link-crypto.js';
 import { encodeIndexedPng } from './media/png.js';
 import { shareCardPicture } from './video/bezel.js';
-import { SNAPSHOT_EXT, SnapshotError, decodeSnapshot, decodeLongLink, encodeSnapshot, encodeLongLink } from './media/snapshot.js';
+import { SNAPSHOT_EXT, SnapshotError, decodeSnapshot, decodeLongLink, encodeSnapshot, encodeLongLink, encodeProgramLink, decodeProgramLink, isProgramLink } from './media/snapshot.js';
+import { DIALECTS, buildProgram, parseProgram, readProgram, uncrunch } from './media/basic.js';
 import { missingImages, restoreRoms, stripRoms } from './media/romrefs.js';
 import { crc32, hex, registry, toBase64Url, fromBase64Url } from './util.js';
 import { buildUrl, NITROS9_MACHINES } from './config.js';
@@ -1481,8 +1482,11 @@ export class Session {
   }
   // the person acted on the machine they arrived on (touch): no longer "just arrived" (the shared moment itself, which
   // only a Reset, power cycle or switch leaves, stays)
+  // A shared program still waiting for its BASIC ROM is not settled by a key on the machine (it runs without ROMs, and
+  // the card holding the listing is what the person came for): only the ROMs, a switch, a Reset or a power cycle end it.
   settleArrival(m) {
     if (!this.arrivedFromLink || m !== this.personMachine) return;
+    if (this.arrivedFromLink.basic && !this.arrivedFromLink.basic.listed) return;
     this.arrivedFromLink = null;
     this.emit('arrival');
   }
@@ -1740,13 +1744,28 @@ export class Session {
   // share link: the machine and its options as URL parameters (js/config.js), nothing else
   // extra: more of the link's settings (claudeLink's app=claude), which override the machine's own
   shareUrl(base, extra = {}) {
-    const m = this.shownMachine, config = {};
-    // the machine's options, except the ones that describe the comparison or a device in a port rather than
-    // the machine: a link opens the model, not the contents of its cartridge slot
-    const LOCAL = new Set(['mameCompat', 'hires']);
-    for (const [k, v] of Object.entries(m.config)) if (!LOCAL.has(k) && m.profile.options[k]) config[k] = v;
+    const m = this.shownMachine;
     // NitrOS-9 running: the link boots it from the recipient's own image (never ours, never its name)
-    return buildUrl(base, { machine: m.id, config, nitros9: this.nitros9On(m), ...extra });
+    return buildUrl(base, { machine: m.id, config: this.shareConfig(m), nitros9: this.nitros9On(m), ...extra });
+  }
+  // the machine's options a link carries: all of them except the ones that describe the comparison or a device in a
+  // port rather than the machine (a link opens the model, not the contents of its cartridge slot)
+  shareConfig(m = this.shownMachine) {
+    const config = {};
+    for (const [k, v] of Object.entries(m.config)) if (!Session.SHARE_LOCAL.has(k) && m.profile.options[k]) config[k] = v;
+    return config;
+  }
+  static SHARE_LOCAL = new Set(['mameCompat', 'hires']);
+  // A program link's machine and config, exactly as shareConfig writes them: a model CLOADM has, and only that model's
+  // own options (never mameCompat or hires), each with one of its values. Anything else is a damaged link, refused
+  // before it can switch a machine or be remembered as that model's config. -> the program, or SessionError
+  checkedProgram(prog) {
+    const p = prog && Object.hasOwn(profiles, prog.machine) ? profiles[prog.machine] : null;
+    if (!p) throw new SessionError('This program link names a machine CLOADM doesn\'t have.');
+    const c = prog.config;
+    const ok = !!c && typeof c === 'object' && !Array.isArray(c) && typeof prog.text === 'string' && Object.entries(c).every(([k, v]) => !Session.SHARE_LOCAL.has(k) && Object.hasOwn(p.options, k) && p.options[k].values.includes(v));
+    if (!ok) throw new SessionError('This link\'s program is damaged: it was cut short or changed on the way.');
+    return prog;
   }
   // A program's page (js/program-pages.js: cloadm.dev/<id>/, with its own link preview and a Play button for its start
   // link) -> its address, from `base` (the page's own address: the site's root, or /play/ under it); null when the
@@ -1836,7 +1855,8 @@ export class Session {
     return { url: store.url(r.id, key), id: r.id, deleteToken: r.deleteToken, picture: !!png,
       pictureNote: preview && !png ? 'This screen has too many colours for a preview picture, so the link has none.' : null };
   }
-  // a URL's fragment ('#l=<id>.<key>', where a short link's arrival page sends it) -> { snap, id }, null when it has
+  // a URL's fragment ('#l=<id>.<key>', where a short link's arrival page sends it) -> { snap, id } (or { program, id }
+  // for a program's short link: programShortLink), null when it has
   // none; SessionError saying why it can't open (removed, damaged, not reachable)
   async readShortLink(hash, store) {
     const m = /^#?l=([A-Za-z0-9_-]{8})\.([A-Za-z0-9_-]+)$/.exec(hash || '');
@@ -1847,7 +1867,106 @@ export class Session {
     let sealed, bytes;
     try { sealed = await store.load(m[1]); } catch (e) { throw new SessionError(e.message); }
     try { bytes = await openMoment(sealed, m[2]); } catch (e) { throw new SessionError(`This short link can't be opened: ${e.message}`); }
+    // a program's short link holds the program link's bytes (programShortLink), a moment's a .cloadm file
+    if (isProgramLink(bytes)) {
+      let prog;
+      try { prog = await decodeProgramLink(bytes); }
+      catch (e) { throw e instanceof SnapshotError ? new SessionError(e.message) : e; }
+      return { program: this.checkedProgram(prog), id: m[1] };
+    }
     return { snap: await this.readSnapshot(bytes), id: m[1] };
+  }
+
+  // ---------------- a BASIC program, shared as its text ----------------
+  // The BASIC program in memory on the machine on screen, for "Share your program" (js/ui/share.js) -> null when there
+  // is none (no BASIC ROM, a machine without a BASIC dialect, NitrOS-9, BASIC's pointers not describing a program, or
+  // no lines), else { lines: how many, text: as LIST shows it ("NUMBER TEXT" lines joined with "\n"), refusal: why it
+  // can't be shared as text, or null }. It can be shared as text only when that text, loaded as load_basic loads it
+  // (js/claude/basicload.js), gives back exactly the bytes in memory: within load_basic's limit, and every byte
+  // typable (a graphics character, a control code or lower case outside a string would come back different).
+  sharedProgram(m = this.shownMachine) {
+    const dialect = DIALECTS[m.profile.lineage];
+    if (!dialect || !m.hasRom || this.nitros9On(m)) return null;
+    const rd = (a) => this.readByte(a & 0xFFFF, m), word = (a) => (rd(a) << 8) | rd(a + 1);
+    const p = dialect.pointers, start = word(p.txttab), vartab = word(p.vartab);
+    if (!(start > 0 && start < 0xFFFF)) return null;
+    const prog = readProgram(rd, start, Math.min(0x10000, vartab + 1));
+    if (!prog || !prog.lines.length || prog.end + 1 !== vartab) return null;
+    const text = prog.lines.map((l) => `${l.number} ${uncrunch(l.bytes, dialect)}`).join('\n');
+    const refusal = 'This program can\'t be shared as text: share the whole moment instead.';
+    if (text.length > BASIC_PROGRAM_TEXT_MAX) return { lines: prog.lines.length, text: null, refusal };
+    let same = /^[\x20-\x7E\n]*$/.test(text);
+    if (same) {
+      try {
+        const again = buildProgram(parseProgram(text, dialect), start), have = Array.from({ length: prog.end + 1 - start }, (_, i) => rd(start + i));
+        same = again.length === have.length && again.every((b, i) => b === have[i]);
+      } catch (e) { same = false; }
+    }
+    return same ? { lines: prog.lines.length, text, refusal: null } : { lines: prog.lines.length, text: null, refusal };
+  }
+  // The program as a long link (Share's program mode): this machine's link with the program in the fragment (#z=,
+  // js/media/snapshot.js encodeProgramLink: byte 0 is 2, the program link) -> the URL. prog: sharedProgram()'s.
+  async programLink(base, prog = this.sharedProgram()) {
+    if (!prog || prog.refusal) throw new SessionError(prog ? prog.refusal : 'There is no BASIC program to share.');
+    const m = this.shownMachine;
+    const bytes = await encodeProgramLink({ machine: m.id, config: this.shareConfig(m), text: prog.text });
+    return `${buildUrl(base, { machine: m.id, config: this.shareConfig(m) }).split('#')[0]}#z=${toBase64Url(bytes)}`;
+  }
+  // The program as a short link: the same bytes as the long link's, sealed here (js/media/link-crypto.js) and stored by
+  // `store`, with no preview picture: the link holds the program's text and nothing else. A program holds no ROM code,
+  // so a machine on the person's own ROMs may have one (shortLinkRefusal is about moments). -> { url, id, deleteToken }
+  async programShortLink(store, prog = this.sharedProgram()) {
+    if (!prog || prog.refusal) throw new SessionError(prog ? prog.refusal : 'There is no BASIC program to share.');
+    const m = this.shownMachine;
+    const { key, sealed } = await sealMoment(await encodeProgramLink({ machine: m.id, config: this.shareConfig(m), text: prog.text }));
+    if (sealed.length > Session.SHORT_SEALED_MAX) throw new SessionError(`This program is too large for a short link (${Math.ceil(sealed.length / 1024)} KB; the most is ${Session.SHORT_SEALED_MAX / 1024} KB). The long link works.`);
+    let r;
+    try { r = await store.create({ machine: m.id, sealed, png: null }); }
+    catch (e) { throw new SessionError(e.message); }
+    return { url: store.url(r.id, key), id: r.id, deleteToken: r.deleteToken };
+  }
+  // a URL's fragment -> the program a program link (#z= whose byte 0 is 2) carries, { machine, config, text }; null
+  // when it holds no program (no #z=, or a moment's); SessionError when it is damaged or from a newer CLOADM
+  async readProgramLink(hash) {
+    const m = /^#?z=(.*)$/.exec(hash || '');
+    if (!m) return null;
+    let bytes;
+    try { bytes = fromBase64Url(m[1]); } catch (e) { return null; }   // (readSnapshotLink says it is damaged)
+    if (!isProgramLink(bytes)) return null;
+    let prog;
+    try { prog = await decodeProgramLink(bytes); }
+    catch (e) { throw e instanceof SnapshotError ? new SessionError(e.message) : e; }
+    return this.checkedProgram(prog);
+  }
+  // A shared program arrives: a fresh machine of the sender's model, and the program loaded as load_basic loads it
+  // (no typing), then LIST typed. -> { state: 'listed', lines } or, when this browser has no BASIC ROM for the
+  // machine, { state: 'needs-roms', name, lines } (the machine is switched to, running without ROMs: the page shows
+  // the listing as text and loads it once the ROMs are added: call this again). SessionError when it can't load.
+  // link: { kind: 'long' | 'short', id } when it came from a link: arrivedFromLink then holds the arrival, as a shared
+  // moment's does, with `basic`: { lines, listed, text (the listing, while it waits for ROMs), name }, for the page's
+  // arrival card (js/ui/arrival.js)
+  openSharedProgram(prog, link = null) {
+    this.checkedProgram(prog);   // (also here: a caller may hand one in that no reader checked)
+    const dialect = DIALECTS[profiles[prog.machine].lineage];
+    let lines;
+    try { lines = parseProgram(prog.text, dialect); } catch (e) { throw new SessionError(`This program link's program can't be loaded: ${e.message}.`); }
+    const m = this.switchMachine(prog.machine, Object.keys(prog.config).length ? Object.assign(this.savedConfig(prog.machine), prog.config) : undefined, { menu: false });
+    const name = m.profile.name.replace(/^Tandy /, '');
+    const arrived = (listed) => {
+      if (!link) return;
+      this.arrivedFromLink = { kind: link.kind === 'short' ? 'short' : 'long', id: link.kind === 'short' ? link.id || null : null, machine: m.profile.name, program: null,
+        basic: { lines: lines.length, listed, text: listed ? null : prog.text, name } };
+      this.emit('arrival');
+    };
+    if (!m.hasRom) { arrived(false); return { state: 'needs-roms', name, lines: lines.length }; }
+    m.ensureBooted();
+    for (let i = 0; i < 5 * m.fps && this._bootStatusOf(m).state !== 'ok' && m.runFrame(); i++);
+    try { this.loadBasic(prog.text); }
+    catch (e) { throw new SessionError(`The program couldn't be loaded on the ${name}: ${e.message}`); }
+    this.queueText('LIST\n', m);
+    // (after the load: loadBasic is the person's input, which would end an arrival already recorded)
+    arrived(true);
+    return { state: 'listed', lines: lines.length };
   }
 
   // The moment as a file to give to someone (the Share screen's link and snapshot file): the snapshot with its ROM

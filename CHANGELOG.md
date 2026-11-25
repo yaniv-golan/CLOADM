@@ -17,6 +17,20 @@ Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.
   inside one word ("InstallCLOADM…"; only GitHub and CoCo are written that way), on words the layout draws without
   their space, and on a check that finds no label to read. The Install label's own fix (the space kept where the Menu
   lays its items out) came before 0.2.0; this holds it, and every other label, to it.
+- **Share your program.** With a BASIC program in memory, the Share screen shows a card above Copy link: "Your BASIC
+  program · N lines · Share the program instead". The moment stays the default; the switch shares only the program's
+  text: the heading "Share your program", the first lines LIST shows in the machine's own font ("What they'll see first ·
+  LIST"), and "Share the whole moment instead" back. The short link holds only the text, sealed, with no preview picture
+  (and works with your ROMs in); the long link carries it. More ways to share: "Copy as text for a forum" (a Markdown code fence or
+  [code], then the link), "Download .bas" and the long link. A program over load_basic's limit or with a byte that
+  wouldn't type back the same says "This program can't be shared as text: share the whole moment instead." Opening one
+  gives a fresh machine of the sender's model with the program loaded as load_basic loads it and listed, not run ("Someone
+  sent you a BASIC program (N lines). It's listed below; type RUN to start it."); without its BASIC ROM, the listing as
+  text with Add ROMs and Copy the listing, then loaded and listed once the ROMs are in. The link is a new payload in the
+  existing formats: `#z=` with byte 0 = 2 (deflate-raw JSON `{ format: 'cloadm-basic', version: 1, machine, config,
+  text }`), and the same bytes sealed in a short link (docs/automation.md, "Share links"). `Session.sharedProgram`,
+  `programLink`, `programShortLink`, `readProgramLink`, `openSharedProgram`; `tests/basic-share.test.js` and the browser
+  check's `basicShare` group, on our stand-in BASIC (`tests/fixtures/basic-standin.js`).
 - **The arrival card.** A shared moment opened from a long link (`#z=`) or a short link arrives with a card docked at the
   foot of the screen, the machine running above it: "Someone sent you this &lt;machine&gt;, exactly as they left it.
   It's running now. It's your copy: nothing you do changes theirs." **Start from the beginning** starts the bundled

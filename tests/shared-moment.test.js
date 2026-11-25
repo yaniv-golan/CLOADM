@@ -217,6 +217,22 @@ const arrive = async (link, { shared = true } = {}) => {
       act(x);
       check(`program: ${what} after arriving ends it (something else runs)`, x.momentProgram() === null && !('program' in await x.readSnapshotLink(new URL(await x.snapshotLink(BASE)).hash)));
     }
+    {
+      // a load that goes through neither inject nor a reset: a BASIC listing on a machine with BASIC (our stand-in,
+      // tests/fixtures/basic-standin.js), which load() types in. load()'s own forgetOpenedProgram is what ends it here
+      const { build } = require('./fixtures/basic-standin');
+      const y = session(build(Emu, 'dragon64'));
+      frames(y.shownMachine, 10);
+      const own = await y.readSnapshot((await y.snapshotFile()).bytes);
+      y.openSnapshot(Object.assign({}, own, { program: '2048' }), { link: { kind: 'long' } });
+      const before = y.momentProgram(), resetAt = y.shownMachine.resetAt, injected = y.shownMachine.injectAndRun;
+      let inj = false;
+      y.shownMachine.injectAndRun = (...a) => { inj = true; return injected.apply(y.shownMachine, a); };
+      const msg = y.load('typed.bas', new TextEncoder().encode('10 PRINT "HI"\n20 GOTO 10\n'));
+      check('program: a BASIC listing loaded after arriving (typed in: no inject, no reset) ends it', before === '2048' && /typing BASIC listing/.test(msg) && !inj
+        && y.shownMachine.resetAt === resetAt && y.momentProgram() === null && !('program' in await y.readSnapshotLink(new URL(await y.snapshotLink(BASE)).hash)),
+        `${before} -> ${y.momentProgram()} ${msg}`);
+    }
     const c = session(null);
     c.inject(FILL, 0x7000);
     frames(c.shownMachine, 5);

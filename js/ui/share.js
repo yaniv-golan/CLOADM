@@ -31,11 +31,23 @@
  * "Embed in a web page" (collapsed): the iframe and script for a blog post, written by js/config.js (buildUrl) from the
  * machine, program and options chosen here ("Offer 'Ask Claude ↗'" adds askclaude=1: the embed's corner chip).
  * (The settings export/import lives on the Machine tab: js/ui/settings-file.js.)
+ *
+ * "Share your program": when a BASIC program is in memory (Session.sharedProgram), a card above Copy says "Your BASIC
+ * program · N lines · [Share the program instead]". The moment stays the default; the card's switch puts the screen in
+ * program mode: the heading "Share your program", the preview the first lines LIST shows in the machine's font
+ * (js/chips/mc6847.js textScreenFrame), captioned "What they'll see first · LIST", and the switch "Share the whole moment
+ * instead" back. The one link is the program's: the short link holds only the program's text, sealed
+ * (Session.programShortLink), the long link carries it (Session.programLink; both are js/media/snapshot.js's program
+ * link). "More ways to share" then offers "Copy as text for a forum" (a ``` or [code] block, then the link), "Download
+ * .bas" and the long link. A program that can't be shared as text (over load_basic's limit, or bytes that don't type
+ * back the same) says so in the card, with the switch back, and Copy stays dark.
  */
 import { profiles } from '../machines/profiles.js';
 import { buildUrl } from '../config.js';
 import { needsLine } from '../media/romrefs.js';
 import { CanvasPresenter } from '../video/canvas.js';
+import { textScreenFrame } from '../chips/mc6847.js';
+import { listingRows } from '../media/basic.js';
 import { qrEncode } from '../media/qr.js';
 import { $, showView } from './page.js';
 
@@ -70,6 +82,7 @@ export function setupShare(page, { linkStore }) {
   const view = $('share');
   let started = false;   // the visit has started (ready()): until then there is no machine to capture
   let captured = null;   // { file: { name, bytes } | null, card: the share card's PNG bytes, cardName, link | null, base: file name without extension, ... }
+  let programMode = false;   // sharing the BASIC program's text instead of the moment (the program card's switch)
 
   // ---------------- the view (#share) ----------------
   const isOpen = () => location.hash === '#share';
@@ -91,6 +104,7 @@ export function setupShare(page, { linkStore }) {
     const beside = DESKTOP.matches && !SHORT_LANDSCAPE.matches, to = beside ? $('shareSaveBeside') : $('shareSaveMore');
     const at = beside ? null : $('btnShareDownload');
     for (const id of ['btnShareShot', 'btnShareClip']) to.insertBefore($(id), at);
+    fitCaption();
     if (isOpen()) view.style.setProperty('--share-top', `${Math.max(0, Math.round(view.getBoundingClientRect().top + window.scrollY))}px`);
   }
   for (const q of [SHORT_LANDSCAPE, DESKTOP]) q.addEventListener('change', place);
@@ -136,7 +150,11 @@ export function setupShare(page, { linkStore }) {
     const link = refusal ? '' : n9 ? session.shareUrl(location.href) : await session.snapshotLink(location.href, file);
     // the bundled program, when it is one nobody has touched: its own page is the primary link (nothing is uploaded)
     const untouched = n9 || refusal ? null : session.untouchedBundledProgram(location.href);
-    captured = { at: Date.now(), file, card: await card, cardName, link, untouched, refusal, machine: name, base: file ? file.name.replace(/\.cloadm$/, '') : `${m.profile.name.replace(/[^A-Za-z0-9]+/g, '')}-${n9 ? 'NitrOS-9' : 'moment'}` };
+    // the BASIC program in memory, when there is one: shared as its text in program mode (the default stays the moment)
+    const program = session.sharedProgram(m);
+    const programLink = program && !program.refusal ? await session.programLink(location.href, program) : '';
+    captured = { at: Date.now(), file, card: await card, cardName, link, untouched, refusal, machine: name, shot: c, program, programLink, base: file ? file.name.replace(/\.cloadm$/, '') : `${m.profile.name.replace(/[^A-Za-z0-9]+/g, '')}-${n9 ? 'NitrOS-9' : 'moment'}` };
+    programMode = false;
     const dl = $('btnShareDownload');
     dl.disabled = !file;
     dl.textContent = file ? `Download snapshot (${(file.bytes.length / 1024).toFixed(0)} KB)` : 'Download snapshot';
@@ -147,7 +165,7 @@ export function setupShare(page, { linkStore }) {
     $('shareLink').value = link;
     short = null; fallbackWhy = '';
     $('shortMade').hidden = true; $('shareShort').value = ''; $('sharePreview').disabled = false;
-    syncLongNote();   // (it calls syncPrimary())
+    syncProgram();    // (the program card, and the moment's heading and picture; it calls syncLongNote, then syncPrimary)
     // one line under the picture, what the link does; then, only as needed, what the person opening it needs
     const rom = $('shareRom'), extra = $('shareExtra');
     // the ROM line: the full sentence, and its one line for a short landscape screen (play/index.html shows one)
@@ -185,6 +203,8 @@ export function setupShare(page, { linkStore }) {
   // why the short link can't be made for this capture, or null: the Session's own refusals (ROMs, a cartridge,
   // NitrOS-9: Session.shortLinkRefusal), then the browser's office. 'offline' is its own answer, for the note.
   const shortWhy = () => {
+    // a program's short link holds only its text: the moment's refusals (ROMs, a cartridge) are not about it
+    if (programMode) return !captured || !captured.programLink ? 'Not for this moment.' : !navigator.onLine ? 'offline' : null;
     const own = session.shortLinkRefusal();
     if (own) return own;
     if (!captured || !captured.file) return 'Not for this moment.';
@@ -195,6 +215,7 @@ export function setupShare(page, { linkStore }) {
   // 'long' (the switch, or the short link can't be made), 'short' (made on the tap), or 'none' (nothing captured)
   function primaryMode() {
     if (!captured) return 'none';
+    if (programMode) return !captured.programLink ? 'none' : alwaysLong() || fallbackWhy ? 'long' : shortWhy() ? 'long' : 'short';
     if (captured.untouched) return 'program';
     if (alwaysLong() || fallbackWhy) return 'long';
     return shortWhy() ? 'long' : 'short';
@@ -202,14 +223,14 @@ export function setupShare(page, { linkStore }) {
   // Share…: the system sheet, the URL only, where the browser can share it (in an embed only if the frame allows
   // web-share); its URL is what a tap would copy (the program page, the short link once made, else the long link)
   const canNative = () => {
-    const url = captured && captured.untouched ? captured.untouched.page : short ? short.url : $('shareLink').value || 'https://cloadm.dev/play/';
+    const url = captured && captured.untouched && !programMode ? captured.untouched.page : short ? short.url : $('shareLink').value || 'https://cloadm.dev/play/';
     if (typeof navigator.share !== 'function' || !navigator.canShare?.({ url })) return false;
     return !document.body.classList.contains('embed') || document.featurePolicy?.allowsFeature?.('web-share') === true;
   };
 
   // the long link's own note under "More ways to share": what it holds, or, with the switch on, that taps use it
   function syncLongNote() {
-    $('longNote').textContent = alwaysLong() ? 'Long link: nothing is uploaded.' : 'Holds the whole moment in the address; nothing is uploaded.';
+    $('longNote').textContent = alwaysLong() ? 'Long link: nothing is uploaded.' : programMode ? '' : 'Holds the whole moment in the address; nothing is uploaded.';
     syncPrimary();
   }
   // One note per mode:
@@ -228,7 +249,7 @@ export function setupShare(page, { linkStore }) {
     // a guardrail that leaves nothing to copy at all (Session.shareFile refused the moment: capture() keeps the view
     // open with `refusal` set): Copy goes dark, and the reason is inline. Every guardrail today still leaves the
     // machine's own link (NitrOS-9's boots NitrOS-9 from the recipient's image), so this is the rule kept real.
-    const nothingToCopy = !!captured && (!!captured.refusal || (!captured.link && !captured.untouched));
+    const nothingToCopy = !!captured && (programMode ? !captured.programLink : (!!captured.refusal || (!captured.link && !captured.untouched)));
     $('btnShareCopy').disabled = !captured || nothingToCopy;
     $('btnShareCopy').classList.toggle('primary', !native);
     $('btnShareNative').hidden = !native || !captured || nothingToCopy;
@@ -238,7 +259,14 @@ export function setupShare(page, { linkStore }) {
     // and in this mode that link always exists: a program page is only the primary when nothing was refused, so
     // capture() built the long link (the moment's link, under "More ways to share") for it. Said unconditionally:
     // a "when a link is offered" branch would be dead code.
-    if (program) {
+    if (programMode) {
+      // program mode: the card above Copy says what is shared; the moment's lines (its clarity copy, the ROM line) are not about it
+      $('shareNote').textContent = '';
+      $('shareRom').hidden = true;
+      $('primaryNote').textContent = mode === 'long' && alwaysLong() ? 'Long link: nothing is uploaded.' : '';
+      $('shareName').textContent = captured.programLink ? 'LIST' : captured.machine;
+      fitCaption();
+    } else if (program) {
       $('shareNote').textContent = `Opens ${captured.untouched.name} from the start, for anyone. The snapshot link below keeps this exact moment.`;
       // a program page never needs ROMs, and "for anyone" is said once (in the note above), not again in the ROM line
       $('shareRom').hidden = true;
@@ -256,7 +284,8 @@ export function setupShare(page, { linkStore }) {
     }
     // a tap that fell back (fallbackWhy) has already made the choice, even though primaryMode said 'short' before it;
     // the reason it fell back is what the person needs to see, not the state before the tap
-    $('primaryWhy').textContent = captured && captured.refusal ? captured.refusal : fallbackWhy || (nothingToCopy ? 'This moment can\'t be put in a link.' : why === 'offline' ? OFFLINE_LONG : why && why !== 'Not for this moment.' ? why : '');
+    // (a program that can't be shared as text says so in its card, #programWhy, with the switch back: not twice)
+    $('primaryWhy').textContent = programMode ? fallbackWhy || (why === 'offline' ? OFFLINE_LONG : '') : captured && captured.refusal ? captured.refusal : fallbackWhy || (nothingToCopy ? 'This moment can\'t be put in a link.' : why === 'offline' ? OFFLINE_LONG : why && why !== 'Not for this moment.' ? why : '');
     $('shortTerms').hidden = mode !== 'short' || !!fallbackWhy;
     $('previewSwitch').hidden = mode !== 'short' || !!fallbackWhy;
     syncMore();
@@ -302,15 +331,18 @@ export function setupShare(page, { linkStore }) {
     if (!captured) return;
     const mode = primaryMode();
     if (mode === 'program') { await copyText(captured.untouched.page, 'Program link copied'); return; }
-    if (mode === 'long') { await copyText(captured.link, 'Long link copied', 'shareLink'); showMade('shareLink'); return; }
+    const longLink = programMode ? captured.programLink : captured.link;
+    if (mode === 'long') { await copyText(longLink, 'Long link copied', 'shareLink'); showMade('shareLink'); return; }
     const btn = $('btnShareCopy');
     btn.disabled = true; btn.textContent = 'Making the short link…';
     try {
-      short = await session.shortLink(linkStore, { preview: $('sharePreview').checked, file: captured.file, name: captured.cardName });
+      // the program's short link holds only its text (no preview picture); the moment's, the moment
+      short = programMode ? await session.programShortLink(linkStore, captured.program)
+        : await session.shortLink(linkStore, { preview: $('sharePreview').checked, file: captured.file, name: captured.cardName });
       keepToken(short.id, short.deleteToken);
       $('shareShort').value = short.url;
       drawQr(short.url);
-      $('shortPicNote').textContent = short.picture ? 'With its preview picture.' : (short.pictureNote || 'Without a preview picture.');
+      $('shortPicNote').textContent = programMode ? '' : short.picture ? 'With its preview picture.' : (short.pictureNote || 'Without a preview picture.');
       $('sharePreview').disabled = true;
       $('shortMade').hidden = false;
       await copyText(short.url, 'Short link copied', 'shareShort');
@@ -318,7 +350,7 @@ export function setupShare(page, { linkStore }) {
     } catch (e) {
       // the server answered nothing or refused (offline is caught above by shortWhy; a kill switch, a limit, a store
       // that isn't there land here): the long link instead, and the note says why it is that one, never the server's words
-      const ok = await copyText(captured.link, 'Long link copied', 'shareLink');
+      const ok = await copyText(longLink, 'Long link copied', 'shareLink');
       fallbackWhy = UNAVAILABLE_LONG;
       if (!ok) page.toast('Press Ctrl+C to copy the link');
     } finally {
@@ -330,7 +362,7 @@ export function setupShare(page, { linkStore }) {
   };
   // Share…: the system sheet, the URL only, where the browser can share it (an embed only if its frame allows web-share)
   $('btnShareNative').onclick = async () => {
-    const url = captured && captured.untouched ? captured.untouched.page : short ? short.url : $('shareLink').value;
+    const url = captured && captured.untouched && !programMode ? captured.untouched.page : short ? short.url : $('shareLink').value;
     try { await navigator.share({ url }); }
     catch (e) { if (e && e.name === 'AbortError') return; page.toast('Could not open the share sheet: copy the link instead'); }
   };
@@ -410,6 +442,61 @@ export function setupShare(page, { linkStore }) {
     const tick = setInterval(() => { left--; if (left > 0) clipBtn.textContent = `Recording… ${left} s`; else clearInterval(tick); }, 1000);
     rec.start(500);
     setTimeout(() => rec.stop(), CLIP_SECONDS * 1000);
+  };
+
+  // ---------------- share your program ----------------
+  // In program mode the caption's name is "LIST", which is never cut: where the prefix and it don't both fit (a short
+  // landscape screen's narrow column), the prefix gives way, as a program page's caption has none. Measured on the laid
+  // out caption, so it is decided again whenever the layout can change (place(): a resize, the view opening).
+  function fitCaption() {
+    if (!programMode || !captured || !captured.programLink) return;
+    const prefix = $('sharePrefix'), name = $('shareName');
+    prefix.hidden = false;
+    if (name.scrollWidth > name.clientWidth + 0.5) prefix.hidden = true;
+  }
+  // The program card (only with a BASIC program in memory) and what program mode changes: the heading, the picture
+  // (the first lines LIST shows, in the machine's font), the long link's field, and "More ways to share". One owner for
+  // all of it, so a capture and the switch cannot leave the screen half in one mode.
+  function syncProgram() {
+    const p = captured && captured.program, on = !!p && programMode;
+    $('programCard').hidden = !p;
+    if (p) {
+      $('programLines').textContent = `${p.lines} line${p.lines === 1 ? '' : 's'}`;
+      $('btnProgramMode').textContent = on ? 'Share the whole moment instead' : 'Share the program instead';
+      $('programWhy').textContent = on && p.refusal ? p.refusal : '';
+    }
+    view.classList.toggle('program-mode', on);
+    $('shareHeading').textContent = on ? 'Share your program' : 'Share this moment';
+    $('programMore').hidden = !on || !captured.programLink;
+    $('shareExtra').hidden = on;
+    $('shareLink').value = !captured ? '' : on ? captured.programLink : captured.link;
+    // the picture: the listing as LIST shows it first, or the moment's own frame
+    const pic = $('sharePicture');
+    if (on && captured.programLink) new CanvasPresenter(pic).present(textScreenFrame(listingRows(p.text)));
+    else if (captured) { pic.width = captured.shot.width; pic.height = captured.shot.height; pic.getContext('2d').drawImage(captured.shot, 0, 0); }
+    pic.setAttribute('aria-label', on && captured.programLink ? `The first lines LIST shows: ${listingRows(p.text).join(' / ')}` : 'Captured picture: link preview, rendered from the real frame');
+    syncLongNote();
+  }
+  $('btnProgramMode').onclick = () => {
+    if (!captured || !captured.program) return;
+    programMode = !programMode;
+    // a link made in the other mode is not this one's: the made field goes, and the next tap makes this mode's
+    short = null; fallbackWhy = '';
+    $('shortMade').hidden = true; $('shareShort').value = ''; $('sharePreview').disabled = false;
+    syncProgram();
+  };
+  // the program's text for a forum post: a ``` (Markdown) or [code] (BBCode) block, then the link (the short link when
+  // one was made here, else the long link: nothing is uploaded for it)
+  $('btnProgramForum').onclick = () => {
+    if (!captured || !captured.programLink) return;
+    const link = short ? short.url : captured.programLink, text = captured.program.text;
+    const bb = view.querySelector('input[name="forumStyle"]:checked').value === 'bb';
+    copyText(bb ? `[code]\n${text}\n[/code]\n${link}\n` : `\`\`\`\n${text}\n\`\`\`\n${link}\n`, 'Program text copied');
+  };
+  // the listing as a text file (one "NUMBER TEXT" line per program line), which CLOADM and BASIC's own loaders read
+  $('btnProgramBas').onclick = () => {
+    if (!captured || !captured.programLink) return;
+    page.download(`${captured.base}.bas`, new TextEncoder().encode(`${captured.program.text}\n`), 'text/plain');
   };
 
   // ---------------- embed ----------------
