@@ -1,5 +1,6 @@
-# [BB bb2] the real ROM's transcript but the last line: the sign's place of an E field with no + or - is its first place, 0 for a positive number when it is the last before the point or after the point (where a - does not fit)
-# [OWN] more than nine digit places is ?FC ERROR (the real prints 11 #s and 1 as "  100000000E-09", a value ten times too small)
+# [BB bb2] the real ROM's transcript for the first eight lines: the sign's place of an E field with no + or - is its first place, 0 for a positive number when it is the last before the point or after the point (where a - does not fit); ten #s print 1 right, eleven a value ten times too small ("  100000000E-09": nine digits, the exponent counted for ten, the tenth place empty)
+# [OWN] the same ten-place rule for 12345, -1, .5 and 1E10, with a + of the field's own and with a point (the last decimal is the empty place): to confirm by the next real run of this case
+# [OWN] twelve or more places is ?FC ERROR (the real prints garbage there and runs over its own memory, review-fixes; docs/clean-room-basic.md section 13)
 OK
 PRINT USING "#.##^^^^";1234;-123
 4
@@ -28,5 +29,27 @@ PRINT USING "##########^^^^";1
  100000000E-08
 OK
 PRINT USING "###########^^^^";1
+  100000000E-09
+OK
+PRINT USING "##########^^^^";123
+45;-1;.5;1E10
+ 123450000E-04-100000000E-08 500
+000000E-09 100000000E+02
+OK
+PRINT USING "###########^^^^";12
+345;-1;.5;1E10
+  123450000E-05 -100000000E-09
+500000000E-10  100000000E+01
+OK
+PRINT USING "+##########^^^^";-1
+
+ -100000000E-09
+OK
+PRINT USING "#######.####^^^^";1
+2345
+  123450.000E-01
+OK
+PRINT USING "############^^^^";1
+
 ?FC ERROR
 OK

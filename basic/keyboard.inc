@@ -118,7 +118,7 @@ BITTAB  FCB     $01,$02,$04,$08,$10,$20,$40,$80
 * [OWNER-SPEC, BB; docs/clean-room-basic.md, "The cursor"] The cursor is the screen byte itself: each pass is a
 * cursor update, then a scan. An update counts BLINK down (unsigned: 0 goes to 255); when it reaches 0 it is
 * reloaded with 50 and bit 6 of the byte at the address in CURPOS (read from RAM every time) is toggled; then a
-* fixed delay: 1,064 passes, so that a whole pass takes the 9,177 cycles or so the original's does [BB] (ours scans
+* fixed delay: 1,065 passes, so that a whole pass takes the 9,177 cycles or so the original's does [BB] (ours scans
 * the keyboard more slowly). A key accepted: $60 is written where the cursor is, and BLINK is left as it is.
 KEYWT   PSHS    B,X
 KW1     DEC     <BLINK
@@ -129,7 +129,7 @@ KW1     DEC     <BLINK
         LDA     ,X
         EORA    #$40
         STA     ,X
-KW2     LDX     #1064
+KW2     LDX     #1065
         BSR     DELAYX
         JSR     KEYIN
         BEQ     KW1

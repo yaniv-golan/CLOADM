@@ -461,7 +461,7 @@ Every behaviour fact the ROM relies on, with its source. A fact without a source
 | 26 | `SQR(x)` is not a square root rounded once: `SQR(1E10)` prints `99999.9999` and is 1E5 - 6 x 2^-15; `SQR(144)` is 12 - 3 x 2^-28, `SQR(65536)` 256. Ours is `x^.5`, `EXP(.5 LOG x)` with `LOG` and `EXP` in base 2 (row 14), which gives those bits; `SQR(1E8)` (the real's is 1E4 + 2 units, ours 1 unit), `SQR(.5)` and `TAN(1)` still differ in the last place | [BB] bb1, `fn-math`; bb2, `fn-sqr-bits` |
 | 27 | `DEF FN` with a string name (`DEF FN A$(X)=...`) is `?TM ERROR` when the `DEF` runs | [BB] bb1, `fn-misc` |
 | 28 | `RESTORE` takes no line number: `RESTORE 20` is `?SN ERROR`; a bad number in `DATA` is `?SN ERROR` in the `DATA`'s line | [BB] bb1, `io-data` |
-| 29 | `PRINT USING` E notation: with no `+` or `-` in the field, its first place is the sign's (a space or `-`): `"##.##^^^^";12345` is ` 1.23E+04`. When that place is the last before the point it shows `0` for a positive number (`"#.##^^^^"`: `0.12E+04`, `-.12E+04`); with no `#` before the point it is the first place after it, always `0`, and a `-` does not fit (`".##^^^^"`: `.01E+05`, `%-.01E+05`). Ten digit places print right (` 100000000E-08`); eleven print a value ten times too small (`  100000000E-09`) and twelve garbage (`%1000000000E-10`, then `?SN ERROR IN 0`: the field has run over the original's own memory); ours keep `?FC ERROR` past ten | [BB] bb1, `print-using`, `review-fixes`; bb2, `print-using-exp` |
+| 29 | `PRINT USING` E notation: with no `+` or `-` in the field, its first place is the sign's (a space or `-`): `"##.##^^^^";12345` is ` 1.23E+04`. When that place is the last before the point it shows `0` for a positive number (`"#.##^^^^"`: `0.12E+04`, `-.12E+04`); with no `#` before the point it is the first place after it, always `0`, and a `-` does not fit (`".##^^^^"`: `.01E+05`, `%-.01E+05`). Ten places print right (` 100000000E-08`); eleven print a value ten times too small (`  100000000E-09`), and ours reproduces it: the digits stay FOUT's nine, the exponent is counted for ten digits and the tenth place shows nothing, so the body is one shorter and lies a place further right. The same rule for other values, a sign of the field's own and a field with a point (`"#######.####^^^^"`: the last decimal is the place that shows nothing) is [OWN], to confirm by the extended `print-using-exp`. Twelve print garbage (`%1000000000E-10`, then `?SN ERROR IN 0`: the field has run over the original's own memory); ours keeps `?FC ERROR` there (section 13) | [BB] bb1, `print-using`, `review-fixes`; bb2, `print-using-exp` |
 | 30 | `VAL` puts a 0 after its string while it reads the number and an error leaves it there: after `40 X=VAL("1E99")` overflows, `LIST 40` shows `40 X=VAL("1E99` | [BB] bb1, `review-fixes` |
 | 31 | `PRINT @n, USING ...` | [UM] (both forms documented); found by the corpus programs |
 | 32 | `ELSE` and `'` are stored with a `:` before them (`END:ELSE` is `8A 3A 3A 84`, `PRINT'A` is `87 3A 83 41`, `THEN 10 ELSE 20` ends `30 20 3A 84 20 32 30`); ours does not show that `:` in `LIST` [OWN, case `crunch-else`] | [BB] bb1, `probe-tokens` |
@@ -474,6 +474,7 @@ Every behaviour fact the ROM relies on, with its source. A fact without a source
 | 39 | A running program that writes nothing to the screen (`GOTO` loops, `PEEK`, `INKEY$`, an empty `FOR` loop) leaves `$008F` alone; one that writes to the screen counts it down | [BB] black-box observation (2026-11-25) (the specification said only the keyboard wait does: corrected) |
 | 40 | The cursor is updated by the keyboard wait, not by a timer, with a fixed delay after each update; the address is read from RAM at each transition; no copy of the byte under the cursor is kept; moving the cursor does not restart the blink | [OWNER-SPEC] |
 | 41 | Native 64K mode (not built): a transition writes `$8F` over `$AF` and `$AF` over anything else; about 9,885 cycles per decrement, 475,692 per transition | [BB] black-box observation (2026-11-25) |
+| 42 | The field interrupt, from its entry to its `RTI`, takes 104 cycles: it lengthens the period it falls in by that much (octave 1's C to G medians are 104 cycles over their periods); ours pads `IRQSRV` to the same (it took 66) | [BB] bb2, `snd-play-pitch` (docs/clean-room-basic-p2.md section 6) |
 
 The log grows with every milestone; black-box facts are added with the date of the run they came from.
 
@@ -511,11 +512,13 @@ the tape (so `TIMER` does not count then [OWN]), and the motor runs through a fi
 ## 13. Deliberate differences from the original
 
 Behaviour where ours matches the original's shape on purpose but not its content, because the content is the
-original's own text or data. Each is recorded with its black-box case.
+original's own text or data, and known differences where the original's behaviour is a fault ours does not
+reproduce. Each is recorded with its black-box case.
 
 | Where | The original | Ours | Case |
 |---|---|---|---|
 | `CLS` with a colour 9-255 | prints a line of its own text (21 characters), then an empty line | prints our own line, `MADE WITHOUT PEEKING` (20 characters, chosen for this BASIC; `OK BOOMER` for `CLS 67`, also ours [OWN]), then an empty line; no error in either | `screen-cls-range` (local-only: its results are never written, only their shape); ours: the own case `cls-range` |
+| `PRINT USING` E field of twelve or more places (`"############^^^^";1`) | prints garbage (`%1000000000E-10`) and runs over its own memory (`?SN ERROR IN 0` after it) | `?FC ERROR`: a buffer overrun is never reproduced | `review-fixes`, `print-using-exp` |
 
 ## 14. The cursor
 
@@ -528,9 +531,10 @@ functional specification supplied by the maintainer (2026-11-25). Code: `KEYWT` 
 
 **How ours works.** While `LINEIN` waits for a key (`KEYWT`), each pass is one cursor update and then one keyboard
 scan (`KEYIN`). An update decrements `BLINK` (`$008F`); when the result is 0 it stores 50 there, reads the address in
-`CURPOS` (`$0088-$0089`) and toggles bit 6 of the byte at that address; then it runs `DELAYX` with X = 1,064 (`LEAX
--1,X` / `BNE`, 8 cycles a pass). With our scan and the field interrupt a pass averages about 9,150 cycles and a
-transition about 457,500, each within 1% of the real ROM's (the specification gives the delay as 1,118 passes; ours
+`CURPOS` (`$0088-$0089`) and toggles bit 6 of the byte at that address; then it runs `DELAYX` with X = 1,065 (`LEAX
+-1,X` / `BNE`, 8 cycles a pass). With our scan and the field interrupt (104 cycles, as the original's: section 7 of
+`docs/clean-room-basic-p2.md`) a pass averages about 9,178 cycles and a transition about 458,900, each within 1% of
+the real ROM's (the pass count is the one whose pass is nearest the measured 9,177) (the specification gives the delay as 1,118 passes; ours
 is shorter because our scan is slower than the original's, and it is the whole pass that is measured). When a key
 is accepted, `KEYWT` writes `$60` at the address in `CURPOS` and returns; `BLINK` is not touched. `CHROUT` moves the
 cursor by writing `CURPOS` only, and each character it puts on the screen decrements `BLINK` (at 0 it is reloaded
@@ -557,7 +561,7 @@ about 9,885 cycles per decrement and 475,692 per transition [BB].
 | Chosen by us [OWN] | |
 |---|---|
 | The order in a pass | the update first, then the scan; the delay follows every update, a transition's or not |
-| The delay | 1,064 passes of `LEAX -1,X` / `BNE` (8 cycles), in a subroutine (`DELAYX`) shared with the debounce, chosen so the whole pass matches the measured cycles; the tolerance, 1%, covers where the field interrupt falls |
+| The delay | 1,065 passes of `LEAX -1,X` / `BNE` (8 cycles), in a subroutine (`DELAYX`) shared with the debounce, chosen so the whole pass matches the measured cycles; the tolerance, 1%, covers where the field interrupt falls |
 | Output | one decrement per character `CHROUT` puts on the screen (text and semigraphics; not a carriage return, a backspace, `CLS` or `PRINT @`'s move); at 0, a reload to 50 and no transformation, so output never leaves an inverted cell behind |
 | The debounce delay | ours is the wait in `KEYIN` before a newly pressed key is read again (a bounce forgets the key): `KEYDLY` passes of `DELAYX`, 300 at a cold start (2,400 cycles, as before), 0 meaning 65,536; we have no auto-repeat |
 | Cold start | the direct page is cleared, then `BLINK` is set to 1 (the banner's first character takes it to 0 and it is reloaded); a warm start keeps both values |
@@ -595,3 +599,36 @@ P3's census says which addresses programs use: the program and memory pointers (
 (`FACEXP`-`ARGSGN`), `EXECAD`, `SEED`, the two-byte calls at `$E2-$FF` (whatever the original keeps there), and in the
 system block at `$0100` the RAM vectors, the `DEF USR` table and the cassette's name block. Each new fixed address adds
 a region split in `d64basic.asm` and a check in `tools/build-basic.js`, as these three did.
+
+## 15. Interface contract: BASIC's pointers in low RAM
+
+Programs (in BASIC with `PEEK` and `POKE`, and in machine code) read and set some of the interpreter's own variables
+at fixed addresses. This section is the contract for those addresses, one row each, to be confirmed before P3 moves
+ours there. The leads are [DOC]: published memory maps, which may contain errors, so each is a lead until the
+black-box case `ram-pointers` (bb-only) confirms it. Ours does not follow them yet (our own layout, section 3); the
+column "ours" says what our `PEEK` there shows now and where our own variable for the same thing is.
+
+**Applicability:** the Dragon 32 and the Dragon 64 in 32K mode (the leads are the same addresses for both). **Values:**
+16-bit, big-endian (`PEEK(a)*256+PEEK(a+1)`). **Lifetime:** set at a cold start; the pointers change as the program,
+variables and strings change, and `NEW`, `CLEAR`, `PCLEAR`, `RUN` and a load reset some of them. **Evidence and
+confidence:** [DOC] only, low until `ram-pointers` comes back from the real ROM. **Tests:** `ram-pointers` (the
+real run to compare with `node tools/basic-bb/compare.js`); ours runs it to completion today.
+
+| Address | [DOC] lead: identity | Initial state and changes the lead implies | Read / write | Ours now (our variable) |
+|---|---|---|---|---|
+| `$19-1A` | the program's start | `$1E01` at a cold start (`PCLEAR 4`); moves with `PCLEAR` | read; written by `PCLEAR` | another variable's bytes (2, 8, 14 ...); ours is `TXTTAB` at `$04` |
+| `$1B-1C` | the simple variables' start (the program's end) | the program's start + 2 after `NEW`; grows as lines are typed | read | not a pointer; `VARTAB` `$06` |
+| `$1D-1E` | the arrays' start | moves up as simple variables are created | read | 0; `ARYTAB` `$08` |
+| `$1F-20` | the arrays' end, free memory from here | moves up with `DIM` | read | not a pointer; `ARYEND` `$0A` |
+| `$21-22` | the bottom of string space (the stack's top) | moves down with `CLEAR n` and `PCLEAR` | read | not a pointer; `STRBOT` `$0E` |
+| `$23-24` | the next free string (strings grow down from the top) | the top of string space when empty; moves down as strings are assigned | read | not a pointer; `FRETOP` `$0C` |
+| `$27-28` | the top of BASIC's memory | near `$7FFF` in 32K mode; set by `CLEAR n,top` | read; written by `CLEAR` | `CLEAR`'s last size (200, then 500); `MEMTOP` `$10` |
+| `$68-69` | the line running, `$FFFF` in direct mode | set by each line as it runs | read | 302 always; `CURLIN` `$02` |
+| `$A6-A7` | the text pointer (the next character the interpreter reads) | moves as each statement is read | read; a program may set it | 0; `TXTPTR` `$00` (ours points at the last character taken) |
+| `$0112-0113` | `TIMER` | counts fields (50 Hz); `TIMER=n` sets it | read and write | 0 (our `DEF USR` table); `TIMER` `$1A` |
+| `$71` | the restart flag: `$55` after a cold start keeps the program over the reset button | `$55` once BASIC has started | read; a program clears it to force a cold start | 127; `WARMFL` `$1C` |
+
+What `ram-pointers` records for each, to confirm: the values after `NEW`, after a 3-line program, after `A=5:B=6:DIM
+C(10)`, after two strings, after `CLEAR 500` and after `PCLEAR 2` (with `MEM` beside them); `$68-69` printed from
+lines 100, 200, 300 and from a subroutine at 1000, and in direct mode; `$A6-A7` from lines 100 and 200 and direct
+mode; `TIMER` against `$0112-0113` read just before it and after `TIMER=1000`; `$71` at the prompt.

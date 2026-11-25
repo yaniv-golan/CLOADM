@@ -279,9 +279,9 @@ UMEXP   CLRB
         DEC     <USNB           ; (given back before the field is printed; -1 with no # before the point)
         INCB
 UMX1    PSHS    B
-        LDA     <USNB           ; at most nine digits: more is ?FC ERROR
+        LDA     <USNB           ; at most ten places: more is ?FC ERROR [OWN: the real overruns a buffer]
         ADDA    <USNA
-        CMPA    #9
+        CMPA    #10
         LBHI    FCERR
         JSR     FOUT            ; nine digits in FPDIG, the exponent of the first in FPE10
         LDA     <USNB
@@ -350,7 +350,10 @@ UME8    JSR     CPYUX
         STA     ,X+
         LDB     <USNA
 UME10   JSR     CPYUX
-UME11   TFR     X,U
+UME11   CMPU    #FPDIG+9        ; a tenth place shows nothing: the body is one shorter and lies a place further
+        BLS     UME11A          ; right, the exponent still counted for ten ("###########^^^^" prints 1 as
+        LEAX    -1,X            ; "  100000000E-09", ten times too small) [BB bb2 print-using-exp]
+UME11A  TFR     X,U
         LDD     <USEXP
         JSR     EXPOUT
         TFR     U,D

@@ -29,7 +29,7 @@ const { buildBasic } = require('../tools/build-basic.js');
 let fail = 0, n = 0, firstFail = null;
 const check = (name, cond, detail = '') => { n++; if (!cond) { fail++; firstFail = firstFail || name; console.log(`FAIL ${name} ${detail}`); } else console.log(`ok   ${name} ${detail}`); };
 
-const CURPOS = 0x88, BLINK = 0x8F, KEYDLY = 0x97, RELOAD = 50, PASSES = 1064;
+const CURPOS = 0x88, BLINK = 0x8F, KEYDLY = 0x97, RELOAD = 50, PASSES = 1065;
 // the real ROMs, measured as a black box [BB 2026-11-25]: cycles per decrement and per transition (32K mode); ours
 // must be within 1% of each (our delay, PASSES, is chosen for that: our keyboard scan is slower than theirs)
 const BB_DEC = 9177, BB_TURN = 456471, TOL = 0.01;
@@ -289,12 +289,12 @@ const MUTANTS = [
   ['$60 not written on accept', 'keyboard.inc', 'LDB     #$60\n        LDX     <CURPOS\n        STB     ,X', 'LDB     #$60\n        LDX     <CURPOS\n        TST     ,X'],
   ['moving resets the countdown', 'screen.inc', 'CHRDON  STX     <CURPOS', 'CHRDON  STX     <CURPOS\n        LDB     #50\n        STB     <BLINK'],
   ['accepting resets the countdown', 'keyboard.inc', '        STB     ,X\n        PULS    B,X,PC', '        STB     ,X\n        LDB     #50\n        STB     <BLINK\n        PULS    B,X,PC'],
-  ['delay 1,063 passes', 'keyboard.inc', 'LDX     #1064', 'LDX     #1063'],
+  ['delay 1,064 passes', 'keyboard.inc', 'LDX     #1065', 'LDX     #1064'],
   ['the cursor address not read from RAM', 'keyboard.inc', '        LDX     <CURPOS\n        LDA     ,X', '        LDX     #SCREEN\n        LDA     ,X'],
   ['a 0 countdown toggles at once', 'keyboard.inc', 'KW1     DEC     <BLINK\n        BNE     KW2', 'KW1     DEC     <BLINK\n        BGT     KW2'],
   ['debounce delay not from KEYDLY', 'keyboard.inc', 'LDX     <KEYDLY', 'LDX     #300'],
   ['printing leaves the countdown alone', 'screen.inc', 'DEC     <BLINK', 'TST     <BLINK'],
-  ['the delay 10% longer', 'keyboard.inc', 'LDX     #1064', 'LDX     #1170'],
+  ['the delay 10% longer', 'keyboard.inc', 'LDX     #1065', 'LDX     #1170'],
 ];
 for (const [name, file, from, to] of MUTANTS) {
   let used = false;
