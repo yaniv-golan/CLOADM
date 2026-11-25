@@ -66,8 +66,8 @@ and its tests never use them.
 * **Choose the files.** Add ROMs' **Choose files…** and **Choose folder…** list the usual dump extensions (`.rom .bin .zip .ccc .dat .a .b
   .0 .1 .2`, and the models' own names such as `.ci24` and `.ic1`) and `application/octet-stream`, never images or video:
   on an iPhone they open the Files app, not the Photo Library or the camera. A dump with a name outside the list is
-  still offered through `application/octet-stream`; if a phone hides one anyway, drop it on the page or add it from a
-  computer.
+  still offered through `application/octet-stream`; how an iPhone treats such a file is to be confirmed on a phone;
+  until then, drop it on the page or add it from a computer if a phone hides it.
 * **See what went where.** **Add ROMs** (the orange **No BASIC · Add ROMs** in the header, **Add or see ROMs…** at
   the foot of the machine menu, the ROMs row at the top of Machine settings, **Your ROMs** in Ctrl+K, or key 3 on the
   Welcome menu) shows **Your ROMs**: what each one takes (size and usual
