@@ -188,6 +188,7 @@ node tests/program-pages.test.js # the program pages and cards are what tools/pr
 node tests/short-link.test.js # short links on the page's side: sealing, the store over a mocked fetch, the key never sent, guardrails
 node tests/share-one-link.test.js # the Share screen's "one link": an untouched bundled program gives its page; every way in (a key, a typed line, a poke, an assembled program, a tape, a disk, BREAK) makes it a moment, its own running does not
 node tests/basic-share.test.js   # "Share your program": the card's condition, the LIST round trip (Dragon, CoCo, MC-10) through long and short links, the arrival with and without ROMs, the limits, the program link format
+node tests/link-freeze.test.js   # the frozen link formats: the golden links of every version open to what made them, and their bytes never change; the snapshot config rule
 node tests/share-card.test.js     # the share card (Save picture, a short link's preview): 1200x630, every picture pixel frameToRGBA's, the name drawn glyph by glyph
 node tests/shortlink-worker.test.js # the short-link Worker in Node against an in-memory bucket: every check, limit, kill switch and count
 node tests/qr.test.js         # the QR encoder against ISO 18004's worked example and tables, every symbol read back

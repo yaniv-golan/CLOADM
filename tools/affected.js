@@ -78,11 +78,13 @@ const AREAS = [
   { paths: ['js/config.js'], suites: ['config'], groups: ['url'] },
   // the program pages and their cards, and the long link (#z=) and the share pictures
   { paths: ['js/program-pages.js', 'js/media/png.js', 'js/video/card.js', 'tools/program-cards.js'], suites: ['program-pages', 'pwa'], groups: ['url', 'pwa'] },
-  { paths: ['js/media/snapshot.js'], suites: ['long-link', 'share-roms', 'basic-share'], groups: ['share', 'askPopout', 'basicShare'] },
+  { paths: ['js/media/snapshot.js'], suites: ['long-link', 'share-roms', 'basic-share', 'link-freeze'], groups: ['share', 'askPopout', 'basicShare'] },
+  // the frozen link formats: their golden fixtures and the tool that wrote them (AGENTS.md rule 7)
+  { paths: ['tests/fixtures/links/', 'tools/gen-link-fixtures.js'], suites: ['link-freeze'], groups: [] },
   // the share card: Save picture and a short link's preview picture (one renderer)
   { paths: ['js/video/bezel.js'], suites: ['bezel', 'share-card', 'short-link'], groups: ['share', 'shortLink'] },
   // short links: the sealing, the store, the QR code (the Worker itself is shortlink/, tests/shortlink-worker.test.js)
-  { paths: ['js/media/link-crypto.js', 'js/host/link-store.js', 'js/media/qr.js'], suites: ['short-link', 'qr', 'shortlink-worker'], groups: ['shortLink', 'share'] },
+  { paths: ['js/media/link-crypto.js', 'js/host/link-store.js', 'js/media/qr.js'], suites: ['short-link', 'qr', 'shortlink-worker', 'link-freeze'], groups: ['shortLink', 'share', 'basicShare'] },
   { paths: ['js/roms.js', 'js/ui/rom-panel.js', 'js/ui/rom-sockets.js'], suites: ['roms', 'rom-store', 'stored-roms', 'romnames'], groups: ['romUi', 'romInput'] },
   { paths: ['js/selftest.js', 'js/ui/selftest-panel.js'], suites: ['session'], groups: ['models'] },
   { paths: ['js/embed-api.js', 'js/ui/embed.js', 'embed/'], suites: ['embed'], groups: ['embed'] },
