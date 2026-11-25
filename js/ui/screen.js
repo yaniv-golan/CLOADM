@@ -31,7 +31,7 @@ export function setupScreen(page, { loadPrograms, roms }) {
     if (['machine', 'firmware', 'reset', 'loaded'].includes(ev)) audio.discontinuity();
   });
   applyInputSettings();
-  let paused = false, lastStatus = '';
+  let paused = false, lastStatus = '', lastHeld = null;
 
   // ---- the canvas box: the picture's shape (4:3 on every machine, or the whole area) and integer scaling
   // (Display tab), as large as the screen area allows ----
@@ -146,7 +146,16 @@ export function setupScreen(page, { loadPrograms, roms }) {
     if (held) { fps = null; fpsFrames = 0; fpsTime = now; }
     else if (now - fpsTime >= (fps == null ? 250 : 1000)) { fps = fpsFrames * 1000 / (now - fpsTime); fpsFrames = 0; fpsTime = now; }
     const s = session.statusLine(fps, paused);
-    if (s !== lastStatus) { const el = $('status'); el.textContent = s; el.title = s; lastStatus = s; }   // the title carries what a narrow bar clips
+    // Running (the green dot): the dot alone, its words ("49 fps · 98%") its title and its name for a screen reader.
+    // Held (Paused, Stopped in the Debugger: an orange dot): the words show beside it. (A touch layout shows the words
+    // as before: play/index.html.)
+    if (s !== lastStatus || held !== lastHeld) {
+      const el = $('status');
+      el.textContent = s; el.title = s;
+      el.classList.toggle('dot-only', !held);
+      if (held) { el.removeAttribute('role'); el.removeAttribute('aria-label'); } else { el.setAttribute('role', 'img'); el.setAttribute('aria-label', s); }
+      lastStatus = s; lastHeld = held;
+    }
   }
   requestAnimationFrame(tick);
 

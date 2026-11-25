@@ -168,6 +168,13 @@ Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.
   folded view leaves the detector out (`connector/view/needs-basic-off.js` in its place; the Session's `needsBasic` is
   null there, and Run again says it is not available), which keeps the view inside its size budget.
 
+- **A quieter desktop app bar.** Its links are **Programs…** (the Media tab's programs, now at every width),
+  **Library** and **More ▾**, which lists Debugger, Commands…, Help, GitHub and **Install CLOADM…** (only while the
+  page can be installed). Install has the one label, "Install CLOADM…", everywhere: More ▾, a phone's Menu and the
+  touch keys' Menu. The running speed is the green dot alone, its words ("49 fps · 98%") its tooltip and its name;
+  paused or stopped, the words show. A phone's and a touch screen's bar are unchanged. Checked in the browser check's
+  `noRomChrome` group.
+
 - **The colour demo says it runs without ROMs.** It clears the screen (the built-in firmware's banner goes) and prints
   "RUNS WITHOUT ROMS" and "ADD YOURS FOR BASIC", each centred on the 32 columns (`tests/demo-text.test.js`).
 

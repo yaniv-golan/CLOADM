@@ -315,12 +315,34 @@ $('btnMenu').onclick = () => {
   new ResizeObserver(sync).observe(document.body);
   new MutationObserver(sync).observe(document.body, { attributes: true, attributeFilter: ['class'] });
   sync();
-  // Menu's order on a phone: Install… after Share…, before the links; on a wider page it is the app bar's last link
-  // (moved, not reordered by the stylesheet, so the focus goes down the list in the order it is drawn)
-  const narrow = matchMedia('(max-width: 700px)');
-  const installPlace = () => { if (narrow.matches) $('navShare').after($('navInstall')); else $('navInstall').closest('nav').append($('navInstall')); };
-  narrow.addEventListener('change', installPlace);
-  installPlace();
+  // Where the less-used links go (moved, not reordered by the stylesheet, so the focus goes down them in the order they
+  // are drawn). On a desktop (wider than 700 px, not held sideways, without the touch keys) Debugger, Commands…, Help,
+  // GitHub and Install CLOADM… are More ▾'s list, in that order (Install CLOADM… only while the page can be installed:
+  // js/ui/install.js hides it once it is). Elsewhere they are Menu's, as before: on a phone Install CLOADM… after Share….
+  const narrow = matchMedia('(max-width: 700px)'), sideways = matchMedia('(orientation: landscape) and (max-height: 500px)');
+  const nav = $('appbar').querySelector('nav'), more = $('btnMore'), list = $('moreMenu');
+  const MORE = ['navDebugger', 'navCommands', 'navHelp', 'navGithub', 'navInstall'];
+  const desktop = () => !narrow.matches && !sideways.matches && !document.body.classList.contains('touch-keys') && !document.body.classList.contains('touch-hidden');
+  const openMore = (on) => { list.hidden = !on; more.setAttribute('aria-expanded', String(on)); };
+  let wasDesktop = null;
+  const place = () => {
+    const d = desktop();
+    if (d === wasDesktop) return;
+    wasDesktop = d;
+    openMore(false);
+    more.hidden = !d;
+    for (const id of MORE) (d ? list.append($(id)) : nav.insertBefore($(id), more));
+    if (!d && narrow.matches) $('navShare').after($('navInstall'));
+  };
+  narrow.addEventListener('change', () => { wasDesktop = null; place(); });
+  sideways.addEventListener('change', place);
+  new MutationObserver(place).observe(document.body, { attributes: true, attributeFilter: ['class'] });
+  place();
+  more.onclick = () => openMore(list.hidden);
+  // an item chosen, a click elsewhere or Esc closes the list (Esc gives the focus back to More ▾)
+  list.addEventListener('click', () => openMore(false));
+  addEventListener('pointerdown', (e) => { if (!list.hidden && !list.contains(e.target) && e.target !== more) openMore(false); }, true);
+  page.onEscape(ESC.menu, () => !list.hidden, () => { openMore(false); more.focus(); });
 }
 
 // Esc closes the topmost surface that is open (page.onEscape: confirmations, menus, cards, the views, the chat)

@@ -73,6 +73,9 @@
   #status { font: 14px var(--font-mono); color: var(--muted); font-variant-numeric: tabular-nums; }
   #status::before { content: '●'; color: var(--phosphor); margin-right: 6px; }
   body.paused #status::before { color: var(--orange); }
+  /* running (the green dot) on a desktop: the dot alone, its words in its tooltip and its name (js/ui/screen.js) */
+  body:not(:is(.touch-keys, .touch-hidden)) #status.dot-only { font-size: 0; }
+  body:not(:is(.touch-keys, .touch-hidden)) #status.dot-only::before { font-size: 14px; margin-right: 0; }
   #romPill { background: var(--orange); border-color: var(--orange); color: var(--on-orange); font-weight: 700; border-radius: var(--pill); padding: 4px 12px; min-height: 32px; font-size: 14px; }
   .appbar .grow { flex: 1; }
   .appbar nav { display: flex; flex-wrap: wrap; gap: 4px 18px; align-items: center; }
@@ -89,16 +92,22 @@
     .appbar nav { flex-wrap: nowrap; white-space: nowrap; }
     .appbar.tight { gap: 10px 8px; }
     .appbar.tight nav { gap: 4px 6px; }
-    .appbar.tight #machineSpec, .appbar.tight #askKbd, .appbar.tight #navCmdKbd, .appbar.tight #navInstall .more { display: none; }
+    .appbar.tight #machineSpec, .appbar.tight #askKbd, .appbar.tight nav > #navCommands #navCmdKbd { display: none; }  /* (in More ▾ the key stays) */
     .appbar.nostatus > #status { display: none; }
   }
   #btnMenu { display: none; }
-  @media (min-width: 701px) { #navPrograms, #navRoms, #navShare, #navSettings { display: none; } }   /* (the app bar's pill and Share button there) */
+  @media (min-width: 701px) { #navRoms, #navShare, #navSettings { display: none; } }   /* (the app bar's pill and Share button there) */
   /* (with the touch keys the drawer's tabs are in the Settings sheet at any width: Settings… is the way to them) */
   @media (min-width: 701px) { body:is(.touch-keys, .touch-hidden) :is(#navPrograms, #navSettings) { display: inline-flex; } }
   /* (an author display rule outranks the hidden attribute's, so it is stated: once installed, the link goes) */
   #navInstall[hidden] { display: none; }
-  #navInstall .ell { display: none; }   /* (Menu's "Install…" on a phone) */
+  /* More ▾'s list (a desktop): under its button, the links one to a row */
+  .appbar nav { position: relative; }
+  #moreMenu { position: absolute; top: calc(100% + 6px); right: 0; z-index: 21; min-width: 190px; display: flex; flex-direction: column; padding: 6px;
+    background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-14); box-shadow: 0 20px 50px rgba(0, 0, 0, .6); }
+  #moreMenu[hidden], #btnMore[hidden] { display: none; }
+  #moreMenu > a, #moreMenu > button.navlink { display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 6px 12px; border-radius: var(--r-8); text-align: left; }
+  #moreMenu > a:hover, #moreMenu > button.navlink:hover, #moreMenu > :focus-visible { background: var(--line); }
   #machineMenu { position: absolute; top: calc(100% - 6px); left: 20px; z-index: 20; width: min(600px, calc(100vw - 40px)); background: var(--panel);
     border: 1px solid var(--line); border-radius: var(--r-14); padding: 14px 14px 0; box-shadow: 0 20px 50px rgba(0, 0, 0, .6);
     display: flex; flex-direction: column; max-height: 80vh; overflow: hidden; }
@@ -1698,14 +1707,12 @@
     .appbar.menu-open nav { display: flex; position: absolute; z-index: 65; top: 100%; left: 8px; right: 8px; flex-direction: column; align-items: stretch; gap: 0;
       padding: 8px 16px; background: var(--panel); border: 1px solid var(--line-strong); border-top: 0; border-radius: 0 0 12px 12px; box-shadow: 0 20px 40px rgba(0, 0, 0, .6); }
     .appbar.menu-open nav a, .appbar.menu-open nav button.navlink { min-height: 44px; display: flex; align-items: center; text-align: left; }
-    /* Menu's order: Add ROMs, Settings…, Share…, Install… (js/ui/main.js moves it up here), Library, Debugger,
+    /* Menu's order: Add ROMs, Settings…, Share…, Install CLOADM… (js/ui/main.js moves it up here), Library, Debugger,
        Commands…, then, under a rule, Help and GitHub */
     .appbar.menu-open nav button.twoline { flex-direction: column; align-items: flex-start; justify-content: center; gap: 0; }
     .appbar.menu-open nav .twoline .sub { font-size: 13px; color: var(--muted); }
     #btnMenu.media:not(.dot)::after { content: ''; position: absolute; top: 7px; right: 5px; width: 8px; height: 8px; border-radius: 50%; background: var(--phosphor); }
     .appbar.menu-open nav #navHelp { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
-    .appbar.menu-open #navInstall .more { display: none; }
-    .appbar.menu-open #navInstall .ell { display: inline; }
     #machineMenu { left: 8px; right: 8px; width: auto; max-height: 70vh; }
     #machineMenu .menulist { grid-template-columns: minmax(0, 1fr); }
     #switchConfirm { top: 100%; left: 8px; right: 8px; width: auto; }
@@ -1909,7 +1916,11 @@ npx serve -l 8000 .</pre>
     <a href="https://github.com/yaniv-golan/cloadm" id="navGithub">GitHub</a>
     <!-- js/ui/install.js: the browser's own install prompt, or the card with the steps that install it, which opens
          under the app bar, near this link (hidden once installed) -->
-    <button id="navInstall" class="navlink" type="button"><span>Install<span class="more"> CLOADM…</span><span class="ell">…</span></span></button>
+    <button id="navInstall" class="navlink" type="button">Install CLOADM…</button>
+    <!-- a desktop's More ▾ (js/ui/main.js): Debugger, Commands…, Help, GitHub and Install CLOADM… move into its list there;
+         elsewhere (a phone, the touch keys, held sideways) they stay Menu's -->
+    <button id="btnMore" class="navlink" type="button" aria-expanded="false" aria-controls="moreMenu" hidden>More ▾</button>
+    <div id="moreMenu" hidden></div>
   </nav>
   <button id="btnMenu" aria-expanded="false" aria-controls="appbar">Menu</button>
   <div id="machineMenu" role="menu" aria-label="Machines" hidden></div>

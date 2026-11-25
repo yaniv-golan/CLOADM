@@ -694,8 +694,16 @@ const emuFrames = async (page, n) => {
 // every key typed so far has been read by the machine (the no-ROM stub's key queue is empty), then a frame
 const keysTaken = async (page) => { await waitFor(page, () => window.emu.machine.stubKeys.length === 0); await emuFrames(page, 2); };
 // the browser has laid out and painted (two animation frames)
-// Install CLOADM… is a link in the app bar (behind Menu where the bar folds its links): press it
-const pressInstall = async (page) => { if (await page.isVisible('#btnMenu')) await page.click('#btnMenu'); await page.click('#navInstall'); };
+// an app-bar item that may be folded away: behind Menu (a phone, a narrow window) or in More ▾ (a desktop: Debugger,
+// Commands…, Help, GitHub, Install CLOADM…). Press it, opening whichever holds it first
+const pressNav = async (page, sel) => {
+  if (!await page.isVisible(sel)) {
+    if (await page.isVisible('#btnMenu')) await page.click('#btnMenu');
+    else if (await page.isVisible('#btnMore')) await page.click('#btnMore');
+  }
+  await page.click(sel);
+};
+const pressInstall = (page) => pressNav(page, '#navInstall');
 const painted = (page) => page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
 // n animation frames have passed: n turns of the page's frame loop, the window a check that something does NOT happen
 // (a paused machine stays stopped, nothing is redrawn) waits for. Counted in the page's own ticks, not wall time, so
@@ -3709,7 +3717,7 @@ async function cpu6309Checks(browser, base, check) {
   const toasts3 = await p3.evaluate(() => window.__toasts || null);
   check('?machine=coco3&cpu=6309: no error toast, nothing "undefined", no file missing (404)',
     Array.isArray(toasts3) && !toasts3.some((t) => t.error || /undefined/i.test(t.text)) && !missing3.length, JSON.stringify({ toasts3, missing3 }));
-  await p3.click('#navDebugger');
+  await pressNav(p3, '#navDebugger');
   await p3.waitForSelector('#debugView:not([hidden])');
   await waitFor(p3, () => document.querySelectorAll('#dbgRegs [data-reg]').length > 0, null, 15000);
   const dbg3 = await p3.evaluate(() => ({ cls: window.emu.session.shownMachine.cpu.constructor.name, fields: [...document.querySelectorAll('#dbgRegs [data-reg]')].map((e) => e.dataset.reg),
@@ -5030,7 +5038,7 @@ async function debuggerScreenChecks(browser, base, check) {
     await ready(page);
     await page.evaluate(() => { window.__stayed = true; });   // gone if the link loads another page
     if (label === 'phone') await page.click('#btnMenu');
-    await page.click('#navDebugger');
+    await pressNav(page, '#navDebugger');
     await page.waitForSelector('#debugView:not([hidden])');
     const nav = await page.evaluate(() => ({ stayed: window.__stayed === true, path: location.pathname, hash: location.hash,
       appbar: getComputedStyle(document.getElementById('appbar')).display !== 'none', head: getComputedStyle(document.querySelector('.dbghead')).display !== 'none' }));
@@ -5546,8 +5554,8 @@ async function phoneChecks(browser, base, check) {
   // edge at or below the screen's foot; Expand makes it the whole height, Collapse gives that back
   await page.tap('#btnMenu');
   const menuOrder = await page.evaluate(() => [...document.querySelectorAll('#appbar nav > :is(a, button)')].filter((e) => e.checkVisibility()).map((e) => e.innerText.trim()));
-  check('phone: Menu lists Programs…, Add ROMs, Settings…, Share…, Install…, Library, Debugger, Commands…, Help, GitHub, in that order (the focus order too)',
-    menuOrder.join('|') === 'Programs…|Add ROMs (BASIC needs them)|Settings…|Share…|Install…|Library|Debugger|Commands…|Help|GitHub', JSON.stringify(menuOrder));
+  check('phone: Menu lists Programs…, Add ROMs, Settings…, Share…, Install CLOADM…, Library, Debugger, Commands…, Help, GitHub, in that order (the focus order too)',
+    menuOrder.join('|') === 'Programs…|Add ROMs (BASIC needs them)|Settings…|Share…|Install CLOADM…|Library|Debugger|Commands…|Help|GitHub', JSON.stringify(menuOrder));
   const gluedMenu = await gluedLabels(page, '#appbar nav > :is(a, button)');
   check('phone: no Menu label has words run together (each space between words drawn)', !gluedMenu.length, JSON.stringify(gluedMenu));
   await page.tap('#navSettings');
@@ -5979,16 +5987,16 @@ async function phoneChecks(browser, base, check) {
       gone.was && gone.wyrmfireTookThePlace, JSON.stringify(gone));
     // and the machine is switched back for the checks that follow
     await p.evaluate(() => window.emu.session.switchMachine('dragon64'));
-    // the app bar: no Programs… (the drawer's Media tab is in view), and no label with its words run together, at
-    // 1440 (Install, the short label) and at 900 ("Install CLOADM…")
+    // the app bar: Programs… at every width, and no label with its words run together, at 1440 and at 900; Install has
+    // one label, "Install CLOADM…", at both
     const bar = [];
     for (const width of [1440, 900]) {
       await p.setViewportSize({ width, height: 900 });
       await p.waitForTimeout(100);
       bar.push({ width, programs: await p.isVisible('#navPrograms'), install: await p.evaluate(() => document.getElementById('navInstall').innerText.trim()), glued: await gluedLabels(p, '.appbar nav > *') });
     }
-    check('desktop: the app bar has no Programs…, and no label with its words run together ("Install", then "Install CLOADM…" at 900 px)',
-      bar.every((b) => !b.programs && !b.glued.length) && bar[0].install === 'Install' && bar[1].install === 'Install CLOADM…', JSON.stringify(bar));
+    check('desktop: the app bar has Programs…, no label with its words run together, and Install is "Install CLOADM…" (at 1440 and 900 px)',
+      bar.every((b) => b.programs && !b.glued.length && b.install === 'Install CLOADM…'), JSON.stringify(bar));
     // the audit of every file picker on the page: each has an accept list of its own purpose (the extensions it takes, and
     // application/octet-stream so a phone offers a file of a type it does not know, a .cas, a .vdk), none asks for image/*
     // or video/* (iOS would offer the Photo Library and the camera next to Files) or carries `capture`, and a picker
@@ -8279,7 +8287,7 @@ async function commandsChecks(browser, site, check) {
   for (const [label, viewport] of [['1280x720', { width: 1280, height: 720 }], ['phone', { width: 390, height: 844 }]]) {
     const L = `commands (${label})`;
     const { ctx, page } = await open({ viewport });
-    if (label === 'phone') { await page.click('#btnMenu'); await page.click('#navCommands'); } else await page.keyboard.press('Control+k');
+    if (label === 'phone') { await page.click('#btnMenu'); await pressNav(page, '#navCommands'); } else await page.keyboard.press('Control+k');
     await waitFor(page, () => !document.getElementById('cmdBox').hidden);
     const r = await page.evaluate(() => {
       const l = document.getElementById('cmdList');
@@ -8321,12 +8329,13 @@ async function commandsChecks(browser, site, check) {
     // expectation below is the literal "Ctrl K", not a copy of the page's own platform test. The Mac case has its
     // own block; the platform -> hint mapping is held as a table in the controlled-platforms block after it.
     const { ctx, page } = await open({ viewport: { width: 1280, height: 720 } }, () => Object.defineProperty(navigator, 'platform', { get: () => 'Linux x86_64' }));
-    // (whether the key hint shows depends on the fonts: the bar's "tight" mode hides it when the links would run past the bar)
+    // (it is in More ▾, where the key hint always shows: the bar's "tight" mode hides it only in the bar itself)
+    await page.click('#btnMore');
     const nav = await page.evaluate(() => { const b = document.getElementById('navCommands'), k = document.getElementById('navCmdKbd');
-      return { text: b.textContent.replace(/\s+/g, ' ').trim(), shown: b.getClientRects().length > 0, inNav: !!b.closest('.appbar nav'),
+      return { text: b.textContent.replace(/\s+/g, ' ').trim(), shown: b.getClientRects().length > 0, inMore: !!b.closest('#moreMenu'),
         tight: document.getElementById('appbar').classList.contains('tight'), kbdShown: k.getClientRects().length > 0 }; });
     await page.click('#navCommands');
-    check('commands (desktop): the app bar has "Commands… Ctrl K" (the key shown unless the bar is tight); it opens the box, focused', nav.text === 'Commands… Ctrl K' && nav.shown && nav.inNav && nav.kbdShown === !nav.tight
+    check('commands (desktop): More ▾ has "Commands… Ctrl K" (the key shown); it opens the box, focused', nav.text === 'Commands… Ctrl K' && nav.shown && nav.inMore && nav.kbdShown
       && await waitFor(page, () => !document.getElementById('cmdBox').hidden && document.activeElement === document.getElementById('cmdInput')), JSON.stringify(nav));
     await page.keyboard.press('Escape');
     await page.click('#btnAsk');
@@ -8336,13 +8345,15 @@ async function commandsChecks(browser, site, check) {
     await closeCtx(ctx);
   }
   // tight mode hides the RAM size: the machine button's title and aria-label still name the machine and its RAM
+  // (at 1200, the one-row bar's narrowest, in a wide font spaced wider still: with five of its links in More ▾ the bar
+  // needs both to go tight)
   {
-    const { ctx, page } = await open({ viewport: { width: 1280, height: 720 } });
+    const { ctx, page } = await open({ viewport: { width: 1200, height: 720 } });
     const read = () => page.evaluate(() => { const b = document.getElementById('machineBtn'), sp = document.getElementById('machineSpec');
       return { title: b.title, aria: b.getAttribute('aria-label'), want: `${document.getElementById('machineName').textContent} ${sp.textContent}`.trim(),
         tight: document.getElementById('appbar').classList.contains('tight'), specShown: sp.getClientRects().length > 0 }; });
     const plain = await read();
-    await page.addStyleTag({ content: 'body, button, a, input, select { font-family: "DejaVu Sans", Verdana, sans-serif !important; }' });
+    await page.addStyleTag({ content: 'body, button, a, input, select { font-family: "DejaVu Sans", Verdana, sans-serif !important; letter-spacing: 1px !important; }' });
     await waitFor(page, () => document.getElementById('appbar').classList.contains('tight'));
     const tight = await read();
     check('commands (app bar): the machine button\'s title and aria-label are "<name> <ram>K" (e.g. "Dragon 64 64K"), also in tight mode where the RAM size is hidden',
@@ -8371,7 +8382,7 @@ async function commandsChecks(browser, site, check) {
     const before = await page.evaluate(() => document.getElementById('navCommands').getClientRects().length === 0);
     await page.click('#btnMenu');
     const nav = await page.evaluate(() => { const b = document.getElementById('navCommands'); return { text: b.innerText.replace(/\s+/g, ' ').trim(), shown: b.getClientRects().length > 0 }; });
-    await page.click('#navCommands');
+    await pressNav(page, '#navCommands');
     check('commands (phone): "Commands…" (no key) sits behind Menu and opens the box, focused; the menu closes',
       before && nav.shown && nav.text === 'Commands…' && await waitFor(page, () => !document.getElementById('cmdBox').hidden && document.activeElement === document.getElementById('cmdInput')
         && !document.getElementById('appbar').classList.contains('menu-open')), JSON.stringify(nav));
@@ -9001,7 +9012,7 @@ SUB     INCA
   await openTab(pS, 'Machine');
   await pS.selectOption('#cpuSel', '6309');
   await waitFor(pS, () => window.emu.machine.cpu.constructor.name === 'CPU6309');
-  await pS.click('#navDebugger');
+  await pressNav(pS, '#navDebugger');
   await pS.waitForSelector('#debugView:not([hidden])');
   await waitFor(pS, () => document.querySelectorAll('#dbgRegs [data-reg]').length > 0);
   const s9 = await pS.evaluate(() => ({
@@ -9085,7 +9096,7 @@ SUB     INCA
   p8.on('pageerror', (e) => errors8.push(e.message));
   await p8.goto(`${base}?machine=dragon64`);
   await ready(p8);
-  await p8.click('#navDebugger');
+  await pressNav(p8, '#navDebugger');
   await p8.waitForSelector('#debugView:not([hidden])');
   await waitFor(p8, () => document.querySelectorAll('#dbgRegs [data-reg]').length > 0);
   const label6809 = await p8.evaluate(async () => {
@@ -9109,7 +9120,8 @@ async function layoutChecks(browser, base, check) {
   // The app bar stays ONE row at 1280 x 720 (first visit: the "No BASIC" pill is showing, the widest the bar gets),
   // in the runner's own system font and again in a deliberately wide one, so a runner whose fallback font is wider
   // than this machine's cannot push the links onto a second row (they did: 116 px in CI, 68 locally).
-  // Measured with getBoundingClientRect: every item sits in one band the height of the tallest, the four links share a top.
+  // Measured with getBoundingClientRect: every item sits in one band the height of the tallest, the bar's three links
+  // (Programs…, Library, More ▾: the rest are in More ▾) share a top.
   {
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 720 } });
     const page = await ctx.newPage();
@@ -9120,16 +9132,16 @@ async function layoutChecks(browser, base, check) {
       const bar = document.getElementById('appbar'), b = bar.getBoundingClientRect();
       const items = [...bar.children].filter((e) => e.offsetParent !== null && e.getBoundingClientRect().width > 0);
       const tops = items.map((e) => e.getBoundingClientRect().top), bottoms = items.map((e) => e.getBoundingClientRect().bottom);
-      const links = [...bar.querySelectorAll('nav a')].map((a) => a.getBoundingClientRect());
+      const links = [...bar.querySelectorAll('nav > :is(a, button)')].filter((e) => e.checkVisibility()).map((a) => a.getBoundingClientRect());
       const nav = bar.querySelector('nav').getBoundingClientRect();
       return { h: Math.round(b.height), band: Math.round(Math.max(...bottoms) - Math.min(...tops)), links: links.length,
         linkSpread: links.length ? Math.round(Math.max(...links.map((r) => r.top)) - Math.min(...links.map((r) => r.top))) : -1,
         navInside: nav.right <= b.right + 0.5, romPill: !!document.getElementById('romPill').offsetParent, scroll: document.documentElement.scrollWidth <= innerWidth,
         font: getComputedStyle(document.body).fontFamily.slice(0, 40) };
     });
-    const oneRow = (m) => m.links === 4 && m.romPill && m.linkSpread <= 2 && m.band <= 50 && m.h <= 80 && m.navInside && m.scroll;
+    const oneRow = (m) => m.links === 3 && m.romPill && m.linkSpread <= 2 && m.band <= 50 && m.h <= 80 && m.navInside && m.scroll;
     const m1 = await measure();
-    check('layout (1280 x 720): the app bar is one row, the four links on one line, in the page font', oneRow(m1), JSON.stringify(m1));
+    check('layout (1280 x 720): the app bar is one row, its three links on one line, in the page font', oneRow(m1), JSON.stringify(m1));
     await page.addStyleTag({ content: 'body, button, a, input, select { font-family: "DejaVu Sans", Verdana, sans-serif !important; }' });
     await page.evaluate(() => document.fonts.ready);
     const m2 = await measure();
@@ -9142,8 +9154,9 @@ async function layoutChecks(browser, base, check) {
     await page.setViewportSize({ width: 1200, height: 720 });
     await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
     // (the status: whole, or not shown where the bar has no room, never cut to a stub: the v0.1.8 review's m4)
-    const m3 = await measure(), st3 = await page.evaluate(() => { const e = document.getElementById('status'); return { w: e.getBoundingClientRect().width, shown: e.checkVisibility(), whole: e.scrollWidth <= e.clientWidth + 0.5 }; });
-    check('layout (1200 x 720, wide font): one row, and the status whole or not shown (no stub)', oneRow(m3) && (st3.shown ? st3.whole && st3.w >= 16 : true), `${JSON.stringify(m3)} status ${JSON.stringify(st3)}`);
+    const m3 = await measure(), st3 = await page.evaluate(() => { const e = document.getElementById('status'); return { w: e.getBoundingClientRect().width, shown: e.checkVisibility(), whole: e.scrollWidth <= e.clientWidth + 0.5, dot: e.classList.contains('dot-only'), name: e.getAttribute('aria-label') }; });
+    // (running, the status is the green dot alone, its words in its name and tooltip; held, its words are shown whole)
+    check('layout (1200 x 720, wide font): one row, and the status whole, the dot alone, or not shown (no stub)', oneRow(m3) && (st3.shown ? st3.whole && (st3.w >= 16 || st3.dot && !!st3.name) : true), `${JSON.stringify(m3)} status ${JSON.stringify(st3)}`);
     await closeCtx(ctx);
   }
   for (const [label, viewport] of [['desktop', { width: 1440, height: 1000 }], ['phone', { width: 390, height: 844 }]]) {
@@ -12580,7 +12593,7 @@ async function uiCopyChecks(browser, base, check) {
     const where = await page.evaluate(() => { const b = document.getElementById('navInstall'); return { inNav: !!b && !!b.closest('.appbar nav'), inMenu: !!b && !!b.closest('#machineMenu'), menuHasInstall: document.getElementById('machineMenu').textContent.includes('Install CLOADM') }; });
     check(`install (${label}): the entry is in the app bar's links, not in the machine menu`, where.inNav && !where.inMenu && !where.menuHasInstall, JSON.stringify(where));
     if (label === 'phone') await page.click('#btnMenu');
-    await page.click('#navInstall');
+    await pressNav(page, '#navInstall');
     await waitFor(page, () => !document.getElementById('installOffer').hidden);
     await painted(page);
     const near = await page.evaluate(() => { const c = document.getElementById('installOffer').getBoundingClientRect(), bar = document.getElementById('appbar').getBoundingClientRect(), win = innerHeight;
@@ -15681,7 +15694,7 @@ async function askBesideChecks(browser, base, check) {
       if (label === 'phone') {
         // a phone: Menu, then "Commands…", then the command
         if (await page.isVisible('#btnMenu')) await page.click('#btnMenu');
-        await page.click('#navCommands');
+        await pressNav(page, '#navCommands');
         await waitFor(page, () => !document.getElementById('cmdBox').hidden);
         await page.keyboard.type('chat full'); await page.keyboard.press('Enter');
       } else {
@@ -16141,7 +16154,7 @@ async function emulatorBackChecks(browser, base, check) {
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
   const VIEWS = [
-    ['Debugger', 'debugView', '#btnDbgBack', () => page.click('#navDebugger')],
+    ['Debugger', 'debugView', '#btnDbgBack', () => pressNav(page, '#navDebugger')],
     ['Library', 'library', '#btnLibBack', () => page.click('#navLibrary')],
     ['Share', 'share', '#shareBack', () => page.click('#btnShare')],
     ['Add ROMs', 'romCard', '#btnRomBack', () => page.click('#romPill')],
@@ -16185,9 +16198,9 @@ async function emulatorBackChecks(browser, base, check) {
     // deeper history: the Debugger, closed and opened again, then a reload on it; its "← Emulator", then the
     // browser's Back, never land on the Debugger (or the chat) again
     await load(query);
-    await page.click('#navDebugger'); await waitFor(page, () => !document.getElementById('debugView').hidden);
+    await pressNav(page, '#navDebugger'); await waitFor(page, () => !document.getElementById('debugView').hidden);
     await page.click('#btnDbgBack'); await onEmulator();
-    await page.click('#navDebugger'); await waitFor(page, () => !document.getElementById('debugView').hidden);
+    await pressNav(page, '#navDebugger'); await waitFor(page, () => !document.getElementById('debugView').hidden);
     await page.reload(); await started(page);
     const reloaded = await waitFor(page, () => !document.getElementById('debugView').hidden);
     await page.click('#btnDbgBack');
@@ -16209,7 +16222,7 @@ async function emulatorBackChecks(browser, base, check) {
     await close('#btnClaudeBack');
     check(`emulator back: ?app=claude → reload → chat ${how} shows the emulator`, await onEmulator(), await where());
     await openChat();
-    await page.click('#navDebugger'); await waitFor(page, () => !document.getElementById('debugView').hidden);
+    await pressNav(page, '#navDebugger'); await waitFor(page, () => !document.getElementById('debugView').hidden);
     await page.click('#btnDbgBack'); await onEmulator();
     await openChat();
     await close('#btnClaudeBack');
@@ -16239,7 +16252,7 @@ async function emulatorBackChecks(browser, base, check) {
   for (const [label, viewport] of [['wide', { width: 1440, height: 900 }], ['narrow', { width: 600, height: 900 }]]) {
     await page.setViewportSize(viewport);
     for (const [name, id, back, open, words] of [
-      ['Debugger', 'debugView', '#btnDbgBack', () => page.click('#navDebugger'), 'Open the Debugger'],
+      ['Debugger', 'debugView', '#btnDbgBack', () => pressNav(page, '#navDebugger'), 'Open the Debugger'],
       ['Library', 'library', '#btnLibBack', () => page.click('#navLibrary'), 'Open the Library'],
       ['Share', 'share', '#shareBack', () => page.click('#btnShare'), 'Share']]) {
       for (const [how, close] of Object.entries(closeBy)) {
@@ -16558,7 +16571,7 @@ async function backFocusChecks(browser, base, check) {
   // From a view, the full-screen chat fails to open (the firmware does not load): the view's close still reopens the panel
   await load('?machine=dragon64');
   await openChat(); await tag();
-  await page.click('#navDebugger'); await waitFor(page, () => !document.getElementById('debugView').hidden);
+  await pressNav(page, '#navDebugger'); await waitFor(page, () => !document.getElementById('debugView').hidden);
   await ctx.route('**/examples/chat.bin', (route) => route.abort('failed'));
   await page.keyboard.press('Control+k'); await page.fill('#cmdInput', 'Chat with Claude, full screen'); await page.keyboard.press('Enter');
   const failed = await waitFor(page, () => /Chat:/.test(document.getElementById('toast').textContent) && document.getElementById('toast').classList.contains('error'), null, 8000);
@@ -18304,7 +18317,7 @@ async function uiQaChecks(browser, base, check) {
       return { top: Math.round(r.top), bottom: Math.round(r.bottom), vh: innerHeight, scrolls: sheet.scrollHeight > sheet.clientHeight + 1,
         order, sepAfterPower, reach };
     }, ORDER8);
-    check(`ui qa (landscape ${label}, touch keys): the keys' Menu is in the UX order (Programs…, Open…, Ask Claude…, Share…, Tape…, Machine…, Settings…, Power…, rule, Commands…, Install…, Hide keys) and every item is reachable by a real tap`,
+    check(`ui qa (landscape ${label}, touch keys): the keys' Menu is in the UX order (Programs…, Open…, Ask Claude…, Share…, Tape…, Machine…, Settings…, Power…, rule, Commands…, Install CLOADM…, Hide keys) and every item is reachable by a real tap`,
       JSON.stringify(o.order) === JSON.stringify(ORDER8) && o.sepAfterPower && o.top >= 0 && o.bottom <= o.vh && o.scrolls
         && o.reach.length === 11 && o.reach.every((x) => x.inside && x.topmost && x.h >= 44),
       JSON.stringify(o));
@@ -18487,7 +18500,7 @@ async function uiQaChecks(browser, base, check) {
     ['Share', 'share', () => page.click('#btnShare')],
     ['Library', 'library', () => page.click('#navLibrary')],
     ['Add ROMs', 'romCard', () => page.click('#romPill')],
-    ['Debugger', 'debugView', () => page.click('#navDebugger')],
+    ['Debugger', 'debugView', () => pressNav(page, '#navDebugger')],
     ['drive menu', 'driveMenu', () => page.click('#drives [data-drive="0"]')],
     ['switch confirmation', 'switchConfirm', async () => { await page.click('#machineBtn'); await page.click('#machineMenu button[data-machine="coco3"]'); }],
     ['Ask Claude panel', 'ask', () => page.click('#btnAsk')],
@@ -20480,7 +20493,7 @@ async function installChecks(browser, base, check) {
   {
     const { ctx, page, errors } = await open(browser, `${base}?machine=dragon64`);
     await firePrompt(page);
-    check('install: the Install link is there with a held prompt', await page.isVisible('#navInstall'));
+    check('install: the Install link is offered with a held prompt', await page.evaluate(() => !document.getElementById('navInstall').hidden));
     await pressInstall(page);
     check('install: the Menu item runs the browser\'s own prompt (no card in its way)', await waitFor(page, () => window.__prompted === 1) && !(await cardUp(page)));
     check('install: no page errors', !errors.length, errors.join('; '));
@@ -21589,8 +21602,8 @@ async function mobileChecks(browser, base, check) {
     const items = await page.evaluate(() => [...document.querySelectorAll('.appbar nav > *')].filter((e) => e.checkVisibility()).map((e) => e.innerText.replace(/\s+/g, ' ').trim()));
     // the first item says why ROMs, and wears Menu's dot
     const itemDot = await page.evaluate(() => { const d = document.querySelector('#navRoms .dot'); return !!d && d.checkVisibility() && getComputedStyle(d).backgroundColor === getComputedStyle(document.getElementById('btnMenu'), '::after').backgroundColor; });
-    check('mobile (393x659): Menu has a dot while there is no BASIC, and lists Programs… first, then "Add ROMs (BASIC needs them)", with the same dot, Settings…, Share…, Install…, the links, Commands…, Help and GitHub',
-      dot && itemDot && items.join('|') === 'Programs…|Add ROMs (BASIC needs them)|Settings…|Share…|Install…|Library|Debugger|Commands…|Help|GitHub', JSON.stringify({ dot, itemDot, items }));
+    check('mobile (393x659): Menu has a dot while there is no BASIC, and lists Programs… first, then "Add ROMs (BASIC needs them)", with the same dot, Settings…, Share…, Install CLOADM…, the links, Commands…, Help and GitHub',
+      dot && itemDot && items.join('|') === 'Programs…|Add ROMs (BASIC needs them)|Settings…|Share…|Install CLOADM…|Library|Debugger|Commands…|Help|GitHub', JSON.stringify({ dot, itemDot, items }));
     const glued = await gluedLabels(page, '.appbar nav > *');
     check('mobile (393x659): no Menu label has words run together', !glued.length, JSON.stringify(glued));
     check('mobile (393x659): opening Menu moves nothing in the bar', JSON.stringify(before) === JSON.stringify(await row()));
@@ -22531,6 +22544,64 @@ async function noRomChromeChecks(browser, base, check) {
         before.notes.length === 0 && !before.noRomsNeeded && await page.evaluate(() => !document.getElementById('screenNotes').checkVisibility()), JSON.stringify(before));
     }
     check(`no-ROM chrome (${kind}): no page errors`, !errors.length, errors.join('; '));
+    await closeCtx(ctx);
+  }
+  // The desktop app bar (wider than 700 px, a mouse): Programs…, Library and More ▾ as its links, More ▾ listing
+  // Debugger, Commands…, Help, GitHub and Install CLOADM… in that order (Install only while the page can be installed:
+  // not once it runs installed), Programs… opening the Media tab's programs, the speed a green dot alone with its words
+  // as its tooltip and its name (held, the words show), and with Claude features Off nothing about Claude in the bar.
+  for (const installed of [false, true]) {
+    const L = installed ? 'app bar (installed)' : 'app bar';
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, serviceWorkers: 'block' });
+    // (installed: the page runs as an installed app, display-mode standalone)
+    if (installed) await ctx.addInitScript(() => { const mm = window.matchMedia.bind(window); window.matchMedia = (q) => (/display-mode:\s*standalone/.test(q) ? { ...mm(q), matches: true, media: q, addEventListener() {}, removeEventListener() {} } : mm(q)); });
+    const page = await ctx.newPage();
+    const errors = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto(`${base}?machine=dragon64`); await started(page);
+    const bar = () => page.evaluate(() => [...document.querySelectorAll('#appbar nav > *')].filter((e) => e.checkVisibility()).map((e) => e.innerText.replace(/\s+/g, ' ').trim()));
+    const more = () => page.evaluate(() => [...document.getElementById('moreMenu').children].filter((e) => e.checkVisibility()).map((e) => e.innerText.replace(/\s+/g, ' ').trim()));
+    const links = await bar();
+    check(`${L}: the bar's links are Programs…, Library and More ▾, and More ▾'s list is closed`, links.join('|') === 'Programs…|Library|More ▾' && (await more()).length === 0, JSON.stringify(links));
+    await page.click('#btnMore');
+    const list = await more(), expanded = await page.getAttribute('#btnMore', 'aria-expanded');
+    const want = ['Debugger', 'Commands… Ctrl K', 'Help', 'GitHub', ...(installed ? [] : ['Install CLOADM…'])];
+    check(`${L}: More ▾ lists ${want.join(', ')}, in that order${installed ? ' (no Install CLOADM…: it is installed)' : ''}`, JSON.stringify(list) === JSON.stringify(want) && expanded === 'true', JSON.stringify({ list, expanded }));
+    if (!installed && shotDir) await page.screenshot({ path: path.join(shotDir, 'app-bar-more.png'), clip: { x: 0, y: 0, width: 1280, height: 320 } });
+    await page.keyboard.press('Escape');
+    check(`${L}: Esc closes More ▾ and gives it the focus`, await waitFor(page, () => document.getElementById('moreMenu').hidden && document.activeElement.id === 'btnMore'));
+    if (!installed) {
+      // a click elsewhere closes it too, and an item chosen closes it and does its work
+      await page.click('#btnMore'); await page.mouse.click(640, 400);
+      const closedOutside = await waitFor(page, () => document.getElementById('moreMenu').hidden);
+      await page.click('#btnMore'); await page.click('#navDebugger');
+      check(`${L}: a click elsewhere closes More ▾; Debugger chosen in it closes it and opens the Debugger`, closedOutside
+        && await waitFor(page, () => document.getElementById('moreMenu').hidden && !document.getElementById('debugView').hidden), JSON.stringify({ closedOutside }));
+      await page.click('#btnDbgBack');
+      await waitFor(page, () => document.getElementById('debugView').hidden);
+      // Programs… opens the drawer's Media tab with the programs, the first one focused
+      await page.click('#navPrograms');
+      check(`${L}: Programs… opens the Media tab's programs (the first one focused)`, await waitFor(page, () => document.getElementById('tab-media').getAttribute('aria-selected') === 'true'
+        && document.getElementById('shelf').contains(document.activeElement) && document.getElementById('shelf').checkVisibility()));
+      // the speed: running, the green dot alone (its words its tooltip and its name); held, the words drawn
+      const status = () => page.evaluate(() => { const e = document.getElementById('status'); return { text: e.textContent, title: e.title, name: e.getAttribute('aria-label'), role: e.getAttribute('role'), w: Math.round(e.getBoundingClientRect().width), dot: e.classList.contains('dot-only') }; });
+      await waitFor(page, () => /fps/.test(document.getElementById('status').textContent));
+      const run = await status();
+      check(`${L}: running, the speed is the green dot alone; its words ("49 fps · 98%") are its tooltip and its name`,
+        run.dot && /^\d+ fps · \d+%$/.test(run.text) && run.title === run.text && run.name === run.text && run.role === 'img' && run.w < 20, JSON.stringify(run));
+      await page.click('#btnPause');
+      await waitFor(page, () => !document.getElementById('status').classList.contains('dot-only'));
+      const held = await status();
+      check(`${L}: held (Pause), the dot is not green and its words are drawn beside it (no name: the words are there)`, !held.dot && held.w > 30 && held.name === null && held.title === held.text, JSON.stringify(held));
+      await page.click('#btnPause');
+      // Claude features Off: nothing about Claude in the bar or in More ▾
+      await page.evaluate(() => window.emu.session.setClaudeFeatures(false));
+      await page.click('#btnMore');
+      const words = await page.evaluate(() => [...document.querySelectorAll('#appbar *')].filter((e) => e.checkVisibility() && !e.children.length).map((e) => e.textContent).join(' '));
+      check(`${L}: with Claude features Off, the bar and More ▾ say nothing of Claude (no Ask Claude)`, !/Claude|Ask/.test(words.replace('Install CLOADM…', '')) && !await page.isVisible('#btnAsk'), words);
+      await page.evaluate(() => window.emu.session.setClaudeFeatures(true));
+    }
+    check(`${L}: no page errors`, !errors.length, errors.join('; '));
     await closeCtx(ctx);
   }
 }
