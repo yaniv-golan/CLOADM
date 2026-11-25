@@ -12,8 +12,9 @@
  */
 export const WYRMFIRE_PIN = Object.freeze({
   version: '0.1.0',
-  // wyrmfire main: the KILLS-only end screen, the one-picture hit flash, the loader and HUD fixes. No release tag yet:
-  // set `tag` once there is one, and keep `commit` at that tag's commit.
+  // wyrmfire main: the credits screen (C on the title: the level disk's own credit lines, then the engine's) and the
+  // CREDITS.TXT the converter now writes onto the level disks. No release tag yet: set `tag` once there is one, and keep
+  // `commit` at that tag's commit.
   commit: '775ec6c8167dd576c63a2869c500ecb706f41456',
   tag: null,
   repo: 'https://github.com/yaniv-golan/wyrmfire',
