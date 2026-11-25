@@ -265,7 +265,8 @@ node tools/basic-bb/compare.js real.jsonl ours.jsonl
   called reading ROM data and returning to it, stops the recording there (status `rom-read`). Two consecutive bytes
   whose value is where control goes next (an interrupt vector, a jump through a table) only pick a target and are
   allowed. What the lint cannot see: a program that `POKE`s BASIC's own pointers to show the ROM; corpus programs
-  `POKE` freely, so this is a stated residual risk, not a check.
+  `POKE` freely, so this is a stated residual risk, not a check, accepted on the condition that only
+  the programs with redistribution permission go in `--full` (all others are recorded as hashes).
 * **The keyword probe** (`probe-keywords.bas`): writes every byte value `$80-$FE` (and `$FF` with each) into `REM`
   lines and `LIST`s them, so `LIST` spells out every token, including keywords we do not know about.
 
