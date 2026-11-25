@@ -55,6 +55,13 @@ for (const c of ['8', '8.5']) {
   run(`CLS ${c}`);
   check(`CLS ${c}: truncated to colour 8, the screen filled`, cells().slice(4 * 32).every((v) => v === block(8)));
 }
+// a second line of our own for CLS 67 (67.5 truncates to it); its neighbours print the first
+for (const [c, line] of [['66', 'MADE WITHOUT PEEKING'], ['67', 'OK BOOMER'], ['67.5', 'OK BOOMER'], ['68', 'MADE WITHOUT PEEKING']]) {
+  b.record();
+  run(`CLS ${c}`);
+  const t = b.transcript(), at = t.indexOf(`CLS ${c}`);
+  check(`CLS ${c}: ${line}, an empty line, OK`, JSON.stringify(t.slice(at + 1)) === JSON.stringify([line, '', 'OK']), JSON.stringify(t));
+}
 for (const c of [256, -1, '1E3']) {
   b.record();
   run(`CLS ${c}`);

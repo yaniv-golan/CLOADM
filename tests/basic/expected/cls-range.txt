@@ -1,4 +1,4 @@
-# [OWN] CLS 9-255: our own line, MADE WITHOUT PEEKING, then an empty line, no error, in the original's shape; a colour is truncated [BB bb2, screen-cls-range and its boundary run: one line of text, an empty line, no error for 9-255 and 9.5, 255.9; ?FC ERROR for 256, 1E3, -1]
+# [OWN] CLS 9-255: our own line, MADE WITHOUT PEEKING (OK BOOMER for 67), then an empty line, no error, in the original's shape; a colour is truncated [BB bb2, screen-cls-range and its boundary run: one line of text, an empty line, no error for 9-255 and 9.5, 255.9; ?FC ERROR for 256, 1E3, -1]
 OK
 CLS 9
 MADE WITHOUT PEEKING
@@ -24,4 +24,20 @@ CLS 1E3
 OK
 CLS -1
 ?FC ERROR
+OK
+CLS 66
+MADE WITHOUT PEEKING
+
+OK
+CLS 67
+OK BOOMER
+
+OK
+CLS 67.5
+OK BOOMER
+
+OK
+CLS 68
+MADE WITHOUT PEEKING
+
 OK

@@ -372,9 +372,15 @@ CLSS0   TFR     A,B
 CLSS1   JSR     CLS
         JMP     <ZCHRGOT
 CLSBIG  LDX     #CLSMSG
-        JSR     PRTSTR
+        CMPB    #67
+        BNE     CLSB1
+        LDX     #CLSM67
+CLSB1   JSR     PRTSTR
         JMP     <ZCHRGOT
 CLSMSG  FCC     "MADE WITHOUT PEEKING"  ; [OWN] the line CLS 9-255 prints (chosen for this BASIC)
+        FCB     13,13
+        FCN     ""
+CLSM67  FCC     "OK BOOMER"             ; [OWN] CLS 67's line instead (chosen for this BASIC)
         FCB     13,13
         FCN     ""
 
