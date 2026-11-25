@@ -77,15 +77,28 @@ function makeRun(log = console.log) {
   };
   // A promise nobody handled (a route handler's route.fetch that the OS reset, a page call that outlived its page)
   // kills the Node process by default (Node 15 and later), and with it every group after the one that was running. A
-  // rejection is a FAIL in the group that was running, with its reason, and the run goes on; the exit code stays 1,
-  // so nothing is hidden. proc: the process (an EventEmitter) to listen on; returns the function that stops listening.
+  // rejection is a FAIL, with its reason, and the run goes on. It is counted against whatever group is current when
+  // it surfaces - not necessarily the one that caused it - or against no group when none is running (during setup,
+  // between groups, after the last one). The exit code is set to 1 at once: a rejection that surfaces after the
+  // summary has been printed must not leave a run that said "passed" exiting 0. proc: the process (an EventEmitter)
+  // to listen on; returns the function that stops listening.
   run.guardRejections = (proc = process) => {
     const onRejection = (reason) => {
       failed(run.current);
+      proc.exitCode = 1;
       log(`FAIL unhandled rejection${run.current ? ` in ${run.current.name}` : ''}: ${reason && reason.stack ? reason.stack : reason}`);
     };
     proc.on('unhandledRejection', onRejection);
     return () => proc.off('unhandledRejection', onRejection);
+  };
+  // The run's own body (starting the server and the browser, then the groups). Whatever it throws is a FAIL and the end
+  // of the groups, not an escaped rejection: the caller goes on to close what it opened and print the summary, so the
+  // exit code is 1.
+  run.top = async (body) => {
+    try { await body(); } catch (e) {
+      failed(run.current);
+      log(`FAIL the browser check itself threw, the groups after this did not run\n${e && e.stack ? e.stack : e}`);
+    }
   };
   // the closing lines; returns the exit code
   run.summary = () => {

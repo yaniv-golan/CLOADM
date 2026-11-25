@@ -279,6 +279,46 @@ check('--only twice: an error', /more than once/.test(parseOnly(['--only', 'shar
     check('guardRejections: the rejection is a FAIL in its group, with its reason', /FAIL unhandled rejection in one: Error: route\.fetch: connect ECONNRESET/.test(guarded.out) && /FAILED group one: 1 failure/.test(guarded.out), guarded.out);
     check('guardRejections: the next group still runs and the run still exits 1', /ok   the second group runs/.test(guarded.out) && /groups: 2 run, 1 passed, 1 failed/.test(guarded.out) && guarded.exit === 1, `exit=${guarded.exit} ${guarded.out}`);
     check('guardRejections: without it the process dies in the group (the second never runs, no summary)', bare.exit !== 0 && !/second group runs|groups:/.test(bare.out) && /ECONNRESET/.test(bare.err), `exit=${bare.exit} ${bare.out}`);
+    // a rejection that surfaces after the summary was printed ("passed") still ends the process with exit 1
+    const lateOut = await new Promise((res) => {
+      const code = `const { makeRun } = require(${lib}); const run = makeRun(); run.guardRejections();
+        (async () => {
+          await run.group('one', async () => run.check('fine', true));
+          process.exitCode = run.summary();
+          Promise.reject(new Error('late: connect ECONNRESET'));
+        })();`;
+      const c = require('child_process').spawn(process.execPath, ['-e', code], { stdio: ['ignore', 'pipe', 'pipe'] });
+      let out = '';
+      c.stdout.on('data', (d) => { out += d; });
+      c.on('exit', (exit) => res({ exit, out }));
+    });
+    check('guardRejections: a rejection after the summary says "passed" still exits 1, with its FAIL line',
+      /browser check passed/.test(lateOut.out) && /FAIL unhandled rejection: Error: late: connect ECONNRESET/.test(lateOut.out) && lateOut.exit === 1, `exit=${lateOut.exit} ${lateOut.out}`);
+    // run.top: the run's own body throwing (a browser that will not launch) is a FAIL, the closing code still runs, exit 1
+    const topOut = await new Promise((res) => {
+      const code = `const { makeRun } = require(${lib}); const run = makeRun(); run.guardRejections();
+        (async () => {
+          await run.top(async () => { try { throw new Error('browserType.launch: Executable does not exist'); } finally { console.log('cleanup ran'); } });
+          process.exitCode = run.summary();
+        })();`;
+      const c = require('child_process').spawn(process.execPath, ['-e', code], { stdio: ['ignore', 'pipe', 'pipe'] });
+      let out = '';
+      c.stdout.on('data', (d) => { out += d; });
+      c.on('exit', (exit) => res({ exit, out }));
+    });
+    check('top: a throw before the summary is a FAIL naming it, the cleanup ran, the summary printed and the exit code is 1',
+      /cleanup ran/.test(topOut.out) && /FAIL the browser check itself threw[^]*Executable does not exist/.test(topOut.out) && /browser check FAILED \(1 failure\)/.test(topOut.out) && topOut.exit === 1, `exit=${topOut.exit} ${topOut.out}`);
+    // the real tool with a browser that cannot launch: it ends by itself with exit 1 (it used to hang, the server open)
+    const launch = await new Promise((res) => {
+      const c = require('child_process').spawn(process.execPath, [require('path').join(__dirname, '../tools/browser-check.js'), '--only', 'audio'],
+        { stdio: ['ignore', 'pipe', 'pipe'], env: Object.assign({}, process.env, { PLAYWRIGHT_BROWSERS_PATH: '/nonexistent-browsers' }) });
+      let out = '', killed = false;
+      c.stdout.on('data', (d) => { out += d; });
+      const t = setTimeout(() => { killed = true; c.kill('SIGKILL'); }, 60000);
+      c.on('exit', (exit) => { clearTimeout(t); res({ exit, out, killed }); });
+    });
+    check('a browser that cannot launch ends the run by itself (no hang), with a FAIL line and exit 1',
+      !launch.killed && launch.exit === 1 && /FAIL the browser check itself threw/.test(launch.out) && /browser check FAILED/.test(launch.out), `exit=${launch.exit} killed=${launch.killed} ${launch.out.slice(-300)}`);
     // stopping the guard puts Node's default back
     const { EventEmitter } = require('events');
     const fake = new EventEmitter(), r2 = makeRun(() => {}), stop = r2.guardRejections(fake);
