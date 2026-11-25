@@ -82,6 +82,9 @@ for (const [label, lines, trips] of [
   ['machine code reading the reset vector', mc([0xFC, 0xFF, 0xFE, 0x39]), /read \$FFFE/],
   ['machine code reading the I/O page', mc([0xB6, 0xFF, 0x00, 0x39]), null],
   ['machine code calling CLS', mc([0xBD, hi(s('CLS')), lo(s('CLS')), 0x39]), null],
+  // CLS called 40 times (most of the time in ROM code): the field interrupt lands in it, and its vector fetch is not
+  // ROM data
+  ['machine code calling CLS while interrupts come', mc([0xC6, 40, 0x34, 0x04, 0xBD, hi(s('CLS')), lo(s('CLS')), 0x35, 0x04, 0x5A, 0x26, 0xF6, 0x39]), null],
   ['a BASIC program with no machine code', ['10 FOR I=1 TO 20:PRINT I*I;:NEXT', '20 A$="X"+STR$(3):PRINT A$'], null]]) {
   const r = guarded(lines, label);
   check(`guard: ${label}`, r.ok && (trips ? trips.test(r.tripped || '') : r.tripped === null), String(r.tripped));

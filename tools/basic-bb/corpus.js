@@ -102,11 +102,12 @@ const depth0Commas = (t) => { let d = 0, n = 0; for (const c of t) { if (c === '
 // own code in RAM, if a ROM has any, runs while it boots, loads and lists). -> { watch(), arm(), tripped: null | why }
 //   * program code reading $8000-$FFFF outside the I/O page trips it, except two consecutive bytes whose value is
 //     where control goes next (an interrupt vector, a JMP or JSR through a table): they pick a target, no data;
-//   * ROM code entered from program code that reads ROM data (not its own instruction bytes) and then hands control
-//     back to program code trips it.
+//   * ROM code entered from program code that reads ROM data (not its own instruction bytes, nor two bytes that pick
+//     where control goes next, as above: an interrupt taken in it fetches its vector) and then hands control back to
+//     program code trips it.
 function romGuard(m) {
   const written = new Uint8Array(0x8000), before = new Uint8Array(0x8000);
-  let armed = false, watching = false, cur = 0, prev = null, reads = [], dirty = false, inStretch = false, lastProg = 0;
+  let armed = false, watching = false, cur = 0, prev = null, reads = [], romReads = [], dirty = false, inStretch = false, lastProg = 0;
   const g = { tripped: null, frame: null };
   const program = (pc) => pc < 0x8000 && written[pc] && !before[pc];
   const trip = (why) => { if (!g.tripped) g.tripped = why; };
@@ -114,13 +115,15 @@ function romGuard(m) {
   m.busTaps.addReadTap({ start: 0x8000, end: 0xFFFF }, (a, v) => {
     if (!armed || !masked(a)) return;
     if (program(cur)) reads.push([a, v]);
-    else if (cur >= 0x8000 && inStretch && !(a >= cur && a < cur + 5)) dirty = true;
+    else if (cur >= 0x8000 && inStretch && !(a >= cur && a < cur + 5)) romReads.push([a, v]);
   });
+  // the reads of one instruction pick where control goes next: two consecutive bytes whose value is the new pc
+  const picks = (r, pc) => r.length === 2 && r[1][0] === r[0][0] + 1 && ((r[0][1] << 8) | r[1][1]) === pc;
   m.addProbe((pc) => {
     if (!armed) { if (pc < 0x8000) before[pc] = 1; return; }
+    if (romReads.length) { if (!picks(romReads, pc)) dirty = true; romReads = []; }
     if (reads.length) {
-      const picks = reads.length === 2 && reads[1][0] === reads[0][0] + 1 && ((reads[0][1] << 8) | reads[1][1]) === pc;
-      if (!picks) trip(`program code at $${hex(cur)} read $${hex(reads[0][0])}`);
+      if (!picks(reads, pc)) trip(`program code at $${hex(cur)} read $${hex(reads[0][0])}`);
       reads = [];
     }
     if (prev != null && program(prev) && pc >= 0x8000) { inStretch = true; dirty = false; }
