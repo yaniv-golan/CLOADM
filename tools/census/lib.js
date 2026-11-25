@@ -179,6 +179,7 @@ function trace(m, { program = '', maxWrites = 256, maxTargets = 512, sweepWindow
   if (!Number.isInteger(sweepWindow) || sweepWindow < 4 || sweepWindow > 16) throw new RangeError('sweepWindow is 4 to 16 bytes');
   const cpu = m.cpu, peek = (a) => m.peek(a & 0xFFFF);
   const records = [], refused = [];
+  const loads = [];               // what the census loader put in: [{ segments, exec }] (the static census reads these)
   const dirtyRam = new Uint8Array(0x10000);   // 1: a RAM cell holding ROM-derived data
   const targets = new Set();
   let started = false, stopped = null, error = null;
@@ -261,6 +262,7 @@ function trace(m, { program = '', maxWrites = 256, maxTargets = 512, sweepWindow
   // the census loader starting the program (1)
   const inject = m.injectAndRun;
   m.injectAndRun = function (segments, exec) {
+    loads.push({ segments: segments.map((g) => ({ addr: g.addr, data: Uint8Array.from(g.data) })), exec: exec == null ? null : exec });
     // the sweep (rule 5) looks at RAM as BASIC left it, before the program goes in: injectAndRun boots (or resets the
     // built-in firmware), then pokes the program; the first poke runs the sweep, so a ROM run the program's image
     // overlaps is seen whole and its cells outside the image stay marked
@@ -303,7 +305,7 @@ function trace(m, { program = '', maxWrites = 256, maxTargets = 512, sweepWindow
       detach();
       if (!error && prevPc !== null && stepReads.length && !masked(prevPc) && started && !stopped) error = 'program-read-rom';
       if (open && !error && !stopped) close(true);
-      return { records, refused, started, stopped, error };
+      return { records, refused, started, stopped, error, loads };
     },
   };
 }

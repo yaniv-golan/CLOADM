@@ -424,6 +424,34 @@ const bootDescr = {
 };
 for (const k of Object.keys(bootScenarios)) { const r = bootScenarios[k](lib); check(bootDescr[k], bootChecks[k](r), JSON.stringify(r)); }
 
+// ---------------- the static census: the program file's own references ----------------
+const stat = require(path.join(DIR, 'static.js'));
+const staticOf = (S, src, opts) => { const r = asm(src); return Object.assign(S.staticRefs(r.segments, r.exec, STUB_IMG, opts), { symbols: r.symbols }); };
+const callsStatic = (S, opts) => {
+  const r = staticOf(S, CALLS, opts), st = (n) => r.symbols.get(n), key = (x) => `${x.from - st(x.from >= st('RET4') ? 'RET4' : 'START')}:${x.target != null ? x.target.toString(16) : 'slot' + x.slot.toString(16)}:${x.kind}:${x.source}`;
+  return Object.assign(r, { keys: r.refs.map(key).sort() });
+};
+// by descent: exactly these; as candidates: at least the two calls past RET4 (data after them may decode as more)
+const CALLS_STATIC = ['2:slota002:jsr-indirect:static', '8:b110:jsr:static', '14:b280:jsr:static', '25:slota000:jmp-indirect:static'].sort();
+const CALLS_CAND = ['3:b275:jsr:candidate', '6:b110:jsr:candidate'];
+const staticHolds = (r) => r.keys.filter((k) => k.endsWith(':static')).join() === CALLS_STATIC.join() && CALLS_CAND.every((k) => r.keys.includes(k)) && r.dropped === 0 && !r.candidatesDropped;
+check('static: calls.asm\'s references as loaded: by descent from exec the vector calls (slots $A002, $A000, never their values), CHROUT and NUM; past the JMP [$A000] (code only an LDX # points at) the SKIP and CHROUT calls as candidates',
+  staticHolds(callsStatic(stat)), JSON.stringify(callsStatic(stat).keys));
+// a program file that embeds a copy of ROM code (the stub's KEY routine: PSHS A / JSR [$A002] / ...) and runs into it
+const EMBED = `
+        ORG     $3000
+START   JSR     $B110
+        JMP     EMB
+        FCB     0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+EMB     FCB     ${[...STUB.rom.subarray(sym('KEY') - 0x8000, sym('KEY') - 0x8000 + 32)].join(',')}
+        FCB     0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+        END     START`;
+const embedHolds = (r) => { const e = r.symbols.get('EMB'); return r.dropped >= 32 && r.refs.some((x) => x.target === 0xB110 && x.from === r.symbols.get('START')) && !r.refs.some((x) => x.from >= e - 16 && x.from < e + 48); };
+check('static: a ROM copy embedded in the program file (32 bytes of the stub, a JSR [$A002] in it) is left out with a margin: none of its operands is reported, the program\'s own call is',
+  embedHolds(staticOf(stat, EMBED)), JSON.stringify(staticOf(stat, EMBED).refs));
+const capHolds = (r) => r.candidatesDropped && r.refs.every((x) => x.source === 'static') && r.refs.length === CALLS_STATIC.length;
+check('static: more distinct candidate targets than maxCandidates drops them all (flagged), the descent\'s references stay', capHolds(callsStatic(stat, { maxCandidates: 1 })));
+
 // ---------------- the pieces ----------------
 {
   check('masked: $8000-$FEFF and $FFE0-$FFFF (the SAM maps them from ROM), not the I/O page $FF00-$FFDF, not RAM', lib.masked(0x8000) && lib.masked(0xC000) && lib.masked(0xFEFF) && lib.masked(0xFFE0) && lib.masked(0xFFF0) && lib.masked(0xFFFF) && !lib.masked(0xFF00) && !lib.masked(0xFFDF) && !lib.masked(0x7FFF));
@@ -458,14 +486,14 @@ const opts = (o = {}) => Object.assign(census.parse(['--no-roms', '--frames', '5
     const lines = fs.readFileSync(path.join(out, 'census.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
     const agg = JSON.parse(fs.readFileSync(path.join(out, 'census.json'), 'utf8'));
     for (const p of ['calls.cloadm', 'calls.bin']) {
-      const mine = lines.filter((l) => l.program === p);
+      const mine = lines.filter((l) => l.program === p && !l.source);
       check(`${p}: CHROUT, NUM and POLCAT in census.jsonl, SKIP only as refused, nothing after it`,
         mine.some((l) => l.target === sym('CHROUT') && l.kind === 'jsr-indirect' && l.regsIn) && mine.some((l) => l.target === sym('NUM') && l.regsOut) &&
         mine.some((l) => l.target === sym('POLCAT') && l.kind === 'jmp-indirect') && mine.filter((l) => l.target === sym('SKIP')).length === 1 &&
         mine.filter((l) => l.target === sym('SKIP')).every((l) => l.refused && !l.regsOut) && mine.length === 5, `${mine.length} lines`);
     }
     const keys = ['program', 'target', 'from', 'kind', 'regsIn', 'regsOut', 'cyclesInRom', 'ramWritesOutsideRom'];
-    check('every written record has exactly the record fields (plus writesDropped/open)', lines.filter((l) => !l.refused).every((l) => keys.every((k) => k in l) && Object.keys(l).every((k) => keys.includes(k) || k === 'writesDropped' || k === 'open')));
+    check('every written record has exactly the record fields (plus writesDropped/open)', lines.filter((l) => !l.refused && !l.source).every((l) => keys.every((k) => k in l) && Object.keys(l).every((k) => keys.includes(k) || k === 'writesDropped' || k === 'open')));
     check('every refused line holds addresses only', lines.filter((l) => l.refused).every((l) => Object.keys(l).sort().join() === 'from,kind,program,refused,target'));
     const chrout = agg.entries.find((e) => e.address === sym('CHROUT'));
     check('census.json: entries sorted by the number of programs using them, with calls, registers and RAM effects; each run says why recording stopped',
@@ -473,7 +501,12 @@ const opts = (o = {}) => Object.assign(census.parse(['--no-roms', '--frames', '5
       chrout && chrout.programs.length === 2 && chrout.calls === 4 && chrout.inRegs.a.values.includes(0x48) &&
       agg.entries.find((e) => e.address === sym('NUM')).ramEffects.some((x) => x.addr === sym('NUMT') + 1 && x.values.includes(123)) &&
       agg.programs.length === 2 && agg.programs.every((p) => p.stopped === 'rom-data-returned'));
-    const vals = Uint8Array.from(lines.filter((l) => !l.refused).flatMap((l) => lib.valueBytes(l)));
+    const vals = Uint8Array.from(lines.filter((l) => !l.refused && !l.source).flatMap((l) => lib.valueBytes(l)));
+    const statLines = lines.filter((l) => l.source);
+    check('static lines hold addresses only: { program, from, target, slot?, kind, source }', statLines.length > 0 && statLines.every((l) => Object.keys(l).every((k) => ['program', 'from', 'target', 'slot', 'kind', 'source'].includes(k))));
+    const slotA002 = agg.entries.find((e) => e.address === 0xA002);
+    check('census.json: a vector slot referred to statically is an entry of its own (vectorSlot, staticPrograms), with no calls of its own',
+      slotA002 && slotA002.vectorSlot && slotA002.staticPrograms.length === 2 && slotA002.calls === 0 && agg.programs.every((p) => p.static >= 4 && p.candidates >= 2));
     check('no output holds a window of the stub ROM', romWindowIn(vals, STUB_IMG, windowIndex(STUB_IMG)) === null &&
       romWindowIn(Uint8Array.from(JSON.stringify(agg).match(/\d+/g).map(Number).filter((v) => v < 256)), STUB_IMG, windowIndex(STUB_IMG)) === null);
     const rn = node([CENSUS, script]);
@@ -489,12 +522,15 @@ const opts = (o = {}) => Object.assign(census.parse(['--no-roms', '--frames', '5
     const r = await peekRun(census);
     check('a census script with a peek step is refused by the allow-list (that reason), nothing recorded', allowListHolds(r), r.log);
   }
-  // the run-wide limit on distinct ROM entry points (CHROUT, NUM, POLCAT and SKIP here: 4)
-  const runLimit = async (mod, n) => { const logs = []; const dir = tmp(`out-run-${n}`); const code = await mod.main(['--no-roms', '--frames', '5', '--max-run-targets', String(n), '--out', dir, path.join(TMP, 'calls.cloadm')], { log: (t) => logs.push(t) }); return { code, log: logs.join('\n'), wrote: fs.existsSync(path.join(dir, 'census.jsonl')) }; };
-  const runLimitHolds = (r) => r.code === 1 && /more than --max-run-targets 3: nothing written/.test(r.log) && !r.wrote;
+  // the run-wide limit on distinct ROM entry points: CHROUT, NUM, POLCAT and SKIP called (4), plus the vector slots
+  // $A002 and $A000 the static census finds by descent (6); candidates do not count
+  const runLimit = async (mod, n) => { const logs = []; const dir = tmp(`out-run-${n}-${Math.random().toString(36).slice(2)}`); const code = await mod.main(['--no-roms', '--frames', '5', '--max-run-targets', String(n), '--out', dir, path.join(TMP, 'calls.cloadm')], { log: (t) => logs.push(t) }); return { code, log: logs.join('\n'), wrote: fs.existsSync(path.join(dir, 'census.jsonl')), partial: fs.existsSync(path.join(dir, 'census.jsonl.partial')) }; };
+  const finishedClean = (r) => r.code === 0 && r.wrote && !r.partial;
+  const runLimitHolds = (r) => r.code === 1 && /entered 6 distinct ROM addresses, more than --max-run-targets 5: nothing written/.test(r.log) && !r.wrote && !r.partial;
   {
-    const over = await runLimit(census, 3), under = await runLimit(census, 4);
-    check('a run entering more distinct ROM addresses than --max-run-targets writes nothing; at the limit it writes', runLimitHolds(over) && under.code === 0 && under.wrote, over.log + under.log);
+    const over = await runLimit(census, 5), under = await runLimit(census, 6);
+    check('a run entering more distinct ROM addresses (static ones included) than --max-run-targets writes nothing, no .partial left; at the limit it writes, no .partial left',
+      runLimitHolds(over) && finishedClean(under), over.log + under.log);
   }
   // a program started by BASIC (here: typed at the stub), not by the census loader: nothing recorded
   {
@@ -518,6 +554,29 @@ const opts = (o = {}) => Object.assign(census.parse(['--no-roms', '--frames', '5
     check('... a cartridge (its format named), a file that cannot be read, and never a byte of the file in the reason',
       /^a cart file is not started/.test(census.notStartedWhy(cart)) && /could not be identified|is not started/.test(census.notStartedWhy(tmp('missing.cas'))) &&
       !/\b18\b|0x12|\$12/.test(census.notStartedWhy(cart)), [census.notStartedWhy(cart), census.notStartedWhy(tmp('missing.cas'))].join(' | '));
+  }
+  // the static census reads the file as loaded, never RAM after the run: a program that rewrites its own JSR operand
+  // before running it is reported with the operand it was loaded with
+  {
+    const f = tmp('selfmod.asm'), sc = tmp('selfmod.cloadm');
+    fs.writeFileSync(f, `
+        ORG     $3000
+START   LDA     #$00
+        STA     CALL+2
+CALL    JSR     $B110
+DONE    BRA     DONE
+        END     START`);
+    fs.writeFileSync(sc, `asm ${f}\nframes 3\n`);
+    const r = await census.runProgram(sc, opts(), lib);
+    check('static: a self-modifying JSR is reported as loaded ($B110), not as rewritten ($B100), and the run records the call it made', !r.error && r.statics.some((x) => x.target === 0xB110 && x.source === 'static') && !r.statics.some((x) => x.target === 0xB100) && r.records.some((x) => x.target === 0xB100), JSON.stringify(r.statics));
+  }
+  // two programs with one file name: refused before anything runs (records are keyed by name)
+  {
+    const d1 = tmp('a'), d2 = tmp('b');
+    fs.mkdirSync(d1, { recursive: true }); fs.mkdirSync(d2, { recursive: true });
+    let msg = '';
+    try { census.parse(['--no-roms', path.join(d1, 'x.cas'), path.join(d2, 'x.cas')]); } catch (e) { msg = e.message; }
+    check('two programs with the same file name are refused before anything runs', /both named x\.cas/.test(msg), msg);
   }
   // census.js's own tripwire: a tracer that lets a ROM run through (planted) has its program discarded
   const planted = Object.assign({}, lib, {
@@ -647,6 +706,25 @@ const opts = (o = {}) => Object.assign(census.parse(['--no-roms', '--frames', '5
     {
       const C = moduleWith(CENSUS, [['for (const x of r.records) if (tw.add(lib.valueBytes(x)))', 'for (const x of r.records) if (false && tw.add(lib.valueBytes(x)))']]);
       check('mutant "census tripwire not applied" is caught', !tripHolds(await C.runProgram(s, opts(), planted)));
+      const R2 = moduleWith(CENSUS, [['fs.renameSync(partial, jsonl);', 'fs.copyFileSync(partial, jsonl);']]);
+      check('mutant "the partial file copied, not renamed" is caught (a .partial left after a finished run)', !finishedClean(await runLimit(R2, 6)));
+      const R3 = moduleWith(CENSUS, [['      fs.rmSync(partial, { force: true });\n      log(`census: the run entered', '      log(`census: the run entered']]);
+      check('mutant "the partial file kept when the run is refused" is caught', !runLimitHolds(await runLimit(R3, 5)));
+      const R4 = moduleWith(CENSUS, [["    for (const x of r.statics) if (x.source === 'static') next.add(x.target != null ? x.target : x.slot);", '']]);
+      check('mutant "static targets not counted toward --max-run-targets" is caught', !runLimitHolds(await runLimit(R4, 5)));
+      const S1 = moduleWith(path.join(DIR, 'static.js'), [['    if (index) {', '    if (false) {']]);
+      check('mutant "ROM copies in the image not left out" is caught', !embedHolds(staticOf(S1, EMBED)));
+      const S2 = moduleWith(path.join(DIR, 'static.js'), [["Object.assign({ from: at, source: 'candidate' }, ins.ref)", "Object.assign({ from: at, source: 'static' }, ins.ref)"]]);
+      check('mutant "linear-sweep hits tagged static" is caught', !staticHolds(callsStatic(S2)));
+      const S3 = moduleWith(path.join(DIR, 'static.js'), [['const candidatesDropped = candTargets.size > maxCandidates;', 'const candidatesDropped = false;']]);
+      check('mutant "the candidate cap off" is caught', !capHolds(callsStatic(S3, { maxCandidates: 1 })));
+      const S4 = moduleWith(path.join(DIR, 'static.js'), [["if (pb === 0x9F && d.target != null && d.target >= VEC_LO && d.target <= VEC_HI - 1) ref = { slot: d.target, target: null, kind: `${CALLS[m]}-indirect` };", "ref = { slot: d.target, target: null, kind: `${CALLS[m]}-indirect` };"]]);
+      check('mutant "any indirect call a reference" is caught', !staticHolds(callsStatic(S4)) || !embedHolds(staticOf(S4, EMBED)) || (() => { const r = staticOf(S4, `
+        ORG     $3000
+START   JSR     [$3010]
+        JSR     ,X
+DONE    BRA     DONE
+        END     START`); return r.refs.length === 0; })() === false);
       const P = moduleWith(CENSUS, [['    for (const x of r.records) records.push(x);', '    records.push(...r.records);']]);
       check('mutant "records spread into push()" is caught (the 150,000-record run)', !bigHolds(await bigRun(P)));
       const R = moduleWith(CENSUS, [['if (next.size > o.maxRunTargets)', 'if (false)']]);

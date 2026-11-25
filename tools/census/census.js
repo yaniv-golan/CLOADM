@@ -14,6 +14,7 @@ const path = require('path');
 const cli = require('../../cli/cloadm.js');
 const Emu = require('../../js/emu.js');
 const defaultLib = require('./lib.js');
+const { staticRefs } = require('./static.js');
 const { ROM_LO } = defaultLib;
 
 // script steps a census run may take: input to the machine and time. Every step that reads the machine out (peek,
@@ -34,12 +35,14 @@ const HELP = `node tools/census/census.js --roms PATH [--roms PATH...] [options]
   --max-run-targets N  distinct ROM entry points all the programs of one run may use together; more, and nothing
                      is written (default 1024)
   --max-writes N     writes kept per record (default 256; the rest are counted)
+  --max-candidates N candidate (linear-sweep-only) static targets kept per program; more, and they are all dropped
+                     (default 128)
   --sweep-window N   the boot sweep's shortest ROM run, 4 to 16 bytes (default 8): shorter marks more of
                      BASIC's leftovers as ROM data, which costs recording, never safety
   --no-roms          run on the built-in firmware (the self-test)`;
 
 function parse(argv) {
-  const o = { roms: [], out: 'census-out', frames: 3000, maxPerSite: 20, maxTargets: 512, maxRunTargets: 1024, maxWrites: 256, sweepWindow: 8, noRoms: false, programs: [] };
+  const o = { roms: [], out: 'census-out', frames: 3000, maxPerSite: 20, maxTargets: 512, maxRunTargets: 1024, maxWrites: 256, sweepWindow: 8, maxCandidates: 128, noRoms: false, programs: [] };
   const int = (v, what) => { const n = Number(v); if (!Number.isInteger(n) || n < 1) throw new Error(`${what} must be a whole number above 0`); return n; };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i], next = () => { if (i + 1 >= argv.length) throw new Error(`${a} needs a value`); return argv[++i]; };
@@ -50,6 +53,7 @@ function parse(argv) {
     else if (a === '--max-per-site') o.maxPerSite = int(next(), '--max-per-site');
     else if (a === '--max-targets') o.maxTargets = int(next(), '--max-targets');
     else if (a === '--max-run-targets') o.maxRunTargets = int(next(), '--max-run-targets');
+    else if (a === '--max-candidates') o.maxCandidates = int(next(), '--max-candidates');
     else if (a === '--sweep-window') { o.sweepWindow = int(next(), '--sweep-window'); if (o.sweepWindow < 4 || o.sweepWindow > 16) throw new Error('--sweep-window is 4 to 16'); }
     else if (a === '--max-writes') o.maxWrites = int(next(), '--max-writes');
     else if (a === '--no-roms') o.noRoms = true;
@@ -58,6 +62,9 @@ function parse(argv) {
   }
   if (!o.help && !o.programs.length) throw new Error('no programs given');
   if (!o.help && !o.roms.length && !o.noRoms) throw new Error('--roms PATH is required (or --no-roms for the built-in firmware)');
+  const names = o.programs.map((f) => path.basename(f));
+  const dup = names.find((n, i) => names.indexOf(n) !== i);
+  if (dup) throw new Error(`two programs are both named ${dup}: records are keyed by file name, so give each a different one`);
   return o;
 }
 
@@ -124,16 +131,24 @@ async function runProgram(file, o, lib = defaultLib) {
   // the tripwire: no WINDOW-byte run of a ROM image anywhere in the values this program outputs
   const tw = new lib.Tripwire(images);
   for (const x of r.records) if (tw.add(lib.valueBytes(x))) return { records: [], refused: [], stopped: null, error: 'tripwire: ROM bytes in the output values' };
-  return { records: r.records, refused: r.refused, stopped: r.stopped, error: null };
+  // the static census: the references in the program's own file, as loaded (lib's loads), never RAM after a run
+  const statics = [];
+  for (const ld of r.loads || []) {
+    const st = staticRefs(ld.segments, ld.exec, images, { maxCandidates: o.maxCandidates });
+    for (const x of st.refs) statics.push(Object.assign({ program: name }, x));
+    if (st.candidatesDropped) statics.candidatesDropped = true;
+    statics.droppedBytes = (statics.droppedBytes || 0) + st.dropped;
+  }
+  return { records: r.records, refused: r.refused, statics, stopped: r.stopped, error: null };
 }
 
 const hex = (v, n = 4) => '$' + v.toString(16).toUpperCase().padStart(n, '0');
 
 // the aggregate per ROM address
-function aggregate(records, refused) {
+function aggregate(records, refused, statics = []) {
   const by = new Map();
   const entry = (a) => {
-    if (!by.has(a)) by.set(a, { address: a, hex: hex(a), programs: new Set(), calls: 0, refused: 0, kinds: {}, inRegs: {}, outRegs: {}, ramEffects: new Map() });
+    if (!by.has(a)) by.set(a, { address: a, hex: hex(a), programs: new Set(), calls: 0, refused: 0, kinds: {}, inRegs: {}, outRegs: {}, ramEffects: new Map(), staticPrograms: new Set(), candidatePrograms: new Set() });
     return by.get(a);
   };
   const note = (bag, k, v) => {
@@ -159,9 +174,15 @@ function aggregate(records, refused) {
     e.programs.add(r.program); e.calls++; e.refused++;
     e.kinds[r.kind] = (e.kinds[r.kind] || 0) + 1;
   }
+  // the static census: the programs whose own file refers to the address (a vector slot: the $A00x address itself)
+  for (const x of statics) {
+    const e = entry(x.target != null ? x.target : x.slot);
+    if (x.slot != null) e.vectorSlot = true;
+    (x.source === 'static' ? e.staticPrograms : e.candidatePrograms).add(x.program);
+  }
   return [...by.values()]
-    .map((e) => Object.assign(e, { programs: [...e.programs].sort(), ramEffects: [...e.ramEffects.values()].sort((a, b) => a.addr - b.addr) }))
-    .sort((a, b) => b.programs.length - a.programs.length || b.calls - a.calls || a.address - b.address);
+    .map((e) => Object.assign(e, { programs: [...e.programs].sort(), staticPrograms: [...e.staticPrograms].sort(), candidatePrograms: [...e.candidatePrograms].sort(), ramEffects: [...e.ramEffects.values()].sort((a, b) => a.addr - b.addr) }))
+    .sort((a, b) => b.programs.length - a.programs.length || b.staticPrograms.length - a.staticPrograms.length || b.calls - a.calls || a.address - b.address);
 }
 
 // the records written to census.jsonl: at most maxPerSite per (program, from, target, kind)
@@ -180,7 +201,7 @@ async function main(argv, { log = (t) => process.stderr.write(t + '\n'), lib = d
   let o;
   try { o = parse(argv); } catch (e) { log(`census: ${e.message}\n\n${HELP}`); return 2; }
   if (o.help) { log(HELP); return 0; }
-  const records = [], refused = [], failed = [], runs = [];
+  const records = [], refused = [], statics = [], failed = [], runs = [];
   // census.jsonl is written as each program finishes, to census.jsonl.partial, renamed when the run is done: a crash
   // later in the run keeps the programs already done (in the .partial file), and a run that ends refused leaves none
   const jsonl = path.join(o.out, 'census.jsonl'), partial = `${jsonl}.partial`, summary = path.join(o.out, 'census.json');
@@ -199,6 +220,7 @@ async function main(argv, { log = (t) => process.stderr.write(t + '\n'), lib = d
     const next = new Set(targets);
     for (const x of r.records) next.add(x.target);
     for (const x of r.refused) next.add(x.target);
+    for (const x of r.statics) if (x.source === 'static') next.add(x.target != null ? x.target : x.slot);
     if (next.size > o.maxRunTargets) {
       fs.rmSync(partial, { force: true });
       log(`census: the run entered ${next.size} distinct ROM addresses, more than --max-run-targets ${o.maxRunTargets}: nothing written`);
@@ -208,13 +230,16 @@ async function main(argv, { log = (t) => process.stderr.write(t + '\n'), lib = d
     // (one at a time: a spread of thousands of records into push() overflows the call stack)
     for (const x of r.records) records.push(x);
     for (const x of r.refused) refused.push(x);
-    const lines = capped(r.records, r.refused, o.maxPerSite);
+    for (const x of r.statics) statics.push(x);
+    const lines = capped(r.records, r.refused, o.maxPerSite).concat(r.statics);
     if (lines.length) fs.appendFileSync(partial, lines.map((x) => JSON.stringify(x)).join('\n') + '\n');
-    runs.push({ program: name, recorded: r.records.length, refused: r.refused.length, stopped: r.stopped });
+    runs.push({ program: name, recorded: r.records.length, refused: r.refused.length, stopped: r.stopped,
+      static: r.statics.filter((x) => x.source === 'static').length, candidates: r.statics.filter((x) => x.source === 'candidate').length,
+      candidatesDropped: !!r.statics.candidatesDropped, imageBytesLeftOut: r.statics.droppedBytes || 0 });
     log(`census: ${name}: ${r.records.length} calls recorded, ${r.refused.length} refused${r.stopped ? `; recording stopped (${r.stopped})` : ''}`);
   }
   fs.renameSync(partial, jsonl);
-  fs.writeFileSync(summary, JSON.stringify({ range: [ROM_LO, 0xBFFF], programs: runs, failed, entries: aggregate(records, refused) }, null, 1) + '\n');
+  fs.writeFileSync(summary, JSON.stringify({ range: [ROM_LO, 0xBFFF], programs: runs, failed, entries: aggregate(records, refused, statics) }, null, 1) + '\n');
   log(`census: wrote ${jsonl} and census.json`);
   return failed.length ? 1 : 0;
 }

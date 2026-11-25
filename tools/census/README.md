@@ -130,7 +130,8 @@ vectors, RTS/RTI/PULS landing in ROM, and interrupts.
 | `--max-per-site N` | JSONL records per (program, from, target, kind); all are counted in the aggregate (default 20) |
 | `--max-writes N` | writes kept per record; the rest are counted in `writesDropped` (default 256) |
 | `--max-targets N` | the scan limit per program (default 512) |
-| `--max-run-targets N` | the limit on distinct ROM entry points across the whole run; more, and nothing is written (default 1024) |
+| `--max-run-targets N` | the limit on distinct ROM entry points across the whole run, static references (by descent) included; more, and nothing is written (default 1024) |
+| `--max-candidates N` | candidate (linear-sweep-only) static targets kept per program; more, and that program's candidates are all dropped (default 128) |
 | `--sweep-window N` | the boot sweep's shortest ROM run, 4 to 16 bytes (default 8); shorter marks more, which costs recording, not safety |
 | `--no-roms` | run on the built-in firmware (the self-test) |
 
@@ -149,15 +150,52 @@ vectors, RTS/RTI/PULS landing in ROM, and interrupts.
 * `"open": true` marks a call still in ROM when the run ended.
 * When ROM calls a RAM hook, the hook's return into ROM starts a new record of kind `rts`.
 
-`census.json` holds `{ range, programs, failed, entries }`. Each `programs` item gives the calls `recorded` and
-`refused`, and why recording `stopped` (null when it didn't). Each entry is `{ address, hex, programs, calls,
-refused, kinds, inRegs, outRegs, ramEffects }`, sorted by the number of programs using the address, then by calls.
+`census.json` holds `{ range, programs, failed, entries }`.
+
+* Each `programs` item gives the calls `recorded` and `refused`, and why recording `stopped` (null when it didn't).
+  It also gives the static census's counts (`static`, `candidates`, `candidatesDropped`) and `imageBytesLeftOut`.
+* Each entry is `{ address, hex, programs, calls, refused, kinds, inRegs, outRegs, ramEffects, staticPrograms,
+  candidatePrograms }`. Entries are sorted by the number of programs that called the address, then by the number
+  that refer to it statically, then by calls. A vector slot is an entry of its own, marked `vectorSlot`.
 
 * `inRegs` and `outRegs` list up to 8 distinct values per register (`more` when there were others). `outRegs`
   lists only registers the call changed.
 * `ramEffects` lists each address written, with its count and up to 8 values.
 
 The exit code is 0, or 1 when a program was discarded (the reason goes to standard error).
+
+Two programs with the same file name are refused before anything runs, since records are keyed by name.
+
+`census.jsonl` is written as each program finishes, to `census.jsonl.partial`, and renamed when the run is done:
+
+* a crash later in the run keeps the programs already done, in the `.partial` file;
+* the run-wide limit is checked before each program's lines go in, so the file never passes it;
+* a run refused by the limit deletes the `.partial` file.
+
+### The static census
+
+The static census adds the references a program's own file makes. It works from the bytes the census loader put
+in memory, before anything runs, and never reads RAM after a run. It runs for every program that was started,
+however early recording stopped, so it answers "which entry points does this program use" even for a program
+whose dynamic census ended at its first call. It is in `static.js`:
+
+* **ROM copied into the file.** Every run of 16 or more bytes of a ROM image found in the program's segments is
+  left out before anything is decoded, with 16 bytes either side (`imageBytesLeftOut`). A program file can carry
+  copied ROM code or tables, and no operand inside such a copy is ever reported.
+* **Recursive descent from the exec address.** References found this way are `"source": "static"`. Descent
+  follows fall-through, branch and call targets inside the image. These end a path: `JMP`, `BRA`/`LBRA`, `RTS`,
+  `RTI`, a pull of PC, and a jump through a register or memory.
+* **A linear sweep at every byte.** References only it finds are `"source": "candidate"`. They come from code the
+  descent didn't reach (jump tables, code after a computed jump), or from data that happens to decode as an
+  instruction. Past `--max-candidates` distinct candidate targets, all of that program's candidates are dropped.
+* **What counts as a reference:**
+  * a `JSR`/`JMP` extended, `BSR`/`LBSR`, or a branch into $8000-$BFFF (`target`);
+  * a `JSR`/`JMP [$A00x]` through BASIC's call vectors. Only the vector's address is recorded (`slot`, with
+    `target` null); its value is ROM data and is never read.
+  * Direct-page `JSR`/`JMP` are skipped, since DP isn't known statically.
+* **Lines in `census.jsonl`:** `{ program, from, target, slot?, kind, source }`, addresses only.
+* **Limits.** It misses targets computed at run time, and code a program decompresses or loads later. It can list
+  dead code. ROM copies shorter than 16 bytes in a program file are not left out (out of scope, as above).
 
 ## tokens.js
 
