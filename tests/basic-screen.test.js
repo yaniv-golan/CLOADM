@@ -43,7 +43,19 @@ for (const c of [9, 10, 255]) {
   const t = b.transcript(), at = t.indexOf(`CLS ${c}`);
   check(`CLS ${c}: our own line, an empty line, OK`, JSON.stringify(t.slice(at + 1)) === JSON.stringify(['MADE WITHOUT PEEKING', '', 'OK']), JSON.stringify(t));
 }
-for (const c of [256, -1]) {
+// the boundaries, from the original (bb2 screen-cls-range and its boundary run): 8 and 8.5 clear (a colour is truncated),
+// 9, 9.5 and 255.9 print the line, 256, 1E3 and -1 are ?FC ERROR
+for (const c of ['9.5', '255.9']) {
+  b.record();
+  run(`CLS ${c}`);
+  const t = b.transcript(), at = t.indexOf(`CLS ${c}`);
+  check(`CLS ${c}: truncated to a colour past 8, our own line`, JSON.stringify(t.slice(at + 1)) === JSON.stringify(['MADE WITHOUT PEEKING', '', 'OK']), JSON.stringify(t));
+}
+for (const c of ['8', '8.5']) {
+  run(`CLS ${c}`);
+  check(`CLS ${c}: truncated to colour 8, the screen filled`, cells().slice(4 * 32).every((v) => v === block(8)));
+}
+for (const c of [256, -1, '1E3']) {
   b.record();
   run(`CLS ${c}`);
   check(`CLS ${c}: ?FC ERROR`, b.transcript().includes('?FC ERROR'), JSON.stringify(b.transcript()));
