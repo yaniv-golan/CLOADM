@@ -196,7 +196,8 @@ function driven(L, { rom = null } = {}) {
     cpu: { a: 0, b: 0, x: 0, y: 0, u: 0, s: 0x7F00, dp: 0, cc: 0, pc: 0 }, cycle: 0, peek: (a) => mem[a],
     addProbe(fn) { probes.push(fn); return () => {}; },
     busTaps: { addReadTap(r, fn) { reads.push(fn); return () => {}; }, addWriteTap(r, fn) { writes.push(fn); return () => {}; } },
-    injectAndRun(segs, exec) { for (const s of segs) mem.set(s.data, s.addr); this.cpu.pc = exec; },
+    poke(a, v) { mem[a & 0xFFFF] = v; return true; },
+    injectAndRun(segs, exec) { for (const s of segs) for (let i = 0; i < s.data.length; i++) this.poke(s.addr + i, s.data[i]); this.cpu.pc = exec; },
   };
   const t = L.trace(m, { program: 'd' });
   const d = {
@@ -311,18 +312,42 @@ Object.assign(bootScenarios, {
   // marks both runs. A call into ROM is recorded; reading the vector area afterwards stops recording.
   loadPath(L) {
     const d = driven(L, { rom: IMG });
-    d.mem.set(IMG.subarray(0x200, 0x220), 0x8200);
+    // ROM code writes both runs with no read the heuristic could match (as if computed, or copied long before): only
+    // the sweep can mark them
     d.step(0x8100); d.fetch(0x8100, 2);
-    for (let i = 0; i < 22; i++) d.read(0x8200 + i);
     for (let i = 0; i < 22; i++) d.write(0x0114 + i, IMG[0x200 + i]);
-    d.step(0x8102); d.fetch(0x8102, 2);
-    for (let i = 0; i < 16; i++) d.read(0x8208 + i);
     for (let i = 0; i < 16; i++) d.write(0x7F0F + i, IMG[0x208 + i]);
-    d.step(0x8104);
+    d.step(0x8102);
     d.start();
+    const marked = (from, len) => { for (let a = from; a < from + len; a++) if (!d.t.isDirty(a)) return false; return true; };
+    const extent = marked(0x0114, 22) && marked(0x7F0F, 16) && !d.t.isDirty(0x0113) && !d.t.isDirty(0x012A) && !d.t.isDirty(0x7F0E) && !d.t.isDirty(0x7F1F);
     d.step(0x3000); d.fetch(0x3000, 3); d.step(0xB110); d.step(0x3003);
     d.fetch(0x3003, 3); d.read(0x0114); d.step(0x3006); d.step(0xB110); d.step(0x3009);
-    return d.t.finish();
+    return Object.assign(d.t.finish(), { extent });
+  },
+  // a boot ROM run the program's image overlaps: 23 bytes at $2FF9-$300F, the image at $3000. Swept before the image
+  // goes in, the 7 bytes outside it ($2FF9-$2FFF, shorter than the window) stay marked
+  straddle(L) {
+    const d = driven(L, { rom: IMG });
+    d.step(0x8100); d.fetch(0x8100, 2);
+    for (let i = 0; i < 23; i++) d.write(0x2FF9 + i, IMG[0x200 + i]);
+    d.step(0x8102);
+    d.start();
+    let outside = true;
+    for (let a = 0x2FF9; a < 0x3000; a++) if (!d.t.isDirty(a)) outside = false;
+    const image = !d.t.isDirty(0x3000) && !d.t.isDirty(0x3002);
+    return Object.assign(d.t.finish(), { outside, image });
+  },
+  // a 10-byte run: marked with the default window (8), not with 16
+  shortRun(L) {
+    const d = driven(L, { rom: IMG });
+    d.step(0x8100); d.fetch(0x8100, 2);
+    for (let i = 0; i < 10; i++) d.write(0x0600 + i, IMG[0x200 + i]);
+    d.step(0x8102);
+    d.start();
+    let all = true;
+    for (let a = 0x0600; a < 0x060A; a++) if (!d.t.isDirty(a)) all = false;
+    return Object.assign(d.t.finish(), { all });
   },
   // a ROM routine the program calls reads the stack run: its record is refused, and recording stops
   loadPathRom(L) {
@@ -336,13 +361,13 @@ Object.assign(bootScenarios, {
     d.step(0x3000); d.fetch(0x3000, 3); d.step(0xB110); d.fetch(0xB110, 2); d.read(0x7F14); d.step(0x3003);
     return d.t.finish();
   },
-  // a short copy (8 bytes read, then 8 written: shorter than the sweep sees) is marked by the heuristic's 16 reads
+  // a short copy (6 bytes read, then 6 written: shorter than the sweep's window) is marked by the heuristic's 16 reads
   shortCopy(L) {
     const d = driven(L, { rom: IMG });
-    d.mem.set(IMG.subarray(0x200, 0x208), 0x8200);
+    d.mem.set(IMG.subarray(0x200, 0x206), 0x8200);
     d.step(0x8100); d.fetch(0x8100, 2);
-    for (let i = 0; i < 8; i++) d.read(0x8200 + i);
-    for (let i = 0; i < 8; i++) d.write(0x0700 + i, IMG[0x200 + i]);
+    for (let i = 0; i < 6; i++) d.read(0x8200 + i);
+    for (let i = 0; i < 6; i++) d.write(0x0700 + i, IMG[0x200 + i]);
     d.step(0x8102);
     d.start();
     d.step(0x3000); d.fetch(0x3000, 3); d.read(0x0700);
@@ -357,7 +382,9 @@ const bootChecks = {
   loadedClean: (r) => !r.stopped && r.records.length === 1,
   regsCleared: (r) => r.records.length === 1 && ['a', 'b', 'x', 'y', 'u', 'dp'].every((k) => r.records[0].regsIn[k] === 0) && (r.records[0].regsIn.cc & ~0x50) === 0,
   trailingRead: (r) => r.error === 'program-read-rom',
-  loadPath: (r) => !r.error && r.records.length === 1 && r.records[0].from === 0x3000 && r.stopped === 'program-read-rom-data',
+  loadPath: (r) => r.extent && !r.error && r.records.length === 1 && r.records[0].from === 0x3000 && r.stopped === 'program-read-rom-data',
+  straddle: (r) => r.outside && r.image && !r.error,
+  shortRun: (r) => r.all,
   loadPathRom: (r) => !r.error && !r.records.length && r.refused.length === 1 && r.stopped === 'rom-data-returned',
   shortCopy: (r) => !r.error && r.stopped === 'program-read-rom-data' && !r.records.length,
   programReads: (r) => r.stopped === 'program-read-rom-data' && !r.records.length && !r.refused.length,
@@ -376,9 +403,11 @@ const bootDescr = {
   loadedClean: 'a cell the boot filled from ROM and the program was then loaded over is the program\'s: it runs and its call is recorded',
   regsCleared: 'the registers are cleared when the program starts (A, B, X, Y, U, DP, CC\'s flags)',
   trailingRead: 'a ROM read by the program\'s last instruction, with nothing after it, still discards the program',
-  loadPath: 'the field report\'s load path (22 ROM bytes at $0114, 16 at $7F0F, each copied whole): not discarded, a call recorded, reading $0114 stops recording',
+  loadPath: 'the field report\'s load path (22 ROM bytes at $0114, 16 at $7F0F, no read the heuristic could match): the sweep marks both runs exactly over their length; not discarded, a call recorded, reading $0114 stops recording',
+  straddle: 'a ROM run the program image overlaps ($2FF9-$300F, image at $3000) is swept before the image goes in: the 7 bytes outside it stay marked, the image is clean',
+  shortRun: 'a 10-byte ROM run is marked by the sweep\'s default 8-byte window',
   loadPathRom: 'a ROM routine reading that stack run refuses its record and stops recording',
-  shortCopy: 'an 8-byte copy (8 reads, then 8 writes: too short for the sweep) is marked by the heuristic: reading it stops recording',
+  shortCopy: 'a 6-byte copy (6 reads, then 6 writes: shorter than the sweep\'s window) is marked by the 16-read heuristic: reading it stops recording',
 };
 for (const k of Object.keys(bootScenarios)) { const r = bootScenarios[k](lib); check(bootDescr[k], bootChecks[k](r), JSON.stringify(r)); }
 
@@ -469,6 +498,12 @@ const opts = (o = {}) => Object.assign(census.parse(['--no-roms', '--frames', '5
     check('a not-started program says why: a tape that starts with a BASIC loader, a data tape, a script that never loads',
       /BASIC program \(a BASIC loader/.test(census.notStartedWhy(basicTape)) && /data file/.test(census.notStartedWhy(dataTape)) &&
       /never started a machine-code program/.test(census.notStartedWhy(tmp('typed.cloadm'))), [census.notStartedWhy(basicTape), census.notStartedWhy(dataTape)].join(' | '));
+    const cart = tmp('pak.rom'), junk = tmp('junk.xyz');
+    fs.writeFileSync(cart, new Uint8Array(8192).fill(0x12));
+    fs.writeFileSync(junk, Uint8Array.from([1, 2, 3]));
+    check('... a cartridge (its format named), a file that cannot be read, and never a byte of the file in the reason',
+      /^a cart file is not started/.test(census.notStartedWhy(cart)) && /could not be identified|is not started/.test(census.notStartedWhy(tmp('missing.cas'))) &&
+      !/\b18\b|0x12|\$12/.test(census.notStartedWhy(cart)), [census.notStartedWhy(cart), census.notStartedWhy(tmp('missing.cas'))].join(' | '));
   }
   // census.js's own tripwire: a tracer that lets a ROM run through (planted) has its program discarded
   const planted = Object.assign({}, lib, {
@@ -527,10 +562,15 @@ const opts = (o = {}) => Object.assign(census.parse(['--no-roms', '--frames', '5
       ['a read at the PC taken as a fetch whoever made it', [['if (fetch && masked(curPc)) return;', 'if (fetch) return;']], ['pcrTop', 'ldTop']],
       ['a stop not final (a second start records again)', [['started = true; dirtyStretch = false; open = null;', 'started = true; stopped = null; error = null; dirtyStretch = false; open = null;']], ['secondStart']],
       ['dirty-stretch writes not marking RAM', [['else if (started) dirtyRam[a] = dirtyStretch ? 1 : 0;', 'else if (started) dirtyRam[a] = 0;']], ['dirtyWrites']],
-      ['the loaded program not cleaned', [['dirtyRam[a] = 0; loaded[a] = 1;', 'loaded[a] = 1;']], ['loadedClean']],
+      ['the loaded program not cleaned', [['for (const seg of segments) for (let i = 0; i < seg.data.length; i++) dirtyRam[(seg.addr + i) & 0xFFFF] = 0;', '']], ['loadedClean']],
       ['the registers not cleared at the start', [['cpu.a = 0; cpu.b = 0; cpu.x = 0; cpu.y = 0; cpu.u = 0; cpu.dp = 0; cpu.cc &= 0x50;', '']], ['regsCleared']],
       ['a trailing program ROM read not judged by finish()', [["if (!error && prevPc !== null && stepReads.length && !masked(prevPc) && started && !stopped) error = 'program-read-rom';", '']], ['trailingRead']],
-      ['the sweep off', [['for (const r of findRuns(below, images)) for (let a = r.at; a < r.at + r.len; a++) if (!loaded[a]) dirtyRam[a] = 1;', '']], ['loadPath']],
+      ['the sweep off', [['for (const r of romRuns(below, sweepIndex)) for (let a = r.at; a < r.at + r.len; a++) dirtyRam[a] = 1;', '']], ['loadPath']],
+      ['the sweep marking only its first run', [['for (const r of romRuns(below, sweepIndex))', 'for (const r of romRuns(below, sweepIndex).slice(0, 1))']], ['loadPath']],
+      ['the sweep marking a run short by one byte', [['for (let a = r.at; a < r.at + r.len; a++) dirtyRam[a] = 1;', 'for (let a = r.at; a < r.at + r.len - 1; a++) dirtyRam[a] = 1;']], ['loadPath']],
+      ['the sweep looking only below $4000', [['for (let a = 0; a < 0x8000; a++) below[a] = m.peek(a);', 'for (let a = 0; a < 0x4000; a++) below[a] = m.peek(a);']], ['loadPath']],
+      ['the sweep run after the image went in', [['this.poke = function (a, v) { sweepNow(); return poke.call(this, a, v); };', 'this.poke = function (a, v) { return poke.call(this, a, v); };']], ['straddle']],
+      ['the sweep window back to 16', [['const SWEEP_WINDOW = 8;', 'const SWEEP_WINDOW = 16;']], ['shortRun']],
       ['the heuristic remembering 4 reads', [['const RECENT = 16;', 'const RECENT = 4;']], ['shortCopy']],
       ['ROM code reading ROM data not making its stretch dirty', [['else dirtyStretch = true;', 'else { }'], ['if (masked(curPc) && !(a >= VEC_LO && a <= VEC_HI) && !(a >= HW_LO && a <= HW_HI)) dirtyStretch = true;', '']], ['roundTrip']],
       ['a ROM data read judged only at the next instruction (its writes slip through)', [['if (masked(curPc) && !(a >= VEC_LO && a <= VEC_HI) && !(a >= HW_LO && a <= HW_HI)) dirtyStretch = true;', '']], ['dirtyWrites']],

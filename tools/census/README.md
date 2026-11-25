@@ -49,8 +49,14 @@ a mutant for each one:
    RAM cell dirty. That covers the RAM hooks and tables BASIC copies out of ROM, through registers or the stack.
    * "Recently" means one of the last 16 reads, so a copy that reads more than 16 bytes before it writes them
      escapes it. 0 and $FF are not followed, and neither is anything BASIC *computes* from ROM data.
-   * A **sweep** backs it up. When the program starts, every run of 16 or more bytes of the ROM images found in RAM
-     below $8000 is marked dirty, however it got there. The program's own image is excluded.
+   * A **sweep** backs it up. When the program starts, after BASIC's boot and before the program goes in, every
+     run of 8 or more bytes of the ROM images found in RAM below $8000 is marked dirty, however it got there. Runs
+     of one repeated byte don't count. The program's own image is then marked clean. Sweeping before the image goes
+     in means a run the image partly overwrites is still seen whole.
+   * The window is a cost setting, not a safety one: `--sweep-window`, 4 to 16 bytes, default 8. A match only marks
+     cells as ROM data. That stops recording when they are read, so a shorter window marks more and can only cost
+     recording. On the built-in firmware no window from 4 to 16 marks any cell. On a real ROM, compare the
+     `stopped` reasons in `census.json` across windows.
    * On a real Dragon 64, BASIC leaves such runs in its RAM vector area and near the top of RAM by the time a
      program starts. An earlier version discarded the program for them; now they are marked. A program that reads
      them, or calls a ROM routine that does, stops recording there.
@@ -76,8 +82,9 @@ Three more guards bound what is left:
 
 Two more things these guards do not cover:
 
-* **Short boot residue.** The boot sweep (rule 5) only sees runs of 16 bytes or more. Boot residue the heuristic
-  misses is not marked if it is shorter than 16 bytes, or if a changed byte breaks the run. How much of that a real
+* **Short boot residue.** The boot sweep (rule 5) only sees runs at least as long as its window (8 bytes by
+  default). Boot residue the heuristic misses is not marked if it is shorter than that, or if a changed byte
+  breaks the run. How much of that a real
   BASIC leaves can't be measured without a real ROM.
 * **ROM bytes inside a program's own file.** ROM code embedded in a program's file is that program's data. Only the
   tripwire guards it, and it is out of scope.
@@ -124,6 +131,7 @@ vectors, RTS/RTI/PULS landing in ROM, and interrupts.
 | `--max-writes N` | writes kept per record; the rest are counted in `writesDropped` (default 256) |
 | `--max-targets N` | the scan limit per program (default 512) |
 | `--max-run-targets N` | the limit on distinct ROM entry points across the whole run; more, and nothing is written (default 1024) |
+| `--sweep-window N` | the boot sweep's shortest ROM run, 4 to 16 bytes (default 8); shorter marks more, which costs recording, not safety |
 | `--no-roms` | run on the built-in firmware (the self-test) |
 
 `census.jsonl` holds one record per line:
@@ -190,7 +198,8 @@ The test also runs a program for each leak path, on the built-in ROM stub:
 It drives a stand-in machine through the cases that need exact timing:
 
 * a boot that copies ROM into RAM;
-* the real ROM's load path: runs left in the RAM vector area and the stack, which the sweep must mark;
+* the real ROM's load path: runs left in the RAM vector area and the stack, which the sweep must mark over exactly
+  their length, including a run the program's image overlaps;
 * a short copy that only the 16-read heuristic catches;
 * a second program after a stop;
 * RAM written by a dirty stretch that never returned. It runs a mutant of every guard.

@@ -35,22 +35,23 @@
 //   5. Before the program starts (BASIC's boot, a loader), ROM code that writes a value it has read from ROM recently
 //      (one of the last RECENT = 16 data reads, 0 and $FF aside) marks that cell dirty: the RAM hooks and tables BASIC
 //      copies out of ROM, through registers or the stack. A value BASIC computes at boot from ROM data is not followed;
-//      BASIC's boot is fixed code, not the program's. A sweep backs the heuristic up: when the program starts, every
-//      run of 16 or more bytes of a ROM image found in RAM below $8000 (but the program's own image) is marked dirty,
-//      however it got there. Residue the heuristic misses that is shorter than 16 bytes, or broken by a changed byte,
-//      is not marked (README, "What is left").
+//      BASIC's boot is fixed code, not the program's. A sweep backs the heuristic up: when the program starts, before
+//      its image goes in, every run of SWEEP_WINDOW (8) or more bytes of a ROM image found in RAM below $8000 is marked
+//      dirty, however it got there; then the image's own cells are clean. Residue the heuristic misses that is shorter
+//      than the window, or broken by a changed byte, is not marked (README, "What is left").
 // What is left is what the census is for: the effects of running ROM code (constants in its instructions, its timing)
 // on the program's own inputs. Two more guards bound that: the tripwire (the romrefs window check over a program's
 // output values, against the ROM images: a 16-byte run of any image discards the program) and the scan limit (more than
 // maxTargets distinct ROM entry points discards the program).
 'use strict';
-const { romWindowIn, windowIndex, findRuns, WINDOW } = require('../../js/media/romrefs.js');
+const { romWindowIn, windowIndex, WINDOW } = require('../../js/media/romrefs.js');
 
 const ROM_LO = 0x8000, ROM_HI = 0xBFFF;
 const IO_LO = 0xFF00, IO_HI = 0xFFDF;   // the SAM maps $FFE0-$FFFF from the ROM's last 32 bytes (js/machines/sam.js read)
 const VEC_LO = 0xA000, VEC_HI = 0xA00F;
 const HW_LO = 0xFFF2, HW_HI = 0xFFFF;
-const RECENT = 16;   // the boot heuristic's memory: how many of ROM code's last data reads a write is matched against
+const RECENT = 16;
+const SWEEP_WINDOW = 8;   // the sweep's shortest run (rule 5): census.js --sweep-window, 4 to 16   // the boot heuristic's memory: how many of ROM code's last data reads a write is matched against
 const inRom = (a) => a >= ROM_LO && a <= ROM_HI;
 const masked = (a) => a >= 0x8000 && !(a >= IO_LO && a <= IO_HI);
 const REGS = ['a', 'b', 'x', 'y', 'u', 's', 'dp', 'cc'];
@@ -134,12 +135,48 @@ function onlyPicksTarget(reads, peek, from, newPc, sDelta) {
   return (op === 0xAD || op === 0x6E) && pb === 0x9F && at === a0;
 }
 
+// The sweep's run finder: the runs of `a` (at least w bytes) equal to runs of the images. Like romrefs.js's findRuns,
+// with a window of its own: a sweep match only costs recording (the cells become dirty), so it can afford a shorter
+// window than the share-link check. Windows of one repeated byte are not indexed (padding, cleared RAM).
+const uniformAt = (b, i, w) => { for (let k = 1; k < w; k++) if (b[i + k] !== b[i]) return false; return true; };
+const keyAt = (b, i, w) => { let h = 0; for (let k = 0; k < w; k++) h = (Math.imul(h, 31) + b[i + k]) | 0; return h; };
+function runIndex(images, w) {
+  const index = new Map();
+  images.forEach((img, n) => {
+    const b = img.bytes;
+    for (let i = 0; i + w <= b.length; i++) {
+      if (uniformAt(b, i, w)) continue;
+      const h = keyAt(b, i, w), at = index.get(h);
+      if (at) at.push([n, i]); else index.set(h, [[n, i]]);
+    }
+  });
+  return { images, w, index };
+}
+function romRuns(a, { images, w, index }) {
+  const runs = [];
+  for (let i = 0; i + w <= a.length;) {
+    let best = 0;
+    const cands = uniformAt(a, i, w) ? null : index.get(keyAt(a, i, w));
+    if (cands) {
+      for (const [n, off] of cands) {
+        const b = images[n].bytes;
+        let len = 0;
+        while (i + len < a.length && off + len < b.length && a[i + len] === b[off + len]) len++;
+        if (len >= w && len > best) best = len;
+      }
+    }
+    if (best) { runs.push({ at: i, len: best }); i += best; } else i++;
+  }
+  return runs;
+}
+
 // Trace machine m -> { detach(), finish() -> { records, refused, started, stopped, error } }.
 //   records: the records written in full; refused: the records written as addresses only (a dirty stretch);
 //   started: the census loader started the program; stopped: why recording stopped (sticky taint), or null;
 //   error: why the program is discarded (it read ROM, or scanned it), or null.
 // opts: { program, maxWrites, maxTargets }
-function trace(m, { program = '', maxWrites = 256, maxTargets = 512 } = {}) {
+function trace(m, { program = '', maxWrites = 256, maxTargets = 512, sweepWindow = SWEEP_WINDOW } = {}) {
+  if (!Number.isInteger(sweepWindow) || sweepWindow < 4 || sweepWindow > 16) throw new RangeError('sweepWindow is 4 to 16 bytes');
   const cpu = m.cpu, peek = (a) => m.peek(a & 0xFFFF);
   const records = [], refused = [];
   const dirtyRam = new Uint8Array(0x10000);   // 1: a RAM cell holding ROM-derived data
@@ -224,21 +261,31 @@ function trace(m, { program = '', maxWrites = 256, maxTargets = 512 } = {}) {
   // the census loader starting the program (1)
   const inject = m.injectAndRun;
   m.injectAndRun = function (segments, exec) {
-    inject.call(this, segments, exec);
-    const loaded = new Uint8Array(0x10000);
-    for (const seg of segments) for (let i = 0; i < seg.data.length; i++) { const a = (seg.addr + i) & 0xFFFF; dirtyRam[a] = 0; loaded[a] = 1; }
+    // the sweep (rule 5) looks at RAM as BASIC left it, before the program goes in: injectAndRun boots (or resets the
+    // built-in firmware), then pokes the program; the first poke runs the sweep, so a ROM run the program's image
+    // overlaps is seen whole and its cells outside the image stay marked
+    let swept = false;
+    const sweepNow = () => { if (!swept) { swept = true; sweep(); } };
+    const ownPoke = Object.hasOwn(this, 'poke') ? this.poke : null, poke = this.poke;
+    this.poke = function (a, v) { sweepNow(); return poke.call(this, a, v); };
+    try { inject.call(this, segments, exec); } finally { if (ownPoke) this.poke = ownPoke; else delete this.poke; }
+    sweepNow();
+    for (const seg of segments) for (let i = 0; i < seg.data.length; i++) dirtyRam[(seg.addr + i) & 0xFFFF] = 0;
     if (exec == null) return;
     cpu.a = 0; cpu.b = 0; cpu.x = 0; cpu.y = 0; cpu.u = 0; cpu.dp = 0; cpu.cc &= 0x50;
     // (stopped and error are never cleared: a stop or a discard is final for the run, so a second program loaded over
     // RAM the first one's ROM calls filled starts nothing new; RAM is not cleared between loads with ROMs)
     started = true; dirtyStretch = false; open = null;
     stepReads = []; stepFetchDirty = false; prevPc = null;
-    // the sweep (rule 5): every run of 16 or more bytes of a ROM image left in RAM below $8000 (but the program just
-    // loaded) is ROM data, however it got there (a copy the heuristic missed: through the stack, a longer block)
-    const below = new Uint8Array(0x8000);
-    for (let a = 0; a < 0x8000; a++) below[a] = loaded[a] ? 0 : m.peek(a);
-    for (const r of findRuns(below, images)) for (let a = r.at; a < r.at + r.len; a++) if (!loaded[a]) dirtyRam[a] = 1;
   };
+  // every run of sweepWindow or more bytes of a ROM image in RAM below $8000 is ROM data, however it got there (a copy
+  // the heuristic missed: through the stack, a longer block); windows of one repeated byte are skipped
+  const sweep = () => {
+    const below = new Uint8Array(0x8000);
+    for (let a = 0; a < 0x8000; a++) below[a] = m.peek(a);
+    for (const r of romRuns(below, sweepIndex)) for (let a = r.at; a < r.at + r.len; a++) dirtyRam[a] = 1;
+  };
+  const sweepIndex = runIndex(images, sweepWindow);
   const removers = [
     m.addProbe(probe),
     m.busTaps.addReadTap({ start: 0, end: 0xFFFF }, (a, v) => { onReadRecent(a, v); onRead(a, v); }),
@@ -251,6 +298,7 @@ function trace(m, { program = '', maxWrites = 256, maxTargets = 512 } = {}) {
     get error() { return error; },
     get stopped() { return stopped; },
     get started() { return started; },
+    isDirty: (a) => dirtyRam[a & 0xFFFF] === 1,
     finish() {
       detach();
       if (!error && prevPc !== null && stepReads.length && !masked(prevPc) && started && !stopped) error = 'program-read-rom';
@@ -260,4 +308,4 @@ function trace(m, { program = '', maxWrites = 256, maxTargets = 512 } = {}) {
   };
 }
 
-module.exports = { ROM_LO, ROM_HI, IO_LO, IO_HI, VEC_LO, VEC_HI, inRom, masked, kindOf, regBytes, valueBytes, romImages, Tripwire, onlyPicksTarget, trace };
+module.exports = { SWEEP_WINDOW, runIndex, romRuns, ROM_LO, ROM_HI, IO_LO, IO_HI, VEC_LO, VEC_HI, inRom, masked, kindOf, regBytes, valueBytes, romImages, Tripwire, onlyPicksTarget, trace };

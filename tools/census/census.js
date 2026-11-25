@@ -34,10 +34,12 @@ const HELP = `node tools/census/census.js --roms PATH [--roms PATH...] [options]
   --max-run-targets N  distinct ROM entry points all the programs of one run may use together; more, and nothing
                      is written (default 1024)
   --max-writes N     writes kept per record (default 256; the rest are counted)
+  --sweep-window N   the boot sweep's shortest ROM run, 4 to 16 bytes (default 8): shorter marks more of
+                     BASIC's leftovers as ROM data, which costs recording, never safety
   --no-roms          run on the built-in firmware (the self-test)`;
 
 function parse(argv) {
-  const o = { roms: [], out: 'census-out', frames: 3000, maxPerSite: 20, maxTargets: 512, maxRunTargets: 1024, maxWrites: 256, noRoms: false, programs: [] };
+  const o = { roms: [], out: 'census-out', frames: 3000, maxPerSite: 20, maxTargets: 512, maxRunTargets: 1024, maxWrites: 256, sweepWindow: 8, noRoms: false, programs: [] };
   const int = (v, what) => { const n = Number(v); if (!Number.isInteger(n) || n < 1) throw new Error(`${what} must be a whole number above 0`); return n; };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i], next = () => { if (i + 1 >= argv.length) throw new Error(`${a} needs a value`); return argv[++i]; };
@@ -48,6 +50,7 @@ function parse(argv) {
     else if (a === '--max-per-site') o.maxPerSite = int(next(), '--max-per-site');
     else if (a === '--max-targets') o.maxTargets = int(next(), '--max-targets');
     else if (a === '--max-run-targets') o.maxRunTargets = int(next(), '--max-run-targets');
+    else if (a === '--sweep-window') { o.sweepWindow = int(next(), '--sweep-window'); if (o.sweepWindow < 4 || o.sweepWindow > 16) throw new Error('--sweep-window is 4 to 16'); }
     else if (a === '--max-writes') o.maxWrites = int(next(), '--max-writes');
     else if (a === '--no-roms') o.noRoms = true;
     else if (a.startsWith('-')) throw new Error(`unknown option ${a}`);
@@ -106,7 +109,7 @@ async function runProgram(file, o, lib = defaultLib) {
   for (const s of steps.filter((x) => cli.STEPS[x.name].setup)) await runner.run(s);
   runner.start();
   const m = runner.m, images = lib.romImages(m);
-  const t = lib.trace(m, { program: name, maxWrites: o.maxWrites, maxTargets: o.maxTargets });
+  const t = lib.trace(m, { program: name, maxWrites: o.maxWrites, maxTargets: o.maxTargets, sweepWindow: o.sweepWindow });
   let failed = null;
   try {
     for (const s of steps.filter((x) => !cli.STEPS[x.name].setup)) {
