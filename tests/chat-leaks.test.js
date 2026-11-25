@@ -137,7 +137,7 @@ const ROWS = [
   // the needs-BASIC card's Run again: a program on the BASIC session called BASIC with no ROM, the ROMs came, and it
   // runs again with them (a switch off and on of the PERSON's machine, then the same load there)
   ['run a program again with ROMs (the needs-BASIC card)', (s) => { s.load('NEEDS.BIN', NEEDS_BIN); for (let i = 0; i < 3; i++) s.advance(21); withRoms(s); },
-    (s) => s.runAgainWithRoms()],
+    (s) => s.needsBasic.runAgain()],
   // machines and power
   // Reset with the chat on screen is DELIBERATE: the screen's Reset button restarts what is on screen, and that is
   // the chat firmware (it comes back running). It must not reach the person's session, and the chat's record must
@@ -525,8 +525,9 @@ function uiCalledMethods() {
       // `session.x` is how a panel uses one. The shapes the reviewer named must not slip past silently:
       // session?.x(), session['x'], and a destructured `{ x } = session`: each is an ERROR below, not a silent miss.
       // the media library's members (session.library.x, js/library.js) are classified by their own names, as before
-      // they moved off the Session; the drives' (session.drives.x, js/drives.js) as drives.x
-      for (const m of line.matchAll(/\bsession\??\.(?:library\.)?((?:drives\.)?[a-zA-Z_][a-zA-Z0-9_]*)/g)) if (!out.has(m[1])) out.set(m[1], `${f}:${i + 1}`);
+      // they moved off the Session; the drives' (session.drives.x, js/drives.js) as drives.x, and the needs-BASIC
+      // detector's (session.needsBasic.x, js/needs-basic.js) as needsBasic.x
+      for (const m of line.matchAll(/\bsession\??\.(?:library\.)?((?:drives\.|needsBasic\.)?[a-zA-Z_][a-zA-Z0-9_]*)/g)) if (!out.has(m[1])) out.set(m[1], `${f}:${i + 1}`);
       for (const m of line.matchAll(/\bsession\s*\[\s*['"]([a-zA-Z_][a-zA-Z0-9_]*)['"]\s*\]/g)) out.set(`[${m[1]}]`, `${f}:${i + 1}`);
       for (const m of line.matchAll(/\b(?:const|let|var)\s*\{([^}]*)\}\s*=\s*session\b/g)) out.set(`{${m[1].trim()}}`, `${f}:${i + 1}`);
     });
@@ -540,7 +541,7 @@ function rowMethods() {
   // do - a setup that calls a method is also coverage of it
   for (const row of ROWS) {
     for (const fn of row.filter((x) => typeof x === 'function')) {
-      for (const m of String(fn).matchAll(/\bs\.(?:library\.)?((?:drives\.)?[a-zA-Z_][a-zA-Z0-9_]*)\s*\(/g)) out.add(m[1]);
+      for (const m of String(fn).matchAll(/\bs\.(?:library\.)?((?:drives\.|needsBasic\.)?[a-zA-Z_][a-zA-Z0-9_]*)\s*\(/g)) out.add(m[1]);
     }
   }
   return out;

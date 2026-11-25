@@ -1,4 +1,4 @@
-// "This program needs BASIC" (js/needs-basic.js, Session.load / runAgainWithRoms): a program the person loaded, on
+// "This program needs BASIC" (js/needs-basic.js, Session.load / needsBasic.runAgain): a program the person loaded, on
 // a machine without BASIC's ROM, calls a BASIC routine the built-in firmware does not have. The programs here are our
 // own bytes, written out below (no ROM code); the expected addresses and words come from the programs and the card's agreed copy,
 // not from the code under test.
@@ -289,12 +289,12 @@ L BRA L
     s.load('NEEDS.BIN', bin6809(CALLS_A176));
     frames(s, 3);
     let refused = '';
-    try { s.runAgainWithRoms(); } catch (e) { refused = e.message; }
+    try { s.needsBasic.runAgain(); } catch (e) { refused = e.message; }
     check('Run again before the ROMs are added is refused, saying so', refused === "The Dragon 64's BASIC ROM isn't added yet.", refused);
     s.addRoms([{ name: 'd64_1.rom', bytes: standIn() }]);
     check('adding the ROMs (which switches the machine on with them) keeps what was found, for the card\'s offer',
       s.needsBasic.found && s.needsBasic.found.address === 0xA176 && s.machineRoms('dragon64').bootable && said.length === 1, json(said));
-    const msg = s.runAgainWithRoms();
+    const msg = s.needsBasic.runAgain();
     frames(s, 5);
     const m = s.shownMachine;
     check('Run again: the machine has its ROM, the same file loaded through load, and its calls reach the stand-in\'s routine at $A176',

@@ -6,7 +6,7 @@
  *   It tried to use BASIC, and there's nothing there yet, so the screen fills with junk.   [Add ROMs] [Dismiss]
  *   Details: It called $A176, in the BASIC ROM's space, at frame N.
  * Once the machine's ROMs are added it becomes "ROMs added." with [Run <file> again with ROMs] [Not now]: the button
- * switches the machine off and on with them and loads the same file again (Session.runAgainWithRoms). Dismissed
+ * switches the machine off and on with them and loads the same file again (Session.needsBasic.runAgain). Dismissed
  * before the ROMs came, a toast makes that offer instead.
  * One attention card at a time on the tube and beside it, in this order: this card, the boot help ("didn't start"),
  * the no-ROM card (#welcome). The page shows the first that wants to show (body classes, play/index.html).
@@ -38,7 +38,7 @@ export function setupNeedsBasic(page, sockets) {
     box.hidden = !show;
   }
   function runAgain() {
-    if (page.attempt(() => session.runAgainWithRoms())) page.focus();
+    if (page.attempt(() => session.needsBasic.runAgain())) page.focus();
   }
   session.on((ev, arg) => {
     if (ev === 'needs-basic') { found = arg; dismissed = false; offered = false; render(); return; }

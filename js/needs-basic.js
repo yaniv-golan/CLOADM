@@ -77,9 +77,11 @@ export function callsMissingBasic(m, pc) {
 }
 
 export class NeedsBasic {
-  // emit(found): told once, after the run of instructions it fired in has ended
-  constructor(emit) {
-    this.emit = emit;
+  // the Session's (Session.needsBasic): what it finds is the Session's event 'needs-basic', told once, after the run of
+  // instructions it fired in has ended (and 'needs-basic' with null when that is over)
+  constructor(session) {
+    this.session = session;
+    this.emit = (found) => session.emit('needs-basic', found);
     this.m = null;          // the machine it is armed on
     this.file = null;       // the program's name (the file the person loaded)
     this.since = 0;         // m.frameCount at the load
@@ -90,14 +92,17 @@ export class NeedsBasic {
   get armed() { return !!this.off; }
   // Session.load: a program started on m. Watched when the person loaded it (not one of ours: ours) and the machine has
   // no bootable BASIC (the built-in firmware runs, no stored ROMs boot it)
-  loaded(session, m, file, bytes, ours) {
+  loaded(m, file, bytes, ours) {
     this.clear();
-    if (!ours && m.useStub && !session.machineRoms(m.id).bootable) this.arm(m, file, bytes);
+    if (!ours && m.useStub && !this.session.machineRoms(m.id).bootable) this.arm(m, file, bytes);
   }
-  // The card's "Run <file> again with ROMs", once the machine's ROMs are added: the machine is switched off and on with
-  // them, and the same file loads through the same path as before (Session.load) -> its message
-  runAgain(session) {
-    const f = this.found, m = session.personMachine;
+  // the Session adopted m (a switch, a snapshot opened): a machine it did not watch means what it watched is gone
+  adopted(m) { if (m !== this.m) this.clear(); }
+  // The card's "Run <file> again with ROMs" (Session.needsBasic.runAgain()), once the machine's ROMs are added: the
+  // machine is switched off and on with them, and the same file loads through the same path as before (Session.load)
+  // -> its message
+  runAgain() {
+    const session = this.session, f = this.found, m = session.personMachine;
     if (!f) throw new SessionError('There is no program to run again.');
     if (m.profile.id !== f.id) throw new SessionError(`${f.file} ran on the ${f.machine}; this is the ${m.profile.name}.`);
     if (!session.machineRoms(m.id).bootable) throw new SessionError(`The ${m.profile.name}'s BASIC ${f.roms} ${f.plural ? "aren't" : "isn't"} added yet.`);

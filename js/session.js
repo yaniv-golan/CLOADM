@@ -723,7 +723,7 @@ export class Session {
     // (js/needs-basic.js): 'needs-basic' with what was found, and again with null when that is over (a reset, a
     // power-on, a switch, another load)
     // (null where the detector is not built in: the side panel's fold, connector/view/needs-basic-off.js)
-    this.needsBasic = NeedsBasic && new NeedsBasic((found) => this.emit('needs-basic', found));
+    this.needsBasic = NeedsBasic && new NeedsBasic(this);
     // the serial port's byte streams and diagnostics (SerialApi), its listeners and traces kept on the machine through hooks
     this.serial = new SerialApi(this);
     this.writeWatch = new WriteWatch(this);
@@ -973,7 +973,7 @@ export class Session {
     for (const [mm] of this.bootFailed) if (mm !== this.shownMachine && mm !== m) this.bootFailed.delete(mm);
     for (const [mm] of this.stubRuns) if (mm !== this.shownMachine && mm !== m) this.stubRuns.delete(mm);
     // (the "needs BASIC" detector watched the machine that goes)
-    if (this.needsBasic?.m !== m) this.needsBasic?.clear();
+    this.needsBasic?.adopted(m);
     this.store.set('machine', m.id);
     this.install(m);
   }
@@ -1567,7 +1567,7 @@ export class Session {
     }
     for (const id of touched.keys()) this.stubChosen.delete(id);
     // (the switch on with them keeps what the "needs BASIC" detector found: its card offers the program again now)
-    if (touched.has(m.id)) { this.loadSavedRoms(m); const on = () => this.powerCycle({ on: m }); if (this.needsBasic) this.needsBasic.keep(on); else on(); }
+    if (touched.has(m.id)) { this.loadSavedRoms(m); const on = () => this.powerCycle({ on: m }); this.needsBasic ? this.needsBasic.keep(on) : on(); }
     const ids = [...touched.keys()];
     const machines = ids.filter((id) => profiles[id]).map((id) => this.machineRoms(id));
     const cartridges = ids.filter((id) => cartridgeRoms[id]).map((id) => ({ id, name: cartridgeRoms[id].name, sockets: socketStatus(cartridgeRoms[id], this.roms.get(id)) }));
@@ -2502,16 +2502,10 @@ export class Session {
     const msg = this.loadMedia(name, bytes, askAddresses, { run });
     // a program that started: what the last one found is over, and this one is watched afresh (data only, a tape
     // in the deck: what runs is still the program that was running)
-    if (this.loadStarted) this.needsBasic?.loaded(this, m, name, bytes, ours);
+    if (this.loadStarted) this.needsBasic?.loaded(m, name, bytes, ours);
     if (remember) { this.library.rememberMedia(name, bytes); this.setLastRun('recent', name, { running: this.loadStarted, crc: crc32(bytes) }); }
     this.emit('loaded');
     return msg;
-  }
-  // The card's "Run <file> again with ROMs", once the machine's ROMs are added: the machine is switched off and on
-  // with them, and the same file loads through the same path as before (load) -> its message
-  runAgainWithRoms() {
-    if (!this.needsBasic) throw new SessionError('Running a program again with ROMs is not available here.');
-    return this.needsBasic.runAgain(this);
   }
   // A tape loads through BASIC as on a machine just switched on: power cycled (the deck and the cartridge stay,
   // as with any power cycle), then nothing is typed until BASIC is at its prompt. Whatever ran before - a CLEAR

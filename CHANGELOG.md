@@ -181,7 +181,7 @@ Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.
   cartridge in, a machine with BASIC, WYRMFIRE, or while the Debugger is stopped or stepping (`Debugger.commanding`). Tested in
   `tests/needs-basic.test.js` and the browser check's new `needsBasic` group. The side panel has no card for it: its
   folded view leaves the detector out (`connector/view/needs-basic-off.js` in its place; the Session's `needsBasic` is
-  null there, and Run again says it is not available), which keeps the view inside its size budget.
+  null there, and Run again, `needsBasic.runAgain()`, is the detector's), which keeps the view inside its size budget.
 
 - **A quieter desktop app bar.** Its links are **Programs…** (the Media tab's programs, now at every width),
   **Library** and **More ▾**, which lists Debugger, Commands…, Help, GitHub and **Install CLOADM…** (only while the

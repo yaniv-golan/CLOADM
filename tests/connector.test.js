@@ -232,10 +232,8 @@ const J = JSON.stringify;
     const said = []; s.on((ev, a) => { if (ev === 'needs-basic') said.push(a); });
     s.load('NEEDS.BIN', Uint8Array.from([0x55, 0x02, 0x30, 0x00, 0x00, 0x07, 0x30, 0x00, 0xAA, 0x1A, 0x50, 0xBD, 0xA1, 0x76, 0x20, 0xFE]));
     s.runFrames(5);
-    let refusedAgain = '';
-    try { s.runAgainWithRoms(); } catch (e) { refusedAgain = e.message; }
-    check('fold: the side panel\'s Session has no detector: a load without BASIC is not watched, nothing is said, and Run again refuses, saying so',
-      s.needsBasic === null && said.length === 0 && refusedAgain === 'Running a program again with ROMs is not available here.', J({ said, refusedAgain }));
+    check('fold: the side panel\'s Session has no detector (needsBasic null, so no Run again either): a load without BASIC is not watched, and nothing is said',
+      s.needsBasic === null && said.length === 0, J({ said }));
   }
   let refused = null;
   try { fold(path.join(ROOT, 'connector/fold.js')); } catch (e) { refused = e.message; }
