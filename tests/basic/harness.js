@@ -173,12 +173,16 @@ class Basic {
   }
   // A screen cleared while recording (a frame that leaves at most one row with text after one with two or more: CLS,
   // or a ROM clearing the screen for its own display) would lose what was on it, as no line scrolled off: the screen
-  // as the frame before showed it is kept in `clears`, with that frame's number.
+  // as it was when the clear blanked the top-left cell (recorded by the top row's write tap), or else as the frame
+  // before showed it, is kept in `clears`, with that frame's number.
   frame() {
     this.m.runFrame(); this.frames++;
     if (!this.lines) return;
     const now = this.screen(), had = this.lastScreen || [], rows = (r) => r.filter((l) => l).length;
-    if (rows(had) >= 2 && rows(now) <= 1) this.clears.push({ frame: this.frames - 1, screen: had });
+    if (rows(had) >= 2 && rows(now) <= 1) {
+      const at = this.clearAt && this.clearAt.frame >= this.frames - 2 ? this.clearAt.screen : had;
+      this.clears.push({ frame: this.frames - 1, screen: at.map((l) => l.replace(/\s+$/, '')) });
+    }
     this.lastScreen = now;
   }
   // the picture now (the last whole frame): { width, height, sha256 of its RGBA pixels, png (base64) }
@@ -229,7 +233,7 @@ class Basic {
   record() {
     if (this.taps) for (const remove of this.taps) remove();   // (each tap gives back its remove function)
     const m = this.m, recent = [];
-    this.lines = []; this.flags = []; this.clears = []; this.lastScreen = this.screen();
+    this.lines = []; this.flags = []; this.clears = []; this.lastScreen = this.screen(); this.clearAt = null;
     const SCR = 0x400;
     const cells0 = () => Array.from({ length: 32 }, (_, c) => cell(m.ram[SCR + c]));
     const row0 = () => cells0().join('').replace(/\s+$/, '');
@@ -238,6 +242,8 @@ class Basic {
       m.busTaps.addReadTap({ start: SCR, end: SCR + 0x1FF }, (a) => { recent.push(a); if (recent.length > 8) recent.shift(); }),
       m.busTaps.addWriteTap({ start: SCR, end: SCR + 31 }, (a, v, old) => {
         const c = a - SCR;
+        // a clear starts by blanking the top-left cell: the screen as it was then (the frame's end may fall mid-clear)
+        if (c === 0 && v === 0x60 && old !== 0x60) { const r = this.screen(); this.clearAt = { frame: this.frames, screen: r.length ? [cell(old) + r[0].slice(1), ...r.slice(1)] : [cell(old)] }; }
         if (recent.includes(a + 32) && v === m.ram[a + 32]) {
           if (!moved.size) { const r = cells0(); r[c] = cell(old); snap = r.join('').replace(/\s+$/, ''); }
           moved.add(c);

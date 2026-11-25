@@ -125,6 +125,22 @@ check('build: $8000-$80FF is left free for later fixed entry points', built.rom.
   const { compare: cmpEnd } = require('../tools/basic-bb/compare.js');
   const rec = (ended) => new Map([['c', { case: 'c', status: 'ok', transcript: ['OK'], ...(ended ? { ended } : {}) }]]);
   check('compare: an expected timeout on one side only is a difference', cmpEnd(rec({ at: 'line 4', as: 'timeout' }), rec(null)).same === 0 && cmpEnd(rec({ at: 'line 4', as: 'timeout' }), rec({ at: 'line 4', as: 'timeout' })).same === 1);
+  // a clear that a frame's end splits: the screen is taken as it was when the top-left cell was blanked
+  {
+    const { Basic } = require('./basic/harness.js');
+    const c = new Basic(built.rom);
+    c.waitOk({ limit: 600, stable: 3 });
+    c.cleanStart(1500);
+    c.record();
+    const m = c.m, put = (a, t) => { for (let i = 0; i < t.length; i++) m.ram[a + i] = t.charCodeAt(i); };
+    put(0x400, 'ROWZERO'); put(0x420, 'ROWONE'); put(0x440, 'ROWTWO');
+    c.frame();
+    for (let a = 0x400; a < 0x420; a++) m.write(a, 0x60);   // the first row blanked, then the frame ends
+    c.frame();
+    for (let a = 0x420; a < 0x600; a++) m.write(a, 0x60);
+    c.frame();
+    check('clears: a clear split by a frame\'s end keeps the screen as it was when it began', c.clears.length === 1 && JSON.stringify(c.clears[0].screen) === JSON.stringify(['ROWZERO', 'ROWONE', 'ROWTWO']), JSON.stringify(c.clears));
+  }
   check('compareClears: the same screens pass, frames ignored', compareClears([{ frame: 1, screen: ['A', 'B'] }], [{ frame: 9, screen: ['A', 'B'] }]).length === 0);
   check('compareClears: a different screen or count is reported', compareClears([{ frame: 1, screen: ['A', 'B'] }], [{ frame: 1, screen: ['A', 'C'] }]).length === 1 && compareClears([], [{ frame: 1, screen: ['A'] }]).length === 1);
   check('compareClears: a record without the field (made before it) is not compared', compareClears(undefined, [{ frame: 1, screen: ['A'] }]).length === 0);
