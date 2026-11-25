@@ -15,6 +15,10 @@ Next version: 0.3.0 (the plugin and extension manifests carry it; `tests/plugin.
   Claude's `type_text` does, holding each key until the machine has read it and waiting for the machine to read the keyboard again
   after an ENTER; a machine that stops reading fails the step `keys-not-taken`, saying how many keys it took. The built-in firmware
   (no ROMs) is typed to as before.
+- **A stored-files change from another tab that this tab could not read is no longer lost without a word.** When another tab
+  changed the ROMs or the recent list and reading the change failed, this tab swallowed the error and kept its old lists until
+  the next change. It now reads again once, and if that fails too it says so ("Another tab changed your stored files, and this tab
+  could not read the change (…). Reload to see it.").
 
 ### 0.3.0
 

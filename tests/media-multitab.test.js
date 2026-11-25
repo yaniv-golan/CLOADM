@@ -471,6 +471,35 @@ function remember(idx, name, crc) {
       await E.index.flush();
       check('the image follows its socket to the other tab: told again once written', !!crc && !before && await wait(() => !!F.index.image(crc)), `before=${before}`);
     }
+    // a refresh that fails is tried once more, and a second failure is told, not swallowed (Session.mediaElsewhere)
+    {
+      class FlakyRead extends SlowStore {
+        constructor() { super('opfs'); this.failReads = 0; }
+        async read(name) { if (this.failReads > 0) { this.failReads--; throw new Error('read failed (test)'); } return super.read(name); }
+      }
+      const st4 = new FlakyRead(), quiet = () => ({ onmessage: null, postMessage() {} });
+      const E = new Emu.Session({ media: st4, mediaShare: { locks: null, channel: quiet() } });
+      const F = new Emu.Session({ media: st4, mediaShare: { locks: null, channel: quiet() } });
+      await E.ready(); await F.ready();
+      const told = []; F.on((ev, arg) => { if (ev === 'media-sync-failed') told.push(arg); });
+      E.roms.put('dragon64', 'basic', new Uint8Array(16384).fill(0x61));
+      await E.index.flush();
+      check('(set-up: the other tab has not heard of the socket yet)', !F.index.socketCrc('dragon64', 'basic'));
+      st4.failReads = 1;   // the first read of the refresh fails once
+      let threw = null;
+      try { await F.mediaElsewhere({ store: 'opfs', what: 'roms' }); } catch (e) { threw = e; }
+      check('a refresh whose first read fails once is tried again: the change is read in, nothing is told', !threw && !!F.index.socketCrc('dragon64', 'basic') && told.length === 0, `${threw && threw.message} told ${told.length}`);
+      st4.failReads = 0;
+      E.roms.put('dragon64', 'basic64', new Uint8Array(16384).fill(0x62));
+      await E.index.flush();
+      st4.failReads = 1000;   // every read fails: both tries
+      threw = null;
+      try { await F.mediaElsewhere({ store: 'opfs', what: 'roms' }); } catch (e) { threw = e; }
+      st4.failReads = 0;
+      check('a refresh that fails twice is told ("media-sync-failed" with the error), once, and does not reject', !threw && told.length === 1 && /read failed \(test\)/.test(told[0] && told[0].message) && !F.index.socketCrc('dragon64', 'basic64'), `${threw && threw.message} told ${told.length}`);
+      await F.mediaElsewhere({ store: 'opfs', what: 'roms' });
+      check('...and the next message reads the change in', !!F.index.socketCrc('dragon64', 'basic64'));
+    }
     // a message about another kind of store is not this page's
     const before = heard.length;
     await B.mediaElsewhere({ store: 'fsa', what: 'library' });

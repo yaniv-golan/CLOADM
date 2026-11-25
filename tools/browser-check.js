@@ -8011,6 +8011,12 @@ async function libraryStorageChecks(base, check) {
   check('library storage: the three places, this browser chosen, and where it is kept now', card.choices === 'opfs:true:false fsa:false:false fallback:false:false'
     && card.labels === 'Inside this browser | A folder on this computer | Download and open files' && /^Stored in this browser \(OPFS\)/.test(card.where) && card.reconnect,
     JSON.stringify(card));
+  {
+    // another tab's change that this tab could not read (after the Session's second try) is said on screen
+    await page.evaluate(() => window.emu.session.emit('media-sync-failed', new Error('read failed (test)')));
+    check('library storage: a stored-files change from another tab that could not be read says so, with the reason and what to do',
+      await waitFor(page, () => /Another tab changed your stored files, and this tab could not read the change \(read failed \(test\)\)\. Reload to see it\./.test(document.getElementById('toast').textContent), null, 3000), await msg());
+  }
   check('library: the hint says a spine or a tile can be dragged onto the machine\'s screen', /drag it onto the machine's screen, to load it/.test(card.hint), card.hint);
   await page.setInputFiles('#fileLib', [{ name: 'HELLO.BIN', mimeType: 'application/octet-stream', buffer: bin }, { name: 'HELLO.CAS', mimeType: 'application/octet-stream', buffer: cas },
     { name: 'UTILS.DSK', mimeType: 'application/octet-stream', buffer: dsk }]);
