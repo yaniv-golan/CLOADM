@@ -484,7 +484,7 @@ for (const good of ['PCLEAR 1', 'PCLEAR 0', 'PCLEAR 9', 'PMODE 4,1', 'PMODE 0,4'
   check('#tape-blocks: each summary the blocks since the last', !!r2.tapes && names(r2.tapes[0]) === 'ONE' && names(r2.tapes[1]) === 'TWO' && r2.tapes[2].blocks.length === 0 && r2.tapes[2].motor.length === 0, JSON.stringify(r2.tapes && r2.tapes.map(names)));
   // a fixture played; #tape-rewind of a fixture plays it again from the start
   const r3 = runCase(built.rom, '#tape three-progs\nCLOAD "TWO"\n#tape-rewind\nCLOAD "TWO"\nLIST\n');
-  check('#tape NAME: the fixture plays; #tape-rewind plays it again from the start', r3.status === 'ok' && r3.transcript.filter((l) => l === 'SKIP ONE').length === 2 && r3.transcript.includes('10 PRINT "PROGRAM TWO"'), JSON.stringify(r3.transcript));
+  check('#tape NAME: the fixture plays; #tape-rewind plays it again from the start', r3.status === 'ok' && (r3.clears || []).length === 2 && r3.clears[1].screen.join('|') === 'F TWO|OK|CLOAD "TWO"' && r3.transcript[0] === 'F TWO' && r3.transcript.includes('10 PRINT "PROGRAM TWO"'), JSON.stringify([r3.clears, r3.transcript]));
   // the motor: one run on one line, left running past OK (length null), then carried into the next summary
   const r4 = runCase(built.rom, '#tape three-progs\nMOTOR ON:FOR I=1 TO 300:NEXT:MOTOR OFF\n#tape-blocks loop\nMOTOR ON\n#tape-blocks on\nMOTOR OFF\n#tape-blocks off\n');
   const [loop, on, off] = r4.tapes || [];

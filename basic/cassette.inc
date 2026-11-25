@@ -62,7 +62,9 @@ CRBY1   BSR     CRBIT
         RTS
 
 * CRBLK: the next block: wait for a leader and the sync byte after it, then CBTYP, CBLEN and the data to X on
-* (X ends past it). Z set when the checksum is right. The motor is left running.
+* (X ends past it). Z set when the checksum is right. The motor is left running. When the block's leader is first
+* heard, the letter at the top left of the screen (S or F, CFIND) changes between normal and inverse [BB bb4, bb5:
+* one change a block, a little after its leader starts].
 CRBLK   JSR     CASON
 CRS0    CLR     <CLEAD
 CRS1    BSR     CRBIT
@@ -95,10 +97,17 @@ CRS3    TST     <CBCNT
 CRS4    BSR     CRBYTE
         CMPA    <CSUM
         RTS
-CRS2    STA     <CLEAD
+CRS2    TST     <CLEAD
+        BNE     CRS2A
+        LDB     SCREEN          ; (the first leader byte: the letter blinks)
+        EORB    #$40
+        STB     SCREEN
+CRS2A   STA     <CLEAD
         BRA     CRS1
 
-* the cassette's errors: the motor stops; a program half loaded is cleared. B = the error
+* the cassette's errors: the motor stops; a program half loaded is cleared. B = the error. ?IO ERROR leaves the
+* file open (CLDBAS $FF): the next cassette statement is ?AO ERROR, which closes it [BB bb5 cas-errors: SKIPF after
+* a CLOAD that met a bad block]
 CLFM    LDB     #ERR_FM
         BRA     CASERR
 CLOM    LDB     #ERR_OM
@@ -109,19 +118,29 @@ CLIO    LDB     #ERR_IO
 CASERR  JSR     CASOFF
         TST     <CLDBAS
         BEQ     CE1
-        CLR     <CLDBAS
         JSR     NEWPRG
-CE1     JMP     ERROR
+CE1     CLR     <CLDBAS
+        CMPB    #ERR_IO
+        BNE     CE2
+        DEC     <CLDBAS
+CE2     JMP     ERROR
 
-* CFIND: read namefile blocks until one has the name in CNAME (any, when CNLEN is 0), printing each one met;
-* its block stays at LINBUF. Messages [OWN, placeholders until a black-box run]
-CFIND   LDX     #SRCMSG
-        JSR     <ZPRTSTR
+* CFIND: read namefile blocks until one has the name in CNAME (any, when CNLEN is 0); its block stays at LINBUF.
+* The display [BB bb4, bb5 cas-display, cas-errors]: the screen cleared and S at the top left (blinking, CRBLK);
+* a namefile met puts its name on the top row from the third cell; the file wanted F (normal) at the top left;
+* another file is passed over to its end-of-file block, then the screen is cleared again, S (a search that starts in
+* the middle of a file does not clear at that file's end [BB bb5 cas-errors]). The prompt or an error then prints on
+* the second row.
+CFIND   JSR     CLS
+        LDA     #'S'
+        STA     SCREEN
+        LDX     #SCREEN+32
+        STX     <CURPOS
 CF1     LDX     #LINBUF
-        BSR     CRBLK
-        BNE     CF1             ; a bad block, or another file's data: not what we look for
+        JSR     CRBLK
+        BNE     CF1             ; a bad block: not what we look for
         LDA     <CBTYP
-        BNE     CF1
+        BNE     CF1             ; another file's data
         LDX     #LINBUF
         LDU     #CNAME
         LDB     <CNLEN
@@ -132,23 +151,31 @@ CF2     LDA     ,X+
         BNE     CF4
         DECB
         BNE     CF2
-CF3     LDX     #FNDMSG
-        BRA     CFNAME
-CF4     LDX     #SKPMSG
-        BSR     CFNAME
-        BRA     CF1
-CFNAME  JSR     <ZPRTSTR
+CF3     BSR     CFNAME          ; (the name first, then F [BB: the flags' order])
+        LDA     #'F'
+        STA     SCREEN
+        RTS
+CF4     BSR     CFNAME
+        BSR     CSKIP           ; the file passed over, then a clear screen
+        BRA     CFIND
+CFNAME  LDX     #SCREEN+2
+        STX     <CURPOS
         LDX     #LINBUF
         LDB     #8
 CFN1    LDA     ,X+
         JSR     <ZCHROUT
         DECB
         BNE     CFN1
-        JMP     CRLF
-SRCMSG  FCC     "SEARCHING"
-        FCB     13,0
-FNDMSG  FCN     "FOUND "
-SKPMSG  FCN     "SKIP "
+        LDX     #SCREEN+32
+        STX     <CURPOS
+        RTS
+* CSKIP: blocks read up to an end-of-file block
+CSKIP   LDX     #LINBUF
+        JSR     CRBLK
+        LDA     <CBTYP
+        INCA
+        BNE     CSKIP
+        RTS
 
 * CLDATA: the data blocks of the file found, to X on, up to its end-of-file block. For a program (CLDBAS set)
 * there must be room for a whole block below the stack [OWN]. ?IO ERROR on a bad checksum or a block out of place.
@@ -174,10 +201,11 @@ CLOAD   CMPA    #'M'
         LBEQ    CLOADM
         JSR     GETNAM
         JSR     CFIND
-        TST     LINBUF+8        ; a BASIC program
-        LBNE    CLFM
+        LDA     LINBUF+8        ; a BASIC program, or a data file [BB bb5 cas-errors: ?DS ERROR]
+        CMPA    #2
+        LBHS    CLFM
         INC     <CLDBAS
-        TST     LINBUF+9        ; saved as text
+        ORA     LINBUF+9        ; a data file, or a program saved as text
         BNE     CLASC
         LDX     <TXTTAB
         BSR     CLDATA
@@ -187,8 +215,9 @@ CLDONE  CLR     <CLDBAS
         JSR     CASOFF
         JSR     CLRVAR
         JMP     READY
-* a program saved as text: the motor stops after each block, and its lines go in one by one as if typed
-* (?DS ERROR for a line without a number [UM's error list]; a line over 250 characters is cut [OWN])
+* a program saved as text, or a data file: the motor stops after each block, and its lines go in one by one as if
+* typed; a line without a number is ?DS ERROR [UM's error list] once the whole file is read (CLDBAS 2) [BB bb5
+* cas-errors: the data file's end-of-file block is read first]; a line over 250 characters is cut [OWN]
 CLASC   JSR     NEWPRG
         LDU     #LINBUF
 CLA1    LDX     #CASBUF
@@ -215,6 +244,8 @@ CLA3A   DECB
         BNE     CLA2
         BRA     CLA1
 CLA4    BSR     CLLINE          ; a last line with no carriage return
+        DEC     <CLDBAS
+        LBNE    CLDS
         BRA     CLDONE
 CLLINE  CLR     ,U
         PSHS    B,X
@@ -223,8 +254,11 @@ CLLINE  CLR     ,U
         STX     <TXTPTR
         JSR     <ZCHRGET
         BEQ     CLL1
-        LBCC    CLDS
-        JSR     <ZLINGET
+        BCS     CLL0
+        LDA     #2              ; no number: ?DS ERROR at the end
+        STA     <CLDBAS
+        BRA     CLL1
+CLL0    JSR     <ZLINGET
         JSR     EDLINE
 CLL1    LDU     #LINBUF
         PULS    B,X,PC
@@ -255,11 +289,7 @@ CLM1    JSR     CFIND
 * SKIPF ["NAME"]: past the file (the next one, without a name) [UM]
 SKIPF   BSR     GETNAM
         JSR     CFIND
-SKP1    LDX     #LINBUF
-        JSR     CRBLK
-        LDA     <CBTYP
-        INCA
-        BNE     SKP1
+        JSR     CSKIP
         BRA     CASOFF
 
 * CASON: interrupts off, the motor on. CASOFF: the motor off, interrupts on. Both keep B, X, U.
@@ -273,7 +303,11 @@ CSO1    STA     PIA1CA
 
 * GETNAM: an optional file name (a string expression) into CNAME, padded with spaces to 8 (a longer one is cut
 * [OWN]); CNLEN its length, 0 when there is none (any file will do)
-GETNAM  CLR     <CLDBAS
+GETNAM  TST     <CLDBAS
+        BPL     GN0
+        LDB     #ERR_AO         ; a file left open by ?IO ERROR (CASERR)
+        LBRA    CE1
+GN0     CLR     <CLDBAS
         LDX     #CNAME
         LDD     #$2008
 GN1     STA     ,X+

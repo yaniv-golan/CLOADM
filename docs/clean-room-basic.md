@@ -446,8 +446,14 @@ All answered by the project owner and kept here with the decision, except where 
 9. **The black-box round trip. Decided:** runs are done on the maintainer's machine, hours per round trip, so cases
    go in batches: a pushed commit whose cases pass the lint, and the command to run. Reference results may also come
    from a real Dragon, by hand (section 7).
-10. **The cassette's visible details. Open:** what the original prints while it searches and finds (ours: `SEARCHING`,
-   `FOUND name`, `SKIP name`, placeholders until a black-box run); the exec and load addresses it writes in a BASIC
+10. **The cassette's visible details. Open:** the display while it searches and finds now follows the black-box
+   records (section 12); still open there: the blink's exact timing (ours changes the letter at the first leader byte
+   heard; the original some frames later, and after a motor restart a whole leader later: the original stops the
+   motor after every namefile and waits after starting it, ours does neither, so the `#tape-blocks` motor runs of
+   `cas-save-load` and `cas-skipf` differ), what the letter ends as after a file of several data blocks (ours: by
+   their number), whether a text file's line without a number is `?DS ERROR` at once on the original when more
+   blocks follow it (ours: always at the end), and which statements a file left open by `?IO ERROR` refuses (ours:
+   every cassette statement, once) and what else closes it (ours: nothing else). Also open: the exec and load addresses it writes in a BASIC
    program's namefile (ours: 0 and 0); whether `CLOADM`'s offset also moves the exec address (ours: yes); whether a
    `CLOAD` run inside a program returns to `OK` (ours: yes) and `CLOADM` and `SKIPF` go on with the statement (ours:
    yes); the leader length and the timing around the motor (ours: 128 bytes, half a second); what `SKIPF` does with
@@ -501,6 +507,9 @@ Every behaviour fact the ROM relies on, with its source. A fact without a source
 | 40 | The cursor is updated by the keyboard wait, not by a timer, with a fixed delay after each update; the address is read from RAM at each transition; no copy of the byte under the cursor is kept; moving the cursor does not restart the blink | [OWNER-SPEC] |
 | 41 | Native 64K mode (not built): a transition writes `$8F` over `$AF` and `$AF` over anything else; about 9,885 cycles per decrement, 475,692 per transition | [BB] black-box observation (2026-11-25) |
 | 42 | The field interrupt, from its entry to its `RTI`, takes 104 cycles: it lengthens the period it falls in by that much (octave 1's C to G medians are 104 cycles over their periods); ours pads `IRQSRV` to the same (it took 66) | [BB] bb2, `snd-play-pitch` (docs/clean-room-basic-p2.md section 6) |
+| 43 | A cassette read (`CLOAD`, `CLOADM`, `SKIPF`) clears the screen and shows `S` in the top-left cell; that letter changes between normal and inverse once a block, at the block's leader; a namefile met puts its name on the top row from the third cell; a file passed over is cleared away at its end-of-file block and `S` put back; the file wanted shows `F` (written after the name); the prompt or the error goes on the second row | [BB] bb4 `cas-cloadm`, `cas-save-load`, `cas-skipf` (top-row flags); bb5 `cas-display`, `cas-errors` (flags, `clears`, pictures); the change at the first leader byte and the end state after several data blocks are [OWN] |
+| 44 | `CLOAD` of a data file is `?DS ERROR` after its end-of-file block is read; of machine code, `?FM ERROR` right after the namefile | [BB] bb5 `cas-errors` (2026-11-25) |
+| 45 | `?IO ERROR` during a load leaves the file open: the next `SKIPF` is `?AO ERROR` and does not run the motor; the cassette statement after it works | [BB] bb5 `cas-errors` (2026-11-25); the other statements it refuses are [OWN] |
 
 The log grows with every milestone; black-box facts are added with the date of the run they came from.
 
@@ -515,14 +524,47 @@ the tape (so `TIMER` does not count then [OWN]), and the motor runs through a fi
   after its last block's checksum, with no `$55` after it (as many archived `.cas` files do), still loads.
 * **Finding a block:** bits are shifted in until the last eight are `$3C` after a leader (`$55`, or `$AA` a bit
   out) has been heard; then the type, the length, the data and the checksum.
-* **Finding a file:** namefile blocks are read until one has the name asked for (any, without a name); each one met
-  prints `FOUND name` or `SKIP name` [OWN]. Blocks with a bad checksum are passed over while searching; once the
-  file is found, a bad block or a block out of place is `?IO ERROR`.
+* **Finding a file:** namefile blocks are read until one has the name asked for (any, without a name). Blocks with
+  a bad checksum are passed over while searching; once the file is found, a bad block or a block out of place is
+  `?IO ERROR`.
+* **The display** (`CFIND`, and `CRBLK` for the blink), from the top-row flags and `clears` of [BB] bb4 `cas-cloadm`,
+  `cas-save-load`, `cas-skipf` and bb5 `cas-display`, `cas-errors`, and the pictures of bb5 (read cell by cell
+  against the MC6847's characters):
+  * `CLOAD`, `CLOADM` and `SKIPF` clear the screen first (the line typed is wiped, not scrolled), then put `S`
+    (normal) in the top-left cell; the cursor goes to the start of the second row.
+  * The letter in the top-left cell changes between normal and inverse once a block, when the block's leader is
+    heard: the records show one change for each block of the tape (the namefile's, each data block's, the end of
+    file's), never between blocks. On the original it comes about 6 frames after a leader that follows a silence
+    starts, and a whole leader (about 32 frames) late for the end-of-file block of a gapped file, whose motor the
+    original stops and restarts; ours changes it at the first leader byte heard, so the same change can come up to
+    about 30 frames earlier (blink timing only: the same changes in the same order).
+  * A namefile met puts the file's name in the top row from the third cell (`S` is then inverse, changed by that
+    namefile's leader, so the row reads `s NAME` until the next block). A file passed over is read to its
+    end-of-file block, then the screen is cleared again and `S` put back. A search that starts in the middle of a
+    file (the tape left after a namefile by `?FM ERROR`) does not clear at that file's end: only a file whose
+    namefile it met is cleared away (bb5 `cas-errors`: the third `CLOAD`, `S` changing at `CODE`'s data and end of
+    file, no clear, then `F PROG`). The file wanted gets
+    `F` (normal) in the top-left cell, written after its name (the flags show the row with the name when the `F`
+    lands); its blocks then change the `F` as they come. `SKIPF` shows the file it passes as found, `F NAME`.
+  * The prompt or the error prints on the second row, under the top row as it was left: after a load of one data
+    block `F NAME` (the data block's leader made it `f`, the end of file's `F` again), after `?IO ERROR` on a bad
+    block `f NAME` (the bad block's leader made it inverse) [BB bb5 `cas-errors` clears: `f BAD`, `?IO ERROR`].
+    A file of several data blocks ends with `F` or `f` by their number [OWN: the rule above carried on; open
+    question 10].
 * **`CLOAD`:** a tokenised program goes to the start of the program area, its links are rebuilt (it may have been
   saved at another address), the variables are cleared, then `OK`. There must be room for a whole block below the
-  stack before each one is read, or `?OM ERROR` [OWN]. A text program is read a block at a time, the motor stopped
-  after each (it is gapped), and each line goes in as if typed (`?DS ERROR` for a line without a number). On an
-  error the half-loaded program is cleared. A file of the wrong type: `?FM ERROR` [OWN].
+  stack before each one is read, or `?OM ERROR` [OWN]. A text program, and a data file (type 1) [BB bb5
+  `cas-errors`], is read a block at a time, the motor stopped after each (it is gapped), and each line goes in as if
+  typed. A line without a number is `?DS ERROR`, given once the whole file is read: on the original the data file's
+  end-of-file block is read before the error (its leader changed `f` back to `F`: bb5 `cas-errors` clears, `F NOTES`,
+  `?DS ERROR`). On an error the half-loaded program is cleared. Machine code (type 2) or a type past it: `?FM ERROR`
+  [BB bb5 `cas-errors`: `F CODE`, `?FM ERROR`].
+* **A file left open:** `?IO ERROR` during a load leaves the cassette file open, and the next `CLOAD`, `CLOADM`,
+  `SKIPF`, `CSAVE` or `CSAVEM` is `?AO ERROR` without touching the tape (no clear, no motor), which closes it: the
+  statement after that works [BB bb5 `cas-errors`: `SKIPF` after a `CLOAD` that met a bad block, `?AO ERROR`, the
+  motor not run (`after-skipf`), then `CLOAD "NONE"` searched]. `?FM ERROR` and `?DS ERROR` leave nothing open
+  (bb5 `cas-errors`: the `CLOAD`s after them read the tape). Which statements see it besides `SKIPF`, and whether
+  anything else (`NEW`, `RUN`) closes it, is [OWN] (open question 10).
 * **`CLOADM`:** to the load address plus the offset; `EXEC` without an address then runs it from the exec address
   plus the offset.
 * **Writing:** each bit one cycle of a square wave on the DAC, high then low (`CH0`, `CH1`: delay passes from the

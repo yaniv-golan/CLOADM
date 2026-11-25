@@ -67,6 +67,11 @@ Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.
   and `cas-errors` (BREAK during a search, with a bounded wait).
   Printing no longer counts the cursor's countdown (`$008F`) down: on the original only the keyboard wait does.
   BREAK no longer ends a cassette search, as on the original; a black-box case can expect a timeout (`#expect-timeout`).
+  `CLOAD`, `CLOADM` and `SKIPF` show what the original shows while they read: the screen cleared, `S` at the top left
+  changing between normal and inverse once a block, a file passed over as `S NAME` and the screen cleared again at
+  its end, the file wanted as `F NAME`, and the prompt or the error on the next row. `CLOAD` of a data file is
+  `?DS ERROR`, given (as a text line without a number) once the whole file is read, and after a load that failed
+  with `?IO ERROR` the next cassette statement is `?AO ERROR`, as on the original.
 - **The share-link formats are frozen.** Links and snapshots in people's hands keep opening from now on (AGENTS.md,
   rule 7): `SNAPSHOT_OLDEST` never rises (a change to the meaning of state ships a converter from every older version), no
   link or envelope decoder is ever dropped, and a long link's byte 0 is 1 for a moment, 2 for a BASIC program, 3 to 31

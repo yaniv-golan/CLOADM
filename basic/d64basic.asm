@@ -223,7 +223,7 @@ CSUM    RMB     1               ; the checksum
 CBYTE   RMB     1               ; the byte being read
 CCNT    RMB     1               ; its bits still to read
 CLEAD   RMB     1               ; a leader has been heard
-CLDBAS  RMB     1               ; a program is being loaded (cleared on an error)
+CLDBAS  RMB     1               ; a program is being loaded (2: a text line had no number); $FF: a file left open
 CASOUT  RMB     1               ; CHROUT goes to the tape (CSAVE ,A)
 CBIDX   RMB     1               ; the bytes in the text block
 CEND    RMB     2               ; the end of the data to write; CLOADM's offset

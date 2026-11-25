@@ -17,11 +17,16 @@
 //    addresses;
 //  * tapes made by buildCas: CLOADM to the load address, with an offset, and EXEC runs it; a tokenised program
 //    saved at another address is relinked; a text program loads; CLOAD "NAME" skips other files; SKIPF;
-//  * errors: a bad checksum gives ?IO ERROR and leaves no half program; CLOADM of a program and CLOAD of
-//    machine code give ?FM ERROR; a text line without a number ?DS ERROR; BREAK stops the search; MOTOR ON/OFF
-//    switch the deck's motor.
+//  * the display while it reads (docs/clean-room-basic.md section 12, from the black-box records bb4 and bb5): the
+//    screen cleared, S at the top left changing between normal and inverse once a block, a file passed over shown
+//    as its name after the S and the screen cleared again at its end, the file wanted as F and its name, F then
+//    changing once a block, the OK prompt or the error on the second row; the top row's bytes checked;
+//  * errors: a bad checksum gives ?IO ERROR (the top row left "f NAME") and leaves no half program, and the next
+//    SKIPF is ?AO ERROR without reading the tape; CLOADM of a program and CLOAD of machine code give ?FM ERROR; a
+//    text line without a number ?DS ERROR, after the whole file is read; CLOAD of a data file ?DS ERROR; BREAK does
+//    not stop the search; MOTOR ON/OFF switch the deck's motor.
 const { buildBasic } = require('../tools/build-basic.js');
-const { Basic, Emu } = require('./basic/harness.js');
+const { Basic, Emu, cell } = require('./basic/harness.js');
 
 let fail = 0, n = 0;
 const check = (name, cond, detail = '') => { n++; if (!cond) { fail++; console.log(`FAIL ${name} ${detail}`); } else console.log(`ok   ${name} ${detail}`); };
@@ -60,6 +65,24 @@ function record(b, text) {
 const insert = (b, bytes) => b.m.deck.insert(new Emu.Tape(bytes, b.m.tickHz, 'test', b.m.profile.tape));
 const program = (b) => { const r = b.m.ram; let x = PROGST; while (r[x] | r[x + 1]) x = (r[x] << 8) | r[x + 1]; return r.slice(PROGST, x + 2); };
 const listing = (b) => { const s = after(b, 'LIST'); return s.slice(1, -1); };
+// the top row of the screen as text (inverse as lower case) and its first ten bytes
+const topRow = (b) => Array.from(b.m.ram.slice(0x400, 0x420), cell).join('').replace(/\s+$/, '');
+const topBytes = (b) => Array.from(b.m.ram.slice(0x400, 0x40A));
+// type a cassette command and wait for OK (or an error and OK), watching the top-left cell: -> { seq: the top row
+// after each write to that cell ('(clear)' for a blank written there), screen, clears: the screens a clear wiped }
+function watch(b, text, limit = 6000) {
+  b.record();
+  const seq = [], m = b.m;
+  const remove = m.busTaps.addWriteTap({ start: 0x400, end: 0x400 }, (a, v) => {
+    seq.push(v === 0x60 ? '(clear)' : (cell(v) + Array.from(m.ram.slice(0x401, 0x420), cell).join('')).replace(/\s+$/, ''));
+  });
+  b.type(text + '\n');
+  const ok = b.waitOk({ limit });
+  remove();
+  if (!ok) throw new Error(`no OK after ${text}: ${b.screen().join(' | ')}`);
+  return { seq, screen: b.screen(), clears: b.clears.map((c) => c.screen) };
+}
+const wiped = (w, text) => w.clears.length > 0 && w.clears[0][w.clears[0].length - 1] === text;
 const bytes = (s) => [...s].map((c) => c.charCodeAt(0));
 
 // ---------------- (1) CSAVE then CLOAD ----------------
@@ -92,8 +115,12 @@ const LINES = ['10 PRINT "HI"', '20 A=1:GOTO 10'];
   line(b, 'NEW');
   check('NEW: no program', listing(b).length === 0);
   insert(b, tape.bytes);
-  const s = after(b, 'CLOAD');
-  check('CLOAD: prints SEARCHING and FOUND PROG', eq(s, ['CLOAD', 'SEARCHING', 'FOUND PROG', 'OK']), JSON.stringify(s));
+  const w = watch(b, 'CLOAD');
+  check('CLOAD: the screen is cleared first (the line typed is wiped, not scrolled off)', wiped(w, 'CLOAD'), JSON.stringify(w.clears));
+  check('CLOAD: "F PROG" on the top row, OK on the second', eq(w.screen, ['F PROG', 'OK']), JSON.stringify(w.screen));
+  check('CLOAD: the top row\'s bytes: F (normal), a blank, the name (normal)', eq(topBytes(b), [0x46, 0x60, 0x50, 0x52, 0x4F, 0x47, 0x60, 0x60, 0x60, 0x60]), hex(topBytes(b)));
+  check('CLOAD: S, inverse at the namefile\'s leader, then F with the name, inverse at the data block, normal at the end of file',
+    eq(w.seq, ['(clear)', 'S', 's', 'F PROG', 'f PROG', 'F PROG']), JSON.stringify(w.seq));
   check('CLOAD: LIST shows the program as typed', eq(listing(b), LINES), JSON.stringify(listing(b)));
   check('CLOAD: the same bytes in memory', eq(program(b), want));
   check('CLOAD: the motor is off afterwards', !b.m.deck.motor);
@@ -120,7 +147,9 @@ const LINES = ['10 PRINT "HI"', '20 A=1:GOTO 10'];
   check('CSAVE of a long program: the data is the program', eq(Emu.formats.parseCas(tape.bytes)[0].data, ram));
   line(b, 'NEW');
   insert(b, tape.bytes);
-  line(b, 'CLOAD');
+  const w = watch(b, 'CLOAD');
+  const n = sizes.length + 1, toggles = w.seq.slice(w.seq.indexOf('F LONG') + 1);
+  check(`CLOAD of a long program: the F changes once a block after the namefile (${n})`, toggles.length === n && toggles.every((t, i) => t === (i % 2 ? 'F LONG' : 'f LONG')), JSON.stringify(w.seq));
   check('CLOAD of a long program: the same bytes', eq(program(b), ram));
   check('CLOAD of a long program: LIST as typed', eq(listing(b), long), JSON.stringify(listing(b).slice(-2)));
 }
@@ -161,8 +190,9 @@ const mcTape = Emu.buildCas([{ name: 'MC', type: 'binary', load: 0x3000, exec: 0
 {
   const b = boot();
   insert(b, mcTape);
-  const s = after(b, 'CLOADM');
-  check('CLOADM: SEARCHING, FOUND MC', eq(s, ['CLOADM', 'SEARCHING', 'FOUND MC', 'OK']), JSON.stringify(s));
+  const w = watch(b, 'CLOADM');
+  check('CLOADM: the screen cleared, then "F MC" and OK on the second row', wiped(w, 'CLOADM') && eq(w.screen, ['F MC', 'OK']), JSON.stringify(w));
+  check('CLOADM: the prompt\'s cursor on the third row ($0440)', ((b.m.ram[0x88] << 8) | b.m.ram[0x89]) === 0x440);
   check('CLOADM: the bytes at the load address', eq(b.m.ram.slice(0x3000, 0x3006), MC));
   check('CLOADM then EXEC runs it from the exec address', after(b, 'EXEC:PRINT PEEK(&H3500)').includes(' 42'));
   const c = boot();
@@ -172,7 +202,8 @@ const mcTape = Emu.buildCas([{ name: 'MC', type: 'binary', load: 0x3000, exec: 0
   line(c, 'POKE &H3000,57');   // an RTS where the file would be without the offset
   check('CLOADM with an offset: EXEC runs it from exec + offset', after(c, 'EXEC:PRINT PEEK(&H3500)').includes(' 42'));
   insert(c, mcTape);
-  check('CLOAD of machine code: ?FM ERROR', after(c, 'CLOAD').includes('?FM ERROR'));
+  const f = watch(c, 'CLOAD');
+  check('CLOAD of machine code: "F MC", then ?FM ERROR on the second row', eq(f.screen, ['F MC', '?FM ERROR', 'OK']), JSON.stringify(f.screen));
 }
 // a tokenised program saved at another address (CoCo-style $2601): the links are rebuilt
 {
@@ -188,7 +219,8 @@ const mcTape = Emu.buildCas([{ name: 'MC', type: 'binary', load: 0x3000, exec: 0
   const run = after(b, 'RUN');
   check('... and it runs', eq(run, ['RUN', 'OK1', ' 5', 'OK']), JSON.stringify(run));
   insert(b, Emu.buildCas([{ name: 'TOK', type: 'basic', data }]));
-  check('CLOADM of a program: ?FM ERROR', after(b, 'CLOADM').includes('?FM ERROR'));
+  const fm = watch(b, 'CLOADM');
+  check('CLOADM of a program: "F TOK", ?FM ERROR on the second row', eq(fm.screen, ['F TOK', '?FM ERROR', 'OK']), JSON.stringify(fm.screen));
 }
 // a tape that ends right after the last block's checksum, with no $55 after it (archive .cas files often lack it):
 // the last bit has no edge after it, and the load must still finish
@@ -213,7 +245,18 @@ const mcTape = Emu.buildCas([{ name: 'MC', type: 'binary', load: 0x3000, exec: 0
   line(b, 'CLOAD');
   check('CLOAD of a text program over 255 bytes (two blocks)', text.join('\r').length > 255 && eq(listing(b), text), JSON.stringify(listing(b).slice(-3)));
   insert(b, Emu.buildCas([{ name: 'DS', type: 'basic', ascii: true, data: bytes('10 PRINT 1\rPRINT 2\r') }]));
-  check('a text line without a number: ?DS ERROR', after(b, 'CLOAD').includes('?DS ERROR'));
+  const w = watch(b, 'CLOAD');
+  // [BB bb5 cas-errors] the error comes once the end-of-file block is read: F changed back at its leader
+  check('a text line without a number: ?DS ERROR after the whole file (F normal again)', eq(w.screen, ['F DS', '?DS ERROR', 'OK']) && eq(w.seq.slice(-2), ['f DS', 'F DS']), JSON.stringify(w));
+  check('?DS ERROR: the lines before it are not kept', listing(b).length === 0);
+  // [BB bb5 cas-errors] CLOAD of a data file: ?DS ERROR, F normal (its end-of-file block read)
+  insert(b, Emu.buildCas([{ name: 'NOTES', type: 'data', data: bytes('JUST DATA\r') }]));
+  const d = watch(b, 'CLOAD');
+  check('CLOAD of a data file: "F NOTES", ?DS ERROR on the second row', eq(d.screen, ['F NOTES', '?DS ERROR', 'OK']) && topBytes(b)[0] === 0x46, JSON.stringify(d.screen));
+  // a data file whose lines have numbers loads as a program saved as text [OWN]
+  insert(b, Emu.buildCas([{ name: 'NUM', type: 'data', data: bytes('10 PRINT 3\r') }]));
+  watch(b, 'CLOAD');
+  check('CLOAD of a data file of numbered lines: they go in as a program', eq(listing(b), ['10 PRINT 3']), JSON.stringify(listing(b)));
 }
 
 // ---------------- (4) names, SKIPF, errors, BREAK, MOTOR ----------------
@@ -223,12 +266,25 @@ const twoFiles = Emu.buildCas([{ name: 'ONE', type: 'basic', data: ONE }, { name
 {
   const b = boot();
   insert(b, twoFiles);
-  const s = after(b, 'CLOAD "TWO"');
-  check('CLOAD "TWO": skips ONE, finds TWO', eq(s, ['CLOAD "TWO"', 'SEARCHING', 'SKIP ONE', 'FOUND TWO', 'OK']), JSON.stringify(s));
+  const w = watch(b, 'CLOAD "TWO"');
+  check('CLOAD "TWO": "F TWO" and OK at the end', eq(w.screen, ['F TWO', 'OK']), JSON.stringify(w.screen));
+  // ONE: its name after the S (still inverse from its namefile's leader), S changing at its data block and end of
+  // file, the screen cleared at its end; then TWO found
+  check('CLOAD "TWO": "S ONE" while ONE passes, a clear at its end, then "F TWO"',
+    eq(w.seq, ['(clear)', 'S', 's', 'S ONE', 's ONE', '(clear)', 'S', 's', 'F TWO', 'f TWO', 'F TWO']), JSON.stringify(w.seq));
   check('CLOAD "TWO": TWO is loaded', eq(listing(b), ['2 REMTWO']), JSON.stringify(listing(b)));
   const c = boot();
   insert(c, twoFiles);
-  line(c, 'SKIPF');
+  // [BB bb5 cas-errors] a search that starts in the middle of a file (after ?FM ERROR at a namefile) does not clear
+  // the screen at that file's end: only a file whose namefile it met is cleared away
+  const e = boot();
+  insert(e, Emu.buildCas([{ name: 'MC', type: 'binary', load: 0x3000, exec: 0x3000, data: MC }, { name: 'ONE', type: 'basic', data: ONE }]));
+  check('CLOAD of machine code first: ?FM ERROR', eq(watch(e, 'CLOAD').screen, ['F MC', '?FM ERROR', 'OK']));
+  const mid = watch(e, 'CLOAD');
+  check('CLOAD from the middle of a file: no clear at its end, S changing at its blocks, then "F ONE"',
+    eq(mid.seq, ['(clear)', 'S', 's', 'S', 's', 'F ONE', 'f ONE', 'F ONE']) && eq(mid.screen, ['F ONE', 'OK']), JSON.stringify(mid));
+  const k = watch(c, 'SKIPF');
+  check('SKIPF: the file passed over shown as found, "F ONE", OK on the second row', wiped(k, 'SKIPF') && eq(k.screen, ['F ONE', 'OK']) && eq(k.seq, ['(clear)', 'S', 's', 'F ONE', 'f ONE', 'F ONE']), JSON.stringify(k));
   line(c, 'CLOAD');
   check('SKIPF then CLOAD: the second file', eq(listing(c), ['2 REMTWO']), JSON.stringify(listing(c)));
   const d = boot();
@@ -246,14 +302,19 @@ const twoFiles = Emu.buildCas([{ name: 'ONE', type: 'basic', data: ONE }, { name
   const b = boot();
   line(b, '5 REM KEEP');
   insert(b, bad);
-  const s = after(b, 'CLOAD');
-  check('CLOAD of a bad block: ?IO ERROR', eq(s, ['CLOAD', 'SEARCHING', 'FOUND BAD', '?IO ERROR', 'OK']), JSON.stringify(s));
+  const w = watch(b, 'CLOAD');
+  // [BB bb5 cas-errors] "f BAD" (inverse f: the bad block's leader changed it) and the error on the second row
+  check('CLOAD of a bad block: "f BAD", ?IO ERROR on the second row', eq(w.screen, ['f BAD', '?IO ERROR', 'OK']) && topBytes(b)[0] === 0x06, JSON.stringify(w.screen));
   check('?IO ERROR: no half-loaded program is left', listing(b).length === 0 && program(b).length === 2, JSON.stringify(listing(b)));
   check('?IO ERROR: the motor is off', !b.m.deck.motor);
-  // the same tape intact loads (the corruption is what failed)
+  // [BB bb5 cas-errors] the file is left open: the next SKIPF is ?AO ERROR, with no clear and the tape not read
   insert(b, cas);
+  const s = after(b, 'SKIPF');
+  check('SKIPF after ?IO ERROR: ?AO ERROR, the screen not cleared', eq(s, ['SKIPF', '?AO ERROR', 'OK']) && b.screen().includes('?IO ERROR'), JSON.stringify(s));
+  check('?AO ERROR: the tape is not read (still at its start)', b.m.deck.tape.progress() === 0, String(b.m.deck.tape.progress()));
+  // ?AO ERROR closed it: the same tape intact loads (the corruption is what failed)
   line(b, 'CLOAD');
-  check('the intact tape loads', eq(listing(b), ['2 REMGOOD']));
+  check('after ?AO ERROR the intact tape loads', eq(listing(b), ['2 REMGOOD']));
 }
 {
   const b = boot();
@@ -264,18 +325,18 @@ const twoFiles = Emu.buildCas([{ name: 'ONE', type: 'basic', data: ONE }, { name
   const job = b.m.typist.holdPaced('BREAK');
   for (let i = 0; job.status === 'typing' && i < 300; i++) b.frame();
   b.run(500);
-  check('BREAK does not stop CLOAD\'s search: still searching 10 s later, motor on', b.m.deck.motor && b.screen().slice(-1)[0] === 'SEARCHING' && !b.screen().includes('OK', 2), JSON.stringify(b.screen().slice(-2)));
+  check('BREAK does not stop CLOAD\'s search: still searching 10 s later, motor on, S alone on a clear screen', b.m.deck.motor && eq(b.screen(), ['S']) && b.m.ram[0x400] === 0x53, JSON.stringify(b.screen()));
 }
 {
   // SKIPF with no file on the tape searches as CLOAD does, motor on, and BREAK does not stop it either
   const b = boot();
   b.type('SKIPF\n');
   b.run(500);
-  check('SKIPF with no file on the tape: still searching after 10 s, motor on', b.m.deck.motor && b.screen().slice(-1)[0] === 'SEARCHING', JSON.stringify(b.screen().slice(-2)));
+  check('SKIPF with no file on the tape: still searching after 10 s, motor on, the screen cleared, S', b.m.deck.motor && eq(b.screen(), ['S']) && b.m.ram[0x400] === 0x53, JSON.stringify(b.screen()));
   const job = b.m.typist.holdPaced('BREAK');
   for (let i = 0; job.status === 'typing' && i < 300; i++) b.frame();
   b.run(500);
-  check('BREAK does not stop SKIPF\'s search', b.m.deck.motor && b.screen().slice(-1)[0] === 'SEARCHING', JSON.stringify(b.screen().slice(-2)));
+  check('BREAK does not stop SKIPF\'s search', b.m.deck.motor && eq(b.screen(), ['S']), JSON.stringify(b.screen()));
 }
 {
   const b = boot();
