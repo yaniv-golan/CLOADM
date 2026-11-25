@@ -3946,12 +3946,32 @@ async function mediaChecks(browser, base, check) {
     {
       const other = await ctx.newPage();
       await other.goto(`${base}?machine=dragon64`); await started(other);
+      // Each step is waited for on its own condition, in order, so a failure says which one did not happen (CI once
+      // timed out here with nothing to tell them apart): B's load reaching B's own index, B's index writing the list
+      // (its queue flushed: written under the shared lock, then said on the channel), and only then A's list. Both
+      // pages' store, lists, queue and any storage notice go into the detail.
+      const media = (p) => p.evaluate(() => { const s = window.emu.session, ix = s.index;
+        return { store: s.media.kind, recent: ix.recentMedia().slice(0, 3).map((r) => `${r.name}:${r.crc}`), queued: ix.queued,
+          notice: [...document.querySelectorAll('.attention')].map((e) => e.textContent).join(' | ') || null, heard: window.__elsewhere || null }; }).catch((e) => ({ gone: String(e).slice(0, 120) }));
+      const loadedIn = async (p, name, crc) => (await waitFor(p, ([n, c]) => { const r = window.emu.session.index.recentMedia()[0]; return !!r && r.name === n && (!c || r.crc === c); }, [name, crc], 20000))
+        && (await p.evaluate(() => window.emu.session.index.flush().then(() => true, () => false)));
+      // what A hears and does: every message on its media channel, and every refresh of its index (the lists of its
+      // own still queued when it started, and what it took in, or the error mediaElsewhere would swallow). Test-side
+      // only: a listener beside the page's own and a wrapper on the index's refresh, so a failure says which link broke.
+      await page.evaluate(() => { const s = window.emu.session, log = window.__elsewhere = { messages: [], refreshes: [] };
+        if (s.mediaShare && s.mediaShare.channel) s.mediaShare.channel.addEventListener('message', (e) => log.messages.push(e.data && e.data.what));
+        const refresh = s.index.refresh.bind(s.index);
+        s.index.refresh = async () => { const queued = JSON.stringify(s.index.queued);
+          try { const changed = await refresh(); log.refreshes.push({ queued, changed }); return changed; } catch (e) { log.refreshes.push({ queued, error: String(e) }); throw e; } }; });
+      const shared = [await media(page), await media(other)];
+      check('recent: both tabs keep their media in the browser\'s shared storage (OPFS) - the precondition for the cross-tab checks', shared.every((m) => m.store === 'opfs'), JSON.stringify(shared));
       const focusRow = await page.evaluate(() => {
         const row = [...document.querySelectorAll('#recentList .row')].find((b) => b.dataset.name === 'recent-one.bin' && !b.querySelector('.copy'));   // the unlabelled copy (this page's newest of the name)
         row.focus({ preventScroll: true });
         return { was: document.activeElement === row, name: 'recent-one.bin', at: [...document.querySelectorAll('#recentList .row')].indexOf(row) };
       });
       await other.setInputFiles('#fileProgram', { name: 'elsewhere.bin', mimeType: 'application/octet-stream', buffer: A });   // a DragonDOS binary: B loads it at once
+      check('recent: the other tab loads the file and its index writes the list (B\'s side of the cross-tab check)', await loadedIn(other, 'elsewhere.bin', null), JSON.stringify(await media(other)));
       // A's list reordered: the new file at the top, the focused row one down - asserted, not assumed
       const reordered = await waitFor(page, () => {
         const rows = [...document.querySelectorAll('#recentList .row')];
@@ -3959,7 +3979,7 @@ async function mediaChecks(browser, base, check) {
       }, null, 10000);
       await page.waitForTimeout(100);   // let the redraw (and any restore) settle
       const after = await page.evaluate(() => ({ name: document.activeElement.dataset ? document.activeElement.dataset.name : null, at: [...document.querySelectorAll('#recentList .row')].indexOf(document.activeElement) }));
-      check('recent: a load in ANOTHER tab reorders this page\'s list (the new file on top) - the precondition for the focus check below', reordered, JSON.stringify(after));
+      check('recent: a load in ANOTHER tab reorders this page\'s list (the new file on top) - the precondition for the focus check below', reordered, JSON.stringify(reordered ? after : { after, A: await media(page), B: await media(other) }));
       check('recent: the reorder by another tab keeps the focus on the file it was on (by name, whatever moved - no launch here to hide a place-based jump)',
         focusRow.was && reordered && after.name === focusRow.name, JSON.stringify({ focusRow, after }));
       // the second half: a SAME-NAME load with DIFFERENT bytes in the other tab. The focused file's row
@@ -3968,6 +3988,7 @@ async function mediaChecks(browser, base, check) {
       // keyboard on THIS page's own bytes (the library's own identity: name + content hash), and the
       // row it is on must be the "2nd" copy. The new row on top is asserted first.
       await other.setInputFiles('#fileProgram', { name: 'recent-one.bin', mimeType: 'application/octet-stream', buffer: B });
+      check('recent: the other tab loads the same-name file and its index writes the list (B\'s side)', await loadedIn(other, 'recent-one.bin', null), JSON.stringify(await media(other)));
       const reorded = await waitFor(page, () => {
         const rows = [...document.querySelectorAll('#recentList .row')];
         return rows.length && rows[0].dataset.name === 'recent-one.bin' && rows[0].dataset.crc !== (document.activeElement.dataset ? document.activeElement.dataset.crc : '');
@@ -3979,7 +4000,7 @@ async function mediaChecks(browser, base, check) {
         return { name: ae.dataset ? ae.dataset.name : null, crc: ae.dataset ? ae.dataset.crc : null, tag: row && row.querySelector('.copy') ? row.querySelector('.copy').textContent : null,
           onRecent: !!(row && row.closest('#recentList')) };
       });
-      check('recent: another tab\'s load of the SAME NAME with different bytes puts its copy on top - the precondition for the same-name focus check', reorded, JSON.stringify(sameName));
+      check('recent: another tab\'s load of the SAME NAME with different bytes puts its copy on top - the precondition for the same-name focus check', reorded, JSON.stringify(reorded ? sameName : { sameName, A: await media(page), B: await media(other) }));
       check('recent: a same-name load in another tab keeps the focus on THIS page\'s own bytes (the "2nd" copy, by content hash - a name-only key lands on the other page\'s file)',
         sameName.onRecent && sameName.name === 'recent-one.bin' && sameName.tag === '2nd',
         JSON.stringify(sameName));
