@@ -63,6 +63,9 @@ import { $, showView } from './page.js';
 import { WYRMFIRE_TEXT } from '../session.js';
 import { WYRM_TEXT } from './wyrmfire.js';
 import { crc32 } from '../util.js';
+import { POSTCARD_TEXT, POSTCARD_FILE } from '../postcard.js';
+import { cardPicture } from '../video/card.js';
+import { encodeIndexedPng } from '../media/png.js';
 
 // a PNG with a tEXt chunk (keyword, text) put in after its header chunk: the picture's own credit line (PNG 1.2, 4.2.3.1)
 async function pngWithText(blob, keyword, text) {
@@ -108,6 +111,7 @@ export function setupShare(page, { linkStore }) {
   let started = false;   // the visit has started (ready()): until then there is no machine to capture
   let captured = null;   // { file: { name, bytes } | null, card: the share card's PNG bytes, cardName, link | null, base: file name without extension, ... }
   let programMode = false;   // sharing the BASIC program's text instead of the moment (the program card's switch)
+  let postcardMode = false;  // sending the chat with LIZA as a postcard instead of the moment (the postcard card's switch)
 
   // ---------------- the view (#share) ----------------
   const isOpen = () => location.hash === '#share';
@@ -204,8 +208,11 @@ export function setupShare(page, { linkStore }) {
     // the BASIC program in memory, when there is one: shared as its text in program mode (the default stays the moment)
     const program = session.sharedProgram(m);
     const programLink = program && !program.refusal ? await session.programLink(location.href, program) : '';
-    captured = { at: Date.now(), file, card: await card, cardName, link, untouched, refusal, machine: name, shot: c, program, programLink, base: file ? file.name.replace(/\.cloadm$/, '') : `${m.profile.name.replace(/[^A-Za-z0-9]+/g, '')}-${n9 ? 'NitrOS-9' : 'moment'}` };
-    programMode = false;
+    // the chat with LIZA, when there is one to send: its link, and its picture replayed from that link
+    const postcard = await postcardOf(session.postcards.current());
+    captured = { at: Date.now(), file, card: await card, cardName, link, untouched, refusal, machine: name, shot: c, program, programLink, postcard,
+      base: file ? file.name.replace(/\.cloadm$/, '') : `${m.profile.name.replace(/[^A-Za-z0-9]+/g, '')}-${n9 ? 'NitrOS-9' : 'moment'}` };
+    programMode = false; postcardMode = false;
     const dl = $('btnShareDownload');
     dl.disabled = !file;
     dl.textContent = file ? `Download snapshot (${(file.bytes.length / 1024).toFixed(0)} KB)` : 'Download snapshot';
@@ -244,6 +251,16 @@ export function setupShare(page, { linkStore }) {
     // a tape being recorded is not in the link (its pulse timings could carry ROM code: js/media/romrefs.js)
     if (file.dropped.includes('deck.recording')) note('The tape being recorded is not in the link: it opens with the recorder stopped.');
     syncEmbed(m.id);
+  }
+  // A chat with LIZA as a postcard (js/postcard.js) -> { card, link, frame, png } or null: the long link, and the picture
+  // replayed off-screen from the link's own bytes (decoded again, as the recipient's page will), so the two never disagree
+  async function postcardOf(card) {
+    if (!card) return null;
+    try {
+      const again = await session.postcards.fromBytes(await session.postcards.bytes(card));
+      const frame = session.postcards.replayFrame(again, await page.fetchBytes(`examples/${session.postcards.fileFor(again.machine)}`));
+      return { card, link: await session.postcards.link(location.href, card), frame, png: await encodeIndexedPng(cardPicture(frame)) };
+    } catch (e) { console.warn(`No postcard: ${e.message}`); return null; }
   }
   // An option that is off stays listed, disabled, with its reason beside it (never hidden)
   function why(id, text) { const w = $(id); w.textContent = text || ''; w.hidden = !text; }
@@ -308,6 +325,7 @@ export function setupShare(page, { linkStore }) {
   const ALWAYS_LONG = 'cloadm.alwaysLongLinks';   // this browser: every tap copies the long link
   const alwaysLong = () => { try { return localStorage.getItem(ALWAYS_LONG) === '1'; } catch (e) { return false; } };
   const setAlwaysLong = (on) => { try { if (on) localStorage.setItem(ALWAYS_LONG, '1'); else localStorage.removeItem(ALWAYS_LONG); } catch (e) { /* no storage: for this visit */ } $('shareAlwaysLong').checked = on; };
+  const MAKING = 'Making the short link…';
   const OFFLINE_LONG = "You're offline, so this is the long link: it works without any server.";
   const UNAVAILABLE_LONG = "Short links aren't available right now, so this is the long link: it works without any server.";
   // why the short link can't be made for this capture, or null: the Session's own refusals (ROMs, a cartridge,
@@ -315,6 +333,7 @@ export function setupShare(page, { linkStore }) {
   const shortWhy = () => {
     // a program's short link holds only its text: the moment's refusals (ROMs, a cartridge) are not about it
     if (programMode) return !captured || !captured.programLink ? 'Not for this moment.' : !navigator.onLine ? 'offline' : null;
+    if (postcardMode) return !captured || !captured.postcard ? 'Not for this moment.' : !navigator.onLine ? 'offline' : null;
     const own = session.shortLinkRefusal();
     if (own) return own;
     if (!captured || !captured.file) return 'Not for this moment.';
@@ -326,6 +345,7 @@ export function setupShare(page, { linkStore }) {
   function primaryMode() {
     if (!captured) return 'none';
     if (programMode) return !captured.programLink ? 'none' : alwaysLong() || fallbackWhy ? 'long' : shortWhy() ? 'long' : 'short';
+    if (postcardMode) return !captured.postcard ? 'none' : alwaysLong() || fallbackWhy ? 'long' : shortWhy() ? 'long' : 'short';
     if (captured.untouched) return 'program';
     if (alwaysLong() || fallbackWhy) return 'long';
     return shortWhy() ? 'long' : 'short';
@@ -333,14 +353,14 @@ export function setupShare(page, { linkStore }) {
   // Share…: the system sheet, the URL only, where the browser can share it (in an embed only if the frame allows
   // web-share); its URL is what a tap would copy (the program page, the short link once made, else the long link)
   const canNative = () => {
-    const url = captured && captured.untouched && !programMode ? captured.untouched.page : short ? short.url : $('shareLink').value || 'https://cloadm.dev/play/';
+    const url = captured && captured.untouched && !programMode && !postcardMode ? captured.untouched.page : short ? short.url : $('shareLink').value || 'https://cloadm.dev/play/';
     if (typeof navigator.share !== 'function' || !navigator.canShare?.({ url })) return false;
     return !document.body.classList.contains('embed') || document.featurePolicy?.allowsFeature?.('web-share') === true;
   };
 
   // the long link's own note under "More ways to share": what it holds, or, with the switch on, that taps use it
   function syncLongNote() {
-    $('longNote').textContent = alwaysLong() ? 'Long link: nothing is uploaded.' : programMode ? '' : 'Holds the whole moment in the address; nothing is uploaded.';
+    $('longNote').textContent = alwaysLong() ? 'Long link: nothing is uploaded.' : programMode || postcardMode ? '' : 'Holds the whole moment in the address; nothing is uploaded.';
     syncPrimary();
   }
   // One note per mode:
@@ -359,17 +379,28 @@ export function setupShare(page, { linkStore }) {
     // a guardrail that leaves nothing to copy at all (Session.shareFile refused the moment: capture() keeps the view
     // open with `refusal` set): Copy goes dark, and the reason is inline. Every guardrail today still leaves the
     // machine's own link (NitrOS-9's boots NitrOS-9 from the recipient's image), so this is the rule kept real.
-    const nothingToCopy = !!captured && (programMode ? !captured.programLink : (!!captured.refusal || (!captured.link && !captured.untouched)));
+    const nothingToCopy = !!captured && (programMode ? !captured.programLink : postcardMode ? !captured.postcard : (!!captured.refusal || (!captured.link && !captured.untouched)));
     $('btnShareCopy').disabled = !captured || nothingToCopy;
     $('btnShareCopy').classList.toggle('primary', !native);
     $('btnShareNative').hidden = !native || !captured || nothingToCopy;
     $('btnShareNative').classList.toggle('primary', native);
+    // a postcard says what it is on its buttons: "Copy postcard link" on a desktop; on a phone "Share postcard…", then
+    // "Copy link"
+    $('btnShareNative').textContent = postcardMode ? 'Share postcard…' : 'Share…';
+    if ($('btnShareCopy').textContent !== MAKING) $('btnShareCopy').textContent = copyLabel();
     const program = mode === 'program' && captured.untouched;
     // the program-page note, said once, in the line under the picture. Its second sentence promises the moment's link,
     // and in this mode that link always exists: a program page is only the primary when nothing was refused, so
     // capture() built the long link (the moment's link, under "More ways to share") for it. Said unconditionally:
     // a "when a link is offered" branch would be dead code.
-    if (programMode) {
+    if (postcardMode) {
+      // postcard mode: what the link does and who can read it, said once under the picture; no ROM line (no ROMs needed)
+      $('shareNote').textContent = POSTCARD_TEXT.note(captured.postcard.card.lines.length);
+      $('shareRom').hidden = true;
+      $('primaryNote').textContent = mode === 'long' && alwaysLong() ? 'Long link: nothing is uploaded.' : '';
+      $('sharePrefix').hidden = false;
+      $('shareName').textContent = 'LIZA';
+    } else if (programMode) {
       // program mode: the card above Copy says what is shared; the moment's lines (its clarity copy, the ROM line) are not about it
       $('shareNote').textContent = '';
       $('shareRom').hidden = true;
@@ -409,7 +440,7 @@ export function setupShare(page, { linkStore }) {
     // (the stage's program mode says its own reason in #programWhy; a WYRMFIRE moment is never in program mode --
     // captureWyrmfire returns before any program text exists -- so the two rules cannot both apply.)
     $('primaryWhy').textContent = captured && captured.wyrmfire ? ''
-      : programMode ? fallbackWhy || (why === 'offline' ? OFFLINE_LONG : '')
+      : programMode || postcardMode ? fallbackWhy || (why === 'offline' ? OFFLINE_LONG : '')
       : captured && captured.refusal ? captured.refusal : fallbackWhy || (nothingToCopy ? 'This moment can\'t be put in a link.' : why === 'offline' ? OFFLINE_LONG : why && why !== 'Not for this moment.' ? why : '');
     $('shortTerms').hidden = mode !== 'short' || !!fallbackWhy;
     $('previewSwitch').hidden = mode !== 'short' || !!fallbackWhy;
@@ -457,18 +488,19 @@ export function setupShare(page, { linkStore }) {
     if (!captured) return;
     const mode = primaryMode();
     if (mode === 'program') { await copyText(captured.untouched.page, 'Program link copied'); return; }
-    const longLink = programMode ? captured.programLink : captured.link;
+    const longLink = programMode ? captured.programLink : postcardMode ? captured.postcard.link : captured.link;
     if (mode === 'long') { await copyText(longLink, 'Long link copied', 'shareLink'); showMade('shareLink'); return; }
     const btn = $('btnShareCopy');
-    btn.disabled = true; btn.textContent = 'Making the short link…';
+    btn.disabled = true; btn.textContent = MAKING;
     try {
       // the program's short link holds only its text (no preview picture); the moment's, the moment
       short = programMode ? await session.programShortLink(linkStore, captured.program)
+        : postcardMode ? await session.postcards.shortLink(linkStore, captured.postcard.card)
         : await session.shortLink(linkStore, { preview: $('sharePreview').checked, file: captured.file, name: captured.cardName });
       keepToken(short.id, short.deleteToken);
       $('shareShort').value = short.url;
       drawQr(short.url);
-      $('shortPicNote').textContent = programMode ? '' : short.picture ? 'With its preview picture.' : (short.pictureNote || 'Without a preview picture.');
+      $('shortPicNote').textContent = programMode || postcardMode ? '' : short.picture ? 'With its preview picture.' : (short.pictureNote || 'Without a preview picture.');
       $('sharePreview').disabled = true;
       $('shortMade').hidden = false;
       await copyText(short.url, 'Short link copied', 'shareShort');
@@ -480,8 +512,8 @@ export function setupShare(page, { linkStore }) {
       fallbackWhy = UNAVAILABLE_LONG;
       if (!ok) page.toast('Press Ctrl+C to copy the link');
     } finally {
-      btn.textContent = 'Copy link';
       btn.disabled = false;
+      btn.textContent = copyLabel();
       syncPrimary();
     }
     if (!short) showMade('shareLink');
@@ -492,7 +524,7 @@ export function setupShare(page, { linkStore }) {
   const forumUrl = () => (short ? short.url : captured.untouched ? captured.untouched.page : captured.link);
   // Share…: the system sheet, the URL only, where the browser can share it (an embed only if its frame allows web-share)
   $('btnShareNative').onclick = async () => {
-    const url = captured && captured.untouched && !programMode ? captured.untouched.page : short ? short.url : $('shareLink').value;
+    const url = captured && captured.untouched && !programMode && !postcardMode ? captured.untouched.page : short ? short.url : $('shareLink').value;
     try { await navigator.share({ url }); }
     catch (e) { if (e && e.name === 'AbortError') return; page.toast('Could not open the share sheet: copy the link instead'); }
   };
@@ -541,7 +573,11 @@ export function setupShare(page, { linkStore }) {
     page.toast(`Saved ${captured.file.name}`, { details: 'Drop it on CLOADM to restore it.' });
   };
   // the share card of the captured frame (capture() drew it)
-  $('btnShareShot').onclick = () => { if (captured && captured.card) page.download(`${captured.base}.png`, captured.card, 'image/png'); };
+  $('btnShareShot').onclick = () => {
+    // a postcard's picture is the postcard replayed (js/video/card.js), never the live screen
+    if (captured && postcardMode && captured.postcard) { page.download(POSTCARD_FILE, captured.postcard.png, 'image/png'); return; }
+    if (captured && captured.card) page.download(`${captured.base}.png`, captured.card, 'image/png');
+  };
 
   // the clip: the screen as it plays (from now), recorded for CLIP_SECONDS
   const kind = clipType();
@@ -619,7 +655,7 @@ export function setupShare(page, { linkStore }) {
   // (in program mode the stage's own "Copy as text for a forum", the program's text in a code block, is the forum text:
   // this disclosure, the moment's link, steps aside)
   function syncForum() {
-    $('shareForum').hidden = programMode;
+    $('shareForum').hidden = programMode || postcardMode;
     if (!captured || captured.refusal || (!captured.link && !captured.untouched)) {
       for (const id of ['forumBbcode', 'forumMarkdown']) $(id).textContent = '';
       for (const id of ['btnForumBbcodeCopy', 'btnForumMarkdownCopy']) $(id).disabled = true;
@@ -665,20 +701,44 @@ export function setupShare(page, { linkStore }) {
       $('programWhy').textContent = on && p.refusal ? p.refusal : '';
     }
     view.classList.toggle('program-mode', on);
-    $('shareHeading').textContent = on ? 'Share your program' : 'Share this moment';
+    // the postcard card (only with a chat with LIZA to send), and postcard mode
+    const pc = captured && captured.postcard, pon = !!pc && postcardMode;
+    $('postcardCard').hidden = !pc || on;
+    if (pc) {
+      const n = pc.card.lines.length;
+      $('postcardLines').textContent = `${n} line${n === 1 ? '' : 's'}`;
+      $('btnPostcardMode').textContent = pon ? 'Share the whole moment instead' : 'Send it as a postcard instead';
+    }
+    $('postcardTrim').textContent = pon && pc.card.trimmed ? POSTCARD_TEXT.trimmed(pc.card.from) : '';
+    $('postcardTrim').hidden = !(pon && pc.card.trimmed);
+    view.classList.toggle('postcard-mode', pon);
+    $('shareHeading').textContent = pon ? 'Send a postcard from LIZA' : on ? 'Share your program' : 'Share this moment';
     $('programMore').hidden = !on || !captured.programLink;
-    $('shareExtra').hidden = on;
-    $('shareLink').value = !captured ? '' : on ? captured.programLink : captured.link;
-    // the picture: the listing as LIST shows it first, or the moment's own frame
+    $('shareExtra').hidden = on || pon;
+    $('shareRomFree').hidden = pon || !$('shareRomFree').textContent;
+    $('shareLink').value = !captured ? '' : pon ? pc.link : on ? captured.programLink : captured.link;
+    // the picture: the postcard replayed, the listing as LIST shows it first, or the moment's own frame
     const pic = $('sharePicture');
-    if (on && captured.programLink) new CanvasPresenter(pic).present(textScreenFrame(listingRows(p.text)));
+    if (pon) new CanvasPresenter(pic).present(pc.frame);
+    else if (on && captured.programLink) new CanvasPresenter(pic).present(textScreenFrame(listingRows(p.text)));
     else if (captured) { pic.width = captured.shot.width; pic.height = captured.shot.height; pic.getContext('2d').drawImage(captured.shot, 0, 0); }
-    pic.setAttribute('aria-label', on && captured.programLink ? `The first lines LIST shows: ${listingRows(p.text).join(' / ')}` : 'Captured picture: link preview, rendered from the real frame');
+    pic.setAttribute('aria-label', pon ? 'The postcard replayed: LIZA\'s screen at the end of the chat' : on && captured.programLink ? `The first lines LIST shows: ${listingRows(p.text).join(' / ')}` : 'Captured picture: link preview, rendered from the real frame');
     syncLongNote();
   }
+  // the postcard card's switch: the chat's lines instead of the moment, and back
+  $('btnPostcardMode').onclick = () => setPostcardMode(!postcardMode);
+  function setPostcardMode(on) {
+    if (!captured || !captured.postcard) return;
+    postcardMode = on; programMode = false;
+    short = null; fallbackWhy = '';
+    $('shortMade').hidden = true; $('shareShort').value = ''; $('sharePreview').disabled = false;
+    syncProgram();
+  }
+  // the Copy button's words: a postcard's say so ("Copy link" beside a phone's "Share postcard…")
+  const copyLabel = () => (postcardMode && captured && captured.postcard ? (canNative() ? 'Copy link' : 'Copy postcard link') : 'Copy link');
   $('btnProgramMode').onclick = () => {
     if (!captured || !captured.program) return;
-    programMode = !programMode;
+    programMode = !programMode; postcardMode = false;
     // a link made in the other mode is not this one's: the made field goes, and the next tap makes this mode's
     short = null; fallbackWhy = '';
     $('shortMade').hidden = true; $('shareShort').value = ''; $('sharePreview').disabled = false;
@@ -733,10 +793,31 @@ export function setupShare(page, { linkStore }) {
   session.on((ev) => { if (ev === 'machine' && !isOpen()) syncEmbed(session.shownMachine.id); });
   if (session.shownMachine) syncEmbed(session.shownMachine.id); else renderEmbed();
 
+  // ---------------- after LIZA's goodbye: one offer of a postcard ----------------
+  // BYE (or BREAK) ends a chat with at least one line: once, the line under the screen offers it as a postcard (a toast
+  // on a phone, which has no such line). The offer goes when that chat can't be sent any more (another program, a switch).
+  const pcNote = $('postcardNote');
+  async function openPostcard() { pcNote.hidden = true; await api.openPostcard(); }
+  $('btnPostcardNote').onclick = () => openPostcard();
+  session.on((ev, arg) => {
+    if (ev === 'postcard' && arg === 'ended' && session.postcards.current() && !document.body.classList.contains('embed')) {
+      // (a phone, as the Ask panel's questions decide it, has no room on that line)
+      if (!matchMedia('(max-width: 700px)').matches && $('screenNotesBox').checkVisibility()) pcNote.hidden = false;
+      else page.toast('{action}', { action: { label: POSTCARD_TEXT.offer, run: () => openPostcard() } });
+    } else if (!pcNote.hidden && !session.postcards.current()) pcNote.hidden = true;
+  });
+
   show();
-  return {
+  const api = {
     open: () => $('btnShare').click(), embedSrc,
+    // the postcard note's "Send this chat as a postcard…": the Share screen on this moment, in postcard mode
+    async openPostcard() {
+      try { await capture(); } catch (e) { page.status(e.message, true); return; }
+      if (captured && captured.postcard) setPostcardMode(true);
+      page.openView('#share');
+    },
     // the visit has started (main.js): a page opened at #share captures its moment now
     ready() { started = true; if (isOpen() && !captured) show(); },
   };
+  return api;
 }

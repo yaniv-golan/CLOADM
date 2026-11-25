@@ -10,6 +10,15 @@ Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.
 
 #### Added
 
+- **Send a chat with LIZA as a postcard.** While LIZA runs (and just after its goodbye), the Share screen offers "Your
+  chat with LIZA · N lines · Send it as a postcard instead": the link holds only the lines typed (the last 20), and
+  whoever opens it gets LIZA started afresh with a card, "A postcard from LIZA · N lines", **Replay** (about 25
+  characters a second; a key skips) and **Skip to the end**, then "Your turn: type to LIZA." LIZA is deterministic, so
+  the replay gives the same answers; the Share screen's picture (and **Save picture**, `liza-postcard.png`) is the
+  postcard replayed off-screen from its own link. After BYE or BREAK, one note offers it ("Send this chat as a
+  postcard…"; a toast on a phone). A new link kind: a long link's byte 0 = 3 and a short link's sealed kind 3 (both
+  reserved by the 0.3 freeze), with golden fixtures; the short-link Worker names it on its arrival page ("A postcard
+  from LIZA on a Dragon 64") and refuses a postcard with a picture. Never for the Claude chat; no ROMs on either side.
 - **Ask Claude suggests three questions for what is on the machine,** on the line under the screen while the panel is
   closed (whole questions only, a note there taking the line; none on a phone) and in its empty chat while it is open
   (never both), in place of the fixed "Explain this error" and "Help with my program" openers. They fit the moment: the Debugger's stop, a visit that just arrived from a link, WYRMFIRE, the welcome menu (without and with

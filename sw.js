@@ -198,6 +198,7 @@ const FILES = [
   'js/media/tape.js',
   'js/media/zip.js',
   'js/package.json',
+  'js/postcard.js',
   'js/profiler.js',
   'js/program-pages.js',
   'js/roms.js',

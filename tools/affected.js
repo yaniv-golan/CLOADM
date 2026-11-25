@@ -78,13 +78,15 @@ const AREAS = [
   { paths: ['js/config.js'], suites: ['config'], groups: ['url'] },
   // the program pages and their cards, and the long link (#z=) and the share pictures
   { paths: ['js/program-pages.js', 'js/media/png.js', 'js/video/card.js', 'tools/program-cards.js'], suites: ['program-pages', 'pwa'], groups: ['url', 'pwa'] },
-  { paths: ['js/media/snapshot.js'], suites: ['long-link', 'share-roms', 'basic-share', 'link-freeze'], groups: ['share', 'askPopout', 'basicShare'] },
+  { paths: ['js/media/snapshot.js'], suites: ['long-link', 'share-roms', 'basic-share', 'link-freeze', 'liza-postcard'], groups: ['share', 'askPopout', 'basicShare', 'postcard'] },
+  // LIZA postcards: the chat heard, the replay, the recipient (the Share screen's postcard mode and the card: share.js, arrival.js)
+  { paths: ['js/postcard.js', 'examples/liza.asm', 'examples/liza6803.asm'], suites: ['liza-postcard', 'link-freeze'], groups: ['postcard'] },
   // the frozen link formats: their golden fixtures and the tool that wrote them (AGENTS.md rule 7)
   { paths: ['tests/fixtures/links/', 'tools/gen-link-fixtures.js'], suites: ['link-freeze'], groups: [] },
   // the share card: Save picture and a short link's preview picture (one renderer)
   { paths: ['js/video/bezel.js'], suites: ['bezel', 'share-card', 'short-link'], groups: ['share', 'shortLink'] },
   // short links: the sealing, the store, the QR code (the Worker itself is shortlink/, tests/shortlink-worker.test.js)
-  { paths: ['js/media/link-crypto.js', 'js/host/link-store.js', 'js/media/qr.js'], suites: ['short-link', 'qr', 'shortlink-worker', 'link-freeze'], groups: ['shortLink', 'share', 'basicShare'] },
+  { paths: ['js/media/link-crypto.js', 'js/host/link-store.js', 'js/media/qr.js'], suites: ['short-link', 'qr', 'shortlink-worker', 'link-freeze', 'liza-postcard'], groups: ['shortLink', 'share', 'basicShare', 'postcard'] },
   { paths: ['js/roms.js', 'js/ui/rom-panel.js', 'js/ui/rom-sockets.js'], suites: ['roms', 'rom-store', 'stored-roms', 'romnames'], groups: ['romUi', 'romInput'] },
   { paths: ['js/selftest.js', 'js/ui/selftest-panel.js'], suites: ['session'], groups: ['models'] },
   { paths: ['js/embed-api.js', 'js/ui/embed.js', 'embed/'], suites: ['embed'], groups: ['embed'] },
@@ -95,10 +97,10 @@ const AREAS = [
   { paths: ['js/ui/welcome.js'], suites: ['welcome'], groups: ['welcomeScreen', 'firstVisit'] },
   { paths: ['js/wyrmfire/', 'js/ui/wyrmfire.js', 'examples/wyrmfire/', 'tools/wyrmfire-vendor.js'], suites: ['wyrmfire'], groups: ['wyrmfire', 'pwa'] },
   { paths: ['js/ui/install.js', 'sw.js', 'manifest.webmanifest', 'tools/pwa-files.js'], suites: ['pwa', 'install'], groups: ['pwa', 'install'] },
-  { paths: ['js/ui/share.js', 'js/share-text.js'], suites: ['share-roms', 'share-card', 'basic-share', 'share-text'], groups: ['share', 'basicShare'] },
+  { paths: ['js/ui/share.js', 'js/share-text.js'], suites: ['share-roms', 'share-card', 'basic-share', 'share-text'], groups: ['share', 'basicShare', 'postcard'] },
   // the arrival card: a shared moment's (the share group's arrival checks, and the visits a link starts and returns to)
   // and a shared BASIC program's (basicShare; the share screen's program mode is js/ui/share.js)
-  { paths: ['js/ui/arrival.js'], suites: ['shared-moment', 'basic-share'], groups: ['share', 'visit', 'returning', 'basicShare'] },
+  { paths: ['js/ui/arrival.js'], suites: ['shared-moment', 'basic-share', 'liza-postcard'], groups: ['share', 'visit', 'returning', 'basicShare', 'postcard'] },
   { paths: ['js/bugreport.js', 'js/ui/bug-report.js'], suites: ['bugreport'], groups: ['commands'] },
   { paths: ['js/media/gif.js', 'tools/capture-gif.js'], suites: ['gif', 'share-text'], groups: ['share'] },
   { paths: ['js/version.js', 'js/ui/version-stamp.js', 'tools/version.js'], suites: ['version'], groups: ['reading', 'settings'] },

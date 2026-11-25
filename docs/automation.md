@@ -1044,26 +1044,27 @@ a server). Byte 0 says which, and is the format's version:
 |---|---|---|---|
 | `1` | a moment: deflate-raw of the snapshot's skeleton and its byte arrays (`js/media/snapshot.js` `encodeLongLink`) | `snapshotLink(base)` | `readSnapshotLink(hash)`, then `openSnapshot(snap)` |
 | `2` | a BASIC program ("Share your program"): deflate-raw of UTF-8 JSON `{ format: 'cloadm-basic', version: 1, machine, config, text }`, `text` the program as LIST shows it (one `NUMBER TEXT` line per program line, `\n` between them, characters `$20`-`$7E` only) | `programLink(base)` | `readProgramLink(hash)`, then `openSharedProgram(prog)` |
+| `3` (0.4) | a LIZA postcard ("Send it as a postcard"): deflate-raw of UTF-8 JSON `{ format: 'cloadm-liza', version: 1, machine, lines }`, `lines` 1 to 20 strings as LIZA's READLN keeps a line (characters `$20`-`$60` and `$7B`-`$7E`: upper case, at most 60) | `postcards.link(base)` | `postcards.read(hash)`, then `postcards.open(card, link, lizaBytes)` |
 
-`3` to `31` are kept for later versions: a page that doesn't know one says the link was made by a newer CLOADM, which is
+`4` to `31` are kept for later versions: a page that doesn't know one says the link was made by a newer CLOADM, which is
 what a page that reads only moments says of a program link. A later change to the program's JSON raises its `version`
 (refused the same way).
 
 A short link (`https://s.cloadm.dev/<id>#<key>`) holds the same payload sealed in the browser (`js/media/link-crypto.js`):
 a moment's short link the `.cloadm` file, a program's short link the program link's bytes above (`programShortLink(store)`,
-with no preview picture). The stored object (`<id>.bin`) is:
+with no preview picture), a postcard's the postcard link's bytes (`postcards.shortLink(store)`, no picture either). The stored object (`<id>.bin`) is:
 
 | Bytes | |
 |---|---|
 | 0 | the sealed format's version, `1`; `2` to `31` are kept for later layouts (refused as "made by a newer CLOADM") |
-| 1 | the kind, in the clear: `1` a moment, `2` a BASIC program (the same numbers as a long link's byte 0); `3` to `31` are kept for later kinds under this version (refused as "made by a newer CLOADM"), `0` and `32` up are not kinds. The short-link server reads it to name what the link opens on its arrival page ("A moment on a Dragon 64", "A moment on an MC-10" or "A BASIC program for the Dragon 64") |
+| 1 | the kind, in the clear: `1` a moment, `2` a BASIC program, `3` a LIZA postcard (0.4) (the same numbers as a long link's byte 0); `4` to `31` are kept for later kinds under this version (refused as "made by a newer CLOADM"), `0` and `32` up are not kinds. The short-link server reads it to name what the link opens on its arrival page ("A moment on a Dragon 64", "A moment on an MC-10", "A BASIC program for the Dragon 64" or "A postcard from LIZA on a Dragon 64") |
 | 2-13 | the AES-GCM IV |
 | the rest | the ciphertext with its 16-byte tag; bytes 0 and 1 are its additional authenticated data, so neither can be changed without the key refusing it |
 
 The key (16 bytes, 22 base64url characters) is only in the link's fragment. The upload to `POST /api/new` is
 `[u8 2][u8 n][machine id][u32 LE length][sealed object][preview PNG, or nothing]` (version `2`: a sealed object with its
-header; a program's has no picture). `readShortLink(hash, store)` gives `{ snap, id }` or `{ program, id }`, and refuses
-an object whose kind and contents disagree.
+header; a program's and a postcard's have no picture). `readShortLink(hash, store)` gives `{ snap, id }`, `{ program, id }`
+or `{ postcard, id }`, and refuses an object whose kind and contents disagree.
 
 **These formats are frozen (since 0.3.0).** A long link's byte 0, the sealed object's version and kind, and the upload
 body's version only ever gain new numbers; no decoder for a number that was ever written is dropped, and an unknown one is
@@ -1082,6 +1083,17 @@ text, refusal }`, where `refusal` (and a `null` text) means it can't be shared a
 outside a string). A program link's `config` must be exactly what `shareConfig` writes: the model's own options (never `mameCompat` or `hires`), each with one of its values; anything else makes the link damaged, refused before any machine is switched. `openSharedProgram(prog)` switches to a fresh machine of the program's model, loads it as load_basic
 does (no typing), types `LIST` and answers `{ state: 'listed', lines }`; without a BASIC ROM for that model it answers
 `{ state: 'needs-roms', name, lines }` and loads nothing (call it again once the ROMs are added).
+
+`postcards` (`js/postcard.js`) is the LIZA postcard. `postcards.current()` is the chat that can be sent now: `null`, or
+`{ machine, lines, all, from, trimmed, ended }`, the last 20 of the `all` lines LIZA answered since `runLiza` started it
+(`from` the first one's number), on the machine on screen, while LIZA runs there or just after its BYE or BREAK (until
+something else runs). A LIZA started any other way (a moment, a Reset that runs it again) has none, and so has the Claude
+chat. `postcards.replayFrame(card, lizaBytes)` replays a postcard in a Session of its own on the built-in firmware and
+gives the frame LIZA shows at the end (the Share screen's picture, `liza-postcard.png`). `postcards.open(card, link,
+lizaBytes)` starts LIZA afresh on the card's model and sets `arrivedFromLink.postcard` to `{ lines, state }` (`'ready'`,
+`'replaying'`, `'done'`); `postcards.play()` types the lines at 25 characters a second of emulated time, each once LIZA
+asks for it, and `postcards.skip()` types the rest at once. `postcards.fileFor(machine)` names the LIZA build a model
+runs (`liza.bin`, `liza6803-mc10.bin`, `liza6803-alice.bin`).
 
 ### What is stable
 

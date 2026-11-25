@@ -8,9 +8,10 @@
  * The sealed object (FROZEN at 0.3.0: a reader for every version ever written is kept; docs/automation.md, "Share links"):
  *   byte 0      SEALED_VERSION (1): this layout. 2 to 31 are kept for later layouts, which a page says are from a newer
  *               CLOADM; anything else is not a sealed object
- *   byte 1      the kind, in the clear so the server can say what a link opens: SEALED_KIND.moment (1, a .cloadm file)
- *               or SEALED_KIND.program (2, the BASIC program link's bytes) — the same numbers as a long link's byte 0.
- *               3 to 31 are kept for later kinds (under this version), which a page says are from a newer CLOADM;
+ *   byte 1      the kind, in the clear so the server can say what a link opens: SEALED_KIND.moment (1, a .cloadm file),
+ *               SEALED_KIND.program (2, the BASIC program link's bytes) or SEALED_KIND.postcard (3, the LIZA postcard
+ *               link's bytes) — the same numbers as a long link's byte 0. Kinds past the last of these, to 31, are kept for
+ *               later kinds (under this version), which a page says are from a newer CLOADM;
  *               0 and 32 up are not kinds
  *   bytes 2-13  the IV
  *   the rest    the AES-GCM ciphertext with its tag (what it holds + 16), the two bytes above its additional
@@ -24,7 +25,8 @@ import { fromBase64Url, toBase64Url } from '../util.js';
 export const KEY_CHARS = 22;
 const IV_BYTES = 12, TAG_BYTES = 16, HEAD = 2;
 export const SEALED_VERSION = 1;
-export const SEALED_KIND = Object.freeze({ moment: 1, program: 2 });
+export const SEALED_KIND = Object.freeze({ moment: 1, program: 2, postcard: 3 });
+const KIND_MAX = Math.max(...Object.values(SEALED_KIND));
 export const SEAL_OVERHEAD = HEAD + IV_BYTES + TAG_BYTES;
 // the sealed object's clear header -> { version, kind }, or a LinkCryptoError naming what is wrong (a newer CLOADM's
 // layout, or not a sealed object). The short-link Worker reads the same two bytes (shortlink/worker.js readSealedHead).
@@ -33,9 +35,9 @@ export function sealedHead(sealed) {
   const version = sealed[0], kind = sealed[1];
   if (version > SEALED_VERSION && version < 32) throw new LinkCryptoError(`This short link was made by a newer CLOADM (sealed format ${version}; this page reads ${SEALED_VERSION}). Reload the page to update it.`);
   if (version !== SEALED_VERSION) throw new LinkCryptoError('The stored moment is damaged.');
-  // a kind this page doesn't know, in the range kept for later kinds (3 to 31), is a newer CLOADM's: a later kind can
+  // a kind this page doesn't know, in the range kept for later kinds (past KIND_MAX, to 31), is a newer CLOADM's: a later kind can
   // be added under version 1. 0 and 32 up are not kinds at all.
-  if (kind > SEALED_KIND.program && kind < 32) throw new LinkCryptoError(`This short link was made by a newer CLOADM (a kind of link this page doesn't know, ${kind}). Reload the page to update it.`);
+  if (kind > KIND_MAX && kind < 32) throw new LinkCryptoError(`This short link was made by a newer CLOADM (a kind of link this page doesn't know, ${kind}). Reload the page to update it.`);
   if (!Object.values(SEALED_KIND).includes(kind)) throw new LinkCryptoError('The stored moment is damaged.');
   return { version, kind };
 }

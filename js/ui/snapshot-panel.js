@@ -2,7 +2,7 @@
  * Opening snapshots: a .cloadm file dropped on the screen or picked with Insert…, or the
  * snapshot a long link carries (#z=; js/ui/share.js writes them) or a short link's moment
  * (#l=<id>.<key>, fetched from s.cloadm.dev and opened with its key here; a short link that holds a BASIC program
- * instead goes to openProgram: js/ui/arrival.js). If it needs ROMs this browser doesn't
+ * instead goes to openProgram, a LIZA postcard to openPostcard: js/ui/arrival.js). If it needs ROMs this browser doesn't
  * have, a card ("This moment needs Dragon 64 BASIC") offers Add ROMs
  * (and the moment opens as soon as they are added) or a look around that machine without them; if it is of
  * another model or config, the usual switch confirmation asks first. The toast that says a snapshot opened offers
@@ -12,7 +12,7 @@ import { Session, SessionError, SnapshotRomsError } from '../session.js';
 import { looksLikeSnapshot } from '../media/snapshot.js';
 import { $, ESC } from './page.js';
 
-export function setupSnapshotPanel(page, { confirmSwitch, openRoms, startOver, openProgram }) {
+export function setupSnapshotPanel(page, { confirmSwitch, openRoms, startOver, openProgram, openPostcard }) {
   const { session } = page;
   let waiting = null;    // a snapshot waiting for its ROMs
   let waitingOpts = {};  // and how it came (open's options: a link's moment is still one when its ROMs arrive)
@@ -98,6 +98,8 @@ export function setupSnapshotPanel(page, { confirmSwitch, openRoms, startOver, o
     history.replaceState(null, '', location.pathname + location.search);
     // a program's short link (Share your program): its program arrives as a program link's does
     if (got.program) { openProgram(got.program, { kind: 'short', id: got.id }); return true; }
+    // a LIZA postcard's short link: LIZA starts afresh and the card offers its replay (js/ui/arrival.js)
+    if (got.postcard) { await openPostcard(got.postcard, { kind: 'short', id: got.id }); return true; }
     open(got.snap, { shared: true, link: { kind: 'short', id: got.id } });
     return true;
   }

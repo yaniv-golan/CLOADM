@@ -20,9 +20,16 @@
  * stays (Session.settleArrival) until the ROMs are added, when the program loads and is listed, or the person leaves.
  * A short link's program card ends with Report this link too. Start from the beginning and Send it back are a
  * moment's: a program's card has neither.
+ *
+ * A LIZA postcard (js/postcard.js: a #z= whose payload is the postcard link, or a short link holding one) starts LIZA
+ * afresh on the sender's model and waits, the card docked at the top:
+ *   "A postcard from LIZA · N lines" [Replay] [Skip to the end]
+ * Replay types the lines at about 25 characters a second, each once LIZA asks for it; a key on the machine (or Skip
+ * to the end) types the rest at once. Then the card says "Your turn: type to LIZA." and goes at their first key.
  */
 import { SessionError } from '../session.js';
 import { $ } from './page.js';
+import { POSTCARD_TEXT } from '../postcard.js';
 
 export const arrivalText = (machine) => `Someone sent you this ${machine}, exactly as they left it. It's running now. It's your copy: nothing you do changes theirs.`;
 export const programArrivalText = (lines, listed) => `Someone sent you a BASIC program (${lines} line${lines === 1 ? '' : 's'}).${listed ? ' It\'s listed below; type RUN to start it.' : ''}`;
@@ -36,11 +43,14 @@ export function setupArrival(page, { openShare, startOver, reportUrl, openRoms }
     const a = session.arrivedFromLink;
     card.hidden = !a;
     if (!a) return;
-    const b = a.basic || null, needs = !!b && !b.listed;
+    const b = a.basic || null, needs = !!b && !b.listed, pc = a.postcard || null;
     card.classList.toggle('basic', !!b);
     card.classList.toggle('needs', needs);
-    $('arrivalText').textContent = b ? programArrivalText(b.lines, b.listed) : arrivalText(a.machine);
-    $('arrivalMoment').hidden = !!b;
+    card.classList.toggle('postcard', !!pc);
+    $('arrivalText').textContent = pc ? (pc.state === 'done' ? POSTCARD_TEXT.yourTurn : POSTCARD_TEXT.arrival(pc.lines)) : b ? programArrivalText(b.lines, b.listed) : arrivalText(a.machine);
+    $('arrivalMoment').hidden = !!b || !!pc;
+    $('arrivalPostcard').hidden = !pc || pc.state === 'done';
+    $('btnPostcardReplay').hidden = !pc || pc.state !== 'ready';
     $('arrivalListing').textContent = needs ? b.text : '';
     $('arrivalListing').hidden = !needs;
     $('arrivalRoms').hidden = !needs;
@@ -79,6 +89,38 @@ export function setupArrival(page, { openShare, startOver, reportUrl, openRoms }
     openProgram(prog, { kind: 'long' });
     return true;
   }
+  // ---------------- a LIZA postcard ----------------
+  // the postcard, opened: LIZA (this model's build, fetched as the welcome menu fetches it) started afresh, waiting for
+  // Replay or Skip. link: { kind: 'long' | 'short', id }
+  async function openPostcard(pc, link = { kind: 'long' }) {
+    try {
+      const bytes = await page.fetchBytes(`examples/${session.postcards.fileFor(pc.machine)}`);
+      session.postcards.open(pc, link, bytes);
+    } catch (e) { page.status(e.message, true); if (!(e instanceof SessionError)) console.error(e); return; }
+    show();
+    page.focus();
+  }
+  // a #z= fragment that holds a postcard: opened, the fragment removed -> true; false when it holds none
+  async function takePostcardLink(hash) {
+    let pc;
+    try { pc = await session.postcards.read(hash); }
+    catch (e) { if (!(e instanceof SessionError)) throw e; page.status(e.message, true); history.replaceState(null, '', location.pathname + location.search); return true; }
+    if (!pc) return false;
+    history.replaceState(null, '', location.pathname + location.search);
+    await openPostcard(pc, { kind: 'long' });
+    return true;
+  }
+  $('btnPostcardReplay').onclick = () => { session.postcards.play(); page.focus(); };
+  $('btnPostcardSkip').onclick = () => { session.postcards.skip(); page.focus(); };
+  // while the postcard still has lines to type, a key on the machine is not typed into LIZA: it skips to the end
+  // (the window's capture phase, ahead of js/ui/screen.js's keyboard)
+  addEventListener('keydown', (e) => {
+    if (!session.postcards.pending || !page.toMachine(e) || e.ctrlKey || e.metaKey || e.altKey || ['Shift', 'Control', 'Alt', 'Meta', 'CapsLock'].includes(e.key)) return;
+    e.preventDefault(); e.stopImmediatePropagation();
+    if (!e.repeat) session.postcards.skip();
+  }, true);
+  addEventListener('keyup', (e) => { if (session.postcards.pending && page.toMachine(e)) e.stopImmediatePropagation(); }, true);
+
   $('btnArrivalRoms').onclick = () => openRoms();
   $('btnArrivalCopy').onclick = async () => {
     const text = $('arrivalListing').textContent;
@@ -94,5 +136,5 @@ export function setupArrival(page, { openShare, startOver, reportUrl, openRoms }
     else if (ev === 'machine' && session.shownMachine.id !== waiting.prog.machine) waiting = null;
   });
   show();
-  return { show, openProgram, takeProgramLink };
+  return { show, openProgram, takeProgramLink, openPostcard, takePostcardLink };
 }

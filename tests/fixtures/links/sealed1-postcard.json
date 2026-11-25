@@ -1,0 +1,11 @@
+{
+ "what": "a short link's sealed object holding a LIZA postcard",
+ "format": {
+  "sealedVersion": 1,
+  "kind": 3,
+  "postcardFormat": 1
+ },
+ "machine": "dragon64",
+ "sealed": "AQN3mlSZQGzTh6bhSe8DkQaRsiVF2WdqBrL-vcsayTVPBGQVfMY6ZRXY5KOIhu0L9GPyI54Ok3PFEoP4qzJ1raZt_XopEmwCVCwxmqWu0Pmq0F4rUwSKnJHIjCysEyAQ2Fwu2oW6IpqrLzaU3hOwPrNo2yjiCg4-sQlStKCYyc44l0eWIG0M_CSVwb84FCCoH40IjZu9MLLj",
+ "key": "_cu8cROm3oWK4NkkayiAjg"
+}

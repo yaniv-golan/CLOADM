@@ -140,7 +140,7 @@ let library = null;
 // the arrival card (a shared moment, or a shared BASIC program, which it opens): before the snapshots, which hand it a
 // program's short link
 const arrival = setupArrival(page, { openShare: () => share.open(), startOver, reportUrl: (id) => linkStore.reportUrl(id), openRoms: () => romSockets.reveal() });
-const snapshots = setupSnapshotPanel(page, { confirmSwitch: machinePanel.confirmSwitch, openRoms: () => romSockets.reveal(), startOver: (program) => startOver(program), openProgram: arrival.openProgram });
+const snapshots = setupSnapshotPanel(page, { confirmSwitch: machinePanel.confirmSwitch, openRoms: () => romSockets.reveal(), startOver: (program) => startOver(program), openProgram: arrival.openProgram, openPostcard: arrival.openPostcard });
 window.emu.arrival = arrival;   // (the browser check: a program arriving while the focus is elsewhere)
 const disks = setupDrives(page, { openRoms: () => romSockets.reveal({ to: 'disk' }) });
 const slots = setupSlotsPanel(page, { snapshots });
@@ -369,7 +369,8 @@ const starting = welcome.start(visit, { fromLink, withMedia: link.roms.length > 
   await starting;
   // a share link's moment (#z=, Share screen): opened like a dropped snapshot, once the visit has started
   // (a BASIC program's link, Share your program, is a #z= too: its payload says which, js/ui/arrival.js)
-  if (/^#z=/.test(location.hash)) { if (!await arrival.takeProgramLink(location.hash)) await snapshots.takeLink(location.hash); }
+  // (and so is a LIZA postcard: js/postcard.js)
+  if (/^#z=/.test(location.hash)) { if (!await arrival.takeProgramLink(location.hash) && !await arrival.takePostcardLink(location.hash)) await snapshots.takeLink(location.hash); }
   // a short link's moment (#l=<id>.<key>: its arrival page on s.cloadm.dev sends the visitor here): fetched, opened
   // with its key in this browser, then opened like the rest
   else if (/^#l=/.test(location.hash)) await snapshots.takeShortLink(location.hash, linkStore);
