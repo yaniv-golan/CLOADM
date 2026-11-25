@@ -141,7 +141,8 @@ Sources: `examples/2048.asm`, `examples/minesweeper.asm`, `examples/games.inc`
 [WYRMFIRE](https://github.com/yaniv-golan/wyrmfire) is a 3D game engine for the Dragon 64 that plays a Doom-format
 level from a disk, free software under the GNU GPL version 3 or later. CLOADM serves its engine unchanged
 (`examples/wyrmfire/`, pinned in `js/wyrmfire/pin.js`) and a level disk made by WYRMFIRE's converter from map E1M1 of
-[Freedoom](https://freedoom.github.io) 0.13.0 (BSD 3-Clause). Start it from **Programs** ("Runs without ROMs":
+[Freedoom](https://freedoom.github.io) 0.13.0 (BSD 3-Clause); the disk carries the credit and the licence, and **C** on
+the title screen shows them (Enter goes on). Start it from **Programs** ("Runs without ROMs":
 **WYRMFIRE**, "A 3D game for the Dragon 64 · Freedoom level", "GPL · Freedoom level (BSD)"), Ctrl+K's **WYRMFIRE**
 (it answers to doom, game, 3d, freedoom), or a link, `?start=wyrmfire`.
 
