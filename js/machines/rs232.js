@@ -3,7 +3,9 @@
  * transmit line reaches, and what drives its receive line. The machine calls txd(at, level) when it changes its
  * output and rxd(at) when it reads its input; at = machine ticks.
  *
- *   none      nothing plugged in (the Dragon 64's serial port by default): RXD at mark
+ *   none      nothing plugged in (the Dragon 64's serial port by default): RXD at mark, and CTS, DSR and DCD idle high (not
+ *             asserted), as MAME's dragon64 fits no RS-232 device by default: the 6551 status reads DSR and DCD set and
+ *             never TDRE (CTS high masks it), and a byte written goes nowhere
  *   printer   a serial printer, 600 baud 8N1 (MAME's default for these machines, rs_printer); what it receives
  *             goes to onPrint (the machine's printout); its RXD output is 0 (rs232/printer.cpp:
  *             m_initial_rx_state = 0)
@@ -52,12 +54,12 @@ export class SerialPort {
   get ticksPerBit() { return this.tickHz / this.baud; }
   // the DCD (carrier detect) level the device gives from reset: the printer and a terminal (MAME's null modem) drive
   // it low (rs232/printer.cpp, null_modem.cpp: output_dcd(0)); the loopback drives it only from DTR, which these
-  // ports do not have, so it stays high
-  get dcd() { return this.kind === 'loopback' && this.handshake === 'open' ? 1 : 0; }
+  // ports do not have, so it stays high; with nothing plugged in nothing drives it, so it stays high
+  get dcd() { return this.kind === 'none' || (this.kind === 'loopback' && this.handshake === 'open') ? 1 : 0; }
   get dsr() { return this.dcd; }
   // CTS (the MC-10 reads it as "printer ready"): low from the printer or a terminal (output_cts(0)); the loopback
-  // drives it only from RTS, which these ports do not have, so it stays high
-  get cts() { return this.kind === 'loopback' && this.handshake === 'open' ? 1 : 0; }
+  // drives it only from RTS, which these ports do not have, so it stays high; with nothing plugged in, high
+  get cts() { return this.kind === 'none' || (this.kind === 'loopback' && this.handshake === 'open') ? 1 : 0; }
   txd(at, level) {
     this.line = level;
     if (this.rx) this.rx.write(at, level);
