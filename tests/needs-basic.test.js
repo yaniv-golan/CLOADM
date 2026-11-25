@@ -153,6 +153,22 @@ LOOP JSR $A176
       check(`${id}: ${prog} does not arm the detector, and never fires it when forced on`, !armed && said.length === 0, json(said));
     }
   }
+  // WYRMFIRE (the bundled engine and the Freedoom level, js/wyrmfire/pin.js): not armed by its start, and silent with the
+  // detector forced on, through its title and into play (it reads the disk through the bare controller, no BASIC)
+  {
+    const { WYRMFIRE_PIN: PIN } = require('../js/wyrmfire/pin.js');
+    const read = (p) => new Uint8Array(fs.readFileSync(path.join(__dirname, '..', p)));
+    const { s, said } = session('dragon64');
+    s.startWyrmfire(read(PIN.files.engine.path), read(PIN.files.level.path));
+    const armed = s.needsBasic.armed, m = s.personMachine;
+    s.needsBasic.arm(m, 'WYRMFIRE.BIN', null);
+    let f = 0;
+    while (m.read(0x200) === 0 && f < 3000) { m.setKey('ENTER', f % 50 < 25); frames(s, 1); f++; }
+    m.setKey('ENTER', false);
+    for (const k of ['UP', 'LEFT', 'RIGHT', 'SPACE']) { m.setKey(k, true); frames(s, 20); m.setKey(k, false); frames(s, 5); }
+    check('WYRMFIRE does not arm the detector, and never fires it when forced on, through its title and into play',
+      !armed && m.read(0x200) > 0 && said.length === 0 && s.needsBasic.armed, `${f} frames to play, ${json(said)}`);
+  }
   // the firmware's implemented hooks: every vector at $A000 (POLCAT, CHROUT, CSRDON, BLKIN, BLKOUT, JOYIN, WRTLDR),
   // with interrupts on (the firmware's IRQ and FIRQ handlers run)
   for (const id of ['dragon64', 'coco', 'coco3']) {

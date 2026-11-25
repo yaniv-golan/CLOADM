@@ -163,7 +163,7 @@ Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.
   fires on the first instruction fetched from BASIC's ROM space at an address the firmware does not implement (the
   firmware now exports what it implements: `stubRom`'s `implemented`, each family's `basicRomAt`), once per load,
   cleared by a reset, and never for the bundled programs, the all-RAM map, CoCo 3 RAM mode, a cartridge's space with a
-  cartridge in, a machine with BASIC, or while the Debugger is stopped or stepping (`Debugger.commanding`). Tested in
+  cartridge in, a machine with BASIC, WYRMFIRE, or while the Debugger is stopped or stepping (`Debugger.commanding`). Tested in
   `tests/needs-basic.test.js` and the browser check's new `needsBasic` group. The side panel has no card for it: its
   folded view leaves the detector out (`connector/view/needs-basic-off.js` in its place; the Session's `needsBasic` is
   null there, and Run again says it is not available), which keeps the view inside its size budget.

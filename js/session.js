@@ -3788,7 +3788,8 @@ export class Session {
     // the disk is the game's: never linked to the Library (no onWrite), and it says whose it is
     fdc.drives[want.drive].media.gameData = level;
     this.emit('disks');
-    const msg = this.load('WYRMFIRE.BIN', engine, { remember: false });
+    // (ours: the engine is bundled, and it drives the machine itself: the "needs BASIC" detector is not armed for it)
+    const msg = this.load('WYRMFIRE.BIN', engine, { remember: false, ours: true });
     this.wyrmfire = { m, fdc, media: fdc.drives[want.drive].media, level, name: level === 'user' ? String(name || 'your WAD') : null, addedStub };
     if (level === 'user') this.userDataMachines.add(m);
     this.emit('program', 'wyrmfire');
