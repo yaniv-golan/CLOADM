@@ -56,22 +56,117 @@ FRESTR  JSR     CHKSTR
         LDX     <STRPTR
         BRA     FRETMP
 
-* GETSPA: room for B bytes in the string space: X = their address (?OS ERROR if there is none). Keeps B.
+* GETSPA: room for B bytes in the string space: X = their address. When there is too little, the garbage is
+* collected first; then ?OS ERROR. Keeps B.
 GETSPA  PSHS    B
-        CLRA
-        PSHS    D               ; (A at 0,S is unused: D at ,S is the length)
+        CLR     <GCDONE
+GS0     CLRA
+        PSHS    D
         LDD     <FRETOP
-        SUBD    ,S
+        SUBD    ,S++
         BLO     GS1
         CMPD    <STRBOT
         BLO     GS1
         STD     <FRETOP
         TFR     D,X
-        LEAS    2,S
         PULS    B,PC
-GS1     LEAS    2,S             ; (the garbage collector comes in M5)
-        LDB     #ERR_OS
+GS1     TST     <GCDONE
+        BNE     GS2
+        INC     <GCDONE
+        JSR     GARBAG
+        LDB     ,S
+        BRA     GS0
+GS2     LDB     #ERR_OS
         JMP     ERROR
+
+* GARBAG: the garbage collector. Every string in use (the variables', the arrays', the temporaries') is moved up
+* to the top of the string space, the highest first, so the free space below them is all in one piece.
+GARBAG  PSHS    D,X,Y,U
+        LDD     <MEMTOP
+        STD     <GCTOP          ; where the strings kept so far begin
+        STD     <GCLIM          ; strings below this are still to do
+GC1     LDD     #0
+        STD     <GCBEST
+        LDD     <FRETOP
+        STD     <GCADR
+        LDX     #TMPDSC         ; the temporaries
+GC2     CMPX    <TEMPPT
+        BHS     GC3
+        BSR     GCCHK
+        LEAX    5,X
+        BRA     GC2
+GC3     LDX     <VARTAB         ; the simple variables
+GC4     CMPX    <ARYTAB
+        BHS     GC6
+        TST     1,X
+        BPL     GC5
+        LEAX    2,X
+        BSR     GCCHK
+        LEAX    -2,X
+GC5     LEAX    7,X
+        BRA     GC4
+GC6     LDX     <ARYTAB         ; the arrays of strings
+GC7     CMPX    <ARYEND
+        BHS     GC10
+        LDD     2,X
+        LEAY    D,X             ; the next array
+        TST     1,X
+        BPL     GC9
+        LDB     4,X
+        CLRA
+        ASLB
+        ADDB    #5
+        ADCA    #0
+        LEAU    D,X             ; the first element
+        PSHS    X
+GC8     PSHS    Y               ; the elements up to the array's end
+        CMPU    ,S++
+        BHS     GC8A
+        TFR     U,X
+        BSR     GCCHK
+        LEAU    5,U
+        BRA     GC8
+GC8A    PULS    X
+GC9     TFR     Y,X
+        BRA     GC7
+* move the highest string found up under the ones kept
+GC10    LDX     <GCBEST
+        BEQ     GC12
+        LDD     2,X
+        STD     <GCLIM
+        LDB     ,X
+        CLRA
+        PSHS    D
+        LDD     <GCTOP
+        SUBD    ,S
+        STD     <GCTOP
+        LDU     2,X             ; copied from the end down (it only moves up)
+        PULS    D
+        LEAU    D,U
+        LDY     <GCTOP
+        LEAY    D,Y
+GC11    LDA     ,-U
+        STA     ,-Y
+        DECB
+        BNE     GC11
+        LDD     <GCTOP
+        STD     2,X
+        LBRA    GC1
+GC12    LDD     <GCTOP
+        STD     <FRETOP
+        PULS    D,X,Y,U,PC
+* GCCHK: the descriptor at X is the best so far if its string is in the string space, below GCLIM, and higher
+* than the best found
+GCCHK   TST     ,X
+        BEQ     GCC1
+        LDD     2,X
+        CMPD    <GCLIM
+        BHS     GCC1
+        CMPD    <GCADR
+        BLO     GCC1
+        STD     <GCADR
+        STX     <GCBEST
+GCC1    RTS
 
 * STRKEEP: the descriptor a variable may hold for the string value just evaluated: the value's own when its
 * string is a temporary result in the string space or a literal in a running program's text; otherwise a copy

@@ -1,0 +1,51 @@
+# [UM] the string functions as the manuals describe them; reviewed by hand; provisional until the black-box run. [OWN] INSTR of an empty string is the start position
+OK
+A$="HELLO WORLD"
+OK
+PRINT LEN(A$);LEN("");ASC("A");C
+HR$(66);"/"
+ 11  0  65 B/
+OK
+PRINT LEFT$(A$,5);"/";RIGHT$(A$,
+5);"/";MID$(A$,7,3);"/";MID$(A$,
+7)
+HELLO/WORLD/WOR/WORLD
+OK
+PRINT LEFT$(A$,0);"/";LEFT$(A$,9
+9);"/";MID$(A$,20);"/";RIGHT$("A
+B",5)
+/HELLO WORLD//AB
+OK
+PRINT STR$(12.5);"/";STR$(-3);"/
+";VAL("123");VAL(" -4.5E2");VAL(
+"X");VAL("12AB")
+ 12.5/-3/ 123 -450  0  12
+OK
+PRINT INSTR(A$,"O");INSTR(5,A$,"
+O");INSTR(6,A$,"O");INSTR(A$,"Z"
+);INSTR(A$,"")
+ 5  5  8  0  1
+OK
+PRINT STRING$(5,"*");STRING$(3,6
+5);"/";HEX$(255);" ";HEX$(0);" "
+;HEX$(4096);" ";HEX$(65535)
+*****AAA/FF 0 1000 FFFF
+OK
+B$=A$+"!":PRINT B$;LEN(B$)
+HELLO WORLD! 12
+OK
+PRINT ASC("")
+?FC ERROR
+OK
+PRINT MID$(A$,0)
+?FC ERROR
+OK
+PRINT CHR$(256)
+?FC ERROR
+OK
+C$=STRING$(150,"A"):D$=C$+C$
+?LS ERROR
+OK
+PRINT "A"+"B"+"C"+"D"
+ABCD
+OK

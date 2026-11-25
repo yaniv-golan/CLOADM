@@ -118,6 +118,13 @@ ONCNT   RMB     1               ; ON
 ONKIND  RMB     1
 ONFND   RMB     1
 ONLINE  RMB     2
+GCTOP   RMB     2               ; the garbage collector
+GCLIM   RMB     2
+GCBEST  RMB     2
+GCADR   RMB     2
+GCDONE  RMB     1
+SBSTRT  RMB     1               ; LEFT$, RIGHT$, MID$: the start and the count
+SBCNT   RMB     1
 DPEND   RMB     0
 
 * ---------------- the ROM ----------------
@@ -135,6 +142,7 @@ DPEND   RMB     0
         INCLUDE "strings.inc"
         INCLUDE "print.inc"
         INCLUDE "flow.inc"
+        INCLUDE "strfunc.inc"
         INCLUDE "fp.inc"
         INCLUDE "fpconv.inc"
         INCLUDE "tokens.inc"
