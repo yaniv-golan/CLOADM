@@ -48,11 +48,11 @@ PMODE   JSR     GETBYT
         ABX
         PSHS    X
         JSR     <ZCHKCOM
-        BNE     PM1
+        BNE     PMOD1
         JSR     COMBYT
         BSR     PGADR
         FCB     $8C             ; (CMPX #: skips the LDA)
-PM1     LDA     <GBEG
+PMOD1     LDA     <GBEG
         PULS    X
         BSR     SETPM
         BCC     PMDEF
