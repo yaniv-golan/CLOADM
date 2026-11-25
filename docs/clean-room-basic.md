@@ -256,7 +256,11 @@ node tools/basic-bb/compare.js real.jsonl ours.jsonl
   node tools/basic-bb/corpus.js --rom d64_1.rom --corpus DIR --out real.jsonl [--frames 1500] [--every 50] [--full NAMES]
   node tools/basic-bb/corpus.js --ours --corpus DIR --out ours.jsonl
   node tools/basic-bb/compare.js real.jsonl ours.jsonl
+  node tools/basic-bb/corpus-stats.js real.jsonl    # counts over all programs: statuses, lint kinds, keyword use
   ```
+  Each record also counts how often the program uses each keyword (counts only, from the listing, found as BASIC
+  crunches a line; `CIRCLE` arcs and `PUT` actions apart), so `corpus-stats.js` shows which statements real programs
+  depend on, and how many use graphics, sound or machine code.
   Two rules keep the ROM out of the results. The listing is linted first (`EXEC`, `USR`, `DEFUSR`, `CLOADM`,
   `CSAVEM`, `VARPTR`, and a `PEEK` of anything but a literal in RAM or the I/O page `$FF00-$FFDF` or `... AND 32767`):
   such a program is not RUN (status `rom-read-possible`, the kinds and line numbers only). And a guard, after the

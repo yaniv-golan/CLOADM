@@ -17,7 +17,7 @@
 //
 // What is written, one JSON object a program: { program (the file's name), sha256 (of the .cas), machine, rom (the
 // ROM image's CRC-32), status, why, error (the last "?xx ERROR" line), listLines (program lines), list (the listing's
-// screen rows), samples: [{ frame, screen, pix }], lint }. By default the text is hashed: list holds one hash a row and a sample's screen one hash, the first
+// screen rows), keywords (how often each keyword is used: counts only), samples: [{ frame, screen, pix }], lint }. By default the text is hashed: list holds one hash a row and a sample's screen one hash, the first
 // 16 hex digits of a SHA-256, enough to find where two runs part. The programs named in --full NAMES (a file, one name
 // or sha256 a line: the programs whose owners allow it) are written as text.
 //
@@ -32,6 +32,10 @@ const fs = require('fs'), path = require('path'), crypto = require('crypto');
 const { Basic, Emu } = require('../../tests/basic/harness.js');
 const { code, argAt, literal, maskedOk } = require('./lint.js');
 
+const KEYWORDS = (() => {
+  const t = JSON.parse(fs.readFileSync(path.join(__dirname, '../../basic/tokens.json'), 'utf8'));
+  return [...t.statements, ...t.functions].map((e) => e.word).filter((w) => /^[A-Z]/.test(w)).sort((a, b) => b.length - a.length);
+})();
 const IO_LO = 0xFF00, IO_HI = 0xFFDF;
 const masked = (a) => a >= 0x8000 && !(a >= IO_LO && a <= IO_HI);
 const short = (s) => crypto.createHash('sha256').update(s).digest('hex').slice(0, 16);
@@ -67,6 +71,31 @@ function corpusLint(lines) {
   }
   return out;
 }
+
+// How often a program's lines use each keyword (the words of basic/tokens.json, from the manuals), found as BASIC
+// finds them when it crunches a line: at each place the longest keyword that starts there, outside strings, remarks
+// and DATA (REM and ' themselves are not counted). Two forms counted apart: "CIRCLE arc" (a CIRCLE with start and
+// end, five or more arguments) and "PUT action" (a PUT that names PSET, PRESET, AND, OR or NOT). Only counts: no text of the program. -> { WORD: count }
+function keywordCounts(lines) {
+  const out = {};
+  const add = (k) => { out[k] = (out[k] || 0) + 1; };
+  for (const raw of lines) {
+    const s = code(raw.replace(/^\s*\d+\s?/, ''));
+    for (let i = 0; i < s.length;) {
+      if (s[i] === '"') { const e = s.indexOf('"', i + 1); i = e < 0 ? s.length : e + 1; continue; }
+      const w = KEYWORDS.find((k) => s.startsWith(k, i));
+      if (!w) { i++; continue; }
+      add(w);
+      const rest = s.slice(i + w.length), stmt = rest.split(':')[0];
+      if (w === 'CIRCLE' && depth0Commas(stmt) >= 4) add('CIRCLE arc');
+      if (w === 'PUT' && /\b(PSET|PRESET|AND|OR|NOT)\b/.test(stmt.replace(/\)\s*-\s*\(/, ''))) add('PUT action');
+      if (w === 'DATA') { const e = s.indexOf(':', i); i = e < 0 ? s.length : e + 1; continue; }
+      i += w.length;
+    }
+  }
+  return out;
+}
+const depth0Commas = (t) => { let d = 0, n = 0; for (const c of t) { if (c === '(') d++; else if (c === ')') d--; else if (c === ',' && d === 0) n++; } return n; };
 
 // The guard (tools/census/lib.js's structural rule, for a BASIC program): arm() at the RUN. Program code is an
 // instruction in RAM whose first byte was written since watch() and that BASIC itself never ran before arm() (BASIC's
@@ -134,6 +163,7 @@ function runProgram(rom, cas, { name = 'PROGRAM', frames = 1500, every = 50, key
   const rows = t.slice(from + 1, t[t.length - 1] === 'OK' ? -1 : undefined);
   const lines = joinListing(rows);
   rec.listLines = lines.length;
+  rec.keywords = keywordCounts(lines);
   rec.list = full ? rows : rows.map(short);
   const lint = corpusLint(lines);
   if (lint.length) return { ...rec, status: 'rom-read-possible', lint };
@@ -215,5 +245,5 @@ function main() {
   fs.closeSync(fd);
 }
 
-module.exports = { runProgram, romGuard, corpusLint, joinListing, parseKeys };
+module.exports = { runProgram, romGuard, corpusLint, joinListing, parseKeys, keywordCounts };
 if (require.main === module) main();

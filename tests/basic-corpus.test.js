@@ -4,6 +4,8 @@
 //  * the corpus lint finds EXEC, USR, DEFUSR, CLOADM, CSAVEM, VARPTR and every PEEK that might read the ROM, by kind
 //    and line number, and passes PEEK of RAM, of the I/O page and "... AND 32767", strings and remarks;
 //  * listing rows join into program lines by their line numbers;
+//  * keyword counts find keywords as BASIC crunches them (glued to names, GO TO as GO and TO), not in strings,
+//    remarks or DATA, and count CIRCLE arcs and PUT actions apart; corpus-stats sums them over programs;
 //  * the .keys sidecar parses, and a bad line is refused;
 //  * the guard, on our own ROM, trips on machine code that reads the ROM and on a ROM routine that reads ROM data and
 //    returns to machine code, and not on machine code that reads the I/O page or calls a routine that reads no ROM
@@ -14,7 +16,8 @@
 //    buildCas): the listing comes back line by line (a line longer than a row joined), the run is sampled until it
 //    ends, the error line is caught, a program the lint refuses is listed but not run, the text is hashed unless
 //    asked for in full, and the CLI's two runs compare as identical.
-const { corpusLint, joinListing, parseKeys, romGuard, runProgram } = require('../tools/basic-bb/corpus.js');
+const { corpusLint, joinListing, parseKeys, romGuard, runProgram, keywordCounts } = require('../tools/basic-bb/corpus.js');
+const { stats } = require('../tools/basic-bb/corpus-stats.js');
 const fs = require('fs'), os = require('os'), path = require('path'), { execFileSync } = require('child_process');
 const { compareCorpus } = require('../tools/basic-bb/compare.js');
 const { buildBasic } = require('../tools/build-basic.js');
@@ -39,6 +42,14 @@ const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 check('rows without a line number run on', same(joinListing(['10 PRINT "A', 'B"', '20 END']), ['10 PRINT "A' + 'B"', '20 END']));
 check('a row starting with a lower number runs on', same(joinListing(['10 A=1', '20 PRINT "', '15 POINTS"', '30 B=2']), ['10 A=1', '20 PRINT "15 POINTS"', '30 B=2']));
 check('numbered rows are lines', same(joinListing(['10 A=1', '20 B=2']), ['10 A=1', '20 B=2']));
+
+// ---- keyword counts ----
+const kc = keywordCounts(['10 FORI=1TO9:PRINT"FOR";I:NEXT', '20 CIRCLE(128,96),50,4,1,0,.5:CIRCLE(9,9),5:PUT(0,0)-(9,9),A,PSET:PUT(0,0)-(9,9),A',
+  '30 DATA PRINT,GOTO:GOTO 10', '40 REM PRINT', "50 ' PRINT", '60 X=INSTR(A$,B$)+TOTAL']);
+const want = { FOR: 1, TO: 3, PRINT: 1, NEXT: 1, CIRCLE: 2, 'CIRCLE arc': 1, PUT: 2, 'PUT action': 1, PSET: 1, DATA: 1, GO: 1, INSTR: 1 };
+check('keyword counts', JSON.stringify(Object.keys(kc).sort().map((k) => [k, kc[k]])) === JSON.stringify(Object.keys(want).sort().map((k) => [k, want[k]])), JSON.stringify(kc));
+const st = stats([{ status: 'ended', keywords: { PRINT: 3, GO: 1 } }, { status: 'rom-read-possible', lint: [{ kind: 'peek' }, { kind: 'peek' }], keywords: { PRINT: 1 } }]);
+check('corpus-stats', st.programs === 2 && st.status.ended === 1 && st.lint.peek === 1 && st.keywords.PRINT.programs === 2 && st.keywords.PRINT.uses === 4 && st.keywords.GO.uses === 1, JSON.stringify(st));
 
 // ---- the .keys sidecar ----
 const ev = parseKeys('# a comment\n100 keys SPACE\n200 keys SHIFT+UP 10\n300 type YES\\n\n');
@@ -116,6 +127,7 @@ const listed = ['10 CLS:PRINT "HELLO"', '20 FOR I=1 TO 3:PRINT I:NEXT', '30 PRIN
 const cas = tape(prog, 'DEMO');
 const full = runProgram(rom, cas, { name: 'DEMO', full: true, frames: 400, every: 25 });
 check('run: the listing, row by row', same(full.list, listed) && full.listLines === 4, JSON.stringify(full.list));
+check('run: keyword counts from the listing', full.keywords.PRINT === 4 && full.keywords.FOR === 1 && full.keywords.CLS === 1, JSON.stringify(full.keywords));
 check('run: ended, with its error line', full.status === 'ended' && full.error === '?/0 ERROR IN 40', `${full.status} ${full.error}`);
 check('run: the samples show the program\'s output', full.samples.length > 1 && full.samples[0].screen[0] === 'HELLO' && full.samples[0].screen.includes(' 3') && /^[0-9a-f]{16}$/.test(full.samples[0].pix), JSON.stringify(full.samples[0]));
 const hashed = runProgram(rom, cas, { name: 'DEMO', frames: 400, every: 25 });
