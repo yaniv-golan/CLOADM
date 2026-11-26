@@ -748,11 +748,11 @@ with an exported settings file.
 **Suggest questions with Claude**, directly under it (off by default; hidden while Claude features is Off; without
 an API key it shows, disabled, "Needs your API key"): "When you open an empty chat, sends the screen's text to Claude to
 suggest questions. Uses your API key." On, opening Ask Claude on an empty chat sends the machine's name and the screen's
-text to Claude Haiku once (at most once per screen and once per 30 seconds; never on a graphics screen), and its
+text to Claude Haiku once (at most once per screen and once per 30 seconds; never on a graphics screen or while your own WAD's level is loaded), and its
 questions replace the page's own under "Suggested by Claude" if they arrive within 3 seconds
 ([claude.md](claude.md#claude)).
 
-Either way nothing goes to Anthropic until you ask (or, with Suggest questions on, open an empty chat). Ask Claude says so above its input: then your question, the
+Either way nothing goes to Anthropic until you ask (or, with Suggest questions with Claude on, open an empty chat). Ask Claude says so above its input: then your question, the
 machine's facts and the chat so far go to Anthropic with your key, and Claude can read the screen and any memory (ROM
 areas included) without asking; only changes to the machine ask you first.
 

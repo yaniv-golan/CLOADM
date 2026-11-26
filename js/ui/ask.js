@@ -394,8 +394,8 @@ export function setupAsk(page, claude) {
     sugTimer = setTimeout(() => { sugTimer = null; drawQuestions({ live: true }); }, 500);
   }
   session.on((ev) => {
-    if (ev === 'claudefeatures') { drawQuestions({ fresh: true }); return; }
-    if (ev === 'claudesuggest') { render(); return; }   // (Off clears them; On reads them afresh)
+    if (ev === 'claudefeatures') { drawQuestions({ fresh: true }); return; }   // (Off clears them; On reads them afresh)
+    if (ev === 'claudesuggest') { render(); return; }
     if (ev !== 'chat') suggestSoon();
   });
 

@@ -116,6 +116,47 @@ const GOOD = JSON.stringify(['What does NO ROM LOADED mean?', 'How do I load a b
   check('an invalid answer (four questions): nothing', await sug(async () => answer('["a","b","c","d"]')).suggest(input) === null);
   check('an answer that is prose: nothing', await sug(async () => answer('Here are some questions: what is this?')).suggest(input) === null);
 
+  // ---- the machine's name is part of the screen's key ----
+  check('the screen hash covers the machine name: the same text on another machine is another screen', S.screenHash({ machine: 'Dragon 64', screen: 'OK' }) !== S.screenHash({ machine: 'Dragon 32', screen: 'OK' })
+    && S.screenHash({ machine: 'Dragon 64', screen: 'OK' }) === S.screenHash({ machine: 'Dragon 64', screen: 'OK' }));
+  {
+    const calls2 = [];
+    const f2 = async (u, i) => { calls2.push(i); return answer(GOOD); };
+    const sg = new S.Suggester({ fetch: f2, key: () => KEY, now: (() => { let c = 0; return () => (c += 40000); })() });
+    await sg.suggest({ machine: 'Dragon 64', screen: 'OK' });
+    await sg.suggest({ machine: 'Dragon 32', screen: 'OK' });
+    check('the same screen text on a different machine: a second request', calls2.length === 2, String(calls2.length));
+  }
+
+  // ---- the person's own WAD's level: its screen is never handed out (as the read-only tools refuse it) ----
+  {
+    const fs = require('fs');
+    const { WYRMFIRE_PIN: PIN } = require('../js/wyrmfire/pin.js');
+    const ENGINE = new Uint8Array(fs.readFileSync(path.join(__dirname, '..', PIN.files.engine.path)));
+    const LEVEL = new Uint8Array(fs.readFileSync(path.join(__dirname, '..', PIN.files.level.path)));
+    const w = new Emu.Session({ welcomeMenu: false, store: Emu.memoryStore() });
+    w.switchMachine('dragon64', {}, { menu: false });
+    w.setClaudeKey(KEY); w.setClaudeSuggest(true);
+    for (let i = 0; i < 60; i++) w.shownMachine.runFrame();
+    const wcalls = [];
+    const wf = async (u, i) => { wcalls.push(i); return answer(GOOD); };
+    check('a text screen, no user data: there is input to send', !!w.suggestInput() && !w.userDataIn() && !w.userDiskIn());
+    // (the machine's own-WAD mark: what a level converted from the person's WAD sets)
+    w.userDataMachines.add(w.personMachine);
+    check('the own-WAD mark (userDataIn): no input, no request', w.userDataIn() && w.suggestInput() === null && await w.claudeSuggestions(wf) === null && wcalls.length === 0);
+    w.userDataMachines.delete(w.personMachine);
+    check('the mark off again: the input is back', !!w.suggestInput());
+    // (the disk itself, still in a drive after a power cycle cleared the mark)
+    w.startWyrmfire(ENGINE, LEVEL.slice(), { level: 'user', name: 'DOOM1.WAD' });
+    w.powerCycle({ menu: false });
+    for (let i = 0; i < 60; i++) w.personMachine.runFrame();
+    check('a power cycle with the own-WAD disk still in (userDiskIn only): no input, no request', !w.userDataIn() && w.userDiskIn() && w.suggestInput() === null && await w.claudeSuggestions(wf) === null && wcalls.length === 0);
+    await w.drives.eject(0);
+    w.powerCycle({ menu: false });
+    for (let i = 0; i < 60; i++) w.personMachine.runFrame();
+    check('the disk out and a power cycle: the rule lifts (no user data)', !w.userDataIn() && !w.userDiskIn());
+  }
+
   // ---- the key never leaks ----
   const keyBytes = Buffer.from(KEY);
   const has = (buf) => Buffer.from(buf).indexOf(keyBytes) >= 0;

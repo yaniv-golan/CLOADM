@@ -16,7 +16,8 @@ Next version: 0.3.1 (the plugin and extension manifests carry it; `tests/plugin.
   "Needs your API key". On, opening Ask Claude on an empty chat sends ONE request to Claude Haiku (150 tokens) with only
   the machine's name and the screen's text; the page's own questions show at once and a valid answer (1-3 questions of
   at most 60 characters) within 3 s replaces them under "Suggested by Claude", otherwise they stay. At most one
-  request per distinct screen and one per 30 s; never from the line under the screen, never on a graphics screen. A tap
+  request per distinct screen and one per 30 s; never from the line under the screen, never on a graphics screen,
+  never while your own WAD's level is loaded. A tap
   fills the message box and sends nothing. While it is on, the Claude features note and the panel's what-is-sent line
   say what an empty chat sends (`js/claude/suggest.js`; `tests/claude-suggest.test.js` and the browser check's
   `askSuggest` group).

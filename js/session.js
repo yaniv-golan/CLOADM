@@ -2924,10 +2924,11 @@ export class Session {
   get claudeSuggest() { return this.store.get('claudeSuggest') === '1'; }
   setClaudeSuggest(on) { this.store.set('claudeSuggest', on ? '1' : '0'); this.emit('claudesuggest', !!on); }
   // What a suggestion request would send: the person's machine's name and its screen's text, or null when there is
-  // none to send (a graphics screen, or no text on it: the page's own questions only)
+  // none to send (a graphics screen, or no text on it: the page's own questions only). Never while the person's own
+  // WAD's level is loaded (userDataIn / userDiskIn): its screen is not handed out, as with the read-only tools.
   suggestInput() {
     const m = this.personMachine;
-    if (!m) return null;
+    if (!m || this.userDataIn(m) || this.userDiskIn(m)) return null;
     const r = screenTextTool({ machine: m, readByte: (a) => this.readByte(a, m) });
     if (!r.text) return null;
     const screen = r.lines.join('\n').trim();

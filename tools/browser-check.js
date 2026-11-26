@@ -17336,8 +17336,8 @@ async function settingsChecks(browser, base, check) {
     await waitFor(page, () => document.getElementById('askInput').checkVisibility());
     const line = await page.evaluate(() => { const l = document.getElementById('askSendsLine'), i = document.getElementById('askInput');
       return { text: l.textContent, shown: l.checkVisibility(), above: l.getBoundingClientRect().bottom <= i.getBoundingClientRect().top + 1 }; });
-    check('Ask Claude: "Nothing is sent until you ask. …" shows, above the input', line.shown && line.above
-      && line.text === "Nothing is sent until you ask. Then your question, the machine's facts and the chat so far go to Anthropic with your key (or your Claude account in the plugin), and Claude can read the screen and any memory (ROM areas included) without asking. Only changes to the machine ask you first.", JSON.stringify(line));
+    check('Ask Claude: "Nothing is sent until you ask (or open an empty chat with Suggest questions on). …" shows, above the input', line.shown && line.above
+      && line.text === "Nothing is sent until you ask (or open an empty chat with Suggest questions on). Then your question, the machine's facts and the chat so far go to Anthropic with your key (or your Claude account in the plugin), and Claude can read the screen and any memory (ROM areas included) without asking. Only changes to the machine ask you first.", JSON.stringify(line));
     await page.evaluate(() => localStorage.removeItem('cloadm.anthropicKey'));
     await page.click('#btnAsk');   // (closes the panel: the settings file's buttons are on the Machine tab beside it)
     await waitFor(page, () => !document.getElementById('askInput').checkVisibility());
