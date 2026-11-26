@@ -46,6 +46,13 @@ Next version: 0.3.1 (the plugin and extension manifests carry it; `tests/plugin.
   checked against the body). `--no-skills` serves no skill; the plugin's own local server uses it, since the plugin
   ships the skill. `tests/mcp-skills.test.js`; docs/mcp.md, "The agent skill over MCP".
 
+#### Changed
+
+- **WYRMFIRE is re-pinned to 2f47134,** whose engine counts the level clock from the PAL field-sync interrupt and shows TIME
+  on the end screen again. Only the engine changed (`wyrmfire.bin`, SHA-256 2094d081, 10,432 bytes); the converter, the
+  licence and the Freedoom level disks are byte for byte the previous pin's (`js/wyrmfire/pin.js`, rebuilt with
+  `tools/wyrmfire-vendor.js`).
+
 #### Fixed
 
 - **Screen text follows a text page a program moves.** On the Dragon and CoCo 1/2, the ROM self-test's screen and the
