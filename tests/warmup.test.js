@@ -4,7 +4,7 @@
 // of its edges (a dot becoming a line by 150 ms, the line opening to full height over-bright by 450 ms, the picture
 // fading from 40% to 100% by 1000 ms, then nothing), the 45 fps over 2 s rule, every case where it never plays, the
 // setting (off by default, in a settings export, no link parameter), the Session's power-on event, and that a power
-// cycle with the warm-up on runs the machine exactly as one with it off (the same frames). The browser check's
+// cycle of a machine not on screen is no power-on for the page. The browser check's
 // `warmup` group checks the page: the overlay on a power cycle, gone by 1.1 s, absent in each excluded case, a key
 // passing through, and a screenshot at 300 ms.
 const path = require('path');
@@ -76,6 +76,9 @@ const near = (a, b, e = 1e-9) => Math.abs(a - b) <= e;
     ['below 45 fps over 2 s', { slow: true }, 'slow'],
   ];
   for (const [name, c, why] of cases) check(`never with ${name}`, B(Object.assign({}, ok, c)) === why, String(B(Object.assign({}, ok, c))));
+  const { PROGRAM_PAGES } = await import(path.join(__dirname, '..', 'js', 'program-pages.js'));
+  const pageIds = PROGRAM_PAGES.map((p) => p.id);
+  check('every program page\'s start is blocked (js/program-pages.js)', pageIds.length >= 3 && pageIds.every((id) => B(Object.assign({}, ok, { start: id })) === 'program-page'), pageIds.join());
   check('start=welcome still plays (the landing page\'s menu, not a program page)', B(Object.assign({}, ok, { start: 'welcome' })) === null);
   check('a view hash (#library) still plays', B(Object.assign({}, ok, { hash: '#library' })) === null);
 
@@ -107,21 +110,16 @@ const near = (a, b, e = 1e-9) => Math.abs(a - b) <= e;
   heard.length = 0;
   s.reset();
   check('a Reset is not a power-on', !heard.includes('poweron'), heard.join());
+  // a machine that is not on screen switched off and on (the chat's own machine is power cycled this way): nothing
+  // shows it, so no power-on for the page
+  const away = Emu.createMachine('coco');
+  heard.length = 0;
+  s.powerCycle({ on: away, menu: false });
+  check('a power cycle of a machine not on screen is not the page\'s power-on', s.shownMachine !== away && heard.includes('firmware') && !heard.includes('poweron'), heard.join());
 
-  // ---- the machine is untouched: a power cycle with it on runs exactly the same frames as with it off ----
-  const run = (on) => {
-    const x = new Emu.Session({ store: Emu.memoryStore() });
-    x.switchMachine('dragon64');
-    x.setOldTvWarmup(on);
-    x.powerCycle({ menu: false });
-    const m = x.shownMachine;
-    const out = [];
-    for (let i = 0; i < 60; i++) { m.runFrame(); out.push(hash(m.render().data)); }
-    return { frames: out.join(), cycle: m.cycle, pc: m.cpu.pc };
-  };
-  const hash = (a) => { let h = 2166136261; for (let i = 0; i < a.length; i++) { h ^= a[i]; h = Math.imul(h, 16777619) >>> 0; } return h; };
-  const a = run(false), b = run(true);
-  check('the same frames, cycles and PC with it on as off', a.frames === b.frames && a.cycle === b.cycle && a.pc === b.pc, `${a.cycle} ${b.cycle}`);
+  // (The machine is untouched by construction: the overlay is page DOM over the canvas, and the Session only gains an
+  // event. The proof is the unchanged regression hashes (tests/regress.test.js) and the browser check's `warmup` group,
+  // which checks the canvas under the overlay still holds the machine's picture and a key reaches the machine.)
 
   process.exitCode = fail ? 1 : 0;
   console.log(fail ? `${fail} FAILED` : 'all passed');

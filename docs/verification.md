@@ -1433,8 +1433,9 @@ names it.
   nothing to compare and it has no automatic visual oracle. `tests/warmup.test.js` checks the timeline at every edge
   (a dot to a line by 150 ms, the line open and over-bright by 450 ms, the picture from 40% to 100% by 1000 ms, then
   nothing), the 45 fps over 2 s rule, each case where it never plays, the setting (off by default, exported, no link
-  parameter), the power-on event, and that a power cycle with it on runs the same frames, cycles and PC as with it
-  off. The browser check's `warmup` group checks the page: the phases in order on Switch off and on, gone by 1.1 s,
+  parameter; every program page's start blocked, from `js/program-pages.js`), the power-on event, and that a power
+  cycle of a machine not on screen is none. That the machine is untouched rests on the unchanged regression hashes
+  and the browser check. The browser check's `warmup` group checks the page: the phases in order on Switch off and on, gone by 1.1 s,
   a Reset and every excluded visit playing nothing, a key reaching the machine through it, the focus kept on the
   screen, the canvas under it still the machine's picture. Its screenshot at 300 ms (`warmup-300ms.png`) is reviewed
   by eye: the opening line, over-bright, black above and below.

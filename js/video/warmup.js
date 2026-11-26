@@ -16,6 +16,8 @@
  *     bright  how much white lies over the open part (0..1): the over-bright picture
  *     picture how much of the picture shows through (0..1): 0 while it is a dot, 0.4..1 while it fades
  */
+import { PROGRAM_PAGES } from '../program-pages.js';
+
 export const WARMUP_MS = 1000;
 export const DOT_MS = 150, OPEN_MS = 450;
 export const FADE_FROM = 0.4;
@@ -58,8 +60,11 @@ export class FrameRate {
 }
 
 // The programs whose start link the program pages (cloadm.dev/<id>/) send the visitor to: a visit opened with one of
-// these is a program page's, and gets no warm-up
-export const PROGRAM_STARTS = Object.freeze(['liza', '2048', 'minesweeper', 'wyrmfire']);
+// these is a program page's, and gets no warm-up. The page can't tell a program page's visit from another start= link
+// to the same program (the landing's "Talk to LIZA" is the same link), so every start= naming a program counts.
+// From the program pages' own list (js/program-pages.js), plus WYRMFIRE: it has no program page, but start=wyrmfire
+// opens a program the same way and is linked to from its shelf and README, so it is treated as one.
+export const PROGRAM_STARTS = Object.freeze([...PROGRAM_PAGES.map((p) => p.id), 'wyrmfire']);
 
 // Why the warm-up does not play at a power-on, or null when it plays. ctx (every field optional):
 //   on: the setting; view: the Display view ('crt' | 'sharp'); hash: location.hash at the visit's start;
