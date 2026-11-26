@@ -957,6 +957,14 @@ export class Session {
     for (const d of this.drives.status().drives) out.push({ kind: 'disk', name: d.file, drive: d.drive, stored: d.stored });
     return out;
   }
+  // Would switching the machine on screen to model id (config) lose something of the person's? Their input reached it
+  // or their BASIC session beside the chat (touches: a key, a typed line, a load, an assembled program run, a POKE, a
+  // disk or tape going in; a BASIC program typed or a game played is one), or the switch would take something out
+  // (takenOut). A page just opened, on its welcome menu or a fresh BASIC, holds neither: a link's moment opens on its own
+  // machine without the switch question (js/ui/snapshot-panel.js).
+  switchLoses(id, config = this.savedConfig(id)) {
+    return this.touches() > 0 || this.touches(this.personMachine) > 0 || this.takenOut(id, config).length > 0;
+  }
   // the file name of the cartridge in machine m's port as the Library shows it, or null when it came without one (a
   // snapshot's, a Multi-Pak's): the Share screen names it to whoever opens a link that needs the same cartridge
   cartridgeName(m = this.shownMachine) { return (m && m.cartPort && this.cartFiles.get(m.cartPort)) || null; }
@@ -2243,7 +2251,7 @@ export class Session {
   // reported as a boot failure 5 s after it comes back. A later Reset or power-on clears the flag, so the
   // watchdog is armed again for it.
   // shared: the moment came from a share link (#z=, js/ui/snapshot-panel.js). One that runs without ROMs is the
-  // person's arrival on someone else's moment (sharedMoment): the page holds back its no-ROM card and "No BASIC" pill
+  // person's arrival on someone else's moment (sharedMoment): the page holds back its side card and "Add ROMs…"
   // until they leave it (leaveSharedMoment).
   // link: { kind: 'long' | 'short', id } when the moment came from a link (#z= or #l=): arrivedFromLink, the page's
   // arrival card, until the person acts. Any other snapshot opened ends an earlier arrival.
@@ -3445,6 +3453,7 @@ export class Session {
     // the assembler panel is the person's: the program runs on personMachine (inject's default is the machine in
     // use, which with the chat full screen is the chat machine - the sweep's runAssembled row was red on that)
     this.endWelcome(this.personMachine);
+    this.touch(this.personMachine);   // (the person's own program: Session.switchLoses)
     this.inject(res.segments, res.exec, this.personMachine);
     this.labels = res.symbols;                    // the debugger's disassembly shows them (see `debug`)
     if (this.debugger) this.debugger.setSymbols(() => this.labels);

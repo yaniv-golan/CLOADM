@@ -100,6 +100,13 @@ Next version: 0.3.1 (the plugin and extension manifests carry it; `tests/plugin.
   credit line leave its row; they stay in its Details and on its card under the screen.
 - **The machine picker opens with the machine in use in the middle of the list,** its row filled, and the list never
   starts on a row cut in half.
+- **The ROM requirement is said once**, by the Welcome menu's "3 ADD YOUR ROMS FOR BASIC". Elsewhere adding ROMs is a
+  plain action: the app bar's button reads **Add ROMs…** (it was the orange "No BASIC · Add ROMs"), styled as Share and
+  named "Add ROMs for BASIC" (its visible words in its name); a phone's Menu item reads **Add ROMs…** (it was "Add
+  ROMs (BASIC needs them)"), and neither it nor Menu wears an orange dot. The first visit's side card is the machine question alone ("Running with no
+  ROMs." is gone), and goes once answered or dismissed; the machine menu drops its "No ROMs yet:" line. Orange is left
+  for a real fault, a socket holding a file it does not recognise. The browser check's `romOnce` group holds this at
+  four sizes on the Dragon 64, the CoCo 3 and the MC-10, in every ROM state, the chat screen and `?embed=1`.
 - **WYRMFIRE is re-pinned to 2f47134,** whose engine counts the level clock from the PAL field-sync interrupt and shows TIME
   on the end screen again. Only the engine changed (`wyrmfire.bin`, SHA-256 2094d081, 10,432 bytes); the converter, the
   licence and the Freedoom level disks are byte for byte the previous pin's (`js/wyrmfire/pin.js`, rebuilt with
@@ -155,6 +162,15 @@ Next version: 0.3.1 (the plugin and extension manifests carry it; `tests/plugin.
 - **A phone's Disks and Cartridge chips no longer cut their value short.** They say "1 disk" / "2 disks" and the cartridge's short
   name ("Dragon FDC"); the full names stay in the chip's sheet and its label.
 - **WYRMFIRE's one-line card no longer ends in a dangling "·"** before Details.
+
+- **A shared moment opens directly on a first visit.** A short link (or a long one) to a moment made on another model
+  than the page starts on (a CoCo 2 or an MC-10 moment, opened in a browser that had never been to CLOADM) landed on the
+  Dragon 64's welcome menu with "Switching to CoCo 1/2 (64K) resets the Dragon 64. The running program will be lost.",
+  and the moment opened only after **Switch**. A link's moment now switches without asking when the machine on screen
+  holds nothing of yours: no key, typed line, load, assembled program or POKE of yours reached it (or your BASIC
+  session beside the chat) and nothing would come out of it (`Session.switchLoses`; a key typed in an embed now counts
+  too). With your work there, or a switch question already open, the question still asks first. (After a link opens, the address bar
+  shows `/play/` on purpose: the fragment that held the moment, and a short link's key, is removed.)
 
 ### 0.3.1
 
