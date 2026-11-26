@@ -184,6 +184,25 @@ for (const op of Object.keys(OPS)) {
   quiet = false;
   check(`random FCMP: ${COUNT} pairs`, mism === 0, first);
 }
+{
+  // NXCMP, NEXT's compare: the limit packed at X against the loop variable in FAC (just stored, so rounded). Its
+  // answer (A) must be FCMP's for every pair: one sign or two, zeros, equal values, values that differ only in a
+  // low mantissa byte or only in the sign.
+  let mism = 0, first = '';
+  for (let i = 0; i < COUNT; i++) {
+    const a = rndPacked(i % 2 ? 3 : 100);
+    let b = i % 5 === 0 ? a.slice() : rndPacked(i % 2 ? 3 : 100);
+    if (i % 7 === 1) { b = a.slice(); b[4 - (i % 3)] ^= 1 << (rnd() & 7); }
+    if (i % 11 === 2) { b = a.slice(); b[1] ^= 0x80; }
+    for (let k = 0; k < 5; k++) ram[0x3300 + k] = a[k];
+    put(FAC, F.unpack(b));
+    cpu.x = 0x3300;
+    call('NXCMP');
+    const got = (cpu.a << 24) >> 24, want = F.cmp(F.unpack(a), F.unpack(b));
+    if (got !== want) { mism++; if (!first) first = `${hex(a)} , ${hex(b)}: rom ${got} model ${want}`; }
+  }
+  check(`random NXCMP (NEXT's compare): ${COUNT} pairs, as FCMP`, mism === 0, first);
+}
 quiet = false;
 
 // ---- conversions ----

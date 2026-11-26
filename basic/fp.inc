@@ -8,28 +8,39 @@
 * tests/basic/fpmodel.js is the bit-exact model these routines are tested against.
 
 * MOVFM: FAC = the packed number at X. MOVAM: ARG = it. Keep X.
-MOVFM   PSHS    D,U
-        LDU     #FACEXP
-        BRA     MOV1
-MOVAM   PSHS    D,U
-        LDU     #ARGEXP
-MOV1    LDD     ,X
-        STA     ,U              ; the exponent
+MOVFM   PSHS    D
+        LDD     ,X
+        STA     <FACEXP         ; the exponent
         SEX
-        STA     6,U             ; the sign: bit 7 of the first mantissa byte
+        STA     <FACSGN         ; the sign: bit 7 of the first mantissa byte
         ORB     #$80
-        STB     1,U
+        STB     <FACM
         LDD     2,X
-        STD     2,U
+        STD     <FACM+1
         LDA     4,X
-        STA     4,U
-        CLR     5,U             ; the guard byte
-        PULS    D,U,PC
+        STA     <FACM+3
+        CLR     <FACEXT         ; the guard byte
+        PULS    D,PC
+MOVAM   PSHS    D               ; (the same for ARG)
+        LDD     ,X
+        STA     <ARGEXP
+        SEX
+        STA     <ARGSGN
+        ORB     #$80
+        STB     <ARGM
+        LDD     2,X
+        STD     <ARGM+1
+        LDA     4,X
+        STA     <ARGM+3
+        CLR     <ARGEXT
+        PULS    D,PC
 
 * ROUND: FAC rounded to 32 bits (?OV ERROR if that carries out of the largest exponent). Keeps X, Y, U.
-ROUND   TST     <FACEXP
+ROUND   LDA     <FACEXT         ; (a guard byte of 0: nothing to round or clear)
+        BEQ     RND1
+        TST     <FACEXP
         BEQ     RND2
-        LDA     <FACEXT
+        TSTA
         BPL     RND2
         CLR     <FACEXT
         BSR     INCFM

@@ -91,6 +91,10 @@ Next version: 0.3.1 (the plugin and extension manifests carry it; `tests/plugin.
   errors. The black-box case `cas-files` now runs on ours as on the original: the same screen, line for line, and
   the same file on the tape (a type-1 namefile, the same data block by its hash, an end-of-file block, the motor
   stopped between them); only the leader lengths and motor timings differ, as they already did for `CSAVE`.
+  The interpreter is faster where a cycle profile showed its time going (rounding, moving numbers into the
+  accumulators, `NEXT`'s compare with its limit, starting each statement), with no result changed: 2000 empty
+  `FOR`/`NEXT` passes take 119 fields against the original's 113 (142 before). SHIFT-@ pausing a running program
+  has a test (`tests/basic-pause.test.js`).
 
 ### 0.3.1
 

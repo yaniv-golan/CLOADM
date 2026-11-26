@@ -38,6 +38,8 @@ function tokensInc(json) {
   // T_SLAST: the last statement token; the words that are not statements ("stmt": false) have no dispatch entry,
   // and one inside the statements' range runs UNIMPL
   const stmts = st.filter((e) => e.stmt !== false);
+  // EXECST dispatches through LDX A,X with A twice the token less $80: a signed offset, so the statements end at $BF
+  if (last(stmts) > 0xBF) throw new Error(`basic/tokens.json: a statement token past $BF (${hex(last(stmts))}): EXECST's offset is signed`);
   out.push(`T_LAST   EQU     ${hex(last(st))}`, `T_SLAST  EQU     ${hex(last(stmts))}`, `TF_LAST  EQU     ${hex(last(fn))}`);
   // a keyword table: the words in token order from $80, each ending in a letter with bit 7 set (FCS); a word's
   // token is its place in the table, so a token with no word between two others is one $FF byte (never typed)

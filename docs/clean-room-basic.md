@@ -91,6 +91,16 @@ These are hard rules for everyone who works on this ROM.
     their call (`PRMSG`), more of the numeric functions' steps as `FPRUN` steps, the PIAs set from a table at
     reset, and long jumps a short branch reaches. The timed code is as it was: the field interrupt, the tone loop,
     the keyboard scan and its delays, the cassette's bit loops.
+  * **A speed pass** (no result changed: the same floating-point bits, screens and records; only timing moves) made
+    the interpreter's hot path cheaper after a cycle profile of `FOR`/`NEXT`, by the black-box measure of
+    `famous-pokes` ([BB] bb6): 2000 empty passes took the original 113 fields and ours 142. `ROUND` returns at once
+    when the guard byte is 0; `MOVFM` and `MOVAM` store to the direct page; `NEXT` compares the variable with the
+    limit packed (`NXCMP`: two non-zero numbers of one sign; the others through `FCMPM`); the statement loop clears
+    the string temporaries itself and `EXECST` dispatches with `LDX A,X` (so a statement token ends at `$BF`, which
+    `tools/build-basic.js` checks). `famous-pokes` now gives 119 fields (bb2's `snd-timer` 500-pass loop: 30 against
+    the original's 29); 15,568 bytes, the code ending at `$BDC2`, 560 bytes below the vectors. Left for the
+    black-box figures of `ram-pointers2`: a faster division (ours divides by one bit a pass), and a cheaper `BREAK`
+    test between statements.
 * **Running it:** `m.setRoms({ basic: rom, basic64: null })` on a `dragon64` machine (Node), or
   `node tools/build-basic.js --out /tmp/d64_1.rom` then `node cli/cloadm.js --roms /tmp/d64_1.rom --type 'PRINT 2+2\n' --screen`.
 
@@ -237,6 +247,8 @@ All of them run with no ROM, on our ROM assembled at test time.
   (`samplesToCas`, `formats.parseCas`), and the expected header and data bytes are written out by hand from the
   program typed; tapes built by `buildCas` from known bytes are loaded with `CLOAD` and `CLOADM`; the error paths
   (`?IO ERROR` on a bad checksum, `?FM ERROR`, `?DS ERROR`; BREAK not ending a search) and name search and `SKIPF`.
+* **`tests/basic-pause.test.js`:** the keyboard checks between statements: SHIFT-@ pauses a running program until
+  another key, @ alone does not, BREAK stops it (`BREAK IN n`); with mutants of the ROM that must fail it.
 * **`tests/basic-cursor.test.js`:** the cursor ([section 14](#14-the-cursor)): the countdown, the transformation of
   every byte, the RAM it reads (address, countdown, the byte under it, the debounce delay), the keyboard, the delay
   in cycles, on the Dragon 64 and the Dragon 32, with mutants of the ROM that must fail it.
