@@ -8,6 +8,14 @@ All notable changes to CLOADM are recorded here. The format follows
 
 Next version: 0.3.1 (the plugin and extension manifests carry it; `tests/plugin.test.js` keeps them in step).
 
+### Fixed
+
+- **Switching machine with the "Ask Claude" panel open closes the panel.** A switch takes the chat with it (the
+  Session drops it), but the panel stayed drawn and open with no conversation behind it, and the header button's own
+  rule — "it is open, so close it" — then made the next press shut a panel that was already shut instead of opening
+  one, so **Ask Claude** appeared to do nothing. The panel now closes with the chat it was showing, as the full-screen
+  chat already did.
+
 ### 0.3.1
 
 #### Fixed

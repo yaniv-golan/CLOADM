@@ -15349,6 +15349,29 @@ async function askChecks(browser, base, check) {
     await started(page);
     // the live machine, not the welcome menu (a link that names a machine opens on it)
     await stubPrompt(page);
+    // A machine switch takes the chat with it (Session.adopt -> dropChat: session.chat goes, claudeView becomes
+    // null), and the side panel used to stay drawn and open behind it. The header button's own rule -- "it is open,
+    // so close it" -- then made the NEXT press shut the panel instead of opening one, which is the press that has to
+    // open a panel; later checks timed out on the state that press left. Checked here, before any chat work, by the
+    // state the press must produce rather than by how long it took: open a panel, switch away and back, then press
+    // once and require a panel. (Its own chat is closed again at the end, so the rest of the block starts as before.)
+    {
+      await page.click('#btnAsk');
+      check(`${L}: (setup) a panel is open with a chat before the switch`, await waitFor(page, () => window.emu.session.claudeView === 'panel' && !document.getElementById('ask').hidden, null, 5000));
+      await page.evaluate(() => window.emu.session.switchMachine('coco'));
+      await page.evaluate(() => window.emu.session.switchMachine('dragon64'));
+      const afterSwitch = await page.evaluate(() => ({ chat: !!window.emu.session.chat, view: window.emu.session.claudeView,
+        open: !document.getElementById('ask').hidden }));
+      await page.click('#btnAsk');
+      const again = await waitFor(page, () => window.emu.session.claudeView === 'panel' && !document.getElementById('ask').hidden, null, 5000);
+      check(`${L}: a machine switch closes the side panel with the chat it showed, so the next "Ask Claude" opens one`,
+        !afterSwitch.chat && afterSwitch.view === null && !afterSwitch.open && again,
+        JSON.stringify({ afterSwitch, afterClick: await page.evaluate(() => ({ view: window.emu.session.claudeView, open: !document.getElementById('ask').hidden })) }));
+      // back to the state this block began in: no chat, panel shut (the rest opens one for itself)
+      await page.evaluate(() => { if (window.emu.session.chat) window.emu.session.endChat(); });
+      await page.click('#btnAsk');
+      await waitFor(page, () => document.getElementById('ask').hidden, null, 5000);
+    }
     // ---- the header button; no key yet ----
     check(`${L}: the header has "Ask Claude"${phone ? '' : ' with its Ctrl K hint'}`, await vis('#btnAsk') && /Ask Claude/.test(await page.textContent('#btnAsk'))
       && (phone || /Ctrl K|⌘K/.test(await page.textContent('#btnAsk'))) && await page.getAttribute('#btnAsk', 'aria-pressed') === 'false');
