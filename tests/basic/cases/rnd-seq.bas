@@ -1,5 +1,6 @@
 # bb-only: RND's sequence (docs/clean-room-basic.md section 10, open question 5: whether the original's generator can
-# be inferred from black-box output; ours stays as it is). Each value is printed and with the five bytes R holds
+# be inferred from black-box output; it was: ours gives the same values, tests/basic-rnd.test.js). Each value is
+# printed and with the five bytes R holds
 # (R is the program's first variable, so its value is the 3rd to 7th bytes at the variable table, whose address is at
 # $1B-1C [BB bb3 ram-pointers]): from cold start, the first 200 values of RND(0) (a fraction [UM]); 5 of RND(1) (whole
 # numbers 1 to 1: whether they use up values of the sequence shows in the next RND(0)) and 5 more of RND(0); 20 each of

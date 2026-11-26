@@ -39,6 +39,10 @@ COLD2   LDA     #$7E            ; a JMP to each address of the list
         LDD     #300            ; the debounce delay [OWN]
         STD     <KEYDLY
         INC     <BLINK          ; the countdown at 1: the first update at the prompt shows the cursor [OWN]
+        LDD     #$4FC7          ; RND's seed at a cold start [BB bb8 rnd-seq]
+        STD     SEED
+        LDD     #$5259
+        STD     SEED+2
         LDX     #PROGST
         STX     <TXTTAB
         CLR     -1,X

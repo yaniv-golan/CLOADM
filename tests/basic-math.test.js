@@ -6,8 +6,8 @@
 // a reduction, LOG and EXP's in base 2 as the original's), so the oracle is the mathematical value, not another
 // BASIC; the tolerances say how close they come, as a multiple of the 5-byte format's unit in the last place (2^-31 relative), and are the
 // project's accuracy claim for these functions. Also: exact results where the format can hold them (SQR of
-// squares, whole powers, INT and FIX), the error cases (?FC ERROR, ?OV ERROR, ?/0 ERROR), RND's generator against
-// its formula, and the constants of tools/basic-consts.js against Math.
+// squares, whole powers, INT and FIX), the error cases (?FC ERROR, ?OV ERROR, ?/0 ERROR), and the constants of
+// tools/basic-consts.js against Math. (RND: tests/basic-rnd.test.js.)
 const { buildBasic } = require('../tools/build-basic.js');
 const F = require('./basic/fpmodel.js');
 const { Emu } = require('./basic/harness.js');
@@ -139,22 +139,6 @@ check('EXP(-88.7) is e^-88.7, near the smallest number', Math.abs(rom1('FEXP', p
 check('(-8)^(1/3) is ?FC ERROR', errOf('FPOWER', -8, 1 / 3) === 'FC');
 check('0^-1 is ?/0 ERROR', errOf('FPOWER', 0, -1) === '/0');
 check('2^200 is ?OV ERROR', errOf('FPOWER', 2, 200) === 'OV');
-// RND: the generator's formula, from the seed in RAM
-{
-  const SEED = sym('SEED');
-  const seedOf = () => (ram[SEED] | (ram[SEED + 1] << 8) | (ram[SEED + 2] << 16) | (ram[SEED + 3] << 24)) >>> 0;
-  ram[SEED] = 0x78; ram[SEED + 1] = 0x56; ram[SEED + 2] = 0x34; ram[SEED + 3] = 0x12;
-  let s = 0x12345678, ok = true, detail = '';
-  for (let i = 0; i < 50; i++) {
-    // RND(0) through the function's body: FAC holds the argument when RN1 is reached
-    put(FAC, F.ZERO());
-    call('RN1');
-    s = Number((BigInt(s) * 1664525n + 1013904223n) & 0xFFFFFFFFn);
-    const want = s / 2 ** 32, got = num(get(FAC));
-    if (seedOf() !== s || Math.abs(got - want) > 2 ** -32) { ok = false; detail = `step ${i}: seed ${seedOf().toString(16)} want ${s.toString(16)}, value ${got} want ${want}`; break; }
-  }
-  check('RND(0): seed x 1664525 + 1013904223 mod 2^32, as a fraction', ok, detail);
-}
 // the constants against Math (they are rounded to nearest from 36 digits, so within half a unit)
 for (const [name, want] of [['PIO2', Math.PI / 2], ['TWOOPI', 2 / Math.PI], ['LN2', Math.LN2], ['INVLN2', 1 / Math.LN2], ['SQRT3', Math.sqrt(3)], ['PIO6', Math.PI / 6], ['SQRHLF', Math.SQRT1_2], ['TANP12', 2 - Math.sqrt(3)]]) {
   const at = sym(name) - 0x8000, v = num(F.unpack(Array.from(rom.slice(at, at + 5))));

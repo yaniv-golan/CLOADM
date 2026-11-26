@@ -35,7 +35,9 @@ BLKBUF  EQU     CRNBUF-255      ; a cassette block read to look at or pass over 
                                 ; the line, which a direct CLOADM or SKIPF is still running from [OWN]
 
 * ---------------- system RAM, $0100-$01FF: laid out one after another, so nothing overlaps ----------------
-* (TIMER falls at $0112 after the vectors; the region SYSR1 ends at or below one fixed address:)
+* (TIMER falls at $0112 after the vectors; the regions SYSR0 and SYSR1 end at or below the fixed addresses after
+* them, SEED and CASEFL; $0114-$0115 are not used:)
+SEED    EQU     $0116           ; RND's seed, high byte first, as on the original [BB bb8 rnd-seq]
 CASEFL  EQU     $0149           ; lower case (SHIFT-0): 255 upper case, 0 lower case [BB bb6 famous-pokes]
         ORG     $0100
 * RAM jump vectors: each a JMP to the handler, so a program can take over an interrupt
@@ -46,8 +48,9 @@ VSWI    RMB     3
 VSWI2   RMB     3
 VSWI3   RMB     3
 TIMER   RMB     2               ; counts fields (50 Hz): $0112, as on the original [BB bb3 ram-pointers, bb6]
+SYSR0   RMB     0               ; (at or below SEED)
+        ORG     SEED+4
 USRTAB  RMB     20              ; DEF USR0-9 addresses
-ROLLTB  RMB     8               ; keys down per column at the last scan
 FORSTP  RMB     5               ; FOR: the step and the limit, packed, before they go on the stack
 FORLIM  RMB     5               ; (FOR pushes them as one: FORSTP must come just before FORLIM)
 * the cassette (cassette.inc): a namefile block's contents, in its order [FMT]
@@ -74,6 +77,7 @@ SYSEND  RMB     0               ; (must stay at or below BLKBUF: tools/build-bas
         ORG     LINBUF+LINMAX+3
 SYSR3   RMB     0
 FPDIG   RMB     9               ; FOUT's nine digits (reached through an index register only)
+ROLLTB  RMB     8               ; keys down per column at the last scan
 * sound (sound.inc, play.inc)
 JOYV    RMB     4               ; JOYSTK(0)-(3) as JOYSTK(0) last read them
 PLOCT   RMB     1               ; PLAY: the octave and the length (PLOCT must come just before PLLEN)
@@ -200,7 +204,6 @@ INPST   RMB     2
 ITMCOL  RMB     1               ; GETITM: ':' ends an item (DATA)
 DPR7    RMB     0               ; (at or below KEYDLY)
         ORG     KEYDLY+2
-SEED    RMB     4               ; RND's seed, low byte first
 INPKND  RMB     1               ; INPUT 1, LINE INPUT 0
 INPPTR  RMB     2               ; INPUT: the pointer in the typed line
 CNLEN   RMB     1               ; the cassette (cassette.inc): the name's length, 0 for any file

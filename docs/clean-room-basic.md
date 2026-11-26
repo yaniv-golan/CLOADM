@@ -169,11 +169,11 @@ corrupting the image.
 
 | Range | Use |
 |---|---|
-| `$0000-$00FF` | the direct page: the interpreter's variables (pointers, the two floating-point accumulators, the text pointer, flags, P2's current mode, start page and colour byte, `DRAW`'s angle and scale) up to `DPEND` (`$CE`: 2 bytes free below the two-byte calls, 4 below `$68`), laid out around the fixed addresses programs use, the original's ([section 15](#15-interface-contract-basics-pointers-in-low-ram)): `$19-$28` the program and memory pointers, `$68` the line running, `$6F` the output device, `$71` the cold-start flag, `$88-$89` the cursor's address, `$8F` its blink countdown, `$97-$98` the debounce delay ([section 14](#14-the-cursor)), `$A6-$A7` the text pointer, `$AF` `TRON`; then the two-byte calls' `JMP`s at `$D0-$FF` (`ZTRAMP`; section 2, the size budget), written with the RAM vectors at a cold start. P2's colours, colour set, last point and the point read are here too. DP is 0 throughout |
-| `$0100-$01D4` | the system RAM block, laid out by `RMB` in `d64basic.asm` (so nothing overlaps; the build fails if it reaches `BLKBUF`): the RAM jump vectors (IRQ, FIRQ, NMI, SWI, SWI2, SWI3), so a program can hook an interrupt [OWN; addresses to align in P3]; `TIMER` at `$0112`; the `DEF USR` addresses; the cassette's name block, ending just below `$0149`, the lower-case flag; the keyboard's rollover table; the 8 temporary string descriptors; `FOR`'s step and limit; the numeric functions' temporaries; the number conversion and `PRINT USING` buffer; it ends at `SYSEND` (`$01D5`), which the build keeps at or below `BLKBUF` |
+| `$0000-$00FF` | the direct page: the interpreter's variables (pointers, the two floating-point accumulators, the text pointer, flags, P2's current mode, start page and colour byte, `DRAW`'s angle and scale) up to `DPEND` (`$CE`: 2 bytes free below the two-byte calls, 4 below `$68`, 4 below `$A6`), laid out around the fixed addresses programs use, the original's ([section 15](#15-interface-contract-basics-pointers-in-low-ram)): `$19-$28` the program and memory pointers, `$68` the line running, `$6F` the output device, `$71` the cold-start flag, `$88-$89` the cursor's address, `$8F` its blink countdown, `$97-$98` the debounce delay ([section 14](#14-the-cursor)), `$A6-$A7` the text pointer, `$AF` `TRON`; then the two-byte calls' `JMP`s at `$D0-$FF` (`ZTRAMP`; section 2, the size budget), written with the RAM vectors at a cold start. P2's colours, colour set, last point and the point read are here too. DP is 0 throughout |
+| `$0100-$01D4` | the system RAM block, laid out by `RMB` in `d64basic.asm` (so nothing overlaps; the build fails if it reaches `BLKBUF`): the RAM jump vectors (IRQ, FIRQ, NMI, SWI, SWI2, SWI3), so a program can hook an interrupt [OWN; addresses to align in P3]; `TIMER` at `$0112`; `RND`'s seed at `$0116-$0119`, as on the original ([BB] bb8 `rnd-seq`; `$0114-$0115` unused); the `DEF USR` addresses; the cassette's name block, ending below `$0149`, the lower-case flag; the 8 temporary string descriptors; `FOR`'s step and limit; the numeric functions' temporaries; the number conversion and `PRINT USING` buffer; it ends at `SYSEND` (`$01D5`), which the build keeps at or below `BLKBUF` |
 | `$01DD-$02DB` | `BLKBUF`, a cassette block read to be looked at or passed over (a namefile, the blocks of a file skipped), 255 bytes just below the line: not in the line buffer, which a typed `CLOADM` or `SKIPF` is still running from [OWN] |
 | `$02DC-$03D9` | the line input buffer, as on the original ([BB] `ram-pointers2` (2026-11-26)): the typed line from `$02DD` (250 characters + terminator), and the crunched line written over it from `$02DC`, a byte behind (`CRUNCH` reads ahead of where it writes; `'`, two bytes for one, can only close that gap) |
-| `$03DA-$03EB` | above the longest line (`LINBUF` + 250, its 0 and `CRUNCH`'s two more) and below the screen: `FOUT`'s nine digits, the four `JOYSTK` values and `PLAY`'s octave, length, tempo, volume and dots (extended addresses, as before: no timing changed) |
+| `$03DA-$03F3` | above the longest line (`LINBUF` + 250, its 0 and `CRUNCH`'s two more) and below the screen: `FOUT`'s nine digits, the keyboard's rollover table, the four `JOYSTK` values and `PLAY`'s octave, length, tempo, volume and dots (extended addresses, as before: no timing changed) |
 | `$0400-$05FF` | the text screen, 32 x 16 [HW: the SAM's reset display offset] |
 | `$0600-$1DFF` | the graphics pages: `PCLEAR n` reserves n 1.5 K pages from `$0600` (1-8; 4 at cold start) and the program follows them; `CLOAD` of a text file reads each block into `$0600-$06FE` before its lines go in, and a cassette data file (and `CSAVE ,A`) gathers its block there (`CASBUF`) [OWN: no 256 free bytes elsewhere; a picture on page 1 shows the block's bytes while a file is open] |
 | `$1E00` | 0 (the byte before the program; after `PCLEAR n`, `$0600 + n x $600`) |
@@ -269,9 +269,14 @@ programs crunch and list correctly, and give `?FC ERROR` (to be decided, open qu
   with their error bounds). The original's coefficients are not visible to us, so `SIN`, `LOG` and the others may
   differ from it in the last printed digit for some arguments. Black-box cases measure how often; the target is the
   same printed value for the cases in the manuals and close agreement elsewhere (open question 4).
-* **`RND`:** the sequence after cold start is visible to programs. The original's generator is unknown to us; if the
-  black-box values of `RND(0)`/`RND(1)` sequences let us identify a generator that reproduces them, we adopt it,
-  otherwise ours is a documented linear congruential generator (open question 5).
+* **`RND`:** the sequence after cold start is visible to programs, so ours is the original's, inferred from the values
+  the black-box case `rnd-seq` (bb8) recorded (open question 5): a 32-bit seed at `$0116-$0119`, high byte first;
+  each step makes it seed x `$40E64DAB` + `$05B0658B` (mod 2^32), with `MULMAN`'s 64-bit product. `RND(0)` is the new
+  seed / 2^32 with the product's bits 40-47 as the 8 bits below it, normalised and then rounded as any result is;
+  `RND(n)` for n of 1 and up takes one step and gives `INT(that fraction x n) + 1`; `RND(-n)` makes the seed the
+  argument's four mantissa bytes as unpacked (so -1 and -2 give the same sequence) and then gives what `RND(0)` gives.
+  A cold start sets the seed to `$4FC75259`. All 434 recorded values and their five bytes are reproduced
+  (`tests/basic-rnd.test.js`).
 
 ## 6. Tests
 
@@ -513,9 +518,17 @@ All answered by the project owner and kept here with the decision, except where 
 3. **RAM layout facts. Decided:** deferred to P3 and the probes.
 4. **Transcendental functions. Decided:** last-digit differences are acceptable for now; the target is bit-exact after
    the black-box alignment, and every remaining difference is listed with the case that shows it.
-5. **`RND`. Decided:** not required in P1; recovering the exact sequence from black-box output in M8 is a goal, since
-   games depend on it. The case `rnd-seq` (bb8) records the original's values and their bytes, and the low-RAM
-   bytes one `RND` changes, for that.
+5. **`RND`. Answered** (bb8, `rnd-seq`): the original's sequence is recovered from its recorded values (section 5,
+   provenance item 15) and ours reproduces every one, with its bytes. How: each `RND(0)` value with exponent 128 is
+   its seed exactly (or one above, rounded), so pairs of consecutive ones fit a 32-bit linear congruential step;
+   solving the pairs modulo 2^32 gave one multiplier, `$40E64DAB`, for all of them and an increment of `$05B0658B`
+   (the off-by-one pairs are rounding). The seed bytes the case saw `RND(0)` change at 278-281 (5, 173, 54, 120)
+   are that step from the value printed before, exactly. The bits a small value gains when it is normalised were
+   matched against every byte of the computation: bits 40-47 of the product fit all of them. The cold-start seed is
+   the first value's step undone; `RND(1)` and the next `RND(0)` values show that `RND(n)` takes one step; `RND(-1)`
+   and `RND(-2)` give the same values, the step from `$80000000`, and `RND(-12345)` the step from `$C0E40000`, the
+   argument's mantissa. What the original keeps at address 4 (which one `RND` also changed, to 0) is not the seed and
+   is not reproduced.
 6. **P2 keywords in P1. Decided:** they crunch, `LIST` and save correctly; at run time they give whatever error the
    black-box shows, `?FC ERROR` until then.
 7. **The 64K-mode BASIC. Decided:** out of scope (32K mode only).
@@ -568,7 +581,7 @@ Every behaviour fact the ROM relies on, with its source. A fact without a source
 | 11 | SHIFT-0 toggles lower case, shown as inverse; SHIFT-@ pauses; BREAK stops; CLEAR clears the screen; left arrow erases | [UM] |
 | 12 | Number printing: leading space or `-`, trailing space, nine digits, E notation | [UM]; the exact boundaries from [BB] |
 | 14 | The numeric functions: Taylor series after a reduction (Cody-Waite for `SIN` and `COS`; base 2 for `LOG` and `EXP`: `LOG` is (ln m / ln 2 + e) ln 2, `EXP` 2^n e^((t - n) ln 2) for t = x / ln 2 rounded, n = `INT(t)`, which gives the real's `SQR(1E10)`, `SQR(144)`, `SQR(65536)` and `EXP(11.5129255)` bit for bit); the constants (pi, ln 2, sqrt 3 to 36 digits, 1/k!) | [OWN], `tools/basic-consts.js`; the base 2 from [BB] bb2, `fn-sqr-bits`; measured against the exact values (`tests/basic-math.test.js`: within 2 units in the last place, `EXP` within 3 + abs(x) (the rounding of t, as the real's), `^` within 64) |
-| 15 | `RND`: seed x 1664525 + 1013904223 mod 2^32 (a published linear congruential generator) | [OWN]; the original's sequence is unknown (open question 5) |
+| 15 | `RND`: the seed (`$0116-$0119`, high byte first; `$4FC75259` at a cold start) becomes seed x `$40E64DAB` + `$05B0658B` mod 2^32; `RND(0)` is it / 2^32 with the product's bits 40-47 below it, normalised and rounded; `RND(n)`, n of 1 and up, one step then `INT(x n) + 1`; `RND(-n)` seeds from the argument's mantissa bytes, then as `RND(0)` | [BB] bb8 `rnd-seq`: inferred by fitting its 434 values and bytes and the seed bytes it saw change (open question 5); `tests/basic-rnd.test.js` |
 | 13 | The floating-point algorithms (rounding, guard bits, division, scaling by powers of ten). Printing scales a number into [1E8, 1E9) by steps of 1E9 from 1E17 down and below 1, then by single steps of 10, each rounded: the real prints its `SQR(1E10)`, 1E5 - 6 x 2^-15, as `99999.9999`, which four rounded steps give (one product by 1E4 gives `99999.9998`); a number printed and read back can then print one unit away in the ninth digit | [OWN], [MBF]; the steps from [BB] bb1, `fn-math` and bb2, `fn-sqr-bits`; tested bit for bit against `tests/basic/fpmodel.js` (`tests/basic-fp.test.js`) |
 | 16 | The cassette statements and their syntax: `CSAVE "name"[,A]`, `CLOAD ["name"]`, `CSAVEM "name",start,end,exec`, `CLOADM ["name"[,offset]]`, `SKIPF ["name"]`, `MOTOR ON` / `OFF`; `?IO ERROR` for a tape that will not read | [UM] |
 | 17 | The tape's bits: one full cycle per bit, 1200 Hz for 0 and 2400 Hz for 1, least significant bit first | [FMT] published descriptions of the Dragon / CoCo cassette format; the same in the repository's tape code (`js/media/cassette.js`, run as the test oracle) |
@@ -816,6 +829,7 @@ strings change, and `NEW`, `CLEAR`, `PCLEAR`, `RUN` and a load reset some of the
 | `$A6-A7` | the text pointer | points into the line being run | the same (`TXTPTR`); in direct mode it points into the crunched line at `$02DC`, as the original's does ([BB] `ram-pointers2` (2026-11-26): 757, 761, 765) |
 | `$AF` | `TRON` | 79 on, 0 off; `POKE 175,79` turns tracing on | the same (`TRCFLG`) |
 | `$0112-0113` | `TIMER` | counts fields; `POKE` to both bytes sets it | the same (`TIMER`) |
+| `$0116-0119` | `RND`'s seed, high byte first | the only bytes besides address 4 that one `RND(0)` changes and `SIN(1)` does not ([BB] bb8 `rnd-seq`); they hold the generator's 32-bit state (section 5) | the same (`SEED`); `POKE` to them sets the sequence |
 | `$0149` | lower case (`SHIFT-0`) | 255 upper case, 0 lower case; `POKE 329,0` makes typed letters lower case | the same (`CASEFL`; any value but 0 is upper case [OWN]) |
 
 One consequence of the original's places, ours as theirs presumably: a reply to `INPUT` is written over the typed line, so a

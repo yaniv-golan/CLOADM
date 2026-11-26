@@ -119,6 +119,12 @@ Next version: 0.3.1 (the plugin and extension manifests carry it; `tests/plugin.
   crunched over the typed line), from the black-box probe `ram-pointers2`: the text pointer in direct mode, a typed
   line and a reply to `INPUT` now sit at the original's addresses. A namefile, and the blocks of a file passed over,
   are read into their own buffer below the line (a typed `CLOADM` or `SKIPF` still runs from the line).
+  `RND` now gives the original's sequence: every one of the 434 values the black-box case `rnd-seq` recorded, with
+  the five bytes it is stored as, from a cold start, for `RND(1)`, `RND(6)`, `RND(100)` and `RND(65535)`, and after
+  `RND(-1)`, `RND(-2)` and `RND(-12345)`. The generator was inferred from those values alone (docs/clean-room-basic.md
+  section 10, question 5); its seed is at `$0116-$0119`, where the original keeps it, so a `POKE` there sets the
+  sequence. A negative argument now gives a fraction, as on the original, not a whole number. The ROM is 7 bytes
+  larger (15,625).
 
 ### 0.3.1
 

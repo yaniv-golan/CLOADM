@@ -289,7 +289,8 @@ node tools/build-basic.js     # assemble the clean-room Dragon 64 BASIC (basic/,
 node tools/basic-size.js      # where the clean-room BASIC's bytes go: per module, the largest routines, long jumps a short branch reaches, repeated instruction pairs
 node tests/basic-lang.test.js [case...]       # the clean-room BASIC: each case in tests/basic/cases typed in through the keyboard, its transcript against tests/basic/expected
 node tests/basic-fp.test.js [n]   # the clean-room BASIC's floating point, its routines called on the CPU against the bit-exact model tests/basic/fpmodel.js (n random operand pairs per operation, default 3000)
-node tests/basic-math.test.js [n]   # the clean-room BASIC's SQR, LOG, EXP, SIN, COS, ATN, ^, INT, RND called on the CPU against the exact values (tolerances in units in the last place)
+node tests/basic-math.test.js [n]   # the clean-room BASIC's SQR, LOG, EXP, SIN, COS, ATN, ^, INT called on the CPU against the exact values (tolerances in units in the last place)
+node tests/basic-rnd.test.js   # the clean-room BASIC's RND against the original's recorded sequence (bb8 rnd-seq): its 434 values and their bytes, the seed at 278-281, the generator's formula on the CPU
 node tests/basic-screen.test.js   # the clean-room BASIC's CLS and CLS c (each colour's block in screen memory, ?FC past 8)
 node tests/basic-pause.test.js   # the clean-room BASIC's keyboard checks while a program runs: SHIFT-@ pauses it until another key, @ alone does not, BREAK stops it; with mutants
 node tests/basic-gfx.test.js   # the clean-room BASIC's graphics pages and points: PSET, PRESET, PCLS, COLOR in every PMODE and colour set against the reference model tests/basic/gfxmodel.js byte for byte, PPOINT, PCOPY, SET/RESET/POINT, SCREEN's PIA and SAM bits, PCLEAR moving the program, the return to text at OK, the errors

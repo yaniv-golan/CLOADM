@@ -20,7 +20,7 @@ const built = buildBasic(), sym = (s) => built.symbols.get(s);
 // ---- the fixed addresses ----
 const PINS = { TXTTAB: 0x19, VARTAB: 0x1B, ARYTAB: 0x1D, ARYEND: 0x1F, STRBOT: 0x21, FRETOP: 0x23, MEMTOP: 0x27,
   CURLIN: 0x68, DEVNUM: 0x6F, WARMFL: 0x71, CURPOS: 0x88, BLINK: 0x8F, KEYDLY: 0x97, TXTPTR: 0xA6, TRCFLG: 0xAF,
-  TIMER: 0x112, CASEFL: 0x149 };
+  TIMER: 0x112, SEED: 0x116, CASEFL: 0x149 };
 for (const [name, at] of Object.entries(PINS)) check(`${name} at $${at.toString(16).toUpperCase().padStart(4, '0')}`, sym(name) === at, sym(name) === undefined ? 'missing' : `$${sym(name).toString(16)}`);
 
 // ---- the variables through PEEK and POKE ----

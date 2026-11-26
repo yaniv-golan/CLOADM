@@ -398,39 +398,42 @@ PW6     JSR     FLOG
         JMP     FEXP
 PW9     RTS
 
-* RND(x): the next number of the generator, seed = seed x 1664525 + 1013904223 (mod 2^32) [OWN]. RND(0) gives it
-* as a fraction from 0 to below 1; RND(n) for n of 1 and up a whole number from 1 to n [UM]; a negative argument
-* first makes the seed from its bits.
+* RND(x): the next number of the generator, seed = seed x $40E64DAB + $05B0658B (mod 2^32), the original's sequence
+* [BB bb8 rnd-seq: inferred from its values, docs/clean-room-basic.md section 5]. RND(0) gives the new seed as a
+* fraction from 0 to below 1, the product's bits 40-47 its guard byte (rounded when stored); RND(n) for n of 1 and up
+* a whole number from 1 to n, from one step [UM; the step BB]; a negative argument makes the seed its mantissa's
+* four bytes, then gives what RND(0) gives [BB].
 RND     JSR     <ZFNARGN
         TST     <FACSGN
         BPL     RN1
-        LDD     <FACM           ; reseed (LSB first)
-        STB     <SEED+2
-        STA     <SEED+3
+        LDD     <FACM           ; reseed
+        STD     SEED
         LDD     <FACM+2
-        STB     <SEED
-        STA     <SEED+1
-        CLR     <FACSGN
+        STD     SEED+2
+        CLR     <FACEXP         ; then as RND(0) [BB bb8 rnd-seq]
 RN1     JSR     <ZFPRUN
         FCB     F_STO+5,0
-        BSR     RNLD            ; seed x 1664525: the low 32 bits of FMUL's 64-bit product (PROD+4 on)
-        LDD     #$0019          ; (1664525 = $0019660D)
+        LDD     SEED            ; seed x $40E64DAB: FMUL's 64-bit product
+        STD     <FACM
+        LDD     SEED+2
+        STD     <FACM+2
+        LDD     #$40E6
         STD     <ARGM
-        LDD     #$660D
+        LDD     #$4DAB
         STD     <ARGM+2
         JSR     MULMAN
-        LDD     <PROD+6         ; + 1013904223 ($3C6EF35F), into the seed
-        ADDD    #$F35F
-        STB     <SEED
-        STA     <SEED+1
+        LDD     <PROD+6         ; its low 32 bits + $05B0658B: the seed, and the fraction's mantissa
+        ADDD    #$658B
+        STD     SEED+2
+        STD     <FACM+2
         LDD     <PROD+4
-        ADCB    #$6E
-        ADCA    #$3C
-        STB     <SEED+2
-        STA     <SEED+3
-        BSR     RNLD            ; the fraction: seed / 2^32
+        ADCB    #$B0
+        ADCA    #$05
+        STD     SEED
+        STD     <FACM
+        LDA     <PROD+2         ; the guard byte
+        STA     <FACEXT
         CLR     <FACSGN
-        CLR     <FACEXT
         LDA     #128
         STA     <FACEXP
         JSR     NORM
@@ -442,11 +445,3 @@ RN1     JSR     <ZFPRUN
         JSR     <ZFPRUN
         FCB     F_ADD+K_ONE,0
 RN9     RTS
-* RNLD: FACM = the seed, high byte first
-RNLD    LDA     <SEED+3
-        LDB     <SEED+2
-        STD     <FACM
-        LDA     <SEED+1
-        LDB     <SEED
-        STD     <FACM+2
-        RTS
