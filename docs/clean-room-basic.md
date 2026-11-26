@@ -138,7 +138,10 @@ These are hard rules for everyone who works on this ROM.
     an addition or subtraction in an expression, `MULDLY` before a product, `FOIDLY` in `FOUT`'s whole-number path,
     11 cycles before a quotient, and `GSDLY` is now 39 steps. The own case `expr-levels` holds the expression
     levels to it (an operand or a `NOT` after a relation, an operator after a `NOT`'s operand). With all of it,
-    15,618 bytes (46 more), the code ending at `$BDF4`, 510 bytes below the vectors. Left: a cheaper `BREAK` test between statements (not used for
+    15,618 bytes (46 more), the code ending at `$BDF4`, 510 bytes below the vectors. The delays match these eight
+    loops only: another program may run a little faster or slower than on the original, and a sound whose length
+    hangs on where in a field it starts can come out differently (`snd-play-length`'s `T64` note now ends before a
+    whole period, where the original's lasts three; a phase, not a different behaviour). Left: a cheaper `BREAK` test between statements (not used for
     these loops: about 55 cycles a statement for 18 bytes, and every loop would then need a delay, or a longer
     one, to stay at the original's count).
 * **Running it:** `m.setRoms({ basic: rom, basic64: null })` on a `dragon64` machine (Node), or
