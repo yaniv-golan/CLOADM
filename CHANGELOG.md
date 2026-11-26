@@ -75,6 +75,8 @@ Next version: 0.3.1 (the plugin and extension manifests carry it; `tests/plugin.
   Another probe for the original, `ram-pointers2`: what `$25-26` holds, where the typed line and an `INPUT` reply
   are kept, `TIMER`'s bytes read so that the interpreter's speed cannot change the answer, and typical loops timed
   in fields, to compare the interpreters' speed.
+  A probe for the next batch, `ram-ptr25`, asks what moves `$25-26`: each kind of string made in direct mode and in a
+  program.
   BASIC's own variables now sit where the original keeps them (the program and string pointers at `$19-$28`, the
   line running at `$68`, the output device at `$6F`, the cold-start flag at `$71`, the text pointer at `$A6`, `TRON`
   at `$AF`, `TIMER` at `$0112`, lower case at `$0149`), so the well-known `POKE`s (`TRON`, lower case, `PCLEAR`-like
