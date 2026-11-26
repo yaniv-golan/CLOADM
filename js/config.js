@@ -3,16 +3,18 @@
  * and written back the same way (share links, the embed snippet). Every link points at /play.
  *
  *   parseUrlConfig(search, fallbackMachine) -> { machine, config, display, media, autorun, roms, start, app, nitros9, embed,
- *                                                askClaude, sound, joy, fastTape, turbo, selftest, errors }
+ *                                                askClaude, sound, joy, fastTape, turbo, selftest, record, recordAspect, errors }
  *   buildUrl(base, cfg) -> the link for cfg (parseUrlConfig of it gives cfg back)
  *
  * Parameters (URL_PARAMS lists them):
  *   machine=ID              a model of profiles.js (unknown: the fallback machine, and an error)
  *   <option>=VALUE          the model's options (profile.options: ram, cpu, ...), each checked against its values
- *   start=welcome|liza|2048|minesweeper
+ *   start=welcome|liza|2048|minesweeper|wyrmfire
  *                           run that program, with no welcome menu first (the games on 6809 machines; elsewhere the
  *                           status line says why); it stays in the address while the program runs and goes once it
- *                           is left, as app=claude does for the chat (js/ui/welcome.js)
+ *                           is left, as app=claude does for the chat (js/ui/welcome.js). wyrmfire (WYRMFIRE with the
+ *                           Freedoom level, js/ui/wyrmfire.js) runs on the Dragon 64 only, so it opens the Dragon 64:
+ *                           machine=<another model> with it is an error and is ignored (WYRMFIRE_MACHINE)
  *   nitros9=1|NAME          CoCo 3: boot NitrOS-9 over DriveWire from the user's own image in the library (1: the
  *                           one in DriveWire drive 0, else the bootable one for the link's CPU; NAME: that image).
  *                           The image itself is never in a link (Session.bootNitros9)
@@ -36,6 +38,8 @@
  *   embed=1                 embed mode: the screen only, driven by the page around it (js/embed-api.js)
  *   askclaude=1             with embed=1: draw a small "Ask Claude ↗" chip in the screen's corner, a link that opens
  *                           this moment in a new tab with the chat (js/ui/ask-popout.js). Off by default
+ *   record=1                for recording a video of the screen: no page chrome, the picture integer-scaled in a fixed 4:3
+ *                           frame, or with aspect=16:9 a 16:9 frame with the picture pillarboxed (js/ui/record.js)
  *   storage=opfs|fsa|fallback  where ROMs and programs are kept (js/host/media-store-open.js)
  * Errors are messages for the status line; a bad value is ignored, the rest of the link still applies.
  */
@@ -52,11 +56,13 @@ export const DISPLAY_PARAMS = {
   curvature: { key: 'curvature', range: [0, 100] },
   glow: { key: 'glow', range: [0, 100] },
 };
-const FLAGS = { sound: 'sound', fasttape: 'fastTape', turbo: 'turbo', embed: 'embed', selftest: 'selftest', askclaude: 'askClaude' };
+const FLAGS = { sound: 'sound', fasttape: 'fastTape', turbo: 'turbo', embed: 'embed', selftest: 'selftest', askclaude: 'askClaude', record: 'record' };
 const MEDIA = ['load', 'tape', 'cart', 'disk'];
 export const URL_PARAMS = ['machine', 'start', 'app', 'nitros9', ...MEDIA, 'autorun', 'rom', ...Object.keys(DISPLAY_PARAMS), 'joy', 'touch', ...Object.keys(FLAGS), 'storage'];
 const STORAGE = ['opfs', 'fsa', 'fallback'];
-const STARTS = ['welcome', 'liza', '2048', 'minesweeper'];
+const STARTS = ['welcome', 'liza', '2048', 'minesweeper', 'wyrmfire'];
+// the one machine start=wyrmfire runs on (js/wyrmfire/pin.js names it too; tests/wyrmfire-config.test.js holds them equal)
+export const WYRMFIRE_MACHINE = 'dragon64';
 const APPS = ['claude'];
 const TOUCH_MODES = ['joystick', 'keys'];
 
@@ -66,11 +72,15 @@ const isUrl = (v) => { try { return !!new URL(v, 'https://cloadm.dev/'); } catch
 
 export function parseUrlConfig(search, fallbackMachine = 'dragon64') {
   const p = new URLSearchParams(search), errors = [];
-  const cfg = { machine: null, config: {}, display: {}, media: [], autorun: false, roms: [], start: null, app: null, nitros9: null, joy: null, touch: null, storage: null, errors };
+  const cfg = { machine: null, config: {}, display: {}, media: [], autorun: false, roms: [], start: null, app: null, nitros9: null, joy: null, touch: null, storage: null, recordAspect: null, errors };
   for (const k of Object.values(FLAGS)) cfg[k] = null;
 
+  // start=wyrmfire opens the Dragon 64, whatever machine= says (unless app= takes the screen instead: below)
+  const wyrmfire = p.get('start') === 'wyrmfire' && !APPS.includes(p.get('app'));
+  const asked = p.get('machine');
+  if (wyrmfire && asked !== null && asked !== WYRMFIRE_MACHINE) errors.push(`machine=${asked} is ignored: start=wyrmfire runs on the ${profiles[WYRMFIRE_MACHINE].name}`);
   // a NitrOS-9 link without a machine means the CoCo 3, where it boots
-  const id = p.get('machine') ?? (p.has('nitros9') ? NITROS9_MACHINES[0] : null);
+  const id = wyrmfire ? WYRMFIRE_MACHINE : asked ?? (p.has('nitros9') ? NITROS9_MACHINES[0] : null);
   // (the fallback machine opens, and the message says which: the list of every machine made a toast of a whole paragraph)
   cfg.machine = id !== null && profiles[id] ? id : null;
   const profile = profiles[cfg.machine || fallbackMachine] || profiles.dragon64;
@@ -98,6 +108,8 @@ export function parseUrlConfig(search, fallbackMachine = 'dragon64') {
   if (app !== null) { if (APPS.includes(app)) cfg.app = app; else errors.push(`app=${app} isn't an app CLOADM has (${APPS.join(', ')})`); }
   // both: the app wins (it takes the screen), and start= is not run behind it
   if (cfg.app && cfg.start) { errors.push(`start=${cfg.start} is ignored: app=${cfg.app} opens instead`); cfg.start = null; }
+  // WYRMFIRE is a 6809 program: on the Dragon 64 it opens it runs on the 6809 (Session.startWyrmfire)
+  if (cfg.start === 'wyrmfire' && cfg.config.cpu && cfg.config.cpu !== '6809') { errors.push(`cpu=${cfg.config.cpu} is ignored: WYRMFIRE runs on the 6809`); delete cfg.config.cpu; }
   // nitros9: true (the image the user has) or an image's name; only where NitrOS-9 boots (the CoCo 3)
   if (p.has('nitros9')) {
     const v = p.get('nitros9');
@@ -118,9 +130,13 @@ export function parseUrlConfig(search, fallbackMachine = 'dragon64') {
   if (p.has('autorun')) { const f = flag(p.get('autorun')); if (f === null) errors.push(`autorun=${p.get('autorun')}: 1 or 0`); else cfg.autorun = f; }
   for (const url of p.getAll('rom')) { if (url && isUrl(url)) cfg.roms.push(url); else errors.push(`rom=${url}: not a link to a file`); }
 
+  // record=1's frame: 4:3, or 16:9 with the picture pillarboxed (aspect=16:9, which only record=1 takes)
+  const recording = flag(p.get('record')) === true;
+  if (recording) cfg.recordAspect = p.get('aspect') === '16:9' ? '16:9' : '4:3';
   for (const [name, d] of Object.entries(DISPLAY_PARAMS)) {
     if (!p.has(name)) continue;
     const raw = p.get(name);
+    if (name === 'aspect' && raw === '16:9') { if (!recording) errors.push('aspect=16:9: only with record=1 (4:3 or fill otherwise)'); continue; }
     let v = null;
     if (d.flag) v = flag(raw);
     else if (d.range) { const n = Number(raw); v = raw !== '' && Number.isInteger(n) && n >= d.range[0] && n <= d.range[1] ? n : null; }
@@ -179,6 +195,7 @@ export function buildUrl(base, cfg) {
   if (cfg.touch) s.set('touch', cfg.touch);
   for (const [name, key] of Object.entries(FLAGS)) if (cfg[key] === true || cfg[key] === false) s.set(name, cfg[key] ? '1' : '0');
   if (cfg.storage) s.set('storage', cfg.storage);
+  if (cfg.record === true && cfg.recordAspect === '16:9') s.set('aspect', '16:9');
   return u.toString();
 }
 

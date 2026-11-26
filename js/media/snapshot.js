@@ -95,6 +95,7 @@ function checked(snap) {
   if (!snap || typeof snap !== 'object') throw new SnapshotError('This CLOADM snapshot is incomplete.');
   if (typeof snap.version !== 'number') throw new SnapshotError('This CLOADM snapshot has no format version.');
   if (snap.version > SNAPSHOT_VERSION) throw new SnapshotError(`This snapshot was saved by a newer CLOADM (format version ${snap.version}; this page reads version ${SNAPSHOT_VERSION}). Reload the page to update it.`);
+  // (SNAPSHOT_OLDEST never rises: js/machines/machine.js. This is for a file damaged into a version below 1.)
   if (snap.version < SNAPSHOT_OLDEST) throw new SnapshotError(`This snapshot was saved by an older CLOADM (format version ${snap.version}), which this version no longer reads.`);
   if (!profiles[snap.machine]) throw new SnapshotError(`This snapshot is of a machine this CLOADM doesn't have (${snap.machine}).`);
   if (!snap.config || typeof snap.config !== 'object' || !snap.roms || typeof snap.roms !== 'object' || !snap.state || typeof snap.state !== 'object') {
@@ -104,6 +105,10 @@ function checked(snap) {
 }
 
 // ---------------- the long link (#z=) ----------------
+// FROZEN since 0.3.0 (AGENTS.md, "Formats are frozen"; docs/automation.md, "Share links"): byte 0 says what the link
+// holds and in which layout. 1 = a moment (this layout), 2 = a BASIC program (PROGRAM_LINK_VERSION, below), 3 to 31
+// reserved for later layouts, which a page refuses as "made by a newer CLOADM". A decoder for a byte 0 that was ever
+// written is never dropped; a changed layout takes a new byte 0, with its own decoder beside the old one.
 // The moment a long link carries (Session.snapshotLink writes '#z=' + base64url of these bytes):
 //   byte 0      the link format's version, LONG_LINK_VERSION (1); 2 is the BASIC program link (PROGRAM_LINK_VERSION, below);
 //               3 to 31 are kept for later versions, which a page says are newer

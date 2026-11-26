@@ -57,7 +57,7 @@ Then, in any order:
 | `--tape FILE` | put a `.cas` or `.wav` in the deck without loading it (then type `CLOAD`) |
 | `--disk [N=]FILE` | mount a VDK, JVC/DSK or DMK image in drive N (default 0). Without your disk ROM it goes in on the disk controller alone, for a program that reads the disk through the controller's registers (`DIR` and the other disk commands need the disk ROM): the step prints the note to stderr, and with `--json` its result has it as `note` (an added field: the schema version is unchanged) |
 | `--load-snapshot FILE` | open a snapshot, switching to its machine |
-| `--type TEXT` | type at the keyboard, then run until the machine has taken the keys. `\n` or `{ENTER}` is ENTER; also `{BREAK}`, `{CLEAR}`, `{UP}`, `{DOWN}`, `{LEFT}`, `{RIGHT}`, `{SPACE}`; `\\` is a backslash |
+| `--type TEXT` | type at the keyboard, then run until the machine has taken the keys (with ROMs, paced by what the machine reads: a key is held until it has been read and nothing is pressed after an ENTER until the machine reads the keyboard again, so a busy BASIC drops no key; a machine that stops reading fails the step `keys-not-taken`). `\n` or `{ENTER}` is ENTER; also `{BREAK}`, `{CLEAR}`, `{UP}`, `{DOWN}`, `{LEFT}`, `{RIGHT}`, `{SPACE}`; `\\` is a backslash |
 | `--hold KEYS[:N]` | hold keys down in the keyboard matrix for N frames (default 1), then let go, for programs that read the matrix themselves (games): `RIGHT:10`, `LEFT+SPACE:3`, `{UP}`, `Z:5`. Names are the matrix's: letters, digits, `UP` `DOWN` `LEFT` `RIGHT` `SPACE` `ENTER` `CLEAR` `BREAK` `SHIFT` (and the CoCo 3's `ALT` `CTRL` `F1` `F2`) |
 | `--frames N`, `--seconds S` | run N frames, or S seconds of emulated time |
 | `--wait-for COND` | run until `text:REGEX` is on the screen, `mem:ADDR=VALUE` holds, or the PC reaches `pc:ADDR` or `pc:LABEL` (it stops at that instruction; a label comes from `--asm` or `--symbols`, in any letter case); exit 1 at the timeout |
@@ -418,7 +418,7 @@ the field-sync flag) sees a hold of one frame; a guest that works for three fiel
 three, or a hold that waits on the guest's own counter (`--wait-for` on the byte that says it has read the keys).
 `--type` and `typeText` are different: they go through a key queue that applies changes at frame starts, one new press a
 frame, each held at least 3 frames (`js/machines/keyqueue.js`), which suits a keyboard routine that reads a character, not a
-sample on a chosen tick.
+sample on a chosen tick. (`--type` with ROMs waits for the machine to read each key, as Claude's typing does; `typeText` does not.)
 
 **A video field is the frame.** The VDG's field sync comes once per frame and is the guest's tick when it waits for it, so the
 rate is the video standard's, not the family's. **PAL** machines (`dragon32`, `dragon64`, `dragon200`, `dragon200e`, `dgnalpha`,
@@ -1047,9 +1047,34 @@ a server). Byte 0 says which, and is the format's version:
 
 `3` to `31` are kept for later versions: a page that doesn't know one says the link was made by a newer CLOADM, which is
 what a page that reads only moments says of a program link. A later change to the program's JSON raises its `version`
-(refused the same way). A short link (`https://s.cloadm.dev/<id>#<key>`) holds the same bytes sealed: a moment's short
-link the `.cloadm` file, a program's short link the program link's bytes above (`programShortLink(store)`, with no
-preview picture); `readShortLink(hash, store)` gives `{ snap, id }` or `{ program, id }`.
+(refused the same way).
+
+A short link (`https://s.cloadm.dev/<id>#<key>`) holds the same payload sealed in the browser (`js/media/link-crypto.js`):
+a moment's short link the `.cloadm` file, a program's short link the program link's bytes above (`programShortLink(store)`,
+with no preview picture). The stored object (`<id>.bin`) is:
+
+| Bytes | |
+|---|---|
+| 0 | the sealed format's version, `1`; `2` to `31` are kept for later layouts (refused as "made by a newer CLOADM") |
+| 1 | the kind, in the clear: `1` a moment, `2` a BASIC program (the same numbers as a long link's byte 0); `3` to `31` are kept for later kinds under this version (refused as "made by a newer CLOADM"), `0` and `32` up are not kinds. The short-link server reads it to name what the link opens on its arrival page ("A moment on a Dragon 64", "A moment on an MC-10" or "A BASIC program for the Dragon 64") |
+| 2-13 | the AES-GCM IV |
+| the rest | the ciphertext with its 16-byte tag; bytes 0 and 1 are its additional authenticated data, so neither can be changed without the key refusing it |
+
+The key (16 bytes, 22 base64url characters) is only in the link's fragment. The upload to `POST /api/new` is
+`[u8 2][u8 n][machine id][u32 LE length][sealed object][preview PNG, or nothing]` (version `2`: a sealed object with its
+header; a program's has no picture). `readShortLink(hash, store)` gives `{ snap, id }` or `{ program, id }`, and refuses
+an object whose kind and contents disagree.
+
+**These formats are frozen (since 0.3.0).** A long link's byte 0, the sealed object's version and kind, and the upload
+body's version only ever gain new numbers; no decoder for a number that was ever written is dropped, and an unknown one is
+refused as "made by a newer CLOADM". Snapshots likewise: `SNAPSHOT_OLDEST` never rises, and a change to the meaning of
+state ships a converter from every older version. Every version has a committed golden link in `tests/fixtures/links/`
+that `tests/link-freeze.test.js` opens (AGENTS.md, rule 7).
+
+A moment's config is checked before it opens (`checkedSnapshot`, for files, slots and links alike): the keys its model
+takes, each with one of its values, and from a link `mameCompat` off; anything else is a damaged snapshot. So a model's
+option, or one of its values, is never removed without a converter for the snapshots that hold it. Only the
+model's own options (never `mameCompat` or `hires`) are remembered as its config when a moment switches the machine.
 
 `sharedProgram()` is the BASIC program in memory on the machine on screen: `null` when there is none, else `{ lines,
 text, refusal }`, where `refusal` (and a `null` text) means it can't be shared as text: its listing is over load_basic's

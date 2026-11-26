@@ -41,6 +41,7 @@ names contain one of the parts, and `node tools/browser-check.js --only <group>[
 | Debugger | `debugger,debug-session,halt,probes,writewatch` | `debugger,debuggerScreen` |
 | Keyboard and input | `input,keyqueue,keyboard-symbols,touch-joystick,press-break` | `input,inputScreen,touchJoystick,keyboardSymbols,typing` |
 | `js/session.js`, snapshots | `session,snapshot,state,restore-points,writewatch` | `snapshot,state` |
+| The "needs BASIC" detector (`js/needs-basic.js`, `js/ui/needs-basic.js`, the firmware's `implemented`) | `needs-basic,stub,debugger,regress` | `needsBasic,romUi` |
 | `js/drives.js` (the floppy drives) | `session-drives,disks,disks-newdisk,disk-bare,disks-mount-case,disks-mount-race,restore-points` | `disk,driveWire` |
 | `js/library.js` (the media library) | `session-library,storage-move,move-inflight,library-case,recent,store-error-names,media-store,media-index-settled,media-multitab,store-races` | `library,librarySelect,mediaBackend` |
 | The Claude chat and Ask Claude | `claude,chat-firmware` | `claude,ask,commands,chatScreen` |
@@ -141,6 +142,10 @@ so once a deploy does run, a `main` push's deploy is accepted.)
    Expect a short gap between steps 1 and 3 -- from the source switch until the first deploy lands, nothing publishes
    the site -- so do steps 1 and 3 back to back.
 
+The version stamp (Help, About, the settings drawer, bug reports) names the commit only on a site published this way:
+the deploy stamps it into its staged `js/version.js` (`node tools/version.js --stamp`). Until the switch above, the
+legacy build serves the repository as committed, and the stamp reads "v<version> · unstamped".
+
 **A dry run of the release, after this lands on `main`**: GitHub -> Actions -> **release** -> *Run workflow* -> branch
 **main**, leave `dry_run` **checked** (it is the default) -> *Run workflow*. Dispatching it from a TAG with `dry_run`
 unchecked PUBLISHES that tag -- the dry run is only a dry run because it is started from a branch with the box on.
@@ -188,6 +193,7 @@ node tests/program-pages.test.js # the program pages and cards are what tools/pr
 node tests/short-link.test.js # short links on the page's side: sealing, the store over a mocked fetch, the key never sent, guardrails
 node tests/share-one-link.test.js # the Share screen's "one link": an untouched bundled program gives its page; every way in (a key, a typed line, a poke, an assembled program, a tape, a disk, BREAK) makes it a moment, its own running does not
 node tests/basic-share.test.js   # "Share your program": the card's condition, the LIST round trip (Dragon, CoCo, MC-10) through long and short links, the arrival with and without ROMs, the limits, the program link format
+node tests/link-freeze.test.js   # the frozen link formats: the golden links of every version open to what made them, and their bytes never change; the snapshot config rule
 node tests/share-card.test.js     # the share card (Save picture, a short link's preview): 1200x630, every picture pixel frameToRGBA's, the name drawn glyph by glyph
 node tests/shortlink-worker.test.js # the short-link Worker in Node against an in-memory bucket: every check, limit, kill switch and count
 node tests/qr.test.js         # the QR encoder against ISO 18004's worked example and tables, every symbol read back
@@ -212,6 +218,7 @@ node tests/session.test.js   # Session: model switching, ROM sockets, loading ev
 node tests/reset.test.js     # Reset: never changes the machine, keeps RAM for a program's warm start, the boot watchdog arms only on a power-on, ROM-drop offers
 node tests/snapshot-boot.test.js   # a snapshot opened is not a power-on: no boot failure after it, while a real power-on still has one
 node tests/cli.test.js       # cli/cloadm.js as a child process: exit codes, --json, wait-for, typing, screen text, PNG pixels, snapshots, scripts, the guide's examples
+node tests/cli-type.test.js  # --type with ROMs: lines typed back to back into firmware that is busy after each ENTER all arrive (a listing, repeated keys), a machine that stops reading fails keys-not-taken
 node tests/skill.test.js     # the agent skill: the .agents copy identical, frontmatter, its tool table equal to the server's, its claims and PMODE 4 recipe run on the server
 node tests/skill-evals/run.js # the skill's evals with and without it: real, billed Claude runs (needs the claude CLI), not in tests/all.js; a case with `server: panel` runs on the side panel's stand-in, tests/skill-evals/panel-server.mjs (`panel_state: stopped` starts its machine stopped in the Debugger)
 node tests/plugin.test.js    # the plugin, marketplace and Claude Desktop extension manifests: one version, paths, placeholders, the tool list, the server starting as each starts it
@@ -219,6 +226,7 @@ node tests/mcp.test.js       # the MCP server over stdio: both protocol eras, ev
 node tests/mcp-roms.test.js  # add_roms / remove_roms with stand-in ROMs: a local https server (a CA made for the run), every URL refusal (http, private/loopback/CGNAT/link-local, redirects, size, timeout, not a ROM), data, the media root, consent (elicitation), the store across restarts, --read-only, no ROM bytes in results
 node tests/rom-store.test.js  # the add_roms store: a URL kept as origin + path (no query or fragment), two processes adding at once lose no entry, a stale lock is broken
 node tests/connector.test.js # the side-panel connector (connector/): the Worker over HTTP, both views and their CSP, the folded emulator identical to the plain modules, the panel's tools equal to the server's, the 100k limit, the bridge's protocol in a vm
+node tests/fold.test.js      # connector/fold.js's comment stripper: hand-built cases (strings, templates, regex against division, ASI line ends), every folded module keeps its tokens and line breaks and parses in V8, and tokenizer mutants turn it red
 node tools/connector-check.js # the connector's two views in Chromium, nested as Claude nests them under the spec's CSP, with a host stub: handshake first, list_changed, the tools, keys, storage, ROMs kept and read by memory reads, no CORS, out of step, and the view's controls (Details, the screen's fit inline and in the side panel, ⋯'s side-panel item, the menus, sound, Claude's chip), and on a phone (the size it reports inline, the host's insets, the on-screen keys in their three modes and the choice remembered, a host that asks before each call) (the browser check's `connector` group)
 node connector/build.js      # build the connector's views into connector/worker/src/views.gen.js (wrangler deploy runs it; docs/deploy-connector.md)
 node tests/cli-agent.test.js # cli/cloadm.js beyond the basics: --describe, error codes, the debugger steps against the Session's debugger, DriveWire stalls, special keys, script quoting, --view
@@ -246,6 +254,8 @@ node tests/keyqueue.test.js  # fast typing: bursts read back from the keyboard m
 node tests/roms.test.js      # ROM identification across machines (synthetic images only), library, offers
 node tools/gen-rom-docs.js   # regenerate docs/roms.md from the profiles (tests/romdocs.test.js checks it)
 node tools/gen-machine-help.js   # regenerate Help's list of machines from the menu data (tests/machine-menu.test.js checks it)
+node tools/gen-deviations.js     # regenerate /deviations/ from verification.md's "Deviations from MAME" (tests/deviations.test.js checks it)
+node tools/version.js --write    # copy CHANGELOG.md's "Next version" into js/version.js, the version stamp (tests/version.test.js checks it)
 node tools/gen-page-preload.js  # regenerate the <link rel="modulepreload"> list in play/index.html (tests/pagepreload.test.js checks it)
 node tools/page-load.js      # how long /play/ takes to start over a throttled link: modulepreload's effect (see below)
 node tools/flicker-measure.js # a .cas dropped on stored ROMs, first visit vs repeat: DOM mutations, layout shifts, canvas
@@ -275,6 +285,7 @@ node tests/importmedia-finally.test.js # the creation landing behind the Library
 node tests/ay8910.test.js    # AY-3-8910/8912 against its data manual: tone, noise, the 16 envelope shapes, mixer, ports
 node tests/alpha.test.js     # the Dragon Alpha's wiring: ROM banks, PIA2, the AY as the drive latch, NMI through PIA2 CA2
 node tools/build-demo.js     # rebuild examples/demo.bin
+node tools/wyrmfire-vendor.js <wyrmfire checkout>   # vendor WYRMFIRE at js/wyrmfire/pin.js's commit into examples/wyrmfire/ and rebuild the Freedoom level (pinned download, SHA-256 checked); tests/wyrmfire-files.test.js checks the result against the pin
 node tools/build-examples.js # rebuild examples/liza.bin, liza6803-{mc10,alice}.bin, welcome.bin, welcome6803-{mc10,alice}.bin, chat.bin and starter-game/catch.bin from their .asm sources, then bring sw.js's offline file list up to date
 node tests/welcome.test.js   # welcome program on every 6809 model: screen, menu keys and events, the tune on the DAC
 node tests/welcome-tune.test.js   # when the welcome tune plays: the visit and Programs play it; a switch, Reset, a power cycle and a return are silent; both builds
@@ -318,6 +329,7 @@ node tools/mame-diff/run.js coco --printer --stub-init # the same, with PIA1 set
 node tools/mame-diff/run.js mc10 --printer --stub-init # the MC-10 (or alice) the same way: port 2 set up as its stub sets it up
 node tools/mame-diff/run.js mc10 --printer --glitch     # a glitch on the printer line (coco, mc10, alice): the one $FF MAME prints for it, then the print
 node tools/mame-diff/run.js <profile> --serial  # the bit-banger (or the Dragon 64's 6551) in lockstep with MAME's loopback plug
+node tools/mame-diff/run.js dragon64 --serial-idle  # the Dragon 64's 6551 with nothing in the serial port, in lockstep with MAME's default (no RS-232 device)
 node tools/mame-diff/drivewire/run-dw.js [profile ...] [--no-trace]  # DriveWire over the Becker port: lockstep with MAME (TCP to our server), and byte for byte
 node tools/nitros9/fetch.js && node tests/nitros9.test.js   # NitrOS-9 boot test (images fetched to a cache, never committed; tests/os9.test.js, tests/nitros9-session.test.js and the browser check's nitros9 group use them too, and skip without them)
 node tools/nitros9/boot-floppy-mame.js <_40d_1.dsk> --cpu 6809 --record tests/fixtures/nitros9/coco3-6809-floppy.json   # the floppy boot's MAME reference (controller register writes)

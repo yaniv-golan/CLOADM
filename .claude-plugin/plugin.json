@@ -1,7 +1,7 @@
 {
   "name": "cloadm",
   "displayName": "CLOADM",
-  "version": "0.2.0",
+  "version": "0.3.1",
   "description": "Play Dragon and Tandy Color Computer machines with Claude: live in Claude's side panel, or on your computer with your own ROMs and files.",
   "author": {
     "name": "Yaniv Golan",

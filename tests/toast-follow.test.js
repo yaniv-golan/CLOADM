@@ -195,7 +195,8 @@ const BASE = {
   box: { left: 248, top: 940, right: 873, bottom: 980, width: 625, height: 40 }, classes: 'toast||',
   controls: [{ left: 0, top: 0, right: 1440, bottom: 900, width: 1440, height: 900 }],
   screen: [MON], tube: { left: 100, top: 200, right: 800, bottom: 700, width: 700, height: 500 },
-  canvas: MON, active: '0,0.1,1,0.5',
+  // (the picture inside the tube, with the tube's glass under it: a toast's band may lie there, never on the picture)
+  canvas: { left: 100, top: 200, right: 800, bottom: 640, width: 700, height: 440 }, active: '0,0.1,1,0.5',
 };
 const decide = (I) => globalThis.__decide(I);
 // ONE SET OF INPUTS PER ARM of decide(), so the purity guards provably execute every branch (the guards once ran
@@ -383,9 +384,12 @@ function decideWithHostileDom(I) {
     // compact one (24). `band.bottom - band.top = 34` here: the tube ends at 570, the screen's text ends at 530, so the
     // band is [532, 566]. A control across the TOP of the window covers the toast's natural place (at 60) AND the fixed
     // top edge, and the screen covers the bottom scan's row, so no free place exists and the band is the answer.
+    // (and a control under the tube, so the desktop's place docked under it is not free either; the picture ends at 530,
+    // where the band starts: it lies on the tube's glass under the picture, never on it)
     const ctlTop = { left: 0, top: 0, right: 1440, bottom: 120, width: 1440, height: 120 };
-    const w = world({ width: 1440, height: 900, controlBox: [ctlTop] });
-    w.screen._rect = { left: 100, top: 200, right: 400, bottom: 860, width: 300, height: 660 };
+    const ctlUnder = { left: 0, top: 572, right: 1440, bottom: 900, width: 1440, height: 328 };
+    const w = world({ width: 1440, height: 900, controlBox: [ctlTop, ctlUnder] });
+    w.screen._rect = { left: 100, top: 200, right: 400, bottom: 530, width: 300, height: 330 };
     w.tube._rect = { left: 100, top: 200, right: 400, bottom: 570, width: 300, height: 370 };
     w.screen.dataset.active = '0,0.1,1,0.5';
     w.box._rect = { left: 248, top: 60, right: 873, bottom: 100, width: 625, height: 40 };   // in view, under ctlTop
@@ -518,7 +522,7 @@ function decideWithHostileDom(I) {
     const bandOff = JSON.parse(verdict({}));
     check('the band form\'s avoid-list carries the screen\'s visible text, not only the controls',
       bandOff.kind === 'band' && Array.isArray(bandOff.offText) && bandOff.offText.length === 2 &&
-        bandOff.offText.some((o) => o.left === 100 && o.top === 266 && o.right === 800 && o.bottom === 530),
+        bandOff.offText.some((o) => o.left === 100 && o.top === 244 && o.right === 800 && o.bottom === 420),
       JSON.stringify(bandOff.offText));
     // EDGE TOUCHING is clear, not a hit. A control whose bottom edge is exactly the toast's top edge does not overlap
     // it, so a toast there is at its natural place; `hits` compares with `<=`/`>=` for that reason. With `<`/`>`, a
@@ -563,10 +567,11 @@ function decideWithHostileDom(I) {
     // determinism: two separate calls on equal (not identical) inputs agree, which is what lets one stringified copy be
     // the cache key. Written against the literal expected verdict so it cannot pass by comparing a call to itself.
     check('... and equal inputs give the one expected verdict (so one stringified copy is a sound cache key)',
-      verdict({}) === JSON.stringify({ kind: 'band', band: { left: 108, right: 792, top: 532, bottom: 696 },
-        // the control the toast must avoid, and the screen's visible text area (data-active 0,0.1,1,0.5 of MON)
+      verdict({}) === JSON.stringify({ kind: 'band', band: { left: 108, right: 792, top: 642, bottom: 696 },
+        // the control the toast must avoid, and the screen's visible text area (data-active 0,0.1,1,0.5 of the canvas);
+        // the band starts under the picture (640), never on it
         offText: [{ left: 0, top: 0, right: 1440, bottom: 900, width: 1440, height: 900 },
-          { left: 100, top: 266, right: 800, bottom: 530 }], fullWidth: 625 }),
+          { left: 100, top: 244, right: 800, bottom: 420 }], fullWidth: 625 }),
       verdict({}).slice(0, 60));
   }
   // ---- the phone top-edge case does not oscillate ----
@@ -754,7 +759,8 @@ function decideWithHostileDom(I) {
       { left: 0, top: 0, right: 1440, bottom: 698, width: 1440, height: 698 },      // the whole upper window
       { left: 0, top: 762, right: 1440, bottom: 900, width: 1440, height: 138 },    // and the bottom band
     ] });
-    w.screen._rect = { left: 100, top: 200, right: 800, bottom: 860, width: 700, height: 660 };
+    // (the picture ends at 640, the tube's glass under it reaches 760: the band lies there, never on the picture)
+    w.screen._rect = { left: 100, top: 200, right: 800, bottom: 640, width: 700, height: 440 };
     w.tube._rect = { left: 100, top: 200, right: 800, bottom: 760, width: 700, height: 560 };
     w.screen.dataset.active = '0,0.1,1,0.5';
     // the toast's own rect, as the unplaced stylesheet places it, is large: it does not fit the strip full width

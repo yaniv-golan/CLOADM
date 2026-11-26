@@ -626,7 +626,11 @@ export function disassembleTool(target, input) {
 // ---- the dispatcher ----
 // Runs one read-only tool by name. ChatSession routes to this only for READ_ONLY_TOOLS members, so an
 // unknown name here is a programming error and throws.
+// The screen and memory are refused while the machine holds a level converted from the person's own WAD
+// (target.userData(): Session.userDataIn): ONE rule for the page's chat, the MCP tools and run_frames' screen reads.
+export const USER_DATA_READS = Object.freeze(['screen_text', 'peek', 'disassemble']);
 export function runReadOnlyTool(target, name, input) {
+  if (USER_DATA_READS.includes(name) && typeof target.userData === 'function' && target.userData()) throw new ToolError(TOOL_CODES.USER_DATA);
   switch (name) {
     case 'machine_info': return machineInfoTool(target);
     case 'screen_text': return screenTextTool(target);

@@ -129,7 +129,8 @@ export function setupMachinePanel(page, { showRoms }) {
     }
     return items.filter((t) => (t.kind === 'disk' ? t.stored : !!t.name && names.some((n) => session.library.sameName(n, t.name))));
   }
-  // to: { name: what it switches to (null for a RAM change), id, config }; onSwitch(taken, said) does it, taken being
+  // to: { name: what it switches to (null for a RAM change), id, config, purpose (optional words after the name) };
+  // onSwitch(taken, said) does it, taken being
   // what came out and said its " Took out: …." for the message; onCancel: what Cancel undoes. A running machine is
   // switched only after this.
   // It shows at once; which items stay in the Library (a look in the store) is added to it when known.
@@ -142,7 +143,8 @@ export function setupMachinePanel(page, { showRoms }) {
     if (to.name) {
       const n = document.createElement('strong'); n.id = 'switchName'; n.textContent = to.name;
       const f = document.createElement('span'); f.id = 'switchFrom'; f.textContent = from;
-      text.append('Switching to ', n, ' resets the ', f);
+      // to.purpose: why it switches (" to play WYRMFIRE": js/ui/wyrmfire.js)
+      text.append('Switching to ', n, to.purpose || '', ' resets the ', f);
     } else {
       const f = document.createElement('span'); f.id = 'switchFrom'; f.textContent = from;
       text.append('Changing RAM switches the ', f, ' off and on');

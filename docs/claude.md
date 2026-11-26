@@ -84,9 +84,8 @@ something in the prompt prefix is changing between them.
 Two ways to talk to Claude, one conversation:
 
 * **Ask Claude** (`js/ui/ask.js`; a bottom sheet on a phone) is a side panel beside the
-  live machine: the header's **Ask Claude** button, **Ctrl+K** (⌘K on a Mac), or an opener under the machine
-  (**Explain this error** when a BASIC error is on screen, **Help with my program** when a BASIC program is in
-  memory). It opens at 420 px and its left edge drags it between 320 and 560 px; the drawer's tabs fold into an icon
+  live machine: the header's **Ask Claude** button, **Ctrl+K** (⌘K on a Mac), or one of the example questions under the
+  machine (below). It opens at 420 px and its left edge drags it between 320 and 560 px; the drawer's tabs fold into an icon
   rail beside it (an icon opens that tab over the panel, Esc closes it); minimised, a strip at the top of the drawer
   shows what Claude is doing. The panel docks beside the machine and never covers it: the machine narrows, down to
   480 px (the 256-pixel picture at nearly 2×), which needs a window of at least 960 px (from 960 to 1100 px there is
@@ -94,6 +93,20 @@ Two ways to talk to Claude, one conversation:
   docking would leave the machine too small to use; on a phone it is a bottom sheet with peek, half
   and full heights (the restore points and the switch are in its ⋯ menu), and it moves up above the phone's own
   keyboard while you type (the visual viewport).
+  Three example questions for what is on the machine now (`js/claude/prompts.js`) sit under the machine while the
+  panel is closed and in its empty chat while it is open, never in both: the
+  Debugger's stop, a visit that just arrived from a link (until your first key, message, load, Reset, Start over or
+  switch), WYRMFIRE, the welcome menu (one set without ROMs for the machine, another with them), LIZA, 2048,
+  Minesweeper, the colour demo, a machine-code program of yours, BASIC at its prompt with a program or without one,
+  BASIC running a program, and a general set for anything else, in that order of priority. They come from the
+  Session's and the machine's state (BASIC's program pointers and its current line number, CURLIN, on the Dragon and
+  CoCo), never from the picture, and nothing is sent to a model to make them. With a key a tap puts the question in
+  the message box (one under the machine opens the panel first) and sends nothing. Without one they sit under "You
+  could ask, once Claude is connected:" (under the machine it is their first line); a tap selects one (opening the
+  panel with it) and offers **I have an API key** (the question fills the box once the key is saved) and **I use
+  Claude →** (the question is copied). They follow the machine half a second after it changes while the chat and the
+  box are empty, stay put while the box has text, a finger is down or a question is selected, and go after the first
+  message. With Claude features Off there are none.
 * **Ctrl+K** opens "Ask Claude or find a command" (`js/ui/command-box.js`): the page's commands that match what you
   type come first (each presses the page's own button and is never sent to Claude), **Ask Claude: "…"** is always
   last. Enter runs the command or asks (a question ending in "?" puts **Ask Claude** first, so "reset?" asks rather than resets, unless it is a command's whole label); asking opens the side panel beside the
@@ -295,10 +308,13 @@ emulator.
   the whole frame is scaled so that area fills the space and the tube clips the border; the pixels are the
   machine's, scaled, never reflowed). A text row is then 11.2 px tall upright and 11.3 px sideways (7.5 and 7.0
   before). Held sideways the screen between the keyboard's halves is wider and its four buttons sit in one row.
-  Without a key the key card comes first, above the screen upright and beside it held sideways (both fit the
-  height), and the help line says where, measured ("add one above", "on the right"), and the on-screen keyboard stands aside while the phone's own keyboard types the key; once it is
-  saved the screen has the focus. The key card comes first wherever the page stacks the chat under the screen (a
-  tablet too, under about 1020 px). The way out is always there: the chat bar stays at the top as the page scrolls,
+  On a phone the chat's screen comes first and the page opens at it. Without a key the key card and the BASIC
+  session card fold into one line under the screen, "No API key yet · Add key…" (the screen's own no-key line says
+  where, measured: "add one below", "on the right"; no "type on the screen and press ENTER" toast until there is a
+  key); the on-screen keyboard stands aside until there is a key, so nothing covers the line, and **Add key…** opens
+  the form for the phone's own keyboard; once the key is saved the keyboard is back and the screen has the focus. A line typed with no key starts no turn: the firmware shows no
+  "Thinking..." (the page sets its NOKEY flag, `CHAT_CHANNEL.nokey`) and "[No API key yet: …]" comes right after the
+  line. On a tablet (under about 1020 px, not a phone) the key card comes first. The way out is always there: the chat bar stays at the top as the page scrolls,
   the on-screen keyboard's Menu becomes **← Emulator** (held sideways the keyboard covers the bar), the browser's
   Back leaves the chat (opening it adds one history step), and so does Esc from the chat bar or its cards. On the
   screen Esc escalates: it is BREAK while a reply streams (it stops the reply) or while a line is typed (the firmware
@@ -629,6 +645,7 @@ emulator.
   | `include-unreadable` | an INCLUDE file could not be read (detail names it and why); nothing was written: put the code it holds into the source itself and call again |
   | `tool-failed` | the tool failed inside the emulator (detail says how): read the machine with machine_info or screen_text before going on, and tell the person; do not repeat the call unchanged. (When the detail says the CALL was wrong - it names a tool target, say - fix the call; nothing was read and the machine is fine.) |
   | `not-typable` | the machine cannot take the characters in detail (no key for them on this keyboard, or above $7E, which BASIC cannot store as text): leave them out or use plain ASCII it has (BASIC keywords are uppercase) |
+  | `user-data` | Claude can't look at the screen or memory while your own WAD is loaded: it's id Software's game data. Tell the person so, and do not try to read it another way; machine_info still works |
 * **Not yet:** the chat on a real machine over a serial cable (the firmware's DriveWire is the Becker port's; a
   bit-banger DriveWire driver is not written), the CoCo 3's 80-column screen (the CoCo 3 runs the same 256×192
   screen), the `read_program` tool and the "Type this listing into BASIC" button.

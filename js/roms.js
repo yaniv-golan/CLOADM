@@ -92,10 +92,14 @@ export function identifyRoms(files, profiles, current = null) {
     }
     if (!r.targets.length && !byName.length && !romSized(size)) {
       r.result = 'ignored';
+      // (not a ROM image at all: the page says so beside the drop zone)
+      r.notRom = true;
       r.message = `${name}: not a ROM, ignored`;
       continue;
     }
     if (!r.targets.length) {
+      // (no ROM of any machine has this size or name: not a ROM image either)
+      r.notRom = true;
       r.message = `${name}: ${kb(size)} doesn't match any ROM CLOADM knows` +
         (current && profiles[current] ? ` (the ${profiles[current].name} takes ${socketSizes(profiles[current])}; ROMs are ${sizes.map(kb).join(', ')})` : '') + '. Not loaded';
       continue;

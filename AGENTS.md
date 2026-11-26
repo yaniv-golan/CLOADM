@@ -53,11 +53,27 @@ Which proof levels apply to your kind of change: [section 4, "Which levels apply
    comparison or add a known-difference exception unless section 4.6 allows it. Never write vacuous tests
    (`|| true`, constant conditions, asserting that code returns what it returned).
 4. **No legacy.** When you change an interface, update every caller; don't leave compatibility wrappers, aliases or
-   dead code behind.
+   dead code behind. (The one exception is rule 7: readers of saved and shared formats stay.)
 5. **Behaviour that MAME already verifies must not change by accident.** Run `node tests/regress.test.js` after every
    meaningful change, not only at the end.
 6. Keep the browser-free core browser-free: nothing under `js/` except `js/host/`, `js/ui/` and `js/video/canvas.js`
    may touch `window`, `document` or other DOM APIs. `js/emu.js` must still load in Node.
+7. **Formats are frozen (since 0.3.0).** Snapshot files, slots and share links are in people's hands, so every one ever
+   written keeps opening:
+   * `SNAPSHOT_OLDEST` never rises. A snapshot change that renames, removes or changes the meaning of state ships a
+     converter from every older version (`js/machines/machine.js`, its versioning comment). That includes a model's
+     options: a snapshot's config is checked against them (`Session.checkedSnapshot`), so an option key or value is
+     never removed without a converter for the snapshots that hold it.
+   * No link or envelope decoder is ever dropped: a long link's byte 0 (1 = a moment, 2 = a BASIC program, 3-31
+     reserved), a short link's sealed object version and kind (kind 1 or 2; 3-31 reserved for later kinds under the same
+     version), and the short-link upload body's version
+     (`docs/automation.md`, "Share links"). A changed layout takes a new number, with its decoder beside the old ones,
+     and an unknown number is refused as "made by a newer CLOADM".
+   * Every format version has a golden fixture in `tests/fixtures/links/` (`tools/gen-link-fixtures.js`, run once per
+     new version; an existing fixture is never regenerated), opened by `tests/link-freeze.test.js`, which also fails if a
+     fixture's bytes change. The freeze is held by those committed bytes and by what each link opens to; never
+     regenerate to reproduce a fixture, as deflate output is not guaranteed stable across zlib or platform versions
+     and a sealed object's IV is random, so matching or differing fresh output proves nothing.
 
 ## 2. Where things go
 

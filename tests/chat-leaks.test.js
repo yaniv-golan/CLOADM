@@ -32,6 +32,8 @@ const backend = () => new Emu.ClaudeBackend({ fetch: async () => null, apiKey: K
 const block = (t, d) => { let s = (t + d.length) & 255; for (const v of d) s = (s + v) & 255; return [0x3C, t, d.length, ...d, s, 0x55]; };
 const casTape = () => { const nf = [...Buffer.from('TEST    '), 2, 0, 0, 0x40, 0x40, 0x03, 0x00]; return Uint8Array.from([...new Array(128).fill(0x55), ...block(0, nf), ...new Array(128).fill(0x55), ...block(1, [0x20, 0xFE]), ...block(0xFF, [])]); };
 const BIN = Uint8Array.from([0x55, 0x02, 0x08, 0x00, 0x00, 0x02, 0x08, 0x00, 0xAA, 0x20, 0xFE]);
+// ORCC #$50 ; JSR $A176 (BASIC's ROM space, nothing there without the ROM) ; BRA * -- at $3000
+const NEEDS_BIN = Uint8Array.from([0x55, 0x02, 0x30, 0x00, 0x00, 0x07, 0x30, 0x00, 0xAA, 0x1A, 0x50, 0xBD, 0xA1, 0x76, 0x20, 0xFE]);
 const ROM_A = new Uint8Array(16384).fill(0x12), ROM_B = new Uint8Array(16384).fill(0x41);
 
 // a chat on the session, full screen, with the BASIC session set up per `setup`
@@ -62,6 +64,8 @@ const NITROS9 = synthNitrOs9Floppy();
 const { assembleFile, romImage } = require('../tools/mame-diff/lib/firmware');
 const GAME_2048 = new Uint8Array(fs.readFileSync(path.join(ROOT, 'examples/2048.bin')));
 const LIZA_6809 = new Uint8Array(fs.readFileSync(path.join(ROOT, 'examples/liza.bin')));
+const WYRM_ENGINE = new Uint8Array(fs.readFileSync(path.join(ROOT, 'examples/wyrmfire/wyrmfire.bin')));
+const WYRM_LEVEL = new Uint8Array(fs.readFileSync(path.join(ROOT, 'examples/wyrmfire/freedoom-e1m1.vdk')));
 const DOS_ROM = (() => {
   const FDC = path.join(ROOT, 'tools/mame-diff/fdc');
   require(path.join(FDC, 'gen-diag')).write();
@@ -130,6 +134,10 @@ const ROWS = [
   ['run without ROMs', withRoms, (s) => s.runWithoutRoms({ menu: false })],
   ['use the stored ROMs again', (s) => { withRoms(s); s.runWithoutRoms({ menu: false }); }, (s) => s.useStoredRoms(s.chatMachines.basic)],
   ['export a ROM pack', withRoms, (s) => s.exportRomPack()],
+  // the needs-BASIC card's Run again: a program on the BASIC session called BASIC with no ROM, the ROMs came, and it
+  // runs again with them (a switch off and on of the PERSON's machine, then the same load there)
+  ['run a program again with ROMs (the needs-BASIC card)', (s) => { s.load('NEEDS.BIN', NEEDS_BIN); for (let i = 0; i < 3; i++) s.advance(21); withRoms(s); },
+    (s) => s.needsBasic.runAgain()],
   // machines and power
   // Reset with the chat on screen is DELIBERATE: the screen's Reset button restarts what is on screen, and that is
   // the chat firmware (it comes back running). It must not reach the person's session, and the chat's record must
@@ -196,6 +204,8 @@ const ROWS = [
   // the image goes into the library before the chat opens, so the boot finds it
   // (a machine switch replaces the machine and closes the conversation: documented, 'closes-chat')
   ['choose a machine (the machine menu)', () => {}, (s) => s.chooseMachine('coco3'), 'closes-chat'],
+  // WYRMFIRE switches the person's machine to a fresh Dragon 64 (as the machine menu does), so it closes the chat too
+  ['start WYRMFIRE (a fresh Dragon 64, as a switch)', () => {}, (s) => s.startWyrmfire(WYRM_ENGINE, WYRM_LEVEL), 'closes-chat'],
   ['load a recent file (recent list)', () => {}, (s) => { s.load('recent.bin', BIN); return s.library.loadRecent(0); }, 'closes-chat-or-throws'],
   // A real pack, from the Session's own export: it carries the stored ROMs' manifest and images, so the import
   // restores them (an empty array is not a pack, and the row used to swallow that refusal).
@@ -515,8 +525,9 @@ function uiCalledMethods() {
       // `session.x` is how a panel uses one. The shapes the reviewer named must not slip past silently:
       // session?.x(), session['x'], and a destructured `{ x } = session`: each is an ERROR below, not a silent miss.
       // the media library's members (session.library.x, js/library.js) are classified by their own names, as before
-      // they moved off the Session; the drives' (session.drives.x, js/drives.js) as drives.x
-      for (const m of line.matchAll(/\bsession\??\.(?:library\.)?((?:drives\.)?[a-zA-Z_][a-zA-Z0-9_]*)/g)) if (!out.has(m[1])) out.set(m[1], `${f}:${i + 1}`);
+      // they moved off the Session; the drives' (session.drives.x, js/drives.js) as drives.x, and the needs-BASIC
+      // detector's (session.needsBasic.x, js/needs-basic.js) as needsBasic.x
+      for (const m of line.matchAll(/\bsession\??\.(?:library\.)?((?:drives\.|needsBasic\.)?[a-zA-Z_][a-zA-Z0-9_]*)/g)) if (!out.has(m[1])) out.set(m[1], `${f}:${i + 1}`);
       for (const m of line.matchAll(/\bsession\s*\[\s*['"]([a-zA-Z_][a-zA-Z0-9_]*)['"]\s*\]/g)) out.set(`[${m[1]}]`, `${f}:${i + 1}`);
       for (const m of line.matchAll(/\b(?:const|let|var)\s*\{([^}]*)\}\s*=\s*session\b/g)) out.set(`{${m[1].trim()}}`, `${f}:${i + 1}`);
     });
@@ -530,7 +541,7 @@ function rowMethods() {
   // do - a setup that calls a method is also coverage of it
   for (const row of ROWS) {
     for (const fn of row.filter((x) => typeof x === 'function')) {
-      for (const m of String(fn).matchAll(/\bs\.(?:library\.)?((?:drives\.)?[a-zA-Z_][a-zA-Z0-9_]*)\s*\(/g)) out.add(m[1]);
+      for (const m of String(fn).matchAll(/\bs\.(?:library\.)?((?:drives\.|needsBasic\.)?[a-zA-Z_][a-zA-Z0-9_]*)\s*\(/g)) out.add(m[1]);
     }
   }
   return out;
@@ -595,8 +606,16 @@ const REQUIRED = require.main !== module;
     'pickNitros9Image', 'openMedia', 'downloadMedia', 'drives.download', 'drives.writesDone', 'printoutFile',
     // programControls reads the menu watch of the SHOWN machine: the touch panel it answers drives what is on screen
     'programControls',
+    // WYRMFIRE: wyrmfireRunning and wyrmfireState read the PERSON's machine (its controller and drive 0); wyrmfireOn and
+    // romCodeIn read the machine named, the SHOWN one by default (Share's picture is the shown machine's); gameFiles and
+    // readGameFile read "Your game files" in the store. None changes anything.
+    'wyrmfireRunning', 'wyrmfireState', 'wyrmfireOn', 'romCodeIn', 'gameFiles', 'readGameFile',
     // claudeLink builds the "Ask Claude ↗" link from shareFile and shareUrl (both reads of the shown machine)
     'claudeLink',
+    // lastLoaded: which file was loaded last, which js/bugreport.js names by SHA-256 (a WAD unnamed, a cartridge by CRC); a field
+    'lastLoaded',
+    // claudeFeatures reads Settings -> Claude features (a stored flag); setClaudeFeatures stores it and emits, the machine untouched
+    'claudeFeatures', 'setClaudeFeatures',
     // programPageUrl makes a program page's address from the page's own (pure)
     'programPageUrl',
     // bundledProgram and untouchedBundledProgram read the SHOWN machine's program watch and page (Session.touches too,
@@ -625,7 +644,9 @@ const REQUIRED = require.main !== module;
   // (removeRom and restoreRom act on the PERSON's machine, as addRoms does: never the chat machine)
   const LIBRARY = new Set(['addRoms', 'clearRoms', 'removeRom', 'restoreRom', 'deleteMedia', 'importDriveWireImage', 'importMedia',
     'importSettings', 'listMedia', 'moveMedia', 'newDriveWireImage', 'renameMedia', 'exportRomPack', 'exportSettings',
-    'setClaudeKey', 'clearClaudeKey', 'setLastRun', 'useMediaStore']);
+    'setClaudeKey', 'clearClaudeKey', 'setLastRun', 'useMediaStore',
+    // "Your game files" (WYRMFIRE's level converted from the person's own WAD): the store only
+    'saveGameFile', 'removeGameFile']);
   // Session state that belongs to no machine
   const SESSION = new Set(['welcomeSound', 'asMachine', 'connectDriveWireChannel', 'ejectDriveWire', 'endChat', 'emit',
     'on', 'personInput', 'ready', 'reset', 'resume', 'resumeClaude', 'setDisplay', 'startAsk', 'startChat', 'stopClaude',
@@ -634,7 +655,10 @@ const REQUIRED = require.main !== module;
     'chatNote',
     // refuseTyping reads whether the Debugger stopped the machine on screen and emits the page's toast; it
     // queues and changes nothing on either machine
-    'refuseTyping']);
+    'refuseTyping',
+    // settleArrival ends the "just arrived from a link" mark (a message to Claude is the person acting) and emits
+    // 'arrival'; no machine is touched
+    'settleArrival']);
   // page concerns, not machine actions
   const UI = new Set(['mediaError', 'visit']);
   const rows = rowMethods();

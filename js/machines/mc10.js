@@ -75,7 +75,7 @@ class Mc10Machine extends Machine {
     this.deck.onInsert = () => { this.deck.setMotor(false); this.casReads = 0; };
     this.deck.motorless = true;   // no motor relay: a recording takes everything written to the cassette output
     this.stubCursor = 0x4000;
-    this.installStub(STUB.symbols, new TextConsole(this.ram, 0x4000, () => this.stubCursor, (pos) => { this.stubCursor = pos; }),
+    this.installStub(STUB, new TextConsole(this.ram, 0x4000, () => this.stubCursor, (pos) => { this.stubCursor = pos; }),
       () => this.stubInit());
   }
 

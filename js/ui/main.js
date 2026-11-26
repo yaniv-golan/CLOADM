@@ -19,8 +19,10 @@ import { setupMachinePanel } from './machine-panel.js';
 import { setupRomPanel } from './rom-panel.js';
 import { setupRomSockets } from './rom-sockets.js';
 import { setupBootHelp } from './boot-help.js';
+import { setupNeedsBasic } from './needs-basic.js';
 import { setupWelcome } from './welcome.js';
-import { setupKeyHint } from './key-hint.js';
+import { setupWyrmfire } from './wyrmfire.js';
+import { setupKeyHint, setupTypingLine } from './key-hint.js';
 import { setupMediaPanel } from './media-panel.js';
 import { setupDrives } from './drives.js';
 import { setupAssemblerPanel } from './assembler-panel.js';
@@ -48,6 +50,10 @@ import { setupAsk } from './ask.js';
 import { setupCommandBox } from './command-box.js';
 import { MemoryKeyStore, storageKeyStore } from '../host/key-store.js';
 import { setupShare } from './share.js';
+import { setupBugReport } from './bug-report.js';
+import { setupClaudeFeatures } from './claude-features.js';
+import { setupRecord } from './record.js';
+import './version-stamp.js';   // the settings drawer's credits line: v<version> · <commit>
 import { setupArrival } from './arrival.js';
 import { ShortLinkStore } from '../host/link-store.js';
 import { setupSlotsPanel } from './slots-panel.js';
@@ -122,6 +128,8 @@ addEventListener('pagehide', () => { session.drives.flush(); session.index.flush
 document.addEventListener('visibilitychange', () => { if (document.hidden) { session.drives.flush(); session.index.flush().catch(() => {}); } });
 window.emu.storageChoices = availableChoices();
 const machinePanel = setupMachinePanel(page, { showRoms: () => romSockets.reveal() });
+// WYRMFIRE (js/ui/wyrmfire.js): the shelf, the palette and ?start=wyrmfire start it through page.wyrmfire
+page.wyrmfire = setupWyrmfire(page, { confirmSwitch: machinePanel.confirmSwitch });
 setupPokePanel(page);
 setupPrinterPanel(page);
 setupSerialPanel(page);
@@ -129,11 +137,23 @@ setupDriveWirePanel(page);
 const romPanel = setupRomPanel(page);
 const romSockets = setupRomSockets(page, romPanel, { confirmSwitch: machinePanel.confirmSwitch });
 setupBootHelp(page, romSockets);
+setupNeedsBasic(page, romSockets);
+// one attention card at a time (play/index.html): the needs-BASIC card over the boot help, either over the no-ROM card
+{
+  const sync = () => {
+    document.body.classList.toggle('card-needs', !$('needsBasic').hidden);
+    document.body.classList.toggle('card-boot', !$('bootHelp').hidden);
+  };
+  const watch = new MutationObserver(sync);
+  for (const id of ['needsBasic', 'bootHelp']) watch.observe($(id), { attributes: true, attributeFilter: ['hidden'] });
+  sync();
+}
 let library = null;
 // the arrival card (a shared moment, or a shared BASIC program, which it opens): before the snapshots, which hand it a
 // program's short link
 const arrival = setupArrival(page, { openShare: () => share.open(), startOver, reportUrl: (id) => linkStore.reportUrl(id), openRoms: () => romSockets.reveal() });
 const snapshots = setupSnapshotPanel(page, { confirmSwitch: machinePanel.confirmSwitch, openRoms: () => romSockets.reveal(), startOver: (program) => startOver(program), openProgram: arrival.openProgram });
+window.emu.arrival = arrival;   // (the browser check: a program arriving while the focus is elsewhere)
 const disks = setupDrives(page, { openRoms: () => romSockets.reveal({ to: 'disk' }) });
 const slots = setupSlotsPanel(page, { snapshots });
 const nitros9 = setupNitros9Panel(page);
@@ -150,10 +170,12 @@ page.linkTouch = link.touch;
 page.touchKeys = setupTouchKeys(page, { input: screen.input });
 setupDisplayPanel(page);
 setupKeyHint(page);
+setupTypingLine(page);
 setupSettingsFile(page);
 // the short links' store: s.cloadm.dev (js/host/link-store.js); the browser check points it at a stand-in server
 const linkStore = new ShortLinkStore();
 const share = setupShare(page, { linkStore });
+page.bugReport = setupBugReport(page);
 const showRoms = () => romSockets.reveal();
 // No Claude chat on a page shown inside someone else's page, whether by the embed flag or by being framed: the chat
 // would put its API key card there. With no controller there is no chat machine, no panel and no key card, and the
@@ -161,6 +183,7 @@ const showRoms = () => romSockets.reveal();
 const claude = chatHere ? setupClaude(page) : null;
 // set up only when there is a controller: both modules drive the chat and would throw on null
 const ask = claude ? setupAsk(page, claude) : null;
+setupClaudeFeatures(page, { closeAsk: () => { if (ask && ask.open) ask.hide(); }, claude });
 // a non-toggling opener for the Ask panel, for the landscape keys' Menu's "Ask Claude…" (js/ui/touch-keys.js): the
 // header's #btnAsk TOGGLES (a second press closes it), which is wrong for a Menu item that always means "open". The
 // panel is the side panel (claude.openPanel); guarded so a page with no chat has nothing to open.
@@ -197,6 +220,8 @@ page.sheets = setupPhoneSheets(page, { touchKeys: page.touchKeys, ask });
 const openRoms = () => { romSockets.reveal(); $('fileRom').click(); };
 // a program spoke on the Speech/Sound Pak with no speech ROM: once a session (Session.checkSpeechRom), with the way in
 session.on((ev) => { if (ev === 'speech-rom') page.toast(SSC_TEXT.speechNoRom, { action: { label: 'Add ROMs', run: () => romSockets.reveal() } }); });
+// another tab changed the stored files and this one could not read the change, after trying twice (Session.mediaElsewhere)
+session.on((ev, e) => { if (ev === 'media-sync-failed') page.toast(`Another tab changed your stored files, and this tab could not read the change${e && e.message ? ` (${e.message})` : ''}. Reload to see it.`); });
 library = setupLibrary(page, { loadProgram: media.loadProgram, runShelf: welcome.runShelf, changed: slots.refresh, showRoms, reconnect, diskSaid: disks.said });
 setupTypein(page, { openRoms, isVisible: () => !$('library').hidden });
 setupTapePanel(page);
@@ -265,9 +290,11 @@ $('btnMenu').onclick = () => {
   const sync = () => {
     item.hidden = pill.hidden;
     const menu = $('btnMenu'), media = menu.classList.contains('media');
-    menu.classList.toggle('dot', !pill.hidden);
+    // (never both: while the pill itself shows, Menu wears no dot; checkVisibility, as the layout draws it at this width)
+    const dot = !pill.hidden && !pill.checkVisibility();
+    menu.classList.toggle('dot', dot);
     // (both: its one dot is the ROMs', its name says both)
-    if (!pill.hidden) menu.setAttribute('aria-label', media ? 'Menu (ROMs needed, media inserted)' : 'Menu (ROMs needed)');
+    if (dot) menu.setAttribute('aria-label', media ? 'Menu (ROMs needed, media inserted)' : 'Menu (ROMs needed)');
     else if (media) menu.setAttribute('aria-label', 'Menu (media inserted)');
     else menu.removeAttribute('aria-label');
   };
@@ -275,6 +302,10 @@ $('btnMenu').onclick = () => {
   const close = () => { $('appbar').classList.remove('menu-open'); $('btnMenu').setAttribute('aria-expanded', 'false'); };
   item.onclick = () => { close(); pill.click(); };
   $('navShare').onclick = () => { close(); $('btnShare').click(); };
+  // a phone's snapshots, under Share: take one now (into the first empty quick-save slot, else the oldest), or the slots
+  // list to restore one from (js/ui/slots-panel.js)
+  $('navSnapTake').onclick = () => { close(); slots.take(); };
+  $('navSnapRestore').onclick = () => { close(); slots.reveal($('btnMenu')); };
   // Settings…: with the touch keys, the Settings sheet on the tab last used (js/ui/phone-sheets.js); elsewhere the
   // drawer's tabs, far below the screen in a narrow window, brought into view on Display (a person looking for
   // "settings" is most often after the picture: its look, its size, the colours)
@@ -287,13 +318,43 @@ $('btnMenu').onclick = () => {
     tab.focus({ preventScroll: true });
   };
   new MutationObserver(sync).observe(pill, { attributes: true, attributeFilter: ['hidden'] });
+  // the pill shows or not with the width and the layout (the touch keys, the chat screen): asked again when they change
+  new ResizeObserver(sync).observe(document.body);
+  new MutationObserver(sync).observe(document.body, { attributes: true, attributeFilter: ['class'] });
   sync();
-  // Menu's order on a phone: Install… after Share…, before the links; on a wider page it is the app bar's last link
-  // (moved, not reordered by the stylesheet, so the focus goes down the list in the order it is drawn)
-  const narrow = matchMedia('(max-width: 700px)');
-  const installPlace = () => { if (narrow.matches) $('navShare').after($('navInstall')); else $('navInstall').closest('nav').append($('navInstall')); };
-  narrow.addEventListener('change', installPlace);
-  installPlace();
+  // Where the less-used links go (moved, not reordered by the stylesheet, so the focus goes down them in the order they
+  // are drawn). On a desktop (wider than 700 px, not held sideways, without the touch keys) Debugger, Commands…, Help,
+  // GitHub and Install CLOADM… are More ▾'s list, in that order (Install CLOADM… only while the page can be installed:
+  // js/ui/install.js hides it once it is). Elsewhere they are Menu's, as before: on a phone Install CLOADM… after Share… and its two
+  // snapshot rows.
+  const narrow = matchMedia('(max-width: 700px)'), sideways = matchMedia('(orientation: landscape) and (max-height: 500px)');
+  const nav = $('appbar').querySelector('nav'), more = $('btnMore'), list = $('moreMenu');
+  const MORE = ['navDebugger', 'navCommands', 'navHelp', 'navGithub', 'navInstall'];
+  const desktop = () => !narrow.matches && !sideways.matches && !document.body.classList.contains('touch-keys') && !document.body.classList.contains('touch-hidden');
+  const openMore = (on) => { list.hidden = !on; more.setAttribute('aria-expanded', String(on)); };
+  let wasDesktop = null;
+  const place = () => {
+    const d = desktop();
+    if (d === wasDesktop) return;
+    wasDesktop = d;
+    openMore(false);
+    more.hidden = !d;
+    for (const id of MORE) (d ? list.append($(id)) : nav.insertBefore($(id), more));
+    if (!d && narrow.matches) $('navSnapRestore').after($('navInstall'));
+  };
+  narrow.addEventListener('change', () => { wasDesktop = null; place(); });
+  sideways.addEventListener('change', place);
+  new MutationObserver(place).observe(document.body, { attributes: true, attributeFilter: ['class'] });
+  place();
+  more.onclick = () => openMore(list.hidden);
+  // an item chosen, a click elsewhere, the focus leaving the list and More ▾ (Tab past its last item) or Esc closes the
+  // list (Esc gives the focus back to More ▾)
+  list.addEventListener('click', () => openMore(false));
+  const away = (e) => { if (!list.hidden && !list.contains(e.relatedTarget) && e.relatedTarget !== more) openMore(false); };
+  list.addEventListener('focusout', away);
+  more.addEventListener('focusout', away);
+  addEventListener('pointerdown', (e) => { if (!list.hidden && !list.contains(e.target) && e.target !== more) openMore(false); }, true);
+  page.onEscape(ESC.menu, () => !list.hidden, () => { openMore(false); more.focus(); });
 }
 
 // Esc closes the topmost surface that is open (page.onEscape: confirmations, menus, cards, the views, the chat)
@@ -317,6 +378,8 @@ const visit = session.visit();
   session.switchMachine(id, Object.keys(config).length ? Object.assign(session.savedConfig(id), config) : undefined, { menu: false });
 }
 if (Object.keys(link.display).length) session.setDisplay(link.display, { remember: false });
+// ?record=1: the screen alone, integer-scaled in a fixed 4:3 (or 16:9) frame, for recording a video (after the link's display)
+if (link.record) setupRecord(page, link.recordAspect);
 const setCheck = (id, on) => { const c = $(id); if (c.checked !== on) { c.checked = on; c.dispatchEvent(new Event('change')); } };
 if (link.joy) setCheck('chkJoy', link.joy === 'mouse');
 if (link.sound !== null) setCheck('chkSound', link.sound);
@@ -367,6 +430,7 @@ const starting = welcome.start(visit, { fromLink, withMedia: link.roms.length > 
   // below, so a check can read the toast without a wait that assumes which came last.
   window.emu.started = true;
   share.ready();
+  page.bugReport.ready();   // play/#bug-report (Help's "Copy a bug report →")
   if (link.errors.length) page.status(`This link has ${link.errors.length === 1 ? 'a setting' : 'settings'} CLOADM can't use: ${link.errors.join('; ')}`, true);
   // a hash in the shape of a share link (#z=, #l=, or the #share= the link's arrival page carried) that no reader
   // above claimed, or a cut short #l=: said, rather than left silent. A view (#share, #library, #add-roms,

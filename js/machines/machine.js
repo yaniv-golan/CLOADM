@@ -172,9 +172,11 @@ class Machine {
   // No-ROM stub: PC hooks at the stub firmware's entry points (symbols from stubRom):
   // RESET runs init(), POLCAT returns a queued key (A, Z clear) or none (Z set), CHROUT prints A on
   // the console, and the cassette/cursor routines return with carry set (error)
-  installStub(symbols, console, init) {
-    const cpu = this.cpu, { Z, C } = cpu.constructor.FLAGS, h = this.pcHooks;
+  // (firmware: stubRom's result; its symbols name the entry points, and it says what it implements)
+  installStub(firmware, console, init) {
+    const cpu = this.cpu, { Z, C } = cpu.constructor.FLAGS, h = this.pcHooks, symbols = firmware.symbols;
     this.stubConsole = console;
+    this.stubFirmware = firmware;
     h.set(symbols.get('RESET'), init);
     h.set(symbols.get('POLCAT'), () => {
       this.keyScans++;
@@ -670,12 +672,18 @@ class Machine {
 }
 
 // The snapshot layout. Bump SNAPSHOT_VERSION whenever any saveState() changes what it writes, and record here what
-// changed. A page reads SNAPSHOT_OLDEST to SNAPSHOT_VERSION:
-//   * a bump that only ADDS state keeps SNAPSHOT_OLDEST. A key an older file lacks must then keep the restored
-//     machine's power-on value: restore() records the file's version (restoringVersion), the loader of the new key
-//     takes its absence in an older file as that value, and a test shows an older file restoring while the same
-//     file at the current version is refused;
-//   * a bump that renames, removes or changes the meaning of state sets SNAPSHOT_OLDEST to the new version.
+// changed. FROZEN since 0.3.0 (AGENTS.md, "Formats are frozen"): files, slots and share links in people's hands must
+// keep opening, so a page reads every version from SNAPSHOT_OLDEST to SNAPSHOT_VERSION, and SNAPSHOT_OLDEST NEVER
+// rises:
+//   * a bump that only ADDS state: a key an older file lacks keeps the restored machine's power-on value. restore()
+//     records the file's version (restoringVersion), the loader of the new key takes its absence in an older file as
+//     that value, and a test shows an older file restoring while the same file at the current version is refused;
+//   * a bump that renames, removes or changes the meaning of state ships a CONVERTER from every older version to the
+//     new layout (restore() runs it on an older file before loadState), with a test per older version; it never
+//     raises SNAPSHOT_OLDEST instead. tests/link-freeze.test.js opens the committed golden links of every version.
+//   * the config is state too: Session.checkedSnapshot refuses a snapshot whose config has a key or value its model's
+//     options (js/machines/profiles.js) don't have, so removing an option or one of its values needs a converter for the
+//     snapshots that hold it.
 // Files from pre-release builds carry a different `format` identifier; js/media/snapshot.js refuses them by it.
 //   1: the first layout.
 //   2: the CoCo 3 adds `haltDefer`, an instruction HALT suspended (js/machines/halt-replay.js haltSuspend, with its bus

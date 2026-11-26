@@ -11,8 +11,20 @@ let fail = 0;
 const check = (name, cond, detail = '') => { if (!cond) { fail++; console.log(`FAIL ${name} ${detail}`); } else console.log(`ok   ${name}`); };
 const frames = (m, n) => { for (let i = 0; i < n; i++) m.runFrame(); };
 const BASE = 'https://cloadm.dev/play/';
-// a small program on the stub: fills the text screen with 'A' and loops
-const FILL = [{ addr: 0x7000, data: Uint8Array.from([0x8E, 0x04, 0x00, 0x86, 0x41, 0xA7, 0x80, 0x8C, 0x06, 0x00, 0x26, 0xF8, 0x20, 0xFE]) }];
+// a small program on the stub: fills the text screen with 'A' and loops. BNE's offset is $F9, as in the golden
+// fixtures (tools/gen-link-fixtures.js): from just past it back to the STA ,X+, which stores 'A' ($41) and moves X on.
+// At $F8 (one short) it lands on $7004, the LDA's operand $41, which our 6809 core runs as NEGA: opcodes $40-$4F all
+// go to unary(), where low nibble 1 is treated like 0, so A = -A in 2 cycles (our disassembler marks it illegal:
+// "FCB $41"). A then flips $41 <-> $BF on each pass - negation, not COM, which would give $BE - while STA ,X+ still
+// advances X, so the screen alternates $41/$BF and the program parks at $700C with X=$0600. The LDA at $7003 runs
+// once, on the first pass; the BNE goes back to $7004, so its $86 is never fetched again. $BF has bit 7 set, reads as
+// a semigraphics block and shows as a space, which the old `replace(/ /g, '').startsWith('AAAA')` checks could not
+// tell from a filled screen.
+const FILL = [{ addr: 0x7000, data: Uint8Array.from([0x8E, 0x04, 0x00, 0x86, 0x41, 0xA7, 0x80, 0x8C, 0x06, 0x00, 0x26, 0xF9, 0x20, 0xFE]) }];
+
+// the program's whole job is filling the screen, so both screen checks want all 16 rows of 32 'A', not just the top
+// one: a loop that stops early still leaves row 0 perfect.
+const fullScreen = (s) => { const rows = s.screenText(); return rows.length === 16 && rows.every((r) => r.slice(0, 32) === 'A'.repeat(32)); };
 
 const session = (roms) => {
   const s = new Emu.Session({ store: Emu.memoryStore() });
@@ -46,7 +58,7 @@ const arrive = async (link, { shared = true } = {}) => {
     const { b, seen } = await arrive(link);
     check('arrival: a shared no-ROM moment is a shared moment', b.sharedMoment === true);
     check('arrival: already set when the page first hears of the machine', seen === true, String(seen));
-    check('arrival: the moment itself is back (the program\'s screen)', b.screenText()[0].replace(/ /g, '').startsWith('AAAA'), b.screenText()[0]);
+    check('arrival: the moment itself is back (the program\'s screen)', fullScreen(b), b.screenText()[0]);
   }
   // ---- 2. the same snapshot not from a link (a dropped file) is not an arrival ----
   {
@@ -123,7 +135,7 @@ const arrive = async (link, { shared = true } = {}) => {
     check('a moment with a program running is not at the prompt', b.shownMachine.atStubPrompt() === false);
     check('a moment with a program running does not offer the menu', !events.includes('menu'), JSON.stringify(events));
     check('a moment with a program running keeps its memory, 60 frames on', b.shownMachine.read(0x3000) === 0xA7, String(b.shownMachine.read(0x3000)));
-    check('a moment with a program running keeps its screen, 60 frames on', b.screenText()[0].replace(/ /g, '').startsWith('AAAA'), b.screenText()[0]);
+    check('a moment with a program running keeps its screen, 60 frames on', fullScreen(b), b.screenText()[0]);
   }
 
   // ---- 9. just arrived from a link (Session.arrivedFromLink, the page's arrival card: js/ui/arrival.js) ----

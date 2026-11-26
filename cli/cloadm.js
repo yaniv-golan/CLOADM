@@ -191,7 +191,7 @@ const STEPS = {
     parse: (t) => { const m = /^([0-3])=(.+)$/.exec(t); return m ? { drive: +m[1], file: m[2] } : { drive: 0, file: t }; },
   },
   type: {
-    arg: 'TEXT', help: 'type at the keyboard and run until the machine has taken the keys; \\n or {ENTER} is ENTER, also {BREAK} {CLEAR} {UP} {DOWN} {LEFT} {RIGHT} {SPACE}', example: '--type \'RUN\\n\'',
+    arg: 'TEXT', help: 'type at the keyboard and run until the machine has taken the keys (with ROMs, paced by what the machine reads); \\n or {ENTER} is ENTER, also {BREAK} {CLEAR} {UP} {DOWN} {LEFT} {RIGHT} {SPACE}', example: '--type \'RUN\\n\'',
     parse: (t) => ({ text: t, items: typed(t) }),
   },
   frames: { arg: 'N', help: 'run N frames', example: '--frames 50', parse: (t) => positive(t, 'frames', { integer: true }) },
@@ -630,7 +630,7 @@ class Runner {
       try { message = s.runGame(name, example(s.gameFile(name))); } catch (e) { if (e instanceof Emu.SessionError) throw media(e.message, 'rejected'); throw e; }
     } else {
       if (Emu.cpuFamily(this.m.config.cpu) !== '6809') throw media(`the demo is 6809 code; the ${this.m.profile.name} has a ${this.m.config.cpu}`, 'rejected');
-      message = s.load('demo.bin', example('demo.bin'), { remember: false });
+      message = s.load('demo.bin', example('demo.bin'), { remember: false, ours: true });
     }
     return this.record(step, { program: name, message });
   }
@@ -681,11 +681,27 @@ class Runner {
     }
     // the stub firmware takes key codes (its POLCAT), BASIC reads the matrix: keys that are no character are pressed
     const STUB = { BREAK: 3, CLEAR: 12, LEFT: 8, RIGHT: 9, DOWN: 10, UP: 94 };
+    // With a ROM the text is typed paced by what the machine consumes (the typing Claude's type_text does): a key is held until the
+    // machine has read it, and nothing is pressed after an ENTER until it reads the keyboard again, so a line editor busy storing a
+    // line drops no key of the next. (Unpaced, back-to-back numbered lines lost the first digit of the next line's number.) The
+    // built-in firmware takes key codes from its own queue at its own pace, so those go in as they were.
+    // (the characters between two keys that are no character go in as one job: a job ends without waiting for its last key to come up,
+    // so two jobs back to back would press a repeated key, the second 0 of 200, before the machine has seen the first one go)
+    const jobs = [];
+    let run = '';
+    const flush = () => {
+      if (!run) return;
+      if (m.useStub || s.refuseTyping(m)) s.typeText(run);
+      else { s.personInput(m); jobs.push(s.typeTextPaced(run, m)); }
+      run = '';
+    };
     for (const it of items) {
-      if (typeof it === 'string') s.typeText(it);
-      else if (m.useStub) m.stubKeys.push(STUB[it.key]);
+      if (typeof it === 'string') { run += it; continue; }
+      flush();
+      if (m.useStub) m.stubKeys.push(STUB[it.key]);
       else m.typist.press(it.key);
     }
+    flush();
     const secs = this.timeout, limit = this.framesFor(secs);
     let n = 0;
     while (m.typist.busy || m.stubKeys.length) {
@@ -696,6 +712,9 @@ class Runner {
       }
       await this.frame(); n++;
     }
+    // a paced job that ended without every key read (the machine stopped reading the keyboard, or was reset) is a step that failed
+    const short = jobs.find((j) => j.status !== 'done');
+    if (short) throw this.stalled('keys-not-taken', `${step.where}: the machine took ${short.consumed} of the ${short.requested} typed keys (${short.status})`);
     return this.record(step, { text, frames: n });
   }
   async frames(step, n) { return this.record(step, { frames: await this.runFrames(n) }); }

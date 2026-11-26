@@ -205,8 +205,8 @@ function fillRegion(bytes, size) {
 // rate in whole Hz; the next edge comes half a period later unless the running clock's own next edge is sooner;
 // edges alternate every half period, and a stopped clock keeps its level. Its IRQ drives the CPU's IRQ (MAME
 // dragon.cpp: acia irq -> input merger -> maincpu irq). The device on the RS-232 port (none, loopback, terminal:
-// js/machines/rs232.js) gives RXD and receives TXD; with nothing plugged in, CTS, DSR and DCD read asserted, as
-// in MAME. The chip's DTR and RTS outputs are not wired to the port (as in MAME's dragon64).
+// js/machines/rs232.js) gives RXD and receives TXD; with nothing plugged in, CTS, DSR and DCD idle high (not
+// asserted), as in MAME's dragon64, which fits no RS-232 device by default. The chip's DTR and RTS outputs are not wired to the port (as in MAME's dragon64).
 class Acia6551 extends Device {
   constructor() {
     super('acia6551');
@@ -252,8 +252,8 @@ class Acia6551 extends Device {
     this.port.attach(kind, opts);
     this.lines();
   }
-  // CTS, DSR and DCD from the device: asserted (0) with nothing plugged in or a terminal (MAME's port with no
-  // device, its null modem); a loopback plug's follow RTS and DTR, which the Dragon 64 does not wire out (as in
+  // CTS, DSR and DCD from the device: asserted (0) by a terminal (MAME's null modem); idle high (not asserted) with
+  // nothing plugged in, and a loopback plug's follow RTS and DTR, which the Dragon 64 does not wire out (as in
   // MAME), so they are not asserted unless the plug holds them asserted
   lines() { const p = this.port; this.chip.setCts(p.cts); this.chip.setDsr(p.dsr); this.chip.setDcd(p.dcd); }
   // power-on clears the time line (and the clock with it: MAME's clock device starts stopped, at level 0);

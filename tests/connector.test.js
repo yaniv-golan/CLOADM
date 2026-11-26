@@ -217,6 +217,16 @@ const J = JSON.stringify;
   fs2.switchMachine('dragon64', undefined, { menu: false });
   check('fold: the folded panel toolbox is the plain one (PANEL_API, every tool and schema)', fp.PANEL_API === panel.PANEL_API && fp.Session !== Session
     && J(fp.panelToolbox(fs2, {}).tools()) === J(build.panelTools()));
+  // The side panel folds the "needs BASIC" detector in like any module (it shows no card for it): its Session watches a
+  // program loaded without BASIC and says what it called, as the page's does
+  {
+    const said = []; fs2.on((ev, a) => { if (ev === 'needs-basic') said.push(a); });
+    // ORCC #$50 ; JSR $A176 (BASIC's ROM space, empty without the ROM) ; BRA * -- at $3000
+    fs2.load('NEEDS.BIN', Uint8Array.from([0x55, 0x02, 0x30, 0x00, 0x00, 0x07, 0x30, 0x00, 0xAA, 0x1A, 0x50, 0xBD, 0xA1, 0x76, 0x20, 0xFE]));
+    fs2.runFrames(5);
+    check('fold: the side panel\'s Session has the "needs BASIC" detector: a load without BASIC is watched, and its call to $A176 is said once',
+      /class NeedsBasic/.test(views.inline) && said.length === 1 && said[0] && said[0].address === 0xA176, J(said));
+  }
   let refused = null;
   try { fold(path.join(ROOT, 'connector/fold.js')); } catch (e) { refused = e.message; }
   check('fold: a form it does not know fails loudly (node: imports are not relative files)', refused !== null, refused);

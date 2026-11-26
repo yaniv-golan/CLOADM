@@ -22,7 +22,7 @@
  * offered for reconnecting (`reconnect`, from openChosenStore); until then the library is kept in the browser.
  */
 import { detectMedia, FAMILY_NAMES } from '../media/detect.js';
-import { expand, pickedFiles, droppedFiles } from './files.js';
+import { expand, pickedFiles, droppedFiles, wadOf } from './files.js';
 import { DISK_PREFIX } from '../library.js';
 import { $, showView } from './page.js';
 import { availableChoices, openMediaStore } from '../host/media-store-open.js';
@@ -148,6 +148,8 @@ export function setupLibrary(page, { loadProgram, runShelf, changed, showRoms, r
     $('libEmpty').hidden = items.length > 0 || roms;
     $('libFilled').hidden = !items.length || roms;
     $('libNone').hidden = !items.length || shown.length > 0 || roms;
+    // (the Snapshots filter with none says where one comes from)
+    $('libNone').textContent = kind === 'snapshot' ? 'No snapshots yet. Take one from Menu → Take snapshot.' : 'Nothing here for this machine and kind.';
     $('libRomsBox').hidden = !roms && items.length > 0;
     romsCard(roms);
     $('btnLibSelect').hidden = !items.length || roms;   // (nothing to select: an empty Library, or the ROM tiles)
@@ -409,7 +411,11 @@ export function setupLibrary(page, { loadProgram, runShelf, changed, showRoms, r
   view.addEventListener('dragleave', () => view.classList.remove('drop'));
   view.addEventListener('drop', async (e) => {
     e.preventDefault(); view.classList.remove('drop');
-    if (!fromShelf(e)) await add(await droppedFiles(e.dataTransfer));   // a spine let go anywhere else: nothing
+    if (!fromShelf(e)) {   // a spine let go anywhere else: nothing
+      const list = await droppedFiles(e.dataTransfer), wad = wadOf(list);
+      // a .wad is the person's own WAD for WYRMFIRE: never a Library file
+      if (wad && page.takeWad) await page.takeWad(wad); else await add(list);
+    }
   });
   // a spine or a tile dropped on the machine's screen: load it
   const screenDrop = $('typeinDrop');

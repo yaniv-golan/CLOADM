@@ -2,7 +2,7 @@
  * Where short links are kept: the short-link Worker at https://s.cloadm.dev/ (shortlink/worker.js), behind a small
  * interface the Session uses without knowing it is a server (Session.shortLink, Session.readShortLink).
  *
- *   create({ machine, sealed, png }) -> { id, deleteToken }   sealed: the moment already encrypted in this browser
+ *   create({ machine, sealed, png }) -> { id, deleteToken }   sealed: the sealed object, encrypted in this browser
  *                                                             (js/media/link-crypto.js); png: the preview or null
  *   load(id)                         -> the sealed bytes
  *   remove(id, deleteToken)          -> nothing
@@ -18,12 +18,15 @@ export class ShortLinkError extends Error { constructor(message, status = 0) { s
 export const SHORT_LINK_BASE = 'https://s.cloadm.dev/';
 const ID = /^[A-Za-z0-9_-]{8}$/;
 
-// the /api/new body (shortlink/worker.js readNewLink): [u8 1][u8 n][machine id][u32 LE sealed length][sealed][png]
+// the /api/new body (shortlink/worker.js readNewLink): [u8 NEW_LINK_VERSION][u8 n][machine id][u32 LE sealed length]
+// [sealed][png]. Version 2: the sealed object starts with its own version and kind (js/media/link-crypto.js), which the
+// Worker reads; version 1 (a sealed object without them) was never deployed and is not read.
+export const NEW_LINK_VERSION = 2;
 export function newLinkBody(machine, sealed, png = null) {
   const m = new TextEncoder().encode(machine);
   if (m.length > 255) throw new ShortLinkError('Not a machine.');
   const out = new Uint8Array(2 + m.length + 4 + sealed.length + (png ? png.length : 0));
-  out[0] = 1; out[1] = m.length; out.set(m, 2);
+  out[0] = NEW_LINK_VERSION; out[1] = m.length; out.set(m, 2);
   new DataView(out.buffer).setUint32(2 + m.length, sealed.length, true);
   out.set(sealed, 6 + m.length);
   if (png) out.set(png, 6 + m.length + sealed.length);

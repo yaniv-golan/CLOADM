@@ -24,6 +24,17 @@ The site has the same thanks at [cloadm.dev/credits](https://cloadm.dev/credits/
 - **The PC-Dragon emulator** by Paul Burgin, cited in MAME 0.264's Dragon disk controller
   (`src/devices/bus/coco/dragon_fdc.cpp`) and VDK format (`src/lib/formats/vdk_dsk.cpp`) sources.
 
+## A game served with it
+
+- **WYRMFIRE** by the WYRMFIRE contributors, a 3D game engine for the Dragon 64
+  ([github.com/yaniv-golan/wyrmfire](https://github.com/yaniv-golan/wyrmfire)), under the GNU GPL version 3 or later:
+  its engine and level converter are served unchanged in `examples/wyrmfire/` (`COPYING-GPL-3.0.txt`, `SOURCE.txt`),
+  pinned in `js/wyrmfire/pin.js`. Its level disk is converted from map E1M1 of
+  [Freedoom](https://freedoom.github.io) 0.13.0, Copyright © 2001-2024 Contributors to the Freedoom project, under the
+  BSD 3-Clause licence (`examples/wyrmfire/freedoom/COPYING.txt`, with its `CREDITS.txt` and `CREDITS-MUSIC.txt`).
+  Freedoom is not affiliated with id Software. DOOM is a registered trademark of ZeniMax Media Inc. CLOADM and
+  WYRMFIRE are independent projects, not affiliated with or endorsed by id Software, ZeniMax Media or Microsoft. References to DOOM describe file compatibility only.
+
 ## Archives
 
 - **[The Color Computer Archive](https://colorcomputerarchive.com/)**: software, documentation and magazines for

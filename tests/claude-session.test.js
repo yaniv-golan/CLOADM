@@ -256,7 +256,7 @@ async function say(s, calls, line, want) {
     await say(s, calls, 'second', 1);
     for (let i = 0; i < 400 && channel.queued; i++) frames(s, 1);
     frames(s, 30);
-    const noKey = ['Thinking...', '[No API key: add your Anthropic API key to', 'chat.]'];
+    const noKey = ['[No API key: add your Anthropic API key to', 'chat.]'];   // (no key: no "Thinking...", the note comes right after the line)
     const want = ['> first', ...noKey, '> Poke it, then run it.', ...noKey, '> second', 'Thinking...', 'Second answer.', '>'];
     const ram = chatScreen(s.shownMachine).filter(Boolean);
     const shown = frameScreen(s.shownMachine).filter(Boolean);
@@ -557,6 +557,26 @@ async function say(s, calls, line, want) {
     check('no snapshot of either machine holds the key', !snapText(basic).includes(KEY) && !snapText(s.chatMachines.chat).includes(KEY));
     const exp = JSON.stringify(s.exportSettings());
     check('the settings export holds no key', !exp.includes(KEY) && !/sk-ant/.test(exp));
+  }
+
+  // ---- a line typed with no key: no turn, no "Thinking...", and the page's own no-key line right after it ----
+  {
+    const { s, chat, calls } = open([textReply('never asked')]);
+    chat.backend.setKey('');
+    chat.noKeyText = 'No API key yet: add one below.';
+    frames(s, 150);
+    let busy = false;
+    const was = chat.onChange;
+    chat.onChange = () => { busy = busy || chat.busy; if (was) was(); };
+    s.typeText('hello\n');
+    for (let i = 0; i < 300; i++) { frames(s, 1); if (chat.error) break; }
+    frames(s, 150);
+    const rows = chatScreen(s.shownMachine).filter(Boolean), at = rows.findIndex((l) => l === '> hello');
+    check('no key: the row right after the typed line is the page\'s no-key line; no "Thinking..." anywhere; no request; no turn',
+      at >= 0 && rows[at + 1] === '[No API key yet: add one below.]' && !rows.some((l) => /Thinking/.test(l)) && calls.length === 0 && !busy
+        && chat.error && chat.error.code === 'no-key' && chat.messages.length === 0, JSON.stringify(rows));
+    check('no key: the firmware is told (NOKEY at CHAT_CHANNEL.nokey is 1), and the prompt is back', s.shownMachine.peek(Emu.CHAT_CHANNEL.nokey) === 1
+      && rows[rows.length - 1].trim() === '>', JSON.stringify(rows.slice(-2)));
   }
 
   // ---- a line of the page's own on the chat screen (chatNote): the no-key hint and the key-saved line ----

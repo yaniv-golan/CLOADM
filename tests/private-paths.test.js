@@ -5,7 +5,7 @@
 // review and ruling labels out; this suite keeps out what points at private places.
 //
 // Every pattern and every case below is built from parts (J joins them), so this file holds none of what it looks
-// for and scans itself like any other. Only tools/vendor/ (third-party code) is exempt, and .gitignore for the local
+// for and scans itself like any other. Only third-party code is exempt (tools/vendor/, and the pinned WYRMFIRE and Freedoom files), and .gitignore for the local
 // instructions file alone (it is where that file is kept out of git).
 // Run: node tests/private-paths.test.js
 const cp = require('child_process'), fs = require('fs'), path = require('path');
@@ -143,7 +143,11 @@ check('inbox: an address near one item does not spare another far along the line
 
 // ---------------- the tree, this file included ----------------
 {
-  const EXEMPT = (f) => f.startsWith('tools/vendor/');
+  // third-party files served byte for byte at a pinned SHA-256 (js/wyrmfire/pin.js: WYRMFIRE's engine, converter and GPL
+  // text, Freedoom's level, licence and credits), exempt as tools/vendor/ is: they cannot be edited, and the pin's test
+  // checks them. Only the pinned files: examples/wyrmfire/SOURCE.txt is CLOADM's own and is scanned.
+  const THIRD_PARTY = new Set(Object.values(require('../js/wyrmfire/pin.js').WYRMFIRE_PIN.files).map((x) => x.path));
+  const EXEMPT = (f) => f.startsWith('tools/vendor/') || THIRD_PARTY.has(f);
   let files = [];
   try { files = cp.execFileSync('git', ['ls-files', '-z'], { cwd: root, encoding: 'utf8', maxBuffer: 64 << 20 }).split('\0').filter(Boolean); } catch (e) { /* no git */ }
   check('the tracked files are listed (git ls-files)', files.length > 100, String(files.length));

@@ -47,6 +47,8 @@ const AREAS = [
     paths: ['js/host/input.js', 'js/host/gamepad.js', 'js/machines/keyboards.js', 'js/machines/keyqueue.js', 'js/machines/typist.js',
       'js/ui/touch-keys.js', 'js/ui/touch-layout.js', 'js/ui/typein.js', 'js/ui/key-hint.js'],
     suites: ['input', 'keyqueue', 'keyboard-symbols', 'touch-joystick', 'press-break'], groups: ['input', 'inputScreen', 'touchJoystick', 'keyboardSymbols', 'typing'] },
+  { row: 'The "needs BASIC" detector (`js/needs-basic.js`, `js/ui/needs-basic.js`, the firmware\'s `implemented`)',
+    paths: ['js/needs-basic.js', 'js/ui/needs-basic.js'], suites: ['needs-basic', 'stub', 'debugger', 'regress'], groups: ['needsBasic', 'romUi'] },
   { row: '`js/session.js`, snapshots', paths: ['js/session.js', 'js/media/snapshot.js', 'js/ui/snapshot-panel.js', 'js/ui/slots-panel.js'],
     suites: ['session', 'snapshot', 'state', 'restore-points', 'writewatch'], groups: ['snapshot', 'state'] },
   { row: '`js/drives.js` (the floppy drives)', paths: ['js/drives.js'],
@@ -78,11 +80,13 @@ const AREAS = [
   { paths: ['js/config.js'], suites: ['config'], groups: ['url'] },
   // the program pages and their cards, and the long link (#z=) and the share pictures
   { paths: ['js/program-pages.js', 'js/media/png.js', 'js/video/card.js', 'tools/program-cards.js'], suites: ['program-pages', 'pwa'], groups: ['url', 'pwa'] },
-  { paths: ['js/media/snapshot.js'], suites: ['long-link', 'share-roms', 'basic-share'], groups: ['share', 'askPopout', 'basicShare'] },
+  { paths: ['js/media/snapshot.js'], suites: ['long-link', 'share-roms', 'basic-share', 'link-freeze'], groups: ['share', 'askPopout', 'basicShare'] },
+  // the frozen link formats: their golden fixtures and the tool that wrote them (AGENTS.md rule 7)
+  { paths: ['tests/fixtures/links/', 'tools/gen-link-fixtures.js'], suites: ['link-freeze'], groups: [] },
   // the share card: Save picture and a short link's preview picture (one renderer)
   { paths: ['js/video/bezel.js'], suites: ['bezel', 'share-card', 'short-link'], groups: ['share', 'shortLink'] },
   // short links: the sealing, the store, the QR code (the Worker itself is shortlink/, tests/shortlink-worker.test.js)
-  { paths: ['js/media/link-crypto.js', 'js/host/link-store.js', 'js/media/qr.js'], suites: ['short-link', 'qr', 'shortlink-worker'], groups: ['shortLink', 'share'] },
+  { paths: ['js/media/link-crypto.js', 'js/host/link-store.js', 'js/media/qr.js'], suites: ['short-link', 'qr', 'shortlink-worker', 'link-freeze'], groups: ['shortLink', 'share', 'basicShare'] },
   { paths: ['js/roms.js', 'js/ui/rom-panel.js', 'js/ui/rom-sockets.js'], suites: ['roms', 'rom-store', 'stored-roms', 'romnames'], groups: ['romUi', 'romInput'] },
   { paths: ['js/selftest.js', 'js/ui/selftest-panel.js'], suites: ['session'], groups: ['models'] },
   { paths: ['js/embed-api.js', 'js/ui/embed.js', 'embed/'], suites: ['embed'], groups: ['embed'] },
@@ -91,11 +95,19 @@ const AREAS = [
   { paths: ['js/ui/poke-panel.js'], suites: [], groups: ['poke'] },
   { paths: ['js/ui/display-panel.js'], suites: ['display'], groups: ['display'] },
   { paths: ['js/ui/welcome.js'], suites: ['welcome'], groups: ['welcomeScreen', 'firstVisit'] },
+  { paths: ['js/wyrmfire/', 'js/ui/wyrmfire.js', 'examples/wyrmfire/', 'tools/wyrmfire-vendor.js'], suites: ['wyrmfire'], groups: ['wyrmfire', 'pwa'] },
   { paths: ['js/ui/install.js', 'sw.js', 'manifest.webmanifest', 'tools/pwa-files.js'], suites: ['pwa', 'install'], groups: ['pwa', 'install'] },
-  { paths: ['js/ui/share.js'], suites: ['share-roms', 'share-card', 'basic-share'], groups: ['share', 'basicShare'] },
+  { paths: ['js/ui/share.js', 'js/share-text.js'], suites: ['share-roms', 'share-card', 'basic-share', 'share-text'], groups: ['share', 'basicShare'] },
   // the arrival card: a shared moment's (the share group's arrival checks, and the visits a link starts and returns to)
   // and a shared BASIC program's (basicShare; the share screen's program mode is js/ui/share.js)
   { paths: ['js/ui/arrival.js'], suites: ['shared-moment', 'basic-share'], groups: ['share', 'visit', 'returning', 'basicShare'] },
+  { paths: ['js/bugreport.js', 'js/ui/bug-report.js'], suites: ['bugreport'], groups: ['commands'] },
+  { paths: ['js/media/gif.js', 'tools/capture-gif.js'], suites: ['gif', 'share-text'], groups: ['share'] },
+  { paths: ['js/version.js', 'js/ui/version-stamp.js', 'tools/version.js'], suites: ['version'], groups: ['reading', 'settings'] },
+  { paths: ['faq/', 'about/'], suites: ['site-pages'], groups: ['reading', 'nav', 'pwa'] },
+  { paths: ['deviations/', 'tools/gen-deviations.js'], suites: ['deviations', 'site-pages'], groups: ['reading', 'nav', 'pwa'] },
+  { paths: ['js/ui/claude-features.js'], suites: ['claude-features'], groups: ['settings', 'commands'] },
+  { paths: ['js/ui/record.js'], suites: ['config'], groups: ['url'] },
   { paths: ['js/ui/feedback.js'], suites: ['feedback-toasts'], groups: ['feedback', 'feedbackModel'] },
   { paths: ['js/ui/machine-panel.js'], suites: ['machine-menu'], groups: ['models', 'powerOn'] },
   { paths: ['js/ui/settings-file.js'], suites: ['settings'], groups: ['settings'] },

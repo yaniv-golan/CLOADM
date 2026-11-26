@@ -52,7 +52,12 @@ export function decide(I) {
   const rect = (left, top) => ({ left, top, right: left + w, bottom: top + h });
   const inView = (a) => a.left >= area.left && a.right <= area.right && a.top >= area.top && a.bottom <= area.bottom;
   const free = (a, avoid) => inView(a) && avoid.every((o) => !hits(a, o));
-  const tries = [[r.left, r.top, true]];   // [left, top, also avoid the screen?]
+  // ONE RULE above the others: a toast never lies over the screen's picture (the canvas). Every place below keeps off
+  // it; on a desktop the place after the stylesheet's own is docked under the tube (centred on it, on the bezel under
+  // the glass), and where no place is free the fixed slot docks over the keys or under the picture (fallbackSlot).
+  const pic = c && c.width && c.height ? [c] : [];
+  const tries = [[r.left, r.top, true]];   // [left, top, also avoid the screen (the monitor and tube too)?]
+  if (!phone && t && t.width) tries.push([Math.round((t.left + t.right - w) / 2), t.bottom + 8, false]);
   if (!phone) {
     const xs = [];
     for (let x = area.left + 16; x + w <= area.right - 16; x += 8) xs.push(x);
@@ -69,11 +74,12 @@ export function decide(I) {
     const f = (active || '0,0,1,1').split(',').map(Number);
     return { left: c.left + f[0] * c.width, top: c.top + f[1] * c.height, right: c.left + f[2] * c.width, bottom: c.top + f[3] * c.height };
   })() : null;
+  // (the band starts under the picture itself, never on it: the one rule)
   const band = t && t.width && t.height && text ? { left: Math.max(t.left, c.left, area.left) + 8, right: Math.min(t.right, c.right, area.right) - 8,
-    top: text.bottom + 2, bottom: Math.min(t.bottom, sideKeys ? Infinity : c.bottom, area.bottom) - 4 } : null;
+    top: Math.max(text.bottom, c.bottom) + 2, bottom: Math.min(t.bottom, area.bottom) - 4 } : null;
   const offText = controls.concat(text ? [text] : []);
   tries.push([r.left, area.top + (phone ? 8 : 16), true]);
-  const at = tries.find(([x, y, avoidScreen]) => free(rect(x, y), avoidScreen ? controls.concat(screen) : controls));
+  const at = tries.find(([x, y, avoidScreen]) => free(rect(x, y), avoidScreen ? controls.concat(screen) : controls.concat(pic)));
   if (at) {
     if (at[0] === r.left && at[1] === r.top) return { kind: 'natural' };
     // (the width the writer must set is the toast's own on a phone -- recorded here so it can be re-applied)
@@ -271,20 +277,51 @@ export function createFeedback() {
       }
       placedTop(I.area, I.phone, I.barBottom);
     };
-    const covered = () => { const b = box.getBoundingClientRect(); return I.stops.filter((o) => hitsRect(b, o)).length; };
-    top();
-    if (!I.stops.length) return 'top';
-    const onTop = covered();
-    if (onTop === 0) return 'top';
-    dropClass(box, 'compact');
-    placedTop(I.area, I.phone, I.barBottom, 'bottom');
-    const onBottom = covered();
-    if (onBottom === 0 || (onTop === I.stops.length && onBottom < I.stops.length)) return 'bottom';
-    top();
+    // The slots, in order: the top one, the docks off the picture (held sideways: beside the picture over each keys' side,
+    // the wider first; else under the picture and the "Tap for sound" chip, across the window), the stylesheet's bottom
+    // one. THE ONE RULE first: a slot over the picture is never taken (the top one is, on a phone, whose picture starts
+    // under the bar). Of the others, the first that covers none of Claude's Stops; where each covers one, the first that
+    // leaves another uncovered; else the first (a Stop under the toast pulled the chat's pill up for as long as it showed).
+    // Upright with the touch keys (the picture starts under the bar): a toast of one line goes over the app bar, in the
+    // compact form; a longer one under the keys' BREAK/CLEAR strip, over the letter rows. A toast docked over keys takes
+    // no taps but its own buttons (#toast.passthru): a key under it still types.
+    const pic = I.canvas && I.canvas.width && I.canvas.height ? I.canvas : null;
+    const slots = [['top', top]];
+    dropClass(box, 'passthru');
+    if (pic) {
+      const a = I.area, left = pic.left - a.left, right = a.right - pic.right;
+      const overKeys = (fn) => () => { dropClass(box, 'compact'); fn(); addClass(region, 'top'); addClass(box, 'passthru'); };
+      const side = (l, r) => overKeys(() => placedAt(px(l + 8), px(a.top + 8), px(r - l - 16)));
+      if (I.sideKeys || (left >= 160 && right >= 160 && pic.bottom > a.bottom - 40)) {
+        const sides = [['dock-left', side(a.left, pic.left), left], ['dock-right', side(pic.right, a.right), right]];
+        sides.sort((x, y) => y[2] - x[2]);
+        slots.push(...sides.map(([n, fn]) => [n, fn]));
+      } else {
+        // over the app bar: the compact form, one line (taller, it would reach the picture and is not taken)
+        slots.push(['over-bar', () => { addClass(box, 'compact'); placedAt(px(a.left + 8), px(a.top + 4), px(a.right - a.left - 16)); addClass(region, 'top'); }]);
+        const under = Math.max(pic.bottom, I.chip ? I.chip.bottom : 0, I.strip ? I.strip.bottom : 0) + 6;
+        slots.push(['dock-under', overKeys(() => placedAt(px(a.left + 8), px(under), px(a.right - a.left - 16)))]);
+      }
+    }
+    slots.push(['bottom', () => { dropClass(box, 'compact'); dropClass(box, 'passthru'); placedTop(I.area, I.phone, I.barBottom, 'bottom'); }]);
+    const tried = [];
+    for (const [name, apply] of slots) {
+      apply();
+      const b = box.getBoundingClientRect();
+      if (pic && hitsRect(b, pic)) { dropClass(box, 'passthru'); continue; }
+      // (over the app bar only a toast of one line: its text no taller than a line and a half)
+      if (name === 'over-bar' && textEl.getBoundingClientRect().height > 1.5 * ((typeof getComputedStyle === 'function' && parseFloat(getComputedStyle(textEl).lineHeight)) || 16)) continue;
+      const covered = I.stops.filter((o) => hitsRect(b, o)).length;
+      if (covered === 0) return name;
+      tried.push([name, apply, covered]);
+    }
+    const pick = tried.find((x) => x[2] < I.stops.length) || tried[0];
+    if (pick) { pick[1](); return pick[0]; }
+    top();   // (nowhere off the picture at all: never invisible wins)
     return 'top';
   }
   // back to the stylesheet's place (a toast that ends, or one placed afresh)
-  function unplace() { clearRegion(); }
+  function unplace() { clearRegion(); dropClass(box, 'passthru'); }
   // Everything place()'s decision reads, as one string: if it is unchanged the answer is unchanged, so a stationary
   // toast needs no measurement and no write. (The controls' geometry is in it: a control that grows under the toast is
   // a different answer, which is what the browser check's "a control grows under it" case needs.)
@@ -309,6 +346,11 @@ export function createFeedback() {
       controls: avoidRects(dialog, phone).map(boxOf),
       screen: dialog ? [] : [...document.querySelectorAll('#monitor, #monitor .tube, #screen')].map((e) => e.getBoundingClientRect()).filter((o) => o.width && o.height).map(boxOf),
       tube: dialog ? null : boxOf(tubeEl && tubeEl.getBoundingClientRect()), canvas: dialog ? null : boxOf(cv && cv.getBoundingClientRect()),
+      // the "Tap for sound" chip under the screen while it shows (a docked toast keeps off it)
+      // the touch keys' BREAK/CLEAR strip where it shows (an upright toast over the keys docks under it)
+      strip: (() => { const rs = ['tkBreak', 'tkClear'].map((id) => document.getElementById(id)).filter((e) => e && !e.hidden).map((e) => e.getBoundingClientRect()).filter((b) => b.width && b.height);
+        return rs.length ? { left: Math.min(...rs.map((b) => b.left)), top: Math.min(...rs.map((b) => b.top)), right: Math.max(...rs.map((b) => b.right)), bottom: Math.max(...rs.map((b) => b.bottom)) } : null; })(),
+      chip: (() => { const e = document.getElementById('soundChip'); const b = e && !e.hidden && e.getBoundingClientRect(); return b && b.width && b.height ? boxOf(b) : null; })(),
       active: cv ? cv.dataset.active || '0,0,1,1' : '',
       // a phone held sideways with the touch keys (decide's band reaches the tube's foot there)
       sideKeys: !!(document.body && document.body.classList.contains('touch-keys')) && matchMedia('(orientation: landscape) and (max-height: 500px)').matches,

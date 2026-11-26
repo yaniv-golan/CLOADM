@@ -25,6 +25,7 @@
 //   print (and on the MC-10 port 2 set up DDR first): both must print the one $FF MAME prints for it, then the rest.
 // --printer --stub-init (CoCo, MC-10, Alice): sam/ or mc10/printer-stubinit.asm, the printer port set up as CLOADM's no-ROM
 //   stub sets it up, then the same print.
+// --serial-idle: the Dragon 64's 6551 with nothing in the serial port (sam/acia-idle.asm), in lockstep with MAME's default (no RS-232 device)
 // --serial: the bit-banger serial port (or the 6551) in loopback, in lockstep with MAME's -rs232 loopback; then
 // every byte sent must have been read back.
 // --rate / --ops (SAM family): the CPU rate firmware (sam/rate.asm, sam/ops.asm) instead of diag.asm; MAME
@@ -252,6 +253,19 @@ async function main() {
     const r = t.result(m);
     console.log(`[${t.label}] ${r.ok ? `all ${r.sent.length} bytes read back as sent` : `bytes read back differ: sent ${r.sent.join(',')}, read ${r.back.join(',')}`}`);
     if (!r.ok) code = 1;
+    if (!code) require('fs').rmSync(t.work, { recursive: true, force: true });
+    return code;
+  }
+  if (args.includes('--serial-idle')) {
+    if (!need('serial-idle', spec.aciaIdle)) return undefined;
+    const t = spec.aciaIdle(profileId, { config });
+    t.install();
+    let code = await lockstep(Object.assign({}, t, { machine: t.machine() }));
+    const m = t.machine();
+    for (let f = 0; f < 600 && m.cpu.pc !== t.haltPc; f++) m.runFrame();
+    const r = t.result(m);
+    console.log(`[${t.label}] ${r.done ? 'reached HALT' : 'did not reach HALT'}; log ${r.log.map((b) => b.toString(16).padStart(2, '0')).join(' ')}`);
+    if (!r.done) code = 1;
     if (!code) require('fs').rmSync(t.work, { recursive: true, force: true });
     return code;
   }

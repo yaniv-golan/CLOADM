@@ -1,0 +1,23 @@
+WYRMFIRE, served by CLOADM
+==========================
+
+The files in this folder come from WYRMFIRE, a game engine for the Dragon 64 that plays Doom-format levels.
+WYRMFIRE is free software under the GNU General Public License, version 3 or later (COPYING-GPL-3.0.txt).
+WYRMFIRE is not affiliated with the Freedoom project.
+DOOM is a registered trademark of ZeniMax Media Inc. CLOADM and WYRMFIRE are independent projects, not affiliated
+with or endorsed by id Software, ZeniMax Media or Microsoft. References to DOOM describe file compatibility only.
+
+Version:  0.1.0
+Source:   https://github.com/yaniv-golan/wyrmfire/tree/775ec6c8167dd576c63a2869c500ecb706f41456
+Commit:   775ec6c8167dd576c63a2869c500ecb706f41456
+
+  wyrmfire.bin                     the engine (bin/wyrmfire.bin of that commit, byte for byte)
+  converter/wyrmfire-convert.js    the level converter (converter/ of that commit, byte for byte), GPL-3.0-or-later
+  converter/worker.js              its Web Worker; CLOADM runs it only to convert a WAD the person drops in their own browser
+  COPYING-GPL-3.0.txt              the GNU General Public License, version 3
+
+freedoom-e1m1.vdk is a level disk made by that converter from map E1M1 of freedoom1.wad in Freedoom 0.13.0
+(https://freedoom.github.io), Copyright (c) 2001-2024 Contributors to the Freedoom project, under the BSD
+3-Clause licence in freedoom/COPYING.txt. The contributors are listed in freedoom/CREDITS.txt and
+freedoom/CREDITS-MUSIC.txt. CLOADM's tools/wyrmfire-vendor.js rebuilds it: it downloads the Freedoom 0.13.0
+release at its pinned SHA-256 and converts it with the converter above.
