@@ -23744,6 +23744,65 @@ async function basicShareChecks(browser, base, site, check) {
   await p2.waitForTimeout(1000);
   check('basicShare: a second after a short link\'s program arrives listed, the focus is on the screen', await p2.evaluate(() => document.activeElement.id) === 'screen', await p2.evaluate(() => document.activeElement.id));
   check('basicShare: the short link, with the Dragon 64\'s BASIC there: a fresh Dragon 64, the program listed', short && short.list === LISTED && short.id === 'dragon64' && short.hash === '' && short.report, JSON.stringify(short || await p2.evaluate(() => [document.getElementById('arrivalText').textContent, document.getElementById('status').textContent, window.emu.machine.id, window.emu.machine.hasRom])));
+  // A program picked from the Programs list restarts the machine on the built-in firmware, so a BASIC program in memory
+  // would be lost: asked first, in the machine menu's question box, and only then. The stored ROMs stay stored; the
+  // status line says the program runs without them.
+  {
+    const ctx3 = await browser.newContext({ viewport: { width: 1280, height: 900 }, serviceWorkers: 'block' });
+    // (what the page says on its status line is a toast: every one is kept)
+    await ctx3.addInitScript(() => { window.__said = []; document.addEventListener('DOMContentLoaded', () => { const t = document.getElementById('toastText');
+      if (t) new MutationObserver(() => { if (t.textContent) window.__said.push(t.textContent); }).observe(t, { childList: true, characterData: true, subtree: true }); }); });
+    const p3 = await ctx3.newPage();
+    p3.on('pageerror', (e) => errors.push(e.message));
+    await p3.goto(`${base}?machine=dragon64`);
+    await linkIn(p3);
+    await p3.evaluate(async (roms) => { const s = window.emu.session; for (const [k, v] of Object.entries(roms)) s.roms.put('dragon64', k, new Uint8Array(v), `${k}.rom`); s.switchMachine('dragon64'); await s.index.settled(); }, romsOf('dragon64'));
+    const bootOk = await waitFor(p3, () => window.emu.session.bootStatus().state === 'ok');
+    const pick = (name) => p3.evaluate((n) => document.querySelector(`#shelf [data-shelf="${n}"]`).click(), name);
+    const state = () => p3.evaluate(() => { const c = document.getElementById('switchConfirm'), s = window.emu.session;
+      return { asked: !c.hidden && c.checkVisibility(), text: document.getElementById('switchText').textContent, yes: document.getElementById('btnSwitch').textContent, name: c.getAttribute('aria-label'),
+        lines: (s.sharedProgram(s.personMachine) || { lines: 0 }).lines, hasRom: s.personMachine.hasRom, stub: s.personMachine.useStub, screen: s.screenText().join(' '),
+        said: window.__said.slice(), stored: Object.values(s.roms.get('dragon64')).filter(Boolean).length }; });
+    // an empty program: no question; LIZA runs, and the status says it runs without the ROMs (which stay stored)
+    await pick('LIZA');
+    const lizaUp = await waitFor(p3, () => /LIZA - A/.test(window.emu.session.screenText().join(' ')), null, 60000);
+    const empty = await state();
+    check('basicShare: no BASIC program in memory: Programs → LIZA asks nothing and runs LIZA, and the status line says it runs without the ROMs, which stay stored',
+      bootOk && lizaUp && !empty.asked && empty.stub && empty.stored === 2 && empty.said.includes('LIZA loaded · runs without ROMs; yours are untouched'), JSON.stringify(empty));
+    // back to BASIC on the stored ROMs, with a 3-line program
+    await p3.evaluate(async () => { const s = window.emu.session; s.stubChosen.delete('dragon64'); s.switchMachine('dragon64'); await s.index.settled(); });
+    await waitFor(p3, () => window.emu.session.bootStatus().state === 'ok');
+    await p3.evaluate(() => window.emu.session.loadBasic('10 REM ONE\n20 REM TWO\n30 END\n'));
+    const before = await state();
+    await pick('LIZA');
+    const asked = await state();
+    check('basicShare: with a 3-line program in memory, Programs → LIZA asks "Starting LIZA restarts the Dragon 64, and the BASIC program in memory (3 lines) will be lost." with [Start LIZA] and Cancel',
+      before.lines === 3 && !before.asked && asked.asked && asked.text === 'Starting LIZA restarts the Dragon 64, and the BASIC program in memory (3 lines) will be lost.' && asked.yes === 'Start LIZA'
+      && asked.name === 'Start LIZA' && asked.hasRom && asked.lines === 3, JSON.stringify(asked));
+    await p3.click('#btnSwitchCancel');
+    const cancelled = await state();
+    check('basicShare: Cancel keeps the program, the ROMs in the machine and BASIC where it was', !cancelled.asked && cancelled.lines === 3 && cancelled.hasRom && !/LIZA - A/.test(cancelled.screen), JSON.stringify(cancelled));
+    await pick('LIZA');
+    await p3.click('#btnSwitch');
+    const started = await waitFor(p3, () => /LIZA - A/.test(window.emu.session.screenText().join(' ')), null, 60000);
+    const lost = await state();
+    check('basicShare: Start LIZA loses the program and runs LIZA without the ROMs (stored, untouched), and the status line says so',
+      started && !lost.asked && lost.lines === 0 && lost.stub && lost.stored === 2 && lost.said.filter((m) => m === 'LIZA loaded · runs without ROMs; yours are untouched').length === 2, JSON.stringify(lost));
+    await ctx3.close();
+    // without ROMs the status line is what it was
+    const ctx4 = await browser.newContext({ viewport: { width: 1280, height: 900 }, serviceWorkers: 'block' });
+    await ctx4.addInitScript(() => { window.__said = []; document.addEventListener('DOMContentLoaded', () => { const t = document.getElementById('toastText');
+      if (t) new MutationObserver(() => { if (t.textContent) window.__said.push(t.textContent); }).observe(t, { childList: true, characterData: true, subtree: true }); }); });
+    const p4 = await ctx4.newPage();
+    p4.on('pageerror', (e) => errors.push(e.message));
+    await p4.goto(`${base}?machine=dragon64`);
+    await linkIn(p4);
+    await p4.evaluate(() => document.querySelector('#shelf [data-shelf="LIZA"]').click());
+    const up4 = await waitFor(p4, () => /LIZA - A/.test(window.emu.session.screenText().join(' ')), null, 60000);
+    const said4 = await p4.evaluate(() => window.__said.slice());
+    check('basicShare: without ROMs, Programs → LIZA says just "LIZA loaded", as before', up4 && said4.includes('LIZA loaded') && !said4.some((m) => /runs without ROMs/.test(m)), JSON.stringify(said4));
+    await ctx4.close();
+  }
   check('basicShare: no page errors', errors.length === 0, errors.join(' | '));
   await ctx.close(); await ctx2.close();
 }

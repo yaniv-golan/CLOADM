@@ -51,7 +51,8 @@ export const HINT_MS = 4000;
 const ASK = [['dragon64', 'Dragon 32 / 64'], ['coco', 'CoCo 1 / 2'], ['coco3', 'CoCo 3'], ['mc10', 'MC-10']];
 const el = (tag, text, cls) => { const e = document.createElement(tag); if (text != null) e.textContent = text; if (cls) e.className = cls; return e; };
 
-export function setupWelcome(page, { showRoms, openClaude }) {
+// ask: the machine menu's question box for another question (js/ui/machine-panel.js ask)
+export function setupWelcome(page, { showRoms, openClaude, ask }) {
   const { session, audio } = page;
   const box = $('welcome');
   const back = $('btnWelcomeBack');   // shown while the colour demo started from the menu runs
@@ -165,7 +166,19 @@ export function setupWelcome(page, { showRoms, openClaude }) {
   }
   $('btnRunAgain').onclick = () => runAgain();
 
+  // A program the person picks from a list (the Media tab's, the Programs sheet, the Library's) starts on the built-in
+  // firmware and restarts the machine, so a BASIC program in memory would be lost: asked first (the question box of the
+  // machine menu), only then. No program in memory, no question. The welcome menu's own keys do not ask.
+  function start1(item) {
+    const prog = session.sharedProgram(session.personMachine);
+    if (!prog || !ask) { run(item); return; }
+    ask({ text: `Starting ${item.name} restarts the ${session.personMachine.profile.name}, and the BASIC program in memory (${prog.lines} line${prog.lines === 1 ? '' : 's'}) will be lost.`,
+      label: `Start ${item.name}`, onYes: () => run(item) });
+  }
   async function run(item, { byMachine = null } = {}) {
+    // with the person's ROMs in the machine the program still runs without them: the status line says so
+    const withRoms = !session.personMachine.useStub;
+    const loaded = (name) => `${name} loaded${withRoms ? ' · runs without ROMs; yours are untouched' : ''}`;
     // LIZA has a build per CPU; the Session chooses it and checks the RAM the 6803 build needs
     if (item.liza && session.lizaNeeds()) return offerLizaRam(item);
     try {
@@ -174,17 +187,18 @@ export function setupWelcome(page, { showRoms, openClaude }) {
         session.checkLiza();
         const bytes = await page.fetchBytes(`examples/${session.lizaFile}`);
         startAs(byMachine, () => session.runLiza(bytes));
-        page.status('LIZA loaded');   // (our own program: no addresses; those are for files the visitor brings)
+        page.status(loaded('LIZA'));   // (our own program: no addresses; those are for files the visitor brings)
       } else if (item.game) {
         session.checkGame(item.game);   // (another CPU, or under 32K: says so before fetching anything)
         const bytes = await page.fetchBytes(`examples/${session.gameFile(item.game)}`);
         startAs(byMachine, () => session.runGame(item.game, bytes));
         howTo(touchPanel() ? `${item.name}: tap a key to play; tap BREAK for the menu`
           : `${item.name}: press a key to start; BREAK (Esc) goes back to the menu`);
+        if (withRoms) page.status(loaded(item.name));
       } else {
         const bytes = await page.fetchBytes(item.url);
         startAs(byMachine, () => session.load(item.url.split('/').pop(), bytes, { remember: false, ours: true }));
-        page.status(`${item.name} loaded`);
+        page.status(loaded(item.name));
         session.setLastRun('demo', item.name);
         // the demo runs on the person's machine (the load above goes there, behind the chat): watch THAT machine,
         // not whichever one is on screen, or a watch opened with the chat full screen would name the chat's machine
@@ -242,7 +256,7 @@ export function setupWelcome(page, { showRoms, openClaude }) {
       row.append(w);
     }
     for (const item of SHELF.filter((x) => !x.cpu || x.cpu === family)) {
-      const b = entry(item.name, item.liza ? { start: 'liza' } : item.game ? { start: item.game } : null, () => run(item));
+      const b = entry(item.name, item.liza ? { start: 'liza' } : item.game ? { start: item.game } : null, () => start1(item));
       b.dataset.shelf = item.name;   // the focus key: the redraw restores by it
       // the LIZA title names the build the machine actually runs (the 6309 runs the 6809 build)
       b.title = item.liza ? `${item.title} (the ${family} build${need ? `; needs the ${need.ram}K RAM option` : ''})` : item.title;
@@ -441,7 +455,7 @@ export function setupWelcome(page, { showRoms, openClaude }) {
   function runShelf(name) {
     const item = SHELF.find((x) => x.name === name);
     if (item.cpu && cpuFamily(session.personMachine.config.cpu) !== item.cpu) { page.status(`${name} needs a Dragon or a CoCo; pick one from the machine menu.`, true); return; }
-    run(item);
+    start1(item);
   }
   // a bundled program ('liza' or a game) started from its beginning, as its program page starts it (the arrival card's
   // and the snapshot toast's Start over) -> false when there is no such program (the caller power cycles instead)

@@ -204,7 +204,7 @@ if (claude) {
 // where there is no chat because this page is inside another site's page: "Ask Claude ↗" opens it in a new tab
 // (the framed full page's app bar; an embed's corner chip only with askclaude=1)
 window.emu.askPopout = claude ? null : setupAskPopout(page, { link, framed: framedInPage });
-const welcome = setupWelcome(page, { showRoms, openClaude: () => claude && claude.open() });
+const welcome = setupWelcome(page, { showRoms, openClaude: () => claude && claude.open(), ask: machinePanel.ask });
 // Start over (the snapshot toast) and Start from the beginning (the arrival card): a moment of a bundled program
 // starts that program again from its beginning, as its program page does; any other moment is a power cycle into the
 // same machine, the screen's own Power route

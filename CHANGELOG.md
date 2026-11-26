@@ -14,7 +14,10 @@ Next version: 0.3.1 (the plugin and extension manifests carry it; `tests/plugin.
   have added ROMs for that model (the welcome menu always did). Your ROMs stay stored and untouched, nothing is left behind
   for later boots, and BASIC starts on them as before (the welcome menu's option 3, or a reload). A moment of one of these
   programs then holds no code of your ROMs, so Share gives a short link anyone can open; leaving a game with BREAK goes to
-  the welcome menu instead of back to BASIC. Starting a program restarts the machine, so a BASIC program in memory is not kept.
+  the welcome menu instead of back to BASIC. Starting a program restarts the machine, so a BASIC program in memory is not kept: picking a
+  program from the Programs list asks first when there is one ("Starting LIZA restarts the Dragon 64, and the BASIC program in memory
+  (3 lines) will be lost."; the welcome menu's keys do not ask), and with your ROMs stored the status line says "LIZA loaded · runs
+  without ROMs; yours are untouched".
 
 ### 0.3.1
 
