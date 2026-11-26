@@ -468,16 +468,19 @@ for (const good of ['PCLEAR 1', 'PCLEAR 0', 'PCLEAR 9', 'PMODE 4,1', 'PMODE 0,4'
   }
 
   // the lint: fixtures must exist and be well formed; #tape-rewind and #tape-blocks need a tape; CLOADM only of a
-  // fixture's machine code, into memory set aside, with no offset; CSAVEM in any spelling refused
+  // fixture's machine code, into memory set aside (with its offset, a literal, if given); CSAVEM in any spelling refused
   const lt = (t) => lintCase(t, { tapes: dir });
   for (const bad of ['#tape missing', '#tape noprov', '#tape tokens', '#tape-rewind', '#tape-blocks x', '#tape-rewind\n#tape ok',
     '10 CLOADM', 'CLEAR 200,28672\nCLOADM', 'CLEAR 200,28672\n#tape-blank\n#tape mcok\nCLOADM', 'CLEAR 200,28672\n#tape ok\nCLOADM',
-    'CLEAR 200,28672\n#tape mclow\nCLOADM', 'CLEAR 200,28672\n#tape mchigh\nCLOADM', '#tape mcok\nCLOADM', 'CLEAR 200,28672\n#tape mcok\nCLOADM "M",512',
-    'CLEAR 200,28672\n#tape mcok\n#tape ok\nCLOADM', 'CLEAR 200,28672\n#tape-blank\nCLOAD M', 'CLEAR 200,28672\n#tape mcok\n10 X=1:CLOADM:EXEC',
+    'CLEAR 200,28672\n#tape mclow\nCLOADM', 'CLEAR 200,28672\n#tape mchigh\nCLOADM', '#tape mcok\nCLOADM', 'CLEAR 200,28672\n#tape mcok\nCLOADM "M",4095',
+    'CLEAR 200,28672\n#tape mcok\nCLOADM "M",X', 'CLEAR 200,28672\n#tape mcok\nCLOADM "M",-1', 'CLEAR 200,28672\n#tape mcok\nCLOADM "M",1,2',
+    'CLEAR 200,28672\n#tape mclow\nCLOADM "M",4095', 'CLEAR 200,28672\n#tape mcok\n#tape ok\nCLOADM', 'CLEAR 200,28672\n#tape-blank\nCLOAD M', 'CLEAR 200,28672\n#tape mcok\n10 X=1:CLOADM:EXEC',
     '10 CSAVEM "A",1,2,3', '10 CSAVE M', 'CLOAD M$'])
     check(`lint refuses ${bad.replace(/\n/g, ' / ')}`, lt(bad).length > 0);
   for (const good of ['#tape ok', '#tape-blank\nCSAVE "X"\n#tape-blocks a\n#tape-rewind\nCLOAD', '#tape ok\n#tape-rewind\n#tape-blocks b',
-    'CLEAR 200,28672\n#tape mcok\nCLOADM\nCLOADM "M"', 'CLEAR 200,28672\n#tape mcok\n10 CLOADM:PRINT 1', 'CLEAR 200,28672\n#tape mcok\nCLOAD M', 'CSAVE "M"', 'CLOAD "M"', '10 PRINT "CLOADM"'])
+    'CLEAR 200,28672\n#tape mcok\nCLOADM\nCLOADM "M"', 'CLEAR 200,28672\n#tape mcok\n10 CLOADM:PRINT 1', 'CLEAR 200,28672\n#tape mcok\nCLOAD M', 'CSAVE "M"', 'CLOAD "M"', '10 PRINT "CLOADM"',
+    'CLEAR 200,28672\n#tape mcok\nCLOADM "M",512', 'CLEAR 200,28672\n#tape mcok\nCLOADM "M",&H100', 'CLEAR 200,28672\n#tape mcok\nCLOADM "M",4094',
+    'CLEAR 200,28672\n#tape mclow\nCLOADM "M",4096'])
     check(`lint accepts ${good.replace(/\n/g, ' / ')}`, lt(good).length === 0, lt(good).join('; '));
   check('lint: the default fixtures folder is tests/basic/tapes', lintCase('#tape three-progs').length === 0 && lintCase('#tape ok').length > 0);
 

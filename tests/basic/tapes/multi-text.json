@@ -1,0 +1,90 @@
+{
+  "provenance": "Written for the black-box cassette cases (2026-11-26): our own content, nothing taken from a ROM. Files of several data blocks: a BASIC program as text (LONG, three blocks), a BASIC program as text whose second line has no line number and which goes on for three blocks (NONUM), a data file of twenty-five records (BIGDATA, three blocks), then a short program (GOOD).",
+  "files": [
+    {
+      "name": "LONG",
+      "type": "basic",
+      "ascii": true,
+      "lines": [
+        "100 REM LONG PROGRAM LINE 100 OF OUR OWN TEXT",
+        "110 REM LONG PROGRAM LINE 110 OF OUR OWN TEXT",
+        "120 REM LONG PROGRAM LINE 120 OF OUR OWN TEXT",
+        "130 REM LONG PROGRAM LINE 130 OF OUR OWN TEXT",
+        "140 REM LONG PROGRAM LINE 140 OF OUR OWN TEXT",
+        "150 REM LONG PROGRAM LINE 150 OF OUR OWN TEXT",
+        "160 REM LONG PROGRAM LINE 160 OF OUR OWN TEXT",
+        "170 REM LONG PROGRAM LINE 170 OF OUR OWN TEXT",
+        "180 REM LONG PROGRAM LINE 180 OF OUR OWN TEXT",
+        "190 REM LONG PROGRAM LINE 190 OF OUR OWN TEXT",
+        "200 REM LONG PROGRAM LINE 200 OF OUR OWN TEXT",
+        "210 REM LONG PROGRAM LINE 210 OF OUR OWN TEXT",
+        "220 REM LONG PROGRAM LINE 220 OF OUR OWN TEXT",
+        "230 REM LONG PROGRAM LINE 230 OF OUR OWN TEXT",
+        "410 PRINT \"LONG LOADED\""
+      ]
+    },
+    {
+      "name": "NONUM",
+      "type": "basic",
+      "ascii": true,
+      "lines": [
+        "10 PRINT \"BEFORE\"",
+        "NO NUMBER HERE",
+        "20 REM SECOND PART LINE 20 OF OUR TEXT",
+        "30 REM SECOND PART LINE 30 OF OUR TEXT",
+        "40 REM SECOND PART LINE 40 OF OUR TEXT",
+        "50 REM SECOND PART LINE 50 OF OUR TEXT",
+        "60 REM SECOND PART LINE 60 OF OUR TEXT",
+        "70 REM SECOND PART LINE 70 OF OUR TEXT",
+        "80 REM SECOND PART LINE 80 OF OUR TEXT",
+        "90 REM SECOND PART LINE 90 OF OUR TEXT",
+        "100 REM SECOND PART LINE 100 OF OUR TEXT",
+        "110 REM SECOND PART LINE 110 OF OUR TEXT",
+        "120 REM SECOND PART LINE 120 OF OUR TEXT",
+        "130 REM SECOND PART LINE 130 OF OUR TEXT",
+        "140 REM SECOND PART LINE 140 OF OUR TEXT",
+        "150 REM SECOND PART LINE 150 OF OUR TEXT",
+        "160 REM SECOND PART LINE 160 OF OUR TEXT"
+      ]
+    },
+    {
+      "name": "BIGDATA",
+      "type": "data",
+      "lines": [
+        "RECORD 1 OF OUR OWN DATA",
+        "RECORD 2 OF OUR OWN DATA",
+        "RECORD 3 OF OUR OWN DATA",
+        "RECORD 4 OF OUR OWN DATA",
+        "RECORD 5 OF OUR OWN DATA",
+        "RECORD 6 OF OUR OWN DATA",
+        "RECORD 7 OF OUR OWN DATA",
+        "RECORD 8 OF OUR OWN DATA",
+        "RECORD 9 OF OUR OWN DATA",
+        "RECORD 10 OF OUR OWN DATA",
+        "RECORD 11 OF OUR OWN DATA",
+        "RECORD 12 OF OUR OWN DATA",
+        "RECORD 13 OF OUR OWN DATA",
+        "RECORD 14 OF OUR OWN DATA",
+        "RECORD 15 OF OUR OWN DATA",
+        "RECORD 16 OF OUR OWN DATA",
+        "RECORD 17 OF OUR OWN DATA",
+        "RECORD 18 OF OUR OWN DATA",
+        "RECORD 19 OF OUR OWN DATA",
+        "RECORD 20 OF OUR OWN DATA",
+        "RECORD 21 OF OUR OWN DATA",
+        "RECORD 22 OF OUR OWN DATA",
+        "RECORD 23 OF OUR OWN DATA",
+        "RECORD 24 OF OUR OWN DATA",
+        "RECORD 25 OF OUR OWN DATA"
+      ]
+    },
+    {
+      "name": "GOOD",
+      "type": "basic",
+      "ascii": true,
+      "lines": [
+        "10 PRINT \"GOOD LOADED\""
+      ]
+    }
+  ]
+}

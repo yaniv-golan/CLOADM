@@ -77,6 +77,14 @@ Next version: 0.3.1 (the plugin and extension manifests carry it; `tests/plugin.
   in fields, to compare the interpreters' speed.
   A probe for the next batch, `ram-ptr25`, asks what moves `$25-26`: each kind of string made in direct mode and in a
   program.
+  Six cassette cases for the same batch ask the original what the records so far left open: the blink and the
+  motor while it reads files of several blocks, a line without a number in the middle of a program saved as text,
+  what a file left open by `?IO ERROR` refuses and what closes it, `CLOAD`, `CLOADM` and `SKIPF` inside a program,
+  where `CLOADM` keeps the exec address and whether its offset moves it, and data files' records, errors and what
+  closes them. The lint lets `CLOADM` take an offset when the code still loads into the memory set aside.
+  An `RND` case for that batch records the original's sequence from cold start, after reseeding and for whole-number
+  ranges, each value with the five bytes it is stored as, and which bytes of low RAM one `RND` changes, to see whether
+  the generator can be told from what it prints. Ours is unchanged.
   BASIC's own variables now sit where the original keeps them (the program and string pointers at `$19-$28`, the
   line running at `$68`, the output device at `$6F`, the cold-start flag at `$71`, the text pointer at `$A6`, `TRON`
   at `$AF`, `TIMER` at `$0112`, lower case at `$0149`), so the well-known `POKE`s (`TRON`, lower case, `PCLEAR`-like

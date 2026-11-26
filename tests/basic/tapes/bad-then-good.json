@@ -1,0 +1,29 @@
+{
+  "provenance": "Written for the black-box cassette cases (2026-11-26): our own content, nothing taken from a ROM. A BASIC program (ASCII text) whose data block has one byte flipped with its checksum left as it was (BAD), then a short program (GOOD), so a search can go on past the read error.",
+  "files": [
+    {
+      "name": "BAD",
+      "type": "basic",
+      "ascii": true,
+      "lines": [
+        "10 PRINT \"NEVER LOADED\"",
+        "20 PRINT \"WHOLE\""
+      ]
+    },
+    {
+      "name": "GOOD",
+      "type": "basic",
+      "ascii": true,
+      "lines": [
+        "10 PRINT \"GOOD LOADED\""
+      ]
+    }
+  ],
+  "corrupt": [
+    {
+      "block": 1,
+      "byte": 4,
+      "xor": 1
+    }
+  ]
+}

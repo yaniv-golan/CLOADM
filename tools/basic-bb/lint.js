@@ -28,8 +28,8 @@
 //     well formed (a provenance, BASIC programs as ASCII text only), and a #tape-rewind before any #tape or #tape-blank.
 //     CLOADM (CLOAD M, the same statement, too) is allowed in one case only: every tape it can read is a fixture (no
 //     #tape-blank, so nothing it wrote), every file on those fixtures is machine code loading within the memory a
-//     first line CLEAR n,top set aside, and it is given no offset. It then loads our own bytes into that memory, and
-//     with EXEC still refused (and the run-time guard) nothing runs them.
+//     first line CLEAR n,top set aside, with its offset if it is given one (a literal 0 or more). It then loads our own
+//     bytes into that memory, and with EXEC still refused (and the run-time guard) nothing runs them.
 // Strings, remarks and DATA are not checked as code, except that REM and ' inside DATA are text (BASIC runs what
 // follows them). A program line that starts with END: is not checked either (a line is only ever entered at its
 // start, so nothing after that END runs; the token probe lists keywords that way), unless the case uses CONT.
@@ -200,13 +200,15 @@ function lintCase(text, { tapes = TAPES } = {}) {
     if (!m || !ok(literal(m[1])) || !ok(literal(m[2]))) problems.push(`line ${x.at}: PCOPY ${x.args.trim()}: both pages literals within the ${pages} the case reserves`);
   }
   const gfxEnd = pclears.length ? 0 : 0x600 + 4 * PAGE;     // POKE to a graphics page: only with no PCLEAR
-  // CLOADM: only our own machine code from a fixture, into the memory set aside, with no offset
+  // CLOADM: only our own machine code from a fixture, into the memory set aside (with a literal offset, if any)
   const cloadmProblem = (args) => {
     if (blank || !fixtures.length) return 'only reads a fixture\'s machine code: the case plays #tape fixtures and has no #tape-blank';
     if (top == null) return 'needs a first line CLEAR n,top: the fixture\'s machine code loads only above top';
-    const outside = fixtures.flatMap((fx) => fx.files).filter((f) => f.type !== 'binary' || f.load < top || f.load + f.data.length > 0x8000);
-    if (outside.length) return `only with fixtures whose every file is machine code loading from ${top} to 32767 (not ${outside.map((f) => f.name).join(', ')})`;
-    if (splitTop(args).length > 1) return 'with an offset: the load address is the fixture\'s own';
+    const parts = splitTop(args);
+    const off = parts.length > 1 ? literal(parts[1]) : 0;
+    if (parts.length > 2 || off == null) return 'with an offset that is not one literal 0 or more: where it loads must be known';
+    const outside = fixtures.flatMap((fx) => fx.files).filter((f) => f.type !== 'binary' || f.load + off < top || f.load + off + f.data.length > 0x8000);
+    if (outside.length) return `only with fixtures whose every file is machine code loading${off ? `, with the offset ${off},` : ''} from ${top} to 32767 (not ${outside.map((f) => f.name).join(', ')})`;
     return null;
   };
   for (const { line, at } of lines) {

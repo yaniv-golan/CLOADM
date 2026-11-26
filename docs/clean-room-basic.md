@@ -392,9 +392,9 @@ node tools/basic-bb/compare.js real.jsonl ours.jsonl [--shots DIR]
   tape: a `#tape NAME` fixture must exist under `tests/basic/tapes/` and be well formed (a provenance, BASIC as ASCII
   text), `#tape-rewind` and `#tape-blocks` need a tape in, and `CSAVEM` is refused in either spelling (`CSAVE M`).
   `CLOADM` (or `CLOAD M`) is allowed only when every tape the case can read is a fixture (no `#tape-blank`), every
-  file on those fixtures is machine code loading within memory a first line `CLEAR n,top` set aside, and no offset
-  is given: it then loads our own bytes, which `PEEK` may read back, and with `EXEC` refused and the run-time guard
-  nothing runs them (`cas-cloadm`).
+  file on those fixtures is machine code loading within memory a first line `CLEAR n,top` set aside, with its offset
+  if one is given (a literal 0 or more): it then loads our own bytes, which `PEEK` may read back, and with `EXEC`
+  refused and the run-time guard nothing runs them (`cas-cloadm`, `cas-cloadm2`).
 * **The run-time guard** (`tests/basic/harness.js`, always on for the black-box cases): the CPU running any
   instruction from RAM written since the case began (machine code reached through a POKEd vector, say) stops the
   case with status `refused`, and nothing of its screen is recorded. Our own EXEC and USR cases live apart, in
@@ -509,7 +509,8 @@ All answered by the project owner and kept here with the decision, except where 
 4. **Transcendental functions. Decided:** last-digit differences are acceptable for now; the target is bit-exact after
    the black-box alignment, and every remaining difference is listed with the case that shows it.
 5. **`RND`. Decided:** not required in P1; recovering the exact sequence from black-box output in M8 is a goal, since
-   games depend on it.
+   games depend on it. The case `rnd-seq` (bb8) records the original's values and their bytes, and the low-RAM
+   bytes one `RND` changes, for that.
 6. **P2 keywords in P1. Decided:** they crunch, `LIST` and save correctly; at run time they give whatever error the
    black-box shows, `?FC ERROR` until then.
 7. **The 64K-mode BASIC. Decided:** out of scope (32K mode only).
@@ -524,10 +525,10 @@ All answered by the project owner and kept here with the decision, except where 
    `cas-save-load` and `cas-skipf` differ), what the letter ends as after a file of several data blocks (ours: by
    their number), whether a text file's line without a number is `?DS ERROR` at once on the original when more
    blocks follow it (ours: always at the end), and which statements a file left open by `?IO ERROR` refuses (ours:
-   every cassette statement, once) and what else closes it (ours: nothing else). Also open: the exec and load addresses it writes in a BASIC
-   program's namefile (ours: 0 and 0); whether `CLOADM`'s offset also moves the exec address (ours: yes); whether a
-   `CLOAD` run inside a program returns to `OK` (ours: yes) and `CLOADM` and `SKIPF` go on with the statement (ours:
-   yes); the leader length and the timing around the motor (ours: 128 bytes, half a second); what `SKIPF` does with
+   every cassette statement, once) and what else closes it (ours: nothing else). The exec and load addresses it writes
+   in a BASIC program's namefile are 0 and 0, as ours, tokenised or as text [BB bb4 `cas-save-load`]. Also open:
+   whether `CLOADM`'s offset also moves the exec address (ours: yes); whether a `CLOAD` run inside a program returns
+   to `OK` (ours: yes) and `CLOADM` and `SKIPF` go on with the statement (ours: yes); the leader length and the timing around the motor (ours: 128 bytes, half a second); what `SKIPF` does with
    a bad block (ours: nothing). Each is a single place in `basic/cassette.inc`.
    Also open, for data files (section 12): the leaders and motor timings of the blocks written (bb4 `cas-files`
    differs from ours there as `cas-save-load` does); where the original keeps the block buffer (ours: graphics page
@@ -535,6 +536,13 @@ All answered by the project owner and kept here with the decision, except where 
    what `;` or `,` at the end of `PRINT #-1` writes; the errors no record shows (`?FM`, `?DN`, `?NO` in a program,
    `?AO` on a second `OPEN`); whether `NEW`, `RUN` or an error close a file (ours: no); `EOF` of a file open for
    output (ours: `?FM`); whether `OPEN "I"` reads a file of any type (ours: yes).
+   The batch bb8 asks the original these (`cas-multi`, `cas-left-open`, `cas-in-program`, `cas-cloadm2`, `cas-data2`,
+   `cas-data-errors`; the fixtures `multi-text`, `bad-then-good`, `mc-big`), as far as a black-box record can: the
+   blink's timing by the top-row flags' frames, the motor's runs, what each statement says and what is loaded after
+   it, and where `CLOADM` put the exec address (RAM below the text screen searched for its bytes). A written block's
+   leader can rarely be counted from a record: the tape decoder finds only 1 or 2 `$55` bytes before most of the
+   original's blocks (258 before an end-of-file block written after the motor stopped and started again: bb4
+   `cas-save-load`, `cas-files`), so mostly the motor's runs time it.
 
 ## 11. Provenance log
 
