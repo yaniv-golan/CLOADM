@@ -117,7 +117,7 @@ Two ways to talk to Claude, one conversation:
   and the screen's text. The page's own questions show at once; an answer of 1-3 questions of at most 60 characters
   each, arriving within 3 s, replaces them under "Suggested by Claude", and anything else (a timeout, an error, an
   answer of another shape) keeps them. At most one request per distinct screen and one per 30 s; none from the line
-  under the machine (it shows the page's own only) none on a graphics screen, and none while your own WAD's level is loaded. A tap fills the message box and
+  under the machine (it shows the page's own only), none on a graphics screen, and none while your own WAD's level is loaded. A tap fills the message box and
   sends nothing. The key goes only into the request's header (`tests/claude-suggest.test.js`; the browser check's
   `askSuggest` group).
 * **Ctrl+K** opens "Ask Claude or find a command" (`js/ui/command-box.js`): the page's commands that match what you
