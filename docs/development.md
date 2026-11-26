@@ -39,7 +39,7 @@ names contain one of the parts, and `node tools/browser-check.js --only <group>[
 | Serial, printer, DriveWire | `serial,serial-api,acia,drivewire,web-serial` | `driveWire,webSerial,printer` |
 | The assembler (`js/asm/`) | `asm,includes,disasm` | `debugger` |
 | Debugger | `debugger,debug-session,halt,probes,writewatch` | `debugger,debuggerScreen` |
-| Keyboard and input | `input,keyqueue,keyboard-symbols,touch-joystick,press-break` | `input,inputScreen,touchJoystick,keyboardSymbols,typing` |
+| Keyboard and input | `input,keyqueue,keyboard-symbols,touch-joystick,touch-thumb,press-break` | `input,inputScreen,touchJoystick,keyboardSymbols,typing` (WYRMFIRE's pad: `phone`) |
 | `js/session.js`, snapshots | `session,snapshot,state,restore-points,writewatch` | `snapshot,state` |
 | The "needs BASIC" detector (`js/needs-basic.js`, `js/ui/needs-basic.js`, the firmware's `implemented`) | `needs-basic,stub,debugger,regress` | `needsBasic,romUi` |
 | `js/drives.js` (the floppy drives) | `session-drives,disks,disks-newdisk,disk-bare,disks-mount-case,disks-mount-race,restore-points` | `disk,driveWire` |

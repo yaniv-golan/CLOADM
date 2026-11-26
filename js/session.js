@@ -129,9 +129,9 @@ export const WELCOME = Object.freeze({
   // build's line has the room for "CARRY ON WITH MINESWEEPER")
   '6809': Object.freeze({ file: 'welcome.bin', start: 0x6000, event: 0x6003, soundOk: 0x6004, played: 0x6005, greet: 0x6006, carry: 0x6007, romsw: 0x6022, carryMax: 26 }),
   '6803': Object.freeze({ file: null, start: 0x5000, event: 0x5003, soundOk: 0x5004, played: 0x5005, greet: 0x5006, carry: 0x5007, romsw: 0x5020, carryMax: 24 }),
-  // the choices 1-7: keys 1-4 of the menu, its carry-on line (key 5 on the 6803 build, 6 on the 6809 one), and the
-  // 6809 build's games menu (key 5, then 1 or 2)
-  events: Object.freeze(['liza', 'demo', 'roms', 'claude', 'carryon', '2048', 'minesweeper']),
+  // the choices 1-8: keys 1-4 of the menu, its carry-on line (key 6), the 6809 build's games menu (key 5, then 1 or
+  // 2), and WYRMFIRE (the 6809 build's games menu key 3; the 6803 build's key 5)
+  events: Object.freeze(['liza', 'demo', 'roms', 'claude', 'carryon', '2048', 'minesweeper', 'wyrmfire']),
   greetings: Object.freeze(['first', 'back', 'bye']),   // greet: 0 the first visit, 1 "WELCOME BACK", 2 "BYE FOR NOW. PICK ANOTHER?"
 });
 // The games (examples/2048.asm, examples/minesweeper.asm): 6809 programs at $3000 that share a fixed header
@@ -154,8 +154,11 @@ export const PROGRAM_CONTROLS = Object.freeze({
   liza: Object.freeze({ input: 'keyboard', extra: Object.freeze([]), joystick: false }),
   // WYRMFIRE's keys (its README, and src/native.c's key scan): the arrows move and turn, Z and X strafe, SPACE fires,
   // E opens a door or uses the exit, 1 to 3 pick a weapon, ENTER skips a cue or restarts. `big`: the two keys the
-  // touch pad gives its big buttons (FIRE and USE)
-  wyrmfire: Object.freeze({ input: 'arrows', extra: Object.freeze(['Z', 'X', '1', '2', '3']), joystick: false, big: Object.freeze([['SPACE', 'FIRE'], ['E', 'USE']]) }),
+  // touch pad gives its big buttons (FIRE and USE). `thumb`: the pad's arrows are an 8-way thumb stick, and the
+  // switch is Keys | Pad (the game reads the keyboard, not the joystick). `groups`: the extra keys in labelled groups,
+  // [caption, [[key, label], ...]] (STRAFE ◀ ▶ for Z and X, WEAPON 1 2 3)
+  wyrmfire: Object.freeze({ input: 'arrows', extra: Object.freeze(['Z', 'X', '1', '2', '3']), joystick: false, big: Object.freeze([['SPACE', 'FIRE'], ['E', 'USE']]),
+    thumb: true, groups: Object.freeze([Object.freeze(['STRAFE', Object.freeze([['Z', '◀'], ['X', '▶']])]), Object.freeze(['WEAPON', Object.freeze([['1', '1'], ['2', '2'], ['3', '3']])])]) }),
 });
 // "Your game files" in the media store (Session.saveGameFile): the converted level and what it was converted from
 export const GAME_FILE = Object.freeze({ disk: `${GAMES_PREFIX}wyrmfire-own.vdk`, meta: `${GAMES_PREFIX}wyrmfire-own.json` });
@@ -3634,7 +3637,7 @@ export class Session {
   // 'welcome:demo', 'welcome:roms' and 'welcome:claude' after the frame they were pressed in; on the 6809 build key 5
   // opens the games menu, whose 1 and 2 emit 'welcome:2048' and 'welcome:minesweeper'.
   // greeting: 'first', 'back' (a returning visitor) or 'bye' (back from a program); carryOn: a name for the carry-on
-  // option, "CARRY ON WITH <name>" (option 6 on the 6809 build, 5 on the 6803 build; its key emits 'welcome:carryon'), or null
+  // option, "CARRY ON WITH <name>" (option 6 on both builds; its key emits 'welcome:carryon'), or null
   // gen: the welcomeGen a page took (welcomeGenNow) before fetching these bytes. When it is given and something
   // took the machine since, the start does nothing and this returns null: the menu must not take the screen back
   // from what the person started while its bytes were on the way.
@@ -3686,7 +3689,7 @@ export class Session {
     this.emit('welcome');   // (the page's parts that depend on whether the welcome program runs: the quick-save slots)
     this.welcomeQuiet = WELCOME_QUIET.has(why) ? { m, at: m.frameCount } : null;
     if (this.welcomeSoundOn) this.welcomeSound();
-    const last = (carry ? 1 : 0) + (w === WELCOME['6809'] ? 5 : 4);   // the 6809 build has the games too
+    const last = (carry ? 1 : 0) + 5;   // option 5: the 6809 build's games, the 6803 build's WYRMFIRE
     return `Welcome: press 1 to ${last}`;
   }
   // Is the welcome program running on the PERSON's machine? personMachine: with the chat full screen this.shownMachine is

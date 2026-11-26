@@ -105,7 +105,7 @@ export function setupWelcome(page, { showRoms, openClaude }) {
       if (ifIdle && (session.personMachine !== m || session.stubRun !== running || session.welcomeRunning)) return;
       // gen: a start whose fetch was overtaken (the menu cleared, a program loaded, a machine switch) is refused
       // in the Session itself, for every caller, so a late start cannot take the screen from what was started then
-      startAs(byMachine, () => session.startWelcome(bytes, { greeting, carryOn: carryOn && carryOn.name, gen, reason }));   // (the menu says "PRESS 1 TO 4" itself: not repeated)
+      startAs(byMachine, () => session.startWelcome(bytes, { greeting, carryOn: carryOn && carryOn.name, gen, reason }));   // (the menu says "PRESS 1 TO 5" itself: not repeated)
     } catch (e) { page.status(`Welcome: ${e.message}`, true); }
     page.focus();
     shelf();
@@ -129,6 +129,9 @@ export function setupWelcome(page, { showRoms, openClaude }) {
     else if (ev === 'welcome:claude') await openClaude();
     else if (ev === 'welcome:carryon') await runAgain({ byMachine: asked });
     else if (ev === 'welcome:2048' || ev === 'welcome:minesweeper') await run(gameItem(ev.slice(8)), { byMachine: asked });
+    // WYRMFIRE: the 6809 build's games menu (3) or the 6803 build's option 5. No switch question: the menu is all the
+    // machine has, so a switch loses nothing (js/ui/wyrmfire.js says that it switched)
+    else if (ev === 'welcome:wyrmfire') await page.wyrmfire.start({ fromMenu: true });
     // back from a program ('bye'), or the machine turned on, or reset with nothing to restart, without ROMs ('back')
     else if (ev === 'menu') {
       showBack(false);

@@ -31,10 +31,13 @@ same length, so the two images have the same layout and differ only in the name.
 `examples/welcome.asm` is the first program a visitor sees: the eight VDG colours build up as a stripe, then
 CLOADM in block letters and a menu. The keys 1 to 4 reach the page through a mailbox byte the Session reads after
 every frame (`Session.startWelcome`, events `welcome:liza`, `welcome:demo`, `welcome:roms`, `welcome:claude`);
-key 5, "PLAY A GAME", opens the games menu, where 1 and 2 start 2048 and Minesweeper (events `welcome:2048`,
-`welcome:minesweeper`) and 0 or BREAK go back. A short original tune plays on the DAC once the browser allows sound. It runs on the 6809-family machines
+key 5, "PLAY A GAME", opens the games menu, where 1, 2 and 3 start 2048, Minesweeper and WYRMFIRE (events `welcome:2048`,
+`welcome:minesweeper`, `welcome:wyrmfire`) and 0 or BREAK go back. A short original tune plays on the DAC once the browser allows sound. It runs on the 6809-family machines
 (the HD6309 included, which runs the 6809 build in emulation mode, and the CoCo 3 in its CoCo 2-compatible text
-mode); the MC-10 and Alice get a 6803 version with LIZA's, which has keys 1 to 4 and no games. Option 3 asks for
+mode); the MC-10 and Alice get a 6803 version with LIZA's, which has keys 1 to 4 and "5 PLAY WYRMFIRE (DRAGON 64)" (event
+`welcome:wyrmfire`) and no other games. On both builds the carry-on line, when there is one, is option 6. WYRMFIRE from the menu
+starts at once on the Dragon 64; elsewhere the page switches to the Dragon 64 without asking (the menu loses nothing) and says
+"WYRMFIRE runs on the Dragon 64, so CLOADM switched to it." Option 3 asks for
 ROMs only when there are none: on a machine whose ROMs are stored and switched off (`Run without ROMs`, the side
 card's third state) it reads "3 USE YOUR ROMS FOR BASIC", from a flag byte the Session sets before the menu draws
 (`WELCOME['6809'].romsw`), so the menu never asks for what the machine already has.

@@ -30,7 +30,7 @@ const sym = (n) => asm.symbols.get(n);
 check('fixed addresses match Session WELCOME', sym('WELCOME') === Emu.WELCOME['6809'].start && sym('EVENT') === Emu.WELCOME['6809'].event
   && sym('SOUNDOK') === Emu.WELCOME['6809'].soundOk && sym('GREET') === Emu.WELCOME['6809'].greet && sym('CARRY') === Emu.WELCOME['6809'].carry
   && sym('ROMSW') === Emu.WELCOME['6809'].romsw
-  && sym('CARRYN') === Emu.WELCOME['6809'].carryMax && Emu.WELCOME.events.join() === 'liza,demo,roms,claude,carryon,2048,minesweeper');
+  && sym('CARRYN') === Emu.WELCOME['6809'].carryMax && Emu.WELCOME.events.join() === 'liza,demo,roms,claude,carryon,2048,minesweeper,wyrmfire');
 
 // SG4 cell: bit 7 set, colour in bits 6-4, quarters upper-left 3, upper-right 2, lower-left 1, lower-right 0
 const VDG = ['green', 'yellow', 'blue', 'red', 'buff', 'cyan', 'magenta', 'orange'];
@@ -116,17 +116,18 @@ for (const id of models) {
   for (const k of ['1', '2', '3', '4']) pressKey(s, k);
   check(`${id}: keys 1-4 fire their events in order, once each`, events.join() === 'welcome:liza,welcome:demo,welcome:roms,welcome:claude', events.join());
   check(`${id}: the welcome program keeps running after the events`, s.welcomeRunning && /PRESS 1 TO 5/.test(s.screenText()[14]));
-  // the games menu: 5 opens it, 1 and 2 pick a game, 0 and BREAK go back; nothing else fires
+  // the games menu: 5 opens it, 1, 2 and 3 pick a game, 0 and BREAK go back; nothing else fires
   events.length = 0;
   pressKey(s, '5');
   const g = s.screenText();
   check(`${id}: key 5 shows the games menu`, g[6].trim() === 'NEW GAMES FOR AN OLD MACHINE' && g[8].trim() === '1 2048' && g[9].trim() === '2 MINESWEEPER'
-    && g[11].trim() === '0 BACK TO THE MENU' && g[14].trim() === 'PRESS 1, 2 OR 0' && [8, 9, 11].every((r, i) => ram(0x400 + r * 32 + 4) === [0x31, 0x32, 0x30][i]),
+    && g[10].trim() === '3 WYRMFIRE (DRAGON 64)' && g[11].trim() === '0 BACK TO THE MENU' && g[13].trim() === 'BREAK LEAVES A GAME'
+    && g[14] === '       PRESS 1, 2, 3 OR 0       ' && [8, 9, 10, 11].every((r, i) => ram(0x400 + r * 32 + 4) === [0x31, 0x32, 0x33, 0x30][i]),
     JSON.stringify(g.slice(6, 15)));
-  for (const k of ['3', '4', '5', 'A']) pressKey(s, k);
-  check(`${id}: in the games menu, keys 3-5 fire nothing`, !events.length, events.join());
-  pressKey(s, '1'); pressKey(s, '2');
-  check(`${id}: games menu keys 1 and 2 fire welcome:2048 and welcome:minesweeper`, events.join() === 'welcome:2048,welcome:minesweeper', events.join());
+  for (const k of ['4', '5', '6', '9', 'A']) pressKey(s, k);
+  check(`${id}: in the games menu, keys 4-6 fire nothing`, !events.length, events.join());
+  pressKey(s, '1'); pressKey(s, '2'); pressKey(s, '3');
+  check(`${id}: games menu keys 1, 2 and 3 fire welcome:2048, welcome:minesweeper and welcome:wyrmfire`, events.join() === 'welcome:2048,welcome:minesweeper,welcome:wyrmfire', events.join());
   pressKey(s, '0');
   check(`${id}: 0 goes back to the main menu`, s.screenText()[12].trim() === '5 PLAY A GAME' && s.screenText()[6].trim() === 'DRAGON AND COLOR COMPUTER');
   pressKey(s, '5'); s.shownMachine.stubKeys.push(3); runFrames(s, 2);

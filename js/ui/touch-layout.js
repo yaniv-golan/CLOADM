@@ -30,6 +30,16 @@ export const SHORT = Object.freeze({ SPACE: 'SPC', ENTER: 'ENT', BREAK: 'BRK' })
 export const DPAD = Object.freeze([Object.freeze(['', '↑', '']), Object.freeze(['←', '↓', '→'])]);
 export const PAD_KEYS = Object.freeze(['SPACE', 'ENTER']);
 export const ARROW_NAMES = Object.freeze({ '↑': 'Up', '↓': 'Down', '←': 'Left', '→': 'Right' });
+// The thumb stick (a program whose controls say `thumb`: WYRMFIRE): a round pad whose centre is its rest, pressing the
+// arrow keys in eight directions. Inside THUMB_DEAD of its radius nothing is pressed; past it, the direction is the
+// nearest of the eight (45° sectors centred on the four arrows and the four diagonals). -> the key names, vertical first
+export const THUMB_DEAD = 0.2;
+const THUMB_DIRS = Object.freeze([['RIGHT'], ['UP', 'RIGHT'], ['UP'], ['UP', 'LEFT'], ['LEFT'], ['DOWN', 'LEFT'], ['DOWN'], ['DOWN', 'RIGHT']]);
+export function thumbKeys(dx, dy, radius, dead = THUMB_DEAD) {
+  if (!(radius > 0) || Math.hypot(dx, dy) < dead * radius) return [];
+  const sector = ((Math.round(Math.atan2(-dy, dx) / (Math.PI / 4)) % 8) + 8) % 8;
+  return [...THUMB_DIRS[sector]];
+}
 // the panel's modes, in the switch's order; 'joystick' is the switch's Stick (the stored value and ?touch= keep its first name)
 export const MODES = Object.freeze(['keys', 'pad', 'joystick']);
 // The mode a program opens in, from what it is played with (Session.programControls, or null): the arrows -> Pad, a

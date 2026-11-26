@@ -942,6 +942,29 @@
   #touchKeys #touchPad .padbig .tk.big { min-height: 96px; font-size: 16px; font-weight: 700; border-radius: 32px; }
   #touchKeys #touchPad .tk { height: auto; min-height: 48px; font-size: 15px; }
   #touchKeys #touchPad .tk[aria-label] { font-size: 24px; }
+  /* WYRMFIRE's pad (a program with the thumb stick: js/ui/touch-keys.js): upright, the stick left, ENTER and ABC, then
+     FIRE and USE right, and under all three the labelled row, STRAFE ◀ ▶ and WEAPON 1 2 3 */
+  #touchKeys #touchPad.thumb { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "stick keys big" "groups groups groups";
+    align-items: center; }
+  #touchKeys.keysonce.pad > #touchPad.thumb { display: none; }
+  #touchKeys #touchPad.thumb .padthumb { grid-area: stick; }
+  #touchKeys #touchPad.thumb .padkeys { grid-area: keys; }
+  #touchKeys #touchPad.thumb .padbig { grid-area: big; }
+  #touchKeys #touchPad.thumb .padgroups { grid-area: groups; }
+  #touchKeys #touchPad .padthumb { flex: none; position: relative; width: 120px; height: 120px; border-radius: 50%; background: #1E1E1E;
+    box-shadow: inset 0 0 0 2px #3A3A3A; touch-action: none; }
+  #touchKeys #touchPad .padthumb[hidden], #touchKeys #touchPad .padarrows[hidden], #touchKeys #touchPad .padgroups[hidden] { display: none; }
+  #touchKeys #touchPad .thumbknob { position: absolute; left: 50%; top: 50%; width: 48px; height: 48px; margin: -24px 0 0 -24px; border-radius: 50%;
+    background: #3A3A3A; box-shadow: 0 3px 0 #000; pointer-events: none; }
+  #touchKeys #touchPad .padthumb.live .thumbknob { background: var(--orange); }
+  #touchKeys #touchPad.thumb .padkeys { grid-template-columns: minmax(0, 1fr); }
+  #touchKeys #touchPad .padgroups { display: flex; gap: 12px; }
+  #touchKeys #touchPad .padgroup { flex: 1; display: flex; gap: 4px; align-items: center; min-width: 0; }
+  #touchKeys #touchPad .padgroup:last-child { flex: 1.4; }
+  #touchKeys #touchPad .padcap { flex: none; font-size: 11px; font-weight: 700; letter-spacing: .04em; color: var(--muted); }
+  #touchKeys #touchPad .padgroup .tk { min-height: 44px; font-size: 18px; }
+  /* (FIRE and USE stay 96 px tall: the phone rule that gives the pad's keys their 48 px is more specific than .big) */
+  body.touch-thumb #touchKeys #touchPad .padbig .tk.big { min-height: 96px; }
   #touchKeys > .tkhalf { display: none; }
   #touchKeys > #touchStrip, #touchKeys > .tkcenter { grid-column: 1 / -1; }
   #touchKeys > #touchStick { grid-column: 1 / span 6; }
@@ -1053,6 +1076,21 @@
     body.touch-pad #touchKeys #touchPad .padarrows { grid-column: 1; grid-row: 1 / span 3; align-self: center; justify-self: center;
       grid-template-columns: repeat(3, minmax(48px, 64px)); grid-auto-rows: minmax(48px, 64px); }
     body.touch-pad #touchKeys #touchPad .padkeys { grid-column: 3; grid-row: 1 / span 3; align-self: center; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-rows: 48px; }
+    /* WYRMFIRE's pad sideways: left of the screen the stick, STRAFE ◀ ▶ under it; right of it FIRE and USE, then ENTER and
+       ABC, then WEAPON 1 2 3; each group's caption above its keys */
+    body.touch-thumb #touchKeys #touchPad .padthumb { grid-column: 1; grid-row: 1 / span 2; align-self: center; justify-self: center;
+      width: min(140px, 100%, calc(100dvh - 150px)); height: auto; aspect-ratio: 1; }
+    body.touch-thumb #touchKeys #touchPad .padbig { grid-column: 3; grid-row: 1; align-self: end; justify-self: center;
+      grid-template-columns: repeat(2, minmax(56px, 72px)); }
+    body.touch-thumb #touchKeys #touchPad .padbig .tk.big { min-height: min(96px, calc(100dvh - 200px)); }
+    body.touch-thumb #touchKeys #touchPad .padkeys { grid-column: 3; grid-row: 2; align-self: start; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-rows: 36px; }
+    body.touch-thumb #touchKeys #touchPad .padkeys .tk { min-height: 36px; }
+    body.touch-thumb #touchKeys #touchPad .padgroups { display: contents; }
+    body.touch-thumb #touchKeys #touchPad .padgroup { grid-row: 3; align-self: end; flex-wrap: wrap; gap: 2px 4px; }
+    body.touch-thumb #touchKeys #touchPad .padgroup:first-child { grid-column: 1; }
+    body.touch-thumb #touchKeys #touchPad .padgroup:last-child { grid-column: 3; }
+    body.touch-thumb #touchKeys #touchPad .padcap { flex: 1 0 100%; font-size: 10px; line-height: 12px; }
+    body.touch-thumb #touchKeys #touchPad .padgroup .tk { min-height: 36px; height: 36px; }
     body.touch-pad #touchKeys.keysonce > .tkhalf { display: flex; }
     body.touch-pad #touchKeys.keysonce > #touchPad { display: none; }
     body.touch-keys #touchKeys > #touchLeft { grid-column: 1; }

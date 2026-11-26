@@ -49,9 +49,11 @@ export const WYRM_TEXT = Object.freeze({
   trademark: 'DOOM is a registered trademark of ZeniMax Media Inc. CLOADM and WYRMFIRE are independent projects, not affiliated with or endorsed by id Software, ZeniMax Media or Microsoft. References to DOOM describe file compatibility only.',
   guard: 'While WYRMFIRE runs: no snapshots. With your own WAD, no clips and no Claude screen reads.',
   share: 'Opens WYRMFIRE from the start, with the Freedoom level.',
-  sideways: 'Turn sideways for a bigger view',
+  sideways: 'Turn sideways for a bigger view.',
   keys: 'WYRMFIRE: Enter skips the music. Arrows move and turn, Z and X strafe, Space fires, E opens doors.',
   switchPurpose: ' to play WYRMFIRE',
+  // started from the welcome menu on another machine: switched without a question (the menu loses nothing)
+  switched: 'WYRMFIRE runs on the Dragon 64, so CLOADM switched to it.',
   level: FREEDOOM_CREDIT,
 });
 // "Level data: Freedoom (BSD), modified" is the notice that matters legally (BSD-3-Clause: the copyright notice and
@@ -191,21 +193,23 @@ export function setupWyrmfire(page, { confirmSwitch }) {
     if (session.wyrmfireRunning || session.welcomeRunning) return false;
     return !(m.atStubPrompt && m.atStubPrompt());
   }
-  // fromLink: ?start=wyrmfire (nothing asked). again: Try again or Back to Freedoom (asked already, or nothing to ask).
-  // own: { disk, name } for the person's converted level (its files are only the engine then).
-  async function start({ fromLink = false, again = false, own = null } = {}) {
+  // fromLink: ?start=wyrmfire (nothing asked). fromMenu: the welcome menu's WYRMFIRE line (nothing asked: the menu is all
+  // the machine has; a switch is said in a toast once it is made). again: Try again or Back to Freedoom (asked already,
+  // or nothing to ask). own: { disk, name } for the person's converted level (its files are only the engine then).
+  async function start({ fromLink = false, fromMenu = false, again = false, own = null } = {}) {
     if (job) return;
-    if (!fromLink && !again && needsAsking()) {
+    if (!fromLink && !fromMenu && !again && needsAsking()) {
       confirmSwitch({ name: profiles[PIN.machine.id].name, purpose: WYRM_TEXT.switchPurpose, id: PIN.machine.id, config: Object.assign({}, PIN.machine.config, { cpu: '6809' }) },
         () => run({ own }));
       return;
     }
-    await run({ own });
+    await run({ own, tell: fromMenu });
   }
-  async function run({ own = null } = {}) {
+  // tell: say in a toast when the start switched machines (the welcome menu's start, which asks nothing)
+  async function run({ own = null, tell = false } = {}) {
     job = { controller: new AbortController(), cancelled: false };
     const mine = job;
-    failedWith = { own };
+    failedWith = { own, tell };
     note = own ? note : null;
     try {
       const files = await getFiles(mine.controller.signal, { level: !own });
@@ -216,7 +220,9 @@ export function setupWyrmfire(page, { confirmSwitch }) {
       // the switch begins: no Cancel from here
       show(WYRM_TEXT.starting, []);
       job = null;
+      const switching = session.personMachine.id !== PIN.machine.id;
       page.attempt(() => { session.startWyrmfire(files.engine, own ? own.disk : files.level, own ? { level: 'user', name: own.name } : {}); return WYRM_TEXT.keys; });
+      if (tell && switching && session.wyrmfireRunning) page.toast(WYRM_TEXT.switched);
       page.focus();
       sideways();
     } catch (e) {
@@ -229,7 +235,7 @@ export function setupWyrmfire(page, { confirmSwitch }) {
     }
     playing();
   }
-  // "Turn sideways for a bigger view": once, on a phone held upright
+  // "Turn sideways for a bigger view.": once, on a phone held upright
   function sideways() {
     if (!touchPanel() || !matchMedia('(orientation: portrait)').matches) return;
     try { if (localStorage.getItem('wyrmfire.sideways')) return; localStorage.setItem('wyrmfire.sideways', '1'); } catch (e) { /* storage off: said every time */ }

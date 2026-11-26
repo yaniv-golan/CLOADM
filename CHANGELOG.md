@@ -8,6 +8,20 @@ All notable changes to CLOADM are recorded here. The format follows
 
 Next version: 0.3.1 (the plugin and extension manifests carry it; `tests/plugin.test.js` keeps them in step).
 
+#### Added
+
+- **WYRMFIRE from the welcome menu, on every model.** On the Dragon and CoCo, 5 PLAY A GAME now lists 3 WYRMFIRE (DRAGON 64)
+  ("PRESS 1, 2, 3 OR 0"); on the MC-10 and Alice the menu has 5 PLAY WYRMFIRE (DRAGON 64), the carry-on line moves to 6 and
+  the prompt reads PRESS 1 TO 5 (1 TO 6 with a carry-on). On the Dragon 64 it starts at once; anywhere else CLOADM switches to
+  the Dragon 64 without the switch question (the menu loses nothing) and says "WYRMFIRE runs on the Dragon 64, so CLOADM
+  switched to it." Always the Freedoom level; the download, offline and failure cases are the strip's, and offline with
+  nothing kept the menu stays. The menu's new choice is the event `welcome:wyrmfire`.
+- **A better touch pad for WYRMFIRE.** Pad mode on a phone or tablet has an 8-way thumb stick that presses the arrow keys
+  (nothing within a 20% dead zone), FIRE (Space) and USE (E), and a row with STRAFE ◀ ▶ (Z, X) and WEAPON 1 2 3. The stick and
+  each button take their own finger. Sideways the stick is left of the screen and the buttons right; upright they are under the
+  screen, with the one-time hint "Turn sideways for a bigger view." The switch is Keys | Pad (no Stick: the game reads the
+  keyboard), and the choice is kept for WYRMFIRE on the Dragon 64.
+
 ### 0.3.1
 
 #### Fixed

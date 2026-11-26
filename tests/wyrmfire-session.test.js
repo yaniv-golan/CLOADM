@@ -45,6 +45,8 @@ function toFirstFrame(s) {
   const pc = s.programControls;
   check('programControls: arrows (the Pad), Z X 1 2 3 as extra keys, FIRE (SPACE) and USE (E) the big buttons', pc && pc.id === 'wyrmfire' && pc.input === 'arrows'
     && J(pc.extra) === J(['Z', 'X', '1', '2', '3']) && J(pc.big) === J([['SPACE', 'FIRE'], ['E', 'USE']]), J(pc));
+  check('programControls: the thumb stick, and the extra keys in labelled groups STRAFE ◀ ▶ (Z, X) and WEAPON 1 2 3', pc.thumb === true
+    && J(pc.groups) === J([['STRAFE', [['Z', '◀'], ['X', '▶']]], ['WEAPON', [['1', '1'], ['2', '2'], ['3', '3']]]]), J(pc.groups));
   check('Freedoom: romCodeIn says "cartridge" (the Freedoom disk in the cartridge port), never "userdata": the level is not the person\'s own WAD, so no read is held back', s.romCodeIn() === 'cartridge');
 
   // snapshots off, share link

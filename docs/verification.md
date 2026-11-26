@@ -1397,9 +1397,9 @@ names it.
   as `FCB`) to `$5000` and jumps to it. Both emulators run that image, so the CPU executes the shipped bytes; the
   comparison build's stop is in fixed 2-byte slots, so it is the same length as the shipping build and differs from
   it only there (`tests/welcome6803.test.js`). `--back` has the loader set what the Session sets for a returning
-  visitor first (GREET 1, "WELCOME BACK", and option 5, "CARRY ON WITH LIZA"). On MAME 0.264 the traces run to HALT
-  with every register and cycle count identical (mc10 16,347 instructions, alice 16,344; with `--back` 17,337 on
-  both), and `mc10/run-welcome-video.js <machine> [--back]` compares the drawn screen with MAME's `-aviwrite`
+  visitor first (GREET 1, "WELCOME BACK", and option 6, "CARRY ON WITH LIZA", under 5 PLAY WYRMFIRE (DRAGON 64)). On MAME
+  0.264 the traces run to HALT with every register and cycle count identical (mc10 17,951 instructions, alice 17,948;
+  with `--back` 18,845 on both), and `mc10/run-welcome-video.js <machine> [--back]` compares the drawn screen with MAME's `-aviwrite`
   capture, pixel by pixel: 0 of 49,152 pixels differ in all four runs. The comparison stops at the HALT, before the
   tune: the tune keeps the latch's value in RAM because `$BFFF` reads the keyboard (`tests/welcome6803.test.js`
   checks it writes only the sound bit and leaves the text screen).
