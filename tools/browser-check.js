@@ -23290,14 +23290,119 @@ async function toastOffScreenChecks(browser, base, check) {
         const hits = (a, o) => !(a.bottom <= o.top || a.top >= o.bottom || a.right <= o.left || a.left >= o.right);
         const t = rect(document.getElementById('toast')), c = rect(document.getElementById('screen')), chipEl = document.getElementById('soundChip');
         const chip = chipEl.checkVisibility() ? rect(chipEl) : null;
+        const keys = [...document.querySelectorAll('#touchKeys button')].filter((b) => b.checkVisibility()).map(rect);
         return { toast: Object.values(t).map(Math.round), canvas: Object.values(c).map(Math.round), chip: chip && Object.values(chip).map(Math.round),
-          overCanvas: hits(t, c), overChip: !!chip && hits(t, chip), inView: t.left >= 0 && t.top >= 0 && t.right <= innerWidth && t.bottom <= innerHeight };
+          overCanvas: hits(t, c), overKeys: keys.filter((k) => hits(t, k)).length, overChip: !!chip && hits(t, chip), inView: t.left >= 0 && t.top >= 0 && t.right <= innerWidth && t.bottom <= innerHeight,
+          short: matchMedia('(orientation: landscape) and (max-height: 500px)').matches && document.body.classList.contains('touch-keys') };
       });
-      check(`${L}: "${text.slice(0, 20)}…": the toast's rect and the canvas's do not intersect, it covers no part of the sound chip, and it is in view`,
-        !r.overCanvas && !r.overChip && r.inView, JSON.stringify(r));
+      // (held sideways with the keys round the screen there is no place off both the picture and the keys, and a toast
+      // never covers a key or a Pad button: it lies over the top of the picture then -- the layoutBugs group's rule)
+      check(`${L}: "${text.slice(0, 20)}…": ${touch && w > h ? 'the toast covers no key or Pad button' : "the toast's rect and the canvas's do not intersect"}, it covers no part of the sound chip, and it is in view`,
+        (r.short ? r.overKeys === 0 : !r.overCanvas) && !r.overChip && r.inView, JSON.stringify(r));
       if (shotDir) await page.screenshot({ path: path.join(shotDir, `toast-off-screen-${w}x${h}-${text.length}.png`) });
     }
     check(`${L}: no page errors`, !errors.length, errors.join('; '));
+    await closeCtx(ctx);
+  }
+}
+
+// Three layout bugs the UX pass found (each is a rectangle test, so it fails when the thing overlaps what it must not):
+//  B5 Ask Claude's intro with no key saved: the sentence "Claude reads only this emulated <machine> ..." is wholly visible,
+//     above the key form, nothing overlapping it, on a phone held upright, right after opening and 3 s later;
+//  B6 the "Tap for sound" chip: clear of the screen's own border and of the bottom bar, at 659x393 and 653x280, on the
+//     base screen and on WYRMFIRE;
+//  B7 the start toast in a short landscape window covers no key and no Pad button (CoCo 3, Menu -> Programs -> Minesweeper).
+const rectOf = (e) => { const b = e.getBoundingClientRect(); return { left: b.left, top: b.top, right: b.right, bottom: b.bottom }; };
+async function layoutBugsChecks(browser, base, check) {
+  // ---- B5 ----
+  {
+    const ctx = await browser.newContext({ viewport: { width: 393, height: 659 }, hasTouch: true, isMobile: true, serviceWorkers: 'block' });
+    const page = await ctx.newPage();
+    const errors = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto(`${base}?machine=dragon64`); await started(page);
+    await emuFrames(page, 10);
+    await page.evaluate(() => { try { localStorage.removeItem('cloadm.anthropicKey'); } catch (e) { /* none */ } });
+    await page.tap('#btnAsk');
+    await waitFor(page, () => !document.getElementById('ask').hidden && !document.getElementById('askKeyForm').hidden, 'ask open with the key form');
+    for (const [when, wait] of [['on opening', 400], ['3 s later', 3000]]) {
+      await page.waitForTimeout(wait);
+      const r = await page.evaluate(() => {
+        const rect = (e) => { const b = e.getBoundingClientRect(); return { left: b.left, top: b.top, right: b.right, bottom: b.bottom }; };
+        const t = document.getElementById('askEmptyText'), tr = rect(t), k = rect(document.getElementById('askKeyForm')), a = rect(document.getElementById('ask'));
+        // the sentence's own box, and the element on top at its first and last line (a covering box takes the hit)
+        const at = (x, y) => { const el = document.elementFromPoint(x, y); return !!el && (el === t || t.contains(el)); };
+        const mx = (tr.left + tr.right) / 2;
+        const askScrolls = getComputedStyle(document.getElementById('ask')).overflowY;
+        return { text: Object.values(tr).map(Math.round), key: Object.values(k).map(Math.round), ask: Object.values(a).map(Math.round), vh: innerHeight, askScrolls,
+          aboveKey: tr.bottom <= k.top + 0.5, inSheet: tr.top >= a.top - 0.5 && tr.bottom <= a.bottom + 0.5,
+          topHit: at(mx, tr.top + 4), bottomHit: at(mx, tr.bottom - 4), shown: t.checkVisibility(), text_: t.textContent.slice(0, 60) };
+      });
+      check(`Ask Claude intro (393x659, no key, ${when}): the sentence is whole, above the key form, inside the sheet, and nothing covers its first or last line`,
+        r.shown && r.aboveKey && r.inSheet && r.topHit && r.bottomHit && /^Claude reads only this emulated Dragon 64/.test(r.text_), JSON.stringify(r));
+    }
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, 'layout-bugs-ask-intro-393x659.png') });
+    check('Ask Claude intro: no page errors', !errors.length, errors.join('; '));
+    await closeCtx(ctx);
+  }
+  // ---- B6 ----
+  for (const [w, h] of [[659, 393], [653, 280]]) {
+    for (const start of ['', 'wyrmfire']) {
+      const L = `sound chip (${w}x${h}${start ? ', WYRMFIRE' : ''})`;
+      const ctx = await browser.newContext({ viewport: { width: w, height: h }, hasTouch: true, isMobile: true, serviceWorkers: 'block' });
+      const page = await ctx.newPage();
+      const errors = [];
+      page.on('pageerror', (e) => errors.push(e.message));
+      await page.goto(`${base}?machine=dragon64${start ? `&start=${start}` : ''}`); await started(page);
+      await emuFrames(page, 20);
+      await page.evaluate(() => document.getElementById('screen').focus());
+      await emuFrames(page, 3);
+      const r = await page.evaluate(() => {
+        const rect = (e) => { const b = e.getBoundingClientRect(); return { left: b.left, top: b.top, right: b.right, bottom: b.bottom }; };
+        const chipEl = document.getElementById('soundChip'), screen = document.getElementById('screen'), tube = document.querySelector('.tube');
+        const o = {}; for (const [k, e] of [['chip', chipEl], ['screen', screen], ['tube', tube]]) o[k] = e && e.checkVisibility() ? Object.values(rect(e)).map(Math.round) : null;
+        o.barBox = document.querySelector('#touchKeys .tkcenter') ? Object.values(rect(document.querySelector('#touchKeys .tkcenter'))).map(Math.round) : null; o.chipShown = chipEl.checkVisibility();
+        return o;
+      });
+      // clear: no intersection (1 px apart) with the screen's focus ring (the monitor's own edge, 2 px) or the bar under it;
+      // a chip that is not shown (a window with no room: the first tap still starts the sound) covers nothing
+      const apart = (c, o) => !c || !o || c[3] + 1 <= o[1] || c[1] >= o[3] + 1 || c[2] + 1 <= o[0] || c[0] >= o[2] + 1;
+      const inside = (c, o) => c[0] >= o[0] && c[2] <= o[2] && c[3] <= o[3] - 2 && c[1] >= o[1];
+      if (shotDir) await page.screenshot({ path: path.join(shotDir, `layout-bugs-sound-chip-${w}x${h}${start ? '-wyrmfire' : ''}.png`) });
+      check(`${L}: the chip is clear of the screen (and its green focus border) and of the bar under the monitor, inside the bezel when shown`,
+        !r.chipShown || (apart(r.chip, r.screen) && inside(r.chip, r.tube) && apart(r.chip, r.barBox)), JSON.stringify(r));
+      await closeCtx(ctx);
+    }
+  }
+  // ---- B7 ----
+  {
+    const ctx = await browser.newContext({ viewport: { width: 653, height: 280 }, hasTouch: true, isMobile: true, serviceWorkers: 'block' });
+    const page = await ctx.newPage();
+    const errors = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto(`${base}?machine=coco3`); await started(page);
+    await emuFrames(page, 20);
+    await page.tap('#tkMenu');
+    await page.locator('#tkMenuSheet button', { hasText: 'Programs…' }).tap();
+    await waitFor(page, () => document.getElementById('sheetPrograms').open);
+    await page.tap('#shelf :is(a, button):text-is("Minesweeper")');
+    await waitFor(page, () => !document.getElementById('toast').hidden && /Minesweeper/.test(document.getElementById('toastText').textContent), 'the start toast', 15000);
+    const seen = [];
+    for (let i = 0; i < 4; i++) {
+      seen.push(await page.evaluate(() => {
+        const rect = (e) => { const b = e.getBoundingClientRect(); return [b.left, b.top, b.right, b.bottom].map(Math.round); };
+        const t = document.getElementById('toast');
+        if (t.hidden) return { gone: true };
+        const tr = rect(t), hit = (a, o) => !(a[3] <= o[1] || a[1] >= o[3] || a[2] <= o[0] || a[0] >= o[2]);
+        const keys = [...document.querySelectorAll('#touchKeys button')].filter((b) => b.checkVisibility()).map((b) => ({ id: b.id, label: (b.getAttribute('aria-label') || b.textContent).trim().slice(0, 12), r: rect(b) }));
+        return { toast: tr, text: document.getElementById('toastText').textContent.slice(0, 40), over: keys.filter((k) => hit(tr, k.r)).map((k) => `${k.label}:${k.r}`), n: keys.length, passthru: t.classList.contains('passthru') };
+      }));
+      await page.waitForTimeout(250);
+    }
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, 'layout-bugs-toast-pad-653x280.png') });
+    check('toast (CoCo 3 653x280, Menu → Programs → Minesweeper): the start toast covers no key or Pad button for its whole life',
+      seen.some((x) => !x.gone && x.n > 0) && seen.every((x) => x.gone || x.over.length === 0), JSON.stringify(seen));
+    check('toast over the Pad: no page errors', !errors.length, errors.join('; '));
     await closeCtx(ctx);
   }
 }
@@ -24353,6 +24458,7 @@ const GROUPS = (base, site) => [
   ['noRomChrome', (b) => noRomChromeChecks(b, base, check)],
   ['romNotRom', (b) => romNotRomChecks(b, base, check)],
   ['toastOffScreen', (b) => toastOffScreenChecks(b, base, check)],
+  ['layoutBugs', (b) => layoutBugsChecks(b, base, check)],
   // (required when the group runs: the shard planner's copy of this file runs --list-groups without it)
   ['connector', (b) => require('./connector-check').connectorChecks(b, check, { shots: shotDir })],
 ];

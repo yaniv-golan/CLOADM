@@ -72,6 +72,13 @@ Next version: 0.3.1 (the plugin and extension manifests carry it; `tests/plugin.
 
 #### Fixed
 
+- **Three layout slips.** On a phone held upright with no API key saved, Ask Claude's opening sentence ("Claude reads only
+  this emulated Dragon 64 …") was hidden under the key form; the sheet now scrolls, the sentence first and the form under it.
+  Held sideways, the "Tap for sound" chip lies inside the monitor's lower bezel, clear of the screen's green focus border
+  and of the keys' bar under it (it hung 9 px below the monitor), and a window under 300 px high, where the picture fills
+  the monitor, shows no chip, as upright (the first tap anywhere still starts the sound). And the start toast of a program
+  (Menu → Programs → Minesweeper) no longer covers the Pad's keys: held sideways with the touch keys it lies over the top
+  of the picture, compact. The browser check's `layoutBugs` group measures each.
 - **Screen text follows a text page a program moves.** On the Dragon and CoCo 1/2, the ROM self-test's screen and the
   welcome menu's taps now read the page the SAM's display offset shows (as `screen_text`, `Session.screenText` and the
   screen's text alternative already did), and every reader reads text only in the VDG's alphanumeric /

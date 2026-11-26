@@ -277,9 +277,10 @@ export function createFeedback() {
       }
       placedTop(I.area, I.phone, I.barBottom);
     };
-    // The slots, in order: the top one, the docks off the picture (held sideways: beside the picture over each keys' side,
-    // the wider first; else under the picture and the "Tap for sound" chip, across the window), the stylesheet's bottom
-    // one. THE ONE RULE first: a slot over the picture is never taken (the top one is, on a phone, whose picture starts
+    // The slots, in order: the top one, the docks off the picture (held sideways with the touch keys: no dock, since a
+    // toast never covers a key or a Pad button, but the top of the picture itself, compact; with the keys elsewhere,
+    // beside the picture over each keys' side, the wider first; else under the picture and the "Tap for sound" chip,
+    // across the window), the stylesheet's bottom one. THE ONE RULE first: a slot over the picture is never taken (the top one is, on a phone, whose picture starts
     // under the bar). Of the others, the first that covers none of Claude's Stops; where each covers one, the first that
     // leaves another uncovered; else the first (a Stop under the toast pulled the chat's pill up for as long as it showed).
     // Upright with the touch keys (the picture starts under the bar): a toast of one line goes over the app bar, in the
@@ -292,7 +293,12 @@ export function createFeedback() {
       const a = I.area, left = pic.left - a.left, right = a.right - pic.right;
       const overKeys = (fn) => () => { dropClass(box, 'compact'); fn(); addClass(region, 'top'); addClass(box, 'passthru'); };
       const side = (l, r) => overKeys(() => placedAt(px(l + 8), px(a.top + 8), px(r - l - 16)));
-      if (I.sideKeys || (left >= 160 && right >= 160 && pic.bottom > a.bottom - 40)) {
+      if (I.sideKeys && I.keysShown) {
+        // held sideways with the keys standing round the screen: a toast never covers a key or a Pad button, so it lies
+        // over the top of the picture itself (compact, the picture's width), the one place there that holds no key. (This
+        // slot is the one that may cover the picture: every other place is a key's.)
+        slots.push(['over-screen', () => { addClass(box, 'compact'); dropClass(box, 'passthru'); placedAt(px(pic.left + 8), px(pic.top + 8), px(pic.right - pic.left - 16)); addClass(region, 'top'); }]);
+      } else if (I.sideKeys || (left >= 160 && right >= 160 && pic.bottom > a.bottom - 40)) {
         const sides = [['dock-left', side(a.left, pic.left), left], ['dock-right', side(pic.right, a.right), right]];
         sides.sort((x, y) => y[2] - x[2]);
         slots.push(...sides.map(([n, fn]) => [n, fn]));
@@ -308,7 +314,7 @@ export function createFeedback() {
     for (const [name, apply] of slots) {
       apply();
       const b = box.getBoundingClientRect();
-      if (pic && hitsRect(b, pic)) { dropClass(box, 'passthru'); continue; }
+      if (pic && name !== 'over-screen' && hitsRect(b, pic)) { dropClass(box, 'passthru'); continue; }
       // (over the app bar only a toast of one line: its text no taller than a line and a half)
       if (name === 'over-bar' && textEl.getBoundingClientRect().height > 1.5 * ((typeof getComputedStyle === 'function' && parseFloat(getComputedStyle(textEl).lineHeight)) || 16)) continue;
       const covered = I.stops.filter((o) => hitsRect(b, o)).length;
@@ -354,6 +360,8 @@ export function createFeedback() {
       active: cv ? cv.dataset.active || '0,0,1,1' : '',
       // a phone held sideways with the touch keys (decide's band reaches the tube's foot there)
       sideKeys: !!(document.body && document.body.classList.contains('touch-keys')) && matchMedia('(orientation: landscape) and (max-height: 500px)').matches,
+      // the touch keys' buttons show (the keys panel is up; not while the chat is the page: its picture is a small inset there)
+      keysShown: !document.body.classList.contains('claude-open') && !document.body.classList.contains('view-claude') && [...document.querySelectorAll('#touchKeys button')].some((e) => shown(e.getBoundingClientRect())),
       // the turn's Stops that show (the fallback slot keeps clear of them)
       stops: [...document.querySelectorAll(STOPS)].map((e) => e.getBoundingClientRect()).filter(shown).map(boxOf),
       // the app bar's bottom edge where it shows (the top slot stands under it: a toast never covers the bar's buttons)
