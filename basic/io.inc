@@ -19,31 +19,12 @@ GIOK0   TST     <ITMCOL         ; (CHRGOT's Z is also set by ':' and ELSE: in a 
         BEQ     GIOK
         ORCC    #1
         RTS
-GI2     LDX     <TXTPTR
-        CMPA    #'"'
+GI2     CMPA    #'"'
         BNE     GI4
-        LEAX    1,X             ; in quotes
-        PSHS    X
-        CLRB
-GI3     LDA     ,X
-        BEQ     GI3A
-        CMPA    #'"'
-        BEQ     GI3B
-        INCB
-        LEAX    1,X
-        BRA     GI3
-GI3B    LEAX    1,X
-GI3C    LDA     ,X              ; spaces after the closing quote
-        CMPA    #' '
-        BNE     GI3A
-        LEAX    1,X
-        BRA     GI3C
-GI3A    STX     <TXTPTR
-        PULS    X
-        JSR     MKTMP
-        JSR     <ZCHRGOT
+        JSR     STRLIT          ; in quotes: as a literal (the text pointer ends past it and the spaces after)
         BRA     GIOK
-GI4     PSHS    X               ; to the next ',' (or ':')
+GI4     LDX     <TXTPTR
+        PSHS    X               ; to the next ',' (or ':')
         CLRB
 GI5     LDA     ,X
         BEQ     GI6
@@ -74,8 +55,8 @@ RD1     JSR     PTRNEW
         CMPA    #','
         BEQ     RD4
 * the next DATA statement: from here to its token (a function's byte after $FF is skipped)
-RD2     LDA     ,X+
-        BNE     RD3
+RD2     JSR     NXTOK
+        BNE     RD3F
         LDD     ,X              ; the end of a line: the next one
         BNE     RD2A
         LDB     #ERR_OD
@@ -83,27 +64,6 @@ RD2     LDA     ,X+
 RD2A    LDD     2,X
         STD     <DATLIN
         LEAX    4,X
-        BRA     RD2
-RD3     CMPA    #$FF
-        BNE     RD3A
-        LEAX    1,X
-        BRA     RD2
-RD3A    CMPA    #'"'
-        BNE     RD3C
-RD3B    LDA     ,X+             ; a string: skipped
-        BEQ     RD3D
-        CMPA    #'"'
-        BNE     RD3B
-        BRA     RD2
-RD3D    LEAX    -1,X
-        BRA     RD2
-RD3C    CMPA    #T_REM
-        BEQ     RD3E
-        CMPA    #T_APOS
-        BNE     RD3F
-RD3E    LDA     ,X+             ; a remark: to the end of the line
-        BNE     RD3E
-        LEAX    -1,X
         BRA     RD2
 RD3F    CMPA    #T_DATA
         BNE     RD2

@@ -328,26 +328,8 @@ RNC3    LDD     <TMPCNT
 RNB1    LDD     ,X
         BEQ     RNB9
         LEAX    4,X
-RNB2    LDA     ,X+
+RNB2    JSR     NXTOK
         BEQ     RNB1
-        CMPA    #'"'
-        BNE     RNB3
-RNBQ    LDA     ,X+             ; a string
-        BEQ     RNB1
-        CMPA    #'"'
-        BNE     RNBQ
-        BRA     RNB2
-RNB3    CMPA    #$FF            ; a function: its byte
-        BNE     RNB4
-        LEAX    1,X
-        BRA     RNB2
-RNB4    CMPA    #T_REM
-        BEQ     RNBR
-        CMPA    #T_APOS
-        BNE     RNB5
-RNBR    LDA     ,X+             ; a remark: the rest of the line
-        BNE     RNBR
-        BRA     RNB1
 RNB5    CMPA    #T_DATA
         BNE     RNB6
 RNBD    LDA     ,X              ; DATA: up to the next ':'

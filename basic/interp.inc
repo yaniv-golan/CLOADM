@@ -226,6 +226,28 @@ CONT1   STD     <TXTPTR
         JMP     NEWST2
 CONT2   JMP     NEWSTT
 
+* NXTOK: the next byte of the line at X outside strings, function tokens' second bytes and remarks; Z set at the
+* end of the line (X is then past its 0)
+NXTOK   LDA     ,X+
+        BEQ     NXT9
+        CMPA    #'"'
+        BNE     NXT2
+NXT1    LDA     ,X+
+        BEQ     NXT9
+        CMPA    #'"'
+        BNE     NXT1
+        BRA     NXTOK
+NXT2    CMPA    #$FF
+        BNE     NXT3
+        LEAX    1,X
+        BRA     NXTOK
+NXT3    CMPA    #T_REM
+        BEQ     NXT4
+        CMPA    #T_APOS
+        BNE     NXT9
+NXT4    LDA     ,X+
+        BNE     NXT4
+NXT9    RTS
 * REM and ': the rest of the line is a remark
 REM     LDX     <TXTPTR
 REM1    LDA     ,X

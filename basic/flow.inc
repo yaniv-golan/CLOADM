@@ -18,22 +18,7 @@ IFLINE  JMP     GOTO1
 * false: look for this IF's ELSE
 IFNO    LDX     <TXTPTR
         CLRB                    ; IFs met since
-IFN1    LDA     ,X+
-        BEQ     IFN4
-        CMPA    #'"'
-        BNE     IFN2
-IFNQ    LDA     ,X+             ; a string: skipped
-        BEQ     IFN4
-        CMPA    #'"'
-        BNE     IFNQ
-        BRA     IFN1
-IFN2    CMPA    #$FF            ; a function token: its byte is skipped
-        BNE     IFN3
-        LEAX    1,X
-        BRA     IFN1
-IFN3    CMPA    #T_REM
-        BEQ     IFN4
-        CMPA    #T_APOS
+IFN1    JSR     NXTOK
         BEQ     IFN4
         CMPA    #T_IF
         BNE     IFN3A
