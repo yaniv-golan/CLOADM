@@ -345,44 +345,45 @@ FD1     TST     <ARGEXP
         STD     <DVR+1
         LDD     <ARGM+2
         STD     <DVR+3
-        LDX     #PROD           ; the quotient: 6 bytes
-        LDB     #6
-FD2     CLR     ,X+
-        DECB
-        BNE     FD2
-        LDA     #41
-        STA     <FPI
-FD3     ASL     <PROD+5         ; quotient << 1
-        ROL     <PROD+4
-        ROL     <PROD+3
-        ROL     <PROD+2
-        ROL     <PROD+1
-        ROL     <PROD
-        LDD     <DVR+3          ; remainder - divisor, kept only if it does not go below 0
+* the quotient's 41 bits go into PROD a byte at a time (1 bit into PROD, then 8 into each byte after it), each
+* rotated in from the carry: 1 where the divisor goes into the remainder (then subtracted), else 0. The remainder
+* is below twice the divisor: DVR holds only its bit 32.
+        LDX     #PROD
+        CLR     ,X
+        LDA     #1
+FD2     STA     <FPI            ; the bits for this byte
+FD3     TST     <DVR
+        BNE     FD4             ; bit 32 set: the divisor goes
+        LDD     <DVR+1
+        CMPD    <FACM
+        BHI     FD4
+        BLO     FD5
+        LDD     <DVR+3
+        CMPD    <FACM+2
+        BLO     FD5
+FD4     LDD     <DVR+3          ; remainder - divisor
         SUBD    <FACM+2
-        PSHS    D
+        STD     <DVR+3
         LDD     <DVR+1
         SBCB    <FACM+1
         SBCA    <FACM
-        PSHS    D
-        LDA     <DVR
-        SBCA    #0
-        BLO     FD4
-        STA     <DVR
-        PULS    D
         STD     <DVR+1
-        PULS    D
-        STD     <DVR+3
-        INC     <PROD+5
-        BRA     FD5
-FD4     LEAS    4,S
-FD5     ASL     <DVR+4          ; remainder << 1
+        CLR     <DVR
+        COMA                    ; (C set: a 1)
+        BRA     FDQ
+FD5     ANDCC   #$FE            ; (a 0)
+FDQ     ROL     ,X
+        ASL     <DVR+4          ; remainder << 1
         ROL     <DVR+3
         ROL     <DVR+2
         ROL     <DVR+1
         ROL     <DVR
         DEC     <FPI
         BNE     FD3
+        LEAX    1,X
+        LDA     #8
+        CMPX    #PROD+6
+        BNE     FD2
 * 41 bits in PROD (bit 40 is PROD bit 0): 2^40 or more is shifted right once, exponent + 1
         LDA     <PROD
         LSRA

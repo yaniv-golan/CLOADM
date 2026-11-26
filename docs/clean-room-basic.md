@@ -98,9 +98,12 @@ These are hard rules for everyone who works on this ROM.
     limit packed (`NXCMP`: two non-zero numbers of one sign; the others through `FCMPM`); the statement loop clears
     the string temporaries itself and `EXECST` dispatches with `LDX A,X` (so a statement token ends at `$BF`, which
     `tools/build-basic.js` checks). `famous-pokes` now gives 119 fields (bb2's `snd-timer` 500-pass loop: 30 against
-    the original's 29); 15,568 bytes, the code ending at `$BDC2`, 560 bytes below the vectors. Left for the
-    black-box figures of `ram-pointers2`: a faster division (ours divides by one bit a pass), and a cheaper `BREAK`
-    test between statements.
+    the original's 29); 15,568 bytes, the code ending at `$BDC2`, 560 bytes below the vectors. `FDIV` keeps its
+    restoring division and its 41 quotient bits but compares before it subtracts, on a 32-bit remainder whose bit 32
+    is one byte, and rotates the bits into the quotient a byte at a time: about 4,000 cycles a division where it took
+    11,000, landed once `ram-pointers2` gave the original's figure ([BB] 2026-11-26: 500 passes of `X=I/3`, 177
+    fields; ours 294, now 232; reading a constant divides by ten, so `X=I+2.5` and `X=I*2.5` gain too). Left: a
+    cheaper `BREAK` test between statements.
 * **Running it:** `m.setRoms({ basic: rom, basic64: null })` on a `dragon64` machine (Node), or
   `node tools/build-basic.js --out /tmp/d64_1.rom` then `node cli/cloadm.js --roms /tmp/d64_1.rom --type 'PRINT 2+2\n' --screen`.
 
