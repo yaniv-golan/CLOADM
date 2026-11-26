@@ -67,6 +67,10 @@ check('it reaches a video fit', vf !== null, (out.match(/video:.*/) || [''])[0].
 // median, the tool's own 'the machine looks noisy' line); 'fail' for anything else. So a busy machine says SKIP, with
 // the noise it measured, instead of going red on a slope its own numbers call a guess - while a tool that reports
 // nothing (NaN, n=0), the wrong number of cases, or a slope that is negative on a QUIET machine still fails.
+// The limit of that rule: noise past half is ALSO what a broken tool with no signal in its timings produces, on any
+// machine, so the SKIP cannot tell a busy machine from a broken measurement. The backstop is the delay-injection mutant
+// below (a 2 ms/frame delay must raise the video slope by at least 1 ms against a clean run measured back to back): it
+// is what fails a measurement that has lost its signal, and it must NEVER be given a SKIP path of its own.
 const verdict = (f, count) => {
   if (f === null || f.n !== count || !Number.isFinite(f.noise)) return 'fail';
   if (useable(f)) return 'ok';
