@@ -98,8 +98,8 @@ corrupting the image.
 
 | Range | Use |
 |---|---|
-| `$0000-$00FF` | the direct page: the interpreter's variables (pointers, the two floating-point accumulators, the text pointer, flags, P2's current mode, start page and colour byte, `DRAW`'s angle and scale) up to `DPEND` (`$CC`), 22 bytes free, laid out around three fixed addresses programs use: `$0088-$0089` the cursor's address (`CURPOS`), `$008F` its blink countdown (`BLINK`), `$0097-$0098` the debounce delay (`KEYDLY`) ([section 14](#14-the-cursor)), then the two-byte calls' `JMP`s at `$E2-$FF` (`ZTRAMP`; section 2, the size budget), copied from the ROM with the RAM vectors at a cold start. DP is 0 throughout |
-| `$0100-$01FF` | the system RAM block, laid out by `RMB` in `d64basic.asm` (so nothing overlaps; the build fails if it reaches `$0200`): the RAM jump vectors (IRQ, FIRQ, NMI, SWI, SWI2, SWI3), so a program can hook an interrupt [OWN; addresses to align in P3]; the `DEF USR` addresses; the keyboard's rollover table; the 8 temporary string descriptors; `FOR`'s step and limit; the numeric functions' temporaries; the number conversion and `PRINT USING` buffer; the cassette's name block; P2's colours, colour set, last point and a point read; the four `JOYSTK` values and `PLAY`'s octave, length and its dots, tempo and volume |
+| `$0000-$00FF` | the direct page: the interpreter's variables (pointers, the two floating-point accumulators, the text pointer, flags, P2's current mode, start page and colour byte, `DRAW`'s angle and scale) up to `DPEND` (`$CA`), laid out around the fixed addresses programs use, the original's ([section 15](#15-interface-contract-basics-pointers-in-low-ram)): `$19-$28` the program and memory pointers, `$68` the line running, `$6F` the output device, `$71` the cold-start flag, `$88-$89` the cursor's address, `$8F` its blink countdown, `$97-$98` the debounce delay ([section 14](#14-the-cursor)), `$A6-$A7` the text pointer, `$AF` `TRON`; then the two-byte calls' `JMP`s at `$E2-$FF` (`ZTRAMP`; section 2, the size budget), copied from the ROM with the RAM vectors at a cold start. DP is 0 throughout |
+| `$0100-$01FF` | the system RAM block, laid out by `RMB` in `d64basic.asm` (so nothing overlaps; the build fails if it reaches `$0200`): the RAM jump vectors (IRQ, FIRQ, NMI, SWI, SWI2, SWI3), so a program can hook an interrupt [OWN; addresses to align in P3]; `TIMER` at `$0112`; the `DEF USR` addresses; the cassette's name block, ending just below `$0149`, the lower-case flag; the keyboard's rollover table; the 8 temporary string descriptors; `FOR`'s step and limit; the numeric functions' temporaries; the number conversion and `PRINT USING` buffer; P2's colours, colour set, last point and a point read; the four `JOYSTK` values and `PLAY`'s octave, length and its dots, tempo and volume |
 | `$0200-$02FF` | the line input buffer (250 characters + terminator); `VAL` reads its copy of a string here |
 | `$0300-$03FF` | the crunched line |
 | `$0400-$05FF` | the text screen, 32 x 16 [HW: the SAM's reset display offset] |
@@ -591,6 +591,7 @@ reproduce. Each is recorded with its black-box case.
 | Where | The original | Ours | Case |
 |---|---|---|---|
 | `CLS` with a colour 9-255 | prints a line of its own text (21 characters), then an empty line | prints our own line, `MADE WITHOUT PEEKING` (20 characters, chosen for this BASIC; `OK BOOMER` for `CLS 67`, also ours [OWN]), then an empty line; no error in either | `screen-cls-range` (local-only: its results are never written, only their shape); ours: the own case `cls-range` |
+| `POKE 111,254` (output to the printer) | output goes to the printer; with none attached it waits for one | output stays on the screen: no printer output is built yet [OWN, open] | `famous-pokes` (its last step) |
 | `PRINT USING` E field of twelve or more places (`"############^^^^";1`) | prints garbage (`%1000000000E-10`) and runs over its own memory (`?SN ERROR IN 0` after it) | `?FC ERROR`: a buffer overrun is never reproduced | `review-fixes`, `print-using-exp` |
 
 ## 14. The cursor
@@ -637,7 +638,7 @@ about 9,885 cycles per decrement and 475,692 per transition [BB].
 | The delay | 1,065 passes of `LEAX -1,X` / `BNE` (8 cycles), in a subroutine (`DELAYX`) shared with the debounce, chosen so the whole pass matches the measured cycles; the tolerance, 1%, covers where the field interrupt falls |
 | The debounce delay | ours is the wait in `KEYIN` before a newly pressed key is read again (a bounce forgets the key): `KEYDLY` passes of `DELAYX`, 300 at a cold start (2,400 cycles, as before), 0 meaning 65,536; we have no auto-repeat |
 | Cold start | the direct page is cleared, then `BLINK` is set to 1 (the first update at the prompt takes it to 0, shows the cursor and reloads it); a warm start keeps both values |
-| RAM layout | the direct-page variables are three regions around the fixed addresses (`DPR1`-`DPR3`); `tools/build-basic.js` fails if a region reaches the fixed address after it |
+| RAM layout | the direct-page variables are nine regions around the fixed addresses (`DPR1`-`DPR9`), and the system block one more (`SYSR1`); `tools/build-basic.js` fails if a region reaches the fixed address after it |
 
 | Assumptions to validate (black-box cases wanted) | |
 |---|---|
@@ -671,35 +672,43 @@ P3's census says which addresses programs use: the program and memory pointers (
 system block at `$0100` the RAM vectors, the `DEF USR` table and the cassette's name block. Each new fixed address adds
 a region split in `d64basic.asm` and a check in `tools/build-basic.js`, as these three did.
 
+The next step did that for the addresses the black-box records confirmed (section 15): the program and memory
+pointers, `CURLIN`, the output device, the cold-start flag, `TXTPTR`, `TRON`, `TIMER` and the lower-case flag are
+now at the original's places, in nine direct-page regions and one in the system block; the IRQ handler reads
+`TIMER` at `$0112` with an extended `LDX`/`STX` (2 cycles) and drops a `NOP`, so it still takes 104, and the tone
+loop's overhead (`TOVH`) is 56 for the same reason.
+
 ## 15. Interface contract: BASIC's pointers in low RAM
 
 Programs (in BASIC with `PEEK` and `POKE`, and in machine code) read and set some of the interpreter's own variables
-at fixed addresses. This section is the contract for those addresses, one row each, to be confirmed before P3 moves
-ours there. The leads are [DOC]: published memory maps, which may contain errors, so each is a lead until the
-black-box case `ram-pointers` (bb-only) confirms it. Ours does not follow them yet (our own layout, section 3); the
-column "ours" says what our `PEEK` there shows now and where our own variable for the same thing is.
+at fixed addresses. Ours keeps them where the original does: each row below was a [DOC] lead (published memory
+maps) until the black-box records confirmed it ([BB] bb3 `ram-pointers`, bb6 `famous-pokes`); `d64basic.asm` pins
+each one, `tools/build-basic.js` fails if a variable runs into one, and `tests/basic-ram.test.js` checks every
+address and replays both records on ours (identical, apart from the lines below that hang on speed or the input
+buffer's place).
 
-**Applicability:** the Dragon 32 and the Dragon 64 in 32K mode (the leads are the same addresses for both). **Values:**
-16-bit, big-endian (`PEEK(a)*256+PEEK(a+1)`). **Lifetime:** set at a cold start; the pointers change as the program,
-variables and strings change, and `NEW`, `CLEAR`, `PCLEAR`, `RUN` and a load reset some of them. **Evidence and
-confidence:** [DOC] only, low until `ram-pointers` comes back from the real ROM. **Tests:** `ram-pointers` (the
-real run to compare with `node tools/basic-bb/compare.js`); ours runs it to completion today.
+**Applicability:** the Dragon 32 and the Dragon 64 in 32K mode. **Values:** 16-bit, big-endian
+(`PEEK(a)*256+PEEK(a+1)`). **Lifetime:** set at a cold start; the pointers change as the program, variables and
+strings change, and `NEW`, `CLEAR`, `PCLEAR`, `RUN` and a load reset some of them.
 
-| Address | [DOC] lead: identity | Initial state and changes the lead implies | Read / write | Ours now (our variable) |
-|---|---|---|---|---|
-| `$19-1A` | the program's start | `$1E01` at a cold start (`PCLEAR 4`); moves with `PCLEAR` | read; written by `PCLEAR` | another variable's bytes (2, 8, 14 ...); ours is `TXTTAB` at `$04` |
-| `$1B-1C` | the simple variables' start (the program's end) | the program's start + 2 after `NEW`; grows as lines are typed | read | not a pointer; `VARTAB` `$06` |
-| `$1D-1E` | the arrays' start | moves up as simple variables are created | read | 0; `ARYTAB` `$08` |
-| `$1F-20` | the arrays' end, free memory from here | moves up with `DIM` | read | not a pointer; `ARYEND` `$0A` |
-| `$21-22` | the bottom of string space (the stack's top) | moves down with `CLEAR n` and `PCLEAR` | read | not a pointer; `STRBOT` `$0E` |
-| `$23-24` | the next free string (strings grow down from the top) | the top of string space when empty; moves down as strings are assigned | read | not a pointer; `FRETOP` `$0C` |
-| `$27-28` | the top of BASIC's memory | near `$7FFF` in 32K mode; set by `CLEAR n,top` | read; written by `CLEAR` | `CLEAR`'s last size (200, then 500); `MEMTOP` `$10` |
-| `$68-69` | the line running, `$FFFF` in direct mode | set by each line as it runs | read | 302 always; `CURLIN` `$02` |
-| `$A6-A7` | the text pointer (the next character the interpreter reads) | moves as each statement is read | read; a program may set it | 0; `TXTPTR` `$00` (ours points at the last character taken) |
-| `$0112-0113` | `TIMER` | counts fields (50 Hz); `TIMER=n` sets it | read and write | 0 (our `DEF USR` table); `TIMER` `$1A` |
-| `$71` | the restart flag: `$55` after a cold start keeps the program over the reset button | `$55` once BASIC has started | read; a program clears it to force a cold start | 127; `WARMFL` `$1C` |
+| Address | What it is | On the original [BB] | Ours (variable) |
+|---|---|---|---|
+| `$19-1A` | the program's start | `$1E01` at a cold start (`PCLEAR 4`); `POKE 25,6:NEW` puts it at `$0601`, freeing the graphics pages (`MEM` 24841 to 31015) | the same (`TXTTAB`) |
+| `$1B-1C` | the simple variables' start (the program's end) | the program's start + 2 after `NEW` | the same (`VARTAB`) |
+| `$1D-1E` | the arrays' start | moves up as simple variables are made | the same (`ARYTAB`) |
+| `$1F-20` | the arrays' end: free memory from here | moves up with `DIM` | the same (`ARYEND`) |
+| `$21-22` | the string space's bottom (the stack's top) | 32566 at a cold start (the top less 200); follows `CLEAR n` | the same (`STRBOT`) |
+| `$23-24` | the lowest string in use | the top when no string is in use; `A$="HELLO":B$=A$+"!"` typed in direct mode takes 12 bytes (the literals are copied out of the typed line) | the same (`FRETOP`) |
+| `$25-26` | not probed yet | (to probe) | ours holds `FORVAR` there [OWN] |
+| `$27-28` | the string space's top | 32766 | the same (`MEMTOP`; `CLEAR n,top` takes a top up to 32768 [OWN]) |
+| `$68-69` | the line running | `$FFFF` in direct mode | the same (`CURLIN`) |
+| `$6F` | where output goes | 0 the screen; 254 the printer (with none attached the original waits for it); 255 the tape | 0 and 255 the same (`DEVNUM`); any other value the screen: no printer output yet (section 13) |
+| `$71` | the cold-start flag | 85 (`$55`) once BASIC has started | the same (`WARMFL`) |
+| `$A6-A7` | the text pointer | points into the line being run | the same (`TXTPTR`); in direct mode it points into our own buffer for the typed line, 36 bytes above the original's (the buffers are not yet at the original's places) |
+| `$AF` | `TRON` | 79 on, 0 off; `POKE 175,79` turns tracing on | the same (`TRCFLG`) |
+| `$0112-0113` | `TIMER` | counts fields; `POKE` to both bytes sets it | the same (`TIMER`) |
+| `$0149` | lower case (`SHIFT-0`) | 255 upper case, 0 lower case; `POKE 329,0` makes typed letters lower case | the same (`CASEFL`; any value but 0 is upper case [OWN]) |
 
-What `ram-pointers` records for each, to confirm: the values after `NEW`, after a 3-line program, after `A=5:B=6:DIM
-C(10)`, after two strings, after `CLEAR 500` and after `PCLEAR 2` (with `MEM` beside them); `$68-69` printed from
-lines 100, 200, 300 and from a subroutine at 1000, and in direct mode; `$A6-A7` from lines 100 and 200 and direct
-mode; `TIMER` against `$0112-0113` read just before it and after `TIMER=1000`; `$71` at the prompt.
+Still to do here: `$25-26`; the input buffers' places (so a direct-mode `$A6-A7` matches); the RAM vectors and hooks
+(the [DOC] lead puts the IRQ's `JMP` at `$010C`), and the two-byte calls at `$E2-$FF` (whatever the original keeps
+there), which belong to the machine-code interface.

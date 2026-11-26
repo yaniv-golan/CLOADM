@@ -143,7 +143,7 @@ VARPTR  JSR     LPAREN          ; (a variable that does not exist: ?FC ERROR; ma
         PULS    D
         JMP     GIVUNS
 * MEM: the bytes free between the arrays and the stack, as the original counts them [BB bb2 gfx-pclear: 2 more]
-MEM     LEAX    2,S
+MEM     LEAX    4,S             ; (the original's MEM with its string space at 32766 [BB bb3 ram-pointers])
         TFR     X,D
         SUBD    <ARYEND
         JMP     GIVUNS
@@ -154,9 +154,9 @@ POS     JSR     <ZFNARGN
         CLRA
         JMP     GIVNUM
 * TIMER: the fields counted since it was last set (50 a second); TIMER = n sets it [UM]
-TIMERF  LDD     <TIMER
+TIMERF  LDD     TIMER
         JMP     GIVUNS
 TIMERS  JSR     SYNEQ
         JSR     EVADR
-        STD     <TIMER
+        STD     TIMER
         RTS

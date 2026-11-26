@@ -444,7 +444,8 @@ CS0     CLR     ,X+
         STD     CFASC           ; and CFGAP
         BSR     CWHEAD
         JSR     CASOFF
-        INC     <CASOUT         ; LIST, to the tape
+        LDA     #$FF            ; LIST, to the tape
+        STA     <DEVNUM
         CLR     <CBIDX
         LDX     <TXTTAB
 CS1     LDD     ,X
@@ -453,7 +454,7 @@ CS1     LDD     ,X
         LDX     ,X
         BRA     CS1
 CS1E    BSR     CFLUSH
-        CLR     <CASOUT
+        CLR     <DEVNUM
         STX     <CEND           ; no more data: the end-of-file block
         BRA     CWDATA
 CS2     BSR     CWHEAD
@@ -483,8 +484,7 @@ CSAVEM  JSR     <ZCHRGET
 
 * CHRTAP: CHROUT while CSAVE ,A lists the program: the character goes into the block at LINBUF, and a full
 * block goes onto the tape. Keeps every register.
-CHRTAP  PSHS    D,X
-        LDB     <CBIDX
+CHRTAP  LDB     <CBIDX           ; (from CHROUT, D and X pushed)
         LDX     #LINBUF
         ABX
         STA     ,X

@@ -85,7 +85,7 @@ function buildBasic({ defines = {}, edit = (file, text) => text } = {}) {
   // the system RAM block and the direct page must not run into the buffers after them
   if (res.symbols.get('SYSEND') > res.symbols.get('LINBUF')) throw new Error('basic: the system RAM ($0100 on) runs into LINBUF');
   // the direct page's regions end at or below the fixed addresses after them (d64basic.asm)
-  for (const [end, at] of [['DPR1', 'CURPOS'], ['DPR2', 'BLINK'], ['DPR3', 'KEYDLY']]) {
+  for (const [end, at] of [['DPR1', 'TXTTAB'], ['DPR2', 'CURLIN'], ['DPR3', 'DEVNUM'], ['DPR4', 'WARMFL'], ['DPR5', 'CURPOS'], ['DPR6', 'BLINK'], ['DPR7', 'KEYDLY'], ['DPR8', 'TXTPTR'], ['DPR9', 'TRCFLG'], ['SYSR1', 'CASEFL']]) {
     if (res.symbols.get(end) > res.symbols.get(at)) throw new Error(`basic: the direct-page variables before ${at} run into it (move the split at ${end})`);
   }
   if (res.symbols.get('DPEND') > res.symbols.get('ZTRAMP')) throw new Error('basic: the direct page is full (its variables reach the two-byte calls at ZTRAMP)');

@@ -229,8 +229,9 @@ LL2     CMPA    #':'            ; the ':' stored before ELSE and ' is not shown
         BEQ     LL1
 LL2A    BSR     LSTCH
         BRA     LL1
-LL3     TST     <CASOUT         ; (to the tape, CSAVE ,A: every line ends with its carriage return)
-        BNE     LL3A
+LL3     LDA     <DEVNUM         ; (to the tape, CSAVE ,A: every line ends with its carriage return)
+        INCA
+        BEQ     LL3A
         LDA     <CURPOS+1
         BITA    #31
         BEQ     LL4

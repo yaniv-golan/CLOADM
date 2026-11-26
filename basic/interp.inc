@@ -253,7 +253,7 @@ DS2     LEAX    1,X
 DS3     STX     <TXTPTR
         RTS
 
-TRON    LDA     #$FF
+TRON    LDA     #79             ; (the original's value at $AF [BB bb6 famous-pokes])
         BRA     TROF1
 TROFF   CLRA
 TROF1   STA     <TRCFLG

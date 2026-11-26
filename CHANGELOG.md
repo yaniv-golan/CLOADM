@@ -72,6 +72,11 @@ Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.
   all 33 listed programs in the 36-program corpus match the original's.
   A black-box probe, `famous-pokes`, asks the original about the well-known speed and low-RAM POKEs; the lint lets
   a probe write only the SAM's rate bits among the I/O addresses.
+  BASIC's own variables now sit where the original keeps them (the program and string pointers at `$19-$28`, the
+  line running at `$68`, the output device at `$6F`, the cold-start flag at `$71`, the text pointer at `$A6`, `TRON`
+  at `$AF`, `TIMER` at `$0112`, lower case at `$0149`), so the well-known `POKE`s (`TRON`, lower case, `PCLEAR`-like
+  `POKE 25,6:NEW`, `TIMER`) work as on the original; `tests/basic-ram.test.js` pins them and replays two real
+  records.
   `CLOAD`, `CLOADM` and `SKIPF` show what the original shows while they read: the screen cleared, `S` at the top left
   changing between normal and inverse once a block, a file passed over as `S NAME` and the screen cleared again at
   its end, the file wanted as `F NAME`, and the prompt or the error on the next row. `CLOAD` of a data file is

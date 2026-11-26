@@ -202,7 +202,7 @@ SKCOPY  LDB     ,X
         STX     <DSCTMP+2
         CLR     <DSCTMP+4
         LDU     2,U             ; (read after GETSPA: the string may have moved)
-        BSR     CPYUX
+        JSR     CPYUX
         LDX     #DSCTMP
 SKKEEP  RTS
 * INPROG: C set if the string of the descriptor at X is in a running program's text. Keeps X.
@@ -233,6 +233,15 @@ SL1     LDA     ,X
         BRA     SL1
 SL2     STX     <TXTPTR
         PULS    X
+        PSHS    B,X             ; in direct mode the literal is copied to the string space (the typed line goes):
+        JSR     DIRCHK          ; A$="HELLO":B$=A$+"!" takes 12 bytes, "!" one of them [BB bb3 ram-pointers]
+        BNE     SL4
+        LDB     ,S
+        JSR     GETSPA
+        LDU     1,S
+        STX     1,S
+        JSR     CPYUX
+SL4     PULS    B,X
         JSR     MKTMP
         LDA     [TXTPTR]
         BEQ     SL3

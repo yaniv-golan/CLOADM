@@ -11,7 +11,7 @@ SNDL    EQU     0
 SNDU    EQU     4               ; SOUND's unit: 4 fields (0.08 s) [BB bb2 snd-sound d1-d20: 4d-1 to 4d fields]
 SNDP0   EQU     100             ; SOUND t's period: SNDP0 + SNDPK x (256 - t) cycles [BB bb2 snd-sound: 5,200 at t = 1,
 SNDPK   EQU     20              ;   4,220, 3,220, 2,220, 1,220, 120 at 50, 100, 150, 200, 255; exact]
-TOVH    EQU     55              ; the tone loop's cycles a period outside its delay loops (counted below)
+TOVH    EQU     56              ; the tone loop's cycles a period outside its delay loops (counted below)
 
 * AUDIO ON: the cassette input to the speaker (the multiplexer: CA2 high, CB2 low), sound on [UM; HW]; AUDIO OFF:
 * sound off, the multiplexer as it is [BB bb2 snd-audio: off with the multiplexer still on the cassette]
@@ -122,7 +122,7 @@ JY4     LDX     #JOYV
 * reached (7), TIMER's value to stop at (8-9), the period (10-11).
 TONE    PSHS    D
         TFR     X,D
-        ADDD    <TIMER
+        ADDD    TIMER
         PSHS    D               ; the end
         CLRA
         LEAX    ,X
@@ -162,7 +162,7 @@ TN0     PSHS    A
         PSHS    D
         TFR     S,U
         LDY     #PIA1A
-* one period: 17 + 5 + 15 + 18 = 55 cycles, TOVH, besides the delay loops' passes. The interrupt is held off from
+* one period: 17 + 5 + 15 + 19 = 56 cycles, TOVH, besides the delay loops' passes. The interrupt is held off from
 * reading TIMER to the first level's write, so a field that ends the note never lengthens a period that is completed.
 TN1     LDA     4,U             ; 5  the first level
         STA     ,Y              ; 4
@@ -179,7 +179,7 @@ TN1B    DECB                    ; 2  (j + 1 passes)
 TN2     LEAX    -1,X            ; 5
         BNE     TN2             ; 3
         ORCC    #$10            ; 3
-        LDD     <TIMER          ; 5
+        LDD     TIMER           ; 6  (TIMER is at $0112, out of the direct page)
         SUBD    8,U             ; 7
         BMI     TN1             ; 3
         DEC     7,U             ; (only once TIMER is reached)

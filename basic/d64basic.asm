@@ -23,7 +23,8 @@ SAMM1S  EQU     $FFDD           ; SAM memory size bit M1 set: 64K dynamic RAM
 SCREEN  EQU     $0400           ; the 32 x 16 text screen
 SCREND  EQU     $0600
 PROGST  EQU     $1E01           ; the program starts here (the byte before it is 0)
-RAMTOP  EQU     $8000           ; one past the top of the RAM BASIC uses in 32K mode
+RAMTOP  EQU     $8000           ; one past the top of the RAM BASIC uses in 32K mode (CLEAR's highest top [OWN])
+STRTOP  EQU     $7FFE           ; the string space's top at a cold start [BB bb3 ram-pointers: $27 is 32766]
 STRDEF  EQU     200             ; the default string space
 
 LINBUF  EQU     $0200           ; the typed line (250 characters and a 0)
@@ -31,6 +32,8 @@ LINMAX  EQU     250
 CRNBUF  EQU     $0300           ; the crunched line
 
 * ---------------- system RAM, $0100-$01FF: laid out one after another, so nothing overlaps ----------------
+* (TIMER falls at $0112 after the vectors; the region SYSR1 ends at or below one fixed address:)
+CASEFL  EQU     $0149           ; lower case (SHIFT-0): 255 upper case, 0 lower case [BB bb6 famous-pokes]
         ORG     $0100
 * RAM jump vectors: each a JMP to the handler, so a program can take over an interrupt
 VIRQ    RMB     3
@@ -39,20 +42,11 @@ VNMI    RMB     3
 VSWI    RMB     3
 VSWI2   RMB     3
 VSWI3   RMB     3
+TIMER   RMB     2               ; counts fields (50 Hz): $0112, as on the original [BB bb3 ram-pointers, bb6]
 USRTAB  RMB     20              ; DEF USR0-9 addresses
 ROLLTB  RMB     8               ; keys down per column at the last scan
-TMPDSC  RMB     8*5             ; the temporary string descriptors (strings.inc)
-TMPEND  RMB     0
 FORSTP  RMB     5               ; FOR: the step and the limit, packed, before they go on the stack
 FORLIM  RMB     5               ; (FOR pushes them as one: FORSTP must come just before FORLIM)
-FPT1    RMB     5               ; packed temporaries of the numeric functions (mathfn.inc)
-FPT2    RMB     5
-FPT3    RMB     5
-FPT4    RMB     5
-FPT5    RMB     5
-FPT6    RMB     5
-POLYV   RMB     5               ; POLY's variable
-FBUFFR  RMB     64              ; number to text (FOUT) and PRINT USING's work (FBUFFR+20 on)
 * the cassette (cassette.inc): a namefile block's contents, in its order [FMT]
 CNAME   RMB     8               ; the file name, padded with spaces
 CFTYP   RMB     1               ; the file type: 0 BASIC, 2 machine code
@@ -60,6 +54,18 @@ CFASC   RMB     1               ; $FF: saved as text
 CFGAP   RMB     1               ; $FF: the motor stops between blocks
 CFEXEC  RMB     2               ; the exec address
 CFLOAD  RMB     2               ; the load address
+SYSR1   RMB     0               ; (at or below CASEFL)
+        ORG     CASEFL+1
+FPT1    RMB     5               ; packed temporaries of the numeric functions (mathfn.inc; FPRUN finds FPTn as
+FPT2    RMB     5               ; FPT1 + 5 (n - 1): they stay together)
+FPT3    RMB     5
+FPT4    RMB     5
+FPT5    RMB     5
+FPT6    RMB     5
+POLYV   RMB     5               ; POLY's variable
+TMPDSC  RMB     8*5             ; the temporary string descriptors (strings.inc)
+TMPEND  RMB     0
+FBUFFR  RMB     64              ; number to text (FOUT) and PRINT USING's work (FBUFFR+20 on)
 * graphics (gfx.inc, sgfx.inc)
 FGCOL   RMB     1               ; the foreground and background colours, 0-8 (FGCOL must come just before BGCOL)
 BGCOL   RMB     1
@@ -77,30 +83,32 @@ PLDOT   RMB     1               ; the length's dots
 SYSEND  RMB     0               ; (must stay at or below LINBUF: tools/build-basic.js checks it)
 
 * ---------------- direct page ----------------
-* Fixed addresses that programs read and write [BB, OWNER-SPEC; docs/clean-room-basic.md, "The cursor"]. The
-* variables below are laid out around them in regions; tools/build-basic.js fails if a region (DPR1-DPR3) runs into
-* the fixed address after it. A variable added before SEED may have to move a region's split.
+* Fixed addresses that programs read and write, at the original's places [BB: bb3 ram-pointers, bb6 famous-pokes;
+* OWNER-SPEC for the cursor's; docs/clean-room-basic.md, "The direct page"]. The other variables fill the regions
+* between them in order; tools/build-basic.js fails if a region (its end marker DPRn) runs into the fixed address
+* after it, so a variable added to a full region has to go to another one.
+TXTTAB  EQU     $0019           ; the start of the program
+VARTAB  EQU     $001B           ; the start of the simple variables (the end of the program + 1)
+ARYTAB  EQU     $001D           ; the start of the arrays
+ARYEND  EQU     $001F           ; the end of the arrays: free memory from here
+STRBOT  EQU     $0021           ; the bottom of the string space (also the stack's top)
+FRETOP  EQU     $0023           ; the lowest string in use (strings are allocated downward)
+FORVAR  EQU     $0025           ; FOR, NEXT: the variable's address ($25 on the original: not yet known [OWN])
+MEMTOP  EQU     $0027           ; one past the top of the string space
+CURLIN  EQU     $0068           ; the line running; $FFFF in direct mode
+DEVNUM  EQU     $006F           ; where output goes: 0 the screen, $FF the tape (CSAVE ,A); any other value the
+*                                 screen too (the original's $FE, the printer, is not built) [OWN]
+WARMFL  EQU     $0071           ; $55 after a cold start: the reset button keeps the program
 CURPOS  EQU     $0088           ; the cursor's screen address (16 bits)
 BLINK   EQU     $008F           ; the cursor's blink countdown
 KEYDLY  EQU     $0097           ; the keyboard's debounce delay, in passes (16 bits)
+TXTPTR  EQU     $00A6           ; text pointer: the last character taken
+TRCFLG  EQU     $00AF           ; TRON: 79 on, 0 off
         ORG     $0000
-TXTPTR  RMB     2               ; text pointer: the last character taken
-CURLIN  RMB     2               ; the line running; $FFFF in direct mode
-TXTTAB  RMB     2               ; the start of the program
-VARTAB  RMB     2               ; the start of the simple variables (the end of the program + 1)
-ARYTAB  RMB     2               ; the start of the arrays
-ARYEND  RMB     2               ; the end of the arrays: free memory from here
-FRETOP  RMB     2               ; the lowest string in use (strings are allocated downward)
-STRBOT  RMB     2               ; the bottom of the string space (also the stack's top)
-MEMTOP  RMB     2               ; one past the top of the string space
 OLDLIN  RMB     2               ; CONT: the line and text pointer to go on from; OLDTXT 0 = cannot continue
 OLDTXT  RMB     2
 DATLIN  RMB     2               ; READ: the line of the DATA being read, and the pointer into it
 DATPTR  RMB     2
-TIMER   RMB     2               ; counts fields (50 Hz)
-WARMFL  RMB     1               ; $55 after a cold start: the reset button keeps the program
-CASEFL  RMB     1               ; 0 upper case, $FF lower case (SHIFT-0)
-TRCFLG  RMB     1               ; TRON
 KEYTMP  RMB     2               ; keyboard scan workspace
 BINVAL  RMB     2               ; a line number or 16-bit value being read
 TMPPTR  RMB     2               ; scratch pointers
@@ -113,6 +121,8 @@ KWLEN   RMB     1               ; crunch: the best keyword's length, token, tabl
 KWTOK   RMB     1
 KWFN    RMB     1
 KWTMP   RMB     1
+DPR1    RMB     0               ; (at or below TXTTAB)
+        ORG     MEMTOP+2
 * the floating-point accumulators (fp.inc): exponent, mantissa (4), guard byte, sign; ARG laid out as FAC
 FACEXP  RMB     1
 FACM    RMB     4
@@ -143,46 +153,67 @@ STRPTR  RMB     2               ; a string value: its descriptor
 ARGSTR  RMB     2               ; the left operand when it is a string
 LEFTTY  RMB     1               ; the left operand's type
 TEMPPT  RMB     2               ; the next free temporary descriptor
+DPR2    RMB     0               ; (at or below CURLIN)
+        ORG     CURLIN+2
 DSCTMP  RMB     5               ; a descriptor being built
-VARNAM  RMB     2               ; PTRGET: the name
+DPR3    RMB     0               ; (at or below DEVNUM)
+        ORG     DEVNUM+1
 VARCRE  RMB     1               ; PTRGET: make a simple variable that does not exist
+DPR4    RMB     0               ; (at or below WARMFL)
+        ORG     WARMFL+1
+VARNAM  RMB     2               ; PTRGET: the name
 DIMFLG  RMB     1               ; PTRGET: DIM
 NDIMS   RMB     1               ; the subscripts of an array reference
 INTVAL  RMB     2               ; an integer operand
-FORVAR  RMB     2               ; FOR, NEXT: the variable's address
 NXRET   RMB     2               ; NEXT: its return address
 GCTOP   RMB     2               ; the garbage collector
 GCLIM   RMB     2
 GCBEST  RMB     2
 GCADR   RMB     2
 GCDONE  RMB     1
-DPR1    RMB     0               ; (at or below CURPOS)
-        ORG     CURPOS+2
 SBSTRT  RMB     1               ; LEFT$, RIGHT$, MID$: the start and the count
 SBCNT   RMB     1
 FRACNZ  RMB     1               ; FTRUNC: a fraction was dropped; the sign
 TRSGN   RMB     1
 FPK2    RMB     1
-DPR2    RMB     0               ; (at or below BLINK)
-        ORG     BLINK+1
 LOGE    EQU     FPK2            ; LOG's power of 2 (LOG, SIN and ATN each finish before another starts:
 *                                 one byte serves them all)
 QUAD    EQU     FPK2            ; SIN's quarter
 ATSGN   EQU     FPK2            ; ATN
+DPR5    RMB     0               ; (at or below CURPOS)
+        ORG     CURPOS+2
 ATINV   RMB     1
 ATADD   RMB     1
 PWSGN   RMB     1               ; ^ by a whole number
 PWN     RMB     2
+DPR6    RMB     0               ; (at or below BLINK)
+        ORG     BLINK+1
 EXECAD  RMB     2               ; EXEC's address
-DPR3    RMB     0               ; (at or below KEYDLY)
+INPVAR  RMB     2               ; INPUT: the text pointer in the variable list, its start
+INPST   RMB     2
+ITMCOL  RMB     1               ; GETITM: ':' ends an item (DATA)
+DPR7    RMB     0               ; (at or below KEYDLY)
         ORG     KEYDLY+2
 SEED    RMB     4               ; RND's seed, low byte first
 RNDR    EQU     PROD            ; (RND's product is in the seed before its arithmetic uses PROD)
-ITMCOL  RMB     1               ; GETITM: ':' ends an item (DATA)
 INPKND  RMB     1               ; INPUT 1, LINE INPUT 0
-INPVAR  RMB     2               ; INPUT: the text pointer in the variable list, its start
-INPST   RMB     2
 INPPTR  RMB     2               ; INPUT: the pointer in the typed line
+CNLEN   RMB     1               ; the cassette (cassette.inc): the name's length, 0 for any file
+CBTYP   RMB     1               ; a block's type and length (CBLEN must follow CBTYP)
+CBLEN   RMB     1
+CBCNT   RMB     1               ; the bytes still to read
+CSUM    RMB     1               ; the checksum
+CBYTE   RMB     1               ; the byte being read
+DPR8    RMB     0               ; (at or below TXTPTR)
+        ORG     TXTPTR+2
+CCNT    RMB     1               ; its bits still to read
+CLEAD   RMB     1               ; a leader has been heard
+CLDBAS  RMB     1               ; a program is being loaded (2: a text line had no number); $FF: a file left open
+CBIDX   RMB     1               ; the bytes in the text block
+CEND    RMB     2               ; the end of the data to write; CLOADM's offset
+LSTCNT  RMB     1               ; LIST: the characters of the line's text shown so far
+DPR9    RMB     0               ; (at or below TRCFLG)
+        ORG     TRCFLG+1
 USDSC   RMB     2               ; PRINT USING: the format's descriptor, the place in it
 USPOS   RMB     1
 USANY   RMB     1               ; a field was met
@@ -215,18 +246,6 @@ GPDIR   EQU     USNB            ; GET ($FF) or PUT (0); the action (a truth tabl
 GPLUT   EQU     USNA
 GPROWS  EQU     USNEG
 GPRB    EQU     USK
-CNLEN   RMB     1               ; the cassette (cassette.inc): the name's length, 0 for any file
-CBTYP   RMB     1               ; a block's type and length (CBLEN must follow CBTYP)
-CBLEN   RMB     1
-CBCNT   RMB     1               ; the bytes still to read
-CSUM    RMB     1               ; the checksum
-CBYTE   RMB     1               ; the byte being read
-CCNT    RMB     1               ; its bits still to read
-CLEAD   RMB     1               ; a leader has been heard
-CLDBAS  RMB     1               ; a program is being loaded (2: a text line had no number); $FF: a file left open
-CASOUT  RMB     1               ; CHROUT goes to the tape (CSAVE ,A)
-CBIDX   RMB     1               ; the bytes in the text block
-CEND    RMB     2               ; the end of the data to write; CLOADM's offset
 BASESP  RMB     2               ; the stack the OK prompt and CONT use: frames above it survive a STOP
 FRMSP   RMB     2               ; the stack and the text at the start of the statement running
 STMTXT  RMB     2
@@ -235,7 +254,6 @@ GBEG    RMB     2               ; and the colour byte the plot routine writes
 GCOLB   RMB     1
 DRANG   RMB     1               ; DRAW's angle (0-3 quarter turns) and scale (1-62, in quarters), kept from one DRAW
 DRSCL   RMB     1               ; to the next (draw.inc)
-LSTCNT  RMB     1               ; LIST: the characters of the line's text shown so far
 DPEND   RMB     0
 
 * Two-byte calls: a JMP to each of the ROM's busiest routines at the top of the direct page, just below the RAM

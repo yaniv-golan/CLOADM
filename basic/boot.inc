@@ -52,9 +52,9 @@ COLD2   LDA     ,X+
         STA     ,U+
         DECB
         BNE     COLD2
-        LDD     #RAMTOP
+        LDD     #STRTOP
         STD     <MEMTOP
-        LDD     #RAMTOP-STRDEF
+        LDD     #STRTOP-STRDEF
         STD     <STRBOT
         LDD     #300            ; the debounce delay [OWN]
         STD     <KEYDLY
@@ -66,6 +66,7 @@ COLD2   LDA     ,X+
         JSR     GINIT           ; the graphics mode, colours and last point
         LDA     #$55
         STA     <WARMFL
+        COM     CASEFL          ; upper case: 255 [BB bb6 famous-pokes]
         JSR     CLS
         LDX     #BANNER
         JSR     <ZPRTSTR
@@ -122,14 +123,13 @@ BANNER  FCC     "CLOADM BASIC"  ; (a placeholder: the wording comes later)
 IRQSRV  LDA     PIA0CB
         BPL     IRQ1            ; not the field sync
         LDA     PIA0B           ; acknowledge
-        LDX     <TIMER
+        LDX     TIMER
         LEAX    1,X
-        STX     <TIMER
-        MUL                     ; 38 cycles more (11 + 11 + 11 + 3 + 2): the whole interrupt, entry to RTI, takes
-        MUL                     ; the original's 104, which lengthens the period it falls in by as much (octave 1's
-        MUL                     ; C to G, whose median periods hold it) [BB bb2 snd-play-pitch]
+        STX     TIMER
+        MUL                     ; 36 cycles more (11 + 11 + 11 + 3): the whole interrupt, entry to RTI, takes the
+        MUL                     ; original's 104, which lengthens the period it falls in by as much (octave 1's C to
+        MUL                     ; G, whose median periods hold it) [BB bb2 snd-play-pitch]
         ABX
-        NOP
 IRQ1    RTI
 * FIRQ: the cartridge line; acknowledge PIA 1 CB1
 FIRQSV  PSHS    A

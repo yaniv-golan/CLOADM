@@ -87,7 +87,7 @@ KI7     LDB     <KEYTMP
         BEQ     KINONE
         CMPA    #$FE            ; SHIFT-0: lower case on or off [UM]
         BNE     KI8
-        COM     <CASEFL
+        COM     CASEFL
         BRA     KINONE
 KI8     CMPA    #'A'
         BLO     KIOK
@@ -95,8 +95,8 @@ KI8     CMPA    #'A'
         BHI     KIOK
         CMPX    #KEYTB          ; a letter: lower case in lower-case mode unless shifted
         BNE     KIOK
-        TST     <CASEFL
-        BEQ     KIOK
+        TST     CASEFL          ; (0: lower case; 255, or anything else, upper case [BB bb6; OWN])
+        BNE     KIOK
         ORA     #$20
 KIOK    LDB     #$FF
         STB     PIA0B
