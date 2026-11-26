@@ -3,8 +3,6 @@
 * READY: print OK and take lines
 READY   LDS     <BASESP         ; (above it: the FOR and GOSUB frames CONT needs, or nothing)
         JSR     RSTTMP
-        LDD     #$FFFF
-        STD     <CURLIN
         JSR     NEWLIN
         LDX     #OKMSG
         JSR     <ZPRTSTR
@@ -279,7 +277,7 @@ TRON    LDA     #79             ; (the original's value at $AF [BB bb6 famous-po
         BRA     TROF1
 TROFF   CLRA
 TROF1   STA     <TRCFLG
-        JMP     <ZCHRGOT
+        RTS
 
 * ---------------- GOTO, GOSUB, RETURN ----------------
 * GO TO n / GO SUB n
@@ -308,7 +306,7 @@ GOSN    JMP     <ZSNERR
 GOSUB   JSR     <ZCHRGET
         BCC     GOSN
         JSR     <ZLINGET
-        PULS    U               ; NEWSTT's return address
+GOSUB1  PULS    U               ; NEWSTT's return address (ON ... GOSUB comes in here, its line in BINVAL)
         BSR     CHKSTK
         LDX     <TXTPTR
         PSHS    X

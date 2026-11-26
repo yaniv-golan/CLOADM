@@ -8,7 +8,7 @@ LI1     JSR     KEYWT
         CMPA    #13
         BEQ     LIEND
         CMPA    #3
-        BEQ     LIBRK
+        BEQ     LIEND
         CMPA    #8
         BEQ     LIBS
         CMPA    #$15
@@ -36,16 +36,13 @@ LIKILL  CMPX    #LINBUF
 LICLR   JSR     CLS
         LDX     #LINBUF
         BRA     LI1
-LIEND   CLR     ,X
+* the line ends: ENTER (C clear) or BREAK (C set); D = its length, X = LINBUF
+LIEND   PSHS    A
+        CLR     ,X
         JSR     CRLF
         TFR     X,D
         SUBD    #LINBUF
         LDX     #LINBUF
-        ANDCC   #$FE
-        RTS
-LIBRK   CLR     ,X
-        JSR     CRLF
-        LDX     #LINBUF
-        CLRB
-        ORCC    #1
+        PULS    A
+        CMPA    #13             ; (C set for BREAK, 3)
         RTS

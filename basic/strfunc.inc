@@ -232,23 +232,13 @@ HEXS    JSR     <ZFNARGN
         PSHS    D
         LDB     #4              ; four digits, leading zeros dropped (the last is always kept)
         STB     <TMPCNT
-HXS1    LDD     ,S
-        LSRA                    ; the top digit
-        LSRA
-        LSRA
-        LSRA
-        PSHS    A
-        LDD     1,S
-        ASLB
+HXS1    CLRA                    ; the top digit, shifted out of the number
+        LDB     #4
+HXS0    ASL     1,S
+        ROL     ,S
         ROLA
-        ASLB
-        ROLA
-        ASLB
-        ROLA
-        ASLB
-        ROLA
-        STD     1,S
-        PULS    A
+        DECB
+        BNE     HXS0
         CMPX    #FBUFFR
         BNE     HXS2
         TSTA

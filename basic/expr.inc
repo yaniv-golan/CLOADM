@@ -46,19 +46,14 @@ EVNOT   JSR     <ZCHRGOT
 EVREL   BSR     EVADD
 ER1     JSR     <ZCHRGOT
         CLRB
-ER2     CMPA    #T_LT
-        BNE     ER3
-        ORB     #1
-        BRA     ER5
-ER3     CMPA    #T_EQ
-        BNE     ER4
-        ORB     #2
-        BRA     ER5
-ER4     CMPA    #T_GT
-        BNE     ER6
-        ORB     #4
-ER5     JSR     <ZCHRGET
+ER2     SUBA    #T_GT           ; >, = and < are three tokens in a row
+        CMPA    #2
+        BHI     ER6
+        LDX     #RELBIT
+        ORB     A,X
+        JSR     <ZCHRGET
         BRA     ER2
+RELBIT  FCB     4,2,1           ; the bits of >, =, <
 ER6     TSTB
         BEQ     EVRTS
         PSHS    B
@@ -73,12 +68,10 @@ ER6     TSTB
         JSR     FCMP
         BRA     ER8
 ER7     JSR     STRCMP
-ER8     INCA                    ; $FF, 0, 1 -> the bit 1, 2 or 4
-        LDB     #1
-ER9     DECA
-        BMI     ER10
-        ASLB
-        BRA     ER9
+ER8     NEGA                    ; $FF, 0, 1 -> the bit 1, 2 or 4
+        INCA
+        LDX     #RELBIT
+        LDB     A,X
 ER10    ANDB    ,S+
         BEQ     ER11
         LDB     #$FF
@@ -222,13 +215,12 @@ EVFSN   JMP     <ZSNERR
 * EVNUM, EVSTR: an expression that must be a number, or a string (?TM ERROR)
 EVNUM   JSR     EVAL
 CHKNUM  TST     <VALTYP
-        BEQ     CK1
-        JMP     TMERR
+        BNE     CKTM
 CK1     RTS
 EVSTR   JSR     EVAL
 CHKSTR  TST     <VALTYP
         BNE     CK1
-        JMP     TMERR
+CKTM    JMP     TMERR
 * CHKSP: room on the stack for another level (?OM ERROR)
 CHKSP   PSHS    D
         TFR     S,D

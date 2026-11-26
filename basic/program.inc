@@ -118,9 +118,7 @@ CLRVAR  PSHS    D
         STD     <ARYEND
         LDD     <MEMTOP
         STD     <FRETOP
-        LDD     <TXTTAB
-        SUBD    #1
-        STD     <DATPTR
+        JSR     RESTOR          ; DATA from the start
         CLRA
         CLRB
         STD     <OLDTXT
@@ -132,9 +130,6 @@ CLRVAR  PSHS    D
 * ---------------- LIST ----------------
 * LIST, LIST n, LIST n-, LIST -n, LIST n-m [UM]
 LIST    BSR     RANGE
-        LDD     <TMPPT2
-        STD     <BINVAL
-        JSR     FNDLIN
 LS4     LDD     ,X
         BEQ     LSDONE
         LDD     2,X
@@ -174,14 +169,13 @@ RG2     LDD     #$FFFF
         STD     <TMPCNT
 RG3     JSR     <ZCHRGOT
         BNE     LSSN
-        RTS
+        LDD     <TMPPT2         ; and X: the first line of the range (FNDLIN)
+        STD     <BINVAL
+        JMP     FNDLIN
 
 * DEL n, DEL n-m, DEL -m, DEL n-: the lines in the range go [UM]
 DEL     BEQ     LSSN            ; (a range is needed)
         BSR     RANGE
-        LDD     <TMPPT2
-        STD     <BINVAL
-        JSR     FNDLIN
         STX     <TMPPTR         ; the first to go
 DL1     LDD     ,X
         BEQ     DL2

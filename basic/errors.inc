@@ -31,21 +31,21 @@ ERR_NE  EQU     52              ; (reserved)
 ERRTAB  FCC     "NFSNRGODFCOVOMULBSDD/0IDTMOSLSSTCNUFFDAODNIOFMNOIEDSNE"
 
 SNERR   LDB     #ERR_SN
-        BRA     ERROR
+        FCB     $8C             ; (CMPX #: skips the next LDB)
 FCERR   LDB     #ERR_FC
-        BRA     ERROR
+        FCB     $8C             ; (CMPX #: skips the next LDB)
 OMERR   LDB     #ERR_OM
-        BRA     ERROR
+        FCB     $8C             ; (CMPX #: skips the next LDB)
 ULERR   LDB     #ERR_UL
-        BRA     ERROR
+        FCB     $8C             ; (CMPX #: skips the next LDB)
 TMERR   LDB     #ERR_TM
-        BRA     ERROR
+        FCB     $8C             ; (CMPX #: skips the next LDB)
 OVERR   LDB     #ERR_OV
-        BRA     ERROR
+        FCB     $8C             ; (CMPX #: skips the next LDB)
 DZERR   LDB     #ERR_DZ
-        BRA     ERROR
+        FCB     $8C             ; (CMPX #: skips the next LDB)
 IDERR   LDB     #ERR_ID
-        BRA     ERROR
+        FCB     $8C             ; (CMPX #: skips the next LDB)
 CNERR   LDB     #ERR_CN
 
 ERROR   LDS     <STRBOT         ; drop everything the program had on the stack

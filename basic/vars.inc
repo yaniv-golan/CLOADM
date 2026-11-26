@@ -5,14 +5,11 @@
 * Two characters of a name count [UM].
 
 * ISLET: C set if A is a letter
-ISLET   CMPA    #'A'
-        BLO     ISL1
-        CMPA    #'Z'
-        BHI     ISL1
-        ORCC    #1
-        RTS
-ISL1    ANDCC   #$FE
-        RTS
+ISLET   CMPA    #'Z'+1
+        BHS     ISL1            ; (C clear)
+        SUBA    #'A'
+        SUBA    #-'A'           ; C set from 'A' up; A unchanged
+ISL1    RTS
 
 ZEROV   FCB     0,0,0,0,0       ; the value of a variable not yet made: 0, or the empty string
 
@@ -87,11 +84,11 @@ PG9     LDX     <ARYTAB
         STY     <ARYTAB
         LDD     <VARNAM
         STD     ,X++
-        CLR     ,X
-        CLR     1,X
-        CLR     2,X
-        CLR     3,X
-        CLR     4,X
+        CLRA
+        CLRB
+        STD     ,X
+        STD     2,X
+        STA     4,X
         RTS
 
 * ROOMCK: D (a new end of the variables) must leave room below the stack, or ?OM ERROR
@@ -165,10 +162,7 @@ AGNEW   LDB     <NDIMS          ; the header: 5 + 2 per dimension
         STD     <TMPPT2
         LDX     <ARYEND
         LEAY    5,X             ; the dimension sizes go here, the first subscript's first
-        LDB     <NDIMS
-        LEAU    ,S
-        LEAU    B,U
-        LEAU    B,U             ; U: just past the first subscript (the deepest on the stack)
+        LDB     <NDIMS          ; (U is as AGLOOK left it: just past the first subscript, the deepest on the stack)
         PSHS    B
 AGN1    LDD     ,--U
         TST     <DIMFLG
@@ -205,11 +199,7 @@ AGN4    CMPU    <ARYEND
         BRA     AGN4
 AGN5    TST     <DIMFLG
         BEQ     AGELEM
-        LDB     <NDIMS          ; DIM: nothing more
-        ASLB
-        ADDB    #4
-        LEAS    B,S
-        RTS
+        BRA     AGE9            ; DIM: nothing more
 AGOM    JMP     OMERR
 * the element: offset = s1 + d1 x (s2 + d2 x (...)), checked against each size
 AGELEM  STX     <TMPPTR
@@ -245,18 +235,14 @@ AGE1    PSHS    X               ; offset x this size
         ASLB
         ROLA
         ADDD    <TMPPT2
-        ADDD    #5
         ADDD    <TMPPTR
-        PSHS    D
-        LDB     <NDIMS
-        CLRA
-        ASLB
-        ADDD    ,S++
-        TFR     D,X             ; the element
-        LDB     <NDIMS
+        TFR     D,X
+AGE9    LDB     <NDIMS          ; the frame goes (4 + 2 a subscript); the element is past the header, one more
         ASLB
         ADDB    #4
         LEAS    B,S
+        INCB
+        ABX
         RTS
 
 * MUL16: D = D x the word at 2,S (the caller's pushed value); ?OM ERROR past 65535

@@ -38,8 +38,7 @@ RESET   ORCC    #$50            ; no interrupts while setting up
         STA     SAMM1S
         LDA     <WARMFL
         CMPA    #$55
-        BNE     COLD
-        BRA     WARM
+        BEQ     WARM
 
 COLD    LDX     #0              ; clear the direct page and the system RAM below the screen
 COLD1   CLR     ,X+
@@ -76,8 +75,6 @@ COLD2   LDA     #$7E            ; a JMP to each address of the list
 * the reset button with BASIC already running: keep the program and the variables
 WARM    LDS     <STRBOT
         CLR     <TRCFLG
-        LDX     #SCREEN
-        STX     <CURPOS
         JSR     CLS
         JMP     READY
 

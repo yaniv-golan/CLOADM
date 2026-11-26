@@ -54,9 +54,7 @@ PRC3    JSR     <ZCHRGET
         RTS
 PRTAB   JSR     <ZCHRGET          ; (TAB( is one token: the argument follows)
         JSR     <ZGETBYT
-        PSHS    B
-        JSR     <ZRPAREN
-        PULS    B
+        JSR     RPKEEP
         LDA     <CURPOS+1       ; spaces: n - the column, when that is above 0
         ANDA    #31
         PSHS    A

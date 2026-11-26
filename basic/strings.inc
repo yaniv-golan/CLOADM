@@ -211,9 +211,7 @@ INPROG  JSR     DIRCHK
         LDD     2,X
         CMPD    <TXTTAB
         BLO     IP1
-        CMPD    <VARTAB
-        BHS     IP1
-        ORCC    #1
+        CMPD    <VARTAB         ; (C set below it: inside the program)
         RTS
 IP1     ANDCC   #$FE
         RTS

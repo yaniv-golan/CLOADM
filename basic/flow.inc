@@ -59,17 +59,15 @@ FOR     JSR     PTRNEW
         JSR     <ZEVNUM
         LDX     #FORLIM
         JSR     <ZMOVMF
-        LDD     #$8100          ; STEP 1
-        STD     FORSTP
-        CLR     FORSTP+2
-        CLR     FORSTP+3
-        CLR     FORSTP+4
         JSR     <ZCHRGOT
         CMPA    #T_STEP
-        BNE     FOR1
-        JSR     <ZCHRGET
+        BEQ     FOR0
+        JSR     <ZFPRUN         ; no STEP: 1
+        FCB     F_LD+K_ONE,0
+        BRA     FOR0A
+FOR0    JSR     <ZCHRGET
         JSR     <ZEVNUM
-        LDX     #FORSTP
+FOR0A   LDX     #FORSTP
         JSR     <ZMOVMF
 FOR1    JSR     ENDCHK
 * drop an open loop of the same variable, and everything above it
@@ -190,16 +188,6 @@ ON4     JSR     ENDCHK
         STD     <BINVAL
         LDA     <ONKIND
         CMPA    #T_SUB
-        BEQ     ON5
-        JMP     JUMPTO
-ON5     PULS    U               ; GOSUB: a frame returning to after this statement
-        JSR     CHKSTK
-        LDX     <TXTPTR
-        PSHS    X
-        LDD     <CURLIN
-        PSHS    D
-        LDA     #T_GO
-        PSHS    A
-        PSHS    U
+        LBEQ    GOSUB1          ; GOSUB: a frame returning to after this statement
         JMP     JUMPTO
 ON6     RTS
