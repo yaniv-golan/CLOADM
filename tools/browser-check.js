@@ -24529,7 +24529,28 @@ async function warmupChecks(browser, base, check) {
   // a page with the setting on (as the checkbox stores it), and anything else set up before the page's scripts
   const open = async (query, { ctxOpts = {}, init = null } = {}) => {
     const ctx = await browser.newContext(Object.assign({ viewport: { width: 1280, height: 900 } }, ctxOpts));
-    await ctx.addInitScript(() => { try { localStorage.setItem('cloadm.oldTvWarmup', '1'); } catch (e) { /* (an opaque origin) */ } });
+    await ctx.addInitScript(() => {
+      try { localStorage.setItem('cloadm.oldTvWarmup', '1'); } catch (e) { /* (an opaque origin) */ }
+      // an independent count of the page's animation frames (each one runs the page's frame work once), to hold the
+      // meter's own reading against
+      window.__rafTimes = [];
+      const count = () => { window.__rafTimes.push(performance.now()); if (window.__rafTimes.length > 600) window.__rafTimes.shift(); requestAnimationFrame(count); };
+      requestAnimationFrame(count);
+      // 120 frames over the last 2 s added to the meter (and a known history: its start more than 2 s back), see below;
+      // each one logged, so a later reading can take them out again
+      window.__fed = [];
+      window.__warmupSteady = () => {
+        const r = window.emu.warmup.rate, now = performance.now();
+        r.since = Math.min(r.since == null ? now : r.since, now - 2100);
+        for (let i = 120; i > 0; i--) { const t = now - i * (2000 / 121); window.__fed.push(t); r.tick(t); }
+      };
+      // the meter's reading now, the frames fed to it still in its 2 s window, and the independent count over the same
+      // window (each as frames a second): a meter that counts every real frame reads meter - fed = counted
+      window.__meterCheck = () => {
+        const now = performance.now(), inW = (a) => a.filter((t) => t > now - 2000).length / 2;
+        return { meter: window.emu.warmup.rate.rate(now), fed: inW(window.__fed), counted: inW(window.__rafTimes) };
+      };
+    });
     if (init) await ctx.addInitScript(init);
     const page = await ctx.newPage();
     page.on('pageerror', (e) => errors.push(`${query}: ${e.message}`));
@@ -24538,21 +24559,39 @@ async function warmupChecks(browser, base, check) {
     return { ctx, page };
   };
   const state = (page) => page.evaluate(() => window.emu.warmup.state);
-  // a power cycle, watched from inside the page: the phases in the order they were drawn, and when the overlay went
-  const cycle = (page) => page.evaluate(() => new Promise((resolve) => {
+  // The 45 fps rule reads the page's own frame-rate meter (js/video/warmup.js FrameRate), so on a loaded runner (CI at
+  // 25-40 fps) a power-on the check expects to play was refused as 'slow'. Before such a power-on the check adds 60 fps
+  // of frames over the last 2 s to what the meter counted, in the same task as the power-on: the rule itself still
+  // decides (FrameRate's rate and slow, warmupBlocked), and the real frames only add to the count. What the stub can't
+  // show is checked on its own: that the meter counts the page's real frames (its reading against an independent count
+  // of animation frames, at whatever speed the runner draws), and the refusal below 45 fps, on a page whose frames run
+  // at half the display's rate ('a slow picture').
+  // a power cycle, watched from inside the page: the phases in the order they were drawn, when the overlay went, and the
+  // latest it may go: the start of the frame after the first frame that began at least 1.0 s after the power-on (limit,
+  // from the independent frame count: the overlay goes in the first frame drawn 1.0 s into it, whatever the runner's
+  // frame rate) (fast: the meter given its steady 60 fps first, in the same task)
+  const cycle = (page, { fast = false } = {}) => page.evaluate((fast) => new Promise((resolve) => {
+    if (fast) window.__warmupSteady();
     const box = document.getElementById('warmup'), seen = [];
-    let t0 = 0;
+    let t0 = 0, t1 = 0;
     const mo = new MutationObserver(() => {
       if (!box.hidden && seen[seen.length - 1] !== box.dataset.phase) seen.push(box.dataset.phase);
-      if (box.hidden && t0) { mo.disconnect(); resolve({ seen, gone: performance.now() - t0, shown: seen.length > 0 }); }
+      if (box.hidden && t0) {
+        mo.disconnect();
+        const gone = performance.now() - t0;
+        const after = () => window.__rafTimes.filter((t) => t >= t1 + 1000);
+        const wait = () => { const a = after(); if (a.length >= 2) resolve({ seen, gone, limit: a[1] - t0, shown: seen.length > 0 }); else requestAnimationFrame(wait); };
+        wait();
+      }
     });
     mo.observe(box, { attributes: true, attributeFilter: ['hidden', 'data-phase'] });
     t0 = performance.now();
     document.getElementById('btnHardReset').click();
+    t1 = performance.now();
     if (!box.hidden) seen.push(box.dataset.phase);
     // (none: it never showed; the observer has nothing to wait for)
     setTimeout(() => { mo.disconnect(); resolve({ seen, gone: box.hidden ? null : Infinity, shown: seen.length > 0 }); }, 2500);
-  }));
+  }), fast);
 
   // ---- off by default: no overlay at the start or at a power cycle, the checkbox clear ----
   {
@@ -24581,17 +24620,27 @@ async function warmupChecks(browser, base, check) {
     check('warmup: on: it played at the page\'s start', (await state(page)).plays >= 1, JSON.stringify(await state(page)));
     await waitFor(page, () => document.getElementById('warmup').hidden);
     await page.waitForTimeout(2200);   // (2 s of frames measured, so the 45 fps rule has its history)
-    const c = await cycle(page);
+    // the meter counts every frame the page draws: its reading is the independent count's, over the same 2 s
+    const meter = await page.evaluate(() => { const now = performance.now();
+      return { meter: window.emu.warmup.rate.rate(now), counted: window.__rafTimes.filter((t) => t > now - 2000).length / 2 }; });
+    check('warmup: the frame-rate meter counts the page\'s real frames (its reading within 2 fps of an independent count of animation frames)',
+      meter.meter != null && meter.counted > 0 && Math.abs(meter.meter - meter.counted) <= 2, JSON.stringify(meter));
+    const c = await cycle(page, { fast: true });
     check('warmup: Switch off and on: the overlay, a dot, then the opening line, then the fade', c.shown && c.seen.join() === 'dot,open,fade', JSON.stringify(c));
-    check('warmup: gone by 1.1 s (not before 1.0 s)', c.gone != null && c.gone >= 990 && c.gone <= 1100, JSON.stringify(c));
+    check('warmup: gone at 1.0 s: not before it, and by the start of the frame after the first frame that began at least 1.0 s after the power-on',
+      c.gone != null && c.limit != null && c.gone >= 1000 && c.gone <= c.limit, JSON.stringify(c));
     // a Reset is not a power-on
     const plays = (await state(page)).plays;
     await page.click('#btnReset');
     await page.waitForTimeout(200);
     check('warmup: a Reset plays nothing', (await state(page)).plays === plays && !(await state(page)).playing, JSON.stringify(await state(page)));
     // a machine switch is a power-on
-    await page.evaluate(() => window.emu.session.switchMachine('coco'));
-    check('warmup: a machine switch plays it', (await state(page)).plays === plays + 1 && (await state(page)).playing, JSON.stringify(await state(page)));
+    // the meter read against the real frames again, after the power cycle and the Reset: it still counts every frame
+    // (the frames fed before the power cycle that are still in its window taken out); then the switch, in the same task
+    const sw = await page.evaluate(() => { const m = window.__meterCheck(); window.__warmupSteady(); window.emu.session.switchMachine('coco'); return { m, s: window.emu.warmup.state }; });
+    check('warmup: after a power-on and a Reset the meter still counts every real frame (its reading, less the frames fed to it, within 2 fps of the independent count)',
+      sw.m.meter != null && sw.m.counted > 0 && Math.abs(sw.m.meter - sw.m.fed - sw.m.counted) <= 2, JSON.stringify(sw.m));
+    check('warmup: a machine switch plays it', sw.s.plays === plays + 1 && sw.s.playing, JSON.stringify(sw.s));
     await waitFor(page, () => document.getElementById('warmup').hidden);
     await page.evaluate(() => window.emu.session.switchMachine('dragon64'));
     await waitFor(page, () => window.emu.session.welcomeRunning && document.getElementById('warmup').hidden);

@@ -1461,10 +1461,17 @@ names it.
   nothing), the 45 fps over 2 s rule, each case where it never plays, the setting (off by default, exported, no link
   parameter; every program page's start blocked, from `js/program-pages.js`), the power-on event, and that a power
   cycle of a machine not on screen is none. That the machine is untouched rests on the unchanged regression hashes
-  and the browser check. The browser check's `warmup` group checks the page: the phases in order on Switch off and on, gone by 1.1 s,
-  a Reset and every excluded visit playing nothing, a key reaching the machine through it, the focus kept on the
-  screen, the canvas under it still the machine's picture. Its screenshot at 300 ms (`warmup-300ms.png`) is reviewed
-  by eye: the opening line, over-bright, black above and below.
+  and the browser check. The browser check's `warmup` group checks the page: the phases in order on Switch off and
+  on, gone at 1.0 s (not before, and by the first frame after 1.0 s: the start of the frame after the first frame that
+  began 1.0 s or more after the power-on, from an independent count of the page's frames), a Reset and every excluded visit playing nothing, a key reaching the machine through it, the focus kept on the
+  screen, the canvas under it still the machine's picture. Before a power-on it expects to play after the page's
+  start, the group adds 60 fps of frames over the last 2 s to what the page's frame-rate meter (`FrameRate`, which the
+  45 fps rule reads) counted, so a loaded runner's own frame rate (CI ran at 25-40 fps) cannot refuse it; the rule
+  itself still decides. What that leaves out is checked on its own: the meter's reading against an independent count
+  of the page's animation frames (within 2 fps, at whatever speed the runner draws), before the first power-on and again
+  before the machine switch (the frames fed to it still in its window taken out), and the refusal below 45 fps, on
+  a page whose frames run at half the display's rate. Its screenshot at 300 ms (`warmup-300ms.png`) is
+  reviewed by eye: the opening line, over-bright, black above and below.
 * **The CRT look** (the Display tab's curvature, phosphor glow and scan lines; `GlPresenter` in
   `js/video/canvas.js`, a WebGL fragment shader) changes only how the frame is shown, never the frame, so it has
   no automatic oracle. `tools/browser-check.js --screenshots DIR` draws a fixed 256×192 artifact-colour picture at

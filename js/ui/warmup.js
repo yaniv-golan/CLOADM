@@ -84,5 +84,8 @@ export function setupWarmup(page, visit = {}) {
     // for the browser check: what is drawn now, and a time held (a screenshot at 300 ms), or released with null
     get state() { return { playing: !box.hidden, phase: box.hidden ? null : box.dataset.phase, blocked, plays, ms: WARMUP_MS, fps: rate.rate(performance.now()) }; },
     freeze(t) { if (t == null) { hide(); return; } frozen = t; draw(t); },
+    // for the browser check: the frame-rate meter the 45 fps rule reads (FrameRate), which the check feeds a steady
+    // history of frames before a power-on it expects to play, so a loaded runner's own frame rate cannot decide it
+    rate,
   };
 }
