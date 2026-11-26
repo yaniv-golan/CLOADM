@@ -1,7 +1,8 @@
 /*
  * Mc10Machine: Tandy MC-10 and Matra Alice. MC6803 + MC6847 + keyboard, 1-bit sound, cassette.
  * Hardware as in MAME's mc10 driver (src/mame/trs/mc10.cpp, 0.264):
- *   $0000-$001F  6803 on-chip registers            $0080-$00FF  6803 on-chip RAM
+ *   $0000-$0014  6803 on-chip registers            $0080-$00FF  6803 on-chip RAM (while RAME is set)
+ *   $0015-$001F  not on the chip: reads and writes reach the bus, where nothing answers (as $0013 read does)
  *   $4000-$4FFF  4K RAM; $4000-$8FFF with the 16K expansion (config.ram 4 or 20)
  *   $BFFF        read: keyboard rows of the columns strobed low on port 1
  *                write: bit 2 GM2 + INT/EXT, 3 GM1, 4 GM0, 5 A/G, 6 CSS, 7 sound
