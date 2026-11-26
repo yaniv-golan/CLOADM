@@ -2882,8 +2882,11 @@ async function visitChecks(browser, base, check) {
     return gameSyms[name];
   };
   await key('5');
-  check('welcome: 5 PLAY A GAME opens the games menu, NEW GAMES FOR AN OLD MACHINE', await waitFor(page, () => window.emu.session.welcomeRunning && window.emu.session.screenText()[6].trim() === 'NEW GAMES FOR AN OLD MACHINE'
-    && window.emu.session.screenText()[8].trim() === '1 2048' && window.emu.session.screenText()[9].trim() === '2 MINESWEEPER'));
+  check('welcome: 5 PLAY A GAME opens the games menu: NEW GAMES FOR AN OLD MACHINE, 1 2048, 2 MINESWEEPER, 3 WYRMFIRE (DRAGON 64), 0 BACK TO THE MENU, PRESS 1, 2, 3 OR 0',
+    await waitFor(page, () => { const t = window.emu.session.screenText().map((l) => l.trim());
+      return window.emu.session.welcomeRunning && t[6] === 'NEW GAMES FOR AN OLD MACHINE' && t[8] === '1 2048' && t[9] === '2 MINESWEEPER' && t[10] === '3 WYRMFIRE (DRAGON 64)'
+        && t[11] === '0 BACK TO THE MENU' && t[13] === 'BREAK LEAVES A GAME' && t[14] === 'PRESS 1, 2, 3 OR 0'; }),
+    JSON.stringify(await page.evaluate(() => window.emu.session.screenText().slice(6, 15))));
   if (shotDir) await page.locator('#screenWrap').screenshot({ path: path.join(shotDir, 'welcome-games.png') });
   for (const [k, name, presses] of [['1', '2048', ['ArrowLeft', 'ArrowUp']], ['2', 'Minesweeper', ['ArrowRight', 'ArrowDown']]]) {
     if (k === '2') {
@@ -3809,19 +3812,19 @@ async function powerOnChecks(browser, base, check) {
   for (const [id, sub] of [['coco3', 'DRAGON AND COLOR COMPUTER'], ['mc10', 'TANDY MC-10']]) {
     await pickMachine(page, id);
     check(`switching to the ${id} (no ROMs) from the machine menu: its welcome menu, WELCOME BACK`, await waitFor(page, (id) => window.emu.machine.id === id
-      && window.emu.session.welcomeRunning && window.emu.session.screenText()[id === 'mc10' ? 7 : 6].trim() === 'WELCOME BACK', id) && !(await bare()), `${sub} | ${await text()}`);
+      && window.emu.session.welcomeRunning && window.emu.session.screenText()[6].trim() === 'WELCOME BACK', id) && !(await bare()), `${sub} | ${await text()}`);
     // the carry-on option offers only what runs here: loop.bin was loaded on the Dragon 64, so not on this machine
     const five = await page.evaluate(() => [window.emu.session.screenText()[13].trim(), window.emu.session.screenText()[14].trim()]);
-    check(`switching to the ${id}: the menu doesn't offer the Dragon 64's loop.bin (no carry-on option)`, five[0] === '' && five[1] === (id === 'mc10' ? 'PRESS 1 TO 4' : 'PRESS 1 TO 5'), JSON.stringify(five));
+    check(`switching to the ${id}: the menu doesn't offer the Dragon 64's loop.bin (no carry-on option)`, five[0] === '' && five[1] === 'PRESS 1 TO 5', JSON.stringify(five));
   }
   await shot('switch-mc10');
   // the MC-10: Reset keeps its menu, Switch off and on brings it back (no more bare stub screen on the 6803)
   await page.click('#btnReset');
   check('MC-10 Reset (no ROMs) on its welcome menu: the menu restarts', await waitFor(page, () => window.emu.session.welcomeRunning
-    && window.emu.session.screenText()[9].trim() === '1 TALK TO LIZA') && !(await bare()), await text());
+    && window.emu.session.screenText()[8].trim() === '1 TALK TO LIZA') && !(await bare()), await text());
   await page.click('#btnHardReset');
   check('MC-10 Switch off and on (no ROMs): its welcome menu, WELCOME BACK', await waitFor(page, () => window.emu.session.welcomeRunning
-    && window.emu.session.screenText()[7].trim() === 'WELCOME BACK') && !(await bare()), await text());
+    && window.emu.session.screenText()[6].trim() === 'WELCOME BACK') && !(await bare()), await text());
   // a snapshot taken on the stub's bare prompt (made below the page: the page no longer gets there) opens on the
   // welcome menu; one taken in a program opens in it
   await pickMachine(page, 'dragon64');
@@ -4945,7 +4948,7 @@ async function liza6803Checks(browser, base, check) {
     // BREAK (Esc) at the prompt leaves as BYE does: the goodbye, then the welcome menu (bounded in machine frames)
     await page.keyboard.press('Escape');
     const bye = await waitFor(page, () => /GOODBYE\. IT WAS NICE TALKING TO YOU/.test(window.emu.session.screenText().join(' ').replace(/ +/g, ' ')));
-    const menu = await waitForFrames(page, () => window.emu.session.welcomeRunning && window.emu.session.screenText()[7].trim() === 'BYE FOR NOW. PICK ANOTHER?', null, 400);
+    const menu = await waitForFrames(page, () => window.emu.session.welcomeRunning && window.emu.session.screenText()[6].trim() === 'BYE FOR NOW. PICK ANOTHER?', null, 400);
     check(`${id}: BREAK (Esc) in LIZA says goodbye and brings the menu back, as BYE does`, bye && menu, (await screenOf(page)).split('\n').slice(6, 9).join(' | '));
     check(`${id}: no page errors`, !errors.length, errors.join('; '));
     await closeCtx(ctx);
@@ -5747,10 +5750,10 @@ async function phoneChecks(browser, base, check) {
   await page.keyboard.press('Escape');
   const disk = [...fs.readFileSync(path.join(ROOT, 'tests/fixtures/disks/dragondos.vdk'))];
   await page.evaluate((b) => window.emu.session.drives.importImage('games/first.vdk', new Uint8Array(b), 0), disk);
-  const oneDisk = await waitFor(page, () => document.querySelector('#chipDisks .cs').textContent === 'first.vdk');
+  const oneDisk = await waitFor(page, () => document.querySelector('#chipDisks .cs').textContent === '1 disk');
   await page.evaluate((b) => window.emu.session.drives.importImage('second.vdk', new Uint8Array(b), 1), disk);
   const twoDisks = await waitFor(page, () => document.querySelector('#chipDisks .cs').textContent === '2 disks' && document.getElementById('chipDisks').classList.contains('has-media'));
-  check('phone: NitrOS-9 is in the Disks sheet under the drives; the Disks chip names one disk by its file ("first.vdk"), two as "2 disks", outlined',
+  check('phone: NitrOS-9 is in the Disks sheet under the drives; the Disks chip says "1 disk", then "2 disks", outlined',
     n9 && oneDisk && twoDisks, JSON.stringify({ n9, oneDisk, twoDisks, chip: await page.textContent('#chipDisks .cs') }));
   // Power: Paused after Pause, Running after Resume
   await page.tap('#chipPower'); await page.tap('#btnPause');
@@ -6189,6 +6192,182 @@ async function phoneChecks(browser, base, check) {
   }
   await phoneSnapshotChecks(browser, base, check);
   await phoneLandscapeFirstChecks(browser, base, check);
+  await phoneWyrmPadChecks(browser, base, check);
+}
+
+// WYRMFIRE held upright on a phone: the card is one line under the screen and Details opens it whole as a sheet; the
+// screen has the page's width (the pad gives way first: .tight); no page scroll, no key label cut short, taps 44 px.
+async function phoneWyrmUpright(p, L, check) {
+  // the first tap starts the sound and takes the "Tap for sound" chip's row away
+  await p.tap('.tube'); await p.waitForTimeout(400);
+  const T = await p.evaluate(async () => { const { WYRM_TEXT: t } = await import('../js/ui/wyrmfire.js'); return { privacy: t.privacy, trademark: t.trademark, guard: t.guard, freedoom: t.freedoom, useWad: t.useWad }; });
+  const g = await p.evaluate(() => {
+    const tube = document.querySelector('.tube').getBoundingClientRect(), short = document.getElementById('wyrmShort');
+    const keys = [...document.querySelectorAll('#touchKeys .tk, #touchKeys button, #wyrmShort button')].filter((b) => b.checkVisibility() && b.offsetWidth);
+    return { tube: tube.width, vw: innerWidth, vh: innerHeight, scrollH: document.documentElement.scrollHeight, short: short.textContent, shortH: short.getBoundingClientRect().height,
+      shortVisible: short.checkVisibility(), shortTop: short.getBoundingClientRect().top, tubeBottom: tube.bottom, modeTop: document.getElementById('tkModeSwitch').getBoundingClientRect().top,
+      bsd: (short.querySelector('a') || {}).href || '', card: document.getElementById('wyrmCard').checkVisibility(),
+      cut: keys.filter((b) => b.scrollWidth > b.clientWidth).map((b) => b.textContent), small: keys.filter((b) => b.offsetWidth < 44 || b.offsetHeight < 44).map((b) => `${b.textContent} ${b.offsetWidth}x${b.offsetHeight}`),
+      enter: [...document.querySelectorAll('#touchPad .padkeys .tk[data-key="ENTER"]')].map((b) => `${b.textContent}|${b.getAttribute('aria-label') || ''}`).join() };
+  });
+  check(`${L}: the screen has the page's width (canvas ${Math.round(g.tube)} >= ${g.vw} - 2 x 8)`, g.tube >= g.vw - 16 - 0.5, JSON.stringify(g.tube));
+  check(`${L}: one line under the screen, above the Keys | Pad strip: "WYRMFIRE · Freedoom level (BSD) · Details", (BSD) the licence link`,
+    g.shortVisible && g.short === 'WYRMFIRE · Freedoom level (BSD)Details' && !/·\s*Details$/.test(g.short) && g.shortH <= 48 && g.shortTop >= g.tubeBottom && g.shortTop < g.modeTop && /freedoom/i.test(g.bsd) && /COPYING/i.test(g.bsd), JSON.stringify(g));
+  check(`${L}: the whole card is out of the page's flow until Details`, !g.card);
+  check(`${L}: no page scroll`, g.scrollH <= g.vh, `${g.scrollH} > ${g.vh}`);
+  // the chips hold short values (a count, a short name): never cut, the full names in the aria-label
+  const chip = await p.evaluate(() => ['chipDisks', 'chipCart'].map((id) => { const c = document.getElementById(id), cs = c.querySelector('.cs');
+    return { id, shown: c.checkVisibility(), text: cs.textContent, label: c.getAttribute('aria-label'), cut: cs.scrollWidth > cs.clientWidth || c.scrollWidth > c.clientWidth, over: c.getBoundingClientRect().right > innerWidth }; }));
+  const chipDisks = chip[0], chipCart = chip[1];
+  check(`${L}: the Disks and Cartridge chips say "1 disk" and "Dragon FDC", whole (no ellipsis, no overflow); the full names are in their aria-labels`,
+    chipDisks.text === '1 disk' && chipCart.text === 'Dragon FDC' && chip.every((c) => !c.cut && !c.over) && chipDisks.label.includes('.vdk') && chipCart.label.includes('Dragon FDC (WD2797)'), JSON.stringify(chip));
+  check(`${L}: no key's label is cut short (ENTER says ENTER, or ↵ named ENTER)`, !g.cut.length && (g.enter === 'ENTER|' || g.enter === '↵|ENTER'), JSON.stringify([g.cut, g.enter]));
+  check(`${L}: every tap target at least 44 x 44`, !g.small.length, g.small.join('; '));
+  // Details: the sheet with today's card, its words exactly WYRM_TEXT's; ✕, Esc and a tap outside each close it
+  const card = () => p.evaluate(() => { const c = document.getElementById('wyrmCard');
+    return { open: c.checkVisibility(), privacy: document.getElementById('wyrmPrivacy').textContent, guard: document.getElementById('wyrmGuard').textContent,
+      level: document.getElementById('wyrmLevel').innerText.replace(/\s+/g, ' ').trim(), credits: document.getElementById('wyrmLine').innerText,
+      inView: c.getBoundingClientRect().bottom <= innerHeight + 0.5 && c.getBoundingClientRect().top >= 0, focus: document.activeElement && document.activeElement.id }; });
+  await p.tap('#wyrmDetails');
+  const c1 = await card();
+  check(`${L}: Details opens the card as a sheet, in view, the focus on ✕`, c1.open && c1.inView && c1.focus === 'wyrmClose', JSON.stringify(c1));
+  check(`${L}: the sheet's legal words are WYRM_TEXT's exactly (privacy and trademark, the guard, the Freedoom line and the WAD button)`,
+    c1.privacy === `${T.privacy} ${T.trademark}` && c1.guard === T.guard && c1.level === `${T.freedoom} ${T.useWad}` && /^WYRMFIRE \d/.test(c1.credits) && c1.credits.includes('Level data: Freedoom (BSD), modified'), JSON.stringify(c1));
+  if (shotDir) await p.screenshot({ path: path.join(shotDir, `wyrmfire-details-${L.split(' ').pop()}.png`) });
+  await p.tap('#wyrmClose');
+  const c2 = await card();
+  await p.tap('#wyrmDetails'); await p.keyboard.press('Escape');
+  const c3 = await card();
+  await p.tap('#wyrmDetails'); await p.tap('.tube', { position: { x: 4, y: 4 } }); await p.waitForTimeout(100);
+  const c4 = await card();
+  check(`${L}: ✕, Esc and a tap outside each close the sheet (the focus back on Details after ✕)`, !c2.open && c2.focus === 'wyrmDetails' && !c3.open && !c4.open, JSON.stringify([c2.open, c2.focus, c3.open, c4.open]));
+}
+
+// WYRMFIRE's pad on a phone (js/ui/touch-keys.js, the program's `thumb` controls): an 8-way thumb stick pressing the arrow
+// keys with a 20% dead zone, FIRE (SPACE) and USE (E), STRAFE ◀ ▶ (Z, X) and WEAPON 1 2 3; Keys | Pad with no Stick, the
+// choice kept as touchMode.dragon64.wyrmfire; separate pointers for the stick and the buttons; nothing overlapping at
+// 393x659 upright and 659x393 and 653x280 sideways.
+async function phoneWyrmPadChecks(browser, base, check) {
+  const held = (p) => p.evaluate(() => [...window.emu.input.heldKeys.values()].flatMap((e) => e.keys).sort().join('+'));
+  const pointer = (p, sel, type, id, fx, fy) => p.evaluate(([q, t, i, x, y]) => {
+    const el = document.querySelector(q), r = el.getBoundingClientRect();
+    el.dispatchEvent(new PointerEvent(t, { bubbles: true, cancelable: true, pointerId: i, pointerType: 'touch', isPrimary: i === 11,
+      clientX: r.left + r.width / 2 + x * r.width / 2, clientY: r.top + r.height / 2 + y * r.height / 2 }));
+  }, [sel, type, id, fx, fy]);
+  const wait = (p) => p.waitForTimeout(80);
+  for (const [w, h] of [[393, 659], [320, 568], [659, 393], [653, 280]]) {
+    const L = `phone wyrmfire pad ${w}x${h}`;
+    const ctx = await browser.newContext({ serviceWorkers: 'block', viewport: { width: w, height: h }, isMobile: true, hasTouch: true });
+    const p = await ctx.newPage();
+    const errs = [];
+    p.on('pageerror', (e) => errs.push(e.message));
+    await p.goto(`${base}?start=wyrmfire`);
+    await started(p);
+    const up = await waitFor(p, () => !!window.emu.session.wyrmfireState && document.getElementById('touchKeys').dataset.mode === 'pad'
+      && document.querySelector('#touchPad .padthumb') && !document.querySelector('#touchPad .padthumb').hidden, null, 30000);
+    await p.waitForTimeout(300);
+    // what shows, and where: every control of the panel and the screen, none over another, all inside the window
+    const lay = await p.evaluate(() => {
+      const box = (e, name) => { const r = e.getBoundingClientRect(); return { name, l: r.left, t: r.top, r: r.right, b: r.bottom, w: r.width, h: r.height }; };
+      const shown = (e) => e.checkVisibility() && e.getBoundingClientRect().width > 0;
+      const items = [box(document.querySelector('.tube'), 'screen'), box(document.querySelector('#touchPad .padthumb'), 'stick')];
+      for (const b of document.querySelectorAll('#touchKeys button')) if (shown(b)) items.push(box(b, b.getAttribute('aria-label') || b.textContent.trim() || b.id));
+      return { items, arrows: shown(document.querySelector('#touchPad .padarrows')), scrollW: document.documentElement.scrollWidth,
+        modes: [...document.querySelectorAll('#tkModeSwitch [data-touchmode]')].filter(shown).map((b) => b.textContent), vw: innerWidth, vh: innerHeight };
+    });
+    const over = [];
+    for (let i = 0; i < lay.items.length; i++) for (let j = i + 1; j < lay.items.length; j++) {
+      const a = lay.items[i], b = lay.items[j];
+      if (a.l < b.r - 0.5 && b.l < a.r - 0.5 && a.t < b.b - 0.5 && b.t < a.b - 0.5) over.push(`${a.name} / ${b.name}`);
+    }
+    // sideways the panel is fixed to the window, so everything is in it; upright the panel is under the screen, in the page
+    // (which may scroll down to it, never sideways)
+    const side = w > h;
+    const out = lay.items.filter((a) => a.l < -0.5 || a.r > lay.vw + 0.5 || (side && (a.t < -0.5 || a.b > lay.vh + 0.5))).map((a) => a.name);
+    const screenBox = lay.items[0], under = lay.items.slice(1).every((a) => a.t >= screenBox.b - 0.5);
+    check(`${L}: Pad shows the thumb stick (not the D-pad), and the switch is Keys | Pad (no Stick)`, up && !lay.arrows && lay.modes.join() === 'Keys,Pad', JSON.stringify(lay.modes));
+    check(`${L}: the screen, the stick and every button: none overlaps another`, up && !over.length, over.join('; '));
+    check(side ? `${L}: all inside the window` : `${L}: the pad and its buttons are under the screen, inside the window's width`, up && !out.length && (side || under), out.join('; '));
+    check(`${L}: no sideways scroll`, up && lay.scrollW <= lay.vw, String(lay.scrollW));
+    if (!side) await phoneWyrmUpright(p, L, check);
+    else check(`${L}: sideways the card is as it was: no one-line summary`, await p.evaluate(() => !document.getElementById('wyrmShort').checkVisibility()));
+    const small = lay.items.filter((a) => a.name !== 'screen' && (a.w < (side ? 32 : 44) || a.h < (side ? 32 : 44))).map((a) => `${a.name} ${Math.round(a.w)}x${Math.round(a.h)}`);
+    check(`${L}: every control at least ${side ? 32 : 44} x ${side ? 32 : 44}`, up && !small.length, small.join('; '));
+    if (shotDir) await p.screenshot({ path: path.join(shotDir, `wyrmfire-pad-${w}x${h}.png`) });
+    if (w === 393) {
+      // the stick's eight directions at 60% of its radius, then the dead zone (15% nothing, 25% a direction)
+      const DIRS = [[[1, 0], 'RIGHT'], [[0.7071, -0.7071], 'RIGHT+UP'], [[0, -1], 'UP'], [[-0.7071, -0.7071], 'LEFT+UP'], [[-1, 0], 'LEFT'],
+        [[-0.7071, 0.7071], 'DOWN+LEFT'], [[0, 1], 'DOWN'], [[0.7071, 0.7071], 'DOWN+RIGHT']];
+      const got = [];
+      for (const [[x, y]] of DIRS) {
+        await pointer(p, '#touchPad .padthumb', 'pointerdown', 11, x * 0.6, y * 0.6); await wait(p);
+        got.push(await held(p));
+        await pointer(p, '#touchPad .padthumb', 'pointerup', 11, x * 0.6, y * 0.6); await wait(p);
+      }
+      check(`${L}: the stick holds the arrow keys in eight directions (→ ↗ ↑ ↖ ← ↙ ↓ ↘)`, got.join() === DIRS.map(([, k]) => k.split('+').sort().join('+')).join(), got.join());
+      check(`${L}: lifting the finger lets every key go`, await held(p) === '', await held(p));
+      await pointer(p, '#touchPad .padthumb', 'pointerdown', 11, 0.15, 0); await wait(p);
+      const dead = await held(p);
+      await pointer(p, '#touchPad .padthumb', 'pointermove', 11, 0.25, 0); await wait(p);
+      const live = await held(p);
+      await pointer(p, '#touchPad .padthumb', 'pointermove', 11, 0.1, -0.1); await wait(p);
+      const back = await held(p);
+      await pointer(p, '#touchPad .padthumb', 'pointerup', 11, 0, 0); await wait(p);
+      check(`${L}: the dead zone: nothing at 15% of the radius, RIGHT at 25%, nothing again back inside it`, dead === '' && live === 'RIGHT' && back === '', JSON.stringify([dead, live, back]));
+      // two thumbs: the stick held up, FIRE pressed with another finger, then USE; each lets go on its own
+      await pointer(p, '#touchPad .padthumb', 'pointerdown', 11, 0, -0.8); await wait(p);
+      await pointer(p, '#touchPad .padbig .tk[data-key="SPACE"]', 'pointerdown', 12, 0, 0); await p.waitForTimeout(200);
+      const both = await held(p);
+      await pointer(p, '#touchPad .padbig .tk[data-key="SPACE"]', 'pointerup', 12, 0, 0); await wait(p);
+      const stickOnly = await held(p);
+      await pointer(p, '#touchPad .padbig .tk[data-key="E"]', 'pointerdown', 13, 0, 0); await p.waitForTimeout(200);
+      const use = await held(p);
+      await pointer(p, '#touchPad .padbig .tk[data-key="E"]', 'pointerup', 13, 0, 0); await wait(p);
+      await pointer(p, '#touchPad .padthumb', 'pointerup', 11, 0, -0.8); await wait(p);
+      check(`${L}: the stick and FIRE are separate pointers: UP and SPACE together, then UP alone, UP and E with USE, then nothing`,
+        both === 'SPACE+UP' && stickOnly === 'UP' && use === 'E+UP' && await held(p) === '', JSON.stringify([both, stickOnly, use]));
+      // the small row: each sends its key
+      const row = [];
+      for (const k of ['Z', 'X', '1', '2', '3']) {
+        const sel = `#touchPad .padgroups .tk[data-key="${k}"]`;
+        await pointer(p, sel, 'pointerdown', 14, 0, 0); await p.waitForTimeout(200);
+        row.push(await held(p));
+        await pointer(p, sel, 'pointerup', 14, 0, 0); await wait(p);
+      }
+      check(`${L}: STRAFE ◀ ▶ send Z and X, WEAPON 1 2 3 send 1, 2 and 3`, row.join() === 'Z,X,1,2,3', row.join());
+      // the pad going while the stick is held (Keys tapped with another finger) lets the arrows go
+      await pointer(p, '#touchPad .padthumb', 'pointerdown', 11, -0.8, 0); await wait(p);
+      const holding = await held(p);
+      await p.tap('#tkModeSwitch [data-touchmode="keys"]'); await wait(p);
+      // (the machine's keys, and the stick's own idea of what it holds: the canvas losing the focus to the switch lets the
+      // machine's keys go by itself, so the stick's state is what shows the pad let go of it)
+      const gone = await held(p), stickSays = await p.evaluate(() => document.querySelector('#touchPad .padthumb').dataset.keys);
+      await p.tap('#tkModeSwitch [data-touchmode="pad"]'); await wait(p);
+      check(`${L}: leaving the pad with the stick held lets its keys go`, holding === 'LEFT' && gone === '' && stickSays === '', JSON.stringify([holding, gone, stickSays]));
+      // the mode is kept for WYRMFIRE on the Dragon 64: Keys, reloaded, is Keys; Pad again is kept as pad
+      await p.tap('#tkModeSwitch [data-touchmode="keys"]');
+      const keysSaved = await p.evaluate(() => window.emu.session.store.get('touchMode.dragon64.wyrmfire'));
+      await p.reload(); await started(p);
+      const keysBack = await waitFor(p, () => !!window.emu.session.wyrmfireState && document.getElementById('touchKeys').dataset.mode === 'keys', null, 30000);
+      await p.tap('#tkModeSwitch [data-touchmode="pad"]');
+      const padSaved = await p.evaluate(() => window.emu.session.store.get('touchMode.dragon64.wyrmfire'));
+      check(`${L}: the mode is kept as touchMode.dragon64.wyrmfire (Keys, reloaded, opens on Keys; then Pad)`, keysSaved === 'keys' && keysBack && padSaved === 'pad', JSON.stringify([keysSaved, keysBack, padSaved]));
+      // a level of the person's own (here the Freedoom disk, started as one: no id Software data in the check): the line
+      // names their file and has no Freedoom credit
+      const own = await p.evaluate(async () => {
+        const { WYRMFIRE_PIN: pin } = await import('../js/wyrmfire/pin.js');
+        const get = async (f) => new Uint8Array(await (await fetch(`../${f.path}`)).arrayBuffer());
+        window.emu.session.startWyrmfire(await get(pin.files.engine), await get(pin.files.level), { level: 'user', name: 'MYLEVELS.WAD' });
+        await new Promise((r) => setTimeout(r, 300));
+        const sh = document.getElementById('wyrmShort');
+        return { text: sh.textContent, link: !!sh.querySelector('a'), h: sh.getBoundingClientRect().height };
+      });
+      check(`${L}: with the person's own WAD the line is "WYRMFIRE · your MYLEVELS.WAD" and Details, no dangling "·", one line, no Freedoom link`,
+        own.text === 'WYRMFIRE · your MYLEVELS.WADDetails' && !own.link && own.h <= 48, JSON.stringify(own));
+    }
+    check(`${L}: no page errors`, !errs.length, errs.join('; '));
+    await ctx.close();
+  }
 }
 
 async function feedbackModelChecks(browser, base, check) {
@@ -12087,18 +12266,83 @@ async function wyrmfireChecks(browser, site, check) {
     await ctx.close();
   }
 
+  // every toast the page shows, in order (a toast that is replaced before it is seen shows as lost): window.__toasts
+  const recordToasts = (pg) => pg.addInitScript(() => {
+    window.__toasts = [];
+    setInterval(() => { const t = document.getElementById('toast'), x = t && !t.hidden ? t.textContent.trim() : ''; if (x && window.__toasts[window.__toasts.length - 1] !== x) window.__toasts.push(x); }, 40);
+  });
+  const KEYS = 'WYRMFIRE: Enter skips the music. Arrows move and turn, Z and X strafe, Space fires, E opens doors.', SIDEWAYS = 'Turn sideways for a bigger view.';
   // ---- a phone: Pad with FIRE and USE; the one-time hint upright ----
   {
     const ctx = await browser.newContext({ serviceWorkers: 'block', viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
     const page = await newPage(ctx);
+    await recordToasts(page);
     await page.goto(`${base}?start=wyrmfire`);
     await started(page);
     await playing(page);
     const pad = await waitFor(page, () => document.getElementById('touchKeys').dataset.mode === 'pad') && await page.evaluate(() => ({
-      big: [...document.querySelectorAll('#touchPad .padbig .tk')].map((b) => `${b.textContent}:${b.dataset.key}`), extra: [...document.querySelectorAll('#touchPad .padextra .tk')].map((b) => b.dataset.key) }));
-    check('wyrmfire: a phone opens on Pad: FIRE (Space) and USE (E) as the big buttons, Z X 1 2 3 among the keys', pad && pad.big.join() === 'FIRE:SPACE,USE:E' && pad.extra.join() === 'Z,X,1,2,3', JSON.stringify(pad));
-    check('wyrmfire: upright, the one-time hint "Turn sideways for a bigger view"', await waitFor(page, () => /Turn sideways for a bigger view/.test(document.getElementById('toast').textContent)));
+      big: [...document.querySelectorAll('#touchPad .padbig .tk')].map((b) => `${b.textContent}:${b.dataset.key}`), extra: [...document.querySelectorAll('#touchPad .padextra .tk')].map((b) => b.dataset.key),
+      groups: [...document.querySelectorAll('#touchPad .padgroup')].map((g) => `${g.querySelector('.padcap').textContent} ${[...g.querySelectorAll('.tk')].map((b) => `${b.textContent}=${b.dataset.key}`).join(' ')}`) }));
+    check('wyrmfire: a phone opens on Pad: FIRE (Space) and USE (E) as the big buttons, STRAFE ◀ ▶ (Z, X) and WEAPON 1 2 3, no plain extras',
+      pad && pad.big.join() === 'FIRE:SPACE,USE:E' && pad.extra.join() === '' && pad.groups.join('|') === 'STRAFE ◀=Z ▶=X|WEAPON 1=1 2=2 3=3', JSON.stringify(pad));
+    check('wyrmfire: upright, ?start=wyrmfire: the keys toast, then the one-time hint "Turn sideways for a bigger view." (neither lost)',
+      await waitFor(page, () => window.__toasts.length >= 2, null, 15000) && (await page.evaluate(() => window.__toasts)).join(' | ') === `${KEYS} | ${SIDEWAYS}`, JSON.stringify(await page.evaluate(() => window.__toasts)));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, 'wyrmfire-phone.png') });
+    await ctx.close();
+  }
+  // ---- the welcome menu's WYRMFIRE: the 6809 build's games menu (5, then 3), the 6803 build's 5. On the Dragon 64 it starts at
+  // once; elsewhere it switches to the Dragon 64 with no question, and says so in a toast. Offline and not kept, the menu stays ----
+  {
+    const SWITCHED = 'WYRMFIRE runs on the Dragon 64, so CLOADM switched to it.';
+    for (const [id, keys, tell] of [['dragon64', ['5', '3'], false], ['coco3', ['5', '3'], true], ['coco', ['5', '3'], true], ['mc10', ['5'], true]]) {
+      const ctx = await browser.newContext({ serviceWorkers: 'block' });
+      const page = await newPage(ctx);
+      await page.goto(`${base}?machine=${id}`);
+      await started(page);
+      const menuUp = await waitFor(page, () => window.emu.session.welcomeRunning && window.emu.session.screenText()[14].includes('PRESS 1 TO'));
+      // the switch question (#switchConfirm) must never show: counted on every change to it
+      await page.evaluate(() => { window.__asked = 0; const q = document.getElementById('switchConfirm'); new MutationObserver(() => { if (!q.hidden) window.__asked++; }).observe(q, { attributes: true }); });
+      for (const k of keys) { await page.focus('#screen'); await page.keyboard.press(k); await page.waitForTimeout(150); }
+      const ok = menuUp && await playing(page);
+      const after = await page.evaluate(() => ({ id: window.emu.session.personMachine.id, level: (window.emu.session.wyrmfireState || {}).level, toast: document.getElementById('toast').textContent,
+        switchQuestion: !document.getElementById('switchConfirm').hidden, asked: window.__asked }));
+      check(`wyrmfire: the welcome menu on the ${id} (${keys.join(' then ')}) starts WYRMFIRE on the Dragon 64 with the Freedoom level, asking nothing`,
+        ok && after.id === 'dragon64' && after.level === 'freedoom' && !after.switchQuestion && !after.asked, JSON.stringify(after));
+      check(tell ? `wyrmfire: from the ${id}'s menu, the toast "${SWITCHED}"` : 'wyrmfire: on the Dragon 64 it starts at once, with no switch toast',
+        tell ? await waitFor(page, (t) => document.getElementById('toast').textContent.includes(t), SWITCHED) : !after.toast.includes(SWITCHED), after.toast);
+      if (shotDir && id === 'mc10') await page.screenshot({ path: path.join(shotDir, 'wyrmfire-from-mc10-menu.png') });
+      await ctx.close();
+    }
+    // no toast lost, in order: the switch, the keys, and on an upright phone the sideways hint
+    for (const [label, opts, want] of [['desktop', {}, [SWITCHED, KEYS]], ['an upright phone (393x659)', { viewport: { width: 393, height: 659 }, isMobile: true, hasTouch: true }, [SWITCHED, KEYS, SIDEWAYS]]]) {
+      const c = await browser.newContext(Object.assign({ serviceWorkers: 'block' }, opts));
+      const pg = await newPage(c);
+      await recordToasts(pg);
+      await pg.goto(`${base}?machine=coco3`);
+      await started(pg);
+      await waitFor(pg, () => window.emu.session.welcomeRunning && window.emu.session.screenText()[14].includes('PRESS 1 TO'));
+      for (const k of ['5', '3']) { await pg.focus('#screen'); await pg.keyboard.press(k); await pg.waitForTimeout(150); }
+      // (on the phone a tap on the screen clears the toast showing: the ones after it still come)
+      if (want.length > 2) { await waitFor(pg, () => window.__toasts.length >= 1); await pg.waitForTimeout(500); await pg.tap('.tube'); }
+      const got = await waitFor(pg, (n) => window.__toasts.length >= n, want.length, 20000);
+      check(`wyrmfire: from the CoCo 3's menu on ${label}, every toast is shown in turn: the switch, the keys${want.length > 2 ? ', the turn-sideways hint' : ''}`,
+        got && (await pg.evaluate(() => window.__toasts)).join(' | ') === want.join(' | '), JSON.stringify(await pg.evaluate(() => window.__toasts)));
+      await c.close();
+    }
+    // offline, nothing kept: the strip says so with Try again, and the menu stays on the MC-10
+    const ctx = await browser.newContext({ serviceWorkers: 'block' });
+    const page = await newPage(ctx);
+    await page.goto(`${base}?machine=mc10`);
+    await started(page);
+    await waitFor(page, () => window.emu.session.welcomeRunning && window.emu.session.screenText()[14].includes('PRESS 1 TO 5'));
+    if (shotDir) await page.locator('#screenWrap').screenshot({ path: path.join(shotDir, 'welcome-mc10.png') });
+    await ctx.setOffline(true);
+    await page.focus('#screen'); await page.keyboard.press('5');
+    const off = await waitFor(page, () => document.getElementById('wyrmStrip').dataset.state === 'error');
+    const st = await strip(page);
+    const m = await page.evaluate(() => ({ id: window.emu.session.personMachine.id, menu: window.emu.session.welcomeRunning, line: window.emu.session.screenText()[12].trim() }));
+    check('wyrmfire: from the MC-10\'s menu offline: "WYRMFIRE needs one download the first time, and you\'re offline." with Try again; the MC-10 and its menu stay',
+      off && st.text.startsWith('WYRMFIRE needs one download the first time, and you\'re offline.') && st.buttons[0] === 'Try again' && m.id === 'mc10' && m.menu && m.line === '5 PLAY WYRMFIRE (DRAGON 64)', JSON.stringify([st, m]));
     await ctx.close();
   }
   // ---- Help -> WYRMFIRE: the licences, the Freedoom disk to keep (never a level of the person's own), the facts ----
@@ -21394,8 +21638,8 @@ async function uiModelChecks(browser, base, check) {
         return { order: r.every((x, i) => !i || x.left > r[i - 1].left), under: r.every((x) => x.top >= keys.getBoundingClientRect().bottom - 1),
           disks: ids[1].querySelector('.cs').textContent, marked: ids[1].classList.contains('has-media') && !ids[0].classList.contains('has-media') };
       });
-      check('slots (phone): with a disk in and no tape, the Disks chip names it and is outlined, the chips in their fixed order under the keyboard panel',
-        chips.order && chips.under && chips.disks === 'games.vdk' && chips.marked, JSON.stringify(chips));
+      check('slots (phone): with a disk in and no tape, the Disks chip says "1 disk" and is outlined, the chips in their fixed order under the keyboard panel',
+        chips.order && chips.under && chips.disks === '1 disk' && chips.marked, JSON.stringify(chips));
     } else {
     const order = await page.evaluate(() => {
       const top = (el) => el.getBoundingClientRect().top, tape = document.querySelector('.slots .slot.tape'), drives = document.getElementById('driveSlot');

@@ -572,7 +572,7 @@ export function createFeedback() {
     if (e.type === 'click' && cur.raised >= downAt && e.detail > 0) return;   // raised by this gesture (a keyboard click has detail 0)
     end('cleared');
   };
-  document.addEventListener('pointerdown', (e) => { next(e); downAt = Date.now(); }, true);
+  document.addEventListener('pointerdown', (e) => { downAt = Date.now(); next(e); }, true);   // (a toast the clearing itself raises, the next of a chain, is this gesture's: its click leaves it)
   for (const ev of ['click', 'change', 'drop']) document.addEventListener(ev, next, true);
   // leaving the page ends the toast, so what it was holding back happens (a Library delete is committed)
   addEventListener('pagehide', () => end('closed'));

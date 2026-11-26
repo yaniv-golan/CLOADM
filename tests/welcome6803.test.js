@@ -89,21 +89,23 @@ for (const { id, file, sub } of MACHINES) {
     return line;
   });
   check(`${id}: CLOADM in green block letters`, pixels.join('\n') === wantPixels.join('\n'), `\n${pixels.join('\n')}`);
-  // the subtitle names the machine this build runs on: raw cells at its place (row 7, column 3)
-  const subRow = row(7).slice(3, 3 + sub.length + 3);
+  // the subtitle names the machine this build runs on: raw cells at its place (row 6, column 3)
+  const subRow = row(6).slice(3, 3 + sub.length + 3);
   const start = subRow.indexOf(cells(sub)[0]);
   check(`${id}: the subtitle is "${sub}"`, start >= 0 && subRow.slice(start, start + sub.length).join() === cells(sub).join(),
-    row(7).map((v) => v.toString(16)).join(' '));
+    row(6).map((v) => v.toString(16)).join(' '));
   check(`${id}: the subtitle is the other machine's nowhere on the screen`,
     !s.screenText().some((l) => (id === 'mc10' ? l.includes('MATRA ALICE') : l.includes('TANDY MC-10'))));
   // menu lines: raw cells, digit in inverse video then the text
   const menu = (r, digit, text) => [inverse(digit), ...cells(text)];
   const line = (r, digit, text) => row(r).slice(4, 4 + menu(r, digit, text).length).join() === menu(r, digit, text).join();
-  check(`${id}: menu line 1 (raw cells)`, line(9, '1', ' TALK TO LIZA'), row(9).join());
-  check(`${id}: menu line 2`, line(10, '2', ' COLOUR AND SOUND'));
-  check(`${id}: menu line 3`, line(11, '3', ' ADD YOUR ROMS FOR BASIC'));
-  check(`${id}: menu line 4`, line(12, '4', ' CHAT WITH CLAUDE'));
-  check(`${id}: "PRESS 1 TO 4" (raw cells)`, row(14).slice(10, 10 + cells('PRESS 1 TO 4').length).join() === cells('PRESS 1 TO 4').join());
+  check(`${id}: menu line 1 (raw cells)`, line(8, '1', ' TALK TO LIZA'), row(8).join());
+  check(`${id}: menu line 2`, line(9, '2', ' COLOUR AND SOUND'));
+  check(`${id}: menu line 3`, line(10, '3', ' ADD YOUR ROMS FOR BASIC'));
+  check(`${id}: menu line 4`, line(11, '4', ' CHAT WITH CLAUDE'));
+  check(`${id}: menu line 5 is WYRMFIRE`, line(12, '5', ' PLAY WYRMFIRE (DRAGON 64)'), s.screenText()[12]);
+  check(`${id}: a blank row between the greeting and the menu, and between the menu and the prompt`, row(7).every((v) => v === 0x60) && row(13).every((v) => v === 0x60));
+  check(`${id}: "PRESS 1 TO 5" (raw cells)`, s.screenText()[14] === '          PRESS 1 TO 5          ' && row(14).slice(10, 10 + cells('PRESS 1 TO 5').length).join() === cells('PRESS 1 TO 5').join());
   // option 3 with the ROMs in the sockets and the stub chosen: the Session sets ROMSW and the menu says to switch
   // them on rather than asking for what the machine already has (the same rule as the 6809 build)
   {
@@ -113,23 +115,40 @@ for (const { id, file, sub } of MACHINES) {
     t.runWithoutRoms();
     t.startWelcome(bin); runFrames(t, 50);
     check(`${id}: ROMSW is set with the ROMs in and the stub chosen`, t.shownMachine.ram[Emu.WELCOME['6803'].romsw] === 1, String(t.shownMachine.ram[Emu.WELCOME['6803'].romsw]));
-    const r3 = Array.from({ length: 32 }, (_, i) => t.shownMachine.ram[BASE + 11 * 32 + 4 + i]);
-    const want = menu(11, '3', ' USE YOUR ROMS FOR BASIC');
+    const r3 = Array.from({ length: 32 }, (_, i) => t.shownMachine.ram[BASE + 10 * 32 + 4 + i]);
+    const want = menu(10, '3', ' USE YOUR ROMS FOR BASIC');
     check(`${id}: menu line 3 then reads USE YOUR ROMS FOR BASIC`, r3.slice(0, want.length).join() === want.join(),
       r3.map((v) => String.fromCharCode(v & 0x7f)).join('').trim());
   }
-  check(`${id}: the menu numbers are in inverse video`, [9, 10, 11, 12].every((r, i) => ram(BASE + r * 32 + 4) === 0x31 + i));
+  check(`${id}: the menu numbers are in inverse video`, [8, 9, 10, 11, 12].every((r, i) => ram(BASE + r * 32 + 4) === 0x31 + i));
 
   // keys
-  pressKey(s, '5'); pressKey(s, 'A');
-  check(`${id}: other keys fire nothing`, !events.length, events.join());
-  for (const k of ['1', '2', '3', '4']) pressKey(s, k);
-  check(`${id}: keys 1-4 fire their events in order, once each`, events.join() === 'welcome:liza,welcome:demo,welcome:roms,welcome:claude', events.join());
-  check(`${id}: the welcome program keeps running after the events`, s.welcomeRunning && s.screenText()[14].includes('PRESS 1 TO 4'));
+  pressKey(s, '6'); pressKey(s, '0'); pressKey(s, 'A');
+  check(`${id}: other keys fire nothing (6 only with a carry-on line)`, !events.length, events.join());
+  for (const k of ['1', '2', '3', '4', '5']) pressKey(s, k);
+  check(`${id}: keys 1-5 fire their events in order, once each`, events.join() === 'welcome:liza,welcome:demo,welcome:roms,welcome:claude,welcome:wyrmfire', events.join());
+  check(`${id}: the welcome program keeps running after the events`, s.welcomeRunning && s.screenText()[14].includes('PRESS 1 TO 5'));
   // the shipping build has no HALT: it is still polling keys a long time later (the screen is unchanged)
-  const before = row(7).join();
+  const before = row(6).join();
   runFrames(s, 120);
-  check(`${id}: the shipping build never halts (screen unchanged after 120 more frames)`, s.welcomeRunning && row(7).join() === before);
+  check(`${id}: the shipping build never halts (screen unchanged after 120 more frames)`, s.welcomeRunning && row(6).join() === before);
+
+  // with a carry-on line: the options move up a row (7-11), the carry-on is option 6 on row 12, a blank row, then
+  // PRESS 1 TO 6; key 6 carries on and key 5 is still WYRMFIRE
+  {
+    const t = new Emu.Session(); t.switchMachine(id);
+    const ev = [];
+    t.on((e) => { if (e.startsWith('welcome:')) ev.push(e); });
+    const said = t.startWelcome(bin, { carryOn: 'LIZA' }); runFrames(t, 50);
+    const tx = t.screenText(), tr = (r) => Array.from({ length: 32 }, (_, i) => t.shownMachine.ram[BASE + r * 32 + i]);
+    check(`${id}: with a carry-on, the greeting on row 6 and options 1-5 on rows 7-11`, tx[6].trim() === sub && tx[7].trim() === '1 TALK TO LIZA'
+      && tx[11].trim() === '5 PLAY WYRMFIRE (DRAGON 64)', JSON.stringify(tx.slice(6, 15)));
+    check(`${id}: with a carry-on, option 6 on row 12 (inverse digit), a blank row, then PRESS 1 TO 6`, tx[12].trim() === '6 CARRY ON WITH LIZA'
+      && tr(12)[4] === 0x36 && tr(13).every((v) => v === 0x60) && tx[14] === '          PRESS 1 TO 6          ', JSON.stringify(tx.slice(12, 15)));
+    check(`${id}: startWelcome says 1 to 6 with a carry-on`, said === 'Welcome: press 1 to 6', said);
+    pressKey(t, '7'); pressKey(t, '6'); pressKey(t, '5');
+    check(`${id}: with a carry-on, 6 carries on and 5 is WYRMFIRE`, ev.join() === 'welcome:carryon,welcome:wyrmfire', ev.join());
+  }
 }
 
 // the shipping build and the HALTCODE=1 comparison build (the one MAME runs) differ ONLY at the two fixed
@@ -181,7 +200,7 @@ for (const { id, file } of MACHINES) {
   check(`${id}: the tune writes only the sound bit to the latch, and leaves the text screen (latch 0)`,
     m.ram[0x5005] === 1 && [...latch].every((v) => v === 0 || v === 0x80) && latch.has(0x80) && m.latch === 0, [...latch].map((v) => v.toString(16)).join(' '));
   check(`${id}: the tune writes nowhere below the screen`, !outside.length, outside.slice(0, 5).map((a) => a.toString(16)).join(' '));
-  check(`${id}: the menu is still on the screen after the tune`, s.screenText()[9].trim() === '1 TALK TO LIZA', s.screenText()[9]);
+  check(`${id}: the menu is still on the screen after the tune`, s.screenText()[8].trim() === '1 TALK TO LIZA', s.screenText()[8]);
 }
 
 console.log(fail ? `${fail} FAILED` : 'all 6803 welcome checks passed');

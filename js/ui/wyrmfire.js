@@ -25,7 +25,7 @@
 import { WYRMFIRE_PIN as PIN, wyrmfireSourceUrl, FREEDOOM_CREDIT } from '../wyrmfire/pin.js';
 import { checkWad, convertErrorText, WAD_TEXT, WAD_MAX_MB, WadCheckError } from '../wyrmfire/wad-check.js';
 import { profiles } from '../machines/profiles.js';
-import { $, touchPanel } from './page.js';
+import { $, touchPanel, ESC } from './page.js';
 
 // the words, in one place (tools/browser-check.js and tests/wyrmfire-ui.test.js read them from here)
 export const WYRM_TEXT = Object.freeze({
@@ -49,9 +49,16 @@ export const WYRM_TEXT = Object.freeze({
   trademark: 'DOOM is a registered trademark of ZeniMax Media Inc. CLOADM and WYRMFIRE are independent projects, not affiliated with or endorsed by id Software, ZeniMax Media or Microsoft. References to DOOM describe file compatibility only.',
   guard: 'While WYRMFIRE runs: no snapshots. With your own WAD, no clips and no Claude screen reads.',
   share: 'Opens WYRMFIRE from the start, with the Freedoom level.',
-  sideways: 'Turn sideways for a bigger view',
+  sideways: 'Turn sideways for a bigger view.',
+  // the one line a phone held upright shows while it plays (the whole card is behind Details)
+  shortFreedoom: 'Freedoom level',
+  shortBsd: '(BSD)',
+  shortOwn: (name) => `your ${name}`,
+  details: 'Details',
   keys: 'WYRMFIRE: Enter skips the music. Arrows move and turn, Z and X strafe, Space fires, E opens doors.',
   switchPurpose: ' to play WYRMFIRE',
+  // started from the welcome menu on another machine: switched without a question (the menu loses nothing)
+  switched: 'WYRMFIRE runs on the Dragon 64, so CLOADM switched to it.',
   level: FREEDOOM_CREDIT,
 });
 // "Level data: Freedoom (BSD), modified" is the notice that matters legally (BSD-3-Clause: the copyright notice and
@@ -100,12 +107,14 @@ export function setupWyrmfire(page, { confirmSwitch }) {
     line.replaceChildren(el('span', text, 'wyrmmsg'));
     bar.replaceChildren(...buttons);
     $('wyrmMore').hidden = true;
+    $('wyrmShort').hidden = true;
+    closeDetails(false);
   }
-  function hide() { strip.hidden = true; strip.dataset.state = ''; }
+  function hide() { strip.hidden = true; strip.dataset.state = ''; closeDetails(); }
   // while it plays: the credits, what is off, the person's own WAD
   function playing() {
     const st = session.wyrmfireState;
-    if (!st) { if (!job && strip.dataset.state === 'playing') hide(); return; }
+    if (!st) { if (!job && strip.dataset.state === 'playing') hide(); $('wyrmShort').hidden = true; return; }
     if (job) return;
     strip.hidden = false;
     strip.dataset.state = 'playing';
@@ -121,7 +130,35 @@ export function setupWyrmfire(page, { confirmSwitch }) {
     else level.replaceChildren(el('span', WYRM_TEXT.freedoom), ' ', button(WYRM_TEXT.useWad, pickWad));
     $('wyrmNote').textContent = note || '';
     $('wyrmNote').hidden = !note;
+    // the one line (CSS shows it only on a phone held upright): WYRMFIRE · Freedoom level (BSD) · Details, or
+    // WYRMFIRE · your <file> · Details. "(BSD)" is the Freedoom credit's licence link, so the credit is always in view.
+    const short = $('wyrmShort');
+    const whose = st.level === 'user' ? [el('span', WYRM_TEXT.shortOwn(st.name), 'wyrmown')]
+      : [el('span', `${WYRM_TEXT.shortFreedoom} `), link(WYRM_TEXT.shortBsd, PIN.files.freedoomCopying.path)];
+    const details = button(WYRM_TEXT.details, openDetails);
+    details.id = 'wyrmDetails';
+    details.setAttribute('aria-expanded', String(strip.classList.contains('sheet')));
+    short.replaceChildren(el('span', `${WYRM_TEXT.name} · `), ...whose, details);
+    short.hidden = false;
   }
+  // Details: the whole card as a sheet over the controls (a phone held upright); ✕, a tap outside it or Esc closes it
+  const sheetOpen = () => strip.classList.contains('sheet') && !strip.hidden;
+  function openDetails() {
+    strip.classList.add('sheet');
+    $('wyrmClose').hidden = false;
+    const d = $('wyrmDetails'); if (d) d.setAttribute('aria-expanded', 'true');
+    $('wyrmClose').focus();
+  }
+  function closeDetails(refocus = true) {
+    if (!strip.classList.contains('sheet')) return;
+    strip.classList.remove('sheet');
+    $('wyrmClose').hidden = true;
+    const d = $('wyrmDetails');
+    if (d) { d.setAttribute('aria-expanded', 'false'); if (refocus) d.focus(); }
+  }
+  $('wyrmClose').onclick = () => closeDetails();
+  page.onEscape(ESC.sheet, sheetOpen, () => closeDetails());
+  page.outsidePress(sheetOpen, (t) => strip.contains(t), (refocus) => closeDetails(refocus));
   session.on((ev) => { if (['wyrmfire', 'machine', 'loaded', 'program'].includes(ev)) playing(); });
 
   // ---------------- getting the files ----------------
@@ -191,21 +228,23 @@ export function setupWyrmfire(page, { confirmSwitch }) {
     if (session.wyrmfireRunning || session.welcomeRunning) return false;
     return !(m.atStubPrompt && m.atStubPrompt());
   }
-  // fromLink: ?start=wyrmfire (nothing asked). again: Try again or Back to Freedoom (asked already, or nothing to ask).
-  // own: { disk, name } for the person's converted level (its files are only the engine then).
-  async function start({ fromLink = false, again = false, own = null } = {}) {
+  // fromLink: ?start=wyrmfire (nothing asked). fromMenu: the welcome menu's WYRMFIRE line (nothing asked: the menu is all
+  // the machine has; a switch is said in a toast once it is made). again: Try again or Back to Freedoom (asked already,
+  // or nothing to ask). own: { disk, name } for the person's converted level (its files are only the engine then).
+  async function start({ fromLink = false, fromMenu = false, again = false, own = null } = {}) {
     if (job) return;
-    if (!fromLink && !again && needsAsking()) {
+    if (!fromLink && !fromMenu && !again && needsAsking()) {
       confirmSwitch({ name: profiles[PIN.machine.id].name, purpose: WYRM_TEXT.switchPurpose, id: PIN.machine.id, config: Object.assign({}, PIN.machine.config, { cpu: '6809' }) },
         () => run({ own }));
       return;
     }
-    await run({ own });
+    await run({ own, tell: fromMenu });
   }
-  async function run({ own = null } = {}) {
+  // tell: say in a toast when the start switched machines (the welcome menu's start, which asks nothing)
+  async function run({ own = null, tell = false } = {}) {
     job = { controller: new AbortController(), cancelled: false };
     const mine = job;
-    failedWith = { own };
+    failedWith = { own, tell };
     note = own ? note : null;
     try {
       const files = await getFiles(mine.controller.signal, { level: !own });
@@ -216,9 +255,11 @@ export function setupWyrmfire(page, { confirmSwitch }) {
       // the switch begins: no Cancel from here
       show(WYRM_TEXT.starting, []);
       job = null;
-      page.attempt(() => { session.startWyrmfire(files.engine, own ? own.disk : files.level, own ? { level: 'user', name: own.name } : {}); return WYRM_TEXT.keys; });
+      const switching = session.personMachine.id !== PIN.machine.id;
+      const started = page.attempt(() => { session.startWyrmfire(files.engine, own ? own.disk : files.level, own ? { level: 'user', name: own.name } : {}); return null; });
+      // one toast at a time, none lost: the switch, then the keys, then (an upright phone) the turn-sideways hint
+      if (started) inTurn([tell && switching && session.wyrmfireRunning ? WYRM_TEXT.switched : null, WYRM_TEXT.keys, sideways() ? WYRM_TEXT.sideways : null]);
       page.focus();
-      sideways();
     } catch (e) {
       job = null;
       if (e && e.name === 'AbortError') { hide(); playing(); page.focus(); return; }
@@ -229,11 +270,19 @@ export function setupWyrmfire(page, { confirmSwitch }) {
     }
     playing();
   }
-  // "Turn sideways for a bigger view": once, on a phone held upright
+  // the texts in order, each when the one before has gone, however it went (a toast replaces the one showing, so they are
+  // chained; a tap that clears one does not lose the rest)
+  function inTurn(texts) {
+    const [text, ...rest] = texts.filter(Boolean);
+    if (!text) return;
+    if (text === WYRM_TEXT.sideways) { try { localStorage.setItem('wyrmfire.sideways', '1'); } catch (e) { /* storage off */ } }
+    page.toast(text, { onEnd: () => inTurn(rest) });
+  }
+  // "Turn sideways for a bigger view.": once, on a phone held upright -> whether to say it (it is marked said as it is raised)
   function sideways() {
-    if (!touchPanel() || !matchMedia('(orientation: portrait)').matches) return;
-    try { if (localStorage.getItem('wyrmfire.sideways')) return; localStorage.setItem('wyrmfire.sideways', '1'); } catch (e) { /* storage off: said every time */ }
-    page.toast(WYRM_TEXT.sideways);
+    if (!touchPanel() || !matchMedia('(orientation: portrait)').matches) return false;
+    try { if (localStorage.getItem('wyrmfire.sideways')) return false; } catch (e) { /* storage off: said every time */ }
+    return true;
   }
 
   // ---------------- the person's own WAD ----------------

@@ -610,14 +610,14 @@
     "halted": true
   },
   "welcome6803 mc10": {
-    "hash": "1cbb869e",
-    "instructions": 197548,
-    "events": 4
+    "hash": "892ed563",
+    "instructions": 197674,
+    "events": 5
   },
   "welcome6803 alice": {
-    "hash": "4aeac9d4",
-    "instructions": 197545,
-    "events": 4
+    "hash": "e8e99ce5",
+    "instructions": 197673,
+    "events": 5
   },
   "drivewire coco": {
     "hash": "cdfb7763",
@@ -655,13 +655,13 @@
     "halted": true
   },
   "welcome6803 mc10 back": {
-    "hash": "5844c3b7",
-    "instructions": 197765,
+    "hash": "c80657a9",
+    "instructions": 197824,
     "events": 5
   },
   "welcome6803 alice back": {
-    "hash": "5844c3b7",
-    "instructions": 197765,
+    "hash": "c80657a9",
+    "instructions": 197824,
     "events": 5
   },
   "trace d64plus": {

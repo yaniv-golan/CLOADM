@@ -68,6 +68,23 @@ Next version: 0.3.1 (the plugin and extension manifests carry it; `tests/plugin.
   say what an empty chat sends (`js/claude/suggest.js`; `tests/claude-suggest.test.js` and the browser check's
   `askSuggest` group).
 
+- **WYRMFIRE from the welcome menu, on every model.** On the Dragon and CoCo, 5 PLAY A GAME now lists 3 WYRMFIRE (DRAGON 64)
+  ("PRESS 1, 2, 3 OR 0"); on the MC-10 and Alice the menu has 5 PLAY WYRMFIRE (DRAGON 64), the carry-on line moves to 6 and
+  the prompt reads PRESS 1 TO 5 (1 TO 6 with a carry-on). On the Dragon 64 it starts at once; anywhere else CLOADM switches to
+  the Dragon 64 without the switch question (the menu loses nothing) and says "WYRMFIRE runs on the Dragon 64, so CLOADM
+  switched to it." Always the Freedoom level; the download, offline and failure cases are the strip's, and offline with
+  nothing kept the menu stays. The menu's new choice is the event `welcome:wyrmfire`.
+- **A better touch pad for WYRMFIRE.** Pad mode on a phone or tablet has an 8-way thumb stick that presses the arrow keys
+  (nothing within a 20% dead zone), FIRE (Space) and USE (E), and a row with STRAFE ◀ ▶ (Z, X) and WEAPON 1 2 3. The stick and
+  each button take their own finger. Sideways the stick is left of the screen and the buttons right; upright they are under the
+  screen, with the one-time hint "Turn sideways for a bigger view." The switch is Keys | Pad (no Stick: the game reads the
+  keyboard), and the choice is kept for WYRMFIRE on the Dragon 64.
+- **WYRMFIRE on a phone held upright gets the whole width.** While it plays, the card under the screen is one line,
+  "WYRMFIRE · Freedoom level (BSD) · Details" (or "your <file>" with your own WAD), and Details opens the whole card,
+  unchanged, as a sheet (✕, a tap outside or Esc closes it). The screen takes the page's width; where the height is short the
+  pad's keys shrink to 44 px first. No key label is cut short (ENTER shows ↵ where the word cannot fit). Sideways and on a
+  desktop nothing changes.
+
 #### Changed
 
 - **WYRMFIRE is re-pinned to 2f47134,** whose engine counts the level clock from the PAL field-sync interrupt and shows TIME
@@ -111,6 +128,13 @@ Next version: 0.3.1 (the plugin and extension manifests carry it; `tests/plugin.
   `screen_text` declines, as for a graphics mode (not on the CoCo 2B, whose MC6847T1 takes PB4 as GM0, its lowercase
   enable, nor on the Dragon 200-E, where PB4 picks the character bank). New firmware `movedtext.asm` moves the
   page to `$0E00` and `$1C00`; `run.js <profile> --video --movedtext` compares its pictures with MAME.
+
+- **WYRMFIRE's toasts are no longer lost.** Starting it from the welcome menu on another machine raised the switch toast, the keys
+  toast and, on an upright phone, the turn-sideways hint at once, and each replaced the one before; now they show in turn:
+  the switch, the keys, then the hint.
+- **A phone's Disks and Cartridge chips no longer cut their value short.** They say "1 disk" / "2 disks" and the cartridge's short
+  name ("Dragon FDC"); the full names stay in the chip's sheet and its label.
+- **WYRMFIRE's one-line card no longer ends in a dangling "·"** before Details.
 
 ### 0.3.1
 

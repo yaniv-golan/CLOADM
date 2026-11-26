@@ -43,18 +43,20 @@ BIG     FCB     $87,$8C,$8C,$8B,$80,$8F,$80,$80,$80,$80,$87,$8C,$8C,$8B,$80
         FCB     $8D,$83,$83,$8E,$80,$8F,$83,$83,$82,$80,$8D,$83,$83,$8E,$80
         FCB     $8F,$80,$80,$8F,$80,$8F,$83,$87,$88,$80,$8F,$80,$80,$8F
 
-; screen address, string address; a 0 address ends the table. SCREEN is the build's own constant.
-TEXTS   FDB     SCREEN+9*32+4,T_1
-        FDB     SCREEN+10*32+4,T_2
-        FDB     SCREEN+11*32+4,T_3
-        FDB     SCREEN+12*32+4,T_4
+; the 6803 build's menu: screen address, string address; a 0 address ends the table. SCREEN is the build's own
+; constant. Options 1-5 on rows 8-12, a blank row, the prompt on row 14 (the 6809 build's layout: MENU9).
+TEXTS   FDB     SCREEN+8*32+4,T_1
+        FDB     SCREEN+9*32+4,T_2
+        FDB     SCREEN+10*32+4,T_3
+        FDB     SCREEN+11*32+4,T_4
+        FDB     SCREEN+12*32+4,T_5W
         FDB     SCREEN+14*32+10,T_PRESS
         FDB     0
-; the greeting under the title (row 7), one entry of screen address and string per GREET value: 0 the first
+; the greeting under the title (row 6), one entry of screen address and string per GREET value: 0 the first
 ; visit (the subtitle), 1 a returning visitor, 2 back from a program
-GREETS  FDB     SCREEN+7*32+3,T_SUB
-        FDB     SCREEN+7*32+10,T_BACK
-        FDB     SCREEN+7*32+3,T_BYE
+GREETS  FDB     SCREEN+6*32+3,T_SUB
+        FDB     SCREEN+6*32+10,T_BACK
+        FDB     SCREEN+6*32+3,T_BYE
 
 ; The subtitle names the machine the build runs on, selected at assembly time by one flag per build
 ; family. Every build passes ALL of them explicitly, 0 or 1 (tools/build-examples.js), and an IF on an
@@ -71,8 +73,8 @@ T_SUB   FCN     "DRAGON AND COLOR COMPUTER"
         ENDIF
 T_BACK  FCN     "WELCOME BACK"
 T_BYE   FCN     "BYE FOR NOW. PICK ANOTHER?"
-; option 5's digit (inverse video); its text is CARRY, which the Session sets
-T_5     FCB     '5+$80
+; option 6's digit (inverse video); its text is CARRY, which the Session sets
+T_6     FCB     '6+$80
         FCN     " "
 
 ; the menu lines, each a digit (inverse video) followed by its text
@@ -87,4 +89,7 @@ T_3S    FCB     '3+$80
         FCN     " USE YOUR ROMS FOR BASIC"
 T_4     FCB     '4+$80
         FCN     " CHAT WITH CLAUDE"
-T_PRESS FCN     "PRESS 1 TO 4"
+; the 6803 build's option 5: WYRMFIRE, which runs on the Dragon 64 (the page switches to it)
+T_5W    FCB     '5+$80
+        FCN     " PLAY WYRMFIRE (DRAGON 64)"
+T_PRESS FCN     "PRESS 1 TO 5"
