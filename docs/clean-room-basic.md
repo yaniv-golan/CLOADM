@@ -119,7 +119,7 @@ corrupting the image.
 | `$0200-$02FF` | the line input buffer (250 characters + terminator); `VAL` reads its copy of a string here |
 | `$0300-$03FF` | the crunched line |
 | `$0400-$05FF` | the text screen, 32 x 16 [HW: the SAM's reset display offset] |
-| `$0600-$1DFF` | the graphics pages: `PCLEAR n` reserves n 1.5 K pages from `$0600` (1-8; 4 at cold start) and the program follows them; `CLOAD` of a text file reads each block into `$0600-$06FE` before its lines go in [OWN] |
+| `$0600-$1DFF` | the graphics pages: `PCLEAR n` reserves n 1.5 K pages from `$0600` (1-8; 4 at cold start) and the program follows them; `CLOAD` of a text file reads each block into `$0600-$06FE` before its lines go in, and a cassette data file (and `CSAVE ,A`) gathers its block there (`CASBUF`) [OWN: no 256 free bytes elsewhere; a picture on page 1 shows the block's bytes while a file is open] |
 | `$1E00` | 0 (the byte before the program; after `PCLEAR n`, `$0600 + n x $600`) |
 | `$1E01-...` | the program (`TXTTAB`; `$0601 + n x $600` after `PCLEAR n`), then simple variables, then arrays, then free memory |
 | `...` | the stack (S), growing down from below the string space |
@@ -158,17 +158,17 @@ black-box case (`VARPTR` then `PEEK` of five bytes) and changed to match if it d
 | `vars.inc` | finding and creating variables, arrays, `DIM`, `LET` |
 | `expr.inc` | the expression evaluator: precedence, relations, `NOT` / `AND` / `OR`, `&H` / `&O`, function dispatch, type checks, integer conversions |
 | `strings.inc` | temporary descriptors, string space allocation and garbage collection, literals, joining, comparison |
-| `print.inc` | `PRINT` (`;`, `,`, `TAB(`, `@`), `?` |
+| `print.inc` | `PRINT` (`;`, `,`, `TAB(`, `@`), `?`, `PRINT #-1` |
 | `flow.inc` | `IF` / `THEN` / `ELSE`, `FOR` / `NEXT`, `ON ... GOTO/GOSUB` |
 | `strfunc.inc` | `LEN`, `ASC`, `CHR$`, `LEFT$`, `RIGHT$`, `MID$`, `STR$`, `VAL`, `INSTR`, `STRING$`, `HEX$`, `INKEY$`, `CLEAR` |
 | `mathfn.inc` | `INT`, `FIX`, `ABS`, `SGN`, `SQR`, `LOG`, `EXP`, `SIN`, `COS`, `TAN`, `ATN`, `^`, `RND` (constants: the generated `mathconst.inc`) |
 | `misc.inc` | `PEEK`, `POKE`, `EXEC`, `USR` / `DEF USR`, `DEF FN` / `FN`, `VARPTR`, `MEM`, `POS`, `TIMER` |
-| `io.inc` | `READ` / `DATA` / `RESTORE`, `INPUT`, `LINE INPUT` |
+| `io.inc` | `READ` / `DATA` / `RESTORE`, `INPUT`, `LINE INPUT` (and from the tape, `#-1`) |
 | `using.inc` | `PRINT USING` |
 | `fp.inc` | the floating-point core: unpack / pack, add, subtract, multiply, divide, compare, normalise and round |
 | `fpconv.inc` | integers to and from FAC, number to text (`FOUT`) and text to number (`FIN`), the powers of ten |
 | `tokens.inc` | generated from `tokens.json`: the token equates, keyword tables and dispatch tables. A keyword table is the words in token order from `$80`, each ending in a letter with bit 7 set: a word's token is its place in the table (a token with no word between two others is one `$FF` byte) |
-| `cassette.inc` | `CSAVE` (`,A` for text), `CLOAD`, `CSAVEM`, `CLOADM`, `SKIPF`, `MOTOR`: reading and writing bits, blocks and files on the tape (section 12) |
+| `cassette.inc` | `CSAVE` (`,A` for text), `CLOAD`, `CSAVEM`, `CLOADM`, `SKIPF`, `MOTOR`, data files (`OPEN`, `CLOSE`, `EOF`, the tape side of `PRINT #-1` and `INPUT #-1`): reading and writing bits, blocks and files on the tape (section 12) |
 | `gfx.inc` | P2's graphics pages, modes and points: `PCLEAR`, `PMODE`, `SCREEN`, `COLOR`, `PCLS`, `PSET`, `PRESET`, `PPOINT`, `PCOPY`, the mode table, the plot routine and the return to the text screen at `OK` ([clean-room-basic-p2.md](clean-room-basic-p2.md), section 3) |
 | `sgfx.inc` | `SET`, `RESET`, `POINT`: semigraphics points on the text screen |
 | `line.inc` | `LINE` (`B`, `BF`, `-(x,y)`), the line routine `LINETO` that `DRAW` and `CIRCLE` draw with, the span filler of `BF` and `PAINT` ([clean-room-basic-p2.md](clean-room-basic-p2.md), section 5) |
@@ -476,6 +476,12 @@ All answered by the project owner and kept here with the decision, except where 
    `CLOAD` run inside a program returns to `OK` (ours: yes) and `CLOADM` and `SKIPF` go on with the statement (ours:
    yes); the leader length and the timing around the motor (ours: 128 bytes, half a second); what `SKIPF` does with
    a bad block (ours: nothing). Each is a single place in `basic/cassette.inc`.
+   Also open, for data files (section 12): the leaders and motor timings of the blocks written (bb4 `cas-files`
+   differs from ours there as `cas-save-load` does); where the original keeps the block buffer (ours: graphics page
+   1's first 256 bytes); what `INPUT #-1` does with several items in one record, a bad number and a record left over;
+   what `;` or `,` at the end of `PRINT #-1` writes; the errors no record shows (`?FM`, `?DN`, `?NO` in a program,
+   `?AO` on a second `OPEN`); whether `NEW`, `RUN` or an error close a file (ours: no); `EOF` of a file open for
+   output (ours: `?FM`); whether `OPEN "I"` reads a file of any type (ours: yes).
 
 ## 11. Provenance log
 
@@ -531,6 +537,7 @@ Every behaviour fact the ROM relies on, with its source. A fact without a source
 | 46 | `LIST`: a line that ends at the right edge of the screen (its last row full) is followed by no empty row; at most 249 characters of a line's text are shown (longer lines come only from tapes); written to the tape (`CSAVE ,A`) every line still ends with its carriage return [OWN] | [BB] the real records of the 36 programs in the corpus (2026-11-25): every listing identical to ours with this rule |
 | 47 | `CLOAD`: a program ends at its end marker (the first link of 0); what the tape holds after it is not part of the program and is never listed | [BB] corpus records (two programs with bytes after the marker) |
 | 48 | `DRAW` (and `PLAY`, which reads its string the same way [OWN]): spaces before a number are passed over, so `DRAW "C"+STR$(5)` works | [BB] corpus records (a program whose run goes on, on the original, past such a `DRAW`) |
+| 49 | Cassette data files: `OPEN "O"` writes a type-1 namefile (ASCII and gaps `$FF`, exec and load 0), the records go in a data block written at `CLOSE` with an end-of-file block, the motor run for each of the three; a number printed to the tape has no space after it and `;` and `,` end the record (`HELLO`, CR, ` 42`, CR); `OPEN "I"` shows nothing on the screen; `INPUT #-1,A$` takes a whole record with its commas, leading spaces dropped, `LINE INPUT #-1` keeps them; `EOF(-1)` ends the loop after the last record; then `?IE ERROR`; `PRINT #-1` with no file `?NO ERROR`, `INPUT #-1` in direct mode `?ID ERROR`; `CLOSE` closes it (`CLOSE #-1`, `CLOSE -1`); the forms without `#` | [UM] for the statements; [BB] bb4 `cas-files` (2026-11-25: its transcript, block summaries, data hash and motor runs); the other errors, the buffer's place and the multi-item records are [OWN] (open question 10) |
 
 The log grows with every milestone; black-box facts are added with the date of the run they came from.
 
@@ -591,8 +598,28 @@ the tape (so `TIMER` does not count then [OWN]), and the motor runs through a fi
 * **Writing:** each bit one cycle of a square wave on the DAC, high then low (`CH0`, `CH1`: delay passes from the
   888625 Hz clock); before each block a leader of 128 `$55` bytes, after it one `$55`. `CSAVE` writes the program
   from its start to the end link, `CSAVEM` memory from start to end inclusive, `CSAVE ,A` the `LIST` text (the
-  character output is sent to a 255-byte block buffer at `LINBUF`, written out when full, the motor stopped after
+  character output is sent to a 255-byte block buffer at `CASBUF`, written out when full, the motor stopped after
   each block).
+* **Data files** [UM for the statements; the forms without `#` from a magazine listing; [BB] bb4 `cas-files` for what
+  they do]: `OPEN "O",#-1,"NAME"` writes a namefile (type 1, ASCII and gaps `$FF`, exec and load 0) and stops the
+  motor; `PRINT #-1,...` gathers what it prints in a 255-byte block at `CASBUF` (`$0600`), written when full;
+  `CLOSE #-1` writes the rest and an end-of-file block, the motor started and stopped for each (the record's three
+  motor runs). On the tape a number has no space after it and `;` and `,` each end a record with a carriage return:
+  `PRINT #-1,"HELLO";42` writes `HELLO`, CR, ` 42`, CR (the record's data block has the SHA-256 of exactly those
+  bytes; what `;` or `,` at the end of the statement and `TAB(` write there is [OWN]). `OPEN "I",#-1,"NAME"` (or
+  `""`, or `-1` without `#`) finds the file as `CLOAD` does but shows nothing: no clear, no `S` or `F`, no name (the
+  record's screen is untouched; the blink `CRBLK` makes is put back after every block [OWN]). Each `INPUT #-1` or
+  `LINE INPUT #-1` takes records (lines ended by a carriage return) where a line would be typed, without a prompt:
+  `INPUT #-1,A$` gets the whole record, commas and all, leading spaces dropped (`HELLO,42` from the fixture
+  `data-file`), `LINE INPUT #-1` keeps them (` 42`). Numbers split at commas as typed ones do and a variable past
+  the record's end takes the next record [OWN]; a bad number is `?FD ERROR` [OWN: the manual's meaning of FD].
+  `EOF(-1)` is -1 once no data is left (reading the next block if it must). Past the end, `?IE ERROR`. Errors:
+  `PRINT #-1` with no file open `?NO ERROR`, `INPUT #-1` in direct mode `?ID ERROR` (before the file is looked at)
+  [BB]; with no file in a program `?NO`, the file open the other way `?FM`, a mode other than `I`/`O` `?FM`, a
+  device other than -1 `?DN` (also `#0` and `#-2`), a second `OPEN` or a `CLOAD` etc. while one is open `?AO`, which
+  closes it, `CLOSE` with nothing open no error [OWN]. One file at a time: `CLDBAS` is `$FF` while one is open for
+  input (as after `?IO ERROR`, which leaves a read open) and `$FE` for output. An error during `PRINT #-1` puts the
+  output back on the screen.
 * **Syntax:** `CSAVEM` and `CLOADM` are not keywords of their own: they crunch as `CSAVE` / `CLOAD` followed by the
   letter `M` (they `LIST` as typed), so a file name given as an expression cannot start with a variable whose name
   starts with `M` [OWN]. A name longer than 8 characters is cut to 8 [OWN].

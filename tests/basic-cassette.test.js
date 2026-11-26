@@ -24,7 +24,12 @@
 //  * errors: a bad checksum gives ?IO ERROR (the top row left "f NAME") and leaves no half program, and the next
 //    SKIPF is ?AO ERROR without reading the tape; CLOADM of a program and CLOAD of machine code give ?FM ERROR; a
 //    text line without a number ?DS ERROR, after the whole file is read; CLOAD of a data file ?DS ERROR; BREAK does
-//    not stop the search; MOTOR ON/OFF switch the deck's motor.
+//    not stop the search; MOTOR ON/OFF switch the deck's motor;
+//  * data files (the black-box case cas-files, bb4): OPEN "O" / PRINT #-1 / CLOSE write a type-1 namefile, the
+//    records (hand-derived bytes whose SHA-256 is the original's) and an end-of-file block, the motor run three times;
+//    OPEN "I" / INPUT #-1 / LINE INPUT #-1 / EOF(-1) read them back with the screen untouched, ?IE ERROR past the end;
+//    the forms without #; a file over 255 bytes both ways; ?NO, ?ID, ?FM, ?AO, ?DN, ?FD; and mutants of our own
+//    source, each of which turns a data-file check red.
 const { buildBasic } = require('../tools/build-basic.js');
 const { Basic, Emu, cell } = require('./basic/harness.js');
 
@@ -375,5 +380,130 @@ const twoFiles = Emu.buildCas([{ name: 'ONE', type: 'basic', data: ONE }, { name
   check('LIST: at most 249 characters of a line\'s text', joined === '10 ' + ('REM' + 'A'.repeat(300)).slice(0, 249) && rows[rows.length - 1] === '20 REMB', JSON.stringify(rows.map((r) => r.length)));
   check('CLOAD: the program ends at its end marker; what was loaded after it is no line', eq(rows.slice(-1), ['20 REMB']) && program(b).length === text.length + 5 + 4 + 2 + 1 + 2, JSON.stringify(rows.slice(-2)));
 }
+// ---------------- (5) data files: OPEN, PRINT #-1, INPUT #-1, LINE INPUT #-1, EOF(-1), CLOSE ----------------
+// The program of the black-box case cas-files (tests/basic/cases/cas-files.bas) and what the original did with it
+// [BB bb4 cas-files]. The data bytes are written out by hand from what PRINT #-1 is given: a record per item, ended
+// by a carriage return (";" and "," end one too), a number with its sign's place and no space after it. The same
+// bytes' SHA-256 is the one the original's block has in the record (bb4-real.jsonl), so the hand derivation is checked
+// against the original without its bytes being kept.
+const WRITE = ['10 OPEN "O",#-1,"F"', '20 PRINT #-1,"HELLO";42', '30 PRINT #-1,"A,B","C"', '40 FOR I=1 TO 3:PRINT #-1,I*I:NEXT',
+  '50 PRINT #-1,"LAST LINE"', '60 CLOSE #-1', '70 PRINT "WRITTEN"'];
+const RECORDS = ['HELLO', ' 42', 'A,B', 'C', ' 1', ' 4', ' 9', 'LAST LINE'];
+const FILEDATA = bytes(RECORDS.join('\r') + '\r');
+const REAL_SHA = 'b4ad57e2103b13abbebd8d11df8c828675990ed6a87a60b31c9bfd2be8a307eb';  // [BB bb4 cas-files] its block 2
+const sha = (a) => require('crypto').createHash('sha256').update(Uint8Array.from(a)).digest('hex');
+check('data file: the hand-derived records have the original\'s data hash', sha(FILEDATA) === REAL_SHA && FILEDATA.length === 35);
+
+// the data-file checks, run on a ROM: -> [[name, ok, detail]]; run on ours, then on mutants of ours (below)
+function* dataFileChecks(r) {
+  const ck = (name, ok, detail = '') => [name, !!ok, detail];
+  const boot1 = () => { const b = new Basic(r); if (!b.waitOk({ limit: 600, stable: 3 })) throw new Error('no boot'); return b; };
+  const say = (b, text, limit) => { try { return after(b, text, limit); } catch (e) { return [`(no OK: ${e.message})`]; } };
+  const prog = (b, lines) => { line(b, 'NEW'); for (const l of lines) line(b, l); };
+  // writing
+  const b = boot1();
+  for (const l of WRITE) line(b, l);
+  b.m.deck.startRecording();
+  const run = say(b, 'RUN');
+  const ev = b.m.deck.stopRecording();
+  const dec = Emu.samplesToCas(Emu.recordingToSamples(ev, b.m.tickHz), 44100), blocks = [...Emu.casBlocks(dec.bytes)];
+  yield ck('OPEN "O", PRINT #-1, CLOSE in a program: RUN prints only WRITTEN', eq(run, ['RUN', 'WRITTEN', 'OK']), JSON.stringify(run));
+  yield ck('the file: a namefile, one data block, an end-of-file block, all good', dec.badBlocks === 0 && eq(blocks.map((k) => k.type), [0, 1, 0xFF]) && blocks.every((k) => k.ok), JSON.stringify(blocks.map((k) => [k.type, k.data.length, k.ok])));
+  yield ck('the namefile: "F" padded, type 1 (data), ASCII $FF, gaps $FF, exec 0, load 0', blocks[0] && eq(blocks[0].data, [...bytes('F       '), 1, 0xFF, 0xFF, 0, 0, 0, 0]), blocks[0] && hex(blocks[0].data));
+  yield ck('the data block: the records, each ended by CR; no space after a number', blocks[1] && eq(blocks[1].data, FILEDATA), blocks[1] && JSON.stringify(Buffer.from(blocks[1].data).toString('latin1')));
+  yield ck('the end-of-file block is empty', blocks[2] && blocks[2].data.length === 0);
+  // the motor's runs: the namefile, the data block (written at CLOSE), the end of file [BB bb4 cas-files: three]
+  let runs = 0, on = false;
+  for (const [, lv] of ev) { if (lv !== null && !on) runs++; on = lv !== null; }
+  yield ck('the motor ran three times (namefile; data block; end of file), and is off', runs === 3 && !b.m.deck.motor, `${runs} runs`);
+  // reading it back: INPUT #-1 until EOF(-1), then past the end
+  const tape = dec.bytes;
+  prog(b, ['10 OPEN "I",#-1,"F"', '20 IF EOF(-1) THEN 50', '30 INPUT #-1,A$:PRINT "<";A$;">"', '40 GOTO 20', '50 PRINT "END OF FILE"', '60 INPUT #-1,A$']);
+  insert(b, tape);
+  // the top-left cell: every write to it while the program runs, other than a scroll's (CRBLK's blink must be put back)
+  const writes = [], m = b.m;
+  const remove = m.busTaps.addWriteTap({ start: 0x400, end: 0x400 }, (a, v) => writes.push([v, m.ram[0x420]]));
+  const rd = say(b, 'RUN', 8000);
+  remove();
+  const clears = b.clears.length, own = writes.filter(([v, below]) => v !== below);
+  yield ck('INPUT #-1 reads each record (leading spaces dropped, commas kept), EOF(-1) ends the loop, then ?IE ERROR IN 60',
+    eq(rd, ['RUN', ...RECORDS.map((x) => `<${x.trim()}>`), 'END OF FILE', '?IE ERROR IN 60', 'OK']), JSON.stringify(rd));
+  yield ck('OPEN "I" and the reads leave the screen alone: no clear, the top-left cell changed only in pairs (put back)', clears === 0 && own.length % 2 === 0 && own.every(([v], i) => i % 2 === 0 || v === (own[i - 1][0] ^ 0x40)), `${clears} clears, ${JSON.stringify(own)}`);
+  yield ck('the motor is off after the reads', !b.m.deck.motor);
+  yield ck('CLOSE #-1 after ?IE ERROR: OK', eq(say(b, 'CLOSE #-1'), ['CLOSE #-1', 'OK']));
+  // the forms without #, and LINE INPUT #-1 (leading spaces kept)
+  prog(b, ['10 OPEN "I",-1,""', '20 IF EOF(-1) THEN 50', '30 LINE INPUT #-1,L$:PRINT "[";L$;"]"', '40 GOTO 20', '50 CLOSE -1', '60 PRINT "DONE"']);
+  insert(b, tape);
+  const li = say(b, 'RUN', 8000);
+  yield ck('OPEN "I",-1,"", LINE INPUT #-1 (spaces kept), CLOSE -1', eq(li, ['RUN', ...RECORDS.map((x) => `[${x}]`), 'DONE', 'OK']), JSON.stringify(li));
+  yield ck('CLOSE -1 closed it: PRINT #-1 is ?NO ERROR', eq(say(b, 'PRINT #-1,1'), ['PRINT #-1,1', '?NO ERROR', 'OK']));
+  yield ck('INPUT #-1 in direct mode: ?ID ERROR', eq(say(b, 'INPUT #-1,A'), ['INPUT #-1,A', '?ID ERROR', 'OK']));
+  // a tape made by buildCas: a file passed over, then a data file with a comma in a record, numbers, a bad number
+  const two = Emu.buildCas([{ name: 'OTHER', type: 'data', data: bytes('NOT THIS\r') },
+    { name: 'DATA', type: 'data', data: bytes('HELLO,42\r 3.5\r7,8\rX\r') }]);
+  prog(b, ['10 OPEN "I",#-1,"DATA"', '20 INPUT #-1,A$,B', '30 INPUT #-1,C,D', '40 PRINT A$;"/";B;"/";C;"/";D', '50 INPUT #-1,E']);
+  insert(b, two);
+  const nm = say(b, 'RUN', 8000);
+  yield ck('OPEN "I" with a name passes another file; a string item takes the whole record, numbers split at commas; a bad number ?FD ERROR',
+    eq(nm, ['RUN', 'HELLO,42/ 3.5 / 7 / 8', '?FD ERROR IN 50', 'OK']), JSON.stringify(nm));
+  yield ck('... and nothing of the search on the screen (no clear)', b.clears.length === 0);
+  line(b, 'CLOSE');
+  // errors: the file open the other way, opened twice, other devices and modes
+  prog(b, ['10 OPEN "I",#-1,"DATA"', '20 PRINT #-1,1']);
+  insert(b, two);
+  yield ck('PRINT #-1 to a file open for input: ?FM ERROR', eq(say(b, 'RUN', 8000), ['RUN', '?FM ERROR IN 20', 'OK']));
+  insert(b, two);
+  yield ck('CLOAD with a file open: ?AO ERROR, the tape not read', eq(say(b, 'CLOAD'), ['CLOAD', '?AO ERROR', 'OK']) && b.m.deck.tape.progress() === 0);
+  yield ck('?AO ERROR closed it: PRINT #-1 is then ?NO ERROR', eq(say(b, 'PRINT #-1,1'), ['PRINT #-1,1', '?NO ERROR', 'OK']));
+  prog(b, ['10 OPEN "O",#-1,"A"', '20 INPUT #-1,X']);
+  yield ck('INPUT #-1 from a file open for output: ?FM ERROR', eq(say(b, 'RUN'), ['RUN', '?FM ERROR IN 20', 'OK']));
+  yield ck('OPEN with a file already open: ?AO ERROR', eq(say(b, 'OPEN "O",#-1,"B"'), ['OPEN "O",#-1,"B"', '?AO ERROR', 'OK']));
+  yield ck('INPUT #-1 in a program with no file open: ?NO ERROR', eq(say(b, 'RUN 20'), ['RUN 20', '?NO ERROR IN 20', 'OK']));
+  yield ck('EOF(-1) with no file open: ?NO ERROR', eq(say(b, 'PRINT EOF(-1)'), ['PRINT EOF(-1)', '?NO ERROR', 'OK']));
+  yield ck('CLOSE with nothing open: OK, the motor not run', eq(say(b, 'CLOSE #-1'), ['CLOSE #-1', 'OK']) && eq(say(b, 'CLOSE'), ['CLOSE', 'OK']) && !b.m.deck.motor);
+  yield ck('a device other than -1: ?DN ERROR', eq(say(b, 'OPEN "I",#-2,"X"'), ['OPEN "I",#-2,"X"', '?DN ERROR', 'OK']) && eq(say(b, 'CLOSE #0'), ['CLOSE #0', '?DN ERROR', 'OK']));
+  yield ck('a mode other than I or O: ?FM ERROR', eq(say(b, 'OPEN "X",#-1,"X"'), ['OPEN "X",#-1,"X"', '?FM ERROR', 'OK']));
+  yield ck('an error in PRINT #-1 is shown on the screen, and the output is the screen again', eq(say(b, 'OPEN "O",#-1,"Z":PRINT #-1,1/0'), ['OPEN "O",#-1,"Z":PRINT #-1,1/0', '?/0 ERROR', 'OK']) && b.m.ram[0x6F] === 0);
+  // a file over 255 bytes: blocks of 255 and the rest, written as the buffer fills; read back whole
+  const c = boot1();
+  ['10 OPEN "O",#-1,"BIG"', '20 FOR I=1 TO 40:PRINT #-1,"RECORD";I:NEXT', '30 CLOSE #-1'].forEach((l) => line(c, l));
+  c.m.deck.startRecording();
+  say(c, 'RUN', 20000);
+  const bev = c.m.deck.stopRecording(), big = Emu.samplesToCas(Emu.recordingToSamples(bev, c.m.tickHz), 44100);
+  const want = []; for (let i = 1; i <= 40; i++) want.push('RECORD', ` ${i}`);
+  const all = bytes(want.join('\r') + '\r'), bb = [...Emu.casBlocks(big.bytes)].filter((k) => k.type === 1);
+  const sizes = []; for (let left = all.length; left > 0; left -= 255) sizes.push(Math.min(255, left));
+  yield ck(`a file of ${all.length} bytes: data blocks of 255 and the rest, the bytes in order`, all.length > 255 && eq(bb.map((k) => k.data.length), sizes) && eq(bb.flatMap((k) => Array.from(k.data)), all), bb.map((k) => k.data.length).join(','));
+  prog(c, ['10 OPEN "I",#-1,"BIG":N=0', '20 IF EOF(-1) THEN 40', '30 INPUT #-1,A$,B:N=N+B:GOTO 20', '40 CLOSE #-1:PRINT A$;N']);
+  insert(c, big.bytes);
+  const sum = say(c, 'RUN', 20000);
+  yield ck('... read back across its blocks: the 40 records', eq(sum, ['RUN', 'RECORD 820', 'OK']), JSON.stringify(sum));
+}
+for (const [name, ok, detail] of dataFileChecks(rom)) check(`data file: ${name}`, ok, detail);
+// mutants: our own source broken on purpose; each must turn at least one of the checks above red
+const MUTANTS = [
+  ['a number printed to the tape keeps its space after it', 'print.inc', '        BEQ     PRNXT           ; (no space after it on the tape)', '        BRA     *+2'],
+  ['; writes no carriage return to the tape', 'print.inc', 'PRSEMI  BSR     TAPCR', 'PRSEMI  BSR     TAPEQ'],
+  ['a string record from the tape ends at a comma', 'io.inc', '        BMI     GI5A\n        CMPA    #\',\'', '        BRA     *+2\n        CMPA    #\',\''],
+  ['OPEN "I" shows the search as CLOAD does', 'cassette.inc', 'CFIND   TST     <CLDBAS\n        BMI     CF1', 'CFIND   TST     <CLDBAS\n        BRA     *+2'],
+  ['the blink not put back after a block', 'cassette.inc', '        LDA     1,S\n        STA     SCREEN', '        LDA     1,S\n        NOP\n        NOP\n        NOP'],
+  ['EOF(-1) never true', 'cassette.inc', '        TFR     CC,B            ; C set (data): 0; clear (the end): -1', '        ORCC    #1'],
+  ['the file type written as 0', 'cassette.inc', '        INC     CFTYP           ; a data file', '        NOP\n        NOP\n        NOP'],
+  ['CLOSE writes no end-of-file block', 'cassette.inc', '        JSR     CFLUSH\n        JMP     CWDA2', '        JSR     CFLUSH\n        JMP     CASOFF'],
+  ['PRINT #-1 with no file open is let through', 'cassette.inc', 'FILCHK  CMPA    <CLDBAS\n        BEQ     DVC1', 'FILCHK  CMPA    <CLDBAS\n        BRA     DVC1'],
+  ['a record not cut at the end of the file (?IE never)', 'cassette.inc', '        LBCC    IEERR', '        BRA     *+4'],
+  ['a byte of a block taken with a signed offset (past 127: the screen)', 'cassette.inc', '        ABX                     ; (B unsigned: up to 254)\n        LDA     ,X', '        LDA     B,X\n        NOP'],
+  ['the output left on the tape after an error', 'errors.inc', '        CLR     <DEVNUM         ; (the message on the screen, whatever PRINT #-1 was doing [OWN])', ''],
+];
+for (const [what, file, from, to] of MUTANTS) {
+  let mrom, err = null;
+  try {
+    mrom = buildBasic({ edit: (f, t) => { if (f !== file) return t; if (!t.includes(from)) throw new Error(`mutant source not found: ${what}`); return t.replace(from, to); } }).rom;
+  } catch (e) { err = e.message; }
+  let red = [];
+  if (!err) { try { for (const [name, ok] of dataFileChecks(mrom)) if (!ok) { red.push(name); break; } } catch (e) { red = [`(threw: ${e.message})`]; } }
+  check(`mutant "${what}" turns a data-file check red`, !err && red.length > 0, err || red[0] || 'none failed');
+}
+
 console.log(`\n${n - fail}/${n} passed`);
 process.exitCode = fail ? 1 : 0;

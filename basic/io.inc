@@ -28,6 +28,8 @@ GI4     LDX     <TXTPTR
         CLRB
 GI5     LDA     ,X
         BEQ     GI6
+        TST     <ITMCOL         ; a record from the tape: to its end, commas too [BB bb4 cas-files: HELLO,42]
+        BMI     GI5A
         CMPA    #','
         BEQ     GI6
         CMPA    #':'
@@ -96,6 +98,10 @@ RESTOR  LDD     <TXTTAB
 * INPUT ["prompt";] variable, ...: "? " (after the prompt), then a line typed; items separated by commas;
 * "??" asks for more when the line ran out, ?REDO when a number was badly formed (the whole INPUT again),
 * ?EXTRA IGNORED when there were too many [UM]. Only in a program (?ID ERROR). BREAK stops the program.
+* INPUT #-1, LINE INPUT #-1: the same from the cassette data file open for input (cassette.inc), a record (a line
+* ended by a carriage return) where a line is typed: no prompt, a string item runs to the record's end, commas and
+* all; past the file's end ?IE ERROR [BB bb4 cas-files]; a bad number ?FD ERROR [OWN].
+* ITMCOL is $FF while it reads the tape.
 INPUT   LDB     #1
         BRA     INP0
 LNINP   CLRB                    ; LINE INPUT: the whole line into one string
@@ -104,7 +110,15 @@ INP0    STB     <INPKND
         LBEQ    IDERR
         CLR     <ITMCOL
         JSR     <ZCHRGOT
-        CMPA    #'"'
+        CMPA    #'#'
+        BNE     INP0A
+        LDB     #$FF            ; (open for input)
+        JSR     CDEV
+        STA     <ITMCOL
+        NEG     <INPKND         ; (INPUT $FF: no "? ")
+        JSR     COMMA
+        BRA     INP1
+INP0A   CMPA    #'"'
         BNE     INP1
         JSR     STRLIT          ; the prompt
         LDB     #';'
@@ -115,7 +129,7 @@ INP1    LDD     <TXTPTR         ; where the variables are listed
         STD     <INPVAR
         STD     <INPST
 INP2    TST     <INPKND
-        BEQ     INP2A
+        BLE     INP2A
         JSR     PRMSG
         FCN     "? "
 INP2A   JSR     INLINE
@@ -137,13 +151,17 @@ INP3    JSR     PTRNEW
         LDA     ,X              ; the typed line ran out: ?? and another
         CMPA    #','
         BEQ     INP3B
-INP3A   JSR     PRMSG
+INP3A   TST     <ITMCOL
+        BMI     INP3C
+        JSR     PRMSG
         FCN     "?? "
-        BSR     INLINE
+INP3C   BSR     INLINE
         LDX     #LINBUF-1
         STX     <TXTPTR
 INP3B   JSR     GETITM
         BCC     INP4
+        TST     <ITMCOL
+        LBMI    FDERR
         LEAS    2,S             ; ?REDO: the whole INPUT again
         JSR     PRMSG
         FCC     "?REDO"
@@ -182,7 +200,9 @@ LNI3    JSR     MKTMP           ; (STRKEEP copies it: a typed line is not progra
         PULS    X
         JMP     ASSIGN
 * INLINE: a line typed for INPUT; BREAK stops the program
-INLINE  JSR     LINEIN
+INLINE  TST     <ITMCOL         ; (a record from the tape)
+        LBMI    CRDLN
+        JSR     LINEIN
         LBCS    STOPIN
         RTS
 

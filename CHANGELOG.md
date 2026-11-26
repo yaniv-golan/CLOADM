@@ -83,6 +83,11 @@ Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.
   `?DS ERROR`, given (as a text line without a number) once the whole file is read, and after a load that failed
   with `?IO ERROR` the next cassette statement is `?AO ERROR`, as on the original. A second size pass, with no
   behaviour changed, takes the ROM from 16,040 to 15,157 bytes (the room cassette data files need).
+  Cassette data files are in: `OPEN "O"` and `OPEN "I"` on device `-1` (with or without `#`), `PRINT #-1`,
+  `INPUT #-1`, `LINE INPUT #-1`, `EOF(-1)` and `CLOSE`, with `?NO`, `?ID`, `?IE`, `?AO`, `?FM`, `?DN` and `?FD`
+  errors. The black-box case `cas-files` now runs on ours as on the original: the same screen, line for line, and
+  the same file on the tape (a type-1 namefile, the same data block by its hash, an end-of-file block, the motor
+  stopped between them); only the leader lengths and motor timings differ, as they already did for `CSAVE`.
 - **The share-link formats are frozen.** Links and snapshots in people's hands keep opening from now on (AGENTS.md,
   rule 7): `SNAPSHOT_OLDEST` never rises (a change to the meaning of state ships a converter from every older version), no
   link or envelope decoder is ever dropped, and a long link's byte 0 is 1 for a moment, 2 for a BASIC program, 3 to 31
