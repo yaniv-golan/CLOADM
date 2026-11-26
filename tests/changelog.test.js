@@ -6,7 +6,7 @@
 // On CI the tags must be there (the workflow checks out with fetch-depth: 0) and a missing one is a failure. On a
 // checkout without them this prints one SKIP line per tag naming it and does not pretend to have compared.
 const cp = require('child_process'), fs = require('fs'), path = require('path');
-const { check: guard, parse, tagOf, ALLOWED_CORRECTIONS, subsectionKinds, oddSubsections, unreleasedKinds, KEEP_A_CHANGELOG, conflictMarkers, bareLetterLines } = require('./changelog-guard.js');
+const { check: guard, parse, tagOf, ALLOWED_CORRECTIONS, subsectionKinds, oddSubsections, unreleasedKinds, unreleasedLevel3, KEEP_A_CHANGELOG, conflictMarkers, bareLetterLines } = require('./changelog-guard.js');
 
 let fail = 0;
 const check = (name, cond, detail = '') => { if (!cond) { fail++; console.log(`FAIL ${name} ${detail}`); } else console.log('ok   ', name, detail); };
@@ -55,9 +55,23 @@ const git = (...args) => cp.execFileSync('git', args, { cwd: root, encoding: 'ut
   // section no release reads.
   check('CHANGELOG.md: [Unreleased]\'s own subsection headings are Keep a Changelog names',
     unreleasedKinds(text).every((k) => KEEP_A_CHANGELOG.includes(k)), unreleasedKinds(text).join(', '));
+  check('CHANGELOG.md: [Unreleased] carries no level-3 heading (its subsections are "####")',
+    unreleasedLevel3(text).length === 0, unreleasedLevel3(text).join(', '));
   check('...and an invented [Unreleased] heading is reported',
     unreleasedKinds('## [Unreleased]\n\nNext version: 1.0.0\n\n#### Upgrading\n\n- x\n\n### 0.9.0\n').join() === 'Upgrading',
     unreleasedKinds('## [Unreleased]\n\n#### Upgrading\n\n- x\n\n### 0.9.0\n').join());
+  // An H3 name under [Unreleased] is a .md mistake ("### Fixed" instead of "#### Fixed"). It must be reported, and it
+  // must not end the region: when it did, both this scan and bareLetterLines saw nothing past it and stayed green
+  // (that is how an H3 entry shipped once with a stray "D" and an invented subsection both invisible).
+  const H3 = '## [Unreleased]\n\nNext version: 1.0.0\n\n### Fixed\n\n- a real entry\n\nD\n\n#### Upgrading\n\n- x\n\n### 0.9.0\n';
+  check('...and a level-3 heading under [Unreleased] is reported by name',
+    unreleasedLevel3(H3).join() === 'Fixed', unreleasedLevel3(H3).join());
+  check('...and it does not end the scan: the entries after it are still read',
+    unreleasedKinds(H3).join() === 'Upgrading' && bareLetterLines(H3).map((x) => x.text).join() === 'D',
+    `kinds ${unreleasedKinds(H3).join(', ')} / letters ${JSON.stringify(bareLetterLines(H3))}`);
+  check('...while a release heading does end it, and an H3 name above one is not that release\'s',
+    unreleasedLevel3('## [Unreleased]\n\n### 0.9.0\n\n### Fixed\n').length === 0,
+    unreleasedLevel3('## [Unreleased]\n\n### 0.9.0\n\n### Fixed\n').join());
 
   // A merge can leave an unresolved conflict marker, or a stray one- to three-letter line, and a changelog with
   // either reads as broken to everyone after. Both are checked on the real file, and each rule is proven to bite on a

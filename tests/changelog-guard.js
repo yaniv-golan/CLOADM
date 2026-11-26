@@ -12,8 +12,8 @@
 // released section may lose a label and nothing else. And corrections listed by name in the allowlist (each is "this
 // text in the tagged section became that text", with a one-line reason; the tagged text, labels removed, must still
 // contain it, so a list entry cannot go stale).
-// A release heading: "### 0.1.3-pre", "### 0.1.0 (first public release ...)". Not "### Added" or "### Fixed", which are the
-// subsections of [Unreleased] and are not releases.
+// A release heading: "### 0.1.3-pre", "### 0.1.0 (first public release ...)". Not "#### Added" or "#### Fixed", which are
+// the subsections of [Unreleased] and are not releases.
 const { stripLabels } = require('./internal-labels.test.js');
 const HEADING = /^### (\d+\.\d+\S*)/;
 // A version's section ends at the NEXT VERSION heading or at a level-2/level-1 heading, never at a "### Fixed".
@@ -83,16 +83,41 @@ function oddSubsections(text, allow = []) {
 
 // [Unreleased]'s own subsections: the section keeps "Next version: X" and then the headings of the release being
 // prepared, all of which must be Keep a Changelog names. A release is not prepared in a heading of its own kind.
+// The section ends at a RELEASE heading ("### <version>") or at a level 1-2 heading -- not at any level 1-3 heading.
+// A level-3 name such as "### Fixed" is a .md mistake, not a boundary: treating it as one ended the scan before the
+// entries, so a stray "D" left by a merge and an invented subsection both went unreported while the check stayed
+// green (an H3 "### Fixed" was written here once for exactly that reason). This is the same rule the released-section
+// comparison keeps, SECTION_BOUNDARY below, so the two cannot disagree about where a section stops.
+const UNRELEASED_BOUNDARY = /^(?:#{1,2} |### \d)/;
 function unreleasedKinds(text) {
   const lines = text.split('\n');
   let inUn = false;
   const kinds = [];
   for (const line of lines) {
     if (/^## \[Unreleased\]/i.test(line)) { inUn = true; continue; }
-    if (inUn && /^#{1,3} /.test(line)) break;      // a version heading (or another ## heading) ends it
-    if (inUn) { const m = /^#### (.+?)\s*$/.exec(line); if (m && !kinds.includes(m[1])) kinds.push(m[1]); }
+    if (inUn && UNRELEASED_BOUNDARY.test(line)) break;      // a version heading (or a level 1-2 heading) ends it
+    if (inUn) {
+      const m = /^#### (.+?)\s*$/.exec(line); if (m && !kinds.includes(m[1])) kinds.push(m[1]);
+      // a level-3 name here is a mistake its own check reports (it is not a Keep a Changelog subsection), so it is
+      // read as a heading that the scanner must not stop at, rather than silently ending the region
+    }
   }
   return kinds;
+}
+
+// A level-3 heading under [Unreleased] ("### Fixed"): a .md mistake, since [Unreleased]'s subsections are "####" and
+// "###" belongs to release headings. Reported by name rather than letting the boundary rule tolerate it silently:
+// unreleasedKinds cannot see it (it matches "####" only), so without this it would pass as prose.
+function unreleasedLevel3(text) {
+  const lines = text.split('\n');
+  let inUn = false;
+  const out = [];
+  for (const line of lines) {
+    if (/^## \[Unreleased\]/i.test(line)) { inUn = true; continue; }
+    if (inUn && UNRELEASED_BOUNDARY.test(line)) break;
+    if (inUn) { const m = /^### (.+?)\s*$/.exec(line); if (m) out.push(m[1]); }
+  }
+  return out;
 }
 
 // ---- what a merge can leave in the file: conflict markers and a stray one-letter line ----
@@ -119,7 +144,7 @@ function bareLetterLines(text) {
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     if (/^## \[Unreleased\]/i.test(line)) { inUn = true; continue; }
-    if (inUn && /^#{1,3} /.test(line)) break;      // a version heading (or another ## heading) ends it
+    if (inUn && UNRELEASED_BOUNDARY.test(line)) break;      // a version heading (or a level 1-2 heading) ends it
     if (inUn && BARE_LETTERS.test(line.trim())) out.push({ line: i + 1, text: line.trim() });
   }
   return out;
@@ -192,14 +217,14 @@ function check({ text, tagText, tags, ci = false, allowed = ALLOWED_CORRECTIONS,
     }
     compared.push(version);
     // The section's structure first, by name: a heading moved, renamed, added or removed is reported as that, so a
-    // "### Fixed" appended inside a released section fails even where the surrounding text still matches.
+    // A stray heading appended inside a released section fails even where the surrounding text still matches.
     const wasHeads = headingsOf(want), nowHeads = headingsOf(have);
     if (wasHeads.join('\n') !== nowHeads.join('\n')) {
       failures.push(`${version} is a released section (tag ${tag}) and its headings changed: released ${JSON.stringify(wasHeads)}, now ${JSON.stringify(nowHeads)}. `
-        + 'New entries go under "## [Unreleased]", in a new "### Fixed"/"### Added" above the newest released section.');
+        + 'New entries go under "## [Unreleased]", in a new "#### Fixed"/"#### Added" above the newest released section.');
     } else if (have !== want) {
       failures.push(`${version} is a released section (tag ${tag}) and was changed: ${firstDifference(want, have)}. `
-        + 'New entries go under "## [Unreleased]", in a new "### Fixed"/"### Added" above the newest released section.');
+        + 'New entries go under "## [Unreleased]", in a new "#### Fixed"/"#### Added" above the newest released section.');
     }
   });
 
@@ -218,4 +243,4 @@ function check({ text, tagText, tags, ci = false, allowed = ALLOWED_CORRECTIONS,
   return { failures, skips, compared };
 }
 
-module.exports = { parse, check, tagOf, TAG_ALIASES, ALLOWED_CORRECTIONS, subsectionKinds, oddSubsections, unreleasedKinds, KEEP_A_CHANGELOG, conflictMarkers, bareLetterLines };
+module.exports = { parse, check, tagOf, TAG_ALIASES, ALLOWED_CORRECTIONS, subsectionKinds, oddSubsections, unreleasedKinds, unreleasedLevel3, KEEP_A_CHANGELOG, conflictMarkers, bareLetterLines };
