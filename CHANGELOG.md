@@ -8,8 +8,6 @@ All notable changes to CLOADM are recorded here. The format follows
 
 Next version: 0.3.1 (the plugin and extension manifests carry it; `tests/plugin.test.js` keeps them in step).
 
-### 0.3.1
-
 #### Changed
 
 - **A moment on your own ROMs says so in one plain sentence on the Share screen.** The two orange ROM lines became one line in
@@ -17,6 +15,8 @@ Next version: 0.3.1 (the plugin and extension manifests carry it; `tests/plugin.
   by its ROM slots; "Needs your Dragon 64 ROMs to open." where space is short), the orange note under the buttons became the
   plain "Copy link gives a long link: short links are only for moments that run without ROMs.", and the picture's caption reads
   "This moment · Dragon 64". A moment that runs without ROMs, and the cases where nothing can be shared, read as before.
+
+### 0.3.1
 
 #### Fixed
 
