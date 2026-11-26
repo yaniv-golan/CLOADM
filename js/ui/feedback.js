@@ -116,6 +116,7 @@ export function createFeedback() {
     }
     unplace();
     dropClass(box, 'compact');   // (a form left on measured the NEXT toast's first frame)
+    dropClass(box, 'overscreen'); dropClass(box, 'clamped');
     if (t.onEnd) t.onEnd(reason);
   }
   function arm() {
@@ -123,6 +124,27 @@ export function createFeedback() {
     cur.started = Date.now();
     const t = cur;
     cur.timer = setTimeout(() => { if (cur === t) end('timeout'); }, cur.left);
+  }
+  // the toast's words and buttons as they read in full: the text (an action named in the sentence itself ("… your BASIC
+  // ROM: [Add ROMs]. Or …") has its button stand where the text says {action}, so the sentence reads on through it;
+  // otherwise it follows the text), the action or Details, a second line with its own action ("The Dragon 64 keeps it
+  // until you switch off and on. [Switch off and on]"). -> where the inline action stands (-1: none)
+  function fill(t) {
+    const at = t.action ? t.text.indexOf(INLINE) : -1;
+    if (at >= 0) {
+      const b = document.createElement('button'); b.type = 'button'; b.className = 'inline'; b.textContent = t.action.label;
+      b.onclick = (e) => { e.stopPropagation(); if (cur !== t) return; end('action'); t.action.run(); };
+      textEl.replaceChildren(t.text.slice(0, at), b, t.text.slice(at + INLINE.length));
+    } else textEl.textContent = t.text;
+    actEl.hidden = (!t.action || at >= 0) && !t.details;
+    actEl.textContent = t.action && at < 0 ? t.action.label : t.details ? 'Details' : '';
+    alsoEl.hidden = !t.also;
+    if (t.also) {
+      const b = document.createElement('button'); b.type = 'button'; b.textContent = t.also.action.label;
+      b.onclick = (e) => { e.stopPropagation(); if (cur !== t) return; end('action'); t.also.action.run(); };
+      alsoEl.replaceChildren(el('span', t.also.text), b);
+    } else alsoEl.replaceChildren();
+    return at;
   }
   function show(t) {
     // (a toast is in view from the frame it appears in: a newer one replaces it). A new toast replaces a
@@ -137,28 +159,13 @@ export function createFeedback() {
     t.seen = false;
     t.paused = false;     // (paused at once below, in seen(), while the focus or the pointer is in the box)
     dropClass(box, 'compact');   // (a previous toast may have left the compact form on: measure this one fresh)
+    dropClass(box, 'overscreen'); dropClass(box, 'clamped');
     decided = null;                 // a new toast: measure afresh
     t.left = t.action || t.also || t.details ? LONG : SHORT;
-    // an action named in the sentence itself ("… your BASIC ROM: [Add ROMs]. Or …"): its button stands where the
-    // text says {action}, so the sentence reads on through it; otherwise it follows the text
-    const at = t.action ? t.text.indexOf(INLINE) : -1;
-    if (at >= 0) {
-      const b = document.createElement('button'); b.type = 'button'; b.className = 'inline'; b.textContent = t.action.label;
-      b.onclick = (e) => { e.stopPropagation(); if (cur !== t) return; end('action'); t.action.run(); };
-      textEl.replaceChildren(t.text.slice(0, at), b, t.text.slice(at + INLINE.length));
-    } else textEl.textContent = t.text;
+    const at = fill(t);
     box.classList.toggle('error', !!t.error);
-    actEl.hidden = (!t.action || at >= 0) && !t.details;
-    actEl.textContent = t.action && at < 0 ? t.action.label : t.details ? 'Details' : '';
     detEl.hidden = true;
     moreEl.textContent = t.details || '';
-    // a second line with its own action ("The Dragon 64 keeps it until you switch off and on. [Switch off and on]")
-    alsoEl.hidden = !t.also;
-    if (t.also) {
-      const b = document.createElement('button'); b.type = 'button'; b.textContent = t.also.action.label;
-      b.onclick = (e) => { e.stopPropagation(); if (cur !== t) return; end('action'); t.also.action.run(); };
-      alsoEl.replaceChildren(el('span', t.also.text), b);
-    } else alsoEl.replaceChildren();
     box.hidden = false;
     if (hadFocus) {
       const inline = textEl.querySelector ? textEl.querySelector('button') : null;
@@ -256,7 +263,9 @@ export function createFeedback() {
   // What a pinned toast still follows: the safe area and the phone flag (the slot's offset), and Claude's Stops that
   // show (the slot keeps off them). Unchanged, a pinned toast costs nothing.
   const pinKey = (A) => { const a = A.area;
-    return `${a.top}|${a.left}|${a.bottom}|${a.right}|${A.phone}|${A.stops.map((o) => [o.left, o.top, o.right, o.bottom].map(Math.round).join(',')).join(';')}`; };
+    // (sideways with the keys, the picture too: the Pad or Keys panel changing under a toast moves the picture it lies on)
+    const pic = A.sideKeys && A.keysShown && A.canvas ? [A.canvas.left, A.canvas.top, A.canvas.right, A.canvas.bottom].map(Math.round).join(',') : '';
+    return `${a.top}|${a.left}|${a.bottom}|${a.right}|${A.phone}|${pic}|${A.stops.map((o) => [o.left, o.top, o.right, o.bottom].map(Math.round).join(',')).join(';')}`; };
   // The fallback slot, placed: the top one where it covers none of Claude's Stops that show; else the stylesheet's own
   // bottom one (#toastRegion.top's z-index, no inline style) where that covers none; where both cover one, the slot that
   // leaves one of them uncovered, the top one first (it leaves the chat's floating pill's Stop clear when every other is
@@ -268,7 +277,7 @@ export function createFeedback() {
   // neither fits it stays the normal form. (The bottom slot is always the normal form.)
   function fallbackSlot(I) {
     const top = () => {
-      dropClass(box, 'compact');
+      dropClass(box, 'compact'); dropClass(box, 'overscreen'); restoreFull();
       const slotTop = Math.max(I.area.top + (I.phone ? 8 : 16), I.barBottom ? I.barBottom + 8 : 0);
       const picTop = I.canvas && I.canvas.width ? I.canvas.top : null;
       if (picTop !== null && slotTop + box.getBoundingClientRect().height > picTop) {
@@ -294,10 +303,11 @@ export function createFeedback() {
       const overKeys = (fn) => () => { dropClass(box, 'compact'); fn(); addClass(region, 'top'); addClass(box, 'passthru'); };
       const side = (l, r) => overKeys(() => placedAt(px(l + 8), px(a.top + 8), px(r - l - 16)));
       if (I.sideKeys && I.keysShown) {
-        // held sideways with the keys standing round the screen: a toast never covers a key or a Pad button, so it lies
-        // over the top of the picture itself (compact, the picture's width), the one place there that holds no key. (This
-        // slot is the one that may cover the picture: every other place is a key's.)
-        slots.push(['over-screen', () => { addClass(box, 'compact'); dropClass(box, 'passthru'); placedAt(px(pic.left + 8), px(pic.top + 8), px(pic.right - pic.left - 16)); addClass(region, 'top'); }]);
+        // held sideways with the keys standing round the screen: a toast never covers a key or a Pad button. It lies over
+        // the top of the picture (sidewaysSlot), the one place there that holds no key; one that does not fit its cap
+        // takes the letter keys' dock (Keys mode) or clamps to two lines with "… More" (Pad and Stick).
+        slots.length = 0;   // (the full-width top slot and the others lie over keys)
+        slots.push(['over-screen', () => sidewaysSlot(pic, I, side)]);
       } else if (I.sideKeys || (left >= 160 && right >= 160 && pic.bottom > a.bottom - 40)) {
         const sides = [['dock-left', side(a.left, pic.left), left], ['dock-right', side(pic.right, a.right), right]];
         sides.sort((x, y) => y[2] - x[2]);
@@ -309,12 +319,12 @@ export function createFeedback() {
         slots.push(['dock-under', overKeys(() => placedAt(px(a.left + 8), px(under), px(a.right - a.left - 16)))]);
       }
     }
-    slots.push(['bottom', () => { dropClass(box, 'compact'); dropClass(box, 'passthru'); placedTop(I.area, I.phone, I.barBottom, 'bottom'); }]);
+    slots.push(['bottom', () => { dropClass(box, 'compact'); dropClass(box, 'overscreen'); restoreFull(); dropClass(box, 'passthru'); placedTop(I.area, I.phone, I.barBottom, 'bottom'); }]);
     const tried = [];
     for (const [name, apply] of slots) {
       apply();
       const b = box.getBoundingClientRect();
-      if (pic && name !== 'over-screen' && hitsRect(b, pic)) { dropClass(box, 'passthru'); continue; }
+      if (pic && name !== 'over-screen' && name !== 'dock-keys' && hitsRect(b, pic)) { dropClass(box, 'passthru'); continue; }
       // (over the app bar only a toast of one line: its text no taller than a line and a half)
       if (name === 'over-bar' && textEl.getBoundingClientRect().height > 1.5 * ((typeof getComputedStyle === 'function' && parseFloat(getComputedStyle(textEl).lineHeight)) || 16)) continue;
       const covered = I.stops.filter((o) => hitsRect(b, o)).length;
@@ -326,6 +336,67 @@ export function createFeedback() {
     top();   // (nowhere off the picture at all: never invisible wins)
     return 'top';
   }
+  // The sideways slot (js/ui/feedback.js fallbackSlot, the touch keys round the screen in a short landscape window). The
+  // compact form at the picture's top edge (4 px down, the picture's width less 16), the action inline at the end of the
+  // text's last line, at most two lines and at most 40 px and 22% of the picture's height. A toast that does not fit
+  // (long text, a second line of its own) is never cut silently: with the letter keys showing it docks over them on the
+  // wider side (full text, taps pass through to a key under it, the picture clear); with the Pad or the stick it stays
+  // here clamped to two lines, the second ending "… More" with the action beside it, and a tap on its body opens it in
+  // place (its time paused) and a second tap closes it. -> the slot's name
+  function sidewaysSlot(pic, I, side) {
+    const t = cur;
+    restoreFull();
+    const cap = Math.min(40, 0.22 * (pic.bottom - pic.top));
+    const here = () => { addClass(box, 'compact'); addClass(box, 'overscreen'); dropClass(box, 'passthru'); placedAt(px(pic.left + 4 + 4), px(pic.top + 4), px(pic.right - pic.left - 16)); addClass(region, 'top'); };
+    here();
+    // keys that stand over the picture itself (WYRMFIRE's FIRE and USE lie on its top corners): the bottom edge then
+    if (I.keyRects.some((k) => hitsRect(box.getBoundingClientRect(), k))) {
+      const bh = box.getBoundingClientRect().height;
+      placedAt(px(pic.left + 8), px(pic.bottom - 4 - bh), px(pic.right - pic.left - 16)); addClass(region, 'top');
+    }
+    if (!t || (t.opened) || (!t.also && box.getBoundingClientRect().height <= cap + 0.5)) return 'over-screen';
+    const keysMode = !!document.body && !document.body.classList.contains('touch-pad') && !document.body.classList.contains('touch-stick');
+    if (keysMode) {
+      dropClass(box, 'overscreen');
+      const a = I.area, wider = pic.left - a.left >= a.right - pic.right ? [a.left, pic.left] : [pic.right, a.right];
+      side(wider[0], wider[1])();
+      return 'dock-keys';
+    }
+    clamp(t, cap);
+    return 'over-screen';
+  }
+  // back to the toast's words in full (what a clamped toast was cut from)
+  function restoreFull() {
+    const t = cur;
+    if (!t || !t.clamped) return;
+    t.clamped = false; t.shownAction = null;
+    dropClass(box, 'clamped');
+    fill(t);
+  }
+  // the words cut to what two lines hold, ending "… More": the longest prefix that still fits cap, with the action (the
+  // second line's own where there is one) as the text's last word
+  function clamp(t, cap) {
+    t.clamped = true; t.cap = cap;
+    const label = t.action ? t.action.label : '';
+    const full = (t.text.replace(INLINE, label) + (t.also ? ` ${t.also.text}` : '')).replace(/\s+/g, ' ').trim();
+    const act = t.also ? t.also.action : t.action;
+    t.shownAction = act || null;
+    alsoEl.hidden = true;
+    actEl.hidden = !act && !t.details;
+    actEl.textContent = act ? act.label : t.details ? 'Details' : '';
+    addClass(box, 'clamped');
+    const more = el('span', 'More'); more.className = 'more';
+    const fits = (n) => { textEl.replaceChildren(`${full.slice(0, n).trimEnd()}\u2026 `, more); return box.getBoundingClientRect().height <= cap + 0.5; };
+    let lo = 0, hi = full.length;
+    while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (fits(mid)) lo = mid; else hi = mid - 1; }
+    fits(lo);
+  }
+  // a tap on a clamped toast's body opens it in place (its time paused); a tap on an opened one closes it
+  box.addEventListener('click', (e) => {
+    const t = cur;
+    if (!t || e.target.closest('button')) return;
+    if (t.clamped) { t.opened = true; restoreFull(); pause(); } else if (t.opened) { t.opened = false; clamp(t, t.cap); t.paused = false; if (t.seen) arm(); }
+  });
   // back to the stylesheet's place (a toast that ends, or one placed afresh)
   function unplace() { clearRegion(); dropClass(box, 'passthru'); }
   // Everything place()'s decision reads, as one string: if it is unchanged the answer is unchanged, so a stationary
@@ -361,6 +432,7 @@ export function createFeedback() {
       // a phone held sideways with the touch keys (decide's band reaches the tube's foot there)
       sideKeys: !!(document.body && document.body.classList.contains('touch-keys')) && matchMedia('(orientation: landscape) and (max-height: 500px)').matches,
       // the touch keys' buttons show (the keys panel is up; not while the chat is the page: its picture is a small inset there)
+      keyRects: (document.body && document.body.classList.contains('touch-keys')) ? [...document.querySelectorAll('#touchKeys button')].map((e) => e.getBoundingClientRect()).filter(shown).map(boxOf) : [],
       keysShown: !!document.body && !document.body.classList.contains('claude-open') && !document.body.classList.contains('view-claude') && [...document.querySelectorAll('#touchKeys button')].some((e) => shown(e.getBoundingClientRect())),
       // the turn's Stops that show (the fallback slot keeps clear of them)
       stops: [...document.querySelectorAll(STOPS)].map((e) => e.getBoundingClientRect()).filter(shown).map(boxOf),
@@ -557,13 +629,14 @@ export function createFeedback() {
   actEl.onclick = (e) => {
     e.stopPropagation();
     if (!cur) return;
+    if (cur.clamped && cur.shownAction) { const t = cur, a = t.shownAction; end('action'); a.run(); return; }
     if (cur.action) { const t = cur; end('action'); t.action.run(); return; }
     detEl.hidden = !detEl.hidden;      // Details: shows the rest of an error
     actEl.textContent = detEl.hidden ? 'Details' : 'Hide';
   };
   // paused while hovered or focused
   const pause = () => { if (cur && !cur.paused) { cur.paused = true; clearTimeout(cur.timer); if (cur.seen) cur.left = Math.max(1000, cur.left - (Date.now() - cur.started)); } };
-  const resume = () => { if (cur && cur.paused && !box.matches(':hover') && !box.contains(document.activeElement)) { cur.paused = false; if (cur.seen) arm(); } };
+  const resume = () => { if (cur && cur.paused && !cur.opened && !box.matches(':hover') && !box.contains(document.activeElement)) { cur.paused = false; if (cur.seen) arm(); } };
   box.addEventListener('pointerenter', pause);
   box.addEventListener('pointerleave', resume);
   box.addEventListener('focusin', pause);
@@ -631,7 +704,7 @@ export function createFeedback() {
     // (text: with the action's label where an inline action stands, as the toast reads)
     get current() { return cur ? { text: cur.text.replace(INLINE, cur.action ? cur.action.label : ''), error: cur.error, view: cur.view, also: cur.also ? cur.also.text : null } : null; },
     // the toast up, and whether its time is running (seen)
-    get pending() { return (cur ? [cur] : []).map((t) => ({ text: t.text, seen: !!t.seen })); },
+    get pending() { return (cur ? [cur] : []).map((t) => ({ text: t.text, seen: !!t.seen, paused: !!t.paused, opened: !!t.opened, clamped: !!t.clamped })); },
     get attentionText() { return att ? att.text : null; },
     // the placement's inputs, read from the page: the placement loop and its tests use it (the decision itself never
     // reads the DOM, so this is the one place that does)
