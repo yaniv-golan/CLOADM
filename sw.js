@@ -119,6 +119,7 @@ const FILES = [
   'js/claude/history.js',
   'js/claude/prompts.js',
   'js/claude/readtools.js',
+  'js/claude/suggest.js',
   'js/claude/toolerrors.js',
   'js/config.js',
   'js/cpu/cpu6309.js',

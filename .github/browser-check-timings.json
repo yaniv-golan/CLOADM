@@ -74,6 +74,7 @@
     "escChat": 2.9,
     "claude": 10.8,
     "ask": 57.4,
+    "askSuggest": 20.4,
     "commands": 5.3,
     "askFollowup": 52.8,
     "askStatus": 47.2,

@@ -50,6 +50,7 @@ import { BASIC_PROGRAM_TEXT_MAX, loadBasic as loadBasicInto, planBasic } from '.
 import { transcript } from './claude/history.js';
 import { Consent, STOPPED } from './claude/consent.js';
 import { screenRows, screenTextTool } from './claude/readtools.js';
+import { Suggester } from './claude/suggest.js';
 
 // the status of a turn paused by the person's key, in every view that shows it with Resume and Stop (Esc is Stop then)
 // (one text for every paused state: whether a call waits, typing is held, or Claude only writes its reply,
@@ -266,6 +267,7 @@ const SETTINGS = {
   keyboardJoystick: (v) => v === '1' || v === '0',
   tapeSound: (v) => v === '1' || v === '0',
   claudeFeatures: (v) => v === '1' || v === '0',   // Settings -> Claude features: On ('1', the default) / Off ('0')
+  claudeSuggest: (v) => v === '1' || v === '0',    // Settings -> Suggest questions with Claude: on ('1') / off ('0', the default)
   'display.settings': (v) => { const o = parseObject(v); return !!o && Object.entries(o).every(([k, x]) => Object.hasOwn(DISPLAY_VALID, k) && DISPLAY_VALID[k](x)); },
 };
 function validSetting(k, v) {
@@ -2916,6 +2918,31 @@ export class Session {
     return this.readByte(CHAT_STATE.blen, cm) === 0 && this.readByte(CHAT_STATE.blen + 1, cm) === 0 && this.readByte(CHAT_STATE.wait, cm) === 0;
   }
   get hasClaudeKey() { return !!this.keyStore.get(); }
+  // Settings -> "Suggest questions with Claude" (under Claude features; off by default, kept in the store and so in a
+  // settings export). On, opening the Ask panel on an empty chat may ask Claude Haiku once for questions that fit the
+  // screen (js/claude/suggest.js); the page's own questions (js/claude/prompts.js) show first and stay on any failure.
+  get claudeSuggest() { return this.store.get('claudeSuggest') === '1'; }
+  setClaudeSuggest(on) { this.store.set('claudeSuggest', on ? '1' : '0'); this.emit('claudesuggest', !!on); }
+  // What a suggestion request would send: the person's machine's name and its screen's text, or null when there is
+  // none to send (a graphics screen, or no text on it: the page's own questions only)
+  suggestInput() {
+    const m = this.personMachine;
+    if (!m) return null;
+    const r = screenTextTool({ machine: m, readByte: (a) => this.readByte(a, m) });
+    if (!r.text) return null;
+    const screen = r.lines.join('\n').trim();
+    return screen ? { machine: m.profile.name, screen } : null;
+  }
+  // The questions Claude suggests for the screen now, or null: with the setting on, Claude features On, a key saved
+  // and text on the screen, at most one request per distinct screen and one per 30 s (Suggester). fetch is the page's
+  // (a mocked one in the tests); the key goes only into the request's header.
+  async claudeSuggestions(fetch, { now, timeoutMs } = {}) {
+    if (!this.claudeFeatures || !this.claudeSuggest || !this.hasClaudeKey) return null;
+    const input = this.suggestInput();
+    if (!input) return null;
+    if (!this.suggester) this.suggester = new Suggester({ fetch, key: () => this.keyStore.get() || '', ...(now ? { now } : {}), ...(timeoutMs ? { timeoutMs } : {}) });
+    return this.suggester.suggest(input);
+  }
   // Ask Claude: the conversation without the chat machine, shown in the side
   // panel beside the machine in use, which is the BASIC session Claude's tools act on. The same ChatSession moves
   // to full screen (startChat) and back (toSidePanel) without losing anything. Reading (the screen, memory, the

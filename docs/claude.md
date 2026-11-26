@@ -107,6 +107,19 @@ Two ways to talk to Claude, one conversation:
   Claude →** (the question is copied). They follow the machine half a second after it changes while the chat and the
   box are empty, stay put while the box has text, a finger is down or a question is selected, and go after the first
   message. With Claude features Off there are none.
+* **Suggest questions with Claude** (**Settings → Machine**, directly under Claude features; off by default, kept with
+  your settings and in a settings export): "When you open an empty chat, sends the screen's text to Claude to suggest
+  questions. Uses your API key." Hidden while Claude features is Off; without a key it shows, disabled, with "Needs
+  your API key" beside it, and nothing is sent. While it is on, the note under Claude features reads "Nothing goes to
+  Claude until you ask, or open an empty chat with Suggest questions on." and the panel's what-is-sent line adds
+  "Suggested questions: the screen's text, when you open an empty chat." Opening the panel on an empty chat then sends
+  ONE request to Claude Haiku (`claude-haiku-5-5`, 150 tokens; `js/claude/suggest.js`) with only the machine's name
+  and the screen's text. The page's own questions show at once; an answer of 1-3 questions of at most 60 characters
+  each, arriving within 3 s, replaces them under "Suggested by Claude", and anything else (a timeout, an error, an
+  answer of another shape) keeps them. At most one request per distinct screen and one per 30 s; none from the line
+  under the machine (it shows the page's own only) and none on a graphics screen. A tap fills the message box and
+  sends nothing. The key goes only into the request's header (`tests/claude-suggest.test.js`; the browser check's
+  `askSuggest` group).
 * **Ctrl+K** opens "Ask Claude or find a command" (`js/ui/command-box.js`): the page's commands that match what you
   type come first (each presses the page's own button and is never sent to Claude), **Ask Claude: "…"** is always
   last. Enter runs the command or asks (a question ending in "?" puts **Ask Claude** first, so "reset?" asks rather than resets, unless it is a command's whole label); asking opens the side panel beside the
