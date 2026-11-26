@@ -51,7 +51,10 @@ NEWEOL  JSR     DIRCHK
         STX     <TXTPTR
         BSR     TRCLIN
 NEWST1  JSR     BRKCHK
-NEWST2  JSR     RSTTMP
+NEWST2  LDX     #TMPDSC         ; RSTTMP
+        STX     <TEMPPT
+        CLR     <DIMFLG
+        CLR     <VARCRE
         STS     <FRMSP          ; the stack and the text where this statement starts (BREAK in INPUT)
         LDX     <TXTPTR
         STX     <STMTXT
@@ -83,11 +86,9 @@ EXECST  BEQ     EXRTS           ; an empty statement
         BEQ     EXFUNC
         CMPA    #T_SLAST        ; the words that are not statements (TO, THEN, the operators): ?SN ERROR
         BHI     EXSN
-        TFR     A,B
-        ASLB                    ; (the token's bit 7 goes: twice its place in the table)
+        ASLA                    ; (the token's bit 7 goes: twice its place in the table)
         LDX     #STMTDS
-        ABX
-        LDX     ,X
+        LDX     A,X
         BSR     CHRGET          ; past the token
         JMP     ,X
 EXLET   JMP     LET
@@ -303,12 +304,16 @@ JMP1    LEAX    3,X             ; the byte before the line's text
         STA     <JMPFLG
         RTS
 GOSN    JMP     <ZSNERR
+GSDLY   EQU     28              ; GOSUB's delay: 5 cycles a step
 
 * a GOSUB frame on the stack: marker, CURLIN, TXTPTR (on the character after the line number) [OWN]
 GOSUB   JSR     <ZCHRGET
         BCC     GOSN
         JSR     <ZLINGET
 GOSUB1  PULS    U               ; NEWSTT's return address (ON ... GOSUB comes in here, its line in BINVAL)
+        LDB     #GSDLY          ; a delay: ours would be faster than the original otherwise [BB ram-pointers2,
+GSD1    DECB                    ; 2026-11-26: 500 GOSUB/RETURN passes take 83 fields on it]
+        BNE     GSD1
         BSR     CHKSTK
         LDB     #T_GO           ; the frame, from the marker up
         LDX     <CURLIN

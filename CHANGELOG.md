@@ -75,6 +75,8 @@ Next version: 0.3.1 (the plugin and extension manifests carry it; `tests/plugin.
   Another probe for the original, `ram-pointers2`: what `$25-26` holds, where the typed line and an `INPUT` reply
   are kept, `TIMER`'s bytes read so that the interpreter's speed cannot change the answer, and typical loops timed
   in fields, to compare the interpreters' speed.
+  A probe for the next batch, `ram-ptr25`, asks what moves `$25-26`: each kind of string made in direct mode and in a
+  program.
   BASIC's own variables now sit where the original keeps them (the program and string pointers at `$19-$28`, the
   line running at `$68`, the output device at `$6F`, the cold-start flag at `$71`, the text pointer at `$A6`, `TRON`
   at `$AF`, `TIMER` at `$0112`, lower case at `$0149`), so the well-known `POKE`s (`TRON`, lower case, `PCLEAR`-like
@@ -91,6 +93,16 @@ Next version: 0.3.1 (the plugin and extension manifests carry it; `tests/plugin.
   errors. The black-box case `cas-files` now runs on ours as on the original: the same screen, line for line, and
   the same file on the tape (a type-1 namefile, the same data block by its hash, an end-of-file block, the motor
   stopped between them); only the leader lengths and motor timings differ, as they already did for `CSAVE`.
+  The interpreter is faster where a cycle profile showed its time going (rounding, moving numbers into the
+  accumulators, `NEXT`'s compare with its limit, starting each statement), with no result changed: 2000 empty
+  `FOR`/`NEXT` passes take 119 fields against the original's 113 (142 before). SHIFT-@ pausing a running program
+  has a test (`tests/basic-pause.test.js`). A division takes about 3,900 cycles where it took 5,900 (the same
+  bits), so reading numbers is faster too. `GOSUB` waits a little, so it is never faster than the original's (500
+  passes: 83 fields on both).
+  The typed line and its crunched form are where the original keeps them (`$02DD`, and `$02DC` a byte behind,
+  crunched over the typed line), from the black-box probe `ram-pointers2`: the text pointer in direct mode, a typed
+  line and a reply to `INPUT` now sit at the original's addresses. A namefile, and the blocks of a file passed over,
+  are read into their own buffer below the line (a typed `CLOADM` or `SKIPF` still runs from the line).
 
 ### 0.3.1
 

@@ -198,7 +198,7 @@ const units = files.flatMap(unitsOf).map((u, k) => ({ ...u, k, cost: timeOf(u.f)
 // meant to be set in normal use.
 const envT = Number(process.env.CLOADM_SUITE_TIMEOUT_MS) || 0;
 const SUITE_TIMEOUT_MS = envT || 240000;   // 4 min: ~7x state.test.js's 33.9 s under load
-// The two long suites get their own cap. On GitHub's ubuntu-24.04 runner (fewer than 4 usable cores, so regress
+// The long suites (LONG_SUITES, below) get their own cap. On GitHub's ubuntu-24.04 runner (fewer than 4 usable cores, so regress
 // runs unsharded) regress was killed at 240 s and state.test.js took 210 s in the same run (CI run 43812014303,
 // main ebe0df1f, 2026-11-16): both are ~3 minutes of real work there, not hung. 600 s is ~2.5x that observed
 // run, still well inside the job's 20-minute limit, so a real hang in either is still caught and reported.
@@ -212,7 +212,10 @@ const LONG_SUITE_TIMEOUT_MS = envT || 600000;
 // The suites long enough to need the longer timeout. state.test.js was one file of about 210 s on CI; the split
 // made it four (state 10 s, state-fdc 23, state-carts 15, state-tape 2 locally), and state-fdc is still long enough
 // on CI to be worth the extra headroom. state-split is static (reads a manifest, 0.1 s) and is NOT long.
-const LONG_SUITES = new Set(['regress.test.js', 'state-fdc.test.js', 'state-carts.test.js']);
+// basic-cassette (129 s alone locally, with the cassette data files' tests) was killed at 240 s in CI part 1/3 twice
+// (runs 1008 and 1017, 2026-11-26), and basic-drawing (98 s alone) once beside it: real work on a shared runner, not
+// a hang, so they take the long suites' cap too.
+const LONG_SUITES = new Set(['regress.test.js', 'state-fdc.test.js', 'state-carts.test.js', 'basic-cassette.test.js', 'basic-drawing.test.js']);
 const TIMEOUT_MS = (f) => (LONG_SUITES.has(f) ? LONG_SUITE_TIMEOUT_MS : SUITE_TIMEOUT_MS);
 
 // Every suite process still running, so a signal can take the whole set down. A suite is spawned detached (its

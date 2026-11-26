@@ -129,7 +129,7 @@ NX4     LEAS    ,X              ; the loops inside are gone
         LDX     <FORVAR
         JSR     <ZMOVMF
         LEAX    8,S             ; against the limit
-        JSR     FCMPM
+        BSR     NXCMP
         TST     4,S             ; the step's sign
         BPL     NX5
         NEGA
@@ -148,6 +148,35 @@ NXDONE  LEAS    FORSIZ,S
 NX6     JMP     [NXRET]
 NFERR   CLRB                    ; ERR_NF
         JMP     ERROR
+* NXCMP: FCMPM for NEXT (the limit at X against FAC, just stored, so rounded): A and the flags as FCMP's. Two
+* non-zero numbers of one sign are compared packed; the others go through FCMPM.
+NXCMP   LDA     <FACEXP
+        BEQ     NXCSLO
+        LDA     ,X
+        BEQ     NXCSLO
+        LDB     1,X
+        EORB    <FACSGN
+        BMI     NXCSLO          ; different signs
+        CMPA    <FACEXP
+        BNE     NXC1
+        LDD     1,X
+        ORA     #$80
+        CMPD    <FACM
+        BNE     NXC1
+        LDD     3,X
+        CMPD    <FACM+2
+        BNE     NXC1
+        CLRA                    ; equal
+        RTS
+NXC1    LDA     #1              ; C clear: the limit's magnitude is the larger
+        BCC     NXC2
+        NEGA
+NXC2    TST     <FACSGN
+        BPL     NXC3
+        NEGA
+NXC3    TSTA
+        RTS
+NXCSLO  JMP     FCMPM
 
 * ON expression GO TO / GO SUB line, line, ...: the nth line; past the list (or 0), the next statement [UM]
 ON      JSR     <ZGETBYT

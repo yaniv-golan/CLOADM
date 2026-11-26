@@ -38,6 +38,8 @@ function tokensInc(json) {
   // T_SLAST: the last statement token; the words that are not statements ("stmt": false) have no dispatch entry,
   // and one inside the statements' range runs UNIMPL
   const stmts = st.filter((e) => e.stmt !== false);
+  // EXECST dispatches through LDX A,X with A twice the token less $80: a signed offset, so the statements end at $BF
+  if (last(stmts) > 0xBF) throw new Error(`basic/tokens.json: a statement token past $BF (${hex(last(stmts))}): EXECST's offset is signed`);
   out.push(`T_LAST   EQU     ${hex(last(st))}`, `T_SLAST  EQU     ${hex(last(stmts))}`, `TF_LAST  EQU     ${hex(last(fn))}`);
   // a keyword table: the words in token order from $80, each ending in a letter with bit 7 set (FCS); a word's
   // token is its place in the table, so a token with no word between two others is one $FF byte (never typed)
@@ -83,7 +85,8 @@ function buildBasic({ defines = {}, edit = (file, text) => text } = {}) {
   });
   const used = owner.reduce((n, o) => n + (o >= 0 ? 1 : 0), 0);
   // the system RAM block and the direct page must not run into the buffers after them
-  if (res.symbols.get('SYSEND') > res.symbols.get('LINBUF')) throw new Error('basic: the system RAM ($0100 on) runs into LINBUF');
+  if (res.symbols.get('SYSEND') > res.symbols.get('BLKBUF')) throw new Error('basic: the system RAM ($0100 on) runs into the cassette block buffer BLKBUF');
+  if (res.symbols.get('SYSR3E') > res.symbols.get('SCREEN')) throw new Error('basic: the system RAM above the line buffer runs into the screen');
   // the direct page's regions end at or below the fixed addresses after them (d64basic.asm)
   for (const [end, at] of [['DPR1', 'TXTTAB'], ['DPR2', 'CURLIN'], ['DPR3', 'DEVNUM'], ['DPR4', 'WARMFL'], ['DPR5', 'CURPOS'], ['DPR6', 'BLINK'], ['DPR7', 'KEYDLY'], ['DPR8', 'TXTPTR'], ['DPR9', 'TRCFLG'], ['SYSR1', 'CASEFL']]) {
     if (res.symbols.get(end) > res.symbols.get(at)) throw new Error(`basic: the direct-page variables before ${at} run into it (move the split at ${end})`);

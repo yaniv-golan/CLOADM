@@ -7,8 +7,8 @@
 //  * a program that PEEKs and POKEs them: TRON (175), lower case (329), the program's start (25, NEW), TIMER (274),
 //    the cold-start flag (113), the output device (111: 0 and $FF only);
 //  * the two real records replayed on ours: identical, apart from the lines whose values come from the
-//    interpreter's speed (TIMER after a run, the loop timings), the direct-mode text pointer (where the input
-//    buffer is: not yet the original's) and the printer (not built).
+//    interpreter's speed (TIMER after a run, the loop timings) and the printer (not built);
+//  * the input buffers' places from ram-pointers2 (2026-11-26), and two loops never faster than the original's.
 const fs = require('fs'), path = require('path');
 const { runCase } = require('./basic/harness.js');
 const { buildBasic } = require('../tools/build-basic.js');
@@ -55,8 +55,8 @@ const lines = (r) => r.transcript;
 // ---- the real records, replayed on ours ----
 const real = (file, name) => fs.readFileSync(path.join(__dirname, 'basic/bb', file), 'utf8').trim().split('\n').map((l) => JSON.parse(l)).find((r) => r.case === name);
 const caseText = (name) => fs.readFileSync(path.join(__dirname, 'basic/cases', `${name}.bas`), 'utf8');
-// the lines whose values are the interpreter's speed or the input buffer's place, not the layout
-const speedOrBuffer = (l) => /^TI \d+ 112 \d+$/.test(l) || /^L 65535 T \d+$/.test(l) || /^NORMAL \d+ FAST \d+ MAX \d+$/.test(l);
+// the lines whose values are the interpreter's speed, not the layout
+const speedOrBuffer = (l) => /^TI \d+ 112 \d+$/.test(l) || /^NORMAL \d+ FAST \d+ MAX \d+$/.test(l);
 for (const [file, name] of [['bb3-real.jsonl', 'ram-pointers'], ['bb6-real.jsonl', 'famous-pokes']]) {
   const want = real(file, name), got = run(caseText(name));
   let t = got.transcript;
@@ -67,7 +67,34 @@ for (const [file, name] of [['bb3-real.jsonl', 'ram-pointers'], ['bb6-real.jsonl
     const a = want.transcript[i], b = t[i];
     if (a !== b && !(a && b && speedOrBuffer(a) && speedOrBuffer(b))) diff.push(`${i + 1}: ${JSON.stringify(a)} vs ${JSON.stringify(b)}`);
   }
-  check(`${name}: ours matches the original's record line for line (speed and input-buffer lines aside)`, diff.length === 0, diff.slice(0, 3).join(' | '));
+  check(`${name}: ours matches the original's record line for line (speed lines aside)`, diff.length === 0, diff.slice(0, 3).join(' | '));
+}
+
+// ---- the input buffers' places: ram-pointers2 on the original [BB 2026-11-26] ----
+// The typed line at 733 ($2DD) and its crunched form written over it a byte behind, from 732: the text pointer in
+// direct mode at the PRINT of each line below (757, 761, 765: +4 for each X=0: before it), a marker in a typed
+// line's REM found at 809 (crunched) and 837 (as typed), and a reply to INPUT at 733.
+check('LINBUF at $02DD, CRNBUF at $02DC', sym('LINBUF') === 0x2DD && sym('CRNBUF') === 0x2DC);
+{
+  const r = run('#timeout 120\nPRINT "T";PEEK(166)*256+PEEK(167)\nX=0:PRINT "T";PEEK(166)*256+PEEK(167)\nX=0:Y=0:PRINT "T";PEEK(166)*256+PEEK(167)\n'
+    + 'FOR I=0 TO 1022:P=(PEEK(I AND 32767)=81)AND(PEEK(I+1 AND 32767)=90):PRINT LEFT$(STR$(I),-6*P);:NEXT:REM QZ\n'
+    + '10 INPUT A$\n20 FOR I=0 TO 1022:IF PEEK(I AND 32767)=81 THEN IF PEEK(I+1 AND 32767)=74 THEN PRINT I;\n30 NEXT:PRINT "DONE"\n#nowait\nRUN\n#type QJ\\n\n#wait-text ^OK(?![\\s\\S])\n');
+  const t = lines(r);
+  check('the text pointer in direct mode: 757, 761, 765 as on the original', t.includes('T 757') && t.includes('T 761') && t.includes('T 765'), JSON.stringify(t.filter((l) => /^T /.test(l))));
+  check('a typed line\'s marker at 809 (crunched) and 837 (as typed), as on the original', t.includes(' 809 837'), JSON.stringify(t.filter((l) => /^ \d/.test(l))));
+  check('a reply to INPUT at 733, as on the original', t.includes(' 733 DONE'), JSON.stringify(t.slice(-3)));
+}
+
+// ---- never faster than the original (loops time games): ram-pointers2's own timing program (a GOSUB's time depends on
+// how many lines come before its target), its lines as typed but for a GOTO after the FOR and GOSUB loops, which
+// skips the others, against the original's counts there (2026-11-26: 113 fields for 2000 empty FOR passes, 83 for
+// 500 GOSUB/RETURN passes; each loop started just after a field begins) ----
+{
+  const text = caseText('ram-pointers2'), at = text.indexOf('10 GOSUB 300:FOR I=1 TO 2000');
+  const prog = text.slice(at).replace(/^(10 .*)$/m, '$1:GOTO 60').replace(/^(60 .*)$/m, '$1:GOTO 100');
+  const r = run('#timeout 60\n' + prog);
+  const t = lines(r), f = t.map((l) => /^FOR (\d+) /.exec(l)).find(Boolean), g = t.map((l) => / GOSUB (\d+) /.exec(l)).find(Boolean);
+  check('FOR 2000 passes take at least the original\'s 113 fields, GOSUB 500 at least its 83 (ram-pointers2\'s program)', f && g && +f[1] >= 113 && +g[1] >= 83, `FOR ${f && f[1]} GOSUB ${g && g[1]}`);
 }
 
 console.log(`\n${n - fail}/${n} passed`);

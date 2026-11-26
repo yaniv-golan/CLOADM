@@ -73,6 +73,14 @@ check('build: $8000-$80FF is left free for later fixed entry points', built.rom.
   let threw = false;
   try { tokensInc({ statements: [{ word: 'A' }, { word: 'B', token: 0x80 }], functions: [] }); } catch (e) { threw = /repeated/.test(e.message); }
   check('tokens: a repeated token is refused', threw);
+  // EXECST's LDX A,X takes twice the token (bit 7 gone) as a signed offset: a statement token past $BF would index
+  // backwards, so the build refuses one; $BF itself is the last that fits
+  let past = false;
+  try { tokensInc({ statements: [{ word: 'A' }, { word: 'B', token: 0xC0 }], functions: [] }); } catch (e) { past = /past \$BF/.test(e.message); }
+  check('tokens: a statement token past $BF is refused (EXECST\'s signed offset)', past);
+  let fits = true;
+  try { tokensInc({ statements: [{ word: 'A' }, { word: 'B', token: 0xBF }, { word: 'C', token: 0xC5, stmt: false }], functions: [] }); } catch (e) { fits = false; }
+  check('tokens: a statement at $BF, and a word that is not a statement past it, are taken', fits);
 }
 
 // ---- the transcript ----
