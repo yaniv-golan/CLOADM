@@ -16864,8 +16864,10 @@ async function phoneChatChecks(browser, base, check) {
       screen: Math.round(document.getElementById('screen').getBoundingClientRect().height), fits: document.getElementById('screen').getBoundingClientRect().bottom <= innerHeight,
       links: getComputedStyle(document.querySelector('.appbar nav')).display, scrollX: document.documentElement.scrollWidth > innerWidth }));
     await page.click('#btnMenu');
-    const open = await page.evaluate(() => ({ links: [...document.querySelectorAll('.appbar nav a')].every((a) => a.getBoundingClientRect().height > 0), share: getComputedStyle(document.getElementById('btnShare')).display !== 'none' }));
-    check('sideways, 844 x 390: the app bar is one row and the screen takes the height; the links and Capture & share are behind Menu',
+    // (Share… is one of Menu's rows, js/ui/menu.js; the bar's own Share stays out of sight, so it is there once)
+    const open = await page.evaluate(() => ({ links: [...document.querySelectorAll('.appbar nav a')].every((a) => a.getBoundingClientRect().height > 0),
+      share: document.getElementById('navShare').checkVisibility() && !document.getElementById('btnShare').checkVisibility() }));
+    check('sideways, 844 x 390: the app bar is one row and the screen takes the height; the links and Share… (a row, once) are behind Menu',
       bar.bar <= 64 && bar.screen >= 220 && bar.fits && bar.links === 'none' && !bar.scrollX && open.links && open.share, JSON.stringify({ ...bar, open }));
     await closeCtx(ctx);
   }
