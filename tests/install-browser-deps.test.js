@@ -26,7 +26,8 @@
 // Retrying the same mirror (MIRRORS reduced to one entry) turns cases 5 and 5b red; installing every package
 // (dropping $need) turns case 3 red; removing the check after dpkg (the review's mutant) turns case 4 red; running commands without setsid turns case 6
 // red; dropping the lock wait turns case 7 red; no lock wait before the repair turns case 8 red; no repair after a kill
-// turns case 9 red; no re-run under sudo turns case 10 red.
+// turns case 9 red; no re-run under sudo turns case 10 red; bounded() stopping only $pid (TERM, or KILL) instead of its
+// whole group turns case 11 red.
 // Run: node tests/install-browser-deps.test.js
 const fs = require('fs'), os = require('os'), path = require('path'), cp = require('child_process');
 
@@ -297,6 +298,26 @@ const says = (r, re) => re.test(r.out);
 {
   const r = run({ uid: 0, installed: NEEDED });
   check('as root: no sudo at all', r.status === 0 && !has(r, /^sudo /), r.calls.join(' | '));
+}
+// 11. bounded() on its own, taken from the script's own text: past its limit it stops the WHOLE process group, not only
+// the command it started. Cases 6 to 9 cannot show that: a child left holding the lock is stopped later by the lock wait,
+// so a bounded() that killed only $pid (`kill -TERM "$pid"`) still let them pass. Here the command leaves two children
+// behind it, one of which ignores TERM (an ignored signal survives exec), and nothing else would ever stop them: after
+// bounded returns, neither may be alive. Killing only $pid with TERM leaves both; TERM to the group with KILL only to
+// $pid leaves the one that ignores TERM.
+{
+  const pick = (re) => (REAL.match(re) || [''])[0];
+  const funcs = `${pick(/^now_ms\(\) \{.*$/m)}\n${pick(/^bounded\(\) \{\n[\s\S]*?\n\}$/m)}`;
+  const tok = `${7000 + Math.floor(Math.random() * 900)}.${process.pid}`, ign = `${tok}1`;
+  const t0 = Date.now();
+  const r = cp.spawnSync('bash', ['-c', `${funcs}\nKILL_AFTER=1\nbounded 1 bash -c 'exec >/dev/null 2>&1; sleep ${tok} & (trap "" TERM; exec sleep ${ign}) & wait'\necho "status=$?"`], { encoding: 'utf8', timeout: 20000 });
+  const took = Date.now() - t0;
+  const alive = (t) => cp.spawnSync('pgrep', ['-f', `^sleep ${t}$`]).status === 0;   // anchored: one token is a prefix of the other
+  const left = [tok, ign].filter(alive);
+  for (const t of [tok, ign]) cp.spawnSync('pkill', ['-KILL', '-f', `^sleep ${t}$`]);
+  check('bounded() is read from the script (now_ms and bounded, whole)', /^now_ms\(\)/.test(funcs) && /\nbounded\(\) \{[\s\S]*setsid[\s\S]*\n\}$/.test(funcs), funcs.split('\n').length + ' lines');
+  check('bounded(): a command past its limit is stopped, status 124, within its limit and KILL_AFTER', /status=124/.test(r.stdout) && took < 8000, `${(r.stdout || '').trim().split('\n').pop()} in ${took} ms ${r.stderr || ''}`);
+  check('bounded(): ...and its whole process group with it (no child survives, not even one that ignores TERM)', left.length === 0, `still alive: ${left.map((t) => `sleep ${t}`).join(', ')}`);
 }
 
 // Both workflows run this one script, under a step time limit no shorter than the script's worst case, and keep its
