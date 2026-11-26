@@ -22256,9 +22256,13 @@ async function mobileChecks(browser, base, check) {
       });
       if (at) await page.touchscreen.tap(at.x, at.y);
       const hit = await page.evaluate(() => ({ key: window.__keyHit, toastUp: !document.getElementById('toast').hidden }));
-      // (held sideways no key is under a toast at all, so there is no tap to pass through: that is the check)
-      check(`mobile (${w}x${h}, 2048): ${sideways ? 'a wrapped toast covers no key' : `a tap on a key under a showing toast (${at && at.name}) reaches the key`}`,
-        sideways ? at === null : !!at && hit.key === at.name, JSON.stringify({ at, hit }));
+      // (held sideways no key is under a toast at all, so there is no tap to pass through: that is the check -- but a
+      // toast that never showed, or has no size, covers nothing either, so it is shown, sized, in view and keys stand first)
+      const tb = await page.evaluate(() => { const t = document.getElementById('toast'), b = t.getBoundingClientRect();
+        return { shown: !t.hidden && b.width > 0 && b.height > 0, inView: b.top >= 0 && b.bottom <= innerHeight && b.left >= 0 && b.right <= innerWidth,
+          keys: [...document.querySelectorAll('#touchKeys button')].filter((e) => e.checkVisibility()).length }; });
+      check(`mobile (${w}x${h}, 2048): ${sideways ? 'a wrapped toast, shown and in view with the keys showing, covers no key' : `a tap on a key under a showing toast (${at && at.name}) reaches the key`}`,
+        sideways ? tb.shown && tb.inView && tb.keys > 0 && at === null : !!at && hit.key === at.name, JSON.stringify({ at, hit, tb }));
     }
     if (shotDir) await page.screenshot({ path: path.join(shotDir, `mobile-${w}x${h}-toast.png`) });
     await closeCtx(ctx);
@@ -23297,13 +23301,13 @@ async function toastOffScreenChecks(browser, base, check) {
         const chip = chipEl.checkVisibility() ? rect(chipEl) : null;
         const keys = [...document.querySelectorAll('#touchKeys button')].filter((b) => b.checkVisibility()).map(rect);
         return { toast: Object.values(t).map(Math.round), canvas: Object.values(c).map(Math.round), chip: chip && Object.values(chip).map(Math.round),
-          overCanvas: hits(t, c), overKeys: keys.filter((k) => hits(t, k)).length, overChip: !!chip && hits(t, chip), inView: t.left >= 0 && t.top >= 0 && t.right <= innerWidth && t.bottom <= innerHeight,
+          overCanvas: hits(t, c), nKeys: keys.length, overKeys: keys.filter((k) => hits(t, k)).length, overChip: !!chip && hits(t, chip), inView: t.left >= 0 && t.top >= 0 && t.right <= innerWidth && t.bottom <= innerHeight,
           short: matchMedia('(orientation: landscape) and (max-height: 500px)').matches && document.body.classList.contains('touch-keys') };
       });
       // (held sideways with the keys round the screen there is no place off both the picture and the keys, and a toast
       // never covers a key or a Pad button: it lies over the top of the picture then -- the layoutBugs group's rule)
       check(`${L}: "${text.slice(0, 20)}…": ${touch && w > h ? 'the toast covers no key or Pad button' : "the toast's rect and the canvas's do not intersect"}, it covers no part of the sound chip, and it is in view`,
-        (r.short ? r.overKeys === 0 : !r.overCanvas) && !r.overChip && r.inView, JSON.stringify(r));
+        (r.short ? r.nKeys > 0 && r.overKeys === 0 : !r.overCanvas) && !r.overChip && r.inView, JSON.stringify(r));
       if (shotDir) await page.screenshot({ path: path.join(shotDir, `toast-off-screen-${w}x${h}-${text.length}.png`) });
     }
     check(`${L}: no page errors`, !errors.length, errors.join('; '));
@@ -23346,6 +23350,15 @@ async function layoutBugsChecks(browser, base, check) {
       check(`Ask Claude intro (393x659, no key, ${when}): the sentence is whole, above the key form, inside the sheet, and nothing covers its first or last line`,
         r.shown && r.aboveKey && r.inSheet && r.topHit && r.bottomHit && /^Claude reads only this emulated Dragon 64/.test(r.text_), JSON.stringify(r));
     }
+    // the key form is below the fold now: scrolled to, the API-key field lies inside the sheet (it is reachable), and the intro is
+    // still the sheet's first thing
+    const reach = await page.evaluate(async () => {
+      const inp = document.getElementById('askKeyInput'); inp.scrollIntoView({ block: 'nearest' });
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      const a = document.getElementById('ask').getBoundingClientRect(), b = inp.getBoundingClientRect(), at = document.elementFromPoint((b.left + b.right) / 2, (b.top + b.bottom) / 2);
+      return { input: [b.top, b.bottom].map(Math.round), ask: [a.top, a.bottom].map(Math.round), inside: b.top >= a.top - 0.5 && b.bottom <= a.bottom + 0.5, onTop: at === inp };
+    });
+    check('Ask Claude intro (393x659, no key): scrolled to, the API-key field lies inside the sheet and takes the tap (reachable)', reach.inside && reach.onTop, JSON.stringify(reach));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, 'layout-bugs-ask-intro-393x659.png') });
     check('Ask Claude intro: no page errors', !errors.length, errors.join('; '));
     await closeCtx(ctx);
