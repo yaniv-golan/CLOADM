@@ -24,7 +24,7 @@ STRCPY  PSHS    X
         JSR     GETSPA
         PULS    U
         PSHS    B,X
-        JSR     CPYUX
+        JSR     CPYSS
         PULS    B,X
         JMP     MKTMP
 
@@ -45,10 +45,12 @@ CHRS    JSR     LPAREN
         PSHS    B
         JSR     <ZRPAREN
         PULS    A
-CHR1    LDX     #FBUFFR         ; a string of the one character A
+CHR1    PSHS    A               ; a string of the one character A, put in place (not copied: STRDST stays at its
+        LDB     #1              ; start [BB bb8 ram-ptr25])
+        JSR     GETSPA
+        PULS    A
         STA     ,X
-        LDB     #1
-        BRA     STRCPY
+        JMP     MKTMP
 * LEFT$(s$, n), RIGHT$(s$, n), MID$(s$, m [, n])
 LEFTS   BSR     STRARG
         BSR     COMBYT
@@ -98,7 +100,7 @@ SS2     LDB     <SBCNT
         CLRA
         LEAU    D,U
         LDB     ,S
-        JSR     CPYUX
+        JSR     CPYSS
         PULS    B,U
         PULS    X
         PSHS    B,U

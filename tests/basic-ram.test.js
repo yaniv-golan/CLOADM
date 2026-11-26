@@ -7,7 +7,9 @@
 //  * a program that PEEKs and POKEs them: TRON (175), lower case (329), the program's start (25, NEW), TIMER (274),
 //    the cold-start flag (113), the output device (111: 0 and $FF only);
 //  * the two real records replayed on ours: identical, apart from the lines whose values come from the
-//    interpreter's speed (TIMER after a run, the loop timings) and the printer (not built);
+//    interpreter's speed (TIMER after a run, the loop timings) and the printer (not built); bb8 ram-ptr25 ($25-26
+//    after each kind of string made, direct and in a program; a direct GOSUB whose INPUT reply overran the typed
+//    line) replayed whole: identical, with mutants of the rule it pins;
 //  * the input buffers' places from ram-pointers2 (2026-11-26), and its eight timing loops: each takes the
 //    original's count of fields or up to two more, never fewer.
 const fs = require('fs'), path = require('path');
@@ -20,7 +22,7 @@ const built = buildBasic(), sym = (s) => built.symbols.get(s);
 // ---- the fixed addresses ----
 const PINS = { TXTTAB: 0x19, VARTAB: 0x1B, ARYTAB: 0x1D, ARYEND: 0x1F, STRBOT: 0x21, FRETOP: 0x23, MEMTOP: 0x27,
   CURLIN: 0x68, DEVNUM: 0x6F, WARMFL: 0x71, CURPOS: 0x88, BLINK: 0x8F, KEYDLY: 0x97, TXTPTR: 0xA6, TRCFLG: 0xAF,
-  TIMER: 0x112, SEED: 0x116, CASEFL: 0x149 };
+  TIMER: 0x112, SEED: 0x116, CASEFL: 0x149, STRDST: 0x25, EXECAD: 0x9D, BLKBUF: 0x1DA };   // ([BB bb8] rnd-seq, ram-ptr25, cas-cloadm2)
 for (const [name, at] of Object.entries(PINS)) check(`${name} at $${at.toString(16).toUpperCase().padStart(4, '0')}`, sym(name) === at, sym(name) === undefined ? 'missing' : `$${sym(name).toString(16)}`);
 
 // ---- the variables through PEEK and POKE ----
@@ -69,6 +71,23 @@ for (const [file, name] of [['bb3-real.jsonl', 'ram-pointers'], ['bb6-real.jsonl
     if (a !== b && !(a && b && speedOrBuffer(a) && speedOrBuffer(b))) diff.push(`${i + 1}: ${JSON.stringify(a)} vs ${JSON.stringify(b)}`);
   }
   check(`${name}: ours matches the original's record line for line (speed lines aside)`, diff.length === 0, diff.slice(0, 3).join(' | '));
+}
+
+// ---- $25-26: bb8 ram-ptr25 replayed whole, on ours and on mutants of the rule ----
+{
+  const { compare } = require('../tools/basic-bb/compare.js');
+  const want = real('bb8-real.jsonl', 'ram-ptr25'), text = caseText('ram-ptr25');
+  const same = (rom) => { const r = runCase(rom, text); return compare(new Map([['c', want]]), new Map([['c', { ...r, case: 'ram-ptr25' }]])); };
+  const ours = same(built.rom);
+  check('ram-ptr25: ours identical to the original\'s record', ours.same === 1, ours.report.slice(0, 2).join(' | '));
+  for (const [what, file, from, to] of [
+    ['a copy does not move it', 'strings.inc', 'DSTX    LEAX    1,X\n        STX     <STRDST', 'DSTX    LEAX    1,X\n        NOP\n        NOP'],
+    ['a new string (CHR$\'s) leaves it a byte further on', 'strings.inc', '        ADDD    #1\n        STD     <STRDST', '        ADDD    #2\n        STD     <STRDST'],
+    ['RETURN goes on right after the line number', 'interp.inc', '        PSHS    U\n        LBRA    DS1', '        STX     <TXTPTR\n        JMP     ,U'],
+  ]) {
+    const rom = buildBasic({ edit: (f, t) => { if (f !== file) return t; if (!t.includes(from)) throw new Error(`mutant source not found: ${what}`); return t.replace(from, to); } }).rom;
+    check(`ram-ptr25 mutant "${what}": no longer identical`, same(rom).same === 0);
+  }
 }
 
 // ---- the input buffers' places: ram-pointers2 on the original [BB 2026-11-26] ----

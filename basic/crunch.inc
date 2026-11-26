@@ -88,10 +88,15 @@ CRDONE  CLR     ,U+
         CLR     ,U+
         PULS    X,Y,U,PC
 
-* KWMAT: the longest keyword at X. C set if one matches: A = its token, KWFN nonzero for a function,
-* KWLEN its length. Keeps X, U.
+* KWMAT: the longest keyword at X (its first character in A; a digit starts none, so it is not looked up: a program
+* as text loads its lines about as fast as the original does [BB bb8 cas-multi]). C set if one matches: A = its
+* token, KWFN nonzero for a function, KWLEN its length. Keeps X, U.
 KWMAT   PSHS    X,U
-        CLR     <KWLEN
+        CMPA    #'0'            ; (a digit starts none: not looked up)
+        BLO     KW0
+        CMPA    #'9'
+        BLS     KWNO
+KW0     CLR     <KWLEN
         CLR     <KWFN
         LDU     #KWSTMT
         CLRB

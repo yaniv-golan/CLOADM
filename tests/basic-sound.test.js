@@ -225,9 +225,16 @@ const NOTES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 {
   const b = boot();
   for (const t of [1, 50, 100, 200, 254, 255]) {
-    const m = wav(b, `SOUND ${t},3`), P = SNDP0 + SNDPK * (256 - t), c = 3 * SNDU, tn = m.tones[0];
-    check(`SOUND ${t},3: period ${P} cycles, ${c} fields`, m.tones.length === 1 && cleanPeriods(m)[0] === P && tn.length > (c - 1) * FIELD - P && tn.length < c * FIELD + 2 * P,
-      tn ? `${cleanPeriods(m)[0]} ${(tn.length / FIELD).toFixed(2)}` : '');
+    // The sound as a whole: the measures split a tone where two periods in a row differ, which a field interrupt can
+    // do to the first periods of a tone by where in the field it starts (an odd period counted into the median); so
+    // tones that follow each other with no gap are one sound here, its period the shortest clean one in it.
+    const m = wav(b, `SOUND ${t},3`), P = SNDP0 + SNDPK * (256 - t), c = 3 * SNDU, ts = m.tones;
+    const joined = ts.length > 0 && ts.every((x, i) => i === 0 || x.start - (ts[i - 1].start + ts[i - 1].length) < 2 * P);
+    const len = ts.length ? ts[ts.length - 1].start + ts[ts.length - 1].length - ts[0].start : 0;
+    const per = Math.min(...cleanPeriods(m).filter((x) => Number.isFinite(x)));
+    const tn = ts.length ? { low: Math.min(...ts.map((x) => x.low)), high: Math.max(...ts.map((x) => x.high)) } : null;
+    check(`SOUND ${t},3: period ${P} cycles, ${c} fields`, joined && per === P && len > (c - 1) * FIELD - P && len < c * FIELD + 2 * P,
+      `${per} ${(len / FIELD).toFixed(2)} (${ts.length} tone${ts.length === 1 ? '' : 's'})`);
     check(`SOUND ${t},3: full scale (${SNDL}-${SNDH})`, tn && tn.low === SNDL && tn.high === SNDH && SNDL === 0 && SNDH === 63);
   }
   check('after SOUND: the DAC low, sound off', st(b).dac === SNDL && !st(b).on, JSON.stringify(st(b)));

@@ -10,13 +10,21 @@
 
 CTHR    EQU     42              ; CRBIT: fewer loop passes than this make a short cycle, a 1 [OWN]
 CTHRH   EQU     23              ; the same for a high half alone (its loop is the first, 12 cycles a pass) [OWN]
-CH0     EQU     66              ; CWBYTE: delay passes for a 1200 Hz cycle and a 2400 Hz one [OWN, from the
-CH1     EQU     29              ; CPU's 888625 Hz clock and the loops' cycle counts]
-CLEADN  EQU     128             ; leader bytes before every block written [FMT]
-CDELAY  EQU     55000           ; about half a second after the motor starts, before writing [OWN]
+CH0     EQU     73              ; CWBYTE: delay passes for a 0's cycle and a 1's: about 1090 Hz and 2020 Hz with the
+CH1     EQU     35              ; byte's own work, which the original's runs fit (817 and 439 cycles a bit, the
+*                                 888625 Hz clock) [BB bb4 cas-files, bb8 cas-data2: the namefile, data and end-of-file
+*                                 runs of blocks of known bytes]
+CDELAY  EQU     57690           ; about half a second after the motor starts, before writing (with the 256 leader
+*                                 bytes, the original's runs [BB bb4 cas-save-load, cas-files; bb8 cas-data2])
+NFDLY   EQU     82              ; the motor's stop after a namefile read: about 0.14 field with the work around it, or
+*                                 the file's name shown [BB bb8 cas-multi, cas-cloadm2: the next block's run starts
+*                                 0.13-0.15 field later, in a program as in direct mode]
+CLNDLY  EQU     130             ; a text line going in: the original's time a line (a block's lines take 1 field each,
+*                                 never fewer, [BB bb8 cas-multi: the motor's stops between LONG's blocks])
+CTDLY   EQU     36              ; a character to the tape: about 300 cycles more, the original's pace [BB bb4 cas-files,
+*                                 cas-save-load csave-a, bb8 cas-data2: the motor's stop between namefile and data]
 MOTONV  EQU     $3C             ; PIA 1 control register A: CA2 output high (motor on), or low
 MOTOFV  EQU     $34
-CASBUF  EQU     $0600           ; a text file's block while its lines go in (graphics page 1) [OWN]
 
 * MOTOR ON / MOTOR OFF [UM]
 MOTOR   LDB     #MOTONV
@@ -62,11 +70,16 @@ CRBY1   BSR     CRBIT
         RTS
 
 * CRBLK: the next block: wait for a leader and the sync byte after it, then CBTYP, CBLEN and the data to X on
-* (X ends past it). Z set when the checksum is right. The motor is left running. When the block's leader is first
-* heard, the letter at the top left of the screen (S or F, CFIND) changes between normal and inverse [BB bb4, bb5:
-* one change a block, a little after its leader starts].
+* (X ends past it). Z set when the checksum is right. The motor is left running. When the block's leader is heard
+* (its first byte and three bits), the letter at the top left of the screen (S or F, CFIND) changes between normal and
+* inverse [BB bb4, bb5: one change a block, a little after its leader starts], unless the cassette is quiet (CQUIET).
 CRBLK   JSR     CASON
-CRS0    CLR     <CLEAD
+        CLRB
+        BSR     CQUIET
+        BMI     CRS0
+        LDB     #$40
+CRS0    STB     CBLNK
+        CLR     <CLEAD
 CRS1    BSR     CRBIT
         ROR     <CBYTE
         LDA     <CBYTE
@@ -97,17 +110,31 @@ CRS3    TST     <CBCNT
 CRS4    BSR     CRBYTE
         CMPA    <CSUM
         RTS
-CRS2    TST     <CLEAD
-        BNE     CRS2A
-        LDB     SCREEN          ; (the first leader byte: the letter blinks)
-        EORB    #$40
+CRS2    LDB     <CLEAD          ; (CLEAD counts the leader's bits up to 4, when the letter blinks: a lone $55, the
+        CMPB    #4              ; one after a block, and the bits after it make no blink [BB bb6 cas-errors: no change
+        BHS     CRS1            ; at the end of the tape, after a stop at an end of file])
+        INC     <CLEAD
+        CMPB    #3
+        BNE     CRS1
+        LDB     SCREEN
+        EORB    CBLNK
         STB     SCREEN
-CRS2A   STA     <CLEAD
         BRA     CRS1
 
-* the cassette's errors: the motor stops; a program half loaded is cleared. B = the error. ?IO ERROR leaves the
-* file open (CLDBAS $FF): the next cassette statement is ?AO ERROR, which closes it [BB bb5 cas-errors: SKIPF after
-* a CLOAD that met a bad block]
+* CQUIET: N set when the cassette shows nothing: for a data file (CLDBAS negative: no clear, no letter, no name, no
+* blink [BB bb4 cas-files, bb8 cas-data2: no top-row change]) and while a program runs (CURLIN not $FFFF: CLOAD,
+* CLOADM and SKIPF in a program leave the screen as it is [BB bb8 cas-in-program, cas-cloadm2]). Uses A.
+CQUIET  LDA     <CURLIN
+        INCA
+        BEQ     CQ1
+        LDA     #$80
+CQ1     ORA     <CLDBAS
+        RTS
+
+* the cassette's errors: the motor stops; a program half loaded is cleared (CLDBAS 1; 0 for ?DS ERROR, which keeps
+* the lines loaded before it [BB bb8 cas-multi]). B = the error. ?IO ERROR leaves the file open (CLDBAS $FF), at its
+* end (EOF(-1) is -1 [BB bb8 cas-left-open]): OPEN, CSAVE and SKIPF are then ?AO ERROR, and the file stays open
+* [BB bb5 cas-errors: SKIPF after a CLOAD that met a bad block]
 CLFM    LDB     #ERR_FM
         FCB     $8C             ; (CMPX #: skips the next LDB)
 CLOM    LDB     #ERR_OM
@@ -123,6 +150,9 @@ CE1     CLR     <CLDBAS
         CMPB    #ERR_IO
         BNE     CE2
         DEC     <CLDBAS
+        LDA     #$FF            ; (CBTYP the end of file's, nothing in hand)
+        STA     <CBTYP
+        CLR     <CBLEN
 CE2     JMP     ERROR
 
 * CFIND: read namefile blocks until one has the name in CNAME (any, when CNLEN is 0); its block stays at BLKBUF.
@@ -130,16 +160,15 @@ CE2     JMP     ERROR
 * a namefile met puts its name on the top row from the third cell; the file wanted F (normal) at the top left;
 * another file is passed over to its end-of-file block, then the screen is cleared again, S (a search that starts in
 * the middle of a file does not clear at that file's end [BB bb5 cas-errors]). The prompt or an error then prints on
-* the second row. With CLDBAS negative (OPEN "I") none of this: the screen is left as it is [BB bb4 cas-files: no
-* clear, nothing written in the top row].
-CFIND   TST     <CLDBAS
+* the second row. When the cassette is quiet (CQUIET: OPEN "I", or a program running) none of this: the screen is left
+* as it is [BB bb4 cas-files, bb8 cas-in-program: no clear, nothing written in the top row].
+CFIND   BSR     CQUIET
         BMI     CF1
         JSR     CLS
         LDA     #'S'
         STA     SCREEN
         BSR     CFN2
-CF1     LDX     #BLKBUF
-        JSR     CRBLK
+CF1     BSR     CRDBLK
         BNE     CF1             ; a bad block: not what we look for
         LDA     <CBTYP
         BNE     CF1             ; another file's data
@@ -161,7 +190,7 @@ CF5     RTS
 CF4     BSR     CFNAME
         BSR     CSKIP           ; the file passed over, then a clear screen
         BRA     CFIND
-CFNAME  TST     <CLDBAS         ; N set: quiet (OPEN "I")
+CFNAME  JSR     CQUIET          ; N set: quiet
         BMI     CF5
         LDX     #SCREEN+2
         STX     <CURPOS
@@ -174,9 +203,44 @@ CFN1    LDA     ,X+
 CFN2    LDX     #SCREEN+32      ; the cursor on the second row
         STX     <CURPOS
         RTS
-* CSKIP: blocks read up to an end-of-file block
-CSKIP   LDX     #BLKBUF
-        JSR     CRBLK
+* CRDBLK: the next block into BLKBUF (CRDX: to X), with the motor's stops [BB bb8 cas-multi, cas-cloadm2,
+* cas-left-open]: after a namefile, always, for a moment (NFDLY), its gap flag kept in CFGAP; after an end of file;
+* after any other block when the last namefile read had gaps (a gapped file is passed over, skipped or loaded a block
+* at a time). Z as CRBLK.
+* Uses A, X.
+CRDBLK  LDX     #BLKBUF
+CRDX    JSR     CRBLK
+        PSHS    CC
+        LDA     <CBTYP
+        BNE     CRK1
+        LDA     BLKBUF+10
+        STA     CFGAP
+        BSR     CASOFF
+        JSR     CQUIET          ; (shown, the name and the letter take as long)
+        BPL     CRK2
+        LDX     #NFDLY
+        JSR     DELAYX
+        PULS    CC,PC
+CRK1    INCA                    ; an end of file: the motor stops [BB bb6 cas-errors: machine code passed over]
+        BEQ     CRK3
+        TST     CFGAP
+        BEQ     CRK2
+CRK3    BSR     CASOFF
+CRK2    PULS    CC,PC
+
+* CASON: interrupts off, the motor on. CASOFF: the motor off, interrupts on. Both keep B, X, U.
+CASON   ORCC    #$50
+        LDA     #MOTONV
+        BRA     CSO1
+CASOFF  ANDCC   #$AF
+        LDA     #MOTOFV
+CSO1    STA     PIA1CA
+        RTS
+
+* CSKIP: blocks read up to an end-of-file block; a bad one is ?IO ERROR [BB bb8 cas-left-open: SKIPF, and a CLOAD
+* "NAME" passing a file with a bad block]
+CSKIP   BSR     CRDBLK
+        LBNE    CLIO
         LDA     <CBTYP
         INCA
         BNE     CSKIP
@@ -191,7 +255,7 @@ CLDATA  TST     <CLDBAS
         PSHS    X
         CMPD    ,S++
         LBLO    CLOM
-CLD1    JSR     CRBLK
+CLD1    BSR     CRDX
         LBNE    CLIO
         LDA     <CBTYP
         INCA
@@ -220,23 +284,31 @@ CLDONE  CLR     <CLDBAS
         JSR     CASOFF
         JMP     RNEND           ; (program.inc: CLRVAR, then READY)
 * a program saved as text, or a data file: the motor stops after each block, and its lines go in one by one as if
-* typed; a line without a number is ?DS ERROR [UM's error list] once the whole file is read (CLDBAS 2) [BB bb5
-* cas-errors: the data file's end-of-file block is read first]; a line over 250 characters is cut [OWN]
+* typed. A line without a number is ?DS ERROR [UM's error list] when the next line is begun, or the file ends: the
+* error comes after the block that holds that next line is read [BB bb8 cas-multi: at once, the data block's lines
+* after it still unread; bb5 cas-errors: a data file whose one record is the block's last, after its end-of-file
+* block], the lines before it kept (CLDBAS 0 for it). Once a block is read the program is gone: CURLIN is $FFFF, so a
+* CLOAD run in a program shows the blocks after its first (the blink) [BB bb8 cas-in-program: one change, at the end
+* of file]. A line over 250 characters is cut [OWN].
 CLASC   JSR     NEWPRG
         LDU     #LINBUF
-CLA1    LDX     #CASBUF
+CLA1    LDX     #BLKBUF
         JSR     CRBLK
         LBNE    CLIO
         JSR     CASOFF
+        LDD     #$FFFF
+        STD     <CURLIN
         LDA     <CBTYP
         INCA
         BEQ     CLA4
         CMPA    #2
         LBNE    CLIO
-        LDX     #CASBUF
+        LDX     #BLKBUF
         LDB     <CBLEN
         BEQ     CLA1
-CLA2    LDA     ,X+
+CLA2    TST     <CLDBAS
+        LBEQ    CLDS
+        LDA     ,X+
         CMPA    #13
         BNE     CLA3
         BSR     CLLINE
@@ -248,19 +320,20 @@ CLA3A   DECB
         BNE     CLA2
         BRA     CLA1
 CLA4    BSR     CLLINE          ; a last line with no carriage return
-        DEC     <CLDBAS
-        LBNE    CLDS
+        TST     <CLDBAS
+        LBEQ    CLDS
         BRA     CLDONE
 CLLINE  CLR     ,U
         PSHS    B,X
+        LDX     #CLNDLY
+        JSR     DELAYX
         JSR     CRUNCH
         LDX     #CRNBUF-1
         STX     <TXTPTR
         JSR     <ZCHRGET
         BEQ     CLL1
         BCS     CLL0
-        LDA     #2              ; no number: ?DS ERROR at the end
-        STA     <CLDBAS
+        CLR     <CLDBAS         ; no number: ?DS ERROR at the next line
         BRA     CLL1
 CLL0    JSR     <ZLINGET
         JSR     EDLINE
@@ -268,7 +341,8 @@ CLL1    LDU     #LINBUF
         PULS    B,X,PC
 
 * CLOADM ["NAME"][,offset]: a machine-code file to its load address plus the offset; EXEC with no address then
-* runs it from its exec address, plus the offset too [UM; the offset on the exec address: OWN]
+* runs it from its exec address, plus the offset too [UM; the offset on the exec address, and EXECAD at $9D: BB bb8
+* cas-cloadm2]. Like CLOAD, it goes ahead with a file open [BB bb8 cas-left-open].
 CLOADM  JSR     <ZCHRGET
         BSR     GETNAM
         CLRA
@@ -289,29 +363,22 @@ CLM1    JSR     CFIND
         ADDD    <CEND
         TFR     D,X
         JSR     CLDATA
-        BRA     CASOFF
+        JMP     CASOFF
 * SKIPF ["NAME"]: past the file (the next one, without a name) [UM]
-SKIPF   BSR     GETNAM
+SKIPF   BSR     GETNAO
         JSR     CFIND
         JSR     CSKIP
-        BRA     CASOFF
+        JMP     CASOFF
 
-* CASON: interrupts off, the motor on. CASOFF: the motor off, interrupts on. Both keep B, X, U.
-CASON   ORCC    #$50
-        LDA     #MOTONV
-        BRA     CSO1
-CASOFF  ANDCC   #$AF
-        LDA     #MOTOFV
-CSO1    STA     PIA1CA
-        RTS
-
+* GETNAO: GETNAM for OPEN, CSAVE and SKIPF: ?AO ERROR while a file is open, which stays open [BB bb8 cas-data-errors:
+* CLOSE then writes it out; cas-left-open: OPEN and CSAVE after ?IO ERROR; bb5 cas-errors: SKIPF]
+GETNAO  TST     <CLDBAS
+        BPL     GETNAM
+        LDB     #ERR_AO
+        JMP     ERROR
 * GETNAM: an optional file name (a string expression) into CNAME, padded with spaces to 8 (a longer one is cut
-* [OWN]); CNLEN its length, 0 when there is none (any file will do)
-GETNAM  TST     <CLDBAS
-        BPL     GN0
-        LDB     #ERR_AO         ; a file left open by ?IO ERROR (CASERR)
-        LBRA    CE1
-GN0     CLR     <CLDBAS
+* [OWN]); CNLEN its length, 0 when there is none (any file will do). A file open is forgotten (CLOAD, CLOADM).
+GETNAM  CLR     <CLDBAS
         LDX     #CNAME
         LDD     #$2008
 GN1     STA     ,X+
@@ -368,19 +435,22 @@ CWDL1   DECB
         PULS    B,PC
 
 * CWBLK: a block: the leader, $3C, CBTYP, CBLEN, the CBLEN bytes at X (X ends past them), the checksum and a $55
-* [FMT]. A motor that was off is started, and the tape given time to get up to speed.
+* [FMT]. A motor that was off is started, the tape given time to get up to speed, and a whole leader written; with
+* the motor running (CSAVE's blocks after its first) the leader is one $55 [BB bb4 cas-save-load: CSAVE's data block
+* and end of file in one run 111.57 fields long, the decoder reading 2 $55 before the end of file].
 CWBLK   ORCC    #$50
+        LDB     #1
         LDA     PIA1CA
         BITA    #8
-        BNE     CW1
+        BNE     CW2
         JSR     CASON
         PSHS    X
         LDX     #CDELAY
 CW0     LEAX    -1,X
         BNE     CW0
         PULS    X
-CW1     LDB     #CLEADN
-CW2     LDA     #$55
+        CLRB                    ; the leader: 256 $55 bytes [BB: the decoder reads 258 before an end-of-file block
+CW2     LDA     #$55            ; written after the motor started (bb4 cas-save-load, cas-files); the runs]
         BSR     CWBYTE
         DECB
         BNE     CW2
@@ -402,11 +472,18 @@ CW4     LDA     <CSUM
         LDA     #$55
         BRA     CWBYTE
 
-* CWHEAD: the namefile block: CNAME and the fields after it
+* CWASC: a text file's namefile (ASCII and gaps $FF) onto the tape, the motor stopped after it, and the block
+* buffer empty
+CWASC   LDD     #$FFFF
+        STD     CFASC           ; and CFGAP
+        CLR     <CBIDX
+* CWHEAD: the namefile block: CNAME and the fields after it (CWHDX: the 15 bytes at X); the motor is stopped after
+* it [BB bb4 cas-save-load: CSAVE's runs, the namefile, then the data and end of file]
 CWHEAD  LDX     #CNAME
-        LDD     #15
+CWHDX   LDD     #15
         STD     <CBTYP
-        BRA     CWBLK
+        BSR     CWBLK
+        JMP     CASOFF
 
 * CWDATA: the bytes from X up to CEND in data blocks of up to 255, the end-of-file block, and the motor off
 CWDATA  LDD     <CEND
@@ -429,8 +506,8 @@ CWDA2   LDD     #$FF00
 * (a gapped file) [UM]; CSAVEM "NAME",start,end,exec: memory from start to end [UM]
 CSAVE   CMPA    #'M'
         BEQ     CSAVEM
-        JSR     GETNAM
-        BSR     CWCLR           ; a BASIC program; exec and load addresses 0 [OWN]
+        JSR     GETNAO
+        BSR     CWCLR           ; a BASIC program; exec and load addresses 0 [BB bb4 cas-save-load]
         JSR     <ZCHRGOT
         BEQ     CS2
         JSR     COMMA
@@ -456,7 +533,7 @@ CS2     BSR     CWHEAD
         LDX     <TXTTAB
         BRA     CWDATA
 CSAVEM  JSR     <ZCHRGET
-        JSR     GETNAM
+        JSR     GETNAO
         JSR     CADDR
         PSHS    D
         JSR     CADDR
@@ -482,18 +559,11 @@ CWC1    CLR     ,X+
         DECB
         BNE     CWC1
         RTS
-* CWASC: a text file's namefile (ASCII and gaps $FF) onto the tape, the motor stopped after it, and the block
-* buffer empty
-CWASC   LDD     #$FFFF
-        STD     CFASC           ; and CFGAP
-        JSR     CWHEAD
-        CLR     <CBIDX
-        JMP     CASOFF
 
-* CHRTAP: CHROUT to the tape (CSAVE ,A, PRINT #-1): the character goes into the block at CASBUF, and a full
+* CHRTAP: CHROUT to the tape (CSAVE ,A, PRINT #-1): the character goes into the block at BLKBUF, and a full
 * block goes onto the tape. Keeps every register.
 CHRTAP  LDB     <CBIDX           ; (from CHROUT, D and X pushed)
-        LDX     #CASBUF
+        LDX     #BLKBUF
         ABX
         STA     ,X
         INCB
@@ -501,13 +571,15 @@ CHRTAP  LDB     <CBIDX           ; (from CHROUT, D and X pushed)
         CMPB    #255
         BNE     CT1
         BSR     CFLUSH
-CT1     PULS    D,X,PC
-* CFLUSH: the block at CASBUF (CBIDX bytes, if any) onto the tape, the motor stopped after it
+CT1     LDX     #CTDLY
+        JSR     DELAYX
+        PULS    D,X,PC
+* CFLUSH: the block at BLKBUF (CBIDX bytes, if any) onto the tape, the motor stopped after it
 CFLUSH  LDB     <CBIDX
         BEQ     CFL1
         LDA     #1
         STD     <CBTYP
-        LDX     #CASBUF
+        LDX     #BLKBUF
         JSR     CWBLK
         CLR     <CBIDX
         JMP     CASOFF
@@ -517,53 +589,69 @@ CFL1    RTS
 * OPEN "O",#-1,"NAME" and OPEN "I",#-1,"NAME" (also without the #, and with no name or "" for the next file on the
 * tape), PRINT #-1 (print.inc), INPUT #-1 and LINE INPUT #-1 (io.inc), EOF(-1), CLOSE #-1 [UM; the forms without #
 * from a magazine listing]. One file at a time, open while CLDBAS is $FF (for input; also a file left open by
-* ?IO ERROR) or $FE (for output): a cassette statement or a second OPEN is then ?AO ERROR, which closes it (GETNAM).
-* A file written: a namefile of type 1, ASCII and gaps $FF, exec and load 0, the motor stopped after it; then the
-* records PRINT #-1 writes, gathered in blocks of 255 at CASBUF, each written (the motor started and stopped) when
-* full, the rest and an end-of-file block at CLOSE [BB bb4 cas-files: the blocks and the motor's three runs]. A file
-* read: found as CLOAD finds one, but with nothing shown (the screen untouched [BB bb4 cas-files]), then a block at a
-* time into CASBUF as the records are read, the motor stopped after each. The buffer is graphics page 1's first 256
-* bytes, as for CLOAD of a text file: a picture there gets the block's bytes [OWN]. A file of any type is read [OWN].
+* ?IO ERROR) or $FE (for output): OPEN, CSAVE and SKIPF are then ?AO ERROR, and the file stays open (GETNAO); RUN
+* closes it as CLOSE does, NEW and an error do not [BB bb8 cas-data-errors].
+* A file written: a namefile of type 1, ASCII and gaps $FF, the motor stopped after it, built in BLKBUF over what the
+* buffer last held, so its exec and load addresses are bytes 11-14 of the last record block written (0 and 0 with
+* none) [BB bb8 cas-data-errors]; then the records PRINT #-1 writes, gathered in blocks of 255 at BLKBUF, each written
+* (the motor started and stopped) when full, the rest and an end-of-file block at CLOSE [BB bb4 cas-files: the blocks
+* and the motor's three runs]. A file read: found as CLOAD finds one, but with nothing shown (CQUIET), then a block at
+* a time into BLKBUF as the records are read, the motor stopped after each. A data file or a program saved as text is
+* read; machine code or a tokenised program is ?FM ERROR [BB bb8 cas-data2].
 
-* OPEN "mode",[#]device,"name": the mode I or O (?FM ERROR otherwise [OWN]), the device -1 (?DN ERROR), a name
-* ("" for the next file)
+* OPEN "mode",[#]device,"name": the mode I or O (?FM ERROR otherwise), a name ("" for the next file); the device -1,
+* or 0 (the screen) or -2 (the printer), for which nothing is opened [BB bb8 cas-data-errors: no error, no block]; any
+* other is ?DN ERROR [OWN]
 OPEN    JSR     EVSTR
         JSR     FRESTR
         LDA     ,X              ; (the mode's first letter)
-        PSHS    A
+        CMPA    #'O'
+        BEQ     OP0
+        CMPA    #'I'
+        LBNE    FMERR
+OP0     PSHS    A
         JSR     COMMA
-        BSR     DEVARG
-        JSR     COMMA
-        JSR     GETNAM
+        JSR     DEVAR0
+        BEQ     OPN1
+        CMPD    #1
+        BEQ     OP0A
+        CMPD    #-1
+        LBNE    DNERR
+OP0A    JSR     COMMA           ; the screen, the printer: the name only read
+        JSR     EVSTR
+        PULS    A
+        JMP     FRESTR
+OPN1    JSR     COMMA
+        JSR     GETNAO
         PULS    A
         CMPA    #'O'
         BEQ     OPOUT
-        CMPA    #'I'
-        LBNE    FMERR
         DEC     <CLDBAS         ; ($FF: open for input, CFIND quiet)
-        LDU     #CFIND
-        BSR     QUIET
-        CLR     <CBLEN          ; no data in hand (CBTYP is 0, the namefile's: no end of file yet)
+        JSR     CFIND
+        LDD     BLKBUF+8        ; the file type and the ASCII flag
+        CMPA    #1
+        BEQ     OP2
+        LBHI    CLFM
+        TSTB
+        LBEQ    CLFM
+OP2     CLR     <CBLEN          ; no data in hand (CBTYP is 0, the namefile's: no end of file yet)
         JMP     CASOFF
-OPOUT   JSR     CWCLR
-        INC     CFTYP           ; a data file
-        JSR     CWASC
+OPOUT   LDX     #CNAME
+        LDU     #BLKBUF
+        LDB     #8
+        JSR     CPYXU
+        LDD     #$01FF          ; a data file, ASCII, gaps
+        STD     ,U
+        STB     2,U
+        CLR     <CBIDX
+        LDX     #BLKBUF
+        JSR     CWHDX
         LDA     #$FE
         STA     <CLDBAS
         RTS
 
-* QUIET: the routine at U with the top-left cell put back after it (CRBLK's blink: a data file is read with nothing
-* on the screen changing [BB bb4 cas-files]). Keeps the routine's flags.
-QUIET   LDA     SCREEN
-        PSHS    A
-        JSR     ,U
-        PSHS    CC
-        LDA     1,S
-        STA     SCREEN
-        PULS    CC,A,PC
-
 * CLOSE [[#]device]: the file closed (with no device, whatever is open); one open for output gets its last block and
-* the end-of-file block. Nothing open: no error [OWN].
+* the end-of-file block. Nothing open: no error [OWN]. CLO1 also for RUN.
 CLOSE   BEQ     CLO1
         BSR     DEVARG
 CLO1    LDA     <CLDBAS
@@ -574,9 +662,10 @@ CLO1    LDA     <CLDBAS
         JMP     CWDA2
 
 * EOF(device): -1 when the file open for input has no more data, 0 otherwise [UM, BB bb4 cas-files]; this may read
-* the next block. Nothing open for input: ?NO ERROR, or ?FM ERROR for a file open for output [OWN].
+* the next block. Nothing open for input: ?NO ERROR, or ?FM ERROR for a file open for output [BB bb8 cas-data-errors].
 FNEOF   JSR     <ZFNARGN
-        BSR     DEVCHK
+        BSR     DEVD1
+        LBNE    DNERR
         LDA     #$FF
         BSR     FILCHK
         BSR     CFILL
@@ -588,7 +677,8 @@ FNEOF   JSR     <ZFNARGN
 
 * CDEV: at the # of PRINT #, INPUT #: the device number for a file open in mode B ($FF input, $FE output), A = the
 * mode on return. The device -1, or ?DN ERROR [OWN: the only device]; no file open in that mode: ?NO ERROR [BB bb4
-* cas-files: PRINT #-1 with none], or ?FM ERROR when the file is open the other way [OWN].
+* cas-files: PRINT #-1 with none], or ?FM ERROR when the file is open the other way [BB bb8 cas-data-errors,
+* cas-left-open].
 CDEV    PSHS    B
         BSR     DEVARG
         PULS    A
@@ -599,30 +689,29 @@ FILCHK  CMPA    <CLDBAS
         BPL     DVC0
         LDB     #ERR_FM
 DVC0    JMP     ERROR
-* DEVARG: [#]device (EVDEV: the device), which must be -1 (?DN ERROR)
-DEVARG  CMPA    #'#'
-        BNE     EVDEV
-        JSR     <ZCHRGET
-EVDEV   JSR     <ZEVNUM
-DEVCHK  JSR     INTCNV
-        ADDD    #1
+* DEVARG: [#]device, which must be -1 (?DN ERROR); DEVAR0: D = the device + 1, Z set for -1 (DEVD1: of FAC)
+DEVARG  BSR     DEVAR0
         LBNE    DNERR
 DVC1    RTS
+DEVAR0  CMPA    #'#'
+        BNE     DEVA1
+        JSR     <ZCHRGET
+DEVA1   JSR     <ZEVNUM
+DEVD1   JSR     INTCNV
+        ADDD    #1
+        RTS
 
-* CFILL: C set when the input file has a byte to read (B = its place in CASBUF), clear at its end: the next block
-* read when the last is used up (its blink undone, the motor stopped after it); a bad block, or a namefile, ?IO
-* ERROR [as CLOAD]; a block of another type is taken as data [OWN].
+* CFILL: C set when the input file has a byte to read (B = its place in BLKBUF), clear at its end: the next block
+* read when the last is used up (the motor stopped after it); a bad block, or a namefile, ?IO ERROR [as CLOAD]; a
+* block of another type is taken as data [OWN].
 CFILL   LDB     <CBIDX
         CMPB    <CBLEN
         BLO     CFI2            ; (C set)
         LDA     <CBTYP
         INCA
         BEQ     CFI2            ; the end-of-file block was read (C clear, from the CMPB)
-        PSHS    U               ; (CRDLN's)
-        LDX     #CASBUF
-        LDU     #CRBLK
-        BSR     QUIET
-        PULS    U
+        LDX     #BLKBUF
+        JSR     CRBLK
         BNE     CFI3
         JSR     CASOFF
         CLR     <CBIDX
@@ -634,7 +723,7 @@ CFI2    RTS
 * CGETC: the input file's next byte in A, C set; C clear at the end of the file
 CGETC   BSR     CFILL
         BCC     CFI2
-        LDX     #CASBUF
+        LDX     #BLKBUF
         ABX                     ; (B unsigned: up to 254)
         LDA     ,X
         INC     <CBIDX
