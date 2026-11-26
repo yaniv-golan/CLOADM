@@ -72,6 +72,9 @@ Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.
   all 33 listed programs in the 36-program corpus match the original's.
   A black-box probe, `famous-pokes`, asks the original about the well-known speed and low-RAM POKEs; the lint lets
   a probe write only the SAM's rate bits among the I/O addresses.
+  Another probe for the original, `ram-pointers2`: what `$25-26` holds, where the typed line and an `INPUT` reply
+  are kept, `TIMER`'s bytes read so that the interpreter's speed cannot change the answer, and typical loops timed
+  in fields, to compare the interpreters' speed.
   BASIC's own variables now sit where the original keeps them (the program and string pointers at `$19-$28`, the
   line running at `$68`, the output device at `$6F`, the cold-start flag at `$71`, the text pointer at `$A6`, `TRON`
   at `$AF`, `TIMER` at `$0112`, lower case at `$0149`), so the well-known `POKE`s (`TRON`, lower case, `PCLEAR`-like

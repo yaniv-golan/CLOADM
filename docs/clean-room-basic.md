@@ -752,6 +752,7 @@ strings change, and `NEW`, `CLEAR`, `PCLEAR`, `RUN` and a load reset some of the
 | `$0112-0113` | `TIMER` | counts fields; `POKE` to both bytes sets it | the same (`TIMER`) |
 | `$0149` | lower case (`SHIFT-0`) | 255 upper case, 0 lower case; `POKE 329,0` makes typed letters lower case | the same (`CASEFL`; any value but 0 is upper case [OWN]) |
 
-Still to do here: `$25-26`; the input buffers' places (so a direct-mode `$A6-A7` matches); the RAM vectors and hooks
+Still to do here: `$25-26`; the input buffers' places (so a direct-mode `$A6-A7` matches) (both asked of the original
+by the probe `ram-pointers2`, with `TIMER`'s bytes read so that the interpreter's speed cannot change the answer); the RAM vectors and hooks
 (the [DOC] lead puts the IRQ's `JMP` at `$010C`), and the two-byte calls at `$D0-$FF` (whatever the original keeps
 there), which belong to the machine-code interface.
