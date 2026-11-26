@@ -463,11 +463,12 @@ export function setupTouchKeys(page, { input }) {
     const pad = $('touchPad'), tight = pad.classList.contains('tight');
     if (!document.body.classList.contains('touch-thumb') || !upright.matches || box.hidden) { if (tight) pad.classList.remove('tight'); return; }
     const want = monitor.parentElement.clientWidth * 3 / 4, room = innerHeight - above - below - 8;
-    if (!tight && room < want - 0.5) {
+    // (a 2 px margin: the stylesheet's own sum rounds the lengths differently, and a pixel short is a screen a pixel narrow)
+    if (!tight && room < want + 2) {
       const was = pad.offsetHeight;
       pad.classList.add('tight');
       tightBy = Math.max(0, was - pad.offsetHeight);
-    } else if (tight && room - tightBy >= want) pad.classList.remove('tight');
+    } else if (tight && room - tightBy >= want + 2) pad.classList.remove('tight');
     // no key's label is cut short: ENTER where its column is too narrow for the word says ↵ (its name stays ENTER)
     for (const k of pad.querySelectorAll('.padkeys .tk[data-key="ENTER"]')) {
       if (k.textContent === '↵') { k.textContent = 'ENTER'; k.removeAttribute('aria-label'); }
