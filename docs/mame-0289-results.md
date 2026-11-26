@@ -46,7 +46,7 @@ The 0.264 names are written too, so one work folder serves either MAME.
 | dragon64 | identical, HALT | 1,028,156 | |
 | dragon200 | identical, HALT | 1,028,156 | |
 | tanodr64 | identical, HALT | 1,043,415 | |
-| coco | identical, HALT | 1,043,415 | |
+| coco | identical, HALT | 1,043,371 | |
 | coco2b | identical, HALT | 1,043,415 | |
 | mx1600 | identical, HALT | 1,043,415 | |
 | lzcolor64 | identical, HALT | 1,043,415 | |
