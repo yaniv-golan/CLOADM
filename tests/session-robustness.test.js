@@ -504,10 +504,19 @@ const newSession = (id = 'dragon64') => { const s = new Emu.Session({ store: Emu
   d1.resume();
 
   // path 2: a direct new Debugger over the page's (the documented "made on the machine
-  // directly"): the constructor detaches the first
+  // directly"): the constructor detaches the first - and detaching takes the machine's
+  // bus taps with it (the mutant that skips that leaves d1's watchpoint tap live under
+  // the new debugger: two taps, one access seen twice)
+  d1.wps.push({ start: 0x0200, size: 1, read: true, write: false }); d1._syncTaps();
+  check('5 (d1 has its watchpoint tap live)', m.busTaps.reads.length === 1, `${m.busTaps.reads.length} read taps`);
   const d2 = new Emu.Debugger(m);
   check('5 a direct new Debugger replaces the page\'s: still exactly one', m.debugger === d2 && d1._taps === null,
     `machine.debugger is ${m.debugger === d2 ? 'the new one' : 'not the new one'}; old attached ${d1._taps !== null}`);
+  check('5 ...and the old one\'s bus taps are unhooked with it (no tap left)', m.busTaps.reads.length === 0,
+    `${m.busTaps.reads.length} read taps after the replacement`);
+  d2.wps.push({ start: 0x0300, size: 1, read: true, write: false }); d2._syncTaps();
+  check('5 ...and the new one\'s own watchpoint is the machine\'s one tap', m.busTaps.reads.length === 1,
+    `${m.busTaps.reads.length} read taps`);
 
   // path 3: a snapshot saved with a debugging setup, opened: the restored machine's
   // debugger is the snapshot's, and the old machine's went with it
@@ -534,10 +543,17 @@ const newSession = (id = 'dragon64') => { const s = new Emu.Session({ store: Emu
     `same=${m2.debugger === before} r=${m2.busTaps.reads.length} w=${m2.busTaps.writes.length}`);
 
   // path 5: session.debug after all of the above: it adopts the machine's one, it
-  // never makes a second
+  // never makes a second. The machine's debugger is read BEFORE the access, so the
+  // check compares what session.debug returns against the object the machine already
+  // had - a get that always made a new one would fail it - and a breakpoint set
+  // before the access must still be on the one debugger after it.
+  const b = m2.debugger;
+  b.bps.add(0x9000);
   const d5 = s.debug;
-  check('5 session.debug adopts the machine\'s one debugger, never a second', d5 === m2.debugger && d5 !== d1 && d5 !== d2,
-    `d5 is ${d5 === m2.debugger ? 'the machine\'s' : 'a new one'}`);
+  check('5 session.debug returns the machine\'s own debugger, not a new one', d5 === b,
+    `s.debug returned ${d5 === b ? 'the machine\'s' : 'a new one'}`);
+  check('5 ...and a breakpoint set before the access survives it', s.debugger.bps.has(0x9000),
+    `${s.debugger.bps.size} breakpoints`);
 }
 
 // =====================================================================================

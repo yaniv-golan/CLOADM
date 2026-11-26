@@ -8,6 +8,13 @@ All notable changes to CLOADM are recorded here. The format follows
 
 Next version: 0.3.1 (the plugin and extension manifests carry it; `tests/plugin.test.js` keeps them in step).
 
+#### Changed
+
+- **`pokeBytes` and `injectAssembled` take the machine to write as a required argument.** Both are the
+  Node API (`docs/automation.md`), and both used to default to the machine on screen: with the chat full screen that
+  is the chat's machine, and a tool's bytes landing there would overwrite the chat firmware. Omitting the machine
+  now throws a `SessionError` and writes nothing.
+
 ### 0.3.1
 
 #### Fixed
