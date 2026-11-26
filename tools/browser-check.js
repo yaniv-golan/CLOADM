@@ -24999,6 +24999,40 @@ async function menuStructureChecks(browser, base, check) {
       await closeCtx(ctx);
     }
   }
+  // held sideways with the keys hidden (Hide keys): the app bar's Menu is the Menu then, the same list (the ports and
+  // Power with their state, as there are no chips), Share… a row of it and not a button beside it; at 659 and 844 px wide
+  for (const [w, h] of [[659, 393], [844, 390]]) {
+    const L = `menu structure (keys hidden, ${w}x${h})`;
+    const { ctx, page, errors } = await open({ width: w, height: h }, '?machine=dragon64');
+    await page.tap('#tkMenu'); await until(page, () => !document.getElementById('tkMenuSheet').hidden);
+    await page.evaluate(() => document.querySelector('#tkMenuSheet [data-item="hide"]').scrollIntoView({ block: 'nearest' }));
+    await page.tap('#tkMenuSheet [data-item="hide"]');
+    await until(page, () => document.body.classList.contains('touch-hidden') && document.getElementById('btnMenu').checkVisibility());
+    const absent = await onScreen(page, false);
+    const m = await openMenu(page, false);
+    const share = await page.evaluate(() => document.getElementById('btnShare').checkVisibility());
+    check(`${L}: the app bar's Menu is the designed rows less what is on screen (${absent.join(', ')}), the ports and Power with their state, Share… once`,
+      menuOk(m, expected(absent)) && !share && JSON.stringify(m.states) === JSON.stringify([['Tape, disks and cartridge…', 'Empty'], ['Power…', 'Running']]), JSON.stringify({ m, absent, share }));
+    check(`${L}: no page errors`, !errors.length, errors.join('; '));
+    await closeCtx(ctx);
+  }
+  // the snapshots from the panel's Menu sideways: the focus back on the panel's Menu (not lost with the hidden app bar's)
+  {
+    const { ctx, page, errors } = await open({ width: 659, height: 393 }, '?machine=dragon64');
+    const back = [];
+    for (const it of ['snapTake', 'snapRestore']) {
+      await page.tap('#tkMenu'); await until(page, () => !document.getElementById('tkMenuSheet').hidden);
+      await page.evaluate((it) => document.querySelector(`#tkMenuSheet [data-item="${it}"]`).scrollIntoView({ block: 'nearest' }), it);
+      await page.tap(`#tkMenuSheet [data-item="${it}"]`);
+      if (it === 'snapRestore') { await until(page, () => document.getElementById('sheetPrograms').open); await page.keyboard.press('Escape'); await until(page, () => !document.getElementById('sheetPrograms').open); }
+      await painted(page);
+      back.push([it, await page.evaluate(() => document.activeElement.id)]);
+      await page.evaluate(() => window.emu.feedback.clear());
+    }
+    check('menu structure (659x393): Take snapshot and Restore snapshot… from the panel\'s Menu give the focus back to it', back.every((b) => b[1] === 'tkMenu'), JSON.stringify(back));
+    check('menu structure (snapshots sideways): no page errors', !errors.length, errors.join('; '));
+    await closeCtx(ctx);
+  }
   // a fresh visit with ROMs offered (the first visit's buttons gone, sideways): Open… and Add ROMs… are the Menu's
   {
     const { ctx, page, errors } = await open({ width: 659, height: 393 }, '?machine=dragon64');

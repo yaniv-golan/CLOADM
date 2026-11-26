@@ -1877,7 +1877,9 @@
     #status, .appbar nav, #btnShare, #askKbd, #navCmdKbd, #askEmptyCmd { display: none; }
     #btnMenu { display: inline-flex; }
     .appbar nav { order: 2; }
-    .appbar.menu-open #btnShare { display: inline-flex; }
+    /* (its Menu is the phone's: Share…, Add ROMs…, Settings… and the snapshots are rows there, as upright, also 701 px and
+       wider; the bar's own Share stays out of sight) */
+    .appbar.menu-open nav > :is(#navShare, #navSettings, #navSnapTake, #navSnapRestore), .appbar.menu-open nav > #navRoms:not([hidden]) { display: flex; }
     /* and the screen takes the height the bar gave back: the monitor (its padding and the 4:3 tube) fits under the
        bar, its nameplate left out */
     .layout > main > .monitor { max-width: calc((100vh - 96px) * 4 / 3); }

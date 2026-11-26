@@ -97,7 +97,8 @@ export function setupPhoneSheets(page, { touchKeys, ask = null }) {
     const power = paused ? 'Paused' : 'Running';
     set('chipPower', power, false, `Power: ${power}. Open power.`);
     // a short phone upright: no chips; Menu's two items say the same, and Menu wears a dot while media is in
-    const inMenu = !!moved && chipless() && !sideways.matches;
+    // (and held sideways: the panel's Menu says the same; with the keys hidden there, the app bar's Menu does)
+    const inMenu = !!moved && chipless();
     // (the disk controller plugged in for a disk without a disk ROM is the disks', not a cartridge of its own)
     const cartOwn = cartOn && m.cartPort !== session.drives.bareController;
     const parts = [t && fileOf(t.name), d.length && `${d.length} disk${d.length > 1 ? 's' : ''}`, cartOwn && (m.cartPort.name || 'Cartridge')].filter(Boolean);

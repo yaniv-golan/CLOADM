@@ -329,8 +329,10 @@ $('fileCart').onchange = async (e) => {
   $('navShare').onclick = () => { close(); $('btnShare').click(); };
   // a phone's snapshots, under Share: take one now (into the first empty quick-save slot, else the oldest), or the slots
   // list to restore one from (js/ui/slots-panel.js)
-  $('navSnapTake').onclick = () => { close(); slots.take(); };
-  $('navSnapRestore').onclick = () => { close(); slots.reveal($('btnMenu')); };
+  // (the focus goes back to the Menu it came from: the app bar's, or held sideways the panel's)
+  const menuOf = () => ($('btnMenu').checkVisibility() ? $('btnMenu') : $('tkMenu'));
+  $('navSnapTake').onclick = () => { const from = menuOf(); close(); slots.take(); from.focus(); };
+  $('navSnapRestore').onclick = () => { close(); slots.reveal(menuOf()); };
   // Settings…: with the touch keys, the Settings sheet on the tab last used (js/ui/phone-sheets.js); elsewhere the
   // drawer's tabs, far below the screen in a narrow window, brought into view on Display (a person looking for
   // "settings" is most often after the picture: its look, its size, the colours)

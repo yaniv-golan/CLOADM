@@ -535,6 +535,7 @@ export function setupTouchKeys(page, { input }) {
       row(item).querySelector('.sub').textContent = st;
       row(item).setAttribute('aria-label', `${name}: ${st}.`);
     }
+    if (!sheet.hidden) place();   // (a row that came or went while it is open: its height again)
   };
   // placed above Menu at the window's right (play/index.html), its bottom 8 px above the control row; as tall as the
   // window less that row less 16 px allows, its bottom edge above a row's text (js/ui/menu.js fitMenu)
