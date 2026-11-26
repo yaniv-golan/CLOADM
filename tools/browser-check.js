@@ -8551,14 +8551,14 @@ async function commandsChecks(browser, site, check) {
   }
   // tight mode hides the RAM size: the machine button's title and aria-label still name the machine and its RAM
   // (at 1200, the one-row bar's narrowest, in a wide font spaced wider still: with five of its links in More ▾ the bar
-  // needs both to go tight)
+  // needs both to go tight; 2 px, since "Add ROMs…" is a plain button, narrower than the bold "No BASIC · Add ROMs" was)
   {
     const { ctx, page } = await open({ viewport: { width: 1200, height: 720 } });
     const read = () => page.evaluate(() => { const b = document.getElementById('machineBtn'), sp = document.getElementById('machineSpec');
       return { title: b.title, aria: b.getAttribute('aria-label'), want: `${document.getElementById('machineName').textContent} ${sp.textContent}`.trim(),
         tight: document.getElementById('appbar').classList.contains('tight'), specShown: sp.getClientRects().length > 0 }; });
     const plain = await read();
-    await page.addStyleTag({ content: 'body, button, a, input, select { font-family: "DejaVu Sans", Verdana, sans-serif !important; letter-spacing: 1px !important; }' });
+    await page.addStyleTag({ content: 'body, button, a, input, select { font-family: "DejaVu Sans", Verdana, sans-serif !important; letter-spacing: 2px !important; }' });
     await waitFor(page, () => document.getElementById('appbar').classList.contains('tight'));
     const tight = await read();
     check('commands (app bar): the machine button\'s title and aria-label are "<name> <ram>K" (e.g. "Dragon 64 64K"), also in tight mode where the RAM size is hidden',
