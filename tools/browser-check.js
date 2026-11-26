@@ -22229,8 +22229,11 @@ async function mobileChecks(browser, base, check) {
     });
     // (a toast never lies over the picture: here it is docked over the keys, under the BREAK/CLEAR strip, or over the
     // app bar when it is one line; a key under it still takes the tap)
-    check(`mobile (${w}x${h}, 2048): the toast says tap (no "Esc", no "press"), lies over neither the picture nor the BREAK/CLEAR strip`,
-      /tap a key/.test(t.text) && /BREAK/.test(t.text) && !/Esc|press/.test(t.text) && !t.onPicture && !t.strip.length && t.inView, JSON.stringify(t));
+    // (held sideways, 734x343, the keys stand round the picture and no key may be covered: the toast lies over the top of
+    // the picture then, compact -- the layoutBugs group's rule; upright it stays off the picture)
+    const sideways = w > h;
+    check(`mobile (${w}x${h}, 2048): the toast says tap (no "Esc", no "press"), ${sideways ? 'covers no key and not the BREAK/CLEAR strip' : 'lies over neither the picture nor the BREAK/CLEAR strip'}`,
+      /tap a key/.test(t.text) && /BREAK/.test(t.text) && !/Esc|press/.test(t.text) && (sideways ? !t.keys.length : !t.onPicture) && !t.strip.length && t.inView, JSON.stringify(t));
     {
       // a toast of more lines than one is docked over the letter rows: a tap on a key it lies over reaches the key (the
       // toast's body takes no taps)
@@ -22253,7 +22256,9 @@ async function mobileChecks(browser, base, check) {
       });
       if (at) await page.touchscreen.tap(at.x, at.y);
       const hit = await page.evaluate(() => ({ key: window.__keyHit, toastUp: !document.getElementById('toast').hidden }));
-      check(`mobile (${w}x${h}, 2048): a tap on a key under a showing toast (${at && at.name}) reaches the key`, !!at && hit.key === at.name, JSON.stringify({ at, hit }));
+      // (held sideways no key is under a toast at all, so there is no tap to pass through: that is the check)
+      check(`mobile (${w}x${h}, 2048): ${sideways ? 'a wrapped toast covers no key' : `a tap on a key under a showing toast (${at && at.name}) reaches the key`}`,
+        sideways ? at === null : !!at && hit.key === at.name, JSON.stringify({ at, hit }));
     }
     if (shotDir) await page.screenshot({ path: path.join(shotDir, `mobile-${w}x${h}-toast.png`) });
     await closeCtx(ctx);

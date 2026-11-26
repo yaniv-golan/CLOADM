@@ -361,7 +361,7 @@ export function createFeedback() {
       // a phone held sideways with the touch keys (decide's band reaches the tube's foot there)
       sideKeys: !!(document.body && document.body.classList.contains('touch-keys')) && matchMedia('(orientation: landscape) and (max-height: 500px)').matches,
       // the touch keys' buttons show (the keys panel is up; not while the chat is the page: its picture is a small inset there)
-      keysShown: !document.body.classList.contains('claude-open') && !document.body.classList.contains('view-claude') && [...document.querySelectorAll('#touchKeys button')].some((e) => shown(e.getBoundingClientRect())),
+      keysShown: !!document.body && !document.body.classList.contains('claude-open') && !document.body.classList.contains('view-claude') && [...document.querySelectorAll('#touchKeys button')].some((e) => shown(e.getBoundingClientRect())),
       // the turn's Stops that show (the fallback slot keeps clear of them)
       stops: [...document.querySelectorAll(STOPS)].map((e) => e.getBoundingClientRect()).filter(shown).map(boxOf),
       // the app bar's bottom edge where it shows (the top slot stands under it: a toast never covers the bar's buttons)
