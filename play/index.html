@@ -104,6 +104,8 @@
   @media (min-width: 701px) { #navRoms, #navShare, #navSettings, #navSnapTake, #navSnapRestore { display: none; } }   /* (the app bar's pill and Share button there) */
   /* (with the touch keys the drawer's tabs are in the Settings sheet at any width: Settings… is the way to them) */
   @media (min-width: 701px) { body:is(.touch-keys, .touch-hidden) :is(#navPrograms, #navSettings) { display: inline-flex; } }
+  /* (and the snapshots, after Settings… as in Menu: on a tablet the quick-save slots are in the Programs sheet too) */
+  @media (min-width: 701px) { body:is(.touch-keys, .touch-hidden) .appbar nav > :is(#navSnapTake, #navSnapRestore) { display: inline-flex; } }
   /* (an author display rule outranks the hidden attribute's, so it is stated: once installed, the link goes) */
   #navInstall[hidden] { display: none; }
   /* More ▾'s list (a desktop): under its button, the links one to a row */
@@ -193,8 +195,8 @@
   /* a page shown inside another page has no Claude chat: its buttons are hidden, not left dead (js/ui/main.js) */
   /* Settings -> Claude features: Off (js/ui/claude-features.js); the command box stays, without its Claude rows */
   body.claude-off #btnAsk, body.claude-off [data-shelf="claude"], body.claude-off #ask, body.claude-off #askRail, body.claude-off #askStripQs { display: none !important; }
-  /* (and the Menu's Ask Claude… and Commands… rows, both orientations: js/ui/menu.js; Ctrl K still opens the box) */
-  body.claude-off #tkMenuSheet :is([data-item="ask"], [data-item="commands"]) { display: none !important; }
+  /* (and the Menu's Ask Claude… row, both orientations: js/ui/menu.js; Commands… stays, the box without its Claude rows) */
+  body.claude-off #tkMenuSheet [data-item="ask"] { display: none !important; }
   #claudeFeaturesRow button[aria-pressed="true"] { background: var(--phosphor); border-color: var(--phosphor); color: var(--on-phosphor); }
   body.no-claude #btnAsk, body.no-claude #navCommands, body.no-claude [data-shelf="claude"], body.no-claude #claude, body.no-claude #ask, body.no-claude #askRail { display: none !important; }
   body.embed .layout { padding: 0; display: block; }
@@ -1841,6 +1843,8 @@
      window (js/ui/main.js fits its height so the bottom edge never runs through a row's text) and its bottom fades
      24 px while there is more below. The groups are parted by the thin rule the panel's Menu uses (.tkmenu-sep). */
   .appbar nav .tkmenu-sep, #navGithub .ext { display: none; }
+  /* (GitHub ↗ wherever it is one of the bar's own links or Menu's rows: not in a desktop's More ▾, which says GitHub) */
+  .appbar nav > #navGithub .ext { display: inline; }
   @media (max-width: 700px), (orientation: landscape) and (max-height: 500px) {
     .appbar.menu-open nav { display: flex; position: absolute; z-index: 65; top: 100%; left: 8px; right: 8px; flex-direction: column; flex-wrap: nowrap; align-items: stretch; gap: 0;
       box-sizing: border-box; padding: 8px 16px; background: var(--panel); border: 1px solid var(--line-strong); border-top: 0; border-radius: 0 0 12px 12px;
@@ -1850,8 +1854,6 @@
     .appbar.menu-open nav > .tkmenu-sep { display: block; flex: none; height: 1px; margin: 6px 0; background: var(--line); }
     .appbar.menu-open nav button.twoline { flex-direction: column; align-items: flex-start; justify-content: center; gap: 0; padding-top: 10px; padding-bottom: 10px; }
     .appbar.menu-open nav .twoline .sub { font-size: 13px; color: var(--muted); }
-    body.claude-off .appbar.menu-open nav #navCommands { display: none; }
-    .appbar.menu-open nav #navGithub .ext { display: inline; }
     .appbar.menu-open nav #navCmdKbd { display: none; }   /* (Menu is a touch screen's: no key to name) */
   }
   @media (orientation: landscape) and (max-height: 500px) {
@@ -1876,9 +1878,9 @@
     #status, .appbar nav, #btnShare, #askKbd, #navCmdKbd, #askEmptyCmd { display: none; }
     #btnMenu { display: inline-flex; }
     .appbar nav { order: 2; }
-    /* (its Menu is the phone's: Share…, Add ROMs…, Settings… and the snapshots are rows there, as upright, also 701 px and
-       wider; the bar's own Share stays out of sight) */
-    .appbar.menu-open nav > :is(#navShare, #navSettings, #navSnapTake, #navSnapRestore), .appbar.menu-open nav > #navRoms:not([hidden]) { display: flex; }
+    /* (its Menu is the phone's: Share…, Settings… and the snapshots are rows there, as upright, also 701 px and wider; the
+       bar's own Share stays out of sight. Add ROMs… stays the bar's own button there, which shows: not a row too) */
+    .appbar.menu-open nav > :is(#navShare, #navSettings, #navSnapTake, #navSnapRestore) { display: flex; }
     /* and the screen takes the height the bar gave back: the monitor (its padding and the 4:3 tube) fits under the
        bar, its nameplate left out */
     .layout > main > .monitor { max-width: calc((100vh - 96px) * 4 / 3); }

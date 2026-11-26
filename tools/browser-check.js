@@ -25219,7 +25219,11 @@ async function menuStructureChecks(browser, base, check) {
     const cutAt = (top) => rows.filter((e) => { const g = document.createRange(); g.selectNodeContents(e); const t = g.getBoundingClientRect(); return (top && t.top < visTop - 0.5 && t.bottom > visTop + 0.5) || (t.top < visBottom - 0.5 && t.bottom > visBottom + 0.5); }).map(label);
     const fade = () => { const a = getComputedStyle(box, '::after'); return { on: +a.opacity > 0.5, h: a.height, more: box.scrollTop + box.clientHeight < box.scrollHeight - 1 }; };
     const lefts = new Set(rows.map((e) => Math.round(e.getBoundingClientRect().left)));
-    const atOpen = { cut: cutAt(true), fade: fade() };
+    // the room between the last whole row's text and the box's inner bottom: the fade (24 px) may lie over a line's leading
+    // (4 px) and no more, so while it shows that room is 20 px at least
+    const clearOf = () => { const t = rows.map((e) => { const g = document.createRange(); g.selectNodeContents(e); return g.getBoundingClientRect(); }).filter((b) => b.bottom <= visBottom + 0.5 && b.height);
+      return t.length ? Math.round(visBottom - Math.max(...t.map((b) => b.bottom))) : null; };
+    const atOpen = { cut: cutAt(true), fade: fade(), clear: clearOf() };
     // (scrolled to its end: the scroll event, and the fade it updates, come a frame later)
     const frame = () => new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(res)));
     box.scrollTop = box.scrollHeight; await frame();
@@ -25242,24 +25246,28 @@ async function menuStructureChecks(browser, base, check) {
     const shown = (id) => { const e = document.getElementById(id); return !!e && e.checkVisibility(); };
     const out = [];
     const offered = !document.getElementById('navInstall').hidden, noBasic = !document.getElementById('romPill').hidden;
-    const claude = !document.body.classList.contains('claude-off') && !document.body.classList.contains('no-claude');
+    // (Claude features Off takes Ask Claude… away; a page with no chat at all, Commands… too: it has no command box)
+    const off = document.body.classList.contains('claude-off'), noChat = document.body.classList.contains('no-claude');
     if (sideways) {
       if (shown('tkOpen')) out.push('Open…');
       if (shown('tkRoms') || !noBasic) out.push('Add ROMs…');
     } else {
       out.push('Open…', 'Machine…', 'Hide keys');   // the app bar's Open… and machine, Power's Hide keys
-      if (shown('btnAsk') || !claude) out.push('Ask Claude…');
+      if (shown('btnAsk') || off || noChat) out.push('Ask Claude…');
       if (shown('chipRow')) out.push('Tape, disks and cartridge…', 'Power…');
-      if (!noBasic) out.push('Add ROMs…');
+      // (the bar's own Add ROMs… where it shows: wider than 700 px)
+      if (!noBasic || shown('romPill')) out.push('Add ROMs…');
     }
-    if (!claude) out.push('Ask Claude…', 'Commands…');
+    if (off) out.push('Ask Claude…');
+    if (noChat) out.push('Ask Claude…', 'Commands…');
     if (!offered) out.push('Install CLOADM…');
     if (document.body.classList.contains('embed')) out.push('Share…');
     return out;
   }, sideways);
   const sub = (a, b) => { let i = 0; for (const x of b) if (x === a[i]) i++; return i === a.length; };   // a in b, in b's order
   const menuOk = (m, want) => JSON.stringify(m.groups) === JSON.stringify(want) && m.columns === 1 && m.wrap !== 'wrap' && m.inView
-    && !m.atOpen.cut.length && !m.atEnd.cut.length && m.atOpen.fade.on === m.atOpen.fade.more && m.atEnd.fade.on === m.atEnd.fade.more && m.atOpen.fade.h === '24px';
+    && !m.atOpen.cut.length && !m.atEnd.cut.length && m.atOpen.fade.on === m.atOpen.fade.more && m.atEnd.fade.on === m.atEnd.fade.more && m.atOpen.fade.h === '24px'
+    && (!m.atOpen.fade.on || m.atOpen.clear >= 20);
 
   // ---- the three models at the three phone sizes: Menu, the machine sheet, Programs
   for (const id of ['dragon64', 'coco3', 'mc10']) {
@@ -25336,7 +25344,7 @@ async function menuStructureChecks(browser, base, check) {
     }
   }
 
-  // ---- the states: ROMs in (no Add ROMs… either way), Claude features Off (no Ask Claude… or Commands…), an embed (no
+  // ---- the states: ROMs in (no Add ROMs… either way), Claude features Off (no Ask Claude…, Commands… still there), an embed (no
   // Share…), Install not offered (installed), a short phone upright (no chips: the ports and Power with their state)
   const states = [
     ['ROMs in', { q: '?machine=dragon64', roms: true }],
@@ -25365,7 +25373,7 @@ async function menuStructureChecks(browser, base, check) {
       const absent = await onScreen(page, sideways);
       const m = await openMenu(page, sideways);
       const rows = m.groups.flat();
-      const must = { 'ROMs in': () => !rows.includes('Add ROMs…'), 'Claude features Off': () => !rows.includes('Ask Claude…') && !rows.includes('Commands…'),
+      const must = { 'ROMs in': () => !rows.includes('Add ROMs…'), 'Claude features Off': () => !rows.includes('Ask Claude…') && rows.includes('Commands…'),
         '?embed=1': () => !rows.includes('Share…'), installed: () => !rows.includes('Install CLOADM…'),
         'a short phone upright': () => JSON.stringify(m.states) === JSON.stringify([['Tape, disks and cartridge…', 'Empty'], ['Power…', 'Running']]) }[name];
       check(`${L}: Menu is the designed rows less what is on screen (${absent.join(', ')}), one column, no text cut, the fade only while it scrolls further`,
@@ -25373,6 +25381,39 @@ async function menuStructureChecks(browser, base, check) {
       check(`${L}: no page errors`, !errors.length, errors.join('; '));
       await closeCtx(ctx);
     }
+  }
+  // a tablet with the touch keys (820x1180 upright, 1180x820 sideways but taller than 500 px): no Menu button, the app
+  // bar's own links are Menu's rows in Menu's order, less what the bar or the page shows itself (Open…, Ask Claude…,
+  // Share…, Add ROMs…, the machine; the ports and Power with their chips; Hide keys in Power); GitHub with its ↗; and
+  // "Ctrl K" after Commands… as the app bar shows it there
+  for (const [w, h] of [[820, 1180], [1180, 820]]) {
+    const L = `menu structure (tablet, touch keys, ${w}x${h})`;
+    const { ctx, page, errors } = await open({ width: w, height: h }, '?machine=dragon64');
+    const bar = await page.evaluate(() => {
+      const nav = document.querySelector('#appbar nav');
+      const rows = [...nav.children].filter((e) => e.matches('a, button') && e.id !== 'btnMore' && e.checkVisibility());
+      return { menuBtn: document.getElementById('btnMenu').checkVisibility(), touch: document.body.classList.contains('touch-keys'),
+        rows: rows.map((e) => e.innerText.replace(/\s+/g, ' ').trim()), kbd: document.getElementById('navCmdKbd').checkVisibility(),
+        github: document.querySelector('#navGithub .ext').checkVisibility() };
+    });
+    const want = DESIGN_MENU.flat().filter((x) => !['Open…', 'Ask Claude…', 'Share…', 'Machine…', 'Tape, disks and cartridge…', 'Power…', 'Add ROMs…', 'Hide keys'].includes(x))
+      .map((x) => (x === 'Commands…' ? 'Commands… Ctrl K' : x));
+    check(`${L}: the app bar's links are Menu's rows in Menu's order (the snapshots after Settings…, GitHub ↗), "Ctrl K" after Commands… as the bar shows it`,
+      bar.touch && !bar.menuBtn && JSON.stringify(bar.rows) === JSON.stringify(want) && bar.kbd && bar.github, JSON.stringify({ bar, want }));
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, `menu-structure-tablet-${w}x${h}.png`) });
+    check(`${L}: no page errors`, !errors.length, errors.join('; '));
+    await closeCtx(ctx);
+  }
+  // the open Menu, for the record (CI keeps these): upright, and sideways with the keys at 844x390
+  for (const [w, h] of [[393, 659], [844, 390], [653, 280]]) {
+    const sideways = w > h;
+    const { ctx, page, errors } = await open({ width: w, height: h }, '?machine=dragon64');
+    const absent = await onScreen(page, sideways);
+    const m = await openMenu(page, sideways);
+    check(`menu structure (open Menu, ${w}x${h}): the designed rows less what is on screen (${absent.join(', ')})`, menuOk(m, expected(absent)), JSON.stringify({ m, absent }));
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, `menu-structure-open-menu-${w}x${h}.png`) });
+    check(`menu structure (open Menu, ${w}x${h}): no page errors`, !errors.length, errors.join('; '));
+    await closeCtx(ctx);
   }
   // held sideways with the keys hidden (Hide keys): the app bar's Menu is the Menu then, the same list (the ports and
   // Power with their state, as there are no chips), Share… a row of it and not a button beside it; at 659 and 844 px wide
@@ -25386,6 +25427,7 @@ async function menuStructureChecks(browser, base, check) {
     const absent = await onScreen(page, false);
     const m = await openMenu(page, false);
     const share = await page.evaluate(() => document.getElementById('btnShare').checkVisibility());
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, `menu-structure-open-menu-keys-hidden-${w}x${h}.png`) });
     check(`${L}: the app bar's Menu is the designed rows less what is on screen (${absent.join(', ')}), the ports and Power with their state, Share… once`,
       menuOk(m, expected(absent)) && !share && JSON.stringify(m.states) === JSON.stringify([['Tape, disks and cartridge…', 'Empty'], ['Power…', 'Running']]), JSON.stringify({ m, absent, share }));
     check(`${L}: no page errors`, !errors.length, errors.join('; '));

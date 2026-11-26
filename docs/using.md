@@ -406,15 +406,16 @@ MC-10 or Alice, not when the right port holds a Hi-Res interface or The Rat, and
   already on screen: upright, Open…, Ask Claude… and the machine are the app bar's and Hide keys is in Power; the ports
   and Power only where the chips are not shown (a short phone upright, or held sideways), with their state under them;
   Add ROMs… only while the machine has no BASIC (and not while the first visit's Add ROMs… button sits by Menu held
-  sideways, nor Open… while its button does); Install CLOADM… only while it is offered; no Ask Claude… or Commands…
-  with Claude features Off or in an embed, and no Share… in an embed. It is one column, never wrapping; it scrolls,
+  sideways, nor Open… while its button does); Install CLOADM… only while it is offered; no Ask Claude… with Claude
+  features Off (Commands… stays: the box works without its Claude rows); neither in an embed or a page framed in another
+  site, and no Share… in an embed. It is one column, never wrapping; it scrolls,
   its bottom fading while there is more below, and it never stops through a row's text. The machine picker opens with
   the machine in use in the middle of the list.
 * On a phone held upright the whole panel fits on screen with the browser's toolbars up, the row with ENTER included:
   the strip [Keys|Pad|Stick] [BREAK] [CLEAR] [⌄] lies between the screen and the keys, and the screen takes the room
   that is left — the page's whole width with Pad, Stick or the keys hidden. **⌄** hides the keys; **⌨** at the bottom
   right brings them back. The app bar is one row: the machine, Open…, Ask Claude and **Menu** (Add ROMs… is in Menu
-  while the machine has no BASIC, and Menu shows a dot then). On a touch screen the hints say "tap a key"
+  while the machine has no BASIC). On a touch screen the hints say "tap a key"
   and "tap BREAK", and the install offer never appears on a phone (Install CLOADM…, in Menu, or in the panel's Menu held sideways, installs).
   On an upright phone Menu's rows, the Programs sheet's and the machine list's grow toward 52 px with the window's
   height (44 px at the least; a phone held sideways keeps them at 44 or its own size), and Menu scrolls inside the

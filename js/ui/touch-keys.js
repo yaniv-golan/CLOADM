@@ -423,7 +423,6 @@ export function setupTouchKeys(page, { input }) {
     tkMenu.hidden = !chat && !side;
     if (side && !chat) { tkMenu.setAttribute('aria-controls', 'tkMenuSheet'); tkMenu.setAttribute('aria-expanded', String(!sheet.hidden)); }
     else { tkMenu.removeAttribute('aria-controls'); tkMenu.removeAttribute('aria-expanded'); sheet.hidden = true; }
-    if (sheet.firstChild) row('install').hidden = $('navInstall').hidden;
     markUndrawn();   // (the touch layout hides the app bar, the drawer and the ports: page.js)
     // Keys | Pad | Stick: Stick where the machine has a joystick port of its own and the panel is the machine's
     $('tkModeSwitch').hidden = !on;
@@ -502,7 +501,7 @@ export function setupTouchKeys(page, { input }) {
   // With no chat on this page (body.no-claude: ?embed=1, or framed in another site's page -- main.js), Ask Claude… and
   // Commands… are left out: there is nothing for either to open (the app bar hides #btnAsk and #navCommands the same
   // way), and tapping Ask Claude… called page.openAsk, which does not exist then (a pageerror). Claude features Off hides
-  // both (play/index.html, body.claude-off). Share… is not in an embed (?embed=1), which has no app bar and no Share of
+  // Ask Claude… (play/index.html, body.claude-off); Commands… stays, the box working without its Claude rows. Share… is not in an embed (?embed=1), which has no app bar and no Share of
   // its own (play/index.html hides it there: the embed class arrives after this sheet is built).
   const noChat = () => document.body.classList.contains('no-claude');
   const buildSheet = () => {
@@ -549,7 +548,7 @@ export function setupTouchKeys(page, { input }) {
   addEventListener('resize', place);
   // (Install CLOADM… is the app bar's link, which held sideways is out of sight: here too, while it is offered; the
   // ports' and Power's words change as media goes in and the machine pauses)
-  new MutationObserver(apply).observe($('navInstall'), { attributes: true, attributeFilter: ['hidden'] });
+  new MutationObserver(syncSheet).observe($('navInstall'), { attributes: true, attributeFilter: ['hidden'] });
   for (const id of ['navPortsState', 'navPowerState']) new MutationObserver(syncSheet).observe($(id), { childList: true, characterData: true, subtree: true });
   new MutationObserver(syncSheet).observe($('romPill'), { attributes: true, attributeFilter: ['hidden'] });
   const closeSheet = () => { sheet.hidden = true; $('tkMenu').setAttribute('aria-expanded', 'false'); };

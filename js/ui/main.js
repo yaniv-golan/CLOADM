@@ -320,8 +320,8 @@ $('fileCart').onchange = async (e) => {
   const close = () => { $('appbar').classList.remove('menu-open'); $('btnMenu').setAttribute('aria-expanded', 'false'); };
   item.onclick = () => { close(); pill.click(); };
   $('navShare').onclick = () => { close(); $('btnShare').click(); };
-  // a phone's snapshots, under Share: take one now (into the first empty quick-save slot, else the oldest), or the slots
-  // list to restore one from (js/ui/slots-panel.js)
+  // Menu's snapshots (their own group, after Settings…: js/ui/menu.js): take one now (into the first empty quick-save
+  // slot, else the oldest), or the slots list to restore one from (js/ui/slots-panel.js)
   // (the focus goes back to the Menu it came from: the app bar's, or held sideways the panel's)
   const menuOf = () => ($('btnMenu').checkVisibility() ? $('btnMenu') : $('tkMenu'));
   $('navSnapTake').onclick = () => { const from = menuOf(); close(); slots.take(); from.focus(); };

@@ -94,7 +94,8 @@ Next version: 0.3.1 (the plugin and extension manifests carry it; `tests/plugin.
   where what it opens is not already on screen (upright, Open…, Ask Claude… and the machine are the app bar's; the ports
   and Power, with their state under them, only where the chips are not shown). Held sideways, Library, Debugger, Help,
   the snapshots and GitHub are in Menu now, and the sheet is 260 px wide above Menu at the right. Claude features Off
-  hides Commands… as well as Ask Claude… (Ctrl K still opens the box). (`js/ui/menu.js`)
+  hides Ask Claude… there (Commands… stays: the box works without its Claude rows). On a tablet with the touch keys the
+  app bar's links follow the same order, the snapshots after Settings…, and GitHub carries ↗. (`js/ui/menu.js`)
 - **Every program in Programs has the same two lines:** its name, and one short line saying what it is ("An ELIZA-style
   chat program", "Find the ten mines", …), on every model and on the desktop's Media tab too. WYRMFIRE's licence and
   credit line leave its row; they stay in its Details and on its card under the screen.
