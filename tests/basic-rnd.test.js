@@ -9,7 +9,8 @@
 //  * the seed in RAM at 278-281, high byte first: after RND(-1) and 11 of RND(0), 5 173 54 120 (the record's bytes);
 //  * the generator's formula on the CPU from chosen seeds (tests/basic-math.test.js's way of calling the ROM): the
 //    seed and the fraction's exact bytes, for seeds whose fraction is small (normalised by several places, the guard
-//    byte shifted in) and for a seed of 0's successor.
+//    byte shifted in), for seeds whose next state is 0, has leading zero bytes or is all ones, and for 10,000
+//    consecutive calls from the cold-start seed.
 const fs = require('fs'), path = require('path');
 const { runCase } = require('./basic/harness.js');
 const { buildBasic } = require('../tools/build-basic.js');
@@ -79,10 +80,17 @@ check('the record holds 434 values with their bytes', want.filter((l) => VALUE.t
   };
   const SCR = 0x3100;   // FAC packed by MOVMF (rounded, as a variable would hold it)
   let ok = true, detail = '';
-  // seeds whose next value needs a shift of 0 to 7 places, a seed of 0, and a run from it
+  // seeds whose next value needs a shift of 0 to 7 places, a seed of 0, and a run from it; then seeds chosen (by undoing
+  // a step) so the next state is 0, $00123456, $00001234, $00000012 (the guard byte shifted in by 8, 16 and 24
+  // places and more), $FFFFFFFF (rounding carries into the exponent) and fractions at 1/3, 2/3, .8 and .4
+  const inv = (() => { let x = 1n; for (let i = 0; i < 6; i++) x = (x * (2n - 0x40E64DABn * x)) % (1n << 32n); return (x + (1n << 32n)) % (1n << 32n); })();
+  const prevOf = (t) => Number((((BigInt(t) - 0x05B0658Bn) % (1n << 32n) + (1n << 32n)) % (1n << 32n) * inv) % (1n << 32n));
   const seeds = [0x8D5853C7, 0x9C173D37, 0xEE0790A7, 0, 0x4FC75259, 0xFFFFFFFF];
-  let s = 0x12345678;
-  for (let i = 0; i < 60; i++) { seeds.push(s); s = model(s).seed; }
+  for (const t of [0, 0x00123456, 0x00001234, 0x12, 0xFFFFFFFF, 0x55555555, 0xAAAAAAAA, 0xCCCCCCCC, 0x66666666]) seeds.push(prevOf(t));
+  const targeted = seeds.length;
+  // and 10,000 consecutive calls from the cold-start seed
+  let s = 0x4FC75259;
+  for (let i = 0; i < 10000; i++) { seeds.push(s); s = model(s).seed; }
   for (const s0 of seeds) {
     ram[SEED] = s0 >>> 24; ram[SEED + 1] = (s0 >>> 16) & 0xFF; ram[SEED + 2] = (s0 >>> 8) & 0xFF; ram[SEED + 3] = s0 & 0xFF;
     for (let k = 0; k < 7; k++) ram[FAC + k] = 0;   // RND(0): FAC holds the argument when RN1 is reached
@@ -92,7 +100,7 @@ check('the record holds 434 values with their bytes', want.filter((l) => VALUE.t
     const bytes = Array.from(ram.slice(SCR, SCR + 5));
     if (seed !== w.seed || bytes.join() !== w.bytes.join()) { ok = false; detail = `seed ${s0.toString(16)}: got ${seed.toString(16)} ${bytes}, want ${w.seed.toString(16)} ${w.bytes}`; break; }
   }
-  check('RND(0): seed x $40E64DAB + $05B0658B mod 2^32, the product\'s bits 40-47 below it, normalised and rounded', ok, detail);
+  check(`RND(0): seed x $40E64DAB + $05B0658B mod 2^32, the product's bits 40-47 below it, normalised and rounded: ${targeted} chosen seeds (next state 0, with leading zero bytes, all ones) and 10,000 in a row from cold start`, ok, detail);
 }
 
 console.log(`\n${n - fail}/${n} passed`);

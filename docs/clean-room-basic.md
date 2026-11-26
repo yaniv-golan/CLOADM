@@ -278,6 +278,33 @@ programs crunch and list correctly, and give `?FC ERROR` (to be decided, open qu
   A cold start sets the seed to `$4FC75259`. All 434 recorded values and their five bytes are reproduced
   (`tests/basic-rnd.test.js`).
 
+  **What the records settle, and what the next batch (bb9) asks the original.** Every conclusion comes from a
+  black-box record ([BB]: the case and batch named); the original's code is never looked at. The cases `rnd-args`,
+  `rnd-neg`, `rnd-state`, `rnd-long` and `rnd-timing` are written and run on ours; until bb9's record is back, the
+  rows marked *open* are ours only and are not claims about the original. Each case prints the result's five bytes
+  as stored and the bytes at `$0115-$0119` after the call, not only the printed value. The seeds the cases set are
+  chosen by undoing a step of the inferred generator, so the next state is a chosen value.
+
+  | # | Question | How it is asked | The record so far | Ours | Test on ours |
+  |---|---|---|---|---|---|
+  | 1, 2 | Whole against fractional arguments; arguments between 0 and 1 | `rnd-args`: 19 arguments (0, 1, 2, 3, 6, .1, .5, .999, 1.1, 1.5, 2.5, 3.9, 2.999999, 65535, 1E9, 2^32-1, 2^32, 1E10, 1E38) from 9 chosen seeds | `RND(1)` is always 1; `RND(6)`, `RND(100)`, `RND(65535)` match `INT(f x n) + 1` (bb8 `rnd-seq`). Fractional: *open* | `INT(f x n) + 1` with n as given, so `RND(.5)` is 1 and `RND(2.5)` can be 3 | `rnd-args` on ours |
+  | 3, 4 | Is n made whole before scaling; the order of x, `INT` and + 1 | `rnd-args`: seeds whose fraction is just at 1/3, 2/3, .8 and .4 (where `RND(2.5)` against `RND(2)`, and `x 3` rounding to a whole number, tell the orders apart), and n near 2^32 and beyond float precision | *open* | as above, the product rounded as any product | `rnd-args` on ours |
+  | 5 | Does every argument take exactly one step | the seed bytes after each call in `rnd-args`, `rnd-neg` | one step for 0, 1, 6, 100, 65535 (bb8 `rnd-seq`); others *open* | one step for every argument | `rnd-args`, `rnd-neg` on ours |
+  | 6-8 | What of a negative argument sets the sequence; powers of two; repeats | `rnd-neg`: -1, -2, -4, -.5 (one mantissa), -3, -1.5, -6 (another), -12345 twice, -24690, -1E-30, -1E30, -1.00000001, -65535, -(2^32-1), -.999999999, each with the seed after and the next two values | -1 and -2 give one sequence; -1 repeats; -12345 seeds `$C0E40000` (bb8 `rnd-seq`); the rest *open* | the mantissa's four bytes as unpacked (top bit set); sign and exponent play no part | `tests/basic-rnd.test.js` (-1, -12345); `rnd-neg` on ours |
+  | 9 | Zero in its forms | `rnd-neg`: `RND(0)`, `RND(-0)`, `RND(1-1)`, a variable with its exponent byte POKEd to 0 (mantissa left), and the same with its sign bit set | *open* | a zero exponent with the sign bit set counts as negative (reseeds) | `rnd-neg` on ours |
+  | 10-13 | `$0115-$0119` at a cold start; which bytes take part; which RND writes; each changed alone | `rnd-state`: the five bytes and whether address 4 is 0 at a cold start; each of `$0115-$0119` changed alone before an `RND(0)` | the seed is `$0116-$0119`; one `RND(0)` changes 278-281 and 4, not 277 (bb8 `rnd-seq`, addresses only) | `$0115` unused; 278-281 all take part | `tests/basic-rnd.test.js`, `tests/basic-ram.test.js`; `rnd-state` on ours |
+  | 14 | NEW, CLEAR, RUN, warm reset | `rnd-state`: the seed set by POKE, then read after NEW, CLEAR and as RUN starts | *open*. A warm reset is not asked: the harness has no reset directive, and a reset could put ROM text on the screen | none of them touches the seed | `rnd-state` on ours |
+  | 15, 16, 18 | The five bytes, the guard byte, rounding and normalisation across arguments | every case above prints the five bytes | the 434 values of bb8 `rnd-seq`, bytes and all | the same 434 | `tests/basic-rnd.test.js` |
+  | 17 | A next state with leading zero bytes, or 0 | `rnd-args`: next states `$00123456`, `$00001234`, `$00000012` and 0 | *open* | normalised with the guard byte shifted in; a next state of 0 with a guard of `$25` gives 3.3651304E-11 | `tests/basic-rnd.test.js` (CPU, 15 chosen seeds) |
+  | 19 | Time against seed and argument | `rnd-timing`: 500 passes each of `RND(0)`, `RND(6)`, `RND(1E9)`, `RND(.5)`, and `RND(-1)`, `RND(-3)`, `RND(-1.99999999)` (fixed seeds), in fields | *open* | 133, 171, 189, 165, 131, 132, 135 fields | `rnd-timing` on ours |
+  | 20 | Other RAM or workspace changes | bb8 `rnd-seq` (addresses only); `rnd-state`: address 4 set to 77, then whether `RND(0)` changes it and makes it 0 | the original's `RND` changes address 4, to 0 in the one call seen (bb8); the floating-point workspace it changes is shared with `SIN` (addresses only, never values) | address 4 not touched (it is part of ours' `DATA` pointer): a known difference, until `rnd-state` says what it is | `rnd-state` on ours |
+
+  Long runs: `rnd-long` folds the five bytes of 10,000 consecutive `RND(0)` from a cold start, and 2,000 each from
+  the seeds 0 and `$FFFFFFFF`, into checksums (ours: 34106, 15853, 20360); `tests/basic-rnd.test.js` checks 10,000
+  consecutive calls on the CPU against the model, byte for byte. Only the Dragon 64's 32K-mode BASIC is in scope (open
+  question 7: the 64K mode is out of scope); the harness runs the Dragon 64 only, so a Dragon 32 comparison would
+  need `run.js` to load a Dragon 32 and a Dragon 32 dump on the maintainer's machine (not done).
+
 ## 6. Tests
 
 All of them run with no ROM, on our ROM assembled at test time.
