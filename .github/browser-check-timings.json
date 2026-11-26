@@ -52,6 +52,7 @@
     "tape": 9,
     "layout": 12.6,
     "display": 5.6,
+    "warmup": 41.7,
     "glLoss": 1.6,
     "pageLoop": 2.9,
     "landing": 3.6,

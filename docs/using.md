@@ -434,6 +434,14 @@ scan lines) or Sharp · RGB (the pixels as they are); NTSC artifact phase; integ
 * **Defaults:** CRT · composite with artifact phase 1 (MAME's default), curvature 35 %, glow 55 %, 4:3, no
   integer scaling. So composite colour is on from the start, and the CoCo 3 starts on its composite monitor's
   palette; Sharp · RGB switches it to the RGB monitor's.
+* **Old TV warm-up** (off by default; kept with your settings and in a settings export, never in a link): a one-second
+  warm-up when the machine is switched on (the page starting, Switch off and on, a machine switch), drawn over the
+  screen in the CRT view: a dot becomes a horizontal line, the line opens to full height over-bright, then the picture
+  fades in from 40%. It never plays on a visit from a share link (`#z=`, `#l=`) or a program page (a visit opened with
+  `start=` naming a program: `liza`, `2048`, `minesweeper`, `wyrmfire`; `start=welcome` still has it), with the arrival
+  card up, with `?demo=1` (read from the address; it is not a setting) or `?embed=1`, with your system's Reduce motion or
+  Save data, or when the picture ran below 45 fps over the last 2 seconds (at the page's start there are not yet 2
+  seconds to measure, so it plays). Keys go to the machine while it plays, and it is never in a share card, GIF or screenshot.
 * **Dragon 64 Plus:** the Display tab also picks which of its two screens you see, the Dragon's own (MC6847) or
   the 80-column board's (HD6845S). Claude's `screen_text` reads the one shown: the 80-column screen's text comes
   from the board's video RAM, so Claude can read it even without the character generator ROM, which only draws

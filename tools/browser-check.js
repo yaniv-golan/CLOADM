@@ -24114,6 +24114,144 @@ async function sourceShareChecks(browser, base, site, check) {
   await ctx.close(); await ctx2.close();
 }
 
+// The Display tab's "Old TV warm-up" (js/ui/warmup.js; the timeline is js/video/warmup.js, tests/warmup.test.js): off
+// by default; on, it plays over the canvas at the page's start and at Switch off and on, phase after phase, and is gone
+// by 1.1 s; a Reset is no power-on; it never plays in the Sharp view, on a visit from a share link (#z=, #l=) or a
+// program page (start=2048), with the arrival card up, with ?demo=1 or ?embed=1, with Reduce motion, with Save data, or
+// when the picture ran below 45 fps over 2 s; keys go to the machine through it; the canvas under it is the machine's
+// picture, untouched; a screenshot at 300 ms (warmup-300ms.png) to look at.
+async function warmupChecks(browser, base, check) {
+  const errors = [];
+  // a page with the setting on (as the checkbox stores it), and anything else set up before the page's scripts
+  const open = async (query, { ctxOpts = {}, init = null } = {}) => {
+    const ctx = await browser.newContext(Object.assign({ viewport: { width: 1280, height: 900 } }, ctxOpts));
+    await ctx.addInitScript(() => { try { localStorage.setItem('cloadm.oldTvWarmup', '1'); } catch (e) { /* (an opaque origin) */ } });
+    if (init) await ctx.addInitScript(init);
+    const page = await ctx.newPage();
+    page.on('pageerror', (e) => errors.push(`${query}: ${e.message}`));
+    await page.goto(`${base}${query}`);
+    await waitFor(page, () => window.emu && window.emu.ready && window.emu.warmup && window.emu.started);
+    return { ctx, page };
+  };
+  const state = (page) => page.evaluate(() => window.emu.warmup.state);
+  // a power cycle, watched from inside the page: the phases in the order they were drawn, and when the overlay went
+  const cycle = (page) => page.evaluate(() => new Promise((resolve) => {
+    const box = document.getElementById('warmup'), seen = [];
+    let t0 = 0;
+    const mo = new MutationObserver(() => {
+      if (!box.hidden && seen[seen.length - 1] !== box.dataset.phase) seen.push(box.dataset.phase);
+      if (box.hidden && t0) { mo.disconnect(); resolve({ seen, gone: performance.now() - t0, shown: seen.length > 0 }); }
+    });
+    mo.observe(box, { attributes: true, attributeFilter: ['hidden', 'data-phase'] });
+    t0 = performance.now();
+    document.getElementById('btnHardReset').click();
+    if (!box.hidden) seen.push(box.dataset.phase);
+    // (none: it never showed; the observer has nothing to wait for)
+    setTimeout(() => { mo.disconnect(); resolve({ seen, gone: box.hidden ? null : Infinity, shown: seen.length > 0 }); }, 2500);
+  }));
+
+  // ---- off by default: no overlay at the start or at a power cycle, the checkbox clear ----
+  {
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+    const page = await ctx.newPage();
+    page.on('pageerror', (e) => errors.push(`default: ${e.message}`));
+    await page.goto(`${base}?machine=dragon64`);
+    await waitFor(page, () => window.emu && window.emu.started && window.emu.warmup);
+    await openTab(page, 'Display');
+    const lab = await page.evaluate(() => ({ label: document.getElementById('chkWarmup').parentElement.textContent.trim(), hint: document.getElementById('warmupHint').textContent.trim() }));
+    check('warmup: the Display tab\'s checkbox and its hint, word for word', lab.label === 'Old TV warm-up'
+      && lab.hint === 'A one-second warm-up when the machine is switched on. Never on shared links, with Reduce motion, or when the picture runs slow.', JSON.stringify(lab));
+    check('warmup: off by default (unchecked, nothing played at the start)', !(await page.isChecked('#chkWarmup')) && (await state(page)).plays === 0 && (await state(page)).blocked === 'off', JSON.stringify(await state(page)));
+    const c = await cycle(page);
+    check('warmup: off: Switch off and on draws nothing', !c.shown && (await state(page)).blocked === 'off', JSON.stringify(c));
+    // the checkbox turns it on, stores it, and puts it in a settings export
+    await page.check('#chkWarmup');
+    const on = await page.evaluate(() => ({ stored: localStorage.getItem('cloadm.oldTvWarmup'), exp: window.emu.session.exportSettings().settings.oldTvWarmup }));
+    check('warmup: the checkbox turns it on, stored and exported with the settings', on.stored === '1' && on.exp === '1', JSON.stringify(on));
+    await ctx.close();
+  }
+
+  // ---- on: the page's start and a power cycle ----
+  {
+    const { ctx, page } = await open('?machine=dragon64');
+    check('warmup: on: it played at the page\'s start', (await state(page)).plays >= 1, JSON.stringify(await state(page)));
+    await waitFor(page, () => document.getElementById('warmup').hidden);
+    await page.waitForTimeout(2200);   // (2 s of frames measured, so the 45 fps rule has its history)
+    const c = await cycle(page);
+    check('warmup: Switch off and on: the overlay, a dot, then the opening line, then the fade', c.shown && c.seen.join() === 'dot,open,fade', JSON.stringify(c));
+    check('warmup: gone by 1.1 s (not before 1.0 s)', c.gone != null && c.gone >= 990 && c.gone <= 1100, JSON.stringify(c));
+    // a Reset is not a power-on
+    const plays = (await state(page)).plays;
+    await page.click('#btnReset');
+    await page.waitForTimeout(200);
+    check('warmup: a Reset plays nothing', (await state(page)).plays === plays && !(await state(page)).playing, JSON.stringify(await state(page)));
+    // a machine switch is a power-on
+    await page.evaluate(() => window.emu.session.switchMachine('coco'));
+    check('warmup: a machine switch plays it', (await state(page)).plays === plays + 1 && (await state(page)).playing, JSON.stringify(await state(page)));
+    await waitFor(page, () => document.getElementById('warmup').hidden);
+    await page.evaluate(() => window.emu.session.switchMachine('dragon64'));
+    await waitFor(page, () => window.emu.session.welcomeRunning && document.getElementById('warmup').hidden);
+    // held at 300 ms: the over-bright opening line, over the canvas and the same size; the screenshot to look at
+    await page.evaluate(() => window.emu.warmup.freeze(300));
+    const at = await page.evaluate(() => {
+      const b = document.getElementById('warmup').getBoundingClientRect(), c = document.getElementById('screen').getBoundingClientRect();
+      const x = c.left + c.width / 2, y = c.top + c.height / 2;
+      return { phase: window.emu.warmup.state.phase, same: Math.abs(b.left - c.left) < 1 && Math.abs(b.top - c.top) < 1 && Math.abs(b.width - c.width) < 1 && Math.abs(b.height - c.height) < 1,
+        hit: document.elementFromPoint(x, y).id, events: getComputedStyle(document.getElementById('warmup')).pointerEvents };
+    });
+    check('warmup: at 300 ms the line is opening, laid exactly over the canvas, taking no pointer', at.phase === 'open' && at.same && at.hit === 'screen' && at.events === 'none', JSON.stringify(at));
+    if (shotDir) { await page.waitForTimeout(100); await page.locator('#monitor').screenshot({ path: path.join(shotDir, 'warmup-300ms.png') }); }
+    // the canvas under it is the machine's own picture: what was presented is the frame, not the overlay (a share
+    // card, a GIF and a screenshot are made from the frames, so none of them can hold it)
+    const pic = await page.evaluate(() => { const p = window.emu.presented(); let lit = 0; for (let i = 0; i < p.length; i += 4) if (p[i] + p[i + 1] + p[i + 2] > 60) lit++; return lit; });
+    check('warmup: the canvas under the overlay still holds the machine\'s picture', pic > 1000, String(pic));
+    // a key goes to the machine through it: 1 on the welcome menu talks to LIZA
+    await page.focus('#screen');
+    await page.keyboard.press('1');
+    check('warmup: a key passes through the overlay to the machine (1 on the menu: LIZA)', await waitFor(page, () => window.emu.session.screenText().join('').includes('I AM LIZA')), await page.evaluate(() => window.emu.session.screenText().join('|')));
+    check('warmup: the focus stayed on the screen', await page.evaluate(() => document.activeElement.id) === 'screen');
+    await page.evaluate(() => window.emu.warmup.freeze(null));
+    // the Sharp view: none
+    await page.evaluate(() => window.emu.session.setDisplay({ view: 'sharp' }));
+    const sharp = await cycle(page);
+    check('warmup: never in the Sharp view', !sharp.shown && (await state(page)).blocked === 'view', JSON.stringify(sharp));
+    await page.evaluate(() => window.emu.session.setDisplay({ view: 'crt' }));
+    // the arrival card up: none (a shared moment's card, as js/ui/arrival.js shows it)
+    await page.evaluate(() => { window.emu.session.arrivedFromLink = { machine: 'dragon64' }; document.getElementById('arrival').hidden = false; });
+    check('warmup: never while the arrival card is up', !(await page.evaluate(() => window.emu.warmup.play())) && (await state(page)).blocked === 'arrival', JSON.stringify(await state(page)));
+    await ctx.close();
+  }
+
+  // ---- each excluded visit: nothing at the start, nothing at a power cycle ----
+  const excluded = [
+    ['a shared moment (#z=)', '?machine=dragon64#z=AAAA', {}, 'shared-link'],
+    ['a short link (#l=)', '?machine=dragon64#l=abc.def', {}, 'shared-link'],
+    ['a program page (start=2048)', '?start=2048', {}, 'program-page'],
+    ['?demo=1', '?machine=dragon64&demo=1', {}, 'demo'],
+    ['?embed=1', '?machine=dragon64&embed=1', {}, 'embed'],
+    ['Reduce motion', '?machine=dragon64', { ctxOpts: { reducedMotion: 'reduce' } }, 'reduced-motion'],
+    ['Save data', '?machine=dragon64', { init: () => { Object.defineProperty(navigator, 'connection', { configurable: true, get: () => ({ saveData: true }) }); } }, 'save-data'],
+    // below 45 fps: the page's animation frames run on every other display frame (about 30 a second)
+    ['a slow picture (30 fps)', '?machine=dragon64', { init: () => {
+      const raf = window.requestAnimationFrame.bind(window);
+      let pending = [], odd = false;
+      window.requestAnimationFrame = (fn) => { pending.push(fn); return pending.length; };
+      raf(function drive(t) { odd = !odd; if (!odd) { const q = pending; pending = []; for (const fn of q) fn(t); } raf(drive); });
+    } }, 'slow'],
+  ];
+  for (const [name, query, opts, why] of excluded) {
+    const { ctx, page } = await open(query, opts);
+    const first = await state(page);
+    if (why === 'slow') await page.waitForTimeout(2300);
+    const c = await cycle(page);
+    const s = await state(page);
+    // (the slow page's start had no 2 s of history: only the power cycle after it is measured)
+    check(`warmup: never with ${name}`, (why === 'slow' || first.plays === 0) && !c.shown && s.blocked === why && s.plays === first.plays, JSON.stringify({ first, c, s }));
+    await ctx.close();
+  }
+  check('warmup: no page errors', errors.length === 0, errors.join(' | '));
+}
+
 const GROUPS = (base, site) => [
   ['models', (b) => modelsChecks(b, base, check)],
   ['reset', (b) => resetChecks(b, base, check)],
@@ -24166,6 +24304,7 @@ const GROUPS = (base, site) => [
   ['tape', (b) => tapeChecks(b, base, check)],
   ['layout', (b) => layoutChecks(b, base, check)],
   ['display', (b) => displayChecks(b, base, check)],
+  ['warmup', (b) => warmupChecks(b, base, check)],
   ['glLoss', (b) => glLossChecks(b, base, check)],
   ['pageLoop', (b) => pageLoopChecks(b, base, check)],
   ['landing', (b) => landingChecks(b, site, check)],

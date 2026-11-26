@@ -1454,6 +1454,17 @@ names it.
   composite monitor at artifact settings 0, 1 and 2, apart from glyph shapes in text; each BPI and MOCH picture
   must differ from its plain mode. The colours before this were an approximation of our own, which fails 62 of
   the 67 modes.
+* **The Old TV warm-up** (the Display tab's checkbox; `js/video/warmup.js` for the timeline and the rules,
+  `js/ui/warmup.js` for the overlay) is drawn by the page over the canvas, never into a frame, so the machine has
+  nothing to compare and it has no automatic visual oracle. `tests/warmup.test.js` checks the timeline at every edge
+  (a dot to a line by 150 ms, the line open and over-bright by 450 ms, the picture from 40% to 100% by 1000 ms, then
+  nothing), the 45 fps over 2 s rule, each case where it never plays, the setting (off by default, exported, no link
+  parameter; every program page's start blocked, from `js/program-pages.js`), the power-on event, and that a power
+  cycle of a machine not on screen is none. That the machine is untouched rests on the unchanged regression hashes
+  and the browser check. The browser check's `warmup` group checks the page: the phases in order on Switch off and on, gone by 1.1 s,
+  a Reset and every excluded visit playing nothing, a key reaching the machine through it, the focus kept on the
+  screen, the canvas under it still the machine's picture. Its screenshot at 300 ms (`warmup-300ms.png`) is reviewed
+  by eye: the opening line, over-bright, black above and below.
 * **The CRT look** (the Display tab's curvature, phosphor glow and scan lines; `GlPresenter` in
   `js/video/canvas.js`, a WebGL fragment shader) changes only how the frame is shown, never the frame, so it has
   no automatic oracle. `tools/browser-check.js --screenshots DIR` draws a fixed 256×192 artifact-colour picture at

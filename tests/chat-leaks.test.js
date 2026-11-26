@@ -616,6 +616,8 @@ const REQUIRED = require.main !== module;
     'lastLoaded',
     // claudeFeatures reads Settings -> Claude features (a stored flag); setClaudeFeatures stores it and emits, the machine untouched
     'claudeFeatures', 'setClaudeFeatures',
+    // oldTvWarmup reads Display -> Old TV warm-up (a stored flag); setOldTvWarmup stores it and emits, the machine untouched
+    'oldTvWarmup', 'setOldTvWarmup',
     // programPageUrl makes a program page's address from the page's own (pure)
     'programPageUrl',
     // bundledProgram and untouchedBundledProgram read the SHOWN machine's program watch and page (Session.touches too,
