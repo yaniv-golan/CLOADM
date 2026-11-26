@@ -23,6 +23,14 @@ PTRNEW  LDA     #1
         BSR     PTRGET
         CLR     <VARCRE
         RTS
+* SIMVAR: PTRNEW for a simple numeric variable (FOR's, DEF FN's parameter): ?TM ERROR for a string, ?SN ERROR
+* for an array element, whose address may move
+SIMVAR  BSR     PTRNEW
+        TST     <VALTYP
+        LBNE    TMERR
+        CMPX    <ARYTAB
+        LBHS    SNERR
+        RTS
 * VNAME: the name at the text pointer into VARNAM, VALTYP = $FF for a string's ($ after it); the text pointer ends
 * on the character after it, which is in A
 VNAME   JSR     <ZCHRGOT
@@ -133,15 +141,8 @@ AGLOOK  STB     <NDIMS
         STB     <DIMFLG
         LDD     2,U
         STD     <VARNAM
-        LDX     <ARYTAB
-AG3     CMPX    <ARYEND
-        BHS     AGNEW
-        LDD     ,X
-        CMPD    <VARNAM
-        BEQ     AGFND
-        LDD     2,X
-        LEAX    D,X
-        BRA     AG3
+        JSR     ARYFND
+        BCC     AGNEW
 AGFND   TST     <DIMFLG
         BEQ     AG4
         LDB     #ERR_DD         ; DIM of an array that exists
@@ -245,6 +246,19 @@ AGE9    LDB     <NDIMS          ; the frame goes (4 + 2 a subscript); the elemen
         ABX
         RTS
 
+* ARYFND: the array named VARNAM: X = it and C set; C clear when there is none. Uses D.
+ARYFND  LDX     <ARYTAB
+ARF1    CMPX    <ARYEND
+        BHS     ARF9            ; (C clear)
+        LDD     ,X
+        CMPD    <VARNAM
+        BEQ     ARF8
+        LDD     2,X
+        LEAX    D,X
+        BRA     ARF1
+ARF8    ORCC    #1
+ARF9    RTS
+
 * MUL16: D = D x the word at 2,S (the caller's pushed value); ?OM ERROR past 65535
 MUL16   PSHS    D               ; ,S: a (high, low); 4,S: b
         LDA     ,S
@@ -295,15 +309,13 @@ DIM1    RTS
 
 * LET name = expression
 LET     JSR     PTRNEW
-        PSHS    X
         LDA     <VALTYP
-        PSHS    A
+        PSHS    A,X
         JSR     SYNEQ
         BSR     EVAL
-        PULS    A
+        PULS    A,X
         CMPA    <VALTYP
         LBNE    TMERR
-        PULS    X
 * ASSIGN: store the value just evaluated at X (its type in VALTYP)
 ASSIGN  TST     <VALTYP
         BNE     ASS1

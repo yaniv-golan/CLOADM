@@ -214,13 +214,6 @@ BC7     LEAY    -1,Y
 
 * GPARY: X = the numeric array VARNAM (its name, size, dimensions...); ?FC ERROR if there is none [BB bb2
 * gfx-errors: GET into an array not DIMmed]
-GPARY   LDX     <ARYTAB
-GA1     CMPX    <ARYEND
-        BHS     GPFC
-        LDD     ,X
-        CMPD    <VARNAM
-        BEQ     GA3
-        LDD     2,X
-        LEAX    D,X
-        BRA     GA1
+GPARY   JSR     ARYFND
+        BCC     GPFC
 GA3     RTS

@@ -71,11 +71,7 @@ DEF1    CMPA    #T_FN
         JSR     PTRLKP
         PSHS    X
         JSR     LPAREN
-        JSR     PTRNEW
-        TST     <VALTYP
-        LBNE    TMERR
-        CMPX    <ARYTAB         ; a simple variable only
-        LBHS    SNERR
+        JSR     SIMVAR
         PSHS    X
         JSR     <ZRPAREN
         JSR     SYNEQ

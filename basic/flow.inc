@@ -44,11 +44,7 @@ IFN6    STX     <TXTPTR
 * the variable's address, the step and the limit packed, the line and the text pointer after the statement.
 * A FOR of a variable that already has a loop open ends that loop and those inside it [OWN; to confirm].
 * The loop runs once before the limit is first checked, at NEXT [OWN; to confirm].
-FOR     JSR     PTRNEW
-        TST     <VALTYP
-        LBNE    TMERR
-        CMPX    <ARYTAB         ; a simple variable only: an element's address moves when a variable is made
-        LBHS    SNERR
+FOR     JSR     SIMVAR
         STX     <FORVAR
         JSR     SYNEQ
         JSR     <ZEVNUM
@@ -85,22 +81,19 @@ FOR2    CMPX    <STRBOT
         BRA     FOR2
 FOR3    LEAS    FORSIZ,X
 FOR4    JSR     CHKSTK
-        LDD     <TXTPTR
-        PSHS    D
-        LDD     <CURLIN
-        PSHS    D
+        LDX     <CURLIN
+        LDY     <TXTPTR
+        PSHS    X,Y
         LDX     #FORLIM+5
         LDB     #10             ; the limit, then the step below it
 FOR5    LDA     ,-X
         PSHS    A
         DECB
         BNE     FOR5
-        LDD     <FORVAR
-        PSHS    D
         LDA     #T_FOR
-        PSHS    A
-        PSHS    U
-        RTS
+        LDX     <FORVAR
+        PSHS    A,X
+        JMP     ,U
 
 * NEXT [variable [, variable ...]]: add the step; while the variable has not passed the limit (above it for a
 * step of 0 or more, below it for a negative one) go round again, else close the loop and go on

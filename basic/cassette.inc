@@ -213,8 +213,7 @@ CLOAD   CMPA    #'M'
         JSR     RELNKE
 CLDONE  CLR     <CLDBAS
         JSR     CASOFF
-        JSR     CLRVAR
-        JMP     READY
+        JMP     RNEND           ; (program.inc: CLRVAR, then READY)
 * a program saved as text, or a data file: the motor stops after each block, and its lines go in one by one as if
 * typed; a line without a number is ?DS ERROR [UM's error list] once the whole file is read (CLDBAS 2) [BB bb5
 * cas-errors: the data file's end-of-file block is read first]; a line over 250 characters is cut [OWN]

@@ -102,10 +102,9 @@ EAD2     PSHS    A
         JSR     CONCAT
         BRA     EAD1
 EAD3     CMPA    #T_PLUS
-        BNE     EAD4
-        JSR     FADD
-        BRA     EAD1
-EAD4     JSR     FSUB
+        BEQ     EAD4
+        JSR     FNEG            ; -: the negative added
+EAD4     JSR     FADD
         BRA     EAD1
 EVRTS2  RTS
 * * and /
@@ -187,10 +186,7 @@ EVATOM  CLR     <VALTYP
 EVNUMB  JMP     FIN
 EVPAR   JSR     <ZCHRGET
         JSR     EVAL
-RPAREN  LDB     #')'
-        JMP     SYNCHR
-LPAREN  LDB     #'('
-        JMP     SYNCHR
+        JMP     <ZRPAREN
 EVVAR   CLR     <VARCRE
         JSR     PTRGET
         TST     <VALTYP
@@ -308,33 +304,26 @@ CNVBYT  BSR     GETADR
 * &H hexadecimal and &O octal numbers (&nn is octal) [UM]
 HEXLIT  CLR     <FPN
         CLR     <FPN+1
-        LDB     #4              ; bits a digit: &H
+        LDX     #$040F          ; &H: the bits a digit, the largest digit
         JSR     <ZCHRGET
         CMPA    #'H'
         BEQ     HX1
-        LDB     #3
+        LDX     #$0307          ; &O, and & alone
         CMPA    #'O'
         BNE     HX2
 HX1     JSR     <ZCHRGET
-HX2     STB     <TMPCNT
+HX2     STX     <TMPCNT
 HX3     JSR     <ZCHRGOT
         SUBA    #'0'
         BLO     HXEND
         CMPA    #9
         BLS     HX4
-        LDB     <TMPCNT
-        CMPB    #4
-        BNE     HXEND
-        SUBA    #7
+        SUBA    #7              ; a letter: A is 10
         CMPA    #10
         BLO     HXEND
-        CMPA    #15
+HX4     CMPA    <TMPCNT+1
         BHI     HXEND
-HX4     LDB     <TMPCNT
-        CMPB    #3
-        BNE     HX5
-        CMPA    #7
-        BHI     HXEND
+        LDB     <TMPCNT
 HX5     PSHS    A
 HX6     ASL     <FPN+1
         ROL     <FPN
@@ -348,7 +337,6 @@ HX6     ASL     <FPN+1
         BRA     HX3
 HXOV    JMP     OVERR
 HXEND   LDD     <FPN
-        CLR     <FACSGN
-        JSR     GIV1
+        JSR     GIVUNS
         JMP     <ZCHRGOT
 

@@ -4,11 +4,8 @@
 * GIVNUM: a function's numeric result D (signed 16-bit) into FAC
 GIVNUM  CLR     <VALTYP
         JMP     GIVABF
-* COMMA: the character must be ','; take it
-COMMA   LDB     #','
-        JMP     SYNCHR
 * COMBYT: a ',' and an expression 0-255 into B
-COMBYT  BSR     COMMA
+COMBYT  JSR     COMMA
         JMP     <ZGETBYT
 * STRFN: ( string expression ): X = the string, B = its length (FRESTR)
 STRFN   JSR     LPAREN

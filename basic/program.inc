@@ -26,11 +26,8 @@ EDLINE  BSR     FNDLIN
 * delete the old line: move everything after it down
         PSHS    X
         LDU     ,X              ; the next line
-ED1     LDA     ,U+
-        STA     ,X+
-        CMPU    <VARTAB
-        BLO     ED1
-        STX     <VARTAB
+        EXG     X,U
+        BSR     MOVDN
         PULS    X
 ED2     LDY     <TXTPTR
         LDA     ,Y
@@ -72,6 +69,14 @@ ED7     LDA     ,Y+
         BNE     ED7
 EDDONE  BSR     RELINK
         BRA     CLRVAR
+
+* MOVDN: the bytes from X up to VARTAB moved down to U on; VARTAB is then their new end
+MVD1    LDA     ,X+
+        STA     ,U+
+MOVDN   CMPX    <VARTAB
+        BLO     MVD1
+        STU     <VARTAB
+        RTS
 
 * RELNKE: a program just loaded: it ends at the first line whose link is 0, the end marker, and anything loaded
 * after that is not part of it (VARTAB moves down to just past the marker) [BB corpus: the original lists no line
@@ -144,10 +149,12 @@ LSDONE  RTS
 LSBRK   JMP     READY
 LSSN    JMP     <ZSNERR
 * RANGE: n, n-, -n, n-m or nothing at the text pointer: from TMPPT2 to TMPCNT (0-65535 when not given)
-RANGE   LDX     #0
-        STX     <TMPPT2         ; from
-        LDX     #$FFFF
-        STX     <TMPCNT         ; to
+RANGE   CLRA
+        CLRB
+        STD     <TMPPT2         ; from: 0
+        COMA
+        COMB
+        STD     <TMPCNT         ; to: 65535
         JSR     <ZCHRGOT
         BEQ     RG3
         BCC     RG1
@@ -185,15 +192,9 @@ DL1     LDD     ,X
         LDX     ,X
         BRA     DL1
 DL2     LDU     <TMPPTR         ; X: the first to stay; move the rest down over the gap
-DL3     CMPX    <VARTAB
-        BHS     DL4
-        LDA     ,X+
-        STA     ,U+
-        BRA     DL3
-DL4     STU     <VARTAB
+        JSR     MOVDN
         JSR     RELINK
-        JSR     CLRVAR
-        JMP     READY
+        JMP     RNEND
 
 * LSTLIN: print the line at X: its number, a space, the text with its keywords spelt out. At most 249 characters
 * of the text are shown (a longer line comes only from a tape), and a line that ends at the right edge of the
@@ -465,12 +466,8 @@ RNR6    CMPU    ,S
 RNR6A   LEAS    2,S
         BRA     RNR8
 RNR7    LEAU    D,Y             ; shorter: move the rest down
-RNR7A   CMPY    <VARTAB
-        BHS     RNR7B
-        LDA     ,Y+
-        STA     ,U+
-        BRA     RNR7A
-RNR7B   STU     <VARTAB
+        TFR     Y,X
+        JSR     MOVDN
 RNR8    PULS    B
         LDU     ,S++            ; the digits' start: the new digits go there
         LDX     #FBUFFR+19      ; (the digits end at FBUFFR+18: LINSTR)

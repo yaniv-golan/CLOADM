@@ -131,6 +131,12 @@ ENDCHK  BSR     CHRGOT
         BNE     SYNERR
         RTS
 * SYNCHR: the character at the text pointer must be B; take it and the next one. SYNEQ: it must be =
+LPAREN  LDB     #'('            ; LPAREN, RPAREN, COMMA: the character must be ( ) or , ; take it
+        FCB     $8C             ; (CMPX #: skips the next LDB, as the two below)
+RPAREN  LDB     #')'
+        FCB     $8C
+COMMA   LDB     #','
+        FCB     $8C
 SYNEQ   LDB     #T_EQ
 SYNCHR  CMPB    [TXTPTR]
         BNE     SYNERR
@@ -308,12 +314,10 @@ GOSUB   JSR     <ZCHRGET
         JSR     <ZLINGET
 GOSUB1  PULS    U               ; NEWSTT's return address (ON ... GOSUB comes in here, its line in BINVAL)
         BSR     CHKSTK
-        LDX     <TXTPTR
-        PSHS    X
-        LDD     <CURLIN
-        PSHS    D
-        LDA     #T_GO
-        PSHS    A
+        LDB     #T_GO           ; the frame, from the marker up
+        LDX     <CURLIN
+        LDY     <TXTPTR
+        PSHS    B,X,Y
         PSHS    U
         BRA     JUMPTO
 
@@ -331,8 +335,7 @@ RET2    LDD     1,S
         LDX     3,S
         STX     <TXTPTR
         LEAS    5,S
-        PSHS    U
-        RTS
+        JMP     ,U
 RGERR   LDB     #ERR_RG
         JMP     ERROR
 
