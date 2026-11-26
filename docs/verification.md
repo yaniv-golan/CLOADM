@@ -545,14 +545,16 @@ are unchanged. Every reader on a moved page (`tests/moved-text-page.test.js`): o
 mode), the welcome menu's `textCell` and the ROM self-test's screen to return exactly the firmware's text on the page
 shown, and the same bytes shown from `$0400` to draw the same picture. Only the alphanumeric / semigraphics-4 mode is
 text: with INT/EXT high a plain MC6847 (Dragon, CoCo 1) shows semigraphics-6 blocks and, for text codes, the external
-character input, which these machines leave unfitted (Motorola, "MC6847/MC6847Y Video Display Generator (VDG)" data
-sheet, its table of the alphanumeric and semigraphics modes by A/G, A/S and INT/EXT; our picture of it is MAME's stripe
-pattern, every pixel of phase 4 compared above), so the readers decline it as a graphics mode. Two VDGs are exempt: the
-CoCo 2B's MC6847T1 shows its lowercase set there (Motorola, "MC6847T1 Video Display Generator (VDG)" data sheet, 1985,
-the INT/EXT pin's description; `run.js coco2b --video --movedtext` phase 4 is MAME's picture) and is still read; on the
+character input, which these machines leave unfitted (Motorola, "MC6847/MC6847Y Video Display Generator (VDG)",
+DS9823-R1, (c)1984, Table 1 "Mode Control Lines (Inputs)", printed p.14: with A/G = 0, A/S = 0 and INT/EXT = 1 is
+External Alphanumerics, A/S = 1 and INT/EXT = 1 Semigraphics 6; our picture of it is MAME's stripe pattern, every pixel
+of phase 4 compared above), so the readers decline it as a graphics mode. Two VDGs are exempt: on the CoCo 2B's
+MC6847T1 the same bit drives GM0, which enables its lowercase characters, and the T1 has no semigraphics-6 (Motorola,
+"Video Display Generator, Non-Interlace", Advance Information ADI 1048, (c)1985, printed p.15, "Graphic Mode (GM0
+through GM2)", and p.16, Table 2 "Enhanced Alpha Modes for the MC6847T1 VDG"; `run.js coco2b --video --movedtext`
+phase 4 is MAME's picture), so its screen is still read; on the
 Dragon 200-E PIA1 PB4 is the character generator's bank input and INT/EXT comes from each byte's bit 7 (MAME
-`dragon.cpp` `dragon200e_state::sam_read`), so `$FF22` = `$10` leaves its text screen text. The data sheets' table
-and page numbers were not checked against the documents. The MCP server's `screen_text` reads a page a program moved
+`dragon.cpp` `dragon200e_state::sam_read`), so `$FF22` = `$10` leaves its text screen text. The MCP server's `screen_text` reads a page a program moved
 and declines INT/EXT high. Mutants: the base ignored, the mode ignored, the T1 not exempted, the 200-E not exempted,
 `textCell` without the mode check, the self-test at the profile's page. Reading changes no emulation: no regress hash changes. Not covered: a compatibility-mode text row other than 12 lines (`$FF9C` other than `$0F`), where the
 GIME shows more than 16 rows of 32 bytes; the reader reads the first 16.
