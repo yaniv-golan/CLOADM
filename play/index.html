@@ -976,6 +976,9 @@
   body.touch-thumb #touchKeys #touchPad.tight .tk { min-height: 44px; }
   body.touch-thumb #touchKeys #touchPad.tight .padbig { grid-template-columns: repeat(2, 56px); }
   body.touch-thumb #touchKeys #touchPad.tight .padbig .tk.big { min-height: 92px; border-radius: 28px; }
+  /* (the captions stand on end beside their keys, so five keys of 44 px and more fit in 320 px) */
+  body.touch-thumb #touchKeys #touchPad.tight .padgroups { gap: 8px; }
+  body.touch-thumb #touchKeys #touchPad.tight .padcap { writing-mode: vertical-rl; transform: rotate(180deg); font-size: 10px; line-height: 12px; }
   #touchKeys > .tkhalf { display: none; }
   #touchKeys > #touchStrip, #touchKeys > .tkcenter { grid-column: 1 / -1; }
   #touchKeys > #touchStick { grid-column: 1 / span 6; }

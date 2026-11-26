@@ -21,6 +21,11 @@ Next version: 0.3.1 (the plugin and extension manifests carry it; `tests/plugin.
   each button take their own finger. Sideways the stick is left of the screen and the buttons right; upright they are under the
   screen, with the one-time hint "Turn sideways for a bigger view." The switch is Keys | Pad (no Stick: the game reads the
   keyboard), and the choice is kept for WYRMFIRE on the Dragon 64.
+- **WYRMFIRE on a phone held upright gets the whole width.** While it plays, the card under the screen is one line,
+  "WYRMFIRE · Freedoom level (BSD) · Details" (or "your <file>" with your own WAD), and Details opens the whole card,
+  unchanged, as a sheet (✕, a tap outside or Esc closes it). The screen takes the page's width; where the height is short the
+  pad's keys shrink to 44 px first. No key label is cut short (ENTER shows ↵ where the word cannot fit). Sideways and on a
+  desktop nothing changes.
 
 ### 0.3.1
 

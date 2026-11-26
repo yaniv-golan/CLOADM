@@ -165,6 +165,9 @@ the title screen shows them (Enter goes on). Start it from **Programs** ("Runs w
   and X) and WEAPON 1 2 3, beside ENTER and ABC. The stick and each button take their own finger. Sideways the stick is left
   of the screen and the buttons right of it; upright they are under the screen, and a phone suggests once "Turn sideways
   for a bigger view." The choice of Keys or Pad is kept for WYRMFIRE.
+* On a phone held upright, while it plays, the screen takes the page's width (where the height is short the pad's keys
+  shrink to 44 px first) and the card under it is one line, "WYRMFIRE · Freedoom level (BSD) · Details" ("your
+  <file>" with your own WAD); **Details** opens the whole card as a sheet, closed by ✕, a tap outside it or Esc.
 * From the welcome menu: **5 PLAY A GAME**, then **3 WYRMFIRE (DRAGON 64)** on the Dragon and CoCo, or **5 PLAY WYRMFIRE
   (DRAGON 64)** on the MC-10 and Alice. On the Dragon 64 it starts at once; on any other machine CLOADM switches to the
   Dragon 64 without asking (the menu is all that machine had) and says "WYRMFIRE runs on the Dragon 64, so CLOADM switched
