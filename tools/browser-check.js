@@ -8011,6 +8011,12 @@ async function libraryStorageChecks(base, check) {
   check('library storage: the three places, this browser chosen, and where it is kept now', card.choices === 'opfs:true:false fsa:false:false fallback:false:false'
     && card.labels === 'Inside this browser | A folder on this computer | Download and open files' && /^Stored in this browser \(OPFS\)/.test(card.where) && card.reconnect,
     JSON.stringify(card));
+  {
+    // another tab's change that this tab could not read (after the Session's second try) is said on screen
+    await page.evaluate(() => window.emu.session.emit('media-sync-failed', new Error('read failed (test)')));
+    check('library storage: a stored-files change from another tab that could not be read says so, with the reason and what to do',
+      await waitFor(page, () => /Another tab changed your stored files, and this tab could not read the change \(read failed \(test\)\)\. Reload to see it\./.test(document.getElementById('toast').textContent), null, 3000), await msg());
+  }
   check('library: the hint says a spine or a tile can be dragged onto the machine\'s screen', /drag it onto the machine's screen, to load it/.test(card.hint), card.hint);
   await page.setInputFiles('#fileLib', [{ name: 'HELLO.BIN', mimeType: 'application/octet-stream', buffer: bin }, { name: 'HELLO.CAS', mimeType: 'application/octet-stream', buffer: cas },
     { name: 'UTILS.DSK', mimeType: 'application/octet-stream', buffer: dsk }]);
@@ -18957,24 +18963,29 @@ async function uiQaChecks(browser, base, check) {
     await tpage.goto(`${base}?machine=dragon64`);
     await ready(tpage);
     await tpage.waitForFunction(() => { try { return !!window.emu && window.emu.session && window.emu.session.welcomeRunning && window.emu.session.screenText()[14].includes('PRESS 1 TO'); } catch (e) { return false; } }, null, { timeout: 30000 });
+    // The welcome menu itself has a row that says LIZA ("1 TALK TO LIZA"), and the screen still shows it for the frame after the
+    // toast comes up, until LIZA clears it and draws its own title ("LIZA - A DRAGON 64 THERAPIST", row 0). A wait on any row with
+    // LIZA in it was satisfied by the menu, and the measurement that followed read the screen after LIZA had cleared it and before it
+    // had drawn the title: titleRow -1 (a failure in CI that did not come in 8 runs under load here). The row measured is LIZA's own.
+    check(`ui qa (${label}): the welcome menu has a LIZA row of its own, so the title is told from it by its own words`,
+      await tpage.evaluate(() => { const r = window.emu.session.screenText(); return r.some((x) => /TALK TO LIZA/.test(x)) && !r.some((x) => /THERAPIST/.test(x)); }));
     await tpage.click('#screen');
     await tpage.keyboard.press('1');
-    // Wait for BOTH the toast and the LIZA row on the screen: the toast can be up a frame before the program has drawn
-    // its title, and measuring then read titleRow:-1 (no LIZA row yet) -- a race, not a covering. Both conditions are
-    // required, so a page where the title never appears still times out and fails.
+    // Wait for BOTH the toast and LIZA's own title row on the screen (not the menu's): both conditions are required, so a page
+    // where the title never appears still times out and fails.
     const up = await waitFor(tpage, () => document.getElementById('toastText').textContent === 'LIZA loaded' && !document.getElementById('toast').hidden
-      && (() => { try { return window.emu.session.screenText().some((r) => /LIZA/.test(r)); } catch (e) { return false; } })(), null, 30000);
+      && (() => { try { return window.emu.session.screenText().some((r) => /LIZA - A .* THERAPIST/.test(r)); } catch (e) { return false; } })(), null, 30000);
     const m = await tpage.evaluate(() => {
       const t = document.getElementById('toast'), c = document.getElementById('screen');
       const tr = t.getBoundingClientRect(), cr = c.getBoundingClientRect();
       const rows = window.emu.session.screenText();
-      const titleRow = rows.findIndex((r) => /LIZA/.test(r));
+      const titleRow = rows.findIndex((r) => /LIZA - A .* THERAPIST/.test(r));
       const cellH = cr.height / 16;
       const top = cr.top + Math.max(0, titleRow) * cellH, bottom = top + cellH;
       const meets = (a, b) => !(a.bottom <= b.top || a.top >= b.bottom || a.right <= b.left || a.left >= b.right);
       return { toast: { l: Math.round(tr.left), t: Math.round(tr.top), r: Math.round(tr.right), b: Math.round(tr.bottom) },
         screen: { l: Math.round(cr.left), t: Math.round(cr.top), r: Math.round(cr.right), b: Math.round(cr.bottom) },
-        titleRow, row: { t: Math.round(top), b: Math.round(bottom) }, visible: t.checkVisibility() && tr.width > 0 && tr.height > 0,
+        titleRow, row: { t: Math.round(top), b: Math.round(bottom) }, visible: t.checkVisibility({ visibilityProperty: true, opacityProperty: true }) && tr.width > 0 && tr.height > 0,
         overlapsTitle: meets(tr, { left: cr.left, right: cr.right, top, bottom }) };
     });
     check(`ui qa (${label}): "LIZA loaded" is visible and covers no part of the screen's title row`,

@@ -220,6 +220,8 @@ page.sheets = setupPhoneSheets(page, { touchKeys: page.touchKeys, ask });
 const openRoms = () => { romSockets.reveal(); $('fileRom').click(); };
 // a program spoke on the Speech/Sound Pak with no speech ROM: once a session (Session.checkSpeechRom), with the way in
 session.on((ev) => { if (ev === 'speech-rom') page.toast(SSC_TEXT.speechNoRom, { action: { label: 'Add ROMs', run: () => romSockets.reveal() } }); });
+// another tab changed the stored files and this one could not read the change, after trying twice (Session.mediaElsewhere)
+session.on((ev, e) => { if (ev === 'media-sync-failed') page.toast(`Another tab changed your stored files, and this tab could not read the change${e && e.message ? ` (${e.message})` : ''}. Reload to see it.`); });
 library = setupLibrary(page, { loadProgram: media.loadProgram, runShelf: welcome.runShelf, changed: slots.refresh, showRoms, reconnect, diskSaid: disks.said });
 setupTypein(page, { openRoms, isVisible: () => !$('library').hidden });
 setupTapePanel(page);

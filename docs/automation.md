@@ -57,7 +57,7 @@ Then, in any order:
 | `--tape FILE` | put a `.cas` or `.wav` in the deck without loading it (then type `CLOAD`) |
 | `--disk [N=]FILE` | mount a VDK, JVC/DSK or DMK image in drive N (default 0). Without your disk ROM it goes in on the disk controller alone, for a program that reads the disk through the controller's registers (`DIR` and the other disk commands need the disk ROM): the step prints the note to stderr, and with `--json` its result has it as `note` (an added field: the schema version is unchanged) |
 | `--load-snapshot FILE` | open a snapshot, switching to its machine |
-| `--type TEXT` | type at the keyboard, then run until the machine has taken the keys. `\n` or `{ENTER}` is ENTER; also `{BREAK}`, `{CLEAR}`, `{UP}`, `{DOWN}`, `{LEFT}`, `{RIGHT}`, `{SPACE}`; `\\` is a backslash |
+| `--type TEXT` | type at the keyboard, then run until the machine has taken the keys (with ROMs, paced by what the machine reads: a key is held until it has been read and nothing is pressed after an ENTER until the machine reads the keyboard again, so a busy BASIC drops no key; a machine that stops reading fails the step `keys-not-taken`). `\n` or `{ENTER}` is ENTER; also `{BREAK}`, `{CLEAR}`, `{UP}`, `{DOWN}`, `{LEFT}`, `{RIGHT}`, `{SPACE}`; `\\` is a backslash |
 | `--hold KEYS[:N]` | hold keys down in the keyboard matrix for N frames (default 1), then let go, for programs that read the matrix themselves (games): `RIGHT:10`, `LEFT+SPACE:3`, `{UP}`, `Z:5`. Names are the matrix's: letters, digits, `UP` `DOWN` `LEFT` `RIGHT` `SPACE` `ENTER` `CLEAR` `BREAK` `SHIFT` (and the CoCo 3's `ALT` `CTRL` `F1` `F2`) |
 | `--frames N`, `--seconds S` | run N frames, or S seconds of emulated time |
 | `--wait-for COND` | run until `text:REGEX` is on the screen, `mem:ADDR=VALUE` holds, or the PC reaches `pc:ADDR` or `pc:LABEL` (it stops at that instruction; a label comes from `--asm` or `--symbols`, in any letter case); exit 1 at the timeout |
@@ -418,7 +418,7 @@ the field-sync flag) sees a hold of one frame; a guest that works for three fiel
 three, or a hold that waits on the guest's own counter (`--wait-for` on the byte that says it has read the keys).
 `--type` and `typeText` are different: they go through a key queue that applies changes at frame starts, one new press a
 frame, each held at least 3 frames (`js/machines/keyqueue.js`), which suits a keyboard routine that reads a character, not a
-sample on a chosen tick.
+sample on a chosen tick. (`--type` with ROMs waits for the machine to read each key, as Claude's typing does; `typeText` does not.)
 
 **A video field is the frame.** The VDG's field sync comes once per frame and is the guest's tick when it waits for it, so the
 rate is the video standard's, not the family's. **PAL** machines (`dragon32`, `dragon64`, `dragon200`, `dragon200e`, `dgnalpha`,
