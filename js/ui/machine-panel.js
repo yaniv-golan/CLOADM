@@ -188,7 +188,7 @@ export function setupMachinePanel(page, { showRoms }) {
   };
   function pick(id) {
     openMenu(false);
-    if (id === session.shownMachine.id) { page.focus(); return; }
+    if (id === session.shownMachine.id) { if (page.machineAnswered) page.machineAnswered(); page.focus(); return; }
     confirmSwitch({ name: availableProfiles().find((p) => p.id === id).name, id }, (taken) => {
       session.chooseMachine(id);
       switched(taken);

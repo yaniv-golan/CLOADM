@@ -1306,7 +1306,7 @@ browser check's group `uiModel` drives them with real events at 1280x720 and at 
 * ROM state, one story (browser check `romTruth`, `tools/browser-check.js`): on one first visit, with no
   reload, the side card, the welcome menu and Your ROMs are checked against each other in three states — no ROMs,
   an unrecognised ROM loaded (our own NOP image at a socket's name and size, never a real dump), and "Run without
-  ROMs" with the ROMs still in the sockets. The card is the machine question alone in the first (no "Running with no ROMs."), is gone in the
+  ROMs" with the ROMs still in the sockets. There is no card in the first (the link names the machine, so no machine question; never "Running with no ROMs."), none in the
   second, and says "Running without your ROMs." with a working "Use my ROMs" button in the third; menu option 3 reads "ADD YOUR ROMS FOR
   BASIC" in the first and "USE YOUR ROMS FOR BASIC" in the third. Your ROMs lists a machine under "Also ready to run
   BASIC" only for a verified dump, and the note about a file that could not be used sits beside the socket list.

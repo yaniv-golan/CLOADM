@@ -358,6 +358,8 @@ export function setupWelcome(page, { showRoms, openClaude }) {
   }
   // the question answered (here or in the header's machine menu): the first visit's card goes with it
   function answered() { const a = $('askMachine'); if (!a) return; a.remove(); if (box.dataset.kind === 'first') box.hidden = true; }
+  // (the header menu's pick of the machine already on: an answer too, though nothing switches -- js/ui/machine-panel.js)
+  page.machineAnswered = () => { session.store.set('machineChosen', '1'); answered(); };
   function dismiss() { const b = el('button', 'Dismiss', 'close'); b.onclick = () => { dismissed = true; box.hidden = true; }; return b; }
   // arriving on a shared moment that runs without ROMs (Session.sharedMoment), the card stands back: the person came
   // to see that moment. It comes back (unless dismissed) once they leave it: Reset, Switch off and on, a switch.

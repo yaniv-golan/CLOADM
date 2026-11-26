@@ -8181,7 +8181,7 @@ async function firstVisitChecks(browser, base, check) {
     // the line under the screen holds one note at a time: "click for sound" first, so no key legend yet; sound starts on the
     // first click, and the key hint takes the line
     // (a phone's app bar has no room for the pill: Add ROMs… is Menu's item, and Menu wears no dot)
-    const phoneCall = label === 'phone' ? await page.evaluate(() => !document.getElementById('btnMenu').classList.contains('dot') && !document.getElementById('navRoms').hidden) : null;
+    const phoneCall = label === 'phone' ? await page.evaluate(() => getComputedStyle(document.getElementById('btnMenu'), '::after').content === 'none' && !document.getElementById('navRoms').hidden) : null;
     check(`first visit (${label}): one call to add ROMs outside the screen, the sound note on the line under the screen (no key legend yet), no quick-save slots yet`,
       (label === 'phone' ? JSON.stringify(first.romCalls) === '[]' && phoneCall : JSON.stringify(first.romCalls) === '["romPill"]') && JSON.stringify(first.legends) === '[]' && first.sound && !first.quickSave, JSON.stringify(first));
     await page.mouse.click(5, 5);
@@ -8202,6 +8202,23 @@ async function firstVisitChecks(browser, base, check) {
       await closeCtx(late);
     }
     if (label === 'desktop') {
+      // the machine question answered in the header's machine menu, a switch or the machine already on: the whole card
+      // goes (no card left with only Dismiss on it)
+      for (const same of [false, true]) {
+        const c2 = await browser.newContext({ viewport, serviceWorkers: 'block' });
+        const p2 = await c2.newPage();
+        await p2.goto(base);
+        await waitFor(p2, () => window.emu && window.emu.session.welcomeRunning && !!document.querySelector('#welcome #askMachine'));
+        const to = same ? await p2.evaluate(() => window.emu.session.shownMachine.id) : 'coco';
+        await p2.click('#machineBtn');
+        await waitFor(p2, () => !document.getElementById('machineMenu').hidden);
+        await p2.click(`#machineMenu button[data-machine="${to}"]`);
+        if (await p2.isVisible('#switchConfirm')) await p2.click('#btnSwitch');
+        const gone = await waitFor(p2, () => document.getElementById('welcome').hidden && !document.getElementById('askMachine'), null, 10000);
+        check(`first visit: the machine picked in the header menu (${same ? 'the one already on' : 'a switch'}) takes the whole machine-question card away`, gone,
+          await p2.evaluate(() => document.getElementById('welcome').outerHTML.slice(0, 200)));
+        await closeCtx(c2);
+      }
       // the card dismissed: the header pill takes over; Esc ends the one-time hint: the line under the slots shows
       await page.click('#welcome .close');
       await page.focus('#screen'); await page.keyboard.press('Escape');
@@ -9369,7 +9386,7 @@ async function layoutChecks(browser, base, check) {
     check(`layout (${label}): one "Runs without ROMs" shelf (Media tab), "Share"`, (await page.$$('#shelf')).length === 1 && await page.evaluate(() => !!document.querySelector('#panel-media #shelf'))
       && await page.textContent('#btnShare') === 'Share');
     check(`layout (${label}): first visit shows "Add ROMs…" (a phone: Menu's item, no dot on Menu) and the sound pill`,
-      (label === 'phone' ? await page.evaluate(() => !document.getElementById('btnMenu').classList.contains('dot') && !document.getElementById('navRoms').hidden) : await page.isVisible('#romPill')) && await page.isVisible('#soundHint')
+      (label === 'phone' ? await page.evaluate(() => getComputedStyle(document.getElementById('btnMenu'), '::after').content === 'none' && !document.getElementById('navRoms').hidden) : await page.isVisible('#romPill')) && await page.isVisible('#soundHint')
       && /^Click or press a key for sound$/.test(await page.textContent('#soundHint')));
     if (label === 'desktop') {
       check('layout (desktop): the screen fills the first view', await page.evaluate(() => { const r = document.getElementById('screen').getBoundingClientRect(); return r.bottom <= innerHeight && r.width >= 640; }));
@@ -23069,7 +23086,7 @@ async function romOnceChecks(browser, base, check) {
       pillStyle: pill.checkVisibility() ? st(pill) : null, shareStyle: share.checkVisibility() ? st(share) : null,
       pillOneLine: !pill.checkVisibility() || (pill.scrollWidth <= pill.clientWidth && pill.getClientRects().length === 1 && pill.getBoundingClientRect().height <= share.getBoundingClientRect().height + 0.5),
       pillBeside: pill.checkVisibility() && pill.previousElementSibling.id === 'status' && document.getElementById('machineBtn').nextElementSibling.id === 'status',
-      item: !item.hidden, itemText: item.textContent, tkRoms: !document.getElementById('tkRoms').hidden, menuDot: menu.classList.contains('dot'),
+      item: !item.hidden, itemShown: !item.hidden && getComputedStyle(item).display !== 'none' && menu.checkVisibility(), itemText: item.textContent, tkRoms: !document.getElementById('tkRoms').hidden, menuDot: menu.checkVisibility() && getComputedStyle(menu, '::after').content !== 'none',
       card: (() => { const w = document.getElementById('welcome'); return w.hidden ? null : w.innerText.replace(/\s+/g, ' ').trim(); })(),
       useStub: window.emu.machine.useStub, bootable: window.emu.session.machineRoms().bootable };
   };
@@ -23097,15 +23114,15 @@ async function romOnceChecks(browser, base, check) {
             } else {
               check(`${where}: Menu has "Add ROMs…", Menu wears no dot`, l.item && l.itemText === 'Add ROMs…' && !l.menuDot, JSON.stringify(l));
             }
-            // the first visit's card: the machine question alone, or none (the link named the machine: no question)
-            check(`${where}: no side card that talks about ROMs`, l.card === null || (/^Which computer did you have\?/.test(l.card) && !/ROM/.test(l.card)), String(l.card));
+            // the link names the machine, so no machine question: no card at all (firstVisit checks the question's card)
+            check(`${where}: no side card`, l.card === null, String(l.card));
           }
           if (state === 'ROMs stored, built-in firmware' || state === 'ROMs running') {
             check(`${where}: no "Add ROMs…" on the bar or in Menu`, !l.pill && !l.item && !l.tkRoms && l.bootable, JSON.stringify(l));
           }
           if (state === 'ROMs running') check(`${where}: the ROMs run, and there is no side card`, !l.useStub && l.card === null, JSON.stringify(l));
           if (state === 'ROMs stored, built-in firmware') check(`${where}: the built-in firmware runs`, l.useStub, JSON.stringify(l));
-          if (state === 'chat screen' || state === 'embed') check(`${where}: no "Add ROMs…" shown, no side card`, !l.pill && l.card === null, JSON.stringify(l));
+          if (state === 'chat screen' || state === 'embed') check(`${where}: no "Add ROMs…" shown (the bar, Menu), no side card`, !l.pill && !l.itemShown && l.card === null, JSON.stringify(l));
           if (shotDir) await page.screenshot({ path: path.join(shotDir, `rom-once-${id}-${state.replace(/[^a-z]+/gi, '-')}-${sz}.png`) });
         }
       };
@@ -23186,7 +23203,7 @@ async function noRomChromeChecks(browser, base, check) {
       ...[...item.querySelectorAll('*')].map((e) => ['navRoms child', getComputedStyle(e).backgroundColor])];
     const r = pill.getBoundingClientRect();
     // (held sideways on a touch screen, the touch keys' row has its own "Add ROMs…" and the bar no Menu)
-    return { pill: pill.checkVisibility(), item: (!item.hidden && menu.checkVisibility()) || document.getElementById('tkRoms').checkVisibility(), orange: fills.filter(([, c]) => c === orange).map(([n]) => n),
+    return { pill: pill.checkVisibility(), item: (!item.hidden && getComputedStyle(item).display !== 'none' && menu.checkVisibility()) || document.getElementById('tkRoms').checkVisibility(), orange: fills.filter(([, c]) => c === orange).map(([n]) => n),
       oneLine: !pill.checkVisibility() || (pill.scrollWidth <= pill.clientWidth && r.height <= parseFloat(getComputedStyle(pill).lineHeight) * 1.5 + 20), text: pill.textContent };
   };
   for (const [kind, opts] of [['mouse', {}], ['touch', { hasTouch: true, isMobile: true }]]) {

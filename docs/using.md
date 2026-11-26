@@ -607,9 +607,9 @@ lines" with **Replay** (your lines typed at about 25 characters a second, LIZA a
 any key during the replay skips to the end, and then the card says "Your turn: type to LIZA." until their first key. No
 ROMs are needed on either side.
 
-Someone who opens a shared moment that runs without ROMs arrives on that moment, not on the setup: the "Running with no
-ROMs" card and the orange **No BASIC** pill stay out of the way while they look at it, and come back once they leave it
-(**Reset** back to the menu, **Switch off and on**, or another machine).
+Someone who opens a shared moment that runs without ROMs arrives on that moment, not on the setup: **Add ROMs…** stays out
+of the way while they look at it, and comes back once they leave it (**Reset** back to the menu, **Switch off and on**,
+or another machine).
 
 Whoever opens a shared moment (a long or a short link) sees a card at the foot of the screen while the machine runs
 above it: "Someone sent you this Dragon 64, exactly as they left it. It's running now. It's your copy: nothing you do
