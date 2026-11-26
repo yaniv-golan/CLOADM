@@ -12304,6 +12304,8 @@ async function wyrmfireChecks(browser, site, check) {
       await started(pg);
       await waitFor(pg, () => window.emu.session.welcomeRunning && window.emu.session.screenText()[14].includes('PRESS 1 TO'));
       for (const k of ['5', '3']) { await pg.focus('#screen'); await pg.keyboard.press(k); await pg.waitForTimeout(150); }
+      // (on the phone a tap on the screen clears the toast showing: the ones after it still come)
+      if (want.length > 2) { await waitFor(pg, () => window.__toasts.length >= 1); await pg.waitForTimeout(500); await pg.tap('.tube'); }
       const got = await waitFor(pg, (n) => window.__toasts.length >= n, want.length, 20000);
       check(`wyrmfire: from the CoCo 3's menu on ${label}, every toast is shown in turn: the switch, the keys${want.length > 2 ? ', the turn-sideways hint' : ''}`,
         got && (await pg.evaluate(() => window.__toasts)).join(' | ') === want.join(' | '), JSON.stringify(await pg.evaluate(() => window.__toasts)));

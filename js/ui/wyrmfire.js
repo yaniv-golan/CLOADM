@@ -258,7 +258,7 @@ export function setupWyrmfire(page, { confirmSwitch }) {
       const switching = session.personMachine.id !== PIN.machine.id;
       const started = page.attempt(() => { session.startWyrmfire(files.engine, own ? own.disk : files.level, own ? { level: 'user', name: own.name } : {}); return null; });
       // one toast at a time, none lost: the switch, then the keys, then (an upright phone) the turn-sideways hint
-      if (started) inTurn([tell && switching && session.wyrmfireRunning ? WYRM_TEXT.switched : null, WYRM_TEXT.keys, sideways()]);
+      if (started) inTurn([tell && switching && session.wyrmfireRunning ? WYRM_TEXT.switched : null, WYRM_TEXT.keys, sideways() ? WYRM_TEXT.sideways : null]);
       page.focus();
     } catch (e) {
       job = null;
@@ -270,17 +270,19 @@ export function setupWyrmfire(page, { confirmSwitch }) {
     }
     playing();
   }
-  // the texts in order, each when the one before has run its time (a toast replaces the one showing, so they are chained)
+  // the texts in order, each when the one before has gone, however it went (a toast replaces the one showing, so they are
+  // chained; a tap that clears one does not lose the rest)
   function inTurn(texts) {
     const [text, ...rest] = texts.filter(Boolean);
     if (!text) return;
-    page.toast(text, { onEnd: (why) => { if (why === 'timeout' || why === 'closed' || why === 'action') inTurn(rest); } });
+    if (text === WYRM_TEXT.sideways) { try { localStorage.setItem('wyrmfire.sideways', '1'); } catch (e) { /* storage off */ } }
+    page.toast(text, { onEnd: () => inTurn(rest) });
   }
-  // "Turn sideways for a bigger view.": once, on a phone held upright -> its text, or null
+  // "Turn sideways for a bigger view.": once, on a phone held upright -> whether to say it (it is marked said as it is raised)
   function sideways() {
-    if (!touchPanel() || !matchMedia('(orientation: portrait)').matches) return null;
-    try { if (localStorage.getItem('wyrmfire.sideways')) return null; localStorage.setItem('wyrmfire.sideways', '1'); } catch (e) { /* storage off: said every time */ }
-    return WYRM_TEXT.sideways;
+    if (!touchPanel() || !matchMedia('(orientation: portrait)').matches) return false;
+    try { if (localStorage.getItem('wyrmfire.sideways')) return false; } catch (e) { /* storage off: said every time */ }
+    return true;
   }
 
   // ---------------- the person's own WAD ----------------
