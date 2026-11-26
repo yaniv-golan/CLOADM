@@ -17354,8 +17354,8 @@ async function settingsChecks(browser, base, check) {
     await waitFor(page, () => document.getElementById('askInput').checkVisibility());
     const line = await page.evaluate(() => { const l = document.getElementById('askSendsLine'), i = document.getElementById('askInput');
       return { text: l.textContent, shown: l.checkVisibility(), above: l.getBoundingClientRect().bottom <= i.getBoundingClientRect().top + 1 }; });
-    check('Ask Claude: "Nothing is sent until you ask. …" shows, above the input', line.shown && line.above
-      && line.text === "Nothing is sent until you ask. Then your question, the machine's facts and the chat so far go to Anthropic with your key (or your Claude account in the plugin), and Claude can read the screen and any memory (ROM areas included) without asking. Only changes to the machine ask you first.", JSON.stringify(line));
+    check('Ask Claude: "Nothing is sent until you ask (or open an empty chat with Suggest questions on). …" shows, above the input', line.shown && line.above
+      && line.text === "Nothing is sent until you ask (or open an empty chat with Suggest questions on). Then your question, the machine's facts and the chat so far go to Anthropic with your key (or your Claude account in the plugin), and Claude can read the screen and any memory (ROM areas included) without asking. Only changes to the machine ask you first.", JSON.stringify(line));
     await page.evaluate(() => localStorage.removeItem('cloadm.anthropicKey'));
     await page.click('#btnAsk');   // (closes the panel: the settings file's buttons are on the Machine tab beside it)
     await waitFor(page, () => !document.getElementById('askInput').checkVisibility());
@@ -24252,6 +24252,156 @@ async function warmupChecks(browser, base, check) {
   check('warmup: no page errors', errors.length === 0, errors.join(' | '));
 }
 
+// "Suggest questions with Claude" (js/ui/claude-features.js, js/ui/ask.js; the rules are tests/claude-suggest.test.js):
+// the setting under Claude features (hidden while Off; disabled with "Needs your API key" without a key; the note's two
+// texts), no request while it is off, on a graphics screen or from the line under the screen; exactly one as the panel
+// opens on an empty chat (Haiku, 150 tokens, the screen's text and the machine's name), the page's own questions at
+// once and Claude's in their place under "Suggested by Claude" when they arrive; a tap fills the box and sends nothing;
+// a 3 s timeout or an invalid answer keeps the page's own; the key in no console line, memory, snapshot or export.
+async function askSuggestChecks(browser, base, check) {
+  const KEY = 'sk-ant-SUGGEST-CHECK-KEY-0123456789';
+  const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': 'POST, OPTIONS' };
+  const QS = ['What is the built-in firmware?', 'How do I add my ROMs?', 'What can I load here?'];
+  const json = (text) => JSON.stringify({ id: 'msg', type: 'message', role: 'assistant', model: 'claude-haiku-5-5', content: [{ type: 'text', text }], stop_reason: 'end_turn' });
+  const NOTE = 'Off hides Ask Claude, Claude in the command box and Chat with Claude. Nothing goes to Claude either way until you ask.';
+  const NOTE_SUGGEST = 'Off hides Ask Claude, Claude in the command box and Chat with Claude. Nothing goes to Claude until you ask, or open an empty chat with Suggest questions on.';
+  const errors = [], consoleLines = [];
+  // a page, its requests to the API, and how the API answers: { body, delay }
+  const open = async (answerWith, { key = true, suggest = true } = {}) => {
+    const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, serviceWorkers: 'block' });
+    const requests = [];
+    await ctx.route('https://api.anthropic.com/**', async (route) => {
+      const req = route.request();
+      if (req.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors });
+      requests.push({ body: JSON.parse(req.postData()), headers: req.headers() });
+      const a = answerWith();
+      if (a.delay) await new Promise((r) => setTimeout(r, a.delay));
+      try { await route.fulfill({ status: 200, headers: { ...cors, 'content-type': 'application/json' }, body: a.body }); } catch (e) { /* the page gave up on it */ }
+    });
+    await ctx.addInitScript(([k, s]) => { if (k) localStorage.setItem('cloadm.anthropicKey', k); if (s) localStorage.setItem('cloadm.claudeSuggest', '1'); }, [key ? KEY : null, suggest]);
+    const page = await ctx.newPage();
+    page.on('pageerror', (e) => errors.push(e.message));
+    page.on('console', (m) => consoleLines.push(m.text()));
+    await page.goto(`${base}?machine=dragon64`);
+    await started(page);
+    await stubPrompt(page);
+    return { ctx, page, requests };
+  };
+  const qs = (page) => page.evaluate(() => ({ set: document.getElementById('askSuggest').dataset.set, qs: [...document.querySelectorAll('#askSuggest button')].map((b) => b.textContent),
+    by: !document.getElementById('askSuggestBy').hidden, strip: [...document.querySelectorAll('#askStripQs button')].map((b) => b.textContent) }));
+  const openPanel = async (page) => { await page.click('#btnAsk'); await waitFor(page, () => !document.getElementById('ask').hidden && document.querySelectorAll('#askSuggest button').length > 0, null, 5000); };
+  const closePanel = async (page) => { await page.click('#btnAskClose'); await waitFor(page, () => document.getElementById('ask').hidden, null, 5000); };
+
+  // ---- the setting: its words and its states ----
+  {
+    const { ctx, page, requests } = await open(() => ({ body: json(JSON.stringify(QS)) }), { key: false, suggest: false });
+    await openTab(page, 'Machine');
+    const st = () => page.evaluate(() => ({ box: document.getElementById('claudeSuggestBox').checkVisibility(), dis: document.getElementById('chkClaudeSuggest').disabled,
+      checked: document.getElementById('chkClaudeSuggest').checked, nokey: document.getElementById('claudeSuggestNoKey').checkVisibility(),
+      nokeyText: document.getElementById('claudeSuggestNoKey').textContent, label: document.getElementById('chkClaudeSuggest').parentElement.textContent.trim(),
+      hint: document.getElementById('claudeSuggestHint').textContent, note: document.getElementById('claudeFeaturesNote').textContent,
+      after: document.getElementById('claudeFeaturesNote').nextElementSibling.id }));
+    const a = await st();
+    check('askSuggest: the setting directly after the Claude features note, word for word', a.after === 'claudeSuggestBox' && a.label === 'Suggest questions with Claude'
+      && a.hint === 'When you open an empty chat, sends the screen\'s text to Claude to suggest questions. Uses your API key.', JSON.stringify(a));
+    check('askSuggest: off by default; no key: shown, disabled, "Needs your API key" beside it', a.box && !a.checked && a.dis && a.nokey && a.nokeyText === 'Needs your API key', JSON.stringify(a));
+    check('askSuggest: off: the note is unchanged', a.note === NOTE, a.note);
+    await page.click('#btnClaudeOff');
+    check('askSuggest: Claude features Off: the setting is hidden', !(await st()).box);
+    await page.click('#btnClaudeOn');
+    await page.evaluate((k) => window.emu.session.setClaudeKey(k), KEY);
+    await page.evaluate(() => window.emu.session.setClaudeFeatures(true));   // (a sync: the key is not an event of its own)
+    const b = await st();
+    check('askSuggest: with a key: enabled, no "Needs your API key"', b.box && !b.dis && !b.nokey, JSON.stringify(b));
+    await page.check('#chkClaudeSuggest');
+    const c = await st();
+    check('askSuggest: on: stored, and the note says an empty chat sends too, word for word', c.checked && c.note === NOTE_SUGGEST
+      && await page.evaluate(() => localStorage.getItem('cloadm.claudeSuggest')) === '1', c.note);
+    await page.uncheck('#chkClaudeSuggest');
+    check('askSuggest: off again: the note as it was', (await st()).note === NOTE);
+    // Off: no request as the panel opens
+    await openPanel(page);
+    await page.waitForTimeout(1500);
+    check('askSuggest: the setting off: no request as the panel opens on an empty chat', requests.length === 0 && !(await qs(page)).by, String(requests.length));
+    const sends = await page.textContent('#askSendsLine');
+    check('askSuggest: off: the what-is-sent line does not mention suggested questions', !/Suggested questions/.test(sends), sends);
+    await ctx.close();
+  }
+
+  // ---- on: one request, the page's own questions first, Claude's in their place ----
+  {
+    const { ctx, page, requests } = await open(() => ({ body: json(JSON.stringify(QS)), delay: 800 }));
+    // the line under the screen (the panel closed) never asks Claude
+    await page.waitForTimeout(1200);
+    const strip = await qs(page);
+    check('askSuggest: the line under the screen: the page\'s own questions, no request', requests.length === 0 && strip.strip.length > 0 && !strip.strip.some((q) => QS.includes(q)), JSON.stringify(strip));
+    await openPanel(page);
+    const first = await qs(page);
+    check('askSuggest: the panel opens with the page\'s own questions at once', first.qs.length === 3 && first.set !== 'claude' && !first.by && !first.qs.some((q) => QS.includes(q)), JSON.stringify(first));
+    const swapped = await waitFor(page, () => document.getElementById('askSuggest').dataset.set === 'claude', null, 5000);
+    const after = await qs(page);
+    check('askSuggest: Claude\'s questions replace them on arrival, under "Suggested by Claude"', swapped && after.by && JSON.stringify(after.qs) === JSON.stringify(QS)
+      && await page.textContent('#askSuggestBy') === 'Suggested by Claude', JSON.stringify(after));
+    if (shotDir) await page.locator('#ask').screenshot({ path: path.join(shotDir, 'ask-suggest-claude.png') });
+    check('askSuggest: exactly one request', requests.length === 1, String(requests.length));
+    const r = requests[0] || { body: {}, headers: {} }, content = (r.body.messages || [{}])[0].content || '';
+    const screen = await page.evaluate(() => window.emu.session.screenText().map((l) => l.trimEnd()).join('\n').trim());
+    check('askSuggest: the request: Haiku, 150 tokens, the machine\'s name and the screen\'s text only', r.body.model === 'claude-haiku-5-5' && r.body.max_tokens === 150
+      && JSON.stringify(Object.keys(r.body).sort()) === '["max_tokens","messages","model","system"]' && content === `Machine: Dragon 64\nScreen text:\n${screen}`
+      && r.headers['x-api-key'] === KEY, JSON.stringify({ content, screen }));
+    const sends = await page.textContent('#askSendsLine');
+    check('askSuggest: on: the what-is-sent line adds the suggested questions', sends.endsWith(' Suggested questions: the screen\'s text, when you open an empty chat.'), sends);
+    // a tap fills the message box, and sends nothing
+    await page.click(`#askSuggest button:text-is("${QS[1]}")`);
+    await page.waitForTimeout(800);
+    check('askSuggest: a tap fills the message box and sends nothing', await page.inputValue('#askInput') === QS[1] && requests.length === 1
+      && await page.evaluate(() => !window.emu.session.chat || !window.emu.session.chat.messages.length), String(requests.length));
+    await page.fill('#askInput', '');
+    // closed and opened again on the same screen: the strip has the page's own; no second request
+    await closePanel(page);
+    const strip2 = await qs(page);
+    check('askSuggest: closed: the line under the screen has the page\'s own questions, never Claude\'s', !strip2.strip.some((q) => QS.includes(q)) && !strip2.by, JSON.stringify(strip2));
+    await openPanel(page);
+    await page.waitForTimeout(1500);
+    check('askSuggest: opened again on the same screen: no second request', requests.length === 1, String(requests.length));
+    // the key: in no console line, the machine's memory, a snapshot or a settings export
+    const leak = await page.evaluate((k) => {
+      const m = window.emu.machine, bytes = [...k].map((c) => c.charCodeAt(0));
+      let inMem = false;
+      for (let a = 0; a < 0x10000 && !inMem; a++) { let j = 0; while (j < bytes.length && m.peek((a + j) & 0xFFFF) === bytes[j]) j++; if (j === bytes.length) inMem = true; }
+      return { inMem, inSnap: JSON.stringify(m.saveState()).includes(k), inExport: JSON.stringify(window.emu.session.exportSettings()).includes(k) };
+    }, KEY);
+    check('askSuggest: the key is in no console line, memory, snapshot or settings export', !leak.inMem && !leak.inSnap && !leak.inExport && !consoleLines.some((l) => l.includes(KEY)), JSON.stringify(leak));
+    await ctx.close();
+  }
+
+  // ---- no answer in 3 s, and an invalid answer: the page's own stay ----
+  for (const [name, answer] of [['no answer within 3 s', { body: json(JSON.stringify(QS)), delay: 5000 }], ['an invalid answer (four questions)', { body: json('["a?","b?","c?","d?"]') }]]) {
+    const { ctx, page, requests } = await open(() => answer);
+    await openPanel(page);
+    const first = await qs(page);
+    await page.waitForTimeout(name.startsWith('no') ? 4000 : 1500);
+    const later = await qs(page);
+    check(`askSuggest: ${name}: the page's own questions stay`, requests.length === 1 && !later.by && later.set !== 'claude' && JSON.stringify(later.qs) === JSON.stringify(first.qs), JSON.stringify({ n: requests.length, first, later }));
+    await ctx.close();
+  }
+
+  // ---- a graphics screen: the page's own only ----
+  {
+    const { ctx, page, requests } = await open(() => ({ body: json(JSON.stringify(QS)) }));
+    // (written until it holds: a menu start that lands after stubPrompt sets the text mode again)
+    check('askSuggest: (setup) the screen is in a graphics mode', await waitFor(page, () => {
+      const m = window.emu.machine; m.write(0xFF22, 0xF8); for (const a of [0xFFC0, 0xFFC3, 0xFFC5]) m.write(a, 0);
+      return window.emu.session.suggestInput() === null;
+    }, null, 10000));
+    await openPanel(page);
+    await page.waitForTimeout(1500);
+    check('askSuggest: a graphics screen: no request, the page\'s own questions', requests.length === 0 && !(await qs(page)).by && (await qs(page)).qs.length === 3, String(requests.length));
+    await ctx.close();
+  }
+  check('askSuggest: no page errors', errors.length === 0, errors.join(' | '));
+}
+
 const GROUPS = (base, site) => [
   ['models', (b) => modelsChecks(b, base, check)],
   ['reset', (b) => resetChecks(b, base, check)],
@@ -24327,6 +24477,7 @@ const GROUPS = (base, site) => [
   ['escChat', (b) => escChatChecks(b, base, check)],
   ['claude', (b) => claudeChecks(b, base, check)],
   ['ask', (b) => askChecks(b, base, check)],
+  ['askSuggest', (b) => askSuggestChecks(b, base, check)],
   ['commands', (b) => commandsChecks(b, site, check)],
   ['askFollowup', (b) => askFollowupChecks(b, base, check)],
   ['askStatus', (b) => askStatusChecks(b, base, check)],

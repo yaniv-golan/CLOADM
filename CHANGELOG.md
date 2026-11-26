@@ -56,6 +56,18 @@ Next version: 0.3.1 (the plugin and extension manifests carry it; `tests/plugin.
   cards, GIFs and screenshots) never hold it, and the regression hashes are unchanged (`js/video/warmup.js`,
   `js/ui/warmup.js`; `tests/warmup.test.js` and the browser check's `warmup` group).
 
+- **Suggest questions with Claude,** an opt-in setting directly under Claude features (Settings → Machine), off by
+  default and kept with the exported settings: "When you open an empty chat, sends the screen's text to Claude to
+  suggest questions. Uses your API key." Hidden while Claude features is Off; without a key it shows, disabled, with
+  "Needs your API key". On, opening Ask Claude on an empty chat sends ONE request to Claude Haiku (150 tokens) with only
+  the machine's name and the screen's text; the page's own questions show at once and a valid answer (1-3 questions of
+  at most 60 characters) within 3 s replaces them under "Suggested by Claude", otherwise they stay. At most one
+  request per distinct screen and one per 30 s; never from the line under the screen, never on a graphics screen,
+  never while your own WAD's level is loaded. A tap
+  fills the message box and sends nothing. While it is on, the Claude features note and the panel's what-is-sent line
+  say what an empty chat sends (`js/claude/suggest.js`; `tests/claude-suggest.test.js` and the browser check's
+  `askSuggest` group).
+
 #### Changed
 
 - **WYRMFIRE is re-pinned to 2f47134,** whose engine counts the level clock from the PAL field-sync interrupt and shows TIME

@@ -618,6 +618,10 @@ const REQUIRED = require.main !== module;
     'claudeFeatures', 'setClaudeFeatures',
     // oldTvWarmup reads Display -> Old TV warm-up (a stored flag); setOldTvWarmup stores it and emits, the machine untouched
     'oldTvWarmup', 'setOldTvWarmup',
+    // claudeSuggest reads Settings -> Suggest questions with Claude (a stored flag); setClaudeSuggest stores it and emits;
+    // claudeSuggestions reads the PERSON's machine's screen text (suggestInput, the screen_text reader) and sends it with
+    // the machine's name to the API through the fetch it is given (js/claude/suggest.js); no machine is changed
+    'claudeSuggest', 'setClaudeSuggest', 'claudeSuggestions',
     // programPageUrl makes a program page's address from the page's own (pure)
     'programPageUrl',
     // bundledProgram and untouchedBundledProgram read the SHOWN machine's program watch and page (Session.touches too,

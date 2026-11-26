@@ -2380,6 +2380,7 @@ npx serve -l 8000 .</pre>
       <div id="askEmpty">
         <p id="askEmptyText">Claude reads only this emulated <span id="askEmptyModel"></span> (its screen text and memory), never your computer. It types or changes things only if you allow it.</p>
         <div class="muted" id="askSuggestLabel" hidden>You could ask, once Claude is connected:</div>
+        <div class="muted" id="askSuggestBy" hidden>Suggested by Claude</div>
         <div id="askSuggest" role="group" aria-label="Example questions"></div>
         <div id="askChoose" hidden><button id="btnAskHaveKey">I have an API key</button><button id="btnAskUseClaude">I use Claude →</button></div>
         <p id="askSuggestNote" class="sr-only" aria-live="polite"></p>
@@ -2411,7 +2412,7 @@ npx serve -l 8000 .</pre>
       <p class="muted"><strong>Your key stays yours.</strong> Stored only in this browser. The emulated machine never sees it, and it's left out of snapshots, share links and exported settings.</p>
     </div>
     <div id="askComposer" hidden>
-      <p class="muted" id="askSendsLine">Nothing is sent until you ask. Then your question, the machine's facts and the chat so far go to Anthropic with your key (or your Claude account in the plugin), and Claude can read the screen and any memory (ROM areas included) without asking. Only changes to the machine ask you first.</p>
+      <p class="muted" id="askSendsLine">Nothing is sent until you ask (or open an empty chat with Suggest questions on). Then your question, the machine's facts and the chat so far go to Anthropic with your key (or your Claude account in the plugin), and Claude can read the screen and any memory (ROM areas included) without asking. Only changes to the machine ask you first.</p>
       <div class="bar"><input id="askInput" aria-label="Message to Claude" autocomplete="off" placeholder="Ask about this machine…"><button id="btnAskSend" class="primary">Send</button></div>
       <div class="askfoot"><label><input type="checkbox" id="chkAskMachine"> Let Claude use the emulator</label>
         <span class="muted" id="askKeyLine"><span id="askKeyState">API key · Saved in this browser.</span> <button class="link" id="btnAskKeyChange">Change</button> <button class="link" id="btnAskKeyForget">Forget</button></span></div>
@@ -2564,6 +2565,11 @@ npx serve -l 8000 .</pre>
       </div>
       <div class="row" id="claudeFeaturesRow"><span id="claudeFeaturesLabel">Claude features</span><span class="bar" role="group" aria-labelledby="claudeFeaturesLabel"><button id="btnClaudeOn" aria-pressed="true">On</button><button id="btnClaudeOff" aria-pressed="false">Off</button></span></div>
       <p class="muted" style="margin:0" id="claudeFeaturesNote">Off hides Ask Claude, Claude in the command box and Chat with Claude. Nothing goes to Claude either way until you ask.</p>
+      <!-- Suggest questions with Claude (js/ui/claude-features.js): hidden with Claude features Off, disabled without a key -->
+      <div id="claudeSuggestBox">
+        <div class="row"><label><input type="checkbox" id="chkClaudeSuggest" aria-describedby="claudeSuggestHint claudeSuggestNoKey"> Suggest questions with Claude</label><span class="muted" id="claudeSuggestNoKey" hidden>Needs your API key</span></div>
+        <p class="muted" style="margin:0" id="claudeSuggestHint">When you open an empty chat, sends the screen's text to Claude to suggest questions. Uses your API key.</p>
+      </div>
       <div class="row" id="settingsFileRow"><span>Settings file</span><span class="bar"><button id="btnSettingsExport">Export…</button><button id="btnSettingsImport">Import…</button></span></div>
       <p class="muted" style="margin:0">Machines and their options, the display and your choices, as a file for another browser. Never ROMs or programs.</p>
       <input type="file" id="fileSettings" accept=".json,application/json" hidden>
@@ -2885,6 +2891,8 @@ npx serve -l 8000 .</pre>
 <link rel="modulepreload" href="js/machines/nitros9.js">
 <link rel="modulepreload" href="js/media/os9.js">
 <link rel="modulepreload" href="js/claude/consent.js">
+<link rel="modulepreload" href="js/claude/backend.js">
+<link rel="modulepreload" href="js/claude/suggest.js">
 <link rel="modulepreload" href="js/roms.js">
 <link rel="modulepreload" href="js/media/zip.js">
 <link rel="modulepreload" href="js/program-pages.js">
@@ -2907,7 +2915,6 @@ npx serve -l 8000 .</pre>
 <link rel="modulepreload" href="js/host/audio.js">
 <link rel="modulepreload" href="js/embed-api.js">
 <link rel="modulepreload" href="js/asm/symbols.js">
-<link rel="modulepreload" href="js/claude/backend.js">
 <link rel="modulepreload" href="js/claude/brief.js">
 <link rel="modulepreload" href="js/claude/prompts.js">
 <link rel="modulepreload" href="js/host/example-reader.js">

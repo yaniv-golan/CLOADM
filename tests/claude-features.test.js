@@ -2,7 +2,7 @@
 //
 // Settings -> "Claude features: On / Off" (Session.claudeFeatures, js/ui/claude-features.js): On by default, kept in
 // the store, in a settings export and taken back by an import, a bad value refused. And the Ask panel's line,
-// "Nothing is sent until you ask. Then your question, and the screen text and memory Claude reads to answer it, go
+// "Nothing is sent until you ask (or open an empty chat with Suggest questions on). Then your question, and the screen text and memory Claude reads to answer it, go
 // to Anthropic with your key ...", checked against what the code does: with a key saved and the panel's
 // conversation started, nothing is fetched; asking sends one request with the question in it; the reads Claude makes
 // to answer (screen_text, peek) come back in the next request, to the same API. (The browser check's `settings` and
@@ -45,7 +45,7 @@ const toolReply = (uses) => sse([start, ...uses.flatMap((u, i) => [
 
   // ---- the line above Ask's input, against the code ----
   const html = fs.readFileSync(path.join(ROOT, 'play/index.html'), 'utf8');
-  const LINE = "Nothing is sent until you ask. Then your question, the machine's facts and the chat so far go to Anthropic with your key (or your Claude account in the plugin), and Claude can read the screen and any memory (ROM areas included) without asking. Only changes to the machine ask you first.";
+  const LINE = "Nothing is sent until you ask (or open an empty chat with Suggest questions on). Then your question, the machine's facts and the chat so far go to Anthropic with your key (or your Claude account in the plugin), and Claude can read the screen and any memory (ROM areas included) without asking. Only changes to the machine ask you first.";
   check('Ask Claude has the line, above its input', html.includes(`<p class="muted" id="askSendsLine">${LINE}</p>`) && html.indexOf('id="askSendsLine"') < html.indexOf('id="askInput"')
     && html.indexOf('id="askSendsLine"') > html.indexOf('id="askComposer"'));
   const KEY = 'sk-ant-FEATURES-TEST-KEY-0123456789';
