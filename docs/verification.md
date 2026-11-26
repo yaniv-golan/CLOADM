@@ -1297,9 +1297,10 @@ browser check's group `uiModel` drives them with real events at 1280x720 and at 
   659x393 and 653x280 (a touch screen), on the Dragon 64, the CoCo 3 and the MC-10, in six states (a first visit and a
   return without ROMs, stand-in ROMs stored with the built-in firmware running, the stand-ins running, the chat screen,
   `?embed=1`): none of "No BASIC ·", "(BASIC needs them)", "Running with no ROMs." and "No ROMs yet:" is anywhere in the
-  page; with no ROMs nothing visible is filled orange (the app bar's button, Menu, its dot and its Add ROMs… item
-  included); "Add ROMs…" on the bar is styled as Share (border, colour, weight, radius, height), named "Add your ROMs
-  for BASIC", one line at 701 and 1440 px; with ROMs stored it is gone from the bar and Menu; the bar's button, Menu's
+  page; with no ROMs nothing visible is filled orange, and no colour (fill, text, border, outline, a drawn ::before
+  or ::after, a child's) of the app bar's button, Menu, Menu's Add ROMs… item or the touch keys' Add ROMs… is orange;
+  "Add ROMs…" on the bar is styled as Share (border, colour, weight, radius, height), named "Add ROMs for BASIC" (its
+  visible words in its name), one line at 701 and 1440 px; with ROMs stored it is gone from the bar and Menu; the bar's button, Menu's
   item and the welcome menu's key 3 each open Add ROMs. The stand-ins are made in the check (a BRA * and the reset
   vector at a socket's name and size), never a real ROM. `noRomChrome` sweeps 320-1600 px, upright and short, with a
   mouse and a touch screen: "Add ROMs…" is on the bar, in Menu or on the touch keys' row, one line, and never orange.

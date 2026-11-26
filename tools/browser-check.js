@@ -12524,7 +12524,7 @@ async function firstUseChecks(browser, base, check) {
     await emuFrames(page, 3);
     const pill = await page.getAttribute('#romPill', 'title');
     const name = await page.getAttribute('#romPill', 'aria-label');
-    check(`${L}: the "Add ROMs…" button's title and name are "Add your ROMs for BASIC"`, pill === 'Add your ROMs for BASIC' && name === pill, `${pill} | ${name}`);
+    check(`${L}: the "Add ROMs…" button's title and name are "Add ROMs for BASIC"`, pill === 'Add ROMs for BASIC' && name === pill, `${pill} | ${name}`);
     await screenFocus(page);
     await page.keyboard.press('9');   // a number, if not one of the menu's: no word about it
     await ticks(page, 10);
@@ -23054,6 +23054,25 @@ async function needsBasicChecks(browser, base, check) {
   }
 }
 
+// Where the no-ROM chrome is orange: every colour of the bar's Add ROMs…, Menu's item, the touch keys' Add ROMs… and
+// Menu (fill, text, border, outline), and of their drawn ::before / ::after and children, compared with --orange.
+// Runs in the page: [names of what is orange, the orange].
+const orangeChrome = () => {
+  const probe = document.createElement('i'); probe.style.background = 'var(--orange)'; document.body.append(probe);
+  const orange = getComputedStyle(probe).backgroundColor; probe.remove();
+  const hits = [];
+  for (const id of ['romPill', 'navRoms', 'tkRoms', 'btnMenu']) {
+    const el = document.getElementById(id);
+    for (const [who, e] of [[id, el], ...[...el.querySelectorAll('*')].map((c, i) => [`${id} child ${i}`, c])]) {
+      for (const pseudo of [null, '::before', '::after']) {
+        const c = getComputedStyle(e, pseudo);
+        if (pseudo && c.content === 'none') continue;
+        for (const prop of ['backgroundColor', 'color', 'borderTopColor', 'outlineColor']) if (c[prop] === orange) hits.push(`${who}${pseudo || ''} ${prop}`);
+      }
+    }
+  }
+  return [hits, orange];
+};
 // ---------------- the ROM requirement said once (the welcome menu's "3 ADD YOUR ROMS FOR BASIC") ----------------
 // Everywhere else "Add ROMs…" is a plain action: on the app bar an ordinary button like Share, in a phone's Menu an item
 // with no dot, no line at the top of the machine menu, and a first-visit card that is the machine question alone.
@@ -23080,8 +23099,6 @@ async function romOnceChecks(browser, base, check) {
     const html = document.documentElement.outerHTML;
     const st = (e) => { const c = getComputedStyle(e), r = e.getBoundingClientRect(); return { bg: c.backgroundColor, border: c.borderTopColor, color: c.color, weight: c.fontWeight, radius: c.borderTopLeftRadius, h: Math.round(r.height) }; };
     return { gone: gone.filter((g) => html.includes(g)), orange, orangeAt,
-      fills: { pill: getComputedStyle(pill).backgroundColor, menu: getComputedStyle(menu).backgroundColor, menuDot: getComputedStyle(menu, '::after').backgroundColor,
-        itemDot: document.querySelector('#navRoms .dot') ? getComputedStyle(document.querySelector('#navRoms .dot')).backgroundColor : null },
       pill: pill.checkVisibility(), pillText: pill.textContent, pillTitle: pill.title, pillName: pill.getAttribute('aria-label'),
       pillStyle: pill.checkVisibility() ? st(pill) : null, shareStyle: share.checkVisibility() ? st(share) : null,
       pillOneLine: !pill.checkVisibility() || (pill.scrollWidth <= pill.clientWidth && pill.getClientRects().length === 1 && pill.getBoundingClientRect().height <= share.getBoundingClientRect().height + 0.5),
@@ -23098,18 +23115,18 @@ async function romOnceChecks(browser, base, check) {
       const shotAll = async (page, state) => {
         for (const [sz, vp] of sizes) {
           await page.setViewportSize(vp); await page.waitForTimeout(150);
-          const l = await page.evaluate(look, GONE);
+          const l = { ...await page.evaluate(look, GONE), chrome: (await page.evaluate(orangeChrome))[0] };
           const noRoms = NO_ROMS.includes(state);
           const where = `${L} ${sz}, ${state}`;
           check(`${where}: none of the old reasons anywhere in the page (${GONE.join(' | ')})`, !l.gone.length, l.gone.join(' | '));
           if (noRoms) {
-            check(`${where}: nothing drawn orange (the bar's button, Menu, its dot and Add ROMs… item included)`,
-              !l.orangeAt.length && ![l.fills.pill, l.fills.menu, l.fills.menuDot, l.fills.itemDot].includes(l.orange) && !l.menuDot, JSON.stringify({ at: l.orangeAt, fills: l.fills, orange: l.orange }));
+            check(`${where}: nothing drawn orange (fills anywhere; and every colour of the bar's button, Menu, its dot, its Add ROMs… item and the touch keys' Add ROMs…)`,
+              !l.orangeAt.length && !l.chrome.length && !l.menuDot, JSON.stringify({ at: l.orangeAt, chrome: l.chrome, orange: l.orange }));
           }
           if (state === 'first visit' || state === 'returning') {
             if (device === 'desktop') {
-              check(`${where}: "Add ROMs…" beside the machine, named "Add your ROMs for BASIC", one line, styled as Share (border, colour, weight, radius, height)`,
-                l.pill && l.pillText === 'Add ROMs…' && l.pillTitle === 'Add your ROMs for BASIC' && l.pillName === 'Add your ROMs for BASIC' && l.pillBeside && l.pillOneLine
+              check(`${where}: "Add ROMs…" beside the machine, named "Add ROMs for BASIC", one line, styled as Share (border, colour, weight, radius, height)`,
+                l.pill && l.pillText === 'Add ROMs…' && l.pillTitle === 'Add ROMs for BASIC' && l.pillName === 'Add ROMs for BASIC' && l.pillBeside && l.pillOneLine
                 && JSON.stringify(l.pillStyle) === JSON.stringify(l.shareStyle), JSON.stringify(l));
             } else {
               check(`${where}: Menu has "Add ROMs…", Menu wears no dot`, l.item && l.itemText === 'Add ROMs…' && !l.menuDot, JSON.stringify(l));
@@ -23197,13 +23214,9 @@ async function romOnceChecks(browser, base, check) {
 async function noRomChromeChecks(browser, base, check) {
   const look = () => {
     const pill = document.getElementById('romPill'), menu = document.getElementById('btnMenu'), item = document.getElementById('navRoms');
-    const probe = document.createElement('i'); probe.style.background = 'var(--orange)'; document.body.append(probe);
-    const orange = getComputedStyle(probe).backgroundColor; probe.remove();
-    const fills = [['romPill', getComputedStyle(pill).backgroundColor], ['tkRoms', getComputedStyle(document.getElementById('tkRoms')).backgroundColor], ['btnMenu', getComputedStyle(menu).backgroundColor], ['btnMenu::after', getComputedStyle(menu, '::after').backgroundColor],
-      ...[...item.querySelectorAll('*')].map((e) => ['navRoms child', getComputedStyle(e).backgroundColor])];
     const r = pill.getBoundingClientRect();
     // (held sideways on a touch screen, the touch keys' row has its own "Add ROMs…" and the bar no Menu)
-    return { pill: pill.checkVisibility(), item: (!item.hidden && getComputedStyle(item).display !== 'none' && menu.checkVisibility()) || document.getElementById('tkRoms').checkVisibility(), orange: fills.filter(([, c]) => c === orange).map(([n]) => n),
+    return { pill: pill.checkVisibility(), item: (!item.hidden && getComputedStyle(item).display !== 'none' && menu.checkVisibility()) || document.getElementById('tkRoms').checkVisibility(),
       oneLine: !pill.checkVisibility() || (pill.scrollWidth <= pill.clientWidth && r.height <= parseFloat(getComputedStyle(pill).lineHeight) * 1.5 + 20), text: pill.textContent };
   };
   for (const [kind, opts] of [['mouse', {}], ['touch', { hasTouch: true, isMobile: true }]]) {
@@ -23217,7 +23230,7 @@ async function noRomChromeChecks(browser, base, check) {
       for (const h of [800, 400]) {
         await page.setViewportSize({ width: w, height: h });
         await page.waitForTimeout(60);
-        const l = await page.evaluate(look);
+        const l = { ...await page.evaluate(look), orange: (await page.evaluate(orangeChrome))[0] };
         if (l.orange.length || !l.oneLine || (!l.pill && !l.item) || l.text !== 'Add ROMs…') bad.push(`${w}x${h}: ${JSON.stringify(l)}`);
         if (l.pill) seen.pill++;
         if (l.item) seen.item++;
