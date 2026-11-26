@@ -17940,6 +17940,9 @@ async function shareLayoutChecks(browser, base, check) {
         // one line: the caption's name and time on one row, its title no taller than one line of its text
         captionOneLine: (() => { const t = document.getElementById('shareTitle'), lh = parseFloat(getComputedStyle(t).fontSize) * 1.6;
           return t.getBoundingClientRect().height <= lh && Math.abs(t.getBoundingClientRect().top - document.getElementById('shareWhen').getBoundingClientRect().top) < lh; })(),
+        capText: document.getElementById('shareTitle').innerText.replace(/\s+/g, ' ').trim(),
+        capCut: (() => { const p = document.getElementById('sharePrefix'), n = document.getElementById('shareName');
+          return p.scrollWidth > p.clientWidth + 0.5 || n.scrollWidth > n.clientWidth + 0.5 || getComputedStyle(n).textOverflow === 'ellipsis' && n.scrollWidth > n.clientWidth; })(),
         noSideways: document.documentElement.scrollWidth <= innerWidth && (!own || side.scrollWidth <= side.clientWidth),
         brief: brief.textContent, briefShown: getComputedStyle(brief).display !== 'none', full: full.textContent, title: rom.title,
         saveIn: document.getElementById('btnShareShot').parentElement.id + '/' + document.getElementById('btnShareClip').parentElement.id,
@@ -17959,6 +17962,7 @@ async function shareLayoutChecks(browser, base, check) {
       check(`share layout (${label}): two columns under the header, the picture on the left at most ${h < 300 ? 30 : 40}% of the width with its caption one line under it, the right column scrolling on its own, the page not`,
         first.sideBySide && first.previewOfWidth <= (h < 300 ? 0.3 : 0.4) + 0.005 && first.captionUnder && first.captionOneLine && first.sideScrolls && !first.pageScrolls
         && first.saveIn === 'shareSaveMore/shareSaveMore', JSON.stringify(first));
+      check(`share layout (${label}): the caption reads "This moment · Dragon 64" whole, with ROMs or without, not truncated`, /^This moment · Dragon 64\b/.test(first.capText) && !first.capCut, JSON.stringify({ cap: first.capText, cut: first.capCut }));
     } else check(`share layout (${label}): an upright phone keeps one column, Save picture and Save clip under "More ways to share"`, !first.sideBySide && first.saveIn === 'shareSaveMore/shareSaveMore', JSON.stringify(first));
     // the right column's order on a short landscape screen
     if (first.short) {
