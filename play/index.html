@@ -391,6 +391,16 @@
   #toast.passthru button, #toast.passthru a { pointer-events: auto; }
   #toast.compact { font-size: 12px; line-height: 1.25; padding: 2px 8px; gap: 2px 6px; border-radius: 8px; box-shadow: none; }
   #toast.compact #toastAction { padding: 1px 6px; font-size: 12px; }
+  /* held sideways with the touch keys round the screen: the toast lies over the top of the picture (js/ui/feedback.js
+     sidewaysSlot): 12 px type, the action a compact text button inline at the end of the last line (its tap area 44 px,
+     by transparent padding, within the picture so it never takes a key's tap), at most two lines when it is clamped */
+  #toast.overscreen { display: block; font-size: 12px; line-height: 1.25; padding: 3px 8px; border-radius: 8px; box-shadow: none; position: relative; }
+  #toast.overscreen #toastText { display: inline; }
+  #toast.overscreen #toastAction { display: inline; position: relative; background: none; color: #0B6B1E; font-size: 12px; line-height: inherit; font-weight: 700; padding: 0 4px; margin: 0 0 0 2px; min-height: 0; vertical-align: baseline; }
+  #toast.overscreen #toastAction::after { content: ""; position: absolute; left: -6px; right: -6px; top: 50%; height: 44px; transform: translateY(-50%); }
+  #toast.overscreen #toastDetails { display: block; }
+  #toast.overscreen.clamped { cursor: pointer; }
+  #toast.overscreen #toastText .more { font-weight: 700; }
   /* an error is red: the bar and the edge in --error, 4.76:1 on the toast's paper (css/tokens.css) */
   #toast.error { box-shadow: inset 4px 0 0 var(--error), inset 0 0 0 1px var(--error), 0 8px 24px rgba(0, 0, 0, .45); padding-left: 18px; }
   #toastText { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
@@ -1763,6 +1773,10 @@
     #ask { position: fixed; left: var(--safe-l); right: var(--safe-r); bottom: max(var(--sheet-bottom, 0px), var(--safe-b)); top: var(--sheet-top, 50vh); width: auto; height: auto; min-height: 0; z-index: 40; border-radius: 16px 16px 0 0;
       border: 0; border-top: 1px solid var(--line-strong); }
     #ask[data-height="peek"] { top: auto; height: 76px; }
+    /* no key yet: the key form is taller than the half sheet, so the whole sheet scrolls (the intro first, the form under
+       it) instead of the form spilling over the intro */
+    #ask:has(#askKeyForm:not([hidden])) { overflow-y: auto; }
+    #ask:has(#askKeyForm:not([hidden])) #askBody { flex: none; overflow: visible; }
     #askGrip, .askhead .viewswitch button#btnAskSide, #ask #btnAskMin { display: none; }
     .askhead .viewswitch { border: 0; padding: 0; margin: 0; }
     #btnAskFull { border: 1px solid var(--line); border-radius: 8px; color: var(--muted); }
@@ -1854,7 +1868,13 @@
        bar, its nameplate left out */
     .layout > main > .monitor { max-width: calc((100vh - 96px) * 4 / 3); }
     .plate { display: none; }
+    /* "Tap for sound" lies inside the monitor's lower bezel, clear of the screen's focus ring (2 px, at the monitor's
+       edge) and of the panel's bar under the monitor: it used to hang 9 px below the monitor, over that bar */
+    #soundChip { bottom: 6px; }
   }
+  /* (a window this short, as upright: the screen fills the monitor, so the chip would sit on the picture; no chip, and
+     the first tap anywhere still starts the sound) */
+  @media (orientation: landscape) and (max-height: 300px) { #soundChip { display: none; } }
   /* Tab means nothing on a touch screen: the screen's focus pill says only where typing goes */
   body:is(.touch-keys, .touch-hidden) #focusHint .fh-tab { display: none; }
   /* ---- a phone held upright with the on-screen panel: the panel decides, the screen takes the rest ----

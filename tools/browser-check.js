@@ -22532,8 +22532,11 @@ async function mobileChecks(browser, base, check) {
     });
     // (a toast never lies over the picture: here it is docked over the keys, under the BREAK/CLEAR strip, or over the
     // app bar when it is one line; a key under it still takes the tap)
-    check(`mobile (${w}x${h}, 2048): the toast says tap (no "Esc", no "press"), lies over neither the picture nor the BREAK/CLEAR strip`,
-      /tap a key/.test(t.text) && /BREAK/.test(t.text) && !/Esc|press/.test(t.text) && !t.onPicture && !t.strip.length && t.inView, JSON.stringify(t));
+    // (held sideways, 734x343, the keys stand round the picture and no key may be covered: the toast lies over the top of
+    // the picture then, compact -- the layoutBugs group's rule; upright it stays off the picture)
+    const sideways = w > h;
+    check(`mobile (${w}x${h}, 2048): the toast says tap (no "Esc", no "press"), ${sideways ? 'covers no key and not the BREAK/CLEAR strip' : 'lies over neither the picture nor the BREAK/CLEAR strip'}`,
+      /tap a key/.test(t.text) && (sideways ? t.text === '2048: tap a key to play' : /BREAK/.test(t.text)) && !/Esc|press/.test(t.text) && (sideways ? !t.keys.length : !t.onPicture) && !t.strip.length && t.inView, JSON.stringify(t));
     {
       // a toast of more lines than one is docked over the letter rows: a tap on a key it lies over reaches the key (the
       // toast's body takes no taps)
@@ -22556,7 +22559,13 @@ async function mobileChecks(browser, base, check) {
       });
       if (at) await page.touchscreen.tap(at.x, at.y);
       const hit = await page.evaluate(() => ({ key: window.__keyHit, toastUp: !document.getElementById('toast').hidden }));
-      check(`mobile (${w}x${h}, 2048): a tap on a key under a showing toast (${at && at.name}) reaches the key`, !!at && hit.key === at.name, JSON.stringify({ at, hit }));
+      // (held sideways no key is under a toast at all, so there is no tap to pass through: that is the check -- but a
+      // toast that never showed, or has no size, covers nothing either, so it is shown, sized, in view and keys stand first)
+      const tb = await page.evaluate(() => { const t = document.getElementById('toast'), b = t.getBoundingClientRect();
+        return { shown: !t.hidden && b.width > 0 && b.height > 0, inView: b.top >= 0 && b.bottom <= innerHeight && b.left >= 0 && b.right <= innerWidth,
+          keys: [...document.querySelectorAll('#touchKeys button')].filter((e) => e.checkVisibility()).length }; });
+      check(`mobile (${w}x${h}, 2048): ${sideways ? 'a wrapped toast, shown and in view with the keys showing, covers no key' : `a tap on a key under a showing toast (${at && at.name}) reaches the key`}`,
+        sideways ? tb.shown && tb.inView && tb.keys > 0 && at === null : !!at && hit.key === at.name, JSON.stringify({ at, hit, tb }));
     }
     if (shotDir) await page.screenshot({ path: path.join(shotDir, `mobile-${w}x${h}-toast.png`) });
     await closeCtx(ctx);
@@ -23749,16 +23758,300 @@ async function toastOffScreenChecks(browser, base, check) {
         const hits = (a, o) => !(a.bottom <= o.top || a.top >= o.bottom || a.right <= o.left || a.left >= o.right);
         const t = rect(document.getElementById('toast')), c = rect(document.getElementById('screen')), chipEl = document.getElementById('soundChip');
         const chip = chipEl.checkVisibility() ? rect(chipEl) : null;
+        const keys = [...document.querySelectorAll('#touchKeys button')].filter((b) => b.checkVisibility()).map(rect);
         return { toast: Object.values(t).map(Math.round), canvas: Object.values(c).map(Math.round), chip: chip && Object.values(chip).map(Math.round),
-          overCanvas: hits(t, c), overChip: !!chip && hits(t, chip), inView: t.left >= 0 && t.top >= 0 && t.right <= innerWidth && t.bottom <= innerHeight };
+          overCanvas: hits(t, c), nKeys: keys.length, overKeys: keys.filter((k) => hits(t, k)).length, overChip: !!chip && hits(t, chip),
+          pass: document.getElementById('toast').classList.contains('passthru'), h: t.bottom - t.top, cap: Math.min(40, 0.22 * (c.bottom - c.top)), inView: t.left >= 0 && t.top >= 0 && t.right <= innerWidth && t.bottom <= innerHeight,
+          short: matchMedia('(orientation: landscape) and (max-height: 500px)').matches && document.body.classList.contains('touch-keys') };
       });
-      check(`${L}: "${text.slice(0, 20)}…": the toast's rect and the canvas's do not intersect, it covers no part of the sound chip, and it is in view`,
-        !r.overCanvas && !r.overChip && r.inView, JSON.stringify(r));
+      // (held sideways with the keys round the screen there is no place off both the picture and the keys, and a toast
+      // never covers a key or a Pad button: it lies over the top of the picture then -- the layoutBugs group's rule)
+      // (sideways: keys stand; the toast covers no key and is within the cap, or -- too long for it -- docks over the letter
+      // keys off the picture, passthru: Ruling C, tested at length in the layoutBugs group)
+      check(`${L}: "${text.slice(0, 20)}…": ${touch && w > h ? 'the toast covers no key or Pad button within its cap, or docks over the letter keys off the picture' : "the toast's rect and the canvas's do not intersect"}, it covers no part of the sound chip, and it is in view`,
+        (r.short ? r.nKeys > 0 && ((r.overKeys === 0 && r.h <= r.cap + 0.5) || (r.pass && !r.overCanvas)) : !r.overCanvas) && !r.overChip && r.inView, JSON.stringify(r));
       if (shotDir) await page.screenshot({ path: path.join(shotDir, `toast-off-screen-${w}x${h}-${text.length}.png`) });
     }
     check(`${L}: no page errors`, !errors.length, errors.join('; '));
     await closeCtx(ctx);
   }
+}
+
+// Three layout bugs the UX pass found (each is a rectangle test, so it fails when the thing overlaps what it must not):
+//  B5 Ask Claude's intro with no key saved: the sentence "Claude reads only this emulated <machine> ..." is wholly visible,
+//     above the key form, nothing overlapping it, on a phone held upright, right after opening and 3 s later;
+//  B6 the "Tap for sound" chip: clear of the screen's own border and of the bottom bar, at 659x393 and 653x280, on the
+//     base screen and on WYRMFIRE;
+//  B7 the start toast in a short landscape window covers no key and no Pad button (CoCo 3, Menu -> Programs -> Minesweeper).
+const rectOf = (e) => { const b = e.getBoundingClientRect(); return { left: b.left, top: b.top, right: b.right, bottom: b.bottom }; };
+async function layoutBugsChecks(browser, base, check) {
+  // ---- B5 ----
+  {
+    const ctx = await browser.newContext({ viewport: { width: 393, height: 659 }, hasTouch: true, isMobile: true, serviceWorkers: 'block' });
+    const page = await ctx.newPage();
+    const errors = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto(`${base}?machine=dragon64`); await started(page);
+    await emuFrames(page, 10);
+    await page.evaluate(() => { try { localStorage.removeItem('cloadm.anthropicKey'); } catch (e) { /* none */ } });
+    await page.tap('#btnAsk');
+    await waitFor(page, () => !document.getElementById('ask').hidden && !document.getElementById('askKeyForm').hidden, 'ask open with the key form');
+    for (const [when, wait] of [['on opening', 400], ['3 s later', 3000]]) {
+      await page.waitForTimeout(wait);
+      const r = await page.evaluate(() => {
+        const rect = (e) => { const b = e.getBoundingClientRect(); return { left: b.left, top: b.top, right: b.right, bottom: b.bottom }; };
+        const t = document.getElementById('askEmptyText'), tr = rect(t), k = rect(document.getElementById('askKeyForm')), a = rect(document.getElementById('ask'));
+        // the sentence's own box, and the element on top at its first and last line (a covering box takes the hit)
+        const at = (x, y) => { const el = document.elementFromPoint(x, y); return !!el && (el === t || t.contains(el)); };
+        const mx = (tr.left + tr.right) / 2;
+        const askScrolls = getComputedStyle(document.getElementById('ask')).overflowY;
+        return { text: Object.values(tr).map(Math.round), key: Object.values(k).map(Math.round), ask: Object.values(a).map(Math.round), vh: innerHeight, askScrolls,
+          aboveKey: tr.bottom <= k.top + 0.5, inSheet: tr.top >= a.top - 0.5 && tr.bottom <= a.bottom + 0.5,
+          topHit: at(mx, tr.top + 4), bottomHit: at(mx, tr.bottom - 4), shown: t.checkVisibility(), text_: t.textContent.slice(0, 60) };
+      });
+      check(`Ask Claude intro (393x659, no key, ${when}): the sentence is whole, above the key form, inside the sheet, and nothing covers its first or last line`,
+        r.shown && r.aboveKey && r.inSheet && r.topHit && r.bottomHit && /^Claude reads only this emulated Dragon 64/.test(r.text_), JSON.stringify(r));
+    }
+    // the key form is below the fold now: scrolled to, the API-key field lies inside the sheet (it is reachable), and the intro is
+    // still the sheet's first thing
+    const reach = await page.evaluate(async () => {
+      const inp = document.getElementById('askKeyInput'); inp.scrollIntoView({ block: 'nearest' });
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      const a = document.getElementById('ask').getBoundingClientRect(), b = inp.getBoundingClientRect(), at = document.elementFromPoint((b.left + b.right) / 2, (b.top + b.bottom) / 2);
+      return { input: [b.top, b.bottom].map(Math.round), ask: [a.top, a.bottom].map(Math.round), inside: b.top >= a.top - 0.5 && b.bottom <= a.bottom + 0.5, onTop: at === inp };
+    });
+    check('Ask Claude intro (393x659, no key): scrolled to, the API-key field lies inside the sheet and takes the tap (reachable)', reach.inside && reach.onTop, JSON.stringify(reach));
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, 'layout-bugs-ask-intro-393x659.png') });
+    check('Ask Claude intro: no page errors', !errors.length, errors.join('; '));
+    await closeCtx(ctx);
+  }
+  // ---- B6 ----
+  for (const [w, h] of [[659, 393], [653, 280]]) {
+    for (const start of ['', 'wyrmfire']) {
+      const L = `sound chip (${w}x${h}${start ? ', WYRMFIRE' : ''})`;
+      const ctx = await browser.newContext({ viewport: { width: w, height: h }, hasTouch: true, isMobile: true, serviceWorkers: 'block' });
+      const page = await ctx.newPage();
+      const errors = [];
+      page.on('pageerror', (e) => errors.push(e.message));
+      await page.goto(`${base}?machine=dragon64${start ? `&start=${start}` : ''}`); await started(page);
+      await emuFrames(page, 20);
+      await page.evaluate(() => document.getElementById('screen').focus());
+      await emuFrames(page, 3);
+      const r = await page.evaluate(() => {
+        const rect = (e) => { const b = e.getBoundingClientRect(); return { left: b.left, top: b.top, right: b.right, bottom: b.bottom }; };
+        const chipEl = document.getElementById('soundChip'), screen = document.getElementById('screen'), tube = document.querySelector('.tube');
+        const o = {}; for (const [k, e] of [['chip', chipEl], ['screen', screen], ['tube', tube]]) o[k] = e && e.checkVisibility() ? Object.values(rect(e)).map(Math.round) : null;
+        o.barBox = document.querySelector('#touchKeys .tkcenter') ? Object.values(rect(document.querySelector('#touchKeys .tkcenter'))).map(Math.round) : null; o.chipShown = chipEl.checkVisibility();
+        return o;
+      });
+      // clear: no intersection (1 px apart) with the screen's focus ring (the monitor's own edge, 2 px) or the bar under it;
+      // a chip that is not shown (a window with no room: the first tap still starts the sound) covers nothing
+      const apart = (c, o) => !c || !o || c[3] + 1 <= o[1] || c[1] >= o[3] + 1 || c[2] + 1 <= o[0] || c[0] >= o[2] + 1;
+      const inside = (c, o) => c[0] >= o[0] && c[2] <= o[2] && c[3] <= o[3] - 2 && c[1] >= o[1];
+      if (shotDir) await page.screenshot({ path: path.join(shotDir, `layout-bugs-sound-chip-${w}x${h}${start ? '-wyrmfire' : ''}.png`) });
+      check(`${L}: the chip is clear of the screen (and its green focus border) and of the bar under the monitor, inside the bezel when shown`,
+        !r.chipShown || (apart(r.chip, r.screen) && inside(r.chip, r.tube) && apart(r.chip, r.barBox)), JSON.stringify(r));
+      await closeCtx(ctx);
+    }
+  }
+  await sidewaysToastChecks(browser, base, check);
+}
+
+// Ruling C: the toast in a short landscape window with the touch keys round the screen (js/ui/feedback.js sidewaysSlot).
+// Over the top of the picture (picture top + 4 px, the picture's width less 16), compact type, the action inline at the end
+// of the text's last line with a 44 px tap area, at most 2 lines / 40 px / 22% of the picture; a toast that does not fit
+// docks over the letter keys (Keys mode: full text, passthru, off the picture) or is clamped to two lines ending "… More"
+// (Pad, Stick: a tap opens it in place, its time paused). It never covers a Pad button or a stick. Where the stage has room
+// under the picture (a taller window) its band holds the toast there, off the picture and off every key.
+async function sidewaysToastChecks(browser, base, check) {
+  const SIZES = [[653, 280], [734, 343], [659, 393]];
+  const CASES = [
+    ['short + Undo', 'Snapshot 1 taken', { action: 'Undo' }, false],
+    ['long + Undo', 'Deleted JUNK.BIN, GAME.CAS and LEVEL.VDK', { action: 'Undo' }, false],
+    ['two-part (ROM removed + Switch off and on)', 'ROM removed.', { also: ['The Dragon 64 keeps it until you switch off and on.', 'Switch off and on'] }, true],
+    ['error + Details', 'The disk could not be read. The file is not a disk image this CLOADM knows how to open at all.', { error: true, first: 'The disk could not be read.' }, false],
+  ];
+  const errors = [];
+  const open = async (w, h, query) => {
+    const ctx = await browser.newContext({ viewport: { width: w, height: h }, hasTouch: true, isMobile: true, serviceWorkers: 'block' });
+    const page = await ctx.newPage();
+    page.on('pageerror', (e) => errors.push(`${w}x${h} ${query}: ${e.message}`));
+    await page.goto(`${base}${query}`); await started(page); await emuFrames(page, 20);
+    return { ctx, page };
+  };
+  const mode = async (page, name) => { await page.evaluate((m) => { for (const b of document.querySelectorAll('#tkModeSwitch button')) if (b.textContent.trim() === m) b.click(); }, name); await emuFrames(page, 3); };
+  // everything the rules read, from the page as it is now
+  const snap = (page) => page.evaluate(() => {
+    const rc = (e) => { const b = e.getBoundingClientRect(); return { left: b.left, top: b.top, right: b.right, bottom: b.bottom }; };
+    const hits = (a, o) => !(a.bottom <= o.top || a.top >= o.bottom || a.right <= o.left || a.left >= o.right);
+    const t = document.getElementById('toast'), a = document.getElementById('toastAction'), tx = document.getElementById('toastText');
+    // the keys that are really there: shown, not see-through, taking pointer events, the topmost thing at their centre (or under the toast)
+    const real = (e) => { if (!e.checkVisibility({ opacityProperty: true, visibilityProperty: true }) || getComputedStyle(e).pointerEvents === 'none') return false;
+      const r = e.getBoundingClientRect(), top = document.elementFromPoint((r.left + r.right) / 2, (r.top + r.bottom) / 2); return !!top && (top === e || e.contains(top) || document.getElementById('toastRegion').contains(top)); };
+    const keys = [...document.querySelectorAll('#touchKeys button')].filter(real).map(rc);
+    const pic = rc(document.getElementById('screen')), box = rc(t), act = a.checkVisibility() ? rc(a) : null;
+    const tap = act ? { left: act.left - 6, right: act.right + 6, top: (act.top + act.bottom) / 2 - 22, bottom: (act.top + act.bottom) / 2 + 22 } : null;
+    const letters = [...document.querySelectorAll('#touchKeys button')].filter((e) => real(e) && /^[A-Z]$/.test(e.textContent.trim()));
+    return { shown: !t.hidden && box.right > box.left && box.bottom > box.top, text: tx.textContent, also: document.getElementById('toastAlso').hidden ? null : document.getElementById('toastAlso').textContent,
+      box, pic, nKeys: keys.length, nLetters: letters.length, overKeys: keys.filter((k) => hits(box, k)).length, onPic: hits(box, pic), h: box.bottom - box.top, picH: pic.bottom - pic.top,
+      act, lastLine: act ? act.bottom >= box.bottom - 6 && act.top >= box.top : null, tapOverKeys: tap ? keys.filter((k) => hits(tap, k)).length : 0,
+      after: act ? getComputedStyle(a, '::after').height : null, inlineFlow: act ? /^inline/.test(getComputedStyle(a).display) && getComputedStyle(t).display === 'block' : null, pass: t.classList.contains('passthru'), over: t.classList.contains('overscreen'), clamped: t.classList.contains('clamped'),
+      pend: window.emu.feedback.pending[0] || null, inView: box.left >= 0 && box.right <= innerWidth && box.top >= 0 && box.bottom <= innerHeight };
+  });
+  const raise = (page, text, o) => page.evaluate(([t, o2]) => { window.__ran = null; window.emu.feedback.clear();
+    window.emu.feedback.toast(t, { error: !!o2.error, action: o2.action ? { label: o2.action, run() { window.__ran = o2.action; } } : null,
+      also: o2.also ? { text: o2.also[0], action: { label: o2.also[1], run() { window.__ran = o2.also[1]; } } } : null }); }, [text, o]);
+  const shown = (page) => waitFor(page, () => !document.getElementById('toast').hidden, null, 5000);
+  const cut = (x, full) => x.text === full || /… More$/.test(x.text);   // (never ends in a cut word without "… More")
+  for (const [w, h] of SIZES) for (const machine of ['dragon64', 'coco3']) for (const m of ['Keys', 'Pad']) {
+    const L = `sideways toast (${machine} ${w}x${h}, ${m})`;
+    const { ctx, page } = await open(w, h, `?machine=${machine}`);
+    await mode(page, m);
+    for (const [name, text, o, twoPart] of CASES) {
+      await raise(page, text, o);
+      await shown(page); await emuFrames(page, 3);
+      const x = await snap(page);
+      const cap = Math.min(40, 0.22 * x.picH);
+      const docked = x.pass && !x.over;
+      const want = o.first || text, wantFull = want + (twoPart ? ` ${o.also[0]}` : '');
+      const base2 = x.shown && x.inView && x.nKeys > 0 && (docked ? x.text === want : cut(x, wantFull));
+      if (docked) {
+        // Keys mode over the cap: over the letter keys, full text, off the picture, passthru
+        check(`${L}: ${name}: docked over the letter keys (Keys mode only), the full text, off the picture`, m === 'Keys' && x.nLetters > 0 && !x.onPic && base2, JSON.stringify(x));
+      } else if (x.over) {
+        // over the picture: at most 2 lines, 40 px and 22% of it, covers no key or Pad button, the action on the last line
+        check(`${L}: ${name}: over the picture, within the cap (2 lines, 40 px, 22%), covering no key, the action on the last line with a 44 px tap area clear of the keys`,
+          base2 && x.onPic && x.h <= cap + 0.5 && x.overKeys === 0 && (Math.abs(x.box.top - (x.pic.top + 4)) <= 1 || Math.abs(x.box.bottom - (x.pic.bottom - 4)) <= 1)
+          && (x.act ? x.lastLine && x.inlineFlow && x.after === '44px' && x.tapOverKeys === 0 : true), JSON.stringify(x));
+      } else {
+        // (room under the picture: the stage's band there holds it, off the picture and off every key)
+        check(`${L}: ${name}: placed off the picture and off every key`, base2 && !x.onPic && x.overKeys === 0, JSON.stringify(x));
+      }
+      if (twoPart) check(`${L}: ${name}: a two-part toast never fits the cap: ${m === 'Keys' ? 'it docks over the letter keys' : 'it is clamped to two lines ending "… More"'}`,
+        m === 'Keys' ? docked : x.clamped && /… More$/.test(x.text) && x.h <= cap + 0.5 && !!x.act && x.lastLine, JSON.stringify(x));
+    }
+    if (m === 'Keys' && machine === 'dragon64' && w === 653) {
+      // Keys mode, docked: a tap on a key under it types, and its own button works
+      await raise(page, CASES[2][1], CASES[2][2]);
+      await shown(page); await emuFrames(page, 3);
+      const at = await page.evaluate(() => {
+        const box = document.getElementById('toast').getBoundingClientRect(), btns = [...document.querySelectorAll('#toast button')].filter((e) => e.checkVisibility()).map((e) => e.getBoundingClientRect());
+        for (const key of [...document.querySelectorAll('#touchKeys button')].filter((e) => e.checkVisibility())) {
+          const r = key.getBoundingClientRect(), l = Math.max(r.left, box.left) + 2, t = Math.max(r.top, box.top) + 2, rr = Math.min(r.right, box.right) - 2, b = Math.min(r.bottom, box.bottom) - 2;
+          if (rr <= l || b <= t) continue;
+          const x = (l + rr) / 2, y = (t + b) / 2;
+          if (btns.some((q) => x >= q.left - 4 && x <= q.right + 4 && y >= q.top - 4 && y <= q.bottom + 4)) continue;
+          window.__keyHit = null; key.addEventListener('pointerdown', () => { window.__keyHit = key.textContent.trim(); }, { once: true });
+          return { x, y, name: key.textContent.trim() };
+        }
+        return null;
+      });
+      if (at) await page.touchscreen.tap(at.x, at.y);
+      const hit = await page.evaluate(() => window.__keyHit);
+      check(`${L}: docked over the letter keys: a tap on a key under it (${at && at.name}) reaches the key`, !!at && hit === at.name, JSON.stringify({ at, hit }));
+      await raise(page, CASES[2][1], CASES[2][2]); await emuFrames(page, 3);
+      const btn = await page.evaluate(() => { const b = document.querySelector('#toastAlso button'); const r = b.getBoundingClientRect(); return { x: (r.left + r.right) / 2, y: (r.top + r.bottom) / 2, ok: b.checkVisibility() }; });
+      await page.touchscreen.tap(btn.x, btn.y);
+      check(`${L}: docked over the letter keys: its own button ("Switch off and on") works`, btn.ok && await page.evaluate(() => window.__ran) === 'Switch off and on', JSON.stringify(btn));
+      // keys over the picture's top edge leaving no 200 px span AND over its bottom edge: no edge is free, so (Keys mode) the dock
+      const pic = (await snap(page)).pic;
+      await page.evaluate((r) => { const tk = document.getElementById('touchKeys'); tk.style.zIndex = '100000';
+        for (const el of tk.querySelectorAll('button')) { const b = el.getBoundingClientRect(); if (b.right > r.left && b.left < r.right && b.bottom > r.top && b.top < r.bottom) { el.dataset.hid = '1'; el.style.visibility = 'hidden'; } }
+        for (const q of [[r.left, r.top, r.left + 80, r.top + 70], [r.left + 150, r.top, r.right, r.top + 70], [r.left, r.bottom - 40, r.right, r.bottom]]) { const b = document.createElement('button'); b.className = 'fakekey'; b.textContent = 'KEY';
+          b.style.cssText = `position:fixed;left:${q[0]}px;top:${q[1]}px;width:${q[2] - q[0]}px;height:${q[3] - q[1]}px;z-index:100000;opacity:1;pointer-events:auto`; tk.append(b); } }, pic);
+      await raise(page, CASES[0][1], CASES[0][2]); await shown(page); await emuFrames(page, 4);
+      const dd = await snap(page);
+      check(`${L}: keys over the picture's top (no 200 px span) and over its bottom edge too: the letter keys' dock, off the picture`, dd.shown && dd.pass && !dd.over && !dd.onPic && dd.text === CASES[0][1], JSON.stringify(dd));
+    }
+    if (m === 'Pad' && machine === 'dragon64' && w === 653) {
+      // Pad mode, clamped: a tap on the body opens it in place (full text, time paused), a second tap closes it, a tap outside ends it
+      await raise(page, CASES[2][1], CASES[2][2]);
+      await shown(page); await emuFrames(page, 3);
+      const c = await snap(page);
+      await page.touchscreen.tap(c.box.left + 40, c.box.top + 6);
+      await emuFrames(page, 3);
+      const o = await snap(page);
+      check(`${L}: clamped: a tap on the toast opens it in place (the full text and the second line, in view) and pauses its time`, c.clamped && !o.clamped && o.pend && o.pend.opened && o.pend.paused && o.inView && /ROM removed\./.test(o.text) && /switch off and on/.test(o.also || ''), JSON.stringify({ c: c.text, o }));
+      await page.touchscreen.tap(o.box.left + 40, o.box.top + 6); await emuFrames(page, 3);
+      const k = await snap(page);
+      check(`${L}: clamped: a second tap closes it again (two lines, "… More", its time running)`, k.clamped && /… More$/.test(k.text) && k.pend && !k.pend.opened && !k.pend.paused, JSON.stringify(k));
+      await page.touchscreen.tap(k.pic.left + 20, k.pic.bottom - 20); await emuFrames(page, 3);
+      check(`${L}: clamped: a tap outside ends it`, await page.evaluate(() => document.getElementById('toast').hidden), '');
+    }
+    await closeCtx(ctx);
+  }
+  // game start, at 653x280: one line, the title row of the picture left fully visible (nothing drawn under the toast)
+  for (const machine of ['dragon64', 'coco3']) for (const game of ['2048', 'minesweeper']) {
+    const { ctx, page } = await open(653, 280, `?machine=${machine}&start=${game}`);
+    await waitFor(page, () => /tap a key to play/.test(document.getElementById('toastText').textContent), null, 15000);
+    await emuFrames(page, 5);
+    const x = await snap(page);
+    // what the game drew under the toast: sharp edges (a glyph's pixels) in the toast's rectangle; and the same rectangle
+    // 40 px lower, where the title is, as the control that the measure sees a title at all
+    const under = await page.evaluate(async () => {
+      const c = document.getElementById('screen'), t = document.getElementById('toast').getBoundingClientRect(), p = c.getBoundingClientRect();
+      const img = new Image(); img.src = c.toDataURL(); await img.decode();
+      const o = document.createElement('canvas'); o.width = c.width; o.height = c.height; const g = o.getContext('2d'); g.drawImage(img, 0, 0);
+      const sx = c.width / p.width, sy = c.height / p.height;
+      const edges = (dy) => {
+        const x0 = Math.max(0, Math.floor((t.left - p.left) * sx)), y0 = Math.max(0, Math.floor((t.top - p.top + dy) * sy)), w = Math.ceil(t.width * sx), h = Math.ceil(t.height * sy);
+        const d = g.getImageData(x0, y0, w, h).data; let n = 0;
+        for (let y = 0; y < h; y++) for (let x = 1; x < w; x++) { const i = (y * w + x) * 4, j = i - 4; if (Math.abs(d[i] - d[j]) + Math.abs(d[i + 1] - d[j + 1]) + Math.abs(d[i + 2] - d[j + 2]) > 120) n++; }
+        return n;
+      };
+      return { drawn: edges(0), control: edges(40) };
+    });
+    check(`sideways toast (${machine} 653x280, ${game} start): "tap a key to play" in one line, within the cap, covering no key, and nothing the game drew under it (the title row stays visible)`,
+      x.shown && x.text === `${game === '2048' ? '2048' : 'Minesweeper'}: tap a key to play` && x.text.length <= 36 && x.over && x.h <= Math.min(40, 0.22 * x.picH) + 0.5 && x.h < 30 && x.overKeys === 0 && x.nKeys > 0 && under.drawn === 0 && under.control > 20,
+      JSON.stringify({ x: { text: x.text, box: x.box, pic: x.pic, h: x.h, over: x.over, overKeys: x.overKeys }, under }));
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, `sideways-toast-${machine}-${game}.png`) });
+    await closeCtx(ctx);
+  }
+  // WYRMFIRE's Pad at 653x280: FIRE and USE lie on the picture's top corners, so the toast takes the bottom edge there
+  {
+    const { ctx, page } = await open(653, 280, '?machine=dragon64&start=wyrmfire');
+    // the real start toast, while it shows (FIRE and USE lie under the picture and are no keys, so the top edge is free: a toast
+    // that took the bottom edge here covered the HUD for its whole life)
+    await waitFor(page, () => /WYRMFIRE/.test(document.getElementById('toastText').textContent) && !document.getElementById('toast').hidden, null, 10000);
+    const st = await snap(page);
+    check('sideways toast (WYRMFIRE Pad, 653x280): the real start toast, while it shows, is at the picture\'s top edge (picture top + 4), not the bottom (the HUD stays clear)',
+      st.shown && st.over && Math.abs(st.box.top - (st.pic.top + 4)) <= 1 && st.overKeys === 0 && st.nKeys > 0 && /WYRMFIRE/.test(st.text), JSON.stringify(st));
+    await emuFrames(page, 10);
+    await raise(page, CASES[2][1], CASES[2][2]); await shown(page); await emuFrames(page, 3);
+    const x = await snap(page);
+    check('sideways toast (WYRMFIRE Pad, 653x280): a two-part toast is clamped to two lines ending "… More", the action visible on the second line, covering no Pad button, at the picture\'s top (the HUD stays clear)',
+      /touch-pad/.test(await page.evaluate(() => document.body.className)) && x.clamped && /… More$/.test(x.text) && x.h <= Math.min(40, 0.22 * x.picH) + 0.5 && x.act && x.lastLine && x.overKeys === 0 && x.nKeys > 0
+      && Math.abs(x.box.top - (x.pic.top + 4)) <= 1, JSON.stringify(x));
+    // a key lying over the picture's top: the toast keeps the top edge, narrowed to the free span between keys if that is at least
+    // 200 px wide; with no such span it takes the bottom edge, clamped first and anchored 4 px over the picture's bottom
+    // (the synthetic keys must be the topmost thing where they stand, so the keys' layer is raised above the picture while they
+    // are there, and the real keys that overlap the picture -- FIRE and USE, which lie under it -- are hidden for the case)
+    const fake = (page2, rects) => page2.evaluate((rs) => {
+      const tk = document.getElementById('touchKeys'), pic = document.getElementById('screen').getBoundingClientRect();
+      for (const el of document.querySelectorAll('.fakekey')) el.remove();
+      for (const el of tk.querySelectorAll('button[data-hid]')) { el.style.visibility = ''; delete el.dataset.hid; }
+      tk.style.zIndex = rs.length ? '100000' : '';
+      if (!rs.length) return;
+      for (const el of tk.querySelectorAll('button')) { const r = el.getBoundingClientRect(); if (r.right > pic.left && r.left < pic.right && r.bottom > pic.top && r.top < pic.bottom) { el.dataset.hid = '1'; el.style.visibility = 'hidden'; } }
+      for (const r of rs) { const b = document.createElement('button'); b.className = 'fakekey'; b.textContent = 'KEY';
+        b.style.cssText = `position:fixed;left:${r[0]}px;top:${r[1]}px;width:${r[2] - r[0]}px;height:${r[3] - r[1]}px;z-index:100000;opacity:1;pointer-events:auto`; tk.append(b); } }, rects);
+    {
+      const pic = x.pic;
+      await fake(page, [[pic.left, pic.top, pic.left + 60, pic.top + 70]]);
+      await raise(page, CASES[0][1], CASES[0][2]); await shown(page); await emuFrames(page, 4);
+      const y = await snap(page);
+      check('sideways toast (653x280, a key over the picture\'s top-left): the toast keeps the top edge, narrowed to the free span (at least 200 px) clear of the key',
+        y.shown && y.over && Math.abs(y.box.top - (y.pic.top + 4)) <= 1 && y.box.left >= pic.left + 60 && y.box.right - y.box.left >= 200 && y.overKeys === 0 && y.nKeys > 0, JSON.stringify(y));
+      await fake(page, [[pic.left, pic.top, pic.left + 80, pic.top + 70], [pic.left + 150, pic.top, pic.right, pic.top + 70]]);
+      await raise(page, CASES[2][1], CASES[2][2]); await shown(page); await emuFrames(page, 4);
+      const z = await snap(page);
+      check('sideways toast (653x280, two keys over the picture\'s top leaving no 200 px span): the bottom edge, clamped to two lines first, its bottom 4 px over the picture\'s bottom',
+        z.shown && z.over && z.clamped && z.h <= Math.min(40, 0.22 * z.picH) + 0.5 && Math.abs(z.box.bottom - (z.pic.bottom - 4)) <= 1 && z.overKeys === 0, JSON.stringify(z));
+      await fake(page, []);
+    }
+    await closeCtx(ctx);
+  }
+  check('sideways toasts: no page errors', errors.length === 0, errors.join('; '));
 }
 
 // Short links end to end (js/ui/share.js, Session.shortLink, shortlink/worker.js): the real Worker, run here in Node
@@ -25282,6 +25575,7 @@ const GROUPS = (base, site) => [
   ['romOnce', (b) => romOnceChecks(b, base, check)],
   ['romNotRom', (b) => romNotRomChecks(b, base, check)],
   ['toastOffScreen', (b) => toastOffScreenChecks(b, base, check)],
+  ['layoutBugs', (b) => layoutBugsChecks(b, base, check)],
   // (required when the group runs: the shard planner's copy of this file runs --list-groups without it)
   ['connector', (b) => require('./connector-check').connectorChecks(b, check, { shots: shotDir })],
 ];
