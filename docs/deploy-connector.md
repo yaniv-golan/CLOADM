@@ -41,6 +41,43 @@ answers Claude's MCP requests with two tools and two views, and the emulator the
 * **Node 22.12 or later** where you deploy: wrangler's build step runs `node ../build.js`, which builds both views
   from `connector/view/` and `js/` (it folds the emulator into the offline copy; nothing else is built).
 
+## Origin
+
+The MCP Streamable HTTP transport says servers **MUST** validate the `Origin` header on every incoming connection,
+against DNS rebinding (2025-06-18, "Security Warning"), and that a present, invalid `Origin` gets **HTTP 403 Forbidden**,
+whose body **MAY** be a JSON-RPC error response with no `id` (2025-11-25, the version the Worker offers first,
+"Security Warning"; and 2026-07-28, streamable-http, "Security & Endpoint").
+None of them says what to do when it is absent. The Worker (`ALLOWED_ORIGINS`, `connector/worker/src/server.js`):
+
+* **No `Origin`: served.** The connector's real callers are servers, not browsers: Claude connects to a remote MCP
+  server from Anthropic's cloud (claude.ai, Claude Desktop, Cowork and the mobile apps alike), and Claude Code, `curl`
+  and other command-line clients call it directly. None of them is a page, and a browser always sends `Origin` on a
+  cross-origin POST, so refusing an absent one would stop every real caller and protect against nothing.
+* **`https://claude.ai`, `https://claude.com`: served.** Anthropic's documentation (custom connectors on
+  support.claude.com, claude.com/docs/connectors/building, the IP-address list on platform.claude.com) does not say
+  whether its backend sends an `Origin`, or which. If it ever forwards the site's, these are the only two it could be.
+* **`https://mcp.cloadm.dev`: served** (the Worker's own origin: a same-origin request from it).
+* **Anything else: 403**, `{"jsonrpc":"2.0","error":{"code":-32600,"message":"forbidden: …"}}`, before the method or
+  path is looked at. The comparison is exact, as browsers send it (lowercase scheme and host, no port for the default
+  one): `http://claude.ai`, a subdomain, a port, a look-alike host and `null` are all refused. A browser-based client
+  such as the MCP Inspector is refused too; use it through its proxy, which calls from a server (no `Origin`).
+
+The Worker sends no CORS headers, so a page elsewhere could not read an answer anyway; the check is what stops a
+rebound host name from reaching it. After a deploy, check both halves:
+
+```
+# a foreign Origin: 403
+curl -s -o /dev/null -w '%{http_code}\n' -X POST https://mcp.cloadm.dev/mcp -H 'origin: https://example.com' \
+  -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"ping"}'
+# claude.ai's: 200
+curl -s -o /dev/null -w '%{http_code}\n' -X POST https://mcp.cloadm.dev/mcp -H 'origin: https://claude.ai' \
+  -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"ping"}'
+```
+
+If claude.ai's connector stops connecting after a deploy (it fails to add or to refresh), and `curl` with that same
+`Origin` header returns 403, Anthropic's backend sends an `Origin` this list does not hold (the 403 is between that
+backend and the Worker, so no browser shows it): add it here and in `tests/connector.test.js`.
+
 ## Deploy
 
 From a checkout of the release:

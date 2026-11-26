@@ -52,6 +52,9 @@ Next version: 0.3.1 (the plugin and extension manifests carry it; `tests/plugin.
   on the end screen again. Only the engine changed (`wyrmfire.bin`, SHA-256 2094d081, 10,432 bytes); the converter, the
   licence and the Freedoom level disks are byte for byte the previous pin's (`js/wyrmfire/pin.js`, rebuilt with
   `tools/wyrmfire-vendor.js`).
+- **The side-panel connector checks `Origin`,** as the MCP Streamable HTTP transport requires: a request from a browser whose
+  `Origin` is not claude.ai, claude.com or the connector's own gets 403. Requests with no `Origin` (Claude's servers, Claude Code,
+  command-line clients) are served as before (`docs/deploy-connector.md`, "Origin").
 
 #### Fixed
 

@@ -28,6 +28,10 @@
 import { createSkillServer, SKILLS_EXTENSION } from '../../../js/mcp/skills.js';
 export const MIME = 'text/html;profile=mcp-app';
 export const ORIGIN = 'https://cloadm.dev';
+// Origin (MCP Streamable HTTP, "Security": servers MUST validate it; a present, invalid Origin gets 403). Claude's clients
+// call from servers (claude.ai's backend, Claude Code) and send none, so an absent Origin passes; a browser always sends
+// one, and only Claude's own sites and this Worker's are let through (docs/deploy-connector.md, "Origin").
+export const ALLOWED_ORIGINS = Object.freeze(['https://claude.ai', 'https://claude.com', 'https://mcp.cloadm.dev']);
 export const BODY_MAX = 64 * 1024;   // the largest request read; a tools/call here has no arguments
 const VERSIONS = ['2025-11-25', '2025-06-18', '2025-03-26'];
 export const MODERN_VERSIONS = ['2026-07-28'];
@@ -150,6 +154,8 @@ export function createServer(views) {
     async fetch(req) {
       const url = new URL(req.url);
       if (url.pathname !== '/mcp') return new Response('CLOADM MCP connector: POST /mcp (https://cloadm.dev/docs/mcp.md)\n', { status: 404, headers: { 'content-type': 'text/plain' } });
+      const origin = req.headers.get('origin');
+      if (origin !== null && !ALLOWED_ORIGINS.includes(origin)) return json({ jsonrpc: '2.0', error: { code: -32600, message: 'forbidden: this Origin may not use the connector' } }, 403);
       if (req.method !== 'POST') return new Response(null, { status: 405, headers: { Allow: 'POST' } });
       const tooLarge = () => json({ jsonrpc: '2.0', id: null, error: { code: -32600, message: `request too large (at most ${BODY_MAX} bytes)` } }, 413);
       const declared = req.headers.get('content-length');
