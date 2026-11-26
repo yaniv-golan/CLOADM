@@ -24807,6 +24807,37 @@ async function sourceShareChecks(browser, base, site, check) {
   await p2.goto(`${base}?machine=dragon32${z}`);
   await linkIn(p2);
   check('sourceShare: a newer source format: refused, "made by a newer CLOADM"', await waitFor(p2, () => /made by a newer CLOADM/.test(document.getElementById('toast').textContent), null, 10000));
+  // the source's Share screen with the person's ROMs stored (stand-ins built from this project's own programs, as the
+  // shortLink group's are, never real ROMs) and the browser offline: the source holds no code of the ROMs, so the
+  // moment's "short links are only for moments that run without ROMs" note is not said, and the reason for the long link
+  // is the offline one
+  {
+    const ctx3 = await browser.newContext({ viewport: { width: 1280, height: 900 }, serviceWorkers: 'block' });
+    await serve(ctx3);
+    const p3 = await ctx3.newPage();
+    p3.on('pageerror', (e) => errors.push(e.message));
+    const ours = Buffer.concat(['liza.bin', 'welcome.bin', 'demo.bin', 'chat.bin'].map((f) => fs.readFileSync(path.join(ROOT, 'examples', f))));
+    const standIn = (seed) => [...Array(0x4000)].map((_, i) => ours[(i * 3 + seed) % ours.length] ^ ((i >> 8) + seed) & 0xFF);
+    await p3.goto(`${base}?machine=dragon64`);
+    await linkIn(p3);
+    await p3.evaluate(async (r) => { const s = window.emu.session; for (const [k, v] of Object.entries(r)) s.roms.put('dragon64', k, Uint8Array.from(v), `${k}.rom`); s.switchMachine('dragon64'); await s.index.settled(); },
+      { basic: standIn(101), basic64: standIn(138) });
+    await waitFor(p3, () => window.emu.session.romCodeIn() === 'roms', null, 10000);
+    await p3.evaluate(() => document.getElementById('navDebugger').click());
+    await p3.waitForSelector('#asmSource', { state: 'visible' });
+    await p3.fill('#asmSource', FILL);
+    await p3.evaluate(() => { document.getElementById('asmName').textContent = 'fill.asm'; });
+    await Promise.all([p3.waitForEvent('download'), p3.click('#btnAsmSave')]);
+    await ctx3.setOffline(true);
+    await p3.click('#btnAsmShare');
+    await p3.waitForSelector('#share', { state: 'visible' });
+    await waitFor(p3, () => document.getElementById('share').classList.contains('source-mode'), null, 10000);
+    const off = await p3.evaluate(() => ({ note: document.getElementById('primaryNote').textContent, why: document.getElementById('primaryWhy').textContent,
+      roms: window.emu.session.romCodeIn(), online: navigator.onLine }));
+    check('sourceShare: with ROMs stored and offline: no "run without ROMs" note under Copy, and the reason is the offline one',
+      off.roms === 'roms' && !off.online && off.note === '' && off.why === "You're offline, so this is the long link: it works without any server.", JSON.stringify(off));
+    await ctx3.close();
+  }
   check('sourceShare: no page errors', errors.length === 0, errors.join(' | '));
   await ctx.close(); await ctx2.close();
 }
