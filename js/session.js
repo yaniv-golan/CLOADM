@@ -946,11 +946,6 @@ export class Session {
   // for a cartridge whose file is not known), drive (a disk's), stored (a disk linked to the Library: false for the
   // disk that came with a snapshot) }]. Not listed: the DriveWire server's disks (the Session's, not the machine's: they
   // stay mounted) and a Speech/Sound Pak that the new machine's `ssc` option puts back (applySscOption).
-  // Would switching the machine on screen to model id (config) lose something of the person's? Their input reached it
-  // (touches: a key, a typed line, a load, a POKE, a disk or tape going in; a BASIC program typed or a game played is
-  // one), or the switch would take something out (takenOut). A page just opened, on its welcome menu or a fresh BASIC,
-  // holds neither: a link's moment opens on its own machine without the switch question (js/ui/snapshot-panel.js).
-  switchLoses(id, config = this.savedConfig(id)) { return this.touches() > 0 || this.takenOut(id, config).length > 0; }
   takenOut(id, config = this.savedConfig(id)) {
     const m = this.shownMachine, out = [];
     if (!m) return out;
@@ -961,6 +956,14 @@ export class Session {
     if (c && !(c instanceof DiskController) && !sscBack) out.push({ kind: 'cartridge', name: this.cartFiles.get(c) || null });
     for (const d of this.drives.status().drives) out.push({ kind: 'disk', name: d.file, drive: d.drive, stored: d.stored });
     return out;
+  }
+  // Would switching the machine on screen to model id (config) lose something of the person's? Their input reached it
+  // or their BASIC session beside the chat (touches: a key, a typed line, a load, an assembled program run, a POKE, a
+  // disk or tape going in; a BASIC program typed or a game played is one), or the switch would take something out
+  // (takenOut). A page just opened, on its welcome menu or a fresh BASIC, holds neither: a link's moment opens on its own
+  // machine without the switch question (js/ui/snapshot-panel.js).
+  switchLoses(id, config = this.savedConfig(id)) {
+    return this.touches() > 0 || this.touches(this.personMachine) > 0 || this.takenOut(id, config).length > 0;
   }
   // the file name of the cartridge in machine m's port as the Library shows it, or null when it came without one (a
   // snapshot's, a Multi-Pak's): the Share screen names it to whoever opens a link that needs the same cartridge
@@ -3450,6 +3453,7 @@ export class Session {
     // the assembler panel is the person's: the program runs on personMachine (inject's default is the machine in
     // use, which with the chat full screen is the chat machine - the sweep's runAssembled row was red on that)
     this.endWelcome(this.personMachine);
+    this.touch(this.personMachine);   // (the person's own program: Session.switchLoses)
     this.inject(res.segments, res.exec, this.personMachine);
     this.labels = res.symbols;                    // the debugger's disassembly shows them (see `debug`)
     if (this.debugger) this.debugger.setSymbols(() => this.labels);

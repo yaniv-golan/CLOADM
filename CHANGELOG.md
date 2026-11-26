@@ -139,8 +139,9 @@ Next version: 0.3.1 (the plugin and extension manifests carry it; `tests/plugin.
   than the page starts on (a CoCo 2 or an MC-10 moment, opened in a browser that had never been to CLOADM) landed on the
   Dragon 64's welcome menu with "Switching to CoCo 1/2 (64K) resets the Dragon 64. The running program will be lost.",
   and the moment opened only after **Switch**. A link's moment now switches without asking when the machine on screen
-  holds nothing of yours: no key, typed line, load or POKE of yours reached it and nothing would come out of it
-  (`Session.switchLoses`). With your work there, the question still asks first. (After a link opens, the address bar
+  holds nothing of yours: no key, typed line, load, assembled program or POKE of yours reached it (or your BASIC
+  session beside the chat) and nothing would come out of it (`Session.switchLoses`; a key typed in an embed now counts
+  too). With your work there, or a switch question already open, the question still asks first. (After a link opens, the address bar
   shows `/play/` on purpose: the fragment that held the moment, and a short link's key, is removed.)
 
 ### 0.3.1

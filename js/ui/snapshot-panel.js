@@ -47,8 +47,9 @@ export function setupSnapshotPanel(page, { confirmSwitch, openRoms, startOver, o
     const sw = session.snapshotSwitch(snap);
     // (its message says what the switch took out, as a switch from the menu does). A link's moment on a page that holds
     // nothing of the person's (a first visit's welcome menu, a fresh BASIC: Session.switchLoses) opens without asking:
-    // the question is there to protect their work, and there is none to lose.
-    if (sw && link && !session.switchLoses(sw.machine, sw.config)) { opened(snap, { shared, link }); page.focus(); }
+    // the question is there to protect their work, and there is none to lose. (A question already open, the person's
+    // own switch from the menu asked while the link was fetched, is answered by the link's question instead.)
+    if (sw && link && !session.switchLoses(sw.machine, sw.config) && $('switchConfirm').hidden) { opened(snap, { shared, link }); page.focus(); }
     else if (sw) confirmSwitch({ name: sw.text, id: sw.machine, config: sw.config }, (taken, said) => opened(snap, { shared, link }, said ? `.${said}` : ''));
     else { opened(snap, { shared, link }); page.focus(); }
   }

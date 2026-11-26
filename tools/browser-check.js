@@ -23851,7 +23851,8 @@ async function shortLinkChecks(browser, base, site, check) {
     && both.brief === 'Needs your Dragon 64 ROMs and the same cartridge to open.' && both.sentences === 1 && both.lines === 1 && both.shown && !both.warn && !both.crc, JSON.stringify(both));
 
   // A first visit (a fresh profile, nothing stored) opening a link to a moment of ANOTHER model than the page boots: the
-  // short link (/play/#l=, no ?machine=) lands on the Dragon 64's welcome menu first, the long link on its own model.
+  // short link (/play/#l=, no ?machine=) lands on the Dragon 64's welcome menu first (the case that asked); the long
+  // link names its model (?machine=), so the page starts on it and it is checked as a guard that it stays so.
   // Neither asks "Switching to … resets the Dragon 64. The running program will be lost.": nothing of the person's is
   // there to lose. The moment opens exactly, on its machine. With the person's work on the page (a key typed while the
   // short link's moment is still being fetched: Session.switchLoses) the question still asks first.
@@ -23895,7 +23896,7 @@ async function shortLinkChecks(browser, base, site, check) {
         const ok = await waitFor(p, () => window.__said.some((x) => /^Snapshot opened/.test(x)), null, 15000);
         const s = await state(p, at);
         check(`shortLink: a first visit opening a ${kind} link to a ${name} moment: no switch question, the moment opens on the ${name}`,
-          ok && (kind === 'short' ? /^https:\/\/s\.cloadm\.dev\/[A-Za-z0-9_-]{8}#/ : new RegExp(`[?&]machine=${mid}[&#].*#z=`)).test(url) && s.id === mid && s.byte === 0x4D && s.asked.length === 0 && s.hash === '' && s.opened.length === 1, JSON.stringify(Object.assign({ url: url.slice(0, 48) }, s)));
+          ok && (kind === 'short' ? /^https:\/\/s\.cloadm\.dev\/[A-Za-z0-9_-]{8}#/.test(url) : new URL(url).searchParams.get('machine') === mid && /#z=/.test(url)) && s.id === mid && s.byte === 0x4D && s.asked.length === 0 && s.hash === '' && s.opened.length === 1, JSON.stringify(Object.assign({ url: url.slice(0, 48) }, s)));
         await closeCtx(c);
       }
     }
@@ -23921,6 +23922,38 @@ async function shortLinkChecks(browser, base, site, check) {
       const ok = asked && await waitFor(p, () => window.__said.some((x) => /^Snapshot opened/.test(x)), null, 15000);
       const s = await state(p, at);
       check(`shortLink: ...and Switch opens the ${name} moment`, ok && s.id === mid && s.byte === 0x4D, JSON.stringify(s));
+      await closeCtx(c);
+    }
+    // a question the person's own switch raised while the link was fetched (the menu's CoCo 3) is not left standing over
+    // the moment: the link's own question takes its place, naming the moment's model
+    {
+      const { mid, name, at, short } = made[0];
+      const { c, p } = await fresh();
+      let release;
+      const held = new Promise((ok) => { release = ok; });
+      await c.route(/^https:\/\/s\.cloadm\.dev\/[A-Za-z0-9_-]{8}\.bin$/, async (route) => { await held; await route.fallback(); });
+      await p.goto(short);
+      await p.waitForURL(/^https:\/\/cloadm\.dev\/play\//, { timeout: 15000 }).catch(() => {});
+      await waitFor(p, () => !!window.emu && !window.emu.started && !!window.emu.machine && window.emu.session.welcomeOnScreen, null, 60000);
+      await p.click('#machineBtn');
+      await p.click('#machineMenu [data-machine="coco3"]');
+      const mine = await waitFor(p, () => !document.getElementById('switchConfirm').hidden && document.getElementById('switchName').textContent === 'CoCo 3');
+      release();
+      const replaced = await waitFor(p, () => document.getElementById('switchName').textContent === 'CoCo 1/2 (64K)' && !document.getElementById('switchConfirm').hidden, null, 15000);
+      if (replaced) await p.click('#btnSwitch');
+      const ok = replaced && await waitFor(p, () => window.__said.some((x) => /^Snapshot opened/.test(x)), null, 15000);
+      const s = await state(p, at);
+      check(`shortLink: a switch question open when a ${name} moment arrives is replaced by the link's own, and Switch opens the moment`, mine && ok && s.id === mid && s.byte === 0x4D, JSON.stringify(s));
+      await closeCtx(c);
+    }
+    // in an embed (no chat, so no js/ui/ask.js) a key typed on the machine is the person's input too (Session.switchLoses)
+    {
+      const { c, p } = await fresh();
+      await p.goto(`${base}?embed=1`);
+      await linkIn(p);
+      await p.click('#screen', { position: { x: 20, y: 20 } }).catch(() => {});
+      await p.keyboard.type('X');
+      check('shortLink: in an embed, a key typed on the machine counts as the person\'s input', await waitFor(p, () => window.emu.session.touches() > 0, null, 10000));
       await closeCtx(c);
     }
   }

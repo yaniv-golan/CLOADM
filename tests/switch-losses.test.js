@@ -198,6 +198,19 @@ const cart = new Uint8Array(8192).fill(0x12); cart[0] = 0x20; cart[1] = 0xFE;   
     u.switchMachine('dragon64');
     u.shownMachine.poke(0x0600, 1);   // the machine's own poke (a program's write) is not the person's
     check('switchLoses: the machine\'s own write is not a touch', u.switchLoses('coco') === false);
+    // an assembled program run (the Assembler's Run) is the person's own program
+    const w = new Emu.Session({ media: new MemoryMediaStore() });
+    w.switchMachine('dragon64');
+    w.runAssembled(Emu.assemble(' ORG $3000\nL BRA L\n', '6809'));
+    check('switchLoses: an assembled program run: something to lose', w.switchLoses('coco') === true);
+    // the person's BASIC session beside the chat counts, whichever machine is on screen
+    const x = new Emu.Session({ store: Emu.memoryStore(), media: new MemoryMediaStore() });
+    x.switchMachine('dragon64');
+    x.typeText('10 PRINT\n');
+    x.startChat({ backend: new Emu.ClaudeBackend({ fetch: async () => null, apiKey: 'sk-ant-test' }), channel: new Emu.MemoryChannel(),
+      firmware: new Uint8Array(require('fs').readFileSync(path.join(__dirname, '../examples/chat.bin'))), brief: '', tools: false });
+    check('switchLoses: the BASIC session\'s typing counts while the chat is on screen', x.personMachine !== x.shownMachine && x.touches() === 0 && x.switchLoses('coco') === true,
+      `${x.personMachine !== x.shownMachine} ${x.touches()}`);
   }
 
   console.log(fail ? `${fail} failed` : 'all passed');

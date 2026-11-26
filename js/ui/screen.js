@@ -174,6 +174,9 @@ export function setupScreen(page, { loadPrograms, roms }) {
     // (a modifier alone types nothing: it is let through, so no Shift is left out of step with the host's)
     if (!MODIFIER_KEYS.has(e.key) && session.refuseTyping()) { e.preventDefault(); return; }
     audio.start();
+    // a key on the machine is the person's input (Session.switchLoses), with or without the chat's pause (js/ui/ask.js,
+    // which is not set up in an embed)
+    if (!MODIFIER_KEYS.has(e.key) && !e.repeat) session.touch();
     if (input.keydown(e)) e.preventDefault();
   });
   window.addEventListener('keyup', (e) => input.keyup(e));

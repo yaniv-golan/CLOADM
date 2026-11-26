@@ -673,6 +673,9 @@ const REQUIRED = require.main !== module;
     'stopRealCoco', 'toSidePanel', 'showChat', 'watchForMenu',
     // chatNote writes a line of the page's own onto the chat channel (the chat screen), never onto the person's machine
     'chatNote',
+    // touch counts the person's key on the machine the key goes to (the one on screen, as personInput does); it
+    // writes nothing to either machine
+    'touch',
     // refuseTyping reads whether the Debugger stopped the machine on screen and emits the page's toast; it
     // queues and changes nothing on either machine
     'refuseTyping',
