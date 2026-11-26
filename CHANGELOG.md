@@ -8,6 +8,32 @@ All notable changes to CLOADM are recorded here. The format follows
 
 Next version: 0.3.1 (the plugin and extension manifests carry it; `tests/plugin.test.js` keeps them in step).
 
+#### Added
+
+- **Share a program with its source.** The Assembler's **Share…** (after a successful assemble) opens the Share screen on
+  "Share your program and its source": the link holds the source (64 KB at most), its name, the machine and the CRC-32
+  of what it built to, never the built bytes. Whoever opens it gets a fresh machine, the source in the Assembler and a
+  card with **Run** and **Show source**; nothing runs until Run, which builds it and starts it only if it builds to the
+  same CRC ("This source builds differently in this CLOADM, so it won't run here. The code is in the Assembler to
+  read." otherwise). A build holding bytes of your ROMs is not shared. A new link kind: a long link's byte 0 = 4 and a
+  short link's sealed kind 4, with golden fixtures; the short-link Worker names it ("A program and its source for the
+  Dragon 64").
+- **The BASIC program in memory as a tape.** Share's program mode, under "More ways to share", has **Download .CAS**
+  and **Download .WAV** beside Download .bas (and the command box "Save program as .CAS/.WAV"): the program as CSAVE
+  writes it (one tokenised BASIC file), as `NAME.CAS` on a Dragon or CoCo, `NAME.C10` on the MC-10 family, and that tape
+  as a WAV for a real machine's cassette port. "Name on tape" (8 at most, upper case letters and digits) starts as the
+  loaded file's name, cleaned, else PROGRAM; the note says which BASIC it is for. A program holding bytes of your ROMs
+  is not saved ("Not saved: the program contains bytes of your ROMs."). `Session.programTape(name, { wav })`.
+- **Send a chat with LIZA as a postcard.** While LIZA runs (and just after its goodbye), the Share screen offers "Your
+  chat with LIZA · N lines · Send it as a postcard instead": the link holds only the lines typed (the last 20), and
+  whoever opens it gets LIZA started afresh with a card, "A postcard from LIZA · N lines", **Replay** (about 25
+  characters a second; a key skips) and **Skip to the end**, then "Your turn: type to LIZA." LIZA is deterministic, so
+  the replay gives the same answers; the Share screen's picture (and **Save picture**, `liza-postcard.png`) is the
+  postcard replayed off-screen from its own link. After BYE or BREAK, one note offers it ("Send this chat as a
+  postcard…"; a toast on a phone). A new link kind: a long link's byte 0 = 3 and a short link's sealed kind 3 (both
+  reserved by the 0.3 freeze), with golden fixtures; the short-link Worker names it on its arrival page ("A postcard
+  from LIZA on a Dragon 64") and refuses a postcard with a picture. Never for the Claude chat; no ROMs on either side.
+
 #### Fixed
 
 - **Screen text follows a text page a program moves.** On the Dragon and CoCo 1/2, the ROM self-test's screen and the

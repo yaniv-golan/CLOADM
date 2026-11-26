@@ -128,7 +128,7 @@ The [README](../README.md#what-works) has the short version of this table.
 | **Games** | 2048 and Minesweeper, written for CLOADM, on every 6809 model with 32K or more, with or without ROMs ([details](#games)); WYRMFIRE, a GPL 3D game for the Dragon 64 with the Freedoom level, or E1M1 of your own DOOM WAD converted in the browser ([details](#wyrmfire)) | |
 | **Input** | Keyboard in two modes (translated: the character typed; positional: the physical key), keyboard joystick, gamepads (two joysticks, dead zone), the Tandy and CoCo Max 3 Hi-Res interfaces, the CoCo 3 "The Rat" mouse, the CoCo Max Hi-Res module, mouse as the right joystick; an on-screen keyboard on phones and tablets (split for the thumbs when held sideways) and a touch joystick with FIRE, a tappable welcome menu | |
 | **Tools** | Assembler, Debugger, snapshots, POKE book; a command line, MCP server and Node API for CI and agents ([Automation](automation.md), [MCP](mcp.md)) | Step back (rewind) |
-| **Links, embedding, offline** | Every setting as a URL parameter (machine, RAM, CPU, a program, tape, cartridge or disk to load, display, input); the Share screen's one **Copy link**: an untouched bundled program gives its page (`cloadm.dev/2048/`), otherwise a short link (`s.cloadm.dev/<id>#<key>`, about 50 characters, sealed in your browser, with a QR code and an optional public preview picture; online and without ROMs), or the long link where a short one can't be made; with a BASIC program in memory, **Share the program instead** (the program's text only, listed, not run, on a fresh machine for whoever opens it; **Save picture** (the share card: the true-pixel picture in a CRT monitor with its name and cloadm.dev) and **Save clip** (6 seconds) beside Copy link on a desktop; under "More ways to share" the long link ("Long link (works offline; nothing is uploaded)"), "Always use long links", **Save GIF** (6 seconds, looping, the machine's own pixels at 2x) and the snapshot file (and on a phone Save picture and Save clip); **Copy as text for a forum** (BBCode or Markdown; it never uploads: the short link once Copy link has made one, else the program's page or the long link); **Copy bug report** (a preview first, never your key or ROMs); the FAQ and About pages; a phone held sideways gets a two-column Share screen; plus the embed code for a blog post; whoever opens a shared moment gets an arrival card (Start from the beginning, Send it back); embed mode with a JavaScript API; works offline once visited; **Install CLOADM…** in the app bar's **More ▾** (behind **Menu** on a phone), runs the browser's own prompt where there is one and shows the steps elsewhere, with a one-time offer once a program has run a minute; settings export and import (never ROMs) | A touch keyboard in embeds |
+| **Links, embedding, offline** | Every setting as a URL parameter (machine, RAM, CPU, a program, tape, cartridge or disk to load, display, input); the Share screen's one **Copy link**: an untouched bundled program gives its page (`cloadm.dev/2048/`), otherwise a short link (`s.cloadm.dev/<id>#<key>`, about 50 characters, sealed in your browser, with a QR code and an optional public preview picture; online and without ROMs), or the long link where a short one can't be made; with a BASIC program in memory, **Share the program instead** (the program's text only, listed, not run, on a fresh machine for whoever opens it; or as a **.CAS / .WAV** tape); from the Debugger's Assembler, **Share…** sends a program as its source (built and run only when they press Run); with LIZA running, **Send it as a postcard instead** (only the lines you typed, which LIZA replays for whoever opens it, with a **Replay** card; **Save picture** (the share card: the true-pixel picture in a CRT monitor with its name and cloadm.dev) and **Save clip** (6 seconds) beside Copy link on a desktop; under "More ways to share" the long link ("Long link (works offline; nothing is uploaded)"), "Always use long links", **Save GIF** (6 seconds, looping, the machine's own pixels at 2x) and the snapshot file (and on a phone Save picture and Save clip); **Copy as text for a forum** (BBCode or Markdown; it never uploads: the short link once Copy link has made one, else the program's page or the long link); **Copy bug report** (a preview first, never your key or ROMs); the FAQ and About pages; a phone held sideways gets a two-column Share screen; plus the embed code for a blog post; whoever opens a shared moment gets an arrival card (Start from the beginning, Send it back); embed mode with a JavaScript API; works offline once visited; **Install CLOADM…** in the app bar's **More ▾** (behind **Menu** on a phone), runs the browser's own prompt where there is one and shows the steps elsewhere, with a one-time offer once a program has run a minute; settings export and import (never ROMs) | A touch keyboard in embeds |
 
 ### Games
 
@@ -554,7 +554,12 @@ heading reads "Share your program", the picture is the first lines LIST shows, i
 holds only the program's text, sealed in your browser as a moment's is, with no preview picture, and it works with your
 own ROMs in (the program carries no ROM code); offline, or with "Always use long links", it gives the long link, which
 carries the text. **More ways to share** then offers **Copy as text for a forum** (the listing in a Markdown code fence or a `[code]`
-block, then the link), **Download .bas** (the listing as a text file) and the long link. A program that can't be shared
+block, then the link), **Download .bas** (the listing as a text file), **Download .CAS** and **Download .WAV** (the program
+as a tape, as CSAVE writes it: `NAME.CAS` on a Dragon or CoCo, `NAME.C10` on the MC-10 and Alice, and the WAV a real
+machine's cassette port plays; "Name on tape", 8 upper case letters and digits at most, starts as the loaded file's name
+or PROGRAM; the note says "For &lt;Dragon|CoCo|MC-10&gt; BASIC: CLOAD it in another emulator, or play the WAV into a
+real machine's cassette port."; the command box's "Save program as .CAS/.WAV" opens it; a program holding bytes of your
+ROMs is not saved) and the long link. A program that can't be shared
 as text says "This program can't be shared as text: share the whole moment instead.", with the switch back: one whose
 listing is over load_basic's 65536 characters, or one with a byte that would not type back the same (a graphics
 character in a string, a control code, lower case outside a string). Whoever opens the link gets a fresh machine of the
@@ -564,6 +569,33 @@ to start it." and goes at the first key, as a shared moment's does (a short link
 machine's BASIC ROM, the card shows the listing as text with "To run it, this &lt;machine&gt; needs its BASIC ROM.",
 **Add ROMs** and **Copy the listing**; once the ROMs are added, the program loads and is listed by itself. The link's
 format: [Share links](automation.md#share-links-a-moment-or-a-basic-program).
+
+**Share your program and its source.** In the Debugger's Assembler, **Share…** comes on once the source has assembled
+(Assemble &amp; run, or Save .BIN) and opens the Share screen on "Share your program and its source": the picture is the
+program's screen if you ran it, else its first lines; the caption says "&lt;name&gt; · N lines of 6809 source"; the note
+says "They get the source and build it themselves; nothing runs until they press Run." The link holds only the source
+(64 KB at most), its name, the machine and what it builds to, never the built program; too large for a short link, it is
+the long link. A build that holds bytes of your ROMs is not shared ("Not shared: the built program contains bytes of
+your ROMs."). Whoever opens it gets a fresh machine of the same model with the source in the Assembler and a card:
+"Someone sent you a program with its source: &lt;name&gt;, N lines. It's open in the Assembler; press Run to build and
+start it." with **Run** and **Show source**. Nothing runs until Run, which builds it and starts it only if it builds to
+exactly what yours did (INCLUDE reads only CLOADM's own examples); otherwise the card says "This source builds
+differently in this CLOADM, so it won't run here. The code is in the Assembler to read."
+
+**Send a postcard from LIZA.** While LIZA runs and you have typed at least one line to it, a card above Copy link says
+"Your chat with LIZA · N lines · **Send it as a postcard instead**". The postcard holds only the lines you typed (no
+picture, no memory, nothing of your machine): LIZA always answers the same lines the same way when it starts afresh, so
+whoever opens it sees your chat replayed. The note says "Opens LIZA and replays this chat: your N lines and LIZA's
+answers. Anyone with the link can read what you typed."; a postcard holds 20 lines, so a longer chat says "Postcards
+hold 20 lines: this one starts at your line M." (and LIZA, starting at that line, may answer differently from the chat
+you had: the picture shows what they will see). The picture is the postcard replayed, and **Save picture** saves it as
+`liza-postcard.png`. **Copy postcard link** (on a phone, **Share postcard…**, then **Copy link**) follows the same rules
+as every link: a short link made on the tap, sealed in your browser, else the long link. After you type BYE (or press
+BREAK), the line under the screen offers "Send this chat as a postcard…" once (a toast on a phone). Never for the Claude
+chat. Whoever opens it gets LIZA, started afresh on the same model, and a card at the top: "A postcard from LIZA · N
+lines" with **Replay** (your lines typed at about 25 characters a second, LIZA answering each) and **Skip to the end**;
+any key during the replay skips to the end, and then the card says "Your turn: type to LIZA." until their first key. No
+ROMs are needed on either side.
 
 Someone who opens a shared moment that runs without ROMs arrives on that moment, not on the setup: the "Running with no
 ROMs" card and the orange **No BASIC** pill stay out of the way while they look at it, and come back once they leave it

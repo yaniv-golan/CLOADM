@@ -15,6 +15,11 @@ import { $ } from './page.js';
 export function setupAssemblerPanel(page) {
   const { session, audio } = page;
   let lastAsm = null;
+  let ranAsm = null;    // the build Assemble & run last started (Share…'s picture is its screen while it is that build)
+  // Share… (the program with its source: js/ui/share.js's source mode) only after a successful assemble of the source
+  // as it is now: an edit turns it off until the next one
+  const syncShare = () => { $('btnAsmShare').disabled = !lastAsm; };
+  $('asmSource').addEventListener('input', () => { lastAsm = null; syncShare(); });
   const message = (text, cls = '') => { const o = $('asmOut'); o.textContent = text; o.className = cls; };
 
   // INCLUDE "file" in a source read into the panel: the file comes from examples/, recursively. The
@@ -46,12 +51,14 @@ export function setupAssemblerPanel(page) {
         return row;
       }));
       lastAsm = null;
+      syncShare();
       return null;
     }
     const size = res.segments.reduce((n, sg) => n + sg.data.length, 0);
     const ranges = res.segments.map((s) => `${hex(s.addr)}-${hex((s.addr + s.data.length - 1) & 0xFFFF)}`).join(', ');
     message(`Assembled ${src.split('\n').length} lines in ${ms} ms: ${size} bytes, ${ranges}, exec ${hex(res.exec)}, ${res.symbols.size} symbols.`, 'ok');
     lastAsm = res;
+    syncShare();
     return res;
   }
   // select line n of the source and scroll it into view
@@ -68,6 +75,7 @@ export function setupAssemblerPanel(page) {
       if (!res.ok) throw new Error(res.statusText);
       $('asmSource').value = await res.text();
       $('asmName').textContent = url.split('/').pop();
+      lastAsm = null; syncShare();
       message('');
     } catch (e) { message(`Could not fetch ${url}: ${e.message}`, 'error'); }
   }
@@ -80,12 +88,14 @@ export function setupAssemblerPanel(page) {
     if (!f) return;
     $('asmSource').value = await f.text();
     $('asmName').textContent = f.name;
+    lastAsm = null; syncShare();
   };
   $('btnAsmRun').onclick = async () => {
     const res = await assembleSource();
     if (!res) return;
     audio.start();
     page.status(session.runAssembled(res));
+    ranAsm = res;
     page.focus();
   };
   // Save writes the file the open machine loads: DragonDOS on a Dragon, DECB on a CoCo. The MC-10 and Alice load .c10 tapes and
@@ -98,6 +108,11 @@ export function setupAssemblerPanel(page) {
   };
   syncSave();
   session.on((ev) => { if (ev === 'machine') syncSave(); });
+  $('btnAsmShare').onclick = () => {
+    if (!lastAsm) return;
+    page.share.openSource({ source: $('asmSource').value, name: $('asmName').textContent || 'program.asm', res: lastAsm,
+      ran: ranAsm === lastAsm && session.shownMachine === session.personMachine });
+  };
   $('btnAsmSave').onclick = async () => {
     const format = binaryFormat(session.personMachine.profile);
     if (!format) return;
@@ -112,5 +127,11 @@ export function setupAssemblerPanel(page) {
     }
     page.download(name, bytes);
     page.toast(`Saved ${name}`);
+  };
+  // a shared source arriving (js/ui/arrival.js): it is put here to read and build; nothing is assembled or run
+  return {
+    setSource(text, name) { $('asmSource').value = text; $('asmName').textContent = name; lastAsm = null; syncShare(); message(''); },
+    // the INCLUDE reader the panel uses (examples/ only), for a shared source's build
+    includesFor: (src) => loadIncludes(src, fetchInclude),
   };
 }

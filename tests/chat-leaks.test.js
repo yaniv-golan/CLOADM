@@ -629,6 +629,18 @@ const REQUIRED = require.main !== module;
     // programShortLink encode it (the short one sends sealed bytes to the store it is given); readProgramLink decodes a
     // fragment. None changes a machine: openSharedProgram, which does, has its own row
     'sharedProgram', 'programLink', 'programShortLink', 'readProgramLink',
+    // LIZA postcards (js/postcard.js): current, link, shortLink, read, replayFrame and fileFor read the SHOWN machine's
+    // chat (never the chat machine's: current() refuses it) or replay in a Session of their own; open, play and skip
+    // start LIZA afresh on a postcard's model, as openSharedProgram does a program, for an arrival from a link
+    'postcards',
+    // the BASIC program as a tape (Share's program mode, the command box): basicProgramBytes and programTape read the
+    // SHOWN machine's program (readByte) and its ROMs for the guard; programTapeDefault reads the last loaded name. None
+    // changes a machine
+    'basicProgramBytes', 'programTape', 'programTapeDefault',
+    // a program shared with its source (js/source-share.js): card, link, shortLink and read read the SHOWN machine (its
+    // id, options and ROMs for the guard) or a fragment; open switches to a fresh machine of the link's model and run
+    // builds and starts it there, as openSharedProgram does a program, for an arrival from a link
+    'sources',
     // sharePicture renders the SHOWN machine's frame into the share card ("Save picture") and shareCardName reads its
     // program watch or profile for the card's name; both change nothing
     'sharePicture', 'shareCardName',

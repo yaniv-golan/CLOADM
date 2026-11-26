@@ -78,7 +78,7 @@ check('...and each says the same suites and groups as the table', differ.length 
     fs.writeFileSync(path.join(dir, 'CHANGELOG.md'), '');                // untracked
     const out = cp.execFileSync(process.execPath, [path.join(ROOT, 'tools', 'affected.js'), 'HEAD~1'], { cwd: dir, encoding: 'utf8' });
     check('the command line: the --only commands for a diff plus an untracked file',
-      out.includes('node tests/all.js --only changelog,asm,includes,disasm\n') && out.includes('node tools/browser-check.js --only debugger\n'), JSON.stringify(out));
+      out.includes('node tests/all.js --only changelog,asm,includes,disasm,source-share\n') && out.includes('node tools/browser-check.js --only debugger,sourceShare\n'), JSON.stringify(out));
     const bad = cp.spawnSync(process.execPath, [path.join(ROOT, 'tools', 'affected.js'), 'no-such-ref'], { cwd: dir, encoding: 'utf8' });
     check('the command line: a base git does not know is an error (exit 2), not an empty answer', bad.status === 2 && /failed/.test(bad.stderr), `status ${bad.status}`);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }

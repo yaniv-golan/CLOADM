@@ -30,7 +30,7 @@ import { Profiler } from './profiler.js';
 import { disassembleBlock } from './asm/disassembler.js';
 import { formats } from './media/formats.js';
 import { Tape } from './media/tape.js';
-import { casBlocks, casToWav, recordingToSamples, samplesToCas, writeWav } from './media/cassette.js';
+import { buildCas, casBlocks, casToWav, recordingToSamples, samplesToCas, writeWav } from './media/cassette.js';
 import { FAMILY_NAMES, detectMedia } from './media/detect.js';
 import { MediaIndex, LIBRARY_PREFIX, migrateLocalStorage } from './media/library.js';
 import { MediaLibrary, DISK_PREFIX, DW_PREFIX, GAMES_PREFIX, MEDIA_MOVE_WAIT_MS } from './library.js';
@@ -86,11 +86,13 @@ import { RomLibrary, identifyRoms, isBootable, isRomPack, looksLikeRom, makeRomP
 import { writeZip } from './media/zip.js';
 import { programPage } from './program-pages.js';
 import { SEALED_KIND, sealMoment, openMoment } from './media/link-crypto.js';
+import { LizaPostcards } from './postcard.js';
+import { SourceShares } from './source-share.js';
 import { encodeIndexedPng } from './media/png.js';
 import { shareCardPicture } from './video/bezel.js';
 import { SNAPSHOT_EXT, SnapshotError, decodeSnapshot, decodeLongLink, encodeSnapshot, encodeLongLink, encodeProgramLink, decodeProgramLink, isProgramLink } from './media/snapshot.js';
 import { DIALECTS, buildProgram, parseProgram, readProgram, uncrunch } from './media/basic.js';
-import { missingImages, restoreRoms, stripRoms } from './media/romrefs.js';
+import { missingImages, restoreRoms, stripRoms, romWindowIn } from './media/romrefs.js';
 import { crc32, hex, registry, toBase64Url, fromBase64Url } from './util.js';
 import { buildUrl, NITROS9_MACHINES } from './config.js';
 import { WYRMFIRE_PIN } from './wyrmfire/pin.js';
@@ -667,6 +669,10 @@ export class Session {
     // load: touch), another snapshot, a switch, a Reset or a power cycle (leaveSharedMoment). The page's arrival card
     // shows while it is set, and screen-aware prompts can read it.
     this.arrivedFromLink = null;
+    // LIZA postcards (js/postcard.js): the chat LIZA is hearing, and a postcard's replay on arrival
+    this.postcards = new LizaPostcards(this);
+    // a program shared as its source (js/source-share.js)
+    this.sources = new SourceShares(this);
     // The stored-ROM CRCs that did not start BASIC, per machine (Map<Machine, Set<crcs>>): a fresh try is a power-on
     // or a switch, which forgets them (poweredOn clears every machine's; adopt forgets the machine left behind), and
     // another set of ROMs is another key (storedRomsWaiting).
@@ -1925,7 +1931,7 @@ export class Session {
       pictureNote: preview && !png ? 'This screen has too many colours for a preview picture, so the link has none.' : null };
   }
   // a URL's fragment ('#l=<id>.<key>', where a short link's arrival page sends it) -> { snap, id } (or { program, id }
-  // for a program's short link: programShortLink), null when it has
+  // for a program's short link: programShortLink; { postcard, id } for a LIZA postcard's, { source, id } for a source's), null when it has
   // none; SessionError saying why it can't open (removed, damaged, not reachable)
   async readShortLink(hash, store) {
     const m = /^#?l=([A-Za-z0-9_-]{8})\.([A-Za-z0-9_-]+)$/.exec(hash || '');
@@ -1940,6 +1946,10 @@ export class Session {
     catch (e) { throw new SessionError(/newer CLOADM/.test(e.message) ? e.message : `This short link can't be opened: ${e.message}`); }
     // the sealed object says what it holds (js/media/link-crypto.js): a program's link bytes (programShortLink), or a
     // moment's .cloadm file; what it holds must be that
+    // a LIZA postcard's link bytes (js/postcard.js)
+    if (kind === SEALED_KIND.postcard) return { postcard: await this.postcards.fromBytes(bytes), id: m[1] };
+    // a program's source (js/source-share.js)
+    if (kind === SEALED_KIND.source) return { source: await this.sources.fromBytes(bytes), id: m[1] };
     if (kind === SEALED_KIND.program) {
       if (!isProgramLink(bytes)) throw new SessionError('This link\'s program is damaged: it was cut short or changed on the way.');
       let prog;
@@ -1977,6 +1987,49 @@ export class Session {
     }
     return same ? { lines: prog.lines.length, text, refusal: null } : { lines: prog.lines.length, text: null, refusal };
   }
+  // ---------------- the BASIC program as a tape ----------------
+  // "Download .CAS" and "Download .WAV" (Share's program mode, "More ways to share"): the BASIC program in memory on the
+  // machine on screen as CSAVE writes it (js/media/cassette.js buildCas: one tokenised BASIC file, its namefile, data
+  // blocks and EOF), and that tape as the signal a player plays (casToWav, a player's gaps). Its bytes are the program
+  // as BASIC keeps it (TXTTAB up to VARTAB), whatever is in it, so a program that can't be shared as text still makes
+  // a tape. Never a byte of a ROM: a program holding a run of the machine's ROMs or a cartridge's is refused.
+  // name: the file's name on the tape (programTapeName cleans it) -> { name: NAME.CAS (NAME.C10 on the MC-10 family) or
+  // NAME.WAV, bytes, family: 'dragon' | 'coco' | 'mc10' }; SessionError when there is no BASIC program in memory.
+  static TAPE_FAMILY_NAMES = Object.freeze({ dragon: 'Dragon', coco: 'CoCo', mc10: 'MC-10' });
+  // a name as a tape file's: upper case, letters and digits only, at most 8; the file's extension and anything else
+  // dropped (a loaded "my game.bas" -> MYGAME), "PROGRAM" when nothing is left
+  static programTapeName(name) {
+    const n = String(name || '').replace(/\.[A-Za-z0-9]{1,4}$/, '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8);
+    return n || 'PROGRAM';
+  }
+  // the name the tape's field starts with: the loaded file's (cleaned), else PROGRAM
+  programTapeDefault() { return Session.programTapeName(this.lastLoaded ? this.lastLoaded.name : ''); }
+  // the program's bytes as BASIC keeps them, or null when the machine on screen has no BASIC program in memory
+  basicProgramBytes(m = this.shownMachine) {
+    const dialect = DIALECTS[m.profile.lineage];
+    if (!dialect || !m.hasRom || this.nitros9On(m)) return null;
+    const rd = (a) => this.readByte(a & 0xFFFF, m), word = (a) => (rd(a) << 8) | rd(a + 1);
+    const p = dialect.pointers, start = word(p.txttab), vartab = word(p.vartab);
+    if (!(start > 0 && start < 0xFFFF)) return null;
+    const prog = readProgram(rd, start, Math.min(0x10000, vartab + 1));
+    if (!prog || !prog.lines.length || prog.end + 1 !== vartab) return null;
+    return Uint8Array.from({ length: vartab - start }, (_, i) => rd(start + i));
+  }
+  programTape(name, { wav = false } = {}, m = this.shownMachine) {
+    const data = this.basicProgramBytes(m);
+    if (!data) throw new SessionError('There is no BASIC program in memory to save as a tape.');
+    const images = m.profile.roms.filter((r) => m.roms[r.id]).map((r) => ({ bytes: m.roms[r.id] }));
+    const cart = m.cartPort && typeof m.cartPort.rom === 'function' ? m.cartPort.rom() : null;
+    if (cart && cart.length) images.push({ bytes: cart });
+    if (images.length && romWindowIn(data, images)) throw new SessionError('Not saved: the program contains bytes of your ROMs.');
+    const family = m.profile.lineage, tape = Session.programTapeName(name);
+    const cas = buildCas([{ name: tape, type: 'basic', data }], { family });
+    if (wav) return { name: `${tape}.WAV`, bytes: casToWav(cas, { family, gaps: 'player' }), family };
+    return { name: `${tape}.${family === 'mc10' ? 'C10' : 'CAS'}`, bytes: cas, family };
+  }
+  // what the tape's note says: which BASIC it is for
+  static programTapeNote(family) { return `For ${Session.TAPE_FAMILY_NAMES[family]} BASIC: CLOAD it in another emulator, or play the WAV into a real machine's cassette port.`; }
+
   // The program as a long link (Share's program mode): this machine's link with the program in the fragment (#z=,
   // js/media/snapshot.js encodeProgramLink: byte 0 is 2, the program link) -> the URL. prog: sharedProgram()'s.
   async programLink(base, prog = this.sharedProgram()) {
@@ -3391,6 +3444,7 @@ export class Session {
     this.setLastRun('liza', 'LIZA');
     this.watchForMenu('liza', this.personMachine);
     this.markProgramStart('liza', this.personMachine);
+    this.postcards.started(this.personMachine);   // a new chat, heard line by line (a postcard can be sent of it)
     this.emit('program', 'liza');
     return msg;
   }
@@ -4005,6 +4059,7 @@ export class Session {
       return false;
     }
     this.pumpChat(m);
+    this.postcards.step(m);   // a postcard's replay types its next characters (js/postcard.js)
     this.runBeside(m);
     this.serial.deliver();   // the frame's serial bytes from the person's machine (shown, or beside a full-screen chat)
     return true;

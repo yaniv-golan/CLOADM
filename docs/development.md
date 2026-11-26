@@ -37,7 +37,7 @@ names contain one of the parts, and `node tools/browser-check.js --only <group>[
 | Cassette | `tape` (also `tape-sound`) | `tape,tapePanel,tapeHud` |
 | Cartridges and sound chips | `bus,carts,ssc,sp0256,ay8910,audio` | `cartridge,sscBoard,audio` |
 | Serial, printer, DriveWire | `serial,serial-api,acia,drivewire,web-serial` | `driveWire,webSerial,printer` |
-| The assembler (`js/asm/`) | `asm,includes,disasm` | `debugger` |
+| The assembler (`js/asm/`) | `asm,includes,disasm,source-share` | `debugger,sourceShare` |
 | Debugger | `debugger,debug-session,halt,probes,writewatch` | `debugger,debuggerScreen` |
 | Keyboard and input | `input,keyqueue,keyboard-symbols,touch-joystick,press-break` | `input,inputScreen,touchJoystick,keyboardSymbols,typing` |
 | `js/session.js`, snapshots | `session,snapshot,state,restore-points,writewatch` | `snapshot,state` |
@@ -194,6 +194,9 @@ node tests/short-link.test.js # short links on the page's side: sealing, the sto
 node tests/share-one-link.test.js # the Share screen's "one link": an untouched bundled program gives its page; every way in (a key, a typed line, a poke, an assembled program, a tape, a disk, BREAK) makes it a moment, its own running does not
 node tests/basic-share.test.js   # "Share your program": the card's condition, the LIST round trip (Dragon, CoCo, MC-10) through long and short links, the arrival with and without ROMs, the limits, the program link format
 node tests/link-freeze.test.js   # the frozen link formats: the golden links of every version open to what made them, and their bytes never change; the snapshot config rule
+node tests/liza-postcard.test.js # LIZA postcards: the chat heard (BYE, Reset, a moment, the Claude chat), the link (round trip, refusals, newer), the replay pixel for pixel at 1, 20 and 23 lines on every model, the recipient's Replay and Skip
+node tests/source-share.test.js  # a program shared with its source: the link (sourceCrc by hand, round trip, limits, newer, damaged), the ROM guard, no auto-run, Run only on the same crc, tampering, INCLUDE from examples/ only
+node tests/program-tape.test.js  # the BASIC program as a .CAS/.C10 and .WAV (Dragon, CoCo, MC-10): identified, fast-loaded back, the WAV decoded back, the name on tape, the ROM guard
 node tests/share-card.test.js     # the share card (Save picture, a short link's preview): 1200x630, every picture pixel frameToRGBA's, the name drawn glyph by glyph
 node tests/shortlink-worker.test.js # the short-link Worker in Node against an in-memory bucket: every check, limit, kill switch and count
 node tests/qr.test.js         # the QR encoder against ISO 18004's worked example and tables, every symbol read back
@@ -268,6 +271,7 @@ node tools/mame-diff/run.js dragon64 --cass-sound   # the sound mux on the casse
 node tests/tape-load.test.js # a tape dropped on the page: restarted, CLOADM, EXEC only when BASIC is back, a self-starting tape left alone (BASIC stand-in)
 node tests/input.test.js     # input: both keyboard modes on every family, the keyboard joystick, gamepads, the CoCo Max module
 node tools/mame-diff/tape/run-tape.js [profile ...]   # MAME records our writer firmware; MAME reads our .CAS and WAVs with our reader firmware
+node tools/mame-diff/tape/run-program-tape.js [profile ...]   # MAME reads the BASIC program tapes Share makes (Session.programTape: .CAS/.C10 and .WAV) with our reader firmware
 node tools/mame-diff/tape/run-playback.js [profile ...]   # how a .CAS is played: the same silences and the same blocks read as MAME (--ours: ours only)
 node tests/tokens.test.js    # design tokens: agreed values, WCAG contrast, self-hosted WOFF2 fonts and licences
 node tests/zip.test.js       # ZIP reader and inflate (hand-built archives; zlib as the oracle)

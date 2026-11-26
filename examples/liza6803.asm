@@ -56,7 +56,7 @@ MAIN    LDX     #PROMPT
         LDX     #KBYE           ; leaving?
         JSR     FIND
         BCC     BYENOW
-        TST     INBUF           ; nothing typed?
+NOTBYE  TST     INBUF           ; nothing typed? (a line LIZA answers: Session.LIZA.heard)
         BNE     NOTEMP
         LDX     #R_EMPTY
         BRA     RESPND

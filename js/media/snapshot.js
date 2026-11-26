@@ -15,7 +15,7 @@
  *
  * Browser-free: CompressionStream exists in browsers and in Node 18+.
  */
-import { state } from '../util.js';
+import { state, crc32 } from '../util.js';
 import { SNAPSHOT_FORMAT, SNAPSHOT_OLDEST, SNAPSHOT_VERSION } from '../machines/machine.js';
 import { profiles } from '../machines/profiles.js';
 
@@ -106,12 +106,13 @@ function checked(snap) {
 
 // ---------------- the long link (#z=) ----------------
 // FROZEN since 0.3.0 (AGENTS.md, "Formats are frozen"; docs/automation.md, "Share links"): byte 0 says what the link
-// holds and in which layout. 1 = a moment (this layout), 2 = a BASIC program (PROGRAM_LINK_VERSION, below), 3 to 31
-// reserved for later layouts, which a page refuses as "made by a newer CLOADM". A decoder for a byte 0 that was ever
+// holds and in which layout. 1 = a moment (this layout), 2 = a BASIC program (PROGRAM_LINK_VERSION, below), 3 = a LIZA
+// postcard (POSTCARD_LINK_VERSION), 4 = a program's source (SOURCE_LINK_VERSION), 5 to 31 reserved for later layouts,
+// which a page refuses as "made by a newer CLOADM". A decoder for a byte 0 that was ever
 // written is never dropped; a changed layout takes a new byte 0, with its own decoder beside the old one.
 // The moment a long link carries (Session.snapshotLink writes '#z=' + base64url of these bytes):
-//   byte 0      the link format's version, LONG_LINK_VERSION (1); 2 is the BASIC program link (PROGRAM_LINK_VERSION, below);
-//               3 to 31 are kept for later versions, which a page says are newer
+//   byte 0      the link format's version, LONG_LINK_VERSION (1); 2 is the BASIC program link (PROGRAM_LINK_VERSION, below),
+//               3 the LIZA postcard, 4 a program's source; 5 to 31 are kept for later versions, which a page says are newer
 //   bytes 1...  deflate-raw (RFC 1951, no header or checksum) of the container:
 //     u32 little-endian J, the length of the skeleton
 //     J bytes     the skeleton: UTF-8 JSON of the snapshot { format, version, machine, name, taken, program?, config, roms,
@@ -162,6 +163,8 @@ export async function decodeLongLink(bytes, { maxBytes = SNAPSHOT_MAX_BYTES } = 
   if (!bytes || bytes.length < 2) throw damaged();
   // a version byte a little past ours is a newer CLOADM's; anything else is not a link this page wrote
   if (bytes[0] === PROGRAM_LINK_VERSION) throw new SnapshotError('This link holds a BASIC program, not a moment.');
+  if (bytes[0] === POSTCARD_LINK_VERSION) throw new SnapshotError('This link holds a postcard from LIZA, not a moment.');
+  if (bytes[0] === SOURCE_LINK_VERSION) throw new SnapshotError('This link holds a program\'s source, not a moment.');
   if (bytes[0] > LONG_LINK_VERSION && bytes[0] < 32) throw new SnapshotError(`This link was made by a newer CLOADM (link format ${bytes[0]}; this page reads ${LONG_LINK_VERSION}). Reload the page to update it.`);
   if (bytes[0] !== LONG_LINK_VERSION) throw damaged();
   let box;
@@ -231,4 +234,101 @@ export async function decodeProgramLink(bytes) {
   if (v.version !== PROGRAM_FORMAT_VERSION || typeof v.machine !== 'string' || typeof v.text !== 'string' || !v.config || typeof v.config !== 'object' || Array.isArray(v.config)
     || v.text.length > PROGRAM_TEXT_MAX || /[^\x20-\x7E\n]/.test(v.text)) throw damaged();
   return { machine: v.machine, config: v.config, text: v.text };
+}
+
+// the payload links share one shape: byte 0 (the kind, in the long link's version byte), then deflate-raw of UTF-8 JSON
+async function encodeJsonLink(byte0, value) {
+  const packed = await pipe(new TextEncoder().encode(JSON.stringify(value)), new CompressionStream('deflate-raw'));
+  const out = new Uint8Array(1 + packed.length);
+  out[0] = byte0;
+  out.set(packed, 1);
+  return out;
+}
+// bytes -> the JSON value, or null when they don't unpack to JSON of at most max bytes
+async function decodeJsonLink(bytes, max) {
+  let box;
+  try { box = await gunzipAtMost(bytes.subarray(1), max, 'deflate-raw'); } catch (e) { return null; }
+  if (!box) return null;
+  try { return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(box)); } catch (e) { return null; }
+}
+
+// ---------------- the LIZA postcard (#z=, and a short link's sealed bytes) ----------------
+// "Send it as a postcard" (js/ui/share.js): a chat with LIZA as the lines the person typed, and nothing else. LIZA is
+// deterministic (its rotation of replies is in its own RAM, which a fresh start resets), so whoever opens it starts LIZA
+// afresh and types the same lines: they see the same answers. No memory, no picture, no ROM byte.
+//   byte 0      POSTCARD_LINK_VERSION (3)
+//   bytes 1...  deflate-raw (RFC 1951) of UTF-8 JSON { format: 'cloadm-liza', version: 1, machine, lines }
+//               machine: a profile id; lines: 1 to POSTCARD_LINES strings, each as LIZA's READLN keeps a line (upper
+//               case: $20-$60 and $7B-$7E, at most POSTCARD_LINE_MAX characters; isPostcardLine)
+export const POSTCARD_LINK_VERSION = 3;
+export const POSTCARD_FORMAT = 'cloadm-liza';
+export const POSTCARD_FORMAT_VERSION = 1;
+export const POSTCARD_LINES = 20;
+export const POSTCARD_LINE_MAX = 60;   // examples/liza.asm MAXIN
+// a line as READLN keeps it: printable, its lower case made upper (so none of $61-$7A), MAXIN at most
+export const isPostcardLine = (line) => typeof line === 'string' && line.length <= POSTCARD_LINE_MAX && /^[\x20-\x60\x7B-\x7E]*$/.test(line);
+export const isPostcardLink = (bytes) => !!bytes && bytes.length > 1 && bytes[0] === POSTCARD_LINK_VERSION;
+// { machine, lines } -> the link's bytes
+export async function encodePostcardLink({ machine, lines }) {
+  if (!Array.isArray(lines) || !lines.length || lines.length > POSTCARD_LINES || !lines.every(isPostcardLine)) throw new SnapshotError('A postcard holds 1 to 20 of LIZA\'s lines.');
+  return encodeJsonLink(POSTCARD_LINK_VERSION, { format: POSTCARD_FORMAT, version: POSTCARD_FORMAT_VERSION, machine, lines });
+}
+// the link's bytes -> { machine, lines }; SnapshotError when they are not one this page reads
+export async function decodePostcardLink(bytes) {
+  const damaged = () => new SnapshotError('This postcard is damaged: it was cut short or changed on the way.');
+  if (!isPostcardLink(bytes)) throw damaged();
+  const v = await decodeJsonLink(bytes, 16384);
+  if (!v || v.format !== POSTCARD_FORMAT || typeof v.version !== 'number') throw damaged();
+  if (v.version > POSTCARD_FORMAT_VERSION) throw new SnapshotError(`This postcard was made by a newer CLOADM (postcard format ${v.version}; this page reads ${POSTCARD_FORMAT_VERSION}). Reload the page to update it.`);
+  if (v.version !== POSTCARD_FORMAT_VERSION || typeof v.machine !== 'string' || !Array.isArray(v.lines) || !v.lines.length || v.lines.length > POSTCARD_LINES
+    || !v.lines.every(isPostcardLine)) throw damaged();
+  return { machine: v.machine, lines: v.lines.slice() };
+}
+
+// ---------------- a program's source (#z=, and a short link's sealed bytes) ----------------
+// "Share your program and its source" (the Assembler's Share…): the assembly source and the machine to build it on.
+// NO built program travels: whoever opens it assembles the source themselves, and `crc` says what it must build to
+// (sourceCrc of the segments and the start address); a source that builds to anything else is not run.
+//   byte 0      SOURCE_LINK_VERSION (4)
+//   bytes 1...  deflate-raw (RFC 1951) of UTF-8 JSON { format: 'cloadm-asm', version: 1, machine, config, name, source, crc }
+//               machine: a profile id; config: its options, as a share link's; name: the source's file name (1 to 64
+//               characters, no / or \); source: the text, at most SOURCE_LINK_MAX bytes of UTF-8; crc: sourceCrc, an
+//               unsigned 32-bit number
+export const SOURCE_LINK_VERSION = 4;
+export const SOURCE_FORMAT = 'cloadm-asm';
+export const SOURCE_FORMAT_VERSION = 1;
+export const SOURCE_LINK_MAX = 65536;   // bytes of UTF-8
+export const SOURCE_NAME_MAX = 64;
+// The CRC-32 (js/util.js crc32) of what a source builds to: for each segment in order its address and its length
+// (16 bits each, big-endian) then its bytes; last the start address (16 bits, big-endian) and a 1, or FF FF 0 for a
+// program with none.
+export function sourceCrc(segments, exec) {
+  const parts = [];
+  for (const sg of segments) {
+    const n = sg.data.length;
+    parts.push(sg.addr >> 8 & 0xFF, sg.addr & 0xFF, n >> 8 & 0xFF, n & 0xFF, ...sg.data);
+  }
+  const has = Number.isInteger(exec);
+  parts.push(has ? exec >> 8 & 0xFF : 0xFF, has ? exec & 0xFF : 0xFF, has ? 1 : 0);
+  return parseInt(crc32(Uint8Array.from(parts)), 16);   // (crc32 gives 8 hex digits)
+}
+export const isSourceLink = (bytes) => !!bytes && bytes.length > 1 && bytes[0] === SOURCE_LINK_VERSION;
+const sourceName = (n) => typeof n === 'string' && n.length >= 1 && n.length <= SOURCE_NAME_MAX && !/[/\\\x00-\x1F]/.test(n);
+const utf8Length = (t) => new TextEncoder().encode(t).length;
+// { machine, config, name, source, crc } -> the link's bytes
+export async function encodeSourceLink({ machine, config = {}, name, source, crc }) {
+  if (typeof source !== 'string' || utf8Length(source) > SOURCE_LINK_MAX) throw new SnapshotError(`A source to share is at most ${SOURCE_LINK_MAX / 1024} KB.`);
+  if (!sourceName(name) || !Number.isInteger(crc) || crc < 0 || crc > 0xFFFFFFFF) throw new SnapshotError('A source to share needs its name and what it builds to.');
+  return encodeJsonLink(SOURCE_LINK_VERSION, { format: SOURCE_FORMAT, version: SOURCE_FORMAT_VERSION, machine, config, name, source, crc });
+}
+// the link's bytes -> { machine, config, name, source, crc }; SnapshotError when they are not one this page reads
+export async function decodeSourceLink(bytes) {
+  const damaged = () => new SnapshotError('This link\'s source is damaged: it was cut short or changed on the way.');
+  if (!isSourceLink(bytes)) throw damaged();
+  const v = await decodeJsonLink(bytes, SOURCE_LINK_MAX * 2 + 4096);
+  if (!v || v.format !== SOURCE_FORMAT || typeof v.version !== 'number') throw damaged();
+  if (v.version > SOURCE_FORMAT_VERSION) throw new SnapshotError(`This source link was made by a newer CLOADM (source format ${v.version}; this page reads ${SOURCE_FORMAT_VERSION}). Reload the page to update it.`);
+  if (v.version !== SOURCE_FORMAT_VERSION || typeof v.machine !== 'string' || !v.config || typeof v.config !== 'object' || Array.isArray(v.config) || !sourceName(v.name)
+    || typeof v.source !== 'string' || utf8Length(v.source) > SOURCE_LINK_MAX || !Number.isInteger(v.crc) || v.crc < 0 || v.crc > 0xFFFFFFFF) throw damaged();
+  return { machine: v.machine, config: v.config, name: v.name, source: v.source, crc: v.crc };
 }

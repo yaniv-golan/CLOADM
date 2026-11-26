@@ -8438,7 +8438,7 @@ async function commandsChecks(browser, site, check) {
   // written out here rather than read from COMMANDS (the page's own list is checked against them)
   const WANT = [
     ['Claude', ['Chat with Claude, full screen', 'What is this code doing?']],
-    ['Files', ['Take snapshot', 'Open a program, tape, disk or cartridge…', 'Insert a disk…', 'New blank disk', 'Eject disk', 'Insert a tape…', 'Rewind the tape', 'Eject the tape', 'Save the tape as .WAV', 'Record to tape', 'Share']],
+    ['Files', ['Take snapshot', 'Open a program, tape, disk or cartridge…', 'Insert a disk…', 'New blank disk', 'Eject disk', 'Insert a tape…', 'Rewind the tape', 'Eject the tape', 'Save the tape as .WAV', 'Record to tape', 'Save program as .CAS/.WAV', 'Share']],
     ['Views', ['Programs', 'WYRMFIRE', 'Open the Library', 'Open the Debugger']],
     ['Settings', ['Your ROMs', 'Display settings', 'Input settings', 'POKEs', 'Machine settings']],   // (Your ROMs first)
     ['Machine', ['Pause or resume', 'Turbo', 'Fullscreen', 'Reset', 'Switch off and on', 'Switch machine…', 'Copy bug report', 'Help']],
@@ -23649,8 +23649,10 @@ async function basicShareChecks(browser, base, site, check) {
   await page.click('#btnProgramMode');
   const no = await page.evaluate(() => ({ why: document.getElementById('programWhy').textContent, shown: document.getElementById('programWhy').checkVisibility(), copy: document.getElementById('btnShareCopy').disabled,
     btn: document.getElementById('btnProgramMode').textContent, lines: document.getElementById('programLines').textContent, more: document.getElementById('programMore').checkVisibility() }));
-  check('basicShare: a program that can\'t be shared as text: the reason inline, with "Share the whole moment instead", Copy dark',
-    no.why === REFUSED && no.shown && no.copy && no.btn === 'Share the whole moment instead' && no.lines === '1 line' && !no.more, JSON.stringify(no));
+  // (its tape needs no text: "More ways to share" keeps Download .CAS and .WAV, and only those)
+  const tapeOnly = await page.evaluate(() => ['btnProgramForum', 'btnProgramBas', 'btnProgramCas', 'btnProgramWav'].filter((id) => !document.getElementById(id).hidden));
+  check('basicShare: a program that can\'t be shared as text: the reason inline, with "Share the whole moment instead", Copy dark; only its tape is offered',
+    no.why === REFUSED && no.shown && no.copy && no.btn === 'Share the whole moment instead' && no.lines === '1 line' && tapeOnly.join() === 'btnProgramCas,btnProgramWav', JSON.stringify([no, tapeOnly]));
   await page.click('#btnProgramMode');
   check('basicShare: ... and the moment can still be shared', await page.evaluate(() => !document.getElementById('btnShareCopy').disabled && document.getElementById('shareHeading').textContent === 'Share this moment'));
 
@@ -23720,6 +23722,395 @@ async function basicShareChecks(browser, base, site, check) {
   check('basicShare: a second after a short link\'s program arrives listed, the focus is on the screen', await p2.evaluate(() => document.activeElement.id) === 'screen', await p2.evaluate(() => document.activeElement.id));
   check('basicShare: the short link, with the Dragon 64\'s BASIC there: a fresh Dragon 64, the program listed', short && short.list === LISTED && short.id === 'dragon64' && short.hash === '' && short.report, JSON.stringify(short || await p2.evaluate(() => [document.getElementById('arrivalText').textContent, document.getElementById('status').textContent, window.emu.machine.id, window.emu.machine.hasRom])));
   check('basicShare: no page errors', errors.length === 0, errors.join(' | '));
+  await ctx.close(); await ctx2.close();
+}
+
+// LIZA postcards (js/postcard.js, js/ui/share.js's postcard mode, js/ui/arrival.js): a chat typed to LIZA on the page, sent
+// as a postcard (the Share screen's mode, its picture the postcard replayed, its short link sealed as kind 3 through the
+// Worker), the BYE note, and the recipient's card: Replay, a key skipping to the end, "Your turn". Also a phone's
+// "Share postcard…" and toast, a trimmed chat's note, and the refusals.
+async function postcardChecks(browser, base, site, check) {
+  const { pathToFileURL } = require('url');
+  const Emu = require('../tests/load')();
+  const W = await import(pathToFileURL(path.join(__dirname, '../shortlink/worker.js')).href);
+  const { MemoryBucket, memoryLimiter } = await import(pathToFileURL(path.join(__dirname, '../shortlink/memory-bucket.js')).href);
+  const local = site.replace(/\/$/, '');
+  const env = { BUCKET: new MemoryBucket(), RATE_IP: memoryLimiter(100), RATE_ALL: memoryLimiter(1000), DAILY_CAP: '100', ALLOWED_ORIGINS: `${local},https://cloadm.dev`, REPORT_EMAIL: 'abuse@example.com' };
+  const serve = (ctx) => ctx.route('https://s.cloadm.dev/**', async (route) => {
+    const r = route.request(), u = new URL(r.url()), origin = r.headers().origin;
+    if (u.pathname.startsWith('/api/')) {
+      const res = await W.default.fetch(new Request(r.url(), { method: r.method(), headers: r.headers(), body: ['GET', 'HEAD'].includes(r.method()) ? null : r.postDataBuffer() }), env, {});
+      return route.fulfill({ status: res.status, headers: Object.fromEntries(res.headers), body: Buffer.from(await res.arrayBuffer()) });
+    }
+    const cors = origin && env.ALLOWED_ORIGINS.split(',').includes(origin) ? { 'access-control-allow-origin': origin } : {};
+    const o = env.BUCKET.objects.get(decodeURIComponent(u.pathname.slice(1)));
+    if (!o) return route.fulfill({ status: 404, headers: cors, body: 'Not Found' });
+    return route.fulfill({ status: 200, headers: Object.assign({ 'content-type': 'application/octet-stream' }, cors), body: Buffer.from(o.bytes) });
+  });
+  const LINES = ['I MISS MY DRAGON', 'BECAUSE IT WAS MAGIC'];
+  const NOTE = 'Opens LIZA and replays this chat: your 2 lines and LIZA\'s answers. Anyone with the link can read what you typed.';
+  const errors = [];
+  // the postcard replayed in Node, as the page replays it: its frame and its picture's bytes
+  const lizaBin = fs.readFileSync(path.join(__dirname, '../examples/liza.bin'));
+  const replayed = (lines) => new Emu.Session({ welcomeMenu: false }).postcards.replayFrame({ machine: 'dragon64', lines }, lizaBin);
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, serviceWorkers: 'block', acceptDownloads: true, permissions: ['clipboard-read', 'clipboard-write'] });
+  await serve(ctx);
+  const page = await ctx.newPage();
+  page.on('pageerror', (e) => errors.push(e.message));
+  const heard = (n) => waitFor(page, (k) => { const c = window.emu.session.postcards.current(); return !!c && c.all === k; }, n, 15000);
+  await page.goto(`${base}?machine=dragon64&start=liza`);
+  await linkIn(page);
+  check('postcard: LIZA runs (?start=liza)', await waitFor(page, () => window.emu.session.bundledRunning === 'liza' && window.emu.session.screenText().join('').includes('>'), null, 15000));
+  // the first line on the real keyboard, lower case (READLN makes it upper case), the second typed in
+  await page.click('#screen');
+  await page.keyboard.type('i miss my dragon');
+  await page.keyboard.press('Enter');
+  check('postcard: a line typed on the keyboard is heard, in upper case', await heard(1) && await page.evaluate(() => window.emu.session.postcards.current().lines[0]) === LINES[0]);
+  await page.evaluate((l) => window.emu.session.typeText(`${l}\n`), LINES[1]);
+  await heard(2);
+  await page.waitForTimeout(500);
+  const openShare = async () => {
+    if (await page.evaluate(() => location.hash === '#share')) { await page.click('#shareBack'); await page.waitForSelector('#share', { state: 'hidden' }); }
+    await page.evaluate(() => document.getElementById('btnShare').click()); await page.waitForSelector('#share', { state: 'visible' });
+    await waitFor(page, () => !!document.getElementById('shareLink').value);
+  };
+  await openShare();
+  const cardText = await page.evaluate(() => ({ shown: document.getElementById('postcardCard').checkVisibility(), text: document.getElementById('postcardCard').innerText.replace(/\s+/g, ' ').trim(),
+    h1: document.getElementById('shareHeading').textContent, mode: document.getElementById('share').classList.contains('postcard-mode') }));
+  check('postcard: the Share screen offers it: "Your chat with LIZA · 2 lines · Send it as a postcard instead"; the moment stays the default',
+    cardText.shown && cardText.text === 'Your chat with LIZA · 2 lines · Send it as a postcard instead' && cardText.h1 === 'Share this moment' && !cardText.mode, JSON.stringify(cardText));
+  await page.click('#btnPostcardMode');
+  const want = Emu.frameToRGBA(replayed(LINES));
+  const pm = await page.evaluate(() => {
+    const c = document.getElementById('sharePicture'), px = new Uint32Array(c.getContext('2d').getImageData(0, 0, c.width, c.height).data.buffer);
+    const vis = (id) => document.getElementById(id).checkVisibility();
+    return { h1: document.getElementById('shareHeading').textContent, note: document.getElementById('shareNote').textContent, name: document.getElementById('shareName').textContent,
+      copy: document.getElementById('btnShareCopy').textContent, copyOn: !document.getElementById('btnShareCopy').disabled, px: Array.from(px), w: c.width, h: c.height,
+      hidden: ['btnShareClip', 'btnShareDownload', 'btnShareGif', 'previewSwitch', 'shareForum', 'shareRom', 'programCard'].filter(vis), shot: vis('btnShareShot'),
+      trim: vis('postcardTrim'), back: document.getElementById('btnPostcardMode').textContent, long: document.getElementById('shareLink').value,
+      terms: vis('shortTerms') };
+  });
+  check('postcard: postcard mode: its heading, the note (exact), the caption "LIZA", "Copy postcard link" with Save picture beside it, "Share the whole moment instead"',
+    pm.h1 === 'Send a postcard from LIZA' && pm.note === NOTE && pm.name === 'LIZA' && pm.copy === 'Copy postcard link' && pm.copyOn && pm.shot && pm.back === 'Share the whole moment instead' && !pm.trim && pm.terms,
+    JSON.stringify(Object.assign({}, pm, { px: undefined, long: undefined })));
+  check('postcard: the moment\'s other ways give way (clip, GIF, snapshot file, the picture switch, its forum text, the ROM line)', pm.hidden.length === 0, pm.hidden.join());
+  check('postcard: the preview is the postcard replayed from its link (computed again here), pixel for pixel', pm.w === want.length / pm.h && pm.px.length === want.length && pm.px.every((v, i) => v === want[i]), `${pm.w}x${pm.h}`);
+  const longPc = await new Emu.Session({ welcomeMenu: false }).postcards.read(pm.long.slice(pm.long.indexOf('#'))).catch((e) => e);
+  check('postcard: the long link carries the two lines (#z=, byte 0 = 3), for the Dragon 64', longPc && longPc.machine === 'dragon64' && JSON.stringify(longPc.lines) === JSON.stringify(LINES), pm.long.slice(0, 90));
+  if (shotDir) await page.screenshot({ path: path.join(shotDir, 'postcard-share.png'), fullPage: true });
+  // Save picture: liza-postcard.png, the postcard replayed on a link card (js/video/card.js)
+  const [dl] = await Promise.all([page.waitForEvent('download'), page.click('#btnShareShot')]);
+  const png = fs.readFileSync(await dl.path());
+  const wantPng = Buffer.from(await Emu.encodeIndexedPng(Emu.cardPicture(replayed(LINES))));
+  check('postcard: Save picture downloads liza-postcard.png, the postcard replayed (1200 x 630), byte for byte', dl.suggestedFilename() === 'liza-postcard.png' && png.equals(wantPng), `${dl.suggestedFilename()} ${png.length}`);
+  // Copy postcard link: the short link, sealed kind 3, through the Worker
+  await page.click('#btnShareCopy');
+  const made = await waitFor(page, () => !document.getElementById('shortMade').hidden, null, 15000);
+  const url = await page.inputValue('#shareShort');
+  const m = /^https:\/\/s\.cloadm\.dev\/([A-Za-z0-9_-]{8})#([A-Za-z0-9_-]{22})$/.exec(url) || [];
+  const sealed = m[1] && env.BUCKET.objects.get(`${m[1]}.bin`);
+  const opened = sealed ? await Emu.decodePostcardLink((await Emu.openMoment(new Uint8Array(sealed.bytes), m[2])).bytes).catch((e) => e) : null;
+  const html = m[1] ? env.BUCKET.text(m[1]) || '' : '';
+  check('postcard: Copy makes the short link and copies it: sealed (version 1, kind 3), the two lines, no picture; the arrival page says "A postcard from LIZA on a Dragon 64"',
+    made && await page.evaluate(() => navigator.clipboard.readText()) === url && !!sealed && sealed.bytes[0] === 1 && sealed.bytes[1] === 3 && opened && JSON.stringify(opened.lines) === JSON.stringify(LINES)
+    && !env.BUCKET.objects.has(`${m[1]}.png`) && html.includes('<meta property="og:title" content="A postcard from LIZA on a Dragon 64, CLOADM">'), url);
+  check('postcard: ... and the button says "Copy postcard link" again after', await page.textContent('#btnShareCopy') === 'Copy postcard link');
+  await page.click('#btnPostcardMode');
+  check('postcard: "Share the whole moment instead" switches back', await page.evaluate(() => document.getElementById('shareHeading').textContent === 'Share this moment'
+    && document.getElementById('btnShareCopy').textContent === 'Copy link' && document.getElementById('shortMade').hidden && document.getElementById('btnShareClip').checkVisibility()));
+  await page.click('#shareBack'); await page.waitForSelector('#share', { state: 'hidden' });
+  // BYE: the note under the screen, once; it opens the Share screen in postcard mode
+  await page.evaluate(() => window.emu.session.typeText('BYE\n'));
+  const note = await waitFor(page, () => document.getElementById('postcardNote').checkVisibility(), null, 10000) && await page.evaluate(() => document.getElementById('postcardNote').innerText.trim());
+  check('postcard: after BYE, the note under the screen: "Send this chat as a postcard…"', note === 'Send this chat as a postcard…', note);
+  if (shotDir) await page.screenshot({ path: path.join(shotDir, 'postcard-bye-note.png') });
+  await page.click('#btnPostcardNote');
+  await page.waitForSelector('#share', { state: 'visible' });
+  check('postcard: the note opens the Share screen in postcard mode (the menu is back: the chat that just ended)', await waitFor(page, () => document.getElementById('share').classList.contains('postcard-mode')
+    && document.getElementById('shareNote').textContent.startsWith('Opens LIZA and replays this chat: your 2 lines'), null, 10000));
+  await page.click('#shareBack'); await page.waitForSelector('#share', { state: 'hidden' });
+  check('postcard: ... and the note has gone', await page.isHidden('#postcardNote'));
+
+  // a chat of 21 lines: the postcard starts at line 2, and says so
+  await page.goto(`${base}?machine=dragon64&start=liza`);
+  await linkIn(page);
+  await waitFor(page, () => window.emu.session.bundledRunning === 'liza', null, 15000);
+  await page.evaluate(() => { for (let i = 0; i < 21; i++) window.emu.session.typeText(`LINE ${i + 1}\n`); });
+  await heard(21);
+  await page.waitForTimeout(300);
+  await openShare();
+  await page.click('#btnPostcardMode');
+  const trim = await page.evaluate(() => ({ t: document.getElementById('postcardTrim').checkVisibility() && document.getElementById('postcardTrim').textContent, lines: document.getElementById('postcardLines').textContent }));
+  check('postcard: 21 lines: "Postcards hold 20 lines: this one starts at your line 2."', trim.t === 'Postcards hold 20 lines: this one starts at your line 2.' && trim.lines === '20 lines', JSON.stringify(trim));
+  await page.click('#shareBack'); await page.waitForSelector('#share', { state: 'hidden' });
+
+  // the recipient: the short link
+  const ctx2 = await browser.newContext({ viewport: { width: 1280, height: 900 }, serviceWorkers: 'block' });
+  await serve(ctx2);
+  const p2 = await ctx2.newPage();
+  p2.on('pageerror', (e) => errors.push(e.message));
+  await p2.goto(`${base}#l=${m[1]}.${m[2]}`);
+  await linkIn(p2);
+  const arr = await waitFor(p2, () => !document.getElementById('arrival').hidden, null, 15000) && await p2.evaluate(() => {
+    const vis = (id) => document.getElementById(id).checkVisibility();
+    const a = document.getElementById('arrival').getBoundingClientRect(), sc = document.getElementById('screenWrap').getBoundingClientRect();
+    return { text: document.getElementById('arrivalText').textContent, buttons: ['btnPostcardReplay', 'btnPostcardSkip', 'btnArrivalStart', 'btnArrivalBack'].filter(vis).map((id) => document.getElementById(id).textContent),
+      top: a.top < sc.top + sc.height / 3, report: vis('arrivalReport'), machine: window.emu.machine.id, liza: window.emu.session.bundledRunning, typed: window.emu.session.screenText().join('').includes('MISS'), hash: location.hash };
+  });
+  check('postcard: the recipient: "A postcard from LIZA · 2 lines" [Replay] [Skip to the end], at the top, LIZA waiting on a Dragon 64, nothing typed yet',
+    arr && arr.text === 'A postcard from LIZA · 2 lines' && arr.buttons.join() === 'Replay,Skip to the end' && arr.top && arr.report && arr.machine === 'dragon64' && arr.liza === 'liza' && !arr.typed && arr.hash === '', JSON.stringify(arr));
+  if (shotDir) await p2.screenshot({ path: path.join(shotDir, 'postcard-arrival.png') });
+  await p2.click('#btnPostcardReplay');
+  const typing = await waitFor(p2, () => window.emu.session.screenText().join('').includes('I MIS'), null, 10000);
+  const mid = await p2.evaluate(() => ({ state: window.emu.session.arrivedFromLink.postcard.state, buttons: ['btnPostcardReplay', 'btnPostcardSkip'].filter((id) => document.getElementById(id).checkVisibility()),
+    focus: document.activeElement.id }));
+  check('postcard: Replay types the lines (the card keeps Skip to the end; the screen has the focus)', typing && mid.state === 'replaying' && mid.buttons.join() === 'btnPostcardSkip' && mid.focus === 'screen', JSON.stringify(mid));
+  // a key skips to the end (it is not typed into LIZA)
+  await p2.keyboard.press('q');
+  const done = await waitFor(p2, () => document.getElementById('arrivalText').textContent === 'Your turn: type to LIZA.', null, 10000);
+  await p2.waitForTimeout(300);
+  const end = await p2.evaluate(() => ({ text: window.emu.session.screenText().join('\n'), buttons: document.getElementById('arrivalPostcard').checkVisibility() }));
+  check('postcard: a key skips to the end: "Your turn: type to LIZA.", both lines answered, and the key was not typed', done && !end.buttons && end.text.includes('> I MISS MY DRAGON') && end.text.includes('> BECAUSE IT WAS MAGIC')
+    && !/> Q/.test(end.text), end.text.replace(/\s+/g, ' ').slice(-160));
+  const want2 = Emu.frameToRGBA(replayed(LINES));
+  const same = await p2.evaluate(() => Array.from(window.emu.Emu.frameToRGBA(window.emu.session.shownMachine.render())));
+  check('postcard: the recipient\'s screen is the sender\'s picture, pixel for pixel', same.length === want2.length && same.every((v, i) => v === want2[i]));
+  if (shotDir) await p2.screenshot({ path: path.join(shotDir, 'postcard-your-turn.png') });
+  await p2.keyboard.type('hello');
+  check('postcard: their first key goes to LIZA and the card goes', await waitFor(p2, () => document.getElementById('arrival').hidden && window.emu.session.screenText().join('').includes('> HELLO'), null, 5000));
+  // refused: a newer postcard format, and a machine CLOADM lacks
+  const z = (v) => `#z=${Buffer.concat([Buffer.from([3]), require('zlib').deflateRawSync(Buffer.from(JSON.stringify(v)))]).toString('base64url')}`;
+  // (a different address each time: a change of the fragment alone does not load the page again)
+  for (const [what, v, re, at] of [['a newer postcard format', { format: 'cloadm-liza', version: 2, machine: 'dragon64', lines: ['HI'] }, /made by a newer CLOADM/, 'coco'],
+    ['a machine CLOADM lacks', { format: 'cloadm-liza', version: 1, machine: 'zx81', lines: ['HI'] }, /machine this CLOADM doesn't have/, 'dragon32']]) {
+    await p2.goto(`${base}?machine=${at}${z(v)}`);
+    await linkIn(p2);
+    const said = await waitFor(p2, (r) => new RegExp(r).test(document.getElementById('toast').textContent), re.source, 10000);
+    check(`postcard: refused, said: ${what}`, said && await p2.evaluate(() => document.getElementById('arrival').hidden && location.hash === ''), await p2.textContent('#toast'));
+  }
+
+  // a phone: "Share postcard…" (where the browser has a share sheet) then "Copy link"; BYE's offer is a toast
+  const phone = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, serviceWorkers: 'block' });
+  await phone.addInitScript(() => { navigator.share = async () => {}; navigator.canShare = () => true; });
+  const p3 = await phone.newPage();
+  p3.on('pageerror', (e) => errors.push(e.message));
+  await p3.goto(`${base}?machine=dragon64&start=liza`);
+  await linkIn(p3);
+  await waitFor(p3, () => window.emu.session.bundledRunning === 'liza', null, 15000);
+  await p3.evaluate(() => window.emu.session.typeText('HELLO\n'));
+  await waitFor(p3, () => !!window.emu.session.postcards.current(), null, 10000);
+  await p3.evaluate(() => window.emu.session.typeText('BYE\n'));
+  const toast = await waitFor(p3, () => [...document.querySelectorAll('#toast button')].some((b) => b.checkVisibility() && b.textContent === 'Send this chat as a postcard…'), null, 10000);
+  check('postcard: a phone: after BYE, the offer is a toast ("Send this chat as a postcard…"), not the line under the screen', toast && await p3.isHidden('#postcardNote'));
+  await p3.evaluate(() => [...document.querySelectorAll('#toast button')].find((b) => b.textContent === 'Send this chat as a postcard…').click());
+  await p3.waitForSelector('#share', { state: 'visible' });
+  const ph = await waitFor(p3, () => document.getElementById('share').classList.contains('postcard-mode'), null, 10000) && await p3.evaluate(() => ({
+    native: document.getElementById('btnShareNative').checkVisibility() && document.getElementById('btnShareNative').textContent, nativePrimary: document.getElementById('btnShareNative').classList.contains('primary'),
+    copy: document.getElementById('btnShareCopy').textContent }));
+  check('postcard: a phone: "Share postcard…" first, then "Copy link"', ph && ph.native === 'Share postcard…' && ph.nativePrimary && ph.copy === 'Copy link', JSON.stringify(ph));
+  if (shotDir) await p3.screenshot({ path: path.join(shotDir, 'postcard-phone.png'), fullPage: true });
+  check('postcard: no page errors', errors.length === 0, errors.join(' | '));
+  await ctx.close(); await ctx2.close(); await phone.close();
+}
+
+// The BASIC program as a tape (Session.programTape; Share's program mode, "More ways to share"): Download .CAS and
+// .WAV beside Download .bas, the name on tape (cleaned as it is typed), the note per family, the files' names (.C10 on
+// the MC-10), what they hold, the snapshot mode without them, and the command box's "Save program as .CAS/.WAV".
+async function programTapeChecks(browser, base, check) {
+  const Emu = require('../tests/load')();
+  const { build } = require('../tests/fixtures/basic-standin');
+  const romsOf = (id) => Object.fromEntries(Object.entries(build(Emu, id)).map(([k, v]) => [k, [...v]]));
+  const PROG = '10 PRINT "TAPE"\n20 GOTO 10';
+  const errors = [];
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, serviceWorkers: 'block', acceptDownloads: true });
+  const page = await ctx.newPage();
+  page.on('pageerror', (e) => errors.push(e.message));
+  const boot = async (id) => {
+    await page.goto(`${base}?machine=${id}`);
+    await linkIn(page);
+    await page.evaluate((roms) => { const m = window.emu.session.shownMachine; m.setRoms(Object.fromEntries(Object.entries(roms).map(([k, v]) => [k, new Uint8Array(v)]))); m.reset(true); }, romsOf(id));
+    return waitFor(page, () => window.emu.session.bootStatus().state === 'ok', null, 20000);
+  };
+  const openShare = async () => {
+    await page.evaluate(() => document.getElementById('btnShare').click()); await page.waitForSelector('#share', { state: 'visible' });
+    await waitFor(page, () => !!document.getElementById('shareLink').value);
+  };
+  const vis = (ids) => page.evaluate((list) => list.filter((id) => document.getElementById(id).checkVisibility()), ids);
+  check('programTape: the stand-in BASIC boots on a Dragon 64', await boot('dragon64'));
+  await page.evaluate((p) => window.emu.session.loadBasic(p), PROG);
+  await openShare();
+  await page.click('#shareMore > summary');
+  check('programTape: the moment (snapshot mode) offers no tape', (await vis(['btnProgramCas', 'btnProgramWav', 'programTapeName'])).length === 0);
+  await page.click('#btnProgramMode');
+  const ui = await page.evaluate(() => {
+    const bar = document.getElementById('btnProgramBas').parentElement;
+    return { row: [...bar.children].filter((b) => b.checkVisibility()).map((b) => b.textContent), name: document.getElementById('programTapeName').value,
+      note: document.getElementById('programTapeNote').textContent, label: document.querySelector('label[for="programTapeName"]').textContent };
+  });
+  check('programTape: program mode, More ways: "Download .CAS" and "Download .WAV" beside "Download .bas"; the name on tape starts as PROGRAM; the note for Dragon BASIC',
+    ui.row.join() === 'Download .bas,Download .CAS,Download .WAV' && ui.name === 'PROGRAM' && ui.label === 'Name on tape'
+    && ui.note === 'For Dragon BASIC: CLOAD it in another emulator, or play the WAV into a real machine\'s cassette port.', JSON.stringify(ui));
+  await page.fill('#programTapeName', '');
+  await page.type('#programTapeName', 'my game!x');
+  check('programTape: the name is cleaned as it is typed (upper case, letters and digits, 8 at most)', await page.inputValue('#programTapeName') === 'MYGAMEX');
+  const [cas] = await Promise.all([page.waitForEvent('download'), page.click('#btnProgramCas')]);
+  const casBytes = new Uint8Array(fs.readFileSync(await cas.path()));
+  const d = Emu.formats.identify(cas.suggestedFilename(), casBytes);
+  const want = await page.evaluate(() => Array.from(window.emu.session.basicProgramBytes()));
+  check('programTape: Download .CAS: MYGAMEX.CAS, one tokenised BASIC file holding the program', cas.suggestedFilename() === 'MYGAMEX.CAS' && d.kind === 'cas' && d.files.length === 1
+    && d.files[0].name === 'MYGAMEX' && d.files[0].fileType === 0 && Buffer.from(d.files[0].data).equals(Buffer.from(want)), cas.suggestedFilename());
+  const [wav] = await Promise.all([page.waitForEvent('download'), page.click('#btnProgramWav')]);
+  const back = Emu.wavToCas(new Uint8Array(fs.readFileSync(await wav.path())));
+  check('programTape: Download .WAV: MYGAMEX.WAV, which decodes to the same tape', wav.suggestedFilename() === 'MYGAMEX.WAV' && back.badBlocks === 0 && Buffer.from(back.bytes).equals(Buffer.from(casBytes)), wav.suggestedFilename());
+  if (shotDir) await page.screenshot({ path: path.join(shotDir, 'program-tape.png'), fullPage: true });
+  // the command box: "Save program as .CAS/.WAV" opens the Share screen in program mode at the name
+  await page.click('#shareBack'); await page.waitForSelector('#share', { state: 'hidden' });
+  await page.keyboard.press('Control+k');
+  await waitFor(page, () => !document.getElementById('cmdBox').hidden);
+  await page.keyboard.type('save program');
+  await page.keyboard.press('Enter');
+  check('programTape: the command box\'s "Save program as .CAS/.WAV": the Share screen in program mode, at the name on tape',
+    await waitFor(page, () => document.getElementById('share').classList.contains('program-mode') && document.activeElement.id === 'programTapeName', null, 10000));
+  await page.click('#shareBack'); await page.waitForSelector('#share', { state: 'hidden' });
+  // the MC-10: a .C10, and its note
+  check('programTape: the stand-in BASIC boots on an MC-10', await boot('mc10'));
+  await page.evaluate((p) => window.emu.session.loadBasic(p), PROG);
+  await openShare();
+  await page.click('#btnProgramMode');
+  await page.click('#shareMore > summary');
+  const [c10] = await Promise.all([page.waitForEvent('download'), page.click('#btnProgramCas')]);
+  const dm = Emu.formats.identify(c10.suggestedFilename(), new Uint8Array(fs.readFileSync(await c10.path())));
+  check('programTape: an MC-10: PROGRAM.C10, a BASIC file, and the note for MC-10 BASIC', c10.suggestedFilename() === 'PROGRAM.C10' && dm.kind === 'cas' && dm.files[0].fileType === 0
+    && await page.textContent('#programTapeNote') === 'For MC-10 BASIC: CLOAD it in another emulator, or play the WAV into a real machine\'s cassette port.', c10.suggestedFilename());
+  // no program: the command is muted, saying why
+  await page.click('#shareBack'); await page.waitForSelector('#share', { state: 'hidden' });
+  await boot('dragon64');
+  check('programTape: (a fresh Dragon 64 at OK: no program in memory)', await page.evaluate(() => !window.emu.session.basicProgramBytes()));
+  await page.keyboard.press('Control+k');
+  await waitFor(page, () => !document.getElementById('cmdBox').hidden);
+  await page.keyboard.type('save program');
+  const muted = await waitFor(page, () => [...document.querySelectorAll('#cmdList [aria-disabled="true"]')].some((r) => /Save program as \.CAS\/\.WAV/.test(r.textContent) && /No BASIC program/.test(r.textContent)), null, 5000);
+  check('programTape: no program in memory: the command is listed muted, "No BASIC program"', muted);
+  await page.keyboard.press('Escape');
+  check('programTape: no page errors', errors.length === 0, errors.join(' | '));
+  await ctx.close();
+}
+
+// "Share your program and its source" (js/source-share.js; the Assembler's Share…, js/ui/share.js's source mode,
+// js/ui/arrival.js): Share… only after a successful assemble; the Share screen's source mode (heading, caption, note, its
+// screen or its first lines); the short link sealed as kind 4 through the Worker; the recipient's card, nothing run until
+// Run, Show source, Run building and starting it; a tampered link never run; a newer one refused.
+async function sourceShareChecks(browser, base, site, check) {
+  const { pathToFileURL } = require('url');
+  const Emu = require('../tests/load')();
+  const W = await import(pathToFileURL(path.join(__dirname, '../shortlink/worker.js')).href);
+  const { MemoryBucket, memoryLimiter } = await import(pathToFileURL(path.join(__dirname, '../shortlink/memory-bucket.js')).href);
+  const local = site.replace(/\/$/, '');
+  const env = { BUCKET: new MemoryBucket(), RATE_IP: memoryLimiter(100), RATE_ALL: memoryLimiter(1000), DAILY_CAP: '100', ALLOWED_ORIGINS: `${local},https://cloadm.dev`, REPORT_EMAIL: 'abuse@example.com' };
+  const serve = (ctx) => ctx.route('https://s.cloadm.dev/**', async (route) => {
+    const r = route.request(), u = new URL(r.url()), origin = r.headers().origin;
+    if (u.pathname.startsWith('/api/')) {
+      const res = await W.default.fetch(new Request(r.url(), { method: r.method(), headers: r.headers(), body: ['GET', 'HEAD'].includes(r.method()) ? null : r.postDataBuffer() }), env, {});
+      return route.fulfill({ status: res.status, headers: Object.fromEntries(res.headers), body: Buffer.from(await res.arrayBuffer()) });
+    }
+    const cors = origin && env.ALLOWED_ORIGINS.split(',').includes(origin) ? { 'access-control-allow-origin': origin } : {};
+    const o = env.BUCKET.objects.get(decodeURIComponent(u.pathname.slice(1)));
+    if (!o) return route.fulfill({ status: 404, headers: cors, body: 'Not Found' });
+    return route.fulfill({ status: 200, headers: Object.assign({ 'content-type': 'application/octet-stream' }, cors), body: Buffer.from(o.bytes) });
+  });
+  const FILL = '        ORG     $7000\nSTART   LDX     #$0400\n        LDA     #$41\nLOOP    STA     ,X+\n        CMPX    #$0600\n        BNE     LOOP\nDONE    BRA     DONE\n        END     START\n';
+  const ARRIVED = 'Someone sent you a program with its source: fill.asm, 9 lines. It\'s open in the Assembler; press Run to build and start it.';
+  const errors = [];
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, serviceWorkers: 'block', acceptDownloads: true, permissions: ['clipboard-read', 'clipboard-write'] });
+  await serve(ctx);
+  const page = await ctx.newPage();
+  page.on('pageerror', (e) => errors.push(e.message));
+  const screenA = (p) => p.evaluate(() => Array.from({ length: 0x200 }, (_, i) => window.emu.session.readByte(0x400 + i)).every((b) => b === 0x41));
+  await page.goto(`${base}?machine=dragon64`);
+  await linkIn(page);
+  await page.evaluate(() => document.getElementById('navDebugger').click());
+  await page.waitForSelector('#asmSource', { state: 'visible' });
+  await page.fill('#asmSource', FILL);
+  await page.evaluate(() => { document.getElementById('asmName').textContent = 'fill.asm'; });
+  check('sourceShare: Share… is off until the source has assembled', await page.isDisabled('#btnAsmShare'));
+  // Save .BIN assembles without running: Share… comes on, and its picture is the first lines
+  const [bin] = await Promise.all([page.waitForEvent('download'), page.click('#btnAsmSave')]);
+  check('sourceShare: ... and on once it has (Save .BIN assembled it)', !!bin && await page.isEnabled('#btnAsmShare'));
+  await page.click('#btnAsmShare');
+  await page.waitForSelector('#share', { state: 'visible' });
+  await waitFor(page, () => document.getElementById('share').classList.contains('source-mode'), null, 10000);
+  const want = Emu.frameToRGBA(Emu.textScreenFrame(Emu.listingRows(FILL.toUpperCase())));
+  const sm = await page.evaluate(() => {
+    const c = document.getElementById('sharePicture'), px = new Uint32Array(c.getContext('2d').getImageData(0, 0, c.width, c.height).data.buffer);
+    const vis = (id) => document.getElementById(id).checkVisibility();
+    return { h1: document.getElementById('shareHeading').textContent, note: document.getElementById('shareNote').textContent, caption: document.getElementById('shareName').textContent,
+      prefix: vis('sharePrefix'), card: document.getElementById('sourceCard').innerText.replace(/\s+/g, ' ').trim(), copy: !document.getElementById('btnShareCopy').disabled,
+      px: Array.from(px), w: c.width, h: c.height, hidden: ['btnShareShot', 'btnShareClip', 'btnShareGif', 'btnShareDownload', 'previewSwitch', 'shareForum', 'shareRom'].filter(vis),
+      long: document.getElementById('shareLink').value };
+  });
+  check('sourceShare: source mode: "Share your program and its source", the caption "fill.asm · 9 lines of 6809 source", the note, Copy on',
+    sm.h1 === 'Share your program and its source' && sm.caption === 'fill.asm · 9 lines of 6809 source' && !sm.prefix && sm.copy
+    && sm.note === 'They get the source and build it themselves; nothing runs until they press Run.' && sm.card === 'Your program and its source · 9 lines · Share the whole moment instead',
+    JSON.stringify(Object.assign({}, sm, { px: undefined, long: undefined })));
+  check('sourceShare: not run: the picture is its first lines in the machine\'s font, pixel for pixel', sm.w === 256 && sm.h === 192 && sm.px.every((v, i) => v === want[i]), `${sm.w}x${sm.h}`);
+  check('sourceShare: the moment\'s other ways give way', sm.hidden.length === 0, sm.hidden.join());
+  const longCard = await new Emu.Session({ welcomeMenu: false }).sources.read(sm.long.slice(sm.long.indexOf('#'))).catch((e) => e);
+  check('sourceShare: the long link holds the source (#z=, byte 0 = 4)', longCard && longCard.source === FILL && longCard.name === 'fill.asm', sm.long.slice(0, 80));
+  if (shotDir) await page.screenshot({ path: path.join(shotDir, 'source-share.png'), fullPage: true });
+  await page.click('#btnShareCopy');
+  const made = await waitFor(page, () => !document.getElementById('shortMade').hidden, null, 15000);
+  const url = await page.inputValue('#shareShort');
+  const m = /^https:\/\/s\.cloadm\.dev\/([A-Za-z0-9_-]{8})#([A-Za-z0-9_-]{22})$/.exec(url) || [];
+  const sealed = m[1] && env.BUCKET.objects.get(`${m[1]}.bin`);
+  const html = m[1] ? env.BUCKET.text(m[1]) || '' : '';
+  check('sourceShare: Copy makes the short link: sealed (version 1, kind 4), no picture; the arrival page says "A program and its source for the Dragon 64"',
+    made && !!sealed && sealed.bytes[0] === 1 && sealed.bytes[1] === 4 && !env.BUCKET.objects.has(`${m[1]}.png`) && html.includes('A program and its source for the Dragon 64, CLOADM'), url);
+  // run, then Share…: its picture is its screen now
+  await page.click('#shareBack'); await page.waitForSelector('#share', { state: 'hidden' });
+  await page.evaluate(() => document.getElementById('navDebugger').click());
+  await page.waitForSelector('#btnAsmRun', { state: 'visible' });
+  await page.click('#btnAsmRun');
+  await waitFor(page, () => window.emu.session.readByte(0x5FF) === 0x41, null, 10000);
+  await page.click('#btnAsmShare');
+  await waitFor(page, () => document.getElementById('share').classList.contains('source-mode'), null, 10000);
+  check('sourceShare: run first: the picture is its screen (the machine\'s frame)', await page.evaluate(() => document.getElementById('sharePicture').width) === 320);
+
+  // the recipient: the short link
+  const ctx2 = await browser.newContext({ viewport: { width: 1280, height: 900 }, serviceWorkers: 'block' });
+  await serve(ctx2);
+  const p2 = await ctx2.newPage();
+  p2.on('pageerror', (e) => errors.push(e.message));
+  await p2.goto(`${base}?machine=coco#l=${m[1]}.${m[2]}`);
+  await linkIn(p2);
+  const arr = await waitFor(p2, () => !document.getElementById('arrival').hidden, null, 15000) && await p2.evaluate(() => ({ text: document.getElementById('arrivalText').textContent,
+    buttons: ['btnSourceRun', 'btnSourceShow', 'btnArrivalStart', 'btnArrivalBack', 'btnPostcardReplay'].filter((id) => document.getElementById(id).checkVisibility()).map((id) => document.getElementById(id).textContent),
+    machine: window.emu.machine.id, source: document.getElementById('asmSource').value, name: document.getElementById('asmName').textContent, hash: location.hash }));
+  await p2.waitForTimeout(500);
+  check('sourceShare: the recipient: the card (exact words), [Run] [Show source], a Dragon 64, the source in the Assembler', arr && arr.text === ARRIVED && arr.buttons.join() === 'Run,Show source'
+    && arr.machine === 'dragon64' && arr.source === await Promise.resolve(arr.source) && arr.source.replace(/\r/g, '') === FILL && arr.name === 'fill.asm' && arr.hash === '', JSON.stringify(Object.assign({}, arr, { source: arr && arr.source.length })));
+  check('sourceShare: nothing runs until Run', !await screenA(p2) && await p2.evaluate(() => window.emu.session.readByte(0x7000) !== 0x8E));
+  if (shotDir) await p2.screenshot({ path: path.join(shotDir, 'source-arrival.png') });
+  await p2.click('#btnSourceShow');
+  check('sourceShare: Show source opens the Assembler with it', await waitFor(p2, () => location.hash === '#debugger' && document.getElementById('asmSource').checkVisibility(), null, 5000));
+  await p2.evaluate(() => history.back());
+  await waitFor(p2, () => location.hash === '', null, 5000);
+  await p2.click('#btnSourceRun');
+  check('sourceShare: Run builds it and starts it: the screen fills; the card goes', await waitFor(p2, () => Array.from({ length: 0x200 }, (_, i) => window.emu.session.readByte(0x400 + i)).every((b) => b === 0x41)
+    && document.getElementById('arrival').hidden, null, 10000));
+  // a tampered link (the crc changed): never run
+  const tampered = Object.assign({}, longCard, { crc: (longCard.crc ^ 1) >>> 0 });
+  await p2.goto(`${base}?machine=coco3#z=${Buffer.from(await Emu.encodeSourceLink(tampered)).toString('base64url')}`);
+  await linkIn(p2);
+  const bad = await waitFor(p2, () => !document.getElementById('arrival').hidden, null, 15000) && await p2.evaluate(() => ({ text: document.getElementById('arrivalText').textContent,
+    buttons: ['btnSourceRun', 'btnSourceShow'].filter((id) => document.getElementById(id).checkVisibility()), source: document.getElementById('asmSource').value.length }));
+  check('sourceShare: a tampered link: "This source builds differently in this CLOADM, so it won\'t run here. The code is in the Assembler to read.", Show source alone',
+    bad && bad.text === 'This source builds differently in this CLOADM, so it won\'t run here. The code is in the Assembler to read.' && bad.buttons.join() === 'btnSourceShow' && bad.source === FILL.length && !await screenA(p2), JSON.stringify(bad));
+  // a newer source format: refused, said
+  const z = `#z=${Buffer.concat([Buffer.from([4]), require('zlib').deflateRawSync(Buffer.from(JSON.stringify({ format: 'cloadm-asm', version: 2, machine: 'dragon64', config: {}, name: 'a.asm', source: 'X', crc: 1 })))]).toString('base64url')}`;
+  await p2.goto(`${base}?machine=dragon32${z}`);
+  await linkIn(p2);
+  check('sourceShare: a newer source format: refused, "made by a newer CLOADM"', await waitFor(p2, () => /made by a newer CLOADM/.test(document.getElementById('toast').textContent), null, 10000));
+  check('sourceShare: no page errors', errors.length === 0, errors.join(' | '));
   await ctx.close(); await ctx2.close();
 }
 
@@ -23810,6 +24201,9 @@ const GROUPS = (base, site) => [
   ['share', (b) => shareChecks(b, base, site, check)],
   ['shortLink', (b) => shortLinkChecks(b, base, site, check)],
   ['basicShare', (b) => basicShareChecks(b, base, site, check)],
+  ['postcard', (b) => postcardChecks(b, base, site, check)],
+  ['programTape', (b) => programTapeChecks(b, base, check)],
+  ['sourceShare', (b) => sourceShareChecks(b, base, site, check)],
   ['favicon', (b) => faviconChecks(b, site, check)],
   ['closedViews', (b) => closedViewsChecks(b, base, check)],
   ['uiModel', (b) => uiModelChecks(b, base, check)],

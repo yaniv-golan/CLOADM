@@ -22,7 +22,7 @@ const ORIGIN = 'https://cloadm.dev', IP = '203.0.113.77';
 const req = (path, { method = 'POST', body = null, origin = ORIGIN, ip = IP, type = 'application/octet-stream' } = {}) => new Request(`https://s.cloadm.dev${path}`, {
   method, body, headers: Object.assign({ 'CF-Connecting-IP': ip, 'Content-Type': type }, origin ? { Origin: origin } : {}) });
 const call = (env, r, now = new Date('2026-11-24T10:00:00Z')) => worker.fetch(r, env, {}, now);
-// a sealed object as the page makes one (js/media/link-crypto.js): version 1, the kind (1 a moment, 2 a program), then
+// a sealed object as the page makes one (js/media/link-crypto.js): version 1, the kind (1 a moment, 2 a program, 3 a postcard), then
 // bytes standing in for the IV, ciphertext and tag (the Worker never reads past the two clear bytes)
 const sealed = (n = 3000, seed = 1, kind = 1) => Uint8Array.from({ length: n }, (_, i) => (i === 0 ? 1 : i === 1 ? kind : (i * 31 + seed) & 0xFF));
 
@@ -84,6 +84,24 @@ const sealed = (n = 3000, seed = 1, kind = 1) => Uint8Array.from({ length: n }, 
       check('a program\'s arrival page: "A BASIC program for the MC-10", never "a moment"', pm('og:title') === 'A BASIC program for the MC-10, CLOADM'
         && pm('og:description') === 'Open this BASIC program in CLOADM, the Dragon and Color Computer emulator in your browser.'
         && phtml.includes('<p id="m">Opening a BASIC program for the MC-10 in CLOADM…</p>') && !/moment/i.test(phtml) && pm('twitter:card') === 'summary', pm('og:title'));
+    }
+    {
+      // a program's source (kind 4): no picture, and the page says so
+      const senv = envOf();
+      const sr = await call(senv, req('/api/new', { body: Emu.newLinkBody('coco3', sealed(400, 6, 4)) }));
+      const so = await sr.json(), shtml = senv.BUCKET.text(so.id) || '';
+      check('a source\'s link: made, its kind kept (4), no picture; its page says "A program and its source for the CoCo 3"', sr.status === 201 && senv.BUCKET.objects.get(`${so.id}.bin`).customMetadata.kind === '4'
+        && !senv.BUCKET.objects.has(`${so.id}.png`) && shtml.includes('<meta property="og:title" content="A program and its source for the CoCo 3, CLOADM">')
+        && shtml.includes('<p id="m">Opening a program and its source for the CoCo 3 in CLOADM…</p>') && !/moment/i.test(shtml), JSON.stringify(so));
+      // a LIZA postcard's link (kind 3): no picture, and the page says it is a postcard
+      const cenv = envOf();
+      const cr = await call(cenv, req('/api/new', { body: Emu.newLinkBody('mc10', sealed(400, 5, 3)) }));
+      const co = await cr.json(), cb = cenv.BUCKET.objects, chtml = cenv.BUCKET.text(co.id) || '';
+      const cm = (p) => (new RegExp(`<meta (?:property|name)="${p}" content="([^"]*)">`).exec(chtml) || [])[1];
+      check('a postcard\'s link: made, its kind kept (3), no picture', cr.status === 201 && cb.get(`${co.id}.bin`).customMetadata.kind === '3' && !cb.has(`${co.id}.png`), JSON.stringify(co));
+      check('a postcard\'s arrival page: "A postcard from LIZA on an MC-10", never "a moment"', cm('og:title') === 'A postcard from LIZA on an MC-10, CLOADM'
+        && cm('og:description') === 'Open this postcard from LIZA in CLOADM, the Dragon and Color Computer emulator in your browser.'
+        && chtml.includes('<p id="m">Opening a postcard from LIZA on an MC-10 in CLOADM…</p>') && !/moment/i.test(chtml) && cm('twitter:card') === 'summary', cm('og:title'));
     }
     check('the arrival page: "Report this link" mails the id only', html.includes(`<a href="mailto:abuse@example.com?subject=Report%20CLOADM%20link%20${out.id}">Report this link</a>`));
     // nothing from the request but the machine's id (mapped to our own name) is in the page
@@ -240,16 +258,18 @@ const sealed = (n = 3000, seed = 1, kind = 1) => Uint8Array.from({ length: n }, 
       ['a machine CLOADM lacks', Emu.newLinkBody('zx81', sealed())], ['empty', new Uint8Array(0)],
       ['a sealed object of version 2 (a newer CLOADM)', Emu.newLinkBody('dragon64', Uint8Array.from([2, ...sealed().subarray(1)]))],
       ['a sealed object of version 0', Emu.newLinkBody('dragon64', Uint8Array.from([0, ...sealed().subarray(1)]))],
-      ['a sealed object of kind 3', Emu.newLinkBody('dragon64', sealed(3000, 1, 3))], ['a sealed object of kind 0', Emu.newLinkBody('dragon64', sealed(3000, 1, 0))],
+      ['a sealed object of kind 5', Emu.newLinkBody('dragon64', sealed(3000, 1, 5))], ['a sealed object of kind 0', Emu.newLinkBody('dragon64', sealed(3000, 1, 0))],
       ['a sealed object of kind 32', Emu.newLinkBody('dragon64', sealed(3000, 1, 32))],
-      ['a program\'s link with a picture', Emu.newLinkBody('dragon64', sealed(3000, 1, 2), png)]]) {
+      ['a program\'s link with a picture', Emu.newLinkBody('dragon64', sealed(3000, 1, 2), png)],
+      ['a postcard\'s link with a picture', Emu.newLinkBody('dragon64', sealed(3000, 1, 3), png)],
+      ['a source\'s link with a picture', Emu.newLinkBody('dragon64', sealed(3000, 1, 4), png)]]) {
       const [s, m] = await status(req('/api/new', { body: b }));
       check(`refused (400): ${what}`, s === 400, m);
     }
     const [sn, mn] = await status(req('/api/new', { body: Emu.newLinkBody('dragon64', Uint8Array.from([2, ...sealed().subarray(1)])) }));
     check('a sealed object from a newer CLOADM: refused, saying so', sn === 400 && /newer CLOADM/.test(mn), mn);
-    // under version 1, a kind kept for later (3 to 31) is a newer CLOADM's; 0 and 32 up are not kinds
-    for (const [k, newer] of [[3, true], [31, true], [0, false], [32, false], [255, false]]) {
+    // under version 1, a kind kept for later (5 to 31) is a newer CLOADM's; 0 and 32 up are not kinds
+    for (const [k, newer] of [[5, true], [31, true], [0, false], [32, false], [255, false]]) {
       const [sk, mk] = await status(req('/api/new', { body: Emu.newLinkBody('dragon64', sealed(3000, 1, k)) }));
       check(`a sealed object of kind ${k}: refused, ${newer ? 'as a newer CLOADM\'s' : 'as not a kind'}`, sk === 400 && /newer CLOADM/.test(mk) === newer, mk);
     }
