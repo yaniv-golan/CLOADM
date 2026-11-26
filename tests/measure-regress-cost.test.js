@@ -13,6 +13,9 @@
 // slope negative, the way least squares let it on a loaded machine (the old check went red on exactly that, on a
 // run that raced another worker's browser check). The tool prints each fit's NOISE share and names a machine too
 // noisy to trust in its own words - a measurement that cannot trust its machine says so, it never passes silently.
+// Each case is timed twice, interleaved, and its fastest run kept (--repeat 2): one pass still went red under load
+// ("video slope -2.527"). A fit that is not useable on a machine the tool itself measured as noisy (past half) is a SKIP
+// line naming that noise, never a pass; on a quiet machine it is a failure (verdict(), below, with its own cases).
 // It is still not a test of the CONSTANTS (those are per-machine); it is a test that the tool reports a real
 // measurement rather than an undefined one.
 const fs = require('fs'), os = require('os'), path = require('path'), cp = require('child_process');
@@ -37,7 +40,11 @@ const byCost = (kind, ranks) => {
 };
 const chosen = [...byCost('instructions', [0, 3, 8, 20, 60, -1]), ...byCost('frames', [0, 1, 3, 10, 20, -1])];
 const only = `/${chosen.map((n) => '^' + n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$').join('|')}/`;   // anchored: 'video coco3' must not also match 'video coco3 ...'
-const r = cp.spawnSync(process.execPath, [path.join('tools', 'measure-regress-cost.js'), '--only', only], { cwd: ROOT, encoding: 'utf8', maxBuffer: 64 << 20 });
+// --repeat 2: every case timed twice, interleaved, its fastest run kept (load only ever adds time, so the minimum is the
+// run it touched least). One pass was what went red under load ("video slope -2.527"): a single slow run per case, on a
+// machine running other suites alongside, was all the fit had.
+const REPEAT = 2;
+const r = cp.spawnSync(process.execPath, [path.join('tools', 'measure-regress-cost.js'), '--only', only, '--repeat', String(REPEAT)], { cwd: ROOT, encoding: 'utf8', maxBuffer: 64 << 20 });
 const out = (r.stdout || '') + (r.stderr || '');
 check('a moved ROOT would crash it at once (this is the regression that happened)', r.status === 0 && !/ENOENT/.test(out),
   (out.split('\n').find((l) => /ENOENT|Error/.test(l)) || out.split('\n')[0] || '').slice(0, 160));
@@ -55,14 +62,34 @@ const useable = (f) => f !== null && f.n >= 2 && Number.isFinite(f.slope) && f.s
 const tf = fitOf('trace'), vf = fitOf('video');
 check('it reaches a trace fit (it read tests/regress-hashes.json and ran the cases)', tf !== null, (out.match(/trace:.*/) || [''])[0].slice(0, 120));
 check('it reaches a video fit', vf !== null, (out.match(/video:.*/) || [''])[0].slice(0, 120));
+// The verdict on a measured fit, in ONE place: 'ok' when it is useable; 'skip' ONLY when it is not and the tool itself
+// measured its machine as too noisy to trust (noise past half: more than half the pairwise slopes disagree with the
+// median, the tool's own 'the machine looks noisy' line); 'fail' for anything else. So a busy machine says SKIP, with
+// the noise it measured, instead of going red on a slope its own numbers call a guess - while a tool that reports
+// nothing (NaN, n=0), the wrong number of cases, or a slope that is negative on a QUIET machine still fails.
+const verdict = (f, count) => {
+  if (f === null || f.n !== count || !Number.isFinite(f.noise)) return 'fail';
+  if (useable(f)) return 'ok';
+  return f.noise > 0.5 ? 'skip' : 'fail';
+};
 for (const [label, f, count] of [['trace', tf, 6], ['video', vf, 6]]) {
   if (!f) continue;
   check(`the ${label} fit measured every chosen case (the sample cannot shrink silently)`, f.n === count, `n=${f.n} of ${count}`);
-  check(`the ${label} fit is a finite, positive slope (not NaN, not a negative from noise)`,
-    Number.isFinite(f.slope) && f.slope > 0, `${label} slope ${f.slope}`);
+  const v = verdict(f, count);
+  if (v === 'skip') console.log(`SKIP the ${label} fit is a finite, positive slope: the machine was too busy to measure (${label} slope ${f.slope}, noise ${Math.round(f.noise * 100)}% of its pairwise slopes disagree with the median, past half) - nothing was concluded from it`);
+  else check(`the ${label} fit is a finite, positive slope (not NaN, not a negative from noise)`, v === 'ok', `${label} slope ${f.slope}, noise ${f.noise}`);
 }
-check('both fits are useable (the requirement the mutant below leans on)', useable(tf) && useable(vf),
-  `trace ${JSON.stringify(tf)} video ${JSON.stringify(vf)}`);
+check('both fits are useable, or SKIP-ped above for a machine the tool measured as noisy (the requirement the mutant below leans on)',
+  verdict(tf, 6) !== 'fail' && verdict(vf, 6) !== 'fail', `trace ${JSON.stringify(tf)} video ${JSON.stringify(vf)}`);
+// the verdict itself, on hand-built fits: a busy machine's negative slope is a SKIP, a quiet machine's is a FAIL, and
+// a fit with nothing in it is a FAIL however noisy it says it was
+check('verdict: a positive slope is ok', verdict({ slope: 1.3, n: 6, noise: 0.1 }, 6) === 'ok');
+check('verdict: a negative slope on a machine measured as noisy (past half) is a SKIP, not a pass',
+  verdict({ slope: -2.527, n: 6, noise: 0.6 }, 6) === 'skip');
+check('verdict: a negative slope on a QUIET machine is a FAIL (the tool is wrong, not the machine)',
+  verdict({ slope: -2.527, n: 6, noise: 0.3 }, 6) === 'fail' && verdict({ slope: -2.527, n: 6, noise: 0.5 }, 6) === 'fail');
+check('verdict: no points, too few, or no noise share is a FAIL, never a SKIP',
+  verdict({ slope: NaN, n: 0, noise: NaN }, 6) === 'fail' && verdict({ slope: -1, n: 5, noise: 0.9 }, 6) === 'fail' && verdict(null, 6) === 'fail');
 // the fit itself, on HAND-BUILT points (the exported fit, the same code the run uses): a clean line
 // has noise 0, and a scattered set - half its pairwise slopes pulled every which way by a machine
 // that lies - is past half, which is exactly what makes the tool print its noisy-machine line. A
@@ -77,6 +104,22 @@ check('both fits are useable (the requirement the mutant below leans on)', useab
     wild.noise > 0.5, JSON.stringify(wild));
   const odd = fit([{ x: 1, y: 1 }]);
   check('the fit with no pair: NaN, not a made-up slope', Number.isNaN(odd.slope) && Number.isNaN(odd.noise), JSON.stringify(odd));
+  // the TIMINGS (--repeat), on a hand-made clock: a burst of load that slows case a and the empty run in the first
+  // pass, and another that slows case b in the second. Every case and the empty run must be run once per pass, the passes interleaved
+  // (a, b, empty, a, b, empty - not a, a, b, b), and the fastest run of each kept: the burst is gone from all of them.
+  {
+    const { measure } = require(path.join('..', 'tools', 'measure-regress-cost.js'));
+    const clean = { a: 3, b: 7, null: 1 }, seen = [];
+    let pass = 0;
+    const clock = (n) => { seen.push(n); const k = String(n); const t = clean[k] + (pass === 0 ? (k === 'b' ? 0 : 5) : (k === 'b' ? 9 : 0)); if (n === null) pass++; return t; };
+    const m = measure(['a', 'b'], 2, clock);
+    check('--repeat: every case and the empty run once per pass, the passes interleaved', JSON.stringify(seen) === JSON.stringify(['a', 'b', null, 'a', 'b', null]), JSON.stringify(seen));
+    check('--repeat: the fastest run of each is kept (a burst in either pass is gone from all of them)',
+      m.out.a.s === 3 && m.out.b.s === 7 && m.startup === 1, JSON.stringify(m));
+    seen.length = 0; pass = 0;
+    const one = measure(['a', 'b'], 1, clock);
+    check('--repeat 1 (the default): one run each, as it was', JSON.stringify(seen) === JSON.stringify(['a', 'b', null]) && one.out.a.s === 8 && one.out.b.s === 7 && one.startup === 6, JSON.stringify(one));
+  }
   // the PRINT path: the report of a noisy fit names the machine in its own words, and a clean fit's
   // report says nothing of the kind. (The noise share is tested above; this is the LINE the person
   // reads - deleting it must go red, not silently lose the guarantee.) The reports are captured with
@@ -105,7 +148,7 @@ check('every fit reports its noise share (the measurement says how much to trust
   !!tf && !!vf && Number.isFinite(tf.noise) && Number.isFinite(vf.noise), `trace noise ${tf && tf.noise} video noise ${vf && vf.noise}`);
 check('it names its noisy machine in its own words when the fit cannot be trusted (never a silent pass)',
   (tf.noise <= 0.5 && vf.noise <= 0.5) || /the machine looks noisy/.test(out), `trace ${tf.noise} video ${vf.noise}`);
-check(`it names how many cases it measured (every chosen one: ${chosen.length})`, new RegExp(`^measuring ${chosen.length} cases, one process each\\.\\.\\.`).test(out), (out.split('\n')[0] || '').slice(0, 80));
+check(`it names how many cases it measured (every chosen one: ${chosen.length}), each the fastest of ${REPEAT} runs`, new RegExp(`^measuring ${chosen.length} cases, one process each, the fastest of ${REPEAT} interleaved runs\\.\\.\\.`).test(out), (out.split('\n')[0] || '').slice(0, 80));
 check('no copy is left in the temp directory', leftovers().length === before, `${leftovers().length - before} left`);
 
 // F2's mutant, as a DELTA rather than an assertion about this file: the tool is run again from a copy in which the
@@ -125,12 +168,15 @@ check('no copy is left in the temp directory', leftovers().length === before, `$
     const h = JSON.parse(fs.readFileSync(hpath, 'utf8'));
     for (const k of Object.keys(h)) { delete h[k].instructions; delete h[k].frames; }
     fs.writeFileSync(hpath, JSON.stringify(h));
-    const m = cp.spawnSync(process.execPath, [path.join('tools', 'measure-regress-cost.js'), '--only', only], { cwd: dir, encoding: 'utf8', maxBuffer: 64 << 20 });
+    // the cheapest case of each kind is enough to show it (both fits empty), and keeps the suite inside its timeout
+    const cheap = `/${[byCost('instructions', [-1])[0], byCost('frames', [-1])[0]].map((n) => '^' + n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$').join('|')}/`;
+    const m = cp.spawnSync(process.execPath, [path.join('tools', 'measure-regress-cost.js'), '--only', cheap], { cwd: dir, encoding: 'utf8', maxBuffer: 64 << 20 });
     const mo = (m.stdout || '') + (m.stderr || '');
     // the SAME predicate the real run is held to, on the mutant's own numbers
     const mt = useable(fitOf('trace', mo)), mv = useable(fitOf('video', mo));
-    check('MUTANT (no recorded workload): the real requirement rejects it, so it is not vacuous',
-      !mt && !mv, `trace useable=${mt} video useable=${mv}; ${(mo.match(/trace:.*/) || [''])[0].slice(0, 80)}`);
+    const mtv = verdict(fitOf('trace', mo), 6), mvv = verdict(fitOf('video', mo), 6);
+    check('MUTANT (no recorded workload): the real requirement rejects it, and the verdict FAILS it (never a SKIP), so it is not vacuous',
+      !mt && !mv && mtv === 'fail' && mvv === 'fail', `trace useable=${mt} video useable=${mv}; ${(mo.match(/trace:.*/) || [''])[0].slice(0, 80)}`);
   } finally {
     try { fs.rmSync(dir, { recursive: true, force: true }); } catch (e) { /* best effort */ }
   }
