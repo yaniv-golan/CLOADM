@@ -40,7 +40,7 @@ page and chat menu show them is to be confirmed by the maintainer after release 
 
 ### Without the plugin
 
-Add `https://mcp.cloadm.dev/mcp` as a custom connector and name it **CLOADM** (no sign-in). You get the side panel but not the skill that teaches Claude to play it well. Already added https://mcp.cloadm.dev/mcp as a custom connector? The plugin's CLOADM side panel uses that same connector, so you won't have two; you can keep it. To add the skill on its own, download `cloadm-skill.zip` from the [Releases](https://github.com/yaniv-golan/CLOADM/releases) page and add it in claude.ai under Settings → Capabilities → Skills (steps not yet verified by the maintainers).
+Add `https://mcp.cloadm.dev/mcp` as a custom connector and name it **CLOADM** (no sign-in). You get the side panel but not the skill that teaches Claude to play it well. Already added https://mcp.cloadm.dev/mcp as a custom connector? The plugin's CLOADM side panel uses that same connector, so you won't have two; you can keep it. To add the skill on its own, download `cloadm-skill.zip` from the [Releases](https://github.com/yaniv-golan/CLOADM/releases) page and add it in claude.ai under Settings → Capabilities → Skills (steps not yet verified by the maintainers). Claude Code 2.1.331 or later gets the skill from the connector itself, over MCP ([The agent skill over MCP](#the-agent-skill-over-mcp)); whether claude.ai chat does is not yet verified.
 
 ## Which way should I install CLOADM for Claude?
 
@@ -91,7 +91,7 @@ if you want a settings form for the ROM and media folders. Desktop only, and wit
 ## Starting it
 
 ```sh
-node cli/cloadm.js --mcp [--roms PATH]... [--media-root DIR] [--read-only]
+node cli/cloadm.js --mcp [--roms PATH]... [--media-root DIR] [--read-only] [--no-skills]
 ```
 
 | Option | What it does |
@@ -99,6 +99,7 @@ node cli/cloadm.js --mcp [--roms PATH]... [--media-root DIR] [--read-only]
 | `--roms PATH` | your own ROM dumps: a file, a ROM pack `.zip` or a directory (repeatable). Without them every machine runs CLOADM's built-in firmware, which runs machine code but not BASIC. The server reads them once at start; they are never sent to the client as files |
 | `--media-root DIR` | the only directory the tools may read programs, tapes, disks, snapshots and `INCLUDE` files from, or write snapshots to. Every path is resolved inside it with `realpath`: `..`, an absolute path elsewhere, or a link that leads out are refused (`outside-media-root`). Without it (nor `mediaRoot` in the config file) the media root is `~/CLOADM` (`%USERPROFILE%\CLOADM` on Windows), a folder you can find: it is made on the first write (the first `save_snapshot`), never by starting or reading, and put tapes, disks and programs there for the tools to load; a file that is not there is `cannot-read`, naming the folder. What remains: a hard link inside the root to a file elsewhere is followed (it is the same file), and a directory swapped for a link between the check and the open is a race only someone who can already write in the root can run |
 | `--read-only` | only the tools that leave the machines' input, memory and your files alone: an agent can boot machines, let them run and look at them, but not type, write memory, load media or write files. The other tools are hidden (`tools/list` leaves them out, and the server's instructions name none of them); a call to one anyway is refused with `read-only` |
+| `--no-skills` | serve no agent skill over MCP ([The agent skill over MCP](#the-agent-skill-over-mcp)). The plugin's *CLOADM on this computer* starts with it, as the plugin ships the skill itself |
 
 <a id="the-config-file"></a>**The config file.** `--roms` and `--media-root` can also be set once, in `~/.config/cloadm/config.json`
 (`%APPDATA%\cloadm\config.json` on Windows):
@@ -145,7 +146,7 @@ In a Claude Code session:
 ```
 
 (Claude Code 2.1.275 or later also takes the two steps as one: `/plugin install cloadm --marketplace yaniv-golan/CLOADM`.)
-The plugin starts `node ${CLAUDE_PLUGIN_ROOT}/cli/cloadm.js --mcp` with no arguments, so out of the box it has no
+The plugin starts `node ${CLAUDE_PLUGIN_ROOT}/cli/cloadm.js --mcp --no-skills` (the plugin brings the skill itself), so out of the box it has no
 ROMs and its files live in `~/CLOADM` (put tapes, disks and programs there); see
 [Your ROMs and media folder](#your-roms-and-media-folder). Instead of the plugin you can also add the server by hand:
 
@@ -455,11 +456,50 @@ waiting behind another: it is then never run, and never answered.
 On stdio the server serves no MCP Apps view (`ui://`); the [side panel](#claude-on-the-web-side-panel) is where the
 same tools run in one.
 
+## The agent skill over MCP
+
+Both servers, `node cli/cloadm.js --mcp` and the connector at `https://mcp.cloadm.dev/mcp`, serve the agent skill
+`skills/cloadm/` through the MCP extension **Skills over MCP**, `io.modelcontextprotocol/skills`
+([overview](https://modelcontextprotocol.io/extensions/skills/overview); the specification is `skills.mdx` in
+[modelcontextprotocol/ext-skills](https://github.com/modelcontextprotocol/ext-skills), written against protocol
+revision `2026-07-28`). A client that supports it gets the skill with the server, without the plugin or a skill
+folder, and the skill changes when the server does: a new checkout, or a new deploy of the connector. Both serve the
+files of `skills/cloadm/` as they are (`.agents/skills/cloadm/` is the same bytes); nothing is copied or rewritten.
+
+| What | How |
+|---|---|
+| Declared | in `server/discover` (`2026-07-28`): `capabilities.extensions["io.modelcontextprotocol/skills"]: {}` and `capabilities.resources`. The handshake revisions (`initialize`) define no skills, so the extension is declared there only to a client whose own `initialize` declares it under `capabilities.extensions`; a client that does not ask sees the same handshake, tools and resources. On stdio the skill methods stay unknown (`-32601`) to such a client; the connector is stateless, so it answers `skills/list` and `skills/get` to any client that calls them |
+| `skills/list` | one skill, `skill://cloadm/SKILL.md`: its frontmatter as `SKILL.md` has it, and the complete manifest, every file with its `size` and `sha256:` digest of the bytes on disk. One page, no cursor |
+| `skills/get` | `{ "uri": "skill://cloadm/SKILL.md" }` gives the same entry; an unknown URI (another skill, or a file that is not a `SKILL.md`) is `-32602` |
+| `resources/read` | each file, e.g. `skill://cloadm/references/debugging.md`, as `text/markdown`, byte for byte; a file not in the manifest is `-32602`. `resources/list` lists them too (on stdio; on the connector to `2026-07-28` clients, beside the two views) |
+| Not offered | `resources/directory/read` (the extension's optional directory listing: `directoryRead` is not set) |
+
+**Which clients load it.** Claude Code 2.1.331 or later, in public beta: it uses `2026-07-28` with servers that
+speak it, as both of these do, and names a skill `<server>:<skill>`, such as `cloadm:cloadm` for a server added as
+`cloadm`, or `claude_ai_CLOADM:cloadm` for the connector added in claude.ai as *CLOADM*
+([Claude Code: Use skills from MCP servers](https://code.claude.com/docs/en/mcp#use-skills-from-mcp-servers); Team
+and Enterprise owners turn on "Skills over MCP" under Organization settings → Connectors). The same page lists where
+it does not: `claude -p`, cloud sessions and Claude Desktop's own connectors. Whether claude.ai chat loads skills from
+a connector is not verified yet. Other clients ignore the extension.
+
+**With the plugin.** The plugin ships the skill itself, so its *CLOADM on this computer* starts with `--no-skills`;
+Claude Code would otherwise list the same skill twice (`cloadm:cloadm` from the plugin and
+`plugin_cloadm_CLOADM_on_this_computer:cloadm` from the server): the extension's specification has a host keep skills from different origins apart, never silently dropping one.
+The plugin's *CLOADM side panel* is the public connector and cannot be told apart, so a Claude Code that connects it
+may still list `plugin_cloadm_CLOADM_side_panel:cloadm` beside the plugin's own. The two need not match: the connector serves whatever was last deployed, which can be newer or older than the installed plugin.
+Use one way: the plugin, or a server added by hand (`claude mcp add`, a connector) without the plugin.
+
 ## Claude on the web: side panel
 
 On claude.ai the emulator runs in Claude's side panel, in your browser, through a remote connector at
 `https://mcp.cloadm.dev/mcp` (a small stateless server with no sign-in: it serves the view and keeps nothing). Claude
 then uses the same machine tools as above on the machine you see.
+
+The connector speaks both protocol eras over Streamable HTTP, as the stdio server does: `initialize` and the handshake
+revisions (`2025-11-25`, `2025-06-18`, `2025-03-26`), and `2026-07-28` statelessly, where `server/discover` declares
+its tools, resources, the MCP Apps extension and the [skill](#the-agent-skill-over-mcp), the `MCP-Protocol-Version`,
+`Mcp-Method` and `Mcp-Name` headers must match the body (`400`, `-32020` when not), a version it does not speak is `400`
+with `-32022`, and an unknown method is `404`.
 
 **Add it** (once): install the CLOADM plugin and **Connect** *CLOADM side panel* ([Use with Claude](#use-with-claude)); or, without the plugin, in claude.ai **Plugins → Add → "Add custom connector"**, name `CLOADM`, URL
 `https://mcp.cloadm.dev/mcp`, choose **No sign-in**, then **Add**. On a Team or Enterprise plan an owner may have to add it

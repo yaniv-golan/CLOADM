@@ -178,6 +178,7 @@ const FILES = [
   'js/machines/ssc.js',
   'js/machines/stub.js',
   'js/machines/typist.js',
+  'js/mcp/skills.js',
   'js/mcp/tools.js',
   'js/media/avi.js',
   'js/media/basic.js',

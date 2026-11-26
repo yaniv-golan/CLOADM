@@ -102,6 +102,13 @@ curl -s -o /dev/null -w '%{http_code}\n' https://mcp.cloadm.dev/mcp
 curl -s -X POST https://mcp.cloadm.dev/mcp -H 'content-type: application/json' \
   -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{}}}' \
   | jq -j .result.instructions | sha256sum | cut -c1-12
+# the agent skill over MCP (2026-07-28, docs/mcp.md "The agent skill over MCP"): its manifest, every file's sha-256
+curl -s -X POST https://mcp.cloadm.dev/mcp -H 'content-type: application/json' -H 'accept: application/json, text/event-stream' \
+  -H 'MCP-Protocol-Version: 2026-07-28' -H 'Mcp-Method: skills/list' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"skills/list","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28"}}}' \
+  | jq -r '.result.skills[].resources[] | "\(.digest) \(.uri)"'
+# ...which are the checkout's: the same digests, from skills/cloadm/
+(cd skills/cloadm && find . -type f | sort | xargs sha256sum)
 ```
 
 Then in claude.ai: add the connector as [the guide](mcp.md#claude-on-the-web-side-panel) says, ask "Open CLOADM",

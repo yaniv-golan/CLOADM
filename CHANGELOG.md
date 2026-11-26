@@ -33,6 +33,18 @@ Next version: 0.3.1 (the plugin and extension manifests carry it; `tests/plugin.
   postcard…"; a toast on a phone). A new link kind: a long link's byte 0 = 3 and a short link's sealed kind 3 (both
   reserved by the 0.3 freeze), with golden fixtures; the short-link Worker names it on its arrival page ("A postcard
   from LIZA on a Dragon 64") and refuses a postcard with a picture. Never for the Claude chat; no ROMs on either side.
+- **The agent skill comes with CLOADM's MCP servers.** `node cli/cloadm.js --mcp` and the connector at
+  `https://mcp.cloadm.dev/mcp` serve `skills/cloadm/` over the MCP extension Skills over MCP
+  (`io.modelcontextprotocol/skills`): declared in `server/discover` (protocol `2026-07-28`), with `skills/list` (the
+  frontmatter and a manifest of every file's size and sha-256), `skills/get` and `resources/read` giving the files byte
+  for byte, from one transport-neutral module (`js/mcp/skills.js`) fed from the skill folder itself
+  (`cli/skill-files.js`; `connector/build.js` copies the files into the Worker's views). A client that adds the server
+  or the connector, such as Claude Code 2.1.331 or later, gets the skill without the plugin, and it changes with the
+  server. On the handshake revisions (`initialize`) the extension is declared only to a client that declares it, so
+  clients that don't ask see the same handshake, tools and resources (the stateless connector still answers
+  `skills/list` and `skills/get` to any client that calls them). The connector now also speaks `2026-07-28` (stateless, its HTTP headers
+  checked against the body). `--no-skills` serves no skill; the plugin's own local server uses it, since the plugin
+  ships the skill. `tests/mcp-skills.test.js`; docs/mcp.md, "The agent skill over MCP".
 
 #### Fixed
 
