@@ -125,7 +125,7 @@ CE1     CLR     <CLDBAS
         DEC     <CLDBAS
 CE2     JMP     ERROR
 
-* CFIND: read namefile blocks until one has the name in CNAME (any, when CNLEN is 0); its block stays at LINBUF.
+* CFIND: read namefile blocks until one has the name in CNAME (any, when CNLEN is 0); its block stays at BLKBUF.
 * The display [BB bb4, bb5 cas-display, cas-errors]: the screen cleared and S at the top left (blinking, CRBLK);
 * a namefile met puts its name on the top row from the third cell; the file wanted F (normal) at the top left;
 * another file is passed over to its end-of-file block, then the screen is cleared again, S (a search that starts in
@@ -138,12 +138,12 @@ CFIND   TST     <CLDBAS
         LDA     #'S'
         STA     SCREEN
         BSR     CFN2
-CF1     LDX     #LINBUF
+CF1     LDX     #BLKBUF
         JSR     CRBLK
         BNE     CF1             ; a bad block: not what we look for
         LDA     <CBTYP
         BNE     CF1             ; another file's data
-        LDX     #LINBUF
+        LDX     #BLKBUF
         LDU     #CNAME
         LDB     <CNLEN
         BEQ     CF3
@@ -165,7 +165,7 @@ CFNAME  TST     <CLDBAS         ; N set: quiet (OPEN "I")
         BMI     CF5
         LDX     #SCREEN+2
         STX     <CURPOS
-        LDX     #LINBUF
+        LDX     #BLKBUF
         LDB     #8
 CFN1    LDA     ,X+
         JSR     <ZCHROUT
@@ -175,7 +175,7 @@ CFN2    LDX     #SCREEN+32      ; the cursor on the second row
         STX     <CURPOS
         RTS
 * CSKIP: blocks read up to an end-of-file block
-CSKIP   LDX     #LINBUF
+CSKIP   LDX     #BLKBUF
         JSR     CRBLK
         LDA     <CBTYP
         INCA
@@ -206,11 +206,11 @@ CLOAD   CMPA    #'M'
         LBEQ    CLOADM
         JSR     GETNAM
         JSR     CFIND
-        LDA     LINBUF+8        ; a BASIC program, or a data file [BB bb5 cas-errors: ?DS ERROR]
+        LDA     BLKBUF+8        ; a BASIC program, or a data file [BB bb5 cas-errors: ?DS ERROR]
         CMPA    #2
         LBHS    CLFM
         INC     <CLDBAS
-        ORA     LINBUF+9        ; a data file, or a program saved as text
+        ORA     BLKBUF+9        ; a data file, or a program saved as text
         BNE     CLASC
         LDX     <TXTTAB
         BSR     CLDATA
@@ -279,13 +279,13 @@ CLOADM  JSR     <ZCHRGET
         BSR     CADDR
         STD     <CEND
 CLM1    JSR     CFIND
-        LDA     LINBUF+8
+        LDA     BLKBUF+8
         CMPA    #2
         LBNE    CLFM
-        LDD     LINBUF+11
+        LDD     BLKBUF+11
         ADDD    <CEND
         STD     <EXECAD
-        LDD     LINBUF+13
+        LDD     BLKBUF+13
         ADDD    <CEND
         TFR     D,X
         JSR     CLDATA

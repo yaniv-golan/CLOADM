@@ -85,7 +85,8 @@ function buildBasic({ defines = {}, edit = (file, text) => text } = {}) {
   });
   const used = owner.reduce((n, o) => n + (o >= 0 ? 1 : 0), 0);
   // the system RAM block and the direct page must not run into the buffers after them
-  if (res.symbols.get('SYSEND') > res.symbols.get('LINBUF')) throw new Error('basic: the system RAM ($0100 on) runs into LINBUF');
+  if (res.symbols.get('SYSEND') > res.symbols.get('BLKBUF')) throw new Error('basic: the system RAM ($0100 on) runs into the cassette block buffer BLKBUF');
+  if (res.symbols.get('SYSR3E') > res.symbols.get('SCREEN')) throw new Error('basic: the system RAM above the line buffer runs into the screen');
   // the direct page's regions end at or below the fixed addresses after them (d64basic.asm)
   for (const [end, at] of [['DPR1', 'TXTTAB'], ['DPR2', 'CURLIN'], ['DPR3', 'DEVNUM'], ['DPR4', 'WARMFL'], ['DPR5', 'CURPOS'], ['DPR6', 'BLINK'], ['DPR7', 'KEYDLY'], ['DPR8', 'TXTPTR'], ['DPR9', 'TRCFLG'], ['SYSR1', 'CASEFL']]) {
     if (res.symbols.get(end) > res.symbols.get(at)) throw new Error(`basic: the direct-page variables before ${at} run into it (move the split at ${end})`);

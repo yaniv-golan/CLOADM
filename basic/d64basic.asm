@@ -27,9 +27,12 @@ RAMTOP  EQU     $8000           ; one past the top of the RAM BASIC uses in 32K 
 STRTOP  EQU     $7FFE           ; the string space's top at a cold start [BB bb3 ram-pointers: $27 is 32766]
 STRDEF  EQU     200             ; the default string space
 
-LINBUF  EQU     $0200           ; the typed line (250 characters and a 0)
+LINBUF  EQU     $02DD           ; the typed line (250 characters and a 0) [BB ram-pointers2, 2026-11-26: an INPUT reply at 733]
 LINMAX  EQU     250
-CRNBUF  EQU     $0300           ; the crunched line
+CRNBUF  EQU     LINBUF-1        ; the crunched line, written over the typed one a byte behind it (CRUNCH reads ahead
+                                ; of where it writes) [BB ram-pointers2, 2026-11-26: the typed line at 733, crunched at 732]
+BLKBUF  EQU     CRNBUF-255      ; a cassette block read to look at or pass over (a namefile, a file skipped): below
+                                ; the line, which a direct CLOADM or SKIPF is still running from [OWN]
 
 * ---------------- system RAM, $0100-$01FF: laid out one after another, so nothing overlaps ----------------
 * (TIMER falls at $0112 after the vectors; the region SYSR1 ends at or below one fixed address:)
@@ -66,6 +69,10 @@ POLYV   RMB     5               ; POLY's variable
 TMPDSC  RMB     8*5             ; the temporary string descriptors (strings.inc)
 TMPEND  RMB     0
 FBUFFR  RMB     64              ; number to text (FOUT) and PRINT USING's work (FBUFFR+20 on)
+SYSEND  RMB     0               ; (must stay at or below BLKBUF: tools/build-basic.js checks it)
+* above the longest line (LINBUF + LINMAX, its 0 and CRUNCH's two more) and below the screen
+        ORG     LINBUF+LINMAX+3
+SYSR3   RMB     0
 FPDIG   RMB     9               ; FOUT's nine digits (reached through an index register only)
 * sound (sound.inc, play.inc)
 JOYV    RMB     4               ; JOYSTK(0)-(3) as JOYSTK(0) last read them
@@ -74,7 +81,7 @@ PLLEN   RMB     1
 PLTMP   RMB     1               ; the tempo, and the volume x 4 (PLTMP must come just before PLVOL)
 PLVOL   RMB     1
 PLDOT   RMB     1               ; the length's dots
-SYSEND  RMB     0               ; (must stay at or below LINBUF: tools/build-basic.js checks it)
+SYSR3E  RMB     0               ; (at or below SCREEN: tools/build-basic.js checks it)
 
 * ---------------- direct page ----------------
 * Fixed addresses that programs read and write, at the original's places [BB: bb3 ram-pointers, bb6 famous-pokes;

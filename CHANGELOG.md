@@ -95,6 +95,10 @@ Next version: 0.3.1 (the plugin and extension manifests carry it; `tests/plugin.
   accumulators, `NEXT`'s compare with its limit, starting each statement), with no result changed: 2000 empty
   `FOR`/`NEXT` passes take 119 fields against the original's 113 (142 before). SHIFT-@ pausing a running program
   has a test (`tests/basic-pause.test.js`).
+  The typed line and its crunched form are where the original keeps them (`$02DD`, and `$02DC` a byte behind,
+  crunched over the typed line), from the black-box probe `ram-pointers2`: the text pointer in direct mode, a typed
+  line and a reply to `INPUT` now sit at the original's addresses. A namefile, and the blocks of a file passed over,
+  are read into their own buffer below the line (a typed `CLOADM` or `SKIPF` still runs from the line).
 
 ### 0.3.1
 

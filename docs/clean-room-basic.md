@@ -125,9 +125,10 @@ corrupting the image.
 | Range | Use |
 |---|---|
 | `$0000-$00FF` | the direct page: the interpreter's variables (pointers, the two floating-point accumulators, the text pointer, flags, P2's current mode, start page and colour byte, `DRAW`'s angle and scale) up to `DPEND` (`$CE`: 2 bytes free below the two-byte calls, 4 below `$68`), laid out around the fixed addresses programs use, the original's ([section 15](#15-interface-contract-basics-pointers-in-low-ram)): `$19-$28` the program and memory pointers, `$68` the line running, `$6F` the output device, `$71` the cold-start flag, `$88-$89` the cursor's address, `$8F` its blink countdown, `$97-$98` the debounce delay ([section 14](#14-the-cursor)), `$A6-$A7` the text pointer, `$AF` `TRON`; then the two-byte calls' `JMP`s at `$D0-$FF` (`ZTRAMP`; section 2, the size budget), written with the RAM vectors at a cold start. P2's colours, colour set, last point and the point read are here too. DP is 0 throughout |
-| `$0100-$01FF` | the system RAM block, laid out by `RMB` in `d64basic.asm` (so nothing overlaps; the build fails if it reaches `$0200`): the RAM jump vectors (IRQ, FIRQ, NMI, SWI, SWI2, SWI3), so a program can hook an interrupt [OWN; addresses to align in P3]; `TIMER` at `$0112`; the `DEF USR` addresses; the cassette's name block, ending just below `$0149`, the lower-case flag; the keyboard's rollover table; the 8 temporary string descriptors; `FOR`'s step and limit; the numeric functions' temporaries; the number conversion and `PRINT USING` buffer and `FOUT`'s nine digits; the four `JOYSTK` values and `PLAY`'s octave, length and its dots, tempo and volume |
-| `$0200-$02FF` | the line input buffer (250 characters + terminator); `VAL` reads its copy of a string here |
-| `$0300-$03FF` | the crunched line |
+| `$0100-$01D4` | the system RAM block, laid out by `RMB` in `d64basic.asm` (so nothing overlaps; the build fails if it reaches `BLKBUF`): the RAM jump vectors (IRQ, FIRQ, NMI, SWI, SWI2, SWI3), so a program can hook an interrupt [OWN; addresses to align in P3]; `TIMER` at `$0112`; the `DEF USR` addresses; the cassette's name block, ending just below `$0149`, the lower-case flag; the keyboard's rollover table; the 8 temporary string descriptors; `FOR`'s step and limit; the numeric functions' temporaries; the number conversion and `PRINT USING` buffer; it ends at `SYSEND` (`$01D5`), which the build keeps at or below `BLKBUF` |
+| `$01DD-$02DB` | `BLKBUF`, a cassette block read to be looked at or passed over (a namefile, the blocks of a file skipped), 255 bytes just below the line: not in the line buffer, which a typed `CLOADM` or `SKIPF` is still running from [OWN] |
+| `$02DC-$03D9` | the line input buffer, as on the original ([BB] `ram-pointers2` (2026-11-26)): the typed line from `$02DD` (250 characters + terminator; `VAL` reads its copy of a string here), and the crunched line written over it from `$02DC`, a byte behind (`CRUNCH` reads ahead of where it writes; `'`, two bytes for one, can only close that gap) |
+| `$03DA-$03EB` | above the longest line (`LINBUF` + 250, its 0 and `CRUNCH`'s two more) and below the screen: `FOUT`'s nine digits, the four `JOYSTK` values and `PLAY`'s octave, length, tempo, volume and dots (extended addresses, as before: no timing changed) |
 | `$0400-$05FF` | the text screen, 32 x 16 [HW: the SAM's reset display offset] |
 | `$0600-$1DFF` | the graphics pages: `PCLEAR n` reserves n 1.5 K pages from `$0600` (1-8; 4 at cold start) and the program follows them; `CLOAD` of a text file reads each block into `$0600-$06FE` before its lines go in, and a cassette data file (and `CSAVE ,A`) gathers its block there (`CASBUF`) [OWN: no 256 free bytes elsewhere; a picture on page 1 shows the block's bytes while a file is open] |
 | `$1E00` | 0 (the byte before the program; after `PCLEAR n`, `$0600 + n x $600`) |
@@ -754,17 +755,16 @@ strings change, and `NEW`, `CLEAR`, `PCLEAR`, `RUN` and a load reset some of the
 | `$1F-20` | the arrays' end: free memory from here | moves up with `DIM` | the same (`ARYEND`) |
 | `$21-22` | the string space's bottom (the stack's top) | 32566 at a cold start (the top less 200); follows `CLEAR n` | the same (`STRBOT`) |
 | `$23-24` | the lowest string in use | the top when no string is in use; `A$="HELLO":B$=A$+"!"` typed in direct mode takes 12 bytes (the literals are copied out of the typed line) | the same (`FRETOP`) |
-| `$25-26` | not probed yet | (to probe) | ours holds `FORVAR` there [OWN] |
+| `$25-26` | a string-space pointer [BB `ram-pointers2`, 2026-11-26]: 32767 (the top + 1) after `NEW` and `CLEAR`; in direct mode, the start of the newest string after `A$="HELLO"`, `B$=A$+"!"`, `LEFT$` (32762, 32755, 32752); not moved by a `FOR`, a numeric assignment or a temporary string in `PRINT`; still 32767 after a program's `B$=A$+"C"` | ours holds `FORVAR` there [OWN]: what moves the original's is not yet clear (open) |
 | `$27-28` | the string space's top | 32766 | the same (`MEMTOP`; `CLEAR n,top` takes a top up to 32768 [OWN]) |
 | `$68-69` | the line running | `$FFFF` in direct mode | the same (`CURLIN`) |
 | `$6F` | where output goes | 0 the screen; 254 the printer (with none attached the original waits for it); 255 the tape | 0 and 255 the same (`DEVNUM`); any other value the screen: no printer output yet (section 13) |
 | `$71` | the cold-start flag | 85 (`$55`) once BASIC has started | the same (`WARMFL`) |
-| `$A6-A7` | the text pointer | points into the line being run | the same (`TXTPTR`); in direct mode it points into our own buffer for the typed line, 36 bytes above the original's (the buffers are not yet at the original's places) |
+| `$A6-A7` | the text pointer | points into the line being run | the same (`TXTPTR`); in direct mode it points into the crunched line at `$02DC`, as the original's does ([BB] `ram-pointers2` (2026-11-26): 757, 761, 765) |
 | `$AF` | `TRON` | 79 on, 0 off; `POKE 175,79` turns tracing on | the same (`TRCFLG`) |
 | `$0112-0113` | `TIMER` | counts fields; `POKE` to both bytes sets it | the same (`TIMER`) |
 | `$0149` | lower case (`SHIFT-0`) | 255 upper case, 0 lower case; `POKE 329,0` makes typed letters lower case | the same (`CASEFL`; any value but 0 is upper case [OWN]) |
 
-Still to do here: `$25-26`; the input buffers' places (so a direct-mode `$A6-A7` matches) (both asked of the original
-by the probe `ram-pointers2`, with `TIMER`'s bytes read so that the interpreter's speed cannot change the answer); the RAM vectors and hooks
+Still to do here: `$25-26` (what moves it); the RAM vectors and hooks
 (the [DOC] lead puts the IRQ's `JMP` at `$010C`), and the two-byte calls at `$D0-$FF` (whatever the original keeps
 there), which belong to the machine-code interface.
