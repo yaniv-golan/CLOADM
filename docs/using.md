@@ -497,8 +497,9 @@ otherwise the long link. Under
 **Embed in a web page**: the embed code. After a tap, the field the tap made (the short link, or the long link) is
 scrolled into view and focused. A
 line under the picture says what the link does, and a ROM line says whether the person opening it needs their own ROMs;
-with ROMs in use, a line above it says "This link holds no part of your ROMs. Whoever opens it needs their own: …" (not in
-the sideways-phone layout, whose ROM line is one line). While NitrOS-9 runs
+with ROMs in use it is one sentence, "This link holds none of your ROMs. Whoever opens it needs their own &lt;machine&gt; ROMs."
+(on a sideways phone, "Needs your &lt;machine&gt; ROMs to open."), and a note under Copy link says "Copy link gives a long
+link: short links are only for moments that run without ROMs." While NitrOS-9 runs
 the link starts NitrOS-9 fresh instead (no snapshot file). The link there, the long link, carries the moment itself (the snapshot rides in the
 fragment after `#z=`, which browsers never send to a server: a version byte, then the snapshot packed with deflate,
 its byte arrays raw rather than in base64, and without the rendered picture, which the machine draws again on the first
@@ -540,8 +541,8 @@ with its field and Copy, and the note "Holds the whole moment in the address; no
 use long links (nothing leaves this device)**, remembered in this browser, makes Copy link give the long link and its note
 reads "Long link: nothing is uploaded." The card under the picture says when the moment was captured, relative to now:
 "captured just now", then "3 minutes ago" (hours or days if the screen stays open that long). The picture's caption is
-one line, "What they'll see first · &lt;machine&gt;": a bundled program's page reads "&lt;program&gt; · &lt;machine&gt;"
-instead. It never wraps, and what gives way is the machine name, which ends in "…" — the prefix is never cut.
+one line, "What they'll see first · &lt;machine&gt;" ("This moment · &lt;machine&gt;" when the moment is on your own ROMs): a
+bundled program's page reads "&lt;program&gt; · &lt;machine&gt;" instead. It never wraps, and what gives way is the machine name, which ends in "…" — the prefix is never cut.
 
 A moment the page's guardrails keep out of a link at all switches Copy off, with the reason inline (said once, there,
 not also under the picture). A short link is never

@@ -1,9 +1,10 @@
 // Run: node tests/share-text.test.js
 //
 // The Share screen's words (js/share-text.js), on real moments from Session.shareFile:
-//  - the ROM line "This link holds no part of your ROMs. Whoever opens it needs their own: <needs>." appears exactly
-//    when the moment uses ROMs (or a cartridge's image) and never when it runs without (that it is TRUE is
-//    tests/share-roms.test.js's proof: no 16-byte window of a ROM is in the link);
+//  - the ROM line "This link holds none of your ROMs. Whoever opens it needs their own <machine> ROMs." (and its
+//    compact form) is what the screen writes exactly when the moment uses ROMs (or a cartridge's image), and the note
+//    under Copy link is the neutral long-link sentence (that the line is TRUE is tests/share-roms.test.js's proof: no
+//    16-byte window of a ROM is in the link; where each shows is tools/browser-check.js's);
 //  - "Copy for a forum": BBCode and Markdown, each the link and one line saying what it opens, and no image tag.
 // The "ROMs" are stand-ins built from this project's own firmware (examples/*.bin), never real ROMs.
 const fs = require('fs'), path = require('path');
@@ -15,16 +16,14 @@ const OURS = fs.readFileSync(path.join(__dirname, '../examples/liza.bin'));
 const standIn = (size, seed) => { const b = new Uint8Array(size); for (let i = 0; i < size; i++) b[i] = OURS[(i * 5 + seed) % OURS.length] ^ (i >> 8) & 0xFF; return b; };
 
 (async () => {
-  const { romFreeLine, forumText, forumDescription } = await import('../js/share-text.js');
-  const { needsLine } = await import('../js/media/romrefs.js');
-  const SENTENCE = (needs) => `This link holds no part of your ROMs. Whoever opens it needs their own: ${needs}.`;
+  const { romLines, LONG_LINK_NOTE, forumText, forumDescription } = await import('../js/share-text.js');
 
   // without ROMs: the built-in firmware, nothing needed, no line
   const bare = new Emu.Session({ store: Emu.memoryStore() });
   bare.switchMachine('dragon64');
   for (let i = 0; i < 5; i++) bare.shownMachine.runFrame();
   const bareFile = await bare.shareFile();
-  check('no ROMs in use: the moment needs nothing, and there is no ROM line', bareFile.needs.length === 0 && romFreeLine(bareFile.needs) === '', JSON.stringify(bareFile.needs));
+  check('no ROMs in use: the moment needs nothing, so the screen writes no ROM sentence', bareFile.needs.length === 0, JSON.stringify(bareFile.needs));
 
   // with ROMs (the Dragon 64's two BASIC sockets): the line names each, in the needs line's words
   const s = new Emu.Session({ store: Emu.memoryStore() });
@@ -33,10 +32,11 @@ const standIn = (size, seed) => { const b = new Uint8Array(size); for (let i = 0
   s.switchMachine('dragon64');
   for (let i = 0; i < 5; i++) s.shownMachine.runFrame();
   const file = await s.shareFile();
-  const labels = p.roms.map((r) => r.label).join(' and ');
   check('ROMs in use: the moment needs them', file.needs.length === p.roms.length, JSON.stringify(file.needs.map((x) => x.label)));
-  check('ROMs in use: the line is the exact sentence, naming what is needed', romFreeLine(file.needs) === SENTENCE(labels), romFreeLine(file.needs));
-  check('...and the needs line it sits above is still there', needsLine(file.needs) === `Needs ${labels}: the person opening it adds their own.`);
+  check('ROMs in use: the line is the one exact sentence, naming the machine and not the slots', romLines('Dragon 64').full === 'This link holds none of your ROMs. Whoever opens it needs their own Dragon 64 ROMs.'
+    && !/32K|64K/.test(romLines('Dragon 64').full), romLines('Dragon 64').full);
+  check('...and its compact form, for where space is short', romLines('Dragon 64').brief === 'Needs your Dragon 64 ROMs to open.' && romLines('CoCo 3').brief === 'Needs your CoCo 3 ROMs to open.');
+  check('the note under Copy link is the neutral sentence', LONG_LINK_NOTE === 'Copy link gives a long link: short links are only for moments that run without ROMs.');
 
   // a cartridge alone (no BASIC ROMs): its image is the person's too
   const c = new Emu.Session({ store: Emu.memoryStore() });
@@ -45,7 +45,7 @@ const standIn = (size, seed) => { const b = new Uint8Array(size); for (let i = 0
   c.load('game.ccc', pak);
   for (let i = 0; i < 5; i++) c.shownMachine.runFrame();
   const cf = await c.shareFile();
-  check('a cartridge in use: the line names it', romFreeLine(cf.needs) === SENTENCE('the cartridge'), romFreeLine(cf.needs));
+  check('a cartridge in use: its image is the person\'s too, so the moment needs something', cf.needs.length === 1 && cf.needs[0].label === 'the cartridge', JSON.stringify(cf.needs));
 
   // Copy for a forum
   const link = 'https://cloadm.dev/play/?machine=dragon64#s=H4sIAAAA_-x';
@@ -63,7 +63,7 @@ const standIn = (size, seed) => { const b = new Uint8Array(size); for (let i = 0
 
   // the Share screen uses these, not copies of them
   const share = fs.readFileSync(path.join(__dirname, '../js/ui/share.js'), 'utf8');
-  check('js/ui/share.js writes the ROM line and the forum text from js/share-text.js', /from '\.\.\/share-text\.js'/.test(share) && /romFreeLine\(file\.needs\)/.test(share) && /forumText\(/.test(share) && /const forumUrl = \(\) => \(short \? short\.url : captured\.untouched \? captured\.untouched\.page : captured\.link\)/.test(share)
+  check('js/ui/share.js writes the ROM line and the forum text from js/share-text.js', /from '\.\.\/share-text\.js'/.test(share) && /romLines\(name\)/.test(share) && /LONG_LINK_NOTE/.test(share) && /forumText\(/.test(share) && /const forumUrl = \(\) => \(short \? short\.url : captured\.untouched \? captured\.untouched\.page : captured\.link\)/.test(share)
     && /gifFromFrames\(/.test(share));
   // Save GIF follows the stage's WYRMFIRE rules (no recordingGuard of its own): setShots turns it off with the picture and
   // the clip, its click refuses the person's own WAD's level, and the Freedoom level's GIF carries the level's credit

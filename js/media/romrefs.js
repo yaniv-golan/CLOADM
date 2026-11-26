@@ -127,10 +127,6 @@ export function stripRoms(snap, machineRoms) {
   return out;
 }
 
-// The ROM line on the Share screen: what the person opening a link must add, each image by its label ("32K-mode BASIC",
-// "the disk ROM", "the cartridge"); '' when the moment needs nothing (it runs on the built-in firmware).
-export const needsLine = (images) => (images.length ? `Needs ${images.map((x) => x.label).join(' and ')}: the person opening it adds their own.` : '');
-
 // the images a shared snapshot needs that lookup(crc) doesn't have: [{ crc, size, kind, label }]
 export const missingImages = (snap, lookup) => (snap.share ? snap.share.images.filter((x) => !lookup(x.crc)) : []);
 

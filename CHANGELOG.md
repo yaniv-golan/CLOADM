@@ -10,6 +10,14 @@ Next version: 0.3.1 (the plugin and extension manifests carry it; `tests/plugin.
 
 ### 0.3.1
 
+#### Changed
+
+- **A moment on your own ROMs says so in one plain sentence on the Share screen.** The two orange ROM lines became one line in
+  normal text, "This link holds none of your ROMs. Whoever opens it needs their own Dragon 64 ROMs." (named by the machine, not
+  by its ROM slots; "Needs your Dragon 64 ROMs to open." where space is short), the orange note under the buttons became the
+  plain "Copy link gives a long link: short links are only for moments that run without ROMs.", and the picture's caption reads
+  "This moment · Dragon 64". A moment that runs without ROMs, and the cases where nothing can be shared, read as before.
+
 #### Fixed
 
 - **`cloadm --type` no longer loses keys on a busy BASIC.** With ROMs it typed at a fixed rate, so lines typed back to back into

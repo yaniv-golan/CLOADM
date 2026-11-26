@@ -699,7 +699,6 @@
   #share .snippet .bar { justify-content: flex-end; }
   #share .snippet h3 { margin: 0; font-weight: 400; }
   #share > .preview { align-self: start; }
-  #share .romline.warn { color: var(--orange); }
   #share .extra { display: flex; flex-direction: column; gap: 6px; }
   #share .extra p { font-size: 14px; }
   #share .romline:empty, #share .extra:empty, #share #shareNote:empty { display: none; }
@@ -830,8 +829,7 @@
     #share #shareRom { order: 5; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 14px; line-height: 1.3; }
     #share .romline .full { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
     #share .romline .brief { display: inline; }
-    /* the ROM line is one line here by design: the ROM-free sentence above it is the long ROM line's, not this one's */
-    #share #shareRomFree { display: none; }
+    /* the ROM line is one line here by design: its compact form is shown, and the full sentence is its title */
     #share #shareExtra { order: 6; }
     #share #programCard { order: 1; padding: 6px 10px; }
     #share #programCard p { font-size: 14px; line-height: 1.3; }
@@ -2007,10 +2005,8 @@ npx serve -l 8000 .</pre>
   <section class="col main" aria-labelledby="shareHeading">
     <h1 id="shareHeading">Share this moment</h1>
     <p id="shareNote"></p>
-    <!-- launch prep: with ROMs in use, "This link holds no part of your ROMs…" above the ROM line (js/share-text.js) -->
-    <p id="shareRomFree" class="romline" hidden></p>
     <!-- the ROM line: the full sentence, and its one-line form for a short landscape screen (the full one is then read
-         to assistive technology and is the line's title) -->
+         to assistive technology and is the line's title); with ROMs in use it is one sentence (js/share-text.js romLines) -->
     <p id="shareRom" class="romline"><span class="full" id="shareRomFull"></span><span class="brief" id="shareRomBrief" aria-hidden="true"></span></p>
     <div id="shareExtra" class="extra"></div>
     <!-- "Share your program" (js/ui/share.js): only when a BASIC program is in memory. The moment stays the default; the

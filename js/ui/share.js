@@ -28,9 +28,10 @@
  * A short landscape screen (a phone on its side, at most 420px tall) has its own layout (play/index.html): the picture
  * on the left, the right column scrolling on its own, the ROM line in one line (its full sentence the line's title and
  * what assistive technology reads).
- * Launch-prep additions: with ROMs in use, "This link holds no part of your ROMs. Whoever opens it needs their own:
- * <needs>." above the ROM line (js/share-text.js romFreeLine; hidden in the short-landscape layout, whose ROM line is
- * one line by design). "Save GIF" (the machine's own frames at true pixels scaled 2x, no CRT look, GIF_SECONDS long,
+ * Launch-prep additions: with ROMs in use, the ROM line is one sentence, "This link holds none of your ROMs. Whoever
+ * opens it needs their own <machine> ROMs." (js/share-text.js romLines; its compact form, "Needs your <machine> ROMs to
+ * open.", is the short-landscape layout's one line), the caption reads "This moment · <machine>", and the note under
+ * Copy link says why that link is a long one. "Save GIF" (the machine's own frames at true pixels scaled 2x, no CRT look, GIF_SECONDS long,
  * looping: js/media/gif.js) is first in "More ways to share"'s save row. The GIF follows the stage's WYRMFIRE rules as the
  * picture and the clip do (setShots): off, its reason beside it, for the person's own WAD's level; a GIF of the Freedoom
  * level carries "-freedoom" in its name and the level's credit in its comment. "Copy as text for a forum" (collapsed, before "Embed in a web page"): the
@@ -52,8 +53,7 @@
  */
 import { profiles } from '../machines/profiles.js';
 import { buildUrl } from '../config.js';
-import { needsLine } from '../media/romrefs.js';
-import { romFreeLine, forumText } from '../share-text.js';
+import { romLines, LONG_LINK_NOTE, forumText } from '../share-text.js';
 import { gifFromFrames } from '../media/gif.js';
 import { CanvasPresenter } from '../video/canvas.js';
 import { textScreenFrame } from '../chips/mc6847.js';
@@ -175,9 +175,6 @@ export function setupShare(page, { linkStore }) {
     // person's own WAD, no picture and no clip (id Software's game data)
     const wyrm = session.wyrmfireOn(m) || session.romCodeIn(m) === 'userdata';
     const own = session.romCodeIn(m) === 'userdata';
-    // (the ROM-free sentence belongs to a snapshot link with ROMs in use: cleared first, so no capture keeps an old one)
-    const romFree = $('shareRomFree');
-    romFree.textContent = ''; romFree.hidden = true;
     if (wyrm) { await captureWyrmfire(m, frame, own); return; }
     const name = m.profile.name.replace(/^Tandy /, '');
     // the picture at true pixels, captured with the snapshot so both show the same instant
@@ -222,7 +219,7 @@ export function setupShare(page, { linkStore }) {
     const rom = $('shareRom'), extra = $('shareExtra');
     // the ROM line: the full sentence, and its one line for a short landscape screen (play/index.html shows one)
     const romLine = (full, brief) => { $('shareRomFull').textContent = full; $('shareRomBrief').textContent = brief; if (full) rom.title = full; else rom.removeAttribute('title'); };
-    romLine('', ''); rom.classList.remove('warn'); extra.textContent = '';
+    romLine('', ''); extra.textContent = '';
     const note = (text) => { const p = document.createElement('p'); p.textContent = text; extra.append(p); };
     if (refusal) {
       // nothing to encode: the reason is said ONCE, inline under Copy (syncPrimary's #primaryWhy, in the guardrail's
@@ -238,8 +235,9 @@ export function setupShare(page, { linkStore }) {
     }
     // (the line under the picture is syncPrimary's: called just above through syncLongNote, it sets the snapshot's
     // clarity copy, or, for an untouched bundled program, the program-page note. One owner, so the two cannot differ.)
-    // with ROMs in use: first that the link holds none of them (Session.shareFile takes every byte out), then what to add
-    if (file.needs.length) { romFree.textContent = romFreeLine(file.needs); romFree.hidden = false; romLine(needsLine(file.needs), `Needs your ${name} ROMs to open.`); rom.classList.add('warn'); }
+    // with ROMs in use, one line: the link holds none of them (Session.shareFile takes every byte out) and whoever opens it
+    // needs their own, named by the machine, not by the slots; one sentence in normal text, never the orange of a warning
+    if (file.needs.length) { const l = romLines(name); romLine(l.full, l.brief); }
     else romLine('Runs without ROMs, so it opens for anyone.', 'Runs without ROMs.');
     // a tape being recorded is not in the link (its pulse timings could carry ROM code: js/media/romrefs.js)
     if (file.dropped.includes('deck.recording')) note('The tape being recorded is not in the link: it opens with the recorder stopped.');
@@ -298,7 +296,7 @@ export function setupShare(page, { linkStore }) {
     const rom = $('shareRom'), extra = $('shareExtra');
     // (the ROM line's two spans are cleared, not the line: the next ordinary capture writes into them)
     $('shareRomFull').textContent = ''; $('shareRomBrief').textContent = ''; rom.removeAttribute('title');
-    rom.classList.remove('warn'); extra.textContent = '';
+    extra.textContent = '';
     setShots(own, WYRMFIRE_TEXT.userClips);
     syncEmbed(m.id);
   }
@@ -308,6 +306,9 @@ export function setupShare(page, { linkStore }) {
   const ALWAYS_LONG = 'cloadm.alwaysLongLinks';   // this browser: every tap copies the long link
   const alwaysLong = () => { try { return localStorage.getItem(ALWAYS_LONG) === '1'; } catch (e) { return false; } };
   const setAlwaysLong = (on) => { try { if (on) localStorage.setItem(ALWAYS_LONG, '1'); else localStorage.removeItem(ALWAYS_LONG); } catch (e) { /* no storage: for this visit */ } $('shareAlwaysLong').checked = on; };
+  // the caption's words before the machine's name: a moment with no ROMs shows what the person opening it sees first;
+  // one on ROMs says only that it is a moment (what they see first is up to their own ROMs)
+  const CAPTION_PREFIX = "What they'll see first ·", ROM_CAPTION_PREFIX = 'This moment ·';
   const OFFLINE_LONG = "You're offline, so this is the long link: it works without any server.";
   const UNAVAILABLE_LONG = "Short links aren't available right now, so this is the long link: it works without any server.";
   // why the short link can't be made for this capture, or null: the Session's own refusals (ROMs, a cartridge,
@@ -355,6 +356,7 @@ export function setupShare(page, { linkStore }) {
   // page. " · CLOADM" is gone from every mode (it was the first thing to give way, and the page is CLOADM everywhere).
   function syncPrimary() {
     const mode = primaryMode(), why = mode === 'long' && !alwaysLong() ? shortWhy() : null;
+    $('sharePrefix').textContent = CAPTION_PREFIX;   // (the prefix of a moment on ROMs is its own, set below)
     const native = canNative();
     // a guardrail that leaves nothing to copy at all (Session.shareFile refused the moment: capture() keeps the view
     // open with `refusal` set): Copy goes dark, and the reason is inline. Every guardrail today still leaves the
@@ -397,6 +399,7 @@ export function setupShare(page, { linkStore }) {
       $('shareNote').textContent = !captured ? '' : captured.refusal ? '' : captured.file ? snapshotNote(captured.machine) : `The link starts NitrOS-9 fresh on the ${captured.machine}; it can't hold this exact moment.`;
       $('primaryNote').textContent = mode === 'long' && alwaysLong() ? 'Long link: nothing is uploaded.' : '';
       $('sharePrefix').hidden = false;
+      if (captured && captured.file && captured.file.needs.length) $('sharePrefix').textContent = ROM_CAPTION_PREFIX;
       $('shareRom').hidden = false;
       $('shareName').textContent = captured ? captured.machine : '';
     }
@@ -408,7 +411,12 @@ export function setupShare(page, { linkStore }) {
     // (it is WYRMFIRE's own disk controller), and the own-WAD sentence explains a choice this view never offers.
     // (the stage's program mode says its own reason in #programWhy; a WYRMFIRE moment is never in program mode --
     // captureWyrmfire returns before any program text exists -- so the two rules cannot both apply.)
+    // A moment on the person's own ROMs is the one refusal that is no warning: Copy link simply gives the long link, said
+    // in the neutral note under the buttons, not in orange. (NitrOS-9, a cartridge and the rest keep their own reasons.)
+    const onRoms = !!why && !programMode && !fallbackWhy && !!captured && !captured.wyrmfire && !captured.refusal && !session.longLinkRefusal() && session.romCodeIn() === 'roms';
+    if (onRoms) $('primaryNote').textContent = LONG_LINK_NOTE;
     $('primaryWhy').textContent = captured && captured.wyrmfire ? ''
+      : onRoms ? ''
       : programMode ? fallbackWhy || (why === 'offline' ? OFFLINE_LONG : '')
       : captured && captured.refusal ? captured.refusal : fallbackWhy || (nothingToCopy ? 'This moment can\'t be put in a link.' : why === 'offline' ? OFFLINE_LONG : why && why !== 'Not for this moment.' ? why : '');
     $('shortTerms').hidden = mode !== 'short' || !!fallbackWhy;

@@ -17934,7 +17934,7 @@ async function shareLayoutChecks(browser, base, check) {
       first.preview >= 120 && first.previewShown && first.copyH >= 44 && first.nativeShown && first.nativeH >= 44, JSON.stringify(first));
     const needs = state === 'ROMs needed';
     check(`share layout (${label}): the ROM line says ${needs ? 'what to add' : 'it runs without ROMs'}${first.short ? ', in one line, the full sentence its title' : ''}`,
-      (needs ? /^Needs 32K-mode BASIC and 64K-mode BASIC: the person opening it adds their own\.$/.test(first.full) && first.brief === 'Needs your Dragon 64 ROMs to open.'
+      (needs ? first.full === 'This link holds none of your ROMs. Whoever opens it needs their own Dragon 64 ROMs.' && first.brief === 'Needs your Dragon 64 ROMs to open.'
         : first.full === 'Runs without ROMs, so it opens for anyone.' && first.brief === 'Runs without ROMs.') && first.title === first.full && first.briefShown === first.short,
       JSON.stringify(first));
     if (first.short) {
@@ -18183,8 +18183,16 @@ async function shareChecks(browser, base, site, check) {
       && await p2b.evaluate(() => !window.__said.some((m) => /Snapshot opened/.test(m))), await said(p2b));
     await closeCtx(ctx2);
 
-    // no ROMs in use: no "holds no part of your ROMs" line (it appears exactly when ROMs are: below, with stand-ins)
-    check(`share (${label}): without ROMs there is no ROM-free line`, await page.evaluate(() => { const e = document.getElementById('shareRomFree'); return e.hidden && e.textContent === '' && !e.checkVisibility(); }));
+    // no ROMs in use: the screen is what it was. One ROM line, "Runs without ROMs, so it opens for anyone.", the caption
+    // "What they'll see first · <machine>", and nothing under Copy link (the ROM sentence and the long-link note below
+    // appear exactly when ROMs are in use, with stand-ins)
+    const noRoms = await page.evaluate(() => ({ line: document.getElementById('shareRomFull').textContent, brief: document.getElementById('shareRomBrief').textContent,
+      cap: document.getElementById('shareTitle').innerText.replace(/\s+/g, ' ').trim(), note: document.getElementById('primaryNote').textContent,
+      why: document.getElementById('primaryWhy').textContent, holds: document.getElementById('share').innerText.includes('holds none of your ROMs'),
+      gone: !document.getElementById('shareRomFree') }));
+    check(`share (${label}): without ROMs the ROM line, the caption and the area under Copy link are unchanged, and there is no second ROM line`,
+      noRoms.line === 'Runs without ROMs, so it opens for anyone.' && noRoms.brief === 'Runs without ROMs.' && /^What they'll see first · \S/.test(noRoms.cap)
+      && noRoms.note === '' && noRoms.why === '' && !noRoms.holds && noRoms.gone, JSON.stringify(noRoms));
     // Copy as text for a forum: BBCode and Markdown, each the link with one line, text only; it never uploads. With no
     // Copy-link tap yet it carries the long link and makes ZERO requests to s.cloadm.dev; once Copy link has made the
     // short link (a stand-in store here), the forum text carries that short link, and nothing more is uploaded.
@@ -18315,15 +18323,33 @@ async function shareChecks(browser, base, site, check) {
     await page.click('#btnPause');                                      // hold the moment still
     await page.click('#btnShare');
     await page.waitForSelector('#share', { state: 'visible' });
-    const shared = await page.evaluate(async () => ({ link: document.getElementById('shareLink').value, recipient: document.getElementById('shareRomFull').textContent,
-      labels: (await window.emu.session.shareFile()).needs.map((x) => x.label), free: document.getElementById('shareRomFree').textContent,
-      freeShown: document.getElementById('shareRomFree').checkVisibility(),
-      above: document.getElementById('shareRomFree').getBoundingClientRect().bottom <= document.getElementById('shareRom').getBoundingClientRect().top + 1 }));
-    check('share: with ROMs in use, "This link holds no part of your ROMs. Whoever opens it needs their own: <needs>." shows, above the needs line',
-      shared.freeShown && shared.above && shared.free === `This link holds no part of your ROMs. Whoever opens it needs their own: ${shared.labels.join(' and ')}.`, JSON.stringify([shared.free, shared.freeShown, shared.above]));
-    // the line names what the snapshot itself names (its needs' labels), whatever they are
-    check('share: with your own ROMs the moment is shared, and the ROM line names the ROMs the snapshot needs', /#z=/.test(shared.link) && shared.labels.length > 0
-      && shared.recipient === `Needs ${shared.labels.join(' and ')}: the person opening it adds their own.` && /32K-mode BASIC and 64K-mode BASIC/.test(shared.recipient), JSON.stringify(shared));
+    const shared = await page.evaluate(async () => {
+      const rom = document.getElementById('shareRom'), note = document.getElementById('primaryNote'), why = document.getElementById('primaryWhy');
+      const probe = document.createElement('i'); probe.style.color = 'var(--orange)'; document.body.append(probe);
+      const orange = getComputedStyle(probe).color; probe.remove();
+      const text = document.getElementById('share').innerText;
+      return { link: document.getElementById('shareLink').value, recipient: document.getElementById('shareRomFull').textContent, brief: document.getElementById('shareRomBrief').textContent,
+        needs: (await window.emu.session.shareFile()).needs.length, machine: window.emu.session.shownMachine.profile.name,
+        sentences: (text.match(/holds none of your ROMs/g) || []).length, whoever: (text.match(/Whoever opens it/g) || []).length, oldWords: /holds no part of your ROMs|the person opening it adds their own/.test(text),
+        romLines: document.querySelectorAll('#share .romline').length, romShown: rom.checkVisibility(), second: !!document.getElementById('shareRomFree'),
+        warnOnRom: rom.classList.contains('warn') || !!rom.closest('.warn'), warnOnNote: note.classList.contains('warn') || !!note.closest('.warn'),
+        romColour: getComputedStyle(rom).color, noteColour: getComputedStyle(note).color, orange,
+        note: note.textContent, noteShown: note.checkVisibility(), why: why.textContent, whyShown: why.checkVisibility(),
+        cap: document.getElementById('shareTitle').innerText.replace(/\s+/g, ' ').trim(),
+        below: note.getBoundingClientRect().top >= document.getElementById('btnShareCopy').getBoundingClientRect().bottom - 1 };
+    });
+    // with ROMs in use: exactly one ROM sentence on the screen, in normal text (no .warn, not the orange), naming the machine
+    check('share: with ROMs in use, one ROM sentence, "This link holds none of your ROMs. Whoever opens it needs their own Dragon 64 ROMs." and no second line, no slot labels',
+      shared.needs > 0 && shared.machine === 'Dragon 64' && shared.recipient === 'This link holds none of your ROMs. Whoever opens it needs their own Dragon 64 ROMs.'
+      && shared.brief === 'Needs your Dragon 64 ROMs to open.' && shared.sentences === 1 && shared.whoever === 1 && !shared.oldWords && shared.romLines === 1 && shared.romShown && !shared.second
+      && !/32K|64K/.test(shared.recipient), JSON.stringify(shared));
+    check('share: with ROMs in use, the ROM sentence is in normal text: no .warn on it, and its colour is not the orange',
+      !shared.warnOnRom && shared.romColour !== shared.orange, JSON.stringify([shared.warnOnRom, shared.romColour, shared.orange]));
+    check('share: with ROMs in use, the note under Copy link is the neutral "Copy link gives a long link: short links are only for moments that run without ROMs." (no .warn, not orange, no orange reason beside it)',
+      shared.note === 'Copy link gives a long link: short links are only for moments that run without ROMs.' && shared.noteShown && shared.below && !shared.warnOnNote
+      && shared.noteColour !== shared.orange && shared.why === '' && !shared.whyShown, JSON.stringify(shared));
+    check('share: with ROMs in use, the caption reads "This moment · Dragon 64"', shared.cap === 'This moment · Dragon 64', JSON.stringify(shared.cap));
+    check('share: with your own ROMs the moment is shared, as a long link (#z=)', /#z=/.test(shared.link) && shared.needs > 0, JSON.stringify(shared));
     const W = 16, uni = (a, k) => a.slice(k, k + W).every((v) => v === a[k]);
     const romWindows = new Set();
     for (const r of Object.values(roms)) for (let k = 0; k + W <= r.length; k++) if (!uni(r, k)) romWindows.add(Buffer.from(r.slice(k, k + W)).toString('hex'));

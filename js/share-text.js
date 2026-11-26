@@ -1,13 +1,18 @@
 /*
  * The Share screen's words that need no page (tests/share-text.test.js runs them in Node):
- *  - romFreeLine: the line above the needs line when the moment uses ROMs (or a cartridge's image). It is true by
- *    construction: Session.shareFile takes every byte of them out (tests/share-roms.test.js proves it).
+ *  - romLines: the Share screen's one ROM line when the moment uses ROMs (or a cartridge's image): that the link holds
+ *    none of them, and that whoever opens it needs their own; and its compact form. True by construction:
+ *    Session.shareFile takes every byte of them out (tests/share-roms.test.js proves it).
  *  - forumText: "Copy as text for a forum", the link with a one-line description as BBCode and as Markdown. Text only: no
  *    image tag, as nothing serves a picture for a link yet.
  */
-// needs: Session.shareFile's `needs` ([{ label, ... }]) -> the line, or '' when the moment needs none
-export const romFreeLine = (needs) => (needs && needs.length
-  ? `This link holds no part of your ROMs. Whoever opens it needs their own: ${needs.map((x) => x.label).join(' and ')}.` : '');
+// machine: the name the Share screen shows ("Dragon 64") -> { full, brief }; the brief form is for where space is short
+export const romLines = (machine) => ({
+  full: `This link holds none of your ROMs. Whoever opens it needs their own ${machine} ROMs.`,
+  brief: `Needs your ${machine} ROMs to open.`,
+});
+// the note under Copy link when the moment is on ROMs, so the link it gives is the long one
+export const LONG_LINK_NOTE = 'Copy link gives a long link: short links are only for moments that run without ROMs.';
 
 // the description a forum post carries: what the link opens
 // (a bundled program's own page is the program from its start, not a moment: it says so)
