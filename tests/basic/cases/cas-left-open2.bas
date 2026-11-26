@@ -3,8 +3,8 @@
 # passes, and BAD came first on that tape). Here GOOD comes before BAD (the fixture good-then-bad, our own). Each time:
 # CLOAD "BAD" meets its bad block (?IO ERROR, the file left open), one statement follows, then from the tape's start
 # OPEN "I",#-1,"GOOD" (?AO ERROR while the file is still open; opened once it is closed) and CLOSE #-1. The
-# statements: none, CLOSE #-1, CLOSE, NEW, RUN, CLEAR, an error (?/0), MOTOR, CLOAD "GOOD" (does a load close it?) and
-# SKIPF. Syntax [UM]; the errors [BB].
+# statements: none, CLOSE #-1, CLOSE, NEW, RUN, CLEAR, an error (?/0), MOTOR, CLOAD "GOOD" (from the tape's start, as
+# GOOD is before BAD: does a load close it?) and SKIPF. Syntax [UM]; the errors [BB].
 #timeout 120
 #tape good-then-bad
 NEW
@@ -64,6 +64,7 @@ CLOSE #-1
 #tape-rewind
 NEW
 CLOAD "BAD"
+#tape-rewind
 CLOAD "GOOD"
 #tape-rewind
 OPEN "I",#-1,"GOOD"
