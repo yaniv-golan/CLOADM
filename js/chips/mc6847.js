@@ -142,7 +142,7 @@ class MC6847 {
     this.width = WIDTH; this.height = HEIGHT;
     this.frame = new Frame(WIDTH, HEIGHT, 4 / 3, Object.freeze({ x: BORDER_X, y: BORDER_Y, width: 256, height: 192 }));
     this.frame.table.set(TABLE);
-    this.t1 = false;      // MC6847T1 (CoCo 2B): lowercase mode instead of SG6/external characters
+    this.t1 = false;      // MC6847T1 (CoCo 2B): PB4 is its GM0, the lowercase enable (ADI 1048 p.15), not SG6/external characters
     this.pal = false;     // PAL composite colour (line-pair blending) instead of NTSC artifact colours
     PAL_BLEND.forEach(([, , c], i) => { this.frame.table[40 + i] = c; });
     this.lineBuf = new Uint8Array(256);

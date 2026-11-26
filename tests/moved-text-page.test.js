@@ -6,9 +6,9 @@
 // readers), the welcome menu's taps (textCell, js/ui/screen.js) and the ROM self-test's screen (js/selftest.js).
 //
 // The firmware is our own (tools/mame-diff/sam/movedtext.js, assembled from movedtext.asm): known text on the pages at
-// $0400, $0E00 and $1C00, shown in turn (phases 1-3), then INT/EXT high over $1C00 (phase 4: semigraphics-6 and the
-// external-character input on the Dragon and the CoCo 1; the CoCo 2B's MC6847T1 shows its lowercase set there, still
-// text) and RG6 graphics over it (phase 5). On the Dragon 200-E PB4 is the character generator's bank input, not
+// $0400, $0E00 and $1C00, shown in turn (phases 1-3), then PIA1 PB4 high over $1C00 (phase 4: INT/EXT high,
+// semigraphics-6 and the external-character input on the Dragon and the CoCo 1; on the CoCo 2B's MC6847T1 PB4 is GM0,
+// its lowercase enable, still text) and RG6 graphics over it (phase 5). On the Dragon 200-E PB4 is the character generator's bank input, not
 // INT/EXT (which comes from each byte's bit 7), so its phase 4 is still text. The pictures of phases 1-4 are MAME's
 // (`node tools/mame-diff/run.js <profile> --video --movedtext`, sam/run-movedtext.js); here, on the same firmware:
 //  1. each reader returns exactly the text the firmware wrote on the page the SAM shows, derived from the firmware's
@@ -110,7 +110,7 @@ for (const id of ['dragon64', 'coco2b', 'coco', 'dragon200e']) {
   {
     const page = MT.PAGES[2], { m } = at(id, 4), got = tool(m), where = `${id} phase 4 (INT/EXT high)`;
     if (id === 'coco2b') {
-      // the MC6847T1: INT/EXT selects its lowercase set for codes $00-$1F; the page has none, so its text is unchanged
+      // the MC6847T1: PB4 is its GM0, which enables lowercase for codes $00-$1F; the page has none, so its text is unchanged
       check(`${where}: the CoCo 2B's MC6847T1 still shows text: screen_text reads it`, got.text === true && J(got.lines) === J(trim(wantRows(page))) && got.base === page.at, J(got));
     } else if (id === 'dragon200e') {
       // the Dragon 200-E: the VDG's INT/EXT comes from each fetched byte (its bit 7 inverted, so every text byte is

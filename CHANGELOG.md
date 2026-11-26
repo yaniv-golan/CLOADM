@@ -117,9 +117,9 @@ Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.
 - **Screen text follows a text page a program moves.** On the Dragon and CoCo 1/2, the ROM self-test's screen and the
   welcome menu's taps now read the page the SAM's display offset shows (as `screen_text`, `Session.screenText` and the
   screen's text alternative already did), and every reader reads text only in the VDG's alphanumeric /
-  semigraphics-4 mode: with INT/EXT high (semigraphics-6 and external characters) `screen_text` declines, as for a
-  graphics mode (not on the CoCo 2B, whose MC6847T1 shows lowercase there, nor on the Dragon 200-E, where PB4 picks the
-  character bank). New firmware `movedtext.asm` moves the
+  semigraphics-4 mode: with PIA1 PB4 high, the MC6847's INT/EXT (semigraphics-6 and external characters),
+  `screen_text` declines, as for a graphics mode (not on the CoCo 2B, whose MC6847T1 takes PB4 as GM0, its lowercase
+  enable, nor on the Dragon 200-E, where PB4 picks the character bank). New firmware `movedtext.asm` moves the
   page to `$0E00` and `$1C00`; `run.js <profile> --video --movedtext` compares its pictures with MAME.
 - **The Share picture fills its frame at 861x600 and 1024x640.** The preview and its colour stripe filled only about
   60% of the frame's width there; the frame now keeps the column's whole width at its short height.
