@@ -8,6 +8,15 @@ All notable changes to CLOADM are recorded here. The format follows
 
 Next version: 0.3.1 (the plugin and extension manifests carry it; `tests/plugin.test.js` keeps them in step).
 
+#### Fixed
+
+- **On a phone, showing the on-screen keyboard after hiding it no longer leaves the page a fraction taller than the
+  window.** The screen's height is worked out from the panel's own box (how far the panel's foot and the chips reach past
+  the screen), and that length was only re-measured on the next animation frame, not by the code that shows or hides
+  the panel. For the one frame between the two, the screen kept the height of the layout before and the page stood
+  18 px taller than the window, so it could be scrolled by a hair. It is measured again in the task that changes the
+  layout, so there is no such frame.
+
 ### 0.3.1
 
 #### Fixed

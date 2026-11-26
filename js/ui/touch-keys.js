@@ -314,6 +314,28 @@ export function setupTouchKeys(page, { input }) {
   // is the panel showing the stick now (the page's tap handling and the mouse-as-joystick ask: js/ui/screen.js)
   const stickActive = () => !box.hidden && !keysOnce && modus() === 'joystick';
 
+  // A phone held upright: the panel decides and the screen takes the rest -- the largest 4:3 screen for which
+  // the app bar, the screen, the strip and the panel fit in the visible height, at most the page's width (play/index.html,
+  // "a phone held upright"). What lies above the monitor and from its foot to the panel's is measured here, as CSS
+  // cannot; both are lengths of the page's own content, not of the window, so the stylesheet's 100svh does the rest.
+  // (Unused sideways, where the monitor is fixed between the halves.)
+  // (Declared before apply(), which calls it: any class apply() sets resizes the panel before the ResizeObservers
+  // below can run, and a length left over from the previous panel would size the screen from it for a frame.)
+  const monitor = document.querySelector('.layout > main > .monitor'), root = document.documentElement.style;
+  function fit() {
+    const m = monitor.getBoundingClientRect();
+    root.setProperty('--tk-above', `${Math.round(m.top + scrollY)}px`);
+    // (keys hidden: room for ⌨, Show keys, under the screen's corner)
+    // (the chips under the panel, on a phone: js/ui/phone-sheets.js; with the keys hidden, ⌨ stands beside them)
+    const chips = $('chipRow'), last = chips.checkVisibility() ? chips : box.hidden ? null : box;
+    root.setProperty('--tk-below', `${last ? Math.round(last.getBoundingClientRect().bottom - m.bottom) : 56}px`);
+  }
+  // (the monitor's own size changes with the result, but neither length depends on it: no loop)
+  new ResizeObserver(fit).observe(document.querySelector('.layout > main'));
+  new ResizeObserver(fit).observe($('appbar'));
+  new ResizeObserver(fit).observe(box);
+  new ResizeObserver(fit).observe($('chipRow'));
+
   let stickWas = false;   // the stick's pieces were showing at the last apply()
   function apply() {
     const wantOn = !aside && (mode() === 'on' || (mode() === 'auto' && touchScreen()));
@@ -358,26 +380,14 @@ export function setupTouchKeys(page, { input }) {
     // as it is.
     if (stickWas && !stick) { releaseStick(); input.touchFire(false); }
     stickWas = stick;
+    // The two lengths the screen's size depends on are measured HERE, not only by the ResizeObservers above: a
+    // class this call just changed (Show keys, a mode switch) resizes the panel before any observer callback runs,
+    // and until then --tk-below is the PREVIOUS panel's gap. With the keys back after Hide keys that is 56 px where
+    // the panel needs 330, so the screen keeps its height and the page stands 18 px taller than the window for one
+    // frame (measured: scrollHeight 677 in 659 from the click until the observer's frame, then 659). fit() reads
+    // the panel's own box, so it is right as soon as the class is set.
+    fit();
   }
-  // A phone held upright: the panel decides and the screen takes the rest -- the largest 4:3 screen for which
-  // the app bar, the screen, the strip and the panel fit in the visible height, at most the page's width (play/index.html,
-  // "a phone held upright"). What lies above the monitor and from its foot to the panel's is measured here, as CSS
-  // cannot; both are lengths of the page's own content, not of the window, so the stylesheet's 100svh does the rest.
-  // (Unused sideways, where the monitor is fixed between the halves.)
-  const monitor = document.querySelector('.layout > main > .monitor'), root = document.documentElement.style;
-  function fit() {
-    const m = monitor.getBoundingClientRect();
-    root.setProperty('--tk-above', `${Math.round(m.top + scrollY)}px`);
-    // (keys hidden: room for ⌨, Show keys, under the screen's corner)
-    // (the chips under the panel, on a phone: js/ui/phone-sheets.js; with the keys hidden, ⌨ stands beside them)
-    const chips = $('chipRow'), last = chips.checkVisibility() ? chips : box.hidden ? null : box;
-    root.setProperty('--tk-below', `${last ? Math.round(last.getBoundingClientRect().bottom - m.bottom) : 56}px`);
-  }
-  // (the monitor's own size changes with the result, but neither length depends on it: no loop)
-  new ResizeObserver(fit).observe(document.querySelector('.layout > main'));
-  new ResizeObserver(fit).observe($('appbar'));
-  new ResizeObserver(fit).observe(box);
-  new ResizeObserver(fit).observe($('chipRow'));
   // Safari 26 and later on an iPhone draws its bottom toolbar (the floating address bar) OVER the page, and neither
   // the viewport units nor env(safe-area-inset-bottom) take it out: the panel stops above it (--tk-bar in
   // play/index.html). Not an installed app (no toolbar) and not another browser on iOS (theirs is not over the page).
