@@ -222,20 +222,26 @@ const NOTES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 }
 
 // ---- SOUND ----
-{
-  const b = boot();
-  for (const t of [1, 50, 100, 200, 254, 255]) {
-    // The sound as a whole: the measures split a tone where two periods in a row differ, which a field interrupt can
-    // do to the first periods of a tone by where in the field it starts (an odd period counted into the median); so
-    // tones that follow each other with no gap are one sound here, its period the shortest clean one in it.
+// The sound as a whole: the measures split a tone where two periods in a row differ, which a field interrupt can do
+// to the first periods of a tone by where in the field it starts (an odd period counted into the median); so tones
+// that follow each other with no gap are one sound here, its period the shortest clean one in it. -> for each t,
+// [period ok and length ok, detail, full scale] (the expected period and length from this build's equates)
+function soundRuns(b) {
+  return [1, 50, 100, 200, 254, 255].map((t) => {
     const m = wav(b, `SOUND ${t},3`), P = SNDP0 + SNDPK * (256 - t), c = 3 * SNDU, ts = m.tones;
     const joined = ts.length > 0 && ts.every((x, i) => i === 0 || x.start - (ts[i - 1].start + ts[i - 1].length) < 2 * P);
     const len = ts.length ? ts[ts.length - 1].start + ts[ts.length - 1].length - ts[0].start : 0;
     const per = Math.min(...cleanPeriods(m).filter((x) => Number.isFinite(x)));
-    const tn = ts.length ? { low: Math.min(...ts.map((x) => x.low)), high: Math.max(...ts.map((x) => x.high)) } : null;
-    check(`SOUND ${t},3: period ${P} cycles, ${c} fields`, joined && per === P && len > (c - 1) * FIELD - P && len < c * FIELD + 2 * P,
-      `${per} ${(len / FIELD).toFixed(2)} (${ts.length} tone${ts.length === 1 ? '' : 's'})`);
-    check(`SOUND ${t},3: full scale (${SNDL}-${SNDH})`, tn && tn.low === SNDL && tn.high === SNDH && SNDL === 0 && SNDH === 63);
+    const full = ts.length > 0 && Math.min(...ts.map((x) => x.low)) === SNDL && Math.max(...ts.map((x) => x.high)) === SNDH;
+    return { t, P, c, ok: joined && per === P && len > (c - 1) * FIELD - P && len < c * FIELD + 2 * P,
+      detail: `${per} ${(len / FIELD).toFixed(2)} (${ts.length} tone${ts.length === 1 ? '' : 's'})`, full };
+  });
+}
+{
+  const b = boot();
+  for (const r of soundRuns(b)) {
+    check(`SOUND ${r.t},3: period ${r.P} cycles, ${r.c} fields`, r.ok, r.detail);
+    check(`SOUND ${r.t},3: full scale (${SNDL}-${SNDH})`, r.full && SNDL === 0 && SNDH === 63);
   }
   check('after SOUND: the DAC low, sound off', st(b).dac === SNDL && !st(b).on, JSON.stringify(st(b)));
   for (const d of [1, 7, 20]) {
@@ -307,6 +313,17 @@ const NOTES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
   typeAll(b, ['10 PLAY "CDE":PLAY "V40"', '20 PRINT "NOT"']);
   typeAll(b, ['RUN']);
   check('an error in a program: ?FC ERROR IN 10', last(b) === '?FC ERROR IN 10', last(b));
+}
+
+// ---- mutants of SOUND (built from edited source): the check above must catch a period 4 cycles long and a sound a
+// unit long, each turning at least one SOUND check red ----
+for (const [name, from, to] of [['a period 4 cycles long', 'ADDD    #SNDP0', 'ADDD    #SNDP0+4'], ['a sound a unit long', 'LDA     #SNDU', 'LDA     #SNDU+1']]) {
+  let used = false;
+  const mrom = buildBasic({ edit: (f, text) => { if (f !== 'sound.inc') return text; if (!text.includes(from)) throw new Error(`mutant ${name}: no ${from}`); used = true; return text.replace(from, to); } }).rom;
+  const mb = new Basic(mrom);
+  if (!mb.waitOk({ limit: 600, stable: 3 })) throw new Error('mutant: no OK at boot');
+  const bad = soundRuns(mb).filter((r) => !r.ok);
+  check(`mutant "${name}" fails the SOUND checks`, used && bad.length > 0, bad.map((r) => `${r.t}: ${r.detail}`).join('; '));
 }
 
 console.log(`\n${n - fail}/${n} passed`);
