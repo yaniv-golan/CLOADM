@@ -8,6 +8,13 @@ All notable changes to CLOADM are recorded here. The format follows
 
 Next version: 0.3.1 (the plugin and extension manifests carry it; `tests/plugin.test.js` keeps them in step).
 
+#### Changed
+
+- **README and the MCP guide say how to update the plugin.** In Claude Code, new versions arrive by themselves when auto-update
+  is on for the marketplace (off by default for a third-party marketplace); to get one at once, Update marketplace (or
+  `claude plugin update`) and `/reload-plugins`. claude.ai and the desktop app don't pick up a new version on their own: remove the
+  CLOADM marketplace, add it again and Connect *CLOADM side panel* again.
+
 ### 0.3.1
 
 #### Fixed
@@ -21,12 +28,6 @@ Next version: 0.3.1 (the plugin and extension manifests carry it; `tests/plugin.
   changed the ROMs or the recent list and reading the change failed, this tab swallowed the error and kept its old lists until
   the next change. It now reads again once, and if that fails too it says so ("Another tab changed your stored files, and this tab
   could not read the change (…). Reload to see it.").
-
-#### Changed
-
-- **README and the MCP guide say how to update the plugin.** New versions arrive by themselves when auto-update is on;
-  to get one at once, Claude Code has Update marketplace (or `claude plugin update`) and `/reload-plugins`, and in
-  claude.ai and the desktop app you remove the CLOADM marketplace, add it again and Connect *CLOADM side panel* again.
 
 ### 0.3.0
 
