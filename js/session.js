@@ -1081,7 +1081,11 @@ export class Session {
   // the images in the store a drive can take: [{ name (without the prefix), size }]
   async driveWireImages() {
     this.drivewire.store = this.media;
-    return (await this.media.list(DW_PREFIX)).map((e) => ({ name: e.name.slice(DW_PREFIX.length), size: e.size }));
+    // a refused listing names the folder it was reading, not a label the caller made up: a backend's own
+    // "drivewire/: ..." is the same name and is stripped, so the reader sees it once
+    let listed;
+    try { listed = await this.media.list(DW_PREFIX); } catch (e) { throw this.library.mediaError(e, 'the DriveWire images', DW_PREFIX); }
+    return listed.map((e) => ({ name: e.name.slice(DW_PREFIX.length), size: e.size }));
   }
   // put an image (a .dsk of 256-byte sectors) into the store
   async importDriveWireImage(name, bytes) {
@@ -1222,13 +1226,18 @@ export class Session {
     if (!Session.NITROS9_MACHINES.includes(m.id)) throw new SessionError(`NitrOS-9 boots here on the CoCo 3, not the ${m.profile.name}. Switch to the CoCo 3 first.`);
     if (!name) throw new SessionError(`No NitrOS-9 image: add your NitrOS-9 disk image (download nos96809l2v030300coco3.zip, or nos96309l2v030300coco3.zip for the HD6309, from ${NITROS9_IMAGES_URL}, unzip it, and use the file ending in _becker.dsk for DriveWire, or _40d_1.dsk for the floppy drive).`);
     const where = store ? [store] : ['drivewire', 'disk'];
-    let bytes = null, found = null, failure = null;
+    let bytes = null, found = null, failure = null, failedAt = null;
     for (const st of where) {
-      try { bytes = await this.media.read((st === 'disk' ? DISK_PREFIX : DW_PREFIX) + name); found = st; break; } catch (e) {
-        if (!e || e.code !== 'not-found') failure = failure || e;   // a real storage error, not an absent image: say so
+      const path = (st === 'disk' ? DISK_PREFIX : DW_PREFIX) + name;
+      try { bytes = await this.media.read(path); found = st; break; } catch (e) {
+        // A real storage error, not an absent image: say so. The error and the path it failed at are taken
+        // TOGETHER, from the first attempt that had a reportable one, so the backend's own "<path>: ..." can be
+        // stripped and the reader is never given the image's name twice. A falsy throw carries nothing to report
+        // and cannot set the path, so the pair can never come from different attempts.
+        if (e && e.code !== 'not-found' && !failure) { failure = e; failedAt = path; }
       }
     }
-    if (!found) throw failure ? this.library.mediaError(failure, name) : new SessionError(`There is no image called ${name} in your library.`);
+    if (!found) throw failure ? this.library.mediaError(failure, name, failedAt) : new SessionError(`There is no image called ${name} in your library.`);
     const r = inspectOs9Disk(bytes);
     if (r.reason) throw new SessionError(`${name}: ${r.reason}`);
     const floppy = r.boot === 'floppy';
@@ -2220,26 +2229,28 @@ export class Session {
   async listSlots() {
     const out = [];
     for (let n = 1; n <= SNAPSHOT_SLOTS; n++) {
-      const st = await this.media.stat(slotName(n));
+      const stored = slotName(n);
+      let st;
+      try { st = await this.media.stat(stored); } catch (e) { throw this.library.mediaError(e, `slot ${n}`, stored); }
       if (!st) { out.push({ n, empty: true }); continue; }
       try {
-        const snap = await decodeSnapshot(await this.media.read(slotName(n)));
+        const snap = await decodeSnapshot(await this.media.read(stored));
         out.push({ n, machine: snap.machine, name: snap.name || profiles[snap.machine].name, taken: snap.taken, size: st.size });
       } catch (e) { out.push({ n, error: e.message, size: st.size }); }
     }
     return out;
   }
   async saveSlot(n) {
-    slotName(n);
+    const stored = slotName(n);       // refuses an invalid n here, before the try; the same name is used below
     // the snapshot is made from the machine and the slot written in one operation: a move waits for both, and the
     // write can never go to a store the session has left behind
     try {
       return await this.library.libraryOp(async () => {
         const { bytes, saved } = await this.snapshotFile();
-        await this.media.write(slotName(n), bytes);
+        await this.media.write(stored, bytes);
         return `Took snapshot ${n}${saved ? ` of ${saved}` : ''}`;
       });
-    } catch (e) { throw this.library.mediaError(e, `snapshot ${n}`); }
+    } catch (e) { throw this.library.mediaError(e, `snapshot ${n}`, stored); }
   }
   // a slot's snapshot (then snapshotSwitch / openSnapshot as for a file)
   async readSlot(n) {
@@ -2252,18 +2263,18 @@ export class Session {
   }
   // what a slot holds, as stored (null when empty), and putting that back: the Undo of a save
   async slotBytes(n) {
-    slotName(n);
-    try { return (await this.media.stat(slotName(n))) ? await this.media.read(slotName(n)) : null; } catch (e) { throw this.library.mediaError(e, `slot ${n}`); }
+    const stored = slotName(n);
+    try { return (await this.media.stat(stored)) ? await this.media.read(stored) : null; } catch (e) { throw this.library.mediaError(e, `slot ${n}`, stored); }
   }
   async restoreSlot(n, bytes) {
-    slotName(n);
+    const stored = slotName(n);
     this.library.checkNotMoving();
     try {
       return await this.library.libraryOp(async () => {
-        if (bytes) await this.media.write(slotName(n), bytes);
-        else if (await this.media.stat(slotName(n))) await this.media.remove(slotName(n));
+        if (bytes) await this.media.write(stored, bytes);
+        else if (await this.media.stat(stored)) await this.media.remove(stored);
       });
-    } catch (e) { throw this.library.mediaError(e, `slot ${n}`); }
+    } catch (e) { throw this.library.mediaError(e, `slot ${n}`, stored); }
   }
 
   // a file that is a ROM image rather than a program, tape or cartridge (known contents or usual name)
