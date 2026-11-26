@@ -45,8 +45,9 @@ answers Claude's MCP requests with two tools and two views, and the emulator the
 
 The MCP Streamable HTTP transport says servers **MUST** validate the `Origin` header on every incoming connection,
 against DNS rebinding (2025-06-18, "Security Warning"), and that a present, invalid `Origin` gets **HTTP 403 Forbidden**,
-whose body **MAY** be a JSON-RPC error response with no `id` (2026-07-28, streamable-http, "Security & Endpoint").
-Neither version says what to do when it is absent. The Worker (`ALLOWED_ORIGINS`, `connector/worker/src/server.js`):
+whose body **MAY** be a JSON-RPC error response with no `id` (2025-11-25, the version the Worker offers first,
+"Security Warning"; and 2026-07-28, streamable-http, "Security & Endpoint").
+None of them says what to do when it is absent. The Worker (`ALLOWED_ORIGINS`, `connector/worker/src/server.js`):
 
 * **No `Origin`: served.** The connector's real callers are servers, not browsers: Claude connects to a remote MCP
   server from Anthropic's cloud (claude.ai, Claude Desktop, Cowork and the mobile apps alike), and Claude Code, `curl`
@@ -73,8 +74,9 @@ curl -s -o /dev/null -w '%{http_code}\n' -X POST https://mcp.cloadm.dev/mcp -H '
   -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"ping"}'
 ```
 
-If claude.ai's connector stops connecting after a deploy with a 403 in the browser's network panel for the connector's
-add or refresh, its backend sends an `Origin` this list does not hold: add it here and in `tests/connector.test.js`.
+If claude.ai's connector stops connecting after a deploy (it fails to add or to refresh), and `curl` with that same
+`Origin` header returns 403, Anthropic's backend sends an `Origin` this list does not hold (the 403 is between that
+backend and the Worker, so no browser shows it): add it here and in `tests/connector.test.js`.
 
 ## Deploy
 
