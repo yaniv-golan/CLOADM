@@ -119,6 +119,21 @@ Next version: 0.3.1 (the plugin and extension manifests carry it; `tests/plugin.
   crunched over the typed line), from the black-box probe `ram-pointers2`: the text pointer in direct mode, a typed
   line and a reply to `INPUT` now sit at the original's addresses. A namefile, and the blocks of a file passed over,
   are read into their own buffer below the line (a typed `CLOADM` or `SKIPF` still runs from the line).
+  The cassette now does what the black-box batch bb8 recorded on the original. Every block read or written goes
+  through one buffer at `$01DA`, and `CLOADM` keeps the exec address at `$9D`. The motor stops after every namefile
+  read, after an end of file and after each block of a gapped file passed, skipped or loaded; writing, it stops
+  after every namefile, and each block's run is as long as the original's (a 256-byte leader after the motor starts,
+  one `$55` while it runs, and the original's bit times: about 41.5 fields more a block). A text program's lines go
+  in about as fast as on the original (a field a line, where ours took up to three), and characters go to the tape
+  at its pace. A line without a number is `?DS ERROR` when the next line is begun, keeping the lines before it; a bad
+  block in a file passed over is `?IO ERROR`. In a running program `CLOAD`, `CLOADM` and `SKIPF` show nothing, and
+  data files never blink. A file left open is refused by `OPEN`, `CSAVE` and `SKIPF` with `?AO ERROR` and stays
+  open; `CLOAD` goes ahead and `RUN` closes it. `OPEN "O"` builds its namefile over the last record written,
+  `OPEN` to `#0` or `#-2` is no error, `OPEN "I"` of machine code or a tokenised program is `?FM ERROR`, and
+  `INPUT #-1` drops what is left of a record. `$25-26` holds where the last string copied into the string space
+  ends, and a direct `GOSUB` whose `INPUT` reply ran over the typed line returns to `OK`. Of the 99 recorded cases,
+  52 now match the original exactly (44 before); the cassette cases that write differ only in the leader counts the
+  tape decoder reads (and a recorded tape read back). The ROM is 187 bytes larger (15,805).
 
 ### 0.3.1
 

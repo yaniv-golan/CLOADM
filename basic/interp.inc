@@ -304,7 +304,7 @@ JMP1    LEAX    3,X             ; the byte before the line's text
         STA     <JMPFLG
         RTS
 GOSN    JMP     <ZSNERR
-GSDLY   EQU     39              ; GOSUB's delay: 5 cycles a step
+GSDLY   EQU     34              ; GOSUB's delay: 5 cycles a step (with RETURN's 24 for the statement's end)
 
 * a GOSUB frame on the stack: marker, CURLIN, TXTPTR (on the character after the line number) [OWN]
 GOSUB   JSR     <ZCHRGET
@@ -331,12 +331,12 @@ RET1    CMPS    <STRBOT
         BEQ     RET2
         LEAS    FORSIZ,S        ; a FOR frame inside the subroutine: dropped
         BRA     RET1
-RET2    LDD     1,S
-        STD     <CURLIN
-        LDX     3,S
-        STX     <TXTPTR
+RET2    LDD     1,S             ; back after the line number, then on to the end of the GOSUB statement as DATA
+        STD     <CURLIN         ; goes: what stands there now is passed over [BB bb8 ram-ptr25: a direct GOSUB whose
+        LDX     3,S             ; INPUT reply was written over the typed line comes back to OK, no error]
         LEAS    5,S
-        JMP     ,U
+        PSHS    U
+        LBRA    DS1
 RGERR   LDB     #ERR_RG
         JMP     ERROR
 
@@ -352,14 +352,18 @@ CHKOM   JMP     OMERR
 FORSIZ  EQU     17
 
 * ---------------- RUN, NEW, CLS ----------------
+* RUN [n]: a cassette file open is closed first, as CLOSE does [BB bb8 cas-data-errors: an output file's last block
+* and end of file written before the program's own OPEN]
 RUN     BEQ     RUN1
         BCC     RUNSN
         JSR     <ZLINGET          ; RUN n
+        JSR     CLO1
         JSR     CLRVAR
         LDS     <STRBOT
         BSR     JUMPTO
         JMP     NEWJMP
-RUN1    JSR     CLRVAR
+RUN1    JSR     CLO1
+        JSR     CLRVAR
         LDS     <STRBOT
         LDX     <TXTTAB
         LEAX    -1,X            ; the 0 before the program: NEWSTT takes the first line

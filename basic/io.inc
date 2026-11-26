@@ -179,7 +179,9 @@ INP4    LDD     <TXTPTR
         BNE     INP5
         JSR     <ZCHRGET
         BRA     INP3
-INP5    LDX     <INPPTR         ; anything left over?
+INP5    TST     <ITMCOL         ; anything left over? (from the tape: the rest of the record dropped, no message
+        BMI     INP6            ; [BB bb8 cas-data2])
+        LDX     <INPPTR
         LDA     ,X
         BEQ     INP6
         JSR     PRMSG

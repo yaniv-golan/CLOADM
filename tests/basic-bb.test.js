@@ -491,7 +491,9 @@ for (const good of ['PCLEAR 1', 'PCLEAR 0', 'PCLEAR 9', 'PMODE 4,1', 'PMODE 0,4'
   const bl = saved ? saved.blocks : [];
   check('#tape-blank / #tape-blocks: the blocks CSAVE wrote: namefile, data, end of file, none bad', r.status === 'ok' && bl.map((k) => k.type).join() === '0,1,255' && bl.every((k) => k.ok) && saved.bad === 0, JSON.stringify(r.tapes));
   check('#tape-blocks: the namefile\'s fields', !!bl[0] && bl[0].name === 'PROG    ' && bl[0].fileType === 0 && bl[0].ascii === 0 && bl[0].gaps === 0 && bl[0].exec === 0 && bl[0].load === 0 && bl[0].length === 15);
-  check('#tape-blocks: leaders of at least 128 $55 bytes', bl.length === 3 && bl.every((k) => k.leader >= 128), JSON.stringify(bl.map((k) => k.leader)));
+  // [BB bb4 cas-save-load] a whole leader after the motor starts (the namefile, the data block); the end of file,
+  // written with the motor running, after one $55 (2 with the data block's last)
+  check('#tape-blocks: leaders of at least 256 $55 bytes, then 2 before the end of file', bl.length === 3 && bl[0].leader >= 256 && bl[1].leader >= 256 && bl[2].leader === 2, JSON.stringify(bl.map((k) => k.leader)));
   // the data block's hash is that of the program in RAM, typed the same way into a fresh machine
   {
     const b = new Basic(built.rom);
@@ -503,7 +505,8 @@ for (const good of ['PCLEAR 1', 'PCLEAR 0', 'PCLEAR 9', 'PMODE 4,1', 'PMODE 0,4'
     check('#tape-blocks: a data block is its length and the SHA-256 of its bytes, never the bytes', !!bl[1] && bl[1].sha256 === want && bl[1].length === x + 2 - start && Object.keys(bl[1]).sort().join() === 'leader,length,ok,sha256,type', JSON.stringify(bl[1]));
   }
   check('#tape-blocks: nothing but the summary\'s fields', (r.tapes || []).length === 2 && r.tapes.every((t) => Object.keys(t).every((k) => ['name', 'motor', 'blocks', 'bad'].includes(k))));
-  check('#tape-blocks: the motor ran once for CSAVE, for a few seconds', !!saved && saved.motor.length === 1 && saved.motor[0].start === 0 && saved.motor[0].length > 50 && !saved.motor[0].carried, JSON.stringify(saved && saved.motor));
+  // [BB bb4 cas-save-load] CSAVE stops the motor after the namefile: two runs, each a few seconds
+  check('#tape-blocks: the motor ran twice for CSAVE (the namefile; the data and end of file), each for a few seconds', !!saved && saved.motor.length === 2 && saved.motor[0].start === 0 && saved.motor.every((m) => m.length > 50 && !m.carried), JSON.stringify(saved && saved.motor));
   check('#tape-rewind: the recording becomes the tape; CLOAD loads the program back', r.transcript.join('|').includes('LIST|10 PRINT "TAPE"|20 A=1|OK'), JSON.stringify(r.transcript));
   check('#tape-blocks after a rewind: the motor only, no blocks (nothing recorded)', !!loaded && loaded.blocks === undefined && loaded.motor.length >= 1, JSON.stringify(loaded));
   // a later summary holds only the blocks written since the one before

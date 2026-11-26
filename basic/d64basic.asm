@@ -31,8 +31,11 @@ LINBUF  EQU     $02DD           ; the typed line (250 characters and a 0) [BB ra
 LINMAX  EQU     250
 CRNBUF  EQU     LINBUF-1        ; the crunched line, written over the typed one a byte behind it (CRUNCH reads ahead
                                 ; of where it writes) [BB ram-pointers2, 2026-11-26: the typed line at 733, crunched at 732]
-BLKBUF  EQU     CRNBUF-255      ; a cassette block read to look at or pass over (a namefile, a file skipped): below
-                                ; the line, which a direct CLOADM or SKIPF is still running from [OWN]
+BLKBUF  EQU     $01DA           ; the cassette's block buffer, 255 bytes below the line (which a direct CLOADM or
+                                ; SKIPF is still running from): every block read (a namefile, the blocks of a file
+                                ; passed over, loaded as text or read as data) and the records gathered for writing
+                                ; [BB bb8 cas-cloadm2: CLOADM leaves a namefile's exec address at 485;
+                                ; cas-data-errors: OPEN "O" builds its namefile over the last record written]
 
 * ---------------- system RAM, $0100-$01FF: laid out one after another, so nothing overlaps ----------------
 * (TIMER falls at $0112 after the vectors; the region SYSR1 ends at or below one fixed address:)
@@ -81,6 +84,7 @@ PLLEN   RMB     1
 PLTMP   RMB     1               ; the tempo, and the volume x 4 (PLTMP must come just before PLVOL)
 PLVOL   RMB     1
 PLDOT   RMB     1               ; the length's dots
+CBLNK   RMB     1               ; the cassette: what CRBLK's blink changes in the top-left cell ($40, or 0: quiet)
 SYSR3E  RMB     0               ; (at or below SCREEN: tools/build-basic.js checks it)
 
 * ---------------- direct page ----------------
@@ -94,7 +98,9 @@ ARYTAB  EQU     $001D           ; the start of the arrays
 ARYEND  EQU     $001F           ; the end of the arrays: free memory from here
 STRBOT  EQU     $0021           ; the bottom of the string space (also the stack's top)
 FRETOP  EQU     $0023           ; the lowest string in use (strings are allocated downward)
-FORVAR  EQU     $0025           ; FOR, NEXT: the variable's address ($25 on the original: not yet known [OWN])
+STRDST  EQU     $0025           ; one past the end of the last string copied into the string space, or past the start
+*                                 of the last one made there and not yet copied to (CHR$) [BB bb8 ram-ptr25; ours sits a
+*                                 byte lower than the original's strings, so this is our pointer + 1]
 MEMTOP  EQU     $0027           ; one past the top of the string space
 CURLIN  EQU     $0068           ; the line running; $FFFF in direct mode
 DEVNUM  EQU     $006F           ; where output goes: 0 the screen, $FF the tape (CSAVE ,A); any other value the
@@ -194,16 +200,16 @@ PWSGN   RMB     1               ; ^ by a whole number
 PWN     RMB     2
 DPR6    RMB     0               ; (at or below BLINK)
         ORG     BLINK+1
-EXECAD  RMB     2               ; EXEC's address
+INPKND  RMB     1               ; INPUT 1, LINE INPUT 0
+CNLEN   RMB     1               ; the cassette (cassette.inc): the name's length, 0 for any file
 INPVAR  RMB     2               ; INPUT: the text pointer in the variable list, its start
 INPST   RMB     2
 ITMCOL  RMB     1               ; GETITM: ':' ends an item (DATA)
 DPR7    RMB     0               ; (at or below KEYDLY)
         ORG     KEYDLY+2
 SEED    RMB     4               ; RND's seed, low byte first
-INPKND  RMB     1               ; INPUT 1, LINE INPUT 0
+EXECAD  RMB     2               ; EXEC's address: $9D, where the original keeps CLOADM's [BB bb8 cas-cloadm2]
 INPPTR  RMB     2               ; INPUT: the pointer in the typed line
-CNLEN   RMB     1               ; the cassette (cassette.inc): the name's length, 0 for any file
 CBTYP   RMB     1               ; a block's type and length (CBLEN must follow CBTYP)
 CBLEN   RMB     1
 CBCNT   RMB     1               ; the bytes still to read
@@ -260,6 +266,7 @@ GCOLB   RMB     1
 DRANG   RMB     1               ; DRAW's angle (0-3 quarter turns) and scale (1-62, in quarters), kept from one DRAW
 DRSCL   RMB     1               ; to the next (draw.inc)
 GXY     RMB     4               ; a point read (x, y; 16-bit each)
+FORVAR  RMB     2               ; FOR, NEXT: the variable's address
 DPEND   RMB     0
 
 * Two-byte calls: a JMP to each of the ROM's busiest routines at the top of the direct page, just below the RAM

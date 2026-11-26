@@ -67,7 +67,7 @@ ED6     PULS    X
 ED7     LDA     ,Y+
         STA     ,U+
         BNE     ED7
-EDDONE  BSR     RELINK
+EDDONE  BSR     RELNKX          ; (the lines before X have not moved: their links stand)
         BRA     CLRVAR
 
 * MOVDN: the bytes from X up to VARTAB moved down to U on; VARTAB is then their new end
@@ -92,10 +92,12 @@ RE2     TST     ,X+
         BRA     RE1
 RE3     LEAX    2,X
         STX     <VARTAB
-* RELINK: rewrite every line's link from the line's own length
+* RELINK: rewrite every line's link from the line's own length (RELNKX: from the line at X on)
 RELINK  PSHS    D,X,U
         LDX     <TXTTAB
-        LDD     <VARTAB
+        BRA     RL0
+RELNKX  PSHS    D,X,U
+RL0     LDD     <VARTAB
         SUBD    #2
         STD     <TMPPTR         ; the end link
 RL1     CMPX    <TMPPTR

@@ -55,7 +55,9 @@ FRESTR  JSR     CHKSTR
         BRA     FRETMP
 
 * GETSPA: room for B bytes in the string space: X = their address. When there is too little, the garbage is
-* collected first; then ?OS ERROR. Keeps B.
+* collected first; then ?OS ERROR. Keeps B. STRDST is then X + 1, and a copy into the new string (CPYSS) moves it to
+* one past the copy's end + 1 (on the original's addresses, a byte above ours: the start of the new string, then the
+* end of what was copied into it) [BB bb8 ram-ptr25: every value it printed, direct and in a program].
 GETSPA  PSHS    B
         CLR     <GCDONE
 GS0     LDD     <FRETOP
@@ -66,6 +68,8 @@ GS0     LDD     <FRETOP
         BLO     GS1
         STD     <FRETOP
         TFR     D,X
+        ADDD    #1
+        STD     <STRDST
         PULS    B,PC
 GS1     TST     <GCDONE
         BNE     GS2
@@ -200,7 +204,7 @@ SKCOPY  LDB     ,X
         STX     <DSCTMP+2
         CLR     <DSCTMP+4
         LDU     2,U             ; (read after GETSPA: the string may have moved)
-        JSR     CPYUX
+        JSR     CPYSS
         LDX     #DSCTMP
 SKKEEP  RTS
 * INPROG: C set if the string of the descriptor at X is in a running program's text. Keeps X.
@@ -236,7 +240,7 @@ SL2     STX     <TXTPTR
         JSR     GETSPA
         LDU     1,S
         STX     1,S
-        BSR     CPYUX
+        BSR     CPYSS
 SL4     PULS    B,X
         JSR     MKTMP
         LDA     [TXTPTR]
@@ -258,12 +262,19 @@ CC1     JSR     GETSPA
         BSR     CCOPY
         LDU     <STRPTR
         BSR     CCOPY
+        BSR     DSTX
         LDX     <STRPTR
         JSR     FRETMP
         LDX     <ARGSTR
         JSR     FRETMP
         PULS    B,X
         JMP     MKTMP
+* CPYSS: CPYUX into the string space, STRDST following the copy (GETSPA)
+CPYSS   BSR     CPYUX
+DSTX    LEAX    1,X
+        STX     <STRDST
+        LEAX    -1,X
+        RTS
 * CCOPY: copy the string of the descriptor at U to X, X ending past it
 * CPYXU: copy B bytes (at least one) from X to U; both end past them, B = 0
 CPYXU   LDA     ,X+
