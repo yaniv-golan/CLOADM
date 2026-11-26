@@ -1,0 +1,9 @@
+{
+  "provenance": "Written for the black-box cassette cases (2026-11-26): our own content, nothing taken from a ROM. A short program (GOOD) before a program whose data block has one byte flipped with its checksum left as it was (BAD), then another short program (LATE): GOOD can be loaded from the tape's start without passing the bad block.",
+  "files": [
+    { "name": "GOOD", "type": "basic", "ascii": true, "lines": ["10 PRINT \"GOOD LOADED\""] },
+    { "name": "BAD", "type": "basic", "ascii": true, "lines": ["10 PRINT \"NEVER LOADED\"", "20 PRINT \"WHOLE\""] },
+    { "name": "LATE", "type": "basic", "ascii": true, "lines": ["10 PRINT \"LATE LOADED\""] }
+  ],
+  "corrupt": [ { "block": 4, "byte": 4, "xor": 1 } ]
+}
