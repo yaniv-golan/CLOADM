@@ -159,6 +159,7 @@ export function setupMachinePanel(page, { showRoms }) {
     });
     if (snap.length) text.append(' ', snap.length === 1 ? 'The disk that came with the snapshot is not kept; save it to the Library first.'
       : 'The disks that came with the snapshot are not kept; save them to the Library first.');
+    $('btnSwitch').textContent = 'Switch'; confirm.setAttribute('aria-label', 'Switch machine');
     const save = $('btnSwitchSaveDisk');
     save.hidden = !snap.length; save.disabled = false; save.textContent = 'Save to Library';
     save.onclick = async () => {
@@ -171,6 +172,20 @@ export function setupMachinePanel(page, { showRoms }) {
       } catch (e) { save.disabled = false; page.status(e.message, true); }
     };
     pending = () => onSwitch(items, tookOut(items));
+    cancelled = onCancel;
+    confirm.hidden = false;
+    place();
+    $('btnSwitch').focus();
+  }
+  // The same question box for another question (the programs' "Starting LIZA restarts the Dragon 64, and the BASIC program in
+  // memory will be lost"): text, the confirming button's label (and the box's name), what confirming does and what Cancel
+  // undoes. Shown at once, as a switch's is.
+  function ask({ text, label, name = label, onYes, onCancel = null }) {
+    ++asking;
+    $('switchText').textContent = text;
+    $('btnSwitch').textContent = label; confirm.setAttribute('aria-label', name);
+    $('btnSwitchSaveDisk').hidden = true;
+    pending = onYes;
     cancelled = onCancel;
     confirm.hidden = false;
     place();
@@ -281,5 +296,5 @@ export function setupMachinePanel(page, { showRoms }) {
   // `close` is openMenu(false): the item js/ui/install.js keeps in the menu closes it through this, rather than
   // setting the same two attributes a second time
   // (the command box's "Switch machine…" opens the menu; its "Switch to <model>" picks one, through the confirmation)
-  return { confirmSwitch, close: () => openMenu(false), open: () => openMenu(true), pick };
+  return { confirmSwitch, ask, close: () => openMenu(false), open: () => openMenu(true), pick };
 }

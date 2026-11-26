@@ -2581,9 +2581,15 @@ export class Session {
   // run: false types a BASIC listing without the RUN after it (the MCP server's load; the page always runs it)
   // ours: one of the project's own programs (LIZA, the colour demo, the games), which never need BASIC: the "needs
   // BASIC" detector is armed only for the person's own (js/needs-basic.js)
-  load(name, bytes, { askAddresses = null, remember = true, run = true, ours = false } = {}) {
+  // noRoms: start it on the built-in firmware, without the person's ROMs, even when they have stored ROMs for this model
+  // (only the page asks, for a program page and the Programs list: js/ui/welcome.js): the program never needs them, and a
+  // moment of it then holds none of their code, so it can have a short link and anyone can open it. Only this run is
+  // without them (stubChosen, as the welcome menu makes it): the stored ROMs are untouched and BASIC still starts on them
+  // ("Use your ROMs for BASIC", or a reload). The MCP load tool and the CLI never ask: they start on the machine as it is.
+  load(name, bytes, { askAddresses = null, remember = true, run = true, ours = false, noRoms = false } = {}) {
     this.loadStarted = true;
     const m = this.loadTarget().m;
+    if (noRoms && !m.useStub && !this.nitros9On(m)) this.runWithoutRoms({ menu: false });
     this.lastLoaded = { name, bytes };   // (js/bugreport.js: its name and SHA-256; set first, so a file that fails to load is named too)
     this.touch(this.shownMachine);   // a load makes a bundled program a moment (untouchedBundledProgram)
     const msg = this.loadMedia(name, bytes, askAddresses, { run });
@@ -3477,9 +3483,9 @@ export class Session {
     if (need) throw new SessionError(`LIZA needs ${need.ram}K RAM on this machine, which has ${need.have}K. Switch the RAM option to ${need.ram}K to run it.`);
   }
   // LIZA from its bytes (this.lizaFile's), at once -> the load message
-  runLiza(bytes) {
+  runLiza(bytes, { noRoms = false } = {}) {
     this.checkLiza();
-    const msg = this.load(this.lizaFile, bytes, { remember: false, ours: true });
+    const msg = this.load(this.lizaFile, bytes, { remember: false, ours: true, noRoms });
     this.setLastRun('liza', 'LIZA');
     this.watchForMenu('liza', this.personMachine);
     this.markProgramStart('liza', this.personMachine);
@@ -3507,10 +3513,10 @@ export class Session {
     const need = this.gameNeeds();
     if (need) throw new SessionError(`${g.name} needs ${need.ram}K RAM or more; this ${m.profile.name} has ${need.have}K. Switch the RAM option to ${need.ram}K or 64K to play it.`);
   }
-  runGame(name, bytes) {
+  runGame(name, bytes, { noRoms = false } = {}) {
     this.checkGame(name);
     const file = this.gameFile(name), m = this.personMachine;
-    const msg = this.load(file, bytes, { remember: false, ours: true });
+    const msg = this.load(file, bytes, { remember: false, ours: true, noRoms });
     // the SAM's memory size as the firmware or BASIC left it, for the game to put back on leaving (the CoCo 3's
     // GIME has no M bits: the header's default stays)
     if (m.sam) m.poke(GAMES.samExit, m.sam.memSize);

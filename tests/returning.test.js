@@ -192,13 +192,15 @@ const store = () => { const m = new Map(); return { get: (k) => (m.has(k) ? m.ge
     check(`${id}: BREAK in LIZA mid-line is BYE: the goodbye, DONE, and the menu 3 s later, once`,
       at !== null && /> I FEEL +GOODBYE\. IT WAS NICE/.test(t) && early === 0 && menus === 1, `at ${at} early ${early} menus ${menus} ${JSON.stringify(t.slice(-120))}`);
   }
-  // with ROMs (BASIC, not the stub) there is no menu to go back to: no watch
+  // with ROMs stored LIZA still runs on the built-in firmware (it never uses them), so it has the menu to go back to:
+  // it is watched, and the stored ROMs are still there
   {
     const s = new Emu.Session({ store: store() });
     s.switchMachine('dragon32');
     s.addRoms([{ name: 'd32.rom', bytes: new Uint8Array(0x4000).fill(0x12) }]);
-    await s.startLiza(() => liza);
-    check('with the machine\'s ROMs in, LIZA isn\'t watched (no welcome menu to go back to)', s.menuWatch === null);
+    s.runLiza(liza, { noRoms: true });
+    check('with the machine\'s ROMs stored, LIZA runs on the built-in firmware, watched (the menu to go back to), and the ROMs stay stored',
+      s.shownMachine.useStub && !!s.menuWatch && Object.values(s.roms.get('dragon32')).some(Boolean), `${s.shownMachine.useStub} ${s.menuWatch && s.menuWatch.kind}`);
   }
   // the demo: its "press any key" is taken; once it draws, the next key asks for the menu
   {
