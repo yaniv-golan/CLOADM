@@ -60,8 +60,8 @@ ERROR   LDS     <STRBOT         ; drop everything the program had on the stack
         JSR     <ZCHROUT
         LDA     1,X
         JSR     <ZCHROUT
-        LDX     #ERRMSG
-        JSR     <ZPRTSTR
+        JSR     PRMSG
+        FCN     " ERROR"
         CLR     <OLDTXT         ; an error cannot be continued
         CLR     <OLDTXT+1
         JSR     DIRCHK
@@ -69,12 +69,10 @@ ERROR   LDS     <STRBOT         ; drop everything the program had on the stack
         BSR     PRTIN
 ERR1    JSR     CRLF
         BRA     READY
-ERRMSG  FCN     " ERROR"
-INMSG   FCN     " IN "
 
 * PRTIN: print " IN " and the line number in D
 PRTIN   PSHS    D
-        LDX     #INMSG
-        JSR     <ZPRTSTR
+        JSR     PRMSG
+        FCN     " IN "
         PULS    D
         JMP     LINPRT

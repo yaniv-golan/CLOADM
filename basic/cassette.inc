@@ -109,11 +109,11 @@ CRS2A   STA     <CLEAD
 * file open (CLDBAS $FF): the next cassette statement is ?AO ERROR, which closes it [BB bb5 cas-errors: SKIPF after
 * a CLOAD that met a bad block]
 CLFM    LDB     #ERR_FM
-        BRA     CASERR
+        FCB     $8C             ; (CMPX #: skips the next LDB)
 CLOM    LDB     #ERR_OM
-        BRA     CASERR
+        FCB     $8C             ; (CMPX #: skips the next LDB)
 CLDS    LDB     #ERR_DS
-        BRA     CASERR
+        FCB     $8C             ; (CMPX #: skips the next LDB)
 CLIO    LDB     #ERR_IO
 CASERR  JSR     CASOFF
         TST     <CLDBAS
@@ -134,8 +134,7 @@ CE2     JMP     ERROR
 CFIND   JSR     CLS
         LDA     #'S'
         STA     SCREEN
-        LDX     #SCREEN+32
-        STX     <CURPOS
+        BSR     CFN2
 CF1     LDX     #LINBUF
         JSR     CRBLK
         BNE     CF1             ; a bad block: not what we look for
@@ -166,7 +165,7 @@ CFN1    LDA     ,X+
         JSR     <ZCHROUT
         DECB
         BNE     CFN1
-        LDX     #SCREEN+32
+CFN2    LDX     #SCREEN+32      ; the cursor on the second row
         STX     <CURPOS
         RTS
 * CSKIP: blocks read up to an end-of-file block
@@ -325,10 +324,7 @@ GN1     STA     ,X+
 GN2     STB     <CNLEN
         BEQ     GN3
         LDU     #CNAME
-GN2A    LDA     ,X+
-        STA     ,U+
-        DECB
-        BNE     GN2A
+        JSR     CPYXU
 GN3     RTS
 
 CADDR   JSR     COMMA

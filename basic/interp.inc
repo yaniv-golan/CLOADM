@@ -4,8 +4,9 @@
 READY   LDS     <BASESP         ; (above it: the FOR and GOSUB frames CONT needs, or nothing)
         JSR     RSTTMP
         JSR     NEWLIN
-        LDX     #OKMSG
-        JSR     <ZPRTSTR
+        JSR     PRMSG
+        FCC     "OK"
+        FCB     13,0
 * MAIN: one typed line: a numbered line goes into the program, anything else runs at once
 MAIN    LDS     <BASESP
         CLR     <JMPFLG
@@ -26,8 +27,6 @@ DIRECT  LDX     <TXTPTR
         LEAX    -1,X
         STX     <TXTPTR
         BRA     NEWST1
-OKMSG   FCC     "OK"
-        FCB     13,0
 
 * NEWSTT: the next statement. Statements are called from here and return here (RTS) with the text pointer
 * on the character after them; the stack below this point holds only FOR and GOSUB frames. A statement that
@@ -206,16 +205,16 @@ STOP0   BSR     DIRCHK
         STD     <OLDLIN
         LDD     <TXTPTR
         STD     <OLDTXT
-STOP1   LDX     #BRKMSG
-        JSR     <ZPRTSTR
+STOP1   JSR     PRMSG
+        FCB     13              ; one CR whatever the column: an empty line at the start of a line, else it ends
+*                                 the line [BB bb1 flow-cont, bb2 flow-stop-col]
+        FCN     "BREAK"
         BSR     DIRCHK
         BEQ     STOP2
         JSR     PRTIN
 STOP2   JSR     CRLF
         JMP     READY
-BRKMSG  FCB     13              ; one CR whatever the column: an empty line at the start of a line, else it ends
-*                                 the line [BB bb1 flow-cont, bb2 flow-stop-col]
-        FCN     "BREAK"
+
 
 CONT    LBNE    SNERR
         LDD     <OLDTXT
@@ -390,16 +389,13 @@ CLSST   JSR     <ZCHRGOT
         ORB     #$8F
         TFR     B,A
 CLSS0   TFR     A,B
-        JSR     CLSC
-        JMP     <ZCHRGOT
-CLSS1   JSR     CLS
-        JMP     <ZCHRGOT
+        JMP     CLSC
+CLSS1   JMP     CLS
 CLSBIG  LDX     #CLSMSG
         CMPB    #67
         BNE     CLSB1
         LDX     #CLSM67
-CLSB1   JSR     PRTSTR
-        JMP     <ZCHRGOT
+CLSB1   JMP     <ZPRTSTR
 CLSMSG  FCC     "MADE WITHOUT PEEKING"  ; [OWN] the line CLS 9-255 prints (chosen for this BASIC)
         FCB     13,13
         FCN     ""

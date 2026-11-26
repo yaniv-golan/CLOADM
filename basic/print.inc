@@ -44,9 +44,8 @@ PRCOM   LDB     <CURPOS+1
         BHS     PRC2
 PRC1    JSR     SPACE
         LDB     <CURPOS+1
-        ANDB    #31
-        CMPB    #16
-        BLO     PRC1
+        BITB    #15             ; (column 16 is the first with these 0 after a space)
+        BNE     PRC1
         BRA     PRC3
 PRC2    JSR     CRLF
 PRC3    JSR     <ZCHRGET

@@ -163,29 +163,28 @@ USNUM   CLR     <USNB
         STA     <USFLG
         INC     <USPOS
 USN1     JSR     <ZUSCHR
+        LDB     #4              ; ** (and **$)
         CMPA    #'*'
-        BNE     USN2
-        LDA     #4              ; ** (and **$)
+        BEQ     USN2
+        LDB     #8              ; $$
+        CMPA    #'$'
+        BNE     USN3
+USN2     PSHS    A
+        TFR     B,A
         JSR     USFSET
         LDA     #2
         STA     <USNB
         INC     <USPOS
         INC     <USPOS
+        PULS    A
+        CMPA    #'*'
+        BNE     USN3
         JSR     <ZUSCHR
         CMPA    #'$'
         BNE     USN3
-        LDA     #8
+        LDA     #8              ; **$
         JSR     USFSET
         INC     <USNB
-        INC     <USPOS
-        BRA     USN3
-USN2     CMPA    #'$'
-        BNE     USN3
-        LDA     #8              ; $$
-        BSR     USFSET
-        LDA     #2
-        STA     <USNB
-        INC     <USPOS
         INC     <USPOS
 USN3     JSR     <ZUSCHR           ; # and , before the point
         CMPA    #'#'

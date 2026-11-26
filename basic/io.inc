@@ -116,8 +116,8 @@ INP1    LDD     <TXTPTR         ; where the variables are listed
         STD     <INPST
 INP2    TST     <INPKND
         BEQ     INP2A
-        LDX     #QMSG
-        JSR     <ZPRTSTR
+        JSR     PRMSG
+        FCN     "? "
 INP2A   JSR     INLINE
         LDX     #LINBUF-1
         STX     <INPPTR
@@ -137,16 +137,17 @@ INP3    JSR     PTRNEW
         LDA     ,X              ; the typed line ran out: ?? and another
         CMPA    #','
         BEQ     INP3B
-INP3A   LDX     #QQMSG
-        JSR     <ZPRTSTR
+INP3A   JSR     PRMSG
+        FCN     "?? "
         BSR     INLINE
         LDX     #LINBUF-1
         STX     <TXTPTR
 INP3B   JSR     GETITM
         BCC     INP4
         LEAS    2,S             ; ?REDO: the whole INPUT again
-        LDX     #REDOMS
-        JSR     <ZPRTSTR
+        JSR     PRMSG
+        FCC     "?REDO"
+        FCB     13,0
         LDD     <INPST
         STD     <INPVAR
         BRA     INP2
@@ -163,8 +164,9 @@ INP4    LDD     <TXTPTR
 INP5    LDX     <INPPTR         ; anything left over?
         LDA     ,X
         BEQ     INP6
-        LDX     #EXTRMS
-        JSR     <ZPRTSTR
+        JSR     PRMSG
+        FCC     "?EXTRA IGNORED"
+        FCB     13,0
 INP6    RTS
 * LINE INPUT: the whole line, as typed
 LNI1    JSR     PTRNEW
@@ -183,12 +185,6 @@ LNI3    JSR     MKTMP           ; (STRKEEP copies it: a typed line is not progra
 INLINE  JSR     LINEIN
         LBCS    STOPIN
         RTS
-QMSG    FCN     "? "
-QQMSG   FCN     "?? "
-REDOMS  FCC     "?REDO"
-        FCB     13,0
-EXTRMS  FCC     "?EXTRA IGNORED"
-        FCB     13,0
 
 * LINE: LINE INPUT when INPUT follows, otherwise the graphics LINE (line.inc)
 LINE    CMPA    #T_INPUT

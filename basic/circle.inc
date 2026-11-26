@@ -61,8 +61,7 @@ CI4     PULS    B
         PSHS    X,Y
         LDA     <TMPCNT+1
         BSR     CPOINT
-        STX     <LASTX
-        STY     <LASTY
+        JSR     BF0
 CI5     INC     <TMPCNT+1
         LDA     <TMPCNT+1
         BSR     CPOINT

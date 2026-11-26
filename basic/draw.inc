@@ -158,13 +158,12 @@ DMOVE   LDU     <LASTX
         LSRA
         BCS     DM1
         JSR     LINETO
-DM1     STX     <LASTX
-        STY     <LASTY
+DM1     JSR     BF0             ; the last point: the move's end
         LDA     <DRFLG
         CLR     <DRFLG
         BITA    #2
         PULS    D,U
-        LBEQ    DS9
+        BEQ     DM2
         STD     <LASTY
         STU     <LASTX
-        RTS
+DM2     RTS

@@ -79,7 +79,7 @@ CLS1    STD     ,X++
 * CRLF: a carriage return
 CRLF    PSHS    A
         LDA     #13
-        JSR     <ZCHROUT
+CRLF1   JSR     <ZCHROUT
         PULS    A,PC
 
 * NEWLIN: a carriage return unless the cursor is at the start of a line
@@ -96,12 +96,15 @@ PRTSTR  LDA     ,X+
         JSR     <ZCHROUT
         BRA     PRTSTR
 PRTSD   RTS
+* PRMSG: print the 0-terminated text that follows the call; the code after the text goes on. Uses A, X.
+PRMSG   PULS    X
+        BSR     PRTSTR
+        JMP     ,X
 
 * SPACE: print a space
 SPACE   PSHS    A
         LDA     #32
-        JSR     <ZCHROUT
-        PULS    A,PC
+        BRA     CRLF1
 
 * LINPRT: print D as an unsigned decimal number, no spaces. Keeps every register.
 LINPRT  PSHS    D,X,U
