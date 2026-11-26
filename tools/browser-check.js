@@ -5750,10 +5750,10 @@ async function phoneChecks(browser, base, check) {
   await page.keyboard.press('Escape');
   const disk = [...fs.readFileSync(path.join(ROOT, 'tests/fixtures/disks/dragondos.vdk'))];
   await page.evaluate((b) => window.emu.session.drives.importImage('games/first.vdk', new Uint8Array(b), 0), disk);
-  const oneDisk = await waitFor(page, () => document.querySelector('#chipDisks .cs').textContent === 'first.vdk');
+  const oneDisk = await waitFor(page, () => document.querySelector('#chipDisks .cs').textContent === '1 disk');
   await page.evaluate((b) => window.emu.session.drives.importImage('second.vdk', new Uint8Array(b), 1), disk);
   const twoDisks = await waitFor(page, () => document.querySelector('#chipDisks .cs').textContent === '2 disks' && document.getElementById('chipDisks').classList.contains('has-media'));
-  check('phone: NitrOS-9 is in the Disks sheet under the drives; the Disks chip names one disk by its file ("first.vdk"), two as "2 disks", outlined',
+  check('phone: NitrOS-9 is in the Disks sheet under the drives; the Disks chip says "1 disk", then "2 disks", outlined',
     n9 && oneDisk && twoDisks, JSON.stringify({ n9, oneDisk, twoDisks, chip: await page.textContent('#chipDisks .cs') }));
   // Power: Paused after Pause, Running after Resume
   await page.tap('#chipPower'); await page.tap('#btnPause');
@@ -6212,9 +6212,15 @@ async function phoneWyrmUpright(p, L, check) {
   });
   check(`${L}: the screen has the page's width (canvas ${Math.round(g.tube)} >= ${g.vw} - 2 x 8)`, g.tube >= g.vw - 16 - 0.5, JSON.stringify(g.tube));
   check(`${L}: one line under the screen, above the Keys | Pad strip: "WYRMFIRE · Freedoom level (BSD) · Details", (BSD) the licence link`,
-    g.shortVisible && g.short === 'WYRMFIRE · Freedoom level (BSD) · Details' && g.shortH <= 48 && g.shortTop >= g.tubeBottom && g.shortTop < g.modeTop && /freedoom/i.test(g.bsd) && /COPYING/i.test(g.bsd), JSON.stringify(g));
+    g.shortVisible && g.short === 'WYRMFIRE · Freedoom level (BSD)Details' && !/·\s*Details$/.test(g.short) && g.shortH <= 48 && g.shortTop >= g.tubeBottom && g.shortTop < g.modeTop && /freedoom/i.test(g.bsd) && /COPYING/i.test(g.bsd), JSON.stringify(g));
   check(`${L}: the whole card is out of the page's flow until Details`, !g.card);
   check(`${L}: no page scroll`, g.scrollH <= g.vh, `${g.scrollH} > ${g.vh}`);
+  // the chips hold short values (a count, a short name): never cut, the full names in the aria-label
+  const chip = await p.evaluate(() => ['chipDisks', 'chipCart'].map((id) => { const c = document.getElementById(id), cs = c.querySelector('.cs');
+    return { id, shown: c.checkVisibility(), text: cs.textContent, label: c.getAttribute('aria-label'), cut: cs.scrollWidth > cs.clientWidth || c.scrollWidth > c.clientWidth, over: c.getBoundingClientRect().right > innerWidth }; }));
+  const chipDisks = chip[0], chipCart = chip[1];
+  check(`${L}: the Disks and Cartridge chips say "1 disk" and "Dragon FDC", whole (no ellipsis, no overflow); the full names are in their aria-labels`,
+    chipDisks.text === '1 disk' && chipCart.text === 'Dragon FDC' && chip.every((c) => !c.cut && !c.over) && chipDisks.label.includes('.vdk') && chipCart.label.includes('Dragon FDC (WD2797)'), JSON.stringify(chip));
   check(`${L}: no key's label is cut short (ENTER says ENTER, or ↵ named ENTER)`, !g.cut.length && (g.enter === 'ENTER|' || g.enter === '↵|ENTER'), JSON.stringify([g.cut, g.enter]));
   check(`${L}: every tap target at least 44 x 44`, !g.small.length, g.small.join('; '));
   // Details: the sheet with today's card, its words exactly WYRM_TEXT's; ✕, Esc and a tap outside each close it
@@ -6232,7 +6238,7 @@ async function phoneWyrmUpright(p, L, check) {
   const c2 = await card();
   await p.tap('#wyrmDetails'); await p.keyboard.press('Escape');
   const c3 = await card();
-  await p.tap('#wyrmDetails'); await p.tap('#appbar', { position: { x: 4, y: 4 } }); await p.waitForTimeout(100);
+  await p.tap('#wyrmDetails'); await p.tap('.tube', { position: { x: 4, y: 4 } }); await p.waitForTimeout(100);
   const c4 = await card();
   check(`${L}: ✕, Esc and a tap outside each close the sheet (the focus back on Details after ✕)`, !c2.open && c2.focus === 'wyrmDetails' && !c3.open && !c4.open, JSON.stringify([c2.open, c2.focus, c3.open, c4.open]));
 }
@@ -6356,8 +6362,8 @@ async function phoneWyrmPadChecks(browser, base, check) {
         const sh = document.getElementById('wyrmShort');
         return { text: sh.textContent, link: !!sh.querySelector('a'), h: sh.getBoundingClientRect().height };
       });
-      check(`${L}: with the person's own WAD the line is "WYRMFIRE · your MYLEVELS.WAD · Details", one line, no Freedoom link`,
-        own.text === 'WYRMFIRE · your MYLEVELS.WAD · Details' && !own.link && own.h <= 48, JSON.stringify(own));
+      check(`${L}: with the person's own WAD the line is "WYRMFIRE · your MYLEVELS.WAD" and Details, no dangling "·", one line, no Freedoom link`,
+        own.text === 'WYRMFIRE · your MYLEVELS.WADDetails' && !own.link && own.h <= 48, JSON.stringify(own));
     }
     check(`${L}: no page errors`, !errs.length, errs.join('; '));
     await ctx.close();
@@ -12242,10 +12248,17 @@ async function wyrmfireChecks(browser, site, check) {
     await ctx.close();
   }
 
+  // every toast the page shows, in order (a toast that is replaced before it is seen shows as lost): window.__toasts
+  const recordToasts = (pg) => pg.addInitScript(() => {
+    window.__toasts = [];
+    setInterval(() => { const t = document.getElementById('toast'), x = t && !t.hidden ? t.textContent.trim() : ''; if (x && window.__toasts[window.__toasts.length - 1] !== x) window.__toasts.push(x); }, 40);
+  });
+  const KEYS = 'WYRMFIRE: Enter skips the music. Arrows move and turn, Z and X strafe, Space fires, E opens doors.', SIDEWAYS = 'Turn sideways for a bigger view.';
   // ---- a phone: Pad with FIRE and USE; the one-time hint upright ----
   {
     const ctx = await browser.newContext({ serviceWorkers: 'block', viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
     const page = await newPage(ctx);
+    await recordToasts(page);
     await page.goto(`${base}?start=wyrmfire`);
     await started(page);
     await playing(page);
@@ -12254,7 +12267,8 @@ async function wyrmfireChecks(browser, site, check) {
       groups: [...document.querySelectorAll('#touchPad .padgroup')].map((g) => `${g.querySelector('.padcap').textContent} ${[...g.querySelectorAll('.tk')].map((b) => `${b.textContent}=${b.dataset.key}`).join(' ')}`) }));
     check('wyrmfire: a phone opens on Pad: FIRE (Space) and USE (E) as the big buttons, STRAFE ◀ ▶ (Z, X) and WEAPON 1 2 3, no plain extras',
       pad && pad.big.join() === 'FIRE:SPACE,USE:E' && pad.extra.join() === '' && pad.groups.join('|') === 'STRAFE ◀=Z ▶=X|WEAPON 1=1 2=2 3=3', JSON.stringify(pad));
-    check('wyrmfire: upright, the one-time hint "Turn sideways for a bigger view."', await waitFor(page, () => document.getElementById('toast').textContent.includes('Turn sideways for a bigger view.')));
+    check('wyrmfire: upright, ?start=wyrmfire: the keys toast, then the one-time hint "Turn sideways for a bigger view." (neither lost)',
+      await waitFor(page, () => window.__toasts.length >= 2, null, 15000) && (await page.evaluate(() => window.__toasts)).join(' | ') === `${KEYS} | ${SIDEWAYS}`, JSON.stringify(await page.evaluate(() => window.__toasts)));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, 'wyrmfire-phone.png') });
     await ctx.close();
   }
@@ -12280,6 +12294,20 @@ async function wyrmfireChecks(browser, site, check) {
         tell ? await waitFor(page, (t) => document.getElementById('toast').textContent.includes(t), SWITCHED) : !after.toast.includes(SWITCHED), after.toast);
       if (shotDir && id === 'mc10') await page.screenshot({ path: path.join(shotDir, 'wyrmfire-from-mc10-menu.png') });
       await ctx.close();
+    }
+    // no toast lost, in order: the switch, the keys, and on an upright phone the sideways hint
+    for (const [label, opts, want] of [['desktop', {}, [SWITCHED, KEYS]], ['an upright phone (393x659)', { viewport: { width: 393, height: 659 }, isMobile: true, hasTouch: true }, [SWITCHED, KEYS, SIDEWAYS]]]) {
+      const c = await browser.newContext(Object.assign({ serviceWorkers: 'block' }, opts));
+      const pg = await newPage(c);
+      await recordToasts(pg);
+      await pg.goto(`${base}?machine=coco3`);
+      await started(pg);
+      await waitFor(pg, () => window.emu.session.welcomeRunning && window.emu.session.screenText()[14].includes('PRESS 1 TO'));
+      for (const k of ['5', '3']) { await pg.focus('#screen'); await pg.keyboard.press(k); await pg.waitForTimeout(150); }
+      const got = await waitFor(pg, (n) => window.__toasts.length >= n, want.length, 20000);
+      check(`wyrmfire: from the CoCo 3's menu on ${label}, every toast is shown in turn: the switch, the keys${want.length > 2 ? ', the turn-sideways hint' : ''}`,
+        got && (await pg.evaluate(() => window.__toasts)).join(' | ') === want.join(' | '), JSON.stringify(await pg.evaluate(() => window.__toasts)));
+      await c.close();
     }
     // offline, nothing kept: the strip says so with Try again, and the menu stays on the MC-10
     const ctx = await browser.newContext({ serviceWorkers: 'block' });
@@ -21560,8 +21588,8 @@ async function uiModelChecks(browser, base, check) {
         return { order: r.every((x, i) => !i || x.left > r[i - 1].left), under: r.every((x) => x.top >= keys.getBoundingClientRect().bottom - 1),
           disks: ids[1].querySelector('.cs').textContent, marked: ids[1].classList.contains('has-media') && !ids[0].classList.contains('has-media') };
       });
-      check('slots (phone): with a disk in and no tape, the Disks chip names it and is outlined, the chips in their fixed order under the keyboard panel',
-        chips.order && chips.under && chips.disks === 'games.vdk' && chips.marked, JSON.stringify(chips));
+      check('slots (phone): with a disk in and no tape, the Disks chip says "1 disk" and is outlined, the chips in their fixed order under the keyboard panel',
+        chips.order && chips.under && chips.disks === '1 disk' && chips.marked, JSON.stringify(chips));
     } else {
     const order = await page.evaluate(() => {
       const top = (el) => el.getBoundingClientRect().top, tape = document.querySelector('.slots .slot.tape'), drives = document.getElementById('driveSlot');

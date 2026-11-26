@@ -27,6 +27,15 @@ Next version: 0.3.1 (the plugin and extension manifests carry it; `tests/plugin.
   pad's keys shrink to 44 px first. No key label is cut short (ENTER shows ↵ where the word cannot fit). Sideways and on a
   desktop nothing changes.
 
+#### Fixed
+
+- **WYRMFIRE's toasts are no longer lost.** Starting it from the welcome menu on another machine raised the switch toast, the keys
+  toast and, on an upright phone, the turn-sideways hint at once, and each replaced the one before; now they show in turn:
+  the switch, the keys, then the hint.
+- **A phone's Disks and Cartridge chips no longer cut their value short.** They say "1 disk" / "2 disks" and the cartridge's short
+  name ("Dragon FDC"); the full names stay in the chip's sheet and its label.
+- **WYRMFIRE's one-line card no longer ends in a dangling "·"** before Details.
+
 ### 0.3.1
 
 #### Fixed

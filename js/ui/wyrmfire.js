@@ -138,7 +138,7 @@ export function setupWyrmfire(page, { confirmSwitch }) {
     const details = button(WYRM_TEXT.details, openDetails);
     details.id = 'wyrmDetails';
     details.setAttribute('aria-expanded', String(strip.classList.contains('sheet')));
-    short.replaceChildren(el('span', `${WYRM_TEXT.name} · `), ...whose, el('span', ' · '), details);
+    short.replaceChildren(el('span', `${WYRM_TEXT.name} · `), ...whose, details);
     short.hidden = false;
   }
   // Details: the whole card as a sheet over the controls (a phone held upright); ✕, a tap outside it or Esc closes it
@@ -256,10 +256,10 @@ export function setupWyrmfire(page, { confirmSwitch }) {
       show(WYRM_TEXT.starting, []);
       job = null;
       const switching = session.personMachine.id !== PIN.machine.id;
-      page.attempt(() => { session.startWyrmfire(files.engine, own ? own.disk : files.level, own ? { level: 'user', name: own.name } : {}); return WYRM_TEXT.keys; });
-      if (tell && switching && session.wyrmfireRunning) page.toast(WYRM_TEXT.switched);
+      const started = page.attempt(() => { session.startWyrmfire(files.engine, own ? own.disk : files.level, own ? { level: 'user', name: own.name } : {}); return null; });
+      // one toast at a time, none lost: the switch, then the keys, then (an upright phone) the turn-sideways hint
+      if (started) inTurn([tell && switching && session.wyrmfireRunning ? WYRM_TEXT.switched : null, WYRM_TEXT.keys, sideways()]);
       page.focus();
-      sideways();
     } catch (e) {
       job = null;
       if (e && e.name === 'AbortError') { hide(); playing(); page.focus(); return; }
@@ -270,11 +270,17 @@ export function setupWyrmfire(page, { confirmSwitch }) {
     }
     playing();
   }
-  // "Turn sideways for a bigger view.": once, on a phone held upright
+  // the texts in order, each when the one before has run its time (a toast replaces the one showing, so they are chained)
+  function inTurn(texts) {
+    const [text, ...rest] = texts.filter(Boolean);
+    if (!text) return;
+    page.toast(text, { onEnd: (why) => { if (why === 'timeout' || why === 'closed' || why === 'action') inTurn(rest); } });
+  }
+  // "Turn sideways for a bigger view.": once, on a phone held upright -> its text, or null
   function sideways() {
-    if (!touchPanel() || !matchMedia('(orientation: portrait)').matches) return;
-    try { if (localStorage.getItem('wyrmfire.sideways')) return; localStorage.setItem('wyrmfire.sideways', '1'); } catch (e) { /* storage off: said every time */ }
-    page.toast(WYRM_TEXT.sideways);
+    if (!touchPanel() || !matchMedia('(orientation: portrait)').matches) return null;
+    try { if (localStorage.getItem('wyrmfire.sideways')) return null; localStorage.setItem('wyrmfire.sideways', '1'); } catch (e) { /* storage off: said every time */ }
+    return WYRM_TEXT.sideways;
   }
 
   // ---------------- the person's own WAD ----------------
