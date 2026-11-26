@@ -1,6 +1,6 @@
 // WYRMFIRE's thumb stick (js/ui/touch-layout.js thumbKeys): which arrow keys a finger holds, from where it is on the stick.
 //
-// Oracle: the ruling's own terms, worked out by hand here: eight directions, each a 45° sector centred on its arrow or
+// Oracle: the specification's terms, worked out by hand here: eight directions, each a 45° sector centred on its arrow or
 // diagonal (so the boundaries are at 22.5° + k·45°), and a dead zone of 20% of the radius where nothing is pressed.
 // Screen y grows downwards, so a finger above the centre (dy < 0) is UP. The browser check (phone group) drives the
 // same function through the page's pointer events and the machine's held keys.

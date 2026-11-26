@@ -3812,19 +3812,19 @@ async function powerOnChecks(browser, base, check) {
   for (const [id, sub] of [['coco3', 'DRAGON AND COLOR COMPUTER'], ['mc10', 'TANDY MC-10']]) {
     await pickMachine(page, id);
     check(`switching to the ${id} (no ROMs) from the machine menu: its welcome menu, WELCOME BACK`, await waitFor(page, (id) => window.emu.machine.id === id
-      && window.emu.session.welcomeRunning && window.emu.session.screenText()[id === 'mc10' ? 7 : 6].trim() === 'WELCOME BACK', id) && !(await bare()), `${sub} | ${await text()}`);
+      && window.emu.session.welcomeRunning && window.emu.session.screenText()[6].trim() === 'WELCOME BACK', id) && !(await bare()), `${sub} | ${await text()}`);
     // the carry-on option offers only what runs here: loop.bin was loaded on the Dragon 64, so not on this machine
     const five = await page.evaluate(() => [window.emu.session.screenText()[13].trim(), window.emu.session.screenText()[14].trim()]);
-    check(`switching to the ${id}: the menu doesn't offer the Dragon 64's loop.bin (no carry-on option)`, five[0] === '' && five[1] === (id === 'mc10' ? 'PRESS 1 TO 4' : 'PRESS 1 TO 5'), JSON.stringify(five));
+    check(`switching to the ${id}: the menu doesn't offer the Dragon 64's loop.bin (no carry-on option)`, five[0] === '' && five[1] === 'PRESS 1 TO 5', JSON.stringify(five));
   }
   await shot('switch-mc10');
   // the MC-10: Reset keeps its menu, Switch off and on brings it back (no more bare stub screen on the 6803)
   await page.click('#btnReset');
   check('MC-10 Reset (no ROMs) on its welcome menu: the menu restarts', await waitFor(page, () => window.emu.session.welcomeRunning
-    && window.emu.session.screenText()[9].trim() === '1 TALK TO LIZA') && !(await bare()), await text());
+    && window.emu.session.screenText()[8].trim() === '1 TALK TO LIZA') && !(await bare()), await text());
   await page.click('#btnHardReset');
   check('MC-10 Switch off and on (no ROMs): its welcome menu, WELCOME BACK', await waitFor(page, () => window.emu.session.welcomeRunning
-    && window.emu.session.screenText()[7].trim() === 'WELCOME BACK') && !(await bare()), await text());
+    && window.emu.session.screenText()[6].trim() === 'WELCOME BACK') && !(await bare()), await text());
   // a snapshot taken on the stub's bare prompt (made below the page: the page no longer gets there) opens on the
   // welcome menu; one taken in a program opens in it
   await pickMachine(page, 'dragon64');
@@ -4948,7 +4948,7 @@ async function liza6803Checks(browser, base, check) {
     // BREAK (Esc) at the prompt leaves as BYE does: the goodbye, then the welcome menu (bounded in machine frames)
     await page.keyboard.press('Escape');
     const bye = await waitFor(page, () => /GOODBYE\. IT WAS NICE TALKING TO YOU/.test(window.emu.session.screenText().join(' ').replace(/ +/g, ' ')));
-    const menu = await waitForFrames(page, () => window.emu.session.welcomeRunning && window.emu.session.screenText()[7].trim() === 'BYE FOR NOW. PICK ANOTHER?', null, 400);
+    const menu = await waitForFrames(page, () => window.emu.session.welcomeRunning && window.emu.session.screenText()[6].trim() === 'BYE FOR NOW. PICK ANOTHER?', null, 400);
     check(`${id}: BREAK (Esc) in LIZA says goodbye and brings the menu back, as BYE does`, bye && menu, (await screenOf(page)).split('\n').slice(6, 9).join(' | '));
     check(`${id}: no page errors`, !errors.length, errors.join('; '));
     await closeCtx(ctx);

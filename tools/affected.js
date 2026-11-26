@@ -46,7 +46,7 @@ const AREAS = [
   { row: 'Keyboard and input',
     paths: ['js/host/input.js', 'js/host/gamepad.js', 'js/machines/keyboards.js', 'js/machines/keyqueue.js', 'js/machines/typist.js',
       'js/ui/touch-keys.js', 'js/ui/touch-layout.js', 'js/ui/typein.js', 'js/ui/key-hint.js'],
-    suites: ['input', 'keyqueue', 'keyboard-symbols', 'touch-joystick', 'press-break'], groups: ['input', 'inputScreen', 'touchJoystick', 'keyboardSymbols', 'typing'] },
+    suites: ['input', 'keyqueue', 'keyboard-symbols', 'touch-joystick', 'touch-thumb', 'press-break'], groups: ['input', 'inputScreen', 'touchJoystick', 'keyboardSymbols', 'typing'] },
   { row: 'The "needs BASIC" detector (`js/needs-basic.js`, `js/ui/needs-basic.js`, the firmware\'s `implemented`)',
     paths: ['js/needs-basic.js', 'js/ui/needs-basic.js'], suites: ['needs-basic', 'stub', 'debugger', 'regress'], groups: ['needsBasic', 'romUi'] },
   { row: '`js/session.js`, snapshots', paths: ['js/session.js', 'js/media/snapshot.js', 'js/ui/snapshot-panel.js', 'js/ui/slots-panel.js'],
