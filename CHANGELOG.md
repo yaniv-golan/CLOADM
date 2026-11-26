@@ -8,7 +8,7 @@ All notable changes to CLOADM are recorded here. The format follows
 
 Next version: 0.3.1 (the plugin and extension manifests carry it; `tests/plugin.test.js` keeps them in step).
 
-### Changed
+#### Changed
 
 - **`pokeBytes` and `injectAssembled` take the machine to write as a required argument.** Both are the
   Node API (`docs/automation.md`), and both used to default to the machine on screen: with the chat full screen that
