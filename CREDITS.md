@@ -35,6 +35,12 @@ The site has the same thanks at [cloadm.dev/credits](https://cloadm.dev/credits/
   Freedoom is not affiliated with id Software. DOOM is a registered trademark of ZeniMax Media Inc. CLOADM and
   WYRMFIRE are independent projects, not affiliated with or endorsed by id Software, ZeniMax Media or Microsoft. References to DOOM describe file compatibility only.
 
+## Code served with it
+
+- **The Kapai SDK** (`@kapai/sdk` 0.1.0), which runs Claude's included AI and its credits: its browser files are served
+  unchanged in `js/vendor/kapai/`. Its `package.json` declares the MIT licence; the package ships no licence text or
+  copyright line.
+
 ## Archives
 
 - **[The Color Computer Archive](https://colorcomputerarchive.com/)**: software, documentation and magazines for
