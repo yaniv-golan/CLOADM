@@ -336,6 +336,8 @@ export function createFeedback() {
     top();   // (nowhere off the picture at all: never invisible wins)
     return 'top';
   }
+  // (The action's 44 px tap area, #toast.overscreen #toastAction::after in play/index.html, reaches past a one-line toast onto the
+  // picture, so a tap just above or below the toast fires the action: accepted -- it is the picture, never a key.)
   // The sideways slot (js/ui/feedback.js fallbackSlot, the touch keys round the screen in a short landscape window). The
   // compact form at the picture's top edge (4 px down, the picture's width less 16), the action inline at the end of the
   // text's last line, at most two lines and at most 40 px and 22% of the picture's height. A toast that does not fit
@@ -368,14 +370,21 @@ export function createFeedback() {
       if (L0 + W0 > from && (!best || L0 + W0 - from > best.width)) best = { left: from, width: L0 + W0 - from };
       if (best && best.width >= 200) { left = best.left; width = best.width; put(left, width); } else { edge = 'bottom'; left = L0; width = W0; put(left, width); break; }
     }
-    if (!t || t.opened || (!t.also && h() <= cap + 0.5)) { if (edge === 'bottom') anchor(left, width); return 'over-screen'; }
+    const covers = () => { const bb = box.getBoundingClientRect(); return I.keyRects.some((k) => hitsRect(bb, k)); };
+    // (the passes above end on a span that may still lie over a key: then the bottom edge)
+    if (edge === 'top' && covers()) { edge = 'bottom'; left = L0; width = W0; put(left, width); }
     const keysMode = !!document.body && !document.body.classList.contains('touch-pad') && !document.body.classList.contains('touch-stick');
-    if (keysMode) {
+    const dock = () => {
       dropClass(box, 'overscreen');
       const a = I.area, wider = pic.left - a.left >= a.right - pic.right ? [a.left, pic.left] : [pic.right, a.right];
       side(wider[0], wider[1])();
       return 'dock-keys';
+    };
+    if (!t || t.opened || (!t.also && h() <= cap + 0.5)) {
+      if (edge === 'bottom') { anchor(left, width); if (keysMode && covers()) return dock(); }   // (a key over the bottom edge too: the letter keys' dock)
+      return 'over-screen';
     }
+    if (keysMode) return dock();
     clamp(t, cap);
     if (edge === 'bottom') anchor(left, width);   // (clamped first: the height it keeps is the one it is anchored by)
     return 'over-screen';
@@ -448,12 +457,14 @@ export function createFeedback() {
       sideKeys: !!(document.body && document.body.classList.contains('touch-keys')) && matchMedia('(orientation: landscape) and (max-height: 500px)').matches,
       // the touch keys' buttons show (the keys panel is up; not while the chat is the page: its picture is a small inset there)
       // the touch keys that are really there: shown, not see-through, taking pointer events, and the topmost thing at their
-      // centre (the toast's own box counts: it is the thing that may lie over them)
+      // centre once the toast is looked through
       keyRects: (document.body && document.body.classList.contains('touch-keys')) ? [...document.querySelectorAll('#touchKeys button')].filter((e) => {
         const r = e.getBoundingClientRect();
         if (!shown(r) || !e.checkVisibility({ opacityProperty: true, visibilityProperty: true }) || getComputedStyle(e).pointerEvents === 'none') return false;
-        const top = document.elementFromPoint((r.left + r.right) / 2, (r.top + r.bottom) / 2);
-        return !!top && (top === e || e.contains(top) || region.contains(top));
+        // the topmost thing at the key's centre that is not the toast itself (which lies over keys by design): the key, or
+        // something inside it. (A key under the picture, as WYRMFIRE's FIRE and USE, has the picture there: not a key.)
+        const top = document.elementsFromPoint((r.left + r.right) / 2, (r.top + r.bottom) / 2).find((n) => !region.contains(n));
+        return !!top && (top === e || e.contains(top));
       }).map((e) => boxOf(e.getBoundingClientRect())) : [],
       keysShown: !!document.body && !document.body.classList.contains('claude-open') && !document.body.classList.contains('view-claude') && [...document.querySelectorAll('#touchKeys button')].some((e) => shown(e.getBoundingClientRect())),
       // the turn's Stops that show (the fallback slot keeps clear of them)

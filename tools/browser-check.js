@@ -23494,6 +23494,15 @@ async function sidewaysToastChecks(browser, base, check) {
       const btn = await page.evaluate(() => { const b = document.querySelector('#toastAlso button'); const r = b.getBoundingClientRect(); return { x: (r.left + r.right) / 2, y: (r.top + r.bottom) / 2, ok: b.checkVisibility() }; });
       await page.touchscreen.tap(btn.x, btn.y);
       check(`${L}: docked over the letter keys: its own button ("Switch off and on") works`, btn.ok && await page.evaluate(() => window.__ran) === 'Switch off and on', JSON.stringify(btn));
+      // keys over the picture's top edge leaving no 200 px span AND over its bottom edge: no edge is free, so (Keys mode) the dock
+      const pic = (await snap(page)).pic;
+      await page.evaluate((r) => { const tk = document.getElementById('touchKeys'); tk.style.zIndex = '100000';
+        for (const el of tk.querySelectorAll('button')) { const b = el.getBoundingClientRect(); if (b.right > r.left && b.left < r.right && b.bottom > r.top && b.top < r.bottom) { el.dataset.hid = '1'; el.style.visibility = 'hidden'; } }
+        for (const q of [[r.left, r.top, r.left + 80, r.top + 70], [r.left + 150, r.top, r.right, r.top + 70], [r.left, r.bottom - 40, r.right, r.bottom]]) { const b = document.createElement('button'); b.className = 'fakekey'; b.textContent = 'KEY';
+          b.style.cssText = `position:fixed;left:${q[0]}px;top:${q[1]}px;width:${q[2] - q[0]}px;height:${q[3] - q[1]}px;z-index:100000;opacity:1;pointer-events:auto`; tk.append(b); } }, pic);
+      await raise(page, CASES[0][1], CASES[0][2]); await shown(page); await emuFrames(page, 4);
+      const dd = await snap(page);
+      check(`${L}: keys over the picture's top (no 200 px span) and over its bottom edge too: the letter keys' dock, off the picture`, dd.shown && dd.pass && !dd.over && !dd.onPic && dd.text === CASES[0][1], JSON.stringify(dd));
     }
     if (m === 'Pad' && machine === 'dragon64' && w === 653) {
       // Pad mode, clamped: a tap on the body opens it in place (full text, time paused), a second tap closes it, a tap outside ends it
@@ -23542,6 +23551,12 @@ async function sidewaysToastChecks(browser, base, check) {
   // WYRMFIRE's Pad at 653x280: FIRE and USE lie on the picture's top corners, so the toast takes the bottom edge there
   {
     const { ctx, page } = await open(653, 280, '?machine=dragon64&start=wyrmfire');
+    // the real start toast, while it shows (FIRE and USE lie under the picture and are no keys, so the top edge is free: a toast
+    // that took the bottom edge here covered the HUD for its whole life)
+    await waitFor(page, () => /WYRMFIRE/.test(document.getElementById('toastText').textContent) && !document.getElementById('toast').hidden, null, 10000);
+    const st = await snap(page);
+    check('sideways toast (WYRMFIRE Pad, 653x280): the real start toast, while it shows, is at the picture\'s top edge (picture top + 4), not the bottom (the HUD stays clear)',
+      st.shown && st.over && Math.abs(st.box.top - (st.pic.top + 4)) <= 1 && st.overKeys === 0 && st.nKeys > 0 && /WYRMFIRE/.test(st.text), JSON.stringify(st));
     await emuFrames(page, 10);
     await raise(page, CASES[2][1], CASES[2][2]); await shown(page); await emuFrames(page, 3);
     const x = await snap(page);
