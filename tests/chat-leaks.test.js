@@ -631,6 +631,8 @@ const REQUIRED = require.main !== module;
     // shortLink reads it the same way (shareFile) and sends sealed bytes to the store it is given, changing no machine;
     // readShortLink fetches and decodes a snapshot, which openSnapshot (classified on its own) then opens
     'longLinkRefusal', 'shortLinkRefusal', 'shortLink', 'readShortLink',
+    // cartridgeName reads the file name the SHOWN machine's cartridge came from (the Share screen's ROM line names it)
+    'cartridgeName',
     // "Share your program": sharedProgram reads the SHOWN machine's BASIC program (readByte); programLink and
     // programShortLink encode it (the short one sends sealed bytes to the store it is given); readProgramLink decodes a
     // fragment. None changes a machine: openSharedProgram, which does, has its own row
