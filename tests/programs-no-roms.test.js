@@ -31,10 +31,10 @@ const stored = (s) => Object.values(s.roms.get('dragon64')).filter(Boolean).leng
 
 (async () => {
   const programs = [
-    ['LIZA', (s) => s.runLiza(bin('liza.bin'))],
-    ['the colour demo', (s) => s.load('demo.bin', bin('demo.bin'), { remember: false, ours: true })],
-    ['2048', (s) => s.runGame('2048', bin('2048.bin'))],
-    ['Minesweeper', (s) => s.runGame('minesweeper', bin('minesweeper.bin'))],
+    ['LIZA', (s) => s.runLiza(bin('liza.bin'), { noRoms: true })],
+    ['the colour demo', (s) => s.load('demo.bin', bin('demo.bin'), { remember: false, ours: true, noRoms: true })],
+    ['2048', (s) => s.runGame('2048', bin('2048.bin'), { noRoms: true })],
+    ['Minesweeper', (s) => s.runGame('minesweeper', bin('minesweeper.bin'), { noRoms: true })],
   ];
   for (const [name, start] of programs) {
     const s = withRoms();
@@ -52,7 +52,7 @@ const stored = (s) => Object.values(s.roms.get('dragon64')).filter(Boolean).leng
   {
     const store = memoryStore(), media = new Emu.MemoryMediaStore();
     const s = withRoms(store, media);
-    s.runLiza(bin('liza.bin')); s.runFrames(10);
+    s.runLiza(bin('liza.bin'), { noRoms: true }); s.runFrames(10);
     const s2 = new Emu.Session({ store, media, welcomeMenu: false });
     s2.switchMachine('dragon64', {}, { menu: false });
     check('a new Session on the same store boots the stored ROMs: nothing about the program was left behind', s2.shownMachine.hasRom && s2.romCodeIn() === 'roms', `${s2.shownMachine.hasRom} ${s2.romCodeIn()}`);
@@ -72,12 +72,29 @@ const stored = (s) => Object.values(s.roms.get('dragon64')).filter(Boolean).leng
     void before;
   }
 
+  // The MCP load {program} tool and the CLI's --program are not the page: they start on the machine as it is, so a boot
+  // with roms:true after them still gives BASIC on the stored (stand-in) ROMs, as on main. Only the page asks for the
+  // built-in firmware (noRoms, js/ui/welcome.js).
+  {
+    const T = await import(require('url').pathToFileURL(path.join(ROOT, 'js', 'mcp', 'tools.js')).href);
+    const host = { roms: () => [], png: () => new Uint8Array([1]), program: (f) => bin(f), now: () => 0, date: () => new Date(0), yield: () => new Promise(setImmediate) };
+    for (const program of ['liza', 'demo', '2048']) {
+      const s = withRoms();
+      const tb = T.createToolbox(host, { session: s, route: 'panel' });
+      const loaded = await tb.call('load', { machine_id: 'm1', program });
+      s.runFrames(20);
+      check(`MCP load {program: ${program}} keeps the machine as it is: still on the stored ROMs, no stub chosen`, loaded.ok && s.shownMachine.hasRom && !s.shownMachine.useStub && !s.stubChosen.has('dragon64') && s.romCodeIn() === 'roms', JSON.stringify(loaded).slice(0, 200));
+      const boot = await tb.call('boot', { model: 'dragon64', roms: true });
+      check(`MCP load {program: ${program}} then boot {roms: true}: roms is true, with the stored (stand-in) ROMs`, boot.ok && boot.data.machine.roms === true && s.shownMachine.hasRom && s.romCodeIn() === 'roms', JSON.stringify(boot).slice(0, 240));
+    }
+  }
+
   // a machine with no ROMs of its own (the stub) is as it was: the same machine, no power cycle
   {
     const s = new Emu.Session({ store: Emu.memoryStore(), welcomeMenu: false });
     s.switchMachine('dragon64', {}, { menu: false });
     const m = s.shownMachine;
-    s.runLiza(bin('liza.bin')); s.runFrames(10);
+    s.runLiza(bin('liza.bin'), { noRoms: true }); s.runFrames(10);
     check('without ROMs stored LIZA runs as before, on the same machine', s.shownMachine === m && m.useStub && s.romCodeIn() === null);
   }
 

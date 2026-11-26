@@ -186,18 +186,18 @@ export function setupWelcome(page, { showRoms, openClaude, ask }) {
       if (item.liza) {
         session.checkLiza();
         const bytes = await page.fetchBytes(`examples/${session.lizaFile}`);
-        startAs(byMachine, () => session.runLiza(bytes));
+        startAs(byMachine, () => session.runLiza(bytes, { noRoms: true }));
         page.status(loaded('LIZA'));   // (our own program: no addresses; those are for files the visitor brings)
       } else if (item.game) {
         session.checkGame(item.game);   // (another CPU, or under 32K: says so before fetching anything)
         const bytes = await page.fetchBytes(`examples/${session.gameFile(item.game)}`);
-        startAs(byMachine, () => session.runGame(item.game, bytes));
+        startAs(byMachine, () => session.runGame(item.game, bytes, { noRoms: true }));
         howTo(touchPanel() ? `${item.name}: tap a key to play; tap BREAK for the menu`
           : `${item.name}: press a key to start; BREAK (Esc) goes back to the menu`);
         if (withRoms) page.status(loaded(item.name));
       } else {
         const bytes = await page.fetchBytes(item.url);
-        startAs(byMachine, () => session.load(item.url.split('/').pop(), bytes, { remember: false, ours: true }));
+        startAs(byMachine, () => session.load(item.url.split('/').pop(), bytes, { remember: false, ours: true, noRoms: true }));
         page.status(loaded(item.name));
         session.setLastRun('demo', item.name);
         // the demo runs on the person's machine (the load above goes there, behind the chat): watch THAT machine,

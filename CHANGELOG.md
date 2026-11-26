@@ -17,7 +17,8 @@ Next version: 0.3.1 (the plugin and extension manifests carry it; `tests/plugin.
   the welcome menu instead of back to BASIC. Starting a program restarts the machine, so a BASIC program in memory is not kept: picking a
   program from the Programs list asks first when there is one ("Starting LIZA restarts the Dragon 64, and the BASIC program in memory
   (3 lines) will be lost."; the welcome menu's keys do not ask), and with your ROMs stored the status line says "LIZA loaded · runs
-  without ROMs; yours are untouched".
+  without ROMs; yours are untouched". Only the page does this: the MCP `load` tool and the CLI's `--program` start the program on
+  the machine as it is, as before.
 
 ### 0.3.1
 

@@ -854,7 +854,7 @@ WARMS   FCB     $57,$41,$52,$4D,0
   check('(the control: the reset button with BASIC is a warm start, OK WARM)', s.screenText()[0].trim() === 'OK WARM', JSON.stringify(s.screenText()[0]));
   const events = [];
   s.on((e) => events.push(e));
-  s.runGame('2048', bin('2048'));
+  s.runGame('2048', bin('2048'), { noRoms: true });
   s.runFrames(30);
   const push = (key) => { m.stubKeys.push(key); s.runFrames(20); };   // (the stub's keyboard: BREAK is 3)
   push(32);

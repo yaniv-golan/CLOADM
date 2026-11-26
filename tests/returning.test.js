@@ -198,7 +198,7 @@ const store = () => { const m = new Map(); return { get: (k) => (m.has(k) ? m.ge
     const s = new Emu.Session({ store: store() });
     s.switchMachine('dragon32');
     s.addRoms([{ name: 'd32.rom', bytes: new Uint8Array(0x4000).fill(0x12) }]);
-    await s.startLiza(() => liza);
+    s.runLiza(liza, { noRoms: true });
     check('with the machine\'s ROMs stored, LIZA runs on the built-in firmware, watched (the menu to go back to), and the ROMs stay stored',
       s.shownMachine.useStub && !!s.menuWatch && Object.values(s.roms.get('dragon32')).some(Boolean), `${s.shownMachine.useStub} ${s.menuWatch && s.menuWatch.kind}`);
   }
