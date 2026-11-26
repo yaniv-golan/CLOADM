@@ -57,7 +57,7 @@ const AREAS = [
     paths: ['js/library.js', 'js/media/library.js', 'js/host/media-store', 'js/host/folder-handle.js', 'js/host/storage.js', 'js/ui/library.js'],
     suites: ['session-library', 'storage-move', 'move-inflight', 'library-case', 'recent', 'store-error-names', 'media-store', 'media-index-settled', 'media-multitab', 'store-races'], groups: ['library', 'librarySelect', 'mediaBackend'] },
   { row: 'The Claude chat and Ask Claude',
-    paths: ['js/claude/', 'js/host/claude-brief.md', 'js/host/key-store.js', 'js/ui/claude.js', 'js/ui/claude-lines.js', 'js/ui/ask.js', 'js/ui/ask-popout.js', 'js/ui/command-box.js'],
+    paths: ['js/claude/', 'js/host/claude-brief.md', 'js/host/key-store.js', 'js/host/kapai.js', 'js/vendor/kapai/', 'js/ui/claude.js', 'js/ui/claude-lines.js', 'js/ui/ask.js', 'js/ui/ask-popout.js', 'js/ui/command-box.js'],
     suites: ['claude', 'chat-firmware'], groups: ['claude', 'ask', 'commands', 'chatScreen'] },
   { row: '`cli/` (the command line and the MCP server)', paths: ['cli/', 'js/mcp/'], suites: ['cli', 'mcp', 'game-guide', 'starter-game'], groups: [] },
   { row: '`connector/` (the side-panel connector)', paths: ['connector/'], suites: ['connector', 'mcp', 'skill'], groups: ['connector'] },

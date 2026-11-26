@@ -76,24 +76,7 @@ export class ClaudeBackend {
       for (let round = 0; round <= MAX_TOOL_ROUNDS; round++) {
         // stopped while a tool ran (a card's Stop): the turn ends here, without another request
         if (signal && signal.aborted) throw new ClaudeError('aborted', 'Stopped.');
-        const body = {
-          model: this.model, max_tokens: this.maxTokens, stream: true,
-          // always a conversation the API accepts (js/claude/history.js): no empty assistant message, every
-          // tool_use answered, so one bad turn cannot make every later request of the chat fail
-          messages: sendable(convo),
-        };
-        // Prompt caching. Caches are a prefix match over the rendered order tools -> system -> messages, so a
-        // breakpoint on the last system block caches the tools and the whole brief together: that prefix is
-        // byte-identical on every request of the conversation and every conversation with the same brief (the
-        // brief carries only per-machine facts, no time or request id), so it is paid for once and read after.
-        // The top-level cache_control then lets the system place one more breakpoint on the last cacheable
-        // block, which walks forward as the conversation grows: each request reads everything accumulated so
-        // far and writes only what the new turn added. Automatic + one explicit breakpoint is the shape the
-        // prompt-caching guide recommends for an agent loop whose tail grows every round.
-        if (system) body.system = withCacheBreakpoint(system);
-        if (tools.length) body.tools = tools;
-        if (system || tools.length) body.cache_control = { type: 'ephemeral' };
-        const res = await this._request(body, { onText: (t) => { text += t; if (onText) onText(t); }, signal });
+        const res = await this.round({ system, messages: convo, tools, onText: (t) => { text += t; if (onText) onText(t); }, signal });
         // the last request of the turn is the one whose usage covers the whole conversation
         if (res.usage) usage = res.usage;
         stopReason = res.stopReason;
@@ -140,6 +123,31 @@ export class ClaudeBackend {
       if (toolCalls && e && typeof e === 'object') e.partial = convo.slice();
       throw e;
     }
+  }
+
+  // One request of the Messages API, streamed: the conversation as it stands (checked by apiMessages), the brief and
+  // the tools -> { text, content, stopReason, usage }. send() runs its tool loop on it; the Kapai backend's own-key
+  // answer (js/claude/kapai-backend.js) sends each of Kapai's rounds through it, so both make the same request.
+  async round({ system, messages, tools = [], onText = null, signal = null }) {
+    if (!this.apiKey) throw new ClaudeError('no-key', 'No API key: add your Anthropic API key to chat.');
+    const body = {
+      model: this.model, max_tokens: this.maxTokens, stream: true,
+      // always a conversation the API accepts (js/claude/history.js): no empty assistant message, every
+      // tool_use answered, so one bad turn cannot make every later request of the chat fail
+      messages: sendable(messages),
+    };
+    // Prompt caching. Caches are a prefix match over the rendered order tools -> system -> messages, so a
+    // breakpoint on the last system block caches the tools and the whole brief together: that prefix is
+    // byte-identical on every request of the conversation and every conversation with the same brief (the
+    // brief carries only per-machine facts, no time or request id), so it is paid for once and read after.
+    // The top-level cache_control then lets the system place one more breakpoint on the last cacheable
+    // block, which walks forward as the conversation grows: each request reads everything accumulated so
+    // far and writes only what the new turn added. Automatic + one explicit breakpoint is the shape the
+    // prompt-caching guide recommends for an agent loop whose tail grows every round.
+    if (system) body.system = withCacheBreakpoint(system);
+    if (tools.length) body.tools = tools;
+    if (system || tools.length) body.cache_control = { type: 'ephemeral' };
+    return this._request(body, { onText, signal });
   }
 
   // One HTTP request, streaming the response -> { text, content, stopReason }. The request has its own abort

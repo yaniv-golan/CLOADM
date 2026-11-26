@@ -8,6 +8,16 @@ All notable changes to CLOADM are recorded here. The format follows
 
 Next version: 0.3.1 (the plugin and extension manifests carry it; `tests/plugin.test.js` keeps them in step).
 
+### Added
+
+- **Claude works without an API key, through Kapai (staging).** Ask Claude and Chat with Claude send each turn through Kapai
+  (`js/claude/kapai-backend.js`, `js/host/kapai.js`), which runs the included AI, counts this browser's credits and sells more
+  when its server sells any. The panel's key line says "Included AI · no key needed" with Kapai's plan pill (the credits; it opens
+  the plan card), and a refusal Kapai explains (a limit, an outage, a rate limit) shows Kapai's limit prompt. A saved Anthropic key
+  stays in this browser and is used by the page itself, as Kapai's app-managed own AI, when the app's own-AI policy picks it; Kapai
+  never gets the key. The SDK is a vendored, unchanged copy of `@kapai/sdk` 0.1.0 in `js/vendor/kapai/`; nothing connects to
+  Kapai until Claude is first opened.
+
 ### 0.3.1
 
 #### Fixed

@@ -2353,6 +2353,7 @@ npx serve -l 8000 .</pre>
         <div class="bar"><button id="btnAskLoad" class="primary">Load it</button><button id="btnAskLoadNo">Don't load</button></div>
       </div>
       <div id="askKeyMsg" role="status" hidden><span id="askKeyText"></span><button id="btnAskRetry" hidden>Try again</button></div>
+      <kapai-limit-prompt id="askLimit"></kapai-limit-prompt>
     </div>
     <div id="askStatus" role="status" hidden><span class="dot" aria-hidden="true"></span><span id="askStatusText">Thinking…</span><button id="btnAskStatusResume" hidden>Resume</button><button id="btnAskStatusStop">Stop</button></div>
     <div id="askKeyForm" hidden>
@@ -2366,7 +2367,7 @@ npx serve -l 8000 .</pre>
       <p class="muted" id="askSendsLine">Nothing is sent until you ask. Then your question, the machine's facts and the chat so far go to Anthropic with your key (or your Claude account in the plugin), and Claude can read the screen and any memory (ROM areas included) without asking. Only changes to the machine ask you first.</p>
       <div class="bar"><input id="askInput" aria-label="Message to Claude" autocomplete="off" placeholder="Ask about this machine…"><button id="btnAskSend" class="primary">Send</button></div>
       <div class="askfoot"><label><input type="checkbox" id="chkAskMachine"> Let Claude use the emulator</label>
-        <span class="muted" id="askKeyLine"><span id="askKeyState">API key · Saved in this browser.</span> <button class="link" id="btnAskKeyChange">Change</button> <button class="link" id="btnAskKeyForget">Forget</button></span></div>
+        <span class="muted" id="askKeyLine"><kapai-plan-pill usage></kapai-plan-pill> <span id="askKeyState">API key · Saved in this browser.</span> <button class="link" id="btnAskKeyChange">Change</button> <button class="link" id="btnAskKeyForget">Forget</button></span></div>
       <p class="muted" id="askSendNote">Your messages and what Claude reads from the machine's memory (ROM areas included) go to Anthropic with your key.</p>
     </div>
   </aside>
@@ -2387,10 +2388,11 @@ npx serve -l 8000 .</pre>
       <div id="claudeKeyMsg" role="status"></div>
     </section>
     <section class="card row" id="claudeKeySaved" hidden>
-      <span><strong>Key saved ✓</strong><br><span class="muted" id="claudeKeyTag">Saved in this browser.</span></span>
-      <span><button class="link" id="btnClaudeKeyChange">Change</button> <button class="link" id="btnClaudeKeyForget">Forget</button></span>
+      <span><strong id="claudeKeyTitle">Key saved ✓</strong><br><span class="muted" id="claudeKeyTag">Saved in this browser.</span></span>
+      <span><kapai-plan-pill usage></kapai-plan-pill> <button class="link" id="btnClaudeKeyChange">Change</button> <button class="link" id="btnClaudeKeyForget">Forget</button></span>
     </section>
     <div id="claudeHelp" role="status" hidden></div>
+    <kapai-limit-prompt id="claudeLimit"></kapai-limit-prompt>
     <section class="card" id="claudeSession">
       <h2>Your BASIC session</h2>
       <p id="claudeConsentText"></p>
@@ -2909,6 +2911,14 @@ npx serve -l 8000 .</pre>
 <link rel="modulepreload" href="js/ui/arm-guard.js">
 <link rel="modulepreload" href="js/ui/embed.js">
 <link rel="modulepreload" href="js/ui/settings-file.js">
+<link rel="modulepreload" href="js/claude/kapai-backend.js">
+<link rel="modulepreload" href="js/vendor/kapai/chunk-E7V4HG2S.js">
+<link rel="modulepreload" href="js/vendor/kapai/chunk-6L2KWEND.js">
+<link rel="modulepreload" href="js/vendor/kapai/chunk-LMJBHAAB.js">
+<link rel="modulepreload" href="js/vendor/kapai/index.js">
+<link rel="modulepreload" href="js/vendor/kapai/chunk-XEG2HB4F.js">
+<link rel="modulepreload" href="js/vendor/kapai/ui.js">
+<link rel="modulepreload" href="js/host/kapai.js">
 <link rel="modulepreload" href="js/ui/claude-lines.js">
 <link rel="modulepreload" href="js/ui/claude.js">
 <link rel="modulepreload" href="js/ui/ask.js">

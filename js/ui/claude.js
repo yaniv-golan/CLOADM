@@ -15,6 +15,8 @@
  * snapshot, a share link or a settings export.
  */
 import { ClaudeBackend } from '../claude/backend.js';
+import { KapaiBackend, ownKeyResponder } from '../claude/kapai-backend.js';
+import { pageKapai, connectKapaiElements } from '../host/kapai.js';
 import { claudeBrief } from '../claude/brief.js';
 import { MemoryChannel } from '../claude/channel.js';
 import { exampleReader } from '../host/example-reader.js';
@@ -73,6 +75,7 @@ export function setupClaude(page) {
     failed: null,      // a line whose turn ended in an error (shown with the error until the next one)
     stopped: false,    // the last turn was stopped: true, or why the page stopped it ("you reset the machine")
     unanswered: null,  // the last question got no reply (a refusal, or nothing): { asked, note }
+    prompted: false,   // the last turn's refusal is explained by <kapai-limit-prompt> (no text of the page's own)
     view: 'panel',     // the last view used this visit
     pip: false,        // full screen: the BASIC session's corner window is shown (hidden until Claude acts or Ctrl+B)
   };
@@ -105,7 +108,21 @@ export function setupClaude(page) {
     const software = session.nitros9On(m) ? 'nitros9' : m.hasRom ? 'basic' : 'none';
     return claudeBrief({ machine: m.profile.name, ram: m.config.ram, cpu: m.config.cpu, software, family: m.profile.family, edition: 'cloadm.dev', tools: true, view });
   };
-  const backend = () => new ClaudeBackend({ fetch: (url, init) => fetch(url, init), apiKey: session.keyStore.get() || '' });
+  // Kapai answers each turn (js/host/kapai.js): its included AI, or the person's saved Anthropic key as its
+  // app-managed own AI, by the app's own-AI policy. The page makes the own-key request itself, with the key from the
+  // host key store; Kapai never gets the key.
+  const kapai = pageKapai({
+    label: () => (session.hasClaudeKey ? 'api.anthropic.com' : null),
+    respond: ownKeyResponder(() => new ClaudeBackend({ fetch: (url, init) => fetch(url, init), apiKey: session.keyStore.get() || '' })),
+    // Kapai's "Change…", "Set up my own key…" and "Change key…": the key form of the view in use
+    openSettings: () => openKeyForm(),
+  });
+  const backend = () => { connectKapaiElements(kapai); return new KapaiBackend({ kapai }); };
+  let keyFormOpener = null;   // js/ui/ask.js registers the side panel's (registerKeyForm)
+  function openKeyForm() {
+    if (session.claudeView === 'full') { editingKey = true; render(); $('claudeKeyInput').focus(); }
+    else if (keyFormOpener) keyFormOpener();
+  }
   function wire(chat) {
     // a turn starting, from either view's box or the full-screen chat's own lines (the firmware's channel): what the
     // panel said about the last turn ("[stopped: …]", a failed question, no reply) is that turn's, not this one's
@@ -130,6 +147,7 @@ export function setupClaude(page) {
   const featuresOff = () => { if (session.claudeFeatures) return false; page.status(CLAUDE_OFF_TEXT); return true; };
   // the conversation, started in the side panel if there is none yet
   function ensure() {
+    connectKapaiElements(kapai);
     if (!session.chat) wire(session.startAsk({ backend: backend(), brief: brief('panel'), include }));
     return session.chat;
   }
@@ -141,10 +159,14 @@ export function setupClaude(page) {
     if (!text || chat.busy) return null;
     session.settleArrival(session.personMachine);   // (a message is the person acting: no longer "just arrived")
     chat.brief = brief(session.claudeView === 'full' ? 'full' : 'panel');
-    Object.assign(state, { text: '', asked: text, failed: null, stopped: false, unanswered: null, context });
+    Object.assign(state, { text: '', asked: text, failed: null, stopped: false, unanswered: null, context, prompted: false });
+    for (const p of prompts()) if (typeof p.hide === 'function') p.hide();
     session.claudeActing = null;
     notify();
     const res = await chat.sendLine(text);
+    if (!res && chat.error && chat.error.kapai) {
+      for (const p of prompts()) if (typeof p.show === 'function' && p.show(chat.error.kapai)) state.prompted = true;
+    }
     if (!res && chat.error) {
       if (chat.error.code === 'aborted') state.stopped = state.stopped || true; else state.failed = text;
     }
@@ -169,21 +191,33 @@ export function setupClaude(page) {
     return ask(`What is this code doing? (${hex(code.from)}–${hex(code.to)})\n\n${code.text}\n\n${code.registers}`, { context: { code: code.from } });
   }
   function stop() { session.stopClaude(); state.stopped = true; notify(); }
-  // the API key state: none | saved | refused | rate-limited | offline | error (another failure, its own text)
+  // the AI state: included (no key saved: Kapai's included AI) | saved | refused | limit (Kapai's limit: its
+  // <kapai-limit-prompt> explains it) | rate-limited | offline | error (another failure, its own text)
   function keyState() {
-    if (!session.hasClaudeKey) return 'none';
     const e = session.chat && session.chat.error;
-    if (!e || e.code === 'aborted') return 'saved';
-    return { 'invalid-key': 'refused', 'rate-limited': 'rate-limited', network: 'offline', 'no-key': 'none' }[e.code] || 'error';
+    const base = session.hasClaudeKey ? 'saved' : 'included';
+    if (!e || e.code === 'aborted') return base;
+    return { 'invalid-key': 'refused', 'rate-limited': 'rate-limited', network: 'offline', quota: 'limit' }[e.code] || 'error';
   }
-  const keyText = (k) => KEY_TEXT[k] || (k === 'error' && session.chat && session.chat.error ? session.chat.error.message : '');
+  // (a refusal of Kapai's: its own sentence, or nothing when <kapai-limit-prompt> explains it - a limit, an outage, a
+  // rate limit; the app writes no limit of its own, agents.md "Handle the limit")
+  const keyText = (k) => {
+    const e = session.chat && session.chat.error;
+    if (e && e.kapai) return state.prompted || k === 'limit' ? '' : e.message;
+    return KEY_TEXT[k] || (k === 'error' && e ? e.message : '');
+  };
+  // the limit prompts of both views (<kapai-limit-prompt>): hidden when a turn starts, shown with a refusal they
+  // explain; their "Try again" (kapai-retry) sends the last question again
+  const prompts = () => [...document.querySelectorAll('kapai-limit-prompt')];
+  for (const p of prompts()) p.addEventListener('kapai-retry', () => retry());
   function saveKey(value) {
     if (!String(value || '').trim()) throw new Error('Paste your API key first (it starts sk-ant-).');
     session.setClaudeKey(value);
     if (session.chat && session.chat.error && ['invalid-key', 'no-key'].includes(session.chat.error.code)) session.chat.error = null;
+    kapai.ownAI.changed();
     notify();
   }
-  function forgetKey() { session.clearClaudeKey(); notify(); }
+  function forgetKey() { session.clearClaudeKey(); kapai.ownAI.changed(); notify(); }
   // what Claude is doing on the machine now, for the pill: "Claude is typing line 120…"
   function activity() {
     const a = session.claudeActing;
@@ -242,10 +276,7 @@ export function setupClaude(page) {
       state.pip = false;                  // the chat screen is the chat only, until Claude acts or Ctrl+B
       if (panel) panel.close({ keep: true });
       show(true);
-      // (with no key the screen's own no-key line is the cue: there is nothing to type to yet)
-      if (session.hasClaudeKey) page.status('Chat with Claude: type on the screen and press ENTER.');
-      // no key: say so on the screen itself (the key card is beside it, or above it on a phone, below the fold)
-      if (chat !== had && !session.hasClaudeKey) session.chatNote(`No API key yet: add one ${whereKey()}. Get one at console.anthropic.com.`);
+      page.status('Chat with Claude: type on the screen and press ENTER.');
       page.focus();
       // the page starts at its top: on a phone that is the chat's screen (under its bar), first; on a tablet without a
       // key it is the key card, which comes first there
@@ -402,11 +433,16 @@ export function setupClaude(page) {
     // the chat machine on the big screen: the page hides what is about BASIC (its key hint, the no-ROMs pill and card)
     document.body.classList.toggle('chat-screen', document.body.classList.contains('claude-open') && session.chatView === 'chat');
     // the key: the form (no key, refused, or Change), else one quiet line
-    const form = k === 'none' || k === 'refused' || editingKey;
+    const form = k === 'refused' || editingKey;
     $('claudeKeyCard').hidden = !form;
     $('claudeKeyCard').classList.toggle('refused', k === 'refused');
     $('claudeKeySaved').hidden = form;
-    $('claudeKeyTag').textContent = 'Saved in this browser.';
+    // no key saved: Kapai's included AI answers; its plan pill shows the credits and opens the plan card
+    const included = k === 'included' || (!session.hasClaudeKey && !form);
+    $('claudeKeyTitle').textContent = included ? 'Included AI' : 'Key saved ✓';
+    $('claudeKeyTag').textContent = included ? 'No API key needed.' : 'Saved in this browser.';
+    $('btnClaudeKeyChange').textContent = included ? 'Use my own key…' : 'Change';
+    $('btnClaudeKeyForget').hidden = included;
     // a phone (body.chat-phone, play/index.html): the screen takes the room, its border cut off; without a key the
     // key card and the BASIC session card fold into one line under the screen ("Add key…" opens the form), and the
     // machine keyboard stands aside (below)
@@ -430,10 +466,8 @@ export function setupClaude(page) {
     // (the on-screen keyboard's Menu is "← Emulator" there, and leaves the chat in one tap: touch-keys.js apply(), above)
     // the help line: the key state's text (in brackets on the chat screen too, from the firmware)
     // (while a turn is in progress the status line says what it is doing, with Stop)
-    const noKey = `No API key yet: add one ${whereKey()}. Get one at console.anthropic.com.`;
-    // (a line typed with no key is answered on the chat screen with these same words: ChatSession.sendLine)
-    if (chat) chat.noKeyText = noKey;
-    const help = chat && chat.busy ? '' : k === 'none' ? `[${noKey}]` : keyText(k);
+    // (no key is needed: Kapai's included AI answers without one, so a typed line always starts a turn)
+    const help = chat && chat.busy ? '' : keyText(k);
     $('claudeHelp').textContent = help;
     $('claudeHelp').hidden = !help;
     // the BASIC session card: consent, the switch, the restore point
@@ -511,7 +545,8 @@ export function setupClaude(page) {
     // the views (ask.js, the Ctrl K box, the welcome menu, ?app=claude)
     openPanel, openFull, closeFull, close, open: openFull,
     // the conversation
-    ask, retry, stop, ensure, state, askAboutCode, keyState, keyText, saveKey, forgetKey, activity,
+    ask, retry, stop, ensure, state, askAboutCode, keyState, keyText, saveKey, forgetKey, activity, kapai,
+    registerKeyForm: (f) => { keyFormOpener = f; },
     onChange: (f) => listeners.add(f), notify,
     registerPanel: (p) => { panel = p; },
   };

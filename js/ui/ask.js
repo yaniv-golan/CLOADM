@@ -248,6 +248,8 @@ export function setupAsk(page, claude) {
   $('askKeyInput').onkeydown = (e) => { if (e.key === 'Enter') $('btnAskKeySave').click(); };
   let editingKey = false;
   $('btnAskKeyChange').onclick = () => { editingKey = true; render(); $('askKeyInput').focus(); };
+  // Kapai's "Set up my own key…" and "Change key…" (the plan card) open this form too
+  claude.registerKeyForm(() => { editingKey = true; render(); $('askKeyInput').focus(); });
   $('btnAskKeyForget').onclick = () => claude.forgetKey();
   // the emulated machine's name ("Dragon 64", "CoCo 1/2"), as the full screen card says it
   const modelName = () => { const m = session.personMachine; return m ? m.profile.name : ''; };
@@ -466,7 +468,7 @@ export function setupAsk(page, claude) {
     if (status) $('askStatusText').textContent = claudeStatusText(status);
     $('btnAskStatusResume').hidden = !(status && session.consent.paused);
     // the key states
-    const msg = k === 'refused' || k === 'rate-limited' || k === 'offline' || k === 'error';
+    const msg = (k === 'refused' || k === 'rate-limited' || k === 'offline' || k === 'error') && !!claude.keyText(k);
     $('askKeyMsg').hidden = !msg || !!(chat && chat.busy);
     $('askKeyText').textContent = claude.keyText(k);
     $('btnAskRetry').hidden = !(k === 'rate-limited' || k === 'offline' || k === 'error');
@@ -480,8 +482,11 @@ export function setupAsk(page, claude) {
     // person may keep it or replace it), so the line says REFUSED and the button says Replace -- "Saved in this
     // browser." beside a refusal told the person the opposite of what just happened.
     const refused = k === 'refused';
-    $('askKeyState').textContent = refused ? 'API key · Refused by Anthropic. Still saved in this browser.' : 'API key · Saved in this browser.';
-    $('btnAskKeyChange').textContent = refused ? 'Replace' : 'Change';
+    // no key saved: Kapai's included AI answers (the plan pill beside it shows the credits)
+    const included = !session.hasClaudeKey;
+    $('askKeyState').textContent = refused ? 'API key · Refused by Anthropic. Still saved in this browser.' : included ? 'Included AI · no key needed.' : 'API key · Saved in this browser.';
+    $('btnAskKeyChange').textContent = refused ? 'Replace' : included ? 'Use my own key…' : 'Change';
+    $('btnAskKeyForget').hidden = included;
     renderActing();
   }
   // every other Stop of the turn's, and whether the person can click it now: shown, in the window and not under
