@@ -147,7 +147,7 @@ LS4     LDD     ,X
         BRA     LS4
 LSDONE  RTS
 LSBRK   JMP     READY
-LSSN    JMP     SNERR
+LSSN    JMP     <ZSNERR
 * RANGE: n, n-, -n, n-m or nothing at the text pointer: from TMPPT2 to TMPCNT (0-65535 when not given)
 RANGE   LDX     #0
         STX     <TMPPT2         ; from

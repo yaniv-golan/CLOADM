@@ -62,7 +62,7 @@ MSVAR   LDD     <TXTPTR
         PULS    D
         STD     <TXTPTR
         RTS
-MSFC    JMP     FCERR
+MSFC    JMP     <ZFCERR
 
 * MSNUM: a number (see above)
 MSNUM   BSR     MSGET
@@ -72,7 +72,7 @@ MSNUM   BSR     MSGET
         CMPA    #'='
         BNE     MN2
         BSR     MSVAR
-        JSR     CHKNUM
+        JSR     <ZCHKNUM
         JSR     MOVFM
         JSR     CNVBYT
         BRA     MN5

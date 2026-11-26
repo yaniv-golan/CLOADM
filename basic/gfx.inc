@@ -16,9 +16,9 @@ GMTAB   FCB     $58,6*8+3,$13,$80       ; PMODE 0: 128 x 96, 2 colours, 1 page (
 
 * GINIT: the cold start's graphics [UM: PCLEAR 4, done by PROGST; BB: PMODE 0,1; OWN: the last point 128,96]
 GINIT   LDD     #128
-        STD     LASTX
+        STD     <LASTX
         LDB     #96
-        STD     LASTY
+        STD     <LASTY
         LDA     #4
         STA     <DRSCL          ; DRAW's scale 4/4, angle 0 [UM]
         LDX     #GMTAB          ; PMODE 0,1 [BB bb2 gfx-defaults cold-start: a line drawn at 128 x 96]
@@ -26,7 +26,7 @@ GINIT   LDD     #128
         BSR     SETPM
 * PMDEF: the default colours of the mode and set [OWN; BB]: two colours, foreground the set's (1 or 5) and
 * background black; four colours, the set's last and first (4 and 1, or 8 and 5)
-PMDEF   LDA     GCSS
+PMDEF   LDA     <GCSS
         INCA
         LDX     <GMENT
         LDB     3,X
@@ -36,12 +36,12 @@ PMDEF   LDA     GCSS
         ADDA    #3
         FCB     $21             ; (BRN: skips the CLRB)
 PD1     CLRB
-        STD     FGCOL           ; FGCOL, then BGCOL
+        STD     <FGCOL           ; FGCOL, then BGCOL
         RTS
 
 * PMODE m[,p]: the mode (0-4) and start page (default the current one) for drawing [UM]; ?FC ERROR if the pages go
 * past the reserved ones [BB]. It does not change what is shown (SCREEN does), and sets the default colours.
-PMODE   JSR     GETBYT
+PMODE   JSR     <ZGETBYT
         CMPB    #4
         BHI     GFC
         ASLB
@@ -58,7 +58,7 @@ PMOD1     LDA     <GBEG
         PULS    X
         BSR     SETPM
         BCC     PMDEF
-GFC     JMP     FCERR
+GFC     JMP     <ZFCERR
 
 * SETPM: make X's mode, starting at the page whose address's high byte is A, the current one; C set (and nothing
 * changed) if its pages go past the reserved ones
@@ -92,12 +92,12 @@ PGADR   DECB
         RTS
 
 * PCOPY a TO b: copy page a to page b, each reserved [UM; BB]
-PCOPY   JSR     GETBYT
+PCOPY   JSR     <ZGETBYT
         BSR     PGADR
         PSHS    A
         LDB     #T_TO
         JSR     SYNCHR
-        JSR     GETBYT
+        JSR     <ZGETBYT
         BSR     PGADR
         CLRB
         TFR     D,X
@@ -109,7 +109,7 @@ PCOPY   JSR     GETBYT
 * PCLEAR n: reserve n pages (1-8) [UM]: the program moves to just after them, the variables are cleared as CLEAR
 * clears them, and a program goes on from the next statement [OWN; BB]. ?OM ERROR if the program would not fit.
 * If the current mode's pages are no longer all reserved, it becomes PMODE 0,1 [OWN; BB].
-PCLEAR  JSR     GETBYT
+PCLEAR  JSR     <ZGETBYT
         DECB
         CMPB    #7
         BHI     GFC
@@ -177,7 +177,7 @@ BLKCPY  LDA     ,U+
 PCLS    BEQ     PC0
         BSR     GETCL0
         BRA     PC1
-PC0     LDB     BGCOL
+PC0     LDB     <BGCOL
 PC1     BSR     COLVAL
         LDX     <GBEG
         STB     ,X
@@ -195,20 +195,20 @@ PC1     BSR     COLVAL
 
 * COLOR f[,b]: the foreground and background colours, 0-8 [UM]
 COLOR   BSR     GETCL0
-        STB     FGCOL
+        STB     <FGCOL
         JSR     <ZCHKCOM
         BNE     CO1
         BSR     GETCOL
-        STB     BGCOL
+        STB     <BGCOL
 CO1     RTS
 
 * GETCOL: a ',' and a colour 0-8 into B; GETCL0: a colour without the ',' (?FC ERROR above 8 [BB])
 GETCOL  JSR     COMMA
-GETCL0  JSR     GETBYT
+GETCL0  JSR     <ZGETBYT
         CMPB    #8
         BHI     GFC2
         RTS
-GFC2    JMP     FCERR
+GFC2    JMP     <ZFCERR
 
 * COLVAL: colour B -> B = that colour in every pixel of a byte of the current mode: two colours, the foreground (all
 * ones) for an odd colour and black for an even one [BB bb2 gfx-modes, gfx-color, gfx-ppoint]; four colours, the
@@ -230,19 +230,19 @@ CV4     DECB
 * moves the last point [BB bb2 gfx-line pmode4-boxes: LINE -(x,y) after PSET starts from the last LINE's end].
 PSET    LDU     #GXY
         BSR     GETXY
-        LDB     FGCOL
+        LDB     <FGCOL
         JSR     <ZCHKCOM
         BNE     PS1
         BSR     GETCOL
         BRA     PS1
 PRESET  LDU     #GXY
         BSR     GETXY
-        LDB     BGCOL
+        LDB     <BGCOL
 PS1     BSR     RPKEEP
         BSR     COLVAL
         STB     <GCOLB
-        LDA     GXY+1
-        LDB     GXY+3
+        LDA     <GXY+1
+        LDB     <GXY+3
 * PLOT: pixel (A = x 0-255, B = y 0-191) to the colour byte GCOLB: the one routine every drawing statement plots with
 PLOT    BSR     GPIXAD
 * PLOTM: the pixels of mask A in the byte at X to GCOLB's (keeps X, Y, U)
@@ -297,7 +297,7 @@ GP5     DECB
 
 * RPKEEP: the ')' at the text pointer, keeping D (and X)
 RPKEEP  PSHS    D
-        JSR     RPAREN
+        JSR     <ZRPAREN
         PULS    D,PC
 
 * LSTXY: a point (x,y into the last point; GETXY: (x,y into the 4 bytes at U, each 16-bit, up to the ')' or the
@@ -344,13 +344,13 @@ PP2     DECA                    ; 0 two colours, 2 four
         INCB
 PP3     TSTB
         BEQ     PP4
-        ADDB    GCSS
+        ADDB    <GCSS
 PP4     CLRA
         JMP     GIVNUM
 
 * SCREEN t[,c]: text (0) or graphics (any other) with colour set c (0, or 1 for any other; default 0) [UM; BB bb2
 * gfx-errors: SCREEN 2 and SCREEN 1,2 are no error]
-SCRNST  JSR     GETBYT
+SCRNST  JSR     <ZGETBYT
         PSHS    B
         CLRB
         JSR     <ZCHKCOM
@@ -359,7 +359,7 @@ SCRNST  JSR     GETBYT
         TSTB
         BEQ     SCR1
         LDB     #4
-SCR1     STB     GCSS
+SCR1     STB     <GCSS
         PULS    B
         TSTB
         BEQ     TXTSCR
@@ -367,7 +367,7 @@ SCR1     STB     GCSS
 * (PB2 selects the ROM in 32K mode, PB1 is the single-bit sound) [HW], then the SAM's V and F
 GSHOW   LDX     <GMENT
         LDA     ,X
-        ORA     GCSS
+        ORA     <GCSS
         ASLA
         LDB     1,X
         ANDB    #7

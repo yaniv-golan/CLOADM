@@ -47,10 +47,11 @@ COLD1   CLR     ,X+
         BNE     COLD1
         LDX     #ZINIT          ; the two-byte calls and the RAM vectors
         LDU     #ZTRAMP
-        LDB     #6*3+3*10
-COLD2   LDA     ,X+
+COLD2   LDA     #$7E            ; a JMP to each address of the list
         STA     ,U+
-        DECB
+        LDD     ,X++
+        STD     ,U++
+        CMPX    #ZINITE
         BNE     COLD2
         LDD     #STRTOP
         STD     <MEMTOP
@@ -80,39 +81,12 @@ WARM    LDS     <STRBOT
         JSR     CLS
         JMP     READY
 
-* the two-byte calls' JMPs (d64basic.asm, ZTRAMP), then the RAM vectors' initial contents: JMP handler
-ZINIT   FCB     $7E
-        FDB     CHRGET
-        FCB     $7E
-        FDB     CHRGOT
-        FCB     $7E
-        FDB     CHROUT
-        FCB     $7E
-        FDB     FNARGN
-        FCB     $7E
-        FDB     FPRUN
-        FCB     $7E
-        FDB     PRTSTR
-        FCB     $7E
-        FDB     LINGET
-        FCB     $7E
-        FDB     CHKCOM
-        FCB     $7E
-        FDB     USCHR
-        FCB     $7E
-        FDB     EVNUM
-VECINI  FCB     $7E             ; (written as data: copied to RAM, so each must be the 3-byte JMP)
-        FDB     IRQSRV
-        FCB     $7E
-        FDB     FIRQSV
-        FCB     $7E
-        FDB     NMISRV
-        FCB     $7E
-        FDB     NMISRV
-        FCB     $7E
-        FDB     NMISRV
-        FCB     $7E
-        FDB     NMISRV
+* the two-byte calls' targets (d64basic.asm, ZTRAMP, in its order), then the RAM vectors' handlers: an address
+* each, and COLD2 writes the JMP in front of it
+ZINIT   FDB     CHRGET,CHRGOT,CHROUT,FNARGN,FPRUN,PRTSTR,LINGET,CHKCOM,USCHR,EVNUM
+        FDB     GETBYT,SNERR,RPAREN,FCERR,CHKNUM,MOVMF
+        FDB     IRQSRV,FIRQSV,NMISRV,NMISRV,NMISRV,NMISRV       ; the RAM vectors: IRQ, FIRQ, NMI, SWI, SWI2, SWI3
+ZINITE  RMB     0
 
 BANNER  FCC     "CLOADM BASIC"  ; (a placeholder: the wording comes later)
         FCB     13

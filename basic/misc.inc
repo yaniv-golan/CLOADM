@@ -77,7 +77,7 @@ DEF1    CMPA    #T_FN
         CMPX    <ARYTAB         ; a simple variable only
         LBHS    SNERR
         PSHS    X
-        JSR     RPAREN
+        JSR     <ZRPAREN
         JSR     SYNEQ
         PULS    D
         PULS    X
@@ -107,7 +107,7 @@ FNC2     LDA     B,U
         BPL     FNC2
         PSHS    U
         TFR     U,X
-        JSR     MOVMF           ; the parameter = the argument
+        JSR     <ZMOVMF           ; the parameter = the argument
         LDD     <TXTPTR
         PSHS    D
         LDX     9,S             ; the definition: the text pointer 0, the parameter 2, the saved value 4-8
@@ -123,14 +123,14 @@ FNC3     LDA     B,S
         DECB
         BPL     FNC3
         LEAS    7,S             ; the saved value and the definition
-        JMP     CHKNUM          ; (a function is numeric: its value too)
+        JMP     <ZCHKNUM          ; (a function is numeric: its value too)
 * FNNAME: a function's name at the text pointer into VARNAM (bit 7 of its first letter set); a string name is
 * ?TM ERROR, in DEF too [BB bb1 fn-misc: DEF FN A$(X)=... is ?TM ERROR]
 FNNAME  JSR     VNAME
         LDA     <VARNAM
         ORA     #$80
         STA     <VARNAM
-        JMP     CHKNUM
+        JMP     <ZCHKNUM
 
 * VARPTR(variable): the address of its value
 VARPTR  JSR     LPAREN          ; (a variable that does not exist: ?FC ERROR; making it would move the arrays
@@ -139,7 +139,7 @@ VARPTR  JSR     LPAREN          ; (a variable that does not exist: ?FC ERROR; ma
         CMPX    #ZEROV
         LBEQ    FCERR
         PSHS    X
-        JSR     RPAREN
+        JSR     <ZRPAREN
         PULS    D
         JMP     GIVUNS
 * MEM: the bytes free between the arrays and the stack, as the original counts them [BB bb2 gfx-pclear: 2 more]

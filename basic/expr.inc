@@ -123,11 +123,11 @@ EM1     JSR     <ZCHRGOT
         CMPA    #T_DIV
         BNE     EVRTS2
 EM2     PSHS    A
-        JSR     CHKNUM
+        JSR     <ZCHKNUM
         JSR     PUSHV
         JSR     <ZCHRGET
         BSR     EVNEG
-        JSR     CHKNUM
+        JSR     <ZCHKNUM
         JSR     POPARG
         PULS    A
         CMPA    #T_MUL
@@ -146,18 +146,18 @@ EVNEG   JSR     <ZCHRGOT
         BRA     EVNEG
 EN1     JSR     <ZCHRGET
         BSR     EVNEG
-        JSR     CHKNUM
+        JSR     <ZCHKNUM
         JMP     FNEG
 * ^ (its right operand may have a sign)
 EVPOW   BSR     EVATOM
 EP1     JSR     <ZCHRGOT
         CMPA    #T_POW
         BNE     EVRTS2
-        JSR     CHKNUM
+        JSR     <ZCHKNUM
         JSR     PUSHV
         JSR     <ZCHRGET
         BSR     EVPWR
-        JSR     CHKNUM
+        JSR     <ZCHKNUM
         JSR     POPARG
         JSR     FPOWER
         BRA     EP1
@@ -190,7 +190,7 @@ EVATOM  CLR     <VALTYP
         LBEQ    HEXLIT
         JSR     ISLET
         BCS     EVVAR
-        JMP     SNERR
+        JMP     <ZSNERR
 EVNUMB  JMP     FIN
 EVPAR   JSR     <ZCHRGET
         JSR     EVAL
@@ -217,7 +217,7 @@ EVFUNC  JSR     <ZCHRGET
         LDX     ,X
         JSR     <ZCHRGET
         JMP     ,X
-EVFSN   JMP     SNERR
+EVFSN   JMP     <ZSNERR
 
 * EVNUM, EVSTR: an expression that must be a number, or a string (?TM ERROR)
 EVNUM   JSR     EVAL
@@ -247,7 +247,7 @@ PUSHV   PULS    U
         BNE     PV1
         LEAS    -5,S
         TFR     S,X
-        JSR     MOVMF
+        JSR     <ZMOVMF
         CLRA
         PSHS    A
         JMP     ,U
@@ -297,11 +297,11 @@ IC1     CMPD    #$8000
         COMB
         ADDD    #1
         RTS
-ICFC    JMP     FCERR
+ICFC    JMP     <ZFCERR
 * GETADR: FAC as an address, 0-65535, in D (?FC ERROR otherwise)
 * EVADR: an expression as an address
 EVADR   JSR     <ZEVNUM
-GETADR  JSR     CHKNUM
+GETADR  JSR     <ZCHKNUM
         TST     <FACSGN
         BMI     ICFC
         JSR     QINT

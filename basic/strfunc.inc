@@ -9,11 +9,11 @@ COMMA   LDB     #','
         JMP     SYNCHR
 * COMBYT: a ',' and an expression 0-255 into B
 COMBYT  BSR     COMMA
-        JMP     GETBYT
+        JMP     <ZGETBYT
 * STRFN: ( string expression ): X = the string, B = its length (FRESTR)
 STRFN   JSR     LPAREN
 STRFN1  JSR     EVSTR
-        JSR     RPAREN
+        JSR     <ZRPAREN
         JMP     FRESTR
 * STRARG: ( string expression : STRPTR, and the descriptor pushed under the caller's return address
 STRARG  JSR     LPAREN
@@ -44,9 +44,9 @@ ASC     BSR     STRFN
         BRA     GIVNUM
 * CHR$(n)
 CHRS    JSR     LPAREN
-        JSR     GETBYT
+        JSR     <ZGETBYT
         PSHS    B
-        JSR     RPAREN
+        JSR     <ZRPAREN
         PULS    A
 CHR1    LDX     #FBUFFR         ; a string of the one character A
         STA     ,X
@@ -79,9 +79,9 @@ MIDS    BSR     STRARG
         JSR     <ZCHKCOM
         BNE     SUBEND
         JSR     <ZCHRGET
-        JSR     GETBYT
+        JSR     <ZGETBYT
         STB     <SBCNT
-SUBEND  JSR     RPAREN
+SUBEND  JSR     <ZRPAREN
         PULS    X
 * SUBSTR: SBCNT characters from SBSTRT of the string of the descriptor at X (as many as there are)
 SUBSTR  PSHS    X
@@ -198,7 +198,7 @@ INNO    CLRA
 
 * STRING$(n, c) or STRING$(n, c$): n of the character
 STRNGS  JSR     LPAREN
-        JSR     GETBYT
+        JSR     <ZGETBYT
         PSHS    B
         JSR     COMMA
         JSR     EVAL
@@ -211,7 +211,7 @@ SG1     JSR     FRESTR
         LBEQ    FCERR
         LDB     ,X
 SG2     PSHS    B
-        JSR     RPAREN
+        JSR     <ZRPAREN
         LDB     1,S
         JSR     GETSPA
         PULS    A

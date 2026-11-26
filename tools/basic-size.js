@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // Where the clean-room BASIC's bytes go (docs/clean-room-basic.md): bytes per module and per routine (a routine runs
 // from one column-0 label to the next), and the JSR/JMP/LBRA/LBcc instructions whose target a short branch would
-// reach (each saves a byte; JSR -> BSR saves one, JMP -> BRA one, LBRA -> BRA one, LBcc -> Bcc two). A JMP that is
-// copied to RAM must be written as data (FCB $7E, FDB target), so that it is not offered here.
+// reach (each saves a byte; JSR -> BSR saves one, JMP -> BRA one, LBRA -> BRA one, LBcc -> Bcc two). The JMPs in
+// RAM (the two-byte calls and the vectors) are written at a cold start from a list of addresses (boot.inc, ZINIT).
 //   node tools/basic-size.js [--routines N]     the N largest routines (default 25)
 const { buildBasic } = require('./build-basic.js');
 
@@ -28,8 +28,8 @@ console.log(`\nthe ${TOP} largest stretches between labels:`);
 for (const r of routines.sort((a, b) => b.size - a.size).slice(0, TOP)) console.log(`  ${String(r.size).padStart(5)}  ${r.name.padEnd(8)} ${r.file || ''}`);
 
 // long jumps that a short branch would reach: target within -128..127 of the next instruction (2-byte branch)
-// (only instructions count: data that happens to start with a jump's opcode, or a JMP written as data because it
-// is copied to RAM as it is -- boot.inc's ZINIT and VECINI -- is never a candidate)
+// (only instructions count: data that happens to start with a jump's opcode is never a candidate; the JMPs in RAM
+// -- the two-byte calls and the vectors -- are a list of addresses in the ROM, boot.inc's ZINIT)
 const target = (l) => {
   const b = l.bytes;
   if (!/^(\S+)?\s+(JSR|JMP|LBRA|LB[A-Z]{2})\s/.test(l.src)) return null;

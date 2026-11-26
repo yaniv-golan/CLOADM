@@ -17,10 +17,10 @@ CONE    FDB     $0100           ; (1 in 8.8: the x offset's scale)
 * as it was [OWN; BB]. Work: TMPPTR h x 256, TMPPT2 r, TMPCNT the chords left and the corner.
 CIRCLE  LDU     #GXY
         JSR     GETXY
-        JSR     RPAREN
+        JSR     <ZRPAREN
         JSR     COMBYT          ; r
         PSHS    B
-        LDB     FGCOL
+        LDB     <FGCOL
         JSR     <ZCHKCOM
         BNE     CI1
         JSR     GETCOL
@@ -51,22 +51,22 @@ CI2     PULS    A
         LSRA                    ; C: x halved; A: 1 if y is halved too
         BCC     CI4
         LSR     ,S              ; r
-        LSR     GXY+1           ; the centre's x
+        LSR     <GXY+1           ; the centre's x
         TSTA
         BNE     CI3
         ASL     <TMPPTR+1       ; h x 2
         ROL     <TMPPTR
         BRA     CI4
-CI3     LSR     GXY+3           ; the centre's y
+CI3     LSR     <GXY+3           ; the centre's y
 CI4     PULS    B
         STB     <TMPPT2
-        LDX     LASTX
-        LDY     LASTY
+        LDX     <LASTX
+        LDY     <LASTY
         PSHS    X,Y
         LDA     <TMPCNT+1
         BSR     CPOINT
-        STX     LASTX
-        STY     LASTY
+        STX     <LASTX
+        STY     <LASTY
 CI5     INC     <TMPCNT+1
         LDA     <TMPCNT+1
         BSR     CPOINT
@@ -93,7 +93,7 @@ OPTFIX  JSR     <ZCHKCOM
 OF1     JMP     GETADR
 OF2     TFR     U,D
         RTS
-CIFC    JMP     FCERR
+CIFC    JMP     <ZFCERR
 
 * MULW: D = B x the word at X / 256, rounded down
 MULW    PSHS    B
@@ -114,12 +114,12 @@ CPOINT  PSHS    A
         ADDA    #16             ; the cosine: a quarter turn on
         LDU     #CONE
         BSR     SINOFF
-        ADDD    GXY
+        ADDD    <GXY
         PSHS    D
         LDA     2,S
         LDU     #TMPPTR
         BSR     SINOFF
-        ADDD    GXY+2
+        ADDD    <GXY+2
         TFR     D,Y
         PULS    X
         LDU     <GMENT

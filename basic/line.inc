@@ -14,7 +14,7 @@ SO1     RTS
 ENDPT   LDB     #T_MINUS
         JSR     SYNCHR
         JSR     GETXY
-        JMP     RPAREN
+        JMP     <ZRPAREN
 
 * HSPAN: fill from the pixel of mask A in the byte at X to the pixel of mask B in the byte at U (not before it) in
 * GCOLB: the end bytes through masks, whole bytes between (keeps Y)
@@ -38,7 +38,7 @@ HS3     PULS    B,U,PC
 
 * BF: every row from y1 to y2, from x1 to x2 [UM]
 BFILL   JSR     <ZCHRGET
-        LDB     LASTY+1
+        LDB     <LASTY+1
         PSHS    B
         TFR     Y,D
         LDA     ,S+
@@ -46,7 +46,7 @@ BFILL   JSR     <ZCHRGET
         STA     <TMPPTR+1       ; the row
         PSHS    B               ; the last row
         TFR     X,D
-        LDA     LASTX+1
+        LDA     <LASTX+1
         BSR     SORT
         PSHS    D               ; the left and right ends
         BSR     BF0
@@ -65,8 +65,8 @@ BF1     LDA     1,S
         BNE     BF1
         LEAS    3,S
         RTS
-BF0     STX     LASTX
-        STY     LASTY
+BF0     STX     <LASTX
+        STY     <LASTY
         RTS
 
 * LINE [(x1,y1)]-(x2,y2),PSET|PRESET[,B|BF] [UM]: from the last point when the start is left out; PSET draws in
@@ -76,15 +76,15 @@ BF0     STX     LASTX
 GLINE   CMPA    #'('
         BNE     GL1
         JSR     LSTXY
-        JSR     RPAREN
+        JSR     <ZRPAREN
 GL1     LEAS    -4,S
         LEAU    ,S
         BSR     ENDPT
         JSR     COMMA
-        LDB     FGCOL
+        LDB     <FGCOL
         CMPA    #T_PSET
         BEQ     GL2
-        LDB     BGCOL
+        LDB     <BGCOL
         CMPA    #T_PRESET
         BNE     GLSN
 GL2     JSR     COLVAL
@@ -100,8 +100,8 @@ GL2     JSR     COLVAL
         CMPA    #'F'
         BEQ     BFILL
 * the box: (x1,y1) to (x2,y1), (x2,y2), (x1,y2) and back [OWN; BB the order, which no picture shows]
-        LDD     LASTY
-        LDU     LASTX
+        LDD     <LASTY
+        LDU     <LASTX
         PSHS    D,U,X,Y         ; 0,S y1, 2,S x2, 4,S y2, 6,S x1
         LDY     ,S
         BSR     LINETO          ; (x2,y1)
@@ -117,7 +117,7 @@ GL2     JSR     COLVAL
         LEAS    2,S
         PULS    X,Y,U
         BRA     BF0
-GLSN    JMP     SNERR
+GLSN    JMP     <ZSNERR
 
 * CLMPU: the signed word at U clamped to 0-X (keeps X)
 CLMPU   LDD     ,U
@@ -179,8 +179,8 @@ LT1     PSHS    D               ; the steps still to take
 LT1A    LSRA                    ; the error term
         RORB
         PSHS    D
-LT2     LDA     LASTX+1
-        LDB     LASTY+1
+LT2     LDA     <LASTX+1
+        LDB     <LASTY+1
         JSR     PLOT            ; (keeps Y and U)
         LDD     2,S
         SUBD    #1

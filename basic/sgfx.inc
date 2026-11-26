@@ -7,7 +7,7 @@
 * SGXY: (x,y at the text pointer, up to the ')' or the ',' after y -> X = the cell, A = the element's mask
 * (?FC ERROR for x above 63 or y above 31 [BB])
 SGXY    JSR     LPAREN
-        JSR     GETBYT
+        JSR     <ZGETBYT
         CMPB    #63
         BHI     SGFC
         PSHS    B
@@ -31,7 +31,7 @@ SGX2     PSHS    A
         PULS    A
         LEAS    1,S
         RTS
-SGFC    JMP     FCERR
+SGFC    JMP     <ZFCERR
 
 * SET (x,y,c): light the element in colour c (1-8; the cell's colour is c - 1); colour 0 lights it green, as 1
 * [UM; BB bb2 gfx-ppoint: SET(10,11,0) leaves POINT 1]

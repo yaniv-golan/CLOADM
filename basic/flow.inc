@@ -53,12 +53,12 @@ FOR     JSR     PTRNEW
         JSR     SYNEQ
         JSR     <ZEVNUM
         LDX     <FORVAR
-        JSR     MOVMF
+        JSR     <ZMOVMF
         LDB     #T_TO
         JSR     SYNCHR
         JSR     <ZEVNUM
         LDX     #FORLIM
-        JSR     MOVMF
+        JSR     <ZMOVMF
         LDD     #$8100          ; STEP 1
         STD     FORSTP
         CLR     FORSTP+2
@@ -70,7 +70,7 @@ FOR     JSR     PTRNEW
         JSR     <ZCHRGET
         JSR     <ZEVNUM
         LDX     #FORSTP
-        JSR     MOVMF
+        JSR     <ZMOVMF
 FOR1    JSR     ENDCHK
 * drop an open loop of the same variable, and everything above it
         PULS    U               ; NEWSTT's return address
@@ -137,7 +137,7 @@ NX4     LEAS    ,X              ; the loops inside are gone
         JSR     MOVAM
         JSR     FADD
         LDX     <FORVAR
-        JSR     MOVMF
+        JSR     <ZMOVMF
         LEAX    8,S             ; against the limit
         JSR     FCMPM
         TST     4,S             ; the step's sign
@@ -160,7 +160,7 @@ NFERR   CLRB                    ; ERR_NF
         JMP     ERROR
 
 * ON expression GO TO / GO SUB line, line, ...: the nth line; past the list (or 0), the next statement [UM]
-ON      JSR     GETBYT
+ON      JSR     <ZGETBYT
         STB     <ONCNT
         CLR     <ONFND
         JSR     <ZCHRGOT

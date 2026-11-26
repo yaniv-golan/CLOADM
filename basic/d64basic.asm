@@ -66,13 +66,7 @@ POLYV   RMB     5               ; POLY's variable
 TMPDSC  RMB     8*5             ; the temporary string descriptors (strings.inc)
 TMPEND  RMB     0
 FBUFFR  RMB     64              ; number to text (FOUT) and PRINT USING's work (FBUFFR+20 on)
-* graphics (gfx.inc, sgfx.inc)
-FGCOL   RMB     1               ; the foreground and background colours, 0-8 (FGCOL must come just before BGCOL)
-BGCOL   RMB     1
-GCSS    RMB     1               ; the colour set SCREEN last chose, x 4
-LASTX   RMB     2               ; the last point drawn (16-bit x, then y)
-LASTY   RMB     2
-GXY     RMB     4               ; a point read (x, y; 16-bit each)
+FPDIG   RMB     9               ; FOUT's nine digits (reached through an index register only)
 * sound (sound.inc, play.inc)
 JOYV    RMB     4               ; JOYSTK(0)-(3) as JOYSTK(0) last read them
 PLOCT   RMB     1               ; PLAY: the octave and the length (PLOCT must come just before PLLEN)
@@ -138,7 +132,12 @@ FPJ     RMB     1
 PROD    RMB     8               ; the product; the quotient
 DVR     RMB     5               ; the remainder
 FPE10   RMB     2               ; decimal exponent (FOUT, FIN)
-FPDIG   RMB     9               ; FOUT's nine digits
+* graphics (gfx.inc, sgfx.inc): the colours and the last point, read and written all over the drawing statements
+FGCOL   RMB     1               ; the foreground and background colours, 0-8 (FGCOL must come just before BGCOL)
+BGCOL   RMB     1
+GCSS    RMB     1               ; the colour set SCREEN last chose, x 4
+LASTX   RMB     2               ; the last point drawn (16-bit x, then y)
+LASTY   RMB     2
 FPND    RMB     1               ; FOUT's significant digits (U32DEC counts its digits here)
 FPK     RMB     1               ; FOUT's power of ten
 FPN     RMB     4               ; FIN's integer
@@ -253,12 +252,14 @@ GBEG    RMB     2               ; and the colour byte the plot routine writes
 GCOLB   RMB     1
 DRANG   RMB     1               ; DRAW's angle (0-3 quarter turns) and scale (1-62, in quarters), kept from one DRAW
 DRSCL   RMB     1               ; to the next (draw.inc)
+GXY     RMB     4               ; a point read (x, y; 16-bit each)
 DPEND   RMB     0
 
 * Two-byte calls: a JMP to each of the ROM's busiest routines at the top of the direct page, just below the RAM
-* vectors and copied with them at a cold start (boot.inc), so "JSR <ZCHRGET" does for "JSR CHRGET"
+* vectors and written with them at a cold start (boot.inc, ZINIT: the same order), so "JSR <ZCHRGET" does for
+* "JSR CHRGET" and "JMP <ZSNERR" for "JMP SNERR"
 * (tools/build-basic.js checks the direct-page variables end below them)
-        ORG     $0100-3*10
+        ORG     $0100-3*16
 ZTRAMP  RMB     0
 ZCHRGET  RMB     3
 ZCHRGOT  RMB     3
@@ -270,6 +271,12 @@ ZLINGET  RMB     3
 ZCHKCOM  RMB     3
 ZUSCHR   RMB     3
 ZEVNUM   RMB     3
+ZGETBYT  RMB     3
+ZSNERR   RMB     3
+ZRPAREN  RMB     3
+ZFCERR   RMB     3
+ZCHKNUM  RMB     3
+ZMOVMF   RMB     3
 
 * ---------------- the ROM ----------------
         ORG     $8100

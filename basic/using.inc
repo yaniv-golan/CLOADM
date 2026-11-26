@@ -53,7 +53,7 @@ US3     INC     <USANY
         JSR     EVAL
         TST     <USKIND
         BNE     USS             ; a string field
-        JSR     CHKNUM
+        JSR     <ZCHKNUM
         JSR     USNUM
         BRA     US5
 USS     JSR     CHKSTR

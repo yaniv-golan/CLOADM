@@ -27,8 +27,8 @@ PEND    EQU     USNA            ; the high byte of the end of the pages
 * default) [BB bb2 gfx-paint]. The point is clamped to the picture as PSET's; ?FC ERROR for a colour above 8 [BB].
 PAINT   LDU     #GXY
         JSR     GETXY
-        JSR     RPAREN
-        LDB     FGCOL
+        JSR     <ZRPAREN
+        LDB     <FGCOL
         JSR     <ZCHKCOM
         BNE     PN1
         JSR     GETCOL
@@ -66,8 +66,8 @@ PN3     STA     <PLAST
         CLRB
         PSHS    D
         PSHS    A
-        LDA     GXY+1
-        LDB     GXY+3
+        LDA     <GXY+1
+        LDB     <GXY+3
         JSR     GPIXAD
         BRA     PQ2
 PQ1     PULS    A,X

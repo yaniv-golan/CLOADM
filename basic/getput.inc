@@ -26,13 +26,13 @@ PUTST   CLRB
         STB     <GPDIR
         LDU     #GXY
         JSR     GETXY
-        JSR     RPAREN
+        JSR     <ZRPAREN
         LEAS    -4,S
         LEAU    ,S
         JSR     ENDPT
         JSR     COMMA
         JSR     VNAME
-        JSR     CHKNUM
+        JSR     <ZCHKNUM
         JSR     GPARY
         PSHS    X               ; 0,S the array, 2,S x2, 4,S y2
         LDB     #%11100         ; (GET copies the screen as PSET does; bit 4: GET without G, PUT with no action)
@@ -44,7 +44,7 @@ PUTST   CLRB
         LDB     #%1100
         CMPA    #'G'
         BEQ     GQ3
-GPSN    JMP     SNERR
+GPSN    JMP     <ZSNERR
 GQ1     LDX     #GPACT
 GQ2     CMPA    ,X++
         BEQ     GQ2A
@@ -57,7 +57,7 @@ GQ4     STB     <GPLUT
 * the columns, in the mode's own pixels; GET without G takes whole bytes: its rectangle widened to the bytes its ends
 * are in [BB bb2 gfx-getput pmode4-coarse: GET(19,17)-(28,30) without G holds x 16-31]
         LDU     <GMENT
-        LDA     GXY+1
+        LDA     <GXY+1
         LDB     3,S
         JSR     SORT
         PSHS    D
@@ -82,7 +82,7 @@ GQ5A    TFR     A,B
         ANDA    ,S
         STA     ,S
 GQ5B    PULS    D
-        STA     GXY+1
+        STA     <GXY+1
         PSHS    A
         SUBB    ,S+
         CLRA
@@ -104,7 +104,7 @@ GQ6     STD     <BINVAL
         RORB
         STB     <GPRB
 * the rows, in the mode's own pixels
-        LDA     GXY+3
+        LDA     <GXY+3
         LDB     5,S
         JSR     SORT
         PSHS    D
@@ -114,7 +114,7 @@ GQ6     STD     <BINVAL
         LSR     ,S
         LSR     1,S
 GQ7     PULS    D
-        STA     GXY+3
+        STA     <GXY+3
         PSHS    A
         SUBB    ,S+
         INCB
@@ -148,8 +148,8 @@ GQ7A    PULS    B
 * each row: GET from the screen to the array, PUT from the array to the screen; the array's bits run on from one
 * row to the next, with no bits left over at a row's end [BB bb2 gfx-getput pmode4-coarse, the PUT of a 10-pixel
 * wide rectangle]
-GQ8     LDA     GXY+1
-        LDB     GXY+3
+GQ8     LDA     <GXY+1
+        LDB     <GXY+3
         JSR     GPIXM
         TFR     A,B
         LSRB
@@ -172,12 +172,12 @@ GQ9     STD     <DMASK          ; (and SMASK)
         LDA     <DMASK
 GQ9A    STX     <GPBUF
         STA     <GPRB
-        INC     GXY+3
+        INC     <GXY+3
         DEC     <GPROWS
         BNE     GQ8
         LEAS    6,S
         RTS
-GPFC    JMP     FCERR
+GPFC    JMP     <ZFCERR
 
 * BITCPY: Y bits from X (from bit SMASK on) to U (from bit DMASK on), each new bit GPLUT's for the two old ones
 BITCPY  CLRB

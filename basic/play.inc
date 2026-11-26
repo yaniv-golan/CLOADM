@@ -144,7 +144,7 @@ PBYTE   JSR     MSNUM
         TSTB
         RTS
 PFC     LBSR    PYEND
-        JMP     FCERR
+        JMP     <ZFCERR
 
 * a letter A-G, or a number alone (a note number; anything else gives ?FC ERROR from PBYTE)
 PYLN    SUBA    #'A'

@@ -13,7 +13,7 @@ DRLET   FCC     "UERFDGLH"      ; the directions, an eighth of a turn apart cloc
 DRVEC   FCB     0,-1,1,-1,1,0,1,1,0,1,-1,1,-1,0,-1,-1      ; their steps in x and y
 
 DRAW    JSR     MSSTR
-        LDB     FGCOL
+        LDB     <FGCOL
         BSR     DRCOL
         CLR     <DRFLG
 DR0     BSR     MSCMD
@@ -22,7 +22,7 @@ DR0     BSR     MSCMD
         BRA     DR0
 
 * DRCOL: colour B is the foreground and the colour drawn
-DRCOL   STB     FGCOL
+DRCOL   STB     <FGCOL
         JSR     COLVAL
         STB     <GCOLB
         RTS
@@ -54,7 +54,7 @@ DRNUM   PSHS    A
         CMPB    ,S+
         BHI     DRFC
         RTS
-DRFC    JMP     FCERR
+DRFC    JMP     <ZFCERR
 
 * DRONE: the command A
 DRONE   LDX     #DRLET
@@ -142,29 +142,29 @@ DRMOV   ADDB    <DRANG
 DV1     JSR     DRSCAL
         PULS    B
         JSR     DRSGN
-        ADDD    LASTX
+        ADDD    <LASTX
         PSHS    D
         LDB     2,S
         JSR     DRSGN
-        ADDD    LASTY
+        ADDD    <LASTY
         TFR     D,Y
         PULS    X
         LEAS    1,S
 * DMOVE: to (X, Y): a line, or with B only the point moves; with N the point comes back after
-DMOVE   LDU     LASTX
-        LDD     LASTY
+DMOVE   LDU     <LASTX
+        LDD     <LASTY
         PSHS    D,U
         LDA     <DRFLG
         LSRA
         BCS     DM1
         JSR     LINETO
-DM1     STX     LASTX
-        STY     LASTY
+DM1     STX     <LASTX
+        STY     <LASTY
         LDA     <DRFLG
         CLR     <DRFLG
         BITA    #2
         PULS    D,U
         LBEQ    DS9
-        STD     LASTY
-        STU     LASTX
+        STD     <LASTY
+        STU     <LASTX
         RTS

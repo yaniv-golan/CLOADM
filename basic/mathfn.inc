@@ -33,7 +33,7 @@ FPONE   EQU     POWTAB          ; 1
 * FNARGN: ( numeric expression )
 FNARGN  JSR     LPAREN
         JSR     <ZEVNUM
-        JMP     RPAREN
+        JMP     <ZRPAREN
 * FMULX, FADDX: FAC = [X] x FAC, [X] + FAC, for the packed number at X. FDIVX: [X] / FAC. FSUBX: [X] - FAC.
 FMULX   JSR     MOVAM
         JMP     FMUL
@@ -95,7 +95,7 @@ GIVUNS  CLR     <FACSGN
 * A = the step from one coefficient to the next: 5, or 10 for every other one of the table.
 POLY    PSHS    D,X
         LDX     #POLYV
-        JSR     MOVMF
+        JSR     <ZMOVMF
         LDX     2,S
         JSR     MOVFM
         DEC     1,S
@@ -113,7 +113,7 @@ PL1     LDX     #POLYV
 * (A and B as POLY; bit 7 of A set: P(-x^2))
 ODDPOL  PSHS    D,X
         LDX     #FPT4
-        JSR     MOVMF
+        JSR     <ZMOVMF
         JSR     FMULX           ; x^2
         PULS    D,X
         TSTA
@@ -418,7 +418,7 @@ RND     JSR     <ZFNARGN
         STA     <SEED+1
         CLR     <FACSGN
 RN1     LDX     #FPT5
-        JSR     MOVMF
+        JSR     <ZMOVMF
         CLR     <RNDR
         CLR     <RNDR+1
         CLR     <RNDR+2

@@ -43,7 +43,7 @@ NEWSTT  LDX     <TXTPTR
         BNE     NEWSN
         JSR     REM
         BRA     NEWSTT
-NEWSN   JMP     SNERR           ; something after a complete statement
+NEWSN   JMP     <ZSNERR           ; something after a complete statement
 NEWEOL  JSR     DIRCHK
         BEQ     DIREND          ; the end of a direct line
         LDD     1,X             ; the next line's link: 0 is the end of the program
@@ -99,11 +99,11 @@ EXFUNC  BSR     CHRGET          ; a function name as a statement: TIMER = n
         BNE     EXSN
         BSR     CHRGET
         JMP     TIMERS
-EXSN    JMP     SNERR
+EXSN    JMP     <ZSNERR
 EXRTS   RTS
 
 * the statements and functions that come later in this phase, or in P2
-UNIMPL  JMP     FCERR
+UNIMPL  JMP     <ZFCERR
 
 * CHRGET: the next character after spaces. A = it; Z set at the end of a statement (0 or ':');
 * C set for a digit. Keeps every other register.
@@ -137,7 +137,7 @@ SYNEQ   LDB     #T_EQ
 SYNCHR  CMPB    [TXTPTR]
         BNE     SYNERR
         BRA     CHRGET
-SYNERR  JMP     SNERR
+SYNERR  JMP     <ZSNERR
 * DIRCHK: D = the line running; Z set in direct mode
 DIRCHK  LDD     <CURLIN
         CMPD    #$FFFF
@@ -168,7 +168,7 @@ LG1     BCC     LG2
         BRA     LG1
 LG2     LDD     <BINVAL
         RTS
-LGERR   JMP     SNERR
+LGERR   JMP     <ZSNERR
 
 * ---------------- END, STOP, CONT, REM, TRON, TROFF ----------------
 * CONTMD: 0 = CONT goes on after the statement at OLDTXT (STOP, END); 1 = OLDTXT is just before a statement
@@ -287,7 +287,7 @@ GO      CMPA    #T_TO
         BEQ     GOTO
         CMPA    #T_SUB
         BEQ     GOSUB
-        JMP     SNERR
+        JMP     <ZSNERR
 GOTO    JSR     <ZCHRGET
 GOTO1   BCC     GOSN
         JSR     <ZLINGET
@@ -302,7 +302,7 @@ JMP1    LEAX    3,X             ; the byte before the line's text
         LDA     #1
         STA     <JMPFLG
         RTS
-GOSN    JMP     SNERR
+GOSN    JMP     <ZSNERR
 
 * a GOSUB frame on the stack: marker, CURLIN, TXTPTR (on the character after the line number) [OWN]
 GOSUB   JSR     <ZCHRGET
@@ -366,7 +366,7 @@ RUN1    JSR     CLRVAR
         CLRB
         STD     <CURLIN
         JMP     NEWSTT
-RUNSN   JMP     SNERR
+RUNSN   JMP     <ZSNERR
 
 NEW     BNE     RUNSN
         JSR     NEWPRG
@@ -378,7 +378,7 @@ NEW     BNE     RUNSN
 * prints its own line there, never the original's text (a deliberate difference). Past 255, ?FC ERROR (GETBYT).
 CLSST   JSR     <ZCHRGOT
         BEQ     CLSS1
-        JSR     GETBYT
+        JSR     <ZGETBYT
         CMPB    #8
         BHI     CLSBIG
         LDA     #$80            ; 0: black, no element lit

@@ -36,7 +36,7 @@ SNDOFF  LDB     #$34            ; PIA 1 CB2 low: sound off
 
 * SOUND t,d: tone t (1-255, higher is higher) for d (1-255) units [UM]; it ends with the DAC low and sound off, the
 * multiplexer on the DAC [BB bb2 snd-audio, snd-timer: the next sound starts from level 0]
-SOUND   JSR     GETBYT
+SOUND   JSR     <ZGETBYT
         TSTB
         BEQ     SNFC
         PSHS    B
@@ -55,7 +55,7 @@ SOUND   JSR     GETBYT
         LDU     #SNDH*256+SNDL
         BSR     TONE
         BRA     SNDOFF
-SNFC    JMP     FCERR
+SNFC    JMP     <ZFCERR
 
 * JOYSTK(n): axis n (0 right x, 1 right y, 2 left x, 3 left y), 0-63 [UM]. JOYSTK(0) reads all four and keeps them;
 * 1-3 give what it kept [UM; BB]. Each axis by successive approximation on the DAC, from bit 5 down: a bit stays if

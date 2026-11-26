@@ -73,7 +73,7 @@ RD4     STX     <TXTPTR
         BCC     RD5
         LDD     <DATLIN         ; a bad number in DATA: ?SN ERROR in the DATA's line
         STD     <CURLIN
-        JMP     SNERR
+        JMP     <ZSNERR
 RD5     LDD     <TXTPTR
         STD     <DATPTR
         PULS    D

@@ -31,7 +31,7 @@ PTRNEW  LDA     #1
 VNAME   JSR     <ZCHRGOT
         BSR     ISLET
         BCS     PG0
-        JMP     SNERR
+        JMP     <ZSNERR
 PG0     STA     <VARNAM
         CLR     <VARNAM+1
         CLR     <VALTYP
@@ -125,7 +125,7 @@ AG1     PSHS    B
         BEQ     AG1
         CMPA    #')'
         BEQ     AG2
-        JMP     SNERR
+        JMP     <ZSNERR
 AG2     JSR     <ZCHRGET
 * AGLOOK: (B subscripts, the frame on the stack as above) find or make the array
 AGLOOK  STB     <NDIMS
@@ -304,7 +304,7 @@ MULTMP  PSHS    D
 GETIDX  JSR     INTCNV
         TSTA
         BPL     GI1
-        JMP     FCERR
+        JMP     <ZFCERR
 GI1     RTS
 
 * DIM name(sizes), ...
@@ -333,7 +333,7 @@ LET     JSR     PTRNEW
 * ASSIGN: store the value just evaluated at X (its type in VALTYP)
 ASSIGN  TST     <VALTYP
         BNE     ASS1
-        JMP     MOVMF
+        JMP     <ZMOVMF
 ASS1    PSHS    X
         JSR     STRKEEP         ; X = a descriptor the variable may hold
         PULS    U
