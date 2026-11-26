@@ -8,6 +8,12 @@ All notable changes to CLOADM are recorded here. The format follows
 
 Next version: 0.3.1 (the plugin and extension manifests carry it; `tests/plugin.test.js` keeps them in step).
 
+#### Changed
+
+- **The side-panel connector checks `Origin`,** as the MCP Streamable HTTP transport requires: a request from a browser whose
+  `Origin` is not claude.ai, claude.com or the connector's own gets 403. Requests with no `Origin` (Claude's servers, Claude Code,
+  command-line clients) are served as before (`docs/deploy-connector.md`, "Origin").
+
 ### 0.3.1
 
 #### Fixed
