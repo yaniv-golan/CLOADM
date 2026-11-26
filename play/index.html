@@ -421,6 +421,8 @@
   #wyrmStrip button { min-height: 44px; border-radius: var(--pill); }
   #wyrmStrip p { margin: 6px 0 0; }
   #wyrmStrip a { color: var(--phosphor); }
+  /* the one line and the Details sheet are a phone's, held upright (below); elsewhere the card is as it always was */
+  #wyrmStrip #wyrmShort, #wyrmStrip #wyrmClose { display: none; }
   #wyrmLevel { margin-top: 6px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
   #gameFiles { margin-top: 18px; }
   /* a Share option that is off says why beside it (WYRMFIRE: snapshots; the person's own WAD: picture and clip) */
@@ -965,6 +967,15 @@
   #touchKeys #touchPad .padgroup .tk { min-height: 44px; font-size: 18px; }
   /* (FIRE and USE stay 96 px tall: the phone rule that gives the pad's keys their 48 px is more specific than .big) */
   body.touch-thumb #touchKeys #touchPad .padbig .tk.big { min-height: 96px; }
+  /* upright where the height is short (.tight: js/ui/touch-keys.js, so the screen keeps the page's width): every key
+     44 px, the stick 92, FIRE and USE two keys tall */
+  body.touch-thumb #touchKeys #touchPad.tight { row-gap: 4px; }
+  body.touch-thumb #touchKeys #touchPad.tight .padthumb { width: 92px; height: 92px; }
+  body.touch-thumb #touchKeys #touchPad.tight .thumbknob { width: 40px; height: 40px; margin: -20px 0 0 -20px; }
+  body.touch-thumb #touchKeys #touchPad.tight .padkeys { grid-auto-rows: 44px; }
+  body.touch-thumb #touchKeys #touchPad.tight .tk { min-height: 44px; }
+  body.touch-thumb #touchKeys #touchPad.tight .padbig { grid-template-columns: repeat(2, 56px); }
+  body.touch-thumb #touchKeys #touchPad.tight .padbig .tk.big { min-height: 92px; border-radius: 28px; }
   #touchKeys > .tkhalf { display: none; }
   #touchKeys > #touchStrip, #touchKeys > .tkcenter { grid-column: 1 / -1; }
   #touchKeys > #touchStick { grid-column: 1 / span 6; }
@@ -1843,6 +1854,24 @@
     @media (min-height: 521px) { body:is(.touch-keys, .touch-hidden):not(.chat-phone):has(#soundChip:not([hidden])) { --chip-room: 26px; } }
     /* (a window this short has no room to spare: no chip, and the first tap anywhere still starts the sound) */
     @media (max-height: 520px) { body:is(.touch-keys, .touch-hidden):not(.chat-phone) #soundChip { display: none; } }
+    /* WYRMFIRE, playing: the card is one line under the screen, "WYRMFIRE · Freedoom level (BSD) · Details" (or "your
+       <file>"); Details opens the whole card, unchanged, as a sheet from the bottom over the controls, with ✕
+       (js/ui/wyrmfire.js). The line stays in its place while the sheet is up, so nothing under it moves. */
+    body.touch-keys:not(.chat-phone) #wyrmStrip[data-state="playing"] { margin-top: 0; padding: 0 4px 0 12px; }
+    body.touch-keys:not(.chat-phone) #wyrmStrip[data-state="playing"] > #wyrmShort:not([hidden]) { display: flex; align-items: center; white-space: nowrap;
+      overflow: hidden; font-size: 14px; min-width: 0; }
+    body.touch-keys:not(.chat-phone) #wyrmStrip[data-state="playing"] > #wyrmShort > span { flex: none; white-space: pre; }
+    body.touch-keys:not(.chat-phone) #wyrmStrip[data-state="playing"] > #wyrmShort > .wyrmown { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+    body.touch-keys:not(.chat-phone) #wyrmStrip[data-state="playing"] > #wyrmShort > a { flex: none; margin-right: 0; }
+    body.touch-keys:not(.chat-phone) #wyrmStrip #wyrmDetails { flex: none; margin-left: auto; background: none; border: 0; color: var(--phosphor); text-decoration: underline;
+      padding: 0 8px; min-height: 44px; font: inherit; }
+    body.touch-keys:not(.chat-phone) #wyrmStrip[data-state="playing"]:not(.sheet) > #wyrmCard { display: none; }
+    body.touch-keys:not(.chat-phone) #wyrmStrip.sheet > #wyrmCard { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; max-height: 80vh; max-height: 80svh; overflow: auto;
+      background: var(--panel); border-top: 1px solid var(--line-strong); border-radius: var(--r-14) var(--r-14) 0 0;
+      padding: 12px 16px calc(16px + var(--safe-b)); box-shadow: 0 -8px 24px rgba(0, 0, 0, .5); }
+    body.touch-keys:not(.chat-phone) #wyrmStrip.sheet > #wyrmCard > .wyrmtop { padding-right: 48px; }
+    body.touch-keys:not(.chat-phone) #wyrmStrip.sheet #wyrmClose:not([hidden]) { display: block; position: absolute; top: 6px; right: 6px; width: 44px; height: 44px;
+      border-radius: var(--pill); background: none; border: 1px solid var(--line); color: inherit; font-size: 18px; }
     /* (the keys 40 px: under Apple's 44 pt guideline, which the room upright does not allow with five rows and the
        screen; well over WCAG 2.5.8's 24 px minimum target. The pad's keys are 48 and more, the strip's controls 44.) */
     body.touch-keys:not(.chat-phone) #touchKeys .tk { height: 40px; min-height: 40px; }
@@ -2198,12 +2227,17 @@ npx serve -l 8000 .</pre>
     </div>
     <!-- WYRMFIRE (js/ui/wyrmfire.js): getting the game (Cancel until the switch), then the credits while it plays -->
     <div id="wyrmStrip" role="region" aria-label="WYRMFIRE" aria-live="polite" hidden>
-      <div class="wyrmtop"><span id="wyrmLine"></span><span class="bar" id="wyrmBar"></span></div>
-      <div id="wyrmMore" hidden>
-        <div id="wyrmLevel"></div>
-        <p class="muted small" id="wyrmPrivacy"></p>
-        <p class="muted small" id="wyrmGuard"></p>
-        <p class="small" id="wyrmNote" hidden></p>
+      <!-- a phone held upright, while it plays: this one line, and Details opens the whole card below as a sheet -->
+      <div id="wyrmShort" hidden></div>
+      <div id="wyrmCard">
+        <button type="button" id="wyrmClose" aria-label="Close" hidden>✕</button>
+        <div class="wyrmtop"><span id="wyrmLine"></span><span class="bar" id="wyrmBar"></span></div>
+        <div id="wyrmMore" hidden>
+          <div id="wyrmLevel"></div>
+          <p class="muted small" id="wyrmPrivacy"></p>
+          <p class="muted small" id="wyrmGuard"></p>
+          <p class="small" id="wyrmNote" hidden></p>
+        </div>
       </div>
     </div>
     <!-- context openers: never over the screen -->

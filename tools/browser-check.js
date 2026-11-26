@@ -6195,6 +6195,48 @@ async function phoneChecks(browser, base, check) {
   await phoneWyrmPadChecks(browser, base, check);
 }
 
+// WYRMFIRE held upright on a phone: the card is one line under the screen and Details opens it whole as a sheet; the
+// screen has the page's width (the pad gives way first: .tight); no page scroll, no key label cut short, taps 44 px.
+async function phoneWyrmUpright(p, L, check) {
+  // the first tap starts the sound and takes the "Tap for sound" chip's row away
+  await p.tap('.tube'); await p.waitForTimeout(400);
+  const T = await p.evaluate(async () => { const { WYRM_TEXT: t } = await import('../js/ui/wyrmfire.js'); return { privacy: t.privacy, trademark: t.trademark, guard: t.guard, freedoom: t.freedoom, useWad: t.useWad }; });
+  const g = await p.evaluate(() => {
+    const tube = document.querySelector('.tube').getBoundingClientRect(), short = document.getElementById('wyrmShort');
+    const keys = [...document.querySelectorAll('#touchKeys .tk, #touchKeys button, #wyrmShort button')].filter((b) => b.checkVisibility() && b.offsetWidth);
+    return { tube: tube.width, vw: innerWidth, vh: innerHeight, scrollH: document.documentElement.scrollHeight, short: short.textContent, shortH: short.getBoundingClientRect().height,
+      shortVisible: short.checkVisibility(), shortTop: short.getBoundingClientRect().top, tubeBottom: tube.bottom, modeTop: document.getElementById('tkModeSwitch').getBoundingClientRect().top,
+      bsd: (short.querySelector('a') || {}).href || '', card: document.getElementById('wyrmCard').checkVisibility(),
+      cut: keys.filter((b) => b.scrollWidth > b.clientWidth).map((b) => b.textContent), small: keys.filter((b) => b.offsetWidth < 44 || b.offsetHeight < 44).map((b) => `${b.textContent} ${b.offsetWidth}x${b.offsetHeight}`),
+      enter: [...document.querySelectorAll('#touchPad .padkeys .tk[data-key="ENTER"]')].map((b) => `${b.textContent}|${b.getAttribute('aria-label') || ''}`).join() };
+  });
+  check(`${L}: the screen has the page's width (canvas ${Math.round(g.tube)} >= ${g.vw} - 2 x 8)`, g.tube >= g.vw - 16 - 0.5, JSON.stringify(g.tube));
+  check(`${L}: one line under the screen, above the Keys | Pad strip: "WYRMFIRE · Freedoom level (BSD) · Details", (BSD) the licence link`,
+    g.shortVisible && g.short === 'WYRMFIRE · Freedoom level (BSD) · Details' && g.shortH <= 48 && g.shortTop >= g.tubeBottom && g.shortTop < g.modeTop && /freedoom/i.test(g.bsd) && /COPYING/i.test(g.bsd), JSON.stringify(g));
+  check(`${L}: the whole card is out of the page's flow until Details`, !g.card);
+  check(`${L}: no page scroll`, g.scrollH <= g.vh, `${g.scrollH} > ${g.vh}`);
+  check(`${L}: no key's label is cut short (ENTER says ENTER, or ↵ named ENTER)`, !g.cut.length && (g.enter === 'ENTER|' || g.enter === '↵|ENTER'), JSON.stringify([g.cut, g.enter]));
+  check(`${L}: every tap target at least 44 x 44`, !g.small.length, g.small.join('; '));
+  // Details: the sheet with today's card, its words exactly WYRM_TEXT's; ✕, Esc and a tap outside each close it
+  const card = () => p.evaluate(() => { const c = document.getElementById('wyrmCard');
+    return { open: c.checkVisibility(), privacy: document.getElementById('wyrmPrivacy').textContent, guard: document.getElementById('wyrmGuard').textContent,
+      level: document.getElementById('wyrmLevel').innerText.replace(/\s+/g, ' ').trim(), credits: document.getElementById('wyrmLine').innerText,
+      inView: c.getBoundingClientRect().bottom <= innerHeight + 0.5 && c.getBoundingClientRect().top >= 0, focus: document.activeElement && document.activeElement.id }; });
+  await p.tap('#wyrmDetails');
+  const c1 = await card();
+  check(`${L}: Details opens the card as a sheet, in view, the focus on ✕`, c1.open && c1.inView && c1.focus === 'wyrmClose', JSON.stringify(c1));
+  check(`${L}: the sheet's legal words are WYRM_TEXT's exactly (privacy and trademark, the guard, the Freedoom line and the WAD button)`,
+    c1.privacy === `${T.privacy} ${T.trademark}` && c1.guard === T.guard && c1.level === `${T.freedoom} ${T.useWad}` && /^WYRMFIRE \d/.test(c1.credits) && c1.credits.includes('Level data: Freedoom (BSD), modified'), JSON.stringify(c1));
+  if (shotDir) await p.screenshot({ path: path.join(shotDir, `wyrmfire-details-${L.split(' ').pop()}.png`) });
+  await p.tap('#wyrmClose');
+  const c2 = await card();
+  await p.tap('#wyrmDetails'); await p.keyboard.press('Escape');
+  const c3 = await card();
+  await p.tap('#wyrmDetails'); await p.tap('#appbar', { position: { x: 4, y: 4 } }); await p.waitForTimeout(100);
+  const c4 = await card();
+  check(`${L}: ✕, Esc and a tap outside each close the sheet (the focus back on Details after ✕)`, !c2.open && c2.focus === 'wyrmDetails' && !c3.open && !c4.open, JSON.stringify([c2.open, c2.focus, c3.open, c4.open]));
+}
+
 // WYRMFIRE's pad on a phone (js/ui/touch-keys.js, the program's `thumb` controls): an 8-way thumb stick pressing the arrow
 // keys with a 20% dead zone, FIRE (SPACE) and USE (E), STRAFE ◀ ▶ (Z, X) and WEAPON 1 2 3; Keys | Pad with no Stick, the
 // choice kept as touchMode.dragon64.wyrmfire; separate pointers for the stick and the buttons; nothing overlapping at
@@ -6207,7 +6249,7 @@ async function phoneWyrmPadChecks(browser, base, check) {
       clientX: r.left + r.width / 2 + x * r.width / 2, clientY: r.top + r.height / 2 + y * r.height / 2 }));
   }, [sel, type, id, fx, fy]);
   const wait = (p) => p.waitForTimeout(80);
-  for (const [w, h] of [[393, 659], [659, 393], [653, 280]]) {
+  for (const [w, h] of [[393, 659], [320, 568], [659, 393], [653, 280]]) {
     const L = `phone wyrmfire pad ${w}x${h}`;
     const ctx = await browser.newContext({ serviceWorkers: 'block', viewport: { width: w, height: h }, isMobile: true, hasTouch: true });
     const p = await ctx.newPage();
@@ -6241,8 +6283,10 @@ async function phoneWyrmPadChecks(browser, base, check) {
     check(`${L}: the screen, the stick and every button: none overlaps another`, up && !over.length, over.join('; '));
     check(side ? `${L}: all inside the window` : `${L}: the pad and its buttons are under the screen, inside the window's width`, up && !out.length && (side || under), out.join('; '));
     check(`${L}: no sideways scroll`, up && lay.scrollW <= lay.vw, String(lay.scrollW));
-    const small = lay.items.filter((a) => a.name !== 'screen' && (a.w < 32 || a.h < 32)).map((a) => `${a.name} ${Math.round(a.w)}x${Math.round(a.h)}`);
-    check(`${L}: every control at least 32 x 32`, up && !small.length, small.join('; '));
+    if (!side) await phoneWyrmUpright(p, L, check);
+    else check(`${L}: sideways the card is as it was: no one-line summary`, await p.evaluate(() => !document.getElementById('wyrmShort').checkVisibility()));
+    const small = lay.items.filter((a) => a.name !== 'screen' && (a.w < (side ? 32 : 44) || a.h < (side ? 32 : 44))).map((a) => `${a.name} ${Math.round(a.w)}x${Math.round(a.h)}`);
+    check(`${L}: every control at least ${side ? 32 : 44} x ${side ? 32 : 44}`, up && !small.length, small.join('; '));
     if (shotDir) await p.screenshot({ path: path.join(shotDir, `wyrmfire-pad-${w}x${h}.png`) });
     if (w === 393) {
       // the stick's eight directions at 60% of its radius, then the dead zone (15% nothing, 25% a direction)
@@ -6302,6 +6346,18 @@ async function phoneWyrmPadChecks(browser, base, check) {
       await p.tap('#tkModeSwitch [data-touchmode="pad"]');
       const padSaved = await p.evaluate(() => window.emu.session.store.get('touchMode.dragon64.wyrmfire'));
       check(`${L}: the mode is kept as touchMode.dragon64.wyrmfire (Keys, reloaded, opens on Keys; then Pad)`, keysSaved === 'keys' && keysBack && padSaved === 'pad', JSON.stringify([keysSaved, keysBack, padSaved]));
+      // a level of the person's own (here the Freedoom disk, started as one: no id Software data in the check): the line
+      // names their file and has no Freedoom credit
+      const own = await p.evaluate(async () => {
+        const { WYRMFIRE_PIN: pin } = await import('../js/wyrmfire/pin.js');
+        const get = async (f) => new Uint8Array(await (await fetch(`../${f.path}`)).arrayBuffer());
+        window.emu.session.startWyrmfire(await get(pin.files.engine), await get(pin.files.level), { level: 'user', name: 'MYLEVELS.WAD' });
+        await new Promise((r) => setTimeout(r, 300));
+        const sh = document.getElementById('wyrmShort');
+        return { text: sh.textContent, link: !!sh.querySelector('a'), h: sh.getBoundingClientRect().height };
+      });
+      check(`${L}: with the person's own WAD the line is "WYRMFIRE · your MYLEVELS.WAD · Details", one line, no Freedoom link`,
+        own.text === 'WYRMFIRE · your MYLEVELS.WAD · Details' && !own.link && own.h <= 48, JSON.stringify(own));
     }
     check(`${L}: no page errors`, !errs.length, errs.join('; '));
     await ctx.close();

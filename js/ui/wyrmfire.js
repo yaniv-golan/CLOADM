@@ -25,7 +25,7 @@
 import { WYRMFIRE_PIN as PIN, wyrmfireSourceUrl, FREEDOOM_CREDIT } from '../wyrmfire/pin.js';
 import { checkWad, convertErrorText, WAD_TEXT, WAD_MAX_MB, WadCheckError } from '../wyrmfire/wad-check.js';
 import { profiles } from '../machines/profiles.js';
-import { $, touchPanel } from './page.js';
+import { $, touchPanel, ESC } from './page.js';
 
 // the words, in one place (tools/browser-check.js and tests/wyrmfire-ui.test.js read them from here)
 export const WYRM_TEXT = Object.freeze({
@@ -50,6 +50,11 @@ export const WYRM_TEXT = Object.freeze({
   guard: 'While WYRMFIRE runs: no snapshots. With your own WAD, no clips and no Claude screen reads.',
   share: 'Opens WYRMFIRE from the start, with the Freedoom level.',
   sideways: 'Turn sideways for a bigger view.',
+  // the one line a phone held upright shows while it plays (the whole card is behind Details)
+  shortFreedoom: 'Freedoom level',
+  shortBsd: '(BSD)',
+  shortOwn: (name) => `your ${name}`,
+  details: 'Details',
   keys: 'WYRMFIRE: Enter skips the music. Arrows move and turn, Z and X strafe, Space fires, E opens doors.',
   switchPurpose: ' to play WYRMFIRE',
   // started from the welcome menu on another machine: switched without a question (the menu loses nothing)
@@ -102,12 +107,14 @@ export function setupWyrmfire(page, { confirmSwitch }) {
     line.replaceChildren(el('span', text, 'wyrmmsg'));
     bar.replaceChildren(...buttons);
     $('wyrmMore').hidden = true;
+    $('wyrmShort').hidden = true;
+    closeDetails(false);
   }
-  function hide() { strip.hidden = true; strip.dataset.state = ''; }
+  function hide() { strip.hidden = true; strip.dataset.state = ''; closeDetails(); }
   // while it plays: the credits, what is off, the person's own WAD
   function playing() {
     const st = session.wyrmfireState;
-    if (!st) { if (!job && strip.dataset.state === 'playing') hide(); return; }
+    if (!st) { if (!job && strip.dataset.state === 'playing') hide(); $('wyrmShort').hidden = true; return; }
     if (job) return;
     strip.hidden = false;
     strip.dataset.state = 'playing';
@@ -123,7 +130,35 @@ export function setupWyrmfire(page, { confirmSwitch }) {
     else level.replaceChildren(el('span', WYRM_TEXT.freedoom), ' ', button(WYRM_TEXT.useWad, pickWad));
     $('wyrmNote').textContent = note || '';
     $('wyrmNote').hidden = !note;
+    // the one line (CSS shows it only on a phone held upright): WYRMFIRE · Freedoom level (BSD) · Details, or
+    // WYRMFIRE · your <file> · Details. "(BSD)" is the Freedoom credit's licence link, so the credit is always in view.
+    const short = $('wyrmShort');
+    const whose = st.level === 'user' ? [el('span', WYRM_TEXT.shortOwn(st.name), 'wyrmown')]
+      : [el('span', `${WYRM_TEXT.shortFreedoom} `), link(WYRM_TEXT.shortBsd, PIN.files.freedoomCopying.path)];
+    const details = button(WYRM_TEXT.details, openDetails);
+    details.id = 'wyrmDetails';
+    details.setAttribute('aria-expanded', String(strip.classList.contains('sheet')));
+    short.replaceChildren(el('span', `${WYRM_TEXT.name} · `), ...whose, el('span', ' · '), details);
+    short.hidden = false;
   }
+  // Details: the whole card as a sheet over the controls (a phone held upright); ✕, a tap outside it or Esc closes it
+  const sheetOpen = () => strip.classList.contains('sheet') && !strip.hidden;
+  function openDetails() {
+    strip.classList.add('sheet');
+    $('wyrmClose').hidden = false;
+    const d = $('wyrmDetails'); if (d) d.setAttribute('aria-expanded', 'true');
+    $('wyrmClose').focus();
+  }
+  function closeDetails(refocus = true) {
+    if (!strip.classList.contains('sheet')) return;
+    strip.classList.remove('sheet');
+    $('wyrmClose').hidden = true;
+    const d = $('wyrmDetails');
+    if (d) { d.setAttribute('aria-expanded', 'false'); if (refocus) d.focus(); }
+  }
+  $('wyrmClose').onclick = () => closeDetails();
+  page.onEscape(ESC.sheet, sheetOpen, () => closeDetails());
+  page.outsidePress(sheetOpen, (t) => strip.contains(t), (refocus) => closeDetails(refocus));
   session.on((ev) => { if (['wyrmfire', 'machine', 'loaded', 'program'].includes(ev)) playing(); });
 
   // ---------------- getting the files ----------------

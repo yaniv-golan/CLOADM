@@ -450,7 +450,29 @@ export function setupTouchKeys(page, { input }) {
     // (keys hidden: room for ⌨, Show keys, under the screen's corner)
     // (the chips under the panel, on a phone: js/ui/phone-sheets.js; with the keys hidden, ⌨ stands beside them)
     const chips = $('chipRow'), last = chips.checkVisibility() ? chips : box.hidden ? null : box;
-    root.setProperty('--tk-below', `${last ? Math.round(last.getBoundingClientRect().bottom - m.bottom) : 56}px`);
+    const below = last ? Math.round(last.getBoundingClientRect().bottom - m.bottom) : 56;
+    root.setProperty('--tk-below', `${below}px`);
+    thumbFit(m.top + scrollY, below);
+  }
+  // WYRMFIRE's pad held upright: the screen should have the page's whole width, so where the height is short the pad
+  // gives way first (.tight: its keys down to 44 px), and only then the screen. tightBy: how much taller the pad is
+  // when not tight, measured when it last went tight, so it grows back only where that fits too.
+  let tightBy = 0;
+  const upright = matchMedia('(orientation: portrait)');
+  function thumbFit(above, below) {
+    const pad = $('touchPad'), tight = pad.classList.contains('tight');
+    if (!document.body.classList.contains('touch-thumb') || !upright.matches || box.hidden) { if (tight) pad.classList.remove('tight'); return; }
+    const want = monitor.parentElement.clientWidth * 3 / 4, room = innerHeight - above - below - 8;
+    if (!tight && room < want - 0.5) {
+      const was = pad.offsetHeight;
+      pad.classList.add('tight');
+      tightBy = Math.max(0, was - pad.offsetHeight);
+    } else if (tight && room - tightBy >= want) pad.classList.remove('tight');
+    // no key's label is cut short: ENTER where its column is too narrow for the word says ↵ (its name stays ENTER)
+    for (const k of pad.querySelectorAll('.padkeys .tk[data-key="ENTER"]')) {
+      if (k.textContent === '↵') { k.textContent = 'ENTER'; k.removeAttribute('aria-label'); }
+      if (k.offsetWidth && k.scrollWidth > k.clientWidth) { k.textContent = '↵'; k.setAttribute('aria-label', 'ENTER'); }
+    }
   }
   // (the monitor's own size changes with the result, but neither length depends on it: no loop)
   new ResizeObserver(fit).observe(document.querySelector('.layout > main'));
