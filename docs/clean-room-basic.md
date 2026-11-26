@@ -61,10 +61,12 @@ These are hard rules for everyone who works on this ROM.
   fits all of it in 16 K, so ours must be compact) and for P3's fixed addresses. With the cassette in, and after a
   size pass that changed no behaviour, it is 12,400 bytes: the code ends at `$B162`, 3,728 bytes below the vectors
   (`node tools/basic-size.js`). What the size pass relies on [OWN]:
-  * **Two-byte calls.** The ten busiest routines (`CHRGET`, `CHRGOT`, `CHROUT`, `FNARGN`, `FPRUN`, `PRTSTR`, `LINGET`,
-    `CHKCOM`, `USCHR`, `EVNUM`) each have a `JMP` at the top of the direct page (`ZTRAMP`, `$E2-$FF`), so a call is
-    `JSR <ZCHRGET`: two bytes for three, and three cycles more. `tools/build-basic.js` fails if the direct-page
-    variables reach them.
+  * **Two-byte calls.** Sixteen busy routines each have a `JMP` at the top of the direct page (`ZTRAMP`, `$D0-$FF`),
+    so a call is `JSR <ZCHRGET`: two bytes for three, and three cycles more. The first size pass made ten (`CHRGET`,
+    `CHRGOT`, `CHROUT`, `FNARGN`, `FPRUN`, `PRTSTR`, `LINGET`, `CHKCOM`, `USCHR`, `EVNUM`, at `$E2-$FF`), the second
+    six more below them (`GETBYT`, `SNERR`, `RPAREN`, `FCERR`, `CHKNUM`, `MOVMF`, at `$D0-$E1`); none is called from
+    timed code. The `JMP`s are written at a cold start from a list of addresses in the ROM (`ZINIT`, `boot.inc`), the
+    RAM vectors' with them. `tools/build-basic.js` fails if the direct-page variables reach them.
   * **Scratch bytes shared.** `ON`'s, `RENUM`'s, `DRAW`'s, `PAINT`'s and `GET`/`PUT`'s work uses `PRINT USING`'s
     bytes; `LOG`, `EXP`, `SIN` and `ATN` share one byte; `RND`'s product is in `PROD`. Each is used inside one
     statement or function that finishes before another of them starts (`d64basic.asm` says so at each).
@@ -74,7 +76,16 @@ These are hard rules for everyone who works on this ROM.
   * **Two tables for five series.** A series with alternating signs is evaluated in -x^2 with unsigned coefficients;
     every step of Horner's rule then differs from the signed one only in its sign, and the result is the same bits.
   * A line number is printed by `PRINT USING`'s decimal converter (`U32DEC`), which uses `FACM`: line numbers are
-    only printed between statements.
+    only printed between statements. `FOUT` makes its nine digits with it too (the integer is always 100000000 to
+    999999999), so there is no table of powers of ten for digits.
+  * **A second size pass** (no behaviour changed; the black-box records compare as before) took the image, with all
+    of P2 and the low-RAM layout in, from 16,040 to 15,531 bytes: the code ends at `$BD9D`, 597 bytes below the
+    vectors. Besides the six two-byte calls and `FOUT`'s digits: one scanner (`NXTOK`) for `IF`'s `ELSE`, `RENUM`
+    and `READ`; a quoted `DATA` or `INPUT` item read by `STRLIT`; the graphics colours and last point in the direct
+    page (`FOUT`'s digits, reached by index only, in the system block instead); `RND`'s multiplication by `FMUL`'s
+    64-bit product (`MULMAN`); one sign reader and a multiply-by-ten-and-add for `FIN`; one adjuster for the decimal
+    exponent; `MUL16` with two `MUL`s. `PLAY`'s settings stay in the system block: moving them would shorten the gap
+    between notes.
 * **Running it:** `m.setRoms({ basic: rom, basic64: null })` on a `dragon64` machine (Node), or
   `node tools/build-basic.js --out /tmp/d64_1.rom` then `node cli/cloadm.js --roms /tmp/d64_1.rom --type 'PRINT 2+2\n' --screen`.
 
@@ -98,8 +109,8 @@ corrupting the image.
 
 | Range | Use |
 |---|---|
-| `$0000-$00FF` | the direct page: the interpreter's variables (pointers, the two floating-point accumulators, the text pointer, flags, P2's current mode, start page and colour byte, `DRAW`'s angle and scale) up to `DPEND` (`$CA`), laid out around the fixed addresses programs use, the original's ([section 15](#15-interface-contract-basics-pointers-in-low-ram)): `$19-$28` the program and memory pointers, `$68` the line running, `$6F` the output device, `$71` the cold-start flag, `$88-$89` the cursor's address, `$8F` its blink countdown, `$97-$98` the debounce delay ([section 14](#14-the-cursor)), `$A6-$A7` the text pointer, `$AF` `TRON`; then the two-byte calls' `JMP`s at `$E2-$FF` (`ZTRAMP`; section 2, the size budget), copied from the ROM with the RAM vectors at a cold start. DP is 0 throughout |
-| `$0100-$01FF` | the system RAM block, laid out by `RMB` in `d64basic.asm` (so nothing overlaps; the build fails if it reaches `$0200`): the RAM jump vectors (IRQ, FIRQ, NMI, SWI, SWI2, SWI3), so a program can hook an interrupt [OWN; addresses to align in P3]; `TIMER` at `$0112`; the `DEF USR` addresses; the cassette's name block, ending just below `$0149`, the lower-case flag; the keyboard's rollover table; the 8 temporary string descriptors; `FOR`'s step and limit; the numeric functions' temporaries; the number conversion and `PRINT USING` buffer; P2's colours, colour set, last point and a point read; the four `JOYSTK` values and `PLAY`'s octave, length and its dots, tempo and volume |
+| `$0000-$00FF` | the direct page: the interpreter's variables (pointers, the two floating-point accumulators, the text pointer, flags, P2's current mode, start page and colour byte, `DRAW`'s angle and scale) up to `DPEND` (`$CE`: 2 bytes free below the two-byte calls, 4 below `$68`), laid out around the fixed addresses programs use, the original's ([section 15](#15-interface-contract-basics-pointers-in-low-ram)): `$19-$28` the program and memory pointers, `$68` the line running, `$6F` the output device, `$71` the cold-start flag, `$88-$89` the cursor's address, `$8F` its blink countdown, `$97-$98` the debounce delay ([section 14](#14-the-cursor)), `$A6-$A7` the text pointer, `$AF` `TRON`; then the two-byte calls' `JMP`s at `$D0-$FF` (`ZTRAMP`; section 2, the size budget), written with the RAM vectors at a cold start. P2's colours, colour set, last point and the point read are here too. DP is 0 throughout |
+| `$0100-$01FF` | the system RAM block, laid out by `RMB` in `d64basic.asm` (so nothing overlaps; the build fails if it reaches `$0200`): the RAM jump vectors (IRQ, FIRQ, NMI, SWI, SWI2, SWI3), so a program can hook an interrupt [OWN; addresses to align in P3]; `TIMER` at `$0112`; the `DEF USR` addresses; the cassette's name block, ending just below `$0149`, the lower-case flag; the keyboard's rollover table; the 8 temporary string descriptors; `FOR`'s step and limit; the numeric functions' temporaries; the number conversion and `PRINT USING` buffer and `FOUT`'s nine digits; the four `JOYSTK` values and `PLAY`'s octave, length and its dots, tempo and volume |
 | `$0200-$02FF` | the line input buffer (250 characters + terminator); `VAL` reads its copy of a string here |
 | `$0300-$03FF` | the crunched line |
 | `$0400-$05FF` | the text screen, 32 x 16 [HW: the SAM's reset display offset] |
@@ -668,7 +679,7 @@ region below `$97` is full); `SEED` from `$94` to `$99`; everything after `EXECA
 `$C9` to `$CC`). No byte is left unused between the regions. What may have to move later, once
 P3's census says which addresses programs use: the program and memory pointers (`TXTTAB`, `VARTAB`, `ARYTAB`,
 `ARYEND`, `FRETOP`, `STRBOT`, `MEMTOP`), `TXTPTR` and `CURLIN`, `TIMER`, `CASEFL`, the floating-point accumulators
-(`FACEXP`-`ARGSGN`), `EXECAD`, `SEED`, the two-byte calls at `$E2-$FF` (whatever the original keeps there), and in the
+(`FACEXP`-`ARGSGN`), `EXECAD`, `SEED`, the two-byte calls at `$D0-$FF` (whatever the original keeps there), and in the
 system block at `$0100` the RAM vectors, the `DEF USR` table and the cassette's name block. Each new fixed address adds
 a region split in `d64basic.asm` and a check in `tools/build-basic.js`, as these three did.
 
@@ -710,5 +721,5 @@ strings change, and `NEW`, `CLEAR`, `PCLEAR`, `RUN` and a load reset some of the
 | `$0149` | lower case (`SHIFT-0`) | 255 upper case, 0 lower case; `POKE 329,0` makes typed letters lower case | the same (`CASEFL`; any value but 0 is upper case [OWN]) |
 
 Still to do here: `$25-26`; the input buffers' places (so a direct-mode `$A6-A7` matches); the RAM vectors and hooks
-(the [DOC] lead puts the IRQ's `JMP` at `$010C`), and the two-byte calls at `$E2-$FF` (whatever the original keeps
+(the [DOC] lead puts the IRQ's `JMP` at `$010C`), and the two-byte calls at `$D0-$FF` (whatever the original keeps
 there), which belong to the machine-code interface.

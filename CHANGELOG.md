@@ -81,7 +81,8 @@ Next version: 0.2.0 (the plugin and extension manifests carry it; `tests/plugin.
   changing between normal and inverse once a block, a file passed over as `S NAME` and the screen cleared again at
   its end, the file wanted as `F NAME`, and the prompt or the error on the next row. `CLOAD` of a data file is
   `?DS ERROR`, given (as a text line without a number) once the whole file is read, and after a load that failed
-  with `?IO ERROR` the next cassette statement is `?AO ERROR`, as on the original.
+  with `?IO ERROR` the next cassette statement is `?AO ERROR`, as on the original. A second size pass, with no
+  behaviour changed, takes the ROM from 16,040 to 15,531 bytes (the room cassette data files need).
 - **The share-link formats are frozen.** Links and snapshots in people's hands keep opening from now on (AGENTS.md,
   rule 7): `SNAPSHOT_OLDEST` never rises (a change to the meaning of state ships a converter from every older version), no
   link or envelope decoder is ever dropped, and a long link's byte 0 is 1 for a moment, 2 for a BASIC program, 3 to 31

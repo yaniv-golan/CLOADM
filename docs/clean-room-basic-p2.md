@@ -151,7 +151,9 @@ masks), and the 6809 stack (the line routine's axes, `X` substrings, `PAINT`'s s
 page: `PLAY`'s settings are in the system block and a note's working values in a frame on the stack (no note
 countdown: lengths are cycle-counted). The system block (46 bytes free before P2): the first step uses 11 (`FGCOL`,
 `BGCOL`, `GCSS` the colour set x 4, the last point `LASTX`/`LASTY` 16-bit each, `GXY` a point read), the drawing
-statements none, the sound step 9 (section 7), leaving 26.
+statements none, the sound step 9 (section 7), leaving 26. (The second size pass, [clean-room-basic.md](clean-room-basic.md)
+section 2, later moved those 11 graphics bytes into the direct page, where 53 accesses are a byte shorter each, put
+`FOUT`'s nine digits in the system block in their place, and added six two-byte calls at `$D0-$E1`.)
 
 ## 4. Modules and size budget
 
@@ -194,6 +196,10 @@ The black-box alignment of the graphics (section 5, "Aligned with the black-box 
 mode's pixels with a 16-bit sine table (`circle.inc` 271 to 290, `sine.inc` 16 to 32), the clamped points and
 `GPIXM` (`gfx.inc` 648 to 672), the running bit layout and coarse `GET` (`getput.inc` 382 to 395), `SET`'s colour
 0, and the text screen shown by `CHROUT` (5 bytes, less `READY`'s call and the line before `BREAK`).
+With the cassette's display and errors and the low-RAM layout the image reached 16,040 bytes; the second size pass
+([clean-room-basic.md](clean-room-basic.md), section 2) brought it to 15,531 with nothing a program can see changed
+but our own variables' places: 597 bytes free below the vectors (`gfx.inc` 672 to 649, the other graphics
+modules 52 bytes less between them, all from direct-page addressing and the two-byte calls).
 
 Rules that keep it small [OWN]: size before speed everywhere (no unrolled loops, no per-mode fast paths); one
 routine for every pixel; one line routine for `LINE`, `DRAW` and `CIRCLE`; one block loop for `PCLS`, `PCOPY` and
