@@ -140,7 +140,7 @@ LS4     LDD     ,X
         LDD     2,X
         CMPD    <TMPCNT
         BHI     LSDONE
-        JSR     LSTLIN
+        BSR     LSTLIN
         JSR     BRKTST
         BCS     LSBRK
         LDX     ,X
@@ -311,9 +311,9 @@ RNC2    LDD     <TMPCNT
 RNC2A   LDX     ,X
         BRA     RNC1
 RNC3    LDD     <TMPCNT
-        LBEQ    RNEND           ; nothing to renumber
+        BEQ     RNEND           ; nothing to renumber
         SUBD    #1              ; the last new number: new + (count - 1) x step, up to 63999
-        JSR     RNMUL
+        BSR     RNMUL
         ADDD    <RNNEW
         LBCS    FCERR
         CMPD    #63999

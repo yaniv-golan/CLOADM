@@ -12,8 +12,7 @@ IFST    JSR     <ZEVNUM
 IF1     TST     <FACEXP
         BEQ     IFNO
 IFYES   JSR     <ZCHRGOT
-        BCS     IFLINE
-        JMP     EXECST
+        LBCC    EXECST
 IFLINE  JMP     GOTO1
 * false: look for this IF's ELSE
 IFNO    LDX     <TXTPTR

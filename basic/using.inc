@@ -183,7 +183,7 @@ USN2     PSHS    A
         CMPA    #'$'
         BNE     USN3
         LDA     #8              ; **$
-        JSR     USFSET
+        BSR     USFSET
         INC     <USNB
         INC     <USPOS
 USN3     JSR     <ZUSCHR           ; # and , before the point

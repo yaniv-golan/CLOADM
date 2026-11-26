@@ -65,7 +65,7 @@ DEF1    CMPA    #T_FN
         JSR     DIRCHK
         LBEQ    IDERR           ; only in a program
         JSR     <ZCHRGET
-        JSR     FNNAME
+        BSR     FNNAME
         LDA     #1
         STA     <VARCRE
         JSR     PTRLKP
@@ -137,12 +137,12 @@ VARPTR  JSR     LPAREN          ; (a variable that does not exist: ?FC ERROR; ma
         PSHS    X
         JSR     <ZRPAREN
         PULS    D
-        JMP     GIVUNS
+        BRA     MEMGIV
 * MEM: the bytes free between the arrays and the stack, as the original counts them [BB bb2 gfx-pclear: 2 more]
 MEM     LEAX    4,S             ; (the original's MEM with its string space at 32766 [BB bb3 ram-pointers])
         TFR     X,D
         SUBD    <ARYEND
-        JMP     GIVUNS
+MEMGIV  JMP     GIVUNS
 * POS(n): the cursor's column (n is not used)
 POS     JSR     <ZFNARGN
         LDB     <CURPOS+1
@@ -151,7 +151,7 @@ POS     JSR     <ZFNARGN
         JMP     GIVNUM
 * TIMER: the fields counted since it was last set (50 a second); TIMER = n sets it [UM]
 TIMERF  LDD     TIMER
-        JMP     GIVUNS
+        BRA     MEMGIV
 TIMERS  JSR     SYNEQ
         JSR     EVADR
         STD     TIMER

@@ -44,8 +44,7 @@ DRSGN   CLRA
         PSHS    B
         LDD     <DRLEN
         TST     ,S+
-        BPL     DS9
-        JMP     NEGD
+        LBMI    NEGD
 DS9     RTS
 
 * DRNUM: a number 0 to A (0 when left out) into B, else ?FC ERROR

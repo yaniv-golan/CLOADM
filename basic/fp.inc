@@ -241,9 +241,9 @@ SHFT2    TSTB
 FMULX   JSR     MOVAM           ; (FMULX: [X] x FAC)
 FMUL    JSR     ROUND
         TST     <FACEXP
-        LBEQ    FMZ
+        BEQ     FMZ
         TST     <ARGEXP
-        LBEQ    FMZ
+        BEQ     FMZ
         LDA     <FACSGN
         EORA    <ARGSGN
         STA     <FACSGN
@@ -317,8 +317,7 @@ FM4A    DEC     <FPI
 FDIVX   JSR     MOVAM           ; (FDIVX: [X] / FAC)
 FDIV    JSR     ROUND
         TST     <FACEXP
-        BNE     FD1
-        JMP     DZERR
+        LBEQ    DZERR
 FD1     TST     <ARGEXP
         BEQ     FMZ
         LDA     <FACSGN

@@ -121,13 +121,13 @@ FOFIX
 FO3     LDX     #FP1E8          ; while FAC < 1E8: x 10
         JSR     FCMPM
         BLE     FO4
-        JSR     MUL10
+        BSR     MUL10
         JSR     E10DEC
         BRA     FO3
 FO4     LDX     #FP1E9          ; while FAC >= 1E9: / 10
         JSR     FCMPM
         BGT     FO5
-        JSR     DIV10
+        BSR     DIV10
         JSR     E10INC
         BRA     FO4
 FO5     LDX     #FPHALF         ; + 0.5, and the integer part: nine digits

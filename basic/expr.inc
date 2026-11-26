@@ -139,7 +139,7 @@ EVNEG   JSR     <ZCHRGOT
 EN1     JSR     <ZCHRGET
         BSR     EVNEG
         JSR     <ZCHKNUM
-        JMP     FNEG
+        BRA     EVNEGJ
 * ^ (its right operand may have a sign)
 EVPOW   BSR     EVATOM
 EP1     JSR     <ZCHRGOT
@@ -158,7 +158,7 @@ EVPWR   CMPA    #T_MINUS
         JSR     <ZCHRGET
         BSR     EVPWR
         BSR     CHKNUM
-        JMP     FNEG
+EVNEGJ  JMP     FNEG
 EVPW1   CMPA    #T_PLUS
         BNE     EVATOM
         JSR     <ZCHRGET
@@ -190,8 +190,7 @@ EVPAR   JSR     <ZCHRGET
 EVVAR   CLR     <VARCRE
         JSR     PTRGET
         TST     <VALTYP
-        BNE     EVV1
-        JMP     MOVFM
+        LBEQ    MOVFM
 EVV1    STX     <STRPTR
         RTS
 * a function: $FF and its token; the routine starts on the character after the token
@@ -280,8 +279,7 @@ INTCNV  BSR     CHKNUM
         BHI     ICFC
         RTS
 IC1     CMPD    #$8000
-        BHI     ICFC
-        JMP     NEGD
+        LBLS    NEGD
 ICFC    JMP     <ZFCERR
 * GETADR: FAC as an address, 0-65535, in D (?FC ERROR otherwise)
 * EVADR: an expression as an address

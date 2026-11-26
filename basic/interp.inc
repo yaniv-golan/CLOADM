@@ -186,7 +186,7 @@ END1    CLR     <CONTMD
         STD     <OLDLIN
         LEAX    2,S             ; (under NEWSTT's return address: the frames)
         STX     <BASESP
-ENDRUN  JMP     READY
+ENDRUN  BRA     STOP3
 
 STOP    BNE     SYNERR
         CLR     <CONTMD
@@ -213,20 +213,18 @@ STOP1   JSR     PRMSG
         BEQ     STOP2
         JSR     PRTIN
 STOP2   JSR     CRLF
-        JMP     READY
+STOP3   JMP     READY
 
 
 CONT    LBNE    SNERR
         LDD     <OLDTXT
-        BNE     CONT1
-        JMP     CNERR
+        LBEQ    CNERR
 CONT1   STD     <TXTPTR
         LDD     <OLDLIN
         STD     <CURLIN
         LDS     <BASESP
         TST     <CONTMD
-        BEQ     CONT2
-        JMP     NEWST2
+        LBNE    NEWST2
 CONT2   JMP     NEWSTT
 
 * NXTOK: the next byte of the line at X outside strings, function tokens' second bytes and remarks; Z set at the
@@ -296,8 +294,7 @@ GOTO1   BCC     GOSN
         JSR     <ZLINGET
 * JUMPTO: go to line BINVAL (?UL ERROR if there is none)
 JUMPTO  JSR     FNDLIN          ; X = the line, C set if found
-        BCS     JMP1
-        JMP     ULERR
+        LBCC    ULERR
 JMP1    LEAX    3,X             ; the byte before the line's text
         STX     <TXTPTR
         LDD     <BINVAL

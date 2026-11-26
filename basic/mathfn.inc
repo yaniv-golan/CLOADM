@@ -238,8 +238,7 @@ FEXP    LDX     #EXPMAX
         LBMI    OVERR           ; above 127 ln 2: ?OV ERROR
         LDX     #EXPMIN
         JSR     FCMPM
-        BLE     EXP1
-        JMP     FZERO           ; below -129 ln 2: 0
+        LBGT    FZERO           ; below -129 ln 2: 0
 EXP1    JSR     <ZFPRUN           ; t = x / ln 2, kept
         FCB     F_MUL+K_ILN2,F_STO+1,0
         JSR     FINT
@@ -294,8 +293,7 @@ SIN1    JSR     <ZFPRUN
         JSR     POLY
 SIN2    LDA     <QUAD
         BITA    #2
-        BEQ     SIN3
-        JMP     FNEG
+        LBNE    FNEG
 SIN3    RTS
 * TAN(x) = SIN(x) / COS(x)
 TAN     JSR     <ZFNARGN

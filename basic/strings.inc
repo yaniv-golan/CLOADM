@@ -29,7 +29,7 @@ MKTMP   PSHS    U
         STA     <VALTYP
         PULS    U,PC
 STERR   LDB     #ERR_ST
-        JMP     ERROR
+        BRA     GSERR
 
 * FRETMP: the string of the descriptor at X: X = its address, B = its length. If the descriptor is the last
 * temporary it is freed, and so is its string if it is the last one made.
@@ -75,7 +75,7 @@ GS1     TST     <GCDONE
         LDB     ,S
         BRA     GS0
 GS2     LDB     #ERR_OS
-        JMP     ERROR
+GSERR   JMP     ERROR
 
 * Invariant: no two descriptors share a string in the string space (STRKEEP copies a variable's string rather than
 * share it), so moving a string updates its one descriptor.
@@ -238,7 +238,7 @@ SL2     STX     <TXTPTR
         JSR     GETSPA
         LDU     1,S
         STX     1,S
-        JSR     CPYUX
+        BSR     CPYUX
 SL4     PULS    B,X
         JSR     MKTMP
         LDA     [TXTPTR]

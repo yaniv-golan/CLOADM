@@ -188,10 +188,10 @@ IN4     PULS    X
 INYES   LDB     <TMPCNT+1
         INCB
         CLRA
-        JMP     GIVNUM
+        BRA     INGIV
 INNO    CLRA
         CLRB
-        JMP     GIVNUM
+INGIV   JMP     GIVNUM
 
 * STRING$(n, c) or STRING$(n, c$): n of the character
 STRNGS  JSR     LPAREN
@@ -220,7 +220,7 @@ SG3     STA     ,X+
         BNE     SG3
 SG4     PULS    X
         PULS    B
-        JMP     MKTMP
+        BRA     IKMK
 
 * HEX$(n): n (0-65535) in hexadecimal, no leading zeros
 HEXS    JSR     <ZFNARGN
@@ -257,10 +257,9 @@ HXS3    DEC     <TMPCNT
 
 * INKEY$: the key pressed since the last look, or an empty string
 INKEY   JSR     KEYIN
-        BEQ     IK1
-        JMP     CHR1
+        LBNE    CHR1
 IK1     CLRB
-        JMP     MKTMP
+IKMK    JMP     MKTMP
 
 * CLEAR [string space [, top of memory]]: no variables, the string space set, the stack emptied [UM]
 CLEAR   BEQ     CL3

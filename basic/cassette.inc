@@ -451,7 +451,7 @@ CS1     LDD     ,X
 CS1E    BSR     CFLUSH
         CLR     <DEVNUM
         STX     <CEND           ; no more data: the end-of-file block
-        BRA     CWDATA
+CS2J    BRA     CWDATA
 CS2     BSR     CWHEAD
         LDX     <VARTAB
         STX     <CEND
@@ -475,7 +475,7 @@ CSAVEM  JSR     <ZCHRGET
         CLR     CFGAP
         JSR     CWHEAD
         LDX     CFLOAD
-        JMP     CWDATA
+        BRA     CS2J
 
 * CHRTAP: CHROUT while CSAVE ,A lists the program: the character goes into the block at LINBUF, and a full
 * block goes onto the tape. Keeps every register.

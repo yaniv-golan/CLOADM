@@ -146,12 +146,12 @@ AGLOOK  STB     <NDIMS
 AGFND   TST     <DIMFLG
         BEQ     AG4
         LDB     #ERR_DD         ; DIM of an array that exists
-        JMP     ERROR
+        BRA     AGERR
 AG4     LDB     4,X
         CMPB    <NDIMS
         BEQ     AGELEM
 AGBS    LDB     #ERR_BS
-        JMP     ERROR
+AGERR   JMP     ERROR
 * a new array at ARYEND: each dimension's size from DIM (subscript + 1), or 11
 AGNEW   LDB     <NDIMS          ; the header: 5 + 2 per dimension
         CLRA

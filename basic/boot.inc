@@ -50,13 +50,13 @@ COLD2   LDA     #$7E            ; a JMP to each address of the list
         JSR     CLS
         LDX     #BANNER
         JSR     <ZPRTSTR
-        JMP     READY
+        BRA     RDYJ
 
 * the reset button with BASIC already running: keep the program and the variables
 WARM    LDS     <STRBOT
         CLR     <TRCFLG
         JSR     CLS
-        JMP     READY
+RDYJ    JMP     READY
 
 * the two-byte calls' targets (d64basic.asm, ZTRAMP, in its order), then the RAM vectors' handlers: an address
 * each, and COLD2 writes the JMP in front of it

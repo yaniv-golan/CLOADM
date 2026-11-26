@@ -38,7 +38,7 @@ CR2A    CMPA    #'?'
         LDA     #T_PRINT
         STA     ,U+
         LEAX    1,X
-        BRA     CR1
+CR1J    BRA     CR1
 CR3     CMPA    #' '
         BEQ     CRCOPY
         BSR     KWMAT
@@ -78,7 +78,7 @@ CRQ1    LDA     ,X
         LEAX    1,X
         CMPA    #'"'
         BNE     CRQ1
-        LBRA    CR1
+        BRA     CR1J
 CRREST  LDA     ,X+
         STA     ,U+
         BNE     CRREST
