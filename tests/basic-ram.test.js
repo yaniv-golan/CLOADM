@@ -7,8 +7,8 @@
 //  * a program that PEEKs and POKEs them: TRON (175), lower case (329), the program's start (25, NEW), TIMER (274),
 //    the cold-start flag (113), the output device (111: 0 and $FF only);
 //  * the two real records replayed on ours: identical, apart from the lines whose values come from the
-//    interpreter's speed (TIMER after a run, the loop timings), the direct-mode text pointer (where the input
-//    buffer is: not yet the original's) and the printer (not built).
+//    interpreter's speed (TIMER after a run, the loop timings) and the printer (not built);
+//  * the input buffers' places from ram-pointers2 (2026-11-26), and two loops never faster than the original's.
 const fs = require('fs'), path = require('path');
 const { runCase } = require('./basic/harness.js');
 const { buildBasic } = require('../tools/build-basic.js');

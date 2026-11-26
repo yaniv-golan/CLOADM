@@ -3,7 +3,9 @@
 # program's B$=A$+"C". Here each kind of string is made once in direct mode and once in a program, and $25-26 is
 # printed with $23-24 after each: a literal (copied in direct mode, not in a program), a plain copy of a variable
 # (no new string), a join, STR$, CHR$, LEFT$, a temporary in PRINT only, and an INPUT reply; then after RUN and
-# CLEAR. Each value 16-bit big-endian. Syntax [UM]; the addresses' meaning [DOC] and ram-pointers2; the values [BB].
+# CLEAR. Last, a direct GOSUB to a subroutine whose INPUT reply is longer than the rest of the typed line (the reply
+# goes where the typed line is: does RETURN find it?). Each value 16-bit big-endian. Syntax [UM]; the addresses'
+# meaning [DOC] and ram-pointers2; the values [BB].
 #timeout 60
 NEW
 CLEAR 200
@@ -30,3 +32,9 @@ RUN
 #wait-text ^OK(?![\s\S])
 PRINT "D";PEEK(37)*256+PEEK(38);PEEK(35)*256+PEEK(36)
 CLEAR 100:PRINT "K";PEEK(37)*256+PEEK(38);PEEK(35)*256+PEEK(36)
+NEW
+100 INPUT A$:RETURN
+#nowait
+GOSUB 100:PRINT "AFTER";A$
+#type HELLOWORLDLONGREPLY\n
+#wait-text ^OK(?![\s\S])
