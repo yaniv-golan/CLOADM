@@ -196,18 +196,20 @@ PC1     BSR     COLVAL
 * COLOR f[,b]: the foreground and background colours, 0-8 [UM]
 COLOR   BSR     GETCL0
         STB     <FGCOL
-        JSR     <ZCHKCOM
-        BNE     CO1
-        BSR     GETCOL
+        LDB     <BGCOL
+        BSR     OPTCOL
         STB     <BGCOL
-CO1     RTS
+        RTS
 
 * GETCOL: a ',' and a colour 0-8 into B; GETCL0: a colour without the ',' (?FC ERROR above 8 [BB])
+* OPTCOL: the same when a ',' follows; B is kept when none does (the caller's default)
+OPTCOL  JSR     <ZCHKCOM
+        BNE     GCR
 GETCOL  JSR     COMMA
 GETCL0  JSR     <ZGETBYT
         CMPB    #8
         BHI     GFC2
-        RTS
+GCR     RTS
 GFC2    JMP     <ZFCERR
 
 * COLVAL: colour B -> B = that colour in every pixel of a byte of the current mode: two colours, the foreground (all
@@ -228,15 +230,11 @@ CV4     DECB
 
 * PSET (x,y[,c]): the point in colour c, the foreground by default; PRESET (x,y): in the background [UM]. Neither
 * moves the last point [BB bb2 gfx-line pmode4-boxes: LINE -(x,y) after PSET starts from the last LINE's end].
-PSET    LDU     #GXY
-        BSR     GETXY
+PSET    BSR     GXYGET
         LDB     <FGCOL
-        JSR     <ZCHKCOM
-        BNE     PS1
-        BSR     GETCOL
+        BSR     OPTCOL
         BRA     PS1
-PRESET  LDU     #GXY
-        BSR     GETXY
+PRESET  BSR     GXYGET
         LDB     <BGCOL
 PS1     BSR     RPKEEP
         BSR     COLVAL
@@ -304,7 +302,11 @@ RPKEEP  PSHS    D
 * ',' after y. A = x, B = y. Each is 0-65535 (?FC ERROR otherwise), x above 255 taken as 255 and y above 191 as
 * 191 [BB bb2 gfx-errors, gfx-clip: PSET(256,0), PSET(0,192) and LINE to x 300 are no error, nothing is drawn
 * outside the picture, and PPOINT(256,0) and PPOINT(0,192) then read the points set at the edge].
+GXYRP   BSR     GXYGET          ; (x,y) into GXY, and the ')' after it
+        JMP     <ZRPAREN
 LSTXY   LDU     #LASTX
+        BRA     GETXY
+GXYGET  LDU     #GXY            ; (x,y into GXY
 GETXY   PSHS    U
         JSR     LPAREN
         LDX     #255
@@ -328,8 +330,7 @@ GXY1    PULS    X,PC
 
 * PPOINT (x,y): the colour of a point [UM]: in four colours 1-4 or 5-8 by the colour set; in two, 0 for black,
 * else the set's colour (1 or 5) [OWN; BB]
-PPOINT  LDU     #GXY
-        BSR     GETXY
+PPOINT  BSR     GXYGET
         BSR     RPKEEP
         BSR     GPIXAD
         TFR     A,B

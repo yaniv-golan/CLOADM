@@ -25,19 +25,12 @@ PEND    EQU     USNA            ; the high byte of the end of the pages
 
 * PAINT (x,y)[,c[,b]] [UM]: from the point, in colour c (the foreground by default) up to the border colour b (c by
 * default) [BB bb2 gfx-paint]. The point is clamped to the picture as PSET's; ?FC ERROR for a colour above 8 [BB].
-PAINT   LDU     #GXY
-        JSR     GETXY
-        JSR     <ZRPAREN
+PAINT   JSR     GXYRP
         LDB     <FGCOL
-        JSR     <ZCHKCOM
-        BNE     PN1
-        JSR     GETCOL
-PN1     PSHS    B
-        JSR     <ZCHKCOM
-        BNE     PN2
-        JSR     GETCOL
-        FCB     $8C             ; (CMPX #: skips the LDB)
-PN2     LDB     ,S
+        JSR     OPTCOL
+PN1     PSHS    B               ; (the border's default: the colour, still in B)
+        JSR     OPTCOL
+PN2
         JSR     COLVAL
         STB     <PBORD
         PULS    B

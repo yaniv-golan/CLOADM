@@ -15,15 +15,11 @@ CONE    FDB     $0100           ; (1 in 8.8: the x offset's scale)
 * draws the whole circle, h 5 and s 1.5 are no error]; an end at or before the start goes on past 0, and the same
 * start and end draw the whole circle. Corners off the picture are clipped as LINETO clips. The last point is left
 * as it was [OWN; BB]. Work: TMPPTR h x 256, TMPPT2 r, TMPCNT the chords left and the corner.
-CIRCLE  LDU     #GXY
-        JSR     GETXY
-        JSR     <ZRPAREN
+CIRCLE  JSR     GXYRP
         JSR     COMBYT          ; r
         PSHS    B
         LDB     <FGCOL
-        JSR     <ZCHKCOM
-        BNE     CI1
-        JSR     GETCOL
+        JSR     OPTCOL
 CI1     JSR     COLVAL
         STB     <GCOLB
         LDB     #8              ; h x 256

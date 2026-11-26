@@ -6,33 +6,13 @@ RESET   ORCC    #$50            ; no interrupts while setting up
         CLRA
         TFR     A,DP
         LDS     #LINBUF         ; a temporary stack until the memory pointers are set
-* PIA 0: port A in (keyboard rows), port B out (keyboard columns); CB1 (field sync) interrupts
-        CLR     PIA0CA          ; control register 0: the DDR
-        CLR     PIA0A           ; port A all inputs
-        LDA     #$34            ; CA2 output low, data register, CA1 interrupt off
-        STA     PIA0CA
-        CLR     PIA0CB
-        LDA     #$FF
-        STA     PIA0B           ; port B all outputs
-        LDA     #$35            ; CB2 output low, data register, CB1 interrupt on (falling edge)
-        STA     PIA0CB
-        LDA     #$FF
-        STA     PIA0B           ; no column driven
-* PIA 1: port A bits 1-7 out (DAC), port B bits 1-7 out; PB2 high keeps the 32K-mode ROM selected, so it is
-* written to the data register before port B becomes an output
-        CLR     PIA1CA
-        LDA     #$FE
-        STA     PIA1A
-        LDA     #$34            ; CA2 (motor) low, data register
-        STA     PIA1CA
-        LDA     #$04
-        STA     PIA1CB          ; data register
-        STA     PIA1B           ; PB2 = 1, VDG text mode
-        CLR     PIA1CB          ; the DDR
-        LDA     #$FE
-        STA     PIA1B
-        LDA     #$34            ; CB2 (sound) low, data register, CB1 interrupt off
-        STA     PIA1CB
+* The PIAs, from PIATAB: each register (its address's low byte) and the value written to it, in order
+        LDX     #PIATAB
+        LDU     #PIA0A
+PIAI    LDD     ,X++
+        STB     A,U
+        CMPX    #PIATBE
+        BLO     PIAI
 * SAM: the text screen at $0400, 64K RAM
         STA     SAMF1S
         STA     SAMM1S
@@ -84,6 +64,26 @@ ZINIT   FDB     CHRGET,CHRGOT,CHROUT,FNARGN,FPRUN,PRTSTR,LINGET,CHKCOM,USCHR,EVN
         FDB     GETBYT,SNERR,RPAREN,FCERR,CHKNUM,MOVMF
         FDB     IRQSRV,FIRQSV,NMISRV,NMISRV,NMISRV,NMISRV       ; the RAM vectors: IRQ, FIRQ, NMI, SWI, SWI2, SWI3
 ZINITE  RMB     0
+
+* PIA 0: port A in (keyboard rows), port B out (keyboard columns); CB1 (field sync) interrupts
+PIATAB  FCB     $01,$00         ; control register A: the DDR
+        FCB     $00,$00         ; port A all inputs
+        FCB     $01,$34         ; CA2 output low, data register, CA1 interrupt off
+        FCB     $03,$00
+        FCB     $02,$FF         ; port B all outputs
+        FCB     $03,$35         ; CB2 output low, data register, CB1 interrupt on (falling edge)
+        FCB     $02,$FF         ; no column driven
+* PIA 1: port A bits 1-7 out (DAC), port B bits 1-7 out; PB2 high keeps the 32K-mode ROM selected, so it is
+* written to the data register before port B becomes an output
+        FCB     $21,$00
+        FCB     $20,$FE
+        FCB     $21,$34         ; CA2 (motor) low, data register
+        FCB     $23,$04         ; data register
+        FCB     $22,$04         ; PB2 = 1, VDG text mode
+        FCB     $23,$00         ; the DDR
+        FCB     $22,$FE
+        FCB     $23,$34         ; CB2 (sound) low, data register, CB1 interrupt off
+PIATBE  RMB     0
 
 BANNER  FCC     "CLOADM BASIC"  ; (a placeholder: the wording comes later)
         FCB     13

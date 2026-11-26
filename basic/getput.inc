@@ -24,9 +24,7 @@ GETST   LDB     #$FF
         FCB     $21             ; (BRN: skips the CLRB)
 PUTST   CLRB
         STB     <GPDIR
-        LDU     #GXY
-        JSR     GETXY
-        JSR     <ZRPAREN
+        JSR     GXYRP
         LEAS    -4,S
         LEAU    ,S
         JSR     ENDPT
