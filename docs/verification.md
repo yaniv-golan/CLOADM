@@ -1073,8 +1073,8 @@ bar is one row of 48 px (the machine, Open…, Ask Claude, Menu; Add ROMs not in
 exactly one visible control is named Menu; ⌄ hides the keys, the screen then takes the page's width less 16 px (1 px of
 rounding allowed: the picture is whole pixels) and ⌨ (Show keys) is 44x44 inside the window and brings them back;
 scrolled to the page's foot, ⌨ covers nothing of it; 2048 opens on Pad with the screen at the page's width, exactly one visible BREAK (the strip's), every pad key 48 px and more and none over the strip, and the strip's BREAK takes 2048 back to the welcome menu. The app bar is 48 px at its first paint (an init script reads
-it at the first animation frame) and 2 s later, with the touch class already on. Menu wears a dot while there is no
-BASIC (its name then "Menu (ROMs needed)"), lists Programs… first, then "Add ROMs (BASIC needs them)" with the same dot, then Share,
+it at the first animation frame) and 2 s later, with the touch class already on. Menu wears no dot while there is no
+BASIC (its name stays "Menu"), lists Programs… first, then "Add ROMs…" (no dot), then Share,
 Settings…, the links, Commands… and Install CLOADM…, opens moving nothing in the bar with the focus on its first item
 (Tab goes to the next), and its Add ROMs opens Add ROMs; at 390x844 its Settings… brings the settings tabs into view
 with the focus on Display. Minesweeper opens on Pad (Up, Left, Down, Right, SPACE, ENTER, F, ABC, no BREAK: the strip's is the only one; every key 48 px and
@@ -1293,10 +1293,20 @@ browser check's group `uiModel` drives them with real events at 1280x720 and at 
   its action, ↓ from the last machine to both footer items, Esc, and each footer item's focus.
 * ROMs in the Library: the ROMs chip's card with and without ROMs (the count and the machines worked out from `session.roms`),
   the drop's **Open Your ROMs**, and the card's link. `tests/stored-roms.test.js` checks `Session.storedRoms`.
+* The ROM requirement said once (browser check `romOnce`, `tools/browser-check.js`): at 1440x900 (a mouse) and 393x659,
+  659x393 and 653x280 (a touch screen), on the Dragon 64, the CoCo 3 and the MC-10, in six states (a first visit and a
+  return without ROMs, stand-in ROMs stored with the built-in firmware running, the stand-ins running, the chat screen,
+  `?embed=1`): none of "No BASIC ·", "(BASIC needs them)", "Running with no ROMs." and "No ROMs yet:" is anywhere in the
+  page; with no ROMs nothing visible is filled orange (the app bar's button, Menu, its dot and its Add ROMs… item
+  included); "Add ROMs…" on the bar is styled as Share (border, colour, weight, radius, height), named "Add your ROMs
+  for BASIC", one line at 701 and 1440 px; with ROMs stored it is gone from the bar and Menu; the bar's button, Menu's
+  item and the welcome menu's key 3 each open Add ROMs. The stand-ins are made in the check (a BRA * and the reset
+  vector at a socket's name and size), never a real ROM. `noRomChrome` sweeps 320-1600 px, upright and short, with a
+  mouse and a touch screen: "Add ROMs…" is on the bar, in Menu or on the touch keys' row, one line, and never orange.
 * ROM state, one story (browser check `romTruth`, `tools/browser-check.js`): on one first visit, with no
   reload, the side card, the welcome menu and Your ROMs are checked against each other in three states — no ROMs,
   an unrecognised ROM loaded (our own NOP image at a socket's name and size, never a real dump), and "Run without
-  ROMs" with the ROMs still in the sockets. The card says "Running with no ROMs." only in the first, is gone in the
+  ROMs" with the ROMs still in the sockets. The card is the machine question alone in the first (no "Running with no ROMs."), is gone in the
   second, and says "Running without your ROMs." with a working "Use my ROMs" button in the third; menu option 3 reads "ADD YOUR ROMS FOR
   BASIC" in the first and "USE YOUR ROMS FOR BASIC" in the third. Your ROMs lists a machine under "Also ready to run
   BASIC" only for a verified dump, and the note about a file that could not be used sits beside the socket list.

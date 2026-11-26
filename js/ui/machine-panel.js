@@ -41,16 +41,9 @@ export function setupMachinePanel(page, { showRoms }) {
     menu.replaceChildren();
     list = document.createElement('div'); list.className = 'menulist';
     menu.append(list);
-    // With no ROMs stored at all, one line at the top instead of a "needs ROMs" tag on every row; the tags (and the
-    // ✓ legend) once any are stored
+    // With no ROMs stored at all, no tags (every row would say "needs ROMs": the welcome menu's key 3 says it once);
+    // the tags (and the ✓ legend) once any are stored
     const none = session.storedRoms().count === 0;
-    // (a screen reader hears that line as the menu's description: the line itself is no menu item)
-    if (none) menu.setAttribute('aria-describedby', 'menuNoRoms'); else menu.removeAttribute('aria-describedby');
-    if (none) {
-      const top = document.createElement('p'); top.id = 'menuNoRoms'; top.setAttribute('role', 'none');
-      top.textContent = 'No ROMs yet: every machine needs its own ROMs for BASIC.';
-      list.append(top);
-    }
     // every profile is in exactly one section (groupProfiles is exhaustive; a new model cannot go missing)
     for (const [name, members] of groupProfiles(availableProfiles())) {
       const g = document.createElement('div'); g.className = 'machines';

@@ -2,8 +2,8 @@
  * First visit and returning visitors.
  *  - First visit with no ROMs: the page opens on the welcome program (examples/welcome.asm) running on the
  *    stub, never an empty screen, with a strip of programs that run without ROMs (our own only) and the machine
- *    question, asked once and then remembered. Adding ROMs is the header's "No BASIC · Add ROMs" and the menu's
- *    key 3. The welcome program's
+ *    question, asked once and then remembered. The ROM requirement is said once, by the menu's key 3 ("3 ADD YOUR
+ *    ROMS FOR BASIC"); the header's "Add ROMs…" (a phone: Menu's "Add ROMs…") is a plain way to the same screen. The welcome program's
  *    keys arrive as Session events: 1 runs LIZA, 2 the colour demo, 3 shows the ROM
  *    sockets, 4 the Claude chat, 5 PLAY A GAME, a games menu (NEW GAMES FOR AN OLD
  *    MACHINE: 2048, Minesweeper; 6809 machines). From the demo, "Back to
@@ -283,7 +283,8 @@ export function setupWelcome(page, { showRoms, openClaude }) {
   let tagged = false, shownRun = '';
   const onScreen = () => session.welcomeOnScreen && !page.paused;
   // What the side card says follows the machine, in three states that used to read the same:
-  //   no ROMs at all            -> "Running with no ROMs." + the shelf, and the machine question once
+  //   no ROMs at all            -> the machine question once (the first visit), else no card: the welcome menu's
+  //                                "3 ADD YOUR ROMS FOR BASIC" and the header's Add ROMs… say the rest
   //   ROMs in, running the stub -> "Running without your ROMs." (nothing is missing; the way back is what the person
   //                                needs), and no machine question (they told us the machine by adding them)
   //   the ROMs running          -> no card at all: BASIC is on screen and there is nothing to explain
@@ -314,12 +315,8 @@ export function setupWelcome(page, { showRoms, openClaude }) {
     box.dataset.kind = state;
     box.replaceChildren();
     if (state === 'empty') { box.hidden = true; box.replaceChildren(); return; }   // never DRAWN after a first visit
-    if (state === 'off') {
-      box.append(el('div', 'Running without your ROMs.', 'lead'),
-        el('div', `The ${session.personMachine.profile.name}'s ROMs are in the sockets. Use them to get BASIC, or keep running programs that need none.`, 'muted'));
-    } else {
-      box.append(el('div', 'Running with no ROMs.', 'lead'), el('div', 'Programs that run without them are in the Media tab below.', 'muted'));
-    }
+    box.append(el('div', 'Running without your ROMs.', 'lead'),
+      el('div', `The ${session.personMachine.profile.name}'s ROMs are in the sockets. Use them to get BASIC, or keep running programs that need none.`, 'muted'));
     box.appendChild(switchOnButton());
     box.appendChild(dismiss());
     box.hidden = false;
@@ -339,27 +336,28 @@ export function setupWelcome(page, { showRoms, openClaude }) {
   }
   const runKey = () => { const r = page.runningNow(); return r ? `${r.kind}:${r.name}` : ''; };
   page.onFrame(() => { if (onScreen() !== tagged || runKey() !== shownRun) shelf(); });
+  // The first visit's card is the machine question alone (the welcome menu's "3 ADD YOUR ROMS FOR BASIC" says what
+  // ROMs are for; the card does not repeat it): no question to ask, no card; once answered or dismissed, none either
   function firstVisit(askMachine) {
     box.replaceChildren();
     box.dataset.kind = 'first';
-    box.append(el('div', 'Running with no ROMs.', 'lead'), el('div', 'Programs that run without them are listed below.', 'muted'));
-    if (askMachine) {
-      const ask = el('div', null, 'ask'); ask.id = 'askMachine';
-      ask.append(el('span', 'Which computer did you have? '));
-      for (const [id, label] of ASK) {
-        const b = el('button', label); b.dataset.machine = id;
-        // the welcome menu on every machine: 6809 models run the 6809 build, the MC-10 and Alice their own.
-        // The switch starts the menu itself, ONCE, without a carry-on (Session.chooseMachine passes offer 'none'):
-        // the page starts nothing here, because two starts in one turn only worked while the later overwrote the
-        // earlier, and after the generation ticket that depended on which one arrived first.
-        b.onclick = () => { ask.remove(); session.chooseMachine(id, { offer: 'none' }); page.focus(); };
-        ask.append(b);
-      }
-      box.append(ask);
+    if (!askMachine) { box.hidden = true; return; }
+    const ask = el('div', null, 'ask'); ask.id = 'askMachine';
+    ask.append(el('span', 'Which computer did you have? '));
+    for (const [id, label] of ASK) {
+      const b = el('button', label); b.dataset.machine = id;
+      // the welcome menu on every machine: 6809 models run the 6809 build, the MC-10 and Alice their own.
+      // The switch starts the menu itself, ONCE, without a carry-on (Session.chooseMachine passes offer 'none'):
+      // the page starts nothing here, because two starts in one turn only worked while the later overwrote the
+      // earlier, and after the generation ticket that depended on which one arrived first.
+      b.onclick = () => { answered(); session.chooseMachine(id, { offer: 'none' }); page.focus(); };
+      ask.append(b);
     }
-    box.append(dismiss());
+    box.append(ask, dismiss());
     box.hidden = false;
   }
+  // the question answered (here or in the header's machine menu): the first visit's card goes with it
+  function answered() { const a = $('askMachine'); if (!a) return; a.remove(); if (box.dataset.kind === 'first') box.hidden = true; }
   function dismiss() { const b = el('button', 'Dismiss', 'close'); b.onclick = () => { dismissed = true; box.hidden = true; }; return b; }
   // arriving on a shared moment that runs without ROMs (Session.sharedMoment), the card stands back: the person came
   // to see that moment. It comes back (unless dismissed) once they leave it: Reset, Switch off and on, a switch.
@@ -405,7 +403,7 @@ export function setupWelcome(page, { showRoms, openClaude }) {
   // fromLink: the URL names a machine, ROMs or media; withMedia: ROMs or media (they decide what runs, not the menu)
   async function start(v, { fromLink, withMedia = false, program = null }) {
     // a machine picked in the header menu (Session.chooseMachine) counts as the answer to the question
-    session.on((ev) => { if (ev === 'machine' && session.store.get('machineChosen')) { const a = $('askMachine'); if (a) a.remove(); } });
+    session.on((ev) => { if (ev === 'machine' && session.store.get('machineChosen')) answered(); });
     // the carry-on line only for what runs on the machine in use (Session.carryOn: another machine's file is not offered)
     const menu = v.first ? {} : { greeting: session.greetingFor('back'), carryOn: session.carryOn };
     if (program) {

@@ -2619,7 +2619,7 @@ async function romUiChecks(browser, base, check) {
   await page.goto(`${base}?machine=coco`); await started(page);
   await inject();
   await page.evaluate(() => window.emu.session.switchMachine('coco'));
-  // the screen opens from the header's "No BASIC · Add ROMs" pill, and "← Emulator" closes it
+  // the screen opens from the header's "Add ROMs…", and "← Emulator" closes it
   check('Add ROMs: closed until asked for', !(await page.evaluate(romsOpen)) && await page.isVisible('#romPill'));
   await page.click('#romPill');
   check('Add ROMs: the pill opens the screen in place of the emulator', await waitFor(page, romsOpen)
@@ -2767,7 +2767,7 @@ async function visitChecks(browser, base, check) {
     && /1 TALK TO LIZA/.test(await screen()), (await screen()).split('\n')[8]);
   check('first visit: "Runs without ROMs" is the welcome menu (on screen now), our programs and the Claude chat', (await page.$$eval('#shelf :is(a, button)', (b) => b.map((x) => x.textContent).join())) === 'Welcome menu on screen now,LIZA,Colour demo,2048,Minesweeper,WYRMFIREA 3D game for the Dragon 64 · Freedoom levelGPL · Freedoom level (BSD),Chat with Claude',
     await page.$$eval('#shelf :is(a, button)', (b) => b.map((x) => x.textContent).join()));
-  check('first visit: "No BASIC · Add ROMs" in the header and the machine question', await page.isVisible('#romPill') && await page.isVisible('#askMachine'));
+  check('first visit: "Add ROMs…" in the header and the machine question', await page.isVisible('#romPill') && await page.isVisible('#askMachine'));
   // The welcome tune plays only when the person asked for the menu. The visit's own menu leaves the firmware's PLAYED flag
   // ($6005, the 6809 build) at 0 (a few frames in, once START has cleared it), so its tune is still to play once the
   // sound is unlocked
@@ -3015,9 +3015,9 @@ async function visitChecks(browser, base, check) {
       && window.emu.session.screenText()[6].trim() === 'BYE FOR NOW. PICK ANOTHER?', null, 400),
       await page.evaluate(() => window.emu.session.screenText().slice(5, 8).join(' | ')));
   }
-  // "No BASIC · Add ROMs" opens Add ROMs, whose "Choose files…" opens the ROM file picker
+  // "Add ROMs…" opens Add ROMs, whose "Choose files…" opens the ROM file picker
   await page.click('#romPill');
-  check('first visit: "No BASIC · Add ROMs" opens Add ROMs', await waitFor(page, romsOpen));
+  check('first visit: "Add ROMs…" opens Add ROMs', await waitFor(page, romsOpen));
   const [chooser] = await Promise.all([page.waitForEvent('filechooser', { timeout: 3000 }).catch(() => null), page.click('#btnRomFiles')]);
   check('Add ROMs: "Choose files…" opens the ROM picker', !!chooser && chooser.isMultiple());
   await page.click('#btnRomBack');
@@ -5684,7 +5684,7 @@ async function phoneChecks(browser, base, check) {
   await page.tap('#btnMenu');
   const menuOrder = await page.evaluate(() => [...document.querySelectorAll('#appbar nav > :is(a, button)')].filter((e) => e.checkVisibility()).map((e) => e.innerText.trim()));
   check('phone: Menu lists Programs…, Add ROMs, Settings…, Share…, Take snapshot, Restore snapshot…, Install CLOADM…, Library, Debugger, Commands…, Help, GitHub, in that order (the focus order too)',
-    menuOrder.join('|') === 'Programs…|Add ROMs (BASIC needs them)|Settings…|Share…|Take snapshot|Restore snapshot…|Install CLOADM…|Library|Debugger|Commands…|Help|GitHub', JSON.stringify(menuOrder));
+    menuOrder.join('|') === 'Programs…|Add ROMs…|Settings…|Share…|Take snapshot|Restore snapshot…|Install CLOADM…|Library|Debugger|Commands…|Help|GitHub', JSON.stringify(menuOrder));
   const gluedMenu = await gluedLabels(page, '#appbar nav > :is(a, button)');
   check('phone: no Menu label has words run together (each space between words drawn)', !gluedMenu.length, JSON.stringify(gluedMenu));
   await page.tap('#navSettings');
@@ -5784,10 +5784,11 @@ async function phoneChecks(browser, base, check) {
   // heading and note), Open your library →
   const progOrder = await page.evaluate(() => ({ ids: [...document.querySelector('#sheetPrograms .sheetbody').children].map((e) => e.id),
     snap: [...document.querySelectorAll('#quickSave > :is(.eyebrow, #slotNote)')].map((e) => e.textContent) }));
-  // the no-ROM card in the sheet points at what is below it there, not at a Media tab
+  // the side card is in the sheet, and drawn only for the machine question: this visit's link named the machine, so
+  // there is none (the welcome menu's key 3 says what ROMs are for; firstVisit checks the question's card)
   const card = await page.evaluate(() => { const w = document.getElementById('welcome'); return { inSheet: !!w.closest('#sheetPrograms'), shown: w.checkVisibility(), text: w.innerText.replace(/\s+/g, ' ').trim() }; });
-  check('phone: the "Running with no ROMs." card in the Programs sheet says "Programs that run without them are listed below."',
-    card.inSheet && card.shown && card.text.startsWith('Running with no ROMs. Programs that run without them are listed below.'), JSON.stringify(card));
+  check('phone: the side card belongs to the Programs sheet, and with the machine named by the link there is none (no "Running with no ROMs.")',
+    card.inSheet && !card.shown && card.text === '', JSON.stringify(card));
   check('phone: the Programs sheet\'s order: Last time, the no-ROM card, Runs without ROMs, Recent on this machine, Snapshots (heading and note), Open your library →',
     progOrder.ids.join() === 'lastTime,welcome,shelfHead,shelf,recentHead,recentList,quickSave,linkLibrary'
       && progOrder.snap.join('|') === 'Snapshots|A snapshot reopens on the same machine, RAM and ROMs.', JSON.stringify(progOrder));
@@ -6006,18 +6007,19 @@ async function phoneChecks(browser, base, check) {
     const disk = [...fs.readFileSync(path.join(ROOT, 'tests/fixtures/disks/rsdos.dsk'))];
     await p.evaluate((b) => window.emu.session.drives.importImage('games.dsk', new Uint8Array(b), 0), disk);
     await p.setInputFiles('#fileTape', { name: 'HI.CAS', mimeType: 'application/octet-stream', buffer: Buffer.alloc(256, 0x55) });
-    // (no ROMs here, so Menu's one dot is the ROMs' too: its name says both)
-    const dotted = await waitFor(p, () => document.getElementById('btnMenu').getAttribute('aria-label') === 'Menu (ROMs needed, media inserted)'
+    // (no ROMs here: Menu's one dot is still media's, the accent; the ROMs have no dot)
+    const dotted = await waitFor(p, () => document.getElementById('btnMenu').getAttribute('aria-label') === 'Menu (media inserted)'
       && getComputedStyle(document.getElementById('btnMenu'), '::after').content !== 'none');
-    // and with ROMs not needed (the pill off, as with BASIC in): the accent dot, "Menu (media inserted)"
+    // and with ROMs not needed (the pill off, as with BASIC in): the same accent dot, "Menu (media inserted)"
     const accent = await p.evaluate(() => { document.getElementById('romPill').hidden = true; return new Promise((r) => requestAnimationFrame(() => r({
       label: document.getElementById('btnMenu').getAttribute('aria-label'), dot: getComputedStyle(document.getElementById('btnMenu'), '::after').backgroundColor }))); });
     await p.evaluate(() => { document.getElementById('romPill').hidden = false; });
+    const noRomDot = await p.evaluate(() => getComputedStyle(document.getElementById('btnMenu'), '::after').backgroundColor);
     await p.evaluate(() => window.emu.feedback.clear());
     await p.tap('#btnMenu');
     const states = await p.evaluate(() => ({ ports: document.getElementById('navPortsState').textContent, power: document.getElementById('navPowerState').textContent, label: document.getElementById('navPorts').getAttribute('aria-label') }));
-    check(`${L}: with media in, Menu wears a dot and is named "Menu (media inserted)" (the accent dot; with ROMs also needed, the ROMs' dot and both in its name); its items say "HI.CAS · 1 disk", and "Paused" after Pause`,
-      power && dotted && accent.label === 'Menu (media inserted)' && accent.dot === 'rgb(61, 245, 90)' && states.ports === 'HI.CAS · 1 disk' && pausedState === 'Paused' && states.label === 'Tape, disks and cartridge: HI.CAS · 1 disk.', JSON.stringify({ states, accent, pausedState }));
+    check(`${L}: with media in, Menu wears a dot and is named "Menu (media inserted)" (the accent dot, with ROMs needed or not); its items say "HI.CAS · 1 disk", and "Paused" after Pause`,
+      power && dotted && noRomDot === 'rgb(61, 245, 90)' && accent.label === 'Menu (media inserted)' && accent.dot === 'rgb(61, 245, 90)' && states.ports === 'HI.CAS · 1 disk' && pausedState === 'Paused' && states.label === 'Tape, disks and cartridge: HI.CAS · 1 disk.', JSON.stringify({ states, accent, pausedState }));
     await p.tap('#navPorts');
     const sheet = await waitFor(p, () => document.getElementById('sheetPorts').open && document.getElementById('portTabTape').getAttribute('aria-selected') === 'true');
     const box = await p.evaluate(() => { const r = document.getElementById('sheetPorts').getBoundingClientRect(); return { bottom: Math.round(r.bottom), w: Math.round(r.width), vw: innerWidth, vh: innerHeight }; });
@@ -6043,8 +6045,9 @@ async function phoneChecks(browser, base, check) {
       controls: [...document.querySelector('.controls[aria-label="Machine controls"]').children].map((e) => e.id),
       drawer: [...document.querySelector('.layout > .drawer').children].map((e) => e.id || e.getAttribute('role')), welcome: document.getElementById('welcome').parentElement.className,
       media: [...document.getElementById('panel-media').children].map((e) => e.id || e.className || e.tagName) }));
-    // (the drawer is 90 px taller than it was: the "Runs without ROMs" shelf has WYRMFIRE's two-line row since)
-    const baseline = [[71, 849, 900, 254], [1041, 88, 364, 893]];
+    // (the drawer is 90 px taller than it was: the "Runs without ROMs" shelf has WYRMFIRE's two-line row since; and
+    // 110 px shorter: a link naming the machine asks no machine question, so the first visit has no side card since)
+    const baseline = [[71, 849, 900, 254], [1041, 88, 364, 783]];
     const before = { rects: await rects(), order: await order() };
     const setKeys = (v) => p.evaluate((v) => { const s = document.getElementById('selTouchKeys'); s.value = v; s.dispatchEvent(new Event('change')); }, v);
     await setKeys('on');
@@ -8150,7 +8153,7 @@ async function libraryStorageChecks(base, check) {
   } finally { await closeOwnBrowser(browser); }
 }
 
-// A quieter first visit: one call to add ROMs outside the emulated screen (the header's "No BASIC · Add ROMs"; the welcome
+// A quieter first visit: one call to add ROMs outside the emulated screen (the header's "Add ROMs…"; the welcome
 // card no longer repeats it), one key legend at a time (over the screen until the one-time hint is done, then the
 // line under the slots), and no quick-save slots while the welcome program is all that has run.
 async function firstVisitChecks(browser, base, check) {
@@ -8170,10 +8173,15 @@ async function firstVisitChecks(browser, base, check) {
         sound: shown(document.getElementById('soundHint')), quickSave: shown(document.getElementById('quickSave')) };
     });
     const first = await seen();
+    // the side card is the machine question alone: its chips and Dismiss, nothing about ROMs (the welcome menu's key 3
+    // says that, once)
+    const cardText = await page.evaluate(() => { const w = document.getElementById('welcome'); return w.checkVisibility() || w.closest('#sheetPrograms') ? w.innerText.replace(/\s+/g, ' ').trim() : null; });
+    check(`first visit (${label}): the side card is the machine question, its chips and Dismiss, and nothing about ROMs`,
+      !!cardText && /^Which computer did you have\?/.test(cardText) && /Dismiss$/.test(cardText) && !/ROM/.test(cardText), String(cardText));
     // the line under the screen holds one note at a time: "click for sound" first, so no key legend yet; sound starts on the
     // first click, and the key hint takes the line
-    // (a phone's app bar has no room for the pill: Add ROMs is Menu's first item, and Menu wears a dot)
-    const phoneCall = label === 'phone' ? await page.evaluate(() => document.getElementById('btnMenu').classList.contains('dot') && !document.getElementById('navRoms').hidden) : null;
+    // (a phone's app bar has no room for the pill: Add ROMs… is Menu's item, and Menu wears no dot)
+    const phoneCall = label === 'phone' ? await page.evaluate(() => !document.getElementById('btnMenu').classList.contains('dot') && !document.getElementById('navRoms').hidden) : null;
     check(`first visit (${label}): one call to add ROMs outside the screen, the sound note on the line under the screen (no key legend yet), no quick-save slots yet`,
       (label === 'phone' ? JSON.stringify(first.romCalls) === '[]' && phoneCall : JSON.stringify(first.romCalls) === '["romPill"]') && JSON.stringify(first.legends) === '[]' && first.sound && !first.quickSave, JSON.stringify(first));
     await page.mouse.click(5, 5);
@@ -9297,7 +9305,7 @@ SUB     INCA
 // the emulator layout at desktop and phone width: header, grouped
 // machine menu with a confirmation, monitor bezel per family, controls and slots, the drawer's tabs
 async function layoutChecks(browser, base, check) {
-  // The app bar stays ONE row at 1280 x 720 (first visit: the "No BASIC" pill is showing, the widest the bar gets),
+  // The app bar stays ONE row at 1280 x 720 (first visit: "Add ROMs…" is showing, the widest the bar gets),
   // in the runner's own system font and again in a deliberately wide one, so a runner whose fallback font is wider
   // than this machine's cannot push the links onto a second row (they did: 116 px in CI, 68 locally).
   // Measured with getBoundingClientRect: every item sits in one band the height of the tallest, the bar's three links
@@ -9360,8 +9368,8 @@ async function layoutChecks(browser, base, check) {
     check(`layout (${label}): the Dragon picture is shown at 4:3`, Math.abs(aspectD - 4 / 3) < 0.02, aspectD.toFixed(3));
     check(`layout (${label}): one "Runs without ROMs" shelf (Media tab), "Share"`, (await page.$$('#shelf')).length === 1 && await page.evaluate(() => !!document.querySelector('#panel-media #shelf'))
       && await page.textContent('#btnShare') === 'Share');
-    check(`layout (${label}): first visit shows "No BASIC · Add ROMs" (a phone: Menu's first item, a dot on Menu) and the sound pill`,
-      (label === 'phone' ? await page.evaluate(() => document.getElementById('btnMenu').classList.contains('dot') && !document.getElementById('navRoms').hidden) : await page.isVisible('#romPill')) && await page.isVisible('#soundHint')
+    check(`layout (${label}): first visit shows "Add ROMs…" (a phone: Menu's item, no dot on Menu) and the sound pill`,
+      (label === 'phone' ? await page.evaluate(() => !document.getElementById('btnMenu').classList.contains('dot') && !document.getElementById('navRoms').hidden) : await page.isVisible('#romPill')) && await page.isVisible('#soundHint')
       && /^Click or press a key for sound$/.test(await page.textContent('#soundHint')));
     if (label === 'desktop') {
       check('layout (desktop): the screen fills the first view', await page.evaluate(() => { const r = document.getElementById('screen').getBoundingClientRect(); return r.bottom <= innerHeight && r.width >= 640; }));
@@ -9383,10 +9391,10 @@ async function layoutChecks(browser, base, check) {
     // under at least one section, with no empty section
     check(`layout (${label}): machine menu lists every model exactly once under a section`,
       groups.length > 0 && new Set(listed).size === all.length && all.every((id) => listed.includes(id)), `${groups.join()} | ${listed.join(' ')}`);
-    // no ROMs: one line at the top says every machine needs them, instead of a tag on each row (uiModel checks the tags
-    // once ROMs are stored)
-    check(`layout (${label}): no ROMs: one line says every machine needs its own ROMs, and no row has a tag`,
-      await page.textContent('#menuNoRoms') === 'No ROMs yet: every machine needs its own ROMs for BASIC.' && (await page.$$eval('#machineMenu [data-machine] .tag', (t) => t.length)) === 0);
+    // no ROMs: no line at the top and no tag on any row (the welcome menu's key 3 says what ROMs are for; uiModel checks
+    // the tags once ROMs are stored)
+    check(`layout (${label}): no ROMs: no line about ROMs at the top of the machine menu, and no row has a tag`,
+      !(await page.$('#menuNoRoms')) && (await page.$$eval('#machineMenu [data-machine] .tag', (t) => t.length)) === 0);
     check(`layout (${label}): the CP 400 is in the menu (it matched no section before)`, listed.includes('cp400'), listed.join(' '));
     await shot('machine-menu');
     // a switch asks first; Cancel keeps the machine; Escape closes the menu
@@ -12498,7 +12506,8 @@ async function firstUseChecks(browser, base, check) {
     await waitFor(page, () => window.emu.session.welcomeRunning);
     await emuFrames(page, 3);
     const pill = await page.getAttribute('#romPill', 'title');
-    check(`${L}: the "No BASIC · Add ROMs" pill's title says why`, pill === 'No BASIC: this machine needs its BASIC ROM to type programs', pill);
+    const name = await page.getAttribute('#romPill', 'aria-label');
+    check(`${L}: the "Add ROMs…" button's title and name are "Add your ROMs for BASIC"`, pill === 'Add your ROMs for BASIC' && name === pill, `${pill} | ${name}`);
     await screenFocus(page);
     await page.keyboard.press('9');   // a number, if not one of the menu's: no word about it
     await ticks(page, 10);
@@ -18184,16 +18193,17 @@ async function shareChecks(browser, base, site, check) {
     check('share: the link opens exactly that moment in another browser profile', await p2.evaluate(() => window.emu.machine.ram[1030] === 42 && location.hash === '')
       && await waitFor(p2, () => window.__said.some((m) => /^Snapshot opened: Dragon 64/.test(m))) && await p2.evaluate(() => !window.__said.some((m) => /^ERROR /.test(m))),
       `${await said(p2)} · ram[1030] ${await p2.evaluate(() => window.emu.machine.ram[1030])}`);
-    // arriving on that moment without ROMs (a first visit): no "Running with no ROMs" card and no "No BASIC" pill. They
-    // come back once the person leaves the moment: here by Reset (the menu again)
+    // arriving on that moment without ROMs (a first visit): no side card and no "Add ROMs…". "Add ROMs…" comes back
+    // once the person leaves the moment: here by Reset (the menu again). (The link names the machine, so there is no
+    // machine question: no side card then either)
     const quiet = () => p2.evaluate(() => ({ pill: document.getElementById('romPill').checkVisibility(), card: document.getElementById('welcome').checkVisibility(),
       cardThere: !document.getElementById('welcome').hidden, menuItem: !document.getElementById('navRoms').hidden, shared: window.emu.session.sharedMoment }));
     const arrived = await quiet();
-    check('share: arriving on a shared no-ROM moment shows no no-ROM card and no "No BASIC" pill', !arrived.pill && !arrived.card && arrived.cardThere && !arrived.menuItem && arrived.shared, JSON.stringify(arrived));
+    check('share: arriving on a shared no-ROM moment shows no side card and no "Add ROMs…"', !arrived.pill && !arrived.card && !arrived.menuItem && arrived.shared, JSON.stringify(arrived));
     if (shotDir) await p2.screenshot({ path: path.join(shotDir, 'share-arrival.png') });
     await p2.evaluate(() => document.getElementById('btnReset').click());
-    const left = await waitFor(p2, () => document.getElementById('romPill').checkVisibility() && document.getElementById('welcome').checkVisibility(), null, 10000);
-    check('share: leaving the moment (Reset) brings back the card and the pill', left, JSON.stringify(await quiet()));
+    const left = await waitFor(p2, () => document.getElementById('romPill').checkVisibility() && !window.emu.session.sharedMoment, null, 10000);
+    check('share: leaving the moment (Reset) brings back "Add ROMs…" (and no side card)', left && !(await quiet()).card, JSON.stringify(await quiet()));
     const p2b = await ctx2.newPage();   // a link that differs only after # wouldn't reload the same page
     await p2b.goto(link.slice(0, link.length - 400));
     await linkIn(p2b);
@@ -18538,11 +18548,11 @@ async function arrivalChecks(browser, base, check) {
   {
     const { ctx, p, asked } = await open(`${base}#l=${game.id}.${game.key}`);
     const c = await card(p);
-    // opened as a shared moment, as a long link's is: without ROMs no "Running with no ROMs" card and no "No BASIC" pill
+    // opened as a shared moment, as a long link's is: without ROMs no side card and no "Add ROMs…"
     // beside the arrival card
     const quiet = await p.evaluate(() => ({ pill: document.getElementById('romPill').checkVisibility(), noRomCard: document.getElementById('welcome').checkVisibility(),
       shared: window.emu.session.sharedMoment, roms: window.emu.session.hasAnyRoms }));
-    check('arrival: a short link\'s moment without ROMs is a shared moment: the arrival card, and no no-ROM card or "No BASIC" pill',
+    check('arrival: a short link\'s moment without ROMs is a shared moment: the arrival card, and no side card or "Add ROMs…"',
       c.shown && quiet.shared && !quiet.pill && !quiet.noRomCard && !quiet.roms, JSON.stringify(quiet));
     if (shotDir) await p.screenshot({ path: path.join(shotDir, 'arrival-short-1280x800.png') });
     check('arrival: a short link\'s moment arrives with the same card, and only a short link\'s card ends with "Report this link": the Worker\'s report page (/api/report/<id>, no key, a new tab)',
@@ -19339,7 +19349,7 @@ async function semanticsChecks(browser, base, site, check) {
   // text of the panels and views: none of it is the article on the emulator
   const SOUP = ['Cassette', 'Drives', 'Cartridge port', 'Multi-Pak', 'Slot 1', 'Fast tape loading', 'Runs without ROMs', 'Recent on this machine',
     'Machine settings', 'Your Anthropic API key', 'Ask about this machine', 'Give it a BASIC to boot', 'A link that opens exactly here',
-    'Your tapes, disks and cartridges', 'Breakpoints', 'Credits', 'Running with no ROMs'];
+    'Your tapes, disks and cartridges', 'Breakpoints', 'Credits', 'Which computer did you have?'];
 
   const SIZES = [['desktop', { viewport: { width: 1440, height: 900 } }], ['phone', devices['Pixel 7']],
     ['phone landscape', devices['Pixel 7 landscape']], ['tablet', devices['iPad (gen 7)']]];
@@ -19715,7 +19725,7 @@ async function installChecks(browser, base, check) {
     // both facts the feature needs: it held the event (preventDefault, so no Android mini-infobar) and it has it
     return !!(window.emu.install && window.emu.install.prompt) && e.defaultPrevented;
   });
-  // LIZA running, with the first visit's "Running with no ROMs" box dismissed and its toast gone: the page as it is
+  // LIZA running, with the first visit's side card dismissed and its toast gone: the page as it is
   // when the offer has a free hand (the conditions are checked on their own in section 2)
   // the link is in the app bar (behind Menu on a phone): press it
   const chooseInstall = pressInstall;
@@ -21896,7 +21906,7 @@ async function uiModelChecks(browser, base, check) {
     check(`copy (${label}): with BASIC in use the ROMs row says "BASIC ready"`, await waitFor(page, () => document.getElementById('romState').textContent === 'BASIC ready'), await page.textContent('#romState'));
     await closeCtx(ctx);
   }
-  // ---- the machine menu: one "No ROMs yet" line instead of 17 tags, a subtitle per section, the footer's line for the
+  // ---- the machine menu: no ROM line and no tags without ROMs, a subtitle per section, the footer's line for the
   // model under the focus or the pointer (each item's aria-description), "Which one is mine? ↗" to Help's list ----
   for (const [label, opts] of SIZES) {
     const ctx = await browser.newContext(Object.assign({ serviceWorkers: 'block' }, opts));
@@ -21906,7 +21916,9 @@ async function uiModelChecks(browser, base, check) {
     const menuState = () => page.evaluate(async () => {
       const m = document.getElementById('machineMenu'), { SUBTITLES, describe } = await import(new URL('js/machines/menu.js', document.baseURI).href);
       const items = [...m.querySelectorAll('[data-machine]')];
-      return { top: (() => { const t = document.getElementById('menuNoRoms'); return t && t.checkVisibility() ? t.textContent : null; })(),
+      return { top: (() => { const t = document.getElementById('menuNoRoms'); return t ? t.textContent : null; })(),
+        // (the first thing in the list is the first section's name: no empty band where a line was)
+        first: (() => { const f = m.querySelector('.menulist').firstElementChild; return f ? (f.querySelector('.group-name') || f).textContent : null; })(),
         tags: items.map((b) => (b.querySelector('.tag') ? b.querySelector('.tag').textContent : null)),
         ids: items.map((b) => b.dataset.machine),
         legend: m.querySelector('.legend').checkVisibility(),
@@ -21924,13 +21936,13 @@ async function uiModelChecks(browser, base, check) {
     await page.click('#machineBtn');
     await waitFor(page, () => !document.getElementById('machineMenu').hidden);
     const none = await menuState();
-    check(`machine menu (${label}): no ROMs stored: one line at the top, "No ROMs yet: every machine needs its own ROMs for BASIC.", and no tags (no legend)`,
-      none.top === 'No ROMs yet: every machine needs its own ROMs for BASIC.' && none.tags.length === 17 && none.tags.every((t) => t === null) && !none.legend, JSON.stringify(none));
+    check(`machine menu (${label}): no ROMs stored: no line about ROMs at the top, and no tags (no legend)`,
+      none.top === null && none.first === 'DRAGON' && none.tags.length === 17 && none.tags.every((t) => t === null) && !none.legend, JSON.stringify(none));
     check(`machine menu (${label}): every section shows its subtitle, as the data words it`,
       none.subs.length === 5 && none.subs.every(([g, sub]) => sub === none.want[g]), JSON.stringify(none.subs));
     check(`machine menu (${label}): every item carries its description as aria-description; no live region`, none.described && !none.live);
-    check(`machine menu (${label}): with no ROMs a screen reader hears the "No ROMs yet" line as the menu's description (aria-describedby)`,
-      none.describedBy === 'No ROMs yet: every machine needs its own ROMs for BASIC.', String(none.describedBy));
+    check(`machine menu (${label}): with no ROMs the menu has no description about them (no aria-describedby)`,
+      none.describedBy === null, String(none.describedBy));
     check(`machine menu (${label}): the band above the footer fades into the panel's colour, with no mask over the page`,
       none.fade.mask === 'none' && none.fade.image.includes(none.fade.panel.replace(/\)$/, '')), JSON.stringify(none.fade));
     check(`machine menu (${label}): the footer has "Which one is mine? ↗" to help/#machines, a menu item`, none.which === 'Which one is mine? ↗|help/#machines|menuitem', String(none.which));
@@ -22043,7 +22055,7 @@ async function mobileChecks(browser, base, check) {
         const vis = [...document.querySelectorAll('#appbar > *')].filter((e) => e.checkVisibility() && e.getBoundingClientRect().width > 0);
         const bs = vis.map((e) => ({ id: e.id || e.className, ...e.getBoundingClientRect().toJSON() }));
         const name = (e) => (e.getAttribute('aria-label') || e.textContent).replace(/\s+/g, ' ').trim();
-        // (named Menu, or "Menu, Add ROMs needed" while its dot is on)
+        // (named Menu, or "Menu (media inserted)" while media's dot is on)
         const menus = [...document.querySelectorAll('button, a, [role=button]')].filter((e) => e.checkVisibility() && e.getBoundingClientRect().width > 0 && /^Menu\b/.test(name(e))).length;
         return { ids: bs.map((b) => b.id), oneRow: bs.every((b) => Math.abs((b.top + b.bottom) / 2 - (bs[0].top + bs[0].bottom) / 2) <= 3), h: document.getElementById('appbar').getBoundingClientRect().height,
           small: bs.filter((b) => b.height < 44 - 0.5 || b.width < 44 - 0.5).map((b) => b.id), menus, rom: document.getElementById('romPill').checkVisibility() };
@@ -22126,16 +22138,16 @@ async function mobileChecks(browser, base, check) {
     const { ctx, page, errors } = await open({ width: 393, height: 659 }, '?machine=dragon64');
     const dot = await page.evaluate(() => getComputedStyle(document.getElementById('btnMenu'), '::after').content !== 'none');
     const menuName = await page.getAttribute('#btnMenu', 'aria-label');
-    check('mobile (393x659): the dot on Menu is in its name too: "Menu (ROMs needed)"', dot && menuName === 'Menu (ROMs needed)', JSON.stringify({ dot, menuName }));
+    check('mobile (393x659): no ROMs, no media: Menu wears no dot, and its name is just "Menu"', !dot && menuName === null && await page.textContent('#btnMenu').then((t) => t.trim()) === 'Menu', JSON.stringify({ dot, menuName }));
     const row = () => page.evaluate(() => ['machineBtn', 'btnLoad', 'btnAsk', 'btnMenu'].map((id) => JSON.stringify(document.getElementById(id).getBoundingClientRect())));
     const before = await row();
     await tap(page, '#btnMenu');
     await until(page, () => document.getElementById('appbar').classList.contains('menu-open'));
     const items = await page.evaluate(() => [...document.querySelectorAll('.appbar nav > *')].filter((e) => e.checkVisibility()).map((e) => e.innerText.replace(/\s+/g, ' ').trim()));
-    // the first item says why ROMs, and wears Menu's dot
-    const itemDot = await page.evaluate(() => { const d = document.querySelector('#navRoms .dot'); return !!d && d.checkVisibility() && getComputedStyle(d).backgroundColor === getComputedStyle(document.getElementById('btnMenu'), '::after').backgroundColor; });
-    check('mobile (393x659): Menu has a dot while there is no BASIC, and lists Programs… first, then "Add ROMs (BASIC needs them)", with the same dot, Settings…, Share…, Take snapshot, Restore snapshot…, Install CLOADM…, the links, Commands…, Help and GitHub',
-      dot && itemDot && items.join('|') === 'Programs…|Add ROMs (BASIC needs them)|Settings…|Share…|Take snapshot|Restore snapshot…|Install CLOADM…|Library|Debugger|Commands…|Help|GitHub', JSON.stringify({ dot, itemDot, items }));
+    // Add ROMs… is a plain item: no dot, no reason (the welcome menu's key 3 says it)
+    const itemDot = await page.evaluate(() => !!document.querySelector('#navRoms .dot'));
+    check('mobile (393x659): with no BASIC Menu lists Programs… first, then "Add ROMs…" (no dot), Settings…, Share…, Take snapshot, Restore snapshot…, Install CLOADM…, the links, Commands…, Help and GitHub',
+      !dot && !itemDot && items.join('|') === 'Programs…|Add ROMs…|Settings…|Share…|Take snapshot|Restore snapshot…|Install CLOADM…|Library|Debugger|Commands…|Help|GitHub', JSON.stringify({ dot, itemDot, items }));
     const glued = await gluedLabels(page, '.appbar nav > *');
     check('mobile (393x659): no Menu label has words run together', !glued.length, JSON.stringify(glued));
     check('mobile (393x659): opening Menu moves nothing in the bar', JSON.stringify(before) === JSON.stringify(await row()));
@@ -23025,15 +23037,157 @@ async function needsBasicChecks(browser, base, check) {
   }
 }
 
-// ---------------- the no-ROM chrome (js/ui/main.js): the pill and Menu's dot never show together ----------------
-// With no ROMs the app bar shows "No BASIC · Add ROMs" where it has room, and Menu wears an orange dot where the pill is
-// folded into it: at every width from 320 to 1600 px, with a mouse and on a touch screen, upright and short, never
-// both (no Menu dot while the pill shows).
+// ---------------- the ROM requirement said once (the welcome menu's "3 ADD YOUR ROMS FOR BASIC") ----------------
+// Everywhere else "Add ROMs…" is a plain action: on the app bar an ordinary button like Share, in a phone's Menu an item
+// with no dot, no line at the top of the machine menu, and a first-visit card that is the machine question alone.
+// Checked at 1440x900 (a mouse) and 393x659, 659x393 and 653x280 (a touch screen) on the Dragon 64, the CoCo 3 and the
+// MC-10, in every state: a first visit without ROMs, returning without them, ROMs stored but the built-in firmware
+// running, the ROMs running (stand-ins of the right size and name, made here: a BRA * and the reset vector, no ROM
+// code), the chat screen and ?embed=1. In no state does the page hold one of the old reasons, and with no ROMs nothing
+// on the bar or in Menu is orange (orange is a socket's fault, shown on Add ROMs).
+async function romOnceChecks(browser, base, check) {
+  const GONE = ['No BASIC ·', '(BASIC needs them)', 'Running with no ROMs.', 'No ROMs yet:'];
+  const DESK = [['1440x900', { width: 1440, height: 900 }]];
+  const PHONE = [['393x659', { width: 393, height: 659 }], ['659x393', { width: 659, height: 393 }], ['653x280', { width: 653, height: 280 }]];
+  const MACHINES = [['dragon64', 'd64_1.rom', 0x4000, 0x8000], ['coco3', 'coco3.rom', 0x8000, 0x8000], ['mc10', 'mc10.rom', 0x2000, 0xE000]];
+  // a stand-in of a socket's size: BRA * at its start and every 16K half's reset vector pointing there
+  const standIn = (size, at) => { const b = Buffer.alloc(size, 0x01); b[0] = 0x20; b[1] = 0xFE; for (let e = size; e > 0; e -= 0x4000) { b[e - 2] = at >> 8; b[e - 1] = at & 0xFF; } return b; };
+  const look = (gone) => {
+    const probe = document.createElement('i'); probe.style.background = 'var(--orange)'; document.body.append(probe);
+    const orange = getComputedStyle(probe).backgroundColor; probe.remove();
+    const pill = document.getElementById('romPill'), share = document.getElementById('btnShare'), menu = document.getElementById('btnMenu'), item = document.getElementById('navRoms');
+    // every element drawn with the orange fill, itself or its ::before / ::after (the Add ROMs screen is not open here)
+    const orangeAt = [...document.querySelectorAll('body *')].filter((e) => e.checkVisibility() && [null, '::before', '::after'].some((p) => {
+      const c = getComputedStyle(e, p); return c.backgroundColor === orange && (p === null || c.content !== 'none');
+    })).map((e) => e.id || e.className || e.tagName);
+    const html = document.documentElement.outerHTML;
+    const st = (e) => { const c = getComputedStyle(e), r = e.getBoundingClientRect(); return { bg: c.backgroundColor, border: c.borderTopColor, color: c.color, weight: c.fontWeight, radius: c.borderTopLeftRadius, h: Math.round(r.height) }; };
+    return { gone: gone.filter((g) => html.includes(g)), orange, orangeAt,
+      fills: { pill: getComputedStyle(pill).backgroundColor, menu: getComputedStyle(menu).backgroundColor, menuDot: getComputedStyle(menu, '::after').backgroundColor,
+        itemDot: document.querySelector('#navRoms .dot') ? getComputedStyle(document.querySelector('#navRoms .dot')).backgroundColor : null },
+      pill: pill.checkVisibility(), pillText: pill.textContent, pillTitle: pill.title, pillName: pill.getAttribute('aria-label'),
+      pillStyle: pill.checkVisibility() ? st(pill) : null, shareStyle: share.checkVisibility() ? st(share) : null,
+      pillOneLine: !pill.checkVisibility() || (pill.scrollWidth <= pill.clientWidth && pill.getClientRects().length === 1 && pill.getBoundingClientRect().height <= share.getBoundingClientRect().height + 0.5),
+      pillBeside: pill.checkVisibility() && pill.previousElementSibling.id === 'status' && document.getElementById('machineBtn').nextElementSibling.id === 'status',
+      item: !item.hidden, itemText: item.textContent, tkRoms: !document.getElementById('tkRoms').hidden, menuDot: menu.classList.contains('dot'),
+      card: (() => { const w = document.getElementById('welcome'); return w.hidden ? null : w.innerText.replace(/\s+/g, ' ').trim(); })(),
+      useStub: window.emu.machine.useStub, bootable: window.emu.session.machineRoms().bootable };
+  };
+  const NO_ROMS = ['first visit', 'returning', 'chat screen', 'embed'];
+  for (const [id, file, size, at] of MACHINES) {
+    for (const [device, sizes, opts] of [['desktop', DESK, {}], ['phone', PHONE, { hasTouch: true, isMobile: true }]]) {
+      const L = `ROM once (${id}, ${device})`;
+      const errors = [];
+      const shotAll = async (page, state) => {
+        for (const [sz, vp] of sizes) {
+          await page.setViewportSize(vp); await page.waitForTimeout(150);
+          const l = await page.evaluate(look, GONE);
+          const noRoms = NO_ROMS.includes(state);
+          const where = `${L} ${sz}, ${state}`;
+          check(`${where}: none of the old reasons anywhere in the page (${GONE.join(' | ')})`, !l.gone.length, l.gone.join(' | '));
+          if (noRoms) {
+            check(`${where}: nothing drawn orange (the bar's button, Menu, its dot and Add ROMs… item included)`,
+              !l.orangeAt.length && ![l.fills.pill, l.fills.menu, l.fills.menuDot, l.fills.itemDot].includes(l.orange) && !l.menuDot, JSON.stringify({ at: l.orangeAt, fills: l.fills, orange: l.orange }));
+          }
+          if (state === 'first visit' || state === 'returning') {
+            if (device === 'desktop') {
+              check(`${where}: "Add ROMs…" beside the machine, named "Add your ROMs for BASIC", one line, styled as Share (border, colour, weight, radius, height)`,
+                l.pill && l.pillText === 'Add ROMs…' && l.pillTitle === 'Add your ROMs for BASIC' && l.pillName === 'Add your ROMs for BASIC' && l.pillBeside && l.pillOneLine
+                && JSON.stringify(l.pillStyle) === JSON.stringify(l.shareStyle), JSON.stringify(l));
+            } else {
+              check(`${where}: Menu has "Add ROMs…", Menu wears no dot`, l.item && l.itemText === 'Add ROMs…' && !l.menuDot, JSON.stringify(l));
+            }
+            // the first visit's card: the machine question alone, or none (the link named the machine: no question)
+            check(`${where}: no side card that talks about ROMs`, l.card === null || (/^Which computer did you have\?/.test(l.card) && !/ROM/.test(l.card)), String(l.card));
+          }
+          if (state === 'ROMs stored, built-in firmware' || state === 'ROMs running') {
+            check(`${where}: no "Add ROMs…" on the bar or in Menu`, !l.pill && !l.item && !l.tkRoms && l.bootable, JSON.stringify(l));
+          }
+          if (state === 'ROMs running') check(`${where}: the ROMs run, and there is no side card`, !l.useStub && l.card === null, JSON.stringify(l));
+          if (state === 'ROMs stored, built-in firmware') check(`${where}: the built-in firmware runs`, l.useStub, JSON.stringify(l));
+          if (state === 'chat screen' || state === 'embed') check(`${where}: no "Add ROMs…" shown, no side card`, !l.pill && l.card === null, JSON.stringify(l));
+          if (shotDir) await page.screenshot({ path: path.join(shotDir, `rom-once-${id}-${state.replace(/[^a-z]+/gi, '-')}-${sz}.png`) });
+        }
+      };
+      // first visit, returning, the ROMs stored with the built-in firmware, then the ROMs running: one browser profile
+      {
+        const ctx = await browser.newContext({ viewport: sizes[0][1], serviceWorkers: 'block', ...opts });
+        const page = await ctx.newPage();
+        page.on('pageerror', (e) => errors.push(e.message));
+        await page.goto(`${base}?machine=${id}`); await started(page);
+        await waitFor(page, () => window.emu.session.welcomeRunning, null, 15000);
+        await shotAll(page, 'first visit');
+        // each way to Add ROMs: the bar's button (a phone: Menu's item), and the welcome menu's key 3
+        await page.setViewportSize(sizes[0][1]); await page.waitForTimeout(150);
+        if (device === 'desktop') await page.click('#romPill');
+        else { await page.tap('#btnMenu'); await waitFor(page, () => document.getElementById('appbar').classList.contains('menu-open')); await page.tap('#navRoms'); }
+        check(`${L}: "Add ROMs…" (${device === 'desktop' ? 'the bar' : 'Menu'}) opens Add ROMs`, await waitFor(page, romsOpen));
+        await page.click('#btnRomBack');
+        await waitFor(page, () => !document.body.classList.contains('roms-open'));
+        let three = false;
+        for (let i = 0; i < 25 && !three; i++) {
+          await page.focus('#screen'); await page.keyboard.press('3');
+          // (the menu reads its keys once its tune has played: a key before then is lost, so it is pressed again)
+          three = await maybeWaitFor('the welcome menu not reading keys yet', page, romsOpen, null, 1000);
+        }
+        check(`${L}: the welcome menu's key 3 opens Add ROMs`, three);
+        await page.click('#btnRomBack');
+        await page.reload(); await started(page);
+        await waitFor(page, () => window.emu.session.welcomeRunning, null, 15000);
+        await shotAll(page, 'returning');
+        await dropFiles(page, [[file, standIn(size, at)]]);
+        const stored = await waitFor(page, (m) => window.emu.session.machineRoms(m).bootable, id, 15000);
+        await page.evaluate(() => { location.hash = ''; window.emu.session.runWithoutRoms(); });
+        await waitFor(page, () => !document.body.classList.contains('roms-open') && window.emu.machine.useStub, null, 10000);
+        check(`${L}: the stand-in is stored and the machine runs the built-in firmware`, stored && await page.evaluate(() => window.emu.machine.useStub));
+        await shotAll(page, 'ROMs stored, built-in firmware');
+        await page.evaluate(() => window.emu.session.index.flush());   // (the store's writes done before the reload)
+        await page.goto(`${base}?machine=${id}`); await started(page);
+        await waitFor(page, () => !window.emu.machine.useStub, null, 15000);
+        await shotAll(page, 'ROMs running');
+        await closeCtx(ctx);
+      }
+      for (const [state, q] of [['chat screen', 'app=claude'], ['embed', 'embed=1']]) {
+        const ctx = await browser.newContext({ viewport: sizes[0][1], serviceWorkers: 'block', ...opts });
+        const page = await ctx.newPage();
+        page.on('pageerror', (e) => errors.push(e.message));
+        await page.goto(`${base}?machine=${id}&${q}`); await started(page);
+        if (state === 'chat screen') check(`${L}: the chat screen is up`, await waitFor(page, () => document.body.classList.contains('chat-screen'), null, 15000));
+        else check(`${L}: the embedded page is up`, await waitFor(page, () => document.body.classList.contains('embed'), null, 15000));
+        await shotAll(page, state);
+        await closeCtx(ctx);
+      }
+      check(`${L}: no page errors`, !errors.length, errors.join('; '));
+    }
+  }
+  // the bar's button at the narrowest desktop width (701 px) and at 1440: whole, on one line
+  const ctx = await browser.newContext({ viewport: { width: 701, height: 800 }, serviceWorkers: 'block' });
+  const page = await ctx.newPage();
+  await page.goto(base); await started(page);
+  for (const w of [701, 1440]) {
+    await page.setViewportSize({ width: w, height: 800 }); await page.waitForTimeout(150);
+    const l = await page.evaluate(look, GONE);
+    check(`ROM once (${w} px): "Add ROMs…" shows on one line, not cut`, l.pill && l.pillOneLine && l.pillText === 'Add ROMs…', JSON.stringify({ pill: l.pill, one: l.pillOneLine, style: l.pillStyle }));
+  }
+  await closeCtx(ctx);
+}
+
+// ---------------- the no-ROM chrome (js/ui/main.js): Add ROMs… is plain, and nothing is orange ----------------
+// With no ROMs the app bar shows "Add ROMs…" where it has room, a phone's Menu has it as an item (held sideways, the touch
+// keys' row has it): at every width from
+// 320 to 1600 px, with a mouse and on a touch screen, upright and short, one of the two is there, nothing on the bar or
+// in Menu is orange (orange is a socket's fault, on Add ROMs), and the button is one line, never cut.
 async function noRomChromeChecks(browser, base, check) {
   const look = () => {
-    const pill = document.getElementById('romPill'), menu = document.getElementById('btnMenu');
-    const dot = menu.checkVisibility() && getComputedStyle(menu, '::after').content !== 'none' && menu.classList.contains('dot');
-    return { pill: pill.checkVisibility(), dot };
+    const pill = document.getElementById('romPill'), menu = document.getElementById('btnMenu'), item = document.getElementById('navRoms');
+    const probe = document.createElement('i'); probe.style.background = 'var(--orange)'; document.body.append(probe);
+    const orange = getComputedStyle(probe).backgroundColor; probe.remove();
+    const fills = [['romPill', getComputedStyle(pill).backgroundColor], ['tkRoms', getComputedStyle(document.getElementById('tkRoms')).backgroundColor], ['btnMenu', getComputedStyle(menu).backgroundColor], ['btnMenu::after', getComputedStyle(menu, '::after').backgroundColor],
+      ...[...item.querySelectorAll('*')].map((e) => ['navRoms child', getComputedStyle(e).backgroundColor])];
+    const r = pill.getBoundingClientRect();
+    // (held sideways on a touch screen, the touch keys' row has its own "Add ROMs…" and the bar no Menu)
+    return { pill: pill.checkVisibility(), item: (!item.hidden && menu.checkVisibility()) || document.getElementById('tkRoms').checkVisibility(), orange: fills.filter(([, c]) => c === orange).map(([n]) => n),
+      oneLine: !pill.checkVisibility() || (pill.scrollWidth <= pill.clientWidth && r.height <= parseFloat(getComputedStyle(pill).lineHeight) * 1.5 + 20), text: pill.textContent };
   };
   for (const [kind, opts] of [['mouse', {}], ['touch', { hasTouch: true, isMobile: true }]]) {
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, serviceWorkers: 'block', ...opts });
@@ -23041,19 +23195,20 @@ async function noRomChromeChecks(browser, base, check) {
     const errors = [];
     page.on('pageerror', (e) => errors.push(e.message));
     await page.goto(base); await started(page);
-    const bad = [], seen = { pill: 0, dot: 0 };
+    const bad = [], seen = { pill: 0, item: 0 };
     for (let w = 320; w <= 1600; w += 40) {
       for (const h of [800, 400]) {
         await page.setViewportSize({ width: w, height: h });
         await page.waitForTimeout(60);
         const l = await page.evaluate(look);
-        if (l.pill && l.dot) bad.push(`${w}x${h}: ${JSON.stringify(l)}`);
-        if (l.pill || l.dot) seen[l.pill ? 'pill' : 'dot']++;
+        if (l.orange.length || !l.oneLine || (!l.pill && !l.item) || l.text !== 'Add ROMs…') bad.push(`${w}x${h}: ${JSON.stringify(l)}`);
+        if (l.pill) seen.pill++;
+        if (l.item) seen.item++;
       }
     }
-    check(`no-ROM chrome (${kind}): at every width from 320 to 1600 px, upright and short, the pill and Menu's dot never show together`, !bad.length, bad.slice(0, 4).join('; '));
+    check(`no-ROM chrome (${kind}): at every width from 320 to 1600 px, upright and short, "Add ROMs…" is on the bar or in Menu, one line, and nothing there is orange`, !bad.length, bad.slice(0, 4).join('; '));
     // (the sweep is not vacuous: each of the two does show at some width)
-    check(`no-ROM chrome (${kind}): ...and each of them shows somewhere in the sweep`, seen.pill > 0 && seen.dot > 0, JSON.stringify(seen));
+    check(`no-ROM chrome (${kind}): ...and the bar's button and Menu's item each show somewhere in the sweep`, seen.pill > 0 && seen.item > 0, JSON.stringify(seen));
     // the one line under the tube (desktop only): "Click or press a key for sound" until sound starts, then the typing
     // line (the key hint first while it is live; Esc ends it); "No ROMs needed" nowhere. A touch screen shows no line.
     await page.setViewportSize({ width: 1280, height: 800 });
@@ -24351,6 +24506,7 @@ const GROUPS = (base, site) => [
   ['menuWords', (b) => menuWordsChecks(b, base, check)],
   ['needsBasic', (b) => needsBasicChecks(b, base, check)],
   ['noRomChrome', (b) => noRomChromeChecks(b, base, check)],
+  ['romOnce', (b) => romOnceChecks(b, base, check)],
   ['romNotRom', (b) => romNotRomChecks(b, base, check)],
   ['toastOffScreen', (b) => toastOffScreenChecks(b, base, check)],
   // (required when the group runs: the shard planner's copy of this file runs --list-groups without it)
@@ -24428,8 +24584,8 @@ const GROUPS = (base, site) => [
   }
 })();
 
-// The ROM state tells one story. Three surfaces say what the machine is doing: the side card ("Running with no
-// ROMs."), the screen (the welcome menu's option 3) and, on Your ROMs, the list of other machines that are "Also
+// The ROM state tells one story. Three surfaces say what the machine is doing: the side card (none without ROMs,
+// "Running without your ROMs." with them in but unused), the screen (the welcome menu's option 3) and, on Your ROMs, the list of other machines that are "Also
 // ready to run BASIC". They used to disagree: with an unrecognised ROM loaded the card still said "no ROMs", and
 // after "Run without ROMs" the menu still offered "3 ADD YOUR ROMS FOR BASIC" when the ROMs were already in the
 // sockets. Measured on our own NOP image (a socket's usual name, the right size, not a known dump), so no real ROM
@@ -24459,8 +24615,9 @@ const romTruthChecks = async (browser, base, check) => {
   {
     await menuReady(/^\s*3\s+ADD YOUR ROMS/);
     const c = await card();
-    check('rom states: with no ROMs the side card says so, and the menu offers to add them',
-      !!c && /^Running with no ROMs\./.test(c.text) && /ADD YOUR ROMS/.test(await menuRow3()),
+    // (the link names the machine, so there is no machine question: no card. The menu alone says ROMs are needed)
+    check('rom states: with no ROMs there is no side card, and the menu offers to add them',
+      !c && /ADD YOUR ROMS/.test(await menuRow3()),
       `${c ? c.text.slice(0, 80) : '(no card)'} / menu: ${await menuRow3()}`);
   }
   // an unrecognised ROM: the machine now runs it, so the card must stop saying "no ROMs" (the menu is gone with it)
@@ -24468,8 +24625,8 @@ const romTruthChecks = async (browser, base, check) => {
   const ran = await waitFor(page, () => !window.emu.session.machineRoms('coco').sockets.find((s) => s.id === 'bas').status.startsWith('missing'), null, 15000);
   check('rom states: the unrecognised ROM is loaded (the probe of the other checks)', ran, await romStatus(page, 'coco'));
   await emuFrames(page, 20);
-  // the first visit's own card must SURVIVE the things that fire the same events: a machine picked in its question,
-  // and a Reset. (Regression: refreshCard's 'empty' state hid a 'first' card on 'machine' and 'reset'.)
+  // the first visit's own card is the machine question: answering it takes the card away, and the events that fire with
+  // the answer and a Reset never bring back a no-ROM card (refreshCard never draws 'empty')
   {
     const ctxF = await guardedContext(browser, archive);
     const pf = await ctxF.newPage();
@@ -24479,14 +24636,14 @@ const romTruthChecks = async (browser, base, check) => {
     await pf.goto(base);
     await waitFor(pf, () => !!(window.emu && window.emu.session && window.emu.started === true), null, 40000);
     await emuFrames(pf, 15);
-    const before = await kind();
+    const before = await kind(), asked = await pf.evaluate(() => !!document.querySelector('#welcome #askMachine'));
     await pf.evaluate(() => { const b = document.querySelector('#askMachine [data-machine]'); if (b) b.click(); });
     await emuFrames(pf, 20);
-    check('rom states: the first visit\'s card survives a machine picked in its own question', before === 'first' && (await kind()) === 'first',
-      `${before} -> ${await kind()}`);
+    check('rom states: the first visit\'s card is the machine question, and goes once a machine is picked in it', before === 'first' && asked && (await kind()) === null,
+      `${before} (asked: ${asked}) -> ${await kind()}`);
     await pf.evaluate(() => window.emu.session.personMachine && document.querySelector('[data-action="reset"], #btnReset') && (document.getElementById('btnReset') || { click() {} }).click());
     await emuFrames(pf, 20);
-    check('rom states: ...and survives a Reset', (await kind()) === 'first', String(await kind()));
+    check('rom states: ...and a Reset brings no card back', (await kind()) === null, String(await kind()));
     check('rom states: no page errors (first visit)', errsF.length === 0, errsF.join(' | '));
     await ctxF.close();
   }
