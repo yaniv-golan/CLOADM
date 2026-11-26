@@ -71,6 +71,8 @@ hardware; the exceptions are listed under [How we know it's right](#how-we-know-
 
 In Cowork and Claude Code it runs on your computer instead, with your ROM files and the ~/CLOADM folder; nothing to connect.
 
+**Updating the plugin.** In Claude Code, new versions arrive automatically when auto-update is on for the marketplace (off by default in Claude Code for a third-party marketplace; turn it on in `/plugin` → Marketplaces; [install](https://code.claude.com/docs/en/plugins/install.md), [loading](https://code.claude.com/docs/en/plugins/loading.md)). To get one at once: `/plugin` → Marketplaces → cloadm-marketplace → Update marketplace (or `claude plugin update cloadm@cloadm-marketplace`), then `/reload-plugins`. claude.ai and the desktop app keep their own record of the installed version and don't read the manifest's, so they don't update by themselves: Plugins → Add → Manage marketplace, remove `yaniv-golan/CLOADM` and add it again, then **Connect** *CLOADM side panel* (in 0.3.0 the server was renamed from *cloadm-panel*). Maintainer-verified on 2026-11-25.
+
 **The badge next to *CLOADM side panel*.** Claude shows this for any connector Anthropic hasn't reviewed. CLOADM's runs at mcp.cloadm.dev, needs no sign-in, and sees only the emulator in that panel. Nothing else of yours. It's open source: [source](https://github.com/yaniv-golan/CLOADM/tree/main/connector).
 
 | Where you use Claude | What you get |

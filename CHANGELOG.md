@@ -55,6 +55,10 @@ Next version: 0.3.1 (the plugin and extension manifests carry it; `tests/plugin.
 - **The side-panel connector checks `Origin`,** as the MCP Streamable HTTP transport requires: a request from a browser whose
   `Origin` is not claude.ai, claude.com or the connector's own gets 403. Requests with no `Origin` (Claude's servers, Claude Code,
   command-line clients) are served as before (`docs/deploy-connector.md`, "Origin").
+- **README and the MCP guide say how to update the plugin.** In Claude Code, new versions arrive by themselves when auto-update
+  is on for the marketplace (off by default for a third-party marketplace); to get one at once, Update marketplace (or
+  `claude plugin update`) and `/reload-plugins`. claude.ai and the desktop app don't pick up a new version on their own: remove the
+  CLOADM marketplace, add it again and Connect *CLOADM side panel* again.
 
 #### Fixed
 
