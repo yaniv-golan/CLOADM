@@ -136,7 +136,7 @@ Per-machine notes, RAM options and the chip-by-chip list: [docs/machines.md](doc
 | **Claude** | Chat with Claude full screen on the green screen (phones included), or Ask Claude in a side panel; Claude reads only the emulated machine (its screen text and memory, never anything else on your computer; it says so when it can't read a screen), and acts on it (POKE, typing, loading a BASIC program, BREAK) only with your permission, with undo | The chat over DriveWire to a real machine; the CoCo 3's 80-column chat screen |
 | **Sharing** | One **Copy link** on the Share screen: an unchanged bundled program gives its program page (nothing uploaded), otherwise a short link (`s.cloadm.dev/<id>#<key>`, sealed in your browser so the server can't read it, with a QR code; for moments without ROMs), or the long link (the whole moment in the address, works offline) where a short one can't be made; program pages for [2048](https://cloadm.dev/2048/), [LIZA](https://cloadm.dev/liza/) and [Minesweeper](https://cloadm.dev/minesweeper/) ([details](docs/using.md)) | |
 | **Tools** | Assembler, Debugger, POKE book, snapshots; a command line, MCP server and Node API for agents, and a claude.ai connector that runs the emulator in Claude's side panel ([automation](docs/automation.md), [MCP](docs/mcp.md), [side panel](docs/mcp.md#claude-on-the-web-side-panel)) | Step back (rewind) |
-| **Sharing** | Every setting as a URL parameter (`?record=1`: the screen alone, integer-scaled, for recording a video); a link that opens exactly this moment (with a picture and one line where it is pasted), a 6-second clip or looping GIF, a framed picture (the true-pixel screen in a CRT monitor, with its name and cloadm.dev); BBCode and Markdown for a forum post; embed code and a JavaScript API; **Copy bug report**, shown before it is copied; works offline once visited; **Install CLOADM…** in the app bar beside Help (behind **Menu** on a phone), and a one-time offer once a program has run a minute (its own window, offline) | |
+| **Sharing** | Every setting as a URL parameter (`?record=1`: the screen alone, integer-scaled, for recording a video); a link that opens exactly this moment (with a picture and one line where it is pasted), a 6-second clip or looping GIF, a framed picture (the true-pixel screen in a CRT monitor, with its name and cloadm.dev); BBCode and Markdown for a forum post; embed code and a JavaScript API; **Copy bug report**, shown before it is copied; works offline once visited; **Install CLOADM…** in the app bar's **More ▾** (behind **Menu** on a phone), and a one-time offer once a program has run a minute (its own window, offline) | |
 
 How to load each kind of file, the keys, snapshots, sharing and embedding: [docs/using.md](docs/using.md). Running it from scripts and CI (`node cli/cloadm.js`): [docs/automation.md](docs/automation.md). Writing a game and testing it end to end (keys, screen, pictures, sound), with a starter game: [docs/game-development.md](docs/game-development.md).
 
@@ -223,8 +223,8 @@ areas included) is sent to Anthropic as part of your conversation. More in [docs
   machine-code programs, LIZA, the welcome program and its two games.
 * **Does it work on a phone?** Yes: an on-screen keyboard appears, split for the thumbs when held sideways,
   and a switch turns it into a touch joystick (stick and FIRE) for games.
-* **Does it work offline?** Yes, after one visit. Browsers offer to install it, and **Install CLOADM…** in the app bar
-  beside Help (behind **Menu** on a phone) makes it an app of its own (its own window, offline);
+* **Does it work offline?** Yes, after one visit. Browsers offer to install it, and **Install CLOADM…** in the app bar's
+  **More ▾** (behind **Menu** on a phone) makes it an app of its own (its own window, offline);
   the page offers it once a program has run for a minute.
 * **Where are my ROMs and programs kept?** In your browser's private storage, or a folder you choose. CLOADM itself never
   uploads them. If you use Claude, what it reads from the machine's memory (ROM areas included) is sent to Anthropic as
@@ -280,5 +280,7 @@ full list is in [CREDITS.md](CREDITS.md). Missing someone? Please open a pull re
 [MIT](LICENSE). It covers the emulator's own code and firmware, not the machines' ROMs, which belong to their
 copyright holders and are never included. "Dragon", "Tandy", "TRS-80", "Color Computer", "MC-10", "Matra Alice",
 "Prológica CP-400" and the other product names used here are trademarks of their respective owners. CLOADM is an
-independent project, not affiliated with or endorsed by any of them. Changes: [CHANGELOG.md](CHANGELOG.md).
+independent project, not affiliated with or endorsed by any of them. DOOM is a registered trademark of ZeniMax
+Media Inc. CLOADM and WYRMFIRE are independent projects, not affiliated with or endorsed by id Software, ZeniMax
+Media or Microsoft. References to DOOM describe file compatibility only. Changes: [CHANGELOG.md](CHANGELOG.md).
 Security: [SECURITY.md](SECURITY.md).

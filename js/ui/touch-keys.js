@@ -431,6 +431,14 @@ export function setupTouchKeys(page, { input }) {
       sheet.querySelector('button:not([hidden])').focus();
     }
   };
+  // a first visit held sideways: Open… and Add ROMs… beside the control row until a program has run or ROMs are in
+  // (Session.lastRun, the stored ROMs); after that they are Menu's (Open…) and the app bar's (Add ROMs) as before
+  const firstVisit = () => !session.lastRun && !session.storedRoms().count;
+  const firstRow = () => { const f = firstVisit(); $('tkOpen').hidden = !f; $('tkRoms').hidden = !f; };
+  $('tkOpen').onclick = () => $('fileProgram').click();
+  $('tkRoms').onclick = () => $('romPill').click();
+  session.on((ev) => { if (ev === 'lastrun' || ev === 'roms' || ev === 'loaded') firstRow(); });
+  firstRow();
   sheet.onclick = (e) => {
     const b = e.target.closest('[data-item]');
     if (!b) return;

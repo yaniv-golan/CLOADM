@@ -866,5 +866,15 @@
   "video coco3 compat $FF9C": {
     "hash": "616997a5",
     "frames": 1500
+  },
+  "acia idle dragon64": {
+    "hash": "6855082e",
+    "instructions": 102258,
+    "halted": true
+  },
+  "acia idle dgnalpha": {
+    "hash": "3ca5153e",
+    "instructions": 102238,
+    "halted": true
   }
 }

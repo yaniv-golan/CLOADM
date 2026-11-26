@@ -32,7 +32,8 @@ The site has the same thanks at [cloadm.dev/credits](https://cloadm.dev/credits/
   pinned in `js/wyrmfire/pin.js`. Its level disk is converted from map E1M1 of
   [Freedoom](https://freedoom.github.io) 0.13.0, Copyright © 2001-2024 Contributors to the Freedoom project, under the
   BSD 3-Clause licence (`examples/wyrmfire/freedoom/COPYING.txt`, with its `CREDITS.txt` and `CREDITS-MUSIC.txt`).
-  Neither is affiliated with id Software. DOOM is a trademark of id Software LLC.
+  Freedoom is not affiliated with id Software. DOOM is a registered trademark of ZeniMax Media Inc. CLOADM and
+  WYRMFIRE are independent projects, not affiliated with or endorsed by id Software, ZeniMax Media or Microsoft. References to DOOM describe file compatibility only.
 
 ## Archives
 

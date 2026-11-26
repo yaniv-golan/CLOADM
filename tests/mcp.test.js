@@ -1162,14 +1162,14 @@ fs.writeFileSync(tmp('media', 'plain.bas'), '10 PRINT "HI"\n');
 
   // ---------------- starting the server wrongly ----------------
   const bad = await new Promise((resolve) => {
-    const p = spawn(process.execPath, [CLI, '--mcp', '--media-root', tmp('nope')], { cwd: ROOT });
+    const p = spawn(process.execPath, [CLI, '--mcp', '--media-root', tmp('nope')], { cwd: ROOT, env: ENV });
     let out = '', err = '';
     p.stdout.on('data', (d) => { out += d; }); p.stderr.on('data', (d) => { err += d; });
     p.on('close', (c) => resolve({ c, out, err }));
     p.stdin.end();
   });
   check('a media root that does not exist: exit 3, the reason on stderr, nothing on stdout', bad.c === 3 && /cannot read the media root/.test(bad.err) && bad.out === '', J(bad));
-  const both = await new Promise((resolve) => { const p = spawn(process.execPath, [CLI, '--mcp', '--frames', '5'], { cwd: ROOT }); let err = ''; p.stderr.on('data', (d) => { err += d; }); p.on('close', (c) => resolve({ c, err })); p.stdin.end(); });
+  const both = await new Promise((resolve) => { const p = spawn(process.execPath, [CLI, '--mcp', '--frames', '5'], { cwd: ROOT, env: ENV }); let err = ''; p.stderr.on('data', (d) => { err += d; }); p.on('close', (c) => resolve({ c, err })); p.stdin.end(); });
   check('--mcp with a step: usage error, exit 2', both.c === 2 && /takes --roms PATH, --media-root DIR and --read-only/.test(both.err), J(both));
 })().catch((e) => { check('the MCP suite ran to the end', false, e.stack); }).finally(() => {
   for (const p of spawned) if (p.exitCode === null) p.kill();

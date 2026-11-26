@@ -1613,6 +1613,15 @@ names it.
   and 12 pushes; MAME `base6x09.lst`), not 20: no earlier firmware had an interrupt arrive that soon.
   The 64 Plus has the same 6551 and port because MAME's `d64plus()` starts from `dragon64(config)`
   (`src/mame/trs/dragon.cpp`); its run (`d64plus/spec.js` `serial`) is the same firmware on its own ROM files.
+* With nothing in the Dragon 64's serial port, `node tools/mame-diff/run.js dragon64 --serial-idle` runs `sam/acia-idle.asm` in lockstep with
+  MAME's default (its `dragon64` fits no RS-232 device, so nothing drives CTS, DSR or DCD and all three idle high). The 6551's status then reads
+  $60 (DSR and DCD set), TDRE never reads 1 because CTS masks it, a byte written goes nowhere and no interrupt is raised: MAME 0.264 reads
+  `$FF05 = $60` at the BASIC prompt. The firmware reads every register after reset and a while later, the status after each control and command write, a
+  transmit attempt with its poll counted to the cycle, the transmitter and receiver interrupts enabled, DTR off and on, and a programmed reset.
+  `tests/acia-idle.test.js` runs it in Node against the values worked out from the 6551's status bits. (A terminal plugged in, MAME's null modem, asserts
+  the lines instead: TDRE reads 1, as `--serial`'s patch box does.) Current results: dragon64, dragon200, dragon200e, tanodr64, d64plus and dgnalpha **identical to
+  HALT** (1,186,720 instructions on the first three, 1,193,940 on the Tano, 1,174,864 on the 64 Plus, 1,186,701 on the Dragon Alpha, which runs the firmware behind its boot-ROM pager; the firmware's HALT at instruction 30,062, 30,100 on the Alpha). Before the
+  empty port idled high the comparison diverged at the 5th instruction: MAME read $60 where we read $10.
 * `node tools/mame-diff/drivewire/run-dw.js [profile ...]` runs `drivewire/dw.asm`, a DriveWire client that plays a
   script of transactions over the Becker port and logs every byte the server sends: RESET, INIT, NOP, DWINIT, TIME;
   Read, ReRead, Read Extended (a right and a wrong checksum), ReRead Extended, Write (a wrong checksum, a
@@ -1946,7 +1955,18 @@ BASIC program (byte 0 = 2), and a short link's sealed object of each kind (versi
 `tests/link-freeze.test.js` checks each file's SHA-256 against the committed value, then opens each in a fresh Session
 and checks it against values worked out by hand from what made it: the moment is a Dragon 64 on the built-in firmware
 whose 14-byte program at `$7000` filled the text screen (`$0400`-`$05FF`) with `$41` and loops at `$700C`; the program,
-opened on our stand-in BASIC, lists as written. No ROM is involved. The sealed object's layout (version, kind, IV,
+opened on our stand-in BASIC, lists as written. Its check that the generator never overwrites runs the generator on a
+temporary copy of the fixtures (`tools/gen-link-fixtures.js DIR`), so a test run cannot rewrite the tracked files
+whatever state that guard is in, and it checks the committed files are untouched as well. No ROM is involved.
+
+What holds the freeze is the committed SHA-256 of each fixture, and the decoded content (what a link opens to), never a
+byte-for-byte regeneration. Deflate output is not guaranteed stable across zlib or platform versions, and a sealed
+object carries a random IV, so fresh output differing from a fixture is no evidence of a broken format; and fresh
+output matching it proves nothing either (measured 2026-11-25: Node 22 regenerates the two long links byte-identically
+to the committed files, Node 25 regenerates neither of them, and both decode to the same snapshots). The generator is
+run only for its overwrite guard, and never to reproduce a fixture.
+
+The sealed object's layout (version, kind, IV,
 ciphertext with the header as AES-GCM additional data) is checked byte by byte in `tests/short-link.test.js`, the
 Worker's reading of it (body version 2, the kind kept, the arrival page's wording per kind, refusals) in
 `tests/shortlink-worker.test.js`, and the snapshot config rule (`Session.checkedSnapshot`) in `tests/link-freeze.test.js`.
