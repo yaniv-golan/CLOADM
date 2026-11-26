@@ -137,7 +137,9 @@ These are hard rules for everyone who works on this ROM.
     ours faster than the original, a counted delay brings it back, as `GSDLY` did: `IFDLY` in `IF`, `ADDDLY` before
     an addition or subtraction in an expression, `MULDLY` before a product, `FOIDLY` in `FOUT`'s whole-number path,
     11 cycles before a quotient, and `GSDLY` is now 39 steps. The own case `expr-levels` holds the expression
-    levels to it (an operand or a `NOT` after a relation, an operator after a `NOT`'s operand). With all of it,
+    levels to it (a signed operand after a relation, an operator after a `NOT`'s operand, `NOT` after `AND` and
+    `OR`; a `NOT` straight after a relation or another operator, `1<NOT 0`, is `?SN ERROR` on ours, before and
+    after this change, and is asked of the original in the next batch). With all of it,
     15,618 bytes (46 more), the code ending at `$BDF4`, 510 bytes below the vectors. The delays match these eight
     loops only: another program may run a little faster or slower than on the original, and a sound whose length
     hangs on where in a field it starts can come out differently (`snd-play-length`'s `T64` note now ends before a
