@@ -89,7 +89,7 @@ export function setupSnapshotPanel(page, { confirmSwitch, openRoms, startOver, o
 
   // a short link's moment (#l=<id>.<key>): fetched from the store and opened with the key, which never leaves the page;
   // the fragment is removed either way. Shared, as a long link's is: a moment without ROMs arrives quietly
-  // (Session.sharedMoment: no no-ROM card or "No BASIC" pill beside the arrival card)
+  // (Session.sharedMoment: no side card or "Add ROMs…" beside the arrival card)
   async function takeShortLink(hash, store) {
     let got;
     try { got = await session.readShortLink(hash, store); }

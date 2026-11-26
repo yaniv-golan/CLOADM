@@ -1,7 +1,7 @@
 /*
- * Adding ROMs, at /play/#add-roms instead of the emulator. It opens from
- * "No BASIC · Add ROMs", the Machine tab's "Add ROMs →", the Welcome menu's key 3, the boot help's "Add
- * ROMs", and anything else that needs ROMs. It shows:
+ * Adding ROMs, at /play/#add-roms instead of the emulator. It opens from the header's "Add ROMs…" (a phone: Menu's
+ * "Add ROMs…"), the Machine tab's "Add ROMs →", the Welcome menu's key 3 (the one place that says why ROMs are
+ * needed), the boot help's "Add ROMs", and anything else that needs ROMs. It shows:
  *  - the disk ROM's card where the machine takes a disk cartridge (a drive's Add ROMs… lands on it);
  *  - the machine's sockets, each with what it takes (size, usual file names), whether it is required, and what
  *    it holds or what is missing and why it matters (a required socket: no BASIC without it; an optional one:

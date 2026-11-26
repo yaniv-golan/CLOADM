@@ -287,23 +287,16 @@ $('btnMenu').onclick = () => {
   session.on((ev) => { if (ev === 'machine') fit(); });
   fit();
 }
-// the phone's app bar (700 px and less, play/index.html): Add ROMs is Menu's first item while the app bar's pill is
-// up (the machine has no BASIC), and Menu wears a dot then, as the item does; Settings… and Share are its items too
-// (the bar has no room)
+// the phone's app bar (700 px and less, play/index.html): Add ROMs… is Menu's item while the app bar's pill is up (the
+// machine has no BASIC), a plain item with no dot (the welcome menu's key 3 says why ROMs are needed); Settings… and
+// Share are its items too (the bar has no room)
 {
   const pill = $('romPill'), item = $('navRoms');
-  // (the dot is drawn only: while it is on, Menu's name says what it means)
-  // (and an accent dot while media is in, on a short phone where Menu has the ports: js/ui/phone-sheets.js)
+  // (Menu's accent dot is media's alone, on a short phone where Menu has the ports: js/ui/phone-sheets.js)
   const sync = () => {
     item.hidden = pill.hidden;
-    const menu = $('btnMenu'), media = menu.classList.contains('media');
-    // (never both: while the pill itself shows, Menu wears no dot; checkVisibility, as the layout draws it at this width)
-    const dot = !pill.hidden && !pill.checkVisibility();
-    menu.classList.toggle('dot', dot);
-    // (both: its one dot is the ROMs', its name says both)
-    if (dot) menu.setAttribute('aria-label', media ? 'Menu (ROMs needed, media inserted)' : 'Menu (ROMs needed)');
-    else if (media) menu.setAttribute('aria-label', 'Menu (media inserted)');
-    else menu.removeAttribute('aria-label');
+    if ($('btnMenu').classList.contains('media')) $('btnMenu').setAttribute('aria-label', 'Menu (media inserted)');
+    else $('btnMenu').removeAttribute('aria-label');
   };
   page.syncMenu = sync;
   const close = () => { $('appbar').classList.remove('menu-open'); $('btnMenu').setAttribute('aria-expanded', 'false'); };
@@ -325,9 +318,6 @@ $('btnMenu').onclick = () => {
     tab.focus({ preventScroll: true });
   };
   new MutationObserver(sync).observe(pill, { attributes: true, attributeFilter: ['hidden'] });
-  // the pill shows or not with the width and the layout (the touch keys, the chat screen): asked again when they change
-  new ResizeObserver(sync).observe(document.body);
-  new MutationObserver(sync).observe(document.body, { attributes: true, attributeFilter: ['class'] });
   sync();
   // Where the less-used links go (moved, not reordered by the stylesheet, so the focus goes down them in the order they
   // are drawn). On a desktop (wider than 700 px, not held sideways, without the touch keys) Debugger, Commands…, Help,

@@ -87,6 +87,13 @@ Next version: 0.3.1 (the plugin and extension manifests carry it; `tests/plugin.
 
 #### Changed
 
+- **The ROM requirement is said once**, by the Welcome menu's "3 ADD YOUR ROMS FOR BASIC". Elsewhere adding ROMs is a
+  plain action: the app bar's button reads **Add ROMs…** (it was the orange "No BASIC · Add ROMs"), styled as Share and
+  named "Add ROMs for BASIC" (its visible words in its name); a phone's Menu item reads **Add ROMs…** (it was "Add
+  ROMs (BASIC needs them)"), and neither it nor Menu wears an orange dot. The first visit's side card is the machine question alone ("Running with no
+  ROMs." is gone), and goes once answered or dismissed; the machine menu drops its "No ROMs yet:" line. Orange is left
+  for a real fault, a socket holding a file it does not recognise. The browser check's `romOnce` group holds this at
+  four sizes on the Dragon 64, the CoCo 3 and the MC-10, in every ROM state, the chat screen and `?embed=1`.
 - **WYRMFIRE is re-pinned to 2f47134,** whose engine counts the level clock from the PAL field-sync interrupt and shows TIME
   on the end screen again. Only the engine changed (`wyrmfire.bin`, SHA-256 2094d081, 10,432 bytes); the converter, the
   licence and the Freedoom level disks are byte for byte the previous pin's (`js/wyrmfire/pin.js`, rebuilt with

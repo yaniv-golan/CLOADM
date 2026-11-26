@@ -2243,7 +2243,7 @@ export class Session {
   // reported as a boot failure 5 s after it comes back. A later Reset or power-on clears the flag, so the
   // watchdog is armed again for it.
   // shared: the moment came from a share link (#z=, js/ui/snapshot-panel.js). One that runs without ROMs is the
-  // person's arrival on someone else's moment (sharedMoment): the page holds back its no-ROM card and "No BASIC" pill
+  // person's arrival on someone else's moment (sharedMoment): the page holds back its side card and "Add ROMs…"
   // until they leave it (leaveSharedMoment).
   // link: { kind: 'long' | 'short', id } when the moment came from a link (#z= or #l=): arrivedFromLink, the page's
   // arrival card, until the person acts. Any other snapshot opened ends an earlier arrival.
