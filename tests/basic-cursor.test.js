@@ -257,9 +257,10 @@ function suite(rom, { machine = 'dragon64', quick = false, tag = '' } = {}) {
     return big;
   };
   // (both longer than the cursor's delay, so the longest gap is the debounce; the field interrupt may land in one
-  // gap more than the other: up to 100 cycles)
+  // gap and not the other: one interrupt, 104 cycles, the IRQ handler's whole length (boot.inc, IRQSRV). The bound
+  // was 100, which an interrupt landing in one gap exceeds: a change of the ROM's size moves where it lands)
   const gA = keyGap(3000), gB = keyGap(4000);
-  check(T('KEYDLY ($0097-$0098, big-endian) is the debounce delay: 1,000 more passes, 8,000 more cycles'), Math.abs(gB - gA - 8000) <= 100, `${gA} ${gB}`);
+  check(T('KEYDLY ($0097-$0098, big-endian) is the debounce delay: 1,000 more passes, 8,000 more cycles'), Math.abs(gB - gA - 8000) <= 104, `${gA} ${gB}`);
   m.ram[KEYDLY] = 300 >> 8; m.ram[KEYDLY + 1] = 300 & 0xFF;
   return r;
 }
