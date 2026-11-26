@@ -143,6 +143,15 @@ Next version: 0.3.1 (the plugin and extension manifests carry it; `tests/plugin.
   name ("Dragon FDC"); the full names stay in the chip's sheet and its label.
 - **WYRMFIRE's one-line card no longer ends in a dangling "·"** before Details.
 
+- **A shared moment opens directly on a first visit.** A short link (or a long one) to a moment made on another model
+  than the page starts on (a CoCo 2 or an MC-10 moment, opened in a browser that had never been to CLOADM) landed on the
+  Dragon 64's welcome menu with "Switching to CoCo 1/2 (64K) resets the Dragon 64. The running program will be lost.",
+  and the moment opened only after **Switch**. A link's moment now switches without asking when the machine on screen
+  holds nothing of yours: no key, typed line, load, assembled program or POKE of yours reached it (or your BASIC
+  session beside the chat) and nothing would come out of it (`Session.switchLoses`; a key typed in an embed now counts
+  too). With your work there, or a switch question already open, the question still asks first. (After a link opens, the address bar
+  shows `/play/` on purpose: the fragment that held the moment, and a short link's key, is removed.)
+
 ### 0.3.1
 
 #### Fixed
