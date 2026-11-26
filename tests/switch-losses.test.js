@@ -171,6 +171,35 @@ const cart = new Uint8Array(8192).fill(0x12); cart[0] = 0x20; cart[1] = 0xFE;   
     check('... and stays mounted after the switch', s.driveWireMounts.some((d) => d.drive === 0 && d.name === n), json(s.driveWireMounts));
   }
 
+  // ---- switchLoses: would the switch lose something of the person's? Their input reached the machine (a key, a typed
+  // line, a load, a POKE) or the switch takes something out. A link's moment opens without the switch question only
+  // when it would not (js/ui/snapshot-panel.js): a page just opened holds nothing of theirs.
+  {
+    const s = new Emu.Session({ media: new MemoryMediaStore() });
+    s.switchMachine('dragon64');
+    for (let i = 0; i < 5; i++) s.shownMachine.runFrame();   // (its own running is not the person's)
+    check('switchLoses: a fresh machine, nothing in it: nothing to lose', s.switchLoses('coco') === false && s.switchLoses('mc10', { ram: 20 }) === false);
+    s.typeText('10 PRINT "HI"\n');
+    check('switchLoses: a line typed: something to lose', s.switchLoses('coco') === true);
+    s.chooseMachine('coco');
+    check('switchLoses: ... and none on the machine switched to (its own count)', s.switchLoses('dragon64') === false);
+    s.load('prog.bin', Uint8Array.from([0x00, 0x00, 0x02, 0x30, 0x00, 0x20, 0xFE, 0xFF, 0x00, 0x00, 0x30, 0x00]));
+    check('switchLoses: a program loaded: something to lose', s.switchLoses('dragon64') === true);
+    // a tape that came in a moment (opening one is not a touch): nothing typed, but the switch takes the tape out
+    const t = new Emu.Session({ media: new MemoryMediaStore() });
+    t.switchMachine('dragon64');
+    t.insertTape('GAME.CAS', tape);
+    const withTape = await t.readSnapshot((await t.snapshotFile()).bytes);
+    const v = new Emu.Session({ media: new MemoryMediaStore() });
+    v.switchMachine('dragon64');
+    v.openSnapshot(withTape);
+    check('switchLoses: a tape in the deck, no input (a switch takes the tape out): something to lose', v.touches() === 0 && v.switchLoses('coco') === true, String(v.touches()));
+    const u = new Emu.Session({ media: new MemoryMediaStore() });
+    u.switchMachine('dragon64');
+    u.shownMachine.poke(0x0600, 1);   // the machine's own poke (a program's write) is not the person's
+    check('switchLoses: the machine\'s own write is not a touch', u.switchLoses('coco') === false);
+  }
+
   console.log(fail ? `${fail} failed` : 'all passed');
   process.exitCode = fail ? 1 : 0;
 })();

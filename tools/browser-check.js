@@ -23849,6 +23849,81 @@ async function shortLinkChecks(browser, base, site, check) {
   check('shortLink: ROMs and a cartridge: "This link holds none of your ROMs or your cartridge. Whoever opens it needs their own Dragon 64 ROMs and the same cartridge: stand-in.ccc.", one sentence, no .warn',
     both.full === 'This link holds none of your ROMs or your cartridge. Whoever opens it needs their own Dragon 64 ROMs and the same cartridge: stand-in.ccc.'
     && both.brief === 'Needs your Dragon 64 ROMs and the same cartridge to open.' && both.sentences === 1 && both.lines === 1 && both.shown && !both.warn && !both.crc, JSON.stringify(both));
+
+  // A first visit (a fresh profile, nothing stored) opening a link to a moment of ANOTHER model than the page boots: the
+  // short link (/play/#l=, no ?machine=) lands on the Dragon 64's welcome menu first, the long link on its own model.
+  // Neither asks "Switching to … resets the Dragon 64. The running program will be lost.": nothing of the person's is
+  // there to lose. The moment opens exactly, on its machine. With the person's work on the page (a key typed while the
+  // short link's moment is still being fetched: Session.switchLoses) the question still asks first.
+  {
+    const moments = [['coco', 'CoCo 1/2', 0x0406], ['mc10', 'MC-10', 0x4006]];
+    const made = [];
+    for (const [mid, name, at] of moments) {
+      const cm = await browser.newContext({ viewport: { width: 1280, height: 900 }, serviceWorkers: 'block', permissions: ['clipboard-read', 'clipboard-write'] });
+      await serve(cm);
+      const pm = await cm.newPage();
+      pm.on('pageerror', (e) => errors.push(e.message));
+      await pm.goto(`${base}?machine=${mid}`);
+      await linkIn(pm);
+      await waitFor(pm, () => window.emu.session.welcomeOnScreen, null, 60000);
+      await pm.evaluate((a) => window.emu.machine.poke(a, 0x4D), at);
+      await openShare(pm);
+      const long = await pm.inputValue('#shareLink');
+      await pm.click('#btnShareCopy');
+      await waitFor(pm, () => !document.getElementById('shortMade').hidden, null, 15000);
+      made.push({ mid, name, at, short: await pm.inputValue('#shareShort'), long });
+      await closeCtx(cm);
+    }
+    const fresh = async () => {
+      const c = await browser.newContext({ viewport: { width: 1280, height: 900 }, serviceWorkers: 'block' });
+      await serve(c); await said(c);
+      // the switch question, counted every time it shows (it may show and go before a check could look)
+      await c.addInitScript(() => { window.__asked = []; document.addEventListener('DOMContentLoaded', () => { const q = document.getElementById('switchConfirm');
+        new MutationObserver(() => { if (!q.hidden) window.__asked.push(q.textContent.replace(/\s+/g, ' ').trim()); }).observe(q, { attributes: true }); }); });
+      const p = await c.newPage();
+      p.on('pageerror', (e) => errors.push(e.message));
+      return { c, p };
+    };
+    const state = (p, at) => p.evaluate((a) => ({ id: window.emu.machine.id, byte: window.emu.machine.peek(a), asked: window.__asked, hash: location.hash,
+      opened: window.__said.filter((x) => /^Snapshot opened/.test(x)) }), at);
+    for (const { mid, name, at, short, long } of made) {
+      for (const [kind, url] of [['short', short], ['long', long]]) {
+        const { c, p } = await fresh();
+        await p.goto(url);
+        await p.waitForURL(/^https:\/\/cloadm\.dev\/play\//, { timeout: 15000 }).catch(() => {});
+        await linkIn(p);
+        const ok = await waitFor(p, () => window.__said.some((x) => /^Snapshot opened/.test(x)), null, 15000);
+        const s = await state(p, at);
+        check(`shortLink: a first visit opening a ${kind} link to a ${name} moment: no switch question, the moment opens on the ${name}`,
+          ok && (kind === 'short' ? /^https:\/\/s\.cloadm\.dev\/[A-Za-z0-9_-]{8}#/ : new RegExp(`[?&]machine=${mid}[&#].*#z=`)).test(url) && s.id === mid && s.byte === 0x4D && s.asked.length === 0 && s.hash === '' && s.opened.length === 1, JSON.stringify(Object.assign({ url: url.slice(0, 48) }, s)));
+        await closeCtx(c);
+      }
+    }
+    // the person's work on the page before the moment arrives: a key typed while its sealed moment is held back
+    {
+      const { mid, name, at, short } = made[0];
+      const { c, p } = await fresh();
+      let release;
+      const held = new Promise((ok) => { release = ok; });
+      await c.route(/^https:\/\/s\.cloadm\.dev\/[A-Za-z0-9_-]{8}\.bin$/, async (route) => { await held; await route.fallback(); });
+      await p.goto(short);
+      await p.waitForURL(/^https:\/\/cloadm\.dev\/play\//, { timeout: 15000 }).catch(() => {});
+      await waitFor(p, () => !!window.emu && !window.emu.started && !!window.emu.machine && window.emu.session.welcomeOnScreen, null, 60000);
+      await p.click('#screen', { position: { x: 20, y: 20 } }).catch(() => {});
+      await p.keyboard.type('X');
+      const typed = await waitFor(p, () => window.emu.session.touches() > 0, null, 10000);
+      release();
+      const asked = await waitFor(p, () => !document.getElementById('switchConfirm').hidden, null, 15000);
+      const q = await p.evaluate(() => ({ name: document.getElementById('switchName').textContent, from: document.getElementById('switchFrom').textContent, id: window.emu.machine.id }));
+      check(`shortLink: with the person's input on the page first, a link to a ${name} moment still asks before switching`,
+        typed && asked && q.name === 'CoCo 1/2 (64K)' && q.from === 'Dragon 64' && q.id === 'dragon64', JSON.stringify(q));
+      if (asked) await p.click('#btnSwitch');
+      const ok = asked && await waitFor(p, () => window.__said.some((x) => /^Snapshot opened/.test(x)), null, 15000);
+      const s = await state(p, at);
+      check(`shortLink: ...and Switch opens the ${name} moment`, ok && s.id === mid && s.byte === 0x4D, JSON.stringify(s));
+      await closeCtx(c);
+    }
+  }
   check('shortLink: no page errors', !errors.length, errors.join('; '));
   await closeCtx(ctx2);
   await closeCtx(ctx);
