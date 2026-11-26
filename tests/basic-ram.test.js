@@ -85,5 +85,17 @@ check('LINBUF at $02DD, CRNBUF at $02DC', sym('LINBUF') === 0x2DD && sym('CRNBUF
   check('a reply to INPUT at 733, as on the original', t.includes(' 733 DONE'), JSON.stringify(t.slice(-3)));
 }
 
+// ---- never faster than the original (loops time games): ram-pointers2's own timing program (a GOSUB's time depends on
+// how many lines come before its target), its lines as typed but for a GOTO after the FOR and GOSUB loops, which
+// skips the others, against the original's counts there (2026-11-26: 113 fields for 2000 empty FOR passes, 83 for
+// 500 GOSUB/RETURN passes; each loop started just after a field begins) ----
+{
+  const text = caseText('ram-pointers2'), at = text.indexOf('10 GOSUB 300:FOR I=1 TO 2000');
+  const prog = text.slice(at).replace(/^(10 .*)$/m, '$1:GOTO 60').replace(/^(60 .*)$/m, '$1:GOTO 100');
+  const r = run('#timeout 60\n' + prog);
+  const t = lines(r), f = t.map((l) => /^FOR (\d+) /.exec(l)).find(Boolean), g = t.map((l) => / GOSUB (\d+) /.exec(l)).find(Boolean);
+  check('FOR 2000 passes take at least the original\'s 113 fields, GOSUB 500 at least its 83 (ram-pointers2\'s program)', f && g && +f[1] >= 113 && +g[1] >= 83, `FOR ${f && f[1]} GOSUB ${g && g[1]}`);
+}
+
 console.log(`\n${n - fail}/${n} passed`);
 process.exitCode = fail ? 1 : 0;

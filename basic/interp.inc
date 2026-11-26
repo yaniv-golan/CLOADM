@@ -304,12 +304,16 @@ JMP1    LEAX    3,X             ; the byte before the line's text
         STA     <JMPFLG
         RTS
 GOSN    JMP     <ZSNERR
+GSDLY   EQU     28              ; GOSUB's delay: 5 cycles a step
 
 * a GOSUB frame on the stack: marker, CURLIN, TXTPTR (on the character after the line number) [OWN]
 GOSUB   JSR     <ZCHRGET
         BCC     GOSN
         JSR     <ZLINGET
 GOSUB1  PULS    U               ; NEWSTT's return address (ON ... GOSUB comes in here, its line in BINVAL)
+        LDB     #GSDLY          ; a delay: ours would be faster than the original otherwise [BB ram-pointers2,
+GSD1    DECB                    ; 2026-11-26: 500 GOSUB/RETURN passes take 83 fields on it]
+        BNE     GSD1
         BSR     CHKSTK
         LDB     #T_GO           ; the frame, from the marker up
         LDX     <CURLIN

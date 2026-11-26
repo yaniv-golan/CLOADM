@@ -102,8 +102,11 @@ These are hard rules for everyone who works on this ROM.
     restoring division and its 41 quotient bits but compares before it subtracts, on a 32-bit remainder whose bit 32
     is one byte, and rotates the bits into the quotient a byte at a time: about 4,000 cycles a division where it took
     11,000, landed once `ram-pointers2` gave the original's figure ([BB] 2026-11-26: 500 passes of `X=I/3`, 177
-    fields; ours 294, now 232; reading a constant divides by ten, so `X=I+2.5` and `X=I*2.5` gain too). Left: a
-    cheaper `BREAK` test between statements.
+    fields; ours 294, now 232; reading a constant divides by ten, so `X=I+2.5` and `X=I*2.5` gain too). Ours is
+    never to be faster than the original, since loops time games: after this pass 500 `GOSUB`/`RETURN`
+    passes took 79 fields against the original's 83 ([BB] `ram-pointers2`), so `GOSUB` waits 142 cycles more
+    (`GSDLY`, a counted delay in `GOSUB1`, `ON ... GOSUB` too) and takes 83. `tests/basic-ram.test.js` checks the
+    `FOR` and `GOSUB` loops against the original's counts. Left: a cheaper `BREAK` test between statements.
 * **Running it:** `m.setRoms({ basic: rom, basic64: null })` on a `dragon64` machine (Node), or
   `node tools/build-basic.js --out /tmp/d64_1.rom` then `node cli/cloadm.js --roms /tmp/d64_1.rom --type 'PRINT 2+2\n' --screen`.
 
