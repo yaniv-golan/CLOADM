@@ -347,14 +347,28 @@ export function createFeedback() {
     const t = cur;
     restoreFull();
     const cap = Math.min(40, 0.22 * (pic.bottom - pic.top));
-    const here = () => { addClass(box, 'compact'); addClass(box, 'overscreen'); dropClass(box, 'passthru'); placedAt(px(pic.left + 4 + 4), px(pic.top + 4), px(pic.right - pic.left - 16)); addClass(region, 'top'); };
-    here();
-    // keys that stand over the picture itself (WYRMFIRE's FIRE and USE lie on its top corners): the bottom edge then
-    if (I.keyRects.some((k) => hitsRect(box.getBoundingClientRect(), k))) {
-      const bh = box.getBoundingClientRect().height;
-      placedAt(px(pic.left + 8), px(pic.bottom - 4 - bh), px(pic.right - pic.left - 16)); addClass(region, 'top');
+    const L0 = pic.left + 8, W0 = pic.right - pic.left - 16;
+    const h = () => box.getBoundingClientRect().height;
+    // the toast at the span [left, left + width], its top edge 4 px under the picture's top or its bottom edge 4 px over the
+    // picture's bottom (placed at the top first to be measured: the bottom edge is anchored from the height it has THEN,
+    // so a toast is clamped before it is anchored: see anchor())
+    const put = (left, width) => { addClass(box, 'compact'); addClass(box, 'overscreen'); dropClass(box, 'passthru'); placedAt(px(left), px(pic.top + 4), px(width)); addClass(region, 'top'); };
+    const anchor = (left, width) => placedAt(px(left), px(pic.bottom - 4 - h()), px(width));
+    // the top edge, kept; where keys lie over it, the widest free span between them if it is at least 200 px; else the bottom
+    let left = L0, width = W0, edge = 'top';
+    put(left, width);
+    for (let i = 0; i < 3; i++) {
+      const b = box.getBoundingClientRect(), hit = I.keyRects.filter((k) => hitsRect(b, k));
+      if (!hit.length) break;
+      let best = null, from = L0;
+      for (const k of [...hit].sort((x, y) => x.left - y.left)) {
+        if (k.left > from && (!best || k.left - from > best.width)) best = { left: from, width: k.left - from };
+        from = Math.max(from, k.right);
+      }
+      if (L0 + W0 > from && (!best || L0 + W0 - from > best.width)) best = { left: from, width: L0 + W0 - from };
+      if (best && best.width >= 200) { left = best.left; width = best.width; put(left, width); } else { edge = 'bottom'; left = L0; width = W0; put(left, width); break; }
     }
-    if (!t || (t.opened) || (!t.also && box.getBoundingClientRect().height <= cap + 0.5)) return 'over-screen';
+    if (!t || t.opened || (!t.also && h() <= cap + 0.5)) { if (edge === 'bottom') anchor(left, width); return 'over-screen'; }
     const keysMode = !!document.body && !document.body.classList.contains('touch-pad') && !document.body.classList.contains('touch-stick');
     if (keysMode) {
       dropClass(box, 'overscreen');
@@ -363,6 +377,7 @@ export function createFeedback() {
       return 'dock-keys';
     }
     clamp(t, cap);
+    if (edge === 'bottom') anchor(left, width);   // (clamped first: the height it keeps is the one it is anchored by)
     return 'over-screen';
   }
   // back to the toast's words in full (what a clamped toast was cut from)
@@ -432,7 +447,14 @@ export function createFeedback() {
       // a phone held sideways with the touch keys (decide's band reaches the tube's foot there)
       sideKeys: !!(document.body && document.body.classList.contains('touch-keys')) && matchMedia('(orientation: landscape) and (max-height: 500px)').matches,
       // the touch keys' buttons show (the keys panel is up; not while the chat is the page: its picture is a small inset there)
-      keyRects: (document.body && document.body.classList.contains('touch-keys')) ? [...document.querySelectorAll('#touchKeys button')].map((e) => e.getBoundingClientRect()).filter(shown).map(boxOf) : [],
+      // the touch keys that are really there: shown, not see-through, taking pointer events, and the topmost thing at their
+      // centre (the toast's own box counts: it is the thing that may lie over them)
+      keyRects: (document.body && document.body.classList.contains('touch-keys')) ? [...document.querySelectorAll('#touchKeys button')].filter((e) => {
+        const r = e.getBoundingClientRect();
+        if (!shown(r) || !e.checkVisibility({ opacityProperty: true, visibilityProperty: true }) || getComputedStyle(e).pointerEvents === 'none') return false;
+        const top = document.elementFromPoint((r.left + r.right) / 2, (r.top + r.bottom) / 2);
+        return !!top && (top === e || e.contains(top) || region.contains(top));
+      }).map((e) => boxOf(e.getBoundingClientRect())) : [],
       keysShown: !!document.body && !document.body.classList.contains('claude-open') && !document.body.classList.contains('view-claude') && [...document.querySelectorAll('#touchKeys button')].some((e) => shown(e.getBoundingClientRect())),
       // the turn's Stops that show (the fallback slot keeps clear of them)
       stops: [...document.querySelectorAll(STOPS)].map((e) => e.getBoundingClientRect()).filter(shown).map(boxOf),

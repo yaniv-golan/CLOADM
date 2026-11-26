@@ -81,7 +81,9 @@ Next version: 0.3.1 (the plugin and extension manifests carry it; `tests/plugin.
   action inline at the end of its last line with a 44 px tap area, at most two lines (and 40 px, and 22% of the picture). One that
   does not fit is never cut silently: with the letter keys showing it docks over them (full text, a key under it still types),
   and with the Pad or the stick it is clamped to two lines ending "… More", a tap opening it in place with its time paused.
-  A game's start toast is one short line there, "2048: tap a key to play" (the BREAK hint stays on upright phones). The browser check's `layoutBugs` group measures each.
+  Where a key stands over the picture's top edge the toast narrows to the free span between keys (at least 200 px), and
+  takes the picture's bottom edge, clamped first, only when there is none. A game's start toast is one short line there,
+  "2048: tap a key to play" (the BREAK hint stays on upright phones). The browser check's `layoutBugs` group measures each.
 - **Screen text follows a text page a program moves.** On the Dragon and CoCo 1/2, the ROM self-test's screen and the
   welcome menu's taps now read the page the SAM's display offset shows (as `screen_text`, `Session.screenText` and the
   screen's text alternative already did), and every reader reads text only in the VDG's alphanumeric /

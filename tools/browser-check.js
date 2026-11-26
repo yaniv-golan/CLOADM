@@ -23426,10 +23426,13 @@ async function sidewaysToastChecks(browser, base, check) {
     const rc = (e) => { const b = e.getBoundingClientRect(); return { left: b.left, top: b.top, right: b.right, bottom: b.bottom }; };
     const hits = (a, o) => !(a.bottom <= o.top || a.top >= o.bottom || a.right <= o.left || a.left >= o.right);
     const t = document.getElementById('toast'), a = document.getElementById('toastAction'), tx = document.getElementById('toastText');
-    const keys = [...document.querySelectorAll('#touchKeys button')].filter((e) => e.checkVisibility()).map(rc);
+    // the keys that are really there: shown, not see-through, taking pointer events, the topmost thing at their centre (or under the toast)
+    const real = (e) => { if (!e.checkVisibility({ opacityProperty: true, visibilityProperty: true }) || getComputedStyle(e).pointerEvents === 'none') return false;
+      const r = e.getBoundingClientRect(), top = document.elementFromPoint((r.left + r.right) / 2, (r.top + r.bottom) / 2); return !!top && (top === e || e.contains(top) || document.getElementById('toastRegion').contains(top)); };
+    const keys = [...document.querySelectorAll('#touchKeys button')].filter(real).map(rc);
     const pic = rc(document.getElementById('screen')), box = rc(t), act = a.checkVisibility() ? rc(a) : null;
     const tap = act ? { left: act.left - 6, right: act.right + 6, top: (act.top + act.bottom) / 2 - 22, bottom: (act.top + act.bottom) / 2 + 22 } : null;
-    const letters = [...document.querySelectorAll('#touchKeys button')].filter((e) => e.checkVisibility() && /^[A-Z]$/.test(e.textContent.trim()));
+    const letters = [...document.querySelectorAll('#touchKeys button')].filter((e) => real(e) && /^[A-Z]$/.test(e.textContent.trim()));
     return { shown: !t.hidden && box.right > box.left && box.bottom > box.top, text: tx.textContent, also: document.getElementById('toastAlso').hidden ? null : document.getElementById('toastAlso').textContent,
       box, pic, nKeys: keys.length, nLetters: letters.length, overKeys: keys.filter((k) => hits(box, k)).length, onPic: hits(box, pic), h: box.bottom - box.top, picH: pic.bottom - pic.top,
       act, lastLine: act ? act.bottom >= box.bottom - 6 && act.top >= box.top : null, tapOverKeys: tap ? keys.filter((k) => hits(tap, k)).length : 0,
@@ -23542,8 +23545,36 @@ async function sidewaysToastChecks(browser, base, check) {
     await emuFrames(page, 10);
     await raise(page, CASES[2][1], CASES[2][2]); await shown(page); await emuFrames(page, 3);
     const x = await snap(page);
-    check('sideways toast (WYRMFIRE Pad, 653x280): a two-part toast is clamped to two lines ending "… More", the action visible on the second line, covering no Pad button',
-      /touch-pad/.test(await page.evaluate(() => document.body.className)) && x.clamped && /… More$/.test(x.text) && x.h <= Math.min(40, 0.22 * x.picH) + 0.5 && x.act && x.lastLine && x.overKeys === 0 && x.nKeys > 0, JSON.stringify(x));
+    check('sideways toast (WYRMFIRE Pad, 653x280): a two-part toast is clamped to two lines ending "… More", the action visible on the second line, covering no Pad button, at the picture\'s top (the HUD stays clear)',
+      /touch-pad/.test(await page.evaluate(() => document.body.className)) && x.clamped && /… More$/.test(x.text) && x.h <= Math.min(40, 0.22 * x.picH) + 0.5 && x.act && x.lastLine && x.overKeys === 0 && x.nKeys > 0
+      && Math.abs(x.box.top - (x.pic.top + 4)) <= 1, JSON.stringify(x));
+    // a key lying over the picture's top: the toast keeps the top edge, narrowed to the free span between keys if that is at least
+    // 200 px wide; with no such span it takes the bottom edge, clamped first and anchored 4 px over the picture's bottom
+    // (the synthetic keys must be the topmost thing where they stand, so the keys' layer is raised above the picture while they
+    // are there, and the real keys that overlap the picture -- FIRE and USE, which lie under it -- are hidden for the case)
+    const fake = (page2, rects) => page2.evaluate((rs) => {
+      const tk = document.getElementById('touchKeys'), pic = document.getElementById('screen').getBoundingClientRect();
+      for (const el of document.querySelectorAll('.fakekey')) el.remove();
+      for (const el of tk.querySelectorAll('button[data-hid]')) { el.style.visibility = ''; delete el.dataset.hid; }
+      tk.style.zIndex = rs.length ? '100000' : '';
+      if (!rs.length) return;
+      for (const el of tk.querySelectorAll('button')) { const r = el.getBoundingClientRect(); if (r.right > pic.left && r.left < pic.right && r.bottom > pic.top && r.top < pic.bottom) { el.dataset.hid = '1'; el.style.visibility = 'hidden'; } }
+      for (const r of rs) { const b = document.createElement('button'); b.className = 'fakekey'; b.textContent = 'KEY';
+        b.style.cssText = `position:fixed;left:${r[0]}px;top:${r[1]}px;width:${r[2] - r[0]}px;height:${r[3] - r[1]}px;z-index:100000;opacity:1;pointer-events:auto`; tk.append(b); } }, rects);
+    {
+      const pic = x.pic;
+      await fake(page, [[pic.left, pic.top, pic.left + 60, pic.top + 70]]);
+      await raise(page, CASES[0][1], CASES[0][2]); await shown(page); await emuFrames(page, 4);
+      const y = await snap(page);
+      check('sideways toast (653x280, a key over the picture\'s top-left): the toast keeps the top edge, narrowed to the free span (at least 200 px) clear of the key',
+        y.shown && y.over && Math.abs(y.box.top - (y.pic.top + 4)) <= 1 && y.box.left >= pic.left + 60 && y.box.right - y.box.left >= 200 && y.overKeys === 0 && y.nKeys > 0, JSON.stringify(y));
+      await fake(page, [[pic.left, pic.top, pic.left + 80, pic.top + 70], [pic.left + 150, pic.top, pic.right, pic.top + 70]]);
+      await raise(page, CASES[2][1], CASES[2][2]); await shown(page); await emuFrames(page, 4);
+      const z = await snap(page);
+      check('sideways toast (653x280, two keys over the picture\'s top leaving no 200 px span): the bottom edge, clamped to two lines first, its bottom 4 px over the picture\'s bottom',
+        z.shown && z.over && z.clamped && z.h <= Math.min(40, 0.22 * z.picH) + 0.5 && Math.abs(z.box.bottom - (z.pic.bottom - 4)) <= 1 && z.overKeys === 0, JSON.stringify(z));
+      await fake(page, []);
+    }
     await closeCtx(ctx);
   }
   check('sideways toasts: no page errors', errors.length === 0, errors.join('; '));
