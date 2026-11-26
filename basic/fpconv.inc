@@ -22,23 +22,12 @@ FDIVR   PSHS    X
         PULS    X
         JSR     MOVFM
         JMP     FDIV
-* FPE10 + FPK, FPE10 - FPK
-E10ADD  LDB     <FPK
-        CLRA
+* E10INC, E10DEC: FPE10 + 1, - 1. E10ADJ: FPE10 + B (signed). The new value is in D too.
+E10INC  LDB     #1
+        FCB     $8C             ; (CMPX #: skips the LDB)
+E10DEC  LDB     #-1
+E10ADJ  SEX
         ADDD    <FPE10
-        STD     <FPE10
-        RTS
-* E10INC, E10DEC: FPE10 + 1, - 1 (and in D)
-E10INC  LDD     <FPE10
-        ADDD    #1
-        BRA     E10STO
-E10DEC  LDD     <FPE10
-        SUBD    #1
-E10STO  STD     <FPE10
-        RTS
-E10SUB  LDD     <FPE10
-        SUBB    <FPK
-        SBCA    #0
         STD     <FPE10
         RTS
 
@@ -117,9 +106,9 @@ FOD1    LDB     #17             ; 1E17 and up: / 1E9
         JSR     FCMPP
         BGT     FOFIX
         LDB     #9
-        STB     <FPK
         JSR     FDIVP
-        JSR     E10ADD
+        LDB     #9
+        JSR     E10ADJ
         BRA     FOD1
 FOU0    LDB     #8
         JSR     FCMPP
@@ -128,9 +117,9 @@ FOU1    CLRB                    ; below 1: x 1E9
         JSR     FCMPP
         BLE     FOFIX
         LDB     #9
-        STB     <FPK
         JSR     FMULP
-        JSR     E10SUB
+        LDB     #-9
+        JSR     E10ADJ
         BRA     FOU1
 FOFIX
 FO3     LDX     #FP1E8          ; while FAC < 1E8: x 10
@@ -247,8 +236,7 @@ EXO2    INCA
 * an optional point, an optional exponent E[+|-]digits; spaces between are skipped (CHRGET). The digits are
 * kept exactly while they fit in 32 bits; the first that does not rounds, and later ones only count as places. Leaves the text pointer on the first character
 * after the number.
-FIN     CLR     <FPSGNI
-        CLR     <FPDP
+FIN     CLR     <FPDP
         CLR     <FPDROP
         CLRA
         CLRB
@@ -256,19 +244,8 @@ FIN     CLR     <FPSGNI
         STD     <FPN
         STD     <FPN+2
         JSR     <ZCHRGOT
-        CMPA    #'-'
-        BEQ     FIM
-        CMPA    #T_MINUS
-        BNE     FIP
-FIM     COM     <FPSGNI
-        BRA     FIS
-FIP     CMPA    #'+'
-        BEQ     FIS
-        CMPA    #T_PLUS
-        BNE     FI0
-FIS     JSR     <ZCHRGET
-        BRA     FI1
-FI0     JSR     <ZCHRGOT
+        BSR     FISGN
+        STB     <FPSGNI         ; (the carry is still CHRGET's: a digit)
 FI1     BCS     FIDIG
         CMPA    #'.'
         BNE     FI3
@@ -290,16 +267,7 @@ FIDIG   SUBA    #'0'
         BHI     FIDRP
         CMPA    #5
         BHI     FIDRP
-FID1    PSHS    A
-        JSR     FPNX10
-        PULS    B
-        CLRA
-        ADDD    <FPN+2
-        STD     <FPN+2
-        LDD     <FPN
-        ADCB    #0
-        ADCA    #0
-        STD     <FPN
+FID1    JSR     FPNX10          ; x 10 + the digit
         TST     <FPDP
         BEQ     FINX
         JSR     E10DEC
@@ -323,25 +291,28 @@ FIIGN   TST     <FPDP           ; a digit not kept is still a place before the p
         JSR     E10INC
 FINX    JSR     <ZCHRGET
         BRA     FI1
+* FISGN: a sign at A (the character at the text pointer)? It is taken. B = $FF for a minus, 0 otherwise; A and the
+* flags are the next character's (CHRGET's) after a sign, the same one's (CHRGOT's) without
+FISGN   CLRB
+        CMPA    #'-'
+        BEQ     FISM
+        CMPA    #T_MINUS
+        BNE     FISP
+FISM    COMB
+        BRA     FISN
+FISP    CMPA    #'+'
+        BEQ     FISN
+        CMPA    #T_PLUS
+        BNE     FISG
+FISN    JMP     <ZCHRGET
+FISG    JMP     <ZCHRGOT
 * the exponent
 FI3     CMPA    #'E'
         BNE     FIEND
-        CLR     <FPEXS
         CLR     <FPEX
         JSR     <ZCHRGET
-        CMPA    #'-'
-        BEQ     FIE1
-        CMPA    #T_MINUS
-        BNE     FIE2
-FIE1    COM     <FPEXS
-        BRA     FIE3
-FIE2    CMPA    #'+'
-        BEQ     FIE3
-        CMPA    #T_PLUS
-        BEQ     FIE3
-        JSR     <ZCHRGOT
-        BRA     FIE4
-FIE3    JSR     <ZCHRGET
+        BSR     FISGN
+        STB     <FPEXS
 FIE4    BCC     FIE6
         SUBA    #'0'            ; x 10 + the digit, in a byte that wraps: "1E997" is 1E-27, no ?OV ERROR
         PSHS    A               ; [BB bb2 str-val-cut]
@@ -396,30 +367,16 @@ FIE10   LDA     <FPSGNI
         CLR     <FACSGN
 FIE11   JMP     <ZCHRGOT
 
-* FPNX10: FPN = FPN x 10 (32 bits)
-FPNX10  LDD     <FPN+2
-        LSLB
-        ROLA
-        STD     <FPN+2
-        LDD     <FPN
-        ROLB
-        ROLA
-        STD     <FPN            ; x 2
-        PSHS    D
-        LDD     <FPN+2
-        PSHS    D               ; (x 2 saved: low word on top)
-        LDB     #2
-FPX1    ASL     <FPN+3
-        ROL     <FPN+2
-        ROL     <FPN+1
-        ROL     <FPN
-        DECB
-        BNE     FPX1            ; x 8
-        PULS    D
-        ADDD    <FPN+2
-        STD     <FPN+2
-        PULS    D
-        ADCB    <FPN+1
-        ADCA    <FPN
-        STD     <FPN
-        RTS
+* FPNX10: FPN = FPN x 10 + A (32 bits), a byte at a time from the last, the carry on the stack
+FPNX10  LDX     #FPN+4
+        PSHS    A
+FPX1    LDA     ,-X
+        LDB     #10
+        MUL
+        ADDB    ,S
+        ADCA    #0
+        STB     ,X
+        STA     ,S
+        CMPX    #FPN
+        BNE     FPX1
+        PULS    A,PC

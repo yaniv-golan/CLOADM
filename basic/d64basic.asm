@@ -139,7 +139,6 @@ GCSS    RMB     1               ; the colour set SCREEN last chose, x 4
 LASTX   RMB     2               ; the last point drawn (16-bit x, then y)
 LASTY   RMB     2
 FPND    RMB     1               ; FOUT's significant digits (U32DEC counts its digits here)
-FPK     RMB     1               ; FOUT's power of ten
 FPN     RMB     4               ; FIN's integer
 FPEX    RMB     2               ; FIN's exponent, and its sign
 FPEXS   RMB     1

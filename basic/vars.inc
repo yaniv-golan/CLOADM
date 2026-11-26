@@ -260,36 +260,24 @@ AGE1    PSHS    X               ; offset x this size
         RTS
 
 * MUL16: D = D x the word at 2,S (the caller's pushed value); ?OM ERROR past 65535
-MUL16   PSHS    D
-        CLRA
-        CLRB
-        PSHS    D               ; the result
-        LDA     3,S             ; low x low
-        LDB     7,S
-        MUL
-        STD     ,S
-        LDA     2,S             ; high x low
-        LDB     7,S
-        MUL
+MUL16   PSHS    D               ; ,S: a (high, low); 4,S: b
+        LDA     ,S
+        BEQ     M16A
+        LDB     4,S
+        BNE     M16OV           ; both high bytes: past 65535
+        LDB     5,S             ; a's high x b's low
+        BRA     M16B
+M16A    LDA     1,S             ; a's low x b's high
+        LDB     4,S
+M16B    MUL                     ; the one cross product that can count: it must fit a byte
         TSTA
         BNE     M16OV
-        ADDB    ,S
-        BCS     M16OV
-        STB     ,S
-        LDA     3,S             ; low x high
+        PSHS    B
+        LDA     2,S             ; low x low, and the cross product on its high byte
         LDB     6,S
         MUL
-        TSTA
-        BNE     M16OV
-        ADDB    ,S
+        ADDA    ,S+
         BCS     M16OV
-        STB     ,S
-        LDA     2,S             ; high x high must be 0
-        LDB     6,S
-        MUL
-        CMPD    #0
-        BNE     M16OV
-        PULS    D
         LEAS    2,S
         RTS
 M16OV   JMP     OMERR
