@@ -3,8 +3,12 @@
 * IF expression THEN statements | line [ELSE statements | line]; IF expression GO TO / GO SUB line [UM].
 * A number that is not 0 is true. When it is false the line goes on after its ELSE (ELSEs pair with the IFs
 * between, innermost first), or ends.
-IFST    JSR     <ZEVNUM
-        JSR     <ZCHRGOT
+IFDLY   EQU     242             ; IF's delay, 5 cycles a step: ours would be faster than the original otherwise
+*                                 [BB ram-pointers2, 2026-11-26: 999 passes of I=I+1:IF I<1000 THEN 80 take 516 fields]
+IFST    LDB     #IFDLY
+IFD1    DECB
+        BNE     IFD1
+        JSR     <ZEVNUM         ; (leaves the character after the expression in A)
         CMPA    #T_GO
         BEQ     IF1
         LDB     #T_THEN
@@ -98,7 +102,7 @@ FOR5    LDA     ,-X
 * step of 0 or more, below it for a negative one) go round again, else close the loop and go on
 NEXT    PULS    U
         STU     <NXRET
-NXA     JSR     <ZCHRGOT
+NXA     JSR     CHRGOT          ; (called straight, as MOVMF below: NEXT's own time counts in every loop)
         BEQ     NX1             ; no variable: the innermost loop
         CLR     <VARCRE         ; (a variable that does not exist is not any loop's)
         JSR     PTRGET
@@ -127,7 +131,7 @@ NX4     LEAS    ,X              ; the loops inside are gone
         JSR     MOVAM
         JSR     FADD
         LDX     <FORVAR
-        JSR     <ZMOVMF
+        JSR     MOVMF
         LEAX    8,S             ; against the limit
         BSR     NXCMP
         TST     4,S             ; the step's sign

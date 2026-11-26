@@ -8,7 +8,8 @@
 //    the cold-start flag (113), the output device (111: 0 and $FF only);
 //  * the two real records replayed on ours: identical, apart from the lines whose values come from the
 //    interpreter's speed (TIMER after a run, the loop timings) and the printer (not built);
-//  * the input buffers' places from ram-pointers2 (2026-11-26), and two loops never faster than the original's.
+//  * the input buffers' places from ram-pointers2 (2026-11-26), and its eight timing loops: each takes the
+//    original's count of fields or up to two more, never fewer.
 const fs = require('fs'), path = require('path');
 const { runCase } = require('./basic/harness.js');
 const { buildBasic } = require('../tools/build-basic.js');
@@ -85,16 +86,20 @@ check('LINBUF at $02DD, CRNBUF at $02DC', sym('LINBUF') === 0x2DD && sym('CRNBUF
   check('a reply to INPUT at 733, as on the original', t.includes(' 733 DONE'), JSON.stringify(t.slice(-3)));
 }
 
-// ---- never faster than the original (loops time games): ram-pointers2's own timing program (a GOSUB's time depends on
-// how many lines come before its target), its lines as typed but for a GOTO after the FOR and GOSUB loops, which
-// skips the others, against the original's counts there (2026-11-26: 113 fields for 2000 empty FOR passes, 83 for
-// 500 GOSUB/RETURN passes; each loop started just after a field begins) ----
+// ---- as fast as the original and never faster (loops time games): ram-pointers2 itself, the whole case as the
+// original ran it (what comes before its timing program counts: CLEAR 300 leaves the string loops more room, and a
+// GOSUB's time depends on how many lines come before its target), against the original's counts
+// (2026-11-26, docs/clean-room-basic.md section 2; each loop started just after a field begins): each of ours is
+// the original's count or up to two fields more ----
 {
-  const text = caseText('ram-pointers2'), at = text.indexOf('10 GOSUB 300:FOR I=1 TO 2000');
-  const prog = text.slice(at).replace(/^(10 .*)$/m, '$1:GOTO 60').replace(/^(60 .*)$/m, '$1:GOTO 100');
-  const r = run('#timeout 60\n' + prog);
-  const t = lines(r), f = t.map((l) => /^FOR (\d+) /.exec(l)).find(Boolean), g = t.map((l) => / GOSUB (\d+) /.exec(l)).find(Boolean);
-  check('FOR 2000 passes take at least the original\'s 113 fields, GOSUB 500 at least its 83 (ram-pointers2\'s program)', f && g && +f[1] >= 113 && +g[1] >= 83, `FOR ${f && f[1]} GOSUB ${g && g[1]}`);
+  const REAL = { FOR: 113, ADD: 205, MUL: 224, DIV: 177, STR: 174, GOSUB: 83, IF: 516, MID: 137 };
+  const r = run(caseText('ram-pointers2'));
+  const t = lines(r).join(' ');
+  check('ram-pointers2 runs to its end', r.status === 'ok', r.status);
+  for (const [name, real] of Object.entries(REAL)) {
+    const all = [...t.matchAll(new RegExp(`\\b${name} (\\d+)`, 'g'))], got = all.length ? +all[all.length - 1][1] : NaN; // (the last: the result lines, after the program's own text)
+    check(`${name}: the original's ${real} fields, or up to 2 more, never fewer (ram-pointers2)`, got >= real && got <= real + 2, `${got}`);
+  }
 }
 
 console.log(`\n${n - fail}/${n} passed`);

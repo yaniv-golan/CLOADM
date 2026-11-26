@@ -104,10 +104,43 @@ These are hard rules for everyone who works on this ROM.
     5,900 (the mean over random operands), landed once `ram-pointers2` gave the original's figure ([BB] 2026-11-26:
     500 passes of `X=I/3`, 177 fields; ours 294, now 232; reading a constant divides by ten, so `X=I+2.5` and
     `X=I*2.5` gain too). Ours is never to be faster than the original, since loops time games:
-    after this pass 500 `GOSUB`/`RETURN` passes took 79 fields against the original's 83 ([BB] `ram- pointers2`), so
+    after this pass 500 `GOSUB`/`RETURN` passes took 79 fields against the original's 83 ([BB] `ram-pointers2`), so
     `GOSUB` waits 142 cycles more (`GSDLY`, a counted delay in `GOSUB1`, `ON ... GOSUB` too) and takes 83.
-    `tests/basic-ram.test.js` checks the `FOR` and `GOSUB` loops against the original's counts. With all of it, 15,572
-    bytes, the code ending at `$BDC6`, 556 bytes below the vectors. Left: a cheaper `BREAK` test between statements.
+    That made 15,572 bytes, the code ending at `$BDC6`.
+  * **The original's speed on eight loops** ([BB] `ram-pointers2`, 2026-11-26: its timing program, each loop started
+    just after a field begins, counted in fields of 17,784 cycles). No result changed here either. Ours takes the
+    original's count on each, and `tests/basic-ram.test.js` checks every one: the original's count or up to two
+    fields more, never fewer.
+
+    | Loop | Passes | The original | Ours before | Ours now |
+    |---|---|---|---|---|
+    | `FOR I=1 TO n:NEXT` | 2000 | 113 | 118 | 113 |
+    | `X=I+2.5` | 500 | 205 | 259 | 205 |
+    | `X=I*2.5` | 500 | 224 | 257 | 224 |
+    | `X=I/3` | 500 | 177 | 232 | 177 |
+    | `A$=STR$(I)` | 300 | 174 | 285 | 174 |
+    | `GOSUB 200` (`200 RETURN`) | 500 | 83 | 83 | 83 |
+    | `I=I+1:IF I<1000 THEN 80` | 999 | 516 | 518 | 516 |
+    | `B$=MID$("HELLO",2,2)+"X"` | 300 | 137 | 176 | 137 |
+
+    What was made faster: the expression levels keep the character after an operand in A instead of each reading
+    it again (`EVAL` reads it once, each level again only after its own operation); `FDIV` holds the remainder's top
+    half in D and its bit 32 in the carry, and marks each quotient byte's end with a bit instead of a counter (about
+    2,600 cycles a division, the mean over random operands, where it took 3,900); `FADD` shifts whichever number has
+    the smaller exponent where it is instead of exchanging the two first; `NORM` moves bytes two at a time and
+    shifts a number with nothing below its top byte (a small whole number) in the registers; `FIN` gathers its
+    digits in `FACM` itself; `MOVFM`, `MOVAM` and `MOVMF` no longer save D; `QINT` shifts a number below 256 in A;
+    `GETSPA` and `FRETMP` push less. `FOUT` gives a whole
+    number below 1E9 its digits as they are (`QINT`, then the decimal converter), without scaling it to nine
+    digits by steps of ten: the same digits, since each of those steps is exact for a whole number
+    (`FONINE` keeps the scaling for `PRINT USING`'s exponent form, which reads all nine digits). Where that left
+    ours faster than the original, a counted delay brings it back, as `GSDLY` did: `IFDLY` in `IF`, `ADDDLY` before
+    an addition or subtraction in an expression, `MULDLY` before a product, `FOIDLY` in `FOUT`'s whole-number path,
+    11 cycles before a quotient, and `GSDLY` is now 39 steps. The own case `expr-levels` holds the expression
+    levels to it (an operand or a `NOT` after a relation, an operator after a `NOT`'s operand). With all of it,
+    15,618 bytes (46 more), the code ending at `$BDF4`, 510 bytes below the vectors. Left: a cheaper `BREAK` test between statements (not used for
+    these loops: about 55 cycles a statement for 18 bytes, and every loop would then need a delay, or a longer
+    one, to stay at the original's count).
 * **Running it:** `m.setRoms({ basic: rom, basic64: null })` on a `dragon64` machine (Node), or
   `node tools/build-basic.js --out /tmp/d64_1.rom` then `node cli/cloadm.js --roms /tmp/d64_1.rom --type 'PRINT 2+2\n' --screen`.
 

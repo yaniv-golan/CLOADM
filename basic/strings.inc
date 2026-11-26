@@ -33,7 +33,7 @@ STERR   LDB     #ERR_ST
 
 * FRETMP: the string of the descriptor at X: X = its address, B = its length. If the descriptor is the last
 * temporary it is freed, and so is its string if it is the last one made.
-FRETMP  PSHS    D,X
+FRETMP  PSHS    A
         LEAU    5,X
         CMPU    <TEMPPT
         BNE     FT1
@@ -45,7 +45,7 @@ FRETMP  PSHS    D,X
         CLRA
         ADDD    <FRETOP
         STD     <FRETOP
-FT1     PULS    D,X
+FT1     PULS    A
         LDB     ,X
         LDX     2,X
         RTS
@@ -58,10 +58,9 @@ FRESTR  JSR     CHKSTR
 * collected first; then ?OS ERROR. Keeps B.
 GETSPA  PSHS    B
         CLR     <GCDONE
-GS0     CLRA
-        PSHS    D
-        LDD     <FRETOP
-        SUBD    ,S++
+GS0     LDD     <FRETOP
+        SUBB    ,S
+        SBCA    #0
         BLO     GS1
         CMPD    <STRBOT
         BLO     GS1
@@ -72,7 +71,6 @@ GS1     TST     <GCDONE
         BNE     GS2
         INC     <GCDONE
         BSR     GARBAG
-        LDB     ,S
         BRA     GS0
 GS2     LDB     #ERR_OS
 GSERR   JMP     ERROR

@@ -282,7 +282,9 @@ UMX1    PSHS    B
         ADDA    <USNA
         CMPA    #10
         LBHI    FCERR
+        INC     <FONINE
         JSR     FOUT            ; nine digits in FPDIG, the exponent of the first in FPE10
+        CLR     <FONINE
         LDA     <USNB
         ADDA    <USNA
         BNE     UME1

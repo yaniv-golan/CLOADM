@@ -7,9 +7,8 @@
 * in FAC with 8 guard bits. Each operation first rounds FAC (ROUND: up when the guard byte is $80 or more).
 * tests/basic/fpmodel.js is the bit-exact model these routines are tested against.
 
-* MOVFM: FAC = the packed number at X. MOVAM: ARG = it. Keep X.
-MOVFM   PSHS    D
-        LDD     ,X
+* MOVFM: FAC = the packed number at X. MOVAM: ARG = it. Keep X; use D.
+MOVFM   LDD     ,X
         STA     <FACEXP         ; the exponent
         SEX
         STA     <FACSGN         ; the sign: bit 7 of the first mantissa byte
@@ -20,9 +19,8 @@ MOVFM   PSHS    D
         LDA     4,X
         STA     <FACM+3
         CLR     <FACEXT         ; the guard byte
-        PULS    D,PC
-MOVAM   PSHS    D               ; (the same for ARG)
-        LDD     ,X
+        RTS
+MOVAM   LDD     ,X              ; (the same for ARG)
         STA     <ARGEXP
         SEX
         STA     <ARGSGN
@@ -33,7 +31,7 @@ MOVAM   PSHS    D               ; (the same for ARG)
         LDA     4,X
         STA     <ARGM+3
         CLR     <ARGEXT
-        PULS    D,PC
+        RTS
 
 * ROUND: FAC rounded to 32 bits (?OV ERROR if that carries out of the largest exponent). Keeps X, Y, U.
 ROUND   LDA     <FACEXT         ; (a guard byte of 0: nothing to round or clear)
@@ -62,9 +60,8 @@ INCFM   LDD     <FACM+2
         STD     <FACM
         RTS
 
-* MOVMF: store FAC, rounded, packed at X. Keeps X.
+* MOVMF: store FAC, rounded, packed at X. Keeps X; uses D.
 MOVMF   BSR     ROUND
-        PSHS    D
         LDA     <FACEXP
         STA     ,X
         BEQ     MMF2
@@ -78,11 +75,11 @@ MMF1    STA     1,X
         STD     2,X
         LDA     <FACM+3
         STA     4,X
-        PULS    D,PC
+        RTS
 MMF2    CLRB                    ; (A is 0)
         STD     1,X
         STD     3,X
-        PULS    D,PC
+        RTS
 
 * MOVAF: ARG = FAC (rounded). MOVFA: FAC = ARG.
 MOVAF   BSR     ROUND
@@ -122,24 +119,18 @@ FADD    JSR     ROUND
         TST     <FACEXP
         BNE     FA1
         BRA     MOVFA           ; 0 + ARG
-FA1     LDA     <FACEXP
-        CMPA    <ARGEXP
-        BHS     FA3
-        LDB     #7              ; ARG has the larger exponent: swap them
-        LDX     #FACEXP
-FA2     LDA     ,X
-        PSHS    A
-        LDA     ARGEXP-FACEXP,X
-        STA     ,X+
-        PULS    A
-        STA     ARGEXP-FACEXP-1,X
-        DECB
-        BNE     FA2
-FA3     LDB     <FACEXP
+FA1     LDX     #ARGM
+        LDB     <FACEXP
         SUBB    <ARGEXP         ; how far ARG is shifted right
-        CMPB    #40
+        BHS     FA3
+        NEGB                    ; ARG has the larger exponent: FAC is the one shifted, and takes that exponent
+        CMPB    #40             ; (its guard byte is 0 as ARG's, so the sum and the difference are the same 40
+        BHS     MOVFA           ; bits either way round: FA7 negates a difference below 0). Too far: ARG is the sum
+        LDA     <ARGEXP
+        STA     <FACEXP
+        LDX     #FACM
+FA3     CMPB    #40
         BHS     FA9             ; too far: ARG adds nothing, and FAC (rounded, normal) is the sum
-        LDX     #ARGM
         JSR     SHFTR
         LDA     <FACSGN
         CMPA    <ARGSGN
@@ -201,27 +192,34 @@ NORM1   TST     <FACM
         SUBA    #8
         BLS     NORMZ
         STA     <FACEXP
-        LDA     <FACM+1
-        STA     <FACM
-        LDA     <FACM+2
-        STA     <FACM+1
-        LDA     <FACM+3
-        STA     <FACM+2
-        LDA     <FACEXT
-        STA     <FACM+3
+        LDD     <FACM+1
+        STD     <FACM
+        LDD     <FACM+3         ; (the guard byte comes in below)
+        STD     <FACM+2
         CLR     <FACEXT
         BRA     NORM1
-NORM2   TST     <FACM
-        BMI     NORM3
+NORM2   BMI     NORM3           ; (TST FACM's flags)
+        LDD     <FACM+1
+        BNE     NORM2A
+        LDD     <FACM+3
+        BNE     NORM2A
+        LDD     <FACEXP         ; nothing below the top byte (a small whole number): the exponent and it, in D
+NORM2B  DECA
+        BEQ     NORMZ
+        ASLB
+        BPL     NORM2B
+        STD     <FACEXP
+        RTS
+NORM2A  DEC     <FACEXP
+        BEQ     NORMZ
         ASL     <FACEXT
         ROL     <FACM+3
         ROL     <FACM+2
         ROL     <FACM+1
         ROL     <FACM
-        DEC     <FACEXP
-        BNE     NORM2
-NORMZ   JMP     FZERO
+        BPL     NORM2A
 NORM3   RTS
+NORMZ   JMP     FZERO
 
 * SHFTR: the five bytes at X (a mantissa and its guard byte) shifted right B places (B below 48): whole bytes
 * first. Keeps X.
@@ -324,7 +322,7 @@ FM4A    DEC     <FPI
         BNE     FM1
         RTS
 
-* FDIV: FAC = ARG / FAC (?/0 ERROR for 0). 41 quotient bits by restoring division, normalised to 40.
+* FDIV: FAC = ARG / FAC (?/0 ERROR for 0). 41 quotient bits by restoring division, normalised to 40. Uses D and X.
 FDIVX   JSR     MOVAM           ; (FDIVX: [X] / FAC)
 FDIV    JSR     ROUND
         TST     <FACEXP
@@ -340,48 +338,44 @@ FD1     TST     <ARGEXP
         SUBB    <FACEXP
         SBCA    #0
         STD     <FPEXP
-        CLR     <DVR            ; the remainder: 0 and ARG's mantissa (33 bits are enough)
-        LDD     <ARGM
-        STD     <DVR+1
+* the quotient's 41 bits go into PROD a byte at a time (1 bit into PROD, then 8 into each byte after it), each
+* rotated in from the carry: 1 where the divisor goes into the remainder (then subtracted), else 0. Each byte
+* starts as a marker bit, and is full when that comes out. The remainder's top half is in D, its low half in
+* DVR+3, and the bit it shifts out (the remainder is below twice the divisor) is the carry: the divisor goes.
+        LDA     #$80
+        STA     <PROD
+        LDX     #PROD
         LDD     <ARGM+2
         STD     <DVR+3
-* the quotient's 41 bits go into PROD a byte at a time (1 bit into PROD, then 8 into each byte after it), each
-* rotated in from the carry: 1 where the divisor goes into the remainder (then subtracted), else 0. The remainder
-* is below twice the divisor: DVR holds only its bit 32.
-        LDX     #PROD
-        CLR     ,X
-        LDA     #1
-FD2     STA     <FPI            ; the bits for this byte
-FD3     TST     <DVR
-        BNE     FD4             ; bit 32 set: the divisor goes
-        LDD     <DVR+1
-        CMPD    <FACM
-        BHI     FD4
+        LDD     <ARGM
+        BRA     FD3A            ; (the first bit: the mantissas as they are)
+FD2     CLR     ,X
+        INC     ,X
+FD3     ASL     <DVR+4          ; remainder << 1
+        ROL     <DVR+3
+        ROLB
+        ROLA
+        BCS     FD4
+FD3A    CMPD    <FACM
         BLO     FD5
-        LDD     <DVR+3
+        BNE     FD4
+        LDD     <DVR+3          ; the top halves are equal: the low ones decide
         CMPD    <FACM+2
+        LDD     <FACM           ; (the remainder's top half again; the carry is the comparison's)
         BLO     FD5
-FD4     LDD     <DVR+3          ; remainder - divisor
+FD4     STD     <DVR+1          ; remainder - divisor
+        LDD     <DVR+3
         SUBD    <FACM+2
         STD     <DVR+3
         LDD     <DVR+1
         SBCB    <FACM+1
         SBCA    <FACM
-        STD     <DVR+1
-        CLR     <DVR
-        COMA                    ; (C set: a 1)
+        ORCC    #$01            ; (a 1)
         BRA     FDQ
 FD5     ANDCC   #$FE            ; (a 0)
 FDQ     ROL     ,X
-        ASL     <DVR+4          ; remainder << 1
-        ROL     <DVR+3
-        ROL     <DVR+2
-        ROL     <DVR+1
-        ROL     <DVR
-        DEC     <FPI
-        BNE     FD3
+        BCC     FD3
         LEAX    1,X
-        LDA     #8
         CMPX    #PROD+6
         BNE     FD2
 * 41 bits in PROD (bit 40 is PROD bit 0): 2^40 or more is shifted right once, exponent + 1

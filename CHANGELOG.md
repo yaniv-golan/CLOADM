@@ -99,6 +99,14 @@ Next version: 0.3.1 (the plugin and extension manifests carry it; `tests/plugin.
   has a test (`tests/basic-pause.test.js`). A division takes about 3,900 cycles where it took 5,900 (the same
   bits), so reading numbers is faster too. `GOSUB` waits a little, so it is never faster than the original's (500
   passes: 83 fields on both).
+  The eight timing loops of the black-box probe `ram-pointers2` now take on ours the number of fields they take on
+  the original: an empty `FOR`/`NEXT` (2000 passes) 113, `X=I+2.5` 205, `X=I*2.5` 224, `X=I/3` 177, `A$=STR$(I)`
+  174, `GOSUB`/`RETURN` 83, `I=I+1:IF I<1000 THEN 80` 516, `B$=MID$("HELLO",2,2)+"X"` 137 (they took 118, 259,
+  257, 232, 285, 83, 518 and 176). No result changed: expressions read each character once, division, addition,
+  normalising and reading a number are shorter (a division about 2,600 cycles), and a whole number is printed from
+  its own digits; where that made ours faster than the original, a counted delay brings it back. The ROM is 46
+  bytes larger (15,618). `tests/basic-ram.test.js` checks every loop: the original's count or up to two fields
+  more, never fewer.
   The typed line and its crunched form are where the original keeps them (`$02DD`, and `$02DC` a byte behind,
   crunched over the typed line), from the black-box probe `ram-pointers2`: the text pointer in direct mode, a typed
   line and a reply to `INPUT` now sit at the original's addresses. A namefile, and the blocks of a file passed over,

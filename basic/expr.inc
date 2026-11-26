@@ -1,14 +1,18 @@
 * ---------------- expressions ----------------
 * Precedence, highest first [UM]: ^; unary minus; * /; + -; relations (= < > <= >= <>); NOT; AND; OR. The
 * operators of one level go left to right. A number ends in FAC (VALTYP 0), a string as STRPTR (VALTYP $FF).
-* Every level starts on the expression's first character (CHRGOT) and ends on the first one after it.
+* Every level starts on the expression's first character and ends on the first one after it, with that
+* character in A both times: only EVAL and an operand (EP1, EVATOM) read it again, and each level reads it after
+* its own operation (the FCB $8C before that, CMPX #, skips the two-byte call on the way in).
 
 * EVAL: an expression of either type
 EVAL    JSR     CHKSP
+        JSR     <ZCHRGOT
 * OR
 EVOR    BSR     EVAND
-EO1     JSR     <ZCHRGOT
-        CMPA    #T_OR
+        FCB     $8C
+EO0     JSR     <ZCHRGOT
+EO1     CMPA    #T_OR
         BNE     EVRTS
         JSR     PSHINT
         JSR     <ZCHRGET
@@ -17,11 +21,12 @@ EO1     JSR     <ZCHRGOT
         ORA     <INTVAL
         ORB     <INTVAL+1
         JSR     GIVABF
-        BRA     EO1
+        BRA     EO0
 * AND
 EVAND   BSR     EVNOT
-EA1     JSR     <ZCHRGOT
-        CMPA    #T_AND
+        FCB     $8C
+EA0     JSR     <ZCHRGOT
+EA1     CMPA    #T_AND
         BNE     EVRTS
         JSR     PSHINT
         JSR     <ZCHRGET
@@ -30,26 +35,28 @@ EA1     JSR     <ZCHRGOT
         ANDA    <INTVAL
         ANDB    <INTVAL+1
         JSR     GIVABF
-        BRA     EA1
+        BRA     EA0
 EVRTS   RTS
 * NOT: applies to a relation
-EVNOT   JSR     <ZCHRGOT
-        CMPA    #T_NOT
+EVNOT   CMPA    #T_NOT
         BNE     EVREL
         JSR     <ZCHRGET
         BSR     EVNOT
         JSR     INTCNV
         COMA
         COMB
-        JMP     GIVABF
+        JSR     GIVABF
+        JMP     <ZCHRGOT
 * relations: one or more of < = > make the operator; the result is -1 (true) or 0 (false)
 EVREL   BSR     EVADD
-ER1     JSR     <ZCHRGOT
-        CLRB
-ER2     SUBA    #T_GT           ; >, = and < are three tokens in a row
-        CMPA    #2
+        FCB     $8C
+ER0     JSR     <ZCHRGOT
+ER1     CLRB
+ER2     CMPA    #T_GT           ; >, = and < are three tokens in a row
+        BLO     ER6
+        CMPA    #T_GT+2
         BHI     ER6
-        LDX     #RELBIT
+        LDX     #RELBIT-T_GT+256 ; (A,X takes A as signed, and the tokens are $80 and up)
         ORB     A,X
         JSR     <ZCHRGET
         BRA     ER2
@@ -58,6 +65,7 @@ ER6     TSTB
         BEQ     EVRTS
         PSHS    B
         JSR     PUSHV
+        JSR     <ZCHRGOT        ; (PUSHV uses A)
         BSR     EVADD
         JSR     POPARG
         LDA     <LEFTTY
@@ -78,11 +86,14 @@ ER10    ANDB    ,S+
 ER11    SEX                     ; D = -1 or 0
         CLR     <VALTYP
         JSR     GIVABF
-        BRA     ER1
+        BRA     ER0
 * + and -; + also joins strings
+ADDDLY  EQU     53
+MULDLY  EQU     143
 EVADD   BSR     EVMUL
-EAD1     JSR     <ZCHRGOT
-        CMPA    #T_PLUS
+        FCB     $8C
+EAD0    JSR     <ZCHRGOT
+EAD1    CMPA    #T_PLUS
         BEQ     EAD2
         CMPA    #T_MINUS
         BNE     EVRTS2
@@ -100,17 +111,21 @@ EAD2     PSHS    A
         CMPA    #T_PLUS         ; strings: only +
         LBNE    TMERR
         JSR     CONCAT
-        BRA     EAD1
+        BRA     EAD0
 EAD3     CMPA    #T_PLUS
         BEQ     EAD4
         JSR     FNEG            ; -: the negative added
-EAD4     JSR     FADD
-        BRA     EAD1
+EAD4    LDB     #ADDDLY         ; a delay (ADDDLY, MULDLY: 5 cycles a step): ours would be faster than the
+EAD5    DECB                    ; original otherwise [BB ram-pointers2, 2026-11-26: 500 passes of X=I+2.5 take
+        BNE     EAD5            ; 205 fields on it, and of X=I*2.5 224]
+        JSR     FADD
+        BRA     EAD0
 EVRTS2  RTS
 * * and /
 EVMUL   BSR     EVNEG
-EM1     JSR     <ZCHRGOT
-        CMPA    #T_MUL
+        FCB     $8C
+EM0     JSR     <ZCHRGOT
+EM1     CMPA    #T_MUL
         BEQ     EM2
         CMPA    #T_DIV
         BNE     EVRTS2
@@ -124,13 +139,17 @@ EM2     PSHS    A
         PULS    A
         CMPA    #T_MUL
         BNE     EM3
+        LDB     #MULDLY
+EM2A    DECB
+        BNE     EM2A
         JSR     FMUL
-        BRA     EM1
-EM3     JSR     FDIV
-        BRA     EM1
+        BRA     EM0
+EM3     MUL                     ; (11 cycles more, as the delays above: 500 passes of X=I/3 take the original
+*                                 177 fields with a third of a field to spare, not a fiftieth)
+        JSR     FDIV
+        BRA     EM0
 * unary minus and plus
-EVNEG   JSR     <ZCHRGOT
-        CMPA    #T_MINUS
+EVNEG   CMPA    #T_MINUS
         BEQ     EN1
         CMPA    #T_PLUS
         BNE     EVPOW

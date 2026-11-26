@@ -51,27 +51,6 @@ FLT1    STA     <FACEXP
         CLR     <FACEXT
         JMP     NORM
 
-* QINT: FACM = the integer part of |FAC| (truncated), for |FAC| below 2^32. Keeps the sign.
-QINT    JSR     ROUND
-        LDB     #128+32
-        SUBB    <FACEXP         ; places to shift right
-        BLS     QI3             ; (not reached: |FAC| >= 2^32)
-        CMPB    #40
-        BLO     QI1
-        LDB     #40             ; below 1/256: 0 all the same
-QI1     PSHS    X
-        LDX     #FACM
-        JSR     SHFTR
-        CLR     <FACEXT         ; (the bits shifted out of the integer)
-        PULS    X
-QI3     RTS
-
-* MUL10: FAC = FAC x 10. DIV10: FAC = FAC / 10.
-MUL10   LDB     #1
-        BRA     FMULP
-DIV10   LDB     #1
-        BRA     FDIVP
-
 * ---------------- FOUT: FAC as text ----------------
 * FBUFFR gets ' ' or '-', then the number: up to nine significant digits, trailing zeros dropped; fixed point
 * from 0.01 up to below 1E9, otherwise d.ddddE+nn [UM; the bounds to be confirmed by black-box runs].
@@ -106,7 +85,28 @@ FOD1    LDB     #17             ; 1E17 and up: / 1E9
         LDB     #9
         JSR     E10ADJ
         BRA     FOD1
-FOU0    LDB     #8
+* below 1E9. A whole number has its digits as they are: no scaling, the same nine digits less the zeros that
+* would end them. It is one when the exponent and the mantissa's trailing 0 bits reach 32 bits (128 + 32).
+* (PRINT USING's exponent form wants all nine digits in FPDIG: it sets FONINE)
+FOIDLY  EQU     625
+FOU0    TST     <FONINE
+        BNE     FOU0A
+        LDA     <FACEXP
+        LDX     #FACM+4
+FOI1    ADDA    #8              ; (a byte of the mantissa is not 0: the first is $80 or more)
+        LDB     ,-X
+        BEQ     FOI1
+FOI2    DECA
+        ASLB
+        BNE     FOI2
+        CMPA    #128+32
+        BLO     FOU0A
+        LDX     #FOIDLY         ; a delay, 8 cycles a step: ours would be faster than the original otherwise
+FOI3    LEAX    -1,X            ; [BB ram-pointers2, 2026-11-26: 300 passes of A$=STR$(I) take 174 fields on it]
+        BNE     FOI3
+        JSR     QINT
+        BRA     FO6
+FOU0A   LDB     #8
         JSR     FCMPP
         BLE     FOFIX           ; already in range
 FOU1    CLRB                    ; below 1: x 1E9
@@ -121,13 +121,15 @@ FOFIX
 FO3     LDX     #FP1E8          ; while FAC < 1E8: x 10
         JSR     FCMPM
         BLE     FO4
-        BSR     MUL10
+        LDB     #1
+        JSR     FMULP
         JSR     E10DEC
         BRA     FO3
 FO4     LDX     #FP1E9          ; while FAC >= 1E9: / 10
         JSR     FCMPM
         BGT     FO5
-        BSR     DIV10
+        LDB     #1
+        JSR     FDIVP
         JSR     E10INC
         BRA     FO4
 FO5     LDX     #FPHALF         ; + 0.5, and the integer part: nine digits
@@ -140,31 +142,31 @@ FO5     LDX     #FPHALF         ; + 0.5, and the integer part: nine digits
         JSR     MOVFM
         JSR     E10INC
 FO5B    JSR     QINT
-* the nine digits into FPDIG, by PRINT USING's decimal converter (the integer is 100000000-999999999: nine
-* digits exactly)
+* the digits into FPDIG, by PRINT USING's decimal converter: X = the first of them, nine for a scaled number
+* (its integer is 100000000-999999999), and a whole number's own
 FO6     LDU     #FPDIG+9
         JSR     U32DU
 * how many digits matter: trailing zeros dropped
-        LDB     #9
-FO10    DECB
-        LDX     #FPDIG
-        LDA     B,X
+        DECB
+FO10    LDA     B,X
         CMPA    #'0'
         BNE     FO11
-        TSTB
+        DECB
         BNE     FO10
 FO11    INCB
+        LDA     <FPND           ; (U32DU's count)
         STB     <FPND           ; significant digits, 1-9
-        LDU     #FBUFFR+1       ; (the arithmetic above uses U)
-        LDD     <FPE10          ; E: the decimal exponent of the first digit
-        ADDD    #8
+        TFR     A,B             ; E: the decimal exponent of the first digit
+        DECB
+        CLRA
+        ADDD    <FPE10
         STD     <FPE10
+        LDU     #FBUFFR+1       ; (the arithmetic above uses U)
         CMPD    #-2
         BLT     FOSCI
         CMPD    #8
         BGT     FOSCI
 * fixed point
-        LDX     #FPDIG
         TSTA
         BMI     FOFR            ; E < 0: a fraction
         INCB                    ; E + 1 digits before the point
@@ -194,8 +196,7 @@ FOF2    LDB     <FPND
         JSR     CPYXU
         BRA     FOEND
 * d.ddddE+nn
-FOSCI   LDX     #FPDIG
-        LDA     ,X+
+FOSCI   LDA     ,X+
         STA     ,U+
         LDB     <FPND
         DECB
@@ -230,15 +231,15 @@ EXO2    INCA
 * ---------------- FIN: text to a number ----------------
 * FIN: the number at the text pointer (CHRGOT's character first) into FAC: an optional sign, digits with
 * an optional point, an optional exponent E[+|-]digits; spaces between are skipped (CHRGET). The digits are
-* kept exactly while they fit in 32 bits; the first that does not rounds, and later ones only count as places. Leaves the text pointer on the first character
+* kept exactly (in FACM, as an integer) while they fit in 32 bits; the first that does not rounds, and later ones only count as places. Leaves the text pointer on the first character
 * after the number.
 FIN     CLR     <FPDP
         CLR     <FPDROP
         CLRA
         CLRB
         STD     <FPE10
-        STD     <FPN
-        STD     <FPN+2
+        STD     <FACM
+        STD     <FACM+2
         JSR     <ZCHRGOT
         BSR     FISGN
         STB     <FPSGNI         ; (the carry is still CHRGET's: a digit)
@@ -253,11 +254,11 @@ FI1     BCS     FIDIG
 FIDIG   SUBA    #'0'
         TST     <FPDROP
         BNE     FIIGN
-        LDX     <FPN            ; room for another digit within 32 bits: below 429496729 ($19999999), or
+        LDX     <FACM            ; room for another digit within 32 bits: below 429496729 ($19999999), or
         CMPX    #$1999          ; equal to it with a digit up to 5
         BHI     FIDRP
         BLO     FID1
-        LDX     <FPN+2
+        LDX     <FACM+2
         CMPX    #$9999
         BLO     FID1
         BHI     FIDRP
@@ -271,17 +272,17 @@ FID1    JSR     FPNX10          ; x 10 + the digit
 FIDRP   COM     <FPDROP         ; the first digit that does not fit rounds
         CMPA    #5
         BLO     FIIGN
-        LDD     <FPN+2
+        LDD     <FACM+2
         ADDD    #1
-        STD     <FPN+2
+        STD     <FACM+2
         BCC     FIIGN
-        LDD     <FPN
+        LDD     <FACM
         ADDD    #1
         BCS     FIUND           ; (it was $FFFFFFFF: left as it was)
-        STD     <FPN
+        STD     <FACM
         BRA     FIIGN
 FIUND   LDD     #$FFFF
-        STD     <FPN+2
+        STD     <FACM+2
 FIIGN   TST     <FPDP           ; a digit not kept is still a place before the point
         BNE     FINX
         JSR     E10INC
@@ -327,11 +328,7 @@ FIE6    LDB     <FPEX           ; a signed byte
 FIE7    ADDD    <FPE10
         STD     <FPE10
 * the integer, then the places
-FIEND   LDD     <FPN
-        STD     <FACM
-        LDD     <FPN+2
-        STD     <FACM+2
-        JSR     I32FLT
+FIEND   JSR     I32FLT
 FIE8    LDD     <FPE10          ; steps of 1E9, then one product or quotient by 10^k
         CMPD    #9
         BLT     FIE9
@@ -361,8 +358,8 @@ FIE10   LDA     <FPSGNI
         CLR     <FACSGN
 FIE11   JMP     <ZCHRGOT
 
-* FPNX10: FPN = FPN x 10 + A (32 bits), a byte at a time from the last, the carry on the stack
-FPNX10  LDX     #FPN+4
+* FPNX10: FACM = FACM x 10 + A (32 bits), a byte at a time from the last, the carry on the stack
+FPNX10  LDX     #FACM+4
         PSHS    A
 FPX1    LDA     ,-X
         LDB     #10
@@ -371,6 +368,36 @@ FPX1    LDA     ,-X
         ADCA    #0
         STB     ,X
         STA     ,S
-        CMPX    #FPN
+        CMPX    #FACM
         BNE     FPX1
         PULS    A,PC
+
+* QINT: FACM = the integer part of |FAC| (truncated), for |FAC| below 2^32. Keeps the sign.
+QINT    JSR     ROUND
+        LDB     #128+32
+        SUBB    <FACEXP         ; places to shift right
+        BLS     QI3             ; (not reached: |FAC| >= 2^32)
+        CMPB    #40
+        BLO     QI1
+        LDB     #40             ; below 1/256: 0 all the same
+QI1     SUBB    #24
+        BLO     QI2
+        LDA     <FACM           ; below 256: the top byte alone, shifted in A
+        INCB
+        BRA     QIB2
+QIB1    LSRA
+QIB2    DECB
+        BNE     QIB1
+        STA     <FACM+3
+        CLRA
+        STD     <FACM
+        STA     <FACM+2
+        STA     <FACEXT
+        RTS
+QI2     ADDB    #24
+        PSHS    X
+        LDX     #FACM
+        JSR     SHFTR
+        CLR     <FACEXT         ; (the bits shifted out of the integer)
+        PULS    X
+QI3     RTS
