@@ -139,8 +139,7 @@ PROD    RMB     8               ; the product; the quotient
 DVR     RMB     5               ; the remainder
 FPE10   RMB     2               ; decimal exponent (FOUT, FIN)
 FPDIG   RMB     9               ; FOUT's nine digits
-FPND    RMB     1               ; FOUT's significant digits
-FPCNT   RMB     1
+FPND    RMB     1               ; FOUT's significant digits (U32DEC counts its digits here)
 FPK     RMB     1               ; FOUT's power of ten
 FPN     RMB     4               ; FIN's integer
 FPEX    RMB     2               ; FIN's exponent, and its sign

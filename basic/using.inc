@@ -517,9 +517,10 @@ USSIGN  LDA     #'+'
 USG1    JMP     <ZCHROUT
 
 * U32DEC: FACM (32 bits) in decimal: X = the digits (no leading zeros, at least one; the last at FBUFFR+18),
-* B = how many. Each digit is the remainder of FACM / 10, a byte of FACM at a time. Uses U and USK.
+* B = how many. Each digit is the remainder of FACM / 10, a byte of FACM at a time. Uses U and FPND (the count).
+* U32DU: the same with the digits ending just below U (FOUT's nine, into FPDIG).
 U32DEC  LDU     #FBUFFR+19      ; the digits, from the last backwards
-        CLR     <USK
+U32DU   CLR     <FPND
 UD1     LDX     #FACM-1
 UD0     LEAX    1,X             ; the leading bytes that are 0 are skipped (the last is always divided)
         CMPX    #FACM+3
@@ -541,11 +542,11 @@ UD4     DECB
         BNE     UD2
         ADDA    #'0'
         STA     ,-U
-        INC     <USK
+        INC     <FPND
         LDD     <FACM
         BNE     UD1
         LDD     <FACM+2
         BNE     UD1
-        LDB     <USK
+        LDB     <FPND
         TFR     U,X
         RTS

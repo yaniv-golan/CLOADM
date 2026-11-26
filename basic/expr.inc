@@ -315,9 +315,6 @@ CNVBYT  BSR     GETADR
         TSTA
         BNE     ICFC
         RTS
-* GETNUM: an expression as an integer -32768 to 32767 into D
-GETNUM  JSR     <ZEVNUM
-        BRA     INTCNV
 
 * &H hexadecimal and &O octal numbers (&nn is octal) [UM]
 HEXLIT  CLR     <FPN

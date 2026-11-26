@@ -147,43 +147,18 @@ FO4     LDX     #FP1E9          ; while FAC >= 1E9: / 10
         BRA     FO4
 FO5     LDX     #FPHALF         ; + 0.5, and the integer part: nine digits
         JSR     FADDX
-        JSR     QINT
-        LDD     <FACM           ; 1000000000 = $3B9ACA00: back to 100000000, one more place
-        CMPD    #$3B9A
-        BLO     FO6
-        BHI     FO5A
-        LDD     <FACM+2
-        CMPD    #$CA00
-        BLO     FO6
-FO5A    LDD     #$05F5
-        STD     <FACM
-        LDD     #$E100
-        STD     <FACM+2
+        LDX     #FP1E9          ; rounded up to 1000000000: 100000000 and one more place (compared before the
+*                                 integer is taken: QINT rounds as FCMPM does, then only drops the fraction)
+        JSR     FCMPM
+        BGT     FO5B
+        LDX     #FP1E8
+        JSR     MOVFM
         JSR     E10INC
-* the nine digits into FPDIG
-FO6     LDX     #POW10
-        LDY     #FPDIG
-FO7     LDA     #'0'-1
-FO8     INCA                    ; subtract the power of ten until it goes below 0
-        PSHS    A
-        LDD     <FACM+2
-        SUBD    2,X
-        PSHS    D
-        LDD     <FACM
-        SBCB    1,X
-        SBCA    ,X
-        BLO     FO9
-        STD     <FACM
-        PULS    D
-        STD     <FACM+2
-        PULS    A
-        BRA     FO8
-FO9     LEAS    2,S
-        PULS    A
-        STA     ,Y+
-        LEAX    4,X
-        CMPY    #FPDIG+9
-        BLO     FO7
+FO5B    JSR     QINT
+* the nine digits into FPDIG, by PRINT USING's decimal converter (the integer is 100000000-999999999: nine
+* digits exactly)
+FO6     LDU     #FPDIG+9
+        JSR     U32DU
 * how many digits matter: trailing zeros dropped
         LDB     #9
 FO10    DECB
@@ -266,15 +241,6 @@ EXO2    INCA
         STD     ,U++
         RTS
 
-POW10   FDB     $05F5,$E100     ; 100000000
-        FDB     $0098,$9680     ; 10000000
-        FDB     $000F,$4240     ; 1000000
-        FDB     $0001,$86A0     ; 100000
-        FDB     $0000,$2710     ; 10000
-        FDB     $0000,$03E8     ; 1000
-        FDB     $0000,$0064     ; 100
-        FDB     $0000,$000A     ; 10
-        FDB     $0000,$0001     ; 1
 
 * ---------------- FIN: text to a number ----------------
 * FIN: the number at the text pointer (CHRGOT's character first) into FAC: an optional sign, digits with
