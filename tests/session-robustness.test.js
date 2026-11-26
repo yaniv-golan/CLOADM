@@ -475,10 +475,98 @@ const newSession = (id = 'dragon64') => { const s = new Emu.Session({ store: Emu
 }
 
 // =====================================================================================
-// 5. (skipped: no product path reaches it) two debuggers on one machine
+// 5. one debugger on one machine, through every creation path
 // =====================================================================================
-// Not reproducible through any product path: every public sequence attaches exactly
-// one debugger per machine and one bus read makes exactly one _access call. Nothing is pinned here for it.
+// A machine's debugger is the one the page, the tools and a restored snapshot all share
+// (js/debugger.js: a machine has one debugger; the constructor detaches the one it had).
+// This pins that invariant where a comment only said it: after every path that can
+// create a debugger, exactly one is attached, the machine holds the one tap set, and a
+// breakpoint fires once per hit (a second debugger under the first would fire it twice).
+{
+  const s = newSession(); dragonRoms(s); frames(s, 10);
+  const m = s.shownMachine;
+
+  // path 1: the page's debugger (session.debug creates one)
+  const d1 = s.debug;
+  d1.bps.add(0x8000);
+  check('5 the page path: one debugger, and it is the machine\'s', m.debugger === d1 && m.debugger !== null, `${!!m.debugger}`);
+  // ...and a breakpoint it set fires exactly once when hit
+  let hits = 0;
+  const oldStop = d1.onStop;
+  d1.onStop = () => { hits++; };
+  // run to the breakpoint: two NOPs then the breakpoint address
+  m.poke(0x7FFE, 0x12); m.poke(0x7FFF, 0x12);
+  d1.setRegister('pc', 0x7FFE);
+  d1._go((i) => i < 10000, 10000);
+  check('5 ...and its breakpoint fires once (one hit, not two)', hits === 1, `${hits} hits`);
+  d1.onStop = oldStop;
+  d1.bps.delete(0x8000);
+  d1.resume();
+
+  // path 2: a direct new Debugger over the page's (the documented "made on the machine
+  // directly"): the constructor detaches the first
+  const d2 = new Emu.Debugger(m);
+  check('5 a direct new Debugger replaces the page\'s: still exactly one', m.debugger === d2 && d1._taps === null,
+    `machine.debugger is ${m.debugger === d2 ? 'the new one' : 'not the new one'}; old attached ${d1._taps !== null}`);
+
+  // path 3: a snapshot saved with a debugging setup, opened: the restored machine's
+  // debugger is the snapshot's, and the old machine's went with it
+  d2.wps.push({ start: 0x0100, size: 1, read: true, write: false }); d2._syncTaps();
+  check('5 the watchpoint adds exactly one read tap to the machine', m.busTaps.reads.length === 1, `${m.busTaps.reads.length} read taps`);
+  const snap = await s.readSnapshot((await s.snapshotFile()).bytes);
+  s.openSnapshot(snap);
+  const m2 = s.shownMachine;
+  check('5 an opened snapshot carries one debugger, and the old machine\'s is detached',
+    m2 !== m && m2.debugger && m2.debugger !== d2 && d2._taps === null,
+    `old attached ${d2._taps !== null}; new has debugger ${!!m2.debugger}`);
+  check('5 ...and the restored machine has the snapshot\'s one tap set',
+    m2.busTaps.reads.length === 1 && m2.busTaps.writes.length === 0,
+    `r=${m2.busTaps.reads.length} w=${m2.busTaps.writes.length}`);
+
+  // path 4: a restore point (Claude's undo) on the same machine: the debugger is not
+  // replaced at all - the same object and the same taps before and after
+  const before = m2.debugger;
+  const r0 = m2.busTaps.reads.length, w0 = m2.busTaps.writes.length;
+  const point = await s.readSnapshot((await s.snapshotFile()).bytes);
+  s.drives.restorePoint(m2, point);
+  check('5 a restore point keeps the same debugger, with the same one tap set',
+    m2.debugger === before && m2.busTaps.reads.length === r0 && m2.busTaps.writes.length === w0,
+    `same=${m2.debugger === before} r=${m2.busTaps.reads.length} w=${m2.busTaps.writes.length}`);
+
+  // path 5: session.debug after all of the above: it adopts the machine's one, it
+  // never makes a second
+  const d5 = s.debug;
+  check('5 session.debug adopts the machine\'s one debugger, never a second', d5 === m2.debugger && d5 !== d1 && d5 !== d2,
+    `d5 is ${d5 === m2.debugger ? 'the machine\'s' : 'a new one'}`);
+}
+
+// =====================================================================================
+// 6. a tool's write must name its machine: pokeBytes and injectAssembled take no default
+// =====================================================================================
+// With the chat full screen the machine on screen is the chat's: a tool's bytes landing
+// there would overwrite the chat firmware (the thing item 1 refused). Both functions
+// USED to default to the machine on screen, which was safe only because every caller
+// happened to pass one. The default is gone: forgetting throws instead of writing to
+// whatever is on screen.
+{
+  const s = newSession(); dragonRoms(s); frames(s, 10);
+  const m = s.shownMachine;
+  const err = (f) => { try { f(); return null; } catch (e) { return e; } };
+
+  const e1 = err(() => s.pokeBytes(0x0800, [0x20, 0xFE]));
+  check('6 pokeBytes without a machine throws', e1 instanceof Emu.SessionError && /pass it explicitly/i.test(e1.message),
+    e1 && e1.message);
+  const e2 = err(() => s.injectAssembled({ segments: [{ addr: 0x0800, data: Uint8Array.from([0x20, 0xFE]) }], symbols: {} }));
+  check('6 injectAssembled without a machine throws', e2 instanceof Emu.SessionError && /pass it explicitly/i.test(e2.message),
+    e2 && e2.message);
+  // nothing was written by either refusal
+  check('6 ...and neither wrote anything', m.ram[0x0800] !== 0x20 && m.ram[0x0801] !== 0xFE,
+    `$0800=${m.ram[0x0800].toString(16)} $0801=${m.ram[0x0801].toString(16)}`);
+  // with a machine, both work as before
+  check('6 with the machine named, pokeBytes writes it', s.pokeBytes(0x0800, [0x20, 0xFE], m) === 2 && m.ram[0x0800] === 0x20);
+  const landed = s.injectAssembled({ segments: [{ addr: 0x0900, data: Uint8Array.from([0x20, 0xFE]) }], symbols: {} }, m);
+  check('6 with the machine named, injectAssembled writes it', landed === 2 && m.ram[0x0900] === 0x20);
+}
 
 })().then(() => {
   console.log(`${n - fail}/${n} session-robustness checks passed`);

@@ -49,8 +49,8 @@ const startGame = (s, name = '2048') => { s.runGame(name, example(s.gameFile(nam
   const cases = [
     ['a key on the screen or the page (personInput)', (x) => x.personInput()],
     ['a typed line (typeText)', (x) => x.typeText('P')],
-    ['a memory change by a tool (pokeBytes)', (x) => x.pokeBytes(0x2000, [0x42])],
-    ['a program a tool assembled (injectAssembled)', (x) => x.injectAssembled({ segments: [{ addr: 0x7000, data: Uint8Array.from([0x20, 0xFE]) }], symbols: {} })],
+    ['a memory change by a tool (pokeBytes)', (x) => x.pokeBytes(0x2000, [0x42], x.shownMachine)],
+    ['a program a tool assembled (injectAssembled)', (x) => x.injectAssembled({ segments: [{ addr: 0x7000, data: Uint8Array.from([0x20, 0xFE]) }], symbols: {} }, x.shownMachine)],
     ['a tape going in (insertTape)', (x) => x.insertTape('t.cas', Uint8Array.from([0x55, 0x3C, 0x01, 0x00, 0xFF, 0x00, 0x00]))],
     ['BREAK (pressBreak)', (x) => x.pressBreak()],
   ];

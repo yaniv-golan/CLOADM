@@ -968,7 +968,7 @@ class Runner {
   async peek(step, { address: a, length }, s) {
     return this.record(step, { address: a, length, bytes: Array.from({ length }, (_, i) => s.readByte(a + i)) });
   }
-  async poke(step, { address: a, bytes }, s) { return this.record(step, { address: a, bytes, landed: s.pokeBytes(a, bytes) }); }
+  async poke(step, { address: a, bytes }, s) { return this.record(step, { address: a, bytes, landed: s.pokeBytes(a, bytes, this.m) }); }
   async registers(step, v, s) { return this.record(step, { cpu: this.m.config.cpu, registers: s.debug.registers() }); }
   async setRegister(step, { name, value }, s) {
     s.debug.setRegister(name, value);

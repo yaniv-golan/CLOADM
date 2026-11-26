@@ -885,7 +885,7 @@ fs.writeFileSync(tmp('media', 'plain.bas'), '10 PRINT "HI"\n');
       // the stop step leaves keeps the reason the steps gave: a watchpoint hit stays a watchpoint stop (not a halt)
       {
         const asm = Emu.assemble(' ORG $3000\nGO LDA #1\n STA $3100\n BRA GO\n', '6809');
-        st.pokeBytes(0x3000, [...asm.segments[0].data]);
+        st.pokeBytes(0x3000, [...asm.segments[0].data], st.shownMachine);
         st.shownMachine.cpu.jump(0x3000);
         st.debug.addWatchpoint(0x3100, 1, { read: false, write: true });
         const w = await tbs.call('step', Object.assign({}, id, { count: 2 }));
