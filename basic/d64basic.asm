@@ -193,7 +193,6 @@ ITMCOL  RMB     1               ; GETITM: ':' ends an item (DATA)
 DPR7    RMB     0               ; (at or below KEYDLY)
         ORG     KEYDLY+2
 SEED    RMB     4               ; RND's seed, low byte first
-RNDR    EQU     PROD            ; (RND's product is in the seed before its arithmetic uses PROD)
 INPKND  RMB     1               ; INPUT 1, LINE INPUT 0
 INPPTR  RMB     2               ; INPUT: the pointer in the typed line
 CNLEN   RMB     1               ; the cassette (cassette.inc): the name's length, 0 for any file

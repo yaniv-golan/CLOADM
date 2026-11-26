@@ -252,7 +252,35 @@ FMUL    JSR     ROUND
         ADCA    #0
         SUBD    #128
         STD     <FPEXP
-        LDX     #PROD
+        BSR     MULMAN
+        LDD     <PROD
+        STD     <FACM
+        LDD     <PROD+2
+        STD     <FACM+2
+        LDA     <PROD+4
+        STA     <FACEXT
+        TST     <FACM
+        BMI     FM5
+        ASL     <FACEXT         ; at most one place: the product of two mantissas is at least 1/4
+        ROL     <FACM+3
+        ROL     <FACM+2
+        ROL     <FACM+1
+        ROL     <FACM
+        LDD     <FPEXP
+        SUBD    #1
+        STD     <FPEXP
+* FPEXP to FACEXP: below 1 is 0, above 255 is ?OV ERROR
+FM5     LDD     <FPEXP
+        BLE     FMZ
+        TSTA
+        BNE     FMOV
+        STB     <FACEXP
+        RTS
+FMZ     JMP     FZERO
+FMOV    JMP     OVERR
+* MULMAN: PROD (64 bits) = FACM x ARGM, the two mantissas as whole numbers (FMUL's product; RND's, whose seed and
+* multiplier are no normal mantissas: a 0 byte of ARGM only skips its row). Uses D, X, Y, U and FPI.
+MULMAN  LDX     #PROD
         LDB     #8
 FM0     CLR     ,X+
         DECB
@@ -282,31 +310,7 @@ FM4     LEAX    -1,X
         BNE     FM2
 FM4A    DEC     <FPI
         BNE     FM1
-        LDD     <PROD
-        STD     <FACM
-        LDD     <PROD+2
-        STD     <FACM+2
-        LDA     <PROD+4
-        STA     <FACEXT
-        TST     <FACM
-        BMI     FM5
-        ASL     <FACEXT         ; at most one place: the product of two mantissas is at least 1/4
-        ROL     <FACM+3
-        ROL     <FACM+2
-        ROL     <FACM+1
-        ROL     <FACM
-        LDD     <FPEXP
-        SUBD    #1
-        STD     <FPEXP
-* FPEXP to FACEXP: below 1 is 0, above 255 is ?OV ERROR
-FM5     LDD     <FPEXP
-        BLE     FMZ
-        TSTA
-        BNE     FMOV
-        STB     <FACEXP
         RTS
-FMZ     JMP     FZERO
-FMOV    JMP     OVERR
 
 * FDIV: FAC = ARG / FAC (?/0 ERROR for 0). 41 quotient bits by restoring division, normalised to 40.
 FDIV    JSR     ROUND

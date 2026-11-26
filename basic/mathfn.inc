@@ -419,63 +419,22 @@ RND     JSR     <ZFNARGN
         CLR     <FACSGN
 RN1     LDX     #FPT5
         JSR     <ZMOVMF
-        CLR     <RNDR
-        CLR     <RNDR+1
-        CLR     <RNDR+2
-        CLR     <RNDR+3
-        CLR     <FPI
-RN2     CLR     <FPJ
-RN3     LDA     <FPI
-        ADDA    <FPJ
-        CMPA    #3
-        BHI     RN6
-        LDX     #SEED
-        LDB     <FPI
-        LDA     B,X
-        LDX     #RNDK
-        LDB     <FPJ
-        LDB     B,X
-        MUL
-        PSHS    A
-        LDA     <FPI
-        ADDA    <FPJ
-        LDX     #RNDR
-        LEAX    A,X
-        PULS    A
-        ADDB    ,X
-        STB     ,X+
-        ADCA    #0
-RN4     CMPX    #RNDR+4
-        BHS     RN6
-        ADDA    ,X
-        STA     ,X+
-        LDA     #0
-        ROLA                    ; the carry on up
-        BRA     RN4
-RN6     INC     <FPJ
-        LDA     <FPJ
-        CMPA    #4
-        BLO     RN3
-        INC     <FPI
-        LDA     <FPI
-        CMPA    #4
-        BLO     RN2
-        LDX     #RNDR           ; + 1013904223 ($3C6EF35F), into the seed
-        LDY     #RNDC
-        LDU     #SEED
-        LDB     #4
-        ANDCC   #$FE
-RN7     LDA     ,X+
-        ADCA    ,Y+
-        STA     ,U+
-        DECB
-        BNE     RN7
-        LDA     <SEED+3         ; the fraction: seed / 2^32
-        LDB     <SEED+2
-        STD     <FACM
-        LDA     <SEED+1
-        LDB     <SEED
-        STD     <FACM+2
+        BSR     RNLD            ; seed x 1664525: the low 32 bits of FMUL's 64-bit product (PROD+4 on)
+        LDD     #$0019          ; (1664525 = $0019660D)
+        STD     <ARGM
+        LDD     #$660D
+        STD     <ARGM+2
+        JSR     MULMAN
+        LDD     <PROD+6         ; + 1013904223 ($3C6EF35F), into the seed
+        ADDD    #$F35F
+        STB     <SEED
+        STA     <SEED+1
+        LDD     <PROD+4
+        ADCB    #$6E
+        ADCA    #$3C
+        STB     <SEED+2
+        STA     <SEED+3
+        BSR     RNLD            ; the fraction: seed / 2^32
         CLR     <FACSGN
         CLR     <FACEXT
         LDA     #128
@@ -489,5 +448,11 @@ RN7     LDA     ,X+
         LDX     #FPONE
         JMP     FADDX
 RN9     RTS
-RNDK    FCB     $0D,$66,$19,$00 ; 1664525, low byte first
-RNDC    FCB     $5F,$F3,$6E,$3C ; 1013904223, low byte first
+* RNLD: FACM = the seed, high byte first
+RNLD    LDA     <SEED+3
+        LDB     <SEED+2
+        STD     <FACM
+        LDA     <SEED+1
+        LDB     <SEED
+        STD     <FACM+2
+        RTS
