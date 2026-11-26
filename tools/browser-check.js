@@ -23393,6 +23393,49 @@ async function shortLinkChecks(browser, base, site, check) {
     && (await page.click('#btnShortQr'), await waitFor(page, () => document.getElementById('shortQrWrap').hidden)));
   if (shotDir) await page.screenshot({ path: path.join(shotDir, 'short-link-made.png'), fullPage: true });
 
+  // A program page (?start=liza, what cloadm.dev/liza/ opens) starts on the built-in firmware, WITHOUT the person's
+  // ROMs, even with ROMs stored for the model (stand-ins made from this project's firmware, never real ROMs): its
+  // moment holds none of their code, so Copy link makes a SHORT link (through the stand-in Worker) and the ROM line says
+  // it runs without ROMs; the stored ROMs are untouched, and BASIC afterwards (a plain visit) still starts on them.
+  {
+    const ctx3 = await browser.newContext({ viewport: { width: 1280, height: 900 }, serviceWorkers: 'block', permissions: ['clipboard-read', 'clipboard-write'] });
+    await serve(ctx3);
+    const p3 = await ctx3.newPage();
+    p3.on('pageerror', (e) => errors.push(e.message));
+    const ours = Buffer.concat(['liza.bin', 'welcome.bin', 'demo.bin', 'chat.bin'].map((f) => fs.readFileSync(path.join(ROOT, 'examples', f))));
+    const standIn = (seed) => [...Array(0x4000)].map((_, i) => ours[(i * 3 + seed) % ours.length] ^ ((i >> 8) + seed) & 0xFF);
+    const roms = { basic: standIn(101), basic64: standIn(138) };
+    await p3.goto(`${base}?machine=dragon64`);
+    await linkIn(p3);
+    await p3.evaluate(async (r) => { const s = window.emu.session; for (const [k, v] of Object.entries(r)) s.roms.put('dragon64', k, Uint8Array.from(v), `${k}.rom`); s.switchMachine('dragon64'); await s.index.settled(); }, roms);
+    const control = await p3.evaluate(() => ({ hasRom: window.emu.machine.hasRom, code: window.emu.session.romCodeIn() }));
+    check('shortLink: (the control) with stand-in ROMs stored, a plain visit runs on them', control.hasRom && control.code === 'roms', JSON.stringify(control));
+    await p3.goto(`${base}?machine=dragon64&start=liza`);
+    await linkIn(p3);
+    const lizaUp = await waitFor(p3, () => /LIZA - A/.test(window.emu.session.screenText().join(' ')), null, 60000);
+    // (touched: an untouched program gives its own page, not a moment; a person's key is a touch)
+    await p3.click('#screen', { position: { x: 20, y: 20 } }).catch(() => {});
+    await p3.keyboard.type('HELLO');
+    await waitFor(p3, () => window.emu.session.touches() > 0, null, 10000);
+    await openShare(p3);
+    const onStub = await p3.evaluate(() => ({ hasRom: window.emu.machine.hasRom, code: window.emu.session.romCodeIn(), line: document.getElementById('shareRomFull').textContent,
+      free: !document.getElementById('shareRomFree'), why: document.getElementById('primaryWhy').textContent, note: document.getElementById('primaryNote').textContent,
+      cap: document.getElementById('shareTitle').innerText.replace(/\s+/g, ' ').trim(), stored: Object.values(window.emu.session.roms.get('dragon64')).filter(Boolean).length }));
+    check('shortLink: a program page with ROMs stored runs on the built-in firmware: no ROM in the machine, and the Share screen says it runs without ROMs, with nothing under Copy link',
+      lizaUp && !onStub.hasRom && onStub.code === null && onStub.line === 'Runs without ROMs, so it opens for anyone.' && onStub.why === '' && onStub.note === '' && /^What they'll see first · /.test(onStub.cap) && onStub.stored === 2, JSON.stringify(onStub));
+    await p3.click('#btnShareCopy');
+    const madeStub = await waitFor(p3, () => !document.getElementById('shortMade').hidden, null, 15000);
+    const urlStub = await p3.evaluate(() => document.getElementById('shareShort').value);
+    check('shortLink: ...and Copy link makes a SHORT link of that moment (https://s.cloadm.dev/<id>#<key>), not the long one', madeStub && /^https:\/\/s\.cloadm\.dev\/[A-Za-z0-9_-]{8}#[A-Za-z0-9_-]{22}$/.test(urlStub), urlStub);
+    // BASIC afterwards: a plain visit starts on the stored ROMs, which nothing touched and nothing marked
+    await p3.goto(`${base}?machine=dragon64`);
+    await linkIn(p3);
+    const back = await waitFor(p3, () => window.emu.machine.hasRom, null, 30000);
+    const after = await p3.evaluate(() => ({ hasRom: window.emu.machine.hasRom, code: window.emu.session.romCodeIn(), stored: Object.values(window.emu.session.roms.get('dragon64')).filter(Boolean).length }));
+    check('shortLink: ...and BASIC afterwards (a plain visit) still starts on the stored ROMs, which are all still stored', back && after.hasRom && after.code === 'roms' && after.stored === 2, JSON.stringify(after));
+    await closeCtx(ctx3);
+  }
+
   // opened from the arrival page in another profile: the page counts the open and goes on to cloadm.dev/play/#l=
   const ctx2 = await browser.newContext({ serviceWorkers: 'block' });
   await serve(ctx2); await said(ctx2);

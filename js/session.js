@@ -2518,6 +2518,11 @@ export class Session {
   load(name, bytes, { askAddresses = null, remember = true, run = true, ours = false } = {}) {
     this.loadStarted = true;
     const m = this.loadTarget().m;
+    // One of the project's own programs always starts on the built-in firmware, without the person's ROMs, even when
+    // they have stored ROMs for this model: it never needs them, and a moment of it then holds none of their code, so
+    // it can have a short link and anyone can open it. Only this run is without them (stubChosen, as the welcome menu
+    // makes it): the stored ROMs are untouched and BASIC still starts on them ("Use your ROMs for BASIC", or a reload).
+    if (ours && !m.useStub && !this.nitros9On(m)) this.runWithoutRoms({ menu: false });
     this.lastLoaded = { name, bytes };   // (js/bugreport.js: its name and SHA-256; set first, so a file that fails to load is named too)
     this.touch(this.shownMachine);   // a load makes a bundled program a moment (untouchedBundledProgram)
     const msg = this.loadMedia(name, bytes, askAddresses, { run });

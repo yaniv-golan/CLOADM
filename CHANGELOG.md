@@ -8,6 +8,14 @@ All notable changes to CLOADM are recorded here. The format follows
 
 Next version: 0.3.1 (the plugin and extension manifests carry it; `tests/plugin.test.js` keeps them in step).
 
+#### Changed
+
+- **LIZA, the colour demo, 2048 and Minesweeper always start on the built-in firmware, without your ROMs,** even when you
+  have added ROMs for that model (the welcome menu always did). Your ROMs stay stored and untouched, nothing is left behind
+  for later boots, and BASIC starts on them as before (the welcome menu's option 3, or a reload). A moment of one of these
+  programs then holds no code of your ROMs, so Share gives a short link anyone can open; leaving a game with BREAK goes to
+  the welcome menu instead of back to BASIC. Starting a program restarts the machine, so a BASIC program in memory is not kept.
+
 ### 0.3.1
 
 #### Fixed
