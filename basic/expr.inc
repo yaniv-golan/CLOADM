@@ -285,10 +285,7 @@ INTCNV  BSR     CHKNUM
         RTS
 IC1     CMPD    #$8000
         BHI     ICFC
-        COMA
-        COMB
-        ADDD    #1
-        RTS
+        JMP     NEGD
 ICFC    JMP     <ZFCERR
 * GETADR: FAC as an address, 0-65535, in D (?FC ERROR otherwise)
 * EVADR: an expression as an address

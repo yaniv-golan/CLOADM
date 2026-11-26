@@ -32,13 +32,7 @@ ROUND   TST     <FACEXP
         LDA     <FACEXT
         BPL     RND2
         CLR     <FACEXT
-        LDD     <FACM+2
-        ADDD    #1
-        STD     <FACM+2
-        LDD     <FACM
-        ADCB    #0
-        ADCA    #0
-        STD     <FACM
+        BSR     INCFM
         BCC     RND1
         ROR     <FACM           ; it carried out: $80000000 and the next exponent
         INC     <FACEXP
@@ -47,6 +41,15 @@ RND1    RTS
 RND2    CLR     <FACEXT
         RTS
 RNDOV   JMP     OVERR
+* INCFM: FACM + 1 (32 bits); C set if it carried out. Uses D.
+INCFM   LDD     <FACM+2
+        ADDD    #1
+        STD     <FACM+2
+        LDD     <FACM
+        ADCB    #0
+        ADCA    #0
+        STD     <FACM
+        RTS
 
 * MOVMF: store FAC, rounded, packed at X. Keeps X.
 MOVMF   BSR     ROUND
@@ -97,9 +100,12 @@ FNEG    TST     <FACEXP
 FNEG1   RTS
 
 * FSUB: FAC = ARG - FAC
+FADDX   JSR     MOVAM           ; (FADDX, FSUBX: [X] + FAC, [X] - FAC; mathfn.inc)
+        BRA     FADD
+FSUBX   JSR     MOVAM
 FSUB    BSR     FNEG
 * FADD: FAC = ARG + FAC
-FADD    BSR     ROUND
+FADD    JSR     ROUND
         TST     <ARGEXP
         BEQ     FA9             ; + 0
         TST     <FACEXP
@@ -168,13 +174,7 @@ FA7     LDA     <FACEXT
         COM     <FACM+3
         NEG     <FACEXT
         BNE     NORM
-        LDD     <FACM+2         ; the +1 of the two's complement carries on up
-        ADDD    #1
-        STD     <FACM+2
-        LDD     <FACM
-        ADCB    #0
-        ADCA    #0
-        STD     <FACM
+        JSR     INCFM           ; the +1 of the two's complement carries on up
 * (FADD's subtraction above falls through into NORM: nothing may be placed between them)
 * NORM: normalise FAC's 40-bit mantissa (FACM and FACEXT) so its top bit is set; 0 if it is all 0 or the
 * exponent goes below 1
@@ -238,6 +238,7 @@ SHFT2    TSTB
         RTS
 
 * FMUL: FAC = ARG x FAC. The top 40 bits of the 64-bit product, normalised.
+FMULX   JSR     MOVAM           ; (FMULX: [X] x FAC)
 FMUL    JSR     ROUND
         TST     <FACEXP
         LBEQ    FMZ
@@ -313,6 +314,7 @@ FM4A    DEC     <FPI
         RTS
 
 * FDIV: FAC = ARG / FAC (?/0 ERROR for 0). 41 quotient bits by restoring division, normalised to 40.
+FDIVX   JSR     MOVAM           ; (FDIVX: [X] / FAC)
 FDIV    JSR     ROUND
         TST     <FACEXP
         BNE     FD1

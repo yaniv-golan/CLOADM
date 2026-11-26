@@ -41,9 +41,7 @@ GIVABF  CLR     <FACSGN
         TSTA
         BPL     GIV1
         COM     <FACSGN
-        COMA
-        COMB
-        ADDD    #1
+        JSR     NEGD
 * GIV1: FAC = the unsigned 16-bit integer in D, with the sign FACSGN already holds
 GIV1    STD     <FACM
         CLR     <FACM+2
@@ -69,10 +67,10 @@ QI1     PSHS    X
 QI3     RTS
 
 * MUL10: FAC = FAC x 10. DIV10: FAC = FAC / 10.
-MUL10   LDX     #FPTEN
-        JMP     FMULX
-DIV10   LDX     #FPTEN
-        BRA     FDIVR
+MUL10   LDB     #1
+        BRA     FMULP
+DIV10   LDB     #1
+        BRA     FDIVP
 
 * ---------------- FOUT: FAC as text ----------------
 * FBUFFR gets ' ' or '-', then the number: up to nine significant digits, trailing zeros dropped; fixed point
@@ -90,9 +88,7 @@ FO1     STA     FBUFFR
         BNE     FO2
         LDA     #'0'
         STA     ,U+
-        CLR     ,U
-        LDX     #FBUFFR
-        RTS
+        LBRA    FOEND
 FO2     CLRA
         CLRB
         STD     <FPE10
@@ -327,9 +323,7 @@ FIE6    LDB     <FPEX           ; a signed byte
         SEX
         TST     <FPEXS
         BEQ     FIE7
-        COMA
-        COMB
-        ADDD    #1
+        JSR     NEGD
 FIE7    ADDD    <FPE10
         STD     <FPE10
 * the integer, then the places

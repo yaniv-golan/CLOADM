@@ -35,14 +35,7 @@ FNARGN  JSR     LPAREN
         JSR     <ZEVNUM
         JMP     <ZRPAREN
 * FMULX, FADDX: FAC = [X] x FAC, [X] + FAC, for the packed number at X. FDIVX: [X] / FAC. FSUBX: [X] - FAC.
-FMULX   JSR     MOVAM
-        JMP     FMUL
-FADDX   JSR     MOVAM
-        JMP     FADD
-FDIVX   JSR     MOVAM
-        JMP     FDIV
-FSUBX   JSR     MOVAM
-        JMP     FSUB
+* (each is in fp.inc, in front of its operation, which it falls into)
 * FPRUN: do the steps that follow the call, a byte each, up to a 0 byte; the code after it then goes on. A step
 * is an operation (bits 7-5) on a packed number (bits 4-0): 1-7 are FPT1-FPT6 and POLYV, 8 and up the constants
 * from FPCON on. Keeps nothing but the stack.
@@ -59,6 +52,8 @@ K_2OPI  EQU     (TWOOPI-FPCON)/5+8
 K_LN2   EQU     (LN2-FPCON)/5+8
 K_ILN2  EQU     (INVLN2-FPCON)/5+8
 K_SQR3  EQU     (SQRT3-FPCON)/5+8
+K_PIO2  EQU     (PIO2-FPCON)/5+8
+K_PIO6  EQU     (PIO6-FPCON)/5+8
 K_M1    EQU     (FPM1-FPCON)/5+8
 K_HALF  EQU     (FPHALF-FPCON)/5+8
 K_ONE   EQU     (FPONE-FPCON)/5+8
@@ -94,35 +89,35 @@ GIVUNS  CLR     <FACSGN
 * POLY: FAC = c0 x^(n-1) + ... + c(n-1) for the variable x in FAC, the B coefficients packed at X (highest first)
 * A = the step from one coefficient to the next: 5, or 10 for every other one of the table.
 POLY    PSHS    D,X
-        LDX     #POLYV
-        JSR     <ZMOVMF
+        JSR     <ZFPRUN
+        FCB     F_STO+7,0       ; POLYV
         LDX     2,S
         JSR     MOVFM
         DEC     1,S
-PL1     LDX     #POLYV
-        BSR     FMULX
+PL1     JSR     <ZFPRUN
+        FCB     F_MUL+7,0
         LDX     2,S
         LDB     ,S
         ABX
         STX     2,S
-        BSR     FADDX
+        JSR     FADDX
         DEC     1,S
         BNE     PL1
         PULS    D,X,PC
 * ODDPOL: FAC = x P(x^2), P as POLY
 * (A and B as POLY; bit 7 of A set: P(-x^2))
 ODDPOL  PSHS    D,X
-        LDX     #FPT4
-        JSR     <ZMOVMF
-        JSR     FMULX           ; x^2
+        JSR     <ZFPRUN
+        FCB     F_STO+4,F_MUL+4,0       ; x kept; x^2
         PULS    D,X
         TSTA
         BPL     OP1
         ANDA    #$7F
         JSR     FNEG
 OP1     BSR     POLY
-        LDX     #FPT4
-        JMP     FMULX
+        JSR     <ZFPRUN
+        FCB     F_MUL+4,0
+        RTS
 
 * FTRUNC: FAC with its fraction dropped (towards 0). FRACNZ: nonzero if a fraction was dropped; TRSGN: the sign.
 FTRUNC  JSR     ROUND
@@ -170,8 +165,9 @@ FINT    BSR     FTRUNC
         BPL     FTR9
         TST     <FRACNZ
         BEQ     FTR9
-        LDX     #FPM1
-        JMP     FADDX
+        JSR     <ZFPRUN
+        FCB     F_ADD+K_M1,0
+        RTS
 
 * INT(x), FIX(x), ABS(x), SGN(x)
 INT     JSR     <ZFNARGN
@@ -309,8 +305,9 @@ FTAN    JSR     <ZFPRUN
         JSR     <ZFPRUN
         FCB     F_STO+6,F_LD+5,0
         BSR     FCOS
-        LDX     #FPT6
-        JMP     FDIVX
+        JSR     <ZFPRUN
+        FCB     F_DIVX+6,0
+        RTS
 
 * ATN(x): |x| > 1 uses pi/2 - ATN(1/x); above tan(pi/12) it uses pi/6 + ATN((x sqrt 3 - 1)/(x + sqrt 3));
 * then x - x^3/3 + x^5/5 - ...
@@ -336,12 +333,12 @@ AT2     LDX     #ODDTAB
         JSR     ODDPOL
         TST     <ATADD
         BEQ     AT3
-        LDX     #PIO6
-        JSR     FADDX
+        JSR     <ZFPRUN
+        FCB     F_ADD+K_PIO6,0
 AT3     TST     <ATINV
         BEQ     AT4
-        LDX     #PIO2
-        JSR     FSUBX           ; pi/2 - it
+        JSR     <ZFPRUN
+        FCB     F_SUBX+K_PIO2,0 ; pi/2 - it
 AT4     TST     <FACEXP
         BEQ     AT5
         LDA     <ATSGN
@@ -365,9 +362,7 @@ FPOWER  JSR     <ZFPRUN
         STA     <PWSGN
         TSTA
         BPL     PW1
-        COMA
-        COMB
-        ADDD    #1
+        JSR     NEGD
 PW1     STD     <PWN
         JSR     <ZFPRUN
         FCB     F_LD+K_ONE,F_STO+1,0    ; the result: 1
@@ -384,14 +379,15 @@ PW3     LDD     <PWN
         JSR     <ZFPRUN
         FCB     F_LD+6,F_MUL+6,F_STO+6,0        ; base x base
         BRA     PW2
-PW4     LDX     #FPT1
-        JSR     MOVFM
+PW4     JSR     <ZFPRUN
+        FCB     F_LD+1,0
         TST     <PWSGN
         BPL     PW9
-        LDX     #FPONE          ; a negative exponent: 1 / it
-        JMP     FDIVX
-PW5     LDX     #FPT6
-        JSR     MOVFM
+        JSR     <ZFPRUN         ; a negative exponent: 1 / it
+        FCB     F_DIVX+K_ONE,0
+        RTS
+PW5     JSR     <ZFPRUN
+        FCB     F_LD+6,0
         TST     <FACEXP
         BNE     PW6
         LDX     #FPT5           ; 0 to a power: 0, or ?/0 ERROR below 0
@@ -399,8 +395,8 @@ PW5     LDX     #FPT6
         LBMI    DZERR
         JMP     FZERO
 PW6     JSR     FLOG
-        LDX     #FPT5
-        JSR     FMULX
+        JSR     <ZFPRUN
+        FCB     F_MUL+5,0
         JMP     FEXP
 PW9     RTS
 
@@ -417,8 +413,8 @@ RND     JSR     <ZFNARGN
         STB     <SEED
         STA     <SEED+1
         CLR     <FACSGN
-RN1     LDX     #FPT5
-        JSR     <ZMOVMF
+RN1     JSR     <ZFPRUN
+        FCB     F_STO+5,0
         BSR     RNLD            ; seed x 1664525: the low 32 bits of FMUL's 64-bit product (PROD+4 on)
         LDD     #$0019          ; (1664525 = $0019660D)
         STD     <ARGM
@@ -445,8 +441,8 @@ RN1     LDX     #FPT5
         BEQ     RN9             ; RND(0)
         JSR     FMULX           ; x n, rounded down, + 1
         JSR     FINT
-        LDX     #FPONE
-        JMP     FADDX
+        JSR     <ZFPRUN
+        FCB     F_ADD+K_ONE,0
 RN9     RTS
 * RNLD: FACM = the seed, high byte first
 RNLD    LDA     <SEED+3
