@@ -5,8 +5,9 @@
 # mode at three known places in the typed line, and a search of RAM below the text screen ($0000-$03FF) for a marker
 # in a typed line (QZ, in a REM; the line prints each address where it starts, with no IF, which would skip
 # the NEXT) and in a reply to INPUT (QJ). TIMER's bytes, phase-proof: read until no field
-# passed while the bytes were read (TD, the bytes less TIMER: 0), and after POKEing 1 and 2 (TP: the high byte, and
-# whether TIMER is then 258 to 307). Last, how fast the interpreter runs typical loops, in fields counted by TIMER:
+# passed while the bytes were read (TD, the bytes less TIMER: 0), and after POKEing 2 and 1, the low byte first so a
+# field cannot carry into the high byte between them (TP: the high byte, and whether TIMER is then 258 to 307).
+# Last, how fast the interpreter runs typical loops, in fields counted by TIMER:
 # an empty FOR loop (2000 passes, as famous-pokes times it), an addition, a product and a quotient with a constant,
 # STR$, GOSUB and RETURN, an IF ... THEN back to its own line, and MID$ joined to a literal, each started just
 # after a field begins (300-320), so where in a field it starts cannot move its count (only the counts are
@@ -45,7 +46,7 @@ RUN
 NEW
 10 T=TIMER:H=PEEK(274):L=PEEK(275):U=TIMER:IF T<>U THEN 10
 20 PRINT "TD";H*256+L-T
-30 POKE 274 AND 32767,1:POKE 275 AND 32767,2:T=TIMER:H=PEEK(274):PRINT "TP";H;T>=258 AND T<308
+30 POKE 275 AND 32767,2:POKE 274 AND 32767,1:T=TIMER:H=PEEK(274):PRINT "TP";H;T>=258 AND T<308
 RUN
 NEW
 10 GOSUB 300:FOR I=1 TO 2000:NEXT:A=TIMER
