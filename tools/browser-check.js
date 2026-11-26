@@ -10205,6 +10205,24 @@ async function touchJoystickChecks(browser, base, check) {
     await page.goto(`${base}?machine=dragon64&touch=keys`);
     await started(page);
     await waitFor(page, () => window.emu.machine && window.emu.session.welcomeRunning && !document.getElementById('touchKeys').hidden && !document.getElementById('touchKeys').classList.contains('joystick'));
+    // a tap reads the page the VDG shows, not $0400: with the SAM's display offset moved to a blank page at $0E00
+    // (F = 7) the menu is still in memory at $0400 but not on screen, and a tap on its line must not choose; with the
+    // offset put back (F = 2) the control tap below chooses
+    await waitFor(page, () => window.emu.session.screenText()[9].trim() === '2 COLOUR AND SOUND');
+    const movedTap = await page.evaluate(() => {
+      const m = window.emu.machine, s = window.emu.session, r = document.getElementById('screen').getBoundingClientRect();
+      for (let i = 0; i < 512; i++) m.ram[0x0E00 + i] = 0x60;
+      m.write(0xFFC7, 0); m.write(0xFFC9, 0); m.write(0xFFCB, 0);          // the SAM offset bits 0-2 set: F = 7, $0E00
+      const shown = m.sam.displayBase;
+      document.getElementById('screen').dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true,
+        clientX: r.left + r.width / 2, clientY: r.top + (24 + 9 * 12 + 6) / 240 * r.height, pointerType: 'touch' }));
+      return { shown, keys: m.stubKeys.length, menuAt0400: m.ram[0x400 + 9 * 32 + 4] };
+    });
+    await emuFrames(page, 30);
+    const afterMoved = await page.evaluate(() => ({ menu: window.emu.session.welcomeRunning, keys: window.emu.machine.stubKeys.length }));
+    check('touch joystick: a tap on a menu line the SAM has moved off screen (F = 7, a blank page) does not choose',
+      movedTap.shown === 0x0E00 && movedTap.menuAt0400 === 0x32 && afterMoved.menu === true && afterMoved.keys === movedTap.keys, JSON.stringify({ movedTap, afterMoved }));
+    await page.evaluate(() => { const m = window.emu.machine; m.write(0xFFC6, 0); m.write(0xFFCA, 0); });   // offset bits 0 and 2 clear: F = 2, $0400
     const controlTap = await tapMenuLine(page, { expectLeave: true });
     check('touch joystick: the same tap on the keys does choose (the check above is not blind)', !controlTap.stick && controlTap.before && controlTap.after === false,
       JSON.stringify(controlTap));
