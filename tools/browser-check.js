@@ -2765,8 +2765,8 @@ async function visitChecks(browser, base, check) {
   const menu = () => waitFor(page, () => window.emu.session.welcomeRunning && window.emu.session.screenText()[14].includes('PRESS 1 TO 5'));
   check('first visit: opens on the welcome program running without ROMs', await menu() && !(await page.evaluate(() => window.emu.machine.hasRom))
     && /1 TALK TO LIZA/.test(await screen()), (await screen()).split('\n')[8]);
-  check('first visit: "Runs without ROMs" is the welcome menu (on screen now), our programs and the Claude chat', (await page.$$eval('#shelf :is(a, button)', (b) => b.map((x) => x.textContent).join())) === 'Welcome menu on screen now,LIZA,Colour demo,2048,Minesweeper,WYRMFIREA 3D game for the Dragon 64 · Freedoom levelGPL · Freedoom level (BSD),Chat with Claude',
-    await page.$$eval('#shelf :is(a, button)', (b) => b.map((x) => x.textContent).join()));
+  check('first visit: "Runs without ROMs" is the welcome menu (on screen now), our programs and the Claude chat', (await page.$$eval('#shelf :is(a, button)', (b) => b.map((x) => x.textContent.replace(x.querySelector('.desc').textContent, '')).join())) === 'Welcome menu on screen now,LIZA,Colour demo,2048,Minesweeper,WYRMFIRE,Chat with Claude',
+    await page.$$eval('#shelf :is(a, button)', (b) => b.map((x) => x.textContent.replace(x.querySelector('.desc').textContent, '')).join()));
   check('first visit: "No BASIC · Add ROMs" in the header and the machine question', await page.isVisible('#romPill') && await page.isVisible('#askMachine'));
   // The welcome tune plays only when the person asked for the menu. The visit's own menu leaves the firmware's PLAYED flag
   // ($6005, the 6809 build) at 0 (a few frames in, once START has cleared it), so its tune is still to play once the
@@ -3025,7 +3025,7 @@ async function visitChecks(browser, base, check) {
   check('Add ROMs: "Choose files…" opens the ROM picker', !!chooser && chooser.isMultiple());
   await page.click('#btnRomBack');
   // the shelf runs the colour demo
-  await page.click('#shelf :is(a, button):text-is("Colour demo")');
+  await page.click('#shelf [data-shelf="Colour demo"]');
   check('shelf: the colour demo runs', await waitFor(page, () => /^Colour demo loaded$/.test(document.getElementById('toast').textContent)));
   // the machine question, answered once
   // count the menu starts for that answer: the switch starts it ONCE (Session.chooseMachine -> offer 'none'), and
@@ -3151,7 +3151,7 @@ async function onScreenChecks(browser, base, check) {
   const shelfClick = (key) => page.evaluate((k) => document.querySelector(`#shelf :is(a, button)[data-shelf="${k}"], #shelf a[href*="start=${k}"]`).click(), key);
   const last = () => page.evaluate(() => ({ card: document.getElementById('lastTime').hidden ? null : document.getElementById('lastName').textContent,
     lastRun: window.emu.session.lastRun && window.emu.session.lastRun.name,
-    marked: [...document.querySelectorAll('#shelf [aria-current="true"], #recentList [aria-current="true"]')].map((e) => e.textContent.replace(/\s*on screen now$/, '').replace(/load again$/, '').trim()) }));
+    marked: [...document.querySelectorAll('#shelf [aria-current="true"], #recentList [aria-current="true"]')].map((e) => e.textContent.replace(e.querySelector('.desc') ? e.querySelector('.desc').textContent : '', '').replace(/\s*on screen now$/, '').replace(/load again$/, '').trim()) }));
   await invariant('the menu at the visit', true);
 
   // (1) a Debugger stop, back to the emulator, the shelf's Welcome menu
@@ -3221,7 +3221,7 @@ async function onScreenChecks(browser, base, check) {
   const mines = path.join(ROOT, 'examples', 'minesweeper.bin');
   const state = () => page.evaluate(() => ({ card: document.getElementById('lastTime').hidden ? null : document.getElementById('lastName').textContent,
     rows: [...document.querySelectorAll('#recentList .row')].map((r) => [r.firstChild.textContent, !!r.querySelector('.tag.now'), r.getAttribute('aria-current')]),
-    shelf: [...document.querySelectorAll('#shelf [aria-current="true"]')].map((e) => e.textContent.replace(/\s*on screen now$/, '')) }));
+    shelf: [...document.querySelectorAll('#shelf [aria-current="true"]')].map((x) => x.textContent.replace(x.querySelector('.desc').textContent, '').replace(/\s*on screen now$/, '')) }));
   await shelfClick('welcome');
   await waitFor(page, () => window.emu.session.welcomeOnScreen);
   await page.setInputFiles('#fileProgram', mines);
@@ -3430,7 +3430,7 @@ async function returningChecks(browser, base, check) {
           greet: last[6].trim(), five: last[12].trim(), games: last[11].trim(), press: last[14].trim(),
           media: (document.querySelector('[role="tab"][aria-controls="panel-media"]').click(), document.getElementById('panel-media').innerText),
           card: !document.getElementById('welcome').hidden, last: document.getElementById('lastTime').hidden ? null : document.getElementById('lastName').textContent,
-          shelf: [...document.querySelectorAll('#shelf :is(a, button)')].map((b) => b.textContent).join('|'),
+          shelf: [...document.querySelectorAll('#shelf :is(a, button)')].map((x) => x.textContent.replace(x.querySelector('.desc').textContent, '')).join('|'),
           pill: getComputedStyle(document.getElementById('romPill')).display !== 'none' && !document.getElementById('romPill').hidden,
           mixed: out.filter((x) => x.carry && !x.tag).length, frames: out.length,
           samples, sawMenu, preMenu,
@@ -3442,7 +3442,7 @@ async function returningChecks(browser, base, check) {
   }));
   check('returning (no ROMs): the menu says WELCOME BACK and offers 6 CARRY ON WITH LIZA under 5 PLAY A GAME; "Last time · LIZA"; the menu on screen now (no frame shows it without the tag); no card; No BASIC in the header',
     r.greet === 'WELCOME BACK' && r.five === '6 CARRY ON WITH LIZA' && r.games === '5 PLAY A GAME' && r.press === 'PRESS 1 TO 6' && !r.card && r.last === 'LIZA'
-    && r.shelf === 'Welcome menu on screen now|LIZA|Colour demo|2048|Minesweeper|WYRMFIREA 3D game for the Dragon 64 · Freedoom levelGPL · Freedoom level (BSD)|Chat with Claude' && r.pill && r.mixed === 0
+    && r.shelf === 'Welcome menu on screen now|LIZA|Colour demo|2048|Minesweeper|WYRMFIRE|Chat with Claude' && r.pill && r.mixed === 0
     && r.preMenu > 0 && r.sawMenu >= 1, JSON.stringify(r));
   // A PAUSED page still ticks the UI. tickUi() is outside the `if (!paused)` block, so a reconciler whose watched state
   // changes with no machine frame still redraws. Here: pause the page; the shelf's "on screen now" follows
@@ -3471,9 +3471,9 @@ async function returningChecks(browser, base, check) {
   await page.evaluate(() => window.emu.session.index.flush());
   await page.reload(); await ready(page); await started(page);
   const w = await page.evaluate(() => ({ menu: window.emu.session.welcomeRunning, rom: window.emu.machine.hasRom, card: !document.getElementById('welcome').hidden,
-    last: document.getElementById('lastTime').hidden ? null : document.getElementById('lastName').textContent, shelf: [...document.querySelectorAll('#shelf :is(a, button)')].map((b) => b.textContent).join('|') }));
+    last: document.getElementById('lastTime').hidden ? null : document.getElementById('lastName').textContent, shelf: [...document.querySelectorAll('#shelf :is(a, button)')].map((x) => x.textContent.replace(x.querySelector('.desc').textContent, '')).join('|') }));
   check('returning (with ROMs): the machine boots its ROMs, not the menu; "Last time · games.bin · Dragon 64"; the welcome menu one click away; no card',
-    !w.menu && w.rom && !w.card && w.last === 'games.bin · Dragon 64' && w.shelf === 'Welcome menu|LIZA|Colour demo|2048|Minesweeper|WYRMFIREA 3D game for the Dragon 64 · Freedoom levelGPL · Freedoom level (BSD)|Chat with Claude', JSON.stringify(w));
+    !w.menu && w.rom && !w.card && w.last === 'games.bin · Dragon 64' && w.shelf === 'Welcome menu|LIZA|Colour demo|2048|Minesweeper|WYRMFIRE|Chat with Claude', JSON.stringify(w));
   await shot('with-roms');
   await page.click('#shelf :is(a, button)[data-shelf="welcome"]');
   check('returning (with ROMs): "Welcome menu" runs it', await waitFor(page, () => window.emu.session.welcomeRunning && window.emu.session.screenText()[6].trim() === 'WELCOME BACK'));
@@ -3760,7 +3760,7 @@ async function powerOnChecks(browser, base, check) {
     && window.emu.session.screenText()[8].trim() === '1 TALK TO LIZA') && !(await bare()), await text());
   // Reset in LIZA: LIZA from the start
   await openTab(page, 'Media');
-  await page.click('#shelf :is(a, button):text-is("LIZA")');
+  await page.click('#shelf [data-shelf="LIZA"]');
   await waitFor(page, () => window.emu.session.screenText().join('').includes('I AM LIZA'));
   await page.focus('#screen'); await page.keyboard.type('HELLO THERE', { delay: 60 }); await page.keyboard.press('Enter');
   await waitFor(page, () => window.emu.session.screenText().join('').includes('HELLO THERE'));
@@ -4895,7 +4895,7 @@ async function snapshotChecks(browser, base, check) {
 async function liza6803Checks(browser, base, check) {
   const screenOf = (page) => page.evaluate(() => window.emu.session.screenText().join('\n'));
   const shelfLiza = (page) => page.evaluate(() => {
-    const b = [...document.querySelectorAll('#shelf :is(a, button)')].find((x) => x.textContent === 'LIZA');
+    const b = document.querySelector('#shelf [data-shelf="LIZA"]');
     if (b) b.click();
     return !!b;
   });
@@ -4957,8 +4957,8 @@ async function liza6803Checks(browser, base, check) {
   // "Not now" leaves the machine alone; taking it fits 20K and LIZA runs
   {
     const { ctx, page, errors } = await firstVisitOn('mc10', 4);
-    const tag = await page.evaluate(() => { const b = [...document.querySelectorAll('#shelf :is(a, button)')].find((x) => x.textContent.startsWith('LIZA')); return b && `${b.textContent}|${b.dataset.needs}|${b.title}`; });
-    check('4K MC-10: the shelf\'s LIZA says it needs 20K', tag === 'LIZA needs 20K|20|An ELIZA-style conversation program (the 6803 build; needs the 20K RAM option)', tag);
+    const tag = await page.evaluate(() => { const b = document.querySelector('#shelf [data-shelf="LIZA"]'); return b && `${b.querySelector('.name').textContent}|${b.querySelector('.desc').textContent}|${b.querySelector('.tag').textContent}|${b.dataset.needs}|${b.title}`; });
+    check('4K MC-10: the shelf\'s LIZA says it needs 20K', tag === 'LIZA|An ELIZA-style chat program|needs 20K|20|An ELIZA-style conversation program (the 6803 build; needs the 20K RAM option)', tag);
     await page.click('#shelf :is(a, button)[data-needs="20"]');
     await waitFor(page, () => !document.getElementById('lizaOffer').hidden && document.activeElement.id === 'btnLizaRam');
     const card = { shown: await page.isVisible('#lizaOffer'), text: await page.textContent('#lizaOfferText'), btn: await page.textContent('#btnLizaRam'),
@@ -5539,8 +5539,9 @@ async function phoneSnapshotChecks(browser, base, check) {
     await p.tap('#btnMenu');
     await waitFor(p, () => document.getElementById('appbar').classList.contains('menu-open'), null, 5000);
     const items = await p.evaluate(() => [...document.querySelectorAll('#appbar nav > :is(a, button)')].filter((e) => e.checkVisibility()).map((e) => e.innerText.trim()));
-    const at = items.indexOf('Share…');
-    check(`${L}: Menu has "Take snapshot" and "Restore snapshot…" right under Share…`, at >= 0 && items[at + 1] === 'Take snapshot' && items[at + 2] === 'Restore snapshot…', JSON.stringify(items));
+    // (Menu's third group, after Settings…: js/ui/menu.js)
+    const at = items.indexOf('Settings…');
+    check(`${L}: Menu has "Take snapshot" and "Restore snapshot…" right under Settings…, their own group`, at >= 0 && items[at + 1] === 'Take snapshot' && items[at + 2] === 'Restore snapshot…', JSON.stringify(items));
     // no snapshot yet (the welcome menu runs): the list comes with its line, never a bare heading
     await p.tap('#navSnapRestore');
     const empty = await waitFor(p, () => document.getElementById('sheetPrograms').open && document.getElementById('quickSave').checkVisibility(), null, 5000)
@@ -5686,8 +5687,8 @@ async function phoneChecks(browser, base, check) {
   // edge at or below the screen's foot; Expand makes it the whole height, Collapse gives that back
   await page.tap('#btnMenu');
   const menuOrder = await page.evaluate(() => [...document.querySelectorAll('#appbar nav > :is(a, button)')].filter((e) => e.checkVisibility()).map((e) => e.innerText.trim()));
-  check('phone: Menu lists Programs…, Add ROMs, Settings…, Share…, Take snapshot, Restore snapshot…, Install CLOADM…, Library, Debugger, Commands…, Help, GitHub, in that order (the focus order too)',
-    menuOrder.join('|') === 'Programs…|Add ROMs (BASIC needs them)|Settings…|Share…|Take snapshot|Restore snapshot…|Install CLOADM…|Library|Debugger|Commands…|Help|GitHub', JSON.stringify(menuOrder));
+  check('phone: Menu lists Programs…, Share… | Add ROMs…, Settings… | Take snapshot, Restore snapshot… | Commands…, Library, Debugger, Help, Install CLOADM…, GitHub ↗, in that order (the focus order too)',
+    menuOrder.join('|') === 'Programs…|Share…|Add ROMs…|Settings…|Take snapshot|Restore snapshot…|Commands…|Library|Debugger|Help|Install CLOADM…|GitHub ↗', JSON.stringify(menuOrder));
   const gluedMenu = await gluedLabels(page, '#appbar nav > :is(a, button)');
   check('phone: no Menu label has words run together (each space between words drawn)', !gluedMenu.length, JSON.stringify(gluedMenu));
   await page.tap('#navSettings');
@@ -5775,13 +5776,13 @@ async function phoneChecks(browser, base, check) {
   const progOpen = await waitFor(page, () => document.getElementById('sheetPrograms').open);
   const prog = await page.evaluate(() => {
     const d = document.getElementById('sheetPrograms'), shown = (sel) => [...d.querySelectorAll(sel)].filter((e) => e.checkVisibility()).map((e) => e.textContent.trim());
-    return { title: d.querySelector('h2').textContent, heads: shown('.sheetbody :is(.eyebrow, #linkLibrary)'), shelf: shown('#shelf :is(a, button)'),
+    return { title: d.querySelector('h2').textContent, heads: shown('.sheetbody :is(.eyebrow, #linkLibrary)'), shelf: [...d.querySelectorAll('#shelf :is(a, button)')].filter((e) => e.checkVisibility()).map((x) => x.textContent.replace(x.querySelector('.desc').textContent, '').trim()),
       focus: d.contains(document.activeElement), shelves: document.querySelectorAll('#shelf').length,
       media: [...document.getElementById('panel-media').children].map((e) => (e.querySelector('input') || e).id) };
   });
   check('phone: Menu → Programs… opens the "Programs" sheet: Runs without ROMs (Welcome menu on screen now, LIZA, Colour demo, 2048, Minesweeper, WYRMFIRE, Chat with Claude), Recent on this machine, Open your library →, the focus in it',
     progOpen && prog.title === 'Programs' && prog.heads.join('|') === 'Runs without ROMs|Recent on this machine|Open your library →'
-      && prog.shelf.join('|') === 'Welcome menu on screen now|LIZA|Colour demo|2048|Minesweeper|WYRMFIREA 3D game for the Dragon 64 · Freedoom levelGPL · Freedoom level (BSD)|Chat with Claude' && prog.focus && prog.shelves === 1, JSON.stringify(prog));
+      && prog.shelf.join('|') === 'Welcome menu on screen now|LIZA|Colour demo|2048|Minesweeper|WYRMFIRE|Chat with Claude' && prog.focus && prog.shelves === 1, JSON.stringify(prog));
   check('phone: the Media tab keeps only the tape options (Fast tape loading, Tape sound, Load .CAS straight into memory)', prog.media.join() === 'chkFastTape,chkTapeSound,chkFastCas', JSON.stringify(prog.media));
   // the sheet's order: Last time (Run again) at the top, the no-ROM card, Runs without ROMs, Recent, Snapshots (its
   // heading and note), Open your library →
@@ -5795,7 +5796,7 @@ async function phoneChecks(browser, base, check) {
     progOrder.ids.join() === 'lastTime,welcome,shelfHead,shelf,recentHead,recentList,quickSave,linkLibrary'
       && progOrder.snap.join('|') === 'Snapshots|A snapshot reopens on the same machine, RAM and ROMs.', JSON.stringify(progOrder));
   if (shotDir) await page.screenshot({ path: path.join(shotDir, 'phone-sheetPrograms.png') });
-  await page.tap('#shelf :is(a, button):text-is("2048")');
+  await page.tap('#shelf [data-shelf="2048"]');
   const game = await waitFor(page, () => window.emu.session.gameRunning && window.emu.session.lastRun && window.emu.session.lastRun.name === '2048' && !document.querySelector('dialog[open]'), null, 15000);
   check('phone: Menu → Programs… → 2048 runs it in two taps, the sheet closed so the screen shows it', game,
     await page.evaluate(() => JSON.stringify({ game: window.emu.session.gameRunning, last: window.emu.session.lastRun, open: !!document.querySelector('dialog[open]') })));
@@ -5817,7 +5818,7 @@ async function phoneChecks(browser, base, check) {
   // while 2048 runs there is no Last time card (it is marked on the shelf instead), so the sheet starts at the shelf's
   // heading or the no-ROM card; once the machine is reset, Last time (2048) is back as the sheet's first item
   const runningTop = await page.evaluate(() => { const d = document.getElementById('sheetPrograms'), first = [...d.querySelectorAll('.sheetbody > *')].find((e) => e.checkVisibility());
-    return { first: first && first.id, card: !document.getElementById('lastTime').checkVisibility(), marked: [...d.querySelectorAll('#shelf [aria-current="true"]')].map((e) => e.textContent) }; });
+    return { first: first && first.id, card: !document.getElementById('lastTime').checkVisibility(), marked: [...d.querySelectorAll('#shelf [aria-current="true"]')].map((x) => x.textContent.replace(x.querySelector('.desc').textContent, '')) }; });
   await page.evaluate(() => window.emu.session.reset());
   await waitFor(page, () => document.getElementById('lastTime').checkVisibility());
   const lastTop = await page.evaluate(() => { const d = document.getElementById('sheetPrograms'), first = [...d.querySelectorAll('.sheetbody > *')].find((e) => e.checkVisibility());
@@ -5850,14 +5851,12 @@ async function phoneChecks(browser, base, check) {
     if (shotDir) await p.screenshot({ path: path.join(shotDir, 'phone-sideways.png') });
     const side = await p.evaluate(() => ({ chips: document.getElementById('chipRow').checkVisibility(), open: !!document.querySelector('dialog[open]'), sh: document.documentElement.scrollHeight, h: innerHeight }));
     check('phone sideways: no chip row and no sheet open, and the page does not scroll', !side.chips && !side.open && side.sh <= side.h, JSON.stringify(side));
-    // the keys' Menu: Settings… and "Tape, disks and cartridge…" (after Settings…), and Power…
+    // the keys' Menu (js/ui/menu.js's order; a first visit: Open… and Add ROMs… are the buttons by the keys)
     await p.tap('#tkMenu');
-    const items = await p.evaluate(() => [...document.querySelectorAll('#tkMenuSheet button')].filter((b) => b.checkVisibility()).map((b) => b.textContent));
-    const gluedKeys = await gluedLabels(p, '#tkMenuSheet button');
-    // (the order puts what acts on this machine first -- Programs…, Open…, Ask Claude…, Share… -- then the ports and the
-    // machine's own settings, then, under a rule, Commands… and the app-level items.)
-    check('phone sideways: the keys\' Menu lists Programs…, Open…, Ask Claude…, Share…, Tape, disks and cartridge…, Machine…, Settings…, Power…, Commands…, then Install and Hide keys, no label\'s words run together',
-      items.slice(0, 10).join('|') === 'Programs…|Open…|Ask Claude…|Share…|Tape, disks and cartridge…|Machine…|Settings…|Power…|Commands…|Install CLOADM…' && items.includes('Hide keys') && !gluedKeys.length, JSON.stringify({ items, gluedKeys }));
+    const items = await p.evaluate(() => [...document.querySelectorAll('#tkMenuSheet [data-item]')].filter((b) => b.checkVisibility()).map((b) => b.firstElementChild.textContent));
+    const gluedKeys = await gluedLabels(p, '#tkMenuSheet [data-item]');
+    check('phone sideways: the keys\' Menu lists Programs…, Ask Claude…, Share…, Machine…, Tape, disks and cartridge…, Power…, Settings…, the snapshots, Commands…, Library, Debugger, Help, Install, GitHub ↗ and Hide keys, no label\'s words run together',
+      items.join('|') === 'Programs…|Ask Claude…|Share…|Machine…|Tape, disks and cartridge…|Power…|Settings…|Take snapshot|Restore snapshot…|Commands…|Library|Debugger|Help|Install CLOADM…|GitHub ↗|Hide keys' && !gluedKeys.length, JSON.stringify({ items, gluedKeys }));
     // "Tape, disks and cartridge…": one side sheet from the right, 360 px wide and the window's height, a 44 px tab each
     // switching in place; every port's controls can be reached; Esc closes it with the focus back on Menu
     await p.tap('#tkMenuSheet [data-item="ports"]');
@@ -5997,8 +5996,8 @@ async function phoneChecks(browser, base, check) {
     check(`${L}: no chip row, and the page does not scroll`, !first.chips && first.sh <= first.h, JSON.stringify(first));
     await p.tap('#btnMenu');
     const items = await p.evaluate(() => [...document.querySelectorAll('#appbar nav > :is(a, button)')].filter((e) => e.checkVisibility()).map((e) => e.innerText.trim().replace(/\s*\n\s*/g, ' / ')));
-    const at = items.indexOf('Settings…');
-    check(`${L}: Menu has "Tape, disks and cartridge…" (Empty) and "Power…" (Running) after Settings…, each state on a second line`,
+    const at = items.indexOf('Share…');
+    check(`${L}: Menu has "Tape, disks and cartridge…" (Empty) and "Power…" (Running) first in its second group (after Share…), each state on a second line`,
       at >= 0 && items[at + 1] === 'Tape, disks and cartridge… / Empty' && items[at + 2] === 'Power… / Running', JSON.stringify(items));
     await p.tap('#navPower');
     const power = await waitFor(p, () => document.getElementById('sheetPower').open);
@@ -6046,8 +6045,9 @@ async function phoneChecks(browser, base, check) {
       controls: [...document.querySelector('.controls[aria-label="Machine controls"]').children].map((e) => e.id),
       drawer: [...document.querySelector('.layout > .drawer').children].map((e) => e.id || e.getAttribute('role')), welcome: document.getElementById('welcome').parentElement.className,
       media: [...document.getElementById('panel-media').children].map((e) => e.id || e.className || e.tagName) }));
-    // (the drawer is 90 px taller than it was: the "Runs without ROMs" shelf has WYRMFIRE's two-line row since)
-    const baseline = [[71, 849, 900, 254], [1041, 88, 364, 893]];
+    // (the drawer is 90 px taller than it was: the "Runs without ROMs" shelf has WYRMFIRE's two-line row since; and 108 px
+    // taller again since every row of it has two lines)
+    const baseline = [[71, 849, 900, 254], [1041, 88, 364, 1001]];
     const before = { rects: await rects(), order: await order() };
     const setKeys = (v) => p.evaluate((v) => { const s = document.getElementById('selTouchKeys'); s.value = v; s.dispatchEvent(new Event('change')); }, v);
     await setKeys('on');
@@ -7429,7 +7429,7 @@ async function slotChecks(browser, base, check) {
   // the moment: LIZA, with a marker in memory once she has greeted. Not the welcome menu: quick save stays hidden
   // while it is all that has run (FV-1), and a moment of the stub's bare prompt opens on the menu
   await openTab(page, 'Media');
-  await page.click('#shelf :is(a, button):text-is("LIZA")');
+  await page.click('#shelf [data-shelf="LIZA"]');
   await waitFor(page, () => window.emu.session.screenText().join('').includes('I AM LIZA'));
   await page.evaluate(() => window.emu.machine.poke(1030, 77));
   await page.click('#btnPause');
@@ -8380,7 +8380,7 @@ async function firstVisitChecks(browser, base, check) {
       check('first visit: dismissed, still the one call to add ROMs; after Esc the key line under the slots shows instead of the hint',
         JSON.stringify(after.romCalls) === '["romPill"]' && JSON.stringify(after.legends) === '["hint"]', JSON.stringify(after));
       // something to save: LIZA from the Media tab's shelf
-      await page.click('#shelf :is(a, button):text-is("LIZA")');
+      await page.click('#shelf [data-shelf="LIZA"]');
       check('first visit: quick save appears once something else runs (LIZA)', await waitFor(page, () => {
         const q = document.getElementById('quickSave'); return q.getClientRects().length > 0 && document.querySelectorAll('#slotList .slot-row').length === 3;
       }));
@@ -11445,14 +11445,14 @@ async function urlChecks(browser, base, check) {
     check('direct link: a reload after leaving opens the welcome menu, not the game', await waitFor(dp, () => window.emu.session.welcomeRunning) && !(await graphics())
       && await dp.evaluate(() => window.__welcomeStarts) >= 1, String(await dp.evaluate(() => window.__welcomeStarts)));
     // the Media tab's entries are links to the same addresses, on the machine in use
-    const hrefs = await dp.evaluate(() => Object.fromEntries([...document.querySelectorAll('#shelf a')].map((a) => [a.textContent.replace(/ on screen now$/, ''), new URL(a.href).search])));
+    const hrefs = await dp.evaluate(() => Object.fromEntries([...document.querySelectorAll('#shelf a')].map((a) => [a.querySelector('.name').textContent, new URL(a.href).search])));
     const want = (q) => (h) => !!h && new URLSearchParams(h).get('machine') === 'coco3' && Object.entries(q).every(([k, v]) => new URLSearchParams(h).get(k) === v);
     check('direct link: the Media tab\'s welcome menu, LIZA, 2048, Minesweeper and Claude entries are links to them on this machine',
       want({ start: 'welcome' })(hrefs['Welcome menu']) && want({ start: 'liza' })(hrefs.LIZA) && want({ start: '2048' })(hrefs['2048'])
       && want({ start: 'minesweeper' })(hrefs.Minesweeper) && want({ app: 'claude' })(hrefs['Chat with Claude']), JSON.stringify(hrefs));
     check('direct link: the WYRMFIRE entry is ?start=wyrmfire alone (it names its own machine, the Dragon 64)',
       hrefs[Object.keys(hrefs).find((k) => k.startsWith('WYRMFIRE'))] === '?start=wyrmfire', JSON.stringify(hrefs));
-    const msHref = await dp.evaluate(() => [...document.querySelectorAll('#shelf a')].find((a) => a.textContent === 'Minesweeper').href);
+    const msHref = await dp.evaluate(() => document.querySelector('#shelf a[data-shelf="Minesweeper"]').href);
     await dp.goto(msHref); await waitFor(dp, () => window.emu && window.emu.linkDone, null, 15000);
     check('direct link: the Minesweeper entry\'s link, opened, runs Minesweeper with no menu in between', await waitFor(dp, () => JSON.stringify(window.emu.session.lastRun) === '{"kind":"game","name":"Minesweeper"}')
       && await graphics() && await dp.evaluate(() => window.__welcomeStarts) === 0);
@@ -11758,9 +11758,10 @@ async function wyrmfireChecks(browser, site, check) {
     const page = await newPage(ctx);
     await page.goto(`${base}?machine=coco3&start=2048`);
     await started(page);
-    const row = await page.evaluate(() => { const a = document.querySelector('#shelf [data-shelf="wyrmfire"]'); return a && { text: [...a.querySelectorAll('span')].map((x) => x.textContent), href: new URL(a.href).search }; });
-    check('wyrmfire: "Runs without ROMs" has WYRMFIRE, "A 3D game for the Dragon 64 · Freedoom level", "GPL · Freedoom level (BSD)", a link to ?start=wyrmfire',
-      row && row.text[0] === 'WYRMFIRE' && row.text.includes('A 3D game for the Dragon 64 · Freedoom level') && row.text.includes('GPL · Freedoom level (BSD)') && row.href === '?start=wyrmfire', JSON.stringify(row));
+    const row = await page.evaluate(() => { const a = document.querySelector('#shelf [data-shelf="wyrmfire"]'); return a && { text: a.textContent, name: a.querySelector('.name').textContent, desc: a.querySelector('.desc').textContent, href: new URL(a.href).search }; });
+    // (its licence and credit are in its Details and on its card, not on the row)
+    check('wyrmfire: "Runs without ROMs" has WYRMFIRE, "A 3D game for the Dragon 64" (no licence or credit on the row), a link to ?start=wyrmfire',
+      row && row.name === 'WYRMFIRE' && row.desc === 'A 3D game for the Dragon 64' && row.text === 'WYRMFIRE' + 'A 3D game for the Dragon 64' && row.href === '?start=wyrmfire', JSON.stringify(row));
     await page.evaluate(() => document.querySelector('#shelf [data-shelf="wyrmfire"]').click());
     const q = await waitFor(page, () => !document.getElementById('switchConfirm').hidden) && await page.textContent('#switchText');
     check('wyrmfire: on the CoCo 3 with a game running, the switch question asks first, in the words asked for',
@@ -19086,12 +19087,12 @@ async function uiQaChecks(browser, base, check) {
       f.wrap === 'wrap' && !/^8px( 8px){0,3}$/.test(f.padding), JSON.stringify(f));
     await uctx.close();
   }
-  // The landscape keys' Menu, in its settled order, each of its eleven items reachable by a REAL tap at four landscape
-  // sizes. What acts on this machine comes first (Programs…, Open…, Ask Claude…, Share…), then the ports
-  // and the machine's own settings (Tape…, Machine…, Settings…, Power…), then under a rule Commands…, Install CLOADM…
-  // and Hide keys. js/ui/touch-keys.js builds the sheet; the rule is a .tkmenu-sep span, so the row of BUTTONS is what
-  // is walked.
-  const ORDER8 = ['programs', 'open', 'ask', 'share', 'ports', 'machine', 'settings', 'power', 'commands', 'install', 'hide'];
+  // The landscape keys' Menu, in its settled order (js/ui/menu.js), each of its rows reachable by a
+  // REAL tap at four landscape sizes. Four groups parted by a .tkmenu-sep rule: Programs…, Ask Claude…, Share… (Open…
+  // is the first visit's button beside BREAK, so not here); Machine…, the ports, Power…, Settings… (Add ROMs… is the
+  // first visit's button beside Menu); the snapshots; Commands…, Library, Debugger, Help, Install CLOADM…, GitHub ↗,
+  // Hide keys.
+  const ORDER8 = ['programs', 'ask', 'share', '|', 'machine', 'ports', 'power', 'settings', '|', 'snapTake', 'snapRestore', '|', 'commands', 'library', 'debugger', 'help', 'install', 'github', 'hide'];
   for (const [label, viewport] of [['659x343', { width: 659, height: 343 }], ['852x393', { width: 852, height: 393 }], ['844x390', { width: 844, height: 390 }], ['653x280', { width: 653, height: 280 }]]) {
     const octx = await browser.newContext({ viewport, hasTouch: true, isMobile: true, serviceWorkers: 'block' });
     const opage = await octx.newPage();
@@ -19102,25 +19103,21 @@ async function uiQaChecks(browser, base, check) {
     await waitFor(opage, () => !document.getElementById('touchKeys').hidden && document.body.classList.contains('touch-keys'));
     await opage.tap('#tkMenu');
     await waitFor(opage, () => !document.getElementById('tkMenuSheet').hidden, null, 5000);
-    const o = await opage.evaluate((ORDER8) => {
+    const o = await opage.evaluate(() => {
       const sheet = document.getElementById('tkMenuSheet'), r = sheet.getBoundingClientRect();
-      const items = [...sheet.querySelectorAll('button[data-item]')].filter((b) => b.checkVisibility());
-      const order = items.map((b) => b.dataset.item);
-      // the separator sits between power and commands (its DOM position: after the power button)
-      const sep = sheet.querySelector('.tkmenu-sep');
-      const sepAfterPower = !!sep && sep.previousElementSibling && sep.previousElementSibling.dataset.item === 'power'
-        && sep.nextElementSibling && sep.nextElementSibling.dataset.item === 'commands';
+      const items = [...sheet.querySelectorAll('[data-item]')].filter((b) => b.checkVisibility());
+      // the rows and the rules, in the order drawn
+      const order = [...sheet.children].filter((e) => e.checkVisibility()).map((e) => (e.classList.contains('tkmenu-sep') ? '|' : e.dataset.item));
       // every item scrollable into view inside the sheet and topmost at its own centre, not shrunk
       const reach = items.map((b) => { b.scrollIntoView({ block: 'center' }); const rb = b.getBoundingClientRect();
         const at = document.elementFromPoint(rb.left + rb.width / 2, Math.min(rb.top + rb.height / 2, rb.bottom - 1));
         const inside = rb.top >= r.top - 1 && rb.bottom <= r.bottom + 1 && rb.top >= 0 && rb.bottom <= innerHeight;
         return { id: b.dataset.item, inside, topmost: !!at && b.contains(at), h: Math.round(rb.height), text: b.textContent.trim() }; });
-      return { top: Math.round(r.top), bottom: Math.round(r.bottom), vh: innerHeight, scrolls: sheet.scrollHeight > sheet.clientHeight + 1,
-        order, sepAfterPower, reach };
-    }, ORDER8);
-    check(`ui qa (landscape ${label}, touch keys): the keys' Menu is in the UX order (Programs…, Open…, Ask Claude…, Share…, Tape…, Machine…, Settings…, Power…, rule, Commands…, Install CLOADM…, Hide keys) and every item is reachable by a real tap`,
-      JSON.stringify(o.order) === JSON.stringify(ORDER8) && o.sepAfterPower && o.top >= 0 && o.bottom <= o.vh && o.scrolls
-        && o.reach.length === 11 && o.reach.every((x) => x.inside && x.topmost && x.h >= 44),
+      return { top: Math.round(r.top), bottom: Math.round(r.bottom), vh: innerHeight, scrolls: sheet.scrollHeight > sheet.clientHeight + 1, order, reach };
+    });
+    check(`ui qa (landscape ${label}, touch keys): the keys' Menu is in the designed order (Programs…, Ask Claude…, Share… | Machine…, Tape…, Power…, Settings… | the snapshots | Commands…, Library, Debugger, Help, Install CLOADM…, GitHub ↗, Hide keys) and every row is reachable by a real tap`,
+      JSON.stringify(o.order) === JSON.stringify(ORDER8) && o.top >= 0 && o.bottom <= o.vh && o.scrolls
+        && o.reach.length === ORDER8.filter((x) => x !== '|').length && o.reach.every((x) => x.inside && x.topmost && x.h >= 44),
       JSON.stringify(o));
     // Open…: triggers the program file input, whose accept is the desktop's (fileProgram)
     const acceptOf = (id) => opage.evaluate((id) => document.getElementById(id).getAttribute('accept'), id);
@@ -19237,8 +19234,8 @@ async function uiQaChecks(browser, base, check) {
     }
     const shared = fitems.includes('share') && await inFrame(() => location.hash === '#share' && document.getElementById('share').checkVisibility()
       && /#z=/.test(document.getElementById('shareLink').value));
-    check('ui qa (framed in another site, not an embed, sideways): no chat there, but the keys\' Menu keeps Share… right after Open…, and a real tap opens the Share screen with this moment\'s link',
-      !!kind && kind.framed && kind.noChat && !kind.embed && fitems.indexOf('share') === fitems.indexOf('open') + 1 && !fitems.includes('ask') && shared && !ferrors.length,
+    check('ui qa (framed in another site, not an embed, sideways): no chat there, but the keys\' Menu keeps Share… right after Programs… (Open… is the first visit\'s button), and a real tap opens the Share screen with this moment\'s link',
+      !!kind && kind.framed && kind.noChat && !kind.embed && fitems.indexOf('share') === fitems.indexOf('programs') + 1 && !fitems.includes('ask') && !fitems.includes('commands') && shared && !ferrors.length,
       JSON.stringify({ up, kind, open, fitems, shared, ferrors }));
     await fctx.close();
   }
@@ -22408,8 +22405,8 @@ async function mobileChecks(browser, base, check) {
     const items = await page.evaluate(() => [...document.querySelectorAll('.appbar nav > *')].filter((e) => e.checkVisibility()).map((e) => e.innerText.replace(/\s+/g, ' ').trim()));
     // the first item says why ROMs, and wears Menu's dot
     const itemDot = await page.evaluate(() => { const d = document.querySelector('#navRoms .dot'); return !!d && d.checkVisibility() && getComputedStyle(d).backgroundColor === getComputedStyle(document.getElementById('btnMenu'), '::after').backgroundColor; });
-    check('mobile (393x659): Menu has a dot while there is no BASIC, and lists Programs… first, then "Add ROMs (BASIC needs them)", with the same dot, Settings…, Share…, Take snapshot, Restore snapshot…, Install CLOADM…, the links, Commands…, Help and GitHub',
-      dot && itemDot && items.join('|') === 'Programs…|Add ROMs (BASIC needs them)|Settings…|Share…|Take snapshot|Restore snapshot…|Install CLOADM…|Library|Debugger|Commands…|Help|GitHub', JSON.stringify({ dot, itemDot, items }));
+    check('mobile (393x659): Menu has a dot while there is no BASIC, and lists Programs…, Share…, rule, "Add ROMs…" with the same dot, Settings…, rule, the snapshots, rule, Commands…, Library, Debugger, Help, Install CLOADM… and GitHub ↗',
+      dot && itemDot && items.join('|') === 'Programs…|Share…||Add ROMs…|Settings…||Take snapshot|Restore snapshot…||Commands…|Library|Debugger|Help|Install CLOADM…|GitHub ↗', JSON.stringify({ dot, itemDot, items }));
     const glued = await gluedLabels(page, '.appbar nav > *');
     check('mobile (393x659): no Menu label has words run together', !glued.length, JSON.stringify(glued));
     check('mobile (393x659): opening Menu moves nothing in the bar', JSON.stringify(before) === JSON.stringify(await row()));
@@ -22417,7 +22414,7 @@ async function mobileChecks(browser, base, check) {
     const f1 = await page.evaluate(() => document.activeElement.id);
     await page.keyboard.press('Tab');
     const f2 = await page.evaluate(() => document.activeElement.id || document.activeElement.textContent.trim());
-    check('mobile (393x659): Menu opens with the focus on its first item (Programs…), and Tab goes to the next (Add ROMs)', f1 === 'navPrograms' && f2 === 'navRoms', JSON.stringify({ f1, f2 }));
+    check('mobile (393x659): Menu opens with the focus on its first item (Programs…), and Tab goes to the next (Share…)', f1 === 'navPrograms' && f2 === 'navShare', JSON.stringify({ f1, f2 }));
     await tap(page, '#navRoms');
     check('mobile (393x659): Menu\'s Add ROMs opens Add ROMs', await until(page, () => location.hash === '#add-roms'));
     check('mobile (Menu): no page errors', !errors.length, errors.join('; '));
@@ -22565,14 +22562,13 @@ async function mobileChecks(browser, base, check) {
     check('mobile (734x343, sideways): Keys as before (the screen 250x187 at 242,52, between the halves; guards: as v0.1.8), one control named Menu',
       await mode(page) === 'keys' && Math.round(s.l) === 242 && Math.round(s.t) === 52 && Math.round(s.w) === 250 && Math.round(s.h) === 187 && menus === 1, JSON.stringify({ s, menus }));
     await tap(page, '#tkMenu');
-    const items = await page.evaluate(() => [...document.querySelectorAll('#tkMenuSheet button')].filter((e) => e.checkVisibility()).map((e) => e.textContent));
+    const items = await page.evaluate(() => [...document.querySelectorAll('#tkMenuSheet [data-item]')].filter((e) => e.checkVisibility()).map((e) => e.firstElementChild.textContent));
     await tap(page, '#tkMenuSheet [data-item="machine"]');
     const picker = await page.evaluate(() => { const m = document.getElementById('machineMenu'), r = m.getBoundingClientRect(); return { shown: !m.hidden && m.checkVisibility() && r.width > 0, inView: r.top >= 0 && r.bottom <= innerHeight + 1, first: document.elementFromPoint(r.left + 40, r.top + 40)?.closest('#machineMenu') === m }; });
-    // (the landscape keys' Menu order: what acts on this machine first -- Programs…, Open…, Ask Claude…, Share…, Tape…, Machine…,
-    // Settings…, Power… -- then under a rule Commands…, Install CLOADM… and Hide keys. This page has a chat, so Ask
-    // Claude… and Commands… are both present.)
-    check('mobile (734x343): the panel\'s Menu is Programs…, Open…, Ask Claude…, Share…, Tape, disks and cartridge…, Machine…, Settings…, Power…, Commands…, Install CLOADM… and Hide keys; Machine… opens the machine picker, on screen and on top',
-      items.join() === 'Programs…,Open…,Ask Claude…,Share…,Tape, disks and cartridge…,Machine…,Settings…,Power…,Commands…,Install CLOADM…,Hide keys' && picker.shown && picker.inView && picker.first, JSON.stringify({ items, picker }));
+    // (the landscape keys' Menu: js/ui/menu.js's order; a first visit, so Open… and Add ROMs… are the buttons by the keys.
+    // This page has a chat, so Ask Claude… and Commands… are both present.)
+    check('mobile (734x343): the panel\'s Menu is Programs…, Ask Claude…, Share…, Machine…, Tape, disks and cartridge…, Power…, Settings…, the snapshots, Commands…, Library, Debugger, Help, Install CLOADM…, GitHub ↗ and Hide keys; Machine… opens the machine picker, on screen and on top',
+      items.join() === 'Programs…,Ask Claude…,Share…,Machine…,Tape, disks and cartridge…,Power…,Settings…,Take snapshot,Restore snapshot…,Commands…,Library,Debugger,Help,Install CLOADM…,GitHub ↗,Hide keys' && picker.shown && picker.inView && picker.first, JSON.stringify({ items, picker }));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, 'mobile-734x343-machine-picker.png') });
     await page.keyboard.press('Escape');
     check('mobile (734x343): Esc closes the picker, and the app bar gives way to the panel again', picker.shown && await until(page, () => document.getElementById('machineMenu').hidden && !document.body.classList.contains('machine-pick')
@@ -24806,6 +24802,233 @@ async function askSuggestChecks(browser, base, check) {
   check('askSuggest: no page errors', errors.length === 0, errors.join(' | '));
 }
 
+// The Menu, the machine sheet and the Programs rows, as designed (js/ui/menu.js; js/ui/welcome.js
+// SHELF): at 393x659 (upright), 659x393 and 653x280 (sideways, the touch keys) and 1440x900 (the desktop drawer), on
+// the Dragon 64, the CoCo 3 and the MC-10. The designed list is written out here, not read from the page: each layout's
+// rows must be that list, in that order and in its four groups, less exactly the rows already on screen there.
+const DESIGN_MENU = [
+  ['Programs…', 'Open…', 'Ask Claude…', 'Share…'],
+  ['Machine…', 'Tape, disks and cartridge…', 'Power…', 'Add ROMs…', 'Settings…'],
+  ['Take snapshot', 'Restore snapshot…'],
+  ['Commands…', 'Library', 'Debugger', 'Help', 'Install CLOADM…', 'GitHub ↗', 'Hide keys'],
+];
+const DESIGN_PROGRAMS = { 'Welcome menu': "CLOADM's start menu", LIZA: 'An ELIZA-style chat program', 'Colour demo': "The machine's colours and sound",
+  2048: 'Slide and join the tiles', Minesweeper: 'Find the ten mines', WYRMFIRE: 'A 3D game for the Dragon 64', 'Chat with Claude': "Claude, on the machine's screen" };
+async function menuStructureChecks(browser, base, check) {
+  const until = (page, fn, arg = null, ms = 8000) => page.waitForFunction(fn, arg, { timeout: ms }).then(() => true, () => false);
+  const open = async (viewport, q, { touch = true, init = null } = {}) => {
+    const ctx = await browser.newContext({ viewport, hasTouch: touch, isMobile: touch, serviceWorkers: 'block' });
+    const page = await ctx.newPage();
+    const errors = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    if (init) await page.addInitScript(init);
+    await page.goto(`${base}${q}`);
+    await started(page);
+    await until(page, () => window.emu.session.welcomeRunning || window.emu.session.bootStatus().state === 'ok', null, 15000);
+    await painted(page);
+    return { ctx, page, errors };
+  };
+  // the Menu as drawn: open it (the app bar's upright, the panel's sideways), then its rows and rules in order, each row's
+  // label (its first line), its state line, and whether the box is one column, cuts no text, and fades only while it
+  // can scroll further
+  const MENU_READ = async (sideways) => {
+    const box = sideways ? document.getElementById('tkMenuSheet') : document.querySelector('#appbar nav');
+    const kids = [...box.children].filter((e) => e.checkVisibility() && (e.matches('a, button') ? e.id !== 'btnMore' : e.classList.contains('tkmenu-sep')));
+    const label = (e) => (e.matches('.twoline, :has(> .sub)') ? e.firstElementChild.textContent : e.innerText).replace(/\s+/g, ' ').trim();
+    const rows = kids.filter((e) => e.matches('a, button'));
+    const groups = [[]];
+    for (const e of kids) { if (e.classList.contains('tkmenu-sep')) groups.push([]); else groups[groups.length - 1].push(label(e)); }
+    const r = box.getBoundingClientRect(), cs = getComputedStyle(box);
+    const visTop = r.top + parseFloat(cs.borderTopWidth), visBottom = r.bottom - parseFloat(cs.borderBottomWidth);
+    // no row's text crossed by the box's bottom edge (and, as it opens, its top): each row's text wholly in or wholly out
+    const cutAt = (top) => rows.filter((e) => { const g = document.createRange(); g.selectNodeContents(e); const t = g.getBoundingClientRect(); return (top && t.top < visTop - 0.5 && t.bottom > visTop + 0.5) || (t.top < visBottom - 0.5 && t.bottom > visBottom + 0.5); }).map(label);
+    const fade = () => { const a = getComputedStyle(box, '::after'); return { on: +a.opacity > 0.5, h: a.height, more: box.scrollTop + box.clientHeight < box.scrollHeight - 1 }; };
+    const lefts = new Set(rows.map((e) => Math.round(e.getBoundingClientRect().left)));
+    const atOpen = { cut: cutAt(true), fade: fade() };
+    // (scrolled to its end: the scroll event, and the fade it updates, come a frame later)
+    const frame = () => new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(res)));
+    box.scrollTop = box.scrollHeight; await frame();
+    const atEnd = { cut: cutAt(false), fade: fade() };
+    box.scrollTop = 0; await frame();
+    return { groups, states: rows.filter((e) => e.matches('.twoline, :has(> .sub)')).map((e) => [label(e), e.querySelector('.sub').textContent]),
+      columns: lefts.size, wrap: cs.flexWrap, inView: r.top >= 0 && r.bottom <= innerHeight, width: Math.round(r.width), right: Math.round(innerWidth - r.right), atOpen, atEnd };
+  };
+  const openMenu = async (page, sideways) => {
+    if (sideways) { await page.tap('#tkMenu'); await until(page, () => !document.getElementById('tkMenuSheet').hidden); }
+    else { await page.tap('#btnMenu'); await until(page, () => document.getElementById('appbar').classList.contains('menu-open')); }
+    await painted(page);
+    return page.evaluate(MENU_READ, sideways);
+  };
+  const closeMenu = async (page) => { await page.keyboard.press('Escape'); await painted(page); };
+  // what the designed list should be in this layout: the rows on screen already taken out
+  const expected = (absent) => DESIGN_MENU.map((g) => g.filter((x) => !absent.includes(x))).filter((g) => g.length);
+  // the rows already on screen in this layout, read off the page itself (not off the Menu)
+  const onScreen = (page, sideways) => page.evaluate((sideways) => {
+    const shown = (id) => { const e = document.getElementById(id); return !!e && e.checkVisibility(); };
+    const out = [];
+    const offered = !document.getElementById('navInstall').hidden, noBasic = !document.getElementById('romPill').hidden;
+    const claude = !document.body.classList.contains('claude-off') && !document.body.classList.contains('no-claude');
+    if (sideways) {
+      if (shown('tkOpen')) out.push('Open…');
+      if (shown('tkRoms') || !noBasic) out.push('Add ROMs…');
+    } else {
+      out.push('Open…', 'Machine…', 'Hide keys');   // the app bar's Open… and machine, Power's Hide keys
+      if (shown('btnAsk') || !claude) out.push('Ask Claude…');
+      if (shown('chipRow')) out.push('Tape, disks and cartridge…', 'Power…');
+      if (!noBasic) out.push('Add ROMs…');
+    }
+    if (!claude) out.push('Ask Claude…', 'Commands…');
+    if (!offered) out.push('Install CLOADM…');
+    if (document.body.classList.contains('embed')) out.push('Share…');
+    return out;
+  }, sideways);
+  const sub = (a, b) => { let i = 0; for (const x of b) if (x === a[i]) i++; return i === a.length; };   // a in b, in b's order
+  const menuOk = (m, want) => JSON.stringify(m.groups) === JSON.stringify(want) && m.columns === 1 && m.wrap !== 'wrap' && m.inView
+    && !m.atOpen.cut.length && !m.atEnd.cut.length && m.atOpen.fade.on === m.atOpen.fade.more && m.atEnd.fade.on === m.atEnd.fade.more && m.atOpen.fade.h === '24px';
+
+  // ---- the three models at the three phone sizes: Menu, the machine sheet, Programs
+  for (const id of ['dragon64', 'coco3', 'mc10']) {
+    const lists = {};
+    for (const [w, h] of [[393, 659], [659, 393], [653, 280]]) {
+      const sideways = w > h, L = `menu structure (${id}, ${w}x${h})`;
+      const { ctx, page, errors } = await open({ width: w, height: h }, `?machine=${id}`);
+      const absent = await onScreen(page, sideways);
+      const m = await openMenu(page, sideways);
+      lists[sideways ? 'side' : 'up'] = m.groups.flat();
+      check(`${L}: Menu is the designed rows in their order and groups, less what is on screen (${absent.join(', ')}); one column, no row's text cut, the 24 px fade only while it can scroll further`,
+        menuOk(m, expected(absent)), JSON.stringify({ m, absent }));
+      if (sideways) {
+        check(`${L}: Menu is 260 px wide at the right, and the ports and Power say their state`, m.width === 260 && m.right <= 24
+          && JSON.stringify(m.states) === JSON.stringify([['Tape, disks and cartridge…', 'Empty'], ['Power…', 'Running']]), JSON.stringify(m));
+        // Help, Library, Debugger, the snapshots and GitHub: in reach by a real tap
+        const reach = await page.evaluate(() => ['library', 'debugger', 'help', 'snapTake', 'snapRestore', 'github'].map((it) => {
+          const b = document.querySelector(`#tkMenuSheet [data-item="${it}"]`); if (!b || !b.checkVisibility()) return [it, false];
+          b.scrollIntoView({ block: 'nearest' }); const r = b.getBoundingClientRect(); const at = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+          return [it, !!at && b.contains(at)]; }));
+        check(`${L}: Help, Library, Debugger, the snapshots and GitHub are in the Menu and in reach`, reach.every((x) => x[1]), JSON.stringify(reach));
+        await page.tap('#tkMenuSheet [data-item="library"]');
+        check(`${L}: Menu → Library opens the Library`, await until(page, () => location.hash === '#library' && document.getElementById('library').checkVisibility()));
+        await page.keyboard.press('Escape');
+        await until(page, () => !location.hash);
+        await page.tap('#tkMenu'); await until(page, () => !document.getElementById('tkMenuSheet').hidden);
+        await page.evaluate(() => document.querySelector('#tkMenuSheet [data-item="debugger"]').scrollIntoView({ block: 'nearest' }));
+        await page.tap('#tkMenuSheet [data-item="debugger"]');
+        check(`${L}: Menu → Debugger opens the Debugger`, await until(page, () => location.hash === '#debugger'));
+        await page.keyboard.press('Escape');
+        await until(page, () => !location.hash);
+      } else await closeMenu(page);
+      // the machine sheet: the machine in use in view, in the middle (as far as the list scrolls; within a row of it, the
+      // list's top then moved to a row's edge), filled; no row cut at the list's top
+      if (sideways) { await page.tap('#tkMenu'); await page.tap('#tkMenuSheet [data-item="machine"]'); } else await page.tap('#machineBtn');
+      await until(page, () => !document.getElementById('machineMenu').hidden);
+      await painted(page);
+      const ms = await page.evaluate((id) => {
+        const list = document.querySelector('#machineMenu .menulist'), l = list.getBoundingClientRect();
+        const cur = document.querySelector(`#machineMenu [data-machine="${id}"]`), c = cur.getBoundingClientRect();
+        const off = (c.top + c.height / 2) - (l.top + list.clientTop + list.clientHeight / 2);
+        const clamped = (off < 0 && list.scrollTop <= 0) || (off > 0 && list.scrollTop + list.clientHeight >= list.scrollHeight - 1);
+        const top = l.top + list.clientTop;
+        const cutTop = [...list.querySelectorAll('#menuNoRoms, .group-name, .group-sub, button')].filter((e) => e.checkVisibility())
+          .some((e) => { const r = e.getBoundingClientRect(); return r.top < top - 0.5 && r.bottom > top + 0.5; });
+        return { current: cur.getAttribute('aria-current'), fill: getComputedStyle(cur).backgroundColor, inView: c.top >= l.top - 0.5 && c.bottom <= l.bottom + 0.5,
+          off: Math.round(off), row: Math.round(c.height), clamped, cutTop };
+      }, id);
+      check(`${L}: the machine sheet opens on the ${id} in view, centred, filled, and the list's top cuts no row`,
+        ms.current === 'true' && ms.fill !== 'rgba(0, 0, 0, 0)' && ms.inView && (Math.abs(ms.off) <= ms.row || ms.clamped) && !ms.cutTop, JSON.stringify(ms));
+      await page.keyboard.press('Escape');
+      await until(page, () => document.getElementById('machineMenu').hidden);
+      // Programs: every row the same two lines, the second the designed words, whole on one line; "on screen now" centred
+      if (sideways) { await page.tap('#tkMenu'); await page.tap('#tkMenuSheet [data-item="programs"]'); } else { await page.tap('#btnMenu'); await page.tap('#navPrograms'); }
+      await until(page, () => document.getElementById('sheetPrograms').open);
+      const prog = await page.evaluate(PROGRAM_ROWS);
+      check(`${L}: Programs lists ${id === 'mc10' ? 'only the MC-10\'s programs' : 'its programs'}, each with the designed two lines (16 px name, a 13 px muted line of 34 characters at most, whole on one line), the tag centred`,
+        programsOk(prog, id), JSON.stringify(prog));
+      if (shotDir) await page.screenshot({ path: path.join(shotDir, `menu-structure-${id}-${w}x${h}.png`) });
+      check(`${L}: no page errors`, !errors.length, errors.join('; '));
+      await closeCtx(ctx);
+    }
+    // both orientations: the same rows in the same order (each the designed list, less what is on screen)
+    check(`menu structure (${id}): upright and sideways list their common rows in the same order`, sub(lists.up.filter((x) => lists.side.includes(x)), lists.side) && sub(lists.side.filter((x) => lists.up.includes(x)), lists.up), JSON.stringify(lists));
+    // the desktop drawer at 1440x900: the same rows, in the Media tab
+    {
+      const { ctx, page, errors } = await open({ width: 1440, height: 900 }, `?machine=${id}`, { touch: false });
+      await page.evaluate(() => document.getElementById('tab-media').click());
+      const prog = await page.evaluate(PROGRAM_ROWS);
+      check(`menu structure (${id}, 1440x900): the drawer's programs have the same two lines`, programsOk(prog, id), JSON.stringify(prog));
+      if (shotDir) await page.locator('#shelf').screenshot({ path: path.join(shotDir, `menu-structure-${id}-drawer.png`) });
+      check(`menu structure (${id}, 1440x900): no page errors`, !errors.length, errors.join('; '));
+      await closeCtx(ctx);
+    }
+  }
+
+  // ---- the states: ROMs in (no Add ROMs… either way), Claude features Off (no Ask Claude… or Commands…), an embed (no
+  // Share…), Install not offered (installed), a short phone upright (no chips: the ports and Power with their state)
+  const states = [
+    ['ROMs in', { q: '?machine=dragon64', roms: true }],
+    ['Claude features Off', { q: '?machine=dragon64', claudeOff: true }],
+    ['?embed=1', { q: '?machine=dragon64&embed=1', sides: [true] }],
+    ['installed', { q: '?machine=dragon64', init: () => { const mm = window.matchMedia.bind(window); window.matchMedia = (q) => (/display-mode:\s*standalone/.test(q) ? { ...mm(q), matches: true, media: q, addEventListener() {}, removeEventListener() {} } : mm(q)); } }],
+    ['a short phone upright', { q: '?machine=dragon64', size: [360, 560], sides: [false] }],
+  ];
+  for (const [name, st] of states) {
+    for (const sideways of st.sides || [false, true]) {
+      const [w, h] = st.size || (sideways ? [659, 393] : [393, 659]);
+      const L = `menu structure (${name}, ${w}x${h})`;
+      const { ctx, page, errors } = await open({ width: w, height: h }, st.q, { init: st.init });
+      if (st.roms) {
+        const { build } = require('../tests/fixtures/reset-firmware');
+        const fw = build(require('../tests/load')());
+        await page.evaluate((b) => {
+          const crc = (bytes) => { let c = -1; for (const v of bytes) { c ^= v; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; } return ((c ^ -1) >>> 0).toString(16).toUpperCase().padStart(8, '0'); };
+          window.emu.profiles.dragon64.roms[0].crcs.push(crc(b));
+        }, [...fw.basic]);
+        await dropFiles(page, [['d64_1.rom', Buffer.from(fw.basic)], ['d64_2.rom', Buffer.from(fw.basic64)]]);
+        await until(page, () => window.emu.session.bootStatus().state === 'ok' && document.getElementById('romPill').hidden, null, 15000);
+        await painted(page);
+      }
+      if (st.claudeOff) { await page.evaluate(() => window.emu.session.setClaudeFeatures(false)); await until(page, () => document.body.classList.contains('claude-off')); }
+      const absent = await onScreen(page, sideways);
+      const m = await openMenu(page, sideways);
+      const rows = m.groups.flat();
+      const must = { 'ROMs in': () => !rows.includes('Add ROMs…'), 'Claude features Off': () => !rows.includes('Ask Claude…') && !rows.includes('Commands…'),
+        '?embed=1': () => !rows.includes('Share…'), installed: () => !rows.includes('Install CLOADM…'),
+        'a short phone upright': () => JSON.stringify(m.states) === JSON.stringify([['Tape, disks and cartridge…', 'Empty'], ['Power…', 'Running']]) }[name];
+      check(`${L}: Menu is the designed rows less what is on screen (${absent.join(', ')}), one column, no text cut, the fade only while it scrolls further`,
+        menuOk(m, expected(absent)) && must(), JSON.stringify({ m, absent }));
+      check(`${L}: no page errors`, !errors.length, errors.join('; '));
+      await closeCtx(ctx);
+    }
+  }
+  // a fresh visit with ROMs offered (the first visit's buttons gone, sideways): Open… and Add ROMs… are the Menu's
+  {
+    const { ctx, page, errors } = await open({ width: 659, height: 393 }, '?machine=dragon64');
+    await page.evaluate(() => window.emu.session.setLastRun('demo', 'Colour demo'));
+    await until(page, () => !document.getElementById('tkOpen').checkVisibility());
+    const absent = await onScreen(page, true);
+    const m = await openMenu(page, true);
+    check('menu structure (after a first program, 659x393): Open… and Add ROMs… come into the Menu once their buttons by the keys go',
+      menuOk(m, expected(absent)) && m.groups[0][1] === 'Open…' && m.groups[1].includes('Add ROMs…'), JSON.stringify({ m, absent }));
+    check('menu structure (after a first program): no page errors', !errors.length, errors.join('; '));
+    await closeCtx(ctx);
+  }
+}
+// the Programs rows as drawn (in the sheet or the drawer's Media tab)
+function PROGRAM_ROWS() {
+  return [...document.querySelectorAll('#shelf :is(a, button)')].filter((e) => e.checkVisibility()).map((e) => {
+    const n = e.querySelector('.name'), d = e.querySelector('.desc'), t = e.querySelector('.tag');
+    const one = (x) => { if (!x) return null; const g = document.createRange(); g.selectNodeContents(x); return g.getClientRects().length === 1 && x.scrollWidth <= x.clientWidth + 0.5 && x.getBoundingClientRect().right <= e.getBoundingClientRect().right; };
+    const r = e.getBoundingClientRect(), tr = t && t.getBoundingClientRect();
+    return { name: n && n.textContent, desc: d && d.textContent, nameSize: n && getComputedStyle(n).fontSize, descSize: d && getComputedStyle(d).fontSize,
+      muted: !!d && getComputedStyle(d).color !== getComputedStyle(n).color, oneLine: one(n) && one(d), tag: t && t.textContent,
+      tagCentred: !t || Math.abs((tr.top + tr.height / 2) - (r.top + r.height / 2)) <= 2, extra: e.textContent.replace(n ? n.textContent : '', '').replace(d ? d.textContent : '', '').replace(t ? t.textContent : '', '').trim() };
+  });
+}
+const programsOk = (prog, id) => {
+  const names = prog.map((p) => p.name);
+  const want = id === 'mc10' ? ['Welcome menu', 'LIZA', 'WYRMFIRE', 'Chat with Claude'] : ['Welcome menu', 'LIZA', 'Colour demo', '2048', 'Minesweeper', 'WYRMFIRE', 'Chat with Claude'];
+  return JSON.stringify(names) === JSON.stringify(want) && prog.every((p) => p.desc === DESIGN_PROGRAMS[p.name] && p.desc.length <= 34 && p.nameSize === '16px' && p.descSize === '13px'
+    && p.muted && p.oneLine && p.tagCentred && !p.extra) && prog.filter((p) => p.tag === 'on screen now').length <= 1;
+};
 const GROUPS = (base, site) => [
   ['models', (b) => modelsChecks(b, base, check)],
   ['reset', (b) => resetChecks(b, base, check)],
@@ -24903,6 +25126,7 @@ const GROUPS = (base, site) => [
   ['uiModel', (b) => uiModelChecks(b, base, check)],
   ['semantics', (b) => semanticsChecks(b, base, site, check)],
   ['mobile', (b) => mobileChecks(b, base, check)],
+  ['menuStructure', (b) => menuStructureChecks(b, base, check)],
   ['menuWords', (b) => menuWordsChecks(b, base, check)],
   ['needsBasic', (b) => needsBasicChecks(b, base, check)],
   ['noRomChrome', (b) => noRomChromeChecks(b, base, check)],

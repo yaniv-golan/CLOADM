@@ -30,8 +30,6 @@ import { $, touchPanel, ESC } from './page.js';
 // the words, in one place (tools/browser-check.js and tests/wyrmfire-ui.test.js read them from here)
 export const WYRM_TEXT = Object.freeze({
   name: 'WYRMFIRE',
-  subtitle: 'A 3D game for the Dragon 64 · Freedoom level',
-  credit: 'GPL · Freedoom level (BSD)',
   getting: (pct) => `WYRMFIRE · Getting the game… ${pct}%`,
   starting: 'WYRMFIRE · Starting…',
   converting: (name) => `WYRMFIRE · Converting ${name}…`,

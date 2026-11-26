@@ -87,6 +87,19 @@ Next version: 0.3.1 (the plugin and extension manifests carry it; `tests/plugin.
 
 #### Changed
 
+- **A phone's Menu is one list, the same either way up.** Held upright (the dropdown under the app bar) and held
+  sideways (the panel's sheet) it lists the same rows in the same order, in four groups parted by a thin rule:
+  Programs…, Open…, Ask Claude…, Share…; Machine…, Tape, disks and cartridge…, Power…, Add ROMs…, Settings…; Take
+  snapshot, Restore snapshot…; Commands…, Library, Debugger, Help, Install CLOADM…, GitHub ↗, Hide keys. A row shows only
+  where what it opens is not already on screen (upright, Open…, Ask Claude… and the machine are the app bar's; the ports
+  and Power, with their state under them, only where the chips are not shown). Held sideways, Library, Debugger, Help,
+  the snapshots and GitHub are in Menu now, and the sheet is 260 px wide above Menu at the right. Claude features Off
+  hides Commands… as well as Ask Claude… (Ctrl K still opens the box). (`js/ui/menu.js`)
+- **Every program in Programs has the same two lines:** its name, and one short line saying what it is ("An ELIZA-style
+  chat program", "Find the ten mines", …), on every model and on the desktop's Media tab too. WYRMFIRE's licence and
+  credit line leave its row; they stay in its Details and on its card under the screen.
+- **The machine picker opens with the machine in use in the middle of the list,** its row filled, and the list never
+  starts on a row cut in half.
 - **WYRMFIRE is re-pinned to 2f47134,** whose engine counts the level clock from the PAL field-sync interrupt and shows TIME
   on the end screen again. Only the engine changed (`wyrmfire.bin`, SHA-256 2094d081, 10,432 bytes); the converter, the
   licence and the Freedoom level disks are byte for byte the previous pin's (`js/wyrmfire/pin.js`, rebuilt with
@@ -121,6 +134,10 @@ Next version: 0.3.1 (the plugin and extension manifests carry it; `tests/plugin.
 
 #### Fixed
 
+- **A phone's Menu no longer wraps into a second column** (GitHub sat top right on a 393x659 phone): one column, which
+  scrolls, its bottom fading while there is more below.
+- **Menu held sideways no longer cuts a row through its text** (653x280: the fifth row was sliced, with no fade): its
+  bottom edge falls between two rows, and it fades while it can scroll further.
 - **Screen text follows a text page a program moves.** On the Dragon and CoCo 1/2, the ROM self-test's screen and the
   welcome menu's taps now read the page the SAM's display offset shows (as `screen_text`, `Session.screenText` and the
   screen's text alternative already did), and every reader reads text only in the VDG's alphanumeric /

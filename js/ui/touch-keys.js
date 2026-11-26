@@ -34,6 +34,7 @@
  */
 import { touchJoystickOffered, STICK_RADIUS } from '../host/input.js';
 import { $, ESC, markUndrawn } from './page.js';
+import { MENU, fitMenu, moreBelow } from './menu.js';
 import { SPLIT, FULL, STRIP, SHORT, DPAD, PAD_KEYS, ARROW_NAMES, MODES, HOLD_MS, MOVE_PX, keyPress, programMode, thumbKeys } from './touch-layout.js';
 
 export function setupTouchKeys(page, { input }) {
@@ -422,8 +423,7 @@ export function setupTouchKeys(page, { input }) {
     tkMenu.hidden = !chat && !side;
     if (side && !chat) { tkMenu.setAttribute('aria-controls', 'tkMenuSheet'); tkMenu.setAttribute('aria-expanded', String(!sheet.hidden)); }
     else { tkMenu.removeAttribute('aria-controls'); tkMenu.removeAttribute('aria-expanded'); sheet.hidden = true; }
-    const install = sheet.querySelector('[data-item="install"]');
-    if (install) install.hidden = $('navInstall').hidden;
+    if (sheet.firstChild) row('install').hidden = $('navInstall').hidden;
     markUndrawn();   // (the touch layout hides the app bar, the drawer and the ports: page.js)
     // Keys | Pad | Stick: Stick where the machine has a joystick port of its own and the panel is the machine's
     $('tkModeSwitch').hidden = !on;
@@ -491,52 +491,85 @@ export function setupTouchKeys(page, { input }) {
   noHover.addEventListener('change', apply);
   $('selTouchKeys').onchange = (e) => { session.store.set('touchKeys', e.target.value); hidden = false; apply(); };
   $('btnShowKeys').onclick = () => { hidden = false; apply(); };
-  // The panel's menu button, held sideways only (the app bar's Menu is the only Menu elsewhere). The order puts what
-  // acts on this machine first: Programs…, Open…, Ask Claude…, Share…, Tape, disks and cartridge…, Machine…, Settings…,
-  // Power…, then under a rule Commands…, Install CLOADM… and Hide keys. The three that open something on this very machine come first;
-  // Commands… (Share, Library, Debugger, Help and the rest) sits below the rule with the app-level items. In a phone's
-  // chat (body.chat-phone, js/ui/claude.js) the app bar gives way to the chat bar, so it is "← Emulator" and leaves the
-  // chat in one tap, as it always has: the way out must not need a second tap.
+  // The panel's menu button, held sideways only (the app bar's Menu is the only Menu elsewhere): js/ui/menu.js's rows, in
+  // its order and groups, the same as the upright Menu's (the sideways ones too: Open…, Ask Claude…, Machine… and Hide
+  // keys, which upright are the app bar's buttons or the Power sheet's). A row shows only while what it opens is not
+  // already on screen: Open… and Add ROMs… not while the first visit's buttons beside the control row are up; Add ROMs…
+  // only while the machine has no BASIC (the app bar's pill); Install CLOADM… while it is offered. The ports and Power say
+  // what they hold on a second line, as the chips do upright (sideways there are none). In a phone's chat
+  // (body.chat-phone, js/ui/claude.js) the app bar gives way to the chat bar, so it is "← Emulator" and leaves the chat
+  // in one tap, as it always has: the way out must not need a second tap.
   // With no chat on this page (body.no-claude: ?embed=1, or framed in another site's page -- main.js), Ask Claude… and
   // Commands… are left out: there is nothing for either to open (the app bar hides #btnAsk and #navCommands the same
-  // way), and tapping Ask Claude… called page.openAsk, which does not exist then (a pageerror).
+  // way), and tapping Ask Claude… called page.openAsk, which does not exist then (a pageerror). Claude features Off hides
+  // both (play/index.html, body.claude-off). Share… is not in an embed (?embed=1), which has no app bar and no Share of
+  // its own (play/index.html hides it there: the embed class arrives after this sheet is built).
   const noChat = () => document.body.classList.contains('no-claude');
   const buildSheet = () => {
-    sheet.innerHTML = '<button type="button" data-item="programs">Programs…</button>'
-      + '<button type="button" data-item="open">Open…</button>'
-      + (noChat() ? '' : '<button type="button" data-item="ask">Ask Claude…</button>')
-      // Share…, the app bar's Share (this moment as a link, js/ui/share.js): wherever the app bar has it, so also in a
-      // page framed in another site (no chat there, Share all the same); not in an embed (?embed=1), which has no app bar
-      // and no Share of its own (play/index.html hides it there: the embed class arrives after this sheet is built)
-      + '<button type="button" data-item="share">Share…</button>'
-      + '<button type="button" data-item="ports">Tape, disks and cartridge…</button>'
-      + '<button type="button" data-item="machine">Machine…</button><button type="button" data-item="settings">Settings…</button>'
-      + '<button type="button" data-item="power">Power…</button>'
-      + '<span class="tkmenu-sep" role="separator"></span>'
-      + (noChat() ? '' : '<button type="button" data-item="commands">Commands…</button>')
-      + '<button type="button" data-item="install">Install CLOADM…</button><button type="button" data-item="hide">Hide keys</button>';
+    sheet.replaceChildren();
+    MENU.forEach((g, i) => {
+      if (i) { const r = document.createElement('span'); r.className = 'tkmenu-sep'; r.setAttribute('role', 'separator'); sheet.append(r); }
+      for (const r of g) {
+        if (noChat() && (r.item === 'ask' || r.item === 'commands')) continue;
+        const b = document.createElement(r.href ? 'a' : 'button');
+        if (r.href) b.href = r.href; else b.type = 'button';
+        b.dataset.item = r.item;
+        const name = document.createElement('span'); name.textContent = r.label;
+        if (r.ext) { const x = document.createElement('span'); x.className = 'ext'; x.setAttribute('aria-hidden', 'true'); x.textContent = '↗'; name.append(' ', x); }
+        b.append(name);
+        if (r.state) { const st = document.createElement('span'); st.className = 'sub'; b.append(st); }
+        sheet.append(b);
+      }
+    });
   };
   buildSheet();
-  // (Install CLOADM… is the app bar's link, which held sideways is out of sight: here too, while it is offered)
+  const row = (item) => sheet.querySelector(`[data-item="${item}"]`);
+  // which rows show, and the ports' and Power's state (js/ui/phone-sheets.js keeps it on the upright Menu's rows)
+  const syncSheet = () => {
+    const first = firstVisit();
+    row('open').hidden = first;
+    row('roms').hidden = first || $('romPill').hidden;
+    row('install').hidden = $('navInstall').hidden;
+    for (const [item, id, name] of [['ports', 'navPortsState', 'Tape, disks and cartridge'], ['power', 'navPowerState', 'Power']]) {
+      const st = $(id).textContent;
+      row(item).querySelector('.sub').textContent = st;
+      row(item).setAttribute('aria-label', `${name}: ${st}.`);
+    }
+  };
+  // placed above Menu at the window's right (play/index.html), its bottom 8 px above the control row; as tall as the
+  // window less that row less 16 px allows, its bottom edge above a row's text (js/ui/menu.js fitMenu)
+  const place = () => {
+    if (sheet.hidden) return;
+    const m = $('tkMenu').getBoundingClientRect();
+    sheet.style.bottom = `${innerHeight - m.top + 8}px`;
+    fitMenu(sheet, [...sheet.querySelectorAll('[data-item]')], m.top - 16);
+  };
+  sheet.addEventListener('scroll', () => moreBelow(sheet), { passive: true });
+  addEventListener('resize', place);
+  // (Install CLOADM… is the app bar's link, which held sideways is out of sight: here too, while it is offered; the
+  // ports' and Power's words change as media goes in and the machine pauses)
   new MutationObserver(apply).observe($('navInstall'), { attributes: true, attributeFilter: ['hidden'] });
+  for (const id of ['navPortsState', 'navPowerState']) new MutationObserver(syncSheet).observe($(id), { childList: true, characterData: true, subtree: true });
+  new MutationObserver(syncSheet).observe($('romPill'), { attributes: true, attributeFilter: ['hidden'] });
   const closeSheet = () => { sheet.hidden = true; $('tkMenu').setAttribute('aria-expanded', 'false'); };
-  // a disclosure: it opens with the focus on its first button, and Esc gives the focus back to Menu
+  // a disclosure: it opens with the focus on its first row, and Esc gives the focus back to Menu
   $('tkMenu').onclick = () => {
     if (document.body.classList.contains('chat-phone')) { $('btnClaudeBack').click(); return; }
     sheet.hidden = !sheet.hidden;
     $('tkMenu').setAttribute('aria-expanded', String(!sheet.hidden));
     if (!sheet.hidden) {
-      // the sheet may be taller than the window and scroll inside (play/index.html, #tkMenuSheet's max-height): it opens
-      // at its FIRST row, not wherever it was left; focus() then scrolls the focused row into view on its own, and a
-      // focus moved down the list (Tab, an arrow) scrolls that row in as the browser does for any scroller.
+      // the sheet may be taller than the window and scroll inside: it opens at its FIRST row, not wherever it was left;
+      // a focus moved down the list (Tab, an arrow) scrolls that row in as the browser does for any scroller.
+      syncSheet();
       sheet.scrollTop = 0;
-      sheet.querySelector('button:not([hidden])').focus();
+      place();
+      sheet.querySelector('[data-item]:not([hidden])').focus({ preventScroll: true });
     }
   };
   // a first visit held sideways: Open… and Add ROMs… beside the control row until a program has run or ROMs are in
   // (Session.lastRun, the stored ROMs); after that they are Menu's (Open…) and the app bar's (Add ROMs) as before
   const firstVisit = () => !session.lastRun && !session.storedRoms().count;
-  const firstRow = () => { const f = firstVisit(); $('tkOpen').hidden = !f; $('tkRoms').hidden = !f; };
+  const firstRow = () => { const f = firstVisit(); $('tkOpen').hidden = !f; $('tkRoms').hidden = !f; syncSheet(); };
   $('tkOpen').onclick = () => $('fileProgram').click();
   $('tkRoms').onclick = () => $('romPill').click();
   session.on((ev) => { if (ev === 'lastrun' || ev === 'roms' || ev === 'loaded') firstRow(); });
@@ -545,17 +578,19 @@ export function setupTouchKeys(page, { input }) {
     const b = e.target.closest('[data-item]');
     if (!b) return;
     closeSheet();
-    if (b.dataset.item === 'programs') page.openPrograms($('tkMenu'));
-    else if (b.dataset.item === 'open') { $('fileProgram').click(); $('tkMenu').focus(); }
-    else if (b.dataset.item === 'ask') openAsk();
-    else if (b.dataset.item === 'share') $('btnShare').click();   // (the Share screen's own "← Emulator" comes back here)
-    else if (b.dataset.item === 'machine') openMachines();
-    else if (b.dataset.item === 'settings') page.openSettings(null, $('tkMenu'));
-    else if (b.dataset.item === 'ports') page.sheets.openPorts(null, $('tkMenu'));
-    else if (b.dataset.item === 'power') page.sheets.open('sheetPower', $('tkMenu'));
-    else if (b.dataset.item === 'commands') $('navCommands').click();
-    else if (b.dataset.item === 'install') $('navInstall').click();
-    else if (b.dataset.item === 'hide') { hidden = true; apply(); }
+    const it = b.dataset.item;
+    if (it === 'programs') page.openPrograms($('tkMenu'));
+    else if (it === 'open') { $('fileProgram').click(); $('tkMenu').focus(); }
+    else if (it === 'ask') openAsk();
+    else if (it === 'share') $('btnShare').click();   // (the Share screen's own "← Emulator" comes back here)
+    else if (it === 'machine') openMachines();
+    else if (it === 'settings') page.openSettings(null, $('tkMenu'));
+    else if (it === 'ports') page.sheets.openPorts(null, $('tkMenu'));
+    else if (it === 'power') page.sheets.open('sheetPower', $('tkMenu'));
+    else if (it === 'roms') $('romPill').click();
+    else if (it === 'hide') { hidden = true; apply(); }
+    // the rest are the upright Menu's own rows, which do the same here (Help and GitHub are plain links: followed as such)
+    else if (it !== 'help' && it !== 'github') { e.preventDefault(); $(MENU.flat().find((r) => r.item === it).nav).click(); }
   };
   // Ask Claude…: the side panel, as a right-side sheet held sideways. js/ui/ask.js owns the panel; here we open it and,
   // when it closes (Esc, Close), put the focus back on the Menu button the person opened it from. The panel's own Esc

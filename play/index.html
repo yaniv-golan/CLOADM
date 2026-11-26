@@ -137,7 +137,7 @@
   #menuWhich { align-self: center; padding: 10px 8px; min-height: 44px; box-sizing: border-box; display: inline-flex; align-items: center; color: var(--phosphor); }
   #menuAbout { flex-basis: 100%; margin: 0; padding: 0 8px 4px; min-height: 1.4em; font-size: 14px; color: var(--text-2); }
   @media (max-width: 700px) { #menuAbout { display: none; } }
-  #machineMenu button { display: flex; width: 100%; justify-content: space-between; gap: 10px; text-align: left; background: transparent;
+  #machineMenu button { display: flex; width: 100%; justify-content: space-between; align-items: center; gap: 10px; text-align: left; background: transparent;
     border: 0; border-radius: var(--r-8); padding: 8px; min-height: 40px; }
   #machineMenu button:hover { background: var(--line); }
   #machineMenu button[aria-current="true"] { background: var(--line); }
@@ -192,7 +192,8 @@
   /* a page shown inside another page has no Claude chat: its buttons are hidden, not left dead (js/ui/main.js) */
   /* Settings -> Claude features: Off (js/ui/claude-features.js); the command box stays, without its Claude rows */
   body.claude-off #btnAsk, body.claude-off [data-shelf="claude"], body.claude-off #ask, body.claude-off #askRail, body.claude-off #askStripQs { display: none !important; }
-  body.claude-off #tkMenuSheet [data-item="ask"] { display: none !important; }   /* the landscape Menu's Ask Claude… (js/ui/touch-keys.js) */
+  /* (and the Menu's Ask Claude… and Commands… rows, both orientations: js/ui/menu.js; Ctrl K still opens the box) */
+  body.claude-off #tkMenuSheet :is([data-item="ask"], [data-item="commands"]) { display: none !important; }
   #claudeFeaturesRow button[aria-pressed="true"] { background: var(--phosphor); border-color: var(--phosphor); color: var(--on-phosphor); }
   body.no-claude #btnAsk, body.no-claude #navCommands, body.no-claude [data-shelf="claude"], body.no-claude #claude, body.no-claude #ask, body.no-claude #askRail { display: none !important; }
   body.embed .layout { padding: 0; display: block; }
@@ -442,8 +443,12 @@
   .shareopt { display: inline-flex; flex-direction: column; gap: 2px; max-width: 18em; }
   .shareopt .why[hidden] { display: none; }
   #gameFiles .gamefile { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; }
-  #shelf .sub { display: flex; flex-direction: column; font-size: 14px; color: var(--text-2); font-weight: 400; }
-  #shelf .sub .credit { color: var(--muted); font-size: 13px; }
+  /* a Programs row: its name (16 px) and one muted line under it (13 px, one line, never cut: js/ui/welcome.js SHELF keeps
+     it short), its tag ("on screen now", "needs 20K") on the right, centred */
+  #shelf .txt { display: flex; flex-direction: column; min-width: 0; }
+  #shelf .txt .name { font-size: 16px; }
+  #shelf .txt .desc { font-size: 13px; color: var(--muted); font-weight: 400; white-space: nowrap; }
+  #shelf .tag { flex: none; white-space: nowrap; }
   #dropOverlay span.wadline { font-size: 14px; max-width: 40em; }
   #dbgStripText { flex: 1 1 16em; min-width: 0; }
   #dbgStrip button { min-height: 44px; border-radius: var(--pill); }
@@ -1063,21 +1068,26 @@
   #touchKeys #touchKnob.live { background: #3A403C; border-color: var(--phosphor); }
   #touchKeys #touchFire { height: 168px; border: 0; border-radius: var(--r-10); background: #B3261E; color: #fff; font-size: 24px; font-weight: 800; box-shadow: 0 3px 0 #000; }
   #touchKeys #touchFire.down { background: #7A1B14; transform: translateY(2px); box-shadow: 0 1px 0 #000; }
-  /* the panel's Menu: a short list over the page, never over the screen (its options are about the panel) */
-  /* Never past the top of the window: seven 44 px rows in a 280 px landscape window used to run off the top, so
-     Machine… and Settings… sat above the fold and could not be tapped. The height is capped to the room above its
-     bottom offset (64 px + the home inset, minus an 8 px margin and the notch inset) and it scrolls inside; a row is
-     never shrunk (min-height 44 px stays on the buttons). */
-  #tkMenuSheet { position: fixed; z-index: 8; right: calc(16px + var(--safe-r)); bottom: calc(64px + var(--safe-b)); min-width: 180px; padding: 6px; border: 1px solid var(--line); border-radius: var(--r-10);
-    max-height: calc(100vh - 64px - var(--safe-b) - var(--safe-t) - 8px); max-height: calc(100dvh - 64px - var(--safe-b) - var(--safe-t) - 8px);
+  /* the panel's Menu held sideways (js/ui/menu.js, the same rows as the upright Menu): 260 px wide, above its Menu
+     button, at the window's right, over the screen's edge (it is outside the panel for that). Never past the top of the
+     window: js/ui/touch-keys.js places it (its bottom 8 px above the control row) and fits its height to the window less that row less 16 px, stopping its
+     bottom edge above a row's text rather than through it; it scrolls inside, its bottom fading while there is more.
+     A row is never shrunk (min-height var(--row-tap) stays on the rows). */
+  #tkMenuSheet { position: fixed; z-index: 9; right: calc(16px + var(--safe-r)); bottom: calc(64px + var(--safe-b)); width: 260px; max-width: calc(100vw - 16px); box-sizing: border-box;
+    padding: 6px; border: 1px solid var(--line); border-radius: var(--r-10);
+    max-height: calc(100vh - 64px - var(--safe-b) - var(--safe-t) - 16px); max-height: calc(100dvh - 64px - var(--safe-b) - var(--safe-t) - 16px);
     overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch;
-    background: #1C201D; box-shadow: 0 8px 24px #000A; }
+    --menu-bg: #1C201D; background: var(--menu-bg); box-shadow: 0 8px 24px #000A; }
   #tkMenuSheet[hidden] { display: none; }
   #tkOpen, #tkRoms { display: none; }
-  #tkMenuSheet button { display: block; width: 100%; min-height: var(--row-tap); margin: 0; border: 0; border-radius: 7px; background: transparent; color: var(--text); text-align: left; font-size: 15px; padding: 0 12px; }
-  #tkMenuSheet button:hover { background: #2A302B; }
-  #tkMenuSheet button[hidden] { display: none; }
-  /* the rule between the items that act on this machine and the app-level ones: a thin line across the sheet */
+  #tkMenuSheet :is(button, a) { display: flex; flex-direction: column; justify-content: center; align-items: flex-start; box-sizing: border-box; width: 100%; min-height: var(--row-tap);
+    margin: 0; border: 0; border-radius: 7px; background: transparent; color: var(--text); text-align: left; font-size: 15px; padding: 0 12px; text-decoration: none; }
+  #tkMenuSheet :is(button, a):hover { background: #2A302B; }
+  #tkMenuSheet :is(button, a)[hidden] { display: none; }
+  #tkMenuSheet .sub { font-size: 13px; color: var(--muted); }
+  /* (a row with its state under it: room above and below its two lines, so the fade over the next row clears them) */
+  #tkMenuSheet :is(button, a):has(.sub) { padding-top: 10px; padding-bottom: 10px; }
+  /* the rule between the Menu's groups: a thin line across the sheet */
   #tkMenuSheet .tkmenu-sep { display: block; height: 1px; margin: 6px 4px; background: var(--line); pointer-events: none; }
 
   /* ---- a phone held sideways (or any window under 500 px high) ----
@@ -1820,22 +1830,40 @@
     #btnMenu { display: inline-flex; order: 4; flex: none; position: relative; }
     #btnMenu.dot::after { content: ''; position: absolute; top: 7px; right: 5px; width: 8px; height: 8px; border-radius: 50%; background: var(--orange); }
     #navRoms .dot { display: inline-block; width: 8px; height: 8px; margin-left: 8px; border-radius: 50%; background: var(--orange); flex: none; }
-    .appbar.menu-open nav { display: flex; position: absolute; z-index: 65; top: 100%; left: 8px; right: 8px; flex-direction: column; align-items: stretch; gap: 0;
-      padding: 8px 16px; background: var(--panel); border: 1px solid var(--line-strong); border-top: 0; border-radius: 0 0 12px 12px; box-shadow: 0 20px 40px rgba(0, 0, 0, .6); }
-    .appbar.menu-open nav a, .appbar.menu-open nav button.navlink { min-height: var(--row-tap); display: flex; align-items: center; text-align: left; }
-    /* (taller rows must not push Menu's last ones off a short window: it scrolls inside the window instead) */
-    .appbar.menu-open nav { max-height: calc(100dvh - 100% - var(--safe-t) - 8px); overflow-y: auto; overscroll-behavior: contain; }
-    /* Menu's order: Add ROMs, Settings…, Share…, Install CLOADM… (js/ui/main.js moves it up here), Library, Debugger,
-       Commands…, then, under a rule, Help and GitHub */
-    .appbar.menu-open nav button.twoline { flex-direction: column; align-items: flex-start; justify-content: center; gap: 0; }
-    .appbar.menu-open nav .twoline .sub { font-size: 13px; color: var(--muted); }
     #btnMenu.media:not(.dot)::after { content: ''; position: absolute; top: 7px; right: 5px; width: 8px; height: 8px; border-radius: 50%; background: var(--phosphor); }
-    .appbar.menu-open nav #navHelp { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
     #machineMenu { left: 8px; right: 8px; width: auto; max-height: 70vh; }
     #machineMenu .menulist { grid-template-columns: minmax(0, 1fr); }
     #switchConfirm { top: 100%; left: 8px; right: 8px; width: auto; }
     .layout { padding: 16px; }
   }
+  /* ---- Menu (js/ui/menu.js, the one list for a phone upright and held sideways) ----
+     Upright: a dropdown the page's width under the app bar; held sideways without the touch keys (Hide keys): 260 px
+     wide at the right, under the bar. One column, never wrapping, each row var(--row-tap) tall; it scrolls inside the
+     window (js/ui/main.js fits its height so the bottom edge never runs through a row's text) and its bottom fades
+     24 px while there is more below. The groups are parted by the thin rule the panel's Menu uses (.tkmenu-sep). */
+  .appbar nav .tkmenu-sep, #navGithub .ext { display: none; }
+  @media (max-width: 700px), (orientation: landscape) and (max-height: 500px) {
+    .appbar.menu-open nav { display: flex; position: absolute; z-index: 65; top: 100%; left: 8px; right: 8px; flex-direction: column; flex-wrap: nowrap; align-items: stretch; gap: 0;
+      box-sizing: border-box; padding: 8px 16px; background: var(--panel); border: 1px solid var(--line-strong); border-top: 0; border-radius: 0 0 12px 12px;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, .6); white-space: normal;
+      max-height: calc(100dvh - 100% - var(--safe-t) - 8px); overflow-y: auto; overscroll-behavior: contain; }
+    .appbar.menu-open nav > :is(a, button.navlink) { flex: none; min-height: var(--row-tap); display: flex; align-items: center; text-align: left; }
+    .appbar.menu-open nav > .tkmenu-sep { display: block; flex: none; height: 1px; margin: 6px 0; background: var(--line); }
+    .appbar.menu-open nav button.twoline { flex-direction: column; align-items: flex-start; justify-content: center; gap: 0; padding-top: 10px; padding-bottom: 10px; }
+    .appbar.menu-open nav .twoline .sub { font-size: 13px; color: var(--muted); }
+    body.claude-off .appbar.menu-open nav #navCommands { display: none; }
+    .appbar.menu-open nav #navGithub .ext { display: inline; }
+    .appbar.menu-open nav #navCmdKbd { display: none; }   /* (Menu is a touch screen's: no key to name) */
+  }
+  @media (orientation: landscape) and (max-height: 500px) {
+    .appbar.menu-open nav { left: auto; right: 8px; width: 260px; border-top: 1px solid var(--line-strong); border-radius: 12px; }
+  }
+  /* (the bottom fades into the list's own colour, 24 px, while it can scroll further: js/ui/menu.js moreBelow; a
+     sticky last box, so the fade stays at the window's edge as the rows scroll under it) */
+  .appbar.menu-open nav::after, #tkMenuSheet::after { content: ''; display: block; flex: none; position: sticky; bottom: 0; height: 24px; margin-top: -24px;
+    pointer-events: none; opacity: 0; background: linear-gradient(transparent, var(--menu-bg)); }
+  .appbar.menu-open nav { --menu-bg: var(--panel); }
+  .appbar.menu-open nav.more-below::after, #tkMenuSheet.more-below::after { opacity: 1; }
   @media (max-width: 359px) {
     #btnAsk .lbl { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
     #btnAsk svg { display: block; }
@@ -1849,7 +1877,6 @@
     #status, .appbar nav, #btnShare, #askKbd, #navCmdKbd, #askEmptyCmd { display: none; }
     #btnMenu { display: inline-flex; }
     .appbar nav { order: 2; }
-    .appbar.menu-open nav { display: flex; flex-basis: 100%; flex-wrap: wrap; gap: 0 18px; }
     .appbar.menu-open #btnShare { display: inline-flex; }
     /* and the screen takes the height the bar gave back: the monitor (its padding and the 4:3 tube) fits under the
        bar, its nameplate left out */
@@ -2035,27 +2062,30 @@ npx serve -l 8000 .</pre>
   <!-- js/ui/ask-popout.js: in place of Ask where this page is shown inside another site's page (the chat is off there) -->
   <a id="btnAskPop"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z"/></svg><span class="lbl">Ask Claude ↗</span></a>
   <nav aria-label="App">
-    <!-- a phone's Menu: Programs… first (the no-ROM shelf and what ran here before, in a sheet: js/ui/phone-sheets.js),
-         then Add ROMs while the machine has no BASIC (with Menu's dot beside it), Share and Settings… (the
-         drawer's tabs, far down the page there) (js/ui/main.js; the app bar's pill and button elsewhere) -->
+    <!-- a phone's Menu, in js/ui/menu.js's order (js/ui/main.js puts them so, with the rules between the groups): Programs…
+         (the no-ROM shelf and what ran here before, in a sheet: js/ui/phone-sheets.js) and Share…; the ports and Power
+         where the chips are not shown, Add ROMs… while the machine has no BASIC (with Menu's dot beside it) and Settings…
+         (the drawer's tabs, far down the page there); the snapshots; then Commands…, the views, Help, Install and GitHub.
+         The app bar's pill and buttons are these elsewhere -->
     <button id="navPrograms" class="navlink" type="button">Programs…</button>
-    <button id="navRoms" class="navlink" type="button" hidden>Add ROMs (BASIC needs them)<span class="dot" aria-hidden="true"></span></button>
-    <button id="navSettings" class="navlink" type="button">Settings…</button>
+    <button id="navShare" class="navlink" type="button" title="A link that opens this machine as it is, a clip, a screenshot, a snapshot file; and the embed code">Share…</button>
     <!-- a short phone upright has no chips: the ports and Power are Menu's, each with its state (js/ui/phone-sheets.js) -->
     <button id="navPorts" class="navlink twoline" type="button" hidden><span>Tape, disks and cartridge…</span><span class="sub" id="navPortsState">Empty</span></button>
     <button id="navPower" class="navlink twoline" type="button" hidden><span>Power…</span><span class="sub" id="navPowerState">Running</span></button>
-    <button id="navShare" class="navlink" type="button" title="A link that opens this machine as it is, a clip, a screenshot, a snapshot file; and the embed code">Share…</button>
+    <button id="navRoms" class="navlink" type="button" hidden>Add ROMs…<span class="dot" aria-hidden="true"></span></button>
+    <button id="navSettings" class="navlink" type="button">Settings…</button>
     <!-- a phone's snapshots: the quick-save slots (js/ui/slots-panel.js), which sit in the Programs sheet there -->
     <button id="navSnapTake" class="navlink" type="button">Take snapshot</button>
     <button id="navSnapRestore" class="navlink" type="button">Restore snapshot…</button>
+    <button id="navCommands" class="navlink" type="button">Commands… <kbd id="navCmdKbd">Ctrl K</kbd></button>
     <a href="play/#library" id="navLibrary">Library</a>
     <a href="play/#debugger" id="navDebugger">Debugger</a>
-    <button id="navCommands" class="navlink" type="button">Commands… <kbd id="navCmdKbd">Ctrl K</kbd></button>
     <a href="help/" id="navHelp">Help</a>
-    <a href="https://github.com/yaniv-golan/cloadm" id="navGithub">GitHub</a>
     <!-- js/ui/install.js: the browser's own install prompt, or the card with the steps that install it, which opens
          under the app bar, near this link (hidden once installed) -->
     <button id="navInstall" class="navlink" type="button">Install CLOADM…</button>
+    <!-- (↗ in Menu only: an external link; a desktop's More ▾ says GitHub as it always has) -->
+    <a href="https://github.com/yaniv-golan/cloadm" id="navGithub"><span>GitHub <span class="ext" aria-hidden="true">↗</span></span></a>
     <!-- a desktop's More ▾ (js/ui/main.js): Debugger, Commands…, Help, GitHub and Install CLOADM… move into its list there;
          elsewhere (a phone, the touch keys, held sideways) they stay Menu's -->
     <button id="btnMore" class="navlink" type="button" aria-expanded="false" aria-controls="moreMenu" hidden>More ▾</button>
@@ -2314,8 +2344,9 @@ npx serve -l 8000 .</pre>
           <button type="button" data-touchmode="joystick" aria-pressed="false">Stick</button></div>
         <div class="tkbtns"><button id="tkBreak"></button><button id="tkClear"></button><button id="tkMenu" type="button" aria-expanded="false" aria-controls="tkMenuSheet">Menu</button></div>
         <button id="tkOpen" type="button" hidden>Open…</button><button id="tkRoms" type="button" hidden>Add ROMs…</button></div>
-      <div id="tkMenuSheet" role="group" aria-label="Keys menu" hidden></div>
     </div>
+    <!-- the panel's Menu held sideways (js/ui/touch-keys.js): outside the panel, so it stands over the screen too -->
+    <div id="tkMenuSheet" role="group" aria-label="Keys menu" hidden></div>
     <!-- a phone (the on-screen panel on, upright): the machine's ports and power as one row of chips under the panel,
          each opening its sheet (js/ui/phone-sheets.js); the order is fixed -->
     <div id="chipRow" role="group" aria-label="Tape, disks, cartridge and power" hidden>
@@ -3005,6 +3036,7 @@ npx serve -l 8000 .</pre>
 <link rel="modulepreload" href="js/host/folder-handle.js">
 <link rel="modulepreload" href="js/ui/feedback.js">
 <link rel="modulepreload" href="js/ui/page.js">
+<link rel="modulepreload" href="js/ui/menu.js">
 <link rel="modulepreload" href="js/ui/files.js">
 <link rel="modulepreload" href="js/video/canvas.js">
 <link rel="modulepreload" href="js/host/gamepad.js">

@@ -107,8 +107,27 @@ export function setupMachinePanel(page, { showRoms }) {
       // as tall as the window allows below the button (a phone showed it cut short at the MC-10), and
       // a faded bottom edge while more models are below
       menu.style.maxHeight = `${Math.max(200, innerHeight - menu.getBoundingClientRect().top - 12)}px`;
+      const cur = menu.querySelector('[aria-current="true"]') || menu.querySelector('button');
+      cur.focus({ preventScroll: true });
+      centre(cur);
       moreBelow();
-      const cur = menu.querySelector('[aria-current="true"]') || menu.querySelector('button'); cur.focus();
+    }
+  }
+  // the machine in use, scrolled to the middle of the list (as far as the list scrolls), its selected fill on. The list's
+  // top edge then never runs through a row (which reads as an empty band above the first whole one): a row it would cut
+  // is shown whole, and a gap between two groups moves on to the next group's heading.
+  function centre(cur) {
+    if (!list.contains(cur)) return;
+    const l = list.getBoundingClientRect(), c = cur.getBoundingClientRect();
+    list.scrollTop += (c.top + c.height / 2) - (l.top + list.clientHeight / 2);
+    if (list.scrollTop <= 0) return;
+    const top = l.top + list.clientTop;
+    const rows = [...list.querySelectorAll('#menuNoRoms, .group-name, .group-sub, button')].filter((e) => e.checkVisibility()).map((e) => e.getBoundingClientRect());
+    const cut = rows.find((r) => r.top < top - 0.5 && r.bottom > top + 0.5);
+    if (cut) list.scrollTop -= top - cut.top;
+    else if (!rows.some((r) => r.top <= top + 0.5 && r.bottom > top + 0.5)) {
+      const next = rows.find((r) => r.top > top);
+      if (next) list.scrollTop += next.top - top;
     }
   }
   const moreBelow = () => menu.classList.toggle('more-below', list.scrollTop + list.clientHeight < list.scrollHeight - 2);
