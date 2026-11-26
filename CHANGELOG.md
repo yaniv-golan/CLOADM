@@ -14,7 +14,9 @@ Next version: 0.3.1 (the plugin and extension manifests carry it; `tests/plugin.
   normal text, "This link holds none of your ROMs. Whoever opens it needs their own Dragon 64 ROMs." (named by the machine, not
   by its ROM slots; "Needs your Dragon 64 ROMs to open." where space is short), the orange note under the buttons became the
   plain "Copy link gives a long link: short links are only for moments that run without ROMs.", and the picture's caption reads
-  "This moment · Dragon 64". A moment that runs without ROMs, and the cases where nothing can be shared, read as before.
+  "This moment · Dragon 64". A moment on a cartridge says "This link holds none of your cartridge. Whoever opens it needs the same
+  cartridge: <its file name>." (with ROMs too: "…none of your ROMs or your cartridge… their own Dragon 64 ROMs and the same cartridge: …"),
+  also in normal text. A moment that runs without ROMs, and the cases where nothing can be shared, read as before.
 
 ### 0.3.1
 

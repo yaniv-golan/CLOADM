@@ -33,9 +33,19 @@ const standIn = (size, seed) => { const b = new Uint8Array(size); for (let i = 0
   for (let i = 0; i < 5; i++) s.shownMachine.runFrame();
   const file = await s.shareFile();
   check('ROMs in use: the moment needs them', file.needs.length === p.roms.length, JSON.stringify(file.needs.map((x) => x.label)));
-  check('ROMs in use: the line is the one exact sentence, naming the machine and not the slots', romLines('Dragon 64').full === 'This link holds none of your ROMs. Whoever opens it needs their own Dragon 64 ROMs.'
-    && !/32K|64K/.test(romLines('Dragon 64').full), romLines('Dragon 64').full);
-  check('...and its compact form, for where space is short', romLines('Dragon 64').brief === 'Needs your Dragon 64 ROMs to open.' && romLines('CoCo 3').brief === 'Needs your CoCo 3 ROMs to open.');
+  const mine = romLines('Dragon 64', file.needs);
+  check('ROMs in use: the line is the one exact sentence, naming the machine and not the slots', mine.full === 'This link holds none of your ROMs. Whoever opens it needs their own Dragon 64 ROMs.'
+    && !/32K|64K/.test(mine.full), mine.full);
+  check('...and its compact form, for where space is short', mine.brief === 'Needs your Dragon 64 ROMs to open.' && romLines('CoCo 3', file.needs).brief === 'Needs your CoCo 3 ROMs to open.');
+  check('no needs: no line', romLines('Dragon 64', []) === null && romLines('Dragon 64', bareFile.needs) === null);
+  // a cartridge, alone and with ROMs, named the way the Library names it (never a checksum), or not named when it is not known
+  const cart = [{ crc: 'aaaa', kind: 'cartridge', label: 'the cartridge' }], roms = [{ crc: 'bbbb', kind: 'rom', label: '32K-mode BASIC' }];
+  check('a cartridge alone: its own sentence, with its name', romLines('Dragon 64', cart, 'my copy.ccc').full === 'This link holds none of your cartridge. Whoever opens it needs the same cartridge: my copy.ccc.');
+  check('a cartridge alone, no name known: the sentence ends at "the same cartridge."', romLines('Dragon 64', cart).full === 'This link holds none of your cartridge. Whoever opens it needs the same cartridge.');
+  check('ROMs and a cartridge: the combined sentence, with the name', romLines('Dragon 64', [...roms, ...cart], 'my copy.ccc').full === 'This link holds none of your ROMs or your cartridge. Whoever opens it needs their own Dragon 64 ROMs and the same cartridge: my copy.ccc.');
+  check('ROMs and a cartridge, no name known: "...and the same cartridge."', romLines('Dragon 64', [...roms, ...cart]).full === 'This link holds none of your ROMs or your cartridge. Whoever opens it needs their own Dragon 64 ROMs and the same cartridge.');
+  check('the disk ROM counts as a ROM', romLines('Dragon 64', [{ kind: 'dos', label: 'the disk ROM' }]).full === mine.full);
+  check('...and compact forms for a cartridge and for both', romLines('Dragon 64', cart).brief === 'Needs the same cartridge to open.' && romLines('Dragon 64', [...roms, ...cart]).brief === 'Needs your Dragon 64 ROMs and the same cartridge to open.');
   check('the note under Copy link is the neutral sentence', LONG_LINK_NOTE === 'Copy link gives a long link: short links are only for moments that run without ROMs.');
 
   // a cartridge alone (no BASIC ROMs): its image is the person's too
@@ -45,7 +55,8 @@ const standIn = (size, seed) => { const b = new Uint8Array(size); for (let i = 0
   c.load('game.ccc', pak);
   for (let i = 0; i < 5; i++) c.shownMachine.runFrame();
   const cf = await c.shareFile();
-  check('a cartridge in use: its image is the person\'s too, so the moment needs something', cf.needs.length === 1 && cf.needs[0].label === 'the cartridge', JSON.stringify(cf.needs));
+  check('a cartridge in use: its image is the person\'s too, so the moment needs something', cf.needs.length === 1 && cf.needs[0].label === 'the cartridge' && cf.needs[0].kind === 'cartridge', JSON.stringify(cf.needs));
+  check('the cartridge is named by the file it came from (Session.cartridgeName), not by a checksum', c.cartridgeName() === 'game.ccc' && !/^[0-9a-f]{8}$/.test(c.cartridgeName()) && bare.cartridgeName() === null, String(c.cartridgeName()));
 
   // Copy for a forum
   const link = 'https://cloadm.dev/play/?machine=dragon64#s=H4sIAAAA_-x';
@@ -63,7 +74,7 @@ const standIn = (size, seed) => { const b = new Uint8Array(size); for (let i = 0
 
   // the Share screen uses these, not copies of them
   const share = fs.readFileSync(path.join(__dirname, '../js/ui/share.js'), 'utf8');
-  check('js/ui/share.js writes the ROM line and the forum text from js/share-text.js', /from '\.\.\/share-text\.js'/.test(share) && /romLines\(name\)/.test(share) && /LONG_LINK_NOTE/.test(share) && /forumText\(/.test(share) && /const forumUrl = \(\) => \(short \? short\.url : captured\.untouched \? captured\.untouched\.page : captured\.link\)/.test(share)
+  check('js/ui/share.js writes the ROM line and the forum text from js/share-text.js', /from '\.\.\/share-text\.js'/.test(share) && /romLines\(name, file\.needs, session\.cartridgeName\(\)\)/.test(share) && /LONG_LINK_NOTE/.test(share) && /forumText\(/.test(share) && /const forumUrl = \(\) => \(short \? short\.url : captured\.untouched \? captured\.untouched\.page : captured\.link\)/.test(share)
     && /gifFromFrames\(/.test(share));
   // Save GIF follows the stage's WYRMFIRE rules (no recordingGuard of its own): setShots turns it off with the picture and
   // the clip, its click refuses the person's own WAD's level, and the Freedoom level's GIF carries the level's credit

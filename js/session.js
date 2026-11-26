@@ -944,6 +944,9 @@ export class Session {
     for (const d of this.drives.status().drives) out.push({ kind: 'disk', name: d.file, drive: d.drive, stored: d.stored });
     return out;
   }
+  // the file name of the cartridge in machine m's port as the Library shows it, or null when it came without one (a
+  // snapshot's, a Multi-Pak's): the Share screen names it to whoever opens a link that needs the same cartridge
+  cartridgeName(m = this.shownMachine) { return (m && m.cartPort && this.cartFiles.get(m.cartPort)) || null; }
   // Set (or clear) the stub-restart record of machine m (default: the machine in use). Kept per machine: the
   // chat machine and the BASIC session beside it each have their own, and the one on screen reads this.stubRun.
   setStubRun(m, rec = null) {

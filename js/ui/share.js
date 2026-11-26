@@ -235,9 +235,11 @@ export function setupShare(page, { linkStore }) {
     }
     // (the line under the picture is syncPrimary's: called just above through syncLongNote, it sets the snapshot's
     // clarity copy, or, for an untouched bundled program, the program-page note. One owner, so the two cannot differ.)
-    // with ROMs in use, one line: the link holds none of them (Session.shareFile takes every byte out) and whoever opens it
-    // needs their own, named by the machine, not by the slots; one sentence in normal text, never the orange of a warning
-    if (file.needs.length) { const l = romLines(name); romLine(l.full, l.brief); }
+    // with ROMs or a cartridge in use, one line: the link holds none of them (Session.shareFile takes every byte out) and
+    // whoever opens it needs their own ROMs, named by the machine and not by the slots, and the same cartridge, named as
+    // the Library names it; one sentence in normal text, never the orange of a warning
+    const needed = romLines(name, file.needs, session.cartridgeName());
+    if (needed) romLine(needed.full, needed.brief);
     else romLine('Runs without ROMs, so it opens for anyone.', 'Runs without ROMs.');
     // a tape being recorded is not in the link (its pulse timings could carry ROM code: js/media/romrefs.js)
     if (file.dropped.includes('deck.recording')) note('The tape being recorded is not in the link: it opens with the recorder stopped.');

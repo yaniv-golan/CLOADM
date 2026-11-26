@@ -23514,6 +23514,27 @@ async function shortLinkChecks(browser, base, site, check) {
   await page.evaluate(() => { const d = document.getElementById('shareMore'); d.open = true; d.querySelector(':scope > :not(summary)').hidden = false; });
   check('shortLink: a cartridge moment: no short-link terms or switch, the reason in view, the long link offered', cart.whyShown && /Not with a cartridge plugged in/.test(cart.why) && !cart.swShown && !cart.terms && cart.long && cart.copyEnabled, JSON.stringify(cart));
   if (shotDir) await page.screenshot({ path: path.join(shotDir, 'short-link-cartridge.png'), fullPage: true });
+  // the ROM line of a moment on a cartridge alone, and on ROMs and a cartridge: one sentence each, in normal text, the
+  // cartridge named by its file as the Library shows it (never a checksum)
+  const romLine = () => page.evaluate(() => { const r = document.getElementById('shareRom'), t = document.getElementById('share').innerText;
+    return { full: document.getElementById('shareRomFull').textContent, brief: document.getElementById('shareRomBrief').textContent, warn: r.classList.contains('warn') || !!r.closest('.warn'),
+      sentences: (t.match(/holds none of your/g) || []).length, lines: document.querySelectorAll('#share .romline').length, shown: r.checkVisibility(),
+      crc: /\b[0-9a-f]{8}\b/.test(document.getElementById('shareRomFull').textContent) };
+  });
+  const cartOnly = await romLine();
+  check('shortLink: a cartridge alone: "This link holds none of your cartridge. Whoever opens it needs the same cartridge: stand-in.ccc.", one sentence, no .warn, no checksum',
+    cartOnly.full === 'This link holds none of your cartridge. Whoever opens it needs the same cartridge: stand-in.ccc.' && cartOnly.brief === 'Needs the same cartridge to open.'
+    && cartOnly.sentences === 1 && cartOnly.lines === 1 && cartOnly.shown && !cartOnly.warn && !cartOnly.crc, JSON.stringify(cartOnly));
+  await page.click('#shareBack');
+  const ours2 = Buffer.concat(['liza.bin', 'welcome.bin', 'demo.bin', 'chat.bin'].map((f) => fs.readFileSync(path.join(ROOT, 'examples', f))));
+  const romsBoth = { basic: [...Array(0x4000)].map((_, i) => ours2[(i * 3 + 101) % ours2.length] ^ ((i >> 8) + 101) & 0xFF), basic64: [...Array(0x4000)].map((_, i) => ours2[(i * 3 + 138) % ours2.length] ^ ((i >> 8) + 138) & 0xFF) };
+  await page.evaluate(async (r) => { const s = window.emu.session; for (const [k, v] of Object.entries(r)) s.roms.put('dragon64', k, Uint8Array.from(v), `${k}.rom`); s.switchMachine('dragon64'); await s.index.settled();
+    s.load('stand-in.ccc', new Uint8Array(0x2000).fill(0x39)); }, romsBoth);
+  await openShare(page);
+  const both = await romLine();
+  check('shortLink: ROMs and a cartridge: "This link holds none of your ROMs or your cartridge. Whoever opens it needs their own Dragon 64 ROMs and the same cartridge: stand-in.ccc.", one sentence, no .warn',
+    both.full === 'This link holds none of your ROMs or your cartridge. Whoever opens it needs their own Dragon 64 ROMs and the same cartridge: stand-in.ccc.'
+    && both.brief === 'Needs your Dragon 64 ROMs and the same cartridge to open.' && both.sentences === 1 && both.lines === 1 && both.shown && !both.warn && !both.crc, JSON.stringify(both));
   check('shortLink: no page errors', !errors.length, errors.join('; '));
   await closeCtx(ctx2);
   await closeCtx(ctx);

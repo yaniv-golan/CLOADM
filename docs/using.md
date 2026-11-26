@@ -498,7 +498,7 @@ otherwise the long link. Under
 scrolled into view and focused. A
 line under the picture says what the link does, and a ROM line says whether the person opening it needs their own ROMs;
 with ROMs in use it is one sentence, "This link holds none of your ROMs. Whoever opens it needs their own &lt;machine&gt; ROMs."
-(on a sideways phone, "Needs your &lt;machine&gt; ROMs to open."), and a note under Copy link says "Copy link gives a long
+(on a sideways phone, "Needs your &lt;machine&gt; ROMs to open."); with a cartridge it says "This link holds none of your cartridge. Whoever opens it needs the same cartridge: &lt;its file name&gt;." (and, with ROMs too, "…of your ROMs or your cartridge… needs their own &lt;machine&gt; ROMs and the same cartridge: …"); and a note under Copy link says "Copy link gives a long
 link: short links are only for moments that run without ROMs." While NitrOS-9 runs
 the link starts NitrOS-9 fresh instead (no snapshot file). The link there, the long link, carries the moment itself (the snapshot rides in the
 fragment after `#z=`, which browsers never send to a server: a version byte, then the snapshot packed with deflate,
