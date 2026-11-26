@@ -23626,7 +23626,7 @@ async function basicShareChecks(browser, base, site, check) {
   await closeShare();
   await page.setViewportSize({ width: 1280, height: 900 });
   // a byte that can't be typed (a graphics character in a string): the reason, with the switch back, and Copy dark
-  await page.evaluate(() => { const s = window.emu.session; s.loadBasic('10 PRINT "A"'); s.pokeBytes(0x1E01 + 7, [0x8F]); });
+  await page.evaluate(() => { const s = window.emu.session; s.loadBasic('10 PRINT "A"'); s.pokeBytes(0x1E01 + 7, [0x8F], s.shownMachine); });
   await openShare();
   await page.click('#btnProgramMode');
   const no = await page.evaluate(() => ({ why: document.getElementById('programWhy').textContent, shown: document.getElementById('programWhy').checkVisibility(), copy: document.getElementById('btnShareCopy').disabled,
