@@ -79,13 +79,18 @@ These are hard rules for everyone who works on this ROM.
     only printed between statements. `FOUT` makes its nine digits with it too (the integer is always 100000000 to
     999999999), so there is no table of powers of ten for digits.
   * **A second size pass** (no behaviour changed; the black-box records compare as before) took the image, with all
-    of P2 and the low-RAM layout in, from 16,040 to 15,531 bytes: the code ends at `$BD9D`, 597 bytes below the
+    of P2 and the low-RAM layout in, from 16,040 to 15,157 bytes: the code ends at `$BC27`, 971 bytes below the
     vectors. Besides the six two-byte calls and `FOUT`'s digits: one scanner (`NXTOK`) for `IF`'s `ELSE`, `RENUM`
     and `READ`; a quoted `DATA` or `INPUT` item read by `STRLIT`; the graphics colours and last point in the direct
     page (`FOUT`'s digits, reached by index only, in the system block instead); `RND`'s multiplication by `FMUL`'s
     64-bit product (`MULMAN`); one sign reader and a multiply-by-ten-and-add for `FIN`; one adjuster for the decimal
     exponent; `MUL16` with two `MUL`s. `PLAY`'s settings stay in the system block: moving them would shorten the gap
-    between notes.
+    between notes. Its second part (15,531 to 15,157) is many small pieces of the same kind: tails and loops shared (`ON`'s
+    `GOSUB` frame, one mover for the program's lines, one array search, one reader for an optional colour and for a
+    point), the error entries and `(`, `)`, `,` checks chained with `$8C`, messages printed from the text after
+    their call (`PRMSG`), more of the numeric functions' steps as `FPRUN` steps, the PIAs set from a table at
+    reset, and long jumps a short branch reaches. The timed code is as it was: the field interrupt, the tone loop,
+    the keyboard scan and its delays, the cassette's bit loops.
 * **Running it:** `m.setRoms({ basic: rom, basic64: null })` on a `dragon64` machine (Node), or
   `node tools/build-basic.js --out /tmp/d64_1.rom` then `node cli/cloadm.js --roms /tmp/d64_1.rom --type 'PRINT 2+2\n' --screen`.
 
