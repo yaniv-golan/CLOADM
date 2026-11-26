@@ -341,11 +341,22 @@ const same = (a, b) => !!a && !!b && a.length === b.length && a.every((v, i) => 
     // bootNitros9 with NO store given tries the DriveWire images, then the floppies. The reason and the path it
     // failed at must come from the SAME attempt: pairing the first path with a later error would leave the wrong
     // path unstripped (or strip one that is not the reason's).
+    // `readFail` returns what this attempt throws, or null for "let the real store answer". A throw of a FALSY value
+    // is asked for with `{ throw: value }`, since returning it would read as "let the real store answer": the store
+    // does not throw falsy itself, and a check that meant to throw `undefined` and instead fell through to the
+    // store's own not-found would be testing the not-found case again under another name.
     const tries = async (readFail) => {
       const m = new FailingStore(); m.failOn = null;
       const real = m.read.bind(m);
       let armed = false;                       // ready() bootstraps the session and must not see the injected failure
-      m.read = async (name) => { if (armed) { const why2 = readFail(name); if (why2) throw why2; } return real(name); };
+      m.read = async (name) => {
+        if (armed) {
+          const r = readFail(name);
+          if (r && typeof r === 'object' && 'throw' in r) throw r.throw;
+          if (r) throw r;
+        }
+        return real(name);
+      };
       const s = new Emu.Session({ media: m, welcomeMenu: false });
       s.switchMachine('coco3');
       await s.ready();
@@ -360,8 +371,10 @@ const same = (a, b) => !!a && !!b && a.length === b.length && a.every((v, i) => 
     const secondOnly = await tries((name) => (name.startsWith('drivewire/') ? new MediaStoreError('not-found', `${name} is not in this store`) : PATH_FIRST(name, why)));
     check('an absent DriveWire image, then a refused floppy: the floppy\'s path is stripped',
       !secondOnly.ok && secondOnly.m === `b.dsk: ${why}`, secondOnly.m);
-    // a falsy throw on the first attempt must not pair its path with the second attempt's real reason
-    const falsyFirst = await tries((name) => (name.startsWith('drivewire/') ? undefined : PATH_FIRST(name, why)));
+    // a falsy throw on the first attempt must not pair its path with the second attempt's real reason. The falsy
+    // value is really thrown (see `tries`): if it merely fell through, this would re-run the not-found case above and
+    // pass whatever the pairing did.
+    const falsyFirst = await tries((name) => (name.startsWith('drivewire/') ? { throw: undefined } : PATH_FIRST(name, why)));
     check('a falsy first throw does not pair its path with the second attempt\'s reason',
       !falsyFirst.ok && falsyFirst.m === `b.dsk: ${why}`, falsyFirst.m);
   }

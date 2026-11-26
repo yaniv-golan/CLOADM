@@ -8,7 +8,7 @@ All notable changes to CLOADM are recorded here. The format follows
 
 Next version: 0.3.1 (the plugin and extension manifests carry it; `tests/plugin.test.js` keeps them in step).
 
-### Fixed
+#### Fixed
 
 - **A refused store read no longer names the item twice.** When the storage backend refused a snapshot save, a
   quick-save slot read or restore, or a NitrOS-9 boot, the message read like "mygame.dsk: `disks/mygame.dsk`:
