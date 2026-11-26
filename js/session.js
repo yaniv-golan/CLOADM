@@ -266,6 +266,7 @@ const SETTINGS = {
   keyboardJoystick: (v) => v === '1' || v === '0',
   tapeSound: (v) => v === '1' || v === '0',
   claudeFeatures: (v) => v === '1' || v === '0',   // Settings -> Claude features: On ('1', the default) / Off ('0')
+  oldTvWarmup: (v) => v === '1' || v === '0',      // Display -> Old TV warm-up: on ('1') / off ('0', the default)
   'display.settings': (v) => { const o = parseObject(v); return !!o && Object.entries(o).every(([k, x]) => Object.hasOwn(DISPLAY_VALID, k) && DISPLAY_VALID[k](x)); },
 };
 function validSetting(k, v) {
@@ -925,6 +926,7 @@ export class Session {
     m.reset(true);
     this.lastRate = this.cpuRate() && this.cpuRate().rate;
     this.emit('machine');
+    this.emit('poweron');   // (a machine switch switches the new one on: the page's Old TV warm-up, js/ui/warmup.js)
     if (menu) this.offerMenu(offer, 'switch');   // switched on without ROMs: the welcome menu
     return m;
   }
@@ -1478,6 +1480,8 @@ export class Session {
     m.reset(true);
     this.acc = 0;
     this.poweredOn();
+    // the machine on screen switched off and on: the page's Old TV warm-up (js/ui/warmup.js) may play
+    if (m === this.shownMachine) this.emit('poweron');
     if (menu) this.offerMenu(null, 'reset');
   }
   // ROMs removed from storage while m ran them come out now, at a switch off and on: its sockets are filled again
@@ -1777,6 +1781,10 @@ export class Session {
   // the welcome menu's own item stays, as it is the firmware's. Kept in the store, so it is in a settings export.
   get claudeFeatures() { return this.store.get('claudeFeatures') !== '0'; }
   setClaudeFeatures(on) { this.store.set('claudeFeatures', on ? '1' : '0'); this.emit('claudefeatures', !!on); }
+  // Display -> "Old TV warm-up": off (the default) or on. A look the page draws at a power-on (js/ui/warmup.js), never
+  // the machine's; kept in the store, so it is in a settings export, and no link sets it.
+  get oldTvWarmup() { return this.store.get('oldTvWarmup') === '1'; }
+  setOldTvWarmup(on) { this.store.set('oldTvWarmup', on ? '1' : '0'); this.emit('display'); }
   // settings export: every stored setting except ROMs and stored media files
   exportSettings() {
     const keys = (this.store.keys ? this.store.keys() : []).filter((k) => validSetting(k, this.store.get(k))).sort();

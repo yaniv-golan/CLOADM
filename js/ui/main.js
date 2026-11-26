@@ -39,6 +39,7 @@ import { setupPrinterPanel } from './printer-panel.js';
 import { setupSerialPanel } from './serial-panel.js';
 import { setupDriveWirePanel } from './drivewire-panel.js';
 import { setupDisplayPanel } from './display-panel.js';
+import { setupWarmup } from './warmup.js';
 import { setupSnapshotPanel } from './snapshot-panel.js';
 import { parseUrlConfig, linkFetchError, claudeOffered } from '../config.js';
 import { setupAskPopout } from './ask-popout.js';
@@ -169,6 +170,11 @@ const screen = setupScreen(page, { loadPrograms: media.loadPrograms, roms: romPa
 page.linkTouch = link.touch;
 page.touchKeys = setupTouchKeys(page, { input: screen.input });
 setupDisplayPanel(page);
+// the Old TV warm-up (Display tab, off by default): at this page start, and at each power-on after it. What the visit
+// was opened with is read now, before the link's moment takes the hash away (?demo=1 is read as it stands: no setting)
+const warmup = setupWarmup(page, { hash: location.hash, start: link.start, demo: new URLSearchParams(location.search).get('demo') === '1', embed: !!link.embed });
+window.emu.warmup = warmup;
+warmup.play();
 setupKeyHint(page);
 setupTypingLine(page);
 setupSettingsFile(page);

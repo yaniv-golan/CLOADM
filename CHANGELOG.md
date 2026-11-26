@@ -8,6 +8,19 @@ All notable changes to CLOADM are recorded here. The format follows
 
 Next version: 0.3.1 (the plugin and extension manifests carry it; `tests/plugin.test.js` keeps them in step).
 
+#### Added
+
+- **Old TV warm-up,** a Display checkbox, off by default and kept with the exported settings (no link sets it): "A
+  one-second warm-up when the machine is switched on. Never on shared links, with Reduce motion, or when the picture runs
+  slow." At the page's start, Switch off and on, and a machine switch, in the CRT view only, the page draws over the
+  screen for 1.0 s: a dot that becomes a horizontal line (0-150 ms), the line opening to full height over-bright
+  (150-450 ms), then the real picture fading from 40% to 100% (450-1000 ms); no noise, no roll, no hum. Never on a visit
+  from a share link (`#z=`, `#l=`) or a program page's start link (`start=liza`, `2048`, `minesweeper`, `wyrmfire`),
+  while the arrival card is up, with `?demo=1` or `?embed=1`, with Reduce motion or Save data, or when the picture ran
+  below 45 fps over the last 2 s. The machine is untouched: keys go to it through the overlay, its frames (and so share
+  cards, GIFs and screenshots) never hold it, and the regression hashes are unchanged (`js/video/warmup.js`,
+  `js/ui/warmup.js`; `tests/warmup.test.js` and the browser check's `warmup` group).
+
 ### 0.3.1
 
 #### Fixed
