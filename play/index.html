@@ -973,12 +973,15 @@
   body.touch-thumb #touchKeys #touchPad.tight .padthumb { width: 92px; height: 92px; }
   body.touch-thumb #touchKeys #touchPad.tight .thumbknob { width: 40px; height: 40px; margin: -20px 0 0 -20px; }
   body.touch-thumb #touchKeys #touchPad.tight .padkeys { grid-auto-rows: 44px; }
-  body.touch-thumb #touchKeys #touchPad.tight .tk { min-height: 44px; }
+  body.touch-thumb.touch-keys #touchKeys #touchPad.tight .tk { min-height: 44px; }
+  /* (the STRAFE and WEAPON keys exactly 44 px: their 18 px labels made them 48, and the screen needs the 4 px) */
+  body.touch-thumb #touchKeys #touchPad.tight .padgroup .tk { height: 44px; }
   body.touch-thumb #touchKeys #touchPad.tight .padbig { grid-template-columns: repeat(2, 56px); }
   body.touch-thumb #touchKeys #touchPad.tight .padbig .tk.big { min-height: 92px; border-radius: 28px; }
   /* (the captions stand on end beside their keys, so five keys of 44 px and more fit in 320 px) */
   body.touch-thumb #touchKeys #touchPad.tight .padgroups { gap: 8px; }
-  body.touch-thumb #touchKeys #touchPad.tight .padcap { writing-mode: vertical-rl; transform: rotate(180deg); font-size: 10px; line-height: 12px; }
+  body.touch-thumb #touchKeys #touchPad.tight .padcap { writing-mode: vertical-rl; transform: rotate(180deg); font-size: 9px; line-height: 11px;
+    letter-spacing: 0; max-height: 44px; overflow: hidden; }
   #touchKeys > .tkhalf { display: none; }
   #touchKeys > #touchStrip, #touchKeys > .tkcenter { grid-column: 1 / -1; }
   #touchKeys > #touchStick { grid-column: 1 / span 6; }
