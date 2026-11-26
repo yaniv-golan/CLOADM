@@ -16,7 +16,7 @@ const OURS = fs.readFileSync(path.join(__dirname, '../examples/liza.bin'));
 const standIn = (size, seed) => { const b = new Uint8Array(size); for (let i = 0; i < size; i++) b[i] = OURS[(i * 5 + seed) % OURS.length] ^ (i >> 8) & 0xFF; return b; };
 
 (async () => {
-  const { romLines, LONG_LINK_NOTE, forumText, forumDescription } = await import('../js/share-text.js');
+  const { romLines, longLinkNote, forumText, forumDescription } = await import('../js/share-text.js');
 
   // without ROMs: the built-in firmware, nothing needed, no line
   const bare = new Emu.Session({ store: Emu.memoryStore() });
@@ -46,7 +46,11 @@ const standIn = (size, seed) => { const b = new Uint8Array(size); for (let i = 0
   check('ROMs and a cartridge, no name known: "...and the same cartridge."', romLines('Dragon 64', [...roms, ...cart]).full === 'This link holds none of your ROMs or your cartridge. Whoever opens it needs their own Dragon 64 ROMs and the same cartridge.');
   check('the disk ROM counts as a ROM', romLines('Dragon 64', [{ kind: 'dos', label: 'the disk ROM' }]).full === mine.full);
   check('...and compact forms for a cartridge and for both', romLines('Dragon 64', cart).brief === 'Needs the same cartridge to open.' && romLines('Dragon 64', [...roms, ...cart]).brief === 'Needs your Dragon 64 ROMs and the same cartridge to open.');
-  check('the note under Copy link is the neutral sentence', LONG_LINK_NOTE === 'Copy link gives a long link: short links are only for moments that run without ROMs.');
+  check('the note under Copy link is the neutral sentence, naming what the moment is on: ROMs, a cartridge, or both',
+    longLinkNote(file.needs, 'roms') === 'Copy link gives a long link: short links are only for moments that run without ROMs.'
+    && longLinkNote(cart, 'cartridge') === 'Copy link gives a long link: short links are only for moments that run without a cartridge.'
+    && longLinkNote([...roms, ...cart], 'roms') === 'Copy link gives a long link: short links are only for moments that run without ROMs or a cartridge.'
+    && longLinkNote(null, 'roms') === 'Copy link gives a long link: short links are only for moments that run without ROMs.');
 
   // a cartridge alone (no BASIC ROMs): its image is the person's too
   const c = new Emu.Session({ store: Emu.memoryStore() });
@@ -74,7 +78,7 @@ const standIn = (size, seed) => { const b = new Uint8Array(size); for (let i = 0
 
   // the Share screen uses these, not copies of them
   const share = fs.readFileSync(path.join(__dirname, '../js/ui/share.js'), 'utf8');
-  check('js/ui/share.js writes the ROM line and the forum text from js/share-text.js', /from '\.\.\/share-text\.js'/.test(share) && /romLines\(name, file\.needs, session\.cartridgeName\(\)\)/.test(share) && /LONG_LINK_NOTE/.test(share) && /forumText\(/.test(share) && /const forumUrl = \(\) => \(short \? short\.url : captured\.untouched \? captured\.untouched\.page : captured\.link\)/.test(share)
+  check('js/ui/share.js writes the ROM line and the forum text from js/share-text.js', /from '\.\.\/share-text\.js'/.test(share) && /romLines\(name, file\.needs, session\.cartridgeName\(\)\)/.test(share) && /longLinkNote/.test(share) && /forumText\(/.test(share) && /const forumUrl = \(\) => \(short \? short\.url : captured\.untouched \? captured\.untouched\.page : captured\.link\)/.test(share)
     && /gifFromFrames\(/.test(share));
   // Save GIF follows the stage's WYRMFIRE rules (no recordingGuard of its own): setShots turns it off with the picture and
   // the clip, its click refuses the person's own WAD's level, and the Freedoom level's GIF carries the level's credit

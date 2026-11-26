@@ -4760,7 +4760,7 @@ async function snapshotChecks(browser, base, check) {
         fits: box.left >= 0 && box.right <= innerWidth, scrollX: document.documentElement.scrollWidth <= innerWidth };
     });
     check(`snapshot (${label}): Share shows the captured picture at true size, the title, a link, what it does and what a recipient needs`,
-      view.w === view.fw && view.h === view.fh && view.colours > 1 && view.title === "What they'll see first · Dragon 64" && /\/play\/\?machine=dragon64/.test(view.link)
+      view.w === view.fw && view.h === view.fh && view.colours > 1 && view.title === "This moment · Dragon 64" && /\/play\/\?machine=dragon64/.test(view.link)
       && view.recipient === 'Runs without ROMs, so it opens for anyone.' && view.note === 'Opens a copy of this Dragon 64 exactly as it is now: the screen, the program and everything in memory, including anything you typed. Changes you make later aren\'t in it.' && /^Download snapshot \(\d+ KB\)$/.test(view.kb) && view.fits && view.scrollX, JSON.stringify(Object.assign({}, view, { link: view.link.slice(0, 80) + '…' })));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, `share-${label}.png`) });
     // the screen area is hidden behind the share view and the page loop keeps running (paused): the screen keeps
@@ -17451,9 +17451,9 @@ async function shareScreenChecks(browser, base, check) {
   if (shotDir) await page.screenshot({ path: path.join(shotDir, 'share-r33-375x548.png') });
   check('share screen (375x548): on open, the primary Copy link and the preview switch are inside the viewport, the long link is folded away',
     first.copy && first.sw && !first.longOpen && !first.fieldShown, JSON.stringify(first));
-  check('share screen (375x548): the clarity copy is the fixed wording, exactly, and the caption is prefixed "What they\'ll see first · " with no " · CLOADM"',
+  check('share screen (375x548): the clarity copy is the fixed wording, exactly, and the caption is prefixed "This moment · " with no " · CLOADM"',
     first.note === 'Opens a copy of this Dragon 64 exactly as it is now: the screen, the program and everything in memory, including anything you typed. Changes you make later aren\'t in it.'
-    && first.cap === "What they'll see first · Dragon 64", JSON.stringify({ note: first.note, cap: first.cap }));
+    && first.cap === "This moment · Dragon 64", JSON.stringify({ note: first.note, cap: first.cap }));
   check('share screen (375x548): with the disclosures closed the page is at most 1.5 screens tall, the preview at most 30vh', first.closed && first.h <= first.vh * 1.5 && first.pic <= first.vh * 0.3 + 1, JSON.stringify(first));
   // the long link's Copy button, wholly inside the viewport at the sizes the page supports. A width sweep, because the
   // share screen is two columns above 860px and one below, and the short-link section made the two-column first screen
@@ -17650,7 +17650,7 @@ async function shareScreenChecks(browser, base, check) {
   }
 
   // The caption one line over the picture, and the ORDER in which it gives way: " · CLOADM" is gone from every mode,
-  // then the machine (or program) name ends in "…", and the prefix "What they'll see first · " is never the part cut.
+  // then the machine (or program) name ends in "…", and the prefix "This moment · " is never the part cut.
   // Every REAL name fits at 375 (prefix 121px in a 341px caption), so measuring only a fitting caption proves nothing
   // about the order: the order is only observable when the caption is too narrow. So the squeeze is forced for real -
   // the name span is given a long title, and the caption a width far below what prefix+name needs - and the ORDER is
@@ -17675,8 +17675,8 @@ async function shareScreenChecks(browser, base, check) {
         prefixShown: pre.checkVisibility(), prefixFlexGrow: getComputedStyle(pre).flexGrow, prefixFlexShrink: getComputedStyle(pre).flexShrink };
     });
     if (shotDir) await sp.screenshot({ path: path.join(shotDir, 'share-caption-375-coco3.png') });
-    check("share screen (375x548, CoCo 3): the caption reads \"What they'll see first · CoCo 3\" whole — the words, the rendered gap between them (>= 3px), no ' · CLOADM', and an untruncated unshrinkable prefix",
-      fits.prefixShown && fits.prefix === "What they'll see first ·" && /^What they'll see first ·\s*CoCo 3$/.test(fits.text) && fits.gap >= 3
+    check("share screen (375x548, CoCo 3): the caption reads \"This moment · CoCo 3\" whole — the words, the rendered gap between them (>= 3px), no ' · CLOADM', and an untruncated unshrinkable prefix",
+      fits.prefixShown && fits.prefix === "This moment ·" && /^This moment ·\s*CoCo 3$/.test(fits.text) && fits.gap >= 3
       && fits.prefixScroll <= fits.prefixClient && fits.prefixFlexGrow === '0' && fits.prefixFlexShrink === '0', JSON.stringify(fits));
     // THE SQUEEZE: a long name and a caption too narrow for both. What gives way must be the NAME, in that order.
     const sq = await sp.evaluate(() => {
@@ -18184,14 +18184,14 @@ async function shareChecks(browser, base, site, check) {
     await closeCtx(ctx2);
 
     // no ROMs in use: the screen is what it was. One ROM line, "Runs without ROMs, so it opens for anyone.", the caption
-    // "What they'll see first · <machine>", and nothing under Copy link (the ROM sentence and the long-link note below
+    // "This moment · <machine>", and nothing under Copy link (the ROM sentence and the long-link note below
     // appear exactly when ROMs are in use, with stand-ins)
     const noRoms = await page.evaluate(() => ({ line: document.getElementById('shareRomFull').textContent, brief: document.getElementById('shareRomBrief').textContent,
       cap: document.getElementById('shareTitle').innerText.replace(/\s+/g, ' ').trim(), note: document.getElementById('primaryNote').textContent,
       why: document.getElementById('primaryWhy').textContent, holds: document.getElementById('share').innerText.includes('holds none of your ROMs'),
       gone: !document.getElementById('shareRomFree') }));
     check(`share (${label}): without ROMs the ROM line, the caption and the area under Copy link are unchanged, and there is no second ROM line`,
-      noRoms.line === 'Runs without ROMs, so it opens for anyone.' && noRoms.brief === 'Runs without ROMs.' && /^What they'll see first · \S/.test(noRoms.cap)
+      noRoms.line === 'Runs without ROMs, so it opens for anyone.' && noRoms.brief === 'Runs without ROMs.' && /^This moment · \S/.test(noRoms.cap)
       && noRoms.note === '' && noRoms.why === '' && !noRoms.holds && noRoms.gone, JSON.stringify(noRoms));
     // Copy as text for a forum: BBCode and Markdown, each the link with one line, text only; it never uploads. With no
     // Copy-link tap yet it carries the long link and makes ZERO requests to s.cloadm.dev; once Copy link has made the
@@ -23508,11 +23508,12 @@ async function shortLinkChecks(browser, base, site, check) {
   await page.click('#shareBack');
   await page.evaluate(() => window.emu.session.load('stand-in.ccc', new Uint8Array(0x2000).fill(0x39)));
   await openShare(page);
-  const cart = await page.evaluate(() => ({ why: document.getElementById('primaryWhy').textContent, whyShown: document.getElementById('primaryWhy').checkVisibility(),
+  const cart = await page.evaluate(() => ({ why: document.getElementById('primaryWhy').textContent, note: document.getElementById('primaryNote').textContent, noteWarn: !!document.getElementById('primaryNote').closest('.warn') || document.getElementById('primaryNote').classList.contains('warn'), whyShown: document.getElementById('primaryWhy').checkVisibility(),
     swShown: document.getElementById('previewSwitch').checkVisibility(), terms: document.getElementById('shortTerms').checkVisibility(), long: /#z=/.test(document.getElementById('shareLink').value),
     copyEnabled: !document.getElementById('btnShareCopy').disabled }));
   await page.evaluate(() => { const d = document.getElementById('shareMore'); d.open = true; d.querySelector(':scope > :not(summary)').hidden = false; });
-  check('shortLink: a cartridge moment: no short-link terms or switch, the reason in view, the long link offered', cart.whyShown && /Not with a cartridge plugged in/.test(cart.why) && !cart.swShown && !cart.terms && cart.long && cart.copyEnabled, JSON.stringify(cart));
+  check('shortLink: a cartridge moment: no short-link terms or switch, the neutral note (not the orange refusal) in view, the long link offered',
+    cart.why === '' && cart.note === 'Copy link gives a long link: short links are only for moments that run without a cartridge.' && !cart.noteWarn && !cart.swShown && !cart.terms && cart.long && cart.copyEnabled, JSON.stringify(cart));
   if (shotDir) await page.screenshot({ path: path.join(shotDir, 'short-link-cartridge.png'), fullPage: true });
   // the ROM line of a moment on a cartridge alone, and on ROMs and a cartridge: one sentence each, in normal text, the
   // cartridge named by its file as the Library shows it (never a checksum)
@@ -23522,6 +23523,7 @@ async function shortLinkChecks(browser, base, site, check) {
       crc: /\b[0-9a-f]{8}\b/.test(document.getElementById('shareRomFull').textContent) };
   });
   const cartOnly = await romLine();
+  const noteNow = () => page.evaluate(() => ({ note: document.getElementById('primaryNote').textContent, why: document.getElementById('primaryWhy').textContent }));
   check('shortLink: a cartridge alone: "This link holds none of your cartridge. Whoever opens it needs the same cartridge: stand-in.ccc.", one sentence, no .warn, no checksum',
     cartOnly.full === 'This link holds none of your cartridge. Whoever opens it needs the same cartridge: stand-in.ccc.' && cartOnly.brief === 'Needs the same cartridge to open.'
     && cartOnly.sentences === 1 && cartOnly.lines === 1 && cartOnly.shown && !cartOnly.warn && !cartOnly.crc, JSON.stringify(cartOnly));
@@ -23532,6 +23534,9 @@ async function shortLinkChecks(browser, base, site, check) {
     s.load('stand-in.ccc', new Uint8Array(0x2000).fill(0x39)); }, romsBoth);
   await openShare(page);
   const both = await romLine();
+  const bothNote = await noteNow();
+  check('shortLink: ROMs and a cartridge: the note under Copy link names both, "…without ROMs or a cartridge.", and no orange reason',
+    bothNote.note === 'Copy link gives a long link: short links are only for moments that run without ROMs or a cartridge.' && bothNote.why === '', JSON.stringify(bothNote));
   check('shortLink: ROMs and a cartridge: "This link holds none of your ROMs or your cartridge. Whoever opens it needs their own Dragon 64 ROMs and the same cartridge: stand-in.ccc.", one sentence, no .warn',
     both.full === 'This link holds none of your ROMs or your cartridge. Whoever opens it needs their own Dragon 64 ROMs and the same cartridge: stand-in.ccc.'
     && both.brief === 'Needs your Dragon 64 ROMs and the same cartridge to open.' && both.sentences === 1 && both.lines === 1 && both.shown && !both.warn && !both.crc, JSON.stringify(both));

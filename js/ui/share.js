@@ -53,7 +53,7 @@
  */
 import { profiles } from '../machines/profiles.js';
 import { buildUrl } from '../config.js';
-import { romLines, LONG_LINK_NOTE, forumText } from '../share-text.js';
+import { romLines, longLinkNote, forumText } from '../share-text.js';
 import { gifFromFrames } from '../media/gif.js';
 import { CanvasPresenter } from '../video/canvas.js';
 import { textScreenFrame } from '../chips/mc6847.js';
@@ -308,9 +308,9 @@ export function setupShare(page, { linkStore }) {
   const ALWAYS_LONG = 'cloadm.alwaysLongLinks';   // this browser: every tap copies the long link
   const alwaysLong = () => { try { return localStorage.getItem(ALWAYS_LONG) === '1'; } catch (e) { return false; } };
   const setAlwaysLong = (on) => { try { if (on) localStorage.setItem(ALWAYS_LONG, '1'); else localStorage.removeItem(ALWAYS_LONG); } catch (e) { /* no storage: for this visit */ } $('shareAlwaysLong').checked = on; };
-  // the caption's words before the machine's name: a moment with no ROMs shows what the person opening it sees first;
-  // one on ROMs says only that it is a moment (what they see first is up to their own ROMs)
-  const CAPTION_PREFIX = "What they'll see first ·", ROM_CAPTION_PREFIX = 'This moment ·';
+  // the caption's words before the machine's name: a moment's is always "This moment ·", with ROMs or without; a program
+  // page's picture is the first lines LIST shows
+  const MOMENT_PREFIX = 'This moment ·', PROGRAM_PREFIX = "What they'll see first ·";
   const OFFLINE_LONG = "You're offline, so this is the long link: it works without any server.";
   const UNAVAILABLE_LONG = "Short links aren't available right now, so this is the long link: it works without any server.";
   // why the short link can't be made for this capture, or null: the Session's own refusals (ROMs, a cartridge,
@@ -358,7 +358,7 @@ export function setupShare(page, { linkStore }) {
   // page. " · CLOADM" is gone from every mode (it was the first thing to give way, and the page is CLOADM everywhere).
   function syncPrimary() {
     const mode = primaryMode(), why = mode === 'long' && !alwaysLong() ? shortWhy() : null;
-    $('sharePrefix').textContent = CAPTION_PREFIX;   // (the prefix of a moment on ROMs is its own, set below)
+    $('sharePrefix').textContent = programMode ? PROGRAM_PREFIX : MOMENT_PREFIX;
     const native = canNative();
     // a guardrail that leaves nothing to copy at all (Session.shareFile refused the moment: capture() keeps the view
     // open with `refusal` set): Copy goes dark, and the reason is inline. Every guardrail today still leaves the
@@ -401,7 +401,6 @@ export function setupShare(page, { linkStore }) {
       $('shareNote').textContent = !captured ? '' : captured.refusal ? '' : captured.file ? snapshotNote(captured.machine) : `The link starts NitrOS-9 fresh on the ${captured.machine}; it can't hold this exact moment.`;
       $('primaryNote').textContent = mode === 'long' && alwaysLong() ? 'Long link: nothing is uploaded.' : '';
       $('sharePrefix').hidden = false;
-      if (captured && captured.file && captured.file.needs.length) $('sharePrefix').textContent = ROM_CAPTION_PREFIX;
       $('shareRom').hidden = false;
       $('shareName').textContent = captured ? captured.machine : '';
     }
@@ -413,10 +412,11 @@ export function setupShare(page, { linkStore }) {
     // (it is WYRMFIRE's own disk controller), and the own-WAD sentence explains a choice this view never offers.
     // (the stage's program mode says its own reason in #programWhy; a WYRMFIRE moment is never in program mode --
     // captureWyrmfire returns before any program text exists -- so the two rules cannot both apply.)
-    // A moment on the person's own ROMs is the one refusal that is no warning: Copy link simply gives the long link, said
-    // in the neutral note under the buttons, not in orange. (NitrOS-9, a cartridge and the rest keep their own reasons.)
-    const onRoms = !!why && !programMode && !fallbackWhy && !!captured && !captured.wyrmfire && !captured.refusal && !session.longLinkRefusal() && session.romCodeIn() === 'roms';
-    if (onRoms) $('primaryNote').textContent = LONG_LINK_NOTE;
+    // A moment on the person's own ROMs or a cartridge is the one refusal that is no warning: Copy link simply gives the
+    // long link, said in the neutral note under the buttons, not in orange. (NitrOS-9 and the rest keep their own reasons.)
+    const code = session.romCodeIn();
+    const onRoms = !!why && !programMode && !fallbackWhy && !!captured && !captured.wyrmfire && !captured.refusal && !session.longLinkRefusal() && (code === 'roms' || code === 'cartridge');
+    if (onRoms) $('primaryNote').textContent = longLinkNote(captured.file && captured.file.needs, code);
     $('primaryWhy').textContent = captured && captured.wyrmfire ? ''
       : onRoms ? ''
       : programMode ? fallbackWhy || (why === 'offline' ? OFFLINE_LONG : '')

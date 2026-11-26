@@ -20,8 +20,14 @@ export const romLines = (machine, needs, cartridge = null) => {
   if (roms) return { full: `This link holds none of your ROMs. Whoever opens it needs their own ${machine} ROMs.`, brief: `Needs your ${machine} ROMs to open.` };
   return null;
 };
-// the note under Copy link when the moment is on ROMs, so the link it gives is the long one
-export const LONG_LINK_NOTE = 'Copy link gives a long link: short links are only for moments that run without ROMs.';
+// the note under Copy link when the moment is on ROMs, a cartridge or both, so the link it gives is the long one: said
+// in the same plain words for each (needs as for romLines; why is Session.romCodeIn, for a moment with no needs list)
+export const longLinkNote = (needs, why = null) => {
+  const list = needs || [];
+  const roms = list.some((x) => x.kind !== 'cartridge') || why === 'roms', cart = list.some((x) => x.kind === 'cartridge') || why === 'cartridge';
+  const what = roms && cart ? 'ROMs or a cartridge' : cart ? 'a cartridge' : 'ROMs';
+  return `Copy link gives a long link: short links are only for moments that run without ${what}.`;
+};
 
 // the description a forum post carries: what the link opens
 // (a bundled program's own page is the program from its start, not a moment: it says so)
