@@ -6390,7 +6390,7 @@ async function phoneWyrmPadChecks(browser, base, check) {
     await p.waitForTimeout(300);
     // the tap test: every key of the pad (and the stick) is what a finger at its centre hits, and no key lies on
     // the picture. -> { fails: ["NAME box=[l,t,r,b] hit=what the centre hit" | "NAME box=[...] intersects the
-    // picture's [..]"], keys: how many were tested, stick: the stick's box }
+    // picture's [..]"], keys: how many were tested, pic: the picture's box }
     const tap = () => p.evaluate(() => {
       const shown = (e) => e.checkVisibility() && e.getBoundingClientRect().width > 0 && e.getBoundingClientRect().height > 0;
       const pic = document.querySelector('#screen').getBoundingClientRect();
@@ -6411,7 +6411,7 @@ async function phoneWyrmPadChecks(browser, base, check) {
     });
     const exact = await tap();
     check('phone wyrmfire pad 653x280 (the reported state, ?start=wyrmfire, Dragon 64, Pad, touch): every pad key and the stick is what a tap at its centre hits, and none lies on the picture',
-      up && !exact.fails.length, `at 653x280, ${exact.keys} tested, picture ${JSON.stringify(exact.pic)}: ${exact.fails.join('; ')}`);
+      up && exact.keys > 0 && !exact.fails.length, `at 653x280, ${exact.keys} tested, picture ${JSON.stringify(exact.pic)}: ${exact.fails.join('; ')}`);
     if (shotDir) await p.screenshot({ path: path.join(shotDir, 'wyrmfire-pad-653x280-tap.png') });
     // the grid: resize through the sideways sizes (the pad stays up; the media queries re-apply per size)
     const sizes = [];
