@@ -266,7 +266,12 @@ quiet = true;
 // FIN: hand-worked values
 const FINS = [
   ['1', P.one, 1], ['10', P.ten, 2], ['.5', P.half, 2], ['-5', P.minus5, 2], ['1E1', P.ten, 3], ['100E-1', P.ten, 6],
-  ['0.25', exactPacked(1n, 4n), 4], ['1 0', P.ten, 3], ['1000000000', F.POWBYTES[9], 10], ['12345678912', exactPacked(12345678910n), 11], ['4294967296', exactPacked(4294967300n), 10], ['42949672951', exactPacked(42949672950n), 11],
+  ['0.25', exactPacked(1n, 4n), 4], ['1 0', P.ten, 3], ['1000000000', F.POWBYTES[9], 10], ['12345678912', exactPacked(12345678910n), 11], ['4294967296', exactPacked(4294967296n), 10], ['42949672951', exactPacked(42949672951n), 11],
+  // the first digit past 32 bits is kept, then the whole rounded: 2^32 exactly, as the original reads it [BB bb9
+  // rnd-args]; 2^32 + 1 is a tie (up); a tenth digit after the point (2^32 / 10, one rounding); an eleventh only a
+  // place: 12345678901 rounded to 32 bits (12345678900), x 10
+  ['4294967297', exactPacked(4294967298n), 10], ['42949672959', exactPacked(42949672959n), 11],
+  ['429496729.6', exactPacked(4294967296n, 10n), 11], ['123456789012', exactPacked(123456789000n), 12],
   ['3:', P.three, 1], ['1E', P.one, 2], ['1.5.5', exactPacked(3n, 2n), 3], ['0', P.zero, 1],
 ];
 quiet = false;

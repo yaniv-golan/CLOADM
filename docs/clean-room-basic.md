@@ -309,36 +309,84 @@ programs crunch and list correctly, and give `?FC ERROR` (to be decided, open qu
   the black-box case `rnd-seq` (bb8) recorded (open question 5): a 32-bit seed at `$0116-$0119`, high byte first;
   each step makes it seed x `$40E64DAB` + `$05B0658B` (mod 2^32), with `MULMAN`'s 64-bit product. `RND(0)` is the new
   seed / 2^32 with the product's bits 40-47 as the 8 bits below it, normalised and then rounded as any result is;
-  `RND(n)` for n of 1 and up takes one step and gives `INT(that fraction x n) + 1`; `RND(-n)` makes the seed the
-  argument's four mantissa bytes as unpacked (so -1 and -2 give the same sequence) and then gives what `RND(0)` gives.
-  A cold start sets the seed to `$4FC75259`. All 434 recorded values and their five bytes are reproduced
-  (`tests/basic-rnd.test.js`).
+  `RND(n)` for n above 0 takes one step and gives `INT(f x INT(n) + 1)`: n made whole first, f rounded to 32 bits,
+  the product rounded before the 1 is added, the sum rounded before `INT` (bb9 `rnd-args`); `RND(-n)` makes the seed
+  the argument's four mantissa bytes as unpacked (so -1 and -2 give the same sequence) and then gives what `RND(0)`
+  gives; an exponent byte of 0 is 0 whatever its sign bit (bb9 `rnd-neg`). A cold start sets the seed to `$4FC75259`
+  and `$0115`, which `RND` neither reads nor writes, to 128 (bb9 `rnd-state`). All 434 values of bb8 and the 171 of
+  bb9 `rnd-args` are reproduced with their five bytes and the seed after (`tests/basic-rnd.test.js`), the arguments
+  as the original reads them (below).
 
-  **What the records settle, and what the next batch (bb9) asks the original.** Every conclusion comes from a
-  black-box record ([BB]: the case and batch named); the original's code is never looked at. The cases `rnd-args`,
-  `rnd-neg`, `rnd-state`, `rnd-long` and `rnd-timing` are written and run on ours; until bb9's record is back, the
-  rows marked *open* are ours only and are not claims about the original. Each case prints the result's five bytes
-  as stored and the bytes at `$0115-$0119` after the call, not only the printed value. The seeds the cases set are
-  chosen by undoing a step of the inferred generator, so the next state is a chosen value.
+  **What the records settle.** Every conclusion comes from a black-box record ([BB]: the case and batch named); the
+  original's code is never looked at. The cases `rnd-args`, `rnd-neg`, `rnd-state`, `rnd-long` and `rnd-timing`
+  (bb9) print the result's five bytes as stored and the bytes at `$0115-$0119` after each call, not only the printed
+  value. The seeds the cases set are chosen by undoing a step of the inferred generator, so the next state is a
+  chosen value.
 
-  | # | Question | How it is asked | The record so far | Ours | Test on ours |
+  | # | Question | How it is asked | The record | Ours | Test on ours |
   |---|---|---|---|---|---|
-  | 1, 2 | Whole against fractional arguments; arguments between 0 and 1 | `rnd-args`: 19 arguments (0, 1, 2, 3, 6, .1, .5, .999, 1.1, 1.5, 2.5, 3.9, 2.999999, 65535, 1E9, 2^32-1, 2^32, 1E10, 1E38) from 9 chosen seeds | `RND(1)` is always 1; `RND(6)`, `RND(100)`, `RND(65535)` match `INT(f x n) + 1` (bb8 `rnd-seq`). Fractional: *open* | `INT(f x n) + 1` with n as given, so `RND(.5)` is 1 and `RND(2.5)` can be 3 | `rnd-args` on ours |
-  | 3, 4 | Is n made whole before scaling; the order of x, `INT` and + 1 | `rnd-args`: seeds whose fraction is just at 1/3, 2/3, .8 and .4 (where `RND(2.5)` against `RND(2)`, and `x 3` rounding to a whole number, tell the orders apart), and n near 2^32 and beyond float precision | *open* | as above, the product rounded as any product | `rnd-args` on ours |
-  | 5 | Does every argument take exactly one step | the seed bytes after each call in `rnd-args`, `rnd-neg` | one step for 0, 1, 6, 100, 65535 (bb8 `rnd-seq`); others *open* | one step for every argument | `rnd-args`, `rnd-neg` on ours |
-  | 6-8 | What of a negative argument sets the sequence; powers of two; repeats | `rnd-neg`: -1, -2, -4, -.5 (one mantissa), -3, -1.5, -6 (another), -12345 twice, -24690, -1E-30, -1E30, -1.00000001, -65535, -(2^32-1), -.999999999, each with the seed after and the next two values | -1 and -2 give one sequence; -1 repeats; -12345 seeds `$C0E40000` (bb8 `rnd-seq`); the rest *open* | the mantissa's four bytes as unpacked (top bit set); sign and exponent play no part | `tests/basic-rnd.test.js` (-1, -12345); `rnd-neg` on ours |
-  | 9 | Zero in its forms | `rnd-neg`: `RND(0)`, `RND(-0)`, `RND(1-1)`, a variable with its exponent byte POKEd to 0 (mantissa left), and the same with its sign bit set | *open* | a zero exponent with the sign bit set counts as negative (reseeds) | `rnd-neg` on ours |
-  | 10-13 | `$0115-$0119` at a cold start; which bytes take part; which RND writes; each changed alone | `rnd-state`: the five bytes and whether address 4 is 0 at a cold start; each of `$0115-$0119` changed alone before an `RND(0)` | the seed is `$0116-$0119`; one `RND(0)` changes 278-281 and 4, not 277 (bb8 `rnd-seq`, addresses only) | `$0115` unused; 278-281 all take part | `tests/basic-rnd.test.js`, `tests/basic-ram.test.js`; `rnd-state` on ours |
-  | 14 | NEW, CLEAR, RUN, warm reset | `rnd-state`: the seed set by POKE, then read after NEW, CLEAR and as RUN starts | *open*. A warm reset is not asked: the harness has no reset directive, and a reset could put ROM text on the screen | none of them touches the seed | `rnd-state` on ours |
-  | 15, 16, 18 | The five bytes, the guard byte, rounding and normalisation across arguments | every case above prints the five bytes | the 434 values of bb8 `rnd-seq`, bytes and all | the same 434 | `tests/basic-rnd.test.js` |
-  | 17 | A next state with leading zero bytes, or 0 | `rnd-args`: next states `$00123456`, `$00001234`, `$00000012` and 0 | *open* | normalised with the guard byte shifted in; a next state of 0 with a guard of `$25` gives 3.3651304E-11 | `tests/basic-rnd.test.js` (CPU, 15 chosen seeds) |
-  | 19 | Time against seed and argument | `rnd-timing`: 500 passes each of `RND(0)`, `RND(6)`, `RND(1E9)`, `RND(.5)`, and `RND(-1)`, `RND(-3)`, `RND(-1.99999999)` (fixed seeds), in fields | *open* | 133, 171, 189, 165, 131, 132, 135 fields | `rnd-timing` on ours |
-  | 20 | Other RAM or workspace changes | bb8 `rnd-seq` (addresses only); `rnd-state`: address 4 set to 77, then whether `RND(0)` changes it and makes it 0 | the original's `RND` changes address 4, to 0 in the one call seen (bb8); the floating-point workspace it changes is shared with `SIN` (addresses only, never values) | address 4 not touched (it is part of ours' `DATA` pointer): a known difference, until `rnd-state` says what it is | `rnd-state` on ours |
+  | 1, 2 | Whole against fractional arguments; arguments between 0 and 1 | `rnd-args`: 19 arguments (0, 1, 2, 3, 6, .1, .5, .999, 1.1, 1.5, 2.5, 3.9, 2.999999, 65535, 1E9, 2^32-1, 2^32, 1E10, 1E38) from 9 chosen seeds | n is made whole first: at f = .8, `RND(1.5)` is 1, `RND(2.5)` and `RND(2.999999)` 2, `RND(3.9)` 3; `RND(.1)`, `RND(.5)` and `RND(.999)` are 1 from every seed (bb9 `rnd-args`) | the same (before: n as given, so `RND(1.5)` was 2 at f = .8) | `tests/basic-rnd.test.js` (CPU: all 171 values) |
+  | 3, 4 | The order of x, `INT` and + 1 | `rnd-args`: seeds whose fraction is just at 1/3, 2/3, .8, .4 and 1 - 2^-32, and n near 2^32 and beyond float precision | `INT(f x INT(n) + 1)`, each step rounded to 32 bits: at f = 1 - 2^-32 `RND(1)` is 2, `RND(2)` 3, `RND(3)` 3 and `RND(1E10)` 1E10 - 4; at f = 2/3 `RND(1E10)` is 6666666668 (bb9 `rnd-args`). Every one of the 171 values fits that and no other order tried | the same (before: `INT(f x n) + 1`, 19 values off) | as above |
+  | 5 | Does every argument take exactly one step | the seed bytes after each call in `rnd-args`, `rnd-neg` | one step for every argument, whole, fractional, below 1 or negative (bb9) | one step | as above |
+  | 6-8 | What of a negative argument sets the sequence; powers of two; repeats | `rnd-neg`: -1, -2, -4, -.5, -3, -1.5, -6, -12345 twice, -24690, -1E-30, -1E30, -1.00000001, -65535, -(2^32-1), -.999999999, each with the seed after and the next two values | the mantissa's four bytes, top bit set: -1, -2, -4 and -.5 give one sequence, -3, -1.5 and -6 another, -12345 and -24690 a third; a repeat repeats (bb9 `rnd-neg`). The seeds -1E-30, -1E30, -1.00000001 and -.999999999 leave show the original reads them one or two units above the nearest (below) | the same mantissas for the others; those four read to the nearest, so their lines differ | `tests/basic-rnd.test.js` (CPU: the 16, with the original's readings of the four) |
+  | 9 | Zero in its forms | `rnd-neg`: `RND(0)`, `RND(-0)`, `RND(1-1)`, a variable with its exponent byte POKEd to 0 (mantissa left), and the same with its sign bit set | all five are `RND(0)`: no reseed, even with the sign bit set (bb9 `rnd-neg`) | the same (before: the sign bit set reseeded) | as above |
+  | 10-13 | `$0115-$0119` at a cold start; which bytes take part; which `RND` writes; each changed alone | `rnd-state` | 128 79 199 82 89 at a cold start; `$0115` POKEd to 85 changes neither the result nor itself; each of `$0116-$0119` changed alone changes the result; `RND` writes 278-281 only (bb9 `rnd-state`) | the same (before: `$0115` was 0) | `tests/basic-rnd.test.js` (the case replayed), `tests/basic-ram.test.js` (`RNDX` at `$0115`) |
+  | 14 | NEW, CLEAR, RUN, warm reset | `rnd-state`: the seed set by POKE, then read after NEW, CLEAR and as RUN starts | none of them touches `$0115-$0119` (bb9). A warm reset is not asked: the harness has no reset directive | the same | as above |
+  | 15, 16, 18 | The five bytes, the guard byte, rounding and normalisation across arguments | every case above prints the five bytes | the 434 values of bb8 `rnd-seq` and the 171 of bb9 `rnd-args` | the same | `tests/basic-rnd.test.js` |
+  | 17 | A next state with leading zero bytes, or 0 | `rnd-args`: next states `$00123456`, `$00001234`, `$00000012` and 0 | normalised with the guard byte shifted in: 2.77777753E-04, 1.08521454E-06, 4.33556125E-09 and 3.3651304E-11 (94,20,0,0,0) | the same | `tests/basic-rnd.test.js` |
+  | 19 | Time against seed and argument | `rnd-timing`: 500 passes each of `RND(0)`, `RND(6)`, `RND(1E9)`, `RND(.5)`, and `RND(-1)`, `RND(-3)`, `RND(-1.99999999)` (fixed seeds), in fields | 162, 299, 276, 217, 115, 116, 178 (bb9) | *open*: 133, 208, 209, 168, 131, 132, 135 (before bb9's value fixes 133, 171, 189, 165, 131, 132, 135): faster on five, slower after a reseed. Left until bb10 pins the cost of a product and of `INT` (below) | none yet |
+  | 20 | Other RAM or workspace changes | bb8 `rnd-seq` (addresses only); `rnd-state`: address 4 set to 77, then whether `RND(0)` changes it | address 4 is 0 at a cold start and `RND(0)` leaves the 77 (bb9); bb8's change of it came from something else in that case | the same | `rnd-state` replayed |
+
+  **Reading a number, as `RND` showed it** (bb9 `rnd-args`, `rnd-neg`). `RND(-x)` seeds from x's mantissa, so it shows
+  how the original read x, and `RND(n)` for large n shows it too. The original reads 4294967296 as 2^32 exactly: ours
+  dropped its tenth digit, rounding the nine before it up (4294967300), and now keeps the first digit past 32 bits
+  as well, the whole rounded when next used (`FIN`; later digits still only count as places, not evidenced). The
+  original reads 1E38 as `$96769953` (two units above the nearest), 1E30 as `$C9F2C9CF` (two above), 1E-30 as
+  `$A2425FF8`, 1.00000001 as `$80000016` and .999999999 as `$FFFFFFFD` (one above each): exactly what one rounded
+  product or quotient by 10 a place gives, for all five. Ours scales by steps of 1E9 and then one exact power of ten,
+  and reads each to the nearest, so those 13 lines of `rnd-args` and `rnd-neg` still differ. Reading that way too
+  would match them, but a printed number read back would then move by two in the ninth digit where its reading takes
+  15 steps or more (`tests/basic-fp.test.js` holds it to one): open question 11, for a decision.
+
+  **Its time: open** (bb9 `rnd-timing`, 500 passes, in fields, each loop started just after a field begins). Ours is
+  not changed for it yet: that waits for bb10's probes of the original's product and `INT`, not for a model fitted to
+  seven loops. What the seven say: the original's step costs more the more of the seed's bytes and bits are not 0.
+  `RND(-1)`, `RND(-3)` and `RND(-1.99999999)` seed `$80000000`, `$C0000000` and `$FFFFFFEA` (1, 1 and 4 bytes; 1, 2
+  and 29 bits) and take 115, 116 and 178 fields, `RND(0)` from the cold-start sequence (4 bytes and 16 bits on
+  average) 162. With the loop's own time taken as ours (3,229 cycles a pass, the same within 18 cycles in all seven,
+  from ours' fields less `RND`'s cycles counted on the CPU), that fits about 410 cycles a byte that is not 0 and 36 a
+  bit set, 320 more for each call and 90 for a reseed (each figure good to a field's 36 cycles a pass). `RND(n)`
+  adds about 4,870, 4,060 and 1,960 cycles for n = 6, 1E9 and .5: a product whose time hangs on f's bytes and bits
+  in the same way (some 1,070 for a random f) and `INT`s that take about 16 cycles a place they drop (`RND(6)`'s two
+  drop about 59 places, `RND(1E9)`'s five, so `RND(1E9)` is the faster although its n has more bits), plus about
+  200; `RND(.5)` (n made 0) has no product. Scanning n instead of f in the product does not fit: `RND(.5)` would need
+  a negative constant. A trial build that waited so (the seed in `MULMAN`'s skipped-row operand, waits for each byte
+  and bit of the seed and of f and for each place `INT` drops) took 163, 303, 279, 219, 116, 119 and 181 fields: the
+  original's or up to 3% more on all seven. Its constants are as many as the loops for `RND(n)`, so nothing checks
+  them beyond those loops.
+
+  | Loop (500 passes) | The original | Ours before bb9 | Ours now | The trial build (not kept) |
+  |---|---|---|---|---|
+  | `R=RND(0)` | 162 | 133 | 133 | 163 |
+  | `R=RND(6)` | 299 | 171 | 208 | 303 |
+  | `R=RND(1E9)` | 276 | 189 | 209 | 279 |
+  | `R=RND(.5)` | 217 | 165 | 168 | 219 |
+  | `R=RND(-1)` | 115 | 131 | 131 | 116 |
+  | `R=RND(-3)` | 116 | 132 | 132 | 119 |
+  | `R=RND(-1.99999999)` | 178 | 135 | 135 | 181 |
+
+  ("Now" is slower for `RND(n)` than before only because `INT(n)` and the + 1 before `INT` are new steps.) The bb10
+  probes that would pin the original's general cost, all 500 passes in fields as `rnd-timing`: `X=A*B` with A and B
+  of 1, 2, 3 and 4 bytes not 0 and of few and many bits set, both ways round (which operand is scanned, and whether
+  `FMUL` costs so outside `RND`); `X=INT(A)` for A of 1.5, 1000.5, 1E6+.5 and 1E9+.5 (a place's cost); `R=RND(4)`,
+  `RND(5)`, `RND(7)`, `RND(255)`, `RND(256)` and `RND(65535)` (the same places, different bits); and `R=RND(A)` with A
+  of -1, -1.5, -1.75 and -1.875 (one more seed bit each).
 
   Long runs: `rnd-long` folds the five bytes of 10,000 consecutive `RND(0)` from a cold start, and 2,000 each from
-  the seeds 0 and `$FFFFFFFF`, into checksums (ours, before the digit wait of section 2: 34106, 15853, 20360; with
-  it, ours and the original both reach the case's `#timeout` after the first block); `tests/basic-rnd.test.js` checks 10,000
-  consecutive calls on the CPU against the model, byte for byte. Only the Dragon 64's 32K-mode BASIC is in scope (open
+  the seeds 0 and `$FFFFFFFF`, into checksums. The original reached the case's `#timeout` after its first block
+  (bb9): its five checksums (20039, 64791, 3300, 2091, 34106) and seed bytes are ours, and the case's `#timeout` is
+  now 6,000 seconds. `tests/basic-rnd.test.js` checks those 10,000 calls on the CPU against the model, byte for
+  byte, and folds them into the original's checksums. Only the Dragon 64's 32K-mode BASIC is in scope (open
   question 7: the 64K mode is out of scope); the harness runs the Dragon 64 only, so a Dragon 32 comparison would
   need `run.js` to load a Dragon 32 and a Dragon 32 dump on the maintainer's machine (not done).
 
@@ -591,8 +639,9 @@ All answered by the project owner and kept here with the decision, except where 
    matched against every byte of the computation: bits 40-47 of the product fit all of them. The cold-start seed is
    the first value's step undone; `RND(1)` and the next `RND(0)` values show that `RND(n)` takes one step; `RND(-1)`
    and `RND(-2)` give the same values, the step from `$80000000`, and `RND(-12345)` the step from `$C0E40000`, the
-   argument's mantissa. What the original keeps at address 4 (which one `RND` also changed, to 0) is not the seed and
-   is not reproduced.
+   argument's mantissa. bb9 settled the rest (section 5): how `RND(n)` scales, the zero forms, `$0115` (128 from a
+   cold start, never used by `RND`) and recorded its time (not yet matched); address 4, which bb8 saw change during one `RND`, is left alone by
+   `RND(0)` in bb9 `rnd-state`.
 6. **P2 keywords in P1. Decided:** they crunch, `LIST` and save correctly; at run time they give whatever error the
    black-box shows, `?FC ERROR` until then.
 7. **The 64K-mode BASIC. Decided:** out of scope (32K mode only).
@@ -624,6 +673,12 @@ All answered by the project owner and kept here with the decision, except where 
    flags' rows match); the pause after a namefile when its name is shown (ours about 0.2 field, the original's
    0.13-0.15 in direct mode as in a program) and the search's clear between files (ours about 0.17 field quicker);
    what `CLEAR` and `MOTOR` do to an open file (no record); `CLOAD` with an output file open (ours: forgotten).
+11. **Reading numbers by steps of ten. Open.** bb9 shows the original reads 1E38, 1E30, 1E-30, 1.00000001 and
+   .999999999 one or two units above the nearest, as one rounded product or quotient by 10 a place gives (section 5;
+   provenance item 54). Ours reads them to the nearest (steps of 1E9, then one exact power of ten), so 13 lines of
+   `rnd-args` and `rnd-neg` differ. Reading by steps of ten matches all five, but then a printed number read back can
+   move by two in the ninth digit where the reading takes 15 steps or more, where `tests/basic-fp.test.js` holds
+   every round trip to one: that check would have to change, which is for the project to decide.
 
 ## 11. Provenance log
 
@@ -644,7 +699,7 @@ Every behaviour fact the ROM relies on, with its source. A fact without a source
 | 11 | SHIFT-0 toggles lower case, shown as inverse; SHIFT-@ pauses; BREAK stops; CLEAR clears the screen; left arrow erases | [UM] |
 | 12 | Number printing: leading space or `-`, trailing space, nine digits, E notation | [UM]; the exact boundaries from [BB] |
 | 14 | The numeric functions: Taylor series after a reduction (Cody-Waite for `SIN` and `COS`; base 2 for `LOG` and `EXP`: `LOG` is (ln m / ln 2 + e) ln 2, `EXP` 2^n e^((t - n) ln 2) for t = x / ln 2 rounded, n = `INT(t)`, which gives the real's `SQR(1E10)`, `SQR(144)`, `SQR(65536)` and `EXP(11.5129255)` bit for bit); the constants (pi, ln 2, sqrt 3 to 36 digits, 1/k!) | [OWN], `tools/basic-consts.js`; the base 2 from [BB] bb2, `fn-sqr-bits`; measured against the exact values (`tests/basic-math.test.js`: within 2 units in the last place, `EXP` within 3 + abs(x) (the rounding of t, as the real's), `^` within 64) |
-| 15 | `RND`: the seed (`$0116-$0119`, high byte first; `$4FC75259` at a cold start) becomes seed x `$40E64DAB` + `$05B0658B` mod 2^32; `RND(0)` is it / 2^32 with the product's bits 40-47 below it, normalised and rounded; `RND(n)`, n of 1 and up, one step then `INT(x n) + 1`; `RND(-n)` seeds from the argument's mantissa bytes, then as `RND(0)` | [BB] bb8 `rnd-seq`: inferred by fitting its 434 values and bytes and the seed bytes it saw change (open question 5); `tests/basic-rnd.test.js` |
+| 15 | `RND`: the seed (`$0116-$0119`, high byte first; `$4FC75259` at a cold start) becomes seed x `$40E64DAB` + `$05B0658B` mod 2^32; `RND(0)` is it / 2^32 with the product's bits 40-47 below it, normalised and rounded; `RND(n)`, n above 0, one step then `INT(x INT(n) + 1)`, each step rounded; `RND(-n)` seeds from the argument's mantissa bytes, then as `RND(0)`; an exponent byte of 0 is 0 whatever its sign | [BB] bb8 `rnd-seq`: inferred by fitting its 434 values and bytes and the seed bytes it saw change (open question 5); bb9 `rnd-args`, `rnd-neg` (2026-11-27): the argument made whole, the order and the roundings fitted to its 171 values and bytes, the zero forms; `tests/basic-rnd.test.js` |
 | 13 | The floating-point algorithms (rounding, guard bits, division, scaling by powers of ten). Printing scales a number into [1E8, 1E9) by steps of 1E9 from 1E17 down and below 1, then by single steps of 10, each rounded: the real prints its `SQR(1E10)`, 1E5 - 6 x 2^-15, as `99999.9999`, which four rounded steps give (one product by 1E4 gives `99999.9998`); a number printed and read back can then print one unit away in the ninth digit | [OWN], [MBF]; the steps from [BB] bb1, `fn-math` and bb2, `fn-sqr-bits`; tested bit for bit against `tests/basic/fpmodel.js` (`tests/basic-fp.test.js`) |
 | 16 | The cassette statements and their syntax: `CSAVE "name"[,A]`, `CLOAD ["name"]`, `CSAVEM "name",start,end,exec`, `CLOADM ["name"[,offset]]`, `SKIPF ["name"]`, `MOTOR ON` / `OFF`; `?IO ERROR` for a tape that will not read | [UM] |
 | 17 | The tape's bits: one full cycle per bit, 1200 Hz for 0 and 2400 Hz for 1, least significant bit first | [FMT] published descriptions of the Dragon / CoCo cassette format; the same in the repository's tape code (`js/media/cassette.js`, run as the test oracle) |
@@ -682,6 +737,9 @@ Every behaviour fact the ROM relies on, with its source. A fact without a source
 | 49 | Cassette data files: `OPEN "O"` writes a type-1 namefile (ASCII and gaps `$FF`, exec and load 0 on a fresh machine), the records go in a data block written at `CLOSE` with an end-of-file block, the motor run for each of the three; a number printed to the tape has no space after it and `;` and `,` end the record (`HELLO`, CR, ` 42`, CR); `OPEN "I"` shows nothing on the screen; `INPUT #-1,A$` takes a whole record with its commas, leading spaces dropped, `LINE INPUT #-1` keeps them; `EOF(-1)` ends the loop after the last record; then `?IE ERROR`; `PRINT #-1` with no file `?NO ERROR`, `INPUT #-1` in direct mode `?ID ERROR`; `CLOSE` closes it (`CLOSE #-1`, `CLOSE -1`); the forms without `#` | [UM] for the statements; [BB] bb4 `cas-files` (2026-11-25: its transcript, block summaries, data hash and motor runs); the rest in row 51 |
 | 50 | The motor and the display while reading: the motor stops after every namefile read and starts again 0.13-0.15 field later, and after each block of a gapped file (the last namefile's gap flag) passed, skipped or loaded, not of machine code or a tokenised program; a text program's lines take about a field each between its blocks; a bad block in a file passed over is `?IO ERROR`; a line without a number is `?DS ERROR` when the next line is begun (at once with more in its block), the lines before it kept; in a running program `CLOAD`, `CLOADM` and `SKIPF` show nothing (no clear, no letter, no name, no blink: a text `CLOAD` blinks again for the blocks after its first, the program gone) and `CLOAD` ends at `OK`, the others going on with the statement; `CLOADM`'s exec address at `$9D-$9E`, its offset added, the namefile buffer at `$01DA`; `OPEN`, `CSAVE` and `SKIPF` refuse a file left open with `?AO ERROR`, which leaves it open, while `CLOAD` goes ahead; `EOF(-1)` of the file `?IO ERROR` left open is -1 | [BB] bb8 `cas-multi`, `cas-left-open`, `cas-in-program`, `cas-cloadm2` (2026-11-26: transcripts, `clears`, top-row flags, motor runs) |
 | 51 | Data files: no blink and nothing on the screen, reading or writing; `OPEN "O"` builds its namefile in the block buffer over the last record written (exec and load its bytes 11-14); `RUN` closes an open file as `CLOSE` does, `NEW`, an error and `?AO ERROR` do not; `OPEN` to `#0` or `#-2` is no error and writes nothing; `INPUT #-1` with items left in a record drops them, no `?EXTRA IGNORED`; a bad number `?FD ERROR`; `OPEN "I"` of machine code or of a tokenised program `?FM ERROR`, of a program as text read as records; `EOF` and `INPUT #-1` of a file open for output `?FM ERROR`; a second `OPEN` `?AO ERROR` | [BB] bb8 `cas-data2`, `cas-data-errors` (2026-11-26: transcripts, block summaries with the namefiles' fields, data hashes, motor runs) |
+| 52 | `$0115` is 128 at a cold start; `RND` neither reads nor writes it, and NEW, CLEAR and RUN leave `$0115-$0119` as they are | [BB] bb9 `rnd-state` (2026-11-27) |
+| 53 | `RND`'s time grows with the seed's bytes and bits that are not 0: 500 passes of `R=RND(A)`, A = 0, 6, 1E9, .5, -1, -3, -1.99999999, take 162, 299, 276, 217, 115, 116, 178 fields (ours not yet matched: section 5) | [BB] bb9 `rnd-timing` (2026-11-27) |
+| 54 | Reading a number: 4294967296 is 2^32 exactly; 1E38, 1E30, 1E-30, 1.00000001 and .999999999 are one or two units above the nearest, as one rounded product or quotient by 10 a place gives (ours reads 4294967296 so now, the others not yet: open question 11) | [BB] bb9 `rnd-args` (`RND(4294967296)`, `RND(1E38)` from 9 seeds), `rnd-neg` (the seed each negative argument leaves) (2026-11-27) |
 
 The log grows with every milestone; black-box facts are added with the date of the run they came from.
 

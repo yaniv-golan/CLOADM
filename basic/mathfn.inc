@@ -400,10 +400,14 @@ PW9     RTS
 
 * RND(x): the next number of the generator, seed = seed x $40E64DAB + $05B0658B (mod 2^32), the original's sequence
 * [BB bb8 rnd-seq: inferred from its values, docs/clean-room-basic.md section 5]. RND(0) gives the new seed as a
-* fraction from 0 to below 1, the product's bits 40-47 its guard byte (rounded when stored); RND(n) for n of 1 and up
-* a whole number from 1 to n, from one step [UM; the step BB]; a negative argument makes the seed its mantissa's
-* four bytes, then gives what RND(0) gives [BB].
+* fraction from 0 to below 1, the product's bits 40-47 its guard byte (rounded when stored); a negative argument
+* makes the seed its mantissa's four bytes, then gives what RND(0) gives [BB]; an exponent byte of 0 is 0 whatever
+* its sign bit [BB bb9 rnd-neg]. RND(n) for n above 0 takes one step and gives INT(f x INT(n) + 1), f the fraction
+* rounded, the product rounded before the 1 is added, the sum rounded before INT: RND(1.5) is 1 where f x 1.5 is
+* 1.2, RND(1) is 2 where f is 1 - 2^-32 [BB bb9 rnd-args].
 RND     JSR     <ZFNARGN
+RNDF    TST     <FACEXP         ; (RNDF: RND of FAC)
+        BEQ     RN1             ; 0, whatever its sign [BB bb9 rnd-neg]
         TST     <FACSGN
         BPL     RN1
         LDD     <FACM           ; reseed
@@ -440,8 +444,10 @@ RN1     JSR     <ZFPRUN
         LDX     #FPT5
         TST     ,X
         BEQ     RN9             ; RND(0)
-        JSR     FMULX           ; x n, rounded down, + 1
-        JSR     FINT
-        JSR     <ZFPRUN
-        FCB     F_ADD+K_ONE,0
+        JSR     <ZFPRUN         ; f, rounded; n
+        FCB     F_STO+4,F_LD+5,0
+        JSR     FTRUNC          ; INT(n)
+        JSR     <ZFPRUN         ; x f, + 1
+        FCB     F_MUL+4,F_ADD+K_ONE,0
+        JMP     FTRUNC
 RN9     RTS

@@ -39,7 +39,9 @@ BLKBUF  EQU     $01DA           ; the cassette's block buffer, 255 bytes below t
 
 * ---------------- system RAM, $0100-$01FF: laid out one after another, so nothing overlaps ----------------
 * (TIMER falls at $0112 after the vectors; the regions SYSR0 and SYSR1 end at or below the fixed addresses after
-* them, SEED and CASEFL; $0114-$0115 are not used:)
+* them, RNDX and CASEFL; $0114 is not used:)
+RNDX    EQU     $0115           ; 128 from a cold start on: RND neither reads nor writes it, and NEW, CLEAR and RUN
+*                                 leave it [BB bb9 rnd-state]
 SEED    EQU     $0116           ; RND's seed, high byte first, as on the original [BB bb8 rnd-seq]
 CASEFL  EQU     $0149           ; lower case (SHIFT-0): 255 upper case, 0 lower case [BB bb6 famous-pokes]
         ORG     $0100
@@ -51,7 +53,7 @@ VSWI    RMB     3
 VSWI2   RMB     3
 VSWI3   RMB     3
 TIMER   RMB     2               ; counts fields (50 Hz): $0112, as on the original [BB bb3 ram-pointers, bb6]
-SYSR0   RMB     0               ; (at or below SEED)
+SYSR0   RMB     0               ; (at or below RNDX)
         ORG     SEED+4
 USRTAB  RMB     20              ; DEF USR0-9 addresses
 FORSTP  RMB     5               ; FOR: the step and the limit, packed, before they go on the stack
@@ -163,7 +165,7 @@ FPEX    RMB     2               ; FIN's exponent, and its sign
 FPEXS   RMB     1
 FPSGNI  RMB     1               ; FIN's sign
 FPDP    RMB     1               ; FIN: a point seen
-FPDROP  RMB     1               ; FIN: a digit dropped
+FPDROP  RMB     1               ; FIN: the places the integer was shifted right (not 0: later digits dropped)
 VALTYP  RMB     1               ; the value just evaluated: 0 a number, $FF a string
 STRPTR  RMB     2               ; a string value: its descriptor
 ARGSTR  RMB     2               ; the left operand when it is a string

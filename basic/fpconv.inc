@@ -231,13 +231,16 @@ EXO2    INCA
 * ---------------- FIN: text to a number ----------------
 * FIN: the number at the text pointer (CHRGOT's character first) into FAC: an optional sign, digits with
 * an optional point, an optional exponent E[+|-]digits; spaces between are skipped (CHRGET). The digits are
-* kept exactly (in FACM, as an integer) while they fit in 32 bits; the first that does not rounds, and later ones only count as places. Leaves the text pointer on the first character
-* after the number.
+* kept exactly (in FACM, as an integer) while they fit in 32 bits; the first that does not is kept too, the
+* integer then shifted right into the guard byte (FPDROP places) and rounded when it is next used, as the original
+* reads 4294967296 as 2^32 [BB bb9 rnd-args: RND(4294967296)]; later digits only count as places. Leaves the
+* text pointer on the first character after the number.
 FIDLY   EQU     135             ; a digit's delay (FPNX10), 5 cycles a step: ours would be faster than the original
 *                                 otherwise [BB bb8 cas-cloadm2, bb3 crunch-else: loops of PEEK(I AND 32767)
 *                                 with 112, 114, 131, 88 or 28928 took about 700 cycles more a digit on it]
 FIN     CLR     <FPDP
         CLR     <FPDROP
+        CLR     <FACEXT
         CLRA
         CLRB
         STD     <FPE10
@@ -268,24 +271,21 @@ FIDIG   SUBA    #'0'
         CMPA    #5
         BHI     FIDRP
 FID1    JSR     FPNX10          ; x 10 + the digit
-        TST     <FPDP
+FID2    TST     <FPDP
         BEQ     FINX
         JSR     E10DEC
         BRA     FINX
-FIDRP   COM     <FPDROP         ; the first digit that does not fit rounds
-        CMPA    #5
-        BLO     FIIGN
-        LDD     <FACM+2
-        ADDD    #1
-        STD     <FACM+2
-        BCC     FIIGN
-        LDD     <FACM
-        ADDD    #1
-        BCS     FIUND           ; (it was $FFFFFFFF: left as it was)
-        STD     <FACM
-        BRA     FIIGN
-FIUND   LDD     #$FFFF
-        STD     <FACM+2
+FIDRP   JSR     FPNX10          ; the first digit that does not fit: x 10 + it, A the bits above 32 (1-9)
+FIDR1   INC     <FPDROP         ; shifted right until they fit, the bits out into the guard byte
+        LSRA
+        ROR     <FACM
+        ROR     <FACM+1
+        ROR     <FACM+2
+        ROR     <FACM+3
+        ROR     <FACEXT
+        TSTA
+        BNE     FIDR1
+        BRA     FID2
 FIIGN   TST     <FPDP           ; a digit not kept is still a place before the point
         BNE     FINX
         JSR     E10INC
@@ -331,7 +331,11 @@ FIE6    LDB     <FPEX           ; a signed byte
 FIE7    ADDD    <FPE10
         STD     <FPE10
 * the integer, then the places
-FIEND   JSR     I32FLT
+FIEND   CLR     <FACSGN         ; the integer, 2^FPDROP x FACM with the guard byte
+        LDA     #128+32
+        ADDA    <FPDROP
+        STA     <FACEXP
+        JSR     NORM
 FIE8    LDD     <FPE10          ; steps of 1E9, then one product or quotient by 10^k
         CMPD    #9
         BLT     FIE9
