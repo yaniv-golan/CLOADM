@@ -1780,6 +1780,13 @@ export class Session {
     if (this.bootOk && this.bootOk.m === m && this.bootOk.resetAt === resetAt) return { state: 'ok' };
     if (this.screenText(m, { main: true }).some((l) => l.trim() === 'OK')) { this.bootOk = { m, resetAt }; return { state: 'ok' }; }
     if (m.framesSinceReset < seconds * m.fps) return { state: 'booting' };
+    // (This window is checked BEFORE m.restored on purpose, and it is benign that a restore of a point taken less
+    // than `seconds` into its boot answers 'booting' rather than 'restored' for the rest of that window: the
+    // boot-help box shows only on 'failed' or a takeover, never on 'booting', and the only way the answer can
+    // become 'failed' after the window is for m.restored to be cleared - which happens only in a real reset, and
+    // every Session reset path emits 'reset'/'firmware', both of which restart boot-help's watcher. Verified end
+    // to end with a full boot-help simulation across restore, ageing and inject sequences: the box never stuck up
+    // and never wrongly stayed hidden.)
     // The watchdog is for a power-on. A moment opened from a snapshot was not one: the program it holds may have
     // taken the screen from BASIC (a game, a program that took over Reset) or never printed OK at all, and coming
     // back to it is not a boot that failed (m.restored: set by Machine.restore, cleared by every reset).
@@ -2936,7 +2943,11 @@ export class Session {
   // An address the map says would not land (writeKind: ROM, I/O, absent RAM, an undecoded range) is not written at
   // all. Machine.poke itself may write the cell beneath (the CoCo 3's loaders patch vectors under the ROM), but a
   // tool that says "not-ram" must not also have changed memory the CPU cannot see and a later map switch would reveal.
-  pokeBytes(addr, bytes, m = this.shownMachine) {
+  // m is required on purpose. With the chat full screen the machine on screen is the chat's, and a tool's bytes
+  // landing there would overwrite the chat firmware - js/claude/chat.js's target passes its own machine, and every
+  // other caller names one - so a forgotten machine throws rather than defaulting to the machine on screen.
+  pokeBytes(addr, bytes, m) {
+    if (m == null) throw new SessionError('pokeBytes needs the machine to write to: pass it explicitly.');
     if (bytes.length) this.touch(m);
     let landed = 0;
     [...bytes].forEach((b, i) => {
@@ -2949,7 +2960,10 @@ export class Session {
   // Write an assembled program into m's memory without starting it (assemble_and_load): no reset and no frames
   // run, so RAM the caller did not target is untouched. (Machine.injectAndRun resets a ROM-less machine, which
   // boots the stub and wipes RAM; that is "run", not "load".) The symbols reach the debugger of the machine in use.
-  injectAssembled(res, m = this.shownMachine) {
+  // m is required for the same reason as pokeBytes's: with the chat full screen the machine on screen is the
+  // chat's, and writing an assembled program there would overwrite the chat firmware.
+  injectAssembled(res, m) {
+    if (m == null) throw new SessionError('injectAssembled needs the machine to write to: pass it explicitly.');
     // pokeBytes leaves a byte the map says would not land (ROM, I/O, absent RAM) unwritten, and counts the rest
     let landed = 0;
     for (const seg of res.segments) landed += this.pokeBytes(seg.addr, seg.data, m);

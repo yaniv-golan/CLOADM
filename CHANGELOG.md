@@ -126,6 +126,11 @@ Next version: 0.4.0 (the plugin and extension manifests carry it; `tests/plugin.
   without ROMs; yours are untouched". Only the page does this: the MCP `load` tool and the CLI's `--program` start the program on
   the machine as it is, as before.
 
+- **`pokeBytes` and `injectAssembled` take the machine to write as a required argument.** Both are the
+  Node API (`docs/automation.md`), and both used to default to the machine on screen: with the chat full screen that
+  is the chat's machine, and a tool's bytes landing there would overwrite the chat firmware. Omitting the machine
+  now throws a `SessionError` and writes nothing.
+
 #### Fixed
 
 - **Three layout slips.** On a phone held upright with no API key saved, Ask Claude's opening sentence ("Claude reads only

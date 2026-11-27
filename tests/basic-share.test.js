@@ -73,7 +73,7 @@ const LISTED = {
     s.loadBasic(SOURCE.dragon);
     const p = s.sharedProgram();
     check('a program in memory: its line count and its LIST text (hand-written)', p && p.lines === 6 && p.text === LISTED.dragon && p.refusal === null, JSON.stringify(p));
-    s.pokeBytes(0x1B, [0x30, 0x00]);   // VARTAB elsewhere: the pointers no longer describe the program
+    s.pokeBytes(0x1B, [0x30, 0x00], s.shownMachine);   // VARTAB elsewhere: the pointers no longer describe the program
     check('BASIC\'s pointers not describing a program: no program card', s.sharedProgram() === null);
   }
 
@@ -154,8 +154,8 @@ const LISTED = {
     const d = Emu.DIALECTS.dragon, tok = Emu.crunch('RESTORE', d)[0], start = 0x1E01;
     const lines = Array.from({ length: 300 }, (_, i) => ({ number: i + 1, bytes: Array(34).fill(tok) }));
     const bytes = Emu.buildProgram(lines, start), after = start + bytes.length;
-    s.pokeBytes(start, Array.from(bytes));
-    for (const p of [0x1B, 0x1D, 0x1F]) s.pokeBytes(p, [after >> 8, after & 0xFF]);
+    s.pokeBytes(start, Array.from(bytes), s.shownMachine);
+    for (const p of [0x1B, 0x1D, 0x1F]) s.pokeBytes(p, [after >> 8, after & 0xFF], s.shownMachine);
     const big = s.sharedProgram();
     check('over load_basic\'s limit: the card, its line count, the reason, no text', big && big.lines === 300 && big.text === null && big.refusal === REFUSED, JSON.stringify(big && { lines: big.lines, refusal: big.refusal }));
     const e = await rejects(s.programLink(BASE, big));
@@ -167,13 +167,13 @@ const LISTED = {
     g.loadBasic('10 PRINT "A"');
     const at = 0x2601 + 4 + 3;   // link, line number, PRINT, space, quote: the A
     check('(the byte poked is the A)', g.readByte(at) === 0x41);
-    g.pokeBytes(at, [0x8F]);
+    g.pokeBytes(at, [0x8F], g.shownMachine);
     const gp = g.sharedProgram();
     check('a byte that is not typable (a graphics character): the reason', gp && gp.lines === 1 && gp.text === null && gp.refusal === REFUSED, JSON.stringify(gp));
     // lower case outside a string: typing it would give capitals, so it would not come back the same
     const l = basicSession('mc10');
     l.loadBasic('10 A=1');
-    l.pokeBytes(0x4346 + 4, [0x61]);   // the A of line 10, in lower case
+    l.pokeBytes(0x4346 + 4, [0x61], l.shownMachine);   // the A of line 10, in lower case
     const lp = l.sharedProgram();
     check('lower case outside a string (it would type back in capitals): the reason', lp && lp.text === null && lp.refusal === REFUSED, JSON.stringify(lp));
   }

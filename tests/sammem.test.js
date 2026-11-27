@@ -96,12 +96,12 @@ LOOP    LDA     $1000
   };
   const s = make('dragon64'), m = s.shownMachine;
   check('firmware set M1 and P1: $1000 is RAM $9000 to the CPU', m.sam.page1 === 1 && m.ramAddr(0x1000, m.sam.reg) === 0x9000);
-  s.pokeBytes(0x1000, [0x33]);
+  s.pokeBytes(0x1000, [0x33], m);
   for (let f = 0; f < 2; f++) m.runFrame();
   check('a poke to $1000 is what the CPU reads there (it copies it to $1001)', s.readByte(0x1001) === 0x33 && m.ram[0x9001] === 0x33, hex(s.readByte(0x1001)));
   check('...and the peek tool reads it back where it was poked', s.readByte(0x1000) === 0x33 && m.ram[0x9000] === 0x33 && m.ram[0x1000] !== 0x33);
   const rom0 = m.read(0x9000);
-  s.pokeBytes(0x9000, [rom0 ^ 0xFF]);
+  s.pokeBytes(0x9000, [rom0 ^ 0xFF], m);
   check('map type 0: a poke into the ROM area changes nothing the CPU can see', m.read(0x9000) === rom0 && s.readByte(0x9000) === rom0);
   check('peek: the vectors come from the ROM, the I/O page reads $FF', s.readByte(0xBFFE) === 0x80 && s.readByte(0xFFFE) === 0x80 && s.readByte(0xFF00) === 0xFF);
   // the debugger writes through the bus, so its writes follow the same map
@@ -111,7 +111,7 @@ LOOP    LDA     $1000
   check('the debugger\'s memory write lands where the CPU reads it too', s.readByte(0x1001) === 0x44 && s.debugger.read(0x1000) === 0x44);
   // a 32K Dragon: P1 points the low half at RAM that is not fitted, so a poke there lands nowhere (as the CPU's own write)
   const d = make('dragon32'), dm = d.shownMachine, before = dm.ram.slice();
-  d.pokeBytes(0x1000, [0x55]);
+  d.pokeBytes(0x1000, [0x55], dm);
   check('32K: with P1 a poke to $1000 is lost (no RAM at $9000), as the CPU\'s write is', dm.ram.every((v, i) => v === before[i]) && d.readByte(0x1000) === 0x00);
 }
 
