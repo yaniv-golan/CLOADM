@@ -1,6 +1,7 @@
 /* Programs, tapes and the examples menu; snapshot files go to the snapshot panel. */
 import { $, ESC } from './page.js';
 import { inspectOs9Disk } from '../media/os9.js';
+import { pickedFiles } from './files.js';
 
 const parseHex = (s) => {
   if (s == null) return null;
@@ -19,7 +20,7 @@ const askAddresses = (name, size) => {
 // "name loaded and started. DragonDOS binary $3000-$3FE6, exec $3000" -> the sentence for the toast, the rest for Details
 const loadedParts = (msg) => { const m = /^(.+? loaded(?: and started)?\.) (.+)$/.exec(msg); return m && [m[1], m[2]]; };
 
-export function setupMediaPanel(page, { snapshots, disks, nitros9, keep }) {
+export function setupMediaPanel(page, { snapshots, disks, nitros9, keep, roms }) {
   const { session, audio } = page;
   session.fastCas = $('chkFastCas').checked;
   $('chkFastCas').onchange = (e) => { session.fastCas = e.target.checked; };
@@ -77,9 +78,12 @@ export function setupMediaPanel(page, { snapshots, disks, nitros9, keep }) {
   }
 
   $('btnLoad').onclick = () => $('fileProgram').click();
+  // Open… sorts what it is given as a drop on the screen does (js/ui/screen.js): a ROM image goes to Your ROMs, the
+  // rest to the program loader. On a phone Open… is the only way in, and a ROM taken as a program was a cartridge
+  // (.rom), which the Library then also added as the machine's ROM: BASIC came up with itself in the cartridge slot
   $('fileProgram').onchange = async (e) => {
-    const files = [...e.target.files]; e.target.value = '';
-    loadPrograms(await Promise.all(files.map(async (f) => ({ name: f.name, bytes: await page.readFile(f) }))));
+    const list = pickedFiles(e.target); e.target.value = '';
+    await roms.take(list, { onPrograms: loadPrograms });
   };
   $('btnTape').onclick = $('btnTapeName').onclick = () => $('fileTape').click();
   $('fileTape').onchange = async (e) => {

@@ -148,6 +148,7 @@
     "no-roms.test.js": 4.7,
     "opcodes.test.js": 0.2,
     "opcodes6803.test.js": 0.1,
+    "open-rom.test.js": 0.2,
     "os9.test.js": 0.1,
     "pagepreload.test.js": 0.2,
     "plugin.test.js": 0.7,

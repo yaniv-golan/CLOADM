@@ -2617,7 +2617,13 @@ export class Session {
   // moment of it then holds none of their code, so it can have a short link and anyone can open it. Only this run is
   // without them (stubChosen, as the welcome menu makes it): the stored ROMs are untouched and BASIC still starts on them
   // ("Use your ROMs for BASIC", or a reload). The MCP load tool and the CLI never ask: they start on the machine as it is.
+  // A machine's or a disk controller's ROM image (known contents or usual name: Session.isRom) is refused, not plugged in
+  // as a cartridge (.rom is also a cartridge's extension): BASIC in the cartridge slot autostarts into itself and never
+  // prints OK. It is a ROM to add (addRoms; the page's Open… and a drop on the screen send it there).
   load(name, bytes, { askAddresses = null, remember = true, run = true, ours = false, noRoms = false } = {}) {
+    if (detectMedia(name, bytes).kind === 'cart' && Session.isRom(name, bytes)) {
+      throw new SessionError(`${name} is a ROM image for a machine or a disk controller, not a cartridge: add it as a ROM (Add ROMs on the page, \`add_roms\` for the MCP server, --roms for the command line).`);
+    }
     this.loadStarted = true;
     const m = this.loadTarget().m;
     if (noRoms && !m.useStub && !this.nitros9On(m)) this.runWithoutRoms({ menu: false });
