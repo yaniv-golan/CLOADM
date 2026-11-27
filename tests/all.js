@@ -214,9 +214,11 @@ const LONG_SUITE_TIMEOUT_MS = envT || 600000;
 // on CI to be worth the extra headroom. state-split is static (reads a manifest, 0.1 s) and is NOT long.
 // basic-drawing (98 s alone locally: lines, circles, PAINT, DRAW and GET/PUT compared byte for byte with the model,
 // no replays to cut) was killed at 240 s once in CI part 1/3 (run 1008, 2026-11-26), beside basic-cassette (then
-// 129 s alone). basic-cassette, its data-file mutants now run only through the section each breaks, is 77 s and keeps
-// the normal cap.
-const LONG_SUITES = new Set(['regress.test.js', 'state-fdc.test.js', 'state-carts.test.js', 'basic-drawing.test.js']);
+// 129 s alone). basic-cassette, its data-file mutants then run only through the section each breaks, was 77 s; with
+// the MOTOR ON wait's checks and mutant and the BASIC's digit wait (its programs run longer) it was killed at 240 s
+// in CI part 2/3 (run 1056, 2026-11-27), 136 s alone locally, so it takes the longer cap too.
+const LONG_SUITES = new Set(['regress.test.js', 'state-fdc.test.js', 'state-carts.test.js', 'basic-drawing.test.js',
+  'basic-cassette.test.js']);
 const TIMEOUT_MS = (f) => (LONG_SUITES.has(f) ? LONG_SUITE_TIMEOUT_MS : SUITE_TIMEOUT_MS);
 
 // Every suite process still running, so a signal can take the whole set down. A suite is spawned detached (its
