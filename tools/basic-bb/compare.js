@@ -5,7 +5,7 @@
 // status, whether the listing is identical (or its first differing line), the first RUN sample where the screen's text
 // or pixels part, and the error lines.
 // Sounds (#wav) are compared by their measures (compareSounds, below), tapes (#tape-blocks) by their summaries
-// (compareTapes).
+// (compareTapes), the printer's bytes exactly (comparePrinter).
 // Pictures (#screenshot) are compared by the SHA-256 of their pixels; --shots DIR writes both PNGs of each one that
 // differs. Two text-screen pictures that differ in one 8 x 12 cell only differ in the blinking cursor (cursorOnly):
 // they are listed apart as "cursor only" and count as the same.
@@ -50,8 +50,17 @@ function compareCorpus(a, b) {
 // for each tone the period within 0.5%, the length and the silence before it (from the end of the tone before;
 // the first tone's start is not compared, as it depends on how fast each ROM takes the typed line) within one field
 // (17,784 cycles: 312 lines of 57 on the Dragon 64), the lowest and highest level exactly, and the sound enable and
-// multiplexer at #wav-stop. The number of distinct levels, writes and periods are the wave's shape, which is ours
-// (docs/clean-room-basic-p2.md section 14, decision 3), and the hash tells runs apart: neither is compared.
+// multiplexer at #wav-stop. The hash tells runs apart and is not compared, nor is the number of periods (the length,
+// compared, already says it).
+// A tone's shape: its first level, its number of distinct levels and its writes are compared only when the first
+// record's tone has `first` (a record made since the field was added; an older record, made when the wave's shape was
+// ours alone, docs/clean-room-basic-p2.md section 14 decision 3, is not compared on any of the three, so its verdict
+// stays what it was). Then the first level and the number of levels exactly: they are the wave's own (where its table
+// or its steps start, how many steps), the same at whatever point in a field the note starts. The writes within a
+// bound: a tone's length is allowed one field (where the field interrupt falls decides when a note's count of fields
+// ends), and the writes come at the tone's own rate, so one field more or less of the tone is
+// ceil(writes / length * 17,784) writes more or less, plus one for the write at either end; the bound is taken from
+// the first record's tone.
 const FIELD = 312 * 57;
 function compareSounds(sx = [], sy = []) {
   if (sx.length !== sy.length) return [`${sx.length} vs ${sy.length} sounds`];
@@ -70,6 +79,12 @@ function compareSounds(sx = [], sy = []) {
         if (Math.abs(gap(x, j) - gap(y, j)) > FIELD) out.push(`${t}: silence before it ${gap(x, j)} vs ${gap(y, j)} cycles`);
       }
       if (p.low !== q.low || p.high !== q.high) out.push(`${t}: levels ${p.low}-${p.high} vs ${q.low}-${q.high}`);
+      if (p.first != null) {
+        if (p.first !== q.first) out.push(`${t}: first level ${p.first} vs ${q.first}`);
+        if (p.levels !== q.levels) out.push(`${t}: ${p.levels} vs ${q.levels} distinct levels`);
+        const bound = Math.ceil(p.writes / Math.max(p.length, 1) * FIELD) + 1;
+        if (Math.abs(p.writes - q.writes) > bound) out.push(`${t}: ${p.writes} vs ${q.writes} writes (more than ${bound} apart)`);
+      }
     });
   });
   return out;
@@ -179,8 +194,9 @@ function compare(a, b, shotDir = null) {
       if (shotDir) sx.forEach((p, i) => { if (sy[i] && p.sha256 !== sy[i].sha256) for (const [tag, q] of [['first', p], ['second', sy[i]]]) fs.writeFileSync(require('path').join(shotDir, `${name}-${q.name}-${tag}.png`), Buffer.from(q.png, 'base64')); });
     }
     const badSound = compareSounds(x.sounds, y.sounds), badTape = compareTapes(x.tapes, y.tapes), badClear = compareClears(x.clears, y.clears);
-    for (const l of [...badSound, ...badTape, ...badClear]) out.push(`${name}: ${l}`);
-    if (at < 0 && !badShot && !badSound.length && !badTape.length && !badClear.length) { same++; continue; }
+    const badPrinter = comparePrinter(x.printer, y.printer);
+    for (const l of [...badSound, ...badTape, ...badClear, ...badPrinter]) out.push(`${name}: ${l}`);
+    if (at < 0 && !badShot && !badSound.length && !badTape.length && !badClear.length && !badPrinter.length) { same++; continue; }
     if (at < 0) continue;
     const show = (t, i) => (i < t.length ? JSON.stringify(t[i]) : '(none)');
     out.push(`${name}: line ${at + 1} differs`);
@@ -199,7 +215,20 @@ function compareClears(p, q) {
     if (JSON.stringify(p[i].screen) !== JSON.stringify(q[i].screen)) out.push(`clear ${i + 1}: the screen before it differs (${JSON.stringify(p[i].screen.slice(-2))} vs ${JSON.stringify(q[i].screen.slice(-2))})`);
   return out;
 }
-module.exports = { compare, compareCorpus, compareSounds, compareTapes, compareClears, cursorOnly };
+// the printer's bytes (runCase's printer, { length, hex }: written only when the case printed): compared exactly when
+// the first record has the field; a first record without it (nothing printed, or made before the field existed) is
+// not compared, so older records keep their verdicts -> lines describing the difference
+function comparePrinter(p, q) {
+  if (!p) return [];
+  if (!q) return [`printer: ${p.length} bytes vs none`];
+  if (p.length !== q.length || p.hex !== q.hex) {
+    let i = 0;
+    while (i < p.hex.length && p.hex[i] === q.hex[i]) i++;
+    return [`printer: ${p.length} vs ${q.length} bytes, first difference at byte ${i >> 1}`];
+  }
+  return [];
+}
+module.exports = { compare, compareCorpus, compareSounds, compareTapes, compareClears, comparePrinter, cursorOnly };
 
 if (require.main === module) {
   const args = process.argv.slice(2), si = args.indexOf('--shots');

@@ -603,13 +603,15 @@ returns the results file, and `compare.js` reports differences. P2 adds pictures
 * **`#wav NAME` ... `#wav-stop`** [implemented, in place of a WAV recording]: a write tap on the PIAs records every
   write to the DAC and every change to whether the DAC is heard, with its CPU cycle; what goes into the results file
   is only their **measures** (decision 5): for each tone its start, length and period in cycles (the median of its full
-  cycles), the number of periods, writes and distinct levels, and its lowest and highest level; for the window its
+  cycles), the number of periods, writes and distinct levels, its lowest and highest level and its first level; for the window its
   length, the writes, a hash of the events and the sound switch at the end. The exact segmentation into tones (a gap of
   more than 20,000 cycles or sound off ends a run; a change of period of more than 3% held for two periods splits it)
   is in P1 section 7 and `soundMeasures` in `tests/basic/harness.js`. No recording or level sequence leaves the
   machine: a wave played from a table would carry the table. `compare.js` compares periods within 0.5%, lengths and
-  silences within one field, the lowest and highest levels and the end state exactly; the number of levels and writes
-  (the shape, decision 3) and the hash are information only.
+  silences within one field, the lowest and highest levels and the end state exactly; in records that have first
+  levels, also each tone's first level and number of levels exactly and its writes within a field's worth (P1
+  section 7); in older records the number of levels and writes (the shape, decision 3) are information only, and the
+  hash always is.
 * **`#joy N V`** [implemented]: sets axis N (0-3, `JOYSTK`'s numbering) to V (0-63) through `m.joy` before the next line.
 * **What only a black-box run can settle** (each a case in `tests/basic/cases/`, named `gfx-*` or `snd-*`): every
   item marked BB in sections 3-9, in particular the pixels of lines, circles (several radii, ratios and arcs), `PAINT`

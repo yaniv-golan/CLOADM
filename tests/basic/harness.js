@@ -53,7 +53,8 @@ function cell(v) {
 //     tone; a note of the same pitch played straight after another, with no gap, is one tone with it.
 //  4. Each tone: start (cycles from #wav to its first event), length (from its first event to its last), period (the
 //     median of its periods, null with none), periods (how many), writes (its events), levels (how many distinct
-//     levels), low and high (the lowest and highest level).
+//     levels), low and high (the lowest and highest level), first (the level of its first event: where the note's
+//     wave starts; one level a tone, like low and high, never the levels in order).
 // The whole window: cycles (its length), writes (DAC writes), heard (those heard), sha256 (of every event as "t,v,on"
 // lines: to tell two runs apart, never to rebuild one), end (at #wav-stop: sound enabled, and the multiplexer 0-3).
 const GAP = 20000, SPLIT = 0.03;
@@ -70,7 +71,7 @@ function soundMeasures(events, { cycles = 0, end = null } = {}) {
   const tone = (ev, periods) => {
     const lv = ev.map((e) => e.v);
     tones.push({ start: ev[0].t, length: ev[ev.length - 1].t - ev[0].t, period: periods.length ? median(periods) : null,
-      periods: periods.length, writes: ev.length, levels: new Set(lv).size, low: Math.min(...lv), high: Math.max(...lv) });
+      periods: periods.length, writes: ev.length, levels: new Set(lv).size, low: Math.min(...lv), high: Math.max(...lv), first: lv[0] });
   };
   const differs = (p, m) => Math.abs(p - m) > SPLIT * m;
   for (const r of runs) {
@@ -348,7 +349,10 @@ class Basic {
 //   #tape-blocks NAME  the result's tapes get { name, motor, blocks?, bad? } (tapeSummary, below): the motor's runs and,
 //                   while recording, the blocks written since #tape-blank or the last #tape-blocks; never their bytes
 // A typed line that starts with a digit is a program line: waited for until the screen settles; any other line
-// is waited for until OK is back. -> { status, transcript, flags, frames, shots?, sounds?, tapes?, clears? }; status 'ok',
+// is waited for until OK is back. -> { status, transcript, flags, frames, shots?, sounds?, tapes?, clears?, printer? };
+// printer: the bytes the machine's printer port received since the clean start (the Dragon's parallel port: PIA0
+// port B at each strobe, js/machines/sam.js; the machine's `printed`), as { length, hex }, and only when there are
+// any: what the case's own LLIST and PRINT #-2 sent, as BASIC sends it to a printer. status 'ok',
 // 'no-boot', 'no-clean-start', 'timeout' (and where), 'stalled' (a typed line of which no key was taken, and where), or
 // the typist's status when the machine stopped reading the keyboard. clears: the screens a clear wiped (Basic.frame).
 // Nothing of the screen is recorded before the clean start (Basic.cleanStart): the boot screen, a ROM's banner among
@@ -367,6 +371,12 @@ function runCase(rom, text, { machine = 'dragon64', guard = true, tapes: tapeDir
   const wavStop = () => { sounds.push({ name: wavName, ...b.wavStop() }); wavName = null; };
   let clean = false;   // nothing of the screen is recorded until the clean start (Basic.cleanStart) has held
   let expectTimeout = false;
+  // the printer's bytes since the clean start (nothing before it is recorded), only when there are any
+  let printedFrom = 0;
+  const printer = () => {
+    const p = b.m.printed.slice(printedFrom);
+    return p.length ? { printer: { length: p.length, hex: Buffer.from(p).toString('hex') } } : {};
+  };
   const out = (status, extra = {}) => {
     // after #expect-timeout a step that times out is the case's result: status ok, ended { at, as: 'timeout' }
     if (status === 'timeout' && expectTimeout) { status = 'ok'; extra = { ...extra, ended: { at: extra.at, as: 'timeout' } }; delete extra.at; }
@@ -374,7 +384,7 @@ function runCase(rom, text, { machine = 'dragon64', guard = true, tapes: tapeDir
     if (!clean) return { status, transcript: [], flags: [], frames: b.frames, ...extra };
     return refused
       ? { status: 'refused', why: refused, transcript: [], flags: [], frames: b.frames }
-      : { status, transcript: b.lines ? b.transcript() : b.screen(), flags: b.flags || [], frames: b.frames, ...(shots.length ? { shots } : {}), ...(sounds.length ? { sounds } : {}), ...(tapes.length ? { tapes } : {}), ...(b.clears ? { clears: b.clears } : {}), ...(typistNotes.length ? { typist: typistNotes } : {}), ...extra };
+      : { status, transcript: b.lines ? b.transcript() : b.screen(), flags: b.flags || [], frames: b.frames, ...(shots.length ? { shots } : {}), ...(sounds.length ? { sounds } : {}), ...(tapes.length ? { tapes } : {}), ...(b.clears ? { clears: b.clears } : {}), ...printer(), ...(typistNotes.length ? { typist: typistNotes } : {}), ...extra };
   };
   if (!b.waitOk({ limit: 600, stable: 3 })) return out('no-boot');
   let limit = 30 * 50, nowait = false;
@@ -393,6 +403,7 @@ function runCase(rom, text, { machine = 'dragon64', guard = true, tapes: tapeDir
   };
   if (!b.cleanStart(limit)) return out('no-clean-start');
   clean = true;
+  printedFrom = b.m.printed.length;
   let st;
   b.record();
   if (guard) {
