@@ -250,7 +250,9 @@ These are hard rules for everyone who works on this ROM.
     printed: the original prints the bytes 1,89,199,220,238 as `5.00000001E-39` where our steps give `5E-39`, and
     no scaling of steps of 10^s from below 10^-t then by 10 gives that with `.333333333` and `rnd-seq`'s
     `.903043481` too, so a product at the smallest exponent may round as ours does not: `R=X*1E9` and `X*10`
-    stored and their five bytes read, for X of exponent byte 1, 2 and 3.
+    stored and their five bytes read, for X of exponent byte 1, 2 and 3. Also recorded again, on an emulator whose PIA 1
+    PB0 is the printer's BUSY (ready, as CLOADM 0.4.1 has it; it read as the 6551's idle receive data, busy):
+    bb10 `stmt-printer` and bb6 `famous-pokes`, whose waits for a printer came from that.
     Replayed, the records match as before but for two: bb8 `cas-cloadm2` now matches whole, and bb2 `snd-sound`'s
     `SOUND 200,4` no longer does: it starts about 400 cycles later in its field (the two numbers' conversion waits), so
     its length, counted in fields, comes out a field longer and without the original's short first period (a phase,
@@ -1116,7 +1118,7 @@ reproduce. Each is recorded with its black-box case.
 | Where | The original | Ours | Case |
 |---|---|---|---|
 | `CLS` with a colour 9-255 | prints a line of its own text (21 characters), then an empty line | prints our own line, `MADE WITHOUT PEEKING` (20 characters, chosen for this BASIC; `OK BOOMER` for `CLS 67`, also ours [OWN]), then an empty line; no error in either | `screen-cls-range` (local-only: its results are never written, only their shape); ours: the own case `cls-range` |
-| `POKE 111,254` (output to the printer) | output goes to the printer; with none attached it waits for one | output stays on the screen: no printer output is built yet [OWN, open] | `famous-pokes` (its last step) |
+| `POKE 111,254` (output to the printer) | output goes to the printer (the record's wait for one came from an emulator that read the printer's busy line, PIA 1 PB0, as busy: to be recorded again) | output stays on the screen: no printer output is built yet [OWN, open] | `famous-pokes` (its last step) |
 | `DLOAD`, `DLOADM` (no serial link) | waits for the serial port: nothing on the screen after 250 fields, and `BREAK` does not bring `OK` back | `?FC ERROR` at once: no serial loading is built [OWN, open] | `stmt-dload` [BB bb10] |
 | `PRINT USING` E field of twelve or more places (`"############^^^^";1`) | prints garbage (`%1000000000E-10`) and runs over its own memory (`?SN ERROR IN 0` after it); on a fresh machine (bb10 `using-wide12`) `%1000000000E-10`, `%1234500000E-06%-1000000000E-10` for 12345;-1, BASIC still answering | `?FC ERROR`: a buffer overrun is never reproduced | `review-fixes`, `print-using-exp`, `using-wide12` |
 
@@ -1231,7 +1233,7 @@ strings change, and `NEW`, `CLEAR`, `PCLEAR`, `RUN` and a load reset some of the
 | `$25-26` | a string-space pointer: one past the end of the last string copied into the string space, or the start of the last one made there when nothing was copied into it (`CHR$`) | [BB `ram-pointers2`, 2026-11-26; bb8 `ram-ptr25`, every value it printed]: in direct mode a literal is copied, so after a `PRINT "S"` it is `$23` + 1; in a program a join, `STR$`, `LEFT$` and an `INPUT` reply move it (a join's temporary in `PRINT` too), a literal, a variable copied, a number, `FOR`, `RUN` and `CLEAR` do not | the same (`STRDST`); our strings sit a byte below the original's (ours from `FRETOP`, the original's from `FRETOP` + 1), so it is our pointer + 1 |
 | `$27-28` | the string space's top | 32766 | the same (`MEMTOP`; `CLEAR n,top` takes a top up to 32768 [OWN]) |
 | `$68-69` | the line running | `$FFFF` in direct mode | the same (`CURLIN`) |
-| `$6F` | where output goes | 0 the screen; 254 the printer (with none attached the original waits for it); 255 the tape | 0 and 255 the same (`DEVNUM`); any other value the screen: no printer output yet (section 13) |
+| `$6F` | where output goes | 0 the screen; 254 the printer (the records' wait for it, bb6 `famous-pokes` and bb10 `stmt-printer`, came from an emulator that read PB0 as busy); 255 the tape | 0 and 255 the same (`DEVNUM`); any other value the screen: no printer output yet (section 13) |
 | `$71` | the cold-start flag | 85 (`$55`) once BASIC has started | the same (`WARMFL`) |
 | `$9D-9E` | `EXEC`'s address: `CLOADM` puts the file's exec address there, its offset added | [BB] bb8 `cas-cloadm2` (RAM below the screen searched for the bytes) | the same (`EXECAD`) |
 | `$A6-A7` | the text pointer | points into the line being run | the same (`TXTPTR`); in direct mode it points into the crunched line at `$02DC`, as the original's does ([BB] `ram-pointers2` (2026-11-26): 757, 761, 765) |
