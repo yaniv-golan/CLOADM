@@ -146,6 +146,9 @@ Next version: 0.3.1 (the plugin and extension manifests carry it; `tests/plugin.
   scrolls, its bottom fading while there is more below.
 - **Menu held sideways no longer cuts a row through its text** (653x280: the fifth row was sliced, with no fade): its
   bottom edge falls between two rows, and it fades while it can scroll further.
+- **Menu held sideways stays where it is scrolled:** scrolled to its end, it was pulled back by a row (Hide keys out of
+  reach at 659x393) whenever the ports' or Power's state was written, even unchanged; it is refitted only when a row
+  comes or goes, and a refit keeps the scroll.
 - **Held sideways with the keys hidden, Menu is the same list too:** the ports and Power, with their state (there are no
   chips), and Share… once, as a row (the bar's own Share showed beside it). Take snapshot and Restore snapshot… from the
   panel's Menu give the focus back to it.

@@ -526,15 +526,16 @@ export function setupTouchKeys(page, { input }) {
   // which rows show, and the ports' and Power's state (js/ui/phone-sheets.js keeps it on the upright Menu's rows)
   const syncSheet = () => {
     const first = firstVisit();
-    row('open').hidden = first;
-    row('roms').hidden = first || $('romPill').hidden;
-    row('install').hidden = $('navInstall').hidden;
+    const shown = (e, on) => { if (e.hidden === on) { e.hidden = !on; return true; } return false; };
+    // (a row that came or went: its height again, below; only then, so a sheet scrolled to its end stays there)
+    let changed = shown(row('open'), !first);
+    changed = shown(row('roms'), !first && !$('romPill').hidden) || changed;
+    changed = shown(row('install'), !$('navInstall').hidden) || changed;
     for (const [item, id, name] of [['ports', 'navPortsState', 'Tape, disks and cartridge'], ['power', 'navPowerState', 'Power']]) {
-      const st = $(id).textContent;
-      row(item).querySelector('.sub').textContent = st;
-      row(item).setAttribute('aria-label', `${name}: ${st}.`);
+      const st = $(id).textContent, sub = row(item).querySelector('.sub');
+      if (sub.textContent !== st) { sub.textContent = st; row(item).setAttribute('aria-label', `${name}: ${st}.`); }
     }
-    if (!sheet.hidden) place();   // (a row that came or went while it is open: its height again)
+    if (changed && !sheet.hidden) place();
   };
   // placed above Menu at the window's right (play/index.html), its bottom 8 px above the control row; as tall as the
   // window less that row less 16 px allows, its bottom edge above a row's text (js/ui/menu.js fitMenu)

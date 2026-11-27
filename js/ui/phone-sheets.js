@@ -106,7 +106,8 @@ export function setupPhoneSheets(page, { touchKeys, ask = null }) {
     for (const [id, state, name] of [['navPorts', portState, 'Tape, disks and cartridge'], ['navPower', power, 'Power']]) {
       const b = $(id);
       b.hidden = !inMenu;
-      $(`${id}State`).textContent = state;
+      // (only when it changes: Menu held sideways watches these words)
+      if ($(`${id}State`).textContent !== state) $(`${id}State`).textContent = state;
       b.setAttribute('aria-label', `${name}: ${state}.`);
     }
     const menu = $('btnMenu'), dot = inMenu && parts.length > 0;

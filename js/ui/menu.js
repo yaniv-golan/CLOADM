@@ -43,6 +43,8 @@ export const MENU = Object.freeze([
 // lowest such edge that fits, or what it needs where everything fits. box: the scroller; rows: its row elements.
 export const FADE = 24, SLACK = 4;
 export function fitMenu(box, rows, room) {
+  // (measured with its cap off for a moment, which can clamp where it was scrolled to: put back after)
+  const was = box.scrollTop;
   box.style.maxHeight = '';
   const r = box.getBoundingClientRect(), cs = getComputedStyle(box);
   const bb = parseFloat(cs.borderBottomWidth) || 0;
@@ -65,6 +67,7 @@ export function fitMenu(box, rows, room) {
     h = Math.floor(edge + bb);
   }
   box.style.maxHeight = `${h}px`;
+  box.scrollTop = was;
   moreBelow(box);
 }
 // the bottom fades (24 px, play/index.html .more-below) while the box can scroll further, and only then

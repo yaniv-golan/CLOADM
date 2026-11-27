@@ -25226,8 +25226,12 @@ async function menuStructureChecks(browser, base, check) {
     const atOpen = { cut: cutAt(true), fade: fade(), clear: clearOf() };
     // (scrolled to its end: the scroll event, and the fade it updates, come a frame later)
     const frame = () => new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(res)));
-    box.scrollTop = box.scrollHeight; await frame();
-    const atEnd = { cut: cutAt(false), fade: fade() };
+    // (and settled there: nothing on the page may pull it back up while it stays open, as a refit once did every time
+    // the ports' state was written; 600 ms takes in the page's own updates)
+    box.scrollTop = box.scrollHeight; await frame(); await new Promise((res) => setTimeout(res, 600)); await frame();
+    const lastRow = rows[rows.length - 1].getBoundingClientRect();
+    const atEnd = { cut: cutAt(false), fade: fade(), atMax: Math.abs(box.scrollTop - (box.scrollHeight - box.clientHeight)) <= 1,
+      lastIn: lastRow.top >= visTop - 0.5 && lastRow.bottom <= visBottom + 0.5 };
     box.scrollTop = 0; await frame();
     return { groups, states: rows.filter((e) => e.matches('.twoline, :has(> .sub)')).map((e) => [label(e), e.querySelector('.sub').textContent]),
       columns: lefts.size, wrap: cs.flexWrap, inView: r.top >= 0 && r.bottom <= innerHeight, width: Math.round(r.width), right: Math.round(innerWidth - r.right), atOpen, atEnd };
@@ -25267,7 +25271,7 @@ async function menuStructureChecks(browser, base, check) {
   const sub = (a, b) => { let i = 0; for (const x of b) if (x === a[i]) i++; return i === a.length; };   // a in b, in b's order
   const menuOk = (m, want) => JSON.stringify(m.groups) === JSON.stringify(want) && m.columns === 1 && m.wrap !== 'wrap' && m.inView
     && !m.atOpen.cut.length && !m.atEnd.cut.length && m.atOpen.fade.on === m.atOpen.fade.more && m.atEnd.fade.on === m.atEnd.fade.more && m.atOpen.fade.h === '24px'
-    && (!m.atOpen.fade.on || m.atOpen.clear >= 20);
+    && (!m.atOpen.fade.on || m.atOpen.clear >= 20) && m.atEnd.atMax && m.atEnd.lastIn;
 
   // ---- the three models at the three phone sizes: Menu, the machine sheet, Programs
   for (const id of ['dragon64', 'coco3', 'mc10']) {
