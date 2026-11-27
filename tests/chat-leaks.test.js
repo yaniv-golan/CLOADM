@@ -592,7 +592,7 @@ const REQUIRED = require.main !== module;
     'machineTicket', 'machinesWithRoms', 'nitros9Images', 'nitros9Loader', 'nitros9On', 'printoutFile', 'printoutText',
     'readSlot', 'readSnapshot', 'readSnapshotLink', 'recentMedia', 'sameName', 'savedConfig', 'screenText',
     'shareFile', 'shareUrl', 'slotBytes', 'snapshotLink', 'snapshotRoms', 'snapshotSwitch', 'sscRoms', 'statusLine',
-    'takenOut', 'tapeStatus', 'welcomeFile', 'welcomeRunning', 'drives.preferredDos', 'storedRoms',
+    'takenOut', 'switchLoses', 'tapeStatus', 'welcomeFile', 'welcomeRunning', 'drives.preferredDos', 'storedRoms',
     // uniqueName lists the library to find a free name (it writes nothing); recordingName names .CAS bytes (pure)
     'uniqueName', 'recordingName',
     // romFiles lists the stored ROM images; romsStillRunning reads which removed ones the PERSON's machine still runs
@@ -616,6 +616,12 @@ const REQUIRED = require.main !== module;
     'lastLoaded',
     // claudeFeatures reads Settings -> Claude features (a stored flag); setClaudeFeatures stores it and emits, the machine untouched
     'claudeFeatures', 'setClaudeFeatures',
+    // oldTvWarmup reads Display -> Old TV warm-up (a stored flag); setOldTvWarmup stores it and emits, the machine untouched
+    'oldTvWarmup', 'setOldTvWarmup',
+    // claudeSuggest reads Settings -> Suggest questions with Claude (a stored flag); setClaudeSuggest stores it and emits;
+    // claudeSuggestions reads the PERSON's machine's screen text (suggestInput, the screen_text reader) and sends it with
+    // the machine's name to the API through the fetch it is given (js/claude/suggest.js); no machine is changed
+    'claudeSuggest', 'setClaudeSuggest', 'claudeSuggestions',
     // programPageUrl makes a program page's address from the page's own (pure)
     'programPageUrl',
     // bundledProgram and untouchedBundledProgram read the SHOWN machine's program watch and page (Session.touches too,
@@ -625,10 +631,24 @@ const REQUIRED = require.main !== module;
     // shortLink reads it the same way (shareFile) and sends sealed bytes to the store it is given, changing no machine;
     // readShortLink fetches and decodes a snapshot, which openSnapshot (classified on its own) then opens
     'longLinkRefusal', 'shortLinkRefusal', 'shortLink', 'readShortLink',
+    // cartridgeName reads the file name the SHOWN machine's cartridge came from (the Share screen's ROM line names it)
+    'cartridgeName',
     // "Share your program": sharedProgram reads the SHOWN machine's BASIC program (readByte); programLink and
     // programShortLink encode it (the short one sends sealed bytes to the store it is given); readProgramLink decodes a
     // fragment. None changes a machine: openSharedProgram, which does, has its own row
     'sharedProgram', 'programLink', 'programShortLink', 'readProgramLink',
+    // LIZA postcards (js/postcard.js): current, link, shortLink, read, replayFrame and fileFor read the SHOWN machine's
+    // chat (never the chat machine's: current() refuses it) or replay in a Session of their own; open, play and skip
+    // start LIZA afresh on a postcard's model, as openSharedProgram does a program, for an arrival from a link
+    'postcards',
+    // the BASIC program as a tape (Share's program mode, the command box): basicProgramBytes and programTape read the
+    // SHOWN machine's program (readByte) and its ROMs for the guard; programTapeDefault reads the last loaded name. None
+    // changes a machine
+    'basicProgramBytes', 'programTape', 'programTapeDefault',
+    // a program shared with its source (js/source-share.js): card, link, shortLink and read read the SHOWN machine (its
+    // id, options and ROMs for the guard) or a fragment; open switches to a fresh machine of the link's model and run
+    // builds and starts it there, as openSharedProgram does a program, for an arrival from a link
+    'sources',
     // sharePicture renders the SHOWN machine's frame into the share card ("Save picture") and shareCardName reads its
     // program watch or profile for the card's name; both change nothing
     'sharePicture', 'shareCardName',
@@ -653,6 +673,9 @@ const REQUIRED = require.main !== module;
     'stopRealCoco', 'toSidePanel', 'showChat', 'watchForMenu',
     // chatNote writes a line of the page's own onto the chat channel (the chat screen), never onto the person's machine
     'chatNote',
+    // touch counts the person's key on the machine the key goes to (the one on screen, as personInput does); it
+    // writes nothing to either machine
+    'touch',
     // refuseTyping reads whether the Debugger stopped the machine on screen and emits the page's toast; it
     // queues and changes nothing on either machine
     'refuseTyping',

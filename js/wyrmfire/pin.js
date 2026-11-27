@@ -12,15 +12,16 @@
  */
 export const WYRMFIRE_PIN = Object.freeze({
   version: '0.1.0',
-  // wyrmfire main: the credits screen (C on the title: the level disk's own credit lines, then the engine's) and the
-  // CREDITS.TXT the converter now writes onto the level disks. No release tag yet: set `tag` once there is one, and keep
+  // wyrmfire main (2f47134): the credits screen (C on the title: the level disk's own credit lines, then the engine's),
+  // the CREDITS.TXT the converter writes onto the level disks, and the level clock counted from PAL field syncs (TIME
+  // on the end screen; only the engine moved, the converter and the disks are 775ec6c's). No release tag yet: set `tag` once there is one, and keep
   // `commit` at that tag's commit.
-  commit: '775ec6c8167dd576c63a2869c500ecb706f41456',
+  commit: '2f47134ea17a2d5d83164874ebd5ed2c42d317a5',
   tag: null,
   repo: 'https://github.com/yaniv-golan/wyrmfire',
   // the files served, relative to the site root, with their SHA-256 and size
   files: Object.freeze({
-    engine: Object.freeze({ path: 'examples/wyrmfire/wyrmfire.bin', from: 'bin/wyrmfire.bin', sha256: '79ebdf9d935c4e066a04bc6a768b7d127a3519a65abbdc8634e50af064aa6172', size: 10109 }),
+    engine: Object.freeze({ path: 'examples/wyrmfire/wyrmfire.bin', from: 'bin/wyrmfire.bin', sha256: '2094d081099c24148bdb4c9cdea2d7e8a96ec0e1b4835bb2723b655988da105c', size: 10432 }),
     licence: Object.freeze({ path: 'examples/wyrmfire/COPYING-GPL-3.0.txt', from: 'LICENSE', sha256: '3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986', size: 35149 }),
     converter: Object.freeze({ path: 'examples/wyrmfire/converter/wyrmfire-convert.js', from: 'converter/wyrmfire-convert.js', sha256: 'e84eeeda44c7d25119e13b1c99cb072cee5418177455b053150ddefc3ce442f0', size: 87336 }),
     worker: Object.freeze({ path: 'examples/wyrmfire/converter/worker.js', from: 'converter/worker.js', sha256: '94413f13432c2bb0d60d13a01f97210ab393c8a33f2975d751fcede10a0ba329', size: 1433 }),

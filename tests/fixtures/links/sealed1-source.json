@@ -1,0 +1,11 @@
+{
+ "what": "a short link's sealed object holding a program's source",
+ "format": {
+  "sealedVersion": 1,
+  "kind": 4,
+  "sourceFormat": 1
+ },
+ "machine": "dragon64",
+ "sealed": "AQQVXnxiDl7yT0v1W_JVs_o2FPveeCt7E2hfJ5edeXuoZAQmKLCXXcU1_tD33Bq37DYcwexsr5PpgenbN32beSC3S3u0GHgNDG14RiUsOAUSD_IWVPUPIEqmT7jZWBq4lOV4WzLextRx5xVn9DrT897Pa1rKJo4hLvdo1R6s9hMEbdKesVxJ8FO4N5NTxSIB8CVVqUanFGO0YOHoY-LtpkvnjdtL9lRXcrbhSEmuKgSlKa0wQZTnmJct-A3EllOG2zcpJqQupq1cXLV2ebkGojU6wy7oP5VYlAjPrgayNCdQ4M0I45DXP9LfY0okqiIegO9EPpXqx1Bs3DU",
+ "key": "UvfB41oXafeXWxPUGxaaBQ"
+}

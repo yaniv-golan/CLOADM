@@ -4,8 +4,15 @@
  * box leaves out its Claude rows and the "Ask Claude" row (js/ui/command-box.js reads session.claudeFeatures). The
  * welcome menu's own Claude item stays: it is the firmware's. On is the default; the choice is Session.claudeFeatures,
  * kept with the settings (and so in a settings export).
+ *
+ * Under it, "Suggest questions with Claude" (Session.claudeSuggest, off by default, also in a settings export): hidden
+ * while Claude features is Off; shown but disabled, "Needs your API key" beside it, without a key (nothing is sent).
+ * While it is on, the note under Claude features says an empty chat sends too (NOTE_SUGGEST).
  */
 import { $ } from './page.js';
+
+export const NOTE = 'Off hides Ask Claude, Claude in the command box and Chat with Claude. Nothing goes to Claude either way until you ask.';
+export const NOTE_SUGGEST = 'Off hides Ask Claude, Claude in the command box and Chat with Claude. Nothing goes to Claude until you ask, or open an empty chat with Suggest questions on.';
 
 export function setupClaudeFeatures(page, { closeAsk = () => {}, claude = null } = {}) {
   const { session } = page;
@@ -20,7 +27,16 @@ export function setupClaudeFeatures(page, { closeAsk = () => {}, claude = null }
     document.body.classList.toggle('claude-off', !yes);
     on.setAttribute('aria-pressed', String(yes));
     off.setAttribute('aria-pressed', String(!yes));
+    // Suggest questions with Claude
+    const key = session.hasClaudeKey, sug = session.claudeSuggest;
+    $('claudeSuggestBox').hidden = !yes;
+    $('chkClaudeSuggest').checked = sug;
+    $('chkClaudeSuggest').disabled = !key;
+    $('claudeSuggestNoKey').hidden = key;
+    const note = sug ? NOTE_SUGGEST : NOTE;
+    if ($('claudeFeaturesNote').textContent !== note) $('claudeFeaturesNote').textContent = note;
   }
+  $('chkClaudeSuggest').onchange = (e) => session.setClaudeSuggest(e.target.checked);
   on.onclick = () => session.setClaudeFeatures(true);
   // Off: a turn running is stopped, the full-screen chat ends and the panel closes; no door can start another
   // (js/ui/claude.js checks session.claudeFeatures on every one)
@@ -29,7 +45,9 @@ export function setupClaudeFeatures(page, { closeAsk = () => {}, claude = null }
     if (claude) { if (session.claudeStatus) claude.stop(); if (session.claudeView === 'full') claude.closeFull(); }
     closeAsk();
   };
-  session.on((ev) => { if (ev === 'claudefeatures') sync(); });
+  session.on((ev) => { if (ev === 'claudefeatures' || ev === 'claudesuggest') sync(); });
+  // (a key saved or forgotten: the checkbox is enabled or disabled)
+  if (claude) claude.onChange(sync);
   sync();
   return { sync };
 }

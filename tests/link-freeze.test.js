@@ -12,6 +12,10 @@
 //        Dragon 64 whose 14-byte program at $7000 filled the text screen ($0400-$05FF) with "A" ($41) and loops at $700C;
 //      - a long link (#z=, byte 0 = 2) and a sealed object (version 1, kind 2) holding a BASIC program: it lists as
 //        written;
+//      - (0.4) a long link (#z=, byte 0 = 3) and a sealed object (version 1, kind 3) holding a LIZA postcard: three
+//        lines, which LIZA, started afresh on a Dragon 64, answers one by one;
+//      - (0.4) a long link (#z=, byte 0 = 4) and a sealed object (version 1, kind 4) holding a program's source: the
+//        moment's fill program as 9 lines of assembly, which builds to its crc here, waits for Run, then fills the screen;
 //  * the snapshot config rule (Session.checkedSnapshot): a moment's config is the keys its model takes, each with one
 //    of its values, and from a link mameCompat is off; anything else is damaged; what is remembered as the model's
 //    config is only its own options, never mameCompat or hires.
@@ -29,7 +33,14 @@ const GOLDEN = {
   'z2-program.json': 'de063a95fc3877c9cb1065c62dd9a5aecc8507aa33a19cb88672f8aca7c0a704',
   'sealed1-moment.json': '736e99c08f7442126f07817ca9ca7acbb7dca1d4df326eb2fd263142729c64c2',
   'sealed1-program.json': '4bd6ab9dca963fa61a513de6a297bee367a6d8a9baeed1ee01f1477598e8d0df',
+  // 0.4: the LIZA postcard (byte 0 = 3; sealed kind 3)
+  'z3-postcard.json': '4ff7fdf9b739adf8413626c66ef33720cd2060acdfb844bd2a10250a152c5dc3',
+  'sealed1-postcard.json': '494fdebd07e25156db78e30e11164a3052ae4e8f2cdd39c777021c0d34c92b41',
+  // 0.4: a program's source (byte 0 = 4; sealed kind 4)
+  'z4-source.json': '616d5a43d9e160a2bfd1a06b270eda3fdbdefc03c1ed2942402fa25a0bbb7252',
+  'sealed1-source.json': '1e308a579a07903a5cfffeb6ff2d5ebb69b74c938618b29c791721a187317f3f',
 };
+const POSTCARD = ['I MISS MY DRAGON', 'BECAUSE IT WAS MAGIC', 'YOU ARE A COMPUTER'];
 const FILL = [0x8E, 0x04, 0x00, 0x86, 0x41, 0xA7, 0x80, 0x8C, 0x06, 0x00, 0x26, 0xF9, 0x20, 0xFE];
 const LISTED = '10 REM GOLDEN\n20 FOR I=1 TO 3:PRINT "Hi";I:NEXT\n30 GOTO 20';
 const fresh = (id = 'coco3') => { const s = new Emu.Session({ store: Emu.memoryStore() }); s.switchMachine(id, undefined, { menu: false }); return s; };
@@ -60,10 +71,34 @@ function programChecks(label, prog) {
     && Emu.listProgram(rd, w(0x19), 'dragon') === LISTED, JSON.stringify(r));
 }
 
+// the postcard as made: LIZA started afresh on a Dragon 64 and the three lines replayed, each answered on screen
+function postcardChecks(label, s, pc) {
+  s.postcards.open(pc, { kind: 'long' }, fs.readFileSync(path.join(__dirname, '../examples', s.postcards.fileFor(pc.machine))));
+  s.postcards.skip();
+  for (let i = 0; i < 3000 && s.arrivedFromLink && s.arrivedFromLink.postcard.state !== 'done'; i++) s.runFrames(1);
+  const text = s.screenText().join('\n');
+  check(`${label}: LIZA on a Dragon 64 replays it to the end, each line answered`, s.shownMachine.id === 'dragon64' && s.arrivedFromLink.postcard.state === 'done'
+    && POSTCARD.every((l) => text.includes(`> ${l}`)), text.replace(/\s+/g, ' ').slice(-120));
+}
+
+// the source as made: fill.asm for the Dragon 64, 9 lines; opened, nothing runs; Run builds it to its crc and fills the
+// screen with "A" ($0400-$05FF), the program's 14 bytes at $7000
+function sourceChecks(label, s, card) {
+  check(`${label}: fill.asm for a Dragon 64, 9 lines`, card.machine === 'dragon64' && card.name === 'fill.asm' && card.source.split('\n').length === 9, JSON.stringify(Object.assign({}, card, { source: undefined })));
+  const a = s.sources.open(card, { kind: 'long' });
+  s.runFrames(3);
+  const screenA = () => Array.from({ length: 0x200 }, (_, i) => s.readByte(0x400 + i)).every((b) => b === 0x41);
+  check(`${label}: it builds to its crc here, and nothing runs until Run`, a.state === 'ready' && s.shownMachine.id === 'dragon64' && !screenA());
+  s.sources.run(card);
+  s.runFrames(3);
+  const prog = Array.from({ length: FILL.length }, (_, i) => s.readByte(0x7000 + i));
+  check(`${label}: Run fills the screen with "A", the program at $7000 in its last loop`, screenA() && prog.join() === FILL.join() && s.shownMachine.cpu.pc === 0x700C, s.shownMachine.cpu.pc.toString(16));
+}
+
 (async () => {
   // ---- 1. the fixtures' bytes ----
   const names = fs.readdirSync(DIR).sort();
-  check('the fixtures are the four committed, no more and no fewer', JSON.stringify(names) === JSON.stringify(Object.keys(GOLDEN).sort()), names.join(' '));
+  check('the fixtures are the ones committed, no more and no fewer', JSON.stringify(names) === JSON.stringify(Object.keys(GOLDEN).sort()), names.join(' '));
   for (const [name, hash] of Object.entries(GOLDEN)) {
     const got = crypto.createHash('sha256').update(fs.readFileSync(path.join(DIR, name))).digest('hex');
     check(`${name}: its bytes are the committed ones`, got === hash, got);
@@ -81,7 +116,7 @@ function programChecks(label, prog) {
       const kept = Object.keys(GOLDEN).filter((n) => new RegExp(`^${n.replace('.', '\\.')}: exists, kept`, 'm').test(out));
       const same = Object.entries(GOLDEN).every(([n, h]) => crypto.createHash('sha256').update(fs.readFileSync(path.join(tmp, n))).digest('hex') === h);
       const untouched = Object.entries(GOLDEN).every(([n, h]) => crypto.createHash('sha256').update(fs.readFileSync(path.join(DIR, n))).digest('hex') === h);
-      check('tools/gen-link-fixtures.js refuses to overwrite: it keeps every existing fixture, and their bytes are unchanged', kept.length === 4 && same && !/written/.test(out), out.trim().replace(/\n/g, ' | '));
+      check('tools/gen-link-fixtures.js refuses to overwrite: it keeps every existing fixture, and their bytes are unchanged', kept.length === Object.keys(GOLDEN).length && same && !/written/.test(out), out.trim().replace(/\n/g, ' | '));
       check('... and the committed fixtures were not touched by the run (they are opened from a temporary copy)', untouched);
 
       // ...and it really writes into the directory it is given: take one fixture out of the copy and it is written
@@ -94,7 +129,7 @@ function programChecks(label, prog) {
         new RegExp(`^${missing.replace('.', '\\.')}: written`, 'm').test(out2) && fs.existsSync(path.join(tmp, missing))
         && Object.keys(GOLDEN).filter((n) => n !== missing).every((n) => new RegExp(`^${n.replace('.', '\\.')}: exists, kept`, 'm').test(out2)),
         out2.trim().replace(/\n/g, ' | '));
-      check('... and the tracked folder still has all four, with the committed bytes', fs.readdirSync(DIR).sort().join() === Object.keys(GOLDEN).sort().join()
+      check('... and the tracked folder still has all of them, with the committed bytes', fs.readdirSync(DIR).sort().join() === Object.keys(GOLDEN).sort().join()
         && Object.entries(GOLDEN).every(([n, h]) => crypto.createHash('sha256').update(fs.readFileSync(path.join(DIR, n))).digest('hex') === h));
     } finally {
       fs.rmSync(tmp, { recursive: true, force: true });
@@ -136,6 +171,41 @@ function programChecks(label, prog) {
     const got = await fresh().readShortLink(`#l=golden01.${f.key}`, storeWith(f.sealed));
     check('sealed1-program: opens as a program', !!got.program && !got.snap && got.program.text === LISTED, JSON.stringify(got.program));
     programChecks('sealed1-program', got.program);
+  }
+
+  {
+    const f = fixture('z3-postcard.json');
+    const bytes = Buffer.from(f.z, 'base64url');
+    check('z3-postcard: a long link whose byte 0 is 3 (a LIZA postcard)', bytes[0] === 3 && f.format.linkByte0 === 3);
+    const s = fresh();
+    const pc = await s.postcards.read(`#z=${f.z}`);
+    check('z3-postcard: its machine and its three lines', pc.machine === 'dragon64' && JSON.stringify(pc.lines) === JSON.stringify(POSTCARD), JSON.stringify(pc));
+    postcardChecks('z3-postcard', s, pc);
+  }
+  {
+    const f = fixture('sealed1-postcard.json');
+    const sealed = Buffer.from(f.sealed, 'base64url');
+    check('sealed1-postcard: a sealed object of version 1, kind 3 (a LIZA postcard)', sealed[0] === 1 && sealed[1] === 3);
+    const s = fresh();
+    const got = await s.readShortLink(`#l=golden01.${f.key}`, storeWith(f.sealed));
+    check('sealed1-postcard: opens as a postcard', !!got.postcard && !got.snap && !got.program && JSON.stringify(got.postcard.lines) === JSON.stringify(POSTCARD), JSON.stringify(got.postcard));
+    postcardChecks('sealed1-postcard', s, got.postcard);
+  }
+
+  {
+    const f = fixture('z4-source.json');
+    check('z4-source: a long link whose byte 0 is 4 (a program\'s source)', Buffer.from(f.z, 'base64url')[0] === 4 && f.format.linkByte0 === 4);
+    const s = fresh();
+    sourceChecks('z4-source', s, await s.sources.read(`#z=${f.z}`));
+  }
+  {
+    const f = fixture('sealed1-source.json');
+    const sealed = Buffer.from(f.sealed, 'base64url');
+    check('sealed1-source: a sealed object of version 1, kind 4 (a program\'s source)', sealed[0] === 1 && sealed[1] === 4);
+    const s = fresh();
+    const got = await s.readShortLink(`#l=golden01.${f.key}`, storeWith(f.sealed));
+    check('sealed1-source: opens as a source', !!got.source && !got.snap && !got.program && !got.postcard);
+    sourceChecks('sealed1-source', s, got.source);
   }
 
   // ---- 3. the snapshot config rule ----

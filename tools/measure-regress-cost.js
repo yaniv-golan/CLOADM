@@ -23,6 +23,10 @@
 //               regex, plain words are a substring). The fit needs cases whose cost differs a lot: a handful of the
 //               FIRST cases are nearly identical in cost, so their times carry no signal. Pick cases SPREAD in cost
 //               from both kinds instead (tests/measure-regress-cost.test.js picks them from the recorded workloads).
+//   --repeat N  time every case N times and keep its FASTEST run (default 1). Load on the machine only ever ADDS time,
+//               so the minimum is the run least touched by it; the N passes are interleaved (every case once, then
+//               every case again), so a burst of load lands on different cases in different passes instead of on all
+//               N runs of one case. The empty run subtracted as the start-up cost is timed the same way.
 // The fit itself is the median of pairwise slopes (Theil-Sen), which shrugs off noisy points, and each
 // fit prints its NOISE: the share of pairwise slopes that disagree with the median by more than half
 // its magnitude. A machine whose noise is past half says so in its own words ('the machine looks
@@ -62,6 +66,19 @@ function reportFits(trace, traceN, video, videoN) {
   if (trace.noise > 0.5 || video.noise > 0.5) console.log('the machine looks noisy: more than half the pairwise slopes disagree with the median - the fit is a guess');
 }
 
+// The timings: every case, then the empty run (name null: the start-up cost subtracted from each), REPEAT passes of
+// that, interleaved, keeping the fastest run of each. `time(name)` runs one and returns its seconds. A function of its
+// own so the suite can drive it with a hand-made clock (which runs it sees, in what order, and which it keeps).
+function measure(names, repeat, time) {
+  const out = {};
+  let startup = Infinity;
+  for (let pass = 0; pass < repeat; pass++) {
+    for (const n of names) { const s = time(n); out[n] = { s: out[n] ? Math.min(out[n].s, s) : s }; }
+    startup = Math.min(startup, time(null));
+  }
+  return { out, startup };
+}
+
 function main() {
   // this file lives in tools/, so the repository is one level up: the hashes are tests/regress-hashes.json
   const REPO = path.join(__dirname, '..');
@@ -81,6 +98,9 @@ function main() {
     if (!names.length) { console.error(`--only: no case name matches ${arg}`); process.exitCode = 2; return; }
   }
   names = names.slice(0, limit > 0 ? limit : undefined);
+  const ri = process.argv.indexOf('--repeat');
+  const repeat = ri > 0 ? Number(process.argv[ri + 1]) : 1;
+  if (!Number.isInteger(repeat) || repeat < 1) { console.error('--repeat needs a whole number of runs, 1 or more'); process.exitCode = 2; return; }
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cloadm-regress-cost-'));
   let done = false;
   const cleanup = () => { if (done) return; done = true; try { fs.rmSync(dir, { recursive: true, force: true }); } catch (e) { /* best effort */ } };
@@ -101,14 +121,10 @@ function main() {
       try { cp.execFileSync(process.execPath, args, { cwd: dir, stdio: 'ignore', maxBuffer: 8 << 20 }); } catch (e) { /* a case that fails still took its time */ }
       return Number(process.hrtime.bigint() - t0) / 1e9;
     };
-    console.log(`measuring ${names.length} cases, one process each...`);
-    const out = {};
-    for (const n of names) {
-      const escaped = n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      out[n] = { s: time([path.join('tests', 'regress.test.js'), '--only', `/${escaped}$/`]), instructions: hashes[n].instructions, frames: hashes[n].frames };
-    }
-    // the cost of an empty run, subtracted from each: the process start and the suite's own set-up
-    const startup = time([path.join('tests', 'regress.test.js'), '--only', '/^__none_matches_this__$/']);
+    console.log(`measuring ${names.length} cases, one process each${repeat > 1 ? `, the fastest of ${repeat} interleaved runs` : ''}...`);
+    const { out, startup } = measure(names, repeat, (n) => time([path.join('tests', 'regress.test.js'), '--only',
+      n === null ? '/^__none_matches_this__$/' : `/${n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$/`]));
+    for (const n of names) Object.assign(out[n], { instructions: hashes[n].instructions, frames: hashes[n].frames });
 
     const tr = Object.entries(out).filter(([, v]) => v.instructions != null).map(([, v]) => ({ x: v.instructions, y: v.s - startup }));
     const fr = Object.entries(out).filter(([, v]) => v.frames != null).map(([, v]) => ({ x: v.frames, y: v.s - startup }));
@@ -124,5 +140,5 @@ function main() {
 
 // the fit, exported for its own test (tests/measure-regress-cost.test.js drives it on hand-built
 // points): a require of this file must NOT run the measurement, so main() stays behind require.main.
-module.exports = { fit, median, reportFits };
+module.exports = { fit, median, reportFits, measure };
 if (require.main === module) main();

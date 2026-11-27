@@ -34,6 +34,11 @@
  *     use Claude →" (the question is copied). They follow the Session's events and the machine (500 ms debounce) while
  *     there is no conversation, stay put while the box has text, a pointer is down or a question is selected, and say
  *     "Suggestions updated" politely.
+ *     With "Suggest questions with Claude" on (Settings, under Claude features; off by default) and a key, opening the
+ *     panel on an empty chat also sends ONE request to Claude Haiku with the screen's text and the machine's name
+ *     (Session.claudeSuggestions, js/claude/suggest.js): the page's own questions show at once, and a valid answer
+ *     within 3 s replaces them under "Suggested by Claude"; anything else keeps them. The line under the screen never
+ *     asks Claude, a graphics screen has only the page's own, and a tap fills the message box and sends nothing.
  */
 import { $, ESC, viewOpen, markUndrawn, claudeStatusText, touchPanel, TOUCH_PAUSED_TEXT } from './page.js';
 import { PAUSED_CARD_TEXT, acceptClick, drawAccept, loadCardText } from './claude.js';
@@ -43,6 +48,7 @@ import { actionLines, restoreLine, syncRows } from './claude-lines.js';
 import { promptsNow } from '../claude/prompts.js';
 
 const WIDTH_KEY = 'cloadm.askWidth';
+export const SENDS_SUGGEST = "Suggested questions: the screen's text, when you open an empty chat.";
 const RAIL = [['Media', 'tab-media'], ['Display', 'tab-display'], ['Input', 'tab-input'], ['POKEs', 'tab-pokes'], ['Machine', 'tab-machine']];
 const phone = () => matchMedia('(max-width: 700px)').matches;
 // keys that only change other keys (and lock keys): pressed or let go, they are not a key on the machine
@@ -64,6 +70,7 @@ export function setupAsk(page, claude) {
     $('askRail').hidden = phone();
     if (phone()) setHeight('half');
     render();
+    suggestWithClaude();
     if (focus && !phone() && !$('askInput').closest('[hidden]')) $('askInput').focus();
   }
   function hide({ keep = false } = {}) {
@@ -260,6 +267,9 @@ export function setupAsk(page, claude) {
   // question selected without a key (kept through opening the panel and entering the key); pointerDown: a press in the
   // panel or the strip (the questions do not move under a finger); panelEmpty: the open panel's chat is empty (render)
   let shown = null, prompts = [], place = null, chosen = null, pointerDown = false, sugTimer = null, noKeyShown = null, panelEmpty = false;
+  // byClaude: the questions Claude suggested for the open panel's empty chat (in place of the set's), or null;
+  // drawnBy: which were drawn last (a change redraws); sugAsk: the latest request's number (an older answer is dropped)
+  let byClaude = null, drawnBy = null, sugAsk = 0;
   for (const box of [ask, $('askOpeners')]) box.addEventListener('pointerdown', () => { pointerDown = true; });
   for (const ev of ['pointerup', 'pointercancel']) addEventListener(ev, () => { pointerDown = false; }, true);
   const frozen = () => !!$('askInput').value || pointerDown || chosen != null;
@@ -278,19 +288,26 @@ export function setupAsk(page, claude) {
     if (!at) {
       // (Off, or nowhere to show them: nothing is drawn, and with Off the machine is not read for them)
       if (!session.claudeFeatures) { shown = null; chosen = null; }
+      byClaude = null;
+      reveal($('askSuggestBy'), false);
       if (place) { $('askSuggest').replaceChildren(); $('askStripQs').replaceChildren($('askOpenLabel')); delete $('askSuggest').dataset.set; place = null; }
       reveal($('askSuggestLabel'), false); reveal($('askOpenLabel'), false); reveal($('askChoose'), false);
       return;
     }
-    if (fresh) { shown = null; chosen = null; }
+    if (fresh) { shown = null; chosen = null; byClaude = null; }
+    // (Claude's questions are the open panel's only: the line under the screen never has them)
+    if (at !== 'panel') byClaude = null;
     if (noKeyShown && !nk) chosen = null;   // (a key now: the question chosen before it went into the message box)
     let announce = false, changed = false;
     if (!shown || live) {
       const set = promptsNow(session);
       if (!shown || (set.id !== shown && !frozen())) { announce = !!shown && set.id !== shown; changed = set.id !== shown; shown = set.id; prompts = set.prompts; }
     }
-    if (changed || at !== place || nk !== noKeyShown) {
-      const buttons = prompts.map((q) => {
+    // (the machine moved on to another set: Claude's questions were for the screen before)
+    if (changed) byClaude = null;
+    if (changed || at !== place || nk !== noKeyShown || byClaude !== drawnBy) {
+      drawnBy = byClaude;
+      const buttons = (byClaude || prompts).map((q) => {
         const b = el('button', q);
         if (nk && at === 'panel') b.setAttribute('aria-pressed', String(q === chosen));
         b.onclick = () => (at === 'panel' ? pick(q, b) : openWith(q));
@@ -304,9 +321,10 @@ export function setupAsk(page, claude) {
       if (at === 'panel') { $('askStripQs').replaceChildren($('askOpenLabel')); $('askSuggest').replaceChildren(...buttons); }
       else { $('askSuggest').replaceChildren(); $('askStripQs').replaceChildren($('askOpenLabel'), ...buttons); }
       if (keep >= 0 && buttons[keep]) buttons[keep].focus({ preventScroll: true });
-      $('askSuggest').dataset.set = shown;
+      $('askSuggest').dataset.set = byClaude ? 'claude' : shown;
       place = at; noKeyShown = nk;
     }
+    reveal($('askSuggestBy'), at === 'panel' && !!byClaude);
     if (announce) $('askSuggestNote').textContent = 'Suggestions updated';
     reveal($('askSuggestLabel'), at === 'panel' && nk);
     reveal($('askChoose'), at === 'panel' && nk && chosen != null);
@@ -334,6 +352,18 @@ export function setupAsk(page, claude) {
   const fitWatch = new ResizeObserver(() => { if (place === 'strip') fitStrip(); });
   fitWatch.observe($('screenNotesBox'));
   fitWatch.observe($('askStripQs'));
+  // The panel opened on an empty chat: with the setting on and a key, one request for Claude's questions (the Session
+  // keeps to one per screen and one per 30 s, and every other rule). The answer is taken only if the panel is still
+  // open on its empty chat and nothing holds the questions (text in the box, a press, a selection).
+  async function suggestWithClaude() {
+    if (where() !== 'panel' || noKey() || !session.claudeSuggest) return;
+    const n = ++sugAsk;
+    const qs = await session.claudeSuggestions((url, init) => fetch(url, init));
+    if (!qs || n !== sugAsk || where() !== 'panel' || frozen()) return;
+    byClaude = qs;
+    drawQuestions();
+    $('askSuggestNote').textContent = 'Suggestions updated';
+  }
   // a question in the open panel: with a key it fills the message box; without one it is selected, and the two
   // choices come forward
   function pick(q, b) {
@@ -365,11 +395,13 @@ export function setupAsk(page, claude) {
   }
   session.on((ev) => {
     if (ev === 'claudefeatures') { drawQuestions({ fresh: true }); return; }   // (Off clears them; On reads them afresh)
+    if (ev === 'claudesuggest') { render(); return; }
     if (ev !== 'chat') suggestSoon();
   });
 
   // ---------------- drawing ----------------
   let shownPending = null, wasChat = false;
+  const SENDS = $('askSendsLine').textContent;
   function render() {
     const chat = session.chat, k = claude.keyState(), st = claude.state;
     $('btnAsk').setAttribute('aria-pressed', String(open || session.claudeView === 'full'));
@@ -384,6 +416,9 @@ export function setupAsk(page, claude) {
     $('askInput').placeholder = code ? 'Ask about this code…' : 'Ask about this machine…';
     // the empty state names the emulated machine (the BASIC session's, while the full screen chat is open)
     $('askEmptyModel').textContent = modelName();
+    // what is sent: with Suggest questions on, the line also says what an empty chat sends
+    const sends = session.claudeSuggest ? `${SENDS} ${SENDS_SUGGEST}` : SENDS;
+    if ($('askSendsLine').textContent !== sends) $('askSendsLine').textContent = sends;
     // the conversation, turn by turn: the line, the reply, the turn's action lines, and the restore line under the
     // turn its newest point was taken in. Rows are kept by key and appended, never all replaced: #askMessages is a
     // live region, and a focused button in it keeps its focus.

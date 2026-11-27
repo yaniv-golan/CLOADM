@@ -8,8 +8,8 @@ DOOM is a registered trademark of ZeniMax Media Inc. CLOADM and WYRMFIRE are ind
 with or endorsed by id Software, ZeniMax Media or Microsoft. References to DOOM describe file compatibility only.
 
 Version:  0.1.0
-Source:   https://github.com/yaniv-golan/wyrmfire/tree/775ec6c8167dd576c63a2869c500ecb706f41456
-Commit:   775ec6c8167dd576c63a2869c500ecb706f41456
+Source:   https://github.com/yaniv-golan/wyrmfire/tree/2f47134ea17a2d5d83164874ebd5ed2c42d317a5
+Commit:   2f47134ea17a2d5d83164874ebd5ed2c42d317a5
 
   wyrmfire.bin                     the engine (bin/wyrmfire.bin of that commit, byte for byte)
   converter/wyrmfire-convert.js    the level converter (converter/ of that commit, byte for byte), GPL-3.0-or-later

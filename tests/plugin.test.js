@@ -98,8 +98,10 @@ const PANEL_KEY = 'CLOADM side panel', LOCAL_KEY = 'CLOADM on this computer';
 check('plugin.json: exactly two servers, "CLOADM on this computer" (the local server) and "CLOADM side panel" (the connector)',
   JSON.stringify(Object.keys(SERVERS).sort()) === JSON.stringify([LOCAL_KEY, PANEL_KEY].sort()), JSON.stringify(Object.keys(SERVERS)));
 const server = SERVERS[LOCAL_KEY] || {}, panel = SERVERS[PANEL_KEY] || {};
-check('plugin.json: "CLOADM on this computer" is node cli/cloadm.js --mcp from the plugin root',
-  server.command === 'node' && JSON.stringify(server.args) === JSON.stringify(['${CLAUDE_PLUGIN_ROOT}/cli/cloadm.js', '--mcp']) && Object.keys(server).length === 2, JSON.stringify(server));
+// --no-skills: the plugin ships the skill itself (skills/cloadm/), so its local server does not serve it over MCP as
+// well (Claude Code would list it twice, as cloadm:cloadm and plugin_cloadm_CLOADM_on_this_computer:cloadm)
+check('plugin.json: "CLOADM on this computer" is node cli/cloadm.js --mcp --no-skills from the plugin root',
+  server.command === 'node' && JSON.stringify(server.args) === JSON.stringify(['${CLAUDE_PLUGIN_ROOT}/cli/cloadm.js', '--mcp', '--no-skills']) && Object.keys(server).length === 2, JSON.stringify(server));
 check('plugin.json: "CLOADM side panel" is the connector over HTTP, https://mcp.cloadm.dev/mcp, and nothing else',
   panel.type === 'http' && panel.url === 'https://mcp.cloadm.dev/mcp' && Object.keys(panel).length === 2, JSON.stringify(panel));
 // Each server keeps its stable id in serverInfo.name and announces the display words, the same as its plugin key, in

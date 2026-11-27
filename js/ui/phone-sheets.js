@@ -18,7 +18,7 @@ const SHEETS = [
   { id: 'sheetCart', chip: 'chipCart', nodes: ['#cartSlot'] },
   { id: 'sheetPower', chip: 'chipPower', nodes: ['#btnReset', '#btnHardReset', '#btnPause', '#btnTurbo', '#btnFull'] },
   // Programs (Menu → Programs…, first, and the palette's "Programs"): the Media tab's programs, in this order: Last
-  // time (Run again) at the top, the "Running with no ROMs" card, the no-ROM shelf ("on screen now" on the one
+  // time (Run again) at the top, the side card (the machine question on a first visit), the no-ROM shelf ("on screen now" on the one
   // running), Recent on this machine, Snapshots and the way to the Library; the Media tab keeps its tape options
   { id: 'sheetPrograms', chip: null, nodes: ['#lastTime', '#welcome', '#shelfHead', '#shelf', '#recentHead', '#recentList', '#quickSave', '#linkLibrary'] },
   // Settings (Menu → Settings…, and openSettings(tab) from anywhere): the drawer's tabs and their panels
@@ -71,6 +71,8 @@ export function setupPhoneSheets(page, { touchKeys, ask = null }) {
 
   // ---- the chips: what is in each port, and whether the machine runs
   const fileOf = (name) => String(name).split('/').pop();
+  // "Dragon FDC (WD2797)" -> "Dragon FDC": no parenthesis, at most 10 characters
+  const shortName = (name) => { const n = String(name).replace(/\s*\(.*$/, '').trim() || String(name); return n.length > 10 ? `${n.slice(0, 9)}…` : n; };
   function chips() {
     const m = session.personMachine;
     if (!m) return;
@@ -85,10 +87,13 @@ export function setupPhoneSheets(page, { touchKeys, ask = null }) {
     };
     const tape = t ? fileOf(t.name) : 'Empty';
     set('chipTape', tape, !!t, `Tape: ${tape}. Open the cassette deck.`);
-    const disks = !disksHere ? 'None fitted' : d.length === 0 ? 'Empty' : d.length === 1 ? fileOf(d[0].name) : `${d.length} disks`;
-    set('chipDisks', disks, d.length > 0, `Disks: ${disks}. Open the disk drives.`);
-    const cart = !cartHere ? 'No port' : !cartOn ? 'Empty' : (m.cartPort.name || 'Cartridge');
-    set('chipCart', cart, cartOn, `Cartridge: ${cart}. Open the cartridge port.`);
+    // (a chip holds a short value, a count or a short name; the full names are in its sheet and its aria-label)
+    const disks = !disksHere ? 'None fitted' : d.length === 0 ? 'Empty' : `${d.length} disk${d.length > 1 ? 's' : ''}`;
+    const diskNames = d.map((x) => fileOf(x.name)).join(', ');
+    set('chipDisks', disks, d.length > 0, `Disks: ${diskNames || disks}. Open the disk drives.`);
+    const cartName = cartOn ? (m.cartPort.name || 'Cartridge') : '';
+    const cart = !cartHere ? 'No port' : !cartOn ? 'Empty' : shortName(cartName);
+    set('chipCart', cart, cartOn, `Cartridge: ${cartName || cart}. Open the cartridge port.`);
     const power = paused ? 'Paused' : 'Running';
     set('chipPower', power, false, `Power: ${power}. Open power.`);
     // a short phone upright: no chips; Menu's two items say the same, and Menu wears a dot while media is in

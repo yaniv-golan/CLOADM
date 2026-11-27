@@ -4,7 +4,7 @@
 ; welcome.asm) on a machine with no ROMs.
 ;
 ; The 6809 build draws a semigraphics colour stripe, "CLOADM" in
-; large block characters and the menu, posts keys 1-4 in a mailbox
+; large block characters and the menu, posts the choices in a mailbox
 ; the Session reads each frame, and plays a short tune on the DAC.
 ; This build does the same on the MC-10's hardware: the screen is the
 ; 32x16 text screen at $4000, keys come from Micro Color BASIC's
@@ -52,12 +52,12 @@ COUNT    EQU     VARS+8
         ORG     $5000
 ; ---- fixed entry points: js/session.js knows these addresses ----
 WELCOME JMP     START           ; $5000
-EVENT   FCB     0               ; $5003 key 1-4 pressed (cleared by the Session)
+EVENT   FCB     0               ; $5003 the choice: 1-4, 5 option 6, 8 WYRMFIRE (cleared by the Session)
 SOUNDOK FCB     0               ; $5004 set to 1 by the page once audio is unlocked
 PLAYED  FCB     0               ; $5005 the tune has played
-CARRYN  EQU     24              ; the longest option 5 text
+CARRYN  EQU     24              ; the longest option 6 text
 GREET   FCB     0               ; $5006 set by the Session: 0 first visit, 1 back, 2 bye
-CARRY   FCB     0               ; $5007 set by the Session: option 5's text (0 ends; none if 0)
+CARRY   FCB     0               ; $5007 set by the Session: option 6's text (0 ends; none if 0)
         RMB     CARRYN
 ROMSW   FCB     0               ; set by the Session: 1 when the machine HAS ROMs but runs without them,
                                 ;   so option 3 says to switch them on rather than to add them
@@ -160,19 +160,19 @@ GRTOK   LSLB
         LDD     2,X             ; the string
         STD     PTRC
         JSR     PRINTAT
-; ---- option 5, if the Session set one: its line and the prompt's last digit ----
-; With option 5 the greeting and the menu move up a row (rows 7-12 to 6-11), so a blank row still separates the
-; menu from PRESS 1 TO 5 (as the 6809 build); option 5 goes on row 12.
+; ---- option 6, if the Session set one: its line and the prompt's last digit ----
+; With option 6 the options move up a row (rows 8-12 to 7-11), so a blank row still separates the menu from
+; PRESS 1 TO 6 (as the 6809 build); option 6 goes on row 12.
         TST     CARRY
-        BEQ     NOFIVE
-        LDX     #SCREEN+6*32
+        BEQ     NOSIX
+        LDX     #SCREEN+7*32
 MOVEUP  LDD     32,X
         STD     0,X
         INX
         INX
         CPX     #SCREEN+12*32
         BNE     MOVEUP
-        LDD     #$6060          ; row 12, cleared for option 5
+        LDD     #$6060          ; row 12, cleared for option 6
 CLR12   STD     0,X
         INX
         INX
@@ -180,15 +180,15 @@ CLR12   STD     0,X
         BNE     CLR12
         LDX     #SCREEN+12*32+4
         STX     PTRB
-        LDX     #T_5
+        LDX     #T_6
         STX     PTRC
         JSR     PRINTAT         ; the digit and a space; PTRB is where the text goes
         LDX     #CARRY
         STX     PTRC
         JSR     PRINTAT
-        LDA     #'5
-        STA     SCREEN+14*32+21 ; PRESS 1 TO 4 -> 5
-NOFIVE
+        LDA     #'6
+        STA     SCREEN+14*32+21 ; PRESS 1 TO 5 -> 6
+NOSIX
 
 ; ---- the bottom stripe, drawn at once ----
         LDX     #SCREEN+15*32
@@ -227,12 +227,18 @@ NOSND   TST     EVENT           ; the Session has not taken the last key yet
         BLO     KEYLP
         CMPA    #'4
         BLS     KEYOK
-        CMPA    #'5             ; 5 only with option 5
+        CMPA    #'5             ; 5: WYRMFIRE, event 8
+        BNE     KEYSIX
+        LDA     #8
+        BRA     POST
+KEYSIX  CMPA    #'6             ; 6 only with option 6: event 5
         BNE     KEYLP
         TST     CARRY
         BEQ     KEYLP
+        LDA     #5
+        BRA     POST
 KEYOK   SUBA    #'0
-        STA     EVENT
+POST    STA     EVENT
         BRA     KEYLP
 
 ; ---- the HALT loop: a FIXED 2-byte slot, so the shipping and comparison images differ only in the two

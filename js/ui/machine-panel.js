@@ -41,16 +41,9 @@ export function setupMachinePanel(page, { showRoms }) {
     menu.replaceChildren();
     list = document.createElement('div'); list.className = 'menulist';
     menu.append(list);
-    // With no ROMs stored at all, one line at the top instead of a "needs ROMs" tag on every row; the tags (and the
-    // ✓ legend) once any are stored
+    // With no ROMs stored at all, no tags (every row would say "needs ROMs": the welcome menu's key 3 says it once);
+    // the tags (and the ✓ legend) once any are stored
     const none = session.storedRoms().count === 0;
-    // (a screen reader hears that line as the menu's description: the line itself is no menu item)
-    if (none) menu.setAttribute('aria-describedby', 'menuNoRoms'); else menu.removeAttribute('aria-describedby');
-    if (none) {
-      const top = document.createElement('p'); top.id = 'menuNoRoms'; top.setAttribute('role', 'none');
-      top.textContent = 'No ROMs yet: every machine needs its own ROMs for BASIC.';
-      list.append(top);
-    }
     // every profile is in exactly one section (groupProfiles is exhaustive; a new model cannot go missing)
     for (const [name, members] of groupProfiles(availableProfiles())) {
       const g = document.createElement('div'); g.className = 'machines';
@@ -159,6 +152,7 @@ export function setupMachinePanel(page, { showRoms }) {
     });
     if (snap.length) text.append(' ', snap.length === 1 ? 'The disk that came with the snapshot is not kept; save it to the Library first.'
       : 'The disks that came with the snapshot are not kept; save them to the Library first.');
+    $('btnSwitch').textContent = 'Switch'; confirm.setAttribute('aria-label', 'Switch machine');
     const save = $('btnSwitchSaveDisk');
     save.hidden = !snap.length; save.disabled = false; save.textContent = 'Save to Library';
     save.onclick = async () => {
@@ -171,6 +165,20 @@ export function setupMachinePanel(page, { showRoms }) {
       } catch (e) { save.disabled = false; page.status(e.message, true); }
     };
     pending = () => onSwitch(items, tookOut(items));
+    cancelled = onCancel;
+    confirm.hidden = false;
+    place();
+    $('btnSwitch').focus();
+  }
+  // The same question box for another question (the programs' "Starting LIZA restarts the Dragon 64, and the BASIC program in
+  // memory will be lost"): text, the confirming button's label (and the box's name), what confirming does and what Cancel
+  // undoes. Shown at once, as a switch's is.
+  function ask({ text, label, name = label, onYes, onCancel = null }) {
+    ++asking;
+    $('switchText').textContent = text;
+    $('btnSwitch').textContent = label; confirm.setAttribute('aria-label', name);
+    $('btnSwitchSaveDisk').hidden = true;
+    pending = onYes;
     cancelled = onCancel;
     confirm.hidden = false;
     place();
@@ -195,7 +203,7 @@ export function setupMachinePanel(page, { showRoms }) {
   };
   function pick(id) {
     openMenu(false);
-    if (id === session.shownMachine.id) { page.focus(); return; }
+    if (id === session.shownMachine.id) { if (page.machineAnswered) page.machineAnswered(); page.focus(); return; }
     confirmSwitch({ name: availableProfiles().find((p) => p.id === id).name, id }, (taken) => {
       session.chooseMachine(id);
       switched(taken);
@@ -281,5 +289,5 @@ export function setupMachinePanel(page, { showRoms }) {
   // `close` is openMenu(false): the item js/ui/install.js keeps in the menu closes it through this, rather than
   // setting the same two attributes a second time
   // (the command box's "Switch machine…" opens the menu; its "Switch to <model>" picks one, through the confirmation)
-  return { confirmSwitch, close: () => openMenu(false), open: () => openMenu(true), pick };
+  return { confirmSwitch, ask, close: () => openMenu(false), open: () => openMenu(true), pick };
 }

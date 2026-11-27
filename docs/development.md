@@ -37,9 +37,9 @@ names contain one of the parts, and `node tools/browser-check.js --only <group>[
 | Cassette | `tape` (also `tape-sound`) | `tape,tapePanel,tapeHud` |
 | Cartridges and sound chips | `bus,carts,ssc,sp0256,ay8910,audio` | `cartridge,sscBoard,audio` |
 | Serial, printer, DriveWire | `serial,serial-api,acia,drivewire,web-serial` | `driveWire,webSerial,printer` |
-| The assembler (`js/asm/`) | `asm,includes,disasm` | `debugger` |
+| The assembler (`js/asm/`) | `asm,includes,disasm,source-share` | `debugger,sourceShare` |
 | Debugger | `debugger,debug-session,halt,probes,writewatch` | `debugger,debuggerScreen` |
-| Keyboard and input | `input,keyqueue,keyboard-symbols,touch-joystick,press-break` | `input,inputScreen,touchJoystick,keyboardSymbols,typing` |
+| Keyboard and input | `input,keyqueue,keyboard-symbols,touch-joystick,touch-thumb,press-break` | `input,inputScreen,touchJoystick,keyboardSymbols,typing` |
 | `js/session.js`, snapshots | `session,snapshot,state,restore-points,writewatch` | `snapshot,state` |
 | The "needs BASIC" detector (`js/needs-basic.js`, `js/ui/needs-basic.js`, the firmware's `implemented`) | `needs-basic,stub,debugger,regress` | `needsBasic,romUi` |
 | `js/drives.js` (the floppy drives) | `session-drives,disks,disks-newdisk,disk-bare,disks-mount-case,disks-mount-race,restore-points` | `disk,driveWire` |
@@ -194,6 +194,9 @@ node tests/short-link.test.js # short links on the page's side: sealing, the sto
 node tests/share-one-link.test.js # the Share screen's "one link": an untouched bundled program gives its page; every way in (a key, a typed line, a poke, an assembled program, a tape, a disk, BREAK) makes it a moment, its own running does not
 node tests/basic-share.test.js   # "Share your program": the card's condition, the LIST round trip (Dragon, CoCo, MC-10) through long and short links, the arrival with and without ROMs, the limits, the program link format
 node tests/link-freeze.test.js   # the frozen link formats: the golden links of every version open to what made them, and their bytes never change; the snapshot config rule
+node tests/liza-postcard.test.js # LIZA postcards: the chat heard (BYE, Reset, a moment, the Claude chat), the link (round trip, refusals, newer), the replay pixel for pixel at 1, 20 and 23 lines on every model, the recipient's Replay and Skip
+node tests/source-share.test.js  # a program shared with its source: the link (sourceCrc by hand, round trip, limits, newer, damaged), the ROM guard, no auto-run, Run only on the same crc, tampering, INCLUDE from examples/ only
+node tests/program-tape.test.js  # the BASIC program as a .CAS/.C10 and .WAV (Dragon, CoCo, MC-10): identified, fast-loaded back, the WAV decoded back, the name on tape, the ROM guard
 node tests/share-card.test.js     # the share card (Save picture, a short link's preview): 1200x630, every picture pixel frameToRGBA's, the name drawn glyph by glyph
 node tests/shortlink-worker.test.js # the short-link Worker in Node against an in-memory bucket: every check, limit, kill switch and count
 node tests/qr.test.js         # the QR encoder against ISO 18004's worked example and tables, every symbol read back
@@ -226,6 +229,7 @@ node tests/mcp.test.js       # the MCP server over stdio: both protocol eras, ev
 node tests/mcp-roms.test.js  # add_roms / remove_roms with stand-in ROMs: a local https server (a CA made for the run), every URL refusal (http, private/loopback/CGNAT/link-local, redirects, size, timeout, not a ROM), data, the media root, consent (elicitation), the store across restarts, --read-only, no ROM bytes in results
 node tests/rom-store.test.js  # the add_roms store: a URL kept as origin + path (no query or fragment), two processes adding at once lose no entry, a stale lock is broken
 node tests/connector.test.js # the side-panel connector (connector/): the Worker over HTTP, both views and their CSP, the folded emulator identical to the plain modules, the panel's tools equal to the server's, the 100k limit, the bridge's protocol in a vm
+node tests/mcp-skills.test.js # the agent skill over MCP (Skills extension) from both servers: declared in server/discover and only to a client that asks at initialize, skills/list's manifest and every file byte for byte against skills/cloadm/, the errors, --no-skills, the Worker's 2026-07-28 headers
 node tests/fold.test.js      # connector/fold.js's comment stripper: hand-built cases (strings, templates, regex against division, ASI line ends), every folded module keeps its tokens and line breaks and parses in V8, and tokenizer mutants turn it red
 node tools/connector-check.js # the connector's two views in Chromium, nested as Claude nests them under the spec's CSP, with a host stub: handshake first, list_changed, the tools, keys, storage, ROMs kept and read by memory reads, no CORS, out of step, and the view's controls (Details, the screen's fit inline and in the side panel, ⋯'s side-panel item, the menus, sound, Claude's chip), and on a phone (the size it reports inline, the host's insets, the on-screen keys in their three modes and the choice remembered, a host that asks before each call) (the browser check's `connector` group)
 node connector/build.js      # build the connector's views into connector/worker/src/views.gen.js (wrangler deploy runs it; docs/deploy-connector.md)
@@ -268,6 +272,7 @@ node tools/mame-diff/run.js dragon64 --cass-sound   # the sound mux on the casse
 node tests/tape-load.test.js # a tape dropped on the page: restarted, CLOADM, EXEC only when BASIC is back, a self-starting tape left alone (BASIC stand-in)
 node tests/input.test.js     # input: both keyboard modes on every family, the keyboard joystick, gamepads, the CoCo Max module
 node tools/mame-diff/tape/run-tape.js [profile ...]   # MAME records our writer firmware; MAME reads our .CAS and WAVs with our reader firmware
+node tools/mame-diff/tape/run-program-tape.js [profile ...]   # MAME reads the BASIC program tapes Share makes (Session.programTape: .CAS/.C10 and .WAV) with our reader firmware
 node tools/mame-diff/tape/run-playback.js [profile ...]   # how a .CAS is played: the same silences and the same blocks read as MAME (--ours: ours only)
 node tests/tokens.test.js    # design tokens: agreed values, WCAG contrast, self-hosted WOFF2 fonts and licences
 node tests/zip.test.js       # ZIP reader and inflate (hand-built archives; zlib as the oracle)
@@ -338,6 +343,7 @@ node tools/mame-diff/run.js <profile>     # lockstep trace comparison with MAME 
 node tools/mame-diff/run.js <profile> --video [--artifact N]   # pixel comparison of every display mode with MAME
 node tools/mame-diff/run.js coco3 --video --attr   # the GIME's text attributes, exactly (blank glyphs, so the fonts never show)
 node tools/mame-diff/run.js coco3 --video --text [--cpu 6309]   # the GIME text screens, and Claude's screen_text on them
+node tools/mame-diff/run.js dragon64 --video --movedtext        # a text page moved by the SAM ($0E00, $1C00) and INT/EXT high (also coco2b, coco)
 node tools/mame-diff/run.js d64plus --video      # the Dragon 64 Plus's 80-column screen, every pixel (d64plus/run-video.js)
 node tools/mame-diff/run.js d64plus --plustext [--video]   # the Dragon 64 Plus's 80-column text screens (lockstep; --video: every pixel)
 node tools/mame-diff/run.js d64plus --paging [--video]   # the Dragon 64 Plus's $FFE2 paging: $04 is the motherboard RAM, the VDG never sees a bank (lockstep; --video: every pixel)

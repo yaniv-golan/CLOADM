@@ -1,5 +1,5 @@
 // Arriving on a shared moment (Session.sharedMoment): a share link's snapshot that runs without ROMs is someone
-// else's moment, and the page holds back its no-ROM card and "No BASIC" pill while the person looks at it
+// else's moment, and the page holds back its side card and "Add ROMs…" while the person looks at it
 // (js/ui/drawer.js, js/ui/welcome.js). The Session decides when that is: opened from a link (shared) AND without
 // ROMs; and it ends, with one 'arrival' event, when the person leaves the moment: a Reset (back to the menu), a
 // power cycle (Switch off and on: start over) or a machine switch. The page's side is the browser check's

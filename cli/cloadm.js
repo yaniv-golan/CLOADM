@@ -1072,7 +1072,7 @@ function describe() {
     name: 'cloadm',
     schemaVersion: SCHEMA_VERSION,
     description: 'Dragon 32/64/200, Tandy Color Computer 1/2/3 and MC-10 emulator, headless: run programs, type, wait for the screen, memory or PC, hold keys, read the screen as text, inspect and change memory and registers, save pictures and snapshots, compare the picture with a reference PNG, record the sound as a WAV, record picture and sound as an AVI. Emulated time only: the same inputs give the same results.',
-    usage: ['node cli/cloadm.js [--json] [steps...]', 'node cli/cloadm.js [--json] --script FILE', 'node cli/cloadm.js --assemble FILE --out FILE [--cpu C] [--machine ID] [--format dragondos|decb|raw] [--map FILE] [--json]', 'node cli/cloadm.js --describe', 'node cli/cloadm.js --mcp | --serve [--roms PATH] [--media-root DIR] [--read-only]'],
+    usage: ['node cli/cloadm.js [--json] [steps...]', 'node cli/cloadm.js [--json] --script FILE', 'node cli/cloadm.js --assemble FILE --out FILE [--cpu C] [--machine ID] [--format dragondos|decb|raw] [--map FILE] [--json]', 'node cli/cloadm.js --describe', 'node cli/cloadm.js --mcp | --serve [--roms PATH] [--media-root DIR] [--read-only] [--no-skills]'],
     modes: {
       'command line': 'steps as options, run in order; --json prints one object { ok, exit, machine, steps, roms?, error? }',
       assemble: '--assemble FILE --out FILE: assemble to a file and stop; no machine is built (--asm assembles and runs). --cpu or --machine gives the CPU; --format dragondos, decb or raw (default from --machine: Dragons dragondos, CoCos decb); --map FILE writes "NAME $ADDR" lines; --json prints { ok, exit, assemble: { source, cpu, machine, format, out, size, load, exec, segments, map } }',
@@ -1099,7 +1099,7 @@ Usage: node cli/cloadm.js [--json] [steps...]
        node cli/cloadm.js [--json] --script FILE
        node cli/cloadm.js --assemble FILE --out FILE [--cpu C] [--machine ID] [--format dragondos|decb|raw] [--map FILE] [--json]
        node cli/cloadm.js --describe
-       node cli/cloadm.js --mcp | --serve [--roms PATH] [--media-root DIR] [--read-only]
+       node cli/cloadm.js --mcp | --serve [--roms PATH] [--media-root DIR] [--read-only] [--no-skills]
 
 Steps run in the order given; machine, option, roms, no-roms and fast-cas come first.
 ${rows.join('\n')}
@@ -1130,12 +1130,13 @@ const errorJson = (e) => Object.assign({ kind: e.kind, code: e.code, message: e.
 const asCliError = (e) => (e instanceof CliError ? e : new CliError('internal', `internal error: ${e && e.stack || e}`));
 
 // ---------------- --mcp and --serve ----------------
-// node cli/cloadm.js --mcp|--serve [--roms PATH]... [--media-root DIR] [--read-only]
+// node cli/cloadm.js --mcp|--serve [--roms PATH]... [--media-root DIR] [--read-only] [--no-skills]
+// --no-skills: --mcp serves no agent skill (the plugin's own server: the plugin ships the skill itself)
 // A value that says nothing: empty, or a placeholder a launcher did not fill in ("${user_config.roms}": plugin hosts
 // pass unset settings through as written, or as "")
 const unset = (v) => v === '' || /\$\{[^}]*\}/.test(v);
 function parseServerArgs(argv) {
-  const o = { mode: null, roms: [], mediaRoot: null, readOnly: false };
+  const o = { mode: null, roms: [], mediaRoot: null, readOnly: false, skills: true };
   for (let i = 0; i < argv.length; i++) {
     const m = /^--([a-z-]+)(?:=([\s\S]*))?$/.exec(argv[i]);
     // --roms=VALUE or --roms VALUE; a value that says nothing counts as not given; --roms with nothing after it is an error
@@ -1144,7 +1145,8 @@ function parseServerArgs(argv) {
     else if (name === 'roms') { const v = value(); if (v) o.roms.push(v); }
     else if (name === 'media-root') { const v = value(); if (v) { if (o.mediaRoot) throw usage('one --media-root'); o.mediaRoot = v; } }
     else if (name === 'read-only') o.readOnly = true;
-    else throw usage(`--${o.mode || 'mcp'} takes --roms PATH, --media-root DIR and --read-only, not ${argv[i]}`, 'unknown-step');
+    else if (name === 'no-skills' && m[2] == null) o.skills = false;
+    else throw usage(`--${o.mode || 'mcp'} takes --roms PATH, --media-root DIR, --read-only and --no-skills, not ${argv[i]}`, 'unknown-step');
   }
   return o;
 }
@@ -1196,7 +1198,10 @@ async function server(argv, { input, out, err }) {
   const toolbox = T.createToolbox(host, { readOnly: o.readOnly });
   const kept = host.roms().length - roms.length;
   err(`cloadm ${o.mode}: ${toolbox.tools().length} tools${o.readOnly ? ' (read-only)' : ''}, ${roms.length} ROM file(s)${from.roms ? ` (${from.roms})` : ''}${kept ? `, ${kept} stored (${store.dir})` : ''}, media root ${createRoot ? o.mediaRoot : fs.realpathSync(o.mediaRoot)} (${from.mediaRoot}); config file ${file}`);
-  return o.mode === 'mcp' ? M.mcp({ toolbox, input, out }) : M.serve({ toolbox, input, out });
+  if (o.mode !== 'mcp') return M.serve({ toolbox, input, out });
+  // the agent skill, skills/cloadm/, served over MCP (js/mcp/skills.js) unless --no-skills
+  const skills = o.skills ? require('../js/mcp/skills.js').createSkillServer(require('./skill-files.js').servedSkills()) : null;
+  return M.mcp({ toolbox, input, out, skills });
 }
 
 // ---------------- assembling ----------------

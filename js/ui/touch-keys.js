@@ -18,7 +18,11 @@
  * work at once: the stick and FIRE are separate pointers, and each captures its own.
  *
  * Pad: a D-pad (↑ ↓ ← →, 48 px keys), SPACE, ENTER, the running program's extra keys (Minesweeper's F) and
- * ABC, the keyboard for one key. The switch is Keys | Pad | Stick (Stick only where the machine has a joystick port
+ * ABC, the keyboard for one key. A program whose controls say `thumb` (WYRMFIRE) has an 8-way thumb stick in the
+ * D-pad's place instead (its centre is the rest; past a 20% dead zone it holds the arrow keys of the nearest of eight
+ * directions: thumbKeys), its two big buttons (FIRE, USE) and its extra keys in labelled groups (STRAFE ◀ ▶, WEAPON
+ * 1 2 3); the stick and each button are separate pointers, so a thumb on each side works at once. Its switch is
+ * Keys | Pad: the game reads the keyboard, so there is no Stick. The switch is Keys | Pad | Stick (Stick only where the machine has a joystick port
  * and not in the phone's chat). A bundled program opens in the mode it is played with (Session.programControls: 2048
  * and Minesweeper on the pad, LIZA on the keys; anything else on the keys).
  *
@@ -30,7 +34,7 @@
  */
 import { touchJoystickOffered, STICK_RADIUS } from '../host/input.js';
 import { $, ESC, markUndrawn } from './page.js';
-import { SPLIT, FULL, STRIP, SHORT, DPAD, PAD_KEYS, ARROW_NAMES, MODES, HOLD_MS, MOVE_PX, keyPress, programMode } from './touch-layout.js';
+import { SPLIT, FULL, STRIP, SHORT, DPAD, PAD_KEYS, ARROW_NAMES, MODES, HOLD_MS, MOVE_PX, keyPress, programMode, thumbKeys } from './touch-layout.js';
 
 export function setupTouchKeys(page, { input }) {
   const { session } = page;
@@ -123,18 +127,88 @@ export function setupTouchKeys(page, { input }) {
   // the program's two big buttons (Session.programControls.big: WYRMFIRE's FIRE and USE), after the keys
   const padBig = Object.assign(document.createElement('div'), { className: 'padbig' });
   $('touchPad').append(padBig);
+  // the thumb stick, in the D-pad's place for a program whose controls say `thumb`, and that program's labelled groups
+  const padThumb = Object.assign(document.createElement('div'), { className: 'padthumb', hidden: true });
+  padThumb.setAttribute('role', 'group');
+  padThumb.setAttribute('aria-label', 'Thumb stick: the arrow keys');
+  const thumbKnob = Object.assign(document.createElement('span'), { className: 'thumbknob' });
+  padThumb.append(thumbKnob);
+  const padGroups = Object.assign(document.createElement('div'), { className: 'padgroups', hidden: true });
+  $('touchPad').prepend(padThumb);
+  $('touchPad').append(padGroups);
   let extrasFor = '';
-  function padExtras(keys, big = []) {
-    const sig = `${keys.join()}|${big.map((b) => b.join(':')).join()}`;
+  // p: the running program's controls (Session.programControls) or null
+  function padExtras(p) {
+    const keys = p ? p.extra : [], big = (p && p.big) || [], groups = (p && p.groups) || [], thumb = !!(p && p.thumb);
+    const sig = `${keys.join()}|${big.map((b) => b.join(':')).join()}|${groups.map(([c, ks]) => `${c}:${ks.map((k) => k.join('=')).join()}`).join()}|${thumb}`;
     if (sig === extrasFor) return;
     extrasFor = sig;
-    padExtra.replaceChildren(...keys.map((l) => key(l)));
+    // a key in a labelled group is not repeated among the plain ones
+    const grouped = new Set(groups.flatMap(([, ks]) => ks.map(([k]) => k)));
+    padExtra.replaceChildren(...keys.filter((l) => !grouped.has(l)).map((l) => key(l)));
+    // each group: its caption, then its keys, each showing its label and named "STRAFE ◀ (Z)"
+    padGroups.replaceChildren(...groups.map(([caption, ks]) => {
+      const g = Object.assign(document.createElement('div'), { className: 'padgroup' });
+      g.setAttribute('role', 'group');
+      g.setAttribute('aria-label', caption);
+      g.append(Object.assign(document.createElement('span'), { className: 'padcap', textContent: caption }),
+        ...ks.map(([k, label]) => { const b = key(k); b.textContent = label; b.setAttribute('aria-label', label === k ? `${caption} ${k}` : `${caption} ${label} (${k})`); return b; }));
+      return g;
+    }));
+    padGroups.hidden = !groups.length;
+    padThumb.hidden = !thumb;
+    padArrows.hidden = thumb;
+    $('touchPad').classList.toggle('thumb', thumb);
+    if (!thumb) thumbRelease();
     // each big button sends its key and shows what it does: "FIRE" is SPACE, "USE" is E (its name: "FIRE (SPACE)")
     padBig.replaceChildren(...big.map(([k, label]) => { const b = key(k); b.classList.add('big'); b.textContent = label; b.setAttribute('aria-label', `${label} (${k})`); return b; }));
     padBig.hidden = !big.length;
     // a key that has a big button is not repeated among the small ones (FIRE is SPACE)
     for (const k of padKeys.querySelectorAll(':scope > .tk')) k.hidden = big.some(([b]) => b === k.dataset.key);
   }
+  // The thumb stick: one pointer of its own (the big buttons are others), captured; the keys it holds change as the
+  // finger moves, and go when it lifts, when the browser takes the touch, or when the pad goes (apply)
+  let thumbId = null, thumbHeld = '';
+  function thumbSet(names) {
+    const sig = names.join('+');
+    if (sig === thumbHeld) return;
+    thumbHeld = sig;
+    padThumb.dataset.keys = sig;   // (what it holds: the browser check reads it)
+    if (!names.length) { input.touch('thumb', null, 0, false); return; }
+    // (stopped in the Debugger, a key is refused as a keyboard key is; letting go above always goes)
+    if (session.refuseTyping()) return;
+    session.personInput();
+    input.touch('thumb', names, 0, true);
+  }
+  function thumbAt(e) {
+    const r = padThumb.getBoundingClientRect(), rad = r.width / 2;
+    const dx = e.clientX - (r.left + rad), dy = e.clientY - (r.top + r.height / 2);
+    const d = Math.hypot(dx, dy), k = d > rad ? rad / d : 1;
+    thumbKnob.style.transform = `translate(${dx * k}px, ${dy * k}px)`;
+    thumbSet(thumbKeys(dx, dy, rad));
+  }
+  function thumbRelease() {
+    thumbId = null;
+    padThumb.classList.remove('live');
+    thumbKnob.style.transform = '';
+    thumbSet([]);
+  }
+  padThumb.addEventListener('pointerdown', (e) => {
+    if (thumbId !== null) return;   // a second finger on the stick
+    e.preventDefault();
+    try { padThumb.setPointerCapture(e.pointerId); } catch (err) { /* not a pointer we can capture */ }
+    thumbId = e.pointerId;
+    padThumb.classList.add('live');
+    page.audio.start();
+    thumbAt(e);
+  });
+  padThumb.addEventListener('pointermove', (e) => { if (e.pointerId === thumbId) { e.preventDefault(); thumbAt(e); } });
+  const thumbEnd = (e) => { if (e.pointerId === thumbId) thumbRelease(); };
+  for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) padThumb.addEventListener(ev, thumbEnd);
+  // (the capture can be refused: then a finger lifted outside the stick is caught by the window)
+  addEventListener('pointerup', thumbEnd, true);
+  addEventListener('pointercancel', thumbEnd, true);
+  padThumb.addEventListener('contextmenu', (e) => e.preventDefault());
   for (const [id, label] of [['tkBreak', 'BREAK'], ['tkClear', 'CLEAR']]) $(id).replaceWith(Object.assign(key(label), { id }));
 
   // ---- joystick mode: the stick, FIRE and the key strip ----
@@ -257,7 +331,8 @@ export function setupTouchKeys(page, { input }) {
   // ---- the Keys | Pad | Stick switch: remembered per program and machine ----
   // offered only where the panel is the machine's: not in the phone's full-screen chat (body.chat-phone,
   // js/ui/claude.js), whose keys type into the chat and where a BASIC machine's joystick has no meaning
-  const offer = () => touchJoystickOffered(session.shownMachine) && !document.body.classList.contains('chat-phone');
+  // (nor for a program with the thumb stick, WYRMFIRE: it reads the keyboard, so its switch is Keys | Pad)
+  const offer = () => touchJoystickOffered(session.shownMachine) && !document.body.classList.contains('chat-phone') && !(program() && program().thumb);
   // a gamepad takes the joystick while it is connected (screen.js reads it every frame): the panel shows the
   // keys then, without overwriting the mode the person chose, and the stick comes back when the pad goes.
   // ?touch= (js/config.js) is the visit's own mode for every machine the visit shows: in force until the switch
@@ -328,7 +403,11 @@ export function setupTouchKeys(page, { input }) {
     box.classList.toggle('joystick', joyMode);
     box.classList.toggle('pad', padMode);
     box.classList.toggle('keysonce', keysOnce);
-    if (padMode) { const p = program(); padExtras(p ? p.extra : [], (p && p.big) || []); }
+    if (padMode) padExtras(program());
+    // the thumb stick goes with the pad (another mode, ABC's keyboard, hidden): nothing stays held
+    const thumbOn = padMode && !keysOnce && !padThumb.hidden;
+    if (!thumbOn && thumbId !== null) thumbRelease();
+    document.body.classList.toggle('touch-thumb', padMode && !padThumb.hidden);
     box.dataset.mode = m;
     document.body.classList.toggle('touch-keys', on);
     document.body.classList.toggle('touch-stick', joyMode);
@@ -371,7 +450,30 @@ export function setupTouchKeys(page, { input }) {
     // (keys hidden: room for ⌨, Show keys, under the screen's corner)
     // (the chips under the panel, on a phone: js/ui/phone-sheets.js; with the keys hidden, ⌨ stands beside them)
     const chips = $('chipRow'), last = chips.checkVisibility() ? chips : box.hidden ? null : box;
-    root.setProperty('--tk-below', `${last ? Math.round(last.getBoundingClientRect().bottom - m.bottom) : 56}px`);
+    const below = last ? Math.round(last.getBoundingClientRect().bottom - m.bottom) : 56;
+    root.setProperty('--tk-below', `${below}px`);
+    thumbFit(m.top + scrollY, below);
+  }
+  // WYRMFIRE's pad held upright: the screen should have the page's whole width, so where the height is short the pad
+  // gives way first (.tight: its keys down to 44 px), and only then the screen. tightBy: how much taller the pad is
+  // when not tight, measured when it last went tight, so it grows back only where that fits too.
+  let tightBy = 0;
+  const upright = matchMedia('(orientation: portrait)');
+  function thumbFit(above, below) {
+    const pad = $('touchPad'), tight = pad.classList.contains('tight');
+    if (!document.body.classList.contains('touch-thumb') || !upright.matches || box.hidden) { if (tight) pad.classList.remove('tight'); return; }
+    const want = monitor.parentElement.clientWidth * 3 / 4, room = innerHeight - above - below - 8;
+    // (a 2 px margin: the stylesheet's own sum rounds the lengths differently, and a pixel short is a screen a pixel narrow)
+    if (!tight && room < want + 2) {
+      const was = pad.offsetHeight;
+      pad.classList.add('tight');
+      tightBy = Math.max(0, was - pad.offsetHeight);
+    } else if (tight && room - tightBy >= want + 2) pad.classList.remove('tight');
+    // no key's label is cut short: ENTER where its column is too narrow for the word says ↵ (its name stays ENTER)
+    for (const k of pad.querySelectorAll('.padkeys .tk[data-key="ENTER"]')) {
+      if (k.textContent === '↵') { k.textContent = 'ENTER'; k.removeAttribute('aria-label'); }
+      if (k.offsetWidth && k.scrollWidth > k.clientWidth) { k.textContent = '↵'; k.setAttribute('aria-label', 'ENTER'); }
+    }
   }
   // (the monitor's own size changes with the result, but neither length depends on it: no loop)
   new ResizeObserver(fit).observe(document.querySelector('.layout > main'));

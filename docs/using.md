@@ -52,8 +52,10 @@ and its tests never use them.
 * **Own the machine?** Dumping the ROMs from your own hardware is the cleanest route (an EPROM reader, or a
   program that sends the ROM out of the cassette or serial port). A dump that comes out as one combined file is
   fine: CLOADM splits it.
-* **What the side card says follows the machine.** With no ROMs at all it reads *Running with no ROMs.*, and it
-  goes once the ROMs run. If you keep the ROMs but choose **Run without ROMs** (or the Welcome menu comes up on a
+* **The ROM requirement is said once**, by the Welcome menu's **3 ADD YOUR ROMS FOR BASIC**; elsewhere, **Add ROMs…**
+  is a plain button (the header's beside the machine, or the phone's Menu item) that opens Add ROMs. On a first visit the
+  side card only asks which computer you had; once you answer or dismiss it, there is no card. The side card comes back
+  only when it has something to say: if you keep the ROMs but choose **Run without ROMs** (or the Welcome menu comes up on a
   machine whose ROMs are stored), it reads *Running without your ROMs.*, with a **[Use my ROMs]** button on it, and the
   Welcome menu's option 3 says **USE YOUR ROMS FOR BASIC** rather than asking you to add the ROMs it already has.
 * **Looking for the files?** [Where to get ROMs](https://cloadm.dev/roms/) says where the ROM sets XRoar uses are
@@ -68,7 +70,7 @@ and its tests never use them.
   on an iPhone they open the Files app, not the Photo Library or the camera. A dump with a name outside the list is
   still offered through `application/octet-stream`; how an iPhone treats such a file is to be confirmed on a phone;
   until then, drop it on the page or add it from a computer if a phone hides it.
-* **See what went where.** **Add ROMs** (the orange **No BASIC · Add ROMs** in the header, **Add or see ROMs…** at
+* **See what went where.** **Add ROMs** (**Add ROMs…** in the header, or in a phone's Menu, **Add or see ROMs…** at
   the foot of the machine menu, the ROMs row at the top of Machine settings, **Your ROMs** in Ctrl+K, or key 3 on the
   Welcome menu) shows **Your ROMs**: what each one takes (size and usual
   file names), whether it is required, and what it holds or what you miss without it. It lists what each dropped
@@ -120,19 +122,19 @@ The [README](../README.md#what-works) has the short version of this table.
 
 | | Today | Coming |
 |---|---|---|
-| **Machine menu** | The 17 models in five sections, each with a line saying what it holds (DRAGON: "Dragon Data's machines and their Spanish and US versions"; COCO; MC-10; CLONES; KITS, which holds the Prológica CP-400); with no ROMs stored, one line at the top ("No ROMs yet: every machine needs its own ROMs for BASIC.") instead of a "needs ROMs" tag on every row, and the ✓ / needs ROMs tags once any are stored; the footer describes the model under the pointer or the focus ("Codimex CD-6809: a CoCo clone, 1983."; on a phone there is no such line, and a screen reader hears the same words with the item); **Which one is mine? ↗** opens [Help's list of the machines](../help/#machines), what each is and the ROMs it takes | |
+| **Machine menu** | The 17 models in five sections, each with a line saying what it holds (DRAGON: "Dragon Data's machines and their Spanish and US versions"; COCO; MC-10; CLONES; KITS, which holds the Prológica CP-400); the ✓ / needs ROMs tags once any ROMs are stored (none before: the Welcome menu says what ROMs are for); the footer describes the model under the pointer or the focus ("Codimex CD-6809: a CoCo clone, 1983."; on a phone there is no such line, and a screen reader hears the same words with the item); **Which one is mine? ↗** opens [Help's list of the machines](../help/#machines), what each is and the ROMs it takes | |
 | **Cassette** | `.CAS` played as a real 1200/2400 Hz signal through the cassette port, motor relay, fast loading; WAV recordings in; what `CSAVE`/`CSAVEM` write recorded with **Record**, and **Stop and save** puts it in your Library as a `.CAS` named after the first file's name (`CSAVE "HELLO"` saves HELLO.CAS; characters a file name can't take become `_`; no name gives "Recording HH-MM.cas"; a name already there gets " (2)"; several CSAVEs make one tape, and the message says how many files), with **Download** in its message (where the browser keeps nothing, it is downloaded under that name instead), or as `.WAV` (a recording still running when the machine is switched is offered for saving first, the same way); **Eject** beside **Rewind** takes the tape out (a `CLOAD` waiting for it keeps waiting, as on a real machine) and Ctrl+K has **Insert a tape…**, **Rewind the tape** and **Eject the tape** (with no tape in, the last two are listed muted, "No tape in", and choosing one says why instead of running); a power cycle keeps the tape, the cartridge and its disks, as on real hardware; any tape exported as `.WAV` (with the silence and leaders a tape player adds, as the emulated deck plays it); a program built into a tape for a real machine from the command line (`--assemble --format cas|wav`, [the guide](automation.md#a-tape-for-a-real-dragon-or-coco)); the cassette panel (block, and on a tape of several files which file is loading, counter, motor, fast-forward or real speed, read errors, skip the tape, folded with **Hide the deck**); a line on the screen's border while a tape loads (name, S/F, block, End of tape, **Deck**); **Tape sound**, the tape heard as a recorder's speaker plays it (on by default; its switch in that line and the Media tab) | the tape signal through the machine's own sound (`AUDIO ON`: MAME 0.264 mixes none in, so neither does CLOADM; Tape sound is how you hear it) |
 | **Floppy** | The Dragon DOS cartridge (WD2797), the Premier / Delta cartridge (WD2791) and the RS-DOS cartridge (WD1773), cycle for cycle as MAME has them; VDK, JVC (`.dsk`) and DMK images read and written, including headerless NitrOS-9 / OS-9 `.dsk` images of 18 x 256-byte sectors, whose LSN 0 states the geometry (a 40-track two-sided image used to be read as 80 single-sided, and on the CoCo's drive did not mount at all); 4 drives (the Dragon Alpha's own 2), write-protect; the drives card under the screen: click a drive to insert a file, a disk from your library or a new blank disk (the sizes the disk system uses: 40 or 80 tracks, one or two sides for DragonDOS and Delta; 35 or 40 for Disk BASIC; VDK, JVC or, double-sided, DMK), see its light while it works, write-protect, download it with what was written, eject. A drive whose changes the browser's storage refused is marked "not saved" (Download keeps them). Without a disk ROM a disk still mounts (a drop, **Open…**, the Library, a drive's menu, the `disk=` link, the command line's `--disk`): the disk controller goes in on its own, with nothing in its ROM socket, and the program running keeps running, so a game that drives the controller through its registers ($FF40-$FF4B) reads its level disk on the built-in firmware. The card says "Drives · no disk ROM · disks work for programs that read them directly"; a drive's menu offers **Insert disk…**, **New blank disk**, **From Library…** (and **Eject**) and notes that `DIR` and the other disk commands need DragonDOS or Delta DOS (on a CoCo, Disk BASIC), with **Add disk ROM…**; the cartridge port shows "Dragon disk controller · no disk ROM" (on a CoCo, "CoCo disk controller"), and **Take out** removes it. A disk ROM added afterwards goes in at the next reset or power cycle, and the page says so. Ctrl+K has **Insert a disk…**, **New blank disk** and **Eject disk** (muted, "No disk in", with no disk in). On a phone, a slot holding media comes first under the keyboard panel, so a mounted disk is never below an empty cassette deck. Disks are written back to the stored image a sector at a time. The disk ROM is yours, as every ROM; the Alpha needs none; [booting NitrOS-9](#booting-nitros-9) Level 2 on the CoCo 3 from your own 40-track floppy image, with CLOADM's own loader instead of a ROM | Booting NitrOS-9 from 80-track floppies |
 | **Cartridges** | ROM cartridges (`.ROM`, `.CCC`, `.DGN`) at `$C000`, autostarting; banked ROM cartridges (up to 128K in 16K pages); the Games Master Cartridge (SN76489A) and the Orchestra-90 (stereo DACs), sound included; the Multi-Pak with four slots; all as MAME has them on the CoCo 1/2, the CoCo 3 and the Dragons (MAME offers the banked board only on the CoCos). The cartridge port's board menu picks the board, or picks it from the image; its Multi-Pak section fills the four slots and sets the front-panel switch. The Multi-Pak also takes a disk controller (DragonDOS, Delta DOS or Disk BASIC, your ROM) on the Dragon 64 and the CoCo, compared with MAME in slot 4; a slot's board menu offers it, and the drives card uses it. The Speech/Sound Pak is offered as a board on the CoCo 1/2, CoCo 2B, CoCo 3 and the Dragon 64: its music, and its speech from your own SP0256-AL2 allophone ROM (optional; without it the Pak plays music only), both compared with MAME | Speech/Sound Pak: the `$FF7E` sound-activity bit is a stub (always high) |
 | **Printer, serial, DriveWire** | Printer (Dragon parallel, CoCo/MC-10 serial); the bit-banger and the Dragon 64's 6551 ACIA with a terminal or loopback plug; DriveWire 4 over the CoCo's Becker port, served in the browser: drives 0-3 from images in the browser's storage, printing, virtual serial channels to WebSockets; [booting NitrOS-9](#booting-nitros-9) Level 2 on the CoCo 3 from your own DriveWire image, with CLOADM's own loader instead of a ROM; serving a real CoCo over Web Serial (untested on hardware) | the full screens |
 | **Games** | 2048 and Minesweeper, written for CLOADM, on every 6809 model with 32K or more, with or without ROMs ([details](#games)); WYRMFIRE, a GPL 3D game for the Dragon 64 with the Freedoom level, or E1M1 of your own DOOM WAD converted in the browser ([details](#wyrmfire)) | |
-| **Input** | Keyboard in two modes (translated: the character typed; positional: the physical key), keyboard joystick, gamepads (two joysticks, dead zone), the Tandy and CoCo Max 3 Hi-Res interfaces, the CoCo 3 "The Rat" mouse, the CoCo Max Hi-Res module, mouse as the right joystick; an on-screen keyboard on phones and tablets (split for the thumbs when held sideways) and a touch joystick with FIRE, a tappable welcome menu | |
+| **Input** | Keyboard in two modes (translated: the character typed; positional: the physical key), keyboard joystick, gamepads (two joysticks, dead zone), the Tandy and CoCo Max 3 Hi-Res interfaces, the CoCo 3 "The Rat" mouse, the CoCo Max Hi-Res module, mouse as the right joystick; an on-screen keyboard on phones and tablets (split for the thumbs when held sideways) and a touch joystick with FIRE, a pad with an 8-way thumb stick for WYRMFIRE, a tappable welcome menu | |
 | **Tools** | Assembler, Debugger, snapshots, POKE book; a command line, MCP server and Node API for CI and agents ([Automation](automation.md), [MCP](mcp.md)) | Step back (rewind) |
-| **Links, embedding, offline** | Every setting as a URL parameter (machine, RAM, CPU, a program, tape, cartridge or disk to load, display, input); the Share screen's one **Copy link**: an untouched bundled program gives its page (`cloadm.dev/2048/`), otherwise a short link (`s.cloadm.dev/<id>#<key>`, about 50 characters, sealed in your browser, with a QR code and an optional public preview picture; online and without ROMs), or the long link where a short one can't be made; with a BASIC program in memory, **Share the program instead** (the program's text only, listed, not run, on a fresh machine for whoever opens it; **Save picture** (the share card: the true-pixel picture in a CRT monitor with its name and cloadm.dev) and **Save clip** (6 seconds) beside Copy link on a desktop; under "More ways to share" the long link ("Long link (works offline; nothing is uploaded)"), "Always use long links", **Save GIF** (6 seconds, looping, the machine's own pixels at 2x) and the snapshot file (and on a phone Save picture and Save clip); **Copy as text for a forum** (BBCode or Markdown; it never uploads: the short link once Copy link has made one, else the program's page or the long link); **Copy bug report** (a preview first, never your key or ROMs); the FAQ and About pages; a phone held sideways gets a two-column Share screen; plus the embed code for a blog post; whoever opens a shared moment gets an arrival card (Start from the beginning, Send it back); embed mode with a JavaScript API; works offline once visited; **Install CLOADM…** in the app bar's **More ▾** (behind **Menu** on a phone), runs the browser's own prompt where there is one and shows the steps elsewhere, with a one-time offer once a program has run a minute; settings export and import (never ROMs) | A touch keyboard in embeds |
+| **Links, embedding, offline** | Every setting as a URL parameter (machine, RAM, CPU, a program, tape, cartridge or disk to load, display, input); the Share screen's one **Copy link**: an untouched bundled program gives its page (`cloadm.dev/2048/`), otherwise a short link (`s.cloadm.dev/<id>#<key>`, about 50 characters, sealed in your browser, with a QR code and an optional public preview picture; online and without ROMs), or the long link where a short one can't be made; with a BASIC program in memory, **Share the program instead** (the program's text only, listed, not run, on a fresh machine for whoever opens it; or as a **.CAS / .WAV** tape); from the Debugger's Assembler, **Share…** sends a program as its source (built and run only when they press Run); with LIZA running, **Send it as a postcard instead** (only the lines you typed, which LIZA replays for whoever opens it, with a **Replay** card; **Save picture** (the share card: the true-pixel picture in a CRT monitor with its name and cloadm.dev) and **Save clip** (6 seconds) beside Copy link on a desktop; under "More ways to share" the long link ("Long link (works offline; nothing is uploaded)"), "Always use long links", **Save GIF** (6 seconds, looping, the machine's own pixels at 2x) and the snapshot file (and on a phone Save picture and Save clip); **Copy as text for a forum** (BBCode or Markdown; it never uploads: the short link once Copy link has made one, else the program's page or the long link); **Copy bug report** (a preview first, never your key or ROMs); the FAQ and About pages; a phone held sideways gets a two-column Share screen; plus the embed code for a blog post; whoever opens a shared moment gets an arrival card (Start from the beginning, Send it back); embed mode with a JavaScript API; works offline once visited; **Install CLOADM…** in the app bar's **More ▾** (behind **Menu** on a phone), runs the browser's own prompt where there is one and shows the steps elsewhere, with a one-time offer once a program has run a minute; settings export and import (never ROMs) | A touch keyboard in embeds |
 
 ### Games
 
-2048 and Minesweeper, written for CLOADM: the welcome menu's **5 PLAY A GAME**, which shows NEW GAMES FOR AN OLD MACHINE (1 2048, 2 Minesweeper, 0 back), `?start=2048` or `?start=minesweeper`, the Media tab's "Runs without ROMs", or `--program` on the command line. They draw on the VDG's 128x192 four-colour screen, play their sounds on the DAC and read the keys through the firmware, so they run on every 6809 model with 32K or more (Dragon, CoCo 1/2/3, the clones, the 6309 option), with or without ROMs; not on a 4K or 16K CoCo (CLOADM says so) or the MC-10 or Alice (6803). 2048: the arrows or W A S D slide the tiles, R starts again. A move is animated: its tiles travel to where they land, the joined squares flash once, then the new tile pops in; a key pressed during the animation ends it at once and is played as the next move. Minesweeper (8x8, ten mines, the first square always safe): the arrows or either joystick (or the keyboard joystick) move the cursor, SPACE or ENTER opens, F flags, R starts again. On a joystick, fire opens on a tap and flags when held 0.4 s, and after a win or a loss fire starts again once you let it go. BREAK (Esc), on the title page too, leaves a game: without ROMs for the menu, which then offers it as its last option; with BASIC ROMs back to BASIC, started afresh (the game draws over the memory BASIC keeps its program and a disk system its workspace in, so a BASIC program in memory is not kept when a game runs; save it first).
+2048 and Minesweeper, written for CLOADM: the welcome menu's **5 PLAY A GAME**, which shows NEW GAMES FOR AN OLD MACHINE (1 2048, 2 Minesweeper, 3 WYRMFIRE (Dragon 64), 0 back), `?start=2048` or `?start=minesweeper`, the Media tab's "Runs without ROMs", or `--program` on the command line. They draw on the VDG's 128x192 four-colour screen, play their sounds on the DAC and read the keys through the firmware, so they run on every 6809 model with 32K or more (Dragon, CoCo 1/2/3, the clones, the 6309 option); not on a 4K or 16K CoCo (CLOADM says so) or the MC-10 or Alice (6803). 2048: the arrows or W A S D slide the tiles, R starts again. A move is animated: its tiles travel to where they land, the joined squares flash once, then the new tile pops in; a key pressed during the animation ends it at once and is played as the next move. Minesweeper (8x8, ten mines, the first square always safe): the arrows or either joystick (or the keyboard joystick) move the cursor, SPACE or ENTER opens, F flags, R starts again. On a joystick, fire opens on a tap and flags when held 0.4 s, and after a win or a loss fire starts again once you let it go. BREAK (Esc), on the title page too, leaves a game for the welcome menu, which then offers it as its last option. Like LIZA, the colour demo and the menu itself, the games always start on the built-in firmware, without your ROMs, even when you have added them: your ROMs stay stored and untouched, a moment of a game holds none of their code (so it can have a short link that anyone can open), and BASIC comes back from the menu's option 3 (use your ROMs for BASIC) or a reload. Starting one restarts the machine, so a BASIC program in memory is not kept: picking a program from the Programs list asks first ("Starting LIZA restarts the Dragon 64, and the BASIC program in memory (3 lines) will be lost.", with Start LIZA and Cancel), and with your ROMs stored the status line says "LIZA loaded · runs without ROMs; yours are untouched".
 
 Each program has a program page of its own for sharing, with its own preview picture and a Play button: [cloadm.dev/2048/](https://cloadm.dev/2048/), [cloadm.dev/liza/](https://cloadm.dev/liza/) and [cloadm.dev/minesweeper/](https://cloadm.dev/minesweeper/). Opening one goes straight to its start link, `/play/?start=<program>`, and works offline after a first visit to the site.
 
@@ -160,8 +162,18 @@ the title screen shows them (Enter goes on). Start it from **Programs** ("Runs w
   as it was. A tab in the background waits until it is shown.
 * Keys: Up and Down move, Left and Right turn, Z and X strafe, Space fires or punches, E opens a door or uses the
   exit, 1 2 3 pick a weapon, D toggles the wall hatching, Enter skips a tune and restarts. On a touch screen it opens on
-  **Pad**, with FIRE and USE as two big buttons and Z X 1 2 3 among the keys; held upright, a phone suggests once
-  "Turn sideways for a bigger view".
+  **Pad** (the switch is Keys | Pad: the game reads the keyboard): a thumb stick that presses the arrow keys in eight
+  directions (nothing within its inner fifth), FIRE (Space) and USE (E) as two big buttons, and a row with STRAFE ◀ ▶ (Z
+  and X) and WEAPON 1 2 3, beside ENTER and ABC. The stick and each button take their own finger. Sideways the stick is left
+  of the screen and the buttons right of it; upright they are under the screen, and a phone suggests once "Turn sideways
+  for a bigger view." The choice of Keys or Pad is kept for WYRMFIRE.
+* On a phone held upright, while it plays, the screen takes the page's width (where the height is short the pad's keys
+  shrink to 44 px first) and the card under it is one line, "WYRMFIRE · Freedoom level (BSD) · Details" ("your
+  <file>" with your own WAD); **Details** opens the whole card as a sheet, closed by ✕, a tap outside it or Esc.
+* From the welcome menu: **5 PLAY A GAME**, then **3 WYRMFIRE (DRAGON 64)** on the Dragon and CoCo, or **5 PLAY WYRMFIRE
+  (DRAGON 64)** on the MC-10 and Alice. On the Dragon 64 it starts at once; on any other machine CLOADM switches to the
+  Dragon 64 without asking (the menu is all that machine had) and says "WYRMFIRE runs on the Dragon 64, so CLOADM switched
+  to it." The download, offline and failure cases are the strip's, as above; offline and not yet kept, the menu stays.
 * While it plays, the strip shows "WYRMFIRE 0.1.0 · Source ↗ · Level from Freedoom ↗ · Not affiliated with id
   Software", and "While WYRMFIRE runs: no snapshots. With your own WAD, no clips and no Claude screen reads." Snapshots
   are off (the quick-save slots say so); **Share** gives `?start=wyrmfire` ("Opens WYRMFIRE from the start, with the
@@ -434,6 +446,14 @@ scan lines) or Sharp · RGB (the pixels as they are); NTSC artifact phase; integ
 * **Defaults:** CRT · composite with artifact phase 1 (MAME's default), curvature 35 %, glow 55 %, 4:3, no
   integer scaling. So composite colour is on from the start, and the CoCo 3 starts on its composite monitor's
   palette; Sharp · RGB switches it to the RGB monitor's.
+* **Old TV warm-up** (off by default; kept with your settings and in a settings export, never in a link): a one-second
+  warm-up when the machine is switched on (the page starting, Switch off and on, a machine switch), drawn over the
+  screen in the CRT view: a dot becomes a horizontal line, the line opens to full height over-bright, then the picture
+  fades in from 40%. It never plays on a visit from a share link (`#z=`, `#l=`) or a program page (a visit opened with
+  `start=` naming a program: `liza`, `2048`, `minesweeper`, `wyrmfire`; `start=welcome` still has it), with the arrival
+  card up, with `?demo=1` (read from the address; it is not a setting) or `?embed=1`, with your system's Reduce motion or
+  Save data, or when the picture ran below 45 fps over the last 2 seconds (at the page's start there are not yet 2
+  seconds to measure, so it plays). Keys go to the machine while it plays, and it is never in a share card, GIF or screenshot.
 * **Dragon 64 Plus:** the Display tab also picks which of its two screens you see, the Dragon's own (MC6847) or
   the 80-column board's (HD6845S). Claude's `screen_text` reads the one shown: the 80-column screen's text comes
   from the board's video RAM, so Claude can read it even without the character generator ROM, which only draws
@@ -464,7 +484,9 @@ it says "No snapshots yet. Take one from Menu → Take snapshot."; so does the L
 
 A snapshot never contains ROMs, only the CRC of each ROM it ran with. Opening one needs exactly those ROMs in this
 browser (or none, if it ran without ROMs); otherwise CLOADM says which ROM it needs and opens the snapshot as
-soon as you add it. A snapshot of another model or RAM size asks before switching. A restored moment is not a
+soon as you add it. A snapshot of another model or RAM size asks before switching; a
+shared link's moment switches without asking when the machine on screen holds nothing of yours (nothing typed,
+loaded or put in it). A restored moment is not a
 power-on: whatever the program on screen is doing (a game, a program that took over Reset), opening a snapshot
 never brings up the "No OK after 5 seconds" box. **Switch off and on** and adding ROMs are power-ons again, with
 their box as before; **Reset** keeps RAM and never reports a failed boot - if a program holds BASIC's warm-start
@@ -497,8 +519,9 @@ otherwise the long link. Under
 **Embed in a web page**: the embed code. After a tap, the field the tap made (the short link, or the long link) is
 scrolled into view and focused. A
 line under the picture says what the link does, and a ROM line says whether the person opening it needs their own ROMs;
-with ROMs in use, a line above it says "This link holds no part of your ROMs. Whoever opens it needs their own: …" (not in
-the sideways-phone layout, whose ROM line is one line). While NitrOS-9 runs
+with ROMs in use it is one sentence, "This link holds none of your ROMs. Whoever opens it needs their own &lt;machine&gt; ROMs."
+(on a sideways phone, "Needs your &lt;machine&gt; ROMs to open."); with a cartridge it says "This link holds none of your cartridge. Whoever opens it needs the same cartridge: &lt;its file name&gt;." (and, with ROMs too, "…of your ROMs or your cartridge… needs their own &lt;machine&gt; ROMs and the same cartridge: …"); and a note under Copy link says "Copy link gives a long
+link: short links are only for moments that run without ROMs." ("…without a cartridge." for a cartridge alone, "…without ROMs or a cartridge." for both). While NitrOS-9 runs
 the link starts NitrOS-9 fresh instead (no snapshot file). The link there, the long link, carries the moment itself (the snapshot rides in the
 fragment after `#z=`, which browsers never send to a server: a version byte, then the snapshot packed with deflate,
 its byte arrays raw rather than in base64, and without the rendered picture, which the machine draws again on the first
@@ -540,8 +563,8 @@ with its field and Copy, and the note "Holds the whole moment in the address; no
 use long links (nothing leaves this device)**, remembered in this browser, makes Copy link give the long link and its note
 reads "Long link: nothing is uploaded." The card under the picture says when the moment was captured, relative to now:
 "captured just now", then "3 minutes ago" (hours or days if the screen stays open that long). The picture's caption is
-one line, "What they'll see first · &lt;machine&gt;": a bundled program's page reads "&lt;program&gt; · &lt;machine&gt;"
-instead. It never wraps, and what gives way is the machine name, which ends in "…" — the prefix is never cut.
+one line, "This moment · &lt;machine&gt;": a
+bundled program's page reads "&lt;program&gt; · &lt;machine&gt;" instead. It never wraps, and what gives way is the machine name, which ends in "…" — the prefix is never cut.
 
 A moment the page's guardrails keep out of a link at all switches Copy off, with the reason inline (said once, there,
 not also under the picture). A short link is never
@@ -554,7 +577,12 @@ heading reads "Share your program", the picture is the first lines LIST shows, i
 holds only the program's text, sealed in your browser as a moment's is, with no preview picture, and it works with your
 own ROMs in (the program carries no ROM code); offline, or with "Always use long links", it gives the long link, which
 carries the text. **More ways to share** then offers **Copy as text for a forum** (the listing in a Markdown code fence or a `[code]`
-block, then the link), **Download .bas** (the listing as a text file) and the long link. A program that can't be shared
+block, then the link), **Download .bas** (the listing as a text file), **Download .CAS** and **Download .WAV** (the program
+as a tape, as CSAVE writes it: `NAME.CAS` on a Dragon or CoCo, `NAME.C10` on the MC-10 and Alice, and the WAV a real
+machine's cassette port plays; "Name on tape", 8 upper case letters and digits at most, starts as the loaded file's name
+or PROGRAM; the note says "For &lt;Dragon|CoCo|MC-10&gt; BASIC: CLOAD it in another emulator, or play the WAV into a
+real machine's cassette port."; the command box's "Save program as .CAS/.WAV" opens it; a program holding bytes of your
+ROMs is not saved) and the long link. A program that can't be shared
 as text says "This program can't be shared as text: share the whole moment instead.", with the switch back: one whose
 listing is over load_basic's 65536 characters, or one with a byte that would not type back the same (a graphics
 character in a string, a control code, lower case outside a string). Whoever opens the link gets a fresh machine of the
@@ -565,9 +593,36 @@ machine's BASIC ROM, the card shows the listing as text with "To run it, this &l
 **Add ROMs** and **Copy the listing**; once the ROMs are added, the program loads and is listed by itself. The link's
 format: [Share links](automation.md#share-links-a-moment-or-a-basic-program).
 
-Someone who opens a shared moment that runs without ROMs arrives on that moment, not on the setup: the "Running with no
-ROMs" card and the orange **No BASIC** pill stay out of the way while they look at it, and come back once they leave it
-(**Reset** back to the menu, **Switch off and on**, or another machine).
+**Share your program and its source.** In the Debugger's Assembler, **Share…** comes on once the source has assembled
+(Assemble &amp; run, or Save .BIN) and opens the Share screen on "Share your program and its source": the picture is the
+program's screen if you ran it, else its first lines; the caption says "&lt;name&gt; · N lines of 6809 source"; the note
+says "They get the source and build it themselves; nothing runs until they press Run." The link holds only the source
+(64 KB at most), its name, the machine and what it builds to, never the built program; too large for a short link, it is
+the long link. A build that holds bytes of your ROMs is not shared ("Not shared: the built program contains bytes of
+your ROMs."). Whoever opens it gets a fresh machine of the same model with the source in the Assembler and a card:
+"Someone sent you a program with its source: &lt;name&gt;, N lines. It's open in the Assembler; press Run to build and
+start it." with **Run** and **Show source**. Nothing runs until Run, which builds it and starts it only if it builds to
+exactly what yours did (INCLUDE reads only CLOADM's own examples); otherwise the card says "This source builds
+differently in this CLOADM, so it won't run here. The code is in the Assembler to read."
+
+**Send a postcard from LIZA.** While LIZA runs and you have typed at least one line to it, a card above Copy link says
+"Your chat with LIZA · N lines · **Send it as a postcard instead**". The postcard holds only the lines you typed (no
+picture, no memory, nothing of your machine): LIZA always answers the same lines the same way when it starts afresh, so
+whoever opens it sees your chat replayed. The note says "Opens LIZA and replays this chat: your N lines and LIZA's
+answers. Anyone with the link can read what you typed."; a postcard holds 20 lines, so a longer chat says "Postcards
+hold 20 lines: this one starts at your line M." (and LIZA, starting at that line, may answer differently from the chat
+you had: the picture shows what they will see). The picture is the postcard replayed, and **Save picture** saves it as
+`liza-postcard.png`. **Copy postcard link** (on a phone, **Share postcard…**, then **Copy link**) follows the same rules
+as every link: a short link made on the tap, sealed in your browser, else the long link. After you type BYE (or press
+BREAK), the line under the screen offers "Send this chat as a postcard…" once (a toast on a phone). Never for the Claude
+chat. Whoever opens it gets LIZA, started afresh on the same model, and a card at the top: "A postcard from LIZA · N
+lines" with **Replay** (your lines typed at about 25 characters a second, LIZA answering each) and **Skip to the end**;
+any key during the replay skips to the end, and then the card says "Your turn: type to LIZA." until their first key. No
+ROMs are needed on either side.
+
+Someone who opens a shared moment that runs without ROMs arrives on that moment, not on the setup: **Add ROMs…** stays out
+of the way while they look at it, and comes back once they leave it (**Reset** back to the menu, **Switch off and on**,
+or another machine).
 
 Whoever opens a shared moment (a long or a short link) sees a card at the foot of the screen while the machine runs
 above it: "Someone sent you this Dragon 64, exactly as they left it. It's running now. It's your copy: nothing you do
@@ -745,7 +800,14 @@ in the Ask panel don't show, and a link with `app=claude` (or the tab an embed's
 open the chat; the page says "Claude features are off (Settings → Machine)." instead, as the welcome menu's item does.
 Turning Off stops a turn that is running and ends the full-screen chat. The choice is kept in this browser and goes
 with an exported settings file.
-Either way nothing goes to Anthropic until you ask. Ask Claude says so above its input: then your question, the
+**Suggest questions with Claude**, directly under it (off by default; hidden while Claude features is Off; without
+an API key it shows, disabled, "Needs your API key"): "When you open an empty chat, sends the screen's text to Claude to
+suggest questions. Uses your API key." On, opening Ask Claude on an empty chat sends the machine's name and the screen's
+text to Claude Haiku once (at most once per screen and once per 30 seconds; never on a graphics screen or while your own WAD's level is loaded), and its
+questions replace the page's own under "Suggested by Claude" if they arrive within 3 seconds
+([claude.md](claude.md#claude)).
+
+Either way nothing goes to Anthropic until you ask (or, with Suggest questions with Claude on, open an empty chat). Ask Claude says so above its input: then your question, the
 machine's facts and the chat so far go to Anthropic with your key, and Claude can read the screen and any memory (ROM
 areas included) without asking; only changes to the machine ask you first.
 

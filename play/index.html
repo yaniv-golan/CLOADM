@@ -79,7 +79,9 @@
   /* running (the green dot) on a desktop: the dot alone, its words in its tooltip and its name (js/ui/screen.js) */
   body:not(:is(.touch-keys, .touch-hidden)) #status.dot-only { font-size: 0; }
   body:not(:is(.touch-keys, .touch-hidden)) #status.dot-only::before { font-size: 14px; margin-right: 0; }
-  #romPill { background: var(--orange); border-color: var(--orange); color: var(--on-orange); font-weight: 700; border-radius: var(--pill); padding: 4px 12px; min-height: 32px; font-size: 14px; }
+  /* Add ROMs… while the machine has no BASIC: an ordinary button, as Share is (the welcome menu's "3 ADD YOUR ROMS FOR
+     BASIC" says why; orange is for a fault, a socket holding a file it does not recognise) */
+  #romPill { white-space: nowrap; flex: none; }
   .appbar .grow { flex: 1; }
   .appbar nav { display: flex; flex-wrap: wrap; gap: 4px 18px; align-items: center; }
   .appbar nav a, .appbar nav button.navlink { color: var(--text-2); text-decoration: none; background: none; border: 0; padding: 8px 2px; min-height: 0; }
@@ -133,7 +135,6 @@
   #machineMenu.more-below .sep::before { opacity: 1; }
   #machineMenu .group-name { font-size: 14px; letter-spacing: .06em; color: var(--muted); padding: 2px 8px 0; }
   #machineMenu .group-sub { font-size: 13px; color: var(--text-3); padding: 0 8px 6px; }
-  #menuNoRoms { grid-column: 1 / -1; margin: 0; padding: 4px 8px 8px; font-size: 15px; color: var(--text-2); }
   #menuWhich { align-self: center; padding: 10px 8px; min-height: 44px; box-sizing: border-box; display: inline-flex; align-items: center; color: var(--phosphor); }
   #menuAbout { flex-basis: 100%; margin: 0; padding: 0 8px 4px; min-height: 1.4em; font-size: 14px; color: var(--text-2); }
   @media (max-width: 700px) { #menuAbout { display: none; } }
@@ -216,6 +217,13 @@
   body.embed #screenWrap { inset: 0; }
   #screen { image-rendering: pixelated; image-rendering: crisp-edges; display: block; border-radius: 4px; }
   .crt #screen { border-radius: 10px; }
+  /* the Old TV warm-up (js/ui/warmup.js): over the canvas, the same size and corners; it takes no pointer or key */
+  #warmup { position: absolute; pointer-events: none; overflow: hidden; border-radius: 10px; }
+  #warmup > div { position: absolute; left: 0; right: 0; }
+  #warmup .wtop { top: 0; background: #000; }
+  #warmup .wbot { bottom: 0; background: #000; }
+  #warmup .wline { top: 50%; margin: 0 auto; background: #fff; box-shadow: 0 0 12px 2px rgba(255, 255, 255, 0.8); }
+  #warmup .wdim { inset: 0; background: #000; }
   #screen:focus-visible { box-shadow: none; }
   .tube:has(#screen:focus-visible) { box-shadow: inset 0 0 40px #000, 0 0 0 2px var(--phosphor); }
   #screenWrap:fullscreen { inset: 0; background: #000; }
@@ -242,6 +250,10 @@
     body:not(.chat-screen, .typing-learned):has(#screen:focus) #askStripQs { display: none; }
   #askStripQs > button { flex: none; height: 32px; min-height: 32px; padding: 0 12px; border-radius: var(--pill); font-size: 14px; }
   #askStripQs > button[hidden], #askOpenLabel[hidden] { display: none; }
+  /* after LIZA's goodbye: the one offer to send the chat as a postcard (js/ui/share.js), the line's only note while it shows */
+  #screenNotes > #postcardNote { pointer-events: auto; padding: 0; background: none; }
+  #postcardNote > button { height: 32px; min-height: 32px; padding: 0 14px; border-radius: var(--pill); font-size: 14px; }
+  #screenNotes:has(> #postcardNote:not([hidden])) > :not(#postcardNote) { display: none; }
   #askOpenLabel { color: var(--text-2); font-size: 14px; flex: none; }
   body:is(.touch-keys, .touch-hidden) #screenNotes, body.chat-phone #screenNotes { display: none; }
   /* Narrow notes column: the widest note on one line is the key hint, 358 px wide (14 px text, padding included), so a column
@@ -305,6 +317,8 @@
   /* a shared BASIC program: docked at the top instead (the listing is below it); without the machine's BASIC ROM it holds
      the listing itself and may take most of the screen (the stub shows nothing) */
   #arrival.basic { top: 4%; bottom: auto; }
+  /* a LIZA postcard: at the top too, clear of the chat, which grows from the foot */
+  #arrival.postcard { top: 4%; bottom: auto; }
   #arrival.needs { max-height: 92%; }
   #arrival [hidden] { display: none; }
   #arrival pre { margin: 8px 0; padding: 8px; max-height: 40vh; overflow: auto; background: var(--panel-deep); border: 1px solid var(--line); border-radius: var(--r-8);
@@ -377,6 +391,16 @@
   #toast.passthru button, #toast.passthru a { pointer-events: auto; }
   #toast.compact { font-size: 12px; line-height: 1.25; padding: 2px 8px; gap: 2px 6px; border-radius: 8px; box-shadow: none; }
   #toast.compact #toastAction { padding: 1px 6px; font-size: 12px; }
+  /* held sideways with the touch keys round the screen: the toast lies over the top of the picture (js/ui/feedback.js
+     sidewaysSlot): 12 px type, the action a compact text button inline at the end of the last line (its tap area 44 px,
+     by transparent padding, within the picture so it never takes a key's tap), at most two lines when it is clamped */
+  #toast.overscreen { display: block; font-size: 12px; line-height: 1.25; padding: 3px 8px; border-radius: 8px; box-shadow: none; position: relative; }
+  #toast.overscreen #toastText { display: inline; }
+  #toast.overscreen #toastAction { display: inline; position: relative; background: none; color: #0B6B1E; font-size: 12px; line-height: inherit; font-weight: 700; padding: 0 4px; margin: 0 0 0 2px; min-height: 0; vertical-align: baseline; }
+  #toast.overscreen #toastAction::after { content: ""; position: absolute; left: -6px; right: -6px; top: 50%; height: 44px; transform: translateY(-50%); }
+  #toast.overscreen #toastDetails { display: block; }
+  #toast.overscreen.clamped { cursor: pointer; }
+  #toast.overscreen #toastText .more { font-weight: 700; }
   /* an error is red: the bar and the edge in --error, 4.76:1 on the toast's paper (css/tokens.css) */
   #toast.error { box-shadow: inset 4px 0 0 var(--error), inset 0 0 0 1px var(--error), 0 8px 24px rgba(0, 0, 0, .45); padding-left: 18px; }
   #toastText { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
@@ -421,6 +445,8 @@
   #wyrmStrip button { min-height: 44px; border-radius: var(--pill); }
   #wyrmStrip p { margin: 6px 0 0; }
   #wyrmStrip a { color: var(--phosphor); }
+  /* the one line and the Details sheet are a phone's, held upright (below); elsewhere the card is as it always was */
+  #wyrmStrip #wyrmShort, #wyrmStrip #wyrmClose { display: none; }
   #wyrmLevel { margin-top: 6px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
   #gameFiles { margin-top: 18px; }
   /* a Share option that is off says why beside it (WYRMFIRE: snapshots; the person's own WAD: picture and clip) */
@@ -464,7 +490,7 @@
   #welcome .lead { font-weight: 700; padding-right: 80px; }
   #welcome .muted { margin-top: 2px; }
   #welcome .bar, #mediaOffer .bar { margin-top: 10px; }
-  #welcome .ask { margin-top: 10px; color: var(--text-2); display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  #welcome .ask { padding-right: 80px; color: var(--text-2); display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
   #welcome .close { position: absolute; top: 10px; right: 10px; min-height: 32px; padding: 4px 10px; font-size: 14px; }
 
   /* ---- install as an app (js/ui/install.js): an offer, floating over the page ---- */
@@ -699,7 +725,6 @@
   #share .snippet .bar { justify-content: flex-end; }
   #share .snippet h3 { margin: 0; font-weight: 400; }
   #share > .preview { align-self: start; }
-  #share .romline.warn { color: var(--orange); }
   #share .extra { display: flex; flex-direction: column; gap: 6px; }
   #share .extra p { font-size: 14px; }
   #share .romline:empty, #share .extra:empty, #share #shareNote:empty { display: none; }
@@ -751,7 +776,9 @@
   /* "Share your program": the card above Copy, its switch a link-like button; in program mode the moment's own extras
      (Save picture, Save clip, the snapshot file, the program page, the picture switch) give way to the program's */
   #share #programCard { padding: 10px 14px; gap: 4px; }
-  #share #programCard[hidden], #share #programMore[hidden], #share .extra[hidden] { display: none; }
+  #share #programCard[hidden], #share #programMore[hidden], #share .extra[hidden], #share #programMore [hidden] { display: none; }
+  #share .tapename label { flex: none; align-self: center; font-size: 14px; color: var(--text-2); }
+  #share .tapename input { flex: none; width: 10ch; font-family: var(--font-mono); text-transform: uppercase; }
   #share #programCard p { margin: 0; font-size: 15px; color: var(--text); }
   #share button.linkish { background: none; border: 0; padding: 0; min-height: 0; color: var(--phosphor); text-decoration: underline; font: inherit; cursor: pointer; }
   #share .seg { display: inline-flex; gap: 10px; align-items: center; font: 14px var(--font-mono); }
@@ -759,6 +786,21 @@
   #share.program-mode #btnShareShot, #share.program-mode #btnShareClip, #share.program-mode #btnShareDownload,
   #share.program-mode #btnShareProgramPage, #share.program-mode #previewSwitch, #share.program-mode #btnShareGif { display: none; }
   #share.program-mode .frame canvas { box-shadow: 0 0 50px rgba(61, 245, 90, .25); }
+  /* "Send it as a postcard" (a chat with LIZA): only the lines travel, so the moment's extras give way, all but Save
+     picture (the postcard replayed: liza-postcard.png) */
+  #share #postcardCard, #share #sourceCard { padding: 10px 14px; gap: 4px; }
+  #share #sourceCard[hidden] { display: none; }
+  #share #sourceCard p { margin: 0; font-size: 15px; color: var(--text); }
+  /* "Share your program and its source": only the source travels; the moment's extras give way */
+  #share.source-mode #btnShareClip, #share.source-mode #btnShareDownload, #share.source-mode #btnShareProgramPage, #share.source-mode #btnShareShot,
+  #share.source-mode #previewSwitch, #share.source-mode #btnShareGif, #share.source-mode #shareForum, #share.source-mode #shareShotWhy,
+  #share.source-mode #shareClipWhy, #share.source-mode #shareGifWhy, #share.source-mode #shareDownloadWhy, #share.source-mode #programCard { display: none; }
+  #share #postcardCard[hidden], #share #postcardTrim[hidden] { display: none; }
+  #share #postcardCard p { margin: 0; font-size: 15px; color: var(--text); }
+  #share.postcard-mode #btnShareClip, #share.postcard-mode #btnShareDownload, #share.postcard-mode #btnShareProgramPage,
+  #share.postcard-mode #previewSwitch, #share.postcard-mode #btnShareGif, #share.postcard-mode #shareForum,
+  #share.postcard-mode #shareClipWhy, #share.postcard-mode #shareGifWhy, #share.postcard-mode #shareDownloadWhy, #share.postcard-mode #programCard { display: none; }
+  #share.postcard-mode .frame canvas { box-shadow: 0 0 50px rgba(61, 245, 90, .25); }
   #share .disc [hidden] { display: none; }
   #share .disc { border: 1px solid var(--line); border-radius: var(--r-14); padding: 4px 16px; }
   #share .disc > summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; justify-content: space-between; gap: 12px; font-weight: 700; list-style: none; }
@@ -830,8 +872,7 @@
     #share #shareRom { order: 5; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 14px; line-height: 1.3; }
     #share .romline .full { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
     #share .romline .brief { display: inline; }
-    /* the ROM line is one line here by design: the ROM-free sentence above it is the long ROM line's, not this one's */
-    #share #shareRomFree { display: none; }
+    /* the ROM line is one line here by design: its compact form is shown, and the full sentence is its title */
     #share #shareExtra { order: 6; }
     #share #programCard { order: 1; padding: 6px 10px; }
     #share #programCard p { font-size: 14px; line-height: 1.3; }
@@ -942,6 +983,44 @@
   #touchKeys #touchPad .padbig .tk.big { min-height: 96px; font-size: 16px; font-weight: 700; border-radius: 32px; }
   #touchKeys #touchPad .tk { height: auto; min-height: 48px; font-size: 15px; }
   #touchKeys #touchPad .tk[aria-label] { font-size: 24px; }
+  /* WYRMFIRE's pad (a program with the thumb stick: js/ui/touch-keys.js): upright, the stick left, ENTER and ABC, then
+     FIRE and USE right, and under all three the labelled row, STRAFE ◀ ▶ and WEAPON 1 2 3 */
+  #touchKeys #touchPad.thumb { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "stick keys big" "groups groups groups";
+    align-items: center; }
+  #touchKeys.keysonce.pad > #touchPad.thumb { display: none; }
+  #touchKeys #touchPad.thumb .padthumb { grid-area: stick; }
+  #touchKeys #touchPad.thumb .padkeys { grid-area: keys; }
+  #touchKeys #touchPad.thumb .padbig { grid-area: big; }
+  #touchKeys #touchPad.thumb .padgroups { grid-area: groups; }
+  #touchKeys #touchPad .padthumb { flex: none; position: relative; width: 120px; height: 120px; border-radius: 50%; background: #1E1E1E;
+    box-shadow: inset 0 0 0 2px #3A3A3A; touch-action: none; }
+  #touchKeys #touchPad .padthumb[hidden], #touchKeys #touchPad .padarrows[hidden], #touchKeys #touchPad .padgroups[hidden] { display: none; }
+  #touchKeys #touchPad .thumbknob { position: absolute; left: 50%; top: 50%; width: 48px; height: 48px; margin: -24px 0 0 -24px; border-radius: 50%;
+    background: #3A3A3A; box-shadow: 0 3px 0 #000; pointer-events: none; }
+  #touchKeys #touchPad .padthumb.live .thumbknob { background: var(--orange); }
+  #touchKeys #touchPad.thumb .padkeys { grid-template-columns: minmax(0, 1fr); }
+  #touchKeys #touchPad .padgroups { display: flex; gap: 12px; }
+  #touchKeys #touchPad .padgroup { flex: 1; display: flex; gap: 4px; align-items: center; min-width: 0; }
+  #touchKeys #touchPad .padgroup:last-child { flex: 1.4; }
+  #touchKeys #touchPad .padcap { flex: none; font-size: 11px; font-weight: 700; letter-spacing: .04em; color: var(--muted); }
+  #touchKeys #touchPad .padgroup .tk { min-height: 44px; font-size: 18px; }
+  /* (FIRE and USE stay 96 px tall: the phone rule that gives the pad's keys their 48 px is more specific than .big) */
+  body.touch-thumb #touchKeys #touchPad .padbig .tk.big { min-height: 96px; }
+  /* upright where the height is short (.tight: js/ui/touch-keys.js, so the screen keeps the page's width): every key
+     44 px, the stick 92, FIRE and USE two keys tall */
+  body.touch-thumb #touchKeys #touchPad.tight { row-gap: 4px; }
+  body.touch-thumb #touchKeys #touchPad.tight .padthumb { width: 92px; height: 92px; }
+  body.touch-thumb #touchKeys #touchPad.tight .thumbknob { width: 40px; height: 40px; margin: -20px 0 0 -20px; }
+  body.touch-thumb #touchKeys #touchPad.tight .padkeys { grid-auto-rows: 44px; }
+  body.touch-thumb.touch-keys #touchKeys #touchPad.tight .tk { min-height: 44px; }
+  /* (the STRAFE and WEAPON keys exactly 44 px: their 18 px labels made them 48, and the screen needs the 4 px) */
+  body.touch-thumb #touchKeys #touchPad.tight .padgroup .tk { height: 44px; }
+  body.touch-thumb #touchKeys #touchPad.tight .padbig { grid-template-columns: repeat(2, 56px); }
+  body.touch-thumb #touchKeys #touchPad.tight .padbig .tk.big { min-height: 92px; border-radius: 28px; }
+  /* (the captions stand on end beside their keys, so five keys of 44 px and more fit in 320 px) */
+  body.touch-thumb #touchKeys #touchPad.tight .padgroups { gap: 8px; }
+  body.touch-thumb #touchKeys #touchPad.tight .padcap { writing-mode: vertical-rl; transform: rotate(180deg); font-size: 9px; line-height: 11px;
+    letter-spacing: 0; max-height: 44px; overflow: hidden; }
   #touchKeys > .tkhalf { display: none; }
   #touchKeys > #touchStrip, #touchKeys > .tkcenter { grid-column: 1 / -1; }
   #touchKeys > #touchStick { grid-column: 1 / span 6; }
@@ -1053,6 +1132,21 @@
     body.touch-pad #touchKeys #touchPad .padarrows { grid-column: 1; grid-row: 1 / span 3; align-self: center; justify-self: center;
       grid-template-columns: repeat(3, minmax(48px, 64px)); grid-auto-rows: minmax(48px, 64px); }
     body.touch-pad #touchKeys #touchPad .padkeys { grid-column: 3; grid-row: 1 / span 3; align-self: center; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-rows: 48px; }
+    /* WYRMFIRE's pad sideways: left of the screen the stick, STRAFE ◀ ▶ under it; right of it FIRE and USE, then ENTER and
+       ABC, then WEAPON 1 2 3; each group's caption above its keys */
+    body.touch-thumb #touchKeys #touchPad .padthumb { grid-column: 1; grid-row: 1 / span 2; align-self: center; justify-self: center;
+      width: min(140px, 100%, calc(100dvh - 150px)); height: auto; aspect-ratio: 1; }
+    body.touch-thumb #touchKeys #touchPad .padbig { grid-column: 3; grid-row: 1; align-self: end; justify-self: center;
+      grid-template-columns: repeat(2, minmax(56px, 72px)); }
+    body.touch-thumb #touchKeys #touchPad .padbig .tk.big { min-height: min(96px, calc(100dvh - 200px)); }
+    body.touch-thumb #touchKeys #touchPad .padkeys { grid-column: 3; grid-row: 2; align-self: start; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-rows: 36px; }
+    body.touch-thumb #touchKeys #touchPad .padkeys .tk { min-height: 36px; }
+    body.touch-thumb #touchKeys #touchPad .padgroups { display: contents; }
+    body.touch-thumb #touchKeys #touchPad .padgroup { grid-row: 3; align-self: end; flex-wrap: wrap; gap: 2px 4px; }
+    body.touch-thumb #touchKeys #touchPad .padgroup:first-child { grid-column: 1; }
+    body.touch-thumb #touchKeys #touchPad .padgroup:last-child { grid-column: 3; }
+    body.touch-thumb #touchKeys #touchPad .padcap { flex: 1 0 100%; font-size: 10px; line-height: 12px; }
+    body.touch-thumb #touchKeys #touchPad .padgroup .tk { min-height: 36px; height: 36px; }
     body.touch-pad #touchKeys.keysonce > .tkhalf { display: flex; }
     body.touch-pad #touchKeys.keysonce > #touchPad { display: none; }
     body.touch-keys #touchKeys > #touchLeft { grid-column: 1; }
@@ -1644,7 +1738,7 @@
   #claudeViewRow[hidden] { display: none; }
   #claudeViewRow { align-items: center; justify-content: center; }
   /* the chat on screen (its firmware needs no ROM, and BASIC's keys mean nothing to it): no key hint, no
-     "No BASIC" pill and no "Running with no ROMs" card */
+     Add ROMs… and no side card */
   body.chat-screen #keyHint, body.chat-screen #romPill, body.chat-screen #welcome { display: none !important; }
   #claude .card.row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
   #claude .card.row[hidden], #claudeKeyCard[hidden], #claudeConsentAsk[hidden], #claudeRestore[hidden] { display: none; }
@@ -1679,6 +1773,10 @@
     #ask { position: fixed; left: var(--safe-l); right: var(--safe-r); bottom: max(var(--sheet-bottom, 0px), var(--safe-b)); top: var(--sheet-top, 50vh); width: auto; height: auto; min-height: 0; z-index: 40; border-radius: 16px 16px 0 0;
       border: 0; border-top: 1px solid var(--line-strong); }
     #ask[data-height="peek"] { top: auto; height: 76px; }
+    /* no key yet: the key form is taller than the half sheet, so the whole sheet scrolls (the intro first, the form under
+       it) instead of the form spilling over the intro */
+    #ask:has(#askKeyForm:not([hidden])) { overflow-y: auto; }
+    #ask:has(#askKeyForm:not([hidden])) #askBody { flex: none; overflow: visible; }
     #askGrip, .askhead .viewswitch button#btnAskSide, #ask #btnAskMin { display: none; }
     .askhead .viewswitch { border: 0; padding: 0; margin: 0; }
     #btnAskFull { border: 1px solid var(--line); border-radius: 8px; color: var(--muted); }
@@ -1720,8 +1818,8 @@
   /* ---- phone ---- */
   /* ---- the phone's app bar: one row, 48 px, from the first paint ----
      The machine, Open…, Ask Claude and Menu. The machine's name is the one item that gives way (an ellipsis); under
-     360 px Ask Claude is its icon (the name stays in the button's text, visually hidden). Add ROMs is Menu's first item
-     while the machine has no BASIC, and Menu wears a dot then (js/ui/main.js). Menu opens its one list (Add ROMs,
+     360 px Ask Claude is its icon (the name stays in the button's text, visually hidden). Add ROMs… is Menu's item
+     while the machine has no BASIC (js/ui/main.js; no dot: the welcome menu says why). Menu opens its one list (Add ROMs,
      Share, the links) as a sheet under the bar, over the page: nothing in the bar moves. (#appbar: these hold sideways too.) */
   @media (max-width: 700px) {
     #appbar { height: 48px; flex-wrap: nowrap; padding: 2px 8px; gap: 6px; }
@@ -1735,8 +1833,6 @@
     #appbar > #btnAsk { order: 3; flex: none; }
     body.claude-popout #appbar > #btnAskPop { order: 3; flex: none; height: 44px; min-height: 44px; padding: 0 10px; font-size: 14px; }
     #btnMenu { display: inline-flex; order: 4; flex: none; position: relative; }
-    #btnMenu.dot::after { content: ''; position: absolute; top: 7px; right: 5px; width: 8px; height: 8px; border-radius: 50%; background: var(--orange); }
-    #navRoms .dot { display: inline-block; width: 8px; height: 8px; margin-left: 8px; border-radius: 50%; background: var(--orange); flex: none; }
     .appbar.menu-open nav { display: flex; position: absolute; z-index: 65; top: 100%; left: 8px; right: 8px; flex-direction: column; align-items: stretch; gap: 0;
       padding: 8px 16px; background: var(--panel); border: 1px solid var(--line-strong); border-top: 0; border-radius: 0 0 12px 12px; box-shadow: 0 20px 40px rgba(0, 0, 0, .6); }
     .appbar.menu-open nav a, .appbar.menu-open nav button.navlink { min-height: var(--row-tap); display: flex; align-items: center; text-align: left; }
@@ -1746,7 +1842,7 @@
        Commands…, then, under a rule, Help and GitHub */
     .appbar.menu-open nav button.twoline { flex-direction: column; align-items: flex-start; justify-content: center; gap: 0; }
     .appbar.menu-open nav .twoline .sub { font-size: 13px; color: var(--muted); }
-    #btnMenu.media:not(.dot)::after { content: ''; position: absolute; top: 7px; right: 5px; width: 8px; height: 8px; border-radius: 50%; background: var(--phosphor); }
+    #btnMenu.media::after { content: ''; position: absolute; top: 7px; right: 5px; width: 8px; height: 8px; border-radius: 50%; background: var(--phosphor); }
     .appbar.menu-open nav #navHelp { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
     #machineMenu { left: 8px; right: 8px; width: auto; max-height: 70vh; }
     #machineMenu .menulist { grid-template-columns: minmax(0, 1fr); }
@@ -1772,7 +1868,13 @@
        bar, its nameplate left out */
     .layout > main > .monitor { max-width: calc((100vh - 96px) * 4 / 3); }
     .plate { display: none; }
+    /* "Tap for sound" lies inside the monitor's lower bezel, clear of the screen's focus ring (2 px, at the monitor's
+       edge) and of the panel's bar under the monitor: it used to hang 9 px below the monitor, over that bar */
+    #soundChip { bottom: 6px; }
   }
+  /* (a window this short, as upright: the screen fills the monitor, so the chip would sit on the picture; no chip, and
+     the first tap anywhere still starts the sound) */
+  @media (orientation: landscape) and (max-height: 300px) { #soundChip { display: none; } }
   /* Tab means nothing on a touch screen: the screen's focus pill says only where typing goes */
   body:is(.touch-keys, .touch-hidden) #focusHint .fh-tab { display: none; }
   /* ---- a phone held upright with the on-screen panel: the panel decides, the screen takes the rest ----
@@ -1805,6 +1907,24 @@
     @media (min-height: 521px) { body:is(.touch-keys, .touch-hidden):not(.chat-phone):has(#soundChip:not([hidden])) { --chip-room: 26px; } }
     /* (a window this short has no room to spare: no chip, and the first tap anywhere still starts the sound) */
     @media (max-height: 520px) { body:is(.touch-keys, .touch-hidden):not(.chat-phone) #soundChip { display: none; } }
+    /* WYRMFIRE, playing: the card is one line under the screen, "WYRMFIRE · Freedoom level (BSD) · Details" (or "your
+       <file>"); Details opens the whole card, unchanged, as a sheet from the bottom over the controls, with ✕
+       (js/ui/wyrmfire.js). The line stays in its place while the sheet is up, so nothing under it moves. */
+    body.touch-keys:not(.chat-phone) #wyrmStrip[data-state="playing"] { margin-top: 0; padding: 0 4px 0 12px; }
+    body.touch-keys:not(.chat-phone) #wyrmStrip[data-state="playing"] > #wyrmShort:not([hidden]) { display: flex; align-items: center; white-space: nowrap;
+      overflow: hidden; font-size: 14px; min-width: 0; }
+    body.touch-keys:not(.chat-phone) #wyrmStrip[data-state="playing"] > #wyrmShort > span { flex: none; white-space: pre; }
+    body.touch-keys:not(.chat-phone) #wyrmStrip[data-state="playing"] > #wyrmShort > .wyrmown { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+    body.touch-keys:not(.chat-phone) #wyrmStrip[data-state="playing"] > #wyrmShort > a { flex: none; margin-right: 0; }
+    body.touch-keys:not(.chat-phone) #wyrmStrip #wyrmDetails { flex: none; margin-left: auto; background: none; border: 0; color: var(--phosphor); text-decoration: underline;
+      padding: 0 8px; min-height: 44px; font: inherit; }
+    body.touch-keys:not(.chat-phone) #wyrmStrip[data-state="playing"]:not(.sheet) > #wyrmCard { display: none; }
+    body.touch-keys:not(.chat-phone) #wyrmStrip.sheet > #wyrmCard { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; max-height: 80vh; max-height: 80svh; overflow: auto;
+      background: var(--panel); border-top: 1px solid var(--line-strong); border-radius: var(--r-14) var(--r-14) 0 0;
+      padding: 12px 16px calc(16px + var(--safe-b)); box-shadow: 0 -8px 24px rgba(0, 0, 0, .5); }
+    body.touch-keys:not(.chat-phone) #wyrmStrip.sheet > #wyrmCard > .wyrmtop { padding-right: 48px; }
+    body.touch-keys:not(.chat-phone) #wyrmStrip.sheet #wyrmClose:not([hidden]) { display: block; position: absolute; top: 6px; right: 6px; width: 44px; height: 44px;
+      border-radius: var(--pill); background: none; border: 1px solid var(--line); color: inherit; font-size: 18px; }
     /* (the keys 40 px: under Apple's 44 pt guideline, which the room upright does not allow with five rows and the
        screen; well over WCAG 2.5.8's 24 px minimum target. The pad's keys are 48 and more, the strip's controls 44.) */
     body.touch-keys:not(.chat-phone) #touchKeys .tk { height: 40px; min-height: 40px; }
@@ -1926,7 +2046,7 @@ npx serve -l 8000 .</pre>
     <span class="spec" id="machineSpec"></span>
     <svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6"><path d="m3 4.5 3 3 3-3"/></svg></button>
   <span id="status" aria-live="off"></span>
-  <button id="romPill" title="No BASIC: this machine needs its BASIC ROM to type programs" hidden><span class="rp-no">No BASIC · </span>Add ROMs</button>
+  <button id="romPill" title="Add ROMs for BASIC" aria-label="Add ROMs for BASIC" hidden>Add ROMs…</button>
   <span class="grow"></span>
   <button id="btnLoad" class="primary" title="A program, tape, disk, cartridge or BASIC listing">Open…</button>
   <button id="btnShare" title="A link that opens this machine as it is, a clip, a screenshot, a snapshot file; and the embed code">Share</button>
@@ -1935,10 +2055,10 @@ npx serve -l 8000 .</pre>
   <a id="btnAskPop"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z"/></svg><span class="lbl">Ask Claude ↗</span></a>
   <nav aria-label="App">
     <!-- a phone's Menu: Programs… first (the no-ROM shelf and what ran here before, in a sheet: js/ui/phone-sheets.js),
-         then Add ROMs while the machine has no BASIC (with Menu's dot beside it), Share and Settings… (the
+         then Add ROMs… while the machine has no BASIC, Share and Settings… (the
          drawer's tabs, far down the page there) (js/ui/main.js; the app bar's pill and button elsewhere) -->
     <button id="navPrograms" class="navlink" type="button">Programs…</button>
-    <button id="navRoms" class="navlink" type="button" hidden>Add ROMs (BASIC needs them)<span class="dot" aria-hidden="true"></span></button>
+    <button id="navRoms" class="navlink" type="button" hidden>Add ROMs…</button>
     <button id="navSettings" class="navlink" type="button">Settings…</button>
     <!-- a short phone upright has no chips: the ports and Power are Menu's, each with its state (js/ui/phone-sheets.js) -->
     <button id="navPorts" class="navlink twoline" type="button" hidden><span>Tape, disks and cartridge…</span><span class="sub" id="navPortsState">Empty</span></button>
@@ -1999,7 +2119,7 @@ npx serve -l 8000 .</pre>
       <!-- a moment with no picture of its own (the person's own WAD: id Software's game data) says so here, rather
            than showing an empty dark box captioned "Captured picture" -->
       <p class="nopic" id="shareNoPicture" hidden></p></div>
-    <figcaption><strong id="shareTitle"><span id="sharePrefix">What they'll see first ·</span><span id="shareName"></span></strong><span id="shareWhen"></span></figcaption>
+    <figcaption><strong id="shareTitle"><span id="sharePrefix">This moment ·</span><span id="shareName"></span></strong><span id="shareWhen"></span></figcaption>
   </figure>
   <!-- the right-hand column: on a short landscape screen it scrolls on its own beside the picture; elsewhere it is no box
        of its own (display: contents), and the section and the disclosures are the grid's -->
@@ -2007,14 +2127,22 @@ npx serve -l 8000 .</pre>
   <section class="col main" aria-labelledby="shareHeading">
     <h1 id="shareHeading">Share this moment</h1>
     <p id="shareNote"></p>
-    <!-- launch prep: with ROMs in use, "This link holds no part of your ROMs…" above the ROM line (js/share-text.js) -->
-    <p id="shareRomFree" class="romline" hidden></p>
     <!-- the ROM line: the full sentence, and its one-line form for a short landscape screen (the full one is then read
-         to assistive technology and is the line's title) -->
+         to assistive technology and is the line's title); with ROMs in use it is one sentence (js/share-text.js romLines) -->
     <p id="shareRom" class="romline"><span class="full" id="shareRomFull"></span><span class="brief" id="shareRomBrief" aria-hidden="true"></span></p>
     <div id="shareExtra" class="extra"></div>
     <!-- "Share your program" (js/ui/share.js): only when a BASIC program is in memory. The moment stays the default; the
          card's switch shares the program's text instead (and, in program mode, switches back) -->
+    <!-- "Send it as a postcard" (js/ui/share.js): only while LIZA runs (or has just said goodbye) with a line typed to it.
+         The moment stays the default; the card's switch sends the chat's lines instead, replayed by whoever opens it -->
+    <!-- the Assembler's Share… (js/ui/share.js): the source and what it builds to, built by whoever opens it -->
+    <div id="sourceCard" class="card2" hidden>
+      <p><strong>Your program and its source</strong> · <span id="sourceLines"></span> · <button id="btnSourceMode" type="button" class="linkish">Share the whole moment instead</button></p>
+    </div>
+    <div id="postcardCard" class="card2" hidden>
+      <p><strong>Your chat with LIZA</strong> · <span id="postcardLines"></span> · <button id="btnPostcardMode" type="button" class="linkish">Send it as a postcard instead</button></p>
+    </div>
+    <p id="postcardTrim" class="small" hidden></p>
     <div id="programCard" class="card2" hidden>
       <p><strong>Your BASIC program</strong> · <span id="programLines"></span> · <button id="btnProgramMode" type="button" class="linkish">Share the program instead</button></p>
       <p id="programWhy" class="why"></p>
@@ -2053,7 +2181,10 @@ npx serve -l 8000 .</pre>
       <div class="linkset" id="programMore" hidden>
         <div class="bar"><button id="btnProgramForum">Copy as text for a forum</button>
           <span class="seg" role="radiogroup" aria-label="Forum text style"><label><input type="radio" name="forumStyle" value="md" checked> ```</label><label><input type="radio" name="forumStyle" value="bb"> [code]</label></span></div>
-        <div class="bar"><button id="btnProgramBas">Download .bas</button></div>
+        <div class="bar"><button id="btnProgramBas">Download .bas</button><button id="btnProgramCas">Download .CAS</button><button id="btnProgramWav">Download .WAV</button></div>
+        <!-- the program as a tape (Session.programTape): its name on the tape, and what the files are for -->
+        <div class="linkrow tapename"><label for="programTapeName">Name on tape</label><input id="programTapeName" maxlength="8" autocapitalize="characters" autocomplete="off" spellcheck="false"></div>
+        <p class="small" id="programTapeNote"></p>
       </div>
       <div class="bar" id="shareSaveMore">
         <!-- the buttons are direct children: js/ui/share.js's place() moves btnShareShot/btnShareClip to sit beside
@@ -2110,6 +2241,8 @@ npx serve -l 8000 .</pre>
     <div class="monitor crt" id="monitor" data-family="dragon">
       <div class="tube">
         <div id="screenWrap"><canvas id="screen" tabindex="0" role="application" aria-label="The emulated screen. Click it, then type. Tab leaves it."><pre id="screenAlt">The screen is blank.</pre></canvas>
+          <!-- the Old TV warm-up (js/ui/warmup.js): drawn over the canvas for a second at a power-on, never in it -->
+          <div id="warmup" aria-hidden="true" hidden><div class="wtop"></div><div class="wbot"></div><div class="wline"></div><div class="wdim"></div></div>
           <!-- the browser's Fullscreen shows only this wrapper: Claude's status with Stop (and Resume) is in it -->
           <!-- the tape HUD (js/ui/tape-panel.js): what the tape is doing, where it can be seen while a tape loads -->
           <div id="tapeHud" role="group" aria-label="Tape" hidden data-state="ready"><span class="hudplay" aria-hidden="true"></span>
@@ -2135,6 +2268,8 @@ npx serve -l 8000 .</pre>
           <pre id="arrivalListing" hidden></pre>
           <div id="arrivalRoms" hidden><p id="arrivalNeed"></p>
             <div class="bar"><button id="btnArrivalRoms" type="button" class="primary">Add ROMs</button><button id="btnArrivalCopy" type="button">Copy the listing</button></div></div>
+          <div class="bar" id="arrivalSource" hidden><button id="btnSourceRun" type="button" class="primary">Run</button><button id="btnSourceShow" type="button">Show source</button></div>
+          <div class="bar" id="arrivalPostcard" hidden><button id="btnPostcardReplay" type="button" class="primary">Replay</button><button id="btnPostcardSkip" type="button">Skip to the end</button></div>
           <div class="bar" id="arrivalMoment"><button id="btnArrivalStart" type="button">Start from the beginning</button><button id="btnArrivalBack" type="button" class="primary">Send it back</button></div>
           <a id="arrivalReport" target="_blank" rel="noopener noreferrer" hidden>Report this link</a></div>
       </div>
@@ -2149,6 +2284,7 @@ npx serve -l 8000 .</pre>
         <div id="keyHint" hidden><kbd>Esc</kbd> = BREAK · <kbd>Home</kbd> = CLEAR · <kbd>Backspace</kbd> = ←</div>
         <div id="typingHint">Typing goes to the machine · <kbd>Tab</kbd> leaves the screen</div>
         <!-- the Ask panel's example questions while it is closed (js/ui/ask.js): whole ones only, and a note above takes the line -->
+        <div id="postcardNote" hidden><button id="btnPostcardNote" type="button">Send this chat as a postcard…</button></div>
         <div id="askStripQs" role="group" aria-label="Example questions"><span id="askOpenLabel" hidden>Once Claude is connected:</span></div>
       </div></div>
       <!-- full screen chat: the other machine, live; a strip under the screen on a phone -->
@@ -2160,12 +2296,17 @@ npx serve -l 8000 .</pre>
     </div>
     <!-- WYRMFIRE (js/ui/wyrmfire.js): getting the game (Cancel until the switch), then the credits while it plays -->
     <div id="wyrmStrip" role="region" aria-label="WYRMFIRE" aria-live="polite" hidden>
-      <div class="wyrmtop"><span id="wyrmLine"></span><span class="bar" id="wyrmBar"></span></div>
-      <div id="wyrmMore" hidden>
-        <div id="wyrmLevel"></div>
-        <p class="muted small" id="wyrmPrivacy"></p>
-        <p class="muted small" id="wyrmGuard"></p>
-        <p class="small" id="wyrmNote" hidden></p>
+      <!-- a phone held upright, while it plays: this one line, and Details opens the whole card below as a sheet -->
+      <div id="wyrmShort" hidden></div>
+      <div id="wyrmCard">
+        <button type="button" id="wyrmClose" aria-label="Close" hidden>✕</button>
+        <div class="wyrmtop"><span id="wyrmLine"></span><span class="bar" id="wyrmBar"></span></div>
+        <div id="wyrmMore" hidden>
+          <div id="wyrmLevel"></div>
+          <p class="muted small" id="wyrmPrivacy"></p>
+          <p class="muted small" id="wyrmGuard"></p>
+          <p class="small" id="wyrmNote" hidden></p>
+        </div>
       </div>
     </div>
     <!-- context openers: never over the screen -->
@@ -2332,6 +2473,7 @@ npx serve -l 8000 .</pre>
       <div id="askEmpty">
         <p id="askEmptyText">Claude reads only this emulated <span id="askEmptyModel"></span> (its screen text and memory), never your computer. It types or changes things only if you allow it.</p>
         <div class="muted" id="askSuggestLabel" hidden>You could ask, once Claude is connected:</div>
+        <div class="muted" id="askSuggestBy" hidden>Suggested by Claude</div>
         <div id="askSuggest" role="group" aria-label="Example questions"></div>
         <div id="askChoose" hidden><button id="btnAskHaveKey">I have an API key</button><button id="btnAskUseClaude">I use Claude →</button></div>
         <p id="askSuggestNote" class="sr-only" aria-live="polite"></p>
@@ -2363,7 +2505,7 @@ npx serve -l 8000 .</pre>
       <p class="muted"><strong>Your key stays yours.</strong> Stored only in this browser. The emulated machine never sees it, and it's left out of snapshots, share links and exported settings.</p>
     </div>
     <div id="askComposer" hidden>
-      <p class="muted" id="askSendsLine">Nothing is sent until you ask. Then your question, the machine's facts and the chat so far go to Anthropic with your key (or your Claude account in the plugin), and Claude can read the screen and any memory (ROM areas included) without asking. Only changes to the machine ask you first.</p>
+      <p class="muted" id="askSendsLine">Nothing is sent until you ask (or open an empty chat with Suggest questions on). Then your question, the machine's facts and the chat so far go to Anthropic with your key (or your Claude account in the plugin), and Claude can read the screen and any memory (ROM areas included) without asking. Only changes to the machine ask you first.</p>
       <div class="bar"><input id="askInput" aria-label="Message to Claude" autocomplete="off" placeholder="Ask about this machine…"><button id="btnAskSend" class="primary">Send</button></div>
       <div class="askfoot"><label><input type="checkbox" id="chkAskMachine"> Let Claude use the emulator</label>
         <span class="muted" id="askKeyLine"><span id="askKeyState">API key · Saved in this browser.</span> <button class="link" id="btnAskKeyChange">Change</button> <button class="link" id="btnAskKeyForget">Forget</button></span></div>
@@ -2448,6 +2590,8 @@ npx serve -l 8000 .</pre>
       <div class="field"><span>Picture shape</span>
         <select id="selAspect" aria-label="Picture shape"><option value="4:3">4:3, as on the TV</option><option value="fill">Fill the screen area</option></select></div>
       <label><input type="checkbox" id="chkInteger"> Integer scaling</label>
+      <label><input type="checkbox" id="chkWarmup" aria-describedby="warmupHint"> Old TV warm-up</label>
+      <p class="muted" id="warmupHint" style="margin:0">A one-second warm-up when the machine is switched on. Never on shared links, with Reduce motion, or when the picture runs slow.</p>
       <div class="field" id="lblScreen" hidden><span>Screen</span>
         <select id="selScreen" aria-label="Screen"><option value="main">Dragon video</option><option value="plus">80-column (Plus)</option></select></div>
     </div>
@@ -2514,6 +2658,11 @@ npx serve -l 8000 .</pre>
       </div>
       <div class="row" id="claudeFeaturesRow"><span id="claudeFeaturesLabel">Claude features</span><span class="bar" role="group" aria-labelledby="claudeFeaturesLabel"><button id="btnClaudeOn" aria-pressed="true">On</button><button id="btnClaudeOff" aria-pressed="false">Off</button></span></div>
       <p class="muted" style="margin:0" id="claudeFeaturesNote">Off hides Ask Claude, Claude in the command box and Chat with Claude. Nothing goes to Claude either way until you ask.</p>
+      <!-- Suggest questions with Claude (js/ui/claude-features.js): hidden with Claude features Off, disabled without a key -->
+      <div id="claudeSuggestBox">
+        <div class="row"><label><input type="checkbox" id="chkClaudeSuggest" aria-describedby="claudeSuggestHint claudeSuggestNoKey"> Suggest questions with Claude</label><span class="muted" id="claudeSuggestNoKey" hidden>Needs your API key</span></div>
+        <p class="muted" style="margin:0" id="claudeSuggestHint">When you open an empty chat, sends the screen's text to Claude to suggest questions. Uses your API key.</p>
+      </div>
       <div class="row" id="settingsFileRow"><span>Settings file</span><span class="bar"><button id="btnSettingsExport">Export…</button><button id="btnSettingsImport">Import…</button></span></div>
       <p class="muted" style="margin:0">Machines and their options, the display and your choices, as a file for another browser. Never ROMs or programs.</p>
       <input type="file" id="fileSettings" accept=".json,application/json" hidden>
@@ -2544,6 +2693,7 @@ npx serve -l 8000 .</pre>
         <button id="btnAsmOpen">Open .asm…</button>
         <button id="btnAsmRun" class="primary">Assemble &amp; run</button>
         <button id="btnAsmSave" title="Download the assembled program as a .BIN the open machine loads" aria-describedby="asmSaveNote">Save .BIN</button>
+        <button id="btnAsmShare" title="Share the program with its source: they build it themselves" disabled>Share…</button>
       </div>
       <div id="asmSaveNote" hidden></div>
       <textarea id="asmSource" spellcheck="false" aria-label="Assembly source" placeholder="; write 6809 assembly here, then Assemble &amp; run&#10;        ORG     $3000&#10;START   ...&#10;        END     START"></textarea>
@@ -2834,17 +2984,21 @@ npx serve -l 8000 .</pre>
 <link rel="modulepreload" href="js/machines/nitros9.js">
 <link rel="modulepreload" href="js/media/os9.js">
 <link rel="modulepreload" href="js/claude/consent.js">
+<link rel="modulepreload" href="js/claude/backend.js">
+<link rel="modulepreload" href="js/claude/suggest.js">
 <link rel="modulepreload" href="js/roms.js">
 <link rel="modulepreload" href="js/media/zip.js">
 <link rel="modulepreload" href="js/program-pages.js">
 <link rel="modulepreload" href="js/media/link-crypto.js">
+<link rel="modulepreload" href="js/media/snapshot.js">
+<link rel="modulepreload" href="js/config.js">
+<link rel="modulepreload" href="js/postcard.js">
+<link rel="modulepreload" href="js/media/romrefs.js">
+<link rel="modulepreload" href="js/source-share.js">
 <link rel="modulepreload" href="js/media/png.js">
 <link rel="modulepreload" href="js/video/chat-font.js">
 <link rel="modulepreload" href="js/video/card.js">
 <link rel="modulepreload" href="js/video/bezel.js">
-<link rel="modulepreload" href="js/media/snapshot.js">
-<link rel="modulepreload" href="js/media/romrefs.js">
-<link rel="modulepreload" href="js/config.js">
 <link rel="modulepreload" href="js/wyrmfire/pin.js">
 <link rel="modulepreload" href="js/session.js">
 <link rel="modulepreload" href="js/media/avi.js">
@@ -2854,7 +3008,6 @@ npx serve -l 8000 .</pre>
 <link rel="modulepreload" href="js/host/audio.js">
 <link rel="modulepreload" href="js/embed-api.js">
 <link rel="modulepreload" href="js/asm/symbols.js">
-<link rel="modulepreload" href="js/claude/backend.js">
 <link rel="modulepreload" href="js/claude/brief.js">
 <link rel="modulepreload" href="js/claude/prompts.js">
 <link rel="modulepreload" href="js/host/example-reader.js">
@@ -2904,6 +3057,8 @@ npx serve -l 8000 .</pre>
 <link rel="modulepreload" href="js/ui/serial-panel.js">
 <link rel="modulepreload" href="js/ui/drivewire-panel.js">
 <link rel="modulepreload" href="js/ui/display-panel.js">
+<link rel="modulepreload" href="js/video/warmup.js">
+<link rel="modulepreload" href="js/ui/warmup.js">
 <link rel="modulepreload" href="js/ui/snapshot-panel.js">
 <link rel="modulepreload" href="js/ui/ask-popout.js">
 <link rel="modulepreload" href="js/ui/arm-guard.js">

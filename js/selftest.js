@@ -8,6 +8,7 @@ import { createMachine, profiles } from './machines/profiles.js';
 import { Tape } from './media/tape.js';
 import { buildCas } from './media/cassette.js';
 import { crc32 } from './util.js';
+import { vdgPage } from './claude/readtools.js';
 
 import { frameToRGBA } from './video/frame.js';
 
@@ -68,11 +69,12 @@ class SelfTest {
   }
 
   screenLines() {
-    const m = this.m, base = m.profile.textScreen || 0x0400, lines = [];
+    // the page the VDG shows (the SAM's display offset on the Dragon and CoCo 1/2), as screen_text reads it
+    const page = vdgPage(this.m), lines = [];
     for (let r = 0; r < 16; r++) {
       let l = '';
       for (let c = 0; c < 32; c++) {
-        const v = m.ram[base + r * 32 + c];
+        const v = page.byte(r * 32 + c);
         if (v & 0x80) { l += '#'; continue; }
         const ch = v & 0x3F;
         l += String.fromCharCode(ch < 0x20 ? ch + 0x40 : ch);

@@ -52,6 +52,7 @@
     "tape": 9,
     "layout": 12.6,
     "display": 5.6,
+    "warmup": 41.7,
     "glLoss": 1.6,
     "pageLoop": 2.9,
     "landing": 3.6,
@@ -74,6 +75,7 @@
     "escChat": 2.9,
     "claude": 10.8,
     "ask": 57.4,
+    "askSuggest": 20.4,
     "commands": 5.3,
     "askFollowup": 52.8,
     "askStatus": 47.2,
@@ -86,6 +88,9 @@
     "share": 59.1,
     "shortLink": 11.3,
     "basicShare": 8.4,
+    "postcard": 12.5,
+    "programTape": 5.5,
+    "sourceShare": 7.7,
     "favicon": 3.1,
     "closedViews": 36,
     "uiModel": 26.1,
@@ -94,8 +99,10 @@
     "menuWords": 5.3,
     "needsBasic": 4.2,
     "noRomChrome": 14.9,
+    "romOnce": 42.8,
     "romNotRom": 1.7,
     "toastOffScreen": 2.6,
+    "layoutBugs": 23.8,
     "connector": 69.3
   }
 }

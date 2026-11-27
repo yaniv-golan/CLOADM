@@ -39,6 +39,7 @@ import { setupPrinterPanel } from './printer-panel.js';
 import { setupSerialPanel } from './serial-panel.js';
 import { setupDriveWirePanel } from './drivewire-panel.js';
 import { setupDisplayPanel } from './display-panel.js';
+import { setupWarmup } from './warmup.js';
 import { setupSnapshotPanel } from './snapshot-panel.js';
 import { parseUrlConfig, linkFetchError, claudeOffered } from '../config.js';
 import { setupAskPopout } from './ask-popout.js';
@@ -152,14 +153,14 @@ let library = null;
 // the arrival card (a shared moment, or a shared BASIC program, which it opens): before the snapshots, which hand it a
 // program's short link
 const arrival = setupArrival(page, { openShare: () => share.open(), startOver, reportUrl: (id) => linkStore.reportUrl(id), openRoms: () => romSockets.reveal() });
-const snapshots = setupSnapshotPanel(page, { confirmSwitch: machinePanel.confirmSwitch, openRoms: () => romSockets.reveal(), startOver: (program) => startOver(program), openProgram: arrival.openProgram });
+const snapshots = setupSnapshotPanel(page, { confirmSwitch: machinePanel.confirmSwitch, openRoms: () => romSockets.reveal(), startOver: (program) => startOver(program), openProgram: arrival.openProgram, openPostcard: arrival.openPostcard, openSource: arrival.openSource });
 window.emu.arrival = arrival;   // (the browser check: a program arriving while the focus is elsewhere)
 const disks = setupDrives(page, { openRoms: () => romSockets.reveal({ to: 'disk' }) });
 const slots = setupSlotsPanel(page, { snapshots });
 const nitros9 = setupNitros9Panel(page);
 window.emu.nitros9Shown = () => nitros9.shown();   // (the browser check: the panel shows the session's latest state)
 const media = setupMediaPanel(page, { snapshots, disks, nitros9, keep: (name, bytes) => library && library.keep(name, bytes) });
-setupAssemblerPanel(page);
+page.assembler = setupAssemblerPanel(page);   // (a shared source arrives in it: js/ui/arrival.js)
 setupDebuggerPanel(page);
 setupDebuggerStop(page);
 const selfTest = setupSelfTestPanel(page);
@@ -169,12 +170,18 @@ const screen = setupScreen(page, { loadPrograms: media.loadPrograms, roms: romPa
 page.linkTouch = link.touch;
 page.touchKeys = setupTouchKeys(page, { input: screen.input });
 setupDisplayPanel(page);
+// the Old TV warm-up (Display tab, off by default): at this page start, and at each power-on after it. What the visit
+// was opened with is read now, before the link's moment takes the hash away (?demo=1 is read as it stands: no setting)
+const warmup = setupWarmup(page, { hash: location.hash, start: link.start, demo: new URLSearchParams(location.search).get('demo') === '1', embed: !!link.embed });
+window.emu.warmup = warmup;
+warmup.play();
 setupKeyHint(page);
 setupTypingLine(page);
 setupSettingsFile(page);
 // the short links' store: s.cloadm.dev (js/host/link-store.js); the browser check points it at a stand-in server
 const linkStore = new ShortLinkStore();
 const share = setupShare(page, { linkStore });
+page.share = share;   // (the command box's "Save program as .CAS/.WAV")
 page.bugReport = setupBugReport(page);
 const showRoms = () => romSockets.reveal();
 // No Claude chat on a page shown inside someone else's page, whether by the embed flag or by being framed: the chat
@@ -204,7 +211,7 @@ if (claude) {
 // where there is no chat because this page is inside another site's page: "Ask Claude ↗" opens it in a new tab
 // (the framed full page's app bar; an embed's corner chip only with askclaude=1)
 window.emu.askPopout = claude ? null : setupAskPopout(page, { link, framed: framedInPage });
-const welcome = setupWelcome(page, { showRoms, openClaude: () => claude && claude.open() });
+const welcome = setupWelcome(page, { showRoms, openClaude: () => claude && claude.open(), ask: machinePanel.ask });
 // Start over (the snapshot toast) and Start from the beginning (the arrival card): a moment of a bundled program
 // starts that program again from its beginning, as its program page does; any other moment is a power cycle into the
 // same machine, the screen's own Power route
@@ -280,23 +287,16 @@ $('btnMenu').onclick = () => {
   session.on((ev) => { if (ev === 'machine') fit(); });
   fit();
 }
-// the phone's app bar (700 px and less, play/index.html): Add ROMs is Menu's first item while the app bar's pill is
-// up (the machine has no BASIC), and Menu wears a dot then, as the item does; Settings… and Share are its items too
-// (the bar has no room)
+// the phone's app bar (700 px and less, play/index.html): Add ROMs… is Menu's item while the app bar's pill is up (the
+// machine has no BASIC), a plain item with no dot (the welcome menu's key 3 says why ROMs are needed); Settings… and
+// Share are its items too (the bar has no room)
 {
   const pill = $('romPill'), item = $('navRoms');
-  // (the dot is drawn only: while it is on, Menu's name says what it means)
-  // (and an accent dot while media is in, on a short phone where Menu has the ports: js/ui/phone-sheets.js)
+  // (Menu's accent dot is media's alone, on a short phone where Menu has the ports: js/ui/phone-sheets.js)
   const sync = () => {
     item.hidden = pill.hidden;
-    const menu = $('btnMenu'), media = menu.classList.contains('media');
-    // (never both: while the pill itself shows, Menu wears no dot; checkVisibility, as the layout draws it at this width)
-    const dot = !pill.hidden && !pill.checkVisibility();
-    menu.classList.toggle('dot', dot);
-    // (both: its one dot is the ROMs', its name says both)
-    if (dot) menu.setAttribute('aria-label', media ? 'Menu (ROMs needed, media inserted)' : 'Menu (ROMs needed)');
-    else if (media) menu.setAttribute('aria-label', 'Menu (media inserted)');
-    else menu.removeAttribute('aria-label');
+    if ($('btnMenu').classList.contains('media')) $('btnMenu').setAttribute('aria-label', 'Menu (media inserted)');
+    else $('btnMenu').removeAttribute('aria-label');
   };
   page.syncMenu = sync;
   const close = () => { $('appbar').classList.remove('menu-open'); $('btnMenu').setAttribute('aria-expanded', 'false'); };
@@ -318,9 +318,6 @@ $('btnMenu').onclick = () => {
     tab.focus({ preventScroll: true });
   };
   new MutationObserver(sync).observe(pill, { attributes: true, attributeFilter: ['hidden'] });
-  // the pill shows or not with the width and the layout (the touch keys, the chat screen): asked again when they change
-  new ResizeObserver(sync).observe(document.body);
-  new MutationObserver(sync).observe(document.body, { attributes: true, attributeFilter: ['class'] });
   sync();
   // Where the less-used links go (moved, not reordered by the stylesheet, so the focus goes down them in the order they
   // are drawn). On a desktop (wider than 700 px, not held sideways, without the touch keys) Debugger, Commands…, Help,
@@ -416,7 +413,8 @@ const starting = welcome.start(visit, { fromLink, withMedia: link.roms.length > 
   await starting;
   // a share link's moment (#z=, Share screen): opened like a dropped snapshot, once the visit has started
   // (a BASIC program's link, Share your program, is a #z= too: its payload says which, js/ui/arrival.js)
-  if (/^#z=/.test(location.hash)) { if (!await arrival.takeProgramLink(location.hash)) await snapshots.takeLink(location.hash); }
+  // (and so are a LIZA postcard, js/postcard.js, and a program's source, js/source-share.js)
+  if (/^#z=/.test(location.hash)) { if (!await arrival.takeProgramLink(location.hash) && !await arrival.takePostcardLink(location.hash) && !await arrival.takeSourceLink(location.hash)) await snapshots.takeLink(location.hash); }
   // a short link's moment (#l=<id>.<key>: its arrival page on s.cloadm.dev sends the visitor here): fetched, opened
   // with its key in this browser, then opened like the rest
   else if (/^#l=/.test(location.hash)) await snapshots.takeShortLink(location.hash, linkStore);
