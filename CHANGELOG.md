@@ -140,6 +140,12 @@ Next version: 0.3.1 (the plugin and extension manifests carry it; `tests/plugin.
   ends, and a direct `GOSUB` whose `INPUT` reply ran over the typed line returns to `OK`. Of the 99 recorded cases,
   52 now match the original exactly (44 before); the cassette cases that write differ only in the leader counts the
   tape decoder reads (and a recorded tape read back). The ROM is 187 bytes larger (15,812 with the `RND` change).
+  Reading a number now takes about 700 cycles more for each digit that is not 0 and follows a digit that was not 0,
+  before any point (`32767`: four), as on the original: the PEEK loops of the black-box cases `cas-cloadm2` and
+  `crunch-else` ran 186 to 328 fields faster on ours, and now take the original's time or up to 1% more. The eight
+  `ram-pointers2` loops stay within two fields of the original. `MOTOR ON` now waits about 25 fields for a motor that
+  was off, as the original does (`MOTOR ON`, 500 empty passes and `MOTOR OFF`: a run of 54.02 fields on both). Of the
+  99 recorded cases, 53 now match the original exactly. The ROM is 27 bytes larger (15,839).
 
 ### 0.3.1
 
