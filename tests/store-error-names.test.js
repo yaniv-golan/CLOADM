@@ -297,6 +297,126 @@ const same = (a, b) => !!a && !!b && a.length === b.length && a.every((v, i) => 
     check('... while MAKING a nested name is still refused', !mk2.ok, mk2.m || 'accepted');
   }
 
+  // ---------------- the four sites that called mediaError without the stored path ----------------
+  // Each knows the stored name it was working on, but handed mediaError only a label ("slot 1", "snapshot 1", the
+  // image's own name). A backend that quotes the path in its message (js/host/media-store-fsa.js and -opfs.js,
+  // wrap()) then repeated it after the label. The stored path is passed now, so the strip above reaches it.
+  {
+    const why = 'permission was refused';
+    const slot1 = 'library/snapshots/slot-1.cloadm';   // slotName(1): LIBRARY_PREFIX + snapshots/slot-N + SNAPSHOT_EXT
+    // saveSlot -> media.write(slotName(n))
+    const m1 = new FailingStore(); m1.failOn = null;
+    const realWrite1 = m1.write.bind(m1);
+    m1.write = async (name, bytes) => { if (name === slot1) throw PATH_FIRST(name, why); return realWrite1(name, bytes); };
+    const s1 = await session(m1);
+    const r1 = await q(s1.saveSlot(1));
+    check('a refused snapshot save names the slot once', !r1.ok && r1.m === `snapshot 1: ${why}`, r1.m);
+
+    // slotBytes -> media.stat(slotName(n))
+    const m2 = new FailingStore(); m2.failOn = null;
+    const realStat2 = m2.stat.bind(m2);
+    m2.stat = async (name) => { if (name === slot1) throw PATH_FIRST(name, why); return realStat2(name); };
+    const s2 = await session(m2);
+    const r2 = await q(s2.slotBytes(1));
+    check('a refused slot read names the slot once', !r2.ok && r2.m === `slot 1: ${why}`, r2.m);
+
+    // restoreSlot -> media.write(slotName(n))
+    const m3 = new FailingStore(); m3.failOn = null;
+    const realWrite3 = m3.write.bind(m3);
+    m3.write = async (name, bytes) => { if (name === slot1) throw PATH_FIRST(name, why); return realWrite3(name, bytes); };
+    const s3 = await session(m3);
+    const r3 = await q(s3.restoreSlot(1, new Uint8Array(8)));
+    check('a refused slot restore names the slot once', !r3.ok && r3.m === `slot 1: ${why}`, r3.m);
+
+    // bootNitros9 -> media.read(DISK_PREFIX + name)
+    const m4 = new FailingStore(); m4.failOn = null;
+    const realRead4 = m4.read.bind(m4);
+    m4.read = async (name) => { if (name === 'disks/boot.dsk') throw PATH_FIRST(name, why); return realRead4(name); };
+    const s4 = new Emu.Session({ media: m4, welcomeMenu: false });
+    s4.switchMachine('coco3');
+    await s4.ready();
+    const r4 = await q(s4.bootNitros9('boot.dsk', 'disk'));
+    check('a refused NitrOS-9 boot read names the image once', !r4.ok && r4.m === `boot.dsk: ${why}`, r4.m);
+
+    // bootNitros9 with NO store given tries the DriveWire images, then the floppies. The reason and the path it
+    // failed at must come from the SAME attempt: pairing the first path with a later error would leave the wrong
+    // path unstripped (or strip one that is not the reason's).
+    // `readFail` returns what this attempt throws, or null for "let the real store answer". A throw of a FALSY value
+    // is asked for with `{ throw: value }`, since returning it would read as "let the real store answer": the store
+    // does not throw falsy itself, and a check that meant to throw `undefined` and instead fell through to the
+    // store's own not-found would be testing the not-found case again under another name.
+    const tries = async (readFail) => {
+      const m = new FailingStore(); m.failOn = null;
+      const real = m.read.bind(m);
+      let armed = false;                       // ready() bootstraps the session and must not see the injected failure
+      m.read = async (name) => {
+        if (armed) {
+          const r = readFail(name);
+          if (r && typeof r === 'object' && 'throw' in r) throw r.throw;
+          if (r) throw r;
+        }
+        return real(name);
+      };
+      const s = new Emu.Session({ media: m, welcomeMenu: false });
+      s.switchMachine('coco3');
+      await s.ready();
+      armed = true;
+      return q(s.bootNitros9('b.dsk'));      // no store: both prefixes are tried
+    };
+    // both attempts fail for real: the DriveWire one is reported, and its own path is the one stripped
+    const both = await tries((name) => PATH_FIRST(name, why));
+    check('two failed attempts: the first reason is reported, its own path stripped',
+      !both.ok && both.m === `b.dsk: ${why}`, both.m);
+    // the first attempt (not-found) is absent and the second fails for real: the SECOND path is the one stripped
+    const secondOnly = await tries((name) => (name.startsWith('drivewire/') ? new MediaStoreError('not-found', `${name} is not in this store`) : PATH_FIRST(name, why)));
+    check('an absent DriveWire image, then a refused floppy: the floppy\'s path is stripped',
+      !secondOnly.ok && secondOnly.m === `b.dsk: ${why}`, secondOnly.m);
+    // a falsy throw on the first attempt must not pair its path with the second attempt's real reason. The falsy
+    // value is really thrown (see `tries`): if it merely fell through, this would re-run the not-found case above and
+    // pass whatever the pairing did.
+    const falsyFirst = await tries((name) => (name.startsWith('drivewire/') ? { throw: undefined } : PATH_FIRST(name, why)));
+    check('a falsy first throw does not pair its path with the second attempt\'s reason',
+      !falsyFirst.ok && falsyFirst.m === `b.dsk: ${why}`, falsyFirst.m);
+  }
+
+  // ---------------- the listings: a refused listing names what it was reading ----------------
+  // These call sites pass a label ("the library", "the DriveWire images") rather than a path, so the strip could not
+  // match a backend's own "<prefix>: ...". Each now names the folder it was reading, from inside the listing, so it
+  // is read once -- and the caller's own label is not layered on top of a message that already has a name.
+  {
+    const why = 'permission was refused';
+    const breakList = async (prefixToFail) => {
+      const m = new FailingStore(); m.failOn = null;
+      let armed = false;
+      const realList = m.list.bind(m);
+      m.list = async (prefix = '') => { if (armed && prefix === prefixToFail) throw PATH_FIRST(prefix, why); return realList(prefix); };
+      const s = new Emu.Session({ media: m, welcomeMenu: false });
+      s.switchMachine('coco3');
+      await s.ready();
+      armed = true;
+      return s;
+    };
+    const s1 = await breakList('disks/');
+    const r1 = await q(s1.library.listMedia());
+    check('a refused library listing names the folder once', !r1.ok && r1.m === `the library: ${why}`, r1.m);
+
+    const s2 = await breakList('drivewire/');
+    const r2 = await q(s2.driveWireImages());
+    check('a refused DriveWire listing names its folder once', !r2.ok && r2.m === `the DriveWire images: ${why}`, r2.m);
+
+    // the quick-save box's listing: the failure is a slot's stat, so each slot is named on its own
+    const m3 = new FailingStore(); m3.failOn = null;
+    let armed3 = false;
+    const realStat3 = m3.stat.bind(m3);
+    m3.stat = async (name) => { if (armed3 && name === 'library/snapshots/slot-1.cloadm') throw PATH_FIRST(name, why); return realStat3(name); };
+    const s3 = new Emu.Session({ media: m3, welcomeMenu: false });
+    s3.switchMachine('coco3');
+    await s3.ready();
+    armed3 = true;
+    const r3 = await q(s3.listSlots());
+    check('a refused snapshot listing names the slot once', !r3.ok && r3.m === `slot 1: ${why}`, r3.m);
+  }
+
   console.log(fail ? `${fail} of ${n} store-error-naming checks FAILED` : `${n}/${n} store-error-naming checks passed`);
   process.exitCode = fail ? 1 : 0;
 })();

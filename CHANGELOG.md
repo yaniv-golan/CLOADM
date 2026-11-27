@@ -174,6 +174,13 @@ Next version: 0.4.0 (the plugin and extension manifests carry it; `tests/plugin.
   is "it is open, so close it", so the next press closed that empty panel instead of opening a chat, and a second
   press was needed. The panel now closes with the chat it was showing, as the full-screen chat already did.
 
+- **A refused store read no longer names the item twice.** When the storage backend refused a snapshot save, a
+  quick-save slot read or restore, or a NitrOS-9 boot, the message read like "mygame.dsk: `disks/mygame.dsk`:
+  permission was refused" — the name, then the stored path, then the reason. The same happened to the listing the
+  Library, the quick-save box and the DriveWire panel ask for. Each now hands the stored name to the one place that
+  decides how a store failure is worded, so the item is named once. A reason that names a *different* file still
+  keeps its path: where it failed is not the item being described.
+
 ### 0.3.1
 
 #### Fixed

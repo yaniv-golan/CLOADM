@@ -191,7 +191,8 @@ export class MediaLibrary {
       copied++;
     }
     // the index's lists, merged: a move takes this library's entries, reconnecting the folder's except what
-    // changed in this visit
+    // changed in this visit. Several index blobs are written here, so there is no single name to strip: the
+    // backend's own path is kept, and the label says which part of the library it was
     try { copied += await this.session.index.mergeInto(store, { ours: reconnecting ? 'changed' : 'all' }); } catch (e) { throw this.mediaError(e, 'the ROM and recent lists'); }
     this.useMediaStore(store);
     await this.session.index.load();
@@ -310,7 +311,10 @@ export class MediaLibrary {
   // Everything the user's media holds (the library and the disk images), with sizes and modification times ->
   // [{ name, size, mtime }] sorted by name (the index's own blobs are not listed: they are not the user's media)
   async listMedia() {
-    const all = [...await this.session.media.list(LIBRARY_PREFIX), ...await this.session.media.list(DISK_PREFIX)];
+    // a refused listing names the folder it was reading: a backend's own "<prefix>: ..." is that same name, so it
+    // is stripped and read once, while a caller's label would never match it
+    const list = async (prefix) => { try { return await this.session.media.list(prefix); } catch (e) { throw this.mediaError(e, 'the library', prefix); } };
+    const all = [...await list(LIBRARY_PREFIX), ...await list(DISK_PREFIX)];
     return all.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
   }
   // read a stored blob by name -> Uint8Array (throws SessionError when it is gone)
