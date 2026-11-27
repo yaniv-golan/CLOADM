@@ -252,7 +252,10 @@ These are hard rules for everyone who works on this ROM.
     `.903043481` too, so a product at the smallest exponent may round as ours does not: `R=X*1E9` and `X*10`
     stored and their five bytes read, for X of exponent byte 1, 2 and 3. Also recorded again, on an emulator whose PIA 1
     PB0 is the printer's BUSY (ready, as CLOADM 0.4.1 has it; it read as the 6551's idle receive data, busy):
-    bb10 `stmt-printer` and bb6 `famous-pokes`, whose waits for a printer came from that.
+    bb10 `stmt-printer` and bb6 `famous-pokes`, whose waits for a printer came from that (after 0.4.1 lands: every
+    round so far ran on an emulator before the fix, bb10 at `faa2087`, bb11 at `5a71788`). If the original then prints
+    to the printer after `POKE 111,254`, ours printing on the screen becomes a difference on a well-known POKE, for
+    the owner, with its byte cost.
     Replayed, the records match as before but for two: bb8 `cas-cloadm2` now matches whole, and bb2 `snd-sound`'s
     `SOUND 200,4` no longer does: it starts about 400 cycles later in its field (the two numbers' conversion waits), so
     its length, counted in fields, comes out a field longer and without the original's short first period (a phase,
