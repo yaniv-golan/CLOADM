@@ -18,6 +18,12 @@ Next version: 0.4.2 (the plugin and extension manifests carry it; `tests/plugin.
   or a disk controller's ROM image (by its contents or its usual name) is refused as a ROM to add (Add ROMs on the page,
   `add_roms` for the MCP server, `--roms` for the command line), also through the MCP `load` tool and the command line.
 
+- **"No OK after 5 seconds" names a plugged-in cartridge.** When the ROMs are recognised and a cartridge is in the
+  port, the card no longer blames CLOADM: it says "The ROMs are recognised, but a cartridge is plugged in (NAME), and it
+  may have taken over at power-on. Take it out and switch on again; if that doesn't help, please report it." NAME is the
+  cartridge's name as the Cartridge chip shows it. With no cartridge, or only the disk controller a mounted disk plugs
+  in when there is no disk ROM, the text is unchanged. (`js/session.js`)
+
 ### 0.4.1
 
 #### Added

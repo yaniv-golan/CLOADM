@@ -1811,7 +1811,13 @@ export class Session {
     const odd = sockets.filter((s) => s.status === 'loaded-unrecognised');
     const cause = odd.length
       ? odd.map((s) => `The ${s.label} is ${s.file || 'a file'}, which isn't recognised.`).join(' ') + ' It may be a different revision, a damaged copy, or for another machine.'
-      : 'The ROMs are recognised, so this looks like a problem in CLOADM. Please report it.';
+      : m.cartPort && m.cartPort !== (m === this.shownMachine ? this.drives.bareController : null)
+        // (the ROM-less disk controller a mounted disk plugs in is not one the person chose and cannot take over: it
+        // keeps the old text)
+        // a plugged-in cartridge may have taken over at power-on (a ROM image loaded as a cartridge did exactly this);
+        // NAME is the cartridge's display name, as the Cartridge chip shows it (js/ui/phone-sheets.js)
+        ? `The ROMs are recognised, but a cartridge is plugged in (${m.cartPort.name || 'Cartridge'}), and it may have taken over at power-on. Take it out and switch on again; if that doesn't help, please report it.`
+        : 'The ROMs are recognised, so this looks like a problem in CLOADM. Please report it.';
     return { state: 'failed', seconds, cause, sockets };
   }
 
