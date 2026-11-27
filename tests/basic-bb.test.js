@@ -125,6 +125,16 @@ check('build: $8000-$8005 is left $FF, nothing published there (tests/basic-entr
   check('CLS: the screen it wiped is kept in clears, the transcript as before', cl.status === 'ok' && cl.clears.length === 1 && JSON.stringify(cl.clears[0].screen) === JSON.stringify(['OK', 'PRINT "A"', 'A', 'OK', 'PRINT "B"', 'B', 'OK', 'CLS']) && JSON.stringify(cl.transcript) === JSON.stringify(['OK', 'PRINT "C"', 'C', 'OK']), JSON.stringify(cl.clears));
   const none = runCase(built.rom, 'PRINT "A"\n');
   check('no clear: clears is empty', Array.isArray(none.clears) && none.clears.length === 0);
+  // start, the first prompt's frame: a ROM whose cold start is slower (a mutant that waits 65,536 passes of 8 cycles,
+  // about 29 fields, before it clears RAM) has a later start, and a clear's frame measured from start is where it was
+  // (within a field: the wait moves where the field interrupt falls) (docs/clean-room-basic.md, decision 13)
+  {
+    const slow = buildBasic({ edit: (f, t) => (f === 'boot.inc' ? t.replace('COLD    LDX     #0 ', 'COLD    LDX     #0\nCDLY    LEAX    -1,X\n        BNE     CDLY\n        LDX     #0 ') : t) });
+    const text = 'PRINT "A"\nCLS\nPRINT "B"\n', p = runCase(built.rom, text), q = runCase(slow.rom, text);
+    const at = (r) => r.clears[0].frame - r.start;
+    check('start: a slower cold start starts later, a clear measured from it where it was', q.start - p.start >= 25 && Math.abs(at(q) - at(p)) <= 1 && Math.abs(q.clears[0].frame - p.clears[0].frame) >= 25,
+      `start ${p.start} vs ${q.start}, the clear at ${at(p)} vs ${at(q)} after it`);
+  }
   // #expect-timeout: a wait that times out after it ends the case as a result
   const et = runCase(built.rom, '10 GOTO 10\n#timeout 2\n#expect-timeout\nRUN\nPRINT "NEVER"\n');
   check('#expect-timeout: a timeout after it ends the case: status ok, ended at that step, nothing after it run', et.status === 'ok' && et.ended && et.ended.as === 'timeout' && et.ended.at === 'line 4' && !et.at && !et.transcript.includes('NEVER'), JSON.stringify([et.status, et.ended, et.at]));

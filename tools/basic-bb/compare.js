@@ -6,6 +6,9 @@
 // or pixels part, and the error lines.
 // Sounds (#wav) are compared by their measures (compareSounds, below), tapes (#tape-blocks) by their summaries
 // (compareTapes), the printer's bytes exactly (comparePrinter).
+// No frame count is compared: a record's frames count from power-on and the two ROMs' cold starts differ in length
+// (docs/clean-room-basic.md, section 10 decision 13); a timing read from two records is lined up from each one's
+// `start`, the frame of its first prompt (or, in a record made before that field, its first flag).
 // Pictures (#screenshot) are compared by the SHA-256 of their pixels; --shots DIR writes both PNGs of each one that
 // differs. Two text-screen pictures that differ in one 8 x 12 cell only differ in the blinking cursor (cursorOnly):
 // they are listed apart as "cursor only" and count as the same.

@@ -673,11 +673,12 @@ node tools/basic-bb/compare.js real.jsonl ours.jsonl [--shots DIR]
   is not a scroll is flagged, so a lost line is never silent. Inverse letters are written in lower case (that is
   how the Dragon shows lower case), other inverse characters with a combining low line.
 * **Output** (one JSON object per line):
-  `{"case":"fp-print-01","machine":"dragon64","rom":"<crc32 of the ROM file>","frames":412,"status":"ok",
+  `{"case":"fp-print-01","machine":"dragon64","rom":"<crc32 of the ROM file>","start":34,"frames":412,"status":"ok",
   "transcript":["PRINT 1/3"," .333333333","OK"],"screen":["...16 lines..."],"flags":[]}`.
   It holds nothing but screen text, the pictures (`shots`) and sound measures (`sounds`) a case asked for, the tape
   summaries (`tapes`), the printer's bytes when the case printed (`printer`: its own program and output, as BASIC sent
-  them), and the ROM's CRC (to tell runs apart); no ROM bytes.
+  them), and the ROM's CRC (to tell runs apart); no ROM bytes. `frames` and the flags' and clears' frames count from
+  power-on; `start` is the frame of the first prompt, from which two ROMs' timings are lined up (decision 13).
 * **The token probe** (`tests/basic/cases/probe-tokens.bas`): one program line per keyword (after `END:`, so never
   run), then a program that searches RAM below `$8000` for a marker it placed in a `REM` and prints each following
   line's number, bytes in hex and whether its link points at the next line. This gives
@@ -877,6 +878,14 @@ All answered by the project owner and kept here with the decision, except where 
    bytes. (c) `COS(0)`, `SIN(pi/2)`, `SIN` at 1/8, 1/4 and 3/8 of a turn, and `TAN` where its cosine is 0 (ours
    `?/0 ERROR`), as bytes. (d) Octal: `&O9`, `&O18` and `VAL("&O19")` (ours takes 9 as a digit and adds: 17, 16, 17;
    the record has only `&O8`, 8).
+13. **The cold start's length. Decided** (the owner, 2026-11-27): exempt from "never faster". Ours reaches its first
+   `OK` about 63 fields before the original (bb3 onwards: every record starts 61 to 63 fields later on the original);
+   no program can see the time it took to start, and a counted delay to match it would cost about 8 bytes, so the
+   boot is not padded. Records' frames are counted from power-on, so timings of two ROMs are lined up from the first
+   prompt: `run.js` writes each case's `start` (the frame at which the clean start's `OK` held), and a record made
+   before it had the field is lined up from its first flag. `compare.js` compares no frame counts (only spans within
+   a case: tape motor runs, sound lengths), and the timing tests (`tests/basic-ram.test.js`) measure spans between a
+   case's own flags and clears, so the boot's length shows in neither.
 
 ## 11. Provenance log
 

@@ -10,7 +10,9 @@
 // --rom is the 16K image for the Dragon 64's "basic" socket (the 32K-mode BASIC, d64_1). --cases is a folder of
 // .bas case files (default tests/basic/cases); every case is linted first (tools/basic-bb/lint.js) and a case that
 // might read the ROM is refused. Each case runs on a fresh machine typed through the keyboard; the output is one
-// JSON object a line: { case, machine, rom (the CRC-32 of the ROM image, to tell runs apart), status, frames,
+// JSON object a line: { case, machine, rom (the CRC-32 of the ROM image, to tell runs apart), status, start (the
+// frame of the first prompt, after the clean start: the frames below are counted from power-on, so two ROMs' are
+// compared from their starts), frames,
 // transcript (the lines that reached the screen, in order), flags, and shots (each #screenshot: the picture as a PNG
 // and the SHA-256 of its pixels), and sounds (each #wav ... #wav-stop: measures only, tests/basic/harness.js
 // soundMeasures), and tapes (each #tape-blocks: the blocks written, a data block's SHA-256 in place of its bytes, and
@@ -57,7 +59,7 @@ function main() {
     const problems = lintCase(text);
     if (problems.length) { console.error(`${name}: refused by the lint:\n  ${problems.join('\n  ')}`); failed++; continue; }
     const r = runCase(rom, text);
-    lines.push(JSON.stringify({ case: name, machine: 'dragon64', rom: crc, status: r.status, ...(r.at ? { at: r.at } : {}), ...(r.ended ? { ended: r.ended } : {}), ...(r.why ? { why: r.why } : {}), frames: r.frames, transcript: r.transcript, flags: r.flags, ...(r.shots ? { shots: r.shots } : {}), ...(r.typist ? { typist: r.typist } : {}), ...(r.sounds ? { sounds: r.sounds } : {}), ...(r.tapes ? { tapes: r.tapes } : {}), ...(r.clears ? { clears: r.clears } : {}), ...(r.printer ? { printer: r.printer } : {}) }));
+    lines.push(JSON.stringify({ case: name, machine: 'dragon64', rom: crc, status: r.status, ...(r.start != null ? { start: r.start } : {}), ...(r.at ? { at: r.at } : {}), ...(r.ended ? { ended: r.ended } : {}), ...(r.why ? { why: r.why } : {}), frames: r.frames, transcript: r.transcript, flags: r.flags, ...(r.shots ? { shots: r.shots } : {}), ...(r.typist ? { typist: r.typist } : {}), ...(r.sounds ? { sounds: r.sounds } : {}), ...(r.tapes ? { tapes: r.tapes } : {}), ...(r.clears ? { clears: r.clears } : {}), ...(r.printer ? { printer: r.printer } : {}) }));
     console.log(`${r.status.padEnd(8)} ${name} (${r.frames} frames${r.flags.length ? `, ${r.flags.length} flags` : ''})`);
     if (r.status !== 'ok') failed++;
   }

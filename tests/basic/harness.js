@@ -354,7 +354,9 @@ class Basic {
 //   #tape-blocks NAME  the result's tapes get { name, motor, blocks?, bad? } (tapeSummary, below): the motor's runs and,
 //                   while recording, the blocks written since #tape-blank or the last #tape-blocks; never their bytes
 // A typed line that starts with a digit is a program line: waited for until the screen settles; any other line
-// is waited for until OK is back. -> { status, transcript, flags, frames, shots?, sounds?, tapes?, clears?, printer? };
+// is waited for until OK is back. -> { status, start, transcript, flags, frames, shots?, sounds?, tapes?, clears?,
+// printer? }; start: the frame at which the clean start's OK held (the first prompt), from which a record's frames
+// (flags', clears', frames) are measured when two ROMs are compared, since cold starts differ in length (decision 13);
 // printer: the bytes the machine's printer port received since the clean start (the Dragon's parallel port: PIA0
 // port B as PIA1 PA1, the strobe, rises from low to high in a write that leaves the DAC's bits, PA2-PA7, as they
 // were: a sound's or the cassette's writes, which change them, are no printer byte whatever they do to PA1), as { length, hex }, and only when there are any: what the case's own LLIST and PRINT #-2 sent, as BASIC sends it to a printer. status 'ok',
@@ -403,10 +405,10 @@ function runCase(rom, text, { machine = 'dragon64', guard = true, tapes: tapeDir
     if (!clean) return { status, transcript: [], flags: [], frames: b.frames, ...extra };
     return refused
       ? { status: 'refused', why: refused, transcript: [], flags: [], frames: b.frames }
-      : { status, transcript: b.lines ? b.transcript() : b.screen(), flags: b.flags || [], frames: b.frames, ...(shots.length ? { shots } : {}), ...(sounds.length ? { sounds } : {}), ...(tapes.length ? { tapes } : {}), ...(b.clears ? { clears: b.clears } : {}), ...printer(), ...(typistNotes.length ? { typist: typistNotes } : {}), ...extra };
+      : { status, start, transcript: b.lines ? b.transcript() : b.screen(), flags: b.flags || [], frames: b.frames, ...(shots.length ? { shots } : {}), ...(sounds.length ? { sounds } : {}), ...(tapes.length ? { tapes } : {}), ...(b.clears ? { clears: b.clears } : {}), ...printer(), ...(typistNotes.length ? { typist: typistNotes } : {}), ...extra };
   };
   if (!b.waitOk({ limit: 600, stable: 3 })) return out('no-boot');
-  let limit = 30 * 50, nowait = false;
+  let limit = 30 * 50, nowait = false, start;
   const settle = () => { let last = null; return b.until(() => { const k = b.rows().join(''); const same = k === last; last = k; return same; }, { limit, stable: 10 }); };
   // a line is judged by what follows it (OK back, the screen settled), not by whether the typist saw every key
   // taken: a BASIC that runs the line at once and stops reading the keyboard (PLAY sounding, CLOAD) leaves the typist
@@ -422,6 +424,7 @@ function runCase(rom, text, { machine = 'dragon64', guard = true, tapes: tapeDir
   };
   if (!b.cleanStart(limit)) return out('no-clean-start');
   clean = true;
+  start = b.frames;
   listenPrinter();
   strobing = true;
   let st;
