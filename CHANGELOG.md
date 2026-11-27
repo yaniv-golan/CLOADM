@@ -87,6 +87,20 @@ Next version: 0.4.0 (the plugin and extension manifests carry it; `tests/plugin.
 
 #### Changed
 
+- **A phone's Menu is one list, the same either way up.** Held upright (the dropdown under the app bar) and held
+  sideways (the panel's sheet) it lists the same rows in the same order, in four groups parted by a thin rule:
+  Programs…, Open…, Ask Claude…, Share…; Machine…, Tape, disks and cartridge…, Power…, Add ROMs…, Settings…; Take
+  snapshot, Restore snapshot…; Commands…, Library, Debugger, Help, Install CLOADM…, GitHub ↗, Hide keys. A row shows only
+  where what it opens is not already on screen (upright, Open…, Ask Claude… and the machine are the app bar's; the ports
+  and Power, with their state under them, only where the chips are not shown). Held sideways, Library, Debugger, Help,
+  the snapshots and GitHub are in Menu now, and the sheet is 260 px wide above Menu at the right. Claude features Off
+  hides Ask Claude… there (Commands… stays: the box works without its Claude rows). On a tablet with the touch keys the
+  app bar's links follow the same order, the snapshots after Settings…, and GitHub carries ↗. (`js/ui/menu.js`)
+- **Every program in Programs has the same two lines:** its name, and one short line saying what it is ("An ELIZA-style
+  chat program", "Find the ten mines", …), on every model and on the desktop's Media tab too. WYRMFIRE's licence and
+  credit line leave its row; they stay in its Details and on its card under the screen.
+- **The machine picker opens with the machine in use in the middle of the list,** its row filled, and the list never
+  starts on a row cut in half.
 - **The ROM requirement is said once**, by the Welcome menu's "3 ADD YOUR ROMS FOR BASIC". Elsewhere adding ROMs is a
   plain action: the app bar's button reads **Add ROMs…** (it was the orange "No BASIC · Add ROMs"), styled as Share and
   named "Add ROMs for BASIC" (its visible words in its name); a phone's Menu item reads **Add ROMs…** (it was "Add
@@ -133,6 +147,16 @@ Next version: 0.4.0 (the plugin and extension manifests carry it; `tests/plugin.
 
 #### Fixed
 
+- **A phone's Menu no longer wraps into a second column** (GitHub sat top right on a 393x659 phone): one column, which
+  scrolls, its bottom fading while there is more below.
+- **Menu held sideways no longer cuts a row through its text** (653x280: the fifth row was sliced, with no fade): its
+  bottom edge falls between two rows, and it fades while it can scroll further.
+- **Menu held sideways stays where it is scrolled:** scrolled to its end, it was pulled back by a row (Hide keys out of
+  reach at 659x393) whenever the ports' or Power's state was written, even unchanged; it is refitted only when a row
+  comes or goes, and a refit keeps the scroll.
+- **Held sideways with the keys hidden, Menu is the same list too:** the ports and Power, with their state (there are no
+  chips), and Share… once, as a row (the bar's own Share showed beside it). Restore snapshot… from the panel's Menu gives
+  the focus back to it when its list closes.
 - **Three layout slips.** On a phone held upright with no API key saved, Ask Claude's opening sentence ("Claude reads only
   this emulated Dragon 64 …") was hidden under the key form; the sheet now scrolls, the sentence first and the form under it.
   Held sideways, the "Tap for sound" chip lies inside the monitor's lower bezel, clear of the screen's green focus border

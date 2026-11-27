@@ -147,7 +147,8 @@ level from a disk, free software under the GNU GPL version 3 or later. CLOADM se
 (`examples/wyrmfire/`, pinned in `js/wyrmfire/pin.js`) and a level disk made by WYRMFIRE's converter from map E1M1 of
 [Freedoom](https://freedoom.github.io) 0.13.0 (BSD 3-Clause); the disk carries the credit and the licence, and **C** on
 the title screen shows them (Enter goes on). Start it from **Programs** ("Runs without ROMs":
-**WYRMFIRE**, "A 3D game for the Dragon 64 · Freedoom level", "GPL · Freedoom level (BSD)"), Ctrl+K's **WYRMFIRE**
+**WYRMFIRE**, "A 3D game for the Dragon 64"; its licence and credits are in its Details and on its card under the
+screen), Ctrl+K's **WYRMFIRE**
 (it answers to doom, game, 3d, freedoom), or a link, `?start=wyrmfire`.
 
 * It runs on the Dragon 64 (64K, 6809) without ROMs (Dragon 64 ROMs of yours come back when it ends: at the next
@@ -395,15 +396,26 @@ MC-10 or Alice, not when the right port holds a Hi-Res interface or The Rat, and
   visit.
 * Keys mode: held sideways the keyboard splits for your thumbs, BREAK, CLEAR, the switch and Menu sit under it (on a
   first visit, before a program has run or ROMs are added, **Open…** sits left of BREAK and **Add ROMs…** right of
-  Menu) (Menu
-  has Programs…, Open…, Ask Claude…, **Share…**, the ports, Machine… — the machine picker —, Settings…, Power…, Commands…
-  and **Hide keys**; an embed has no Ask Claude…, Commands… or Share…). `SHIFT` shifts the next key. Input tab →
-  On-screen keyboard: Automatic, Always or Never.
+  Menu). Menu is the same list as upright (below), plus the rows the upright app bar has as buttons: Open…, Ask
+  Claude… and Machine… (the machine picker), and **Hide keys** last; the ports and Power say what they hold on a second
+  line, as there are no chips. It opens above Menu at the right, 260 px wide, as tall as the window allows, and
+  scrolls. `SHIFT` shifts the next key. Input tab → On-screen keyboard: Automatic, Always or Never.
+* **Menu**, on a phone either way up, is one list in four groups parted by a thin rule: Programs…, Open…, Ask Claude…,
+  Share…; Machine…, Tape, disks and cartridge…, Power…, Add ROMs…, Settings…; Take snapshot, Restore snapshot…;
+  Commands…, Library, Debugger, Help, Install CLOADM…, GitHub ↗, Hide keys. A row shows only where what it opens is not
+  already on screen: upright, Open…, Ask Claude… and the machine are the app bar's and Hide keys is in Power; the ports
+  and Power only where the chips are not shown (a short phone upright, or held sideways), with their state under them;
+  Add ROMs… only while the machine has no BASIC (and not while the first visit's Add ROMs… button sits by Menu held
+  sideways, nor Open… while its button does); Install CLOADM… only while it is offered; no Ask Claude… with Claude
+  features Off (Commands… stays: the box works without its Claude rows); neither in an embed or a page framed in another
+  site, and no Share… in an embed. It is one column, never wrapping; it scrolls,
+  its bottom fading while there is more below, and it never stops through a row's text. The machine picker opens with
+  the machine in use in the middle of the list.
 * On a phone held upright the whole panel fits on screen with the browser's toolbars up, the row with ENTER included:
   the strip [Keys|Pad|Stick] [BREAK] [CLEAR] [⌄] lies between the screen and the keys, and the screen takes the room
   that is left — the page's whole width with Pad, Stick or the keys hidden. **⌄** hides the keys; **⌨** at the bottom
-  right brings them back. The app bar is one row: the machine, Open…, Ask Claude and **Menu** (Add ROMs is Menu's
-  first item while the machine has no BASIC, and Menu shows a dot then). On a touch screen the hints say "tap a key"
+  right brings them back. The app bar is one row: the machine, Open…, Ask Claude and **Menu** (Add ROMs… is in Menu
+  while the machine has no BASIC). On a touch screen the hints say "tap a key"
   and "tap BREAK", and the install offer never appears on a phone (Install CLOADM…, in Menu, or in the panel's Menu held sideways, installs).
   On an upright phone Menu's rows, the Programs sheet's and the machine list's grow toward 52 px with the window's
   height (44 px at the least; a phone held sideways keeps them at 44 or its own size), and Menu scrolls inside the
@@ -415,6 +427,12 @@ MC-10 or Alice, not when the right port holds a Hi-Res interface or The Rat, and
   The welcome menu's lines can be tapped (in Joystick mode a tap on the screen never reaches the menu).
   Files can be dropped anywhere on the page, and after the first ROMs are added CLOADM asks the browser to keep
   them, saying if it may not.
+
+The programs that run without ROMs (the Media tab's "Runs without ROMs" on a desktop, **Programs…** on a phone) are one
+row each, on every model only the ones it runs, each with the same two lines: its name, and one short line saying what
+it is (Welcome menu, "CLOADM's start menu"; LIZA, "An ELIZA-style chat program"; Colour demo, "The machine's colours and
+sound"; 2048, "Slide and join the tiles"; Minesweeper, "Find the ten mines"; WYRMFIRE, "A 3D game for the Dragon 64";
+Chat with Claude, "Claude, on the machine's screen"), with "on screen now" on the right of the one running.
 
 On a desktop the app bar's links are **Programs…** (the Media tab's programs), **Library** and **More ▾**, which lists
 **Debugger**, **Commands…**, **Help**, **GitHub** and **Install CLOADM…** (only while the page can be installed). The

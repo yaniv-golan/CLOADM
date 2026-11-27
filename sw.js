@@ -235,6 +235,7 @@ const FILES = [
   'js/ui/machine-panel.js',
   'js/ui/main.js',
   'js/ui/media-panel.js',
+  'js/ui/menu.js',
   'js/ui/multipak-panel.js',
   'js/ui/needs-basic.js',
   'js/ui/nitros9-panel.js',
