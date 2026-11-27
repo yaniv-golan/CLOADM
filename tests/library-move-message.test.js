@@ -75,6 +75,6 @@ const rom = (seed) => Uint8Array.from({ length: 0x4000 }, (_, i) => (i * seed + 
     check('control: and the ROM and recent lists did reach the new store', !!(await to.stat('roms/sockets.json')) && !!(await to.stat('roms/names.json')));
   }
 
-  console.log(fail ? `\n${n - fail}/${n} checks passed\nFAILED` : `\nall passed (${n} checks)`);
-  process.exit(fail ? 1 : 0);
-})();
+  console.log(`${n - fail}/${n} library move message checks passed`);
+  if (fail) process.exitCode = 1;
+})().then(() => {}, (e) => { console.log(`FAIL library move message ${e.stack}`); process.exitCode = 1; });
