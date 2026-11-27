@@ -6,7 +6,9 @@
 //   node tools/build-basic.js --out FILE        write it to FILE instead (--out d64_1.rom for --roms, which takes a
 //                                               file by name: the committed one has its own, so it is never taken
 //                                               for a dump of the original)
-// require('./build-basic.js').buildBasic() -> { rom, symbols, listing, used } for the tests (nothing is written);
+// require('./build-basic.js').buildBasic() -> { rom, symbols, listing, used, gap } for the tests (nothing is written;
+// gap: the bytes left $FF below the table of published calls at $A000, basic/vectbl.inc: 0 in the ROM as built, and
+// in a mutant's build the bytes it took, or null when it has no table);
 // buildBasic({ edit }) builds a mutant: edit(file, text) -> the text assembled for each source file in basic/.
 // The keyword table (basic/tokens.json) becomes the generated include "tokens.inc": the T_ token equates, the two
 // keyword tables the cruncher and LIST use, and the statement and function dispatch tables; tools/basic-consts.js
@@ -65,24 +67,75 @@ function tokensInc(json) {
   return out.join('\n') + '\n';
 }
 
-function buildBasic({ defines = {}, edit = (file, text) => text } = {}) {
+const SAME = (file, text) => text;
+function buildBasic({ defines = {}, edit = SAME } = {}) {
   const Emu = require('../tests/load.js')();
   const json = JSON.parse(fs.readFileSync(path.join(DIR, 'tokens.json'), 'utf8'));
   const gen = { 'tokens.inc': tokensInc(json), 'mathconst.inc': require('./basic-consts.js').mathConstsInc(), 'sine.inc': require('./basic-consts.js').sineInc() };
   const include = (name) => gen[name] || (fs.existsSync(path.join(DIR, name)) ? edit(name, fs.readFileSync(path.join(DIR, name), 'utf8')) : null);
-  const res = Emu.assemble(edit('d64basic.asm', fs.readFileSync(path.join(DIR, 'd64basic.asm'), 'utf8')), '6809', { include, defines });
-  if (!res.ok) throw new Error('basic/d64basic.asm:\n' + res.errors.map((e) => (typeof e === 'string' ? e : JSON.stringify(e))).join('\n'));
-  const rom = new Uint8Array(ROM_SIZE).fill(0xFF);
-  const owner = new Int32Array(ROM_SIZE).fill(-1);
-  res.segments.forEach((s, i) => {
-    if (s.addr < ROM_AT || s.addr + s.data.length > ROM_AT + ROM_SIZE) throw new Error(`basic: code at $${s.addr.toString(16)} (${s.data.length} bytes) is outside $8000-$BFFF`);
-    for (let k = 0; k < s.data.length; k++) {
-      const o = s.addr - ROM_AT + k;
-      if (owner[o] >= 0) throw new Error(`basic: two pieces of code overlap at $${(s.addr + k).toString(16)}`);
-      owner[o] = i;
-      rom[o] = s.data[k];
+  // at: where the table of published calls (vectbl.inc) goes in, { file, line } (before that line), or none
+  const assemble = (at) => {
+    const put = (name, text) => {
+      if (text == null || !at || name !== at.file) return text;
+      const lines = text.split('\n');
+      lines.splice(at.line - 1, 0, '        INCLUDE "vectbl.inc"');
+      return lines.join('\n');
+    };
+    return Emu.assemble(put('d64basic.asm', edit('d64basic.asm', fs.readFileSync(path.join(DIR, 'd64basic.asm'), 'utf8'))), '6809', { include: (name) => put(name, include(name)), defines });
+  };
+  const failed = (r) => new Error('basic/d64basic.asm:\n' + r.errors.map((e) => (typeof e === 'string' ? e : JSON.stringify(e))).join('\n'));
+  // the image: the segments laid into $8000-$BFFF, or an error if one is outside it or two overlap
+  const image = (res) => {
+    const rom = new Uint8Array(ROM_SIZE).fill(0xFF);
+    const owner = new Int32Array(ROM_SIZE).fill(-1);
+    res.segments.forEach((s, i) => {
+      if (s.addr < ROM_AT || s.addr + s.data.length > ROM_AT + ROM_SIZE) throw new Error(`basic: code at $${s.addr.toString(16)} (${s.data.length} bytes) is outside $8000-$BFFF`);
+      for (let k = 0; k < s.data.length; k++) {
+        const o = s.addr - ROM_AT + k;
+        if (owner[o] >= 0) throw new Error(`basic: two pieces of code overlap at $${(s.addr + k).toString(16)}`);
+        owner[o] = i;
+        rom[o] = s.data[k];
+      }
+    });
+    return { rom, owner };
+  };
+  // The table of published calls must be at $A000, inside the code: it goes in before a routine that nothing runs on
+  // into (the instruction before it, in its module, an RTS, RTI, BRA, LBRA, JMP or a PULS of PC). The ROM as built
+  // has one starting at $A000, so the table costs no byte; the build fails if it no longer does (then a module or a
+  // routine moves). A mutant's build (edit given: tests only) takes the last such place below $A000 that a short
+  // branch still reaches over and the code still fits after, the bytes up to $A000 left $FF, or else no table.
+  const first = assemble(null);
+  if (!first.ok) throw failed(first);
+  const ends = /^\S*\s+(RTS|RTI|BRA|LBRA|JMP|PULS\s+\S*PC)\b/i;
+  const places = [];
+  const prev = new Map();
+  for (const l of first.listing) {
+    if (!l.bytes || !l.bytes.length || l.addr < ROM_AT || l.addr >= ROM_AT + ROM_SIZE) continue;
+    const file = l.file || 'd64basic.asm', p = prev.get(file);
+    if (l.addr <= 0xA000 && p && ends.test(p.src) && /^[A-Z_][A-Z0-9_]*\s/i.test(l.src)) places.push({ file, line: l.line, addr: l.addr });
+    prev.set(file, l);
+  }
+  places.sort((x, y) => y.addr - x.addr);
+  const mutant = edit !== SAME;
+  let res = null, img = null, gap = 0;
+  if (!mutant) {
+    const at = places[0];
+    if (!at || at.addr !== 0xA000) throw new Error(`basic: no routine starts at $A000 for the table of published calls (vectbl.inc): the last before it starts at $${at ? at.addr.toString(16) : '?'} (move a module or a routine so one starts there)`);
+    res = assemble(at);
+    if (!res.ok) throw failed(res);
+    img = image(res);
+  } else {
+    const room = 0xBFF0 - 14 - first.symbols.get('ROMEND');     // the gap and the table must fit below the vectors
+    for (const at of places.filter((x) => 0xA000 - x.addr <= room)) {
+      const r = assemble(at);
+      if (!r.ok || r.symbols.get('VECTBL') !== 0xA000) continue;
+      try { img = image(r); } catch (e) { continue; }
+      res = r; gap = 0xA000 - at.addr;
+      break;
     }
-  });
+    if (!res) { res = first; img = image(first); gap = null; }
+  }
+  const { rom, owner } = img;
   const used = owner.reduce((n, o) => n + (o >= 0 ? 1 : 0), 0);
   // the system RAM block and the direct page must not run into the buffers after them
   if (res.symbols.get('SYSEND') > res.symbols.get('BLKBUF')) throw new Error('basic: the system RAM ($0100 on) runs into the cassette block buffer BLKBUF');
@@ -92,7 +145,7 @@ function buildBasic({ defines = {}, edit = (file, text) => text } = {}) {
     if (res.symbols.get(end) > res.symbols.get(at)) throw new Error(`basic: the direct-page variables before ${at} run into it (move the split at ${end})`);
   }
   if (res.symbols.get('DPEND') > res.symbols.get('ZTRAMP')) throw new Error('basic: the direct page is full (its variables reach the two-byte calls at ZTRAMP)');
-  return { rom, symbols: res.symbols, listing: res.listing, used };
+  return { rom, symbols: res.symbols, listing: res.listing, used, gap };
 }
 module.exports = { buildBasic, tokensInc, ROM_FILE };
 

@@ -296,8 +296,26 @@ ZFCERR   RMB     3
 ZCHKNUM  RMB     3
 ZMOVMF   RMB     3
 
+* ---------------- the published entry points, $8006-$8029 ----------------
+* Dragon Data Ltd, "Dragon 32 Information for Machine Code Users!" (March 1983), printed pages 4-5 [DOC]: a jump at
+* each of these addresses. One goes to our routine where it does what the page says; the rest stay $FF (nothing of
+* ours does that job as a routine of its own). Nothing is published for $8000-$8005 or after $8027, and the code
+* starts at $802A (docs/clean-room-basic.md, section 3).
+        ORG     $8006
+        JMP     KEYIN           ; $8006 the keyboard polled: A = a new key's code, or 0 [DOC p.5]
+        RMB     3               ; $8009 the cursor blinked when its count reaches 0 [DOC p.5]: inside KEYWT here
+        JMP     CHROUT          ; $800C A written to the screen, scrolling as needed [DOC p.5]
+        RMB     3               ; $800F A to the printer [DOC p.5]: none yet
+        RMB     3               ; $8012 the joysticks read into $15A-$15D [DOC p.5]: JOYSTK keeps them in JOYV
+        JMP     RLYON           ; $8015 the cassette relay on [DOC p.4]
+        JMP     RLYOFF          ; $8018 the relay off [DOC p.4]
+        RMB     3               ; $801B made ready for writing [DOC p.4]: inside CWBLK here
+        JMP     CWBYTE          ; $801E the byte in A written [DOC p.4]
+        RMB     3               ; $8021 made ready for reading, in bit sync [DOC p.4]: inside CRBLK here
+        JMP     CRBYTE          ; $8024 the next byte read into A [DOC p.4]
+        JMP     CRBIT           ; $8027 the next bit read into C [DOC p.4]
+
 * ---------------- the ROM ----------------
-        ORG     $8100
         INCLUDE "boot.inc"
         INCLUDE "screen.inc"
         INCLUDE "keyboard.inc"

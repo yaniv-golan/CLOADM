@@ -3,7 +3,7 @@
 // tools/basic-size.js, which ranks the clean-room BASIC's routines and gives its budget (docs/clean-room-basic.md,
 // section 2): a routine ends at the next label or at its module's end, a label that emits no bytes (on a line of its
 // own, or RMB 0) still starts one, an EQU does not; and the budget counts as free only the gap between the code's
-// end and the vectors, with $8000-$80FF reserved. Checked on hand-built listings whose sizes are counted by hand,
+// end and the vectors, with the published entry points ($8006-$8029, $A000-$A00D) reserved. Checked on hand-built listings whose sizes are counted by hand,
 // and on the real build against a count made from the listing line by line.
 const { routines, budget } = require('../tools/basic-size.js');
 const { buildBasic } = require('../tools/build-basic.js');
@@ -60,11 +60,12 @@ check('the routines count no byte twice and miss none but the vectors\' and unla
 
 const g = budget(b);
 check('the budget: occupied is the bytes the build lays down', g.occupied === b.used && g.occupied === romBytes, `${g.occupied}`);
-check('the budget: $8000-$80FF reserved, never counted free', g.reserved === 256);
+check('the budget: the published entry points reserved (36 + 14 bytes), never counted free', g.reserved === 50, String(g.reserved));
 check('the budget: free is the gap from the code\'s end to the vectors', g.free === 0xBFF0 - b.symbols.get('ROMEND') && g.free >= 0, `${g.free}`);
-let hole = 0;
-for (let a = 0x8000; a < 0x8100; a++) if (b.rom[a - 0x8000] !== 0xFF) hole++;
-check('nothing is placed in the reserved $8000-$80FF', hole === 0);
+// nothing of ours but the jumps and the table's words lies in the reserved spans: every line placed there is a JMP,
+// an FDB or an RMB (the listing, line by line)
+const inReserved = b.listing.filter((l) => l.bytes && l.bytes.length && [[0x8006, 0x802A], [0xA000, 0xA00E]].some(([s, e]) => l.addr < e && l.addr + l.bytes.length > s));
+check('only the published jumps and words are placed in the reserved spans', inReserved.length === 8 && inReserved.every((l) => /^\S*\s+(JMP|FDB)\s/.test(l.src)), inReserved.map((l) => l.src.trim().split(/\s+/).slice(0, 2).join(' ')).join(', '));
 
 console.log(`\n${n - fail}/${n} passed`);
 process.exitCode = fail ? 1 : 0;

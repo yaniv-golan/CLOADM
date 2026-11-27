@@ -35,6 +35,10 @@ These are hard rules for everyone who works on this ROM.
   * **[OWNER-SPEC]** a functional specification supplied by the maintainer (2026-11-25): a description of
     behaviour written by a separate party (the firewall of a two-team clean room), used where black-box
     observations say nothing. The facts this ROM takes from it are in [section 14](#14-the-cursor);
+  * **[DOC]** published documentation of the machine-code interface: Dragon Data Ltd, "Dragon 32 Information for
+    Machine Code Users!" (March 1983; the scan at colorcomputerarchive.com, SHA-256 `19de5481...d44ac`, read from its
+    page images), and published memory maps. Only what the pages say (an address and what calling it does), never a
+    routine's code;
   * **[OWN]** our own decisions, where nothing visible to a BASIC program depends on them.
 * **No ROM of any kind** in the repository, CI or tests other than our own: the image this source builds is
   committed as `basic/cloadm-basic-d64.rom` ([open question 1](#10-open-questions)). The public suite passes with no other ROM.
@@ -233,15 +237,20 @@ These are hard rules for everyone who works on this ROM.
     its own value alone (`X=12`, `X=13`, `X=14`, `X=18`, `X=19`); a place's quotient by its bits (`X=2.5`, `X=1.5`,
     `X=1.1`, `X=1.3`, `X=3.7`); `X=I+Y` with Y's exponent 1 to 30 below I's (the addition's alignment, which ours does
     not model); `OR` alone (`X=I OR 1`, `X=I OR 32767`); a variable read and an assignment (`X=Y` with 1, 5 and 20
-    variables before X and Y, `PRINT` against `X=`); and `MOTOR ON` timed from a field's start to the motor's run.
+    variables before X and Y, `PRINT` against `X=`); `MOTOR ON` timed from a field's start to the motor's run; and
+    `SKIPF`'s end, from the motor stopping to the screen settling on `OK` (in bb8 `cas-cloadm2` ours takes about 25
+    fields more there than the original, most of loop B's 23, so that span sits at its 1% bound: estimated from the
+    top-row flags, not measured).
     Replayed, the records match as before but for two: bb8 `cas-cloadm2` now matches whole, and bb2 `snd-sound`'s
     `SOUND 200,4` no longer does: it starts about 400 cycles later in its field (the two numbers' conversion waits), so
     its length, counted in fields, comes out a field longer and without the original's short first period (a phase,
     as `snd-play-length`'s above).
 * **The budget, and a size pass that keeps every cycle** [OWN]. `node tools/basic-size.js` gives three figures:
-  occupied (the bytes the build lays down, the 14 of the vectors included), reserved (`$8000-$80FF`, 256, kept for
-  compatibility entry points: never counted free) and free (only the gap between `ROMEND` and `$BFF0`). Before this
-  pass 16,102 occupied, the code ending at `$BFD8`, 24 free; after it 16,100, `$BFD6`, 26 free. Its routines run from a
+  occupied (the bytes the build lays down, the 14 of the vectors included), reserved (the published entry points,
+  `$8006-$8029` and `$A000-$A00D`, 50: never counted free; section 3) and free (only the gap between `ROMEND` and
+  `$BFF0`). Before this pass 16,102 occupied, the code ending at `$BFD8`, 24 free; after it 16,100, `$BFD6`, 26 free
+  (with `$8000-$80FF` then all reserved). With only the published entry points kept: 16,123 occupied (the 21 bytes of
+  the seven jumps and `$A000`'s word included), the code ending at `$BF0E`, 226 free. Its routines run from a
   label to the next or to their module's end, a label that emits no bytes counting (`tests/basic-size.test.js`; it
   once gave `play.inc`'s last label, `PLD5`, `tokens.inc`'s 611 bytes). The pass changed no cycle on any path, errors
   included, nor the cycle of any write to the screen or the PIAs (every black-box case's writes, stamped with their
@@ -266,10 +275,35 @@ These are hard rules for everyone who works on this ROM.
 
 | Range | Use |
 |---|---|
-| `$8000-$80FF` | reserved, `$FF` (kept for compatibility entry points, never counted as free; nothing of ours is placed there: `tests/basic-size.test.js`) |
-| `$8100-...` | the modules, in the order of section 4, packed |
+| `$8000-$8005` | `$FF`: nothing is published there [DOC]; not counted as free (too small for a module) |
+| `$8006-$8029` | the published entry points, a 3-byte jump each [DOC pp. 4-5]: a `JMP` to our routine where it does what the page says, `$FF` where none of ours does (the table below; `tests/basic-entry.test.js`) |
+| `$802A-...` | the modules, in the order of section 4, packed, around the table at `$A000` |
+| `$A000-$A00D` | the published indirect calls, a word each [DOC pp. 4-5]: `$A000` our keyboard poll, the rest `$FFFF` (the table below; `basic/vectbl.inc`). `tools/build-basic.js` puts it in between two routines, before one that nothing runs on into (the instruction before it an `RTS`, `RTI`, `BRA`, `LBRA`, `JMP` or `PULS` of PC) that starts at `$A000` (`SCRNST` today), so it costs no byte; the build fails if no routine starts there (code that grows below `$A000` then goes in a module after it, as `EDIT` does). A mutant's build (tests only) puts it before the last such routine below `$A000` that its short branches still reach over and the code still fits after, the bytes between left `$FF`, or goes without it |
 | `...-$BFEF` | free space: only this gap counts as free (`node tools/basic-size.js`) |
 | `$BFF0-$BFFF` | the hardware vectors (the SAM maps `$FFF0-$FFFF` here [HW]) |
+
+The published entry points ([DOC] Dragon Data Ltd, "Dragon 32 Information for Machine Code Users!" (March 1983), printed pages 4-5; [provenance 69](#11-provenance-log)):
+
+| Address | What the page says | Ours |
+|---|---|---|
+| `$8006` (and `JSR [$A000]`) | polls the keyboard: A = the key's code, or 0 if no new key | `KEYIN` |
+| `$8009` | blinks the cursor when its count reaches 0 | `$FF`: inside `KEYWT` here |
+| `$800C` | writes A to the text screen, scrolling if needed; the cursor moves on | `CHROUT` (the screen while `DEVNUM` is not 255) |
+| `$800F` | writes A to the printer | `$FF`: no printer output yet |
+| `$8012` | updates the joystick readings in `$015A-$015D` | `$FF`: `JOYSTK` keeps them in `JOYV` |
+| `$8015`, `$8018` | the cassette relay on, off | `RLYON`, `RLYOFF` (the motor alone; `CASON` and `CASOFF` also mask and unmask interrupts) |
+| `$801B` (and `JSR [$A00C]`) | prepares for writing | `$FF`: inside `CWBLK` here |
+| `$801E` | writes the byte in A | `CWBYTE` |
+| `$8021` (and `JSR [$A004]`) | prepares for input, bit sync | `$FF`: inside `CRBLK` here |
+| `$8024` | reads the next byte into A | `CRBYTE` |
+| `$8027` | reads the next bit into the carry | `CRBIT` |
+| `JSR [$A006]` | reads a block: waits for `$3C`, reads into memory at the address at `$7E`, checks the checksum, Z set if it is right | `$FFFF`: `CRBLK` reads to X |
+| `JSR [$A008]` | writes a block | `$FFFF`: `CWBLK` takes its own RAM |
+
+Also published, on page 7, and recorded here for P3 (no address of ours is fixed for them yet): `JSR $8B2D` gives the
+floating-point accumulator as an integer in D, `JMP $8C37` returns D as `USR`'s value, and RAM hooks at
+`$015E-$01AF`, of which the page names `$0167` (input a character), `$016A` (output a character), `$0182` (read a
+line), `$018B` (evaluate), `$018E` (the error trap), `$0194` (`RUN`) and `$019A` (the next statement).
 
 P3 has to place code at fixed addresses that ours may already occupy. The plan for that is to keep every module
 relocatable (no absolute address inside a module except through a label) so P3 can reorder modules and leave holes
@@ -525,6 +559,11 @@ All of them run with no ROM, on our ROM assembled at test time.
 * **`tests/basic-cursor.test.js`:** the cursor ([section 14](#14-the-cursor)): the countdown, the transformation of
   every byte, the RAM it reads (address, countdown, the byte under it, the cursor's delay at `$0097-$0098`), the keyboard, the delay
   in cycles, on the Dragon 64 and the Dragon 32, with mutants of the ROM that must fail it.
+* **`tests/basic-entry.test.js`:** the published entry points ([section 3](#3-memory-map)): the jumps at
+  `$8006-$8029` and the words at `$A000-$A00D` against the manual's table written out by hand, and the stubs called
+  from machine code (`EXEC`): screen output, the relay on and off with interrupts left on, the keyboard poll through
+  `$8006` and `[$A000]` with no key and with a key pressed; with mutants (`$8015` to `CASON`, `$800C` to `SCROLL`,
+  `$A000` to `CHROUT`) that fail it.
 * **`tests/basic-editor.test.js`:** the keyboard and screen through the matrix: typing, erasing, SHIFT-0, BREAK during
   a program and during `LIST`, scrolling, `CLS`, the cursor.
 * **Mutants:** each suite is run against deliberately broken builds (a wrong rounding mode, a precedence swap, an
@@ -885,6 +924,7 @@ Every behaviour fact the ROM relies on, with its source. A fact without a source
 | 66 | `PLAY` writes the DAC four times a period: the middle level (31), the high, the middle, the low; a note can stop after any of the four, and the next sound starts from the level it stopped at (the first level of a tone is that one, typed or in a program); `O1C-` and `O5B+` are `?FC ERROR`. `SOUND` too writes four times a period with three levels; a pause writes about every 865 cycles | [BB] bb10 `snd-play-dac` (2026-11-27: the tones' writes, levels and first levels); bb2 `snd-sound` (writes and levels, recorded before they were compared), `snd-play-length` `pause4`, `pause8`, `pause16` (the writes); the middle level's length and a pause's level, ours [OWN] |
 | 67 | `$0097-$0098` is 1,118 at the first prompt, and still after a few lines; a key is not taken 1,118 passes later (a debounce of that length makes our typed lines about 7,000 cycles later than the original's: the sound records' starts), so ours keeps its debounce at 300 passes and reads `$0097-$0098` as the cursor's delay, the specification's 1,118 passes (less 55, our scan being slower); the cursor's blink half-cycle is 13 pictures of 2 fields, as ours | [BB] bb10 `scr-prompt-idle` (2026-11-27: the transcript and 100 pictures); bb2, bb10 the sound records' starts; [OWNER-SPEC] the delay's 1,118 passes |
 | 68 | The interpreter's costs (section 2, the original's cost model): a digit of a number by the number so far and the digit's bits, the same in a constant, `VAL` and `READ`; a 0 about 925-1000 cycles; a product by its right operand's bytes and bits, not its left one's; `INT` 23 cycles a place it drops; `AND` alike for small and large operands; `MOTOR ON` waits about 25.4 fields with `TIMER` counting, and again when the motor already runs; `MOTOR OFF` of a motor that is off takes nothing | [BB] bb10 `time-literals`, `time-ops`, `time-mul`, `time-int`, `time-motor` |
+| 69 | The published entry points: a jump at `$8006`, `$8009`, `$800C`, `$800F`, `$8012` (keyboard, cursor blink, screen, printer, joysticks), `$8015`-`$8027` (the cassette: relay on, off, prepare to write, write a byte, prepare to read, read a byte, read a bit), a word at `$A000`, `$A004`, `$A006`, `$A008`, `$A00C`; nothing published at `$8000-$8005` or after `$8027`; `$8B2D`, `$8C37` and the RAM hooks at `$015E-$01AF` (section 3) | [DOC] Dragon Data Ltd, "Dragon 32 Information for Machine Code Users!" (March 1983), printed pp. 4-5 and PDF p. 7, read from the page images (the text layer has OCR errors) and checked cell by cell by the maintainer's side (2026-11-27) |
 
 The log grows with every milestone; black-box facts are added with the date of the run they came from.
 

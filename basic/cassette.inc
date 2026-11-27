@@ -251,12 +251,13 @@ CRK1    INCA                    ; an end of file: the motor stops [BB bb6 cas-er
 CRK3    BSR     CASOFF
 CRK2    PULS    CC,PC
 
-* CASON: interrupts off, the motor on. CASOFF: the motor off, interrupts on. Both keep B, X, U.
+* CASON: interrupts off, the motor on. CASOFF: the motor off, interrupts on. Both keep B, X, U. RLYON and RLYOFF
+* switch the motor alone: the published entry points $8015 and $8018 (d64basic.asm).
 CASON   ORCC    #$50
-        LDA     #MOTONV
+RLYON   LDA     #MOTONV
         BRA     CSO1
 CASOFF  ANDCC   #$AF
-        LDA     #MOTOFV
+RLYOFF  LDA     #MOTOFV
 CSO1    STA     PIA1CA
         RTS
 

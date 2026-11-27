@@ -8,14 +8,17 @@
 //   node tools/basic-size.js [--routines N]     the N largest routines (default 25)
 // require('./basic-size.js') -> { budget, routines } for tests/basic-size.test.js.
 const ROM_AT = 0x8000, ROM_END = 0xC000;
-const RESERVED = [0x8000, 0x8100];      // $8000-$80FF: kept for compatibility entry points (section 3), never free
+// the published entry points (section 3): the jumps at $8006-$8029 and the table of calls at $A000-$A00D, kept
+// whether or not a slot has a routine of ours, never free
+const RESERVED = [[0x8006, 0x802A], [0xA000, 0xA00E]];
 const VECTORS = 0xBFF0;                 // $BFF0-$BFFF: the hardware vectors (ours from $BFF2)
 
-// The budget: occupied (the bytes the build lays down), reserved ($8000-$80FF) and free (only the gap between the
-// code's end, ROMEND, and the vectors: a hole elsewhere is not counted as room).
-function budget({ used, symbols }) {
+// The budget: occupied (the bytes the build lays down), reserved (the published entry points, RESERVED) and free
+// (only the gap between the code's end, ROMEND, and the vectors: a hole elsewhere, such as $8000-$8005 or the bytes
+// left below the table at $A000, gap, is not counted as room).
+function budget({ used, symbols, gap = 0 }) {
   const end = symbols.get('ROMEND');
-  return { occupied: used, reserved: RESERVED[1] - RESERVED[0], codeEnd: end, free: VECTORS - end };
+  return { occupied: used, reserved: RESERVED.reduce((n, [a, e]) => n + e - a, 0), codeEnd: end, free: VECTORS - end, gap };
 }
 
 // Routines: a routine runs from a column-0 label (one on a line of its own or on an RMB 0 counts: it emits no bytes
@@ -54,8 +57,9 @@ if (require.main === module) {
   const b = budget(build);
   const hx = (v) => '$' + v.toString(16).toUpperCase();
   console.log(`occupied ${b.occupied} bytes of 16384 (the code to ${hx(b.codeEnd - 1)}, and the vectors)`);
-  console.log(`reserved ${b.reserved} bytes ($8000-$80FF, compatibility entry points)`);
+  console.log(`reserved ${b.reserved} bytes (${RESERVED.map(([a, e]) => `${hx(a)}-${hx(e - 1)}`).join(', ')}: the published entry points)`);
   console.log(`free     ${b.free} bytes (${hx(b.codeEnd)}-${hx(VECTORS - 1)}, between the code's end and the vectors)`);
+  console.log(`left     ${b.gap} bytes below $A000 (the code before the table of published calls ends at a routine's end)`);
 
   // per module (the file a line came from)
   const perFile = new Map();

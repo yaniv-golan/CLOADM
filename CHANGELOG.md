@@ -210,7 +210,12 @@ Next version: 0.4.1 (the plugin and extension manifests carry it; `tests/plugin.
   mutants of the model. The ROM is 171 bytes larger (16,102 with the numbers and cassette changes).
   A size pass that changes no instruction's timing takes 2 bytes (16,100; every screen and PIA write lands on the same
   cycle in all 104 black-box cases), and `tools/basic-size.js` now ends a routine at the next label or its module's end
-  and prints the ROM's occupied, reserved (`$8000-$80FF`) and free bytes (`tests/basic-size.test.js`).
+  and prints the ROM's occupied, reserved and free bytes (`tests/basic-size.test.js`).
+  The ROM now keeps only the entry points Dragon Data's "Dragon 32 Information for Machine Code Users!" (1983) publishes,
+  instead of all of `$8000-$80FF`: a jump at each of `$8006-$8027` (to our keyboard poll, screen output, cassette relay
+  on and off, byte write, byte read and bit read; `$FF` where no routine of ours does the job) and the word table at
+  `$A000-$A00D` (`$A000` the keyboard poll). The code starts at `$802A`, leaving 226 bytes free
+  (`tests/basic-entry.test.js` calls each stub from machine code).
 
 ### 0.4.0
 

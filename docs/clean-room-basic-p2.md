@@ -176,7 +176,8 @@ section 2, later moved those 11 graphics bytes into the direct page, where 53 ac
 
 `node tools/basic-size.js` today, with the cassette in and after P1's size pass ([clean-room-basic.md](clean-room-basic.md),
 the size budget): 12,400 bytes of code and tables, 3,728 bytes free between `ROMEND` (`$B162`) and the vectors (the
-page at `$8000-$80FF` stays reserved for P3 and is not counted). P2 may use at most **3,600** of them; that leaves
+page at `$8000-$80FF` stays reserved for P3 and is not counted; since narrowed to the published entry points,
+clean-room-basic.md section 3). P2 may use at most **3,600** of them; that leaves
 128 for P1 fixes and P3, short of the 400 wanted, so about 270 more bytes have still to be found in P1 (or P2 has to
 come in under its cap).
 
