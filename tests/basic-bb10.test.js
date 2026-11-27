@@ -106,7 +106,7 @@ const MUTANTS = [
   ['no pause before a block (the decoder keeps every leader)', 'cassette.inc', '        EXG     A,A             ; 8', '        NOP', 'cas-close-pending'],
   ['a leader of 255 $55 before the block\'s own', 'cassette.inc', '        CLRB                    ; the leader: 256 $55 bytes', '        LDB     #255', 'cas-close-pending'],
   ['a data byte written no slower than the leader\'s', 'cassette.inc', 'CW3     PSHS    B               ; a data byte: 36 cycles more than the type\'s and the length\'s\n        NOP\n        MUL\n        MUL\n        PULS    B', 'CW3     NOP', 'cas-close-pending'],
-  ['no wait after the motor starts to read', 'cassette.inc', 'CRBLK   JSR     CMSTD', 'CRBLK   JSR     CASON', 'cas-timing'],
+  ['no wait after the motor starts to read', 'cassette.inc', 'CRBLK   BSR     CMSTD', 'CRBLK   JSR     CASON', 'cas-timing'],
   ['a character to the tape at the old pace', 'cassette.inc', 'CTDLY   EQU     11 ', 'CTDLY   EQU     36 ', 'cas-timing'],
   ['a record read with no wait', 'cassette.inc', 'CRDDLY  EQU     245 ', 'CRDDLY  EQU     1 ', 'cas-timing'],
   ['CSAVE ,A with no carriage return first', 'cassette.inc', '        JSR     CRLF            ; is one CR, in a data block of its own]', '        NOP\n        NOP\n        NOP', 'cas-ascii-save'],

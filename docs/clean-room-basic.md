@@ -238,6 +238,25 @@ These are hard rules for everyone who works on this ROM.
     `SOUND 200,4` no longer does: it starts about 400 cycles later in its field (the two numbers' conversion waits), so
     its length, counted in fields, comes out a field longer and without the original's short first period (a phase,
     as `snd-play-length`'s above).
+* **The budget, and a size pass that keeps every cycle** [OWN]. `node tools/basic-size.js` gives three figures:
+  occupied (the bytes the build lays down, the 14 of the vectors included), reserved (`$8000-$80FF`, 256, kept for
+  compatibility entry points: never counted free) and free (only the gap between `ROMEND` and `$BFF0`). Before this
+  pass 16,102 occupied, the code ending at `$BFD8`, 24 free; after it 16,100, `$BFD6`, 26 free. Its routines run from a
+  label to the next or to their module's end, a label that emits no bytes counting (`tests/basic-size.test.js`; it
+  once gave `play.inc`'s last label, `PLD5`, `tokens.inc`'s 611 bytes). The pass changed no cycle on any path, errors
+  included, nor the cycle of any write to the screen or the PIAs (every black-box case's writes, stamped with their
+  cycle, are the same before and after): `CRBLK` calls `CMSTD` with `BSR` and its three callers call it with `LBSR`
+  (9 + 7 cycles, as 8 + 8: the cycle is given back before the call, so nothing inside it moves); `FOUT` sets U first
+  and stores the sign through it (`STA -1,U`, the 5 cycles of the extended store, a byte less). A short call's cycle
+  given back after it is not enough: `CLDONE`'s `CASOFF` by `BSR` and `RNEND` by `LBRA` kept the path's 12 cycles
+  but stopped the motor a cycle sooner, so it was not kept. What was measured and not taken, on this basis: moving a
+  two-byte call's slot to another routine (`COMMA` for `PRTSTR`, `LPAREN` for `MOVMF`) can never keep the cycles,
+  since a call through a slot takes 11 (`JSR <`, 7, then the slot's `JMP`, 4) against `JSR`'s 8: the routine that
+  gains the slot is 3 slower at every call and none of its entries can be made 3 cycles shorter. The other calls a
+  short branch reaches (`CHKSP`, `CPYSS`, `ROUND` in `FADD`, `CQUIET` in `CFNAME`, both `CASOFF`s, `FCMPP` in
+  `FOUT`, `PRINT USING`'s `LBLE`) have no same-size cycle to give back before the call on every path into it. `CPYXU`
+  moved beside its four `fpconv.inc` callers saves 4 bytes gross and needs a byte of padding at each; a `JSR` and
+  `RTS` made a `JMP` is 9 cycles faster and leaves the callee a different stack.
 * **Running it:** `m.setRoms({ basic: rom, basic64: null })` on a `dragon64` machine (Node), or
   `node tools/build-basic.js --out /tmp/d64_1.rom` then `node cli/cloadm.js --roms /tmp/d64_1.rom --type 'PRINT 2+2\n' --screen`.
 
@@ -247,9 +266,9 @@ These are hard rules for everyone who works on this ROM.
 
 | Range | Use |
 |---|---|
-| `$8000-$80FF` | reserved, `$FF` in P1 (a likely home for P3 entry points; nothing of ours is placed there) |
+| `$8000-$80FF` | reserved, `$FF` (kept for compatibility entry points, never counted as free; nothing of ours is placed there: `tests/basic-size.test.js`) |
 | `$8100-...` | the modules, in the order of section 4, packed |
-| `...-$BFDF` | free space (P2, P3) |
+| `...-$BFEF` | free space: only this gap counts as free (`node tools/basic-size.js`) |
 | `$BFF0-$BFFF` | the hardware vectors (the SAM maps `$FFF0-$FFFF` here [HW]) |
 
 P3 has to place code at fixed addresses that ours may already occupy. The plan for that is to keep every module

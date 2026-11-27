@@ -55,12 +55,12 @@ FLT1    STA     <FACEXP
 * FBUFFR gets ' ' or '-', then the number: up to nine significant digits, trailing zeros dropped; fixed point
 * from 0.01 up to below 1E9, otherwise d.ddddE+nn [UM; the bounds to be confirmed by black-box runs].
 * Returns X = FBUFFR, the text 0-terminated.
-FOUT    LDA     #' '
+FOUT    LDU     #FBUFFR+1
+        LDA     #' '
         TST     <FACSGN
         BPL     FO1
         LDA     #'-'
-FO1     STA     FBUFFR
-        LDU     #FBUFFR+1
+FO1     STA     -1,U            ; (FBUFFR: the cycles of an extended store, a byte less)
         CLR     <FACSGN
         JSR     ROUND
         TST     <FACEXP

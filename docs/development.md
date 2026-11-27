@@ -291,7 +291,7 @@ node tests/ay8910.test.js    # AY-3-8910/8912 against its data manual: tone, noi
 node tests/alpha.test.js     # the Dragon Alpha's wiring: ROM banks, PIA2, the AY as the drive latch, NMI through PIA2 CA2
 node tools/build-demo.js     # rebuild examples/demo.bin
 node tools/build-basic.js     # assemble the clean-room Dragon 64 BASIC (basic/, docs/clean-room-basic.md) into basic/cloadm-basic-d64.rom (committed; tests/basic-rom-file.test.js checks it); --out FILE writes elsewhere
-node tools/basic-size.js      # where the clean-room BASIC's bytes go: per module, the largest routines, long jumps a short branch reaches, repeated instruction pairs
+node tools/basic-size.js      # where the clean-room BASIC's bytes go: occupied, reserved and free, per module, the largest routines (tests/basic-size.test.js), long jumps a short branch reaches, repeated instruction pairs
 node tests/basic-lang.test.js [case...]       # the clean-room BASIC: each case in tests/basic/cases typed in through the keyboard, its transcript against tests/basic/expected
 node tests/basic-fp.test.js [n]   # the clean-room BASIC's floating point, its routines called on the CPU against the bit-exact model tests/basic/fpmodel.js (n random operand pairs per operation, default 3000)
 node tests/basic-math.test.js [n]   # the clean-room BASIC's SQR, LOG, EXP, SIN, COS, ATN, ^, INT called on the CPU against the exact values (tolerances in units in the last place)
