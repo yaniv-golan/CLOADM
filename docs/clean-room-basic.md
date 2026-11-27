@@ -176,7 +176,12 @@ These are hard rules for everyone who works on this ROM.
     such digits) no longer finishes on ours within its `#timeout`: if the original's run finishes, the cost is
     smaller in it. The batch that would decide: loops differing only in a constant (`X=1`, `X=11`, `X=10`, `X=111`,
     `X=11111`, `X=1.1`, `X=11.1`), `X=PEEK(I)` against `X=I`, `X=I AND 1` against `X=I+1`, `A$=STR$(I)` against
-    `L=LEN(STR$(I))`, and loop B typed as a program line.
+    `L=LEN(STR$(I))`, and loop B typed as a program line. Also open, and in that batch: "a digit that was not 0
+    before it" is tested as the number so far having its low 16 bits not 0, so after an inner 0 (`105`: the 5) a
+    digit waits, and a digit after a value that is a multiple of 65536 does not; no recorded constant has an inner
+    0 or reaches 65536, so neither is evidenced (`X=105`, `X=1005`, `X=655361`). The wait is in `FIN`, so `VAL`,
+    `READ` and `INPUT` of a number wait as a constant does; no record times them (`X=VAL("32767")`, `READ X` of
+    `DATA 32767`).
 * **Running it:** `m.setRoms({ basic: rom, basic64: null })` on a `dragon64` machine (Node), or
   `node tools/build-basic.js --out /tmp/d64_1.rom` then `node cli/cloadm.js --roms /tmp/d64_1.rom --type 'PRINT 2+2\n' --screen`.
 
@@ -331,7 +336,8 @@ programs crunch and list correctly, and give `?FC ERROR` (to be decided, open qu
   | 20 | Other RAM or workspace changes | bb8 `rnd-seq` (addresses only); `rnd-state`: address 4 set to 77, then whether `RND(0)` changes it and makes it 0 | the original's `RND` changes address 4, to 0 in the one call seen (bb8); the floating-point workspace it changes is shared with `SIN` (addresses only, never values) | address 4 not touched (it is part of ours' `DATA` pointer): a known difference, until `rnd-state` says what it is | `rnd-state` on ours |
 
   Long runs: `rnd-long` folds the five bytes of 10,000 consecutive `RND(0)` from a cold start, and 2,000 each from
-  the seeds 0 and `$FFFFFFFF`, into checksums (ours: 34106, 15853, 20360); `tests/basic-rnd.test.js` checks 10,000
+  the seeds 0 and `$FFFFFFFF`, into checksums (ours, before the digit wait of section 2: 34106, 15853, 20360; with
+  it, ours and the original both reach the case's `#timeout` after the first block); `tests/basic-rnd.test.js` checks 10,000
   consecutive calls on the CPU against the model, byte for byte. Only the Dragon 64's 32K-mode BASIC is in scope (open
   question 7: the 64K mode is out of scope); the harness runs the Dragon 64 only, so a Dragon 32 comparison would
   need `run.js` to load a Dragon 32 and a Dragon 32 dump on the maintainer's machine (not done).
@@ -791,8 +797,8 @@ the tape (so `TIMER` does not count then [OWN]). Every block read or written goe
 * **Data files** [UM for the statements; the forms without `#` from a magazine listing; [BB] bb4 `cas-files` for what
   they do; bb8 `cas-data2`, `cas-data-errors`]: `OPEN "O",#-1,"NAME"` writes a namefile (type 1, ASCII and gaps
   `$FF`) and stops the motor. It is built in the block buffer, only its name, type and flags set: its exec and load
-  addresses are what bytes 11-14 of the buffer held, 0 and 0 on a fresh machine, else the last record block written
-  (`cas-data-errors`: after a block `OPEN ACROSS NEW`, exec `$204E` and load `$4557`, " NEW"). `PRINT #-1,...`
+  addresses are what bytes 11-14 of the buffer held, 0 and 0 on a fresh machine, else the last block written or
+  read through it (it is the only cassette buffer; `cas-data-errors`: after a block `OPEN ACROSS NEW`, exec `$204E` and load `$4557`, " NEW"). `PRINT #-1,...`
   gathers what it prints in the block buffer, written when full;
   `CLOSE #-1` writes the rest and an end-of-file block, the motor started and stopped for each (the record's three
   motor runs). On the tape a number has no space after it and `;` and `,` each end a record with a carriage return:

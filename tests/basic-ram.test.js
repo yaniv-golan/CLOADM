@@ -129,7 +129,7 @@ const REAL8 = { FOR: 113, ADD: 205, MUL: 224, DIV: 177, STR: 174, GOSUB: 83, IF:
 // I=0 TO 599:S=S+PEEK(28928+I AND 32767):NEXT`): from BIGMC's last block (its last top-row flag) to the case's end,
 // which holds loop B's 600 passes, NEW, three lines and RUN (a CLOADM and a SKIPF whose motor runs match the
 // original's). The typist is paced alike on both, so these spans differ by what the machine runs; without FIN's
-// wait for each digit (FIDLY: a digit that is not 0, before the point, after one that was not) ours took 326 fields
+// wait for each digit (FIDLY: a digit that is not 0, before the point, with a digit that was not 0 before it) ours took 326 fields
 // less in each of A's spans and 186 less in B's.
 {
   const want = real('bb8-real.jsonl', 'cas-cloadm2'), text = caseText('cas-cloadm2');

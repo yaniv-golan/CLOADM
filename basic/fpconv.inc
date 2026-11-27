@@ -362,7 +362,8 @@ FIE10   LDA     <FPSGNI
 FIE11   JMP     <ZCHRGOT
 
 * FPNX10: FACM = FACM x 10 + A (32 bits), a byte at a time from the last, the carry on the stack. A digit that is
-* not 0, before the point and after a digit that was not 0 (FACM's low 16 bits not 0), first waits (FIDLY)
+* not 0, before the point and with a digit that was not 0 before it (tested as FACM's low 16 bits not 0) first
+* waits (FIDLY)
 FPNX10  TSTA
         BEQ     FPN2
         LDX     <FACM+2
