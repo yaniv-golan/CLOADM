@@ -159,7 +159,7 @@ function fout(a0) {
   return out;
 }
 
-// FIN: text to a number, as the ROM reads it: digits kept while they fit in 32 bits, the first one dropped rounding (spaces skipped; '+' and '-' may be the tokens, passed as such)
+// FIN: text to a number, as the ROM reads it: digits kept while they fit in 32 bits and the first one past them, later ones only places (spaces skipped; '+' and '-' may be the tokens, passed as such)
 function fin(text, { plus = '+', minus = '-' } = {}) {
   const t = text.replace(/ /g, '');
   let i = 0, neg = false, dp = false, e10 = 0, n = 0n, dropped = false;
@@ -169,11 +169,11 @@ function fin(text, { plus = '+', minus = '-' } = {}) {
     if (c >= '0' && c <= '9') {
       const d = BigInt(c.charCodeAt(0) - 48);
       if (!dropped && (n < 429496729n || (n === 429496729n && d <= 5n))) { n = n * 10n + d; if (dp) e10--; }
-      else {                                       // past 32 bits: the first digit dropped rounds
-        if (!dropped && d >= 5n && n < 0xFFFFFFFFn) n += 1n;
+      else if (!dropped) {                         // past 32 bits: the first such digit is kept too (up to 36
+        n = n * 10n + d;                           // bits, rounded to 32 when next used) [BB bb9 rnd-args]
         dropped = true;
-        if (!dp) e10++;
-      }
+        if (dp) e10--;
+      } else if (!dp) e10++;                       // later ones only count as places
       i++;
     } else if (c === '.' && !dp) { dp = true; i++; }
     else break;
@@ -185,7 +185,7 @@ function fin(text, { plus = '+', minus = '-' } = {}) {
     while (t[i] >= '0' && t[i] <= '9') { if (ex < 1000) ex = ex * 10 + (t.charCodeAt(i) - 48); i++; }
     e10 += es ? -ex : ex;
   }
-  let a = fromU32(Number(n));
+  let a = norm40(n << 8n, 160, false);
   while (e10 >= 9) { a = mul(P[9], a); e10 -= 9; }
   while (e10 <= -9) { a = div(a, P[9]); e10 += 9; }
   if (e10 > 0) a = mul(P[e10], a);

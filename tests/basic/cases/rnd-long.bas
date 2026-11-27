@@ -3,8 +3,9 @@
 # (S=S*7+byte, mod 65521), printed with the seed bytes $0115-$0119 each 2,000 calls. R is the program's first variable [BB bb3].
 # Low RAM is POKEd
 # only at RND's bytes ($0115-$0119) and address 4, through "AND 32767" (bb-only, reviewed by hand). Syntax [UM]; the
-# values [BB].
-#timeout 2700
+# values [BB]. bb9's run reached the #timeout (then 2700) after the first block: 10,000 calls take about 2,700
+# seconds on the original, and 12,000 more than 2,700, so the whole run 3,800 or more; ours takes about 3,110.
+#timeout 6000
 10 R=0:S=0:V=PEEK(27)*256+PEEK(28)+2
 20 FOR J=1 TO 3:S=0:IF J=2 THEN FOR K=278 TO 281:POKE K AND 32767,0:NEXT
 30 IF J=3 THEN FOR K=278 TO 281:POKE K AND 32767,255:NEXT

@@ -125,6 +125,15 @@ Next version: 0.3.1 (the plugin and extension manifests carry it; `tests/plugin.
   section 10, question 5); its seed is at `$0116-$0119`, where the original keeps it, so a `POKE` there sets the
   sequence. A negative argument now gives a fraction, as on the original, not a whole number. The ROM is 7 bytes
   larger (15,625).
+  The black-box batch bb9 settled the rest of `RND`. `RND(n)` now makes n whole first and gives `INT(f x INT(n) +
+  1)`, each step rounded, which reproduces all 171 values of `rnd-args` with their bytes (`RND(1.5)` was 2 where it
+  is 1; `RND(1)` is 2 when the fraction rounds to 1). An argument whose exponent byte is 0 counts as 0 even with its
+  sign bit set (it reseeded). A cold start puts 128 at `$0115`, which `RND` never touches. Reading a number keeps the
+  first digit past 32 bits, so 4294967296 is 2^32 as on the original (it was 4294967300). Still different: the
+  original reads 1E38, 1E30, 1E-30, 1.00000001 and .999999999 one or two units above the nearest, and `RND`'s time
+  (ours faster for `RND(0)` and `RND(n)`, slower after a reseed) waits for the next black-box batch; both open. The
+  bb9 `RND` cases that print values now match the original but for the lines that read those numbers, and
+  `rnd-state` matches exactly. The ROM is 15 bytes larger (15,920 with the `NOT` and `PRINT USING` fixes).
   The cassette now does what the black-box batch bb8 recorded on the original. Every block read or written goes
   through one buffer at `$01DA`, and `CLOADM` keeps the exec address at `$9D`. The motor stops after every namefile
   read, after an end of file and after each block of a gapped file passed, skipped or loaded; writing, it stops
