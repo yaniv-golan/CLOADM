@@ -114,7 +114,9 @@ export function createFeedback() {
     if (settling) return;
     while (goneWaits.length && !cur) {
       const fn = goneWaits.shift();
-      fn();
+      // one waiter that throws does not stop the rest: the ones behind it still get their turn (a chain's toast is
+      // not the only thing waiting on the box)
+      try { fn(); } catch (e) { console.error('toast wait failed', e); }
     }
   }
   // afterGone(fn): call fn once when no toast is up (at once if none is). If a toast is up, fn is called when the
@@ -685,7 +687,9 @@ export function createFeedback() {
     if (!action) t.text = t.text.replace(INLINE, '');
     if (view !== currentView()) {
       const old = waiting.get(view);
-      if (old && old.onEnd) old.onEnd('replaced');
+      // the reason of end() under way, as end() carries it: a waiter registered from this onEnd must WAIT (the
+      // newer toast is about to take the waiting slot), not fire at once on a box it sees empty
+      if (old && old.onEnd) { ending = 'replaced'; try { old.onEnd('replaced'); } finally { ending = null; } }
       waiting.set(view, t);
       return t;
     }
@@ -732,13 +736,14 @@ export function createFeedback() {
     // filled again (a chain's next, orphaned the moment the waiting toast showed), so no end() drains while this
     // runs; the waiters see the box as it has settled, and fire only if it is empty.
     settling = true;
-    if (cur && cur.view !== v) end('cleared');
-    const w = waiting.get(v);
-    if (w) {
-      waiting.delete(v);
-      if (Date.now() - w.raised <= WAIT) show(w); else if (w.onEnd) w.onEnd('dropped');
-    }
-    settling = false;
+    try {
+      if (cur && cur.view !== v) end('cleared');
+      const w = waiting.get(v);
+      if (w) {
+        waiting.delete(v);
+        if (Date.now() - w.raised <= WAIT) show(w); else if (w.onEnd) w.onEnd('dropped');
+      }
+    } finally { settling = false; }
     // a view change may empty the box (cleared, nothing waiting) or fill it (the page entered had one waiting);
     // the waiters fire only in the first case, after the box has settled
     drainWaits();

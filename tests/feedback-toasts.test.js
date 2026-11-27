@@ -528,6 +528,39 @@ globalThis.matchMedia = () => ({ matches: false });
     check('afterGone: ... and it fires when that toast ends', got4.join() === 'chain B' && fb4.current && fb4.current.text === 'chain B', JSON.stringify(got4));
   }
 
+  // ---- the two holes the merge review found: a replaced WAITING toast's onEnd, and a waiter that throws ----
+  {
+    // a toast waiting for another page, replaced there by a newer one, ends 'replaced' OUTSIDE end() (toast()'s
+    // waiting-map path). A waiter registered from that onEnd must WAIT (the newer toast is about to take the
+    // waiting slot; the box it sees is empty), not fire at once
+    const fb = fresh(), got = [];
+    globalThis.location.hash = '';
+    fb.toast('chain A', { view: 'library', onEnd: (r) => { if (r === 'replaced') fb.afterGone(() => { got.push('chain B'); fb.toast('chain B', { view: 'emulator' }); }); } });
+    fb.toast('newer for the library', { view: 'library' });          // replaces chain A in the waiting map
+    check('afterGone: a waiter registered from a replaced WAITING toast\'s onEnd does not fire at once (the newer one is about to show)',
+      got.length === 0 && fb.current === null, JSON.stringify(got));
+    globalThis.location.hash = '#library'; fb.viewChanged();          // the newer waiting toast shows
+    check('afterGone: ... and not while the newer toast it waits out is up', got.length === 0 && fb.current && fb.current.text === 'newer for the library', JSON.stringify([got, fb.current && fb.current.text]));
+    advance(SHORT);
+    check('afterGone: ... and fires when that toast ends: the chain goes on (its next waits for its own page)',
+      got.join() === 'chain B' && fb.current === null, JSON.stringify(got));
+    globalThis.location.hash = ''; fb.viewChanged();                  // back on the emulator: the chain's next shows
+    check('afterGone: ... and shows on its own page', fb.current && fb.current.text === 'chain B', JSON.stringify(fb.current && fb.current.text));
+    advance(SHORT);
+  }
+  {
+    // a waiter that throws does not stop the ones behind it: both get their turn, in order
+    const fb = fresh(), got = [];
+    let threw = false;
+    fb.toast('holding');
+    fb.afterGone(() => { threw = true; throw new Error('first waiter is broken'); });
+    fb.afterGone(() => got.push('second waiter ran'));
+    advance(SHORT);
+    check('afterGone: a waiter that throws is caught (logged, not fatal), and the drain goes on', threw, JSON.stringify(got));
+    check('afterGone: ... the waiter behind it still ran, in order', got.join() === 'second waiter ran', JSON.stringify(got));
+    check('afterGone: ... and the box is not left held (the second waiter\'s toast may show)', fb.current === null || fb.current.text === 'second waiter ran', JSON.stringify(fb.current && fb.current.text));
+  }
+
   // ---- the user's next action and leaving ----
   {
     const fb = fresh(), log = [];
