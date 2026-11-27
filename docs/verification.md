@@ -1286,6 +1286,12 @@ browser check's group `uiModel` drives them with real events at 1280x720 and at 
   change (and Cancel putting the select back), a snapshot's own disk with **Save to Library** (stored and linked),
   DriveWire (not listed, still mounted after the switch); the toasts after the switch. `tests/switch-losses.test.js`
   checks `Session.takenOut` and `DiskDrives.keepSnapshot` in Node, the Speech/Sound Pak case included.
+* A link's own switch asks (`switchLoses`): a shared program, postcard and program-with-source each open without a
+  question on a first visit and ask when a key was typed first, naming the model; the question shows once, holds the
+  focus on **Switch** (Enter answers it), and is replaced rather than stacked when one is already open; **Cancel**
+  keeps the machine, not restarted, with the typed key still on its screen, gives the link back to the address, and
+  shows no card; a machine switched to during the payload's fetch and typed into still asks; an error from the
+  confirmed callback is said as a status.
 * The disk ROM card: its title per machine (none on the Alpha and the MC-10), its `data-disk` mark with the socket
   counts unchanged, and a drive's **Add disk ROM…** landing on it (in view, focused, on top at its centre).
 * The machine menu's footer and Your ROMs: Ctrl K "roms" Enter (Your ROMs, focus on its heading, nothing scrolled), the palette's top result for

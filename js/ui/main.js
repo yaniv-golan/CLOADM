@@ -153,7 +153,7 @@ setupNeedsBasic(page, romSockets);
 let library = null;
 // the arrival card (a shared moment, or a shared BASIC program, which it opens): before the snapshots, which hand it a
 // program's short link
-const arrival = setupArrival(page, { openShare: () => share.open(), startOver, reportUrl: (id) => linkStore.reportUrl(id), openRoms: () => romSockets.reveal() });
+const arrival = setupArrival(page, { openShare: () => share.open(), startOver, reportUrl: (id) => linkStore.reportUrl(id), openRoms: () => romSockets.reveal(), confirmSwitch: machinePanel.confirmSwitch });
 const snapshots = setupSnapshotPanel(page, { confirmSwitch: machinePanel.confirmSwitch, openRoms: () => romSockets.reveal(), startOver: (program) => startOver(program), openProgram: arrival.openProgram, openPostcard: arrival.openPostcard, openSource: arrival.openSource });
 window.emu.arrival = arrival;   // (the browser check: a program arriving while the focus is elsewhere)
 const disks = setupDrives(page, { openRoms: () => romSockets.reveal({ to: 'disk' }) });

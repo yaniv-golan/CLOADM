@@ -504,7 +504,10 @@ A snapshot never contains ROMs, only the CRC of each ROM it ran with. Opening on
 browser (or none, if it ran without ROMs); otherwise CLOADM says which ROM it needs and opens the snapshot as
 soon as you add it. A snapshot of another model or RAM size asks before switching; a
 shared link's moment switches without asking when the machine on screen holds nothing of yours (nothing typed,
-loaded or put in it). A restored moment is not a
+loaded or put in it). A link's BASIC program, LIZA postcard or program with its source asks the same way and on the same
+test, asked of the machine on screen when the link arrives (one switched to while it was being fetched counts too):
+**Switch** holds the focus, so Enter answers the question instead of typing into the machine, and **Cancel** leaves the
+machine and your work as they were; a long link goes back into the address, so a reload offers it again. A restored moment is not a
 power-on: whatever the program on screen is doing (a game, a program that took over Reset), opening a snapshot
 never brings up the "No OK after 5 seconds" box. **Switch off and on** and adding ROMs are power-ons again, with
 their box as before; **Reset** keeps RAM and never reports a failed boot - if a program holds BASIC's warm-start
