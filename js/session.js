@@ -957,9 +957,11 @@ export class Session {
     for (const d of this.drives.status().drives) out.push({ kind: 'disk', name: d.file, drive: d.drive, stored: d.stored });
     return out;
   }
-  // Would switching the machine on screen to model id (config) lose something of the person's? Their input reached it
-  // or their BASIC session beside the chat (touches: a key, a typed line, a load, an assembled program run, a POKE, a
-  // disk or tape going in; a BASIC program typed or a game played is one), or the switch would take something out
+  // Would switching the machine on screen to model id (config) lose something of the person's? Their input or Claude's
+  // actions on their behalf reached it or their BASIC session beside the chat (touches: a key, a typed line, a load, an
+  // assembled program run, a POKE, a disk or tape going in, and the chat's in-page tools - type_text, poke,
+  // assemble_and_load, press_break - which act on the machine as the person's own keys do; a BASIC program typed or a
+  // game played is one), or the switch would take something out
   // (takenOut). A page just opened, on its welcome menu or a fresh BASIC, holds neither: a link's moment opens on its own
   // machine without the switch question (js/ui/snapshot-panel.js).
   switchLoses(id, config = this.savedConfig(id)) {
