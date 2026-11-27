@@ -8,6 +8,15 @@ All notable changes to CLOADM are recorded here. The format follows
 
 Next version: 0.4.1 (the plugin and extension manifests carry it; `tests/plugin.test.js` keeps them in step).
 
+#### Changed
+
+- **For contributors: the changelog guard skips fenced code blocks and names a "####" heading with no name.** A fence
+  shows an example, so a `#### Fixed` quoted twice in one is no longer counted as a duplicate subsection, and a quoted
+  `### Fixed`, `#### Upgrading` or stray `D` is no longer read as this section's. A "####" or "###" heading written
+  with nothing after it (what a keystroke or a merge leaves) is reported by line instead of passing unmentioned -- and
+  `####   ` no longer reads as a kind called " ". A repeated heading's message also names every line it is on, not the
+  first two. (`tests/changelog-guard.js`)
+
 ### 0.4.1
 
 #### Added
