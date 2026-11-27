@@ -78,16 +78,30 @@ export function setupArrival(page, { openShare, startOver, reportUrl, openRoms, 
   // ---------------- the switch question a link's machine change asks ----------------
   // A link's program, postcard or source opens on a fresh machine of the sender's model. On a page that holds
   // nothing of the person's (a first visit's welcome menu, a fresh BASIC: Session.switchLoses) it opens without
-  // asking; with something to lose - a key typed while the link's payload was in flight, a BASIC session beside the
-  // chat, a disk or tape in - it asks first, as js/ui/snapshot-panel.js does for a moment. And when a question is
-  // already open (their own switch from the menu asked while the link was fetched), the link's question replaces it
-  // rather than stacking behind it: the same `$('switchConfirm').hidden` test a moment's open makes.
-  // to: { name, id, config } for confirmSwitch. m: the machine the link was fetched for (the one on screen unless the
-  // person switched meanwhile: a page they had already left the question for is not made to ask again). open(): what
-  // the link does, which does the switch itself, so the question's message and the switch cannot disagree.
-  function openOrAsk(to, m, open) {
-    if (!to || !m || session.shownMachine !== m || (!session.switchLoses(to.id, to.config) && $('switchConfirm').hidden)) { open(); return; }
+  // asking; with something to lose - a key typed while the link's payload was in flight, work on a machine the person
+  // switched to meanwhile, a BASIC session beside the chat, a disk or tape in - it asks first, as
+  // js/ui/snapshot-panel.js does for a moment. And when a question is already open (their own switch from the menu,
+  // asked while the link was fetched), the link's question replaces it rather than opening behind it: the same
+  // `$('switchConfirm').hidden` test a moment's open makes.
+  // to: { name, id, config } for confirmSwitch. open(): what the link does, which does the switch itself, so the
+  // question's message and the switch cannot disagree. It runs only when the link may open - now, or when the person
+  // answers Switch - and only it shows the card and gives the machine the focus: an unanswered question holds it.
+  // The question is asked of the machine on screen NOW, not of the one the link was fetched for: a person who
+  // switched meanwhile and typed on the new machine has work there too (Session.switchLoses asks about that one).
+  function openOrAsk(to, open) {
+    if (!to || (!session.switchLoses(to.id, to.config) && $('switchConfirm').hidden)) { open(); return; }
     confirmSwitch(to, open);
+  }
+  // What a link does once it may open, with its SessionError said as a status: the question's Switch runs it from the
+  // machine panel's click, where a throw would be an uncaught page error. After it, the card and the focus, as a
+  // moment's arrival leaves them.
+  function thenOpen(open) {
+    return () => {
+      try { open(); }
+      catch (e) { page.status(e.message, true); if (!(e instanceof SessionError)) console.error(e); return; }
+      show();
+      page.focus();
+    };
   }
 
   // the switch each link makes, as the opener itself does it: the machine, and the config the Session will use
@@ -111,19 +125,14 @@ export function setupArrival(page, { openShare, startOver, reportUrl, openRoms, 
   // the program, opened on a fresh machine of its model (Session.openSharedProgram: it records the arrival the card
   // shows); an error is said as a status. link: { kind: 'long' | 'short', id }
   function openProgram(prog, link = { kind: 'long' }) {
-    openOrAsk(programSwitch(prog), session.shownMachine, () => doProgram(prog, link));
+    openOrAsk(programSwitch(prog), thenOpen(() => doProgram(prog, link)));
   }
   function doProgram(prog, link) {
     let r;
     waiting = null; opening = true;
     try { r = session.openSharedProgram(prog, link); }
-    catch (e) { if (!(e instanceof SessionError)) throw e; page.status(e.message, true); return; }
     finally { opening = false; }
     waiting = r.state === 'needs-roms' ? { prog, link } : null;
-    show();
-    // the screen has the focus either way, as a moment's arrival leaves it: listed, the first key (RUN) goes to BASIC;
-    // waiting for ROMs, the card's buttons are a Tab away and the machine is the one the program came for
-    page.focus();
   }
   // a #z= fragment that holds a program: opened, the fragment removed -> true; false when it holds none (a moment's)
   async function takeProgramLink(hash) {
@@ -139,15 +148,12 @@ export function setupArrival(page, { openShare, startOver, reportUrl, openRoms, 
   // the postcard, opened: LIZA (this model's build, fetched as the welcome menu fetches it) started afresh, waiting for
   // Replay or Skip. link: { kind: 'long' | 'short', id }
   async function openPostcard(pc, link = { kind: 'long' }) {
-    const m = session.shownMachine;
-    try {
-      const bytes = await page.fetchBytes(`examples/${session.postcards.fileFor(pc.machine)}`);
-      // (the question is asked after the fetch, as a moment's is after its payload arrives: nothing may switch while
-      // the person is answering, and a key typed during that fetch is seen - the case the brief names)
-      openOrAsk(postcardSwitch(pc), m, () => session.postcards.open(pc, link, bytes));
-    } catch (e) { page.status(e.message, true); if (!(e instanceof SessionError)) console.error(e); return; }
-    show();
-    page.focus();
+    let bytes;
+    try { bytes = await page.fetchBytes(`examples/${session.postcards.fileFor(pc.machine)}`); }
+    catch (e) { page.status(e.message, true); if (!(e instanceof SessionError)) console.error(e); return; }
+    // (the question is asked after the fetch, as a moment's is after its payload arrives: nothing may switch while
+    // the person is answering, and a key typed during that fetch is seen - the case the brief names)
+    openOrAsk(postcardSwitch(pc), thenOpen(() => session.postcards.open(pc, link, bytes)));
   }
   // a #z= fragment that holds a postcard: opened, the fragment removed -> true; false when it holds none
   async function takePostcardLink(hash) {
@@ -174,17 +180,14 @@ export function setupArrival(page, { openShare, startOver, reportUrl, openRoms, 
   let sourceCard = null;   // the source that arrived (Run builds it again)
   // opened: a fresh machine of its model, the source in the Assembler, nothing run. link: { kind: 'long' | 'short', id }
   async function openSource(card, link = { kind: 'long' }) {
-    const m = session.shownMachine;
-    try {
-      const include = await page.assembler.includesFor(card.source);
-      openOrAsk(sourceSwitch(card), m, () => {
-        session.sources.open(card, link, include);
-        page.assembler.setSource(card.source, card.name);
-        sourceCard = card;
-      });
-    } catch (e) { page.status(e.message, true); if (!(e instanceof SessionError)) console.error(e); return; }
-    show();
-    page.focus();
+    let include;
+    try { include = await page.assembler.includesFor(card.source); }
+    catch (e) { page.status(e.message, true); if (!(e instanceof SessionError)) console.error(e); return; }
+    openOrAsk(sourceSwitch(card), thenOpen(() => {
+      session.sources.open(card, link, include);
+      page.assembler.setSource(card.source, card.name);
+      sourceCard = card;
+    }));
   }
   async function takeSourceLink(hash) {
     let card;
