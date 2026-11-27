@@ -24715,8 +24715,8 @@ async function basicShareChecks(browser, base, site, check) {
 
 // A PNG's PICTURE, decoded: { width, height, palette, pixels } as palette indices, or the error. The bytes of a PNG do
 // not belong to its picture: two encoders may lay out their deflate blocks and matches differently and still make the same
-// image, and this Mac does -- Chromium's CompressionStream gives a 4125-byte IDAT where Node's zlib gives 4142 for the
-// same 378,630 bytes of rows (measured 2026-11-27; the zlib header, IHDR and PLTE are identical). A check about the
+// image, and they do -- Chromium's CompressionStream gives a 4125-byte IDAT where Node's zlib gives 4142 for the same
+// 378,630 bytes of rows (measured 2026-11-27; the zlib header, IHDR and PLTE are identical). A check about the
 // picture compares this, not the file. The rows are filter 1-4 as the encoder wrote them (js/media/png.js uses Up); the
 // palette is checked against the PLTE, so a different but equivalent palette is not a different picture.
 function decodePngPicture(bytes) {
