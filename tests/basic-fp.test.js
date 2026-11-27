@@ -56,7 +56,7 @@ function put(at, v) {
 const get = (at) => ({ e: ram[at], m: BigInt(((ram[at + 1] << 24) | (ram[at + 2] << 16) | (ram[at + 3] << 8) | ram[at + 4]) >>> 0), x: ram[at + 5], s: ram[at + 6] === 0xFF });
 const show = (v) => (v.e === 0 ? '0' : `${v.s ? '-' : '+'}e${v.e.toString(16)} m${v.m.toString(16)} x${v.x.toString(16)}`);
 const same = (a, b) => (a.e === 0 && b.e === 0) || (a.e === b.e && a.m === b.m && a.x === b.x && a.s === b.s);
-const hex = (b) => b.map((x) => x.toString(16).padStart(2, '0')).join(' ');
+const hex = (b) => (Array.isArray(b) ? b.map((x) => x.toString(16).padStart(2, '0')).join(' ') : String(b));   // (an error's name as it is)
 // the model's result for an operation, or the error it raises
 const model = (fn) => { try { return { r: fn() }; } catch (e) { if (e instanceof F.OV) return { err: 'OV' }; if (e instanceof F.DZ) return { err: '/0' }; throw e; } };
 // a ROM binary operation on packed operands a (ARG) and b (FAC): { err } or { r (FAC unpacked), packed }
@@ -278,13 +278,21 @@ quiet = false;
 for (const [text, want, len] of FINS) {
   const r = romFin(text);
   const got = hex(romPack(r.v));
-  check(`FIN ${JSON.stringify(text)}`, r.st === 'ok' && got === hex(want) && r.rest === len, `${got} (${r.rest} characters)`);
+  check(`FIN ${JSON.stringify(text)}`, r.st === 'ok' && got === hex(want) && got === hex(F.finTen(text)) && r.rest === len, `${got} (${r.rest} characters), steps-of-ten model ${hex(F.finTen(text))}`);
 }
-check('FIN 1E39 overflows', romFin('1E39').st === 'OV');
-check('FIN 1E-50 is 0', romFin('1E-50').v.e === 0);
+check('FIN 1E39 overflows', romFin('1E39').st === 'OV' && F.finTen('1E39') === 'OV');
+check('FIN 1E-50 is 0', romFin('1E-50').v.e === 0 && F.finTen('1E-50')[0] === 0);
+// the original's readings, from what RND made of them [BB bb9 rnd-args: RND(1E38) from 9 seeds fits only $96769953;
+// rnd-neg: the seed RND(-x) leaves is a step from x's mantissa]: one or two units above the nearest, as one rounded
+// product or quotient by 10 a place gives
+for (const [text, want] of [['1E38', [0xFF, 0x16, 0x76, 0x99, 0x53]], ['1E30', [0xE4, 0x49, 0xF2, 0xC9, 0xCF]], ['1E-30', [0x1D, 0x22, 0x42, 0x5F, 0xF8]],
+  ['1.00000001', [0x81, 0x00, 0x00, 0x00, 0x16]], ['.999999999', [0x80, 0x7F, 0xFF, 0xFF, 0xFD]]]) {
+  const r = romFin(text), got = hex(romPack(r.v));
+  check(`FIN ${text} is the original's ${hex(want)} [BB bb9]`, r.st === 'ok' && got === hex(want) && hex(F.finTen(text)) === hex(want), `${got}, steps-of-ten model ${hex(F.finTen(text))}`);
+}
 quiet = true;
 {
-  let mism = 0, round = 0, moved = 0, first = '', firstRound = '';
+  let mism = 0, ten = 0, trip = 0, first = '', firstTen = '', firstTrip = '';
   for (let i = 0; i < COUNT / 3; i++) {
     const digits = String(rnd() % 1000000000).replace(/^0+/, '') || '0';
     const dot = rnd() % (digits.length + 1), e = (rnd() % 60) - 30;
@@ -294,21 +302,23 @@ quiet = true;
     const mo = model(() => F.fin(text).value);
     const ok = r.st === 'ok' ? !mo.err && same(r.v, mo.r) : mo.err === r.st;
     if (!ok) { mism++; if (!first) first = `${text}: rom ${r.st === 'ok' ? show(r.v) : r.st} model ${mo.err || show(mo.r)}`; }
-    // what PRINT shows, read back in, prints the same but for at most one in the ninth digit: the steps of 10
-    // that scale it are rounded one by one, as the original's are [BB bb1 fn-math, bb2 fn-sqr-bits]. This check was
-    // "prints exactly the same"; it was relaxed to one in the ninth digit, approved for the project
-    // (2026-11-25), because exact round trips would contradict the original's printed digits (99999.9999 for
-    // SQR(1E10), 3.14159266 for ATN(1)*4)
+    // the five bytes, as the steps-of-ten model (written from the rule, not the routines) reads the text
+    const want = F.finTen(text), got = r.st === 'ok' ? romPack(r.v) : r.st;
+    if (hex(got) !== hex(want)) { ten++; if (!firstTen) firstTen = `${text}: rom ${hex(got)} model ${hex(want)}`; }
+    // what PRINT shows, read back in: exactly the bytes the steps-of-ten model reads from that text, and printed
+    // again, what the model prints for them. This check was "moves by at most one in the ninth digit", an assumption
+    // of ours: the original reads by one rounded step of 10 a place [BB bb9 rnd-args, rnd-neg], so a number whose
+    // reading takes 15 steps or more can come back two away; it is now held to the model, exactly
     if (r.st === 'ok' && !mo.err) {
-      const back = romFout(r.v), again = romFout(romFin(back.trim()).v);
-      const a = Number(back), b = Number(again), unit = a === 0 ? 0 : 10 ** (Math.floor(Math.log10(Math.abs(a))) - 8);
-      if (again !== back) moved++;
-      if (Math.abs(a - b) > unit * 1.0001) { round++; if (!firstRound) firstRound = `${text} -> ${back} -> ${again}`; }
+      const back = romFout(r.v), rb = romFin(back.trim()), wantBack = F.finTen(back.trim());
+      const again = romFout(rb.v), wantAgain = Array.isArray(wantBack) ? F.fout(F.unpack(wantBack)) : wantBack;
+      if (rb.st !== 'ok' || hex(romPack(rb.v)) !== hex(wantBack) || again !== wantAgain) { trip++; if (!firstTrip) firstTrip = `${text} -> ${back} -> rom ${hex(romPack(rb.v))} ${again}, model ${hex(wantBack)} ${wantAgain}`; }
     }
   }
   quiet = false;
   check(`random FIN: ${Math.floor(COUNT / 3)} texts as the model reads them`, mism === 0, first);
-  check('a number printed, read back and printed again moves by at most one in the ninth digit', round === 0, `${round} beyond (${moved} moved), first ${firstRound}`);
+  check(`random FIN: ${Math.floor(COUNT / 3)} texts, the five bytes as the steps-of-ten model reads them`, ten === 0, `${ten} differ, first ${firstTen}`);
+  check('a number printed and read back: the bytes the steps-of-ten model reads from the printed text, and printed again as the model prints them', trip === 0, `${trip} differ, first ${firstTrip}`);
 }
 
 console.log(`\n${n - fail}/${n} passed`);

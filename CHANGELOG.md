@@ -129,11 +129,13 @@ Next version: 0.3.1 (the plugin and extension manifests carry it; `tests/plugin.
   1)`, each step rounded, which reproduces all 171 values of `rnd-args` with their bytes (`RND(1.5)` was 2 where it
   is 1; `RND(1)` is 2 when the fraction rounds to 1). An argument whose exponent byte is 0 counts as 0 even with its
   sign bit set (it reseeded). A cold start puts 128 at `$0115`, which `RND` never touches. Reading a number keeps the
-  first digit past 32 bits, so 4294967296 is 2^32 as on the original (it was 4294967300). Still different: the
-  original reads 1E38, 1E30, 1E-30, 1.00000001 and .999999999 one or two units above the nearest, and `RND`'s time
-  (ours faster for `RND(0)` and `RND(n)`, slower after a reseed) waits for the next black-box batch; both open. The
-  bb9 `RND` cases that print values now match the original but for the lines that read those numbers, and
-  `rnd-state` matches exactly. The ROM is 15 bytes larger (15,920 with the `NOT` and `PRINT USING` fixes).
+  first digit past 32 bits, so 4294967296 is 2^32 as on the original (it was 4294967300), and scales the digits by
+  one rounded product or quotient by 10 for each place of the decimal exponent, as the original does: it reads 1E38
+  and 1E30 two units above the nearest, 1E-30, 1.00000001 and .999999999 one above (ours read each to the nearest).
+  Still different: `RND`'s time (ours faster for `RND(0)` and `RND(n)`, slower after a reseed) waits for the next
+  black-box batch. The bb9 `RND` cases that print values now match the original but for one printed value (`8E+37`, which ours
+  prints as `8.00000001E+37` from the same five bytes), and `rnd-state` and `rnd-neg` match exactly. The
+  ROM is 15,907 bytes.
   The cassette now does what the black-box batch bb8 recorded on the original. Every block read or written goes
   through one buffer at `$01DA`, and `CLOADM` keeps the exec address at `$9D`. The motor stops after every namefile
   read, after an end of file and after each block of a gapped file passed, skipped or loaded; writing, it stops

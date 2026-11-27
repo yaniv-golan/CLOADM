@@ -295,10 +295,10 @@ programs crunch and list correctly, and give `?FC ERROR` (to be decided, open qu
   is matched through black-box results: printed values of chosen expressions (`1/3`, `2/3`, `10/3*3`, `.1+.2`,
   `1E38*10`, `SQR(2)`, the boundaries of nine-digit printing and of E notation, rounding ties, `-0`, very small numbers).
   Where the model and the original differ in an arithmetic result, the model is changed first, then the ROM.
-* **Scaling by powers of ten:** printing scales the number into `[1E8, 1E9)` and reading a number scales its
-  digits by its decimal exponent, each in steps of `1E9` while far off and then one product or quotient by an exact
-  power of ten (`10^0`-`10^13` are exact in 32 bits), so most numbers see one rounding; repeated steps of 10 printed
-  `1/3` as `.333333334`.
+* **Scaling by powers of ten:** printing scales the number into `[1E8, 1E9)` in steps of `1E9` while far off and
+  then steps of 10, each rounded. Reading a number scales its digits by one rounded product or quotient by 10 for
+  each place of its decimal exponent, as the original does [BB bb9 `rnd-args`, `rnd-neg`: its readings of 1E38, 1E30,
+  1E-30, 1.00000001 and .999999999]; `finTen` in `tests/basic/fpmodel.js` states that rule with exact fractions.
 * **Printing** [UM, BB]: up to nine significant digits, a leading space for a positive number and `-` for a negative
   one, a trailing space after a number in `PRINT`, E notation outside a range (to be pinned by black-box cases:
   `PRINT 1E8, 1E9, .01, .001, 123456789, 1234567890`), the exponent as `E+nn` / `E-nn`.
@@ -344,10 +344,11 @@ programs crunch and list correctly, and give `?FC ERROR` (to be decided, open qu
   as well, the whole rounded when next used (`FIN`; later digits still only count as places, not evidenced). The
   original reads 1E38 as `$96769953` (two units above the nearest), 1E30 as `$C9F2C9CF` (two above), 1E-30 as
   `$A2425FF8`, 1.00000001 as `$80000016` and .999999999 as `$FFFFFFFD` (one above each): exactly what one rounded
-  product or quotient by 10 a place gives, for all five. Ours scales by steps of 1E9 and then one exact power of ten,
-  and reads each to the nearest, so those 13 lines of `rnd-args` and `rnd-neg` still differ. Reading that way too
-  would match them, but a printed number read back would then move by two in the ninth digit where its reading takes
-  15 steps or more (`tests/basic-fp.test.js` holds it to one): open question 11, for a decision.
+  product or quotient by 10 a place gives, for all five. Ours now reads that way too (`FIN`; it read to the nearest,
+  by steps of 1E9 and one exact power of ten), and of the 13 lines of `rnd-args` and `rnd-neg` that differed, 12
+  match (open question 11). The 13th is printing, not reading: seed 3's `RND(1E38)` is the original's five bytes
+  (254,112,189,194,29), which it prints as `8E+37` and ours as `8.00000001E+37` (open: `FOUT` of numbers from 1E17 up). `tests/basic-fp.test.js` holds `FIN` to the rule exactly: the five readings as fixed [BB bb9]
+  entries, and every random text and every printed number read back to the five bytes `finTen` gives.
 
   **Its time: open** (bb9 `rnd-timing`, 500 passes, in fields, each loop started just after a field begins). Ours is
   not changed for it yet: that waits for bb10's probes of the original's product and `INT`, not for a model fitted to
@@ -674,12 +675,14 @@ All answered by the project owner and kept here with the decision, except where 
    flags' rows match); the pause after a namefile when its name is shown (ours about 0.2 field, the original's
    0.13-0.15 in direct mode as in a program) and the search's clear between files (ours about 0.17 field quicker);
    what `CLEAR` and `MOTOR` do to an open file (no record); `CLOAD` with an output file open (ours: forgotten).
-11. **Reading numbers by steps of ten. Open.** bb9 shows the original reads 1E38, 1E30, 1E-30, 1.00000001 and
-   .999999999 one or two units above the nearest, as one rounded product or quotient by 10 a place gives (section 5;
-   provenance item 56). Ours reads them to the nearest (steps of 1E9, then one exact power of ten), so 13 lines of
-   `rnd-args` and `rnd-neg` differ. Reading by steps of ten matches all five, but then a printed number read back can
-   move by two in the ninth digit where the reading takes 15 steps or more, where `tests/basic-fp.test.js` holds
-   every round trip to one: that check would have to change, which is for the project to decide.
+11. **Reading numbers by steps of ten. Decided:** read as the original does. bb9 shows it reads 1E38, 1E30, 1E-30,
+   1.00000001 and .999999999 one or two units above the nearest, as one rounded product or quotient by 10 a place
+   gives (section 5; provenance item 56; [BB] bb9 `rnd-args`, `rnd-neg`). Ours read them to the nearest (steps of
+   1E9, then one exact power of ten); it now takes one rounded step of 10 a place. A printed number read back can then
+   move by two in the ninth digit where its reading takes 15 steps or more: the old check that it moves by at most
+   one was our own assumption, never a record. It is replaced by an exact one: `tests/basic-fp.test.js` checks the
+   bytes read, and the text printed again, against `finTen` (`tests/basic/fpmodel.js`), a model written from the rule
+   with exact fractions, and keeps the five readings as fixed entries with their bytes.
 
 ## 11. Provenance log
 
@@ -742,7 +745,7 @@ Every behaviour fact the ROM relies on, with its source. A fact without a source
 | 53 | `PRINT USING`: a fixed field's number of more than 32 bits once scaled to its decimals prints its digits as any other, nine significant then zeros (`"#####.#####";100000.5` is `%100000.50000`, too wide by one; `"######.#####"` gives `100000.50000`, `"#####.#####";99999.5` `99999.50000`); ours takes `FOUT`'s nine digits and zeros up to 20 digits, and from 2^66 on keeps `%` and the number as `PRINT` has it [OWN]. An E field with a sign's place (no `+` or `-`) whose rounding carries out puts the 1 in the sign's place and keeps the exponent: `".##^^^^";999999999` is `.10E+10`, `99999999` `.10E+09`, `"#.##^^^^";999999999` `1.00E+09` (ours renormalised: `.01E+11`, `.01E+10`, `0.10E+10`). A negative number then has no place for its `-` and prints after a `%` (`"#.##^^^^";-999999999`, `%-1.00E+09`), and a field with a `+` or `-` of its own still renormalises: both our inference, not recorded | [BB] bb9 `print-using-odd` (2026-11-27) |
 | 54 | `$0115` is 128 at a cold start; `RND` neither reads nor writes it, and NEW, CLEAR and RUN leave `$0115-$0119` as they are | [BB] bb9 `rnd-state` (2026-11-27) |
 | 55 | `RND`'s time grows with the seed's bytes and bits that are not 0: 500 passes of `R=RND(A)`, A = 0, 6, 1E9, .5, -1, -3, -1.99999999, take 162, 299, 276, 217, 115, 116, 178 fields (ours not yet matched: section 5) | [BB] bb9 `rnd-timing` (2026-11-27) |
-| 56 | Reading a number: 4294967296 is 2^32 exactly; 1E38, 1E30, 1E-30, 1.00000001 and .999999999 are one or two units above the nearest, as one rounded product or quotient by 10 a place gives (ours reads 4294967296 so now, the others not yet: open question 11) | [BB] bb9 `rnd-args` (`RND(4294967296)`, `RND(1E38)` from 9 seeds), `rnd-neg` (the seed each negative argument leaves) (2026-11-27) |
+| 56 | Reading a number: 4294967296 is 2^32 exactly; 1E38, 1E30, 1E-30, 1.00000001 and .999999999 are one or two units above the nearest, as one rounded product or quotient by 10 a place gives (ours reads all six so now: open question 11; the old "at most one unit" round-trip bound was our assumption, not a record) | [BB] bb9 `rnd-args` (`RND(4294967296)`, `RND(1E38)` from 9 seeds), `rnd-neg` (the seed each negative argument leaves) (2026-11-27) |
 
 The log grows with every milestone; black-box facts are added with the date of the run they came from.
 

@@ -336,28 +336,25 @@ FIEND   CLR     <FACSGN         ; the integer, 2^FPDROP x FACM with the guard by
         ADDA    <FPDROP
         STA     <FACEXP
         JSR     NORM
-FIE8    LDD     <FPE10          ; steps of 1E9, then one product or quotient by 10^k
-        CMPD    #9
-        BLT     FIE9
-        SUBD    #9
-        STD     <FPE10
-        LDB     #9
-        JSR     FMULP
-        BRA     FIE8
-FIE9    CMPD    #-9
-        BGT     FIE9A
-        ADDD    #9
-        STD     <FPE10
-        LDB     #9
-        JSR     FDIVP
-        BRA     FIE8
-FIE9A   TSTB
-        BEQ     FIE10
-        BMI     FIE9B
-        JSR     FMULP
+        LDD     <FPE10          ; no places: 26 cycles, as when it was scaled by steps of 1E9, so PEEK loops of
+        BNE     FIE8            ; constants keep the original's time [BB bb8 cas-cloadm2 loops A, B]
+        MUL
+        NOP
+        NOP
         BRA     FIE10
-FIE9B   NEGB
+FIE8    LDD     <FPE10          ; one product or quotient by 10 a place, each rounded, as the original: it
+        BEQ     FIE10           ; reads 1E38 and 1E30 two units above the nearest, 1E-30, 1.00000001 and .999999999
+        BMI     FIE9            ; one above, as these steps do [BB bb9 rnd-args, rnd-neg]
+        SUBD    #1
+        STD     <FPE10
+        LDB     #1
+        JSR     FMULP
+        BRA     FIE8
+FIE9    ADDD    #1
+        STD     <FPE10
+        LDB     #1
         JSR     FDIVP
+        BRA     FIE8
 FIE10   LDA     <FPSGNI
         STA     <FACSGN
         TST     <FACEXP

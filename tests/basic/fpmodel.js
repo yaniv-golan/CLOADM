@@ -186,12 +186,64 @@ function fin(text, { plus = '+', minus = '-' } = {}) {
     e10 += es ? -ex : ex;
   }
   let a = norm40(n << 8n, 160, false);
-  while (e10 >= 9) { a = mul(P[9], a); e10 -= 9; }
-  while (e10 <= -9) { a = div(a, P[9]); e10 += 9; }
-  if (e10 > 0) a = mul(P[e10], a);
-  if (e10 < 0) a = div(a, P[-e10]);
+  for (; e10 > 0; e10--) a = mul10(a);           // one product or quotient by 10 a place [BB bb9 rnd-args, rnd-neg]
+  for (; e10 < 0; e10++) a = div10(a);
   if (neg && a.e !== 0) a = { ...a, s: true };
   return { value: a, rest: t.slice(i) };
 }
 
-module.exports = { POWBYTES, fromU32, fromI16, qint, mul10, div10, fout, fin, TEN, HALF, E8, E9, ZERO, unpack, pack, round, norm40, add, sub, neg, mul, div, cmp, fromNumber, toNumber, OV, DZ };
+// finTen: what reading a number gives by the rule the original's readings fit [BB bb9 rnd-args: RND(4294967296) and
+// RND(1E38) from 9 seeds; rnd-neg: the seeds RND(-1E30), RND(-1E-30), RND(-1.00000001), RND(-.999999999) leave],
+// written from that rule with exact fractions, not from the ROM's routines: the digits make a whole number, exactly
+// while it fits in 32 bits and with the first digit past them too (later digits only places); that is rounded to 32
+// bits, then multiplied or divided by 10 once for each place of the decimal exponent (the places after the point
+// taken from the exponent), each result rounded to 32 bits: to nearest, a half up. A result below 2^-128 is 0, one
+// of 2^127 or more ?OV ERROR. Returns the five packed bytes, or 'OV'.
+function finTen(text) {
+  const t = text.replace(/ /g, '');
+  let i = 0, neg = false, dp = false, e10 = 0, n = 0n, past = false;
+  if (t[i] === '-') { neg = true; i++; } else if (t[i] === '+') i++;
+  for (;;) {
+    const c = t[i];
+    if (c >= '0' && c <= '9') {
+      const d = BigInt(c.charCodeAt(0) - 48);
+      if (!past) { if (n * 10n + d > M32) past = true; n = n * 10n + d; if (dp) e10--; }
+      else if (!dp) e10++;
+      i++;
+    } else if (c === '.' && !dp) { dp = true; i++; }
+    else break;
+  }
+  if (t[i] === 'E') {
+    i++;
+    let es = false, ex = 0;
+    if (t[i] === '-') { es = true; i++; } else if (t[i] === '+') i++;
+    while (t[i] >= '0' && t[i] <= '9') { ex = (ex * 10 + t.charCodeAt(i) - 48) & 0xFF; i++; }   // a byte that wraps
+    if (ex > 127) ex -= 256;
+    e10 += es ? -ex : ex;
+  }
+  if (n === 0n) return [0, 0, 0, 0, 0];
+  // num / den rounded to 32 bits: { m, E } with value m x 2^(E - 160), or null below 2^-128
+  const r32 = (num, den) => {
+    let s = 0;                                                   // m = floor(num 2^s / den) in [2^31, 2^32)
+    while (((num << BigInt(Math.max(s, 0))) >> BigInt(Math.max(-s, 0))) / den >= 1n << 32n) s--;
+    while (((num << BigInt(Math.max(s, 0))) >> BigInt(Math.max(-s, 0))) / den < 1n << 31n) s++;
+    const q = (k) => (k >= 0 ? (num << BigInt(k)) / den : num / (den << BigInt(-k)));
+    let m = q(s), E = 160 - s;
+    if (E < 1) return null;
+    if (q(s + 1) & 1n) { m += 1n; if (m === 1n << 32n) { m >>= 1n; E++; } }
+    if (E > 255) throw new OV();
+    return { m, E };
+  };
+  const frac = (v) => (v.E >= 160 ? [v.m << BigInt(v.E - 160), 1n] : [v.m, 1n << BigInt(160 - v.E)]);
+  let v;
+  try {
+    v = r32(n, 1n);
+    for (; v && e10 > 0; e10--) { const [a, b] = frac(v); v = r32(a * 10n, b); }
+    for (; v && e10 < 0; e10++) { const [a, b] = frac(v); v = r32(a, b * 10n); }
+  } catch (e) { if (e instanceof OV) return 'OV'; throw e; }
+  if (!v) return [0, 0, 0, 0, 0];
+  const m = Number(v.m);
+  return [v.E, ((m >>> 24) & 0x7F) | (neg ? 0x80 : 0), (m >>> 16) & 0xFF, (m >>> 8) & 0xFF, m & 0xFF];
+}
+
+module.exports = { POWBYTES, fromU32, fromI16, qint, mul10, div10, fout, fin, finTen, TEN, HALF, E8, E9, ZERO, unpack, pack, round, norm40, add, sub, neg, mul, div, cmp, fromNumber, toNumber, OV, DZ };
