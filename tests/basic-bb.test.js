@@ -315,6 +315,9 @@ for (const good of ['PCLEAR 1', 'PCLEAR 0', 'PCLEAR 9', 'PMODE 4,1', 'PMODE 0,4'
   // each byte is $FF. (A harness test, never linted or run on the real ROM.)
   const r = runCase(built.rom, '10 FOR I=1 TO 6:POKE 65312,2:POKE 65312,0:NEXT\nRUN\n');
   check('printer: six strobes give six bytes, recorded as length and hex', r.status === 'ok' && JSON.stringify(r.printer) === JSON.stringify({ length: 6, hex: 'ff'.repeat(6) }), JSON.stringify(r.printer));
+  // only a rise of the strobe is a byte: writes that leave PA1 high (as the DAC's, a sound or the cassette, can) add none
+  const held = runCase(built.rom, '10 FOR I=1 TO 3:POKE 65312,2:POKE 65312,6:POKE 65312,250:POKE 65312,0:NEXT\nRUN\n');
+  check('printer: three rises of the strobe give three bytes, writes with it held high none', held.status === 'ok' && held.printer && held.printer.length === 3, JSON.stringify(held.printer));
   const quiet = runCase(built.rom, 'PRINT 1\n');
   check('printer: a case that prints nothing has no printer field (older records unchanged)', quiet.status === 'ok' && !('printer' in quiet));
   const llist = runCase(built.rom, '10 REM\nLLIST\n');

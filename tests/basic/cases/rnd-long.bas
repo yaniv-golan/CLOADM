@@ -2,7 +2,8 @@
 # POKE (docs/clean-room-basic.md section 5; open question 5): every result's five bytes folded into a checksum
 # (S=S*7+byte, mod 65521), printed with the seed bytes $0115-$0119 each 2,000 calls. R is the program's first variable [BB bb3].
 # Low RAM is POKEd
-# only at RND's bytes ($0115-$0119) and address 4, through "AND 32767" (bb-only, reviewed by hand). Syntax [UM]; the
+# only at RND's seed bytes (278-281, $0116-$0119), and PEEKed only there, at $0115, $1B-1C and R's own bytes, through
+# "AND 32767" (bb-only, reviewed by hand). Syntax [UM]; the
 # values [BB]. bb9's run reached the #timeout (then 2700) after the first block: 10,000 calls take about 2,700
 # seconds on the original, and 12,000 more than 2,700, so the whole run 3,800 or more; ours takes about 3,110.
 #timeout 6000

@@ -351,8 +351,8 @@ class Basic {
 // A typed line that starts with a digit is a program line: waited for until the screen settles; any other line
 // is waited for until OK is back. -> { status, transcript, flags, frames, shots?, sounds?, tapes?, clears?, printer? };
 // printer: the bytes the machine's printer port received since the clean start (the Dragon's parallel port: PIA0
-// port B at each strobe, js/machines/sam.js; the machine's `printed`), as { length, hex }, and only when there are
-// any: what the case's own LLIST and PRINT #-2 sent, as BASIC sends it to a printer. status 'ok',
+// port B as PIA1 PA1, the strobe, rises from low to high; a write to PIA1 port A that leaves PA1 high, the DAC's
+// during sound or the cassette, is no new byte), as { length, hex }, and only when there are any: what the case's own LLIST and PRINT #-2 sent, as BASIC sends it to a printer. status 'ok',
 // 'no-boot', 'no-clean-start', 'timeout' (and where), 'stalled' (a typed line of which no key was taken, and where), or
 // the typist's status when the machine stopped reading the keyboard. clears: the screens a clear wiped (Basic.frame).
 // Nothing of the screen is recorded before the clean start (Basic.cleanStart): the boot screen, a ROM's banner among
@@ -371,12 +371,22 @@ function runCase(rom, text, { machine = 'dragon64', guard = true, tapes: tapeDir
   const wavStop = () => { sounds.push({ name: wavName, ...b.wavStop() }); wavName = null; };
   let clean = false;   // nothing of the screen is recorded until the clean start (Basic.cleanStart) has held
   let expectTimeout = false;
-  // the printer's bytes since the clean start (nothing before it is recorded), only when there are any
-  let printedFrom = 0;
-  const printer = () => {
-    const p = b.m.printed.slice(printedFrom);
-    return p.length ? { printer: { length: p.length, hex: Buffer.from(p).toString('hex') } } : {};
+  // the printer's bytes since the clean start (nothing before it is recorded), only when there are any: one byte at
+  // each rise of the strobe (PIA1 PA1), PIA0 port B's output then
+  const strobed = [];
+  let strobing = false;
+  const listenPrinter = () => {
+    if (b.m.profile.lineage !== 'dragon') return;
+    const pa = b.m.pia1.a, before = pa.onOutput;
+    let high = (pa.outValue() & 0x02) !== 0;   // a strobe already high at the clean start is no rise
+    pa.onOutput = (v) => {
+      if (before) before(v);
+      const now = (v & 0x02) !== 0;
+      if (strobing && now && !high) strobed.push(b.m.pia0.b.outValue());
+      high = now;
+    };
   };
+  const printer = () => (strobed.length ? { printer: { length: strobed.length, hex: Buffer.from(strobed).toString('hex') } } : {});
   const out = (status, extra = {}) => {
     // after #expect-timeout a step that times out is the case's result: status ok, ended { at, as: 'timeout' }
     if (status === 'timeout' && expectTimeout) { status = 'ok'; extra = { ...extra, ended: { at: extra.at, as: 'timeout' } }; delete extra.at; }
@@ -403,7 +413,8 @@ function runCase(rom, text, { machine = 'dragon64', guard = true, tapes: tapeDir
   };
   if (!b.cleanStart(limit)) return out('no-clean-start');
   clean = true;
-  printedFrom = b.m.printed.length;
+  listenPrinter();
+  strobing = true;
   let st;
   b.record();
   if (guard) {
