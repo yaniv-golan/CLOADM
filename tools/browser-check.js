@@ -6390,13 +6390,14 @@ async function phoneWyrmPadChecks(browser, base, check) {
     await p.waitForTimeout(300);
     // the tap test: every key of the pad (and the stick) is what a finger at its centre hits, and no key lies on
     // the picture. -> { fails: ["NAME box=[l,t,r,b] hit=what the centre hit" | "NAME box=[...] intersects the
-    // picture's [..]"], keys: how many were tested, pic: the picture's box }
+    // picture's [..]"], keys: how many were tested (the stick among them), stick: whether the stick showed,
+    // pic: the picture's box }
     const tap = () => p.evaluate(() => {
       const shown = (e) => e.checkVisibility() && e.getBoundingClientRect().width > 0 && e.getBoundingClientRect().height > 0;
       const pic = document.querySelector('#screen').getBoundingClientRect();
       const els = [...document.querySelectorAll('#touchPad button')].filter(shown);
-      const stick = document.querySelector('#touchPad .padthumb');
-      if (shown(stick)) els.push(stick);
+      const stick = document.querySelector('#touchPad .padthumb'), stickShown = !!stick && shown(stick);
+      if (stickShown) els.push(stick);
       const fails = [];
       for (const k of els) {
         const b = k.getBoundingClientRect(), name = k.classList.contains('padthumb') ? 'stick' : (k.getAttribute('aria-label') || k.textContent.trim() || k.id);
@@ -6407,13 +6408,15 @@ async function phoneWyrmPadChecks(browser, base, check) {
         if (b.left < pic.right - 0.5 && pic.left < b.right - 0.5 && b.top < pic.bottom - 0.5 && pic.top < b.bottom - 0.5)
           fails.push(`${name} box=${box} lies on the picture [${Math.round(pic.left)},${Math.round(pic.top)},${Math.round(pic.right)},${Math.round(pic.bottom)}]`);
       }
-      return { fails, keys: els.length, pic: [Math.round(pic.left), Math.round(pic.top), Math.round(pic.right), Math.round(pic.bottom)] };
+      return { fails, keys: els.length, stick: stickShown, pic: [Math.round(pic.left), Math.round(pic.top), Math.round(pic.right), Math.round(pic.bottom)] };
     });
     const exact = await tap();
     check('phone wyrmfire pad 653x280 (the reported state, ?start=wyrmfire, Dragon 64, Pad, touch): every pad key and the stick is what a tap at its centre hits, and none lies on the picture',
-      up && exact.keys > 0 && !exact.fails.length, `at 653x280, ${exact.keys} tested, picture ${JSON.stringify(exact.pic)}: ${exact.fails.join('; ')}`);
+      up && exact.keys > 0 && exact.stick && !exact.fails.length, `at 653x280, ${exact.keys} tested, picture ${JSON.stringify(exact.pic)}: ${exact.fails.join('; ')}`);
     if (shotDir) await p.screenshot({ path: path.join(shotDir, 'wyrmfire-pad-653x280-tap.png') });
-    // the grid: resize through the sideways sizes (the pad stays up; the media queries re-apply per size)
+    // the grid: resize through the sideways sizes (the pad stays up; the media queries re-apply per size). Per
+    // size the stick must show and every key of the 653x280 set must be there (the same count: a key that a size
+    // hides fails that size, and a page that stopped laying out fails them all)
     const sizes = [];
     for (const w of [640, 660, 680, 700, 720, 740, 760]) for (const h of [260, 280, 300, 320, 340, 360]) sizes.push([w, h]);
     for (const [w, h] of sizes) {
@@ -6422,7 +6425,7 @@ async function phoneWyrmPadChecks(browser, base, check) {
       await p.waitForTimeout(120);
       const t = await tap();
       check(`phone wyrmfire pad ${w}x${h}: every pad key and the stick is what a tap at its centre hits, and none lies on the picture`,
-        up && t.keys > 0 && !t.fails.length, `at ${w}x${h}, ${t.keys} tested, picture ${JSON.stringify(t.pic)}: ${t.fails.join('; ')}`);
+        up && t.keys === exact.keys && t.stick && !t.fails.length, `at ${w}x${h}, ${t.keys} tested (the 653x280 case had ${exact.keys}), stick ${t.stick ? 'up' : 'GONE'}, picture ${JSON.stringify(t.pic)}: ${t.fails.join('; ')}`);
     }
     check('phone wyrmfire pad grid (653x280 and 640-760 x 260-360, every 20 px): no page errors', !errs.length, errs.join('; '));
     await ctx.close();
