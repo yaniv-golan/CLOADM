@@ -8,6 +8,8 @@ All notable changes to CLOADM are recorded here. The format follows
 
 Next version: 0.4.1 (the plugin and extension manifests carry it; `tests/plugin.test.js` keeps them in step).
 
+### 0.4.1
+
 #### Added
 
 - **For contributors: the changelog guard refuses a subsection heading written twice under [Unreleased].** Two `#### Fixed` blocks
