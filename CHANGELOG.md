@@ -166,6 +166,10 @@ Next version: 0.4.0 (the plugin and extension manifests carry it; `tests/plugin.
 
 #### Fixed
 
+- **On a phone, a toast no longer takes a tap meant for a key on the on-screen pad.** A toast that came up while a
+  game's pad was opening could settle over the pad's own row, and the tap on → (or any key under it) went to the
+  toast instead of the machine, so the game never saw the key. The toast now keeps clear of the pad's keys, upright
+  as well as held sideways, and a place that would sit over one is never kept.
 - **On a phone, showing the on-screen keyboard after hiding it no longer leaves the page a fraction taller than the
   window.** The screen's height is worked out from the panel's own box (how far the panel's foot and the chips reach past
   the screen), and that length was only re-measured on the next animation frame, not by the code that shows or hides

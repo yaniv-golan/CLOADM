@@ -589,8 +589,15 @@ export function createFeedback() {
     // `settle()` records the key from the state the page is actually in now; `box`'s class and the region's own inline
     // style are both inputs, so this must follow the last write of each branch.
     const settle = () => { measuredFor = JSON.stringify(readInputs()); };
-    if (d.kind === 'natural') { decided = d; if (cur) cur.pinned = false; dropClass(box, 'compact'); settle(); seen(); return; }
-    if (d.kind === 'placed') { put(d.left, d.top, d.width); decided = d; if (cur) cur.pinned = false; settle(); seen(); return; }
+    // A placement whose own box lies over a touch key is never SETTLED: the cache would keep it there for the rest of
+    // the toast's life. That is what a phone's first frame does -- the toast is raised and decided before the pad's
+    // keys are laid out (keyRects empty), so the stylesheet's bottom spot looks free and is cached while the keys,
+    // laid out a frame later, are under it (measured: page.tap on #touchPad [data-key="→"] timed out, the toast at
+    // y 478-540 over the key at 461-509). Left unsettled, the next frame re-decides with the keys in hand and the
+    // toast moves clear (measured after: 521-540, the key's centre back on the key).
+    const overKey = () => (I.keyRects || []).some((k) => hitsRect(box.getBoundingClientRect(), k));
+    if (d.kind === 'natural') { decided = d; if (cur) cur.pinned = false; dropClass(box, 'compact'); if (!overKey()) settle(); seen(); return; }
+    if (d.kind === 'placed') { put(d.left, d.top, d.width); decided = d; if (cur) cur.pinned = false; if (!overKey()) settle(); seen(); return; }
     if (d.kind === 'band') {
       // the compact form is a layout question, so it is measured here; `decided` records which form fit, so the
       // re-apply never measures again
