@@ -792,6 +792,41 @@ async function romInputChecks(browser, base, check) {
   await closeCtx(ctx);
 }
 
+// Open… on a phone (reported on 0.4.1 from an iPhone held upright): a ROM image chosen with Open… goes to Your
+// ROMs, as a drop on the screen sends it, and never into the cartridge slot. Before, the BASIC ROM went in as a
+// Program Pak and the Library then added it as the machine's BASIC too, so BASIC started with itself plugged in
+// ("No OK after 5 seconds"). A program picked with it still loads, and a plain cartridge still goes in.
+// Synthetic images only (fake(): seeded bytes under the usual file name).
+async function phoneOpenRomChecks(browser, base, check) {
+  const { devices } = require('playwright');
+  const ctx = await browser.newContext({ ...devices['iPhone 15'], serviceWorkers: 'block' });
+  const page = await ctx.newPage();
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto(`${base}?machine=dragon64`); await started(page);
+  const open = async (files) => {
+    const [chooser] = await Promise.all([page.waitForEvent('filechooser'), page.tap('#btnLoad')]);
+    await chooser.setFiles(files);
+  };
+  const state = () => page.evaluate(() => ({ cart: window.emu.machine.cartPort && window.emu.machine.cartPort.name, chip: document.querySelector('#chipCart .cs').textContent,
+    basic: window.emu.session.machineRoms('dragon64').sockets.find((x) => x.id === 'basic').crc, hasRom: window.emu.machine.hasRom, toast: document.getElementById('toast').textContent }));
+  const D1 = fake(16384, 11), demo = fs.readFileSync(path.join(ROOT, 'examples/demo.bin'));
+  await open([{ name: 'd64_1.rom', mimeType: 'application/octet-stream', buffer: D1 }, { name: 'demo.bin', mimeType: 'application/octet-stream', buffer: demo }]);
+  const added = await waitFor(page, () => window.emu.machine.hasRom && /demo\.bin loaded/.test(document.getElementById('toast').textContent), null, 10000);
+  const s1 = await state();
+  check('phone Open… (iPhone, upright): a ROM image goes to Your ROMs, the BASIC socket holds it and the machine runs with it',
+    added && s1.hasRom && s1.basic === require('../tests/load')().crc32(new Uint8Array(D1)), JSON.stringify(s1));
+  check('phone Open…: nothing goes into the cartridge slot (the chip says Empty, not "Program Pak")', s1.cart === null && s1.chip === 'Empty', JSON.stringify(s1));
+  check('phone Open…: a program picked with the ROM still loads after it', /demo\.bin loaded/.test(s1.toast), s1.toast);
+  // a cartridge that is not a ROM image still goes in through Open…
+  await open({ name: 'game.rom', mimeType: 'application/octet-stream', buffer: fake(8192, 12) });
+  const inserted = await waitFor(page, () => !!window.emu.machine.cartPort, null, 10000);
+  const s2 = await state();
+  check('phone Open…: a cartridge image still goes into the slot as a Program Pak', inserted && s2.cart === 'Program Pak' && /Program P/.test(s2.chip), JSON.stringify(s2));
+  check('phone Open…: no page errors', !errors.length, errors.join('; '));
+  await closeCtx(ctx);
+}
+
 // no pop from the speaker: with sound unlocked and a program holding the DAC high (raised in single DAC steps,
 // so its own steps are at most 0.5/63), the samples played across a power cycle, a reset, reloading the program,
 // pause and resume, turbo on and off, sound off and on, and a machine switch never jump by more than 0.01
@@ -26245,7 +26280,7 @@ const GROUPS = (base, site) => [
   ['webSerial', (b) => webSerialChecks(b, base, check)],
   ['snapshot', (b) => snapshotChecks(b, base, check)],
   ['liza6803', (b) => liza6803Checks(b, base, check)],
-  ['romInput', (b) => romInputChecks(b, base, check)],
+  ['romInput', async (b) => { await romInputChecks(b, base, check); await phoneOpenRomChecks(b, base, check); }],
   ['romTruth', (b) => romTruthChecks(b, base, check)],
   ['design', (b) => designChecks(b, base, check)],
   ['inputScreen', (b) => inputScreenChecks(b, base, check)],

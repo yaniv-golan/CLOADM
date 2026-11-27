@@ -160,7 +160,7 @@ const disks = setupDrives(page, { openRoms: () => romSockets.reveal({ to: 'disk'
 const slots = setupSlotsPanel(page, { snapshots });
 const nitros9 = setupNitros9Panel(page);
 window.emu.nitros9Shown = () => nitros9.shown();   // (the browser check: the panel shows the session's latest state)
-const media = setupMediaPanel(page, { snapshots, disks, nitros9, keep: (name, bytes) => library && library.keep(name, bytes) });
+const media = setupMediaPanel(page, { snapshots, disks, nitros9, keep: (name, bytes) => library && library.keep(name, bytes), roms: romPanel });
 page.assembler = setupAssemblerPanel(page);   // (a shared source arrives in it: js/ui/arrival.js)
 setupDebuggerPanel(page);
 setupDebuggerStop(page);

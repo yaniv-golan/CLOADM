@@ -114,8 +114,9 @@ export function setupRomPanel(page) {
       // said with what the drop reported, in the same toast
       if (said) { const cur = page.feedback.current; page.status(cur ? `${cur.text}. ${said}` : said, !!(cur && cur.error)); }
     }
+    // (the program loader settles the focus itself: an offer it shows keeps it)
     if (loose.length && onPrograms) await onPrograms(loose);
-    page.focus();
+    else page.focus();
   }
 
   function saveRomPack() {

@@ -138,6 +138,7 @@ const seg = code.segments[0];
 fs.writeFileSync(tmp('media', 'prog.cas'), Uint8Array.from([...casBlock(0, [...Buffer.from('PROG    '), 2, 0, 0, 0x30, 0x00, 0x30, 0x00]), ...casBlock(1, [...seg.data]), ...casBlock(0xFF, [])]));
 fs.writeFileSync(tmp('media', 'prog.bin'), Emu.toBinary(code, { format: 'dragondos' }));
 fs.writeFileSync(tmp('media', 'junk.xyz'), 'no program here');
+fs.writeFileSync(tmp('media', 'd64_1.rom'), new Uint8Array(0x4000).fill(0x39));   // (synthetic: a ROM image by its usual name)
 fs.writeFileSync(tmp('media', 'notes.cloadm-state'), 'my notes, not a snapshot');
 fs.writeFileSync(tmp('media', 'lib.asm'), 'VALUE   EQU $42\n');
 fs.writeFileSync(tmp('media', 'hello.bas'), '10 print "hi~"\n20 GOTO 10\n');
@@ -325,6 +326,9 @@ fs.writeFileSync(tmp('media', 'plain.bas'), '10 PRINT "HI"\n');
   const unknown = await s.call('load', Object.assign({ path: 'junk.xyz' }, M));
   const disk = await s.call('insert_disk', Object.assign({ path: 'prog.bin' }, M));
   check('load of an unknown format and insert_disk of a non-disk: rejected, the machine says why', unknown.error.code === 'rejected' && /unknown format/.test(unknown.error.detail) && disk.error.code === 'rejected' && /not a disk image/.test(disk.error.detail), J([unknown.error, disk.error]));
+  const romLoad = await s.call('load', Object.assign({ path: 'd64_1.rom' }, M));
+  check('load of a machine\'s ROM image: rejected as a ROM to add, not plugged in as a cartridge', romLoad.error && romLoad.error.code === 'rejected'
+    && /^d64_1\.rom is a ROM image for a machine or a disk controller, not a cartridge/.test(romLoad.error.detail), J(romLoad));
   const escapes = [];
   for (const p of ['../outside/secret.bin', tmp('outside', 'secret.bin'), 'link.bin', 'linkdir/secret.bin', 'missing.bin']) escapes.push((await s.call('load', Object.assign({ path: p }, M))).error.code);
   check('the media root holds: .., an absolute path, a link to a file and a link to a directory outside are refused; a missing file cannot-read', J(escapes) === J(['outside-media-root', 'outside-media-root', 'outside-media-root', 'outside-media-root', 'cannot-read']), J(escapes));

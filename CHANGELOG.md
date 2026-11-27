@@ -8,6 +8,16 @@ All notable changes to CLOADM are recorded here. The format follows
 
 Next version: 0.4.1 (the plugin and extension manifests carry it; `tests/plugin.test.js` keeps them in step).
 
+#### Fixed
+
+- **A ROM image chosen with Open… goes to Your ROMs, never into the cartridge slot.** On a phone, where Open… is the
+  way in, a Dragon 64 BASIC ROM picked with it went in as a Program Pak (`.rom` is a cartridge's extension too), and
+  the Library then added the same file as the machine's BASIC and switched it on: BASIC started with itself plugged in,
+  the screen stayed green, and "No OK after 5 seconds" blamed CLOADM. Open… now sorts what it is given as a drop on the
+  screen does (a ROM to Your ROMs, the rest loaded as before, a cartridge still a cartridge), and a load of a machine's
+  or a disk controller's ROM image (by its contents or its usual name) is refused as a ROM to add (Add ROMs on the page,
+  `--roms` for the command line and the MCP server), also through the MCP `load` tool and the command line.
+
 ### 0.4.1
 
 #### Added

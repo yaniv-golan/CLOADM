@@ -426,7 +426,8 @@ MC-10 or Alice, not when the right port holds a Hi-Res interface or The Rat, and
   they register after about 100 ms; the stick and FIRE act at once.
   The welcome menu's lines can be tapped (in Joystick mode a tap on the screen never reaches the menu).
   Files can be dropped anywhere on the page, and after the first ROMs are added CLOADM asks the browser to keep
-  them, saying if it may not.
+  them, saying if it may not. **Open…** sorts what it is given as a drop does: a ROM image (by its contents or its
+  usual name, such as `d64_1.rom`) goes to Your ROMs, never into the cartridge slot, and the rest loads as usual.
 
 The programs that run without ROMs (the Media tab's "Runs without ROMs" on a desktop, **Programs…** on a phone) are one
 row each, on every model only the ones it runs, each with the same two lines: its name, and one short line saying what
