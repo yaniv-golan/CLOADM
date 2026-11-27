@@ -128,7 +128,7 @@ function buildBasic({ defines = {}, edit = SAME } = {}) {
     const room = 0xBFF0 - 14 - first.symbols.get('ROMEND');     // the gap and the table must fit below the vectors
     for (const at of places.filter((x) => 0xA000 - x.addr <= room)) {
       const r = assemble(at);
-      if (!r.ok || r.symbols.get('VECTBL') !== 0xA000) continue;
+      if (!r.ok) continue;
       try { img = image(r); } catch (e) { continue; }
       res = r; gap = 0xA000 - at.addr;
       break;

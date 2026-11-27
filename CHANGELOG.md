@@ -215,7 +215,8 @@ Next version: 0.4.1 (the plugin and extension manifests carry it; `tests/plugin.
   instead of all of `$8000-$80FF`: a jump at each of `$8006-$8027` (to our keyboard poll, screen output, cassette relay
   on and off, byte write, byte read and bit read; `$FF` where no routine of ours does the job) and the word table at
   `$A000-$A00D` (`$A000` the keyboard poll). The code starts at `$802A`, leaving 226 bytes free
-  (`tests/basic-entry.test.js` calls each stub from machine code).
+  (`tests/basic-entry.test.js` checks the layout and calls the screen, relay, tape-write and keyboard stubs from
+  machine code).
   `EDIT` works, as the bb10 record `stmt-edit` shows it on the original (it gave `?FC ERROR`): `EDIT n` prints the
   line, then its number again for editing; ENTER shows the rest and stores the line, X goes to the end and inserts,
   L shows the line and starts again, a count and space moves on, H deletes the rest and inserts, nD deletes n

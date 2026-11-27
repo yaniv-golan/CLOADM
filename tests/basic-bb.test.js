@@ -60,7 +60,7 @@ const rec = (c, status, t) => [c, { case: c, status, transcript: t }];
 const built = buildBasic();
 check('build: a 16K image', built.rom.length === 0x4000);
 check('build: the reset vector points at RESET', built.rom[0x3FFE] * 256 + built.rom[0x3FFF] === built.symbols.get('RESET'));
-check('build: the code starts after the published entry points (tests/basic-entry.test.js checks them)', built.listing.find((l) => l.bytes && l.bytes.length && l.addr >= 0x8000 && l.addr < 0xC000).addr === 0x8006);
+check('build: $8000-$8005 is left $FF, nothing published there (tests/basic-entry.test.js checks the rest)', built.rom.subarray(0, 6).every((x) => x === 0xFF));
 {
   const inc = tokensInc({ statements: [{ word: 'FOR', handler: 'FORST' }, { word: 'TAB(', handler: null }, { word: '+', token: '0x90' }],
     functions: [{ word: 'STR$', handler: 'STRS' }] });

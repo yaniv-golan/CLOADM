@@ -249,8 +249,8 @@ These are hard rules for everyone who works on this ROM.
   occupied (the bytes the build lays down, the 14 of the vectors included), reserved (the published entry points,
   `$8006-$8029` and `$A000-$A00D`, 50: never counted free; section 3) and free (only the gap between `ROMEND` and
   `$BFF0`). Before this pass 16,102 occupied, the code ending at `$BFD8`, 24 free; after it 16,100, `$BFD6`, 26 free
-  (with `$8000-$80FF` then all reserved). With only the published entry points kept: 16,123 occupied (the 21 bytes of
-  the seven jumps and `$A000`'s word included), the code ending at `$BF0E`, 226 free; with `EDIT`, 16,329, `$BFDC`,
+  (with `$8000-$80FF` then all reserved). With only the published entry points kept: 16,123 occupied (the seven
+  jumps' 21 bytes and `$A000`'s 2 included), the code ending at `$BF0E`, 226 free; with `EDIT`, 16,329, `$BFDC`,
   20 free. Its routines run from a
   label to the next or to their module's end, a label that emits no bytes counting (`tests/basic-size.test.js`; it
   once gave `play.inc`'s last label, `PLD5`, `tokens.inc`'s 611 bytes). The pass changed no cycle on any path, errors
@@ -295,10 +295,10 @@ The published entry points ([DOC] Dragon Data Ltd, "Dragon 32 Information for Ma
 |---|---|---|
 | `$8006` (and `JSR [$A000]`) | polls the keyboard: A = the key's code, or 0 if no new key | `KEYIN` |
 | `$8009` | blinks the cursor when its count reaches 0 | `$FF`: inside `KEYWT` here |
-| `$800C` | writes A to the text screen, scrolling if needed; the cursor moves on | `CHROUT` (the screen while `DEVNUM` is not 255) |
+| `$800C` | writes A to the text screen, scrolling if needed; the cursor moves on | `CHROUT` (the screen while `DEVNUM` is not 255; like anything printed, it shows the text screen again, a picture shown before giving way to it) |
 | `$800F` | writes A to the printer | `$FF`: no printer output yet |
 | `$8012` | updates the joystick readings in `$015A-$015D` | `$FF`: `JOYSTK` keeps them in `JOYV` |
-| `$8015`, `$8018` | the cassette relay on, off | `RLYON`, `RLYOFF` (the motor alone; `CASON` and `CASOFF` also mask and unmask interrupts) |
+| `$8015`, `$8018` | the cassette relay on, off | `RLYON`, `RLYOFF` (the motor alone, the interrupt mask left as it was; `CASON` and `CASOFF` also mask and unmask interrupts). Each writes the whole of PIA 1's control register A (`$3C` or `$34`: CA1's interrupt off, the data register selected) and uses A |
 | `$801B` (and `JSR [$A00C]`) | prepares for writing | `$FF`: inside `CWBLK` here |
 | `$801E` | writes the byte in A | `CWBYTE` |
 | `$8021` (and `JSR [$A004]`) | prepares for input, bit sync | `$FF`: inside `CRBLK` here |
@@ -569,9 +569,12 @@ All of them run with no ROM, on our ROM assembled at test time.
   in cycles, on the Dragon 64 and the Dragon 32, with mutants of the ROM that must fail it.
 * **`tests/basic-entry.test.js`:** the published entry points ([section 3](#3-memory-map)): the jumps at
   `$8006-$8029` and the words at `$A000-$A00D` against the manual's table written out by hand, and the stubs called
-  from machine code (`EXEC`): screen output, the relay on and off with interrupts left on, the keyboard poll through
-  `$8006` and `[$A000]` with no key and with a key pressed; with mutants (`$8015` to `CASON`, `$800C` to `SCROLL`,
-  `$A000` to `CHROUT`) that fail it.
+  from machine code (`EXEC`): screen output, the relay on with interrupts on and off with them masked (each left as
+  it was), a byte written to the tape (16 DAC writes), the keyboard poll through `$8006` and `[$A000]` with no key
+  and with a key pressed (the read stubs, `$8024` and `$8027`, are checked as jumps only); and six mutants in the
+  test (`$8015` to `CASON`, `$8018` to `CASOFF`, `$800C` to `SCROLL`, `$801E` to `CWDLY`, `$8006` and `$A000` to
+  `CHROUT`), each failing a call. Also where the build puts the table when a mutant's code before it grows or
+  shrinks.
 * **`tests/basic-editor.test.js`:** the keyboard and screen through the matrix: typing, erasing, SHIFT-0, BREAK during
   a program and during `LIST`, scrolling, `CLS`, the cursor.
 * **`tests/basic-edit.test.js`:** `EDIT`: the bb10 record `stmt-edit` replayed, ours identical to it, with a mutant of
@@ -935,7 +938,7 @@ Every behaviour fact the ROM relies on, with its source. A fact without a source
 | 67 | `$0097-$0098` is 1,118 at the first prompt, and still after a few lines; a key is not taken 1,118 passes later (a debounce of that length makes our typed lines about 7,000 cycles later than the original's: the sound records' starts), so ours keeps its debounce at 300 passes and reads `$0097-$0098` as the cursor's delay, the specification's 1,118 passes (less 55, our scan being slower); the cursor's blink half-cycle is 13 pictures of 2 fields, as ours | [BB] bb10 `scr-prompt-idle` (2026-11-27: the transcript and 100 pictures); bb2, bb10 the sound records' starts; [OWNER-SPEC] the delay's 1,118 passes |
 | 68 | The interpreter's costs (section 2, the original's cost model): a digit of a number by the number so far and the digit's bits, the same in a constant, `VAL` and `READ`; a 0 about 925-1000 cycles; a product by its right operand's bytes and bits, not its left one's; `INT` 23 cycles a place it drops; `AND` alike for small and large operands; `MOTOR ON` waits about 25.4 fields with `TIMER` counting, and again when the motor already runs; `MOTOR OFF` of a motor that is off takes nothing | [BB] bb10 `time-literals`, `time-ops`, `time-mul`, `time-int`, `time-motor` |
 | 69 | The published entry points: a jump at `$8006`, `$8009`, `$800C`, `$800F`, `$8012` (keyboard, cursor blink, screen, printer, joysticks), `$8015`-`$8027` (the cassette: relay on, off, prepare to write, write a byte, prepare to read, read a byte, read a bit), a word at `$A000`, `$A004`, `$A006`, `$A008`, `$A00C`; nothing published at `$8000-$8005` or after `$8027`; `$8B2D`, `$8C37` and the RAM hooks at `$015E-$01AF` (section 3) | [DOC] Dragon Data Ltd, "Dragon 32 Information for Machine Code Users!" (March 1983), printed pp. 4-5 and PDF p. 7, read from the page images (the text layer has OCR errors) and checked cell by cell by the maintainer's side (2026-11-27) |
-| 70 | `EDIT n` prints the line as `LIST` does, then the line's number and a space again, and takes keys: ENTER shows the rest of the line and stores it as a typed line is stored (no `OK` after it, in direct mode or in a program, which ends there); X shows the rest and inserts what is typed; L shows the rest and starts the line again (a third copy); a count of digits and space moves that many characters on, showing them; H deletes the rest and inserts; nD deletes n characters, showing nothing for them (`2D` on `PRINT 7` leaves `INT 7`). `EDIT 99` with no line 99, and `EDIT` with no number, are `?UL ERROR`. The other keys and commands, BREAK, the left arrow in insertion and a full line are ours [OWN] until bb11's `stmt-edit2` and `stmt-edit3` answer them (ours: a key that is no command does nothing; in insertion only a printable key goes in; a line of 250 characters with its number takes no more) | [BB] bb10 `stmt-edit` |
+| 70 | `EDIT n` prints the line as `LIST` does, then the line's number and a space again, and takes keys: ENTER shows the rest of the line and stores it as a typed line is stored (no `OK` after it, in direct mode or in a program, which ends there); X shows the rest and inserts what is typed; L shows the rest and starts the line again (a third copy); a count of digits and space moves that many characters on, showing them; H deletes the rest and inserts; nD deletes n characters, showing nothing for them (`2D` on `PRINT 7` leaves `INT 7`). `EDIT 99` with no line 99, and `EDIT` with no number, are `?UL ERROR`. The other keys and commands, BREAK, the left arrow in insertion and a full line are ours [OWN] until bb11's `stmt-edit2` and `stmt-edit3` answer them (ours: a key that is no command does nothing; in insertion only a printable key goes in; a line of 250 characters with its number takes no more, and a stored line that lists longer is cut there) | [BB] bb10 `stmt-edit` |
 
 The log grows with every milestone; black-box facts are added with the date of the run they came from.
 
@@ -1162,9 +1165,11 @@ about 9,885 cycles per decrement and 475,692 per transition [BB].
 | The debounce | what the original's delay at `$0097-$0098` times (ours: the cursor's delay); a `POKE` of it and the blink's period, or the keys' pace, after it |
 | Where else updates run | whether any other wait (a cassette prompt, the `SHIFT-@` pause) updates the cursor; ours: only the line editor's wait and `EDIT`'s, which is the same `KEYWT` |
 
-**Entry points (input for P3, not built).** Where ROM-call compatibility is in scope, the specification names these
-addresses as interfaces, not as places in the original's code. Register, condition-code and stack effects, and the
-native-64K addresses, need black-box verification before any machine-code compatibility is claimed:
+**Entry points (input for P3).** Where ROM-call compatibility is in scope, the specification names these addresses
+as interfaces, not as places in the original's code. `$8006` and `$8009` are among the published entry points now
+built (section 3: `$8006` jumps to `KEYIN`; `$8009` stays `$FF`); what ours does at them is what the manual's page
+says, checked by `tests/basic-entry.test.js`, while the original's register, condition-code and stack effects there,
+and the native-64K addresses, still need black-box verification before more machine-code compatibility is claimed:
 
 | Address | Interface |
 |---|---|

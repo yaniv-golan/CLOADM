@@ -1,8 +1,9 @@
 * The published indirect calls, $A000-$A00D: a word each, the address of a routine [DOC: Dragon Data Ltd, "Dragon 32
 * Information for Machine Code Users!", March 1983, printed pages 4-5]. Ours where it does what the page says, the
-* rest $FFFF. tools/build-basic.js includes this between two routines, at the last place below $A000 that nothing
-* runs on into (after an RTS, a BRA, a JMP...): the code before it ends there, the gap up to $A000 is left $FF, and
-* the code after it goes on at $A00E.
+* rest $FFFF. tools/build-basic.js includes this between two routines, before the one that starts at $A000 (nothing
+* runs on into it: an RTS, a BRA, a JMP... comes before it), so it costs no byte and that routine goes on at $A00E;
+* the build fails if no routine starts there. A mutant's build (tests only) may put it lower, the gap up to $A000
+* left $FF, or go without it.
         ORG     $A000
 VECTBL  FDB     KEYIN           ; $A000 the keyboard polled, as $8006 [DOC p.5]
         RMB     2               ; $A002 (not published)
