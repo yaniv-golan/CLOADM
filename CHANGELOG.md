@@ -234,6 +234,101 @@ Next version: 0.4.1 (the plugin and extension manifests carry it; `tests/plugin.
   2,416 against the original's 2,396 (at most 2,419.96). No
   recorded loop is faster than the original's.
 
+### 0.4.1
+
+#### Added
+
+- **For contributors: the changelog guard refuses a subsection heading written twice under [Unreleased].** Two `#### Fixed` blocks
+  there split one kind's entries in two and read as two releases' worth of fixes in a section not released at all;
+  `tests/changelog.test.js` now fails naming the kind and both line numbers. A repeated heading inside a released
+  section is left to the tag comparison, which already reports it.
+
+#### Changed
+
+- **A phone's Menu is one list, the same either way up.** Held upright (the dropdown under the app bar) and held
+  sideways (the panel's sheet) it lists the same rows in the same order, in four groups parted by a thin rule:
+  Programs…, Open…, Ask Claude…, Share…; Machine…, Tape, disks and cartridge…, Power…, Add ROMs…, Settings…; Take
+  snapshot, Restore snapshot…; Commands…, Library, Debugger, Help, Install CLOADM…, GitHub ↗, Hide keys. A row shows only
+  where what it opens is not already on screen (upright, Open…, Ask Claude… and the machine are the app bar's; the ports
+  and Power, with their state under them, only where the chips are not shown). Held sideways, Library, Debugger, Help,
+  the snapshots and GitHub are in Menu now, and the sheet is 260 px wide above Menu at the right. Claude features Off
+  hides Ask Claude… there (Commands… stays: the box works without its Claude rows). On a tablet with the touch keys the
+  app bar's links follow the same order, the snapshots after Settings…, and GitHub carries ↗. Held sideways with the keys
+  hidden, Menu is the same list too: the ports and Power with their state, and Share… once, as a row; Restore snapshot…
+  gives the focus back to the Menu it came from. (`js/ui/menu.js`)
+
+- **Every program in Programs has the same two lines:** its name, and one short line saying what it is ("An ELIZA-style
+  chat program", "Find the ten mines", …), on every model and on the desktop's Media tab too. WYRMFIRE's licence and
+  credit line leave its row; they stay in its Details and on its card under the screen.
+
+- **The machine picker opens with the machine in use in the middle of the list,** its row filled, and the list never
+  starts on a row cut in half.
+
+- **Breaking for Node API callers: `pokeBytes` and `injectAssembled` take the machine to write as a required
+  argument.** To update a call, pass the machine last: `session.pokeBytes(addr, bytes, session.shownMachine)`. Both are the
+  Node API (`docs/automation.md`), and both used to default to the machine on screen: with the chat full screen that
+  is the chat's machine, and a tool's bytes landing there would overwrite the chat firmware. Omitting the machine
+  now throws a `SessionError` and writes nothing.
+
+#### Fixed
+
+- **A phone's Menu no longer wraps into a second column** (GitHub sat top right on a 393x659 phone): one column, which
+  scrolls, its bottom fading while there is more below.
+
+- **Menu held sideways no longer cuts a row through its text** (653x280: the fifth row was sliced, with no fade): its
+  bottom edge falls between two rows, and it fades while it can scroll further.
+
+- **A toast interrupting WYRMFIRE's start no longer silences what it had left to say.** WYRMFIRE's start says what
+  happened in turn (that it switched machines, the keys to play, on a phone the turn-sideways hint); a toast raised by
+  something else replacing one of them dropped the rest. The chain now waits for the newer toast to be gone and then
+  carries on: every line is still said, in order, and never two at once.
+
+- **Switching machine with the "Ask Claude" panel open closes the panel.** A switch takes the chat with it (the
+  Session drops it), but the panel stayed drawn and open with no conversation behind it. The header button's own rule
+  is "it is open, so close it", so the next press closed that empty panel instead of opening a chat, and a second
+  press was needed. The panel now closes with the chat it was showing, as the full-screen chat already did.
+
+- **A refused store read no longer names the item twice.** When the storage backend refused a snapshot save, a
+  quick-save slot read or restore, or a NitrOS-9 boot, the message read like "mygame.dsk: `disks/mygame.dsk`:
+  permission was refused" — the name, then the stored path, then the reason. The same happened to the listing the
+  Library, the quick-save box and the DriveWire panel ask for. Each now hands the stored name to the one place that
+  decides how a store failure is worded, so the item is named once. A reason that names a *different* file still
+  keeps its path: where it failed is not the item being described.
+
+- **On a phone, a toast no longer takes a tap meant for a key on the on-screen pad.** A toast that came up while a
+  game's pad was opening could settle over the pad's own row, and the tap on → (or any key under it) went to the
+  toast instead of the machine, so the game never saw the key. The toast now keeps clear of the pad's keys, upright
+  as well as held sideways, and a place that would sit over one is never kept.
+
+- **On a phone, showing the on-screen keyboard after hiding it no longer leaves the page a fraction taller than the
+  window.** The screen's height is worked out from the panel's own box (how far the panel's foot and the chips reach past
+  the screen), and that length was only re-measured on the next animation frame, not by the code that shows or hides
+  the panel. For the one frame between the two, the screen kept the height of the layout before and the page stood
+  18 px taller than the window, so it could be scrolled by a hair. It is measured again in the task that changes the
+  layout, so there is no such frame.
+
+- **The Dragons' parallel printer: BUSY, and one byte per strobe.** On the Dragon 64, 200, 200-E, Tano and 64 Plus,
+  PIA1 PB0 followed the 6551's RS-232 line, idle high, so a program waiting for the printer's BUSY to go low hung there.
+  PB0 is the printer's BUSY on every Dragon (the Dragon 64 schematic wires it to the printer port alone; "Inside the
+  Dragon", section 8.4.2), and CLOADM's printer is always attached and ready, so it reads 0. And every write to PIA1 port A with the
+  strobe (PA1) high printed a byte, so sound and cassette output written with that bit set came out on the printer; a
+  byte is now taken once per strobe pulse, as PA1 rises, and a reset no longer prints a stray $FF. The 6551 receives as
+  before.
+  MAME 0.264 does neither, so its rules stay under `config.mameCompat` for the lockstep comparisons
+  (`docs/verification.md`, "Deviations from MAME").
+
+- **A shared program, postcard or source asks before it switches.** A program, LIZA postcard or program with its
+  source shared by a short or a long link opened on the sender's machine even when something on screen would be lost: a key typed while the
+  link's payload was in flight, a BASIC session beside the chat, a disk or tape in a drive, or work on a machine
+  switched to while the link was fetched. Each now goes through the same `Session.switchLoses` test and question a
+  shared moment does, asked of the machine on screen when the payload arrives: on a first visit, with nothing of the
+  person's, it still opens directly; with their work there, the switch asks first and holds the focus on **Switch**
+  (a key answers the question rather than typing into the machine), and a question already open is replaced by the
+  link's own. What counts as the person's now says what it includes: their input **or Claude's in-page actions on
+  their behalf** (`type_text`, `poke`, `assemble_and_load`, `press_break`), not only their own keys and POKEs.
+  **Cancel** leaves the machine and your work as they were, and gives a long link back to the address, so a reload
+  offers it again (a short link has nothing to put back).
+
 ### 0.4.0
 
 #### Added

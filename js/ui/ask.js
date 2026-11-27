@@ -85,6 +85,11 @@ export function setupAsk(page, claude) {
     render();
   }
   claude.registerPanel({ open: show, close: hide, get shown() { return open; } });
+  // A machine switch takes the chat with it (Session.adopt -> dropChat, which nulls claudeView and drops session.chat)
+  // but left this panel drawn and open. The panel then had no conversation behind it, and the header button's own
+  // rule -- "open, so close it" -- made the next press shut it instead of opening one, which is the press that must
+  // open the side panel. So the panel closes with the chat it was showing, as the full screen already does.
+  session.on((ev) => { if (ev === 'machine' && !session.chat && open) hide(); });
   // the header button: opens the side panel beside the person's machine, whatever is on it (the welcome menu
   // included), or closes what is open
   $('btnAsk').onclick = () => {

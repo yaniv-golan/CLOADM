@@ -6,7 +6,7 @@
 // On CI the tags must be there (the workflow checks out with fetch-depth: 0) and a missing one is a failure. On a
 // checkout without them this prints one SKIP line per tag naming it and does not pretend to have compared.
 const cp = require('child_process'), fs = require('fs'), path = require('path');
-const { check: guard, parse, tagOf, ALLOWED_CORRECTIONS, subsectionKinds, oddSubsections, unreleasedKinds, KEEP_A_CHANGELOG, conflictMarkers, bareLetterLines } = require('./changelog-guard.js');
+const { check: guard, parse, tagOf, ALLOWED_CORRECTIONS, subsectionKinds, oddSubsections, unreleasedKinds, unreleasedLevel3, duplicateUnreleasedKinds, KEEP_A_CHANGELOG, conflictMarkers, bareLetterLines } = require('./changelog-guard.js');
 
 let fail = 0;
 const check = (name, cond, detail = '') => { if (!cond) { fail++; console.log(`FAIL ${name} ${detail}`); } else console.log('ok   ', name, detail); };
@@ -55,9 +55,23 @@ const git = (...args) => cp.execFileSync('git', args, { cwd: root, encoding: 'ut
   // section no release reads.
   check('CHANGELOG.md: [Unreleased]\'s own subsection headings are Keep a Changelog names',
     unreleasedKinds(text).every((k) => KEEP_A_CHANGELOG.includes(k)), unreleasedKinds(text).join(', '));
+  check('CHANGELOG.md: [Unreleased] carries no level-3 heading (its subsections are "####")',
+    unreleasedLevel3(text).length === 0, unreleasedLevel3(text).join(', '));
   check('...and an invented [Unreleased] heading is reported',
     unreleasedKinds('## [Unreleased]\n\nNext version: 1.0.0\n\n#### Upgrading\n\n- x\n\n### 0.9.0\n').join() === 'Upgrading',
     unreleasedKinds('## [Unreleased]\n\n#### Upgrading\n\n- x\n\n### 0.9.0\n').join());
+  // An H3 name under [Unreleased] is a .md mistake ("### Fixed" instead of "#### Fixed"). It must be reported, and it
+  // must not end the region: when it did, both this scan and bareLetterLines saw nothing past it and stayed green
+  // (that is how an H3 entry shipped once with a stray "D" and an invented subsection both invisible).
+  const H3 = '## [Unreleased]\n\nNext version: 1.0.0\n\n### Fixed\n\n- a real entry\n\nD\n\n#### Upgrading\n\n- x\n\n### 0.9.0\n';
+  check('...and a level-3 heading under [Unreleased] is reported by name',
+    unreleasedLevel3(H3).join() === 'Fixed', unreleasedLevel3(H3).join());
+  check('...and it does not end the scan: the entries after it are still read',
+    unreleasedKinds(H3).join() === 'Upgrading' && bareLetterLines(H3).map((x) => x.text).join() === 'D',
+    `kinds ${unreleasedKinds(H3).join(', ')} / letters ${JSON.stringify(bareLetterLines(H3))}`);
+  check('...while a release heading does end it, and an H3 name above one is not that release\'s',
+    unreleasedLevel3('## [Unreleased]\n\n### 0.9.0\n\n### Fixed\n').length === 0,
+    unreleasedLevel3('## [Unreleased]\n\n### 0.9.0\n\n### Fixed\n').join());
 
   // A merge can leave an unresolved conflict marker, or a stray one- to three-letter line, and a changelog with
   // either reads as broken to everyone after. Both are checked on the real file, and each rule is proven to bite on a
@@ -78,6 +92,39 @@ const git = (...args) => cp.execFileSync('git', args, { cwd: root, encoding: 'ut
   }
   check('...and a bare letter in a RELEASED section is not this rule\'s (frozen against its tag, caught there)',
     bareLetterLines('## [Unreleased]\n\n#### Fixed\n\n- x\n\n### 0.9.0\n\nD\n').length === 0);
+
+  // A kind written twice under [Unreleased]: a new entry goes in the subsection of its kind, and two "#### Fixed"
+  // blocks read as two releases' worth of one kind in a section not released at all. The message names the kind and
+  // both line numbers, so a reader can go straight to the second heading.
+  check('CHANGELOG.md: [Unreleased] carries each "#### Kind" heading once',
+    duplicateUnreleasedKinds(text).length === 0, duplicateUnreleasedKinds(text).join(' | '));
+  {
+    // the line numbers below were counted by hand: "#### Fixed" is on lines 9 and 13 of this fixture
+    const DUP = ['# Changelog', '', '## [Unreleased]', '', '#### Added', '', '- a', '',
+      '#### Fixed', '', '- b', '', '#### Fixed', '', '- c', '', '### 0.4.0', '', '#### Fixed', ''].join('\n');
+    const found = duplicateUnreleasedKinds(DUP);
+    check('...and two "#### Fixed" under [Unreleased] are reported by kind and both line numbers',
+      found.length === 1 && found[0] === 'Fixed: line 9 and line 13', JSON.stringify(found));
+    // each kind once is what the section wants, in whatever order
+    check('...and each kind once, in any order, is not reported',
+      duplicateUnreleasedKinds('## [Unreleased]\n\n#### Fixed\n\n- b\n\n#### Added\n\n- a\n\n### 0.4.0\n').length === 0);
+    // a repeat INSIDE a released section is that section's history, which this rule does not touch (it is frozen
+    // against its tag; a duplicate there is the tag comparison's, not this one's)
+    check('...and a repeated kind inside a RELEASED section is not this rule\'s',
+      duplicateUnreleasedKinds('## [Unreleased]\n\n#### Fixed\n\n- a\n\n### 0.4.0\n\n#### Fixed\n\n- x\n\n#### Fixed\n\n- y\n').length === 0);
+    // more than two: every heading is named, not just the first pair
+    check('...and three "#### Changed" name all three lines',
+      duplicateUnreleasedKinds('## [Unreleased]\n\n#### Changed\n\n#### Changed\n\n#### Changed\n\n### 0.4.0\n').join() === 'Changed: line 3 and line 5 and line 7',
+      JSON.stringify(duplicateUnreleasedKinds('## [Unreleased]\n\n#### Changed\n\n#### Changed\n\n#### Changed\n\n### 0.4.0\n')));
+    // the section ends where the other [Unreleased] scans end: a "### Fixed" name is not a boundary, so the headings
+    // after it are still [Unreleased]'s and the repeats among them are counted (lines 3, 7 and 9 by hand)
+    check('...and the region is read as the other [Unreleased] scans read it (a "### " name does not end it)',
+      duplicateUnreleasedKinds('## [Unreleased]\n\n#### Fixed\n\n### Fixed\n\n#### Fixed\n\n#### Fixed\n\n### 0.4.0\n').join() === 'Fixed: line 3 and line 7 and line 9',
+      JSON.stringify(duplicateUnreleasedKinds('## [Unreleased]\n\n#### Fixed\n\n### Fixed\n\n#### Fixed\n\n#### Fixed\n\n### 0.4.0\n')));
+    // a "#### " heading with trailing spaces is the same heading as without (as subsectionKinds reads it)
+    check('...and "#### Fixed " with trailing spaces is counted as "Fixed"',
+      duplicateUnreleasedKinds('## [Unreleased]\n\n#### Fixed\n\n#### Fixed \n\n### 0.4.0\n').length === 1);
+  }
 }
 
 // ---------------- the fixtures for the tail-of-section gap ----------------

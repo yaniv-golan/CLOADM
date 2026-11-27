@@ -259,7 +259,7 @@ NEXT    BRA     LOOP
     try { s.switchMachine('coco', undefined, { menu: false }); errs.push('switched'); } catch (e) { errs.push(e instanceof Emu.SessionError ? 'switch refused' : e.message); }
     try { s.openSnapshot({}); errs.push('opened'); } catch (e) { errs.push(e instanceof Emu.SessionError && /watchWrites/.test(e.message) ? 'open refused' : e.message); }
     s.snapshotFile().then(() => errs.push('snapshot taken'), (e) => errs.push(e instanceof Emu.SessionError ? 'snapshot refused' : e.message));
-    s.pokeBytes(MARK, [0x99]);     // a poke is not the CPU's bus write: not reported
+    s.pokeBytes(MARK, [0x99], s.shownMachine);     // a poke is not the CPU's bus write: not reported
   });
   s.runFrames(1);
   setTimeout(() => {
@@ -269,7 +269,7 @@ NEXT    BRA     LOOP
   const s2 = started('dragon64');
   const ev = [];
   s2.watchWrites({ start: 0x3F00, end: 0x3F0F }, (e) => ev.push(e));
-  s2.pokeBytes(0x3F00, [1, 2, 3]);
+  s2.pokeBytes(0x3F00, [1, 2, 3], s2.shownMachine);
   s2.debug.write(0x3F04, [4]);
   s2.runFrames(2);
   check('Session pokes and the debugger\'s writes are not reported', ev.length === 0 && s2.readByte(0x3F04) === 4);

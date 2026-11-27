@@ -26,7 +26,6 @@ import { cpuFamily } from '../cpu/cpus.js';
 import { gameKey, WELCOME } from '../session.js';
 import { buildUrl } from '../config.js';
 import { WYRM_TEXT } from './wyrmfire.js';
-const WYRMFIRE_ROW = { name: WYRM_TEXT.name, subtitle: WYRM_TEXT.subtitle, credit: WYRM_TEXT.credit };
 
 // Programs that run without ROMs: our own only. Third-party homebrew is not bundled: the stub provides only
 // POLCAT and CHROUT, so most homebrew (which calls other ROM routines) wouldn't run, and anything listed here
@@ -36,12 +35,17 @@ const WYRMFIRE_ROW = { name: WYRM_TEXT.name, subtitle: WYRM_TEXT.subtitle, credi
 // LIZA is one entry for every machine: the Session picks the 6809 or 6803 build by CPU and, on a 4K
 // MC-10 or Alice, offers the 20K switch the 6803 build needs. `cpu` is an instruction-set family: the 6309
 // runs the 6809 build, so the demo is offered on it too.
+// desc: the row's second line (at most 34 characters, so it is whole on one line on a 393 px phone beside "on screen
+// now"); the other rows' are SHELF_DESC's.
 export const SHELF = [
-  { name: 'LIZA', liza: true, title: 'An ELIZA-style conversation program' },
-  { name: 'Colour demo', url: 'examples/demo.bin', cpu: '6809', title: 'Graphics and colour demo' },
-  { name: '2048', game: '2048', cpu: '6809', title: '2048: slide and join the tiles (arrows; BREAK leaves)' },
-  { name: 'Minesweeper', game: 'minesweeper', cpu: '6809', title: 'Minesweeper: find the ten mines (arrows or joystick; SPACE or fire opens, F or hold fire flags; BREAK leaves)' },
+  { name: 'LIZA', liza: true, desc: 'An ELIZA-style chat program', title: 'An ELIZA-style conversation program' },
+  { name: 'Colour demo', url: 'examples/demo.bin', cpu: '6809', desc: 'The machine\'s colours and sound', title: 'Graphics and colour demo' },
+  { name: '2048', game: '2048', cpu: '6809', desc: 'Slide and join the tiles', title: '2048: slide and join the tiles (arrows; BREAK leaves)' },
+  { name: 'Minesweeper', game: 'minesweeper', cpu: '6809', desc: 'Find the ten mines', title: 'Minesweeper: find the ten mines (arrows or joystick; SPACE or fire opens, F or hold fire flags; BREAK leaves)' },
 ];
+// the welcome menu's, WYRMFIRE's (its licence and credits are in its Details sheet and the card under the screen:
+// js/ui/wyrmfire.js) and the chat's second lines
+export const SHELF_DESC = Object.freeze({ welcome: 'CLOADM\'s start menu', wyrmfire: 'A 3D game for the Dragon 64', claude: 'Claude, on the machine\'s screen' });
 const gameItem = (key) => SHELF.find((x) => x.game === key);
 // the welcome menu's key for LIZA ("1 TALK TO LIZA": the number whose event is 'liza', both builds)
 export const LIZA_KEY = WELCOME.events.indexOf('liza') + 1;
@@ -231,9 +235,11 @@ export function setupWelcome(page, { showRoms, openClaude, ask }) {
   // LIZA, the games: ?start=; the chat: ?app=claude) is a real link to it on this machine, so "Copy link" gives the
   // direct link; a plain click runs it here, as a button would (a click with a modifier is left to the browser).
   const linkTo = (params) => buildUrl(location.href, Object.assign({ machine: session.personMachine.id, config: session.personMachine.config }, params));
-  const entry = (text, params, onclick) => {
-    if (!params) { const b = el('button', text); b.onclick = onclick; return b; }
-    const a = el('a', text); a.href = linkTo(params);
+  // every row two lines: its name, and under it one short muted line saying what it is (its tag, if any, on the right)
+  const lines = (b, text, desc) => { const t = el('span', null, 'txt'); t.append(el('span', text, 'name'), el('span', desc, 'desc')); b.append(t); return b; };
+  const entry = (text, desc, params, onclick) => {
+    if (!params) { const b = lines(el('button'), text, desc); b.onclick = onclick; return b; }
+    const a = lines(el('a'), text, desc); a.href = linkTo(params);
     a.onclick = (e) => { if (e.button || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return; e.preventDefault(); onclick(); };
     return a;
   };
@@ -253,7 +259,7 @@ export function setupWelcome(page, { showRoms, openClaude, ask }) {
     // (the 6309 runs it too: it is in the 6809 instruction-set family)
     const cpu = session.personMachine.config.cpu, family = cpuFamily(cpu), need = session.lizaNeeds();
     {
-      const w = entry('Welcome menu', { start: 'welcome' }, () => runWelcome({ greeting: session.greetingFor('back'), carryOn: session.carryOn }, { reason: 'shelf' })); w.dataset.shelf = 'welcome';   // the focus key: the redraw restores by it
+      const w = entry('Welcome menu', SHELF_DESC.welcome, { start: 'welcome' }, () => runWelcome({ greeting: session.greetingFor('back'), carryOn: session.carryOn }, { reason: 'shelf' })); w.dataset.shelf = 'welcome';   // the focus key: the redraw restores by it
       w.title = 'The Welcome menu: LIZA, colour and sound, adding ROMs, Claude, games';
       tagged = onScreen();
       shownRun = running ? `${running.kind}:${running.name}` : '';
@@ -261,7 +267,7 @@ export function setupWelcome(page, { showRoms, openClaude, ask }) {
       row.append(w);
     }
     for (const item of SHELF.filter((x) => !x.cpu || x.cpu === family)) {
-      const b = entry(item.name, item.liza ? { start: 'liza' } : item.game ? { start: item.game } : null, () => start1(item));
+      const b = entry(item.name, item.desc, item.liza ? { start: 'liza' } : item.game ? { start: item.game } : null, () => start1(item));
       b.dataset.shelf = item.name;   // the focus key: the redraw restores by it
       // the LIZA title names the build the machine actually runs (the 6309 runs the 6809 build)
       b.title = item.liza ? `${item.title} (the ${family} build${need ? `; needs the ${need.ram}K RAM option` : ''})` : item.title;
@@ -272,15 +278,12 @@ export function setupWelcome(page, { showRoms, openClaude, ask }) {
     // WYRMFIRE: on every machine (it switches to the Dragon 64, asking first: js/ui/wyrmfire.js); its link is
     // ?start=wyrmfire alone, which names its machine itself
     {
-      const a = el('a'); a.href = buildUrl(location.href, { start: 'wyrmfire' }); a.dataset.shelf = 'wyrmfire';
+      const a = lines(el('a'), WYRM_TEXT.name, SHELF_DESC.wyrmfire); a.href = buildUrl(location.href, { start: 'wyrmfire' }); a.dataset.shelf = 'wyrmfire';
       a.onclick = (e) => { if (e.button || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return; e.preventDefault(); page.wyrmfire.start(); };
-      const sub = el('span', null, 'sub');
-      sub.append(el('span', WYRMFIRE_ROW.subtitle), el('span', WYRMFIRE_ROW.credit, 'credit'));
-      a.append(el('span', WYRMFIRE_ROW.name, 'name'), sub);
-      a.title = `${WYRMFIRE_ROW.name}: ${WYRMFIRE_ROW.subtitle}`;
+      a.title = `${WYRM_TEXT.name}: ${SHELF_DESC.wyrmfire}`;
       row.append(a);
     }
-    const c = entry('Chat with Claude', { app: 'claude' }, () => openClaude()); c.dataset.shelf = 'claude';
+    const c = entry('Chat with Claude', SHELF_DESC.claude, { app: 'claude' }, () => openClaude()); c.dataset.shelf = 'claude';
     row.append(c);
     const back = had !== null && row.querySelector(`[data-shelf="${CSS.escape(had)}"]`);
     if (back) back.focus({ preventScroll: true });

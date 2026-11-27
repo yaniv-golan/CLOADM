@@ -439,7 +439,7 @@ HALT    BRA     HALT
     s.serial.send([0x41]);
     s.runFrames(2);
     const before = { irq: s.shownMachine.acia.chip.irqState, out: s.shownMachine.acia.chip.irq, line: s.shownMachine.interrupts.level('acia', 'irq') };
-    s.pokeBytes(0x3100, [1]);   // the guest writes the transmit register now
+    s.pokeBytes(0x3100, [1], s.shownMachine);   // the guest writes the transmit register now
     s.runFrames(3);
     const c = s.shownMachine.acia.chip;
     return { before, irqState: c.irqState, irq: c.irq, line: s.shownMachine.interrupts.level('acia', 'irq'), cpuLine: s.shownMachine.cpu.irqLine, chip: JSON.stringify(c.saveState()), events: tr ? tr.events.map((e) => e.kind).join() : '' };

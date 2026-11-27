@@ -122,19 +122,20 @@ const feed = (rx, edges) => { for (const [t, l] of edges) rx.write(t, l); };
 
 // ---------------- the machines ----------------
 {
-  // Dragon parallel printer: PIA0 port B is printed by every PIA1 port A output with PA1 (the strobe) high
+  // Dragon parallel printer: PIA0 port B is printed once per strobe pulse, as PA1 rises ("Inside the Dragon",
+  // section 8.4.2; tests/dragon-printer.test.js has the rest, and MAME's rule under mameCompat)
   const m = Emu.createMachine('dragon64');
   m.reset(true);
-  check('Dragon: reset prints PIA0 port B ($FF) (MAME device_reset)', eq(m.printed, [0xFF]), m.printed.join(','));
-  m.printed.length = 0;
+  check('Dragon: power-on prints nothing', eq(m.printed, []), m.printed.join(','));
   m.write(0xFF03, 0x00); m.write(0xFF02, 0xFF); m.write(0xFF03, 0x04);   // PIA0 PB outputs
   m.write(0xFF21, 0x00); m.write(0xFF20, 0xFE); m.write(0xFF21, 0x04);   // PIA1 PA1-7 outputs
   m.write(0xFF02, 0x41);
   m.write(0xFF20, 0x00);                // strobe low: nothing
   m.write(0xFF20, 0x02);                // strobe high: 'A'
-  m.write(0xFF20, 0x02);                // and again while high
-  m.write(0xFF02, 0x42); m.write(0xFF20, 0xFC); m.write(0xFF20, 0xFE);
-  check('Dragon: every port A output with the strobe high prints port B', eq(m.printed, [0x41, 0x41, 0x42]), m.printed.join(','));
+  m.write(0xFF20, 0x02);                // written again while high: nothing
+  m.write(0xFF20, 0xFE);                // DAC bits with the strobe still high: nothing
+  m.write(0xFF02, 0x42); m.write(0xFF20, 0xFC); m.write(0xFF20, 0xFE);   // strobe low, then high: 'B'
+  check('Dragon: one byte per strobe pulse, at PA1\'s rising edge', eq(m.printed, [0x41, 0x42]), m.printed.join(','));
 }
 {
   // CoCo and MC-10: a serial printer on the bit-banger, at 600 baud; the firmware waveform is driven here by
