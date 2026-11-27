@@ -95,29 +95,59 @@ function oddSubsections(text, allow = []) {
 // comparison keeps, SECTION_BOUNDARY below, so the two cannot disagree about where a section stops.
 const UNRELEASED_BOUNDARY = /^(?:#{1,2} |### \d)/;
 
-// A fenced code block is an example the file shows, not its structure. The docs for these very rules quote headings
-// ("#### Fixed" twice, "### Fixed", a stray "D") inside a fence, and a line there is neither a heading nor a stray
-// letter. Every scan of [Unreleased] skips fenced lines; the released-section comparison does not need to, because
-// whatever a fence holds is compared with the tag's copy of the same text, so it can neither hide a change nor invent
-// one (and [Unreleased] is not part of any release's section, so those scans never reach a fence there).
+// A fenced code block is an example the file shows, not its structure: a heading or a stray letter on a line inside
+// one is neither, so each [Unreleased] scan skips those lines. The byte comparison against a tag does not need this,
+// because whatever a fence holds is compared with the tag's copy of the same text, so it can neither hide a change
+// nor invent one; the kind-name check (oddSubsections) does read released sections, and a repetition there is not its
+// subject (a released section is the tag comparison's).
+//
+// The fence is bounded by [Unreleased] itself. A fence that opened and never closed would otherwise read to the end of
+// the file and skip every line after it -- a stray "```" left by a merge would hide a real duplicate, a real stray
+// letter and a real bogus kind, which are exactly what these scans exist to catch -- and a fence opened above a
+// release heading would swallow that heading's section into [Unreleased]. So the region's end (a release heading or a
+// level 1-2 heading) ends any fence, and a fence opened outside the region does not reach inside it.
+//
 // A fence opens with three or more ` or ~ (at most three spaces of indent) and closes with the same character, at
-// least as many of them, and nothing after it but spaces; one that never closes runs to the end, as in Markdown.
-// A CRLF line ends with "\r", which no Markdown fence rule writes and `.` does not match, so it is dropped first: a
-// file a Windows editor saved must not read as one long unfenced document.
+// least as many of them, and nothing after it but spaces. A CRLF line ends with "\r", which `.` does not match, so it
+// is dropped from the line first: a file a Windows editor saved must not read as one long unfenced document.
 const FENCE_OPEN = /^ {0,3}(`{3,}|~{3,})(.*)$/;
-function fencedLines(lines) {
-  const out = new Array(lines.length).fill(false);
-  let ch = null, len = 0;
+
+// [Unreleased]'s lines: `from` (exclusive) to `to` (exclusive), where `to` is the first release heading or level 1-2
+// heading after it, or the end of the file. `from` is -1 when the file has no [Unreleased] heading.
+function unreleasedRegion(lines) {
+  let from = -1;
   for (let i = 0; i < lines.length; i++) {
+    if (/^## \[Unreleased\]/i.test(lines[i])) { from = i; break; }
+  }
+  if (from < 0) return { from, to: from };
+  for (let i = from + 1; i < lines.length; i++) {
+    if (UNRELEASED_BOUNDARY.test(lines[i])) return { from, to: i };
+  }
+  return { from, to: lines.length };
+}
+
+// Which lines of a region [from, to) are in a BALANCED fence (the fence's own lines included: no heading starts with
+// ``` or ~~~). The fence state starts closed at `from`, so no fence from above reaches in, and ends with the region.
+//
+// Only a pair counts. An opener with no closer inside the region fences nothing: Markdown would run it to the end of
+// the document, and for a reader that is right, but for this guard it would make one stray "```" (a half-deleted
+// example, merge debris) hide every real duplicate, stray letter and bogus kind after it -- the very debris these
+// scans exist to catch, one line above them. So a stray opener is read as an ordinary line, which reports what it was
+// hiding, and a stray opener is harmless by itself (it starts with ``` and is neither a heading nor a bare letter).
+function fencedLines(lines, from, to) {
+  const out = new Array(lines.length).fill(false);
+  if (from < 0) return out;
+  let open = -1, ch = null, len = 0;
+  for (let i = from + 1; i < to; i++) {
     const line = lines[i].replace(/\r$/, '');
-    if (ch === null) {
+    if (open < 0) {
       const m = FENCE_OPEN.exec(line);
       if (!m || (m[1][0] === '`' && m[2].includes('`'))) continue;   // a backtick fence's info string has no backtick
-      ch = m[1][0]; len = m[1].length;
+      open = i; ch = m[1][0]; len = m[1].length;
     } else if (new RegExp(`^ {0,3}${ch}{${len},}\\s*$`).test(line)) {
-      ch = null;
+      for (let j = open; j <= i; j++) out[j] = true;                 // a balanced pair, and only then
+      open = -1; ch = null;
     }
-    out[i] = true;                                                  // the fence line itself: no heading starts with one
   }
   return out;
 }
@@ -126,27 +156,22 @@ function fencedLines(lines) {
 // not a "####" heading ("####Added" is prose: Markdown wants a space), '' when it is one with no name after it
 // ("####", "#### ", "####   "). A heading with no name is not a kind, so every scan that reads headings by name
 // leaves it out -- otherwise "####   " is counted as a kind called " ", which fits no heading list, named nothing a
-// reader could act on, and reads as a subsection that files nothing. Under [Unreleased] the nameless heading is
-// reported by line instead (unreleasedNamelessHeadings); in a released section it is not, because a section is frozen
-// against its tag and a nameless heading that differs from the tag's is a heading difference the comparison reports.
+// reader could act on, and reads as a subsection that files nothing. A nameless heading is reported by line instead:
+// under [Unreleased] by unreleasedNamelessHeadings, and in a released section by oddSubsections (the byte comparison
+// against the tag would also catch a newly inserted one, but a section whose bytes match its tag may still carry one).
 const KIND_HEADING = /^####(?:\s|$)/;
 const kindOfHeading = (line) => (KIND_HEADING.test(line) ? line.slice(4).trim() : null);
 
 function unreleasedKinds(text) {
   const lines = text.split('\n');
-  const fenced = fencedLines(lines);
-  let inUn = false;
+  const { from, to } = unreleasedRegion(lines);
+  const fenced = fencedLines(lines, from, to);
   const kinds = [];
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
+  for (let i = from + 1; i < to; i++) {
     if (fenced[i]) continue;                                 // shown in an example, not written in the section
-    if (/^## \[Unreleased\]/i.test(line)) { inUn = true; continue; }
-    if (inUn && UNRELEASED_BOUNDARY.test(line)) break;      // a version heading (or a level 1-2 heading) ends it
-    if (inUn) {
-      const k = kindOfHeading(line); if (k && !kinds.includes(k)) kinds.push(k);
-      // a level-3 name here is a mistake its own check reports (it is not a Keep a Changelog subsection), so it is
-      // read as a heading that the scanner must not stop at, rather than silently ending the region
-    }
+    const k = kindOfHeading(lines[i]); if (k && !kinds.includes(k)) kinds.push(k);
+    // a level-3 name here is a mistake its own check reports (it is not a Keep a Changelog subsection), so it is
+    // read as a heading that the scanner must not stop at, rather than silently ending the region
   }
   return kinds;
 }
@@ -160,15 +185,12 @@ const NAMELESS_HEADING = /^(#{3,4})(?:\s|$)/;
 const namelessNameOf = (line) => { const m = NAMELESS_HEADING.exec(line); return m ? line.slice(m[1].length).trim() : null; };
 function unreleasedNamelessHeadings(text) {
   const lines = text.split('\n');
-  const fenced = fencedLines(lines);
-  let inUn = false;
+  const { from, to } = unreleasedRegion(lines);
+  const fenced = fencedLines(lines, from, to);
   const out = [];
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
+  for (let i = from + 1; i < to; i++) {
     if (fenced[i]) continue;
-    if (/^## \[Unreleased\]/i.test(line)) { inUn = true; continue; }
-    if (inUn && UNRELEASED_BOUNDARY.test(line)) break;
-    if (inUn && namelessNameOf(line) === '') out.push(`line ${i + 1}: ${JSON.stringify(line)} has no name`);
+    if (namelessNameOf(lines[i]) === '') out.push(`line ${i + 1}: ${JSON.stringify(lines[i])} has no name`);
   }
   return out;
 }
@@ -180,15 +202,12 @@ function unreleasedNamelessHeadings(text) {
 const LEVEL3_HEADING = /^###(?:\s|$)/;
 function unreleasedLevel3(text) {
   const lines = text.split('\n');
-  const fenced = fencedLines(lines);
-  let inUn = false;
+  const { from, to } = unreleasedRegion(lines);
+  const fenced = fencedLines(lines, from, to);
   const out = [];
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
+  for (let i = from + 1; i < to; i++) {
     if (fenced[i]) continue;
-    if (/^## \[Unreleased\]/i.test(line)) { inUn = true; continue; }
-    if (inUn && UNRELEASED_BOUNDARY.test(line)) break;
-    if (inUn && LEVEL3_HEADING.test(line)) { const name = line.slice(3).trim(); if (name) out.push(name); }
+    if (LEVEL3_HEADING.test(lines[i])) { const name = lines[i].slice(3).trim(); if (name) out.push(name); }
   }
   return out;
 }
@@ -202,16 +221,12 @@ function unreleasedLevel3(text) {
 // -> ['Fixed: line 9 and line 14', ...], one entry per kind written more than once.
 function duplicateUnreleasedKinds(text) {
   const lines = text.split('\n');
-  const fenced = fencedLines(lines);
+  const { from, to } = unreleasedRegion(lines);
+  const fenced = fencedLines(lines, from, to);
   const at = new Map();                          // kind -> every line number it is a heading on
-  let inUn = false;
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
+  for (let i = from + 1; i < to; i++) {
     if (fenced[i]) continue;
-    if (/^## \[Unreleased\]/i.test(line)) { inUn = true; continue; }
-    if (inUn && UNRELEASED_BOUNDARY.test(line)) break;
-    if (!inUn) continue;
-    const k = kindOfHeading(line);
+    const k = kindOfHeading(lines[i]);
     if (k) at.set(k, [...(at.get(k) || []), i + 1]);   // '' (a heading with no name) is that scan's, not this one's
   }
   const out = [];
@@ -240,15 +255,12 @@ function conflictMarkers(text) {
 const BARE_LETTERS = /^[A-Za-z]{1,3}$/;
 function bareLetterLines(text) {
   const lines = text.split('\n');
-  const fenced = fencedLines(lines);
+  const { from, to } = unreleasedRegion(lines);
+  const fenced = fencedLines(lines, from, to);
   const out = [];
-  let inUn = false;
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
+  for (let i = from + 1; i < to; i++) {
     if (fenced[i]) continue;
-    if (/^## \[Unreleased\]/i.test(line)) { inUn = true; continue; }
-    if (inUn && UNRELEASED_BOUNDARY.test(line)) break;      // a version heading (or a level 1-2 heading) ends it
-    if (inUn && BARE_LETTERS.test(line.trim())) out.push({ line: i + 1, text: line.trim() });
+    if (BARE_LETTERS.test(lines[i].trim())) out.push({ line: i + 1, text: lines[i].trim() });
   }
   return out;
 }
@@ -346,4 +358,4 @@ function check({ text, tagText, tags, ci = false, allowed = ALLOWED_CORRECTIONS,
   return { failures, skips, compared };
 }
 
-module.exports = { parse, check, tagOf, TAG_ALIASES, ALLOWED_CORRECTIONS, subsectionKinds, oddSubsections, unreleasedKinds, unreleasedLevel3, unreleasedNamelessHeadings, duplicateUnreleasedKinds, KEEP_A_CHANGELOG, conflictMarkers, bareLetterLines, fencedLines };
+module.exports = { parse, check, tagOf, TAG_ALIASES, ALLOWED_CORRECTIONS, subsectionKinds, oddSubsections, unreleasedKinds, unreleasedLevel3, unreleasedNamelessHeadings, duplicateUnreleasedKinds, KEEP_A_CHANGELOG, conflictMarkers, bareLetterLines };

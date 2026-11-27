@@ -145,15 +145,26 @@ const git = (...args) => cp.execFileSync('git', args, { cwd: root, encoding: 'ut
     check('...while the same two headings OUTSIDE a fence still are (the fence skip does not hide a real one)',
       duplicateUnreleasedKinds(fenced(['#### Fixed', '', '- one', '', '#### Fixed', '', '- two'])).join() === 'Fixed: line 5 and line 9',
       JSON.stringify(duplicateUnreleasedKinds(fenced(['#### Fixed', '', '- one', '', '#### Fixed', '', '- two']))));
-    // and the enclosing fence holds a nested shorter fence, as the docs do to show a fence: the inner lines stay in
-    check('...and a four-backtick fence holds a three-backtick one (a fence shown inside a fence)',
-      duplicateUnreleasedKinds(fenced(['````markdown', '```', '#### Fixed', '```', '#### Fixed', '````'])).length === 0);
+    // the closing fence must be at least as long as the opening one, so a three-backtick line just after a
+    // four-backtick opener does not close it. The two "#### Fixed" are the next lines on purpose: a line between them
+    // would be skipped by BOTH readings (the fence runs past it either way), so the case would pass with the rule
+    // removed -- it did, with the fixture the review first proposed.
+    check('...and a four-backtick fence is not closed by a shorter line in it (a fence shown inside a fence)',
+      duplicateUnreleasedKinds(fenced(['````', '```', '#### Fixed', '#### Fixed', '````'])).length === 0 &&
+      duplicateUnreleasedKinds(fenced(['````', '```', '#### Fixed', '#### Fixed', '````'])).join() === '',
+      JSON.stringify(duplicateUnreleasedKinds(fenced(['````', '```', '#### Fixed', '#### Fixed', '````']))));
     // a tilde fence is a fence too
     check('...and a ~~~ fence is a fence (its "#### Fixed" pair is an example)',
       duplicateUnreleasedKinds(fenced(['~~~', '#### Fixed', '- an example', '#### Fixed', '~~~'])).length === 0);
-    // one that never closes runs to the end of the file, as Markdown renders it, so nothing after it is read
-    check('...and a fence that never closes runs to the end (nothing inside it is read)',
-      duplicateUnreleasedKinds(fenced(['```', '#### Fixed', '', '#### Fixed'])).length === 0);
+    // an opener with no closer fences nothing: Markdown would run it to the end, but here it would let one stray "```"
+    // hide every real duplicate past it, so what follows it is still read (and a stray opener is nothing by itself)
+    check('...and an opener with no closer fences nothing, so what follows a stray "```" is still read',
+      duplicateUnreleasedKinds(fenced(['```', '#### Fixed', '', '#### Fixed'])).join() === 'Fixed: line 6 and line 8' &&
+      bareLetterLines(fenced(['```', '', 'D'])).map((x) => x.text).join() === 'D',
+      `${JSON.stringify(duplicateUnreleasedKinds(fenced(['```', '#### Fixed', '', '#### Fixed'])))} / ${JSON.stringify(bareLetterLines(fenced(['```', '', 'D'])))}`);
+    // ...and its counterpart: a stray opener above a release heading cannot reach past it
+    check('...and a stray "```" above a release heading does not take that section into [Unreleased]',
+      duplicateUnreleasedKinds('## [Unreleased]\n\n#### Changed\n\n- a\n\n```\n\n### 0.4.0\n\n#### Changed\n\n- old\n').length === 0);
     // a file a Windows editor saved ends every line with "\r": its fence is a fence, and its quoted headings are not read
     check('...and a CRLF fence is a fence (a file saved with Windows line endings)',
       duplicateUnreleasedKinds(fenced(['```\r', '#### Fixed\r', '- an example\r', '#### Fixed\r', '```\r'])).length === 0,
@@ -185,7 +196,8 @@ const git = (...args) => cp.execFileSync('git', args, { cwd: root, encoding: 'ut
       `${JSON.stringify(unreleasedNamelessHeadings(un('###  ')))} / H3 ${JSON.stringify(unreleasedLevel3(un('###  ')))}`);
     check('...and a named heading is not reported (the check is not vacuous), and "####X" is prose, not a heading',
       unreleasedNamelessHeadings(un('#### Fixed')).length === 0 && unreleasedKinds(un('#### Fixed')).join() === 'Fixed' &&
-      unreleasedNamelessHeadings(un('####X')).length === 0);
+      unreleasedKinds(un('####X')).length === 0 && unreleasedNamelessHeadings(un('####X')).length === 0,
+      `kinds ${JSON.stringify(unreleasedKinds(un('####X')))} / nameless ${JSON.stringify(unreleasedNamelessHeadings(un('####X')))}`);
     check('...and one in a fenced example is not reported (it is shown, not written in the section)',
       unreleasedNamelessHeadings('## [Unreleased]\n\n```\n####\n```\n\n### 0.4.0\n').length === 0);
     check('CHANGELOG.md: [Unreleased] carries no "####" heading with no name',
