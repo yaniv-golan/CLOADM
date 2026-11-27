@@ -111,13 +111,16 @@ export function setupClaude(page) {
   // Kapai answers each turn (js/host/kapai.js): its included AI, or the person's saved Anthropic key as its
   // app-managed own AI, by the app's own-AI policy. The page makes the own-key request itself, with the key from the
   // host key store; Kapai never gets the key.
+  // (each request with the saved key is a ClaudeBackend round, with the chat's stall limit)
+  const ownKey = ownKeyResponder(() => new ClaudeBackend({ fetch: (url, init) => fetch(url, init), apiKey: session.keyStore.get() || '',
+    ...(session.chat && session.chat.backend.stallMs ? { stallMs: session.chat.backend.stallMs } : {}) }));
   const kapai = pageKapai({
     label: () => (session.hasClaudeKey ? 'api.anthropic.com' : null),
-    respond: ownKeyResponder(() => new ClaudeBackend({ fetch: (url, init) => fetch(url, init), apiKey: session.keyStore.get() || '' })),
+    respond: ownKey,
     // Kapai's "Change…", "Set up my own key…" and "Change key…": the key form of the view in use
     openSettings: () => openKeyForm(),
   });
-  const backend = () => { connectKapaiElements(kapai); return new KapaiBackend({ kapai }); };
+  const backend = () => { connectKapaiElements(kapai); return new KapaiBackend({ kapai, ownKey }); };
   let keyFormOpener = null;   // js/ui/ask.js registers the side panel's (registerKeyForm)
   function openKeyForm() {
     if (session.claudeView === 'full') { editingKey = true; render(); $('claudeKeyInput').focus(); }
@@ -362,16 +365,10 @@ export function setupClaude(page) {
     // to the chat at once (the focus was left on the page)
     if (session.claudeView === 'full') session.chatNote(KEY_SAVED_NOTE);
     if (session.claudeView === 'full') page.focus();
+    // (a phone: back to the chat's screen, which comes first; the form was below it)
+    if (session.claudeView === 'full' && phoneLayout()) scrollTo(0, 0);
   };
   $('claudeKeyInput').onkeydown = (e) => { if (e.key === 'Enter') $('btnClaudeKeySave').click(); };
-  // a phone's chat with no key: the key card and the BASIC session card are one line under the screen; "Add key…" opens
-  // the form (body.claude-keyform, until the chat closes)
-  $('btnClaudeAddKey').onclick = () => {
-    document.body.classList.add('claude-keyform');
-    render();
-    $('claudeKeyCard').scrollIntoView({ block: 'start' });
-    $('claudeKeyInput').focus();
-  };
   let editingKey = false;
   $('btnClaudeKeyChange').onclick = () => { editingKey = true; render(); $('claudeKeyInput').focus(); };
   $('btnClaudeKeyForget').onclick = () => { forgetKey(); $('claudeKeyInput').value = ''; render(); };
@@ -443,21 +440,15 @@ export function setupClaude(page) {
     $('claudeKeyTag').textContent = included ? 'No API key needed.' : 'Saved in this browser.';
     $('btnClaudeKeyChange').textContent = included ? 'Use my own key…' : 'Change';
     $('btnClaudeKeyForget').hidden = included;
-    // a phone (body.chat-phone, play/index.html): the screen takes the room, its border cut off; without a key the
-    // key card and the BASIC session card fold into one line under the screen ("Add key…" opens the form), and the
-    // machine keyboard stands aside (below)
+    // a phone (body.chat-phone, play/index.html): the screen takes the room, its border cut off; while the key form is
+    // up (body.claude-nokey: "Use my own key…", or a refused key) the machine keyboard stands aside (below)
     const phoneChat = full && phoneLayout();
     document.body.classList.toggle('chat-phone', phoneChat);
     document.body.classList.toggle('claude-nokey', full && form);
-    if (!full) document.body.classList.remove('claude-keyform');
-    // (folded: the line under the screen stands for the key card and the BASIC session card until "Add key…")
-    const folded = phoneChat && form && !document.body.classList.contains('claude-keyform');
-    $('claudeFold').hidden = !folded;
     page.cropBorder = phoneChat && session.chatView === 'chat';
-    // (the machine keyboard stands aside the whole time there is no key, folded or not: upright the line would come
-    // after the keys, out of sight, and sideways the keys' halves would cover it; without a key a typed line only gets
-    // the no-key line back. And while a card waits for the person, in any view: held sideways the keyboard covers the
-    // whole page, the card with it; nothing of Claude's types meanwhile)
+    // (the machine keyboard stands aside while the key form is up: upright the form would come after the keys, out of
+    // sight, and sideways the keys' halves would cover it. And while a card waits for the person, in any view: held
+    // sideways the keyboard covers the whole page, the card with it; nothing of Claude's types meanwhile)
     if (page.touchKeys) page.touchKeys.standAside((phoneChat && form) || !!session.consent.pending);
     // the panel's offer depends on body.chat-phone (touch-keys.js: a full-screen chat on a phone is not a BASIC
     // machine's screen, and the joystick is not offered there), so a change of it must be applied, not just the
@@ -528,16 +519,6 @@ export function setupClaude(page) {
   }
   let shownPending = null;
   phoneQuery.addEventListener('change', () => render());
-  // where the key card is, seen from the screen: the words follow the layout ("on the right" beside the screen on a
-  // wide page, "above" on a phone, where it comes first)
-  function whereKey() {
-    const c = ($('claudeFold').hidden ? $('claudeKeyCard') : $('claudeFold')).getBoundingClientRect(), s = $('screen').getBoundingClientRect();
-    if (!c.width || !s.width) return 'on the right';
-    if (c.left >= s.right - 1) return 'on the right';
-    if (c.bottom <= s.top + 1) return 'above';
-    if (c.top >= s.bottom - 1) return 'below';
-    return 'on the right';
-  }
   listeners.add(render);
   render();
 

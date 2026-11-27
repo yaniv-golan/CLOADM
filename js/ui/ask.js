@@ -23,16 +23,14 @@
      (#viewClaude); every input of the person's to the machine pauses Claude (Session.personInput);
  *   - under each turn's reply, one small line per thing Claude did on the machine, and under the latest turn that
  *     changed it the restore line (js/ui/claude-lines.js; the last 10 points);
- *   - the API key states with the same texts as full screen: no key (the key form replaces the message box),
- *     refused (the form reopens, red), rate limited and offline (Try again; nothing retries by itself);
+ *   - the AI states with the same texts as full screen: no key (Kapai's included AI, its plan pill and "Use my own
+ *     key…"), refused (the form reopens, red), rate limited and offline (Try again; nothing retries by itself), and
+ *     Kapai's limit prompt for a refusal it explains;
  *   - three example questions for what is on the machine now (js/claude/prompts.js, from the Session's state, never
  *     pixels), in one place at a time: the empty chat while the panel is open, the line under the screen (#screenNotes:
- *     whole questions only, a real note there taking the line; none on a phone) while it is closed. With a key a tap fills the message box (the strip's opens the panel first) and sends nothing; without
- *     one they sit under "You could ask, once Claude is connected:" ("Once Claude is connected:" leads the line under the
- *     screen), and a tap selects one (the strip's opens the
- *     panel with it) and offers "I have an API key" (the question fills the message box once the key is saved) and "I
- *     use Claude →" (the question is copied). They follow the Session's events and the machine (500 ms debounce) while
- *     there is no conversation, stay put while the box has text, a pointer is down or a question is selected, and say
+ *     whole questions only, a real note there taking the line; none on a phone) while it is closed. A tap fills the message
+ *     box (the strip's opens the panel first) and sends nothing. They follow the Session's events and the machine (500 ms
+ *     debounce) while there is no conversation, stay put while the box has text or a pointer is down, and say
  *     "Suggestions updated" politely.
  */
 import { $, ESC, viewOpen, markUndrawn, claudeStatusText, touchPanel, TOUCH_PAUSED_TEXT } from './page.js';
@@ -236,14 +234,9 @@ export function setupAsk(page, claude) {
   const openTurns = new Set();
   // the key
   $('btnAskKeySave').onclick = () => {
-    // the question chosen before the key: it fills the message box once the key is saved, not sent (read first: the
-    // save redraws the questions, which lets the selection go)
-    const q = chosen;
-    let saved = false;
-    try { claude.saveKey($('askKeyInput').value); $('askKeyInput').value = ''; $('askKeyErr').textContent = ''; editingKey = false; saved = true; }
+    try { claude.saveKey($('askKeyInput').value); $('askKeyInput').value = ''; $('askKeyErr').textContent = ''; editingKey = false; }
     catch (e) { $('askKeyErr').textContent = e.message; }
     render();
-    if (saved && q && !$('askComposer').hidden) { $('askInput').value = q; $('askInput').focus(); }
   };
   $('askKeyInput').onkeydown = (e) => { if (e.key === 'Enter') $('btnAskKeySave').click(); };
   let editingKey = false;
@@ -258,14 +251,13 @@ export function setupAsk(page, claude) {
   // One set (js/claude/prompts.js), in one place at a time: the empty chat while the panel is open (#askSuggest), the
   // strip under the machine while it is closed (#askStripQs). None while a conversation is going, in the full-screen
   // chat, or with Claude features Off.
-  // shown: the set's id; prompts: its questions; place: 'panel' | 'strip' | null, where they are drawn; chosen: the
-  // question selected without a key (kept through opening the panel and entering the key); pointerDown: a press in the
-  // panel or the strip (the questions do not move under a finger); panelEmpty: the open panel's chat is empty (render)
-  let shown = null, prompts = [], place = null, chosen = null, pointerDown = false, sugTimer = null, noKeyShown = null, panelEmpty = false;
+  // shown: the set's id; prompts: its questions; place: 'panel' | 'strip' | null, where they are drawn; pointerDown: a
+  // press in the panel or the strip (the questions do not move under a finger); panelEmpty: the open panel's chat is
+  // empty (render)
+  let shown = null, prompts = [], place = null, pointerDown = false, sugTimer = null, panelEmpty = false;
   for (const box of [ask, $('askOpeners')]) box.addEventListener('pointerdown', () => { pointerDown = true; });
   for (const ev of ['pointerup', 'pointercancel']) addEventListener(ev, () => { pointerDown = false; }, true);
-  const frozen = () => !!$('askInput').value || pointerDown || chosen != null;
-  const noKey = () => claude.keyState() === 'none';
+  const frozen = () => !!$('askInput').value || pointerDown;
   function where() {
     if (!session.claudeFeatures || session.claudeView === 'full') return null;
     if (open) return panelEmpty ? 'panel' : null;
@@ -276,43 +268,38 @@ export function setupAsk(page, claude) {
   }
   // fresh: the conversation has just become empty (read the machine again); live: the debounced follow-up of a change
   function drawQuestions({ fresh = false, live = false } = {}) {
-    const at = where(), nk = noKey();
+    const at = where();
     if (!at) {
       // (Off, or nowhere to show them: nothing is drawn, and with Off the machine is not read for them)
-      if (!session.claudeFeatures) { shown = null; chosen = null; }
-      if (place) { $('askSuggest').replaceChildren(); $('askStripQs').replaceChildren($('askOpenLabel')); delete $('askSuggest').dataset.set; place = null; }
-      reveal($('askSuggestLabel'), false); reveal($('askOpenLabel'), false); reveal($('askChoose'), false);
+      if (!session.claudeFeatures) shown = null;
+      if (place) { $('askSuggest').replaceChildren(); $('askStripQs').replaceChildren(); delete $('askSuggest').dataset.set; place = null; }
       return;
     }
-    if (fresh) { shown = null; chosen = null; }
-    if (noKeyShown && !nk) chosen = null;   // (a key now: the question chosen before it went into the message box)
+    if (fresh) shown = null;
     let announce = false, changed = false;
     if (!shown || live) {
       const set = promptsNow(session);
       if (!shown || (set.id !== shown && !frozen())) { announce = !!shown && set.id !== shown; changed = set.id !== shown; shown = set.id; prompts = set.prompts; }
     }
-    if (changed || at !== place || nk !== noKeyShown) {
+    if (changed || at !== place) {
       const buttons = prompts.map((q) => {
         const b = el('button', q);
-        if (nk && at === 'panel') b.setAttribute('aria-pressed', String(q === chosen));
-        b.onclick = () => (at === 'panel' ? pick(q, b) : openWith(q));
+        b.onclick = () => (at === 'panel' ? pick(q) : openWith(q));
         return b;
       });
       // (a rebuild in the same place keeps the keyboard: the question at the focused one's place takes the focus, so
       // the focus never drops to the page, where the next key would go to the machine)
       const had = document.activeElement, from = had && had.tagName === 'BUTTON' && (had.parentElement === $('askSuggest') || had.parentElement === $('askStripQs')) ? had.parentElement : null;
       const keep = from && at === place && from === (at === 'panel' ? $('askSuggest') : $('askStripQs')) ? [...from.querySelectorAll('button')].indexOf(had) : -1;
-      // (one place at a time: the other is emptied; the strip keeps its lead label first)
-      if (at === 'panel') { $('askStripQs').replaceChildren($('askOpenLabel')); $('askSuggest').replaceChildren(...buttons); }
-      else { $('askSuggest').replaceChildren(); $('askStripQs').replaceChildren($('askOpenLabel'), ...buttons); }
+      // (one place at a time: the other is emptied)
+      if (at === 'panel') { $('askStripQs').replaceChildren(); $('askSuggest').replaceChildren(...buttons); }
+      else { $('askSuggest').replaceChildren(); $('askStripQs').replaceChildren(...buttons); }
       if (keep >= 0 && buttons[keep]) buttons[keep].focus({ preventScroll: true });
       $('askSuggest').dataset.set = shown;
-      place = at; noKeyShown = nk;
+      place = at;
     }
     if (announce) $('askSuggestNote').textContent = 'Suggestions updated';
-    reveal($('askSuggestLabel'), at === 'panel' && nk);
-    reveal($('askChoose'), at === 'panel' && nk && chosen != null);
-    if (at === 'strip') fitStrip(nk); else reveal($('askOpenLabel'), false);
+    if (at === 'strip') fitStrip();
   }
   // (written only when it changes: this runs a few times a second, and an attribute set to its own value is still a
   // change to anything watching the page)
@@ -320,46 +307,27 @@ export function setupAsk(page, claude) {
   // the strip is one line of whole questions: those that do not fit in it whole are left out, never cut or scrolled.
   // Each question's width is measured once, shown (widths); the line is then laid out from them.
   const widths = new WeakMap();
-  function fitStrip(lead = !$('askOpenLabel').hidden) {
-    const box = $('askStripQs'), qs = [...box.querySelectorAll('button')], label = $('askOpenLabel');
-    reveal(label, lead);
+  function fitStrip() {
+    const box = $('askStripQs'), qs = [...box.querySelectorAll('button')];
     if (!box.checkVisibility()) return;
     if (qs.some((b) => !widths.has(b))) { for (const b of qs) reveal(b, true); for (const b of qs) widths.set(b, b.getBoundingClientRect().width); }
     const gap = parseFloat(getComputedStyle(box).columnGap) || 0, room = box.parentElement.clientWidth;
-    let used = lead ? label.getBoundingClientRect().width + gap : 0, out = false;
+    let used = 0, out = false;
     for (const b of qs) { out = out || used + widths.get(b) > room + 0.5; if (!out) used += widths.get(b) + gap; reveal(b, !out); }
-    // (the lead alone is not a line: with no whole question it goes too)
-    if (lead && qs.length && qs[0].hidden) reveal(label, false);
   }
   // (the slot's width, and the line itself showing: a note above it going away shows it, and it is fitted before it
   // is drawn)
   const fitWatch = new ResizeObserver(() => { if (place === 'strip') fitStrip(); });
   fitWatch.observe($('screenNotesBox'));
   fitWatch.observe($('askStripQs'));
-  // a question in the open panel: with a key it fills the message box; without one it is selected, and the two
-  // choices come forward
-  function pick(q, b) {
-    if (!noKey()) { $('askInput').value = q; $('askInput').focus(); return; }
-    chosen = q;
-    for (const x of $('askSuggest').children) x.setAttribute('aria-pressed', String(x === b));
-    $('askChoose').hidden = false;
-    $('askChoose').scrollIntoView({ block: 'nearest' });
-  }
-  // a question in the strip: the panel opens with it, never sent (in the message box with a key; selected, with the two
-  // choices in view, without one)
+  // a question in the open panel fills the message box (a key is never needed: Kapai's included AI answers without one)
+  function pick(q) { $('askInput').value = q; $('askInput').focus(); }
+  // a question in the strip: the panel opens with it in the message box, never sent
   function openWith(q) {
-    if (noKey()) chosen = q;
     claude.openPanel();
-    if (!noKey()) { $('askInput').value = q; if (!phone()) $('askInput').focus(); }
-    else $('askChoose').scrollIntoView({ block: 'nearest' });
+    $('askInput').value = q;
+    if (!phone()) $('askInput').focus();
   }
-  $('btnAskHaveKey').onclick = () => { $('askKeyForm').scrollIntoView({ block: 'nearest' }); $('askKeyInput').focus(); };
-  $('btnAskUseClaude').onclick = async () => {
-    const q = chosen;
-    if (!q) return;
-    try { await navigator.clipboard.writeText(q); page.toast('Question copied: paste it in Claude after you open CLOADM there.'); }
-    catch (e) { page.toast(`The question could not be copied: ${q}`); }
-  };
   // a change on the machine: the questions follow it after 500 ms of it, while they show and nothing holds them
   function suggestSoon() {
     if (sugTimer || !where()) return;
@@ -426,7 +394,7 @@ export function setupAsk(page, claude) {
     panelEmpty = open && empty;
     // (a conversation that has just ended - a new chat - reads the machine afresh for the questions)
     const hasChat = !!(chat && chat.messages.length);
-    if (wasChat && !hasChat) { shown = null; chosen = null; }
+    if (wasChat && !hasChat) shown = null;
     wasChat = hasChat;
     // consent
     const pending = session.consent.pending;

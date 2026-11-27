@@ -45,7 +45,7 @@ const toolReply = (uses) => sse([start, ...uses.flatMap((u, i) => [
 
   // ---- the line above Ask's input, against the code ----
   const html = fs.readFileSync(path.join(ROOT, 'play/index.html'), 'utf8');
-  const LINE = "Nothing is sent until you ask. Then your question, the machine's facts and the chat so far go to Anthropic with your key (or your Claude account in the plugin), and Claude can read the screen and any memory (ROM areas included) without asking. Only changes to the machine ask you first.";
+  const LINE = "Nothing is sent until you ask. Then your question, the machine's facts and the chat so far go to Kapai, which runs the AI (or to Anthropic, with your own key or your Claude account in the plugin), and Claude can read the screen and any memory (ROM areas included) without asking. Only changes to the machine ask you first.";
   check('Ask Claude has the line, above its input', html.includes(`<p class="muted" id="askSendsLine">${LINE}</p>`) && html.indexOf('id="askSendsLine"') < html.indexOf('id="askInput"')
     && html.indexOf('id="askSendsLine"') > html.indexOf('id="askComposer"'));
   const KEY = 'sk-ant-FEATURES-TEST-KEY-0123456789';

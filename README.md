@@ -34,7 +34,7 @@ hardware; the exceptions are listed under [How we know it's right](#how-we-know-
 > Please [report what breaks](https://github.com/yaniv-golan/cloadm/issues).
 
 > [!NOTE]
-> CLOADM includes no ROMs and never downloads them by itself (the MCP server's `add_roms` fetches only a URL you give it). You supply your own dumps once; they stay in your browser, and CLOADM never uploads them (what Claude reads from the machine's memory, ROM areas included, goes to Anthropic if you use it).
+> CLOADM includes no ROMs and never downloads them by itself (the MCP server's `add_roms` fetches only a URL you give it). You supply your own dumps once; they stay in your browser, and CLOADM never uploads them (what Claude reads from the machine's memory, ROM areas included, goes to Kapai or Anthropic if you use it).
 > Without them, a built-in firmware still runs machine-code programs and the programs written for this project.
 > [Where to get ROMs →](https://cloadm.dev/roms/)
 
@@ -154,7 +154,7 @@ never use them.
 * **Drop them on the page,** with any file names. CLOADM recognises each ROM by its CRC32, puts it in the right
   socket for every machine it fits, and keeps it in your browser only. CLOADM itself never uploads your ROMs and never
   puts them in share links or exported settings. If you use Claude, what it reads from the machine's memory (ROM
-  areas included) is sent to Anthropic as part of your conversation. **Save ROM pack…** carries them to another browser.
+  areas included) is sent to Kapai (or to Anthropic, with your own key) as part of your conversation. **Save ROM pack…** carries them to another browser.
 * **Add ROMs** (in the header) shows each socket, what it needs and what each file you dropped turned out to be.
 
 What each machine needs:
@@ -213,9 +213,9 @@ keyword matching in 3 KB of 6809. It runs with no ROMs: press 1 on the Welcome m
 every program in the Media tab's "Runs without ROMs" is a link you can copy.) Firmware written for this project replaces
 BASIC and holds the conversation on the green screen, in a lowercase font drawn by the machine itself. Claude can
 work on the BASIC session kept alongside the chat: read its screen and memory, POKE, type in short programs or load longer ones (asking first) and RUN them,
-press BREAK, and one click undoes it all. It runs on your own Anthropic API key, kept in your browser and never
-visible to the emulated machine, snapshots, share links or exported settings. What Claude reads from the machine's memory (ROM
-areas included) is sent to Anthropic as part of your conversation. More in [docs/claude.md](docs/claude.md).
+press BREAK, and one click undoes it all. It needs no API key: Kapai runs the included AI and counts its credits. Your own Anthropic API key, if you add
+one, is kept in your browser and never visible to the emulated machine, snapshots, share links or exported settings. What Claude reads from the machine's memory (ROM
+areas included) is sent to Kapai (or to Anthropic, with your own key) as part of your conversation. More in [docs/claude.md](docs/claude.md).
 
 ## FAQ
 
@@ -227,7 +227,7 @@ areas included) is sent to Anthropic as part of your conversation. More in [docs
   **More ▾** (behind **Menu** on a phone) makes it an app of its own (its own window, offline);
   the page offers it once a program has run for a minute.
 * **Where are my ROMs and programs kept?** In your browser's private storage, or a folder you choose. CLOADM itself never
-  uploads them. If you use Claude, what it reads from the machine's memory (ROM areas included) is sent to Anthropic as
+  uploads them. If you use Claude, what it reads from the machine's memory (ROM areas included) is sent to Kapai (or to Anthropic, with your own key) as
   part of your conversation.
 * **Where does my Anthropic API key go?** It stays in this browser and goes only to Anthropic's API, never into the
   machine, snapshots, share links or exported settings.

@@ -67,11 +67,11 @@ embedding page drives a plain machine, and without ROMs that is the stub's own s
 BASIC and holds the conversation on the green screen, in a lowercase font drawn by the machine itself. Claude can
 work on the BASIC session kept alongside the chat: read its screen and memory, POKE, type in short programs or load
 longer ones and RUN them,
-press BREAK, and one click undoes it all. It runs on your own Anthropic API key, kept in your browser and never
-visible to the emulated machine, snapshots, share links or exported settings. Get a key at console.anthropic.com (API
+press BREAK, and one click undoes it all. It needs no API key: Kapai runs the included AI and counts its credits. Your own Anthropic API key, if you add
+one, is kept in your browser and never visible to the emulated machine, snapshots, share links or exported settings. Get a key at console.anthropic.com (API
 keys); use is billed to your Anthropic account. Without one, CLOADM can be used inside Claude instead
 ([Use with Claude](mcp.md#use-with-claude)). What Claude reads from the machine's memory (ROM
-areas included) is sent to Anthropic as part of your conversation; CLOADM itself never uploads your ROMs. Coming: the same chat over DriveWire
+areas included) is sent to Kapai (or to Anthropic, with your own key) as part of your conversation; CLOADM itself never uploads your ROMs. Coming: the same chat over DriveWire
 to a real CoCo or Dragon on Web Serial, and the CoCo 3's 80-column screen.
 
 The API costs are kept down with prompt caching: the tool list and the brief are cached together behind one
@@ -131,7 +131,7 @@ Two ways to talk to Claude, one conversation:
   controls are `aria-disabled` (a press does nothing and leaves the focus on them, so a second press works), the card
   fades in over about 300 ms, and at 500 ms the controls take presses with no change in how they look; the card is
   then announced to screen readers by its purpose ("Claude settings ready."), once per showing. A click, a tap, Enter or Space and a label's click are all held to the same rule.
-* **Consent.** Claude can always read the emulated machine (screen text, memory, model and program counter), and nothing outside the emulator; the panel names what it reads. What it reads goes to Anthropic with the conversation, using your key. That includes the machine's memory, so ROM areas Claude peeks at or disassembles are sent too; CLOADM itself never uploads your ROMs, and never puts them in share links or exported settings. Acting
+* **Consent.** Claude can always read the emulated machine (screen text, memory, model and program counter), and nothing outside the emulator; the panel names what it reads. What it reads goes to Kapai with the conversation (or to Anthropic, using your own key). That includes the machine's memory, so ROM areas Claude peeks at or disassembles are sent too; CLOADM itself never uploads your ROMs, and never puts them in share links or exported settings. Acting
   (POKE, typing, BREAK) needs **Let Claude use the emulator**, off until you allow it: the first time Claude wants to
   act it asks in the conversation (**Allow**, which turns the switch on for the visit, or **Just tell me the fix**,
   which Claude is told as `consent-declined` and which changes nothing; Stop while it asks is `stopped`). While Claude acts the screen has a pulsing green ring and
@@ -370,7 +370,7 @@ emulator.
   bytes would run past `$FFFF` is a `past-end` error, because reads do not wrap. `disassemble` decodes up to 64
   instructions in the machine's own instruction set (6809, 6803 or 6309, taken from the machine, never from the
   request) through the same side-effect-free peek, and returns each instruction's bytes (in hex, `"31 3F"`) with its text. Both read whatever the machine has mapped at the
-  address, ROM areas included, and what they return is sent to Anthropic as part of your conversation, like everything else Claude reads. CLOADM
+  address, ROM areas included, and what they return is sent to Kapai (or to Anthropic, with your own key) as part of your conversation, like everything else Claude reads. CLOADM
   itself never uploads your ROMs, and never puts them in share links or exported settings.
   `screen_text` returns the screen's rows as text, trailing spaces trimmed and trailing blank rows left out. The
   page's other readers of the screen (the embed API's `screenText`, the Ask panel, the tape panel, the boot

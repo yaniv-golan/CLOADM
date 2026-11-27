@@ -105,7 +105,7 @@ const frames = (s, k) => { for (let i = 0; i < k; i++) s.advance(1000 / s.shownM
   check('Help has a "Claude: getting an API key" section', /<h2 id="claude-key">Claude: getting an API key<\/h2>/.test(body));
   check('...with where (console.anthropic.com, API keys)', /href="https:\/\/console\.anthropic\.com\/[^"]*">console\.anthropic\.com<\/a>, under <em>API keys<\/em>/.test(body));
   check('...what it costs (billed to the Anthropic account, the pricing page) and no figures', /billed to your Anthropic account/.test(body) && /href="https:\/\/www\.anthropic\.com\/pricing[^"]*"/.test(body) && !/\$\s?\d|\d+\s?(USD|cents?)/.test(body));
-  check('...and Claude without a key (Use with Claude)', /No key\?.*Use CLOADM inside Claude instead.*href="[^"]*docs\/mcp\.md#use-with-claude"/s.test(body));
+  check('...and Claude without a key (Kapai\'s included AI, or Use with Claude)', /No key\?.*None is needed: Kapai's included AI answers.*use CLOADM inside Claude: see.*href="[^"]*docs\/mcp\.md#use-with-claude"/s.test(body));
   check('Help\'s install section has Safari on a Mac and iOS Safari\'s Share step', /Safari on a Mac\.<\/strong> <span>In Safari: <em>File → Add to Dock<\/em>/.test(help) && help.includes('<div><strong>iOS Safari.</strong> <span>Tap <em>Share</em> (the square with an arrow), scroll down and choose\n      <em>Add to Home Screen</em>, then <em>Add</em>.</span></div>'));
 
   console.log(fail ? `${fail} of ${n} FAILED` : `all ${n} passed`);

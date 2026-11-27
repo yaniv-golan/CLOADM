@@ -15,6 +15,8 @@
 //  C. each refusal becomes the code the views know, with the SDK's error kept for <kapai-limit-prompt>: a limit
 //     (daily-limit, out-of-credits) -> 'quota', rate-limited -> 'rate-limited', service-down and offline -> 'network',
 //     tools off -> 'tools-off' with the app's own text, an aborted signal -> 'aborted';
+//  E. a refused saved key keeps the page's own error code ('invalid-key'), though the SDK wraps it without a cause;
+//  F. the saved key's refusal (stop_reason refusal) -> Kapai's incomplete "content_filter" -> the chat's 'refusal';
 //  D. the person's own key as Kapai's app-managed own AI (anytime policy): the request goes to the Messages API with
 //     the saved key, streams its text, and the second round sends the first's thinking block back with its signature and the
 //     tool_result; Kapai's answer source is 'own'; the key is in no message.
@@ -52,6 +54,11 @@ const KEY = 'sk-ant-KAPAI-TEST-KEY-0123456789';
   // (a string content and one text block are the same message to the API: compared as blocks)
   const blocks = (list) => JSON.stringify(list.map((x) => ({ role: x.role, content: typeof x.content === 'string' ? [{ type: 'text', text: x.content }] : x.content })));
   check('A: back to the Messages API history, unchanged', blocks(back) === blocks(apiMessages(history)), JSON.stringify(back));
+  const errOut = '{"error":{"code":"consent-declined","remedy":"r"}}';
+  const errBack = kb.anthropicMessages([{ role: 'user', content: 'x' }, { type: 'function_call', call_id: 'c1', name: 'poke', arguments: '{}' }, { type: 'function_call_output', call_id: 'c1', output: errOut }, { role: 'user', content: 'y' }]);
+  check('A: a tool\'s coded error comes back as a tool_result with is_error', errBack[2].content[0].is_error === true && errBack[2].content[0].content === errOut, JSON.stringify(errBack[2]));
+  const okBack = kb.anthropicMessages([{ role: 'user', content: 'x' }, { type: 'function_call', call_id: 'c1', name: 'peek', arguments: '{}' }, { type: 'function_call_output', call_id: 'c1', output: '{"error_rate":1}' }, { role: 'user', content: 'y' }]);
+  check('A: and a result that only looks like one does not', !('is_error' in okBack[2].content[0]));
   const tk = kb.kapaiTools(tools);
   check('A: tools get parameters, no input_schema', tk.length === tools.length && tk.every((t, i) => t.parameters === tools[i].input_schema && !('input_schema' in t)));
   check('A: and back', JSON.stringify(kb.anthropicTools(tk)) === JSON.stringify(tools.map(({ cache_control, ...t }) => t)));
@@ -132,6 +139,25 @@ const KEY = 'sk-ant-KAPAI-TEST-KEY-0123456789';
   check('D: the reply streamed', ownText === 'It says READY.' && r3.lastText === 'It says READY.', JSON.stringify(ownText));
   check('D: Kapai says the own key answered', r3.source === 'own', r3.source);
   check('D: the key is in no message', !JSON.stringify(bodies.map((b) => b.messages)).includes(KEY) && !JSON.stringify(r3.messages).includes(KEY));
+
+  // ---- E. the saved key refused: the SDK reports own_ai_failed with no cause; the page's own error comes back
+  const refuse = async () => new Response(JSON.stringify({ type: 'error', error: { type: 'authentication_error', message: 'invalid x-api-key' } }), { status: 401 });
+  const ownE = kb.ownKeyResponder(() => new ClaudeBackend({ fetch: refuse, apiKey: KEY }));
+  const kE = sdk.mockKapai('own-key', { ownAIPolicy: 'anytime', ownAI: sdk.KapaiOwnAI.appManaged({ label: () => 'api.anthropic.com', respond: ownE, openSettings: () => {} }) });
+  let eE = null;
+  try { await new kb.KapaiBackend({ kapai: kE, ownKey: ownE }).send({ system: 's', messages: [{ role: 'user', content: 'hi' }] }); } catch (e) { eE = e; }
+  check('E: a refused saved key is the page\'s own invalid-key error, not the SDK\'s own_ai_failed', eE instanceof ClaudeError && eE.code === 'invalid-key', eE && `${eE.code} ${eE.message}`);
+  let eF = null;
+  try { await new kb.KapaiBackend({ kapai: kE }).send({ system: 's', messages: [{ role: 'user', content: 'hi' }] }); } catch (e) { eF = e; }
+  check('E: without the responder it is the SDK\'s own message, said once', eF && eF.code === 'bad-response' && /^Your own AI failed: The API key was refused/.test(eF.message) && !/gave an error/.test(eF.message), eF && `${eF.code} ${eF.message}`);
+
+  // ---- F. a refusal of the saved key's model: Kapai's "content_filter" on the way, the chat's 'refusal' at the end
+  const refusal = sse([start, { type: 'message_delta', delta: { stop_reason: 'refusal' } }, { type: 'message_stop' }]);
+  const fetchR = async () => new Response(new ReadableStream({ start(c) { c.enqueue(new TextEncoder().encode(refusal)); c.close(); } }), { status: 200 });
+  const ownR = kb.ownKeyResponder(() => new ClaudeBackend({ fetch: fetchR, apiKey: KEY }));
+  const kR = sdk.mockKapai('own-key', { ownAIPolicy: 'anytime', ownAI: sdk.KapaiOwnAI.appManaged({ label: () => 'api.anthropic.com', respond: ownR, openSettings: () => {} }) });
+  const rR = await new kb.KapaiBackend({ kapai: kR, ownKey: ownR }).send({ system: 's', messages: [{ role: 'user', content: 'hi' }] });
+  check('F: a refusal of the saved key\'s model is the chat\'s refusal', rR.stopReason === 'refusal' && rR.text === '' && rR.source === 'own', JSON.stringify({ stop: rR.stopReason, src: rR.source }));
 
   console.log(`${n - fail}/${n} passed`);
   process.exitCode = fail ? 1 : 0;

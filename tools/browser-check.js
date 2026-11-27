@@ -119,6 +119,19 @@ async function closePage(page, ms = CLOSE_MS) {
 // browser), so its belt finds the process by the one thing unique to this run: the mkdtemp profile path, which is
 // in Chromium's own command line. Both belts make the FAIL (still named, exit still 1) be followed by an actual
 // exit with nothing left behind.
+// Kapai (js/host/kapai.js): every page the check opens runs on the SDK's mock (window.cloadmKapaiMock, set before the
+// page's scripts), never on Kapai's server: its proof of work and per-address limits make automatic runs slow and
+// unreliable (agents.md part 6), and CI must not register installs. The mock's policy is "Any time", so a saved key
+// answers (through the check's own mocked Messages API) and no key gets the mock's included AI. A group that needs
+// another state sets window.cloadmKapaiMock with an init script of its own, which runs after this one.
+const KAPAI_MOCK_STATE = 'new';
+const setKapaiMock = (state) => { window.cloadmKapaiMock = state; };
+function kapaiMocked(browser) {
+  const newContext = browser.newContext.bind(browser), newPage = browser.newPage.bind(browser);
+  browser.newContext = async (...args) => { const c = await newContext(...args); await c.addInitScript(setKapaiMock, KAPAI_MOCK_STATE); return c; };
+  browser.newPage = async (...args) => { const pg = await newPage(...args); await pg.addInitScript(setKapaiMock, KAPAI_MOCK_STATE); return pg; };
+  return browser;
+}
 async function launchOwnBrowser() {
   // the server is launched first and the connect after it is the one step that can throw (a port refusing, a
   // slow start): without the try/finally a throw there would leak the server's Chromium, the very leak this
@@ -126,7 +139,7 @@ async function launchOwnBrowser() {
   // group's own error - the group's catch reports it, the run goes on, nothing is left behind.
   const ownedServer = await chromium.launchServer();
   try {
-    const browser = await chromium.connect(ownedServer.wsEndpoint());
+    const browser = kapaiMocked(await chromium.connect(ownedServer.wsEndpoint()));
     browser.ownedServer = ownedServer;
     return browser;
   } catch (e) {
@@ -7975,6 +7988,7 @@ async function libraryStorageChecks(base, check) {
   let ctx = null;
   try {
   const launched = await chromium.launchPersistentContext(profile, { viewport: { width: 1440, height: 900 }, acceptDownloads: true });
+  await launched.addInitScript(setKapaiMock, KAPAI_MOCK_STATE);
   ctx = launched;
   // the folder picker returns a folder inside OPFS; a test flag makes the browser "forget" the folder's permission
   await ctx.addInitScript(() => {
@@ -8596,7 +8610,7 @@ async function commandsChecks(browser, site, check) {
     check('commands: Help has "Commands and shortcuts" and "What Claude can do" with the shortcuts and the permission wording',
       help.h2.includes('Commands and shortcuts') && help.h2.includes('What Claude can do')
       && ['Ctrl B', '= BREAK', '= CLEAR', 'Fn', 'Esc in the full-screen chat:', 'Esc while Claude is paused:', 'Reads (always):', 'Acts (only with your permission):',
-        'A restore point is made first.', 'What Claude reads goes to Anthropic with your key.'].every((t) => help.text.includes(t)) && !/Every action is listed in the chat/.test(help.text),
+        'A restore point is made first.', 'What Claude reads goes to Kapai (or to Anthropic, with your own key).'].every((t) => help.text.includes(t)) && !/Every action is listed in the chat/.test(help.text),
       help.h2.join('|'));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, 'help-commands.png'), fullPage: true });
     await closeCtx(ctx);
@@ -12513,6 +12527,9 @@ async function firstUseChecks(browser, base, check) {
   // ---- the API key: where to get one, what it costs, and Claude without one ----
   {
     const { ctx, page, errors } = await open('?machine=dragon64&app=claude');
+    // (no key is needed: Kapai's included AI answers; "Use my own key…" opens the key card)
+    await waitFor(page, () => document.getElementById('btnClaudeKeyChange').checkVisibility(), null, 15000);
+    await page.click('#btnClaudeKeyChange');
     await waitFor(page, () => document.getElementById('claudeKeyCard').checkVisibility(), null, 15000);
     const k = await page.evaluate(() => {
       const one = (id) => { const e = document.getElementById(id); return { text: e.textContent, links: [...e.querySelectorAll('a')].map((a) => [a.textContent, a.href]), shown: e.checkVisibility() }; };
@@ -12523,8 +12540,8 @@ async function firstUseChecks(browser, base, check) {
     const consoleLink = (l) => l.length === 2 && l[0][0] === 'console.anthropic.com' && /^https:\/\/console\.anthropic\.com\//.test(l[0][1]) && l[1][0] === 'pricing ↗' && /^https:\/\/www\.anthropic\.com\/pricing/.test(l[1][1]);
     check(`${L}: under the key field: "${getText}", linking to the console and the pricing page (the chat's card and the Ask panel's form)`,
       k.card.shown && k.under && k.card.text === getText && consoleLink(k.card.links) && k.ask.text === getText && consoleLink(k.ask.links), JSON.stringify(k));
-    const useWith = (e) => e.text === 'No key? Use CLOADM inside Claude instead: Use with Claude ↗' && e.links.length === 1 && /docs\/mcp\.md#use-with-claude$/.test(e.links[0][1]);
-    check(`${L}: "No key? Use CLOADM inside Claude instead: Use with Claude ↗", linking to the install section`, k.none.shown && useWith(k.none) && useWith(k.askNone), JSON.stringify(k));
+    const useWith = (e) => e.text === 'No key needed: Kapai\'s included AI answers. Or use CLOADM inside Claude: Use with Claude ↗' && e.links.length === 1 && /docs\/mcp\.md#use-with-claude$/.test(e.links[0][1]);
+    check(`${L}: "No key needed: Kapai's included AI answers. Or use CLOADM inside Claude: Use with Claude ↗", linking to the install section`, k.none.shown && useWith(k.none) && useWith(k.askNone), JSON.stringify(k));
     // with no key, "Use with Claude ↗" is a full-size button, as weighty as the key field: as wide, at least as tall
     const w = await page.evaluate(() => {
       const r = (e) => e.getBoundingClientRect(), a = document.querySelector('#claudeNoKey a.usewith'), input = document.getElementById('claudeKeyInput');
@@ -12708,18 +12725,16 @@ async function uiCopyChecks(browser, base, check) {
     };
     // a whole row must match (a glyph the chat font lacks draws as something else, so it fails here)
     const screenHas = async (line, ms = 30000) => { const end = Date.now() + ms; let rows = []; while (Date.now() < end) { rows = await chatScreen(); if (rows.some((l) => (line instanceof RegExp ? line.test(l) : l === line))) return { ok: true, rows }; await new Promise((r) => setTimeout(r, 200)); } return { ok: false, rows }; };
-    // (two rows: the line wraps at the screen's 42 columns; read as the rows run on, a word to a space)
-    const NOKEY = /(^|\s)No API key yet: add one (above|below|on the right)\. Get one at console\.anthropic\.com\.(\s|$)/;
-    const nokey = { ok: false, rows: [] };
-    for (const end = Date.now() + 30000; Date.now() < end && !nokey.ok; await new Promise((r) => setTimeout(r, 200))) {
-      nokey.rows = await chatScreen(); nokey.ok = NOKEY.test(nokey.rows.join(' ').replace(/\s+/g, ' '));
-    }
-    const help = await page.textContent('#claudeHelp');
-    const seen = nokey.ok && /^\[No API key yet: add one (above|below|on the right)\. Get one at console\.anthropic\.com\.\]$/.test(help), keyUi = { screen: nokey.rows.join('|'), help };
-    check('chat key: with no key, "No API key yet: add one … Get one at console.anthropic.com." is on the chat screen itself and in the note beside it', seen, JSON.stringify(keyUi));
+    // no key: Kapai's included AI answers, so nothing on the chat screen or beside it asks for a key; "Use my own key…"
+    // opens the key card
+    await emuFrames(page, 30);
+    const rows0 = await chatScreen();
+    const keyUi = await page.evaluate(() => ({ help: document.getElementById('claudeHelp').hidden, title: document.getElementById('claudeKeyTitle').textContent,
+      card: document.getElementById('claudeKeyCard').hidden, change: document.getElementById('btnClaudeKeyChange').textContent }));
+    check('chat key: with no key, no "No API key" line on the chat screen or beside it; the card says "Included AI" with "Use my own key…"',
+      !rows0.some((l) => /API key/i.test(l)) && keyUi.help && keyUi.title === 'Included AI' && keyUi.card && keyUi.change === 'Use my own key…', JSON.stringify({ rows0, keyUi }));
     await shot(page, 'chat-nokey');
-    // (a phone folds the key card into "No API key yet · Add key…" under the screen: the button opens it)
-    if (await page.isVisible('#btnClaudeAddKey')) await page.click('#btnClaudeAddKey');
+    await page.click('#btnClaudeKeyChange');
     await page.fill('#claudeKeyInput', KEY);
     await page.click('#btnClaudeKeySave');
     const savedOnScreen = await screenHas('Key saved. Type below and press ENTER.');
@@ -15363,9 +15378,13 @@ async function askChecks(browser, base, check) {
       && (phone ? Math.abs(opened.a.bottom - opened.h) <= 1 && opened.a.top >= opened.s.bottom - 1
         : opened.a.left >= opened.s.right && opened.a.width >= 320 && opened.a.width <= 560 && opened.drawer === 'none' && opened.rail && opened.railButtons === 'Media,Display,Input,POKEs,Machine')
       && await page.getAttribute('#btnAsk', 'aria-pressed') === 'true', JSON.stringify(opened));
-    check(`${L}: no key: the key form replaces the message box, with "Your key stays yours"`, await vis('#askKeyForm') && !(await vis('#askComposer'))
-      && /Your Anthropic API key/.test(await page.textContent('#askKeyForm')) && /Your key stays yours/.test(await page.textContent('#askKeyForm')));
+    check(`${L}: no key: the message box is there with Kapai's included AI, its plan pill and "Use my own key…"; no key form`, !(await vis('#askKeyForm')) && await vis('#askComposer')
+      && await page.textContent('#askKeyState') === 'Included AI · no key needed.' && await page.textContent('#btnAskKeyChange') === 'Use my own key…'
+      && !(await vis('#btnAskKeyForget')) && await ev(() => !!document.querySelector('#askKeyLine kapai-plan-pill')));
     await shot('key-no-key');
+    await page.click('#btnAskKeyChange');
+    check(`${L}: "Use my own key…" opens the key form, with "Your key stays yours"`, await vis('#askKeyForm')
+      && /Your Anthropic API key/.test(await page.textContent('#askKeyForm')) && /Your key stays yours/.test(await page.textContent('#askKeyForm')));
     await page.fill('#askKeyInput', KEY);
     await page.click('#btnAskKeySave');
     check(`${L}: Save key: the message box comes back, and the key is saved in this browser`, await vis('#askComposer') && !(await vis('#askKeyForm'))
@@ -15375,7 +15394,7 @@ async function askChecks(browser, base, check) {
       && !(await page.isChecked('#chkAskMachine')));
     check(`${L}: the empty state says Claude reads only this emulated machine, visible${phone ? ' on the phone sheet (where "Claude can read" is hidden)' : ''}, and names it`, await vis('#askEmpty') && !(await vis('#askSee')) === phone
       && (await page.textContent('#askEmptyText')) === 'Claude reads only this emulated Dragon 64 (its screen text and memory), never your computer. It types or changes things only if you allow it.', await page.textContent('#askEmptyText'));
-    check(`${L}: the footer line about Anthropic is visible`, await vis('#askSendNote') && await page.textContent('#askSendNote') === 'Your messages and what Claude reads from the machine\'s memory (ROM areas included) go to Anthropic with your key.');
+    check(`${L}: the footer line about Kapai and Anthropic is visible`, await vis('#askSendNote') && await page.textContent('#askSendNote') === 'Your messages and what Claude reads from the machine\'s memory (ROM areas included) go to Kapai (or to Anthropic, with your own key).');
     // the empty state follows a machine switch (the panel text updates whether or not the panel is showing)
     await page.evaluate(() => window.emu.session.switchMachine('coco'));
     const named = await waitFor(page, () => /CoCo 1\/2/.test(document.getElementById('askEmptyText').textContent), null, 5000);
@@ -15841,7 +15860,7 @@ async function askPromptsChecks(browser, base, check) {
       whole: [...document.querySelectorAll('#askStripQs button')].filter((b) => b.checkVisibility()).every((b) => b.scrollWidth <= b.clientWidth + 1
         && b.getBoundingClientRect().right <= document.getElementById('screenNotes').getBoundingClientRect().right + 0.5),
       panel: [...document.querySelectorAll('#askSuggest button')].filter((b) => b.checkVisibility()).map((b) => b.textContent),
-      label: document.getElementById('askOpenLabel').checkVisibility(), scroll: document.getElementById('askStripQs').scrollWidth <= document.getElementById('askStripQs').clientWidth + 1 }));
+      label: [...document.getElementById('askStripQs').children].some((c) => c.tagName !== 'BUTTON'), scroll: document.getElementById('askStripQs').scrollWidth <= document.getElementById('askStripQs').clientWidth + 1 }));
     const LINK = ['What am I looking at?', 'What can I do here?', 'How do I start this from the beginning?'];
     check(`${L}: the panel closed: the link's questions on the line under the screen, whole ones in order, not in the panel, no lead (a key is saved)`,
       await waitFor(page, () => [...document.querySelectorAll('#askStripQs button')].some((b) => b.checkVisibility()) && document.getElementById('askSuggest').dataset.set === 'link', null, 15000)
@@ -15857,7 +15876,7 @@ async function askPromptsChecks(browser, base, check) {
     await page.fill('#askInput', '');
     check(`${L}: arrived from a link: the link's questions, three of them, with no label`, await setIs(page, 'link')
       && JSON.stringify(await chips(page)) === JSON.stringify(['What am I looking at?', 'What can I do here?', 'How do I start this from the beginning?'])
-      && !(await page.isVisible('#askSuggestLabel')), JSON.stringify(await chips(page)));
+      && await run(page, () => [...document.getElementById('askSuggest').children].every((c) => c.tagName === 'BUTTON')), JSON.stringify(await chips(page)));
     // the person's first key ends the arrival; then the welcome menu (no ROMs here) starts
     await run(page, () => window.emu.session.personInput());
     check(`${L}: the first key ends the arrival`, await waitFor(page, () => !window.emu.session.arrivedFromLink && document.getElementById('askSuggest').dataset.set !== 'link', null, 15000), await set(page));
@@ -15931,51 +15950,45 @@ async function askPromptsChecks(browser, base, check) {
     await closeCtx(ctx);
   }
 
-  // ---- 1280x720, no key: "Once Claude is connected:" leads the line under the screen, whole questions only, Reset
-  // stays in the window; a tap opens the panel with the question selected and the two choices; the key keeps it ----
+  // ---- 1280x720, no key: Kapai's included AI answers without one, so the questions are the same as with a key: the
+  // line under the screen holds whole questions only, Reset stays in the window; a tap opens the panel with the
+  // question in the message box, nothing sent ----
   {
     const L = 'ask prompts (1280x720, no key)';
     const { ctx, page, requests, errors } = await open({ width: 1280, height: 720 }, { key: false });
     const line = await waitFor(page, () => [...document.querySelectorAll('#askStripQs button')].some((b) => b.checkVisibility()) && document.getElementById('askSuggest').dataset.set === 'link', null, 15000)
       && await run(page, () => {
-        const notes = document.getElementById('screenNotes').getBoundingClientRect(), lead = document.getElementById('askOpenLabel');
+        const notes = document.getElementById('screenNotes').getBoundingClientRect();
         const qs = [...document.querySelectorAll('#askStripQs button')].filter((b) => b.checkVisibility());
-        return { lead: lead.checkVisibility() ? lead.textContent : null, first: lead.compareDocumentPosition(qs[0]) & Node.DOCUMENT_POSITION_FOLLOWING ? 'lead' : 'question',
+        return { children: [...document.getElementById('askStripQs').children].every((c) => c.tagName === 'BUTTON'),
           qs: qs.map((b) => b.textContent), whole: qs.every((b) => b.scrollWidth <= b.clientWidth + 1 && b.getBoundingClientRect().right <= notes.right + 0.5 && b.getBoundingClientRect().left >= notes.left - 0.5),
           oneLine: qs.every((b) => Math.abs(b.getBoundingClientRect().top - qs[0].getBoundingClientRect().top) < 1), notesH: Math.round(notes.height),
           reset: document.getElementById('btnReset').getBoundingClientRect().bottom, vh: innerHeight };
       });
-    check(`${L}: the line under the screen: "Once Claude is connected:" then whole questions on one line, the slot's height kept, Reset inside the window`,
-      !!line && line.lead === 'Once Claude is connected:' && line.first === 'lead' && line.qs.length >= 1 && line.qs[0] === 'What am I looking at?' && line.whole && line.oneLine
+    check(`${L}: the line under the screen: whole questions on one line, no lead label, the slot's height kept, Reset inside the window`,
+      !!line && line.children && line.qs.length >= 1 && line.qs[0] === 'What am I looking at?' && line.whole && line.oneLine
         && line.notesH === 44 && line.reset <= line.vh, JSON.stringify(line));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, 'ask-prompts-1280x720-nokey.png') });
     await page.click('#askStripQs button');
     await waitFor(page, () => !document.getElementById('ask').hidden, null, 10000);
-    const carried = await run(page, () => { const sel = document.querySelector('#askSuggest button[aria-pressed="true"]');
-      return { sel: sel && sel.textContent, choose: document.getElementById('askChoose').checkVisibility(), strip: [...document.querySelectorAll('#askStripQs button')].filter((b) => b.checkVisibility()).length }; });
-    check(`${L}: a tap opens the panel with that question selected and the two choices shown, none under the screen, nothing sent`,
-      carried.sel === 'What am I looking at?' && carried.choose && carried.strip === 0 && requests.length === 0, JSON.stringify(carried));
-    await page.click('#btnAskHaveKey');
-    await page.fill('#askKeyInput', KEY);
-    await page.click('#btnAskKeySave');
-    check(`${L}: the key entered, the question is in the message box, not sent`, await waitFor(page, () => document.getElementById('askInput').value === 'What am I looking at?', null, 5000)
+    check(`${L}: a tap opens the panel with that question in the message box, none under the screen, nothing sent`,
+      await waitFor(page, () => document.getElementById('askInput').value === 'What am I looking at?' && ![...document.querySelectorAll('#askStripQs button')].some((b) => b.checkVisibility()), null, 5000)
       && requests.length === 0);
     check(`${L}: no page errors`, !errors.length, errors.join('; '));
     await closeCtx(ctx);
   }
 
-  // ---- phones, without a key: the label, select, the two choices; the size of the chips ----
+  // ---- phones, without a key: the questions in the panel, the size of the chips; a tap fills the message box ----
   for (const [label, viewport] of [['393x659', { width: 393, height: 659 }], ['653x280', { width: 653, height: 280 }]]) {
     const L = `ask prompts (phone ${label}, no key)`;
-    const { ctx, page, requests, errors, logs } = await open(viewport, { key: false });
+    const { ctx, page, requests, errors } = await open(viewport, { key: false });
     // a phone has no line of questions under the screen (no room): they are in the panel only
     check(`${L}: the panel closed: no questions under the screen on a phone`, await maybeWaitFor('a phone shows no questions under the screen', page,
       () => [...document.querySelectorAll('#askStripQs button')].some((b) => b.checkVisibility()), null, 1500) === false);
     await page.click('#btnAsk');
     await waitFor(page, () => !document.getElementById('ask').hidden, null, 10000);
     await run(page, () => { const h = document.getElementById('askHandle'); for (let i = 0; i < 3 && document.getElementById('ask').dataset.height !== 'full'; i++) h.click(); });
-    check(`${L}: the questions sit under "You could ask, once Claude is connected:", not in a chat box`, await setIs(page, 'link')
-      && await page.isVisible('#askSuggestLabel') && await page.textContent('#askSuggestLabel') === 'You could ask, once Claude is connected:' && !(await page.isVisible('#askComposer')));
+    check(`${L}: the questions are in the panel, with the message box (Kapai's included AI needs no key)`, await setIs(page, 'link') && await page.isVisible('#askComposer'));
     // every chip can be brought into view and tapped, 44 px tall or more
     const sizes = await run(page, () => [...document.querySelectorAll('#askSuggest button')].map((b) => {
       b.scrollIntoView({ block: 'nearest' });
@@ -15986,29 +15999,8 @@ async function askPromptsChecks(browser, base, check) {
     check(`${L}: every chip is reachable and at least 44 px tall`, sizes.length === 3 && sizes.every((x) => x.h >= 44 && x.hit && x.inView), JSON.stringify(sizes));
     await run(page, () => document.querySelector('#askSuggest button:nth-child(1)').scrollIntoView({ block: 'nearest' }));
     await page.click('#askSuggest button:nth-child(1)');
-    const chooseOk = await run(page, () => [...document.querySelectorAll('#askChoose button')].map((b) => {
-      b.scrollIntoView({ block: 'nearest' });
-      const r = b.getBoundingClientRect(), at = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
-      return { t: b.textContent, h: Math.round(r.height), hit: !!at && (at === b || b.contains(at)) };
-    }));
-    check(`${L}: a tap selects the question and brings the two choices forward`, await page.getAttribute('#askSuggest button:nth-child(1)', 'aria-pressed') === 'true'
-      && JSON.stringify(chooseOk.map((c) => c.t)) === JSON.stringify(['I have an API key', 'I use Claude →']) && chooseOk.every((c) => c.h >= 44 && c.hit), JSON.stringify(chooseOk));
-    // selected: the chips stay (a change on the machine does not take the question away)
-    await run(page, () => window.emu.session.personInput());
-    check(`${L}: while a question is selected the chips stay`, await maybeWaitFor('a selected question must stay', page, () => document.getElementById('askSuggest').dataset.set !== 'link', null, 1500) === false
-      && await page.getAttribute('#askSuggest button:nth-child(1)', 'aria-pressed') === 'true');
-    await page.click('#btnAskUseClaude');
-    check(`${L}: "I use Claude →" copies the question and says so`, await waitFor(page, () => /Question copied: paste it in Claude after you open CLOADM there\./.test(document.getElementById('toast').textContent), null, 5000)
-      && await run(page, () => navigator.clipboard.readText()) === 'What am I looking at?');
-    await page.click('#btnAskHaveKey');
-    check(`${L}: "I have an API key" takes the person to the key`, await run(page, () => document.activeElement && document.activeElement.id === 'askKeyInput'));
-    await page.fill('#askKeyInput', KEY);
-    await page.click('#btnAskKeySave');
-    check(`${L}: once the key is saved the question fills the message box, not sent`, await waitFor(page, () => document.getElementById('askInput').value === 'What am I looking at?', null, 5000)
+    check(`${L}: a tap fills the message box with the question, not sent`, await waitFor(page, () => document.getElementById('askInput').value === 'What am I looking at?', null, 5000)
       && requests.length === 0);
-    check(`${L}: no request was made by any tap`, requests.length === 0);
-    check(`${L}: the key never reaches the console`, !logs.join('\n').includes(KEY));
-    if (shotDir) await page.screenshot({ path: path.join(shotDir, `ask-prompts-${label}.png`) });
     check(`${L}: no sideways scroll`, await run(page, () => document.documentElement.scrollWidth <= innerWidth));
     check(`${L}: no page errors`, !errors.length, errors.join('; '));
     await closeCtx(ctx);
@@ -16434,48 +16426,35 @@ async function phoneChatChecks(browser, base, check) {
     await page.goto(`${base}?machine=dragon64&app=claude`);
     await waitFor(page, () => window.emu && window.emu.session && window.emu.session.claudeView === 'full' && document.body.classList.contains('chat-phone'), null, 20000);
     await emuFrames(page, 5);
-    // no key: the chat's screen comes first, in view at the top; the key card and the BASIC session card are one line
-    // under it, "No API key yet · Add key…"; no "type on the screen and press ENTER" toast (the screen's own no-key line
-    // is the cue)
+    // no key: Kapai's included AI answers, so the chat's screen comes first, in view at the top, with no key form; the
+    // card under it says "Included AI" with "Use my own key…", and the machine keyboard is up
     const key = await page.evaluate(() => {
       const r = (id) => document.getElementById(id).getBoundingClientRect();
-      const inView = (b) => b.height > 0 && b.top >= 0 && b.bottom <= innerHeight && b.left >= 0 && b.right <= innerWidth;
-      const t = document.getElementById('screen').closest('.tube').getBoundingClientRect(), f = r('claudeFold'), add = r('btnClaudeAddKey');
-      // (five points of the button, its middle and near its corners: a key's gap must not pass for "not covered")
-      const btn = document.getElementById('btnClaudeAddKey'), pts = [[0.5, 0.5], [0.1, 0.15], [0.9, 0.15], [0.1, 0.85], [0.9, 0.85]];
-      const covered = pts.filter(([x, y]) => { const at = document.elementFromPoint(add.left + add.width * x, add.top + add.height * y); return !at || !(at === btn || btn.contains(at)); }).length;
-      return { scrollY, screenFirst: t.top < f.top || t.right <= f.left, screenTop: Math.round(t.top), screenSeen: t.top >= 0 && t.top < innerHeight / 2,
-        fold: document.getElementById('claudeFold').checkVisibility() ? document.getElementById('claudeFold').innerText.replace(/\s+/g, ' ').trim() : null,
-        addH: Math.round(add.height), addInView: inView(add), addCovered: covered,
-        card: document.getElementById('claudeKeyCard').checkVisibility(), session: document.getElementById('claudeSession').checkVisibility(),
-        toast: document.getElementById('toast').textContent, keys: !document.getElementById('touchKeys').hidden,
-        help: document.getElementById('claudeHelp').textContent, appbar: getComputedStyle(document.querySelector('.appbar')).display };
+      const t = document.getElementById('screen').closest('.tube').getBoundingClientRect(), c = r('claudeKeySaved');
+      return { scrollY, screenFirst: t.top < c.top || t.right <= c.left, screenSeen: t.top >= 0 && t.top < innerHeight / 2,
+        form: document.getElementById('claudeKeyCard').checkVisibility(), title: document.getElementById('claudeKeyTitle').textContent,
+        change: document.getElementById('btnClaudeKeyChange').textContent, keys: !document.getElementById('touchKeys').hidden,
+        help: document.getElementById('claudeHelp').hidden, appbar: getComputedStyle(document.querySelector('.appbar')).display };
     });
-    check(`phone chat (${label}): no key: the chat's screen comes first and is in view; under it one line "No API key yet · Add key…" stands for the key card and the BASIC session card`,
-      key.scrollY === 0 && key.screenFirst && key.screenSeen && key.fold === 'No API key yet · Add key…' && !key.card && !key.session && key.addH >= 44, JSON.stringify(key));
-    check(`phone chat (${label}): no key: "Add key…" is on screen and nothing lies over it: the machine keyboard stands aside`,
-      key.addInView && key.addCovered === 0 && !key.keys, JSON.stringify({ inView: key.addInView, covered: key.addCovered, keys: key.keys }));
-    check(`phone chat (${label}): no key: no "type on the screen and press ENTER" toast`, !/press ENTER/.test(key.toast), key.toast);
+    check(`phone chat (${label}): no key: the chat's screen comes first and is in view; no key form; the card says "Included AI" with "Use my own key…"; the machine keyboard is up`,
+      key.scrollY === 0 && key.screenFirst && key.screenSeen && !key.form && key.title === 'Included AI' && key.change === 'Use my own key…' && key.keys && key.help, JSON.stringify(key));
     check(`phone chat (${label}): the app bar gives way to the chat bar (its "← Emulator" leads back)`, key.appbar === 'none' && await page.isVisible('#btnClaudeBack'));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, `phone-chat-${label}-nokey.png`) });
-    // a line typed with no key: no turn starts (no "Thinking…", no request), and the page's no-key line answers it
-    await page.evaluate(() => window.emu.session.typeText('hello\n'));
-    const typed = await waitFor(page, () => !!window.emu.session.chat.error && window.emu.session.chat.error.code === 'no-key', null, 15000)
-      && await page.evaluate(() => ({ status: window.emu.session.claudeStatus, busy: window.emu.session.chat.busy, nokey: window.emu.session.shownMachine.peek(0x7024) }));
-    check(`phone chat (${label}): a line typed with no key starts no turn: no "Thinking…", no request, and the firmware is told there is no key`,
-      !!typed && typed.status === null && !typed.busy && typed.nokey === 1 && requests.length === 0, JSON.stringify(typed));
-    // "Add key…" opens the form: the key field and Save on screen, not covered, the machine keyboard stands aside
-    await page.evaluate(() => document.getElementById('btnClaudeAddKey').scrollIntoView({ block: 'center' }));
-    await page.tap('#btnClaudeAddKey');
+    // "Use my own key…" opens the form: the key field and Save on screen, not covered, the machine keyboard stands aside
+    await page.evaluate(() => document.getElementById('btnClaudeKeyChange').scrollIntoView({ block: 'center' }));
+    // (sideways the machine keyboard covers the page under the screen, the card with it, as it does the saved key's
+    // "Change": the button is pressed through the page there; upright it is tapped)
+    if (label === 'portrait') await page.tap('#btnClaudeKeyChange'); else await page.evaluate(() => document.getElementById('btnClaudeKeyChange').click());
+    await page.evaluate(() => document.getElementById('claudeKeyInput').scrollIntoView({ block: 'center' }));
     const form = await page.evaluate(() => {
       const r = (id) => document.getElementById(id).getBoundingClientRect();
       const inView = (b) => b.height > 0 && b.top >= 0 && b.bottom <= innerHeight && b.left >= 0 && b.right <= innerWidth;
       const i = r('claudeKeyInput'), s = r('btnClaudeKeySave');
       return { input: inView(i), save: inView(s), onTop: document.elementFromPoint(i.left + i.width / 2, i.top + i.height / 2) === document.getElementById('claudeKeyInput'),
-        focus: document.activeElement.id, fold: document.getElementById('claudeFold').checkVisibility(), keys: !document.getElementById('touchKeys').hidden };
+        focus: document.activeElement.id, keys: !document.getElementById('touchKeys').hidden };
     });
-    check(`phone chat (${label}): "Add key…" opens the key form, its field focused and on screen with Save, not covered; the machine keyboard stands aside`,
-      form.input && form.save && form.onTop && form.focus === 'claudeKeyInput' && !form.fold && !form.keys, JSON.stringify(form));
+    check(`phone chat (${label}): "Use my own key…" opens the key form, its field focused and on screen with Save, not covered; the machine keyboard stands aside`,
+      form.input && form.save && form.onTop && form.focus === 'claudeKeyInput' && !form.keys, JSON.stringify(form));
     await page.fill('#claudeKeyInput', 'sk-ant-PHONE-CHECK-0123456789');
     await page.tap('#btnClaudeKeySave');
     check(`phone chat (${label}): with the key saved the machine keyboard is back`, await waitFor(page, () => !document.getElementById('touchKeys').hidden && document.getElementById('claudeKeyCard').hidden));
@@ -16575,18 +16554,24 @@ async function phoneChatChecks(browser, base, check) {
     check('phone chat: Esc from the chat bar leaves the chat', await waitFor(page, () => !document.body.classList.contains('claude-open')));
     await closeCtx(ctx);
   }
-  // PC-M4: a tablet (820 x 1180) stacks the chat under the screen too: without a key the card comes first, on screen
+  // PC-M4: a tablet (820 x 1180) stacks the chat under the screen too: no key form without a key (Kapai's included AI);
+  // "Use my own key…" brings the key card first, on screen
   {
     const ctx = await browser.newContext({ viewport: { width: 820, height: 1180 }, hasTouch: true, isMobile: true, serviceWorkers: 'block' });
     const page = await ctx.newPage();
     await page.goto(`${base}?machine=dragon64&app=claude`);
     await waitFor(page, () => window.emu && window.emu.session && window.emu.session.claudeView === 'full', null, 20000);
     await emuFrames(page, 5);
+    const none = await page.evaluate(() => ({ form: document.getElementById('claudeKeyCard').checkVisibility(), help: document.getElementById('claudeHelp').hidden,
+      title: document.getElementById('claudeKeyTitle').textContent }));
+    check('tablet chat (820 x 1180): no key: no key form and no help line; the card says "Included AI"', !none.form && none.help && none.title === 'Included AI', JSON.stringify(none));
+    await page.evaluate(() => document.getElementById('btnClaudeKeyChange').click());
+    await page.evaluate(() => scrollTo(0, 0));
     const tab = await page.evaluate(() => {
       const i = document.getElementById('claudeKeyInput').getBoundingClientRect(), s = document.getElementById('screen').getBoundingClientRect();
-      return { input: i.top >= 0 && i.bottom <= innerHeight, above: i.bottom <= s.top, help: document.getElementById('claudeHelp').textContent };
+      return { shown: i.height > 0, input: i.top >= 0 && i.bottom <= innerHeight, above: i.bottom <= s.top };
     });
-    check('tablet chat (820 x 1180): no key: the key field is on screen, above the screen, and the help line says "above"', tab.input && tab.above && /add one above/.test(tab.help), JSON.stringify(tab));
+    check('tablet chat (820 x 1180): "Use my own key…": the key field is on screen, above the screen', tab.shown && tab.input && tab.above, JSON.stringify(tab));
     await closeCtx(ctx);
   }
   // A phone held sideways without the on-screen keyboard (or any window under 500 px high): the app bar is one
@@ -16633,9 +16618,9 @@ async function phoneChatChecks(browser, base, check) {
     await page.goto(`${base}?machine=dragon64&app=claude`);
     await waitFor(page, () => window.emu && window.emu.session && window.emu.session.claudeView === 'full', null, 20000);
     await emuFrames(page, 3);
-    const wide = await page.evaluate(() => ({ phone: document.body.classList.contains('chat-phone'), help: document.getElementById('claudeHelp').textContent,
+    const wide = await page.evaluate(() => ({ phone: document.body.classList.contains('chat-phone'), card: document.getElementById('claudeKeySaved').getBoundingClientRect().left >= document.getElementById('screen').getBoundingClientRect().right,
       crop: document.getElementById('screen').getBoundingClientRect().width > document.querySelector('.tube').getBoundingClientRect().width }));
-    check('phone chat: on a wide page none of it applies: the help line says "on the right", the whole picture shows', !wide.phone && /add one on the right/.test(wide.help) && !wide.crop, JSON.stringify(wide));
+    check('phone chat: on a wide page none of it applies: the card is on the right, the whole picture shows', !wide.phone && wide.card && !wide.crop, JSON.stringify(wide));
     await closeCtx(ctx);
   }
 }
@@ -17127,10 +17112,14 @@ async function claudeChecks(browser, base, check) {
     return waitFor(page, ([want]) => window.emu.session.chat && !window.emu.session.chat.busy && window.emu.__requests >= want, [want], 20000);
   };
   // the page counts its requests through the chat (the route above sees the same ones)
+  // (the saved key's requests are the page's own fetch to the Messages API, made for Kapai's own-AI source
+  // (js/claude/kapai-backend.js, ownKeyResponder): counted there)
   const counted = () => page.evaluate(() => {
-    const b = window.emu.session.chat.backend, f = b.fetch;
     window.emu.__requests = 0;
-    b.fetch = (...a) => { window.emu.__requests++; return f(...a); };
+    if (window.__countedFetch) return;
+    const f = window.fetch;
+    window.fetch = (...a) => { if (String(a[0]).startsWith('https://api.anthropic.com/')) window.emu.__requests++; return f(...a); };
+    window.__countedFetch = true;
   });
 
   await page.goto(`${base}?app=claude`);
@@ -17139,12 +17128,18 @@ async function claudeChecks(browser, base, check) {
     && !document.getElementById('claude').hidden && getComputedStyle(document.querySelector('.drawer')).display === 'none' && window.emu.session.chatView === 'chat'));
   check('claude: the chat machine runs the chat firmware with no ROM', await waitFor(page, () => { const m = window.emu.machine; return !m.hasRom && m.cpu.pc >= 0x6000 && m.cpu.pc < 0x7000; }));
   check('claude: the BASIC session is kept alongside, the same model', await page.evaluate(() => { const c = window.emu.session.chatMachines; return c.basic !== c.chat && c.basic.id === c.chat.id; }));
-  check('claude: no key yet: the key form shows and the help line says so', await page.evaluate(() => !document.getElementById('claudeKeyCard').hidden
-    && document.getElementById('claudeKeySaved').hidden && /No API key yet/.test(document.getElementById('claudeHelp').textContent)));
+  check('claude: no key yet: Kapai\'s included AI, with its plan pill and "Use my own key…", no key form, no help line', await page.evaluate(() => document.getElementById('claudeKeyCard').hidden
+    && !document.getElementById('claudeKeySaved').hidden && document.getElementById('claudeKeyTitle').textContent === 'Included AI'
+    && !!document.querySelector('#claudeKeySaved kapai-plan-pill') && document.getElementById('btnClaudeKeyChange').textContent === 'Use my own key…'
+    && document.getElementById('btnClaudeKeyForget').hidden && document.getElementById('claudeHelp').hidden));
   await counted();
   await say('hello', 0);
-  check('claude: a line sent without a key is refused on the page, with no request', await waitFor(page, () => window.emu.session.chat.error && window.emu.session.chat.error.code === 'no-key')
-    && requests.length === 0);
+  check('claude: a line sent without a key is answered by the included AI (the Kapai mock), with no request to Anthropic', await waitFor(page, () => { const c = window.emu.session.chat;
+    const last = c.messages[c.messages.length - 1];
+    return !c.busy && !c.error && c.messages[0].content === 'hello' && last.role === 'assistant' && /^This is a mock answer\./.test(last.content); }) && requests.length === 0);
+  // a new conversation for what follows, which counts the requests of its own turns
+  await page.evaluate(() => { const c = window.emu.session.chat; c.messages.length = 0; });
+  await page.click('#btnClaudeKeyChange');
   await page.fill('#claudeKeyInput', 'not-a-key');
   await page.click('#btnClaudeKeySave');
   check('claude: a value that is not an Anthropic key is refused', /sk-ant-/.test(await page.textContent('#claudeKeyMsg')) && await page.evaluate(() => !localStorage.getItem('cloadm.anthropicKey')));
@@ -17260,7 +17255,8 @@ async function claudeChecks(browser, base, check) {
   await page.goto(`${base}?app=claude`);
   await started(page);
   await page.click('#btnClaudeKeyForget');
-  check('claude: Forget key removes it from this browser; the key form comes back', await page.evaluate(() => !localStorage.getItem('cloadm.anthropicKey') && !document.getElementById('claudeKeyCard').hidden));
+  check('claude: Forget key removes it from this browser; back to Kapai\'s included AI', await page.evaluate(() => !localStorage.getItem('cloadm.anthropicKey') && document.getElementById('claudeKeyCard').hidden
+    && document.getElementById('claudeKeyTitle').textContent === 'Included AI'));
   check('claude: no page errors', !errors.length, errors.join('; '));
   await closeCtx(ctx);
 }
@@ -17337,7 +17333,7 @@ async function settingsChecks(browser, base, check) {
     const line = await page.evaluate(() => { const l = document.getElementById('askSendsLine'), i = document.getElementById('askInput');
       return { text: l.textContent, shown: l.checkVisibility(), above: l.getBoundingClientRect().bottom <= i.getBoundingClientRect().top + 1 }; });
     check('Ask Claude: "Nothing is sent until you ask. …" shows, above the input', line.shown && line.above
-      && line.text === "Nothing is sent until you ask. Then your question, the machine's facts and the chat so far go to Anthropic with your key (or your Claude account in the plugin), and Claude can read the screen and any memory (ROM areas included) without asking. Only changes to the machine ask you first.", JSON.stringify(line));
+      && line.text === "Nothing is sent until you ask. Then your question, the machine's facts and the chat so far go to Kapai, which runs the AI (or to Anthropic, with your own key or your Claude account in the plugin), and Claude can read the screen and any memory (ROM areas included) without asking. Only changes to the machine ask you first.", JSON.stringify(line));
     await page.evaluate(() => localStorage.removeItem('cloadm.anthropicKey'));
     await page.click('#btnAsk');   // (closes the panel: the settings file's buttons are on the Machine tab beside it)
     await waitFor(page, () => !document.getElementById('askInput').checkVisibility());
@@ -23824,14 +23820,14 @@ const GROUPS = (base, site) => [
     base = `${site}play/`;
     let browser = null;
     try {
-      browser = await chromium.launch();
+      browser = kapaiMocked(await chromium.launch());
       for (const [name, fn] of GROUPS(base, site)) {
         if (sel.only && !sel.only.includes(name)) continue;
         const before = new Set(browser.contexts());
         await run.group(name, () => fn(browser), async () => {
           // what the group left open (all of it, when it threw part-way) is closed, so it can't run on into the next
           // group; a browser that went away is started again for the next group
-          if (!browser.isConnected()) { browser = await chromium.launch(); return; }
+          if (!browser.isConnected()) { browser = kapaiMocked(await chromium.launch()); return; }
           // BOUNDED, AND LOUD. A group can leave a page spinning in an abandoned evaluate (a diagnostic that was raced
           // and given up on), and Playwright's close waits for the page: racing it keeps the group cleanup - and so the
           // run and the final browser.close() in the finally - from being held open by that page. A close that loses

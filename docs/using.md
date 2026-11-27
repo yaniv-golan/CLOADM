@@ -745,8 +745,8 @@ in the Ask panel don't show, and a link with `app=claude` (or the tab an embed's
 open the chat; the page says "Claude features are off (Settings → Machine)." instead, as the welcome menu's item does.
 Turning Off stops a turn that is running and ends the full-screen chat. The choice is kept in this browser and goes
 with an exported settings file.
-Either way nothing goes to Anthropic until you ask. Ask Claude says so above its input: then your question, the
-machine's facts and the chat so far go to Anthropic with your key, and Claude can read the screen and any memory (ROM
+Either way nothing is sent until you ask. Ask Claude says so above its input: then your question, the
+machine's facts and the chat so far go to Kapai (or to Anthropic, with your own key), and Claude can read the screen and any memory (ROM
 areas included) without asking; only changes to the machine ask you first.
 
 ## Known differences from MAME

@@ -241,8 +241,7 @@
   #screenNotes:has(> #soundHint:not([hidden]), > #keyHint:not([hidden])) > #askStripQs, #askStripQs:not(:has(button)),
     body:not(.chat-screen, .typing-learned):has(#screen:focus) #askStripQs { display: none; }
   #askStripQs > button { flex: none; height: 32px; min-height: 32px; padding: 0 12px; border-radius: var(--pill); font-size: 14px; }
-  #askStripQs > button[hidden], #askOpenLabel[hidden] { display: none; }
-  #askOpenLabel { color: var(--text-2); font-size: 14px; flex: none; }
+  #askStripQs > button[hidden] { display: none; }
   body:is(.touch-keys, .touch-hidden) #screenNotes, body.chat-phone #screenNotes { display: none; }
   /* Narrow notes column: the widest note on one line is the key hint, 358 px wide (14 px text, padding included), so a column
      of 360 px or more holds every note on one line (44 px). Under 360 px the box is a fixed two lines (64 px, wrapping, at most
@@ -1119,15 +1118,10 @@
   body.chat-phone #screenWrap { inset: 0; }
   /* the chat bar stays at the top as the page scrolls: its "← Emulator" is the way back (the app bar is hidden) */
   body.chat-phone #claudeBar { position: sticky; top: 0; z-index: 7; background: var(--ground); }
-  /* without a key the key card comes first wherever the page stacks the chat under the screen (a phone, a tablet:
-     under about 1020 px the layout wraps), so it is not a screen or more below */
-  /* (a phone keeps the chat's screen first: the key card and the BASIC session card fold into one line under it,
-     #claudeFold, until "Add key…" opens the form) */
+  /* while the key form is up (body.claude-nokey) the key card comes first wherever the page stacks the chat under the
+     screen (a tablet: under about 1020 px the layout wraps), so it is not a screen or more below; a phone keeps the
+     chat's screen first */
   @media (max-width: 1019px) { body.claude-open.claude-nokey:not(.chat-phone) #claude { order: -1; } }
-  #claudeFold[hidden] { display: none; }
-  #claudeFold { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 15px; color: var(--text-2); }
-  #claudeFold button { min-height: 44px; padding: 0 14px; }
-  body.chat-phone.claude-nokey:not(.claude-keyform) :is(#claudeKeyCard, #claudeSession, #claudeHelp) { display: none !important; }
   @media (orientation: landscape) and (max-height: 500px) {
     /* held sideways: a wider screen between the keyboard's halves, its buttons in one row under it (the switch is
        not offered in the chat: there is no BASIC machine's joystick to drive there) */
@@ -1513,9 +1507,6 @@
   #askSuggest button, #askOpeners button { text-align: left; background: var(--ground); border: 1px solid var(--line); border-radius: var(--r-10); padding: 11px 13px; font-size: 15px; }
   #askSuggest button { min-height: 44px; }
   #askSuggest button[aria-pressed="true"] { border-color: var(--green); box-shadow: inset 0 0 0 1px var(--green); }
-  #askChoose { display: flex; flex-wrap: wrap; gap: 8px; }
-  #askChoose[hidden], #askSuggestLabel[hidden] { display: none; }
-  #askChoose button { min-height: 44px; padding: 0 14px; }
   #askOpeners[hidden], #askOpeners button[hidden] { display: none; }
   #askOpeners button { border-radius: var(--pill); padding: 9px 16px; display: inline-flex; align-items: center; }
   #askMessages { display: flex; flex-direction: column; gap: 12px; }
@@ -1715,6 +1706,10 @@
        it stay reachable */
     #ask:has(#askKeyForm:not([hidden])) { overflow-y: auto; }
     #ask:has(#askKeyForm:not([hidden])) #askBody { flex: none; overflow: visible; }
+    /* the empty chat with the message box (Kapai's included AI needs no key): the same, so the example questions are not
+       under the message box's text */
+    #ask:has(#askEmpty:not([hidden])) { overflow-y: auto; }
+    #ask:has(#askEmpty:not([hidden])) #askBody { flex: none; overflow: visible; }
   }
 
   /* ---- phone ---- */
@@ -2149,7 +2144,7 @@ npx serve -l 8000 .</pre>
         <div id="keyHint" hidden><kbd>Esc</kbd> = BREAK · <kbd>Home</kbd> = CLEAR · <kbd>Backspace</kbd> = ←</div>
         <div id="typingHint">Typing goes to the machine · <kbd>Tab</kbd> leaves the screen</div>
         <!-- the Ask panel's example questions while it is closed (js/ui/ask.js): whole ones only, and a note above takes the line -->
-        <div id="askStripQs" role="group" aria-label="Example questions"><span id="askOpenLabel" hidden>Once Claude is connected:</span></div>
+        <div id="askStripQs" role="group" aria-label="Example questions"></div>
       </div></div>
       <!-- full screen chat: the other machine, live; a strip under the screen on a phone -->
       <div id="claudePip" hidden role="group" aria-label="Your BASIC session, live">
@@ -2331,9 +2326,7 @@ npx serve -l 8000 .</pre>
     <div id="askBody">
       <div id="askEmpty">
         <p id="askEmptyText">Claude reads only this emulated <span id="askEmptyModel"></span> (its screen text and memory), never your computer. It types or changes things only if you allow it.</p>
-        <div class="muted" id="askSuggestLabel" hidden>You could ask, once Claude is connected:</div>
         <div id="askSuggest" role="group" aria-label="Example questions"></div>
-        <div id="askChoose" hidden><button id="btnAskHaveKey">I have an API key</button><button id="btnAskUseClaude">I use Claude →</button></div>
         <p id="askSuggestNote" class="sr-only" aria-live="polite"></p>
         <p id="askEmptyCmd" class="muted"><kbd id="askEmptyKbd">Ctrl K</kbd>: find a command or ask</p>
       </div>
@@ -2360,15 +2353,15 @@ npx serve -l 8000 .</pre>
       <label>Your Anthropic API key<input id="askKeyInput" type="password" autocomplete="off" spellcheck="false" placeholder="sk-ant-…"></label>
       <p class="keyget muted" id="askKeyGet">Get a key at <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a> (API keys). Use is billed to your Anthropic account: see <a href="https://www.anthropic.com/pricing#api" target="_blank" rel="noopener">pricing ↗</a></p>
       <div class="bar"><button id="btnAskKeySave" class="primary">Save key</button><span class="muted" id="askKeyErr" role="status"></span></div>
-      <p class="keyget muted" id="askNoKey">No key? Use CLOADM inside Claude instead: <a class="usewith" href="https://github.com/yaniv-golan/CLOADM/blob/main/docs/mcp.md#use-with-claude" target="_blank" rel="noopener">Use with Claude ↗</a></p>
+      <p class="keyget muted" id="askNoKey">No key needed: Kapai's included AI answers. Or use CLOADM inside Claude: <a class="usewith" href="https://github.com/yaniv-golan/CLOADM/blob/main/docs/mcp.md#use-with-claude" target="_blank" rel="noopener">Use with Claude ↗</a></p>
       <p class="muted"><strong>Your key stays yours.</strong> Stored only in this browser. The emulated machine never sees it, and it's left out of snapshots, share links and exported settings.</p>
     </div>
     <div id="askComposer" hidden>
-      <p class="muted" id="askSendsLine">Nothing is sent until you ask. Then your question, the machine's facts and the chat so far go to Anthropic with your key (or your Claude account in the plugin), and Claude can read the screen and any memory (ROM areas included) without asking. Only changes to the machine ask you first.</p>
+      <p class="muted" id="askSendsLine">Nothing is sent until you ask. Then your question, the machine's facts and the chat so far go to Kapai, which runs the AI (or to Anthropic, with your own key or your Claude account in the plugin), and Claude can read the screen and any memory (ROM areas included) without asking. Only changes to the machine ask you first.</p>
       <div class="bar"><input id="askInput" aria-label="Message to Claude" autocomplete="off" placeholder="Ask about this machine…"><button id="btnAskSend" class="primary">Send</button></div>
       <div class="askfoot"><label><input type="checkbox" id="chkAskMachine"> Let Claude use the emulator</label>
         <span class="muted" id="askKeyLine"><kapai-plan-pill usage></kapai-plan-pill> <span id="askKeyState">API key · Saved in this browser.</span> <button class="link" id="btnAskKeyChange">Change</button> <button class="link" id="btnAskKeyForget">Forget</button></span></div>
-      <p class="muted" id="askSendNote">Your messages and what Claude reads from the machine's memory (ROM areas included) go to Anthropic with your key.</p>
+      <p class="muted" id="askSendNote">Your messages and what Claude reads from the machine's memory (ROM areas included) go to Kapai (or to Anthropic, with your own key).</p>
     </div>
   </aside>
   <nav id="askRail" aria-label="Machine settings" hidden></nav>
@@ -2377,13 +2370,12 @@ npx serve -l 8000 .</pre>
 
   <aside id="claude" aria-label="Chat with Claude" hidden>
     <!-- a phone's chat with no key: the key card and the BASIC session card folded into one line under the screen -->
-    <div id="claudeFold" hidden><span>No API key yet</span><span aria-hidden="true"> · </span><button id="btnClaudeAddKey">Add key…</button></div>
     <section class="card" id="claudeKeyCard">
       <label for="claudeKeyInput">Your Anthropic API key</label>
       <input id="claudeKeyInput" type="password" autocomplete="off" spellcheck="false" placeholder="sk-ant-…">
       <p class="keyget" id="claudeKeyGet">Get a key at <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a> (API keys). Use is billed to your Anthropic account: see <a href="https://www.anthropic.com/pricing#api" target="_blank" rel="noopener">pricing ↗</a></p>
       <div class="bar"><button id="btnClaudeKeySave" class="primary">Save key</button></div>
-      <p class="keyget" id="claudeNoKey">No key? Use CLOADM inside Claude instead: <a class="usewith" href="https://github.com/yaniv-golan/CLOADM/blob/main/docs/mcp.md#use-with-claude" target="_blank" rel="noopener">Use with Claude ↗</a></p>
+      <p class="keyget" id="claudeNoKey">No key needed: Kapai's included AI answers. Or use CLOADM inside Claude: <a class="usewith" href="https://github.com/yaniv-golan/CLOADM/blob/main/docs/mcp.md#use-with-claude" target="_blank" rel="noopener">Use with Claude ↗</a></p>
       <p><strong>Your key stays yours.</strong> Stored only in this browser. The emulated machine never sees it, and it's left out of snapshots, share links and exported settings.</p>
       <div id="claudeKeyMsg" role="status"></div>
     </section>
@@ -2636,7 +2628,7 @@ npx serve -l 8000 .</pre>
         <p class="muted small" id="gamePrivacy"></p>
         <input type="file" id="fileWad" accept=".wad,.WAD,application/octet-stream" hidden>
       </section>
-      <p class="muted small">ROMs stay in this browser. CLOADM never uploads them and never puts them in share links or exported settings. If you use Claude, what it reads from the machine's memory (ROM areas included) is sent to Anthropic as part of your conversation.</p>
+      <p class="muted small">ROMs stay in this browser. CLOADM never uploads them and never puts them in share links or exported settings. If you use Claude, what it reads from the machine's memory (ROM areas included) is sent to Kapai (or to Anthropic, with your own key) as part of your conversation.</p>
     </section>
   </div>
 </div>

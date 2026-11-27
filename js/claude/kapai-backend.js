@@ -17,15 +17,16 @@
  * 'network' (offline or Kapai unavailable), 'aborted', 'tools-off' (the app's tool calls are off in Kapai's dashboard),
  * 'bad-response'. The message of a limit is the SDK's own sentence; agents.md: write no limit into the app's text.
  */
-import { ClaudeError } from './backend.js';
+import { ClaudeError, STALL_MS } from './backend.js';
 import { apiMessages } from './history.js';
 import { asToolError, toolErrorJson } from './toolerrors.js';
 
 const MAX_TOOL_ROUNDS = 8;          // as ClaudeBackend: a runaway tool loop stops rather than spending without bound
 
 // the text of a content (a string, or a list of blocks or parts)
+// (the text blocks of one message, such as a page note and the person's next line, are separate paragraphs)
 const textOf = (content) => (typeof content === 'string' ? content
-  : Array.isArray(content) ? content.filter((b) => b && typeof b.text === 'string').map((b) => b.text).join('') : '');
+  : Array.isArray(content) ? content.filter((b) => b && typeof b.text === 'string').map((b) => b.text).join('\n\n') : '');
 const isThinking = (b) => b && (b.type === 'thinking' || b.type === 'redacted_thinking');
 
 // Anthropic tools -> Kapai tools ({ name, description, parameters }); agents.md, "Add tool calls"
@@ -62,6 +63,12 @@ export function kapaiInput(messages) {
   return items;
 }
 
+// the page's coded tool error, as toolErrorJson writes it: {"error":{"code":"…",…}}
+const isToolError = (text) => {
+  if (!text.startsWith('{"error":')) return false;
+  try { const v = JSON.parse(text); return !!v && typeof v.error === 'object' && v.error !== null && typeof v.error.code === 'string'; } catch (e) { return false; }
+};
+
 // Kapai's input items -> the conversation (Messages API form), checked by apiMessages. The thinking blocks of a
 // round come back from the providerData of its first call, at the start of its assistant message.
 export function anthropicMessages(input) {
@@ -80,21 +87,31 @@ export function anthropicMessages(input) {
       try { args = item.arguments ? JSON.parse(item.arguments) : {}; } catch (e) { args = {}; }
       blocks.push({ type: 'tool_use', id: item.call_id, name: item.name, input: args });
     } else if (item.type === 'function_call_output') {
-      blocksOf('user').push({ type: 'tool_result', tool_use_id: item.call_id, content: String(item.output) });
+      // Kapai's output item has no error flag: a tool's failure is the page's coded error JSON (toolErrorJson,
+      // js/claude/toolerrors.js), so that shape gets back the is_error the Messages API takes
+      const output = String(item.output);
+      blocksOf('user').push({ type: 'tool_result', tool_use_id: item.call_id, content: output, ...(isToolError(output) ? { is_error: true } : {}) });
     } else if (item.role === 'assistant' || item.role === 'user') {
       const text = textOf(item.content);
       if (text.trim()) blocksOf(item.role).push({ type: 'text', text });
     }
     // (system and developer messages: the brief is `instructions`, never a message)
   }
+  // a message of one text block is a string, as the chat's own history has it
+  for (const m of out) if (Array.isArray(m.content) && m.content.length === 1 && m.content[0].type === 'text') m.content = m.content[0].text;
   return apiMessages(out);
 }
 
 // The person's own Anthropic key as Kapai's app-managed own AI (agents.md, "Add the user's own AI": the app keeps the
 // key and makes the request; KapaiOwnAI.appManaged({ respond })). `claude()` gives a ClaudeBackend with the saved key.
 // An async generator: the text streams as it comes, then each tool call, the first carrying the round's thinking.
+// The SDK reports a failure of this respond as OwnAIError 'own_ai_failed' with its own message and no `cause`, so the
+// page's own error (its code: a refused key, a rate limit, the network) is kept here, and KapaiBackend takes it back
+// (respond.takeError()) to show the key states it always showed.
 export function ownKeyResponder(claude) {
-  return async function* respond(request) {
+  let lastError = null;
+  const respond = async function* respond(request) {
+    lastError = null;
     const backend = claude();
     const queue = [];
     let wake = null, done = false, failure = null, result = null;
@@ -111,7 +128,7 @@ export function ownKeyResponder(claude) {
       if (done) break;
       await new Promise((r) => { wake = r; });
     }
-    if (failure) throw failure;
+    if (failure) { lastError = failure; throw failure; }
     const thinking = result.content.filter(isThinking);
     let first = true;
     for (const b of result.content) {
@@ -121,8 +138,12 @@ export function ownKeyResponder(claude) {
       first = false;
       yield { type: 'tool_call', call };
     }
-    yield { type: 'done', ...(result.stopReason === 'max_tokens' ? { incomplete: { reason: 'max_output_tokens' } } : {}) };
+    // a reply cut at its size, or a refusal: Kapai's incomplete reasons (a refusal is the provider's "content_filter")
+    const incomplete = result.stopReason === 'max_tokens' ? { reason: 'max_output_tokens' } : result.stopReason === 'refusal' ? { reason: 'content_filter' } : null;
+    yield { type: 'done', ...(incomplete ? { incomplete } : {}) };
   };
+  respond.takeError = () => { const e = lastError; lastError = null; return e; };
+  return respond;
 }
 
 // a Kapai error (or an abort) -> a ClaudeError the views know, with the SDK's own error kept as `kapai`
@@ -136,7 +157,8 @@ export function claudeErrorOf(e, signal) {
     return wrap('rate-limited', code === 'concurrency_limited' ? 'Another request is still running. Try again when it ends.' : `Too many requests. Try again in ${e.retryAfter} seconds.`);
   }
   if (name === 'KapaiUnavailableError') return wrap('network', 'AI is not available now. Try again soon.');
-  if (name === 'OwnAIError') return wrap(code === 'own_ai_failed' ? 'bad-response' : 'own-ai', code === 'own_ai_failed' ? `Your AI gave an error: ${e.message}` : e.message);
+  // (the SDK's message already says "Your own AI failed: …"; the reference's "Your AI gave an error: " would say it twice)
+  if (name === 'OwnAIError') return wrap(code === 'own_ai_failed' ? 'bad-response' : 'own-ai', e.message);
   // the messages of these codes speak to the developer (agents.md, "Handle the limit"): the app's own text
   if (code === 'capability_off') return wrap('tools-off', 'This feature is not on for this app yet.');
   if (code === 'unsupported_option') return wrap('bad-response', 'This feature does not work with this AI model now.');
@@ -148,10 +170,13 @@ export function claudeErrorOf(e, signal) {
 }
 
 export class KapaiBackend {
-  // deps: { kapai (a Kapai client), runTool, maxTokens }
-  constructor({ kapai, runTool = null, maxTokens = 4096 } = {}) {
+  // deps: { kapai (a Kapai client), ownKey (the ownKeyResponder given to the client, if any), runTool, maxTokens,
+  //         stallMs (the own key's request: ClaudeBackend's stall limit; the page's responder reads it from here) }
+  constructor({ kapai, ownKey = null, runTool = null, maxTokens = 4096, stallMs = STALL_MS } = {}) {
     if (!kapai || !kapai.ai) throw new Error('KapaiBackend needs a Kapai client');
     this.kapai = kapai;
+    this.ownKey = ownKey;
+    this.stallMs = stallMs;
     this.runTool = runTool;
     this.maxTokens = maxTokens;
   }
@@ -177,11 +202,16 @@ export class KapaiBackend {
             if (ev.type === 'text') { roundText += ev.delta; text += ev.delta; if (onText) onText(ev.delta); }
             else if (ev.type === 'done') done = ev;
           }
-        } catch (e) { throw claudeErrorOf(e, signal); }
+        } catch (e) {
+          // the saved key's own failure, as the page's request had it (ownKeyResponder)
+          const own = e && e.name === 'OwnAIError' && e.code === 'own_ai_failed' && this.ownKey ? this.ownKey.takeError() : null;
+          throw own instanceof ClaudeError ? own : claudeErrorOf(e, signal);
+        }
         if (!done) throw new ClaudeError('bad-response', 'The answer ended with no result. Try again.');
         if (done.usage) usage = done.usage;
-        // a round cut at its largest size: none of its calls run (agents.md), and the text so far is the reply
-        if (done.incomplete) return { text, lastText: roundText, stopReason: 'max_tokens', toolCalls, messages: convo, usage, source: done.source };
+        // a round cut at its largest size: none of its calls run (agents.md), and the text so far is the reply; the own
+        // key's refusal comes as "content_filter" (sdk-reference.md, kapai.ai.respond) and is the chat's refusal
+        if (done.incomplete) return { text, lastText: roundText, stopReason: done.incomplete.reason === 'content_filter' ? 'refusal' : 'max_tokens', toolCalls, messages: convo, usage, source: done.source };
         if (!done.toolCalls.length) return { text, lastText: roundText, stopReason: 'end_turn', toolCalls, messages: convo, usage, source: done.source };
         // the assistant's round as the Messages API has it (its thinking from the first call's providerData)
         const thinking = done.toolCalls[0].providerData && Array.isArray(done.toolCalls[0].providerData.anthropicThinking) ? done.toolCalls[0].providerData.anthropicThinking : [];
