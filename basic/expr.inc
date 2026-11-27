@@ -37,7 +37,7 @@ EA1     CMPA    #T_AND
         JSR     GIVABF
         BRA     EA0
 EVRTS   RTS
-* NOT: applies to a relation
+* NOT: applies to a relation; also an operand (EVATOM)
 EVNOT   CMPA    #T_NOT
         BNE     EVREL
         JSR     <ZCHRGET
@@ -201,7 +201,11 @@ EVATOM  CLR     <VALTYP
         LBEQ    HEXLIT
         JSR     ISLET
         BCS     EVVAR
-        JMP     <ZSNERR
+        CMPA    #T_NOT          ; NOT as an operand, after an operator: NOT and a relation, as at the start
+        BNE     EVASN           ; ("1<NOT 0" is 1<(NOT 0), 0; "5+NOT 0" 4; "-NOT 0" 1) [BB bb9 expr-not]
+        JSR     CHKSP
+        JMP     EVNOT
+EVASN   JMP     <ZSNERR
 EVNUMB  JMP     FIN
 EVPAR   JSR     <ZCHRGET
         JSR     EVAL

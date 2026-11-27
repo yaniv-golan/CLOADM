@@ -1,0 +1,23 @@
+# [BB bb9 expr-not] the real ROM's transcript: NOT after a relation or an operator is an operand, NOT and a relation (1<NOT 0 is 1<-1, 0; 5+NOT 0 4; 2*NOT 0 -2; -NOT 0 1), and NOT first applies to the relation after it (NOT 0<1 is 0)
+OK
+PRINT 1<NOT 0
+ 0
+OK
+PRINT 1=NOT 0
+ 0
+OK
+PRINT 5+NOT 0
+ 4
+OK
+PRINT 2*NOT 0
+-2
+OK
+PRINT -NOT 0
+ 1
+OK
+PRINT 1 AND NOT 0
+ 1
+OK
+PRINT NOT 0<1
+ 0
+OK

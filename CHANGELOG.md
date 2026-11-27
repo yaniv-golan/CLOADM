@@ -146,6 +146,13 @@ Next version: 0.3.1 (the plugin and extension manifests carry it; `tests/plugin.
   `ram-pointers2` loops stay within two fields of the original. `MOTOR ON` now waits about 25 fields for a motor that
   was off, as the original does (`MOTOR ON`, 500 empty passes and `MOTOR OFF`: a run of 54.02 fields on both). Of the
   99 recorded cases, 53 now match the original exactly. The ROM is 27 bytes larger (15,839).
+  From the bb9 records: `NOT` straight after a relation or another operator is now an operand, `NOT` and the relation
+  after it, as on the original (`PRINT 1<NOT 0` is 0, `5+NOT 0` 4, `-NOT 0` 1; ours gave `?SN ERROR`). `PRINT USING`
+  prints a fixed field's number that is more than 32 bits once scaled to its decimals as digits (`"#####.#####";100000.5`
+  is `%100000.50000`, where ours printed `% 1.000005E+10`), and an E field whose rounding carries out puts the 1 in the
+  sign's place and keeps the exponent (`".##^^^^";999999999` is `.10E+10`, `"#.##^^^^"` gives `1.00E+09`), as on the
+  original. Both bb9 cases now match their records (`tests/basic-bb9-expr-using.test.js`). The ROM is 66 bytes larger
+  (15,905).
 
 ### 0.3.1
 
