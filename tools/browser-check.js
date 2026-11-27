@@ -26127,8 +26127,9 @@ async function menuStructureChecks(browser, base, check) {
   // A PC's platform, pinned before the page loads, so these rows assert the literal "Ctrl K" whatever host runs it.
   // Before this pin they asserted whichever platform they happened to run on: on a Mac the page correctly shows
   // "Commands… ⌘K" (js/ui/command-box.js:151-154 derives it from navigator.platform) and both failed for nothing.
-  // (The pin's own effect is asserted in the Mac row below: deleting the init there is invisible on a Mac host, so it
-  // must fail somewhere, or the pin would be unpinned without anyone knowing.)
+  // (Each pin's loss is caught only on the host class that differs from it: deleting the Mac row's init below is
+  // invisible on a Mac and fails on Linux CI; deleting these PC pins is invisible on Linux and fails on a Mac.
+  // No host fails both, and each row asserts the platform it saw, so a pin changed to another value fails here.)
   for (const [w, h] of [[820, 1180], [1180, 820]]) {
     const L = `menu structure (tablet, touch keys, ${w}x${h})`;
     const { ctx, page, errors } = await open({ width: w, height: h }, '?machine=dragon64', { init: () => Object.defineProperty(navigator, 'platform', { get: () => 'Linux x86_64' }) });
@@ -26149,8 +26150,8 @@ async function menuStructureChecks(browser, base, check) {
     const { ctx, page, errors } = await open({ width: 820, height: 1180 }, '?machine=dragon64', { init: () => Object.defineProperty(navigator, 'platform', { get: () => 'MacIntel' }) });
     const bar = await TABLET_BAR(page);
     const want = TABLET_WANT('⌘K');
-    // (asserted, not implied: on a Mac host the row below passes with or without the pin, so this is what fails if the
-    // pin is ever dropped, and what tells a Linux CI that this row is not accidentally testing the host's own platform)
+    // (asserted, not implied: on a Mac host the row below passes with or without the pin, so off a Mac this is what
+    // fails if the pin is dropped, and it tells a Linux CI that this row is not testing the host's own platform)
     check('menu structure (tablet, touch keys, Mac): the page is pinned to a Mac\'s platform, so the row below really tests the ⌘K branch', bar.platform === 'MacIntel', JSON.stringify(bar.platform));
     check('menu structure (tablet, touch keys, Mac): the app bar\'s links are Menu\'s rows in Menu\'s order (the snapshots after Settings…, GitHub ↗), "⌘K" after Commands… as the bar shows it on a Mac',
       bar.touch && !bar.menuBtn && JSON.stringify(bar.rows) === JSON.stringify(want) && bar.kbd && bar.github, JSON.stringify({ bar, want }));
