@@ -598,8 +598,12 @@ All of them run with no ROM, on our ROM assembled at test time.
   test (`$8015` to `CASON`, `$8018` to `CASOFF`, `$800C` to `SCROLL`, `$801E` to `CWDLY`, `$8006` and `$A000` to
   `CHROUT`), each failing a call. Also where the build puts the table when a mutant's code before it grows or
   shrinks.
-* **`tests/basic-editor.test.js`:** the keyboard and screen through the matrix: typing, erasing, SHIFT-0, BREAK during
-  a program and during `LIST`, scrolling, `CLS`, the cursor.
+* **The keyboard and the screen, through the matrix:** the line editor's keys (left arrow erases a character,
+  SHIFT-left arrow the line, BREAK drops it, SHIFT-0 lower case and back) in the case `editor-keys`
+  (`tests/basic-lang.test.js`); SHIFT-@ pausing a running program and BREAK stopping it in `tests/basic-pause.test.js`;
+  `CLS` in `tests/basic-screen.test.js`; lines scrolling off the top in the transcript checks of
+  `tests/basic-bb.test.js`; the cursor in `tests/basic-cursor.test.js` (its mutants in
+  `tests/basic-cursor-mutants.test.js`). BREAK during `LIST` has no test yet.
 * **`tests/basic-edit.test.js`:** `EDIT`: the bb10 record `stmt-edit` replayed, ours identical to it, with a mutant of
   each rule (row 70) that must not be; and our own limit (an insertion into a full line takes nothing).
 * **Mutants:** each suite is run against deliberately broken builds (a wrong rounding mode, a precedence swap, an
