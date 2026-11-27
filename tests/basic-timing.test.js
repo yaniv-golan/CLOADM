@@ -18,7 +18,7 @@ const TOL = 0.08;
 const within = (got, real) => got >= real && got <= Math.max(real * (1 + TOL), real + 1);
 
 const real = new Map();
-for (const f of ['bb9-real.jsonl', 'bb10-real.jsonl']) {
+for (const f of ['bb9-real.jsonl', 'bb10-real.jsonl', 'bb12-real.jsonl']) {
   for (const l of fs.readFileSync(path.join(__dirname, 'basic/bb', f), 'utf8').trim().split('\n')) { const r = JSON.parse(l); real.set(r.case, r); }
 }
 const caseText = (name) => fs.readFileSync(path.join(__dirname, 'basic/cases', `${name}.bas`), 'utf8');
@@ -38,6 +38,7 @@ const LABELS = {
   'time-mul': ['X=Y', ...[['2', '2'], ['255', '255'], ['F', 'F'], ['.3', '.3'], ['M', 'M'], ['2', 'F'], ['F', '2'], ['255', 'F'], ['F', '255'], ['2', '.3'], ['.3', '2'], ['255', '.3'], ['.3', '255'], ['2', 'M'], ['M', '2'], ['F', 'M'], ['M', 'F']].map(([y, z]) => `${y}*${z}`)],
   'time-int': ['X=Y', 'INT(.5)', 'INT(3.5)', 'INT(1000.5)', 'INT(1E6+.5)', 'INT(1E9+.5)', 'INT(-1000.5)'],
   'time-motor': ['typed MOTOR ON:PRINT TIMER', 'typed MOTOR ON:MOTOR ON', 'typed MOTOR ON:T=TIMER:MOTOR OFF', 'MOTOR ON:A=TIMER', 'MOTOR ON:MOTOR ON:B=TIMER', 'MOTOR OFF (off):C=TIMER', '10 x MOTOR ON:MOTOR OFF', '10 empty passes'],
+  'time-loopb': ['S=S+PEEK(28928+I AND 32767)', 'S=S+PEEK(I AND 32767)', 'S=S+1', 'X=28928+I AND 32767', 'empty', 'FOR D=1 TO 300'],
   'rnd-timing': ['RND(0)', 'RND(6)', 'RND(1E9)', 'RND(.5)', 'RND(-1)', 'RND(-3)', 'RND(-1.99999999)'],
 };
 // the loops of a case outside the range on `rom` (names), and their counts
@@ -66,7 +67,7 @@ for (const [what, name, file, from, to] of [
   ['the product does not wait for the bits set', 'time-mul', 'fp.inc', 'ADDB    #MBIT', 'ADDB    #0'],
   ['INT does not wait for its places', 'time-int', 'mathfn.inc', '        TFR     B,A             ; bb10 time-int: INT of 3.5, 1000.5, 1E6+.5 and 1E9+.5]\n        BSR     FTRW', '        TFR     B,A\n        NOP\n        NOP'],
   ['AND does not wait', 'time-ops', 'expr.inc', 'LDB     #ANDDLY', 'LDB     #1'],
-  ['the conversion to an integer does not wait for its places', 'time-ops', 'fpconv.inc', 'QIW     PSHS    B\n        PULS    B', 'QIW     NOP\n        NOP'],
+  ['the conversion to an integer does not wait for its places', 'time-ops', 'fpconv.inc', 'QIW     PSHS    D\n        PULS    D', 'QIW     NOP\n        NOP'],
   ['MOTOR ON with interrupts off (TIMER stops)', 'time-motor', 'cassette.inc', 'MOT1    LDA     #MOTONV', 'MOT1    ORCC    #$50\n        LDA     #MOTONV'],
   ['a motor already running does not wait', 'time-motor', 'cassette.inc', '        LDX     #MOTDLY\n        BSR     CW0', '        LDX     #MOTDLY\n        BSR     CMSTX\n        ANDCC   #$AF'],
   ['RND does not wait', 'rnd-timing', 'mathfn.inc', 'LDB     #RNDDLY', 'LDB     #1'],

@@ -190,7 +190,9 @@ These are hard rules for everyone who works on this ROM.
     each bit set, and a product waits `MULDLY` (`RND`'s seed is FAC there: its time hangs on the seed's bytes and bits,
     as the original's, `rnd-timing`); `RND(n)`'s product has f as its right operand. `FTRUNC` waits 19 cycles for each
     place it drops, `INTB1` x 19 for a number below 1; `QINT`, the conversion to an integer (`AND`, `OR`, `NOT`, an
-    address, `GETBYT`, `STR$`), 17 cycles for each place under 16 bits (0 at once); `AND` waits `ANDDLY` (`OR` does
+    address, `GETBYT`, `STR$`), 19 cycles for each place under 15 bits (0 at once; under 16 bits at 17 cycles each
+    before bb12, whose `time-loopb` showed a 15-bit number costing the original no more than a small one: loop B,
+    `S=S+PEEK(28928+I AND 32767)`, took ours 578 fields against 573, and 576 now); `AND` waits `ANDDLY` (`OR` does
     not). `MOTOR ON` turns the motor on with the interrupts left on and always waits (`MOTDLY`, 25.6 fields). Waits
     the model made unnecessary are gone: `ADDDLY`, `IFDLY`, the 11 cycles before a quotient, `FIN`'s 29-cycle pad. Where
     that left ours faster than the original, ours was made faster still first, so no loop got slower than it had to
@@ -254,8 +256,8 @@ These are hard rules for everyone who works on this ROM.
     PB0 is the printer's BUSY (ready, as CLOADM 0.4.1 has it; it read as the 6551's idle receive data, busy):
     bb10 `stmt-printer` and bb6 `famous-pokes`, whose waits for a printer came from that (after 0.4.1 lands: every
     round so far ran on an emulator before the fix, bb10 at `faa2087`, bb11 at `5a71788`). If the original then prints
-    to the printer after `POKE 111,254`, ours printing on the screen becomes a difference on a well-known POKE, for
-    the owner, with its byte cost.
+    to the printer after `POKE 111,254`, ours printing on the screen becomes a difference on a well-known POKE, to be
+    decided with its byte cost.
     Replayed, the records match as before but for two: bb8 `cas-cloadm2` now matches whole, and bb2 `snd-sound`'s
     `SOUND 200,4` no longer does: it starts about 400 cycles later in its field (the two numbers' conversion waits), so
     its length, counted in fields, comes out a field longer and without the original's short first period (a phase,
@@ -878,7 +880,7 @@ All answered by the project owner and kept here with the decision, except where 
    bytes. (c) `COS(0)`, `SIN(pi/2)`, `SIN` at 1/8, 1/4 and 3/8 of a turn, and `TAN` where its cosine is 0 (ours
    `?/0 ERROR`), as bytes. (d) Octal: `&O9`, `&O18` and `VAL("&O19")` (ours takes 9 as a digit and adds: 17, 16, 17;
    the record has only `&O8`, 8).
-13. **The cold start's length. Decided** (the owner, 2026-11-27): exempt from "never faster". Ours reaches its first
+13. **The cold start's length. Decided** (2026-11-27): exempt from "never faster". Ours reaches its first
    `OK` about 63 fields before the original (bb3 onwards: every record starts 61 to 63 fields later on the original);
    no program can see the time it took to start, and a counted delay to match it would cost about 8 bytes, so the
    boot is not padded. Records' frames are counted from power-on, so timings of two ROMs are lined up from the first

@@ -228,6 +228,10 @@ Next version: 0.4.1 (the plugin and extension manifests carry it; `tests/plugin.
   The cold start stays about 63 fields shorter than the original's, by decision: no program can see it. Each black-box
   result now holds `start`, the frame of its first prompt, so two ROMs' timings are lined up from there and not
   from power-on.
+  From the bb12 records (`time-loopb`): converting a number to an integer (`AND`, `PEEK`'s address) now waits for each
+  place under 15 bits, not 16, a little longer each, so a 15-bit number waits nothing: `cas-cloadm2`'s loop B takes
+  576 fields against the original's 573 (578 before), and the case's last span 2,416 against at most 2,419.96. No
+  recorded loop is faster than the original's.
 
 ### 0.4.0
 

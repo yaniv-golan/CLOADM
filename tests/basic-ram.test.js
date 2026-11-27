@@ -142,12 +142,18 @@ const REAL8 = { FOR: 113, ADD: 205, MUL: 224, DIV: 177, STR: 174, GOSUB: 83, IF:
   const within = (g) => g && Object.keys(w).every((k) => g[k] >= w[k] && g[k] <= w[k] * 1.01);
   const g = judge(built.rom);
   check('cas-cloadm2: loops A and B take the original\'s time or up to 1% more (fields)', within(g), JSON.stringify({ ours: g, original: w }));
-  const mutant = (from, to) => buildBasic({ edit: (f, t) => { if (f !== 'fpconv.inc') return t; if (!t.includes(from)) throw new Error(`mutant source not found: ${from}`); return t.replace(from, to); } }).rom;
-  for (const [what, from, to] of [
+  // (a mutant: one or more replacements in fpconv.inc, from, to, ...)
+  const mutant = (...ft) => buildBasic({ edit: (f, t) => {
+    if (f !== 'fpconv.inc') return t;
+    for (let i = 0; i < ft.length; i += 2) { if (!t.includes(ft[i])) throw new Error(`mutant source not found: ${ft[i]}`); t = t.replace(ft[i], ft[i + 1]); }
+    return t;
+  } }).rom;
+  for (const [what, ...ft] of [
     ['a digit waits a tenth less', '        LDB     #FIDLY\nFPW1', '        LDB     #FIDLY*9/10\nFPW1'],
     ['a digit waits a tenth more', '        LDB     #FIDLY\nFPW1', '        LDB     #FIDLY*11/10\nFPW1'],
+    ['the conversion to an integer waits for places under 16 bits, 17 cycles each (before bb12)', 'CMPB    #17 ', 'CMPB    #16 ', 'SUBA    #17 ', 'SUBA    #16 ', 'PSHS    D\n        PULS    D', 'PSHS    B\n        PULS    B'],
   ]) {
-    const m = judge(mutant(from, to));
+    const m = judge(mutant(...ft));
     check(`cas-cloadm2 mutant "${what}": outside the original's time .. +1%`, !within(m), JSON.stringify(m));
   }
   // how long a 0 and a digit after the point wait is pinned by ram-pointers2's loops too: 1000 (IF), 2.5 (ADD, MUL)

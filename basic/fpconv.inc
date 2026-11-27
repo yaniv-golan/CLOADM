@@ -421,12 +421,12 @@ QINT    JSR     ROUND
         BLO     QI0
         LDB     #40             ; below 1/256: 0 all the same, at once
         BRA     QI1
-QI0     CMPB    #16             ; below 65536: 17 cycles for each place under 16 bits, as the original's
-        BLS     QI1             ; conversion to an integer takes [BB bb10 time-ops: X=I AND 1 against bb8
-        TFR     B,A             ; cas-cloadm2's PEEK(28928+I AND 32767); ram-pointers2: MID$("HELLO",2,2)]
-        SUBA    #16
-QIW     PSHS    B
-        PULS    B
+QI0     CMPB    #17             ; below 32768: 19 cycles for each place under 15 bits, as the original's
+        BLS     QI1             ; conversion to an integer takes [BB bb10 time-ops: X=I AND 1; bb12 time-loopb:
+        TFR     B,A             ; a 15-bit number waits nothing (PEEK(28928+I AND 32767) against PEEK(I AND
+        SUBA    #17             ; 32767)); ram-pointers2: MID$("HELLO",2,2)]
+QIW     PSHS    D
+        PULS    D
         DECA
         BNE     QIW
 QI1     SUBB    #24
