@@ -164,8 +164,6 @@ Next version: 0.4.0 (the plugin and extension manifests carry it; `tests/plugin.
   too). With your work there, or a switch question already open, the question still asks first. (After a link opens, the address bar
   shows `/play/` on purpose: the fragment that held the moment, and a short link's key, is removed.)
 
-#### Fixed
-
 - **On a phone, a toast no longer takes a tap meant for a key on the on-screen pad.** A toast that came up while a
   game's pad was opening could settle over the pad's own row, and the tap on → (or any key under it) went to the
   toast instead of the machine, so the game never saw the key. The toast now keeps clear of the pad's keys, upright
