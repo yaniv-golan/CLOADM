@@ -12368,6 +12368,7 @@ async function wyrmfireChecks(browser, site, check) {
       for (const k of ['5', '3']) { await pg.focus('#screen'); await pg.keyboard.press(k); await pg.waitForTimeout(150); }
       // the chain's first toast (the switch) is up: replace it mid-chain with an unrelated one
       await waitFor(pg, () => window.__toasts.length >= 1 && document.getElementById('toast').textContent.includes(SWITCHED));
+      await pg.waitForTimeout(300);   // (let the recorder's 40 ms sampling see the switch toast before it goes)
       await pg.evaluate((t) => window.emu.feedback.toast(t), UNRELATED);
       const seen = await waitFor(pg, (n) => window.__toasts.length >= n, 3, 20000) && await pg.evaluate(() => window.__toasts);
       check('wyrmfire: an unrelated toast replacing one in the chain is shown itself, and the chain goes on after it: the switch, the unrelated one, the keys (none dropped, in order)',
