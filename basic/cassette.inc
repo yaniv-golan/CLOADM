@@ -28,7 +28,8 @@ LSDLY   EQU     825             ; more (program.inc, LSTLIN), the original's pac
 *                                 cas-close-pending open-l-m, cas-ascii-save; bb4 cas-files, cas-save-load csave-a,
 *                                 bb8 cas-data2: the motor's stop between the namefile and the data, or between blocks]
 MOTDLY  EQU     56340           ; MOTOR ON's wait: 25.6 fields with the field interrupts (MOTOR) [BB bb10 time-motor,
-*                                 bb4 cas-motor-audio: the shortest that is never faster than either]
+*                                 bb4 cas-motor-audio: close to the shortest that is never faster than either; below
+*                                 56,320 bb4's run is short]
 MOTONV  EQU     $3C             ; PIA 1 control register A: CA2 output high (motor on), or low
 MOTOFV  EQU     $34
 

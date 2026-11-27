@@ -680,7 +680,8 @@ node tools/basic-bb/compare.js real.jsonl ours.jsonl [--shots DIR]
   It holds nothing but screen text, the pictures (`shots`) and sound measures (`sounds`) a case asked for, the tape
   summaries (`tapes`), the printer's bytes when the case printed (`printer`: its own program and output, as BASIC sent
   them), and the ROM's CRC (to tell runs apart); no ROM bytes. `frames` and the flags' and clears' frames count from
-  power-on; `start` is the frame of the first prompt, from which two ROMs' timings are lined up (decision 13).
+  power-on; `start` is the frame at which the clean start's `OK` held (after the `CLS` it types), from which two ROMs'
+  timings are lined up by hand (decision 13; no tool reads it).
 * **The token probe** (`tests/basic/cases/probe-tokens.bas`): one program line per keyword (after `END:`, so never
   run), then a program that searches RAM below `$8000` for a marker it placed in a `REM` and prints each following
   line's number, bytes in hex and whether its link points at the next line. This gives
@@ -884,7 +885,7 @@ All answered by the project owner and kept here with the decision, except where 
    `OK` about 63 fields before the original (bb3 onwards: every record starts 61 to 63 fields later on the original);
    no program can see the time it took to start, and a counted delay to match it would cost about 8 bytes, so the
    boot is not padded. Records' frames are counted from power-on, so timings of two ROMs are lined up from the first
-   prompt: `run.js` writes each case's `start` (the frame at which the clean start's `OK` held), and a record made
+   prompt: `run.js` writes each case's `start` (the frame at which the clean start's `OK` held, after its `CLS`), and a record made
    before it had the field is lined up from its first flag. `compare.js` compares no frame counts (only spans within
    a case: tape motor runs, sound lengths), and the timing tests (`tests/basic-ram.test.js`) measure spans between a
    case's own flags and clears, so the boot's length shows in neither.
@@ -1083,7 +1084,7 @@ the tape (so `TIMER` does not count then [OWN]). Every block read or written goe
   ON:FOR I=1 TO 500:NEXT:MOTOR OFF` is a run of 54.02 fields, where the loop alone takes about 28.3, so the original
   waits about 25 fields. Ours waits `MOTDLY` passes of 8 cycles (24.85 fields, in `CMSTX`, which `CWBLK` shares with its
   `CDELAY` of 25.95 fields: that one was fitted, with the leader after it, to the write runs, so the two need not be
-  one), interrupts off as for the tape: 54.02 fields. Then bb10 `time-motor` [BB]: `TIMER` counts through the wait (25 after it), a second `MOTOR ON` waits again (51), `MOTOR OFF` of a motor that is off takes nothing, and the motor runs 25.44 fields from `MOTOR ON` to `MOTOR OFF`. So `MOTOR ON` now turns the motor on itself, interrupts left on, and always waits `MOTDLY` (56,340 passes of 8 cycles, with the field interrupts 25.6 fields: `TIMER` 26 and 51, ten `MOTOR ON:MOTOR OFF` 256 fields against 254; the runs 25.60, 25.59, 51.11 and 25.52 fields against 25.45, 25.44, 50.72 and 25.31). That is the shortest wait at which neither record is faster on ours: at 57,000 every run was half a field long (each of the program's runs started about 0.5 field later than the one before it, 6.4 fields over 12), and below 56,320 bb4's line takes less than its 54.02 (ours 54.03). Before, a motor already running was not waited for [OWN]. bb8 `cas-left-open`'s `MOTOR ON:MOTOR OFF` (a file left
+  one), interrupts off as for the tape: 54.02 fields. Then bb10 `time-motor` [BB]: `TIMER` counts through the wait (25 after it), a second `MOTOR ON` waits again (51), `MOTOR OFF` of a motor that is off takes nothing, and the motor runs 25.44 fields from `MOTOR ON` to `MOTOR OFF`. So `MOTOR ON` now turns the motor on itself, interrupts left on, and always waits `MOTDLY` (56,340 passes of 8 cycles, with the field interrupts 25.6 fields: `TIMER` 26 and 51, ten `MOTOR ON:MOTOR OFF` 256 fields against 254; the runs 25.60, 25.59, 51.11 and 25.52 fields against 25.45, 25.44, 50.72 and 25.31). That is close to the shortest wait at which neither record is faster on ours: at 57,000 every run was half a field longer than the original's (each of the program's runs started about 0.5 field later than the one before it, 6.4 fields over 12), and below 56,320 bb4's line takes less than its 54.02 (ours 54.03). Before, a motor already running was not waited for [OWN]. bb8 `cas-left-open`'s `MOTOR ON:MOTOR OFF` (a file left
   open by `?IO ERROR`) took about 2 fields longer on ours than on the original (it took 23 fewer). 11 bytes (15,839, the
   code ending at `$BED1`), and 3 more for bb10's.
 * **Data files** [UM for the statements; the forms without `#` from a magazine listing; [BB] bb4 `cas-files` for what

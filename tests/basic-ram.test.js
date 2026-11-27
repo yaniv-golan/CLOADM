@@ -151,6 +151,8 @@ const REAL8 = { FOR: 113, ADD: 205, MUL: 224, DIV: 177, STR: 174, GOSUB: 83, IF:
   for (const [what, ...ft] of [
     ['a digit waits a tenth less', '        LDB     #FIDLY\nFPW1', '        LDB     #FIDLY*9/10\nFPW1'],
     ['a digit waits a tenth more', '        LDB     #FIDLY\nFPW1', '        LDB     #FIDLY*11/10\nFPW1'],
+    // (B 2420 against at most 2419.96: thin, as the change is worth two fields of loop B; tests/basic-timing.test.js
+    // checks the loop itself against bb12 time-loopb)
     ['the conversion to an integer waits for places under 16 bits, 17 cycles each (before bb12)', 'CMPB    #17 ', 'CMPB    #16 ', 'SUBA    #17 ', 'SUBA    #16 ', 'PSHS    D\n        PULS    D', 'PSHS    B\n        PULS    B'],
   ]) {
     const m = judge(mutant(...ft));

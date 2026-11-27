@@ -220,17 +220,18 @@ Next version: 0.4.1 (the plugin and extension manifests carry it; `tests/plugin.
   `EDIT` works, as the bb10 record `stmt-edit` shows it on the original (it gave `?FC ERROR`): `EDIT n` prints the
   line, then its number again for editing; ENTER shows the rest and stores the line, X goes to the end and inserts,
   L shows the line and starts again, a count and space moves on, H deletes the rest and inserts, nD deletes n
-  characters, and a missing line or no number is `?UL ERROR`; in a program it ends the program with no `OK`. Ours
-  matches the record exactly (`tests/basic-edit.test.js`). The other edit commands wait for the bb11 probes
-  (`stmt-edit2`, `stmt-edit3`). The ROM is 206 bytes larger (16,329 with the published entry points; 20 bytes are left below the vectors).
-  `MOTOR ON` waits half a field less (25.6 fields), the shortest wait at which no recorded motor run is shorter than
-  the original's: ten `MOTOR ON:MOTOR OFF` take 256 fields against the original's 254 (259 before).
+  characters, and a missing line is `?UL ERROR` (no number is line 0); in a program it ends the program with no
+  `OK`. Ours matches the record exactly (`tests/basic-edit.test.js`). The other edit commands are not built yet:
+  the bb11 records `stmt-edit2` and `stmt-edit3` show them, and ours differs from both. The ROM is 206 bytes larger (16,329 with the published entry points; 20 bytes are left below the vectors).
+  `MOTOR ON` waits about a third of a field less (25.6 fields), close to the shortest wait at which no recorded motor
+  run is shorter than the original's: ten `MOTOR ON:MOTOR OFF` take 256 fields against the original's 254 (259 before).
   The cold start stays about 63 fields shorter than the original's, by decision: no program can see it. Each black-box
-  result now holds `start`, the frame of its first prompt, so two ROMs' timings are lined up from there and not
-  from power-on.
+  result now holds `start`, the frame at which the clean start's `OK` held (after the `CLS` typed at the start), so
+  two ROMs' timings can be lined up from there and not from power-on.
   From the bb12 records (`time-loopb`): converting a number to an integer (`AND`, `PEEK`'s address) now waits for each
-  place under 15 bits, not 16, a little longer each, so a 15-bit number waits nothing: `cas-cloadm2`'s loop B takes
-  576 fields against the original's 573 (578 before), and the case's last span 2,416 against at most 2,419.96. No
+  place under 15 bits, not 16, a little longer each, so a 15-bit number waits nothing: `time-loopb`'s loop B (the
+  loop of `cas-cloadm2`) takes 576 fields against the original's 573 (578 before), and `cas-cloadm2`'s last span
+  2,416 against the original's 2,396 (at most 2,419.96). No
   recorded loop is faster than the original's.
 
 ### 0.4.0
