@@ -12369,10 +12369,16 @@ async function wyrmfireChecks(browser, site, check) {
         window.__raised = false;
         window.__toasts = [];
         setInterval(() => { const t = document.getElementById('toast'), x = t && !t.hidden ? t.textContent.trim() : ''; if (x && window.__toasts[window.__toasts.length - 1] !== x) window.__toasts.push(x); }, 40);
-        // one toast of the page's own, the moment the chain's first toast (the switch) shows
+        // one toast of the page's own, the moment the chain's first toast (the switch) shows. The watcher records
+        // that first toast itself (it can be replaced within the recorder's 40 ms sampling, and it is the watcher
+        // that saw it), then raises the unrelated one that replaces it.
         const watch = setInterval(() => {
           const t = document.getElementById('toast');
-          if (window.emu && !window.__raised && t && !t.hidden && t.textContent.includes(sw)) { window.__raised = true; clearInterval(watch); window.emu.feedback.toast(un); }
+          if (window.emu && !window.__raised && t && !t.hidden && t.textContent.includes(sw)) {
+            window.__raised = true; clearInterval(watch);
+            if (window.__toasts[window.__toasts.length - 1] !== sw) window.__toasts.push(sw);   // (the recorder's own 40 ms tick may have caught it first)
+            window.emu.feedback.toast(un);
+          }
         }, 20);
       }, [SWITCHED, UNRELATED]);
       await pg.goto(`${base}?machine=coco3`);
