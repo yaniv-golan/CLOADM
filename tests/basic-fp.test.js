@@ -11,7 +11,8 @@
 //  * thousands of random operand pairs: add, subtract, multiply, divide, compare, each result bit for bit (FAC's
 //    exponent, mantissa, guard byte and sign) as the model gives it, including which ones overflow;
 //  * conversions: integers to FAC (I32FLT, GIVABF), QINT, FOUT's text for hand-worked values and random ones, FIN's
-//    value for hand-worked texts and random ones, and FIN then FOUT giving back what was typed.
+//    value for hand-worked texts and random ones, and a printed number read back, each exactly as the model of one
+//    rounded step of ten a place (finTen) gives it.
 const { buildBasic } = require('../tools/build-basic.js');
 const F = require('./basic/fpmodel.js');
 const { Emu } = require('./basic/harness.js');

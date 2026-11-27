@@ -24,6 +24,7 @@
 const fs = require('fs'), path = require('path');
 const { runCase, Emu } = require('./basic/harness.js');
 const { buildBasic } = require('../tools/build-basic.js');
+const F = require('./basic/fpmodel.js');
 let n = 0, fail = 0;
 const check = (name, cond, detail = '') => { n++; if (!cond) { fail++; console.log(`FAIL ${name} ${detail}`); } else console.log(`ok   ${name} ${detail}`); };
 const built = buildBasic();
@@ -177,10 +178,10 @@ function rndMachine(rom, symbols) {
 }
 const ARGS = ['0', '1', '2', '3', '6', '.1', '.5', '.999', '1.1', '1.5', '2.5', '3.9', '2.999999', '65535', '1E9', '4294967295', '4294967296', '1E10', '1E38'];
 const ARGSEEDS = [[208, 20, 65, 94], [51, 182, 42, 93], [142, 195, 186, 195], [125, 155, 9, 145], [151, 88, 19, 92], [51, 128, 35, 97], [108, 114, 88, 95], [142, 162, 146, 251], [104, 75, 50, 149]];
-// the arguments as the original reads them: the nearest, but 1E38 two units above it, $96769953 (every seed's
-// RND(1E38) fits that and no other; ten rounded steps of ten a place give it, as they give the original's readings
-// of 1E30, 1E-30, 1.00000001 and .999999999 below; ours reads the nearest: docs/clean-room-basic.md section 5)
-const argBytes = (a) => (a === '1E38' ? [255, 22, 118, 153, 83] : packDec(a));
+// the arguments as the original reads them, one rounded step of ten a place (tests/basic/fpmodel.js finTen): 1E38
+// two units above the nearest, $96769953 (every seed's RND(1E38) fits that and no other), .999 and 2.999999 one
+// above (docs/clean-room-basic.md section 5). The values are checked on the CPU from these bytes, not through FIN.
+const argBytes = (a) => F.finTen(a);
 function argsBad(rom, symbols) {
   const lines = afterRun(real9('rnd-args').transcript), M = rndMachine(rom, symbols), bad = [];
   let k = 0;

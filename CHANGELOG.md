@@ -135,7 +135,7 @@ Next version: 0.3.1 (the plugin and extension manifests carry it; `tests/plugin.
   Still different: `RND`'s time (ours faster for `RND(0)` and `RND(n)`, slower after a reseed) waits for the next
   black-box batch. The bb9 `RND` cases that print values now match the original but for one printed value (`8E+37`, which ours
   prints as `8.00000001E+37` from the same five bytes), and `rnd-state` and `rnd-neg` match exactly. The
-  ROM is 15,907 bytes.
+  ROM is 15,909 bytes.
   The cassette now does what the black-box batch bb8 recorded on the original. Every block read or written goes
   through one buffer at `$01DA`, and `CLOADM` keeps the exec address at `$9D`. The motor stops after every namefile
   read, after an end of file and after each block of a gapped file passed, skipped or loaded; writing, it stops

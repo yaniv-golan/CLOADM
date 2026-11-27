@@ -336,11 +336,12 @@ FIEND   CLR     <FACSGN         ; the integer, 2^FPDROP x FACM with the guard by
         ADDA    <FPDROP
         STA     <FACEXP
         JSR     NORM
-        LDD     <FPE10          ; no places: 26 cycles, as when it was scaled by steps of 1E9, so PEEK loops of
-        BNE     FIE8            ; constants keep the original's time [BB bb8 cas-cloadm2 loops A, B]
-        MUL
+        LDD     <FPE10          ; no places: 29 cycles, the 26 of the old tests for steps of 1E9 and the 3 the
+        BNE     FIE8            ; integer's inline conversion saves, so PEEK loops of constants keep the
+        MUL                     ; original's time [BB bb8 cas-cloadm2 loops A, B]
         NOP
         NOP
+        BRN     FIE10
         BRA     FIE10
 FIE8    LDD     <FPE10          ; one product or quotient by 10 a place, each rounded, as the original: it
         BEQ     FIE10           ; reads 1E38 and 1E30 two units above the nearest, 1E-30, 1.00000001 and .999999999

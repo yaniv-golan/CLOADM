@@ -265,7 +265,8 @@ UM1     LDA     <USFLG
         LBRA    UMBODY
 * Too large for 32 bits: FOUT's nine digits and zeros after them, in the field as any other (too wide for it:
 * after a %), so "#####.#####" prints 100000.5 as "%100000.50000" and 99999.5 as "99999.50000" [BB bb9
-* print-using-odd]. From 2^66 on (more than 20 digits): % and the number as PRINT has it [OWN].
+* print-using-odd]. From 2^66 on (more than 20 digits): % and the scaled number as PRINT has it, its sign
+* dropped [OWN].
 UMOV    CMPA    #128+66
         BHI     UMOV2
         INC     <FONINE
