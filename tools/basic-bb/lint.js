@@ -93,7 +93,7 @@ const maskedOk = (a) => /AND\s*32767\s*$/.test(unwrap(a)) && !/OR/.test(a);
 // an expression ending in "AND n" (no OR in it) with n at most `max`: its value is 0..n
 const maskedTo = (a, max) => { const m = /AND\s*(\d+)\s*$/.exec(unwrap(a)); return !!m && Number(m[1]) <= max && !/OR/.test(a); };
 
-const DIRECTIVES = ['type', 'keys', 'break', 'frames', 'wait-text', 'timeout', 'expect-timeout', 'nowait', 'screenshot', 'wav', 'wav-stop', 'joy',
+const DIRECTIVES = ['type', 'keys', 'break', 'frames', 'wait-text', 'timeout', 'expect-timeout', 'printer-ready', 'nowait', 'screenshot', 'wav', 'wav-stop', 'joy',
   'tape', 'tape-blank', 'tape-rewind', 'tape-blocks'];
 
 // ---- P2: graphics (docs/clean-room-basic-p2.md section 12) ----

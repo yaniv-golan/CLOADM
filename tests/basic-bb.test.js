@@ -328,6 +328,10 @@ for (const good of ['PCLEAR 1', 'PCLEAR 0', 'PCLEAR 9', 'PMODE 4,1', 'PMODE 0,4'
   check('printer strobe: PA1 rising alone (0 to 2, $FC to $FE) is a byte', isPrinterStrobe(0x00, 0x02) && isPrinterStrobe(0xFC, 0xFE));
   check('printer strobe: PA1 rising with the DAC (0 to $7E, $7C to $FE) is not', !isPrinterStrobe(0x00, 0x7E) && !isPrinterStrobe(0x7C, 0xFE));
   check('printer strobe: PA1 held high or falling is not', !isPrinterStrobe(0x02, 0x02) && !isPrinterStrobe(0x02, 0x00));
+  // #printer-ready: PIA1 PB0, the printer's BUSY input, reads 0 (ready) from there on; without it the Dragon 64's
+  // line (the ACIA's receive data, idle high) reads busy. (A harness test: never a case, never run on the original.)
+  const busy = runCase(built.rom, 'PRINT PEEK(65314) AND 1\n'), ready = runCase(built.rom, '#printer-ready\nPRINT PEEK(65314) AND 1\n');
+  check('#printer-ready: PB0 reads busy (1) without it and ready (0) with it', busy.transcript.includes(' 1') && ready.transcript.includes(' 0'), JSON.stringify([busy.transcript.slice(-2), ready.transcript.slice(-2)]));
   const quiet = runCase(built.rom, 'PRINT 1\n');
   check('printer: a case that prints nothing has no printer field (older records unchanged)', quiet.status === 'ok' && !('printer' in quiet));
   const llist = runCase(built.rom, '10 REM\nLLIST\n');

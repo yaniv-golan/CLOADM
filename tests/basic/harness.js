@@ -335,6 +335,11 @@ class Basic {
 //   #timeout S      the emulated seconds each wait may take from here on (default 30)
 //   #expect-timeout from here on a wait that times out is the case's result, not a failure: the case ends there with
 //                   status ok and ended { at, as: 'timeout' } (the original ignoring BREAK in a search, say)
+//   #printer-ready  from here on the Dragon's printer says it is ready: PIA1 port B bit 0, the printer's BUSY input
+//                   (high = busy; Dragon Data, "Dragon 32 Information for Machine Code Users", March 1983, the $FF22
+//                   entry; 6809.org.uk "Dragon hardware details", PIA1 B), reads 0. On the Dragon 64 the same line is the
+//                   ACIA's receive data, idle high, so without this a printer looks busy. The harness only: the machine's
+//                   model of the port is unchanged.
 //   #nowait         the next line is not waited for with OK, only until the screen settles
 //   #screenshot NAME  record the picture as it is now (for graphics: the result's shots, each with a PNG and the
 //                   SHA-256 of its pixels, which tools/basic-bb/compare.js compares)
@@ -447,6 +452,11 @@ function runCase(rom, text, { machine = 'dragon64', guard = true, tapes: tapeDir
       else if (cmd === 'wait-text') { const re = new RegExp(arg, 'm'); if (!b.until(() => re.test(b.screen().join('\n')), { limit })) return out('timeout', { at: where }); }
       else if (cmd === 'timeout') limit = Math.round(Number(arg) * 50);
       else if (cmd === 'expect-timeout') expectTimeout = true;
+      else if (cmd === 'printer-ready') {
+        if (b.m.profile.lineage !== 'dragon') return out('bad-directive', { at: where, why: 'no parallel printer' });
+        const pb = b.m.pia1.b, was = pb.input;
+        pb.input = () => was() & 0xFE;
+      }
       else if (cmd === 'nowait') nowait = true;
       else if (cmd === 'screenshot') { b.frame(); shots.push(b.shot(arg || `shot${shots.length + 1}`)); }
       else if (cmd === 'wav') { if (wavName != null) return out('bad-directive', { at: where }); wavName = arg || `sound${sounds.length + 1}`; b.wavStart(); }
