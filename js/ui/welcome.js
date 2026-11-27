@@ -199,7 +199,9 @@ export function setupWelcome(page, { showRoms, openClaude, ask }) {
         session.checkGame(item.game);   // (another CPU, or under 32K: says so before fetching anything)
         const bytes = await page.fetchBytes(`examples/${session.gameFile(item.game)}`);
         startAs(byMachine, () => session.runGame(item.game, bytes, { noRoms: true }));
-        howTo(touchPanel() ? `${item.name}: tap a key to play; tap BREAK for the menu`
+        // (held sideways the keys stand round the screen and the toast lies over the picture's top: one short line there,
+        // "2048: tap a key to play"; the BREAK hint, said upright, is the keys' own label)
+        howTo(touchPanel() ? (matchMedia('(orientation: landscape) and (max-height: 500px)').matches ? `${item.name}: tap a key to play` : `${item.name}: tap a key to play; tap BREAK for the menu`)
           : `${item.name}: press a key to start; BREAK (Esc) goes back to the menu`);
         if (withRoms) page.status(loaded(item.name));
       } else {

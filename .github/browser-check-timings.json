@@ -103,6 +103,7 @@
     "romOnce": 42.8,
     "romNotRom": 1.7,
     "toastOffScreen": 2.6,
+    "layoutBugs": 23.8,
     "connector": 69.3
   }
 }
