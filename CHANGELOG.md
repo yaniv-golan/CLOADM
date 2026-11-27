@@ -6,7 +6,78 @@ All notable changes to CLOADM are recorded here. The format follows
 
 ## [Unreleased]
 
-Next version: 0.4.0 (the plugin and extension manifests carry it; `tests/plugin.test.js` keeps them in step).
+Next version: 0.4.1 (the plugin and extension manifests carry it; `tests/plugin.test.js` keeps them in step).
+
+#### Changed
+
+- **A phone's Menu is one list, the same either way up.** Held upright (the dropdown under the app bar) and held
+  sideways (the panel's sheet) it lists the same rows in the same order, in four groups parted by a thin rule:
+  Programs…, Open…, Ask Claude…, Share…; Machine…, Tape, disks and cartridge…, Power…, Add ROMs…, Settings…; Take
+  snapshot, Restore snapshot…; Commands…, Library, Debugger, Help, Install CLOADM…, GitHub ↗, Hide keys. A row shows only
+  where what it opens is not already on screen (upright, Open…, Ask Claude… and the machine are the app bar's; the ports
+  and Power, with their state under them, only where the chips are not shown). Held sideways, Library, Debugger, Help,
+  the snapshots and GitHub are in Menu now, and the sheet is 260 px wide above Menu at the right. Claude features Off
+  hides Ask Claude… there (Commands… stays: the box works without its Claude rows). On a tablet with the touch keys the
+  app bar's links follow the same order, the snapshots after Settings…, and GitHub carries ↗. (`js/ui/menu.js`)
+
+- **Every program in Programs has the same two lines:** its name, and one short line saying what it is ("An ELIZA-style
+  chat program", "Find the ten mines", …), on every model and on the desktop's Media tab too. WYRMFIRE's licence and
+  credit line leave its row; they stay in its Details and on its card under the screen.
+
+- **The machine picker opens with the machine in use in the middle of the list,** its row filled, and the list never
+  starts on a row cut in half.
+
+- **`pokeBytes` and `injectAssembled` take the machine to write as a required argument.** Both are the
+  Node API (`docs/automation.md`), and both used to default to the machine on screen: with the chat full screen that
+  is the chat's machine, and a tool's bytes landing there would overwrite the chat firmware. Omitting the machine
+  now throws a `SessionError` and writes nothing.
+
+#### Fixed
+
+- **A phone's Menu no longer wraps into a second column** (GitHub sat top right on a 393x659 phone): one column, which
+  scrolls, its bottom fading while there is more below.
+
+- **Menu held sideways no longer cuts a row through its text** (653x280: the fifth row was sliced, with no fade): its
+  bottom edge falls between two rows, and it fades while it can scroll further.
+
+- **Menu held sideways stays where it is scrolled:** scrolled to its end, it was pulled back by a row (Hide keys out of
+  reach at 659x393) whenever the ports' or Power's state was written, even unchanged; it is refitted only when a row
+  comes or goes, and a refit keeps the scroll.
+
+- **Held sideways with the keys hidden, Menu is the same list too:** the ports and Power, with their state (there are no
+  chips), and Share… once, as a row (the bar's own Share showed beside it). Restore snapshot… from the panel's Menu gives
+  the focus back to it when its list closes.
+
+- **A toast interrupting WYRMFIRE's start no longer silences what it had left to say.** WYRMFIRE's start says what
+  happened in turn (that it switched machines, the keys to play, on a phone the turn-sideways hint); a toast raised by
+  something else replacing one of them dropped the rest. The chain now waits for the newer toast to be gone and then
+  carries on: every line is still said, in order, and never two at once.
+
+- **Switching machine with the "Ask Claude" panel open closes the panel.** A switch takes the chat with it (the
+  Session drops it), but the panel stayed drawn and open with no conversation behind it. The header button's own rule
+  is "it is open, so close it", so the next press closed that empty panel instead of opening a chat, and a second
+  press was needed. The panel now closes with the chat it was showing, as the full-screen chat already did.
+
+- **A refused store read no longer names the item twice.** When the storage backend refused a snapshot save, a
+  quick-save slot read or restore, or a NitrOS-9 boot, the message read like "mygame.dsk: `disks/mygame.dsk`:
+  permission was refused" — the name, then the stored path, then the reason. The same happened to the listing the
+  Library, the quick-save box and the DriveWire panel ask for. Each now hands the stored name to the one place that
+  decides how a store failure is worded, so the item is named once. A reason that names a *different* file still
+  keeps its path: where it failed is not the item being described.
+
+- **On a phone, a toast no longer takes a tap meant for a key on the on-screen pad.** A toast that came up while a
+  game's pad was opening could settle over the pad's own row, and the tap on → (or any key under it) went to the
+  toast instead of the machine, so the game never saw the key. The toast now keeps clear of the pad's keys, upright
+  as well as held sideways, and a place that would sit over one is never kept.
+
+- **On a phone, showing the on-screen keyboard after hiding it no longer leaves the page a fraction taller than the
+  window.** The screen's height is worked out from the panel's own box (how far the panel's foot and the chips reach past
+  the screen), and that length was only re-measured on the next animation frame, not by the code that shows or hides
+  the panel. For the one frame between the two, the screen kept the height of the layout before and the page stood
+  18 px taller than the window, so it could be scrolled by a hair. It is measured again in the task that changes the
+  layout, so there is no such frame.
+
+### 0.4.0
 
 #### Added
 
@@ -87,20 +158,6 @@ Next version: 0.4.0 (the plugin and extension manifests carry it; `tests/plugin.
 
 #### Changed
 
-- **A phone's Menu is one list, the same either way up.** Held upright (the dropdown under the app bar) and held
-  sideways (the panel's sheet) it lists the same rows in the same order, in four groups parted by a thin rule:
-  Programs…, Open…, Ask Claude…, Share…; Machine…, Tape, disks and cartridge…, Power…, Add ROMs…, Settings…; Take
-  snapshot, Restore snapshot…; Commands…, Library, Debugger, Help, Install CLOADM…, GitHub ↗, Hide keys. A row shows only
-  where what it opens is not already on screen (upright, Open…, Ask Claude… and the machine are the app bar's; the ports
-  and Power, with their state under them, only where the chips are not shown). Held sideways, Library, Debugger, Help,
-  the snapshots and GitHub are in Menu now, and the sheet is 260 px wide above Menu at the right. Claude features Off
-  hides Ask Claude… there (Commands… stays: the box works without its Claude rows). On a tablet with the touch keys the
-  app bar's links follow the same order, the snapshots after Settings…, and GitHub carries ↗. (`js/ui/menu.js`)
-- **Every program in Programs has the same two lines:** its name, and one short line saying what it is ("An ELIZA-style
-  chat program", "Find the ten mines", …), on every model and on the desktop's Media tab too. WYRMFIRE's licence and
-  credit line leave its row; they stay in its Details and on its card under the screen.
-- **The machine picker opens with the machine in use in the middle of the list,** its row filled, and the list never
-  starts on a row cut in half.
 - **The ROM requirement is said once**, by the Welcome menu's "3 ADD YOUR ROMS FOR BASIC". Elsewhere adding ROMs is a
   plain action: the app bar's button reads **Add ROMs…** (it was the orange "No BASIC · Add ROMs"), styled as Share and
   named "Add ROMs for BASIC" (its visible words in its name); a phone's Menu item reads **Add ROMs…** (it was "Add
@@ -140,27 +197,8 @@ Next version: 0.4.0 (the plugin and extension manifests carry it; `tests/plugin.
   without ROMs; yours are untouched". Only the page does this: the MCP `load` tool and the CLI's `--program` start the program on
   the machine as it is, as before.
 
-- **`pokeBytes` and `injectAssembled` take the machine to write as a required argument.** Both are the
-  Node API (`docs/automation.md`), and both used to default to the machine on screen: with the chat full screen that
-  is the chat's machine, and a tool's bytes landing there would overwrite the chat firmware. Omitting the machine
-  now throws a `SessionError` and writes nothing.
-
 #### Fixed
 
-- **A phone's Menu no longer wraps into a second column** (GitHub sat top right on a 393x659 phone): one column, which
-  scrolls, its bottom fading while there is more below.
-- **Menu held sideways no longer cuts a row through its text** (653x280: the fifth row was sliced, with no fade): its
-  bottom edge falls between two rows, and it fades while it can scroll further.
-- **Menu held sideways stays where it is scrolled:** scrolled to its end, it was pulled back by a row (Hide keys out of
-  reach at 659x393) whenever the ports' or Power's state was written, even unchanged; it is refitted only when a row
-  comes or goes, and a refit keeps the scroll.
-- **Held sideways with the keys hidden, Menu is the same list too:** the ports and Power, with their state (there are no
-  chips), and Share… once, as a row (the bar's own Share showed beside it). Restore snapshot… from the panel's Menu gives
-  the focus back to it when its list closes.
-- **A toast interrupting WYRMFIRE's start no longer silences what it had left to say.** WYRMFIRE's start says what
-  happened in turn (that it switched machines, the keys to play, on a phone the turn-sideways hint); a toast raised by
-  something else replacing one of them dropped the rest. The chain now waits for the newer toast to be gone and then
-  carries on: every line is still said, in order, and never two at once.
 - **Three layout slips.** On a phone held upright with no API key saved, Ask Claude's opening sentence ("Claude reads only
   this emulated Dragon 64 …") was hidden under the key form; the sheet now scrolls, the sentence first and the form under it.
   Held sideways, the "Tap for sound" chip lies inside the monitor's lower bezel, clear of the screen's green focus border
@@ -196,29 +234,6 @@ Next version: 0.4.0 (the plugin and extension manifests carry it; `tests/plugin.
   session beside the chat) and nothing would come out of it (`Session.switchLoses`; a key typed in an embed now counts
   too). With your work there, or a switch question already open, the question still asks first. (After a link opens, the address bar
   shows `/play/` on purpose: the fragment that held the moment, and a short link's key, is removed.)
-
-- **Switching machine with the "Ask Claude" panel open closes the panel.** A switch takes the chat with it (the
-  Session drops it), but the panel stayed drawn and open with no conversation behind it. The header button's own rule
-  is "it is open, so close it", so the next press closed that empty panel instead of opening a chat, and a second
-  press was needed. The panel now closes with the chat it was showing, as the full-screen chat already did.
-
-- **A refused store read no longer names the item twice.** When the storage backend refused a snapshot save, a
-  quick-save slot read or restore, or a NitrOS-9 boot, the message read like "mygame.dsk: `disks/mygame.dsk`:
-  permission was refused" — the name, then the stored path, then the reason. The same happened to the listing the
-  Library, the quick-save box and the DriveWire panel ask for. Each now hands the stored name to the one place that
-  decides how a store failure is worded, so the item is named once. A reason that names a *different* file still
-  keeps its path: where it failed is not the item being described.
-
-- **On a phone, a toast no longer takes a tap meant for a key on the on-screen pad.** A toast that came up while a
-  game's pad was opening could settle over the pad's own row, and the tap on → (or any key under it) went to the
-  toast instead of the machine, so the game never saw the key. The toast now keeps clear of the pad's keys, upright
-  as well as held sideways, and a place that would sit over one is never kept.
-- **On a phone, showing the on-screen keyboard after hiding it no longer leaves the page a fraction taller than the
-  window.** The screen's height is worked out from the panel's own box (how far the panel's foot and the chips reach past
-  the screen), and that length was only re-measured on the next animation frame, not by the code that shows or hides
-  the panel. For the one frame between the two, the screen kept the height of the layout before and the page stood
-  18 px taller than the window, so it could be scrolled by a hair. It is measured again in the task that changes the
-  layout, so there is no such frame.
 
 ### 0.3.1
 
