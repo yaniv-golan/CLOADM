@@ -252,12 +252,15 @@ These are hard rules for everyone who works on this ROM.
     printed: the original prints the bytes 1,89,199,220,238 as `5.00000001E-39` where our steps give `5E-39`, and
     no scaling of steps of 10^s from below 10^-t then by 10 gives that with `.333333333` and `rnd-seq`'s
     `.903043481` too, so a product at the smallest exponent may round as ours does not: `R=X*1E9` and `X*10`
-    stored and their five bytes read, for X of exponent byte 1, 2 and 3. Also recorded again, on an emulator whose PIA 1
-    PB0 is the printer's BUSY (ready, as CLOADM 0.4.1 has it; it read as the 6551's idle receive data, busy):
-    bb10 `stmt-printer` and bb6 `famous-pokes`, whose waits for a printer came from that (after 0.4.1 lands: every
-    round so far ran on an emulator before the fix, bb10 at `faa2087`, bb11 at `5a71788`). If the original then prints
-    to the printer after `POKE 111,254`, ours printing on the screen becomes a difference on a well-known POKE, to be
-    decided with its byte cost.
+    stored and their five bytes read, for X of exponent byte 1, 2 and 3. bb12 (2026-11-27) recorded these
+    (`rnd-seq`, `cas-echo-1` to `-4`, `snd-play-stop`, `num-small-mul`) with `time-loopb` and `cas-cload-clear`.
+    Open, for bb13 (on a checkout that holds CLOADM 0.4.1, `e96a115`): bb10 `stmt-printer` and bb6 `famous-pokes`
+    recorded again on an emulator whose PIA 1 PB0 is the printer's BUSY (ready, as 0.4.1 has it; it read as the
+    6551's idle receive data, busy, so their waits for a printer came from that: every round so far ran before the
+    fix, bb10 at `faa2087`, bb11 at `5a71788`). If the original then prints to the printer after `POKE 111,254`,
+    ours printing on the screen becomes a difference on a well-known POKE, to be decided with its byte cost. And
+    the echo: none of bb12's `cas-echo-1` to `-4` shows `A$="Z":GOTO 10` twice, so it hangs on something they lack
+    (in bb10 the line sat at rows 8-9 of a fuller screen): a probe to come.
     Replayed, the records match as before but for two: bb8 `cas-cloadm2` now matches whole, and bb2 `snd-sound`'s
     `SOUND 200,4` no longer does: it starts about 400 cycles later in its field (the two numbers' conversion waits), so
     its length, counted in fields, comes out a field longer and without the original's short first period (a phase,
@@ -613,7 +616,7 @@ node tools/basic-bb/compare.js real.jsonl ours.jsonl [--shots DIR]
 
 * **Input:** the case files (plain text, one line per typed line). Lines starting with `#` are directives or
   comments: `#type TEXT` (keys while a program runs, for `INPUT` and `INKEY$`; `\n` is ENTER), `#keys A+B` (matrix
-  keys held together: `SHIFT+LEFT`, `SHIFT+0`, `CLEAR`), `#break`, `#frames N`, `#wait-text REGEX`, `#timeout S`, `#expect-timeout` (from there on a wait that times out ends the case as its result: status `ok`, with `ended` giving the step), `#printer-ready` (from there on PIA1 PB0, the Dragon printer's BUSY input, reads 0, ready: Dragon Data, "Dragon 32 Information for Machine Code Users", March 1983, the `$FF22` entry; on the Dragon 64 that line is also the ACIA's receive data, idle high, so a printer otherwise looks busy; in the harness only),
+  keys held together: `SHIFT+LEFT`, `SHIFT+0`, `CLEAR`), `#break`, `#frames N`, `#wait-text REGEX`, `#timeout S`, `#expect-timeout` (from there on a wait that times out ends the case as its result: status `ok`, with `ended` giving the step), `#printer-ready` (from there on PIA1 PB0, the Dragon printer's BUSY input, reads 0, ready: Dragon Data, "Dragon 32 Information for Machine Code Users", March 1983, the `$FF22` entry; in the harness only. Since CLOADM 0.4.1 the emulated printer is always ready, so it changes nothing; before, the Dragon 64 read that line as the ACIA's idle receive data, busy. bb11 `stmt-printer2`, recorded before 0.4.1, uses it),
   `#nowait` (the next line is not waited for with OK), `#screenshot NAME` (the picture as it is now: a PNG and the SHA-256 of its pixels, which `compare.js` compares, writing both PNGs of a differing one with `--shots DIR`; for graphics, P2; composite colour is off, so the pixels are the VDG's own colours); `# bb-only` marks a probe that only the black-box run uses. A case marked `# local-only` (one whose output on the original holds ROM text, such as the message `CLS` past 8 prints) is never written to a results file: `run.js` runs it only with `--local` and prints its shape (the lines typed, `OK`, blank lines and error codes as they are; any other line as `<text N>`), which the maintainer reports by hand. Nothing of the boot screen is ever recorded (a ROM's banner is ROM text): before a case or a corpus program starts, the harness blanks the text screen's memory from outside, types `CLS`, and requires the screen to hold only the `OK` prompt; otherwise the run stops as `no-clean-start` with nothing recorded (`Basic.cleanStart`). A typed line is judged by what follows it (OK back, the screen settled), never by whether the typist saw every key taken: a BASIC that stops reading the keyboard once it runs the line (PLAY sounding, CLOAD) leaves the typist at `not-consumed`, which is only noted in the result (`typist`). A line of which the machine took no key at all ends the case as `stalled` at that line: the machine had stopped reading the keyboard before it, and a still screen would otherwise pass every wait after it. A screen cleared while recording (a frame that leaves at most one row with text after one with two or more: `CLS`, or a cassette operation clearing the screen for its own display) is kept: the screen as it was just before goes into the result's `clears`, which `compare.js` compares when both records have the field. `run.js` ends with how many cases are results, naming any that stopped (`timeout` or `stalled`, with the step).
   For sound and joysticks (P2): `#wav NAME` ... `#wav-stop` records the sound between them as **measures only**
   (below), and `#joy N V` sets joystick axis N (`JOYSTK`'s numbering: 0 right x, 1 right y, 2 left x, 3 left y) to V

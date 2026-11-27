@@ -337,9 +337,9 @@ class Basic {
 //                   status ok and ended { at, as: 'timeout' } (the original ignoring BREAK in a search, say)
 //   #printer-ready  from here on the Dragon's printer says it is ready: PIA1 port B bit 0, the printer's BUSY input
 //                   (high = busy; Dragon Data, "Dragon 32 Information for Machine Code Users", March 1983, the $FF22
-//                   entry; 6809.org.uk "Dragon hardware details", PIA1 B), reads 0. On the Dragon 64 the same line is the
-//                   ACIA's receive data, idle high, so without this a printer looks busy. The harness only: the machine's
-//                   model of the port is unchanged.
+//                   entry; 6809.org.uk "Dragon hardware details", PIA1 B), reads 0. Since CLOADM 0.4.1 the machine's
+//                   printer is always ready, so this changes nothing (before, the Dragon 64 read that line as the
+//                   ACIA's idle receive data, busy); bb11 stmt-printer2, recorded before 0.4.1, uses it.
 //   #nowait         the next line is not waited for with OK, only until the screen settles
 //   #screenshot NAME  record the picture as it is now (for graphics: the result's shots, each with a PNG and the
 //                   SHA-256 of its pixels, which tools/basic-bb/compare.js compares)
