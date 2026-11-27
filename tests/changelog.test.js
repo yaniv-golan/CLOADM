@@ -133,8 +133,8 @@ const git = (...args) => cp.execFileSync('git', args, { cwd: root, encoding: 'ut
   }
 
   // A fenced code block ("```" or "~~~") under [Unreleased] is an error, not an example to skip: every rule that
-  // keeps this section honest reads structure line by line, and the fence skip needed three review rounds of fixes
-  // that each still left a way for a quoted heading to hide a real duplicate or end the region early. So the guard
+  // keeps this section honest reads structure line by line, and the fence skip this replaces kept needing fixes that
+  // each left a way for a quoted heading to hide a real duplicate or end the region early. So the guard
   // reads no fences at all -- the section may not carry one, and the docs or prose describe the shape instead.
   {
     const un = (lines) => ['# Changelog', '', '## [Unreleased]', '', ...lines, '', '### 0.4.0', '', '#### Fixed', ''].join('\n');

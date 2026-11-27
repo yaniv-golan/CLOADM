@@ -113,8 +113,8 @@ function unreleasedRegion(lines) {
 
 // A fenced code block ("```" or "~~~") anywhere under [Unreleased] is an error: a fence shows an example, and every
 // rule that keeps this section honest reads structure line by line -- an example quoting a "#### Fixed" twice, a
-// "### 0.4.0" heading or a "## [Unreleased]" line would be read as real structure, and three review rounds of fence
-// parsing each found a new way for the skip to hide a real duplicate or end the region early. So the section carries
+// "### 0.4.0" heading or a "## [Unreleased]" line would be read as real structure, and the fence skip this replaces
+// kept needing fixes that each left a new way for one to hide a real duplicate or end the region early. So the section carries
 // no fences at all: describe the shape in prose, or link to the docs that show it. Every line that opens or closes
 // a fence is reported by its line number, so a fence of two lines names both. The rule reads a fence line however
 // CommonMark would (the up-to-three spaces of indent, the closing "\r" of a Windows-saved file), so a fence that
