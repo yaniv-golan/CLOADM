@@ -105,19 +105,59 @@ check('LINBUF at $02DD, CRNBUF at $02DC', sym('LINBUF') === 0x2DD && sym('CRNBUF
   check('a reply to INPUT at 733, as on the original', t.includes(' 733 DONE'), JSON.stringify(t.slice(-3)));
 }
 
+const REAL8 = { FOR: 113, ADD: 205, MUL: 224, DIV: 177, STR: 174, GOSUB: 83, IF: 516, MID: 137 };
 // ---- as fast as the original and never faster (loops time games): ram-pointers2 itself, the whole case as the
 // original ran it (what comes before its timing program counts: CLEAR 300 leaves the string loops more room, and a
 // GOSUB's time depends on how many lines come before its target), against the original's counts
 // (2026-11-26, docs/clean-room-basic.md section 2; each loop started just after a field begins): each of ours is
 // the original's count or up to two fields more ----
 {
-  const REAL = { FOR: 113, ADD: 205, MUL: 224, DIV: 177, STR: 174, GOSUB: 83, IF: 516, MID: 137 };
+  const REAL = REAL8;
   const r = run(caseText('ram-pointers2'));
   const t = lines(r).join(' ');
   check('ram-pointers2 runs to its end', r.status === 'ok', r.status);
   for (const [name, real] of Object.entries(REAL)) {
     const all = [...t.matchAll(new RegExp(`\\b${name} (\\d+)`, 'g'))], got = all.length ? +all[all.length - 1][1] : NaN; // (the last: the result lines, after the program's own text)
     check(`${name}: the original's ${real} fields, or up to 2 more, never fewer (ram-pointers2)`, got >= real && got <= real + 2, `${got}`);
+  }
+}
+
+// ---- bb8 cas-cloadm2's two PEEK loops: never faster than the original, and at most 1% slower [BB 2026-11-26] ----
+// The case as typed, against the original's record. Loop A (`FOR I=0 TO 1022:P=PEEK(I AND 32767):IF P=112 OR
+// P=114 ...`, RUN after each CLOADM "MCX"): from the S a CLOADM shows on the top row (its search) to the screen the
+// next CLOADM clears, which holds the load, loop A's 1023 passes, a six-pass PEEK loop and lines typed. Loop B (`S=0:FOR
+// I=0 TO 599:S=S+PEEK(28928+I AND 32767):NEXT`): from BIGMC's last block (its last top-row flag) to the case's end,
+// which holds loop B's 600 passes, NEW, three lines and RUN (a CLOADM and a SKIPF whose motor runs match the
+// original's). The typist is paced alike on both, so these spans differ by what the machine runs; without FIN's
+// wait for each digit (FIDLY: a digit that is not 0, before the point, after one that was not) ours took 326 fields
+// less in each of A's spans and 186 less in B's.
+{
+  const want = real('bb8-real.jsonl', 'cas-cloadm2'), text = caseText('cas-cloadm2');
+  const spans = (r) => {
+    const s = r.flags.filter((f) => f.row === 's').map((f) => f.frame), c = r.clears.map((x) => x.frame);
+    return { A1: c[1] - s[0], A2: c[2] - s[1], B: r.frames - r.flags[r.flags.length - 1].frame };
+  };
+  const w = spans(want);
+  const judge = (rom) => { const r = runCase(rom, text); return r.status === 'ok' && r.clears && r.clears.length === 3 ? spans(r) : null; };
+  const within = (g) => g && Object.keys(w).every((k) => g[k] >= w[k] && g[k] <= w[k] * 1.01);
+  const g = judge(built.rom);
+  check('cas-cloadm2: loops A and B take the original\'s time or up to 1% more (fields)', within(g), JSON.stringify({ ours: g, original: w }));
+  const mutant = (from, to) => buildBasic({ edit: (f, t) => { if (f !== 'fpconv.inc') return t; if (!t.includes(from)) throw new Error(`mutant source not found: ${from}`); return t.replace(from, to); } }).rom;
+  for (const [what, from, to] of [
+    ['no wait for a digit', '        LDB     #FIDLY\nFPN1', '        LDB     #1\nFPN1'],
+    ['a wait a tenth shorter', '        LDB     #FIDLY\nFPN1', '        LDB     #FIDLY*9/10\nFPN1'],
+  ]) {
+    const m = judge(mutant(from, to));
+    check(`cas-cloadm2 mutant "${what}": outside the original's time .. +1%`, !within(m), JSON.stringify(m));
+  }
+  // which digits wait is pinned by ram-pointers2's loops: 1000 (IF) and 2.5 (ADD, MUL) would be far too slow
+  for (const [what, from, to] of [
+    ['the wait for a 0 too', 'FPNX10  TSTA\n        BEQ     FPN2\n', 'FPNX10  '],
+    ['the wait after the point too', '        TST     <FPDP\n        BNE     FPN2\n        LDB     #FIDLY', '        LDB     #FIDLY'],
+  ]) {
+    const t = lines(runCase(mutant(from, to), caseText('ram-pointers2'))).join(' ');
+    const slow = Object.entries(REAL8).filter(([k, v]) => { const all = [...t.matchAll(new RegExp(`\\b${k} (\\d+)`, 'g'))]; return !(all.length && +all[all.length - 1][1] <= v + 2); }).map(([k]) => k);
+    check(`ram-pointers2 mutant "${what}": a loop more than two fields slower than the original`, slow.length > 0, slow.join(','));
   }
 }
 

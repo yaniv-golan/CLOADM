@@ -233,6 +233,9 @@ EXO2    INCA
 * an optional point, an optional exponent E[+|-]digits; spaces between are skipped (CHRGET). The digits are
 * kept exactly (in FACM, as an integer) while they fit in 32 bits; the first that does not rounds, and later ones only count as places. Leaves the text pointer on the first character
 * after the number.
+FIDLY   EQU     135             ; a digit's delay (FPNX10), 5 cycles a step: ours would be faster than the original
+*                                 otherwise [BB bb8 cas-cloadm2, bb3 crunch-else: loops of PEEK(I AND 32767)
+*                                 with 112, 114, 131, 88 or 28928 took about 700 cycles more a digit on it]
 FIN     CLR     <FPDP
         CLR     <FPDROP
         CLRA
@@ -358,8 +361,18 @@ FIE10   LDA     <FPSGNI
         CLR     <FACSGN
 FIE11   JMP     <ZCHRGOT
 
-* FPNX10: FACM = FACM x 10 + A (32 bits), a byte at a time from the last, the carry on the stack
-FPNX10  LDX     #FACM+4
+* FPNX10: FACM = FACM x 10 + A (32 bits), a byte at a time from the last, the carry on the stack. A digit that is
+* not 0, before the point and after a digit that was not 0 (FACM's low 16 bits not 0), first waits (FIDLY)
+FPNX10  TSTA
+        BEQ     FPN2
+        LDX     <FACM+2
+        BEQ     FPN2
+        TST     <FPDP
+        BNE     FPN2
+        LDB     #FIDLY
+FPN1    DECB
+        BNE     FPN1
+FPN2    LDX     #FACM+4
         PSHS    A
 FPX1    LDA     ,-X
         LDB     #10

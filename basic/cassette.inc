@@ -23,18 +23,31 @@ CLNDLY  EQU     130             ; a text line going in: the original's time a li
 *                                 never fewer, [BB bb8 cas-multi: the motor's stops between LONG's blocks])
 CTDLY   EQU     36              ; a character to the tape: about 300 cycles more, the original's pace [BB bb4 cas-files,
 *                                 cas-save-load csave-a, bb8 cas-data2: the motor's stop between namefile and data]
+MOTDLY  EQU     55245           ; MOTOR ON's wait for a motor that was off: about 24.9 fields (MOTOR)
 MOTONV  EQU     $3C             ; PIA 1 control register A: CA2 output high (motor on), or low
 MOTOFV  EQU     $34
 
-* MOTOR ON / MOTOR OFF [UM]
-MOTOR   LDB     #MOTONV
-        CMPA    #T_ON
+* MOTOR ON / MOTOR OFF [UM]. ON waits for a motor that was off, for MOTDLY [BB bb4 cas-motor-audio: MOTOR ON, an
+* empty FOR of 500 passes and MOTOR OFF on one line make a run of 54.02 fields, an empty run of about 28.3]
+MOTOR   CMPA    #T_ON
         BEQ     MOT1
-        LDB     #MOTOFV
         CMPA    #T_OFF
         LBNE    SNERR
-MOT1    STB     PIA1CA
-        JMP     <ZCHRGET
+        JSR     CASOFF
+        BRA     MOT2
+MOT1    LDX     #MOTDLY
+        BSR     CMSTX
+        ANDCC   #$AF
+MOT2    JMP     <ZCHRGET
+* CMSTX: a motor that was off is started (CASON: interrupts off) and given time to get up to speed (X passes of 8
+* cycles), Z set; a motor already running, Z clear. Keeps B.
+CMSTX   LDA     PIA1CA
+        BITA    #8
+        BNE     CMS9
+        JSR     CASON
+CW0     LEAX    -1,X
+        BNE     CW0
+CMS9    RTS
 
 * ---------------- reading ----------------
 * CRBIT: one bit: the time from this rising edge of the input to the next, in loop passes; C set for a short
@@ -440,15 +453,11 @@ CWDL1   DECB
 * and end of file in one run 111.57 fields long, the decoder reading 2 $55 before the end of file].
 CWBLK   ORCC    #$50
         LDB     #1
-        LDA     PIA1CA
-        BITA    #8
-        BNE     CW2
-        JSR     CASON
         PSHS    X
         LDX     #CDELAY
-CW0     LEAX    -1,X
-        BNE     CW0
+        JSR     CMSTX
         PULS    X
+        BNE     CW2
         CLRB                    ; the leader: 256 $55 bytes [BB: the decoder reads 258 before an end-of-file block
 CW2     LDA     #$55            ; written after the motor started (bb4 cas-save-load, cas-files); the runs]
         BSR     CWBYTE

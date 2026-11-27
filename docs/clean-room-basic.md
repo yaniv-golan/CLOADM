@@ -146,6 +146,37 @@ These are hard rules for everyone who works on this ROM.
     whole period, where the original's lasts three; a phase, not a different behaviour). Left: a cheaper `BREAK` test between statements (not used for
     these loops: about 55 cycles a statement for 18 bytes, and every loop would then need a delay, or a longer
     one, to stay at the original's count).
+  * **Digits in a constant** ([BB] bb8 `cas-cloadm2`, bb3 `crunch-else`). Three PEEK loops ran far faster on ours
+    than on the original, none of their statements among the eight loops: `cas-cloadm2`'s `FOR I=0 TO
+    1022:P=PEEK(I AND 32767):IF P=112 OR P=114 THEN ...` (A: 1023 passes, run three times), its direct `S=0:FOR I=0
+    TO 599:S=S+PEEK(28928+I AND 32767):NEXT` (B: 600 passes) and `crunch-else`'s `FOR I=7000 TO 9000:IF PEEK(I AND
+    32767)=131 AND PEEK(I+1 AND 32767)=88 THEN ...` (C: 743 passes). The records' frames time them, the typist being
+    paced alike on both: for A, from the `S` a `CLOADM`'s search shows to the screen the next `CLOADM` clears (or from
+    the start, less the 63 or so fields every bb5-bb8 case starts later on the original); for B, from `BIGMC`'s last
+    top-row flag to the case's end; for C, the whole case less the 62 fields of every bb3 case. Ours was short by
+    324-326, 186 and 328 fields: about 5,630, 5,515 and 7,850 cycles a pass. (The `cloadm-big` tape summary does not
+    time B: its four runs are `CLOADM "MCX",512`'s and `CLOADM "BIGMC"`'s, so its third run's start times loop A.)
+    A pass of each has 8, 8 and 11 digits that are not 0, come before any point and follow a digit that was not 0
+    (`32767` and `28928` four each, `112`, `114` and `131` two, `88` one): 704, 689 and 714 cycles a digit, one cost
+    within 4% for all three. No mix of costs for `AND`, `OR`, `PEEK`, a relation, an addition or a false `IF`'s skip
+    fits them: B has no `IF`, no `OR` and no relation, yet is short by as much a digit as A and C, and an addition's
+    or an `IF`'s cost is already held by `X=I+2.5` and `IF I<1000`. The eight loops say which digits: a 0 waiting
+    would put `IF I<1000` 118 fields over, a digit after the point `X=I+2.5` and `X=I*2.5` 20, and first digits (`3`,
+    `2`, `1`) have no room. So `FPNX10` waits `FIDLY` (135 steps of 5 cycles; 699 cycles with its tests) before
+    such a digit; a first digit takes 13 cycles more, a 0 five, a digit after the point 22. A takes the original's
+    time or a field or two more (+1 and +2 fields on 1887 and 1874), B 6 fields more (1.1% of the loop), C within
+    two fields of the original's (bb3 cases start 61 to 63 fields later on it); `tests/basic-ram.test.js` checks A and B (at least
+    the original's span, at most 1% more). The tests' cycles were not taken from `IFDLY`, `ADDDLY` or `MULDLY`, so no
+    statement got faster: of the eight loops `X=I+2.5`, `X=I*2.5`, `X=I/3`, the `IF` loop and the `MID$` loop take
+    0.99, 0.99, 0.37, 2.31 and 0.44 fields more (206, 225, 177, 518, 139: each still within two of the original).
+    16 bytes (15,828). Open: bb8 `rnd-seq` reads `PEEK(J AND 32767)` 7,290 times and now takes about 194 fields
+    longer than on the original (it took 807 fewer), so either ours is slower than the original elsewhere in it (its
+    2,170 `STR$` of a byte each wait `FOIDLY`'s 5,000 cycles, fitted to `A$=STR$(I)`, where the string assignments
+    may be what the original spends them on) or a digit's cost is not one constant; and bb9's `rnd-long` (840,000
+    such digits) no longer finishes on ours within its `#timeout`: if the original's run finishes, the cost is
+    smaller in it. The batch that would decide: loops differing only in a constant (`X=1`, `X=11`, `X=10`, `X=111`,
+    `X=11111`, `X=1.1`, `X=11.1`), `X=PEEK(I)` against `X=I`, `X=I AND 1` against `X=I+1`, `A$=STR$(I)` against
+    `L=LEN(STR$(I))`, and loop B typed as a program line.
 * **Running it:** `m.setRoms({ basic: rom, basic64: null })` on a `dragon64` machine (Node), or
   `node tools/build-basic.js --out /tmp/d64_1.rom` then `node cli/cloadm.js --roms /tmp/d64_1.rom --type 'PRINT 2+2\n' --screen`.
 
@@ -749,6 +780,14 @@ the tape (so `TIMER` does not count then [OWN]). Every block read or written goe
   records. `CSAVE` writes the program
   from its start to the end link, `CSAVEM` memory from start to end inclusive, `CSAVE ,A` the `LIST` text (the
   character output is sent to the block buffer, written out when full, the motor stopped after each block).
+* **`MOTOR ON`** waits for a motor that was off before going on, as writing does: [BB] bb4 `cas-motor-audio`'s `MOTOR
+  ON:FOR I=1 TO 500:NEXT:MOTOR OFF` is a run of 54.02 fields, where the loop alone takes about 28.3, so the original
+  waits about 25 fields. Ours waits `MOTDLY` passes of 8 cycles (24.85 fields, in `CMSTX`, which `CWBLK` shares with its
+  `CDELAY` of 25.95 fields: that one was fitted, with the leader after it, to the write runs, so the two need not be
+  one), interrupts off as for the tape: 54.02 fields. A motor already running is not waited for [OWN]. bb8 `cas-left-open`'s `MOTOR ON:MOTOR OFF` (a file left
+  open by `?IO ERROR`) now takes about 2 fields longer on ours than on the original (it took 23 fewer). Open: whether
+  `TIMER` counts during the wait, and whether a second `MOTOR ON` waits (`TIMER=0:MOTOR ON:PRINT TIMER`, and the
+  loop above with `MOTOR ON:MOTOR ON`). 11 bytes (15,839, the code ending at `$BED1`).
 * **Data files** [UM for the statements; the forms without `#` from a magazine listing; [BB] bb4 `cas-files` for what
   they do; bb8 `cas-data2`, `cas-data-errors`]: `OPEN "O",#-1,"NAME"` writes a namefile (type 1, ASCII and gaps
   `$FF`) and stops the motor. It is built in the block buffer, only its name, type and flags set: its exec and load
