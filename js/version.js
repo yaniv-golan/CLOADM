@@ -8,6 +8,6 @@
  * its staged copy of this file (`node tools/version.js --stamp`), so the site at cloadm.dev names the exact commit
  * it serves; a copy served straight from the repository says "unstamped" instead.
  */
-export const VERSION = '0.4.1';
+export const VERSION = '0.4.2';
 export const COMMIT = '';
 export const versionStamp = (version = VERSION, commit = COMMIT) => `v${version} · ${commit ? commit.slice(0, 7) : 'unstamped'}`;

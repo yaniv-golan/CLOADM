@@ -6,7 +6,7 @@ All notable changes to CLOADM are recorded here. The format follows
 
 ## [Unreleased]
 
-Next version: 0.4.1 (the plugin and extension manifests carry it; `tests/plugin.test.js` keeps them in step).
+Next version: 0.4.2 (the plugin and extension manifests carry it; `tests/plugin.test.js` keeps them in step).
 
 ### 0.4.1
 
