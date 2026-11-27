@@ -8745,23 +8745,52 @@ async function commandsChecks(browser, site, check) {
     check('commands (desktop): the Ask panel\'s empty state says "Ctrl K: find a command or ask"', ask.emptyShown && ask.shown && ask.text === 'Ctrl K: find a command or ask', JSON.stringify(ask));
     await closeCtx(ctx);
   }
-  // tight mode hides the RAM size: the machine button's title and aria-label still name the machine and its RAM
-  // (at 1200, the one-row bar's narrowest, in a wide font spaced wider still: with five of its links in More ▾ the bar
-  // needs both to go tight; 2 px, since "Add ROMs…" is a plain button, narrower than the bold "No BASIC · Add ROMs" was)
+  // tight mode hides the RAM size: the machine button's title and aria-label still name the machine and its RAM. At
+  // 1200 (the one-row bar's narrowest) the bar's flexible spacer absorbs any slack -- that is its job -- so nothing about
+  // the WINDOW ever reaches tight; what reaches it is CONTENT that outgrows the bar, which is what .tight is for (a
+  // larger user font, a longer name or status). Here the content is product-sourced and idle-free: the status line names
+  // the tape in the deck, so a longer tape name lengthens it, and the machine is paused so the status is its words
+  // rather than the running dot (screen.js: dot-only while running, whatever the text). The name is stepped up one
+  // character at a time until the bar goes tight; that point must arrive, and loudly, or the rest of this check would
+  // assert nothing. Then the title/aria, unchanged; then the name is shortened again and tight must go.
+  // (A long load-error status is not used: it fades, so the state it creates does not last to be read.)
   {
     const { ctx, page } = await open({ viewport: { width: 1200, height: 720 } });
-    const read = () => page.evaluate(() => { const b = document.getElementById('machineBtn'), sp = document.getElementById('machineSpec');
+    const read = () => page.evaluate(() => { const b = document.getElementById('machineBtn'), sp = document.getElementById('machineSpec'),
+      bar = document.getElementById('appbar'), nav = bar.querySelector('nav'), st = document.getElementById('status');
+      const nr = nav.getBoundingClientRect(), br = bar.getBoundingClientRect();
       return { title: b.title, aria: b.getAttribute('aria-label'), want: `${document.getElementById('machineName').textContent} ${sp.textContent}`.trim(),
-        tight: document.getElementById('appbar').classList.contains('tight'), specShown: sp.getClientRects().length > 0 }; });
+        tight: bar.classList.contains('tight'), nostatus: bar.classList.contains('nostatus'), specShown: sp.getClientRects().length > 0,
+        // the app bar's own two conditions (js/ui/main.js fit()), read atomically with the class they decide
+        over: nr.right > br.right + 0.5, cut: st.scrollWidth > st.clientWidth + 0.5,
+        spacer: Math.round(bar.querySelector('.grow').getBoundingClientRect().width), status: st.textContent }; });
     const plain = await read();
-    await page.addStyleTag({ content: 'body, button, a, input, select { font-family: "DejaVu Sans", Verdana, sans-serif !important; letter-spacing: 2px !important; }' });
-    await waitFor(page, () => document.getElementById('appbar').classList.contains('tight'));
+    await page.click('#btnPause');   // held: the status shows its words (Paused, then the tape), not the dot
+    await waitFor(page, () => !document.getElementById('status').classList.contains('dot-only'), null, 5000);
+    // step the tape's name up until the bar goes tight, and keep what it took (a regression that makes tight
+    // unreachable throws here, with the last state, instead of timing out later with a misleading message)
+    let at = null, last = null;
+    for (let n = 4; n <= 48; n++) {
+      const name = `${'X'.repeat(n)}.CAS`;
+      await page.evaluate((nm) => window.emu.session.insertTape(nm, new Uint8Array(300).fill(0x55)), name);
+      await waitFor(page, () => !document.getElementById('status').classList.contains('dot-only'), null, 5000);
+      last = await read();
+      if (last.tight) { at = { n, name, ...last }; break; }
+    }
+    if (!at) throw new Error(`the app bar never went tight, up to a ${48}-character tape name (the last state: ${JSON.stringify(last)}); `
+      + '.tight guards content that outgrows the bar, and nothing here outgrew it.');
     const tight = await read();
     check('commands (app bar): the machine button\'s title and aria-label are "<name> <ram>K" (e.g. "Dragon 64 64K"), also in tight mode where the RAM size is hidden',
       plain.title === plain.want && plain.aria === plain.want && /\d+K$/.test(plain.want)
-      && tight.tight && !tight.specShown && tight.title === tight.want && tight.aria === tight.want, JSON.stringify({ plain, tight }));
+      && tight.tight && !tight.specShown && tight.title === tight.want && tight.aria === tight.want, JSON.stringify({ plain, at, tight }));
+    // the reverse: the tape shortened again, the bar is no longer tight (the class is fit()'s, applied and removed)
+    await page.evaluate(() => window.emu.session.insertTape('A.CAS', new Uint8Array(300).fill(0x55)));
+    const undone = await waitFor(page, () => !document.getElementById('appbar').classList.contains('tight'), null, 10000);
+    check('commands (app bar): a short name again takes tight off (the class follows the content both ways)',
+      undone && !(await read()).tight, JSON.stringify(await read()));
     await closeCtx(ctx);
   }
+
   {
     const { ctx, page } = await open({ viewport: { width: 1280, height: 720 } }, () => Object.defineProperty(navigator, 'platform', { get: () => 'MacIntel' }));
     const mac = await page.evaluate(() => [document.getElementById('navCommands').textContent.replace(/\s+/g, ' ').trim(), document.getElementById('askKbd').textContent, document.getElementById('askEmptyKbd').textContent]);
