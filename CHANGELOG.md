@@ -121,7 +121,7 @@ Next version: 0.4.1 (the plugin and extension manifests carry it; `tests/plugin.
   257, 232, 285, 83, 518 and 176). No result changed: expressions read each character once, division, addition,
   normalising and reading a number are shorter (a division about 2,600 cycles), and a whole number is printed from
   its own digits; where that made ours faster than the original, a counted delay brings it back. The ROM is 46
-  bytes larger (15,618). `tests/basic-ram.test.js` checks every loop: the original's count or up to two fields
+  bytes larger (15,618). `tests/basic-ram-loops.test.js` checks every loop: the original's count or up to two fields
   more, never fewer.
   The typed line and its crunched form are where the original keeps them (`$02DD`, and `$02DC` a byte behind,
   crunched over the typed line), from the black-box probe `ram-pointers2`: the text pointer in direct mode, a typed
@@ -183,7 +183,7 @@ Next version: 0.4.1 (the plugin and extension manifests carry it; `tests/plugin.
   `%+1.00E+09`). A number below the smallest is stored with the mantissa the original leaves (2.9E-39 as
   0,124,160,41,60, 1E-39 as 0,32,0,0,0). Still different: `LOG` near 1 and of a few other values, so `SQR` of
   some and whole powers (2^66), and the printing of one number with exponent byte 1
-  (`tests/basic-bb10-num.test.js`). The ROM is 6 bytes smaller (15,903).
+  (`tests/basic-bb10-num-trig.test.js`). The ROM is 6 bytes smaller (15,903).
   From the bb10 records (`tests/basic-bb10.test.js`): a block written after the motor starts now has the original's
   shape, a leader of 256 `$55`, a pause while the checksum is worked out, then the block's own `$55` and `$3C`, so the
   tape decoder reads the same leader counts as from the original's tapes (1, 2 or 258: the pause splits the leader
@@ -206,7 +206,7 @@ Next version: 0.4.1 (the plugin and extension manifests carry it; `tests/plugin.
   still (relations, normalising, shifting, finding a line), so none of it got slower than it had to; no result
   changed. Every loop of `time-literals`, `time-ops`, `time-mul`, `time-int`, `time-motor` and `rnd-timing`, the eight
   of `ram-pointers2`, `cas-cloadm2`'s spans and `snd-timer`'s typed loop now takes the original's count of fields or more, at most 7.4% more
-  (`RND(.5)`; most within 3%), where 36 of those 71 loops were faster before; `tests/basic-timing.test.js` checks the probes, with
+  (`RND(.5)`; most within 3%), where 36 of those 71 loops were faster before; `tests/basic-timing.test.js` and the `tests/basic-timing-*.test.js` beside it check the probes, with
   mutants of the model. The ROM is 171 bytes larger (16,102 with the numbers and cassette changes).
   A size pass that changes no instruction's timing takes 2 bytes (16,100; every screen and PIA write lands on the same
   cycle in all 104 black-box cases), and `tools/basic-size.js` now ends a routine at the next label or its module's end
