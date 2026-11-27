@@ -191,7 +191,7 @@ These are hard rules for everyone who works on this ROM.
     as the original's, `rnd-timing`); `RND(n)`'s product has f as its right operand. `FTRUNC` waits 19 cycles for each
     place it drops, `INTB1` x 19 for a number below 1; `QINT`, the conversion to an integer (`AND`, `OR`, `NOT`, an
     address, `GETBYT`, `STR$`), 17 cycles for each place under 16 bits (0 at once); `AND` waits `ANDDLY` (`OR` does
-    not). `MOTOR ON` turns the motor on with the interrupts left on and always waits (`MOTDLY`, 25.9 fields). Waits
+    not). `MOTOR ON` turns the motor on with the interrupts left on and always waits (`MOTDLY`, 25.6 fields). Waits
     the model made unnecessary are gone: `ADDDLY`, `IFDLY`, the 11 cycles before a quotient, `FIN`'s 29-cycle pad. Where
     that left ours faster than the original, ours was made faster still first, so no loop got slower than it had to
     (no result changed: the same bits, screens and records): a relation's -1 or 0 is loaded from a constant, `NORM`
@@ -1057,7 +1057,7 @@ the tape (so `TIMER` does not count then [OWN]). Every block read or written goe
   ON:FOR I=1 TO 500:NEXT:MOTOR OFF` is a run of 54.02 fields, where the loop alone takes about 28.3, so the original
   waits about 25 fields. Ours waits `MOTDLY` passes of 8 cycles (24.85 fields, in `CMSTX`, which `CWBLK` shares with its
   `CDELAY` of 25.95 fields: that one was fitted, with the leader after it, to the write runs, so the two need not be
-  one), interrupts off as for the tape: 54.02 fields. Then bb10 `time-motor` [BB]: `TIMER` counts through the wait (25 after it), a second `MOTOR ON` waits again (51), `MOTOR OFF` of a motor that is off takes nothing, and the motor runs 25.44 fields from `MOTOR ON` to `MOTOR OFF`. So `MOTOR ON` now turns the motor on itself, interrupts left on, and always waits `MOTDLY` (57,000 passes of 8 cycles, with the field interrupts 25.9 fields: `TIMER` 26 and 52, ten `MOTOR ON:MOTOR OFF` 259 fields against 254). Before, a motor already running was not waited for [OWN]. bb8 `cas-left-open`'s `MOTOR ON:MOTOR OFF` (a file left
+  one), interrupts off as for the tape: 54.02 fields. Then bb10 `time-motor` [BB]: `TIMER` counts through the wait (25 after it), a second `MOTOR ON` waits again (51), `MOTOR OFF` of a motor that is off takes nothing, and the motor runs 25.44 fields from `MOTOR ON` to `MOTOR OFF`. So `MOTOR ON` now turns the motor on itself, interrupts left on, and always waits `MOTDLY` (56,340 passes of 8 cycles, with the field interrupts 25.6 fields: `TIMER` 26 and 51, ten `MOTOR ON:MOTOR OFF` 256 fields against 254; the runs 25.60, 25.59, 51.11 and 25.52 fields against 25.45, 25.44, 50.72 and 25.31). That is the shortest wait at which neither record is faster on ours: at 57,000 every run was half a field long (each of the program's runs started about 0.5 field later than the one before it, 6.4 fields over 12), and below 56,320 bb4's line takes less than its 54.02 (ours 54.03). Before, a motor already running was not waited for [OWN]. bb8 `cas-left-open`'s `MOTOR ON:MOTOR OFF` (a file left
   open by `?IO ERROR`) took about 2 fields longer on ours than on the original (it took 23 fewer). 11 bytes (15,839, the
   code ending at `$BED1`), and 3 more for bb10's.
 * **Data files** [UM for the statements; the forms without `#` from a magazine listing; [BB] bb4 `cas-files` for what

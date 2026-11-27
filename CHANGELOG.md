@@ -223,6 +223,8 @@ Next version: 0.4.1 (the plugin and extension manifests carry it; `tests/plugin.
   characters, and a missing line or no number is `?UL ERROR`; in a program it ends the program with no `OK`. Ours
   matches the record exactly (`tests/basic-edit.test.js`). The other edit commands wait for the bb11 probes
   (`stmt-edit2`, `stmt-edit3`). The ROM is 206 bytes larger (16,329 with the published entry points; 20 bytes are left below the vectors).
+  `MOTOR ON` waits half a field less (25.6 fields), the shortest wait at which no recorded motor run is shorter than
+  the original's: ten `MOTOR ON:MOTOR OFF` take 256 fields against the original's 254 (259 before).
 
 ### 0.4.0
 
