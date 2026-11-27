@@ -547,9 +547,10 @@ for (const good of ['PCLEAR 1', 'PCLEAR 0', 'PCLEAR 9', 'PMODE 4,1', 'PMODE 0,4'
   const bl = saved ? saved.blocks : [];
   check('#tape-blank / #tape-blocks: the blocks CSAVE wrote: namefile, data, end of file, none bad', r.status === 'ok' && bl.map((k) => k.type).join() === '0,1,255' && bl.every((k) => k.ok) && saved.bad === 0, JSON.stringify(r.tapes));
   check('#tape-blocks: the namefile\'s fields', !!bl[0] && bl[0].name === 'PROG    ' && bl[0].fileType === 0 && bl[0].ascii === 0 && bl[0].gaps === 0 && bl[0].exec === 0 && bl[0].load === 0 && bl[0].length === 15);
-  // [BB bb4 cas-save-load] a whole leader after the motor starts (the namefile, the data block); the end of file,
-  // written with the motor running, after one $55 (2 with the data block's last)
-  check('#tape-blocks: leaders of at least 256 $55 bytes, then 2 before the end of file', bl.length === 3 && bl[0].leader >= 256 && bl[1].leader >= 256 && bl[2].leader === 2, JSON.stringify(bl.map((k) => k.leader)));
+  // [BB bb4 cas-save-load, its csave tape: 1, 2, 2] the decoder reads the leaders the original's tape gives: the
+  // namefile's and the data block's split off by the pause before a block of 10 bytes or more (1, then 2 with the $55
+  // before it), the end of file's 2 (docs/clean-room-basic.md section 12)
+  check('#tape-blocks: the leaders the decoder reads are the record\'s, 1, 2 and 2', bl.length === 3 && bl.map((k) => k.leader).join() === '1,2,2', JSON.stringify(bl.map((k) => k.leader)));
   // the data block's hash is that of the program in RAM, typed the same way into a fresh machine
   {
     const b = new Basic(built.rom);

@@ -62,9 +62,7 @@ FORLIM  RMB     5               ; (FOR pushes them as one: FORSTP must come just
 CNAME   RMB     8               ; the file name, padded with spaces
 CFTYP   RMB     1               ; the file type: 0 BASIC, 2 machine code
 CFASC   RMB     1               ; $FF: saved as text
-CFGAP   RMB     1               ; $FF: the motor stops between blocks
-CFEXEC  RMB     2               ; the exec address
-CFLOAD  RMB     2               ; the load address
+CFGAP   RMB     1               ; $FF: the motor stops between blocks (the addresses: BLKBUF+11, CWHEAD)
 SYSR1   RMB     0               ; (at or below CASEFL)
         ORG     CASEFL+1
 FPT1    RMB     5               ; packed temporaries of the numeric functions (mathfn.inc; FPRUN finds FPTn as
@@ -114,7 +112,7 @@ DEVNUM  EQU     $006F           ; where output goes: 0 the screen, $FF the tape 
 WARMFL  EQU     $0071           ; $55 after a cold start: the reset button keeps the program
 CURPOS  EQU     $0088           ; the cursor's screen address (16 bits)
 BLINK   EQU     $008F           ; the cursor's blink countdown
-KEYDLY  EQU     $0097           ; the keyboard's debounce delay, in passes (16 bits)
+KEYDLY  EQU     $0097           ; the cursor's delay, in passes (16 bits): 1,118 at a cold start
 TXTPTR  EQU     $00A6           ; text pointer: the last character taken
 TRCFLG  EQU     $00AF           ; TRON: 79 on, 0 off
         ORG     $0000

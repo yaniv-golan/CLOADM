@@ -11,7 +11,7 @@ SNDL    EQU     0
 SNDU    EQU     4               ; SOUND's unit: 4 fields (0.08 s) [BB bb2 snd-sound d1-d20: 4d-1 to 4d fields]
 SNDP0   EQU     100             ; SOUND t's period: SNDP0 + SNDPK x (256 - t) cycles [BB bb2 snd-sound: 5,200 at t = 1,
 SNDPK   EQU     20              ;   4,220, 3,220, 2,220, 1,220, 120 at 50, 100, 150, 200, 255; exact]
-TOVH    EQU     56              ; the tone loop's cycles a period outside its delay loops (counted below)
+TOVH    EQU     68              ; the tone loop's cycles a period outside its delay loops (counted below)
 
 * AUDIO ON: the cassette input to the speaker (the multiplexer: CA2 high, CB2 low), sound on [UM; HW]; AUDIO OFF:
 * sound off, the multiplexer as it is [BB bb2 snd-audio: off with the multiplexer still on the cassette]
@@ -162,9 +162,11 @@ TN0     PSHS    A
         PSHS    D
         TFR     S,U
         LDY     #PIA1A
-* one period: 17 + 5 + 15 + 19 = 56 cycles, TOVH, besides the delay loops' passes. The interrupt is held off from
+* one period: 23 + 5 + 21 + 19 = 68 cycles, TOVH, besides the delay loops' passes. The interrupt is held off from
 * reading TIMER to the first level's write, so a field that ends the note never lengthens a period that is completed.
-TN1     LDA     4,U             ; 5  the first level
+TN1     LDA     #VMID           ; 2  the middle
+        STA     ,Y              ; 4
+        LDA     4,U             ; 5  the first level
         STA     ,Y              ; 4
         ANDCC   #$EF            ; 3
         LDX     ,U              ; 5
@@ -173,6 +175,8 @@ TN1A    LEAX    -1,X            ; 5
         LDB     6,U             ; 5
 TN1B    DECB                    ; 2  (j + 1 passes)
         BPL     TN1B            ; 3
+        LDA     #VMID           ; 2  the middle
+        STA     ,Y              ; 4
         LDA     5,U             ; 5  the second level
         STA     ,Y              ; 4
         LDX     2,U             ; 6

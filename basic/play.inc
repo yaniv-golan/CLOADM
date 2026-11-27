@@ -21,7 +21,8 @@ NAD1    EQU     11
 PLAYW   EQU     256             ; a whole note at tempo 1, in fields: a note lasts PLAYW / (L x T) fields, rounded down
 *                                 [BB bb2 snd-play-length: L1-L64 at T2, T1-T255 at L4, each n - 1 to n fields]
 PVDEF   EQU     58              ; the default volume: the levels 46 and 17 (V15 gives 46 and 16) [BB snd-play-volume]
-PPER    EQU     1000            ; a pause's period: its level written twice a period, the sound left on [OWN]
+PPER    EQU     3460            ; a pause's period: four writes of the middle level, the sound left on [BB bb2 snd-play-length
+*                                 pause4, pause8, pause16: a write every 865 cycles or so through the pause]
 
 * NTPER: octave 1's twelve notes, C first, as 4 x the period in cycles, NOTEP x 2^((9-k)/12) / 4 [OWN: equal
 * temperament; BB: with PYNOTE's grid it gives every measured period to the cycle], the ratio 2^((9-k)/12) x 65536
@@ -133,9 +134,7 @@ PYP     BSR     PBYTE
         BEQ     PFC
         CLRA
         LBSR    PLDUR
-        LBSR    PLEVS
-        TFR     B,A
-        TFR     D,U
+        LDU     #VMID*256+VMID
         LDD     #PPER
         JMP     TONE
 * PBYTE: a number 0-255 into B, Z set for 0 (?FC ERROR if there is none, or for a value out of range)
