@@ -52,6 +52,20 @@ const NEW = (name) => `The ROMs are recognised, but a cartridge is plugged in ($
   st = s.bootStatus();
   check('cartridge in: boot failed and the cause names the cartridge as the chip shows it', st.state === 'failed' && st.cause === NEW('Program Pak'), JSON.stringify(st));
 
+  // the ROM-less disk controller a mounted disk plugs in is not a cartridge the person chose: the old text
+  const d = new Emu.Session({ store: Emu.memoryStore() });
+  d.switchMachine('dragon64');
+  await d.library.importMedia('d64_1.rom', forgeCrcAt(fake(0x4000, 11), 0x2000, crcOf('basic')));
+  await d.library.importMedia('d64_2.rom', forgeCrcAt(fake(0x4000, 12), 0x2000, other));
+  await d.media.write('disks/m.vdk', Emu.blankDisk('vdk', 40, 1));
+  await d.drives.mount(0, 'disks/m.vdk');
+  const dm = d.shownMachine;
+  check('set-up: a disk is mounted with no disk ROM, so the bare controller is in the port', !!dm.cartPort && dm.cartPort === d.drives.bareController, dm.cartPort && dm.cartPort.name);
+  d.powerCycle();
+  frames(d, 300);
+  st = d.bootStatus();
+  check('bare disk controller in: boot failed and the cause keeps the old text', st.state === 'failed' && st.cause === OLD, JSON.stringify(st));
+
   console.log(fail ? `${fail} failed` : 'all passed');
   process.exitCode = fail ? 1 : 0;
 })().catch((err) => { console.log(`FAIL ${err.stack}`); process.exitCode = 1; });
